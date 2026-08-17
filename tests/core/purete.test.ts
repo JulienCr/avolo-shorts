@@ -80,6 +80,11 @@ const INTERDITS = [
   ["import { db } from '../server/db'", "l'alias contourné d'un cran"],
   ["import { p } from '../../server/steps/proxy'", 'et de deux'],
   ["import { B } from '../../components/ui/button'", ''],
+  // Chemins non normalisés : les deux désignent `src/server/db`, mais l'un
+  // commence par `@/core/` et l'autre par `./`, donc aucun des motifs de couche
+  // ne les voyait (Copilot).
+  ["import { db } from '@/core/../server/db'", 'la traversée cachée sous un préfixe permis'],
+  ["import { db } from './../server/db'", 'et sous un `./` de façade'],
   ["import type fsType from 'node:fs'", 'y compris en import de type'],
 ] as const
 
@@ -115,10 +120,28 @@ describe('la frontière de pureté de src/core', () => {
     ['WebSocket', "export const f = () => new WebSocket('wss://exemple.fr')"],
     ['window', 'export const f = () => window.innerWidth'],
     ['document', 'export const f = () => document.title'],
+    // Les portes dérobées : `no-restricted-globals` ne contrôle que
+    // l'identifiant nu, donc `globalThis.fetch` passait la liste entière.
+    ['globalThis.fetch', "export const f = () => globalThis.fetch('https://exemple.fr')"],
+    ['globalThis.process', 'export const f = () => globalThis.process.env.FFMPEG_BIN'],
   ])('refuse le global %s', async (_nom, code) => {
     const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-globals')
   })
+
+  // La frontière est déclarée par une liste d'extensions. `tsconfig.json`
+  // inclut les `.mts` et le dépôt en utilise un : un `src/core/x.mts` échappait
+  // entièrement aux règles (Copilot).
+  it.each(['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs'])(
+    "s'applique aussi aux fichiers .%s",
+    async (ext) => {
+      const rules = await erreurs(
+        "import fs from 'node:fs'\nexport const x = fs\n",
+        `src/core/sonde.${ext}`,
+      )
+      expect(rules).toContain('no-restricted-imports')
+    },
+  )
 
   // Les contrôles négatifs. Une frontière qui interdit tout passerait chacun
   // des tests ci-dessus tout en rendant le projet inécrivable : sans ce qui
@@ -139,6 +162,17 @@ describe('la frontière de pureté de src/core', () => {
         '\n',
       ),
       'src/core/captions/retime.ts',
+    )
+    expect(rules).toEqual([])
+  })
+
+  // `../../edl` contient bien la sous-chaîne `/../`, mais tous ses `..` sont en
+  // tête : c'est un chemin normalisé, et depuis `src/core/a/b/` il reste dans
+  // `src/core`. Le motif anti-traversée ne doit pas s'y tromper.
+  it('laisse passer une remontée profonde mais normalisée', async () => {
+    const rules = await erreursDePureté(
+      "import { clipDuration } from '../../edl'\nexport const x = clipDuration\n",
+      'src/core/captions/ass/rendu.ts',
     )
     expect(rules).toEqual([])
   })

@@ -28,6 +28,18 @@ const GLOBAUX_INTERDITS = [
   { name: "navigator", message: "src/core n'est pas de l'interface." },
   { name: "localStorage", message: "src/core ne stocke rien lui-même." },
   { name: "sessionStorage", message: "src/core ne stocke rien lui-même." },
+  // Les deux portes dérobées vers tout ce qui précède : `no-restricted-globals`
+  // ne contrôle que l'identifiant nu, donc `globalThis.fetch(...)` passait la
+  // liste entière. `src/core` étant du calcul, il n'a aucune raison de nommer
+  // l'objet global — l'interdire ferme la porte plutôt que de la surveiller.
+  {
+    name: "globalThis",
+    message: "src/core n'a rien à demander à l'objet global : passer la valeur en argument.",
+  },
+  {
+    name: "global",
+    message: "src/core n'a rien à demander à l'objet global : passer la valeur en argument.",
+  },
 ];
 
 const eslintConfig = defineConfig([
@@ -50,7 +62,10 @@ const eslintConfig = defineConfig([
   // `tests/core/purete.test.ts` vérifie tout ce qui suit, cas par cas, avec ses
   // contrôles négatifs. Modifier une règle ici sans y passer, c'est la défaire.
   {
-    files: ["src/core/**/*.ts", "src/core/**/*.tsx"],
+    // Toutes les extensions qu'ESLint sait lire, pas seulement `.ts`/`.tsx` :
+    // `tsconfig.json` inclut déjà les `.mts`, ce dépôt en utilise un pour
+    // Vitest, et un `src/core/x.mts` échappait donc entièrement à la frontière.
+    files: ["src/core/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -102,6 +117,20 @@ const eslintConfig = defineConfig([
               regex: "^(?:\\.\\./)+(server|app|components|hooks|lib|worker)(?:/|$)",
               message:
                 "src/core ne dépend d'aucun autre étage du projet, pas même par un chemin relatif.",
+            },
+            {
+              // Les chemins non normalisés, qui rendaient les deux motifs
+              // précédents contournables : ils lisent le spécificateur brut, pas
+              // la cible résolue. `@/core/../server/db` commence par `@/core/`
+              // et `./../server/db` ne commence pas par `../` — les deux
+              // désignent pourtant `src/server/db`.
+              //
+              // Le motif : un segment qui n'est pas `..`, suivi de `/..`. Un
+              // chemin normalisé porte tous ses `..` en tête, donc `../edl` et
+              // `../../edl` passent, tandis que `x/../` et `./../` échouent.
+              regex: "(^|/)(?!\\.\\.(?:/|$))[^/]+/\\.\\.(?:/|$)",
+              message:
+                "Chemin non normalisé : un `..` après un segment nommé masque la cible réelle. Écrire le chemin direct.",
             },
           ],
         },

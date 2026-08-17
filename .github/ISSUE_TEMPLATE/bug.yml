@@ -1,0 +1,73 @@
+name: Bug
+description: Quelque chose ne marche pas comme prévu
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Ce qui devait se passer
+    validations:
+      required: true
+
+  - type: textarea
+    id: constate
+    attributes:
+      label: Ce qui se passe
+      description: Le message d'erreur intégral s'il y en a un, pas un résumé.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Comment le reproduire
+      description: >
+        Les étapes, et surtout la source concernée : sa durée, son nombre de
+        personnes à l'image, si l'habillage est incrusté. Plusieurs bugs de
+        cadrage ne se voient que sur certains types de plan.
+      value: |
+        1.
+        2.
+        3.
+
+        Source :
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Périmètre
+      options:
+        - "ingest — source, proxy, sidecar, copie locale"
+        - "transcript — WhisperX, correction, sous-titres"
+        - "selection — candidats, délimitation, nettoyage"
+        - "framing — détection de personnes, ratio, crop"
+        - "render — ffmpeg, export, habillage, logo"
+        - "ui — interface de tri et de montage, API"
+        - "infra — CI, Docker, outillage, graphe d'étapes"
+        - "je ne sais pas"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gravite
+    attributes:
+      label: Gravité
+      options:
+        - "bloquant — la chaîne s'arrête, rien ne sort"
+        - "sérieux — ça sort, mais le résultat est inutilisable"
+        - "gênant — le résultat est utilisable après retouche"
+        - "cosmétique"
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexte
+    attributes:
+      label: Contexte machine
+      description: Ce qui est utile quand le GPU, ffmpeg ou un montage sont en cause.
+      value: |
+        - GPU utilisé :
+        - Le Drive des replays était monté :
+        - Étape du graphe concernée :

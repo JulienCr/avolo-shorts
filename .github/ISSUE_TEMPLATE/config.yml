@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: La conception du projet
+    url: https://github.com/JulienCr/avolo-shorts/blob/main/docs/superpowers/specs/2026-08-17-avolo-shorts-design.md
+    about: Avant d'ouvrir une issue de conception, vérifie que la question n'y est pas déjà tranchée — plusieurs décisions y sont adossées à des mesures.

@@ -1,0 +1,40 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# Python (worker)
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Secrets et configuration locale
+.env
+.env.local
+.env.*.local
+
+# Données produites par le pipeline. Un proxy pèse ~1,4 Go et un rendu ~80 Mo :
+# rien de tout cela n'a sa place dans l'historique.
+projects/
+stage/
+*.mp4
+*.mkv
+*.wav
+*.srt
+*.ass
+
+# Sidecars posés à côté des sources (ils vivent avec la vidéo, pas ici)
+*.avolo/
+
+# Marques de chaîne : les logos appartiennent à l'opérateur
+assets/brand/*
+!assets/brand/README.md
+
+# Divers
+.DS_Store
+*.log
+.claude/settings.local.json

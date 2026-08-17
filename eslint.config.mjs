@@ -28,6 +28,15 @@ const GLOBAUX_INTERDITS = [
   { name: "navigator", message: "src/core n'est pas de l'interface." },
   { name: "localStorage", message: "src/core ne stocke rien lui-même." },
   { name: "sessionStorage", message: "src/core ne stocke rien lui-même." },
+  // Des globaux de Node que la liste blanche des imports ne peut pas voir,
+  // puisqu'ils n'en passent par aucun. `Buffer` est un objet de plateforme ; une
+  // temporisation dans du calcul pur signale toujours que le code s'est trompé
+  // d'étage.
+  { name: "Buffer", message: "src/core manipule des données, pas des tampons Node." },
+  ...["setTimeout", "setInterval", "setImmediate", "queueMicrotask"].map((name) => ({
+    name,
+    message: "src/core est du calcul : rien à y différer. L'ordonnancement vit dans src/server.",
+  })),
   // Les trois portes dérobées vers tout ce qui précède : `no-restricted-globals`
   // ne contrôle que l'identifiant nu, donc `globalThis.fetch(...)`,
   // `global.fetch(...)` et `self.fetch(...)` passaient la liste entière.
@@ -114,10 +123,14 @@ const eslintConfig = defineConfig([
               // et `./../server/db` ne commence pas par `../` — les deux
               // désignent pourtant `src/server/db`.
               //
-              // Le motif : un segment qui n'est pas `..`, suivi de `/..`. Un
-              // chemin normalisé porte tous ses `..` en tête, donc `../edl` et
-              // `../../edl` passent, tandis que `x/../` et `./../` échouent.
-              regex: "(^|/)(?!\\.\\.(?:/|$))[^/]+/\\.\\.(?:/|$)",
+              // Le motif : un segment qui n'est pas `..`, suivi de `/..`.
+              //
+              // `[^/]*` et non `[^/]+`, et `/+` et non `/` : le segment peut
+              // être **vide**. `@/core//../server/db` garde le préfixe autorisé,
+              // TypeScript normalise le double séparateur, et la cible est bien
+              // `src/server/db` — un `[^/]+` exigeait un segment nommé et
+              // laissait donc passer exactement cette forme.
+              regex: "(^|/)(?!\\.\\.(?:/|$))[^/]*/+\\.\\.(?:/|$)",
               message:
                 "Chemin non normalisé : un `..` après un segment nommé masque la cible réelle. Écrire le chemin direct.",
             },

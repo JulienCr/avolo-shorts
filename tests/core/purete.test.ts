@@ -90,6 +90,8 @@ const INTERDITS = [
   // ne les voyait (Copilot).
   ["import { db } from '@/core/../server/db'", 'la traversée cachée sous un préfixe permis'],
   ["import { db } from './../server/db'", 'et sous un `./` de façade'],
+  // Le segment vide : TypeScript normalise `//` et la cible reste `src/server`.
+  ["import { db } from '@/core//../server/db'", 'et sous un séparateur doublé'],
   ["import type fsType from 'node:fs'", 'y compris en import de type'],
 ] as const
 
@@ -138,6 +140,12 @@ describe('la frontière de pureté de src/core', () => {
     ['navigator', 'export const f = () => navigator.language'],
     ['localStorage', "export const f = () => localStorage.getItem('x')"],
     ['sessionStorage', "export const f = () => sessionStorage.getItem('x')"],
+    // Globaux de Node : aucun import ne les annonce (review automatique du dépôt).
+    ['Buffer', "export const f = () => Buffer.from('x')"],
+    ['setTimeout', 'export const f = () => setTimeout(() => {}, 10)'],
+    ['setInterval', 'export const f = () => setInterval(() => {}, 10)'],
+    ['setImmediate', 'export const f = () => setImmediate(() => {})'],
+    ['queueMicrotask', 'export const f = () => queueMicrotask(() => {})'],
     // Les portes dérobées : `no-restricted-globals` ne contrôle que
     // l'identifiant nu, donc `globalThis.fetch` passait la liste entière.
     ['globalThis.fetch', "export const f = () => globalThis.fetch('https://exemple.fr')"],

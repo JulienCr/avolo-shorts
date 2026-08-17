@@ -119,7 +119,53 @@ Hors périmètre :
 - le doublage, la traduction, les effets vidéo générés, les vignettes.
 - le multi-utilisateur, la facturation, tout ce qui relève d'un SaaS.
 
-## 4. Architecture
+## 4. Livraison : un squelette qui marche, puis de la qualité
+
+La priorité est d'avoir la chaîne complète en état de marche, interface comprise,
+avant d'améliorer quoi que ce soit. Une sortie moyenne mais entière apprend plus
+qu'un étage parfait qu'on ne peut pas encore regarder.
+
+### Itération 0, le squelette
+
+Ce qui doit fonctionner de bout en bout :
+
+- ingestion d'un fichier local et proxy ;
+- transcription WhisperX, écrite dans le sidecar ;
+- candidats : Gemini sur le transcript seul, le premier pourvoyeur et le plus
+  simple ;
+- interface : liste de candidats à garder ou écarter ; éditeur avec le transcript
+  comme surface, bornes déplaçables, suppression de passages ;
+- **ratio et position du crop choisis à la main**, par clip ;
+- rendu : concaténation des segments, crop selon le réglage, sous-titres karaoké
+  au format repris d'OpenShorts, logo ;
+- export MP4 et textes ;
+- API : créer un projet, lister les candidats, éditer un clip, exporter.
+
+Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0
+parce qu'elles conditionnent la vitesse d'itération :
+
+- **le sidecar du transcript**, sans lequel chaque essai recoûte 25 minutes de
+  transcription ;
+- **le saut d'étape si l'artefact existe**, version simplifiée du graphe (une
+  présence de fichier, pas encore une clé de validité).
+
+Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme
+réglage de dernier recours, et l'automatique ne fera que le préremplir.
+
+### Les itérations suivantes
+
+| Itération | Contenu |
+|---|---|
+| 1 | Cadrage automatique : détection de personnes et de plans, ratio au percentile 90, crop fixe par plan, coupes posées sur les frontières |
+| 2 | Qualité du repérage : les quatre autres pourvoyeurs, reclassement en vision |
+| 3 | Sous-titres : nettoyage déterministe des hésitations, correction par modèle local, personnalisation du style |
+| 4 | Automatisation : watcher sur le dossier de replays, webhook, graphe complet avec clés de validité |
+
+L'ordre suit le rapport entre ce que chaque étage change à l'écran et ce qu'il
+coûte à construire. Le cadrage arrive en premier parce que c'est là que se trouve
+la moitié du bénéfice visuel mesuré à la section 2.
+
+## 5. Architecture
 
 ### Deux horloges
 
@@ -177,12 +223,12 @@ Replay/
   2026-03-08-caro-mdlm.mp4
   2026-03-08-caro-mdlm.avolo/       le sidecar
       transcript.json               mots, segments, locuteurs (format WhisperX)
-      shots.json                    frontières de plans
       meta.json                     clés de validité, versions
 
 projects/2026-03-08-caro-mdlm/
   source.json          chemin vers l'original, jamais copié
-  proxy.mp4            640x360, keyframe toutes les 1 s, environ 700 Mo
+  proxy.mp4            960x540 à 30 fps, keyframe toutes les 1 s, environ 1,4 Go
+  shots.json           frontières de plans
   people.json          boîtes de personnes échantillonnées
   audio.json           musique, silences, événements
   candidates.json      les propositions, par passe
@@ -190,16 +236,29 @@ projects/2026-03-08-caro-mdlm/
   renders/             les MP4 produits
 ```
 
-Le transcript et les frontières de plans sont des propriétés du fichier vidéo,
-pas des paramètres d'un projet. Les poser à côté de la source les fait survivre à
-la suppression du projet, les rend réutilisables par d'autres outils et les fait
-suivre la vidéo si elle est déplacée. Le diariseur de `rythmo-impro` procède déjà
-ainsi (`2026-01-04-drag.cli.json` est posé à côté du `.mp4`), et un dossier plutôt
-que des fichiers en vrac évite de noyer le dossier de replays.
+Le transcript est une propriété du fichier vidéo, pas un paramètre de projet. Le
+poser à côté de la source le fait survivre à la suppression du projet, le rend
+réutilisable par d'autres outils et le fait suivre la vidéo si elle est déplacée.
+Le diariseur de `rythmo-impro` procède déjà ainsi (`2026-01-04-drag.cli.json` est
+posé à côté du `.mp4`), et un dossier plutôt que des fichiers en vrac évite de
+noyer le dossier de replays.
 
-Le proxy reste dans le projet : 700 Mo par émission n'ont rien à faire sur un
+Le proxy reste dans le projet : 1,4 Go par émission n'ont rien à faire sur un
 Drive partagé. `people.json` aussi, parce qu'il dépend du détecteur et du taux
 d'échantillonnage.
+
+`shots.json` reste également dans le projet, alors qu'un changement de plan est
+un fait de la vidéo. La raison est pratique et l'emporte : le seuil de détection
+demandera des réglages, et ce qui se règle doit vivre là où on le règle.
+
+**Le proxy est en 960x540 plutôt qu'en 640x360.** Un sujet occupant 6 % de la
+largeur ne fait que 38 px sur un proxy 640, ce qui est mince pour YOLO ; à 960 il
+en fait 58. Le poids double, ce qui reste sans conséquence sur un disque local.
+
+**Le proxy est en 30 fps quelle que soit la source.** Les vingt émissions
+existantes sont en 60 fps, décimées en 2:1, ce qui est exact et sans saccade. Les
+tournages à venir passeront en 30 fps : le 60 double le coût de décodage à chaque
+étape et la taille des fichiers, sans rien apporter à un vertical compressé.
 
 **Repli** : si le dossier source est en lecture seule, le sidecar va dans le
 projet et l'interface le signale. Pas d'échec, seulement moins de réutilisation.
@@ -278,11 +337,11 @@ reste.
 Dépôt neuf, pas un module de `rythmo-impro`, qui est un système de doublage live.
 La parenté s'arrête au diariseur.
 
-## 5. Le pipeline d'analyse
+## 6. Le pipeline d'analyse
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 640x360, keyframe 1 s | ffmpeg NVDEC/NVENC | 5 à 10 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg NVDEC/NVENC | 5 à 10 min |
 | Extraction audio | ffmpeg | 1 min |
 | Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
@@ -295,7 +354,7 @@ La musique de fond gêne Whisper. La suppression de voix MDX23C du diariseur
 existant corrige cela mais coûte cher, donc elle ne se déclenche que sur les
 passages détectés comme musicaux.
 
-## 6. Le repérage des candidats
+## 7. Le repérage des candidats
 
 Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
 improvisation sans public. La réponse n'est donc pas un meilleur juge mais
@@ -329,7 +388,7 @@ envoie douze images de chacune des quarante régions, soit environ 120 000 token
 pour un classement qui a vu le jeu. C'est le seul étage de la chaîne qui juge
 autre chose que du texte. Les 25 à 30 premières sont présentées.
 
-## 7. Délimiter et nettoyer
+## 8. Délimiter et nettoyer
 
 ### Délimitation
 
@@ -360,7 +419,7 @@ la boucle, le second non.
 Chaque borne de coupe cherche d'abord une frontière de plan dans une fenêtre de
 tolérance. À défaut, jump cut assumé.
 
-## 8. Les sous-titres
+## 9. Les sous-titres
 
 ### Le format
 
@@ -436,7 +495,7 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
   tiennent pas ensemble sur 24 Go. La correction s'exécute après que la
   transcription a rendu le GPU, jamais en parallèle.
 
-## 9. Le cadrage
+## 10. Le cadrage
 
 **Le ratio est choisi une fois par clip.** Pour chaque image des segments retenus,
 on calcule la largeur nécessaire, on prend le **percentile 90** (pas le maximum,
@@ -461,7 +520,7 @@ cadre large et stable vaut mieux qu'un cadre serré qui vacille.
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
 tout crop pris à droite : on l'accepte.
 
-## 10. Le rendu
+## 11. Le rendu
 
 Depuis l'original, jamais depuis le proxy.
 
@@ -477,7 +536,7 @@ Deux fichiers par clip quand le ratio n'est pas 9:16 : le format natif (4:5 ou
 1:1) pour le feed Instagram et Facebook, et une variante 9:16 plein écran avec le
 contenu posé sur fond flouté pour TikTok et Shorts.
 
-## 11. L'API
+## 12. L'API
 
 ```
 POST   /api/projects              { source } -> 202 + projectId
@@ -516,7 +575,7 @@ OpenShorts :
   fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
   toute la bibliothèque en charabia.
 
-## 12. L'interface
+## 13. L'interface
 
 **Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
 premières phrases. Garder ou écarter d'un clic. Trier 25 candidats occupe plus de
@@ -534,7 +593,7 @@ timeline.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 
-## 13. Vérification
+## 14. Vérification
 
 Le CI d'OpenShorts n'a jamais tourné une seule fois, et tout ce qui vit dans son
 `main.py` est intestable parce que le module importe `torch` au chargement. D'où
@@ -570,7 +629,7 @@ subjective. Elle se juge à l'œil sur des sorties.
 Le CI doit tourner, contrairement à celui d'OpenShorts. Les tests purs n'ont
 besoin ni de GPU ni de ffmpeg, donc rien ne les en empêche.
 
-## 14. Ce qui est repris d'OpenShorts
+## 15. Ce qui est repris d'OpenShorts
 
 Portés en TypeScript, ce qui met toute la logique de décision du même côté et
 réduit le worker à « modèle vers JSON » :
@@ -586,7 +645,7 @@ Repris comme raisonnement et non comme code : la doctrine de placement de
 supérieur de la bande et non son centre, parce que la hauteur dépend du rapport
 d'aspect du logo, que l'opérateur choisit.
 
-## 15. Risques
+## 16. Risques
 
 **Le repérage des candidats peut décevoir.** C'est le pari central et rien n'a été
 mesuré. Les cinq sources et le tri humain amortissent le risque sans l'annuler.
@@ -600,9 +659,10 @@ acceptable pour juger, pas pour valider un rendu final.
 
 **La détection de personnes sur des plans très larges** reste à vérifier : YOLO
 tient mieux les profils que MediaPipe, mais des sujets à 6 % de la largeur
-d'image sur un proxy 640x360 font 38 px de large.
+d'image font 58 px de large sur le proxy 960x540 retenu, ce qui reste à
+confirmer sur du plan très large.
 
-## 16. Questions laissées ouvertes
+## 17. Questions laissées ouvertes
 
 - Le nom du projet.
 - Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche

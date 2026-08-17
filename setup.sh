@@ -46,9 +46,37 @@ bad() { printf '    \033[31mko\033[0m   %s\n' "$*" >&2; }
 # Elles vont ensemble. Un build qui a NVENC mais pas libass ne convient pas :
 # les sous-titres sont incrustés par le filtre `ass`, pas ajoutés en piste.
 
-has_nvenc() { "$1" -hide_banner -encoders 2>/dev/null | grep -q 'h264_nvenc'; }
-has_cuda()  { "$1" -hide_banner -hwaccels 2>/dev/null | grep -qE '^[[:space:]]*cuda[[:space:]]*$'; }
-has_ass()   { "$1" -hide_banner -filters  2>/dev/null | grep -qE '^[[:space:]]*[TSC.]{3}[[:space:]]+ass[[:space:]]'; }
+# Deux précautions dans ces trois fonctions, chacune payée d'un faux négatif :
+#
+#   - pas de `grep -q`. Il sort dès la première correspondance, ffmpeg prend un
+#     SIGPIPE en écrivant la suite de sa liste, et `set -o pipefail` transforme
+#     ça en échec. La capacité est là, la fonction répond non — et seulement une
+#     fois sur deux, selon qui gagne la course. On lit tout, on regarde après.
+#   - le nombre de colonnes de drapeaux n'est pas stable : le ffmpeg d'Ubuntu
+#     écrit « ... ass », le build BtbN « .. ass ». D'où `+` et non `{3}`.
+
+grep_output() {
+  # Isole le motif du bruit : renvoie les lignes trouvées, rien si aucune.
+  grep -E "$1" || true
+}
+
+has_nvenc() {
+  local hit
+  hit="$("$1" -hide_banner -encoders 2>/dev/null | grep_output '(^|[[:space:]])h264_nvenc([[:space:]]|$)')"
+  [ -n "$hit" ]
+}
+
+has_cuda() {
+  local hit
+  hit="$("$1" -hide_banner -hwaccels 2>/dev/null | grep_output '^[[:space:]]*cuda[[:space:]]*$')"
+  [ -n "$hit" ]
+}
+
+has_ass() {
+  local hit
+  hit="$("$1" -hide_banner -filters 2>/dev/null | grep_output '^[[:space:]]*[TSC.]+[[:space:]]+ass[[:space:]]')"
+  [ -n "$hit" ]
+}
 
 lists_all_three() {
   local ff="$1"
@@ -110,7 +138,9 @@ say "Vérification"
 status=0
 
 if [ -x "$FFMPEG" ]; then
-  ok "binaire : $FFMPEG ($("$FFMPEG" -version | head -1 | cut -d' ' -f1-3))"
+  # `sed -n 1p` et non `head -1` : head sort tôt, et le SIGPIPE qui s'ensuit
+  # ferait échouer la substitution sous pipefail.
+  ok "binaire : $FFMPEG ($("$FFMPEG" -version 2>/dev/null | sed -n '1p' | cut -d' ' -f1-3))"
 else
   bad "binaire absent : $FFMPEG"
   exit 1

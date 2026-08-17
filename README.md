@@ -22,9 +22,11 @@ processus, ni réseau, ni Next. C'est là que vit toute la logique de décision,
 c'est ce qui rend le CI utile sans GPU, sans ffmpeg et sans vidéo.
 
 La frontière n'est pas une intention, c'est une règle ESLint en `error` : depuis
-`src/core/`, seuls les fichiers voisins, `@/core/` et `zod` sont importables. Le
-reste — modules natifs, Next, React, SDK, stockage — fait échouer le lint, et les
-globaux qui contournent l'import (`fetch`, `process`) aussi.
+`src/core/`, seuls `./` (le dossier courant et ce qui est dessous), `@/core/` et
+`zod` sont importables. Le reste — modules natifs, Next, React, SDK, stockage —
+fait échouer le lint, et les globaux qui contournent l'import (`fetch`,
+`process`, `globalThis`) aussi. Pas de `../` non plus : un fichier de
+`src/core/captions/` atteint `edl.ts` par `@/core/edl`.
 `tests/core/purete.test.ts` vérifie la règle elle-même, contrôles négatifs
 compris.
 

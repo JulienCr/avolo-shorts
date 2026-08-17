@@ -80,6 +80,11 @@ const INTERDITS = [
   ["import { db } from '../server/db'", "l'alias contourné d'un cran"],
   ["import { p } from '../../server/steps/proxy'", 'et de deux'],
   ["import { B } from '../../components/ui/button'", ''],
+  // `../` est refusé sans exception. Une liste de dossiers interdits après
+  // `../` laissait passer tout ce qu'elle ne nommait pas, dont celui-ci — qui
+  // sort pourtant de `src/core` (Copilot).
+  ["import pkg from '../../package.json'", "ce qu'aucune liste de dossiers ne nommait"],
+  ["import { x } from '../edl'", 'y compris une remontée qui reste dans src/core'],
   // Chemins non normalisés : les deux désignent `src/server/db`, mais l'un
   // commence par `@/core/` et l'autre par `./`, donc aucun des motifs de couche
   // ne les voyait (Copilot).
@@ -118,14 +123,20 @@ describe('la frontière de pureté de src/core', () => {
     ['fetch', "export const f = () => fetch('https://exemple.fr')"],
     ['XMLHttpRequest', 'export const f = () => new XMLHttpRequest()'],
     ['WebSocket', "export const f = () => new WebSocket('wss://exemple.fr')"],
+    ['EventSource', "export const f = () => new EventSource('https://exemple.fr')"],
     ['window', 'export const f = () => window.innerWidth'],
     ['document', 'export const f = () => document.title'],
+    ['navigator', 'export const f = () => navigator.language'],
+    ['localStorage', "export const f = () => localStorage.getItem('x')"],
+    ['sessionStorage', "export const f = () => sessionStorage.getItem('x')"],
     // Les portes dérobées : `no-restricted-globals` ne contrôle que
     // l'identifiant nu, donc `globalThis.fetch` passait la liste entière.
     ['globalThis.fetch', "export const f = () => globalThis.fetch('https://exemple.fr')"],
     ['globalThis.process', 'export const f = () => globalThis.process.env.FFMPEG_BIN'],
     ['global.fetch', "export const f = () => global.fetch('https://exemple.fr')"],
     ['self.fetch', "export const f = () => self.fetch('https://exemple.fr')"],
+    // La table couvre une entrée par nom de `GLOBAUX_INTERDITS` : sans quoi le
+    // retrait accidentel de l'un d'eux ne ferait échouer aucun test (Copilot).
   ])('refuse le global %s', async (_nom, code) => {
     const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-globals')
@@ -134,7 +145,7 @@ describe('la frontière de pureté de src/core', () => {
   // La frontière est déclarée par une liste d'extensions. `tsconfig.json`
   // inclut les `.mts` et le dépôt en utilise un : un `src/core/x.mts` échappait
   // entièrement aux règles (Copilot).
-  it.each(['ts', 'tsx', 'mts', 'cts', 'js', 'mjs', 'cjs'])(
+  it.each(['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'])(
     "s'applique aussi aux fichiers .%s",
     async (ext) => {
       const rules = await erreurs(
@@ -156,30 +167,27 @@ describe('la frontière de pureté de src/core', () => {
     expect(rules).toEqual([])
   })
 
-  // `captions/retime.ts` aura besoin de `../edl` : un `..` n'est pas en soi une
-  // sortie de `src/core`.
-  it('laisse passer ce qui reste à l’intérieur de src/core', async () => {
+  // La convention à l'intérieur de `src/core` : `./` pour un fichier du même
+  // dossier ou dessous, `@/core/...` pour tout le reste. C'est ce que la
+  // suppression pure et simple de `../` laisse comme chemin, et c'est
+  // suffisant — `captions/retime.ts` atteindra `edl.ts` par `@/core/edl`.
+  it('laisse passer un voisin du même dossier', async () => {
     const rules = await erreursDePureté(
-      ["import { normalizeSegments } from '../edl'", 'export const x = normalizeSegments'].join(
-        '\n',
-      ),
+      "import { splitIntoCards } from './cards'\nexport const x = splitIntoCards\n",
       'src/core/captions/retime.ts',
     )
     expect(rules).toEqual([])
   })
 
-  // `../../edl` contient bien la sous-chaîne `/../`, mais tous ses `..` sont en
-  // tête : c'est un chemin normalisé, et depuis `src/core/a/b/` il reste dans
-  // `src/core`. Le motif anti-traversée ne doit pas s'y tromper.
-  it('laisse passer une remontée profonde mais normalisée', async () => {
+  it('laisse passer un sous-dossier', async () => {
     const rules = await erreursDePureté(
-      "import { clipDuration } from '../../edl'\nexport const x = clipDuration\n",
-      'src/core/captions/ass/rendu.ts',
+      "import { renderAss } from './captions/ass'\nexport const x = renderAss\n",
+      'src/core/index.ts',
     )
     expect(rules).toEqual([])
   })
 
-  it('laisse passer @/core, le seul alias qui reste accessible', async () => {
+  it('laisse passer @/core, le chemin de toute traversée interne', async () => {
     const rules = await erreursDePureté(
       "import { clipDuration } from '@/core/edl'\nexport const x = clipDuration\n",
       'src/core/captions/retime.ts',

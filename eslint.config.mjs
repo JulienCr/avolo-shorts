@@ -89,31 +89,23 @@ const eslintConfig = defineConfig([
               // installés, tous adossés à React. La liste aurait par ailleurs
               // repérimé à chaque dépendance ajoutée.
               //
-              // Retourné : `src/core` n'importe que ses voisins, `@/core/` et
-              // `zod`. Tout le reste échoue, y compris ce qui n'existe pas
-              // encore. Ouvrir une exception se fait ici, en une ligne, et
-              // c'est très bien : cela doit être une décision, pas un réflexe.
-              regex: "^(?!\\.{1,2}/|@/core/|zod(?:/|$))",
-              message:
-                "src/core n'importe que du TypeScript pur : ses voisins, @/core/ et zod. Next, React, les SDK, l'UI et le stockage vivent dans src/server ou src/components.",
-            },
-            {
-              // Par le chemin relatif, qui désigne les mêmes fichiers. Un motif
-              // en `@/server/*` seul ne couvre que l'alias : `../server/db`
-              // passait la frontière sans un mot.
+              // Retourné : `src/core` n'importe que `./` — un fichier de son
+              // propre dossier ou dessous —, `@/core/` et `zod`. Tout le reste
+              // échoue, y compris ce qui n'existe pas encore. Ouvrir une
+              // exception se fait ici, en une ligne, et c'est très bien : cela
+              // doit être une décision, pas un réflexe.
               //
-              // Une regex plutôt qu'un glob en `**/server/**`, qui attraperait
-              // aussi les sous-chemins de vrais paquets — `zod/lib/types`,
-              // `firebase/app`. Ancrer sur une remontée `../` ne peut pas
-              // désigner node_modules.
-              //
-              // Ici la liste reste explicite, faute de mieux : la profondeur à
-              // laquelle un `../` quitte `src/core` dépend du fichier qui
-              // l'écrit, et une regex ne la connaît pas. `../edl` reste donc
-              // permis — `captions/retime.ts` en a besoin.
-              regex: "^(?:\\.\\./)+(server|app|components|hooks|lib|worker)(?:/|$)",
+              // **`../` est refusé sans exception**, et c'est le seul énoncé qui
+              // tienne tout seul. Une liste de dossiers interdits après `../`
+              // laissait passer tout ce qu'elle ne nommait pas — dont
+              // `../../package.json`, qui sort bel et bien de `src/core`. Et la
+              // profondeur à laquelle un `../` quitte `src/core` dépend du
+              // fichier qui l'écrit, donc aucune regex ne peut la deviner.
+              // D'où la convention : `./voisin` à l'intérieur d'un dossier,
+              // `@/core/...` pour tout le reste de `src/core`.
+              regex: "^(?!\\./|@/core/|zod(?:/|$))",
               message:
-                "src/core ne dépend d'aucun autre étage du projet, pas même par un chemin relatif.",
+                "src/core n'importe que ./ (son propre dossier), @/core/ et zod. Pas de `../` : utiliser @/core/. Next, React, les SDK, l'UI et le stockage vivent dans src/server.",
             },
             {
               // Les chemins non normalisés, qui rendaient les deux motifs

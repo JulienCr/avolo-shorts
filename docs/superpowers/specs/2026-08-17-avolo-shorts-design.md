@@ -335,6 +335,42 @@ API externe ┘         │
 Stockage : SQLite pour les projets et les clips, fichiers sur disque pour le
 reste.
 
+### Pas de Docker
+
+openshorts est entièrement conteneurisé. Ce projet ne l'est pas, et la décision
+s'appuie sur trois constats.
+
+**Julien a déjà abandonné Docker pour cette charge de travail.**
+`rythmo-impro/diarizer` tourne dans un venv : `run-wsl.sh` l'active, et exporte
+`LD_LIBRARY_PATH` vers le `nvidia/cudnn/lib` du venv, correctif classique de
+CTranslate2 et WhisperX. Le `CLAUDE.md` de ce dépôt porte encore les deux
+versions de l'histoire, « Python runs ONLY inside Docker » puis « Docker is no
+longer used » ; c'est la seconde qui décrit le code.
+
+**openshorts avait besoin de Docker parce qu'il s'installe chez des inconnus.**
+Reproduire cv2, torch, mediapipe, ultralytics, ffmpeg et whisper est un problème
+réel, et c'est celui que Docker résout. Ici : une machine, un utilisateur, un
+environnement déjà monté.
+
+**Conteneuriser réimporterait la fragilité des montages.** Le `CLAUDE.md`
+d'openshorts documente longuement ce que coûte un bind absent :
+`create_host_path: false` pour échouer bruyamment, un timer systemd et
+`ON_MOUNT_CMD` pour remonter les disques apparus après le boot, et le constat que
+`restart: unless-stopped` ne récupère pas d'une source manquante puisque Docker
+échoue à la **création** du conteneur. Un process natif lit `/mnt/j/...` sans
+rien de tout cela.
+
+`nvidia-container-toolkit` est installé et Docker expose bien le runtime
+`nvidia` : ce n'est pas une impossibilité technique, c'est un arbitrage.
+
+**Ce que ça coûte** : pas d'installation reproductible. La parade est un
+`setup.sh` et un `requirements.txt` épinglé, sur le modèle du `setup-wsl.sh`
+existant.
+
+**Ce que ça ne ferme pas** : la frontière de processus entre Node et le worker
+Python existe déjà. Le jour où ce projet doit tourner sur un serveur, c'est ce
+worker qu'on conteneurise, et rien d'autre ne bouge.
+
 Dépôt neuf, pas un module de `rythmo-impro`, qui est un système de doublage live.
 La parenté s'arrête au diariseur.
 

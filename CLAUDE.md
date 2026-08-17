@@ -51,7 +51,15 @@ tiennent dans un 1:1 ou plus serré, et ce chiffre est stable sur les trois.
 - **Sources vidéo** : 1920x1080, 60 fps aujourd'hui, 4,5 à 12,7 Go pièce. Les
   tournages à venir passeront en 30 fps.
 - Le diariseur de `~/dev/rythmo-impro/diarizer` (WhisperX large-v3 + pyannote)
-  existe déjà et fonctionne.
+  existe déjà et fonctionne. Il tourne **en venv, pas en Docker** : son
+  `run-wsl.sh` exporte `LD_LIBRARY_PATH` vers le `nvidia/cudnn/lib` du venv,
+  correctif indispensable à CTranslate2. Le `CLAUDE.md` de ce dépôt-là contient
+  encore une ligne périmée affirmant l'inverse.
+- **Pas de Docker ici.** Node natif, Python en venv, ffmpeg natif. Le
+  raisonnement est en section 5 de la spec : openshorts se conteneurise parce
+  qu'il s'installe chez des inconnus, ce projet tourne sur une machine dont
+  l'environnement est déjà monté, et conteneuriser réimporterait la fragilité des
+  binds sur le Drive.
 
 ## Livraison
 

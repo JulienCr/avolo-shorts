@@ -1,0 +1,93 @@
+name: Tâche
+description: Une évolution, un chantier, une amélioration
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: quoi
+    attributes:
+      label: Ce qu'il faut faire
+      description: Décris le résultat attendu, pas la solution technique.
+    validations:
+      required: true
+
+  - type: textarea
+    id: pourquoi
+    attributes:
+      label: Pourquoi
+      description: >
+        Ce que ça débloque ou répare. Si une mesure ou une observation le
+        motive, cite-la : c'est ce qui permettra d'arbitrer plus tard.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Périmètre
+      description: >
+        Le domaine principal, un seul. Si la tâche en touche vraiment deux à
+        parts égales, ajoute le second label à la main après création.
+      options:
+        - "ingest — source, proxy, sidecar, copie locale"
+        - "transcript — WhisperX, correction, sous-titres"
+        - "selection — candidats, délimitation, nettoyage"
+        - "framing — détection de personnes, ratio, crop"
+        - "render — ffmpeg, export, habillage, logo"
+        - "ui — interface de tri et de montage, API"
+        - "infra — CI, Docker, outillage, graphe d'étapes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Effort estimé
+      description: La taille de la réalisation, pas celle de la description.
+      options:
+        - "XS — environ 30 min"
+        - "S — environ une demi-journée"
+        - "M — un à deux jours"
+        - "L — plusieurs jours, plusieurs fichiers"
+        - "XL — chantier sur plusieurs PR"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: valeur
+    attributes:
+      label: Valeur
+      description: >
+        L'impact du point de vue de l'usage. Croisée avec l'effort, elle
+        détermine le label quick-win (valeur au moins moyenne et effort au plus S).
+      options:
+        - "haute — débloque ou répare un usage, gain de temps récurrent"
+        - "moyenne — amélioration notable de la qualité ou de l'efficacité"
+        - "basse — confort, cosmétique, propreté interne"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: iteration
+    attributes:
+      label: Itération visée
+      description: Voir la section 4 de la spec. Ne pas anticiper une itération ultérieure sous prétexte que c'est presque le même code.
+      options:
+        - "0 — le squelette de bout en bout"
+        - "1 — cadrage automatique"
+        - "2 — qualité du repérage"
+        - "3 — sous-titres"
+        - "4 — automatisation"
+        - "hors itérations"
+    validations:
+      required: true
+
+  - type: textarea
+    id: fini
+    attributes:
+      label: Comment on saura que c'est fini
+      description: >
+        Ce qu'on doit pouvoir observer. Une commande qui passe, un écran qui
+        affiche quelque chose, un test qui devient vert. Une tâche sans critère
+        de fin ne peut pas être fermée.
+    validations:
+      required: true

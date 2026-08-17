@@ -1,0 +1,93 @@
+name: Labels d'issue
+
+# Les formulaires d'issue ne posent que les labels statiques de leur frontmatter.
+# Les réponses aux listes déroulantes finissent en texte dans le corps de
+# l'issue, pas en labels — donc sans ce workflow, la taxonomie n'est appliquée
+# qu'à moitié et le tri par périmètre ou par effort ne marche pas.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  appliquer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || ''
+
+            // Les formulaires rendent chaque réponse sous un titre de niveau 3.
+            // Découpage plutôt que regex à lookahead : `\Z` n'existe pas en
+            // JavaScript (c'est la lettre Z), et la dernière section serait
+            // silencieusement perdue.
+            const sections = {}
+            for (const bloc of body.split(/^###[ \t]+/m).slice(1)) {
+              const saut = bloc.indexOf('\n')
+              const titre = (saut === -1 ? bloc : bloc.slice(0, saut)).trim()
+              sections[titre] = saut === -1 ? '' : bloc.slice(saut + 1).trim()
+            }
+
+            // Les options sont libellées « valeur — explication » : seul le
+            // premier mot porte l'information.
+            const jeton = (titre) => {
+              const brut = sections[titre]
+              if (!brut || brut === '_No response_') return null
+              return brut.split('—')[0].trim().split(/\s+/)[0].toLowerCase()
+            }
+
+            const labels = new Set()
+
+            const area = jeton('Périmètre')
+            if (area && area !== 'je') labels.add(`area:${area}`)
+
+            const effort = jeton('Effort estimé')
+            if (effort) labels.add(`effort:${effort.toUpperCase()}`)
+
+            const valeur = jeton('Valeur')
+            if (valeur) labels.add(`valeur:${valeur}`)
+
+            // quick-win est dérivé, jamais saisi : valeur au moins moyenne ET
+            // effort au plus S. Un XS de valeur basse n'en est pas un.
+            if (['haute', 'moyenne'].includes(valeur) && ['xs', 's'].includes(effort)) {
+              labels.add('quick-win')
+            }
+
+            // Sur un bug, la gravité tient lieu d'ordonnancement.
+            const prioParGravite = {
+              bloquant: 'P0', sérieux: 'P1', serieux: 'P1',
+              gênant: 'P2', genant: 'P2', cosmétique: 'P3', cosmetique: 'P3',
+            }
+            const gravite = jeton('Gravité')
+            if (gravite && prioParGravite[gravite]) {
+              labels.add(`prio:${prioParGravite[gravite]}`)
+            }
+
+            if (labels.size === 0) {
+              core.info('Aucune réponse exploitable, rien à appliquer.')
+              return
+            }
+
+            // Sur une réédition, retirer d'abord les labels des familles qu'on
+            // réassigne : deux labels d'une même famille rendent tout filtre faux.
+            const familles = [...labels].map(l => l.split(':')[0])
+            const actuels = context.payload.issue.labels.map(l => l.name)
+            const aRetirer = actuels.filter(l =>
+              familles.includes(l.split(':')[0]) && !labels.has(l))
+
+            for (const name of aRetirer) {
+              await github.rest.issues.removeLabel({
+                ...context.repo, issue_number: context.issue.number, name,
+              }).catch(e => core.info(`retrait de ${name} ignoré : ${e.message}`))
+            }
+
+            await github.rest.issues.addLabels({
+              ...context.repo,
+              issue_number: context.issue.number,
+              labels: [...labels],
+            })
+            core.info(`Appliqués : ${[...labels].join(', ')}`)

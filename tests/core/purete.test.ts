@@ -53,6 +53,14 @@ const INTERDITS = [
   ["import { B } from '@/components/ui/button'", ''],
   ["import { cn } from '@/lib/utils'", ''],
   ["import { u } from '@/hooks/use-clip'", "un dossier qu'aucune liste n'anticipait"],
+  // Tous installés, tous adossés à React, et tous absents d'une liste noire
+  // qui ne nommait que `react` et `react-dom` (Copilot).
+  ["import { create } from 'zustand'", 'un paquet React que la liste noire ratait'],
+  ["import { Button } from '@base-ui/react'", ''],
+  ["import { useQuery } from '@tanstack/react-query'", ''],
+  ["import { useVirtualizer } from '@tanstack/react-virtual'", ''],
+  ["import { Play } from 'lucide-react'", ''],
+  ["import cva from 'class-variance-authority'", ''],
   // Le même fichier désigné par un chemin relatif. Un motif en `@/server/*`
   // seul ne couvrait que l'alias et laissait passer celui-ci (Copilot).
   ["import { db } from '../server/db'", "l'alias contourné d'un cran"],
@@ -127,13 +135,14 @@ describe('la frontière de pureté de src/core', () => {
     expect(rules).toEqual([])
   })
 
-  it("laisse passer les sous-chemins de vrais paquets, qu'un glob **/lib/** aurait pris", async () => {
-    const rules = await erreurs(
-      "import { z } from 'zod/v4'\nexport const x = z\n",
-      'src/core/sonde.ts',
-    )
-    expect(rules).toEqual([])
-  })
+  // La seule dépendance que la liste blanche laisse entrer, et ses sous-chemins.
+  it.each(["import { z } from 'zod'", "import { z } from 'zod/v4'"])(
+    'laisse passer %s, la seule dépendance autorisée',
+    async (ligne) => {
+      const rules = await erreurs(`${ligne}\nexport const x = z\n`, 'src/core/sonde.ts')
+      expect(rules).toEqual([])
+    },
+  )
 
   // Le contrôle négatif. Sans lui, une règle appliquée au dépôt entier passerait
   // tous les tests ci-dessus tout en rendant `src/server/` inécrivable.

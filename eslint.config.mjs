@@ -66,25 +66,22 @@ const eslintConfig = defineConfig([
                 "src/core doit rester pur : pas d'accès au système. Mettre ça dans src/server.",
             },
             {
-              group: [
-                "next",
-                "next/*",
-                "react",
-                "react-dom",
-                "better-sqlite3",
-                "@google/genai",
-              ],
+              // La liste blanche, et le cœur de la règle.
+              //
+              // Énumérer les paquets interdits était perdu d'avance : la
+              // version précédente nommait `react` et `react-dom` et laissait
+              // donc entrer `@base-ui/react`, `@tanstack/react-query`,
+              // `@tanstack/react-virtual`, `lucide-react` et `zustand`, tous
+              // installés, tous adossés à React. La liste aurait par ailleurs
+              // repérimé à chaque dépendance ajoutée.
+              //
+              // Retourné : `src/core` n'importe que ses voisins, `@/core/` et
+              // `zod`. Tout le reste échoue, y compris ce qui n'existe pas
+              // encore. Ouvrir une exception se fait ici, en une ligne, et
+              // c'est très bien : cela doit être une décision, pas un réflexe.
+              regex: "^(?!\\.{1,2}/|@/core/|zod(?:/|$))",
               message:
-                "src/core ne dépend ni de Next, ni de React, ni du serveur, ni d'un SDK réseau.",
-            },
-            {
-              // Par l'alias : tout `@/` sauf `@/core/`. Énoncé à l'envers —
-              // ce qui est permis, pas ce qui est interdit — la règle n'a plus
-              // de liste à tenir à jour, donc plus de liste à oublier quand un
-              // dossier apparaît.
-              regex: "^@/(?!core/)",
-              message:
-                "src/core ne dépend d'aucun autre étage du projet : seul @/core/ lui est accessible.",
+                "src/core n'importe que du TypeScript pur : ses voisins, @/core/ et zod. Next, React, les SDK, l'UI et le stockage vivent dans src/server ou src/components.",
             },
             {
               // Par le chemin relatif, qui désigne les mêmes fichiers. Un motif

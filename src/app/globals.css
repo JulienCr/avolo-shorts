@@ -7,7 +7,10 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* `var(--font-sans)` ici se référençait lui-même : le cycle rend la valeur
+     invalide, et `font-sans` retombait sur la pile par défaut sans jamais
+     utiliser la police que le layout installe. */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);

@@ -51,6 +51,12 @@ const INTERDITS = [
   ["import { db } from '@/server/db'", "l'autre côté de la frontière"],
   ["import { p } from '@/server/steps/deep/proxy'", 'même en profondeur'],
   ["import { B } from '@/components/ui/button'", ''],
+  ["import { cn } from '@/lib/utils'", ''],
+  // Le même fichier désigné par un chemin relatif. Un motif en `@/server/*`
+  // seul ne couvrait que l'alias et laissait passer celui-ci (Copilot).
+  ["import { db } from '../server/db'", "l'alias contourné d'un cran"],
+  ["import { p } from '../../server/steps/proxy'", 'et de deux'],
+  ["import { B } from '../../components/ui/button'", ''],
   ["import type fsType from 'node:fs'", 'y compris en import de type'],
 ] as const
 
@@ -94,6 +100,27 @@ describe('la frontière de pureté de src/core', () => {
   it('laisse passer du TypeScript pur', async () => {
     const rules = await erreurs(
       'export const somme = (a: number, b: number): number => a + b\n',
+      'src/core/sonde.ts',
+    )
+    expect(rules).toEqual([])
+  })
+
+  // Le pendant du test précédent : une frontière qui interdit trop est aussi
+  // cassée qu'une frontière qui n'interdit rien. `captions/retime.ts` a besoin
+  // de `../edl`, et un `lib` dans le chemin d'un paquet n'est pas notre `lib`.
+  it('laisse passer ce qui reste à l’intérieur de src/core', async () => {
+    const rules = await erreurs(
+      ["import { normalizeSegments } from '../edl'", 'export const x = normalizeSegments'].join(
+        '\n',
+      ),
+      'src/core/captions/retime.ts',
+    )
+    expect(rules).toEqual([])
+  })
+
+  it("laisse passer les sous-chemins de vrais paquets, qu'un glob **/lib/** aurait pris", async () => {
+    const rules = await erreurs(
+      "import { z } from 'zod/v4'\nexport const x = z\n",
       'src/core/sonde.ts',
     )
     expect(rules).toEqual([])

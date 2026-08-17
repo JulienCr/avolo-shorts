@@ -71,17 +71,28 @@ const eslintConfig = defineConfig([
                 "next/*",
                 "react",
                 "react-dom",
-                "@/server",
-                "@/server/*",
-                "@/app",
-                "@/app/*",
-                "@/components",
-                "@/components/*",
                 "better-sqlite3",
                 "@google/genai",
               ],
               message:
                 "src/core ne dépend ni de Next, ni de React, ni du serveur, ni d'un SDK réseau.",
+            },
+            {
+              // Les autres étages du projet, par l'alias **et** par le chemin
+              // relatif. Un motif en `@/server/*` seul ne couvre que l'alias :
+              // `import '../server/db'` désigne exactement le même fichier et
+              // passait la frontière sans un mot.
+              //
+              // Une regex plutôt qu'un glob en `**/server/**`, qui attraperait
+              // aussi les sous-chemins de vrais paquets — `zod/lib/types`,
+              // `firebase/app`. Ici on n'ancre que sur l'alias `@/` ou une
+              // remontée `../`, donc jamais sur un paquet de node_modules.
+              //
+              // `./x` et `../x` à l'intérieur de `src/core` restent permis :
+              // `captions/retime.ts` a besoin de `../edl`.
+              regex: "^(?:@/|(?:\\.\\./)+)(server|app|components|lib)(?:/|$)",
+              message:
+                "src/core ne dépend d'aucun autre étage du projet — ni par l'alias @/, ni par un chemin relatif.",
             },
           ],
         },

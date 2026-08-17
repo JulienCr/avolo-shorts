@@ -118,8 +118,22 @@ describe('la frontière de pureté de src/core', () => {
     ['require.call()', "export const os = require.call(null, 'node:fs')"],
     ['require.resolve()', "export const p = require.resolve('node:fs')"],
     ['module.exports', 'module.exports = {}'],
+    // `require` recopié avant l'appel : ni `callee.name`, ni membre (Copilot).
+    ['require recopié', "const load = require\nexport const fs = load('node:fs')"],
   ])('refuse %s', async (_nom, code) => {
     const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
+    expect(rules).toContain('no-restricted-syntax')
+  })
+
+  // Les `.tsx` doivent rester **couverts** par la frontière — les en exclure
+  // laisserait un fichier y échapper entièrement — mais avec `jsx: "react-jsx"`
+  // un composant n'a besoin d'aucun import : TypeScript injecte
+  // `react/jsx-runtime` après le lint (Copilot).
+  it.each([
+    ['un élément', 'export const C = () => <div />'],
+    ['un fragment', 'export const C = () => <>texte</>'],
+  ])('refuse le JSX (%s), que rien n’importe', async (_nom, code) => {
+    const rules = await erreurs(`${code}\n`, 'src/core/sonde.tsx')
     expect(rules).toContain('no-restricted-syntax')
   })
 
@@ -146,6 +160,13 @@ describe('la frontière de pureté de src/core', () => {
     ['setInterval', 'export const f = () => setInterval(() => {}, 10)'],
     ['setImmediate', 'export const f = () => setImmediate(() => {})'],
     ['queueMicrotask', 'export const f = () => queueMicrotask(() => {})'],
+    // Ce qu'une liste noire ne pouvait pas anticiper, et qui a motivé son
+    // retournement en liste blanche (Copilot).
+    ['indexedDB', "export const f = () => indexedDB.open('x')"],
+    ['Worker', "export const f = () => new Worker('/w.js')"],
+    ['caches', "export const f = () => caches.open('x')"],
+    ['performance', 'export const f = () => performance.now()'],
+    ['__dirname', 'export const f = () => __dirname'],
     // Les portes dérobées : `no-restricted-globals` ne contrôle que
     // l'identifiant nu, donc `globalThis.fetch` passait la liste entière.
     ['globalThis.fetch', "export const f = () => globalThis.fetch('https://exemple.fr')"],
@@ -188,6 +209,30 @@ describe('la frontière de pureté de src/core', () => {
   // dossier ou dessous, `@/core/...` pour tout le reste. C'est ce que la
   // suppression pure et simple de `../` laisse comme chemin, et c'est
   // suffisant — `captions/retime.ts` atteindra `edl.ts` par `@/core/edl`.
+  // Le contrôle négatif le plus important du fichier. La liste des globaux
+  // interdits est **calculée** : elle refuse tout `browser` et tout
+  // `nodeBuiltin` hors ECMAScript, soit plus de mille noms. Si elle mordait sur
+  // l'ECMAScript nu, `src/core` deviendrait inécrivable — et les cinq tâches
+  // suivantes s'y casseraient les dents avant d'avoir écrit une ligne utile.
+  it.each([
+    ['Math', 'export const f = (x: number) => Math.max(0, x)'],
+    ['JSON', 'export const f = (s: string) => JSON.parse(s)'],
+    ['Number', 'export const f = (s: string) => Number.parseFloat(s)'],
+    ['Object', 'export const f = (o: object) => Object.keys(o)'],
+    ['Array', 'export const f = (n: number) => Array.from({ length: n })'],
+    ['Promise', 'export const f = (p: Promise<number>[]) => Promise.all(p)'],
+    ['Set / Map', 'export const f = () => [new Set<string>(), new Map<string, number>()]'],
+    ['Date', 'export const f = (ms: number) => new Date(ms).toISOString()'],
+    ['RegExp', "export const f = (s: string) => new RegExp('a').test(s)"],
+    ['Error', "export const f = () => { throw new Error('non') }"],
+    ['String / Boolean', 'export const f = (x: unknown) => [String(x), Boolean(x)]'],
+    ['Intl', "export const f = () => new Intl.NumberFormat('fr-FR')"],
+    ['console', "export const f = () => console.warn('x')"],
+  ])("laisse passer l'ECMAScript nu : %s", async (_nom, code) => {
+    const rules = await erreursDePureté(`${code}\n`, 'src/core/sonde.ts')
+    expect(rules).toEqual([])
+  })
+
   it('laisse passer un voisin du même dossier', async () => {
     const rules = await erreursDePureté(
       "import { splitIntoCards } from './cards'\nexport const x = splitIntoCards\n",

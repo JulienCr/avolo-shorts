@@ -2,6 +2,7 @@ import { builtinModules } from "node:module";
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import globals from "globals";
 
 // La liste des modules natifs vient de Node lui-même, pas d'une énumération
 // écrite à la main. Une liste tenue à la main est fausse le jour où on l'écrit
@@ -10,43 +11,49 @@ import nextTs from "eslint-config-next/typescript";
 // des internes dépréciés, sans intérêt ici.
 const MODULES_NATIFS = builtinModules.filter((m) => !m.startsWith("_"));
 
-// Ce qui atteint le réseau ou le navigateur sans passer par un `import`, donc
+// Les globaux : ce qui atteint la plateforme sans passer par un `import`, donc
 // sans que `no-restricted-imports` n'en voie jamais rien. `fetch` est un global
-// depuis Node 18 : sans cette liste, `src/core` peut faire des requêtes tout en
-// passant un lint qui se présente comme une garantie de pureté.
+// depuis Node 18 ; `indexedDB` et `Worker` sont typés par le `lib: ["dom", …]`
+// du projet. Aucun ne s'annonce.
+//
+// **Énoncé à l'envers, comme les imports.** Les quatre versions précédentes de
+// cette liste étaient des listes noires, et chaque passe de review en a trouvé
+// une de plus qui manquait : `fetch`, puis `globalThis`, puis `self`, puis
+// `Buffer` et les temporisations, puis `indexedDB` et `Worker`. Une liste noire
+// de globaux ne peut pas être complète — il y en a plus de mille.
+//
+// Ce qui reste autorisé est donc l'ECMAScript nu — `Math`, `JSON`, `Promise`,
+// `Number`… — plus `console`, seul global de plateforme dont l'usage ne
+// compromet ni la testabilité ni le résultat d'un calcul. Tout le reste de
+// `browser` et de `nodeBuiltin` est refusé, y compris ce que la prochaine
+// version de Node ajoutera.
+const GLOBAUX_PURS = new Set([...Object.keys(globals.es2023), "console"]);
+// `globalThis` est dans la liste ECMAScript, mais c'est la porte dérobée vers
+// tout le reste : `globalThis.fetch(...)` ne référence pas `fetch`.
+GLOBAUX_PURS.delete("globalThis");
+
 const GLOBAUX_INTERDITS = [
-  { name: "fetch", message: "src/core ne fait pas de réseau : l'appel vit dans src/server." },
-  { name: "XMLHttpRequest", message: "src/core ne fait pas de réseau." },
-  { name: "WebSocket", message: "src/core ne fait pas de réseau." },
-  { name: "EventSource", message: "src/core ne fait pas de réseau." },
-  {
-    name: "process",
-    message: "src/core ignore l'environnement : passer la valeur en argument depuis src/server.",
-  },
-  { name: "window", message: "src/core n'est pas de l'interface." },
-  { name: "document", message: "src/core n'est pas de l'interface." },
-  { name: "navigator", message: "src/core n'est pas de l'interface." },
-  { name: "localStorage", message: "src/core ne stocke rien lui-même." },
-  { name: "sessionStorage", message: "src/core ne stocke rien lui-même." },
-  // Des globaux de Node que la liste blanche des imports ne peut pas voir,
-  // puisqu'ils n'en passent par aucun. `Buffer` est un objet de plateforme ; une
-  // temporisation dans du calcul pur signale toujours que le code s'est trompé
-  // d'étage.
-  { name: "Buffer", message: "src/core manipule des données, pas des tampons Node." },
-  ...["setTimeout", "setInterval", "setImmediate", "queueMicrotask"].map((name) => ({
+  ...new Set([
+    ...Object.keys(globals.browser),
+    ...Object.keys(globals.nodeBuiltin),
+    // Les alias de l'objet global et les noms CommonJS, que ni `browser` ni
+    // `nodeBuiltin` ne déclarent tous.
+    "globalThis",
+    "global",
+    "self",
+    "require",
+    "module",
+    "exports",
+    "__dirname",
+    "__filename",
+  ]),
+]
+  .filter((name) => !GLOBAUX_PURS.has(name))
+  .map((name) => ({
     name,
-    message: "src/core est du calcul : rien à y différer. L'ordonnancement vit dans src/server.",
-  })),
-  // Les trois portes dérobées vers tout ce qui précède : `no-restricted-globals`
-  // ne contrôle que l'identifiant nu, donc `globalThis.fetch(...)`,
-  // `global.fetch(...)` et `self.fetch(...)` passaient la liste entière.
-  // `src/core` étant du calcul, il n'a aucune raison de nommer l'objet global —
-  // l'interdire ferme la porte plutôt que de la surveiller.
-  ...["globalThis", "global", "self"].map((name) => ({
-    name,
-    message: "src/core n'a rien à demander à l'objet global : passer la valeur en argument.",
-  })),
-];
+    message:
+      "src/core n'utilise que l'ECMAScript nu : ni réseau, ni stockage, ni environnement, ni interface. Ce global vit dans src/server.",
+  }));
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -166,6 +173,25 @@ const eslintConfig = defineConfig([
         {
           selector: "MemberExpression[property.name='require']",
           message: "src/core ne charge rien dynamiquement. Utiliser un import statique.",
+        },
+        // Et le nom lui-même, parce qu'on peut le recopier avant de s'en servir :
+        // `const load = require; load('node:fs')` ne présente ni `callee.name`
+        // ni membre. Un `.cjs` de `src/core` n'est pas non plus contrôlé par
+        // `tsc`, donc le lint est le seul filet.
+        {
+          selector: "Identifier[name=/^(require|module|exports)$/]",
+          message:
+            "src/core est du module ES : ni `require`, ni `module`, ni `exports`, même recopiés.",
+        },
+        // JSX. Les extensions `.tsx`/`.jsx` doivent rester couvertes par la
+        // frontière — sinon un fichier y échappe entièrement — mais avec
+        // `jsx: "react-jsx"`, `export const C = () => <div />` ne contient ni
+        // import ni global interdit : TypeScript injecte `react/jsx-runtime`
+        // après le lint. De l'interface entrerait dans src/core sans un mot.
+        {
+          selector: "JSXElement, JSXFragment",
+          message:
+            "src/core n'est pas de l'interface : un composant vit dans src/components ou src/app.",
         },
       ],
 

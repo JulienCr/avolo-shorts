@@ -6,6 +6,11 @@ dist/
 *.tsbuildinfo
 .pnpm-store/
 
+# Next.js. `next-env.d.ts` est régénéré à chaque build et `.vercel` n'existe que
+# sur une machine liée au service : ni l'un ni l'autre n'a d'histoire à raconter.
+next-env.d.ts
+.vercel/
+
 # Python (worker)
 __pycache__/
 *.py[cod]

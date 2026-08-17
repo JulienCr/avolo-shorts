@@ -123,25 +123,92 @@ Hors périmètre :
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 30 à 45 min sur GPU | un projet immuable |
+| Analyse | une fois par live | 30 à 45 min sur GPU | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 
 L'analyse ne relit jamais un clip et le montage ne relance jamais l'analyse.
 C'est ce qui rend le tri de 25 candidats supportable.
 
-### Le projet
+### Le pipeline se comporte comme un `make`
+
+Aucune étape ne se rejoue parce qu'une étape située en aval a changé. Changer de
+logo ne doit pas retranscrire deux heures d'audio.
+
+Chaque étape déclare ses entrées, produit un artefact et stocke la **clé** qui
+l'a produit : version de l'outil, paramètres, empreinte des entrées. On demande
+une cible, le système recalcule ce qui manque ou ce qui est périmé en amont. Rien
+d'autre.
 
 ```
+source.mp4
+  ├─► proxy                     <- params proxy
+  ├─► audio.wav
+  │     └─► transcript          <- modèle Whisper, params
+  ├─► shots                     <- proxy
+  ├─► people                    <- proxy, params détection
+  └─► audio_analysis
+        │
+        └─► candidates          <- transcript, shots, people, audio, prompts, modèle
+              └─► clips (EDL)   <- candidats et éditions humaines
+                    └─► rendus  <- EDL, source, style (logo, sous-titres, habillage)
+```
+
+Le style n'entre que dans le rendu. Cette propriété du graphe est ce qui rend un
+changement de logo bon marché.
+
+**Empreinte de la source** : taille, date de modification et durée ffprobe. Pas
+de hash. Digérer 12 Go à chaque lancement coûterait plus cher que l'étape qu'on
+cherche à éviter.
+
+Un drapeau `force` court-circuite la clé, pour le cas où les paramètres n'ont pas
+changé mais où l'on veut malgré tout d'autres propositions.
+
+### Où vivent les artefacts
+
+Deux emplacements, et la règle qui les sépare : ce qui est **intrinsèque à la
+vidéo** vit à côté d'elle, le reste vit dans le projet.
+
+```
+Replay/
+  2026-03-08-caro-mdlm.mp4
+  2026-03-08-caro-mdlm.avolo/       le sidecar
+      transcript.json               mots, segments, locuteurs (format WhisperX)
+      shots.json                    frontières de plans
+      meta.json                     clés de validité, versions
+
 projects/2026-03-08-caro-mdlm/
   source.json          chemin vers l'original, jamais copié
   proxy.mp4            640x360, keyframe toutes les 1 s, environ 700 Mo
-  transcript.json      mots, segments et locuteurs, format WhisperX
-  shots.json           frontières de plans
   people.json          boîtes de personnes échantillonnées
   audio.json           musique, silences, événements
-  candidates.json      les 25 à 30 moments proposés
+  candidates.json      les propositions, par passe
+  clips/               les EDL
+  renders/             les MP4 produits
 ```
+
+Le transcript et les frontières de plans sont des propriétés du fichier vidéo,
+pas des paramètres d'un projet. Les poser à côté de la source les fait survivre à
+la suppression du projet, les rend réutilisables par d'autres outils et les fait
+suivre la vidéo si elle est déplacée. Le diariseur de `rythmo-impro` procède déjà
+ainsi (`2026-01-04-drag.cli.json` est posé à côté du `.mp4`), et un dossier plutôt
+que des fichiers en vrac évite de noyer le dossier de replays.
+
+Le proxy reste dans le projet : 700 Mo par émission n'ont rien à faire sur un
+Drive partagé. `people.json` aussi, parce qu'il dépend du détecteur et du taux
+d'échantillonnage.
+
+**Repli** : si le dossier source est en lecture seule, le sidecar va dans le
+projet et l'interface le signale. Pas d'échec, seulement moins de réutilisation.
+
+### Une nouvelle passe n'écrase jamais un travail humain
+
+Relancer le repérage ne doit pas balayer les clips déjà montés. La règle :
+
+- un clip dont le statut n'est plus `candidate` est **humain** et survit toujours ;
+- les propositions non encore traitées sont remplacées ;
+- chaque lot porte son numéro de passe, pour distinguer les nouvelles
+  propositions des anciennes.
 
 Le proxy porte tout le travail en aval : le montage se scrube dessus, la
 détection de personnes tourne dessus, la prévisualisation le lit. L'original
@@ -334,12 +401,27 @@ contenu posé sur fond flouté pour TikTok et Shorts.
 
 ```
 POST   /api/projects              { source } -> 202 + projectId
-GET    /api/projects/:id                       état, progression
+GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
 PATCH  /api/clips/:id                          édition de l'EDL
 POST   /api/clips/:id/export                   rendu
 ```
+
+Et les routes qui portent la reprise :
+
+```
+POST   /api/projects/:id/run      { target, force? }   recalcule jusqu'à la cible
+POST   /api/projects/:id/rerender { style? }           re-rend les clips exportés
+```
+
+`target` nomme une étape du graphe (`transcript`, `people`, `candidates`,
+`renders`). Le système remonte les dépendances, recalcule ce qui manque ou ce qui
+est périmé, et s'arrête là. Demander `candidates` sur un projet dont le
+transcript existe déjà ne relance que le repérage.
+
+`rerender` couvre le cas du logo ou de l'habillage modifié : les EDL ne bougent
+pas, seuls les MP4 sont refaits.
 
 Webhook optionnel en fin d'analyse.
 
@@ -386,7 +468,11 @@ coûtent cher :
   durée) ;
 - le recalage des sous-titres après coupes internes ;
 - le choix du ratio à partir de boîtes de personnes ;
-- le placement d'une coupe sur la frontière de plan la plus proche.
+- le placement d'une coupe sur la frontière de plan la plus proche ;
+- **l'invalidation du graphe** : demander une cible calcule exactement les étapes
+  manquantes ou périmées, et aucune autre. Un changement de style ne doit
+  invalider que les rendus, et le test doit le prouver plutôt que le supposer ;
+- **la survie du travail humain** à une nouvelle passe de repérage.
 
 **Sur golden files** : un extrait de référence de deux minutes avec son projet
 d'analyse figé, pour la sélection et le cadrage.

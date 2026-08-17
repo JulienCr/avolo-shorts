@@ -1,0 +1,436 @@
+# avolo-shorts : conception
+
+Date : 17 août 2026.
+Statut : validé section par section, en attente de relecture finale avant plan d'implémentation.
+
+`avolo-shorts` est un nom de travail. Le dossier se renomme en une commande.
+
+## 1. Le problème
+
+Julien produit « LA SCÈNE AVOLO », une émission d'improvisation théâtrale diffusée en
+direct sur Twitch. Vingt émissions sont déjà enregistrées, de 4,5 à 12,7 Go pièce,
+soit environ 150 Go. Il veut en tirer des extraits courts pour Instagram, TikTok,
+YouTube Shorts et Facebook.
+
+OpenShorts, qu'il utilise aujourd'hui, ne convient pas. Ce n'est pas une question
+de réglage : son cœur résout un autre problème. Il cherche un sujet à suivre là
+où il faut cadrer une scène, il détecte des visages là où il faut détecter des
+corps, et il ne sait produire que du 9:16 ou du 16:9 posé sur fond flouté, qui
+n'occupe alors que 32 % de la hauteur d'écran.
+
+## 2. Ce qui a été mesuré
+
+Trois émissions entières échantillonnées le 17 août 2026, 400 images chacune,
+détection MediaPipe pleine portée au seuil 0,5.
+
+Toutes les sources : 1920x1080, 60 fps, h264 à environ 6 Mbps, audio AAC stéréo
+48 kHz, 2 à 3 heures.
+
+### Le cadre le plus serré qui contient encore les gens
+
+Un crop pleine hauteur de ratio `r` dans une image 16:9 couvre `r / (16/9)` de la
+largeur. Pour chaque image, on calcule l'empan des personnes détectées augmenté
+d'une largeur de visage de chaque côté (les épaules), puis on cherche le plus
+petit ratio qui le couvre.
+
+| | Duo 2h17 | Groupe 1h53 | Trio 2h50 |
+|---|---|---|---|
+| 9:16 suffit (31,6 % de largeur) | 24,2 % | 31,2 % | 32,8 % |
+| 4:5 nécessaire (45,0 %) | 13,8 % | 8,5 % | 6,0 % |
+| 1:1 nécessaire (56,2 %) | 10,2 % | 9,8 % | 8,8 % |
+| 16:9 obligatoire | 46,5 % | 20,0 % | 33,2 % |
+| Aucun visage détecté | 5,2 % | 30,5 % | 19,2 % |
+| **Cumul jusqu'à 1:1** | **48,2 %** | **49,5 %** | **47,5 %** |
+
+Le cumul tombe à 48 % sur les trois, malgré trois configurations de plateau
+différentes. C'est une propriété du dispositif de tournage. Autoriser les ratios
+médians double la couverture par rapport au seul 9:16.
+
+Sur un canevas 9:16 de 1080x1920, un 16:9 en letterbox occupe 32 % de la hauteur,
+un 1:1 en occupe 56 %, un 4:5 en occupe 70 %. La moitié du bénéfice visuel du
+projet se gagne là.
+
+### Taille des sujets
+
+| Taille du plus gros visage | Duo | Groupe | Trio |
+|---|---|---|---|
+| Plan serré (≥ 18 % de largeur) | 0,5 % | 0,0 % | 1,0 % |
+| Plan moyen (11 à 18 %) | 22,0 % | 1,8 % | 5,5 % |
+| Plan large (6 à 11 %) | 68,5 % | 51,0 % | 60,8 % |
+| Très large (< 6 %) | 3,8 % | 16,8 % | 13,5 % |
+
+Les vrais plans serrés sont quasi absents. Le mode dominant est le plan large.
+
+La taille des visages ne bloque pas : un crop 9:16 pleine hauteur fait 607x1080,
+agrandi en 1080x1920 soit 1,78x, ce que paie tout repurposing vertical depuis du
+1080p. Un visage à 8,8 % de largeur ressort à 308 px en sortie, un cadrage de
+short normal. Ce qui bloque est la géométrie du plateau : les comédiens occupent
+des positions écartées qu'un 9:16 ne couvre pas.
+
+### Ce que les images ont appris et que les chiffres cachaient
+
+Une mosaïque de 600 images I sur 20 minutes d'une scène à deux montre que les
+comédiens jouent debout, face à face, **de profil**, dans un **plan continu de
+plusieurs minutes**. Les images I y sont contiguës toutes les 2 secondes, sans
+coupe.
+
+Deux conséquences. La détection de visages rate les profils, ce qui gonfle
+artificiellement la colonne « aucun visage » : il faut détecter des corps. Et une
+coupe interne ne pourra pas se cacher derrière un changement d'axe, puisqu'il n'y
+en a pas pendant la scène.
+
+### Contraintes de production
+
+- Pas d'audio multipiste. Le mix se fait en amont sur une table qui n'exporte pas
+  en multipiste. Aucune conception ne peut supposer une piste par micro.
+- Pas de rires : l'émission n'est pas jouée devant un public.
+- Musique de fond fréquente, effets sonores quasi absents.
+- Habillage incrusté sur les vingt émissions existantes : bloc « SOMMAIRE » sur
+  environ 20 % à gauche, listes de défis à droite, cartouches de jeu en bas
+  (« Bim Bam Boum ! »), logo permanent en haut à droite. Les prochains lives
+  pourront être enregistrés sans habillage, mais l'existant reste tel quel.
+- Aucune métadonnée de régie sur les émissions passées. Toute conception doit
+  fonctionner sur le seul fichier mixé.
+
+### Matériel
+
+RTX 4090, 24 Go, accessible depuis WSL. Julien possède déjà
+`rythmo-impro/diarizer` : WhisperX large-v3, `pyannote/speaker-diarization-community-1`,
+VAD `segmentation-3.0`, suppression de voix MDX23C.
+
+## 3. Périmètre
+
+Dans le périmètre :
+
+- ingestion d'un fichier local, analyse complète, repérage de candidats ;
+- délimitation d'un extrait sur son unité narrative entière ;
+- nettoyage du transcript (hésitations appliquées, digressions proposées) ;
+- choix du cadre et rendu ;
+- sous-titres incrustés, logo et mention Twitch ;
+- interface de tri et de montage ;
+- API de déclenchement.
+
+Hors périmètre :
+
+- la publication sur les réseaux. L'outil produit des fichiers MP4 et les textes
+  (titre, description, hashtags). Julien publie avec ses outils.
+- le doublage, la traduction, les effets vidéo générés, les vignettes.
+- le multi-utilisateur, la facturation, tout ce qui relève d'un SaaS.
+
+## 4. Architecture
+
+### Deux horloges
+
+| | Quand | Ordre de grandeur | Produit |
+|---|---|---|---|
+| Analyse | une fois par live | 30 à 45 min sur GPU | un projet immuable |
+| Montage | à volonté | instantané | des EDL |
+| Export | par clip validé | 1 à 2 min | un MP4 |
+
+L'analyse ne relit jamais un clip et le montage ne relance jamais l'analyse.
+C'est ce qui rend le tri de 25 candidats supportable.
+
+### Le projet
+
+```
+projects/2026-03-08-caro-mdlm/
+  source.json          chemin vers l'original, jamais copié
+  proxy.mp4            640x360, keyframe toutes les 1 s, environ 700 Mo
+  transcript.json      mots, segments et locuteurs, format WhisperX
+  shots.json           frontières de plans
+  people.json          boîtes de personnes échantillonnées
+  audio.json           musique, silences, événements
+  candidates.json      les 25 à 30 moments proposés
+```
+
+Le proxy porte tout le travail en aval : le montage se scrube dessus, la
+détection de personnes tourne dessus, la prévisualisation le lit. L'original
+n'est rouvert qu'à l'export. Sans lui, ni l'interface ni la détection ne tiennent
+sur des fichiers de 12 Go.
+
+### Le clip est une liste de segments
+
+```json
+{
+  "id": "clip_07",
+  "projectId": "2026-03-08-caro-mdlm",
+  "segments": [
+    { "start": 2841.20, "end": 2856.90 },
+    { "start": 2874.10, "end": 2931.40 }
+  ],
+  "ratio": "auto",
+  "captions": true,
+  "branding": true,
+  "title": "",
+  "description": "",
+  "status": "candidate"
+}
+```
+
+Pas de `start` et `end` uniques : une liste. Toutes les opérations demandées
+deviennent alors la même chose.
+
+| Demande | Opération sur la liste |
+|---|---|
+| retirer une digression | couper un segment en deux |
+| retirer les hésitations | beaucoup de petites coupures, calculées sur les timings |
+| étendre ou rétrécir | déplacer une borne |
+| durée du clip | la somme des segments |
+
+La durée est un résultat, jamais une contrainte d'entrée. C'est ce qui répare le
+cas qui a motivé la conception : une blague de 90 secondes dont OpenShorts avait
+gardé 25 secondes de préambule et coupé la chute, parce que
+`snap_clip_to_words` plafonne à 60 secondes. On délimite la vanne entière, puis
+on retire le préambule et la digression interne. La chute reste.
+
+`ratio` vaut `auto` par défaut, et accepte `9:16`, `4:5`, `1:1` ou `16:9` pour
+forcer la main.
+
+### Frontière Node et Python
+
+Le worker Python ne fait que ce qui exige `torch` : transcription WhisperX,
+détection de personnes, analyse audio. Il ne touche pas à ffmpeg.
+
+Tout le reste (API, EDL, rendu ffmpeg, interface) est en TypeScript. ffmpeg est
+un binaire que Node pilote aussi bien que Python, et aucune décision de montage
+ne traverse alors une frontière de processus.
+
+```
+Interface ──┐
+            ├──► API Node/TS ──► ffmpeg (proxy, export)
+API externe ┘         │
+                      └──► worker Python (WhisperX, YOLO, audio) ──► GPU
+```
+
+Stockage : SQLite pour les projets et les clips, fichiers sur disque pour le
+reste.
+
+Dépôt neuf, pas un module de `rythmo-impro`, qui est un système de doublage live.
+La parenté s'arrête au diariseur.
+
+## 5. Le pipeline d'analyse
+
+| Étape | Outil | Ordre de grandeur pour 2 h |
+|---|---|---|
+| Proxy 640x360, keyframe 1 s | ffmpeg NVDEC/NVENC | 5 à 10 min |
+| Extraction audio | ffmpeg | 1 min |
+| Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
+| Frontières de plans | détection sur le proxy | 2 min |
+| Personnes | YOLO classe *person*, 2 images par seconde | 5 min |
+| Analyse audio | voir plus bas | 5 min |
+| Repérage des candidats | Gemini | 1 min |
+
+La musique de fond gêne Whisper. La suppression de voix MDX23C du diariseur
+existant corrige cela mais coûte cher, donc elle ne se déclenche que sur les
+passages détectés comme musicaux.
+
+## 6. Le repérage des candidats
+
+Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
+improvisation sans public. La réponse n'est donc pas un meilleur juge mais
+**plusieurs sources indépendantes fusionnées**. Une source aveugle sur un type de
+moment est rattrapée par une autre. Julien trie ensuite, et l'objectif de
+l'étage est le rappel, pas la précision.
+
+1. **Gemini sur le transcript.** Fenêtres de 90 secondes chevauchées de 30, notées
+   par lots avec un barème ancré, mécanique reprise d'OpenShorts. On garde le
+   haut du panier. Cette source ne voit pas le jeu physique, par construction.
+2. **Le mouvement des corps.** Les boîtes de personnes sont déjà échantillonnées à
+   2 images par seconde pour le cadrage ; la quantité de déplacement s'en déduit
+   sans coût. Une bouffée d'agitation après une phase calme est la signature d'un
+   gag physique.
+3. **Les cartouches de jeu.** Un OCR sur le proxy segmente l'émission en séquences
+   nommées. « Le meilleur moment du Bim Bam Boum » est une question mieux posée
+   que « le meilleur moment de ces deux heures ».
+4. **Le resserrement du cadre.** Quand le réalisateur resserre, il se passe quelque
+   chose. La taille des personnes est déjà calculée, la variation ne coûte rien.
+5. **La densité des tours de parole.** Un échange vif se distingue d'un monologue,
+   et cela ne demande pas de savoir *qui* parle, seulement *que* ça change. C'est
+   la partie robuste de la diarisation.
+
+Les cinq produisent des ancres. On fusionne et on déduplique, ce qui laisse une
+quarantaine de régions.
+
+**Reclassement en vision.** Douze images à 1024 px coûtent environ 3000 tokens,
+quelle que soit la durée de la source, et font mieux que le mode vidéo de Gemini
+(qui facturerait 1,08 million de tokens pour deux heures, hors de portée). On
+envoie douze images de chacune des quarante régions, soit environ 120 000 tokens,
+pour un classement qui a vu le jeu. C'est le seul étage de la chaîne qui juge
+autre chose que du texte. Les 25 à 30 premières sont présentées.
+
+## 7. Délimiter et nettoyer
+
+### Délimitation
+
+Une ancre n'est pas un clip. Deuxième passe Gemini sur la région autour de
+l'ancre, avec un marqueur `[SECONDS]` par phrase (technique reprise d'OpenShorts,
+avec sa contrainte : les marqueurs sont **tronqués, jamais arrondis**, sinon le
+modèle rend une borne qui tombe dans le premier mot de la phrase qu'il voulait
+exclure).
+
+Sans plafond de durée. Le raccourcissement vient après, et par le milieu.
+
+### Nettoyage, deux niveaux de statut différent
+
+**Déterministe, appliqué par défaut.** Les « euh », « bah », faux départs,
+répétitions immédiates et silences au-delà d'un seuil. Cela se calcule sur les
+timings mot à mot, sans modèle. Aucun sens ne se perd. Réversible d'un clic.
+
+**Gemini, proposé et jamais appliqué.** Les digressions. Retirer « alors
+généralement les blagues avec des pingouins, je sais ce que vous vous dites »
+est un jugement éditorial, pas un nettoyage. L'interface le surligne, Julien
+tranche.
+
+La distinction est opérationnelle : le premier niveau tourne sans personne dans
+la boucle, le second non.
+
+### Placement des coupes
+
+Chaque borne de coupe cherche d'abord une frontière de plan dans une fenêtre de
+tolérance. À défaut, jump cut assumé.
+
+## 8. Le cadrage
+
+**Le ratio est choisi une fois par clip.** Pour chaque image des segments retenus,
+on calcule la largeur nécessaire, on prend le **percentile 90** (pas le maximum,
+sinon une seule image où quelqu'un traverse le cadre condamne le clip entier), et
+on retient le plus petit ratio qui couvre. Sur les 10 % restants, un sujet peut
+sortir partiellement du cadre.
+
+**La position du crop est fixe à l'intérieur de chaque plan**, calculée pour
+couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une
+coupe existe déjà, donc où le saut est invisible.
+
+Le mouvement de caméra perçu est nul. Sur des plans continus de plusieurs minutes
+avec des comédiens qui se déplacent, toute caméra qui suit finit par tanguer :
+c'est la cause du défaut reproché à OpenShorts, et elle est structurelle, pas
+dans un réglage d'amortissement.
+
+Le prix est assumé : un plan de trois minutes où les comédiens traversent le
+plateau impose un crop large, donc un ratio qui monte, parfois jusqu'au 16:9. Un
+cadre large et stable vaut mieux qu'un cadre serré qui vacille.
+
+**Zones d'habillage.** Sur les vingt émissions existantes, le crop évite le bloc
+de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
+tout crop pris à droite : on l'accepte.
+
+## 9. Le rendu
+
+Depuis l'original, jamais depuis le proxy.
+
+1. Concaténation des segments de l'EDL.
+2. Crop et mise à l'échelle, un réglage par plan.
+3. Sous-titres incrustés depuis le transcript aligné au mot, **recalés sur la
+   timeline du clip**. Après les coupes internes, les timings d'origine ne valent
+   plus rien : c'est le piège principal du rendu.
+4. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
+   (chrome des plateformes en haut, sous-titres en bas).
+
+Deux fichiers par clip quand le ratio n'est pas 9:16 : le format natif (4:5 ou
+1:1) pour le feed Instagram et Facebook, et une variante 9:16 plein écran avec le
+contenu posé sur fond flouté pour TikTok et Shorts.
+
+## 10. L'API
+
+```
+POST   /api/projects              { source } -> 202 + projectId
+GET    /api/projects/:id                       état, progression
+GET    /api/projects/:id/candidates            les propositions
+GET    /api/clips/:id                          l'EDL
+PATCH  /api/clips/:id                          édition de l'EDL
+POST   /api/clips/:id/export                   rendu
+```
+
+Webhook optionnel en fin d'analyse.
+
+Pour le déclenchement après chaque live, un watcher sur le dossier de replays est
+plus robuste qu'un appel manuel. Deux pièges, tous deux déjà payés dans
+OpenShorts :
+
+- **Le fichier s'écrit pendant le live.** Attendre que sa taille reste stable
+  plusieurs minutes avant de lancer l'analyse.
+- **Le Drive partagé est lent.** `REPLAY_DIR` est monté en 9p et l'analyse relit
+  la source une dizaine de fois. Copier en local d'abord, en **gardant le nom de
+  fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
+  toute la bibliothèque en charabia.
+
+## 11. L'interface
+
+**Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
+premières phrases. Garder ou écarter d'un clic. Trier 25 candidats occupe plus de
+temps que monter les trois qui survivent, donc cet écran se soigne en premier.
+
+**Écran de clip.** Le transcript est la surface d'édition principale, pas la
+timeline.
+
+- Les hésitations apparaissent barrées, déjà appliquées, un clic les rend.
+- Les digressions apparaissent surlignées, en proposition.
+- Sélectionner une phrase et la supprimer retire le segment vidéo correspondant.
+- Les bornes de début et de fin se déplacent au mot.
+- Le proxy se lit à côté, en sautant les parties retirées.
+- Une bande secondaire montre les plans et le ratio retenu, en lecture seule.
+
+La durée s'affiche et bouge en direct, comme information et non comme contrainte.
+
+## 12. Vérification
+
+Le CI d'OpenShorts n'a jamais tourné une seule fois, et tout ce qui vit dans son
+`main.py` est intestable parce que le module importe `torch` au chargement. D'où
+l'existence de `clip_selection.py`, sorti pour cette seule raison. Le principe
+s'applique ici dès le départ, et il est plus facile à tenir en TypeScript.
+
+**Testable sans vidéo, sans GPU et sans ffmpeg**, là où se trouvent les bugs qui
+coûtent cher :
+
+- les opérations sur l'EDL (couper un segment, retirer des mots, recalculer la
+  durée) ;
+- le recalage des sous-titres après coupes internes ;
+- le choix du ratio à partir de boîtes de personnes ;
+- le placement d'une coupe sur la frontière de plan la plus proche.
+
+**Sur golden files** : un extrait de référence de deux minutes avec son projet
+d'analyse figé, pour la sélection et le cadrage.
+
+**Non testé et assumé** : la qualité du choix de Gemini, non déterministe et
+subjective. Elle se juge à l'œil sur des sorties.
+
+Le CI doit tourner, contrairement à celui d'OpenShorts. Les tests purs n'ont
+besoin ni de GPU ni de ffmpeg, donc rien ne les en empêche.
+
+## 13. Ce qui est repris d'OpenShorts
+
+Portés en TypeScript, ce qui met toute la logique de décision du même côté et
+réduit le worker à « modèle vers JSON » :
+
+- le fenêtrage du transcript et le dimensionnement de la shortlist ;
+- les marqueurs `[SECONDS]` et leur troncature ;
+- le calage des bornes sur les mots.
+
+Repris tels quels : les deux prompts (notation et détail).
+
+Repris comme raisonnement et non comme code : la doctrine de placement de
+`branding.py`, en particulier le fait que la position donnée est le bord
+supérieur de la bande et non son centre, parce que la hauteur dépend du rapport
+d'aspect du logo, que l'opérateur choisit.
+
+## 14. Risques
+
+**Le repérage des candidats peut décevoir.** C'est le pari central et rien n'a été
+mesuré. Les cinq sources et le tri humain amortissent le risque sans l'annuler.
+À valider tôt sur une émission réelle, avant d'investir dans l'interface.
+
+**L'OCR des cartouches dépend de la stabilité de l'habillage.** Si la position ou
+la police ont changé au fil des vingt émissions, la source 3 devient irrégulière.
+
+**La lecture d'une EDL dans le navigateur** produit un à-coup à chaque saut. C'est
+acceptable pour juger, pas pour valider un rendu final.
+
+**La détection de personnes sur des plans très larges** reste à vérifier : YOLO
+tient mieux les profils que MediaPipe, mais des sujets à 6 % de la largeur
+d'image sur un proxy 640x360 font 38 px de large.
+
+## 15. Questions laissées ouvertes
+
+- Le nom du projet.
+- Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche
+  mieux au moment d'écrire le code.

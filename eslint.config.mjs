@@ -1,6 +1,34 @@
+import { builtinModules } from "node:module";
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+
+// La liste des modules natifs vient de Node lui-même, pas d'une énumération
+// écrite à la main. Une liste tenue à la main est fausse le jour où on l'écrit
+// — la première version de cette règle laissait passer `dns`, `tls`, `http2` et
+// `dgram` — et elle repérime à chaque version de Node. Les entrées en `_` sont
+// des internes dépréciés, sans intérêt ici.
+const MODULES_NATIFS = builtinModules.filter((m) => !m.startsWith("_"));
+
+// Ce qui atteint le réseau ou le navigateur sans passer par un `import`, donc
+// sans que `no-restricted-imports` n'en voie jamais rien. `fetch` est un global
+// depuis Node 18 : sans cette liste, `src/core` peut faire des requêtes tout en
+// passant un lint qui se présente comme une garantie de pureté.
+const GLOBAUX_INTERDITS = [
+  { name: "fetch", message: "src/core ne fait pas de réseau : l'appel vit dans src/server." },
+  { name: "XMLHttpRequest", message: "src/core ne fait pas de réseau." },
+  { name: "WebSocket", message: "src/core ne fait pas de réseau." },
+  { name: "EventSource", message: "src/core ne fait pas de réseau." },
+  {
+    name: "process",
+    message: "src/core ignore l'environnement : passer la valeur en argument depuis src/server.",
+  },
+  { name: "window", message: "src/core n'est pas de l'interface." },
+  { name: "document", message: "src/core n'est pas de l'interface." },
+  { name: "navigator", message: "src/core n'est pas de l'interface." },
+  { name: "localStorage", message: "src/core ne stocke rien lui-même." },
+  { name: "sessionStorage", message: "src/core ne stocke rien lui-même." },
+];
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -15,8 +43,10 @@ const eslintConfig = defineConfig([
   // fois. La règle est en `error`, pas en `warn` — un avertissement qu'on peut
   // ignorer n'est pas une frontière.
   //
-  // Les motifs sont doublés (`x` et `x/*`) parce que la correspondance ne
-  // traverse pas les `/` : sans `node:*/*`, `node:fs/promises` passerait.
+  // Un motif couvre déjà ses sous-chemins — vérifié en le mesurant : `node:*`
+  // attrape `node:fs/promises`, `fs` attrape `fs/promises`, `@google/genai`
+  // attrape `@google/genai/node`. Inutile donc de doubler chaque entrée en
+  // `x` et `x/*` ; la liste tient à plat.
   {
     files: ["src/core/**/*.ts", "src/core/**/*.tsx"],
     rules: {
@@ -26,23 +56,11 @@ const eslintConfig = defineConfig([
           patterns: [
             {
               group: [
+                // Le préfixe `node:` couvre tous les modules natifs d'un coup.
                 "node:*",
-                "node:*/*",
-                "fs",
-                "fs/*",
-                "path",
-                "path/*",
-                "child_process",
-                "os",
-                "crypto",
-                "worker_threads",
-                "stream",
-                "stream/*",
-                "http",
-                "https",
-                "net",
-                "url",
-                "util",
+                // Leurs formes nues restent légales, et sont donc listées une à
+                // une — mais par Node, pas par nous.
+                ...MODULES_NATIFS,
               ],
               message:
                 "src/core doit rester pur : pas d'accès au système. Mettre ça dans src/server.",
@@ -51,23 +69,16 @@ const eslintConfig = defineConfig([
               group: [
                 "next",
                 "next/*",
-                "next/**",
                 "react",
-                "react/*",
                 "react-dom",
-                "react-dom/*",
                 "@/server",
                 "@/server/*",
-                "@/server/**",
                 "@/app",
                 "@/app/*",
-                "@/app/**",
                 "@/components",
                 "@/components/*",
-                "@/components/**",
                 "better-sqlite3",
                 "@google/genai",
-                "@google/genai/*",
               ],
               message:
                 "src/core ne dépend ni de Next, ni de React, ni du serveur, ni d'un SDK réseau.",
@@ -94,17 +105,11 @@ const eslintConfig = defineConfig([
         },
       ],
 
-      // Lire `process.env` depuis `src/core` rendrait un calcul dépendant de
-      // l'environnement qui l'exécute — donc non reproductible en test. La
-      // configuration se résout dans `src/server` et se passe en argument.
-      "no-restricted-globals": [
-        "error",
-        {
-          name: "process",
-          message:
-            "src/core ignore l'environnement : passer la valeur en argument depuis src/server.",
-        },
-      ],
+      // Les globaux. Un import n'est pas la seule porte : `fetch` sort sur le
+      // réseau et `process.env` fait dépendre un calcul de l'environnement qui
+      // l'exécute — donc le rend irreproductible en test. Ni l'un ni l'autre
+      // n'apparaît dans une liste d'imports.
+      "no-restricted-globals": ["error", ...GLOBAUX_INTERDITS],
     },
   },
 

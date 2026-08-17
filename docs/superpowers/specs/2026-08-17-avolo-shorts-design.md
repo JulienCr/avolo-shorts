@@ -593,6 +593,29 @@ timeline.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 
+### La pile front
+
+| Choix | Pour quoi |
+|---|---|
+| Next.js | même socle que `obs-tools` et `obs-suite`, et un serveur est de toute façon nécessaire pour l'API, ffmpeg et le proxy servi en requêtes partielles |
+| shadcn/ui sur Base UI | les composants deviennent du code du projet, modifiables sans lutter contre une API ; rendu d'application de bureau plutôt que de site web |
+| TanStack Query | l'analyse dure 30 à 45 minutes : suivi d'avancement, invalidation, reprise d'étape |
+| TanStack Virtual | le **transcript**, environ 20 000 mots pour deux heures, affiché sélectionnable |
+| Zustand | état local de l'éditeur ; l'EDL étant une structure simple, l'annulation est une pile d'instantanés |
+
+**Écartés tant qu'il n'y a pas de raison** : `dnd-kit` (rien à glisser, les
+segments naissent d'une sélection dans le texte), TanStack Table (25 cartes, pas
+un tableau de données), `react-resizable-panels` (un seul séparateur au départ)
+et toute la famille timeline multi-pistes, waveforms et playhead. Ce dernier
+point mérite d'être dit explicitement, parce que c'est le réflexe naturel quand
+on décrit « une interface de montage » : **la surface d'édition ici est le
+transcript**, et la bande des plans est en lecture seule. Construire un NLE
+reviendrait à bâtir le morceau le plus difficile du métier pour un produit qui
+ne s'en sert pas.
+
+La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
+l'installation.
+
 ## 14. Vérification
 
 Le CI d'OpenShorts n'a jamais tourné une seule fois, et tout ce qui vit dans son

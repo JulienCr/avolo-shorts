@@ -24,8 +24,10 @@ n'occupe alors que 32 % de la hauteur d'écran.
 Trois émissions entières échantillonnées le 17 août 2026, 400 images chacune,
 détection MediaPipe pleine portée au seuil 0,5.
 
-Toutes les sources : 1920x1080, 60 fps, h264 à environ 6 Mbps, audio AAC stéréo
-48 kHz, 2 à 3 heures.
+Les trois émissions mesurées : 1920x1080, 60 fps, h264 à environ 6 Mbps, audio
+AAC stéréo 48 kHz, 2 à 3 heures. La cadence n'est pas uniforme sur tout le
+corpus : `2025-06-15-cqlp.mp4` est déjà en 30 fps. Sans conséquence, le filtre
+`fps=30` traite les deux cas.
 
 ### Le cadre le plus serré qui contient encore les gens
 
@@ -240,9 +242,14 @@ projects/2026-03-08-caro-mdlm/
 Le transcript est une propriété du fichier vidéo, pas un paramètre de projet. Le
 poser à côté de la source le fait survivre à la suppression du projet, le rend
 réutilisable par d'autres outils et le fait suivre la vidéo si elle est déplacée.
-Le diariseur de `rythmo-impro` procède déjà ainsi (`2026-01-04-drag.cli.json` est
-posé à côté du `.mp4`), et un dossier plutôt que des fichiers en vrac évite de
-noyer le dossier de replays.
+Un dossier plutôt que des fichiers en vrac évite de noyer le dossier de replays.
+
+Une version antérieure de cette section invoquait un précédent qui n'en est pas
+un : `2026-01-04-drag.cli.json` se trouve bien à côté de son `.mp4` dans le
+dossier des replays, mais c'est une copie. Le diariseur de `rythmo-impro` écrit
+dans un `output_dir` distinct (`rythmo-impro/out/` en pratique), et la
+redirection passe par `--output-dir`. Le sidecar tient sur ses propres raisons,
+il n'a pas de précédent maison.
 
 Le proxy reste dans le projet : 1,4 Go par émission n'ont rien à faire sur un
 Drive partagé. `people.json` aussi, parce qu'il dépend du détecteur et du taux
@@ -378,7 +385,7 @@ La parenté s'arrête au diariseur.
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg NVDEC/NVENC | 5 à 10 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU | 10 à 15 min |
 | Extraction audio | ffmpeg | 1 min |
 | Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
@@ -472,7 +479,12 @@ Ces valeurs deviennent un preset modifiable, pas des constantes en dur.
 **Étage 0, avant la transcription.** Whisper accepte un `initial_prompt` qui
 biaise son vocabulaire. Y placer les noms de l'émission, des jeux et des invités
 corrige les noms propres à la source, ce qui vaut mieux que n'importe quelle
-correction ultérieure et ne coûte rien.
+correction ultérieure.
+
+Ce n'est pas gratuit pour autant : le diariseur de `rythmo-impro` **n'expose pas
+ce paramètre** (zéro occurrence dans son `main.py` et son `config.toml`). Le
+brancher demande une quinzaine de lignes dans son chargement de modèle. Rien de
+sérieux, mais à prévoir en itération 3 plutôt qu'à découvrir.
 
 **Étage 1, un lexique déterministe.** Remplacements exacts pour ce que le
 glossaire n'a pas attrapé. Aucun risque.
@@ -572,6 +584,43 @@ Depuis l'original, jamais depuis le proxy.
 Deux fichiers par clip quand le ratio n'est pas 9:16 : le format natif (4:5 ou
 1:1) pour le feed Instagram et Facebook, et une variante 9:16 plein écran avec le
 contenu posé sur fond flouté pour TikTok et Shorts.
+
+### Encodage : ce que NVENC apporte, et où
+
+Mesuré le 18 août 2026 sur `2026-03-08-caro-mdlm.mp4`, par la session
+d'implémentation.
+
+| | CPU | NVENC |
+|---|---|---|
+| Proxy 960x540 à 30 fps | 14,2x | 15,7x |
+| Export 1080x1920 | 2,02x | **5,76x** |
+
+**Le proxy ne gagne rien à passer sur le GPU** : son goulot n'est pas l'encodeur.
+Une émission de 2h50 coûte une douzaine de minutes en CPU, ce qui reste dans
+l'ordre de grandeur de la section 6. **L'export gagne un facteur trois**, et
+c'est lui qui tourne une fois par clip validé.
+
+**Le ffmpeg d'Ubuntu sous WSL n'a ni `h264_nvenc` ni `-hwaccel cuda`** : ses
+accélérations sont `vdpau`, `vaapi`, `qsv`, `drm` et `opencl`. Une version
+antérieure de cette spec annonçait « NVDEC/NVENC » pour le proxy, ce que le
+binaire ne peut pas faire. Il faut un build statique qui les embarque.
+
+**Piège vérifié** : `-pix_fmt yuv420p` combiné à `-hwaccel_output_format cuda`
+fait échouer l'encodage sans message exploitable (« Nothing was written into
+output file »). Comme libass exige de toute façon des images en mémoire système
+pour incruster les sous-titres, le chemin retenu est `-hwaccel cuda` **sans**
+`-hwaccel_output_format cuda`.
+
+### Découper sans redécoder
+
+Un `-ss` par segment placé **avant** son `-i`, puis un filtre `concat`. Mesuré :
+36 secondes produites en 10, bornes exactes, aucun décodage depuis le début du
+fichier.
+
+La limite est le nombre de décodeurs ouverts, un par segment, ce qui tient
+jusqu'à une dizaine. Le nettoyage des hésitations de l'itération 3 produira des
+dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
+`concat` en copie de flux, comme le fait `reframe_v2.py:637` dans openshorts.
 
 ## 12. L'API
 

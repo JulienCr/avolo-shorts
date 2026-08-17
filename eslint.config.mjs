@@ -141,6 +141,19 @@ const eslintConfig = defineConfig([
           selector: "CallExpression[callee.name='require']",
           message: "src/core ne charge rien dynamiquement. Utiliser un import statique.",
         },
+        // `require` ne se nomme pas toujours tout seul. Les `.cjs` sont couverts
+        // par cette frontière, et `module.require('node:fs')` comme
+        // `require.call(null, 'node:fs')` chargent réellement le module en
+        // passant le sélecteur ci-dessus. On vise donc le nom partout où il
+        // apparaît, en objet comme en propriété.
+        {
+          selector: "MemberExpression[object.name=/^(require|module)$/]",
+          message: "src/core ne charge rien dynamiquement. Utiliser un import statique.",
+        },
+        {
+          selector: "MemberExpression[property.name='require']",
+          message: "src/core ne charge rien dynamiquement. Utiliser un import statique.",
+        },
       ],
 
       // Les globaux. Un import n'est pas la seule porte : `fetch` sort sur le

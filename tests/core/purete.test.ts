@@ -107,8 +107,17 @@ describe('la frontière de pureté de src/core', () => {
     expect(rules).toContain('no-restricted-syntax')
   })
 
-  it('refuse require()', async () => {
-    const rules = await erreurs("export const os = require('node:os')\n", 'src/core/sonde.ts')
+  // `require` ne se nomme pas toujours tout seul : les `.cjs` sont couverts par
+  // la frontière, et les formes membres chargent le module en passant un
+  // sélecteur qui ne vise que `callee.name` (Copilot).
+  it.each([
+    ["require()", "export const os = require('node:os')"],
+    ['module.require()', "export const os = module.require('node:fs')"],
+    ['require.call()', "export const os = require.call(null, 'node:fs')"],
+    ['require.resolve()', "export const p = require.resolve('node:fs')"],
+    ['module.exports', 'module.exports = {}'],
+  ])('refuse %s', async (_nom, code) => {
+    const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-syntax')
   })
 

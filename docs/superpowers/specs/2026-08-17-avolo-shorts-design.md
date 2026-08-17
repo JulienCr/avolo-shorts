@@ -105,6 +105,8 @@ Dans le périmètre :
 - ingestion d'un fichier local, analyse complète, repérage de candidats ;
 - délimitation d'un extrait sur son unité narrative entière ;
 - nettoyage du transcript (hésitations appliquées, digressions proposées) ;
+- correction du transcript (glossaire, lexique, modèle local) et correction
+  manuelle persistée ;
 - choix du cadre et rendu ;
 - sous-titres incrustés, logo et mention Twitch ;
 - interface de tri et de montage ;
@@ -144,12 +146,13 @@ d'autre.
 source.mp4
   ├─► proxy                     <- params proxy
   ├─► audio.wav
-  │     └─► transcript          <- modèle Whisper, params
+  │     └─► transcript          <- modèle Whisper, glossaire
+  │           └─► transcript corrigé  <- lexique, modèle Ollama, corrections humaines
   ├─► shots                     <- proxy
   ├─► people                    <- proxy, params détection
   └─► audio_analysis
         │
-        └─► candidates          <- transcript, shots, people, audio, prompts, modèle
+        └─► candidates          <- transcript corrigé, shots, people, audio, prompts, modèle
               └─► clips (EDL)   <- candidats et éditions humaines
                     └─► rendus  <- EDL, source, style (logo, sous-titres, habillage)
 ```
@@ -282,6 +285,7 @@ La parenté s'arrête au diariseur.
 | Proxy 640x360, keyframe 1 s | ffmpeg NVDEC/NVENC | 5 à 10 min |
 | Extraction audio | ffmpeg | 1 min |
 | Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
+| Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
 | Frontières de plans | détection sur le proxy | 2 min |
 | Personnes | YOLO classe *person*, 2 images par seconde | 5 min |
 | Analyse audio | voir plus bas | 5 min |
@@ -356,7 +360,83 @@ la boucle, le second non.
 Chaque borne de coupe cherche d'abord une frontière de plan dans une fenêtre de
 tolérance. À défaut, jump cut assumé.
 
-## 8. Le cadrage
+## 8. Les sous-titres
+
+### Le format
+
+Repris d'OpenShorts, dont le rendu convient : karaoké mot à mot, Anton 44, blanc
+sur surlignage `#FFE500`, contour noir de 4 px, majuscules, 16 caractères par
+carton au maximum et 1,4 seconde par carton au maximum. Génération d'un fichier
+ASS puis incrustation par ffmpeg.
+
+Ces valeurs deviennent un preset modifiable, pas des constantes en dur.
+
+### La correction, trois étages du moins risqué au plus risqué
+
+**Étage 0, avant la transcription.** Whisper accepte un `initial_prompt` qui
+biaise son vocabulaire. Y placer les noms de l'émission, des jeux et des invités
+corrige les noms propres à la source, ce qui vaut mieux que n'importe quelle
+correction ultérieure et ne coûte rien.
+
+**Étage 1, un lexique déterministe.** Remplacements exacts pour ce que le
+glossaire n'a pas attrapé. Aucun risque.
+
+**Étage 2, un modèle local via Ollama**, sur ce qui reste : ponctuation et
+homophones français (et/est, a/à, ces/ses/c'est) plus les accords. Seul étage qui
+peut mal tourner.
+
+### Le contrat qui rend la réécriture impossible
+
+Le modèle ne renvoie pas de texte. Il renvoie des substitutions indexées :
+
+```json
+{ "corrections": [
+  { "i": 12, "w": "Avolo" },
+  { "i": 45, "w": "c'est" },
+  { "i": 60, "merge": 2, "w": "c'est-à-dire" }
+]}
+```
+
+`i` est l'index du mot dans l'empan soumis, `w` son remplacement, `merge: n`
+fusionne n mots et le résultat prend leur empan temporel.
+
+Insertion, suppression et réordonnancement ne sont pas exprimables dans ce
+format. Le modèle ne *peut* pas réécrire. C'est une propriété de la sortie et non
+une consigne dans un prompt, ce qui est la seule garantie qui tienne : une
+consigne se contourne.
+
+Deux gardes par-dessus :
+
+- **Invariance phonétique.** Une substitution qui ne sonne pas comme l'original
+  est rejetée. C'est la définition opérationnelle de « corriger sans changer ce
+  qui a été dit ».
+- **Horodatages préservés** mot par mot, sinon le karaoké se désynchronise.
+
+### La correction humaine
+
+Le transcript est déjà la surface d'édition de l'interface : corriger un mot est
+la même interaction que supprimer une phrase.
+
+Une correction remonte dans le sidecar. Corriger « Avolo » une fois le corrige
+dans tous les clips de cette émission, définitivement. Un terme corrigé alimente
+aussi le glossaire de l'étage 0, donc les émissions suivantes en profitent.
+
+### Ce qui est constaté sur la machine
+
+Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
+`gemma4:26b` (25,8 milliards de paramètres, quantisation Q4_K_M, 18 Go).
+
+- **L'adresse de la passerelle WSL change au redémarrage.** À résoudre
+  dynamiquement (`ip route show default`), jamais à coder en dur.
+- **26 B est surdimensionné pour cette tâche.** Ponctuer et arbitrer des
+  homophones sur des empans courts relève du gros volume et de la faible
+  difficulté ; un modèle de 4 à 8 B ira nettement plus vite pour un résultat
+  équivalent. Le modèle et l'adresse sont configurables.
+- **Contrainte de VRAM, bloquante.** 18 Go de modèle et WhisperX large-v3 ne
+  tiennent pas ensemble sur 24 Go. La correction s'exécute après que la
+  transcription a rendu le GPU, jamais en parallèle.
+
+## 9. Le cadrage
 
 **Le ratio est choisi une fois par clip.** Pour chaque image des segments retenus,
 on calcule la largeur nécessaire, on prend le **percentile 90** (pas le maximum,
@@ -381,7 +461,7 @@ cadre large et stable vaut mieux qu'un cadre serré qui vacille.
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
 tout crop pris à droite : on l'accepte.
 
-## 9. Le rendu
+## 10. Le rendu
 
 Depuis l'original, jamais depuis le proxy.
 
@@ -397,7 +477,7 @@ Deux fichiers par clip quand le ratio n'est pas 9:16 : le format natif (4:5 ou
 1:1) pour le feed Instagram et Facebook, et une variante 9:16 plein écran avec le
 contenu posé sur fond flouté pour TikTok et Shorts.
 
-## 10. L'API
+## 11. L'API
 
 ```
 POST   /api/projects              { source } -> 202 + projectId
@@ -436,7 +516,7 @@ OpenShorts :
   fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
   toute la bibliothèque en charabia.
 
-## 11. L'interface
+## 12. L'interface
 
 **Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
 premières phrases. Garder ou écarter d'un clic. Trier 25 candidats occupe plus de
@@ -454,7 +534,7 @@ timeline.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 
-## 12. Vérification
+## 13. Vérification
 
 Le CI d'OpenShorts n'a jamais tourné une seule fois, et tout ce qui vit dans son
 `main.py` est intestable parce que le module importe `torch` au chargement. D'où
@@ -472,7 +552,14 @@ coûtent cher :
 - **l'invalidation du graphe** : demander une cible calcule exactement les étapes
   manquantes ou périmées, et aucune autre. Un changement de style ne doit
   invalider que les rendus, et le test doit le prouver plutôt que le supposer ;
-- **la survie du travail humain** à une nouvelle passe de repérage.
+- **la survie du travail humain** à une nouvelle passe de repérage ;
+- **le contrat de correction** : une réponse du modèle qui insère, supprime ou
+  réordonne des mots est rejetée ; une substitution qui ne sonne pas comme
+  l'original est rejetée ; les horodatages survivent à une fusion. Ce sont les
+  tests qui empêchent une correction de devenir une réécriture, et ils
+  s'écrivent sur des réponses de modèle enregistrées, sans appeler Ollama ;
+- **la découpe en cartons** : 16 caractères et 1,4 seconde au maximum, sur des
+  mots dont les durées sont fournies.
 
 **Sur golden files** : un extrait de référence de deux minutes avec son projet
 d'analyse figé, pour la sélection et le cadrage.
@@ -483,7 +570,7 @@ subjective. Elle se juge à l'œil sur des sorties.
 Le CI doit tourner, contrairement à celui d'OpenShorts. Les tests purs n'ont
 besoin ni de GPU ni de ffmpeg, donc rien ne les en empêche.
 
-## 13. Ce qui est repris d'OpenShorts
+## 14. Ce qui est repris d'OpenShorts
 
 Portés en TypeScript, ce qui met toute la logique de décision du même côté et
 réduit le worker à « modèle vers JSON » :
@@ -499,7 +586,7 @@ Repris comme raisonnement et non comme code : la doctrine de placement de
 supérieur de la bande et non son centre, parce que la hauteur dépend du rapport
 d'aspect du logo, que l'opérateur choisit.
 
-## 14. Risques
+## 15. Risques
 
 **Le repérage des candidats peut décevoir.** C'est le pari central et rien n'a été
 mesuré. Les cinq sources et le tri humain amortissent le risque sans l'annuler.
@@ -515,7 +602,7 @@ acceptable pour juger, pas pour valider un rendu final.
 tient mieux les profils que MediaPipe, mais des sujets à 6 % de la largeur
 d'image sur un proxy 640x360 font 38 px de large.
 
-## 15. Questions laissées ouvertes
+## 16. Questions laissées ouvertes
 
 - Le nom du projet.
 - Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche

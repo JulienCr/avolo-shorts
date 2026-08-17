@@ -35,6 +35,31 @@ Ce build ne remplace pas celui du système : rien n'est écrit hors de
 `~/.local/opt`, et `/usr/bin/ffmpeg` reste ce qu'il était. Le projet trouve le
 bon binaire par `FFMPEG_BIN`.
 
+**La release est épinglée**, à `autobuild-2026-08-17-13-05`, qui porte le
+binaire sur lequel toutes les mesures de cette page ont été faites. BtbN publie
+aussi une étiquette `latest`, réécrite à chaque build nocturne : la viser
+rendrait l'installation non reproductible, et la spec §5 confie précisément ce
+rôle à `setup.sh`, faute de conteneur. Pour prendre sciemment un build plus
+récent :
+
+```bash
+FFMPEG_RELEASE=latest ./setup.sh --force
+```
+
+Il faut alors reporter ici la nouvelle version et refaire les mesures : rien ne
+garantit qu'un autre build rende les mêmes chiffres, et c'est déjà arrivé (voir
+plus bas l'écart avec la spec).
+
+Chaque release publie un fichier `checksums.sha256`. Le script y lit le nom de
+l'archive au lieu de le construire, ce qui le rend indifférent à la release
+visée, puis vérifie la somme avant d'extraire quoi que ce soit.
+
+**Le build téléchargé est vérifié avant de remplacer celui en place.** Les six
+contrôles tournent dans le dossier temporaire ; l'installation existante n'est
+touchée qu'une fois tous passés. Un build qui aurait perdu libass, ou qui ne
+parlerait plus au pilote, laisse donc une machine en état de marche plutôt
+qu'une machine sans ffmpeg.
+
 ### Les trois capacités, et pourquoi les trois
 
 | Capacité | À quoi elle sert |
@@ -54,7 +79,8 @@ synthèse. Cette dernière vérification n'est pas décorative : un encodeur peu
 être compilé dans le binaire et échouer au premier appel si le pilote ne suit
 pas.
 
-Version installée le 18 août 2026 : `N-126188-g426841da9d-20260817`.
+Version épinglée et installée le 18 août 2026 :
+`N-126188-g426841da9d-20260817`.
 
 ## Les mesures
 
@@ -148,8 +174,9 @@ Les images redescendent en mémoire système, ce qu'exige de toute façon libass
 pour incruster les sous-titres. Le coût est celui du transfert, et il est déjà
 compris dans les 4,58x ci-dessus.
 
-Un test de `renderArgs` verrouille cette règle : les arguments produits ne
-doivent jamais contenir `-hwaccel_output_format`.
+La tâche 5 verrouillera cette règle par un test sur `renderArgs` : les arguments
+produits ne devront jamais contenir `-hwaccel_output_format`. Ce test n'existe
+pas encore.
 
 ## Deux pièges de la détection, dans setup.sh
 

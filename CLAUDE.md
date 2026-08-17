@@ -48,8 +48,15 @@ tiennent dans un 1:1 ou plus serré, et ce chiffre est stable sur les trois.
 - **VRAM** : un modèle Ollama de 18 Go et WhisperX large-v3 ne tiennent pas
   ensemble sur 24 Go. La correction des sous-titres s'exécute après la
   transcription, jamais en parallèle.
-- **Sources vidéo** : 1920x1080, 60 fps aujourd'hui, 4,5 à 12,7 Go pièce. Les
-  tournages à venir passeront en 30 fps.
+- **Sources vidéo** : 1920x1080, 4,5 à 12,7 Go pièce. La cadence n'est pas
+  uniforme : les trois émissions mesurées sont en 60 fps, `2025-06-15-cqlp.mp4`
+  est en 30. Sans conséquence, le filtre `fps=30` traite les deux. Les tournages
+  à venir passeront en 30 fps.
+- **ffmpeg** : le binaire d'Ubuntu sous WSL n'a **ni `h264_nvenc` ni
+  `-hwaccel cuda`**. Il faut un build statique. NVENC ne gagne rien sur le proxy
+  (14,2x contre 15,7x) et un facteur trois sur l'export (2,02x contre 5,76x).
+  Ne jamais combiner `-pix_fmt yuv420p` et `-hwaccel_output_format cuda` :
+  l'encodage échoue sans message exploitable.
 - Le diariseur de `~/dev/rythmo-impro/diarizer` (WhisperX large-v3 + pyannote)
   existe déjà et fonctionne. Il tourne **en venv, pas en Docker** : son
   `run-wsl.sh` exporte `LD_LIBRARY_PATH` vers le `nvidia/cudnn/lib` du venv,

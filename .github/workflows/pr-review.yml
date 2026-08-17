@@ -7,8 +7,16 @@ name: Review IA des PR
 # Le code de la review vit dans JulienCr/gh-actions, pas ici : une correction de
 # prompt faite là-bas vaut pour tous les dépôts qui épinglent @v2.
 #
-# Le job ne bloque jamais. Quota épuisé, panne d'Ollama, secret absent : c'est
-# dit dans un commentaire quand c'est possible, et le job sort en 0.
+# Le job ne bloque jamais : il sort en 0 quoi qu'il arrive. Mais deux cas d'échec
+# ne se ressemblent pas, et les confondre coûte cher :
+#
+#   - quota épuisé, panne d'Ollama : l'action le dit dans un commentaire ;
+#   - **secret absent : totalement silencieux**. L'action le journalise et ne
+#     poste rien du tout.
+#
+# Donc tant que `OLLAMA_API_KEY` n'est pas posé, une PR sans commentaire n'a pas
+# été jugée irréprochable : elle n'a pas été relue. Vérifier le secret avant de
+# lire une absence de commentaire comme un feu vert.
 #
 # ⚠️ Il poste un **commentaire top-level**, pas une review. Ni `gh pr view
 # --comments` ni la liste des fils de review ne le montrent au bon endroit : la

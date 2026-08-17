@@ -263,10 +263,15 @@ demandera des réglages, et ce qui se règle doit vivre là où on le règle.
 largeur ne fait que 38 px sur un proxy 640, ce qui est mince pour YOLO ; à 960 il
 en fait 58. Le poids double, ce qui reste sans conséquence sur un disque local.
 
-**Le proxy est en 30 fps quelle que soit la source.** Les vingt émissions
-existantes sont en 60 fps, décimées en 2:1, ce qui est exact et sans saccade. Les
-tournages à venir passeront en 30 fps : le 60 double le coût de décodage à chaque
-étape et la taille des fichiers, sans rien apporter à un vertical compressé.
+**Le proxy est en 30 fps quelle que soit la source**, et c'est bien « quelle que
+soit » qu'il faut lire : le corpus existant est majoritairement en 60 fps mais
+pas uniformément, `2025-06-15-cqlp.mp4` étant déjà en 30. Un filtre `fps=30`
+couvre les deux cas, en décimant 2:1 dans le premier et sans rien faire dans le
+second. Aucun chemin de code n'a donc à connaître la cadence de sa source.
+
+Les tournages à venir passeront en 30 fps : le 60 double le coût de décodage à
+chaque étape et la taille des fichiers, sans rien apporter à un vertical
+compressé.
 
 **Repli** : si le dossier source est en lecture seule, le sidecar va dans le
 projet et l'interface le signale. Pas d'échec, seulement moins de réutilisation.

@@ -14,4 +14,12 @@ describe('clipDuration', () => {
   it('vaut zéro sans segment', () => {
     expect(clipDuration([])).toBe(0)
   })
+
+  // Le `Math.max(0, …)` de l'implémentation était documenté mais pas exercé
+  // (Copilot). Sans ce cas, une régression rendrait la durée négative — et une
+  // durée négative se propage en silence, puisqu'elle s'additionne.
+  it('compte un segment inversé pour zéro plutôt que de retrancher du temps', () => {
+    expect(clipDuration([{ start: 2, end: 1 }])).toBe(0)
+    expect(clipDuration([{ start: 0, end: 10 }, { start: 2, end: 1 }])).toBe(10)
+  })
 })

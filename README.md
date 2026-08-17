@@ -19,8 +19,14 @@ clip. Sur trois émissions mesurées, seuls 24 à 33 % du temps tiennent dans un
 
 Un seul app Next.js. `src/core/` est du TypeScript **pur** : ni disque, ni
 processus, ni réseau, ni Next. C'est là que vit toute la logique de décision, et
-c'est ce qui rend le CI utile sans GPU, sans ffmpeg et sans vidéo. Une règle
-ESLint fait échouer le lint dès qu'un import y viole la frontière.
+c'est ce qui rend le CI utile sans GPU, sans ffmpeg et sans vidéo.
+
+La frontière n'est pas une intention, c'est une règle ESLint en `error` : depuis
+`src/core/`, seuls les fichiers voisins, `@/core/` et `zod` sont importables. Le
+reste — modules natifs, Next, React, SDK, stockage — fait échouer le lint, et les
+globaux qui contournent l'import (`fetch`, `process`) aussi.
+`tests/core/purete.test.ts` vérifie la règle elle-même, contrôles négatifs
+compris.
 
 `src/server/` porte l'impur : fichiers, SQLite, ffmpeg, WhisperX.
 

@@ -43,10 +43,12 @@ const eslintConfig = defineConfig([
   // fois. La règle est en `error`, pas en `warn` — un avertissement qu'on peut
   // ignorer n'est pas une frontière.
   //
-  // Un motif couvre déjà ses sous-chemins — vérifié en le mesurant : `node:*`
-  // attrape `node:fs/promises`, `fs` attrape `fs/promises`, `@google/genai`
-  // attrape `@google/genai/node`. Inutile donc de doubler chaque entrée en
-  // `x` et `x/*` ; la liste tient à plat.
+  // Un motif de `group` couvre déjà ses sous-chemins — vérifié en le mesurant :
+  // `node:*` attrape `node:fs/promises` et `fs` attrape `fs/promises`. Inutile
+  // donc de doubler chaque entrée en `x` et `x/*` ; la liste tient à plat.
+  //
+  // `tests/core/purete.test.ts` vérifie tout ce qui suit, cas par cas, avec ses
+  // contrôles négatifs. Modifier une règle ici sans y passer, c'est la défaire.
   {
     files: ["src/core/**/*.ts", "src/core/**/*.tsx"],
     rules: {

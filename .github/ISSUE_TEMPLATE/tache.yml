@@ -24,7 +24,9 @@ body:
     id: area
     attributes:
       label: Périmètre
-      description: Le domaine principal. En ajouter un second seulement si c'est vraiment moitié-moitié.
+      description: >
+        Le domaine principal, un seul. Si la tâche en touche vraiment deux à
+        parts égales, ajoute le second label à la main après création.
       options:
         - "ingest — source, proxy, sidecar, copie locale"
         - "transcript — WhisperX, correction, sous-titres"

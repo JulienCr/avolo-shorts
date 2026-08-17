@@ -109,8 +109,8 @@ Trois hypothèses écartées, chacune par une mesure, pour éviter qu'on les rep
 - **Le décodage n'y est pour rien.** Décoder seul, `-hwaccel cuda` et rien
   d'autre, tourne à 16x (957 images/s).
 - **Les filtres n'y sont pour rien.** Sans aucun filtre, l'encodage tourne à
-  4,59x. Avec `crop` et `scale`, 4,60x. En remplaçant lanczos par bicubic, 4,60x
-  aussi.
+  4,59x. Avec `crop` et `scale` en lanczos, 4,58x. En remplaçant lanczos par
+  bicubic, 4,60x. Les trois se tiennent dans le bruit.
 
 Ce qui reste : le préréglage NVENC. `p5` plafonne à 275 images/s, `p4` monte à
 451, sur le même matériel et la même source. `-spatial-aq` et `-temporal-aq` ne

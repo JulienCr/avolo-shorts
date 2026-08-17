@@ -102,6 +102,15 @@ else
     command -v "$tool" >/dev/null 2>&1 || { bad "$tool est requis"; exit 1; }
   done
 
+  # L'archive visée est un binaire x86-64. Sur une autre architecture elle
+  # s'installerait sans broncher et échouerait au premier appel, avec un message
+  # qui ne dirait pas pourquoi.
+  arch="$(uname -m)"
+  if [ "$arch" != "x86_64" ]; then
+    bad "architecture $arch non prise en charge : le build BtbN visé est linux64 (x86-64)"
+    exit 1
+  fi
+
   mkdir -p "$PREFIX"
 
   # Le dossier de travail est dans $PREFIX et non /tmp : le déplacement final
@@ -109,6 +118,13 @@ else
   tmp="$(mktemp -d "$PREFIX/.ffmpeg-install.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
 
+  # Pas de vérification de somme de contrôle, faute de somme à vérifier : la
+  # release `latest` de BtbN est une étiquette mobile, réécrite à chaque build,
+  # et elle ne publie pas de .sha256 (404 au 18 août 2026). L'intégrité repose
+  # donc sur HTTPS vers github.com. Corollaire : deux exécutions à un mois
+  # d'écart n'installent pas le même binaire. `setup.sh` affiche la version
+  # obtenue, et docs/environnement.md consigne celle sur laquelle les mesures
+  # ont été faites.
   say "Téléchargement du build statique BtbN"
   curl -fL --retry 3 --retry-delay 2 -o "$tmp/ffmpeg-gpl.tar.xz" "$URL"
 

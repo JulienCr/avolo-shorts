@@ -98,9 +98,16 @@ Proxy 960x540@30, `-vf fps=30,scale=960:540`.
 
 NVENC est plus lent. Le travail est dominé par le redimensionnement, qui se fait
 sur le processeur dans les deux cas, et la descente des images depuis la mémoire
-du GPU coûte plus qu'elle ne rapporte. Le proxy reste donc sur le CPU. Une
-mesure antérieure sur le fichier entier donnait 14,2x contre 15,7x, soit la même
-conclusion : le gain est nul.
+du GPU coûte plus qu'elle ne rapporte. Une mesure antérieure sur le fichier
+entier donnait 14,2x contre 15,7x, soit la même conclusion : le gain est nul.
+
+**Divergence à arbitrer, pas encore tranchée.** La section 6 de la spec porte
+encore `ffmpeg NVDEC/NVENC` pour l'étape de proxy. Cette page mesure l'inverse,
+et le plan d'itération 0 relevait déjà « gain nul » sur ce point. La spec fait
+autorité et la corriger sort du périmètre de cette PR, donc les deux textes se
+contredisent tant que personne n'a tranché. En attendant, `proxyArgs` reçoit son
+encodeur en argument (tâche 5) : le choix se fait à l'appel, sans toucher au
+code. Ce que dit la mesure, c'est qu'il n'y a rien à gagner à y mettre le GPU.
 
 ### L'export gagne beaucoup
 

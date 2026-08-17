@@ -46,6 +46,10 @@ venv/
 assets/brand/*
 !assets/brand/README.md
 
+# Worktrees des agents. Ce sont des dépôts git imbriqués et actifs : sans cette
+# règle, n'importe quel `git add -A` les embarque comme gitlinks.
+.claude/worktrees/
+
 # Divers
 .DS_Store
 *.log

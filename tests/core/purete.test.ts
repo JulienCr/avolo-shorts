@@ -124,6 +124,8 @@ describe('la frontière de pureté de src/core', () => {
     // l'identifiant nu, donc `globalThis.fetch` passait la liste entière.
     ['globalThis.fetch', "export const f = () => globalThis.fetch('https://exemple.fr')"],
     ['globalThis.process', 'export const f = () => globalThis.process.env.FFMPEG_BIN'],
+    ['global.fetch', "export const f = () => global.fetch('https://exemple.fr')"],
+    ['self.fetch', "export const f = () => self.fetch('https://exemple.fr')"],
   ])('refuse le global %s', async (_nom, code) => {
     const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-globals')

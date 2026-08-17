@@ -28,18 +28,15 @@ const GLOBAUX_INTERDITS = [
   { name: "navigator", message: "src/core n'est pas de l'interface." },
   { name: "localStorage", message: "src/core ne stocke rien lui-même." },
   { name: "sessionStorage", message: "src/core ne stocke rien lui-même." },
-  // Les deux portes dérobées vers tout ce qui précède : `no-restricted-globals`
-  // ne contrôle que l'identifiant nu, donc `globalThis.fetch(...)` passait la
-  // liste entière. `src/core` étant du calcul, il n'a aucune raison de nommer
-  // l'objet global — l'interdire ferme la porte plutôt que de la surveiller.
-  {
-    name: "globalThis",
+  // Les trois portes dérobées vers tout ce qui précède : `no-restricted-globals`
+  // ne contrôle que l'identifiant nu, donc `globalThis.fetch(...)`,
+  // `global.fetch(...)` et `self.fetch(...)` passaient la liste entière.
+  // `src/core` étant du calcul, il n'a aucune raison de nommer l'objet global —
+  // l'interdire ferme la porte plutôt que de la surveiller.
+  ...["globalThis", "global", "self"].map((name) => ({
+    name,
     message: "src/core n'a rien à demander à l'objet global : passer la valeur en argument.",
-  },
-  {
-    name: "global",
-    message: "src/core n'a rien à demander à l'objet global : passer la valeur en argument.",
-  },
+  })),
 ];
 
 const eslintConfig = defineConfig([

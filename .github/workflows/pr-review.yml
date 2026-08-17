@@ -1,0 +1,65 @@
+name: Review IA des PR
+
+# Un troisième relecteur, à côté de Copilot et de Codex. Il lit avec la doctrine
+# du dépôt sous les yeux, ce qu'aucun des deux autres ne fait : les décisions de
+# conception de ce projet sont adossées à des mesures et se défont par réflexe.
+#
+# Le code de la review vit dans JulienCr/gh-actions, pas ici : une correction de
+# prompt faite là-bas vaut pour tous les dépôts qui épinglent @v2.
+#
+# Le job ne bloque jamais. Quota épuisé, panne d'Ollama, secret absent : c'est
+# dit dans un commentaire quand c'est possible, et le job sort en 0.
+#
+# ⚠️ Il poste un **commentaire top-level**, pas une review. Ni `gh pr view
+# --comments` ni la liste des fils de review ne le montrent au bon endroit : la
+# skill check-reviews va le chercher dans le bloc `comments`.
+#
+# ⚠️ Il ne relit qu'à l'ouverture, pas à chaque push, contrairement à Copilot.
+# Ne pas l'attendre sur une deuxième passe de correction.
+
+on:
+  pull_request:
+    # `opened` est le cas nominal. `ready_for_review` rattrape les brouillons,
+    # qu'on ne relit pas tant qu'ils ne sont pas prêts.
+    types: [opened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Numéro de la PR à relire'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Un brouillon ne consomme pas de quota : il sera relu au passage en « prêt ».
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    # Trois passes en parallèle puis leur fusion : le mur vaut jusqu'à deux fois
+    # le timeout interne de l'action, plus la marge du commentaire d'échec.
+    timeout-minutes: 40
+    steps:
+      # La tête de la PR, pas le commit de merge : le contenu lu doit
+      # correspondre au diff, sinon le modèle raisonne sur des numéros de ligne
+      # qui ont bougé.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr) }}
+
+      - uses: JulienCr/gh-actions/pr-review@v2
+        with:
+          pr: ${{ github.event.pull_request.number || inputs.pr }}
+          ollama-api-key: ${{ secrets.OLLAMA_API_KEY }}
+          # CLAUDE.md porte les sept décisions à ne pas défaire ; la spec porte
+          # les mesures qui les fondent. Un relecteur qui n'a que la première
+          # sait qu'une règle existe, pas pourquoi elle résiste.
+          doctrine: |
+            CLAUDE.md
+            docs/superpowers/specs/2026-08-17-avolo-shorts-design.md

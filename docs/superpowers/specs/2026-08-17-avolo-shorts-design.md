@@ -3,7 +3,8 @@
 Date : 17 août 2026.
 Statut : validé section par section, en attente de relecture finale avant plan d'implémentation.
 
-`avolo-shorts` est un nom de travail. Le dossier se renomme en une commande.
+Le nom `avolo-shorts` est retenu, par cohérence avec `avolo-cam`, `avolo-server`
+et `avolo-logo`.
 
 ## 1. Le problème
 
@@ -687,6 +688,6 @@ confirmer sur du plan très large.
 
 ## 17. Questions laissées ouvertes
 
-- Le nom du projet.
 - Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche
-  mieux au moment d'écrire le code.
+  mieux au moment d'écrire le code, et l'itération 0 n'en dépend pas : elle
+  n'utilise que la transcription, pas les locuteurs.

@@ -78,21 +78,31 @@ const eslintConfig = defineConfig([
                 "src/core ne dépend ni de Next, ni de React, ni du serveur, ni d'un SDK réseau.",
             },
             {
-              // Les autres étages du projet, par l'alias **et** par le chemin
-              // relatif. Un motif en `@/server/*` seul ne couvre que l'alias :
-              // `import '../server/db'` désigne exactement le même fichier et
+              // Par l'alias : tout `@/` sauf `@/core/`. Énoncé à l'envers —
+              // ce qui est permis, pas ce qui est interdit — la règle n'a plus
+              // de liste à tenir à jour, donc plus de liste à oublier quand un
+              // dossier apparaît.
+              regex: "^@/(?!core/)",
+              message:
+                "src/core ne dépend d'aucun autre étage du projet : seul @/core/ lui est accessible.",
+            },
+            {
+              // Par le chemin relatif, qui désigne les mêmes fichiers. Un motif
+              // en `@/server/*` seul ne couvre que l'alias : `../server/db`
               // passait la frontière sans un mot.
               //
               // Une regex plutôt qu'un glob en `**/server/**`, qui attraperait
               // aussi les sous-chemins de vrais paquets — `zod/lib/types`,
-              // `firebase/app`. Ici on n'ancre que sur l'alias `@/` ou une
-              // remontée `../`, donc jamais sur un paquet de node_modules.
+              // `firebase/app`. Ancrer sur une remontée `../` ne peut pas
+              // désigner node_modules.
               //
-              // `./x` et `../x` à l'intérieur de `src/core` restent permis :
-              // `captions/retime.ts` a besoin de `../edl`.
-              regex: "^(?:@/|(?:\\.\\./)+)(server|app|components|lib)(?:/|$)",
+              // Ici la liste reste explicite, faute de mieux : la profondeur à
+              // laquelle un `../` quitte `src/core` dépend du fichier qui
+              // l'écrit, et une regex ne la connaît pas. `../edl` reste donc
+              // permis — `captions/retime.ts` en a besoin.
+              regex: "^(?:\\.\\./)+(server|app|components|hooks|lib|worker)(?:/|$)",
               message:
-                "src/core ne dépend d'aucun autre étage du projet — ni par l'alias @/, ni par un chemin relatif.",
+                "src/core ne dépend d'aucun autre étage du projet, pas même par un chemin relatif.",
             },
           ],
         },

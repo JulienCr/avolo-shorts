@@ -52,6 +52,7 @@ const INTERDITS = [
   ["import { p } from '@/server/steps/deep/proxy'", 'même en profondeur'],
   ["import { B } from '@/components/ui/button'", ''],
   ["import { cn } from '@/lib/utils'", ''],
+  ["import { u } from '@/hooks/use-clip'", "un dossier qu'aucune liste n'anticipait"],
   // Le même fichier désigné par un chemin relatif. Un motif en `@/server/*`
   // seul ne couvrait que l'alias et laissait passer celui-ci (Copilot).
   ["import { db } from '../server/db'", "l'alias contourné d'un cran"],
@@ -113,6 +114,14 @@ describe('la frontière de pureté de src/core', () => {
       ["import { normalizeSegments } from '../edl'", 'export const x = normalizeSegments'].join(
         '\n',
       ),
+      'src/core/captions/retime.ts',
+    )
+    expect(rules).toEqual([])
+  })
+
+  it('laisse passer @/core, le seul alias qui reste accessible', async () => {
+    const rules = await erreurs(
+      "import { clipDuration } from '@/core/edl'\nexport const x = clipDuration\n",
       'src/core/captions/retime.ts',
     )
     expect(rules).toEqual([])

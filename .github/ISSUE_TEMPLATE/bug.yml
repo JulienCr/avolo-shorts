@@ -25,7 +25,7 @@ body:
         Les étapes, et surtout la source concernée : sa durée, son nombre de
         personnes à l'image, si l'habillage est incrusté. Plusieurs bugs de
         cadrage ne se voient que sur certains types de plan.
-      value: |
+      placeholder: |
         1.
         2.
         3.

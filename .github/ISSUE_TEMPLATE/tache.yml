@@ -85,4 +85,7 @@ body:
       label: Comment on saura que c'est fini
       description: >
         Ce qu'on doit pouvoir observer. Une commande qui passe, un écran qui
-        affiche quelque chose, un test qui devient vert.
+        affiche quelque chose, un test qui devient vert. Une tâche sans critère
+        de fin ne peut pas être fermée.
+    validations:
+      required: true

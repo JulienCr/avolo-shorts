@@ -23,8 +23,11 @@
 
 - [ ] le clip reste une **liste de segments**, jamais un couple début/fin
 - [ ] on raccourcit **par le milieu**, pas par les bouts
+- [ ] le **ratio reste choisi par clip** (9:16, 4:5, 1:1, 16:9), pas figé
 - [ ] le **crop reste fixe à l'intérieur d'un plan**
+- [ ] on détecte des **corps**, pas des visages
 - [ ] la surface d'édition reste le **transcript**, pas une timeline
+- [ ] la correction renvoie des **substitutions indexées**, pas du texte
 - [ ] la logique testable reste **hors des modules qui importent torch**
 
 ## Reste à faire

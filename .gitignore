@@ -19,13 +19,20 @@ venv/
 
 # Données produites par le pipeline. Un proxy pèse ~1,4 Go et un rendu ~80 Mo :
 # rien de tout cela n'a sa place dans l'historique.
-projects/
-stage/
+#
+# Ces deux motifs sont ancrés à la racine. Sans le `/` initial, `projects/`
+# attraperait n'importe quel dossier de ce nom à toute profondeur — à commencer
+# par `app/api/projects/`, qui porte les routes de l'API.
+/projects/
+/stage/
 *.mp4
 *.mkv
 *.wav
 *.srt
 *.ass
+
+# Les extraits de référence des tests sont versionnés malgré les motifs ci-dessus.
+!tests/fixtures/**
 
 # Sidecars posés à côté des sources (ils vivent avec la vidéo, pas ici)
 *.avolo/

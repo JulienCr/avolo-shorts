@@ -18,11 +18,25 @@ import { ESLint } from 'eslint'
 
 const eslint = new ESLint()
 
+// Les trois règles qui portent la frontière, et les seules que ce fichier
+// regarde. Les contrôles négatifs demandent leur *absence* plutôt qu'un relevé
+// vide : sinon la première règle de style ajoutée au dépôt ferait échouer ce
+// test dans la PR de quelqu'un d'autre, pour une raison sans rapport.
+const RÈGLES_DE_PURETÉ = [
+  'no-restricted-imports',
+  'no-restricted-syntax',
+  'no-restricted-globals',
+]
+
 async function erreurs(code: string, filePath: string): Promise<string[]> {
   const [result] = await eslint.lintText(code, { filePath })
   return result.messages
     .filter((m) => m.severity === 2)
     .map((m) => m.ruleId ?? '(inconnu)')
+}
+
+async function erreursDePureté(code: string, filePath: string): Promise<string[]> {
+  return (await erreurs(code, filePath)).filter((r) => RÈGLES_DE_PURETÉ.includes(r))
 }
 
 // Ce que `src/core/` ne doit jamais pouvoir importer, et pourquoi chacun est là.
@@ -106,19 +120,21 @@ describe('la frontière de pureté de src/core', () => {
     expect(rules).toContain('no-restricted-globals')
   })
 
+  // Les contrôles négatifs. Une frontière qui interdit tout passerait chacun
+  // des tests ci-dessus tout en rendant le projet inécrivable : sans ce qui
+  // suit, ils ne prouvent rien.
   it('laisse passer du TypeScript pur', async () => {
-    const rules = await erreurs(
+    const rules = await erreursDePureté(
       'export const somme = (a: number, b: number): number => a + b\n',
       'src/core/sonde.ts',
     )
     expect(rules).toEqual([])
   })
 
-  // Le pendant du test précédent : une frontière qui interdit trop est aussi
-  // cassée qu'une frontière qui n'interdit rien. `captions/retime.ts` a besoin
-  // de `../edl`, et un `lib` dans le chemin d'un paquet n'est pas notre `lib`.
+  // `captions/retime.ts` aura besoin de `../edl` : un `..` n'est pas en soi une
+  // sortie de `src/core`.
   it('laisse passer ce qui reste à l’intérieur de src/core', async () => {
-    const rules = await erreurs(
+    const rules = await erreursDePureté(
       ["import { normalizeSegments } from '../edl'", 'export const x = normalizeSegments'].join(
         '\n',
       ),
@@ -128,7 +144,7 @@ describe('la frontière de pureté de src/core', () => {
   })
 
   it('laisse passer @/core, le seul alias qui reste accessible', async () => {
-    const rules = await erreurs(
+    const rules = await erreursDePureté(
       "import { clipDuration } from '@/core/edl'\nexport const x = clipDuration\n",
       'src/core/captions/retime.ts',
     )
@@ -136,18 +152,19 @@ describe('la frontière de pureté de src/core', () => {
   })
 
   // La seule dépendance que la liste blanche laisse entrer, et ses sous-chemins.
+  // Un `lib` dans le chemin d'un paquet n'est pas notre `src/lib`.
   it.each(["import { z } from 'zod'", "import { z } from 'zod/v4'"])(
     'laisse passer %s, la seule dépendance autorisée',
     async (ligne) => {
-      const rules = await erreurs(`${ligne}\nexport const x = z\n`, 'src/core/sonde.ts')
+      const rules = await erreursDePureté(`${ligne}\nexport const x = z\n`, 'src/core/sonde.ts')
       expect(rules).toEqual([])
     },
   )
 
-  // Le contrôle négatif. Sans lui, une règle appliquée au dépôt entier passerait
-  // tous les tests ci-dessus tout en rendant `src/server/` inécrivable.
+  // Le plus important des quatre : sans lui, une règle appliquée au dépôt entier
+  // passerait tous les tests ci-dessus tout en rendant `src/server/` inécrivable.
   it("n'entrave pas src/server, dont c'est précisément le métier", async () => {
-    const rules = await erreurs(
+    const rules = await erreursDePureté(
       [
         "import fs from 'node:fs'",
         "import Database from 'better-sqlite3'",

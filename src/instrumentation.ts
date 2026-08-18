@@ -32,3 +32,21 @@ export async function register(): Promise<void> {
   const { accrocherArrêt } = await import('@/server/arret')
   accrocherArrêt()
 }
+
+/**
+ * **Un `.env` modifié pendant que `next dev` tourne défait la résolution.**
+ *
+ * Mesuré sur `@next/env` 16.3.1 : quand le serveur de développement recharge le
+ * fichier, `loadEnvConfig` commence par réappliquer l'instantané de
+ * `process.env` pris au tout premier chargement — instantané qui précède
+ * `register()` —, puis relit le `.env`. La variable repasse donc à `op://…`, et
+ * `register()` ne sera pas rappelé.
+ *
+ * Le geste est de **relancer le serveur** après avoir touché au `.env`, ce qu'on
+ * fait déjà pour la plupart des variables de ce projet. Ce n'est pas corrigé
+ * ici : la parade serait `updateInitialEnv` de `@next/env`, que la disposition
+ * stricte de pnpm ne rend pas résoluble depuis le dépôt, et l'atteindre par un
+ * chemin interne de `next` coûterait plus cher au premier changement de version
+ * que le désagrément qu'elle évite.
+ */
+

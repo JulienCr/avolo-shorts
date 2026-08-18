@@ -352,6 +352,14 @@ encodeurs sans toucher au fichier.
 obligatoire même sur un `.env` à valeurs littérales, il faudrait le préfixer à
 chaque point d'entrée, et il ne dit rien d'utile quand la lecture rate.
 
+### Toucher au `.env` pendant que `next dev` tourne
+
+Il faut **relancer le serveur**. Mesuré sur `@next/env` 16.3.1 : quand le serveur
+de développement recharge le fichier, il réapplique d'abord l'instantané de
+`process.env` pris au tout premier chargement — donc avant la résolution —, puis
+relit le `.env`. La variable repasse à `op://…`, et le point d'accroche de
+`src/instrumentation.ts` n'est pas rappelé.
+
 ### Quand ça rate
 
 Le mode d'échec par défaut de ce chemin est un 401 du fournisseur d'API, qui

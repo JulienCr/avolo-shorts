@@ -108,11 +108,11 @@ export type Environnement = Record<string, string | undefined>
  * Ce qu'une référence nomme, sans son préfixe — `<coffre>/<fiche>/<champ>` —,
  * ou `undefined` quand la valeur n'est pas une référence.
  *
- * Le préfixe se retire ici plutôt que chez l'appelant parce que c'est ici qu'on
- * sait lequel a mordu. `racines()` (`src/server/erreurs.ts`) s'en sert pour
- * retirer d'un message d'erreur ce qu'une référence nomme **en gardant son
- * préfixe lisible** : c'est lui qui dit que la variable portait une adresse et
- * non une valeur littérale.
+ * Le préfixe se sépare ici plutôt que chez l'appelant parce que c'est ici qu'on
+ * sait lequel a mordu. `caviarderRéférencesConnues` (`src/server/erreurs.ts`)
+ * s'en sert pour retirer d'un message d'erreur la référence entière **en
+ * remettant son préfixe derrière** : c'est lui qui dit que la variable portait
+ * une adresse et non une valeur littérale.
  *
  * Le corps d'un préfixe nu est la chaîne vide, et non `undefined` :
  * `op://` reste une référence — mal formée, mais une référence —, simplement

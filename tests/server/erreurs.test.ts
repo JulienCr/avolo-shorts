@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { messageSûr } from '@/server/erreurs'
 
 /**
- * **Ce que `racines()` sait et que la grammaire d'`épurerChemins` ne peut pas
+ * **Ce que `messageSûr` sait et que la grammaire d'`épurerChemins` ne peut pas
  * savoir : où une référence finit.**
  *
  * Hors citation, `src/core/erreurs.ts` arrête une référence au premier espace,
@@ -73,6 +73,25 @@ describe('messageSûr, sur les références de secret', () => {
         new Error(`${RÉFÉRENCE} et op://Coffre de démonstration/Fiche imaginaire échouent`),
       ),
     ).toBe('op://… et op://… échouent')
+  })
+
+  /**
+   * **Un corps d'un seul segment est traité comme les autres**, et rien ne
+   * l'écarte : chercher la forme complète rend la question de sa longueur sans
+   * objet. Un premier jet passait le corps en racine littérale et devait, lui,
+   * refuser un segment unique — un mot seul se serait retiré de partout dans le
+   * message. La garde est tombée avec le mécanisme qui la réclamait.
+   * (relevé par Copilot)
+   *
+   * Le coffre porte un espace, sans quoi le test ne prouverait rien : la passe
+   * nue d'`épurerChemins` couvre déjà tout ce qui n'en a pas.
+   */
+  it('caviarde une référence qui ne nomme qu’un coffre', () => {
+    process.env.AVOLO_TEST_SECRET = 'op://Coffre de démonstration'
+
+    expect(messageSûr(new Error('lecture de op://Coffre de démonstration refusée'))).toBe(
+      'lecture de op://… refusée',
+    )
   })
 
   /**

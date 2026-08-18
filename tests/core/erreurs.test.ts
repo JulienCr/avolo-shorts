@@ -173,9 +173,10 @@ describe('le caviardage des références de secret', () => {
     )
     // La contrepartie, laissée démontrée pour qu'on ne la croie pas couverte
     // *par la grammaire* : la queue d'un coffre à espace survit si personne ne
-    // cite la référence. Ce qui la referme est ailleurs — `racines()` passe en
-    // racine littérale toute référence lue dans l'environnement, et
-    // `tests/server/erreurs.test.ts` fige ce chemin-là. (issue #49)
+    // cite la référence. Ce qui la referme est ailleurs — `messageSûr` retire
+    // toute référence lue dans l'environnement par sa forme complète, avant
+    // d'en arriver ici, et `tests/server/erreurs.test.ts` fige ce chemin-là.
+    // (issue #49)
     expect(épurerChemins('lecture de op://Coffre partagé/Fiche/Clé refusée')).toBe(
       'lecture de op://… partagé…/Clé refusée',
     )

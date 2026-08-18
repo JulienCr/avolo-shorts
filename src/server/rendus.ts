@@ -2,10 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
-import type { ClipOutputs } from '@/lib/api'
+import type { PublishedFraming, ClipOutputs } from '@/lib/api'
+import { clipFraming } from '@/server/clip-framing'
 import { estUneAbsence } from '@/server/octets'
-import { cheminsRendu, empreinteÀJour, lireEmpreinte } from '@/server/steps/render'
+import {
+  renderedFraming,
+  cheminsRendu,
+  empreinteÀJour,
+  renderedShape,
+  lireEmpreinte,
+} from '@/server/steps/render'
 
 /**
  * Les sorties d'un clip : ce que l'export a produit, et sous quel nom on le
@@ -34,7 +40,7 @@ export type SortieClip = {
 
 type Sorties = {
   mp4: SortieClip
-  /** `null` quand le ratio résolu est **déjà** 9:16 : la variante n'est pas due. */
+  /** `null` quand le ratio natif résolu est **déjà** 9:16 : la variante n'est pas due. */
   variant9x16: SortieClip | null
   texts: SortieClip
   /** Le chemin de l'empreinte. **Pas une sortie** : elle ne se publie ni ne se sert. */
@@ -53,8 +59,13 @@ function sortie(chemin: string, type: string): SortieClip {
  * un sous-titre surprend. Il n'a rien à faire dans une livraison, et une route
  * qui le servirait laisserait croire l'inverse.
  */
-function sorties(clip: Clip): Sorties {
-  const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
+function sorties(clip: Clip, framing: PublishedFraming): Sorties {
+  // **Le ratio NATIF résolu, jamais `clip.ratio`.** Un clip en `auto` n'a pas de
+  // ratio à lui : c'est `computeFraming` qui le choisit — le plus large de ses
+  // plans —, et c'est sous ce ratio-là que l'export a décidé s'il devait une
+  // variante. Le lire ailleurs ferait chercher un `-9x16.mp4` sous un clip qui
+  // n'en a pas, ou l'inverse.
+  const chemins = cheminsRendu(clip.projectId, clip.id, framing.ratio)
   return {
     mp4: sortie(chemins.mp4, 'video/mp4'),
     variant9x16:
@@ -129,27 +140,34 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * la même fonction que celle du rendu, avec deux critères de moins — voir
  * `CeQuOnIncrusterait`.
  */
-export function livraisonÀJour(clip: Clip): boolean {
+export function livraisonÀJour(clip: Clip, framing: PublishedFraming = clipFraming(clip)): boolean {
   if (clip.status !== 'exported') return false
-  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, {
-    marques: null,
-    look: null,
-  })
+  return empreinteÀJour(
+    lireEmpreinte(sorties(clip, framing).empreinte),
+    renderedShape(clip, renderedFraming(framing)),
+    { marques: null, look: null },
+  )
 }
 
 /**
  * Ce que `GET /api/clips/:id` dit des sorties.
  *
  * **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.**
- * Un clip déjà en 9:16 n'a pas de variante à fond flouté et n'en aura jamais :
- * son absence est le fonctionnement normal. Un clip en 1:1 qui n'en a pas encore
- * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
- * le premier — sur le clip le mieux livré de la bibliothèque.
+ * Un clip dont le ratio natif est déjà 9:16 n'a pas de variante à fond flouté et
+ * n'en aura jamais : son absence est le fonctionnement normal. Un clip en 1:1 qui
+ * n'en a pas encore n'est pas fini. Sans ce booléen, une interface affiche
+ * « rendu manquant » sur le premier — sur le clip le mieux livré de la
+ * bibliothèque.
  */
-export function sortiesDuClip(clip: Clip): ClipOutputs {
-  const { mp4, variant9x16, texts } = sorties(clip)
-  if (!livraisonÀJour(clip)) {
-    return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
+export function sortiesDuClip(clip: Clip, framing: PublishedFraming = clipFraming(clip)): ClipOutputs {
+  const { mp4, variant9x16, texts } = sorties(clip, framing)
+  if (!livraisonÀJour(clip, framing)) {
+    return {
+      mp4Url: null,
+      variant9x16Url: null,
+      variant9x16Due: variant9x16 !== null,
+      textsUrl: null,
+    }
   }
   return {
     mp4Url: urlSiProduit(clip, mp4),
@@ -172,7 +190,11 @@ export function sortiesDuClip(clip: Clip): ClipOutputs {
  * sont pas des sorties : ce sont des pièces internes, et une route qui les
  * servirait laisserait croire qu'elles font partie de la livraison.
  */
-export function sortieNommée(clip: Clip, nom: string): SortieClip | null {
-  const { mp4, variant9x16, texts } = sorties(clip)
+export function sortieNommée(
+  clip: Clip,
+  nom: string,
+  framing: PublishedFraming = clipFraming(clip),
+): SortieClip | null {
+  const { mp4, variant9x16, texts } = sorties(clip, framing)
   return [mp4, variant9x16, texts].find((s) => s !== null && s.nom === nom) ?? null
 }

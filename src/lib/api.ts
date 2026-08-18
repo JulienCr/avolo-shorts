@@ -39,10 +39,61 @@
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { TranscriptLine } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
+
+/**
+ * Le cadrage, **importé de `@/core/framing` plutôt que redit ici**, pour la même
+ * raison que `StepName` l'est du graphe : deux exemplaires d'une même union ne
+ * se contraignent pas, et celui qui prend du retard ne fait rien échouer — il
+ * affiche seulement quelque chose de faux.
+ *
+ * `@/core/framing` est pur et sans dépendance ; les composants de clip
+ * l'importent déjà pour `cropRect` et `outputSize`.
+ */
+export type { ClipFraming, ShotFraming }
+
+/**
+ * D'où vient le cadrage qu'on publie.
+ *
+ * **Le champ existe parce que le silence était le vrai risque.** `renders` ne
+ * dépend pas d'`analysis` dans le graphe (`src/core/graph.ts`), et c'est
+ * délibéré : la dépendance ferait recalculer tous les rendus au premier
+ * changement de modèle de détection. Rien ne garantit donc qu'un clip demandant
+ * `auto` ait des plans sous la main — et se rabattre sans le dire sur le 9:16
+ * centré de l'itération 0 produirait un cadrage plausible et faux, qui ne se
+ * voit qu'à l'image, trois minutes d'export plus tard.
+ *
+ * - `calculé` — les plans et les boîtes ont été lus, le ratio et les crops
+ *   sortent de `computeFraming` ;
+ * - `sans-analyse` — `analysis.json` n'est pas là : l'étape n'a pas tourné sur
+ *   ce projet. Le cadrage vaut celui de l'itération 0, `ratio` résolu et le
+ *   `cropX` du clip sur toute sa durée ;
+ * - `analyse-illisible` — le fichier est là et ne suit pas son contrat, ou
+ *   vient d'une autre version. Même repli, autre remède : relancer l'analyse ;
+ * - `sans-plans` — l'analyse a été lue et aucun plan ne rencontre les segments
+ *   du clip. Même repli, et le cas se produit sur un clip vidé de tous ses mots
+ *   ou dont les segments tombent hors de l'étendue analysée.
+ *
+ * Les trois derniers se disent à l'écran. Le premier n'a rien à dire : c'est le
+ * fonctionnement normal.
+ */
+export type FramingOrigin = 'computed' | 'no-analysis' | 'unreadable-analysis' | 'no-shots'
+
+/**
+ * Le cadrage d'un clip, tel que le serveur le publie.
+ *
+ * **Le ratio et les crops se recalculent sur les segments courants et ne sont
+ * pas stockés.** Retirer le passage où un comédien traverse le plateau peut
+ * faire retomber un 16:9 en 1:1, donc changer le ratio sous les doigts de celui
+ * qui monte. C'est pour ça que `PATCH /api/clips/:id` le renvoie autant que
+ * `GET` : sans cela l'écran garderait un ratio périmé jusqu'à la prochaine
+ * navigation, et le montage mentirait sur ce que l'export produira.
+ */
+export type PublishedFraming = ClipFraming & { origin: FramingOrigin }
 
 /**
  * Les étapes du graphe d'analyse (tâche 6), **importées de l'autorité** plutôt
@@ -350,6 +401,15 @@ export type ClipDetail = {
   proxyUrl: string | null
   /** Ce que l'export a produit, et où le lire. */
   outputs: ClipOutputs
+  /**
+   * Le cadrage résolu : le ratio de sortie et un crop par plan traversé.
+   *
+   * **Le serveur le calcule, le navigateur le consomme.** `computeFraming` a
+   * besoin des plans, des boîtes de personnes et des dimensions de la source ;
+   * `analysis.json` pèse deux à trois méga-octets par projet, et ce n'est pas au
+   * navigateur de le charger pour dessiner un rectangle.
+   */
+  framing: PublishedFraming
 }
 
 /**
@@ -364,13 +424,20 @@ export type ClipDetail = {
  * **Un clip a une ou deux vidéos**, et `variant9x16Due` dit laquelle des deux
  * situations on regarde quand `variant9x16Url` vaut `null` :
  *
- * - `variant9x16Due === false` — le ratio résolu est **déjà** 9:16, la variante
- *   à fond flouté serait le même cadre réencodé une seconde fois. Elle
+ * - `variant9x16Due === false` — le ratio natif résolu est **déjà** 9:16, la
+ *   variante à fond flouté serait le même cadre réencodé une seconde fois. Elle
  *   n'existera jamais, et son absence n'est pas une anomalie : une interface qui
  *   afficherait « rendu manquant » ici le ferait sur le clip le mieux livré de
  *   la bibliothèque ;
  * - `variant9x16Due === true` — elle est due. `null` veut alors dire « pas
  *   encore produite », et c'est un export qui reste à faire.
+ *
+ * Les deux ne montrent pas le même cadre, et c'est voulu (spec §11) : le natif
+ * garde **un seul ratio** pour tout le clip — le plus large que ses plans
+ * demandent —, parce qu'une vidéo de feed dont les bandes latérales
+ * apparaîtraient et disparaîtraient serait le défaut que le fond flouté existe
+ * pour éviter ; la variante 9:16 pose **chaque plan à son propre ratio** sur son
+ * canevas vertical.
  */
 export type ClipOutputs = {
   /**
@@ -386,7 +453,7 @@ export type ClipOutputs = {
   mp4Url: string | null
   /** La variante 9:16 sur fond flouté. Voir `variant9x16Due` avant de lire ce `null`. */
   variant9x16Url: string | null
-  /** Vrai quand la variante 9:16 est **due**, c'est-à-dire quand le ratio résolu ne l'est pas. */
+  /** Vrai quand la variante 9:16 est **due**, c'est-à-dire quand le ratio natif ne l'est pas. */
   variant9x16Due: boolean
   /** Le `.txt` de publication : titre, description, mots-dièse. */
   textsUrl: string | null
@@ -455,6 +522,17 @@ export type PatchClipResult = {
    */
   outputs: ClipOutputs
   /**
+   * Le cadrage **après** cette écriture.
+   *
+   * Il voyage avec la réponse pour la même raison que les sorties, et le cas est
+   * plus courant qu'elles : le ratio et les crops se recalculent sur les
+   * segments, donc retirer un passage peut les changer sans qu'aucun geste de
+   * cadrage n'ait été fait. Sans ce champ, l'écran garderait le ratio d'avant la
+   * coupe jusqu'à la prochaine navigation, et le rectangle qu'il dessine ne
+   * serait plus celui que ffmpeg découpera.
+   */
+  framing: PublishedFraming
+  /**
    * Le plus grand jeton d'ordre que la base retient pour ce clip.
    *
    * `patchClip` le pose lui-même comme plancher : les jetons viennent de
@@ -486,9 +564,9 @@ export type ExportResult = {
    * `undefined` au retour d'un export par ailleurs réussi. (relevé par Copilot)
    */
   clip?: Clip
-  /** Le rendu au ratio du clip. Toujours produit. */
+  /** Le rendu au ratio natif du clip. Toujours produit. */
   mp4: string
-  /** La variante 9:16 sur fond flouté, ou `null` quand le clip est déjà en 9:16. */
+  /** La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est déjà 9:16. */
   variant9x16: string | null
   /** Le `.txt` : titre, description, mots-dièse. */
   texts: string

@@ -922,8 +922,12 @@ ouvertes ; ce qui suit décrit la décision et ce qu'elle demande à l'écran.
 
 Le point de départ, arrêté côté serveur :
 
-- la position du crop devient **fixe par plan**, donc variable d'un plan à l'autre
-  dans un même clip (spec §10) ;
+- **le ratio et la position du crop deviennent fixes par plan**, donc variables
+  d'un plan à l'autre dans un même clip (spec §10). Le ratio par plan est arrivé
+  le 19 août 2026, après ce document : le fichier natif garde un ratio unique —
+  le plus large des plans, parce qu'une vidéo de feed à bandes intermittentes
+  serait le défaut que le fond flouté existe pour éviter —, et c'est la variante
+  9:16 qui pose chaque plan à son propre cadre ;
 - **le ratio se recalcule depuis l'EDL, il n'est pas stocké.** Retirer le passage
   où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1 ;
 - les frontières de plans et les boîtes de personnes existent, portées par un
@@ -1054,6 +1058,13 @@ persistance du cadrage remplace cet appariement par le recouvrement décrit ici.
 Entre deux modèles de clé dans un même document, c'est toujours celui qui n'a pas
 été retenu qu'on finit par écrire.
 
+**Et rien n'en pose aujourd'hui.** La mise en service du calcul (19 août 2026)
+passe `cropMode: 'auto'` et aucune table : `computeFraming` ignore alors la
+table entièrement, y compris pour le rapport, donc `rejectedOverrides` sort
+toujours vide et l'écran n'a rien à en dire. L'énoncé permanent décrit plus haut
+appartient à la tâche qui persiste les dérogations — l'écrire avant elle
+poserait une surface que rien ne peut atteindre.
+
 #### Le ratio, exactement comme le crop
 
 Julien suit la recommandation de symétrie. Les deux réglages ont donc le même
@@ -1088,7 +1099,13 @@ cela, des cadres calculés pour un 1:1 se retrouveraient posés dans un canevas
 Trois porteurs, et pas un de plus.
 
 **Le sélecteur de ratio.** `auto → 4:5` quand il calcule, `4:5` seul et marqué
-quand il est épinglé. Un mot, au même endroit, dans les deux cas.
+quand il est épinglé. Un mot, au même endroit, dans les deux cas. Depuis que le
+ratio se choisit par plan, ce mot désigne **le plan sous la lecture**, et le
+ratio natif du clip le suit sur la même ligne (`auto → 4:5 · natif 16:9`) : sans
+lui, on ne saurait pas sous quel ratio le fichier du feed sortira. Une seconde
+ligne n'apparaît que si les plans ne prennent pas tous le même cadre, et elle
+remplace alors l'explication générique plutôt que de s'y ajouter — trois
+paragraphes sous un sélecteur de six pastilles, personne ne lit le troisième.
 
 **La bande des plans**, en lecture, sous le lecteur. Elle est désormais justifiée :
 c'est aux frontières que le crop saute, c'est là que les coupes se posent de
@@ -1753,6 +1770,21 @@ l'itération 0 de la fonction pure, et la tâche de persistance la remplace.
 en base comme dans `ClipPatch`. **C'est le préalable du lot 7** : sans le mode et
 la table, l'écran calculerait un cadrage par plan qui disparaîtrait au
 rechargement.
+
+**~~Le cadrage publié par le serveur.~~ Livré le 19 août 2026.**
+`ClipDetail.framing` et `PatchClipResult.framing` portent le cadrage résolu —
+ratio natif, ratio et deux positions par plan, origine du calcul — et les six
+appels du navigateur à `resolveRatio` les lisent au lieu de rendre `9:16` en dur.
+Le `PATCH` le renvoie autant que le `GET`, et c'est ce qui comptait : le ratio se
+recalculant sur les segments, un écran qui n'aurait que celui du `GET` garderait
+un cadre périmé jusqu'à la prochaine navigation.
+
+**~~Ce que fait `auto` quand `analysis.json` manque.~~ Tranché.** `renders` ne
+dépend pas d'`analysis` dans le graphe, donc le cas est atteignable. Le cadrage
+vaut alors celui de l'itération 0 — ratio résolu, `cropX` du clip sur toute sa
+durée — et le champ `origin` le nomme : `no-analysis`, `unreadable-analysis` ou
+`no-shots`. L'écran l'affiche en clair ; se rabattre en silence sur un 9:16
+centré ne se serait vu qu'à l'image, trois minutes d'export plus tard.
 
 **~~Le recalcul sous un ratio épinglé.~~ Livré.** `computeFraming` saute le choix
 du ratio quand il est épinglé, jamais le calcul des crops : ceux-ci se calculent

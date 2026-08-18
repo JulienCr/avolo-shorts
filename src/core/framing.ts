@@ -8,9 +8,29 @@
  * crop est **fixe à l'intérieur d'un plan** : rien ici ne dépend du temps, la
  * caméra ne suit personne.
  *
- * Ce module ne calcule que de la géométrie. Le choix du ratio et de `cropX`
- * appartient à l'humain en itération 0, et au cadrage automatique en
- * itération 1 — qui viendra alimenter ces mêmes fonctions, sans les changer.
+ * **Le ratio est choisi par plan**, et c'est ce que la mesure impose : la part
+ * du temps qui descend sous le 16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur
+ * `2026-22-02-entre-nous` et 1 % sur `2026-03-08-caro-mdlm`. Un ratio unique
+ * écrase ces 8 à 25 % sous le plan le plus large.
+ *
+ * **Les deux sorties n'en font pas le même usage** (spec §11), et c'est un
+ * arbitrage, pas une inconséquence :
+ *
+ * - le **natif**, pour le feed d'Instagram et de Facebook, garde **un seul
+ *   ratio pour tout le clip** — le plus large que ses plans demandent. Une vidéo
+ *   de feed dont les bandes latérales apparaîtraient et disparaîtraient serait
+ *   exactement le défaut que le fond flouté existe pour éviter ;
+ * - la **variante 9:16**, pour TikTok et Shorts, pose chaque plan sur son canevas
+ *   vertical **à son propre ratio**, le fond flouté prenant le reste : 100 % de
+ *   la hauteur pour un 9:16, 70,3 % pour un 4:5, 56,3 % pour un 1:1, 31,6 % pour
+ *   un 16:9. Le saut de taille tombe sur une coupe, donc il ne se voit pas —
+ *   c'est le même argument qui justifie déjà le crop qui saute aux frontières.
+ *
+ * Ça ne coûte rien parce que **la variante ne dérive pas du natif** : elle refait
+ * tout le chemin depuis la source (`blurredVariantArgs`, correctif de #22). Un
+ * plan serré n'est donc jamais rétréci deux fois.
+ *
+ * Ce module ne calcule que de la géométrie.
  */
 
 import { normalizeSegments } from '@/core/edl'
@@ -68,6 +88,30 @@ export function outputSize(ratio: Ratio): { w: number; h: number } {
   // Une copie : la table est une constante du module, et l'appelant passe le
   // résultat à `renderArgs`, qui n'a aucune raison de pouvoir la modifier.
   return { ...TAILLES[ratio] }
+}
+
+/**
+ * La place qu'un cadre de ce ratio occupe **dans un canevas**, posé pleine
+ * largeur et centré.
+ *
+ * Dans le canevas vertical de 1080x1920 : 1920 pour un 9:16 — il remplit —, 1350
+ * pour un 4:5, 1080 pour un 1:1, 608 pour un 16:9. Dans le canevas natif, le
+ * cadre a le ratio du canevas et le remplit toujours, ce qui rend la même
+ * fonction utilisable des deux côtés.
+ *
+ * **La hauteur est paire**, comme toutes les dimensions que ffmpeg reçoit :
+ * libx264 refuse une dimension impaire en yuv420p. 1080 / (16/9) vaut 607,5, et
+ * c'est le seul des quatre qui ne tombe pas juste. **Et elle se calcule depuis le
+ * ratio nominal, jamais depuis le rectangle de crop** : `cropRect` arrondit ses
+ * composantes au pair, donc un 9:16 sort en 608x1080 et non en 607,5x1080, et la
+ * hauteur déduite de ce rapport tomberait à 1918 — deux pixels de fond flouté en
+ * haut et en bas d'un cadre qui devait remplir.
+ */
+export function sizeInCanvas(
+  ratio: Ratio,
+  canvas: { w: number; h: number },
+): { w: number; h: number } {
+  return { w: canvas.w, h: Math.min(canvas.h, pairProche(canvas.w / RATIOS[ratio])) }
 }
 
 /** Le pair immédiatement inférieur ou égal, jamais négatif. */
@@ -395,10 +439,34 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).
   (a, b) => RATIOS[a] - RATIOS[b],
 )
 
+const NARROWEST = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
+
+/**
+ * La durée minimale d'un morceau à décoder, en secondes.
+ *
+ * **Elle vit ici et non dans `shot-split.ts` parce que le choix du ratio en
+ * dépend**, et que la dépendance ne peut pas aller dans l'autre sens :
+ * `computeFraming` doit savoir si un intervalle qu'aucun plan ne couvre est
+ * assez long pour devenir une entrée, puisque c'est ce qui l'oblige à élargir le
+ * ratio natif. Deux exemplaires du seuil se contrediraient au premier réglage.
+ *
+ * **Ce qu'elle vaut, et pourquoi.** Un morceau plus court qu'une image ouvre un
+ * décodeur qui ne rend rien, ou une image de trop : la somme des durées
+ * demandées cesse alors de décrire ce que le fichier contient, et **les
+ * sous-titres, qui sont recalés sur cette somme, glissent** — sans qu'aucun test
+ * de durée ne le voie, puisque la durée totale, elle, ne bouge pas.
+ *
+ * 40 ms est une image à 25 im/s, un peu plus d'une à 30, deux et demie à 60.
+ * C'est un ordre de grandeur, pas une mesure : ce qui compte est qu'aucun
+ * morceau ne puisse être plus court qu'une image, et que le seuil reste très en
+ * deçà de la plus courte frontière utile — les plans de ces émissions se
+ * comptent en secondes, médiane 5,3 s sur la plus découpée des trois.
+ */
+export const MIN_PIECE_SEC = 0.04
 const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
 
 /**
- * Le plus petit ratio dont **un crop fixe par plan cadre 90 % des images**.
+ * Le plus petit ratio dont **un crop fixe cadre 90 % des images de ce plan**.
  *
  * **Le seuil de 90 %, pas le maximum.** Une seule image où quelqu'un traverse le
  * cadre condamnerait le clip entier au 16:9. Le prix est assumé et il faut le
@@ -435,34 +503,38 @@ const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARG
  * épinglant un ratio. Entre une faute silencieuse et une faute voyante, on
  * prend la voyante.
  *
- * Les boîtes arrivent **groupées par plan**, parce que c'est la granularité du
- * crop. Le même déplacement réparti sur deux plans ne coûte rien — une coupe
- * existe entre les deux, et le crop a le droit d'y sauter.
+ * **Les boîtes arrivent pour UN plan, et c'est le changement du 19 août 2026.**
+ * Le choix se faisait par clip, sur tous les plans à la fois ; il se fait
+ * désormais chez chacun. Un ratio unique écrasait sous le plan le plus large la
+ * part du temps qui descend sous le 16:9 : 25 % sur `2025-06-15-cqlp`, 8 % sur
+ * `2026-22-02-entre-nous`, 1 % sur `2026-03-08-caro-mdlm`. Le saut de taille
+ * tombe sur une coupe, donc il ne se voit pas.
+ *
+ * **Ce que ce choix décide dépend de la sortie**, et c'est écrit en tête du
+ * module : le fichier natif prend le plus large de ces ratios et le garde d'un
+ * bout à l'autre, la variante 9:16 pose chaque plan au sien.
+ *
+ * Le percentile, lui, reste, et s'applique **à l'intérieur** du plan : c'est là
+ * que le crop est fixe, donc là que la question a un sens.
  */
 export function chooseRatio(
-  peoplePerShot: PersonBox[][],
+  boxes: PersonBox[],
   srcW: number,
   srcH: number,
   options: FramingOptions = {},
 ): Ratio {
-  return choisirRatio(
-    peoplePerShot.map((boxes) => empans(boxes, options)),
-    srcW,
-    srcH,
-  )
+  return choisirRatio(empans(boxes, options), srcW, srcH)
 }
 
 /** Le même choix, sur des empans déjà calculés — ce que `computeFraming` a en main. */
-function choisirRatio(mesuresParPlan: Empan[][], srcW: number, srcH: number): Ratio {
-  const total = mesuresParPlan.reduce((n, m) => n + m.length, 0)
-  if (total === 0) return LE_PLUS_LARGE
+function choisirRatio(mesures: Empan[], srcW: number, srcH: number): Ratio {
+  if (mesures.length === 0) return LE_PLUS_LARGE
 
   for (const r of DU_PLUS_ÉTROIT_AU_PLUS_LARGE) {
-    const largeur = ratioCoverage(r, srcW, srcH)
-    const cadrées = mesuresParPlan.reduce((n, m) => n + cropDuPlan(m, largeur).cadrées, 0)
+    const { cadrées } = cropDuPlan(mesures, ratioCoverage(r, srcW, srcH))
     // `× 10 ≥ × 9` plutôt que `≥ 0,9 ×` : `0.9 * 40` vaut 36,000000000000004, et
     // 36 images sur 40 rateraient de justesse le seuil qu'elles atteignent pile.
-    if (cadrées * 10 >= total * 9) return r
+    if (cadrées * 10 >= mesures.length * 9) return r
   }
 
   // Inatteignable en pratique : le ratio le plus large couvre toute la largeur
@@ -563,16 +635,43 @@ function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; 
   return { cropX, cadrées: intervalles.filter((i) => i.lo <= cropX && cropX <= i.hi).length }
 }
 
-/** Le cadrage d'un plan du clip. */
+/** Le cadrage d'un plan du clip : un ratio, et une position. */
 export type ShotFraming = {
   /** Le plan, avec ses bornes dans la source. */
   shot: Shot
-  /** Sa clé de dérogation, `shotStartMs(shot)`. */
+  /** Sa clé de dérogation, `shotStartMs(plan)`. */
   key: number
-  /** Le centre horizontal du crop, 0 à 1, tel que `cropRect` l'attend. */
+  /**
+   * Le cadre pris dans la source pour ce plan : le plus serré qui tienne.
+   *
+   * **Ce n'est pas le format du fichier natif**, qui vaut `ClipFraming.ratio` —
+   * le plus large des plans — d'un bout à l'autre du clip. C'est le cadre que la
+   * **variante 9:16** pose sur son canevas, avec un fond flouté autour : pleine
+   * hauteur pour un 9:16, 70,3 % pour un 4:5, 56,3 % pour un 1:1, 31,6 % pour un
+   * 16:9.
+   */
+  ratio: Ratio
+  /**
+   * Le centre horizontal du crop **pour `ratio`**, 0 à 1, tel que `cropRect`
+   * l'attend. C'est la position que la variante 9:16 utilise.
+   */
   cropX: number
   /**
-   * D'où vient `cropX` : `'auto'` calculé sur les boîtes, `'manual'` posé par
+   * Le centre horizontal du crop **pour le ratio natif du clip**
+   * (`ClipFraming.ratio`), qui est le plus large que ses plans demandent.
+   *
+   * **Deux positions et non une, parce que la fenêtre n'a pas la même largeur.**
+   * Une position optimisée pour un 9:16 posée dans une fenêtre 1:1 n'est pas
+   * fausse — elle est bornée dans l'image — mais elle n'est plus celle qui cadre
+   * le plus d'images, et rien ne le dirait. Les deux sorties se calculent donc
+   * chacune la sienne, sur les mêmes empans.
+   *
+   * Quand le ratio est épinglé, ou quand le plan est déjà le plus large, les
+   * deux valeurs coïncident.
+   */
+  cropXNative: number
+  /**
+   * D'où vient le cadrage : `'auto'` calculé sur les boîtes, `'manual'` posé par
    * une dérogation humaine, `'default'` centré faute d'avoir mesuré quoi que ce
    * soit sur ce plan. Le troisième cas mérite d'être visible dans l'interface :
    * c'est un plan que personne n'a cadré, ni la machine ni l'humain.
@@ -580,8 +679,22 @@ export type ShotFraming = {
   source: 'auto' | 'default' | 'manual'
 }
 
-/** Le cadrage d'un clip : un ratio, un crop par plan, et ce qui n'a pas collé. */
+/**
+ * Le cadrage d'un clip : un ratio pour le fichier natif, un cadre par plan, et
+ * ce qui n'a pas collé.
+ */
 export type ClipFraming = {
+  /**
+   * Le ratio du **fichier natif**, celui du feed : le plus large que les plans
+   * demandent.
+   *
+   * Un seul pour tout le clip, et c'est un choix : une vidéo de feed dont les
+   * bandes latérales apparaîtraient et disparaîtraient au fil des plans serait
+   * exactement le défaut que le fond flouté existe pour éviter. La variante
+   * 9:16, elle, utilise le ratio de chaque plan.
+   *
+   * Sans aucun plan, le plus large — comme `chooseRatio` quand il ne mesure rien.
+   */
   ratio: Ratio
   shots: ShotFraming[]
   /**
@@ -605,7 +718,15 @@ export type FramingRequest = FramingOptions & {
   people: PersonBox[]
   srcW: number
   srcH: number
-  /** `'auto'` recalcule ; un ratio concret est épinglé et ne bouge plus. */
+  /**
+   * La contrainte de ratio, **facultative**.
+   *
+   * `'auto'` laisse chaque plan choisir le cadre le plus serré qui tienne. Une
+   * valeur concrète le force partout : c'est l'échappatoire quand l'automatique
+   * choisit mal. Elle porte sur le **cadre pris dans la source**, et le fichier
+   * natif sort alors à ce ratio-là — c'est le plus large des plans, et ils l'ont
+   * tous.
+   */
   ratio: Ratio | 'auto'
   /**
    * Le mode de cadrage. Un **mode explicite** : bouger un curseur ne le bascule
@@ -634,20 +755,21 @@ export type FramingRequest = FramingOptions & {
 const TOLÉRANCE_DÉROGATION_MS = 250
 
 /**
- * Le cadrage complet d'un clip : le ratio, puis un crop par plan, puis les
+ * Le cadrage complet d'un clip : **par plan**, un ratio et un crop, puis les
  * dérogations humaines par-dessus.
  *
- * Le ratio se choisit sur ce qu'un crop fixe par plan cadre réellement, pas sur
- * les largeurs par image — voir `chooseRatio`.
+ * Chaque plan reçoit le cadre le plus serré qu'une position fixe y tienne pour
+ * 90 % de ses images — voir `chooseRatio`. Le fichier **natif**, lui, prend le
+ * plus large de ces ratios et le garde d'un bout à l'autre (`ClipFraming.ratio`) ;
+ * la variante 9:16 pose chaque plan au sien.
  *
- * **Quand le ratio est épinglé, le choix du ratio est sauté — mais pas le calcul
- * des crops.** Ils se calculent alors pour *ce* ratio : sans ça, des crops
- * cadrés pour un 1:1 se retrouveraient posés dans un canevas 4:5, décalés de la
+ * **Quand le ratio est épinglé, le choix est sauté — mais pas le calcul des
+ * crops.** Ils se calculent alors pour *ce* ratio-là : sans ça, des crops cadrés
+ * pour un 1:1 se retrouveraient posés dans un cadre 4:5, décalés de la
  * différence de largeur.
  *
- * La sortie est une **donnée**, pas un `argv`. Le rendu applique aujourd'hui un
- * seul rectangle à tous les segments ; le faire varier par plan est une autre
- * tâche, et elle lira ceci.
+ * La sortie est une **donnée**, pas un `argv`. `splitByShot` la traduit en
+ * morceaux à décoder, et `renderArgs` en filtergraph.
  */
 export function computeFraming(req: FramingRequest): ClipFraming {
   const segments = normalizeSegments(req.segments)
@@ -682,25 +804,80 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     ),
   )
 
-  const ratio = req.ratio === 'auto' ? choisirRatio(mesuresParPlan, req.srcW, req.srcH) : req.ratio
-  const largeur = ratioCoverage(ratio, req.srcW, req.srcH)
+  // **Un ratio par plan.** Épinglé, il vaut pour tous ; sinon, chacun prend le
+  // plus serré qui tienne chez lui.
+  const shotRatios = mesuresParPlan.map((mesures) =>
+    req.ratio === 'auto' ? choisirRatio(mesures, req.srcW, req.srcH) : req.ratio,
+  )
+
+  // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
+  // court — la même réponse que `chooseRatio` quand il ne mesure rien.
+  // **Un intervalle qu'aucun plan ne couvre compte comme un 16:9**, et c'est le
+  // cas qui manquait.
+  //
+  // `splitByShot` donne à un tel intervalle le cadre le plus large, centré : on
+  // ne sait rien de ce qui s'y passe. Mais le natif force **toutes** ses entrées
+  // au ratio du clip, et il ne produit pas de variante 9:16 quand ce ratio vaut
+  // déjà 9:16 — un plan étroit voisin d'un intervalle découvert faisait donc
+  // sortir le natif en 9:16, et la queue s'y retrouvait rognée à l'aveugle : 68 %
+  // de la largeur jetés, précisément le repli que le découpage prenait soin
+  // d'éviter. Le cas est atteignable, les plans partitionnant la durée du
+  // *proxy* quand la source peut finir quelques images plus loin.
+  // (relevé par Codex et Copilot)
+  //
+  // Le seuil est celui du découpage : sous une image, l'intervalle est absorbé
+  // par son voisin et ne porte aucun cadre à lui.
+  const montée = segments.reduce((n, s) => n + (s.end - s.start), 0)
+  const couverte = plans.reduce(
+    (n, p) =>
+      n +
+      segments.reduce(
+        (m, s) => m + Math.max(0, Math.min(p.end, s.end) - Math.max(p.start, s.start)),
+        0,
+      ),
+    0,
+  )
+  const découvert = montée - couverte >= MIN_PIECE_SEC
+
+  // **Sans aucun plan, le plus large**, et pas le plus étroit qu'un accumulateur
+  // partant du bas rendrait : on ne sait rien de l'endroit où sont les gens, et
+  // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
+  // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
+  // comédiens sans que rien ne le signale.
+  const candidats: Ratio[] = découvert ? [...shotRatios, LE_PLUS_LARGE] : shotRatios
+  const nativeRatio =
+    req.ratio !== 'auto'
+      ? req.ratio
+      : candidats.length === 0
+        ? LE_PLUS_LARGE
+        : candidats.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
+  const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
   const shots: ShotFraming[] = plans.map((plan, i) => {
-    const { cropX: calculé } = cropDuPlan(mesuresParPlan[i], largeur)
+    const mesures = mesuresParPlan[i]
+    const ratio = shotRatios[i]
+    // Le crop se calcule **pour ce ratio-là et jamais pour un autre** — sans
+    // quoi un cadre mesuré en 1:1 se retrouverait posé dans un 4:5, décalé de la
+    // différence de largeur. Deux ratios, donc deux positions : celle du plan
+    // pour la variante 9:16, celle du natif pour le fichier du feed.
+    const { cropX: calculé } = cropDuPlan(mesures, ratioCoverage(ratio, req.srcW, req.srcH))
+    const { cropX: natif } = cropDuPlan(mesures, nativeWidth)
     return {
       shot: plan,
       key: shotStartMs(plan),
+      ratio,
       // Un plan sans mesure est **centré**, et n'emprunte pas le crop de son
       // voisin : une frontière de plan est précisément l'endroit où l'axe
       // change, donc le seul endroit où la continuité n'est pas une hypothèse
       // défendable. 0,5 est aussi ce que `cropRect` prend quand `cropX` ne veut
       // rien dire, et deux défauts qui divergent finissent par se contredire.
       cropX: calculé ?? 0.5,
+      cropXNative: natif ?? 0.5,
       source: calculé === null ? 'default' : 'auto',
     }
   })
 
-  return { ratio, shots, rejectedOverrides: appliquerDérogations(shots, req) }
+  return { ratio: nativeRatio, shots, rejectedOverrides: appliquerDérogations(shots, req) }
 }
 
 /**
@@ -760,7 +937,12 @@ function appliquerDérogations(shots: ShotFraming[], req: FramingRequest): numbe
   for (const s of shots) {
     const dérogation = retenues.get(s.key)
     if (!dérogation) continue
+    // **Les deux positions, et la même.** Une dérogation est une intention
+    // humaine sur *où regarder*, pas sur une fenêtre : la poser d'un seul côté
+    // ferait diverger le natif et la variante sur un plan que quelqu'un a cadré
+    // exprès, et l'écart ne se verrait qu'en comparant deux fichiers.
     s.cropX = dérogation.valeur
+    s.cropXNative = dérogation.valeur
     s.source = 'manual'
   }
 

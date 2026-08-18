@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -232,7 +232,17 @@ describe('produireArtefact — la décision de sauter', () => {
  * processus par vignette demandée pendant que le partage est tombé.
  */
 describe('runFfmpeg, le délai de garde', () => {
-  it('tue le processus qui ne répond pas, et le dit', async () => {
+  let dossier: string
+
+  beforeEach(() => {
+    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-garde-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(dossier, { recursive: true, force: true })
+  })
+
+  it('rend la main sans attendre, et le dit', async () => {
     const début = Date.now()
     await expect(
       runFfmpeg(['30'], { bin: 'sleep', timeoutMs: 60, quoi: 'vignette de source e.mp4' }),
@@ -241,6 +251,26 @@ describe('runFfmpeg, le délai de garde', () => {
     // mourir : sur un montage mort, il part en sommeil non interruptible et
     // `close` peut n'arriver que bien plus tard.
     expect(Date.now() - début).toBeLessThan(5_000)
+  })
+
+  /**
+   * **Et il tue vraiment.** Rendre la main sans tuer laisserait un processus par
+   * vignette demandée pendant que le partage est tombé — c'est là toute la
+   * différence avec le reste du dépôt, où l'on se contente de cesser d'attendre
+   * un appel système, faute de pouvoir l'annuler.
+   *
+   * On l'observe par sa conséquence : un `sh` qui écrirait un fichier après le
+   * délai ne l'écrit jamais.
+   */
+  it('tue vraiment le processus, il ne le laisse pas finir dans son coin', async () => {
+    const témoin = path.join(dossier, 'survivant.txt')
+
+    await expect(
+      runFfmpeg(['-c', `sleep 0.4; echo vivant > ${témoin}`], { bin: 'sh', timeoutMs: 60 }),
+    ).rejects.toThrow(/n'a pas répondu/)
+
+    await new Promise((r) => setTimeout(r, 500))
+    expect(fs.existsSync(témoin)).toBe(false)
   })
 
   /**

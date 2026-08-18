@@ -52,6 +52,26 @@ export function dossierVignettesSources(): string {
 }
 
 /**
+ * Un nom que l'appelant a mal formé — **400, jamais 500**.
+ *
+ * C'est la règle de `src/server/http.ts` : « la seule catégorie d'erreur dont
+ * l'appelant est responsable, et lui répondre 500 lui ferait chercher la panne
+ * en face ». Sans ce type, `?file=../../etc/passwd` était bel et bien refusé,
+ * mais sous un code qui accuse le serveur — et qui inscrit une trace complète
+ * au journal à chaque tentative.
+ *
+ * Le message est sûr à publier : `vérifierNomDeSource` cite le nom que
+ * l'appelant a écrit, et `resolveSource` nomme la variable `REPLAY_DIR`, pas sa
+ * valeur.
+ */
+export class SourceInvalideError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'SourceInvalideError'
+  }
+}
+
+/**
  * Un nom de source sert à nommer un fichier de cache, et **il arrive du
  * réseau** : `GET /api/sources/thumb?file=…` est écrit par l'appelant.
  *
@@ -75,7 +95,7 @@ export function vérifierNomDeSource(nom: string): string {
     nom.includes('/') ||
     nom.includes('\\') ||
     nom.includes('\0')
-  if (refusé) throw new Error(`Nom de source invalide : ${JSON.stringify(nom)}`)
+  if (refusé) throw new SourceInvalideError(`Nom de source invalide : ${JSON.stringify(nom)}`)
   return nom
 }
 
@@ -177,7 +197,7 @@ export async function vignetteSource(
   options: OptionsVignetteSource = {},
 ): Promise<string | null> {
   // Avant la file d'attente : refuser un nom ne coûte rien et n'attend personne.
-  const source = resolveSource(vérifierNomDeSource(nom))
+  const source = résoudre(nom)
   const timeoutMs = options.timeoutMs ?? DÉLAI_STAT_MS
 
   return enFile(async () => {
@@ -190,6 +210,22 @@ export async function vignetteSource(
     // trouve le fichier écrit par le premier.
     return produire(source, vignetteSourcePath(nom, info.size, info.mtimeMs), timeoutMs, options)
   })
+}
+
+/**
+ * Le fichier désigné, ou un refus que la route rendra en 400.
+ *
+ * Les deux contrôles ne font pas le même travail — l'un décide du fichier qu'on
+ * **lit**, l'autre du fichier qu'on **écrit** — mais ils se trompent de la même
+ * façon, du fait de l'appelant. Ils sortent donc sous le même type.
+ */
+function résoudre(nom: string): string {
+  try {
+    return resolveSource(vérifierNomDeSource(nom))
+  } catch (cause) {
+    if (cause instanceof SourceInvalideError) throw cause
+    throw new SourceInvalideError((cause as Error).message, { cause })
+  }
 }
 
 /**

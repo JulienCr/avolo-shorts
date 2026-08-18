@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 
 import { introuvable, requêteInvalide, route } from '@/server/http'
 import { replayDir } from '@/server/paths'
-import { vignetteSource } from '@/server/vignettes-sources'
+import { SourceInvalideError, vignetteSource } from '@/server/vignettes-sources'
 
 /**
  * `GET /api/sources/thumb?file=<nom>` — la vignette d'un replay (spec §12).
@@ -27,7 +27,14 @@ export const GET = route('GET /api/sources/thumb', async (requête: Request) => 
     throw requêteInvalide('Paramètre `file` manquant : le nom du replay dans REPLAY_DIR.')
   }
 
-  const fichier = await vignetteSource(nom)
+  // **Un nom mal formé est un 400, pas un 500.** C'est la règle de `http.ts`, et
+  // elle vaut d'autant plus ici que ce paramètre est la surface que quelqu'un
+  // ira sonder en premier : répondre 500 à `?file=../../etc/passwd` accuserait
+  // le serveur et inscrirait une trace complète au journal à chaque tentative.
+  const fichier = await vignetteSource(nom).catch((cause: unknown) => {
+    if (cause instanceof SourceInvalideError) throw requêteInvalide(cause.message)
+    throw cause
+  })
   // Pas d'image à en tirer : le fichier a disparu depuis la liste, ce n'est pas
   // un fichier ordinaire, ou il pèse zéro octet — un enregistrement qui vient de
   // commencer. Aucun des trois n'est une panne, et la carte a son repli.

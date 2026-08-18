@@ -418,10 +418,36 @@ describe('GET /api/sources/thumb', () => {
    * contrôle en base, celle-ci part d'un nom que l'appelant écrit.
    */
   it('ne laisse pas un nom remonter l’arborescence', async () => {
-    for (const nom of ['../../etc/passwd', '..%2F..%2Fetc%2Fpasswd', 'a/b.mp4']) {
-      const réponse = await vignetteRoute(requête(`?file=${encodeURIComponent(nom)}`))
-      expect(réponse.status).toBeGreaterThanOrEqual(400)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Les deux écritures de la même tentative : la forme nue, et celle où les
+    // séparateurs sont percent-encodés — c'est `searchParams` qui les décode, et
+    // le contrôle a lieu après lui.
+    const tentatives = [
+      '?file=../../etc/passwd',
+      '?file=..%2F..%2Fetc%2Fpasswd',
+      '?file=a/b.mp4',
+      '?file=.',
+      '?file=..',
+      '?file=..%5Cwindows',
+    ]
+    for (const query of tentatives) {
+      const réponse = await vignetteRoute(requête(query))
+      // **400 et non 500** : c'est l'appelant qui a mal formé sa demande, et
+      // c'est la surface que quelqu'un ira sonder en premier. Un 500 accuserait
+      // le serveur et inscrirait une trace complète au journal à chaque essai.
+      expect(réponse.status, query).toBe(400)
     }
+  })
+
+  /**
+   * **Un `%2F` doublement encodé n'est pas une évasion, c'est un nom de fichier
+   * exotique** — et le contrôle refuse ce qui sort du dossier, pas ce qui est
+   * exotique. Il n'existe pas, donc 404, ce qui est exactement ce que la route
+   * répond de n'importe quel nom qui n'est pas là.
+   */
+  it('traite un nom bizarre mais confiné comme un nom, pas comme une attaque', async () => {
+    const réponse = await vignetteRoute(requête('?file=..%252F..%252Fetc%252Fpasswd'))
+    expect(réponse.status).toBe(404)
   })
 
   it('rend 404 sur une source qui n’existe pas', async () => {

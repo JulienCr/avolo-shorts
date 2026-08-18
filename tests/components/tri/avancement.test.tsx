@@ -67,7 +67,11 @@ describe('dispositionAvancement', () => {
 })
 
 describe('PanneauAvancement', () => {
-  function monter(faites: StepName[], running = enCours, erreur: string | null = null) {
+  function monter(
+    faites: StepName[],
+    running: { step: StepName; progress: number } | null = enCours,
+    erreur: string | null = null,
+  ) {
     return render(
       <PanneauAvancement
         steps={releve(faites)}

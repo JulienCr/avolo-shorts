@@ -1,7 +1,7 @@
 'use client'
 
 import { Check, CircleDashed, Loader2 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { ÉTAPES, LIBELLES_ETAPES } from '@/core/parcours'
@@ -44,7 +44,7 @@ export function PanneauAvancement({
   /** Le bouton de reprise. La page le fournit : c'est elle qui porte la mutation. */
   reprise: ReactNode
 }) {
-  const écoulé = useTempsÉcoulé(running)
+  const suivi = useTempsSuivi(running !== null)
   // Une exécution morte ou échouée est la seule impasse réelle de l'interface :
   // `progression()` lit une `Map` du processus Next, qu'un redémarrage vide sans
   // laisser d'erreur, et il y a un redémarrage à chaque édition en
@@ -119,10 +119,10 @@ export function PanneauAvancement({
         {ceQuiDevientPossible(steps)}
       </p>
 
-      {écoulé !== null && (
+      {running !== null && (
         <p data-testid="ecoule" className="mt-1 text-sm text-muted-foreground">
-          {écoulé.depuisLeLancement ? 'Temps écoulé' : 'Suivi depuis l’ouverture de cet écran'} :{' '}
-          <span className="font-mono tabular-nums">{formatDuration(écoulé.secondes)}</span>
+          Suivi depuis l’ouverture de cet écran :{' '}
+          <span className="font-mono tabular-nums">{formatDuration(suivi)}</span>
         </p>
       )}
 
@@ -230,40 +230,29 @@ function ceQuiDevientPossible(steps: Record<StepName, boolean>): string {
 }
 
 /**
- * Depuis combien de temps ça tourne.
+ * Depuis combien de temps cet écran regarde tourner l'analyse.
  *
- * **Ce qu'on sait mesurer, c'est le temps depuis qu'on regarde.**
+ * **Ce n'est pas le temps écoulé depuis le lancement, et le libellé le dit.**
  * `ProjectStatus` ne publie pas l'instant du lancement : `status.json` porte un
- * `updatedAt` et un `finishedAt`, pas un `startedAt`, et la route ne le sert pas.
- * Arriver sur un écran dont l'exécution a commencé avant nous ne permet donc pas
- * de dire « temps écoulé » — le dire quand même serait inventer une donnée. On
- * distingue les deux cas, et le libellé change avec.
+ * `updatedAt` et un `finishedAt`, pas un `startedAt`, et la route ne le sert
+ * pas. Sur un projet dont l'analyse a démarré avant qu'on ouvre l'écran, « temps
+ * écoulé » serait donc une donnée inventée — et il n'y a rien de plus coûteux
+ * qu'un chiffre faux à côté d'une attente de neuf minutes. Ce qu'on sait
+ * mesurer, c'est le temps qu'on a passé à regarder.
+ *
+ * Il compte les secondes plutôt que de lire une horloge : `Date.now()` appelé
+ * pendant le rendu rendrait le composant impur — la même entrée n'y donnerait
+ * pas la même sortie — et le battement s'arrête avec l'exécution, donc ce
+ * compteur mesure du temps d'analyse observé, pas du temps de présence.
  */
-function useTempsÉcoulé(
-  running: { step: StepName } | null,
-): { secondes: number; depuisLeLancement: boolean } | null {
-  const départ = useRef<{ instant: number; depuisLeLancement: boolean } | null>(null)
-  const tournait = useRef<boolean | null>(null)
-  const [, retracer] = useState(0)
-
-  const tourne = running !== null
-  if (tourne && départ.current === null) {
-    // Vrai seulement si on a vu l'exécution démarrer : au tout premier relevé,
-    // elle peut très bien tourner depuis huit minutes.
-    départ.current = { instant: Date.now(), depuisLeLancement: tournait.current === false }
-  }
-  if (!tourne) départ.current = null
-  tournait.current = tourne
+function useTempsSuivi(actif: boolean): number {
+  const [secondes, setSecondes] = useState(0)
 
   useEffect(() => {
-    if (!tourne) return
-    const battement = window.setInterval(() => retracer((n) => n + 1), 1_000)
+    if (!actif) return
+    const battement = window.setInterval(() => setSecondes((n) => n + 1), 1_000)
     return () => window.clearInterval(battement)
-  }, [tourne])
+  }, [actif])
 
-  if (départ.current === null) return null
-  return {
-    secondes: Math.max(0, (Date.now() - départ.current.instant) / 1000),
-    depuisLeLancement: départ.current.depuisLeLancement,
-  }
+  return secondes
 }

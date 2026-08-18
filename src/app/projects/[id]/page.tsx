@@ -1,163 +1,212 @@
 'use client'
 
-import { use, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, use } from 'react'
 
-import { CandidateCard } from '@/components/tri/candidate-card'
+import type { StepName } from '@/core/graph'
+import { compter, phaseProjet } from '@/core/parcours'
+import { lienProjet } from '@/lib/parcours'
+import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 import { AppBar } from '@/components/parcours/app-bar'
+import { BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
+import { FilDeTri } from '@/components/tri/fil'
+import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
+import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { compter, LIBELLES_ETAPES } from '@/core/parcours'
-import type { CandidateClip, StepName } from '@/lib/api'
-import { basculerStatut, estEcarte, type Decision } from '@/lib/clip-status'
-import { formatDuration } from '@/lib/format'
-import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 
 /**
- * L'écran de tri.
+ * L'écran de projet.
  *
- * Le premier écran de l'itération 0, et celui qui se soigne en premier
- * (spec §13). Vingt-cinq propositions, deux décisions par proposition, et rien
- * entre le regard et la décision : pas de boîte de dialogue, pas de confirmation,
- * pas d'attente serveur — l'écriture est optimiste.
+ * **Un seul objectif : décider quelles propositions valent d'être montées.**
+ * L'avancement de l'analyse est sur le même écran non pas comme second objectif,
+ * mais parce que c'est le même objet à un autre moment de sa vie (spec §2.4).
+ *
+ * Ce fichier ne calcule rien. La phase vient de `@/core/parcours`, la
+ * disposition de `@/components/tri/modele`, la boucle de tri de `FilDeTri` : il
+ * ne fait qu'interroger, distribuer et disposer. C'est la même frontière que
+ * `src/core` contre `src/server`, appliquée un cran plus haut, et elle se
+ * vérifie à la lecture.
  */
-export default function PageDeTri({ params }: { params: Promise<{ id: string }> }) {
+export default function PageDeProjet({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  // **La limite de Suspense n'est pas décorative** : `useSearchParams` fait
+  // sortir du rendu statique, et `next build` refuse un composant qui l'appelle
+  // sans elle. Le repli est le même squelette que celui du chargement des
+  // données — il ne dure de toute façon que le temps de l'hydratation.
+  return (
+    <Suspense fallback={<Chargement id={id} />}>
+      <EcranDeProjet id={id} />
+    </Suspense>
+  )
+}
+
+function EcranDeProjet({ id }: { id: string }) {
   const projet = useProjet(id)
   const candidats = useCandidats(id)
   const patch = usePatchClip()
+  const [vue, allerÀLaVue] = useVueDansUrl(id)
 
-  const [voirEcartes, setVoirEcartes] = useState(false)
+  const clips = candidats.data ?? []
+  const steps = projet.data?.steps ?? ({} as Record<StepName, boolean>)
+  const running = projet.data?.running ?? null
+  // **Au repos seulement.** Pendant qu'une exécution tourne, l'échec affiché
+  // serait celui d'avant — et c'est le serveur qui le garantit déjà en rendant
+  // `error: null` tant que `running` n'est pas nul.
+  const erreur = projet.data?.error ?? null
 
-  const liste = useMemo(() => candidats.data ?? [], [candidats.data])
-  const compte = useMemo(() => compter(liste), [liste])
-  const visibles = voirEcartes ? liste : liste.filter((c) => !estEcarte(c.status))
-
-  function basculer(clip: CandidateClip, decision: Decision) {
-    // `basculerStatut` est la même définition que celle qu'affiche la carte —
-    // elles divergeaient, et le bouton « Gardé » d'un clip exporté produisait un
-    // changement d'état invisible.
-    const status = basculerStatut(clip.status, decision)
-    patch.mutate({ clipId: clip.id, projectId: id, patch: { status } })
-  }
+  const phase = phaseProjet(steps, running, erreur, clips)
+  // Tant que l'état du projet n'a pas répondu, `steps` est vide et `running`
+  // nul : la phase dirait `interrompu`, et l'écran proposerait de reprendre une
+  // analyse dont il ne sait rien. On attend la première réponse.
+  const disposition = projet.isSuccess
+    ? dispositionAvancement(phase, running, clips.length === 0)
+    : 'rien'
 
   return (
     <div className="flex min-h-full flex-col">
       <AppBar lieu={{ kind: 'projet', projet: { id, titre: projet.data?.project.title ?? id } }}>
-        {projet.data?.running && <Progression running={projet.data.running} />}
+        {disposition === 'bande' && running !== null && <BandeAvancement running={running} />}
       </AppBar>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
-        <div className="mb-4 flex flex-wrap items-baseline gap-x-5 gap-y-2">
-          <h1 className="text-lg font-semibold tracking-tight">Candidats</h1>
+        <div className="flex flex-col gap-4">
+          {/* **Deux origines d'erreur, et la seconde n'efface pas la première.**
+              L'analyse a échoué : c'est un fait du serveur, il vit en bandeau et
+              son message vient de `ProjectStatus.error`. La liste ne se charge
+              pas : c'est un incident local, il a son message et son
+              « réessayer ». Les deux peuvent tenir en même temps.
 
-          <p className="text-sm text-muted-foreground">
-            <span className="font-mono tabular-nums">{compte.aTrier}</span> à trier ·{' '}
-            <span className="font-mono text-stage-foreground tabular-nums">{compte.gardes}</span>{' '}
-            gardé{compte.gardes > 1 ? 's' : ''} ·{' '}
-            <span className="font-mono tabular-nums">
-              {formatDuration(compte.dureeGardee)}
-            </span>{' '}
-            au total
-          </p>
+              Le bandeau ne double pas le panneau, qui porte déjà le message du
+              serveur et le bouton de reprise. */}
+          {erreur !== null && running === null && disposition !== 'panneau' && (
+            <Alert variant="destructive">
+              <AlertTitle>La dernière analyse a échoué.</AlertTitle>
+              <AlertDescription>
+                <p>{erreur}</p>
+                <BoutonReprise projectId={id} enCours={false} />
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {candidats.isError && (
+            <Alert variant="destructive">
+              <AlertTitle>Les propositions ne se chargent pas.</AlertTitle>
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <p>{messageDe(candidats.error)}</p>
+                <Button size="sm" variant="outline" onClick={() => void candidats.refetch()}>
+                  Réessayer
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {disposition === 'panneau' && (
+            <PanneauAvancement
+              steps={steps}
+              running={running}
+              erreur={erreur}
+              reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
+            />
+          )}
+
+          {projet.isPending || candidats.isPending ? (
+            <GrilleEnAttente />
+          ) : (
+            disposition !== 'panneau' && (
+              <FilDeTri
+                projectId={id}
+                clips={clips}
+                vue={vue}
+                onVue={allerÀLaVue}
+                proxyPret={steps.proxy === true}
+                bilan={projet.data?.repérage ?? null}
+                onStatut={(clipId, status) =>
+                  patch.mutate({ clipId, projectId: id, patch: { status } })
+                }
+                entete={
+                  <BoutonRelance
+                    projectId={id}
+                    compte={compter(clips)}
+                    enCours={running !== null}
+                  />
+                }
+              />
+            )
+          )}
 
           {/* Une écriture optimiste qui échoue remet la carte comme elle était.
               Sans ce mot, le clic aurait simplement l'air de ne pas avoir été
               pris — et on recommencerait. */}
           {patch.isError && (
-            <p className="text-sm text-destructive">
-              L’enregistrement a échoué. La carte est revenue à son état précédent.
-            </p>
-          )}
-
-          {compte.ecartes > 0 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto text-muted-foreground"
-              onClick={() => setVoirEcartes((v) => !v)}
-              aria-pressed={voirEcartes}
-            >
-              {voirEcartes ? 'Masquer' : 'Revoir'}{' '}
-              {compte.ecartes === 1 ? 'l’écarté' : `les ${compte.ecartes} écartés`}
-            </Button>
+            <Alert variant="destructive">
+              <AlertDescription>
+                L’enregistrement a échoué. La carte est revenue à son état précédent.
+              </AlertDescription>
+            </Alert>
           )}
         </div>
-
-        {/* **Une analyse qui a échoué doit se voir.** Elle dure quarante minutes
-            et rend la main bien après la réponse 202 : sans ce mot, un échec
-            ressemble trait pour trait à un repérage qui n'a rien trouvé, et on
-            relance la même chose en attendant un autre résultat. */}
-        {projet.data?.error && !projet.data.running && (
-          <div
-            // La bannière apparaît après coup, une fois l'interrogation revenue :
-            // sans région live, un lecteur d'écran ne dit rien d'une analyse de
-            // quarante minutes qui vient d'échouer. (relevé par Copilot)
-            role="alert"
-            className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3"
-          >
-            <p className="text-sm font-medium text-destructive">La dernière analyse a échoué.</p>
-            <p className="mt-1 text-sm text-muted-foreground">{projet.data.error}</p>
-          </div>
-        )}
-
-        {candidats.isPending && <GrilleEnAttente />}
-
-        {candidats.isError && (
-          <Message
-            titre="Les candidats ne se chargent pas."
-            detail="Relancer le repérage depuis le projet, ou vérifier que l'analyse est allée jusqu'au bout."
-          />
-        )}
-
-        {candidats.isSuccess && visibles.length === 0 && (
-          <Message
-            titre={liste.length === 0 ? 'Aucun candidat pour le moment.' : 'Tout est trié.'}
-            detail={
-              liste.length === 0
-                ? "Le repérage n'a rien rendu, ou il n'a pas encore tourné."
-                : 'Les clips gardés se montent depuis leur carte.'
-            }
-          />
-        )}
-
-        {visibles.length > 0 && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {visibles.map((clip) => (
-              <CandidateCard
-                key={clip.id}
-                clip={clip}
-                onGarder={() => basculer(clip, 'kept')}
-                onEcarter={() => basculer(clip, 'discarded')}
-              />
-            ))}
-          </div>
-        )}
       </main>
     </div>
   )
 }
 
-/** L'étape en cours et son avancement, pendant que le pipeline tourne. */
-function Progression({ running }: { running: { step: StepName; progress: number } }) {
-  const pourcent = Math.round(Math.min(1, Math.max(0, running.progress)) * 100)
+/**
+ * La vue active, **dans l'URL**.
+ *
+ * Un rechargement doit rendre le même écran : c'est ce que l'URL garantit et
+ * qu'un état de composant ne garantit pas. La position de défilement et le
+ * focus, eux, restent en session — une position de défilement dans une URL est
+ * une URL qu'on ne peut plus partager.
+ *
+ * `replace` et non `push` : basculer d'onglet n'est pas une navigation dont on
+ * veut revenir par le bouton « précédent », qui doit ramener à la bibliothèque.
+ * Et `scroll: false`, sans quoi chaque changement de vue remonterait la page.
+ */
+function useVueDansUrl(projectId: string): [Vue, (vue: Vue) => void] {
+  const router = useRouter()
+  const paramètres = useSearchParams()
+  const vue = vueDepuisUrl(paramètres.get('vue'))
+
+  return [
+    vue,
+    (choisie: Vue) => {
+      const suivants = new URLSearchParams(paramètres.toString())
+      // La vue par défaut ne s'écrit pas : une URL nue est celle qu'on partage.
+      if (choisie === 'atrier') suivants.delete('vue')
+      else suivants.set('vue', choisie)
+      const requête = suivants.toString()
+      router.replace(`${lienProjet(projectId)}${requête === '' ? '' : `?${requête}`}`, {
+        scroll: false,
+      })
+    },
+  ]
+}
+
+/** Le message d'un échec, quelle que soit sa nature. */
+function messageDe(erreur: unknown): string {
+  return erreur instanceof Error ? erreur.message : 'Cause inconnue.'
+}
+
+function Chargement({ id }: { id: string }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>{LIBELLES_ETAPES[running.step]}</span>
-      <span
-        role="progressbar"
-        aria-valuenow={pourcent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${LIBELLES_ETAPES[running.step]} en cours`}
-        className="h-1 w-28 overflow-hidden rounded-full bg-muted"
-      >
-        <span className="block h-full bg-stage transition-[width]" style={{ width: `${pourcent}%` }} />
-      </span>
-      <span className="font-mono tabular-nums">{pourcent}%</span>
+    <div className="flex min-h-full flex-col">
+      <AppBar lieu={{ kind: 'projet', projet: { id, titre: id } }} />
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
+        <GrilleEnAttente />
+      </main>
     </div>
   )
 }
 
+/**
+ * Le squelette de la grille.
+ *
+ * **À ne pas confondre avec l'attente d'analyse** : celui-ci dure deux cents
+ * millisecondes, l'autre neuf minutes. C'est pourquoi le panneau d'avancement
+ * n'est pas une grille grise — les deux rendaient la même page.
+ */
 function GrilleEnAttente() {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -171,15 +220,6 @@ function GrilleEnAttente() {
           </div>
         </div>
       ))}
-    </div>
-  )
-}
-
-function Message({ titre, detail }: { titre: string; detail: string }) {
-  return (
-    <div className="rounded-xl border border-dashed px-6 py-14 text-center">
-      <p className="text-sm font-medium">{titre}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
     </div>
   )
 }

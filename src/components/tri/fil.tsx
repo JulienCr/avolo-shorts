@@ -1,7 +1,7 @@
 'use client'
 
 import { Keyboard } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { ClipStatus } from '@/core/edl'
 import { compter } from '@/core/parcours'
@@ -87,7 +87,12 @@ export function FilDeTri({
   // travaillerait sur un identifiant que plus rien n'affiche.
   const courant = visibles.some((c) => c.id === selection) ? selection : (visibles[0]?.id ?? null)
 
-  const élément = useCallback((clipId: string | null): HTMLElement | null => {
+  // **Aucun `useCallback` ici, et c'est délibéré.** Ces gestes ferment sur la
+  // liste, la vue et la sélection : leurs tableaux de dépendances seraient longs,
+  // faux un jour, et sans bénéfice — `useRaccourcisTri` garde les derniers
+  // derrière une référence, donc rien ne se réabonne au changement d'identité, et
+  // le compilateur de React mémorise ce qui vaut de l'être.
+  function élément(clipId: string | null): HTMLElement | null {
     if (clipId === null) return null
     const cartes = grille.current?.querySelectorAll<HTMLElement>('[data-clip]') ?? []
     // Une comparaison d'attribut plutôt qu'un sélecteur : les identifiants de
@@ -95,50 +100,41 @@ export function FilDeTri({
     // il n'y a pas trente cartes à parcourir.
     for (const carte of cartes) if (carte.getAttribute('data-clip') === clipId) return carte
     return null
-  }, [])
+  }
 
-  const focaliser = useCallback(
-    (clipId: string | null) => {
-      setSelection(clipId)
-      const carte = élément(clipId)
-      if (carte === null) return
-      carte.focus()
-      // `scrollIntoView` n'existe pas sous jsdom, et le focus suffit dans un
-      // navigateur pour les cartes déjà visibles.
-      if (typeof carte.scrollIntoView === 'function') carte.scrollIntoView({ block: 'nearest' })
-    },
-    [élément],
-  )
+  function focaliser(clipId: string | null) {
+    setSelection(clipId)
+    const carte = élément(clipId)
+    if (carte === null) return
+    carte.focus()
+    // `scrollIntoView` n'existe pas sous jsdom, et le focus suffit dans un
+    // navigateur pour les cartes déjà visibles.
+    if (typeof carte.scrollIntoView === 'function') carte.scrollIntoView({ block: 'nearest' })
+  }
 
-  const deplacer = useCallback(
-    (pas: number) => {
-      if (visibles.length === 0) return
-      const depuis = visibles.findIndex((c) => c.id === courant)
-      // **Sans rebouclage, aux deux bouts.** Reboucler ferait repasser
-      // indéfiniment sur des cartes déjà vues sans que rien ne dise qu'on a fait
-      // le tour — le même choix que `clipSuivant`.
-      const vers = Math.max(0, Math.min(visibles.length - 1, (depuis < 0 ? 0 : depuis) + pas))
-      focaliser(visibles[vers]?.id ?? null)
-    },
-    [visibles, courant, focaliser],
-  )
+  function deplacer(pas: number) {
+    if (visibles.length === 0) return
+    const depuis = visibles.findIndex((c) => c.id === courant)
+    // **Sans rebouclage, aux deux bouts.** Reboucler ferait repasser
+    // indéfiniment sur des cartes déjà vues sans que rien ne dise qu'on a fait
+    // le tour — le même choix que `clipSuivant`.
+    const vers = Math.max(0, Math.min(visibles.length - 1, (depuis < 0 ? 0 : depuis) + pas))
+    focaliser(visibles[vers]?.id ?? null)
+  }
 
-  const empiler = useCallback((clip: CandidateClip) => {
+  function empiler(clip: CandidateClip) {
     setPile((p) => [...p, { clipId: clip.id, avant: clip.status }])
-  }, [])
+  }
 
-  const decider = useCallback(
-    (decision: Decision) => {
-      const clip = visibles.find((c) => c.id === courant)
-      if (clip === undefined) return
-      empiler(clip)
-      onStatut(clip.id, basculerStatut(clip.status, decision))
-      deplacer(1)
-    },
-    [visibles, courant, empiler, onStatut, deplacer],
-  )
+  function decider(decision: Decision) {
+    const clip = visibles.find((c) => c.id === courant)
+    if (clip === undefined) return
+    empiler(clip)
+    onStatut(clip.id, basculerStatut(clip.status, decision))
+    deplacer(1)
+  }
 
-  const defaire = useCallback(() => {
+  function defaire() {
     const dernière = pile.at(-1)
     if (dernière === undefined) return
     setPile((p) => p.slice(0, -1))
@@ -148,13 +144,13 @@ export function FilDeTri({
     // décision qu'on défait. `kept` est le maximum honnête.
     onStatut(dernière.clipId, dernière.avant === 'exported' ? 'kept' : dernière.avant)
     focaliser(dernière.clipId)
-  }, [pile, onStatut, focaliser])
+  }
 
-  const ouvrir = useCallback(() => {
+  function ouvrir() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
     // clic emprunte déjà.
     élément(courant)?.querySelector<HTMLAnchorElement>('a[data-ouvrir]')?.click()
-  }, [élément, courant])
+  }
 
   useRaccourcisTri({
     precedent: () => deplacer(-1),

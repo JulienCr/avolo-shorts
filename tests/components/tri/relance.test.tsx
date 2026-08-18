@@ -29,7 +29,7 @@ function enveloppe({ children }: { children: ReactNode }) {
 }
 
 function corpsEnvoyé(appel: ReturnType<typeof vi.fn>): unknown {
-  const [, options] = appel.mock.calls[0] as [string, RequestInit]
+  const [, options] = appel.mock.calls[0] as unknown as [string, RequestInit]
   return JSON.parse(String(options.body))
 }
 

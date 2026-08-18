@@ -36,6 +36,11 @@ function harnais() {
   return { invalide, enveloppe }
 }
 
+function corpsEnvoyé(appel: ReturnType<typeof vi.fn>): unknown {
+  const [, options] = appel.mock.calls[0] as unknown as [string, RequestInit]
+  return JSON.parse(String(options.body))
+}
+
 const plan: RunPlan = { projectId: 'p1', plan: ['candidates', 'proxy'] }
 
 afterEach(() => {
@@ -60,7 +65,7 @@ describe('useRelancer', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(appel).toHaveBeenCalledTimes(1)
-    const [chemin, options] = appel.mock.calls[0] as [string, RequestInit]
+    const [chemin, options] = appel.mock.calls[0] as unknown as [string, RequestInit]
     expect(chemin).toBe('/api/projects/p1/run')
     expect(JSON.parse(String(options.body))).toEqual({ target: [...CIBLES_DE_REPRISE] })
   })
@@ -95,8 +100,7 @@ describe('useRelancer', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    const [, options] = appel.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(String(options.body))).toEqual({ target: 'candidates', force: true })
+    expect(corpsEnvoyé(appel)).toEqual({ target: 'candidates', force: true })
   })
 
   it('remonte un 409 avec son code, pas seulement son message', async () => {

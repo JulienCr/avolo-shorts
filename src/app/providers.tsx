@@ -3,6 +3,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 
+import { TooltipProvider } from '@/components/ui/tooltip'
+
 /**
  * TanStack Query, posé dès l'itération 0.
  *
@@ -34,5 +36,18 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   )
 
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  // **`TooltipProvider` enveloppe l'application entière**, et pas chaque bulle :
+  // c'est lui qui porte le délai d'ouverture partagé — passer d'une bulle à sa
+  // voisine ne doit pas repayer l'attente — et la fermeture de celle qui est
+  // ouverte quand une autre s'ouvre. Un fournisseur par usage rendrait chaque
+  // bulle indépendante des autres, ce qui est précisément ce qu'il évite.
+  //
+  // Rappel de ce que la bulle ne fait **jamais** ici : porter la raison d'un
+  // contrôle désactivé. Une bulle qui n'apparaît qu'au survol est invisible au
+  // clavier, et cette raison-là doit se lire avant d'essayer.
+  return (
+    <QueryClientProvider client={client}>
+      <TooltipProvider>{children}</TooltipProvider>
+    </QueryClientProvider>
+  )
 }

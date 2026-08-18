@@ -81,7 +81,10 @@ describe('windowTextWithAnchors', () => {
   it('un marqueur tronqué se lit comme un trou ; arrondi, il avale le mot suivant', () => {
     const tx: Transcript = { segments: [seg(30.56, 31.2, 'next')] }
     const w = { id: 'window_001', start: 30.56, end: 31.2, text: 'next', segFrom: 0, segTo: 0 }
-    const marker = parseFloat(windowTextWithAnchors(w, tx).slice(1, 7))
+    // Le marqueur se lit par motif, jamais par découpe à position fixe : un
+    // `slice(1, 7)` code en dur une ancre de sept caractères et rendrait
+    // `123.45` pour un début de segment à trois chiffres.
+    const marker = parseFloat(windowTextWithAnchors(w, tx).match(/\[([\d.]+)\]/)![1])
     const words = [word('last', 28.0, 29.0), word('next', 30.56, 31.2)]
 
     const [, tronque] = snapToWords(10.0, marker, words, 100)

@@ -36,6 +36,7 @@ export function PanneauExport({
   outputs,
   ratio,
   duree,
+  empreinte,
   enregistrement,
   ecritureEnCours,
   ecritureEnEchec,
@@ -48,6 +49,17 @@ export function PanneauExport({
   ratio: Ratio | 'auto'
   /** La durée montée. Zéro veut dire qu'il ne reste rien à rendre. */
   duree: number
+  /**
+   * Tout ce qui décide du rendu, tel que l'écran le connaît : segments, ratio,
+   * cadrage, marques, sous-titres, textes.
+   *
+   * **Elle sert à dater l'annonce de résultat, et la durée n'y suffisait pas** :
+   * une coupe de même durée, un cadrage déplacé ou les marques basculées
+   * périment les fichiers sans changer un seul des nombres que ce panneau
+   * affichait. « Rendu terminé » continuait alors de décrire des fichiers que le
+   * `PATCH` venait d'écarter. (relevé par Copilot)
+   */
+  empreinte: string
   /** L'écriture différée du **montage** : segments, ratio, cadrage. */
   enregistrement: EtatEnregistrement
   /**
@@ -80,7 +92,7 @@ export function PanneauExport({
   const [signatureRendue, setSignatureRendue] = useState<string | null>(null)
 
   const effectif = resolveRatio(ratio)
-  const signature = `${clip.id}|${effectif}|${duree}|${clip.title}|${clip.description}`
+  const signature = `${clip.id}|${empreinte}`
   const noms = nomsDeSortie(clip.id, effectif)
   const déjàLivré = outputs.mp4Url !== null
 
@@ -122,7 +134,8 @@ export function PanneauExport({
         // rien à coller au moment de publier.
         <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          Le titre est vide : le fichier de textes sortira avec une première ligne vide.
+          Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
+          coller au moment de publier.
         </p>
       )}
 

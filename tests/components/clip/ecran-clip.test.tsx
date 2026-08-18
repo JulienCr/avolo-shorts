@@ -9,7 +9,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -240,5 +240,47 @@ describe('le surlignage, dès l’ouverture', () => {
     await monter('c2')
     act(() => useLecture.getState().definirPosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
+  })
+})
+
+describe('le curseur du clavier et les bornes', () => {
+  it('pose la borne sur le mot atteint à la flèche, pas sur le dernier cliqué', async () => {
+    // Les flèches déplaçaient le curseur dans la surface sans toucher à la
+    // sélection : `I` posait donc la borne sur un mot cliqué trois gestes plus
+    // tôt, sans que rien ne le dise. (relevé par Copilot)
+    await monter('c2')
+    const mot = screen.getByText(/m0-0/)
+    fireEvent.pointerDown(mot)
+    fireEvent.pointerUp(mot)
+    mot.focus()
+    fireEvent.keyDown(mot, { key: 'ArrowRight' })
+    fireEvent.keyDown(document.body, { key: 'i' })
+
+    const montage = useEditeur.getState().historique.present
+    expect(montage[0].start).toBeCloseTo(1, 5)
+  })
+})
+
+describe('l’échec d’une écriture directe', () => {
+  it('le dit dans la barre et le renvoie', async () => {
+    // Le titre, la description et les marques ne passent pas par
+    // `useEnregistrementAuto` : sans ce raccord, la barre affiche « enregistré »
+    // sur une écriture que le serveur a refusée. (relevé par Copilot)
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') throw new Error('réseau coupé')
+      if (String(url).includes('/candidates')) return reponse(candidats)
+      return reponse(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await monter('c2')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+    await screen.findByText(/échec de l’enregistrement/i)
+
+    const avant = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
+    fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(avant + 1),
+    )
   })
 })

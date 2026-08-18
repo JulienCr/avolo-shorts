@@ -65,6 +65,7 @@ function monter(props: Partial<Parameters<typeof PanneauExport>[0]> = {}) {
     ratio: '1:1' as const,
     duree: 20,
     enregistrement: 'enregistre' as const,
+    empreinte: 'empreinte-de-depart',
     ecritureEnCours: false,
     ecritureEnEchec: false,
     onBranding: vi.fn(),
@@ -99,9 +100,14 @@ describe('avant l’export', () => {
     expect(screen.queryByText('c1-9x16.mp4')).toBeNull()
   })
 
-  it('avertit d’un titre vide sans empêcher le rendu', () => {
+  it('avertit d’un titre vide en disant ce que le fichier portera', () => {
+    // Le rendu écrit « Titre : (sans titre) », pas une ligne vide : annoncer
+    // l'inverse décrit un fichier qui n'existe pas. (relevé par Copilot)
     monter({ clip: clip({ title: '' }) })
-    expect(screen.getByText(/première ligne vide/i)).toBeTruthy()
+    // Scopé à l'avertissement : la zone de textes porte le même « (sans titre) »,
+    // et c'est justement ce qu'il annonce.
+    expect(screen.getByText(/sortira avec/i).textContent).toContain('(sans titre)')
+    expect(screen.queryByText(/première ligne vide/i)).toBeNull()
     expect(boutonExporter().getAttribute('aria-disabled')).toBeNull()
   })
 })
@@ -237,7 +243,10 @@ describe('après l’export', () => {
     fireEvent.click(boutonExporter())
     await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
 
-    rerender(<PanneauExport {...props} duree={14} />)
+    // Une coupe de **même durée** change le montage sans changer la durée :
+    // l'empreinte porte donc l'état de rendu entier, pas un seul nombre.
+    // (relevé par Copilot)
+    rerender(<PanneauExport {...props} empreinte="une-autre-empreinte" />)
     expect(screen.queryByText(/rendu terminé/i)).toBeNull()
   })
 

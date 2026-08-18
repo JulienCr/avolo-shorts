@@ -106,6 +106,20 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
 
   const bornes = clipBounds(segments)
   const duree = clipDuration(segments)
+
+  // Tout ce qui décide du rendu. Le panneau d'export s'en sert pour dater son
+  // annonce de résultat : une coupe de même durée, un cadrage déplacé ou les
+  // marques basculées périment les fichiers sans changer la durée.
+  const empreinteDuRendu = JSON.stringify([
+    clip.id,
+    segments,
+    editeur.ratio,
+    editeur.cropX,
+    clip.branding,
+    clip.captions,
+    clip.title,
+    clip.description,
+  ])
   const selection = editeur.selection
   const etendueSelection = selection
     ? selectionBounds(words, selection.ancre, selection.tete)
@@ -130,6 +144,14 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     ecrire: patch.mutate,
     reconcilier: editeur.reconcilier,
   })
+
+  // **L'échec d'une écriture directe ne remonte pas par `useEnregistrementAuto`.**
+  // Celui-ci ne compare que les segments, le ratio et le cadrage ; le titre, la
+  // description et les marques partent par la même mutation sans y figurer. Sans
+  // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
+  // vient de refuser, et son rollback a déjà remis la valeur d'avant à l'écran.
+  // (relevé par Copilot)
+  const enEchec = enregistrement === 'echec' || patch.isError
 
   const ecrire = useCallback(
     (champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
@@ -188,10 +210,10 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
         <span
           className={cn(
             'text-[0.75rem]',
-            enregistrement === 'echec' ? 'text-destructive' : 'text-muted-foreground',
+            enEchec ? 'text-destructive' : 'text-muted-foreground',
           )}
         >
-          {enregistrement === 'echec'
+          {enEchec
             ? 'échec de l’enregistrement'
             : enregistrement === 'en-attente' || patch.isPending
               ? 'enregistrement…'
@@ -202,13 +224,22 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             différée retient la signature de la tentative ratée et ne la rejoue
             pas telle quelle — sans quoi elle boucle. Ce bouton refait la même
             comparaison et l'envoie, ce qui débloque sans rien inventer. */}
-        {enregistrement === 'echec' && (
+        {enEchec && (
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
+              // Le montage d'abord — c'est l'écart que l'écriture différée
+              // refuse de rejouer telle quelle, sans quoi elle bouclerait. À
+              // défaut, la dernière écriture directe : elle n'a pas d'écart à
+              // recalculer, seulement une requête à refaire.
               const modif = differences(clip, segments, editeur.ratio, editeur.cropX)
-              if (modif) ecrire(modif)
+              if (modif) {
+                ecrire(modif)
+                return
+              }
+              const refusé = patch.variables
+              if (refusé && refusé.clipId === clip.id) ecrire(refusé.patch)
             }}
           >
             <RotateCw aria-hidden />
@@ -342,6 +373,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             ratio={editeur.ratio}
             duree={duree}
             enregistrement={enregistrement}
+            empreinte={empreinteDuRendu}
             // `enregistrement` ne suit que le montage : le titre, la description
             // et les marques passent par la même mutation sans y figurer.
             ecritureEnCours={patch.isPending}

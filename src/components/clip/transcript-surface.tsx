@@ -223,6 +223,13 @@ export function TranscriptSurface({
     (index: number) => {
       const borné = Math.min(Math.max(index, 0), Math.max(0, words.length - 1))
       setCurseur(borné)
+      // **Le curseur du clavier *est* la sélection.** Sans cela, `I` et `O`
+      // posent la borne sur le mot cliqué il y a trois gestes, puisque l'écran
+      // lit `selection.tete` — et rien ne le dit. `onTerminer` referme le
+      // glissé que `commencerSelection` ouvre : un survol à la souris étendrait
+      // sinon la sélection sans qu'on ait rien pressé. (relevé par Copilot)
+      onSelectionner(borné, false)
+      onTerminer()
       àFocaliser.current = true
       // **Naviguer coupe le suivi**, que ce soit à la flèche ou par la
       // recherche : aller voir ailleurs pendant que la lecture continue ferait
@@ -232,7 +239,7 @@ export function TranscriptSurface({
       // peut être hors du champ rendu, donc absent du DOM.
       défilerVers(ligneDuMot(lines, borné))
     },
-    [words.length, lines, défilerVers],
+    [words.length, lines, défilerVers, onSelectionner, onTerminer],
   )
 
   function surClavier(e: React.KeyboardEvent) {
@@ -286,6 +293,13 @@ export function TranscriptSurface({
         // rendu : sinon la surface aurait deux arrêts de tabulation au lieu d'un.
         tabIndex={curseurRendu ? -1 : 0}
         onKeyDown={surClavier}
+        // **La molette, en plus du défilement.** `scroll` ne part que si
+        // `scrollTop` bouge : une molette en butée haute ou basse n'émet rien,
+        // et le suivi restait actif alors que l'utilisateur venait de dire le
+        // contraire. (relevé par Copilot)
+        onWheel={() => {
+          if (suivi) setSuivi(false)
+        }}
         onScroll={() => {
           // `auto` retombe à l'image suivante, que la spécification place après
           // les événements de défilement : ce qui arrive ici avec le drapeau

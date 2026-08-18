@@ -138,6 +138,20 @@ describe('le défilement automatique', () => {
     expect(surface.scrollTop).toBe(suivi)
   })
 
+  it('coupe le suivi sur une molette, même quand rien ne défile', async () => {
+    // `scroll` ne part que si `scrollTop` bouge : une molette en butée n'émet
+    // rien, et le suivi restait actif. (relevé par Copilot)
+    const { words, surface } = monter()
+    act(() => useLecture.getState().definirMots(words))
+    act(() => useLecture.getState().definirPosition(80))
+    await imageSuivante()
+    const gelé = surface.scrollTop
+
+    fireEvent.wheel(surface)
+    act(() => useLecture.getState().definirPosition(160))
+    expect(surface.scrollTop).toBe(gelé)
+  })
+
   it('reprend au clic sur un mot', async () => {
     const { words, surface } = monter()
     act(() => useLecture.getState().definirMots(words))
@@ -175,6 +189,21 @@ describe('le tabindex glissant', () => {
     expect(suivant.getAttribute('tabindex')).toBe('0')
     expect(document.activeElement).toBe(suivant)
     expect(premier.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('sélectionne le mot atteint à la flèche', () => {
+    // Le curseur du clavier et la sélection doivent coïncider, sinon `I` et `O`
+    // posent la borne sur un mot cliqué il y a trois gestes — silencieusement.
+    // (relevé par Copilot)
+    const { onSelectionner, onTerminer } = monter()
+    const premier = screen.getByText(/m0-0/)
+    premier.focus()
+    fireEvent.keyDown(premier, { key: 'ArrowRight' })
+
+    expect(onSelectionner).toHaveBeenLastCalledWith(1, false)
+    // Et le glissé se referme : sans cela, un survol à la souris étendrait
+    // ensuite la sélection sans qu'on ait rien pressé.
+    expect(onTerminer).toHaveBeenCalled()
   })
 
   it('reste franchissable quand le mot actif est sorti du champ rendu', () => {

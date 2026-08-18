@@ -383,16 +383,18 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
         # infinis d'un seul contrôle, et il se lit.
         if not math.isfinite(valeur):
             return (
-                f"{nom} vaut {valeur}, qui n'est pas un nombre fini. NaN passe toutes les "
-                "comparaisons sans en satisfaire aucune : le seuil ne serait jamais appliqué, "
-                "et chaque candidate collectée deviendrait une frontière."
+                f"{nom} vaut {valeur}, qui n'est pas un nombre fini, et chacune des trois "
+                "formes casse la comparaison à sa façon : NaN la rend fausse partout, donc "
+                "chaque candidate collectée devient une frontière ; +inf n'en laisse aucune ; "
+                "-inf est déjà hors domaine. Le score de scène de ffmpeg vit dans [0, 1]."
             )
         if valeur <= 0:
             return (
-                f"{nom} vaut {valeur}, et ni zéro ni un négatif ne veulent dire quelque chose "
-                "ici : le score de scène de ffmpeg vit dans [0, 1]. À zéro, la collecte retient "
-                "à peu près chaque image d'une émission de deux heures, ramassée en mémoire "
-                "d'un seul tenant. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
+                f"{nom} vaut {valeur}, hors du domaine du score de scène de ffmpeg, qui vit "
+                "dans [0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
+                "plancher nul en fait collecter à peu près chaque image d'une émission de deux "
+                "heures, ramassée en mémoire d'un seul tenant. 0,4 sur un plancher de 0,05 sont "
+                "les valeurs mesurées."
             )
     if seuil <= plancher:
         return (

@@ -364,3 +364,12 @@ Ces points vivent dans `CLAUDE.md` et dans la spec, rappelés ici pour mémoire 
   large-v3 en même temps. La correction des sous-titres passe après la
   transcription, jamais en parallèle.
 - Pas de Docker. Node natif, Python en venv, ffmpeg natif.
+
+## Le port de l'application
+
+L'application écoute sur **4005**, fixé dans les scripts `dev` et `start` de
+`package.json` plutôt que laissé au défaut 3000 de Next. La raison est
+pratique : cette machine fait tourner plusieurs projets Next à la fois, et le
+défaut partagé les fait se voler le port au premier démarrage — celui qui perd
+échoue sur « Another next dev server is already running », ou pire, sert
+silencieusement l'autre application.

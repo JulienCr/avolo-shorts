@@ -230,12 +230,15 @@ describe('appelerGemini', () => {
   })
 
   /**
-   * Un quota journalier ne s'attend pas, et surtout ne se raccourcit pas.
+   * Une attente trop longue ne se raccourcit pas : on renonce.
    *
    * La première version plafonnait l'attente à 90 s puis relançait quand même :
    * la requête repartait très avant la fin du quota, échouait, et le repérage
    * brûlait ses trois essais et trois minutes pour arriver au même endroit.
-   * (relevé par Copilot)
+   *
+   * Le message dit le délai demandé et ce qu'on accepte d'attendre, sans
+   * nommer la limite : `retryDelay` est un délai minimal recommandé, dont on ne
+   * peut déduire ni « journalier », ni « horaire ». (relevé par Copilot)
    */
   it('renonce tout de suite quand le quota demande plus que ce qu’on attend', async () => {
     let essais = 0
@@ -243,9 +246,14 @@ describe('appelerGemini', () => {
       essais += 1
       throw new Error('{"error":{"code":429,"details":[{"retryDelay":"3600s"}]}}')
     }
-    await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow(
-      /quota journalier/,
+    const erreur = await appelerGemini(appel, 'p', 'score', { sleep }).then(
+      () => null,
+      (cause: unknown) => cause as Error,
     )
+    expect(erreur!.message).toMatch(/demande d'attendre 3600 s/)
+    expect(erreur!.message).toMatch(/90 s que cette étape accepte d'attendre/)
+    // Rien n'est diagnostiqué : le délai ne dit pas de quelle limite il s'agit.
+    expect(erreur!.message).not.toMatch(/journalier|horaire/)
     // Un seul essai, et pas la moindre attente : ni relance avant l'heure, ni
     // trois minutes immobilisées pour rien.
     expect(essais).toBe(1)

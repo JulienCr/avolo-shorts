@@ -397,7 +397,9 @@ export function estPassagère(erreur: unknown): boolean {
  * L'attente au-delà de laquelle on **renonce** au lieu d'attendre.
  *
  * Une minute et demie couvre la fenêtre glissante d'un quota par minute ;
- * au-delà, c'est un quota journalier qui parle, et attendre ne le rendra pas.
+ * au-delà, quelle que soit la limite qui parle — horaire, journalière, un
+ * ralentissement plus long —, l'attendre immobiliserait la chaîne pour une durée
+ * que cette étape n'a pas à décider seule.
  *
  * **C'est un seuil de renoncement, pas un raccourcissement.** La première
  * version plafonnait l'attente à cette valeur puis relançait quand même : un
@@ -492,9 +494,17 @@ export async function appelerGemini<T = unknown>(
       // relancer avant l'heure et de brûler les essais restants.
       const quota = délaiDeQuota(message)
       if (quota !== null && quota > ATTENTE_QUOTA_MAX_MS) {
+        // Le message dit ce qu'on sait — le délai demandé — et ce qu'on décide —
+        // ne pas l'attendre. **Il ne diagnostique pas la limite** : `retryDelay`
+        // donne un délai minimal recommandé, dont on ne peut pas déduire s'il
+        // s'agit d'un quota journalier, horaire ou d'un autre ralentissement. En
+        // nommer un serait affirmer ce qu'on n'a pas établi, exactement comme le
+        // faisait le verdict de `noterLesFenêtres` avant sa correction.
+        // (relevé par Copilot)
         throw new Error(
-          `Gemini refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s. ` +
-            `C'est un quota journalier, pas une pointe : le repérage s'arrête plutôt que de relancer avant l'heure.`,
+          `Gemini refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
+            `soit plus que les ${ATTENTE_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
+            `Le repérage s'arrête plutôt que de relancer avant le délai demandé.`,
         )
       }
       // Le délai demandé l'emporte quand il est plus long : sur un quota par

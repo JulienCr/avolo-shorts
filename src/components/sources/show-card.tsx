@@ -190,7 +190,13 @@ function Subtitle({ entry }: { entry: Entry }) {
   if (entry.source !== null) {
     return (
       <>
-        {formatOctets(entry.source.sizeBytes)} · {formatDateSource(entry.source.modifiedAt)}
+        {/* **Le nom du fichier passe en métadonnée, et il y reste.** Le titre
+            au-dessus est celui de l'émission ; celui-ci est ce qu'on lit dans
+            un explorateur, et c'est par lui qu'on fait le lien avec ce qui est
+            posé sur le Drive. La recherche mord sur les deux, pour que le nom
+            qu'on a sous les yeux se tape tel quel. */}
+        <span data-file>{entry.fileName}</span> · {formatOctets(entry.source.sizeBytes)} ·{' '}
+        {formatDateSource(entry.source.modifiedAt)}
       </>
     )
   }

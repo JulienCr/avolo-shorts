@@ -25,6 +25,7 @@
  */
 
 import type { StepName } from '@/core/graph'
+import { titreProjet } from '@/core/pipeline'
 
 /**
  * L'état d'une émission dans la bibliothèque.
@@ -84,8 +85,31 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
    * orpheline n'existe que parce qu'aucune source ne la réclame.
    */
   key: string
-  /** Ce qui s'affiche et sur quoi porte la recherche. */
+  /**
+   * Le titre affiché, **dérivé du nom de fichier par `titreProjet`**.
+   *
+   * Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un titre :
+   * c'est un nom de fichier. La date en tête sert à trier un dossier, elle ne se
+   * lit pas — `titreProjet` la remet en français et la passe derrière, ce qui
+   * laisse en tête ce qui distingue une émission d'une autre.
+   *
+   * **Et il ne bouge pas au moment de l'analyse.** `titreProjet` est une fonction
+   * pure de l'identifiant, et l'identifiant est le nom de fichier sans son
+   * extension (`projectIdFromSource`) : la même chaîne entre, la même sort, avant
+   * comme après. Ce module dérive d'ailleurs toujours depuis `source.name`, même
+   * quand le projet est là et porte l'identifiant tout fait — lire `project.id`
+   * ferait dépendre l'affichage de l'accord entre deux dérivations, et le jour où
+   * elles divergeraient le titre changerait sous les yeux au pire moment.
+   */
   title: string
+  /**
+   * Le nom du fichier sur le Drive, ou `null` pour une entrée orpheline.
+   *
+   * Il reste affiché en métadonnée, à côté de la taille et de la date, parce que
+   * c'est ce qui fait le lien avec ce qu'on voit dans un explorateur — et la
+   * recherche mord dessus autant que sur le titre, pour la même raison.
+   */
+  fileName: string | null
   /** Le replay, ou `null` s'il a disparu du Drive. */
   source: S | null
   /** Le projet, ou `null` si personne n'a lancé l'analyse. */
@@ -167,7 +191,8 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
     if (project !== null) claimed.add(project.id)
     return {
       key: source.name,
-      title: source.name,
+      title: titreProjet(withoutExtension(source.name)),
+      fileName: source.name,
       source,
       project,
       state: showState(project, source.projectId !== null),
@@ -178,7 +203,10 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
     if (claimed.has(project.id)) continue
     entries.push({
       key: project.id,
+      // Une entrée orpheline n'a plus de fichier : son identifiant est tout ce
+      // qui reste, et c'est de lui que le serveur tire déjà `project.title`.
       title: project.title,
+      fileName: null,
       source: null,
       project,
       state: showState(project, true),
@@ -240,9 +268,8 @@ export function normalizeForSearch(text: string): string {
 /**
  * Les entrées d'un filtre, restreintes à une recherche.
  *
- * La recherche porte sur le titre seul : c'est ce qui s'affiche, et chercher
- * dans un identifiant qu'aucun écran ne montre rendrait des cartes qu'on ne
- * saurait pas expliquer. Une requête vide ne retire rien.
+ * La recherche porte sur ce que la carte écrit — son titre et son nom de
+ * fichier, voir `matchesSearch`. Une requête vide ne retire rien.
  */
 export function filterEntries<S extends LibrarySource, P extends LibraryProject>(
   entries: readonly LibraryEntry<S, P>[],
@@ -251,10 +278,25 @@ export function filterEntries<S extends LibrarySource, P extends LibraryProject>
 ): LibraryEntry<S, P>[] {
   const query = normalizeForSearch(search)
   return entries.filter(
-    (e) =>
-      matchesFilter(e.state, filter) &&
-      (query === '' || normalizeForSearch(e.title).includes(query)),
+    (e) => matchesFilter(e.state, filter) && (query === '' || matchesSearch(e, query)),
   )
+}
+
+/**
+ * Le titre **et** le nom de fichier, parce que la carte montre les deux.
+ *
+ * Chercher dans un identifiant qu'aucun écran n'affiche rendrait des cartes
+ * qu'on ne saurait pas expliquer ; chercher dans le seul titre, à l'inverse,
+ * ferait échouer la requête de quelqu'un qui a le nom du fichier sous les yeux
+ * dans son explorateur et le recopie. La règle est donc la même dans les deux
+ * sens : on cherche dans ce qui est écrit sur la carte.
+ */
+function matchesSearch(
+  entry: LibraryEntry<LibrarySource, LibraryProject>,
+  query: string,
+): boolean {
+  if (normalizeForSearch(entry.title).includes(query)) return true
+  return entry.fileName !== null && normalizeForSearch(entry.fileName).includes(query)
 }
 
 /**
@@ -275,4 +317,31 @@ export function countsByFilter<S extends LibrarySource, P extends LibraryProject
     }
   }
   return counts
+}
+
+/**
+ * Le nom de fichier sans son extension — l'identifiant qu'en tirera le serveur.
+ *
+ * **C'est la moitié pure de `projectIdFromSource`** (`src/server/paths.ts`), qui
+ * fait la même chose après avoir résolu le chemin. La recopier ici plutôt que de
+ * l'importer est ce que la frontière de pureté impose : cette fonction-là passe
+ * par `path` et par `resolveSource`, donc par le système de fichiers, et
+ * `src/core/` n'y a pas accès.
+ *
+ * La conséquence à connaître : les deux dérivations doivent rester d'accord, et
+ * rien ne le vérifie mécaniquement. Ce qui limite le risque est ce que chacune
+ * garantit de son côté — un nom qui ne suit aucune convention **ressort tel
+ * quel** plutôt que d'être deviné (spec §12), donc un désaccord change au pire
+ * un titre affiché, jamais une clé de liste ni une URL : la clé reste le nom de
+ * fichier, et le lien vers le projet vient de `projectId`.
+ *
+ * Le point d'extension est le dernier de la chaîne, et il n'en est un que s'il
+ * a quelque chose devant lui : `.env` n'a pas d'extension, `deux.points.mp4`
+ * garde son premier point. Un nom qui ne serait plus qu'une chaîne vide après
+ * découpe est rendu entier — c'est le `|| nom` de l'original.
+ */
+export function withoutExtension(name: string): string {
+  const point = name.lastIndexOf('.')
+  if (point <= 0) return name
+  return name.slice(0, point) || name
 }

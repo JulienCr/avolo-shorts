@@ -130,6 +130,25 @@ describe('les cinq états', () => {
   })
 })
 
+describe('le titre', () => {
+  it('nomme l’émission, et garde le fichier en métadonnée', () => {
+    poser(entry({}))
+    expect(screen.getByText('cqlp — 15 juin 2025')).toBeTruthy()
+    expect(screen.getByText(/2025-06-15-cqlp\.mp4/)).toBeTruthy()
+  })
+
+  it('ne bouge pas quand l’analyse démarre', () => {
+    // `titreProjet` est une fonction pure de l'identifiant, et l'identifiant est
+    // le nom de fichier sans son extension : le titre est le même avant et après.
+    poser(entry({}))
+    const avant = screen.getByRole('button').querySelector('[data-title]')?.textContent
+    cleanup()
+
+    poser(entry({ projectId: PROJET.id }, {}))
+    expect(screen.getByRole('link').querySelector('[data-title]')?.textContent).toBe(avant)
+  })
+})
+
 describe('la hauteur', () => {
   it('est la même dans les cinq états', () => {
     // C'est ce qui ferme le point 2 de l'issue #56 : plus rien ne grandit après

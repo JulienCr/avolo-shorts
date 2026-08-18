@@ -89,11 +89,17 @@ function grille(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
   )
 }
 
-/** Les titres visibles, dans l'ordre de la grille. */
-function titres(): string[] {
+/**
+ * Les noms de fichiers visibles, dans l'ordre de la grille.
+ *
+ * Le nom de fichier plutôt que le titre : c'est l'identité stable d'une carte —
+ * le titre, lui, est dérivé par `titreProjet` et c'est ce qu'un test dédié
+ * vérifie plus bas.
+ */
+function fichiers(): string[] {
   return screen
     .getAllByRole('listitem')
-    .map((li) => li.querySelector('[data-title]')?.textContent ?? '')
+    .map((li) => li.querySelector('[data-file]')?.textContent ?? '')
 }
 
 describe('la grille unifiée', () => {
@@ -102,6 +108,16 @@ describe('la grille unifiée', () => {
     for (const s of SOURCES) {
       expect(screen.getAllByText(s.name)).toHaveLength(1)
     }
+  })
+
+  it('titre les cartes par l’émission, et garde le fichier en métadonnée', () => {
+    // Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un
+    // titre : c'est un nom de fichier. Il reste affiché, parce que c'est par lui
+    // qu'on fait le lien avec ce qui est posé sur le Drive.
+    grille({ entries: buildLibrary([source('2025-06-15-cqlp.mp4')], []) })
+    const carte = screen.getByRole('listitem')
+    expect(carte.querySelector('[data-title]')?.textContent).toBe('cqlp — 15 juin 2025')
+    expect(carte.querySelector('[data-file]')?.textContent).toBe('2025-06-15-cqlp.mp4')
   })
 
   it('résume le nombre d’émissions et celles qui sont analysées', () => {
@@ -122,13 +138,13 @@ describe('les filtres', () => {
     // geste : reprendre l'analyse.
     grille()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
-    expect(titres()).toEqual(['c-interrompue.mp4', 'd-echec.mp4'])
+    expect(fichiers()).toEqual(['c-interrompue.mp4', 'd-echec.mp4'])
   })
 
   it('ne retient que les neuves sous « À analyser »', async () => {
     grille()
     await userEvent.click(screen.getByRole('tab', { name: /À analyser/ }))
-    expect(titres()).toEqual(['a-neuve.mp4'])
+    expect(fichiers()).toEqual(['a-neuve.mp4'])
   })
 
   it('dit pourquoi un filtre ne rend rien, sans le confondre avec un dossier vide', async () => {
@@ -142,14 +158,23 @@ describe('la recherche', () => {
   it('filtre par titre, sans tenir compte de la casse', async () => {
     grille()
     await userEvent.type(screen.getByRole('searchbox'), 'ECHEC')
-    expect(titres()).toEqual(['d-echec.mp4'])
+    expect(fichiers()).toEqual(['d-echec.mp4'])
+  })
+
+  it('trouve une émission par le nom de fichier qu’elle affiche', async () => {
+    // Le titre d'une émission datée ne contient pas la date au format du
+    // fichier : sans ce chemin, le nom qu'on a sous les yeux dans un
+    // explorateur ne se taperait pas.
+    grille({ entries: buildLibrary([source('2025-06-15-cqlp.mp4'), source('autre.mp4')], []) })
+    await userEvent.type(screen.getByRole('searchbox'), '2025-06')
+    expect(fichiers()).toEqual(['2025-06-15-cqlp.mp4'])
   })
 
   it('se compose avec le filtre actif', async () => {
     grille()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
     await userEvent.type(screen.getByRole('searchbox'), 'interrompue')
-    expect(titres()).toEqual(['c-interrompue.mp4'])
+    expect(fichiers()).toEqual(['c-interrompue.mp4'])
   })
 
   it('laisse les comptes des filtres intacts pendant la frappe', async () => {
@@ -166,7 +191,7 @@ describe('la recherche', () => {
     expect(screen.getByText(/Aucune émission ne porte/)).toBeTruthy()
 
     await userEvent.click(screen.getByRole('button', { name: 'Effacer la recherche' }))
-    expect(titres()).toHaveLength(5)
+    expect(fichiers()).toHaveLength(5)
   })
 })
 

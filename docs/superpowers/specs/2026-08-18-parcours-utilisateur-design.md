@@ -650,12 +650,38 @@ le disque — devient inatteignable sans qu'aucun écran ne le signale. Le cas n
 pas théorique : le dossier des replays est un partage 9p qui décroche de deux
 façons, et un fichier renommé côté Windows suffit.
 
+**La carte porte un titre d'émission, pas un nom de fichier.** `2025-06-15-cqlp.mp4`
+s'affiche « cqlp — 15 juin 2025 » : la date en tête sert à trier un dossier, elle
+ne se lit pas, et `titreProjet` la remet en français puis la passe derrière. Le
+nom du fichier reste en métadonnée, à côté de la taille et de la date, parce que
+c'est par lui qu'on fait le lien avec ce qui est posé sur le Drive.
+
+**Ce titre ne bouge pas au moment de l'analyse**, et c'est la propriété qui
+l'autorise : `titreProjet` est une fonction pure de l'identifiant, et
+l'identifiant est le nom de fichier sans son extension (`projectIdFromSource`).
+La même chaîne entre, la même sort, avant comme après — un titre qui basculerait
+au lancement de l'analyse aurait été une raison de garder le nom de fichier.
+`src/core/library.ts` dérive d'ailleurs toujours depuis `source.name`, jamais
+depuis `project.id` quand le projet est là : lire l'identifiant tout fait ferait
+dépendre l'affichage de l'accord entre deux dérivations, et le jour où elles
+divergeraient le titre changerait sous les yeux au pire moment.
+
+Ce qu'un nom hors convention devient est déjà tranché par la spec §12 : il
+**ressort tel quel** plutôt que d'être deviné — `randrom.mp4` reste `randrom`, et
+une date impossible comme `2026-02-31` ne s'affiche pas en « 31 février ».
+
 **Filtres et recherche.** Cinq filtres — Tous, À analyser, En cours, Analysés,
-Erreurs —, chacun portant son compte, et une recherche par titre. « Erreurs »
-recouvre l'échec **et** l'interruption : les deux appellent le même geste,
-reprendre l'analyse. Les comptes se calculent avant la recherche, jamais après :
-ils servent à choisir un filtre, et les faire fondre au fil de la frappe ferait
-dire « Erreurs 0 » là où quelque chose a échoué.
+Erreurs —, chacun portant son compte. « Erreurs » recouvre l'échec **et**
+l'interruption : les deux appellent le même geste, reprendre l'analyse. Les
+comptes se calculent avant la recherche, jamais après : ils servent à choisir un
+filtre, et les faire fondre au fil de la frappe ferait dire « Erreurs 0 » là où
+quelque chose a échoué.
+
+**La recherche mord sur les deux textes que la carte écrit**, son titre et son
+nom de fichier. Sur le seul titre, « 2025-06 » ne trouverait rien alors que la
+carte l'affiche ; sur le seul nom de fichier, « juin » ne trouverait rien alors
+que c'est ce qui est en gros. La règle est la même dans les deux sens : on
+cherche dans ce qui est écrit.
 
 **Ni le filtre ni la recherche ne vont dans l'URL**, contrairement à la vue du
 tri. La raison qui met la vue du tri dans l'URL est qu'on la quitte pour un clip

@@ -7,6 +7,7 @@ import {
   matchesFilter,
   normalizeForSearch,
   showState,
+  withoutExtension,
   type LibraryProject,
   type LibrarySource,
 } from '@/core/library'
@@ -83,7 +84,7 @@ describe('buildLibrary', () => {
   it('garde l’ordre des replays tel que le serveur le rend', () => {
     const noms = ['c.mp4', 'a.mp4', 'b.mp4']
     const entries = buildLibrary(noms.map((n) => source(n)), [])
-    expect(entries.map((e) => e.title)).toEqual(noms)
+    expect(entries.map((e) => e.fileName)).toEqual(noms)
   })
 
   it('donne une carte à un projet dont la source a disparu du Drive', () => {
@@ -96,7 +97,10 @@ describe('buildLibrary', () => {
     const orphan = entries[1]
     expect(orphan.source).toBeNull()
     expect(orphan.key).toBe('perdu')
+    // Le titre vient du serveur : sans fichier, l'identifiant est tout ce qui
+    // reste, et c'est de lui que `titreProjet` le tire déjà là-bas.
     expect(orphan.title).toBe('perdu')
+    expect(orphan.fileName).toBeNull()
     expect(orphan.state).toBe('analyzed')
   })
 
@@ -111,6 +115,71 @@ describe('buildLibrary', () => {
   it('n’orpheline pas un projet que sa source réclame déjà', () => {
     const entries = buildLibrary([source('a.mp4', 'a')], [project({ id: 'a' })])
     expect(entries).toHaveLength(1)
+  })
+})
+
+describe('le titre affiché', () => {
+  it('est celui de l’émission, pas le nom du fichier', () => {
+    // Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un
+    // titre : la date en tête sert à trier un dossier, elle ne se lit pas.
+    const [entrée] = buildLibrary([source('2025-06-15-cqlp.mp4')], [])
+    expect(entrée.title).toBe('cqlp — 15 juin 2025')
+    expect(entrée.fileName).toBe('2025-06-15-cqlp.mp4')
+  })
+
+  it('ne change pas au moment où l’émission est analysée', () => {
+    // **C'est la propriété qui autorise ce titre.** `titreProjet` est une
+    // fonction pure de l'identifiant, et l'identifiant est le nom de fichier
+    // sans son extension : la même chaîne entre, la même sort. Un titre qui
+    // basculerait au lancement de l'analyse aurait été une raison de garder le
+    // nom de fichier.
+    const nom = '2025-06-15-cqlp.mp4'
+    const [avant] = buildLibrary([source(nom)], [])
+    const [pendant] = buildLibrary(
+      [source(nom, 'cqlp')],
+      [project({ id: 'cqlp', running: RUNNING })],
+    )
+    const [après] = buildLibrary([source(nom, 'cqlp')], [project({ id: 'cqlp' })])
+    expect(pendant.title).toBe(avant.title)
+    expect(après.title).toBe(avant.title)
+  })
+
+  it('rend lisible un nom qui ne suit aucune convention', () => {
+    // La spec §12 l'exige : un nom qui ne suit pas la convention ressort tel
+    // quel plutôt que d'être deviné. Le renommage d'une bibliothèque entière en
+    // charabia est précisément ce qu'elle interdit.
+    for (const [nom, attendu] of [
+      ['randrom.mp4', 'randrom'],
+      ['22026-04-26-baba-jeu.mp4', '22026-04-26-baba-jeu'],
+      ['2026--faq.mp4', '2026--faq'],
+      ['2026-02-31-impossible.mp4', '2026-02-31-impossible'],
+    ] as const) {
+      const [entrée] = buildLibrary([source(nom)], [])
+      expect(entrée.title).toBe(attendu)
+    }
+  })
+})
+
+describe('withoutExtension', () => {
+  it('retire la dernière extension, et elle seule', () => {
+    expect(withoutExtension('2025-06-15-cqlp.mp4')).toBe('2025-06-15-cqlp')
+    expect(withoutExtension('deux.points.mp4')).toBe('deux.points')
+  })
+
+  it('rend le nom entier quand il n’a pas d’extension', () => {
+    expect(withoutExtension('sans-extension')).toBe('sans-extension')
+  })
+
+  it('ne prend pas un point de tête pour une extension', () => {
+    // C'est la règle de `path.extname`, que `projectIdFromSource` suit côté
+    // serveur : `.env` n'a pas d'extension.
+    expect(withoutExtension('.env')).toBe('.env')
+  })
+
+  it('ne rend jamais une chaîne vide', () => {
+    // Le `|| nom` de l'original : un identifiant vide ne nommerait aucun projet.
+    expect(withoutExtension('.')).toBe('.')
+    expect(withoutExtension('')).toBe('')
   })
 })
 
@@ -158,6 +227,32 @@ describe('la recherche', () => {
     expect(filterEntries(entries, 'all', 'ENTRE').map((e) => e.key)).toEqual([
       '2026-22-02-entre-nous.mp4',
     ])
+  })
+
+  it('mord sur le titre affiché, date remise en français comprise', () => {
+    // `2025-06-15-cqlp.mp4` s'affiche « cqlp — 15 juin 2025 » : chercher « juin »
+    // doit trouver ce que l'écran montre, sans quoi la recherche porterait sur
+    // une chaîne que personne ne voit.
+    const entries = buildLibrary([source('2025-06-15-cqlp.mp4'), source('autre.mp4')], [])
+    expect(filterEntries(entries, 'all', 'juin').map((e) => e.fileName)).toEqual([
+      '2025-06-15-cqlp.mp4',
+    ])
+  })
+
+  it('mord aussi sur le nom de fichier, qui est affiché à côté', () => {
+    // Quelqu'un qui a le nom sous les yeux dans son explorateur doit pouvoir le
+    // taper. « 2025-06 » n'apparaît nulle part dans « cqlp — 15 juin 2025 ».
+    const entries = buildLibrary([source('2025-06-15-cqlp.mp4'), source('autre.mp4')], [])
+    expect(filterEntries(entries, 'all', '2025-06').map((e) => e.fileName)).toEqual([
+      '2025-06-15-cqlp.mp4',
+    ])
+    expect(filterEntries(entries, 'all', '.mp4')).toHaveLength(2)
+  })
+
+  it('ne cherche pas dans le nom de fichier d’une entrée qui n’en a plus', () => {
+    const entries = buildLibrary([], [project({ id: 'perdu', title: 'perdu' })])
+    expect(filterEntries(entries, 'all', 'perdu')).toHaveLength(1)
+    expect(filterEntries(entries, 'all', '.mp4')).toHaveLength(0)
   })
 
   it('ne retire rien sur une requête vide ou blanche', () => {

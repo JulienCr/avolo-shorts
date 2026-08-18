@@ -54,6 +54,14 @@ const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
 
 /**
+ * Le nom d'un coffre ou d'une fiche. **Il peut porter des espaces**, et c'est ce
+ * qui distingue une référence d'un chemin nu : la barre oblique qui ferme le
+ * segment dit où il finit, là où un chemin nu doit s'arrêter au premier espace
+ * faute de le savoir. (relevé par Codex)
+ */
+const SEGMENT_ESPACÉ = String.raw`[^\s/"'\\]+(?: +[^\s/"'\\]+)*`
+
+/**
  * Une référence de secret — `op://<coffre>/<fiche>/<champ>`.
  *
  * **Ce n'est pas un secret** : une adresse n'est pas une valeur, et la lire ne
@@ -77,28 +85,47 @@ const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
  * pas d'autre forme. Le module est pur et ne peut pas l'importer : si le projet
  * gagnait une seconde forme, les deux se suivraient à la main.
  *
- * Deux détails de la forme, qui décident de ce que le message vaut encore :
+ * **Aucun délimiteur n'entre dans la reconnaissance, et c'est délibéré.** Une
+ * première version traitait à part les références entre guillemets doubles, ce
+ * qui laissait fuir les trois autres façons de citer une référence — dont celle
+ * de `op` lui-même, qui écrit `could not read secret 'op://c/f/CLÉ'` entre
+ * apostrophes, et dont ce diagnostic remonte tel quel dans le message de
+ * `résoudreSecrets`. La forme de la référence suffit à la reconnaître ; s'en
+ * remettre à ce qui l'entoure, c'était énumérer sans fin les entourages.
+ * (relevé par Copilot)
  *
- * - **le dernier caractère n'est jamais une ponctuation** : une référence finit
- *   souvent une phrase, et emporter le point ferait passer le message pour
- *   tronqué ;
- * - **un `op://` nu ne nomme rien**, donc il ressort tel quel — y compris quand
- *   un message cite la forme au lieu d'une référence, comme le fait
- *   `exigerSecret`.
+ * Trois détails de la forme, et chacun décide de ce que le message vaut encore :
+ *
+ * - **les deux premiers segments seulement portent des espaces.** Le coffre et
+ *   la fiche en portent couramment, le champ presque jamais — il recopie le nom
+ *   d'une variable. Étendre la permission au champ ferait déborder la référence
+ *   sur la phrase qui suit dès qu'une barre oblique traîne plus loin : un `3/4`
+ *   suffirait. Ce bornage-là est ce qui rend la grammaire sûre à lâcher dans une
+ *   phrase française.
+ * - **le préfixe nu ne se caviarde pas.** `op://` seul ne nomme ni coffre, ni
+ *   fiche, ni champ : il n'y a rien à en retirer, et un message qui cite la
+ *   forme — `exigerSecret` le fait — doit ressortir intact. (relevé par Copilot
+ *   et par Aristarque)
+ * - **la ponctuation finale revient à la phrase.** Une référence finit souvent
+ *   une phrase, et emporter le point ferait passer le message pour tronqué.
  *
  * Le contexte de gauche ne protège qu'un **mot** — sans lui, un schéma comme
  * `desktop://` sortirait coupé en deux. Il ne protège rien d'autre : tout ce qui
  * n'est pas un mot peut précéder une référence, et une référence qu'on ne
  * caviarde pas coûte plus cher qu'un mot rare qu'on abîme.
- *
- * Hors guillemets, la référence s'arrête au premier espace, comme un chemin nu
- * et pour la même raison : rien ne dit où elle finit. Un nom de coffre espacé y
- * laisserait donc sa queue — d'où la passe entre guillemets ci-dessous.
  */
-const RÉFÉRENCE_DE_SECRET = /(?<!\w)op:\/\/[^\s"'\\]*[^\s"'\\.,;:!?)\]]/g
+const RÉFÉRENCE_DE_SECRET = new RegExp(
+  String.raw`(?<!\w)op://(?:${SEGMENT_ESPACÉ}/){0,2}[^\s"'\\]+`,
+  'g',
+)
 
-/** Ce qu'il en reste. */
-const RÉFÉRENCE_ÉPURÉE = `${PRÉFIXE_DE_RÉFÉRENCE}…`
+/** Ce qui termine une phrase, et que la référence a pu emporter en la fermant. */
+const PONCTUATION_FINALE = /[.,;:!?)\]]+$/
+
+/** Ce qu'il reste d'une référence : son préfixe, et la ponctuation qu'elle bordait. */
+function épurerRéférence(brut: string): string {
+  return `${PRÉFIXE_DE_RÉFÉRENCE}…${brut.match(PONCTUATION_FINALE)?.[0] ?? ''}`
+}
 
 /**
  * Une clé d'API dans une URL de requête.
@@ -157,13 +184,9 @@ export function épurerChemins(message: string, racines: readonly string[] = [])
   return caviarderClés(sortie)
     .replace(ENTRE_GUILLEMETS, (brut) => {
       const dedans = brut.slice(1, -1)
-      // Une référence entre guillemets part entière, espaces compris : les noms
-      // de coffre et de fiche en portent couramment, et c'est la seule forme qui
-      // dise où la référence se termine.
-      if (dedans.startsWith(PRÉFIXE_DE_RÉFÉRENCE)) return `"${RÉFÉRENCE_ÉPURÉE}"`
       return estAbsolu(dedans) ? `"${abréger(dedans)}"` : brut
     })
-    .replace(RÉFÉRENCE_DE_SECRET, RÉFÉRENCE_ÉPURÉE)
+    .replace(RÉFÉRENCE_DE_SECRET, épurerRéférence)
     .replace(POSIX_NU, abréger)
     .replace(WINDOWS_NU, abréger)
 }

@@ -134,18 +134,49 @@ describe('le caviardage des références de secret', () => {
   })
 
   /**
-   * Un nom de coffre à espace ne se coupe pas au premier espace, pour la même
-   * raison qu'un chemin à espace : les guillemets disent où la référence finit.
+   * Un coffre et une fiche portent couramment des espaces, et la référence les
+   * traverse : sa grammaire dit où elle finit, là où un chemin nu doit s'arrêter
+   * au premier espace faute de le savoir. (relevé par Codex)
    */
-  it('caviarde une référence entre guillemets, espaces compris', () => {
-    expect(épurerChemins('valeur "op://Coffre partagé/Avolo Shorts/Clé" refusée')).toBe(
-      'valeur "op://…" refusée',
+  it('caviarde une référence dont le coffre et la fiche portent des espaces', () => {
+    expect(épurerChemins('lecture de op://Coffre partagé/Avolo Shorts/Clé refusée')).toBe(
+      'lecture de op://… refusée',
+    )
+  })
+
+  /**
+   * Aucun délimiteur n'est nécessaire, et c'est ce qui compte : `op` cite ses
+   * propres références entre apostrophes — `could not read secret 'op://c/f/CLÉ'`
+   * —, et ce diagnostic-là remonte dans le message de `résoudreSecrets`.
+   * (relevé par Copilot)
+   */
+  it('caviarde une référence quel que soit ce qui l’entoure', () => {
+    const dedans = 'op://Coffre partagé/Avolo Shorts/Clé'
+    expect(épurerChemins(`valeur "${dedans}" refusée`)).toBe('valeur "op://…" refusée')
+    expect(épurerChemins(`could not read secret '${dedans}'`)).toBe(
+      "could not read secret 'op://…'",
+    )
+    expect(épurerChemins(`« ${dedans} » est vide`)).toBe('« op://… » est vide')
+    expect(épurerChemins(`la réf est ${dedans}, dit-il`)).toBe('la réf est op://…, dit-il')
+  })
+
+  /**
+   * Ce qui suit la référence n'est pas à elle. La fiche et le coffre s'étendent
+   * au-delà d'un espace, le champ non : lui laisser la même liberté ferait
+   * manger la phrase entière à la moindre barre oblique plus loin.
+   */
+  it('ne déborde pas sur la phrase qui suit', () => {
+    expect(épurerChemins('op://Coffre/Fiche/Champ. Voir /var/tmp/x.wav')).toBe(
+      'op://…. Voir …/x.wav',
     )
   })
 
   it('laisse intact ce qui ne nomme déjà rien', () => {
-    // Le préfixe seul, et la forme que `exigerSecret` cite en toutes lettres.
+    // Le préfixe seul, entouré ou pas — il ne nomme ni coffre, ni fiche, ni
+    // champ, donc il n'y a rien à en retirer (relevé par Copilot et Aristarque)
+    // — et la forme que `exigerSecret` cite en toutes lettres.
     expect(épurerChemins('une adresse commence par op://')).toBe('une adresse commence par op://')
+    expect(épurerChemins('valeur "op://" refusée')).toBe('valeur "op://" refusée')
     const message =
       'GEMINI_API_KEY vaut encore une adresse 1Password (op://…), donc la résolution a été défaite.'
     expect(épurerChemins(message)).toBe(message)

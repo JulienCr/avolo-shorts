@@ -394,9 +394,17 @@ export function estPassagère(erreur: unknown): boolean {
 }
 
 /**
- * L'attente maximale qu'un 429 peut imposer. Une minute et demie couvre la
- * fenêtre glissante d'un quota par minute ; au-delà, c'est un quota journalier
- * qui parle, et attendre ne le rendra pas.
+ * L'attente au-delà de laquelle on **renonce** au lieu d'attendre.
+ *
+ * Une minute et demie couvre la fenêtre glissante d'un quota par minute ;
+ * au-delà, c'est un quota journalier qui parle, et attendre ne le rendra pas.
+ *
+ * **C'est un seuil de renoncement, pas un raccourcissement.** La première
+ * version plafonnait l'attente à cette valeur puis relançait quand même : un
+ * `retryDelay` d'une heure devenait 90 secondes, la requête repartait très avant
+ * la fin du quota, échouait, et le repérage brûlait ses trois essais et trois
+ * minutes pour arriver au même endroit. Raccourcir une attente qu'on sait
+ * insuffisante ne rend service à personne. (relevé par Copilot)
  */
 const ATTENTE_QUOTA_MAX_MS = 90_000
 
@@ -423,7 +431,12 @@ export function délaiDeQuota(message: string): number | null {
   // encore fermée et brûle un essai sur trois. Arrondir au-dessus ne peut donc
   // que faire attendre une milliseconde de trop, y compris si la conversion en
   // flottant dépassait l'entier d'un cheveu. (relevé par Aristarque)
-  return Math.min(Math.ceil(Number(trouvé[1]) * 1000), ATTENTE_QUOTA_MAX_MS)
+  //
+  // **Rendu tel quel, sans plafond.** Ce que le fournisseur demande est un fait ;
+  // ce qu'on accepte d'attendre est une décision, et elle se prend dans
+  // `appelerGemini` avec `ATTENTE_QUOTA_MAX_MS`. Les mêler ici faisait rendre un
+  // délai raccourci qu'on relançait ensuite comme s'il suffisait.
+  return Math.ceil(Number(trouvé[1]) * 1000)
 }
 
 /**
@@ -474,9 +487,19 @@ export async function appelerGemini<T = unknown>(
       if (erreur instanceof GeminiBlockedError) throw erreur
       const message = erreur instanceof Error ? erreur.message : String(erreur)
       if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
+      // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus
+      // une pointe passagère : on rend la main tout de suite plutôt que de
+      // relancer avant l'heure et de brûler les essais restants.
+      const quota = délaiDeQuota(message)
+      if (quota !== null && quota > ATTENTE_QUOTA_MAX_MS) {
+        throw new Error(
+          `Gemini refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s. ` +
+            `C'est un quota journalier, pas une pointe : le repérage s'arrête plutôt que de relancer avant l'heure.`,
+        )
+      }
       // Le délai demandé l'emporte quand il est plus long : sur un quota par
       // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
-      const attente = Math.max(5000 * 2 ** (tentative - 1), délaiDeQuota(message) ?? 0)
+      const attente = Math.max(5000 * 2 ** (tentative - 1), quota ?? 0)
       console.warn(
         `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
@@ -849,9 +872,28 @@ async function noterLesFenêtres(
       lotsRépondus: 0,
     },
   }
-  const { bilan, notées } = ardoise
+  const { bilan } = ardoise
   bilans.set(ctx.projectId, bilan)
 
+  try {
+    return await noterEtRécupérer(lots, ctx, ardoise)
+  } finally {
+    // **Dans un `finally`, et c'est tout l'intérêt.** Le bilan promis « au
+    // journal à chaque passe » ne sortait que par le chemin heureux : un refus
+    // total lève, une panne réseau se propage, et la perte redevenait
+    // silencieuse exactement quand elle est la plus grande. Un décompte qui
+    // n'apparaît que lorsque tout va bien ne sert à rien. (relevé par Copilot)
+    journaliserBilan(bilan)
+  }
+}
+
+/** Le corps de la notation, sorti pour que son appelant tienne le `finally`. */
+async function noterEtRécupérer(
+  lots: Window[][],
+  ctx: ContexteNotation,
+  ardoise: Ardoise,
+): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
+  const { bilan, notées } = ardoise
   const refusés: Window[][] = []
   for (const lot of lots) {
     const lu = await noterUnLot(lot, ctx, ardoise)
@@ -904,23 +946,31 @@ async function noterLesFenêtres(
     )
   }
 
-  const perdues = bilan.jamaisNotées.length
-  if (perdues > 0) {
-    // **La perte est dite, chiffrée, et localisée.** Sans cette ligne, un tiers
-    // d'une émission pouvait sortir du classement sans qu'aucune trace ne le
-    // signale : les fenêtres non notées finissent dernières, donc dehors dès que
-    // la présélection mord, et le repérage se terminait « avec succès ».
-    console.warn(
-      `${perdues} fenêtre(s) sur ${bilan.fenêtres} n'ont jamais été notées ; classées dernières.` +
-        (bilan.refusées.length > 0
-          ? ` Dont ${bilan.refusées.length} refusée(s) seule(s) par le filtre : ${bilan.refusées.join(', ')}.`
-          : ''),
-    )
-  }
-  console.log(
-    `Notation : ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s) en ${bilan.appels} appel(s).`,
-  )
   return { notées, bilan }
+}
+
+/**
+ * Le bilan au journal.
+ *
+ * **La perte est dite, chiffrée et nommée.** Sans cela, un tiers d'une émission
+ * pouvait sortir du classement sans aucune trace : les fenêtres non notées
+ * finissent dernières, donc dehors dès que la présélection mord, et le repérage
+ * se terminait « avec succès ». Les identifiants sont listés, pas seulement
+ * comptés — c'est ce qui permet d'aller regarder le transcript à l'endroit exact
+ * de ce qui n'a pas été jugé.
+ */
+function journaliserBilan(bilan: BilanNotation): void {
+  console.log(
+    `Notation : ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s) en ${bilan.appels} requête(s).`,
+  )
+  if (bilan.jamaisNotées.length === 0) return
+  console.warn(
+    `${bilan.jamaisNotées.length} fenêtre(s) sur ${bilan.fenêtres} n'ont jamais été notées ; ` +
+      `classées dernières : ${bilan.jamaisNotées.join(', ')}.` +
+      (bilan.refusées.length > 0
+        ? ` Dont ${bilan.refusées.length} refusée(s) seule(s) par le filtre : ${bilan.refusées.join(', ')}.`
+        : ''),
+  )
 }
 
 /**

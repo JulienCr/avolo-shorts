@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -122,11 +122,12 @@ describe('délaiDeQuota', () => {
     expect(délaiDeQuota('"retryDelay":"53.9s"')).toBe(53_900)
   })
 
-  // Au-delà d'une minute et demie, ce n'est plus un quota par minute qui parle
-  // mais un quota journalier : attendre ne le rendra pas, et immobiliser la
-  // chaîne pendant ce temps-là ne rend service à personne.
-  it('borne l’attente : un quota journalier ne s’attend pas', () => {
-    expect(délaiDeQuota('"retryDelay":"3600s"')).toBe(90_000)
+  // Le délai demandé est un fait, pas une décision : la fonction le rend tel
+  // quel, et `appelerGemini` décide ce qu'on accepte d'attendre. Les mêler
+  // faisait rendre un délai raccourci qu'on relançait ensuite comme s'il
+  // suffisait. (relevé par Copilot)
+  it('rend le délai demandé sans le plafonner', () => {
+    expect(délaiDeQuota('"retryDelay":"3600s"')).toBe(3_600_000)
   })
 
   it('rend null quand le message n’en porte pas', () => {
@@ -226,6 +227,29 @@ describe('appelerGemini', () => {
     }
     expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
     expect(attentes).toEqual([54_000])
+  })
+
+  /**
+   * Un quota journalier ne s'attend pas, et surtout ne se raccourcit pas.
+   *
+   * La première version plafonnait l'attente à 90 s puis relançait quand même :
+   * la requête repartait très avant la fin du quota, échouait, et le repérage
+   * brûlait ses trois essais et trois minutes pour arriver au même endroit.
+   * (relevé par Copilot)
+   */
+  it('renonce tout de suite quand le quota demande plus que ce qu’on attend', async () => {
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      throw new Error('{"error":{"code":429,"details":[{"retryDelay":"3600s"}]}}')
+    }
+    await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow(
+      /quota journalier/,
+    )
+    // Un seul essai, et pas la moindre attente : ni relance avant l'heure, ni
+    // trois minutes immobilisées pour rien.
+    expect(essais).toBe(1)
+    expect(attentes).toEqual([])
   })
 
   it('ne réessaie jamais une réponse bloquée par le filtre de sécurité', async () => {
@@ -746,6 +770,39 @@ describe("l'étape de repérage", () => {
       // Personne n'a été soumis seul : le budget s'est épuisé avant.
       expect(bilan.refusées).toEqual([])
       expect([...bilan.jamaisNotées].sort()).toEqual(['window_001', 'window_002'])
+    })
+
+    /**
+     * Le filet, et sa seule raison d'être : **la perte ne doit jamais être
+     * silencieuse**, surtout quand elle est totale.
+     *
+     * Le bilan ne sortait au journal que par le chemin heureux — un refus total
+     * lève, une panne se propage — donc il se taisait exactement dans les cas
+     * où il aurait le plus servi. (relevé par Copilot)
+     */
+    it('journalise la perte même quand la passe échoue', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+      try {
+        process.env.SCORE_BATCH = '2'
+        let lots = 0
+        const casse: AppelGemini = async (prompt, mode) => {
+          if (mode === 'score' && ++lots === 2) throw new Error('403 PERMISSION_DENIED')
+          return modèle([])(prompt, mode)
+        }
+        await expect(
+          runCandidates(ID, { db, appel: casse, sleep: async () => {} }),
+        ).rejects.toThrow(/PERMISSION_DENIED/)
+
+        const lignes = [...warn.mock.calls, ...log.mock.calls].map((c) => String(c[0]))
+        // Le décompte est sorti, et il nomme les fenêtres non jugées plutôt que
+        // de se contenter de les compter.
+        expect(lignes.some((l) => /2\/4 fenêtre\(s\) jugée\(s\)/.test(l))).toBe(true)
+        expect(lignes.some((l) => l.includes('window_003, window_004'))).toBe(true)
+      } finally {
+        warn.mockRestore()
+        log.mockRestore()
+      }
     })
 
     it('un lot qui passe du premier coup ne coûte aucun appel de plus', async () => {

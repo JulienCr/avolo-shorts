@@ -139,6 +139,21 @@ export function audioPath(projectId: string): string {
   return path.join(projectDir(projectId), 'audio.wav')
 }
 
+/**
+ * Les corps et les frontières de plans, relevés sur le proxy par
+ * `worker/detect.py`.
+ *
+ * **Dans le projet, pas dans le sidecar**, et la règle du haut de ce fichier le
+ * décide toute seule : les boîtes sont en fractions du proxy, avec ses réglages
+ * de détection (modèle, cadence, seuil). Ce n'est pas une propriété de la vidéo
+ * comme l'est le transcript, c'est le résultat d'un outil et d'une version
+ * d'outil. Le jour où le modèle change, l'analyse se refait ; le transcript, lui,
+ * n'a aucune raison de bouger.
+ */
+export function analysisPath(projectId: string): string {
+  return path.join(projectDir(projectId), 'analysis.json')
+}
+
 /** Les propositions, tous lots confondus — c'est ce que `mergeCandidates` produit. */
 export function candidatesPath(projectId: string): string {
   return path.join(projectDir(projectId), 'candidates.json')

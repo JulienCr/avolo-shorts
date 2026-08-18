@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  analysisPath,
   audioPath,
   candidatesPath,
   placeSidecar,
@@ -88,11 +89,24 @@ describe('les chemins du projet', () => {
     expect(() => resolveSource(mauvaise)).toThrow()
   })
 
-  it('range proxy, audio, candidats et rendus dans le projet', () => {
+  it('range proxy, audio, analyse, candidats et rendus dans le projet', () => {
     expect(proxyPath(ID)).toBe(path.join(projets, ID, 'proxy.mp4'))
     expect(audioPath(ID)).toBe(path.join(projets, ID, 'audio.wav'))
+    expect(analysisPath(ID)).toBe(path.join(projets, ID, 'analysis.json'))
     expect(candidatesPath(ID)).toBe(path.join(projets, ID, 'candidates.json'))
     expect(rendersDir(ID)).toBe(path.join(projets, ID, 'renders'))
+  })
+
+  /**
+   * **L'analyse n'est pas un sidecar**, et la règle du haut de `paths.ts` le
+   * décide toute seule : ses boîtes sont en fractions du proxy, avec le modèle,
+   * la cadence et le seuil qui les ont produites. C'est le résultat d'un outil,
+   * pas une propriété de la vidéo comme l'est le transcript — qui, lui, n'a
+   * aucune raison de bouger quand le modèle change.
+   */
+  it('ne pose pas l’analyse à côté de l’original', () => {
+    expect(analysisPath(ID).startsWith(projets)).toBe(true)
+    expect(analysisPath(ID)).not.toContain('.avolo')
   })
 
   it('garde le nom d’origine pour la copie de travail', () => {

@@ -210,6 +210,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Le venv de la détection, monté par setup.sh. ESLint n'ignore par défaut
+    // que `node_modules`, et matplotlib comme torch livrent du JavaScript dans
+    // leurs paquets — six erreurs `no-this-alias` dans du code que personne ici
+    // n'a écrit, sur une machine où setup.sh a tourné. La CI ne les voyait pas,
+    // faute de venv ; le développeur, si.
+    "worker/venv/**",
   ]),
 ]);
 

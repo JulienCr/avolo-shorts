@@ -1,9 +1,11 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { compter, phaseProjet } from '@/core/parcours'
+import { CIBLES_DE_REPRISE } from '@/lib/api'
 import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 import { AppBar } from '@/components/parcours/app-bar'
@@ -11,6 +13,7 @@ import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components
 import { FilDeTri } from '@/components/tri/fil'
 import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
 import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -62,6 +65,13 @@ export function EcranDeProjet({ id }: { id: string }) {
   // dont il ne sait rien. Une requête d'état en échec laisse donc la grille
   // passer devant — l'invariant vaut aussi contre nos propres pannes : la phase
   // ne retire jamais ce qui existe, et une liste chargée reste triable.
+  // **Il manque une étape et rien ne tourne.** Le prédicat porte sur les cibles
+  // de la reprise, pas sur la phase : `triable` ne dit rien du proxy, et c'est
+  // pourtant lui qui manque le plus souvent ici. Rien à reprendre quand tout est
+  // là — un bouton dont le plan reviendrait vide promet un travail qui n'aura
+  // pas lieu.
+  const àReprendre = projet.isSuccess && running === null && CIBLES_DE_REPRISE.some((c) => steps[c] !== true)
+
   const prêt = !projet.isPending && !candidats.isPending
   const disposition =
     projet.isSuccess && !candidats.isPending
@@ -160,7 +170,18 @@ export function EcranDeProjet({ id }: { id: string }) {
                 patch.mutate({ clipId, projectId: id, patch: { status } })
               }
               entete={
-                <BoutonRelance projectId={id} compte={compter(clips)} enCours={running !== null} />
+                <>
+                  {/* **La reprise vit aussi devant la grille.** Un redémarrage
+                      du serveur après le repérage et avant le proxy laisse
+                      `running` à nul et la liste pleine : la grille passe devant
+                      — c'est l'invariant —, mais « relancer le repérage » ne
+                      vise que `candidates` et ne reconstruit jamais le proxy. Le
+                      montage restait alors désactivé sans aucun moyen d'avancer,
+                      c'est-à-dire la même impasse que le panneau ferme, avec une
+                      grille par-dessus. (relevé par Codex) */}
+                  {àReprendre && <BoutonReprise projectId={id} enCours={false} />}
+                  <BoutonRelance projectId={id} compte={compter(clips)} enCours={running !== null} />
+                </>
               }
             />
           )}
@@ -196,21 +217,43 @@ export function EcranDeProjet({ id }: { id: string }) {
 function useVueDansUrl(projectId: string): [Vue, (vue: Vue) => void] {
   const router = useRouter()
   const paramètres = useSearchParams()
-  const vue = vueDepuisUrl(paramètres.get('vue'))
+  const nommée = paramètres.get('vue')
+  const vue = vueDepuisUrl(nommée)
 
-  return [
-    vue,
-    (choisie: Vue) => {
-      const suivants = new URLSearchParams(paramètres.toString())
-      // La vue par défaut ne s'écrit pas : une URL nue est celle qu'on partage.
-      if (choisie === 'atrier') suivants.delete('vue')
-      else suivants.set('vue', choisie)
-      const requête = suivants.toString()
-      router.replace(`${lienProjet(projectId)}${requête === '' ? '' : `?${requête}`}`, {
-        scroll: false,
-      })
-    },
-  ]
+  function allerÀ(choisie: Vue) {
+    const suivants = new URLSearchParams(paramètres.toString())
+    // **La vue s'écrit toujours, « à trier » comprise.** L'omettre rendait une
+    // URL nue indiscernable de celle du fil d'Ariane, donc impossible à
+    // distinguer d'un retour de clip : le repli ci-dessous aurait ramené sur
+    // « gardés » quelqu'un qui venait de choisir « à trier ».
+    suivants.set('vue', choisie)
+    router.replace(`${lienProjet(projectId)}?${suivants.toString()}`, { scroll: false })
+  }
+
+  // **Le retour d'un clip repasse par une URL nue.** `chemin` construit le fil
+  // d'Ariane sur `lienProjet`, sans paramètre — c'est un contrat gelé, et il n'a
+  // pas à connaître la vue. L'écran rattrape donc depuis la session, et
+  // seulement quand l'URL ne nomme rien : une URL qui nomme sa vue reste
+  // souveraine, y compris celle qu'on partage. (relevé par Codex)
+  //
+  // Dans un effet, jamais pendant le rendu : lire `sessionStorage` au rendu
+  // donnerait une sortie différente sur le serveur et dans le navigateur, donc
+  // une hydratation en désaccord.
+  useEffect(() => {
+    if (nommée !== null) return
+    const mémorisée = lireSessionTri(projectId).vue
+    if (mémorisée !== null && mémorisée !== 'atrier') allerÀ(mémorisée)
+    // Une seule fois, à l'arrivée : c'est un retour, pas une préférence.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
+  // Et le pendant : la vue courante est recopiée en session à chaque fois
+  // qu'elle change, sans quoi le repli ci-dessus n'aurait jamais rien à lire.
+  useEffect(() => {
+    écrireSessionTri(projectId, { vue })
+  }, [projectId, vue])
+
+  return [vue, allerÀ]
 }
 
 /** Le message d'un échec, quelle que soit sa nature. */

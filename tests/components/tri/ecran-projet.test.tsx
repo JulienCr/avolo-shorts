@@ -22,14 +22,16 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CandidateClip, ProjectStatus } from '@/lib/api'
+import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 
 // Le routeur n'existe pas hors d'une application Next montée. On ne teste pas
 // la navigation ici — la vue dans l'URL a son propre test — mais l'écran ne
 // peut pas se rendre sans ces deux hooks.
 const remplacer = vi.fn()
+let requête = ''
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: remplacer, push: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(''),
+  useSearchParams: () => new URLSearchParams(requête),
 }))
 
 const { EcranDeProjet } = await import('@/components/tri/ecran-projet')
@@ -106,6 +108,7 @@ function monter() {
 
 beforeEach(() => {
   remplacer.mockClear()
+  requête = ''
 })
 
 afterEach(() => {
@@ -136,6 +139,68 @@ describe('l’écran de projet', () => {
     expect(screen.queryByText(/l’analyse est en cours/i)).toBeNull()
     // La bande, elle, reste : ce qui tourne doit rester lisible.
     expect(screen.getByRole('progressbar')).toBeTruthy()
+  })
+
+  it('offre la reprise sur un projet à l’arrêt dont il manque une étape', async () => {
+    // **La même impasse que celle du panneau, mais avec une grille devant.** Un
+    // redémarrage du serveur après le repérage et avant le proxy laisse
+    // `running` à nul et la liste pleine : la grille passe donc devant — c'est
+    // l'invariant —, mais la seule action offerte était « relancer le repérage »,
+    // qui ne vise que `candidates` et ne reconstruit jamais le proxy. Le montage
+    // restait désactivé sans aucun moyen d'avancer. (relevé par Codex)
+    servir(
+      etat({
+        steps: { ...etat().steps, candidates: true, proxy: false, analysis: false },
+        running: null,
+      }),
+      [candidat(1)],
+    )
+    monter()
+
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: /reprendre l’analyse/i })).toBeTruthy()
+  })
+
+  it('n’offre pas la reprise quand tout est là', async () => {
+    // Un bouton qui ne reconstruit rien invite à un geste sans effet : le plan
+    // reviendrait vide, et l'écran aurait promis du travail qui n'a pas lieu.
+    servir(
+      etat({
+        steps: { ...etat().steps, candidates: true, proxy: true, analysis: true },
+        running: null,
+      }),
+      [candidat(1)],
+    )
+    monter()
+
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /reprendre l’analyse/i })).toBeNull()
+  })
+
+  it('reprend la vue de la session quand l’URL n’en nomme aucune', async () => {
+    // Retour d'un clip par le fil d'Ariane : `chemin` rend `lienProjet`, une URL
+    // nue. Sans ce rattrapage la vue retombe sur « à trier », la carte gardée
+    // n'y est pas, et le focus mémorisé n'a nulle part où se poser — le
+    // round-trip que la conception décrit ne marchait pas. (relevé par Codex)
+    écrireSessionTri('p1', { vue: 'gardes', carte: 'c1' })
+    servir(etat({ steps: { ...etat().steps, candidates: true }, running: null }), [candidat(1)])
+    monter()
+
+    await waitFor(() => expect(remplacer).toHaveBeenCalledWith('/projects/p1?vue=gardes', { scroll: false }))
+  })
+
+  it('recopie la vue de l’URL en session, pour le retour', async () => {
+    // Sans cette écriture, le repli n'aurait jamais rien à lire : c'est la
+    // moitié qu'on oublie quand on ajoute une restauration.
+    requête = 'vue=gardes'
+    servir(etat({ steps: { ...etat().steps, candidates: true }, running: null }), [
+      { ...candidat(1), status: 'kept' },
+    ])
+    monter()
+
+    await waitFor(() => expect(lireSessionTri('p1').vue).toBe('gardes'))
+    // Et l'URL qui nomme sa vue reste souveraine : aucun rattrapage.
+    expect(remplacer).not.toHaveBeenCalled()
   })
 
   it('ne laisse pas un projet introuvable sur un squelette éternel', async () => {

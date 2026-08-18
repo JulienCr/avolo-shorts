@@ -1,5 +1,7 @@
 'use client'
 
+import { VUES, type Vue } from '@/components/tri/modele'
+
 /**
  * Ce qu'un aller-retour vers un clip doit retrouver.
  *
@@ -8,14 +10,16 @@
  * retour et la grille remonte à zéro : quatre fois par émission, sur l'écran
  * dont le coût se paie trente fois.
  *
- * **Deux choses ici, une troisième dans l'URL.** La vue active (`?vue=gardes`)
- * est dans l'URL parce qu'un rechargement doit rendre le même écran. La position
- * de défilement et la carte d'où l'on est parti sont ici, parce qu'une position
- * de défilement dans une URL est une URL qu'on ne peut plus partager.
+ * **La vue reste dans l'URL, et n'est copiée ici qu'en repli.** L'URL est la
+ * vérité — un rechargement doit rendre le même écran, et une URL se partage —,
+ * mais on revient d'un clip par le fil d'Ariane, qui pointe sur `lienProjet`,
+ * c'est-à-dire une URL sans vue. La copie ne sert qu'à ce cas-là. La position de
+ * défilement, elle, n'a rien à faire dans une URL : ce serait une URL qu'on ne
+ * peut plus partager.
  *
- * **En session, pas en local** : ces deux valeurs décrivent un aller-retour en
- * cours, pas une préférence. Les retrouver le lendemain ferait sauter dans une
- * liste sans que le geste l'explique.
+ * **En session, pas en local** : ces valeurs décrivent un aller-retour en cours,
+ * pas une préférence. Les retrouver le lendemain ferait sauter dans une liste
+ * sans que le geste l'explique.
  */
 
 export type ÉtatDeTri = {
@@ -23,9 +27,20 @@ export type ÉtatDeTri = {
   carte: string | null
   /** La position de défilement, en pixels. */
   defilement: number
+  /**
+   * La vue active, ou `null`.
+   *
+   * **Elle double l'URL, elle ne la remplace pas.** L'URL reste la vérité — un
+   * rechargement doit rendre le même écran, et une URL se partage. Mais on
+   * revient d'un clip par le fil d'Ariane, que `chemin` construit sur
+   * `lienProjet` : une URL nue, sans vue. Sans cette copie, le retour retombait
+   * sur « à trier », la carte gardée n'y était pas, et le focus mémorisé n'avait
+   * nulle part où se poser. (relevé par Codex)
+   */
+  vue: Vue | null
 }
 
-const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0 }
+const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0, vue: null }
 
 /** Une clé par projet : le retour depuis un clip vise **sa** grille. */
 function clé(projectId: string): string {
@@ -60,10 +75,13 @@ export function lireSessionTri(projectId: string): ÉtatDeTri {
     // version précédente de l'écran, ou bricolé à la main : un `carte` numérique
     // passerait tel quel jusque dans un `querySelector`, et un `defilement`
     // textuel jusque dans un `scrollTo`.
-    const { carte, defilement } = lu as Partial<ÉtatDeTri>
+    const { carte, defilement, vue } = lu as Partial<ÉtatDeTri>
     return {
       carte: typeof carte === 'string' ? carte : null,
       defilement: typeof defilement === 'number' && Number.isFinite(defilement) ? defilement : 0,
+      // Comparée à la liste des vues plutôt que crue sur parole : la clé se
+      // bricole à la main, et une vue inconnue ferait rendre une grille vide.
+      vue: VUES.some((v) => v.valeur === vue) ? (vue as Vue) : null,
     }
   } catch {
     return NEUTRE

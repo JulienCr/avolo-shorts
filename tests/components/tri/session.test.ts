@@ -20,12 +20,12 @@ afterEach(() => {
 
 describe('la session de tri', () => {
   it('rend un état neutre pour un projet jamais visité', () => {
-    expect(lireSessionTri('inconnu')).toEqual({ carte: null, defilement: 0 })
+    expect(lireSessionTri('inconnu')).toEqual({ carte: null, defilement: 0, vue: null })
   })
 
   it('retrouve la carte et le défilement du projet', () => {
-    écrireSessionTri('p1', { carte: 'c7', defilement: 940 })
-    expect(lireSessionTri('p1')).toEqual({ carte: 'c7', defilement: 940 })
+    écrireSessionTri('p1', { carte: 'c7', defilement: 940, vue: 'gardes' })
+    expect(lireSessionTri('p1')).toEqual({ carte: 'c7', defilement: 940, vue: 'gardes' })
   })
 
   it('ne mélange pas deux projets', () => {
@@ -40,7 +40,7 @@ describe('la session de tri', () => {
   it('écrit un champ sans effacer l’autre', () => {
     écrireSessionTri('p1', { carte: 'c7', defilement: 940 })
     écrireSessionTri('p1', { defilement: 12 })
-    expect(lireSessionTri('p1')).toEqual({ carte: 'c7', defilement: 12 })
+    expect(lireSessionTri('p1')).toEqual({ carte: 'c7', defilement: 12, vue: null })
   })
 
   it('survit à un stockage indisponible', () => {
@@ -55,11 +55,18 @@ describe('la session de tri', () => {
   it('survit à un contenu illisible', () => {
     // Une clé écrite par une version précédente, ou bricolée à la main.
     window.sessionStorage.setItem('avolo-shorts:tri:p1', '{pas du json')
-    expect(lireSessionTri('p1')).toEqual({ carte: null, defilement: 0 })
+    expect(lireSessionTri('p1')).toEqual({ carte: null, defilement: 0, vue: null })
   })
 
   it('refuse un contenu du bon format mais du mauvais type', () => {
     window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"carte":42,"defilement":"beaucoup"}')
-    expect(lireSessionTri('p1')).toEqual({ carte: null, defilement: 0 })
+    expect(lireSessionTri('p1')).toEqual({ carte: null, defilement: 0, vue: null })
+  })
+
+  it('refuse une vue que l’écran ne connaît pas', () => {
+    // La clé se bricole à la main : une vue inconnue ferait rendre une grille
+    // vide, sans que rien n'explique pourquoi.
+    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"vue":"toutes"}')
+    expect(lireSessionTri('p1').vue).toBeNull()
   })
 })

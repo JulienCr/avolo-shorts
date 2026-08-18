@@ -83,6 +83,17 @@ describe('cropRect', () => {
     expect(cropRect('9:16', cx, 1920, 1080)).toEqual(cropRect('9:16', 0.5, 1920, 1080))
   })
 
+  // Les dimensions viennent de ffprobe. Un NaN propagé se serait manifesté
+  // beaucoup plus loin, en « crop.w doit être un nombre fini » — un message qui
+  // désigne le symptôme et cache la cause.
+  it.each([
+    ['largeur NaN', Number.NaN, 1080],
+    ['hauteur NaN', 1920, Number.NaN],
+    ['hauteur infinie', 1920, Number.POSITIVE_INFINITY],
+  ])('refuse une source aux dimensions non finies (%s)', (_nom, sw, sh) => {
+    expect(() => cropRect('9:16', 0.5, sw, sh)).toThrow(/source/)
+  })
+
   it('les dimensions sont paires, sinon libx264 refuse', () => {
     for (const ratio of TOUS) {
       const r = cropRect(ratio, 0.5, 1920, 1080)

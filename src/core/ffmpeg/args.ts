@@ -178,6 +178,12 @@ export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName })
     ...GLOBALES,
     ...accélération(o.encoder),
     '-i', o.src,
+    // `-map` explicite, et `0:v:0` plutôt que `0:v` : une source peut porter
+    // une pochette, que ffmpeg expose comme un second flux vidéo et
+    // embarquerait dans le proxy servi au navigateur. Le `?` sur l'audio laisse
+    // passer une source muette.
+    '-map', '0:v:0',
+    '-map', '0:a:0?',
     '-vf', 'fps=30,scale=960:540',
     '-g', '30',
     ...videoEncodeArgs(o.encoder, 'fast'),

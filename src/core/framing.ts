@@ -100,6 +100,17 @@ export function cropRect(
   srcW: number,
   srcH: number,
 ): { w: number; h: number; x: number; y: number } {
+  // Les dimensions de la source viennent de `ffprobe` ou de la base. Sans
+  // cette garde, un `NaN` se propage à toutes les composantes du rectangle et
+  // n'est attrapé que bien plus loin, par `renderArgs`, sous la forme
+  // « crop.w doit être un nombre fini » — un message qui désigne le symptôme
+  // et cache la cause.
+  if (!Number.isFinite(srcW) || !Number.isFinite(srcH)) {
+    throw new Error(
+      `cropRect : dimensions de source invalides (${String(srcW)}x${String(srcH)}).`,
+    )
+  }
+
   const cible = RATIOS[ratio]
   const maxW = pairInférieur(srcW)
   const maxH = pairInférieur(srcH)

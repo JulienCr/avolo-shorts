@@ -77,6 +77,15 @@ describe('proxyArgs', () => {
   it('garde le son : le montage se fait à l’oreille sur le proxy', () => {
     expect(proxyArgs({ ...base, encoder: 'x264' })).not.toContain('-an')
   })
+
+  // Sans `-map`, ffmpeg choisit seul les flux et peut embarquer ce que la
+  // source traîne. `0:v:0` et non `0:v` : une pochette est un second flux
+  // vidéo, et partirait dans le proxy servi au navigateur.
+  it('ne prend que la première piste vidéo et la première piste audio', () => {
+    const a = proxyArgs({ ...base, encoder: 'x264' })
+    expect(a.join(' ')).toContain('-map 0:v:0 -map 0:a:0?')
+    expect(a).not.toContain('0:v')
+  })
 })
 
 describe('audioArgs', () => {
@@ -152,6 +161,26 @@ describe('renderArgs', () => {
   it('un seul segment ne passe pas par concat', () => {
     const a = renderArgs({ ...base, segments: [{ start: 100, end: 110 }] })
     expect(a.join(' ')).not.toContain('concat=')
+  })
+
+  // Sans sous-titres ni logo, c'est le `concat` lui-même qui écrit dans [v] :
+  // aucune étape ne suit. Le graphe entier tient alors en quatre clauses, et
+  // les vérifier toutes exclut une étiquette orpheline ou écrite deux fois.
+  it('assemble un graphe complet et sans étape morte, sans ASS ni logo', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [
+        { start: 0, end: 10 },
+        { start: 20, end: 30 },
+      ],
+    })
+    const graphe = a[a.indexOf('-filter_complex') + 1]
+    const crop = 'crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1'
+    expect(graphe).toBe(
+      `[0:v]${crop}[v0];[1:v]${crop}[v1];` +
+        '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][ac];' +
+        `[ac]${LOUDNORM},${RESAMPLE}[a]`,
+    )
   })
 
   it('incruste l’ASS avec fontsdir, filename nommé et non positionnel', () => {

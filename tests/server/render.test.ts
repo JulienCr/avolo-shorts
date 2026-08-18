@@ -600,4 +600,17 @@ describe('renderClip, chemin du saut', () => {
     // Rien dans `stage/` : `stagedPath` est transitoire par contrat.
     await expect(renderClip(c.id, { db })).rejects.toThrow(/copie de travail/)
   })
+
+  // **La variante réclame la source, même quand le natif est déjà là**, et c'est
+  // le correctif de #22 vu depuis cette fonction : elle ne dérive plus du MP4
+  // natif, donc son fond ne peut plus en hériter les sous-titres. Avant, ce cas
+  // sautait la préparation et lançait ffmpeg sur le natif ; il exige maintenant
+  // la copie de travail, et le dit.
+  it("réclame la source quand seule la variante manque", async () => {
+    const { db, c } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    poser([attendus.mp4, attendus.texts])
+
+    await expect(renderClip(c.id, { db })).rejects.toThrow(/copie de travail/)
+  })
 })

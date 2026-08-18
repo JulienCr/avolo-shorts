@@ -316,7 +316,34 @@ correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 **Aristarque est coupé depuis le 18 août au soir**, faute de jetons. Il reste
 Codex et Copilot. Son silence n'est pas une passe en attente : un agent qui
-l'attendrait ne fusionnerait jamais. Le critère d'arrêt ne change pas — trois
+l'attendrait ne fusionnerait jamais.
+
+**L'interrupteur est la variable de dépôt `ENABLE_ARISTARQUE`**, à `false`, lue
+par `.github/workflows/pr-review.yml`. Elle vit dans *Settings → Variables* et
+non dans le fichier, pour que couper la review ne demande ni un commit ni qu'une
+branche reparte de `main`. Deux pièges que le workflow documente au point d'appel
+et qui valent d'être relus avant d'y toucher : `false`, `0`, `no` et `off`
+éteignent, mais une variable **supprimée** rend une chaîne vide que l'action lit
+comme *allumé* — le sens de la panne va vers la review qui tourne, jamais vers
+une PR qu'on croirait relue. Pour éteindre, on pose la valeur.
+
+**Un mot pour deux choses, et il faut les séparer.** Le workflow appelle « trois
+passes » les trois *axes* d'une même review — régression fonctionnelle, doctrine,
+données et accès — lancés en parallèle puis fusionnés. Le critère d'arrêt plus
+bas appelle « passes » les *relances* successives sur une PR. Un agent qui
+confondrait les deux fusionnerait après un seul tour de review. La mesure qui
+fonde le critère porte sans ambiguïté sur les relances : elle compte douze passes
+sur une PR, et attribue 47 % des trouvailles à des correctifs écrits *entre* deux
+d'entre elles — ce que trois axes simultanés ne peuvent pas produire.
+
+**L'axe « données et accès » ne se débranche jamais**, à aucun cran d'effort, sur
+aucun type de PR. Un `.md` publie une clé aussi bien qu'un `.ts` : un exemple de
+configuration avec un vrai jeton, un endpoint interne, un chemin de montage, une
+mesure copiée d'une sortie de commande — et ce dépôt est public. Le seul chemin
+qui retirerait cet axe est une liste explicite dans l'input `passes`, qui
+court-circuite **toutes** les règles, garde-fou compris. Ne pas s'en servir pour
+économiser sur une PR de documentation : c'est l'axe qui ne pouvait rien y
+trouver qu'on croit couper, et c'est l'autre qu'on coupe. Le critère d'arrêt ne change pas — trois
 passes —, il porte sur deux relecteurs au lieu de trois, et le bloc replié de
 Copilot devient d'autant plus le seul endroit où le gros des trouvailles se
 trouve. Ce qui suit décrit les trois surfaces, Aristarque compris, pour le jour

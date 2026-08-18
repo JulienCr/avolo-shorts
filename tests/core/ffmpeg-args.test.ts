@@ -1,0 +1,307 @@
+import { describe, it, expect } from 'vitest'
+import { LOUDNORM, METADATA_SCRUB, videoEncodeArgs } from '@/core/ffmpeg/encoder'
+import { audioArgs, blurredVariantArgs, proxyArgs, renderArgs } from '@/core/ffmpeg/args'
+
+const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
+
+describe('videoEncodeArgs', () => {
+  it('porte les réglages x264 mesurés, par palier', () => {
+    expect(videoEncodeArgs('x264', 'quality')).toEqual([
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
+    ])
+    expect(videoEncodeArgs('x264', 'fast')).toEqual([
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+    ])
+  })
+
+  it('porte les réglages NVENC, avec -pix_fmt yuv420p', () => {
+    expect(videoEncodeArgs('nvenc', 'quality')).toEqual([
+      '-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr',
+      '-cq', '25', '-b:v', '0', '-spatial-aq', '1', '-temporal-aq', '1',
+      '-pix_fmt', 'yuv420p',
+    ])
+    expect(videoEncodeArgs('nvenc', 'fast')).toEqual([
+      '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr',
+      '-cq', '25', '-b:v', '0', '-spatial-aq', '1', '-pix_fmt', 'yuv420p',
+    ])
+  })
+
+  // La table est une constante du module : la rendre telle quelle laisserait
+  // n'importe quel appelant la modifier pour tous les suivants.
+  it('rend une copie, pas la table elle-même', () => {
+    const a = videoEncodeArgs('nvenc', 'quality')
+    a.push('-sabotage')
+    expect(videoEncodeArgs('nvenc', 'quality')).not.toContain('-sabotage')
+  })
+})
+
+describe('proxyArgs', () => {
+  const base = { src: '/s.mp4', dst: '/p.mp4' }
+
+  it('normalise à 30 fps et 960x540, avec une image clé par seconde', () => {
+    const a = proxyArgs({ ...base, encoder: 'x264' })
+    expect(a.join(' ')).toContain('-vf fps=30,scale=960:540')
+    expect(a.join(' ')).toContain('-g 30')
+  })
+
+  it('encode au palier rapide — le proxy sert à scruber, pas à livrer', () => {
+    expect(proxyArgs({ ...base, encoder: 'x264' })).toContain('veryfast')
+    expect(proxyArgs({ ...base, encoder: 'nvenc' })).toContain('p4')
+  })
+
+  it('finit par la destination, et jamais avant', () => {
+    const a = proxyArgs({ ...base, encoder: 'x264' })
+    expect(a[a.length - 1]).toBe('/p.mp4')
+    expect(compte(a, '/p.mp4')).toBe(1)
+  })
+
+  it('garde le son : le montage se fait à l’oreille sur le proxy', () => {
+    expect(proxyArgs({ ...base, encoder: 'x264' })).not.toContain('-an')
+  })
+})
+
+describe('audioArgs', () => {
+  it('sort du 16 kHz mono, ce que WhisperX attend', () => {
+    const a = audioArgs({ src: '/s.mp4', dst: '/a.wav' })
+    expect(a.join(' ')).toContain('-ar 16000')
+    expect(a.join(' ')).toContain('-ac 1')
+    expect(a).toContain('-vn')
+    expect(a[a.length - 1]).toBe('/a.wav')
+  })
+
+  // L'extraction audio ne touche pas à l'image : y mettre le GPU coûterait un
+  // décodage vidéo complet pour rien.
+  it('ne décode pas la vidéo sur le GPU', () => {
+    expect(audioArgs({ src: '/s.mp4', dst: '/a.wav' })).not.toContain('-hwaccel')
+  })
+})
+
+describe('renderArgs', () => {
+  const base = {
+    src: '/s.mp4',
+    dst: '/o.mp4',
+    crop: { w: 608, h: 1080, x: 656, y: 0 },
+    out: { w: 1080, h: 1920 },
+    encoder: 'nvenc' as const,
+  }
+
+  it('un -ss par segment, avant le -i correspondant', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [
+        { start: 100, end: 110 },
+        { start: 200, end: 215 },
+      ],
+    })
+    expect(compte(a, '-i')).toBe(2)
+    expect(a.indexOf('-ss')).toBeLessThan(a.indexOf('-i'))
+    expect(a).toContain('100')
+    expect(a.join(' ')).toContain('concat=n=2:v=1:a=1')
+  })
+
+  // `-hwaccel` est une option d'ENTRÉE : sa portée s'arrête au `-i` qui suit.
+  // Posée une seule fois en tête, seul le premier segment décoderait sur le
+  // GPU et tous les suivants retomberaient sur le chemin logiciel — sans
+  // erreur, juste plus lentement.
+  it('répète -hwaccel cuda devant chaque couple -ss/-i', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [
+        { start: 100, end: 110 },
+        { start: 200, end: 215 },
+        { start: 300, end: 302.5 },
+      ],
+    })
+    expect(compte(a, '-hwaccel')).toBe(3)
+    expect(a.join(' ')).toContain(
+      '-hwaccel cuda -ss 100 -t 10 -i /s.mp4' +
+        ' -hwaccel cuda -ss 200 -t 15 -i /s.mp4' +
+        ' -hwaccel cuda -ss 300 -t 2.5 -i /s.mp4',
+    )
+  })
+
+  it("n'accélère rien au GPU quand l'encodeur est x264", () => {
+    const a = renderArgs({
+      ...base,
+      encoder: 'x264',
+      segments: [{ start: 0, end: 10 }],
+    })
+    expect(a).not.toContain('-hwaccel')
+    expect(a).toContain('libx264')
+  })
+
+  it('un seul segment ne passe pas par concat', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 100, end: 110 }] })
+    expect(a.join(' ')).not.toContain('concat=')
+  })
+
+  it('incruste l’ASS avec fontsdir, filename nommé et non positionnel', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      assPath: '/c.ass',
+      fontsDir: '/fonts',
+    })
+    expect(a.join(' ')).toContain("ass=filename='/c.ass':fontsdir='/fonts'")
+  })
+
+  it('n’incruste rien quand aucun fichier ASS n’est fourni', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    expect(a.join(' ')).not.toContain('ass=')
+  })
+
+  // Un chemin porte des caractères que la syntaxe des filtres lit comme des
+  // séparateurs. Non échappés, ils coupent le graphe en morceaux et ffmpeg
+  // échoue sur un nom de filtre inconnu.
+  it('échappe les apostrophes, les deux-points et les contre-obliques du chemin', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      assPath: "/l'été:2026/c.ass",
+    })
+    expect(a.join(' ')).toContain("ass=filename='/l\\'été\\:2026/c.ass'")
+  })
+
+  it('NVENC ne reçoit jamais -hwaccel_output_format cuda', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    expect(a).not.toContain('-hwaccel_output_format')
+    expect(a).toContain('h264_nvenc')
+  })
+
+  // `-af` sur un flux issu de `-map [a]` fait échouer ffmpeg :
+  // « Simple and complex filtering cannot be used together for the same
+  // stream ». La normalisation appartient donc au graphe.
+  it('normalise le son dans le graphe, jamais par -af', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    expect(a).not.toContain('-af')
+    expect(a).not.toContain('-filter:a')
+    expect(a.join(' ')).toContain(LOUDNORM)
+  })
+
+  it('cadre au rectangle demandé puis met à l’échelle de sortie', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    expect(a.join(' ')).toContain('crop=608:1080:656:0')
+    expect(a.join(' ')).toContain('scale=1080:1920:flags=lanczos')
+    expect(a.join(' ')).toContain('setsar=1')
+  })
+
+  it('mappe toujours [v] et [a], quelles que soient les options', () => {
+    for (const options of [
+      {},
+      { assPath: '/c.ass' },
+      { assPath: '/c.ass', fontsDir: '/f' },
+      { logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }] },
+      {
+        assPath: '/c.ass',
+        logos: [
+          { path: '/a.png', x: 40, y: 250, w: 300, h: 90 },
+          { path: '/b.png', x: 700, y: 250, w: 200, h: 90 },
+        ],
+      },
+    ]) {
+      for (const segments of [[{ start: 0, end: 10 }], [{ start: 0, end: 10 }, { start: 20, end: 30 }]]) {
+        const a = renderArgs({ ...base, ...options, segments })
+        const graphe = a[a.indexOf('-filter_complex') + 1]
+        expect(graphe).toContain('[v]')
+        expect(graphe).toContain('[a]')
+        expect(a.join(' ')).toContain('-map [v] -map [a]')
+      }
+    }
+  })
+
+  it('ajoute une entrée par logo, sans -hwaccel — une image ne se décode pas au GPU', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+    })
+    expect(compte(a, '-i')).toBe(2)
+    expect(compte(a, '-hwaccel')).toBe(1)
+    expect(a).toContain('/logo.png')
+    expect(a.join(' ')).toContain('scale=300:90')
+    expect(a.join(' ')).toContain('overlay=x=40:y=250')
+  })
+
+  it('efface les métadonnées et place l’index en tête du fichier', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+    expect(a.join(' ')).toContain('-movflags +faststart')
+    expect(a[a.length - 1]).toBe('/o.mp4')
+  })
+
+  it('durée = fin - début, et jamais la fin brute', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 2841.2, end: 2856.9 }] })
+    expect(a.join(' ')).toContain('-ss 2841.2 -t 15.7')
+    expect(a).not.toContain('2856.9')
+  })
+
+  it('jette les segments vides ou inversés au lieu d’ouvrir un décodeur pour rien', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [
+        { start: 100, end: 110 },
+        { start: 200, end: 200 },
+        { start: 300, end: 290 },
+      ],
+    })
+    expect(compte(a, '-i')).toBe(1)
+    expect(a.join(' ')).not.toContain('concat=')
+  })
+
+  it('fusionne deux segments qui se touchent — un décodeur de moins', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [
+        { start: 100, end: 110 },
+        { start: 110, end: 120 },
+      ],
+    })
+    expect(compte(a, '-i')).toBe(1)
+    expect(a.join(' ')).toContain('-ss 100 -t 20')
+  })
+
+  it('refuse de construire un rendu sans un seul segment', () => {
+    expect(() => renderArgs({ ...base, segments: [] })).toThrow()
+  })
+})
+
+describe('blurredVariantArgs', () => {
+  const base = { src: '/o.mp4', dst: '/o-9x16.mp4', encoder: 'nvenc' as const }
+
+  it('sort en 1080x1920', () => {
+    const a = blurredVariantArgs(base)
+    expect(a.join(' ')).toContain('scale=1080:1920:force_original_aspect_ratio=increase')
+    expect(a.join(' ')).toContain('crop=1080:1920')
+  })
+
+  // Le contenu est **déjà cropé** : il se pose pleine largeur et centré, pas au
+  // ratio 0,42 d'OpenShorts, qui visait du 16:9 brut. Un 1:1 occupe alors 56 %
+  // de la hauteur et un 4:5 70 %, contre 32 % pour un 16:9 en letterbox.
+  it('pose le contenu pleine largeur et centré, pas à 42 % de la hauteur', () => {
+    const a = blurredVariantArgs(base).join(' ')
+    expect(a).toContain('scale=1080:-2')
+    expect(a).toContain('overlay=x=0:y=(H-h)/2')
+    expect(a).not.toContain('0.42')
+  })
+
+  it('floute le fond', () => {
+    expect(blurredVariantArgs(base).join(' ')).toContain('gblur=sigma=12')
+  })
+
+  // Le son a déjà été normalisé par le rendu natif : le repasser au loudnorm
+  // le comprimerait deux fois.
+  it('recopie le son sans le renormaliser', () => {
+    const a = blurredVariantArgs(base)
+    expect(a.join(' ')).toContain('-c:a copy')
+    expect(a.join(' ')).not.toContain(LOUDNORM)
+  })
+
+  it('ne demande pas non plus -hwaccel_output_format', () => {
+    expect(blurredVariantArgs(base)).not.toContain('-hwaccel_output_format')
+  })
+
+  it('finit par la destination', () => {
+    const a = blurredVariantArgs(base)
+    expect(a[a.length - 1]).toBe('/o-9x16.mp4')
+  })
+})

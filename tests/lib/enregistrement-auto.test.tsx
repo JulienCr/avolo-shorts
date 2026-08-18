@@ -365,6 +365,29 @@ describe('useEnregistrementAuto', () => {
     expect(reconcilie).not.toHaveBeenCalled()
   })
 
+  // **Un vidage sur `pagehide` est une écriture comme une autre**, même s'il
+  // n'attend rien : il porte une intention plus récente que ce qui vole encore.
+  // Sans lui faire prendre un rang, l'ancienne se croit toujours la dernière —
+  // et une page restaurée depuis le bfcache lui laisse tout le temps de le
+  // croire. (relevé par Copilot)
+  it('périme les tentatives en vol quand le départ vide une modification', async () => {
+    const { rejouer, appels, reconcilie } = monter({ ...auRepos, cropX: 0.8 })
+    act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+    expect(appels).toHaveLength(1)
+
+    // Un geste de plus, promis mais pas encore parti, que la fermeture emporte.
+    rejouer({ cropX: 0.9 })
+    act(() => void window.dispatchEvent(new Event('pagehide')))
+    expect(appels.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
+
+    // La page revient du bfcache et l'utilisateur ramène le cadrage à 0,8 —
+    // valeur qui redonne à la vieille réponse l'apparence d'être d'actualité.
+    rejouer({ cropX: 0.8 })
+    await agir(() => appels[0].resoudre(reponse(clip({ cropX: 0.2 }), false)))
+
+    expect(reconcilie).not.toHaveBeenCalled()
+  })
+
   describe('quand le serveur refuse pour jeton périmé', () => {
     it('n’affiche pas d’échec de l’enregistrement', async () => {
       const { result, appels } = monter({ ...auRepos, cropX: 0.8 })

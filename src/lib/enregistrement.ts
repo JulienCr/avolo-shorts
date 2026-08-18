@@ -376,14 +376,23 @@ export function useEnregistrementAuto({
     const vider = () => {
       const variables = enAttente.current
       enAttente.current = null
-      if (variables) ecrireRef.current(variables).catch(() => {})
+      if (!variables) return
+      // **Ce vidage prend un rang comme n'importe quelle écriture.** Il porte
+      // une intention plus récente que ce qui vole encore, donc les réponses en
+      // attente ne sont plus d'actualité — et sur une page restaurée depuis le
+      // bfcache, elles auraient tout le temps de croire le contraire.
+      // Ici et non plus haut : un `pagehide` qui n'a rien à écrire ne périme
+      // rien. (relevé par Copilot)
+      derniereTentative.current += 1
+      ecrireRef.current(variables).catch(() => {})
     }
     window.addEventListener('pagehide', vider)
     return () => {
       window.removeEventListener('pagehide', vider)
       vider()
-      // **Et pas dans `vider`** : `pagehide` se déclenche sur un écran bien
-      // vivant, qui a encore besoin de la réponse de son écriture en vol.
+      // **Inconditionnel, celui-ci** : `vider` ne prend un rang que s'il écrit,
+      // et l'écran qui s'en va périme ses réponses même sans rien avoir à
+      // envoyer.
       derniereTentative.current += 1
     }
   }, [])

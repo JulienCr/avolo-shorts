@@ -515,7 +515,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     })
   }
 
-  await écrireFichier(chemins.texts, texteDePublication(clip))
+  // **Le titre et la description se relisent en base, pour la même raison que le
+  // statut.** `clip` est l'instantané d'avant l'encodage, qui a duré des minutes :
+  // écrire le `.txt` depuis lui livrerait la description que l'utilisateur vient
+  // de corriger pendant ce temps. Le repli sur l'instantané ne sert qu'au clip
+  // supprimé en cours de route, dont les fichiers méritent quand même leur texte.
+  await écrireFichier(chemins.texts, texteDePublication(getClip(db, clipId) ?? clip))
 
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
   // l'encodage protégerait un clip qui n'existe pas.

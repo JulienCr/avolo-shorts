@@ -38,8 +38,9 @@ Mesuré sur `2025-06-15-cqlp.mp4`, 4,3 Go, 1 h 39, une émission entière :
 | Repérage Gemini | 30 s |
 | Export d'un clip à trois segments | 10 s, deux fichiers |
 
-La transcription est **quinze fois plus rapide que ce que la spec annonçait**
-(15 à 25 min ; la section 6 porte la mesure depuis). Ce chiffre change ce qu'on
+La transcription est **au moins neuf fois plus rapide que ce que la spec
+annonçait** (15 à 25 min, donc de neuf à quinze fois selon la borne ; la
+section 6 porte la mesure depuis). Ce chiffre change ce qu'on
 peut se permettre : retranscrire une émission n'est plus une décision.
 
 Trois vérifications comptent plus que les autres, parce qu'elles portent les

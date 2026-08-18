@@ -410,16 +410,18 @@ La parenté s'arrête au diariseur.
 | Analyse audio | voir plus bas | 5 min |
 | Repérage des candidats | Gemini | 1 min |
 
-**Quatre de ces lignes sont mesurées, les autres restent des estimations.**
-Relevé le 18 août 2026 sur `2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 :
-proxy en 6 min, soit 16,4x le temps réel et 7 min pour 2 h, ce qui tient dans la
-fourchette annoncée ; extraction audio en 6 s ; transcription et alignement en
-1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre autres
-lignes n'ont encore rien derrière elles.
+**Quatre lignes sur neuf sont mesurées, quatre restent des estimations et les
+locuteurs n'ont ni l'une ni l'autre.** Relevé le 18 août 2026 sur
+`2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 : proxy en 6 min, soit 16,4x
+le temps réel et 7 min pour 2 h, ce qui tient dans la fourchette annoncée ;
+extraction audio en 6 s ; transcription et alignement en 1 min 41 s, soit 59x le
+temps réel ; repérage Gemini en 30 s. Les quatre estimations qui subsistent
+(correction du transcript, frontières de plans, personnes, analyse audio) n'ont
+encore rien derrière elles.
 
 **La transcription était l'estimation la plus fausse, et dans le bon sens** :
-15 à 25 minutes annoncées contre 1 min 41 s mesurées, une quinzaine de fois
-moins. Le chiffre change ce qu'on peut se permettre, puisque retranscrire une
+15 à 25 minutes annoncées contre 1 min 41 s mesurées, neuf à quinze fois moins
+selon la borne qu'on retient. Le chiffre change ce qu'on peut se permettre, puisque retranscrire une
 émission cesse d'être une décision qu'on pèse. La mesure ne couvre pas les
 locuteurs, d'où leur ligne à part : `worker/transcribe.py` transcrit et aligne, il
 n'instancie jamais le pipeline de diarisation, que l'itération 0 n'utilise pas
@@ -598,7 +600,9 @@ cadre large et stable vaut mieux qu'un cadre serré qui vacille.
 
 **Zones d'habillage.** Sur les vingt émissions existantes, le crop évite le bloc
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
-tout crop pris à droite : on l'accepte.
+tout crop pris à droite : on l'accepte. La préférence tient tant qu'elle reste une
+préférence ; la coder demande le relevé réclamé en section 2, puisque dix images
+ne disent ni où ce bloc commence ni sur quelles séquences il est à l'écran.
 
 **Le panneau de chat de `2025-06-15-cqlp` est un cas unique.** Constaté à l'image
 le 18 août 2026, en regardant un rendu et non le filtergraph : le chat Twitch

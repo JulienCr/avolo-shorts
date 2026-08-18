@@ -304,17 +304,27 @@ if not torch.cuda.is_available():
 # qui refusera d'allouer, et l'échec tomberait alors au milieu d'une analyse.
 (torch.zeros(64, 64, device="cuda") @ torch.zeros(64, 64, device="cuda")).sum().item()
 
-# Puis **une vraie prédiction**, parce que le chemin qui casse n'est pas celui
-# qu'on vient d'éprouver. `import torch` réussit sur une roue processeur ; une
-# multiplication réussit sur un couple torch/torchvision dépareillé ; c'est la
-# suppression des non-maxima qui tombe alors, en plein milieu de la détection,
-# sur un opérateur compilé que rien n'a chargé avant. Trois secondes ici valent
-# mieux qu'un échec à la quatrième minute.
-#
-# `yolo11n.yaml` et non les poids : la structure est livrée dans le paquet, donc
-# rien à télécharger, et cette vérification tourne **avant** que setup.sh n'aille
-# chercher `yolo11m.pt`. Les poids ne changent pas ce qui est éprouvé ici — le
-# réseau non entraîné passe par exactement les mêmes opérateurs.
+# **La suppression des non-maxima, appelée en propre.** C'est l'opérateur qui
+# tombe quand `torch` et `torchvision` sont dépareillés : compilé, chargé
+# paresseusement, et invisible à tout ce qui précède. Il s'appelle directement
+# plutôt qu'à travers une prédiction, parce qu'`ultralytics` **le saute** quand
+# aucune candidate ne dépasse le seuil de confiance — ce qui est le cas d'un
+# réseau non entraîné sur une image de synthèse. La sonde aurait alors annoncé
+# bon un couple qui casse à la première vraie détection. (relevé par Copilot)
+import torchvision  # noqa: E402
+
+torchvision.ops.nms(
+    torch.tensor([[0.0, 0.0, 10.0, 10.0], [1.0, 1.0, 11.0, 11.0]], device="cuda"),
+    torch.tensor([0.9, 0.8], device="cuda"),
+    0.5,
+)
+
+# Puis la passe avant d'un vrai réseau, sur le vrai chemin d'ultralytics :
+# préparation de l'image, inférence, décodage. `yolo11n.yaml` et non les poids —
+# la structure est livrée dans le paquet, donc rien à télécharger, et cette
+# vérification tourne **avant** que setup.sh n'aille chercher `yolo11m.pt`. Les
+# poids ne changent pas ce qui est éprouvé ici : le réseau non entraîné passe par
+# exactement les mêmes opérateurs.
 from ultralytics import YOLO  # noqa: E402
 
 YOLO("yolo11n.yaml").predict(

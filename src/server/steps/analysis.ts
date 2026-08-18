@@ -280,21 +280,38 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // connaître la géométrie à l'octet près, sans quoi chaque image est cisaillée.
   // Celui de la source est un passe-plat, recopié dans `analysis.json` pour que
   // le rendu sache à quoi les fractions se rapportent.
+  //
+  // **Zéro est refusé comme `null`, et ce n'est pas de la symétrie gratuite.**
+  // Une largeur nulle donne `octets = 0` dans `detect.py`, un `read(0)` qui rend
+  // toujours zéro octet sans jamais être « plus court que demandé », donc une
+  // boucle qui produit indéfiniment des images vides. Le pire des symptômes :
+  // pas d'erreur, pas de fin. (relevé par Copilot)
   const sondageProxy = await probe(proxy)
   if (
     sondageProxy.width === null ||
     sondageProxy.height === null ||
+    sondageProxy.width <= 0 ||
+    sondageProxy.height <= 0 ||
     sondageProxy.durationSec === null ||
     sondageProxy.durationSec <= 0
   ) {
     throw new Error(
-      `ffprobe n'a rien su dire du proxy ${JSON.stringify(proxy)} : dimensions ou durée manquantes. ` +
+      `ffprobe n'a rien su dire du proxy ${JSON.stringify(proxy)} : dimensions ou durée manquantes ou nulles. ` +
         'Le proxy est peut-être tronqué — le refaire avec un run --force sur proxy.',
     )
   }
 
+  // Même contrôle sur la source, pour une autre raison : ses dimensions sont
+  // recopiées telles quelles dans `analysis.json`, où `SCHÉMA_TAILLE` les exige
+  // positives. Un zéro qui passerait ici ferait échouer la validation **après**
+  // les trois minutes de détection.
   const sondageSource = await probe(o.source)
-  if (sondageSource.width === null || sondageSource.height === null) {
+  if (
+    sondageSource.width === null ||
+    sondageSource.height === null ||
+    sondageSource.width <= 0 ||
+    sondageSource.height <= 0
+  ) {
     throw new Error(
       `ffprobe n'a rien su dire des dimensions de ${JSON.stringify(o.source)}. ` +
         "Elles sont recopiées dans analysis.json : sans elles, le rendu ne sait pas à quoi les fractions se rapportent.",

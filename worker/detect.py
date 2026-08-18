@@ -373,6 +373,13 @@ def main() -> int:
         return 2
 
     largeur, hauteur = a.proxy_size
+    # **Une dimension nulle ne s'arrête jamais toute seule.** `octets` vaudrait 0,
+    # `read(0)` rend zéro octet sans jamais être « plus court que demandé », et le
+    # décodage produirait des images vides sans fin. Node contrôle déjà ce que
+    # ffprobe lui a dit ; ce refus-ci vaut pour un appel direct au worker.
+    if largeur <= 0 or hauteur <= 0 or min(a.source_size) <= 0:
+        journal(f"Dimensions invalides : proxy {a.proxy_size}, source {a.source_size}.")
+        return 2
     source_l, source_h = a.source_size
     départ = time.monotonic()
 

@@ -265,6 +265,44 @@ describe('runAnalysis', () => {
     expect(publié).toContain('setup.sh')
   })
 
+  /**
+   * **Une dimension nulle ne s'arrête jamais toute seule.** `detect.py` en tire
+   * `octets = 0`, et `read(0)` rend zéro octet sans jamais être « plus court que
+   * demandé » : la boucle de décodage produirait des images vides sans fin. Pas
+   * d'erreur, pas de sortie, une VRAM qui reste prise. D'où le refus ici, au
+   * même titre qu'une dimension absente. (relevé par Copilot)
+   *
+   * Éprouvé par un faux `ffprobe` plutôt que par un mock : `FFPROBE_BIN` est la
+   * couture que le dépôt expose déjà, et aucun test de cette base n'installe de
+   * doublure de module.
+   */
+  it('refuse une dimension nulle, qui ferait tourner le worker sans fin', async () => {
+    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    const faux = path.join(racine, 'ffprobe-largeur-nulle')
+    fs.writeFileSync(
+      faux,
+      '#!/bin/sh\necho \'{"streams":[{"width":0,"height":540,"r_frame_rate":"30/1"}],' +
+        '"format":{"duration":"10"}}\'\n',
+      { mode: 0o755 },
+    )
+    process.env.FFPROBE_BIN = faux
+    // Le venv et les poids doivent exister pour que l'étape aille jusqu'au
+    // sondage : ce sont les contrôles d'avant.
+    for (const nom of ['python', 'detect.py', 'yolo11m.pt']) {
+      const chemin = path.join(racine, nom)
+      fs.writeFileSync(chemin, '')
+      process.env[
+        { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[
+          nom
+        ] as string
+      ] = chemin
+    }
+
+    await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
+      /nulles/,
+    )
+  })
+
   it('n’expose pas la ligne de commande du worker en échec', () => {
     const commande =
       "L'analyse a échoué (code de sortie 3).\n" +

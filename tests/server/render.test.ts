@@ -14,6 +14,7 @@ import {
   marquerExporté,
   motsDièse,
   planifierMarques,
+  refaireLesSorties,
   renderClip,
   sauterLeRendu,
   sousTitresDuClip,
@@ -147,6 +148,57 @@ describe('sauterLeRendu', () => {
   it("ignore le .ass, qui est un intermédiaire et non une sortie", () => {
     const c = chemins('9:16')
     expect(sauterLeRendu(c, (chemin) => chemin !== c.ass)).toBe(true)
+  })
+})
+
+/**
+ * L'autre décision de `renderClip`, et la seule que `sauterLeRendu` ne prend pas :
+ * une fois qu'il faut faire quelque chose, faut-il rallumer ffmpeg, et sur quoi.
+ *
+ * **C'est ici que se teste le corollaire du correctif de #22.** La variante ne
+ * dérive plus du MP4 natif, donc refaire l'une sans l'autre les tirerait de deux
+ * instantanés du clip différents, et rien en aval ne le verrait. Ces cas-là
+ * n'atteignent jamais ffmpeg, qui n'existe ni en CI ni dans ce fichier : les
+ * isoler en fonction pure est ce qui les rend vérifiables.
+ * (relevé par Codex et Copilot)
+ */
+describe('refaireLesSorties', () => {
+  const chemins = cheminsRendu.bind(null, ID, 'clip_0001')
+
+  it('ne rallume pas ffmpeg quand les deux MP4 sont là', () => {
+    expect(refaireLesSorties(chemins('1:1'), () => true)).toBe(false)
+  })
+
+  it("laisse le .txt seul se réécrire, sans réencoder une image", () => {
+    const c = chemins('1:1')
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.texts)).toBe(false)
+  })
+
+  it('refait le natif quand seule la variante manque', () => {
+    // Le cas qui compte : le natif est là, mais il porte peut-être le montage
+    // d'un passage précédent. Le garder pendant qu'on rend la variante depuis
+    // l'instantané d'aujourd'hui livrerait deux fichiers montrant deux cadres.
+    const c = chemins('1:1')
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.variant9x16)).toBe(true)
+  })
+
+  it('refait la variante quand seul le natif manque', () => {
+    const c = chemins('1:1')
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.mp4)).toBe(true)
+  })
+
+  it("n'attend pas de variante en 9:16", () => {
+    const c = chemins('9:16')
+    expect(refaireLesSorties(c, (chemin) => chemin === c.mp4)).toBe(false)
+  })
+
+  it('réencode toujours sous `force`', () => {
+    expect(refaireLesSorties(chemins('1:1'), () => true, true)).toBe(true)
+  })
+
+  it("ignore le .ass, qui se réécrit à chaque passage", () => {
+    const c = chemins('1:1')
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.ass)).toBe(false)
   })
 })
 

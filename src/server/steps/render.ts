@@ -170,6 +170,38 @@ export function sauterLeRendu(
 }
 
 /**
+ * Faut-il rallumer ffmpeg, et **c'est les deux sorties ou aucune**.
+ *
+ * Pure comme `sauterLeRendu`, et elle répond à la question d'après : la première
+ * dit si l'appel a encore quelque chose à faire, celle-ci si ce quelque chose est
+ * un encodage. Les deux se séparent sur un seul cas, celui du `.txt` perdu ou
+ * retouché alors que les MP4 sont là : il se réécrit sans réencoder une image.
+ *
+ * **Refaire une seule des deux sorties n'est jamais bon**, et c'est le corollaire
+ * du correctif de #22 : la variante ne dérive plus du MP4 natif, elle se rend
+ * depuis la source avec l'instantané du clip qu'on lui donne. La refaire seule —
+ * natif en place, variante perdue par un encodage interrompu — la tirerait donc
+ * du montage d'aujourd'hui pendant que le natif porte celui d'avant-hier, dès
+ * lors que le clip a été retouché entre les deux passages. Rien ne le
+ * rattraperait : `écarterRenduPérimé` compare le montage à celui du **début de ce
+ * passage-ci**, pas à celui du précédent, et les deux fichiers partiraient chez
+ * Julien en montrant deux cadres différents, sans un mot.
+ * (relevé par Codex et Copilot)
+ *
+ * Ce que ça coûte le jour où le cas se présente : réencoder un natif qui était
+ * là, mesuré à 3,85 s sur un clip de 43 s (`docs/environnement.md`). Ce que ça
+ * garantit : les deux fichiers d'un clip sortent toujours du même montage.
+ */
+export function refaireLesSorties(
+  chemins: CheminsRendu,
+  existe: (chemin: string) => boolean,
+  force = false,
+): boolean {
+  if (force) return true
+  return !existe(chemins.mp4) || (chemins.variant9x16 !== null && !existe(chemins.variant9x16))
+}
+
+/**
  * Le haut de la bande de marque, en fraction de la hauteur du clip.
  *
  * **C'est le bord SUPÉRIEUR, jamais le centre**, et c'est toute la doctrine
@@ -520,25 +552,22 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // tout de suite, quoi que porte l'environnement.
   const encodeur = (): EncoderName => options.encoder ?? encoderName()
 
-  // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage. La
-  // variante ne dérive plus de son fichier, mais elle décrit le même montage :
-  // c'est ce drapeau qui la refait quand le natif vient de l'être.
+  // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage :
+  // c'est lui qui décide du sort du `.ass` provisoire, dans le `finally`.
   let natifEncodé = false
 
-  // **Les deux sorties se rendent depuis la source, avec les mêmes arguments.**
-  // La variante partait du MP4 natif ; elle en héritait alors les sous-titres
-  // dans son fond flouté (#22). Elle a donc besoin de tout ce que le natif
-  // consomme : le transcript, le rectangle de crop, les marques.
-  const besoinNatif = options.force === true || !fs.existsSync(chemins.mp4)
-  const besoinVariante =
-    chemins.variant9x16 !== null &&
-    (options.force === true || !fs.existsSync(chemins.variant9x16))
-
+  // **Les deux sorties se rendent depuis la source, avec les mêmes arguments, et
+  // elles se refont ensemble.** La variante partait du MP4 natif ; elle en
+  // héritait alors les sous-titres dans son fond flouté (#22). Elle a donc besoin
+  // de tout ce que le natif consomme — le transcript, le rectangle de crop, les
+  // marques — et de l'instantané du clip qui a servi au natif : voir
+  // `refaireLesSorties`, qui porte le raisonnement.
+  //
   // **On ne prépare que ce qu'un encodage va vraiment consommer.** Un passage
   // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des trois sondages ffprobe.
-  if (besoinNatif || besoinVariante) {
+  if (refaireLesSorties(chemins, (c) => fs.existsSync(c), options.force)) {
     // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
     // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
     // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
@@ -588,38 +617,40 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         logos,
       }
 
-      if (besoinNatif) {
-        const natif = await produireArtefact({
-          dst: chemins.mp4,
-          force: options.force,
-          durationSec: durée,
-          onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-          quoi: `rendu ${ratio} du clip ${clipId}`,
-          args: (destination) =>
-            renderArgs({ ...commun, dst: destination, encoder: encodeur() }),
-        })
-        natifEncodé = !natif.skipped
-      }
+      await produireArtefact({
+        dst: chemins.mp4,
+        // `true` et non `options.force` : la décision est prise au-dessus, une
+        // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
+        // un natif présent dont la variante manque, et la paire repartirait de
+        // deux montages. (relevé par Codex et Copilot)
+        force: true,
+        durationSec: durée,
+        onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
+        quoi: `rendu ${ratio} du clip ${clipId}`,
+        args: (destination) => renderArgs({ ...commun, dst: destination, encoder: encodeur() }),
+      })
+      // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
+      // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
+      // décrit bien la vidéo posée sur le disque.
+      natifEncodé = true
 
-      // **La variante est refaite dès que le natif l'a été**, `force` ou pas.
-      // Elle ne dérive plus de son fichier, mais elle décrit le même montage :
-      // un natif réencodé alors que la variante est restée en place laisserait
-      // deux fichiers qui ne racontent plus la même chose, et l'appel suivant —
-      // les trouvant tous les deux — sauterait sans un mot.
-      // (relevé par Aristarque)
+      // **La variante suit le natif, toujours** : ils décrivent le même montage,
+      // et un natif réencodé alors que la variante est restée en place laisserait
+      // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
+      // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
       //
       // **Et la périmée est effacée AVANT le nouvel encodage**, pas seulement
-      // refaite. Rien de tout cela ne survit à l'appel : si l'encodage de la
-      // variante échoue, la fonction lève, et la relance suivante — sans
-      // `force` — retrouve les deux sorties présentes et saute une paire
-      // incohérente. L'effacer d'abord fait qu'un échec laisse une sortie
-      // manquante, donc réessayable. (relevé par Copilot)
+      // refaite. Le contrefactuel, que le code ne montre plus une fois écrit : si
+      // on la laissait là et que son encodage échouait, la fonction lèverait en
+      // laissant les deux sorties présentes — l'ancienne variante à côté du natif
+      // tout neuf —, et la relance suivante, sans `force`, sauterait sur cette
+      // paire incohérente. Effacée d'abord, un échec laisse une sortie manquante,
+      // donc réessayable. (relevé par Copilot)
       if (chemins.variant9x16 !== null) {
-        const refaireLaVariante = besoinVariante || natifEncodé
-        if (refaireLaVariante) fs.rmSync(chemins.variant9x16, { force: true })
+        fs.rmSync(chemins.variant9x16, { force: true })
         await produireArtefact({
           dst: chemins.variant9x16,
-          force: refaireLaVariante,
+          force: true,
           durationSec: durée,
           onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
           quoi: `variante 9:16 du clip ${clipId}`,
@@ -628,8 +659,8 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         })
       }
     } finally {
-      // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté ou
-      // sauté laisse en place celui qui décrit la vidéo réellement sur le disque.
+      // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
+      // en place celui qui décrit la vidéo réellement posée sur le disque.
       if (natifEncodé) {
         if (assProvisoire === undefined) fs.rmSync(chemins.ass, { force: true })
         else await fsp.rename(assProvisoire, chemins.ass)

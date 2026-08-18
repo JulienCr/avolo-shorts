@@ -121,6 +121,19 @@ function populations(boxes: PersonBox[], bordBas: number): void {
   console.log(`Sauvées par la condition de bord (courtes mais détachées) : ${sauvées.length}`)
 }
 
+/**
+ * Un histogramme sur `[min, max[`, **avec ses deux débordements comptés à part**.
+ *
+ * Les rabattre dans les cases extrêmes est le piège de ce genre de sortie, et il
+ * s'est réellement tendu ici : sur `cqlp`, la case étiquetée `0,20` affichait
+ * 9 723 boîtes là où l'intervalle `[0,20 ; 0,21[` en contient 510. Toutes les
+ * boîtes plus courtes y étaient tombées, l'échelle était fixée par ce faux mode,
+ * et l'histogramme ne montrait plus les intervalles qu'il étiquetait — sur la
+ * figure même dont on tire la position du seuil. (relevé par Copilot)
+ *
+ * Les débordements sont **hors barème** : c'est la forme du creux qu'on lit ici,
+ * et deux modes de dix mille écraseraient les vingt-neuf boîtes qui comptent.
+ */
 function histogramme(valeurs: number[], min: number, max: number, cases: number): void {
   if (valeurs.length === 0) {
     console.log('  (aucune valeur)')
@@ -128,15 +141,27 @@ function histogramme(valeurs: number[], min: number, max: number, cases: number)
   }
   const pas = (max - min) / cases
   const compte = new Array<number>(cases).fill(0)
+  let dessous = 0
+  let dessus = 0
   for (const v of valeurs) {
-    const i = Math.min(cases - 1, Math.max(0, Math.floor((v - min) / pas)))
+    if (v < min) {
+      dessous += 1
+      continue
+    }
+    const i = Math.floor((v - min) / pas)
+    if (i >= cases) {
+      dessus += 1
+      continue
+    }
     compte[i] += 1
   }
   const plafond = Math.max(...compte, 1)
+  console.log(`  < ${min.toFixed(2)} ${String(dessous).padStart(6)}  (hors barème)`)
   for (const [i, n] of compte.entries()) {
     const barre = '#'.repeat(Math.round((50 * n) / plafond))
     console.log(`  ${(min + i * pas).toFixed(2)} ${String(n).padStart(6)} ${barre}`)
   }
+  console.log(`  ≥ ${max.toFixed(2)} ${String(dessus).padStart(6)}  (hors barème)`)
 }
 
 // ---------------------------------------------------------------------------

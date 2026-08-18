@@ -864,9 +864,44 @@ describe('le premier plan écarté du cadrage', () => {
     expect(computeFraming({ ...commun, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
     const cadré = computeFraming(commun)
     expect(cadré.ratio).toBe('9:16')
-    // Le crop se recentre aussi : le public tirait la position vers le milieu de
-    // l'image entière, les comédiens la posent sur le milieu de l'action.
     expect(cadré.shots[0]).toMatchObject({ source: 'auto' })
-    expect(cadré.shots[0].cropX).toBeCloseTo(0.5, 2)
+  })
+
+  /**
+   * **Le crop se déplace aussi, et ce test-là doit être capable de le voir.**
+   *
+   * Sa première version comparait `cropX` à 0,5 sur un public symétrique : les
+   * deux populations avaient le même centre, donc une régression qui aurait
+   * continué de cadrer sur le public serait passée. Il faut un public **d'un seul
+   * côté**, et une comparaison **à ratio égal** — en `'auto'` la version sans
+   * filtre monte au 16:9, dont le crop couvre toute la largeur et vaut donc 0,5
+   * quoi qu'il arrive. (relevé par Copilot)
+   */
+  it('déplace le crop, et pas seulement le ratio', () => {
+    const àGauche = (t: number): PersonBox[] => [
+      { t, x0: 0, x1: 0.16, y0: 0.85, y1: 0.998, score: 0.7 },
+      { t, x0: 0.1, x1: 0.26, y0: 0.85, y1: 0.998, score: 0.7 },
+    ]
+    const gens: PersonBox[] = []
+    for (let t = 0; t < 10 - 1e-9; t += 0.5) {
+      const clé = Number(t.toFixed(3))
+      gens.push(...comédiens(clé), ...àGauche(clé))
+    }
+    const commun = {
+      segments: [seg(0, 10)],
+      shots: [plan(0, 10)],
+      people: gens,
+      srcW: SRC_W,
+      srcH: SRC_H,
+      // Épinglé : c'est la seule façon de comparer deux positions comparables.
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+    }
+    const sansFiltre = computeFraming({ ...commun, foregroundMaxHeight: 0 }).shots[0].cropX
+    const avecFiltre = computeFraming(commun).shots[0].cropX
+    // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
+    // le milieu de l'action, qu'ils occupent symétriquement.
+    expect(sansFiltre).toBeCloseTo(0.325, 3)
+    expect(avecFiltre).toBeCloseTo(0.5, 3)
   })
 })

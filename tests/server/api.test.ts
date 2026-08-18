@@ -665,6 +665,28 @@ describe('PATCH /api/clips/:id', () => {
       expect(résultat.clip.status).toBe('kept')
     })
 
+    /**
+     * Un clip en 9:16 n'a pas de variante due, donc `cheminsRendu` du ratio de
+     * départ ne la nomme pas et un `-9x16.mp4` abandonné y survivait. Le ratio
+     * d'arrivée, lui, la rend due : `sortiesDuClip` la publiait aussitôt comme
+     * la livraison du jour. (relevé par Copilot)
+     */
+    it('efface la variante abandonnée quand le ratio change de 9:16 vers 1:1', async () => {
+      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`, `${CLIP}-9x16.mp4`)
+      putClip(getDb(), { ...clipDeBase(), ratio: '9:16', status: 'exported' })
+
+      const résultat = await corpsDe(await patcher({ ratio: '1:1', seq: 70 }))
+
+      expect(résultat.applied).toBe(true)
+      // Due par le nouveau ratio, et pourtant absente : le fichier qui traînait
+      // ne décrivait pas ce clip.
+      expect(résultat.outputs.variant9x16Due).toBe(true)
+      expect(résultat.outputs.variant9x16Url).toBeNull()
+      expect(
+        fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}-9x16.mp4`)),
+      ).toBe(false)
+    })
+
     it('laisse le rendu en place quand l’édition ne le périme pas', async () => {
       poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
       putClip(getDb(), { ...clipDeBase(), status: 'exported' })

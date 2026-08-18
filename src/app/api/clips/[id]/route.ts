@@ -160,7 +160,26 @@ export const PATCH = route(
     // puisqu'elle relit le disque après coup. (relevé par Copilot)
     const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
     try {
-      écarterRenduPérimé(db, id, chemins, clip)
+      const périmé = écarterRenduPérimé(db, id, chemins, clip)
+
+      // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
+      //
+      // `chemins` ne connaît que l'ancien ratio, et c'est ce qu'il faut pour
+      // effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1 n'avait
+      // pas de variante due, donc un `-9x16.mp4` abandonné par une période
+      // antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
+      // *nouveau*, le publiait aussitôt comme la livraison du jour. Le nom de la
+      // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
+      // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.
+      // (relevé par Copilot)
+      if (périmé) {
+        const varianteAprès = cheminsRendu(
+          écrit.projectId,
+          écrit.id,
+          resolveRatio(écrit.ratio),
+        ).variant9x16
+        if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
+      }
 
       // **Le `.txt` ne suit pas le même sort que les MP4.** Le titre et la
       // description ne changent pas une image, donc `leRenduEstPérimé` les

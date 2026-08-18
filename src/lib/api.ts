@@ -260,8 +260,15 @@ export type ExportResult = {
   /**
    * Le clip relu **après** le rendu : c'est `renderClip` qui pose le statut
    * `exported`, jamais un `PATCH`.
+   *
+   * **Facultatif, et ce n'est pas une précaution de style.** Le rendu dure de dix
+   * secondes à une minute, et une passe de repérage qui se termine pendant ce
+   * temps réécrit le jeu de clips du projet : `renderClip` prévoit explicitement
+   * que le clip ait disparu à la relecture. La route sérialise alors un corps
+   * sans ce champ. Le typer comme toujours présent ferait lire `clip.status` sur
+   * `undefined` au retour d'un export par ailleurs réussi. (relevé par Copilot)
    */
-  clip: Clip
+  clip?: Clip
   /** Le rendu au ratio du clip. Toujours produit. */
   mp4: string
   /** La variante 9:16 sur fond flouté, ou `null` quand le clip est déjà en 9:16. */

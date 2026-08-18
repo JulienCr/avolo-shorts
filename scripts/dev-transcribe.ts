@@ -24,7 +24,7 @@ import { transcribe } from '@/server/steps/transcript'
 import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter } from './dev-commun'
 
 async function main(): Promise<number> {
-  chargerEnv()
+  await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
   const force = arguments_.includes('--force')

@@ -292,6 +292,94 @@ motif qui compte les caractères se casse au premier changement de build.
 | `WHISPER_PYTHON` | venv du diariseur de `rythmo-impro`, réutilisé tel quel |
 | `WHISPER_MODEL` | `large-v3` |
 | `WHISPER_WORKER` | facultative : le chemin de `worker/transcribe.py`, si le processus ne tourne pas depuis la racine du dépôt |
+| `OP_BIN` | facultative : le chemin de la commande `op`, si elle n'est pas sur le `PATH` |
+
+## Les secrets : le `.env` porte l'adresse, pas la valeur
+
+Une valeur qui commence par `op://` n'est pas un secret, c'est son **adresse**
+dans 1Password :
+
+```
+GEMINI_API_KEY=op://Personal/Avolo-Shorts/GEMINI_API_KEY
+```
+
+`src/server/secrets.ts` parcourt l'environnement **au démarrage**, repère ces
+adresses et les remplace par ce que rend `op read`. Deux points d'accroche, un
+par façon de lancer le projet : `register()` dans `src/instrumentation.ts` pour
+Next, `chargerEnv()` pour les scripts lancés par `tsx`. Le journal de démarrage
+écrit le nom des variables résolues, jamais leur valeur.
+
+Une valeur littérale reste une valeur littérale. Sans `op://` dans
+l'environnement, `op` n'est pas appelé du tout : c'est ce qui laisse tourner un
+dépôt fraîchement cloné, et le CI, sur une machine qui n'a pas 1Password.
+
+### Comment `op` s'authentifie ici
+
+Par l'**intégration avec l'application de bureau** — 1Password 8 pour Windows,
+vu depuis WSL —, pas par un jeton de compte de service : aucun
+`OP_SERVICE_ACCOUNT_TOKEN` n'est posé sur cette machine. La conséquence pratique
+est qu'une lecture peut demander une approbation quand l'application est
+verrouillée. Une approbation au démarrage est tenable ; une par appel d'API ne le
+serait pas, et c'est la raison pour laquelle la résolution n'a lieu qu'une fois.
+
+Vérifier l'état : `op whoami`. « account is not signed in » se lève tout seul à
+la première lecture si l'application est déverrouillée et son intégration CLI
+activée.
+
+### Ce que ça coûte
+
+**2,5 s par lecture**, mesuré le 18 août 2026, à froid comme à chaud : c'est le
+démarrage de `op` et l'aller-retour vers l'application de Windows, pas le réseau.
+D'où les trois précautions du module : une lecture par référence **distincte**,
+toutes en parallèle (3,5 s pour deux, contre 5 s en série), une seule fois au
+démarrage.
+
+### Pourquoi pas `op run`, qui est la voie canonique
+
+`op run --env-file=.env -- next dev` résout les références et injecte les valeurs
+dans l'environnement du processus. Le doute qui a motivé la mesure : le `.env`
+est **relu après** le lancement — Next le charge tout seul, et `chargerEnv()`
+appelle `process.loadEnvFile`. Si ce second chargement écrasait une variable déjà
+posée, `op run` serait cassé en silence, la vraie clé remplacée par la chaîne
+`op://…`, et l'appel d'API repartirait en 401 — une erreur qui accuse la clé.
+
+**Le piège n'existe pas.** Ni `process.loadEnvFile` (Node 22.22.1) ni `@next/env`
+(16.3.1) n'écrasent une variable déjà présente dans l'environnement : le premier
+ignore la ligne du fichier, le second compare à un instantané de `process.env`
+pris au tout premier chargement. `tests/scripts/dev-commun.test.ts` fige ce
+comportement, parce qu'il tient aussi le
+`FFMPEG_ENCODER=x264 pnpm tsx scripts/dev-ingest.ts …` qui sert à comparer deux
+encodeurs sans toucher au fichier.
+
+`op run` est donc écarté pour ses coûts, pas pour ce risque : il rendrait `op`
+obligatoire même sur un `.env` à valeurs littérales, il faudrait le préfixer à
+chaque point d'entrée, et il ne dit rien d'utile quand la lecture rate.
+
+### Toucher au `.env` pendant que `next dev` tourne
+
+Il faut **relancer le serveur**. Mesuré sur `@next/env` 16.3.1 : quand le serveur
+de développement recharge le fichier, il réapplique d'abord l'instantané de
+`process.env` pris au tout premier chargement — donc avant la résolution —, puis
+relit le `.env`. La variable repasse à `op://…`, et le point d'accroche de
+`src/instrumentation.ts` n'est pas rappelé.
+
+Ça ne rate pas en silence : `exigerSecret` refuse une variable restée à l'état
+d'adresse plutôt que de l'envoyer comme clé, et le message dit quoi faire.
+
+### Quand ça rate
+
+Le mode d'échec par défaut de ce chemin est un 401 du fournisseur d'API, qui
+accuse la clé alors que la cause est ailleurs. Le module distingue les trois
+causes, parce que les gestes ne sont pas les mêmes :
+
+| Ce qui manque | Ce que dit le message |
+|---|---|
+| la commande `op` | installer 1Password CLI, poser `OP_BIN`, ou remettre la valeur littérale |
+| la session | déverrouiller l'application 1Password, ou `op signin` |
+| le coffre, la fiche ou le champ | le diagnostic de `op` tel quel, et `op read <référence>` pour rejouer l'appel |
+
+Le démarrage s'arrête là : un `.env` qui donne l'adresse d'un secret qu'on ne
+sait pas lire est une configuration fausse, pas un service dégradé.
 
 ## Le worker de transcription
 

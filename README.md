@@ -32,6 +32,14 @@ compris.
 
 `src/server/` porte l'impur : fichiers, SQLite, ffmpeg, WhisperX.
 
+## Configurer
+
+`cp .env.example .env`, puis ajuster. Une valeur qui commence par `op://` est
+l'**adresse** d'un secret dans 1Password, résolue une fois au démarrage par
+`op read` ; une valeur littérale marche tout aussi bien et n'appelle rien.
+`docs/environnement.md` liste les variables et ce qui se passe quand la lecture
+rate.
+
 ## Vérifier
 
 ```bash

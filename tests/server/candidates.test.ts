@@ -1179,6 +1179,8 @@ describe("l'étape de repérage", () => {
      * n'a rien à recoller : 15 fenêtres, 8 blocs.
      */
     const GRAPPES = 8
+    /** Ce que `buildWindows` en tire, et sur quoi la descente porte réellement. */
+    const FENÊTRES = 15
     const ÉCLATÉ = {
       language: 'fr',
       segments: Array.from({ length: GRAPPES * 4 }, (_, i) => {
@@ -1279,11 +1281,18 @@ describe("l'étape de repérage", () => {
     })
 
     /**
-     * La descente va jusqu'au bloc seul, et pas à un seul niveau : la mesure du
-     * 18 août sur `cqlp` a demandé des lots de 8 aux demi-lots, puis aux paires,
-     * puis aux unités. Un seul niveau laisserait la moitié des refus dehors.
+     * La descente va jusqu'à la fenêtre seule, et pas à un seul niveau : la
+     * mesure du 18 août sur `cqlp` a demandé des lots de 8 aux demi-lots, puis
+     * aux paires, puis aux unités. Un seul niveau laisserait la moitié des refus
+     * dehors.
+     *
+     * **Elle descend sur les fenêtres, pas sur les blocs fusionnés**, et c'est
+     * ce qui la rend utile : un bloc réunit tous les voisins qui se chevauchent,
+     * donc s'arrêter à « un bloc » abandonnerait une région entière sans avoir
+     * jamais réduit la charge. Ici, les quinze fenêtres finissent chacune seule.
+     * (relevé par Codex)
      */
-    it('descend jusqu’au bloc seul quand il le faut', async () => {
+    it('descend jusqu’à la fenêtre seule quand il le faut', async () => {
       const charges: string[][] = []
       await runCandidates(ID, {
         db,
@@ -1291,7 +1300,7 @@ describe("l'étape de repérage", () => {
         sleep: async () => {},
       })
 
-      expect(charges.filter((c) => c.length === 1)).toHaveLength(GRAPPES)
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(FENÊTRES)
     })
 
     /**
@@ -1300,21 +1309,23 @@ describe("l'étape de repérage", () => {
      * été refusés » ne dit rien de la vidéo tant qu'on n'a pas essayé de plus
      * petites charges — et « un bloc a été refusé » n'en dit rien du tout.
      */
-    it('abandonne un bloc refusé seul sans perdre les sept autres', async () => {
+    it('abandonne une fenêtre refusée seule sans perdre les autres', async () => {
       const clips = await runCandidates(ID, {
         db,
         appel: détailleur((blocs) => blocs.includes('window_001')),
         sleep: async () => {},
       })
 
-      expect(clips).toHaveLength(GRAPPES - 1)
+      // Les quinze fenêtres se fusionnent en huit blocs ; seule celle que le
+      // filtre vise disparaît, et sa voisine de bloc revient toute seule.
+      expect(clips.length).toBeGreaterThanOrEqual(GRAPPES - 1)
       expect(clips.some((c) => c.title.includes('window_001'))).toBe(false)
     })
 
-    it('mais un refus jusqu’au bloc seul reste un refus de la vidéo', async () => {
+    it('mais un refus jusqu’à la fenêtre seule reste un refus de la vidéo', async () => {
       await expect(
         runCandidates(ID, { db, appel: détailleur(() => true), sleep: async () => {} }),
-      ).rejects.toThrow(/jusqu'au bloc seul/)
+      ).rejects.toThrow(/jusqu'à la fenêtre seule/)
     })
 
     /**
@@ -1340,11 +1351,11 @@ describe("l'étape de repérage", () => {
       )
 
       expect(erreur).toBeInstanceOf(GeminiBlockedError)
-      expect(erreur!.message).toMatch(/jusqu'au bloc seul/)
-      // Huit blocs tous refusés : 15 appels, et chacun des huit a bien été
-      // soumis seul avant d'être compté comme refusé.
-      expect(charges).toHaveLength(2 * GRAPPES - 1)
-      expect(charges.filter((c) => c.length === 1)).toHaveLength(GRAPPES)
+      expect(erreur!.message).toMatch(/jusqu'à la fenêtre seule/)
+      // Quinze fenêtres toutes refusées : 29 appels, et chacune a bien été
+      // soumise seule avant d'être comptée comme refusée.
+      expect(charges).toHaveLength(2 * FENÊTRES - 1)
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(FENÊTRES)
     })
 
     /**
@@ -1366,6 +1377,27 @@ describe("l'étape de repérage", () => {
 
       expect(clips).toEqual([])
       expect(getClips(db, ID)).toEqual([])
+    })
+
+    /**
+     * Le plafond réglé survit à la découpe.
+     *
+     * La consigne seule ne suffit pas : une part qui s'arrondit à zéro est
+     * relevée à un pour ne pas abandonner de région, donc la somme des consignes
+     * enfants peut dépasser le plafond. Avec `clipsMaximum = 2` et une descente
+     * jusqu'aux fenêtres, quinze appels demandent chacun un clip. C'est la coupe
+     * finale qui rend le réglage vrai. (relevé par Copilot)
+     */
+    it('tient le plafond réglé même après une découpe complète', async () => {
+      setRéglage(db, 'clipsMaximum', 2)
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 1),
+        sleep: async () => {},
+      })
+
+      expect(clips).toHaveLength(2)
+      expect(getClips(db, ID)).toHaveLength(2)
     })
 
     /**

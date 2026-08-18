@@ -922,13 +922,14 @@ export async function runCandidates(
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
   //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
   //    traitées et écrirait l'artefact. (relevé par Copilot)
-  const propositions = await détailler(blocs, {
+  const propositions = await détailler(retenues, {
     projectId,
     transcript,
     mots,
     durée,
     minClips,
     maxClips,
+    plafondAbsolu: réglages.clipsMaximum,
     appel,
     sleep,
   })
@@ -1304,6 +1305,8 @@ type ContexteDétail = {
   durée: number
   minClips: number
   maxClips: number
+  /** `clipsMaximum` tel qu'il est réglé — `0` quand il ne l'est pas. */
+  plafondAbsolu: number
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
 }
@@ -1347,10 +1350,10 @@ type ContexteDétail = {
  * Cela ne se produit qu'en cas de refus, et `mergeCandidates` dédoublonne
  * ensuite sur les bornes.
  */
-async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]> {
+async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Clip[]> {
   const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
   const clips = await descendre(
-    blocs,
+    retenues,
     { min: ctx.minClips, max: ctx.maxClips },
     ctx,
     ardoise,
@@ -1358,8 +1361,8 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
 
   if (ardoise.refusés.length > 0) {
     console.warn(
-      `Détail : ${ardoise.refusés.length} bloc(s) refusé(s) seul(s) par le filtre ` +
-        `et abandonné(s) : ${ardoise.refusés.join(', ')}.`,
+      `Détail : ${ardoise.refusés.length} fenêtre(s) refusée(s) seule(s) par le filtre ` +
+        `et abandonnée(s) : ${ardoise.refusés.join(', ')}.`,
     )
   }
   // Rien n'a **répondu**, découpe comprise : là seulement, c'est la vidéo.
@@ -1376,9 +1379,33 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
     // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
     // formule prudente que ce dernier a dû se donner après coup.
     throw new GeminiBlockedError(
-      `Gemini a refusé la passe de détail de cette vidéo, jusqu'au bloc seul (${ardoise.refusés.length} bloc(s)). ` +
+      `Gemini a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
     )
+  }
+
+  // **Le plafond absolu se tient ici, à la fin, et pas seulement dans la
+  // consigne.** Une découpe éclate la cible entre les branches, et une part qui
+  // s'arrondit à zéro est relevée à un pour ne pas abandonner de région : la
+  // somme des consignes peut donc dépasser le plafond que l'utilisateur a posé.
+  // Le prompt n'est de toute façon qu'une consigne — ni le modèle ni
+  // `parseDetailResponse` ne l'imposent. Ce qui rend `clipsMaximum` vrai est
+  // cette coupe-ci. (relevé par Copilot)
+  //
+  // **Et elle se dit.** Une troncature silencieuse est exactement le défaut que
+  // ce dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
+  // écarte, et ne survient que si quelqu'un a réglé un plafond.
+  // Le plafond **réglé**, jamais la cible proportionnelle : sans réglage, rendre
+  // plus que la cible est une bonne nouvelle — le repérage vise le rappel
+  // (spec §7) — et couper là abandonnerait du matériau que personne n'a demandé
+  // d'abandonner.
+  if (ctx.plafondAbsolu > 0 && clips.length > ctx.plafondAbsolu) {
+    const écartés = clips.slice(ctx.plafondAbsolu)
+    console.warn(
+      `Détail : ${écartés.length} proposition(s) au-delà du plafond réglé de ${ctx.plafondAbsolu} clip(s), ` +
+        `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
+    )
+    return clips.slice(0, ctx.plafondAbsolu)
   }
   return clips
 }
@@ -1423,6 +1450,15 @@ async function descendre(
 
   const max = Math.max(1, cible.max)
   const min = Math.min(Math.max(1, cible.min), max)
+  // **La fusion se refait à chaque étage, sur le lot courant.** C'est ce qui
+  // permet à la descente de porter sur des fenêtres et non sur des blocs déjà
+  // fusionnés : un bloc réunit tous les voisins qui se chevauchent, donc sur de
+  // la parole continue il en réunit beaucoup, et la présélection élargie que
+  // cette PR introduit le grossit encore. Descendre sur les blocs abandonnait
+  // ainsi une région entière au premier refus, sans jamais réduire la charge —
+  // c'est-à-dire sans traiter la concentration de matière que ce garde-fou
+  // existe précisément pour traiter. (relevé par Codex)
+  const blocs = mergeOverlappingWindows(lot, ctx.transcript)
 
   try {
     const clips = await appelerGemini(
@@ -1430,7 +1466,7 @@ async function descendre(
       detailPrompt({
         language: ctx.transcript.language,
         videoDuration: ctx.durée,
-        windowsJson: detailWindowsJson(lot, ctx.transcript),
+        windowsJson: detailWindowsJson(blocs, ctx.transcript),
         minClips: min,
         maxClips: max,
       }),
@@ -1442,7 +1478,7 @@ async function descendre(
             words: ctx.mots,
             videoDuration: ctx.durée,
             projectId: ctx.projectId,
-            blocks: lot,
+            blocks: blocs,
           }),
       },
     )
@@ -1452,8 +1488,9 @@ async function descendre(
     return clips
   } catch (erreur) {
     if (!(erreur instanceof GeminiBlockedError)) throw erreur
-    // Un bloc seul et toujours refusé : il n'y a plus rien à recouper, et c'est
-    // bien lui que le filtre vise.
+    // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
+    // c'est bien elle que le filtre vise. La fenêtre est l'unité minimale du
+    // repérage — la couper plus fin sortirait du contrat de `buildWindows`.
     if (lot.length === 1) {
       ardoise.refusés.push(lot[0].id)
       return []

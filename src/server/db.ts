@@ -249,18 +249,18 @@ export function getRéglages(db: Database.Database): DimensionsRepérage {
   for (const champ of CHAMPS_DE_RÉGLAGE) {
     const brut = enBase.get(cléStockée(champ))
     if (brut === undefined) continue
-    // **`Number` et non `parseInt`.** `parseInt` lit ce qu'il peut et jette le
+    // **Une suite de chiffres, ou rien** — ni `parseInt`, ni `Number` seul, qui
+    // ont chacun leurs largesses. `parseInt` lit ce qu'il peut et jette le
     // reste : `"4.5"` devenait 4 et `"7abc"` devenait 7, si bien qu'une valeur
     // corrompue *modifiait* le repérage au lieu d'être ignorée comme cette
-    // fonction l'annonce deux lignes plus haut. Une saisie à moitié comprise est
+    // fonction l'annonce dix lignes plus haut. Une saisie à moitié comprise est
     // le pire des trois cas — pire que refusée, pire qu'acceptée telle quelle,
     // parce que personne ne peut deviner le nombre qui a fini par s'appliquer.
     // (relevé par Copilot)
     //
-    // Le motif plutôt que `Number` seul, parce que `Number` a ses propres
-    // largesses : la chaîne vide et les blancs valent zéro, `"0x10"` vaut seize.
-    // Ce qui est stocké ici est un entier positif écrit en clair, et rien
-    // d'autre n'a de sens à relire.
+    // `Number` seul ne suffit pas non plus : la chaîne vide et les blancs valent
+    // zéro, `"0x10"` vaut seize. Ce qui est stocké ici est un entier positif
+    // écrit en clair, et rien d'autre n'a de sens à relire.
     if (!/^\d+$/.test(brut.trim())) continue
     const valeur = Number(brut.trim())
     if (!Number.isSafeInteger(valeur) || valeur < plancherDuChamp(champ)) continue

@@ -46,7 +46,14 @@
 
 import fs from 'node:fs'
 
-import { FRAMING_DEFAULTS, RATIOS, computeFraming, ratioCoverage, requiredWidths } from '@/core/framing'
+import {
+  FRAMING_DEFAULTS,
+  RATIOS,
+  computeFraming,
+  isForeground,
+  ratioCoverage,
+  requiredWidths,
+} from '@/core/framing'
 import type { FramingOptions } from '@/core/framing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
@@ -180,6 +187,14 @@ function charger(id: string): Émission | null {
   // **Les écartés ne comptent pas.** Un clip mis au rebut ne sera jamais rendu,
   // donc son ratio ne dit rien de ce que le produit sortira ; l'inclure gonflerait
   // la seule colonne qui décide de la suite de l'itération.
+  //
+  // **Les vestiges de vérification, si**, et c'est délibéré : la base de `cqlp`
+  // porte deux `clip_verif_*` non écartés (`ROADMAP.md`, « Vestiges à nettoyer »),
+  // donc ce script en compte dix là où l'émission en a huit de vrais. Les filtrer
+  // par leur nom mettrait une convention de nommage dans un script de mesure, où
+  // elle se périmerait sans bruit ; ils sont nommés dans la sortie ligne par
+  // ligne, et c'est au lecteur — et à `docs/ratios-par-clip.md` — de les écarter.
+  // (relevé par Copilot)
   const clips = getClips(db, id)
     .filter((c) => c.status !== 'discarded')
     .map((c) => ({ nom: c.id, segments: c.segments }))
@@ -306,22 +321,41 @@ function balayage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Les instants qui font monter le ratio d'un clip.
+ * Les instants qui font monter le ratio d'un clip : ceux que **le crop retenu ne
+ * cadre pas**, une image par plan au plus.
  *
- * Les plus larges après filtrage, **une image par plan au plus** : les images
- * les plus larges sont contiguës, et les six premières du classement montrent six
- * fois la même seconde. Un plan est la bonne granularité parce que le crop y est
- * fixe — deux images du même plan ont le même cadrage à expliquer. C'est la même
- * règle que `--large` de `vignettes-premier-plan.ts`, pour la même raison.
+ * **Pas les plus larges, et la différence n'est pas cosmétique.** Une largeur par
+ * image suppose un crop libre par image, alors que le crop est fixe pour tout le
+ * plan : un sujet étroit posé à gauche puis à droite donne des images toutes
+ * étroites qu'aucune position fixe ne cadre, et c'est *ce* cas qui fait monter le
+ * ratio. Un classement par largeur y désigne des images sans intérêt et laisse
+ * croire, quand elles tiennent, que tout le plan tient. C'est exactement le
+ * raisonnement de `chooseRatio`, en plus court. (relevé par Codex et Copilot)
+ *
+ * Une image par plan au plus, parce que les images voisines partagent le même
+ * crop et racontent donc la même chose ; même règle que `--large` de
+ * `vignettes-premier-plan.ts`, pour la même raison.
  */
 function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number): number[] {
   const segments = normalizeSegments(découpe.segments)
   const dedans = analyse.boxes.filter((b) => segments.some((s) => b.t >= s.start && b.t < s.end))
 
+  // Le cadrage réellement retenu pour ce clip : c'est lui qui dit ce qui déborde.
+  const cadrage = computeFraming({
+    segments: découpe.segments,
+    shots: analyse.shots,
+    people: analyse.boxes,
+    srcW: analyse.source.w,
+    srcH: analyse.source.h,
+    ratio: 'auto',
+    cropMode: 'auto',
+  })
+  const largeur = ratioCoverage(cadrage.ratio, analyse.source.w, analyse.source.h)
+
   // Par image, en passant par `requiredWidths` plutôt qu'en refaisant le calcul :
   // le seuil de confiance, la marge et le filtre du premier plan y sont déjà, et
   // une seconde copie de ces trois réglages finirait par diverger de celle qui
-  // décide vraiment.
+  // décide vraiment. Les bornes, elles, se relisent sur les boîtes gardées.
   const parImage = new Map<number, PersonBox[]>()
   for (const b of dedans) {
     const clé = Math.round(b.t * 1000)
@@ -330,10 +364,29 @@ function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number
     else parImage.set(clé, [b])
   }
 
+  const marge = FRAMING_DEFAULTS.margin
   const classées = [...parImage.entries()]
-    .map(([clé, boîtes]) => ({ t: clé / 1000, empan: requiredWidths(boîtes)[0] }))
-    .filter((e): e is { t: number; empan: number } => e.empan !== undefined)
-    .sort((a, b) => b.empan - a.empan)
+    .map(([clé, boîtes]) => {
+      const t = clé / 1000
+      const empan = requiredWidths(boîtes)[0]
+      const gardées = boîtes.filter(
+        (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b),
+      )
+      if (empan === undefined || gardées.length === 0) return undefined
+      const g = Math.max(0, Math.min(...gardées.map((b) => b.x0)) - marge)
+      const d = Math.min(1, Math.max(...gardées.map((b) => b.x1)) + marge)
+      // Le crop de *son* plan : à défaut de plan, le centre, comme `computeFraming`.
+      const plan = cadrage.shots.find((p) => t >= p.shot.start && t < p.shot.end)
+      const centre = plan?.cropX ?? 0.5
+      const x = Math.min(Math.max(centre - largeur / 2, 0), Math.max(0, 1 - largeur))
+      const sortie = Math.max(0, x - g) + Math.max(0, d - (x + largeur))
+      return { t, empan, sortie }
+    })
+    .filter((e): e is { t: number; empan: number; sortie: number } => e !== undefined)
+    // Ce qui déborde le plus d'abord ; à débordement égal — zéro, le cas courant
+    // quand le ratio est confortable —, la plus large, qui reste la plus
+    // instructive.
+    .sort((a, b) => b.sortie - a.sortie || b.empan - a.empan)
 
   const vus = new Set<number>()
   const out: number[] = []

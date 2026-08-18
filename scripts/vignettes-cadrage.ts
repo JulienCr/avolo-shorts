@@ -9,17 +9,21 @@
  * : il répond à « qu'est-ce que le spectateur verrait ». Ce sont deux questions
  * différentes, et la seconde est la seule qui tranche la question de la marge.
  *
- * **Pourquoi elle ne se tranche qu'ici.** `FramingOptions.margin` vaut 2 % et
- * n'a jamais été mesuré : c'est un réglage de confort, posé parce que la boîte du
+ * **Pourquoi elle ne se tranche qu'ici.** `FramingOptions.margin` valait 2 % sans
+ * avoir jamais été mesuré — un réglage de confort, posé parce que la boîte du
  * détecteur épouse la silhouette et qu'un crop pile dessus met un coude sur le
- * bord. Baisser la marge resserre des clips — ça, un tableau le dit. Mais « sans
- * mettre les comédiens au bord » ne se lit pas dans un tableau : il faut voir le
- * rectangle et voir ce qui reste dedans.
+ * bord. Elle vaut 1 % depuis le 18 août 2026, et c'est ce script qui a tranché :
+ * baisser la marge resserre des clips, ça un tableau le dit ; mais « sans mettre
+ * les comédiens au bord » ne se lit pas dans un tableau, il faut voir le
+ * rectangle et voir ce qui reste dedans. `FRAMING_DEFAULTS` fait foi sur la
+ * valeur du jour ; cette phrase raconte pourquoi elle a bougé. (relevé par Copilot)
  *
  * Le crop est **fixe à l'intérieur d'un plan** (spec §10), donc une vignette par
- * plan suffit — et on choisit dans chaque plan l'image la plus large, celle qui
- * contraint le plus. Si les comédiens tiennent là, ils tiennent partout dans ce
- * plan.
+ * plan suffit — et on y choisit l'image qui **sort le plus** du rectangle, pas la
+ * plus large. Ce n'est pas la même : un sujet plus étroit posé ailleurs peut
+ * déborder pendant que la plus large tient, et le seuil de 90 % autorise
+ * justement des images à déborder. Le compte des images débordantes du plan est
+ * imprimé à côté, parce qu'une vignette qui tient ne dit rien des autres.
  *
  * Trois couleurs, les mêmes que l'autre script pour les boîtes — vert gardée,
  * rouge écartée par le filtre du premier plan, gris sous le seuil de confiance —
@@ -64,17 +68,27 @@ function couleur(b: PersonBox): string {
   return isForeground(b) ? 'red' : 'lime'
 }
 
+/** Le rectangle de crop en fractions de la source, ses **quatre** composantes. */
+type Cadre = { x: number; y: number; w: number; h: number }
+
 /**
  * Une vignette : les boîtes de l'image, puis le rectangle de crop par-dessus.
  *
  * Le crop est tracé en dernier et plus épais — c'est lui qu'on regarde, et un
  * trait de 2 px se perd sous une boîte qui l'épouse presque.
+ *
+ * **Les quatre composantes, pas seulement l'abscisse et la largeur.** Sur une
+ * source 16:9 la hauteur est toujours prise en entier et `y` vaut zéro, mais
+ * `cropRect` recentre verticalement dès que la source est trop étroite pour le
+ * ratio demandé — un 4:3, un portrait. Un rectangle dessiné pleine hauteur y
+ * montrerait un cadrage qui n'existe pas, sur la seule figure dont on tire une
+ * conclusion. (relevé par Codex)
  */
 function vignette(
   proxy: string,
   t: number,
   boîtes: PersonBox[],
-  crop: { x: number; w: number },
+  crop: Cadre,
   W: number,
   H: number,
   out: string,
@@ -87,7 +101,8 @@ function vignette(
     return `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${couleur(b)}:t=2`
   })
   filtres.push(
-    `drawbox=x=${Math.round(crop.x * W)}:y=0:w=${Math.round(crop.w * W)}:h=${H}:color=yellow:t=4`,
+    `drawbox=x=${Math.round(crop.x * W)}:y=${Math.round(crop.y * H)}` +
+      `:w=${Math.round(crop.w * W)}:h=${Math.round(crop.h * H)}:color=yellow:t=4`,
   )
   execFileSync(
     ffmpeg(),
@@ -107,6 +122,42 @@ function vignette(
       out,
     ],
     { stdio: ['ignore', 'ignore', 'inherit'] },
+  )
+}
+
+/** Une image mesurée : ses boîtes gardées, son empan et ses bornes. */
+type Mesurée = { t: number; boîtes: PersonBox[]; empan: number; g: number; d: number; haut: number; bas: number }
+
+/**
+ * L'étendue des boîtes **que le cadrage lit** — seuil de confiance et filtre du
+ * premier plan appliqués, marge comprise horizontalement.
+ *
+ * Rend `undefined` quand l'image ne garde aucune boîte : elle ne dit pas que le
+ * cadre peut être serré, elle ne dit rien. Les bornes verticales n'ont pas de
+ * marge — `empans` n'en met pas non plus, la hauteur n'entre pas dans le choix
+ * du ratio.
+ */
+function étendue(
+  boîtes: PersonBox[],
+  marge: number,
+): { g: number | undefined; d: number | undefined; haut: number; bas: number } {
+  const gardées = boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
+  if (gardées.length === 0) return { g: undefined, d: undefined, haut: 0, bas: 1 }
+  return {
+    g: Math.max(0, Math.min(...gardées.map((b) => b.x0)) - marge),
+    d: Math.min(1, Math.max(...gardées.map((b) => b.x1)) + marge),
+    haut: Math.min(...gardées.map((b) => b.y0)),
+    bas: Math.max(...gardées.map((b) => b.y1)),
+  }
+}
+
+/** De combien l'étendue d'une image sort du rectangle, les deux axes cumulés. */
+function débordement(e: { g: number; d: number; haut: number; bas: number }, crop: Cadre): number {
+  return (
+    Math.max(0, crop.x - e.g) +
+    Math.max(0, e.d - (crop.x + crop.w)) +
+    Math.max(0, crop.y - e.haut) +
+    Math.max(0, e.bas - (crop.y + crop.h))
   )
 }
 
@@ -210,35 +261,54 @@ async function main(): Promise<number> {
       if (déjà) déjà.push(b)
       else parImage.set(clé, [b])
     }
-    // L'image la plus large du plan : celle qui contraint le crop. Si les
-    // comédiens tiennent là, ils tiennent partout dans ce plan — le crop ne bouge
-    // pas à l'intérieur d'un plan.
+    const rect = cropRect(cadrage.ratio, plan.cropX, analyse.source.w, analyse.source.h)
+    const crop: Cadre = {
+      x: rect.x / analyse.source.w,
+      y: rect.y / analyse.source.h,
+      w: rect.w / analyse.source.w,
+      h: rect.h / analyse.source.h,
+    }
+
+    // **Classées par débordement, pas par largeur** — et c'est tout le sujet du
+    // script. L'image la plus large n'est pas celle qui met le crop en défaut :
+    // un sujet plus étroit posé ailleurs peut sortir du rectangle pendant que la
+    // plus large y tient, et le seuil de 90 % autorise justement des images à
+    // déborder. Une vignette choisie sur la largeur pouvait donc s'étiqueter
+    // « cadrée » et faire croire que tout le plan l'était. (relevé par Codex)
+    //
+    // Le débordement se mesure **sur les deux axes** : sur une source 16:9 le
+    // crop est pleine hauteur et le terme vertical est nul, mais il ne l'est plus
+    // dès que `cropRect` recentre verticalement.
     const classées = [...parImage.entries()]
-      .map(([clé, boîtes]) => ({ t: clé / 1000, boîtes, empan: requiredWidths(boîtes, { margin: marge })[0] }))
-      .filter((e): e is { t: number; boîtes: PersonBox[]; empan: number } => e.empan !== undefined)
-      .sort((a, b) => b.empan - a.empan)
+      .map(([clé, boîtes]) => {
+        const empan = requiredWidths(boîtes, { margin: marge })[0]
+        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge) }
+      })
+      .filter(
+        (e): e is Mesurée => e.empan !== undefined && e.g !== undefined && e.d !== undefined,
+      )
+      .map((e) => ({ ...e, sortie: débordement(e, crop) }))
+      // Le plus gros débordement d'abord ; à débordement égal — zéro, le cas
+      // courant —, la plus large, qui reste la plus instructive.
+      .sort((a, b) => b.sortie - a.sortie || b.empan - a.empan)
+
     const pire = classées[0]
     if (pire === undefined) {
       console.log(`  plan ${shotStartMs(plan.shot)} ms — aucune image mesurée, crop centré`)
       continue
     }
 
-    const rect = cropRect(cadrage.ratio, plan.cropX, analyse.source.w, analyse.source.h)
-    const crop = { x: rect.x / analyse.source.w, w: rect.w / analyse.source.w }
+    const débordantes = classées.filter((e) => e.sortie > 1e-9).length
     const fichier = path.join(dossier, `plan${shotStartMs(plan.shot)}_t${pire.t.toFixed(1)}.png`)
     vignette(proxy, pire.t, pire.boîtes, crop, W, H, fichier)
 
-    // « Cadrée » au sens de `chooseRatio` : l'empan **entier** tient dans le
-    // rectangle. C'est le critère qui décide, pas une appréciation à l'œil.
-    const gardées = pire.boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
-    const g = Math.max(0, Math.min(...gardées.map((b) => b.x0)) - marge)
-    const d = Math.min(1, Math.max(...gardées.map((b) => b.x1)) + marge)
-    const cadrée = g >= crop.x - 1e-9 && d <= crop.x + crop.w + 1e-9
     console.log(
-      `  ${fichier}  plan ${shotStartMs(plan.shot)} ms, image la plus large ${pire.t.toFixed(1)} s` +
-        ` — empan [${g.toFixed(3)} ; ${d.toFixed(3)}] (${pire.empan.toFixed(3)})` +
+      `  ${fichier}  plan ${shotStartMs(plan.shot)} ms, image ${pire.t.toFixed(1)} s` +
+        ` — empan [${pire.g.toFixed(3)} ; ${pire.d.toFixed(3)}] (${pire.empan.toFixed(3)})` +
         `, crop [${crop.x.toFixed(3)} ; ${(crop.x + crop.w).toFixed(3)}]` +
-        ` — ${cadrée ? 'cadrée' : 'DÉBORDE'}`,
+        ` — ${pire.sortie > 1e-9 ? `DÉBORDE de ${pire.sortie.toFixed(3)}` : 'cadrée'}` +
+        ` — ${débordantes} image(s) sur ${classées.length} débordent` +
+        ` (${((100 * débordantes) / classées.length).toFixed(0)} %)`,
     )
   }
 

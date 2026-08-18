@@ -120,6 +120,12 @@ la façon dont l'avant/après se mesure sans deux versions du code.
 | Images mesurées | 10 745 | **3 823** | 10 743 |
 | Empan médian | 0,661 | 0,213 | **0,540** |
 | Images tenant dans un 1:1 | 31,3 % | 90,4 % | **55,1 %** |
+
+**Ces deux lignes sont prises à `margin = 0,02`**, la valeur d'alors. Le défaut est
+passé à 0,01 le 18 août au soir, et une marge entre dans l'empan des deux côtés du
+filtre : à 0,01, la même mesure donne 0,642 → **0,520** et 34,5 % → **60,1 %**. Ce
+que le filtre gagne est inchangé ; c'est l'échelle qui s'est déplacée. Voir
+`docs/ratios-par-clip.md`.
 | Clips réels (10) en 16:9 | 10 | 4 | **10** |
 | Fenêtres de 30 s (197) en 16:9 | 182 | 77 | **157** |
 
@@ -160,7 +166,8 @@ côté.
 Il y a donc deux choses à ne pas confondre, et la confusion était déjà dans le
 ROADMAP :
 
-- **« la part des images dont l'empan tient dans un 1:1 »** — 31,3 % → 55,1 % ;
+- **« la part des images dont l'empan tient dans un 1:1 »** — 31,3 % → 55,1 %
+  à la marge d'alors, 34,5 % → 60,1 % à celle d'aujourd'hui ;
 - **« la part des clips que `chooseRatio` sort en 1:1 ou plus serré »** — 20 %
   sur les fenêtres de 30 s.
 

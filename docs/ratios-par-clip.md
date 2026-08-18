@@ -4,6 +4,14 @@ Mesuré le 18 août 2026, sur `2025-06-15-cqlp`, `2026-03-08-caro-mdlm` et
 `2026-22-02-entre-nous`. Reproductible par `scripts/mesure-ratios.ts`,
 `scripts/vignettes-premier-plan.ts` et `scripts/vignettes-cadrage.ts`.
 
+`2026-22-02-entre-nous` **porte bien un mois 22**, et ce n'est pas une faute de
+frappe de cette page : le fichier s'appelle ainsi sur le Drive, l'identifiant de
+projet se déduit du nom de fichier, et c'est donc celui qu'il faut taper pour
+reproduire. Le « corriger » ici ferait échouer toutes les commandes qui suivent.
+Le jour et le mois y sont vraisemblablement transposés — le dossier des replays
+porte par ailleurs un `2026-01-18-entre-nous.mp4`, qui est une autre émission —,
+mais c'est au fichier d'être renommé, pas à la mesure.
+
 ## La question
 
 Le cadrage automatique choisit **un ratio par clip** : le plus petit dont un crop
@@ -30,18 +38,32 @@ chat incrusté.
 incrusté.** Et le résultat va plus loin que ça : `cqlp`, l'émission qu'on croyait
 être le pire cas, est **la moins large des trois**.
 
+**Clips issus du repérage seuls** — la population du produit :
+
 | | `cqlp` | `caro-mdlm` | `entre-nous` |
 |---|---|---|---|
 | clips en 9:16 | 0 | 0 | 0 |
 | clips en 4:5 | 0 | 0 | 0 |
 | clips en 1:1 | **2** | 0 | 0 |
-| clips en 16:9 | 8 | 6 | 6 |
+| clips en 16:9 | 6 | 6 | 6 |
+| **total** | **8** | **6** | **6** |
 | chat Twitch incrusté | oui, par intermittence | non | non |
-| boîtes de premier plan | 33,8 % | 1,8 % | — |
+| boîtes de premier plan | 33,8 % | 1,8 % | 0,1 % |
 
-Les dix clips de `cqlp` comptent deux vestiges de vérification (`clip_verif_*`,
-voir la section « Vestiges à nettoyer » de `ROADMAP.md`) ; les deux 1:1 sont des
-clips réels, donc **deux sur huit**.
+**Trois clips de la base de `cqlp` sont écartés de ce tableau, et il faut dire
+lesquels**, sinon le compte de `scripts/mesure-ratios.ts` — qui en affiche dix —
+paraît contredire celui-ci :
+
+- deux **vestiges de vérification** (`clip_verif_1to1`, `clip_verif_auto`, voir
+  « Vestiges à nettoyer » dans `ROADMAP.md`). Tous deux sortent en 16:9, et l'un
+  d'eux ne porte **aucune** image mesurée : le ratio le plus large y est le
+  comportement voulu d'un clip qu'aucune détection ne renseigne, pas un résultat ;
+- un clip `discarded`, qui ne sera jamais rendu. Une lecture qui l'inclut trouve
+  un 1:1 de plus à la marge par défaut et un 4:5 de plus à marge nulle — c'est ce
+  seul clip, et rien d'autre, qui sépare les deux comptages.
+
+Le script ne les filtre pas de lui-même : mettre une convention de nommage dans un
+script de mesure la ferait se périmer sans bruit. Il les nomme, ligne par ligne.
 
 Dix ou six clips ne font pas une distribution — ce sont les moments que le
 repérage a retenus, pas un échantillon de l'émission. Des fenêtres de 30 s
@@ -74,6 +96,34 @@ monde, filtre du premier plan appliqué et marge comprise — se lit à côté :
 Le seuil du 1:1 est à 0,5625. `cqlp` passe juste dessous en médiane, les deux
 autres sont loin au-dessus — et `caro-mdlm` sature : à p90, l'empan vaut **toute
 la largeur de l'image**.
+
+Par image et sur l'émission entière, filtre actif (`scripts/mesure-premier-plan.ts`),
+la part qui tient dans chaque ratio confirme l'ordre :
+
+| | `cqlp` | `caro-mdlm` | `entre-nous` |
+|---|---|---|---|
+| tient dans un 9:16 | 4,2 % | 4,5 % | 15,7 % |
+| tient dans un 4:5 | 36,2 % | 9,4 % | 29,2 % |
+| tient dans un 1:1 | 60,1 % | 15,6 % | 42,2 % |
+| empan médian par image | 0,520 | 0,742 | 0,589 |
+
+Le même ordre qu'en clips, et le même renversement : `cqlp` est la moins large,
+`caro-mdlm` la plus large de loin — une image sur six seulement y tient dans un
+1:1.
+
+**Ces trois colonnes sont prises à la marge de 0,01**, celle que la section
+suivante installe, et elles remplacent donc celles de la spec §2 et de
+`docs/premier-plan.md`, mesurées à 0,02 : sur `cqlp`, l'empan médian passe de
+0,642 à 0,520 avec le filtre — et non de 0,661 à 0,540 —, et la part des images
+qui tient dans un 1:1 de 34,5 % à 60,1 % — et non de 31,3 % à 55,1 %. Le filtre
+gagne exactement autant qu'avant ; c'est le point de départ et le point d'arrivée
+qui se déplacent tous les deux.
+
+Et le filtre du premier plan **n'a presque rien à écarter** hors de `cqlp` :
+832 boîtes sur 45 362 pour `caro-mdlm` (1,8 %), 27 sur 24 816 pour `entre-nous`
+(0,1 %), contre 33,8 % sur `cqlp`. Le phénomène reste ce que la §10 en dit, une
+propriété d'une émission et non du fonds — ce qui veut aussi dire que le filtre
+n'avait rien à gagner là où les ratios sont les plus larges.
 
 Un avertissement sur ce p90, parce qu'il invite à une conclusion trop optimiste :
 il porte sur des largeurs **par image**, donc il suppose un crop libre par image,
@@ -164,13 +214,24 @@ qui compte :
    1 080 : c'est mince, ce n'est pas nul.
 3. **Ce que la marge protège tient encore à 0,01, et c'est vérifié à l'image.**
    Sur les deux clips qui basculent, `scripts/vignettes-cadrage.ts` dessine le
-   rectangle que le rendu découperait. Sur le plan à 3 131 s, le crop 1:1 tombe sur
-   `[0,263 ; 0,825]` et cadre **les deux comédiens avec de l'air des deux côtés**,
-   en laissant la bibliothèque dehors. Sur le plan à 4 665 s, il tombe sur
-   `[0,179 ; 0,742]` et cadre les deux hommes ; il coupe la comédienne de
-   l'avant-plan droit, qui était **déjà coupée par le bord de l'image**.
+   rectangle que le rendu découperait, et compte les images du plan qui en
+   sortent. Les trois plans concernés :
 
-Un défaut reste, et il appartient à `cqlp` : sur le plan à 3 135 s, le bord droit
+   | Plan | Crop 1:1 | Images qui débordent | Ce qui déborde |
+   |---|---|---|---|
+   | 3 058 s | `[0,263 ; 0,825]` | 1 sur 85 | une boîte partie de `x = 0` qui avale une bibliothèque |
+   | 3 131 s | `[0,182 ; 0,745]` | 8 sur 34 | une boîte à `[0,02 ; 0,17]` posée sur une étagère sombre |
+   | 4 549 s | `[0,179 ; 0,742]` | 6 sur 52 | la comédienne d'avant-plan droit, déjà coupée par le bord de l'image |
+
+   **Aucun comédien n'est mis au bord par le rectangle.** Sur le plan à 3 058 s il
+   cadre les deux comédiens avec de l'air des deux côtés et laisse la bibliothèque
+   dehors ; sur celui de 3 131 s il cadre le seul comédien présent, et ce qui
+   déborde est une détection sur du mobilier. Les 9 images débordantes sur 119
+   font 7,6 % du clip, sous les 10 % que le seuil accorde — le calcul se fait sur
+   le clip entier, pas plan par plan, et c'est ce qui explique qu'un plan à 24 %
+   passe.
+
+Un défaut reste, et il appartient à `cqlp` : sur le plan à 3 131 s, le bord droit
 du crop à `0,745` mord d'environ deux centièmes sur le panneau de chat, qui
 commence vers `0,72`. C'est le cas unique documenté en §10, pas une propriété du
 fonds.

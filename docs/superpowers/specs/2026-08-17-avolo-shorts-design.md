@@ -58,8 +58,12 @@ prend l'empan de tout ce que le détecteur trouve, sans distinguer un comédien 
 le plateau d'une tête de spectateur collée au bord bas de l'image. La détection au
 corps du 18 août 2026 dit ce que ça coûte, sur `2025-06-15-cqlp` qui n'est pas
 dans le tableau ci-dessus : **33,8 % des boîtes y sont du public au premier plan**
-et, une fois le filtre de la §10 posé, l'empan médian tombe de 0,661 à 0,540 et la
-part des images qui tient dans un 1:1 passe de 31,3 % à 55,1 %.
+et, une fois le filtre de la §10 posé, l'empan médian tombe de 0,642 à 0,520 et la
+part des images qui tient dans un 1:1 passe de 34,5 % à 60,1 %. Ces quatre nombres
+étaient 0,661 / 0,540 et 31,3 % / 55,1 % tant que la marge valait 0,02 ; elle vaut
+0,01 depuis le balayage du 18 août au soir (§10), et une marge entre dans l'empan
+des deux côtés du filtre. Ce que le filtre gagne n'a pas bougé — le départ et
+l'arrivée, si.
 
 Ces quatre chiffres remplacent ceux qui figuraient ici — 0,68 à 0,50 et 33 % à
 64 %. Ils venaient d'un écartement provisoire du premier plan, plus large que
@@ -102,6 +106,10 @@ clip, et le paragraphe précédent dit pourquoi les deux grandeurs divergent —
 mais l'ordre de grandeur n'est pas celui qu'on pouvait déduire. Et ce sont deux
 émissions **sans chat incrusté** qui sortent le plus large, ce qui retire au
 panneau de `cqlp` la responsabilité qu'on lui prêtait (voir §10).
+
+L'identifiant `2026-22-02-entre-nous` porte un mois 22 : c'est le nom du fichier
+sur le Drive, dont l'ingestion déduit l'identifiant de projet, et le corriger dans
+un texte ne renommerait rien. À renommer à la source si ça vaut le coup.
 
 L'explication tient au dispositif, pas au calcul : les trois émissions du tableau
 d'images sont de 2025, avec des comédiens debout sur un plateau ; les deux
@@ -764,8 +772,8 @@ voyante plutôt qu'un cadrage serré sur rien.
 **Le filtre ne suffit pas à sortir `cqlp` du 16:9, et ce n'est pas un défaut du
 filtre.** Ses dix clips y restent, vérification à l'image comprise : les deux
 comédiens y sont réellement aux deux bords du cadre. Ce qui se gagne se mesure
-ailleurs — l'empan médian passe de 0,661 à 0,540, la part des images qui tient
-dans un 1:1 de 31,3 % à 55,1 %, et 25 fenêtres de 30 s sur 197 se resserrent sans
+ailleurs — l'empan médian passe de 0,642 à 0,520, la part des images qui tient
+dans un 1:1 de 34,5 % à 60,1 %, et 25 fenêtres de 30 s sur 197 se resserrent sans
 qu'aucune ne s'élargisse.
 
 **La marge est un réglage mesuré depuis le 18 août 2026, et elle vaut 0,01.**

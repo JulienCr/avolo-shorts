@@ -1,0 +1,11 @@
+# pnpm 11 refuse par défaut d'exécuter les scripts d'installation. Chaque paquet
+# est tranché explicitement ici, sinon `pnpm install` signale un build ignoré à
+# chaque passage — y compris en CI.
+allowBuilds:
+  # Module natif : sans son script d'installation, il n'y a pas de binaire.
+  better-sqlite3: true
+  # Scripts purement optionnels (télémétrie, génération de types déjà publiée).
+  '@google/genai': false
+  protobufjs: false
+  sharp: false
+  unrs-resolver: false

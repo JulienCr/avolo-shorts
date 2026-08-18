@@ -1,0 +1,43 @@
+name: CI
+
+# Ce CI tourne, contrairement à celui d'OpenShorts. Il n'a besoin ni de GPU, ni
+# de ffmpeg, ni d'une vidéo : c'est tout l'intérêt de garder dans `src/core/` la
+# logique qui décide quelque chose. Voir spec §14.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Six agents travaillent en parallèle sur ce dépôt : inutile de finir un run
+# qu'un push a déjà rendu caduc.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pas de `version:` ici : `pnpm/action-setup` lit le champ
+      # `packageManager` du package.json, et en donner deux le fait échouer.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm type-check
+      - run: pnpm test

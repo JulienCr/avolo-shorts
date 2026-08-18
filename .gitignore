@@ -6,16 +6,27 @@ dist/
 *.tsbuildinfo
 .pnpm-store/
 
+# Next.js. `next-env.d.ts` est régénéré à chaque build et `.vercel` n'existe que
+# sur une machine liée au service : ni l'un ni l'autre n'a d'histoire à raconter.
+next-env.d.ts
+.vercel/
+
 # Python (worker)
 __pycache__/
 *.py[cod]
 venv/
 .venv/
 
-# Secrets et configuration locale
+# Secrets et configuration locale. Le dépôt est public : on ignore toute la
+# famille plutôt que les trois noms auxquels on pense. `.env.production`,
+# `.env.development` et `.env.test` sont chargés par Next au runtime et peuvent
+# porter une clé ; ils n'étaient couverts par aucun motif.
+#
+# `.env.example` est la seule exception, et elle doit rester : c'est le fichier
+# qui documente les variables attendues, et il est versionné exprès.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Données produites par le pipeline. Un proxy pèse ~1,4 Go et un rendu ~80 Mo :
 # rien de tout cela n'a sa place dans l'historique.

@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 # La classe *person* du jeu COCO, sur lequel tous les modèles YOLO livrés sont
@@ -132,6 +133,12 @@ def plans(
       produit deux images de score élevé à une image d'intervalle, donc un
       « plan » de 33 millisecondes dans lequel le cadrage n'a rien à calculer.
 
+    **Les deux bouts comptent comme des frontières.** ``plan_min`` se mesure
+    depuis 0 pour la première et jusqu'à ``durée`` pour la dernière : sans cela
+    une coupe à une demi-seconde du début, ou de la fin, produit un plan plus
+    court que le minimum annoncé — le cas exact que le garde-fou est censé
+    fermer, à l'endroit où il ne regardait pas.
+
     Rend toujours au moins un plan : une émission sans aucune coupe est un plan
     unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
     """
@@ -139,9 +146,18 @@ def plans(
     for t, score in sorted(évènements):
         if score < seuil or t <= 0 or t >= durée:
             continue
-        if frontières and t - frontières[-1] < plan_min:
+        # 0 quand la liste est vide : le début de la vidéo est une frontière
+        # comme une autre du point de vue de la durée d'un plan.
+        précédente = frontières[-1] if frontières else 0.0
+        if t - précédente < plan_min:
             continue
         frontières.append(t)
+
+    # Un seul retrait suffit : la frontière qui devient dernière est à au moins
+    # ``plan_min`` de celle qu'on vient d'ôter, donc à plus de ``plan_min`` de la
+    # fin.
+    if frontières and durée - frontières[-1] < plan_min:
+        frontières.pop()
 
     bornes = [0.0, *frontières, durée]
     return [
@@ -186,7 +202,16 @@ def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int)
         "-pix_fmt", "bgr24",
         "-",
     ]
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # **stderr dans un fichier, pas dans un tube**, et c'est le seul point de ce
+    # décodage qui puisse bloquer pour de bon. Un tube a une capacité de 64 ko :
+    # un ffmpeg qui la remplit — il faut une erreur par image, mais ça existe —
+    # se bloque en écriture, cesse donc d'écrire sur stdout, pendant que le
+    # parent se bloque dans `read()` en attendant précisément ces octets. Deux
+    # processus qui s'attendent, sans un mot et sans fin. Vider stderr dans le
+    # `finally` ne l'évite pas : on n'y arrive jamais. Un fichier temporaire n'a
+    # pas de capacité, donc pas d'interblocage, et se relit après la sortie.
+    journal_erreur = tempfile.TemporaryFile()
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=journal_erreur)
     try:
         while True:
             brut = proc.stdout.read(octets)
@@ -212,15 +237,12 @@ def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int)
         # c'est ce qui met fin au décodage quand on sort de la boucle en avance.
         if proc.stdout is not None:
             proc.stdout.close()
-        # **Vider stderr avant d'attendre, et pas après.** Le tampon d'un tube
-        # fait 64 ko : un ffmpeg bavard le remplit, se bloque en écriture, et le
-        # `wait()` d'un parent qui ne lit pas ne revient alors jamais. Le cas est
-        # rare avec `-loglevel error` — il faut une erreur par image —, et c'est
-        # exactement le genre de blocage qu'on ne diagnostique pas à chaud.
-        erreur = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-        if proc.stderr is not None:
-            proc.stderr.close()
         code = proc.wait()
+        # Après `wait()` : le fichier est complet, et personne n'écrit plus
+        # dedans. `TemporaryFile` s'efface à la fermeture, sans nom sur le disque.
+        journal_erreur.seek(0)
+        erreur = journal_erreur.read().decode("utf-8", "replace")
+        journal_erreur.close()
         # Le code 0 est le cas nominal ; un tube fermé en avance donne 141
         # (128 + SIGPIPE), qui n'est pas une erreur de décodage.
         if code not in (0, 141, -13):
@@ -255,17 +277,29 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
         coordonnées = boîtes.xyxy.tolist()
         confiances = boîtes.conf.tolist()
         for (x0, y0, x1, y1), score in zip(coordonnées, confiances):
+            # Les coordonnées sont bornées à l'image : YOLO rend volontiers une
+            # boîte qui déborde de quelques pixels quand le sujet est coupé par
+            # le bord, et une fraction hors de [0, 1] ferait sortir le crop du
+            # cadre.
+            gx0 = round(min(max(x0 / largeur, 0.0), 1.0), 4)
+            gx1 = round(min(max(x1 / largeur, 0.0), 1.0), 4)
+            gy0 = round(min(max(y0 / hauteur, 0.0), 1.0), 4)
+            gy1 = round(min(max(y1 / hauteur, 0.0), 1.0), 4)
+            # **Une boîte d'aire nulle ne se transmet pas.** Le bornage ci-dessus
+            # écrase sur un même bord une boîte entièrement hors cadre, et
+            # l'arrondi au dix-millième en écrase une plus fine qu'un cinquième
+            # de pixel. Ce qui en sort a la forme d'une détection et n'a plus de
+            # sujet : le percentile 90 du cadrage la compterait comme une
+            # personne de largeur nulle et refermerait le crop d'autant.
+            if gx1 <= gx0 or gy1 <= gy0:
+                continue
             sorties.append(
                 {
                     "t": instant,
-                    # Les coordonnées sont bornées à l'image : YOLO rend
-                    # volontiers une boîte qui déborde de quelques pixels quand
-                    # le sujet est coupé par le bord, et une fraction hors de
-                    # [0, 1] ferait sortir le crop du cadre.
-                    "x0": round(min(max(x0 / largeur, 0.0), 1.0), 4),
-                    "x1": round(min(max(x1 / largeur, 0.0), 1.0), 4),
-                    "y0": round(min(max(y0 / hauteur, 0.0), 1.0), 4),
-                    "y1": round(min(max(y1 / hauteur, 0.0), 1.0), 4),
+                    "x0": gx0,
+                    "x1": gx1,
+                    "y0": gy0,
+                    "y1": gy1,
                     "score": round(score, 3),
                 }
             )

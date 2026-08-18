@@ -25,10 +25,10 @@
 # fait passer la détection de cinq minutes à plusieurs heures sans un mot. C'est
 # exactement ce que la vérification de `setup.sh` cherche à attraper.
 #
-# `torchvision` n'est pas une dépendance déclarée d'ultralytics mais lui est
-# indispensable (NMS, transformations) ; l'épingler ici évite que pip aille
-# chercher une variante processeur pour satisfaire une version de `torch` qu'il
-# aurait choisie tout seul.
+# `torchvision` est bien déclaré par ultralytics 8.4.121, mais en `>=0.9.0` —
+# une borne assez large pour que pip choisisse une roue liée à un autre `torch`
+# que celui qu'on épingle, donc une variante processeur. L'épingler ici fixe la
+# paire, ce que la contrainte d'ultralytics ne fait pas.
 
 torch==2.8.0
 torchvision==0.23.0

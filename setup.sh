@@ -56,7 +56,12 @@ YOLO_URL="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/
 # La somme du fichier réellement installé le 18 août 2026. ultralytics/assets ne
 # publie pas de `checksums.sha256`, donc elle est écrite ici plutôt que lue.
 # Vide, ou un autre modèle demandé, et le contrôle est sauté avec un mot.
-YOLO_SHA256="${YOLO_SHA256:-d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95}"
+#
+# `${VAR-défaut}` et non `${VAR:-défaut}` : la seconde forme remplace aussi une
+# valeur **vide**, donc `YOLO_SHA256= ./setup.sh` — la façon documentée de ne pas
+# vérifier — reprendrait la somme de `yolo11m` et ferait échouer l'installation
+# de tout autre modèle. Ne pas vérifier doit rester possible.
+YOLO_SHA256="${YOLO_SHA256-d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95}"
 
 FORCE=0
 SKIP_DETECT=0

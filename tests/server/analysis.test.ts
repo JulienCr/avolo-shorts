@@ -62,6 +62,48 @@ describe('SCHÉMA_ANALYSE', () => {
     expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, boxes: [] }).success).toBe(true)
   })
 
+  /**
+   * Un plan retourné a la forme d'un plan et le domaine d'un plan : seul
+   * l'ordre de ses bornes le trahit. Le cadrage le trierait sans rien y
+   * calculer, et son crop sauterait au plan suivant sans un mot.
+   */
+  it('refuse un plan retourné ou négatif', () => {
+    const retourné = { ...ANALYSE_VALIDE, shots: [{ start: 10, end: 5 }] }
+    expect(SCHÉMA_ANALYSE.safeParse(retourné).success).toBe(false)
+
+    const vide = { ...ANALYSE_VALIDE, shots: [{ start: 4, end: 4 }] }
+    expect(SCHÉMA_ANALYSE.safeParse(vide).success).toBe(false)
+
+    const avantLeDébut = { ...ANALYSE_VALIDE, shots: [{ start: -1, end: 5 }] }
+    expect(SCHÉMA_ANALYSE.safeParse(avantLeDébut).success).toBe(false)
+  })
+
+  /**
+   * Même piège d'un cran plus bas : deux fractions parfaitement dans [0, 1]
+   * peuvent décrire une boîte d'aire nulle. Le percentile 90 du cadrage la
+   * compterait comme une personne de largeur nulle et refermerait le crop
+   * d'autant.
+   */
+  it('refuse une boîte d’aire nulle ou retournée', () => {
+    const plate = {
+      ...ANALYSE_VALIDE,
+      boxes: [{ t: 1, x0: 0.4, x1: 0.4, y0: 0.1, y1: 0.9, score: 0.9 }],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(plate).success).toBe(false)
+
+    const retournée = {
+      ...ANALYSE_VALIDE,
+      boxes: [{ t: 1, x0: 0.6, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9 }],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(retournée).success).toBe(false)
+
+    const avantLeDébut = {
+      ...ANALYSE_VALIDE,
+      boxes: [{ t: -0.5, x0: 0.2, x1: 0.6, y0: 0.1, y1: 0.9, score: 0.9 }],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(avantLeDébut).success).toBe(false)
+  })
+
   it('refuse une version inconnue', () => {
     expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 2 }).success).toBe(false)
   })

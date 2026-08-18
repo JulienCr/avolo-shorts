@@ -50,20 +50,35 @@ import { analysisPath, proxyPath } from '@/server/paths'
  */
 const SCHÉMA_TAILLE = z.object({ w: z.number().int().positive(), h: z.number().int().positive() })
 
-const SCHÉMA_PLAN = z.object({ start: z.number(), end: z.number() })
+// L'ordre des bornes est vérifié, pas seulement leur domaine : un intervalle
+// retourné (`start: 10, end: 5`) a la forme d'un plan et n'en est pas un. Le
+// cadrage le trierait sans rien y trouver, et son crop sauterait au plan
+// suivant sans que personne ne sache pourquoi.
+const SCHÉMA_PLAN = z
+  .object({ start: z.number().min(0), end: z.number().min(0) })
+  .refine((p) => p.end > p.start, { message: 'end doit être strictement après start' })
 
-const SCHÉMA_BOÎTE = z.object({
-  /** Instant dans la source, en secondes. */
-  t: z.number(),
-  // Bornées à [0, 1] : une fraction hors du cadre ferait sortir le crop de
-  // l'image. Le worker les borne déjà ; le schéma le vérifie plutôt que de le
-  // supposer, parce que c'est exactement ce qu'un schéma sert à faire.
-  x0: z.number().min(0).max(1),
-  x1: z.number().min(0).max(1),
-  y0: z.number().min(0).max(1),
-  y1: z.number().min(0).max(1),
-  score: z.number().min(0).max(1),
-})
+const SCHÉMA_BOÎTE = z
+  .object({
+    /** Instant dans la source, en secondes. Jamais négatif : la source commence à 0. */
+    t: z.number().min(0),
+    // Bornées à [0, 1] : une fraction hors du cadre ferait sortir le crop de
+    // l'image. Le worker les borne déjà ; le schéma le vérifie plutôt que de le
+    // supposer, parce que c'est exactement ce qu'un schéma sert à faire.
+    x0: z.number().min(0).max(1),
+    x1: z.number().min(0).max(1),
+    y0: z.number().min(0).max(1),
+    y1: z.number().min(0).max(1),
+    score: z.number().min(0).max(1),
+  })
+  // Le domaine ne suffit pas : deux fractions parfaitement valides peuvent
+  // décrire une boîte d'aire nulle ou négative. Elle a la forme d'une détection
+  // et n'a plus de sujet — et le percentile 90 du cadrage la compterait comme
+  // une personne de largeur nulle. `detect.py` ne l'écrit pas ; le schéma
+  // s'assure qu'aucune version ultérieure ne s'y remette.
+  .refine((b) => b.x1 > b.x0 && b.y1 > b.y0, {
+    message: "les bornes d'une boîte doivent croître : x1 > x0 et y1 > y0",
+  })
 
 export const SCHÉMA_ANALYSE = z.object({
   version: z.literal(1),

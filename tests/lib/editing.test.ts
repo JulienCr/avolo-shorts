@@ -147,6 +147,37 @@ describe('restoreBounds', () => {
     expect(restoreBounds(rapides, 1)).toEqual({ from: 1, to: 2.2 })
   })
 
+  it('ne rejoint pas un voisin séparé par un long silence', () => {
+    // Le défaut trouvé en review : sans plafond, le premier mot d'après une
+    // coupure de scène se rejoignait au dernier mot d'avant. Sur un transcript
+    // où deux catégories sont séparées de sept minutes, un seul clic ajoutait
+    // sept minutes de silence au clip.
+    const separes: Word[] = [
+      { word: 'avant', start: 10, end: 10.5 },
+      { word: 'après', start: 430, end: 430.6 },
+      { word: 'suite', start: 431, end: 431.5 },
+    ]
+    expect(restoreBounds(separes, 1)).toEqual({ from: 430, to: 431 })
+  })
+
+  it('ne rejoint pas non plus vers l’avant par-dessus un long silence', () => {
+    const separes: Word[] = [
+      { word: 'un', start: 10, end: 10.5 },
+      { word: 'deux', start: 10.7, end: 11.2 },
+      { word: 'plus tard', start: 400, end: 400.8 },
+    ]
+    expect(restoreBounds(separes, 1)).toEqual({ from: 10.5, to: 11.2 })
+  })
+
+  it('rejoint encore par-dessus une respiration entre deux phrases', () => {
+    const respiration: Word[] = [
+      { word: 'fin.', start: 10, end: 10.5 },
+      { word: 'Suite', start: 11.2, end: 11.8 },
+      { word: 'immédiate', start: 11.9, end: 12.6 },
+    ]
+    expect(restoreBounds(respiration, 1)).toEqual({ from: 10.5, to: 11.9 })
+  })
+
   it('rend null hors bornes', () => {
     expect(restoreBounds(mots, 5)).toBeNull()
     expect(restoreBounds([], 0)).toBeNull()

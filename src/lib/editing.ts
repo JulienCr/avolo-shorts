@@ -122,11 +122,20 @@ export function removeSelection(segments: Segment[], words: Word[], a: number, b
 }
 
 /**
+ * Le plus grand silence qu'on accepte de reprendre avec un mot, en secondes.
+ *
+ * Un blanc entre deux mots d'une même phrase se compte en centièmes, une
+ * respiration entre deux phrases en dixièmes. Au-delà d'une seconde, ce n'est
+ * plus une liaison : c'est une scène qui se termine, et personne n'a demandé à
+ * la remonter en cliquant un mot.
+ */
+export const PONT_MAX = 1
+
+/**
  * Les bornes à réinsérer pour rendre un mot barré.
  *
- * On ne réinsère pas `[mot.start, mot.end]` mais l'intervalle qui va **de la fin
- * du mot précédent au début du suivant**, et c'est ce qui évite deux défauts
- * jumeaux :
+ * On ne réinsère pas seulement `[mot.start, mot.end]` : on rejoint le voisin
+ * quand il est **assez proche**, ce qui évite deux défauts jumeaux :
  *
  * - si le voisin est monté, l'intervalle le *touche*, donc `normalizeSegments`
  *   fusionne. Sans ça, chaque mot rendu ajoutait un segment séparé d'un silence
@@ -135,6 +144,12 @@ export function removeSelection(segments: Segment[], words: Word[], a: number, b
  * - si le voisin est barré, on rend un peu de silence qui sera recouvert quand
  *   ce voisin sera rendu à son tour : les deux intervalles se touchent alors et
  *   fusionnent aussi.
+ *
+ * **`PONT_MAX` est la correction d'un défaut trouvé en review.** Sans plafond,
+ * le premier mot d'après un silence se rejoignait au dernier mot d'avant, quel
+ * que soit l'écart : sur un transcript où deux catégories sont séparées de sept
+ * minutes, un seul clic ajoutait sept minutes de silence au clip. Au-delà du
+ * plafond, le mot se rend seul.
  *
  * Les `min`/`max` couvrent le chevauchement de mots que WhisperX produit parfois
  * en parole rapide, où la fin d'un mot dépasse le début du suivant.
@@ -146,8 +161,8 @@ export function restoreBounds(words: Word[], index: number): { from: number; to:
   const prev = words[index - 1]
   const next = words[index + 1]
 
-  const from = prev ? Math.min(prev.end, word.start) : word.start
-  const to = next ? Math.max(next.start, word.end) : word.end
+  const from = prev && word.start - prev.end <= PONT_MAX ? Math.min(prev.end, word.start) : word.start
+  const to = next && next.start - word.end <= PONT_MAX ? Math.max(next.start, word.end) : word.end
   if (!(to > from)) return null
   return { from, to }
 }

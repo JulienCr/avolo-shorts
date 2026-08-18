@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -34,8 +35,9 @@ import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
  *    imposerait un aller distant avant même de savoir s'il y a quelque chose à
  *    calculer. Un fichier remplacé change de taille ou de date, donc invalide
  *    sa vignette tout seul.
- * 3. **Un accès au 9p à la fois, et un disjoncteur derrière.** C'est la règle
- *    que `sources.ts` énonce en tête et qui a coûté quelque chose : renoncer
+ * 3. **Un accès au 9p à la fois pour les vignettes, et un disjoncteur
+ *    derrière.** C'est la règle que `sources.ts` énonce en tête et qui a coûté
+ *    quelque chose : renoncer
  *    n'est pas annuler, un `lstat` abandonné garde son fil du vivier de libuv,
  *    et le vivier en compte quatre. Six vignettes demandées de front sur un
  *    montage mort — la limite de connexions d'un navigateur — figeraient tout
@@ -107,6 +109,37 @@ export function vérifierNomDeSource(nom: string): string {
 }
 
 /**
+ * Ce qu'on garde du nom dans le nom de cache : de quoi le reconnaître d'un
+ * `ls`, pas de quoi dépasser `NAME_MAX`.
+ *
+ * **Un nom de source peut faire 255 octets** — c'est la limite d'un nom de
+ * fichier sous Linux, et un replay qui l'atteint est parfaitement lisible. Le
+ * recopier tel quel, puis y ajouter la taille, la date, l'extension et, le temps
+ * de l'écriture, le suffixe de `cheminTemporaire`, dépassait la limite : la
+ * vignette échouait en `ENAMETOOLONG` sur une source que rien n'empêchait de
+ * lire. (relevé par Copilot)
+ *
+ * D'où le partage : un préfixe lisible **borné**, et une empreinte de longueur
+ * fixe qui porte l'identité. Deux noms tronqués au même préfixe ne se
+ * confondent pas — c'est l'empreinte qui les sépare, pas ce qu'on en montre.
+ */
+const NOM_LISIBLE_OCTETS = 96
+const EMPREINTE_HEX = 12
+
+function nomDeCache(nom: string, clé: string): string {
+  // Coupé sur les octets, parce que c'est `NAME_MAX` qui les compte. La coupe
+  // peut tomber au milieu d'un caractère accentué — les replays en portent — et
+  // laisser un caractère de remplacement, qu'on retire : il ne sert à rien, et
+  // l'empreinte porte déjà l'identité.
+  const lisible = Buffer.from(nom, 'utf8')
+    .subarray(0, NOM_LISIBLE_OCTETS)
+    .toString('utf8')
+    .replace(/\uFFFD+$/, '')
+  const empreinte = createHash('sha256').update(nom, 'utf8').digest('hex').slice(0, EMPREINTE_HEX)
+  return `${lisible}.${empreinte}.${clé}.jpg`
+}
+
+/**
  * Le chemin du cache pour **cette version** de ce fichier.
  *
  * La date est tronquée à la milliseconde entière : `mtimeMs` est un flottant, et
@@ -115,8 +148,11 @@ export function vérifierNomDeSource(nom: string): string {
  * visite recalculerait la vignette.
  */
 export function vignetteSourcePath(nom: string, sizeBytes: number, mtimeMs: number): string {
-  const clé = `${sizeBytes}-${Math.trunc(mtimeMs)}`
-  return path.join(dossierVignettesSources(), `${vérifierNomDeSource(nom)}.${clé}.jpg`)
+  vérifierNomDeSource(nom)
+  return path.join(
+    dossierVignettesSources(),
+    nomDeCache(nom, `${sizeBytes}-${Math.trunc(mtimeMs)}`),
+  )
 }
 
 /**
@@ -124,9 +160,21 @@ export function vignetteSourcePath(nom: string, sizeBytes: number, mtimeMs: numb
  *
  * Le nom est encodé : les replays portent accents et espaces, et l'un d'eux
  * porte un `&` un jour ou l'autre.
+ *
+ * **`v` porte la version, et le serveur ne le lit pas.** La spec §12 décrit
+ * `?file=<nom>` seul, et c'est bien `file` qui désigne le fichier ; `v` ne sert
+ * qu'à faire **changer l'URL quand le fichier change**. Sans lui, l'URL d'une
+ * source est éternelle : le navigateur garde son image, et surtout la carte,
+ * qui retient l'URL dont l'image a échoué, ne redemanderait jamais celle d'un
+ * replay réenregistré depuis. (relevé par Copilot)
+ *
+ * Le serveur reconstruit la clé de cache depuis son propre relevé, jamais depuis
+ * ce paramètre : un `v` faux ou absent ne fait donc rien de plus que rendre
+ * l'image d'aujourd'hui.
  */
-export function urlVignetteSource(nom: string): string {
-  return `/api/sources/thumb?file=${encodeURIComponent(nom)}`
+export function urlVignetteSource(nom: string, sizeBytes: number, mtimeMs: number): string {
+  const version = `${sizeBytes}-${Math.trunc(mtimeMs)}`
+  return `/api/sources/thumb?file=${encodeURIComponent(nom)}&v=${version}`
 }
 
 /**
@@ -242,9 +290,17 @@ async function sousGarde<T>(travail: () => Promise<T>, timeoutMs: number): Promi
 /**
  * La file d'attente des accès au Drive : **une à la fois**.
  *
- * Voir le point 3 en tête de fichier. Elle est volontairement globale au module
- * plutôt que par fichier : ce qu'on protège n'est pas la cohérence d'une
- * vignette, c'est le vivier de fils de libuv, qui est global au processus.
+ * Voir le point 3 en tête de fichier. Elle est globale au module plutôt que par
+ * fichier : ce qu'on protège n'est pas la cohérence d'une vignette, c'est le
+ * vivier de fils de libuv, qui est global au processus.
+ *
+ * **Elle n'est pas globale au serveur pour autant**, et il ne faut pas le lui
+ * faire dire : `listerSources` a sa propre sonde, l'ingestion la sienne, et rien
+ * ne les coordonne. Un montage mort peut donc encore coûter un fil à chacune —
+ * trois au pire, sur les quatre du vivier. Les mettre sous une même autorité
+ * demanderait un régulateur d'accès au montage partagé par les trois modules :
+ * un autre dispositif, qui appartient à `sources.ts` autant qu'ici, et qui ne
+ * tient pas dans une PR de vignettes. (relevé par Copilot)
  *
  * Le `then` à deux branches est ce qui empêche un échec de bloquer la file : la
  * suivante part que la précédente ait abouti ou non.

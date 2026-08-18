@@ -45,10 +45,13 @@ export const GET = route('GET /api/sources/thumb', async (requête: Request) => 
     headers: {
       'Content-Type': 'image/jpeg',
       'Content-Length': String(données.byteLength),
-      // Cinq minutes, et surtout pas « immuable » : la clé du cache disque porte
-      // la taille et la date de modification, l'URL non. Un replay réenregistré
-      // sous le même nom change donc d'image sans changer d'URL, et une réponse
-      // immuable montrerait l'ancienne jusqu'à la fin de la session.
+      // Cinq minutes, et pas « immuable ». L'URL porte pourtant la version
+      // depuis que `urlVignetteSource` y met la taille et la date, donc un
+      // replay réenregistré ne réutilise plus la même : `immutable` serait
+      // défendable. Mais ce `v` n'est qu'informatif — le serveur reconstruit la
+      // clé depuis son propre relevé, jamais depuis lui —, et une réponse qu'on
+      // ne peut plus rattraper ne vaut pas les quelques millisecondes qu'un
+      // fichier de 40 ko déjà sur le disque local coûte à resservir.
       'Cache-Control': 'public, max-age=300',
     },
   })

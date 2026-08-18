@@ -329,7 +329,7 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
       // celle d'un candidat, qui vaut `null` tant que le proxy n'est pas encodé
       // — parce que le fichier existe : on vient de le mesurer. Ce qui reste
       // incertain est l'extraction, et c'est la route qui répond de ça.
-      thumbnailUrl: urlVignetteSource(vidéo.name),
+      thumbnailUrl: urlVignetteSource(vidéo.name, vidéo.sizeBytes, vidéo.mtimeMs),
     }))
 
   return { sources, montage }

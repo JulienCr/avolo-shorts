@@ -361,7 +361,10 @@ describe('listerSources', () => {
     poserVidéo('2026-01-11-méchante.mp4')
 
     const [source] = (await listerSources({ db })).sources
-    expect(source.thumbnailUrl).toBe('/api/sources/thumb?file=2026-01-11-m%C3%A9chante.mp4')
+    expect(source.thumbnailUrl).toContain('file=2026-01-11-m%C3%A9chante.mp4')
+    // La version fait changer l'URL quand le fichier change : sans elle, la
+    // carte ne redemanderait jamais l'image d'un replay réenregistré.
+    expect(source.thumbnailUrl).toContain(`v=${source.sizeBytes}-`)
   })
 
   /**

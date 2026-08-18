@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GET as vignetteRoute } from '@/app/api/sources/thumb/route'
+import { cheminTemporaire } from '@/server/ffmpeg'
 import { messageSûr } from '@/server/erreurs'
 import { sourceThumbArgs } from '@/core/ffmpeg/args'
 import {
@@ -137,6 +138,44 @@ describe('vignetteSourcePath', () => {
   it('ne mélange pas deux sources qui ne diffèrent que par leur extension', () => {
     expect(vignetteSourcePath('show.mp4', 1, 2)).not.toBe(vignetteSourcePath('show.mov', 1, 2))
   })
+
+  /**
+   * **`NAME_MAX` vaut 255 octets, et un replay peut les atteindre** : c'est un
+   * nom de fichier parfaitement lisible. Recopié tel quel dans le nom de cache,
+   * puis rallongé de la taille, de la date, de l'extension et — le temps de
+   * l'écriture — du suffixe de `cheminTemporaire`, il faisait échouer la
+   * vignette en `ENAMETOOLONG` sur une source que rien n'empêchait de lire.
+   * (relevé par Copilot)
+   *
+   * La marge vise le nom **temporaire**, qui est le plus long des deux.
+   */
+  it('tient sous NAME_MAX même sur un nom de source à la limite', () => {
+    const long = `${'é'.repeat(120)}.mp4`
+    expect(Buffer.byteLength(long, 'utf8')).toBeGreaterThan(200)
+
+    const destination = vignetteSourcePath(long, 12_764_514_775, 1_773_591_620_922)
+    const temporaire = cheminTemporaire(destination)
+    expect(Buffer.byteLength(path.basename(destination), 'utf8')).toBeLessThan(255)
+    expect(Buffer.byteLength(path.basename(temporaire), 'utf8')).toBeLessThan(255)
+  })
+
+  /**
+   * Le préfixe lisible est tronqué, donc deux noms longs peuvent le partager.
+   * C'est l'empreinte qui porte l'identité, pas ce qu'on en montre — sinon deux
+   * émissions se disputeraient une vignette.
+   */
+  it('ne confond pas deux noms longs qui partagent leur préfixe', () => {
+    const a = `${'a'.repeat(200)}-un.mp4`
+    const b = `${'a'.repeat(200)}-deux.mp4`
+    expect(vignetteSourcePath(a, 1, 2)).not.toBe(vignetteSourcePath(b, 1, 2))
+  })
+
+  /** Un `ls` du cache doit encore dire de quel replay il s'agit. */
+  it('garde le nom lisible quand il tient', () => {
+    expect(path.basename(vignetteSourcePath('2026-01-11-méchante.mp4', 1, 2))).toContain(
+      '2026-01-11-méchante.mp4',
+    )
+  })
 })
 
 describe('instantVignetteSource', () => {
@@ -159,10 +198,23 @@ describe('instantVignetteSource', () => {
 
 describe('urlVignetteSource', () => {
   it('encode le nom, qui porte accents, espaces et parfois pire', () => {
-    expect(urlVignetteSource('2026-01-11-méchante.mp4')).toBe(
-      '/api/sources/thumb?file=2026-01-11-m%C3%A9chante.mp4',
+    expect(urlVignetteSource('2026-01-11-méchante.mp4', 7, 8)).toContain(
+      'file=2026-01-11-m%C3%A9chante.mp4',
     )
-    expect(urlVignetteSource('a&b.mp4')).toContain('a%26b.mp4')
+    expect(urlVignetteSource('a&b.mp4', 7, 8)).toContain('file=a%26b.mp4')
+  })
+
+  /**
+   * **Sans version, l'URL d'une source est éternelle** — et la carte, qui retient
+   * l'URL dont l'image a échoué, ne redemanderait jamais celle d'un replay
+   * réenregistré depuis. Le navigateur, lui, garderait la sienne en cache.
+   * (relevé par Copilot)
+   */
+  it('change quand le fichier change, et pas autrement', () => {
+    const a = urlVignetteSource('e.mp4', 4_096, 1_700_000_000_000)
+    expect(urlVignetteSource('e.mp4', 4_096, 1_700_000_000_000)).toBe(a)
+    expect(urlVignetteSource('e.mp4', 8_192, 1_700_000_000_000)).not.toBe(a)
+    expect(urlVignetteSource('e.mp4', 4_096, 1_700_000_000_001)).not.toBe(a)
   })
 })
 

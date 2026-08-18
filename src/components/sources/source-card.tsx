@@ -169,6 +169,13 @@ function Vignette({ source }: { source: Source }) {
   // suffit —, et un booléen resterait alors posé sur la source suivante, qui
   // n'aurait jamais sa chance. Une `key` sur le `<img>` n'y suffirait pas :
   // quand l'état est vrai, il n'y a pas de `<img>` à remonter.
+  //
+  // **Et l'URL porte la version du fichier**, ce qui rend cette comparaison
+  // utile plutôt que décorative : sans elle, l'URL d'une source serait
+  // éternelle, et un replay réenregistré depuis l'échec ne serait jamais
+  // redemandé. Un échec passager, lui, tient jusqu'au prochain montage de la
+  // carte : redemander à chaque relevé ferait marteler une source réellement
+  // illisible, et un rechargement suffit. (relevé par Copilot)
   const [échouée, setÉchouée] = useState<string | null>(null)
 
   return (

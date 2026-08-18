@@ -136,9 +136,15 @@ export function removeRange(segments: Segment[], from: number, to: number): Segm
  * la trace des retraits déjà faits : les bouger reviendrait à annuler une coupe,
  * ce qui est une autre opération.
  *
- * `to` n'est pas contraint. Étendre n'a pas de plafond, et rétrécir peut
- * traverser autant de segments qu'on veut : la borne obtenue est toujours celle
- * qu'on a demandée, jusqu'à vider le clip.
+ * `to` n'est pas contraint : étendre n'a pas de plafond, et rétrécir traverse
+ * autant de segments qu'il faut, jusqu'à vider le clip.
+ *
+ * **Une réserve, et elle vise l'interface.** La borne obtenue vaut `to`, *sauf*
+ * quand `to` tombe dans un trou entre deux segments : il n'y a alors rien à
+ * monter entre `to` et le segment suivant, et la borne se pose sur celui-ci.
+ * `moveBoundary([{10,20},{30,40}], 'start', 25)` rend `[{30,40}]`, dont la borne
+ * est 30 et non 25. Donc ne pas afficher `to` comme la borne du clip : relire la
+ * liste rendue.
  */
 export function moveBoundary(segments: Segment[], edge: 'start' | 'end', to: number): Segment[] {
   // Normaliser **avant** de choisir la borne, et pas seulement après. « Premier »

@@ -56,6 +56,17 @@ describe('normalizeSegments', () => {
     ])
   })
 
+  // Le `Math.max(last.end, s.end)` de la fusion n'existe que pour ce cas : sans
+  // lui, le segment absorbé raccourcirait celui qui le contient (Aristarque).
+  it('absorbe un segment entièrement contenu dans un autre', () => {
+    expect(
+      normalizeSegments([
+        { start: 0, end: 100 },
+        { start: 30, end: 40 },
+      ]),
+    ).toEqual([{ start: 0, end: 100 }])
+  })
+
   it('colle deux segments qui se touchent, puisque la source y est continue', () => {
     expect(
       normalizeSegments([
@@ -153,6 +164,25 @@ describe('removeRange', () => {
     ).toEqual([
       { start: 10, end: 25 },
       { start: 30, end: 40 },
+    ])
+  })
+
+  // Le cas « digression qui traverse deux segments » de la spec §5 : le retrait
+  // mord la fin du premier et le début du second, et le trou entre les deux
+  // disparaît avec eux.
+  it('mord sur deux segments à la fois et absorbe le trou entre eux', () => {
+    expect(
+      removeRange(
+        [
+          { start: 0, end: 100 },
+          { start: 200, end: 300 },
+        ],
+        40,
+        250,
+      ),
+    ).toEqual([
+      { start: 0, end: 40 },
+      { start: 250, end: 300 },
     ])
   })
 
@@ -258,17 +288,16 @@ describe('moveBoundary', () => {
     ])
   })
 
-  it('un déplacement qui traverse la borne opposée retire le segment', () => {
-    expect(
-      moveBoundary(
-        [
-          { start: 10, end: 20 },
-          { start: 30, end: 40 },
-        ],
-        'start',
-        25,
-      ),
-    ).toEqual([{ start: 30, end: 40 }])
+  // La réserve documentée sur `moveBoundary` : dans un trou, la borne obtenue
+  // n'est pas `to`. Il n'y a rien à monter entre 25 et 30, donc elle se pose
+  // sur le segment suivant — et l'interface ne doit pas afficher 25.
+  it("dans un trou, la borne se pose sur le segment voisin et non sur `to`", () => {
+    const edl = [
+      { start: 10, end: 20 },
+      { start: 30, end: 40 },
+    ]
+    expect(moveBoundary(edl, 'start', 25)).toEqual([{ start: 30, end: 40 }])
+    expect(moveBoundary(edl, 'end', 25)).toEqual([{ start: 10, end: 20 }])
   })
 
   it('étendre sans plafond : une borne repoussée très loin est acceptée', () => {

@@ -124,7 +124,8 @@ export function caviarderClés(message: string): string {
 }
 
 /**
- * Remplace tout chemin absolu par `…/<nom de fichier>`, et caviarde les clés.
+ * Remplace tout chemin absolu par `…/<nom de fichier>`, et caviarde les clés
+ * d'API comme les adresses de secret.
  *
  * **`racines` est ce qui rend l'épuration exacte, et son absence ce qui la rend
  * approximative.** Un chemin nu se coupe au premier espace, faute de savoir où

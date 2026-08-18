@@ -247,24 +247,26 @@ describe('parseScoreResponse', () => {
 })
 
 describe('shortlistFromScores', () => {
-  // Douze fenêtres : `shortlistSize(12)` vaut 10, ce qui laisse voir un tri.
+  // Douze fenêtres pour une cible de 10 : il reste de quoi voir un tri. La cible
+  // est passée en clair — `shortlistFromScores` trie et coupe, elle ne
+  // dimensionne plus.
   const douze = Array.from({ length: 12 }, (_, i) => fen(`window_${String(i + 1).padStart(3, '0')}`))
 
   it('retient le haut du panier', () => {
     const notes = douze.map((w, i) => ({ id: w.id, score: i * 5, reason: '', notée: true }))
-    const retenues = shortlistFromScores(notes, douze)
+    const retenues = shortlistFromScores(notes, douze, 10)
     expect(retenues).toHaveLength(10)
     expect(retenues[0].id).toBe('window_012')
     expect(retenues.map((w) => w.id)).not.toContain('window_001')
   })
 
   it('se rabat sur les premières fenêtres quand la notation n’a rien rendu', () => {
-    const retenues = shortlistFromScores([], douze)
+    const retenues = shortlistFromScores([], douze, 10)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
 
   it('ne retient jamais une fenêtre qui n’a pas été soumise', () => {
-    const retenues = shortlistFromScores([{ id: 'window_999', score: 100, reason: '', notée: true }], douze)
+    const retenues = shortlistFromScores([{ id: 'window_999', score: 100, reason: '', notée: true }], douze, 10)
     expect(retenues.map((w) => w.id)).not.toContain('window_999')
     // La note fantôme ne mange pas non plus une place : dix fenêtres réelles
     // atteignent la présélection, pas neuf.
@@ -273,7 +275,7 @@ describe('shortlistFromScores', () => {
 
   it('départage deux notes égales par l’ordre chronologique', () => {
     const notes = douze.map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
-    const retenues = shortlistFromScores(notes, douze)
+    const retenues = shortlistFromScores(notes, douze, 10)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
 
@@ -283,7 +285,7 @@ describe('shortlistFromScores', () => {
     // une fenêtre tardive en écartant une fenêtre antérieure, au hasard.
     // (relevé par Codex et Copilot)
     const notes = [...douze].reverse().map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
-    const retenues = shortlistFromScores(notes, douze)
+    const retenues = shortlistFromScores(notes, douze, 10)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
 
@@ -299,7 +301,7 @@ describe('shortlistFromScores', () => {
       { windows: [{ id: 'window_015', start: 0, end: 90, score: 0, reason: 'nul mais jugé' }] },
       quinze,
     )
-    const retenues = shortlistFromScores(scored, quinze)
+    const retenues = shortlistFromScores(scored, quinze, 10)
     expect(retenues[0].id).toBe('window_015')
   })
 
@@ -309,7 +311,7 @@ describe('shortlistFromScores', () => {
       { id: 'window_011', score: 99, reason: '', notée: true },
       { id: 'window_001', score: 50, reason: '', notée: true },
     ]
-    const retenues = shortlistFromScores(notes, douze)
+    const retenues = shortlistFromScores(notes, douze, 10)
     expect(retenues.slice(0, 3).map((w) => w.id)).toEqual([
       'window_011',
       'window_001',

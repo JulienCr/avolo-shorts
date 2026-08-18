@@ -588,7 +588,9 @@ l'étage est le rappel, pas la précision.
 
 1. **Gemini sur le transcript.** Fenêtres de 90 secondes chevauchées de 30, notées
    par lots avec un barème ancré, mécanique reprise d'OpenShorts. On garde le
-   haut du panier. Cette source ne voit pas le jeu physique, par construction.
+   haut du panier, **à hauteur de ce que la matière porte** — voir « Combien on
+   en garde » ci-dessous. Cette source ne voit pas le jeu physique, par
+   construction.
 2. **Le mouvement des corps.** Les boîtes de personnes sont déjà échantillonnées à
    2 images par seconde pour le cadrage ; la quantité de déplacement s'en déduit
    sans coût. Une bouffée d'agitation après une phase calme est la signature d'un
@@ -601,6 +603,42 @@ l'étage est le rappel, pas la précision.
 5. **La densité des tours de parole.** Un échange vif se distingue d'un monologue,
    et cela ne demande pas de savoir *qui* parle, seulement *que* ça change. C'est
    la partie robuste de la diarisation.
+
+### Combien on en garde
+
+**Le dimensionnement suit la matière, jamais un plafond plat.** La règle
+précédente prenait une part des fenêtres bornée à 24, et une cible de clips
+bornée à `[6, 12]` ; les deux saturaient si tôt qu'une capsule de dix minutes et
+un live de deux heures recevaient la même consigne. Mesuré le 18 août 2026 :
+`2026-22-02-entre-nous`, 1 h 53, a rendu six clips — le plancher exact, parce que
+le modèle rend toujours le minimum qu'on lui donne.
+
+L'unité est la **durée de parole** : l'union des segments qui portent de la
+prose, jamais l'écart du premier mot au dernier. La distinction n'est pas
+théorique — sur les deux émissions mesurées, l'écart surestime de 19 à 21 %, et le
+plus grand silence isolé fait 4 min 46 sur l'une, 6 min 43 sur l'autre. C'est
+aussi ce qui rend la mesure comparable au fenêtrage, qui se bâtit sur les mêmes
+segments.
+
+```
+plancher de clips  = étendue de parole / minutesParClip, borné par clipsMinimum
+                     et par le nombre de créneaux de 90 s
+plafond            = une moitié en plus, borné par clipsMaximum
+présélection       = plancher × fenetresParClip, borné par fenetresMinimum et par
+                     le nombre de fenêtres réelles
+```
+
+Les cinq constantes sont des **réglages globaux tenus en base** (table
+`settings`), modifiables sans toucher au code. Défauts : un clip toutes les
+**6 minutes** de parole, **2** fenêtres examinées par clip demandé, plancher de
+**6** clips et de **10** fenêtres, aucun plafond absolu. Sur les deux émissions
+mesurées, cela donne 15 clips sur 30 fenêtres et 13 sur 26, contre 6 sur 24 pour
+les deux auparavant.
+
+Le calcul reste **pur** : `src/core/` ne lit ni base ni environnement, les
+réglages lui arrivent en argument depuis `runCandidates`.
+
+### Ce que la fusion en fait
 
 Les cinq produisent des ancres. On fusionne et on déduplique, ce qui laisse une
 quarantaine de régions.
@@ -726,39 +764,34 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
 
 ## 10. Le cadrage
 
-**Le ratio est choisi par plan** : le plus petit dont **un crop fixe cadre 90 %
-des images de ce plan**. Pas le maximum, sinon une seule image où quelqu'un
+**Le ratio est choisi par plan** : pour chaque plan, le plus petit dont un crop
+fixe cadre 90 % de ses images. Pas le maximum, sinon une seule image où quelqu'un
 traverse le cadre condamne le plan entier ; sur les 10 % restants, un sujet peut
 sortir partiellement du cadre.
 
-**Par plan et non par clip depuis le 19 août 2026**, et c'est la mesure qui
-l'impose : la part du temps qui descend sous le 16:9 vaut 25 % sur
-`2025-06-15-cqlp`, 8 % sur `2026-22-02-entre-nous` et 1 % sur
-`2026-03-08-caro-mdlm`. Un ratio unique par clip écrase ces 8 à 25 % sous le plan
-le plus large — et sur les 23 clips en base, huit portent au moins un plan plus
-serré que leur plan le plus large.
+**Ce paragraphe demandait un ratio unique pour tout le clip, et la mesure l'a
+démenti.** Sur trois émissions, la part des fenêtres de 30 s qui descend sous le
+16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur `2026-22-02-entre-nous` et 1 % sur
+`2026-03-08-caro-mdlm` — mais un ratio unique par clip écrase ces moments-là sous
+le plan le plus large, et **la totalité des clips mesurés sortait en 16:9**. Le
+filtre du premier plan et la marge de confort ont été mesurés l'un et l'autre :
+ni l'un ni l'autre ne déplace ce résultat. Un ratio par plan est ce qui récupère
+ces 8 à 25 %, et c'est le seul levier que le choix du ratio conserve.
 
-**Les deux sorties n'en font pas le même usage**, et c'est un arbitrage, pas une
-inconséquence (§11) :
+Le saut de taille tombe **sur une coupe**, donc il ne se voit pas. C'est
+exactement l'argument qui justifie déjà le crop qui saute aux frontières, appliqué
+à la grandeur voisine.
 
-- le **natif**, pour le feed d'Instagram et de Facebook, garde **un seul ratio
-  pour tout le clip** — le plus large que ses plans demandent. Une vidéo de feed
-  dont les bandes latérales apparaîtraient et disparaîtraient au fil des plans
-  serait exactement le défaut que le fond flouté existe pour éviter ;
-- la **variante 9:16**, pour TikTok et Shorts, pose chaque plan sur son canevas
-  vertical **à son propre ratio**, le fond flouté prenant le reste : 100 % de la
-  hauteur pour un 9:16, 70,3 % pour un 4:5, 56,3 % pour un 1:1, 31,6 % pour un
-  16:9. Le saut de taille tombe sur une coupe, donc il ne se voit pas — c'est le
-  même argument qui justifie déjà le crop qui saute aux frontières.
+**`ShotFraming` porte donc deux positions**, une par sortie. Une position
+optimisée pour un 9:16 posée dans la fenêtre 1:1 du natif n'est pas fausse — elle
+est bornée dans l'image — mais elle n'est plus celle qui cadre le plus d'images,
+et rien ne le dirait. Les deux se calculent sur les mêmes empans, et une
+dérogation humaine les écrit toutes les deux : elle porte sur *où regarder*, pas
+sur une fenêtre.
 
-Ça ne coûte rien parce que **la variante ne dérive pas du natif** : elle refait
-tout le chemin depuis la source (correctif de #22). Un plan serré n'est donc
-jamais rétréci deux fois.
-
-**`ShotFraming` porte donc deux positions**, une par fenêtre. Une position
-optimisée pour un 9:16 posée dans une fenêtre 1:1 n'est pas fausse — elle est
-bornée dans l'image — mais elle n'est plus celle qui cadre le plus d'images, et
-rien ne le dirait.
+Mesuré sur les 23 clips en base le 19 août 2026 : **huit portent au moins un plan
+plus serré que leur plan le plus large**, c'est-à-dire huit clips dont le 9:16
+gagne quelque chose qu'un ratio unique aurait écrasé.
 
 Ce paragraphe demandait le **percentile 90 des largeurs par image**, et c'est
 faux : une largeur par image suppose un crop libre par image, alors que le crop
@@ -907,19 +940,34 @@ Depuis l'original, jamais depuis le proxy.
 4. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
    (chrome des plateformes en haut, sous-titres en bas).
 
-**Les points 3 et 4 viennent APRÈS la composition, et c'est ce qui décide du
-graphe.** L'ordre inverse — incruster, puis mettre à l'échelle du canevas —
-réduisait le texte avec l'image : sur un 16:9 posé dans un 9:16, un carton se
-retrouvait à 31,6 % de sa taille, illisible. Avec un ratio qui varie par plan, il
-aurait **changé de taille à chaque coupe**. Les marques se planifient donc par
-canevas et non une fois pour les deux sorties, `planifierMarques` raisonnant en
-fractions de celui-ci.
+Deux fichiers par clip quand le natif n'est pas déjà 9:16, et ils ne se déduisent
+pas l'un de l'autre :
 
-Deux fichiers par clip quand le ratio natif n'est pas 9:16 : le format natif
-(4:5, 1:1 ou 16:9) pour le feed Instagram et Facebook, et une variante 9:16 plein
-écran avec le contenu posé sur fond flouté pour TikTok et Shorts. Le natif est au
-ratio le plus large que les plans demandent, constant d'un bout à l'autre ; la
-variante fait varier le cadre par plan (§10).
+- **le natif**, à **un ratio unique pour tout le clip** — le plus large de ceux que
+  ses plans demandent —, pour le feed Instagram et Facebook. Pas de variation à
+  l'intérieur : une vidéo de feed à bandes latérales intermittentes serait le
+  défaut que le fond flouté existe pour éviter ;
+- **le 9:16**, pour TikTok et Shorts, où **chaque plan est posé au cadre le plus
+  serré qui tienne** sur un canevas vertical constant, le fond flouté prenant ce
+  qui reste. Un plan en 9:16 remplit le canevas, un 1:1 en occupe 56,3 % de la
+  hauteur, un 16:9 31,6 %.
+
+**Les deux sont deux rendus indépendants de la source** : `blurredVariantArgs`
+refait tout le chemin — décoder, recadrer, mettre à l'échelle, composer — plutôt
+que de partir du fichier natif. C'est ce qui permet au 9:16 de resserrer un plan
+que le natif a dû élargir, sans que ce plan soit rétréci deux fois.
+
+**Les sous-titres et les marques s'incrustent sur le canevas, après composition.**
+Les incruster dans l'image avant sa mise à l'échelle les réduit avec elle : sur un
+plan 16:9 posé dans un canevas 9:16, le texte tombe à 31,6 % de sa taille. Avec un
+ratio qui varie par plan, il changerait de taille à chaque coupe. Le fond flouté,
+lui, continue d'être tiré d'**avant** toute incrustation — c'est l'anomalie #22, et
+le `split` du filtergraph la referme.
+
+Corollaire d'implémentation : **les marques se planifient par canevas**, une fois
+pour chaque sortie et non une fois pour les deux. `planifierMarques` raisonne en
+fractions du canevas qu'on lui donne, donc un placement calculé sur le natif
+poserait dans la variante une bande dimensionnée pour un autre format.
 
 ### Encodage : ce que NVENC apporte, et où
 

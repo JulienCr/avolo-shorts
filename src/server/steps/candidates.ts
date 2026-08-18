@@ -29,11 +29,13 @@ import {
   buildWindows,
   clipCountTargets,
   mergeOverlappingWindows,
+  secondesDeParole,
+  shortlistSize,
   type Transcript,
   type Window,
   type Word,
 } from '@/core/transcript'
-import { getClips, getDb, getProject, replaceClips } from '@/server/db'
+import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 import { exigerSecret } from '@/server/secrets'
 
@@ -104,6 +106,23 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
  * fréquence des attentes de `délaiDeQuota`, pas leur utilité.
  */
 const RÉCUPÉRATION_MAX = 3
+
+/**
+ * Le plafond de sortie, posé **explicitement** plutôt que laissé au modèle.
+ *
+ * Aucun n'était posé : le défaut du fournisseur s'appliquait, sans que personne
+ * ici sache lequel. Tant que la passe de détail rendait 6 à 12 clips, la
+ * question ne se posait pas ; le dimensionnement sur la durée de parole la pose
+ * — une source de trois heures en demande 26 à 39, soit environ 5 000 jetons à
+ * ~130 par clip (deux descriptions, un titre, une accroche, quatre nombres).
+ *
+ * **Une troncature est le pire des échecs ici** : `leverSiBloquée` classe
+ * `MAX_TOKENS` en erreur passagère, donc la charge repart trois fois, à
+ * température 0,9, pour se faire tronquer pareil — et le message final accuse le
+ * réseau. Seize mille laisse de la marge à une source de six heures sans jamais
+ * approcher ce que le modèle sait produire.
+ */
+const PLAFOND_DE_SORTIE = 16_384
 
 /**
  * Trois tentatives, et l'attente double à chaque échec : 5 s puis 10 s.
@@ -344,6 +363,7 @@ function configuration(mode: ModeGemini): GenerateContentConfig {
     responseSchema: mode === 'detail' ? SCHÉMA_DÉTAIL : SCHÉMA_NOTATION,
     temperature: mode === 'detail' ? 0.9 : 0.2,
     candidateCount: 1,
+    maxOutputTokens: PLAFOND_DE_SORTIE,
   }
 }
 
@@ -860,6 +880,16 @@ export async function runCandidates(
   const fenêtres = buildWindows(transcript, durée)
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
+  // **Deux mesures voisines, et elles ne sont pas interchangeables.**
+  // `étendue` va du premier mot aligné au dernier : c'est le dénominateur de la
+  // couverture, celui qui dit quelle part du *déroulé* a été jugée.
+  // `paroleSec` est l'union des segments qui portent de la prose : c'est la
+  // matière, celle qui dit combien de clips l'émission peut donner. Sur les deux
+  // émissions du dépôt, la seconde vaut 79 à 80 % de la première.
+  const étendue = étendueDuTranscript(mots)
+  const paroleSec = secondesDeParole(transcript)
+  const réglages = getRéglages(db)
+
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
   const { notées, bilan } = await noterLesFenêtres(
     fenêtres,
@@ -867,7 +897,7 @@ export async function runCandidates(
       projectId,
       language: transcript.language,
       videoDuration: durée,
-      étendue: étendueDuTranscript(mots),
+      étendue,
       appel,
       sleep,
     },
@@ -875,38 +905,50 @@ export async function runCandidates(
   )
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
-  const retenues = shortlistFromScores(notées, fenêtres)
-  const [minClips, maxClips] = clipCountTargets(retenues.length)
+  const retenues = shortlistFromScores(
+    notées,
+    fenêtres,
+    shortlistSize(paroleSec, fenêtres.length, réglages),
+  )
+  const [minClips, maxClips] = clipCountTargets(paroleSec, réglages)
   const blocs = mergeOverlappingWindows(retenues, transcript)
-  console.log(`Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail.`)
-
-  // 4. Le détail : un seul appel, sur la liste fusionnée et ancrée. Le calage
-  //    sur les mots se fait DANS la relance, pour qu'une enveloppe cassée soit
-  //    réessayée au lieu de ressortir en « zéro clip » — ce qui effacerait les
-  //    propositions non traitées et écrirait l'artefact. (relevé par Copilot)
-  const propositions = await appelerGemini(
-    appel,
-    detailPrompt({
-      language: transcript.language,
-      videoDuration: durée,
-      windowsJson: detailWindowsJson(blocs, transcript),
-      minClips,
-      maxClips,
-    }),
-    'detail',
-    {
-      sleep,
-      analyser: (brut) =>
-        parseDetailResponse(brut, {
-          words: mots,
-          videoDuration: durée,
-          projectId,
-          blocks: blocs,
-        }),
-    },
+  console.log(
+    `Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail, ` +
+      `cible ${minClips}-${maxClips} clip(s) pour ${(paroleSec / 60).toFixed(1)} min de parole ` +
+      `(un clip toutes les ${réglages.minutesParClip} min).`,
   )
 
+  // 4. Le détail, sur la liste fusionnée et ancrée. Le calage sur les mots se
+  //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
+  //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
+  //    traitées et écrirait l'artefact. (relevé par Copilot)
+  // Un instantané **pour le seul plafond**, pris avant l'appel réseau parce que
+  // c'est là que la cible se décide. Il ne sert à rien d'autre : voir la
+  // relecture juste après le détail, et pourquoi elle n'est pas facultative.
+  const avantDétail = getClips(db, projectId)
+  const propositions = await détailler(retenues, {
+    projectId,
+    transcript,
+    mots,
+    durée,
+    minClips,
+    maxClips,
+    plafondAbsolu: réglages.clipsMaximum,
+    idsPris: new Set(avantDétail.filter((c) => c.status !== 'candidate').map((c) => c.id)),
+    appel,
+    sleep,
+  })
+
   // 5. La fusion des passes, puis l'écriture.
+  //
+  // **Relu ici, après l'attente réseau, et jamais avant.** `PATCH
+  // /api/clips/:id` reste ouverte pendant qu'une exécution de fond tourne : une
+  // décision prise pendant les appels de détail — garder, écarter, éditer — ne
+  // figure pas dans un instantané pris avant eux. Fusionner sur cet instantané
+  // reviendrait à traiter le clip décidé comme un candidat, et `replaceClips`
+  // effacerait ensuite la décision. C'est très exactement la garantie « une
+  // nouvelle passe n'écrase jamais un travail humain » (spec §5), qu'une lecture
+  // hissée trop haut suffisait à défaire. (relevé par Codex et Copilot)
   const existants = getClips(db, projectId)
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
@@ -1267,6 +1309,244 @@ function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardo
     [...ardoise.étendues].filter(([id]) => !nonNotées.has(id)).map(([, étendue]) => étendue),
     ardoise.transcript,
   )
+}
+
+/** Ce dont la passe de détail a besoin, une fois les blocs choisis. */
+type ContexteDétail = {
+  projectId: string
+  transcript: TranscriptLu
+  mots: Word[]
+  durée: number
+  minClips: number
+  maxClips: number
+  /** `clipsMaximum` tel qu'il est réglé — `0` quand il ne l'est pas. */
+  plafondAbsolu: number
+  /**
+   * Les `id` que `mergeCandidates` écartera de toute façon : ceux des clips
+   * portant une décision humaine. Ne sert qu'au plafond, qui doit compter des
+   * propositions qui survivront.
+   */
+  idsPris: ReadonlySet<string>
+  appel: AppelGemini
+  sleep: (ms: number) => Promise<void>
+}
+
+/**
+ * La passe de détail, avec la même parade que la notation contre le filtre.
+ *
+ * **Elle était un appel unique sans recours**, et c'était tenable tant que la
+ * présélection plafonnait à 24 fenêtres. Le dimensionnement sur la durée de
+ * parole l'ouvre — 32 fenêtres pour une émission de 1 h 51, 52 pour trois
+ * heures —, et le refus mesuré porte sur la **concentration** de matière dans
+ * une charge, pas sur une fenêtre coupable (voir `GeminiBlockedError`). Élargir
+ * la charge sans lui donner de recours reviendrait à troquer six clips contre
+ * une étape qui échoue.
+ *
+ * La parade est celle de `récupérer`, et elle ne viole pas plus qu'elle la règle
+ * « un refus ne se réessaie jamais » : on n'envoie pas la même requête, on en
+ * envoie une autre. La descente va jusqu'au bloc seul parce qu'un seul niveau ne
+ * suffit pas — mesuré sur `2025-06-15-cqlp`, il a fallu descendre des lots de 8
+ * aux demi-lots, puis aux paires, puis aux unités.
+ *
+ * **Un bloc refusé seul est abandonné, pas fatal.** Perdre une région sur vingt
+ * vaut infiniment mieux que de perdre l'émission. Le verdict ne tombe qu'à la
+ * fin et seulement si *rien* n'a répondu : c'est la leçon déjà écrite dans
+ * `noterLesFenêtres`, où « tous les lots ont été refusés » ne dit rien de la
+ * vidéo tant qu'on n'a pas essayé de plus petites charges.
+ *
+ * **Pas de budget, contrairement à `récupérer`, et ce n'est pas un oubli.** La
+ * descente est un arbre binaire sur un ensemble de blocs **fixe** : elle coûte
+ * au pire `2k - 1` appels pour k blocs, et s'arrête d'elle-même. `récupérer`, où
+ * les moitiés refusées retournent dans une file, n'a pas cette garantie — c'est
+ * ce qui lui vaut son plafond. En poser un ici aurait donné soit une borne
+ * arbitraire, soit — avec le facteur de `récupérer`, `3k` — une branche que rien
+ * ne peut atteindre, et un message d'erreur prudent pour un cas qui n'existe
+ * pas. Le coût du pire cas reste visible : 60 blocs tous refusés font 119
+ * appels, ce qui est cher et borné.
+ *
+ * **Ce que la découpe coûte, et qui est assumé.** Le prompt demande de ne jamais
+ * rendre deux clips qui racontent la même chose « même entre fenêtres
+ * différentes » ; deux moitiés appelées séparément ne peuvent plus se comparer.
+ * Cela ne se produit qu'en cas de refus, et `mergeCandidates` dédoublonne
+ * ensuite sur les bornes.
+ */
+async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Clip[]> {
+  const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
+  const clips = await descendre(
+    retenues,
+    { min: ctx.minClips, max: ctx.maxClips },
+    ctx,
+    ardoise,
+  )
+
+  if (ardoise.refusés.length > 0) {
+    console.warn(
+      `Détail : ${ardoise.refusés.length} fenêtre(s) refusée(s) seule(s) par le filtre ` +
+        `et abandonnée(s) : ${ardoise.refusés.join(', ')}.`,
+    )
+  }
+  // Rien n'a **répondu**, découpe comprise : là seulement, c'est la vidéo.
+  //
+  // **Le compte des réponses, jamais celui des clips.** `parseDetailResponse`
+  // tient `shorts: []` pour une réponse valide — « aucun moment exploitable
+  // ici » —, donc une moitié qui répond vide pendant que l'autre est refusée
+  // laisse `clips` vide sans qu'aucun refus global n'ait eu lieu. Compter les
+  // clips faisait alors échouer toute l'étape en accusant la vidéo d'un refus
+  // qu'elle n'a pas subi. (relevé par Codex et Copilot)
+  if (ardoise.réussis === 0 && ardoise.refusés.length > 0) {
+    // **Le message n'affirme ici que ce qui a bel et bien été essayé**, parce
+    // que la descente va toujours jusqu'au bout — voir le paragraphe sur son
+    // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
+    // formule prudente que ce dernier a dû se donner après coup.
+    throw new GeminiBlockedError(
+      `Gemini a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
+        `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
+    )
+  }
+
+  // **Le plafond absolu se tient ici, à la fin, et pas seulement dans la
+  // consigne.** Une découpe éclate la cible entre les branches, et une part qui
+  // s'arrondit à zéro est relevée à un pour ne pas abandonner de région : la
+  // somme des consignes peut donc dépasser le plafond que l'utilisateur a posé.
+  // Le prompt n'est de toute façon qu'une consigne — ni le modèle ni
+  // `parseDetailResponse` ne l'imposent. Ce qui rend `clipsMaximum` vrai est
+  // cette coupe-ci. (relevé par Copilot)
+  //
+  // **Et elle se dit.** Une troncature silencieuse est exactement le défaut que
+  // ce dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
+  // écarte, et ne survient que si quelqu'un a réglé un plafond.
+  // Le plafond **réglé**, jamais la cible proportionnelle : sans réglage, rendre
+  // plus que la cible est une bonne nouvelle — le repérage vise le rappel
+  // (spec §7) — et couper là abandonnerait du matériau que personne n'a demandé
+  // d'abandonner.
+  if (ctx.plafondAbsolu <= 0) return clips
+
+  // **Dédoublonner avant de plafonner, jamais l'inverse.** Deux horodatages
+  // bruts différents peuvent se caler sur le même clip — c'est le métier de
+  // `snapToWords` —, et un clip qui heurte une décision humaine sera de toute
+  // façon écarté par `mergeCandidates`. Plafonner d'abord laissait ces
+  // condamnés consommer le quota : `[A, A, B]` à deux devenait `[A, A]`, puis un
+  // seul candidat, et B disparaissait alors que le plafond l'autorisait.
+  // (relevé par Codex)
+  const vus = new Set(ctx.idsPris)
+  const uniques = clips.filter((clip) => !vus.has(clip.id) && vus.add(clip.id))
+
+  if (uniques.length <= ctx.plafondAbsolu) return uniques
+  // **Et la coupe se dit.** Une troncature silencieuse est le défaut que ce
+  // dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
+  // écarte, et ne survient que si quelqu'un a réglé un plafond.
+  const écartés = uniques.slice(ctx.plafondAbsolu)
+  console.warn(
+    `Détail : ${écartés.length} proposition(s) au-delà du plafond réglé de ${ctx.plafondAbsolu} clip(s), ` +
+      `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
+  )
+  return uniques.slice(0, ctx.plafondAbsolu)
+}
+
+/**
+ * Ce que la descente ramène en plus des clips.
+ *
+ * `réussis` compte les **réponses**, pas les clips : voir le verdict de
+ * `détailler`, que cette distinction sépare d'un faux refus.
+ *
+ * `refusés` ne porte que des blocs soumis **seuls** et refusés : la descente
+ * n'abandonne rien d'autre, donc tout ce qui y figure a bel et bien été essayé.
+ */
+type ArdoiseDétail = { refusés: string[]; réussis: number }
+
+/**
+ * Un lot de blocs, recoupé en deux tant que le filtre refuse.
+ *
+ * **La cible se partage, elle ne se recalcule pas.** Chaque appel reçoit
+ * l'intervalle qui lui revient. La version précédente recalculait un prorata
+ * depuis la racine et arrondissait chaque enfant indépendamment ; surtout, elle
+ * perdait le plafond dès le premier appel, sans même de découpe :
+ * `Math.max(min + 1, …)` transformait une cible plafonnée à `[10, 10]` en
+ * `[10, 11]`. (relevé par Copilot)
+ *
+ * **Ce que le partage ne garantit pas, et pourquoi.** Une part qui s'arrondit à
+ * zéro est relevée à un, si bien que la somme des plafonds enfants peut dépasser
+ * celui du parent d'une unité par moitié concernée. C'est un choix : l'inverse —
+ * ne pas soumettre la moitié dont la part est nulle — abandonnerait une région
+ * entière de l'émission pour respecter à la lettre un nombre qui n'est de toute
+ * façon qu'une consigne de prompt, que ni le modèle ni `parseDetailResponse`
+ * n'imposent. Un premier essai le faisait, et perdait deux blocs sur huit dès le
+ * cas de test le plus banal.
+ */
+async function descendre(
+  lot: Window[],
+  cible: { min: number; max: number },
+  ctx: ContexteDétail,
+  ardoise: ArdoiseDétail,
+): Promise<Clip[]> {
+  if (lot.length === 0) return []
+
+  const max = Math.max(1, cible.max)
+  const min = Math.min(Math.max(1, cible.min), max)
+  // **La fusion se refait à chaque étage, sur le lot courant.** C'est ce qui
+  // permet à la descente de porter sur des fenêtres et non sur des blocs déjà
+  // fusionnés : un bloc réunit tous les voisins qui se chevauchent, donc sur de
+  // la parole continue il en réunit beaucoup, et la présélection élargie que
+  // cette PR introduit le grossit encore. Descendre sur les blocs abandonnait
+  // ainsi une région entière au premier refus, sans jamais réduire la charge —
+  // c'est-à-dire sans traiter la concentration de matière que ce garde-fou
+  // existe précisément pour traiter. (relevé par Codex)
+  const blocs = mergeOverlappingWindows(lot, ctx.transcript)
+
+  try {
+    const clips = await appelerGemini(
+      ctx.appel,
+      detailPrompt({
+        language: ctx.transcript.language,
+        videoDuration: ctx.durée,
+        windowsJson: detailWindowsJson(blocs, ctx.transcript),
+        minClips: min,
+        maxClips: max,
+      }),
+      'detail',
+      {
+        sleep: ctx.sleep,
+        analyser: (brut) =>
+          parseDetailResponse(brut, {
+            words: ctx.mots,
+            videoDuration: ctx.durée,
+            projectId: ctx.projectId,
+            blocks: blocs,
+          }),
+      },
+    )
+    // Compté ici, sur la réponse, et non sur `clips.length` plus haut : une
+    // réponse vide reste une réponse.
+    ardoise.réussis += 1
+    return clips
+  } catch (erreur) {
+    if (!(erreur instanceof GeminiBlockedError)) throw erreur
+    // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
+    // c'est bien elle que le filtre vise. La fenêtre est l'unité minimale du
+    // repérage — la couper plus fin sortirait du contrat de `buildWindows`.
+    if (lot.length === 1) {
+      ardoise.refusés.push(lot[0].id)
+      return []
+    }
+    const milieu = Math.ceil(lot.length / 2)
+    // Le partage se fait par soustraction, jamais par deux arrondis : la somme
+    // rend alors exactement ce que le parent avait, au relèvement à un près
+    // documenté ci-dessus.
+    const partager = (total: number): [number, number] => {
+      const àGauche = Math.round((total * milieu) / lot.length)
+      return [àGauche, total - àGauche]
+    }
+    const [maxG, maxD] = partager(max)
+    const [minG, minD] = partager(min)
+    const gauche = await descendre(
+      lot.slice(0, milieu),
+      { min: minG, max: maxG },
+      ctx,
+      ardoise,
+    )
+    const droite = await descendre(lot.slice(milieu), { min: minD, max: maxD }, ctx, ardoise)
+    return [...gauche, ...droite]
+  }
 }
 
 /** Retire le marqueur avant de toucher à la base. */

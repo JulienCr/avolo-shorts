@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type BetterSqlite3 from 'better-sqlite3'
 import type { GenerateContentResponse } from '@google/genai'
-import { openDb, upsertProject, getClips, putClip } from '@/server/db'
+import { openDb, upsertProject, getClips, putClip, setRéglage } from '@/server/db'
 import { attendre, lancer, lireStatut } from '@/server/run'
 import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
@@ -485,23 +485,68 @@ describe("l'étape de repérage", () => {
     }
   })
 
-  it('calcule les cibles de nombre de clips avant la fusion des fenêtres', async () => {
+  it('calcule les cibles sur la durée de parole, que la fusion ne touche pas', async () => {
     const prompts: { mode: ModeGemini; prompt: string }[] = []
     await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
     const détail = prompts.find((p) => p.mode === 'detail')!.prompt
 
     // Le transcript fait 40 phrases sur 240 s : `buildWindows` en tire quatre
-    // fenêtres, `shortlistSize` les garde toutes (son plancher est de 10), et la
+    // fenêtres, la présélection les garde toutes (son plancher est de 10), et la
     // fusion les ramène à un seul bloc contigu — elles se chevauchent toutes.
     const blocs = [...détail.matchAll(/"id":"window_\d+"/g)].length
     expect(blocs).toBe(1)
 
     const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
-    // `clipCountTargets(4)` vaut [4, 8] ; `clipCountTargets(1)` vaudrait [2, 4].
-    // Fusionner remanie la charge utile, cela ne sélectionne pas moins de
-    // matière : le plancher repose sur une mesure de rétention et n'a pas à
-    // bouger parce que deux fenêtres se trouvent voisines.
-    expect([Number(min), Number(max)]).toEqual([4, 8])
+    // 40 segments de 3,5 s : 140 s de parole, et non les 239 s que sépare le
+    // premier mot du dernier. Le prorata n'en tire aucun clip, `clipsMinimum` en
+    // voudrait six, et les deux créneaux de 90 s tranchent à deux. Fusionner
+    // remanie la charge utile, cela ne sélectionne pas moins de matière — et
+    // depuis que la cible se calcule sur la parole, la fusion ne peut plus
+    // l'atteindre du tout, ce qui rend l'ancienne inversion impossible plutôt
+    // que seulement évitée.
+    expect([Number(min), Number(max)]).toEqual([2, 4])
+  })
+
+  /**
+   * `PATCH /api/clips/:id` reste ouverte pendant qu'une exécution de fond
+   * tourne, et la passe de détail dure. Une décision prise **pendant** l'appel
+   * réseau doit survivre : lire les clips avant cet appel puis fusionner sur cet
+   * instantané traiterait le clip décidé comme un candidat, et `replaceClips`
+   * effacerait la décision. C'est la garantie « une nouvelle passe n'écrase
+   * jamais un travail humain » (spec §5). (relevé par Codex et Copilot)
+   */
+  it('ne perd pas une décision humaine prise pendant la passe de détail', async () => {
+    // Passe 1 : deux candidats.
+    await runCandidates(ID, { db, appel: modèle([]), sleep: async () => {} })
+    const [premier] = getClips(db, ID)
+    expect(premier.status).toBe('candidate')
+
+    // Passe 2 : quelqu'un garde le premier clip pendant que le détail tourne.
+    const pendant: AppelGemini = async (prompt, mode) => {
+      if (mode === 'detail') putClip(db, { ...premier, status: 'kept', title: 'gardé à la main' })
+      return modèle([])(prompt, mode)
+    }
+    await runCandidates(ID, { db, appel: pendant, sleep: async () => {} })
+
+    const après = getClips(db, ID).find((c) => c.id === premier.id)
+    expect(après?.status).toBe('kept')
+    expect(après?.title).toBe('gardé à la main')
+  })
+
+  /**
+   * Le plafond absolu doit survivre au trajet jusqu'au prompt. Il se perdait
+   * dans la passe de détail, sans même de découpe : un `Math.max(min + 1, …)`
+   * relevait la borne haute d'un cran après que `clipCountTargets` l'eut posée.
+   * (relevé par Copilot)
+   */
+  it('ne relève pas la borne haute que clipsMaximum vient de poser', async () => {
+    setRéglage(db, 'clipsMaximum', 2)
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
+
+    const détail = prompts.find((p) => p.mode === 'detail')!.prompt
+    const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
+    expect([Number(min), Number(max)]).toEqual([2, 2])
   })
 
   it('la passe suivante ne ressuscite pas un clip écarté', async () => {
@@ -1140,6 +1185,319 @@ describe("l'étape de repérage", () => {
       createdAt: 0,
     })
     await expect(runCandidates(ID, { db, appel: modèle([]) })).rejects.toThrow(/durée/)
+  })
+
+  /**
+   * La passe de détail était un appel unique sans recours : un refus du filtre y
+   * faisait échouer toute l'étape. C'était tenable tant que la présélection
+   * plafonnait à 24 fenêtres ; le dimensionnement sur la durée de parole
+   * l'ouvre, et le refus mesuré porte sur la **concentration** de matière dans
+   * une charge. Élargir sans donner de recours reviendrait à troquer six clips
+   * contre une étape qui tombe.
+   */
+  describe('le garde-fou de la passe de détail', () => {
+    /**
+     * Huit grappes de parole séparées par dix minutes de silence.
+     *
+     * Le transcript ordinaire de ces tests tient en un seul bloc — ses fenêtres
+     * se chevauchent toutes —, or c'est précisément la découpe en plusieurs
+     * blocs qu'il faut exercer ici. Les trous font que `mergeOverlappingWindows`
+     * n'a rien à recoller : 15 fenêtres, 8 blocs.
+     */
+    const GRAPPES = 8
+    /** Ce que `buildWindows` en tire, et sur quoi la descente porte réellement. */
+    const FENÊTRES = 15
+    const ÉCLATÉ = {
+      language: 'fr',
+      segments: Array.from({ length: GRAPPES * 4 }, (_, i) => {
+        const start = Math.floor(i / 4) * 600 + (i % 4) * 20
+        return {
+          start,
+          end: start + 12,
+          text: `grappe ${Math.floor(i / 4)} phrase ${i % 4}`,
+          words: [{ word: `mot${i}`, start, end: start + 12 }],
+        }
+      }),
+    }
+
+    beforeEach(() => {
+      fs.writeFileSync(
+        path.join(sidecarDir(SOURCE), 'transcript.json'),
+        JSON.stringify(ÉCLATÉ),
+      )
+      upsertProject(db, {
+        id: ID,
+        sourcePath: path.join(replay, SOURCE),
+        stagedPath: null,
+        durationSec: 4800,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      // Ces grappes ne portent que 384 s de parole, donc la présélection par
+      // défaut n'en retiendrait que dix des quinze fenêtres et la découpe
+      // n'aurait plus huit blocs à recouper. Le réglage élargit l'examen : ce
+      // qui s'exerce ici est le garde-fou, pas le dimensionnement.
+      setRéglage(db, 'fenetresParClip', 8)
+    })
+
+    /**
+     * Un modèle qui note tout, et qui rend un clip par bloc — sauf quand la
+     * charge qu'on lui soumet remplit `refuse`, auquel cas il la bloque. Avec
+     * `vide`, il répond `shorts: []` : une réponse valide qui ne trouve rien.
+     */
+    function détailleur(
+      refuse: (blocs: string[]) => boolean,
+      charges: string[][] = [],
+      vide = false,
+    ): AppelGemini {
+      return async (prompt, mode) => {
+        if (mode === 'score') {
+          const ids = [...prompt.matchAll(/"id":"(window_\d+)"/g)].map((m) => m[1])
+          return réponse(
+            JSON.stringify({
+              windows: ids.map((id, i) => ({
+                id,
+                start: 0,
+                end: 90,
+                score: 90 - i,
+                reason: 'ok',
+              })),
+            }),
+          )
+        }
+        const blocs = [...prompt.matchAll(/"id":"(window_\d+)","start":([\d.]+)/g)].map((m) => ({
+          id: m[1],
+          start: Number(m[2]),
+        }))
+        charges.push(blocs.map((b) => b.id))
+        if (refuse(blocs.map((b) => b.id))) {
+          return réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+        }
+        return réponse(
+          JSON.stringify({
+            shorts: (vide ? [] : blocs).map((b) => ({
+              start: b.start,
+              end: b.start + 32,
+              source_window_id: b.id,
+              predicted_score: 80,
+              video_description_for_tiktok: 'une vanne #impro',
+              video_description_for_instagram: 'une vanne #impro',
+              video_title_for_youtube_short: `Le moment ${b.id}`,
+              viral_hook_text: 'Et là',
+            })),
+          }),
+        )
+      }
+    }
+
+    it('recoupe la charge au lieu de laisser tomber l’étape', async () => {
+      const charges: string[][] = []
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 2, charges),
+        sleep: async () => {},
+      })
+
+      // Les huit blocs finissent tous détaillés, par charges de deux.
+      expect(clips).toHaveLength(GRAPPES)
+      const détails = charges.filter((c) => c.length > 0)
+      expect(détails[0]).toHaveLength(GRAPPES)
+      expect(détails.filter((c) => c.length === 2)).toHaveLength(4)
+    })
+
+    /**
+     * La descente va jusqu'à la fenêtre seule, et pas à un seul niveau : la
+     * mesure du 18 août sur `cqlp` a demandé des lots de 8 aux demi-lots, puis
+     * aux paires, puis aux unités. Un seul niveau laisserait la moitié des refus
+     * dehors.
+     *
+     * **Elle descend sur les fenêtres, pas sur les blocs fusionnés**, et c'est
+     * ce qui la rend utile : un bloc réunit tous les voisins qui se chevauchent,
+     * donc s'arrêter à « un bloc » abandonnerait une région entière sans avoir
+     * jamais réduit la charge. Ici, les quinze fenêtres finissent chacune seule.
+     * (relevé par Codex)
+     */
+    it('descend jusqu’à la fenêtre seule quand il le faut', async () => {
+      const charges: string[][] = []
+      await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 1, charges),
+        sleep: async () => {},
+      })
+
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(FENÊTRES)
+    })
+
+    /**
+     * Perdre une région sur huit vaut infiniment mieux que perdre l'émission.
+     * C'est la leçon déjà écrite dans `noterLesFenêtres` : « tous les lots ont
+     * été refusés » ne dit rien de la vidéo tant qu'on n'a pas essayé de plus
+     * petites charges — et « un bloc a été refusé » n'en dit rien du tout.
+     */
+    it('abandonne une fenêtre refusée seule sans perdre les autres', async () => {
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.includes('window_001')),
+        sleep: async () => {},
+      })
+
+      // Les quinze fenêtres se fusionnent en huit blocs ; seule celle que le
+      // filtre vise disparaît, et sa voisine de bloc revient toute seule.
+      expect(clips.length).toBeGreaterThanOrEqual(GRAPPES - 1)
+      expect(clips.some((c) => c.title.includes('window_001'))).toBe(false)
+    })
+
+    it('mais un refus jusqu’à la fenêtre seule reste un refus de la vidéo', async () => {
+      await expect(
+        runCandidates(ID, { db, appel: détailleur(() => true), sleep: async () => {} }),
+      ).rejects.toThrow(/jusqu'à la fenêtre seule/)
+    })
+
+    /**
+     * La descente se borne toute seule, et c'est ce qui la dispense du budget
+     * de `récupérer` : elle parcourt un arbre binaire sur un ensemble de blocs
+     * **fixe**, donc `2k - 1` appels au pire. Un plafond calqué sur `récupérer`
+     * — `3k` — n'aurait jamais pu se déclencher, et aurait laissé derrière lui
+     * une branche morte et un message d'erreur pour un cas impossible.
+     *
+     * Le message peut donc affirmer « jusqu'au bloc seul » sans prudence
+     * oratoire : contrairement à `noterLesFenêtres`, la descente y arrive
+     * toujours.
+     */
+    it('se borne à 2k-1 appels, sans budget à tenir', async () => {
+      const charges: string[][] = []
+      const erreur = await runCandidates(ID, {
+        db,
+        appel: détailleur(() => true, charges),
+        sleep: async () => {},
+      }).then(
+        () => null,
+        (e: Error) => e,
+      )
+
+      expect(erreur).toBeInstanceOf(GeminiBlockedError)
+      expect(erreur!.message).toMatch(/jusqu'à la fenêtre seule/)
+      // Quinze fenêtres toutes refusées : 29 appels, et chacune a bien été
+      // soumise seule avant d'être comptée comme refusée.
+      expect(charges).toHaveLength(2 * FENÊTRES - 1)
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(FENÊTRES)
+    })
+
+    /**
+     * Le verdict compte les **réponses**, jamais les clips.
+     *
+     * `parseDetailResponse` tient `shorts: []` pour une réponse valide — « aucun
+     * moment exploitable ici ». Une moitié qui répond vide pendant que l'autre
+     * est refusée laissait donc `clips` vide avec des refus au compteur, et
+     * l'étape échouait en accusant la vidéo d'un refus qu'elle n'a pas subi.
+     * (relevé par Codex et Copilot)
+     */
+    it('ne confond pas « aucun clip trouvé » avec « aucune réponse »', async () => {
+      const clips = await runCandidates(ID, {
+        db,
+        // Tout ce qui porte le dernier bloc est refusé ; le reste répond vide.
+        appel: détailleur((blocs) => blocs.includes('window_015'), [], true),
+        sleep: async () => {},
+      })
+
+      expect(clips).toEqual([])
+      expect(getClips(db, ID)).toEqual([])
+    })
+
+    /**
+     * Le plafond réglé survit à la découpe.
+     *
+     * La consigne seule ne suffit pas : une part qui s'arrondit à zéro est
+     * relevée à un pour ne pas abandonner de région, donc la somme des consignes
+     * enfants peut dépasser le plafond. Avec `clipsMaximum = 2` et une descente
+     * jusqu'aux fenêtres, quinze appels demandent chacun un clip. C'est la coupe
+     * finale qui rend le réglage vrai. (relevé par Copilot)
+     */
+    it('tient le plafond réglé même après une découpe complète', async () => {
+      setRéglage(db, 'clipsMaximum', 2)
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 1),
+        sleep: async () => {},
+      })
+
+      expect(clips).toHaveLength(2)
+      expect(getClips(db, ID)).toHaveLength(2)
+    })
+
+    /**
+     * Le plafond compte des propositions qui survivront.
+     *
+     * Deux horodatages bruts différents se calent souvent sur le même clip —
+     * c'est le métier de `snapToWords` — et `mergeCandidates` écarte ensuite le
+     * doublon. Plafonner avant de dédoublonner laissait donc le condamné
+     * consommer le quota, et évinçait un candidat valide que le réglage
+     * autorisait. (relevé par Codex)
+     */
+    it('dédoublonne avant de plafonner, pas après', async () => {
+      setRéglage(db, 'clipsMaximum', 2)
+      // Deux bornes brutes distinctes qui se calent toutes deux sur (0, 32), et
+      // une troisième bien distincte.
+      const brutes = [
+        { start: 1, end: 30 },
+        { start: 2, end: 31 },
+        { start: 41, end: 70 },
+      ]
+      const appel: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score') {
+          const ids = [...prompt.matchAll(/"id":"(window_\d+)"/g)].map((m) => m[1])
+          return réponse(
+            JSON.stringify({
+              windows: ids.map((id, i) => ({ id, start: 0, end: 90, score: 90 - i, reason: 'ok' })),
+            }),
+          )
+        }
+        return réponse(
+          JSON.stringify({
+            shorts: brutes.map((b, i) => ({
+              ...b,
+              source_window_id: 'window_001',
+              predicted_score: 80,
+              video_description_for_tiktok: `proposition ${i}`,
+              video_description_for_instagram: `proposition ${i}`,
+              video_title_for_youtube_short: `Le moment ${i}`,
+              viral_hook_text: 'Et là',
+            })),
+          }),
+        )
+      }
+
+      const clips = await runCandidates(ID, { db, appel, sleep: async () => {} })
+
+      // Avant le correctif : `[A, A, B]` coupé à deux donnait `[A, A]`, puis un
+      // seul clip après dédoublonnage — B disparaissait pour rien.
+      expect(clips).toHaveLength(2)
+      expect(new Set(clips.map((c) => c.id)).size).toBe(2)
+    })
+
+    /**
+     * La cible de clips suit la découpe. Demander le plancher entier à chaque
+     * moitié en rendrait deux fois trop — et le plancher est ce que le modèle
+     * rend, pas une borne basse.
+     */
+    it('met la cible de clips au prorata des blocs soumis', async () => {
+      const prompts: string[] = []
+      const espion: AppelGemini = async (prompt, mode) => {
+        if (mode === 'detail') prompts.push(prompt)
+        return détailleur((blocs) => blocs.length > 2)(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: espion, sleep: async () => {} })
+
+      const cible = (prompt: string) => {
+        const [, bas] = /return (\d+) to (\d+) clips/.exec(prompt)!
+        return Number(bas)
+      }
+      const entier = cible(prompts[0])
+      const quart = prompts.filter((p) => (p.match(/"id":"window_\d+"/g) ?? []).length === 2)
+      expect(entier).toBeGreaterThan(cible(quart[0]))
+      expect(cible(quart[0])).toBeGreaterThanOrEqual(1)
+    })
   })
 
   describe('lireTranscript', () => {

@@ -7,15 +7,18 @@ import {
   getClip,
   getClips,
   getProject,
+  getRéglages,
   listProjects,
   openDb,
   putClip,
   putClipOrdonné,
   replaceClips,
+  setRéglage,
   upsertProject,
   type Project,
 } from '@/server/db'
 import { mergeCandidates } from '@/core/candidates'
+import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
 import type { Clip } from '@/core/edl'
 
 /**
@@ -69,7 +72,9 @@ describe('le schéma', () => {
       const tables = vierge
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         .all() as { name: string }[]
-      expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['clips', 'projects']))
+      expect(tables.map((t) => t.name)).toEqual(
+        expect.arrayContaining(['clips', 'projects', 'settings']),
+      )
     } finally {
       vierge.close()
     }
@@ -104,6 +109,84 @@ describe('le schéma', () => {
     upsertProject(db, { ...PROJET, createdAt: 9_999_999_999_999, durationSec: 1 })
     expect(getProject(db, PROJET.id)?.createdAt).toBe(PROJET.createdAt)
     expect(getProject(db, PROJET.id)?.durationSec).toBe(1)
+  })
+})
+
+describe('les réglages', () => {
+  it('rendent les défauts sur une base vierge', () => {
+    expect(getRéglages(db)).toEqual(DIMENSIONS_PAR_DÉFAUT)
+  })
+
+  it('font l’aller-retour', () => {
+    setRéglage(db, 'minutesParClip', 4)
+    expect(getRéglages(db).minutesParClip).toBe(4)
+    // Les autres ne bougent pas : un réglage écrit n'en efface aucun.
+    expect(getRéglages(db).fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
+  })
+
+  it('réécrivent sans dupliquer', () => {
+    setRéglage(db, 'minutesParClip', 4)
+    setRéglage(db, 'minutesParClip', 9)
+    expect(getRéglages(db).minutesParClip).toBe(9)
+    expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
+  })
+
+  // La lecture ne lève jamais : le repérage tourne derrière une transcription
+  // qui a coûté quarante minutes, et une valeur mal saisie ne doit pas la jeter.
+  it('ignorent une valeur illisible comme si elle était absente', () => {
+    const poser = (valeur: string) =>
+      db
+        .prepare('INSERT OR REPLACE INTO settings (key, value, updatedAt) VALUES (?, ?, ?)')
+        .run('selection.minutesParClip', valeur, 0)
+    for (const valeur of ['', 'sept', '-3', '0']) {
+      poser(valeur)
+      expect(getRéglages(db).minutesParClip).toBe(DIMENSIONS_PAR_DÉFAUT.minutesParClip)
+    }
+  })
+
+  // Zéro est la valeur signifiante de ce champ-là — « aucun plafond » — et lui
+  // appliquer le refus des autres le rendrait impossible à remettre à zéro.
+  it('acceptent zéro pour clipsMaximum, et lui seul', () => {
+    setRéglage(db, 'clipsMaximum', 30)
+    expect(getRéglages(db).clipsMaximum).toBe(30)
+    setRéglage(db, 'clipsMaximum', 0)
+    expect(getRéglages(db).clipsMaximum).toBe(0)
+    expect(() => setRéglage(db, 'fenetresParClip', 0)).toThrow()
+  })
+
+  // Une clé mal orthographiée s'écrirait sans bruit, ne serait jamais relue, et
+  // l'écran de réglages afficherait le défaut en jurant avoir enregistré.
+  it('refusent une clé inconnue', () => {
+    expect(() =>
+      setRéglage(db, 'minutesParClipe' as keyof typeof DIMENSIONS_PAR_DÉFAUT, 4),
+    ).toThrow(/inconnu/i)
+    expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
+  })
+
+  it('refusent une valeur qui n’est pas un entier positif', () => {
+    expect(() => setRéglage(db, 'minutesParClip', 0)).toThrow()
+    expect(() => setRéglage(db, 'minutesParClip', -1)).toThrow()
+    expect(() => setRéglage(db, 'minutesParClip', 4.5)).toThrow()
+  })
+
+  /**
+   * L'écrivain et le lecteur doivent appliquer la **même** règle. `isInteger`
+   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getRéglages` refuse :
+   * l'écriture réussissait donc, et la relecture rendait le défaut sans qu'un
+   * mot le signale. (relevé par Copilot)
+   */
+  it('refusent un entier non sûr, comme le lecteur', () => {
+    expect(() => setRéglage(db, 'minutesParClip', 1e100)).toThrow()
+    expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
+  })
+
+  // Le contrat qui relie la table au type : une clé ajoutée à `DimensionsRepérage`
+  // sans être relue ici passerait inaperçue jusqu'à ce qu'on la règle en vain.
+  it('savent lire et écrire chacun des champs de DimensionsRepérage', () => {
+    for (const champ of Object.keys(DIMENSIONS_PAR_DÉFAUT) as (keyof typeof DIMENSIONS_PAR_DÉFAUT)[]) {
+      setRéglage(db, champ, 3)
+      expect(getRéglages(db)[champ]).toBe(3)
+    }
   })
 })
 

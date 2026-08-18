@@ -152,12 +152,18 @@ function LigneProjet({ projet }: { projet: ProjectListItem }) {
       {projet.running !== null ? (
         <Avancement running={projet.running} />
       ) : projet.error !== null ? (
-        <p className="flex items-center gap-1.5 text-xs text-destructive">
-          <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+        <p className="flex items-start gap-1.5 text-xs text-destructive">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           {/* Le message du serveur, déjà épuré de ses chemins absolus. C'est le
               seul chemin par lequel l'échec d'une tâche de fond revient jusqu'à
-              l'écran : le lanceur rend la main bien après la réponse 202. */}
-          <span className="truncate">{projet.error}</span>
+              l'écran : le lanceur rend la main bien après la réponse 202.
+
+              **Il va à la ligne, il ne se coupe pas.** La cause utile est au bout
+              de la phrase, et une ligne tronquée n'a aucun moyen de la révéler —
+              afficher le message du serveur puis en cacher la moitié serait la
+              même chose que ne pas l'afficher. La rangée grandit, ce que `min-h`
+              permet déjà. (relevé par Copilot) */}
+          <span className="wrap-anywhere">{projet.error}</span>
         </p>
       ) : null}
     </Link>

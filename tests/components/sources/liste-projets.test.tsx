@@ -98,6 +98,19 @@ describe('ListeProjets, ce qui a échoué', () => {
     expect(screen.getByText('Le repérage n’a rien rendu : quota Gemini épuisé.')).toBeTruthy()
   })
 
+  it('laisse le message aller à la ligne plutôt que de le couper', () => {
+    // **Un message présent dans le DOM mais coupé à l'écran n'est pas affiché.**
+    // La cause utile d'un échec est au bout de la phrase, pas au début, et une
+    // ligne tronquée n'a aucun moyen de la révéler. La rangée grandit, c'est
+    // tout — c'est ce que `min-h` permet. (relevé par Copilot)
+    //
+    // L'assertion porte sur la classe faute de mieux : jsdom ne calcule aucune
+    // mise en page, donc la troncature elle-même n'y est pas observable.
+    liste({ projets: [{ ...CQLP, error: 'Un message assez long pour déborder d’une rangée.' }] })
+    const message = screen.getByText('Un message assez long pour déborder d’une rangée.')
+    expect(message.className).not.toContain('truncate')
+  })
+
   it('affiche le message du serveur quand la liste elle-même échoue', async () => {
     // Sans cet état, une API en panne rend exactement la même page qu'une
     // bibliothèque vide.

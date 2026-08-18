@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
 import { projectsDir } from '@/server/paths'
 
 /**
@@ -105,6 +106,13 @@ CREATE TABLE IF NOT EXISTS clips (
 -- trier en mémoire. Le volume est négligeable et le restera, mais l'index coûte
 -- le même geste à écrire. (relevé par Aristarque)
 CREATE INDEX IF NOT EXISTS clips_par_projet ON clips(projectId, pass, id);
+
+-- Les réglages, en clé/valeur et en portée unique : voir \`getRéglages\`.
+CREATE TABLE IF NOT EXISTS settings (
+  key       TEXT PRIMARY KEY,
+  value     TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
 `
 
 /** Le fichier par défaut : dans `PROJECTS_DIR`, que `.gitignore` couvre déjà. */
@@ -179,6 +187,103 @@ export function getDb(): Database.Database {
 export function closeDb(): void {
   partagée?.close()
   partagée = null
+}
+
+/**
+ * Ce qui dimensionne le repérage, tenu en base plutôt qu'en constantes.
+ *
+ * **La base ne déplace pas la frontière de pureté, elle la respecte.**
+ * `src/core/transcript.ts` documente pourquoi les surcharges d'environnement
+ * d'openshorts n'ont jamais été portées : un calcul qui lit l'environnement où
+ * il s'exécute n'est pas reproductible en test. Rien ne change de ce côté —
+ * `shortlistSize` et `clipCountTargets` restent pures et **reçoivent** ces
+ * valeurs. Ce fichier est seulement l'endroit d'où elles viennent, et le seul
+ * qui sache qu'on peut les changer sans toucher au code.
+ *
+ * Les défauts eux-mêmes vivent dans `src/core/transcript.ts`, avec le calcul
+ * qu'ils gouvernent : ce sont les défauts d'une règle, pas ceux d'un stockage,
+ * et ce fichier ne fait que les surcharger.
+ */
+
+/**
+ * Les clés reconnues, **dérivées des champs** plutôt que réénumérées : une
+ * seconde liste tenue à la main diverge du type au premier ajout, et le réglage
+ * qui manquerait ne serait jamais relu.
+ */
+const CHAMPS_DE_RÉGLAGE = Object.keys(DIMENSIONS_PAR_DÉFAUT) as (keyof DimensionsRepérage)[]
+
+/** La clé telle qu'elle est stockée. Préfixée : d'autres familles suivront. */
+function cléStockée(champ: keyof DimensionsRepérage): string {
+  return `selection.${champ}`
+}
+
+/**
+ * Le plus petit entier acceptable pour un champ.
+ *
+ * Un seul fait exception, et c'est là sa valeur signifiante : `clipsMaximum` à
+ * zéro veut dire « aucun plafond ». Partout ailleurs zéro est une saisie ratée —
+ * une durée nulle par clip diviserait par zéro, un ratio nul viderait la
+ * présélection.
+ */
+function plancherDuChamp(champ: keyof DimensionsRepérage): number {
+  return champ === 'clipsMaximum' ? 0 : 1
+}
+
+/**
+ * Les réglages effectifs : ce que porte la base, complété par les défauts.
+ *
+ * **Ne lève jamais, et c'est délibéré.** Le repérage tourne en tâche de fond
+ * derrière une transcription qui a coûté quarante minutes ; le faire échouer sur
+ * une valeur mal saisie coûterait bien plus cher que de retomber sur le défaut.
+ * Une valeur illisible ou hors bornes est donc ignorée **comme si elle était
+ * absente** — exactement ce que `tailleDeLot` réserve à `SCORE_BATCH`
+ * (`src/server/steps/candidates.ts`).
+ */
+export function getRéglages(db: Database.Database): DimensionsRepérage {
+  const lignes = db.prepare('SELECT key, value FROM settings').all() as {
+    key: string
+    value: string
+  }[]
+  const enBase = new Map(lignes.map((ligne) => [ligne.key, ligne.value]))
+  const réglages = { ...DIMENSIONS_PAR_DÉFAUT }
+  for (const champ of CHAMPS_DE_RÉGLAGE) {
+    const brut = enBase.get(cléStockée(champ))
+    if (brut === undefined) continue
+    const valeur = Number.parseInt(brut, 10)
+    if (!Number.isFinite(valeur) || valeur < plancherDuChamp(champ)) continue
+    réglages[champ] = valeur
+  }
+  return réglages
+}
+
+/**
+ * Écrit un réglage.
+ *
+ * **Refuse une clé inconnue au lieu de la stocker.** Une clé mal orthographiée
+ * s'écrirait sans bruit, ne serait jamais relue, et l'écran de réglages
+ * afficherait le défaut en jurant avoir enregistré. Une valeur hors bornes est
+ * refusée pour la raison inverse de `getRéglages` : ici quelqu'un attend une
+ * réponse, et lui dire non tout de suite vaut mieux que de la lui ignorer plus
+ * tard.
+ */
+export function setRéglage(
+  db: Database.Database,
+  champ: keyof DimensionsRepérage,
+  valeur: number,
+): void {
+  if (!CHAMPS_DE_RÉGLAGE.includes(champ)) {
+    throw new Error(`Réglage inconnu : ${String(champ)}`)
+  }
+  const plancher = plancherDuChamp(champ)
+  if (!Number.isInteger(valeur) || valeur < plancher) {
+    throw new Error(
+      `Réglage ${String(champ)} : un entier supérieur ou égal à ${plancher} est attendu, reçu ${valeur}.`,
+    )
+  }
+  db.prepare(
+    `INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+  ).run(cléStockée(champ), String(valeur), Date.now())
 }
 
 export function upsertProject(db: Database.Database, project: Project): void {

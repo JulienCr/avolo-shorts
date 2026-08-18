@@ -29,11 +29,12 @@ import {
   buildWindows,
   clipCountTargets,
   mergeOverlappingWindows,
+  shortlistSize,
   type Transcript,
   type Window,
   type Word,
 } from '@/core/transcript'
-import { getClips, getDb, getProject, replaceClips } from '@/server/db'
+import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 import { exigerSecret } from '@/server/secrets'
 
@@ -104,6 +105,23 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
  * fréquence des attentes de `délaiDeQuota`, pas leur utilité.
  */
 const RÉCUPÉRATION_MAX = 3
+
+/**
+ * Le plafond de sortie, posé **explicitement** plutôt que laissé au modèle.
+ *
+ * Aucun n'était posé : le défaut du fournisseur s'appliquait, sans que personne
+ * ici sache lequel. Tant que la passe de détail rendait 6 à 12 clips, la
+ * question ne se posait pas ; le dimensionnement sur la durée de parole la pose
+ * — une source de trois heures en demande 26 à 39, soit environ 5 000 jetons à
+ * ~130 par clip (deux descriptions, un titre, une accroche, quatre nombres).
+ *
+ * **Une troncature est le pire des échecs ici** : `leverSiBloquée` classe
+ * `MAX_TOKENS` en erreur passagère, donc la charge repart trois fois, à
+ * température 0,9, pour se faire tronquer pareil — et le message final accuse le
+ * réseau. Seize mille laisse de la marge à une source de six heures sans jamais
+ * approcher ce que le modèle sait produire.
+ */
+const PLAFOND_DE_SORTIE = 16_384
 
 /**
  * Trois tentatives, et l'attente double à chaque échec : 5 s puis 10 s.
@@ -344,6 +362,7 @@ function configuration(mode: ModeGemini): GenerateContentConfig {
     responseSchema: mode === 'detail' ? SCHÉMA_DÉTAIL : SCHÉMA_NOTATION,
     temperature: mode === 'detail' ? 0.9 : 0.2,
     candidateCount: 1,
+    maxOutputTokens: PLAFOND_DE_SORTIE,
   }
 }
 
@@ -860,6 +879,13 @@ export async function runCandidates(
   const fenêtres = buildWindows(transcript, durée)
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
+  // L'étendue de parole, calculée une fois : elle sert de dénominateur à la
+  // couverture ET de mesure de la matière au dimensionnement. La recalculer
+  // ferait deux autorités sur le même chiffre.
+  const étendue = étendueDuTranscript(mots)
+  const paroleSec = étendue.end - étendue.start
+  const réglages = getRéglages(db)
+
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
   const { notées, bilan } = await noterLesFenêtres(
     fenêtres,
@@ -867,7 +893,7 @@ export async function runCandidates(
       projectId,
       language: transcript.language,
       videoDuration: durée,
-      étendue: étendueDuTranscript(mots),
+      étendue,
       appel,
       sleep,
     },
@@ -875,36 +901,33 @@ export async function runCandidates(
   )
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
-  const retenues = shortlistFromScores(notées, fenêtres)
-  const [minClips, maxClips] = clipCountTargets(retenues.length)
-  const blocs = mergeOverlappingWindows(retenues, transcript)
-  console.log(`Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail.`)
-
-  // 4. Le détail : un seul appel, sur la liste fusionnée et ancrée. Le calage
-  //    sur les mots se fait DANS la relance, pour qu'une enveloppe cassée soit
-  //    réessayée au lieu de ressortir en « zéro clip » — ce qui effacerait les
-  //    propositions non traitées et écrirait l'artefact. (relevé par Copilot)
-  const propositions = await appelerGemini(
-    appel,
-    detailPrompt({
-      language: transcript.language,
-      videoDuration: durée,
-      windowsJson: detailWindowsJson(blocs, transcript),
-      minClips,
-      maxClips,
-    }),
-    'detail',
-    {
-      sleep,
-      analyser: (brut) =>
-        parseDetailResponse(brut, {
-          words: mots,
-          videoDuration: durée,
-          projectId,
-          blocks: blocs,
-        }),
-    },
+  const retenues = shortlistFromScores(
+    notées,
+    fenêtres,
+    shortlistSize(paroleSec, fenêtres.length, réglages),
   )
+  const [minClips, maxClips] = clipCountTargets(paroleSec, réglages)
+  const blocs = mergeOverlappingWindows(retenues, transcript)
+  console.log(
+    `Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail, ` +
+      `cible ${minClips}-${maxClips} clip(s) pour ${(paroleSec / 60).toFixed(1)} min de parole ` +
+      `(un clip toutes les ${réglages.minutesParClip} min).`,
+  )
+
+  // 4. Le détail, sur la liste fusionnée et ancrée. Le calage sur les mots se
+  //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
+  //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
+  //    traitées et écrirait l'artefact. (relevé par Copilot)
+  const propositions = await détailler(blocs, {
+    projectId,
+    transcript,
+    mots,
+    durée,
+    minClips,
+    maxClips,
+    appel,
+    sleep,
+  })
 
   // 5. La fusion des passes, puis l'écriture.
   const existants = getClips(db, projectId)
@@ -1270,6 +1293,133 @@ function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardo
 }
 
 /** Retire le marqueur avant de toucher à la base. */
+/** Ce dont la passe de détail a besoin, une fois les blocs choisis. */
+type ContexteDétail = {
+  projectId: string
+  transcript: TranscriptLu
+  mots: Word[]
+  durée: number
+  minClips: number
+  maxClips: number
+  appel: AppelGemini
+  sleep: (ms: number) => Promise<void>
+}
+
+/**
+ * La passe de détail, avec la même parade que la notation contre le filtre.
+ *
+ * **Elle était un appel unique sans recours**, et c'était tenable tant que la
+ * présélection plafonnait à 24 fenêtres. Le dimensionnement sur la durée de
+ * parole l'ouvre — 32 fenêtres pour une émission de 1 h 51, 52 pour trois
+ * heures —, et le refus mesuré porte sur la **concentration** de matière dans
+ * une charge, pas sur une fenêtre coupable (voir `GeminiBlockedError`). Élargir
+ * la charge sans lui donner de recours reviendrait à troquer six clips contre
+ * une étape qui échoue.
+ *
+ * La parade est celle de `récupérer`, et elle ne viole pas plus qu'elle la règle
+ * « un refus ne se réessaie jamais » : on n'envoie pas la même requête, on en
+ * envoie une autre. La descente va jusqu'au bloc seul parce qu'un seul niveau ne
+ * suffit pas — mesuré sur `2025-06-15-cqlp`, il a fallu descendre des lots de 8
+ * aux demi-lots, puis aux paires, puis aux unités.
+ *
+ * **Un bloc refusé seul est abandonné, pas fatal.** Perdre une région sur vingt
+ * vaut infiniment mieux que de perdre l'émission. Le verdict ne tombe qu'à la
+ * fin et seulement si *rien* n'a répondu : c'est la leçon déjà écrite dans
+ * `noterLesFenêtres`, où « tous les lots ont été refusés » ne dit rien de la
+ * vidéo tant qu'on n'a pas essayé de plus petites charges.
+ *
+ * **Ce que la découpe coûte, et qui est assumé.** Le prompt demande de ne jamais
+ * rendre deux clips qui racontent la même chose « même entre fenêtres
+ * différentes » ; deux moitiés appelées séparément ne peuvent plus se comparer.
+ * Cela ne se produit qu'en cas de refus, et `mergeCandidates` dédoublonne
+ * ensuite sur les bornes.
+ */
+async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]> {
+  // En appels de détail, relances réseau non comprises — celles-ci sont bornées
+  // par `TENTATIVES` à l'intérieur d'`appelerGemini`. Le pire cas d'une descente
+  // complète sur k blocs est `2k - 2` appels ; le facteur laisse la marge sans
+  // laisser la récursion courir sur une vidéo que le fournisseur refuse en bloc.
+  const budget: Budget = { restant: Math.max(1, blocs.length * RÉCUPÉRATION_MAX) }
+  const refusés: string[] = []
+  const clips = await descendre(blocs, blocs.length, ctx, budget, refusés)
+
+  if (refusés.length > 0) {
+    console.warn(
+      `Détail : ${refusés.length} bloc(s) refusé(s) par le filtre et abandonné(s) : ${refusés.join(', ')}.`,
+    )
+  }
+  // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo.
+  if (clips.length === 0 && refusés.length > 0) {
+    throw new GeminiBlockedError(
+      `Gemini a refusé la passe de détail de cette vidéo, jusqu'au bloc seul (${refusés.length} bloc(s)). ` +
+        `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
+    )
+  }
+  return clips
+}
+
+/**
+ * Un lot de blocs, recoupé en deux tant que le filtre refuse.
+ *
+ * `totalBlocs` sert à mettre la cible de clips au prorata : demander `minClips`
+ * à chaque moitié en rendrait deux fois trop, et le plancher est ce que le
+ * modèle rend (voir `clipCountTargets`).
+ */
+async function descendre(
+  lot: Window[],
+  totalBlocs: number,
+  ctx: ContexteDétail,
+  budget: Budget,
+  refusés: string[],
+): Promise<Clip[]> {
+  if (lot.length === 0) return []
+  if (budget.restant <= 0) {
+    refusés.push(...lot.map((b) => b.id))
+    return []
+  }
+  budget.restant -= 1
+
+  const part = lot.length / totalBlocs
+  const min = Math.max(1, Math.round(ctx.minClips * part))
+  const max = Math.max(min + 1, Math.round(ctx.maxClips * part))
+
+  try {
+    return await appelerGemini(
+      ctx.appel,
+      detailPrompt({
+        language: ctx.transcript.language,
+        videoDuration: ctx.durée,
+        windowsJson: detailWindowsJson(lot, ctx.transcript),
+        minClips: min,
+        maxClips: max,
+      }),
+      'detail',
+      {
+        sleep: ctx.sleep,
+        analyser: (brut) =>
+          parseDetailResponse(brut, {
+            words: ctx.mots,
+            videoDuration: ctx.durée,
+            projectId: ctx.projectId,
+            blocks: lot,
+          }),
+      },
+    )
+  } catch (erreur) {
+    if (!(erreur instanceof GeminiBlockedError)) throw erreur
+    // Un bloc seul et toujours refusé : il n'y a plus rien à recouper, et c'est
+    // bien lui que le filtre vise.
+    if (lot.length === 1) {
+      refusés.push(lot[0].id)
+      return []
+    }
+    const milieu = Math.ceil(lot.length / 2)
+    const gauche = await descendre(lot.slice(0, milieu), totalBlocs, ctx, budget, refusés)
+    const droite = await descendre(lot.slice(milieu), totalBlocs, ctx, budget, refusés)
+    return [...gauche, ...droite]
+  }
+}
+
 function effacerArtefact(projectId: string): void {
   fs.rmSync(candidatesPath(projectId), { force: true })
 }

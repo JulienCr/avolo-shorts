@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Clip } from '@/core/edl'
-import { shortlistSize, snapToWords, type Window, type Word } from '@/core/transcript'
+import { snapToWords, type Window, type Word } from '@/core/transcript'
 
 /**
  * Ce que Gemini rend, transformé en ce que le reste du projet manipule.
@@ -63,7 +63,7 @@ function liste(brut: unknown, clé: string): unknown[] | null {
  * réponse accepte n'importe quelle longueur de liste, donc une fenêtre
  * simplement omise disparaîtrait du classement et n'atteindrait jamais la passe
  * de détail. Ce qui n'est pas noté finit **dernier plutôt que dehors**, de sorte
- * que `shortlistSize` reste la seule chose qui retire de la matière.
+ * que la présélection reste la seule chose qui retire de la matière.
  *
  * **La réconciliation se fait contre CE lot**, jamais contre la liste globale :
  * un identifiant halluciné qui se trouve appartenir à un autre lot serait sinon
@@ -114,7 +114,12 @@ export function parseScoreResponse(
 
 /**
  * Les fenêtres qui atteignent la passe de détail : le haut du panier, à hauteur
- * de `shortlistSize`.
+ * de `cible`.
+ *
+ * **La cible arrive en argument plutôt que d'être calculée ici.** Elle se déduit
+ * de la durée de parole et des réglages (`shortlistSize`), deux choses que cette
+ * fonction n'a pas et n'a pas à connaître : elle trie et coupe, elle ne
+ * dimensionne pas.
  *
  * **Les notes égales sont départagées par la position de la fenêtre dans le
  * lot, qui est chronologique — et par un comparateur explicite, pas par la
@@ -134,8 +139,11 @@ export function parseScoreResponse(
  * mangeait une place. Ici les inconnues sont déjà tombées à l'analyse, et la
  * boucle compte les fenêtres réelles.
  */
-export function shortlistFromScores(scored: ScoredWindow[], windows: Window[]): Window[] {
-  const cible = shortlistSize(windows.length)
+export function shortlistFromScores(
+  scored: ScoredWindow[],
+  windows: Window[],
+  cible: number,
+): Window[] {
   const parId = new Map(windows.map((w) => [w.id, w]))
   // La position dans le lot. Une note dont l'identifiant est inconnu prend le
   // rang de queue — elle est écartée deux lignes plus bas de toute façon, et un

@@ -485,23 +485,25 @@ describe("l'étape de repérage", () => {
     }
   })
 
-  it('calcule les cibles de nombre de clips avant la fusion des fenêtres', async () => {
+  it('calcule les cibles sur la durée de parole, que la fusion ne touche pas', async () => {
     const prompts: { mode: ModeGemini; prompt: string }[] = []
     await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
     const détail = prompts.find((p) => p.mode === 'detail')!.prompt
 
     // Le transcript fait 40 phrases sur 240 s : `buildWindows` en tire quatre
-    // fenêtres, `shortlistSize` les garde toutes (son plancher est de 10), et la
+    // fenêtres, la présélection les garde toutes (son plancher est de 10), et la
     // fusion les ramène à un seul bloc contigu — elles se chevauchent toutes.
     const blocs = [...détail.matchAll(/"id":"window_\d+"/g)].length
     expect(blocs).toBe(1)
 
     const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
-    // `clipCountTargets(4)` vaut [4, 8] ; `clipCountTargets(1)` vaudrait [2, 4].
-    // Fusionner remanie la charge utile, cela ne sélectionne pas moins de
-    // matière : le plancher repose sur une mesure de rétention et n'a pas à
-    // bouger parce que deux fenêtres se trouvent voisines.
-    expect([Number(min), Number(max)]).toEqual([4, 8])
+    // 239 s de parole : le prorata donne un clip, `clipsMinimum` en voudrait
+    // six, et les trois créneaux de 90 s tranchent à trois. Fusionner remanie la
+    // charge utile, cela ne sélectionne pas moins de matière — et depuis que la
+    // cible se calcule sur la durée de parole, la fusion ne peut plus
+    // l'atteindre du tout, ce qui rend l'ancienne inversion impossible plutôt
+    // que seulement évitée.
+    expect([Number(min), Number(max)]).toEqual([3, 5])
   })
 
   it('la passe suivante ne ressuscite pas un clip écarté', async () => {

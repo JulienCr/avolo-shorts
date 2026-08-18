@@ -107,31 +107,44 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
  * le premier — sur le clip le mieux livré de la bibliothèque.
  */
+/**
+ * Ce clip a-t-il une livraison à jour, c'est-à-dire des fichiers qui le
+ * décrivent encore ?
+ *
+ * **Une seule question, deux portes.** `sortiesDuClip` publie les URL et
+ * `GET /api/clips/:id/renders/:file` pousse les octets ; les deux doivent
+ * répondre pareil, sinon la porte qui reste ouverte laisse sortir exactement ce
+ * que l'autre déclare indisponible — un consommateur qui a gardé l'URL continue
+ * de tirer le rendu périmé. (relevé par Codex)
+ *
+ * **Le statut d'abord**, et c'est un invariant, pas une précaution : `status` ne
+ * devient `exported` que dans `renderClip`, une fois les fichiers écrits — la
+ * route d'édition refuse ce statut au client. Des fichiers présents sous un clip
+ * qui ne le porte pas décrivent donc autre chose que sa livraison : un rendu
+ * qu'une édition vient de périmer et dont l'effacement a échoué, ou les restes
+ * d'un montage abandonné. (relevé par Copilot)
+ *
+ * **Et le statut ne suffit pas non plus** (#48). Un clip peut le porter sur des
+ * fichiers qui ne le décrivent plus : ceux qui étaient sur le disque avant que
+ * l'empreinte existe, ou ceux qu'un rendu antérieur a produits sous une autre
+ * recette. C'est ici que le rendu « se dit à jour », donc c'est ici qu'il doit
+ * avoir de quoi le prouver. Le contrat le dit déjà : `mp4Url: null` veut dire
+ * « pas de livraison à jour », pas « jamais exporté » (`src/lib/api.ts`), et
+ * l'écran propose alors l'export — qui refera ce qu'il faut plutôt que de sauter
+ * dessus.
+ *
+ * **Sans sonder le dossier des marques** : un `GET` se sert à chaque affichage
+ * de carte et ne lance pas deux ffprobe pour cela. C'est la même fonction que
+ * celle du rendu, avec un critère de moins — voir `écartDeLEmpreinte`.
+ */
+export function livraisonÀJour(clip: Clip): boolean {
+  if (clip.status !== 'exported') return false
+  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, null)
+}
+
 export function sortiesDuClip(clip: Clip): ClipOutputs {
-  const { mp4, variant9x16, texts, empreinte } = sorties(clip)
-  // **Seul un clip exporté a des sorties**, et c'est un invariant, pas une
-  // précaution : `status` ne devient `exported` que dans `renderClip`, une fois
-  // les fichiers écrits — la route d'édition refuse ce statut au client. Des
-  // fichiers présents sous un clip qui ne le porte pas décrivent donc autre
-  // chose que sa livraison : un rendu qu'une édition vient de périmer et dont
-  // l'effacement a échoué, ou les restes d'un montage abandonné. Les publier
-  // ferait servir la vidéo d'avant sans que rien ne le signale.
-  // (relevé par Copilot)
-  //
-  // **Et le statut ne suffit pas non plus** (#48). Un clip peut le porter sur des
-  // fichiers qui ne le décrivent plus : ceux qui étaient sur le disque avant que
-  // l'empreinte existe, ou ceux qu'un rendu antérieur a produits sous une autre
-  // recette. C'est ici que le rendu « se dit à jour » à l'interface, donc c'est
-  // ici qu'il doit avoir de quoi le prouver. Le contrat le dit déjà :
-  // `mp4Url: null` veut dire « pas de livraison à jour », pas « jamais exporté »
-  // (`src/lib/api.ts`), et l'écran propose alors l'export — qui refera ce qu'il
-  // faut plutôt que de sauter dessus.
-  //
-  // **Sans sonder le dossier des marques** : un `GET` se sert à chaque
-  // affichage de carte et ne lance pas deux ffprobe pour cela. C'est la même
-  // fonction que celle du rendu, avec un critère de moins — voir
-  // `écartDeLEmpreinte`.
-  if (clip.status !== 'exported' || !empreinteÀJour(lireEmpreinte(empreinte), clip, null)) {
+  const { mp4, variant9x16, texts } = sorties(clip)
+  if (!livraisonÀJour(clip)) {
     return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
   }
   return {

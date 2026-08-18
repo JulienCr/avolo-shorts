@@ -92,14 +92,24 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
   }
 }
 
-/** Des marques, dans la forme que `collecterMarques` rendrait. */
-function marquesNommées(noms: readonly string[]): MarqueNative[] {
+/**
+ * Des marques, dans la forme que `collecterMarques` rendrait.
+ *
+ * `contenu` dérive du nom par défaut : deux appels avec les mêmes noms rendent
+ * les mêmes marques, et il suffit de passer un contenu explicite pour simuler
+ * un fichier remplacé sous le même nom.
+ */
+function marquesNommées(
+  noms: readonly string[],
+  contenu: (nom: string) => string = (nom) => `contenu-de-${nom}`,
+): MarqueNative[] {
   return noms.map((nom) => ({
     path: path.join('/nulle-part', nom),
     nativeW: 1000,
     nativeH: 996,
     largeurRatio: 0.22,
     bord: 'gauche' as const,
+    contenu: contenu(nom),
   }))
 }
 
@@ -285,7 +295,10 @@ describe("l'empreinte de rendu", () => {
       captions: true,
       branding: true,
       // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
-      marques: ['logo.png', 'twitch.png'],
+      marques: [
+        { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
+        { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
+      ],
       sousTitres: true,
     })
   })
@@ -384,10 +397,29 @@ describe("l'empreinte de rendu", () => {
     })
 
     it("compare sans tenir compte de l'ordre", () => {
-      const empreinte = { ...empreinteDuRendu(clip(), [], true), marques: ['twitch.png', 'logo.png'] }
+      const empreinte = {
+        ...empreinteDuRendu(clip(), [], true),
+        marques: [
+          { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
+          { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
+        ],
+      }
       expect(lesMarquesOntBougé(empreinte, marquesNommées(['logo.png', 'twitch.png']), true)).toBe(
         false,
       )
+    })
+
+    /**
+     * **Le nom ne suffit pas.** Les deux marques portent des noms fixes, et la
+     * façon normale d'en changer est de remplacer le fichier sous le même nom.
+     * Une empreinte réduite aux noms verrait « rien n'a bougé » là où tout a
+     * changé, et l'export continuerait de livrer l'ancienne image.
+     * (relevé par Codex)
+     */
+    it('périme un logo remplacé sous le même nom', () => {
+      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png']), true)
+      const remplacé = marquesNommées(['logo.png'], () => 'une tout autre image')
+      expect(lesMarquesOntBougé(empreinte, remplacé, true)).toBe(true)
     })
   })
 
@@ -458,6 +490,7 @@ describe('planifierMarques', () => {
     nativeH,
     largeurRatio: 0.22,
     bord: 'gauche',
+    contenu: 'peu importe : le placement ne lit pas le contenu',
   })
   const mention = (nativeW: number, nativeH: number): MarqueNative => ({
     path: '/marques/twitch.png',
@@ -465,6 +498,7 @@ describe('planifierMarques', () => {
     nativeH,
     largeurRatio: 0.16,
     bord: 'droite',
+    contenu: 'peu importe : le placement ne lit pas le contenu',
   })
 
   it('ne pose rien quand le dossier des marques est vide', () => {
@@ -700,6 +734,7 @@ describe('refuserFauteDeMarque', () => {
     nativeH: 250,
     largeurRatio: 0.22,
     bord: 'gauche',
+    contenu: 'peu importe : la porte ne lit pas le contenu',
   })
 
   it("refuse quand le clip demande des marques et qu'il n'y en a aucune", () => {

@@ -151,6 +151,11 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
   }
 }
 
+/** Les noms des marques que l'empreinte dit incrustées, triés. */
+function marquesIncrustées(chemin: string): string[] {
+  return (lireEmpreinte(chemin)?.marques ?? []).map((m) => m.nom)
+}
+
 /** Le `PATCH` réel, tel que Next l'appelle. */
 async function patcher(champs: Record<string, unknown>): Promise<void> {
   const réponse = await patchClipRoute(
@@ -285,7 +290,7 @@ describe('un rendu sans empreinte, déjà sur le disque', () => {
     expect(résultat.skipped).toBe(false)
     expect(encodages).toEqual([chemins.mp4, chemins.variant9x16])
     // Et il en laisse une, donc le cas ne se reproduit qu'une fois par clip.
-    expect(lireEmpreinte(chemins.empreinte)?.marques).toEqual(['logo.png', 'twitch.png'])
+    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
   })
 
   it('le dit au journal, plutôt que de refaire en silence', async () => {
@@ -333,14 +338,14 @@ describe('les marques incrustées', () => {
     fs.rmSync(path.join(brandDir, 'twitch.png'))
     putClip(getDb(), clip())
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual(['logo.png'])
+    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual(['logo.png'])
 
     fs.writeFileSync(path.join(brandDir, 'twitch.png'), 'pas vraiment un PNG')
     encodages = []
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(résultat.skipped).toBe(false)
-    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual([
+    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual([
       'logo.png',
       'twitch.png',
     ])
@@ -355,7 +360,7 @@ describe('les marques incrustées', () => {
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(résultat.skipped).toBe(false)
-    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual(['logo.png'])
+    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual(['logo.png'])
   })
 
   /**
@@ -369,6 +374,42 @@ describe('les marques incrustées', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
 
     for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+  })
+  /**
+   * **Le nom ne suffit pas**, et c'est la façon normale de changer de marque :
+   * les deux fichiers portent des noms fixes, on remplace le contenu sous le
+   * même nom. Une empreinte réduite aux noms sauterait l'export et continuerait
+   * de livrer l'ancienne image. (relevé par Codex)
+   */
+  it('périme le rendu quand un logo est remplacé sous le même nom', async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const avant = lireEmpreinte(chemins.empreinte)?.marques
+
+    fs.writeFileSync(path.join(brandDir, 'logo.png'), 'une tout autre image')
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+    // Le nom n'a pas bougé, le contenu si.
+    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
+    expect(lireEmpreinte(chemins.empreinte)?.marques).not.toEqual(avant)
+  })
+
+  it('ne périme rien quand le fichier est réécrit à l’identique', async () => {
+    // Une synchronisation de dossier change la date sans changer l'image :
+    // c'est pourquoi l'empreinte porte un condensat et non un `mtime`.
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    fs.writeFileSync(path.join(brandDir, 'logo.png'), 'pas vraiment un PNG')
     encodages = []
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
 

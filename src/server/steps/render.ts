@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -222,10 +223,16 @@ export type FormeRendue = Pick<Clip, 'segments' | 'ratio' | 'cropX' | 'captions'
 export type EmpreinteRendu = FormeRendue & {
   version: number
   /**
-   * Les marques réellement incrustées, par nom de fichier, triées — l'ordre de
-   * lecture d'un dossier n'a rien à dire.
+   * Les marques réellement incrustées, triées par nom — l'ordre de lecture d'un
+   * dossier n'a rien à dire.
+   *
+   * **Le nom ne suffit pas, il faut le contenu.** Les deux marques portent des
+   * noms fixes, `logo.png` et `twitch.png`, et la façon normale d'en changer est
+   * de remplacer le fichier sous le même nom. Une empreinte réduite aux noms
+   * verrait « rien n'a bougé » là où tout a changé, et l'export continuerait de
+   * livrer l'ancienne image. (relevé par Codex)
    */
-  marques: string[]
+  marques: MarqueIncrustée[]
   /**
    * Vrai si un document ASS a réellement été incrusté. Un clip qui demande des
    * sous-titres et dont aucun mot ne tombe dans les segments se rend sans, en le
@@ -243,6 +250,9 @@ export type EmpreinteRendu = FormeRendue & {
   sousTitres: boolean
 }
 
+/** Une marque incrustée : son nom de fichier, et de quoi voir qu'elle a changé. */
+export type MarqueIncrustée = { nom: string; contenu: string }
+
 /**
  * Le schéma de lecture. **Non strict, et volontairement** : une version
  * ultérieure ajoutera des champs, et c'est `version` qui doit trancher, pas un
@@ -255,13 +265,32 @@ const SCHÉMA_EMPREINTE = z.object({
   cropX: z.number().finite(),
   captions: z.boolean(),
   branding: z.boolean(),
-  marques: z.array(z.string()),
+  marques: z.array(z.object({ nom: z.string(), contenu: z.string() })),
   sousTitres: z.boolean(),
 })
 
-/** Les noms de fichiers des marques, triés. */
-function nomsDeMarques(marques: readonly MarqueNative[]): string[] {
-  return marques.map((m) => path.basename(m.path)).sort()
+/**
+ * L'identité du contenu d'un fichier de marque.
+ *
+ * SHA-256 plutôt que la taille et la date : une copie change la date sans
+ * changer l'image, et le rendu serait déclaré périmé pour rien à chaque
+ * synchronisation de dossier. Le condensat ne bouge que si l'image bouge.
+ *
+ * Le coût est la lecture de quarante kilo-octets, dans une fonction qui lance
+ * déjà un ffprobe par marque.
+ */
+function contenuDeLaMarque(chemin: string): string {
+  return createHash('sha256').update(fs.readFileSync(chemin)).digest('hex')
+}
+
+/** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
+function triéesParNom(marques: readonly MarqueIncrustée[]): MarqueIncrustée[] {
+  return [...marques].sort((a, b) => (a.nom < b.nom ? -1 : a.nom > b.nom ? 1 : 0))
+}
+
+/** Les marques telles que l'empreinte les note : nom et contenu, triés par nom. */
+function identitésDeMarques(marques: readonly MarqueNative[]): MarqueIncrustée[] {
+  return triéesParNom(marques.map((m) => ({ nom: path.basename(m.path), contenu: m.contenu })))
 }
 
 /** L'empreinte que ce passage vient de produire. Pure. */
@@ -280,7 +309,7 @@ export function empreinteDuRendu(
     cropX: clip.cropX,
     captions: clip.captions,
     branding: clip.branding,
-    marques: nomsDeMarques(marques),
+    marques: identitésDeMarques(marques),
     sousTitres,
   }
 }
@@ -335,19 +364,23 @@ async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Prom
  * refuse. C'est arrivé pour de vrai : les deux PNG ont disparu d'`assets/brand/`
  * entre le matin et l'après-midi du 18 août. Le rendu déjà produit reste alors
  * le meilleur qu'on ait.
+ *
+ * **La comparaison porte sur le contenu autant que sur le nom** : remplacer
+ * `logo.png` par une autre image sous le même nom est la façon normale de
+ * changer de marque. (relevé par Codex)
  */
 export function lesMarquesOntBougé(
   empreinte: EmpreinteRendu,
   disponibles: readonly MarqueNative[],
   branding: boolean,
 ): boolean {
-  const aujourdhui = nomsDeMarques(disponibles)
+  const aujourdhui = identitésDeMarques(disponibles)
   if (branding && aujourdhui.length === 0) return false
   // Retriées à la lecture : le fichier a pu être écrit à la main.
-  const incrustées = [...empreinte.marques].sort()
+  const incrustées = triéesParNom(empreinte.marques)
   return (
     incrustées.length !== aujourdhui.length ||
-    incrustées.some((nom, i) => nom !== aujourdhui[i])
+    incrustées.some((m, i) => m.nom !== aujourdhui[i].nom || m.contenu !== aujourdhui[i].contenu)
   )
 }
 
@@ -539,6 +572,12 @@ export type MarqueNative = {
   nativeH: number
   largeurRatio: number
   bord: Bord
+  /**
+   * Le condensat du fichier. Il ne sert pas au rendu — `planifierMarques`
+   * l'ignore — mais à l'empreinte, qui doit distinguer deux images portant le
+   * même nom fixe. Voir `contenuDeLaMarque`.
+   */
+  contenu: string
 }
 
 /** Une marque placée, dans la forme que `renderArgs` attend pour ses `logos`. */
@@ -645,6 +684,19 @@ export async function collecterMarques(brandDir?: string): Promise<MarqueNative[
   for (const attendue of MARQUES_ATTENDUES) {
     const chemin = path.join(dossier, attendue.fichier)
     if (!fs.existsSync(chemin)) continue
+    // Le contenu avant le sondage : c'est la lecture la moins chère des deux, et
+    // un fichier qu'on ne sait pas lire n'a pas besoin d'un ffprobe pour être
+    // écarté. Une marque illisible se journalise et s'ignore, comme une marque
+    // que ffprobe ne sait pas mesurer.
+    let contenu: string
+    try {
+      contenu = contenuDeLaMarque(chemin)
+    } catch (erreur) {
+      console.warn(
+        `Marque illisible, ignorée : ${chemin} (${erreur instanceof Error ? erreur.name : 'erreur inconnue'})`,
+      )
+      continue
+    }
     const { width, height } = await probe(chemin)
     if (width === null || height === null || width <= 0 || height <= 0) {
       console.warn(`Marque illisible, ignorée : ${chemin}`)
@@ -656,6 +708,7 @@ export async function collecterMarques(brandDir?: string): Promise<MarqueNative[
       nativeH: height,
       largeurRatio: attendue.largeurRatio,
       bord: attendue.bord,
+      contenu,
     })
   }
   return trouvées

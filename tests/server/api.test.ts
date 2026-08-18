@@ -122,6 +122,7 @@ function poserEmpreinte(clip: Clip, marques: string[] = []): void {
           nativeH: 996,
           largeurRatio: 0.22,
           bord: 'gauche' as const,
+          contenu: `contenu-de-${nom}`,
         })),
         clip.captions,
       ),
@@ -629,6 +630,10 @@ describe('GET /api/clips/:id/renders/:file', () => {
 
   beforeEach(() => {
     putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
+    // Sans elle, la route refuse : un rendu que rien ne certifie n'est pas une
+    // livraison à jour, et la porte des octets dit la même chose que celle des
+    // URL. Ce que ces tests-ci éprouvent est ce qui vient après.
+    poserEmpreinte({ ...clipDeBase(), ratio: '1:1', status: 'exported' })
   })
 
   it('ne sert rien pour un clip que l’édition a fait sortir d’`exported`', async () => {
@@ -701,9 +706,10 @@ describe('GET /api/clips/:id/renders/:file', () => {
 
   it('refuse le rendu d’un autre clip, même bien nommé', async () => {
     const autre = `${PROJET}_000200000-000230000`
-    // Exporté lui aussi : ce test porte sur le cloisonnement entre clips, pas
-    // sur la règle de statut éprouvée juste au-dessus.
+    // Exporté et certifié lui aussi : ce test porte sur le cloisonnement entre
+    // clips, pas sur les règles de livraison éprouvées juste au-dessus.
     putClip(getDb(), { ...clipDeBase(), id: autre, status: 'exported' })
+    poserEmpreinte({ ...clipDeBase(), id: autre, status: 'exported' })
     poserRendus(`${autre}.mp4`)
     expect((await demander(`${autre}.mp4`)).status).toBe(404)
     expect((await demander(`${autre}.mp4`, undefined, autre)).status).toBe(200)

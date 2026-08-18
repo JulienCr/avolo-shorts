@@ -29,13 +29,13 @@ import {
   sousTitresDuClip,
   texteDePublication,
   VERSION_EMPREINTE,
-  cadrageRendu,
-  formeRendue,
-  type CadrageRendu,
+  renderedFraming,
+  renderedShape,
+  type RenderedFraming,
   type FormeRendue,
   type MarqueNative,
 } from '@/server/steps/render'
-import { cadrageDuClip, oublierLesAnalyses } from '@/server/cadrage'
+import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 
 /**
  * Ce que le rendu a de testable sans GPU, sans ffmpeg et sans vidéo : le choix
@@ -88,7 +88,7 @@ afterEach(() => {
   // chemin, la taille et la date du fichier ; chaque test refabrique son
   // `PROJECTS_DIR` sous un nom neuf, mais un test qui poserait deux
   // `analysis.json` de suite au même endroit relirait sinon le premier.
-  oublierLesAnalyses()
+  forgetAnalyses()
 })
 
 function clip(surcharges: Partial<Clip> = {}): Clip {
@@ -136,14 +136,14 @@ function marquesNommées(
 /**
  * Le cadrage **réellement résolu** de ce clip, comme `renderClip` le calcule.
  *
- * Aucun de ces tests ne pose d'`analysis.json`, donc `cadrageDuClip` se rabat
+ * Aucun de ces tests ne pose d'`analysis.json`, donc `clipFraming` se rabat
  * sur le réglage manuel : un plan unique qui couvre le clip, au ratio résolu et
  * au `cropX` du clip. Passer par la vraie fonction plutôt que par un littéral
  * est ce qui fait que les tests de `marquerExporté` et d'`écarterRenduPérimé`
  * comparent bien ce que la production compare.
  */
-function cadrageDe(c: Clip): CadrageRendu {
-  return cadrageRendu(cadrageDuClip(c))
+function cadrageDe(c: Clip): RenderedFraming {
+  return renderedFraming(clipFraming(c))
 }
 
 /**
@@ -152,10 +152,10 @@ function cadrageDe(c: Clip): CadrageRendu {
  * Un plan unique qui couvre le clip de référence, en 1:1 centré. C'est le cas
  * le plus simple, et celui qui laisse chaque test surcharger ce qu'il mesure.
  */
-function cadrage(surcharges: Partial<CadrageRendu> = {}): CadrageRendu {
+function cadrage(surcharges: Partial<RenderedFraming> = {}): RenderedFraming {
   return {
     ratio: '1:1',
-    shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 }],
+    shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }],
     ...surcharges,
   }
 }
@@ -167,8 +167,8 @@ function cadrage(surcharges: Partial<CadrageRendu> = {}): CadrageRendu {
  * c'est justement pour cela qu'il entre dans l'empreinte — une redétection des
  * plans peut déplacer tous les crops sans qu'aucun champ du clip ne bouge.
  */
-function forme(c: Clip = clip(), cad: CadrageRendu = cadrage()): FormeRendue {
-  return formeRendue(c, cad)
+function forme(c: Clip = clip(), cad: RenderedFraming = cadrage()): FormeRendue {
+  return renderedShape(c, cad)
 }
 
 /**
@@ -180,7 +180,7 @@ function empreinteAvec(
   c: Clip,
   marques: readonly MarqueNative[],
   incrustés = true,
-  cad: CadrageRendu = cadrage(),
+  cad: RenderedFraming = cadrage(),
 ): ReturnType<typeof empreinteDuRendu> {
   return empreinteDuRendu(forme(c, cad), marques, { incrustés, look: look() })
 }
@@ -380,8 +380,10 @@ describe("l'empreinte de rendu", () => {
       // **Le cadrage résolu, pas `clip.ratio` ni `clip.cropX`.** Ceux-là ne
       // décrivent plus l'image : le ratio effectif est celui que le calcul
       // choisit — par plan pour la variante, le plus large pour le natif — et
-      // le crop se calcule par plan.
-      cadrage: cadrage(),
+      // le crop se calcule par plan. La clé est en anglais comme tout ce que
+      // cette PR ajoute ; `marques` et `sousTitres`, plus anciennes, attendent
+      // le balayage de #73.
+      framing: cadrage(),
       // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
       marques: [
         { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
@@ -438,16 +440,16 @@ describe("l'empreinte de rendu", () => {
     // clip ne bouge, et sans ce champ l'empreinte déclarerait à jour un rendu
     // qui ne montre plus ce que la chaîne montrerait.
     it('dit « montage » quand le cadrage résolu a bougé', () => {
-      const cas: Partial<CadrageRendu>[] = [
+      const cas: Partial<RenderedFraming>[] = [
         { ratio: '4:5' },
-        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.2, cropXNatif: 0.5 }] },
-        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.2 }] },
-        { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNatif: 0.5 }] },
-        { shots: [{ start: 0, end: 12, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 }] },
+        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.2, cropXNative: 0.5 }] },
+        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.2 }] },
+        { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNative: 0.5 }] },
+        { shots: [{ start: 0, end: 12, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }] },
         {
           shots: [
-            { start: 0, end: 10, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 },
-            { start: 10, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 },
+            { start: 0, end: 10, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 },
+            { start: 10, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 },
           ],
         },
       ]
@@ -942,12 +944,12 @@ describe('leRenduEstPérimé', () => {
   })
 
   it('voit chacune des composantes du cadrage résolu', () => {
-    const cas: Partial<CadrageRendu>[] = [
+    const cas: Partial<RenderedFraming>[] = [
       { ratio: '4:5' },
-      { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNatif: 0.5 }] },
-      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.3, cropXNatif: 0.5 }] },
-      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.3 }] },
-      { shots: [{ start: 1, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 }] },
+      { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNative: 0.5 }] },
+      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.3, cropXNative: 0.5 }] },
+      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.3 }] },
+      { shots: [{ start: 1, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }] },
       { shots: [] },
     ]
     for (const surcharge of cas) {
@@ -1384,7 +1386,7 @@ describe('renderClip, chemin du saut', () => {
   // `ratio` et `cropX` y figurent encore, et pour une raison qui a changé : ils
   // ne sont plus comparés en tant que champs du clip, mais ils décident du
   // cadrage résolu tant qu'aucune analyse n'a tourné — c'est le repli de
-  // `cadrageDuClip`, et c'est le cas de tous ces tests.
+  // `clipFraming`, et c'est le cas de tous ces tests.
   it('refuse pareillement sur chacun des champs qui vont à l’image', () => {
     const cas: Partial<Clip>[] = [
       { segments: [{ start: 0, end: 5 }] },

@@ -2,14 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import type { CadrageClip, ClipOutputs } from '@/lib/api'
-import { cadrageDuClip } from '@/server/cadrage'
+import type { PublishedFraming, ClipOutputs } from '@/lib/api'
+import { clipFraming } from '@/server/clip-framing'
 import { estUneAbsence } from '@/server/octets'
 import {
-  cadrageRendu,
+  renderedFraming,
   cheminsRendu,
   empreinteÀJour,
-  formeRendue,
+  renderedShape,
   lireEmpreinte,
 } from '@/server/steps/render'
 
@@ -59,13 +59,13 @@ function sortie(chemin: string, type: string): SortieClip {
  * un sous-titre surprend. Il n'a rien à faire dans une livraison, et une route
  * qui le servirait laisserait croire l'inverse.
  */
-function sorties(clip: Clip, cadrage: CadrageClip): Sorties {
+function sorties(clip: Clip, framing: PublishedFraming): Sorties {
   // **Le ratio NATIF résolu, jamais `clip.ratio`.** Un clip en `auto` n'a pas de
   // ratio à lui : c'est `computeFraming` qui le choisit — le plus large de ses
   // plans —, et c'est sous ce ratio-là que l'export a décidé s'il devait une
   // variante. Le lire ailleurs ferait chercher un `-9x16.mp4` sous un clip qui
   // n'en a pas, ou l'inverse.
-  const chemins = cheminsRendu(clip.projectId, clip.id, cadrage.ratio)
+  const chemins = cheminsRendu(clip.projectId, clip.id, framing.ratio)
   return {
     mp4: sortie(chemins.mp4, 'video/mp4'),
     variant9x16:
@@ -140,11 +140,11 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * la même fonction que celle du rendu, avec deux critères de moins — voir
  * `CeQuOnIncrusterait`.
  */
-export function livraisonÀJour(clip: Clip, cadrage: CadrageClip = cadrageDuClip(clip)): boolean {
+export function livraisonÀJour(clip: Clip, framing: PublishedFraming = clipFraming(clip)): boolean {
   if (clip.status !== 'exported') return false
   return empreinteÀJour(
-    lireEmpreinte(sorties(clip, cadrage).empreinte),
-    formeRendue(clip, cadrageRendu(cadrage)),
+    lireEmpreinte(sorties(clip, framing).empreinte),
+    renderedShape(clip, renderedFraming(framing)),
     { marques: null, look: null },
   )
 }
@@ -159,9 +159,9 @@ export function livraisonÀJour(clip: Clip, cadrage: CadrageClip = cadrageDuClip
  * « rendu manquant » sur le premier — sur le clip le mieux livré de la
  * bibliothèque.
  */
-export function sortiesDuClip(clip: Clip, cadrage: CadrageClip = cadrageDuClip(clip)): ClipOutputs {
-  const { mp4, variant9x16, texts } = sorties(clip, cadrage)
-  if (!livraisonÀJour(clip, cadrage)) {
+export function sortiesDuClip(clip: Clip, framing: PublishedFraming = clipFraming(clip)): ClipOutputs {
+  const { mp4, variant9x16, texts } = sorties(clip, framing)
+  if (!livraisonÀJour(clip, framing)) {
     return {
       mp4Url: null,
       variant9x16Url: null,
@@ -193,8 +193,8 @@ export function sortiesDuClip(clip: Clip, cadrage: CadrageClip = cadrageDuClip(c
 export function sortieNommée(
   clip: Clip,
   nom: string,
-  cadrage: CadrageClip = cadrageDuClip(clip),
+  framing: PublishedFraming = clipFraming(clip),
 ): SortieClip | null {
-  const { mp4, variant9x16, texts } = sorties(clip, cadrage)
+  const { mp4, variant9x16, texts } = sorties(clip, framing)
   return [mp4, variant9x16, texts].find((s) => s !== null && s.nom === nom) ?? null
 }

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
-import { cadrageAvec, cadrageDuClip, analyseDuProjet, oublierLesAnalyses } from '@/server/cadrage'
+import { framingWith, clipFraming, projectAnalysis, forgetAnalyses } from '@/server/clip-framing'
 import { analysisPath } from '@/server/paths'
 
 /**
@@ -29,13 +29,13 @@ beforeEach(() => {
   projets = path.join(racine, 'projects')
   fs.mkdirSync(path.join(projets, ID), { recursive: true })
   process.env.PROJECTS_DIR = projets
-  oublierLesAnalyses()
+  forgetAnalyses()
 })
 
 afterEach(() => {
   fs.rmSync(racine, { recursive: true, force: true })
   process.env = { ...envDépart }
-  oublierLesAnalyses()
+  forgetAnalyses()
 })
 
 function clip(surcharges: Partial<Clip> = {}): Clip {
@@ -87,43 +87,43 @@ function écrireAnalyse(contenu?: unknown): void {
   )
 }
 
-describe('cadrageDuClip', () => {
+describe('clipFraming', () => {
   it('calcule un cadre par plan quand l’analyse est là', () => {
     écrireAnalyse()
-    const cadrage = cadrageDuClip(clip())
-    expect(cadrage.origine).toBe('calculé')
-    expect(cadrage.shots).toHaveLength(2)
-    expect(cadrage.shots.map((p) => p.source)).toEqual(['auto', 'auto'])
+    const framing = clipFraming(clip())
+    expect(framing.origin).toBe('computed')
+    expect(framing.shots).toHaveLength(2)
+    expect(framing.shots.map((p) => p.source)).toEqual(['auto', 'auto'])
     // Deux plans serrés : chacun tient dans un 9:16, et le natif prend le plus
     // large des deux — donc 9:16 aussi.
-    expect(cadrage.shots.map((p) => p.ratio)).toEqual(['9:16', '9:16'])
-    expect(cadrage.ratio).toBe('9:16')
+    expect(framing.shots.map((p) => p.ratio)).toEqual(['9:16', '9:16'])
+    expect(framing.ratio).toBe('9:16')
     // Les positions suivent l'action, qui se déplace d'un plan à l'autre.
-    expect(cadrage.shots[0].cropX).toBeLessThan(cadrage.shots[1].cropX)
+    expect(framing.shots[0].cropX).toBeLessThan(framing.shots[1].cropX)
   })
 
   it('ne retient que les plans que les segments traversent', () => {
     écrireAnalyse()
-    const cadrage = cadrageDuClip(clip({ segments: [{ start: 1, end: 5 }] }))
-    expect(cadrage.shots.map((p) => p.key)).toEqual([0])
+    const framing = clipFraming(clip({ segments: [{ start: 1, end: 5 }] }))
+    expect(framing.shots.map((p) => p.key)).toEqual([0])
   })
 
   /**
    * **Le repli, et il se dit.** Sans analyse, le cadrage vaut celui de
    * l'itération 0 : le ratio résolu du clip, et son `cropX` sur toute sa durée.
-   * Rien n'est perdu — mais `origine` le nomme, et l'écran l'affiche.
+   * Rien n'est perdu — mais `origin` le nomme, et l'écran l'affiche.
    */
   it('se rabat sur le réglage manuel quand `analysis.json` n’est pas là', () => {
-    const cadrage = cadrageDuClip(clip({ ratio: '1:1', cropX: 0.3 }))
-    expect(cadrage.origine).toBe('sans-analyse')
-    expect(cadrage.ratio).toBe('1:1')
-    expect(cadrage.shots).toEqual([
+    const framing = clipFraming(clip({ ratio: '1:1', cropX: 0.3 }))
+    expect(framing.origin).toBe('no-analysis')
+    expect(framing.ratio).toBe('1:1')
+    expect(framing.shots).toEqual([
       {
         shot: { start: 4, end: 16 },
         key: 4000,
         ratio: '1:1',
         cropX: 0.3,
-        cropXNatif: 0.3,
+        cropXNative: 0.3,
         source: 'manual',
       },
     ])
@@ -132,20 +132,20 @@ describe('cadrageDuClip', () => {
   // `resolveRatio` est le seul endroit du dépôt où cette valeur par défaut est
   // écrite : sans mesure, « auto » vaut 9:16, et c'est ce que le rendu produira.
   it('résout « auto » en 9:16 dans le repli, comme le rendu le ferait', () => {
-    expect(cadrageDuClip(clip()).ratio).toBe('9:16')
+    expect(clipFraming(clip()).ratio).toBe('9:16')
   })
 
   it('couvre le clip entier, même en plusieurs segments', () => {
-    const cadrage = cadrageDuClip(
+    const framing = clipFraming(
       clip({ segments: [{ start: 4, end: 8 }, { start: 30, end: 33 }] }),
     )
-    expect(cadrage.shots[0].shot).toEqual({ start: 4, end: 33 })
+    expect(framing.shots[0].shot).toEqual({ start: 4, end: 33 })
   })
 
   it('ne casse pas sur un clip vidé de tous ses segments', () => {
-    const cadrage = cadrageDuClip(clip({ segments: [] }))
-    expect(cadrage.origine).toBe('sans-analyse')
-    expect(cadrage.shots).toHaveLength(1)
+    const framing = clipFraming(clip({ segments: [] }))
+    expect(framing.origin).toBe('no-analysis')
+    expect(framing.shots).toHaveLength(1)
   })
 
   /**
@@ -161,10 +161,10 @@ describe('cadrageDuClip', () => {
   ])('dit « analyse-illisible » sur %s', (_nom, contenu) => {
     const espion = vi.spyOn(console, 'warn').mockImplementation(() => {})
     fs.writeFileSync(analysisPath(ID), contenu)
-    const cadrage = cadrageDuClip(clip({ ratio: '4:5', cropX: 0.2 }))
-    expect(cadrage.origine).toBe('analyse-illisible')
-    expect(cadrage.ratio).toBe('4:5')
-    expect(cadrage.shots[0].cropX).toBe(0.2)
+    const framing = clipFraming(clip({ ratio: '4:5', cropX: 0.2 }))
+    expect(framing.origin).toBe('unreadable-analysis')
+    expect(framing.ratio).toBe('4:5')
+    expect(framing.shots[0].cropX).toBe(0.2)
     espion.mockRestore()
   })
 
@@ -175,17 +175,17 @@ describe('cadrageDuClip', () => {
    */
   it('dit « sans-plans » quand aucun plan ne recouvre le montage', () => {
     écrireAnalyse()
-    const cadrage = cadrageDuClip(clip({ segments: [{ start: 100, end: 110 }] }))
-    expect(cadrage.origine).toBe('sans-plans')
-    expect(cadrage.shots).toHaveLength(1)
-    expect(cadrage.shots[0].source).toBe('manual')
+    const framing = clipFraming(clip({ segments: [{ start: 100, end: 110 }] }))
+    expect(framing.origin).toBe('no-shots')
+    expect(framing.shots).toHaveLength(1)
+    expect(framing.shots[0].source).toBe('manual')
   })
 
   // Le mode est `'auto'` tant que le clip ne porte pas de table de dérogations :
   // `computeFraming` l'ignore alors entièrement, y compris pour le rapport.
   it('ne rejette aucune dérogation, faute d’en poser', () => {
     écrireAnalyse()
-    expect(cadrageDuClip(clip()).rejectedOverrides).toEqual([])
+    expect(clipFraming(clip()).rejectedOverrides).toEqual([])
   })
 
   /**
@@ -196,7 +196,7 @@ describe('cadrageDuClip', () => {
    */
   it('relit l’analyse quand le fichier a été réécrit', () => {
     écrireAnalyse()
-    expect(cadrageDuClip(clip()).shots).toHaveLength(2)
+    expect(clipFraming(clip()).shots).toHaveLength(2)
 
     écrireAnalyse({
       version: 1,
@@ -211,7 +211,7 @@ describe('cadrageDuClip', () => {
     const futur = new Date(Date.now() + 5000)
     fs.utimesSync(analysisPath(ID), futur, futur)
 
-    const après = cadrageDuClip(clip())
+    const après = clipFraming(clip())
     expect(après.shots).toHaveLength(1)
     // Plus aucune boîte : le plan est centré par défaut, et ça se voit.
     expect(après.shots[0].source).toBe('default')
@@ -230,27 +230,27 @@ describe('cadrageDuClip', () => {
  * divergence exacte que cette route évite déjà pour les sorties et la vignette.
  * (relevé par Copilot)
  */
-describe('cadrageAvec', () => {
+describe('framingWith', () => {
   it('calcule sans toucher au disque', () => {
     écrireAnalyse()
-    const source = analyseDuProjet(ID)
+    const source = projectAnalysis(ID)
 
     // `PROJECTS_DIR` mis hors d'atteinte : si le calcul lisait quoi que ce soit,
     // il lèverait ou se rabattrait sur `sans-analyse`. Il fait ni l'un ni l'autre.
     process.env.PROJECTS_DIR = path.join(racine, 'nulle-part')
-    oublierLesAnalyses()
+    forgetAnalyses()
 
-    const cadrage = cadrageAvec(clip(), source)
-    expect(cadrage.origine).toBe('calculé')
-    expect(cadrage.shots).toHaveLength(2)
+    const framing = framingWith(clip(), source)
+    expect(framing.origin).toBe('computed')
+    expect(framing.shots).toHaveLength(2)
 
     // Et le contrôle négatif, sans lequel le précédent ne prouverait rien : la
     // moitié faillible, elle, voit bien le dossier vide.
-    expect(cadrageDuClip(clip()).origine).toBe('sans-analyse')
+    expect(clipFraming(clip()).origin).toBe('no-analysis')
   })
 
   it('rend le même cadrage que le chemin complet', () => {
     écrireAnalyse()
-    expect(cadrageAvec(clip(), analyseDuProjet(ID))).toEqual(cadrageDuClip(clip()))
+    expect(framingWith(clip(), projectAnalysis(ID))).toEqual(clipFraming(clip()))
   })
 })

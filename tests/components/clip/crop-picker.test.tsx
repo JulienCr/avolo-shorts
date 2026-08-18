@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RatioPicker } from '@/components/clip/crop-picker'
-import { cadrage, cadrageManuel, plan } from '../../fixtures/cadrage'
+import { framing, manualFraming, shot } from '../../fixtures/framing'
 
 afterEach(cleanup)
 
@@ -21,7 +21,7 @@ describe('RatioPicker', () => {
   it('dit pourquoi le cadre ne se déplace pas en 16:9', () => {
     render(
       <RatioPicker
-        cadrage={cadrage({ ratio: '16:9', shots: [plan(0, 100, '16:9', 0.5)] })}
+        framing={framing({ ratio: '16:9', shots: [shot(0, 100, '16:9', 0.5)] })}
         ratio="16:9"
         onRatio={vi.fn()}
       />,
@@ -30,7 +30,7 @@ describe('RatioPicker', () => {
   })
 
   it('ne dit rien de tel sur un ratio où le cadre se déplace', () => {
-    render(<RatioPicker cadrage={cadrage()} ratio="1:1" onRatio={vi.fn()} />)
+    render(<RatioPicker framing={framing()} ratio="1:1" onRatio={vi.fn()} />)
     expect(screen.queryByText(/toute la largeur/i)).toBeNull()
   })
 
@@ -42,7 +42,7 @@ describe('RatioPicker', () => {
   it('dit ce que « auto » a choisi pour le plan qu’on regarde', () => {
     render(
       <RatioPicker
-        cadrage={cadrage({ ratio: '4:5', shots: [plan(0, 100, '4:5', 0.5)] })}
+        framing={framing({ ratio: '4:5', shots: [shot(0, 100, '4:5', 0.5)] })}
         ratio="auto"
         onRatio={vi.fn()}
       />,
@@ -52,7 +52,7 @@ describe('RatioPicker', () => {
   })
 
   it('marque un ratio épinglé au lieu de le laisser passer pour un calcul', () => {
-    render(<RatioPicker cadrage={cadrage()} ratio="1:1" onRatio={vi.fn()} />)
+    render(<RatioPicker framing={framing()} ratio="1:1" onRatio={vi.fn()} />)
     expect(screen.getByText(/1:1 · épinglé/)).toBeTruthy()
   })
 
@@ -65,9 +65,9 @@ describe('RatioPicker', () => {
   it('annonce que le cadre change avec les plans', () => {
     render(
       <RatioPicker
-        cadrage={cadrage({
+        framing={framing({
           ratio: '16:9',
-          shots: [plan(0, 50, '9:16', 0.5), plan(50, 100, '16:9', 0.5)],
+          shots: [shot(0, 50, '9:16', 0.5), shot(50, 100, '16:9', 0.5)],
         })}
         ratio="auto"
         onRatio={vi.fn()}
@@ -83,18 +83,18 @@ describe('RatioPicker', () => {
    * l'image, trois minutes d'export plus tard.
    */
   it.each([
-    ['sans-analyse', /n’a pas tourné/i],
-    ['analyse-illisible', /ne se lit pas/i],
-    ['sans-plans', /aucun plan/i],
-  ] as const)('dit qu’aucun calcul n’a eu lieu — %s', (origine, motif) => {
+    ['no-analysis', /n’a pas tourné/i],
+    ['unreadable-analysis', /ne se lit pas/i],
+    ['no-shots', /aucun plan/i],
+  ] as const)('dit qu’aucun calcul n’a eu lieu — %s', (origin, motif) => {
     render(
-      <RatioPicker cadrage={cadrageManuel('9:16', 0.5, origine)} ratio="auto" onRatio={vi.fn()} />,
+      <RatioPicker framing={manualFraming('9:16', 0.5, origin)} ratio="auto" onRatio={vi.fn()} />,
     )
     expect(screen.getByText(motif)).toBeTruthy()
   })
 
   it('ne dit rien de tel quand le cadrage a été calculé', () => {
-    render(<RatioPicker cadrage={cadrage()} ratio="auto" onRatio={vi.fn()} />)
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
     expect(screen.queryByText(/n’a pas tourné/i)).toBeNull()
     expect(screen.getByText(/calculé pour chaque plan/i)).toBeTruthy()
   })
@@ -105,9 +105,9 @@ describe('RatioPicker', () => {
   it('n’empile pas deux explications quand le cadre varie', () => {
     render(
       <RatioPicker
-        cadrage={cadrage({
+        framing={framing({
           ratio: '16:9',
-          shots: [plan(0, 50, '4:5', 0.5), plan(50, 100, '16:9', 0.5)],
+          shots: [shot(0, 50, '4:5', 0.5), shot(50, 100, '16:9', 0.5)],
         })}
         ratio="auto"
         onRatio={vi.fn()}

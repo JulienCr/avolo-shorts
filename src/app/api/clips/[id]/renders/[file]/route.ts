@@ -1,7 +1,7 @@
 import { getClip, getDb } from '@/server/db'
 import { introuvable, route } from '@/server/http'
 import { servirFichier } from '@/server/octets'
-import { cadrageDuClip } from '@/server/cadrage'
+import { clipFraming } from '@/server/clip-framing'
 import { livraisonÀJour, sortieNommée } from '@/server/rendus'
 
 /**
@@ -59,12 +59,12 @@ export const GET = route(
     // 9:16 est due. Le résoudre deux fois ouvrirait une fenêtre où une relance
     // d'analyse tomberait entre les deux : la porte se déclarerait ouverte sur
     // un jeu de noms, puis chercherait le fichier dans l'autre.
-    const cadrage = cadrageDuClip(clip)
-    if (!livraisonÀJour(clip, cadrage)) {
+    const framing = clipFraming(clip)
+    if (!livraisonÀJour(clip, framing)) {
       throw introuvable(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
     }
 
-    const sortie = sortieNommée(clip, file, cadrage)
+    const sortie = sortieNommée(clip, file, framing)
     if (sortie === null) {
       throw introuvable(`Le clip ${id} ne produit aucun fichier nommé ${JSON.stringify(file)}.`)
     }

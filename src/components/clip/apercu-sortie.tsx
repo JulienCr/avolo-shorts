@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 
-import { cadrageAutomatique, ratioEffectif, usePlanCourant } from '@/components/clip/cadrage'
+import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
 import { RATIOS, cropRect, outputSize } from '@/core/framing'
-import type { CadrageClip } from '@/lib/api'
+import type { PublishedFraming } from '@/lib/api'
 
 /**
  * Le canevas de sortie : **ce qu'on aura**, à côté de ce qu'on garde.
@@ -73,31 +73,31 @@ function tailleDuCanevas(ratio: Ratio): { largeur: number; hauteur: number } {
 
 export function ApercuSortie({
   video,
-  cadrage,
+  framing,
   ratio,
   cropX,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
   video: HTMLVideoElement | null
   /** Le cadrage que le serveur publie : ratio résolu, crop par plan. */
-  cadrage: CadrageClip
+  framing: PublishedFraming
   /** Le ratio en cours d'édition. */
   ratio: Ratio | 'auto'
   /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
 }) {
-  const canevas = useRef<HTMLCanvasElement>(null)
+  const canvas = useRef<HTMLCanvasElement>(null)
   // Le plan sous la lecture : le cadre saute à ses frontières, ici comme dans le
   // rendu. Le `hook` rend un index, donc ce composant ne se re-rend qu'aux
   // frontières et non à chaque `timeupdate`.
-  const plan = usePlanCourant(cadrage)
-  const position = cadrageAutomatique(cadrage) ? (plan?.cropX ?? 0.5) : cropX
-  const effectif = ratioEffectif(plan, ratio)
+  const plan = useCurrentShot(framing)
+  const position = isComputedFraming(framing) ? (plan?.cropX ?? 0.5) : cropX
+  const effectif = effectiveRatio(plan, ratio)
   const { largeur, hauteur } = tailleDuCanevas(effectif)
   const part = partDeLEcran(effectif)
 
   const peindre = useCallback(() => {
-    const cible = canevas.current
+    const cible = canvas.current
     if (cible === null || video === null) return
     const ctx = cible.getContext('2d')
     if (ctx === null) return
@@ -162,14 +162,14 @@ export function ApercuSortie({
 
   return (
     <figure className="flex flex-col gap-1.5">
-      {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canevas y
+      {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit. */}
       <div
         className="relative mx-auto flex w-full max-w-40 items-center justify-center overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border"
         style={{ aspectRatio: String(RATIOS['9:16']) }}
       >
         <canvas
-          ref={canevas}
+          ref={canvas}
           width={largeur}
           height={hauteur}
           aria-hidden

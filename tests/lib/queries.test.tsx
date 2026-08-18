@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan } from '@/lib/api'
 import { cles, useCreerProjet, useExporter, usePatchClip } from '@/lib/queries'
-import { cadrage, plan } from '../fixtures/cadrage'
+import { framing, shot } from '../fixtures/framing'
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
 function reponse(corps: unknown, status = 200): Response {
@@ -182,8 +182,8 @@ describe('usePatchClip', () => {
    */
   it('adopte le cadrage que le serveur renvoie, pas seulement le clip', async () => {
     const { client, enveloppe } = harnais()
-    const avant = cadrage({ ratio: '16:9', shots: [plan(0, 20, '16:9', 0.5)] })
-    const après = cadrage({ ratio: '1:1', shots: [plan(0, 12, '1:1', 0.3)] })
+    const avant = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    const après = framing({ ratio: '1:1', shots: [shot(0, 12, '1:1', 0.3)] })
     client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
 
     const réponse: PatchClipResult = {
@@ -216,8 +216,8 @@ describe('usePatchClip', () => {
    */
   it('adopte aussi le cadrage d’une écriture écartée', async () => {
     const { client, enveloppe } = harnais()
-    const avant = cadrage({ ratio: '16:9', shots: [plan(0, 20, '16:9', 0.5)] })
-    const gagnant = cadrage({ ratio: '4:5', shots: [plan(0, 20, '4:5', 0.7)] })
+    const avant = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    const gagnant = framing({ ratio: '4:5', shots: [shot(0, 20, '4:5', 0.7)] })
     client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
 
     vi.stubGlobal(

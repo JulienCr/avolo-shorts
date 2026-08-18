@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Clip } from '@/core/edl'
 import type { ClipOutputs, ExportResult } from '@/lib/api'
 import { PanneauExport } from '@/components/clip/panneau-export'
-import { cadrage, plan } from '../../fixtures/cadrage'
+import { framing, shot } from '../../fixtures/framing'
 
 afterEach(() => {
   cleanup()
@@ -63,7 +63,7 @@ function monter(props: Partial<Parameters<typeof PanneauExport>[0]> = {}) {
   const complet = {
     clip: clip(),
     outputs: riennEstProduit,
-    cadrage: cadrage(),
+    framing: framing(),
     duree: 20,
     enregistrement: 'enregistre' as const,
     empreinte: 'empreinte-de-depart',
@@ -82,14 +82,14 @@ describe('avant l’export', () => {
   it('annonce deux vidéos quand le ratio natif n’est pas 9:16', () => {
     // C'est la seule conséquence du choix de ratio qui ne se voyait nulle part,
     // alors qu'elle change ce qu'on aura à publier.
-    monter({ cadrage: cadrage() })
+    monter({ framing: framing() })
     expect(screen.getByText('c1.mp4')).toBeTruthy()
     expect(screen.getByText('c1-9x16.mp4')).toBeTruthy()
     expect(screen.getByText('c1.txt')).toBeTruthy()
   })
 
   it('n’annonce qu’une vidéo quand le ratio natif est déjà 9:16', () => {
-    monter({ cadrage: cadrage({ ratio: '9:16', shots: [plan(0, 20, '9:16', 0.5)] }) })
+    monter({ framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }) })
     expect(screen.getByText('c1.mp4')).toBeTruthy()
     expect(screen.queryByText('c1-9x16.mp4')).toBeNull()
   })
@@ -102,8 +102,8 @@ describe('avant l’export', () => {
    */
   it('énonce le cadrage que l’export appliquera', () => {
     monter({
-      cadrage: cadrage({
-                shots: [plan(0, 10, '1:1', 0.4), plan(10, 20, '16:9', 0.5)],
+      framing: framing({
+                shots: [shot(0, 10, '1:1', 0.4), shot(10, 20, '16:9', 0.5)],
       }),
     })
     expect(screen.getByText(/2 plans/)).toBeTruthy()
@@ -117,15 +117,15 @@ describe('avant l’export', () => {
    */
   it('signale les plans sur lesquels rien n’a été mesuré', () => {
     monter({
-      cadrage: cadrage({
-        shots: [plan(0, 10, '1:1', 0.4), plan(10, 20, '1:1', 0.5, 'default')],
+      framing: framing({
+        shots: [shot(0, 10, '1:1', 0.4), shot(10, 20, '1:1', 0.5, 'default')],
       }),
     })
     expect(screen.getByText(/1 plan sans mesure/)).toBeTruthy()
   })
 
   it('n’en signale aucun quand tous ont été mesurés', () => {
-    monter({ cadrage: cadrage() })
+    monter({ framing: framing() })
     expect(screen.queryByText(/sans mesure/)).toBeNull()
   })
 
@@ -252,7 +252,7 @@ describe('après l’export', () => {
         reponse({ mp4: 'c1.mp4', variant9x16: null, texts: 'c1.txt', skipped: false }),
       ),
     )
-    monter({ cadrage: cadrage({ ratio: '9:16', shots: [plan(0, 20, '9:16', 0.5)] }) })
+    monter({ framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }) })
 
     fireEvent.click(boutonExporter())
     await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
@@ -310,7 +310,7 @@ describe('après l’export', () => {
     // `variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.
     // Afficher « rendu manquant » ici le ferait sur le clip le mieux livré.
     monter({
-      cadrage: cadrage({ ratio: '9:16', shots: [plan(0, 20, '9:16', 0.5)] }),
+      framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }),
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
         variant9x16Url: null,

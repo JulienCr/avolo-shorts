@@ -7,7 +7,7 @@ import type { PersonBox, Shot } from '@/core/shots'
 import { estUneAbsence } from '@/server/octets'
 import { analysisPath } from '@/server/paths'
 import { lireAnalyse, type Analyse } from '@/server/steps/analysis'
-import type { CadrageClip, OrigineCadrage } from '@/lib/api'
+import type { PublishedFraming, FramingOrigin } from '@/lib/api'
 
 /**
  * Le cadrage d'un clip, résolu **côté serveur**, une fois pour tous ceux qui en
@@ -44,12 +44,12 @@ import type { CadrageClip, OrigineCadrage } from '@/lib/api'
  * explicitement : elle effacerait le cadrage des plans qui étaient bons pour
  * réparer celui qui ne l'était pas.
  */
-const MODE_DE_CADRAGE = 'auto' as const
+const CROP_MODE = 'auto' as const
 
 /**
  * Le cadrage résolu, plus **d'où il vient**.
  *
- * `origine` est le champ que cette tâche ajoute au contrat, et il existe pour
+ * `origin` est le champ que cette tâche ajoute au contrat, et il existe pour
  * une raison précise : `renders` ne dépend pas d'`analysis` dans le graphe
  * (`src/core/graph.ts`, et c'est délibéré — la dépendance ferait recalculer tous
  * les rendus au premier changement de modèle de détection). Rien ne garantit
@@ -58,7 +58,7 @@ const MODE_DE_CADRAGE = 'auto' as const
  * partout : une faute qui ne se voit qu'à l'image, trois minutes d'export plus
  * tard.
  */
-export type CadrageRésolu = CadrageClip
+export type ResolvedFraming = PublishedFraming
 
 /**
  * Le repli quand l'analyse manque : le clip tel que l'itération 0 le rendait.
@@ -67,8 +67,8 @@ export type CadrageRésolu = CadrageClip
  * réponse de `resolveRatio` à `'auto'` quand aucune analyse n'a mesuré quoi que
  * ce soit — et le `cropX` réglé à la main.
  */
-function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): CadrageRésolu {
-  const bornes = clip.segments.reduce<{ start: number; end: number } | null>(
+function fallback(clip: Clip, origin: Exclude<FramingOrigin, 'computed'>): ResolvedFraming {
+  const bounds = clip.segments.reduce<{ start: number; end: number } | null>(
     (acc, s) => (acc === null ? { ...s } : { start: Math.min(acc.start, s.start), end: Math.max(acc.end, s.end) }),
     null,
   )
@@ -79,8 +79,8 @@ function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): Cadrag
   // plan que personne n'a cadré, ni la machine ni l'humain, et c'est celui qu'il
   // faut aller regarder. Ici la valeur vient bien de quelqu'un — du curseur de
   // l'écran de clip, ou de son défaut à 0,5 pour un clip qu'on n'a pas touché.
-  // Ce qui manque, c'est la mesure, et `origine` le dit à part.
-  const shot: Shot = bornes ?? { start: 0, end: 0 }
+  // Ce qui manque, c'est la mesure, et `origin` le dit à part.
+  const shot: Shot = bounds ?? { start: 0, end: 0 }
   const ratio = resolveRatio(clip.ratio)
   return {
     ratio,
@@ -92,12 +92,12 @@ function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): Cadrag
         // Les deux positions sont la même : sans plan à distinguer, il n'y a
         // qu'un cadre, et c'est celui que l'humain a réglé.
         cropX: clip.cropX,
-        cropXNatif: clip.cropX,
+        cropXNative: clip.cropX,
         source: 'manual',
       },
     ],
     rejectedOverrides: [],
-    origine,
+    origin,
   }
 }
 
@@ -119,11 +119,11 @@ function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): Cadrag
  * l'opérateur ingère à la main. Un cache borné coûterait une politique
  * d'éviction à régler pour une table qui ne dépassera pas la dizaine.
  */
-type Entrée = { clé: string; analyse: Analyse | null; origine: OrigineCadrage }
-const cache = new Map<string, Entrée>()
+type CacheEntry = { key: string; analyse: Analyse | null; origin: FramingOrigin }
+const cache = new Map<string, CacheEntry>()
 
 /** Vidé par les tests, qui réécrivent des `analysis.json` en boucle sous le même nom. */
-export function oublierLesAnalyses(): void {
+export function forgetAnalyses(): void {
   cache.clear()
 }
 
@@ -139,49 +139,49 @@ export function oublierLesAnalyses(): void {
  * route lit donc l'analyse **avant** d'écrire, et n'appelle après que le calcul,
  * qui ne touche à rien. (relevé par Copilot)
  */
-export type SourceDuCadrage = { analyse: Analyse | null; origine: OrigineCadrage }
+export type FramingSource = { analyse: Analyse | null; origin: FramingOrigin }
 
 /**
  * Lit l'analyse d'un projet. **C'est la seule fonction faillible du module** :
  * elle touche au disque, et relaie une panne au lieu de la maquiller en absence.
  *
- * Nommée `analyseDuProjet` et non `lireAnalyse`, qui existe déjà dans
+ * Nommée `projectAnalysis` et non `lireAnalyse`, qui existe déjà dans
  * `steps/analysis.ts` et fait le travail d'un cran plus bas — celle-ci ajoute le
  * cache, la distinction absence/panne, et l'origine.
  */
-export function analyseDuProjet(projectId: string): SourceDuCadrage {
-  const fichier = analysisPath(projectId)
+export function projectAnalysis(projectId: string): FramingSource {
+  const file = analysisPath(projectId)
   let info: fs.Stats
   try {
-    info = fs.statSync(fichier)
+    info = fs.statSync(file)
   } catch (erreur) {
     // **Seule une absence vaut « pas d'analyse ».** Un refus de droits ou un
     // montage mort n'est pas « l'analyse n'a pas tourné » : les confondre ferait
     // annoncer un projet sans plans à un serveur en panne, et enverrait chercher
     // le défaut à l'exact opposé de là où il est. C'est la même distinction que
     // `sortiesDuClip` fait sur les mêmes codes.
-    if (estUneAbsence(erreur)) return { analyse: null, origine: 'sans-analyse' }
+    if (estUneAbsence(erreur)) return { analyse: null, origin: 'no-analysis' }
     throw erreur
   }
 
-  const clé = `${info.size}:${info.mtimeMs}`
-  const connu = cache.get(fichier)
-  if (connu?.clé === clé) return { analyse: connu.analyse, origine: connu.origine }
+  const key = `${info.size}:${info.mtimeMs}`
+  const cached = cache.get(file)
+  if (cached?.key === key) return { analyse: cached.analyse, origin: cached.origin }
 
-  let entrée: Entrée
+  let entry: CacheEntry
   try {
-    entrée = { clé, analyse: lireAnalyse(fichier), origine: 'calculé' }
+    entry = { key, analyse: lireAnalyse(file), origin: 'computed' }
   } catch (cause) {
     // Le message porte le détail du schéma et le nom du fichier ; il va au
     // journal, jamais à la réponse. L'écran, lui, reçoit `analyse-illisible`.
     console.warn(
       `Analyse illisible pour le projet ${projectId} : ${cause instanceof Error ? cause.message : String(cause)} ` +
-        `Le cadrage automatique se rabat sur le réglage manuel du clip.`,
+        `Le framing automatique se rabat sur le réglage manuel du clip.`,
     )
-    entrée = { clé, analyse: null, origine: 'analyse-illisible' }
+    entry = { key, analyse: null, origin: 'unreadable-analysis' }
   }
-  cache.set(fichier, entrée)
-  return { analyse: entrée.analyse, origine: entrée.origine }
+  cache.set(file, entry)
+  return { analyse: entry.analyse, origin: entry.origin }
 }
 
 /**
@@ -191,8 +191,8 @@ export function analyseDuProjet(projectId: string): SourceDuCadrage {
  * base : le `PATCH` a besoin du cadrage d'avant l'écriture pour savoir quels
  * fichiers écarter, et de celui d'après pour le publier.
  */
-export function cadrageDuClip(clip: Clip): CadrageRésolu {
-  return cadrageAvec(clip, analyseDuProjet(clip.projectId))
+export function clipFraming(clip: Clip): ResolvedFraming {
+  return framingWith(clip, projectAnalysis(clip.projectId))
 }
 
 /**
@@ -200,29 +200,29 @@ export function cadrageDuClip(clip: Clip): CadrageRésolu {
  * donc rien qui puisse lever.
  *
  * C'est la moitié que `PATCH /api/clips/:id` appelle après avoir écrit en base —
- * voir `SourceDuCadrage` pour ce que la séparation protège.
+ * voir `FramingSource` pour ce que la séparation protège.
  */
-export function cadrageAvec(clip: Clip, source: SourceDuCadrage): CadrageRésolu {
-  const { analyse, origine } = source
-  if (analyse === null) return repli(clip, origine === 'calculé' ? 'sans-analyse' : origine)
+export function framingWith(clip: Clip, source: FramingSource): ResolvedFraming {
+  const { analyse, origin } = source
+  if (analyse === null) return fallback(clip, origin === 'computed' ? 'no-analysis' : origin)
 
   const shots: Shot[] = analyse.shots
   const people: PersonBox[] = analyse.boxes
-  const cadrage: ClipFraming = computeFraming({
+  const framing: ClipFraming = computeFraming({
     segments: clip.segments,
     shots,
     people,
     srcW: analyse.source.w,
     srcH: analyse.source.h,
     ratio: clip.ratio,
-    cropMode: MODE_DE_CADRAGE,
+    cropMode: CROP_MODE,
   })
 
   // **Un clip dont aucun segment ne rencontre un plan n'a rien à cadrer.** Le
   // cas est atteignable : des segments hors de l'étendue analysée, ou un clip
   // vidé de tous ses mots. `computeFraming` rend alors une liste de plans vide,
   // et un rendu sans crop du tout ne veut rien dire — on se rabat, et on le dit.
-  if (cadrage.shots.length === 0) return repli(clip, 'sans-plans')
+  if (framing.shots.length === 0) return fallback(clip, 'no-shots')
 
-  return { ...cadrage, origine: 'calculé' }
+  return { ...framing, origin: 'computed' }
 }

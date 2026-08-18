@@ -167,7 +167,7 @@ n'était pas prévu ici :
   dans un 9:16 s'y retrouvait à 31,6 % de sa taille ;
 - **sans `analysis.json`, le cadrage vaut celui de l'itération 0 et le dit.**
   `renders` ne dépend pas d'`analysis` dans le graphe, donc le cas est
-  atteignable ; `origine` le nomme et l'écran l'affiche.
+  atteignable ; `origin` le nomme et l'écran l'affiche.
 
 Restent ensuite, dans cet ordre, et **sous réserve de cette mesure** :
 

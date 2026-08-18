@@ -3,14 +3,14 @@
 import { useRef } from 'react'
 
 import {
-  cadrageAutomatique,
-  messageDOrigine,
-  ratioEffectif,
-  ratiosDesPlans,
-  usePlanCourant,
-} from '@/components/clip/cadrage'
+  isComputedFraming,
+  originMessage,
+  effectiveRatio,
+  shotRatios,
+  useCurrentShot,
+} from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
-import type { CadrageClip } from '@/lib/api'
+import type { PublishedFraming } from '@/lib/api'
 import {
   ORDRE_RATIOS,
   clampCropX,
@@ -56,13 +56,13 @@ const PAS_RAPIDE = 0.05
  * c'est le cadrage de l'itération 0, et il n'a jamais été jetable.
  */
 export function CropOverlay({
-  cadrage,
+  framing,
   ratio,
   cropX,
   onCropX,
 }: {
   /** Le cadrage que le serveur publie : ratio résolu, crop par plan, origine. */
-  cadrage: CadrageClip
+  framing: PublishedFraming
   /** Le ratio **en cours d'édition**, qui n'est pas encore celui du clip enregistré. */
   ratio: Ratio | 'auto'
   /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
@@ -78,10 +78,10 @@ export function CropOverlay({
 
   // Le plan sous la lecture. Le `hook` s'appelle sans condition, et son résultat
   // n'est consulté que si le cadrage est calculé.
-  const plan = usePlanCourant(cadrage)
-  const automatique = cadrageAutomatique(cadrage)
+  const plan = useCurrentShot(framing)
+  const automatique = isComputedFraming(framing)
 
-  const effectif = ratioEffectif(plan, ratio)
+  const effectif = effectiveRatio(plan, ratio)
   const position = automatique ? (plan?.cropX ?? 0.5) : cropX
   const largeur = cropWidthFraction(effectif)
   const gauche = cropLeftFraction(position, largeur)
@@ -194,20 +194,20 @@ export function CropOverlay({
  * page de réglages.
  */
 export function RatioPicker({
-  cadrage,
+  framing,
   ratio,
   onRatio,
 }: {
   /** Le cadrage que le serveur publie : c'est lui qui dit ce que vaut « auto ». */
-  cadrage: CadrageClip
+  framing: PublishedFraming
   ratio: Ratio | 'auto'
   onRatio: (ratio: Ratio | 'auto') => void
 }) {
   const valeurs: (Ratio | 'auto')[] = ['auto', ...ORDRE_RATIOS]
-  const plan = usePlanCourant(cadrage)
-  const effectif = ratioEffectif(plan, ratio)
-  const origine = messageDOrigine(cadrage)
-  const variés = ratio === 'auto' ? ratiosDesPlans(cadrage) : []
+  const plan = useCurrentShot(framing)
+  const effectif = effectiveRatio(plan, ratio)
+  const origin = originMessage(framing)
+  const varied = ratio === 'auto' ? shotRatios(framing) : []
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -237,18 +237,18 @@ export function RatioPicker({
       <p className="font-mono text-[0.75rem] text-muted-foreground">
         {ratio === 'auto' ? `auto → ${effectif}` : `${effectif} · épinglé partout`}
         {' · natif '}
-        {cadrage.ratio}
+        {framing.ratio}
       </p>
 
       {/* **Le ratio se choisit par plan, et ce n'est pas devinable.** Sans cette
           ligne, un cadre qui change de taille en cours de lecture passe pour un
           défaut de rendu — alors que c'est le bénéfice qu'on cherche : un ratio
           unique écraserait chaque plan serré sous le plus large. */}
-      {variés.length > 1 && (
+      {varied.length > 1 && (
         <p className="basis-full text-[0.75rem] text-muted-foreground">
-          Le cadre change avec les plans — <span className="font-mono">{variés.join(', ')}</span> —
+          Le cadre change avec les plans — <span className="font-mono">{varied.join(', ')}</span> —
           dans la variante 9:16, où chacun est posé sur fond flouté. Le rendu natif, celui du
-          feed, garde <span className="font-mono">{cadrage.ratio}</span> d’un bout à l’autre.
+          feed, garde <span className="font-mono">{framing.ratio}</span> d’un bout à l’autre.
         </p>
       )}
 
@@ -256,12 +256,12 @@ export function RatioPicker({
           d'`analysis` dans le graphe : rien ne garantit qu'un clip en « auto »
           ait des plans sous la main, et un 9:16 centré posé sans un mot ne se
           verrait qu'à l'image, trois minutes d'export plus tard. */}
-      {origine !== null && (
-        <p className="basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origine}</p>
+      {origin !== null && (
+        <p className="basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
       )}
 
       {/* **La raison d'un contrôle inerte s'écrit à côté de lui.** Le curseur de
-          cadrage se fige en 16:9 puisque le cadre couvre alors toute la source ;
+          framing se fige en 16:9 puisque le cadre couvre alors toute la source ;
           sans cette phrase, il passe pour cassé — et une bulle d'aide ne
           conviendrait pas, elle serait invisible au clavier. */}
       {effectif === '16:9' && (
@@ -274,7 +274,7 @@ export function RatioPicker({
           varient, la ligne au-dessus dit déjà que le calcul décide par plan ; la
           répéter en dessous ferait trois paragraphes empilés sous un sélecteur
           de six pastilles, et personne ne lit le troisième. */}
-      {origine === null && variés.length <= 1 && (
+      {origin === null && varied.length <= 1 && (
         <p className="basis-full text-[0.75rem] text-muted-foreground">
           Le cadre est calculé pour chaque plan et saute à leurs frontières. Le régler à la main
           demande la dérogation par plan, qui n’est pas encore enregistrable.

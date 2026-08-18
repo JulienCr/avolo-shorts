@@ -10,7 +10,7 @@ import {
   ratioCoverage,
   requiredWidths,
   resolveRatio,
-  tailleDansLeCanevas,
+  sizeInCanvas,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
 import type { PersonBox, Shot } from '@/core/shots'
@@ -946,15 +946,15 @@ describe('le premier plan écarté du cadrage', () => {
   })
 })
 
-describe('tailleDansLeCanevas', () => {
+describe('sizeInCanvas', () => {
   const VERTICAL = { w: 1080, h: 1920 }
 
   // La table de la conception : ce qu'un cadre occupe du canevas vertical.
   it('donne la place de chaque ratio dans le canevas 9:16', () => {
-    expect(tailleDansLeCanevas('9:16', VERTICAL)).toEqual({ w: 1080, h: 1920 })
-    expect(tailleDansLeCanevas('4:5', VERTICAL)).toEqual({ w: 1080, h: 1350 })
-    expect(tailleDansLeCanevas('1:1', VERTICAL)).toEqual({ w: 1080, h: 1080 })
-    expect(tailleDansLeCanevas('16:9', VERTICAL)).toEqual({ w: 1080, h: 608 })
+    expect(sizeInCanvas('9:16', VERTICAL)).toEqual({ w: 1080, h: 1920 })
+    expect(sizeInCanvas('4:5', VERTICAL)).toEqual({ w: 1080, h: 1350 })
+    expect(sizeInCanvas('1:1', VERTICAL)).toEqual({ w: 1080, h: 1080 })
+    expect(sizeInCanvas('16:9', VERTICAL)).toEqual({ w: 1080, h: 608 })
   })
 
   // Les parts annoncées : 100 %, 70,3 %, 56,3 %, 31,6 % de la hauteur. Comparées
@@ -963,7 +963,7 @@ describe('tailleDansLeCanevas', () => {
   // pair — ce que libx264 exige. L'écart est de deux dixièmes de pixel.
   it('retrouve les parts de hauteur de la conception', () => {
     for (const r of TOUS) {
-      expect(tailleDansLeCanevas(r, VERTICAL).h / VERTICAL.h).toBeCloseTo(
+      expect(sizeInCanvas(r, VERTICAL).h / VERTICAL.h).toBeCloseTo(
         RATIOS['9:16'] / RATIOS[r],
         3,
       )
@@ -973,7 +973,7 @@ describe('tailleDansLeCanevas', () => {
   // libx264 refuse une dimension impaire en yuv420p. 1080 / (16/9) vaut 607,5,
   // et c'est le seul des quatre qui ne tombe pas juste.
   it('rend toujours une hauteur paire', () => {
-    for (const r of TOUS) expect(tailleDansLeCanevas(r, VERTICAL).h % 2).toBe(0)
+    for (const r of TOUS) expect(sizeInCanvas(r, VERTICAL).h % 2).toBe(0)
   })
 
   // Dans son propre canevas, un cadre remplit — c'est ce qui fait que le rendu
@@ -982,7 +982,7 @@ describe('tailleDansLeCanevas', () => {
   it('remplit le canevas qui a son propre ratio', () => {
     for (const r of TOUS) {
       const canevas = outputSize(r)
-      expect(tailleDansLeCanevas(r, canevas).h).toBe(canevas.h)
+      expect(sizeInCanvas(r, canevas).h).toBe(canevas.h)
     }
   })
 })
@@ -991,11 +991,11 @@ describe('le ratio par plan', () => {
   // Deux plans très différents : l'un serré à gauche, l'autre large au centre.
   // Un ratio unique pour le clip écraserait le premier sous le second — c'est
   // exactement ce que le modèle par plan évite.
-  const SERRÉ = échantillon(0, 10, [[0.05, 0.2]])
-  const LARGE = échantillon(10, 20, [[0.3, 0.8]])
-  const deux = {
+  const TIGHT = échantillon(0, 10, [[0.05, 0.2]])
+  const WIDE = échantillon(10, 20, [[0.3, 0.8]])
+  const twoShots = {
     ...base,
-    people: [...SERRÉ, ...LARGE],
+    people: [...TIGHT, ...WIDE],
     // La marge est posée à zéro : ce bloc mesure le choix du ratio, pas l'air
     // laissé autour des gens, et laisser le défaut ferait bouger les nombres au
     // prochain réglage de `margin`.
@@ -1003,7 +1003,7 @@ describe('le ratio par plan', () => {
   }
 
   it('donne à chaque plan le cadre le plus serré qui tienne chez lui', () => {
-    const cadrage = computeFraming(deux)
+    const cadrage = computeFraming(twoShots)
     expect(cadrage.shots.map((p) => p.ratio)).toEqual(['9:16', '1:1'])
   })
 
@@ -1011,32 +1011,32 @@ describe('le ratio par plan', () => {
   // latérales apparaîtraient et disparaîtraient au fil des plans serait le
   // défaut que le fond flouté existe pour éviter.
   it('prend le plus large des plans pour le fichier natif', () => {
-    expect(computeFraming(deux).ratio).toBe('1:1')
+    expect(computeFraming(twoShots).ratio).toBe('1:1')
   })
 
   // **Deux positions, et elles diffèrent.** Une position optimisée pour un 9:16
   // posée dans une fenêtre 1:1 n'est pas fausse — elle est bornée dans l'image —
   // mais elle n'est plus celle qui cadre le plus d'images, et rien ne le dirait.
   it('calcule une position par fenêtre, celle du plan et celle du natif', () => {
-    const [serré, large] = computeFraming(deux).shots
+    const [tight, wide] = computeFraming(twoShots).shots
     // Le plan serré, dans sa fenêtre 9:16 : collé à la butée gauche.
-    expect(serré.cropX).toBeCloseTo(ratioCoverage('9:16', SRC_W, SRC_H) / 2, 6)
+    expect(tight.cropX).toBeCloseTo(ratioCoverage('9:16', SRC_W, SRC_H) / 2, 6)
     // Le même plan, dans la fenêtre 1:1 du natif : la butée est plus loin.
-    expect(serré.cropXNatif).toBeCloseTo(ratioCoverage('1:1', SRC_W, SRC_H) / 2, 6)
-    expect(serré.cropXNatif).toBeGreaterThan(serré.cropX)
+    expect(tight.cropXNative).toBeCloseTo(ratioCoverage('1:1', SRC_W, SRC_H) / 2, 6)
+    expect(tight.cropXNative).toBeGreaterThan(tight.cropX)
     // Le plan large est déjà au ratio du natif : les deux coïncident.
-    expect(large.ratio).toBe('1:1')
-    expect(large.cropXNatif).toBeCloseTo(large.cropX, 10)
+    expect(wide.ratio).toBe('1:1')
+    expect(wide.cropXNative).toBeCloseTo(wide.cropX, 10)
   })
 
   // Un ratio épinglé est une contrainte sur le **cadre**, pas sur le format du
   // fichier : il vaut pour tous les plans, et les deux positions coïncident.
   it('épinglé, le ratio vaut pour tous les plans et les deux positions se rejoignent', () => {
-    const cadrage = computeFraming({ ...deux, ratio: '4:5' })
+    const cadrage = computeFraming({ ...twoShots, ratio: '4:5' })
     expect(cadrage.ratio).toBe('4:5')
     for (const p of cadrage.shots) {
       expect(p.ratio).toBe('4:5')
-      expect(p.cropXNatif).toBeCloseTo(p.cropX, 10)
+      expect(p.cropXNative).toBeCloseTo(p.cropX, 10)
     }
   })
 
@@ -1054,8 +1054,8 @@ describe('le ratio par plan', () => {
   // sur un plan que quelqu'un a cadré exprès, et l'écart ne se verrait qu'en
   // comparant deux fichiers.
   it('une dérogation écrit les deux positions', () => {
-    const cadrage = computeFraming({ ...deux, cropMode: 'manual', crops: { 0: 0.42 } })
-    expect(cadrage.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNatif: 0.42 })
+    const cadrage = computeFraming({ ...twoShots, cropMode: 'manual', crops: { 0: 0.42 } })
+    expect(cadrage.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNative: 0.42 })
     expect(cadrage.shots[1].source).toBe('auto')
   })
 })

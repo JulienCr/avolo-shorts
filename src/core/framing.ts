@@ -107,11 +107,11 @@ export function outputSize(ratio: Ratio): { w: number; h: number } {
  * hauteur déduite de ce rapport tomberait à 1918 — deux pixels de fond flouté en
  * haut et en bas d'un cadre qui devait remplir.
  */
-export function tailleDansLeCanevas(
+export function sizeInCanvas(
   ratio: Ratio,
-  canevas: { w: number; h: number },
+  canvas: { w: number; h: number },
 ): { w: number; h: number } {
-  return { w: canevas.w, h: Math.min(canevas.h, pairProche(canevas.w / RATIOS[ratio])) }
+  return { w: canvas.w, h: Math.min(canvas.h, pairProche(canvas.w / RATIOS[ratio])) }
 }
 
 /** Le pair immédiatement inférieur ou égal, jamais négatif. */
@@ -439,7 +439,7 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).
   (a, b) => RATIOS[a] - RATIOS[b],
 )
 
-const LE_PLUS_ÉTROIT = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
+const NARROWEST = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
 const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
 
 /**
@@ -616,7 +616,7 @@ function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; 
 export type ShotFraming = {
   /** Le plan, avec ses bornes dans la source. */
   shot: Shot
-  /** Sa clé de dérogation, `shotStartMs(shot)`. */
+  /** Sa clé de dérogation, `shotStartMs(plan)`. */
   key: number
   /**
    * Le cadre pris dans la source pour ce plan : le plus serré qui tienne.
@@ -646,7 +646,7 @@ export type ShotFraming = {
    * Quand le ratio est épinglé, ou quand le plan est déjà le plus large, les
    * deux valeurs coïncident.
    */
-  cropXNatif: number
+  cropXNative: number
   /**
    * D'où vient le cadrage : `'auto'` calculé sur les boîtes, `'manual'` posé par
    * une dérogation humaine, `'default'` centré faute d'avoir mesuré quoi que ce
@@ -745,7 +745,7 @@ const TOLÉRANCE_DÉROGATION_MS = 250
  * pour un 1:1 se retrouveraient posés dans un cadre 4:5, décalés de la
  * différence de largeur.
  *
- * La sortie est une **donnée**, pas un `argv`. `découperParPlan` la traduit en
+ * La sortie est une **donnée**, pas un `argv`. `splitByShot` la traduit en
  * morceaux à décoder, et `renderArgs` en filtergraph.
  */
 export function computeFraming(req: FramingRequest): ClipFraming {
@@ -783,7 +783,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
 
   // **Un ratio par plan.** Épinglé, il vaut pour tous ; sinon, chacun prend le
   // plus serré qui tienne chez lui.
-  const ratiosDesPlans = mesuresParPlan.map((mesures) =>
+  const shotRatios = mesuresParPlan.map((mesures) =>
     req.ratio === 'auto' ? choisirRatio(mesures, req.srcW, req.srcH) : req.ratio,
   )
 
@@ -794,23 +794,23 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
   // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
   // comédiens sans que rien ne le signale.
-  const ratioNatif =
+  const nativeRatio =
     req.ratio !== 'auto'
       ? req.ratio
-      : ratiosDesPlans.length === 0
+      : shotRatios.length === 0
         ? LE_PLUS_LARGE
-        : ratiosDesPlans.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), LE_PLUS_ÉTROIT)
-  const largeurNative = ratioCoverage(ratioNatif, req.srcW, req.srcH)
+        : shotRatios.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
+  const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
   const shots: ShotFraming[] = plans.map((plan, i) => {
     const mesures = mesuresParPlan[i]
-    const ratio = ratiosDesPlans[i]
+    const ratio = shotRatios[i]
     // Le crop se calcule **pour ce ratio-là et jamais pour un autre** — sans
     // quoi un cadre mesuré en 1:1 se retrouverait posé dans un 4:5, décalé de la
     // différence de largeur. Deux ratios, donc deux positions : celle du plan
     // pour la variante 9:16, celle du natif pour le fichier du feed.
     const { cropX: calculé } = cropDuPlan(mesures, ratioCoverage(ratio, req.srcW, req.srcH))
-    const { cropX: natif } = cropDuPlan(mesures, largeurNative)
+    const { cropX: natif } = cropDuPlan(mesures, nativeWidth)
     return {
       shot: plan,
       key: shotStartMs(plan),
@@ -821,12 +821,12 @@ export function computeFraming(req: FramingRequest): ClipFraming {
       // défendable. 0,5 est aussi ce que `cropRect` prend quand `cropX` ne veut
       // rien dire, et deux défauts qui divergent finissent par se contredire.
       cropX: calculé ?? 0.5,
-      cropXNatif: natif ?? 0.5,
+      cropXNative: natif ?? 0.5,
       source: calculé === null ? 'default' : 'auto',
     }
   })
 
-  return { ratio: ratioNatif, shots, rejectedOverrides: appliquerDérogations(shots, req) }
+  return { ratio: nativeRatio, shots, rejectedOverrides: appliquerDérogations(shots, req) }
 }
 
 /**
@@ -891,7 +891,7 @@ function appliquerDérogations(shots: ShotFraming[], req: FramingRequest): numbe
     // ferait diverger le natif et la variante sur un plan que quelqu'un a cadré
     // exprès, et l'écart ne se verrait qu'en comparant deux fichiers.
     s.cropX = dérogation.valeur
-    s.cropXNatif = dérogation.valeur
+    s.cropXNative = dérogation.valeur
     s.source = 'manual'
   }
 

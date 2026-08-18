@@ -17,7 +17,7 @@
 
 import { useLecture } from '@/components/clip/lecture'
 import type { Ratio } from '@/core/edl'
-import type { CadrageClip, ShotFraming } from '@/lib/api'
+import type { PublishedFraming, ShotFraming } from '@/lib/api'
 import { ORDRE_RATIOS } from '@/lib/crop-preview'
 
 /**
@@ -36,11 +36,11 @@ import { ORDRE_RATIOS } from '@/lib/crop-preview'
  * Sur `auto`, en revanche, seul le serveur sait : on affiche le dernier cadrage
  * publié jusqu'à ce que le `PATCH` en rende un neuf.
  */
-export function ratioEffectif(
+export function effectiveRatio(
   plan: ShotFraming | null,
-  ratioÉdité: Ratio | 'auto',
+  editedRatio: Ratio | 'auto',
 ): Ratio {
-  if (ratioÉdité !== 'auto') return ratioÉdité
+  if (editedRatio !== 'auto') return editedRatio
   return plan?.ratio ?? '16:9'
 }
 
@@ -52,9 +52,9 @@ export function ratioEffectif(
  * bout à l'autre : le ratio se choisit **par plan**, et ne rien en dire ferait
  * passer un saut de taille voulu pour un défaut de rendu.
  */
-export function ratiosDesPlans(cadrage: CadrageClip): Ratio[] {
-  const vus = new Set(cadrage.shots.map((p) => p.ratio))
-  return ORDRE_RATIOS.filter((r) => vus.has(r))
+export function shotRatios(framing: PublishedFraming): Ratio[] {
+  const seen = new Set(framing.shots.map((p) => p.ratio))
+  return ORDRE_RATIOS.filter((r) => seen.has(r))
 }
 
 /**
@@ -66,8 +66,8 @@ export function ratiosDesPlans(cadrage: CadrageClip): Ratio[] {
  * deux défauts, selon le sens : un curseur qui ne fait rien, ou un cadrage
  * automatique qu'on écrase sans l'avoir voulu.
  */
-export function cadrageAutomatique(cadrage: CadrageClip): boolean {
-  return cadrage.origine === 'calculé'
+export function isComputedFraming(framing: PublishedFraming): boolean {
+  return framing.origin === 'computed'
 }
 
 /**
@@ -80,7 +80,7 @@ export function cadrageAutomatique(cadrage: CadrageClip): boolean {
  * `start <= t < end` : les plans se suivent bout à bout, et une frontière
  * appartient au plan qui commence, jamais aux deux.
  */
-export function indexDuPlan(shots: readonly ShotFraming[], position: number): number {
+export function shotIndexAt(shots: readonly ShotFraming[], position: number): number {
   return shots.findIndex((p) => p.shot.start <= position && position < p.shot.end)
 }
 
@@ -99,20 +99,20 @@ export function indexDuPlan(shots: readonly ShotFraming[], position: number): nu
  * où un cadre centré serait une image que personne ne verra.
  *
  * **Un intervalle qu'aucun plan ne couvre, lui, rend `null`** — et les appelants
- * retombent alors sur le 16:9 centré, exactement ce que `découperParPlan` donne
+ * retombent alors sur le 16:9 centré, exactement ce que `splitByShot` donne
  * au rendu dans le même cas. Le cas est atteignable : les plans partitionnent la
  * durée du *proxy*, et la source peut finir quelques images plus loin. Y montrer
  * le cadre du premier plan ferait dire à l'écran autre chose que ce que le
  * fichier contiendra, ce qui est précisément ce que cette PR ferme.
  * (relevé par Codex)
  */
-export function usePlanCourant(cadrage: CadrageClip): ShotFraming | null {
-  const index = useLecture((e) => indexDuPlan(cadrage.shots, e.position))
-  const avantLePremier = useLecture(
-    (e) => cadrage.shots.length > 0 && e.position < cadrage.shots[0].shot.start,
+export function useCurrentShot(framing: PublishedFraming): ShotFraming | null {
+  const index = useLecture((e) => shotIndexAt(framing.shots, e.position))
+  const beforeFirst = useLecture(
+    (e) => framing.shots.length > 0 && e.position < framing.shots[0].shot.start,
   )
-  if (index >= 0) return cadrage.shots[index]
-  return avantLePremier ? cadrage.shots[0] : null
+  if (index >= 0) return framing.shots[index]
+  return beforeFirst ? framing.shots[0] : null
 }
 
 /**
@@ -124,8 +124,8 @@ export function usePlanCourant(cadrage: CadrageClip): ShotFraming | null {
  * faut aller regarder. Compter les deux autres ne dirait rien de plus que le
  * total, dont ils sont le complément.
  */
-export function plansSansMesure(cadrage: CadrageClip): number {
-  return cadrage.shots.filter((p) => p.source === 'default').length
+export function unmeasuredShots(framing: PublishedFraming): number {
+  return framing.shots.filter((p) => p.source === 'default').length
 }
 
 /**
@@ -141,15 +141,15 @@ export function plansSansMesure(cadrage: CadrageClip): number {
  * Le message vient d'ici et non du serveur : ce n'est pas une exception qu'on
  * relaie, c'est une énumération dont chaque cas a son remède.
  */
-export function messageDOrigine(cadrage: CadrageClip): string | null {
-  switch (cadrage.origine) {
-    case 'calculé':
+export function originMessage(framing: PublishedFraming): string | null {
+  switch (framing.origin) {
+    case 'computed':
       return null
-    case 'sans-analyse':
+    case 'no-analysis':
       return "L’analyse d’image n’a pas tourné sur ce projet : le cadrage reste celui réglé à la main, et « auto » vaut 9:16. La lancer depuis l’écran du projet."
-    case 'analyse-illisible':
+    case 'unreadable-analysis':
       return "L’analyse d’image de ce projet ne se lit pas : le cadrage reste celui réglé à la main, et « auto » vaut 9:16. La relancer depuis l’écran du projet."
-    case 'sans-plans':
+    case 'no-shots':
       return "Aucun plan de l’analyse ne recouvre ce montage : le cadrage reste celui réglé à la main."
   }
 }

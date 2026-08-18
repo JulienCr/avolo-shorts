@@ -23,12 +23,12 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
-import { cadrageDuClip, oublierLesAnalyses } from '@/server/cadrage'
+import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 import {
-  cadrageRendu,
+  renderedFraming,
   cheminsRendu,
   empreinteDuRendu,
-  formeRendue,
+  renderedShape,
 } from '@/server/steps/render'
 import { lancer, lireStatut, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
@@ -119,14 +119,14 @@ function poserEmpreinte(clip: Clip, marques: string[] = []): void {
   // le relit : ces tests ne posent pas d'`analysis.json`, donc c'est le repli sur
   // le réglage manuel du clip. Le recalculer plutôt que de l'écrire à la main est
   // ce qui fait que l'empreinte posée ici décrit bien le clip qu'on lui donne.
-  const cadrage = cadrageDuClip(clip)
-  const chemin = cheminsRendu(clip.projectId, clip.id, cadrage.ratio).empreinte
+  const framing = clipFraming(clip)
+  const chemin = cheminsRendu(clip.projectId, clip.id, framing.ratio).empreinte
   fs.mkdirSync(path.dirname(chemin), { recursive: true })
   fs.writeFileSync(
     chemin,
     JSON.stringify(
       empreinteDuRendu(
-        formeRendue(clip, cadrageRendu(cadrage)),
+        renderedShape(clip, renderedFraming(framing)),
         marques.map((nom) => ({
           path: nom,
           nativeW: 1000,
@@ -537,7 +537,7 @@ describe('GET /api/clips/:id', () => {
     ).json()) as ClipDetail
 
     // Aucune analyse sur ce projet : le repli, et il se nomme.
-    expect(détail.framing.origine).toBe('sans-analyse')
+    expect(détail.framing.origin).toBe('no-analysis')
     expect(détail.framing.ratio).toBe('9:16')
     expect(détail.framing.shots).toHaveLength(1)
     expect(détail.framing.shots[0]).toMatchObject({ ratio: '9:16', cropX: 0.5 })

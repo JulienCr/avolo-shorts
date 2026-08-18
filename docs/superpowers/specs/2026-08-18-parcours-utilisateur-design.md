@@ -1782,8 +1782,8 @@ un cadre périmé jusqu'à la prochaine navigation.
 **~~Ce que fait `auto` quand `analysis.json` manque.~~ Tranché.** `renders` ne
 dépend pas d'`analysis` dans le graphe, donc le cas est atteignable. Le cadrage
 vaut alors celui de l'itération 0 — ratio résolu, `cropX` du clip sur toute sa
-durée — et le champ `origine` le nomme : `sans-analyse`, `analyse-illisible` ou
-`sans-plans`. L'écran l'affiche en clair ; se rabattre en silence sur un 9:16
+durée — et le champ `origin` le nomme : `no-analysis`, `unreadable-analysis` ou
+`no-shots`. L'écran l'affiche en clair ; se rabattre en silence sur un 9:16
 centré ne se serait vu qu'à l'image, trois minutes d'export plus tard.
 
 **~~Le recalcul sous un ratio épinglé.~~ Livré.** `computeFraming` saute le choix

@@ -28,7 +28,7 @@ import { TranscriptSurface } from '@/components/clip/transcript-surface'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { cadrageAutomatique, ratioEffectif, usePlanCourant } from '@/components/clip/cadrage'
+import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { clipDuration } from '@/core/edl'
 import { estGarde } from '@/core/parcours'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
@@ -340,7 +340,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
       <main className="grid min-h-0 flex-1 lg:grid-cols-[minmax(24rem,40%)_1fr]">
         <section className="flex flex-col gap-4 overflow-y-auto border-b p-4 lg:border-r lg:border-b-0">
           {/* **Deux images, deux outils.** À gauche la source avec le rectangle :
-              on cadre en regardant ce qu'on laisse dehors. À droite le canevas de
+              on cadre en regardant ce qu'on laisse dehors. À droite le canvas de
               sortie, à l'échelle du téléphone : c'est là qu'un 16:9 se voit
               occuper le tiers de la hauteur et un 4:5 les sept dixièmes. */}
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -350,7 +350,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               onVideo={setVideo}
               overlay={
                 <CropOverlay
-                  cadrage={framing}
+                  framing={framing}
                   ratio={editeur.ratio}
                   cropX={editeur.cropX}
                   onCropX={editeur.deplacerCrop}
@@ -359,13 +359,13 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             />
             <ApercuSortie
               video={video}
-              cadrage={framing}
+              framing={framing}
               ratio={editeur.ratio}
               cropX={editeur.cropX}
             />
           </div>
 
-          <RatioPicker cadrage={framing} ratio={editeur.ratio} onRatio={editeur.choisirRatio} />
+          <RatioPicker framing={framing} ratio={editeur.ratio} onRatio={editeur.choisirRatio} />
 
           <Separator />
 
@@ -425,7 +425,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
                 voudrait rien dire. La valeur est ramenée dans l'image, comme le
                 rectangle la dessine — pas la valeur brute du store, qui garde
                 l'intention quand on passe par un ratio où elle ne tient pas. */}
-            <CadreDuPlan cadrage={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
+            <ShotFrameLine framing={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
           </dl>
 
           <Separator />
@@ -433,7 +433,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
           <PanneauExport
             clip={clip}
             outputs={outputs}
-            cadrage={framing}
+            framing={framing}
             duree={duree}
             enregistrement={enregistrement}
             empreinte={empreinteDuRendu}
@@ -542,18 +542,18 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
  * le sélecteur ne rend qu'un index de plan, donc rien ne bouge entre deux
  * frontières.
  */
-function CadreDuPlan({
-  cadrage,
+function ShotFrameLine({
+  framing,
   ratio,
   cropX,
 }: {
-  cadrage: ClipDetail['framing']
+  framing: ClipDetail['framing']
   ratio: Clip['ratio']
   cropX: number
 }) {
-  const plan = usePlanCourant(cadrage)
-  const effectif = ratioEffectif(plan, ratio)
-  const position = cadrageAutomatique(cadrage) ? (plan?.cropX ?? 0.5) : cropX
+  const plan = useCurrentShot(framing)
+  const effectif = effectiveRatio(plan, ratio)
+  const position = isComputedFraming(framing) ? (plan?.cropX ?? 0.5) : cropX
   const pourcent = Math.round(clampCropX(position, cropWidthFraction(effectif)) * 100)
   return (
     <dd className="font-mono tabular-nums">

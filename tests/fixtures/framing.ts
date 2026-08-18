@@ -1,4 +1,4 @@
-import type { CadrageClip, OrigineCadrage, ShotFraming } from '@/lib/api'
+import type { PublishedFraming, FramingOrigin, ShotFraming } from '@/lib/api'
 import type { Ratio } from '@/core/edl'
 
 /**
@@ -9,18 +9,18 @@ import type { Ratio } from '@/core/edl'
  * le consomment — le rectangle, l'aperçu, le sélecteur de ratio et le panneau
  * d'export — et qu'un champ ajouté au contrat doit casser un seul endroit.
  */
-export function cadrage(surcharges: Partial<CadrageClip> = {}): CadrageClip {
+export function framing(surcharges: Partial<PublishedFraming> = {}): PublishedFraming {
   return {
     ratio: '1:1',
-    shots: [plan(0, 100, '1:1', 0.5)],
+    shots: [shot(0, 100, '1:1', 0.5)],
     rejectedOverrides: [],
-    origine: 'calculé',
+    origin: 'computed',
     ...surcharges,
   }
 }
 
 /** Un plan cadré, aux bornes de la **source** — celles que la lecture compare. */
-export function plan(
+export function shot(
   start: number,
   end: number,
   ratio: Ratio,
@@ -34,7 +34,7 @@ export function plan(
     cropX,
     // Les deux positions coïncident par défaut : c'est le cas d'un plan déjà au
     // ratio natif, et ces tests-ci ne mesurent pas la différence.
-    cropXNatif: cropX,
+    cropXNative: cropX,
     source,
   }
 }
@@ -44,15 +44,15 @@ export function plan(
  * réglage manuel du clip. C'est le seul cas où le curseur de cadrage reste
  * utile, donc celui qu'un test d'interaction doit prendre.
  */
-export function cadrageManuel(
+export function manualFraming(
   ratio: Ratio = '1:1',
   cropX = 0.5,
-  origine: Exclude<OrigineCadrage, 'calculé'> = 'sans-analyse',
-): CadrageClip {
+  origin: Exclude<FramingOrigin, 'computed'> = 'no-analysis',
+): PublishedFraming {
   return {
     ratio,
-    shots: [plan(0, 100, ratio, cropX, 'manual')],
+    shots: [shot(0, 100, ratio, cropX, 'manual')],
     rejectedOverrides: [],
-    origine,
+    origin,
   }
 }

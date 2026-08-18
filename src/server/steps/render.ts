@@ -8,12 +8,12 @@ import { DEFAULT_CAPTION_STYLE, renderAss, type CaptionStyle } from '@/core/capt
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
-import { découperParPlan } from '@/core/decoupe'
-import { blurredVariantArgs, renderArgs, type SegmentCadré } from '@/core/ffmpeg/args'
+import { splitByShot } from '@/core/shot-split'
+import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
 import type { Word } from '@/core/transcript'
-import { cadrageDuClip, type CadrageRésolu } from '@/server/cadrage'
+import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
 import { getClip, getDb, getProject, putClip } from '@/server/db'
 import {
   cheminTemporaire,
@@ -38,7 +38,7 @@ import { lireTranscript } from '@/server/steps/candidates'
  * durée, et ne se voit qu'à l'œil sur un rendu.
  *
  * Le partage des rôles est le même que partout dans `src/server/steps/` : les
- * argv viennent de `core/ffmpeg/args.ts`, la géométrie de `core/framing.ts`, les
+ * argv viennent de `core/ffmpeg/args.ts`, la géométrie de `core/cadrage.ts`, les
  * sous-titres de `core/captions/`. Ici on lit le disque, on choisit l'encodeur,
  * on lance, et on écrit.
  */
@@ -51,7 +51,7 @@ import { lireTranscript } from '@/server/steps/candidates'
  * très découpée dépassera, et il vaut mieux qu'il sorte lentement qu'il ne
  * sorte pas.
  */
-const SEUIL_DE_MORCEAUX = 12
+const PIECE_COUNT_WARN = 12
 
 /** Les deux sorties possibles, pour distinguer l'avancement de l'une et de l'autre. */
 export type SortieRendu = 'natif' | '9x16'
@@ -237,13 +237,13 @@ export const VERSION_EMPREINTE = 2
  * calculé ou posé à la main ne change pas un pixel.
  *
  * Les deux positions y sont, parce que les deux fichiers les consomment : le
- * natif prend `cropXNatif` sous `ratio`, la variante prend `cropX` sous le
+ * natif prend `cropXNative` sous `ratio`, la variante prend `cropX` sous le
  * `ratio` de chaque plan.
  */
-export type CadrageRendu = {
+export type RenderedFraming = {
   /** Le ratio du fichier natif : le plus large que les plans demandent. */
   ratio: Ratio
-  shots: { start: number; end: number; ratio: Ratio; cropX: number; cropXNatif: number }[]
+  shots: { start: number; end: number; ratio: Ratio; cropX: number; cropXNative: number }[]
 }
 
 /**
@@ -259,7 +259,7 @@ export type CadrageRendu = {
  * l'analyse est là, puisque le crop se calcule par plan. Les garder ferait deux
  * fautes en sens contraire : épingler `16:9` sur un clip que le calcul rendait
  * déjà en 16:9 réencoderait pour rien, et une redétection des plans qui déplace
- * les crops ne périmerait rien du tout. `cadrage` porte les deux, mesurés sur ce
+ * les crops ne périmerait rien du tout. `framing` porte les deux, mesurés sur ce
  * qui a réellement été découpé.
  *
  * Nommer ce sous-ensemble est ce qui permet de comparer une empreinte à un clip
@@ -267,7 +267,7 @@ export type CadrageRendu = {
  * même question finiraient par ne plus dire la même chose.
  */
 export type FormeRendue = Pick<Clip, 'segments' | 'captions' | 'branding'> & {
-  cadrage: CadrageRendu
+  framing: RenderedFraming
 }
 
 /**
@@ -277,26 +277,26 @@ export type FormeRendue = Pick<Clip, 'segments' | 'captions' | 'branding'> & {
  * réduire de la même façon, sans quoi un rendu se déclarerait périmé sur un
  * champ que personne n'a changé.
  */
-export function cadrageRendu(cadrage: CadrageRésolu): CadrageRendu {
+export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
   return {
-    ratio: cadrage.ratio,
-    shots: cadrage.shots.map((s) => ({
+    ratio: framing.ratio,
+    shots: framing.shots.map((s) => ({
       start: s.shot.start,
       end: s.shot.end,
       ratio: s.ratio,
       cropX: s.cropX,
-      cropXNatif: s.cropXNatif,
+      cropXNative: s.cropXNative,
     })),
   }
 }
 
 /** Le clip et son cadrage, tels que `leRenduEstPérimé` les compare. */
-export function formeRendue(clip: Pick<Clip, 'segments' | 'captions' | 'branding'>, cadrage: CadrageRendu): FormeRendue {
+export function renderedShape(clip: Pick<Clip, 'segments' | 'captions' | 'branding'>, framing: RenderedFraming): FormeRendue {
   return {
     segments: clip.segments,
     captions: clip.captions,
     branding: clip.branding,
-    cadrage,
+    framing,
   }
 }
 
@@ -382,7 +382,7 @@ const SCHÉMA_EMPREINTE = z.object({
    * `lireEmpreinte` : ce qui se lit mal doit se dire au bon nom, et « produite
    * par une recette antérieure » n'est pas « illisible ».
    */
-  cadrage: z.object({
+  framing: z.object({
     ratio: z.enum(['9:16', '4:5', '1:1', '16:9']),
     shots: z.array(
       z.object({
@@ -390,7 +390,7 @@ const SCHÉMA_EMPREINTE = z.object({
         end: z.number().finite(),
         ratio: z.enum(['9:16', '4:5', '1:1', '16:9']),
         cropX: z.number().finite(),
-        cropXNatif: z.number().finite(),
+        cropXNative: z.number().finite(),
       }),
     ),
   }),
@@ -494,14 +494,14 @@ export function empreinteDuRendu(
     segments: clip.segments.map((s) => ({ start: s.start, end: s.end })),
     // Recopié champ par champ pour la même raison que les segments : ce que le
     // fichier porte est décidé ici, pas par ce qu'un type voisin gagnerait.
-    cadrage: {
-      ratio: clip.cadrage.ratio,
-      shots: clip.cadrage.shots.map((p) => ({
+    framing: {
+      ratio: clip.framing.ratio,
+      shots: clip.framing.shots.map((p) => ({
         start: p.start,
         end: p.end,
         ratio: p.ratio,
         cropX: p.cropX,
-        cropXNatif: p.cropXNatif,
+        cropXNative: p.cropXNative,
       })),
     },
     captions: clip.captions,
@@ -1149,16 +1149,16 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // `cropRect`, dont la table des ratios n'a pas cette clé.
   //
   // Les deux sorties n'en font pas le même usage : le **natif** garde un seul
-  // ratio pour tout le clip — le plus large des plans, `cadrage.ratio` —, la
+  // ratio pour tout le clip — le plus large des plans, `framing.ratio` —, la
   // **variante 9:16** pose chaque plan à son propre ratio sur son canevas
-  // vertical. Le raisonnement est en tête de `src/core/framing.ts`.
+  // vertical. Le raisonnement est en tête de `src/core/cadrage.ts`.
   //
-  // Quand l'analyse manque, `cadrageDuClip` se rabat sur le réglage manuel du
-  // clip et le dit dans `origine` — l'écran l'affiche, et le journal aussi
+  // Quand l'analyse manque, `clipFraming` se rabat sur le réglage manuel du
+  // clip et le dit dans `origin` — l'écran l'affiche, et le journal aussi
   // quelques lignes plus bas.
-  const cadrage = cadrageDuClip(clip)
-  const ratio = cadrage.ratio
-  const empreinteCadrage = cadrageRendu(cadrage)
+  const framing = clipFraming(clip)
+  const ratio = framing.ratio
+  const framingSnapshot = renderedFraming(framing)
   const chemins = cheminsRendu(clip.projectId, clipId, ratio)
 
   // **L'EDL se valide avant la décision de saut**, et l'ordre compte : l'édition
@@ -1192,7 +1192,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   }
 
   // Ce que les fichiers présents décrivent, s'il y en a.
-  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), formeRendue(clip, empreinteCadrage), {
+  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), renderedShape(clip, framingSnapshot), {
     marques,
     look,
   })
@@ -1232,7 +1232,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // cette ligne faisait annoncer « exporté » sur des fichiers que le `PATCH`
     // venait d'effacer. Le chemin long refusait ce cas depuis toujours ; celui-ci
     // ne le voyait pas.
-    if (écarterRenduPérimé(db, clipId, chemins, clip, empreinteCadrage)) {
+    if (écarterRenduPérimé(db, clipId, chemins, clip, framingSnapshot)) {
       throw new Error(
         `Le clip ${clipId} a été modifié pendant son export : les fichiers présents décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
       )
@@ -1243,7 +1243,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // relance sauterait, et le clip resterait en « kept » pour toujours sans que
     // rien ne puisse le rattraper. La présence des fichiers fait foi en itération
     // 0 (spec §4), donc elle vaut aussi pour le statut. (relevé par Copilot)
-    marquerExporté(db, clipId, clip, empreinteCadrage)
+    marquerExporté(db, clipId, clip, framingSnapshot)
     return {
       mp4: chemins.mp4,
       variant9x16: chemins.variant9x16,
@@ -1345,20 +1345,20 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // saute là où une coupe existe déjà.
       //
       // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
-      // recalage des sous-titres : `découperParPlan` recopie les bornes
+      // recalage des sous-titres : `splitByShot` recopie les bornes
       // intermédiaires au lieu de les recalculer, donc chaque segment se
       // retrouve couvert exactement. `sousTitresDuClip` continue de lire
       // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
-      const découpés = découperParPlan(
+      const pieces = splitByShot(
         clip.segments,
-        cadrage.shots,
+        framing.shots,
         // Le repli d'un intervalle qu'aucun plan ne couvre : le cadre le plus
         // large, centré. Le plus large parce qu'on ne sait rien de ce qui s'y
         // passe et qu'un 9:16 aveugle jetterait 68 % de la largeur sans le dire
         // — c'est déjà ce que `chooseRatio` fait quand il ne mesure rien. Centré,
         // comme `computeFraming` centre un plan sur lequel il n'a rien mesuré :
         // deux défauts qui divergent finissent par se contredire.
-        { ratio: '16:9', cropX: 0.5, cropXNatif: 0.5 },
+        { ratio: '16:9', cropX: 0.5, cropXNative: 0.5 },
       )
 
       // **Un décodeur par entrée**, et le graphe est mesuré bon jusqu'à une
@@ -1367,10 +1367,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // peut en traverser une douzaine. On le dit plutôt que de le découvrir sur
       // un export qui rame — il n'y a rien à décider ici, et refuser serait pire
       // que lent.
-      if (découpés.length > SEUIL_DE_MORCEAUX) {
+      if (pieces.length > PIECE_COUNT_WARN) {
         console.warn(
-          `Clip ${clipId} : ${découpés.length} morceaux à décoder (${clip.segments.length} segments ` +
-            `découpés sur ${cadrage.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
+          `Clip ${clipId} : ${pieces.length} morceaux à décoder (${clip.segments.length} segments ` +
+            `pieces sur ${framing.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
             `dizaine, l'export ralentit.`,
         )
       }
@@ -1378,14 +1378,14 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // **Le natif garde un seul ratio pour tout le clip** — seule la position
       // saute aux frontières. La variante, elle, prend le ratio de chaque plan.
       const out = outputSize(ratio)
-      const vertical = outputSize('9:16')
-      const morceauxNatifs: SegmentCadré[] = découpés.map((m) => ({
+      const verticalCanvas = outputSize('9:16')
+      const nativePieces: FramedSegment[] = pieces.map((m) => ({
         start: m.start,
         end: m.end,
         ratio,
-        crop: cropRect(ratio, m.cropXNatif, taille.w, taille.h),
+        crop: cropRect(ratio, m.cropXNative, taille.w, taille.h),
       }))
-      const morceauxVerticaux: SegmentCadré[] = découpés.map((m) => ({
+      const verticalPieces: FramedSegment[] = pieces.map((m) => ({
         start: m.start,
         end: m.end,
         ratio: m.ratio,
@@ -1399,7 +1399,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // une bande calculée pour un autre format. C'est la même raison que pour
       // les sous-titres — voir `renderArgs`.
       const logos = planifierMarques(out.w, out.h, marques)
-      const logosVerticaux = planifierMarques(vertical.w, vertical.h, marques)
+      const verticalLogos = planifierMarques(verticalCanvas.w, verticalCanvas.h, marques)
 
       // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
       // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
@@ -1435,7 +1435,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         args: (destination) =>
           renderArgs({
             src,
-            segments: morceauxNatifs,
+            segments: nativePieces,
             out,
             assPath: assProvisoire,
             fontsDir,
@@ -1463,11 +1463,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
           args: (destination) =>
             blurredVariantArgs({
               src,
-              segments: morceauxVerticaux,
-              out: vertical,
+              segments: verticalPieces,
+              out: verticalCanvas,
               assPath: assProvisoire,
               fontsDir,
-              logos: logosVerticaux,
+              logos: verticalLogos,
               dst: destination,
               encoder: encodeur(),
             }),
@@ -1498,7 +1498,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
       // une empreinte qui affirme sans avoir vérifié est exactement ce que
       // cette PR ferme.
-      const empreinte = empreinteDuRendu(formeRendue(clip, empreinteCadrage), marques, {
+      const empreinte = empreinteDuRendu(renderedShape(clip, framingSnapshot), marques, {
         incrustés: assProvisoire !== undefined,
         look,
       })
@@ -1548,7 +1548,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // retire et on échoue franchement, plutôt que de les laisser sur le disque où
   // l'export suivant les prendrait pour bons. C'est le prix d'un modèle où la
   // présence du fichier fait foi.
-  if (écarterRenduPérimé(db, clipId, chemins, clip, empreinteCadrage)) {
+  if (écarterRenduPérimé(db, clipId, chemins, clip, framingSnapshot)) {
     throw new Error(
       `Le clip ${clipId} a été modifié pendant son export : les fichiers produits décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
     )
@@ -1556,7 +1556,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
 
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
   // l'encodage protégerait un clip qui n'existe pas.
-  marquerExporté(db, clipId, clip, empreinteCadrage)
+  marquerExporté(db, clipId, clip, framingSnapshot)
 
   return {
     mp4: chemins.mp4,
@@ -1593,7 +1593,7 @@ export function marquerExporté(
   db: Database.Database,
   clipId: string,
   rendu: Clip,
-  cadrage: CadrageRendu,
+  framing: RenderedFraming,
 ): void {
   const àJour = getClip(db, clipId)
   if (àJour === undefined) return
@@ -1619,7 +1619,7 @@ export function marquerExporté(
   // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
   // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
   // dépendante de l'ordre des appels, et cette fonction est exportée.
-  if (leRenduEstPérimé(formeRendue(rendu, cadrage), formeRendue(àJour, cadrageRendu(cadrageDuClip(àJour))))) {
+  if (leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, renderedFraming(clipFraming(àJour))))) {
     console.warn(
       `Clip ${clipId} : le montage a changé pendant l'export. Les fichiers produits décrivent le montage d'avant, le statut n'est pas posé.`,
     )
@@ -1649,7 +1649,7 @@ export function écarterRenduPérimé(
   clipId: string,
   chemins: CheminsRendu,
   rendu: Clip,
-  cadrage: CadrageRendu,
+  framing: RenderedFraming,
 ): boolean {
   const àJour = getClip(db, clipId)
   if (àJour === undefined) return false
@@ -1658,7 +1658,7 @@ export function écarterRenduPérimé(
   // traverse le plateau peut faire retomber un 16:9 en 1:1 sans qu'aucun champ
   // du clip ne dise « cadrage », et les fichiers montreraient alors un cadre que
   // plus personne ne veut.
-  if (!leRenduEstPérimé(formeRendue(rendu, cadrage), formeRendue(àJour, cadrageRendu(cadrageDuClip(àJour)))))
+  if (!leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, renderedFraming(clipFraming(àJour)))))
     return false
 
   // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
@@ -1680,7 +1680,7 @@ export function écarterRenduPérimé(
  * périme le fichier. Le titre et la description, eux, ne vont que dans le `.txt`,
  * qui est réécrit depuis l'état à jour — les compter ici ferait perdre son
  * statut à un clip dont on a seulement corrigé une faute de frappe. Et `ratio`
- * comme `cropX` n'y sont plus : c'est `cadrage` qui porte ce que ffmpeg a
+ * comme `cropX` n'y sont plus : c'est `framing` qui porte ce que ffmpeg a
  * réellement découpé, voir `FormeRendue`.
  *
  * **Elle prend une `FormeRendue`, pas un `Clip`**, et c'est ce qui permet de lui
@@ -1702,20 +1702,20 @@ export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boo
   // Comparés par référence, ils seraient toujours différents — chaque appel
   // périmerait le rendu, l'export réencoderait à chaque passage, et `skipped`
   // ne serait plus jamais vrai.
-  const mêmeCadrage =
-    rendu.cadrage.ratio === àJour.cadrage.ratio &&
-    rendu.cadrage.shots.length === àJour.cadrage.shots.length &&
-    rendu.cadrage.shots.every(
+  const sameFraming =
+    rendu.framing.ratio === àJour.framing.ratio &&
+    rendu.framing.shots.length === àJour.framing.shots.length &&
+    rendu.framing.shots.every(
       (p, i) =>
-        p.start === àJour.cadrage.shots[i].start &&
-        p.end === àJour.cadrage.shots[i].end &&
-        p.ratio === àJour.cadrage.shots[i].ratio &&
-        p.cropX === àJour.cadrage.shots[i].cropX &&
-        p.cropXNatif === àJour.cadrage.shots[i].cropXNatif,
+        p.start === àJour.framing.shots[i].start &&
+        p.end === àJour.framing.shots[i].end &&
+        p.ratio === àJour.framing.shots[i].ratio &&
+        p.cropX === àJour.framing.shots[i].cropX &&
+        p.cropXNative === àJour.framing.shots[i].cropXNative,
     )
   return (
     !mêmesSegments ||
-    !mêmeCadrage ||
+    !sameFraming ||
     rendu.captions !== àJour.captions ||
     rendu.branding !== àJour.branding
   )

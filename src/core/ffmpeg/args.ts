@@ -22,7 +22,7 @@
  */
 
 import type { Ratio, Segment } from '@/core/edl'
-import { outputSize, tailleDansLeCanevas } from '@/core/framing'
+import { outputSize, sizeInCanvas } from '@/core/framing'
 import {
   LOUDNORM,
   METADATA_SCRUB,
@@ -306,7 +306,7 @@ export type Rectangle = { w: number; h: number; x: number; y: number }
  * coupe existe déjà, donc où le saut est invisible ; entre deux frontières il ne
  * bouge pas d'un pixel.
  */
-export type SegmentCadré = Segment & {
+export type FramedSegment = Segment & {
   crop: Rectangle
   /**
    * Le ratio du cadre, qui décide de la place qu'il occupe dans le canevas.
@@ -334,7 +334,7 @@ export type RenderOptions = {
    * de la première. L'appelant normalise le montage *avant* de le découper par
    * plan ; ce qui arrive ici est déjà canonique et se contrôle.
    */
-  segments: SegmentCadré[]
+  segments: FramedSegment[]
   /**
    * Le canevas du **rendu natif** : `outputSize` du ratio le plus large que les
    * plans demandent. La variante 9:16 l'ignore, elle a le sien.
@@ -474,7 +474,7 @@ export function blurredVariantArgs(o: RenderOptions): string[] {
 /**
  * Le constructeur commun aux deux sorties d'un clip.
  *
- * `canevas` porte toute la différence, et le reste est **le même** : les mêmes
+ * `canvas` porte toute la différence, et le reste est **le même** : les mêmes
  * morceaux, les mêmes sous-titres, la même sonie. Deux constructeurs séparés
  * l'ont laissé diverger une fois déjà (#22).
  *
@@ -486,19 +486,19 @@ export function blurredVariantArgs(o: RenderOptions): string[] {
  */
 function construireLeRendu(
   o: RenderOptions,
-  canevasDemandé: { w: number; h: number },
+  requestedCanvas: { w: number; h: number },
 ): string[] {
   // **Le canevas se contrôle avant d'entrer dans le graphe.** TypeScript garantit
   // `number` à la compilation et rien à l'exécution : `out` vient de la base par
   // l'intermédiaire d'un ratio, et un `Infinity` sortirait en `scale=Infinity:1920`
   // sans que rien ne le nomme. Il ne sert plus à composer la chaîne d'échelle,
-  // qui passe désormais par `tailleDansLeCanevas` — d'où la garde explicite, que
+  // qui passe désormais par `sizeInCanvas` — d'où la garde explicite, que
   // ce détour avait fait disparaître.
   // Appelées pour leur refus et non pour leur valeur : elles lèvent sur un
   // nombre non fini, et c'est tout ce qu'on leur demande ici.
-  nombre(canevasDemandé.w, 'out.w')
-  nombre(canevasDemandé.h, 'out.h')
-  const canevas = canevasDemandé
+  nombre(requestedCanvas.w, 'out.w')
+  nombre(requestedCanvas.h, 'out.h')
+  const canvas = requestedCanvas
   // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
   // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
   // disparaîtrait et un clip de trois entrées en rendrait deux sans un mot —, et
@@ -560,8 +560,8 @@ function construireLeRendu(
   // porte pas de filtre de rattrapage, et un `-map` dont le nom changerait avec
   // les options se paierait un jour.
   const terminal = 'v'
-  const étiquetteConcat = étapes.length === 0 ? terminal : 'vc'
-  const étiquetteEntrée = (i: number): string =>
+  const concatLabel = étapes.length === 0 ? terminal : 'vc'
+  const entryLabel = (i: number): string =>
     multi ? `v${i}` : étapes.length === 0 ? terminal : 'v0'
 
   const graphe: string[] = []
@@ -570,14 +570,14 @@ function construireLeRendu(
     const crop =
       `crop=${nombre(c.w, `segments[${i}].crop.w`)}:${nombre(c.h, `segments[${i}].crop.h`)}` +
       `:${nombre(c.x, `segments[${i}].crop.x`)}:${nombre(c.y, `segments[${i}].crop.y`)}`
-    const dans = tailleDansLeCanevas(s.ratio, canevas)
-    const sortie = étiquetteEntrée(i)
+    const inCanvas = sizeInCanvas(s.ratio, canvas)
+    const sortie = entryLabel(i)
 
-    if (dans.h >= canevas.h) {
+    if (inCanvas.h >= canvas.h) {
       // Le cadre remplit le canevas : pas de fond à fabriquer, et le composer
       // quand même ferait payer un `gblur` sur une image que rien ne montre.
       graphe.push(
-        `[${i}:v]${crop},scale=${canevas.w}:${canevas.h}:flags=lanczos,setsar=1[${sortie}]`,
+        `[${i}:v]${crop},scale=${canvas.w}:${canvas.h}:flags=lanczos,setsar=1[${sortie}]`,
       )
       return
     }
@@ -590,10 +590,10 @@ function construireLeRendu(
     graphe.push(`[${i}:v]${crop},setsar=1[c${i}]`)
     graphe.push(`[c${i}]split=2[bga${i}][fga${i}]`)
     graphe.push(
-      `[bga${i}]scale=${canevas.w}:${canevas.h}:force_original_aspect_ratio=increase,` +
-        `crop=${canevas.w}:${canevas.h},gblur=sigma=${SIGMA_DU_FOND}[bg${i}]`,
+      `[bga${i}]scale=${canvas.w}:${canvas.h}:force_original_aspect_ratio=increase,` +
+        `crop=${canvas.w}:${canvas.h},gblur=sigma=${SIGMA_DU_FOND}[bg${i}]`,
     )
-    graphe.push(`[fga${i}]scale=${dans.w}:${dans.h}:flags=lanczos[fg${i}]`)
+    graphe.push(`[fga${i}]scale=${inCanvas.w}:${inCanvas.h}:flags=lanczos[fg${i}]`)
     graphe.push(`[bg${i}][fg${i}]overlay=x=0:y=(H-h)/2,setsar=1[${sortie}]`)
   })
 
@@ -605,12 +605,12 @@ function construireLeRendu(
   let contenu: string
   if (multi) {
     const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
-    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${étiquetteConcat}][ac]`)
+    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${concatLabel}][ac]`)
     audio = 'ac'
-    contenu = étiquetteConcat
+    contenu = concatLabel
   } else {
     audio = '0:a'
-    contenu = étiquetteEntrée(0)
+    contenu = entryLabel(0)
   }
   // `aresample` derrière `loudnorm`, et ce n'est pas décoratif : en passe
   // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce

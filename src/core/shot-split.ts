@@ -20,12 +20,12 @@ import type { ShotFraming } from '@/core/framing'
  * Un morceau à décoder et le cadre qui lui revient, **pour les deux sorties**.
  *
  * Le natif garde un seul ratio pour tout le clip et n'a besoin que de
- * `cropXNatif` ; la variante 9:16 pose chaque plan à son propre ratio et lit
+ * `cropXNative` ; la variante 9:16 pose chaque plan à son propre ratio et lit
  * `ratio` et `cropX`. Un découpage unique les sert tous les deux : les bornes
  * sont les mêmes, et c'est ce qui garantit que les deux fichiers montrent les
  * mêmes images aux mêmes instants.
  */
-export type MorceauCadré = Segment & { ratio: Ratio; cropX: number; cropXNatif: number }
+export type ShotPiece = Segment & { ratio: Ratio; cropX: number; cropXNative: number }
 
 /**
  * La durée minimale d'un morceau, en secondes.
@@ -43,7 +43,7 @@ export type MorceauCadré = Segment & { ratio: Ratio; cropX: number; cropXNatif:
  * deçà de la plus courte frontière utile — les plans de ces émissions se
  * comptent en secondes, médiane 5,3 s sur la plus découpée des trois.
  */
-export const DURÉE_MINIMALE_MORCEAU = 0.04
+export const MIN_PIECE_SEC = 0.04
 
 /**
  * Découpe les segments aux frontières de plans, et attribue à chaque morceau la
@@ -63,19 +63,19 @@ export const DURÉE_MINIMALE_MORCEAU = 0.04
  *
  * `shots` n'a pas besoin d'être trié ni contigu.
  */
-export function découperParPlan(
+export function splitByShot(
   segments: readonly Segment[],
   shots: readonly ShotFraming[],
   /** Le cadre d'un intervalle qu'aucun plan ne couvre. */
-  défaut: { ratio: Ratio; cropX: number; cropXNatif: number },
-): MorceauCadré[] {
+  fallback: { ratio: Ratio; cropX: number; cropXNative: number },
+): ShotPiece[] {
   // Le montage se normalise ici, une fois : trié, sans chevauchement, sans
   // segment vide. Ce qui sort, en revanche, ne se normalise plus jamais — deux
   // morceaux adjacents portent deux crops différents, et les fusionner ferait
   // cadrer le second avec le rectangle du premier.
-  const segs = normalizeSegments(segments as Segment[])
+  const normalized = normalizeSegments(segments as Segment[])
 
-  const plans: ShotFraming[] = shots
+  const sorted: ShotFraming[] = shots
     .filter((p) => Number.isFinite(p.shot.start) && Number.isFinite(p.shot.end))
     .slice()
     .sort((a, b) => a.shot.start - b.shot.start)
@@ -83,30 +83,30 @@ export function découperParPlan(
   // Toutes les frontières, dans l'ordre : le début et la fin de chaque plan. Un
   // plan commence là où le précédent finit, mais rien n'oblige la liste à être
   // contiguë — et `analysis.json` peut se relire après un réglage du détecteur.
-  const frontières = [...new Set(plans.flatMap((p) => [p.shot.start, p.shot.end]))].sort(
+  const boundaries = [...new Set(sorted.flatMap((p) => [p.shot.start, p.shot.end]))].sort(
     (a, b) => a - b,
   )
 
-  const morceaux: MorceauCadré[] = []
-  for (const segment of segs) {
+  const pieces: ShotPiece[] = []
+  for (const segment of normalized) {
     // Les coupures retenues à l'intérieur du segment. Une frontière est écartée
     // quand elle laisserait un morceau plus court qu'une image, de l'un ou de
     // l'autre côté : le plan voisin l'absorbe, ce qui coûte quelques
     // millisecondes de cadrage et évite une entrée qui ne rend rien.
-    const coupures: number[] = []
-    for (const f of frontières) {
-      if (f - segment.start < DURÉE_MINIMALE_MORCEAU) continue
-      if (segment.end - f < DURÉE_MINIMALE_MORCEAU) break
-      const dernière = coupures.length === 0 ? segment.start : coupures[coupures.length - 1]
-      if (f - dernière < DURÉE_MINIMALE_MORCEAU) continue
-      coupures.push(f)
+    const cuts: number[] = []
+    for (const f of boundaries) {
+      if (f - segment.start < MIN_PIECE_SEC) continue
+      if (segment.end - f < MIN_PIECE_SEC) break
+      const lastCut = cuts.length === 0 ? segment.start : cuts[cuts.length - 1]
+      if (f - lastCut < MIN_PIECE_SEC) continue
+      cuts.push(f)
     }
 
-    const bornes = [segment.start, ...coupures, segment.end]
-    for (let i = 0; i + 1 < bornes.length; i += 1) {
-      const début = bornes[i]
-      const fin = bornes[i + 1]
-      const cadre = cadreDuMilieu(plans, début, fin, défaut)
+    const bounds = [segment.start, ...cuts, segment.end]
+    for (let i = 0; i + 1 < bounds.length; i += 1) {
+      const from = bounds[i]
+      const to = bounds[i + 1]
+      const frame = frameAtMidpoint(sorted, from, to, fallback)
 
       // **Deux plans consécutifs au même cadre ne valent qu'une entrée.** C'est
       // le cas courant et non l'exception : sur `2026-22-02-entre-nous`, quatre
@@ -120,28 +120,28 @@ export function découperParPlan(
       // retirer une retire un arrondi. La fusion ne peut avoir lieu qu'entre
       // deux morceaux **contigus** au **même cadre**, donc les images produites
       // sont exactement les mêmes.
-      const dernier = morceaux[morceaux.length - 1]
+      const previous = pieces[pieces.length - 1]
       if (
-        dernier !== undefined &&
-        dernier.end === début &&
-        dernier.ratio === cadre.ratio &&
-        dernier.cropX === cadre.cropX &&
-        dernier.cropXNatif === cadre.cropXNatif
+        previous !== undefined &&
+        previous.end === from &&
+        previous.ratio === frame.ratio &&
+        previous.cropX === frame.cropX &&
+        previous.cropXNative === frame.cropXNative
       ) {
-        dernier.end = fin
+        previous.end = to
         continue
       }
 
-      morceaux.push({
-        start: début,
-        end: fin,
-        ratio: cadre.ratio,
-        cropX: cadre.cropX,
-        cropXNatif: cadre.cropXNatif,
+      pieces.push({
+        start: from,
+        end: to,
+        ratio: frame.ratio,
+        cropX: frame.cropX,
+        cropXNative: frame.cropXNative,
       })
     }
   }
-  return morceaux
+  return pieces
 }
 
 /**
@@ -153,15 +153,15 @@ export function découperParPlan(
  * d'avant, sur toute sa durée. Le milieu est à l'intérieur d'un seul plan par
  * construction, dès lors que le morceau ne dure pas zéro.
  */
-function cadreDuMilieu(
-  plans: readonly ShotFraming[],
-  début: number,
-  fin: number,
-  défaut: { ratio: Ratio; cropX: number; cropXNatif: number },
-): { ratio: Ratio; cropX: number; cropXNatif: number } {
-  const milieu = (début + fin) / 2
-  const trouvé = plans.find((p) => p.shot.start <= milieu && milieu < p.shot.end)
-  return trouvé === undefined
-    ? défaut
-    : { ratio: trouvé.ratio, cropX: trouvé.cropX, cropXNatif: trouvé.cropXNatif }
+function frameAtMidpoint(
+  sorted: readonly ShotFraming[],
+  from: number,
+  to: number,
+  fallback: { ratio: Ratio; cropX: number; cropXNative: number },
+): { ratio: Ratio; cropX: number; cropXNative: number } {
+  const midpoint = (from + to) / 2
+  const found = sorted.find((p) => p.shot.start <= midpoint && midpoint < p.shot.end)
+  return found === undefined
+    ? fallback
+    : { ratio: found.ratio, cropX: found.cropX, cropXNative: found.cropXNative }
 }

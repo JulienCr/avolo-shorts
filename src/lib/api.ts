@@ -81,7 +81,7 @@ export type { ClipFraming, ShotFraming }
  * Les trois derniers se disent à l'écran. Le premier n'a rien à dire : c'est le
  * fonctionnement normal.
  */
-export type OrigineCadrage = 'calculé' | 'sans-analyse' | 'analyse-illisible' | 'sans-plans'
+export type FramingOrigin = 'computed' | 'no-analysis' | 'unreadable-analysis' | 'no-shots'
 
 /**
  * Le cadrage d'un clip, tel que le serveur le publie.
@@ -93,7 +93,7 @@ export type OrigineCadrage = 'calculé' | 'sans-analyse' | 'analyse-illisible' |
  * `GET` : sans cela l'écran garderait un ratio périmé jusqu'à la prochaine
  * navigation, et le montage mentirait sur ce que l'export produira.
  */
-export type CadrageClip = ClipFraming & { origine: OrigineCadrage }
+export type PublishedFraming = ClipFraming & { origin: FramingOrigin }
 
 /**
  * Les étapes du graphe d'analyse (tâche 6), **importées de l'autorité** plutôt
@@ -409,7 +409,7 @@ export type ClipDetail = {
    * `analysis.json` pèse deux à trois méga-octets par projet, et ce n'est pas au
    * navigateur de le charger pour dessiner un rectangle.
    */
-  framing: CadrageClip
+  framing: PublishedFraming
 }
 
 /**
@@ -531,7 +531,7 @@ export type PatchClipResult = {
    * coupe jusqu'à la prochaine navigation, et le rectangle qu'il dessine ne
    * serait plus celui que ffmpeg découpera.
    */
-  framing: CadrageClip
+  framing: PublishedFraming
   /**
    * Le plus grand jeton d'ordre que la base retient pour ce clip.
    *

@@ -8,7 +8,7 @@ import {
   renderArgs,
   sourceThumbArgs,
   thumbArgs,
-  type SegmentCadré,
+  type FramedSegment,
 } from '@/core/ffmpeg/args'
 
 const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
@@ -208,7 +208,7 @@ function entrée(
   end: number,
   crop = CADRE_9X16,
   ratio: Ratio = '9:16',
-): SegmentCadré {
+): FramedSegment {
   return { start, end, crop, ratio }
 }
 

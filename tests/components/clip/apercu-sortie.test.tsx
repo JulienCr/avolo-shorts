@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApercuSortie, partDeLEcran, peindreSortie } from '@/components/clip/apercu-sortie'
 import { useLecture } from '@/components/clip/lecture'
-import { cadrage, cadrageManuel, plan } from '../../fixtures/cadrage'
+import { framing, manualFraming, shot } from '../../fixtures/framing'
 
 afterEach(() => {
   cleanup()
@@ -109,12 +109,12 @@ describe('ApercuSortie', () => {
     const ctx = contexte()
     const v = vidéo()
     const { rerender } = render(
-      <ApercuSortie video={v} cadrage={cadrageManuel('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
     )
     ctx.drawImage.mockClear()
 
     rerender(
-      <ApercuSortie video={v} cadrage={cadrageManuel('1:1', 0.5)} ratio="1:1" cropX={0.2} />,
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.2} />,
     )
     expect(ctx.drawImage).toHaveBeenCalledTimes(1)
     expect(ctx.drawImage.mock.calls[0][1]).toBeLessThan(210)
@@ -124,11 +124,11 @@ describe('ApercuSortie', () => {
     const ctx = contexte()
     const v = vidéo()
     const { rerender } = render(
-      <ApercuSortie video={v} cadrage={cadrage()} ratio="1:1" cropX={0.5} />,
+      <ApercuSortie video={v} framing={framing()} ratio="1:1" cropX={0.5} />,
     )
     ctx.drawImage.mockClear()
 
-    rerender(<ApercuSortie video={v} cadrage={cadrage()} ratio="9:16" cropX={0.5} />)
+    rerender(<ApercuSortie video={v} framing={framing()} ratio="9:16" cropX={0.5} />)
     expect(ctx.drawImage.mock.calls[0][3]).toBeCloseTo(540 * (9 / 16), 0)
   })
 
@@ -137,7 +137,7 @@ describe('ApercuSortie', () => {
     // fixe, mais la garde évite un échec silencieux et c'est une ligne.
     const ctx = contexte()
     const v = vidéo()
-    render(<ApercuSortie video={v} cadrage={cadrage()} ratio="1:1" cropX={0.5} />)
+    render(<ApercuSortie video={v} framing={framing()} ratio="1:1" cropX={0.5} />)
     ctx.drawImage.mockClear()
 
     fireEvent.timeUpdate(v)
@@ -152,7 +152,7 @@ describe('ApercuSortie', () => {
     prototype.cancelVideoFrameCallback = vi.fn()
     try {
       const { unmount } = render(
-        <ApercuSortie video={vidéo()} cadrage={cadrage()} ratio="1:1" cropX={0.5} />,
+        <ApercuSortie video={vidéo()} framing={framing()} ratio="1:1" cropX={0.5} />,
       )
       expect(demander).toHaveBeenCalled()
       // Démonté ici, tant que le prototype porte encore de quoi annuler.
@@ -167,7 +167,7 @@ describe('ApercuSortie', () => {
   it('tient l’emplacement tant qu’aucune vidéo n’est là', () => {
     contexte()
     const { container } = render(
-      <ApercuSortie video={null} cadrage={cadrage()} ratio="4:5" cropX={0.5} />,
+      <ApercuSortie video={null} framing={framing()} ratio="4:5" cropX={0.5} />,
     )
     expect(container.textContent).toContain('70')
   })
@@ -180,19 +180,19 @@ describe('ApercuSortie', () => {
    */
   it('suit le plan sous la lecture quand le cadrage est calculé', () => {
     contexte()
-    const deux = cadrage({
+    const deux = framing({
       ratio: '16:9',
-      shots: [plan(0, 50, '1:1', 0.3), plan(50, 100, '16:9', 0.5)],
+      shots: [shot(0, 50, '1:1', 0.3), shot(50, 100, '16:9', 0.5)],
     })
     useLecture.getState().definirPosition(10)
     const { container, rerender } = render(
-      <ApercuSortie video={vidéo()} cadrage={deux} ratio="auto" cropX={0.5} />,
+      <ApercuSortie video={vidéo()} framing={deux} ratio="auto" cropX={0.5} />,
     )
     expect(container.textContent).toContain('56')
     expect(container.textContent).toContain('1:1')
 
     act(() => useLecture.getState().definirPosition(60))
-    rerender(<ApercuSortie video={vidéo()} cadrage={deux} ratio="auto" cropX={0.5} />)
+    rerender(<ApercuSortie video={vidéo()} framing={deux} ratio="auto" cropX={0.5} />)
     expect(container.textContent).toContain('32')
     expect(container.textContent).toContain('16:9')
   })
@@ -205,11 +205,11 @@ describe('ApercuSortie', () => {
     const ctx = contexte()
     const v = vidéo()
     const { rerender } = render(
-      <ApercuSortie video={v} cadrage={cadrageManuel('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
     )
     ctx.drawImage.mockClear()
     rerender(
-      <ApercuSortie video={v} cadrage={cadrageManuel('1:1', 0.5)} ratio="1:1" cropX={0.1} />,
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.1} />,
     )
     expect(ctx.drawImage.mock.calls[0][1]).toBeLessThan(210)
   })

@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Clip, Ratio, Segment } from '@/core/edl'
 import type { ClipPatch, PatchClipResult } from '@/lib/api'
 import { TEMPORISATION_MS, useEnregistrementAuto } from '@/lib/enregistrement'
-import { cadrage } from '../fixtures/cadrage'
+import { framing } from '../fixtures/framing'
 
 function clip(overrides: Partial<Clip> = {}): Clip {
   return {
@@ -47,7 +47,7 @@ function reponse(gagnant: Clip, applied: boolean): PatchClipResult {
     applied,
     clip: gagnant,
     outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
-    framing: cadrage(),
+    framing: framing(),
     seq: 42,
   }
 }

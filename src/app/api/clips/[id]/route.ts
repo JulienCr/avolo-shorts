@@ -2,12 +2,12 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { cadrageAvec, cadrageDuClip, analyseDuProjet } from '@/server/cadrage'
+import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
 import {
-  cadrageRendu,
+  renderedFraming,
   cheminsRendu,
   texteDePublication,
   écarterRenduPérimé,
@@ -83,7 +83,7 @@ export const GET = route(
     // navigateur le demandaient à `resolveRatio`, qui rendait `9:16` en dur : ils
     // lisent désormais ce champ, et voient donc exactement ce que ffmpeg
     // découpera.
-    const cadrage = cadrageDuClip(clip)
+    const framing = clipFraming(clip)
     return json({
       clip,
       project: résuméProjet(projet),
@@ -96,8 +96,8 @@ export const GET = route(
       // Ce que l'export a produit, en URL. Sans elles, un clip affiche
       // « exporté » et son MP4 reste inatteignable depuis le navigateur : la
       // chaîne s'arrête à un mètre de son but.
-      outputs: sortiesDuClip(clip, cadrage),
-      framing: cadrage,
+      outputs: sortiesDuClip(clip, framing),
+      framing: framing,
     })
   },
 )
@@ -122,7 +122,7 @@ export const PATCH = route(
     // **L'analyse se lit AVANT l'écriture, et c'est la seule raison de la lire
     // ici plutôt que là où on s'en sert.**
     //
-    // `analyseDuProjet` touche au disque et relaie une panne — un refus de droits,
+    // `projectAnalysis` touche au disque et relaie une panne — un refus de droits,
     // un montage mort — au lieu de la maquiller en absence. Appelée après le
     // `putClip`, elle rendrait 500 sur un montage pourtant enregistré, et
     // l'écriture optimiste de l'interface remettrait l'ancienne version à
@@ -130,9 +130,9 @@ export const PATCH = route(
     // divergence que cette route évite déjà pour les sorties et la vignette, et
     // il aurait été absurde de la réintroduire par le cadrage.
     //
-    // Ce qui suit l'écriture n'est plus que `cadrageAvec`, qui est pur.
+    // Ce qui suit l'écriture n'est plus que `framingWith`, qui est pur.
     // (relevé par Copilot)
-    const analyse = analyseDuProjet(clip.projectId)
+    const analyse = projectAnalysis(clip.projectId)
 
     const suivant: Clip = {
       ...clip,
@@ -195,10 +195,10 @@ export const PATCH = route(
     // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
     // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
     // fichiers à écarter ont été écrits.
-    const cadrageAvant = cadrageAvec(clip, analyse)
-    const chemins = cheminsRendu(clip.projectId, clip.id, cadrageAvant.ratio)
+    const framingBefore = framingWith(clip, analyse)
+    const chemins = cheminsRendu(clip.projectId, clip.id, framingBefore.ratio)
     try {
-      const périmé = écarterRenduPérimé(db, id, chemins, clip, cadrageRendu(cadrageAvant))
+      const périmé = écarterRenduPérimé(db, id, chemins, clip, renderedFraming(framingBefore))
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
       //
@@ -214,7 +214,7 @@ export const PATCH = route(
         const varianteAprès = cheminsRendu(
           écrit.projectId,
           écrit.id,
-          cadrageAvec(écrit, analyse).ratio,
+          framingWith(écrit, analyse).ratio,
         ).variant9x16
         if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
       }
@@ -299,12 +299,12 @@ export const PATCH = route(
     // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
     // mentirait sur ce que l'export produira.
     const relu = getClip(db, id) ?? écrit
-    const cadrageAprès = cadrageAvec(relu, analyse)
+    const framingAfter = framingWith(relu, analyse)
     return json({
       applied: appliqué,
       clip: relu,
-      outputs: sortiesDuClip(relu, cadrageAprès),
-      framing: cadrageAprès,
+      outputs: sortiesDuClip(relu, framingAfter),
+      framing: framingAfter,
       seq: plancher,
     })
   },

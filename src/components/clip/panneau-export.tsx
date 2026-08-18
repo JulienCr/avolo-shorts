@@ -3,7 +3,7 @@
 import { Check, Copy, FileText, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
-import { plansSansMesure, ratiosDesPlans } from '@/components/clip/cadrage'
+import { unmeasuredShots, shotRatios } from '@/components/clip/framing'
 import type { Clip, Ratio } from '@/core/edl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { nomsDeSortie, texteDePublication } from '@/components/clip/textes'
-import { ApiError, type CadrageClip, type ClipOutputs } from '@/lib/api'
+import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
 import type { EtatEnregistrement } from '@/lib/enregistrement'
 import { useExporter } from '@/lib/queries'
 
@@ -34,7 +34,7 @@ import { useExporter } from '@/lib/queries'
 export function PanneauExport({
   clip,
   outputs,
-  cadrage,
+  framing,
   duree,
   empreinte,
   enregistrement,
@@ -52,7 +52,7 @@ export function PanneauExport({
    * avant la livraison, et le seul endroit où l'automatique passerait en fraude
    * si personne ne l'y disait. Ça ne coûte rien et ça retire ce cas.
    */
-  cadrage: CadrageClip
+  framing: PublishedFraming
   /** La durée montée. Zéro veut dire qu'il ne reste rien à rendre. */
   duree: number
   /**
@@ -99,11 +99,11 @@ export function PanneauExport({
 
   const signature = `${clip.id}|${empreinte}`
   // Le ratio **natif** résolu, celui sous lequel l'export écrit ses fichiers.
-  const natif = cadrage.ratio
-  const noms = nomsDeSortie(clip.id, natif)
-  const plans = cadrage.shots.length
-  const sansMesure = plansSansMesure(cadrage)
-  const cadres = ratiosDesPlans(cadrage)
+  const native = framing.ratio
+  const noms = nomsDeSortie(clip.id, native)
+  const shotCount = framing.shots.length
+  const unmeasured = unmeasuredShots(framing)
+  const frames = shotRatios(framing)
   const déjàLivré = outputs.mp4Url !== null
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
@@ -132,7 +132,7 @@ export function PanneauExport({
         <h2 id="titre-export" className="text-sm font-medium">
           Export
         </h2>
-        <span className="font-mono text-[0.75rem] text-muted-foreground">{natif}</span>
+        <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
       </div>
 
       {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
@@ -140,22 +140,22 @@ export function PanneauExport({
           jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
           passerait en fraude. */}
       <p className="text-[0.75rem] text-muted-foreground">
-        {plans === 1 ? '1 plan' : `${plans} plans`}, cadrés{' '}
-        <span className="font-mono">{cadres.join(', ') || '—'}</span>
-        {cadres.length > 1 && ' selon le plan, dans la variante 9:16'}
-        {sansMesure > 0 && (
+        {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
+        <span className="font-mono">{frames.join(', ') || '—'}</span>
+        {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
+        {unmeasured > 0 && (
           <>
             {' · '}
             <span className="text-amber-500 dark:text-amber-400">
-              {sansMesure === 1
+              {unmeasured === 1
                 ? '1 plan sans mesure, centré par défaut'
-                : `${sansMesure} plans sans mesure, centrés par défaut`}
+                : `${unmeasured} plans sans mesure, centrés par défaut`}
             </span>
           </>
         )}
       </p>
 
-      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} natif={natif} />
+      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} native={native} />
 
       {clip.title.trim() === '' && (
         // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
@@ -298,20 +298,20 @@ function ListeDesSorties({
   clip,
   outputs,
   noms,
-  natif,
+  native,
 }: {
   clip: Clip
   outputs: ClipOutputs
   noms: ReturnType<typeof nomsDeSortie>
-  natif: Ratio
+  native: Ratio
 }) {
   return (
     <ul className="flex flex-col gap-2">
       <Sortie
         nom={noms.mp4}
-        libellé={`le rendu ${natif}, pour le feed`}
+        libellé={`le rendu ${native}, pour le feed`}
         url={outputs.mp4Url}
-        étiquette={`Le rendu ${natif} de ${clip.title || 'ce clip'}`}
+        étiquette={`Le rendu ${native} de ${clip.title || 'ce clip'}`}
       />
 
       {noms.variant9x16 === null ? (

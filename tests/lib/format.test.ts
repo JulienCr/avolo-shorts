@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
+import { formatDuration, formatFourchette, formatSpan, formatTimecode } from '@/lib/format'
 
 describe('formatDuration', () => {
   it('rend des minutes et des secondes', () => {
@@ -52,5 +52,47 @@ describe('formatTimecode', () => {
 
   it('rend 0:00:00 sur une valeur absente', () => {
     expect(formatTimecode(Number.NaN)).toBe('0:00:00')
+  })
+})
+
+describe('formatFourchette', () => {
+  it('rend deux bornes en minutes', () => {
+    // L'exemple du §4.2 du retour d'usage, mot pour mot.
+    expect(formatFourchette({ basseSec: 135, hauteSec: 165 })).toBe('environ 2–3 min')
+  })
+
+  it('n’affiche rien plutôt qu’une estimation qui n’existe pas', () => {
+    expect(formatFourchette(null)).toBe('')
+  })
+
+  it('ne chiffre pas sous la minute', () => {
+    // Six secondes d'extraction audio : « environ 0–1 min » serait ridicule et
+    // « 4–8 s » promettrait une précision qu'une mesure unique ne porte pas.
+    expect(formatFourchette({ basseSec: 4.5, hauteSec: 7.5 })).toBe('moins d’une minute')
+  })
+
+  it('replie les deux bornes quand elles tombent sur la même minute', () => {
+    expect(formatFourchette({ basseSec: 130, hauteSec: 140 })).toBe('environ 2 min')
+  })
+
+  it('n’élargit pas la fourchette en l’arrondissant', () => {
+    // Deux secondes d'écart ne doivent pas ressortir en « environ 1–3 min »,
+    // qui annoncerait une incertitude que le calcul n'a pas produite.
+    expect(formatFourchette({ basseSec: 119, hauteSec: 121 })).toBe('environ 2 min')
+  })
+
+  it('ne descend jamais sous une minute pour la borne basse', () => {
+    // « environ 0–2 min » promettrait une fin immédiate.
+    expect(formatFourchette({ basseSec: 55, hauteSec: 90 })).toBe('environ 1–2 min')
+  })
+
+  it('rend une chaîne vide sur des valeurs aberrantes', () => {
+    expect(formatFourchette({ basseSec: 0, hauteSec: 0 })).toBe('')
+    expect(formatFourchette({ basseSec: Number.NaN, hauteSec: Number.NaN })).toBe('')
+    expect(formatFourchette({ basseSec: -10, hauteSec: -1 })).toBe('')
+  })
+
+  it('supporte une fourchette inversée sans rendre de charabia', () => {
+    expect(formatFourchette({ basseSec: 300, hauteSec: 120 })).toBe('environ 5 min')
   })
 })

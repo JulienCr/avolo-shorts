@@ -1,3 +1,5 @@
+import type { Fourchette } from '@/core/parcours'
+
 /**
  * Les nombres tels qu'on les lit à l'écran.
  *
@@ -54,4 +56,42 @@ export function formatTimecode(seconds: number): string {
   const m = Math.floor(total / 60) % 60
   const h = Math.floor(total / 3600)
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * Une durée annoncée, telle qu'on l'écrit à quelqu'un qui attend.
+ *
+ * **Deux bornes arrondies, jamais une seconde près.** C'est la demande du §4.2
+ * du retour d'usage, mot pour mot : « environ 2–3 min » plutôt que « 2 min 17 s
+ * restantes ». La raison est dans `Fourchette` — chaque étape n'a été
+ * chronométrée qu'une fois, sur une machine à 40-80 % de variance.
+ *
+ * `null` rend la **chaîne vide**, et pas un texte d'excuse : c'est la règle déjà
+ * posée par `ÉtapeDécrite.coûtSec`, on n'affiche rien plutôt qu'une estimation
+ * qui n'est adossée à rien. L'appelant teste la chaîne et n'affiche pas la ligne.
+ *
+ * Sous la minute on ne chiffre pas non plus. L'extraction audio coûte six
+ * secondes sur une émission d'1 h 40 : « environ 0–1 min » serait ridicule, et
+ * « 4–8 s » promettrait une précision qu'une mesure unique ne porte pas.
+ */
+export function formatFourchette(f: Fourchette | null): string {
+  if (f === null) return ''
+  const basse = Number.isFinite(f.basseSec) ? Math.max(0, f.basseSec) : 0
+  const haute = Number.isFinite(f.hauteSec) ? Math.max(basse, f.hauteSec) : 0
+  if (haute <= 0) return ''
+  if (haute < 60) return 'moins d’une minute'
+
+  // **Les deux bornes s'arrondissent au plus proche, pas l'une vers le bas et
+  // l'autre vers le haut.** Un arrondi divergent élargit la fourchette d'une
+  // minute à chaque bout, systématiquement : une estimation de 119 à 121
+  // secondes — deux secondes d'écart — ressortait en « environ 1–3 min », qui
+  // annonce une incertitude trois fois plus grande que celle qu'on a calculée.
+  // Or c'est justement ce nombre-là qui doit rester honnête.
+  //
+  // Le plancher à une minute évite « environ 0–2 min », qui promet une fin
+  // immédiate.
+  const basseMin = Math.max(1, Math.round(basse / 60))
+  const hauteMin = Math.max(basseMin, Math.round(haute / 60))
+  if (basseMin === hauteMin) return `environ ${basseMin} min`
+  return `environ ${basseMin}–${hauteMin} min`
 }

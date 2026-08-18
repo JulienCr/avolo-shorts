@@ -129,6 +129,32 @@ describe('GrilleSources, les deux vides', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
     expect(onReessayer).toHaveBeenCalledTimes(1)
   })
+
+  it('distingue un partage monté dont le transport est mort', () => {
+    // **`fstype` se relève même quand l'accès échoue, et c'est là qu'il sert le
+    // plus** (`src/server/sources.ts`) : un `9p` qui ne répond pas n'est pas un
+    // montage absent, c'est un montage dont le transport est mort dessous. Les
+    // annoncer pareil, c'est refaire l'incident que ce champ existe pour fermer.
+    // (relevé par Copilot)
+    grille({
+      listing: { sources: [], montage: { disponible: false, fstype: '9p', entrées: 0 } },
+    })
+
+    expect(screen.getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
+    expect(screen.getByText(/transport/)).toBeTruthy()
+    expect(screen.getByText(/lecteur côté Windows/)).toBeTruthy()
+  })
+
+  it('nomme le système de fichiers relevé quand ce n’est pas le partage attendu', () => {
+    // Un `ext4` là où on attend un `9p` dit « ce montage n'a pas eu lieu » : le
+    // chemin retombe sur la racine locale, et le partage n'est nulle part.
+    grille({
+      listing: { sources: [], montage: { disponible: false, fstype: 'ext4', entrées: 0 } },
+    })
+
+    expect(screen.getByText('Le dossier des replays n’est pas monté.')).toBeTruthy()
+    expect(screen.getByText(/ext4/)).toBeTruthy()
+  })
 })
 
 describe('GrilleSources, les erreurs', () => {

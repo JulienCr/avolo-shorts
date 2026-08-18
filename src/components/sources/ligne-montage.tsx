@@ -49,17 +49,41 @@ export function LigneMontage({
   )
 }
 
+/**
+ * Le système de fichiers du partage, tel que `CLAUDE.md` le décrit et que le 503
+ * de `POST /api/projects` le nomme déjà à l'utilisateur. Il n'est pas deviné
+ * ici : c'est la même valeur, écrite au même endroit du produit.
+ */
+const MONTAGE_ATTENDU = '9p'
+
+/** Le geste qui répare, identique aux deux modes de panne — il vient de `CLAUDE.md`. */
+const REPARATION = 'Rouvrir le lecteur côté Windows, ou remonter le partage.'
+
 function diagnostic(montage: SourcesListing['montage']) {
   if (!montage.disponible) {
+    // **`fstype` se relève même quand l'accès échoue, et c'est là qu'il sert le
+    // plus** — le commentaire de `fstypeDeMontage` (`src/server/sources.ts`) le
+    // dit ainsi : « un `ext4` là où on attend un `9p` dit “ce montage n'a pas eu
+    // lieu” ». Les deux modes de panne de `CLAUDE.md` se distinguent donc ici, et
+    // les annoncer pareil referait l'incident que ce champ existe pour fermer.
+    // Le geste, lui, est le même dans les deux cas. (relevé par Copilot)
+    if (montage.fstype === MONTAGE_ATTENDU) {
+      return {
+        grave: true,
+        icone: <TriangleAlert aria-hidden />,
+        titre: 'Le dossier des replays ne répond pas.',
+        detail: `Le partage est bien monté en ${MONTAGE_ATTENDU}, mais son transport est mort dessous — /proc/mounts ne le distingue pas d’un montage sain. ${REPARATION}`,
+      }
+    }
     return {
       grave: true,
       icone: <TriangleAlert aria-hidden />,
       titre: 'Le dossier des replays n’est pas monté.',
-      // Le geste vient de `CLAUDE.md`, et il est formulé comme le 503 de
-      // `POST /api/projects` : une seule voix pour un seul incident.
-      detail:
-        'REPLAY_DIR est monté en 9p : il peut être absent, ou monté avec son transport mort dessous. ' +
-        'Rouvrir le lecteur côté Windows, ou remonter le partage.',
+      detail: `${
+        montage.fstype === null
+          ? 'Aucun montage relevé ne porte REPLAY_DIR'
+          : `Le chemin est servi par ${montage.fstype}, pas par le partage ${MONTAGE_ATTENDU} attendu`
+      }. ${REPARATION}`,
     }
   }
 

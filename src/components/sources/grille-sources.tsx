@@ -1,7 +1,7 @@
 'use client'
 
 import { TriangleAlert } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 import { LigneMontage } from '@/components/sources/ligne-montage'
 import {
@@ -63,7 +63,8 @@ export function GrilleSources({
   const analysées = sources.filter((s) => s.projectId !== null).length
   // Le défilement ne se restaure qu'une fois les cartes là : le poser sur une
   // page de squelettes le poserait sur une hauteur qui n'est pas la bonne.
-  useDefilementRetenu(sources.length > 0)
+  const grille = useRef<HTMLElement>(null)
+  useDefilementRetenu(grille, sources.length > 0)
 
   const résumé =
     sources.length === 0
@@ -74,7 +75,7 @@ export function GrilleSources({
         ].join(' · ')
 
   return (
-    <section aria-labelledby="titre-replays" className="flex flex-col gap-3">
+    <section ref={grille} aria-labelledby="titre-replays" className="flex flex-col gap-3">
       <div className="flex items-baseline gap-3">
         <h2 id="titre-replays" className="text-sm font-semibold tracking-tight">
           Replays
@@ -152,19 +153,34 @@ export function GrilleSources({
  * fait alors que la hauteur de ses squelettes — il n'y a nulle part où
  * descendre, et la position est perdue en silence.
  *
+ * **La position est relative au haut de la grille, jamais à la page.** La section
+ * des projets, au-dessus, change de hauteur entre le départ et le retour : une
+ * création y ajoute une rangée, et une analyse qui démarre en fait pousser une
+ * autre d'une barre de progression. Une position absolue retomberait alors une
+ * rangée trop haut, sur une autre carte que celle qu'on avait sous les yeux —
+ * et le défaut serait d'autant plus déroutant qu'il ne se produit qu'après une
+ * création, c'est-à-dire précisément au retour qui compte. (relevé par Codex)
+ *
+ * Ce que cela ne rattrape pas : une rangée de projet qui change de hauteur
+ * **après** la restauration, au tour de sondage suivant. Il faudrait pour cela
+ * s'ancrer sur une carte nommée et se réancrer à chaque changement de mise en
+ * page ; c'est un autre dispositif, pas un réglage de celui-ci.
+ *
  * L'écriture est directe et non temporisée : `sessionStorage.setItem` sur une
  * chaîne de trois caractères se compte en microsecondes, et une temporisation
  * perdrait la dernière position juste avant la navigation, qui est exactement
  * celle qui compte.
  */
-function useDefilementRetenu(pret: boolean) {
+function useDefilementRetenu(grille: RefObject<HTMLElement | null>, pret: boolean) {
   useEffect(() => {
     if (!pret) return
+    const haut = hautDeLaGrille(grille)
+    if (haut === null) return
     const garde = lireSession(CLE_DEFILEMENT)
     if (garde === null) return
-    const y = Number(garde)
-    if (Number.isFinite(y) && y > 0) window.scrollTo(0, y)
-  }, [pret])
+    const décalage = Number(garde)
+    if (Number.isFinite(décalage)) window.scrollTo(0, Math.max(0, haut + décalage))
+  }, [grille, pret])
 
   // **Et on n'écrit que pendant ce temps-là.** La restauration du navigateur
   // tente l'ancienne position sur une page qui n'a alors que la hauteur de ses
@@ -174,10 +190,25 @@ function useDefilementRetenu(pret: boolean) {
   // a rien à retenir d'une page où il n'y a rien à voir. (relevé par Codex)
   useEffect(() => {
     if (!pret) return
-    const retenir = () => écrireSession(CLE_DEFILEMENT, String(window.scrollY))
+    const retenir = () => {
+      const haut = hautDeLaGrille(grille)
+      if (haut !== null) écrireSession(CLE_DEFILEMENT, String(window.scrollY - haut))
+    }
     window.addEventListener('scroll', retenir, { passive: true })
     return () => window.removeEventListener('scroll', retenir)
-  }, [pret])
+  }, [grille, pret])
+}
+
+/**
+ * Le haut de la grille **dans le document**, ou `null` si elle n'est pas rendue.
+ *
+ * `getBoundingClientRect().top` est relatif à la fenêtre : additionner le
+ * défilement courant le ramène à une position de document, la seule qui soit
+ * comparable d'une visite à l'autre.
+ */
+function hautDeLaGrille(grille: RefObject<HTMLElement | null>): number | null {
+  const élément = grille.current
+  return élément === null ? null : élément.getBoundingClientRect().top + window.scrollY
 }
 
 /**

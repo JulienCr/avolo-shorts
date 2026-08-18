@@ -164,19 +164,22 @@ describe('GrilleSources, les deux vides', () => {
     expect(onReessayer).toHaveBeenCalledTimes(1)
   })
 
-  it('distingue un partage monté dont le transport est mort', () => {
-    // **`fstype` se relève même quand l'accès échoue, et c'est là qu'il sert le
-    // plus** (`src/server/sources.ts`) : un `9p` qui ne répond pas n'est pas un
-    // montage absent, c'est un montage dont le transport est mort dessous. Les
-    // annoncer pareil, c'est refaire l'incident que ce champ existe pour fermer.
-    // (relevé par Copilot)
+  it('ne conclut pas au transport mort quand le partage, lui, répond', () => {
+    // **`disponible: false` recouvre quatre causes**, et `releverAvecGarde` le
+    // dit lui-même : « absence, droits, transport mort, délai dépassé : du point
+    // de vue de l'écran, c'est le même fait ». Un `REPLAY_DIR` mal orthographié
+    // sous un partage 9p parfaitement sain tombe exactement ici — et envoyer
+    // remonter le partage ferait perdre le geste utile, qui est de relire le
+    // chemin. (relevé par Codex)
     grille({
       listing: { sources: [], montage: { disponible: false, fstype: '9p', entrées: 0 } },
     })
 
-    expect(screen.getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
-    expect(screen.getByText(/transport/)).toBeTruthy()
-    expect(screen.getByText(/lecteur côté Windows/)).toBeTruthy()
+    expect(screen.getByText('Le dossier des replays n’a pas pu être lu.')).toBeTruthy()
+    // Le relevé dit ce qu'il sait : le partage attendu, lui, est là.
+    expect(screen.getByText(/9p/)).toBeTruthy()
+    // Et le premier geste est de vérifier le chemin, pas de remonter le partage.
+    expect(screen.getByText(/REPLAY_DIR/)).toBeTruthy()
   })
 
   it('nomme le système de fichiers relevé quand ce n’est pas le partage attendu', () => {
@@ -228,15 +231,32 @@ describe('GrilleSources, les erreurs', () => {
 })
 
 describe('GrilleSources, le retour', () => {
+  /**
+   * Le haut de la grille dans le document, simulé.
+   *
+   * jsdom ne calcule aucune mise en page : `getBoundingClientRect` y rend des
+   * zéros. On rejoue donc la seule chose dont le hook dépend — la position de la
+   * grille **relative au défilement courant**, ce qu'un vrai navigateur rend.
+   */
+  const HAUT_GRILLE = 200
+  function poserLaMiseEnPage() {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: HAUT_GRILLE - window.scrollY }) as DOMRect,
+    )
+  }
+
   it('rend la grille où on l’avait laissée', () => {
     // Vingt et une cartes : revenir en haut à chaque retour d'un projet ferait
     // redemander ce qui a déjà été vu.
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-    sessionStorage.setItem(CLE_DEFILEMENT, '420')
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+    poserLaMiseEnPage()
+    sessionStorage.setItem(CLE_DEFILEMENT, '100')
 
     grille()
 
-    expect(scrollTo).toHaveBeenCalledWith(0, 420)
+    // 100 **sous le haut de la grille**, pas 100 dans la page.
+    expect(scrollTo).toHaveBeenCalledWith(0, HAUT_GRILLE + 100)
   })
 
   it('ne restaure rien tant que les cartes ne sont pas là', () => {
@@ -266,14 +286,20 @@ describe('GrilleSources, le retour', () => {
     expect(sessionStorage.getItem(CLE_DEFILEMENT)).toBe('420')
   })
 
-  it('retient la position pendant qu’on descend', () => {
+  it('retient la position relativement à la grille, pas à la page', () => {
+    // **La section des projets grandit entre le départ et le retour** : une
+    // création y ajoute une rangée, et une analyse qui démarre en fait pousser
+    // une autre d'une barre de progression. Une position absolue retomberait
+    // alors une rangée trop haut, sur une autre carte que celle qu'on avait
+    // sous les yeux. (relevé par Codex)
     vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    poserLaMiseEnPage()
     grille()
 
     Object.defineProperty(window, 'scrollY', { value: 300, configurable: true })
     window.dispatchEvent(new Event('scroll'))
 
-    expect(sessionStorage.getItem(CLE_DEFILEMENT)).toBe('300')
+    expect(sessionStorage.getItem(CLE_DEFILEMENT)).toBe('100')
   })
 })
 

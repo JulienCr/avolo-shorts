@@ -86,8 +86,16 @@ function diagnostic(montage: SourcesListing['montage']) {
       return {
         grave: true,
         icone: <TriangleAlert aria-hidden />,
-        titre: 'Le dossier des replays ne répond pas.',
-        detail: `Le partage est bien monté en ${MONTAGE_ATTENDU}, mais son transport est mort dessous — /proc/mounts ne le distingue pas d’un montage sain. ${REPARATION}`,
+        // **On ne conclut pas au transport mort.** `disponible: false` recouvre
+        // quatre causes, et `releverAvecGarde` le dit lui-même : « absence,
+        // droits, transport mort, délai dépassé : du point de vue de l'écran,
+        // c'est le même fait ». Un `REPLAY_DIR` mal orthographié sous un partage
+        // sain tombe exactement ici, et envoyer remonter le partage ferait
+        // perdre le seul geste utile — relire le chemin. Ce que l'écran sait,
+        // c'est que la lecture a échoué et que le partage attendu, lui, est là.
+        // (relevé par Codex)
+        titre: 'Le dossier des replays n’a pas pu être lu.',
+        detail: `Le partage ${MONTAGE_ATTENDU} attendu répond, donc le chemin est peut-être absent ou refusé — ou le partage a perdu son transport sans que /proc/mounts le dise. Vérifier REPLAY_DIR et ses droits ; s’ils sont bons, ${REPARATION.charAt(0).toLowerCase()}${REPARATION.slice(1)}`,
       }
     }
     return {

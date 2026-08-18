@@ -18,6 +18,7 @@ import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, selectionBounds } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { usePatchClip, useClip } from '@/lib/queries'
+import { cn } from '@/lib/utils'
 import { useEditeur, usePeutAnnuler, useSegments } from '@/store/editor'
 
 const LIBELLES_STATUT: Record<ClipStatus, string> = {
@@ -128,8 +129,19 @@ function Editeur({ detail }: { detail: ClipDetail }) {
           { libelle: clip.title },
         ]}
       >
-        <span className="text-[0.7rem] text-muted-foreground">
-          {patch.isPending ? 'enregistrement…' : 'enregistré'}
+        {/* Trois états, dont l'échec : un montage qui n'est pas parti doit se
+            voir, sinon on ferme l'onglet en croyant l'avoir enregistré. */}
+        <span
+          className={cn(
+            'text-[0.7rem]',
+            patch.isError ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
+          {patch.isError
+            ? 'échec de l’enregistrement'
+            : patch.isPending
+              ? 'enregistrement…'
+              : 'enregistré'}
         </span>
         <Button
           size="sm"

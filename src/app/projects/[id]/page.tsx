@@ -66,6 +66,15 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
             au total
           </p>
 
+          {/* Une écriture optimiste qui échoue remet la carte comme elle était.
+              Sans ce mot, le clic aurait simplement l'air de ne pas avoir été
+              pris — et on recommencerait. */}
+          {patch.isError && (
+            <p className="text-sm text-destructive">
+              L’enregistrement a échoué. La carte est revenue à son état précédent.
+            </p>
+          )}
+
           {compte.ecartes > 0 && (
             <Button
               size="sm"

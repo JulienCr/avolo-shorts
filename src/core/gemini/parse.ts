@@ -21,6 +21,8 @@ export type ScoredWindow = {
   reason: string
 }
 
+// `z.number()` refuse `NaN` et l'infini, et `JSON.parse` ne sait de toute façon
+// pas les produire : les deux passes plus bas n'ont donc pas à s'en garder.
 const SCHÉMA_NOTE = z.object({
   id: z.string(),
   score: z.number(),
@@ -76,7 +78,6 @@ export function parseScoreResponse(
     // Inconnue : une hallucination, pas une omission. Déjà vue : le premier avis
     // fait foi — le second n'apporte rien qu'un doublon dans le classement.
     if (!soumises.has(id) || vues.has(id)) continue
-    if (!Number.isFinite(score)) continue
     vues.add(id)
     // Ramenée dans le barème plutôt que jetée : une note à 130 dit que le modèle
     // a trouvé la fenêtre excellente, et la jeter perdrait précisément la
@@ -146,6 +147,11 @@ export function shortlistFromScores(scored: ScoredWindow[], windows: Window[]): 
  * chiffres couvre 277 heures et fait tomber l'ordre lexicographique des
  * identifiants sur l'ordre chronologique, qui est le tri par défaut de
  * `getClips`.
+ *
+ * L'identifiant hérite des caractères du projet — les noms de replays portent
+ * accents et espaces, et c'est voulu (`projectIdFromSource`). Les routes qui le
+ * portent dans un chemin (`GET`/`PATCH /api/clips/:id`) l'encodent donc, comme
+ * elles encodent déjà l'identifiant de projet.
  */
 function clipId(projectId: string, start: number, end: number): string {
   const ms = (s: number) => String(Math.round(s * 1000)).padStart(9, '0')
@@ -178,8 +184,6 @@ export function parseDetailResponse(
     const lu = SCHÉMA_CLIP.safeParse(entrée)
     if (!lu.success) continue
     const { start, end } = lu.data
-    if (!Number.isFinite(start) || !Number.isFinite(end)) continue
-
     const [début, fin] = snapToWords(start, end, words, videoDuration)
     if (début < 0 || fin > videoDuration || fin <= début) continue
 

@@ -80,9 +80,16 @@ function racines(): string[] {
   //   qui les citent sont produits.
   for (const valeur of Object.values(process.env)) {
     const corps = corpsDeRéférence(valeur)
-    // Le préfixe nu ne nomme rien, donc il n'y a rien à en retirer — et une
-    // racine vide découperait le message entre chacun de ses caractères.
-    if (corps !== undefined && corps !== '') trouvées.push(corps)
+    // **Un corps sans barre oblique ne fait pas une racine.** `op read` ne lit
+    // que `<coffre>/<fiche>/<champ>` : un corps d'un seul segment ne nomme
+    // qu'un coffre, il n'est lisible par personne, et c'est un mot que ce
+    // remplacement littéral retirerait de **partout** dans le message — la
+    // panne la plus bruyante qu'un caviardage puisse avoir, pour une référence
+    // que la passe nue attrape déjà, faute d'espace où buter. Le préfixe seul
+    // tombe sous la même condition : sa racine serait vide, et une racine vide
+    // découpe le message entre chacun de ses caractères.
+    if (corps === undefined || !corps.includes('/')) continue
+    trouvées.push(corps)
   }
 
   return trouvées

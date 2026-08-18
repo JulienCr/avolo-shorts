@@ -75,16 +75,23 @@ describe('messageSûr, sur les références de secret', () => {
   })
 
   /**
-   * **Le préfixe nu ne nomme rien**, donc il n'y a rien à en retirer — et une
-   * racine vide découperait le message entre chacun de ses caractères, ce qui
-   * est le mode d'échec le plus bruyant qu'un caviardage puisse avoir.
+   * **Les deux corps qui ne font pas une racine**, et qui échouent l'un comme
+   * l'autre de la façon la plus bruyante qu'un caviardage puisse avoir.
+   *
+   * Le préfixe nu ne nomme rien : sa racine serait vide, et une racine vide
+   * découpe le message entre chacun de ses caractères. Un corps d'un seul
+   * segment ne nomme qu'un coffre — `op read` n'en lit rien —, et c'est un mot
+   * que le remplacement littéral retirerait de partout dans le message. Ni
+   * l'une ni l'autre de ces formes n'a d'ailleurs besoin d'une racine : faute
+   * d'espace où buter, la passe nue les attrape déjà.
    */
-  it('ne fait rien d’une variable qui ne porte que le préfixe', () => {
-    process.env.AVOLO_TEST_SECRET = 'op://'
+  it.each([
+    ['le préfixe nu', 'op://', 'une adresse commence par op:// et rien de plus'],
+    ['un corps d’un seul segment', 'op://a', 'un cas rare a été rencontré'],
+  ])('ne prend pas %s pour une racine', (_nom, valeur, message) => {
+    process.env.AVOLO_TEST_SECRET = valeur
 
-    expect(messageSûr(new Error('une adresse commence par op://'))).toBe(
-      'une adresse commence par op://',
-    )
+    expect(messageSûr(new Error(message))).toBe(message)
     expect(messageSûr(new Error('boum'))).toBe('boum')
   })
 

@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
  * que mesurer chaque mot pour les composer soi-même.
  */
 export function TranscriptSurface({
+  cle,
   lines,
   words,
   selection,
@@ -37,6 +38,8 @@ export function TranscriptSurface({
   onTerminer,
   onRemonter,
 }: {
+  /** Identifie le clip ouvert. Le positionnement initial n'a lieu qu'une fois par valeur. */
+  cle: string
   lines: IndexedLine[]
   words: ClipWord[]
   selection: Selection | null
@@ -85,12 +88,20 @@ export function TranscriptSurface({
   // avertit qu'il ne peut pas vider sa file pendant qu'il rend, et le
   // positionnement se fait alors sur des hauteurs pas encore mesurées. Une
   // image plus tard, les lignes sont mesurées et le défilement tombe juste.
+  //
+  // **Une fois par clip, et pas une de plus.** `ligneInitiale` se recalcule
+  // quand le clip enregistré change ; repositionner à chaque fois ferait fuir
+  // le texte sous les yeux pendant qu'on monte. Le repère est donc `cle`, pas
+  // la valeur.
   const deplacer = virtualiseur.scrollToIndex
+  const positionne = useRef<string | null>(null)
   useEffect(() => {
+    if (positionne.current === cle) return
+    positionne.current = cle
     if (ligneInitiale <= 0) return
     const image = requestAnimationFrame(() => deplacer(ligneInitiale, { align: 'start' }))
     return () => cancelAnimationFrame(image)
-  }, [deplacer, ligneInitiale])
+  }, [cle, deplacer, ligneInitiale])
 
   const bornes = selection
     ? {

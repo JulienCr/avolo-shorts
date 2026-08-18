@@ -93,16 +93,17 @@ function Editeur({ detail }: { detail: ClipDetail }) {
     ? selectionBounds(words, selection.ancre, selection.tete)
     : null
 
-  // La première phrase du clip, pour ne pas ouvrir sur le contexte qui le précède.
+  // La première phrase du clip, pour ne pas ouvrir sur le contexte qui le
+  // précède. Calculée sur le clip **enregistré** et non sur le montage en
+  // cours : sinon chaque coupe déplacerait le début du clip, donc la valeur,
+  // donc le défilement — le texte fuirait sous les yeux à chaque geste.
+  // La surface, elle, ne s'en sert qu'une fois par clip (voir `cle`).
   const ligneInitiale = useMemo(() => {
-    const debut = bornes?.start
+    const debut = clip.segments[0]?.start
     if (debut === undefined) return 0
-    const i = lignesIndexees.findIndex((l) => l.end > debut)
+    const i = lines.findIndex((l) => l.end > debut)
     return i < 0 ? 0 : i
-    // Volontairement calculé sur le clip d'origine et non sur `segments` : la
-    // surface ne doit pas se repositionner à chaque coupe.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lignesIndexees, clip.id])
+  }, [lines, clip.segments])
 
   useEnregistrementAuto({
     reference: clip,
@@ -254,6 +255,7 @@ function Editeur({ detail }: { detail: ClipDetail }) {
 
           <div className="min-h-0 flex-1">
             <TranscriptSurface
+              cle={clip.id}
               lines={lignesIndexees}
               words={words}
               selection={selection}

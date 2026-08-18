@@ -64,15 +64,19 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
   // c'est le seul geste encore utile pendant l'attente.
   const bloquee = creation.enCours !== null
 
+  // **Que des `span`, jamais un `div` ni un `p`.** Le modèle de contenu d'un
+  // `button` n'admet que du contenu de phrase, et ce corps-ci sert aussi bien au
+  // bouton d'une source neuve qu'au lien d'une source analysée. Les classes
+  // Tailwind rendent la disposition, l'élément ne fait que porter le sens.
   const corps = (
     <>
       <EmplacementVignette />
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
-        <p className="truncate text-sm font-medium">{source.name}</p>
-        <p className="truncate text-xs text-muted-foreground tabular-nums">
+      <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
+        <span className="truncate text-sm font-medium">{source.name}</span>
+        <span className="truncate text-xs text-muted-foreground tabular-nums">
           {formatOctets(source.sizeBytes)} · {formatDateSource(source.modifiedAt)}
-        </p>
-        <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium">
+        </span>
+        <span className="mt-0.5 flex items-center gap-1.5 text-xs font-medium">
           {source.projectId !== null ? (
             <>
               <Badge variant="secondary">Analysée</Badge>
@@ -90,8 +94,8 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
               <span>Créer le projet</span>
             </>
           )}
-        </p>
-      </div>
+        </span>
+      </span>
     </>
   )
 
@@ -149,13 +153,13 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
  */
 function EmplacementVignette() {
   return (
-    <div
+    <span
       data-slot="vignette"
       aria-hidden
       className="flex aspect-video h-full shrink-0 items-center justify-center border-r bg-muted/50 text-muted-foreground/40"
     >
       <Film className="size-5" />
-    </div>
+    </span>
   )
 }
 

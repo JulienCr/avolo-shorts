@@ -402,10 +402,14 @@ libellé, son ordre attendu et son coût mesuré, vit à côté de `phaseProjet`
 
 ### 2.4 L'attente : trois régimes, pas un écran de chargement
 
-**Le fait qui commande tout ici est un ordre d'exécution.**
-`CIBLES_INITIALES = ['candidates', 'proxy']` (`run.ts`), et `planPourCibles`
-déroule donc : ingestion, audio, transcript, candidats, **puis** proxy. Les
-candidats arrivent avant le proxy.
+**Le fait qui commande tout ici est un ordre d'exécution.** `CIBLES_INITIALES`
+(`run.ts`) vise les candidats **et** le proxy, et `planPourCibles` déroule donc :
+ingestion, audio, transcript, candidats, **puis** proxy, puis ce qui dépend du
+proxy. La liste des cibles s'allonge — l'analyse d'image y est entrée avec la
+PR #31 —, la place des candidats devant le proxy ne bouge pas, et c'est d'elle
+seule que dépend tout ce qui suit. Ne pas recopier la liste ici : elle vit dans
+`run.ts`, et sa copie cliente `CIBLES_DE_REPRISE` (`src/lib/api.ts`) est gardée
+par un test.
 
 Chiffres mesurés le 18 août 2026 sur `2025-06-15-cqlp.mp4` (4,3 Go, 1 h 39),
 consignés dans `ROADMAP.md`. **Ils contredisent la spec §6, qui annonce 15 à
@@ -665,12 +669,22 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 | Succès | la décision est optimiste et instantanée : la carte change d'apparence, sans notification. Le succès de la boucle entière, lui, se marque : « tout est trié ». |
 
 **Le panneau d'avancement** porte quatre choses, et pas une de plus : l'étape en
-cours et sa progression, la liste ordonnée des étapes avec celles déjà faites, le
-temps écoulé depuis le lancement, et une phrase qui dit ce qui devient possible
-ensuite. Le temps restant **n'est pas affiché** : les seules mesures dont on
-dispose sont deux points sur une émission, et une estimation fausse coûte plus
-cher qu'une absence d'estimation. Le coût attendu par étape, lui, s'affiche comme
-un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »).
+cours et sa progression, la liste ordonnée des étapes avec celles déjà faites, une
+durée, et une phrase qui dit ce qui devient possible ensuite. Le temps restant
+**n'est pas affiché** : les seules mesures dont on dispose sont deux points sur
+une émission, et une estimation fausse coûte plus cher qu'une absence
+d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de grandeur
+mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »).
+
+**La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**
+Ce document réclamait le temps écoulé depuis le lancement. `ProjectStatus` ne le
+publie pas : `status.json` porte un `updatedAt` et un `finishedAt`, jamais un
+`startedAt`. Sur un projet dont l'analyse a démarré avant qu'on ouvre l'écran,
+l'afficher reviendrait donc à inventer un chiffre, et il n'y a rien de plus
+coûteux qu'un chiffre faux à côté d'une attente de neuf minutes. Le panneau compte
+le temps qu'il a passé à regarder tourner l'analyse, et l'annonce ainsi : « analyse
+suivie depuis cet écran ». Le jour où le serveur publiera l'instant du lancement,
+c'est le libellé qui change, pas la place.
 
 **Actions destructrices**
 
@@ -682,22 +696,23 @@ un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »)
   sont conservés, les 19 propositions en attente sont remplacées ». Une
   confirmation qui ne dit pas ce qui va disparaître ne fait que retarder le clic.
 
-**Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aujourd'hui aucune
-issue, et le bouton de reprise est l'ajout qui le ferme. Il appelle
-`POST /run` avec **les mêmes cibles que la création**, `candidates` et `proxy`, et
-laisse le graphe planifier les intermédiaires.
+**Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aucune issue par
+lui-même, et le bouton de reprise est ce qui le ferme. Il appelle `POST /run` avec
+**les mêmes cibles que la création** et laisse le graphe planifier les
+intermédiaires. Il ne les énumère pas : il vise `CIBLES_DE_REPRISE`, une
+constante, parce qu'une liste recopiée dans un écran se sépare un jour de celle
+qui crée les projets et laisse alors le projet à moitié reconstruit.
 
 Une cible nomme un résultat à atteindre, pas une étape à refaire : viser la
 première étape absente (`transcript`, par exemple) reconstruirait celle-là et
 s'arrêterait, laissant le projet dans l'impasse d'où l'on voulait le sortir.
 (relevé par Copilot)
 
-Il y a là **une demande au serveur** : `POST /run` n'accepte aujourd'hui qu'une
-cible, alors que `lancer` en prend déjà une liste et que `créerProjet` lui en
-passe deux. Viser `candidates` seul ne construit jamais le proxy, puisque rien
-n'en dépend dans le graphe. Tant que la route ne prend pas de liste, l'écran doit
-enchaîner deux appels en attendant la fin du premier, ce qui est une séquence que
-l'interface n'a aucune raison de porter.
+C'était là une demande au serveur, et **la route prend désormais une cible ou une
+liste**. La raison qui la fondait vaut d'être retenue, parce qu'elle décide encore
+de ce que le bouton vise : reprendre sur `candidates` seul ne construit jamais le
+proxy, rien n'en dépendant dans le graphe, et l'impasse ne serait refermée qu'à
+moitié.
 
 **Clavier** : voir la section 4. C'est l'écran qui en dépend le plus.
 
@@ -1149,8 +1164,11 @@ effet.
 toutes les deux secondes : une région live sur le pourcentage produirait une
 annonce toutes les deux secondes pendant neuf minutes. Le `role="progressbar"`
 met à jour `aria-valuenow` en silence, et une région `aria-live="polite"`
-distincte n'annonce que **les changements d'étape** et la fin. Quatre annonces sur
-toute l'analyse.
+distincte n'annonce que **les changements d'étape** et la fin. Une annonce par
+étape traversée, plus celle de fin : le compte se lit dans `ÉTAPES` et ne
+s'écrit pas ici. L'itération 2 en ajoutera, l'itération 4 aussi, et un total figé
+dans une phrase ne serait faux qu'à partir de ce jour-là — trop tard pour que
+quiconque s'en aperçoive.
 
 **Trois régions live, et pas une de plus** : l'avancement (changements d'étape),
 les erreurs (`role="alert"`, donc `assertive`) et le résultat d'un export. Le
@@ -1417,16 +1435,20 @@ de 30 secondes (`src/core/transcript.ts`), le dernier lot est plus court que les
 autres puisqu'il sort d'un `slice`, et une fenêtre couvre de la parole et non une
 tranche de temps. Sept lots sur onze ne font donc pas 64 % de quoi que ce soit.
 
-Deux formulations tiennent debout, et la seconde suppose un travail serveur :
+Deux grandeurs, et elles ne répondent pas à la même question :
 
-- avec le champ annoncé, **la phrase compte des lots** : « 4 lots de fenêtres sur
-  11 n'ont pas été notés ». C'est opaque pour qui ne connaît pas le découpage,
-  mais c'est vrai, et une ligne d'explication repliée suffit à le rendre lisible ;
-- ce qu'il faudrait vraiment est **une couverture temporelle** : l'union des
-  fenêtres effectivement notées, rapportée à l'étendue du transcript. C'est la
-  seule mesure qui réponde à la question que Julien se pose, et elle se calcule au
-  même endroit que le décompte. **Je la demande explicitement au serveur.** Tant
-  qu'elle n'existe pas, l'écran s'en tient au compte de lots.
+- **le compte de lots** — « 4 lots de fenêtres sur 11 n'ont pas été notés » — est
+  vrai et opaque pour qui ne connaît pas le découpage. Il dit ce qui s'est passé,
+  pas ce qu'on a perdu ;
+- **la couverture temporelle** — l'union des fenêtres effectivement notées,
+  rapportée à l'étendue du transcript — répond, elle, à la question que Julien se
+  pose. Ce document la demandait au serveur ; elle existe
+  (`BilanRepérage.couverture`), calculée au même endroit que le décompte.
+
+C'est donc la couverture qui porte la phrase, et les lots qui l'expliquent
+dessous. L'ordre n'est pas un détail de mise en page : lue en premier, une mesure
+de mécanisme fait croire qu'on parle d'un incident technique, alors qu'on parle de
+matière qui n'a pas été jugée.
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
@@ -1477,12 +1499,19 @@ défauts que chacun ferme par rapport à son coût.
    dérogation par plan. Les deux premières ne dépendent pas des plans et peuvent
    se poser dès que le modèle serveur existe.
 
-Les lots 3 et 5 dépendent chacun d'un travail serveur en cours dans l'autre
-session. **Le lot 1 en dépend aussi, d'un petit** : son bouton de reprise a besoin
-que `POST /run` accepte une liste de cibles (§9.4). Sans elle, le lot reste
-livrable, mais son bouton ne reconstruit que les candidats et laisse le proxy
-manquant, ce qui referme l'impasse à moitié. (relevé par Aristarque). Les lots 2, 4
-et 6 ne dépendent de rien qui n'existe pas.
+**Les six premiers sont livrés**, et les trois dépendances serveur qu'ils
+attendaient sont satisfaites : les fonctions clientes d'action, le jeton de
+séquence sur `PATCH`, et la liste de cibles pour `POST /run` sans laquelle le
+bouton de reprise n'aurait reconstruit que les candidats.
+
+**Le septième ne l'est pas, et ce n'est pas l'interface qui le retient.** Il lit
+le résultat du cadrage automatique, qui est en ligne et ne produit rien
+d'utilisable : sur `2025-06-15-cqlp`, les trente clips sortent tous en 16:9, parce
+qu'un tiers des boîtes de personnes sont des têtes de spectateurs collées au bord
+bas de l'image. Offrir de déroger à un calcul qui ne calcule rien coûterait plus
+que de ne rien offrir — on croirait alors corriger la machine alors qu'on la
+remplacerait à chaque plan. `ROADMAP.md` tient la liste des morceaux d'itération 1
+qui viennent avant, et leur ordre.
 
 L'ordre a changé une fois, à la lecture de ce que livre la session serveur : les
 trois lots qui ferment un parcours orphelin (1, 3 et 5) sont remontés devant ceux

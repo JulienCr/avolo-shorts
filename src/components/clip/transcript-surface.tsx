@@ -224,6 +224,10 @@ export function TranscriptSurface({
       const borné = Math.min(Math.max(index, 0), Math.max(0, words.length - 1))
       setCurseur(borné)
       àFocaliser.current = true
+      // **Naviguer coupe le suivi**, que ce soit à la flèche ou par la
+      // recherche : aller voir ailleurs pendant que la lecture continue ferait
+      // ramener le texte sous les yeux au moment où on lit l'occurrence.
+      setSuivi(false)
       // **Sans ce défilement, la flèche paraît sans effet** : le mot suivant
       // peut être hors du champ rendu, donc absent du DOM.
       défilerVers(ligneDuMot(lines, borné))
@@ -241,9 +245,6 @@ export function TranscriptSurface({
     else if (e.key === 'End') allerAuMot(words.length - 1)
     else return
     e.preventDefault()
-    // Naviguer au clavier est un geste : le texte ne doit plus fuir sous les
-    // yeux parce que la lecture, elle, continue.
-    setSuivi(false)
   }
 
   function allerAuRésultat(suivant: number) {

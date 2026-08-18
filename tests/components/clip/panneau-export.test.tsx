@@ -68,8 +68,8 @@ function monter(props: Partial<Parameters<typeof PanneauExport>[0]> = {}) {
     onBranding: vi.fn(),
     ...props,
   }
-  render(<PanneauExport {...complet} />, { wrapper: enveloppe })
-  return complet
+  const rendu = render(<PanneauExport {...complet} />, { wrapper: enveloppe })
+  return { ...complet, rerender: rendu.rerender, props: complet }
 }
 
 const boutonExporter = () => screen.getByRole('button', { name: /exporter/i })
@@ -183,6 +183,24 @@ describe('après l’export', () => {
     await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
   })
 
+  it('retire l’annonce quand le montage a changé depuis', async () => {
+    // « Rendu terminé » décrit ce qui vient d'avoir lieu. Une coupe plus tard,
+    // les fichiers sur le disque ne décrivent plus ce clip-ci, et laisser
+    // l'annonce affirmerait le contraire.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        reponse({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false }),
+      ),
+    )
+    const { rerender, props } = monter()
+    fireEvent.click(boutonExporter())
+    await waitFor(() => expect(screen.getByText(/rendu terminé/i)).toBeTruthy())
+
+    rerender(<PanneauExport {...props} duree={14} />)
+    expect(screen.queryByText(/rendu terminé/i)).toBeNull()
+  })
+
   it('montre l’échec avec le code que le serveur a rendu', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'Aucune marque exploitable' }, 422)))
     monter()
@@ -284,6 +302,21 @@ describe('les textes et les marques', () => {
     await waitFor(() => expect(écrire).toHaveBeenCalledTimes(1))
     expect(écrire.mock.calls[0][0]).toContain('Titre : La chute')
     expect(écrire.mock.calls[0][0]).toContain('Mots-dièse : #impro')
+  })
+
+  it('repasse à « Copier » dès que les textes changent', async () => {
+    // Sinon le bouton affirme « Copié » sur un texte que le presse-papiers ne
+    // porte pas.
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn(async () => {}) },
+      configurable: true,
+    })
+    const { rerender, props } = monter()
+    fireEvent.click(screen.getByRole('button', { name: /copier/i }))
+    await screen.findByRole('button', { name: /copié/i })
+
+    rerender(<PanneauExport {...props} clip={clip({ title: 'Un autre titre' })} />)
+    expect(screen.getByRole('button', { name: /copier/i })).toBeTruthy()
   })
 
   it('expose l’échappatoire des marques, qui n’était atteignable qu’en curl', () => {

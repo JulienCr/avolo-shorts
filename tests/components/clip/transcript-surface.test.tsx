@@ -199,6 +199,22 @@ describe('la recherche', () => {
     expect(within(surface.parentElement as HTMLElement).getByText('2 sur 5')).toBeTruthy()
   })
 
+  it('coupe le suivi de lecture, comme tout geste de navigation', async () => {
+    // Chercher, c'est aller voir ailleurs. Laisser le défilement suivre la
+    // lecture ramènerait le texte sous les yeux au moment où on lit l'occurrence.
+    const { words, surface } = monter({ recherche: true })
+    act(() => useLecture.getState().definirMots(words))
+    act(() => useLecture.getState().definirPosition(80))
+    await imageSuivante()
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'm2-0' } })
+    await imageSuivante()
+    const arrêté = surface.scrollTop
+
+    act(() => useLecture.getState().definirPosition(160))
+    expect(surface.scrollTop).toBe(arrêté)
+  })
+
   it('dit quand rien ne correspond', () => {
     monter({ recherche: true })
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'incendie' } })

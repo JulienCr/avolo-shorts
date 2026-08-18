@@ -226,3 +226,19 @@ describe('l’enregistrement en échec', () => {
     }
   })
 })
+
+describe('le surlignage, dès l’ouverture', () => {
+  it('connaît les mots même quand le store porte déjà ce clip', async () => {
+    // L'écran remet la lecture à zéro au changement de clip **et** publie les
+    // mots du transcript. Dans le mauvais ordre, la remise à zéro efface les
+    // mots aussitôt publiés, et plus rien ne se surligne jusqu'à la première
+    // coupe — sur l'écran dont c'est une des deux nouveautés.
+    // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
+    // l'ordre des deux effets décide seul de ce qui reste publié.
+    await monter('c2')
+    cleanup()
+    await monter('c2')
+    act(() => useLecture.getState().definirPosition(3.2))
+    expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
+  })
+})

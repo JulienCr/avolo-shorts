@@ -52,7 +52,20 @@ export function PanneauExport({
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
 
+  /**
+   * Ce que décrivait le clip au moment où on l'a lancé.
+   *
+   * L'annonce du résultat dit ce qui **vient** d'avoir lieu. Une coupe plus tard,
+   * les fichiers sur le disque ne décrivent plus ce clip-ci — le `PATCH` a
+   * d'ailleurs écarté le rendu — et laisser « rendu terminé » affirmerait le
+   * contraire. La signature se pose depuis le geste, jamais depuis un effet :
+   * annoncer un changement d'état depuis un `useEffect` est un motif que le
+   * dépôt refuse, et il n'y a rien à observer ici qu'on ne sache déjà.
+   */
+  const [signatureRendue, setSignatureRendue] = useState<string | null>(null)
+
   const effectif = resolveRatio(ratio)
+  const signature = `${clip.id}|${effectif}|${duree}|${clip.title}|${clip.description}`
   const noms = nomsDeSortie(clip.id, effectif)
   const déjàLivré = outputs.mp4Url !== null
 
@@ -70,6 +83,7 @@ export function PanneauExport({
 
   function lancer(force: boolean) {
     if (empêchement !== null || exporter.isPending) return
+    setSignatureRendue(signature)
     exporter.mutate({ clipId: clip.id, force })
   }
 
@@ -153,7 +167,7 @@ export function PanneauExport({
         </Alert>
       )}
 
-      {exporter.isSuccess && !exporter.isPending && (
+      {exporter.isSuccess && !exporter.isPending && signatureRendue === signature && (
         // **`skipped: true` est un cas nominal**, et le plus fréquent quand on
         // rouvre un clip déjà exporté : rien n'a été refait, tout est en place.
         <p className="flex items-center gap-1.5 text-[0.75rem]" aria-live="polite">
@@ -301,15 +315,19 @@ function Sortie({
  * recours, au lieu d'un bouton mort.
  */
 function ZoneDeTextes({ clip }: { clip: Clip }) {
-  const [copié, setCopié] = useState(false)
+  // **Le texte copié, pas un booléen.** « Copié » doit redevenir « Copier » dès
+  // que les textes changent, sinon le bouton affirme que le presse-papiers porte
+  // quelque chose qu'il ne porte plus.
+  const [copié, setCopié] = useState<string | null>(null)
   const texte = texteDePublication(clip)
+  const àJour = copié === texte
 
   async function copier() {
     try {
       await navigator.clipboard.writeText(texte)
-      setCopié(true)
+      setCopié(texte)
     } catch {
-      setCopié(false)
+      setCopié(null)
     }
   }
 
@@ -318,8 +336,8 @@ function ZoneDeTextes({ clip }: { clip: Clip }) {
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-medium">Textes de publication</h3>
         <Button size="sm" variant="outline" onClick={() => void copier()}>
-          {copié ? <Check aria-hidden /> : <Copy aria-hidden />}
-          {copié ? 'Copié' : 'Copier'}
+          {àJour ? <Check aria-hidden /> : <Copy aria-hidden />}
+          {àJour ? 'Copié' : 'Copier'}
         </Button>
       </div>
       <textarea

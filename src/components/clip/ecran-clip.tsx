@@ -86,19 +86,23 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     [lines, segments],
   )
 
+  // **La remise à zéro d'abord, la publication des mots ensuite — l'ordre de
+  // déclaration est l'ordre d'exécution.** Le clip suivant repart d'une position
+  // nulle, faute de quoi celle du précédent surlignerait un mot avant même
+  // d'avoir lu quoi que ce soit ; mais déclarée après, cette remise à zéro
+  // efface les mots qu'on vient de publier, et plus rien ne se surligne jusqu'à
+  // la première coupe.
+  useEffect(() => {
+    useLecture.getState().reinitialiser()
+    return () => useLecture.getState().reinitialiser()
+  }, [clip.id])
+
   // Le surlignage se calcule dans `useLecture`, à partir de ces mots-ci : ils
   // sont réindexés à chaque coupe, et un index gardé tel quel surlignerait un
   // mot au hasard.
   useEffect(() => {
     useLecture.getState().definirMots(words)
   }, [words])
-
-  // Le clip suivant repart d'une position nulle : garder celle du précédent
-  // surlignerait un mot avant même d'avoir lu quoi que ce soit.
-  useEffect(() => {
-    useLecture.getState().reinitialiser()
-    return () => useLecture.getState().reinitialiser()
-  }, [clip.id])
 
   const bornes = clipBounds(segments)
   const duree = clipDuration(segments)

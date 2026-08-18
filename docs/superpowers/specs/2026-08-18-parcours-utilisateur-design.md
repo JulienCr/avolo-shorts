@@ -703,7 +703,7 @@ l'interface n'a aucune raison de porter.
 | **Navigation** | retour au tri par le fil d'Ariane. « Clip suivant à monter » et « précédent », calculés sur la liste des candidats du projet. **La page interroge cette liste elle-même**, elle ne suppose pas qu'elle est en cache : arriver ici par une URL partagée, un signet ou un rechargement est un parcours que 2.2 promet de rendre repreneur, et le cache est alors vide. Venant de l'écran de tri, la requête est un succès de cache et ne coûte rien. (relevé par Codex et Copilot) |
 | **Persistance aller** | rien. Le clip vient de l'API, le montage en cours vient du store. |
 | **Persistance retour** | l'enregistrement différé écrit avant de quitter (`pagehide` et démontage, `keepalive: true`). Ce qui **ne** survit pas est la pile d'annulation, remise à zéro au changement de clip par la garde de `charger`. C'est acceptable et il faut le dire : `Ctrl+Z` défait le montage de cette séance, pas celui d'hier. |
-| **Validation** | le titre et la description sont libres, et rien ne s'y valide pendant la frappe. Une seule règle, dite au moment de l'export : un titre vide n'empêche pas le rendu mais produit un `.txt` dont la première ligne est vide, donc rien à coller au moment de publier. L'avertissement se pose sur le bouton d'export, pas sur le champ. |
+| **Validation** | le titre et la description sont libres, et rien ne s'y valide pendant la frappe. Une seule règle, dite au moment de l'export : un titre vide n'empêche pas le rendu mais produit un `.txt` dont la première ligne porte `Titre : (sans titre)`, donc rien à coller au moment de publier. (Ce document annonçait une première ligne **vide** ; `texteDePublication` écrit un substitut depuis le début, et c'est mieux ainsi — une ligne vide dans un fichier fait à être collé ne se distingue pas d'un fichier tronqué. Corrigé le 18 août 2026, l'avertissement de l'écran disant désormais ce que le fichier porte vraiment.) L'avertissement se pose sur le bouton d'export, pas sur le champ. |
 
 **Trois changements de fond**, par ordre de valeur.
 
@@ -864,12 +864,19 @@ plateforme. La conception en est à part, dans
 `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
 laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
-**Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
-sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif
-compris. Tant qu'elle n'est pas corrigée, le panneau le dit sur la variante
-concernée. Livrer un
-fichier dont on connaît le défaut sans le dire est ce qui fait perdre confiance
-dans les autres.
+**Un défaut connu à signaler dans le panneau — et il n'y en a plus.** Ce
+paragraphe demandait au panneau d'avertir sur la variante 9:16, dont l'anomalie
+#22 laissait les sous-titres lisibles dans le fond flouté, jaune du mot actif
+compris. **Elle est fermée** : la variante tire désormais son fond d'avant
+l'incrustation, vérifié à l'image — 43 tuiles sur 43 sans un pixel de texte,
+contre 43 sur 43 lisibles avant (`ROADMAP.md` porte la mesure). Le panneau
+n'affiche donc **aucun** avertissement pour ce défaut-là : en afficher un
+signalerait un défaut qui n'existe plus, ce qui coûte la même confiance que de
+taire celui qui existe.
+
+La règle qui restait bonne, elle, ne bouge pas : livrer un fichier dont on
+connaît le défaut sans le dire est ce qui fait perdre confiance dans les autres.
+Le jour où une anomalie de rendu rouvre, c'est ici qu'elle se dit.
 
 ### 3.5 Le cadrage quand l'automatique arrive
 

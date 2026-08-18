@@ -131,7 +131,7 @@ export function CropOverlay({
         )}
         style={{ left: `${gauche * 100}%`, width: `${largeur * 100}%` }}
       >
-        <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.65rem] font-semibold text-stage-foreground">
+        <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.75rem] font-semibold text-stage-foreground">
           {effectif}
         </span>
 
@@ -192,8 +192,18 @@ export function RatioPicker({
       </ToggleGroup>
 
       {ratio === 'auto' && (
-        <p className="text-[0.7rem] text-muted-foreground">
+        <p className="text-[0.75rem] text-muted-foreground">
           « auto » vaut 9:16 en itération 0 — le cadrage automatique n’existe pas encore.
+        </p>
+      )}
+
+      {/* **La raison d'un contrôle inerte s'écrit à côté de lui.** Le curseur de
+          cadrage se fige en 16:9 puisque le cadre couvre alors toute la source ;
+          sans cette phrase, il passe pour cassé — et une bulle d'aide ne
+          conviendrait pas, elle serait invisible au clavier. */}
+      {resolveRatio(ratio) === '16:9' && (
+        <p className="text-[0.75rem] text-muted-foreground">
+          En 16:9 le cadre occupe toute la largeur de la source : il n’y a rien à déplacer.
         </p>
       )}
     </div>

@@ -290,18 +290,30 @@ const RÉFÉRENCE = {
 /**
  * Ce qu'une seconde d'émission coûte à chaque étape, en secondes.
  *
- * **`analysis` n'y est pas, et c'est la même abstention qu'`ÉTAPES`** : elle n'a
- * jamais été chronométrée sur une émission entière. Mieux vaut ne rien annoncer
- * qu'annoncer une estimation qui n'est adossée à rien. `renders` non plus — un
- * rendu se demande par clip, jamais par le graphe.
+ * **Exhaustif, comme `LIBELLES_ETAPES`** : ajouter une étape au graphe sans
+ * venir ici casse le type-check. C'est le correctif de fond d'#39 appliqué à une
+ * seconde table — une étape oubliée n'annoncerait rien, ce qui ressemble trait
+ * pour trait à une étape délibérément non chronométrée.
+ *
+ * `null` dit précisément cela : **on ne sait pas, donc on n'annonce rien.**
+ * C'est la même abstention que le `coûtSec` d'`ÉTAPES`, et elle vaut mieux
+ * qu'une estimation qui n'est adossée à rien.
  */
-const DÉBITS: Partial<Record<StepName, number>> = {
+const DÉBITS: Record<StepName, number | null> = {
   // 6 s. La seule étape dont le résultat tienne toujours sous la minute.
   audio: 6 / RÉFÉRENCE.duréeSec,
   // 1 min 41, soit 59x le temps réel.
   transcript: 101 / RÉFÉRENCE.duréeSec,
   // 6 min, soit 16,4x le temps réel. La plus longue, et de loin.
   proxy: 360 / RÉFÉRENCE.duréeSec,
+  // Livrée par la PR #31 et jamais chronométrée sur une émission entière.
+  analysis: null,
+  // Le repérage se compte en fenêtres et non en secondes d'émission : il est
+  // traité avant cette table, qui ne le nomme que pour rester exhaustive.
+  candidates: null,
+  // Un rendu se demande par clip, jamais par le graphe : il ne passe jamais
+  // dans un panneau d'avancement.
+  renders: null,
 }
 
 /** 30 s de repérage pour 83 fenêtres notées. */
@@ -393,6 +405,6 @@ export function fourchetteDÉtape(étape: StepName, taille: TailleÉmission): Fo
   }
 
   const débit = DÉBITS[étape]
-  if (débit === undefined || durée === null) return null
+  if (débit === null || durée === null) return null
   return encadrer(durée.sec * débit, durée.déduite ? MARGE_SUR_TAILLE : MARGE)
 }

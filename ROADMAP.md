@@ -11,19 +11,37 @@ et les mesures qui la fondent.
 
 ## Où en est le projet
 
-**L'itération 0 est livrée, à un raccord près.** Quatorze tâches, dix-neuf PR,
-759 tests, CI vert à chaque PR.
+**L'itération 0 est livrée, entièrement, et la moitié de l'itération 1 avec.**
+Neuf PR fusionnées le 18 août 2026, 965 tests, CI verte à chaque PR.
 
 Ce qui tourne : ingestion depuis le Drive, proxy, extraction audio,
 transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
 le transcript, cadrage manuel, rendu avec sous-titres karaoké incrustés et
-logo, export en deux formats et l'API qui pilote le tout.
+logo, export en deux formats, l'API qui pilote le tout — et, depuis cette
+vague, la détection des corps et des plans, le cadrage automatique en fonctions
+pures, et les secrets résolus depuis 1Password.
 
-**Mais trois parcours n'ont pas de bouton** : créer une émission, relancer une
-analyse, exporter un clip. La chaîne est donc incomplète du point de vue de son
-utilisateur. Le détail est plus bas, sous « Le raccord manquant ». Ne pas lire
-« itération 0 livrée » comme « utilisable de bout en bout au clavier » : l'entrée
-du tunnel et sa sortie se pilotent encore en `curl`.
+**Le raccord côté serveur est fait.** Les trois routes orphelines ont leurs
+fonctions dans `src/lib/api.ts` (`createProject`, `runProject`, `exportClip`),
+`GET /api/clips/:id` rend les sorties produites en URL, et une route sert les
+rendus en requêtes partielles. **Les gestes d'interface, eux, n'existent
+toujours pas** : ils appartiennent à la passe UI/UX, dont la conception est
+livrée dans `docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`.
+
+**Les trois anomalies sont fermées.** #22 — la variante 9:16 tire désormais son
+fond d'avant l'incrustation, vérifié à l'image : 43 tuiles sur 43 sans un pixel
+de texte, contre 43 sur 43 lisibles avant. #21 — jeton d'ordre par champ. #12 —
+`p4` est visuellement équivalent à `p5` mais ne gagne plus rien depuis que
+l'export n'est plus borné par l'encodeur ; la table reste à `p5`, les deux
+moitiés de la mesure sont dans `docs/environnement.md`.
+
+**Et le filtre de sécurité de Gemini n'écarte plus rien.** Il n'est pas
+configurable — mesuré, les quatre catégories à `OFF` donnent quatre refus sur
+quatre — mais il vise la **concentration de matière dans une requête** : un lot
+de huit est refusé là où les mêmes fenêtres passent une à une. Le repérage
+recoupe donc les lots refusés et les renvoie. Résultat sur `2025-06-15-cqlp` :
+**51 fenêtres notées sur 83 → 83 sur 83**, et **trois des six clips retenus
+sortent de fenêtres qu'on jetait sans les juger**.
 
 ## Ce qui le prouve
 
@@ -86,99 +104,118 @@ sans repayer les six minutes de proxy.
 
 ## Ce qui reste
 
-### Le raccord manquant : trois parcours orphelins
+### L'itération 1 n'est pas finie, et son dernier morceau est un préalable
 
-C'est le premier chantier, avant les itérations suivantes, parce qu'il empêche
-d'utiliser ce qui est déjà construit. Constaté par Julien devant l'écran, puis
-vérifié dans le code.
+Le cadrage automatique est en ligne et **ne produit rien d'utilisable en
+l'état** : sur `2025-06-15-cqlp`, les **30 clips sortent tous en 16:9**.
 
-**Le trou est plus large que l'export.** `src/lib/api.ts` ne porte que quatre
-`GET` et un `PATCH`, et **trois routes `POST` n'ont aucun appelant côté
-navigateur** : `POST /api/projects`, `POST /api/projects/:id/run` et
-`POST /api/clips/:id/export`. Il n'existe donc ni bouton « nouvelle émission »,
-ni bouton « relancer », ni bouton « exporter ». Le serveur répond aux trois,
-personne ne les appelle. L'entrée du tunnel a déjà sa tâche, la 15 du plan,
-ajoutée le 18 août 2026 par la PR #25 ; les deux autres n'en ont pas.
+La cause est mesurée : **34 % des boîtes de personnes sont des têtes de
+spectateurs collées au bord bas de l'image.** Écarter le premier plan fait
+passer l'empan médian de 0,68 à 0,50 et la part du temps qui tient dans un 1:1
+de **33 % à 64 %**. Sur `2026-03-08-caro-mdlm`, 26 boîtes sur 3 083 seulement :
+c'est propre à `cqlp`, pas général.
 
-Sur l'export, le plus visible des trois, un clip affiche l'étiquette « exporté »
-et rien ne permet de déclencher le rendu, de lire le fichier produit, ni de
-récupérer les textes. Trois pièces manquent, toutes du même côté :
+Ce n'est pas un seuil. Couper à `y1 ≤ 0,97` déplace bien 19 clips sur 30 vers un
+ratio plus serré, mais ne laisse survivre que 16 % des boîtes — donc il jette
+aussi des comédiens debout. **Le filtre demande sa propre mesure**, et il vient
+avant tout le reste de l'itération 1 : sans lui, l'automatique ne vaut pas mieux
+que le manuel.
 
-1. **Aucune route ne sert un fichier rendu.** `/api/projects/:id/proxy` existe et
-   gère les requêtes partielles, mais rien d'équivalent pour
-   `projects/<id>/renders/`. La mécanique est là et se réutilise :
-   `parseRange` dans `src/core/range.ts`, et la route proxy comme modèle.
-2. **`GET /api/clips/:id` ne dit rien des sorties produites.** Il rend
-   `{ clip, project, lines, proxyUrl }`. Il lui faut les rendus, en URL et jamais
-   en chemins absolus du serveur, avec `null` quand le fichier n'existe pas. La
-   variante 9:16 n'existe que si le ratio résolu n'est pas déjà 9:16 : son absence
-   n'est pas une anomalie.
-3. **`src/lib/api.ts` n'expose pas d'`exportClip`**, et l'écran de clip n'a ni
-   bouton, ni état d'attente, ni lecteur des sorties. L'export prend de dix
-   secondes à une minute : un bouton muet pendant ce temps passe pour cassé. Il
-   faut aussi traiter le ré-export, le serveur rendant `skipped: true` quand le
-   rendu existe déjà.
+Restent ensuite, dans cet ordre :
 
-**La cause est une couture d'orchestration, pas une erreur d'un agent.**
-L'interface a été construite contre des fixtures pendant que les autres tâches
-tournaient, donc avant que la route d'export existe. Quand la tâche 10 a branché
-`src/lib/api.ts` sur les vraies routes, elle a câblé les fonctions que
-l'interface appelait déjà, et l'export n'en faisait pas partie. Chaque agent a
-livré son périmètre, et personne ne possédait le raccord.
+1. **Le rendu à crop variable.** `renderArgs` applique un seul rectangle à tous
+   les segments (`src/core/ffmpeg/args.ts`). Un segment qui traverse une
+   frontière de plan doit se découper en autant d'entrées que de plans. La
+   migration porte `cropMode` et la table `crops`, décrites plus bas.
+2. **Le préremplissage.** `resolveRatio('auto')` rend encore `9:16` en dur et
+   doit aller chercher `computeFraming`.
+3. **Les coupes posées sur les frontières.** `snapToShots` est écrit, pur et
+   testé ; il reste à le brancher dans la délimitation.
 
-La leçon vaut pour la suite, et les trois parcours orphelins la renforcent :
-**quand un périmètre est découpé pour paralléliser, quelqu'un doit posséder
-explicitement la jonction**, sinon elle tombe entre deux rapports tous deux
-exacts.
+**Le modèle du crop, arbitré et non encore implémenté.** Trois champs :
+`cropMode: 'auto' | 'manual'` (mode explicite — bouger un curseur ne le bascule
+pas), `crops: Record<shotStartMs, number>` (dérogation **par plan**, un plan sans
+entrée garde son crop calculé), et `ratio` qui devient **épinglable**. Un ratio
+épinglé fait recalculer les crops **pour ce ratio**. La clé désigne le plan
+**dans la source** — son instant de début en millisecondes —, jamais son rang
+dans le clip : indexée sur le rang, une dérogation se décale au premier retrait
+de segment en amont et atterrit sur le mauvais plan, sans erreur ni signal.
 
-**Le trou se referme en deux fois.** Julien a tranché le 18 août 2026 : le
-chantier en cours ne livre que le côté serveur, les routes qui manquent et les
-fonctions correspondantes de `src/lib/api.ts`. Les gestes d'interface, bouton par
-bouton, partent dans une passe UI/UX complète menée par une session séparée.
-D'ici là, ne pas lire « `exportClip` existe » comme « le raccord est fait » : la
-dernière étape se pilotera toujours en `curl`.
+### L'interface
 
-### Trois anomalies ouvertes
+Aucun geste. La conception est livrée
+(`docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`, §8 porte
+l'ordre de mise en œuvre) et c'est le chantier suivant.
 
-**#22, et elle est pire que son ticket ne le dit.** Sur la variante 9:16, le fond
-flouté ne laisse pas seulement « deviner » les sous-titres : le carton est
-pleinement lisible dans la bande du bas, à la même taille, le jaune du mot actif
-compris. Constaté à l'image, pas déduit du filtergraph. La variante est
-construite depuis le rendu natif déjà incrusté, et `gblur=sigma=12` n'efface pas
-des lettres cerclées d'un contour de 8. Ça compte parce que
-cette variante est ce qui permet à un 1:1 ou un 4:5 d'atteindre TikTok, donc le
-mécanisme qui porte la moitié du bénéfice mesuré en section 2 de la spec.
+Ce que le serveur impose et qu'une interface écrite sans le savoir présenterait
+comme des erreurs :
 
-**#21.** Deux `PATCH` sur le même clip qui se croisent peuvent laisser la
-première valeur à l'écran. Le fermer demande un jeton de séquence, donc le
-schéma, le contrat et le hook, soit trois surfaces.
+- **L'export est synchrone et dure de dix secondes à une minute.** Un bouton muet
+  pendant ce temps passe pour cassé.
+- **`skipped: true` au ré-export est un cas nominal**, pas un échec.
+- **Un clip a une ou deux sorties.** La variante 9:16 n'existe que si le ratio
+  résolu n'est pas déjà 9:16 ; son absence alors n'est pas une anomalie.
+  `variant9x16Due` distingue « n'existera jamais » de « due, pas encore produite ».
+- **Un `PATCH` refusé pour jeton périmé est un cas nominal** — « une écriture plus
+  récente a gagné », pas « la sauvegarde a échoué ». **Et `applied: false` doit
+  réconcilier l'état local**, sinon la sauvegarde différée renvoie l'intention
+  refusée avec un jeton neuf et annule la garantie d'ordre. C'est le premier
+  geste à faire.
+- **Le vocabulaire d'étapes est recopié, pas dérivé.** `LIBELLES_ETAPES` porte sur
+  le `StepName` **client** de `src/lib/api.ts:35`, une union écrite à la main et
+  distincte de `src/core/graph.ts`. `analysis` y manque, donc l'écran affiche un
+  libellé vide et un `aria-label` « undefined en cours » pendant l'analyse d'un
+  projet neuf. Correctif en deux lignes indissociables. La cause — deux contrats
+  qui ne se contraignent pas — vaut mieux qu'un correctif par symptôme.
+- **La perte du repérage doit rester visible.** `dernierBilan(projectId)` est
+  exporté par `src/server/steps/candidates.ts` ; il reste à le faire remonter
+  dans `status.json` (une ligne dans `écrireStatut`, `src/server/run.ts`), en
+  croisant avec `error`/`finishedAt` — le bilan décrit une notation *tentée*.
 
-**#12.** Le préréglage NVENC de l'export : `p4` rend 7,51x contre 4,58x pour le
-`p5` retenu, à qualité que personne n'a regardée.
+### Trois points laissés ouverts par la vague
 
-### Deux points sans ticket, à trancher devant l'écran
+- **`épurerChemins` ne caviarde pas les références `op://…`** (`src/core/erreurs.ts`).
+  Une référence n'est pas une valeur, mais elle nomme le coffre. Contourné en ne
+  la citant pas dans le message servi ; le trou reste pour tout autre message.
+- **`sauterLeRendu` tient des fichiers périmés pour complets**, et les écritures
+  du `.txt` ne sont pas ordonnées entre `PATCH` et `renderClip`. Les deux se
+  referment ensemble avec une empreinte de rendu persistée, dans `render.ts`.
+- **Trois trouvailles consignées sur la PR #31 et non traitées** : `round(score, 3)`
+  fait franchir le seuil inclusif de 0,5 à une confiance de 0,4996 ; un
+  `--scene-threshold` sous le plancher de collecte de 0,05 ne s'applique pas ; et
+  **la validation avant renommage n'est exercée par aucun test** — la plus
+  sérieuse, la propriété est annoncée en tête de fichier et inverser les deux
+  lignes laisserait la suite verte.
 
-Cliquer un mot barré loin devant le clip crée un segment isolé de quelques
-dixièmes à cet endroit. C'est ce que le plan demandait, `Ctrl+Z` le défait, mais
-c'est un piège possible.
+### L'environnement et l'outillage
 
-**Le filtre de sécurité de Gemini se déclenche sur du transcript d'improvisation.**
-Quatre lots de notation sur onze reviennent `PROHIBITED_CONTENT` sur
-`2025-06-15-cqlp`, de façon reproductible et diagnostiquée lot par lot. Ce n'est
-donc ni un hasard ni un incident réseau : c'est un taux, et sur cette émission il
-vaut 36 %.
+Quatre faits payés par la vague du 18 août, et qui coûtent cher à redécouvrir.
 
-Ce que ça coûte aujourd'hui : le repérage classe les lots refusés derniers plutôt
-que d'échouer, donc leurs fenêtres ne sont jamais notées et ne peuvent pas
-remonter dans la présélection. Un tiers du matériau est écarté sans être jugé, en
-silence. Le contournement empêche la panne, pas la perte.
+- **Chaque worktree d'agent a besoin de son propre `node_modules`.** Le partager
+  par lien symbolique paraît gratuit et ne l'est pas : un `pnpm install` lancé
+  depuis n'importe quel worktree **recâble les liens de la racine** pour les faire
+  passer par lui. Node résout quand même — le chemin reboucle — donc les tests
+  passent et rien n'avertit ; mais Turbopack refuse un chemin qui sort de la
+  racine du projet (`Could not find the Next.js package`) et le serveur de dev
+  meurt. Avec les liens matériels de pnpm, sept installations réelles coûtent
+  **300 Mo**. L'économie n'a jamais existé.
+- **`next dev` et `next build` ne démarrent pas dans un worktree** dont le
+  `node_modules` sort de l'arborescence. Seuls `vitest`, `tsc` et `eslint` y
+  tournent. Une vérification qui a besoin d'un vrai serveur passe par un harnais
+  HTTP Node montant les mêmes gestionnaires.
+- **`eslint` lancé depuis la racine lit les worktrees** et échoue sur les types
+  générés par Next qui s'y trouvent. Ce n'est pas un défaut du dépôt : la CI part
+  d'un clone frais et ne les voit pas. Restreindre à `src scripts tests` pour un
+  contrôle local honnête.
+- **Le venv de détection pèse 7,8 Go** et `setup.sh` le construit dans
+  `worker/venv`, avec les poids YOLO dans `worker/models` (149 Mo, release
+  épinglée, somme SHA-256 vérifiée). Les deux sont ignorés par git — vérifié :
+  zéro chemin sous `worker/venv` dans tout l'historique. Ne jamais les laisser
+  entrer dans un commit.
 
-Ce que ça engage pour la suite : l'itération 2 ajoute quatre pourvoyeurs et un
-reclassement en vision, tous chez le même fournisseur. Si le filtre mord déjà sur
-du texte, il mordra sur des images de scène. La cause mérite d'être élucidée
-avant d'y investir : quelles catégories se déclenchent, si les réglages de
-sécurité de l'API les couvrent, et si le découpage en lots de huit concentre le
-risque au lieu de le diluer.
+Le reste — la variance de 40 à 80 % des mesures prises sous WSL, l'absence de
+throttling thermique, les alias interactifs de `rm`, `cp` et `mv` — est dans
+`CLAUDE.md`, section « L'environnement ».
 
 ### Les quatre itérations suivantes
 
@@ -220,8 +257,24 @@ et ne passer en « prêt » qu'une fois le travail fini et vert. Les relecteurs
 ignorent les brouillons ; une PR ouverte tôt déclenche une passe de review par
 commit, sur du code en chantier. La première PR du projet en a consommé douze.
 
-Personne ne pousse sur `main` : elle est protégée, les fils de review doivent
-être résolus avant merge.
+`main` est protégée : suppression et force-push refusés, fils de review résolus
+avant merge. **Une dérogation existe pour le rôle administrateur**, posée le
+18 août pour que la documentation de reprise — ce fichier — puisse être poussée
+directement sans un cycle de review complet.
+
+GitHub ne sait pas restreindre une dérogation à un chemin : elle vaut donc aussi
+pour le code, et rien de mécanique n'empêche d'y pousser. **Ce qui la tient est
+une règle, pas un verrou** : du code passe par une PR, toujours. Ce que la vague
+du 18 août a établi vaut d'être relu avant de s'en dispenser — treize trouvailles
+réelles sur une seule PR, dont un interblocage et une boucle infinie.
+
+**L'agent fusionne sa propre PR** quand tout est vert, tous les fils résolus, et
+après `git merge origin/main` suivi d'une revérification : plusieurs PR
+fusionnées en parallèle périment le vert les unes des autres. L'orchestrateur ne
+fait pas barrage — mais il ne fusionne pas non plus **sous** un agent qui tient
+encore sa boucle : le merge supprime la référence distante, une poussée qui
+arrive juste après recrée la branche avec un commit orphelin, et les derniers
+correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 ### Les reviews
 
@@ -245,7 +298,27 @@ silencieuse est indistinguable d'une trouvaille ignorée.
 
 Sur l'itération 0, les relecteurs ont sorti des défauts réels dans **le code du
 plan lui-même** : deux dans les opérations sur les segments, un dans le
-filtergraph de rendu. Ils ne sont pas décoratifs.
+filtergraph de rendu. Ils ne sont pas décoratifs — et la vague du 18 août l'a
+confirmé plus durement encore : un interblocage sur un tube stderr saturé et une
+boucle infinie sur une dimension nulle, tous deux dans `worker/detect.py`, tous
+deux trouvés en review.
+
+**Mais le critère d'arrêt écrit ci-dessus ne termine pas, et c'est mesuré.** Sur
+les sept PR du 18 août : passes 1 à 3, **17,7 trouvailles par passe** ; passes 4
+et suivantes, **2,1 par passe sur un plateau plat**. Et la part de défauts
+d'exécution **monte** avec les passes (77 % puis 82 %) au lieu de baisser. Une PR
+a coûté **douze passes** et 574 000 jetons, avec une trouvaille réelle à chacune.
+
+Attendre « une passe qui ne rend que du cosmétique » est donc attendre un état
+qui n'arrive jamais. **Le critère est le rendement en valeur absolue, et il
+s'applique même quand la passe trouve du réel** — c'est le cas normal ici, pas
+l'exception. Trois passes, puis on fusionne.
+
+La cause est connue : **47 % des trouvailles portent sur du code écrit après la
+première review**, c'est-à-dire sur les correctifs eux-mêmes, que personne n'a
+relus. Un correctif écrit en réaction à un commentaire, par un agent qui a déjà
+brûlé l'essentiel de son contexte, mérite le même soin qu'une implémentation —
+avec son test. C'est là qu'est le levier, pas dans un meilleur critère d'arrêt.
 
 ### Les pièges de la mécanique
 
@@ -272,7 +345,19 @@ sur cinq a passé les trois tests.
 
 ## Vestiges à nettoyer
 
-Deux clips `clip_verif_*` sont en base avec leurs rendus, laissés par la
-vérification du rendu. Et `assets/brand/` contient deux PNG générés pour les
-tests, à remplacer par les vrais logos. Le dossier est ignoré par git : les
-marques appartiennent à l'opérateur.
+Des clips `clip_verif_*` restent en base ; les rendus de `clip_verif_auto` ont
+été effacés par une vérification du 18 août.
+
+**`assets/brand/` est vide dans le checkout principal** — `logo.png` et
+`twitch.png` ont disparu entre les rendus du matin, qui les portent incrustés, et
+l'après-midi. Le dossier est ignoré par git : les marques appartiennent à
+l'opérateur et personne ne peut les rendre. Deux substituts fabriqués pour les
+tests subsistent dans le worktree `fond-floute`. **Le vrai risque est ailleurs** :
+`collecterMarques` traite un dossier vide comme « rendre sans marque », en
+silence — donc une série entière peut sortir sans logo sans que rien ne le
+signale.
+
+**Les worktrees d'agents pèsent 13 Go** sous `.claude/worktrees/`. Avant d'en
+supprimer un, `git status --short --ignored` : un worktree ne contient pas que du
+versionné. Celui de l'analyse porte les **7,8 Go du venv de détection et les
+poids YOLO**, qui n'existent nulle part ailleurs.

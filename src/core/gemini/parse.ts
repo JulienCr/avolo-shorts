@@ -98,10 +98,14 @@ export function parseScoreResponse(
  * Les fenêtres qui atteignent la passe de détail : le haut du panier, à hauteur
  * de `shortlistSize`.
  *
- * Les notes égales sont départagées par l'ordre des fenêtres, qui est
- * chronologique — `Array.prototype.sort` est stable, et `parseScoreResponse`
- * rend les fenêtres notées dans l'ordre de la réponse puis les omises dans
- * l'ordre du lot.
+ * **Les notes égales sont départagées par la position de la fenêtre dans le
+ * lot, qui est chronologique — et par un comparateur explicite, pas par la
+ * stabilité du tri.** Le tri stable préserve l'ordre de `scored`, qui est celui
+ * de la RÉPONSE : Gemini rend les fenêtres dans l'ordre qu'il veut, les notes
+ * entières à égalité sont fréquentes, et une égalité qui tombe pile sur la
+ * coupure de la présélection admettait alors une fenêtre tardive en écartant
+ * une fenêtre antérieure, sans que rien ne le décide. (relevé par Codex et
+ * Copilot)
  *
  * Le repli sur les premières fenêtres couvre le cas où la notation n'a rien
  * rendu d'exploitable : mieux vaut détailler les 90 premières secondes que de ne
@@ -115,10 +119,18 @@ export function parseScoreResponse(
 export function shortlistFromScores(scored: ScoredWindow[], windows: Window[]): Window[] {
   const cible = shortlistSize(windows.length)
   const parId = new Map(windows.map((w) => [w.id, w]))
+  // La position dans le lot. Une note dont l'identifiant est inconnu prend le
+  // rang de queue — elle est écartée deux lignes plus bas de toute façon, et un
+  // `Infinity` ferait un `NaN` dans la soustraction, ce qui casse le tri.
+  const rang = new Map(windows.map((w, i) => [w.id, i]))
+  const positionDe = (id: string): number => rang.get(id) ?? windows.length
   const retenues: Window[] = []
   const vues = new Set<string>()
 
-  for (const note of [...scored].sort((a, b) => b.score - a.score)) {
+  const triées = [...scored].sort(
+    (a, b) => b.score - a.score || positionDe(a.id) - positionDe(b.id),
+  )
+  for (const note of triées) {
     if (retenues.length >= cible) break
     const fenêtre = parId.get(note.id)
     if (fenêtre === undefined || vues.has(note.id)) continue
@@ -171,13 +183,34 @@ function clipId(projectId: string, start: number, end: number): string {
  * `snapToWords` rend l'entrée brute du modèle quand aucune paire valide ne tient
  * dans la vidéo, précisément pour que l'erreur se voie ici. La borner en
  * silence produirait un clip que personne n'a proposé.
+ *
+ * Un clip qui ne recoupe **aucun** bloc présélectionné est écarté lui aussi : le
+ * modèle n'a lu que le texte de ces blocs, donc des bornes sans le moindre
+ * recouvrement ne viennent pas d'une lecture mais d'une invention, et elles
+ * contourneraient les deux passes que toute cette conception sert à enchaîner.
+ * (relevé par Copilot)
+ *
+ * **Le contrôle demande un recouvrement, pas un confinement**, et la nuance est
+ * délibérée. Le prompt demande au modèle de prendre `end` au marqueur de la
+ * phrase *suivante*, et `snapToWords` ajoute jusqu'à une demi-seconde de
+ * silence : une borne dépasse donc régulièrement le bord du bloc de peu, sans
+ * rien avoir d'inventé. Exiger le confinement demanderait une tolérance que
+ * personne n'a arrêtée, et écarterait en silence de vrais clips — le défaut
+ * exact que ce projet remplace. L'objectif de cet étage est le rappel, pas la
+ * précision (spec §7) : Julien trie ensuite.
  */
 export function parseDetailResponse(
   raw: unknown,
-  words: Word[],
-  videoDuration: number,
-  projectId: string,
+  contexte: {
+    /** Les mots du transcript, vérité terrain du calage. */
+    words: Word[]
+    videoDuration: number
+    projectId: string
+    /** Les blocs soumis à la passe de détail, après fusion des fenêtres. */
+    blocks: Window[]
+  },
 ): Clip[] {
+  const { words, videoDuration, projectId, blocks } = contexte
   const clips: Clip[] = []
 
   for (const entrée of liste(raw, 'shorts')) {
@@ -186,6 +219,7 @@ export function parseDetailResponse(
     const { start, end } = lu.data
     const [début, fin] = snapToWords(start, end, words, videoDuration)
     if (début < 0 || fin > videoDuration || fin <= début) continue
+    if (!blocks.some((b) => début < b.end && fin > b.start)) continue
 
     clips.push({
       id: clipId(projectId, début, fin),

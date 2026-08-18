@@ -409,7 +409,12 @@ export async function runCandidates(
   )
 
   // 5. Le calage sur les mots, la fusion des passes, l'écriture.
-  const propositions = parseDetailResponse(détail, mots, durée, projectId)
+  const propositions = parseDetailResponse(détail, {
+    words: mots,
+    videoDuration: durée,
+    projectId,
+    blocks: blocs,
+  })
   const existants = getClips(db, projectId)
   const passe = 1 + Math.max(0, ...existants.map((c) => c.pass))
   const clips = mergeCandidates(existants, propositions, passe)

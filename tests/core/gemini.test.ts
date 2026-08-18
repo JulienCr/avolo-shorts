@@ -80,6 +80,24 @@ function fen(id: string, start = 0, end = 90): Window {
   return { id, start, end, text: '', segFrom: 0, segTo: -1 }
 }
 
+/**
+ * Un bloc qui couvre tout le transcript de test. Les clips des fixtures en
+ * viennent tous : le contrôle de provenance ne doit pas les écarter.
+ */
+const BLOCS_LARGES = [fen('window_001', 0, 300)]
+
+function détaille(
+  brut: unknown,
+  options: { words?: Word[]; videoDuration?: number; projectId?: string; blocks?: Window[] } = {},
+) {
+  return parseDetailResponse(brut, {
+    words: options.words ?? MOTS,
+    videoDuration: options.videoDuration ?? 3600,
+    projectId: options.projectId ?? PROJET,
+    blocks: options.blocks ?? BLOCS_LARGES,
+  })
+}
+
 const ENTRÉES_DÉTAIL = {
   language: 'fr',
   videoDuration: 3600,
@@ -256,11 +274,35 @@ describe('shortlistFromScores', () => {
     const retenues = shortlistFromScores(notes, douze)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
+
+  it('départage même quand le modèle a répondu dans le désordre', () => {
+    // Le tri stable ne suffit pas : il préserve l'ordre de la RÉPONSE, que
+    // Gemini choisit. Une égalité qui tombe pile sur la coupure admettait alors
+    // une fenêtre tardive en écartant une fenêtre antérieure, au hasard.
+    // (relevé par Codex et Copilot)
+    const notes = [...douze].reverse().map((w) => ({ id: w.id, score: 50, reason: '' }))
+    const retenues = shortlistFromScores(notes, douze)
+    expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
+  })
+
+  it('une note plus haute passe toujours devant, désordre ou pas', () => {
+    const notes = [
+      { id: 'window_003', score: 10, reason: '' },
+      { id: 'window_011', score: 99, reason: '' },
+      { id: 'window_001', score: 50, reason: '' },
+    ]
+    const retenues = shortlistFromScores(notes, douze)
+    expect(retenues.slice(0, 3).map((w) => w.id)).toEqual([
+      'window_011',
+      'window_001',
+      'window_003',
+    ])
+  })
 })
 
 describe('parseDetailResponse', () => {
   it('cale les bornes rendues sur les frontières de mots', () => {
-    const clips = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const clips = détaille(détail)
     expect(clips.length).toBeGreaterThan(0)
     for (const c of clips) {
       expect(c.segments).toHaveLength(1)
@@ -272,34 +314,56 @@ describe('parseDetailResponse', () => {
   })
 
   it('ne rend aucun clip plafonné à 60 secondes', () => {
-    const clips = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const clips = détaille(détail)
     expect(clips.some((c) => clipDuration(c.segments) > 60)).toBe(true)
   })
 
   it('rejette un clip dont les bornes sortent de la vidéo', () => {
-    expect(parseDetailResponse(détailHorsMédia, MOTS_COURTS, 100, PROJET)).toEqual([])
+    expect(détaille(détailHorsMédia, { words: MOTS_COURTS, videoDuration: 100 })).toEqual([])
+  })
+
+  it('rejette un clip qui ne recoupe aucun bloc présélectionné', () => {
+    // Le modèle n'a lu que le texte des blocs : des bornes sans le moindre
+    // recouvrement ne viennent pas d'une lecture mais d'une invention, et elles
+    // contourneraient les deux passes. (relevé par Copilot)
+    const clips = détaille(détail, { blocks: [fen('window_001', 0, 50)] })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].segments[0].start).toBeLessThan(50)
+  })
+
+  it('garde un clip qui dépasse le bord de son bloc de peu', () => {
+    // Le prompt demande `end` au marqueur de la phrase SUIVANTE, et le calage
+    // ajoute du silence : un débordement de quelques secondes est le cas normal,
+    // pas une invention. Exiger le confinement écarterait de vrais clips.
+    const clips = détaille(détail, { blocks: [fen('window_001', 0, 30)] })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].segments[0].end).toBeGreaterThan(30)
+  })
+
+  it('sans aucun bloc, rien ne peut venir de nulle part', () => {
+    expect(détaille(détail, { blocks: [] })).toEqual([])
   })
 
   it('ne jette que le clip hors média, pas le lot', () => {
-    const clips = parseDetailResponse(détail, MOTS_COURTS, 100, PROJET)
+    const clips = détaille(détail, { words: MOTS_COURTS, videoDuration: 100 })
     expect(clips).toHaveLength(1)
     expect(clips[0].segments[0].end).toBeLessThanOrEqual(100)
   })
 
   it('ignore une entrée illisible sans perdre les autres', () => {
-    const clips = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const clips = détaille(détail)
     // La fixture porte quatre entrées, dont une avec un `start` textuel.
     expect(clips).toHaveLength(3)
   })
 
   it('une réponse illisible ne rend rien plutôt que de lever', () => {
     for (const brut of [null, undefined, 'du texte', {}, { shorts: 'non' }]) {
-      expect(parseDetailResponse(brut, MOTS, 3600, PROJET)).toEqual([])
+      expect(détaille(brut)).toEqual([])
     }
   })
 
   it('rend des candidats prêts pour la fusion des passes', () => {
-    const clips = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const clips = détaille(détail)
     for (const c of clips) {
       expect(c.status).toBe('candidate')
       expect(c.projectId).toBe(PROJET)
@@ -311,7 +375,7 @@ describe('parseDetailResponse', () => {
   })
 
   it("l'identifiant dérive du projet et des bornes, jamais d’un compteur", () => {
-    const clips = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const clips = détaille(détail)
     for (const c of clips) {
       expect(c.id.startsWith(`${PROJET}_`)).toBe(true)
       // Un compteur reparti de 1 rendrait la garantie « un clip écarté ne
@@ -326,14 +390,14 @@ describe('parseDetailResponse', () => {
   })
 
   it('les mêmes bornes redonnent le même identifiant, passe après passe', () => {
-    const a = parseDetailResponse(détail, MOTS, 3600, PROJET)
-    const b = parseDetailResponse(détail, MOTS, 3600, PROJET)
+    const a = détaille(détail)
+    const b = détaille(détail)
     expect(b.map((c) => c.id)).toEqual(a.map((c) => c.id))
   })
 
   it('deux projets aux mêmes bornes ne se partagent pas un identifiant', () => {
-    const a = parseDetailResponse(détail, MOTS, 3600, PROJET)
-    const b = parseDetailResponse(détail, MOTS, 3600, '2026-03-08-caro-mdlm')
+    const a = détaille(détail)
+    const b = détaille(détail, { projectId: '2026-03-08-caro-mdlm' })
     expect(a.map((c) => c.id)).not.toEqual(b.map((c) => c.id))
     // `clips.id` est unique pour toute la base (`src/server/db.ts`) : deux
     // projets qui produiraient le même identifiant se voleraient leurs clips.
@@ -351,7 +415,7 @@ describe('parseDetailResponse', () => {
     }
     // Sans mots, `snapToWords` rend les bornes telles quelles : c'est le cas où
     // l'identifiant doit encore séparer deux propositions voisines.
-    const clips = parseDetailResponse(brut, [], 3600, PROJET)
+    const clips = détaille(brut, { words: [] })
     expect(new Set(clips.map((c) => c.id)).size).toBe(2)
   })
 })

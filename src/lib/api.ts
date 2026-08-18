@@ -9,6 +9,7 @@
  *
  * ```
  * GET   /api/sources                        -> SourcesListing
+ * GET   /api/sources/thumb?file=<nom>       -> image/jpeg
  * GET   /api/projects                       -> ProjectListItem[]
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
@@ -23,11 +24,13 @@
  * s'arrêtait là où ils manquaient : pas d'entrée pour créer un projet, pas de
  * relance, et un export qui ne se déclenchait qu'en `curl`.
  *
- * Les champs `string | null` — `thumbnailUrl`, `proxyUrl`, les URL de
- * `ClipOutputs` — suivent tous la même règle. Le serveur les remplit quand
+ * Les champs `string | null` — `CandidateClip.thumbnailUrl`, `proxyUrl`, les URL
+ * de `ClipOutputs` — suivent tous la même règle. Le serveur les remplit quand
  * l'artefact est là et rend `null` sinon, jamais une URL morte : un projet créé
  * il y a trois secondes n'a ni proxy ni vignettes, et `null` a un rendu prévu et
- * testé à l'œil.
+ * testé à l'œil. `Source.thumbnailUrl` fait exception et n'est jamais `null` :
+ * la source, elle, existe — c'est l'image qui peut manquer au bout, et la route
+ * répond alors 404.
  *
  * **Les identifiants sont encodés.** Ceux des projets viennent du nom du fichier
  * d'origine, accents et espaces compris (spec §12), et ceux des clips en
@@ -205,15 +208,12 @@ export type ProjectStatus = {
 /**
  * Un replay du dossier des sources, tel que la bibliothèque le propose.
  *
- * **Pas de vignette dans ce lot.** Extraire une image de vingt et un fichiers de
- * 4 à 12 Go à travers un montage 9p est un coût que personne n'a mesuré, et la
- * carte s'en passe : le nom d'un replay porte déjà sa date et son émission.
- *
- * L'arbitrage vient de la vague d'interface, et il **contredit la spec §12**,
- * qui prescrit un `GET /api/sources/thumb`. La contradiction est connue et ne se
- * tranche pas ici : elle appartient au document, pas à ce type — le dire est
- * plus honnête que de laisser croire que les deux s'accordent.
- * (relevé par Copilot et Aristarque)
+ * **La vignette est là depuis l'issue #41**, qui a mesuré ce que la vague
+ * d'interface avait seulement supposé : médiane ~2,7 s par fichier, une seule
+ * fois, parce que le résultat se met en cache. Ce qui rend ce chiffre possible
+ * est `-ss` avant `-i` — voir `sourceThumbArgs`. La contradiction que ce
+ * commentaire signalait entre la spec §12 et le code est donc close, et dans le
+ * sens de la spec.
  */
 export type Source = {
   /** Le nom du fichier dans `REPLAY_DIR`, tel que `createProject` l'attend — jamais un chemin. */
@@ -228,7 +228,44 @@ export type Source = {
    * fait douter de ce qu'on vient de déclencher.
    */
   projectId: string | null
+  /**
+   * L'image de la carte, servie par `GET /api/sources/thumb?file=…`.
+   *
+   * **Jamais `null`, contrairement à celle d'un candidat** (`CandidateClip`),
+   * qui dépend d'un proxy pas encore encodé. Ici le fichier existe — la liste
+   * vient de le mesurer —, donc l'URL vaut toujours la peine d'être demandée.
+   * Ce qui peut manquer est l'image au bout, et la route répond 404 ; la carte
+   * a son repli, exactement comme pour un candidat sans proxy.
+   */
+  thumbnailUrl: string
 }
+
+/**
+ * Pourquoi le dossier des replays n'a pas pu être lu.
+ *
+ * **Un code énuméré, jamais un `errno` ni un message du système** : ce dépôt est
+ * public, la valeur part sur le réseau, et « permission denied sur /mnt/j/… »
+ * publierait un chemin de montage pour ne rien dire de plus. L'écran traduit le
+ * code en une phrase et en **un** geste.
+ *
+ * Sans lui, `disponible: false` recouvrait quatre faits et la ligne de montage
+ * devait énumérer les trois gestes possibles (issue #56, point 5). Deux cas le
+ * rendaient franchement trompeur : un `REPLAY_DIR` mal orthographié **sous un
+ * partage 9p sain** — `absent` le dit maintenant, là où `fstype: '9p'` faisait
+ * conclure au transport mort — et un unique fichier aux droits refusés, qui fait
+ * basculer tout le dossier et qui dit désormais `refusé`.
+ *
+ * - `absent` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
+ *   diagnostiqué : une faute de frappe dans `REPLAY_DIR`.
+ * - `refusé` — les droits refusent le dossier, ou l'un de ses fichiers.
+ * - `muet` — aucune réponse dans le délai de garde. C'est la signature du
+ *   partage monté avec son transport mort dessous, que `/proc/mounts` ne
+ *   distingue pas d'un partage sain.
+ * - `illisible` — le système de fichiers a rendu autre chose. `EIO`, `ESTALE`,
+ *   `ENOTCONN` : les ranger de force dans une des trois autres cases ferait dire
+ *   quelque chose de faux plutôt que quelque chose de vague.
+ */
+export type CauseIndisponible = 'absent' | 'refusé' | 'muet' | 'illisible'
 
 /**
  * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
@@ -244,6 +281,8 @@ export type SourcesListing = {
   montage: {
     /** Faux quand le dossier des replays est absent, ou que son transport est mort. */
     disponible: boolean
+    /** Pourquoi la lecture a échoué, ou `null` quand elle a réussi. */
+    cause: CauseIndisponible | null
     /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
     fstype: string | null
     /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */

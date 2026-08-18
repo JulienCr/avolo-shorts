@@ -5,9 +5,11 @@ import Link from 'next/link'
 import type { CandidateClip } from '@/lib/api'
 import { estGarde } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
-import { lienClip } from '@/lib/parcours'
+import { lienClip, lienProjet, type Suite } from '@/lib/parcours'
 import { accord } from '@/components/tri/modele'
+import { buttonVariants } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
 
 /**
  * La fin de la boucle de tri.
@@ -27,11 +29,16 @@ import { Progress } from '@/components/ui/progress'
  * tient la liste.
  */
 export function FinDeBoucle({
+  projectId,
   clips,
   dureeGardee,
+  suite,
 }: {
+  projectId: string
   clips: readonly CandidateClip[]
   dureeGardee: number
+  /** L'issue de la phase. Voir `Issue` pour ce que l'écran en fait. */
+  suite: Suite
 }) {
   const gardes = clips.filter((c) => estGarde(c.status))
 
@@ -64,6 +71,8 @@ export function FinDeBoucle({
         className="mt-4 max-w-md"
       />
 
+      <Issue suite={suite} projectId={projectId} />
+
       <ul className="mt-5 flex flex-col gap-1.5">
         {gardes.map((clip) => (
           <li key={clip.id} className="flex items-baseline justify-between gap-4 text-sm">
@@ -80,5 +89,44 @@ export function FinDeBoucle({
         ))}
       </ul>
     </section>
+  )
+}
+
+/**
+ * L'issue de la phase, telle que cet écran la rend.
+ *
+ * **`suite` rend une cible qui est une URL, jamais un ordre**, et ce qu'on en
+ * fait appartient à l'écran. Trois cas, et le troisième est celui qui compte :
+ *
+ * - une **attente** est un résultat de plein droit — sa raison et ce qui la
+ *   lèvera —, pas un état dégradé. `{ triable, trie }` est réel : Julien a fini
+ *   de trier avant la fin de l'encodage, il n'a aucune action qui fasse avancer
+ *   le montage, et forcer une action ici reviendrait à en inventer une ;
+ * - une **action qui mène ailleurs** est un lien. C'est le succès du parcours —
+ *   « choisir une autre émission » —, jusqu'ici inexprimable ;
+ * - une **action qui vise cet écran-ci** ne se rend pas. « Trier les
+ *   propositions » et « passer au montage » désignent la grille qui est déjà
+ *   sous les yeux : un lien vers soi-même n'est pas une navigation, et il
+ *   volerait un arrêt de tabulation.
+ */
+function Issue({ suite, projectId }: { suite: Suite; projectId: string }) {
+  if (suite.kind === 'attente') {
+    return (
+      <p data-testid="issue" className="mt-4 max-w-prose text-sm text-muted-foreground">
+        {suite.raison}
+      </p>
+    )
+  }
+
+  if (suite.cible === lienProjet(projectId)) return null
+
+  return (
+    <Link
+      data-testid="issue"
+      href={suite.cible}
+      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4')}
+    >
+      {suite.libelle}
+    </Link>
   )
 }

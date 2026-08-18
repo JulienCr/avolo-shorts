@@ -5,7 +5,7 @@ import { Suspense, use } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { compter, phaseProjet } from '@/core/parcours'
-import { lienProjet } from '@/lib/parcours'
+import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 import { AppBar } from '@/components/parcours/app-bar'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
@@ -59,10 +59,10 @@ function EcranDeProjet({ id }: { id: string }) {
   const phase = phaseProjet(steps, running, erreur, clips)
   // Tant que l'état du projet n'a pas répondu, `steps` est vide et `running`
   // nul : la phase dirait `interrompu`, et l'écran proposerait de reprendre une
-  // analyse dont il ne sait rien. On attend la première réponse.
-  const disposition = projet.isSuccess
-    ? dispositionAvancement(phase, running, clips.length === 0)
-    : 'rien'
+  // analyse dont il ne sait rien. Tant que les candidats n'ont pas répondu, on
+  // ne sait pas non plus si la grille serait vide — et c'est cela qui décide.
+  const prêt = projet.isSuccess && !candidats.isPending
+  const disposition = prêt ? dispositionAvancement(phase, running, clips.length === 0) : 'rien'
 
   return (
     <div className="flex min-h-full flex-col">
@@ -90,7 +90,7 @@ function EcranDeProjet({ id }: { id: string }) {
               <AlertTitle>La dernière analyse a échoué.</AlertTitle>
               <AlertDescription>
                 <p>{erreur}</p>
-                <BoutonReprise projectId={id} enCours={false} />
+                <BoutonReprise projectId={id} enCours={running !== null} />
               </AlertDescription>
             </Alert>
           )}
@@ -119,7 +119,7 @@ function EcranDeProjet({ id }: { id: string }) {
               erreur={erreur}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
             />
-          ) : projet.isPending || candidats.isPending ? (
+          ) : !prêt ? (
             <GrilleEnAttente />
           ) : (
             <FilDeTri
@@ -129,6 +129,7 @@ function EcranDeProjet({ id }: { id: string }) {
               onVue={allerÀLaVue}
               proxyPret={steps.proxy === true}
               bilan={projet.data?.repérage ?? null}
+              suite={suite(phase, { id })}
               onStatut={(clipId, status) =>
                 patch.mutate({ clipId, projectId: id, patch: { status } })
               }

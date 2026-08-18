@@ -15,6 +15,9 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipStatus } from '@/core/edl'
+import type { StepName } from '@/core/graph'
+import { phaseProjet } from '@/core/parcours'
+import { suite } from '@/lib/parcours'
 import { FilDeTri } from '@/components/tri/fil'
 import type { BilanRepérage, CandidateClip } from '@/lib/api'
 import type { Vue } from '@/components/tri/modele'
@@ -62,6 +65,11 @@ function Harnais({
 }) {
   const [clips, setClips] = useState(depart)
   const [vue, setVue] = useState<Vue>(vueInitiale)
+  // La vraie `suite`, calculée sur la vraie phase : c'est elle qui garantit
+  // qu'aucun état n'est une impasse, et la lui donner en dur ferait passer le
+  // test à côté de la garantie.
+  const étapes = { candidates: true, proxy: proxyPret } as Record<StepName, boolean>
+  const issue = suite(phaseProjet(étapes, null, null, clips), { id: 'p1' })
   return (
     <FilDeTri
       projectId="p1"
@@ -70,6 +78,7 @@ function Harnais({
       onVue={setVue}
       proxyPret={proxyPret}
       bilan={bilan}
+      suite={issue}
       onStatut={(clipId, status) =>
         setClips((liste) => liste.map((c) => (c.id === clipId ? { ...c, status } : c)))
       }
@@ -272,6 +281,7 @@ describe('rien ne bouge sous la main', () => {
           onVue={() => {}}
           proxyPret
           bilan={null}
+          suite={suite(phaseProjet({} as Record<StepName, boolean>, null, null, liste), { id: 'p1' })}
           onStatut={() => {}}
         />
       )
@@ -355,6 +365,34 @@ describe('la fin de la boucle', () => {
 
     expect(screen.getByText(/tout a été écarté/i)).toBeTruthy()
     expect(screen.queryByText(/tout est trié/i)).toBeNull()
+  })
+
+  it('offre la sortie du parcours quand tout est monté', () => {
+    // `suite` rend alors une action dont la cible n'est pas cet écran : c'est le
+    // succès du parcours, et il était jusqu'ici inexprimable.
+    render(<Harnais depart={[candidat(1, 'exported'), candidat(2, 'discarded')]} />)
+
+    const sortie = screen.getByRole('link', { name: /autre émission/i })
+    expect(sortie).toHaveProperty('pathname', '/')
+  })
+
+  it('ne propose pas un lien vers l’écran où l’on est déjà', () => {
+    // Sur `{ complet, trie }`, `suite` vise cet écran-ci : la grille **est**
+    // l'action, et un lien vers soi-même volerait un arrêt de tabulation.
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'discarded')]} />)
+
+    expect(screen.queryByRole('link', { name: /passer au montage/i })).toBeNull()
+    expect(screen.getByText(/tout est trié/i)).toBeTruthy()
+  })
+
+  it('nomme ce qui débloque le montage quand le proxy manque', () => {
+    // `{ triable, trie }` : Julien a fini de trier avant la fin de l'encodage. Il
+    // n'a aucune action qui fasse avancer le montage, et l'attente est un
+    // résultat de plein droit — avec sa raison, et ce qui la lèvera.
+    render(<Harnais depart={[candidat(1, 'kept')]} proxyPret={false} />)
+
+    expect(screen.getByTestId('issue').textContent).toMatch(/proxy/i)
+    expect(screen.getByTestId('issue').textContent).toMatch(/titres|descriptions/i)
   })
 
   it('ne parle pas de fin sur une liste vide', () => {

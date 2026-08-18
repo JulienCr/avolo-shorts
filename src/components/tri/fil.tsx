@@ -8,6 +8,7 @@ import { compter } from '@/core/parcours'
 import type { BilanRepérage, CandidateClip } from '@/lib/api'
 import { basculerStatut, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
+import type { Suite } from '@/lib/parcours'
 import { CandidateCard } from '@/components/tri/candidate-card'
 import { FinDeBoucle } from '@/components/tri/fin-de-boucle'
 import { accord, idsPourVue, motDuRepérage, VUES, type Vue } from '@/components/tri/modele'
@@ -55,6 +56,7 @@ export function FilDeTri({
   onVue,
   proxyPret,
   bilan,
+  suite,
   onStatut,
   entete,
 }: {
@@ -66,6 +68,16 @@ export function FilDeTri({
   proxyPret: boolean
   /** Ce que le repérage n'a pas jugé, ou `null`. Voir `motDuRepérage`. */
   bilan: BilanRepérage | null
+  /**
+   * L'issue de la phase, calculée par la page.
+   *
+   * Elle arrive en propriété plutôt que d'être calculée ici : `suite` a besoin
+   * de la phase, donc du relevé d'artefacts et de l'exécution en cours, que ce
+   * composant n'a aucune raison de connaître. C'est la fin de boucle qui la
+   * consomme — c'est le seul endroit où l'on sait enfin de quoi la liste est
+   * faite.
+   */
+  suite: Suite
   onStatut: (clipId: string, status: Exclude<ClipStatus, 'exported'>) => void
   /** Ce que la page pose en bout de ligne d'en-tête — la relance, notamment. */
   entete?: ReactNode
@@ -254,7 +266,14 @@ export function FilDeTri({
           vient de décider — et `U`, qui ramène sur la carte de la décision
           défaite, n'aurait plus de carte où revenir. Les cartes restent donc en
           place, marquées, jusqu'au changement de vue qui les compacte. */}
-      {fini && <FinDeBoucle clips={clips} dureeGardee={compte.dureeGardee} />}
+      {fini && (
+        <FinDeBoucle
+          projectId={projectId}
+          clips={clips}
+          dureeGardee={compte.dureeGardee}
+          suite={suite}
+        />
+      )}
 
       {clips.length > 0 && visibles.length === 0 && !fini && (
         <Vide titre={LIBELLES_VIDE[vue].titre} detail={LIBELLES_VIDE[vue].detail} />

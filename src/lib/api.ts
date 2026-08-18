@@ -180,8 +180,14 @@ export type ClipDetail = {
  */
 export type ClipOutputs = {
   /**
-   * Le rendu au ratio du clip. Toujours produit par un export — donc `null` ne
-   * veut dire qu'une chose : rien n'a encore été exporté.
+   * Le rendu au ratio du clip.
+   *
+   * **`null` dit « pas de livraison à jour », pas « jamais exporté ».** Trois
+   * situations le produisent, et une interface qui les confondrait annoncerait
+   * un premier export là où il y en a eu un : le clip n'a jamais été rendu ; une
+   * édition a périmé son rendu, qui l'a fait sortir d'`exported` ; ou le fichier
+   * manque alors que le clip s'en réclame. Ce champ décrit ce qui est
+   * disponible maintenant, jamais l'historique. (relevé par Copilot)
    */
   mp4Url: string | null
   /** La variante 9:16 sur fond flouté. Voir `variant9x16Due` avant de lire ce `null`. */

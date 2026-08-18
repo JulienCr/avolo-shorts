@@ -350,7 +350,10 @@ describe('GET /api/clips/:id', () => {
    * rendus refuse aussitôt. (relevé par Copilot)
    */
   it('ne publie pas un dossier qui porte le nom d’un rendu', async () => {
-    putClip(getDb(), clipDeBase())
+    // **Exporté**, sans quoi le test passerait pour la mauvaise raison : la garde
+    // de statut couperait avant le contrôle `isFile()`, et retirer ce dernier ne
+    // ferait échouer personne. (relevé par Copilot)
+    putClip(getDb(), { ...clipDeBase(), status: 'exported' })
     fs.mkdirSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`), {
       recursive: true,
     })
@@ -421,6 +424,18 @@ describe('GET /api/clips/:id/renders/:file', () => {
     expect(réponse.headers.get('content-range')).toBe('bytes 20-29/100')
     expect(réponse.headers.get('content-length')).toBe('10')
     expect(Buffer.from(await réponse.arrayBuffer()).equals(OCTETS.subarray(20, 30))).toBe(true)
+  })
+
+  it('rend 416 avec la taille réelle, en gardant le `Cache-Control` de la route', async () => {
+    poserRendus(`${CLIP}.mp4`)
+    const réponse = await demander(`${CLIP}.mp4`, 'bytes=500-600')
+
+    expect(réponse.status).toBe(416)
+    expect(réponse.headers.get('content-range')).toBe('bytes */100')
+    // Un 416 est cacheable par heuristique : sans cet en-tête, un refus calculé
+    // sur l'ancienne taille survit à un ré-export et bloque une demande devenue
+    // légitime. (relevé par Copilot)
+    expect(réponse.headers.get('cache-control')).toBe('no-cache')
   })
 
   it('sert la variante 9:16 et le texte de publication', async () => {

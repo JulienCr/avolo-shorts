@@ -55,6 +55,13 @@ describe('proxyArgs', () => {
     expect(compte(a, '/p.mp4')).toBe(1)
   })
 
+  // Le proxy est servi au navigateur (tâche 11) : le titre de l'émission, la
+  // date d'enregistrement et le logiciel de capture n'ont rien à y faire.
+  it('efface les métadonnées de la source', () => {
+    const a = proxyArgs({ ...base, encoder: 'x264' })
+    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+  })
+
   it('garde le son : le montage se fait à l’oreille sur le proxy', () => {
     expect(proxyArgs({ ...base, encoder: 'x264' })).not.toContain('-an')
   })
@@ -153,13 +160,51 @@ describe('renderArgs', () => {
   // Un chemin porte des caractères que la syntaxe des filtres lit comme des
   // séparateurs. Non échappés, ils coupent le graphe en morceaux et ffmpeg
   // échoue sur un nom de filtre inconnu.
-  it('échappe les apostrophes, les deux-points et les contre-obliques du chemin', () => {
+  //
+  // **Les formes attendues ci-dessous sont mesurées, pas déduites.** Une valeur
+  // de filtre traverse `av_get_token` deux fois, et entre apostrophes la
+  // contre-oblique n'échappe rien : `filename='/l\'été/c.ass'` échoue à
+  // l'analyse. Les cinq chemins de ces tests ont été posés sur le disque et
+  // chargés par libass à travers le binaire du projet.
+  it('échappe les deux-points et les contre-obliques du chemin', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      assPath: '/2026\\:03/c.ass',
+    })
+    expect(a.join(' ')).toContain(String.raw`ass=filename='/2026\\\:03/c.ass'`)
+  })
+
+  // L'apostrophe est le seul cas qui ne se devine pas : il faut fermer la
+  // chaîne, écrire `\'` lui-même doublement échappé, puis la rouvrir.
+  it("ferme et rouvre la chaîne autour d'une apostrophe, au lieu de la préfixer", () => {
     const a = renderArgs({
       ...base,
       segments: [{ start: 0, end: 10 }],
       assPath: "/l'été:2026/c.ass",
     })
-    expect(a.join(' ')).toContain("ass=filename='/l\\'été\\:2026/c.ass'")
+    expect(a.join(' ')).toContain(String.raw`ass=filename='/l'\\\''été\:2026/c.ass'`)
+    // Le piège de la première version : une apostrophe simplement préfixée
+    // ferme la chaîne et casse l'analyse du graphe.
+    expect(a.join(' ')).not.toContain(String.raw`/l\'été`)
+  })
+
+  // Un chemin qui tenterait de refermer la valeur pour ajouter ses propres
+  // filtres. Vérifié sur le binaire : libass charge bien un fichier nommé ainsi,
+  // donc la séquence reste une valeur et ne devient jamais du graphe.
+  it('un chemin ne peut pas rouvrir le graphe de filtres', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      assPath: "/zz/'];exit[v];a='/c.ass",
+    })
+    const graphe = a[a.indexOf('-filter_complex') + 1]
+    expect(graphe).toContain(String.raw`ass=filename='/zz/'\\\''];exit[v];a='\\\''/c.ass'`)
+    // Le graphe reste celui qu'on a écrit : une seule incrustation, une seule
+    // normalisation, et c'est toujours notre dernière étape qui rend [v].
+    expect(graphe.match(/ass=filename=/g)).toHaveLength(1)
+    expect(graphe.match(/loudnorm=/g)).toHaveLength(1)
+    expect(graphe.endsWith('[v]')).toBe(true)
   })
 
   it('NVENC ne reçoit jamais -hwaccel_output_format cuda', () => {
@@ -303,5 +348,41 @@ describe('blurredVariantArgs', () => {
   it('finit par la destination', () => {
     const a = blurredVariantArgs(base)
     expect(a[a.length - 1]).toBe('/o-9x16.mp4')
+  })
+
+  // La variante est publiée sur les réseaux : c'est le fichier qui doit le
+  // moins traîner les métadonnées de la source.
+  it('efface les métadonnées de la source', () => {
+    const a = blurredVariantArgs(base)
+    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+  })
+})
+
+// Le fichier de sortie est positionnel : un chemin commençant par `-` serait lu
+// comme une option. Mesuré sur le binaire : sans `--`, ffmpeg échoue sur
+// « Unrecognized option 'sortie.mp4' » ; avec, il écrit le fichier. Sur un
+// chemin absolu, `--` ne change rien.
+describe('la garde `--` devant la destination', () => {
+  it.each([
+    ['proxyArgs', proxyArgs({ src: '/s.mp4', dst: '/-p.mp4', encoder: 'x264' })],
+    ['audioArgs', audioArgs({ src: '/s.mp4', dst: '/-a.wav' })],
+    [
+      'renderArgs',
+      renderArgs({
+        src: '/s.mp4',
+        dst: '/-o.mp4',
+        segments: [{ start: 0, end: 10 }],
+        crop: { w: 608, h: 1080, x: 656, y: 0 },
+        out: { w: 1080, h: 1920 },
+        encoder: 'nvenc',
+      }),
+    ],
+    [
+      'blurredVariantArgs',
+      blurredVariantArgs({ src: '/o.mp4', dst: '/-o-9x16.mp4', encoder: 'nvenc' }),
+    ],
+  ])('%s la pose', (_nom, a) => {
+    expect(a[a.length - 2]).toBe('--')
+    expect(compte(a, '--')).toBe(1)
   })
 })

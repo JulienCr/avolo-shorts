@@ -48,6 +48,20 @@ const GLOBALES: readonly string[] = [
 ]
 
 /**
+ * La destination, précédée de `--`.
+ *
+ * Le fichier de sortie est **positionnel** : un chemin commençant par `-` est
+ * lu comme une option. Mesuré : `ffmpeg … -sortie.mp4` échoue sur
+ * « Unrecognized option 'sortie.mp4' », et `ffmpeg … -- -sortie.mp4` écrit le
+ * fichier. Sur un chemin absolu, `--` ne change rien — c'est donc une garde
+ * gratuite, et ces fonctions étant pures elles ne peuvent rien supposer des
+ * conventions de nommage de l'appelant.
+ */
+function destination(dst: string): string[] {
+  return ['--', dst]
+}
+
+/**
  * Un instant en secondes, tel que ffmpeg le lit.
  *
  * `String(n)` suffirait presque, mais rend `1e-7` sur les très petites valeurs
@@ -60,18 +74,58 @@ function secondes(n: number): string {
 }
 
 /**
- * Échappe une valeur destinée à une option de filtre ffmpeg, qu'on écrit
- * toujours entre apostrophes.
+ * Échappe une valeur destinée à une option de filtre ffmpeg, écrite entre
+ * apostrophes.
  *
- * `\` d'abord — sinon on échapperait les échappements qu'on vient d'écrire.
- * Puis `'`, qui refermerait la chaîne, et `:`, qui sépare les options d'un
- * filtre au niveau au-dessus.
+ * **Mesuré sur le binaire, pas déduit de la documentation.** Une valeur de
+ * filtre traverse `av_get_token` **deux fois** — une fois quand le graphe est
+ * découpé en filtres, une fois quand les options du filtre sont séparées — et
+ * les règles ne sont pas les mêmes des deux côtés d'une apostrophe :
+ *
+ * - **entre apostrophes, la contre-oblique n'échappe rien** : tout est littéral
+ *   jusqu'à l'apostrophe suivante. Écrire `\'` à l'intérieur ne produit donc pas
+ *   une apostrophe, il ferme la chaîne et laisse traîner une contre-oblique.
+ *   C'était le défaut de la première version : `filename='/l\'été\:2026/c.ass'`
+ *   échoue à l'analyse sur « No option name near '2026' ».
+ * - **hors apostrophes, `\X` rend `X`**, quel que soit `X`. Sur-échapper est
+ *   donc sans effet, sous-échapper coûte le caractère.
+ *
+ * D'où les trois règles, dans cet ordre :
+ *
+ * | dans le chemin | émis | pourquoi |
+ * |---|---|---|
+ * | `\` | `\\` | le second niveau la lirait comme une échappée |
+ * | `:` | `\:` | le second niveau y sépare les options |
+ * | `'` | `'\\\''` | fermer, écrire `\'` **doublement échappé**, rouvrir |
+ *
+ * La dernière ligne est la seule qui ne se devine pas. Hors des apostrophes,
+ * pour que le **second** niveau reçoive `\'` — soit une apostrophe littérale —,
+ * le **premier** doit lui livrer `\'`, ce qui s'écrit `\\` puis `\'`, soit
+ * `\\\'`. Encadré des deux apostrophes de fermeture et de réouverture, cela
+ * donne `'\\\''`.
+ *
+ * Vérifié par aller-retour sur des fichiers réellement posés sur le disque, aux
+ * chemins `l'été:2026`, `a'b'c`, `[x],y;z=w`, `dos\slash` et `';exit[v];a='` :
+ * libass les charge tous les cinq, et la tentative d'évasion reste dans la
+ * valeur au lieu de rouvrir le graphe.
+ *
+ * L'ordre des trois remplacements compte : `\` d'abord, sinon on doublerait les
+ * contre-obliques qu'on vient d'écrire.
  */
 function échapper(valeur: string): string {
-  return valeur.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:')
+  return valeur
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "'\\\\\\''")
 }
 
-/** Une option de filtre, valeur entre apostrophes : `filename='/c.ass'`. */
+/**
+ * Une option de filtre, valeur entre apostrophes : `filename='/c.ass'`.
+ *
+ * Les apostrophes ne sont pas décoratives : elles rendent `[`, `]`, `,` et `;`
+ * littéraux pour le découpage du graphe, donc un chemin ne peut pas en sortir
+ * même si la table d'échappement venait à être rognée.
+ */
 function option(nom: string, valeur: string): string {
   return `${nom}='${échapper(valeur)}'`
 }
@@ -106,7 +160,7 @@ export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName })
     '-c:a', 'aac', '-b:a', '128k',
     ...METADATA_SCRUB,
     '-movflags', '+faststart',
-    o.dst,
+    ...destination(o.dst),
   ]
 }
 
@@ -124,7 +178,7 @@ export function audioArgs(o: { src: string; dst: string }): string[] {
     '-ac', '1',
     '-ar', '16000',
     '-c:a', 'pcm_s16le',
-    o.dst,
+    ...destination(o.dst),
   ]
 }
 
@@ -255,7 +309,7 @@ export function renderArgs(o: RenderOptions): string[] {
     '-c:a', 'aac', '-b:a', '192k',
     ...METADATA_SCRUB,
     '-movflags', '+faststart',
-    o.dst,
+    ...destination(o.dst),
   ]
 }
 
@@ -298,6 +352,6 @@ export function blurredVariantArgs(o: {
     ...videoEncodeArgs(o.encoder, 'quality'),
     ...METADATA_SCRUB,
     '-movflags', '+faststart',
-    o.dst,
+    ...destination(o.dst),
   ]
 }

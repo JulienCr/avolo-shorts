@@ -190,6 +190,49 @@ portée s'arrête au `-i` qui suit. Un rendu à N segments porte donc N
 tête, seul le premier segment décoderait sur le GPU et les suivants
 retomberaient sur le chemin logiciel — sans erreur, juste plus lentement.
 
+## L'autre piège : échapper un chemin dans un filtre
+
+Le chemin du `.ass` et celui du dossier de polices entrent dans le
+`-filter_complex`. Les replays s'appellent `2026-03-08-caro-mdlm.mp4`, mais rien
+n'empêche un dossier de porter une apostrophe, et le premier réflexe est faux.
+
+**Une valeur de filtre traverse `av_get_token` deux fois** : une fois quand le
+graphe est découpé en filtres, une fois quand les options du filtre sont
+séparées. Et les règles diffèrent des deux côtés d'une apostrophe.
+
+| | contre-oblique | apostrophe | deux-points |
+|---|---|---|---|
+| **entre apostrophes** | littérale, n'échappe rien | ferme la chaîne | littéral |
+| **hors apostrophes** | `\X` rend `X` | ouvre une chaîne | sépare les options |
+
+La conséquence qui coûte : écrire `\'` **à l'intérieur** des apostrophes
+n'échappe rien. Mesuré, `filename='/l\'été\:2026/c.ass'` échoue à l'analyse sur
+« No option name near '2026' ». Et la forme documentée `'\''`, elle, passe
+l'analyse mais **perd l'apostrophe en silence** — libass reçoit `/lété:2026/`,
+qui n'existe pas. C'est le pire des deux, parce qu'il ressemble à un fichier
+manquant.
+
+Ce qui marche, vérifié par aller-retour sur des fichiers réellement posés sur le
+disque (`l'été:2026`, `a'b'c`, `[x],y;z=w`, `dos\slash`, `';exit[v];a='`) :
+
+| dans le chemin | émis |
+|---|---|
+| `\` | `\\` |
+| `:` | `\:` |
+| `'` | `'\\\''` |
+
+La dernière ligne ferme la chaîne, écrit `\'` **lui-même doublement échappé** —
+pour que le premier niveau livre `\'` au second —, puis la rouvre. C'est
+`échapper()` dans `src/core/ffmpeg/args.ts`, et `tests/core/ffmpeg-args.test.ts`
+en fige les trois formes.
+
+## La sortie est positionnelle
+
+`ffmpeg … /chemin/-sortie.mp4` écrit le fichier ; `ffmpeg … -sortie.mp4` échoue
+sur « Unrecognized option 'sortie.mp4' ». ffmpeg accepte `--`, qui met fin aux
+options, et cela ne change rien sur un chemin absolu. Les quatre constructeurs
+d'argv le posent donc systématiquement.
+
 ## Deux pièges de la détection, dans setup.sh
 
 Trouvés en écrivant le script. Tous deux se manifestent en faux négatifs : le

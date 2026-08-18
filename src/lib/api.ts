@@ -149,9 +149,18 @@ export type BilanRepérage = {
    */
   couverture: number
   /**
-   * Vrai quand la passe ne s'est pas terminée : `notées` décrit alors ce qui
-   * avait été jugé au moment de l'arrêt. Se déduit d'`error` et `finishedAt`,
-   * jamais du bilan seul.
+   * Vrai quand la passe de repérage ne s'est pas terminée : `notées` décrit
+   * alors ce qui avait été jugé au moment de l'arrêt.
+   *
+   * **Le sort de l'étape `candidates`, jamais celui de l'exécution qui la
+   * porte** — et surtout pas du bilan seul, qui ne sait pas s'il est fini. Une
+   * création vise `['candidates', 'proxy', 'analysis']` : le repérage finit en
+   * trente secondes, le proxy tourne six minutes derrière lui, et l'analyse peut
+   * échouer ensuite sans rien lui retirer. Un client qui refabriquerait ce
+   * drapeau depuis un `error` et un `finishedAt` d'exécution afficherait donc
+   * « décompte provisoire » sur un repérage complet — définitivement, si une
+   * étape ultérieure tombe. Le serveur a déjà fait la déduction ; il n'y a rien
+   * à recalculer ici. (relevé par Copilot)
    */
   partiel: boolean
 }
@@ -196,9 +205,15 @@ export type ProjectStatus = {
 /**
  * Un replay du dossier des sources, tel que la bibliothèque le propose.
  *
- * **Pas de vignette, et c'est décidé.** Extraire une image de vingt et un
- * fichiers de 4 à 12 Go à travers un montage 9p est un coût que personne n'a
- * mesuré ; la carte affiche nom, taille et date.
+ * **Pas de vignette dans ce lot.** Extraire une image de vingt et un fichiers de
+ * 4 à 12 Go à travers un montage 9p est un coût que personne n'a mesuré, et la
+ * carte s'en passe : le nom d'un replay porte déjà sa date et son émission.
+ *
+ * L'arbitrage vient de la vague d'interface, et il **contredit la spec §12**,
+ * qui prescrit un `GET /api/sources/thumb`. La contradiction est connue et ne se
+ * tranche pas ici : elle appartient au document, pas à ce type — le dire est
+ * plus honnête que de laisser croire que les deux s'accordent.
+ * (relevé par Copilot et Aristarque)
  */
 export type Source = {
   /** Le nom du fichier dans `REPLAY_DIR`, tel que `createProject` l'attend — jamais un chemin. */

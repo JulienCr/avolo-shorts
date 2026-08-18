@@ -601,7 +601,7 @@ le dire fait douter de ce qu'on vient de déclencher.
 | **Navigation** | sortante seulement. Un projet mène à son écran, une source neuve crée un projet puis y mène. |
 | **Persistance aller** | aucune. Il n'y a rien à saisir. |
 | **Persistance retour** | la position de défilement de la grille des sources, gardée pendant la session. Vingt et une cartes chargées à la demande : revenir en haut à chaque retour ferait redemander les vignettes déjà vues. |
-| **D'où viennent les états** | `GET /api/projects` ne rend que des `ProjectSummary` et `useProjets` ne sonde rien : l'exigence de suivi multi-projets n'est pas implémentable telle quelle. Voir juste après. |
+| **D'où viennent les états** | de la liste elle-même, enrichie de ce qui est gratuit à calculer. C'était une demande au serveur, et elle est satisfaite. Voir juste après. |
 | **Validation** | aucune saisie, donc aucune validation. La seule erreur possible vient du serveur. |
 
 **Ce que la bibliothèque demande au serveur, et ce qu'elle ne doit pas demander.**
@@ -619,9 +619,11 @@ elles ne se valent pas :
   et la dernière a-t-elle échoué (`lireStatut(id)?.error`, un petit fichier
   local). Ni l'un ni l'autre ne touche au Drive.
 
-C'est la seconde, et elle suffit exactement à ce que la bibliothèque doit dire :
-« trois analyses en cours, une en échec ». La présence des artefacts, elle, se
-résout quand on ouvre le projet, là où le sondage se paie de toute façon.
+C'est la seconde qui a été retenue, et elle suffit exactement à ce que la
+bibliothèque doit dire : « trois analyses en cours, une en échec ». La présence
+des artefacts, elle, se résout quand on ouvre le projet, là où le sondage se paie
+de toute façon. Le sondage de la liste s'arrête d'ailleurs dès que plus rien ne
+tourne : ce qui la rend gratuite est ce qu'elle ne demande pas.
 
 **Les cinq états**
 
@@ -1615,8 +1617,10 @@ panneau de l'écran de clip aurait suffi à le faire exister.
 ### 9.4 Les arbitrages du cadrage, et ce qu'ils demandent au serveur
 
 Les deux questions que ce document posait sont tranchées, et la section 3.5 décrit
-la décision plutôt que l'alternative. Elles laissent trois demandes au serveur,
-listées ici parce qu'elles ne s'écrivent pas dans `src/app/`.
+la décision plutôt que l'alternative. Les demandes au serveur qu'elles laissaient
+sont listées ici parce qu'elles ne s'écrivent pas dans `src/app/`. Celles qui sont
+satisfaites restent, barrées : les retirer ferait redemander demain ce qui a déjà
+été payé.
 
 **Le modèle de cadrage, arbitré, calculé, pas encore enregistrable.** La forme
 est arrêtée et elle est écrite : `computeFraming` (`src/core/framing.ts`) prend un

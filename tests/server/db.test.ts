@@ -6,6 +6,9 @@ import Database, { type Database as BaseSqlite } from 'better-sqlite3'
 import {
   appliquerRéglages,
   champDeRéglage,
+  relireRéglage,
+  validerRéglage,
+  type ChampDeRéglage,
   getClip,
   getClips,
   getProject,
@@ -234,6 +237,79 @@ describe('le registre des réglages', () => {
     expect(db.prepare('SELECT key FROM settings').all()).toEqual([
       { key: 'selection.minutesParClip' },
     ])
+  })
+})
+
+/**
+ * **La grammaire du registre, y compris les deux types qu'aucune famille
+ * n'exerce encore.** Le repérage ne porte que des entiers ; le fournisseur d'IA
+ * par usage portera des chaînes, les défauts du hook des booléens (retour
+ * d'usage §6.1 et §6.3). Ces branches *sont* la généralisation — sans elles le
+ * registre n'est qu'une table d'entiers déguisée —, et les laisser sans test
+ * jusqu'à ce qu'une famille arrive reviendrait à les découvrir fausses le jour
+ * où quelqu'un s'en sert.
+ */
+describe('la grammaire du registre', () => {
+  const champ = (
+    type: ChampDeRéglage['type'],
+    reste: Partial<ChampDeRéglage> = {},
+  ): ChampDeRéglage => ({
+    famille: 'selection',
+    nom: 'témoin',
+    type,
+    défaut: type === 'entier' ? 1 : type === 'texte' ? 'a' : false,
+    libellé: 'Témoin',
+    explication: 'Un champ qui n’existe que pour ce test.',
+    ...reste,
+  })
+
+  it('relit un entier, et rien qui lui ressemble', () => {
+    const c = champ('entier', { plancher: 1 })
+    expect(relireRéglage(c, ' 4 ')).toBe(4)
+    // `parseInt` lirait 4 dans « 4.5 » et 7 dans « 7abc » : une saisie à moitié
+    // comprise est pire que refusée, personne ne peut deviner ce qui s'applique.
+    for (const brut of ['', 'sept', '4.5', '7abc', '0x10', '-3', '0']) {
+      expect(relireRéglage(c, brut), brut).toBeUndefined()
+    }
+  })
+
+  it('relit un booléen écrit en toutes lettres, et rien d’autre', () => {
+    const c = champ('booléen')
+    expect(relireRéglage(c, 'true')).toBe(true)
+    expect(relireRéglage(c, 'false')).toBe(false)
+    for (const brut of ['1', '0', 'oui', 'TRUE', '']) {
+      expect(relireRéglage(c, brut), brut).toBeUndefined()
+    }
+  })
+
+  it('relit un texte tel quel', () => {
+    expect(relireRéglage(champ('texte'), 'http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434')
+  })
+
+  it('valide chaque type sans convertir d’un type à l’autre', () => {
+    expect(validerRéglage(champ('entier', { plancher: 0 }), 0)).toBe(0)
+    expect(validerRéglage(champ('booléen'), true)).toBe(true)
+    expect(validerRéglage(champ('texte'), 'gemma4:26b')).toBe('gemma4:26b')
+
+    expect(() => validerRéglage(champ('entier', { plancher: 1 }), '4')).toThrow()
+    expect(() => validerRéglage(champ('booléen'), 'true')).toThrow()
+    expect(() => validerRéglage(champ('booléen'), 1)).toThrow()
+    expect(() => validerRéglage(champ('texte'), 42)).toThrow()
+    // Un texte vide ou fait de blancs n'est pas un réglage, c'est un champ oublié.
+    expect(() => validerRéglage(champ('texte'), '   ')).toThrow()
+    expect(() => validerRéglage(champ('texte'), 'x'.repeat(4_096))).toThrow()
+  })
+
+  /** Écriture et lecture appliquent la même règle, sinon l'aller-retour ment. */
+  it('fait l’aller-retour sur les trois types', () => {
+    for (const [c, valeur] of [
+      [champ('entier', { plancher: 0 }), 12],
+      [champ('booléen'), false],
+      [champ('texte'), 'llama3'],
+    ] as const) {
+      const stocké = String(validerRéglage(c, valeur))
+      expect(relireRéglage(c, stocké)).toBe(valeur)
+    }
   })
 })
 

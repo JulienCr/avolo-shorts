@@ -329,6 +329,14 @@ export class RéglageInvalideError extends Error {
 /**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
+ * **Exportée avec `validerRéglage` parce que les familles qui exerceront les
+ * types `texte` et `booléen` n'existent pas encore.** Ces deux branches sont la
+ * généralisation elle-même — ce qui fait qu'une famille nouvelle décrit ses
+ * champs au lieu de réécrire sa validation —, et sans elles le registre ne
+ * serait qu'une table d'entiers déguisée. Les laisser sans test jusqu'à ce
+ * qu'une famille arrive reviendrait à les découvrir fausses le jour où quelqu'un
+ * s'en sert.
+ *
  * **Une suite de chiffres, ou rien** — ni `parseInt`, ni `Number` seul, qui ont
  * chacun leurs largesses. `parseInt` lit ce qu'il peut et jette le reste :
  * `"4.5"` devenait 4 et `"7abc"` devenait 7, si bien qu'une valeur corrompue
@@ -340,7 +348,10 @@ export class RéglageInvalideError extends Error {
  * `Number` seul ne suffit pas non plus : la chaîne vide et les blancs valent
  * zéro, `"0x10"` vaut seize.
  */
-function relire(champ: ChampDeRéglage, brut: string): number | string | boolean | undefined {
+export function relireRéglage(
+  champ: ChampDeRéglage,
+  brut: string,
+): number | string | boolean | undefined {
   switch (champ.type) {
     case 'entier': {
       if (!/^\d+$/.test(brut.trim())) return undefined
@@ -366,19 +377,19 @@ const TEXTE_MAX = 2_048
 /**
  * Valide une valeur reçue, ou lève.
  *
- * **L'inverse exact de `relire`, et c'est délibéré** : là, une valeur illisible
+ * **L'inverse exact de `relireRéglage`, et c'est délibéré** : là, une valeur illisible
  * est ignorée parce que le repérage tourne derrière une transcription qui a
  * coûté quarante minutes ; ici quelqu'un attend une réponse, et lui dire non
  * tout de suite vaut mieux que de l'ignorer plus tard.
  */
-function valider(champ: ChampDeRéglage, valeur: unknown): number | string | boolean {
+export function validerRéglage(champ: ChampDeRéglage, valeur: unknown): number | string | boolean {
   const clé = cléStockée(champ)
   switch (champ.type) {
     case 'entier': {
       const plancher = champ.plancher ?? 0
       // `isSafeInteger` et non `isInteger`, **la même règle que le lecteur** :
       // `isInteger(1e100)` est vrai, `String(1e100)` donne `"1e+100"`, et
-      // `relire` refuse cette écriture. Une écriture réussie se relisait donc en
+      // `relireRéglage` refuse cette écriture. Une écriture réussie se relisait donc en
       // défaut, ce qui est le pire des retours — l'écran de réglages aurait juré
       // avoir enregistré. (relevé par Copilot)
       if (typeof valeur !== 'number' || !Number.isSafeInteger(valeur) || valeur < plancher) {
@@ -428,10 +439,10 @@ export function réglagesEffectifs(db: Database.Database): Réglages {
   for (const champ of REGISTRE_RÉGLAGES) {
     const brut = enBase.get(cléStockée(champ))
     if (brut === undefined) continue
-    const valeur = relire(champ, brut)
+    const valeur = relireRéglage(champ, brut)
     if (valeur === undefined) continue
     // L'assertion vaut ce que vaut le registre : le seul chemin qui écrive une
-    // valeur ici passe par `valider`, qui la contraint au type du champ.
+    // valeur ici passe par `validerRéglage`, qui la contraint au type du champ.
     ;(familles[champ.famille] as Record<string, unknown>)[champ.nom] = valeur
   }
   return familles
@@ -483,7 +494,7 @@ export function appliquerRéglages(db: Database.Database, patch: unknown): Régl
       if (champ === undefined) {
         throw new RéglageInvalideError(`Réglage inconnu : ${famille}.${nom}`)
       }
-      àécrire.push({ clé: cléStockée(champ), valeur: écrire(valider(champ, valeur)) })
+      àécrire.push({ clé: cléStockée(champ), valeur: écrire(validerRéglage(champ, valeur)) })
     }
   }
 

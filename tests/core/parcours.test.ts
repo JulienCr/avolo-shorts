@@ -254,7 +254,26 @@ function midpoint(f: { lowSec: number; highSec: number } | null): number {
 }
 
 describe('stepDurationRange', () => {
-  it('retrouve les mesures de l’émission de référence', () => {
+  /**
+   * **Le contrat entre les deux tables, tant qu'elles coexistent.** `ÉTAPES`
+   * porte les coûts constants que le panneau d'avancement lit encore ; celle-ci
+   * les rapporte à l'émission qu'on regarde. Sur l'émission de référence — celle
+   * dont les deux sortent — elles doivent rendre le même chiffre, sinon deux
+   * écrans annonceraient deux durées pour la même étape. Et une étape que
+   * personne n'a chronométrée n'annonce rien des deux côtés. (relevé par
+   * Aristarque)
+   */
+  it('retrouve, sur l’émission de référence, exactement les coûts d’ÉTAPES', () => {
+    for (const decrite of ÉTAPES) {
+      const range = stepDurationRange(decrite.nom, CQLP)
+      if (decrite.coûtSec === null) {
+        expect(range, decrite.nom).toBeNull()
+        continue
+      }
+      expect(midpoint(range), decrite.nom).toBe(decrite.coûtSec)
+    }
+    // Et les quatre valeurs elles-mêmes, écrites en clair : un `ÉTAPES` vidé
+    // ferait passer la boucle ci-dessus sans rien vérifier.
     expect(midpoint(stepDurationRange('audio', CQLP))).toBe(6)
     expect(midpoint(stepDurationRange('transcript', CQLP))).toBe(101)
     expect(midpoint(stepDurationRange('proxy', CQLP))).toBe(360)

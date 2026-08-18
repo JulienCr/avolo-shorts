@@ -9,6 +9,7 @@ import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
   appelerGemini,
   caviarder,
+  estPassagère,
   GeminiBlockedError,
   leverSiBloquée,
   lireTranscript,
@@ -235,6 +236,24 @@ describe('appelerGemini', () => {
     })
     expect(clips).toEqual([])
     expect(essais).toBe(2)
+  })
+
+  // Le délai d'appel s'applique par `AbortSignal.timeout`, dont l'exception ne
+  // porte aucun code — juste « This operation was aborted ». Le délai qu'on
+  // venait d'ajouter pour ENTRER dans la relance en sortait donc au premier
+  // essai. Rien n'expose de signal d'annulation à l'appelant, donc un abandon ne
+  // peut venir que du délai. (relevé par Copilot)
+  it('réessaie un appel abandonné par le délai', async () => {
+    const abandon = (nom: string) => {
+      const e = new Error('This operation was aborted')
+      e.name = nom
+      return e
+    }
+    for (const nom of ['AbortError', 'TimeoutError']) {
+      expect(estPassagère(abandon(nom))).toBe(true)
+    }
+    // Et par le message seul, si un jour le nom se perd en route.
+    expect(estPassagère(new Error('The operation was aborted due to timeout'))).toBe(true)
   })
 
   it('réessaie une réponse tronquée', async () => {

@@ -190,7 +190,23 @@ const MARQUEURS_PASSAGERS = [
   'did not contain a "shorts" array',
   'failed to parse gemini json response',
   'truncated (max_tokens)',
+  'operation was aborted',
+  'aborted due to timeout',
 ]
+
+/**
+ * Les erreurs qui ne se reconnaissent qu'à leur **nom**, parce que leur message
+ * ne porte aucun code.
+ *
+ * `DÉLAI_APPEL_MS` s'applique par `AbortSignal.timeout` dans
+ * `@google/genai@2.17.1`, et l'exception qui en sort dit « This operation was
+ * aborted » — pas un chiffre, pas un mot-clé de service. Le délai qu'on venait
+ * d'ajouter pour *entrer* dans la politique de relance en sortait donc au
+ * premier essai, ce qui est exactement le contraire du but. Rien ici n'expose de
+ * signal d'annulation à l'appelant, donc un abandon ne peut venir que du délai.
+ * (relevé par Copilot)
+ */
+const NOMS_PASSAGERS = new Set(['AbortError', 'TimeoutError'])
 
 /** Le mode d'appel : les deux passes n'ont ni le même schéma ni la même température. */
 export type ModeGemini = 'score' | 'detail'
@@ -313,8 +329,9 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
   }
 }
 
-function estPassagère(message: string): boolean {
-  const bas = message.toLowerCase()
+export function estPassagère(erreur: unknown): boolean {
+  if (erreur instanceof Error && NOMS_PASSAGERS.has(erreur.name)) return true
+  const bas = (erreur instanceof Error ? erreur.message : String(erreur)).toLowerCase()
   return MARQUEURS_PASSAGERS.some((marqueur) => bas.includes(marqueur))
 }
 
@@ -368,7 +385,7 @@ export async function appelerGemini<T = unknown>(
       // Un refus de contenu ne se réessaie jamais : voir `GeminiBlockedError`.
       if (erreur instanceof GeminiBlockedError) throw erreur
       const message = erreur instanceof Error ? erreur.message : String(erreur)
-      if (tentative >= TENTATIVES || !estPassagère(message)) throw erreur
+      if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
       const attente = 5000 * 2 ** (tentative - 1)
       console.warn(
         `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,

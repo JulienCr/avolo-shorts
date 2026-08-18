@@ -12,6 +12,7 @@ import {
   collecterMarques,
   écarterRenduPérimé,
   écartDeLEmpreinte,
+  type CeQuOnIncrusterait,
   empreinteDuRendu,
   leRenduEstPérimé,
   lesMarquesOntBougé,
@@ -114,6 +115,24 @@ function marquesNommées(
 }
 
 /**
+ * `empreinteDuRendu` avec le preset par défaut, celui de tous ces tests-ci.
+ * Le condensat du preset n'entre dans l'empreinte que si un document a été
+ * incrusté — d'où le second paramètre.
+ */
+function empreinteAvec(
+  c: Clip,
+  marques: readonly MarqueNative[],
+  incrustés = true,
+): ReturnType<typeof empreinteDuRendu> {
+  return empreinteDuRendu(c, marques, { incrustés, style: DEFAULT_CAPTION_STYLE })
+}
+
+/** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
+function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncrusterait {
+  return { marques: null, style: null, ...surcharges }
+}
+
+/**
  * L'empreinte qu'un rendu réussi aurait laissée à côté de ses sorties.
  *
  * Elle passe par `empreinteDuRendu` plutôt que par un littéral : un champ ajouté
@@ -130,7 +149,7 @@ function poserEmpreinte(
   fs.mkdirSync(path.dirname(chemin), { recursive: true })
   fs.writeFileSync(
     chemin,
-    JSON.stringify(empreinteDuRendu(c, marquesNommées(marques), sousTitres)),
+    JSON.stringify(empreinteAvec(c, marquesNommées(marques), sousTitres)),
   )
 }
 
@@ -286,7 +305,7 @@ describe("l'empreinte de rendu", () => {
   })
 
   it('porte les cinq champs du clip, la version, et ce qui a été incrusté', () => {
-    const e = empreinteDuRendu(clip(), marquesNommées(['twitch.png', 'logo.png']), true)
+    const e = empreinteAvec(clip(), marquesNommées(['twitch.png', 'logo.png']))
     expect(e).toEqual({
       version: VERSION_EMPREINTE,
       segments: clip().segments,
@@ -299,7 +318,8 @@ describe("l'empreinte de rendu", () => {
         { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
         { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
       ],
-      sousTitres: true,
+      // Le condensat du preset, et non un booléen : il dit avec quel look.
+      sousTitres: e.sousTitres,
     })
   })
 
@@ -307,27 +327,27 @@ describe("l'empreinte de rendu", () => {
     // Un clip dont aucun mot ne tombe dans les segments se rend sans, en le
     // journalisant. L'empreinte dit ce qui a été incrusté, pas ce qui était
     // demandé — les deux champs sont là et ils divergent.
-    const e = empreinteDuRendu(clip({ captions: true }), [], false)
+    const e = empreinteAvec(clip({ captions: true }), [], false)
     expect(e.captions).toBe(true)
-    expect(e.sousTitres).toBe(false)
+    expect(e.sousTitres).toBeNull()
   })
 
   describe('écartDeLEmpreinte', () => {
     const marques = marquesNommées(['logo.png'])
     const àCôté = (surcharges: Partial<Clip> = {}): ReturnType<typeof empreinteDuRendu> =>
-      empreinteDuRendu(clip(surcharges), marques, true)
+      empreinteAvec(clip(surcharges), marques)
 
     it('ne trouve rien à redire quand tout concorde', () => {
-      expect(écartDeLEmpreinte(àCôté(), clip(), marques)).toBeNull()
+      expect(écartDeLEmpreinte(àCôté(), clip(), observé({ marques }))).toBeNull()
     })
 
     it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
-      expect(écartDeLEmpreinte(null, clip(), marques)).toBe('absente')
+      expect(écartDeLEmpreinte(null, clip(), observé({ marques }))).toBe('absente')
     })
 
     it('dit « recette » sur une version qui n’est plus la nôtre', () => {
       const vieille = { ...àCôté(), version: VERSION_EMPREINTE - 1 }
-      expect(écartDeLEmpreinte(vieille, clip(), marques)).toBe('recette')
+      expect(écartDeLEmpreinte(vieille, clip(), observé({ marques }))).toBe('recette')
     })
 
     it('dit « montage » sur chacun des cinq champs qui vont à l’image', () => {
@@ -339,7 +359,7 @@ describe("l'empreinte de rendu", () => {
         { branding: false },
       ]
       for (const surcharge of cas) {
-        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), marques)).toBe('montage')
+        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), observé({ marques }))).toBe('montage')
       }
     })
 
@@ -351,18 +371,18 @@ describe("l'empreinte de rendu", () => {
         { pass: 9 },
       ]
       for (const surcharge of indifférents) {
-        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), marques)).toBeNull()
+        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), observé({ marques }))).toBeNull()
       }
     })
 
     it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
       const deux = marquesNommées(['logo.png', 'twitch.png'])
-      expect(écartDeLEmpreinte(àCôté(), clip(), deux)).toBe('marques')
+      expect(écartDeLEmpreinte(àCôté(), clip(), observé({ marques: deux }))).toBe('marques')
     })
 
     it('dit « marques » quand une marque a été retirée du dossier', () => {
-      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png', 'twitch.png']), true)
-      expect(écartDeLEmpreinte(empreinte, clip(), marques)).toBe('marques')
+      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
+      expect(écartDeLEmpreinte(empreinte, clip(), observé({ marques }))).toBe('marques')
     })
 
     /**
@@ -371,11 +391,48 @@ describe("l'empreinte de rendu", () => {
      * lance pas deux ffprobe pour cela. C'est la même fonction, avec un critère
      * de moins — jamais un second avis sur la même question.
      */
+    /**
+     * **`OptionsRendu.style` change l'image et n'entrait pas dans l'empreinte.**
+     * Un rendu forcé avec un preset personnalisé, puis un appel avec le preset
+     * par défaut, sautait en déclarant à jour une vidéo produite avec l'autre
+     * style. (relevé par Copilot)
+     */
+    it('dit « style » quand le preset des sous-titres a changé', () => {
+      const incrusté = empreinteAvec(clip(), marques)
+      const autre = { ...DEFAULT_CAPTION_STYLE, fontSize: DEFAULT_CAPTION_STYLE.fontSize + 8 }
+      expect(écartDeLEmpreinte(incrusté, clip(), observé({ style: autre }))).toBe('style')
+      expect(écartDeLEmpreinte(incrusté, clip(), observé({ style: DEFAULT_CAPTION_STYLE }))).toBeNull()
+    })
+
+    it("ignore l'ordre des clés du preset, qui ne change pas une image", () => {
+      // `JSON.stringify` suit l'ordre d'insertion : sans tri, réordonner le
+      // littéral de `DEFAULT_CAPTION_STYLE` périmerait tous les rendus du disque.
+      const réordonné = Object.fromEntries(
+        Object.entries(DEFAULT_CAPTION_STYLE).reverse(),
+      ) as typeof DEFAULT_CAPTION_STYLE
+      expect(écartDeLEmpreinte(empreinteAvec(clip(), marques), clip(), observé({ style: réordonné }))).toBeNull()
+    })
+
+    it("ne juge pas du preset quand aucun sous-titre n'a été incrusté", () => {
+      // Le preset n'a alors rien décrit de l'image : le comparer périmerait au
+      // premier réglage de police un clip qui n'en porte pas.
+      const sansSousTitres = empreinteAvec(clip({ captions: false }), marques, false)
+      const autre = { ...DEFAULT_CAPTION_STYLE, fontSize: 12 }
+      expect(
+        écartDeLEmpreinte(sansSousTitres, clip({ captions: false }), observé({ style: autre })),
+      ).toBeNull()
+    })
+
+    it('ne juge pas du preset quand on ne le lui donne pas', () => {
+      const incrusté = empreinteAvec(clip(), marques)
+      expect(écartDeLEmpreinte(incrusté, clip(), observé())).toBeNull()
+    })
+
     it('ne juge pas des marques quand on ne les lui donne pas', () => {
-      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png', 'twitch.png']), true)
-      expect(écartDeLEmpreinte(empreinte, clip(), null)).toBeNull()
+      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
+      expect(écartDeLEmpreinte(empreinte, clip(), observé())).toBeNull()
       // Le reste continue de compter.
-      expect(écartDeLEmpreinte(empreinte, clip({ cropX: 0.1 }), null)).toBe('montage')
+      expect(écartDeLEmpreinte(empreinte, clip({ cropX: 0.1 }), observé())).toBe('montage')
     })
   })
 
@@ -385,20 +442,20 @@ describe("l'empreinte de rendu", () => {
       // qui demande des marques dont aucune n'est exploitable ne peut pas se
       // rendre (#37) : périmer son rendu changerait une livraison correcte en
       // export qui refuse.
-      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png']), true)
+      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png']))
       expect(lesMarquesOntBougé(empreinte, [], true)).toBe(false)
     })
 
     it('périme quand le clip ne demandait pas de marque et qu’il en reste une', () => {
       // Le dossier vide n'excuse que le clip qui en demande. Ici l'empreinte
       // porte une marque incrustée alors que plus rien ne devrait l'être.
-      const empreinte = empreinteDuRendu(clip({ branding: false }), marquesNommées(['logo.png']), true)
+      const empreinte = empreinteAvec(clip({ branding: false }), marquesNommées(['logo.png']))
       expect(lesMarquesOntBougé(empreinte, [], false)).toBe(true)
     })
 
     it("compare sans tenir compte de l'ordre", () => {
       const empreinte = {
-        ...empreinteDuRendu(clip(), [], true),
+        ...empreinteAvec(clip(), []),
         marques: [
           { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
           { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
@@ -417,7 +474,7 @@ describe("l'empreinte de rendu", () => {
      * (relevé par Codex)
      */
     it('périme un logo remplacé sous le même nom', () => {
-      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png']), true)
+      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png']))
       const remplacé = marquesNommées(['logo.png'], () => 'une tout autre image')
       expect(lesMarquesOntBougé(empreinte, remplacé, true)).toBe(true)
     })
@@ -433,7 +490,7 @@ describe("l'empreinte de rendu", () => {
     it('relit ce que `empreinteDuRendu` a écrit', () => {
       const c = clip()
       poserEmpreinte(c, '1:1', ['logo.png'])
-      expect(lireEmpreinte(chemin())).toEqual(empreinteDuRendu(c, marquesNommées(['logo.png']), true))
+      expect(lireEmpreinte(chemin())).toEqual(empreinteAvec(c, marquesNommées(['logo.png'])))
     })
 
     it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
@@ -453,7 +510,7 @@ describe("l'empreinte de rendu", () => {
       // « illisible » d'un fichier parfaitement formé, alors que le seul verdict
       // qui vaille est celui de `version`.
       const c = clip()
-      const brut = { ...empreinteDuRendu(c, [], true), venuDuFutur: 42 }
+      const brut = { ...empreinteAvec(c, []), venuDuFutur: 42 }
       fs.mkdirSync(path.dirname(chemin()), { recursive: true })
       fs.writeFileSync(chemin(), JSON.stringify(brut))
       expect(lireEmpreinte(chemin())?.version).toBe(VERSION_EMPREINTE)

@@ -47,8 +47,14 @@ export const GET = route(
     // MP4 est stable — un lecteur qui l'a gardée continuerait de tirer
     // précisément le fichier que l'autre porte déclare indisponible.
     // (relevé par Codex)
+    //
+    // **Le message reste générique**, et il l'est volontairement : ce verdict est
+    // faux pour un clip jamais exporté, pour une empreinte absente ou illisible,
+    // pour une recette antérieure et pour un montage modifié. Nommer une seule
+    // de ces causes enverrait chercher le défaut là où il n'est pas trois fois
+    // sur quatre. (relevé par Copilot)
     if (!livraisonÀJour(clip)) {
-      throw introuvable(`Le clip ${id} n'a pas de rendu à jour : son montage a changé depuis.`)
+      throw introuvable(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
     }
 
     const sortie = sortieNommée(clip, file)

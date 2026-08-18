@@ -10,6 +10,7 @@ import { GET as getProjet } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
 import type {
@@ -124,7 +125,7 @@ function poserEmpreinte(clip: Clip, marques: string[] = []): void {
           bord: 'gauche' as const,
           contenu: `contenu-de-${nom}`,
         })),
-        clip.captions,
+        { incrustés: clip.captions, style: DEFAULT_CAPTION_STYLE },
       ),
     ),
   )

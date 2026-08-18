@@ -99,15 +99,6 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
 }
 
 /**
- * Ce que `GET /api/clips/:id` dit des sorties.
- *
- * **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.**
- * Un clip déjà en 9:16 n'a pas de variante à fond flouté et n'en aura jamais :
- * son absence est le fonctionnement normal. Un clip en 1:1 qui n'en a pas encore
- * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
- * le premier — sur le clip le mieux livré de la bibliothèque.
- */
-/**
  * Ce clip a-t-il une livraison à jour, c'est-à-dire des fichiers qui le
  * décrivent encore ?
  *
@@ -133,15 +124,28 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * l'écran propose alors l'export — qui refera ce qu'il faut plutôt que de sauter
  * dessus.
  *
- * **Sans sonder le dossier des marques** : un `GET` se sert à chaque affichage
- * de carte et ne lance pas deux ffprobe pour cela. C'est la même fonction que
- * celle du rendu, avec un critère de moins — voir `écartDeLEmpreinte`.
+ * **Sans sonder le dossier des marques ni connaître le preset de sous-titres** :
+ * un `GET` se sert à chaque affichage de carte et ne lance pas deux ffprobe pour
+ * cela. C'est la même fonction que celle du rendu, avec deux critères de moins —
+ * voir `CeQuOnIncrusterait`.
  */
 export function livraisonÀJour(clip: Clip): boolean {
   if (clip.status !== 'exported') return false
-  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, null)
+  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, {
+    marques: null,
+    style: null,
+  })
 }
 
+/**
+ * Ce que `GET /api/clips/:id` dit des sorties.
+ *
+ * **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.**
+ * Un clip déjà en 9:16 n'a pas de variante à fond flouté et n'en aura jamais :
+ * son absence est le fonctionnement normal. Un clip en 1:1 qui n'en a pas encore
+ * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
+ * le premier — sur le clip le mieux livré de la bibliothèque.
+ */
 export function sortiesDuClip(clip: Clip): ClipOutputs {
   const { mp4, variant9x16, texts } = sorties(clip)
   if (!livraisonÀJour(clip)) {

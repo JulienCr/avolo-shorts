@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
 import type { Artefact, OptionsArtefact } from '@/server/ffmpeg'
@@ -149,6 +150,34 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
     pass: 1,
     ...surcharges,
   }
+}
+
+/**
+ * Un transcript minuscule à côté de l'original, pour les cas qui incrustent
+ * vraiment des sous-titres. Les autres tournent avec `captions: false`.
+ */
+function poserTranscript(): void {
+  const dossier = path.join(replay, `${ID}.avolo`)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(
+    path.join(dossier, 'transcript.json'),
+    JSON.stringify({
+      language: 'fr',
+      segments: [
+        {
+          start: 100,
+          end: 110,
+          text: 'une vanne qui tient',
+          words: [
+            { word: 'une', start: 100, end: 101 },
+            { word: 'vanne', start: 101, end: 103 },
+            { word: 'qui', start: 103, end: 104 },
+            { word: 'tient', start: 104, end: 106 },
+          ],
+        },
+      ],
+    }),
+  )
 }
 
 /** Les noms des marques que l'empreinte dit incrustées, triés. */
@@ -494,5 +523,93 @@ describe('la version de recette', () => {
 
     expect(résultat.skipped).toBe(false)
     expect(encodages).toContain(chemins.mp4)
+  })
+})
+
+/**
+ * Le preset de sous-titres : il change l'image, donc il entre dans l'empreinte.
+ * (relevé par Copilot)
+ */
+describe('le preset de sous-titres', () => {
+  const AUTRE = { ...DEFAULT_CAPTION_STYLE, fontSize: DEFAULT_CAPTION_STYLE.fontSize + 8 }
+
+  it("ne laisse pas sauter un rendu produit avec un autre preset", async () => {
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
+    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).toBeTypeOf('string')
+
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+  })
+
+  it('saute quand le preset est le même — le cas nominal reste vrai', async () => {
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true }))
+    await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
+
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+  })
+
+  it("ne note aucun preset quand aucun mot ne tombe dans les segments", async () => {
+    // Le clip demande des sous-titres, le transcript n'en fournit aucun sur ses
+    // segments : le rendu part sans, et l'empreinte le consigne plutôt que de
+    // certifier un preset qui n'a rien décrit.
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true, segments: [{ start: 800, end: 820 }] }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    const empreinte = lireEmpreinte(chemins.empreinte)
+    expect(empreinte?.captions).toBe(true)
+    expect(empreinte?.sousTitres).toBeNull()
+  })
+})
+
+/**
+ * Les marques sondées avant la décision de saut, puis rouvertes par deux ffmpeg
+ * successifs : un PNG remplacé entre-temps peut n'être incrusté que dans l'une
+ * des deux sorties. (relevé par Copilot)
+ */
+describe("une marque remplacée pendant l'export", () => {
+  it("refuse de certifier ce qu'elle n'a pas pu vérifier", async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    pendantLEncodage = () => {
+      fs.writeFileSync(path.join(brandDir, 'logo.png'), 'un logo tout neuf')
+    }
+
+    await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(
+      /marques du clip .* ont changé pendant son export/,
+    )
+    // Aucune empreinte : l'export suivant refera les deux sorties.
+    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+
+  it("ne bronche pas quand le dossier est simplement vidé pendant l'export", async () => {
+    // Ce qui a été incrusté l'a été, que les fichiers survivent ou non : c'est la
+    // même exception que dans `lesMarquesOntBougé`.
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    pendantLEncodage = () => {
+      for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
+    }
+
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
   })
 })

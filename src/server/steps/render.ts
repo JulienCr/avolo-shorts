@@ -81,7 +81,7 @@ export type OptionsRendu = {
 }
 
 /**
- * Les quatre chemins d'un clip. `variant9x16` vaut `null` quand le clip est déjà
+ * Les cinq chemins d'un clip. `variant9x16` vaut `null` quand le clip est déjà
  * en 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un 1:1
  * sur TikTok et Shorts : sur un clip déjà en 9:16, elle serait le même cadre
  * rendu une seconde fois (spec §11).
@@ -234,20 +234,26 @@ export type EmpreinteRendu = FormeRendue & {
    */
   marques: MarqueIncrustée[]
   /**
-   * Vrai si un document ASS a réellement été incrusté. Un clip qui demande des
-   * sous-titres et dont aucun mot ne tombe dans les segments se rend sans, en le
-   * journalisant.
+   * `null` quand aucun document ASS n'a été incrusté ; sinon le condensat du
+   * preset avec lequel il l'a été.
    *
-   * **Consigné, délibérément pas comparé.** Le comparer à ce qu'on incrusterait
-   * aujourd'hui suppose de relire le transcript, donc l'aller-retour sur le
-   * Drive en 9p que la décision de saut évite exprès. Et le rendre périmant sans
-   * cette lecture ferait boucler l'export sur un clip dont aucun mot ne tombe
-   * dans les segments : chaque passage referait le rendu pour réécrire la même
-   * empreinte. Ce champ répond donc à « pourquoi ce MP4 n'a-t-il pas de
-   * sous-titres », qui est une question qu'on se pose devant un fichier, et non
-   * à une décision de la machine.
+   * **Un seul champ pour deux faits, parce qu'ils ne se séparent pas** : un
+   * preset n'a de sens que s'il y a des sous-titres, et deux champs porteraient
+   * un invariant à tenir entre eux. Un clip qui demande des sous-titres et dont
+   * aucun mot ne tombe dans les segments se rend sans, en le journalisant :
+   * `captions: true` avec `sousTitres: null` dit exactement cela.
+   *
+   * **Le condensat se compare, la présence non**, et l'asymétrie a une cause.
+   * `OptionsRendu.style` change l'image : un rendu forcé avec un preset
+   * personnalisé, puis un appel avec le preset par défaut, sautait en déclarant
+   * à jour une vidéo produite avec l'autre style. (relevé par Copilot) La
+   * *présence*, elle, ne peut se comparer qu'en relisant le transcript, donc en
+   * payant l'aller-retour sur le Drive en 9p que la décision de saut évite
+   * exprès — et la rendre périmante sans cette lecture ferait boucler l'export
+   * sur un clip dont aucun mot ne tombe dans les segments : chaque passage
+   * referait le rendu pour réécrire la même empreinte.
    */
-  sousTitres: boolean
+  sousTitres: string | null
 }
 
 /** Une marque incrustée : son nom de fichier, et de quoi voir qu'elle a changé. */
@@ -266,7 +272,7 @@ const SCHÉMA_EMPREINTE = z.object({
   captions: z.boolean(),
   branding: z.boolean(),
   marques: z.array(z.object({ nom: z.string(), contenu: z.string() })),
-  sousTitres: z.boolean(),
+  sousTitres: z.string().nullable(),
 })
 
 /**
@@ -283,6 +289,19 @@ function contenuDeLaMarque(chemin: string): string {
   return createHash('sha256').update(fs.readFileSync(chemin)).digest('hex')
 }
 
+/**
+ * Le condensat d'un preset de sous-titres.
+ *
+ * **Clés triées avant sérialisation.** `JSON.stringify` suit l'ordre
+ * d'insertion : sans ce tri, réordonner le littéral de `DEFAULT_CAPTION_STYLE`
+ * — un geste qui ne change pas une image — périmerait tous les rendus du
+ * disque.
+ */
+function condensatDuStyle(style: CaptionStyle): string {
+  const stable = Object.entries(style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex')
+}
+
 /** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
 function triéesParNom(marques: readonly MarqueIncrustée[]): MarqueIncrustée[] {
   return [...marques].sort((a, b) => (a.nom < b.nom ? -1 : a.nom > b.nom ? 1 : 0))
@@ -293,11 +312,17 @@ function identitésDeMarques(marques: readonly MarqueNative[]): MarqueIncrustée
   return triéesParNom(marques.map((m) => ({ nom: path.basename(m.path), contenu: m.contenu })))
 }
 
-/** L'empreinte que ce passage vient de produire. Pure. */
+/**
+ * L'empreinte que ce passage vient de produire. Pure.
+ *
+ * `style` n'est lu que si un document a été incrusté : le preset d'un clip sans
+ * sous-titres ne décrit rien de son image, et l'y noter périmerait ce clip au
+ * premier réglage de police.
+ */
 export function empreinteDuRendu(
   clip: FormeRendue,
   marques: readonly MarqueNative[],
-  sousTitres: boolean,
+  sousTitres: { incrustés: boolean; style: CaptionStyle },
 ): EmpreinteRendu {
   return {
     version: VERSION_EMPREINTE,
@@ -310,7 +335,7 @@ export function empreinteDuRendu(
     captions: clip.captions,
     branding: clip.branding,
     marques: identitésDeMarques(marques),
-    sousTitres,
+    sousTitres: sousTitres.incrustés ? condensatDuStyle(sousTitres.style) : null,
   }
 }
 
@@ -385,23 +410,31 @@ export function lesMarquesOntBougé(
 }
 
 /** Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant. */
-export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques'
+export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 'style'
+
+/**
+ * Ce qu'on incrusterait **maintenant**, pour ce que l'appelant en sait.
+ *
+ * **Chaque champ peut valoir `null`, et cela veut dire « je n'ai pas sondé »**,
+ * jamais « il n'y en a pas » : la comparaison porte alors sur tout le reste. Un
+ * `GET /api/clips/:id` se sert à chaque affichage de carte et ne lance pas deux
+ * ffprobe pour cela ; `renderClip`, lui, lit le dossier des marques et connaît
+ * son preset de toute façon. C'est un arbitrage de coût, pas deux avis sur la
+ * même question : la même fonction, avec des critères en moins.
+ */
+export type CeQuOnIncrusterait = {
+  marques: readonly MarqueNative[] | null
+  style: CaptionStyle | null
+}
 
 /**
  * L'écart entre ce qui a été rendu et ce qu'on rendrait maintenant, ou `null`
  * quand il n'y en a pas. Pure : c'est l'appelant qui a lu le disque.
- *
- * **`marques` vaut `null` quand l'appelant n'a pas les moyens de sonder le
- * dossier des marques**, et la comparaison porte alors sur tout le reste. Un
- * `GET /api/clips/:id` ne lance pas deux ffprobe pour afficher une carte ;
- * `renderClip`, lui, lit ce dossier de toute façon. La différence est un
- * arbitrage de coût, pas deux avis sur la même question : c'est la même
- * fonction, avec un critère de moins.
  */
 export function écartDeLEmpreinte(
   empreinte: EmpreinteRendu | null,
   clip: FormeRendue,
-  marques: readonly MarqueNative[] | null,
+  observé: CeQuOnIncrusterait,
 ): ÉcartEmpreinte | null {
   // **Une empreinte absente vaut « périmé », jamais « inconnu ».** C'est le seul
   // choix qui referme le quatrième cas sans intervention manuelle : les rendus
@@ -413,7 +446,19 @@ export function écartDeLEmpreinte(
   if (empreinte === null) return 'absente'
   if (empreinte.version !== VERSION_EMPREINTE) return 'recette'
   if (leRenduEstPérimé(empreinte, clip)) return 'montage'
-  if (marques !== null && lesMarquesOntBougé(empreinte, marques, clip.branding)) return 'marques'
+  if (observé.marques !== null && lesMarquesOntBougé(empreinte, observé.marques, clip.branding)) {
+    return 'marques'
+  }
+  // **Seulement quand un document a été incrusté.** `sousTitres` à `null` dit
+  // qu'il n'y en a pas eu, et le preset n'a alors rien décrit de l'image : le
+  // comparer périmerait au premier réglage de police un clip qui n'en porte pas.
+  if (
+    observé.style !== null &&
+    empreinte.sousTitres !== null &&
+    empreinte.sousTitres !== condensatDuStyle(observé.style)
+  ) {
+    return 'style'
+  }
   return null
 }
 
@@ -421,9 +466,9 @@ export function écartDeLEmpreinte(
 export function empreinteÀJour(
   empreinte: EmpreinteRendu | null,
   clip: FormeRendue,
-  marques: readonly MarqueNative[] | null,
+  observé: CeQuOnIncrusterait,
 ): boolean {
-  return écartDeLEmpreinte(empreinte, clip, marques) === null
+  return écartDeLEmpreinte(empreinte, clip, observé) === null
 }
 
 /** Ce que le journal dit de chaque écart, à qui n'a pas lu ce fichier. */
@@ -432,6 +477,7 @@ const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
   recette: 'ils ont été produits par une recette de rendu antérieure',
   montage: 'le montage a changé depuis',
   marques: "les marques incrustées ne sont plus celles du dossier",
+  style: "les sous-titres ont été incrustés avec un autre preset",
 }
 
 /**
@@ -927,8 +973,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // comparer, et `branding` passé à faux se voit déjà dans les cinq champs.
   const marques = clip.branding ? await collecterMarques(options.brandDir) : []
 
+  // Le preset entre dans l'empreinte, donc il se résout avant la décision de
+  // saut et non plus au moment d'écrire le `.ass`.
+  const style = options.style ?? DEFAULT_CAPTION_STYLE
+
   // Ce que les fichiers présents décrivent, s'il y en a.
-  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), clip, marques)
+  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), clip, { marques, style })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
   // périmé était repris pour bon sans un mot, et l'interface présente
@@ -1055,7 +1105,6 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       )
     }
 
-    const style = options.style ?? DEFAULT_CAPTION_STYLE
     // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
     // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
     // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
@@ -1141,14 +1190,34 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // certifie un MP4 qui n'existe pas, ou qui n'est écrit qu'à moitié.
       //
       // Elle porte **ce qui a été incrusté** : les marques réellement posées et
-      // non ce que `branding` demandait, et la présence effective d'un document
-      // de sous-titres. C'est ce qui distingue un rendu d'aujourd'hui des trois
-      // du 18 août, sur lesquels `branding` valait `true` sans qu'aucune marque
-      // n'ait été incrustée.
-      await écrireEmpreinte(
-        chemins.empreinte,
-        empreinteDuRendu(clip, marques, assProvisoire !== undefined),
-      )
+      // non ce que `branding` demandait, et le preset avec lequel les
+      // sous-titres l'ont été. C'est ce qui distingue un rendu d'aujourd'hui des
+      // trois du 18 août, sur lesquels `branding` valait `true` sans qu'aucune
+      // marque n'ait été incrustée.
+      //
+      // **Les marques sont relues avant d'être certifiées.** Elles ont été
+      // sondées avant la décision de saut, et les deux ffmpeg rouvrent ensuite
+      // les mêmes chemins : un PNG remplacé pendant l'export peut se retrouver
+      // incrusté dans la variante et pas dans le natif, pendant que l'empreinte
+      // certifierait le condensat d'avant — et le clip partirait `exported` sur
+      // deux fichiers qui ne montrent pas la même marque. On ne certifie que ce
+      // qu'on a pu vérifier ; sans empreinte, l'export suivant les refait.
+      // (relevé par Copilot)
+      //
+      // Un dossier vidé pendant l'export ne déclenche rien, par la même
+      // exception que `lesMarquesOntBougé` : ce qui a été incrusté l'a été, que
+      // les fichiers survivent ou non.
+      const empreinte = empreinteDuRendu(clip, marques, {
+        incrustés: assProvisoire !== undefined,
+        style,
+      })
+      const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
+      if (lesMarquesOntBougé(empreinte, marquesAprès, clip.branding)) {
+        throw new Error(
+          `Les marques du clip ${clipId} ont changé pendant son export : les deux sorties peuvent ne pas porter la même, et rien ne les certifie. L'export suivant les refera. Relancer l'export.`,
+        )
+      }
+      await écrireEmpreinte(chemins.empreinte, empreinte)
     } finally {
       // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
       // en place celui qui décrit la vidéo réellement posée sur le disque.

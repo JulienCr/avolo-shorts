@@ -90,7 +90,13 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
 
   remonterMot(mots, index) {
     const { historique } = get()
-    set({ historique: pushHistory(historique, restoreWord(historique.present, mots, index)) })
+    set({
+      historique: pushHistory(historique, restoreWord(historique.present, mots, index)),
+      // Le clic qui remonte un mot commence par le sélectionner : le laisser
+      // sélectionné ferait porter les boutons de borne sur un mot qu'on vient
+      // de rendre, sans l'avoir voulu.
+      selection: null,
+    })
   },
 
   poserBorne(mots, index, bord) {

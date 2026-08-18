@@ -226,6 +226,17 @@ pour que le premier niveau livre `\'` au second —, puis la rouvre. C'est
 `échapper()` dans `src/core/ffmpeg/args.ts`, et `tests/core/ffmpeg-args.test.ts`
 en fige les trois formes.
 
+## `loudnorm` change le taux d'échantillonnage
+
+En passe unique, le filtre `loudnorm` travaille à **192 kHz** pour mesurer les
+crêtes, et il sort à ce taux. Sans consigne, ffmpeg redescend alors au plus haut
+taux que l'encodeur accepte. Mesuré : une source à 44,1 kHz ressort en **96 kHz**,
+et la variante floutée en hérite par `-c:a copy`.
+
+Rien ne le signale — le fichier se lit, il est seulement plus lourd et dans un
+format que personne ne livre. La parade est un `aresample=48000` **derrière**
+`loudnorm`, dans le graphe. Vérifié : 44,1 kHz en entrée, 48 kHz en sortie.
+
 ## La sortie est positionnelle
 
 `ffmpeg … /chemin/-sortie.mp4` écrit le fichier ; `ffmpeg … -sortie.mp4` échoue

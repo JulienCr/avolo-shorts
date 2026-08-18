@@ -71,3 +71,16 @@ export const METADATA_SCRUB: readonly string[] = [
  * dépassement de crête. Ce réglage-là est celui qui tient.
  */
 export const LOUDNORM = 'loudnorm=I=-14:TP=-2.0:LRA=11'
+
+/**
+ * Le taux d'échantillonnage de livraison, à poser **derrière `loudnorm`**.
+ *
+ * En passe unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et
+ * sort à ce taux. Sans consigne, ffmpeg redescend alors au plus haut taux que
+ * l'encodeur accepte : mesuré, une source à 44,1 kHz ressortait en **96 kHz**.
+ * C'est un fichier plus lourd, dans un format que personne ne livre, et la
+ * variante floutée en héritait par `-c:a copy`.
+ *
+ * 48 kHz est le taux de la vidéo. On le pose, on ne le négocie pas.
+ */
+export const RESAMPLE = 'aresample=48000'

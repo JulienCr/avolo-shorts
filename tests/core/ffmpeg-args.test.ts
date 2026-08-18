@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LOUDNORM, METADATA_SCRUB, videoEncodeArgs } from '@/core/ffmpeg/encoder'
+import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodeArgs } from '@/core/ffmpeg/encoder'
 import { audioArgs, blurredVariantArgs, proxyArgs, renderArgs } from '@/core/ffmpeg/args'
 
 const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
@@ -221,6 +221,17 @@ describe('renderArgs', () => {
     expect(a).not.toContain('-af')
     expect(a).not.toContain('-filter:a')
     expect(a.join(' ')).toContain(LOUDNORM)
+  })
+
+  // `loudnorm` en passe unique sort à 192 kHz, et ffmpeg redescend alors au
+  // plus haut taux que l'AAC accepte : mesuré, une source à 44,1 kHz ressortait
+  // en 96 kHz. Le rééchantillonnage doit suivre la normalisation, pas la
+  // précéder.
+  it('fixe le taux de sortie derrière loudnorm', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+    const graphe = a[a.indexOf('-filter_complex') + 1]
+    expect(graphe).toContain(`${LOUDNORM},${RESAMPLE}`)
+    expect(RESAMPLE).toContain('48000')
   })
 
   it('cadre au rectangle demandé puis met à l’échelle de sortie', () => {

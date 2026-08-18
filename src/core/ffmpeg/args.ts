@@ -26,6 +26,7 @@ import { outputSize } from '@/core/framing'
 import {
   LOUDNORM,
   METADATA_SCRUB,
+  RESAMPLE,
   videoEncodeArgs,
   type EncoderName,
 } from '@/core/ffmpeg/encoder'
@@ -274,7 +275,13 @@ export function renderArgs(o: RenderOptions): string[] {
   } else {
     audio = '0:a'
   }
-  graphe.push(`[${audio}]${LOUDNORM}[a]`)
+  // `aresample` derrière `loudnorm`, et ce n'est pas décoratif : en passe
+  // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce
+  // taux. ffmpeg insère alors tout seul un rééchantillonnage vers le plus haut
+  // taux que l'AAC accepte — mesuré, une source à 44,1 kHz ressortait en
+  // **96 kHz**, et la variante floutée en héritait par `-c:a copy`. Personne ne
+  // livre du 96 kHz.
+  graphe.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
 
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
   // les superpose. La position donnée est le coin supérieur gauche.

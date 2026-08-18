@@ -305,7 +305,9 @@ const PROPOSITIONS: Proposition[] = [
     mots: [[879, 901]],
     ratio: '16:9',
     cropX: 0.5,
-    status: 'candidate',
+    // Un clip déjà rendu : c'est le seul statut où la carte et le bouton
+    // divergeaient, et il n'existait dans aucune fixture.
+    status: 'exported',
   },
 ]
 

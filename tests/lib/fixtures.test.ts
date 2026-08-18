@@ -46,10 +46,14 @@ describe('les candidats', () => {
     expect(ratios.size).toBeGreaterThanOrEqual(4)
   })
 
-  it('un gardé et un écarté existent dès le départ, pour que le filtre se voie', () => {
-    const statuts = fixtureCandidates(PROJET).map((c) => c.status)
+  it('les quatre statuts existent dès le départ', () => {
+    // `exported` compris : c'est le seul statut où la carte et le bouton
+    // divergeaient (review de la PR #15), et il n'apparaissait nulle part.
+    const statuts = new Set(fixtureCandidates(PROJET).map((c) => c.status))
+    expect(statuts).toContain('candidate')
     expect(statuts).toContain('kept')
     expect(statuts).toContain('discarded')
+    expect(statuts).toContain('exported')
   })
 
   it('chaque carte porte ses trois premières phrases', () => {

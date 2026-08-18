@@ -43,6 +43,27 @@ describe('mergeCandidates', () => {
   // Un lot de repérage ne propose que des candidats. Laisser entrer un statut
   // humain fabriquerait une décision que personne n'a prise, et le clip serait
   // ensuite conservé pour toujours. (relevé par Aristarque)
+  // Le helper `c()` ne renseigne que quatre champs : une régression qui
+  // recopierait le clip champ par champ au lieu de l'épandre perdrait tout le
+  // reste en production sans faire échouer un seul test ci-dessus. (relevé par
+  // Aristarque)
+  it('ne perd aucun champ de la proposition, seul le numéro de passe change', () => {
+    const entrant: Clip = {
+      id: 'clip_2841',
+      projectId: '2026-03-08-caro-mdlm',
+      segments: [{ start: 2841.2, end: 2856.9 }],
+      ratio: '1:1',
+      cropX: 0.42,
+      captions: true,
+      branding: false,
+      title: 'La vanne du chapeau',
+      description: 'ça part en vrille',
+      status: 'candidate',
+      pass: 0,
+    }
+    expect(mergeCandidates([], [entrant], 4)).toEqual([{ ...entrant, pass: 4 }])
+  })
+
   it.each(['kept', 'discarded', 'exported'] as const)(
     'refuse une proposition qui entre déjà en « %s »',
     (statut) => {

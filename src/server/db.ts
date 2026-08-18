@@ -84,7 +84,11 @@ CREATE TABLE IF NOT EXISTS clips (
   pass        INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS clips_par_projet ON clips(projectId);
+-- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
+-- sur \`pass, id\`. Un index sur la seule colonne \`projectId\` laissait SQLite
+-- trier en mémoire. Le volume est négligeable et le restera, mais l'index coûte
+-- le même geste à écrire. (relevé par Aristarque)
+CREATE INDEX IF NOT EXISTS clips_par_projet ON clips(projectId, pass, id);
 `
 
 /** Le fichier par défaut : dans `PROJECTS_DIR`, que `.gitignore` couvre déjà. */

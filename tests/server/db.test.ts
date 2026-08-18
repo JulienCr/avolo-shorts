@@ -145,6 +145,15 @@ describe('replaceClips', () => {
     expect(getClips(db, PROJET.id).map((c) => c.id)).toEqual(['c'])
   })
 
+  // Le cas qu'un appelant atteint par accident : `mergeCandidates` sur un lot
+  // vide et un projet sans décision humaine rend une liste vide. (relevé par
+  // Aristarque)
+  it('vide le projet quand on ne lui donne rien', () => {
+    replaceClips(db, PROJET.id, [clip('a'), clip('b')])
+    replaceClips(db, PROJET.id, [])
+    expect(getClips(db, PROJET.id)).toEqual([])
+  })
+
   it('refuse un clip d’un autre projet', () => {
     expect(() => replaceClips(db, PROJET.id, [clip('a', { projectId: 'autre' })])).toThrow()
   })

@@ -68,6 +68,15 @@ describe('planSteps', () => {
     expect(planSteps('transcript', all, ['transcript'])).toEqual(['transcript'])
   })
 
+  // Le cas « changer de logo » de la spec §5 : le style n'entre que dans le
+  // rendu, donc reforcer les rendus ne doit pas retranscrire deux heures
+  // d'audio. C'est la propriété du graphe qui rend ce changement bon marché,
+  // et elle mérite d'être prouvée plutôt que supposée. (relevé par Aristarque)
+  it('ne remonte pas au-dessus de l’étape forcée', () => {
+    expect(planSteps('renders', all, ['renders'])).toEqual(['renders'])
+    expect(planSteps('candidates', all, ['candidates'])).toEqual(['candidates'])
+  })
+
   // `force` dit *comment* atteindre la cible, il n'ajoute pas de cible.
   it('ignore une étape forcée qui ne mène pas à la cible', () => {
     expect(planSteps('transcript', all, ['proxy'])).toEqual([])

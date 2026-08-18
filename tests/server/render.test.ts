@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
-import type { Clip } from '@/core/edl'
+import type { Clip, Ratio } from '@/core/edl'
 import { épurerChemins } from '@/core/erreurs'
 import type { Word } from '@/core/transcript'
 import { openDb, upsertProject, putClip, getClip } from '@/server/db'
@@ -11,7 +11,11 @@ import {
   cheminsRendu,
   collecterMarques,
   écarterRenduPérimé,
+  écartDeLEmpreinte,
+  empreinteDuRendu,
   leRenduEstPérimé,
+  lesMarquesOntBougé,
+  lireEmpreinte,
   marquerExporté,
   motsDièse,
   planifierMarques,
@@ -21,6 +25,7 @@ import {
   sauterLeRendu,
   sousTitresDuClip,
   texteDePublication,
+  VERSION_EMPREINTE,
   type MarqueNative,
 } from '@/server/steps/render'
 
@@ -87,6 +92,38 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
   }
 }
 
+/** Des marques, dans la forme que `collecterMarques` rendrait. */
+function marquesNommées(noms: readonly string[]): MarqueNative[] {
+  return noms.map((nom) => ({
+    path: path.join('/nulle-part', nom),
+    nativeW: 1000,
+    nativeH: 996,
+    largeurRatio: 0.22,
+    bord: 'gauche' as const,
+  }))
+}
+
+/**
+ * L'empreinte qu'un rendu réussi aurait laissée à côté de ses sorties.
+ *
+ * Elle passe par `empreinteDuRendu` plutôt que par un littéral : un champ ajouté
+ * au format doit casser ces tests, pas les laisser poser un fichier que la
+ * lecture refuserait en silence.
+ */
+function poserEmpreinte(
+  c: Clip,
+  ratio: Ratio,
+  marques: readonly string[] = [],
+  sousTitres = c.captions,
+): void {
+  const chemin = cheminsRendu(ID, c.id, ratio).empreinte
+  fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  fs.writeFileSync(
+    chemin,
+    JSON.stringify(empreinteDuRendu(c, marquesNommées(marques), sousTitres)),
+  )
+}
+
 describe('cheminsRendu', () => {
   it('nomme les sorties depuis le dossier de rendus du projet', () => {
     const c = cheminsRendu(ID, 'clip_0001', '1:1')
@@ -122,34 +159,43 @@ describe('cheminsRendu', () => {
 describe('sauterLeRendu', () => {
   const chemins = cheminsRendu.bind(null, ID, 'clip_0001')
 
-  it('saute quand les trois sorties sont là', () => {
+  it('saute quand les trois sorties sont là et que l’empreinte les décrit', () => {
     const c = chemins('1:1')
-    expect(sauterLeRendu(c, () => true)).toBe(true)
+    expect(sauterLeRendu(c, () => true, true)).toBe(true)
   })
 
   it("ne saute pas quand il manque le .txt, même si le MP4 est là", () => {
     const c = chemins('1:1')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.texts)).toBe(false)
+    expect(sauterLeRendu(c, (chemin) => chemin !== c.texts, true)).toBe(false)
   })
 
   it('ne saute pas quand il manque la variante', () => {
     const c = chemins('1:1')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.variant9x16)).toBe(false)
+    expect(sauterLeRendu(c, (chemin) => chemin !== c.variant9x16, true)).toBe(false)
   })
 
   it("n'attend pas de variante en 9:16", () => {
     const c = chemins('9:16')
     // Rien d'autre que le MP4 et le texte n'existe : la variante n'est pas due.
-    expect(sauterLeRendu(c, (chemin) => chemin === c.mp4 || chemin === c.texts)).toBe(true)
+    expect(sauterLeRendu(c, (chemin) => chemin === c.mp4 || chemin === c.texts, true)).toBe(true)
   })
 
   it('ne saute jamais sous `force`', () => {
-    expect(sauterLeRendu(chemins('1:1'), () => true, true)).toBe(false)
+    expect(sauterLeRendu(chemins('1:1'), () => true, true, true)).toBe(false)
   })
 
   it("ignore le .ass, qui est un intermédiaire et non une sortie", () => {
     const c = chemins('9:16')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.ass)).toBe(true)
+    expect(sauterLeRendu(c, (chemin) => chemin !== c.ass, true)).toBe(true)
+  })
+
+  /**
+   * **Le deuxième point de #48.** Trois `existsSync` disaient « complet », donc
+   * « à jour ». Un jeu de fichiers laissé par un montage abandonné, ou produit
+   * sous une recette antérieure, les satisfaisait aussi bien qu'une livraison.
+   */
+  it("ne saute pas quand l'empreinte ne décrit pas le clip, fichiers complets", () => {
+    expect(sauterLeRendu(chemins('1:1'), () => true, false)).toBe(false)
   })
 })
 
@@ -168,12 +214,12 @@ describe('refaireLesSorties', () => {
   const chemins = cheminsRendu.bind(null, ID, 'clip_0001')
 
   it('ne rallume pas ffmpeg quand les deux MP4 sont là', () => {
-    expect(refaireLesSorties(chemins('1:1'), () => true)).toBe(false)
+    expect(refaireLesSorties(chemins('1:1'), () => true, true)).toBe(false)
   })
 
   it("laisse le .txt seul se réécrire, sans réencoder une image", () => {
     const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.texts)).toBe(false)
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.texts, true)).toBe(false)
   })
 
   it('refait le natif quand seule la variante manque', () => {
@@ -181,26 +227,35 @@ describe('refaireLesSorties', () => {
     // d'un passage précédent. Le garder pendant qu'on rend la variante depuis
     // l'instantané d'aujourd'hui livrerait deux fichiers montrant deux cadres.
     const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.variant9x16)).toBe(true)
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.variant9x16, true)).toBe(true)
   })
 
   it('refait la variante quand seul le natif manque', () => {
     const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.mp4)).toBe(true)
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.mp4, true)).toBe(true)
   })
 
   it("n'attend pas de variante en 9:16", () => {
     const c = chemins('9:16')
-    expect(refaireLesSorties(c, (chemin) => chemin === c.mp4)).toBe(false)
+    expect(refaireLesSorties(c, (chemin) => chemin === c.mp4, true)).toBe(false)
   })
 
   it('réencode toujours sous `force`', () => {
-    expect(refaireLesSorties(chemins('1:1'), () => true, true)).toBe(true)
+    expect(refaireLesSorties(chemins('1:1'), () => true, true, true)).toBe(true)
   })
 
   it("ignore le .ass, qui se réécrit à chaque passage", () => {
     const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.ass)).toBe(false)
+    expect(refaireLesSorties(c, (chemin) => chemin !== c.ass, true)).toBe(false)
+  })
+
+  /**
+   * Sans cette ligne, le correctif de `sauterLeRendu` ne ferait que déplacer le
+   * mensonge : un jeu de MP4 complet mais périmé sauterait l'encodage pour n'y
+   * réécrire que le `.txt`, et repartirait `exported`.
+   */
+  it("rallume ffmpeg quand l'empreinte ne décrit pas le clip, fichiers complets", () => {
+    expect(refaireLesSorties(chemins('1:1'), () => true, false)).toBe(true)
   })
 })
 
@@ -595,6 +650,7 @@ describe('renderClip, la porte des marques', () => {
       fs.mkdirSync(path.dirname(chemin), { recursive: true })
       fs.writeFileSync(chemin, '')
     }
+    poserEmpreinte(c, '1:1')
     const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat.skipped).toBe(true)
   })
@@ -609,6 +665,7 @@ describe('renderClip, chemin du saut', () => {
   function préparer(surcharges: Partial<Clip> = {}): {
     db: ReturnType<typeof openDb>
     c: Clip
+    brandDir: string
   } {
     const db = openDb(':memory:')
     upsertProject(db, {
@@ -622,7 +679,14 @@ describe('renderClip, chemin du saut', () => {
     })
     const c = clip(surcharges)
     putClip(db, c)
-    return { db, c }
+    // **Jetable et vide, jamais celui du dépôt.** `renderClip` sonde le dossier
+    // des marques avant même la décision de saut, pour comparer l'empreinte :
+    // sans ce chemin explicite il lirait `assets/brand/`, qui porte les deux PNG
+    // sur la machine de l'opérateur et rien du tout en CI. Le verdict de
+    // l'empreinte dépendrait alors de la machine.
+    const brandDir = path.join(racine, 'brand-saut')
+    fs.mkdirSync(brandDir, { recursive: true })
+    return { db, c, brandDir }
   }
 
   function poser(chemins: string[]): void {
@@ -633,11 +697,12 @@ describe('renderClip, chemin du saut', () => {
   }
 
   it('rend les trois chemins et saute quand tout est là', async () => {
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+    poserEmpreinte(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat).toEqual({
       mp4: attendus.mp4,
       variant9x16: attendus.variant9x16,
@@ -647,11 +712,12 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it("rabat 'auto' sur 9:16, donc sans variante (itération 0)", async () => {
-    const { db, c } = préparer({ ratio: 'auto' })
+    const { db, c, brandDir } = préparer({ ratio: 'auto' })
     const attendus = cheminsRendu(ID, c.id, '9:16')
     poser([attendus.mp4, attendus.texts])
+    poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat.skipped).toBe(true)
     expect(résultat.variant9x16).toBeNull()
   })
@@ -659,13 +725,14 @@ describe('renderClip, chemin du saut', () => {
   it("réécrit le .txt même quand il saute, sans réencoder", async () => {
     // Corriger une faute dans la description puis relancer l'export ne doit pas
     // exiger un --force qui réencoderait trois minutes de vidéo pour rien.
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+    poserEmpreinte(c, '1:1')
     const avant = fs.statSync(attendus.variant9x16 as string).mtimeMs
     putClip(db, { ...c, description: 'Corrigée après coup. #impro' })
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
 
     expect(résultat.skipped).toBe(true)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Corrigée après coup.')
@@ -674,12 +741,13 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it("efface la variante d'un ratio abandonné même quand il saute", async () => {
-    const { db, c } = préparer({ ratio: '9:16' })
+    const { db, c, brandDir } = préparer({ ratio: '9:16' })
     const attendus = cheminsRendu(ID, c.id, '9:16')
     const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
     poser([attendus.mp4, attendus.texts, périmée])
+    poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
 
     expect(résultat.skipped).toBe(true)
     expect(fs.existsSync(périmée)).toBe(false)
@@ -689,11 +757,12 @@ describe('renderClip, chemin du saut', () => {
     // Un processus arrêté entre l'écriture du .txt et la mise à jour du statut
     // laisse toutes les sorties en place : sans cette réparation, chaque relance
     // sauterait et le clip resterait en « kept » pour toujours.
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+    poserEmpreinte(c, '1:1')
 
-    await renderClip(c.id, { db })
+    await renderClip(c.id, { db, brandDir })
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
 
@@ -701,11 +770,12 @@ describe('renderClip, chemin du saut', () => {
     // La reprise d'un passage interrompu juste après l'encodage. Aucun transcript
     // n'existe dans ce dossier de replays jetable : si l'étape allait le lire,
     // `lireTranscript` lèverait. C'est ce qui rend ce test concluant.
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string])
+    poserEmpreinte(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat.skipped).toBe(false)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
     expect(getClip(db, c.id)?.status).toBe('exported')
@@ -714,12 +784,13 @@ describe('renderClip, chemin du saut', () => {
   it("efface la variante d'un ratio abandonné", async () => {
     // Le clip est repassé en 9:16, donc plus de variante due — mais celle du 1:1
     // d'avant est encore là, à ressembler à une livraison à jour.
-    const { db, c } = préparer({ ratio: '9:16' })
+    const { db, c, brandDir } = préparer({ ratio: '9:16' })
     const attendus = cheminsRendu(ID, c.id, '9:16')
     const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
     poser([attendus.mp4, périmée])
+    poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db })
+    const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat.variant9x16).toBeNull()
     expect(fs.existsSync(périmée)).toBe(false)
   })
@@ -728,10 +799,10 @@ describe('renderClip, chemin du saut', () => {
     // Le défaut relevé par Codex : `renderClip` tient un clip lu avant son
     // premier `await`, et un export dure des minutes. Réécrire cet instantané
     // pour changer une colonne rendrait au clip son titre d'avant.
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     putClip(db, { ...c, title: 'Retitré' })
 
-    marquerExporté(db, c.id, c.status)
+    marquerExporté(db, c.id, c)
 
     const relu = getClip(db, c.id)
     expect(relu?.status).toBe('exported')
@@ -739,9 +810,9 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    marquerExporté(db, c.id, c.status)
+    marquerExporté(db, c.id, c)
     expect(getClip(db, c.id)).toBeUndefined()
   })
 
@@ -750,10 +821,10 @@ describe('renderClip, chemin du saut', () => {
     // à `candidate` (`src/lib/clip-status.ts`). C'est l'écart de statut qui
     // compte, pas sa valeur. (relevé par Copilot)
     for (const décidé of ['discarded', 'candidate'] as const) {
-      const { db, c } = préparer()
+      const { db, c, brandDir } = préparer()
       putClip(db, { ...c, status: décidé })
 
-      marquerExporté(db, c.id, c.status)
+      marquerExporté(db, c.id, c)
 
       expect(getClip(db, c.id)?.status).toBe(décidé)
       db.close()
@@ -764,7 +835,7 @@ describe('renderClip, chemin du saut', () => {
     // Refuser le statut ne suffisait pas : les MP4 restaient là, donc l'export
     // suivant sautait et annonçait « exporté » sur le montage d'avant. On retire
     // ce qu'on sait faux. (relevé par Copilot)
-    const { db, c } = préparer({ status: 'exported' })
+    const { db, c, brandDir } = préparer({ status: 'exported' })
     const chemins = cheminsRendu(ID, c.id, '1:1')
     poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
@@ -779,7 +850,7 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it("ne touche à rien quand le montage n'a pas bougé", () => {
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const chemins = cheminsRendu(ID, c.id, '1:1')
     poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
 
@@ -788,31 +859,31 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it('refuse un clip inconnu', async () => {
-    const { db } = préparer()
-    await expect(renderClip('clip_inexistant', { db })).rejects.toThrow(/Clip inconnu/)
+    const { db, brandDir } = préparer()
+    await expect(renderClip('clip_inexistant', { db, brandDir })).rejects.toThrow(/Clip inconnu/)
   })
 
   it("refuse un clip sans segment, plutôt que de rendre un fichier vide", async () => {
-    const { db, c } = préparer({ segments: [] })
-    await expect(renderClip(c.id, { db })).rejects.toThrow(/aucun segment/)
+    const { db, c, brandDir } = préparer({ segments: [] })
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/aucun segment/)
   })
 
   it("refuse un clip vidé après un premier export, au lieu de sauter dessus", async () => {
     // L'édition autorise de vider un clip, et ses anciens fichiers sont encore
     // là : sans validation avant la décision de saut, il ressortirait
     // `skipped: true` et marqué exporté. (relevé par Copilot)
-    const { db, c } = préparer({ segments: [] })
+    const { db, c, brandDir } = préparer({ segments: [] })
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
 
-    await expect(renderClip(c.id, { db })).rejects.toThrow(/aucun segment/)
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/aucun segment/)
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   it("dit quoi faire quand la copie de travail a disparu", async () => {
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     // Rien dans `stage/` : `stagedPath` est transitoire par contrat.
-    await expect(renderClip(c.id, { db })).rejects.toThrow(/copie de travail/)
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/copie de travail/)
   })
 
   // **La variante réclame la source, même quand le natif est déjà là**, et c'est
@@ -821,10 +892,11 @@ describe('renderClip, chemin du saut', () => {
   // sautait la préparation et lançait ffmpeg sur le natif ; il exige maintenant
   // la copie de travail, et le dit.
   it("réclame la source quand seule la variante manque", async () => {
-    const { db, c } = préparer()
+    const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.texts])
+    poserEmpreinte(c, '1:1')
 
-    await expect(renderClip(c.id, { db })).rejects.toThrow(/copie de travail/)
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/copie de travail/)
   })
 })

@@ -11,6 +11,7 @@ import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
 import type { Clip } from '@/core/edl'
+import { resolveRatio } from '@/core/framing'
 import type {
   CandidateClip,
   ClipDetail,
@@ -22,6 +23,7 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
+import { cheminsRendu, empreinteDuRendu } from '@/server/steps/render'
 import { lancer, lireStatut, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
@@ -97,6 +99,34 @@ function poserRendus(...noms: string[]): void {
   const dossier = path.join(racine, 'projects', PROJET, 'renders')
   fs.mkdirSync(dossier, { recursive: true })
   for (const nom of noms) fs.writeFileSync(path.join(dossier, nom), OCTETS)
+}
+
+/**
+ * L'empreinte qu'un export aurait laissée à côté des rendus (#48).
+ *
+ * Des fichiers posés à la main ne décrivent aucun clip : sans elle, `outputs`
+ * n'en publie rien — ce qui est le correctif lui-même, et pas ce que les tests
+ * qui l'appellent cherchent à éprouver.
+ */
+function poserEmpreinte(clip: Clip, marques: string[] = []): void {
+  const chemin = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)).empreinte
+  fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  fs.writeFileSync(
+    chemin,
+    JSON.stringify(
+      empreinteDuRendu(
+        clip,
+        marques.map((nom) => ({
+          path: nom,
+          nativeW: 1000,
+          nativeH: 996,
+          largeurRatio: 0.22,
+          bord: 'gauche' as const,
+        })),
+        clip.captions,
+      ),
+    ),
+  )
 }
 
 /** L'URL que `GET /api/clips/:id` doit publier pour un fichier de rendu. */
@@ -498,6 +528,7 @@ describe('GET /api/clips/:id', () => {
   it('publie les sorties en URL, jamais en chemin du serveur', async () => {
     putClip(getDb(), { ...clipDeBase(), status: 'exported' })
     poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+    poserEmpreinte({ ...clipDeBase(), status: 'exported' })
 
     const réponse = await getClipRoute(new Request('http://x'), contexte(CLIP))
     const détail = (await réponse.json()) as ClipDetail
@@ -555,6 +586,7 @@ describe('GET /api/clips/:id', () => {
     // de statut couperait avant le contrôle `isFile()`, et retirer ce dernier ne
     // ferait échouer personne. (relevé par Copilot)
     putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+    poserEmpreinte({ ...clipDeBase(), status: 'exported' })
     fs.mkdirSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`), {
       recursive: true,
     })
@@ -571,6 +603,7 @@ describe('GET /api/clips/:id', () => {
 
   it('attend la variante 9:16 dès que le ratio résolu ne l’est pas', async () => {
     putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
+    poserEmpreinte({ ...clipDeBase(), ratio: '1:1', status: 'exported' })
 
     const avant = (await (
       await getClipRoute(new Request('http://x'), contexte(CLIP))
@@ -953,6 +986,7 @@ describe('PATCH /api/clips/:id', () => {
     it('laisse le rendu en place quand l’édition ne le périme pas', async () => {
       poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
       putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+      poserEmpreinte({ ...clipDeBase(), status: 'exported' })
 
       // Le titre et la description ne vont que dans le `.txt`, que l'export
       // réécrit sans réencoder : le MP4 les ignore.
@@ -970,6 +1004,7 @@ describe('PATCH /api/clips/:id', () => {
     it('rafraîchit le texte de publication quand le titre change', async () => {
       poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
       putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+      poserEmpreinte({ ...clipDeBase(), status: 'exported' })
 
       const résultat = await corpsDe(await patcher({ title: 'Un titre corrigé', seq: 60 }))
 

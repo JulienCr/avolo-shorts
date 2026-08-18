@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
+import { z } from 'zod'
 import { DEFAULT_CAPTION_STYLE, renderAss, type CaptionStyle } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
@@ -18,6 +19,7 @@ import {
   type Avancement,
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
+import { estUneAbsence } from '@/server/octets'
 import { placeSidecar, rendersDir, stagedPath } from '@/server/paths'
 import { lireTranscript } from '@/server/steps/candidates'
 
@@ -92,6 +94,14 @@ export type CheminsRendu = {
   variant9x16: string | null
   texts: string
   ass: string
+  /**
+   * L'empreinte du rendu — ce que les fichiers ci-dessus décrivent (#48).
+   *
+   * **Elle n'est pas une sortie** : `sortiesDuClip` ne la publie pas et
+   * `sortieNommée` ne la sert pas. C'est une pièce interne, rangée à côté des
+   * fichiers qu'elle décrit précisément pour disparaître avec eux.
+   */
+  empreinte: string
 }
 
 /**
@@ -145,25 +155,271 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
     variant9x16: ratio === '9:16' ? null : cheminVariante(projectId, nom),
     texts: path.join(dossier, `${nom}.txt`),
     ass: path.join(dossier, `${nom}.ass`),
+    // **Le nom ne dépend pas du ratio**, contrairement à celui de la variante :
+    // l'empreinte décrit le rendu quel que soit le ratio, et un clip repassé de
+    // 1:1 à 9:16 doit retrouver — pour l'écarter — celle qu'il a écrite avant.
+    empreinte: path.join(dossier, `${nom}.rendu.json`),
   }
 }
 
 /**
- * La décision de saut, isolée et pure — `existe` est passé en argument, donc elle
- * se teste sans toucher au disque.
+ * L'empreinte de rendu (#48), et le défaut qu'elle ferme.
+ *
+ * Le modèle de l'itération 0 fait foi sur la **présence du fichier** (spec §4).
+ * Quatre endroits en déduisaient « le rendu décrit le clip » sans avoir de quoi
+ * le vérifier : `marquerExporté` ne comparait que le statut, alors qu'éditer un
+ * montage pendant l'encodage ne le change pas ; `sauterLeRendu` constatait trois
+ * `existsSync` ; l'ordre d'écriture du `.txt` entre le `PATCH` et `renderClip`
+ * n'était fixé nulle part ; et les rendus déjà sur le disque ne repassaient
+ * jamais par la porte que #37 a installée.
+ *
+ * Le remède est un seul fichier, écrit à côté des sorties **au moment où elles
+ * sont produites**, qui garde la valeur qu'avaient au rendu les champs dont le
+ * rendu dépend. Un `.json` dans `renders/` plutôt qu'une colonne en base, pour
+ * une raison qui décide seule : il disparaît avec les fichiers qu'il décrit. Une
+ * colonne survivrait à un `rm -rf renders/` et affirmerait ensuite l'exactitude
+ * de fichiers absents ; ici, effacer un rendu à la main laisse un état cohérent.
+ */
+
+/**
+ * **La version de la recette de rendu**, et le seul champ de l'empreinte qui ne
+ * décrive pas le clip.
+ *
+ * Les cinq champs de `FormeRendue` disent ce qui a été *demandé*, `marques` et
+ * `sousTitres` ce qui a été *obtenu*. Reste tout ce que le code fait sans qu'on
+ * le lui demande : la position de la bande de marque, le graphe de filtres, le
+ * style de sous-titres par défaut. Rien de cela ne tient dans un champ, et un
+ * rendu produit sous une recette qui n'est plus celle d'aujourd'hui est pourtant
+ * périmé au même titre qu'un montage modifié — c'est exactement ce qui est
+ * arrivé aux trois rendus du 18 août, sans marque incrustée alors que
+ * `branding` valait `true` aux deux instants.
+ *
+ * **À incrémenter à la main, et seulement quand l'image change.** Le geste coûte
+ * un réencodage de tous les rendus du disque : c'est le prix juste quand ils ne
+ * montrent plus ce que la chaîne montrerait, et un prix imbécile pour un
+ * renommage.
+ */
+export const VERSION_EMPREINTE = 1
+
+/**
+ * Ce qu'un rendu consomme d'un clip : exactement les cinq champs que
+ * `leRenduEstPérimé` compare, et voir sa note pour la raison de chacun.
+ *
+ * Nommer ce sous-ensemble est ce qui permet de comparer une empreinte à un clip
+ * par la **même** fonction que deux clips entre eux. Deux comparaisons sur la
+ * même question finiraient par ne plus dire la même chose.
+ */
+export type FormeRendue = Pick<Clip, 'segments' | 'ratio' | 'cropX' | 'captions' | 'branding'>
+
+/**
+ * Ce que les fichiers posés à côté d'elle décrivent.
+ *
+ * **Elle porte ce qui a été incrusté, pas seulement ce qui était demandé**, et
+ * c'est le quatrième cas de l'issue : les trois rendus du 18 août ne portent
+ * aucune marque, alors que `branding` valait `true` au rendu comme aujourd'hui.
+ * Une empreinte réduite aux cinq champs ne les attraperait pas.
+ */
+export type EmpreinteRendu = FormeRendue & {
+  version: number
+  /**
+   * Les marques réellement incrustées, par nom de fichier, triées — l'ordre de
+   * lecture d'un dossier n'a rien à dire.
+   */
+  marques: string[]
+  /**
+   * Vrai si un document ASS a réellement été incrusté. Un clip qui demande des
+   * sous-titres et dont aucun mot ne tombe dans les segments se rend sans, en le
+   * journalisant : l'empreinte le consigne.
+   */
+  sousTitres: boolean
+}
+
+/**
+ * Le schéma de lecture. **Non strict, et volontairement** : une version
+ * ultérieure ajoutera des champs, et c'est `version` qui doit trancher, pas un
+ * refus d'analyse qui dirait « illisible » d'un fichier parfaitement formé.
+ */
+const SCHÉMA_EMPREINTE = z.object({
+  version: z.number().int(),
+  segments: z.array(z.object({ start: z.number().finite(), end: z.number().finite() })),
+  ratio: z.enum(['9:16', '4:5', '1:1', '16:9', 'auto']),
+  cropX: z.number().finite(),
+  captions: z.boolean(),
+  branding: z.boolean(),
+  marques: z.array(z.string()),
+  sousTitres: z.boolean(),
+})
+
+/** Les noms de fichiers des marques, triés. */
+function nomsDeMarques(marques: readonly MarqueNative[]): string[] {
+  return marques.map((m) => path.basename(m.path)).sort()
+}
+
+/** L'empreinte que ce passage vient de produire. Pure. */
+export function empreinteDuRendu(
+  clip: FormeRendue,
+  marques: readonly MarqueNative[],
+  sousTitres: boolean,
+): EmpreinteRendu {
+  return {
+    version: VERSION_EMPREINTE,
+    // Recopiés champ par champ : `clip.segments` est le tableau que porte le
+    // clip, et le sérialiser tel quel embarquerait ce qu'une évolution du type
+    // y ajouterait sans qu'on l'ait décidé.
+    segments: clip.segments.map((s) => ({ start: s.start, end: s.end })),
+    ratio: clip.ratio,
+    cropX: clip.cropX,
+    captions: clip.captions,
+    branding: clip.branding,
+    marques: nomsDeMarques(marques),
+    sousTitres,
+  }
+}
+
+/**
+ * L'empreinte posée à ce chemin, ou `null` — **absente et illisible se
+ * confondent**, et c'est voulu : les deux veulent dire « rien ici ne certifie ce
+ * que les fichiers décrivent », donc les deux mènent au même remède, refaire le
+ * rendu. Distinguer ferait une branche de plus sans une décision de plus.
+ *
+ * Ce qui ne se confond pas, c'est le **journal** : une absence est le cas normal
+ * d'un clip jamais rendu et ne dit rien ; tout le reste se dit.
+ *
+ * Le message ne porte que le nom du fichier. Le chemin absolu porte
+ * l'arborescence de la machine, et cette fonction est appelée depuis un `GET`.
+ */
+export function lireEmpreinte(chemin: string): EmpreinteRendu | null {
+  let contenu: string
+  try {
+    contenu = fs.readFileSync(chemin, 'utf8')
+  } catch (erreur) {
+    if (!estUneAbsence(erreur)) {
+      console.warn(
+        `Empreinte de rendu inaccessible (${path.basename(chemin)}) : ` +
+          `${erreur instanceof Error ? erreur.name : 'erreur inconnue'}. Le rendu sera refait.`,
+      )
+    }
+    return null
+  }
+  try {
+    const lu = SCHÉMA_EMPREINTE.safeParse(JSON.parse(contenu))
+    if (lu.success) return lu.data
+  } catch {
+    // JSON tronqué — un processus tué en pleine écriture, malgré le renommage.
+  }
+  console.warn(`Empreinte de rendu illisible (${path.basename(chemin)}). Le rendu sera refait.`)
+  return null
+}
+
+/** Écrit l'empreinte, sous un nom temporaire puis renommée, comme les sorties. */
+async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Promise<void> {
+  await écrireFichier(chemin, `${JSON.stringify(empreinte, null, 2)}\n`)
+}
+
+/**
+ * Les marques incrustées ne sont plus celles qu'on incrusterait aujourd'hui.
+ *
+ * **Un dossier vide ne périme rien**, et c'est la seule subtilité de cette
+ * fonction. Un clip qui demande des marques dont plus aucune n'est exploitable
+ * ne peut pas se rendre — `refuserFauteDeMarque` l'arrête —, si bien que
+ * déclarer son rendu périmé transformerait une livraison correcte en export qui
+ * refuse. C'est arrivé pour de vrai : les deux PNG ont disparu d'`assets/brand/`
+ * entre le matin et l'après-midi du 18 août. Le rendu déjà produit reste alors
+ * le meilleur qu'on ait.
+ */
+export function lesMarquesOntBougé(
+  empreinte: EmpreinteRendu,
+  disponibles: readonly MarqueNative[],
+  branding: boolean,
+): boolean {
+  const aujourdhui = nomsDeMarques(disponibles)
+  if (branding && aujourdhui.length === 0) return false
+  // Retriées à la lecture : le fichier a pu être écrit à la main.
+  const incrustées = [...empreinte.marques].sort()
+  return (
+    incrustées.length !== aujourdhui.length ||
+    incrustées.some((nom, i) => nom !== aujourdhui[i])
+  )
+}
+
+/** Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant. */
+export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques'
+
+/**
+ * L'écart entre ce qui a été rendu et ce qu'on rendrait maintenant, ou `null`
+ * quand il n'y en a pas. Pure : c'est l'appelant qui a lu le disque.
+ *
+ * **`marques` vaut `null` quand l'appelant n'a pas les moyens de sonder le
+ * dossier des marques**, et la comparaison porte alors sur tout le reste. Un
+ * `GET /api/clips/:id` ne lance pas deux ffprobe pour afficher une carte ;
+ * `renderClip`, lui, lit ce dossier de toute façon. La différence est un
+ * arbitrage de coût, pas deux avis sur la même question : c'est la même
+ * fonction, avec un critère de moins.
+ */
+export function écartDeLEmpreinte(
+  empreinte: EmpreinteRendu | null,
+  clip: FormeRendue,
+  marques: readonly MarqueNative[] | null,
+): ÉcartEmpreinte | null {
+  // **Une empreinte absente vaut « périmé », jamais « inconnu ».** C'est le seul
+  // choix qui referme le quatrième cas sans intervention manuelle : les rendus
+  // déjà sur le disque n'en ont pas, et « inconnu » les laisserait sauter pour
+  // toujours — ce que `--force` rattrape aujourd'hui, à condition d'avoir lu le
+  // commentaire qui le dit. Ce que ça coûte est un réencodage par clip, une
+  // fois ; ce que ça évite est un MP4 sans logo publié comme la livraison du
+  // jour.
+  if (empreinte === null) return 'absente'
+  if (empreinte.version !== VERSION_EMPREINTE) return 'recette'
+  if (leRenduEstPérimé(empreinte, clip)) return 'montage'
+  if (marques !== null && lesMarquesOntBougé(empreinte, marques, clip.branding)) return 'marques'
+  return null
+}
+
+/** `écartDeLEmpreinte` en booléen, pour les appelants qui n'ont pas à dire pourquoi. */
+export function empreinteÀJour(
+  empreinte: EmpreinteRendu | null,
+  clip: FormeRendue,
+  marques: readonly MarqueNative[] | null,
+): boolean {
+  return écartDeLEmpreinte(empreinte, clip, marques) === null
+}
+
+/** Ce que le journal dit de chaque écart, à qui n'a pas lu ce fichier. */
+const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
+  absente: "aucune empreinte ne dit ce qu'ils décrivent",
+  recette: 'ils ont été produits par une recette de rendu antérieure',
+  montage: 'le montage a changé depuis',
+  marques: "les marques incrustées ne sont plus celles du dossier",
+}
+
+/**
+ * La décision de saut, isolée et pure — `existe` et le verdict de l'empreinte
+ * sont passés en arguments, donc elle se teste sans toucher au disque.
  *
  * **Les trois sorties comptent, pas seulement le MP4.** Un rendu interrompu juste
  * après l'encodage laisse le MP4 en place sans son `.txt` ni sa variante ; ne
  * regarder que le premier fichier ferait passer ce clip pour exporté et Julien
  * publierait sans description. Le graphe de l'itération 0 décide sur la présence
  * du fichier (spec §4), donc la présence doit couvrir tout ce que l'étape promet.
+ *
+ * **Et la présence ne suffit pas.** Elle ne dit rien de ce que les fichiers
+ * contiennent : un jeu laissé par un montage abandonné, ou produit sous une
+ * recette antérieure, la satisfait aussi bien qu'une livraison à jour, et
+ * l'export répondait alors `skipped: true` sur une livraison fausse. C'est
+ * `décritLeClip` — le verdict de `écartDeLEmpreinte` — qui répond à cette
+ * question-là.
+ *
+ * **`skipped: true` reste un cas nominal** : il l'est quand il est vrai, et il
+ * l'est chaque fois que l'empreinte décrit le clip.
  */
 export function sauterLeRendu(
   chemins: CheminsRendu,
   existe: (chemin: string) => boolean,
+  décritLeClip: boolean,
   force = false,
 ): boolean {
   if (force) return false
+  if (!décritLeClip) return false
   return [chemins.mp4, chemins.variant9x16, chemins.texts].every(
     (chemin) => chemin === null || existe(chemin),
   )
@@ -196,9 +452,15 @@ export function sauterLeRendu(
 export function refaireLesSorties(
   chemins: CheminsRendu,
   existe: (chemin: string) => boolean,
+  décritLeClip: boolean,
   force = false,
 ): boolean {
   if (force) return true
+  // **Une empreinte qui ne décrit pas le clip rallume ffmpeg**, et pas seulement
+  // un fichier manquant. Sans cette ligne, un jeu de MP4 complet mais périmé
+  // sauterait l'encodage pour n'y réécrire que le `.txt` : le correctif de
+  // `sauterLeRendu` ne ferait alors que déplacer le mensonge d'une fonction.
+  if (!décritLeClip) return true
   return !existe(chemins.mp4) || (chemins.variant9x16 !== null && !existe(chemins.variant9x16))
 }
 
@@ -483,6 +745,53 @@ async function écrireFichier(chemin: string, contenu: string): Promise<void> {
 }
 
 /**
+ * Écrit le `.txt` de publication, **depuis la base et sans point d'attente**, et
+ * c'est le troisième point de #48.
+ *
+ * Deux chemins écrivent ce fichier — la route `PATCH`, quand le texte change, et
+ * `renderClip`, à chaque export — et rien ne disait lequel des deux fait foi.
+ * Chacun passait par un nom temporaire renommé, donc aucun mélange, mais le
+ * dernier renommage gagnait, et il pouvait porter le texte le plus ancien :
+ * `renderClip` relisait le clip *avant* un `await`, si bien qu'un `PATCH` glissé
+ * dans cette fenêtre écrivait le bon texte pour se le faire écraser aussitôt.
+ *
+ * **La règle, désormais, tient en une phrase : le `.txt` porte l'état de la base
+ * au moment de son écriture.** Elle est tenue par la forme de cette fonction et
+ * non par la discipline de ses appelants : la relecture, la sérialisation et le
+ * renommage sont synchrones et se suivent sans `await`, donc rien ne s'intercale
+ * — `better-sqlite3` est synchrone et Node a un seul fil. Prendre le `clipId`
+ * plutôt qu'un clip rend le défaut impossible à réintroduire par distraction,
+ * comme pour `marquerExporté`.
+ *
+ * Le coût est une écriture synchrone de quelques centaines d'octets sur un
+ * disque local, dans une route qui, elle, dure de dix secondes à une minute.
+ *
+ * `repli` ne sert qu'au clip supprimé pendant l'export, dont les fichiers
+ * méritent quand même leur texte.
+ */
+export function écrireTexteDePublication(
+  db: Database.Database,
+  clipId: string,
+  repli: Clip,
+  chemin: string,
+): void {
+  const contenu = texteDePublication(getClip(db, clipId) ?? repli)
+  fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  const temporaire = cheminTemporaire(chemin)
+  try {
+    fs.writeFileSync(temporaire, contenu, 'utf8')
+    fs.renameSync(temporaire, chemin)
+  } catch (cause) {
+    try {
+      fs.rmSync(temporaire, { force: true })
+    } catch {
+      // Le provisoire a pu ne jamais être créé ; sans conséquence.
+    }
+    throw cause
+  }
+}
+
+/**
  * Les dimensions de la source. **Ni 1920x1080 supposé, ni repli du tout.**
  *
  * `cropRect` en dépend entièrement : sur une source 4K, un crop calculé pour du
@@ -546,17 +855,41 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     )
   }
 
+  // **Les marques que le dossier porte aujourd'hui, avant la décision de saut.**
+  // L'empreinte dit lesquelles ont été incrustées ; les comparer suppose de
+  // savoir lesquelles le seraient maintenant. Deux `existsSync` et deux sondages
+  // sur un dossier local — rien à voir avec l'aller-retour en 9p que la décision
+  // de saut continue d'éviter, le transcript n'étant lu que plus bas.
+  //
+  // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a rien à
+  // comparer, et `branding` passé à faux se voit déjà dans les cinq champs.
+  const marques = clip.branding ? await collecterMarques(options.brandDir) : []
+
+  // Ce que les fichiers présents décrivent, s'il y en a.
+  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), clip, marques)
+
+  // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
+  // périmé était repris pour bon sans un mot, et l'interface présente
+  // `skipped: true` comme un succès (spec §3.4). Le réencodage se voit déjà —
+  // l'export dure alors dix secondes au lieu d'aucune — mais rien ne disait
+  // pourquoi. Sous `force`, la décision ne vient pas de l'empreinte : on se tait.
+  if (écart !== null && options.force !== true && fs.existsSync(chemins.mp4)) {
+    console.warn(
+      `Clip ${clipId} : des rendus sont là mais ${RAISON_DE_LÉCART[écart]}. Ils sont refaits.`,
+    )
+  }
+
   // **Le saut se décide avant de toucher au transcript.** Le sidecar vit sur le
   // Drive partagé, monté en 9p, lent et sujet au décrochage : un clip déjà rendu
   // ne doit pas payer un aller-retour dessus pour s'entendre dire qu'il n'y a
   // rien à faire.
-  if (sauterLeRendu(chemins, (c) => fs.existsSync(c), options.force)) {
+  if (sauterLeRendu(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
     // **Le `.txt` se réécrit même quand le rendu saute**, et c'est le seul des
     // trois à le faire. Il ne coûte rien, et c'est celui qu'on retouche le plus :
     // corriger une faute dans la description puis relancer l'export ne doit pas
     // exiger un `--force` qui réencoderait trois minutes de vidéo pour rien.
     // (relevé par Aristarque)
-    await écrireFichier(chemins.texts, texteDePublication(clip))
+    écrireTexteDePublication(db, clipId, clip, chemins.texts)
     // La variante d'un ratio abandonné s'efface ici aussi. Le chemin non sauté le
     // fait déjà ; sans cela, un clip repassé en 9:16 dont les sorties sont
     // complètes garderait son ancienne variante alors que `RenderResult` annonce
@@ -564,12 +897,24 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     if (chemins.variant9x16 === null) {
       fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
     }
+    // **Le même contrôle qu'à la fin du chemin long, et il manquait ici.** Ce
+    // chemin-ci n'encode pas, mais il écrit quand même — le `.txt` — et il pose
+    // `exported`. Sans lui, un montage modifié entre la décision de saut et
+    // cette ligne faisait annoncer « exporté » sur des fichiers que le `PATCH`
+    // venait d'effacer. Le chemin long refusait ce cas depuis toujours ; celui-ci
+    // ne le voyait pas.
+    if (écarterRenduPérimé(db, clipId, chemins, clip)) {
+      throw new Error(
+        `Le clip ${clipId} a été modifié pendant son export : les fichiers présents décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
+      )
+    }
+
     // **Le statut se répare ici aussi.** Un processus arrêté entre l'écriture du
     // `.txt` et la mise à jour du statut laisse toutes les sorties en place : la
     // relance sauterait, et le clip resterait en « kept » pour toujours sans que
     // rien ne puisse le rattraper. La présence des fichiers fait foi en itération
     // 0 (spec §4), donc elle vaut aussi pour le statut. (relevé par Copilot)
-    marquerExporté(db, clipId, clip.status)
+    marquerExporté(db, clipId, clip)
     return {
       mp4: chemins.mp4,
       variant9x16: chemins.variant9x16,
@@ -600,7 +945,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des trois sondages ffprobe.
-  if (refaireLesSorties(chemins, (c) => fs.existsSync(c), options.force)) {
+  if (refaireLesSorties(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
     // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
     // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
     // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
@@ -625,9 +970,9 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // `.txt`. Un clip exporté sans marque avant #37 saute donc pour toujours, et
     // c'est `force` qui le rattrape.
     //
-    // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a pas à
-    // payer deux `existsSync` et deux sondages.
-    const marques = clip.branding ? await collecterMarques(options.brandDir) : []
+    // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
+    // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de
+    // travail manquante se dit toujours avant la marque manquante.
     if (refuserFauteDeMarque(clip.branding, marques)) {
       // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
       // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
@@ -722,6 +1067,21 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
             blurredVariantArgs({ ...commun, dst: destination, encoder: encodeur() }),
         })
       }
+
+      // **L'empreinte se pose une fois les deux sorties écrites, jamais avant.**
+      // Une interruption entre les deux laisse alors des fichiers sans
+      // empreinte, donc à refaire — l'ordre inverse laisserait une empreinte qui
+      // certifie un MP4 qui n'existe pas, ou qui n'est écrit qu'à moitié.
+      //
+      // Elle porte **ce qui a été incrusté** : les marques réellement posées et
+      // non ce que `branding` demandait, et la présence effective d'un document
+      // de sous-titres. C'est ce qui distingue un rendu d'aujourd'hui des trois
+      // du 18 août, sur lesquels `branding` valait `true` sans qu'aucune marque
+      // n'ait été incrustée.
+      await écrireEmpreinte(
+        chemins.empreinte,
+        empreinteDuRendu(clip, marques, assProvisoire !== undefined),
+      )
     } finally {
       // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
       // en place celui qui décrit la vidéo réellement posée sur le disque.
@@ -744,9 +1104,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // **Le titre et la description se relisent en base, pour la même raison que le
   // statut.** `clip` est l'instantané d'avant l'encodage, qui a duré des minutes :
   // écrire le `.txt` depuis lui livrerait la description que l'utilisateur vient
-  // de corriger pendant ce temps. Le repli sur l'instantané ne sert qu'au clip
-  // supprimé en cours de route, dont les fichiers méritent quand même leur texte.
-  await écrireFichier(chemins.texts, texteDePublication(getClip(db, clipId) ?? clip))
+  // de corriger pendant ce temps. La relecture et l'écriture se suivent sans
+  // point d'attente — voir `écrireTexteDePublication`, qui porte l'arbitrage
+  // entre ce chemin-ci et celui du `PATCH`.
+  écrireTexteDePublication(db, clipId, clip, chemins.texts)
 
   // **Le montage a-t-il bougé pendant l'encodage ?** Si oui, les fichiers qu'on
   // vient de produire décrivent un cadre que personne ne veut plus : on les
@@ -761,7 +1122,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
 
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
   // l'encodage protégerait un clip qui n'existe pas.
-  marquerExporté(db, clipId, clip.status)
+  marquerExporté(db, clipId, clip)
 
   return {
     mp4: chemins.mp4,
@@ -786,31 +1147,42 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
  * mot. Prendre un `clipId` rend le défaut impossible à réintroduire par
  * distraction. (relevé par Codex)
  *
- * `statutAuRendu` est le statut lu au début de l'export, et il ne sert qu'à
- * reconnaître une décision prise depuis — voir plus bas.
+ * `rendu` est le clip tel qu'il a été lu au début de l'export : son statut sert
+ * à reconnaître une décision prise depuis, et ses cinq champs d'image à
+ * reconnaître un montage qui a bougé — voir plus bas.
  *
  * `better-sqlite3` est synchrone : rien de ce processus ne s'intercale entre la
  * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
  * ressuscité, puisqu'on n'écrit que ce qu'on vient de lire.
  */
-export function marquerExporté(
-  db: Database.Database,
-  clipId: string,
-  statutAuRendu: ClipStatus,
-): void {
+export function marquerExporté(db: Database.Database, clipId: string, rendu: Clip): void {
   const àJour = getClip(db, clipId)
   if (àJour === undefined) return
   if (àJour.status === 'exported') return
-  // **Toute décision prise pendant l'encodage l'emporte.** L'écart de statut est
-  // la seule chose à regarder, et il couvre tout ce que l'interface offre :
-  // écarter le clip, ou rappuyer sur « Gardé », qui le ramène à `candidate`
-  // (`src/lib/clip-status.ts`). Un export commencé et fini sous le même statut
-  // passe à `exported` ; tout le reste est une main humaine qui a bougé après
-  // qu'on a lu le clip, et une main humaine gagne contre un statut de machine.
-  // (relevé par Copilot)
-  if (àJour.status !== statutAuRendu) {
+  // **Toute décision prise pendant l'encodage l'emporte.** L'écart de statut
+  // couvre tout ce que l'interface offre comme *décision* : écarter le clip, ou
+  // rappuyer sur « Gardé », qui le ramène à `candidate`
+  // (`src/lib/clip-status.ts`). (relevé par Copilot)
+  if (àJour.status !== rendu.status) {
     console.warn(
-      `Clip ${clipId} : passé de « ${statutAuRendu} » à « ${àJour.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
+      `Clip ${clipId} : passé de « ${rendu.status} » à « ${àJour.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
+    )
+    return
+  }
+  // **Mais l'écart de statut ne couvrait pas le montage, et c'est le premier
+  // point de #48.** Retirer un passage, déplacer une borne ou changer le ratio
+  // ne change pas le statut : un clip `kept` reste `kept`, et cette fonction
+  // posait alors `exported` sur des fichiers qui décrivent le montage d'avant.
+  // Le clip se disait livré, `sortiesDuClip` publiait ses URL, et l'interface
+  // les affichait comme la livraison du jour.
+  //
+  // Les deux appelants de `renderClip` passent déjà par `écarterRenduPérimé`
+  // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
+  // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
+  // dépendante de l'ordre des appels, et cette fonction est exportée.
+  if (leRenduEstPérimé(rendu, àJour)) {
+    console.warn(
+      `Clip ${clipId} : le montage a changé pendant l'export. Les fichiers produits décrivent le montage d'avant, le statut n'est pas posé.`,
     )
     return
   }
@@ -842,7 +1214,11 @@ export function écarterRenduPérimé(
   const àJour = getClip(db, clipId)
   if (àJour === undefined || !leRenduEstPérimé(rendu, àJour)) return false
 
-  for (const chemin of [chemins.mp4, chemins.variant9x16, chemins.texts]) {
+  // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
+  // échec au milieu de cette boucle doit laisser des fichiers sans empreinte —
+  // donc à refaire — et jamais une empreinte sans les fichiers qu'elle décrit,
+  // qui ferait sauter l'export suivant sur une livraison amputée.
+  for (const chemin of [chemins.empreinte, chemins.mp4, chemins.variant9x16, chemins.texts]) {
     if (chemin !== null) fs.rmSync(chemin, { force: true })
   }
   if (àJour.status === 'exported') putClip(db, { ...àJour, status: 'kept' })
@@ -858,9 +1234,14 @@ export function écarterRenduPérimé(
  * réécrit depuis l'état à jour — les compter ici ferait perdre son statut à un
  * clip dont on a seulement corrigé une faute de frappe.
  *
+ * **Elle prend une `FormeRendue`, pas un `Clip`**, et c'est ce qui permet de lui
+ * passer aussi bien deux clips qu'une empreinte et un clip : la liste des champs
+ * qui comptent est écrite une fois, ici, et les deux comparaisons ne peuvent pas
+ * diverger.
+ *
  * Pure, donc testable sans base ni ffmpeg.
  */
-export function leRenduEstPérimé(rendu: Clip, àJour: Clip): boolean {
+export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boolean {
   const mêmesSegments =
     rendu.segments.length === àJour.segments.length &&
     rendu.segments.every(

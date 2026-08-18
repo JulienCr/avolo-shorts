@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type BetterSqlite3 from 'better-sqlite3'
+import Database, { type Database as BaseSqlite } from 'better-sqlite3'
 import {
   getClip,
   getClips,
@@ -10,6 +10,7 @@ import {
   listProjects,
   openDb,
   putClip,
+  putClipOrdonné,
   replaceClips,
   upsertProject,
   type Project,
@@ -50,7 +51,7 @@ const clip = (id: string, reste: Partial<Clip> = {}): Clip => ({
   ...reste,
 })
 
-let db: BetterSqlite3.Database
+let db: BaseSqlite
 
 beforeEach(() => {
   db = openDb(':memory:')
@@ -235,5 +236,147 @@ describe('sur un vrai fichier', () => {
     const seconde = openDb(fichier)
     expect(getClip(seconde, 'clip_07')?.title).toBe('La vanne du chapeau')
     seconde.close()
+  })
+})
+
+/**
+ * Une passe de repérage réécrit tout le jeu de clips d'un projet. Sans
+ * précaution, les survivants y perdraient leur ordre d'écriture : une écriture
+ * ancienne encore en vol arriverait devant un champ sans mémoire, passerait pour
+ * fraîche, et écraserait un geste plus récent. (relevé par Copilot)
+ */
+describe('replaceClips et les jetons d’ordre', () => {
+  it('garde les jetons des clips qui survivent à la passe', () => {
+    putClip(db, clip('survivant'))
+    expect(putClipOrdonné(db, clip('survivant', { title: 'Récent' }), ['title'], 100)?.applied).toBe(
+      true,
+    )
+
+    replaceClips(db, PROJET.id, [clip('survivant'), clip('nouveau')])
+
+    // Le jeton a survécu : une écriture plus ancienne se fait toujours écarter.
+    const périmée = putClipOrdonné(db, clip('survivant', { title: 'Ancien' }), ['title'], 50)
+    expect(périmée?.applied).toBe(false)
+    // Et un clip que la passe vient de créer n'a rien à opposer à personne.
+    expect(putClipOrdonné(db, clip('nouveau', { title: 'Neuf' }), ['title'], 1)?.applied).toBe(true)
+  })
+})
+
+/**
+ * La migration, éprouvée depuis une base **d'avant**.
+ *
+ * Une base ouverte par le code courant a `seqs` par son `CREATE TABLE` : la
+ * rejouer ne prouve rien. Ce qui se casserait en silence, c'est la base qui
+ * existe déjà — il y en a une sur cette machine, avec les clips d'une émission
+ * entière dedans —, et elle n'entre par aucun test qui parte du schéma actuel.
+ * (relevé par Copilot)
+ */
+describe('migrer', () => {
+  let fichier: string
+  let racine: string
+
+  /** Le schéma d'avant : ni `seqs`, ni son prédécesseur `seq`. */
+  const SCHÉMA_ANCIEN = `
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY, sourcePath TEXT NOT NULL, stagedPath TEXT,
+      durationSec REAL, sizeBytes INTEGER, mtimeMs INTEGER, createdAt INTEGER NOT NULL
+    );
+    CREATE TABLE clips (
+      id TEXT PRIMARY KEY,
+      projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      segments TEXT NOT NULL, ratio TEXT NOT NULL, cropX REAL NOT NULL,
+      captions INTEGER NOT NULL, branding INTEGER NOT NULL,
+      title TEXT NOT NULL, description TEXT NOT NULL,
+      status TEXT NOT NULL, pass INTEGER NOT NULL
+    );`
+
+  beforeEach(() => {
+    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-'))
+    fichier = path.join(racine, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(racine, { recursive: true, force: true })
+  })
+
+  function poserBaseAncienne(colonneSeq: boolean): void {
+    const ancienne = new Database(fichier)
+    ancienne.exec(SCHÉMA_ANCIEN)
+    if (colonneSeq) ancienne.exec('ALTER TABLE clips ADD COLUMN seq INTEGER NOT NULL DEFAULT 0')
+    ancienne
+      .prepare(
+        `INSERT INTO projects (id, sourcePath, stagedPath, durationSec, sizeBytes, mtimeMs, createdAt)
+         VALUES (@id, @sourcePath, @stagedPath, @durationSec, @sizeBytes, @mtimeMs, @createdAt)`,
+      )
+      .run(PROJET)
+    ancienne
+      .prepare(
+        `INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
+                            title, description, status, pass)
+         VALUES ('vieux', @p, '[{"start":10,"end":20}]', '1:1', 0.5, 1, 1,
+                 'Un titre d''avant', 'Une description', 'kept', 1)`,
+      )
+      .run({ p: PROJET.id })
+    ancienne.close()
+  }
+
+  it('ajoute `seqs` sans toucher aux clips déjà écrits', () => {
+    poserBaseAncienne(false)
+
+    const db = openDb(fichier)
+    const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(colonnes).toContain('seqs')
+    // Le défaut compte autant que la colonne : sans lui, la première comparaison
+    // porterait sur `null` et écarterait des écritures parfaitement fraîches.
+    expect(db.prepare('SELECT seqs FROM clips WHERE id = ?').get('vieux')).toEqual({ seqs: '{}' })
+
+    const vieux = getClip(db, 'vieux')
+    expect(vieux?.title).toBe("Un titre d'avant")
+    expect(vieux?.segments).toEqual([{ start: 10, end: 20 }])
+    db.close()
+  })
+
+  it('accepte une écriture ordonnée sur un clip d’avant la colonne', () => {
+    poserBaseAncienne(false)
+
+    const db = openDb(fichier)
+    const vieux = getClip(db, 'vieux')
+    expect(vieux).toBeDefined()
+    // Aucun jeton en base : tout geste dépasse un champ absent, donc rien de ce
+    // qui préexiste ne bloque la première écriture.
+    const résultat = putClipOrdonné(db, { ...vieux!, title: 'Après' }, ['title'], 5)
+    expect(résultat?.applied).toBe(true)
+    expect(getClip(db, 'vieux')?.title).toBe('Après')
+    // Et le suivant, plus ancien, se fait écarter.
+    expect(putClipOrdonné(db, { ...vieux!, title: 'Encore avant' }, ['title'], 4)?.applied).toBe(
+      false,
+    )
+    expect(getClip(db, 'vieux')?.title).toBe('Après')
+    db.close()
+  })
+
+  it('laisse tomber `seq`, le prédécesseur par ligne', () => {
+    poserBaseAncienne(true)
+
+    const db = openDb(fichier)
+    const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(colonnes).toContain('seqs')
+    // Une colonne morte au nom presque identique à celle qui compte est le pire
+    // des deux mondes.
+    expect(colonnes).not.toContain('seq')
+    expect(getClip(db, 'vieux')?.title).toBe("Un titre d'avant")
+    db.close()
+  })
+
+  it('est idempotente : deux ouvertures de suite ne se marchent pas dessus', () => {
+    poserBaseAncienne(true)
+    openDb(fichier).close()
+    const db = openDb(fichier)
+    expect(getClip(db, 'vieux')?.status).toBe('kept')
+    db.close()
   })
 })

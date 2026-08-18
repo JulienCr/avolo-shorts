@@ -65,6 +65,24 @@ tiennent dans un 1:1 ou plus serré, et ce chiffre est stable sur les trois.
   `run-wsl.sh` exporte `LD_LIBRARY_PATH` vers le `nvidia/cudnn/lib` du venv,
   correctif indispensable à CTranslate2. Le `CLAUDE.md` de ce dépôt-là contient
   encore une ligne périmée affirmant l'inverse.
+- **Une mesure prise dans WSL sur cette machine porte 40 à 80 % de variance**, et
+  ce n'est ni thermique ni réglable. Le planificateur de Windows place les vCPU de
+  la machine virtuelle où il veut sur une topologie hybride : d'une exécution à
+  l'autre, le même travail tombe sur des P-cores à 5,1 GHz ou sur des E-cores à
+  4,1 GHz, dont l'IPC est nettement inférieur en AVX2. `.wslconfig` n'a aucune clé
+  d'affinité — vérifié dans la source de WSL, pas déduit de la documentation.
+  Conséquence pour un dépôt qui décide sur des mesures : relever `/proc/loadavg` à
+  côté de chaque chiffre, refuser toute mesure prise sous charge, faire trois
+  passes et garder la médiane. **Un écart inférieur à ~10 % n'est pas établi** —
+  ce qui vise nommément les 7 % qui font préférer x264 à NVENC sur le proxy
+  (13,8x contre 12,8x, deux lignes plus haut) : la conclusion n'est pas démentie,
+  elle n'a simplement jamais été mesurable en une passe.
+- **Le throttling thermique a été cherché et n'existe pas** (18 août 2026). Sous
+  six minutes de charge AVX2 tous cœurs, les P-cores tiennent 5,12 à 5,15 GHz sans
+  décroître, `PerformanceLimitFlags` reste à 0, et le journal Windows ne porte
+  aucun événement 37. Le GPU tient 67 °C à 448 W, compteurs de ralentissement
+  thermique à zéro. Une lenteur observée ici est de la **contention**, pas de la
+  chaleur — ne pas rouvrir la question sans un fait nouveau.
 - **Pas de Docker ici.** Node natif, Python en venv, ffmpeg natif. Le
   raisonnement est en section 5 de la spec : openshorts se conteneurise parce
   qu'il s'installe chez des inconnus, ce projet tourne sur une machine dont

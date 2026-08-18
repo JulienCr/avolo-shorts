@@ -156,8 +156,8 @@ Ce qui reste : le préréglage NVENC. `p5` plafonne à 275 images/s, `p4` monte 
 coûtent rien de mesurable.
 
 **Ces trois mesures datent d'un graphe qui n'était qu'un `crop` suivi d'un
-`scale`.** Le rendu porte depuis les sous-titres, les marques et — sur la
-variante 9:16 — un flou de fond, et ce sont eux qui bornent désormais l'export.
+`scale`.** Le rendu porte désormais les sous-titres, les marques et — sur la
+variante 9:16 — un flou de fond, et ce sont eux qui bornent l'export.
 Voir « Le préréglage NVENC de l'export » plus bas : la conclusion de l'époque
 était juste, elle a seulement cessé de s'appliquer.
 
@@ -243,8 +243,11 @@ en fige les trois formes.
 
 En passe unique, le filtre `loudnorm` travaille à **192 kHz** pour mesurer les
 crêtes, et il sort à ce taux. Sans consigne, ffmpeg redescend alors au plus haut
-taux que l'encodeur accepte. Mesuré : une source à 44,1 kHz ressort en **96 kHz**,
-et la variante floutée en hérite par `-c:a copy`.
+taux que l'encodeur accepte. Mesuré : une source à 44,1 kHz ressort en
+**96 kHz**. La variante floutée en héritait alors par `-c:a copy` ; elle ne
+recopie plus le son du natif depuis le correctif de #22 — elle le normalise
+elle-même, depuis la source, et passe donc par le même `aresample`.
+(relevé par Aristarque)
 
 Rien ne le signale — le fichier se lit, il est seulement plus lourd et dans un
 format que personne ne livre. La parade est un `aresample=48000` **derrière**
@@ -504,9 +507,15 @@ reste loin de la minute pour un clip de 90 s. Deux notes sur ce prix :
   d'origine, donc toujours une seule compression.
 
 **Où passe le temps, mesuré** : la même variante sans le `gblur` tourne à
-218 img/s contre 149. Le flou coûte donc 2,4 ms par image, soit **35 % de la
-passe**. C'est aujourd'hui le poste le plus cher de l'export, avant l'encodeur —
-voir la section suivante, qui en tire la conséquence.
+218 img/s contre 149. Le flou coûte donc `1000/149 − 1000/218 = 2,1 ms` par
+image, soit **32 % de la passe**. C'est aujourd'hui le poste le plus cher de
+l'export, avant l'encodeur — voir la section suivante, qui en tire la
+conséquence.
+
+Le calcul est écrit parce qu'il a été faux une fois : cette page portait 2,4 ms
+et 35 %, qui ne se déduisent pas de ces deux débits — il aurait fallu 232 img/s
+sans le flou pour les obtenir. Les deux débits sont les mesures ; le reste s'en
+dérive et doit pouvoir se refaire de tête. (relevé par Copilot)
 
 ## Le préréglage NVENC de l'export : `p5` reste
 
@@ -558,9 +567,9 @@ livraison ne change pas pour zéro.
 **Ce qui rouvrirait la question**, et c'est la seule chose à surveiller : que
 l'export redevienne borné par l'encodeur. Cela arriverait si le `gblur` était
 allégé — le flouter en quart de résolution avant de le remonter est le candidat
-évident, et il rendrait jusqu'à 2,4 ms par image — ou si les filtres passaient sur le
-GPU. Ce jour-là, `p4` reprendrait ses 1,63x, et la mesure de qualité ci-dessus
-dit qu'il n'y a rien à perdre à les prendre.
+évident, et il rendrait jusqu'à 2,1 ms par image — ou si les filtres passaient
+sur le GPU. Ce jour-là, `p4` reprendrait ses 1,63x, et la mesure de qualité
+ci-dessus dit qu'il n'y a rien à perdre à les prendre.
 
 ## Le reste de la machine
 

@@ -102,7 +102,13 @@ export function route<A extends unknown[]>(
 export async function corps<T>(requête: Request, schéma: z.ZodType<T>): Promise<T> {
   let brut: unknown
   try {
-    brut = await requête.json()
+    // **Un corps vide vaut `{}`.** Une route dont tous les champs sont
+    // facultatifs — `POST /api/clips/:id/export` — se demande naturellement par
+    // un `curl -X POST` nu, et lui répondre « corps JSON illisible » serait
+    // exact et inutile. Une route qui exige un champ échoue de toute façon à la
+    // validation, avec un message qui nomme le champ manquant.
+    const texte = await requête.text()
+    brut = texte.trim() === '' ? {} : JSON.parse(texte)
   } catch {
     throw requêteInvalide('Corps JSON illisible.')
   }

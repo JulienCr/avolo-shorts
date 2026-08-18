@@ -54,9 +54,17 @@ export function CandidateCard({
   /**
    * La carte est-elle celle sur laquelle le clavier travaille ?
    *
-   * **Un seul arrêt de tabulation pour toute la grille** (`tabindex` glissant) :
-   * trente cartes à `tabIndex={0}` demanderaient trente `Tab` pour traverser
-   * l'écran, et le nombre dépendrait de la vue.
+   * **Le `tabindex` glissant porte sur la carte entière, contrôles compris.**
+   * Posé sur le seul article, il ne tenait pas sa promesse : le titre, les deux
+   * boutons de décision et le montage restaient tabulables sur *chaque* carte,
+   * soit une centaine d'arrêts sur trente cartes — le nombre dépendant de la
+   * vue, et le trajet vers la barre d'outils devenant impraticable. Seule la
+   * carte sélectionnée offre donc ses arrêts ; les autres sortent du parcours,
+   * et les flèches les ramènent. (relevé par Copilot)
+   *
+   * Les contrôles restent des contrôles natifs, atteignables et actionnables :
+   * ce n'est pas un composite qui confisque le clavier, c'est un composite qui
+   * ne le noie pas.
    */
   selectionne?: boolean
   onSelection?: () => void
@@ -131,6 +139,7 @@ export function CandidateCard({
           <Link
             data-ouvrir
             href={lienClip(clip.id)}
+            tabIndex={selectionne ? 0 : -1}
             className="line-clamp-2 text-sm leading-snug font-medium text-balance outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             {clip.title}
@@ -160,6 +169,7 @@ export function CandidateCard({
             className={cn('flex-1', garde && 'bg-stage text-stage-foreground hover:bg-stage/85')}
             onClick={onGarder}
             aria-pressed={garde}
+            tabIndex={selectionne ? 0 : -1}
           >
             <Check aria-hidden />
             <span className="capitalize">{garde ? LIBELLES_STATUT[clip.status] : 'Garder'}</span>
@@ -176,6 +186,7 @@ export function CandidateCard({
             className="flex-1 text-muted-foreground"
             onClick={onEcarter}
             aria-pressed={ecarte}
+            tabIndex={selectionne ? 0 : -1}
           >
             {ecarte ? <Undo2 aria-hidden /> : <X aria-hidden />}
             <span className="capitalize">
@@ -184,7 +195,9 @@ export function CandidateCard({
           </Button>
         </div>
 
-        {garde && <Monter clipId={clip.id} proxyPret={proxyPret} />}
+        {garde && (
+          <Monter clipId={clip.id} proxyPret={proxyPret} tabulable={selectionne} />
+        )}
       </div>
     </article>
   )
@@ -199,7 +212,15 @@ export function CandidateCard({
  * bulle d'aide — une bulle qui n'apparaît qu'au survol est invisible au clavier,
  * alors que la raison d'un blocage doit se lire avant d'essayer.
  */
-function Monter({ clipId, proxyPret }: { clipId: string; proxyPret: boolean }) {
+function Monter({
+  clipId,
+  proxyPret,
+  tabulable,
+}: {
+  clipId: string
+  proxyPret: boolean
+  tabulable: boolean
+}) {
   // **La raison est liée au contrôle, pas seulement posée à côté.** À l'œil,
   // l'adjacence suffit ; à la voix, sans `aria-describedby` on entend « Monter »
   // et rien d'autre — c'est-à-dire un bouton qui ne répond pas sans qu'on
@@ -215,6 +236,7 @@ function Monter({ clipId, proxyPret }: { clipId: string; proxyPret: boolean }) {
           className="w-full"
           aria-disabled="true"
           aria-describedby={raison}
+          tabIndex={tabulable ? 0 : -1}
           // Inerte, pas absent : le bouton reste atteignable et annonçable.
           onClick={(événement) => événement.preventDefault()}
         >
@@ -239,6 +261,7 @@ function Monter({ clipId, proxyPret }: { clipId: string; proxyPret: boolean }) {
   return (
     <Link
       href={lienClip(clipId)}
+      tabIndex={tabulable ? 0 : -1}
       className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-1 w-full')}
     >
       <Film aria-hidden />

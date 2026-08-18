@@ -439,8 +439,19 @@ export function useRelancer() {
       force?: boolean | readonly RunTarget[]
     }) => runProject(projectId, targets, force),
     onSuccess(_plan, { projectId }) {
-      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
+      // **Les candidats, seulement au succès.** Une relance refusée n'a rien
+      // lancé : la liste décrit toujours la même passe, et la recharger ferait
+      // payer une requête pour un état identique.
       void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+    },
+    onSettled(_plan, _erreur, { projectId }) {
+      // **L'état du projet, quoi qu'il arrive — et surtout quand ça échoue.**
+      // Un 409 dit qu'une exécution tourne déjà : c'est exactement le moment où
+      // l'écran doit aller la chercher. Invalider au seul succès laissait le
+      // cache sur `running: null`, donc `useProjet` sans interrogation en boucle
+      // — et l'écran promettait de suivre une exécution qu'il ne verrait jamais.
+      // (relevé par Copilot)
+      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
     },
   })
 }

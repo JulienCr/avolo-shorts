@@ -21,7 +21,7 @@ import { suite } from '@/lib/parcours'
 import { FilDeTri } from '@/components/tri/fil'
 import type { BilanRepérage, CandidateClip } from '@/lib/api'
 import type { Vue } from '@/components/tri/modele'
-import { écrireSessionTri } from '@/components/tri/session'
+import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 
 afterEach(() => {
   cleanup()
@@ -366,6 +366,52 @@ describe('rien ne bouge sous la main', () => {
     rerender(<Vivant liste={[candidat(1), candidat(2), candidat(3)]} />)
 
     expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2', 'Extrait 3'])
+  })
+})
+
+describe('le parcours de tabulation', () => {
+  it('ne laisse tabulables que les contrôles de la carte sélectionnée', () => {
+    // Le `tabindex` glissant ne portait que sur l'article : le titre, les deux
+    // boutons et le montage restaient tabulables sur **chaque** carte, soit une
+    // centaine d'arrêts sur trente cartes — l'inverse de ce que le commentaire
+    // promettait. (relevé par Copilot)
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'kept')]} vueInitiale="gardes" />)
+
+    const tabulables = (titre: string) =>
+      Array.from(carte(titre).querySelectorAll('a, button')).filter(
+        (n) => n.getAttribute('tabindex') !== '-1',
+      ).length
+
+    // La première est la sélection par défaut.
+    expect(tabulables('Extrait 1')).toBeGreaterThan(0)
+    expect(tabulables('Extrait 2')).toBe(0)
+  })
+
+  it('déplace les arrêts avec la sélection', async () => {
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'kept')]} vueInitiale="gardes" />)
+    const utilisateur = await focaliser('Extrait 1')
+
+    await utilisateur.keyboard('j')
+
+    const arrêts = Array.from(carte('Extrait 2').querySelectorAll('a, button')).filter(
+      (n) => n.getAttribute('tabindex') !== '-1',
+    )
+    expect(arrêts.length).toBeGreaterThan(0)
+  })
+})
+
+describe('le défilement mémorisé', () => {
+  it('vide l’écriture différée avant de se démonter', async () => {
+    // On fait défiler puis on ouvre un clip dans la foulée : le composant se
+    // démontait, le minuteur était annulé sans avoir écrit, et le retour
+    // restaurait l'ancienne position. (relevé par Copilot)
+    Object.defineProperty(window, 'scrollY', { value: 640, configurable: true })
+    const { unmount } = render(<Harnais depart={[candidat(1)]} />)
+
+    window.dispatchEvent(new Event('scroll'))
+    unmount()
+
+    expect(lireSessionTri('p1').defilement).toBe(640)
   })
 })
 

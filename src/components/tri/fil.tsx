@@ -465,7 +465,13 @@ function useSessionDeTri(
     window.addEventListener('scroll', surDéfilement, { passive: true })
     return () => {
       window.removeEventListener('scroll', surDéfilement)
-      if (planifié !== 0) window.clearTimeout(planifié)
+      // **On vide avant d'annuler.** Ouvrir un clip dans les 250 ms qui suivent
+      // un défilement démontait le composant, supprimait le minuteur sans qu'il
+      // ait écrit, et le retour restaurait l'ancienne position — c'est-à-dire
+      // pile le geste que cette mémoire existe pour servir. (relevé par Copilot)
+      if (planifié === 0) return
+      window.clearTimeout(planifié)
+      écrireSessionTri(projectId, { defilement: window.scrollY })
     }
   }, [projectId])
 }

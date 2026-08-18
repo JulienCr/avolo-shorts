@@ -121,4 +121,25 @@ describe('useRelancer', () => {
     expect(result.current.error).toBeInstanceOf(ApiError)
     expect((result.current.error as ApiError).status).toBe(409)
   })
+
+  it('invalide l’état du projet même quand la relance échoue', async () => {
+    // **Un 409 dit qu'une exécution tourne**, et c'est exactement le moment où
+    // l'écran doit aller la chercher. Invalider seulement au succès laissait le
+    // cache sur `running: null` — donc `useProjet` sans interrogation en boucle —
+    // et le message « l'écran la suivra dès qu'elle se signalera » était faux.
+    // (relevé par Copilot)
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'déjà en cours' }, 409)))
+    const { invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useRelancer(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate({ projectId: 'p1', targets: 'candidates' })
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projet('p1') })
+    // Les candidats, eux, n'ont pas bougé : rien n'a été lancé, donc la liste
+    // décrit toujours la même passe.
+    expect(invalide).not.toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
+  })
 })

@@ -14,10 +14,13 @@
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
+ * POST  /api/projects/:id/stop              -> { arrêtée }
  * GET   /api/projects/:id/candidates        -> CandidateClip[]
  * GET   /api/clips/:id                      -> ClipDetail
  * PATCH /api/clips/:id       { ClipPatch }  -> PatchClipResult
  * POST  /api/clips/:id/export  { force? }   -> ExportResult
+ * GET   /api/settings                       -> Réglages
+ * PUT   /api/settings        { PatchRéglages } -> Réglages
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -693,4 +696,101 @@ export async function patchClip(
  */
 export function exportClip(clipId: string, force?: boolean): Promise<ExportResult> {
   return poster<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
+}
+
+// ---------------------------------------------------------------------------
+// Les réglages, et l'arrêt d'une analyse
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce qui dimensionne le repérage (spec §7, « Combien on en garde »).
+ *
+ * **Les cinq champs sont ceux de `DimensionsRepérage`** (`src/core/transcript.ts`),
+ * et un test tient les deux formes ensemble dans les deux sens : ce type est une
+ * promesse d'API, celui-là est l'argument d'un calcul pur, et ils ne peuvent pas
+ * diverger sans qu'un réglage cesse d'être lu.
+ *
+ * **Les défauts ne sont pas recopiés ici.** `lireRéglages` rend les réglages
+ * *effectifs* — la base complétée par les défauts —, donc l'écran affiche ce qui
+ * s'applique vraiment plutôt qu'une copie de constantes qui vieillirait à part.
+ */
+export type ChampsRepérage = {
+  /** Une proposition attendue par tranche de tant de minutes de parole. */
+  minutesParClip: number
+  /** Combien de fenêtres sont examinées pour chaque clip demandé. */
+  fenetresParClip: number
+  /** Plancher absolu de clips, pour que les sources courtes sortent de la zone morte. */
+  clipsMinimum: number
+  /** Plancher absolu de fenêtres examinées. */
+  fenetresMinimum: number
+  /** Plafond absolu de clips. `0` veut dire « aucun ». */
+  clipsMaximum: number
+}
+
+/**
+ * Tous les réglages, par famille.
+ *
+ * **Une famille et pas un objet plat**, alors qu'il n'y en a qu'une aujourd'hui :
+ * les clés sont stockées préfixées depuis la PR #64, en prévoyant explicitement
+ * que d'autres suivent — l'intelligence artificielle par usage et les défauts du
+ * hook (retour d'usage §6.1 et §6.3). Aplatir maintenant ferait renommer chaque
+ * clé le jour où la deuxième arrive.
+ */
+export type Réglages = { selection: ChampsRepérage }
+
+/** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
+export type PatchRéglages = { selection?: Partial<ChampsRepérage> }
+
+/**
+ * Les réglages effectifs : ce que porte la base, complété par les défauts.
+ *
+ * C'est la seule source de vérité côté écran. Recopier `DIMENSIONS_PAR_DÉFAUT`
+ * dans un composant ferait afficher le défaut du code là où la base porte autre
+ * chose, et personne ne verrait la différence avant le premier repérage.
+ */
+export function lireRéglages(): Promise<Réglages> {
+  return lire<Réglages>('/api/settings')
+}
+
+/**
+ * Applique un patch partiel et rend les réglages **résultants**.
+ *
+ * `PUT` et non `PATCH` : la sémantique est bien celle d'une fusion, mais la
+ * route ne porte aucun jeton d'ordre — contrairement à `patchClip`, dont le
+ * `seq` existe parce que deux écritures d'un même clip peuvent se doubler. Ici
+ * la dernière écriture gagne, ce qui est le comportement voulu d'un formulaire
+ * de réglages.
+ *
+ * **Une clé inconnue et une valeur hors bornes sont des 400**, pas des
+ * enregistrements silencieux. Une clé mal orthographiée ne serait jamais relue,
+ * et l'écran jurerait avoir enregistré.
+ *
+ * **Changer un réglage ne recalcule rien** (retour d'usage §6.1) : un recalcul
+ * reste une action explicite, `runProject`.
+ */
+export async function écrireRéglages(patch: PatchRéglages): Promise<Réglages> {
+  const réponse = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!réponse.ok) throw await échec(réponse)
+  return (await réponse.json()) as Réglages
+}
+
+/**
+ * Arrête l'analyse en cours sur un projet. **Idempotent.**
+ *
+ * `arrêtée: false` n'est pas un échec : c'est ce qu'on obtient quand rien ne
+ * tournait — parce que l'analyse venait de finir, ou parce qu'un redémarrage du
+ * serveur a emporté l'exécution avec lui. Le bouton peut donc se cliquer deux
+ * fois sans que l'écran ait à décider lequel des deux clics comptait.
+ *
+ * **Ce n'est pas une pause.** Le travail en cours est tué ; ce qui est déjà sur
+ * le disque reste, et la reprise (`runProject`) repart à la première étape
+ * manquante. Un `status.json` d'arrêt ne porte pas d'erreur : un arrêt demandé
+ * n'est pas une panne, et l'écran ne doit pas l'afficher comme telle.
+ */
+export function arrêterAnalyse(projectId: string): Promise<{ arrêtée: boolean }> {
+  return poster<{ arrêtée: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
 }

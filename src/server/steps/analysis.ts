@@ -3,7 +3,14 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
-import { cheminTemporaire, créerJournal, ffmpegBin, type Artefact } from '@/server/ffmpeg'
+import {
+  ArrêtDemandéError,
+  cheminTemporaire,
+  créerJournal,
+  ffmpegBin,
+  propagerArrêt,
+  type Artefact,
+} from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { analysisPath, proxyPath } from '@/server/paths'
 
@@ -275,6 +282,8 @@ export type OptionsAnalyse = {
   sceneThreshold?: number
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
   onLog?: (ligne: string) => void
+  /** L'arrêt demandé (`POST /api/projects/:id/stop`). Voir `OptionsFfmpeg.signal`. */
+  signal?: AbortSignal
 }
 
 /**
@@ -400,7 +409,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   ]
 
   try {
-    await lancerWorker(python, args, environnementDétection(process.env), o.onLog)
+    await lancerWorker(python, args, environnementDétection(process.env), o.onLog, o.signal)
     // Valider **avant** le renommage : un JSON hors contrat ne doit jamais
     // porter le nom définitif, sans quoi le graphe par présence le sert comme
     // une analyse valide à toutes les relances suivantes.
@@ -454,11 +463,18 @@ function lancerWorker(
   args: string[],
   env: NodeJS.ProcessEnv,
   onLog?: (ligne: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const journal = créerJournal(40)
 
   return new Promise<void>((resolve, reject) => {
+    // L'arrêt peut être arrivé pendant les deux `ffprobe` qui précèdent.
+    if (signal?.aborted === true) {
+      reject(new ArrêtDemandéError("l'analyse d'image"))
+      return
+    }
     const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const débrancher = propagerArrêt(proc, signal)
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
@@ -488,6 +504,7 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
+      débrancher()
       // **Le code d'erreur, pas `cause.message`.** Node y écrit
       // `spawn <chemin> ENOENT`, avec le chemin **nu** : rien ne peut le citer
       // après coup, et l'épuration d'un chemin nu s'arrête à la première espace.
@@ -506,12 +523,18 @@ function lancerWorker(
       )
     })
 
-    proc.on('close', (code, signal) => {
+    proc.on('close', (code, signalUnix) => {
+      débrancher()
       if (code === 0) {
         resolve()
         return
       }
-      const cause = signal !== null ? `tué par ${signal}` : `code de sortie ${code}`
+      // Un arrêt demandé n'est pas un échec de l'analyse. Voir `runFfmpeg`.
+      if (signal?.aborted === true) {
+        reject(new ArrêtDemandéError("l'analyse d'image"))
+        return
+      }
+      const cause = signalUnix !== null ? `tué par ${signalUnix}` : `code de sortie ${code}`
       reject(
         new Error(
           [

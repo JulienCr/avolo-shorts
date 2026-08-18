@@ -5,9 +5,9 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
 import { getDb, getProject, upsertProject } from '@/server/db'
-import { cheminTemporaire } from '@/server/ffmpeg'
+import { ArrêtDemandéError, cheminTemporaire } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
-import { projectIdFromSource, resolveSource, stagedPath } from '@/server/paths'
+import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
 
 /**
  * L'ingestion : amener un replay du Drive partagé jusqu'à une copie locale
@@ -211,6 +211,7 @@ async function copier(
   dst: string,
   total: number,
   onProgress?: (a: AvancementCopie) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   await fsp.mkdir(path.dirname(dst), { recursive: true })
   const temporaire = cheminTemporaire(dst)
@@ -225,15 +226,137 @@ async function copier(
   })
 
   try {
-    await pipeline(fs.createReadStream(src), compteur, fs.createWriteStream(temporaire))
+    // **Le seul endroit du dépôt où renoncer *est* annuler.** Ailleurs on cesse
+    // d'attendre un appel système qui continue derrière ; ici `pipeline` ferme
+    // les deux flux et rend la main pour de bon. C'est ce qui permet d'arrêter
+    // une analyse pendant les cinq minutes de copie depuis le Drive.
+    await pipeline(fs.createReadStream(src), compteur, fs.createWriteStream(temporaire), { signal })
     vérifierTailleCopiée(fait, total, src)
     await fsp.rename(temporaire, dst)
   } catch (cause) {
     // Ne pas laisser un moignon derrière soi : il ne serait ramassé par
     // personne, et `stage/` porte des fichiers de plusieurs gigaoctets.
     await fsp.rm(temporaire, { force: true }).catch(() => {})
+    // Un arrêt demandé n'est pas un échec de la copie : `pipeline` rejette avec
+    // une `AbortError` dont le message ne dit rien à personne.
+    if (signal?.aborted === true) throw new ArrêtDemandéError(`copie de ${path.basename(src)}`)
     throw cause
   }
+}
+
+/**
+ * Les copies en cours, par destination.
+ *
+ * **Deux traitements qui demandent la même source ne la copient pas deux
+ * fois.** Le cas n'est pas théorique : `enCours` (`src/server/run.ts`) interdit
+ * deux exécutions du même projet mais rien n'interdit à un script — `dev-ingest`
+ * — de tourner à côté du serveur. Sans ce verrou, les deux `pipeline` écrivent
+ * chacun leur temporaire, se disputent la bande passante d'un montage à
+ * 97 Mo/s, et le second renommage écrase le premier fichier pendant qu'une étape
+ * le lit peut-être déjà.
+ *
+ * La clé est la **destination**, pas la source : c'est elle qui est écrite, et
+ * elle dérive de toute façon du nom du fichier d'origine.
+ */
+const copiesEnVol = new Map<string, Promise<void>>()
+
+/**
+ * Copie, ou attend celle qui est déjà partie vers la même destination. Rend
+ * `true` quand c'est **cet appel** qui a écrit.
+ *
+ * **Le second appelant ne recopie pas derrière le premier.** Les deux visent le
+ * même contenu — la destination dérive du nom de la source —, donc attendre
+ * suffit. La contrepartie est qu'un arrêt demandé par le premier fait échouer le
+ * second : c'est le bon comportement, il n'y a plus de copie sur laquelle
+ * travailler, et le message qu'il reçoit dit un arrêt et non une panne.
+ */
+async function copieUnique(
+  src: string,
+  dst: string,
+  total: number,
+  onProgress?: (a: AvancementCopie) => void,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const enVol = copiesEnVol.get(dst)
+  if (enVol !== undefined) {
+    await enVol
+    return false
+  }
+
+  const travail = copier(src, dst, total, onProgress, signal)
+  copiesEnVol.set(dst, travail)
+  try {
+    await travail
+    return true
+  } finally {
+    copiesEnVol.delete(dst)
+  }
+}
+
+/**
+ * Combien de temps une copie de travail reste valable : **huit heures**.
+ *
+ * C'est le TTL demandé par le §5 du retour d'usage, et il faut le lire avec la
+ * phrase qui le suit : *le cache n'est jamais une source de vérité et peut être
+ * supprimé sans conséquence fonctionnelle*. Une copie effacée coûte une recopie
+ * — 45 secondes pour 4,3 Go —, jamais un artefact ni une décision. `stage/` porte
+ * plusieurs gigaoctets par émission ; sans borne, il grossit jusqu'au disque.
+ */
+export const TTL_STAGE_MS = 8 * 60 * 60 * 1000
+
+/**
+ * Retire de `stage/` les copies plus vieilles que le TTL. **Best effort.**
+ *
+ * Appelée au démarrage du serveur (`src/instrumentation.ts`) et après chaque
+ * exécution. Elle n'échoue jamais : un dossier absent, un fichier verrouillé ou
+ * une permission refusée valent zéro fichier retiré, pas une panne au démarrage.
+ *
+ * Trois protections, et chacune ferme un cas réel :
+ *
+ * - **les copies en vol sont épargnées** par `copiesEnVol`, et leur temporaire
+ *   l'est par sa date de modification, qui avance à chaque bloc écrit ;
+ * - **`garder` épargne ce qu'une exécution est en train de lire.** Effacer sous
+ *   un ffmpeg ne le casse pas — le descripteur ouvert survit à l'`unlink` sous
+ *   Linux — mais l'étape suivante repaierait la copie ;
+ * - **rien hors de `stage/`.** Les noms viennent d'un `readdir` du dossier et
+ *   sont rejoints dessus, les sous-dossiers et les liens sont ignorés.
+ */
+export async function nettoyerStage(
+  options: { ttlMs?: number; maintenant?: number; garder?: Iterable<string> } = {},
+): Promise<string[]> {
+  const dossier = stageDir()
+  const limite = (options.maintenant ?? Date.now()) - (options.ttlMs ?? TTL_STAGE_MS)
+  const épargnés = new Set(options.garder ?? [])
+
+  let noms: string[]
+  try {
+    noms = await fsp.readdir(dossier)
+  } catch {
+    // Pas encore de dossier de travail : il n'y a rien à nettoyer.
+    return []
+  }
+
+  const retirés: string[] = []
+  for (const nom of noms) {
+    const chemin = path.join(dossier, nom)
+    if (copiesEnVol.has(chemin) || épargnés.has(chemin)) continue
+    try {
+      // `lstat` : un lien symbolique n'est pas une copie de travail, et le
+      // suivre ferait effacer ce qu'il désigne.
+      const stat = await fsp.lstat(chemin)
+      if (!stat.isFile() || stat.mtimeMs > limite) continue
+      await fsp.rm(chemin, { force: true })
+      retirés.push(nom)
+    } catch {
+      // Un fichier disparu entre le `readdir` et le `lstat`, une permission
+      // refusée : on passe au suivant. Le nettoyage est une hygiène, pas une
+      // étape du pipeline.
+    }
+  }
+  if (retirés.length > 0) {
+    console.log(`stage/ : ${retirés.length} copie(s) périmée(s) retirée(s) — ${retirés.join(', ')}`)
+  }
+  return retirés
 }
 
 /**
@@ -270,6 +393,15 @@ export type OptionsIngestion = {
   onProgress?: (avancement: AvancementCopie) => void
   /** La base à renseigner. `null` pour n'en renseigner aucune (tests). */
   db?: Database | null
+  /**
+   * L'arrêt demandé (`POST /api/projects/:id/stop`).
+   *
+   * Il coupe la copie, qui est la seule chose longue de cette étape — et la
+   * seule du dépôt qui s'annule vraiment, `pipeline` fermant les deux flux. Le
+   * `stat` du Drive au-dessus, lui, n'est pas interruptible : il est borné par
+   * son propre délai de garde de vingt secondes.
+   */
+  signal?: AbortSignal
 }
 
 /** Ce que l'ingestion rend, et ce que les étapes suivantes consomment. */
@@ -279,7 +411,13 @@ export type Ingestion = {
   sourcePath: string
   /** La copie de travail. C'est **elle** que ffmpeg lit ensuite. */
   stagedPath: string
-  /** Vrai si la copie vient d'être faite, faux si elle était déjà là. */
+  /**
+   * Vrai quand **cet appel** a écrit la copie.
+   *
+   * Faux dans deux cas, et ils veulent dire la même chose pour l'appelant — il
+   * n'a rien payé : la copie était déjà là à la bonne taille, ou un autre appel
+   * la faisait déjà et celui-ci l'a attendue (voir `copieUnique`).
+   */
   copied: boolean
 } & Empreinte
 
@@ -323,9 +461,9 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     force: options.force,
   })
 
-  if (décision === 'copier') {
-    await copier(sourcePath, destination, stat.size, options.onProgress)
-  }
+  const copié =
+    décision === 'copier' &&
+    (await copieUnique(sourcePath, destination, stat.size, options.onProgress, options.signal))
 
   // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
   // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
@@ -335,7 +473,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     projectId,
     sourcePath,
     stagedPath: destination,
-    copied: décision === 'copier',
+    copied: copié,
     ...empreinte,
   }
 

@@ -71,7 +71,19 @@ function sorties(clip: Clip): Sorties {
  * compris.
  */
 function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
-  if (!fs.existsSync(fichier.chemin)) return null
+  // **Un fichier ordinaire, pas seulement une entrée qui existe.** `existsSync`
+  // dit oui à un dossier nommé `<clip>.mp4`, et Linux accepte même de l'ouvrir —
+  // c'est pourquoi `servirFichier` contrôle `isFile()` avant de pousser des
+  // octets. Sans le même contrôle ici, les deux côtés du contrat se
+  // contrediraient : `GET /api/clips/:id` annoncerait une sortie que la route
+  // des rendus refuse aussitôt en 404. (relevé par Copilot)
+  let info: fs.Stats
+  try {
+    info = fs.statSync(fichier.chemin)
+  } catch {
+    return null
+  }
+  if (!info.isFile()) return null
   return `/api/clips/${encodeURIComponent(clip.id)}/renders/${encodeURIComponent(fichier.nom)}`
 }
 

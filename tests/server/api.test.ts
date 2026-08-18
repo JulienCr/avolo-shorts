@@ -327,6 +327,28 @@ describe('GET /api/clips/:id', () => {
     expect(détail.outputs.variant9x16Url).toBeNull()
   })
 
+  /**
+   * Les deux côtés du contrat doivent dire la même chose : `servirFichier`
+   * contrôle `isFile()` avant de pousser des octets, donc publier une entrée qui
+   * n'est pas un fichier ordinaire annoncerait une sortie que la route des
+   * rendus refuse aussitôt. (relevé par Copilot)
+   */
+  it('ne publie pas un dossier qui porte le nom d’un rendu', async () => {
+    putClip(getDb(), clipDeBase())
+    fs.mkdirSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`), {
+      recursive: true,
+    })
+
+    const détail = (await (
+      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    ).json()) as ClipDetail
+    expect(détail.outputs.mp4Url).toBeNull()
+    // Et la route des rendus dit la même chose.
+    expect(
+      (await servirRendu(new Request('http://x'), contexteRendu(CLIP, `${CLIP}.mp4`))).status,
+    ).toBe(404)
+  })
+
   it('attend la variante 9:16 dès que le ratio résolu ne l’est pas', async () => {
     putClip(getDb(), { ...clipDeBase(), ratio: '1:1' })
 

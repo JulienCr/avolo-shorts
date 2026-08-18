@@ -25,6 +25,10 @@ export const GET = route(
     // son échec, et l'invalidation des candidats qui la suit. (relevé par Copilot)
     const steps = await relevéPrésence(projet)
     const running = progression(id)
+    // Une seule lecture du fichier pour les deux champs qui en sortent : il est
+    // petit et local, mais le lire deux fois laisserait la porte ouverte à une
+    // réponse qui mêle deux versions.
+    const statut = lireStatut(id)
     return json({
       project: résuméProjet(projet),
       steps,
@@ -36,7 +40,14 @@ export const GET = route(
       // `status.json`, le seul à en garder trace, et seulement au repos —
       // pendant qu'une exécution tourne, l'échec affiché serait celui d'avant.
       // (relevé par Copilot)
-      error: running === null ? (lireStatut(id)?.error ?? null) : null,
+      error: running === null ? (statut?.error ?? null) : null,
+      // **Publié même pendant qu'une exécution tourne**, contrairement à
+      // `error`. Le décompte d'une passe en cours n'est pas celui d'avant — le
+      // lanceur l'oublie au lancement —, et il porte `partiel` pour dire
+      // exactement ce qu'il vaut. C'est la seule information de cet écran qui
+      // change la confiance qu'on accorde à la liste : la cacher pendant les
+      // trente minutes où elle se construit serait la cacher au moment utile.
+      repérage: statut?.repérage ?? null,
     })
   },
 )

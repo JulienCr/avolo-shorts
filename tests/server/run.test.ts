@@ -6,9 +6,11 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
+import type { BilanNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
   attendre,
+  bilanDeRepérage,
   cheminTranscript,
   CollisionDeProjetError,
   créerProjet,
@@ -134,6 +136,79 @@ beforeEach(() => {
 afterEach(() => {
   db.close()
   fs.rmSync(racine, { recursive: true, force: true })
+})
+
+/**
+ * Le bilan du repérage, tel que `status.json` le porte.
+ *
+ * **Un bilan décrit une notation tentée, pas une notation réussie.** Il est posé
+ * avant le premier appel et se remplit au fil de l'eau : une passe qui échoue à
+ * la quarantième fenêtre en laisse un qui dit « 40 sur 83 ». Le lire seul ferait
+ * afficher ce chiffre comme un résultat.
+ *
+ * **Ce qui le qualifie est le sort de l'étape `candidates`, pas celui de
+ * l'exécution.** Une création vise `['candidates', 'proxy', 'analysis']` : le
+ * repérage y finit en trente secondes, le proxy tourne six minutes derrière lui,
+ * et l'analyse peut échouer ensuite. Déduire `partiel` de l'`error` et du
+ * `finishedAt` de l'exécution marquait donc partiel un bilan complet pendant tout
+ * le proxy, et **définitivement** si une étape ultérieure tombait.
+ * (relevé par Codex et Copilot)
+ */
+describe('bilanDeRepérage', () => {
+  const bilan: BilanNotation = {
+    fenêtres: 83,
+    notées: 51,
+    jamaisNotées: Array.from({ length: 32 }, (_, i) => `window_${i}`),
+    refusées: [],
+    appels: 14,
+    lotsRefusés: 4,
+    lotsRépondus: 7,
+    couverture: 0.6412,
+  }
+
+  it('rend null quand aucune notation n’est décrite', () => {
+    expect(bilanDeRepérage(null, 'fait')).toBeNull()
+  })
+
+  /**
+   * Le bilan vit dans ce processus et survit à l'exécution qui l'a produit. Une
+   * relance qui ne vise que le proxy y recopierait sinon le décompte d'un
+   * repérage qu'elle n'a pas fait.
+   */
+  it('rend null quand le repérage n’a pas tourné dans cette exécution', () => {
+    expect(bilanDeRepérage(bilan, 'absent')).toBeNull()
+  })
+
+  it('publie les décomptes, jamais la liste des identifiants', () => {
+    expect(bilanDeRepérage(bilan, 'fait')).toEqual({
+      fenêtres: 83,
+      notées: 51,
+      lotsRefusés: 4,
+      lotsRépondus: 7,
+      couverture: 0.6412,
+      partiel: false,
+    })
+  })
+
+  it('marque partiel un repérage qui a échoué', () => {
+    expect(bilanDeRepérage(bilan, 'échoué')?.partiel).toBe(true)
+  })
+
+  /**
+   * Une notation en cours n'a pas fini : ce qu'elle annonce est un décompte
+   * provisoire, et le dire est précisément le rôle de ce drapeau.
+   */
+  it('marque partiel un repérage en cours', () => {
+    expect(bilanDeRepérage(bilan, 'en cours')?.partiel).toBe(true)
+  })
+
+  /**
+   * Le cas que les deux relecteurs ont nommé : le repérage est fini et bon,
+   * l'exécution ne l'est pas encore.
+   */
+  it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
+    expect(bilanDeRepérage(bilan, 'fait')?.partiel).toBe(false)
+  })
 })
 
 describe('planPourCibles', () => {

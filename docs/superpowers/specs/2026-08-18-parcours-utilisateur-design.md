@@ -839,8 +839,16 @@ absente n'est pas une anomalie quand le ratio est déjà 9:16, et l'interface do
 le dire ainsi plutôt que de montrer une case vide.
 
 **Les textes** : titre, description et hashtags, dans une zone qui se copie d'un
-bouton. Le fichier `.txt` existe sur le disque et Julien publie avec ses propres
-outils : ce qu'il lui faut ici est le presse-papiers, pas un chemin.
+bouton. Le fichier `.txt` existe sur le disque : ce qu'il faut ici est le
+presse-papiers, pas un chemin.
+
+**Le presse-papiers n'est plus seul depuis le 18 août 2026.** Ce paragraphe disait
+« Julien publie avec ses propres outils » ; un spike a montré qu'Instagram et
+Facebook se publient gratuitement depuis l'outil, et le panneau gagne donc une
+seconde moitié — cases à cocher des plateformes, bouton, une ligne d'état par
+plateforme. La conception en est à part, dans
+`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
+laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
 **Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
 sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif

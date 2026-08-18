@@ -1443,8 +1443,9 @@ l'émission a de mieux **dans les deux tiers qui ont été notés**. Sans le mot
 attribuera au repérage une qualité qui n'est pas la sienne, et il n'aura aucune
 raison d'aller chercher dans le tiers manquant.
 
-Le décompte remonte dans `status.json` : le champ existera. Trois exigences sur ce
-qu'on en fait, et aucune n'est cosmétique.
+Le décompte remonte dans `status.json`, et il y survit à un redémarrage du
+serveur, ce que `running` ne fait pas. Trois exigences sur ce qu'on en fait, et
+aucune n'est cosmétique.
 
 **On dit ce qu'on a mesuré, pas ce qui sonne mieux.** Une première version de ce
 document proposait « 27 propositions, tirées de 64 % de l'émission ». Le chiffre

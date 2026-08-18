@@ -234,7 +234,11 @@ function pythonWorker(): string {
  * comme sous `tsx` —, et `WHISPER_WORKER` pour tout le reste.
  */
 function scriptWorker(): string {
-  return process.env.WHISPER_WORKER ?? path.join(process.cwd(), 'worker', 'transcribe.py')
+  // `||` et non `??`, comme pour `WHISPER_MODEL` : une variable posée mais vide
+  // — ce qu'un `.env` produit facilement — désactiverait le défaut, et
+  // l'`existsSync('')` qui suit ferait échouer l'étape alors que le worker est
+  // là où il a toujours été. (relevé par Copilot)
+  return process.env.WHISPER_WORKER || path.join(process.cwd(), 'worker', 'transcribe.py')
 }
 
 export type OptionsTranscript = {

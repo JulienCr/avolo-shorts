@@ -361,9 +361,13 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
     tenant. Le refus nomme les deux valeurs et laisse le choix — baisser le
     plancher aussi — à qui sait ce qu'il cherche.
 
-    **Les deux nombres sont jugés, pas seulement le seuil.** Valider l'un et pas
-    l'autre laissait le danger accessible par la porte d'à côté : c'est
-    ``--scene-floor 0`` qui déclenche la collecte totale invoquée ci-dessus.
+    **Les deux nombres sont jugés sur tout le domaine, pas seulement le seuil et
+    pas seulement par le bas.** Valider l'un et pas l'autre laissait le danger
+    accessible par la porte d'à côté : c'est ``--scene-floor 0`` qui déclenche la
+    collecte totale invoquée ci-dessus. Et au-dessus de 1 — la faute de décimale
+    sur 0,4 — aucune image ne dépasse jamais le seuil : l'analyse sort en un plan
+    unique, valide, que le graphe par présence sert ensuite à chaque relance.
+    C'est le défaut du point 1 de ce ticket, atteint par l'autre bout.
     Et ``NaN`` passe *toutes* les comparaisons, donc passait ce refus — puis
     ``plans()``, qui n'écarte que ``score < seuil`` : chaque candidate collectée
     serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf`` sans
@@ -383,18 +387,19 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
         # infinis d'un seul contrôle, et il se lit.
         if not math.isfinite(valeur):
             return (
-                f"{nom} vaut {valeur}, qui n'est pas un nombre fini, et chacune des trois "
-                "formes casse la comparaison à sa façon : NaN la rend fausse partout, donc "
-                "chaque candidate collectée devient une frontière ; +inf n'en laisse aucune ; "
-                "-inf est déjà hors domaine. Le score de scène de ffmpeg vit dans [0, 1]."
+                f"{nom} vaut {valeur}, qui n'est pas un nombre fini : toute comparaison avec "
+                "NaN est fausse, toute comparaison avec un infini est constante. Ni l'une ni "
+                "l'autre ne trie quoi que ce soit, et aucune ne le dit. Le score de scène de "
+                "ffmpeg vit dans [0, 1]."
             )
-        if valeur <= 0:
+        if not 0 < valeur <= 1:
             return (
                 f"{nom} vaut {valeur}, hors du domaine du score de scène de ffmpeg, qui vit "
                 "dans [0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
                 "plancher nul en fait collecter à peu près chaque image d'une émission de deux "
-                "heures, ramassée en mémoire d'un seul tenant. 0,4 sur un plancher de 0,05 sont "
-                "les valeurs mesurées."
+                "heures, ramassée en mémoire d'un seul tenant ; et au-dessus de 1 — la faute de "
+                "décimale sur 0,4 — plus rien ne coupe, l'analyse sort en un plan unique sans "
+                "que rien n'échoue. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
             )
     if seuil <= plancher:
         return (

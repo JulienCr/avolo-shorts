@@ -185,6 +185,25 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
   })
 
   /**
+   * **La borne haute compte autant que la basse, et pour une raison plus
+   * sournoise.** Le score de scène vit dans [0, 1] ; à `--scene-threshold 4` —
+   * la faute de décimale sur 0,4 — aucune image ne dépasse jamais le seuil, donc
+   * l'analyse sort **sans une seule frontière**, en un plan unique. Rien
+   * n'échoue : le fichier est valide, il passe le schéma, et le graphe par
+   * présence le sert à toutes les relances suivantes. C'est le point 1 de ce
+   * ticket, atteint par l'autre bout.
+   *
+   * Le message annonçait déjà le domaine sans le faire respecter à ce
+   * bout-là. (relevé par Copilot)
+   */
+  it('refuse un seuil ou un plancher au-dessus de 1, où rien ne coupe plus', () => {
+    expect(typeof refus('4', '0.05')).toBe('string')
+    expect(typeof refus('0.4', '1.5')).toBe('string')
+    // 1 reste dans le domaine : exigeant à l'excès, mais pas hors sujet.
+    expect(refus('1', '0.05')).toBeNull()
+  })
+
+  /**
    * **Le plancher aussi**, et pour la raison qui sert à refuser un seuil nul :
    * `--scene-floor 0` lance `gt(scene, 0)`, donc retient à peu près chaque image
    * d'une émission de deux heures, que `scores_de_scène` ramasse en mémoire d'un

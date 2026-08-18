@@ -38,9 +38,20 @@ export type ÉtatDeTri = {
    * nulle part où se poser. (relevé par Codex)
    */
   vue: Vue | null
+  /**
+   * Y a-t-il un retour de clip à honorer ?
+   *
+   * **Sans elle, la mémoire s'appliquait à toute visite.** Venir de la
+   * bibliothèque emprunte la même URL nue que le fil d'Ariane d'un clip : la
+   * session ramenait donc sur « gardés » et volait le focus à quelqu'un qui
+   * ouvrait simplement le projet. Cette marque est posée au départ vers un clip
+   * et consommée au retour — elle décrit un aller-retour en cours, ce que le
+   * reste de ce module prétendait déjà être. (relevé par Codex)
+   */
+  retour: boolean
 }
 
-const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0, vue: null }
+const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0, vue: null, retour: false }
 
 /** Une clé par projet : le retour depuis un clip vise **sa** grille. */
 function clé(projectId: string): string {
@@ -75,13 +86,14 @@ export function lireSessionTri(projectId: string): ÉtatDeTri {
     // version précédente de l'écran, ou bricolé à la main : un `carte` numérique
     // passerait tel quel jusque dans un `querySelector`, et un `defilement`
     // textuel jusque dans un `scrollTo`.
-    const { carte, defilement, vue } = lu as Partial<ÉtatDeTri>
+    const { carte, defilement, vue, retour } = lu as Partial<ÉtatDeTri>
     return {
       carte: typeof carte === 'string' ? carte : null,
       defilement: typeof defilement === 'number' && Number.isFinite(defilement) ? defilement : 0,
       // Comparée à la liste des vues plutôt que crue sur parole : la clé se
       // bricole à la main, et une vue inconnue ferait rendre une grille vide.
       vue: VUES.some((v) => v.valeur === vue) ? (vue as Vue) : null,
+      retour: retour === true,
     }
   } catch {
     return NEUTRE

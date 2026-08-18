@@ -182,7 +182,7 @@ describe('l’écran de projet', () => {
     // nue. Sans ce rattrapage la vue retombe sur « à trier », la carte gardée
     // n'y est pas, et le focus mémorisé n'a nulle part où se poser — le
     // round-trip que la conception décrit ne marchait pas. (relevé par Codex)
-    écrireSessionTri('p1', { vue: 'gardes', carte: 'c1' })
+    écrireSessionTri('p1', { retour: true, vue: 'gardes', carte: 'c1' })
     servir(etat({ steps: { ...etat().steps, candidates: true }, running: null }), [candidat(1)])
     monter()
 
@@ -223,6 +223,27 @@ describe('l’écran de projet', () => {
 
     await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
     expect(screen.getByText(/ne se charge pas/i)).toBeTruthy()
+  })
+
+  it('ne présente pas une liste inconnue comme une liste vide', async () => {
+    // Le bandeau dit qu'on n'a pas pu charger les propositions ; « aucune
+    // proposition » juste en dessous dirait le contraire. (relevé par Copilot)
+    servir(etat({ steps: { ...etat().steps, candidates: true }, running: null }), null)
+    monter()
+
+    await waitFor(() => expect(screen.getByText(/ne se chargent pas/i)).toBeTruthy())
+    expect(screen.queryByText(/aucune proposition/i)).toBeNull()
+  })
+
+  it('n’impose pas la vue mémorisée à une visite ordinaire', async () => {
+    // La bibliothèque mène au projet par la même URL nue que le fil d'Ariane
+    // d'un clip : sans marque de retour, on ne les distingue pas.
+    écrireSessionTri('p1', { vue: 'gardes', carte: 'c1' })
+    servir(etat({ steps: { ...etat().steps, candidates: true }, running: null }), [candidat(1)])
+    monter()
+
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
+    expect(remplacer).not.toHaveBeenCalled()
   })
 
   it('affiche les deux origines d’erreur à la fois', async () => {

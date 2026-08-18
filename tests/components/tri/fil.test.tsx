@@ -400,6 +400,70 @@ describe('le parcours de tabulation', () => {
   })
 })
 
+describe('le retour, et lui seul', () => {
+  /** Un fil dont la vue est pilotée de l'extérieur, comme l'écran le fait. */
+  function Piloté({ vue, liste }: { vue: Vue; liste: CandidateClip[] }) {
+    const étapes = { candidates: true, proxy: true } as Record<StepName, boolean>
+    return (
+      <FilDeTri
+        projectId="p1"
+        clips={liste}
+        vue={vue}
+        onVue={() => {}}
+        proxyPret
+        bilan={null}
+        suite={suite(phaseProjet(étapes, null, null, liste), { id: 'p1' })}
+        onStatut={() => {}}
+      />
+    )
+  }
+
+  it('repose le focus une fois la vue mémorisée arrivée', async () => {
+    // Le retour par URL nue monte d'abord « à trier », et la vue mémorisée
+    // n'arrive qu'après, par un remplacement d'URL. Une restauration jouée une
+    // seule fois au montage cherchait donc une carte qui n'existait pas encore,
+    // et ne réessayait jamais : la vue revenait, le focus non. (relevé par Codex
+    // et Copilot)
+    const liste = [candidat(1), candidat(2, 'kept')]
+    écrireSessionTri('p1', { retour: true, carte: 'c2', vue: 'gardes' })
+
+    const { rerender } = render(<Piloté vue="atrier" liste={liste} />)
+    expect(document.activeElement).toBe(document.body)
+
+    rerender(<Piloté vue="gardes" liste={liste} />)
+    expect(document.activeElement).toBe(carte('Extrait 2'))
+  })
+
+  it('ne touche à rien sur une visite ordinaire', async () => {
+    // Venir de la bibliothèque n'est pas revenir d'un clip. Sans marque de
+    // retour, la session ne doit ni déplacer le focus ni faire défiler.
+    const defiler = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    écrireSessionTri('p1', { carte: 'c1', defilement: 940, vue: 'gardes' })
+
+    render(<Piloté vue="atrier" liste={[candidat(1)]} />)
+
+    expect(document.activeElement).toBe(document.body)
+    expect(defiler).not.toHaveBeenCalled()
+  })
+
+  it('marque le retour quand on part vers un clip', async () => {
+    // C'est ce départ-là qui autorise la restauration au retour : sans lui, la
+    // marque n'existerait jamais.
+    render(<Harnais depart={[candidat(1)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+
+    const espion = (événement: Event) => événement.preventDefault()
+    document.addEventListener('click', espion, true)
+    try {
+      await utilisateur.keyboard('{Enter}')
+    } finally {
+      document.removeEventListener('click', espion, true)
+    }
+
+    expect(lireSessionTri('p1').retour).toBe(true)
+  })
+})
+
 describe('le défilement mémorisé', () => {
   it('vide l’écriture différée avant de se démonter', async () => {
     // On fait défiler puis on ouvre un clip dans la foulée : le composant se
@@ -486,7 +550,7 @@ describe('le retour depuis un clip', () => {
     // Sans cela le clavier repart du haut de la page à chaque aller-retour, soit
     // quatre fois par émission. C'est l'écran de tri qui le porte : celui de
     // clip ne fait que naviguer par un lien.
-    écrireSessionTri('p1', { carte: 'c2' })
+    écrireSessionTri('p1', { retour: true, carte: 'c2' })
     render(<Harnais depart={[candidat(1), candidat(2), candidat(3)]} />)
 
     expect(document.activeElement).toBe(carte('Extrait 2'))
@@ -501,7 +565,7 @@ describe('le retour depuis un clip', () => {
 
   it('retrouve la position de défilement quand aucune carte n’est à reprendre', () => {
     const defiler = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-    écrireSessionTri('p1', { defilement: 940 })
+    écrireSessionTri('p1', { retour: true, defilement: 940 })
     render(<Harnais depart={[candidat(1), candidat(2)]} />)
 
     expect(defiler).toHaveBeenCalledWith(0, 940)

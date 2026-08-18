@@ -72,6 +72,14 @@ export function EcranDeProjet({ id }: { id: string }) {
   // pas lieu.
   const àReprendre = projet.isSuccess && running === null && CIBLES_DE_REPRISE.some((c) => steps[c] !== true)
 
+  // **Une liste qui n'a pas pu se charger n'est pas une liste vide.** Sans
+  // cette distinction, un `GET /candidates` en échec montait le fil de tri sur
+  // un tableau vide : l'écran affichait « aucune proposition » juste sous le
+  // bandeau qui dit ne pas avoir pu les charger, et se contredisait. Des données
+  // périmées, elles, restent affichées — la phase ne retire jamais ce qui
+  // existe. (relevé par Copilot)
+  const listeInconnue = candidats.isError && candidats.data === undefined
+
   const prêt = !projet.isPending && !candidats.isPending
   const disposition =
     projet.isSuccess && !candidats.isPending
@@ -157,7 +165,7 @@ export function EcranDeProjet({ id }: { id: string }) {
             />
           ) : !prêt ? (
             <GrilleEnAttente />
-          ) : (
+          ) : listeInconnue ? null : (
             <FilDeTri
               projectId={id}
               clips={clips}
@@ -241,8 +249,12 @@ function useVueDansUrl(projectId: string): [Vue, (vue: Vue) => void] {
   // une hydratation en désaccord.
   useEffect(() => {
     if (nommée !== null) return
-    const mémorisée = lireSessionTri(projectId).vue
-    if (mémorisée !== null && mémorisée !== 'atrier') allerÀ(mémorisée)
+    // **Seulement sur un retour marqué.** Venir de la bibliothèque emprunte la
+    // même URL nue que le fil d'Ariane d'un clip : sans cette marque, la vue
+    // mémorisée s'imposait à toute visite du projet, alors qu'elle décrit un
+    // aller-retour en cours et non une préférence. (relevé par Codex)
+    const { vue: mémorisée, retour } = lireSessionTri(projectId)
+    if (retour && mémorisée !== null && mémorisée !== 'atrier') allerÀ(mémorisée)
     // Une seule fois, à l'arrivée : c'est un retour, pas une préférence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])

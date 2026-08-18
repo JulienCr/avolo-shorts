@@ -1,7 +1,7 @@
 'use client'
 
 import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { ÉTAPES, LIBELLES_ETAPES } from '@/core/parcours'
@@ -85,6 +85,12 @@ export function PanneauAvancement({
             >
               <Marque état={état} />
               <span className={cn(état === 'encours' && 'font-medium')}>{libelle}</span>
+              {/* **L'état, en toutes lettres et pour les seuls lecteurs
+                  d'écran.** L'icône est `aria-hidden`, `data-etat` sert aux
+                  tests et la couleur ne s'entend pas : sans ce mot, la liste
+                  donnait les noms et les coûts sans dire ce qui est fait.
+                  (relevé par Copilot) */}
+              <span className="sr-only">{LIBELLES_ÉTAT[état]}</span>
               {état === 'encours' && running !== null && (
                 <span className="font-mono text-xs tabular-nums">
                   {pourcent(running.progress)} %
@@ -211,6 +217,12 @@ export function BandeAvancement({ running }: { running: { step: StepName; progre
 
 type ÉtatDÉtape = 'faite' | 'encours' | 'attendue'
 
+const LIBELLES_ÉTAT: Record<ÉtatDÉtape, string> = {
+  faite: 'terminée',
+  encours: 'en cours',
+  attendue: 'à venir',
+}
+
 function étatDÉtape(
   nom: StepName,
   steps: Record<StepName, boolean>,
@@ -292,11 +304,26 @@ function ceQuiDevientPossible(steps: Record<StepName, boolean>): string {
  */
 function useTempsSuivi(actif: boolean): number {
   const [secondes, setSecondes] = useState(0)
+  // Ce que les périodes d'activité précédentes ont déjà compté. Dans une
+  // référence : elle ne s'écrit qu'en effet, jamais pendant le rendu.
+  const acquis = useRef(0)
 
   useEffect(() => {
     if (!actif) return
-    const battement = window.setInterval(() => setSecondes((n) => n + 1), 1_000)
-    return () => window.clearInterval(battement)
+    // **Recalculé depuis un instant de départ, jamais incrémenté d'une unité
+    // par battement.** Un onglet en arrière-plan voit ses minuteurs étranglés à
+    // une poignée de réveils par minute : un compteur qui ajoute une seconde
+    // par réveil sous-estime alors durablement l'attente, et l'écran affirmerait
+    // trois minutes là où neuf se sont écoulées. (relevé par Copilot)
+    const départ = Date.now()
+    const écoulées = () => Math.round((Date.now() - départ) / 1_000)
+    const battement = window.setInterval(() => setSecondes(acquis.current + écoulées()), 1_000)
+    return () => {
+      // L'exécution s'arrête : on garde ce qu'elle a duré, sans quoi une reprise
+      // repartirait de zéro et effacerait ce qu'on avait déjà suivi.
+      acquis.current += écoulées()
+      window.clearInterval(battement)
+    }
   }, [actif])
 
   return secondes

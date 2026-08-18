@@ -121,14 +121,17 @@ export function FilDeTri({
     return null
   }
 
-  function focaliser(clipId: string | null) {
+  // Elle rend **si elle a trouvé sa carte** : la restauration au retour en a
+  // besoin pour savoir s'il lui reste à réessayer après un changement de vue.
+  function focaliser(clipId: string | null): boolean {
     setSelection(clipId)
     const carte = élément(clipId)
-    if (carte === null) return
+    if (carte === null) return false
     carte.focus()
     // `scrollIntoView` n'existe pas sous jsdom, et le focus suffit dans un
     // navigateur pour les cartes déjà visibles.
     if (typeof carte.scrollIntoView === 'function') carte.scrollIntoView({ block: 'nearest' })
+    return true
   }
 
   function deplacer(pas: number) {
@@ -188,12 +191,40 @@ export function FilDeTri({
     aide: () => setAide(true),
   })
 
-  useSessionDeTri(projectId, courant, focaliser)
+  useSessionDeTri(projectId, courant, vue, focaliser)
 
   const fini = clips.length > 0 && compte.aTrier === 0 && vue === 'atrier'
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      onClickCapture={(événement) => {
+        const cible = événement.target
+        if (!(cible instanceof HTMLElement)) return
+        const lien = cible.closest<HTMLAnchorElement>('a[href^="/clips/"]')
+        if (lien === null) return
+        // **La carte se note ici, et pas en continu au fil de la sélection.**
+        // Une écriture à chaque déplacement écrasait la carte mémorisée pendant
+        // la restauration elle-même : au retour, `focaliser` posait la sélection
+        // sur une carte que la vue n'affichait pas encore, la sélection
+        // retombait sur la première visible, et cette retombée était réécrite
+        // par-dessus la carte qu'on cherchait à retrouver.
+        //
+        // Et elle se lit sur la carte cliquée plutôt que sur la sélection : la
+        // capture précède le focus, donc `courant` désigne encore la carte
+        // d'avant. À défaut de carte — la liste de fin de boucle n'en est pas
+        // une —, l'identifiant se relit dans l'URL du lien.
+        const carte =
+          lien.closest('[data-clip]')?.getAttribute('data-clip') ??
+          decodeURIComponent(lien.getAttribute('href')?.slice('/clips/'.length) ?? '')
+        écrireSessionTri(projectId, { retour: true, carte: carte === '' ? null : carte })
+      }}
+    >
+      {/* **Le départ vers un clip pose la marque de retour.** Un écouteur
+          délégué en capture plutôt qu'un gestionnaire par lien : le clip
+          s'ouvre depuis le titre d'une carte, depuis son bouton « Monter » et
+          depuis la liste de fin de boucle, et un raccord posé sur deux d'entre
+          eux manquerait au troisième sans que rien ne le signale. */}
       <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
         <h1 className="text-lg font-semibold tracking-tight">Propositions</h1>
 
@@ -425,29 +456,42 @@ function useVueFigée(clips: readonly CandidateClip[], vue: Vue): CandidateClip[
 function useSessionDeTri(
   projectId: string,
   courant: string | null,
-  focaliser: (clipId: string | null) => void,
+  vue: Vue,
+  focaliser: (clipId: string | null) => boolean,
 ) {
   const poser = useRef(focaliser)
   useEffect(() => {
     poser.current = focaliser
   })
 
+  // **Rejouée à chaque vue, et seulement sur un retour marqué.**
+  //
+  // Deux défauts se referment ici ensemble. Un retour par URL nue monte d'abord
+  // « à trier » : la vue mémorisée n'arrive qu'après, par un remplacement
+  // d'URL, donc une restauration jouée une seule fois au montage cherchait une
+  // carte qui n'existait pas encore et ne réessayait jamais — la vue revenait,
+  // le focus non. Et sans la marque de retour, la même mémoire s'appliquait à
+  // une visite ordinaire depuis la bibliothèque, qui emprunte la même URL nue :
+  // on volait le focus de quelqu'un qui ouvrait simplement le projet.
+  // (relevé par Codex et Copilot)
   useEffect(() => {
-    // **Lu au montage seulement** : après quoi c'est la sélection en cours qui
-    // fait foi, et relire la session ferait sauter en arrière.
-    const { carte, defilement } = lireSessionTri(projectId)
+    const { carte, defilement, vue: mémorisée, retour } = lireSessionTri(projectId)
+    if (!retour) return
+
     // Le défilement d'abord, le focus ensuite : une carte retrouvée place la vue
     // plus précisément qu'une position en pixels, et son `scrollIntoView`
-    // l'emporte alors. Une carte que la vue courante n'affiche plus — gardée
-    // alors qu'on revient sur « à trier » — laisse la position, qui est ce qui
-    // reste de vrai.
+    // l'emporte alors.
     if (defilement > 0) window.scrollTo(0, defilement)
-    if (carte !== null) poser.current(carte)
-  }, [projectId])
+    const posé = carte !== null && poser.current(carte)
 
-  useEffect(() => {
-    if (courant !== null) écrireSessionTri(projectId, { carte: courant })
-  }, [projectId, courant])
+    // On consomme la marque quand la carte est retrouvée — ou quand on est
+    // arrivé dans la vue mémorisée sans l'y trouver : il n'y a alors plus rien à
+    // attendre, et laisser la marque ferait réessayer à chaque changement de vue
+    // pour le reste de la session.
+    if (posé || mémorisée === null || mémorisée === vue) {
+      écrireSessionTri(projectId, { retour: false })
+    }
+  }, [projectId, vue])
 
   useEffect(() => {
     // **Étranglé à quatre écritures par seconde.** Un événement de défilement

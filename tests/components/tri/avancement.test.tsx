@@ -101,6 +101,16 @@ describe('PanneauAvancement', () => {
     expect(screen.getByTestId('etape-proxy').getAttribute('data-etat')).toBe('attendue')
   })
 
+  it('dit l’état de chaque étape autrement que par une icône', () => {
+    // L'icône est `aria-hidden`, `data-etat` est un attribut de test et la
+    // couleur ne se lit pas : un lecteur d'écran entendait les noms et les coûts
+    // sans savoir ce qui est fait, en cours ou attendu. (relevé par Copilot)
+    monter(['audio'])
+    expect(screen.getByTestId('etape-audio').textContent).toMatch(/terminée/i)
+    expect(screen.getByTestId('etape-transcript').textContent).toMatch(/en cours/i)
+    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/à venir/i)
+  })
+
   it('n’annonce pas les rendus, qui ne passent jamais par le graphe', () => {
     // Un rendu se demande par clip : le lanceur refuse `renders` comme cible.
     monter(['audio'])

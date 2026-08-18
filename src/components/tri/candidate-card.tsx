@@ -243,12 +243,19 @@ function Monter({
           <Film aria-hidden />
           Monter
         </Button>
+        {/* **Elle dit aussi ce que l'écran de clip permet déjà**, sans quoi le
+            titre de la carte — qui reste un lien vivant — a l'air de contourner
+            un blocage. C'est le montage qui attend le proxy, pas l'écran : les
+            textes de publication s'écrivent sans lui, et la conception en fait
+            un livrable du produit plutôt qu'un lot de consolation.
+            (relevé par Copilot) */}
         <p
           id={raison}
           data-testid="raison-monter"
           className="mt-1 text-xs text-muted-foreground"
         >
-          Le montage s’ouvrira avec le proxy, en cours d’encodage.
+          Le montage s’ouvrira avec le proxy, en cours d’encodage. Le titre et la
+          description du clip s’écrivent déjà.
         </p>
       </div>
     )

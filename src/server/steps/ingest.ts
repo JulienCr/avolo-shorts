@@ -352,6 +352,16 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  * manquante. Réévaluée à chaque fichier, la liste voit les exécutions arrivées
  * entre-temps. Elle rend `null` quand on n'a pas pu savoir : on épargne alors
  * plutôt que d'effacer à l'aveugle. (relevé par Codex)
+ *
+ * **Et le dernier contrôle est collé à l'effacement, sans point d'attente entre
+ * les deux.** Relire `keep` avant le `lstat` ne suffisait pas : l'`await` qui
+ * les sépare rend la main, et une exécution démarrée là constatait sa copie
+ * présente puis la perdait avant d'ouvrir le fichier. Le contrôle final et le
+ * `rmSync` sont synchrones et consécutifs — le fil unique de Node interdit alors
+ * qu'un `lancer` s'intercale, exactement comme il tient la réservation
+ * d'`enCours`. C'est aussi pourquoi l'effacement est synchrone : ce n'est qu'un
+ * `unlink`, une opération de métadonnées, et rien n'y est copié.
+ * (relevé par Copilot)
  */
 export async function cleanStage(
   options: {
@@ -371,23 +381,38 @@ export async function cleanStage(
     return []
   }
 
+  /**
+   * Ce fichier est-il à épargner ? **Synchrone**, et c'est ce qui compte :
+   * appelée juste avant le `rmSync`, elle ne laisse aucun point d'attente où un
+   * `lancer` pourrait s'intercaler.
+   *
+   * `null` veut dire « on n'a pas pu savoir », donc « on épargne » : c'est le
+   * cas d'une base refermée par l'arrêt du serveur pendant le balayage.
+   */
+  const isSpared = (candidate: string): boolean => {
+    if (copiesInFlight.has(candidate)) return true
+    const kept = options.keep?.()
+    if (kept === null) return true
+    return kept !== undefined && new Set(kept).has(candidate)
+  }
+
   const removed: string[] = []
   for (const name of names) {
     const filePath = path.join(dir, name)
-    if (copiesInFlight.has(filePath)) continue
-    // **`keep` est appelé dans le `try`**, et pas au-dessus : c'est du code
-    // de l'appelant, et une exception qui en sortirait ferait rejeter un
-    // nettoyage dont ce commentaire annonce trois lignes plus haut qu'il
-    // n'échoue jamais. Ici elle vaut « on ne sait pas », donc « on épargne ».
+    // **`isSpared` est appelé dans le `try`**, et pas au-dessus : `keep` est du
+    // code de l'appelant, et une exception qui en sortirait ferait rejeter un
+    // nettoyage dont ce commentaire annonce plus haut qu'il n'échoue jamais.
     try {
-      const kept = options.keep?.()
-      if (kept === null) continue
-      if (kept !== undefined && new Set(kept).has(filePath)) continue
+      // Un premier contrôle avant le `lstat`, pour ne pas sonder inutilement.
+      if (isSpared(filePath)) continue
       // `lstat` : un lien symbolique n'est pas une copie de travail, et le
       // suivre ferait effacer ce qu'il désigne.
       const stat = await fsp.lstat(filePath)
       if (!stat.isFile() || stat.mtimeMs > cutoff) continue
-      await fsp.rm(filePath, { force: true })
+      // Le second, collé à l'effacement. Rien entre les deux : pas d'`await`,
+      // pas d'appel qui pourrait en cacher un.
+      if (isSpared(filePath)) continue
+      fs.rmSync(filePath, { force: true })
       removed.push(name)
     } catch {
       // Un fichier disparu entre le `readdir` et le `lstat`, une permission

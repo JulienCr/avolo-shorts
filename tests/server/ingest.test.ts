@@ -298,6 +298,29 @@ describe('nettoyerStage', () => {
     expect(await cleanStage({ keep: () => null })).toEqual([])
   })
 
+  /**
+   * **Le dernier contrôle est postérieur au sondage du fichier, pas antérieur.**
+   * Relire `keep` avant le `lstat` ne suffisait pas : l'`await` qui les sépare
+   * rend la main, et une exécution démarrée là constatait sa copie présente puis
+   * la perdait. Ce test l'exerce par le seul moyen observable — une liste qui
+   * change entre les deux appels. (relevé par Copilot)
+   */
+  it('relit la liste après avoir sondé le fichier, pas seulement avant', async () => {
+    const cible = poser('a.mp4', STAGE_TTL_MS * 2)
+    let appels = 0
+    const retirés = await cleanStage({
+      keep: () => {
+        appels += 1
+        // Rien à épargner au premier appel, la cible au second : sans le
+        // contrôle d'après-sondage, le fichier serait effacé.
+        return appels === 1 ? [] : [cible]
+      },
+    })
+    expect(appels).toBeGreaterThanOrEqual(2)
+    expect(retirés).toEqual([])
+    expect(fs.existsSync(cible)).toBe(true)
+  })
+
   /** Même chose quand elle lève : le nettoyage ne s'arrête pas, il s'abstient. */
   it('n’échoue pas quand la liste des copies en usage lève', async () => {
     const survivant = poser('a.mp4', STAGE_TTL_MS * 2)

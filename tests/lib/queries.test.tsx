@@ -80,6 +80,23 @@ describe('useExporter', () => {
     expect(invalide).toHaveBeenCalledWith({ queryKey: cles.clip('c1') })
   })
 
+  it('invalide aussi les listes de candidats, que le statut alimente', async () => {
+    // Un export pose `exported`, et ce statut vit dans la même liste que les
+    // comptes du fil de tri, la phase du projet et le clip suivant à monter.
+    // Sans cette invalidation, la carte reste sur « gardé » tant que la liste
+    // est en cache. Par préfixe, faute de connaître le projet ici — et une
+    // liste inactive ne se recharge pas, elle est seulement marquée périmée.
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(exportComplet)))
+    const { invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate({ clipId: 'c1' })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.tousCandidats })
+  })
+
   it('traite `skipped: true` comme un succès', async () => {
     // C'est la réponse la plus fréquente dès qu'on rouvre un clip déjà exporté :
     // rien n'a été refait, tout est en place. La traiter comme une erreur ferait
@@ -176,5 +193,15 @@ describe('useCreerProjet', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('le dossier des replays n’est pas monté')
     expect(invalide).not.toHaveBeenCalled()
+  })
+})
+
+describe('les clés', () => {
+  it('range chaque liste de candidats sous le préfixe commun', () => {
+    // L'invalidation par préfixe de `useExporter` n'est correcte que tant que
+    // les deux ne divergent pas : c'est cette ligne qui les tient ensemble.
+    expect(cles.candidats('p1').slice(0, cles.tousCandidats.length)).toEqual([
+      ...cles.tousCandidats,
+    ])
   })
 })

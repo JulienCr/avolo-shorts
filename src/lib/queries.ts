@@ -31,6 +31,15 @@ export const cles = {
   projets: ['projets'] as const,
   projet: (projectId: string) => ['projet', projectId] as const,
   candidats: (projectId: string) => ['candidats', projectId] as const,
+  /**
+   * Le préfixe de **toutes** les listes de candidats, pour les invalider sans
+   * connaître le projet. TanStack apparie par préfixe : une clé plus courte
+   * couvre toutes celles qui commencent par elle.
+   *
+   * Un test tient les deux ensemble — une divergence rendrait l'invalidation
+   * silencieusement sans effet, ce qui est le pire des deux mondes.
+   */
+  tousCandidats: ['candidats'] as const,
   clip: (clipId: string) => ['clip', clipId] as const,
 }
 
@@ -325,12 +334,19 @@ export function usePatchClip() {
  * un bouton muet pendant une minute passe pour cassé. `isPending` est donc la
  * surface d'attente de l'écran d'export, pas un détail d'implémentation.
  *
- * **Le clip s'invalide après coup, et c'est toute la règle de fraîcheur ici.**
- * `ExportResult` rend des **noms de fichiers** — publier les chemins absolus du
- * serveur exposerait l'arborescence de la machine — alors que ce sont les
- * `ClipOutputs` de `GET /api/clips/:id` qui portent les URL lisibles par un
+ * **Le clip s'invalide après coup**, et c'est la première des deux règles de
+ * fraîcheur. `ExportResult` rend des **noms de fichiers** — publier les chemins
+ * absolus du serveur exposerait l'arborescence de la machine — alors que ce sont
+ * les `ClipOutputs` de `GET /api/clips/:id` qui portent les URL lisibles par un
  * `<video>` ou un `<a>`. Adopter la réponse dans le cache laisserait donc les
  * sorties telles qu'elles étaient avant le rendu.
+ *
+ * **Les listes de candidats aussi**, et c'est la seconde. Le rendu pose
+ * `exported`, et ce statut vit dans la même liste que le compte des gardés, la
+ * phase du projet et le clip suivant à monter : sans cela la carte resterait sur
+ * « gardé » tant que la liste est en cache. Par préfixe, faute de connaître le
+ * projet ici — une liste inactive n'est alors pas rechargée, seulement marquée
+ * périmée. (relevé par Copilot)
  *
  * **`skipped: true` est un cas nominal**, et le plus fréquent quand on rouvre un
  * clip déjà exporté : rien n'a été refait, tout est en place. Le traiter comme
@@ -349,6 +365,7 @@ export function useExporter() {
       exportClip(clipId, force),
     onSuccess(_resultat, { clipId }) {
       void client.invalidateQueries({ queryKey: cles.clip(clipId) })
+      void client.invalidateQueries({ queryKey: cles.tousCandidats })
     },
   })
 }

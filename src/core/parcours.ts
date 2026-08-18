@@ -187,11 +187,12 @@ export const LIBELLES_ETAPES: Record<StepName, string> = {
 /**
  * Les étapes dans leur ordre d'exécution attendu.
  *
- * **L'ordre n'est pas décoratif** : `CIBLES_INITIALES = ['candidates', 'proxy']`
- * (`src/server/run.ts`) et `planPourCibles` déroule donc audio, transcript,
- * candidats, **puis** proxy. Les candidats arrivent avant les images, et c'est
- * ce fait-là — pas une durée — qui fait exister l'état « triable mais pas
- * montable ». `analysis` vient après le proxy, dont elle dépend.
+ * **L'ordre n'est pas décoratif** :
+ * `CIBLES_INITIALES = ['candidates', 'proxy', 'analysis']` (`src/server/run.ts`)
+ * et `planPourCibles` déroule donc audio, transcript, candidats, **puis** proxy,
+ * puis l'analyse d'image qui en dépend. Les candidats arrivent avant les images,
+ * et c'est ce fait-là — pas une durée — qui fait exister l'état « triable mais
+ * pas montable ».
  *
  * **`renders` n'y est pas.** Un rendu se demande par clip
  * (`POST /api/clips/:id/export`), jamais par le graphe : le lanceur refuse

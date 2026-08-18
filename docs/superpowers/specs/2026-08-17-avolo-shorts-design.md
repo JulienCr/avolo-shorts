@@ -316,13 +316,27 @@ Replay/
 projects/2026-03-08-caro-mdlm/
   source.json          chemin vers l'original, jamais copié
   proxy.mp4            960x540 à 30 fps, keyframe toutes les 1 s, environ 1,4 Go
-  shots.json           frontières de plans
-  people.json          boîtes de personnes échantillonnées
+  analysis.json  frontières de plans, boîtes de personnes et dimensions de la source
   audio.json           musique, silences, événements
   candidates.json      les propositions, par passe
+  status.json          l'état d'exécution
   clips/               les EDL
   renders/             les MP4 produits
 ```
+
+**Un seul fichier pour les plans et les personnes.** Cette liste a longtemps
+porté `shots.json` et `people.json` ; l'analyse en écrit un seul,
+`analysis.json`, et l'étape qui le produit s'appelle `analysis`. Les deux mesures
+sortent de la même passe sur le même proxy, donc les séparer ferait deux
+écritures à tenir d'accord pour un fichier qu'on relit toujours entier. Il porte
+aussi les dimensions de la source, sans lesquelles le rendu ne sait pas à quoi
+les fractions se rapportent. L'argument qui plaçait `shots.json` dans le projet
+vaut inchangé : le seuil de détection se règle, et ce qui se règle vit là où on
+le règle.
+
+`status.json` est écrit par `écrireStatut` (`src/server/run.ts`) et porte l'état
+d'exécution. Il est arrivé après cette liste, et tout le suivi d'avancement en
+dépend.
 
 Le transcript est une propriété du fichier vidéo, pas un paramètre de projet. Le
 poser à côté de la source le fait survivre à la suppression du projet, le rend
@@ -337,12 +351,10 @@ redirection passe par `--output-dir`. Le sidecar tient sur ses propres raisons,
 il n'a pas de précédent maison.
 
 Le proxy reste dans le projet : 1,4 Go par émission n'ont rien à faire sur un
-Drive partagé. `people.json` aussi, parce qu'il dépend du détecteur et du taux
-d'échantillonnage.
-
-`shots.json` reste également dans le projet, alors qu'un changement de plan est
-un fait de la vidéo. La raison est pratique et l'emporte : le seuil de détection
-demandera des réglages, et ce qui se règle doit vivre là où on le règle.
+Drive partagé. `analysis.json` aussi, parce qu'il dépend du détecteur et du taux
+d'échantillonnage — et il y reste alors même qu'un changement de plan est un fait
+de la vidéo, pour la raison pratique déjà dite : le seuil de détection demande
+des réglages, et ce qui se règle vit là où on le règle.
 
 **Le proxy est en 960x540 plutôt qu'en 640x360.** Un sujet occupant 6 % de la
 largeur ne fait que 38 px sur un proxy 640, ce qui est mince pour YOLO ; à 960 il

@@ -922,10 +922,10 @@ export async function runCandidates(
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
   //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
   //    traitées et écrirait l'artefact. (relevé par Copilot)
-  // Lus **avant** le détail, et non plus juste avant la fusion : le plafond
-  // absolu doit savoir quels identifiants sont déjà pris pour ne pas les
-  // compter dans son quota. `mergeCandidates` relit la même liste plus bas.
-  const existants = getClips(db, projectId)
+  // Un instantané **pour le seul plafond**, pris avant l'appel réseau parce que
+  // c'est là que la cible se décide. Il ne sert à rien d'autre : voir la
+  // relecture juste après le détail, et pourquoi elle n'est pas facultative.
+  const avantDétail = getClips(db, projectId)
   const propositions = await détailler(retenues, {
     projectId,
     transcript,
@@ -934,12 +934,22 @@ export async function runCandidates(
     minClips,
     maxClips,
     plafondAbsolu: réglages.clipsMaximum,
-    idsPris: new Set(existants.filter((c) => c.status !== 'candidate').map((c) => c.id)),
+    idsPris: new Set(avantDétail.filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
     sleep,
   })
 
   // 5. La fusion des passes, puis l'écriture.
+  //
+  // **Relu ici, après l'attente réseau, et jamais avant.** `PATCH
+  // /api/clips/:id` reste ouverte pendant qu'une exécution de fond tourne : une
+  // décision prise pendant les appels de détail — garder, écarter, éditer — ne
+  // figure pas dans un instantané pris avant eux. Fusionner sur cet instantané
+  // reviendrait à traiter le clip décidé comme un candidat, et `replaceClips`
+  // effacerait ensuite la décision. C'est très exactement la garantie « une
+  // nouvelle passe n'écrase jamais un travail humain » (spec §5), qu'une lecture
+  // hissée trop haut suffisait à défaire. (relevé par Codex et Copilot)
+  const existants = getClips(db, projectId)
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
   const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)

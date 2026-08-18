@@ -508,6 +508,32 @@ describe("l'étape de repérage", () => {
   })
 
   /**
+   * `PATCH /api/clips/:id` reste ouverte pendant qu'une exécution de fond
+   * tourne, et la passe de détail dure. Une décision prise **pendant** l'appel
+   * réseau doit survivre : lire les clips avant cet appel puis fusionner sur cet
+   * instantané traiterait le clip décidé comme un candidat, et `replaceClips`
+   * effacerait la décision. C'est la garantie « une nouvelle passe n'écrase
+   * jamais un travail humain » (spec §5). (relevé par Codex et Copilot)
+   */
+  it('ne perd pas une décision humaine prise pendant la passe de détail', async () => {
+    // Passe 1 : deux candidats.
+    await runCandidates(ID, { db, appel: modèle([]), sleep: async () => {} })
+    const [premier] = getClips(db, ID)
+    expect(premier.status).toBe('candidate')
+
+    // Passe 2 : quelqu'un garde le premier clip pendant que le détail tourne.
+    const pendant: AppelGemini = async (prompt, mode) => {
+      if (mode === 'detail') putClip(db, { ...premier, status: 'kept', title: 'gardé à la main' })
+      return modèle([])(prompt, mode)
+    }
+    await runCandidates(ID, { db, appel: pendant, sleep: async () => {} })
+
+    const après = getClips(db, ID).find((c) => c.id === premier.id)
+    expect(après?.status).toBe('kept')
+    expect(après?.title).toBe('gardé à la main')
+  })
+
+  /**
    * Le plafond absolu doit survivre au trajet jusqu'au prompt. Il se perdait
    * dans la passe de détail, sans même de découpe : un `Math.max(min + 1, …)`
    * relevait la borne haute d'un cran après que `clipCountTargets` l'eut posée.

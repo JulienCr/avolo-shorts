@@ -62,7 +62,7 @@ export function FinDeBoucle({
       <h2 className="text-sm font-medium">Tout est trié.</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         {accord(gardes.length, 'clip gardé', 'clips gardés')}, {formatDuration(dureeGardee)} au
-        total. {accord(montes, 'est monté', 'sont montés')}.
+        total. {avancementDuMontage(montes, gardes.length)}
       </p>
 
       <Progress
@@ -90,6 +90,19 @@ export function FinDeBoucle({
       </ul>
     </section>
   )
+}
+
+/**
+ * Où en est le montage des clips gardés.
+ *
+ * Trois formes plutôt qu'un `accord` unique : « 0 est monté » se lit mal, et
+ * c'est la phrase la plus regardée du parcours — celle qui dit ce qu'il reste à
+ * faire une fois le tri fini.
+ */
+function avancementDuMontage(montes: number, gardes: number): string {
+  if (montes === 0) return 'Aucun n’est encore monté.'
+  if (montes >= gardes) return 'Tous sont montés.'
+  return `${montes} sur ${gardes} ${montes === 1 ? 'est monté' : 'sont montés'}.`
 }
 
 /**

@@ -384,6 +384,24 @@ describe('la fin de la boucle', () => {
     expect(screen.getByRole('link', { name: /Extrait 1/ })).toBeTruthy()
   })
 
+  it('dit l’avancement du montage en français, aux trois bornes', () => {
+    // « 0 est monté » se lit mal, et c'est la phrase la plus regardée du
+    // parcours : c'est celle qui dit ce qu'il reste à faire une fois le tri
+    // fini.
+    // Trois montages distincts : `cleanup` démonte tout, donc un `rerender`
+    // derrière lui ne rendrait plus rien.
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'kept')]} />)
+    expect(screen.getByText(/aucun n’est encore monté/i)).toBeTruthy()
+
+    cleanup()
+    render(<Harnais depart={[candidat(1, 'exported'), candidat(2, 'kept')]} />)
+    expect(screen.getByText(/1 sur 2 est monté/i)).toBeTruthy()
+
+    cleanup()
+    render(<Harnais depart={[candidat(1, 'exported'), candidat(2, 'exported')]} />)
+    expect(screen.getByText(/tous sont montés/i)).toBeTruthy()
+  })
+
   it('distingue « tout a été écarté » de « des gardés restent à monter »', () => {
     // `suite` ne sépare pas les deux : les deux tombent sur `travail: 'trie'`.
     // C'est l'écran qui tient la liste, donc c'est à lui de le dire.

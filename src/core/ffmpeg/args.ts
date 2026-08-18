@@ -484,7 +484,20 @@ export function blurredVariantArgs(o: RenderOptions): string[] {
  * pose dessus. Le natif n'y passe jamais — son cadre a le ratio du canevas — et
  * le graphe s'y réduit à `crop,scale,setsar`.
  */
-function construireLeRendu(o: RenderOptions, canevas: { w: number; h: number }): string[] {
+function construireLeRendu(
+  o: RenderOptions,
+  canevasDemandé: { w: number; h: number },
+): string[] {
+  // **Le canevas se contrôle avant d'entrer dans le graphe.** TypeScript garantit
+  // `number` à la compilation et rien à l'exécution : `out` vient de la base par
+  // l'intermédiaire d'un ratio, et un `Infinity` sortirait en `scale=Infinity:1920`
+  // sans que rien ne le nomme. Il ne sert plus à composer la chaîne d'échelle,
+  // qui passe désormais par `tailleDansLeCanevas` — d'où la garde explicite, que
+  // ce détour avait fait disparaître.
+  const canevas = {
+    w: Number(nombre(canevasDemandé.w, 'out.w')),
+    h: Number(nombre(canevasDemandé.h, 'out.h')),
+  }
   // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
   // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
   // disparaîtrait et un clip de trois entrées en rendrait deux sans un mot —, et

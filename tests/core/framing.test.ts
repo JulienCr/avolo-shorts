@@ -10,6 +10,7 @@ import {
   ratioCoverage,
   requiredWidths,
   resolveRatio,
+  tailleDansLeCanevas,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
 import type { PersonBox, Shot } from '@/core/shots'
@@ -348,17 +349,17 @@ describe('chooseRatio', () => {
   const sansMarge = { margin: 0 }
 
   it('retient le plus petit ratio qui couvre', () => {
-    expect(chooseRatio([fixe(0.35, 0.65)], SRC_W, SRC_H, sansMarge)).toBe('9:16')
-    expect(chooseRatio([fixe(0.3, 0.7)], SRC_W, SRC_H, sansMarge)).toBe('4:5')
-    expect(chooseRatio([fixe(0.25, 0.75)], SRC_W, SRC_H, sansMarge)).toBe('1:1')
-    expect(chooseRatio([fixe(0.1, 0.9)], SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    expect(chooseRatio(fixe(0.35, 0.65), SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(fixe(0.3, 0.7), SRC_W, SRC_H, sansMarge)).toBe('4:5')
+    expect(chooseRatio(fixe(0.25, 0.75), SRC_W, SRC_H, sansMarge)).toBe('1:1')
+    expect(chooseRatio(fixe(0.1, 0.9), SRC_W, SRC_H, sansMarge)).toBe('16:9')
   })
 
   it('couvre pile la largeur mesurée, sans marge supplémentaire', () => {
     const w = ratioCoverage('9:16', SRC_W, SRC_H)
-    expect(chooseRatio([fixe(0.5 - w / 2, 0.5 + w / 2)], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(fixe(0.5 - w / 2, 0.5 + w / 2), SRC_W, SRC_H, sansMarge)).toBe('9:16')
     expect(
-      chooseRatio([fixe(0.5 - w / 2 - 1e-4, 0.5 + w / 2 + 1e-4)], SRC_W, SRC_H, sansMarge),
+      chooseRatio(fixe(0.5 - w / 2 - 1e-4, 0.5 + w / 2 + 1e-4), SRC_W, SRC_H, sansMarge),
     ).toBe('4:5')
   })
 
@@ -366,7 +367,7 @@ describe('chooseRatio', () => {
   // sur vingt où quelqu'un traverse ne condamnent pas le clip au 16:9.
   it('absorbe une traversée que le maximum aurait payée en 16:9', () => {
     const plan = [...échantillon(0, 9, [[0.35, 0.65]]), ...échantillon(9, 10, [[0.02, 0.98]])]
-    expect(chooseRatio([plan], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(plan, SRC_W, SRC_H, sansMarge)).toBe('9:16')
     expect(Math.max(...requiredWidths(plan, sansMarge))).toBeGreaterThan(
       ratioCoverage('1:1', SRC_W, SRC_H),
     )
@@ -374,7 +375,7 @@ describe('chooseRatio', () => {
 
   it('cède quand plus de 10 % des images débordent', () => {
     const plan = [...échantillon(0, 7.5, [[0.35, 0.65]]), ...échantillon(7.5, 10, [[0.02, 0.98]])]
-    expect(chooseRatio([plan], SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    expect(chooseRatio(plan, SRC_W, SRC_H, sansMarge)).toBe('16:9')
   })
 
   // Ce qu'une largeur par image ne peut pas voir, et que la première version de
@@ -393,15 +394,19 @@ describe('chooseRatio', () => {
     expect(Math.max(...requiredWidths(traversée, sansMarge))).toBeLessThan(
       ratioCoverage('9:16', SRC_W, SRC_H),
     )
-    expect(chooseRatio([traversée], SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    expect(chooseRatio(traversée, SRC_W, SRC_H, sansMarge)).toBe('16:9')
   })
 
   // Le pendant, sans lequel le précédent inviterait à sur-corriger : entre deux
-  // plans le crop a le droit de sauter, puisqu'une coupe existe déjà là.
+  // plans le crop a le droit de sauter, puisqu'une coupe existe déjà là. Chaque
+  // plan choisit désormais **son** ratio, donc les deux moitiés de cette
+  // traversée sortent chacune en 9:16 au lieu de se tirer l'une l'autre vers le
+  // haut.
   it('ne fait pas monter le ratio quand le déplacement est entre deux plans', () => {
     const gauche = échantillon(0, 5, [[0.05, 0.25]])
     const droite = échantillon(5, 10, [[0.75, 0.95]])
-    expect(chooseRatio([gauche, droite], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(gauche, SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(droite, SRC_W, SRC_H, sansMarge)).toBe('9:16')
   })
 
   // Aucune mesure : on ne sait rien de l'endroit où sont les gens. Le 16:9 est
@@ -410,7 +415,6 @@ describe('chooseRatio', () => {
   // comédiens sans que rien ne le signale.
   it('sans aucune mesure, prend le ratio le plus large plutôt que de couper à l’aveugle', () => {
     expect(chooseRatio([], SRC_W, SRC_H)).toBe('16:9')
-    expect(chooseRatio([[], []], SRC_W, SRC_H)).toBe('16:9')
   })
 })
 
@@ -853,14 +857,14 @@ describe('le premier plan écarté du cadrage', () => {
   // plus large, c'est-à-dire à rien.
   it('fait descendre le ratio du 16:9 au 9:16', () => {
     const boîtes = surDix(true)
-    expect(chooseRatio([boîtes], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
-    expect(chooseRatio([boîtes], SRC_W, SRC_H)).toBe('9:16')
+    expect(chooseRatio(boîtes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
+    expect(chooseRatio(boîtes, SRC_W, SRC_H)).toBe('9:16')
   })
 
   it('ne change rien à une émission sans public au cadre', () => {
     const boîtes = surDix(false)
-    expect(chooseRatio([boîtes], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe(
-      chooseRatio([boîtes], SRC_W, SRC_H),
+    expect(chooseRatio(boîtes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe(
+      chooseRatio(boîtes, SRC_W, SRC_H),
     )
   })
 
@@ -880,8 +884,8 @@ describe('le premier plan écarté du cadrage', () => {
    */
   it('rend le ratio le plus large quand il ne reste plus rien à mesurer', () => {
     const poisson: PersonBox[] = [{ t: 1, x0: 0, x1: 0.29, y0: 0.74, y1: 0.998, score: 0.57 }]
-    expect(chooseRatio([poisson], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('9:16')
-    expect(chooseRatio([poisson], SRC_W, SRC_H)).toBe('16:9')
+    expect(chooseRatio(poisson, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('9:16')
+    expect(chooseRatio(poisson, SRC_W, SRC_H)).toBe('16:9')
   })
 
   it('traverse computeFraming : le réglage passe de la requête aux empans', () => {
@@ -939,5 +943,119 @@ describe('le premier plan écarté du cadrage', () => {
     // le milieu de l'action, qu'ils occupent symétriquement.
     expect(sansFiltre).toBeCloseTo(0.315, 3)
     expect(avecFiltre).toBeCloseTo(0.5, 3)
+  })
+})
+
+describe('tailleDansLeCanevas', () => {
+  const VERTICAL = { w: 1080, h: 1920 }
+
+  // La table de la conception : ce qu'un cadre occupe du canevas vertical.
+  it('donne la place de chaque ratio dans le canevas 9:16', () => {
+    expect(tailleDansLeCanevas('9:16', VERTICAL)).toEqual({ w: 1080, h: 1920 })
+    expect(tailleDansLeCanevas('4:5', VERTICAL)).toEqual({ w: 1080, h: 1350 })
+    expect(tailleDansLeCanevas('1:1', VERTICAL)).toEqual({ w: 1080, h: 1080 })
+    expect(tailleDansLeCanevas('16:9', VERTICAL)).toEqual({ w: 1080, h: 608 })
+  })
+
+  // Les parts annoncées : 100 %, 70,3 %, 56,3 %, 31,6 % de la hauteur. Comparées
+  // à la part **nominale** et non au chiffre arrondi de la table : 608 pixels
+  // sur 1920 font 31,67 % et non 31,6 %, parce que la hauteur est arrondie au
+  // pair — ce que libx264 exige. L'écart est de deux dixièmes de pixel.
+  it('retrouve les parts de hauteur de la conception', () => {
+    for (const r of TOUS) {
+      expect(tailleDansLeCanevas(r, VERTICAL).h / VERTICAL.h).toBeCloseTo(
+        RATIOS['9:16'] / RATIOS[r],
+        3,
+      )
+    }
+  })
+
+  // libx264 refuse une dimension impaire en yuv420p. 1080 / (16/9) vaut 607,5,
+  // et c'est le seul des quatre qui ne tombe pas juste.
+  it('rend toujours une hauteur paire', () => {
+    for (const r of TOUS) expect(tailleDansLeCanevas(r, VERTICAL).h % 2).toBe(0)
+  })
+
+  // Dans son propre canevas, un cadre remplit — c'est ce qui fait que le rendu
+  // natif ne compose jamais de fond flouté, et que la même fonction sert des
+  // deux côtés.
+  it('remplit le canevas qui a son propre ratio', () => {
+    for (const r of TOUS) {
+      const canevas = outputSize(r)
+      expect(tailleDansLeCanevas(r, canevas).h).toBe(canevas.h)
+    }
+  })
+})
+
+describe('le ratio par plan', () => {
+  // Deux plans très différents : l'un serré à gauche, l'autre large au centre.
+  // Un ratio unique pour le clip écraserait le premier sous le second — c'est
+  // exactement ce que le modèle par plan évite.
+  const SERRÉ = échantillon(0, 10, [[0.05, 0.2]])
+  const LARGE = échantillon(10, 20, [[0.3, 0.8]])
+  const deux = {
+    ...base,
+    people: [...SERRÉ, ...LARGE],
+    // La marge est posée à zéro : ce bloc mesure le choix du ratio, pas l'air
+    // laissé autour des gens, et laisser le défaut ferait bouger les nombres au
+    // prochain réglage de `margin`.
+    margin: 0,
+  }
+
+  it('donne à chaque plan le cadre le plus serré qui tienne chez lui', () => {
+    const cadrage = computeFraming(deux)
+    expect(cadrage.shots.map((p) => p.ratio)).toEqual(['9:16', '1:1'])
+  })
+
+  // Le natif, celui du feed, garde **un seul** ratio : une vidéo dont les bandes
+  // latérales apparaîtraient et disparaîtraient au fil des plans serait le
+  // défaut que le fond flouté existe pour éviter.
+  it('prend le plus large des plans pour le fichier natif', () => {
+    expect(computeFraming(deux).ratio).toBe('1:1')
+  })
+
+  // **Deux positions, et elles diffèrent.** Une position optimisée pour un 9:16
+  // posée dans une fenêtre 1:1 n'est pas fausse — elle est bornée dans l'image —
+  // mais elle n'est plus celle qui cadre le plus d'images, et rien ne le dirait.
+  it('calcule une position par fenêtre, celle du plan et celle du natif', () => {
+    const [serré, large] = computeFraming(deux).shots
+    // Le plan serré, dans sa fenêtre 9:16 : collé à la butée gauche.
+    expect(serré.cropX).toBeCloseTo(ratioCoverage('9:16', SRC_W, SRC_H) / 2, 6)
+    // Le même plan, dans la fenêtre 1:1 du natif : la butée est plus loin.
+    expect(serré.cropXNatif).toBeCloseTo(ratioCoverage('1:1', SRC_W, SRC_H) / 2, 6)
+    expect(serré.cropXNatif).toBeGreaterThan(serré.cropX)
+    // Le plan large est déjà au ratio du natif : les deux coïncident.
+    expect(large.ratio).toBe('1:1')
+    expect(large.cropXNatif).toBeCloseTo(large.cropX, 10)
+  })
+
+  // Un ratio épinglé est une contrainte sur le **cadre**, pas sur le format du
+  // fichier : il vaut pour tous les plans, et les deux positions coïncident.
+  it('épinglé, le ratio vaut pour tous les plans et les deux positions se rejoignent', () => {
+    const cadrage = computeFraming({ ...deux, ratio: '4:5' })
+    expect(cadrage.ratio).toBe('4:5')
+    for (const p of cadrage.shots) {
+      expect(p.ratio).toBe('4:5')
+      expect(p.cropXNatif).toBeCloseTo(p.cropX, 10)
+    }
+  })
+
+  // Sans plan du tout, le ratio natif est le plus large — la même réponse que
+  // `chooseRatio` quand il ne mesure rien : une sortie visiblement large se
+  // rattrape d'un clic, un 9:16 aveugle coupe les comédiens sans un mot.
+  it('sans aucun plan, prend le ratio le plus large pour le natif', () => {
+    const cadrage = computeFraming({ ...base, shots: [], segments: [seg(0, 20)] })
+    expect(cadrage.shots).toHaveLength(0)
+    expect(cadrage.ratio).toBe('16:9')
+  })
+
+  // Une dérogation est une intention humaine sur *où regarder*, pas sur une
+  // fenêtre : la poser d'un seul côté ferait diverger le natif et la variante
+  // sur un plan que quelqu'un a cadré exprès, et l'écart ne se verrait qu'en
+  // comparant deux fichiers.
+  it('une dérogation écrit les deux positions', () => {
+    const cadrage = computeFraming({ ...deux, cropMode: 'manual', crops: { 0: 0.42 } })
+    expect(cadrage.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNatif: 0.42 })
+    expect(cadrage.shots[1].source).toBe('auto')
   })
 })

@@ -783,10 +783,17 @@ export function computeFraming(req: FramingRequest): ClipFraming {
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
   // court — la même réponse que `chooseRatio` quand il ne mesure rien.
+  // **Sans aucun plan, le plus large**, et pas le plus étroit qu'un accumulateur
+  // partant du bas rendrait : on ne sait rien de l'endroit où sont les gens, et
+  // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
+  // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
+  // comédiens sans que rien ne le signale.
   const ratioNatif =
     req.ratio !== 'auto'
       ? req.ratio
-      : ratiosDesPlans.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), LE_PLUS_ÉTROIT)
+      : ratiosDesPlans.length === 0
+        ? LE_PLUS_LARGE
+        : ratiosDesPlans.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), LE_PLUS_ÉTROIT)
   const largeurNative = ratioCoverage(ratioNatif, req.srcW, req.srcH)
 
   const shots: ShotFraming[] = plans.map((plan, i) => {

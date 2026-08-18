@@ -12,7 +12,6 @@ import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
 import type {
   CandidateClip,
   ClipDetail,
@@ -24,7 +23,13 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
-import { cheminsRendu, empreinteDuRendu } from '@/server/steps/render'
+import { cadrageDuClip, oublierLesAnalyses } from '@/server/cadrage'
+import {
+  cadrageRendu,
+  cheminsRendu,
+  empreinteDuRendu,
+  formeRendue,
+} from '@/server/steps/render'
 import { lancer, lireStatut, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
@@ -110,13 +115,18 @@ function poserRendus(...noms: string[]): void {
  * qui l'appellent cherchent à éprouver.
  */
 function poserEmpreinte(clip: Clip, marques: string[] = []): void {
-  const chemin = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)).empreinte
+  // **Le cadrage résolu**, comme `renderClip` l'écrit et comme `sortiesDuClip`
+  // le relit : ces tests ne posent pas d'`analysis.json`, donc c'est le repli sur
+  // le réglage manuel du clip. Le recalculer plutôt que de l'écrire à la main est
+  // ce qui fait que l'empreinte posée ici décrit bien le clip qu'on lui donne.
+  const cadrage = cadrageDuClip(clip)
+  const chemin = cheminsRendu(clip.projectId, clip.id, cadrage.ratio).empreinte
   fs.mkdirSync(path.dirname(chemin), { recursive: true })
   fs.writeFileSync(
     chemin,
     JSON.stringify(
       empreinteDuRendu(
-        clip,
+        formeRendue(clip, cadrageRendu(cadrage)),
         marques.map((nom) => ({
           path: nom,
           nativeW: 1000,
@@ -512,6 +522,29 @@ describe('GET /api/clips/:id', () => {
   })
 
   /**
+   * **Le cadrage résolu voyage avec le clip**, et c'est ce qui met le calcul en
+   * service côté écran. `computeFraming` a besoin des plans, des boîtes de
+   * personnes et des dimensions de la source ; `analysis.json` pèse deux à trois
+   * méga-octets par projet, et le navigateur n'a aucune raison de le charger
+   * pour dessiner un rectangle. Six appels y résolvaient « auto » eux-mêmes,
+   * en rendant 9:16 en dur.
+   */
+  it('publie le cadrage résolu à côté du clip', async () => {
+    putClip(getDb(), clipDeBase())
+
+    const détail = (await (
+      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    ).json()) as ClipDetail
+
+    // Aucune analyse sur ce projet : le repli, et il se nomme.
+    expect(détail.framing.origine).toBe('sans-analyse')
+    expect(détail.framing.ratio).toBe('9:16')
+    expect(détail.framing.shots).toHaveLength(1)
+    expect(détail.framing.shots[0]).toMatchObject({ ratio: '9:16', cropX: 0.5 })
+    expect(détail.framing.rejectedOverrides).toEqual([])
+  })
+
+  /**
    * Les sorties. Un clip qui affiche « exporté » et dont le fichier reste
    * inatteignable, c'est la chaîne coupée à son dernier mètre : l'écran de clip
    * n'a aucun moyen de savoir ce qui a été produit ni où le lire.
@@ -731,6 +764,53 @@ describe('GET /api/clips/:id/renders/:file', () => {
 })
 
 describe('PATCH /api/clips/:id', () => {
+  /**
+   * **Le point que rater coûterait le plus cher.** Le ratio et les crops se
+   * recalculent sur les segments courants et ne sont pas stockés : retirer un
+   * passage peut changer le cadre sous les doigts de celui qui monte. Si seul le
+   * `GET` publiait le cadrage, l'écran garderait un ratio périmé jusqu'à la
+   * prochaine navigation, et le montage mentirait sur ce que l'export produira.
+   */
+  it('renvoie le cadrage recalculé sur les segments écrits', async () => {
+    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', cropX: 0.5 })
+
+    const réponse = await patchClipRoute(
+      new Request('http://x', {
+        method: 'PATCH',
+        body: JSON.stringify({ segments: [{ start: 70, end: 80 }], cropX: 0.25 }),
+      }),
+      contexte(CLIP),
+    )
+    const résultat = (await réponse.json()) as PatchClipResult
+
+    // Le cadrage suit l'écriture, pas l'état d'avant : les bornes du plan de
+    // repli sont celles des segments qu'on vient d'écrire, et la position celle
+    // qu'on vient de poser.
+    expect(résultat.framing.shots[0].shot).toEqual({ start: 70, end: 80 })
+    expect(résultat.framing.shots[0].cropX).toBe(0.25)
+    expect(résultat.framing.ratio).toBe('1:1')
+  })
+
+  it('renvoie le cadrage même quand l’écriture a été écartée', async () => {
+    putClip(getDb(), clipDeBase())
+    const commun = { method: 'PATCH' as const }
+
+    await patchClipRoute(
+      new Request('http://x', { ...commun, body: JSON.stringify({ cropX: 0.8, seq: 20 }) }),
+      contexte(CLIP),
+    )
+    const réponse = await patchClipRoute(
+      new Request('http://x', { ...commun, body: JSON.stringify({ cropX: 0.1, seq: 10 }) }),
+      contexte(CLIP),
+    )
+    const résultat = (await réponse.json()) as PatchClipResult
+
+    expect(résultat.applied).toBe(false)
+    // Le cadrage décrit la base, pas l'intention refusée : c'est le seul qui
+    // permette à l'écran de se remettre d'accord.
+    expect(résultat.framing.shots[0].cropX).toBe(0.8)
+  })
+
   const patcher = (corps: unknown, id = CLIP): Promise<Response> =>
     patchClipRoute(
       new Request('http://x', {

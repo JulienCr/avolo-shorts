@@ -14,6 +14,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { EcranDeClip } from '@/components/clip/ecran-clip'
+import { cadrage, plan } from '../../fixtures/cadrage'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditeur } from '@/store/editor'
 import { useLecture } from '@/components/clip/lecture'
@@ -39,6 +40,7 @@ vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
 /** Le transcript servi avec le clip : le clip va de 100 à 120, le contexte de 0 à 200. */
 function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
   return {
+    framing: cadrage({ shots: [plan(0, 200, '1:1', 0.5)] }),
     clip: {
       id,
       projectId: 'p1',

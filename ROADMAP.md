@@ -554,7 +554,7 @@ plancher que documente `assets/brand/README.md`.
 **Elles ne sont versionnées nulle part, et c'est délibéré** : elles appartiennent
 à l'opérateur et ce dépôt est public. Elles n'ont donc survécu que par un
 checkout voisin, ce qui n'est pas une sauvegarde. Un worktree neuf naît sans
-elles ; `avolo-apercu` les y recopie comme il recopie le `.env`.
+elles ; `avolo-worktree` les y recopie comme il recopie le `.env`.
 
 **Le silence, lui, est fermé** : l'issue #37 est livrée. Un clip dont `branding`
 vaut `true` — la valeur par défaut de tout clip repéré — refuse de se rendre
@@ -589,7 +589,23 @@ vit dans `worker/venv` du checkout principal, et un worktree ne l'obtient que si
 `avolo-worktree` l'y lie sur demande. Chacun porte son propre `node_modules` — une vraie installation,
 jamais un lien, pour la raison écrite plus haut.
 
-Deux d'entre eux ne sont pas des worktrees d'agent : `apercu-feat-ui-*` sont
-créés détachés par `~/.local/bin/avolo-apercu`, qui sert une branche sur un
-serveur de développement sans la prendre à son agent. Ils se recyclent, ils ne se
-gardent pas.
+Ils sont désormais tous des worktrees d'agent : `~/.local/bin/avolo-apercu`
+n'en crée plus aucun. Il créait autrefois le sien, détaché sur la pointe de la
+branche, et servait cet instantané — qui ne bougeait plus jamais, et qui
+résolvait `origin` avant le local, donc arrivait déjà en retard : cinq commits
+le 19 août, sur une branche dont l'agent commitait plus vite qu'il ne poussait.
+
+**Il sert maintenant le dossier de l'agent lui-même.** Plus de copie, donc plus
+rien à tenir à jour, et le travail non commité se voit — ce qu'aucun instantané
+ne pouvait montrer, et ce qu'un suivi des seuls commits aurait raté. Le prix est
+qu'on voit aussi les états intermédiaires : mesuré le 19 août sur une branche en
+plein renommage de masse, l'aperçu a rendu 500 pendant dix secondes, puis s'est
+rétabli seul — sans un seul commit, juste l'agent qui finissait de recâbler ses
+imports. Une erreur de compilation dans un aperçu n'est donc pas une régression
+tant qu'on ne l'a pas vue survivre à quelques secondes.
+
+**Et il rejoint le serveur de l'agent quand celui-ci en a déjà un**, au lieu de
+buter sur le refus de Next d'en tenir deux depuis le même dossier. Les agents en
+lancent : trois tournaient le 19 août au soir. Le port se lit dans
+`.next/dev/lock`, mais son PID doit être éprouvé — ce fichier survit au serveur
+qu'il décrit, constaté sur un lock qui en annonçait un mort depuis une minute.

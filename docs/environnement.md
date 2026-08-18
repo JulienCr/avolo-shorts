@@ -324,6 +324,33 @@ Deux écarts avec le `run-wsl.sh`, qui écrit `…/cudnn/lib:${LD_LIBRARY_PATH}`
 `worker/requirements.txt` dit quoi installer sur une machine qui n'a pas ce
 venv — à ne pas lancer par réflexe sur celle-ci.
 
+## Le rendu : deux dossiers, et d'où ils sont lus
+
+`src/server/steps/render.ts` va chercher deux choses hors de `PROJECTS_DIR`, et
+les deux sont résolues **depuis le dossier de travail du processus**, comme
+`worker/transcribe.py` l'est déjà :
+
+| Dossier | Ce qu'il porte | S'il manque |
+|---|---|---|
+| `fonts/` | `Anton-Regular.ttf`, la police du preset de sous-titres | le rendu prévient et laisse libass prendre ce que fontconfig lui donne |
+| `assets/brand/` | `logo.png` et `twitch.png` | le clip se rend sans marque |
+
+Aucun des deux n'a de variable d'environnement : lancer depuis la racine du dépôt
+suffit, c'est ce que fait Next comme `pnpm tsx`. Le second est ignoré par git —
+les marques appartiennent à l'opérateur, et `assets/brand/README.md` dit quoi y
+déposer.
+
+Un clip produit **deux fichiers dès que son ratio n'est pas 9:16** : le format
+natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur fond
+flouté pour TikTok et Shorts. La variante part du rendu natif, dont le son est
+déjà normalisé, et le recopie sans le recomprimer.
+
+Mesuré le 18 août 2026 sur `2025-06-15-cqlp.mp4`, un clip de 43,2 s monté en
+trois segments et rendu en 1:1 : **10 s pour les deux sorties**, le natif et sa
+variante réunis. Un second clip du même projet, 29,4 s en deux segments et déjà
+en 9:16, donc sans variante : 4 s. Cette source est en 30 images par seconde ;
+les émissions en 60 fps coûtent le double.
+
 ## Le reste de la machine
 
 Ces points vivent dans `CLAUDE.md` et dans la spec, rappelés ici pour mémoire :

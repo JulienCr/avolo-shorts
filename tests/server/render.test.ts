@@ -441,6 +441,35 @@ describe('renderClip, chemin du saut', () => {
     expect(résultat.variant9x16).toBeNull()
   })
 
+  it("réécrit le .txt même quand il saute, sans réencoder", async () => {
+    // Corriger une faute dans la description puis relancer l'export ne doit pas
+    // exiger un --force qui réencoderait trois minutes de vidéo pour rien.
+    const { db, c } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+    const avant = fs.statSync(attendus.variant9x16 as string).mtimeMs
+    putClip(db, { ...c, description: 'Corrigée après coup. #impro' })
+
+    const résultat = await renderClip(c.id, { db })
+
+    expect(résultat.skipped).toBe(true)
+    expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Corrigée après coup.')
+    // Rien n'a été réencodé : la variante n'a pas été touchée.
+    expect(fs.statSync(attendus.variant9x16 as string).mtimeMs).toBe(avant)
+  })
+
+  it("efface la variante d'un ratio abandonné même quand il saute", async () => {
+    const { db, c } = préparer({ ratio: '9:16' })
+    const attendus = cheminsRendu(ID, c.id, '9:16')
+    const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
+    poser([attendus.mp4, attendus.texts, périmée])
+
+    const résultat = await renderClip(c.id, { db })
+
+    expect(résultat.skipped).toBe(true)
+    expect(fs.existsSync(périmée)).toBe(false)
+  })
+
   it("répare le statut même quand il saute", async () => {
     // Un processus arrêté entre l'écriture du .txt et la mise à jour du statut
     // laisse toutes les sorties en place : sans cette réparation, chaque relance
@@ -546,6 +575,17 @@ describe('renderClip, chemin du saut', () => {
   it("ne touche pas à un clip écarté dont le montage a bougé", () => {
     const { db, c } = préparer({ status: 'discarded' })
     putClip(db, { ...c, status: 'discarded', cropX: 0.1 })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('discarded')
+  })
+
+  it("ne touche pas non plus à un clip écarté pendant l'encodage", () => {
+    // Le montage n'a pas bougé, donc le prédicat ne voit rien : c'est la
+    // décision humaine elle-même qu'il faut préserver. (relevé par Copilot)
+    const { db, c } = préparer()
+    putClip(db, { ...c, status: 'discarded' })
 
     marquerExporté(db, c.id, c)
 

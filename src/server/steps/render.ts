@@ -486,6 +486,19 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // ne doit pas payer un aller-retour dessus pour s'entendre dire qu'il n'y a
   // rien à faire.
   if (sauterLeRendu(chemins, (c) => fs.existsSync(c), options.force)) {
+    // **Le `.txt` se réécrit même quand le rendu saute**, et c'est le seul des
+    // trois à le faire. Il ne coûte rien, et c'est celui qu'on retouche le plus :
+    // corriger une faute dans la description puis relancer l'export ne doit pas
+    // exiger un `--force` qui réencoderait trois minutes de vidéo pour rien.
+    // (relevé par Aristarque)
+    await écrireFichier(chemins.texts, texteDePublication(clip))
+    // La variante d'un ratio abandonné s'efface ici aussi. Le chemin non sauté le
+    // fait déjà ; sans cela, un clip repassé en 9:16 dont les sorties sont
+    // complètes garderait son ancienne variante alors que `RenderResult` annonce
+    // qu'il n'y en a pas. (relevé par Aristarque)
+    if (chemins.variant9x16 === null) {
+      fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
+    }
     // **Le statut se répare ici aussi.** Un processus arrêté entre l'écriture du
     // `.txt` et la mise à jour du statut laisse toutes les sorties en place : la
     // relance sauterait, et le clip resterait en « kept » pour toujours sans que
@@ -594,10 +607,19 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // sans `force`, trouverait les trois sorties présentes, sauterait tout, et
   // livrerait une variante qui ne correspond plus au natif, sans un mot.
   // (relevé par Aristarque)
+  //
+  // **Et la périmée est effacée AVANT le nouvel encodage**, pas seulement refaite.
+  // `natifEncodé` ne survit pas à l'appel : si l'encodage de la variante échoue,
+  // la fonction lève, et la relance suivante — sans `force` — retrouve les trois
+  // sorties présentes et saute une paire incohérente. L'effacer d'abord fait
+  // qu'un échec laisse une sortie manquante, donc réessayable.
+  // (relevé par Copilot)
   if (chemins.variant9x16 !== null) {
+    const refaireLaVariante = options.force === true || natifEncodé
+    if (refaireLaVariante) fs.rmSync(chemins.variant9x16, { force: true })
     await produireArtefact({
       dst: chemins.variant9x16,
-      force: options.force === true || natifEncodé,
+      force: refaireLaVariante,
       durationSec: durée,
       onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
       quoi: `variante 9:16 du clip ${clipId}`,
@@ -675,6 +697,17 @@ export function marquerExporté(db: Database.Database, clipId: string, rendu: Cl
     return
   }
   if (àJour.status === 'exported') return
+  // **Un clip écarté à la main le reste.** L'utilisateur peut l'écarter pendant
+  // l'encodage sans toucher au montage : le prédicat ci-dessus ne voit alors
+  // aucun écart, et `exported` remplacerait une décision humaine par un statut de
+  // machine. `mergeCandidates` traite les deux comme humains, mais ils ne disent
+  // pas la même chose, et c'est le refus qui doit gagner. (relevé par Copilot)
+  if (àJour.status === 'discarded') {
+    console.warn(
+      `Clip ${clipId} : écarté pendant l'export. Les fichiers sont produits, le statut « discarded » est conservé.`,
+    )
+    return
+  }
   putClip(db, { ...àJour, status: 'exported' })
 }
 

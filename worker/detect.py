@@ -355,27 +355,52 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
     coupes plus discrètes, c'est-à-dire en itérant sur ce détecteur.
 
     **Un refus et non un ``min()`` qui abaisserait le plancher tout seul.** Le
-    ``min()`` reproduirait le défaut un cran plus bas : à seuil nul,
+    ``min()`` reproduirait le défaut un cran plus bas : à plancher nul,
     ``gt(scene, 0)`` retient à peu près chaque image d'une émission de deux
     heures, et ``scores_de_scène`` ramasse cette sortie en mémoire d'un seul
     tenant. Le refus nomme les deux valeurs et laisse le choix — baisser le
     plancher aussi — à qui sait ce qu'il cherche.
 
-    L'égalité passe : le plancher ne tait alors que les images strictement en
-    dessous du seuil, celles que ``plans()`` écarterait de toute façon.
+    **Les deux nombres sont jugés, pas seulement le seuil.** Valider l'un et pas
+    l'autre laissait le danger accessible par la porte d'à côté : c'est
+    ``--scene-floor 0`` qui déclenche la collecte totale invoquée ci-dessus.
+    Et ``NaN`` passe *toutes* les comparaisons, donc passait ce refus — puis
+    ``plans()``, qui n'écarte que ``score < seuil`` : chaque candidate collectée
+    serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf`` sans
+    broncher. (relevé par Copilot sur la PR #44)
+
+    **L'égalité est refusée, contrairement à ce que cette docstring affirmait.**
+    La collecte est stricte — ``gt(scene, plancher)`` — et la rétention est
+    inclusive — ``plans()`` garde ``score >= seuil``. À valeurs égales, une image
+    dont le score vaut exactement le plancher serait gardée par la seconde et
+    n'est jamais rapportée par la première : elle disparaît sans un mot, ce qui
+    est le défaut même qu'on ferme ici. Strictement au-dessus, l'inclusion est
+    vraie : ``score >= seuil > plancher`` implique ``score > plancher``.
+    (relevé par Copilot et par Codex sur la PR #44)
     """
-    if seuil <= 0:
+    for nom, valeur in (("--scene-threshold", seuil), ("--scene-floor", plancher)):
+        # `math.isfinite` et non `!= valeur` : il attrape `nan` et les deux
+        # infinis d'un seul contrôle, et il se lit.
+        if not math.isfinite(valeur):
+            return (
+                f"{nom} vaut {valeur}, qui n'est pas un nombre fini. NaN passe toutes les "
+                "comparaisons sans en satisfaire aucune : le seuil ne serait jamais appliqué, "
+                "et chaque candidate collectée deviendrait une frontière."
+            )
+        if valeur <= 0:
+            return (
+                f"{nom} vaut {valeur}, et ni zéro ni un négatif ne veulent dire quelque chose "
+                "ici : le score de scène de ffmpeg vit dans [0, 1]. À zéro, la collecte retient "
+                "à peu près chaque image d'une émission de deux heures, ramassée en mémoire "
+                "d'un seul tenant. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
+            )
+    if seuil <= plancher:
         return (
-            f"--scene-threshold vaut {seuil}, et un seuil nul ou négatif ne découpe pas : "
-            "il déclare une coupe à chaque image dont le score n'est pas nul. "
-            "Le score de scène de ffmpeg vit dans [0, 1] ; 0,4 est la valeur mesurée."
-        )
-    if seuil < plancher:
-        return (
-            f"--scene-threshold ({seuil}) est sous --scene-floor ({plancher}) : ffmpeg ne "
-            f"rapporte aucune image sous {plancher}, donc ce seuil-là ne serait jamais "
-            "appliqué. Baisser --scene-floor d'autant si des coupes plus discrètes sont "
-            "recherchées — au prix d'une passe ffmpeg plus bavarde."
+            f"--scene-threshold ({seuil}) n'est pas strictement au-dessus de --scene-floor "
+            f"({plancher}) : la collecte est stricte, donc aucune image de score inférieur ou "
+            f"égal à {plancher} n'est rapportée, et ce seuil-là ne serait jamais appliqué "
+            "entièrement. Baisser --scene-floor si des coupes plus discrètes sont recherchées "
+            "— au prix d'une passe ffmpeg plus bavarde."
         )
     return None
 
@@ -425,7 +450,7 @@ def main() -> int:
         "--scene-floor",
         type=float,
         default=0.05,
-        help="le plancher de collecte, sous lequel ffmpeg ne rapporte rien",
+        help="le plancher de collecte : ffmpeg ne rapporte rien à ce score ni en dessous",
     )
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"

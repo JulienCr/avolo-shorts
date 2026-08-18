@@ -137,18 +137,20 @@ describe('detect.py — le score écrit dans analysis.json', () => {
  * le détecteur. (relevé sur la PR #31, ticket #40)
  */
 describe('detect.py — le seuil de scène face à son plancher de collecte', () => {
-  const refus = (seuil: number, plancher: number): unknown =>
+  // Le paramètre est une **expression Python**, pas un nombre : `NaN` et
+  // `Infinity` n'ont pas de littéral en Python, et les écrire tels quels
+  // lèverait un `NameError` au lieu d'éprouver quoi que ce soit.
+  const refus = (seuil: string, plancher: string): unknown =>
     évaluer(`print(json.dumps(detect.refus_du_seuil_de_scène(${seuil}, ${plancher})))`)
 
-  it('ne dit rien du couple par défaut, ni d’un seuil posé pile sur le plancher', () => {
-    expect(refus(0.4, 0.05)).toBeNull()
-    // Égalité acceptée : le plancher ne tait alors que les images strictement
-    // en dessous, celles que le seuil écarterait de toute façon.
-    expect(refus(0.05, 0.05)).toBeNull()
+  it('ne dit rien du couple mesuré', () => {
+    expect(refus('0.4', '0.05')).toBeNull()
+    // Juste au-dessus du plancher : c'est le cas limite accepté.
+    expect(refus('0.051', '0.05')).toBeNull()
   })
 
   it('refuse un seuil sous le plancher, en nommant les deux valeurs', () => {
-    const message = refus(0.02, 0.05)
+    const message = refus('0.02', '0.05')
     expect(typeof message).toBe('string')
     expect(message).toContain('0.02')
     expect(message).toContain('0.05')
@@ -157,11 +159,56 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
     expect(message).toContain('--scene-floor')
   })
 
+  /**
+   * **L'égalité perd la frontière posée pile sur le plancher**, et la première
+   * version de ce refus l'acceptait en affirmant le contraire. La collecte est
+   * stricte — `select='gt(scene, plancher)'` —, la rétention est inclusive —
+   * `plans()` n'écarte que `score < seuil`. À valeurs égales, une image dont le
+   * score vaut exactement le plancher serait gardée par la seconde et n'est
+   * jamais rapportée par la première : elle disparaît sans un mot, ce qui est
+   * le défaut même que ce refus ferme.
+   *
+   * Strictement au-dessus, l'inclusion est vraie : `score ≥ seuil > plancher`
+   * implique `score > plancher`. (relevé par Copilot et par Codex)
+   */
+  it('refuse un seuil posé pile sur le plancher, que la collecte stricte perdrait', () => {
+    const message = refus('0.05', '0.05')
+    expect(typeof message).toBe('string')
+    expect(message).toContain('--scene-floor')
+  })
+
   it('refuse un seuil nul ou négatif', () => {
     // C'est le `min()` que le refus évite : à zéro, abaisser le plancher pour
     // « honorer » la demande ferait collecter toute la vidéo.
-    expect(typeof refus(0, 0)).toBe('string')
-    expect(typeof refus(-1, 0.05)).toBe('string')
+    expect(typeof refus('0', '0')).toBe('string')
+    expect(typeof refus('-1', '0.05')).toBe('string')
+  })
+
+  /**
+   * **Le plancher aussi**, et pour la raison qui sert à refuser un seuil nul :
+   * `--scene-floor 0` lance `gt(scene, 0)`, donc retient à peu près chaque image
+   * d'une émission de deux heures, que `scores_de_scène` ramasse en mémoire d'un
+   * seul tenant. Valider un des deux nombres et pas l'autre laissait le danger
+   * accessible par la porte d'à côté. (relevé par Copilot)
+   */
+  it('refuse un plancher nul ou négatif', () => {
+    expect(typeof refus('0.4', '0')).toBe('string')
+    expect(typeof refus('0.4', '-0.1')).toBe('string')
+  })
+
+  /**
+   * **`NaN` passe toutes les comparaisons, donc passait le refus.** Et il ne
+   * s'arrête pas là : `plans()` écarte les candidates par `score < seuil`, qui
+   * est faux pour `NaN` — donc *chaque* candidate collectée deviendrait une
+   * frontière. Un argument accepté qui fait le contraire de ce qu'il dit, sans
+   * une ligne de journal. `argparse` prend `nan` et `inf` sans broncher.
+   * (relevé par Copilot)
+   */
+  it('refuse un seuil ou un plancher non fini', () => {
+    expect(typeof refus("float('nan')", '0.05')).toBe('string')
+    expect(typeof refus("float('inf')", '0.05')).toBe('string')
+    expect(typeof refus('0.4', "float('nan')")).toBe('string')
+    expect(typeof refus('0.4', "float('inf')")).toBe('string')
   })
 })
 
@@ -213,6 +260,14 @@ describe('detect.py — le refus, en ligne de commande', () => {
     expect(stderr).toContain('--scene-floor')
     // Rien n'a été écrit : on refuse avant de faire quoi que ce soit.
     expect(fs.existsSync(path.join(racine, 'analysis.json'))).toBe(false)
+  })
+
+  it('sort par 2 sur un seuil que seul argparse aurait accepté', () => {
+    // `--scene-threshold nan` : `type=float` le prend, et sans le contrôle de
+    // finitude il ferait de chaque candidate une frontière.
+    const { status, stderr } = lancer('nan')
+    expect(status).toBe(2)
+    expect(stderr).toContain('--scene-threshold')
   })
 
   it('laisse passer le seuil mesuré, et va jusqu’à la passe de scène', () => {

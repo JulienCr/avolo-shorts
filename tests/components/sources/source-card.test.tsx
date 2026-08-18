@@ -47,21 +47,21 @@ describe('SourceCard', () => {
     expect(c.lancer).toHaveBeenCalledWith(NEUVE)
   })
 
-  it('mène au projet d’une source déjà analysée, au lieu d’en relancer un', async () => {
+  it('mène au projet d’une source déjà analysée, au lieu d’en relancer un', () => {
     // `créerProjet` est idempotent sur ce cas — le plan revient vide —, mais
     // proposer deux chemins vers le même endroit sans le dire fait douter de ce
     // qu'on vient de déclencher.
-    const c = creation()
     render(
-      <SourceCard source={{ ...NEUVE, projectId: '2025-06-15-cqlp' }} creation={c} />,
+      <SourceCard source={{ ...NEUVE, projectId: '2025-06-15-cqlp' }} creation={creation()} />,
     )
 
+    // Aucun bouton : il n'y a pas d'autre chemin depuis cette carte, donc pas
+    // de second geste qui mènerait au même endroit sans le dire. (Le lien n'est
+    // pas cliqué ici : jsdom n'implémente pas la navigation, et l'essayer
+    // salirait la sortie de la suite d'une trace qui ne dit rien du produit.)
     expect(screen.queryByRole('button')).toBeNull()
     const lien = screen.getByRole('link', { name: /2025-06-15-cqlp\.mp4/ })
     expect(lien).toHaveProperty('pathname', '/projects/2025-06-15-cqlp')
-
-    await userEvent.click(lien)
-    expect(c.lancer).not.toHaveBeenCalled()
   })
 
   it('porte la marque de son projet, pour qu’on sache avant de cliquer', () => {

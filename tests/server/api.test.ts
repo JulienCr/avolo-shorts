@@ -9,6 +9,7 @@ import { GET as getCandidats } from '@/app/api/projects/[id]/candidates/route'
 import { GET as getProjet } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
+import { GET as listerSources } from '@/app/api/sources/route'
 import type { Clip } from '@/core/edl'
 import type {
   CandidateClip,
@@ -17,6 +18,7 @@ import type {
   ProjectListItem,
   ProjectStatus,
   ProjectSummary,
+  SourcesListing,
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
@@ -257,6 +259,33 @@ describe('GET /api/projects', () => {
       relâcher()
       await laisserFinir()
     }
+  })
+})
+
+describe('GET /api/sources', () => {
+  it('rend les replays et la ligne de montage', async () => {
+    const réponse = await listerSources()
+    expect(réponse.status).toBe(200)
+    const listing = (await réponse.json()) as SourcesListing
+
+    expect(listing.sources.map((s) => s.name)).toEqual([`${PROJET}.mp4`])
+    // La source a déjà son projet : la carte y mène au lieu d'en recréer un.
+    expect(listing.sources[0].projectId).toBe(PROJET)
+    expect(listing.montage.disponible).toBe(true)
+    expect(JSON.stringify(listing.sources)).not.toContain(racine)
+  })
+
+  /**
+   * `REPLAY_DIR` absent de l'environnement n'est pas un montage indisponible :
+   * c'est le serveur qui n'est pas monté, et personne n'y peut rien depuis
+   * l'écran. Le déguiser en `disponible: false` enverrait rouvrir un lecteur
+   * Windows là où il manque une ligne de `.env`.
+   */
+  it('rend 500 quand REPLAY_DIR n’est pas configurée', async () => {
+    delete process.env.REPLAY_DIR
+    const réponse = await listerSources()
+    expect(réponse.status).toBe(500)
+    expect(((await réponse.json()) as { error: string }).error).toContain('REPLAY_DIR')
   })
 })
 

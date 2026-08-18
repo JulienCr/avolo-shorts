@@ -8,7 +8,8 @@
  * bougé d'une ligne, et aucun composant n'a été touché.
  *
  * ```
- * GET   /api/projects                       -> ProjectSummary[]
+ * GET   /api/sources                        -> SourcesListing
+ * GET   /api/projects                       -> ProjectListItem[]
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
@@ -182,6 +183,49 @@ export type ProjectStatus = {
    * pas présenter un décompte partiel comme un résultat.
    */
   repérage: BilanRepérage | null
+}
+
+/**
+ * Un replay du dossier des sources, tel que la bibliothèque le propose.
+ *
+ * **Pas de vignette, et c'est décidé.** Extraire une image de vingt et un
+ * fichiers de 4 à 12 Go à travers un montage 9p est un coût que personne n'a
+ * mesuré ; la carte affiche nom, taille et date.
+ */
+export type Source = {
+  /** Le nom du fichier dans `REPLAY_DIR`, tel que `createProject` l'attend — jamais un chemin. */
+  name: string
+  sizeBytes: number
+  /** ISO 8601. */
+  modifiedAt: string
+  /**
+   * Le projet déjà créé sur cette source, ou `null`. Une source analysée mène à
+   * son projet au lieu de relancer une création : `créerProjet` est idempotent
+   * sur ce cas, mais proposer deux chemins vers le même endroit sans le dire
+   * fait douter de ce qu'on vient de déclencher.
+   */
+  projectId: string | null
+}
+
+/**
+ * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
+ * porte**.
+ */
+export type SourcesListing = {
+  sources: Source[]
+  /**
+   * La ligne de montage. Elle existe pour que l'écran distingue « ce dossier est
+   * vide » de « ce montage n'a pas eu lieu » — l'incident réel d'OpenShorts
+   * (spec §12) : les deux rendaient la même page.
+   */
+  montage: {
+    /** Faux quand le dossier des replays est absent, ou que son transport est mort. */
+    disponible: boolean
+    /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
+    fstype: string | null
+    /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */
+    entrées: number
+  }
 }
 
 /**
@@ -460,6 +504,18 @@ export function listProjects(): Promise<ProjectListItem[]> {
 
 export function getProject(projectId: string): Promise<ProjectStatus> {
   return lire<ProjectStatus>(`/api/projects/${encodeURIComponent(projectId)}`)
+}
+
+/**
+ * Les replays disponibles, et l'état du montage qui les porte.
+ *
+ * **Un échec du montage n'est pas un échec de la requête** : la réponse est un
+ * 200 dont `montage.disponible` vaut faux. C'est ce qui permet à l'écran de dire
+ * « le dossier des replays n'est pas monté » et le geste qui le répare, au lieu
+ * d'afficher une erreur qui ne distingue rien.
+ */
+export function listSources(): Promise<SourcesListing> {
+  return lire<SourcesListing>('/api/sources')
 }
 
 /**

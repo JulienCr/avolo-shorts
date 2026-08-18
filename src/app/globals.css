@@ -29,6 +29,9 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-stage: var(--stage);
+  --color-stage-foreground: var(--stage-foreground);
+  --color-stage-muted: var(--stage-muted);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -76,6 +79,14 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+
+  /* L'ambre d'un projecteur de salle. La seule couleur de l'interface, et elle
+     ne sert qu'à trois choses : ce qui est gardé, ce qui est sélectionné, et le
+     rectangle de cadrage. Un accent qui sert partout n'accentue plus rien. */
+  --stage: oklch(0.74 0.152 66);
+  --stage-foreground: oklch(0.22 0.05 66);
+  --stage-muted: oklch(0.96 0.028 78);
+
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -105,6 +116,9 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --stage: oklch(0.78 0.145 68);
+  --stage-foreground: oklch(0.18 0.04 68);
+  --stage-muted: oklch(0.3 0.045 68);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

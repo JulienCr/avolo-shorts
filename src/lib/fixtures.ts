@@ -411,6 +411,22 @@ export function patchFixtureClip(clipId: string, patch: ClipPatch): Clip {
   }
   CLIPS.set(clipId, suivant)
 
-  const { preview: _preview, thumbnailUrl: _thumbnailUrl, ...nu } = suivant
+  // La route rend un `Clip`, pas un `CandidateClip` : `preview` et
+  // `thumbnailUrl` sont des commodités de l'écran de tri, pas des champs du
+  // clip. On les retire explicitement plutôt que par déstructuration, pour que
+  // l'ajout d'un champ à `Clip` ne passe pas silencieusement à la trappe.
+  const nu: Clip = {
+    id: suivant.id,
+    projectId: suivant.projectId,
+    segments: suivant.segments,
+    ratio: suivant.ratio,
+    cropX: suivant.cropX,
+    captions: suivant.captions,
+    branding: suivant.branding,
+    title: suivant.title,
+    description: suivant.description,
+    status: suivant.status,
+    pass: suivant.pass,
+  }
   return nu
 }

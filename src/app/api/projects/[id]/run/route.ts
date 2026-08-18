@@ -4,9 +4,9 @@ import { corps, json, route } from '@/server/http'
 import { CIBLES_LANÇABLES, lancer } from '@/server/run'
 
 /**
- * `POST /api/projects/:id/run` — recalculer jusqu'à une cible.
+ * `POST /api/projects/:id/run` — recalculer jusqu'à une ou plusieurs cibles.
  *
- * C'est la route qui porte la reprise (spec §12) : on nomme une étape, le
+ * C'est la route qui porte la reprise (spec §12) : on nomme un résultat, le
  * système remonte les dépendances, refait ce qui manque, et s'arrête là.
  * **Demander `candidates` sur un projet dont le transcript existe ne relance que
  * le repérage** — et la réponse le dit, puisqu'elle rend le plan.
@@ -16,8 +16,30 @@ import { CIBLES_LANÇABLES, lancer } from '@/server/run'
  * `POST /api/clips/:id/export`.
  */
 
+const CIBLE = z.enum(CIBLES_LANÇABLES)
+
 const DEMANDE = z.strictObject({
-  target: z.enum(CIBLES_LANÇABLES),
+  /**
+   * Une cible, ou plusieurs.
+   *
+   * **Une cible nomme un résultat à atteindre, pas une étape à refaire**, et
+   * c'est ce qui rend la liste nécessaire : `lancer` en prend une depuis
+   * toujours, `créerProjet` lui en passe trois, et le bouton de reprise a besoin
+   * des mêmes. Viser `candidates` seul ne construit jamais le proxy, puisque
+   * rien n'en dépend dans le graphe — le transcript lit le WAV, pas la vidéo.
+   * L'écran devrait alors enchaîner deux appels en attendant la fin du premier,
+   * séquence que l'interface n'a aucune raison de porter (spec §9.4).
+   *
+   * **La forme à une cible reste valide**, et pas seulement par égard pour les
+   * appelants existants : c'est la forme du cas le plus fréquent, relancer le
+   * repérage.
+   *
+   * **`.min(1)`, parce qu'un plan vide veut déjà dire autre chose.** Il dit
+   * « tout était là, il n'y avait rien à faire », et l'écran l'affiche comme un
+   * succès. Une liste vide acceptée répondrait donc « c'est fait » à une demande
+   * qui ne visait rien.
+   */
+  target: z.union([CIBLE, z.array(CIBLE).min(1)]),
   /**
    * Les étapes à refaire même si leur artefact est là. `true` vaut « la cible »,
    * ce qui couvre le cas courant — relancer le repérage pour obtenir d'autres
@@ -31,7 +53,7 @@ const DEMANDE = z.strictObject({
    * l'ignore, et le client recevait un 202 dont le plan ne parlait pas de ce
    * qu'il venait de demander. (relevé par Aristarque)
    */
-  force: z.union([z.boolean(), z.array(z.enum(CIBLES_LANÇABLES))]).optional(),
+  force: z.union([z.boolean(), z.array(CIBLE)]).optional(),
 })
 
 export const POST = route(
@@ -39,7 +61,10 @@ export const POST = route(
   async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
     const { id } = await contexte.params
     const { target, force } = await corps(requête, DEMANDE)
-    const lancement = await lancer(id, [target], { force })
+    // Les doublons ne sont pas filtrés : `planPourCibles` ne planifie jamais
+    // deux fois la même étape, et refuser une liste qui se répète ferait un 400
+    // sur une demande dont le résultat est parfaitement défini.
+    const lancement = await lancer(id, Array.isArray(target) ? target : [target], { force })
     // 202 : accepté et lancé. Un plan vide est une réponse valide et fréquente —
     // tout est déjà là, il n'y avait rien à faire.
     return json(lancement, { status: 202 })

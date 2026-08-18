@@ -19,6 +19,7 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
+import { progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
 
@@ -45,6 +46,19 @@ function contexte(id: string): { params: Promise<{ id: string }> } {
 /** Idem, pour la route qui sert un fichier de rendu nommé. */
 function contexteRendu(id: string, file: string): { params: Promise<{ id: string; file: string }> } {
   return { params: Promise.resolve({ id, file }) }
+}
+
+/**
+ * Laisse l'exécution de fond se terminer avant de rendre la main.
+ *
+ * `POST /run` répond 202 et laisse une promesse derrière lui. Sans cette
+ * attente, elle se règlerait pendant le test suivant — dont le `beforeEach` a
+ * déjà effacé le dossier sous ses pieds.
+ */
+async function laisserFinir(): Promise<void> {
+  for (let i = 0; i < 400 && progression(PROJET) !== null; i += 1) {
+    await new Promise((résoudre) => setTimeout(résoudre, 5))
+  }
 }
 
 /** Cent octets reconnaissables, pour distinguer une tranche du fichier entier. */
@@ -885,6 +899,45 @@ describe('POST /api/projects/:id/run', () => {
     expect((await lancerRoute({ target: 'renders' })).status).toBe(400)
     expect((await lancerRoute({ target: 'nimporte' })).status).toBe(400)
     expect((await lancerRoute({ target: 'candidates', inconnu: 1 })).status).toBe(400)
+  })
+
+  /**
+   * **Le bouton de reprise vise deux résultats, pas une étape.** Viser
+   * `candidates` seul ne construit jamais le proxy — rien n'en dépend dans le
+   * graphe —, et le projet resterait dans l'impasse dont on voulait le sortir.
+   *
+   * L'état posé ici le montre : le repérage est déjà fait, le proxy non. Une
+   * cible seule rendrait un plan vide (le cas au-dessus), la liste rend
+   * `['proxy']`.
+   *
+   * Le replay est retiré du dossier pour que l'exécution de fond échoue tout de
+   * suite sur son `lstat`, au lieu de lancer un vrai encodage : ce qui se teste
+   * ici est le plan, pas ffmpeg.
+   */
+  it('accepte une liste de cibles et les planifie toutes', async () => {
+    poserTranscript()
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.rmSync(path.join(racine, 'replays', `${PROJET}.mp4`), { force: true })
+
+    const réponse = await lancerRoute({ target: ['candidates', 'proxy'] })
+    expect(réponse.status).toBe(202)
+    expect(await réponse.json()).toEqual({ projectId: PROJET, plan: ['proxy'] })
+    await laisserFinir()
+  })
+
+  /**
+   * **Une liste vide est une demande mal formée, pas un plan vide.** Le plan
+   * vide a déjà un sens — « tout était là, il n'y avait rien à faire » — et
+   * l'écran l'affiche comme un succès. Accepter `[]` ferait donc répondre
+   * « c'est fait » à une demande qui ne visait rien.
+   */
+  it('refuse une liste de cibles vide', async () => {
+    expect((await lancerRoute({ target: [] })).status).toBe(400)
+  })
+
+  it('refuse une cible interdite au milieu d’une liste', async () => {
+    expect((await lancerRoute({ target: ['candidates', 'renders'] })).status).toBe(400)
+    expect((await lancerRoute({ target: ['candidates', 'nimporte'] })).status).toBe(400)
   })
 
   it('rend 404 sur un projet inconnu', async () => {

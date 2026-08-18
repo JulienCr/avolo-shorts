@@ -35,12 +35,30 @@
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import type { StepName } from '@/core/graph'
 import type { TranscriptLine } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
 
-/** Les étapes du graphe d'analyse (tâche 6). */
-export type StepName = 'proxy' | 'audio' | 'transcript' | 'candidates' | 'renders'
+/**
+ * Les étapes du graphe d'analyse (tâche 6), **importées de l'autorité** plutôt
+ * que réécrites ici.
+ *
+ * Cette union a vécu recopiée à la main pendant deux itérations, et les deux
+ * exemplaires ne se contraignaient pas : `analysis`, ajoutée au graphe par la
+ * PR #31, manquait à celui-ci. Rien n'échouait — ni la compilation, ni les
+ * tests —, seul l'écran le disait en affichant un libellé vide et un
+ * `aria-label` « undefined en cours » (issue #39).
+ *
+ * **Importer `@/core/graph` d'ici ne franchit aucune frontière.** La règle de
+ * pureté interdit à `src/core` de dépendre du reste du dépôt, pas l'inverse :
+ * `tests/core/purete.test.ts` et le bloc `src/core/**` d'`eslint.config.mjs`
+ * ne contrôlent que les fichiers de `src/core`. Ce fichier importe déjà
+ * `@/core/edl` pour la même raison. Et le type ne coûte rien au paquet du
+ * navigateur : `graph.ts` n'a aucune dépendance, et un `import type`
+ * s'efface à la compilation.
+ */
+export type { StepName }
 
 /**
  * Les étapes que le lanceur sait fabriquer.
@@ -390,20 +408,42 @@ export function createProject(source: string): Promise<RunPlan> {
 }
 
 /**
- * Recalcule jusqu'à une cible : le serveur remonte les dépendances, refait ce
- * qui manque, et s'arrête là.
+ * Recalcule jusqu'à une ou plusieurs cibles : le serveur remonte les
+ * dépendances, refait ce qui manque, et s'arrête là.
+ *
+ * **Une cible nomme un résultat à atteindre, pas une étape à refaire**, et
+ * c'est pourquoi la forme à plusieurs cibles existe. Viser `candidates` seul ne
+ * construit jamais le proxy : rien n'en dépend dans le graphe — le transcript
+ * lit le WAV, pas la vidéo. Le bouton de reprise laisserait alors le projet
+ * dans l'impasse dont il devait le sortir. Voir `CIBLES_DE_REPRISE`.
+ *
+ * La forme à une cible reste valide, et c'est délibéré : elle couvre le cas le
+ * plus fréquent — relancer le repérage — sans obliger chaque appelant à écrire
+ * un tableau d'un élément.
  *
  * `force` refait une étape dont l'artefact est pourtant présent — `true` vaut
- * « la cible », ce qui couvre le cas courant : relancer le repérage pour obtenir
- * d'autres propositions sans avoir changé un paramètre.
+ * « les cibles », ce qui couvre le cas courant : relancer le repérage pour
+ * obtenir d'autres propositions sans avoir changé un paramètre.
  */
 export function runProject(
   projectId: string,
-  target: RunTarget,
-  force?: boolean | RunTarget[],
+  targets: RunTarget | readonly RunTarget[],
+  force?: boolean | readonly RunTarget[],
 ): Promise<RunPlan> {
-  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, { target, force })
+  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
+    target: targets,
+    force,
+  })
 }
+
+/**
+ * Les cibles d'une reprise : les mêmes que celles d'une création.
+ *
+ * Recopiées ici plutôt qu'importées : `CIBLES_INITIALES` vit dans
+ * `src/server/run.ts`, et l'importer ferait entrer du code serveur dans le
+ * paquet du navigateur. La duplication est délibérée et un test la garde.
+ */
+export const CIBLES_DE_REPRISE: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
 
 export function listCandidates(projectId: string): Promise<CandidateClip[]> {
   return lire<CandidateClip[]>(`/api/projects/${encodeURIComponent(projectId)}/candidates`)

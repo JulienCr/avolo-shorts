@@ -12,10 +12,16 @@ import { basculerStatut, estEcarte, estGarde, type Decision } from '@/lib/clip-s
 import { formatDuration } from '@/lib/format'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 
+// `Record<StepName, string>` exige **toutes** les clés, et `StepName` est
+// désormais celui de `src/core/graph.ts` : une étape ajoutée au graphe sans
+// libellé ici échoue à la compilation au lieu d'afficher un libellé vide et un
+// `aria-label` « undefined en cours » (issue #39). C'est ce que `analysis`
+// faisait depuis la PR #31.
 const LIBELLES_ETAPES: Record<StepName, string> = {
   proxy: 'Proxy',
   audio: 'Audio',
   transcript: 'Transcription',
+  analysis: 'Analyse d’image',
   candidates: 'Repérage',
   renders: 'Rendus',
 }

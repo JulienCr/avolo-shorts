@@ -37,11 +37,11 @@ const SCHÉMA_CLIP = z.object({
   video_title_for_youtube_short: z.string().optional(),
 })
 
-/** La liste sous une clé, ou une liste vide si la réponse n'en porte pas. */
-function liste(brut: unknown, clé: string): unknown[] {
-  if (typeof brut !== 'object' || brut === null) return []
+/** La liste sous une clé, ou `null` si la réponse n'en porte pas. */
+function liste(brut: unknown, clé: string): unknown[] | null {
+  if (typeof brut !== 'object' || brut === null) return null
   const valeur = (brut as Record<string, unknown>)[clé]
-  return Array.isArray(valeur) ? valeur : []
+  return Array.isArray(valeur) ? valeur : null
 }
 
 /**
@@ -71,7 +71,11 @@ export function parseScoreResponse(
   const vues = new Set<string>()
   const scored: ScoredWindow[] = []
 
-  for (const entrée of liste(raw, 'windows')) {
+  // La passe de notation est **tolérante par construction**, et c'est ce qui la
+  // distingue de la passe de détail : une réponse inexploitable laisse toutes
+  // les fenêtres non notées, elles finissent dernières, et `shortlistFromScores`
+  // se rabat sur les premières. Le résultat est dégradé, jamais destructeur.
+  for (const entrée of liste(raw, 'windows') ?? []) {
     const lu = SCHÉMA_NOTE.safeParse(entrée)
     if (!lu.success) continue
     const { id, score, reason } = lu.data
@@ -198,6 +202,17 @@ function clipId(projectId: string, start: number, end: number): string {
  * personne n'a arrêtée, et écarterait en silence de vrais clips — le défaut
  * exact que ce projet remplace. L'objectif de cet étage est le rappel, pas la
  * précision (spec §7) : Julien trie ensuite.
+ *
+ * **Lève quand l'enveloppe est illisible**, au lieu de rendre une liste vide.
+ * Les deux se ressemblent et ne veulent pas dire la même chose : « le modèle n'a
+ * rien trouvé » est une réponse, « la réponse n'a pas de tableau `shorts` » est
+ * une panne. Confondues, une réponse cassée passait pour une passe réussie —
+ * `mergeCandidates` effaçait les propositions non traitées et `candidates.json`
+ * s'écrivait, ce que le graphe lit ensuite comme une étape à jour. Le message
+ * est reconnu comme passager par la relance de l'étape, donc l'appel est
+ * réessayé avant que quoi que ce soit ne s'écrive. (relevé par Copilot)
+ *
+ * @throws si `raw` ne porte pas de tableau `shorts`.
  */
 export function parseDetailResponse(
   raw: unknown,
@@ -211,9 +226,13 @@ export function parseDetailResponse(
   },
 ): Clip[] {
   const { words, videoDuration, projectId, blocks } = contexte
+  const proposées = liste(raw, 'shorts')
+  if (proposées === null) {
+    throw new Error('Gemini response did not contain a "shorts" array.')
+  }
   const clips: Clip[] = []
 
-  for (const entrée of liste(raw, 'shorts')) {
+  for (const entrée of proposées) {
     const lu = SCHÉMA_CLIP.safeParse(entrée)
     if (!lu.success) continue
     const { start, end } = lu.data

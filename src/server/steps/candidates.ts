@@ -87,37 +87,73 @@ export class GeminiBlockedError extends Error {
   }
 }
 
-/** Les fins de génération qui signent un refus de contenu, pas une panne. */
-const RAISONS_BLOQUANTES = new Set([
-  'SAFETY',
-  'PROHIBITED_CONTENT',
-  'BLOCKLIST',
-  'SPII',
-  'IMAGE_SAFETY',
-  'RECITATION',
+/**
+ * Les fins de génération qui **ne sont pas** un refus. Tout le reste en est un.
+ *
+ * **Énoncé à l'envers, et c'est la leçon de la liste de modules natifs
+ * d'`eslint.config.mjs` : une liste noire tenue à la main est fausse le jour où
+ * on l'écrit.** La version précédente énumérait six raisons de refus reprises
+ * d'openshorts et manquait déjà `MODEL_ARMOR`, `IMAGE_PROHIBITED_CONTENT` et
+ * `IMAGE_RECITATION` — et il en manquerait d'autres à la prochaine version de
+ * l'API. Une raison de refus non reconnue est le pire des cas : la réponse passe
+ * pour normale, son corps vide est classé passager, la charge est relancée trois
+ * fois pour quinze secondes d'attente, et l'erreur finale ment sur la cause.
+ * (relevé par Aristarque)
+ *
+ * `STOP` et `MAX_TOKENS` sont des fins normales. Les trois raisons d'outillage
+ * ne peuvent pas se produire — cette étape ne déclare aucun outil — mais si
+ * elles arrivaient, ce serait un défaut de notre côté et non un refus de
+ * contenu, donc elles ne doivent pas porter un message qui accuse la vidéo.
+ * L'absence de raison est normale aussi : tous les modèles ne la renseignent pas.
+ */
+const FINS_SANS_REFUS = new Set([
+  '',
+  'FINISH_REASON_UNSPECIFIED',
+  'STOP',
+  'MAX_TOKENS',
+  'MALFORMED_FUNCTION_CALL',
+  'UNEXPECTED_TOOL_CALL',
+  'TOO_MANY_TOOL_CALLS',
 ])
 
 /**
  * Ce qui vaut la peine d'être réessayé : les pannes et les surcharges du
- * service, et les corps de réponse inexploitables.
+ * service, les coupures réseau, et les corps de réponse inexploitables.
  *
- * Les trois derniers marqueurs viennent de `parseJsonResponse` et ne sont pas
+ * Les quatre derniers marqueurs viennent de l'analyse et ne sont pas
  * cosmétiques : Gemini rend régulièrement un 200 au corps vide, et la même
  * charge passe à l'essai suivant (openshorts, production du 22 juillet 2026 —
  * la relance a récupéré toutes les occurrences observées).
+ *
+ * `502`, `504` et `DEADLINE_EXCEEDED` manquaient : ce sont des passerelles et
+ * des délais, aussi passagers que le `503`, et ils échouaient au premier essai
+ * (relevé par Copilot). Les trois erreurs réseau brutes sont là parce que rien
+ * ne garantit que le SDK les enveloppe dans un message portant un code
+ * (relevé par Aristarque) — une coupure d'une seconde faisait sinon échouer un
+ * lot de notation entier.
+ *
+ * La comparaison ignore la casse : `Deadline` et `DEADLINE_EXCEEDED` sont le
+ * même incident écrit par deux couches différentes, et se souvenir de quelle
+ * couche parle n'est pas un service à rendre au lecteur.
  */
 const MARQUEURS_PASSAGERS = [
-  '503',
-  'UNAVAILABLE',
   '429',
-  'RESOURCE_EXHAUSTED',
   '500',
-  'INTERNAL',
+  '502',
+  '503',
+  '504',
+  'unavailable',
+  'resource_exhausted',
+  'internal',
   'overloaded',
-  'Deadline',
+  'deadline',
+  'econnreset',
+  'etimedout',
+  'fetch failed',
   'empty response body',
-  'did not contain a JSON object',
-  'Failed to parse Gemini JSON response',
+  'did not contain a json object',
+  'did not contain a "shorts" array',
+  'failed to parse gemini json response',
 ]
 
 /** Le mode d'appel : les deux passes n'ont ni le même schéma ni la même température. */
@@ -210,16 +246,17 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
   }
   for (const candidat of réponse.candidates ?? []) {
     const fin = String(candidat.finishReason ?? '').toUpperCase()
-    if (RAISONS_BLOQUANTES.has(fin)) {
+    if (!FINS_SANS_REFUS.has(fin)) {
       throw new GeminiBlockedError(
-        `Gemini a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+        `Gemini a interrompu sa réponse pour cette vidéo (${fin}) : la génération s'est arrêtée sur autre chose qu'une fin normale. C'est déterministe, la relance ne servirait à rien.`,
       )
     }
   }
 }
 
 function estPassagère(message: string): boolean {
-  return MARQUEURS_PASSAGERS.some((marqueur) => message.includes(marqueur))
+  const bas = message.toLowerCase()
+  return MARQUEURS_PASSAGERS.some((marqueur) => bas.includes(marqueur))
 }
 
 const attendre = (ms: number): Promise<void> =>
@@ -228,23 +265,32 @@ const attendre = (ms: number): Promise<void> =>
   })
 
 /**
- * Un appel, avec sa politique de relance et son analyse. Rendu : l'objet JSON.
+ * Un appel, avec sa politique de relance et son analyse.
  *
- * L'analyse vit **dans** la boucle de relance, délibérément : un 200 au corps
- * vide lève ici et non à l'appel, et c'est exactement le cas qu'il faut
- * réessayer.
+ * **Toute l'analyse vit DANS la boucle de relance, délibérément.** Un 200 au
+ * corps vide lève ici et non à l'appel, et c'est exactement le cas qu'il faut
+ * réessayer. C'est aussi pourquoi `analyser` est un paramètre plutôt qu'un geste
+ * de l'appelant : la passe de détail refuse une enveloppe sans tableau `shorts`,
+ * et cette réponse cassée doit être réessayée — analysée après coup, elle
+ * ressortirait en « zéro clip », c'est-à-dire en passe réussie qui efface les
+ * propositions non traitées. (relevé par Copilot)
  */
-export async function appelerGemini(
+export async function appelerGemini<T = unknown>(
   appel: AppelGemini,
   prompt: string,
   mode: ModeGemini,
-  sleep: (ms: number) => Promise<void> = attendre,
-): Promise<unknown> {
+  options: {
+    sleep?: (ms: number) => Promise<void>
+    analyser?: (brut: unknown) => T
+  } = {},
+): Promise<T> {
+  const sleep = options.sleep ?? attendre
+  const analyser = options.analyser ?? ((brut: unknown) => brut as T)
   for (let tentative = 1; ; tentative += 1) {
     try {
       const réponse = await appel(prompt, mode)
       leverSiBloquée(réponse)
-      return parseJsonResponse(réponse.text ?? '')
+      return analyser(parseJsonResponse(réponse.text ?? ''))
     } catch (erreur) {
       // Un refus de contenu ne se réessaie jamais : voir `GeminiBlockedError`.
       if (erreur instanceof GeminiBlockedError) throw erreur
@@ -302,7 +348,12 @@ export function lireTranscript(fichier: string): TranscriptLu {
   const brut: unknown = JSON.parse(fs.readFileSync(fichier, 'utf8'))
   const lu = SCHÉMA_TRANSCRIPT.safeParse(brut)
   if (!lu.success) {
-    throw new Error(`Transcript illisible (${fichier}) : ${lu.error.message}`)
+    // Le chemin va au journal, pas dans l'erreur. Il porte l'arborescence du
+    // montage Google Drive, et cette erreur peut finir dans le corps d'une
+    // réponse HTTP — `resolveSource` a posé la règle et la commente déjà.
+    // (relevé par Aristarque)
+    console.error(`Transcript illisible : ${fichier}`)
+    throw new Error(`Transcript illisible dans le sidecar : ${lu.error.message}`)
   }
   return {
     language: lu.data.language ?? 'unknown',
@@ -378,7 +429,7 @@ export async function runCandidates(
         windowsJson: scoreWindowsJson(lot),
       }),
       'score',
-      sleep,
+      { sleep },
     )
     const { scored, missing } = parseScoreResponse(réponse, lot)
     notées.push(...scored)
@@ -394,8 +445,11 @@ export async function runCandidates(
   const blocs = mergeOverlappingWindows(retenues, transcript)
   console.log(`Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail.`)
 
-  // 4. Le détail : un seul appel, sur la liste fusionnée et ancrée.
-  const détail = await appelerGemini(
+  // 4. Le détail : un seul appel, sur la liste fusionnée et ancrée. Le calage
+  //    sur les mots se fait DANS la relance, pour qu'une enveloppe cassée soit
+  //    réessayée au lieu de ressortir en « zéro clip » — ce qui effacerait les
+  //    propositions non traitées et écrirait l'artefact. (relevé par Copilot)
+  const propositions = await appelerGemini(
     appel,
     detailPrompt({
       language: transcript.language,
@@ -405,16 +459,19 @@ export async function runCandidates(
       maxClips,
     }),
     'detail',
-    sleep,
+    {
+      sleep,
+      analyser: (brut) =>
+        parseDetailResponse(brut, {
+          words: mots,
+          videoDuration: durée,
+          projectId,
+          blocks: blocs,
+        }),
+    },
   )
 
-  // 5. Le calage sur les mots, la fusion des passes, l'écriture.
-  const propositions = parseDetailResponse(détail, {
-    words: mots,
-    videoDuration: durée,
-    projectId,
-    blocks: blocs,
-  })
+  // 5. La fusion des passes, puis l'écriture.
   const existants = getClips(db, projectId)
   const passe = 1 + Math.max(0, ...existants.map((c) => c.pass))
   const clips = mergeCandidates(existants, propositions, passe)

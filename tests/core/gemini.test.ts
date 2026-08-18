@@ -133,9 +133,11 @@ describe('scorePrompt', () => {
     expect(p).toContain('TRANSCRIPT_LANGUAGE: français')
     expect(p).toContain('VIDEO_DURATION_SECONDS: 10234.5')
     expect(p).toContain('[{"id":"window_001"}]')
-    // Aucun trou de gabarit laissé derrière : un `{language}` non remplacé se lit
-    // par le modèle comme une consigne, pas comme une valeur manquante.
-    expect(p).not.toMatch(/\{(language|video_duration|windows_json)\}/)
+    // Aucun trou de gabarit laissé derrière. Le motif cherche `${`, la syntaxe
+    // que ces gabarits utilisent réellement : la version précédente cherchait
+    // des noms en `snake_case` que le TypeScript ne produit jamais, donc elle
+    // passait quoi qu'il arrive. (relevé par Aristarque)
+    expect(p).not.toContain('${')
   })
 })
 
@@ -163,7 +165,7 @@ describe('detailPrompt', () => {
   it('interpole la langue aux deux endroits où elle apparaît', () => {
     const p = detailPrompt({ ...ENTRÉES_DÉTAIL, language: 'français' })
     expect(p.match(/français/g) ?? []).toHaveLength(2)
-    expect(p).not.toMatch(/\{(language|video_duration|windows_json|min_clips|max_clips)\}/)
+    expect(p).not.toContain('${')
   })
 })
 
@@ -356,10 +358,18 @@ describe('parseDetailResponse', () => {
     expect(clips).toHaveLength(3)
   })
 
-  it('une réponse illisible ne rend rien plutôt que de lever', () => {
+  it('une enveloppe illisible lève, au lieu de passer pour une passe réussie', () => {
+    // « Le modèle n'a rien trouvé » et « la réponse est cassée » se ressemblent
+    // et ne veulent pas dire la même chose. Confondues, une réponse cassée
+    // effaçait les propositions non traitées et écrivait `candidates.json`, que
+    // le graphe lit ensuite comme une étape à jour. (relevé par Copilot)
     for (const brut of [null, undefined, 'du texte', {}, { shorts: 'non' }]) {
-      expect(détaille(brut)).toEqual([])
+      expect(() => détaille(brut)).toThrow(/did not contain a "shorts" array/)
     }
+  })
+
+  it('un tableau vide reste une réponse, pas une panne', () => {
+    expect(détaille({ shorts: [] })).toEqual([])
   })
 
   it('rend des candidats prêts pour la fusion des passes', () => {

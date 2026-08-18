@@ -15,6 +15,7 @@ import {
   type AppelGemini,
   type ModeGemini,
 } from '@/server/steps/candidates'
+import { parseDetailResponse } from '@/core/gemini/parse'
 import type { Clip } from '@/core/edl'
 import { clipDuration } from '@/core/edl'
 
@@ -41,18 +42,52 @@ describe('leverSiBloquée', () => {
     ).toThrow(GeminiBlockedError)
   })
 
-  it.each(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'])(
-    'lève quand la génération s’est arrêtée en « %s »',
+  it.each([
+    'SAFETY',
+    'PROHIBITED_CONTENT',
+    'BLOCKLIST',
+    'SPII',
+    'RECITATION',
+    'IMAGE_SAFETY',
+    'IMAGE_PROHIBITED_CONTENT',
+    'IMAGE_RECITATION',
+    'MODEL_ARMOR',
+    'LANGUAGE',
+    'OTHER',
+    // Deux raisons que l'API n'expose pas aujourd'hui. Elles sont là parce que
+    // la liste est écrite à l'envers : ce qui n'est pas une fin normale est un
+    // refus, y compris ce que la prochaine version de l'API ajoutera. Une liste
+    // noire tenue à la main manquait déjà `MODEL_ARMOR` et les variantes image.
+    // (relevé par Aristarque)
+    'MALICIOUS',
+    'UNE_RAISON_QUI_NEXISTE_PAS_ENCORE',
+  ])('lève quand la génération s’est arrêtée en « %s »', (raison) => {
+    expect(() =>
+      leverSiBloquée(réponse('', { candidates: [{ finishReason: raison }] } as never)),
+    ).toThrow(GeminiBlockedError)
+  })
+
+  it.each(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED'])(
+    'laisse passer une fin normale « %s »',
     (raison) => {
       expect(() =>
-        leverSiBloquée(réponse('', { candidates: [{ finishReason: raison }] } as never)),
-      ).toThrow(GeminiBlockedError)
+        leverSiBloquée(réponse('{}', { candidates: [{ finishReason: raison }] } as never)),
+      ).not.toThrow()
     },
   )
 
-  it('laisse passer une génération normale', () => {
+  it('laisse passer une réponse qui ne renseigne aucune raison', () => {
+    expect(() => leverSiBloquée(réponse('{}', { candidates: [{}] } as never))).not.toThrow()
+    expect(() => leverSiBloquée(réponse('{}'))).not.toThrow()
+  })
+
+  // Un défaut de notre côté — cette étape ne déclare aucun outil — ne doit pas
+  // porter un message qui accuse la vidéo.
+  it('un arrêt sur appel d’outil n’est pas un refus de contenu', () => {
     expect(() =>
-      leverSiBloquée(réponse('{}', { candidates: [{ finishReason: 'STOP' }] } as never)),
+      leverSiBloquée(
+        réponse('{}', { candidates: [{ finishReason: 'MALFORMED_FUNCTION_CALL' }] } as never),
+      ),
     ).not.toThrow()
   })
 })
@@ -70,7 +105,7 @@ describe('appelerGemini', () => {
 
   it('rend l’objet analysé', async () => {
     const appel: AppelGemini = async () => réponse('{"windows": []}')
-    expect(await appelerGemini(appel, 'p', 'score', sleep)).toEqual({ windows: [] })
+    expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
     expect(attentes).toEqual([])
   })
 
@@ -81,7 +116,7 @@ describe('appelerGemini', () => {
       if (essais === 1) throw new Error('503 UNAVAILABLE: model overloaded')
       return réponse('{"windows": []}')
     }
-    expect(await appelerGemini(appel, 'p', 'score', sleep)).toEqual({ windows: [] })
+    expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
     expect(essais).toBe(2)
     expect(attentes).toEqual([5000])
   })
@@ -92,7 +127,7 @@ describe('appelerGemini', () => {
       essais += 1
       return essais < 3 ? réponse('') : réponse('{"shorts": []}')
     }
-    expect(await appelerGemini(appel, 'p', 'detail', sleep)).toEqual({ shorts: [] })
+    expect(await appelerGemini(appel, 'p', 'detail', { sleep })).toEqual({ shorts: [] })
     expect(attentes).toEqual([5000, 10000])
   })
 
@@ -102,7 +137,7 @@ describe('appelerGemini', () => {
       essais += 1
       throw new Error('429 RESOURCE_EXHAUSTED')
     }
-    await expect(appelerGemini(appel, 'p', 'score', sleep)).rejects.toThrow('429')
+    await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow('429')
     expect(essais).toBe(3)
     expect(attentes).toEqual([5000, 10000])
   })
@@ -113,11 +148,57 @@ describe('appelerGemini', () => {
       essais += 1
       return réponse('', { candidates: [{ finishReason: 'PROHIBITED_CONTENT' }] } as never)
     }
-    await expect(appelerGemini(appel, 'p', 'score', sleep)).rejects.toThrow(GeminiBlockedError)
+    await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow(GeminiBlockedError)
     // Le refus est déterministe : relancer ne fait que brûler du quota et cacher
     // à l'utilisateur la vraie raison.
     expect(essais).toBe(1)
     expect(attentes).toEqual([])
+  })
+
+  // Les passerelles et les délais sont aussi passagers que le 503, et les
+  // coupures réseau brutes n'ont pas de code du tout : les unes échouaient au
+  // premier essai (relevé par Copilot), les autres n'étaient pas reconnues
+  // (relevé par Aristarque).
+  it.each([
+    '502 Bad Gateway',
+    '504 DEADLINE_EXCEEDED',
+    'Deadline exceeded',
+    'fetch failed',
+    'read ECONNRESET',
+    'connect ETIMEDOUT 142.250.1.1:443',
+  ])('réessaie « %s »', async (message) => {
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      if (essais === 1) throw new Error(message)
+      return réponse('{"windows": []}')
+    }
+    expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
+    expect(essais).toBe(2)
+  })
+
+  it('réessaie une réponse de détail sans tableau `shorts`', async () => {
+    // Sinon elle passait pour une passe réussie et effaçait les propositions
+    // non traitées. (relevé par Copilot)
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      return essais === 1 ? réponse('{"clips": []}') : réponse('{"shorts": []}')
+    }
+    // L'analyse passe par `analyser`, donc **dans** la boucle : analysée après
+    // coup, l'enveloppe cassée ressortirait en « zéro clip ».
+    const clips = await appelerGemini(appel, 'p', 'detail', {
+      sleep,
+      analyser: (brut) =>
+        parseDetailResponse(brut, {
+          words: [],
+          videoDuration: 100,
+          projectId: 'p',
+          blocks: [{ id: 'w', start: 0, end: 100, text: '', segFrom: 0, segTo: -1 }],
+        }),
+    })
+    expect(clips).toEqual([])
+    expect(essais).toBe(2)
   })
 
   it('ne réessaie pas une erreur qui n’a rien de passager', async () => {
@@ -126,7 +207,7 @@ describe('appelerGemini', () => {
       essais += 1
       throw new Error('API key not valid')
     }
-    await expect(appelerGemini(appel, 'p', 'score', sleep)).rejects.toThrow('API key')
+    await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow('API key')
     expect(essais).toBe(1)
   })
 })
@@ -295,6 +376,26 @@ describe("l'étape de repérage", () => {
     const écrit: unknown = JSON.parse(fs.readFileSync(candidatesPath(ID), 'utf8'))
     expect(Array.isArray(écrit)).toBe(true)
     expect((écrit as Clip[])[0].projectId).toBe(ID)
+  })
+
+  it('une réponse de détail cassée n’efface rien et n’écrit pas l’artefact', async () => {
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    const premiers = await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
+    expect(premiers).toHaveLength(2)
+
+    // Un modèle qui note normalement mais rend une enveloppe sans `shorts`.
+    const cassé: AppelGemini = async (prompt, mode) => {
+      if (mode === 'score') return modèle([])(prompt, mode)
+      return réponse('{"clips": []}')
+    }
+    await expect(runCandidates(ID, { db, appel: cassé, sleep: async () => {} })).rejects.toThrow(
+      /shorts/,
+    )
+    // Les propositions de la passe précédente sont toujours là, et l'artefact
+    // n'a pas été réécrit sur un vide qui ferait sauter l'étape.
+    expect(getClips(db, ID)).toHaveLength(2)
+    const écrit: Clip[] = JSON.parse(fs.readFileSync(candidatesPath(ID), 'utf8'))
+    expect(écrit).toHaveLength(2)
   })
 
   it('refuse de repérer un projet dont la durée n’est pas connue', async () => {

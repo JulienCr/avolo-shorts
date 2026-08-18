@@ -212,9 +212,9 @@ export type RenderOptions = {
  * -filter_complex
  *   [0:v]crop=…,scale=…,setsar=1[v0]; [1:v]…[v1];
  *   [v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];
- *   [ac]loudnorm=…[a];
+ *   [ac]loudnorm=…,aresample=48000[a];
  *   [vc]ass=filename='…':fontsdir='…'[v]
- * -map [v] -map [a] <encodeur> -c:a aac -movflags +faststart dst
+ * -map [v] -map [a] <encodeur> -c:a aac -movflags +faststart -- dst
  * ```
  *
  * **La normalisation de sonie est dans le graphe, pas en `-af`.** Un `-af` sur

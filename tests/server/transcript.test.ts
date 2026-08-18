@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { cheminsCudnn, environnementWorker, racineVenv } from '@/server/steps/transcript'
+import {
+  cheminsCudnn,
+  environnementWorker,
+  épurerMandataire,
+  racineVenv,
+} from '@/server/steps/transcript'
 
 /**
  * Ce qui se teste du worker sans GPU : l'environnement qu'on lui pose.
@@ -141,5 +146,42 @@ describe('environnementWorker', () => {
     expect(env.XDG_CACHE_HOME).toBe('/cache/xdg')
     expect(env.CUDA_VISIBLE_DEVICES).toBe('0')
     expect(env.HTTPS_PROXY).toBe('http://mandataire:3128')
+  })
+
+  it("épure l'autorité des URLs de mandataire, qui portaient le secret par la bande", () => {
+    // Nommer une variable dans une liste blanche dit qu'on veut *ce réglage*,
+    // pas qu'on veut le secret qui voyage avec. (relevé par Aristarque)
+    const env = environnementWorker({
+      cudnn: [],
+      base: {
+        HTTP_PROXY: 'http://utilisateur:motdepasse@mandataire:3128',
+        https_proxy: 'https://utilisateur:motdepasse@mandataire:3129',
+        NO_PROXY: 'localhost,127.0.0.1',
+      },
+    })
+    expect(JSON.stringify(env)).not.toContain('motdepasse')
+    expect(env.HTTP_PROXY).toBe('http://mandataire:3128/')
+    expect(env.https_proxy).toBe('https://mandataire:3129/')
+    // Une liste d'hôtes n'a pas d'autorité : elle traverse intacte.
+    expect(env.NO_PROXY).toBe('localhost,127.0.0.1')
+  })
+})
+
+describe('épurerMandataire', () => {
+  it('laisse intacte une URL sans identifiants', () => {
+    expect(épurerMandataire('http://mandataire:3128')).toBe('http://mandataire:3128')
+  })
+
+  it("retire l'utilisateur et le mot de passe", () => {
+    expect(épurerMandataire('http://u:m@h:3128')).toBe('http://h:3128/')
+    expect(épurerMandataire('http://u@h:3128')).toBe('http://h:3128/')
+  })
+
+  it('traite aussi la forme sans schéma, qui porte le même secret', () => {
+    expect(épurerMandataire('u:motdepasse@hôte:3128')).toBe('hôte:3128')
+  })
+
+  it('laisse passer ce qui ne ressemble à rien plutôt que de le jeter', () => {
+    expect(épurerMandataire('localhost,127.0.0.1')).toBe('localhost,127.0.0.1')
   })
 })

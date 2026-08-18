@@ -7,8 +7,13 @@ fait tourner pyannote. **L'itération 0 n'utilise pas les locuteurs** (spec §17
 D'où ce script court, qui ne fait que transcrire et aligner — et qui **réutilise
 le venv du diariseur** plutôt que d'en reconstruire 8,1 Go.
 
-Pas de pyannote, donc **pas de ``HF_TOKEN``** : les modèles d'alignement de
-WhisperX sont publics, seuls ceux de pyannote sont sous accord.
+**Pas de ``HF_TOKEN``**, et la raison mérite d'être dite exactement, parce que la
+formule courte est fausse : ``pyannote.audio`` est bien là — c'est une dépendance
+de WhisperX, et c'est lui qui porte la détection d'activité vocale, avec un point
+de contrôle livré dans les fichiers de WhisperX. Ce dont on se passe, c'est du
+**pipeline de diarisation**, celui qui est sous accord sur le Hub et qui seul
+exige un jeton. Il n'est jamais instancié ici. Les modèles d'alignement, eux,
+sont publics.
 
 Deux variables d'environnement conditionnent le démarrage, et c'est
 ``src/server/steps/transcript.ts`` qui les pose (elles viennent du ``run-wsl.sh``

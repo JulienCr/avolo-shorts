@@ -95,7 +95,8 @@ export function environnementWorker(o: {
   const transmis = {} as NodeJS.ProcessEnv
   for (const nom of TRANSMISES) {
     const valeur = o.base[nom]
-    if (valeur !== undefined) transmis[nom] = valeur
+    if (valeur === undefined) continue
+    transmis[nom] = MANDATAIRES.has(nom) ? épurerMandataire(valeur) : valeur
   }
   transmis.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = '1'
   transmis.LD_LIBRARY_PATH = chemins.join(':')
@@ -147,7 +148,8 @@ const TRANSMISES: readonly string[] = [
   'CUDA_VISIBLE_DEVICES',
   'CUDA_HOME',
   'NVIDIA_VISIBLE_DEVICES',
-  // Le réseau, si le premier lancement doit aller chercher un modèle.
+  // Le réseau, si le premier lancement doit aller chercher un modèle. Les URLs
+  // de mandataire passent par `épurerMandataire` — voir juste en dessous.
   'HTTP_PROXY',
   'HTTPS_PROXY',
   'NO_PROXY',
@@ -155,6 +157,48 @@ const TRANSMISES: readonly string[] = [
   'https_proxy',
   'no_proxy',
 ]
+
+/** Celles de `TRANSMISES` dont la valeur est une URL, donc peut porter un secret. */
+const MANDATAIRES = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'])
+
+/**
+ * Retire les identifiants d'une URL de mandataire.
+ *
+ * La liste blanche ferme la porte à `GEMINI_API_KEY` et à `DATABASE_URL`, mais
+ * `HTTP_PROXY` la contournait : `http://utilisateur:motdepasse@mandataire:3128`
+ * est une forme courante, et le mot de passe partait dans l'environnement d'un
+ * processus dont les deux sorties sont capturées puis remontées par `onLog`.
+ * Nommer une variable dans une liste blanche dit qu'on veut *ce réglage*, pas
+ * qu'on veut le secret qui voyage avec. (relevé par Aristarque)
+ *
+ * `NO_PROXY` n'y passe pas : c'est une liste d'hôtes, pas une URL, et elle ne
+ * porte pas d'autorité.
+ */
+export function épurerMandataire(valeur: string): string {
+  try {
+    const url = new URL(valeur)
+    if (url.username !== '' || url.password !== '') {
+      url.username = ''
+      url.password = ''
+      return url.toString()
+    }
+    // Une autorité analysée et sans identifiants : rien à retirer, et on rend la
+    // valeur telle quelle plutôt que la forme normalisée par `URL`.
+    //
+    // **Le contrôle sur `host` n'est pas décoratif.** `new URL` ne lève pas sur
+    // `utilisateur:motdepasse@hôte:3128` : il y lit `utilisateur:` comme un
+    // schéma et le reste comme un chemin opaque, si bien que `username` et
+    // `password` sont vides et que les identifiants passeraient intacts. Un
+    // `host` vide signale exactement ce cas, et renvoie au découpage brut.
+    if (url.host !== '') return valeur
+  } catch {
+    // Pas une URL du tout — `NO_PROXY` et ses listes d'hôtes tombent ici.
+  }
+  // La forme sans schéma porte le même secret. Tout ce qui précède l'arobase
+  // tombe ; en son absence il n'y a rien à retirer.
+  const arobase = valeur.lastIndexOf('@')
+  return arobase === -1 ? valeur : valeur.slice(arobase + 1)
+}
 
 /** Le contenu de `<venv>/lib`, ou rien si le dossier n'existe pas. */
 function dossiersLib(venvRoot: string): string[] {
@@ -335,12 +379,26 @@ function lancerWorker(
     const relayer = (flux: NodeJS.ReadableStream, journaliser: boolean): void => {
       flux.setEncoding('utf8')
       let reste = ''
+      const émettre = (ligne: string): void => {
+        if (onLog !== undefined && ligne.trim() !== '') onLog(ligne)
+      }
       flux.on('data', (morceau: string) => {
         if (journaliser) journal.ajouter(morceau)
         if (onLog === undefined) return
-        const lignes = (reste + morceau).split('\n')
+        // Découpage sur **CR comme LF** : les barres d'avancement de `tqdm` et
+        // consorts se réécrivent derrière un `\r`, sans jamais de saut de ligne.
+        // Avec un découpage sur `\n` seul, elles s'accumulaient dans `reste`
+        // pendant tout le traitement sans qu'une ligne ne sorte. (relevé par
+        // Copilot)
+        const lignes = (reste + morceau).split(/\r\n|[\r\n]/)
         reste = lignes.pop() ?? ''
-        for (const ligne of lignes) if (ligne.trim() !== '') onLog(ligne)
+        for (const ligne of lignes) émettre(ligne)
+      })
+      // La dernière ligne d'un flux qui se ferme sans séparateur — souvent le
+      // message qui explique l'échec.
+      flux.on('end', () => {
+        émettre(reste)
+        reste = ''
       })
     }
 

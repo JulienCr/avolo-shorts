@@ -712,6 +712,42 @@ describe("l'étape de repérage", () => {
       expect(dernierBilan(ID)!.notées).toBe(2)
     })
 
+    /**
+     * Le budget borne des **requêtes**, pas des sous-lots.
+     *
+     * `appelerGemini` réessaie jusqu'à trois fois une erreur passagère : débité
+     * une fois par sous-lot, un plafond annoncé de 3 pouvait donc produire 9
+     * requêtes — et jusqu'à 99 pour les 33 d'une vraie émission. Or la raison
+     * d'être de ce plafond est le quota, et un 429 est précisément ce qui
+     * déclenche les relances : la borne se relâchait exactement là où elle
+     * devait tenir. (relevé par Copilot et Codex)
+     */
+    it('débite le budget à chaque requête, relances comprises', async () => {
+      process.env.SCORE_BATCH = '4'
+      const lots: string[][] = []
+      let passagères = 0
+      const refuse = refusant(['window_001'], lots)
+      const capricieux: AppelGemini = async (prompt, mode) => {
+        // Une seule erreur passagère, sur la première moitié recoupée : elle
+        // coûte une requête de plus, donc une unité de budget de plus.
+        if (mode === 'score' && prompt.includes('"id":"window_002"') && ++passagères === 2) {
+          throw new Error('503 unavailable')
+        }
+        return refuse(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: capricieux, sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      // Quatre requêtes : le lot entier, la moitié refusée relancée deux fois,
+      // puis la moitié innocente. La relance a mangé le budget qui aurait servi
+      // à descendre jusqu'à la fenêtre seule.
+      expect(bilan.appels).toBe(4)
+      expect(bilan.notées).toBe(2)
+      // Personne n'a été soumis seul : le budget s'est épuisé avant.
+      expect(bilan.refusées).toEqual([])
+      expect([...bilan.jamaisNotées].sort()).toEqual(['window_001', 'window_002'])
+    })
+
     it('un lot qui passe du premier coup ne coûte aucun appel de plus', async () => {
       process.env.SCORE_BATCH = '2'
       const lots: string[][] = []

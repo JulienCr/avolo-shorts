@@ -82,14 +82,17 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
 /**
  * Ce que la récupération s'autorise à dépenser, en multiple du premier passage.
  *
- * Recouper un lot refusé coûte au pire `2k - 2` appels pour k fenêtres — 14 pour
- * un lot de 8 dont chaque fenêtre serait refusée seule. Mesuré sur
+ * Recouper un lot refusé coûte au pire `2k - 2` requêtes pour k fenêtres — 14
+ * pour un lot de 8 dont chaque fenêtre serait refusée seule. Mesuré sur
  * `2025-06-15-cqlp`, la réalité est bien plus douce : 20 appels de récupération
  * pour 11 de premier passage, soit 1,8 fois. Le facteur 3 laisse donc de la
  * marge à une émission plus dure tout en bornant le cas pathologique, qui
  * compte : le palier gratuit de `gemini-3.1-flash-lite` plafonne à **15 requêtes
  * par minute**, et une descente sans bornes y passerait dix minutes à se faire
  * refuser. Ce qui reste hors budget est compté comme non noté, et dit.
+ *
+ * Le budget se compte en **requêtes**, relances comprises : c'est l'unité que le
+ * quota facture, et la seule qui rende le plafond vrai quand le service tangue.
  */
 const RÉCUPÉRATION_MAX = 3
 
@@ -574,7 +577,12 @@ export type RepérageOptions = {
  * de l'émission.
  */
 export type BilanNotation = {
-  /** Les fenêtres soumises à la notation. */
+  /**
+   * Les fenêtres que la passe avait à noter — le total prévu, pas le nombre de
+   * fenêtres effectivement soumises. La nuance porte l'invariant : une passe
+   * interrompue en a soumis moins, et ce sont justement les non soumises que
+   * `jamaisNotées` doit continuer de nommer. (relevé par Copilot)
+   */
   fenêtres: number
   /** Celles qui portent une note du modèle. */
   notées: number
@@ -661,18 +669,23 @@ export async function runCandidates(
   projectId: string,
   options: RepérageOptions = {},
 ): Promise<Clip[]> {
+  // **Le bilan de la passe précédente tombe à la toute première ligne**, avant
+  // même la base et le client. Il n'est posé qu'une fois le transcript lu et les
+  // fenêtres construites : une exécution qui échoue avant — clé d'API absente,
+  // projet inconnu, durée manquante, transcript illisible — laissait sinon
+  // `dernierBilan` répondre le décompte d'une passe antérieure, sans rien qui
+  // permette de voir qu'il est périmé, et le raccord à venir dans `écrireStatut`
+  // aurait recopié ce chiffre dans `status.json`.
+  //
+  // La première version de ce nettoyage était posée trois lignes plus bas, donc
+  // *après* `clientParDéfaut()`, qui lève quand `GEMINI_API_KEY` manque : elle
+  // ratait précisément l'échec le plus banal. Un nettoyage conditionné à ce que
+  // rien n'ait échoué avant lui ne nettoie rien. (relevé par Copilot)
+  bilans.delete(projectId)
+
   const db = options.db ?? getDb()
   const appel = options.appel ?? clientParDéfaut()
   const sleep = options.sleep ?? attendre
-
-  // **Le bilan de la passe précédente tombe ici, avant tout le reste.** Il n'est
-  // posé qu'une fois le transcript lu et les fenêtres construites : une
-  // exécution qui échoue avant — projet inconnu, durée manquante, transcript
-  // illisible — laissait sinon `dernierBilan` répondre le décompte d'une passe
-  // antérieure, sans rien qui permette de voir qu'il est périmé. Le raccord à
-  // venir dans `écrireStatut` aurait recopié ce chiffre dans `status.json`.
-  // (relevé par Copilot)
-  bilans.delete(projectId)
 
   const projet = getProject(db, projectId)
   if (!projet) throw new Error(`Projet inconnu : ${projectId}`)
@@ -773,6 +786,17 @@ type Ardoise = {
   /** Les notes rassemblées, réconciliation comprise. */
   notées: ScoredWindow[]
 }
+
+/**
+ * Ce qu'il reste à dépenser en récupération, **en requêtes réseau**.
+ *
+ * Mutable et partagé avec la couture qui appelle le modèle, parce que c'est le
+ * seul endroit qui voie les requêtes réelles : `appelerGemini` en émet jusqu'à
+ * trois pour un même sous-lot quand la première est passagère. Débité par
+ * sous-lot, le plafond annoncé valait trois fois plus en 429 — c'est-à-dire
+ * exactement dans la situation qu'il est censé borner. (relevé par Copilot et Codex)
+ */
+type Budget = { restant: number }
 
 /** Ce dont la notation a besoin, et rien de plus. */
 type ContexteNotation = {
@@ -902,11 +926,14 @@ async function noterUnLot(
   lot: Window[],
   ctx: ContexteNotation,
   { bilan }: Ardoise,
+  budget?: Budget,
 ): Promise<{ scored: ScoredWindow[]; missing: string[] } | null> {
   // Compté **dans** la couture réseau, pas avant l'appel : `appelerGemini`
-  // réessaie jusqu'à trois fois, et c'est chaque requête qui coûte du quota.
+  // réessaie jusqu'à trois fois, et c'est chaque requête qui coûte du quota —
+  // donc chaque requête, et non chaque sous-lot, qui débite le budget.
   const compter: AppelGemini = (prompt, mode) => {
     bilan.appels += 1
+    if (budget !== undefined) budget.restant -= 1
     return ctx.appel(prompt, mode)
   }
   let brut: unknown
@@ -962,10 +989,10 @@ async function récupérer(
   refusés: Window[][],
   ctx: ContexteNotation,
   ardoise: Ardoise,
-  budget: number,
+  plafond: number,
 ): Promise<void> {
   const file = [...refusés]
-  let restant = budget
+  const budget: Budget = { restant: plafond }
   while (file.length > 0) {
     const lot = file.shift()!
     // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
@@ -979,12 +1006,16 @@ async function récupérer(
 
     const milieu = Math.ceil(lot.length / 2)
     for (const moitié of [lot.slice(0, milieu), lot.slice(milieu)]) {
-      if (restant <= 0) {
+      // Le budget se lit avant chaque sous-lot et se débite dans la couture, à
+      // chaque requête. Il peut donc finir légèrement négatif — les relances
+      // d'un sous-lot déjà engagé ne s'interrompent pas au milieu —, d'au plus
+      // `TENTATIVES - 1` requêtes. C'est borné et connu, là où un débit par
+      // sous-lot laissait le dépassement croître avec le nombre de branches.
+      if (budget.restant <= 0) {
         abandonner(moitié, ardoise, 'lot refusé, budget de récupération épuisé')
         continue
       }
-      restant -= 1
-      const lu = await noterUnLot(moitié, ctx, ardoise)
+      const lu = await noterUnLot(moitié, ctx, ardoise, budget)
       if (lu === null) file.push(moitié)
       else ranger(lu, ardoise)
     }

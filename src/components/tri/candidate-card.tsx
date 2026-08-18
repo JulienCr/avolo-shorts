@@ -2,6 +2,7 @@
 
 import { Check, Film, Scissors, Undo2, X } from 'lucide-react'
 import Link from 'next/link'
+import { useId } from 'react'
 
 import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
@@ -163,6 +164,12 @@ export function CandidateCard({
             <Check aria-hidden />
             <span className="capitalize">{garde ? LIBELLES_STATUT[clip.status] : 'Garder'}</span>
           </Button>
+          {/* **Le nom du bouton porte l'état, comme celui de « Garder ».** Il
+              a dit « Remettre » — l'action inverse — tout en gardant
+              `aria-pressed`, ce qui s'annonce « Remettre, activé » : le nom et
+              l'état se contredisent. Un bouton bascule dont le nom **est**
+              l'état se lit tout seul, et le geste ne change pas — rappuyer le
+              relâche, ce que l'icône de retour continue de suggérer. */}
           <Button
             size="sm"
             variant="ghost"
@@ -171,7 +178,9 @@ export function CandidateCard({
             aria-pressed={ecarte}
           >
             {ecarte ? <Undo2 aria-hidden /> : <X aria-hidden />}
-            {ecarte ? 'Remettre' : 'Écarter'}
+            <span className="capitalize">
+              {ecarte ? LIBELLES_STATUT[clip.status] : 'Écarter'}
+            </span>
           </Button>
         </div>
 
@@ -191,6 +200,12 @@ export function CandidateCard({
  * alors que la raison d'un blocage doit se lire avant d'essayer.
  */
 function Monter({ clipId, proxyPret }: { clipId: string; proxyPret: boolean }) {
+  // **La raison est liée au contrôle, pas seulement posée à côté.** À l'œil,
+  // l'adjacence suffit ; à la voix, sans `aria-describedby` on entend « Monter »
+  // et rien d'autre — c'est-à-dire un bouton qui ne répond pas sans qu'on
+  // sache pourquoi.
+  const raison = useId()
+
   if (!proxyPret) {
     return (
       <div className="pt-1">
@@ -199,13 +214,18 @@ function Monter({ clipId, proxyPret }: { clipId: string; proxyPret: boolean }) {
           variant="outline"
           className="w-full"
           aria-disabled="true"
+          aria-describedby={raison}
           // Inerte, pas absent : le bouton reste atteignable et annonçable.
           onClick={(événement) => événement.preventDefault()}
         >
           <Film aria-hidden />
           Monter
         </Button>
-        <p data-testid="raison-monter" className="mt-1 text-xs text-muted-foreground">
+        <p
+          id={raison}
+          data-testid="raison-monter"
+          className="mt-1 text-xs text-muted-foreground"
+        >
           Le montage s’ouvrira avec le proxy, en cours d’encodage.
         </p>
       </div>

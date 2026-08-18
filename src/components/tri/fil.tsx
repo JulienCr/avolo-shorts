@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 /**
@@ -250,6 +250,11 @@ export function FilDeTri({
         </p>
       )}
 
+      {/* **Le contenu est dans un panneau, pas à côté des onglets.** Un
+          `tablist` sans `tabpanel` s'annonce « onglet 1 sur 3 » sans qu'aucun
+          panneau ne soit désigné : on entend une structure qui ne mène nulle
+          part. Un seul panneau suffit — celui de la vue active, dont le contenu
+          change avec elle. */}
       <Tabs value={vue} onValueChange={(valeur) => onVue(valeur as Vue)}>
         <TabsList>
           {VUES.map(({ valeur, libelle }) => (
@@ -265,68 +270,71 @@ export function FilDeTri({
             </TabsTrigger>
           ))}
         </TabsList>
-      </Tabs>
 
-      {clips.length === 0 && (
-        <Vide
-          titre="Aucune proposition pour le moment."
-          detail="Le repérage n’a rien rendu, ou il n’a pas encore tourné."
-        />
-      )}
-
-      {/* **La fin s'ajoute, elle ne remplace pas.** La dernière décision fait
-          tomber le compteur à zéro : annoncer la fin *à la place* de la grille
-          escamoterait vingt-cinq cartes sous la main au moment précis où l'on
-          vient de décider — et `U`, qui ramène sur la carte de la décision
-          défaite, n'aurait plus de carte où revenir. Les cartes restent donc en
-          place, marquées, jusqu'au changement de vue qui les compacte. */}
-      {fini && (
-        <FinDeBoucle
-          projectId={projectId}
-          clips={clips}
-          dureeGardee={compte.dureeGardee}
-          suite={suite}
-        />
-      )}
-
-      {clips.length > 0 && visibles.length === 0 && !fini && (
-        <Vide titre={LIBELLES_VIDE[vue].titre} detail={LIBELLES_VIDE[vue].detail} />
-      )}
-
-      {visibles.length > 0 && (
-        <div
-          ref={grille}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
-        >
-          {visibles.map((clip) => (
-            <CandidateCard
-              key={clip.id}
-              clip={clip}
-              proxyPret={proxyPret}
-              selectionne={clip.id === courant}
-              onSelection={() => setSelection(clip.id)}
-              // **Le focus revient à la carte après un clic.** Il resterait
-              // sinon sur le bouton, que la garde des raccourcis écarte comme
-              // tout `button` : plus une seule touche ne répondrait, sans
-              // message et sans retour visible — la carte garderait son anneau
-              // de sélection, donc l'écran affirmerait le contraire. Or la
-              // souris pour décider puis le clavier pour enchaîner est le mode
-              // d'usage attendu, pas un cas tordu. Un focus posé par programme
-              // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
-              onGarder={() => {
-                empiler(clip)
-                onStatut(clip.id, basculerStatut(clip.status, 'kept'))
-                focaliser(clip.id)
-              }}
-              onEcarter={() => {
-                empiler(clip)
-                onStatut(clip.id, basculerStatut(clip.status, 'discarded'))
-                focaliser(clip.id)
-              }}
+        <TabsContent value={vue} className="flex flex-col gap-4">
+          {clips.length === 0 && (
+            <Vide
+              titre="Aucune proposition pour le moment."
+              detail="Le repérage n’a rien rendu, ou il n’a pas encore tourné."
             />
-          ))}
-        </div>
-      )}
+          )}
+
+          {/* **La fin s'ajoute, elle ne remplace pas.** La dernière décision fait
+              tomber le compteur à zéro : annoncer la fin *à la place* de la grille
+              escamoterait vingt-cinq cartes sous la main au moment précis où l'on
+              vient de décider — et `U`, qui ramène sur la carte de la décision
+              défaite, n'aurait plus de carte où revenir. Les cartes restent donc en
+              place, marquées, jusqu'au changement de vue qui les compacte. */}
+          {fini && (
+            <FinDeBoucle
+              projectId={projectId}
+              clips={clips}
+              dureeGardee={compte.dureeGardee}
+              suite={suite}
+            />
+          )}
+
+          {clips.length > 0 && visibles.length === 0 && !fini && (
+            <Vide titre={LIBELLES_VIDE[vue].titre} detail={LIBELLES_VIDE[vue].detail} />
+          )}
+
+          {visibles.length > 0 && (
+            <div
+              ref={grille}
+              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+            >
+              {visibles.map((clip) => (
+                <CandidateCard
+                  key={clip.id}
+                  clip={clip}
+                  proxyPret={proxyPret}
+                  selectionne={clip.id === courant}
+                  onSelection={() => setSelection(clip.id)}
+                  // **Le focus revient à la carte après un clic.** Il resterait
+                  // sinon sur le bouton, que la garde des raccourcis écarte comme
+                  // tout `button` : plus une seule touche ne répondrait, sans
+                  // message et sans retour visible — la carte garderait son anneau
+                  // de sélection, donc l'écran affirmerait le contraire. Or la
+                  // souris pour décider puis le clavier pour enchaîner est le mode
+                  // d'usage attendu, pas un cas tordu. Un focus posé par programme
+                  // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
+                  onGarder={() => {
+                    empiler(clip)
+                    onStatut(clip.id, basculerStatut(clip.status, 'kept'))
+                    focaliser(clip.id)
+                  }}
+                  onEcarter={() => {
+                    empiler(clip)
+                    onStatut(clip.id, basculerStatut(clip.status, 'discarded'))
+                    focaliser(clip.id)
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+        </TabsContent>
+      </Tabs>
 
       <AideClavier ouvert={aide} onOuvert={setAide} />
     </div>

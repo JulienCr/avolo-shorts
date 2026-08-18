@@ -147,7 +147,7 @@ describe('la boucle de tri, au clavier', () => {
 
     await utilisateur.keyboard('e')
 
-    expect(within(carte('Extrait 1')).getByRole('button', { name: /remettre/i })).toBeTruthy()
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /^écarté$/i })).toBeTruthy()
     expect(document.activeElement).toBe(carte('Extrait 2'))
   })
 
@@ -209,7 +209,7 @@ describe('la boucle de tri, au clavier', () => {
     const utilisateur = await focaliser('Extrait 1')
 
     await utilisateur.keyboard('e')
-    expect(within(carte('Extrait 1')).getByRole('button', { name: /remettre/i })).toBeTruthy()
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /^écarté$/i })).toBeTruthy()
 
     await utilisateur.keyboard('u')
     const gardé = within(carte('Extrait 1')).getByRole('button', { name: /gardé/i })
@@ -366,6 +366,35 @@ describe('rien ne bouge sous la main', () => {
     rerender(<Vivant liste={[candidat(1), candidat(2), candidat(3)]} />)
 
     expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2', 'Extrait 3'])
+  })
+})
+
+describe('ce que la carte annonce', () => {
+  it('ne dit pas « Remettre, activé »', async () => {
+    // Un bouton bascule dont le nom **est** l'état se lit tout seul : « Gardé,
+    // activé ». Un nom qui décrit l'action inverse — « Remettre » — associé au
+    // même `aria-pressed` s'annonce comme sa propre contradiction. Les deux
+    // boutons portent donc leur statut, et le geste reste le même : rappuyer le
+    // relâche.
+    render(<Harnais depart={[candidat(1)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+
+    await utilisateur.keyboard('e')
+
+    const bouton = within(carte('Extrait 1')).getByRole('button', { name: /^écarté$/i })
+    expect(bouton.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('associe la raison du montage bloqué au contrôle qu’elle explique', () => {
+    // La raison est à côté à l'œil ; sans `aria-describedby` elle n'est nulle
+    // part pour qui n'a que le clavier et la voix — on entend « Monter », et
+    // rien.
+    render(<Harnais depart={[candidat(1, 'kept')]} proxyPret={false} vueInitiale="gardes" />)
+
+    const monter = screen.getByRole('button', { name: /monter/i })
+    const raison = within(carte('Extrait 1')).getByTestId('raison-monter')
+    expect(monter.getAttribute('aria-describedby')).toBe(raison.id)
+    expect(raison.id).not.toBe('')
   })
 })
 

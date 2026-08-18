@@ -113,7 +113,7 @@ export function PanneauAvancement({
 
       {running !== null && (
         <p data-testid="ecoule" className="mt-1 text-sm text-muted-foreground">
-          Suivi depuis l’ouverture de cet écran :{' '}
+          Analyse suivie depuis cet écran :{' '}
           <span className="font-mono tabular-nums">{formatDuration(suivi)}</span>
         </p>
       )}
@@ -136,8 +136,8 @@ export function PanneauAvancement({
  * **Elle n'annonce que les changements d'étape, et la fin.** L'écran interroge
  * l'état toutes les deux secondes : une région live posée sur le pourcentage
  * produirait une annonce toutes les deux secondes pendant neuf minutes. Le
- * `progressbar`, lui, met `aria-valuenow` à jour en silence. Quatre annonces sur
- * toute l'analyse, et c'est le compte juste.
+ * `progressbar`, lui, met `aria-valuenow` à jour en silence. `ÉTAPES` en compte
+ * cinq : six annonces sur toute l'analyse, la fin comprise.
  *
  * **Elle se pose au-dessus de la disposition, jamais dans le panneau.** Le
  * panneau disparaît au moment précis où le repérage rend ses propositions — la
@@ -270,7 +270,7 @@ function ceQuiDevientPossible(steps: Record<StepName, boolean>): string {
 }
 
 /**
- * Depuis combien de temps cet écran regarde tourner l'analyse.
+ * Combien de temps cet écran a passé à regarder tourner l'analyse.
  *
  * **Ce n'est pas le temps écoulé depuis le lancement, et le libellé le dit.**
  * `ProjectStatus` ne publie pas l'instant du lancement : `status.json` porte un
@@ -282,8 +282,13 @@ function ceQuiDevientPossible(steps: Record<StepName, boolean>): string {
  *
  * Il compte les secondes plutôt que de lire une horloge : `Date.now()` appelé
  * pendant le rendu rendrait le composant impur — la même entrée n'y donnerait
- * pas la même sortie — et le battement s'arrête avec l'exécution, donc ce
- * compteur mesure du temps d'analyse observé, pas du temps de présence.
+ * pas la même sortie.
+ *
+ * **Le battement s'arrête avec l'exécution et ne se remet pas à zéro** : ce
+ * compteur mesure donc du temps d'analyse observé, et non du temps depuis
+ * l'ouverture de la page. Une analyse qui s'arrête puis repart affiche moins que
+ * l'horloge du mur, et c'est voulu — le libellé dit « analyse suivie depuis cet
+ * écran », qui est exactement ce qui est compté.
  */
 function useTempsSuivi(actif: boolean): number {
   const [secondes, setSecondes] = useState(0)

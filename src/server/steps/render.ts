@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3'
 import { DEFAULT_CAPTION_STYLE, renderAss, type CaptionStyle } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
-import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
+import { clipDuration, type Clip, type ClipStatus, type Ratio, type Segment } from '@/core/edl'
 import { blurredVariantArgs, renderArgs } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize, resolveRatio } from '@/core/framing'
@@ -504,7 +504,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // relance sauterait, et le clip resterait en « kept » pour toujours sans que
     // rien ne puisse le rattraper. La présence des fichiers fait foi en itération
     // 0 (spec §4), donc elle vaut aussi pour le statut. (relevé par Copilot)
-    marquerExporté(db, clipId, clip)
+    marquerExporté(db, clipId, clip.status)
     return {
       mp4: chemins.mp4,
       variant9x16: chemins.variant9x16,
@@ -641,11 +641,20 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // supprimé en cours de route, dont les fichiers méritent quand même leur texte.
   await écrireFichier(chemins.texts, texteDePublication(getClip(db, clipId) ?? clip))
 
+  // **Le montage a-t-il bougé pendant l'encodage ?** Si oui, les fichiers qu'on
+  // vient de produire décrivent un cadre que personne ne veut plus : on les
+  // retire et on échoue franchement, plutôt que de les laisser sur le disque où
+  // l'export suivant les prendrait pour bons. C'est le prix d'un modèle où la
+  // présence du fichier fait foi.
+  if (écarterRenduPérimé(db, clipId, chemins, clip)) {
+    throw new Error(
+      `Le clip ${clipId} a été modifié pendant son export : les fichiers produits décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
+    )
+  }
+
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
-  // l'encodage protégerait un clip qui n'existe pas. `clip` est passé pour dire
-  // **ce qui a été rendu** — si le montage a bougé entre-temps, le clip n'est pas
-  // marqué exporté.
-  marquerExporté(db, clipId, clip)
+  // l'encodage protégerait un clip qui n'existe pas.
+  marquerExporté(db, clipId, clip.status)
 
   return {
     mp4: chemins.mp4,
@@ -670,45 +679,67 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
  * mot. Prendre un `clipId` rend le défaut impossible à réintroduire par
  * distraction. (relevé par Codex)
  *
+ * `statutAuRendu` est le statut lu au début de l'export, et il ne sert qu'à
+ * reconnaître une décision prise depuis — voir plus bas.
+ *
  * `better-sqlite3` est synchrone : rien de ce processus ne s'intercale entre la
  * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
  * ressuscité, puisqu'on n'écrit que ce qu'on vient de lire.
  */
-export function marquerExporté(db: Database.Database, clipId: string, rendu: Clip): void {
+export function marquerExporté(
+  db: Database.Database,
+  clipId: string,
+  statutAuRendu: ClipStatus,
+): void {
   const àJour = getClip(db, clipId)
   if (àJour === undefined) return
-  // **Le montage a changé pendant l'encodage : les fichiers décrivent la version
-  // d'avant.** Les annoncer `exported` dirait « c'est fait » sur un cadre que
-  // l'utilisateur vient de corriger, et il publierait l'ancien. On laisse le clip
-  // dans le statut qu'il a — `kept` survit tout aussi bien à une passe de
-  // repérage — et on le dit. (relevé par Copilot)
-  if (leRenduEstPérimé(rendu, àJour)) {
-    // **Un clip déjà `exported` est rétrogradé, pas seulement laissé en place.**
-    // Un rerendu forcé sur un clip exporté dont le cadrage change en cours de
-    // route garderait sinon le statut que ce garde-fou existe pour ne pas
-    // annoncer. `kept` est le statut de « décidé, reste à exporter » ; les autres
-    // décisions humaines — `discarded` en particulier — ne se touchent pas.
-    // (relevé par Copilot)
-    const statut = àJour.status === 'exported' ? 'kept' : àJour.status
-    console.warn(
-      `Clip ${clipId} : le montage a changé pendant l'export, les fichiers produits décrivent la version d'avant. Statut ${statut === àJour.status ? `laissé à « ${statut} »` : `ramené à « ${statut} »`}, à réexporter.`,
-    )
-    if (statut !== àJour.status) putClip(db, { ...àJour, status: statut })
-    return
-  }
   if (àJour.status === 'exported') return
-  // **Un clip écarté à la main le reste.** L'utilisateur peut l'écarter pendant
-  // l'encodage sans toucher au montage : le prédicat ci-dessus ne voit alors
-  // aucun écart, et `exported` remplacerait une décision humaine par un statut de
-  // machine. `mergeCandidates` traite les deux comme humains, mais ils ne disent
-  // pas la même chose, et c'est le refus qui doit gagner. (relevé par Copilot)
-  if (àJour.status === 'discarded') {
+  // **Toute décision prise pendant l'encodage l'emporte.** L'écart de statut est
+  // la seule chose à regarder, et il couvre tout ce que l'interface offre :
+  // écarter le clip, ou rappuyer sur « Gardé », qui le ramène à `candidate`
+  // (`src/lib/clip-status.ts`). Un export commencé et fini sous le même statut
+  // passe à `exported` ; tout le reste est une main humaine qui a bougé après
+  // qu'on a lu le clip, et une main humaine gagne contre un statut de machine.
+  // (relevé par Copilot)
+  if (àJour.status !== statutAuRendu) {
     console.warn(
-      `Clip ${clipId} : écarté pendant l'export. Les fichiers sont produits, le statut « discarded » est conservé.`,
+      `Clip ${clipId} : passé de « ${statutAuRendu} » à « ${àJour.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
     )
     return
   }
   putClip(db, { ...àJour, status: 'exported' })
+}
+
+/**
+ * Écarte les sorties d'un rendu que le montage a rendu caduc, et rend vrai
+ * quand c'est arrivé.
+ *
+ * **Laisser les fichiers en place ne suffisait pas.** Refuser le statut ne fait
+ * que reporter le problème d'un appel : les MP4 sont tous là, donc l'export
+ * suivant passe par `sauterLeRendu`, ne compare plus rien, et annonce `exported`
+ * sur des fichiers qui décrivent le montage d'avant. L'utilisateur publierait
+ * l'ancien cadre sans jamais voir passer d'avertissement. La seule sortie qui
+ * tienne dans un modèle « la présence du fichier fait foi » (spec §4) est de
+ * retirer les fichiers qu'on sait faux : le prochain export les refait.
+ * (relevé par Copilot)
+ *
+ * Un clip déjà `exported` redescend à `kept` du même geste — « décidé, reste à
+ * exporter » —, puisque plus rien sur le disque ne justifie l'autre statut.
+ */
+export function écarterRenduPérimé(
+  db: Database.Database,
+  clipId: string,
+  chemins: CheminsRendu,
+  rendu: Clip,
+): boolean {
+  const àJour = getClip(db, clipId)
+  if (àJour === undefined || !leRenduEstPérimé(rendu, àJour)) return false
+
+  for (const chemin of [chemins.mp4, chemins.variant9x16, chemins.texts]) {
+    if (chemin !== null) fs.rmSync(chemin, { force: true })
+  }
+  if (àJour.status === 'exported') putClip(db, { ...àJour, status: 'kept' })
+  return true
 }
 
 /**

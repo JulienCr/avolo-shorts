@@ -9,6 +9,7 @@ import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
   cheminsRendu,
   collecterMarques,
+  écarterRenduPérimé,
   leRenduEstPérimé,
   marquerExporté,
   motsDièse,
@@ -516,29 +517,60 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = préparer()
     putClip(db, { ...c, title: 'Retitré' })
 
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c.status)
 
     const relu = getClip(db, c.id)
     expect(relu?.status).toBe('exported')
     expect(relu?.title).toBe('Retitré')
   })
 
-  it("laisse le clip non exporté si le montage a bougé pendant l'encodage", () => {
-    // La suite du même défaut : les fichiers décrivent l'EDL d'avant, donc
-    // annoncer « exporté » ferait publier un cadre déjà corrigé.
-    const { db, c } = préparer()
-    putClip(db, { ...c, segments: [{ start: 0, end: 5 }] })
-
-    marquerExporté(db, c.id, c)
-
-    expect(getClip(db, c.id)?.status).toBe('kept')
-  })
-
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
     const { db, c } = préparer()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c.status)
     expect(getClip(db, c.id)).toBeUndefined()
+  })
+
+  it("conserve toute décision de statut prise pendant l'encodage", () => {
+    // `discarded` n'est pas le seul cas : rappuyer sur « Gardé » ramène le clip
+    // à `candidate` (`src/lib/clip-status.ts`). C'est l'écart de statut qui
+    // compte, pas sa valeur. (relevé par Copilot)
+    for (const décidé of ['discarded', 'candidate'] as const) {
+      const { db, c } = préparer()
+      putClip(db, { ...c, status: décidé })
+
+      marquerExporté(db, c.id, c.status)
+
+      expect(getClip(db, c.id)?.status).toBe(décidé)
+      db.close()
+    }
+  })
+
+  it("écarte les fichiers d'un rendu que le montage a rendu caduc", () => {
+    // Refuser le statut ne suffisait pas : les MP4 restaient là, donc l'export
+    // suivant sautait et annonçait « exporté » sur le montage d'avant. On retire
+    // ce qu'on sait faux. (relevé par Copilot)
+    const { db, c } = préparer({ status: 'exported' })
+    const chemins = cheminsRendu(ID, c.id, '1:1')
+    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+    putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
+
+    expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(true)
+
+    expect(fs.existsSync(chemins.mp4)).toBe(false)
+    expect(fs.existsSync(chemins.variant9x16 as string)).toBe(false)
+    expect(fs.existsSync(chemins.texts)).toBe(false)
+    // Plus rien sur le disque ne justifie « exporté ».
+    expect(getClip(db, c.id)?.status).toBe('kept')
+  })
+
+  it("ne touche à rien quand le montage n'a pas bougé", () => {
+    const { db, c } = préparer()
+    const chemins = cheminsRendu(ID, c.id, '1:1')
+    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+
+    expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(false)
+    expect(fs.existsSync(chemins.mp4)).toBe(true)
   })
 
   it('refuse un clip inconnu', async () => {
@@ -561,35 +593,6 @@ describe('renderClip, chemin du saut', () => {
 
     await expect(renderClip(c.id, { db })).rejects.toThrow(/aucun segment/)
     expect(getClip(db, c.id)?.status).toBe('kept')
-  })
-
-  it("rétrograde un clip déjà exporté dont le montage a bougé", () => {
-    const { db, c } = préparer({ status: 'exported' })
-    putClip(db, { ...c, status: 'exported', cropX: 0.1 })
-
-    marquerExporté(db, c.id, c)
-
-    expect(getClip(db, c.id)?.status).toBe('kept')
-  })
-
-  it("ne touche pas à un clip écarté dont le montage a bougé", () => {
-    const { db, c } = préparer({ status: 'discarded' })
-    putClip(db, { ...c, status: 'discarded', cropX: 0.1 })
-
-    marquerExporté(db, c.id, c)
-
-    expect(getClip(db, c.id)?.status).toBe('discarded')
-  })
-
-  it("ne touche pas non plus à un clip écarté pendant l'encodage", () => {
-    // Le montage n'a pas bougé, donc le prédicat ne voit rien : c'est la
-    // décision humaine elle-même qu'il faut préserver. (relevé par Copilot)
-    const { db, c } = préparer()
-    putClip(db, { ...c, status: 'discarded' })
-
-    marquerExporté(db, c.id, c)
-
-    expect(getClip(db, c.id)?.status).toBe('discarded')
   })
 
   it("dit quoi faire quand la copie de travail a disparu", async () => {

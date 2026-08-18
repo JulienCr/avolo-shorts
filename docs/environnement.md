@@ -107,6 +107,13 @@ même son encodeur en argument (tâche 5) : le choix se fait à l'appel, sans
 toucher au code. Ce que dit la mesure, c'est qu'il n'y a rien à gagner à y
 mettre le GPU.
 
+**Conséquence dans le code** (tâche 7) : `FFMPEG_ENCODER=auto` rend `x264` pour
+le proxy et `nvenc` pour l'export. Ce n'est pas une entorse à `auto`, c'est ce
+qu'`auto` veut dire — *le meilleur pour cette étape*. La sonde NVENC n'est même
+pas consultée côté proxy, puisque sa réponse ne changerait rien. Une valeur
+explicite, elle, est respectée partout. Voir `encodeurProxy` dans
+`src/server/steps/proxy.ts` et `encoderName` dans `src/server/ffmpeg.ts`.
+
 ### L'export gagne beaucoup
 
 Rendu 1080x1920, `crop=608:1080:656:0,scale=1080:1920:flags=lanczos`.
@@ -268,13 +275,54 @@ motif qui compte les caractères se casse au premier changement de build.
 | Variable | Rôle |
 |---|---|
 | `FFMPEG_BIN`, `FFPROBE_BIN` | binaires installés par `setup.sh` |
-| `FFMPEG_ENCODER` | `auto`, `nvenc` ou `x264`. `auto` sonde NVENC une fois par processus |
+| `FFMPEG_ENCODER` | `auto`, `nvenc` ou `x264`. `auto` sonde NVENC une fois par processus — mais rend `x264` pour le proxy, où la mesure dit que le GPU fait perdre du temps. Une valeur inconnue est refusée, jamais rabattue en silence |
 | `REPLAY_DIR` | le Drive partagé qui porte les replays |
 | `STAGE_DIR` | copies de travail locales |
 | `PROJECTS_DIR` | artefacts par projet |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | repérage des candidats |
 | `WHISPER_PYTHON` | venv du diariseur de `rythmo-impro`, réutilisé tel quel |
 | `WHISPER_MODEL` | `large-v3` |
+| `WHISPER_WORKER` | facultative : le chemin de `worker/transcribe.py`, si le processus ne tourne pas depuis la racine du dépôt |
+
+## Le worker de transcription
+
+`worker/transcribe.py` ne fait que transcrire et aligner. L'itération 0 n'utilise
+pas les locuteurs.
+
+**Pas de `HF_TOKEN`** — et la formule courte « pas de pyannote » est fausse, donc
+autant la dire en entier. `pyannote.audio` est bel et bien installé : c'est une
+dépendance de WhisperX, et c'est lui qui porte la détection d'activité vocale,
+avec un point de contrôle livré dans les fichiers de WhisperX. Ce dont on se
+passe, c'est du **pipeline de diarisation**, sous accord sur le Hub, et qui seul
+exige un jeton. Il n'est jamais instancié. Les modèles d'alignement, eux, sont
+publics.
+
+Il **réutilise le venv du diariseur** plutôt que d'en reconstruire 8,1 Go, et
+`src/server/steps/transcript.ts` lui pose les deux variables du `run-wsl.sh` de
+ce dépôt-là :
+
+```
+TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
+LD_LIBRARY_PATH=<venv>/lib/pythonX.Y/site-packages/nvidia/cudnn/lib
+                [:<chaque segment non vide du LD_LIBRARY_PATH hérité>]
+```
+
+Sans la seconde, CTranslate2 ne trouve pas cuDNN et le chargement du modèle
+échoue sur une bibliothèque introuvable — un message qui ne nomme ni Python, ni
+sa version, ni pip. **Ce n'est pas facultatif.**
+
+Deux écarts avec le `run-wsl.sh`, qui écrit `…/cudnn/lib:${LD_LIBRARY_PATH}` :
+
+- **la version de Python se lit dans le venv** au lieu d'être codée à `3.10` ;
+- **le chemin hérité est redécoupé, et ses segments vides sont jetés.** La forme
+  du shell en produit un dès que la variable est absente, vide, ou finit par
+  `:` — et un segment vide dans `LD_LIBRARY_PATH` désigne le **dossier
+  courant**, donc ferait chercher les bibliothèques du processus là où il a été
+  lancé. Écrire le `:` du shell sous condition ne suffirait d'ailleurs pas : un
+  `/usr/lib::/opt/lib` hérité porte le sien au milieu.
+
+`worker/requirements.txt` dit quoi installer sur une machine qui n'a pas ce
+venv — à ne pas lancer par réflexe sur celle-ci.
 
 ## Le reste de la machine
 

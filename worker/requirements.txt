@@ -1,0 +1,43 @@
+# Ce que `worker/transcribe.py` demande.
+#
+# **À ne pas installer par réflexe.** Sur la machine de Julien, `WHISPER_PYTHON`
+# pointe le venv du diariseur de `~/dev/rythmo-impro/diarizer`, qui porte déjà
+# tout ceci : 8,1 Go, dont le modèle `large-v3` et les modèles d'alignement en
+# cache. En reconstruire un second reviendrait à retélécharger les mêmes poids
+# pour les ranger ailleurs. Ce fichier sert à monter le worker sur une machine
+# qui n'a pas ce venv, et à dire noir sur blanc ce dont il dépend.
+#
+#     python3.10 -m venv venv
+#     ./venv/bin/pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
+#         -r worker/requirements.txt
+#
+# puis, dans le `.env` du dépôt — pas dans le shell, où une simple affectation ne
+# franchirait pas le `pnpm tsx` qui suit :
+#
+#     WHISPER_PYTHON=/chemin/absolu/vers/venv/bin/python
+#
+# **Les versions sont épinglées en `==`** (spec §5 : « la parade est un
+# `setup.sh` et un `requirements.txt` épinglé »). Ce sont celles sur lesquelles
+# la chaîne a réellement tourné, le 18 août 2026 ; un `>=` monterait sur une
+# autre machine des versions que personne n'a vues fonctionner ensemble, et
+# c'est précisément ce que le projet paie pour ne pas se conteneuriser.
+# (relevé par Aristarque)
+#
+# L'index PyTorch est celui des roues CUDA 12.8. Sans lui, pip installe la
+# variante processeur de `torch`, qui s'importe très bien et ne voit pas le GPU.
+#
+# **`pyannote.audio` arrive quand même**, en dépendance de `whisperx` : c'est lui
+# qui porte la détection d'activité vocale, et le point de contrôle qu'elle
+# utilise est livré dans les fichiers de `whisperx`. Ce dont l'itération 0 se
+# passe, c'est de la **diarisation** — le `Pipeline` sous accord, celui qui exige
+# `HF_TOKEN` et une licence acceptée sur le Hub. Il n'est jamais instancié, donc
+# aucun jeton n'est nécessaire ; il ne sert à rien d'espérer une installation
+# plus légère. (relevé par Copilot)
+#
+# `nvidia-cudnn-cu12` n'est pas nommé non plus : il arrive avec `torch`, et
+# `transcript.ts` pose `LD_LIBRARY_PATH` sur le dossier où pip le range — sans
+# quoi CTranslate2 ne le trouve pas et le chargement du modèle échoue.
+
+torch==2.8.0
+torchaudio==2.8.0
+whisperx==3.8.2

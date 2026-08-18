@@ -1,0 +1,356 @@
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { Database } from 'better-sqlite3'
+import { getDb, getProject, upsertProject } from '@/server/db'
+import { cheminTemporaire } from '@/server/ffmpeg'
+import { probeDuration } from '@/server/ffprobe'
+import { projectIdFromSource, resolveSource, stagedPath } from '@/server/paths'
+
+/**
+ * L'ingestion : amener un replay du Drive partagé jusqu'à une copie locale
+ * exploitable, et relever l'empreinte de la source (spec §12).
+ *
+ * **Tout ce fichier tourne autour d'une contrainte : `REPLAY_DIR` est un Google
+ * Drive monté en 9p.** Il est lent — 40 Mo/s mesurés —, et il décroche de deux
+ * façons que `/proc/mounts` ne distingue pas : absent au démarrage de la
+ * machine, ou monté avec son transport mort dessous. Dans le second cas, le
+ * dossier se liste encore et le moindre accès au contenu suspend l'appelant sans
+ * limite de temps. D'où le délai de garde sur le `stat`, qui est la première
+ * chose que fait cette étape.
+ */
+
+/**
+ * L'empreinte d'une source : **taille, date de modification et durée ffprobe.
+ * Pas de hash** (spec §5).
+ *
+ * Digérer 12 Go à chaque lancement coûterait plus cher que l'étape qu'on
+ * cherche à éviter — et sur un montage à 40 Mo/s, il faudrait cinq minutes rien
+ * que pour lire le fichier.
+ *
+ * En itération 0 elle est seulement **relevée** : le saut d'étape se décide sur
+ * la présence du fichier (spec §4), et la comparaison des clés de validité vient
+ * en itération 4. `durationSec` sert déjà, lui — `buildWindows` en a besoin.
+ */
+export type Empreinte = {
+  sizeBytes: number
+  /** Millisecondes depuis l'époque, comme `fs.Stats.mtimeMs` — voir `db.ts`. */
+  mtimeMs: number
+  durationSec: number | null
+}
+
+/**
+ * Construit l'empreinte. Pure, et testée : c'est la forme qui compte, pas
+ * l'appel système qui la remplit.
+ *
+ * `Math.trunc` sur `mtimeMs` : la colonne est un `INTEGER` SQLite, et une
+ * fraction de milliseconde relue en réel ne serait plus égale à celle qu'on a
+ * écrite. Les systèmes de fichiers ne s'accordent déjà pas sur la granularité —
+ * 9p rend souvent la seconde entière —, on ne va pas y ajouter du flottant.
+ */
+export function empreinteSource(
+  stat: Pick<fs.Stats, 'size' | 'mtimeMs'>,
+  durationSec: number | null,
+): Empreinte {
+  return {
+    sizeBytes: stat.size,
+    mtimeMs: Math.trunc(stat.mtimeMs),
+    durationSec,
+  }
+}
+
+/** Ce qu'on décide devant une copie déjà présente. */
+export type DécisionCopie = 'copier' | 'garder'
+
+/**
+ * Faut-il recopier la source ?
+ *
+ * **La taille seule tranche, et c'est délibéré.** Le saut d'étape s'applique
+ * aussi ici (spec §4) : on parle de recopier jusqu'à 12 Go depuis un montage à
+ * 40 Mo/s, soit cinq minutes qu'on ne paie pas deux fois. Comparer les dates
+ * ferait recopier à chaque fois que le Drive resynchronise un fichier qu'il n'a
+ * pas modifié ; comparer le contenu coûterait plus cher que la copie.
+ *
+ * Une copie interrompue ne trompe pas ce contrôle : la copie s'écrit sous un nom
+ * temporaire et n'est renommée qu'une fois complète, donc une taille égale veut
+ * bien dire une copie entière.
+ */
+export function décisionCopie(o: {
+  source: { sizeBytes: number }
+  copie: { sizeBytes: number } | null
+  force?: boolean
+}): DécisionCopie {
+  if (o.force === true) return 'copier'
+  if (o.copie === null) return 'copier'
+  return o.copie.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
+}
+
+/**
+ * `stat`, mais qui renonce.
+ *
+ * `fs.stat` n'est pas annulable : sur un montage 9p dont le transport est mort,
+ * l'appel part dans le vivier de fils de libuv et n'en revient jamais. On ne peut
+ * donc pas *interrompre* le sondage — seulement cesser de l'attendre, ce qui
+ * suffit à transformer un blocage indéfini en une erreur qui se lit.
+ *
+ * La contrepartie, assumée : le fil reste consommé. Le vivier en compte quatre
+ * par défaut, donc quatre montages morts sondés coup sur coup gèleraient tout ce
+ * qui touche au disque. En itération 0 il y a un `stat` par ingestion, et le
+ * message dit quoi faire ; le jour où un veilleur balaiera le dossier de replays
+ * (itération 4), il faudra un sondage qui ne consomme pas de fil. La requête
+ * abandonnée maintient par ailleurs la boucle d'événements en vie : les scripts
+ * de `scripts/` sortent donc par `quitter()`, qui ne s'en remet pas au seul
+ * `process.exitCode`. (relevé par Copilot)
+ *
+ * **Le message porte le chemin complet.** Comme ceux de `runFfmpeg`, il est
+ * destiné à un journal de serveur : une route qui le renverrait tel quel
+ * exposerait l'arborescence de la machine. (relevé par Aristarque)
+ */
+export async function statAvecDélai(chemin: string, timeoutMs: number): Promise<fs.Stats> {
+  return attendreOuRenoncer(
+    // `lstat` et non `stat`, et c'est ce qui ferme la porte des liens
+    // symboliques. `resolveSource` valide la **forme** du chemin avec
+    // `path.resolve`, qui ne suit pas les liens : un `REPLAY_DIR/emission.mp4`
+    // pointant sur `/etc/shadow` passerait son contrôle de dossier parent, et
+    // `stat` — qui suit les liens — le déclarerait fichier. Le contenu de la
+    // cible partirait alors dans `stage/`, puis dans un proxy consultable.
+    // `lstat` décrit le lien lui-même, donc `isFile()` est faux et l'ingestion
+    // s'arrête. Le montage 9p du Drive ne porte de toute façon pas de liens.
+    // (relevé par Aristarque)
+    fsp.lstat(chemin),
+    timeoutMs,
+    `Le dossier des replays ne répond pas (${timeoutMs} ms sur ${JSON.stringify(chemin)}). ` +
+      'REPLAY_DIR est monté en 9p : il peut être absent, ou monté avec son transport mort ' +
+      "dessous — /proc/mounts ne les distingue pas. Rouvrir l'explorateur Windows sur le " +
+      'lecteur, ou remonter le partage.',
+  )
+}
+
+/** Délai par défaut des gardes sur le Drive. Généreux : il est lent, pas mort. */
+export const DÉLAI_STAT_MS = 20_000
+
+/**
+ * Le montage **répond-il** ? Pas « le fichier existe-t-il » : `false` veut dire
+ * qu'aucune réponse n'est venue dans le temps imparti, et rien d'autre. Une
+ * erreur en est une, de réponse — un `ENOENT` immédiat prouve que le système de
+ * fichiers est vivant.
+ *
+ * C'est la distinction qui compte pour un montage 9p : **absent**, il répond
+ * `ENOENT` en une microseconde et tout ce qui suit se déroule normalement ;
+ * **monté avec son transport mort**, il ne répond rien du tout et gèle
+ * l'appelant. `/proc/mounts` ne les distingue pas, cette fonction si.
+ *
+ * Elle existe pour être appelée **avant du synchrone**. `fs.existsSync` sur un
+ * montage mort ne bloque pas un fil du vivier comme le fait `fsp.stat` : il
+ * gèle la boucle d'événements entière, donc tout le serveur. `placeSidecar` en
+ * fait plusieurs, et c'est ce qui rend ce sondage nécessaire côté transcription.
+ * (relevé par Copilot et Aristarque)
+ */
+export async function montageRépond(chemin: string, timeoutMs = DÉLAI_STAT_MS): Promise<boolean> {
+  try {
+    await attendreOuRenoncer(
+      fsp.stat(chemin).then(
+        () => true,
+        () => true,
+      ),
+      timeoutMs,
+      'muet',
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Attend une promesse, ou renonce et explique.
+ *
+ * Extrait de `statAvecDélai` pour une raison de test : un `stat` sur un fichier
+ * local revient trop vite pour qu'on puisse en observer le délai de garde de
+ * façon reproductible, alors qu'une promesse qui ne se règle jamais reproduit
+ * exactement le montage mort.
+ *
+ * **Renoncer n'est pas annuler.** Le travail continue derrière — c'est le prix
+ * d'un appel système non interruptible —, mais l'appelant, lui, repart.
+ */
+export async function attendreOuRenoncer<T>(
+  travail: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let minuterie: NodeJS.Timeout | undefined
+  const garde = new Promise<never>((_, reject) => {
+    minuterie = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  // Le perdant de la course garde une promesse en vol : sans ce `catch`, un
+  // `stat` qui échoue *après* le délai remonterait en rejet non traité et
+  // couperait le processus.
+  travail.catch(() => {})
+
+  try {
+    return await Promise.race([travail, garde])
+  } finally {
+    clearTimeout(minuterie)
+  }
+}
+
+/**
+ * Copie en flux, avec avancement, vers un nom temporaire renommé à la fin.
+ *
+ * Le temporaire n'est pas une précaution de style : une copie interrompue à
+ * 11 Go sur 12 laisserait, sous le nom définitif, un fichier que `décisionCopie`
+ * comparerait par sa taille — et qui, au premier octet près, pourrait passer.
+ * Le renommage est atomique à l'intérieur d'un même système de fichiers, et
+ * `stage/` en est un.
+ */
+async function copier(
+  src: string,
+  dst: string,
+  total: number,
+  onProgress?: (a: AvancementCopie) => void,
+): Promise<void> {
+  await fsp.mkdir(path.dirname(dst), { recursive: true })
+  const temporaire = cheminTemporaire(dst)
+
+  let fait = 0
+  const compteur = new Transform({
+    transform(morceau: Buffer, _codage, suite) {
+      fait += morceau.length
+      onProgress?.({ done: fait, total, fraction: total > 0 ? Math.min(1, fait / total) : null })
+      suite(null, morceau)
+    },
+  })
+
+  try {
+    await pipeline(fs.createReadStream(src), compteur, fs.createWriteStream(temporaire))
+    vérifierTailleCopiée(fait, total, src)
+    await fsp.rename(temporaire, dst)
+  } catch (cause) {
+    // Ne pas laisser un moignon derrière soi : il ne serait ramassé par
+    // personne, et `stage/` porte des fichiers de plusieurs gigaoctets.
+    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+/**
+ * La copie fait-elle bien la taille annoncée ?
+ *
+ * **Une fin de fichier propre n'est pas une preuve de complétude.** Si la source
+ * rétrécit pendant la copie — le Drive resynchronise, quelqu'un remplace le
+ * fichier —, `pipeline` s'achève sans erreur sur un fichier plus court, et le
+ * renommage le rend définitif. `décisionCopie` ne s'en rendrait pas compte tout
+ * de suite, mais tout ce qui suit — le proxy, l'audio, le transcript — serait
+ * construit sur une émission tronquée, sans un mot. L'invariant que le
+ * temporaire est censé garantir est « ce nom désigne une copie entière » : il
+ * faut donc le vérifier, pas seulement l'espérer. (relevé par Copilot)
+ *
+ * Pure, et séparée pour être testée sans copier quatre gigaoctets.
+ */
+export function vérifierTailleCopiée(copié: number, attendu: number, source: string): void {
+  if (copié === attendu) return
+  throw new Error(
+    `La copie de ${JSON.stringify(source)} fait ${copié} octets au lieu de ${attendu} : ` +
+      'la source a changé de taille pendant la copie. Le fichier temporaire est effacé, ' +
+      'rien de tronqué ne prend le nom définitif. Relancer.',
+  )
+}
+
+/** L'avancement d'une copie, en octets. */
+export type AvancementCopie = { done: number; total: number; fraction: number | null }
+
+export type OptionsIngestion = {
+  /** Recopier même si une copie de la bonne taille est déjà là. */
+  force?: boolean
+  /** Délai de garde du `stat` sur le Drive. */
+  statTimeoutMs?: number
+  onProgress?: (avancement: AvancementCopie) => void
+  /** La base à renseigner. `null` pour n'en renseigner aucune (tests). */
+  db?: Database | null
+}
+
+/** Ce que l'ingestion rend, et ce que les étapes suivantes consomment. */
+export type Ingestion = {
+  projectId: string
+  /** L'original sur `REPLAY_DIR`. Jamais modifié. */
+  sourcePath: string
+  /** La copie de travail. C'est **elle** que ffmpeg lit ensuite. */
+  stagedPath: string
+  /** Vrai si la copie vient d'être faite, faux si elle était déjà là. */
+  copied: boolean
+} & Empreinte
+
+/**
+ * Ingère un replay : contrôle le montage, copie en local, relève l'empreinte,
+ * inscrit le projet.
+ *
+ * **La copie garde le nom du fichier d'origine** (spec §12). Le titre du projet
+ * en dérive, et un nom haché renommerait toute la bibliothèque en charabia. La
+ * validation de forme du chemin appartient à `resolveSource` — un fichier posé
+ * directement dans `REPLAY_DIR`, ni au-dessus ni dans un sous-dossier —, mais
+ * elle ne dit rien de l'existence ni du type : c'est ici que ça se vérifie.
+ */
+export async function ingest(source: string, options: OptionsIngestion = {}): Promise<Ingestion> {
+  const sourcePath = resolveSource(source)
+  const projectId = projectIdFromSource(source)
+  const destination = stagedPath(source)
+
+  const stat = await statAvecDélai(sourcePath, options.statTimeoutMs ?? DÉLAI_STAT_MS)
+  // `statAvecDélai` fait un `lstat` : un lien symbolique n'est donc pas un
+  // fichier, et il est refusé ici même s'il pointe sur une vraie vidéo. C'est
+  // volontaire — voir le commentaire de `statAvecDélai`.
+  if (!stat.isFile()) {
+    throw new Error(
+      `${JSON.stringify(source)} n'est pas un fichier ordinaire. Un replay est un fichier posé ` +
+        'directement dans REPLAY_DIR — ni un dossier, ni un lien symbolique.',
+    )
+  }
+
+  // La copie, si elle existe : son absence est le cas courant, pas une erreur.
+  let copieStat: fs.Stats | null = null
+  try {
+    copieStat = await fsp.stat(destination)
+  } catch {
+    copieStat = null
+  }
+
+  const décision = décisionCopie({
+    source: { sizeBytes: stat.size },
+    copie: copieStat === null ? null : { sizeBytes: copieStat.size },
+    force: options.force,
+  })
+
+  if (décision === 'copier') {
+    await copier(sourcePath, destination, stat.size, options.onProgress)
+  }
+
+  // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
+  // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
+  const empreinte = empreinteSource(stat, await probeDuration(destination))
+
+  const ingestion: Ingestion = {
+    projectId,
+    sourcePath,
+    stagedPath: destination,
+    copied: décision === 'copier',
+    ...empreinte,
+  }
+
+  const db = options.db === undefined ? getDb() : options.db
+  if (db !== null) {
+    upsertProject(db, {
+      ...empreinte,
+      id: projectId,
+      sourcePath,
+      stagedPath: destination,
+      // `createdAt` ne bouge pas d'une réingestion à l'autre : c'est la date
+      // d'entrée du projet dans la bibliothèque, et l'interface trie dessus.
+      createdAt: getProject(db, projectId)?.createdAt ?? Date.now(),
+    })
+  }
+
+  return ingestion
+}

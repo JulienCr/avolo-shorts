@@ -143,14 +143,13 @@ export const PATCH = route(
     // Les chemins se calculent sur le clip **d'avant** : c'est lui qui dit sous
     // quel ratio les fichiers à écarter ont été écrits, et un passage de 1:1 à
     // 9:16 change le jeu.
-    if (écrit.status === 'exported' || clip.status === 'exported') {
-      écarterRenduPérimé(
-        db,
-        id,
-        cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)),
-        clip,
-      )
-    }
+    // Sans condition sur le statut : `leRenduEstPérimé` ne se déclenche que
+    // lorsqu'un champ qui change l'image a bougé, et un clip que rien n'a rendu
+    // n'a pas de fichier à effacer — trois `rmSync` sur des chemins absents. La
+    // garder ferait un `écrit.status === 'exported'` mort, puisque le schéma
+    // refuse ce statut au client, et laisserait passer le cas d'un rendu produit
+    // à la main sur un clip resté `kept`.
+    écarterRenduPérimé(db, id, cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)), clip)
 
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
     // cache ne montre plus le début du clip. On l'efface plutôt que de la

@@ -914,12 +914,11 @@ Le point de départ, arrêté côté serveur :
   dans un même clip (spec §10) ;
 - **le ratio se recalcule depuis l'EDL, il n'est pas stocké.** Retirer le passage
   où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1 ;
-- les frontières de plans et les boîtes de personnes existeront, portées par un
-  `analysis.json` annoncé côté serveur. **C'est un écart avec la spec §5**, qui
-  définit deux artefacts distincts, `shots.json` et `people.json` ; ce document
-  n'en décide pas et le signale en 9.3. Rien ici n'en dépend : l'écran a besoin
-  que les frontières existent, pas de savoir dans quel fichier. (relevé par
-  Aristarque)
+- les frontières de plans et les boîtes de personnes existent, portées par un
+  `analysis.json` unique. **C'est un écart avec la spec §5**, qui définit deux
+  artefacts distincts, `shots.json` et `people.json` ; ce document n'en décide pas
+  et le signale en 9.3. Rien ici n'en dépend : l'écran a besoin que les frontières
+  existent, pas de savoir dans quel fichier. (relevé par Aristarque)
 
 #### La décision : un mode explicite, puis un réglage par plan
 
@@ -949,35 +948,35 @@ clip**, retirer un segment en amont décale tous les rangs, et chaque dérogatio
 atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
-La clé désigne donc le plan **dans la source**. Et pas par son instant de début,
-qui paraît suffire et ne suffit pas : si une redétection déplace une frontière de
-10,0 s à 10,3 s, la clé 10,0 s tombe désormais **dans le plan précédent**, un plan
-la contient bel et bien, et la dérogation s'applique au mauvais cadre sans que
-rien ne le signale. Prendre le milieu du plan plutôt que son début rend le cas
-plus rare, pas impossible. (relevé par Copilot)
+La clé désigne donc le plan **dans la source**, et c'est son instant de début.
+`computeFraming` (`src/core/framing.ts`) l'a arbitré ainsi, et c'est sa signature
+qui fait foi pour l'écran. Un temps source est aussi la façon dont tout le reste
+du produit s'ancre — les segments, les mots, les marqueurs `[SECONDS]` — donc une
+seule convention de temps dans tout le modèle.
 
-**Une dérogation porte donc l'intervalle source du plan tel qu'il était quand elle
-a été posée**, et se résout par **recouvrement maximal** avec le découpage
-courant :
+Restait le cas qui avait fait proposer autre chose : une redétection déplace une
+frontière de 10,0 s à 10,3 s, et la clé 10,0 s tombe dans le plan précédent, qui
+la contient bel et bien. Il est réglé par un appariement **au plus proche, dans
+une tolérance** — assez large pour absorber les quelques images dont une frontière
+bouge d'une passe à l'autre, trop étroite pour atteindre le plan d'à côté, dont la
+durée se compte en secondes.
 
-- elle s'applique au plan actuel avec lequel son intervalle se recouvre le plus ;
-- si un plan a été **divisé**, elle suit la moitié qu'elle recouvre le plus, et
-  l'autre repasse en automatique ;
-- si deux plans ont été **fusionnés**, les deux dérogations tombent sur le même
-  plan : on garde celle du plus grand recouvrement, l'égalité se tranchant par
-  l'intervalle qui commence le plus tôt ;
-- un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
-  automatique. Visible dans la bande, donc jamais silencieux.
+**Une dérogation qui n'apparie aucun plan n'est jamais reportée sur une voisine.**
+Elle est rendue à l'appelant (`rejectedOverrides`) et le plan concerné repasse en
+automatique. C'est le mode de défaillance qui comptait : un cadrage humain posé
+sur le mauvais plan produit un clip qui se rend, faux, et que rien ne signale.
 
-Cette forme n'est pas plus chère à écrire qu'un instant, elle est totale par
-construction, et elle ne suppose rien du détecteur : personne n'a vérifié qu'il
-partitionne la durée entière quel que soit son seuil, et `shots.json` vit dans le
-projet précisément parce que ce seuil se réglera (spec §5, « ce qui se règle doit
-vivre là où on le règle »).
+Ce qu'il en reste pour l'écran tient en une phrase : **une dérogation tombée se
+voit**. La bande montre le plan repassé en automatique, sans notification et sans
+qu'il faille comparer deux cadrages pour s'en apercevoir. Reposer un cadrage coûte
+un geste ; découvrir trois semaines plus tard qu'il avait disparu coûte la
+confiance dans les autres.
 
-Un intervalle en secondes dans la source est enfin la façon dont tout le reste du
-produit s'ancre : les segments, les mots, les marqueurs `[SECONDS]`. Une seule
-convention de temps dans tout le modèle.
+Une version précédente de ce document demandait de porter l'**intervalle** source
+du plan et de résoudre par recouvrement maximal, avec ses règles de division et de
+fusion. C'est plus total, et ce n'est pas ce qui a été écrit. La proposition ne se
+garde pas à côté de la décision : entre deux modèles de clé dans un même document,
+c'est celui qui n'existe pas qu'on implémenterait.
 
 #### Le ratio, exactement comme le crop
 
@@ -1011,9 +1010,15 @@ quand il est épinglé. Un mot, au même endroit, dans les deux cas.
 **La bande des plans**, en lecture, sous le lecteur. Elle est désormais justifiée :
 c'est aux frontières que le crop saute, c'est là que les coupes se posent de
 préférence, et c'est la seule façon de voir quels plans ont été dérogés. Chaque
-plan y porte deux états et pas trois : automatique, ou dérogé. Pas d'état
-« validé » : il faudrait le poser à la main, et un clip de quatre plans deviendrait
-une liste de contrôle.
+plan y porte **l'origine de son cadrage**, telle que `computeFraming` la rend :
+calculé sur des boîtes de personnes, posé à la main, ou **centré faute d'avoir
+rien mesuré sur ce plan**. Le troisième mérite d'être distinct des deux autres :
+ce n'est pas une décision, c'est un plan que personne n'a cadré, ni la machine ni
+l'humain, et c'est précisément celui qu'il faut aller regarder.
+
+**Pas d'état « validé »** en revanche : il faudrait le poser à la main, et un clip
+de quatre plans deviendrait une liste de contrôle. La bande dit d'où vient un
+cadrage, jamais si quelqu'un l'a approuvé.
 
 **Elle est en lecture au sens du montage.** On n'y déplace pas une frontière, on
 n'y pose pas une coupe, on n'y traîne pas de tête de lecture. Elle porte une seule
@@ -1537,8 +1542,8 @@ honnête suffit.
 
 Si le chiffre de 35 minutes vient d'une mesure que je n'ai pas trouvée, ce sont
 **les nombres** de la section 2.4 qui changent, pas sa structure : les trois
-régimes viennent de l'**ordre** des étapes (`CIBLES_INITIALES = ['candidates',
-'proxy']`, `run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
+régimes viennent de l'**ordre** des étapes que `CIBLES_INITIALES` déclenche
+(`run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
 quelle que soit la vitesse de WhisperX, donc « triable mais pas montable » existe
 dans les deux mondes. Ce qui change est l'ampleur des moyens : à trente-cinq
 minutes il faut une file d'attente, des notifications et un suivi hors écran ; à
@@ -1550,8 +1555,8 @@ qui mérite une note. (relevé par Aristarque, qui l'a signalé indépendamment)
 
 ### 9.2 L'ordre des candidats et du proxy
 
-`CIBLES_INITIALES = ['candidates', 'proxy']` est ce qui rend possible le régime
-« triable » de 2.4, et je propose de le garder. Le prix est que la grille de tri
+Que `CIBLES_INITIALES` place les candidats avant le proxy est ce qui rend
+possible le régime « triable » de 2.4, et je propose de le garder. Le prix est que la grille de tri
 passe ses six premières minutes sans vignettes, sur l'écran que la spec demande de
 soigner en premier.
 
@@ -1599,25 +1604,27 @@ Les deux questions que ce document posait sont tranchées, et la section 3.5 dé
 la décision plutôt que l'alternative. Elles laissent trois demandes au serveur,
 listées ici parce qu'elles ne s'écrivent pas dans `src/app/`.
 
-**Le modèle de cadrage.** `cropX: number | null` n'exprime pas la décision : il
-faut un mode explicite (`auto` ou `manuel`) et, en manuel, une dérogation **par
-plan**, dont la clé désigne le plan dans la source et non son rang dans le clip.
-La clé n'est ni un rang, ni un instant : c'est **l'intervalle source du plan tel
-qu'il était quand la dérogation a été posée**, résolu par recouvrement maximal
-avec le découpage courant. Un rang ne survit pas à une redétection, et un instant
-de début tombe dans le plan voisin dès qu'une frontière bouge de trois dixièmes.
-Le raisonnement complet, avec les règles de division et de fusion, est en 3.5.
+**Le modèle de cadrage, arbitré, calculé, pas encore enregistrable.** La forme
+est arrêtée et elle est écrite : `computeFraming` (`src/core/framing.ts`) prend un
+`cropMode` explicite — `auto` ou `manual` — et une table de dérogations **par
+plan**, indexée sur l'instant de début du plan dans la source. Le raisonnement est
+en 3.5.
 
-**Le recalcul sous un ratio épinglé.** Si le ratio est épinglé, les crops
-automatiques doivent être calculés pour ce ratio-là. Sinon l'épinglage produit le
-défaut qu'il devait éviter.
+Ce qui manque est la persistance. Un clip ne porte toujours qu'un `cropX` unique,
+en base comme dans `ClipPatch`, donc rien de ce que `computeFraming` sait recevoir
+ne peut être enregistré. **C'est le préalable du lot 7** : sans les deux champs,
+l'écran calculerait un cadrage par plan qui disparaîtrait au rechargement.
 
-**Une liste de cibles pour `POST /run`.** La route n'accepte qu'une cible, alors
-que `lancer` en prend une liste et que `créerProjet` lui passe déjà
-`['candidates', 'proxy']`. Le bouton de reprise a besoin des deux : viser
-`candidates` seul ne construit jamais le proxy, puisque rien n'en dépend dans le
-graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
-fin du premier.
+**~~Le recalcul sous un ratio épinglé.~~ Livré.** `computeFraming` saute le choix
+du ratio quand il est épinglé, jamais le calcul des crops : ceux-ci se calculent
+pour ce ratio-là. Sinon des cadres calculés pour un 1:1 se retrouveraient posés
+dans un canevas 4:5, décalés de la différence de largeur, et l'épinglage
+produirait le défaut qu'il devait éviter.
+
+**~~Une liste de cibles pour `POST /run`.~~ Livrée.** La route accepte une cible
+ou une liste, et `runProject` aussi. La forme à une cible reste valide, ce qui est
+délibéré : elle couvre le cas le plus fréquent, relancer le repérage, sans obliger
+chaque appelant à écrire un tableau d'un élément.
 
 **~~La fraîcheur des rendus.~~ Résolu le 18 août, avant même d'être demandé.**
 Une réédition **défait** bien le statut `exported` : `écarterRenduPérimé` s'en

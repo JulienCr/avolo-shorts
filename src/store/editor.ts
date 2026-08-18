@@ -119,17 +119,24 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
     const etat = get()
     if (etat.clipId !== clipId) return
 
-    // **`present` seul : ni `past`, ni `future`.** Ce n'est pas un geste de
-    // l'utilisateur, donc rien ne s'empile — un `Ctrl+Z` qui défait une
-    // réconciliation remettrait l'intention que le serveur vient d'écarter, et
-    // la renverrait avec un jeton neuf, donc gagnant. Et la pile reste entière :
-    // c'est ce qui sépare cette réconciliation d'un rechargement forcé, qui
-    // jetterait le montage de la séance pour un cas qui, à un onglet, n'est pas
-    // une anomalie.
+    // **Rien ne s'empile dans `past`.** Ce n'est pas un geste de l'utilisateur,
+    // et un `Ctrl+Z` qui défait une réconciliation remettrait l'intention que le
+    // serveur vient d'écarter — laquelle repartirait avec un jeton neuf, donc
+    // gagnant. La pile reste en revanche entière : c'est ce qui sépare cette
+    // réconciliation d'un rechargement forcé, qui jetterait le montage de la
+    // séance pour un cas qui, à un onglet, n'est pas une anomalie.
+    //
+    // **Mais `future` se vide dès que le montage change.** La branche qu'on
+    // vient de quitter décrit un montage antérieur au gagnant : un
+    // `Ctrl+Shift+Z` l'y remettrait, et l'enregistrement différé le renverrait
+    // — exactement le défaut que cette réconciliation ferme. C'est la même règle
+    // que `pushHistory`, pour la même raison : un changement de branche périme
+    // ce qu'il y avait à refaire. Un refus qui ne porte que sur le cadrage, lui,
+    // ne change pas de branche et laisse la pile en place. (relevé par Copilot)
     set({
       ...(valeurs.segments === undefined
         ? {}
-        : { historique: { ...etat.historique, present: valeurs.segments } }),
+        : { historique: { ...etat.historique, present: valeurs.segments, future: [] } }),
       ...(valeurs.ratio === undefined ? {} : { ratio: valeurs.ratio }),
       ...(valeurs.cropX === undefined ? {} : { cropX: valeurs.cropX }),
     })

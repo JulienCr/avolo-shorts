@@ -243,6 +243,37 @@ describe('réconcilier après un PATCH refusé', () => {
     expect(useEditeur.getState().historique.past).toEqual([])
   })
 
+  it('efface ce qu’il y avait à refaire', () => {
+    // La branche annulée n'a plus de sens une fois le montage remis d'accord
+    // avec le serveur : un `Ctrl+Shift+Z` y remettrait un état antérieur au
+    // gagnant, et l'enregistrement différé le renverrait avec un jeton neuf —
+    // donc gagnant. Exactement le défaut que la réconciliation ferme.
+    // (relevé par Copilot)
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+    expect(useEditeur.getState().historique.future).toHaveLength(1)
+
+    useEditeur.getState().reconcilier('c1', { segments: [{ start: 10, end: 12 }] })
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+
+  it('garde ce qu’il y avait à refaire quand le montage n’a pas bougé', () => {
+    // Un refus qui ne porte que sur le cadrage ne change pas de branche : la
+    // pile de rétablissement décrit toujours le même montage.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+    const aRefaire = useEditeur.getState().historique.future
+
+    useEditeur.getState().reconcilier('c1', { cropX: 0.2 })
+    expect(useEditeur.getState().historique.future).toEqual(aRefaire)
+  })
+
   it('ne touche pas un autre clip que celui qui est ouvert', () => {
     // Une écriture part en `keepalive` et lui survit à la navigation : sa
     // réponse peut arriver alors que l'écran montre déjà le clip suivant.

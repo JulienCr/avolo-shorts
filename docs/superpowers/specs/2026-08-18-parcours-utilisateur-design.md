@@ -332,16 +332,24 @@ supprime la question. (relevé par Copilot)
 est vrai d'une liste vide : après avoir tout écarté, la phase terminale annonçait
 un livrable alors qu'aucun MP4 n'existe. (relevé par Copilot)
 
-**Et `livre` ne se déduit pas du statut `exported`.** Rouvrir un clip exporté pour
-en retoucher le montage laisse son statut à `exported` alors que le MP4 sur le
-disque décrit l'édition précédente. Ce va-et-vient est un parcours normal, décrit
-en 2.1. Il faut donc comparer le clip à son rendu, et non lire une étiquette.
-**C'est une demande au serveur** : `GET /api/clips/:id` doit dire si le rendu est
-plus ancien que la dernière modification du clip, par exemple en portant la date
-de modification du clip à côté de celle de ses sorties. Tant que ce champ n'existe
-pas, `livre` est indisponible, et l'écran de clip marque simplement « rendu
-antérieur à vos dernières modifications » quand il peut le savoir. (relevé par
-Codex)
+**`livre` se lit sur le statut `exported`, et la réserve qui précédait est
+levée.** Ce document a d'abord écrit l'inverse : rouvrir un clip exporté pour en
+retoucher le montage laisserait son statut à `exported` alors que le MP4 sur le
+disque décrit l'édition précédente, donc il faudrait comparer le clip à son rendu
+plutôt que lire une étiquette, donc `livre` resterait indisponible tant que le
+serveur ne publierait pas une fraîcheur de rendu. (relevé par Codex)
+
+**Vérifié le 18 août 2026, la prémisse est fausse : le serveur le fait déjà.**
+`écarterRenduPérimé` (`src/app/api/clips/[id]/route.ts`, appelé par le `PATCH`)
+fait sortir le clip d'`exported` dès qu'un champ qui change l'image bouge —
+segments, ratio, cadrage, sous-titres, marque — **y compris quand l'effacement
+des fichiers échoue**, le statut étant reposé dans la branche d'erreur. Et
+`sortiesDuClip` (`src/server/rendus.ts`) rend quatre `null` dès que
+`status !== 'exported'`, donc ce qui reste sur le disque n'est plus offert comme
+la livraison du jour. Un statut `exported` décrit bien un rendu à jour.
+
+`livre` exige donc, et seulement, **au moins un clip gardé et tous les gardés en
+`exported`** — sans champ supplémentaire et sans demande au serveur.
 
 Ces valeurs ne sont pas un décor. Chacune répond à une question qu'un écran pose
 aujourd'hui à sa façon, avec ses propres `if` :
@@ -748,27 +756,41 @@ second »). Le jeton du serveur répond à la même question un étage plus bas,
 deux doivent rester distincts : celui du client ordonne les réponses, celui du
 serveur ordonne les écritures.
 
-**Et un refus ne déclenche rien du tout.** Une version précédente de ce document
-ajoutait une relecture du clip « pour réconcilier », en réponse à une question sur
-le multi-onglet. C'était doublement faux, et il vaut mieux l'écrire que de laisser
-la trace d'une bonne idée.
+**Mais un refus n'est pas non plus sans suite.** Une version précédente de ce
+document ajoutait une **relecture** du clip « pour réconcilier », en réponse à une
+question sur le multi-onglet. Cette relecture-là est doublement fausse, et il vaut
+mieux l'écrire que de laisser la trace d'une bonne idée.
 
-D'abord, il n'y a rien à réconcilier. Dans un seul onglet, un jeton périmé veut
-dire que deux de vos propres écritures se sont croisées et que la plus récente a
-gagné. Cette écriture-là part du même état local que celui qui est à l'écran :
-l'écran affiche donc déjà la version gagnante.
+D'abord elle ne marcherait pas : `useEditeur.charger` sort immédiatement quand
+l'identifiant du clip n'a pas changé, et cette garde est là pour une bonne
+raison — elle empêche un refetch d'écraser le montage en cours et sa pile
+d'annulation. Le cache serait rafraîchi et le montage local resterait tel quel.
+(relevé par Copilot)
 
-Ensuite, la relecture ne marcherait pas. `useEditeur.charger` sort immédiatement
-quand l'identifiant du clip n'a pas changé, et cette garde est là pour une bonne
-raison : elle empêche un refetch d'écraser le montage en cours et sa pile
-d'annulation. Le cache serait donc rafraîchi et le montage local resterait tel
-quel. (relevé par Copilot)
+Ensuite, la contourner reviendrait à **jeter le montage en cours** et sa pile
+d'annulation, ce qui n'est pas une opération à déclencher toute seule sur un refus
+qui, dans le seul mode d'emploi prévu, n'est pas une anomalie.
 
-Une vraie réconciliation demanderait un `recharger` qui contourne la garde, donc
-qui **jette le montage en cours**. Ce n'est pas une opération à déclencher toute
-seule sur un refus qui, dans le seul mode d'emploi prévu, n'est pas une anomalie.
-Si le multi-onglet devenait un usage, c'est ce chemin-là qu'il faudrait écrire, et
-il devrait demander avant de jeter.
+**Ce qu'il faut malgré tout, et que ce document a d'abord manqué** (constaté à
+l'implémentation, le 18 août 2026) : l'écran de clip garde ses segments, son ratio
+et son cadrage dans un store **séparé** du cache, et l'enregistrement différé
+compare *ce store* au clip du serveur. Laissé tel quel, il y retrouve l'écart,
+renvoie l'intention qu'on vient de refuser — **avec un jeton neuf, donc
+gagnant** — et la garantie d'ordre payée côté serveur ne sert plus à rien. Aucune
+donnée perdue ; la garantie annulée. Le contrat de `PatchClipResult` le dit
+d'ailleurs mot pour mot : « un appelant qui tient un état local doit s'y remettre
+d'accord ».
+
+La réconciliation retenue est donc la plus petite qui rétablisse la garantie :
+**adopter, champ par champ, la valeur du gagnant**, et seulement sur les champs
+qui *portent encore l'intention refusée* — un champ modifié pendant l'aller-retour
+porte un geste postérieur, que personne n'a refusé — et *dont le gagnant dit autre
+chose que la référence contre laquelle l'écart a été calculé* — sans quoi un refus
+dû au plancher de jeton, qu'une horloge remise en arrière suffit à produire, ferait
+perdre une modification parfaitement fraîche au lieu de la laisser repartir. Rien
+n'est empilé dans la pile d'annulation, qui reste entière ; `future`, en revanche,
+se vide quand le montage change, une branche abandonnée n'ayant plus de sens. Le
+raisonnement complet vit au point d'appel, dans `src/lib/enregistrement.ts`.
 
 **Le cadrage change de nature en itération 1**, et c'est traité en 3.5.
 
@@ -1537,11 +1559,11 @@ que `lancer` en prend une liste et que `créerProjet` lui passe déjà
 graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
 fin du premier.
 
-**La fraîcheur des rendus.** `livre` ne peut pas se déduire du statut `exported`,
-qu'une réédition ne défait pas. Il faut pouvoir comparer un clip à ses sorties,
-par exemple en portant sa date de modification à côté de celles des rendus. Sans
-ce champ, la phase terminale du parcours reste indisponible et l'écran de clip ne
-peut pas dire qu'un rendu est périmé.
+~~**La fraîcheur des rendus.**~~ **Demande retirée le 18 août 2026** : elle
+supposait qu'une réédition ne défasse pas le statut `exported`, ce qui est faux —
+`écarterRenduPérimé` l'en fait sortir dès qu'un champ qui change l'image bouge, et
+`sortiesDuClip` cesse alors de publier les URL. `livre` se lit donc sur le statut,
+sans champ supplémentaire. Le détail est en 2.3.
 
 ### 9.5 Quatre questions de la relecture, et leurs réponses
 
@@ -1562,11 +1584,12 @@ depuis une exception.** C'est aussi ce qui garantit qu'une région `role="alert"
 ne lise pas une trace à voix haute.
 
 **Le multi-onglet est-il un cas d'usage ?** Non : un utilisateur, une machine, un
-onglet. Et le refus d'un `PATCH` périmé n'y change rien : dans un seul onglet il
-signifie que la plus récente de vos deux écritures a gagné, et c'est déjà ce que
-l'écran affiche (3.3). J'avais d'abord proposé une relecture pour réconcilier ;
-elle est inutile, et la garde de `charger` l'aurait de toute façon rendue sans
-effet.
+onglet. Et le refus d'un `PATCH` périmé y garde son sens : la plus récente de vos
+deux écritures a gagné. J'avais d'abord proposé une **relecture** pour
+réconcilier ; elle est inutile, et la garde de `charger` l'aurait de toute façon
+rendue sans effet. Ce qu'il faut à la place — une adoption champ par champ dans le
+store, pour que l'enregistrement différé cesse de renvoyer l'intention refusée —
+est décrit en 3.3 depuis l'implémentation.
 
 **La mesure de transcription contredit-elle la spec §6 ?** Oui, et c'est la §9.1
 ci-dessus. Deux documents de `docs/superpowers/specs/` se contredisent sur un fait

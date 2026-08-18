@@ -141,8 +141,9 @@ function travailProjet(clips: readonly { status: ClipStatus }[]): Travail {
   // fait déjà sortir un clip de cet état dès qu'un champ qui change l'image
   // bouge — `écarterRenduPérimé` (`src/app/api/clips/[id]/route.ts`), y compris
   // quand l'effacement des fichiers échoue — et `sortiesDuClip` cesse alors de
-  // publier ses URL. Une version antérieure de la conception tenait `livre` pour
-  // indisponible faute d'une fraîcheur de rendu publiée : elle est périmée.
+  // publier ses URL. La conception tenait `livre` pour indisponible faute d'une
+  // fraîcheur de rendu publiée ; la vérification a montré la prémisse fausse, et
+  // les §2.3 et §9.4 du document de conception ont été amendées en conséquence.
   const gardes = clips.filter((c) => estGarde(c.status))
   if (gardes.length > 0 && gardes.every((c) => c.status === 'exported')) return 'livre'
 

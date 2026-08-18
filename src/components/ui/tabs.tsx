@@ -13,6 +13,11 @@ function Tabs({
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
+      // **Transmise à la primitive, pas seulement au style.** Sortie de `props`
+      // par la déstructuration, elle ne servait qu'à `data-orientation` : un jeu
+      // d'onglets vertical gardait la navigation aux flèches et l'
+      // `aria-orientation` de l'horizontale. (relevé par Copilot)
+      orientation={orientation}
       data-orientation={orientation}
       className={cn(
         "group/tabs flex gap-2 data-horizontal:flex-col",

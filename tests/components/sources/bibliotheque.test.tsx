@@ -61,9 +61,10 @@ const SOURCES: SourcesListing = {
       sizeBytes: 4_300_000_000,
       modifiedAt: '2025-06-15T19:04:00.000Z',
       projectId: null,
+      thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
     },
   ],
-  montage: { disponible: true, fstype: '9p', entrées: 1 },
+  montage: { disponible: true, cause: null, fstype: '9p', entrées: 1 },
 }
 
 /** Un serveur réduit aux trois routes de cet écran. */
@@ -242,7 +243,10 @@ describe('la bibliothèque', () => {
     serveur({
       projets: () => reponse([]),
       sources: () =>
-        reponse({ sources: [], montage: { disponible: false, fstype: null, entrées: 0 } }),
+        reponse({
+          sources: [],
+          montage: { disponible: false, cause: 'absent', fstype: null, entrées: 0 },
+        }),
     })
     const { Enveloppe } = harnais()
     render(
@@ -252,7 +256,7 @@ describe('la bibliothèque', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByText('Le dossier des replays n’est pas monté.')).toBeTruthy(),
+      expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy(),
     )
     expect(screen.queryByRole('heading', { name: 'Projets' })).toBeNull()
   })

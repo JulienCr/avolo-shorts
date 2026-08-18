@@ -2,6 +2,7 @@
 
 import { ChevronRight, Film, LoaderCircle, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -39,23 +40,9 @@ export const HAUTEUR_CARTE = 'h-24'
 /**
  * La carte d'un replay : **l'entrée du tunnel**.
  *
- * Nom, taille, date, et rien d'autre. **Pas de vignette dans ce lot** (issue
- * #41), et pour deux raisons dont aucune n'est le coût cumulé : la spec §12
- * prévoit un chargement **à la demande, au défilement**, adossé à un cache
- * local, donc les vingt et une extractions ne seraient jamais la latence d'une
- * page. Ce qui manque est ce dispositif-là — une route, sa clé de cache (nom,
- * taille, date de modification) et le déclenchement à l'entrée dans le champ —,
- * et il ne tient pas dans ce lot. (relevé par Copilot)
- *
- * La seconde raison est plus dérangeante et vaut d'être écrite ici : **les
- * replays de cette émission commencent tous sur le même plateau**. Une vignette
- * tirée d'un instant précoce serait donc identique d'une carte à l'autre, là où
- * le nom du fichier porte déjà la date et l'émission. Elle coûterait 2,7 s par
- * fichier — mesuré, `-ss` avant `-i` — pour ne rien distinguer.
- *
- * L'emplacement, lui, est dessiné. Une image qui arriverait plus tard remplirait
- * la case sans déplacer une ligne de texte — c'est la seule chose qui coûte cher
- * à ajouter après coup, et elle ne coûte rien maintenant.
+ * Nom, taille, date, vignette. Cette dernière est arrivée avec l'issue #41 dans
+ * l'emplacement que ce fichier réservait déjà, et sans qu'une ligne de texte
+ * bouge — c'est tout ce que l'emplacement servait à garantir.
  *
  * **Deux éléments pour deux gestes.** Une source neuve porte un bouton, qui
  * déclenche une écriture ; une source déjà analysée porte un lien, qui navigue.
@@ -79,7 +66,7 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
   // Tailwind rendent la disposition, l'élément ne fait que porter le sens.
   const corps = (
     <>
-      <EmplacementVignette />
+      <Vignette source={source} />
       <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
         <span className="truncate text-sm font-medium">{source.name}</span>
         <span className="truncate text-xs text-muted-foreground tabular-nums">
@@ -152,22 +139,67 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
 }
 
 /**
- * L'emplacement d'une vignette, vide.
+ * La vignette d'un replay, **dans une case dont la taille ne dépend pas d'elle**.
  *
- * Il occupe la place exacte qu'une image de 16:9 occuperait, pour que l'issue
- * #41 se referme en remplaçant ce bloc et rien d'autre. Le pictogramme dit qu'il
- * s'agit d'une vidéo sans prétendre montrer laquelle : une case grise nue se
- * lirait comme une image qui n'a pas fini de charger, donc comme une attente
- * qui ne finira jamais.
+ * C'est la seule chose qui compte ici. L'image arrive plusieurs secondes après
+ * la carte — elle se tire de l'original, sur le 9p —, et une case qui prendrait
+ * ses dimensions ferait sauter la grille au moment où l'œil s'y pose. Le
+ * `aspect-video h-full` est donc porté par la case, jamais par l'image, qui la
+ * remplit en `object-cover`.
+ *
+ * **`loading="lazy"`, et c'est tout le dispositif de chargement au défilement**
+ * que la spec §12 demande. Le navigateur ne demande que ce qui approche du
+ * champ : sur vingt et une cartes, la première page en déclenche huit, pas
+ * vingt et une. Un observateur d'intersection écrit à la main ferait la même
+ * chose en moins bien.
+ *
+ * **Le repli est celui de l'attente**, et il sert deux fois : avant l'image, et
+ * à sa place si elle n'arrive jamais — un replay de zéro octet, un fichier
+ * disparu depuis la liste, une extraction en échec. Le pictogramme dit « une
+ * vidéo » sans prétendre montrer laquelle ; une case grise nue se lirait comme
+ * un chargement qui ne finit pas.
+ *
+ * `aria-hidden` sur l'ensemble : le nom du replay est à trois centimètres, et
+ * une image décorative annoncée deux fois n'aide personne.
  */
-function EmplacementVignette() {
+function Vignette({ source }: { source: Source }) {
+  // **L'URL qui a échoué, pas un booléen.** L'échec appartient à l'image, pas à
+  // la position dans la grille : React réutilise un composant d'une carte à
+  // l'autre quand la liste se réordonne — une création qui remonte un replay
+  // suffit —, et un booléen resterait alors posé sur la source suivante, qui
+  // n'aurait jamais sa chance. Une `key` sur le `<img>` n'y suffirait pas :
+  // quand l'état est vrai, il n'y a pas de `<img>` à remonter.
+  //
+  // **Et l'URL porte la version du fichier**, ce qui rend cette comparaison
+  // utile plutôt que décorative : sans elle, l'URL d'une source serait
+  // éternelle, et un replay réenregistré depuis l'échec ne serait jamais
+  // redemandé. Un échec passager, lui, tient jusqu'au prochain montage de la
+  // carte : redemander à chaque relevé ferait marteler une source réellement
+  // illisible, et un rechargement suffit. (relevé par Copilot)
+  const [échouée, setÉchouée] = useState<string | null>(null)
+
   return (
     <span
       data-slot="vignette"
       aria-hidden
-      className="flex aspect-video h-full shrink-0 items-center justify-center border-r bg-muted/50 text-muted-foreground/40"
+      className="relative flex aspect-video h-full shrink-0 items-center justify-center overflow-hidden border-r bg-muted/50 text-muted-foreground/40"
     >
       <Film className="size-5" />
+      {échouée !== source.thumbnailUrl && (
+        // Même raison que dans `candidate-card.tsx` pour l'exception de lint :
+        // la vignette sort d'une route locale à une taille déjà fixée (640 de
+        // large), `next/image` n'aurait rien à optimiser, et le faire passer par
+        // `/_next/image` ajouterait un second décodage par carte.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={source.thumbnailUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setÉchouée(source.thumbnailUrl)}
+          className="absolute inset-0 size-full object-cover"
+        />
+      )}
     </span>
   )
 }

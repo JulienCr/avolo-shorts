@@ -11,14 +11,19 @@
  * différence qu'on cherche à voir.
  */
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApercuSortie, partDeLEcran, peindreSortie } from '@/components/clip/apercu-sortie'
+import { useLecture } from '@/components/clip/lecture'
+import { framing, manualFraming, shot } from '../../fixtures/framing'
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  // La position de lecture est un store de module : sans remise à zéro, le plan
+  // désigné par un test suivrait le test d'après.
+  useLecture.getState().reinitialiser()
 })
 
 /** Une vidéo comme le proxy en donne une : 960x540, prête à peindre. */
@@ -103,10 +108,14 @@ describe('ApercuSortie', () => {
     // aperçu qui ne bouge pas sur l'écran dont c'est la seule raison d'être.
     const ctx = contexte()
     const v = vidéo()
-    const { rerender } = render(<ApercuSortie video={v} ratio="1:1" cropX={0.5} />)
+    const { rerender } = render(
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
+    )
     ctx.drawImage.mockClear()
 
-    rerender(<ApercuSortie video={v} ratio="1:1" cropX={0.2} />)
+    rerender(
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.2} />,
+    )
     expect(ctx.drawImage).toHaveBeenCalledTimes(1)
     expect(ctx.drawImage.mock.calls[0][1]).toBeLessThan(210)
   })
@@ -114,10 +123,12 @@ describe('ApercuSortie', () => {
   it('repeint quand le ratio change', () => {
     const ctx = contexte()
     const v = vidéo()
-    const { rerender } = render(<ApercuSortie video={v} ratio="1:1" cropX={0.5} />)
+    const { rerender } = render(
+      <ApercuSortie video={v} framing={framing()} ratio="1:1" cropX={0.5} />,
+    )
     ctx.drawImage.mockClear()
 
-    rerender(<ApercuSortie video={v} ratio="9:16" cropX={0.5} />)
+    rerender(<ApercuSortie video={v} framing={framing()} ratio="9:16" cropX={0.5} />)
     expect(ctx.drawImage.mock.calls[0][3]).toBeCloseTo(540 * (9 / 16), 0)
   })
 
@@ -126,7 +137,7 @@ describe('ApercuSortie', () => {
     // fixe, mais la garde évite un échec silencieux et c'est une ligne.
     const ctx = contexte()
     const v = vidéo()
-    render(<ApercuSortie video={v} ratio="1:1" cropX={0.5} />)
+    render(<ApercuSortie video={v} framing={framing()} ratio="1:1" cropX={0.5} />)
     ctx.drawImage.mockClear()
 
     fireEvent.timeUpdate(v)
@@ -140,7 +151,9 @@ describe('ApercuSortie', () => {
     prototype.requestVideoFrameCallback = demander
     prototype.cancelVideoFrameCallback = vi.fn()
     try {
-      const { unmount } = render(<ApercuSortie video={vidéo()} ratio="1:1" cropX={0.5} />)
+      const { unmount } = render(
+        <ApercuSortie video={vidéo()} framing={framing()} ratio="1:1" cropX={0.5} />,
+      )
       expect(demander).toHaveBeenCalled()
       // Démonté ici, tant que le prototype porte encore de quoi annuler.
       unmount()
@@ -153,7 +166,51 @@ describe('ApercuSortie', () => {
 
   it('tient l’emplacement tant qu’aucune vidéo n’est là', () => {
     contexte()
-    const { container } = render(<ApercuSortie video={null} ratio="4:5" cropX={0.5} />)
+    const { container } = render(
+      <ApercuSortie video={null} framing={framing()} ratio="4:5" cropX={0.5} />,
+    )
     expect(container.textContent).toContain('70')
+  })
+
+  /**
+   * **Le cadre suit le plan sous la lecture**, et la part d'écran avec lui : le
+   * ratio se choisit par plan, donc l'aperçu montre ce que la variante 9:16
+   * produira à cet instant-là — 56,3 % de la hauteur pour un 1:1, 31,6 % pour un
+   * 16:9. C'est ce qui fait passer la décision en revue sans qu'on la demande.
+   */
+  it('suit le plan sous la lecture quand le cadrage est calculé', () => {
+    contexte()
+    const deux = framing({
+      ratio: '16:9',
+      shots: [shot(0, 50, '1:1', 0.3), shot(50, 100, '16:9', 0.5)],
+    })
+    useLecture.getState().definirPosition(10)
+    const { container, rerender } = render(
+      <ApercuSortie video={vidéo()} framing={deux} ratio="auto" cropX={0.5} />,
+    )
+    expect(container.textContent).toContain('56')
+    expect(container.textContent).toContain('1:1')
+
+    act(() => useLecture.getState().definirPosition(60))
+    rerender(<ApercuSortie video={vidéo()} framing={deux} ratio="auto" cropX={0.5} />)
+    expect(container.textContent).toContain('32')
+    expect(container.textContent).toContain('16:9')
+  })
+
+  /**
+   * Le pendant : sans analyse, le crop du clip reprend la main, et c'est le seul
+   * cas où le curseur sert encore à quelque chose.
+   */
+  it('suit le réglage manuel quand aucun calcul n’a eu lieu', () => {
+    const ctx = contexte()
+    const v = vidéo()
+    const { rerender } = render(
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.5} />,
+    )
+    ctx.drawImage.mockClear()
+    rerender(
+      <ApercuSortie video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.1} />,
+    )
+    expect(ctx.drawImage.mock.calls[0][1]).toBeLessThan(210)
   })
 })

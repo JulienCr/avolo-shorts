@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip, Ratio } from '@/core/edl'
 import { épurerChemins } from '@/core/erreurs'
@@ -29,8 +29,13 @@ import {
   sousTitresDuClip,
   texteDePublication,
   VERSION_EMPREINTE,
+  renderedFraming,
+  renderedShape,
+  type RenderedFraming,
+  type FormeRendue,
   type MarqueNative,
 } from '@/server/steps/render'
+import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 
 /**
  * Ce que le rendu a de testable sans GPU, sans ffmpeg et sans vidéo : le choix
@@ -79,6 +84,11 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(racine, { recursive: true, force: true })
   process.env = { ...envDépart }
+  // **Le cache d'analyses se vide entre deux tests.** Il est indexé sur le
+  // chemin, la taille et la date du fichier ; chaque test refabrique son
+  // `PROJECTS_DIR` sous un nom neuf, mais un test qui poserait deux
+  // `analysis.json` de suite au même endroit relirait sinon le premier.
+  forgetAnalyses()
 })
 
 function clip(surcharges: Partial<Clip> = {}): Clip {
@@ -124,16 +134,55 @@ function marquesNommées(
 }
 
 /**
+ * Le cadrage **réellement résolu** de ce clip, comme `renderClip` le calcule.
+ *
+ * Aucun de ces tests ne pose d'`analysis.json`, donc `clipFraming` se rabat
+ * sur le réglage manuel : un plan unique qui couvre le clip, au ratio résolu et
+ * au `cropX` du clip. Passer par la vraie fonction plutôt que par un littéral
+ * est ce qui fait que les tests de `marquerExporté` et d'`écarterRenduPérimé`
+ * comparent bien ce que la production compare.
+ */
+function cadrageDe(c: Clip): RenderedFraming {
+  return renderedFraming(clipFraming(c))
+}
+
+/**
+ * Le cadrage d'un clip, dans la forme réduite que l'empreinte retient.
+ *
+ * Un plan unique qui couvre le clip de référence, en 1:1 centré. C'est le cas
+ * le plus simple, et celui qui laisse chaque test surcharger ce qu'il mesure.
+ */
+function cadrage(surcharges: Partial<RenderedFraming> = {}): RenderedFraming {
+  return {
+    ratio: '1:1',
+    shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }],
+    ...surcharges,
+  }
+}
+
+/**
+ * Un clip et son cadrage, tels que `leRenduEstPérimé` les compare.
+ *
+ * Le cadrage n'est pas un champ du clip : il se recalcule sur ses segments, et
+ * c'est justement pour cela qu'il entre dans l'empreinte — une redétection des
+ * plans peut déplacer tous les crops sans qu'aucun champ du clip ne bouge.
+ */
+function forme(c: Clip = clip(), cad: RenderedFraming = cadrage()): FormeRendue {
+  return renderedShape(c, cad)
+}
+
+/**
  * `empreinteDuRendu` avec le preset par défaut, celui de tous ces tests-ci.
  * Le condensat du preset n'entre dans l'empreinte que si un document a été
- * incrusté — d'où le second paramètre.
+ * incrusté — d'où le troisième paramètre.
  */
 function empreinteAvec(
   c: Clip,
   marques: readonly MarqueNative[],
   incrustés = true,
+  cad: RenderedFraming = cadrage(),
 ): ReturnType<typeof empreinteDuRendu> {
-  return empreinteDuRendu(c, marques, { incrustés, look: look() })
+  return empreinteDuRendu(forme(c, cad), marques, { incrustés, look: look() })
 }
 
 /** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
@@ -161,9 +210,12 @@ function poserEmpreinte(
 ): void {
   const chemin = cheminsRendu(ID, c.id, ratio).empreinte
   fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  // **Le cadrage résolu, et non un littéral** : c'est celui que `renderClip`
+  // recalcule à chaque passage, donc le seul qui puisse faire dire à l'empreinte
+  // qu'elle décrit encore le clip.
   fs.writeFileSync(
     chemin,
-    JSON.stringify(empreinteAvec(c, marquesNommées(marques), sousTitres)),
+    JSON.stringify(empreinteAvec(c, marquesNommées(marques), sousTitres, cadrageDe(c))),
   )
 }
 
@@ -318,15 +370,20 @@ describe("l'empreinte de rendu", () => {
     }
   })
 
-  it('porte les cinq champs du clip, la version, et ce qui a été incrusté', () => {
+  it('porte les champs du clip, le cadrage résolu, la version et ce qui a été incrusté', () => {
     const e = empreinteAvec(clip(), marquesNommées(['twitch.png', 'logo.png']))
     expect(e).toEqual({
       version: VERSION_EMPREINTE,
       segments: clip().segments,
-      ratio: '1:1',
-      cropX: 0.5,
       captions: true,
       branding: true,
+      // **Le cadrage résolu, pas `clip.ratio` ni `clip.cropX`.** Ceux-là ne
+      // décrivent plus l'image : le ratio effectif est celui que le calcul
+      // choisit — par plan pour la variante, le plus large pour le natif — et
+      // le crop se calcule par plan. La clé est en anglais comme tout ce que
+      // cette PR ajoute ; `marques` et `sousTitres`, plus anciennes, attendent
+      // le balayage de #73.
+      framing: cadrage(),
       // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
       marques: [
         { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
@@ -352,29 +409,64 @@ describe("l'empreinte de rendu", () => {
       empreinteAvec(clip(surcharges), marques)
 
     it('ne trouve rien à redire quand tout concorde', () => {
-      expect(écartDeLEmpreinte(àCôté(), clip(), observé({ marques }))).toBeNull()
+      expect(écartDeLEmpreinte(àCôté(), forme(), observé({ marques }))).toBeNull()
     })
 
     it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
-      expect(écartDeLEmpreinte(null, clip(), observé({ marques }))).toBe('absente')
+      expect(écartDeLEmpreinte(null, forme(), observé({ marques }))).toBe('absente')
     })
 
     it('dit « recette » sur une version qui n’est plus la nôtre', () => {
       const vieille = { ...àCôté(), version: VERSION_EMPREINTE - 1 }
-      expect(écartDeLEmpreinte(vieille, clip(), observé({ marques }))).toBe('recette')
+      expect(écartDeLEmpreinte(vieille, forme(), observé({ marques }))).toBe('recette')
     })
 
-    it('dit « montage » sur chacun des cinq champs qui vont à l’image', () => {
+    it('dit « montage » sur chacun des champs qui vont à l’image', () => {
       const cas: Partial<Clip>[] = [
         { segments: [{ start: 0, end: 5 }] },
-        { ratio: '9:16' },
-        { cropX: 0.2 },
         { captions: false },
         { branding: false },
       ]
       for (const surcharge of cas) {
-        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), observé({ marques }))).toBe('montage')
+        expect(écartDeLEmpreinte(àCôté(), forme(clip(surcharge)), observé({ marques }))).toBe(
+          'montage',
+        )
       }
+    })
+
+    // **Le cadrage aussi, et c'est ce qui manquait.** Il ne vit pas dans le
+    // clip : il se recalcule sur ses segments et sur `analysis.json`. Une
+    // redétection des plans déplace donc tous les crops sans qu'aucun champ du
+    // clip ne bouge, et sans ce champ l'empreinte déclarerait à jour un rendu
+    // qui ne montre plus ce que la chaîne montrerait.
+    it('dit « montage » quand le cadrage résolu a bougé', () => {
+      const cas: Partial<RenderedFraming>[] = [
+        { ratio: '4:5' },
+        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.2, cropXNative: 0.5 }] },
+        { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.2 }] },
+        { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNative: 0.5 }] },
+        { shots: [{ start: 0, end: 12, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }] },
+        {
+          shots: [
+            { start: 0, end: 10, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 },
+            { start: 10, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 },
+          ],
+        },
+      ]
+      for (const surcharge of cas) {
+        expect(
+          écartDeLEmpreinte(àCôté(), forme(clip(), cadrage(surcharge)), observé({ marques })),
+        ).toBe('montage')
+      }
+    })
+
+    // **Deux tableaux de crops identiques ne sont jamais le même objet.**
+    // Comparés par référence, chaque appel périmerait le rendu : l'export
+    // réencoderait à chaque passage, et `skipped` ne serait plus jamais vrai.
+    it('ne périme rien sur un cadrage identique mais reconstruit', () => {
+      expect(
+        écartDeLEmpreinte(àCôté(), forme(clip(), cadrage()), observé({ marques })),
+      ).toBeNull()
     })
 
     it("ignore le titre, la description et le statut, qui ne vont pas à l'image", () => {
@@ -383,20 +475,25 @@ describe("l'empreinte de rendu", () => {
         { description: 'Autre chose' },
         { status: 'exported' },
         { pass: 9 },
+        // `ratio` et `cropX` du clip n'y sont plus : ils ne décrivent plus
+        // l'image, c'est `cadrage` qui porte ce que ffmpeg a découpé. Un ratio
+        // épinglé sur la valeur que le calcul avait déjà choisie ne change rien.
+        { ratio: '9:16' },
+        { cropX: 0.2 },
       ]
       for (const surcharge of indifférents) {
-        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), observé({ marques }))).toBeNull()
+        expect(écartDeLEmpreinte(àCôté(), forme(clip(surcharge)), observé({ marques }))).toBeNull()
       }
     })
 
     it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
       const deux = marquesNommées(['logo.png', 'twitch.png'])
-      expect(écartDeLEmpreinte(àCôté(), clip(), observé({ marques: deux }))).toBe('marques')
+      expect(écartDeLEmpreinte(àCôté(), forme(), observé({ marques: deux }))).toBe('marques')
     })
 
     it('dit « marques » quand une marque a été retirée du dossier', () => {
       const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
-      expect(écartDeLEmpreinte(empreinte, clip(), observé({ marques }))).toBe('marques')
+      expect(écartDeLEmpreinte(empreinte, forme(), observé({ marques }))).toBe('marques')
     })
 
     /**
@@ -414,8 +511,8 @@ describe("l'empreinte de rendu", () => {
     it('dit « style » quand le preset des sous-titres a changé', () => {
       const incrusté = empreinteAvec(clip(), marques)
       const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
-      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: autre }))).toBe('style')
-      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: look() }))).toBeNull()
+      expect(écartDeLEmpreinte(incrusté, forme(), observé({ look: autre }))).toBe('style')
+      expect(écartDeLEmpreinte(incrusté, forme(), observé({ look: look() }))).toBeNull()
     })
 
     it("ignore l'ordre des clés du preset, qui ne change pas une image", () => {
@@ -427,7 +524,7 @@ describe("l'empreinte de rendu", () => {
       expect(
         écartDeLEmpreinte(
           empreinteAvec(clip(), marques),
-          clip(),
+          forme(),
           observé({ look: { ...look(), style: réordonné } }),
         ),
       ).toBeNull()
@@ -439,20 +536,26 @@ describe("l'empreinte de rendu", () => {
       const sansSousTitres = empreinteAvec(clip({ captions: false }), marques, false)
       const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
       expect(
-        écartDeLEmpreinte(sansSousTitres, clip({ captions: false }), observé({ look: autre })),
+        écartDeLEmpreinte(
+          sansSousTitres,
+          forme(clip({ captions: false })),
+          observé({ look: autre }),
+        ),
       ).toBeNull()
     })
 
     it('ne juge pas du preset quand on ne le lui donne pas', () => {
       const incrusté = empreinteAvec(clip(), marques)
-      expect(écartDeLEmpreinte(incrusté, clip(), observé())).toBeNull()
+      expect(écartDeLEmpreinte(incrusté, forme(), observé())).toBeNull()
     })
 
     it('ne juge pas des marques quand on ne les lui donne pas', () => {
       const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
-      expect(écartDeLEmpreinte(empreinte, clip(), observé())).toBeNull()
+      expect(écartDeLEmpreinte(empreinte, forme(), observé())).toBeNull()
       // Le reste continue de compter.
-      expect(écartDeLEmpreinte(empreinte, clip({ cropX: 0.1 }), observé())).toBe('montage')
+      expect(
+        écartDeLEmpreinte(empreinte, forme(clip(), cadrage({ ratio: '4:5' })), observé()),
+      ).toBe('montage')
     })
   })
 
@@ -556,7 +659,11 @@ describe("l'empreinte de rendu", () => {
     it('relit ce que `empreinteDuRendu` a écrit', () => {
       const c = clip()
       poserEmpreinte(c, '1:1', ['logo.png'])
-      expect(lireEmpreinte(chemin())).toEqual(empreinteAvec(c, marquesNommées(['logo.png'])))
+      // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
+      // recalculer de la même façon, sinon on compare deux cadrages différents.
+      expect(lireEmpreinte(chemin())).toEqual(
+        empreinteAvec(c, marquesNommées(['logo.png']), c.captions, cadrageDe(c)),
+      )
     })
 
     it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
@@ -567,8 +674,42 @@ describe("l'empreinte de rendu", () => {
 
     it('rend null sur un fichier bien formé mais qui n’est pas une empreinte', () => {
       fs.mkdirSync(path.dirname(chemin()), { recursive: true })
-      fs.writeFileSync(chemin(), JSON.stringify({ version: 1 }))
+      fs.writeFileSync(chemin(), JSON.stringify({ version: VERSION_EMPREINTE }))
       expect(lireEmpreinte(chemin())).toBeNull()
+    })
+
+    /**
+     * **Une empreinte d'une recette antérieure n'est pas « illisible ».**
+     *
+     * Elle n'a pas les champs d'aujourd'hui — celles de la version 1 ne portent
+     * pas le cadrage —, donc la passer au schéma la ferait refuser et le journal
+     * dirait « illisible » d'un fichier parfaitement formé. Le remède est le
+     * même, refaire le rendu ; le message, lui, enverrait chercher une
+     * corruption qui n'existe pas. C'est `version` qui tranche, avant le schéma.
+     */
+    it('rend null sur une empreinte de la version d’avant, sans crier à la corruption', () => {
+      const avertissements: unknown[][] = []
+      const espion = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+        avertissements.push(a)
+      })
+      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.writeFileSync(
+        chemin(),
+        JSON.stringify({
+          version: VERSION_EMPREINTE - 1,
+          segments: clip().segments,
+          ratio: '1:1',
+          cropX: 0.5,
+          captions: true,
+          branding: true,
+          marques: [],
+          sousTitres: null,
+        }),
+      )
+      expect(lireEmpreinte(chemin())).toBeNull()
+      expect(String(avertissements[0]?.[0])).toMatch(/version 1/)
+      expect(String(avertissements[0]?.[0])).not.toMatch(/illisible/)
+      espion.mockRestore()
     })
 
     it("garde un champ inconnu sans s'en offusquer : c'est `version` qui tranche", () => {
@@ -763,33 +904,62 @@ describe('sousTitresDuClip', () => {
 
 describe('leRenduEstPérimé', () => {
   it('est faux quand rien de ce qui va à l’image n’a bougé', () => {
-    expect(leRenduEstPérimé(clip(), clip())).toBe(false)
+    expect(leRenduEstPérimé(forme(), forme())).toBe(false)
   })
 
   it("ignore le titre et la description, qui ne vont que dans le .txt", () => {
-    expect(leRenduEstPérimé(clip(), clip({ title: 'Autre', description: 'Autre' }))).toBe(false)
+    expect(leRenduEstPérimé(forme(), forme(clip({ title: 'Autre', description: 'Autre' })))).toBe(
+      false,
+    )
   })
 
   it("ignore le statut et le numéro de passe", () => {
-    expect(leRenduEstPérimé(clip(), clip({ status: 'exported', pass: 9 }))).toBe(false)
+    expect(leRenduEstPérimé(forme(), forme(clip({ status: 'exported', pass: 9 })))).toBe(false)
   })
 
-  it('voit chacun des cinq champs qui vont à l’image', () => {
+  // `ratio` et `cropX` du clip sont sortis de la comparaison quand le cadrage
+  // automatique est entré en service : ils ne décrivent plus l'image. Les garder
+  // ferait réencoder pour rien un clip qu'on épingle sur le ratio que le calcul
+  // avait déjà choisi.
+  it("ignore le ratio demandé et le cropX du clip, que l'encodage ne lit plus", () => {
+    expect(leRenduEstPérimé(forme(), forme(clip({ ratio: '4:5', cropX: 0.2 })))).toBe(false)
+  })
+
+  it('voit chacun des champs du clip qui vont à l’image', () => {
     const cas: Partial<Clip>[] = [
       { segments: [{ start: 0, end: 5 }] },
-      { ratio: '4:5' },
-      { cropX: 0.2 },
       { captions: false },
       { branding: false },
     ]
     for (const surcharge of cas) {
-      expect(leRenduEstPérimé(clip(), clip(surcharge))).toBe(true)
+      expect(leRenduEstPérimé(forme(), forme(clip(surcharge)))).toBe(true)
+    }
+  })
+
+  // **La comparaison du cadrage est profonde**, comme celle des segments : deux
+  // tableaux de crops identiques ne sont jamais le même objet, et un `!==` par
+  // référence périmerait le rendu à chaque appel.
+  it('compare le cadrage en profondeur, pas par référence', () => {
+    expect(leRenduEstPérimé(forme(clip(), cadrage()), forme(clip(), cadrage()))).toBe(false)
+  })
+
+  it('voit chacune des composantes du cadrage résolu', () => {
+    const cas: Partial<RenderedFraming>[] = [
+      { ratio: '4:5' },
+      { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNative: 0.5 }] },
+      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.3, cropXNative: 0.5 }] },
+      { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.3 }] },
+      { shots: [{ start: 1, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }] },
+      { shots: [] },
+    ]
+    for (const surcharge of cas) {
+      expect(leRenduEstPérimé(forme(), forme(clip(), cadrage(surcharge)))).toBe(true)
     }
   })
 
   it('voit un segment déplacé, à nombre de segments égal', () => {
     const bougé = clip().segments.map((s, i) => (i === 1 ? { start: s.start, end: s.end + 1 } : s))
-    expect(leRenduEstPérimé(clip(), clip({ segments: bougé }))).toBe(true)
+    expect(leRenduEstPérimé(forme(), forme(clip({ segments: bougé })))).toBe(true)
   })
 })
 
@@ -1163,7 +1333,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = préparer()
     putClip(db, { ...c, title: 'Retitré' })
 
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c, cadrageDe(c))
 
     const relu = getClip(db, c.id)
     expect(relu?.status).toBe('exported')
@@ -1173,7 +1343,7 @@ describe('renderClip, chemin du saut', () => {
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
     const { db, c } = préparer()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c, cadrageDe(c))
     expect(getClip(db, c.id)).toBeUndefined()
   })
 
@@ -1185,7 +1355,7 @@ describe('renderClip, chemin du saut', () => {
       const { db, c } = préparer()
       putClip(db, { ...c, status: décidé })
 
-      marquerExporté(db, c.id, c)
+      marquerExporté(db, c.id, c, cadrageDe(c))
 
       expect(getClip(db, c.id)?.status).toBe(décidé)
       db.close()
@@ -1208,12 +1378,16 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = préparer()
     putClip(db, { ...c, segments: [{ start: 100, end: 104 }] })
 
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c, cadrageDe(c))
 
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
-  it('refuse pareillement sur chacun des cinq champs qui vont à l’image', () => {
+  // `ratio` et `cropX` y figurent encore, et pour une raison qui a changé : ils
+  // ne sont plus comparés en tant que champs du clip, mais ils décident du
+  // cadrage résolu tant qu'aucune analyse n'a tourné — c'est le repli de
+  // `clipFraming`, et c'est le cas de tous ces tests.
+  it('refuse pareillement sur chacun des champs qui vont à l’image', () => {
     const cas: Partial<Clip>[] = [
       { segments: [{ start: 0, end: 5 }] },
       { ratio: '9:16' },
@@ -1225,7 +1399,7 @@ describe('renderClip, chemin du saut', () => {
       const { db, c } = préparer()
       putClip(db, { ...c, ...surcharge })
 
-      marquerExporté(db, c.id, c)
+      marquerExporté(db, c.id, c, cadrageDe(c))
 
       expect(getClip(db, c.id)?.status).toBe('kept')
       db.close()
@@ -1237,7 +1411,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = préparer()
     putClip(db, { ...c, description: 'Corrigée.' })
 
-    marquerExporté(db, c.id, c)
+    marquerExporté(db, c.id, c, cadrageDe(c))
 
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
@@ -1252,7 +1426,7 @@ describe('renderClip, chemin du saut', () => {
     poserEmpreinte(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
-    expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(true)
+    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c))).toBe(true)
 
     expect(fs.existsSync(chemins.mp4)).toBe(false)
     expect(fs.existsSync(chemins.variant9x16 as string)).toBe(false)
@@ -1271,9 +1445,42 @@ describe('renderClip, chemin du saut', () => {
     poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
     poserEmpreinte(c, '1:1')
 
-    expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(false)
+    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c))).toBe(false)
     expect(fs.existsSync(chemins.mp4)).toBe(true)
     expect(fs.existsSync(chemins.empreinte)).toBe(true)
+  })
+
+  /**
+   * **Le résolveur du cadrage relu est injectable, et ce n'est pas du confort.**
+   *
+   * `clipFraming` lit `analysis.json`, donc peut lever. Appelée depuis
+   * `PATCH /api/clips/:id`, cette fonction s'exécute *après* l'écriture en base,
+   * et le rattrapage de la route redescend alors un clip `exported` à `kept` :
+   * une panne passagère de système de fichiers ferait disparaître les sorties
+   * d'un rendu parfaitement valide, sur une simple correction de titre. La route
+   * passe donc un résolveur bâti sur l'analyse lue avant d'écrire.
+   * (relevé par Codex)
+   */
+  it('utilise le résolveur qu’on lui donne plutôt que de relire l’analyse', () => {
+    const { db, c } = préparer()
+    const chemins = cheminsRendu(ID, c.id, '1:1')
+    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+    poserEmpreinte(c, '1:1')
+
+    let appels = 0
+    const résolveur = (clip: Clip): RenderedFraming => {
+      appels += 1
+      return cadrageDe(clip)
+    }
+    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), résolveur)).toBe(false)
+    expect(appels).toBe(1)
+
+    // Et un résolveur qui rend un autre cadrage périme, sans qu'aucun champ du
+    // clip n'ait bougé : c'est bien lui qui décide, pas une relecture cachée.
+    expect(
+      écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), () => cadrage({ ratio: '4:5' })),
+    ).toBe(true)
+    expect(fs.existsSync(chemins.mp4)).toBe(false)
   })
 
   it('refuse un clip inconnu', async () => {

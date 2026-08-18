@@ -28,10 +28,10 @@ import { TranscriptSurface } from '@/components/clip/transcript-surface'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { clipDuration } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
 import { estGarde } from '@/core/parcours'
-import type { ClipDetail, ClipPatch } from '@/lib/api'
+import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { LIBELLES_STATUT } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, ligneInitiale, selectionBounds } from '@/lib/editing'
@@ -58,7 +58,7 @@ import { useEditeur, usePeutAnnuler, usePeutRetablir, useSegments } from '@/stor
  * c'est par clip qu'on choisit le cadre.
  */
 export function EcranDeClip({ detail }: { detail: ClipDetail }) {
-  const { clip, project, lines, proxyUrl, outputs } = detail
+  const { clip, project, lines, proxyUrl, outputs, framing } = detail
   const editeur = useEditeur()
   const segments = useSegments()
   const peutAnnuler = usePeutAnnuler()
@@ -129,11 +129,16 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
   // Tout ce qui décide du rendu. Le panneau d'export s'en sert pour dater son
   // annonce de résultat : une coupe de même durée, un cadrage déplacé ou les
   // marques basculées périment les fichiers sans changer la durée.
+  // **Le cadrage résolu y entre, et pas seulement le ratio demandé.** Le cadre
+  // se recalcule sur les segments : une coupe peut le changer sans que
+  // `editeur.ratio` ni `editeur.cropX` ne bougent, et « rendu terminé »
+  // continuerait de décrire des fichiers que le `PATCH` vient d'écarter.
   const empreinteDuRendu = JSON.stringify([
     clip.id,
     segments,
     editeur.ratio,
     editeur.cropX,
+    framing,
     clip.branding,
     clip.captions,
     clip.title,
@@ -335,7 +340,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
       <main className="grid min-h-0 flex-1 lg:grid-cols-[minmax(24rem,40%)_1fr]">
         <section className="flex flex-col gap-4 overflow-y-auto border-b p-4 lg:border-r lg:border-b-0">
           {/* **Deux images, deux outils.** À gauche la source avec le rectangle :
-              on cadre en regardant ce qu'on laisse dehors. À droite le canevas de
+              on cadre en regardant ce qu'on laisse dehors. À droite le canvas de
               sortie, à l'échelle du téléphone : c'est là qu'un 16:9 se voit
               occuper le tiers de la hauteur et un 4:5 les sept dixièmes. */}
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -345,16 +350,22 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               onVideo={setVideo}
               overlay={
                 <CropOverlay
+                  framing={framing}
                   ratio={editeur.ratio}
                   cropX={editeur.cropX}
                   onCropX={editeur.deplacerCrop}
                 />
               }
             />
-            <ApercuSortie video={video} ratio={editeur.ratio} cropX={editeur.cropX} />
+            <ApercuSortie
+              video={video}
+              framing={framing}
+              ratio={editeur.ratio}
+              cropX={editeur.cropX}
+            />
           </div>
 
-          <RatioPicker ratio={editeur.ratio} onRatio={editeur.choisirRatio} />
+          <RatioPicker framing={framing} ratio={editeur.ratio} onRatio={editeur.choisirRatio} />
 
           <Separator />
 
@@ -409,15 +420,12 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
             <dt className="text-muted-foreground">Cadre</dt>
-            {/* La valeur ramenée dans l'image, celle que dessine le rectangle —
-                pas la valeur brute du store, qui garde l'intention quand on
-                passe par un ratio où elle ne tient pas. */}
-            <dd className="font-mono tabular-nums">
-              {Math.round(
-                clampCropX(editeur.cropX, cropWidthFraction(resolveRatio(editeur.ratio))) * 100,
-              )}{' '}
-              %
-            </dd>
+            {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
+                saute aux frontières, donc une seule valeur pour tout le clip ne
+                voudrait rien dire. La valeur est ramenée dans l'image, comme le
+                rectangle la dessine — pas la valeur brute du store, qui garde
+                l'intention quand on passe par un ratio où elle ne tient pas. */}
+            <ShotFrameLine framing={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
           </dl>
 
           <Separator />
@@ -425,7 +433,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
           <PanneauExport
             clip={clip}
             outputs={outputs}
-            ratio={editeur.ratio}
+            framing={framing}
             duree={duree}
             enregistrement={enregistrement}
             empreinte={empreinteDuRendu}
@@ -522,5 +530,39 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
 
       <DialogueRaccourcis ouvert={aide} onOuvert={setAide} />
     </>
+  )
+}
+
+/**
+ * Le cadre du plan sous la lecture, en toutes lettres.
+ *
+ * **Un composant à part, et c'est la raison qui compte** : il s'abonne à la
+ * position de lecture, qui change quatre fois par seconde. Lu dans `EcranDeClip`,
+ * il ferait rendre le transcript virtualisé et le lecteur à cette cadence. Ici,
+ * le sélecteur ne rend qu'un index de plan, donc rien ne bouge entre deux
+ * frontières.
+ */
+function ShotFrameLine({
+  framing,
+  ratio,
+  cropX,
+}: {
+  framing: ClipDetail['framing']
+  ratio: Clip['ratio']
+  cropX: number
+}) {
+  const plan = useCurrentShot(framing)
+  const effectif = effectiveRatio(plan, ratio)
+  const position = isComputedFraming(framing) ? (plan?.cropX ?? 0.5) : cropX
+  const pourcent = Math.round(clampCropX(position, cropWidthFraction(effectif)) * 100)
+  return (
+    <dd className="font-mono tabular-nums">
+      {effectif} · {pourcent} %
+      {plan?.source === 'default' && (
+        <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
+          rien mesuré sur ce plan
+        </span>
+      )}
+    </dd>
   )
 }

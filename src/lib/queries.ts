@@ -302,7 +302,7 @@ export function usePatchClip() {
       }
     },
 
-    onSuccess({ clip, outputs, seq }: PatchClipResult, { clipId, projectId }, contexte) {
+    onSuccess({ clip, outputs, framing, seq }: PatchClipResult, { clipId, projectId }, contexte) {
       // **Le plancher du serveur, avant tout le reste.** Nos jetons viennent de
       // l'horloge ; une horloge remise en arrière nous ferait produire des
       // numéros que le serveur a déjà dépassés, donc des écritures refusées
@@ -329,8 +329,18 @@ export function usePatchClip() {
       // Les sorties viennent du serveur elles aussi : une écriture qui remonte
       // un clip exporté écarte ses MP4, et le cache ne doit pas garder l'URL
       // d'un fichier que ce `PATCH` vient de faire disparaître.
+      //
+      // **Le cadrage aussi, et c'est celui des trois qui bouge le plus souvent.**
+      // Le ratio et les crops se recalculent sur les segments et ne sont pas
+      // stockés : retirer un passage peut les changer sans qu'aucun geste de
+      // cadrage n'ait eu lieu. Ne pas l'adopter laisserait le rectangle, l'aperçu
+      // et le panneau d'export sur le cadrage d'avant la coupe jusqu'à la
+      // prochaine navigation — pendant que l'export, lui, utiliserait déjà le
+      // nouveau. C'est exactement le mensonge que le champ existe pour fermer, et
+      // le publier sans l'adopter le déplace d'un cran au lieu de le refermer.
+      // (relevé par Codex)
       client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
-        detail ? { ...detail, clip, outputs } : detail,
+        detail ? { ...detail, clip, outputs, framing } : detail,
       )
     },
 

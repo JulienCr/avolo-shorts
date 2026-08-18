@@ -61,19 +61,25 @@ export function texteDePublication(clip: { title: string; description: string })
 export type NomsDeSortie = {
   mp4: string
   /**
-   * `null` quand le ratio résolu est **déjà** 9:16 : la variante à fond flouté
-   * serait le même cadre réencodé une seconde fois. Elle n'existera jamais, et
-   * son absence n'est pas une anomalie.
+   * `null` quand le ratio **natif** résolu est déjà 9:16 : la variante à fond
+   * flouté serait le même cadre réencodé une seconde fois. Elle n'existera
+   * jamais, et son absence n'est pas une anomalie.
    */
   variant9x16: string | null
   texts: string
 }
 
-/** Les noms des fichiers que l'export écrira pour ce clip, à ce ratio. */
-export function nomsDeSortie(clipId: string, ratio: Ratio): NomsDeSortie {
+/**
+ * Les noms des fichiers que l'export écrira pour ce clip.
+ *
+ * **Le ratio attendu est le ratio natif résolu**, celui que le serveur publie
+ * dans `framing.ratio` — le plus large que les plans demandent —, jamais
+ * `clip.ratio` : un clip en `auto` n'en a pas à lui.
+ */
+export function nomsDeSortie(clipId: string, ratioNatif: Ratio): NomsDeSortie {
   return {
     mp4: `${clipId}.mp4`,
-    variant9x16: ratio === '9:16' ? null : `${clipId}-9x16.mp4`,
+    variant9x16: ratioNatif === '9:16' ? null : `${clipId}-9x16.mp4`,
     texts: `${clipId}.txt`,
   }
 }

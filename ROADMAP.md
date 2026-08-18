@@ -151,11 +151,29 @@ mesure aussi ce que coûte `FramingOptions.margin`, la marge de confort de 2 %
 jamais mesurée, qui vaut 0,04 d'empan et arbitre plusieurs clips autour du seuil
 du 1:1 — la piste la plus rentable devant toute amélioration du filtre.
 
+**Le cadrage automatique est en service depuis le 19 août 2026.** Le serveur
+publie le cadrage résolu dans `ClipDetail.framing` et dans
+`PatchClipResult.framing` — ratio natif, ratio et deux positions par plan,
+origine du calcul —, le rendu découpe les segments aux frontières de plans, et
+l'écran montre ce que l'export produira. Ce que ça a changé au modèle, et qui
+n'était pas prévu ici :
+
+- **le ratio se choisit par plan**, plus par clip. Le natif, celui du feed, garde
+  le plus large de ses plans d'un bout à l'autre ; la variante 9:16 pose chaque
+  plan à son propre cadre sur fond flouté. Ça ne coûte rien parce que la variante
+  ne dérive pas du natif (#22) ;
+- **les sous-titres et les marques s'incrustent après la composition**, à
+  l'échelle du canevas. L'ordre d'avant les réduisait avec l'image : un 16:9 posé
+  dans un 9:16 s'y retrouvait à 31,6 % de sa taille ;
+- **sans `analysis.json`, le cadrage vaut celui de l'itération 0 et le dit.**
+  `renders` ne dépend pas d'`analysis` dans le graphe, donc le cas est
+  atteignable ; `origin` le nomme et l'écran l'affiche.
+
 Restent ensuite, dans cet ordre, et **sous réserve de cette mesure** :
 
-1. **Le rendu à crop variable.** `renderArgs` applique un seul rectangle à tous
-   les segments (`src/core/ffmpeg/args.ts`). Un segment qui traverse une
-   frontière de plan doit se découper en autant d'entrées que de plans. La
+1. **La persistance du cadrage.** `computeFraming` reçoit aujourd'hui
+   `cropMode: 'auto'` et aucune table : le crop calculé n'est donc jamais
+   dérogeable, et le curseur de l'écran est inerte quand le calcul décide. La
    migration porte `cropMode` et la table `crops`, décrites plus bas. La clé
    d'une dérogation est **l'intervalle source du plan**, résolu par recouvrement
    maximal — pas son instant de début, que `computeFraming` indexe encore. Ce que
@@ -163,9 +181,7 @@ Restent ensuite, dans cet ordre, et **sous réserve de cette mesure** :
    que le seuil de détection sera reréglé et que `plans()` ajoute et retire des
    frontières : une redétection produit exactement des plans divisés et fusionnés.
    Le raisonnement complet est en §3.5 du document de parcours.
-2. **Le préremplissage.** `resolveRatio('auto')` rend encore `9:16` en dur et
-   doit aller chercher `computeFraming`.
-3. **Les coupes posées sur les frontières.** `snapToShots` est écrit, pur et
+2. **Les coupes posées sur les frontières.** `snapToShots` est écrit, pur et
    testé ; il reste à le brancher dans la délimitation.
 
 **Le modèle du crop, arbitré et non encore implémenté.** Trois champs :
@@ -213,15 +229,17 @@ casse un comportement voulu.
   aujourd'hui neutralisée par l'issue #55** : les rappels de `mutate` vivent sur
   un observateur partagé, qu'une écriture de titre vole au montage.
 - **Le ratio et les crops se recalculent sur les segments courants**, ils ne sont
-  pas stockés. Retirer un passage peut changer le ratio sous les doigts.
+  pas stockés. Retirer un passage peut changer le ratio sous les doigts — d'où le
+  `framing` que le `PATCH` renvoie, et pas seulement le `GET`.
 
 **Le lot 7 reste, et il n'attend pas l'interface.** Mode de cadrage explicite,
 retour à l'automatique, historique d'annulation étendu au cadrage, bande des
 plans, dérogation par plan (§3.5). Une PR d'écran, à peu près la taille de #50.
-Mais il est **bloqué en amont** par les quatre morceaux d'itération 1 listés
-au-dessus, à commencer par le filtre du premier plan. Le montrer avant eux
-reviendrait à offrir de déroger à un cadrage automatique qui ne calcule rien
-d'utilisable.
+Il est **bloqué en amont** par la persistance du cadrage, sans laquelle une
+dérogation posée disparaîtrait au rechargement — et c'est aussi ce qui rend le
+curseur de cadrage inerte aujourd'hui quand le calcul décide : il vaut mieux un
+contrôle figé qui dit pourquoi qu'un contrôle qui bouge sans rien changer au
+fichier produit.
 
 **Ce qui a été payé cher et qu'il ne faut pas défaire.** Les deux plus subtils,
 trouvés en review et documentés au point d'appel : la garde des raccourcis doit
@@ -558,7 +576,7 @@ plancher que documente `assets/brand/README.md`.
 **Elles ne sont versionnées nulle part, et c'est délibéré** : elles appartiennent
 à l'opérateur et ce dépôt est public. Elles n'ont donc survécu que par un
 checkout voisin, ce qui n'est pas une sauvegarde. Un worktree neuf naît sans
-elles ; `avolo-apercu` les y recopie comme il recopie le `.env`.
+elles ; `avolo-worktree` les y recopie comme il recopie le `.env`.
 
 **Le silence, lui, est fermé** : l'issue #37 est livrée. Un clip dont `branding`
 vaut `true` — la valeur par défaut de tout clip repéré — refuse de se rendre
@@ -599,7 +617,23 @@ vit dans `worker/venv` du checkout principal, et un worktree ne l'obtient que si
 `avolo-worktree` l'y lie sur demande. Chacun porte son propre `node_modules` — une vraie installation,
 jamais un lien, pour la raison écrite plus haut.
 
-Deux d'entre eux ne sont pas des worktrees d'agent : `apercu-feat-ui-*` sont
-créés détachés par `~/.local/bin/avolo-apercu`, qui sert une branche sur un
-serveur de développement sans la prendre à son agent. Ils se recyclent, ils ne se
-gardent pas.
+Ils sont désormais tous des worktrees d'agent : `~/.local/bin/avolo-apercu`
+n'en crée plus aucun. Il créait autrefois le sien, détaché sur la pointe de la
+branche, et servait cet instantané — qui ne bougeait plus jamais, et qui
+résolvait `origin` avant le local, donc arrivait déjà en retard : cinq commits
+le 19 août, sur une branche dont l'agent commitait plus vite qu'il ne poussait.
+
+**Il sert maintenant le dossier de l'agent lui-même.** Plus de copie, donc plus
+rien à tenir à jour, et le travail non commité se voit — ce qu'aucun instantané
+ne pouvait montrer, et ce qu'un suivi des seuls commits aurait raté. Le prix est
+qu'on voit aussi les états intermédiaires : mesuré le 19 août sur une branche en
+plein renommage de masse, l'aperçu a rendu 500 pendant dix secondes, puis s'est
+rétabli seul — sans un seul commit, juste l'agent qui finissait de recâbler ses
+imports. Une erreur de compilation dans un aperçu n'est donc pas une régression
+tant qu'on ne l'a pas vue survivre à quelques secondes.
+
+**Et il rejoint le serveur de l'agent quand celui-ci en a déjà un**, au lieu de
+buter sur le refus de Next d'en tenir deux depuis le même dossier. Les agents en
+lancent : trois tournaient le 19 août au soir. Le port se lit dans
+`.next/dev/lock`, mais son PID doit être éprouvé — ce fichier survit au serveur
+qu'il décrit, constaté sur un lock qui en annonçait un mort depuis une minute.

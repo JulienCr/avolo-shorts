@@ -451,7 +451,7 @@ La parenté s'arrête au diariseur.
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 7 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 7 à 9 min selon la cadence de la source |
 | Extraction audio | ffmpeg | 10 s |
 | Transcript et alignement au mot | WhisperX large-v3 | 2 min |
 | Locuteurs | pyannote, hors itération 0 | non mesuré |
@@ -464,16 +464,17 @@ La parenté s'arrête au diariseur.
 **Quatre lignes sur neuf sont mesurées, quatre restent des estimations et les
 locuteurs n'ont ni l'une ni l'autre.** Relevé le 18 août 2026 sur
 `2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 : proxy en 6 min, soit 16,4x
-le temps réel et 7 min pour 2 h, un peu sous les 8 à 10 min qu'annonçait le
-tableau ; extraction audio en 6 s ; transcription et alignement en 1 min 41 s,
-soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre estimations qui
+le temps réel et 7 min pour 2 h ; extraction audio en 6 s ; transcription et
+alignement en 1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre estimations qui
 subsistent (correction du transcript, frontières de plans, personnes, analyse
 audio) n'ont encore rien derrière elles.
 
-Une réserve sur le proxy : la mesure vient de `2025-06-15-cqlp`, seule source du
-corpus déjà en 30 fps. Les émissions en 60 fps donnent deux fois plus d'images à
-décoder avant que `fps=30` n'en jette la moitié, et personne n'a chronométré
-celles-là.
+**La cadence de la source décide du proxy, d'où la fourchette.** Les 16,4x
+viennent de `2025-06-15-cqlp`, seule source du corpus déjà en 30 fps. La section 11
+en mesure 13,8x sur `2026-03-08-caro-mdlm`, qui est en 1080p60, soit près de 9 min
+pour 2 h : une source en 60 fps donne deux fois plus d'images à décoder avant que
+`fps=30` n'en jette la moitié, et ça se paie. Les deux cadences sont donc
+chronométrées, une émission chacune.
 
 **La transcription était l'estimation la plus fausse, et dans le bon sens** :
 15 à 25 minutes annoncées contre 1 min 41 s mesurées, neuf à quinze fois moins

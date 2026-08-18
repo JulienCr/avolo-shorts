@@ -164,8 +164,9 @@ export type FramingOptions = {
   /**
    * L'air laissé de chaque côté des personnes, en fraction de largeur.
    *
-   * Un réglage de confort, pas une mesure : la boîte du détecteur épouse la
-   * silhouette, et un crop posé pile dessus met un coude sur le bord de l'image.
+   * Un réglage de confort à l'origine, et **mesuré depuis** : la boîte du
+   * détecteur épouse la silhouette, et un crop posé pile dessus met un coude sur
+   * le bord de l'image. Voir `FRAMING_DEFAULTS` pour ce que sa valeur coûte.
    */
   margin?: number
   /**
@@ -188,10 +189,28 @@ export type FramingOptions = {
  * de mesure ont besoin de les nommer**. Un tirage « au voisinage du seuil » qui
  * recopierait `0.35` mesurerait un autre filtre que celui qui décide, et le jour
  * où le seuil bouge, il continuerait de viser l'ancien sans rien signaler.
+ *
+ * **`margin` valait 0,02 et n'avait jamais été mesuré.** Le balayage du 18 août
+ * 2026 (`scripts/mesure-ratios.ts`, `docs/ratios-par-clip.md`) le fait tomber à
+ * 0,01, et la baisse ne coûte rien de mesurable : sur trois émissions, aucun clip
+ * ni aucune fenêtre ne s'**élargit** entre 0,02 et 0,01, deux clips de
+ * `2025-06-15-cqlp` passent du 16:9 au 1:1 et quinze fenêtres sur 197 se
+ * resserrent. La marge compte **deux fois** dans l'empan — une fois de chaque
+ * côté —, donc 0,02 en dépense 0,04, à comparer aux 0,5625 qu'un 1:1 couvre : un
+ * quatorzième du cadre, dépensé sur un réglage que personne n'avait éprouvé.
+ *
+ * **Ce qu'elle protège tient encore à 0,01**, et ça s'est vérifié à l'image, pas
+ * au chiffre : sur les deux clips qui basculent, le rectangle de crop laisse de
+ * l'air des deux côtés des comédiens. 0,01 de la source fait 19 px sur une sortie
+ * de 1080, c'est mince mais ce n'est pas nul — et `0` a été écarté pour ça, alors
+ * qu'il donne exactement la même répartition par clip.
+ *
+ * Descendre plus bas n'achèterait donc rien, et monter coûte : à 0,03, huit
+ * fenêtres de `cqlp` s'élargissent.
  */
 export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freeze({
   minScore: 0.5,
-  margin: 0.02,
+  margin: 0.01,
   bottomEdge: 0.97,
   foregroundMaxHeight: 0.35,
 })

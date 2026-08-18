@@ -90,8 +90,13 @@ describe('parseRange', () => {
   })
 
   describe('tolérances', () => {
-    // Le jeton d'unité est insensible à la casse (RFC 7230 §3.2.6), et les
-    // espaces autour de la valeur d'en-tête ne sont pas signifiants.
+    // Le jeton d'unité est insensible à la casse, et les espaces autour de la
+    // valeur d'en-tête ne sont pas signifiants. La casse ne vient pas d'une
+    // phrase de la RFC 7233 mais de sa grammaire : elle écrit
+    // `bytes-unit = "bytes"`, et une chaîne littérale en ABNF est insensible à
+    // la casse par définition (RFC 5234 §2.3). La version précédente de ce
+    // commentaire citait RFC 7230 §3.2.6, qui définit ce qu'est un jeton et ne
+    // dit rien de sa casse. (relevé par Copilot)
     it('accepte la casse et les espaces autour', () => {
       expect(parseRange('  Bytes=0-1023  ', 5000)).toEqual({ start: 0, end: 1023 })
       expect(parseRange('bytes = 1024 - 2047', 5000)).toEqual({ start: 1024, end: 2047 })

@@ -3,10 +3,10 @@
 /**
  * Le protocole d'écriture différée, éprouvé sans monter de page.
  *
- * Les trois premiers cas sont les trois défauts trouvés en revue quand ce code
+ * Les trois cas marqués « défaut N » sont ceux trouvés en revue quand ce code
  * vivait dans `src/app/clips/[id]/page.tsx` : ils étaient documentés en tête de
- * fonction, ils sont ici des tests. Les suivants portent la réconciliation d'un
- * `PATCH` refusé pour jeton périmé.
+ * fonction, ils sont ici des tests. Le groupe suivant porte la réconciliation
+ * d'un `PATCH` refusé pour jeton périmé.
  *
  * Le dernier groupe est à part : il branche le protocole sur un **vrai**
  * observateur de TanStack Query, partagé comme il l'est en production. C'est le

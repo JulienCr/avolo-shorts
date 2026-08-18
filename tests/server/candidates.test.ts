@@ -1401,6 +1401,56 @@ describe("l'étape de repérage", () => {
     })
 
     /**
+     * Le plafond compte des propositions qui survivront.
+     *
+     * Deux horodatages bruts différents se calent souvent sur le même clip —
+     * c'est le métier de `snapToWords` — et `mergeCandidates` écarte ensuite le
+     * doublon. Plafonner avant de dédoublonner laissait donc le condamné
+     * consommer le quota, et évinçait un candidat valide que le réglage
+     * autorisait. (relevé par Codex)
+     */
+    it('dédoublonne avant de plafonner, pas après', async () => {
+      setRéglage(db, 'clipsMaximum', 2)
+      // Deux bornes brutes distinctes qui se calent toutes deux sur (0, 32), et
+      // une troisième bien distincte.
+      const brutes = [
+        { start: 1, end: 30 },
+        { start: 2, end: 31 },
+        { start: 41, end: 70 },
+      ]
+      const appel: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score') {
+          const ids = [...prompt.matchAll(/"id":"(window_\d+)"/g)].map((m) => m[1])
+          return réponse(
+            JSON.stringify({
+              windows: ids.map((id, i) => ({ id, start: 0, end: 90, score: 90 - i, reason: 'ok' })),
+            }),
+          )
+        }
+        return réponse(
+          JSON.stringify({
+            shorts: brutes.map((b, i) => ({
+              ...b,
+              source_window_id: 'window_001',
+              predicted_score: 80,
+              video_description_for_tiktok: `proposition ${i}`,
+              video_description_for_instagram: `proposition ${i}`,
+              video_title_for_youtube_short: `Le moment ${i}`,
+              viral_hook_text: 'Et là',
+            })),
+          }),
+        )
+      }
+
+      const clips = await runCandidates(ID, { db, appel, sleep: async () => {} })
+
+      // Avant le correctif : `[A, A, B]` coupé à deux donnait `[A, A]`, puis un
+      // seul clip après dédoublonnage — B disparaissait pour rien.
+      expect(clips).toHaveLength(2)
+      expect(new Set(clips.map((c) => c.id)).size).toBe(2)
+    })
+
+    /**
      * La cible de clips suit la découpe. Demander le plancher entier à chaque
      * moitié en rendrait deux fois trop — et le plancher est ce que le modèle
      * rend, pas une borne basse.

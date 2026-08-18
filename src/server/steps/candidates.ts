@@ -922,6 +922,10 @@ export async function runCandidates(
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
   //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
   //    traitées et écrirait l'artefact. (relevé par Copilot)
+  // Lus **avant** le détail, et non plus juste avant la fusion : le plafond
+  // absolu doit savoir quels identifiants sont déjà pris pour ne pas les
+  // compter dans son quota. `mergeCandidates` relit la même liste plus bas.
+  const existants = getClips(db, projectId)
   const propositions = await détailler(retenues, {
     projectId,
     transcript,
@@ -930,12 +934,12 @@ export async function runCandidates(
     minClips,
     maxClips,
     plafondAbsolu: réglages.clipsMaximum,
+    idsPris: new Set(existants.filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
     sleep,
   })
 
   // 5. La fusion des passes, puis l'écriture.
-  const existants = getClips(db, projectId)
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
   const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)
@@ -1307,6 +1311,12 @@ type ContexteDétail = {
   maxClips: number
   /** `clipsMaximum` tel qu'il est réglé — `0` quand il ne l'est pas. */
   plafondAbsolu: number
+  /**
+   * Les `id` que `mergeCandidates` écartera de toute façon : ceux des clips
+   * portant une décision humaine. Ne sert qu'au plafond, qui doit compter des
+   * propositions qui survivront.
+   */
+  idsPris: ReadonlySet<string>
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
 }
@@ -1399,15 +1409,28 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // plus que la cible est une bonne nouvelle — le repérage vise le rappel
   // (spec §7) — et couper là abandonnerait du matériau que personne n'a demandé
   // d'abandonner.
-  if (ctx.plafondAbsolu > 0 && clips.length > ctx.plafondAbsolu) {
-    const écartés = clips.slice(ctx.plafondAbsolu)
-    console.warn(
-      `Détail : ${écartés.length} proposition(s) au-delà du plafond réglé de ${ctx.plafondAbsolu} clip(s), ` +
-        `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
-    )
-    return clips.slice(0, ctx.plafondAbsolu)
-  }
-  return clips
+  if (ctx.plafondAbsolu <= 0) return clips
+
+  // **Dédoublonner avant de plafonner, jamais l'inverse.** Deux horodatages
+  // bruts différents peuvent se caler sur le même clip — c'est le métier de
+  // `snapToWords` —, et un clip qui heurte une décision humaine sera de toute
+  // façon écarté par `mergeCandidates`. Plafonner d'abord laissait ces
+  // condamnés consommer le quota : `[A, A, B]` à deux devenait `[A, A]`, puis un
+  // seul candidat, et B disparaissait alors que le plafond l'autorisait.
+  // (relevé par Codex)
+  const vus = new Set(ctx.idsPris)
+  const uniques = clips.filter((clip) => !vus.has(clip.id) && vus.add(clip.id))
+
+  if (uniques.length <= ctx.plafondAbsolu) return uniques
+  // **Et la coupe se dit.** Une troncature silencieuse est le défaut que ce
+  // dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
+  // écarte, et ne survient que si quelqu'un a réglé un plafond.
+  const écartés = uniques.slice(ctx.plafondAbsolu)
+  console.warn(
+    `Détail : ${écartés.length} proposition(s) au-delà du plafond réglé de ${ctx.plafondAbsolu} clip(s), ` +
+      `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
+  )
+  return uniques.slice(0, ctx.plafondAbsolu)
 }
 
 /**

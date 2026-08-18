@@ -172,20 +172,34 @@ comme des erreurs :
   dans `status.json` (une ligne dans `écrireStatut`, `src/server/run.ts`), en
   croisant avec `error`/`finishedAt` — le bilan décrit une notation *tentée*.
 
-### Trois points laissés ouverts par la vague
+### Ce que la vague a laissé, et où c'est suivi
 
-- **`épurerChemins` ne caviarde pas les références `op://…`** (`src/core/erreurs.ts`).
-  Une référence n'est pas une valeur, mais elle nomme le coffre. Contourné en ne
-  la citant pas dans le message servi ; le trou reste pour tout autre message.
-- **`sauterLeRendu` tient des fichiers périmés pour complets**, et les écritures
-  du `.txt` ne sont pas ordonnées entre `PATCH` et `renderClip`. Les deux se
-  referment ensemble avec une empreinte de rendu persistée, dans `render.ts`.
-- **Trois trouvailles consignées sur la PR #31 et non traitées** : `round(score, 3)`
-  fait franchir le seuil inclusif de 0,5 à une confiance de 0,4996 ; un
-  `--scene-threshold` sous le plancher de collecte de 0,05 ne s'applique pas ; et
-  **la validation avant renommage n'est exercée par aucun test** — la plus
-  sérieuse, la propriété est annoncée en tête de fichier et inverser les deux
-  lignes laisserait la suite verte.
+Les trois points ouverts au sortir de la première vague sont traités ou
+transformés en tickets. Le tracker prend le relais ; cette section ne le double
+pas, elle dit seulement où regarder.
+
+- **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
+  dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien
+  ne lie les préfixes qu'`estRéférence` accepte au motif de `src/core/erreurs.ts`.
+- **`sauterLeRendu` et l'ordre d'écriture du `.txt`** sont dans l'**issue #48**,
+  avec deux cas de plus découverts depuis : un clip peut rester `exported` sur un
+  rendu périmé quand un `PATCH` arrive pendant l'encodage, et les rendus déjà sur
+  le disque sans marque ne repasseront jamais par la porte de #37. Les quatre se
+  referment par une empreinte de rendu persistée.
+- **Les trois trouvailles de la PR #31** sont traitées (#40) : la validation avant
+  renommage est exercée par trois tests — vérifiés par mutation, dans les deux
+  sens —, `round(score, 3)` est devenu une troncature vers le bas pour que le
+  seuil inclusif dise ce qu'il dit, et un `--scene-threshold` sous le plancher est
+  désormais refusé plutôt qu'ignoré.
+
+**Un résidu de mesure, laissé exprès et sans ticket.** La collecte de scène
+utilise `select='gt(scene,plancher)'`, strict, alors que `plans()` retient de
+façon inclusive. L'asymétrie est fermée par le refus de l'égalité, pas supprimée ;
+`gte` existe dans le binaire de `setup.sh` (N-126188) et est bien inclusif —
+vérifié, `gte(0.5,0.5)` retient 20 images sur 20 là où `gt` n'en retient aucune.
+Ce n'est pas fait parce que ça touche la passe de scène dont le seuil de 0,4 a été
+mesuré image par image, et qu'**aucun test du CI ne peut la couvrir**, faute de
+ffmpeg sur le runner. À traiter par qui reprendra le détecteur, avec sa mesure.
 
 ### L'environnement et l'outillage
 

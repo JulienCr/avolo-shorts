@@ -154,15 +154,17 @@ Ce qui doit fonctionner de bout en bout :
 - export MP4 et textes ;
 - API : créer un projet, lister les candidats, éditer un clip, exporter.
 
-Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0
-parce qu'elles conditionnent la vitesse d'itération :
+Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0 quand
+même, chacune pour sa raison :
 
 - **le sidecar du transcript**, qui évite de repayer la transcription à chaque
   essai. La mesure de la section 6 a ramené ce coût de 25 minutes à 2 : le sidecar
   reste, mais il tient maintenant sur les raisons de la section 5 et non plus sur
   la vitesse d'itération ;
 - **le saut d'étape si l'artefact existe**, version simplifiée du graphe (une
-  présence de fichier, pas encore une clé de validité).
+  présence de fichier, pas encore une clé de validité). C'est lui qui porte la
+  vitesse d'itération, puisqu'il épargne le proxy et l'analyse, pas les deux
+  minutes du transcript.
 
 Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme
 réglage de dernier recours, et l'automatique ne fera que le préremplir.
@@ -186,7 +188,7 @@ la moitié du bénéfice visuel mesuré à la section 2.
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 25 à 30 min sur GPU, somme du tableau de la section 6 | des artefacts réutilisables |
+| Analyse | une fois par live | 25 à 30 min sur GPU, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 

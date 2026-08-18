@@ -95,6 +95,15 @@ describe('le schéma', () => {
     expect(listProjects(db)).toHaveLength(1)
     expect(getProject(db, PROJET.id)?.durationSec).toBe(9999)
   })
+
+  // La date de création est celle de la création, pas celle de la dernière
+  // écriture. Réécrire avec la même valeur ne distinguait pas « préservé » de
+  // « écrasé à l'identique ». (relevé par Aristarque)
+  it('garde la date de création d’origine à la réécriture', () => {
+    upsertProject(db, { ...PROJET, createdAt: 9_999_999_999_999, durationSec: 1 })
+    expect(getProject(db, PROJET.id)?.createdAt).toBe(PROJET.createdAt)
+    expect(getProject(db, PROJET.id)?.durationSec).toBe(1)
+  })
 })
 
 describe('les clips', () => {
@@ -156,6 +165,12 @@ describe('replaceClips', () => {
 
   it('refuse un clip d’un autre projet', () => {
     expect(() => replaceClips(db, PROJET.id, [clip('a', { projectId: 'autre' })])).toThrow()
+  })
+
+  // Sans ce contrôle, l'`ON CONFLICT` écrase le premier par le second et
+  // l'appelant croit avoir écrit deux clips. (relevé par Aristarque)
+  it('refuse deux fois le même id dans un seul lot', () => {
+    expect(() => replaceClips(db, PROJET.id, [clip('a'), clip('a')])).toThrow(/deux fois/)
   })
 
   // Un identifiant de clip est unique pour toute la base — la spec §12 expose

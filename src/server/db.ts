@@ -297,12 +297,21 @@ export function putClip(db: Database.Database, clip: Clip): void {
  * ressusciterait précisément ce que la fusion venait d'écarter.
  */
 export function replaceClips(db: Database.Database, projectId: string, clips: Clip[]): void {
+  const vus = new Set<string>()
   for (const clip of clips) {
     if (clip.projectId && clip.projectId !== projectId) {
       throw new Error(
         `Le clip ${clip.id} appartient au projet ${clip.projectId}, pas à ${projectId}.`,
       )
     }
+    // Deux clips du même `id` dans un seul lot : l'`ON CONFLICT` écraserait le
+    // premier par le second, et l'appelant croirait avoir écrit deux clips.
+    // `mergeCandidates` dédoublonne en amont, mais un appelant direct n'a pas à
+    // perdre un clip en silence pour autant. (relevé par Aristarque)
+    if (vus.has(clip.id)) {
+      throw new Error(`Le clip ${clip.id} apparaît deux fois dans le même lot.`)
+    }
+    vus.add(clip.id)
   }
 
   const lignes = clips.map((clip) => ligneDepuisClip({ ...clip, projectId }))

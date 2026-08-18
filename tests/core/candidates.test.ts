@@ -30,6 +30,33 @@ describe('mergeCandidates', () => {
     expect(out.filter((x) => x.id === 'no')).toHaveLength(1)
   })
 
+  // La survie ne dépend pas du statut humain, seulement du fait qu'il ne soit
+  // plus `candidate`. Seul `discarded` était couvert. (relevé par Aristarque)
+  it.each(['kept', 'exported', 'discarded'] as const)(
+    'une proposition ne recouvre pas un clip « %s » du même id',
+    (statut) => {
+      const out = mergeCandidates([c('x', statut)], [c('x', 'candidate', 2)], 2)
+      expect(out).toHaveLength(1)
+      expect(out[0].status).toBe(statut)
+      expect(out[0].pass).toBe(1)
+    },
+  )
+
+  // La non-mutation est un contrat écrit ; une régression qui trierait ou
+  // pousserait dans les tableaux d'entrée passerait toute la suite ci-dessus.
+  // (relevé par Aristarque)
+  it('ne modifie ni existing ni incoming', () => {
+    const existing = [c('gardé', 'kept'), c('périmé', 'candidate')]
+    const incoming = [c('neuf', 'candidate', 0)]
+    const copieExisting = structuredClone(existing)
+    const copieIncoming = structuredClone(incoming)
+
+    mergeCandidates(existing, incoming, 7)
+
+    expect(existing).toEqual(copieExisting)
+    expect(incoming).toEqual(copieIncoming)
+  })
+
   it('chaque lot porte son numéro de passe', () => {
     const out = mergeCandidates([], [c('x', 'candidate', 0)], 3)
     expect(out[0].pass).toBe(3)

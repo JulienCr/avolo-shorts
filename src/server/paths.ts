@@ -68,11 +68,21 @@ export function projectsDir(): string {
  * reprendre, pas ce contrôle qu'il faudra retirer.
  */
 export function resolveSource(source: string): string {
+  // L'octet nul est rejeté ici plutôt que trois appels plus loin : `path.resolve`
+  // l'accepte, les appels `fs` non, et l'erreur remonterait alors d'un endroit
+  // qui n'a pas le contexte pour l'expliquer. (relevé par Aristarque)
+  if (source.includes('\0')) {
+    throw new Error('Source invalide : elle contient un octet nul.')
+  }
+
   const replays = replayDir()
   const résolu = path.resolve(replays, source)
+  // Le message nomme la variable, pas sa valeur : si l'erreur finit dans une
+  // réponse HTTP, l'arborescence du serveur n'a pas à partir avec elle. L'écho
+  // de `source` est légitime, il vient de l'appelant. (relevé par Aristarque)
   if (path.dirname(résolu) !== replays) {
     throw new Error(
-      `Source hors de REPLAY_DIR : ${JSON.stringify(source)}. Attendu : un fichier posé directement dans ${replays}.`,
+      `Source hors de REPLAY_DIR : ${JSON.stringify(source)}. Attendu : un fichier posé directement dans REPLAY_DIR.`,
     )
   }
   return résolu
@@ -164,7 +174,15 @@ export function sidecarDir(source: string): string {
   return `${original.slice(0, original.length - ext.length)}.avolo`
 }
 
-/** `transcript.json` du sidecar : mots et segments au format WhisperX. */
+/**
+ * `transcript.json` du sidecar : mots et segments au format WhisperX.
+ *
+ * **Le chemin voulu, pas forcément celui qui existe.** Cette fonction ne connaît
+ * que l'emplacement à côté de l'original ; elle ignore le repli dans le projet.
+ * Pour savoir où lire ou écrire réellement, passer par `placeSidecar` — un
+ * `existsSync(transcriptPath(...))` raterait un transcript rangé dans le repli
+ * et ferait retranscrire une émission entière pour rien. (relevé par Aristarque)
+ */
 export function transcriptPath(source: string): string {
   return path.join(sidecarDir(source), 'transcript.json')
 }

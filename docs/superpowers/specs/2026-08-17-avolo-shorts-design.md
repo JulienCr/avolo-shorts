@@ -235,7 +235,7 @@ la moitié du bénéfice visuel mesuré à la section 2.
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 25 à 30 min sur cette machine, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
+| Analyse | une fois par live | 25 à 32 min sur cette machine, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 

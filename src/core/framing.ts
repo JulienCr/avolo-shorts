@@ -183,10 +183,18 @@ export type FramingOptions = {
   foregroundMaxHeight?: number
 }
 
-const SCORE_MINIMAL = 0.5
-const MARGE = 0.02
-const BORD_BAS = 0.97
-const HAUTEUR_PREMIER_PLAN = 0.35
+/**
+ * Les valeurs par défaut des quatre réglages, **exportées parce que les scripts
+ * de mesure ont besoin de les nommer**. Un tirage « au voisinage du seuil » qui
+ * recopierait `0.35` mesurerait un autre filtre que celui qui décide, et le jour
+ * où le seuil bouge, il continuerait de viser l'ancien sans rien signaler.
+ */
+export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freeze({
+  minScore: 0.5,
+  margin: 0.02,
+  bottomEdge: 0.97,
+  foregroundMaxHeight: 0.35,
+})
 
 /**
  * La fraction de la largeur source qu'un crop pleine hauteur de ce ratio couvre.
@@ -263,10 +271,14 @@ function réglage(valeur: number | undefined, défaut: number): number {
  * peut pas juger ne rejette pas.
  */
 export function isForeground(box: PersonBox, options: FramingOptions = {}): boolean {
-  const bord = réglage(options.bottomEdge, BORD_BAS)
-  const hauteurMax = Math.max(0, réglage(options.foregroundMaxHeight, HAUTEUR_PREMIER_PLAN))
+  const bord = réglage(options.bottomEdge, FRAMING_DEFAULTS.bottomEdge)
+  const hauteurMax = Math.max(
+    0,
+    réglage(options.foregroundMaxHeight, FRAMING_DEFAULTS.foregroundMaxHeight),
+  )
+  // Une seule garde suffit : `y1 - y0` n'est fini que si les deux bornes le sont.
   const hauteur = box.y1 - box.y0
-  if (!Number.isFinite(hauteur) || !Number.isFinite(box.y1)) return false
+  if (!Number.isFinite(hauteur)) return false
   return box.y1 >= bord && hauteur < hauteurMax
 }
 
@@ -312,8 +324,8 @@ function dansIntervalle(t: number, début: number, fin: number): boolean {
  * images-là font de 5 à 30 % du total.
  */
 function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
-  const seuil = réglage(options.minScore, SCORE_MINIMAL)
-  const marge = Math.max(0, réglage(options.margin, MARGE))
+  const seuil = réglage(options.minScore, FRAMING_DEFAULTS.minScore)
+  const marge = Math.max(0, réglage(options.margin, FRAMING_DEFAULTS.margin))
 
   const parImage = new Map<number, Empan>()
   for (const b of boxes) {

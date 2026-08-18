@@ -31,11 +31,20 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { isForeground } from '@/core/framing'
+import { FRAMING_DEFAULTS, isForeground, requiredWidths } from '@/core/framing'
 import type { PersonBox } from '@/core/shots'
 import { analysisPath, proxyPath } from '@/server/paths'
 import { lireAnalyse } from '@/server/steps/analysis'
 import { chargerEnv, quitter } from './dev-commun'
+
+/**
+ * La demi-largeur de la bande « au voisinage du seuil », en fraction de hauteur.
+ *
+ * 0,08 de chaque côté de 0,35 couvre tout le creux mesuré (0,32 à 0,40) et
+ * mord sur les deux modes qui l'encadrent : le tirage montre donc des cas que le
+ * filtre tranche dans les deux sens, ce qui est le seul intérêt de l'exercice.
+ */
+const VOISINAGE = 0.08
 
 /** Le binaire de `setup.sh`, le même que le reste de la chaîne. */
 function ffmpeg(): string {
@@ -90,13 +99,17 @@ function vignette(proxy: string, t: number, boîtes: PersonBox[], W: number, H: 
   execFileSync(ffmpeg(), argumentsFfmpeg, { stdio: ['ignore', 'ignore', 'inherit'] })
 }
 
-/** L'empan d'une image, marge comprise, sur les boîtes que le cadrage garde. */
+/**
+ * L'empan d'une image, tel que le cadrage le voit.
+ *
+ * Passe par `requiredWidths` plutôt que de refaire le calcul : le seuil de
+ * confiance, la marge et le filtre y sont déjà, et une seconde copie de ces trois
+ * réglages finirait par diverger de celle qui décide vraiment. Rend `null` quand
+ * l'image ne garde aucune boîte — elle ne dit pas que le cadre peut être serré,
+ * elle ne dit rien.
+ */
 function empanFiltré(boîtes: PersonBox[]): number | null {
-  const gardées = boîtes.filter((b) => b.score >= 0.5 && !isForeground(b))
-  if (gardées.length === 0) return null
-  const g = Math.min(...gardées.map((b) => b.x0))
-  const d = Math.max(...gardées.map((b) => b.x1))
-  return Math.min(1, d + 0.02) - Math.max(0, g - 0.02)
+  return requiredWidths(boîtes)[0] ?? null
 }
 
 /** N valeurs réparties régulièrement dans une liste, extrémités comprises. */
@@ -117,10 +130,9 @@ async function main(): Promise<number> {
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : défaut
   }
   const iOut = arguments_.indexOf('--out')
-  const dossier =
-    iOut >= 0 && arguments_[iOut + 1] !== undefined
-      ? arguments_[iOut + 1]
-      : fs.mkdtempSync(path.join(os.tmpdir(), 'vignettes-premier-plan-'))
+  // Résolu tard : créer le dossier temporaire avant le contrôle d'usage laisserait
+  // un dossier vide derrière chaque appel mal formé.
+  const demandé = iOut >= 0 ? arguments_[iOut + 1] : undefined
 
   // Les valeurs des drapeaux ne sont pas des instants : les retirer avant de
   // lire les positionnels, sinon `--large 6` demande la seconde 6.
@@ -155,9 +167,14 @@ async function main(): Promise<number> {
   const nFrontière = nombreAprès('--frontiere', 6)
   if (nFrontière !== null) {
     // Les images qui portent une boîte dont la hauteur est près du seuil : ni
-    // franchement du public, ni franchement un comédien.
+    // franchement du public, ni franchement un comédien. Les seuils viennent du
+    // module, pas d'une copie — sinon le tirage viserait l'ancien seuil le jour
+    // où celui qui décide bouge.
+    const hésite = (b: PersonBox): boolean =>
+      b.y1 >= FRAMING_DEFAULTS.bottomEdge &&
+      Math.abs(b.y1 - b.y0 - FRAMING_DEFAULTS.foregroundMaxHeight) <= VOISINAGE
     const près = [...images.entries()]
-      .filter(([, bs]) => bs.some((b) => b.y1 >= 0.97 && Math.abs(b.y1 - b.y0 - 0.35) <= 0.08))
+      .filter(([, bs]) => bs.some(hésite))
       .map(([clé]) => clé / 1000)
       .sort((a, b) => a - b)
     console.log(`${près.length} images au voisinage du seuil de hauteur`)
@@ -182,17 +199,29 @@ async function main(): Promise<number> {
     return 1
   }
 
+  const dossier = demandé ?? fs.mkdtempSync(path.join(os.tmpdir(), 'vignettes-premier-plan-'))
   fs.mkdirSync(dossier, { recursive: true })
+  let échecs = 0
   for (const t of [...new Set(instants)].sort((a, b) => a - b)) {
     const boîtes = images.get(Math.round(t * 1000)) ?? []
     const fichier = path.join(dossier, `t${t.toFixed(1).replace('.', '_')}.png`)
-    vignette(proxy, t, boîtes, W, H, fichier)
+    // Une extraction ratée — un instant au-delà de la fin du proxy, un fichier
+    // tronqué — ne doit pas emporter les vignettes suivantes : c'est un outil de
+    // mesure, et perdre neuf images sur dix pour une seule serait une punition
+    // absurde.
+    try {
+      vignette(proxy, t, boîtes, W, H, fichier)
+    } catch (e) {
+      échecs += 1
+      console.error(`${t.toFixed(1)} s : ${e instanceof Error ? e.message : String(e)}`)
+      continue
+    }
     const écartées = boîtes.filter((b) => isForeground(b)).length
     console.log(
       `${fichier}  ${t.toFixed(1)} s — ${boîtes.length} boîtes, ${écartées} écartée(s) (rouge)`,
     )
   }
-  return 0
+  return échecs > 0 ? 1 : 0
 }
 
 void main().then(quitter, (e: unknown) => {

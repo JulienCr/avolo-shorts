@@ -54,8 +54,9 @@ const VARIANTES = [
   ['filtre livré ', {}],
 ] as const satisfies readonly (readonly [string, FramingOptions])[]
 
-const SANS_FILTRE = VARIANTES[0][1]
-const AVEC_FILTRE = VARIANTES[2][1]
+/** Les deux variantes que l'avant/après compare, par leur rang dans `VARIANTES`. */
+const I_SANS_FILTRE = 0
+const I_AVEC_FILTRE = 2
 
 /** Les quatre ratios du plus étroit au plus large. */
 const DU_PLUS_ÉTROIT_AU_PLUS_LARGE = (Object.keys(RATIOS) as Ratio[]).sort(
@@ -106,10 +107,11 @@ function populations(boxes: PersonBox[], bordBas: number): void {
   console.log(
     `\nÉcartées par le filtre : ${premierPlan.length} (${pourcent(premierPlan.length, boxes.length)})`,
   )
-  const petitesDétachées = détachées.filter((b) => hauteur(b) < 0.35)
-  console.log(
-    `Sauvées par la condition de bord (courtes mais détachées) : ${petitesDétachées.length}`,
-  )
+  // Ce qu'un filtre sur la seule hauteur aurait jeté et que celui-ci garde. Posé
+  // comme une différence entre deux réglages du **même** filtre, jamais comme une
+  // copie du seuil : une copie viserait l'ancienne valeur le jour où il bouge.
+  const sauvées = boxes.filter((b) => isForeground(b, { bottomEdge: 0 }) && !isForeground(b))
+  console.log(`Sauvées par la condition de bord (courtes mais détachées) : ${sauvées.length}`)
 }
 
 function histogramme(valeurs: number[], min: number, max: number, cases: number): void {
@@ -165,56 +167,53 @@ function empans(boxes: PersonBox[], analyse: Analyse): void {
 
 function répartition(
   nom: string,
-  populations_: { nom: string; segments: Segment[] }[],
+  découpes: { nom: string; segments: Segment[] }[],
   analyse: Analyse,
 ): void {
-  console.log(`\n${nom} — ${populations_.length} découpes`)
-  const lignes: string[] = []
-  for (const [étiquette, options] of VARIANTES) {
+  console.log(`\n${nom} — ${découpes.length} découpes`)
+
+  // Un cadrage par découpe et par variante, calculé une fois : le détail
+  // ci-dessous relit les mêmes ratios que la répartition, donc aucun risque
+  // qu'ils divergent, et une émission de trois heures ne paie pas deux fois.
+  const ratios = VARIANTES.map(([, options]) =>
+    découpes.map(
+      (d) =>
+        computeFraming({
+          ...options,
+          segments: d.segments,
+          shots: analyse.shots,
+          people: analyse.boxes,
+          srcW: analyse.source.w,
+          srcH: analyse.source.h,
+          ratio: 'auto',
+          cropMode: 'auto',
+        }).ratio,
+    ),
+  )
+
+  for (const [i, [étiquette]] of VARIANTES.entries()) {
     const compte = new Map<Ratio, number>(DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => [r, 0]))
-    for (const p of populations_) {
-      const { ratio } = computeFraming({
-        ...options,
-        segments: p.segments,
-        shots: analyse.shots,
-        people: analyse.boxes,
-        srcW: analyse.source.w,
-        srcH: analyse.source.h,
-        ratio: 'auto',
-        cropMode: 'auto',
-      })
-      compte.set(ratio, (compte.get(ratio) ?? 0) + 1)
-    }
-    lignes.push(
-      `  ${étiquette} : ${DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map(
-        (r) => `${r} ${compte.get(r) ?? 0}`,
-      ).join('  ')}`,
-    )
+    for (const r of ratios[i]) compte.set(r, (compte.get(r) ?? 0) + 1)
+    const détail = DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => `${r} ${compte.get(r) ?? 0}`).join('  ')
+    console.log(`  ${étiquette} : ${détail}`)
   }
-  for (const l of lignes) console.log(l)
 
   // Le détail par découpe : une répartition qui bouge peut cacher des
   // déplacements dans les deux sens, et c'est exactement ce qu'on veut voir.
-  const déplacés: string[] = []
-  for (const p of populations_) {
-    const commun = {
-      segments: p.segments,
-      shots: analyse.shots,
-      people: analyse.boxes,
-      srcW: analyse.source.w,
-      srcH: analyse.source.h,
-      ratio: 'auto' as const,
-      cropMode: 'auto' as const,
-    }
-    const avant = computeFraming({ ...commun, ...SANS_FILTRE }).ratio
-    const après = computeFraming({ ...commun, ...AVEC_FILTRE }).ratio
-    if (avant !== après) {
-      const sens = RATIOS[après] < RATIOS[avant] ? 'resserré' : 'ÉLARGI'
-      déplacés.push(`    ${p.nom} : ${avant} → ${après} (${sens})`)
-    }
+  const sansFiltre = ratios[I_SANS_FILTRE]
+  const avecFiltre = ratios[I_AVEC_FILTRE]
+  const déplacés = découpes
+    .map((d, i) => ({ d, avant: sansFiltre[i], après: avecFiltre[i] }))
+    .filter((e) => e.avant !== e.après)
+  const élargis = déplacés.filter((e) => RATIOS[e.après] > RATIOS[e.avant]).length
+  console.log(
+    `  déplacés : ${déplacés.length} / ${découpes.length}` +
+      ` (${déplacés.length - élargis} resserrés, ${élargis} élargis)`,
+  )
+  for (const e of déplacés.slice(0, 40)) {
+    const sens = RATIOS[e.après] < RATIOS[e.avant] ? 'resserré' : 'ÉLARGI'
+    console.log(`    ${e.d.nom} : ${e.avant} → ${e.après} (${sens})`)
   }
-  console.log(`  déplacés : ${déplacés.length} / ${populations_.length}`)
-  for (const d of déplacés.slice(0, 40)) console.log(d)
 }
 
 /**

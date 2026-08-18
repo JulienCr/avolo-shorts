@@ -829,9 +829,7 @@ describe('renderClip, la porte des marques', () => {
 
   it('ne refuse pas un clip déjà rendu, qui ne produit rien de neuf', async () => {
     // Le saut n'encode pas : refuser là ferait échouer une relance qui se
-    // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés. La
-    // contrepartie est connue — un clip exporté sans marque avant ce correctif
-    // saute pour toujours — et son remède est `force`.
+    // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés.
     const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     for (const chemin of [attendus.mp4, attendus.variant9x16 as string, attendus.texts]) {
@@ -841,6 +839,23 @@ describe('renderClip, la porte des marques', () => {
     poserEmpreinte(c, '1:1')
     const résultat = await renderClip(c.id, { db, brandDir })
     expect(résultat.skipped).toBe(true)
+  })
+
+  /**
+   * **Ce que #48 change à la contrepartie de #37.** Un clip exporté sans marque
+   * avant #37 n'a pas d'empreinte : il ne saute plus, donc il atteint la porte,
+   * qui refuse en disant quoi faire. Avant, il sautait pour toujours et son seul
+   * remède était un `force` qu'il fallait avoir lu un commentaire pour connaître.
+   */
+  it("refuse un rendu sans empreinte quand le dossier n'a plus de marque", async () => {
+    const { db, c, brandDir } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    for (const chemin of [attendus.mp4, attendus.variant9x16 as string, attendus.texts]) {
+      fs.mkdirSync(path.dirname(chemin), { recursive: true })
+      fs.writeFileSync(chemin, '')
+    }
+
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/logo\.png/)
   })
 })
 

@@ -229,7 +229,16 @@ export type EmpreinteRendu = FormeRendue & {
   /**
    * Vrai si un document ASS a réellement été incrusté. Un clip qui demande des
    * sous-titres et dont aucun mot ne tombe dans les segments se rend sans, en le
-   * journalisant : l'empreinte le consigne.
+   * journalisant.
+   *
+   * **Consigné, délibérément pas comparé.** Le comparer à ce qu'on incrusterait
+   * aujourd'hui suppose de relire le transcript, donc l'aller-retour sur le
+   * Drive en 9p que la décision de saut évite exprès. Et le rendre périmant sans
+   * cette lecture ferait boucler l'export sur un clip dont aucun mot ne tombe
+   * dans les segments : chaque passage referait le rendu pour réécrire la même
+   * empreinte. Ce champ répond donc à « pourquoi ce MP4 n'a-t-il pas de
+   * sous-titres », qui est une question qu'on se pose devant un fichier, et non
+   * à une décision de la machine.
    */
   sousTitres: boolean
 }
@@ -965,10 +974,15 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // n'y a rien à cadrer, là où une marque absente est un défaut de la
     // livraison et non de l'entrée.
     //
-    // **Rien de tout cela sur le chemin du saut**, plus haut, qui n'encode pas :
-    // y refuser ferait échouer une relance qui se contente de réécrire un
-    // `.txt`. Un clip exporté sans marque avant #37 saute donc pour toujours, et
-    // c'est `force` qui le rattrape.
+    // **Le chemin du saut ne refuse toujours pas**, et c'est délibéré : y
+    // refuser ferait échouer une relance qui se contente de réécrire un `.txt`
+    // sans rien changer aux fichiers livrés.
+    //
+    // Ce qui a changé avec #48, c'est qu'il ne saute plus à l'aveugle. Un clip
+    // exporté sans marque avant #37 n'a pas d'empreinte, donc il ne saute plus,
+    // donc il arrive ici et se refait — ou refuse en le disant, si le dossier
+    // est vide. Le `force` reste, il n'est simplement plus le seul remède, ni
+    // un remède qu'il faut avoir lu ce commentaire pour connaître.
     //
     // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
     // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de

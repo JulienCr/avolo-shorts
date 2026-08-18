@@ -213,6 +213,37 @@ export function audioArgs(o: { src: string; dst: string }): string[] {
   ]
 }
 
+/**
+ * La vignette d'un candidat : **une image, prise dans le proxy**.
+ *
+ * Dans le proxy et jamais dans l'original, pour la raison qui a fait construire
+ * le proxy : l'original pèse jusqu'à 12,7 Go et vit sur un montage 9p à 40 Mo/s.
+ * Une grille de vingt-cinq cartes y demanderait vingt-cinq ouvertures de fichier
+ * distantes, là où le proxy est local et déjà décodé pour l'écran de clip.
+ *
+ * `-ss` **avant** `-i` : ffmpeg saute alors dans le conteneur au lieu de décoder
+ * depuis le début, ce qui fait toute la différence sur une image prise à
+ * quarante minutes. Le proxy porte un `-g 30`, donc une image-clé toutes les
+ * secondes : la seconde d'écart que peut coûter un saut approché est sans
+ * conséquence pour une vignette.
+ *
+ * `-update 1` : sans lui, une sortie `.jpg` est traitée comme une séquence
+ * numérotée et ffmpeg avertit à chaque appel.
+ */
+export function thumbArgs(o: { src: string; dst: string; at: number }): string[] {
+  return [
+    ...GLOBALES,
+    '-ss', secondes(Math.max(0, o.at)),
+    '-i', o.src,
+    '-map', '0:v:0',
+    '-an',
+    '-frames:v', '1',
+    '-q:v', '4',
+    '-update', '1',
+    ...destination(o.dst),
+  ]
+}
+
 /** `-hwaccel cuda` seul, et seulement quand on encodera sur le GPU. */
 function accélération(encoder: EncoderName): string[] {
   return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []

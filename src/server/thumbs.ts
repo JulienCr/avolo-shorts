@@ -1,0 +1,90 @@
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+
+import type { Clip } from '@/core/edl'
+import { thumbArgs } from '@/core/ffmpeg/args'
+import { cheminTemporaire, runFfmpeg } from '@/server/ffmpeg'
+import { projectDir, proxyPath } from '@/server/paths'
+
+/**
+ * La vignette d'un candidat : une image tirée du proxy, au premier segment du
+ * clip, gardée sur disque.
+ *
+ * **Du proxy, jamais de l'original.** L'original vit sur un Google Drive monté
+ * en 9p à 40 Mo/s et pèse jusqu'à 12,7 Go ; une grille de vingt-cinq cartes y
+ * ferait vingt-cinq ouvertures distantes. Le proxy est local, fait 960x540, et
+ * porte une image-clé par seconde.
+ *
+ * Le cache n'est pas une optimisation prématurée : l'écran de tri est le premier
+ * écran du produit et se recharge à chaque aller-retour vers un clip. Sans lui,
+ * chaque visite relancerait vingt-cinq ffmpeg.
+ */
+
+/**
+ * Un identifiant de clip sert à nommer un fichier, et il arrive du réseau.
+ *
+ * Le contrôle est le même que celui des identifiants de projet, et pour la même
+ * raison : les clips en héritent — `<projet>_<ms>-<ms>` — donc ils portent
+ * accents et espaces, qu'on ne peut pas refuser sans casser la bibliothèque.
+ * Ce qui est refusé est ce qui permet de sortir du dossier.
+ */
+function vérifierIdClip(clipId: string): string {
+  const refusé =
+    clipId === '' ||
+    clipId === '.' ||
+    clipId === '..' ||
+    clipId.includes('/') ||
+    clipId.includes('\\') ||
+    clipId.includes('\0')
+  if (refusé) throw new Error(`Identifiant de clip invalide : ${JSON.stringify(clipId)}`)
+  return clipId
+}
+
+/** `projects/<projet>/thumbs/<clip>.jpg`. */
+export function vignettePath(projectId: string, clipId: string): string {
+  return path.join(projectDir(projectId), 'thumbs', `${vérifierIdClip(clipId)}.jpg`)
+}
+
+/**
+ * L'instant où prendre l'image : le début du premier segment.
+ *
+ * Un clip vidé de ses segments n'en a pas ; on prend alors la première image
+ * plutôt que rien, parce qu'une carte sans vignette dans une grille de vingt-cinq
+ * se lit comme un chargement en cours.
+ */
+export function instantVignette(clip: Clip): number {
+  return clip.segments[0]?.start ?? 0
+}
+
+/**
+ * Produit la vignette si elle manque, et rend son chemin.
+ *
+ * `null` quand le proxy n'existe pas encore : il n'y a alors rien à extraire, et
+ * ce n'est pas une erreur — c'est l'état d'un projet dont l'encodage n'a pas
+ * fini.
+ *
+ * Comme partout ailleurs dans ce dépôt, l'écriture passe par un nom temporaire
+ * renommé une fois seulement : un ffmpeg interrompu laisserait sinon un JPEG
+ * tronqué que la visite suivante servirait sans le refaire.
+ */
+export async function vignette(clip: Clip): Promise<string | null> {
+  const proxy = proxyPath(clip.projectId)
+  if (!fs.existsSync(proxy)) return null
+
+  const destination = vignettePath(clip.projectId, clip.id)
+  if (fs.existsSync(destination)) return destination
+
+  await fsp.mkdir(path.dirname(destination), { recursive: true })
+  const temporaire = cheminTemporaire(destination)
+  try {
+    await runFfmpeg(thumbArgs({ src: proxy, dst: temporaire, at: instantVignette(clip) }), {
+      quoi: `vignette de ${clip.id}`,
+    })
+    await fsp.rename(temporaire, destination)
+  } catch (cause) {
+    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    throw cause
+  }
+  return destination
+}

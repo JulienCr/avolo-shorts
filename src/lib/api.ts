@@ -1,14 +1,11 @@
 /**
- * La frontière entre l'interface et les données. **Le seul fichier qui saura
- * d'où elles viennent.**
+ * La frontière entre l'interface et les données. **Le seul fichier qui sait d'où
+ * elles viennent.**
  *
- * Les routes REST de la tâche 10 (spec §12) n'existent pas encore. L'interface
- * est donc construite contre les fixtures de `./fixtures`, derrière ces
- * fonctions-ci. Quand les routes arriveront, seul ce fichier change : chaque
- * corps devient un `fetch`, les types restent, et aucun composant ne bouge.
- *
- * C'est ce que ce fichier doit à la tâche 10 — le contrat ci-dessous est ce que
- * ses routes ont à honorer :
+ * Il a été écrit contre des fixtures pendant que les routes n'existaient pas, en
+ * pariant que le jour où elles arriveraient, seul ce fichier changerait. C'est
+ * ce qui s'est passé : les corps sont devenus des `fetch`, les types n'ont pas
+ * bougé d'une ligne, et aucun composant n'a été touché.
  *
  * ```
  * GET   /api/projects                  -> ProjectSummary[]
@@ -18,22 +15,19 @@
  * PATCH /api/clips/:id  { ClipPatch }  -> Clip
  * ```
  *
- * Deux champs sont volontairement `string | null` : `thumbnailUrl` et
- * `proxyUrl`. Les artefacts qu'ils désignent n'existent pas en itération 0 tant
- * que le pipeline n'a pas tourné, et une interface qui suppose leur présence
- * casse à la première visite. `null` a un rendu prévu et testé à l'œil ; une URL
- * morte n'en a pas.
+ * Deux champs restent `string | null` : `thumbnailUrl` et `proxyUrl`. Le serveur
+ * les remplit quand l'artefact est là et rend `null` sinon — pas une URL morte.
+ * Un projet créé il y a trois secondes n'a ni proxy ni vignettes, et `null` a un
+ * rendu prévu et testé à l'œil.
+ *
+ * **Les identifiants sont encodés.** Ceux des projets viennent du nom du fichier
+ * d'origine, accents et espaces compris (spec §12), et ceux des clips en
+ * héritent : `2026-01-11-méchante_000123456-000234567`. Sans encodage, la
+ * moindre espace casserait l'URL.
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { TranscriptLine } from '@/lib/editing'
-import {
-  fixtureCandidates,
-  fixtureClipDetail,
-  fixtureProject,
-  fixtureProjectStatus,
-  patchFixtureClip,
-} from '@/lib/fixtures'
 
 export type { Clip, ClipStatus, Ratio, Segment }
 
@@ -96,12 +90,12 @@ export type CandidateClip = Clip & {
  * segments — contexte compris — s'affichent barrés, et c'est la même règle pour
  * les deux, donc un seul cas à écrire.
  *
- * **Exigence pour la tâche 10 :** cette fenêtre se calcule sur l'étendue
- * d'origine du candidat, pas sur `clip.segments`. Retirer tous les mots d'un
- * clip laisse une liste vide, et une fenêtre dérivée de cette liste-là
- * n'existerait plus : on perdrait le transcript au moment précis où il faut le
- * relire pour reconstruire le clip. La route a donc besoin de garder cette
- * étendue — le premier jeu de segments de la passe de repérage suffit.
+ * Cette fenêtre se calcule sur l'étendue d'origine du candidat, pas sur
+ * `clip.segments` : retirer tous les mots d'un clip laisse une liste vide, et
+ * une fenêtre dérivée de cette liste-là n'existerait plus — on perdrait le
+ * transcript au moment précis où il faut le relire pour reconstruire le clip.
+ * La route la lit dans `candidates.json`, l'artefact que le repérage écrit et
+ * que l'édition ne réécrit pas.
  */
 export type ClipDetail = {
   clip: Clip
@@ -114,8 +108,8 @@ export type ClipDetail = {
  * Ce qui s'édite sur un clip.
  *
  * Ni `id`, ni `projectId`, ni `pass` : ils identifient le clip et sa provenance,
- * ils ne se corrigent pas depuis l'interface. `PATCH /api/clips/:id` normalise
- * les segments avant écriture (tâche 10, étape 2).
+ * ils ne se corrigent pas depuis l'interface. `PATCH /api/clips/:id` les refuse
+ * — son schéma est strict — et normalise les segments avant écriture.
  */
 export type ClipPatch = Partial<
   Pick<Clip, 'segments' | 'ratio' | 'cropX' | 'title' | 'description' | 'captions' | 'branding'>
@@ -127,56 +121,90 @@ export type ClipPatch = Partial<
    * permettrait de marquer comme exporté un clip dont rien n'a été rendu, et
    * `mergeCandidates` le ferait alors survivre à toutes les passes suivantes.
    *
-   * **Exigence pour la tâche 10 :** la route doit refuser `exported` venant du
-   * client, comme elle refuse déjà `id`, `projectId` et `pass`. Le type ne
-   * protège que ce dépôt-ci.
+   * La route le refuse aussi : le type ne protège que ce dépôt-ci.
    */
   status?: Exclude<ClipStatus, 'exported'>
 }
 
 /**
- * La latence simulée des fixtures.
+ * L'échec d'un appel, avec le code que le serveur a rendu.
  *
- * Pas zéro, et c'est délibéré : à zéro, les états de chargement et la mise à
- * jour optimiste du tri ne se voient jamais, donc leurs défauts non plus. Ces
- * deux constantes disparaissent avec les fixtures.
+ * Le code n'est pas décoratif — il porte les trois natures d'échec que la
+ * tâche 9 distingue : 422 quand le fournisseur refuse le matériel (rien à
+ * réessayer), 503 quand un service est en panne (tout à réessayer), 500 quand
+ * c'est un défaut du programme.
  */
-const LATENCE_LECTURE_MS = 90
-const LATENCE_ECRITURE_MS = 180
-
-function attendre(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-export async function listProjects(): Promise<ProjectSummary[]> {
-  await attendre(LATENCE_LECTURE_MS)
-  return [fixtureProject()]
-}
-
-export async function getProject(projectId: string): Promise<ProjectStatus> {
-  await attendre(LATENCE_LECTURE_MS)
-  return fixtureProjectStatus(projectId)
-}
-
-export async function listCandidates(projectId: string): Promise<CandidateClip[]> {
-  await attendre(LATENCE_LECTURE_MS)
-  return fixtureCandidates(projectId)
-}
-
-export async function getClip(clipId: string): Promise<ClipDetail> {
-  await attendre(LATENCE_LECTURE_MS)
-  return fixtureClipDetail(clipId)
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
 }
 
 /**
- * **Exigence pour la tâche 10 :** l'écran de clip vide son enregistrement
- * différé sur `pagehide`, c'est-à-dire au moment où le navigateur s'apprête à
- * abandonner la page. Une requête ordinaire lancée là est tuée avec elle : le
- * `fetch` qui remplacera ce corps devra porter `keepalive: true`, sinon la
- * dernière modification avant une fermeture d'onglet se perd — le défaut même
- * que ce vidage existe pour éviter.
+ * Le message d'échec, tel que le serveur l'a formulé.
+ *
+ * Les routes rendent `{ error }` ; une page d'erreur de Next, un mandataire ou
+ * une coupure ne rendent pas de JSON du tout. Le repli sur le code HTTP existe
+ * pour ce cas — sans lui, l'échec serait avalé par une exception d'analyse
+ * dans le gestionnaire d'erreur lui-même.
+ */
+async function échec(réponse: Response): Promise<ApiError> {
+  let message = `${réponse.status} ${réponse.statusText}`.trim()
+  try {
+    const corps: unknown = await réponse.json()
+    const texte = (corps as { error?: unknown } | null)?.error
+    if (typeof texte === 'string' && texte !== '') message = texte
+  } catch {
+    // Corps vide ou non JSON : le code suffit.
+  }
+  return new ApiError(réponse.status, message)
+}
+
+async function lire<T>(chemin: string): Promise<T> {
+  const réponse = await fetch(chemin, { headers: { accept: 'application/json' } })
+  if (!réponse.ok) throw await échec(réponse)
+  return (await réponse.json()) as T
+}
+
+export function listProjects(): Promise<ProjectSummary[]> {
+  return lire<ProjectSummary[]>('/api/projects')
+}
+
+export function getProject(projectId: string): Promise<ProjectStatus> {
+  return lire<ProjectStatus>(`/api/projects/${encodeURIComponent(projectId)}`)
+}
+
+export function listCandidates(projectId: string): Promise<CandidateClip[]> {
+  return lire<CandidateClip[]>(`/api/projects/${encodeURIComponent(projectId)}/candidates`)
+}
+
+export function getClip(clipId: string): Promise<ClipDetail> {
+  return lire<ClipDetail>(`/api/clips/${encodeURIComponent(clipId)}`)
+}
+
+/**
+ * **`keepalive: true`, et c'est tout l'intérêt de cette fonction.**
+ *
+ * L'écran de clip vide son enregistrement différé sur `pagehide`, c'est-à-dire
+ * au moment où le navigateur s'apprête à abandonner la page. Une requête
+ * ordinaire lancée là est tuée avec elle : la dernière modification avant une
+ * fermeture d'onglet se perdrait — le défaut même que ce vidage existe pour
+ * éviter. Avec `keepalive`, le navigateur la mène à terme après la page.
+ *
+ * La contrepartie est une limite de 64 kio sur le corps, largement au-dessus de
+ * ce qu'un patch transporte : une poignée de segments et trois champs de texte.
  */
 export async function patchClip(clipId: string, patch: ClipPatch): Promise<Clip> {
-  await attendre(LATENCE_ECRITURE_MS)
-  return patchFixtureClip(clipId, patch)
+  const réponse = await fetch(`/api/clips/${encodeURIComponent(clipId)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(patch),
+    keepalive: true,
+  })
+  if (!réponse.ok) throw await échec(réponse)
+  return (await réponse.json()) as Clip
 }

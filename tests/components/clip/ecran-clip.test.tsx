@@ -1,0 +1,170 @@
+// @vitest-environment jsdom
+
+/**
+ * L'écran de clip, monté pour de vrai.
+ *
+ * Ce que ces tests regardent, c'est le **raccordement** : la sortie du
+ * sous-parcours, le rang dans la boucle, et le geste que la spec §7.1 laissait
+ * ouvert. Le détail de chaque pièce est testé à côté, dans son propre fichier.
+ */
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { EcranDeClip } from '@/components/clip/ecran-clip'
+import type { CandidateClip, ClipDetail } from '@/lib/api'
+import { useEditeur } from '@/store/editor'
+import { useLecture } from '@/components/clip/lecture'
+
+Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 600 })
+Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 800 })
+Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
+Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get: () => 10_000 })
+Element.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+  this.scrollTop = typeof options === 'object' ? (options.top ?? this.scrollTop) : this.scrollTop
+}
+// jsdom n'a pas de canevas : `getContext` y lève « Not implemented » et
+// salirait la sortie de la suite. Le rendre nul est ce qu'un navigateur sans
+// contexte 2D ferait, et l'aperçu s'en garde déjà.
+vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+// Ni de lecteur multimédia : `play` et `pause` y lèvent aussi.
+vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(async () => {})
+vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+  () => ({ height: 40, width: 800, top: 0, left: 0, right: 800, bottom: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+)
+
+/** Le transcript servi avec le clip : le clip va de 100 à 120, le contexte de 0 à 200. */
+function detail(id = 'c2'): ClipDetail {
+  return {
+    clip: {
+      id,
+      projectId: 'p1',
+      segments: [{ start: 100, end: 120 }],
+      ratio: '1:1',
+      cropX: 0.5,
+      captions: true,
+      branding: true,
+      title: 'La chute',
+      description: 'Une impro',
+      status: 'kept',
+      pass: 1,
+    },
+    project: { id: 'p1', title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },
+    lines: Array.from({ length: 20 }, (_, l) => ({
+      id: `l${l}`,
+      start: l * 10,
+      end: l * 10 + 5,
+      words: Array.from({ length: 5 }, (_, m) => ({
+        word: `m${l}-${m}`,
+        start: l * 10 + m,
+        end: l * 10 + m + 0.5,
+      })),
+    })),
+    proxyUrl: '/api/projects/p1/proxy',
+    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+  }
+}
+
+const candidats: CandidateClip[] = (['c1', 'c2', 'c3', 'c4'] as const).map((id, i) => ({
+  ...detail(id).clip,
+  status: id === 'c3' ? 'discarded' : id === 'c4' ? 'exported' : 'kept',
+  preview: '',
+  thumbnailUrl: null,
+  pass: 1,
+  segments: [{ start: i * 100, end: i * 100 + 20 }],
+}))
+
+function reponse(corps: unknown): Response {
+  return { ok: true, status: 200, statusText: '', json: async () => corps } as Response
+}
+
+function stubFetch() {
+  const fetch = vi.fn(async (url: string) => {
+    if (url.includes('/candidates')) return reponse(candidats)
+    const id = url.split('/').pop() ?? 'c2'
+    return reponse(detail(id))
+  })
+  vi.stubGlobal('fetch', fetch)
+  return fetch
+}
+
+async function monter(id = 'c2') {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const enveloppe = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  )
+  render(<EcranDeClip detail={detail(id)} />, { wrapper: enveloppe })
+  await screen.findByRole('link', { name: 'La scène du 15 juin' })
+}
+
+beforeEach(() => {
+  stubFetch()
+  useEditeur.setState({ clipId: null })
+  useLecture.getState().reinitialiser()
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+describe('la boucle de montage', () => {
+  it('dit le rang dans les gardés', async () => {
+    // C'est ce rang qui dit qu'on est dans une boucle et pas au bout du monde.
+    await monter('c2')
+    expect(await screen.findByText(/clip 2 sur 3 gardés/i)).toBeTruthy()
+  })
+
+  it('interroge la liste des candidats elle-même', async () => {
+    // Arriver ici par une URL partagée, un signet ou un rechargement est un
+    // parcours que la conception promet de rendre repreneur : le cache est alors
+    // vide, et supposer qu'il ne l'est pas laisserait l'écran sans sortie.
+    const fetch = stubFetch()
+    await monter('c2')
+    await screen.findByText(/clip 2 sur 3 gardés/i)
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/candidates'))).toBe(true)
+  })
+
+  it('mène au clip suivant à monter', async () => {
+    await monter('c2')
+    const lien = await screen.findByRole('link', { name: /clip suivant/i })
+    expect(lien.getAttribute('href')).toBe('/clips/c4')
+  })
+
+  it('désactive « clip suivant » sur le dernier', async () => {
+    // Sans intérêt à rendre atteignable : `disabled` suffit, la raison ne se
+    // discute pas.
+    await monter('c4')
+    const bouton = await screen.findByRole('button', { name: /clip suivant/i })
+    expect(bouton.hasAttribute('disabled')).toBe(true)
+  })
+})
+
+describe('le mot barré cliqué loin devant', () => {
+  it('déplace la borne plutôt que d’ajouter une île', async () => {
+    // Spec §7.1 : un mot barré à l'extérieur de l'étendue est une borne, pas un
+    // trou. Le remonter veut dire « le clip commence là », pas « ajoute trois
+    // dixièmes de seconde à quatre-vingt-dix secondes d'ici ».
+    await monter('c2')
+    const mot = screen.getByText(/m1-0/)
+    fireEvent.pointerDown(mot)
+    fireEvent.pointerUp(mot)
+
+    const montage = useEditeur.getState().historique.present
+    expect(montage.length).toBe(1)
+    expect(montage[0].start).toBeCloseTo(10, 5)
+    expect(montage[0].end).toBe(120)
+  })
+})
+
+describe('les raccourcis', () => {
+  it('affiche la liste sur `?`', async () => {
+    await monter('c2')
+    fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+})

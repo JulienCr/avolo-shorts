@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Copy, FileText, Loader2, TriangleAlert } from 'lucide-react'
+import { Check, Copy, FileText, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
 import type { Clip, Ratio } from '@/core/edl'
@@ -118,7 +118,7 @@ export function PanneauExport({
           aria-busy={exporter.isPending || undefined}
         >
           {exporter.isPending ? (
-            <Loader2 className="animate-spin" aria-hidden />
+            <LoaderCircle className="animate-spin" aria-hidden />
           ) : (
             <FileText aria-hidden />
           )}

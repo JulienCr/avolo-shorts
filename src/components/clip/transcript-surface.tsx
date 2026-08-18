@@ -180,12 +180,18 @@ export function TranscriptSurface({
   // position change quatre fois par seconde : la lire dans le rendu ferait
   // reconstruire le virtualiseur à cette cadence. On ne réagit ici qu'au
   // changement de *mot*, et sans rendre quoi que ce soit.
+  // Écrites depuis un effet et non pendant le rendu : une référence mise à jour
+  // en plein rendu est un effet de bord que le compilateur React refuse, et pour
+  // une bonne raison — un rendu abandonné laisserait la référence en avance sur
+  // ce qui est affiché.
   const lignesRef = useRef(lines)
-  lignesRef.current = lines
   const suiviRef = useRef(suivi)
-  suiviRef.current = suivi
   const défilerRef = useRef(défilerVers)
-  défilerRef.current = défilerVers
+  useEffect(() => {
+    lignesRef.current = lines
+    suiviRef.current = suivi
+    défilerRef.current = défilerVers
+  }, [lines, suivi, défilerVers])
   useEffect(
     () =>
       useLecture.subscribe((etat, precedent) => {
@@ -280,8 +286,11 @@ export function TranscriptSurface({
         tabIndex={curseurRendu ? -1 : 0}
         onKeyDown={surClavier}
         onScroll={() => {
+          // `auto` retombe à l'image suivante, que la spécification place après
+          // les événements de défilement : ce qui arrive ici avec le drapeau
+          // levé vient donc de nous, pas de l'utilisateur.
           if (auto.current) return
-          if (suiviRef.current) setSuivi(false)
+          if (suivi) setSuivi(false)
         }}
         className="h-full flex-1 overflow-y-auto overscroll-contain px-1 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >

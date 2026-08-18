@@ -241,9 +241,11 @@ describe('après l’export', () => {
 
 describe('le ré-export', () => {
   it('demande confirmation en nommant les fichiers qu’il écrase', async () => {
-    const fetch = vi.fn(async () =>
-      reponse({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false }),
-    )
+    const fetch = vi.fn(async (url: string, options: RequestInit) => {
+      void url
+      void options
+      return reponse({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false })
+    })
     vi.stubGlobal('fetch', fetch)
     monter({
       clip: clip({ status: 'exported' }),
@@ -269,7 +271,9 @@ describe('le ré-export', () => {
 
 describe('les textes et les marques', () => {
   it('copie exactement ce que le `.txt` porte', async () => {
-    const écrire = vi.fn(async () => {})
+    const écrire = vi.fn(async (texte: string) => {
+      void texte
+    })
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: écrire },
       configurable: true,

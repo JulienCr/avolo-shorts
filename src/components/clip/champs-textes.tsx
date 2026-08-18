@@ -108,7 +108,9 @@ function useTexteDifféré(valeurServeur: string, écrire: (valeur: string) => v
   // mutation. Le garder dans un `ref` évite de reprogrammer la temporisation à
   // chaque fois, ce qui la repousserait indéfiniment pendant qu'on tape.
   const écrireRef = useRef(écrire)
-  écrireRef.current = écrire
+  useEffect(() => {
+    écrireRef.current = écrire
+  }, [écrire])
 
   const vider = useCallback(() => {
     if (minuterie.current !== null) {

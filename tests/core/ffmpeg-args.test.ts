@@ -572,6 +572,37 @@ describe('blurredVariantArgs', () => {
     )
   })
 
+  // **La jonction que personne ne regarde : `concat` écrit `[vc]`, le `split`
+  // le consomme.** Le cas à un segment sort de `[vd]` et ne dit donc rien de
+  // celui-ci, alors qu'un clip monté est la règle et non l'exception — c'est la
+  // décision fondatrice du projet, un clip est une liste de segments. Le graphe
+  // entier, plutôt qu'un comptage de `-i`, est ce qui interdit une étiquette
+  // orpheline entre les deux. (relevé par Aristarque)
+  it('assemble le graphe de la variante sur un clip à deux segments', () => {
+    expect(
+      graphe(
+        blurredVariantArgs({
+          ...base,
+          segments: [
+            { start: 100, end: 110 },
+            { start: 200, end: 215 },
+          ],
+          assPath: '/c.ass',
+        }),
+      ),
+    ).toBe(
+      '[0:v]crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1[v0];' +
+        '[1:v]crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1[v1];' +
+        '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];' +
+        `[ac]${LOUDNORM},${RESAMPLE}[a];` +
+        '[vc]split=2[bga][fga];' +
+        '[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];' +
+        "[fga]ass=filename='/c.ass'[vf0];" +
+        '[vf0]scale=1080:-2[fg];' +
+        '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
+    )
+  })
+
   // Le même graphe **sans sous-titre ni marque**, parce que l'avant-plan n'y
   // porte alors qu'une seule étape et que c'est le cas limite d'`enchaîner` :
   // la première étape est aussi la dernière, donc elle doit écrire directement

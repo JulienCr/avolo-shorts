@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +9,8 @@ import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
   appelerGemini,
   caviarder,
+  délaiDeQuota,
+  dernierBilan,
   estPassagère,
   GeminiBlockedError,
   leverSiBloquée,
@@ -109,6 +111,30 @@ describe('leverSiBloquée', () => {
   })
 })
 
+describe('délaiDeQuota', () => {
+  it('lit le délai que Google demande dans un 429', () => {
+    expect(
+      délaiDeQuota('{"error":{"details":[{"@type":"…RetryInfo","retryDelay":"54s"}]}}'),
+    ).toBe(54_000)
+  })
+
+  it('arrondit à la milliseconde supérieure', () => {
+    expect(délaiDeQuota('"retryDelay":"53.9s"')).toBe(53_900)
+  })
+
+  // Le délai demandé est un fait, pas une décision : la fonction le rend tel
+  // quel, et `appelerGemini` décide ce qu'on accepte d'attendre. Les mêler
+  // faisait rendre un délai raccourci qu'on relançait ensuite comme s'il
+  // suffisait. (relevé par Copilot)
+  it('rend le délai demandé sans le plafonner', () => {
+    expect(délaiDeQuota('"retryDelay":"3600s"')).toBe(3_600_000)
+  })
+
+  it('rend null quand le message n’en porte pas', () => {
+    expect(délaiDeQuota('429 RESOURCE_EXHAUSTED')).toBeNull()
+  })
+})
+
 describe('caviarder', () => {
   // Vérifié sur `@google/genai@2.17.1` : la clé passe par l'en-tête
   // `x-goog-api-key`, jamais par l'URL. C'est une ceinture par-dessus des
@@ -177,6 +203,61 @@ describe('appelerGemini', () => {
     await expect(appelerGemini(appel, 'p', 'score', { sleep })).rejects.toThrow('429')
     expect(essais).toBe(3)
     expect(attentes).toEqual([5000, 10000])
+  })
+
+  /**
+   * Le quota par minute, et pourquoi l'escalier ne suffisait pas.
+   *
+   * Le palier gratuit de `gemini-3.1-flash-lite` plafonne à quinze requêtes par
+   * minute, et la récupération des lots refusés triple le nombre d'appels. Le
+   * corps du 429 dit combien attendre ; l'escalier de 5 s puis 10 s repartait
+   * bien avant, épuisait ses trois tentatives et faisait échouer le repérage sur
+   * une limite qui se lève toute seule.
+   */
+  it('attend le délai qu’un 429 demande, quand il est plus long que l’escalier', async () => {
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      if (essais === 1) {
+        throw new Error(
+          '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"54s"}]}}',
+        )
+      }
+      return réponse('{"windows": []}')
+    }
+    expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
+    expect(attentes).toEqual([54_000])
+  })
+
+  /**
+   * Une attente trop longue ne se raccourcit pas : on renonce.
+   *
+   * La première version plafonnait l'attente à 90 s puis relançait quand même :
+   * la requête repartait très avant la fin du quota, échouait, et le repérage
+   * brûlait ses trois essais et trois minutes pour arriver au même endroit.
+   *
+   * Le message dit le délai demandé et ce qu'on accepte d'attendre, sans
+   * nommer la limite : `retryDelay` est un délai minimal recommandé, dont on ne
+   * peut déduire ni « journalier », ni « horaire ». (relevé par Copilot)
+   */
+  it('renonce tout de suite quand le quota demande plus que ce qu’on attend', async () => {
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      throw new Error('{"error":{"code":429,"details":[{"retryDelay":"3600s"}]}}')
+    }
+    const erreur = await appelerGemini(appel, 'p', 'score', { sleep }).then(
+      () => null,
+      (cause: unknown) => cause as Error,
+    )
+    expect(erreur!.message).toMatch(/demande d'attendre 3600 s/)
+    expect(erreur!.message).toMatch(/90 s que cette étape accepte d'attendre/)
+    // Rien n'est diagnostiqué : le délai ne dit pas de quelle limite il s'agit.
+    expect(erreur!.message).not.toMatch(/journalier|horaire/)
+    // Un seul essai, et pas la moindre attente : ni relance avant l'heure, ni
+    // trois minutes immobilisées pour rien.
+    expect(essais).toBe(1)
+    expect(attentes).toEqual([])
   })
 
   it('ne réessaie jamais une réponse bloquée par le filtre de sécurité', async () => {
@@ -524,11 +605,305 @@ describe("l'étape de repérage", () => {
   })
 
   it('mais un refus sur **tous** les lots reste un refus de la vidéo', async () => {
+    // Un lot par fenêtre : chacune est donc bel et bien soumise seule, et le
+    // verdict porte sur un essai réellement fait.
+    process.env.SCORE_BATCH = '1'
     const toutRefusé: AppelGemini = async () =>
       réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
     await expect(
       runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} }),
-    ).rejects.toThrow(GeminiBlockedError)
+    ).rejects.toThrow(/jusqu'à la fenêtre seule/)
+  })
+
+  /**
+   * Le message ne doit affirmer que ce qui a été essayé.
+   *
+   * Le budget peut s'épuiser avant qu'une seule fenêtre ait été soumise seule —
+   * 11 lots de 8 tous refusés dépensent 22 appels sur les demi-lots et 11 sur
+   * les quarts, et la descente s'arrête là. Dire alors « jusqu'à la fenêtre
+   * seule » serait affirmer un essai qu'on n'a pas fait, c'est-à-dire commettre
+   * d'un étage plus haut la faute que cette PR corrige. Le test précédent ne
+   * contrôlait pas le libellé, donc l'inexactitude passait.
+   * (relevé par Copilot, Codex et Aristarque)
+   */
+  it('n’affirme pas la fenêtre seule quand le budget s’est épuisé avant', async () => {
+    process.env.SCORE_BATCH = '4'
+    const toutRefusé: AppelGemini = async () =>
+      réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+    const échec = runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} })
+
+    const erreur = await échec.then(
+      () => null,
+      (cause: unknown) => cause as Error,
+    )
+    expect(erreur).toBeInstanceOf(GeminiBlockedError)
+    expect(erreur!.message).toMatch(/budget de récupération \(3 appel\(s\)\)/)
+    // L'accord suit le compte : une seule fenêtre essayée seule, donc singulier.
+    expect(erreur!.message).toMatch(/1 sur 4 l'a été/)
+    expect(erreur!.message).not.toMatch(/jusqu'à la fenêtre seule/)
+    // Ce qui reste vrai malgré tout : la perte est chiffrée, pas avalée.
+    const bilan = dernierBilan(ID)!
+    expect(bilan.notées).toBe(0)
+    expect(bilan.jamaisNotées).toHaveLength(bilan.fenêtres)
+  })
+
+  /**
+   * La récupération, et c'est le cœur de cette étape.
+   *
+   * Mesuré sur `2025-06-15-cqlp` le 18 août 2026 : quatre lots de huit sur onze
+   * reviennent `PROHIBITED_CONTENT`, soit 32 fenêtres écartées sans être jugées,
+   * et **les 32 passent quand on les envoie une par une**. Le filtre ne vise pas
+   * une fenêtre coupable, il vise la concentration de matière dans une charge.
+   * Recouper est donc la seule façon de récupérer le matériel — et ce n'est pas
+   * un nouvel essai de la même requête, c'en est une autre.
+   */
+  describe('la récupération des lots refusés', () => {
+    /**
+     * Un modèle qui refuse tout lot où figure l'une des fenêtres nommées, et qui
+     * note normalement les autres. Les identifiants soumis à chaque appel sont
+     * capturés : c'est ce qui montre la découpe.
+     */
+    function refusant(
+      interdites: string[],
+      lots: string[][],
+    ): AppelGemini {
+      const normal = modèle([])
+      return async (prompt, mode) => {
+        if (mode !== 'score') return normal(prompt, mode)
+        const ids = [...prompt.matchAll(/"id":"(window_\d+)"/g)].map((m) => m[1])
+        lots.push(ids)
+        if (ids.some((id) => interdites.includes(id))) {
+          return réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+        }
+        return normal(prompt, mode)
+      }
+    }
+
+    it('recoupe le lot en deux et récupère les fenêtres innocentes', async () => {
+      // Deux lots de deux : le premier tombe à cause d'une seule de ses fenêtres.
+      process.env.SCORE_BATCH = '2'
+      const lots: string[][] = []
+      await runCandidates(ID, { db, appel: refusant(['window_002'], lots), sleep: async () => {} })
+
+      expect(lots).toEqual([
+        ['window_001', 'window_002'],
+        ['window_003', 'window_004'],
+        ['window_001'],
+        ['window_002'],
+      ])
+      const bilan = dernierBilan(ID)!
+      // Trois fenêtres sur quatre jugées, là où le repli silencieux en perdait
+      // deux pour une seule en cause.
+      expect(bilan.notées).toBe(3)
+      expect(bilan.jamaisNotées).toEqual(['window_002'])
+    })
+
+    it('une fenêtre refusée seule est comptée comme telle, pas recoupée à l’infini', async () => {
+      process.env.SCORE_BATCH = '2'
+      const lots: string[][] = []
+      await runCandidates(ID, { db, appel: refusant(['window_002'], lots), sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.refusées).toEqual(['window_002'])
+      // Elle a été soumise seule **une** fois, et pas une de plus.
+      expect(lots.filter((l) => l.length === 1 && l[0] === 'window_002')).toHaveLength(1)
+    })
+
+    it('borne la descente à un budget, et compte ce qu’il ne paie pas', async () => {
+      // Un seul lot de quatre, donc un budget de trois appels de récupération.
+      // La descente en demanderait quatre : le dernier n'est pas payé.
+      process.env.SCORE_BATCH = '4'
+      const lots: string[][] = []
+      await runCandidates(ID, { db, appel: refusant(['window_001'], lots), sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.appels).toBe(4)
+      expect(bilan.refusées).toEqual(['window_001'])
+      // `window_002` n'a jamais été soumise seule : le budget s'est épuisé avant.
+      expect([...bilan.jamaisNotées].sort()).toEqual(['window_001', 'window_002'])
+      expect(lots.some((l) => l.length === 1 && l[0] === 'window_002')).toBe(false)
+    })
+
+    /**
+     * Le budget se dépense sur les découpes les moins profondes d'abord, quel
+     * que soit le lot d'où elles viennent. En profondeur, il s'épuisait sur la
+     * première branche et abandonnait un lot voisin qu'un seul appel sauvait.
+     */
+    it('dépense le budget en largeur, pas sur la première branche', async () => {
+      process.env.SCORE_BATCH = '4'
+      const lots: string[][] = []
+      await runCandidates(ID, { db, appel: refusant(['window_001'], lots), sleep: async () => {} })
+
+      // La deuxième moitié du lot, innocente, est notée avant que la descente
+      // n'aille chercher la fenêtre coupable dans la première.
+      expect(lots.slice(0, 3)).toEqual([
+        ['window_001', 'window_002', 'window_003', 'window_004'],
+        ['window_001', 'window_002'],
+        ['window_003', 'window_004'],
+      ])
+      expect(dernierBilan(ID)!.notées).toBe(2)
+    })
+
+    /**
+     * Le budget borne des **requêtes**, pas des sous-lots.
+     *
+     * `appelerGemini` réessaie jusqu'à trois fois une erreur passagère : débité
+     * une fois par sous-lot, un plafond annoncé de 3 pouvait donc produire 9
+     * requêtes — et jusqu'à 99 pour les 33 d'une vraie émission. Or la raison
+     * d'être de ce plafond est le quota, et un 429 est précisément ce qui
+     * déclenche les relances : la borne se relâchait exactement là où elle
+     * devait tenir. (relevé par Copilot et Codex)
+     */
+    it('débite le budget à chaque requête, relances comprises', async () => {
+      process.env.SCORE_BATCH = '4'
+      const lots: string[][] = []
+      let passagères = 0
+      const refuse = refusant(['window_001'], lots)
+      const capricieux: AppelGemini = async (prompt, mode) => {
+        // Une seule erreur passagère, sur la première moitié recoupée : elle
+        // coûte une requête de plus, donc une unité de budget de plus.
+        if (mode === 'score' && prompt.includes('"id":"window_002"') && ++passagères === 2) {
+          throw new Error('503 unavailable')
+        }
+        return refuse(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: capricieux, sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      // Quatre requêtes : le lot entier, la moitié refusée relancée deux fois,
+      // puis la moitié innocente. La relance a mangé le budget qui aurait servi
+      // à descendre jusqu'à la fenêtre seule.
+      expect(bilan.appels).toBe(4)
+      expect(bilan.notées).toBe(2)
+      // Personne n'a été soumis seul : le budget s'est épuisé avant.
+      expect(bilan.refusées).toEqual([])
+      expect([...bilan.jamaisNotées].sort()).toEqual(['window_001', 'window_002'])
+    })
+
+    /**
+     * Le filet, et sa seule raison d'être : **la perte ne doit jamais être
+     * silencieuse**, surtout quand elle est totale.
+     *
+     * Le bilan ne sortait au journal que par le chemin heureux — un refus total
+     * lève, une panne se propage — donc il se taisait exactement dans les cas
+     * où il aurait le plus servi. (relevé par Copilot)
+     */
+    it('journalise la perte même quand la passe échoue', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+      try {
+        process.env.SCORE_BATCH = '2'
+        let lots = 0
+        const casse: AppelGemini = async (prompt, mode) => {
+          if (mode === 'score' && ++lots === 2) throw new Error('403 PERMISSION_DENIED')
+          return modèle([])(prompt, mode)
+        }
+        await expect(
+          runCandidates(ID, { db, appel: casse, sleep: async () => {} }),
+        ).rejects.toThrow(/PERMISSION_DENIED/)
+
+        const lignes = [...warn.mock.calls, ...log.mock.calls].map((c) => String(c[0]))
+        // Le décompte est sorti, et il nomme les fenêtres non jugées plutôt que
+        // de se contenter de les compter.
+        expect(lignes.some((l) => /2\/4 fenêtre\(s\) jugée\(s\)/.test(l))).toBe(true)
+        expect(lignes.some((l) => l.includes('window_003, window_004'))).toBe(true)
+      } finally {
+        warn.mockRestore()
+        log.mockRestore()
+      }
+    })
+
+    it('un lot qui passe du premier coup ne coûte aucun appel de plus', async () => {
+      process.env.SCORE_BATCH = '2'
+      const lots: string[][] = []
+      await runCandidates(ID, { db, appel: refusant([], lots), sleep: async () => {} })
+
+      expect(lots).toHaveLength(2)
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées).toBe(4)
+      expect(bilan.jamaisNotées).toEqual([])
+      expect(bilan.refusées).toEqual([])
+    })
+
+    /**
+     * L'invariant du bilan : `notées + jamaisNotées === fenêtres`, **y compris
+     * quand la passe casse en route**. La liste se remplissait au fil des refus,
+     * donc une erreur réseau sortait de la boucle et laissait un bilan qui
+     * annonçait des fenêtres jugées sans localiser les autres — un décompte de
+     * perte qui ne comptait pas la perte. (relevé par Copilot)
+     */
+    it('localise la perte même quand la passe casse en cours de route', async () => {
+      process.env.SCORE_BATCH = '2'
+      let lots = 0
+      // Une panne qui n'a rien de passager : elle sort de la boucle au premier
+      // coup, ce qui est exactement le cas où le bilan restait muet.
+      const casse: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score' && ++lots === 2) throw new Error('403 PERMISSION_DENIED')
+        return modèle([])(prompt, mode)
+      }
+      await expect(
+        runCandidates(ID, { db, appel: casse, sleep: async () => {} }),
+      ).rejects.toThrow(/PERMISSION_DENIED/)
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées).toBe(2)
+      expect(bilan.jamaisNotées).toEqual(['window_003', 'window_004'])
+      expect(bilan.notées + bilan.jamaisNotées.length).toBe(bilan.fenêtres)
+    })
+
+    /**
+     * Un bilan périmé est pire qu'un bilan absent : il a l'air d'un résultat.
+     * (relevé par Copilot)
+     */
+    it('n’expose pas le bilan de la passe précédente quand la suivante échoue avant de noter', async () => {
+      await runCandidates(ID, { db, appel: modèle([]), sleep: async () => {} })
+      expect(dernierBilan(ID)!.notées).toBeGreaterThan(0)
+
+      upsertProject(db, {
+        id: ID,
+        sourcePath: path.join(replay, SOURCE),
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      await expect(runCandidates(ID, { db, appel: modèle([]) })).rejects.toThrow(/durée/)
+      expect(dernierBilan(ID)).toBeNull()
+    })
+
+    /**
+     * Le compteur sert à raisonner sur un plafond de 15 requêtes par minute :
+     * il doit compter les requêtes, pas les lots. (relevé par Copilot)
+     */
+    it('compte les relances comme des requêtes, parce que le quota les compte', async () => {
+      process.env.SCORE_BATCH = '4'
+      let essais = 0
+      const capricieux: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score' && ++essais === 1) throw new Error('503 unavailable')
+        return modèle([])(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: capricieux, sleep: async () => {} })
+
+      // Un seul lot, mais deux requêtes : l'échec passager et la relance.
+      expect(dernierBilan(ID)!.appels).toBe(2)
+    })
+
+    it('compte aussi les fenêtres qu’une réponse omet', async () => {
+      process.env.SCORE_BATCH = '4'
+      const muet: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score') return réponse(JSON.stringify({ windows: [] }))
+        return modèle([])(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: muet, sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées).toBe(0)
+      expect(bilan.jamaisNotées).toHaveLength(bilan.fenêtres)
+      // Une omission n'est pas un refus : rien n'est recoupé.
+      expect(bilan.refusées).toEqual([])
+      expect(bilan.appels).toBe(1)
+    })
   })
 
   it('refuse de repérer un projet dont la durée n’est pas connue', async () => {

@@ -198,7 +198,14 @@ export const PATCH = route(
     const framingBefore = framingWith(clip, analyse)
     const chemins = cheminsRendu(clip.projectId, clip.id, framingBefore.ratio)
     try {
-      const périmé = écarterRenduPérimé(db, id, chemins, clip, renderedFraming(framingBefore))
+      // **Le résolveur passe l'analyse déjà lue**, sinon `écarterRenduPérimé`
+      // rouvrirait `analysis.json` après l'écriture en base : une panne
+      // passagère y ferait redescendre un clip `exported` à `kept` par le
+      // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
+      // simple correction de titre. (relevé par Codex)
+      const périmé = écarterRenduPérimé(db, id, chemins, clip, renderedFraming(framingBefore), (c) =>
+        renderedFraming(framingWith(c, analyse)),
+      )
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
       //

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Ratio, Segment } from '@/core/edl'
-import { MIN_PIECE_SEC, splitByShot } from '@/core/shot-split'
-import type { ShotFraming } from '@/core/framing'
+import { MIN_PIECE_SEC, type ShotFraming } from '@/core/framing'
+import { splitByShot } from '@/core/shot-split'
 
 /**
  * Le découpage d'un montage par plan — la pièce entre le cadrage et le rendu.

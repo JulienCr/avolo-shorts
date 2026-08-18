@@ -14,7 +14,7 @@
 
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
-import type { ShotFraming } from '@/core/framing'
+import { MIN_PIECE_SEC, type ShotFraming } from '@/core/framing'
 
 /**
  * Un morceau à décoder et le cadre qui lui revient, **pour les deux sorties**.
@@ -26,24 +26,6 @@ import type { ShotFraming } from '@/core/framing'
  * mêmes images aux mêmes instants.
  */
 export type ShotPiece = Segment & { ratio: Ratio; cropX: number; cropXNative: number }
-
-/**
- * La durée minimale d'un morceau, en secondes.
- *
- * **Une frontière qui tombe à trois millisecondes du bord d'un segment ne vaut
- * pas une entrée.** Un morceau plus court qu'une image ouvre un décodeur qui ne
- * rend rien, ou une image de trop : dans les deux cas la somme des durées
- * demandées cesse de décrire ce que le fichier contient, et **les sous-titres,
- * qui sont recalés sur cette somme, glissent** — sans qu'aucun test de durée ne
- * le voie, puisque la durée totale, elle, ne bouge pas.
- *
- * 40 ms est une image à 25 im/s, un peu plus d'une à 30, deux et demie à 60.
- * C'est un ordre de grandeur, pas une mesure : ce qui compte est qu'aucun
- * morceau ne puisse être plus court qu'une image, et que le seuil reste très en
- * deçà de la plus courte frontière utile — les plans de ces émissions se
- * comptent en secondes, médiane 5,3 s sur la plus découpée des trois.
- */
-export const MIN_PIECE_SEC = 0.04
 
 /**
  * Découpe les segments aux frontières de plans, et attribue à chaque morceau la

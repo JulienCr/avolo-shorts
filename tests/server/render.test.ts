@@ -1450,6 +1450,39 @@ describe('renderClip, chemin du saut', () => {
     expect(fs.existsSync(chemins.empreinte)).toBe(true)
   })
 
+  /**
+   * **Le résolveur du cadrage relu est injectable, et ce n'est pas du confort.**
+   *
+   * `clipFraming` lit `analysis.json`, donc peut lever. Appelée depuis
+   * `PATCH /api/clips/:id`, cette fonction s'exécute *après* l'écriture en base,
+   * et le rattrapage de la route redescend alors un clip `exported` à `kept` :
+   * une panne passagère de système de fichiers ferait disparaître les sorties
+   * d'un rendu parfaitement valide, sur une simple correction de titre. La route
+   * passe donc un résolveur bâti sur l'analyse lue avant d'écrire.
+   * (relevé par Codex)
+   */
+  it('utilise le résolveur qu’on lui donne plutôt que de relire l’analyse', () => {
+    const { db, c } = préparer()
+    const chemins = cheminsRendu(ID, c.id, '1:1')
+    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+    poserEmpreinte(c, '1:1')
+
+    let appels = 0
+    const résolveur = (clip: Clip): RenderedFraming => {
+      appels += 1
+      return cadrageDe(clip)
+    }
+    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), résolveur)).toBe(false)
+    expect(appels).toBe(1)
+
+    // Et un résolveur qui rend un autre cadrage périme, sans qu'aucun champ du
+    // clip n'ait bougé : c'est bien lui qui décide, pas une relecture cachée.
+    expect(
+      écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), () => cadrage({ ratio: '4:5' })),
+    ).toBe(true)
+    expect(fs.existsSync(chemins.mp4)).toBe(false)
+  })
+
   it('refuse un clip inconnu', async () => {
     const { db, brandDir } = préparer()
     await expect(renderClip('clip_inexistant', { db, brandDir, fontsDir: polices })).rejects.toThrow(/Clip inconnu/)

@@ -440,6 +440,29 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).
 )
 
 const NARROWEST = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
+
+/**
+ * La durée minimale d'un morceau à décoder, en secondes.
+ *
+ * **Elle vit ici et non dans `shot-split.ts` parce que le choix du ratio en
+ * dépend**, et que la dépendance ne peut pas aller dans l'autre sens :
+ * `computeFraming` doit savoir si un intervalle qu'aucun plan ne couvre est
+ * assez long pour devenir une entrée, puisque c'est ce qui l'oblige à élargir le
+ * ratio natif. Deux exemplaires du seuil se contrediraient au premier réglage.
+ *
+ * **Ce qu'elle vaut, et pourquoi.** Un morceau plus court qu'une image ouvre un
+ * décodeur qui ne rend rien, ou une image de trop : la somme des durées
+ * demandées cesse alors de décrire ce que le fichier contient, et **les
+ * sous-titres, qui sont recalés sur cette somme, glissent** — sans qu'aucun test
+ * de durée ne le voie, puisque la durée totale, elle, ne bouge pas.
+ *
+ * 40 ms est une image à 25 im/s, un peu plus d'une à 30, deux et demie à 60.
+ * C'est un ordre de grandeur, pas une mesure : ce qui compte est qu'aucun
+ * morceau ne puisse être plus court qu'une image, et que le seuil reste très en
+ * deçà de la plus courte frontière utile — les plans de ces émissions se
+ * comptent en secondes, médiane 5,3 s sur la plus découpée des trois.
+ */
+export const MIN_PIECE_SEC = 0.04
 const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
 
 /**
@@ -789,17 +812,45 @@ export function computeFraming(req: FramingRequest): ClipFraming {
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
   // court — la même réponse que `chooseRatio` quand il ne mesure rien.
+  // **Un intervalle qu'aucun plan ne couvre compte comme un 16:9**, et c'est le
+  // cas qui manquait.
+  //
+  // `splitByShot` donne à un tel intervalle le cadre le plus large, centré : on
+  // ne sait rien de ce qui s'y passe. Mais le natif force **toutes** ses entrées
+  // au ratio du clip, et il ne produit pas de variante 9:16 quand ce ratio vaut
+  // déjà 9:16 — un plan étroit voisin d'un intervalle découvert faisait donc
+  // sortir le natif en 9:16, et la queue s'y retrouvait rognée à l'aveugle : 68 %
+  // de la largeur jetés, précisément le repli que le découpage prenait soin
+  // d'éviter. Le cas est atteignable, les plans partitionnant la durée du
+  // *proxy* quand la source peut finir quelques images plus loin.
+  // (relevé par Codex et Copilot)
+  //
+  // Le seuil est celui du découpage : sous une image, l'intervalle est absorbé
+  // par son voisin et ne porte aucun cadre à lui.
+  const montée = segments.reduce((n, s) => n + (s.end - s.start), 0)
+  const couverte = plans.reduce(
+    (n, p) =>
+      n +
+      segments.reduce(
+        (m, s) => m + Math.max(0, Math.min(p.end, s.end) - Math.max(p.start, s.start)),
+        0,
+      ),
+    0,
+  )
+  const découvert = montée - couverte >= MIN_PIECE_SEC
+
   // **Sans aucun plan, le plus large**, et pas le plus étroit qu'un accumulateur
   // partant du bas rendrait : on ne sait rien de l'endroit où sont les gens, et
   // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
   // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
   // comédiens sans que rien ne le signale.
+  const candidats: Ratio[] = découvert ? [...shotRatios, LE_PLUS_LARGE] : shotRatios
   const nativeRatio =
     req.ratio !== 'auto'
       ? req.ratio
-      : shotRatios.length === 0
+      : candidats.length === 0
         ? LE_PLUS_LARGE
-        : shotRatios.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
+        : candidats.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
   const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
   const shots: ShotFraming[] = plans.map((plan, i) => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   FRAMING_DEFAULTS,
+  MIN_PIECE_SEC,
   RATIOS,
   chooseRatio,
   computeFraming,
@@ -1038,6 +1039,47 @@ describe('le ratio par plan', () => {
       expect(p.ratio).toBe('4:5')
       expect(p.cropXNative).toBeCloseTo(p.cropX, 10)
     }
+  })
+
+  /**
+   * **Un intervalle qu'aucun plan ne couvre compte comme un 16:9.**
+   *
+   * `splitByShot` lui donne le cadre le plus large, centré : on ne sait rien de
+   * ce qui s'y passe. Mais le natif force *toutes* ses entrées au ratio du clip,
+   * et ne produit pas de variante quand ce ratio vaut déjà 9:16 — un plan étroit
+   * voisin d'un intervalle découvert faisait donc sortir le natif en 9:16, et la
+   * queue s'y retrouvait rognée à l'aveugle. Le cas est atteignable : les plans
+   * partitionnent la durée du *proxy*, la source peut finir plus loin.
+   * (relevé par Codex et Copilot)
+   */
+  it('élargit le ratio natif quand le montage déborde des plans analysés', () => {
+    const étroit = { ...base, margin: 0, people: échantillon(8, 10, [[0.45, 0.55]]) }
+    // Le plan couvre [8, 10], le montage va jusqu'à 14 : quatre secondes que
+    // personne n'a mesurées.
+    const débordant = computeFraming({
+      ...étroit,
+      shots: [plan(8, 10)],
+      segments: [seg(8, 14)],
+    })
+    expect(débordant.shots[0].ratio).toBe('9:16')
+    expect(débordant.ratio).toBe('16:9')
+
+    // Le même montage entièrement couvert garde le ratio de son plan.
+    const couvert = computeFraming({ ...étroit, shots: [plan(8, 14)], segments: [seg(8, 14)] })
+    expect(couvert.ratio).toBe('9:16')
+  })
+
+  // Sous une image, l'intervalle est absorbé par son voisin dans le découpage et
+  // ne porte aucun cadre à lui : l'élargir serait une faute dans l'autre sens.
+  it('ignore un débordement plus court qu’une image', () => {
+    const cadrage = computeFraming({
+      ...base,
+      margin: 0,
+      people: échantillon(8, 10, [[0.45, 0.55]]),
+      shots: [plan(8, 10)],
+      segments: [seg(8, 10 + MIN_PIECE_SEC / 2)],
+    })
+    expect(cadrage.ratio).toBe('9:16')
   })
 
   // Sans plan du tout, le ratio natif est le plus large — la même réponse que

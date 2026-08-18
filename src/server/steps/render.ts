@@ -1650,6 +1650,20 @@ export function écarterRenduPérimé(
   chemins: CheminsRendu,
   rendu: Clip,
   framing: RenderedFraming,
+  /**
+   * Comment obtenir le cadrage du clip **relu**.
+   *
+   * **Injecté, et le défaut n'est pas le cas intéressant.** `clipFraming` lit
+   * `analysis.json`, donc peut lever sur un refus de droits ou un montage mort.
+   * Appelée depuis `PATCH /api/clips/:id`, cette fonction s'exécute *après*
+   * l'écriture en base, et la route avale ce qui lève — mais son rattrapage
+   * redescend un clip `exported` à `kept`. Une panne passagère de système de
+   * fichiers ferait donc disparaître les sorties d'un rendu parfaitement valide,
+   * sur une simple correction de titre. La route passe donc un résolveur bâti
+   * sur l'analyse qu'elle a lue **avant** d'écrire, et rien de faillible ne
+   * subsiste après le point de non-retour. (relevé par Codex)
+   */
+  cadrageDuRelu: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip)),
 ): boolean {
   const àJour = getClip(db, clipId)
   if (àJour === undefined) return false
@@ -1658,7 +1672,7 @@ export function écarterRenduPérimé(
   // traverse le plateau peut faire retomber un 16:9 en 1:1 sans qu'aucun champ
   // du clip ne dise « cadrage », et les fichiers montreraient alors un cadre que
   // plus personne ne veut.
-  if (!leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, renderedFraming(clipFraming(àJour)))))
+  if (!leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, cadrageDuRelu(àJour))))
     return false
 
   // **L'empreinte part la première.** Elle est ce qui certifie les autres : un

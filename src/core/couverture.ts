@@ -153,7 +153,22 @@ export type Géométrie = { gauche: number; largeur: number }
 export function géométrie(intervalle: Intervalle, duréeSec: number): Géométrie {
   const gauche = part(intervalle.début, duréeSec)
   const droite = part(intervalle.fin, duréeSec)
-  return { gauche: gauche * 100, largeur: Math.max(0, droite - gauche) * 100 }
+  return { gauche: arrondi(gauche * 100), largeur: arrondi(Math.max(0, droite - gauche) * 100) }
+}
+
+/**
+ * Quatre décimales, ce qui vaut le dix-millième de la largeur de la bande.
+ *
+ * **Pas une coquetterie de nombre, une propriété du style produit.** Sans lui,
+ * une soixantaine de secondes sur six mille sort en `0.9999999999999996%` :
+ * l'écart est invisible mais la chaîne, elle, est écrite dans un attribut
+ * `style` que tout relecteur de DOM voit passer — et un rendu qui diffère d'un
+ * chiffre à la seizième décimale d'un relevé à l'autre fait apparaître des
+ * différences là où rien n'a bougé. À cette précision, la bande la plus large
+ * qu'un écran porte se trompe de moins d'un millième de pixel.
+ */
+function arrondi(pourcent: number): number {
+  return Math.round(pourcent * 10_000) / 10_000
 }
 
 /**

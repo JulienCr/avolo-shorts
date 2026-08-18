@@ -1,7 +1,8 @@
+import { Settings } from 'lucide-react'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
-import { chemin, type Lieu } from '@/lib/parcours'
+import { chemin, lienParametres, type Lieu } from '@/lib/parcours'
 import { cn } from '@/lib/utils'
 
 /**
@@ -48,7 +49,12 @@ export function AppBar({
     >
       <Link
         href="/"
-        className="font-mono text-[0.7rem] font-semibold tracking-[0.18em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+        // `text-xs` et non `text-[0.7rem]` : la conception §4.5 pose un plancher
+        // de `0.75rem` pour tout ce qui porte une information, et ce lien est le
+        // seul chemin de retour à la racine depuis les trois autres écrans.
+        // C'était le dernier reste sous le plancher dans tout `src/` (issue #56,
+        // point 6).
+        className="font-mono text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase transition-colors hover:text-foreground"
       >
         avolo·shorts
       </Link>
@@ -73,7 +79,27 @@ export function AppBar({
         </span>
       ))}
 
-      <div className="ml-auto flex items-center gap-2">{children}</div>
+      <div className="ml-auto flex items-center gap-2">
+        {children}
+        {/* **Les paramètres se rejoignent depuis partout, et depuis un seul
+            endroit.** Ils ne décrivent aucune émission — changer un réglage ne
+            recalcule rien, un recalcul reste une action explicite —, donc ils
+            n'ont pas de place dans la hiérarchie des trois écrans. La barre est
+            le seul élément que ces trois écrans partagent, et la profondeur ne
+            dépasse toujours pas trois : `/parametres` est un frère de la racine.
+
+            Il disparaît sur l'écran des paramètres lui-même : un lien vers soi
+            n'est pas une navigation, et il volerait un arrêt de tabulation. */}
+        {lieu.kind !== 'parametres' && (
+          <Link
+            href={lienParametres()}
+            aria-label="Paramètres"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Settings className="size-4" aria-hidden />
+          </Link>
+        )}
+      </div>
     </header>
   )
 }

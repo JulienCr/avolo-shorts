@@ -8,6 +8,7 @@ import { compter, phaseProjet } from '@/core/parcours'
 import { CIBLES_DE_REPRISE } from '@/lib/api'
 import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
+import { VueÉmission } from '@/components/emission/vue-emission'
 import { AppBar } from '@/components/parcours/app-bar'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 import { FilDeTri } from '@/components/tri/fil'
@@ -166,32 +167,57 @@ export function EcranDeProjet({ id }: { id: string }) {
           ) : !prêt ? (
             <GrilleEnAttente />
           ) : listeInconnue ? null : (
-            <FilDeTri
-              projectId={id}
-              clips={clips}
-              vue={vue}
-              onVue={allerÀLaVue}
-              proxyPret={steps.proxy === true}
-              bilan={projet.data?.repérage ?? null}
-              suite={suite(phase, { id })}
-              onStatut={(clipId, status) =>
-                patch.mutate({ clipId, projectId: id, patch: { status } })
-              }
-              entete={
-                <>
-                  {/* **La reprise vit aussi devant la grille.** Un redémarrage
-                      du serveur après le repérage et avant le proxy laisse
-                      `running` à nul et la liste pleine : la grille passe devant
-                      — c'est l'invariant —, mais « relancer le repérage » ne
-                      vise que `candidates` et ne reconstruit jamais le proxy. Le
-                      montage restait alors désactivé sans aucun moyen d'avancer,
-                      c'est-à-dire la même impasse que le panneau ferme, avec une
-                      grille par-dessus. (relevé par Codex) */}
-                  {àReprendre && <BoutonReprise projectId={id} enCours={false} />}
-                  <BoutonRelance projectId={id} compte={compter(clips)} enCours={running !== null} />
-                </>
-              }
-            />
+            <>
+              {/* **La vue de l'émission, au-dessus du tri.** L'écran n'est plus
+                  seulement un écran de tri : une fois l'analyse passée, c'est
+                  aussi l'endroit depuis lequel on comprend ce qui a été produit
+                  à partir de l'émission. Le lecteur montre le replay entier —
+                  trous compris, contrairement à celui d'un clip — et la bande
+                  dit où sont les clips gardés.
+
+                  Elle ne s'affiche pas sous le panneau d'avancement : celui-ci
+                  ne prend la page que lorsqu'il n'y a rien d'autre à montrer, et
+                  poser un lecteur sans proxy sous une analyse qui commence
+                  n'apprendrait rien. */}
+              <VueÉmission
+                projectId={id}
+                duréeSec={projet.data?.project.durationSec ?? 0}
+                proxyPret={steps.proxy === true}
+                clips={clips}
+              />
+
+              <FilDeTri
+                projectId={id}
+                clips={clips}
+                vue={vue}
+                onVue={allerÀLaVue}
+                proxyPret={steps.proxy === true}
+                bilan={projet.data?.repérage ?? null}
+                suite={suite(phase, { id })}
+                onStatut={(clipId, status) =>
+                  patch.mutate({ clipId, projectId: id, patch: { status } })
+                }
+                entete={
+                  <>
+                    {/* **La reprise vit aussi devant la grille.** Un redémarrage
+                        du serveur après le repérage et avant le proxy laisse
+                        `running` à nul et la liste pleine : la grille passe
+                        devant — c'est l'invariant —, mais « relancer le repérage »
+                        ne vise que `candidates` et ne reconstruit jamais le
+                        proxy. Le montage restait alors désactivé sans aucun
+                        moyen d'avancer, c'est-à-dire la même impasse que le
+                        panneau ferme, avec une grille par-dessus.
+                        (relevé par Codex) */}
+                    {àReprendre && <BoutonReprise projectId={id} enCours={false} />}
+                    <BoutonRelance
+                      projectId={id}
+                      compte={compter(clips)}
+                      enCours={running !== null}
+                    />
+                  </>
+                }
+              />
+            </>
           )}
 
           {/* Une écriture optimiste qui échoue remet la carte comme elle était.

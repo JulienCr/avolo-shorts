@@ -40,11 +40,25 @@ export type Lieu =
   | { kind: 'bibliotheque' }
   | { kind: 'projet'; projet: Reperes }
   | { kind: 'clip'; projet: Reperes; clip: { titre: string } }
+  | { kind: 'parametres' }
   | { kind: 'inconnu'; libelle: string }
 
 /** L'URL d'un projet. Encodée : les identifiants portent accents et espaces. */
 export function lienProjet(projectId: string): string {
   return `/projects/${encodeURIComponent(projectId)}`
+}
+
+/**
+ * L'URL des paramètres.
+ *
+ * **Un frère de la bibliothèque, pas un quatrième étage.** Les réglages ne
+ * décrivent aucune émission : ils se rejoignent depuis n'importe où et se
+ * quittent par le haut, comme la racine. Les ranger sous une émission aurait
+ * suggéré qu'ils lui appartiennent, alors que changer un réglage ne recalcule
+ * rien — un recalcul reste une action explicite.
+ */
+export function lienParametres(): string {
+  return '/parametres'
 }
 
 /** L'URL d'un clip. Même règle : l'identifiant hérite de celui du projet. */
@@ -70,6 +84,8 @@ export function chemin(lieu: Lieu): { libelle: string; href?: string }[] {
         { libelle: lieu.projet.titre, href: lienProjet(lieu.projet.id) },
         { libelle: lieu.clip.titre },
       ]
+    case 'parametres':
+      return [{ libelle: 'Paramètres' }]
     case 'inconnu':
       return [{ libelle: lieu.libelle }]
   }

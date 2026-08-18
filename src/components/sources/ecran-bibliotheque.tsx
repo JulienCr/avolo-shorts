@@ -1,0 +1,127 @@
+'use client'
+
+import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+
+import { AppBar } from '@/components/parcours/app-bar'
+import { GrilleBibliotheque } from '@/components/sources/bibliotheque'
+import type { Creation } from '@/components/sources/carte-emission'
+import { messageServeur } from '@/components/sources/textes'
+import { marquerSourceAnalysée, useSources } from '@/components/sources/use-sources'
+import { bibliothèque } from '@/core/bibliotheque'
+import type { Source } from '@/lib/api'
+import { lienProjet } from '@/lib/parcours'
+import { useCreerProjet, useProjets } from '@/lib/queries'
+
+/**
+ * La bibliothèque : **reprendre un travail en cours, ou en commencer un**.
+ *
+ * **Une seule liste.** L'écran distinguait « Projets » et « Replays », alors
+ * qu'un projet n'est que l'état de traitement d'un replay : une émission
+ * analysée y apparaissait deux fois, et rien ne disait que c'était la même. Une
+ * carte par replay, enrichie de son état — c'est le modèle mental que le retour
+ * d'usage a désigné, et la jointure se fait ici, sur deux requêtes qui existaient
+ * déjà.
+ *
+ * **L'écran ne calcule rien.** Il tient les trois requêtes, décide de ce qu'on
+ * fait d'un 202, et passe le reste à `bibliothèque` (pur) puis à une grille qui
+ * n'a besoin d'aucun serveur pour être montée. La redirection appartient bien
+ * ici : `useCreerProjet` s'arrête à l'invalidation, parce qu'aller au projet,
+ * l'annoncer ou rester sur la grille est une décision de parcours, et un hook
+ * qui naviguerait empêcherait d'en changer sans le réécrire.
+ *
+ * **Il vit ici et non dans le fichier de route**, comme les trois autres écrans :
+ * c'est ce qui le rend montable en test. La règle vient d'ailleurs — `use(params)`
+ * ne se résout pas sous jsdom — mais elle vaut d'être tenue partout, sans quoi
+ * elle se perd.
+ */
+export function EcranBibliotheque() {
+  const router = useRouter()
+  const client = useQueryClient()
+  const projets = useProjets()
+  const sources = useSources()
+  const creer = useCreerProjet()
+
+  const creation: Creation = {
+    // Le **nom** de la source en cours de création, pas un booléen : c'est ce
+    // qui permet à la carte cliquée d'afficher l'attente et aux autres de se
+    // contenter de se taire.
+    enCours: creer.isPending ? (creer.variables ?? null) : null,
+    erreur: creer.isError ? messageServeur(creer.error) : null,
+    lancer: (source: Source) => {
+      // **`mutateAsync` et non `mutate`, et le rappel n'est pas passé à
+      // TanStack.** Les liens vers une émission déjà analysée restent ouverts
+      // pendant une création — c'est le seul geste encore utile pendant
+      // l'attente —, donc on peut quitter la bibliothèque avant que le `lstat`
+      // 9p ne réponde. TanStack n'appelle alors plus les rappels donnés à
+      // `mutate` : son observateur est démonté. La marque manquerait pendant les
+      // trente secondes du `staleTime`, c'est-à-dire exactement la fenêtre du
+      // retour. Une chaîne de promesse, elle, ne dépend d'aucun observateur, et
+      // le client de requêtes vit au-dessus de cet écran. (relevé par Codex)
+      void creer
+        .mutateAsync(source.name)
+        .then(({ projectId }) => marquerSourceAnalysée(client, source.name, projectId))
+        .catch(() => {
+          // L'échec est déjà porté par `creer.isError`, qui alimente l'alerte de
+          // la grille. Rattrapé ici seulement pour ne pas laisser un rejet nu.
+        })
+    },
+  }
+
+  // **La redirection, elle, reste liée à l'écran**, et c'est tout l'intérêt de
+  // la séparer de la correction du cache : ramener de force sur la bibliothèque
+  // quelqu'un qui vient d'aller trier une autre émission serait pire que de ne
+  // rien faire. Un effet ne s'exécute pas sur un composant démonté, ce qui
+  // exprime la règle sans qu'on ait à tenir un drapeau « suis-je encore là ».
+  //
+  // **La redirection est la confirmation.** La réponse est un 202 — l'analyse
+  // est acceptée et lancée, pas faite —, et la vue Émission est celle qui sait
+  // montrer une analyse qui commence. Une notification en plus dirait deux fois
+  // la même chose.
+  const projetCree = creer.data?.projectId
+  useEffect(() => {
+    if (projetCree !== undefined) router.push(lienProjet(projetCree))
+  }, [projetCree, router])
+
+  const entrées = bibliothèque(sources.data?.sources ?? [], projets.data ?? [])
+
+  return (
+    <div className="flex min-h-full flex-col">
+      <AppBar lieu={{ kind: 'bibliotheque' }} />
+
+      {/* Pas de colonne de texte : c'est un plan de travail, et la spec §13
+          demande un rendu d'application de bureau plutôt que de site web. La
+          largeur maximale n'existe que pour qu'un écran très large ne rende pas
+          des cartes de sept cents pixels. */}
+      <main className="mx-auto flex w-full max-w-[110rem] flex-1 flex-col gap-6 px-6 py-6">
+        <h1 className="sr-only">Bibliothèque</h1>
+
+        <GrilleBibliotheque
+          entrées={entrées}
+          projets={projets.data}
+          montage={sources.data?.montage}
+          // **Les deux requêtes, pas une.** Monter la grille dès que les sources
+          // répondent afficherait dix-huit cartes « À analyser » le temps que la
+          // liste des projets arrive, puis les basculerait sous les yeux —
+          // exactement le saut que les squelettes existent pour éviter.
+          chargement={sources.isPending || projets.isPending}
+          // Le message du serveur, jamais une phrase composée depuis
+          // l'exception.
+          erreur={sources.isError ? messageServeur(sources.error) : null}
+          erreurProjets={projets.isError ? messageServeur(projets.error) : null}
+          onReessayer={() => {
+            // **L'échec de création s'oublie avec le rafraîchissement**, parce
+            // que c'est lui qui le rend caduc : sur une source disparue entre
+            // l'affichage et le clic, la carte s'en va et le message continuerait
+            // sinon de nommer un fichier qui n'est plus là.
+            creer.reset()
+            void sources.refetch()
+            void projets.refetch()
+          }}
+          creation={creation}
+        />
+      </main>
+    </div>
+  )
+}

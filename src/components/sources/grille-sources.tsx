@@ -92,6 +92,14 @@ export function GrilleSources({
           <TriangleAlert aria-hidden />
           <AlertTitle className="text-sm">La création n’a pas abouti.</AlertTitle>
           <AlertDescription className="text-xs">{creation.erreur}</AlertDescription>
+          {/* Sans quoi une source disparue entre l'affichage et le clic serait
+              une impasse : sa carte est toujours là, et la recliquer échouerait
+              de la même façon. */}
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={onReessayer}>
+              Rafraîchir
+            </Button>
+          </AlertAction>
         </Alert>
       )}
 

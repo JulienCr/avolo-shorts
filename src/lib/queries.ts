@@ -44,7 +44,23 @@ export const cles = {
 }
 
 export function useProjets() {
-  return useQuery({ queryKey: cles.projets, queryFn: listProjects })
+  return useQuery({
+    queryKey: cles.projets,
+    queryFn: listProjects,
+    // **Le sondage de la bibliothèque**, et il ne coûte que ce qu'il rapporte :
+    // tant qu'au moins une analyse tourne, on redemande la liste toutes les deux
+    // secondes ; sinon on se tait. C'est ce qui rend supportable de lancer une
+    // analyse puis d'aller trier un autre projet — l'état arrive tout seul, sans
+    // qu'on ait à revenir voir.
+    //
+    // Le prix est celui d'un `GET /api/projects` : une lecture de la base, une
+    // lecture de `Map` et un petit fichier local par projet. **Rien qui touche au
+    // Drive**, et c'est la raison pour laquelle `ProjectListItem` ne porte que
+    // ces deux champs-là (`src/lib/api.ts`) : sonder l'état complet d'un projet
+    // exécuterait `relevéPrésence` vingt et une fois, sur un montage 9p, toutes
+    // les deux secondes.
+    refetchInterval: (query) => (query.state.data?.some((p) => p.running !== null) ? 2_000 : false),
+  })
 }
 
 export function useProjet(projectId: string) {

@@ -3,11 +3,12 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import type { Source, SourcesListing } from '@/lib/api'
+import type { CauseIndisponible, Source, SourcesListing } from '@/lib/api'
 import { getDb, listProjects } from '@/server/db'
 import { estUneAbsence } from '@/server/octets'
 import { replayDir, resolveSource } from '@/server/paths'
 import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
+import { urlVignetteSource } from '@/server/vignettes-sources'
 
 /**
  * Le catalogue des replays : **l'entrée du parcours** (spec §13, tâche 15).
@@ -33,6 +34,14 @@ import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
  *    montage mort les prennent tous les quatre et figent *tout* ce qui touche au
  *    disque dans le serveur, analyse en cours comprise. Un montage mort coûte
  *    ici **un** fil, une fois.
+ * 4. **L'échec porte sa cause, et l'écran la nomme au lieu de l'énumérer.**
+ *    C'était le reste de la vague d'interface (issue #56, point 5) : ces quatre
+ *    causes rendaient un seul `disponible: false`, si bien que la ligne de
+ *    montage devait citer les trois gestes possibles. Deux cas mesurés le
+ *    rendaient franchement trompeur — un `REPLAY_DIR` mal orthographié **sous un
+ *    partage 9p sain** annonçait `fstype: '9p'` avec la lecture en échec, et un
+ *    seul fichier aux droits refusés faisait basculer tout le dossier. Ils sont
+ *    désormais nommés, `absent` et `refusé`, et le geste utile suit du nom.
  */
 
 /**
@@ -117,6 +126,14 @@ async function releverLeDossier(dir: string): Promise<RelevéDossier> {
       // une panne : on l'omet. Tout le reste — droits refusés, montage qui meurt
       // en cours de route — remonte et fait dire « indisponible » plutôt que de
       // présenter un catalogue amputé comme s'il était complet.
+      //
+      // **Un seul fichier suffit donc à faire basculer le dossier**, et c'est
+      // voulu : l'alternative est un catalogue silencieusement incomplet, où la
+      // source qu'on cherche est celle qui manque. Ce que l'issue #56 reprochait
+      // à ce chemin n'est pas la bascule, c'est qu'elle était muette — un droit
+      // refusé sur un fichier ressemblait trait pour trait à un partage tombé.
+      // La cause remonte maintenant avec l'échec : `refusé` envoie regarder les
+      // droits, pas remonter le partage.
       if (estUneAbsence(cause)) continue
       throw cause
     }
@@ -142,12 +159,49 @@ function estUnMoignon(nom: string): boolean {
   return nom.startsWith('.') || nom.startsWith('$')
 }
 
-/** Le relevé, ou `null` quand le montage n'a pas répondu à temps. */
+/**
+ * Le message que le délai de garde donne à son rejet.
+ *
+ * Il ne s'affiche nulle part : il sert à **reconnaître** le renoncement parmi
+ * les rejets possibles. `attendreOuRenoncer` construit lui-même son `Error`, et
+ * c'est la seule chose qui distingue « personne n'a répondu » d'un code d'erreur
+ * du système de fichiers. Producteur et consommateur sont à vingt lignes l'un de
+ * l'autre, et un test le vérifie de bout en bout.
+ */
+const RENONCEMENT = 'sources:délai-dépassé'
+
+/** Ce que le relevé a donné : les entrées, ou la raison de ne pas les avoir. */
+type Relevé = { relevé: RelevéDossier; cause: null } | { relevé: null; cause: CauseIndisponible }
+
+/**
+ * Le code d'échec réel, tel que l'écran pourra le nommer.
+ *
+ * **Un code énuméré, jamais un `errno` ni un message du système.** Ce dépôt est
+ * public et la réponse part sur le réseau : `EACCES` et « permission denied sur
+ * /mnt/j/Drive partagés/… » disent la même chose à qui diagnostique, et une
+ * chose de plus à qui n'a rien à faire là. Le code, lui, ne porte ni chemin ni
+ * texte d'origine — l'écran le traduit.
+ *
+ * Les quatre couvrent l'espace : ce qui n'existe pas, ce qui est refusé, ce qui
+ * ne répond pas, et ce qu'on ne sait pas nommer. Le dernier n'est pas un fourre-
+ * tout paresseux — `EIO`, `ESTALE` et `ENOTCONN` existent, et les ranger de
+ * force dans l'une des trois autres cases ferait dire à l'écran quelque chose de
+ * faux plutôt que quelque chose de vague.
+ */
+function causeDe(erreur: unknown): CauseIndisponible {
+  if (erreur instanceof Error && erreur.message === RENONCEMENT) return 'muet'
+  if (estUneAbsence(erreur)) return 'absent'
+  const code = (erreur as NodeJS.ErrnoException | null)?.code
+  if (code === 'EACCES' || code === 'EPERM') return 'refusé'
+  return 'illisible'
+}
+
+/** Le relevé, ou la cause pour laquelle il n'a pas eu lieu. */
 async function releverAvecGarde(
   dir: string,
   timeoutMs: number,
   relever: (dir: string) => Promise<RelevéDossier>,
-): Promise<RelevéDossier | null> {
+): Promise<Relevé> {
   let sonde = enVol.get(dir)
   if (sonde === undefined) {
     sonde = relever(dir)
@@ -156,16 +210,17 @@ async function releverAvecGarde(
     // rejet : un `sonde.catch()` posé en parallèle laisse la promesse dérivée du
     // `finally` sans gestionnaire, et un montage absent — le cas le plus banal —
     // remonte en rejet non traité, ce qui coupe le processus. Le rejet réel, lui,
-    // est déjà traité : `releverAvecGarde` le rattrape et rend `null`.
+    // est déjà traité : `releverAvecGarde` le rattrape et le nomme.
     void sonde.finally(() => enVol.delete(dir)).catch(() => {})
   }
 
   try {
-    return await attendreOuRenoncer(sonde, timeoutMs, 'muet')
-  } catch {
-    // Absence, droits, transport mort, délai dépassé : du point de vue de
-    // l'écran, c'est le même fait — on ne peut pas dire ce qu'il y a dedans.
-    return null
+    return { relevé: await attendreOuRenoncer(sonde, timeoutMs, RENONCEMENT), cause: null }
+  } catch (erreur) {
+    // Absence, droits, transport mort, délai dépassé : quatre faits, et l'écran
+    // ne peut en nommer un que si on le lui dit. Les confondre était le reste
+    // documenté de la vague d'interface (issue #56, point 5).
+    return { relevé: null, cause: causeDe(erreur) }
   }
 }
 
@@ -236,13 +291,17 @@ function fstypeDe(chemin: string): string | null {
  * répare, au lieu d'une page d'erreur qui ne distingue rien — l'incident réel
  * d'OpenShorts, où « dossier vide » et « montage absent » rendaient la même page.
  *
+ * `montage.cause` porte **laquelle** des quatre : c'est le point 4 en tête de
+ * fichier, et c'est ce qui fait passer la ligne de montage d'une énumération de
+ * gestes possibles à un seul, celui qui répare.
+ *
  * Les replays sont rendus **du plus récent au plus ancien** : une émission
  * arrive par semaine et c'est la dernière qu'on vient traiter.
  */
 export async function listerSources(options: OptionsSources = {}): Promise<SourcesListing> {
   const dir = replayDir()
   const db = options.db ?? getDb()
-  const relevé = await releverAvecGarde(
+  const { relevé, cause } = await releverAvecGarde(
     dir,
     options.timeoutMs ?? DÉLAI_STAT_MS,
     options.relever ?? releverLeDossier,
@@ -250,6 +309,7 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
 
   const montage = {
     disponible: relevé !== null,
+    cause,
     fstype: fstypeDe(dir),
     entrées: relevé?.entrées ?? 0,
   }
@@ -265,6 +325,11 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
       sizeBytes: vidéo.sizeBytes,
       modifiedAt: new Date(vidéo.mtimeMs).toISOString(),
       projectId: projetDe(vidéo.name, projets),
+      // **Une URL, pas une image.** Elle est toujours servie — contrairement à
+      // celle d'un candidat, qui vaut `null` tant que le proxy n'est pas encodé
+      // — parce que le fichier existe : on vient de le mesurer. Ce qui reste
+      // incertain est l'extraction, et c'est la route qui répond de ça.
+      thumbnailUrl: urlVignetteSource(vidéo.name, vidéo.sizeBytes, vidéo.mtimeMs),
     }))
 
   return { sources, montage }

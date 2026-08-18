@@ -244,6 +244,47 @@ export function thumbArgs(o: { src: string; dst: string; at: number }): string[]
   ]
 }
 
+/**
+ * La vignette d'une **source** : une image prise dans l'original, sur le 9p.
+ *
+ * C'est l'exact contraire de `thumbArgs` juste au-dessus, et la contradiction
+ * n'en est pas une : au moment de choisir un replay dans la bibliothèque, aucun
+ * proxy n'existe encore. Il n'y a rien d'autre à ouvrir que le fichier
+ * d'origine, 4,5 à 12,7 Go sur un montage 9p (spec §12, issue #41).
+ *
+ * **`-ss` avant `-i`, et c'est toute la mesure.** ffmpeg cherche alors dans le
+ * conteneur au lieu de décoder depuis le début : médiane ~2,7 s par fichier,
+ * relevé sur trois émissions le 18 août 2026. Inversés, les deux options
+ * feraient décoder plusieurs minutes de vidéo par carte et la grille ne
+ * vaudrait plus son coût — l'issue le dit ainsi : « toute implémentation qui
+ * inverse les deux invalide ce ticket ». C'est la contrainte la plus facile à
+ * casser par inadvertance de tout ce fichier, et `tests/core/ffmpeg-args`
+ * verrouille l'ordre des deux.
+ *
+ * **Réduite à 640 de large.** L'original est en 1920x1080 et la carte réserve
+ * environ 170 points ; servir la pleine résolution coûterait quelques centaines
+ * de kilooctets par carte pour un emplacement qui en affiche le sixième.
+ * Mesuré sur `2025-11-09-realisateur` : 47 ko en 640x360. `min(640, iw)`
+ * n'agrandit pas une source déjà plus petite, et la virgule est échappée parce
+ * qu'à ce niveau-là de la syntaxe elle sépare deux filtres d'une chaîne.
+ * `-2` pour la hauteur : déduite du rapport, arrondie à un nombre pair, que les
+ * encodeurs 4:2:0 exigent.
+ */
+export function sourceThumbArgs(o: { src: string; dst: string; at: number }): string[] {
+  return [
+    ...GLOBALES,
+    '-ss', secondes(Math.max(0, o.at)),
+    '-i', o.src,
+    '-map', '0:v:0',
+    '-an',
+    '-frames:v', '1',
+    '-vf', 'scale=w=min(640\\,iw):h=-2',
+    '-q:v', '4',
+    '-update', '1',
+    ...destination(o.dst),
+  ]
+}
+
 /** `-hwaccel cuda` seul, et seulement quand on encodera sur le GPU. */
 function accélération(encoder: EncoderName): string[] {
   return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []

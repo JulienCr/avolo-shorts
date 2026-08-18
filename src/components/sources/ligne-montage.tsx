@@ -5,10 +5,10 @@ import { FolderOpen, Inbox, TriangleAlert } from 'lucide-react'
 import { pluriel } from '@/components/sources/textes'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import type { SourcesListing } from '@/lib/api'
+import type { CauseIndisponible, SourcesListing } from '@/lib/api'
 
 /**
- * La ligne de montage : **ce qui distingue trois vides que rien d'autre ne
+ * La ligne de montage : **ce qui distingue six vides que rien d'autre ne
  * distingue**.
  *
  * C'est un incident réel d'OpenShorts (spec §12) : « le dossier des replays est
@@ -17,10 +17,12 @@ import type { SourcesListing } from '@/lib/api'
  * `SourcesListing.montage` existe pour ça, et l'écran serait fautif de ne pas
  * s'en servir.
  *
- * Le troisième vient en prime et ne coûte rien : `entrées` compte **toutes** les
- * entrées du dossier, vidéos ou non. Un dossier qui en porte trois sans qu'aucune
- * ne soit une vidéo n'est pas vide, il est mal rempli — et le dire épargne de
- * remonter un partage qui fonctionne.
+ * Deux vides viennent en prime et ne coûtent rien. `entrées` compte **toutes**
+ * les entrées du dossier, vidéos ou non : un dossier qui en porte trois sans
+ * qu'aucune ne soit une vidéo n'est pas vide, il est mal rempli, et le dire
+ * épargne de remonter un partage qui fonctionne. Et `cause` dit **laquelle** des
+ * quatre façons d'échouer a eu lieu (issue #56, point 5) : quatre états là où
+ * l'écran devait auparavant énumérer les trois gestes possibles.
  *
  * **Chaque état porte son geste.** Le pire cas du parcours — montage absent et
  * aucun projet — est la seule chose que la page affiche alors ; s'il ne portait
@@ -71,42 +73,81 @@ export function LigneMontage({
  */
 const MONTAGE_ATTENDU = '9p'
 
-/** Le geste qui répare, identique aux deux modes de panne — il vient de `CLAUDE.md`. */
+/** Le geste qui répare un partage tombé — il vient de `CLAUDE.md`. */
 const REPARATION = 'Rouvrir le lecteur côté Windows, ou remonter le partage.'
 
-function diagnostic(montage: SourcesListing['montage']) {
-  if (!montage.disponible) {
-    // **`fstype` se relève même quand l'accès échoue, et c'est là qu'il sert le
-    // plus** — le commentaire de `fstypeDeMontage` (`src/server/sources.ts`) le
-    // dit ainsi : « un `ext4` là où on attend un `9p` dit “ce montage n'a pas eu
-    // lieu” ». Les deux modes de panne de `CLAUDE.md` se distinguent donc ici, et
-    // les annoncer pareil referait l'incident que ce champ existe pour fermer.
-    // Le geste, lui, est le même dans les deux cas. (relevé par Copilot)
-    if (montage.fstype === MONTAGE_ATTENDU) {
+/**
+ * Ce que l'écran dit de chaque cause, **une phrase et un geste**.
+ *
+ * **C'est le remède du point 5 de l'issue #56, et il se voit surtout à ce qui a
+ * disparu.** Tant que `disponible: false` recouvrait quatre causes, ce bloc
+ * devait les énumérer : « le chemin est peut-être absent ou refusé — ou le
+ * partage a perdu son transport… vérifier REPLAY_DIR et ses droits ; s'ils sont
+ * bons, rouvrir le lecteur ». Trois gestes ordonnés du moins cher au plus cher,
+ * honnêtes, et trois fois trop longs. Le serveur savait lequel des trois
+ * s'appliquait et le jetait (`releverAvecGarde`) ; il le dit maintenant.
+ *
+ * **`absent` est celui qui valait le déplacement.** Un `REPLAY_DIR` mal
+ * orthographié sous un partage 9p parfaitement sain rendait `fstype: '9p'` avec
+ * la lecture en échec — le diagnostic le plus trompeur possible, puisqu'il
+ * désigne le partage alors que le partage va bien. C'est une faute de frappe, et
+ * l'écran le dit en toutes lettres.
+ */
+function selonLaCause(cause: CauseIndisponible, fstype: string | null): {
+  titre: string
+  detail: string
+} {
+  switch (cause) {
+    case 'absent':
       return {
-        grave: true,
-        icone: <TriangleAlert aria-hidden />,
-        // **On ne conclut pas au transport mort.** `disponible: false` recouvre
-        // quatre causes, et `releverAvecGarde` le dit lui-même : « absence,
-        // droits, transport mort, délai dépassé : du point de vue de l'écran,
-        // c'est le même fait ». Un `REPLAY_DIR` mal orthographié sous un partage
-        // sain tombe exactement ici, et envoyer remonter le partage ferait
-        // perdre le seul geste utile — relire le chemin. Ce que l'écran sait,
-        // c'est que la lecture a échoué et que le partage attendu, lui, est là.
-        // (relevé par Codex)
-        titre: 'Le dossier des replays n’a pas pu être lu.',
-        detail: `Le partage ${MONTAGE_ATTENDU} attendu répond, donc le chemin est peut-être absent ou refusé — ou le partage a perdu son transport sans que /proc/mounts le dise. Vérifier REPLAY_DIR et ses droits ; s’ils sont bons, ${REPARATION.charAt(0).toLowerCase()}${REPARATION.slice(1)}`,
+        titre: 'Le dossier des replays n’existe pas à ce chemin.',
+        detail:
+          fstype === MONTAGE_ATTENDU
+            ? `Le partage ${MONTAGE_ATTENDU} répond : c’est donc le chemin qui est faux. Vérifier REPLAY_DIR.`
+            : `${relevé(fstype)} Vérifier REPLAY_DIR, puis le partage : ${abaisser(REPARATION)}`,
       }
-    }
+    case 'refusé':
+      return {
+        titre: 'La lecture du dossier des replays est refusée.',
+        // **Le dossier, ou l'un de ses fichiers**, et la nuance n'est pas de la
+        // prudence : un seul `lstat` refusé fait basculer tout le dossier
+        // (`releverLeDossier`, et c'était le second cas mesuré de l'issue #56).
+        // Envoyer regarder les seuls droits du dossier ferait chercher là où il
+        // n'y a rien à voir.
+        detail:
+          'Les droits refusent le dossier, ou l’un des fichiers qu’il contient. Vérifier les droits sur REPLAY_DIR et sur son contenu.',
+      }
+    case 'muet':
+      return {
+        titre: 'Le dossier des replays ne répond pas.',
+        detail: `Le partage est monté mais n’a rien rendu dans le temps imparti : son transport est mort dessous, et /proc/mounts ne le distingue pas d’un partage sain. ${REPARATION}`,
+      }
+    case 'illisible':
+      return {
+        titre: 'Le dossier des replays n’a pas pu être lu.',
+        detail: `Le système de fichiers a rendu une erreur que le serveur ne sait pas nommer. ${relevé(fstype)} ${REPARATION}`,
+      }
+  }
+}
+
+function diagnostic(montage: SourcesListing['montage']) {
+  if (montage.cause !== null) {
     return {
       grave: true,
       icone: <TriangleAlert aria-hidden />,
-      titre: 'Le dossier des replays n’est pas monté.',
-      detail: `${
-        montage.fstype === null
-          ? 'Aucun montage relevé ne porte REPLAY_DIR'
-          : `Le chemin est servi par ${montage.fstype}, pas par le partage ${MONTAGE_ATTENDU} attendu`
-      }. ${REPARATION}`,
+      ...selonLaCause(montage.cause, montage.fstype),
+    }
+  }
+
+  // **`disponible: false` sans cause ne peut pas arriver**, et le dire ici plutôt
+  // que de l'affirmer dans un type revient au même pour deux lignes : le serveur
+  // pose les deux ensemble. Si jamais l'un survivait sans l'autre, `illisible`
+  // est la seule case qui ne mente pas.
+  if (!montage.disponible) {
+    return {
+      grave: true,
+      icone: <TriangleAlert aria-hidden />,
+      ...selonLaCause('illisible', montage.fstype),
     }
   }
 
@@ -129,6 +170,11 @@ function diagnostic(montage: SourcesListing['montage']) {
     titre: 'Le dossier des replays est vide.',
     detail: `${relevé(montage.fstype)} Il n’y a rien dedans.`,
   }
+}
+
+/** Une phrase mise en incise : sa majuscule tombe. */
+function abaisser(phrase: string): string {
+  return `${phrase.charAt(0).toLowerCase()}${phrase.slice(1)}`
 }
 
 /**

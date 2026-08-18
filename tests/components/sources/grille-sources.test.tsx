@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CLE_DEFILEMENT, GrilleSources } from '@/components/sources/grille-sources'
 import type { Creation } from '@/components/sources/source-card'
-import type { Source, SourcesListing } from '@/lib/api'
+import type { CauseIndisponible, Source, SourcesListing } from '@/lib/api'
 
 afterEach(() => {
   cleanup()
@@ -29,9 +29,20 @@ const CQLP: Source = {
   sizeBytes: 4_300_000_000,
   modifiedAt: '2025-06-15T19:04:00.000Z',
   projectId: null,
+  thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
 }
 
-const MONTÉ = { disponible: true, fstype: '9p', entrées: 21 }
+const MONTÉ = { disponible: true, cause: null, fstype: '9p', entrées: 21 }
+
+/** Un montage qui n'a pas répondu, et la cause que le serveur en donne. */
+function échec(cause: CauseIndisponible, fstype: string | null) {
+  return { sources: [], montage: { disponible: false, cause, fstype, entrées: 0 } }
+}
+
+/** Un montage qui a répondu : la cause est alors nulle par construction. */
+function lu(fstype: string | null, entrées: number) {
+  return { sources: [], montage: { disponible: true, cause: null, fstype, entrées } }
+}
 
 function listing(partiel: Partial<SourcesListing> = {}): SourcesListing {
   return { sources: [CQLP], montage: MONTÉ, ...partiel }
@@ -95,9 +106,9 @@ describe('GrilleSources, quand il y a des replays', () => {
   })
 })
 
-describe('GrilleSources, les deux vides', () => {
+describe('GrilleSources, les vides et les échecs', () => {
   it('distingue un dossier vraiment vide', () => {
-    grille({ listing: { sources: [], montage: { disponible: true, fstype: '9p', entrées: 0 } } })
+    grille({ listing: lu('9p', 0) })
 
     expect(screen.getByText('Le dossier des replays est vide.')).toBeTruthy()
     // Le type de système de fichiers est la preuve que le montage a bien eu
@@ -110,7 +121,7 @@ describe('GrilleSources, les deux vides', () => {
     // vide interromprait la lecture en cours comme le ferait une panne. La
     // conception §4.3 n'admet que trois régions live, et les erreurs sont la
     // seule assertive. (relevé par Copilot)
-    grille({ listing: { sources: [], montage: { disponible: true, fstype: '9p', entrées: 0 } } })
+    grille({ listing: lu('9p', 0) })
 
     expect(screen.queryByRole('alert')).toBeNull()
     // Ni région live du tout : la conception §4.3 en admet trois — l'avancement,
@@ -120,18 +131,13 @@ describe('GrilleSources, les deux vides', () => {
     expect(screen.getByText('Le dossier des replays est vide.')).toBeTruthy()
   })
 
-  it('annonce le montage absent comme une erreur, lui', () => {
-    grille({ listing: { sources: [], montage: { disponible: false, fstype: null, entrées: 0 } } })
-    expect(screen.getByRole('alert').textContent).toContain('n’est pas monté')
-  })
-
   it('n’affirme pas « monté » quand le relevé n’est pas le partage attendu', () => {
     // Un point de montage resté vide sur la racine locale se **liste** très
     // bien : `readdir` réussit, `disponible` vaut vrai, et le dossier passait
     // pour sain alors que le partage n'est nulle part. Le `fstype` est le seul
     // signal qui le dise, et l'écran l'affichait comme une confirmation.
     // (relevé par Codex)
-    grille({ listing: { sources: [], montage: { disponible: true, fstype: 'ext4', entrées: 0 } } })
+    grille({ listing: lu('ext4', 0) })
 
     expect(screen.getByText('Le dossier des replays est vide.')).toBeTruthy()
     expect(screen.getByText(/ext4/)).toBeTruthy()
@@ -142,55 +148,81 @@ describe('GrilleSources, les deux vides', () => {
   it('distingue un dossier plein d’autre chose', () => {
     // `entrées` compte tout, vidéos ou non. Trois fichiers dont aucune vidéo est
     // un diagnostic, pas un vide.
-    grille({ listing: { sources: [], montage: { disponible: true, fstype: '9p', entrées: 3 } } })
+    grille({ listing: lu('9p', 3) })
 
     expect(screen.getByText(/3 entrées/)).toBeTruthy()
     expect(screen.queryByText('Le dossier des replays est vide.')).toBeNull()
   })
 
-  it('nomme le montage absent, et le geste qui le répare', async () => {
-    // Le pire cas du parcours : montage absent et aucun projet. Une seule
-    // phrase, et l'action qui la lève — prise de `CLAUDE.md`.
-    const onReessayer = vi.fn()
-    grille({
-      listing: { sources: [], montage: { disponible: false, fstype: null, entrées: 0 } },
-      onReessayer,
-    })
+  /**
+   * **Le cas que l'issue #56 appelait « le diagnostic le plus trompeur
+   * possible ».** Un `REPLAY_DIR` mal orthographié sous un partage 9p sain
+   * rendait `disponible: false` **avec** `fstype: '9p'` : l'écran, faute de
+   * savoir laquelle des quatre causes s'appliquait, énumérait les trois gestes
+   * — vérifier le chemin, vérifier les droits, remonter le partage. Le serveur
+   * nomme maintenant `absent`, et il ne reste qu'un geste.
+   */
+  it('nomme une faute de frappe dans REPLAY_DIR sans accuser le partage', () => {
+    grille({ listing: échec('absent', '9p') })
 
-    expect(screen.getByText('Le dossier des replays n’est pas monté.')).toBeTruthy()
+    expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy()
+    expect(screen.getByText(/c’est donc le chemin qui est faux/)).toBeTruthy()
+    expect(screen.getByText(/REPLAY_DIR/)).toBeTruthy()
+    // **Et surtout, plus le geste coûteux.** C'est tout le gain : envoyer
+    // remonter un partage qui répond fait chercher là où il n'y a rien.
+    expect(screen.queryByText(/lecteur côté Windows/)).toBeNull()
+    expect(screen.queryByText(/droits/)).toBeNull()
+  })
+
+  it('renvoie au partage quand le chemin est absent et que le relevé n’est pas 9p', () => {
+    grille({ listing: échec('absent', 'ext4') })
+
+    expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy()
+    expect(screen.getByText(/ext4/)).toBeTruthy()
+    expect(screen.getByText(/lecteur côté Windows/)).toBeTruthy()
+  })
+
+  /**
+   * Second cas mesuré de l'issue #56 : dans `releverLeDossier`, un `lstat`
+   * refusé sur **un seul fichier** fait basculer tout le dossier. La bascule est
+   * voulue — un catalogue amputé est pire —, mais elle était muette. Le message
+   * envoie donc regarder le dossier **et son contenu**.
+   */
+  it('envoie regarder les droits, du dossier comme de son contenu', () => {
+    grille({ listing: échec('refusé', '9p') })
+
+    expect(screen.getByText('La lecture du dossier des replays est refusée.')).toBeTruthy()
+    expect(screen.getByText(/l’un des fichiers qu’il contient/)).toBeTruthy()
+    expect(screen.queryByText(/lecteur côté Windows/)).toBeNull()
+  })
+
+  /** La signature du transport mort, et le seul cas où « remonter le partage » est le geste. */
+  it('conclut au transport mort quand, et seulement quand, rien n’a répondu', async () => {
+    const onReessayer = vi.fn()
+    grille({ listing: échec('muet', '9p'), onReessayer })
+
+    expect(screen.getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
+    expect(screen.getByText(/transport est mort/)).toBeTruthy()
     expect(screen.getByText(/lecteur côté Windows/)).toBeTruthy()
 
     await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
     expect(onReessayer).toHaveBeenCalledTimes(1)
   })
 
-  it('ne conclut pas au transport mort quand le partage, lui, répond', () => {
-    // **`disponible: false` recouvre quatre causes**, et `releverAvecGarde` le
-    // dit lui-même : « absence, droits, transport mort, délai dépassé : du point
-    // de vue de l'écran, c'est le même fait ». Un `REPLAY_DIR` mal orthographié
-    // sous un partage 9p parfaitement sain tombe exactement ici — et envoyer
-    // remonter le partage ferait perdre le geste utile, qui est de relire le
-    // chemin. (relevé par Codex)
-    grille({
-      listing: { sources: [], montage: { disponible: false, fstype: '9p', entrées: 0 } },
-    })
+  it('reste vague plutôt que faux sur une erreur qu’il ne sait pas nommer', () => {
+    grille({ listing: échec('illisible', '9p') })
 
     expect(screen.getByText('Le dossier des replays n’a pas pu être lu.')).toBeTruthy()
-    // Le relevé dit ce qu'il sait : le partage attendu, lui, est là.
-    expect(screen.getByText(/9p/)).toBeTruthy()
-    // Et le premier geste est de vérifier le chemin, pas de remonter le partage.
-    expect(screen.getByText(/REPLAY_DIR/)).toBeTruthy()
+    expect(screen.getByText(/ne sait pas nommer/)).toBeTruthy()
   })
 
-  it('nomme le système de fichiers relevé quand ce n’est pas le partage attendu', () => {
-    // Un `ext4` là où on attend un `9p` dit « ce montage n'a pas eu lieu » : le
-    // chemin retombe sur la racine locale, et le partage n'est nulle part.
-    grille({
-      listing: { sources: [], montage: { disponible: false, fstype: 'ext4', entrées: 0 } },
-    })
-
-    expect(screen.getByText('Le dossier des replays n’est pas monté.')).toBeTruthy()
-    expect(screen.getByText(/ext4/)).toBeTruthy()
+  it('annonce chacun des quatre échecs comme une erreur', () => {
+    const causes: CauseIndisponible[] = ['absent', 'refusé', 'muet', 'illisible']
+    for (const cause of causes) {
+      grille({ listing: échec(cause, '9p') })
+      expect(screen.getByRole('alert')).toBeTruthy()
+      cleanup()
+    }
   })
 })
 

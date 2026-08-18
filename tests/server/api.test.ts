@@ -655,6 +655,67 @@ describe('PATCH /api/clips/:id', () => {
       expect(résultat.clip.status).toBe('exported')
     })
 
+    /**
+     * Le `.txt` est une sortie publiée, et le titre y va. Le laisser tel quel
+     * ferait servir un texte de publication qui n'est plus celui du clip, sans
+     * qu'aucun statut ne le signale. (relevé par Copilot)
+     */
+    it('rafraîchit le texte de publication quand le titre change', async () => {
+      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+
+      const résultat = await corpsDe(await patcher({ title: 'Un titre corrigé', seq: 60 }))
+
+      const texte = fs.readFileSync(
+        path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.txt`),
+        'utf8',
+      )
+      expect(texte).toContain('Un titre corrigé')
+      // Les MP4 ne bougent pas : un titre ne change aucune image, et les
+      // réencoder coûterait quarante secondes pour une faute de frappe.
+      expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
+      expect(résultat.clip.status).toBe('exported')
+    })
+
+    it('ne fabrique pas de texte pour un clip que rien n’a rendu', async () => {
+      const résultat = await corpsDe(await patcher({ title: 'Un titre', seq: 60 }))
+      // Sinon `textsUrl` annoncerait une sortie qui n'en est pas une.
+      expect(résultat.outputs.textsUrl).toBeNull()
+      expect(
+        fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.txt`)),
+      ).toBe(false)
+    })
+
+    /**
+     * L'écriture en base est validée avant que le disque ne soit touché : une
+     * erreur de système de fichiers ne doit pas rendre 500 sur un montage
+     * pourtant enregistré. (relevé par Copilot)
+     */
+    it('n’échoue pas quand le dossier des rendus est illisible', async () => {
+      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+      const dossier = path.join(racine, 'projects', PROJET, 'renders')
+      fs.chmodSync(dossier, 0o500)
+
+      try {
+        const réponse = await patcher({ segments: [{ start: 61, end: 91 }], seq: 60 })
+        expect(réponse.status).toBe(200)
+        const résultat = (await réponse.json()) as PatchClipResult
+        // Le montage est enregistré, et c'est ce que la réponse porte.
+        expect(résultat.applied).toBe(true)
+        expect(résultat.clip.segments).toEqual([{ start: 61, end: 91 }])
+        // Le fichier est toujours là : l'effacement a bien échoué, donc le test
+        // éprouve le rattrapage et non un chemin où il n'y avait rien à faire.
+        expect(
+          fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`)),
+        ).toBe(true)
+        // Et la réponse décrit le disque tel qu'il est, pas tel qu'on l'a voulu.
+        expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
+      } finally {
+        fs.chmodSync(dossier, 0o700)
+      }
+    })
+
     it('rend les sorties d’un clip que rien n’a exporté', async () => {
       const résultat = await corpsDe(await patcher({ title: 'Peu importe', seq: 50 }))
       // Le champ est là même quand il n'y a rien à publier : l'appelant tient

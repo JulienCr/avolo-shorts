@@ -6,7 +6,7 @@ import { resolveRatio } from '@/core/framing'
 import { getClip, getDb, getProject, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
-import { cheminsRendu, écarterRenduPérimé } from '@/server/steps/render'
+import { cheminsRendu, texteDePublication, écarterRenduPérimé } from '@/server/steps/render'
 import { vignettePath } from '@/server/thumbs'
 import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from '@/server/vues'
 
@@ -149,7 +149,35 @@ export const PATCH = route(
     // garder ferait un `écrit.status === 'exported'` mort, puisque le schéma
     // refuse ce statut au client, et laisserait passer le cas d'un rendu produit
     // à la main sur un clip resté `kept`.
-    écarterRenduPérimé(db, id, cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)), clip)
+    //
+    // **Rien ne doit lever d'ici.** L'écriture en base est déjà validée : une
+    // erreur de système de fichiers rendrait 500 sur un montage pourtant
+    // enregistré, et l'écriture optimiste de l'interface remettrait l'ancienne
+    // version à l'écran alors que la base porte la nouvelle. C'est la règle que
+    // la vignette suit déjà quelques lignes plus bas, et elle vaut d'autant plus
+    // ici que `écarterRenduPérimé` efface trois fichiers : un échec au deuxième
+    // laisse un jeu de sorties incomplet, que la réponse décrira tel qu'il est,
+    // puisqu'elle relit le disque après coup. (relevé par Copilot)
+    const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
+    try {
+      écarterRenduPérimé(db, id, chemins, clip)
+
+      // **Le `.txt` ne suit pas le même sort que les MP4.** Le titre et la
+      // description ne changent pas une image, donc `leRenduEstPérimé` les
+      // ignore et les vidéos restent bonnes — mais le texte de publication, lui,
+      // n'est plus le bon, et `outputs.textsUrl` continuerait de le proposer.
+      // On le réécrit plutôt que de l'effacer : `sauterLeRendu` exige les trois
+      // sorties, et un `.txt` manquant ferait réencoder quarante secondes de
+      // vidéo pour une faute de frappe corrigée. Réécrit **seulement s'il
+      // existe** : en fabriquer un pour un clip que rien n'a rendu ferait
+      // annoncer une sortie qui n'en est pas une. (relevé par Copilot)
+      const texte = texteDePublication(écrit)
+      if (texte !== texteDePublication(clip) && fs.existsSync(chemins.texts)) {
+        fs.writeFileSync(chemins.texts, texte)
+      }
+    } catch (cause) {
+      console.warn(`Sorties non mises à jour pour ${clip.id} :`, cause)
+    }
 
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
     // cache ne montre plus le début du clip. On l'efface plutôt que de la

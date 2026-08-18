@@ -1,0 +1,45 @@
+{
+  "windows": [
+    {
+      "id": "window_001",
+      "start": 0.0,
+      "end": 92.4,
+      "score": 82,
+      "reason": "hook immédiat, chute nette"
+    },
+    {
+      "id": "window_999",
+      "start": 0.0,
+      "end": 10.0,
+      "score": 95,
+      "reason": "fenêtre jamais soumise"
+    },
+    {
+      "id": "window_003",
+      "start": 124.8,
+      "end": 216.0,
+      "score": 41,
+      "reason": "mise en place, peu de relief"
+    },
+    {
+      "id": "window_001",
+      "start": 0.0,
+      "end": 92.4,
+      "score": 12,
+      "reason": "second avis sur la même fenêtre"
+    },
+    {
+      "id": "window_004",
+      "start": 186.0,
+      "end": 274.5,
+      "score": 130,
+      "reason": "note hors barème"
+    },
+    {
+      "start": 300.0,
+      "end": 380.0,
+      "score": 70,
+      "reason": "entrée sans identifiant"
+    }
+  ]
+}

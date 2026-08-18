@@ -1,0 +1,44 @@
+{
+  "shorts": [
+    {
+      "start": 96.0,
+      "end": 187.2,
+      "source_window_id": "window_002",
+      "predicted_score": 88,
+      "video_description_for_tiktok": "Il tient le pingouin jusqu'au bout. #impro #avolo #theatre",
+      "video_description_for_instagram": "Quatre-vingt-dix secondes pour une seule vanne, et elle tient. #impro #avolo #theatre #lascene",
+      "video_title_for_youtube_short": "Il ne lâche jamais le pingouin",
+      "viral_hook_text": "Personne n'a osé l'arrêter"
+    },
+    {
+      "start": 12.0,
+      "end": 41.4,
+      "source_window_id": "window_001",
+      "predicted_score": 74,
+      "video_description_for_tiktok": "La réplique tombe en trois secondes. #impro #avolo",
+      "video_description_for_instagram": "La réplique tombe en trois secondes. #impro #avolo #theatre",
+      "video_title_for_youtube_short": "Trois secondes pour retourner la scène",
+      "viral_hook_text": "Il n'avait rien vu venir"
+    },
+    {
+      "start": 240.0,
+      "end": 268.2,
+      "source_window_id": "window_004",
+      "predicted_score": 61,
+      "video_description_for_tiktok": "",
+      "video_description_for_instagram": "",
+      "video_title_for_youtube_short": "La sortie de piste",
+      "viral_hook_text": "Et là, plus personne ne parle"
+    },
+    {
+      "start": "beaucoup plus tard",
+      "end": 300.0,
+      "source_window_id": "window_005",
+      "predicted_score": 50,
+      "video_description_for_tiktok": "Bornes illisibles.",
+      "video_description_for_instagram": "Bornes illisibles.",
+      "video_title_for_youtube_short": "Entrée à jeter",
+      "viral_hook_text": "Rien à en tirer"
+    }
+  ]
+}

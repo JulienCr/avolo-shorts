@@ -5,10 +5,12 @@ import {
   anchor,
   buildWindows,
   clipCountTargets,
+  mergeOverlappingWindows,
   shortlistSize,
   snapToWords,
   windowTextWithAnchors,
   type Transcript,
+  type Window,
   type Word,
 } from '@/core/transcript'
 
@@ -175,6 +177,92 @@ describe('buildWindows', () => {
       expect(w.text).toBe(attendu)
     }
     expect(ws[0].id).toBe('window_001')
+  })
+})
+
+describe('mergeOverlappingWindows', () => {
+  const tx: Transcript = {
+    segments: [seg(0, 5, 'A'), seg(10, 15, 'B'), seg(20, 25, 'C'), seg(30, 35, 'D')],
+  }
+  const w = (id: string, start: number, end: number, segFrom: number, segTo: number): Window => ({
+    id,
+    start,
+    end,
+    text: tx.segments.slice(segFrom, segTo + 1).map((s) => s.text).join(' '),
+    segFrom,
+    segTo,
+  })
+
+  it('fusionne deux fenêtres qui se chevauchent, et la prose commune ne sort qu’une fois', () => {
+    const out = mergeOverlappingWindows([w('window_001', 0, 15, 0, 1), w('window_002', 10, 25, 1, 2)], tx)
+    expect(out).toHaveLength(1)
+    expect(out[0].start).toBe(0)
+    expect(out[0].end).toBe(25)
+    expect(out[0].segFrom).toBe(0)
+    expect(out[0].segTo).toBe(2)
+    // « B » est dans les deux fenêtres. Recoller les deux `text` le donnerait
+    // deux fois au modèle, sous une consigne qui lui demande de travailler
+    // chaque fenêtre : deux clips sur le même moment en sont le résultat.
+    expect(out[0].text).toBe('A B C')
+  })
+
+  it('le bloc survivant garde l’identifiant de la première fenêtre', () => {
+    const out = mergeOverlappingWindows([w('window_002', 10, 25, 1, 2), w('window_001', 0, 15, 0, 1)], tx)
+    expect(out[0].id).toBe('window_001')
+  })
+
+  it('trie chronologiquement avant de fusionner', () => {
+    const out = mergeOverlappingWindows(
+      [w('window_003', 30, 35, 3, 3), w('window_001', 0, 5, 0, 0)],
+      tx,
+    )
+    expect(out.map((x) => x.start)).toEqual([0, 30])
+  })
+
+  it('laisse intactes deux fenêtres disjointes', () => {
+    const out = mergeOverlappingWindows([w('a', 0, 5, 0, 0), w('b', 20, 25, 2, 2)], tx)
+    expect(out).toHaveLength(2)
+    expect(out.map((x) => x.text)).toEqual(['A', 'C'])
+  })
+
+  it('deux fenêtres qui se touchent exactement fusionnent', () => {
+    const out = mergeOverlappingWindows([w('a', 0, 15, 0, 1), w('b', 15, 25, 2, 2)], tx)
+    expect(out).toHaveLength(1)
+    expect(out[0].text).toBe('A B C')
+  })
+
+  it('une fenêtre entièrement contenue ne raccourcit pas la précédente', () => {
+    const out = mergeOverlappingWindows([w('a', 0, 25, 0, 2), w('b', 10, 15, 1, 1)], tx)
+    expect(out).toHaveLength(1)
+    expect(out[0].end).toBe(25)
+    expect(out[0].segTo).toBe(2)
+  })
+
+  it('ne modifie ni les fenêtres reçues ni leur tableau', () => {
+    const entrée = [w('window_001', 0, 15, 0, 1), w('window_002', 10, 25, 1, 2)]
+    const copie = structuredClone(entrée)
+    mergeOverlappingWindows(entrée, tx)
+    expect(entrée).toEqual(copie)
+  })
+
+  it('une entrée vide rend une liste vide', () => {
+    expect(mergeOverlappingWindows([], tx)).toEqual([])
+  })
+
+  it('la fenêtre de repli du transcript vide traverse sans casser', () => {
+    const repli = buildWindows({ segments: [] }, 120)
+    const out = mergeOverlappingWindows(repli, { segments: [] })
+    expect(out).toHaveLength(1)
+    expect(out[0].segTo).toBeLessThan(out[0].segFrom)
+    expect(out[0].end).toBe(120)
+  })
+
+  it('une fenêtre sans étendue ne fait pas perdre la prose de sa voisine', () => {
+    const sansÉtendue: Window = { id: 'vide', start: 5, end: 20, text: '', segFrom: 0, segTo: -1 }
+    const out = mergeOverlappingWindows([w('a', 0, 15, 0, 1), sansÉtendue], tx)
+    expect(out).toHaveLength(1)
+    expect(out[0].text).toBe('A B')
+    expect(out[0].end).toBe(20)
   })
 })
 

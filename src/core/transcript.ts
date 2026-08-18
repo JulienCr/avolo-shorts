@@ -140,6 +140,64 @@ export function buildWindows(
 }
 
 /**
+ * Trie chronologiquement et fusionne les fenêtres dont les étendues se touchent
+ * ou se chevauchent. Porté de `openshorts/clip_selection.py:215`.
+ *
+ * `buildWindows` chevauche délibérément deux fenêtres consécutives d'environ
+ * 30 secondes pour qu'aucun moment ne soit coupé en deux. C'est juste pour la
+ * notation et faux pour la passe de détail : deux fenêtres voisines qui
+ * survivent toutes deux à la présélection donnent les mêmes phrases deux fois au
+ * modèle, sous une consigne qui lui demande de travailler *chaque* fenêtre. Des
+ * clips en double en sont le résultat prévisible, et la seule chose qui s'y
+ * opposait était une ligne DIVERSITY dans le prompt.
+ *
+ * **La fusion passe par les index de segments, jamais par de la chirurgie sur le
+ * texte joint** : reconstruire depuis `segments[segFrom..segTo]` de l'union est
+ * ce qui garantit que la prose commune apparaît exactement une fois.
+ *
+ * Le bloc survivant garde l'identifiant de la PREMIÈRE fenêtre — les
+ * identifiants n'existent que pour que le modèle les renvoie dans
+ * `source_window_id`, personne ne les résout.
+ *
+ * La fonction ne modifie ni le tableau reçu ni les fenêtres qu'il porte.
+ */
+export function mergeOverlappingWindows(windows: Window[], tx: Transcript): Window[] {
+  if (windows.length === 0) return []
+  const segments = usableSegments(tx)
+
+  const ordonnées = [...windows].sort((a, b) => a.start - b.start || a.end - b.end)
+  const fusionnées: Window[] = []
+  for (const source of ordonnées) {
+    // Une copie : la fenêtre de l'appelant n'est jamais modifiée en place.
+    const fenêtre = { ...source }
+    const précédente = fusionnées.at(-1)
+    if (précédente === undefined || fenêtre.start > précédente.end) {
+      fusionnées.push(fenêtre)
+      continue
+    }
+
+    // `max` et non `fenêtre.end` : une fenêtre entièrement contenue dans la
+    // précédente raccourcirait le bloc au lieu de s'y fondre.
+    précédente.end = round3(Math.max(précédente.end, fenêtre.end))
+    const étendues = [précédente, fenêtre].filter((w) => w.segTo >= w.segFrom)
+    if (étendues.length === 2) {
+      précédente.segFrom = Math.min(...étendues.map((w) => w.segFrom))
+      précédente.segTo = Math.max(...étendues.map((w) => w.segTo))
+      précédente.text = segments
+        .slice(précédente.segFrom, précédente.segTo + 1)
+        .map((s) => s.text)
+        .join(' ')
+    } else {
+      // Une fenêtre sans étendue : la fenêtre de repli du transcript vide.
+      // Concaténer est la meilleure réponse disponible et ne peut rien
+      // dupliquer, parce que ce repli n'est jamais que la fenêtre unique.
+      précédente.text = [précédente.text, fenêtre.text].filter((t) => t !== '').join(' ')
+    }
+  }
+  return fusionnées
+}
+
+/**
  * Un marqueur absolu `[SECONDS]`, **tronqué vers zéro, jamais arrondi**.
  *
  * C'est tout l'objet de l'arithmétique ci-dessous. Un marqueur arrondi peut

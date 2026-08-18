@@ -157,6 +157,15 @@ describe('renderArgs', () => {
     expect(a.join(' ')).not.toContain('ass=')
   })
 
+  // Sans dossier de polices, libass s'en remet à ceux du système. L'option ne
+  // doit alors pas apparaître du tout : `fontsdir=''` le ferait chercher dans
+  // un dossier vide et retomber sur une police de secours, en silence.
+  it('omet fontsdir quand il n’est pas fourni, au lieu de l’émettre vide', () => {
+    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }], assPath: '/c.ass' })
+    expect(a.join(' ')).toContain("ass=filename='/c.ass'")
+    expect(a.join(' ')).not.toContain('fontsdir')
+  })
+
   // Un chemin porte des caractères que la syntaxe des filtres lit comme des
   // séparateurs. Non échappés, ils coupent le graphe en morceaux et ffmpeg
   // échoue sur un nom de filtre inconnu.
@@ -263,6 +272,50 @@ describe('renderArgs', () => {
         expect(a.join(' ')).toContain('-map [v] -map [a]')
       }
     }
+  })
+
+  // L'ordre compte et les étiquettes seules ne le disent pas : un logo posé
+  // **avant** l'incrustation passerait sous les sous-titres et disparaîtrait
+  // au premier carton qui monte assez haut.
+  it('pose les logos par-dessus les sous-titres, et non dessous', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      assPath: '/c.ass',
+      logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+    })
+    const graphe = a[a.indexOf('-filter_complex') + 1]
+    // L'incrustation rend l'étiquette que la superposition consomme.
+    expect(graphe).toContain("[vd]ass=filename='/c.ass'[vf0]")
+    expect(graphe).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
+  })
+
+  it('enchaîne les logos dans l’ordre reçu', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [{ start: 0, end: 10 }],
+      logos: [
+        { path: '/a.png', x: 10, y: 20, w: 100, h: 50 },
+        { path: '/b.png', x: 30, y: 40, w: 200, h: 60 },
+      ],
+    })
+    const graphe = a[a.indexOf('-filter_complex') + 1]
+    expect(graphe).toContain('[vd][lg0]overlay=x=10:y=20[vf0]')
+    expect(graphe).toContain('[vf0][lg1]overlay=x=30:y=40[v]')
+  })
+
+  // TypeScript garantit `number` à la compilation et rien à l'exécution. Ces
+  // valeurs entrent directement dans le graphe : une chaîne forcée par un cast
+  // y écrirait ce qu'elle veut.
+  it.each([
+    ['crop.x', { crop: { w: 608, h: 1080, x: Number.NaN, y: 0 } }],
+    ['out.w', { out: { w: Number.POSITIVE_INFINITY, h: 1920 } }],
+    ['logos[0].x', { logos: [{ path: '/l.png', x: Number.NaN, y: 0, w: 10, h: 10 }] }],
+    ['logos[0].w', { logos: [{ path: '/l.png', x: 0, y: 0, w: Number.NaN, h: 10 }] }],
+  ])('refuse %s non fini plutôt que de l’écrire dans le graphe', (quoi, surcharge) => {
+    expect(() =>
+      renderArgs({ ...base, segments: [{ start: 0, end: 10 }], ...surcharge }),
+    ).toThrow(new RegExp(quoi.replace(/[[\]./]/g, '\\$&')))
   })
 
   it('ajoute une entrée par logo, sans -hwaccel — une image ne se décode pas au GPU', () => {

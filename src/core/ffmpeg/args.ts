@@ -121,6 +121,26 @@ function échapper(valeur: string): string {
 }
 
 /**
+ * Un nombre destiné au graphe de filtres.
+ *
+ * TypeScript garantit `number` à la compilation, et rien à l'exécution : une
+ * valeur venue d'un JSON de branding ou de la base peut arriver ici à travers
+ * un cast. Un `NaN` sortirait en `crop=608:1080:NaN:0`, que ffmpeg refuse avec
+ * un message qui ne nomme pas la cause ; une chaîne forcée sortirait telle
+ * quelle **dans le graphe**, où elle n'a rien à faire.
+ *
+ * `Number.isFinite` ferme les deux d'un coup, et c'est la garde que `cropRect`
+ * applique déjà à `cropX` : une fonction pure ne peut rien supposer de son
+ * appelant.
+ */
+function nombre(n: number, quoi: string): string {
+  if (!Number.isFinite(n)) {
+    throw new Error(`${quoi} doit être un nombre fini, reçu ${JSON.stringify(n)}.`)
+  }
+  return String(n)
+}
+
+/**
  * Une option de filtre, valeur entre apostrophes : `filename='/c.ass'`.
  *
  * Les apostrophes ne sont pas décoratives : elles rendent `[`, `]`, `,` et `;`
@@ -250,16 +270,22 @@ export function renderArgs(o: RenderOptions): string[] {
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
     suite.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
+  // Les logos passent **après** l'incrustation des sous-titres : une marque
+  // posée dessous serait recouverte par le premier carton qui monte assez haut.
   logos.forEach((logo, i) => {
-    suite.push((e, s) => `[${e}][lg${i}]overlay=x=${logo.x}:y=${logo.y}[${s}]`)
+    const x = nombre(logo.x, `logos[${i}].x`)
+    const y = nombre(logo.y, `logos[${i}].y`)
+    suite.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
   })
 
   const sortieDécoupage = suite.length === 0 ? 'v' : multi ? 'vc' : 'vd'
 
   const graphe: string[] = []
+  const c = o.crop
   const filtreImage = [
-    `crop=${o.crop.w}:${o.crop.h}:${o.crop.x}:${o.crop.y}`,
-    `scale=${o.out.w}:${o.out.h}:flags=lanczos`,
+    `crop=${nombre(c.w, 'crop.w')}:${nombre(c.h, 'crop.h')}` +
+      `:${nombre(c.x, 'crop.x')}:${nombre(c.y, 'crop.y')}`,
+    `scale=${nombre(o.out.w, 'out.w')}:${nombre(o.out.h, 'out.h')}:flags=lanczos`,
     'setsar=1',
   ].join(',')
 
@@ -267,6 +293,11 @@ export function renderArgs(o: RenderOptions): string[] {
     graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : sortieDécoupage}]`)
   })
 
+  // Pas de `?` sur les entrées audio, contrairement à `blurredVariantArgs`, et
+  // c'est délibéré : une étiquette de graphe ne s'annote pas, et `concat` avec
+  // `a=1` exige de toute façon une piste son sur **chaque** entrée. Un replay
+  // muet est un replay raté ; mieux vaut que le rendu échoue franchement que
+  // de livrer un clip silencieux.
   let audio: string
   if (multi) {
     const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
@@ -286,7 +317,9 @@ export function renderArgs(o: RenderOptions): string[] {
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
   // les superpose. La position donnée est le coin supérieur gauche.
   logos.forEach((logo, i) => {
-    graphe.push(`[${segments.length + i}:v]scale=${logo.w}:${logo.h}[lg${i}]`)
+    const w = nombre(logo.w, `logos[${i}].w`)
+    const h = nombre(logo.h, `logos[${i}].h`)
+    graphe.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
   let vidéo = sortieDécoupage

@@ -5,7 +5,7 @@ name: Review IA des PR
 # conception de ce projet sont adossées à des mesures et se défont par réflexe.
 #
 # Le code de la review vit dans JulienCr/gh-actions, pas ici : une correction de
-# prompt faite là-bas vaut pour tous les dépôts qui épinglent @v2.
+# prompt faite là-bas arrive ici au run suivant, sans commit de ce côté.
 #
 # Le job ne bloque jamais : il sort en 0 quoi qu'il arrive. Mais deux cas d'échec
 # ne se ressemblent pas, et les confondre coûte cher :
@@ -102,7 +102,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number || inputs.pr) }}
 
-      - uses: JulienCr/gh-actions/pr-review@v2
+      # `@main` et non un tag majeur : on veut la dernière version sans attendre
+      # une migration à chaque majeur, les réglages de coût étant précisément ce
+      # qu'on ne veut pas rater. Le prix est réel, un commit fautif là-bas
+      # arrivant ici sans palier ; il est tenable parce que la CI de gh-actions
+      # refuse un `dist/` en retard sur `src/`, donc `main` est toujours
+      # construit, et parce que l'action ne fait jamais échouer le job. Repasser
+      # sur un tag majeur le jour où on préfère un palier à la fraîcheur.
+      - uses: JulienCr/gh-actions/pr-review@main
         with:
           pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
           # L'interrupteur vit dans Settings → Variables, pas ici : couper la

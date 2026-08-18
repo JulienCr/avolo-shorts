@@ -196,19 +196,14 @@ export function BandeAvancement({ running }: { running: { step: StepName; progre
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <LoaderCircle className="size-3 animate-spin" aria-hidden />
       <span className="text-xs">{LIBELLES_ETAPES[running.step]}</span>
-      <span
-        role="progressbar"
-        aria-valuenow={part}
-        aria-valuemin={0}
-        aria-valuemax={100}
+      {/* La primitive, et pas un `role="progressbar"` réécrit à la main : ses
+          quatre attributs ARIA vivaient dans un fichier de page, et cette barre
+          est précisément le second endroit qui les demandait. */}
+      <Progress
+        value={part}
         aria-label={`${LIBELLES_ETAPES[running.step]} en cours`}
-        className="h-1 w-28 overflow-hidden rounded-full bg-muted"
-      >
-        <span
-          className="block h-full bg-stage transition-[width]"
-          style={{ width: `${part}%` }}
-        />
-      </span>
+        className="w-28"
+      />
       <span className="font-mono tabular-nums">{part} %</span>
     </div>
   )

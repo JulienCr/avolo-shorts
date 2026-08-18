@@ -43,10 +43,15 @@ export async function register(): Promise<void> {
  * `register()` ne sera pas rappelé.
  *
  * Le geste est de **relancer le serveur** après avoir touché au `.env`, ce qu'on
- * fait déjà pour la plupart des variables de ce projet. Ce n'est pas corrigé
- * ici : la parade serait `updateInitialEnv` de `@next/env`, que la disposition
- * stricte de pnpm ne rend pas résoluble depuis le dépôt, et l'atteindre par un
+ * fait déjà pour la plupart des variables de ce projet. Rétablir la résolution
+ * elle-même demanderait `updateInitialEnv` de `@next/env`, que la disposition
+ * stricte de pnpm ne rend pas résoluble depuis le dépôt ; l'atteindre par un
  * chemin interne de `next` coûterait plus cher au premier changement de version
- * que le désagrément qu'elle évite.
+ * que le désagrément qu'il évite.
+ *
+ * **Ce qui est corrigé, en revanche, c'est le silence.** `exigerSecret` refuse
+ * une variable restée à l'état d'adresse au lieu de l'envoyer comme clé : on
+ * obtient « la résolution du démarrage a été défaite […] relancer le serveur »
+ * plutôt qu'un 401 du fournisseur d'API. (relevé par Copilot)
  */
 

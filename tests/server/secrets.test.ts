@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estRéférence, résoudreSecrets, type Environnement } from '@/server/secrets'
+import { estRéférence, exigerSecret, résoudreSecrets, type Environnement } from '@/server/secrets'
 
 /**
  * Ce que ces tests figent tient en trois points, et le premier est le seul qui
@@ -185,6 +185,24 @@ describe('résoudreSecrets', () => {
     expect(message).toMatch(/vide/)
   })
 
+  it('nomme le délai quand op est tué sans avoir rien écrit', async () => {
+    // Le cas le plus muet de tous : `execFile` tue `op` par un signal au bout
+    // de 60 s, `stderr` est vide et le `message` se réduit au `Command failed:`
+    // qu'on retire. Sans branche dédiée, le remède commençait par un point
+    // isolé et n'accusait rien. (relevé par Copilot et par Aristarque)
+    const tué = Object.assign(new Error('Command failed: op read op://c/f/CLÉ'), {
+      killed: true,
+      signal: 'SIGTERM',
+      stderr: '',
+    })
+    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+
+    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(tué)))
+    expect(message).toMatch(/60 s/)
+    expect(message).toMatch(/approbation/)
+    expect(message).not.toMatch(/\.\s+\./)
+  })
+
   it("n'écrit jamais la valeur d'un secret dans le message d'échec", async () => {
     // Deux variables, une qui résout et une qui échoue : le message ne doit
     // rien porter de la première. Les journaux de ce dépôt se recopient dans
@@ -194,5 +212,26 @@ describe('résoudreSecrets', () => {
 
     const message = await messageDÉchec(résoudreSecrets(env, lire))
     expect(message).not.toContain('valeur-très-secrète')
+  })
+})
+
+describe('exigerSecret', () => {
+  it('rend la valeur quand elle est là', () => {
+    expect(exigerSecret('GEMINI_API_KEY', { GEMINI_API_KEY: 'la-vraie-clé' })).toBe('la-vraie-clé')
+  })
+
+  it('refuse une variable absente ou vide, en la nommant', () => {
+    expect(() => exigerSecret('GEMINI_API_KEY', {})).toThrow(/GEMINI_API_KEY/)
+    expect(() => exigerSecret('GEMINI_API_KEY', { GEMINI_API_KEY: '' })).toThrow(/GEMINI_API_KEY/)
+  })
+
+  it("refuse une adresse restée non résolue, plutôt que de l'envoyer comme clé", () => {
+    // C'est le garde-fou du 401 : `next dev` réapplique l'environnement d'avant
+    // `register()` quand le `.env` change, et la variable repasse à `op://…`.
+    // Sans ce contrôle, l'adresse partait chez le fournisseur d'API.
+    // (relevé par Copilot)
+    const env: Environnement = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
+    expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/Relancer le serveur/)
+    expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/op:\/\/Personal/)
   })
 })

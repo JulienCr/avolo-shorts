@@ -34,6 +34,7 @@ import {
 } from '@/core/transcript'
 import { getClips, getDb, getProject, replaceClips } from '@/server/db'
 import { candidatesPath, placeSidecar } from '@/server/paths'
+import { exigerSecret } from '@/server/secrets'
 
 /**
  * L'étape `candidates` : deux passes Gemini sur le transcript, et le lot de
@@ -395,10 +396,10 @@ export async function appelerGemini<T = unknown>(
 
 /** Le client par défaut. Construit à l'appel : la clé se lit au moment de servir. */
 function clientParDéfaut(): AppelGemini {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY n'est pas définie. Voir .env.example.")
-  }
+  // `exigerSecret` et non `process.env` : il refuse aussi une variable restée à
+  // l'état d'adresse `op://…`, que le SDK enverrait comme clé pour se faire
+  // répondre 401. Voir `@/server/secrets`.
+  const apiKey = exigerSecret('GEMINI_API_KEY')
   const modèle = process.env.GEMINI_MODEL || MODÈLE_PAR_DÉFAUT
   // **Un délai fini, sans quoi la politique de relance ne borne rien.** Une
   // requête qui n'aboutit ni ne casse n'atteint jamais le `catch`, et immobilise

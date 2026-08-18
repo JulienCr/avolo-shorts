@@ -360,6 +360,9 @@ de développement recharge le fichier, il réapplique d'abord l'instantané de
 relit le `.env`. La variable repasse à `op://…`, et le point d'accroche de
 `src/instrumentation.ts` n'est pas rappelé.
 
+Ça ne rate pas en silence : `exigerSecret` refuse une variable restée à l'état
+d'adresse plutôt que de l'envoyer comme clé, et le message dit quoi faire.
+
 ### Quand ça rate
 
 Le mode d'échec par défaut de ce chemin est un 401 du fournisseur d'API, qui

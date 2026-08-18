@@ -150,12 +150,56 @@ function remède(cause: unknown): string {
       'chemin, ou remettre la valeur littérale dans .env.'
     )
   }
+  // **Le délai a un message à lui**, et c'est le seul cas où `op` n'a rien
+  // écrit du tout : `execFile` le tue par un signal, `stderr` est vide, et le
+  // `message` se réduit au `Command failed:` que `diagnostic` retire. Sans
+  // cette branche, le remède commençait par un point isolé et ne nommait pas
+  // la cause la plus probable — une approbation restée à l'écran.
+  // (relevé par Copilot et par Aristarque)
+  if ((cause as { killed?: unknown } | undefined)?.killed === true) {
+    return (
+      `1Password n'a pas répondu en ${DÉLAI_MS / 1000} s. L'application attend ` +
+      "peut-être une approbation : la déverrouiller, puis relancer."
+    )
+  }
   const dit = diagnostic(cause)
+  // Une cause sans un mot à dire. Rare, mais un message qui commence par « . »
+  // fait douter de sa propre exactitude.
+  if (dit === '') {
+    return '`op` a échoué sans rien dire. « op read <référence> » rejoue l\'appel.'
+  }
   const point = dit.endsWith('.') ? '' : '.'
   if (PAS_DÉVERROUILLÉ.test(dit)) {
     return `${dit}${point} Déverrouiller l'application 1Password, ou « op signin », puis relancer.`
   }
   return `${dit}${point} « op read <référence> » rejoue l'appel ; vérifier le coffre, la fiche et le nom du champ.`
+}
+
+/**
+ * La valeur d'un secret, ou une erreur qui dit pourquoi il n'y en a pas.
+ *
+ * **Le garde-fou du milieu est le seul qui ne soit pas évident**, et c'est celui
+ * qui compte : une variable qui vaut *encore* `op://…` au moment de servir veut
+ * dire que la résolution du démarrage a été défaite. Le cas mesuré est le
+ * rechargement du `.env` par `next dev` (voir `src/instrumentation.ts`), qui
+ * réapplique l'instantané pris avant `register()`. Sans ce contrôle, l'adresse
+ * partirait comme clé chez le fournisseur d'API et reviendrait en 401 — soit
+ * exactement le diagnostic faux que tout ce module existe pour éviter.
+ * (relevé par Copilot)
+ */
+export function exigerSecret(nom: string, env: Environnement = process.env): string {
+  const valeur = env[nom]
+  if (valeur === undefined || valeur === '') {
+    throw new Error(`${nom} n'est pas définie. Voir .env.example.`)
+  }
+  if (estRéférence(valeur)) {
+    throw new Error(
+      `${nom} vaut encore une adresse 1Password (${valeur}), donc la résolution du ` +
+        'démarrage a été défaite — typiquement un .env modifié pendant que le serveur ' +
+        'tourne. Relancer le serveur.',
+    )
+  }
+  return valeur
 }
 
 /**

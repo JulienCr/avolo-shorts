@@ -10,7 +10,8 @@
  */
 
 import type { ClipStatus } from '@/core/edl'
-import { estEcarte, estGarde } from '@/core/parcours'
+import type { StepName } from '@/core/graph'
+import { estEcarte, estGarde, type Phase } from '@/core/parcours'
 import type { BilanRepérage } from '@/lib/api'
 
 /**
@@ -163,4 +164,40 @@ export function motDuRepérage(bilan: BilanRepérage | null): MotDuRepérage | n
  */
 export function accord(n: number, singulier: string, pluriel: string): string {
   return `${n} ${n <= 1 ? singulier : pluriel}`
+}
+
+/**
+ * Où va le panneau d'avancement, et s'il y va.
+ *
+ * **C'est l'invariant de la spec §2.3, écrit une fois** : la phase choisit ce
+ * que l'écran met en avant, elle ne retire jamais ce qui existe. Trois
+ * relectures successives ont trouvé trois façons différentes de le violer, ce
+ * qui veut dire que le défaut n'est pas dans une valeur de phase mais dans la
+ * manière de s'en servir — d'où une fonction, plutôt qu'une condition recopiée
+ * dans un fichier de page.
+ *
+ * - `'panneau'` : il occupe la page. **Seulement quand la grille serait vide**,
+ *   et seulement s'il reste quelque chose à fabriquer. C'est le régime 1 des
+ *   trois premières minutes, et c'est aussi là que se pose le bouton de reprise
+ *   quand l'exécution est morte ;
+ * - `'bande'` : il se replie dans la barre d'application. Dès qu'il y a quelque
+ *   chose à trier, la grille passe devant — les six minutes d'encodage du proxy
+ *   sont six minutes pendant lesquelles on travaille déjà ;
+ * - `'rien'` : plus rien ne tourne et la grille se suffit. Le cas
+ *   `{ interrompu, trie }` tombe ici : un repérage forcé perdu par un
+ *   redémarrage laisse les clips gardés en base, et un panneau d'attente
+ *   mangerait le travail qu'on vient de faire. La reprise, elle, reste offerte
+ *   à côté de la liste — c'est une surface propre de l'écran, pas une
+ *   conséquence de la phase.
+ */
+export type Disposition = 'panneau' | 'bande' | 'rien'
+
+export function dispositionAvancement(
+  phase: Phase,
+  running: { step: StepName; progress: number } | null,
+  grilleVide: boolean,
+): Disposition {
+  if (grilleVide && phase.analyse !== 'complet') return 'panneau'
+  // Sans exécution, une bande ne montrerait la progression de rien.
+  return running === null ? 'rien' : 'bande'
 }

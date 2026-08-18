@@ -469,7 +469,19 @@ describe('renderArgs', () => {
 })
 
 describe('blurredVariantArgs', () => {
-  const base = { src: '/o.mp4', dst: '/o-9x16.mp4', encoder: 'nvenc' as const }
+  // Un clip 1:1 : le cas qui a fait naître #22, et celui que la variante existe
+  // pour porter sur TikTok (spec §2 — 48 % du temps tient jusqu'au 1:1, contre
+  // 24 à 33 % en 9:16).
+  const base = {
+    src: '/s.mp4',
+    dst: '/o-9x16.mp4',
+    segments: [{ start: 0, end: 10 }],
+    crop: { w: 1080, h: 1080, x: 420, y: 0 },
+    out: { w: 1080, h: 1080 },
+    encoder: 'nvenc' as const,
+  }
+
+  const graphe = (a: string[]) => a[a.indexOf('-filter_complex') + 1]
 
   it('sort en 1080x1920', () => {
     const a = blurredVariantArgs(base)
@@ -491,12 +503,102 @@ describe('blurredVariantArgs', () => {
     expect(blurredVariantArgs(base).join(' ')).toContain('gblur=sigma=12')
   })
 
-  // Le son a déjà été normalisé par le rendu natif : le repasser au loudnorm
-  // le comprimerait deux fois.
-  it('recopie le son sans le renormaliser', () => {
+  // **Le test du ticket #22, et le seul qui compte vraiment ici.** La variante
+  // partait du rendu natif déjà incrusté : son fond était un agrandissement du
+  // clip fini, cartons compris, et `gblur=sigma=12` n'efface pas des lettres de
+  // 40 px cerclées d'un contour de 8 — vérifié à l'image, le carton restait
+  // pleinement lisible, le jaune du mot actif compris.
+  //
+  // La parade n'est pas de monter le sigma, c'est de tirer le fond d'un contenu
+  // qui n'a jamais porté de texte : le `split` est **avant** l'incrustation.
+  it("ne laisse ni sous-titre ni marque atteindre le fond flouté", () => {
+    const g = graphe(
+      blurredVariantArgs({
+        ...base,
+        assPath: '/c.ass',
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      }),
+    )
+    // Le fond part de la sortie du `split`, et va au flou sans rien croiser.
+    expect(g).toContain(
+      '[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg]',
+    )
+    // L'incrustation, elle, ne touche que l'autre branche.
+    expect(g).toContain("[fga]ass=filename='/c.ass'[vf0]")
+    expect(g).toContain('[vf0][lg0]overlay=x=40:y=250[vf1]')
+    // Une seule incrustation et une seule marque dans tout le graphe : rien
+    // n'est appliqué deux fois, donc rien ne peut l'être au fond.
+    expect(g.match(/ass=filename=/g)).toHaveLength(1)
+    expect(g.match(/overlay=x=40:y=250/g)).toHaveLength(1)
+  })
+
+  // Le corollaire du précédent, et ce qui le rend correct **par construction**
+  // plutôt que par réglage : la variante se rend depuis la source, comme le
+  // natif, au lieu de recycler le MP4 natif.
+  it('part de la source et de ses segments, jamais du rendu natif', () => {
+    const a = blurredVariantArgs({
+      ...base,
+      segments: [
+        { start: 100, end: 110 },
+        { start: 200, end: 215 },
+      ],
+    })
+    expect(compte(a, '-i')).toBe(2)
+    expect(a.join(' ')).toContain(
+      '-hwaccel cuda -ss 100 -t 10 -i /s.mp4 -hwaccel cuda -ss 200 -t 15 -i /s.mp4',
+    )
+    expect(a.join(' ')).toContain('concat=n=2:v=1:a=1')
+  })
+
+  // Les deux sorties doivent montrer le même cadre : c'est le même rectangle,
+  // la même mise à l'échelle, le même contenu — seule la mise en page diffère.
+  it('cadre exactement comme le rendu natif', () => {
+    const commun = 'crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1'
+    expect(graphe(blurredVariantArgs(base))).toContain(commun)
+    expect(graphe(renderArgs({ ...base, dst: '/o.mp4' }))).toContain(commun)
+  })
+
+  // Le graphe entier, sur le cas le plus simple : un segment, pas de marque.
+  // Le vérifier en entier exclut une étiquette orpheline ou écrite deux fois.
+  it('assemble un graphe complet et sans étape morte', () => {
+    expect(graphe(blurredVariantArgs({ ...base, assPath: '/c.ass' }))).toBe(
+      '[0:v]crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1[vd];' +
+        `[0:a]${LOUDNORM},${RESAMPLE}[a];` +
+        '[vd]split=2[bga][fga];' +
+        '[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];' +
+        "[fga]ass=filename='/c.ass'[vf0];" +
+        '[vf0]scale=1080:-2[fg];' +
+        '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
+    )
+  })
+
+  // Le même graphe **sans sous-titre ni marque**, parce que l'avant-plan n'y
+  // porte alors qu'une seule étape et que c'est le cas limite d'`enchaîner` :
+  // la première étape est aussi la dernière, donc elle doit écrire directement
+  // dans l'étiquette terminale au lieu d'un `vf0` que plus personne ne lirait.
+  // Un clip sans sous-titres est un réglage de l'interface, pas une curiosité.
+  // (relevé par Aristarque)
+  it("assemble le graphe de la variante d'un clip sans sous-titres", () => {
+    expect(graphe(blurredVariantArgs(base))).toBe(
+      '[0:v]crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1[vd];' +
+        `[0:a]${LOUDNORM},${RESAMPLE}[a];` +
+        '[vd]split=2[bga][fga];' +
+        '[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];' +
+        '[fga]scale=1080:-2[fg];' +
+        '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
+    )
+  })
+
+  // Le son ne peut plus être recopié du natif — la variante ne le lit plus. Il
+  // est normalisé **une fois**, depuis la source, exactement comme celui du
+  // natif : c'est le même traitement sur le même PCM, donc aucune compression
+  // en cascade.
+  it('normalise le son depuis la source, une seule fois', () => {
     const a = blurredVariantArgs(base)
-    expect(a.join(' ')).toContain('-c:a copy')
-    expect(a.join(' ')).not.toContain(LOUDNORM)
+    expect(a.join(' ')).not.toContain('-c:a copy')
+    expect(graphe(a).match(/loudnorm=/g)).toHaveLength(1)
+    expect(a.join(' ')).toContain(`${LOUDNORM},${RESAMPLE}`)
+    expect(a.join(' ')).toContain('-c:a aac')
   })
 
   it('ne demande pas non plus -hwaccel_output_format', () => {
@@ -513,6 +615,15 @@ describe('blurredVariantArgs', () => {
   it('efface les métadonnées de la source', () => {
     const a = blurredVariantArgs(base)
     for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+  })
+
+  // Les gardes de `renderArgs` valent pour la variante : c'est le même
+  // constructeur, et une borne perdue y coûterait le même segment muet.
+  it('refuse une borne non finie, comme le rendu natif', () => {
+    expect(() =>
+      blurredVariantArgs({ ...base, segments: [{ start: Number.NaN, end: 10 }] }),
+    ).toThrow(/segments\[0\]/)
+    expect(() => blurredVariantArgs({ ...base, segments: [] })).toThrow()
   })
 })
 
@@ -537,7 +648,14 @@ describe('la garde `--` devant la destination', () => {
     ],
     [
       'blurredVariantArgs',
-      blurredVariantArgs({ src: '/o.mp4', dst: '/-o-9x16.mp4', encoder: 'nvenc' }),
+      blurredVariantArgs({
+        src: '/s.mp4',
+        dst: '/-o-9x16.mp4',
+        segments: [{ start: 0, end: 10 }],
+        crop: { w: 1080, h: 1080, x: 420, y: 0 },
+        out: { w: 1080, h: 1080 },
+        encoder: 'nvenc',
+      }),
     ],
   ])('%s la pose', (_nom, a) => {
     expect(a[a.length - 2]).toBe('--')

@@ -155,6 +155,12 @@ Ce qui reste : le préréglage NVENC. `p5` plafonne à 275 images/s, `p4` monte 
 451, sur le même matériel et la même source. `-spatial-aq` et `-temporal-aq` ne
 coûtent rien de mesurable.
 
+**Ces trois mesures datent d'un graphe qui n'était qu'un `crop` suivi d'un
+`scale`.** Le rendu porte depuis les sous-titres, les marques et — sur la
+variante 9:16 — un flou de fond, et ce sont eux qui bornent désormais l'export.
+Voir « Le préréglage NVENC de l'export » plus bas : la conclusion de l'époque
+était juste, elle a seulement cessé de s'appliquer.
+
 ### Les sous-titres sont gratuits
 
 La chaîne complète (`-hwaccel cuda`, `crop`, `scale`, filtre `ass`, NVENC)
@@ -342,14 +348,131 @@ déposer.
 
 Un clip produit **deux fichiers dès que son ratio n'est pas 9:16** : le format
 natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur fond
-flouté pour TikTok et Shorts. La variante part du rendu natif, dont le son est
-déjà normalisé, et le recopie sans le recomprimer.
+flouté pour TikTok et Shorts. **Les deux se rendent depuis la source**, avec les
+mêmes segments, le même rectangle de crop, les mêmes sous-titres et les mêmes
+marques — voir la section suivante, qui explique pourquoi la variante ne part
+plus du natif.
 
 Mesuré le 18 août 2026 sur `2025-06-15-cqlp.mp4`, un clip de 43,2 s monté en
-trois segments et rendu en 1:1 : **10 s pour les deux sorties**, le natif et sa
+trois segments et rendu en 1:1 : **15 s pour les deux sorties**, le natif et sa
 variante réunis. Un second clip du même projet, 29,4 s en deux segments et déjà
 en 9:16, donc sans variante : 4 s. Cette source est en 30 images par seconde ;
 les émissions en 60 fps coûtent le double.
+
+## Le fond flouté ne peut plus porter de texte
+
+La variante 9:16 partait du **rendu natif déjà terminé**. Son fond était donc un
+agrandissement du clip fini, cartons de sous-titres compris, et un flou gaussien
+n'efface pas des lettres de 40 px cerclées d'un contour de 8 : il les étale.
+
+**Constaté à l'image, et le filtergraph ne le disait pas.** Sur les 43 s du clip
+1:1 de `2025-06-15-cqlp`, une image par seconde extraite de la bande du bas —
+1080x420, sous l'avant-plan — donne **43 tuiles sur 43 avec un carton pleinement
+lisible**, à la même taille que le vrai, le jaune du mot actif compris. C'est
+exactement la bande où TikTok et Shorts posent leur interface, et cette variante
+est ce qui permet à un 1:1 ou à un 4:5 d'atteindre ces deux plateformes : la
+moitié du bénéfice mesuré en section 2 de la spec passe par elle.
+
+**Monter le sigma était la mauvaise réponse**, et c'est pour ça qu'elle est
+écrite ici. Elle floute toute l'image davantage — le fond n'a pas à devenir une
+purée — et rien ne garantit qu'elle suffise : un flou gaussien étale un trait à
+fort contraste, il ne le détruit pas, et le sigma qu'il faudrait ferait cesser le
+fond d'être une image. `SIGMA_DU_FOND` vaut toujours 12 dans
+`src/core/ffmpeg/args.ts`, et le commentaire y dit pourquoi il n'en bouge pas.
+
+**Ce qui répare, c'est de ne jamais mettre de texte dans le fond.** La variante
+se rend depuis la source comme le natif, et le `split` qui sépare le fond de
+l'avant-plan est posé **avant** l'incrustation :
+
+```
+[vc]split=2[bga][fga];
+[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];
+[fga]ass=…[vf0];[vf0][lg0]overlay=…[vf1];[vf1]scale=1080:-2[fg];
+[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]
+```
+
+Le fond ne peut plus contenir de sous-titre ni de marque : il n'en a jamais vu
+passer. C'est correct par construction, là où un sigma plus haut n'aurait été
+qu'un réglage à défendre. Vérifié à l'image sur le même clip, avec la même
+mosaïque : **43 tuiles sur 43 sans un pixel de texte**, et la bande du haut est
+propre elle aussi.
+
+Le même jour, même clip, sortie vers `-f null`, meilleur temps de quatre passes :
+
+| Passe d'encodage | 43,2 s de clip |
+|---|---|
+| rendu natif 1:1 | 3,85 s (337 img/s) |
+| ancienne variante, depuis le natif | 6,19 s (210 img/s) |
+| **nouvelle variante, depuis la source** | **8,73 s (149 img/s)** |
+
+L'export passe donc de 10 s à 12,6 s d'encodage pour ce clip, **+26 %**, ce qui
+reste loin de la minute pour un clip de 90 s. Deux notes sur ce prix :
+
+- il ne se paie **pas** en décodage — décoder les segments une seconde fois est
+  la partie bon marché, le décodage seul tournant à 16x sur cette machine ;
+- il rapporte au passage une génération d'encodage en moins sur l'avant-plan, qui
+  ne recycle plus un MP4 déjà compressé. Le son, lui, n'est plus recopié du natif
+  mais renormalisé depuis la source : c'est le même `loudnorm` sur le même PCM
+  d'origine, donc toujours une seule compression.
+
+**Où passe le temps, mesuré** : la même variante sans le `gblur` tourne à
+218 img/s contre 149. Le flou coûte donc 2,4 ms par image, soit **35 % de la
+passe**. C'est aujourd'hui le poste le plus cher de l'export, avant l'encodeur —
+voir la section suivante, qui en tire la conséquence.
+
+## Le préréglage NVENC de l'export : `p5` reste
+
+`p5` était écrit en dur dans `NVENC.quality` (`src/core/ffmpeg/encoder.ts`),
+repris d'OpenShorts, et personne n'avait regardé ce que `p4` coûtait en qualité.
+La question se posait parce que `p4` encode 1,6x plus vite que `p5`. Tranché le
+18 août 2026, **après** le passage de la variante à un rendu depuis la source :
+mesurer avant, c'eût été mesurer le pipeline qu'on remplaçait.
+
+**Côté qualité, `p4` tient — et pas de justesse.** Même graphe, même fenêtre de
+6 s prise dans le clip 1:1, encodée en `p5` et en `p4`, comparées à une référence
+sans perte (`libx264 -qp 0`) du même graphe :
+
+| | PSNR Y | SSIM Y | Taille |
+|---|---|---|---|
+| `p5` | 34,5678 dB | 0,990743 | 3,78 Mo |
+| `p4` | 34,5674 dB | 0,990629 | 3,78 Mo |
+| `p7` | 34,5702 dB | 0,990805 | 3,82 Mo |
+
+Les écarts sont à la quatrième décimale, et l'œil ne fait pas mieux : à
+1080x1920, sur le sujet, sur le fond flouté — le grand aplat en dégradé où un
+matriçage se verrait en premier — et sur le bord des lettres d'un carton, les
+paires sont indiscernables ; l'image de différence amplifiée douze fois est
+plate. Sur les 43 s complètes, `p5` et `p4` pèsent 29,67 et 29,73 Mo.
+
+**Côté vitesse, la raison de changer a disparu.** Le préréglage fait toujours ce
+qu'il annonce sur l'encodeur seul, mais l'export n'est plus borné par
+l'encodeur :
+
+| Meilleur de cinq passes, `-f null` | `p5` | `p4` |
+|---|---|---|
+| encodeur seul, 1080x1920, sans filtre | 261 img/s | **425 img/s** (1,63x) |
+| rendu natif 1:1, graphe complet | 3,85 s | 3,86 s |
+| variante 9:16, graphe complet | 8,73 s | 8,84 s |
+
+Sur le graphe réel, les deux préréglages rendent **le même temps**. La variante
+plafonne à 149 img/s là où `p5` seul en tient 261 au même format ; le natif
+plafonne à 337, et son plafond d'encodeur est plus haut encore puisqu'il sort en
+1080x1080. Ce sont donc les filtres qui bornent — `lanczos`, `ass`, les deux
+marques, et pour la variante le `gblur` à lui seul. Le corollaire de la mesure
+« Les filtres n'y sont pour rien » plus haut a cessé de valoir le jour où le
+graphe a cessé d'être un `crop` suivi d'un `scale`.
+
+**Verdict : on ne touche pas à la table.** Non parce que `p5` serait le prix de
+la qualité — il ne l'est pas, `p4` rend la même image —, mais parce que `p4` ne
+rend rien de plus : ni image différente, ni seconde gagnée. Un réglage de
+livraison ne change pas pour zéro.
+
+**Ce qui rouvrirait la question**, et c'est la seule chose à surveiller : que
+l'export redevienne borné par l'encodeur. Cela arriverait si le `gblur` était
+allégé — le flouter en quart de résolution avant de le remonter est le candidat
+évident, et il rendrait jusqu'à 2,4 ms par image — ou si les filtres passaient sur le
+GPU. Ce jour-là, `p4` reprendrait ses 1,63x, et la mesure de qualité ci-dessus
+dit qu'il n'y a rien à perdre à les prendre.
 
 ## Le reste de la machine
 

@@ -39,6 +39,16 @@ export const MAX_DURATION_DEFAUT = 1.4
  * certains transcripts portent le séparateur dans le jeton lui-même, ce qui
  * fausserait le décompte et doublerait l'espace au rendu. Ni le tableau ni les
  * mots de l'appelant ne sont modifiés.
+ *
+ * Deux réserves sur la sortie :
+ *
+ * - **les mots sont attendus dans l'ordre du temps**, ce que rend `retimeWords`,
+ *   le seul appelant du pipeline. Aucun tri ici : ce serait trier deux fois le
+ *   même tableau, et sur un tableau désordonné la durée d'un carton — mesurée
+ *   depuis son premier mot — n'aurait de toute façon plus de sens ;
+ * - un mot **plus long que `maxDuration`** tient un carton à lui seul, au-delà
+ *   du seuil : le premier mot ouvre le carton sans condition, et le jeter parce
+ *   qu'il dure trop serait pire que l'afficher trop longtemps.
  */
 export function splitIntoCards(
   words: Word[],

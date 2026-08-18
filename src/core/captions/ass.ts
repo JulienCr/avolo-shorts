@@ -21,9 +21,12 @@ import { MAX_CHARS_DEFAUT, MAX_DURATION_DEFAUT } from './cards'
  * L'apparence des sous-titres. Spec §9 : « ces valeurs deviennent un preset
  * modifiable, pas des constantes en dur ».
  *
- * `maxChars` et `maxDuration` décrivent le découpage plutôt que le rendu, mais
- * ils voyagent avec le reste : c'est un seul réglage pour l'utilisateur, et les
- * séparer obligerait l'appelant à en transporter deux.
+ * `maxChars` et `maxDuration` y figurent parce que c'est un seul réglage pour
+ * l'utilisateur, mais **`renderAss` ne les lit pas** : ils décrivent le
+ * découpage, qui a déjà eu lieu quand le rendu commence. Un appelant qui porte
+ * un preset les passe donc lui-même à `splitIntoCards` —
+ * `splitIntoCards(mots, style.maxChars, style.maxDuration)`. Les omettre ne
+ * marche que tant que le preset vaut `DEFAULT_CAPTION_STYLE`.
  */
 export type CaptionStyle = {
   fontName: string
@@ -129,16 +132,34 @@ function couleurEnLigne(couleur: string, repli = 'FFD700'): string {
   return `&H${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}&`
 }
 
-/** `H:MM:SS.cc` — l'horodatage ASS, au centième. */
-function tempsAss(secondes: number): string {
-  const t = Math.max(0, Number.isFinite(secondes) ? secondes : 0)
-  const heures = Math.floor(t / 3600)
-  const minutes = Math.floor((t % 3600) / 60)
-  const s = Math.floor(t % 60)
-  // Le plafond à 99 rattrape l'arrondi qui ferait déborder d'une seconde
-  // (`59,999` → `60`), ce qui donnerait un horodatage qu'aucun lecteur n'accepte.
-  const centiemes = Math.min(99, Math.round((t - Math.floor(t)) * 100))
-  return `${heures}:${String(minutes).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(centiemes).padStart(2, '0')}`
+/**
+ * L'instant en centièmes de seconde entiers — **la seule unité que le fichier
+ * connaisse**.
+ *
+ * Arrondir ici, une fois, et raisonner ensuite sur des entiers, est ce qui rend
+ * les bornes d'un événement comparables dans l'unité où elles seront écrites.
+ * La version d'origine gardait les secondes flottantes jusqu'au formatage, ce
+ * qui laissait passer un événement de quatre millisecondes — écrit avec un début
+ * et une fin identiques.
+ */
+function centiemes(secondes: number): number {
+  return Math.round(Math.max(0, Number.isFinite(secondes) ? secondes : 0) * 100)
+}
+
+/**
+ * `H:MM:SS.cc` — l'horodatage ASS, formé d'un compte de centièmes.
+ *
+ * La décomposition part du total et non de la seconde : c'est ce qui propage la
+ * retenue. La version d'origine arrondissait la partie fractionnaire à part puis
+ * écrêtait à 99 pour éviter un `0:00:59.100` — ce qui écrit `59,999` en
+ * `0:00:59.99` et perd jusqu'à dix millisecondes au passage de chaque seconde.
+ */
+function tempsAss(centis: number): string {
+  const heures = Math.floor(centis / 360000)
+  const minutes = Math.floor((centis % 360000) / 6000)
+  const s = Math.floor((centis % 6000) / 100)
+  const c = centis % 100
+  return `${heures}:${String(minutes).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
 }
 
 /**
@@ -149,12 +170,22 @@ function tempsAss(secondes: number): string {
  * n'y garantit l'absence de ces trois caractères, et un `{` non refermé fait
  * disparaître la fin du carton sans que libass ne signale rien.
  *
+ * Un saut de ligne **littéral** est le quatrième, et le plus destructeur : un
+ * événement tient sur une ligne, donc un U+000A dans un mot coupe la ligne
+ * `Dialogue:` en deux et rend le fichier illisible à partir de là.
+ * `splitIntoCards` normalise déjà les blancs, mais `renderAss` est exporté et
+ * doit tenir seul.
+ *
  * **Substitution et non échappement** : ASS n'a pas d'échappement d'accolade sur
  * lequel les lecteurs s'accordent. On remplace donc par un caractère voisin —
  * c'est ce que fait la version d'origine, éprouvée en production.
  */
 function echapper(texte: string): string {
-  return texte.replace(/\\/g, '/').replace(/\{/g, '(').replace(/\}/g, ')')
+  return texte
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\\/g, '/')
+    .replace(/\{/g, '(')
+    .replace(/\}/g, ')')
 }
 
 /**
@@ -201,7 +232,11 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   // rendu de référence a été réglé. 44 devient donc 37.
   const taille = Math.max(10, Math.floor(borner(style.fontSize, 10, 200, 44) * 0.85))
   const police = nomDePolice(style.fontName)
-  const epaisseur = Math.max(1, Math.floor(borner(style.borderWidth, 0, 10, 4)))
+  // Le contour ne descend pas sous 1 : sur de la vidéo, du texte sans contour
+  // devient illisible dès que le fond s'éclaircit. Une seule garde l'énonce —
+  // borner à 0 puis remonter à 1 par un `Math.max` disait deux choses opposées,
+  // et un preset réglé à 0 remontait à 1 sans un mot.
+  const epaisseur = Math.floor(borner(style.borderWidth, 1, 10, 4))
   const marge = Math.round(borner(style.marginV, 0, 200, MARGE_BASSE))
 
   const principale = couleurDeStyle(style.fontColor, 1)
@@ -247,8 +282,14 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
     for (let i = 0; i < card.length; i++) {
       // L'événement commence au mot actif — ce qui, pour le premier, revient au
       // début du carton — et se termine au début du mot suivant.
-      const debut = card[i].start
-      const fin = i < card.length - 1 ? card[i + 1].start : card[i].end
+      //
+      // Les deux bornes sont converties en centièmes **avant** d'être comparées :
+      // c'est l'unité du fichier, et c'est donc la seule où « la fin dépasse le
+      // début » veut dire quelque chose. Comparées en secondes, deux bornes
+      // distantes de quatre millisecondes passaient la garde et s'écrivaient
+      // identiques.
+      const debut = centiemes(card[i].start)
+      const fin = centiemes(i < card.length - 1 ? card[i + 1].start : card[i].end)
       if (fin <= debut) continue
 
       const parts = card.map((autre, j) => {

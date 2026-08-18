@@ -136,6 +136,8 @@ describe('splitIntoCards', () => {
     }
   })
 
+  // Sans marge : le code garantit exactement le seuil, et une tolérance d'une
+  // demi-seconde laisserait passer un dépassement de 0,1 à 0,4 s (Aristarque).
   it('ferme un carton à 1,4 seconde', () => {
     const words = Array.from({ length: 8 }, (_, i) => ({
       word: 'a',
@@ -143,8 +145,17 @@ describe('splitIntoCards', () => {
       end: i * 0.5 + 0.4,
     }))
     for (const card of splitIntoCards(words)) {
-      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(1.4 + 0.5)
+      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(1.4)
     }
+  })
+
+  // La seule exception au seuil, et elle est structurelle : le premier mot ouvre
+  // le carton sans condition. Un mot plus long que la limite tient donc seul,
+  // au-delà d'elle — le jeter serait pire.
+  it('laisse un mot plus long que le seuil tenir un carton à lui seul', () => {
+    expect(splitIntoCards([{ word: 'euuuuh', start: 0, end: 3 }])).toEqual([
+      [{ word: 'euuuuh', start: 0, end: 3 }],
+    ])
   })
 
   it('ne perd aucun mot', () => {
@@ -265,6 +276,31 @@ describe('renderAss', () => {
     expect(events[1].match(actif)?.[1]).toBe('TOI')
   })
 
+  // Le fichier ne connaît que le centième : un événement dont les deux bornes
+  // retombent sur le même centième s'écrirait `0:00:00.00 → 0:00:00.00`. Comparer
+  // les temps bruts le laissait passer (Copilot). Un mot rogné par une coupe
+  // interne en produit de quelques millisecondes.
+  it("saute un événement que l'arrondi au centième réduit à rien", () => {
+    const ass = renderAss(
+      [
+        [
+          { word: 'a', start: 0, end: 0.5 },
+          { word: 'b', start: 0.004, end: 0.5 },
+        ],
+      ],
+      DEFAULT_CAPTION_STYLE,
+    )
+    expect(dialogues(ass).length).toBe(1)
+  })
+
+  // L'arrondi doit se propager, pas se faire écrêter : `59,999` vaut une minute
+  // pleine, pas `0:00:59.99` (Copilot). Le portage avait hérité de l'écrêtage de
+  // la version d'origine, qui perd jusqu'à 10 ms au passage de chaque seconde.
+  it("propage la retenue de l'arrondi au lieu de l'écrêter", () => {
+    const ass = renderAss([[{ word: 'a', start: 59.5, end: 59.999 }]], DEFAULT_CAPTION_STYLE)
+    expect(dialogues(ass)[0]).toContain('0:00:59.50,0:01:00.00')
+  })
+
   it('saute un événement dont la fin ne dépasse pas le début', () => {
     const ass = renderAss(
       [
@@ -320,6 +356,22 @@ describe('renderAss', () => {
   it("ne laisse pas un nom de police injecter des champs dans la ligne de style", () => {
     const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontName: 'Anton,72,&HFF0000' })
     expect(ligneDeStyle(ass).slice('Style: '.length).split(',').length).toBe(23)
+  })
+
+  // Un saut de ligne littéral couperait la ligne `Dialogue:` en deux et
+  // corromprait le fichier. `splitIntoCards` normalise déjà les blancs, mais
+  // `renderAss` est exporté et sa documentation dit qu'il se suffit (Aristarque).
+  it('aplatit un saut de ligne, qui couperait la ligne Dialogue en deux', () => {
+    const ass = renderAss([[{ word: 'deux\nlignes\r', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE)
+    expect(dialogues(ass).length).toBe(1)
+    expect(texteDe(dialogues(ass)[0])).toContain('DEUX LIGNES')
+  })
+
+  // `borner(…, 0, …)` puis `Math.max(1, …)` se contredisaient : un preset à 0
+  // remontait à 1 sans rien dire (Aristarque). Une seule garde, qui l'énonce.
+  it('remonte un contour nul au minimum lisible', () => {
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, borderWidth: 0 })
+    expect(ligneDeStyle(ass).split(',')[16]).toBe('1')
   })
 
   it('retombe sur des couleurs valides plutôt que de rendre un fichier illisible', () => {

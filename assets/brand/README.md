@@ -2,9 +2,12 @@
 
 Dépose ici les deux images que le rendu incruste en haut du clip. Elles
 t'appartiennent, donc git les ignore : `.gitignore` couvre `assets/brand/*` et
-n'excepte que ce fichier. Un dépôt fraîchement cloné n'en a aucune, et **le rendu
-marche sans** — il n'y a alors pas de marque, pas d'avertissement bloquant, pas
-d'échec.
+n'excepte que ce fichier. Un dépôt fraîchement cloné n'en a donc aucune, et
+**l'export d'un clip qui en demande échoue alors, en le disant** — `branding`
+vaut `true` sur tout clip repéré. Le rendu est la dernière étape avant qu'un
+fichier parte sur Instagram : y livrer un MP4 sans logo sans un mot ne se
+rattrape qu'en dépubliant (#37). Pour rendre volontairement sans marque, passe
+`branding` à `false` sur le clip.
 
 | Fichier | Ce que c'est | Où il se pose | Largeur |
 |---|---|---|---|
@@ -12,7 +15,9 @@ d'échec.
 | `twitch.png` | la mention Twitch | en haut à droite | 16 % |
 
 Chacune se rend seule : un logo sans mention, ou l'inverse, sont deux
-installations légitimes.
+installations légitimes. **L'une des deux suffit** à faire passer un clip qui
+demande des marques — rien ne distingue « je n'ai qu'un logo » de « la mention a
+disparu », alors que zéro marque, lui, ne se confond avec rien.
 
 ## Le format
 

@@ -113,6 +113,11 @@ function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): Cadrag
  * chemin : relancer l'analyse réécrit le fichier sous le même nom, et un cache
  * indexé sur le seul chemin servirait les plans d'avant jusqu'au redémarrage du
  * serveur — un cadrage faux, que rien ne signalerait.
+ *
+ * **Sans éviction, et c'est mesuré plutôt que supposé** : une entrée par projet,
+ * trois projets sur cette machine, et le dossier des projets est ce que
+ * l'opérateur ingère à la main. Un cache borné coûterait une politique
+ * d'éviction à régler pour une table qui ne dépassera pas la dizaine.
  */
 type Entrée = { clé: string; analyse: Analyse | null; origine: OrigineCadrage }
 const cache = new Map<string, Entrée>()
@@ -139,12 +144,12 @@ export type SourceDuCadrage = { analyse: Analyse | null; origine: OrigineCadrage
 /**
  * Lit l'analyse d'un projet. **C'est la seule fonction faillible du module** :
  * elle touche au disque, et relaie une panne au lieu de la maquiller en absence.
+ *
+ * Nommée `analyseDuProjet` et non `lireAnalyse`, qui existe déjà dans
+ * `steps/analysis.ts` et fait le travail d'un cran plus bas — celle-ci ajoute le
+ * cache, la distinction absence/panne, et l'origine.
  */
-export function lireLAnalyse(projectId: string): SourceDuCadrage {
-  return analyseDuProjet(projectId)
-}
-
-function analyseDuProjet(projectId: string): SourceDuCadrage {
+export function analyseDuProjet(projectId: string): SourceDuCadrage {
   const fichier = analysisPath(projectId)
   let info: fs.Stats
   try {

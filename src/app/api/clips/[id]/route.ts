@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { cadrageAvec, cadrageDuClip, lireLAnalyse } from '@/server/cadrage'
+import { cadrageAvec, cadrageDuClip, analyseDuProjet } from '@/server/cadrage'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
@@ -122,7 +122,7 @@ export const PATCH = route(
     // **L'analyse se lit AVANT l'écriture, et c'est la seule raison de la lire
     // ici plutôt que là où on s'en sert.**
     //
-    // `lireLAnalyse` touche au disque et relaie une panne — un refus de droits,
+    // `analyseDuProjet` touche au disque et relaie une panne — un refus de droits,
     // un montage mort — au lieu de la maquiller en absence. Appelée après le
     // `putClip`, elle rendrait 500 sur un montage pourtant enregistré, et
     // l'écriture optimiste de l'interface remettrait l'ancienne version à
@@ -132,7 +132,7 @@ export const PATCH = route(
     //
     // Ce qui suit l'écriture n'est plus que `cadrageAvec`, qui est pur.
     // (relevé par Copilot)
-    const analyse = lireLAnalyse(clip.projectId)
+    const analyse = analyseDuProjet(clip.projectId)
 
     const suivant: Clip = {
       ...clip,

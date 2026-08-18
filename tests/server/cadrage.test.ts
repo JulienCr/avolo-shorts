@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
-import { cadrageAvec, cadrageDuClip, lireLAnalyse, oublierLesAnalyses } from '@/server/cadrage'
+import { cadrageAvec, cadrageDuClip, analyseDuProjet, oublierLesAnalyses } from '@/server/cadrage'
 import { analysisPath } from '@/server/paths'
 
 /**
@@ -233,7 +233,7 @@ describe('cadrageDuClip', () => {
 describe('cadrageAvec', () => {
   it('calcule sans toucher au disque', () => {
     écrireAnalyse()
-    const source = lireLAnalyse(ID)
+    const source = analyseDuProjet(ID)
 
     // `PROJECTS_DIR` mis hors d'atteinte : si le calcul lisait quoi que ce soit,
     // il lèverait ou se rabattrait sur `sans-analyse`. Il fait ni l'un ni l'autre.
@@ -251,6 +251,6 @@ describe('cadrageAvec', () => {
 
   it('rend le même cadrage que le chemin complet', () => {
     écrireAnalyse()
-    expect(cadrageAvec(clip(), lireLAnalyse(ID))).toEqual(cadrageDuClip(clip()))
+    expect(cadrageAvec(clip(), analyseDuProjet(ID))).toEqual(cadrageDuClip(clip()))
   })
 })

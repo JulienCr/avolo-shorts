@@ -12,7 +12,8 @@ et les mesures qui la fondent.
 ## Où en est le projet
 
 **L'itération 0 est livrée, l'interface avec, et la moitié de l'itération 1.**
-Dix-sept PR fusionnées le 18 août 2026, **1494 tests**, CI verte à chaque PR.
+Vingt-deux PR fusionnées le 18 août 2026, **1594 tests** sur 71 fichiers, CI
+verte à chaque PR.
 
 Ce qui tourne : ingestion depuis le Drive, proxy, extraction audio,
 transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
@@ -112,27 +113,56 @@ sans repayer les six minutes de proxy.
 
 ### L'itération 1 n'est pas finie, et son dernier morceau est un préalable
 
-Le cadrage automatique est en ligne et **ne produit rien d'utilisable en
-l'état** : sur `2025-06-15-cqlp`, les **30 clips sortent tous en 16:9**.
+**Le filtre du public au premier plan est livré** (PR #61), et il ne suffit pas.
 
-La cause est mesurée : **34 % des boîtes de personnes sont des têtes de
-spectateurs collées au bord bas de l'image.** Écarter le premier plan fait
-passer l'empan médian de 0,68 à 0,50 et la part du temps qui tient dans un 1:1
-de **33 % à 64 %**. Sur `2026-03-08-caro-mdlm`, 26 boîtes sur 3 083 seulement :
-c'est propre à `cqlp`, pas général.
+Le discriminateur n'est pas un seuil de hauteur : c'est le bord bas **et** une
+tranche courte — `y1 ≥ 0,97` et une hauteur sous 0,35 —, et ce second seuil n'a
+pas été choisi. Conditionnée au contact du bord, la hauteur est bimodale et le
+creux est profond : **29 boîtes sur 26 436 entre 0,32 et 0,40**. Trois pistes ont
+été écartées à l'image et non à l'histogramme — le rapport largeur/hauteur ne
+tranche pas, la hauteur seule jette 3 075 comédiens lointains, le bord bas seul
+jette 76 % des comédiens.
 
-Ce n'est pas un seuil. Couper à `y1 ≤ 0,97` déplace bien 19 clips sur 30 vers un
-ratio plus serré, mais ne laisse survivre que 16 % des boîtes — donc il jette
-aussi des comédiens debout. **Le filtre demande sa propre mesure**, et il vient
-avant tout le reste de l'itération 1 : sans lui, l'automatique ne vaut pas mieux
-que le manuel.
+Sur `2025-06-15-cqlp`, l'empan médian tombe de 0,661 à 0,540, la part des images
+tenant dans un 1:1 monte de 31,3 % à 55,1 %, et 25 fenêtres de 30 s sur 197 se
+resserrent sans qu'aucune ne s'élargisse. **Et pourtant les dix clips réels
+sortent tous en 16:9, avant comme après.** Sur quatre d'entre eux les deux
+comédiens sont réellement aux deux bords : l'empan résiduel vaut 0,61 pour un 1:1
+qui en couvre 0,5625, et le ratio est juste.
 
-Restent ensuite, dans cet ordre :
+Le piège que cette mesure a fermé mérite d'être gardé : **le filtre naïf sur le
+bord bas seul paraît bien meilleur — 90,4 % en 1:1 — parce qu'il vide 64 % des
+images de toute détection.** Une part calculée sur ce qui reste ne dit rien.
+
+**La trouvaille qui compte est ailleurs, et elle touche la prémisse du projet.**
+Une part par image ne prédit pas un ratio par clip : 55,1 % des images tiennent
+dans un 1:1, contre 20 % des clips. C'est mécanique — le crop est fixe par plan,
+donc le ratio se choisit sur ce qu'une position fixe cadre, pas sur ce qu'un crop
+libre par image cadrerait. Or la mesure fondatrice de la spec §2, « 48 % du temps
+tient dans un 1:1 ou plus serré », est une mesure **par image**. Elle ne soutient
+donc pas directement ce qu'on en a conclu pour les clips.
+
+**Personne n'a mesuré la répartition des ratios par clip sur une émission sans
+chat incrusté**, et c'est ce chiffre qui dit si l'itération 1 paie : à 16:9 sur
+une source 16:9, un crop couvre toute la largeur et n'a rien à placer. La mesure
+est en cours sur `2026-03-08-caro-mdlm` — proxy et `analysis.json` sur le disque,
+il lui manque audio, transcript et candidats, soit une quinzaine de minutes. Elle
+mesure aussi ce que coûte `FramingOptions.margin`, la marge de confort de 2 %
+jamais mesurée, qui vaut 0,04 d'empan et arbitre plusieurs clips autour du seuil
+du 1:1 — la piste la plus rentable devant toute amélioration du filtre.
+
+Restent ensuite, dans cet ordre, et **sous réserve de cette mesure** :
 
 1. **Le rendu à crop variable.** `renderArgs` applique un seul rectangle à tous
    les segments (`src/core/ffmpeg/args.ts`). Un segment qui traverse une
    frontière de plan doit se découper en autant d'entrées que de plans. La
-   migration porte `cropMode` et la table `crops`, décrites plus bas.
+   migration porte `cropMode` et la table `crops`, décrites plus bas. La clé
+   d'une dérogation est **l'intervalle source du plan**, résolu par recouvrement
+   maximal — pas son instant de début, que `computeFraming` indexe encore. Ce que
+   décide cette forme n'est pas la frontière qui bouge de trois dixièmes, c'est
+   que le seuil de détection sera reréglé et que `plans()` ajoute et retire des
+   frontières : une redétection produit exactement des plans divisés et fusionnés.
+   Le raisonnement complet est en §3.5 du document de parcours.
 2. **Le préremplissage.** `resolveRatio('auto')` rend encore `9:16` en dur et
    doit aller chercher `computeFraming`.
 3. **Les coupes posées sur les frontières.** `snapToShots` est écrit, pur et
@@ -201,24 +231,21 @@ montage sur l'écran de projet.
 Tout est en tickets. **Le tracker fait autorité ; cette section ne le double pas**,
 elle dit seulement quoi lire en premier.
 
-**Les deux qui comptent, dans cet ordre :**
+**Celle qui compte :**
 
-- **#55 (P1, correctif d'une ligne)** — les rappels passés à `patch.mutate` vivent
-  sur un observateur que `usePatchClip` partage entre le montage et les écritures
-  de champs. Taper un titre pendant que le montage s'enregistre **vole ses
-  rappels** : la réconciliation d'un `PATCH` refusé n'a jamais lieu, l'intention
-  écartée repart avec un jeton neuf et gagne, et un échec devient muet pendant que
-  la barre affiche « enregistré ». C'est exactement la garantie d'ordre que le
-  socle avait été écrit pour établir. `mutateAsync` la referme.
 - **#48 (P1)** — un rendu peut se dire à jour sans l'être, par quatre chemins qu'une
-  seule empreinte de rendu persistée ferme.
+  seule empreinte de rendu persistée ferme. Le quatrième échappe aux cinq champs
+  de `leRenduEstPérimé` : les trois rendus sur le disque ne portent aucune marque
+  alors que `branding` valait `true` aux deux instants, donc l'empreinte doit dire
+  **ce qui a réellement été incrusté**, pas ce qui était demandé.
 
-**Les trois autres :** #54 (la conception contredit le code sur six points
-vérifiés, à reprendre en une fois), #56 (six restes d'interface, chacun borné et
-documenté au point d'appel), #41 (les vignettes de source, avec la mesure et
-l'argument qui la rend discutable), #49 (deux résidus du caviardage).
+**Les autres :** #56 (cinq restes d'interface — le point 5 est livré, et son pari
+selon lequel il fermerait aussi le point 2 s'est révélé faux, démontré), #57 (le
+bilan de repérage annonce une perte quand la récupération a tout rattrapé, P1
+quick-win), #65 (le minuteur de l'écriture différée renvoie un `PATCH` après
+restauration depuis le bfcache).
 
-Ce qui a été fermé en route : #37, #38, #39, #40.
+Ce qui a été fermé en route : #37, #38, #39, #40, #41, #49, #54, #55.
 
 - **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
   dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien
@@ -271,8 +298,8 @@ Quatre faits payés par la vague du 18 août, et qui coûtent cher à redécouvr
   générés par Next qui s'y trouvent. Ce n'est pas un défaut du dépôt : la CI part
   d'un clone frais et ne les voit pas. Restreindre à `src scripts tests` pour un
   contrôle local honnête.
-- **Le venv de détection pèse 7,8 Go** et `setup.sh` le construit dans
-  `worker/venv`, avec les poids YOLO dans `worker/models` (149 Mo, release
+- **Le venv de détection pèse 7,0 Go** et `setup.sh` le construit dans
+  `worker/venv` **du checkout principal**, avec les poids YOLO dans `worker/models` (149 Mo, release
   épinglée, somme SHA-256 vérifiée). Les deux sont ignorés par git — vérifié :
   zéro chemin sous `worker/venv` dans tout l'historique. Ne jamais les laisser
   entrer dans un commit.
@@ -289,7 +316,7 @@ bouger.
 
 | Itération | Contenu |
 |---|---|
-| 1 | Cadrage automatique : détection de personnes et de plans, ratio au percentile 90, crop fixe par plan, coupes posées sur les frontières |
+| 1 | Cadrage automatique : détection de personnes et de plans, ratio choisi sur ce qu'un crop fixe par plan cadre, crop fixe par plan, coupes posées sur les frontières |
 | 2 | Qualité du repérage : les quatre autres pourvoyeurs, reclassement en vision |
 | 3 | Sous-titres : nettoyage des hésitations, correction par modèle local, style personnalisable |
 | 4 | Automatisation : watcher, webhook, graphe complet avec clés de validité |
@@ -364,9 +391,34 @@ correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 ### Les reviews
 
-**Aristarque est coupé depuis le 18 août au soir**, faute de jetons. Il reste
-Codex et Copilot. Son silence n'est pas une passe en attente : un agent qui
-l'attendrait ne fusionnerait jamais.
+**Aristarque a été coupé le 18 août au soir faute de jetons, puis rallumé à
+20:32 le même jour.** Les trois relecteurs sont donc en service. Vérifier la
+variable plutôt que de se fier à ce paragraphe : elle a changé deux fois en une
+soirée, et six agents avaient été briefés sur l'état d'avant.
+
+**Ce qui déclenche qui, et c'est ce qui gouverne le coût d'une PR.** Copilot
+relit à **chaque poussée** ; Codex ne relit que sur `opened`, `ready_for_review`
+et sur `@codex review` explicite, **jamais sur push** ; Aristarque suit son
+workflow. Conséquence pratique, mesurée le 18 août sur cinq PR : le nombre de
+passes n'est pas choisi, c'est une fonction du nombre de **poussées** — 9 commits
+et 5 passes sur une PR d'un seul fichier de documentation. Grouper les correctifs
+d'un même tour en une seule poussée est le levier, pas le critère d'arrêt.
+
+Le corollaire tentant — `gh pr ready --undo`, pousser à l'abri, puis `gh pr ready`
+— **n'achète pas zéro tour** : le repassage en ready émet `ready_for_review`, donc
+un tour complet à **trois** relecteurs au lieu de N tours à Copilot seul. C'est
+presque toujours le bon échange, et c'est aussi le seul moyen de redéclencher
+Aristarque sans `gh workflow run` ; ce n'en est pas un couvercle. Et `--undo`
+porte « if supported by your plan » : son échec est silencieux dans la mauvaise
+direction — la PR reste en ready, les relecteurs relisent, et l'agent croit avoir
+mis un couvercle. Vérifier le code de sortie. Une PR en brouillon n'accepte pas
+l'auto-merge, ce qui ordonne la manœuvre et la procédure de plafond.
+
+**Le pied de page d'Aristarque peut contredire ses sections.** « Rien à signaler »
+partout, et en bas `⚠ passes « … » non abouties` : le verdict ne vaut alors que
+pour les axes qui ont abouti. Quatre cas le 18 août. Deux causes distinctes — une
+passe tuée par le `timeout-minutes` sur un run à 200k+ jetons, et un axe non lancé
+faute de fichier exécutable dans le diff. Lire le pied avant les sections.
 
 **L'interrupteur est la variable de dépôt `ENABLE_ARISTARQUE`**, à `false`, lue
 par `.github/workflows/pr-review.yml`. Elle vit dans *Settings → Variables* et
@@ -444,7 +496,12 @@ avec son test. C'est là qu'est le levier, pas dans un meilleur critère d'arrê
 
 - **Jamais `git add -A` ni `git add .`.** Les worktrees d'agents sont des dépôts
   imbriqués visibles depuis la racine ; `-A` les embarque en gitlinks. Vérifier
-  `git ls-files -s | grep ^160000` avant chaque push.
+  `git ls-files -s | grep -E '^(160000|120000)'` avant chaque push. **Les deux
+  modes, pas seulement le premier** : `.gitignore` porte `/worker/venv/` et
+  `/worker/models/` avec un `/` final, qui ne matche qu'un répertoire, alors que
+  `avolo-worktree` y pose des liens symboliques quand on le lui demande — ils
+  ressortent donc en `??`, et entreraient en mode `120000`, que le contrôle
+  historique ne voyait pas. Trois agents l'ont relevé le même soir.
 - **Jamais `git checkout main` dans un worktree d'agent** : git refuse la même
   branche dans deux worktrees et le checkout principal se retrouve bloqué. Pour
   vérifier l'intégration, `git merge origin/main` sur sa propre branche.
@@ -495,11 +552,23 @@ Et ces fichiers-là ne repasseront jamais par la nouvelle porte : `sauterLeRendu
 constate leur présence, pas leur contenu, donc l'export les saute et répond
 `skipped: true`. Le remède est `--force`, la cause est l'issue #48.
 
-**Quatorze worktrees traînent** sous `.claude/worktrees/`, dont neuf dont la
-branche est fusionnée. Avant d'en supprimer un, `git status --short --ignored` :
-un worktree ne contient pas que du versionné. Celui de l'analyse porte les
-**7,8 Go du venv de détection et les poids YOLO**, qui n'existent nulle part
-ailleurs, et chacun porte son propre `node_modules` — une vraie installation,
+**Les quatorze worktrees périmés ont été retirés** le 18 août au soir, avec 25
+branches locales fusionnées. Avant d'en supprimer un, `git status --short
+--ignored` : un worktree ne contient pas que du versionné. Et ne pas attendre
+grand-chose du nettoyage — les liens matériels de pnpm partagent les inodes entre
+installations, donc quatorze worktrees supprimés n'ont rendu que **0,9 Go**. La
+raison de les retirer est qu'ils encombrent `git worktree list` et qu'`eslint`
+lancé depuis la racine les lit, pas la place qu'ils prennent.
+
+`~/.local/bin/avolo-worktree <nom> <branche>` monte celui d'un agent correctement
+du premier coup : branché sur le **HEAD local**, installation réelle, `.env` copié
+et `STAGE_DIR`/`PROJECTS_DIR` réécrits en absolu, marques recopiées. Le venv de
+détection et les poids YOLO ne sont liés que sous `AVOLO_VENV=1`, et ce lien a
+deux effets à connaître : `next build` refuse un lien qui sort de la racine du
+projet, et les liens ressortent en `??`. Contrairement à ce
+qu'affirmait cette ligne, **aucun worktree ne porte le venv de détection** : il
+vit dans `worker/venv` du checkout principal, et un worktree ne l'obtient que si
+`avolo-worktree` l'y lie sur demande. Chacun porte son propre `node_modules` — une vraie installation,
 jamais un lien, pour la raison écrite plus haut.
 
 Deux d'entre eux ne sont pas des worktrees d'agent : `apercu-feat-ui-*` sont

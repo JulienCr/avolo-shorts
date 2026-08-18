@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodeArgs } from '@/core/ffmpeg/encoder'
-import { audioArgs, blurredVariantArgs, proxyArgs, renderArgs, thumbArgs } from '@/core/ffmpeg/args'
+import {
+  audioArgs,
+  blurredVariantArgs,
+  proxyArgs,
+  renderArgs,
+  sourceThumbArgs,
+  thumbArgs,
+} from '@/core/ffmpeg/args'
 
 const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
 
@@ -117,6 +124,67 @@ describe('thumbArgs', () => {
 
   it('ne demande jamais un instant négatif', () => {
     expect(thumbArgs({ src: '/p.mp4', dst: '/t.jpg', at: -3 })[7]).toBe('0')
+  })
+})
+
+/**
+ * La vignette d'une source, c'est-à-dire **la seule qui se tire de l'original**.
+ *
+ * Tout l'intérêt du ticket qui l'a demandée (#41) tient dans une option et sa
+ * position : `-ss` **avant** `-i` fait chercher dans le conteneur au lieu de
+ * décoder depuis le début, ce qui ramène l'extraction à ~2,7 s sur un fichier de
+ * 4 à 12 Go posé sur un montage 9p. Après le `-i`, on décoderait plusieurs
+ * minutes de vidéo par carte de la grille — et l'issue le dit ainsi : « toute
+ * implémentation qui inverse les deux invalide ce ticket ». C'est exactement le
+ * genre de chose qu'un réordonnancement bien intentionné casse sans rien casser
+ * d'autre, d'où ces tests.
+ */
+describe('sourceThumbArgs', () => {
+  it('cherche dans le conteneur au lieu de décoder depuis le début', () => {
+    const a = sourceThumbArgs({ src: '/replays/emission.mp4', dst: '/c/v.jpg', at: 1978.9 })
+
+    const ss = a.indexOf('-ss')
+    const i = a.indexOf('-i')
+    expect(ss).toBeGreaterThanOrEqual(0)
+    expect(ss).toBeLessThan(i)
+    // Et l'instant est bien celui demandé, collé à son option : un `-ss` placé
+    // avant le `-i` mais suivi d'une autre valeur ne chercherait pas là.
+    expect(a[ss + 1]).toBe('1978.9')
+    expect(a[i + 1]).toBe('/replays/emission.mp4')
+  })
+
+  it('ne sort qu’une image, sans le son', () => {
+    const a = sourceThumbArgs({ src: '/s.mp4', dst: '/c/v.jpg', at: 10 })
+    expect(a.join(' ')).toContain('-frames:v 1')
+    expect(a).toContain('-an')
+    // Sans `-update 1`, ffmpeg traite une sortie `.jpg` comme une séquence
+    // numérotée et avertit à chaque appel.
+    expect(a.join(' ')).toContain('-update 1')
+  })
+
+  /**
+   * L'original est en 1920x1080 et la carte réserve environ 170 points. Sans
+   * réduction, la grille tirerait quelques centaines de kilooctets par carte
+   * pour un emplacement qui en affiche le sixième.
+   *
+   * La virgule de `min(640, iw)` est échappée : à ce niveau de la syntaxe des
+   * filtres, elle sépare deux filtres d'une chaîne. Vérifié sur le binaire —
+   * `2025-11-09-realisateur` sort en 640x360, 47 ko.
+   */
+  it('réduit à 640 de large sans agrandir une source plus petite', () => {
+    const a = sourceThumbArgs({ src: '/s.mp4', dst: '/c/v.jpg', at: 10 })
+    expect(a[a.indexOf('-vf') + 1]).toBe('scale=w=min(640\\,iw):h=-2')
+  })
+
+  it('ferme les options avant la destination, qui est positionnelle', () => {
+    const a = sourceThumbArgs({ src: '/s.mp4', dst: '/c/-v.jpg', at: 10 })
+    expect(a[a.length - 2]).toBe('--')
+    expect(a[a.length - 1]).toBe('/c/-v.jpg')
+  })
+
+  it('ne demande jamais un instant négatif', () => {
+    const a = sourceThumbArgs({ src: '/s.mp4', dst: '/c/v.jpg', at: -3 })
+    expect(a[a.indexOf('-ss') + 1]).toBe('0')
   })
 })
 

@@ -46,8 +46,14 @@ export async function register(): Promise<void> {
   // dossier absent, lui, ne doit pas empêcher le serveur de servir. Et
   // l'attendre ferait payer au premier chargement de page un balayage de disque
   // dont personne n'attend le résultat.
-  const { cleanStage } = await import('@/server/steps/ingest')
-  void cleanStage().catch((cause: unknown) => {
+  // **`cleanWorkCache` et non `cleanStage` nu.** Ce balayage continue après le
+  // retour de `register()`, donc le serveur accepte une analyse pendant qu'il
+  // tourne ; cette analyse constate sa copie de travail présente — elle n'a rien
+  // à recopier, donc rien ne l'inscrit dans `copiesInFlight` — et le balayage la
+  // lui retirait. `cleanWorkCache` épargne ce que les exécutions lisent, et il
+  // relit la liste à chaque fichier. (relevé par Copilot)
+  const { cleanWorkCache } = await import('@/server/run')
+  void cleanWorkCache().catch((cause: unknown) => {
     console.warn('Nettoyage de stage/ au démarrage :', cause)
   })
 }

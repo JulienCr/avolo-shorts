@@ -692,10 +692,7 @@ export async function lancer(
       // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
       // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
       // c'est voulu, le TTL vaut pour elle comme pour les autres.
-      // **La liste est passée en fonction, pas en instantané.** Le balayage
-      // dure, et une exécution démarrée pendant ce temps ne recopie rien — sa
-      // copie est là — donc rien d'autre ne la signalerait. Voir `cleanStage`.
-      void cleanStage({ keep: () => copiesInUse(db) }).catch(() => {})
+      void cleanWorkCache(db).catch(() => {})
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
@@ -706,6 +703,26 @@ export async function lancer(
     enCours.delete(projectId)
     throw cause
   }
+}
+
+/**
+ * Nettoie le cache de travail **en épargnant ce que les exécutions lisent**.
+ *
+ * **Le seul endroit qui sache faire les deux à la fois**, et c'est la raison
+ * d'être de cette fonction : `cleanStage` connaît le TTL, `run.ts` connaît les
+ * exécutions, et un appelant qui n'aurait que le premier efface la copie du
+ * second. C'est ce qui est arrivé au nettoyage de démarrage
+ * (`src/instrumentation.ts`), qui appelait `cleanStage` nu : le balayage
+ * continue après le retour de `register()`, donc le serveur accepte une analyse
+ * pendant qu'il tourne, cette analyse constate sa copie présente — elle n'a rien
+ * à recopier, donc rien ne l'inscrit dans `copiesInFlight` — et la perd.
+ * (relevé par Copilot)
+ *
+ * La liste est passée en **fonction** : le balayage dure, et une exécution
+ * démarrée pendant ce temps doit être vue. Voir `cleanStage`.
+ */
+export function cleanWorkCache(db?: Database.Database): Promise<string[]> {
+  return cleanStage({ keep: () => copiesInUse(db) })
 }
 
 /**
@@ -725,11 +742,17 @@ export async function lancer(
  * cherchait à épargner, et laisser lever ferait rejeter une exécution qui, elle,
  * s'est bien passée. Ne rien effacer coûte au pire un passage sauté.
  */
-function copiesInUse(db: Database.Database): string[] | null {
+function copiesInUse(db?: Database.Database): string[] | null {
+  // **Rien ne tourne, donc rien à épargner — et surtout rien à ouvrir.** C'est
+  // le cas du nettoyage de démarrage, et il vaut mieux qu'une optimisation :
+  // sans lui, `getDb()` ouvrirait SQLite pendant l'amorçage du serveur, pour
+  // une liste dont on sait déjà qu'elle est vide.
+  if (enCours.size === 0) return []
   const paths: string[] = []
   try {
+    const base = db ?? getDb()
     for (const id of enCours.keys()) {
-      const copie = getProject(db, id)?.stagedPath
+      const copie = getProject(base, id)?.stagedPath
       if (copie != null) paths.push(copie)
     }
   } catch {

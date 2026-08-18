@@ -9,6 +9,7 @@ import type { StepName } from '@/core/graph'
 import type { BilanNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
+  cleanWorkCache,
   stopRun,
   attendre,
   bilanDeRepérage,
@@ -777,6 +778,36 @@ describe("l'arrêt d'une exécution", () => {
     await attendreEtape('proxy')
     stopRun(PROJET)
     await expect(attendre(PROJET)).resolves.toBeUndefined()
+  })
+
+  /**
+   * **Le nettoyage du cache épargne ce qu'une exécution lit.** Le balayage de
+   * démarrage continue après le retour de `register()` : le serveur accepte une
+   * analyse pendant qu'il tourne, cette analyse constate sa copie présente —
+   * elle n'a rien à recopier, donc rien ne l'inscrit dans les copies en vol — et
+   * un `cleanStage` nu la lui retirait. (relevé par Copilot)
+   */
+  it('n’efface pas la copie de travail d’une exécution en cours', async () => {
+    poserProjet()
+    poserTranscript()
+    const copie = path.join(racine, 'stage', `${PROJET}.mp4`)
+    // Vieille de deux TTL : sans la garde, elle part.
+    const vieux = new Date(Date.now() - 9 * 60 * 60 * 1000)
+    fs.utimesSync(copie, vieux, vieux)
+
+    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    await attendreEtape('proxy')
+    expect(await cleanWorkCache(db)).toEqual([])
+    expect(fs.existsSync(copie)).toBe(true)
+
+    stopRun(PROJET)
+    await attendreLaFin()
+    // Une fois l'exécution finie, plus rien ne l'épargne et le TTL s'applique.
+    // On ne compare pas la liste rendue : le nettoyage qui suit chaque exécution
+    // a pu passer avant celui-ci, auquel cas il ne reste rien à retirer. Ce qui
+    // se vérifie est l'effet, pas lequel des deux l'a produit.
+    await cleanWorkCache(db)
+    expect(fs.existsSync(copie)).toBe(false)
   })
 
   /** Un échec ordinaire garde son message : l'arrêt ne l'avale pas. */

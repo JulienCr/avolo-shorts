@@ -674,6 +674,40 @@ OpenShorts :
   fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
   toute la bibliothèque en charabia.
 
+### Lister les sources
+
+`GET /api/sources` alimente le sélecteur. La forme est reprise d'OpenShorts, où
+chaque champ a été payé une fois :
+
+```json
+{
+  "files":     [{ "name": "2026-03-08-caro-mdlm.mp4", "size_mb": 12174, "mtime": 1772... }],
+  "truncated": false,
+  "sources":   [{ "name": "Replay", "fstype": "9p", "entries": 21 }]
+}
+```
+
+- **Des chemins relatifs, jamais absolus.** Le résolveur les rejoint de toute façon
+  sur la racine ; exposer l'arborescence du serveur n'apporterait rien à l'appelant.
+- **Le même confinement `realpath` que l'ingestion.** Le sélecteur ne peut donc
+  jamais proposer un fichier que le POST suivant refuserait.
+- **`followlinks=false`** : un répertoire lié ferait sortir de l'arbre, ou boucler.
+  Les fichiers liés restent vérifiés un par un.
+- **Les arbres cachés et ceux commençant par `$` sont ignorés.** Un dossier adossé à
+  un Drive porte des répertoires de téléchargement partiel, qui apparaîtraient
+  comme des vidéos cassées.
+- **`truncated` est remonté, pas absorbé.** Un sélecteur qui s'arrête silencieusement
+  à N donne à croire que les fichiers manquants n'existent pas.
+- **`sources[]` porte `fstype` et `entries`.** Un montage cassé est indiscernable
+  d'un dossier vide dans une liste à plat, et ce n'est pas théorique : sur
+  OpenShorts, un Drive non monté au démarrage du conteneur a fait disparaître une
+  source du sélecteur pendant des jours, avec l'apparence exacte de « il n'y a rien
+  dedans ». `entries` compte **toutes** les entrées du répertoire, pas seulement les
+  vidéos, parce qu'une source littéralement vide est presque toujours un montage qui
+  n'a pas eu lieu.
+
+Tri par date de modification décroissante : le dernier live est en haut.
+
 ## 13. L'interface
 
 **Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
@@ -714,6 +748,35 @@ ne s'en sert pas.
 
 La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
 l'installation.
+
+
+### Le choix d'une source, et ses vignettes
+
+Créer un projet commence par choisir un fichier dans `REPLAY_DIR`. Une liste de noms
+ne suffit pas : `2026-03-08-caro-mdlm.mp4` ne dit ni le plateau, ni le nombre
+d'invités, ni si l'habillage est incrusté. Les cartes portent donc une vignette.
+
+**Et c'est là que ça coûte.** La vignette d'un candidat se tire du proxy, qui est
+local, en 960x540, avec une image-clé par seconde. Une vignette de source n'a pas ce
+luxe : au moment de choisir, aucun proxy n'existe encore. Il faut donc aller chercher
+l'image dans l'original, sur un Drive monté en 9p, pour des fichiers de 4,5 à
+12,7 Go. Vingt et une cartes, ce sont vingt et une ouvertures distantes.
+
+Trois règles rendent la chose tenable :
+
+- **`-ss` avant `-i`**, qui fait chercher dans le conteneur au lieu de décoder depuis
+  le début. C'est la mesure qui vaut déjà pour la découpe.
+- **Cache sur disque local, clé = chemin + taille + date de modification.** Une
+  vignette n'est calculée qu'une fois par fichier, jamais à chaque visite de l'écran.
+  La clé reprend l'empreinte de source du graphe, donc un fichier remplacé invalide
+  sa vignette sans qu'on ait à y penser.
+- **À la demande, au défilement.** On ne pré-calcule pas les vingt et une au
+  chargement : on demande celle d'une carte quand elle entre dans le champ.
+
+**Ne jamais prendre l'image à zéro seconde.** Les lives ouvrent sur un carton
+« ON ARRIVE VITE » avec compte à rebours, présent sur les trois émissions mesurées :
+on obtiendrait une grille de vignettes toutes identiques et toutes inutiles. Prendre
+l'image à une fraction de la durée place au cœur de l'émission.
 
 ## 14. Vérification
 

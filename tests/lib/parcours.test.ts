@@ -133,8 +133,28 @@ describe('suite', () => {
     expect(issue).toEqual({ kind: 'action', libelle: expect.any(String), cible: '/projects/p1' })
   })
 
-  it('propose la reprise après un échec', () => {
-    expect(suite({ analyse: 'echec', travail: 'atrier' }, projet).kind).toBe('action')
+  it('propose la reprise après un échec qui n’a rien laissé', () => {
+    expect(suite({ analyse: 'echec', travail: 'rien' }, projet)).toEqual({
+      kind: 'action',
+      libelle: expect.any(String),
+      cible: '/projects/p1',
+    })
+  })
+
+  it('ne cache derrière rien le travail que l’humain peut continuer', () => {
+    // La règle, une fois pour toutes : **l'état de l'analyse ne commande que
+    // lorsqu'il n'y a rien à décider ni à monter.** Une réparation, une attente
+    // — l'une comme l'autre remplaceraient une action disponible, alors que les
+    // clips de la passe précédente survivent à un repérage forcé qui a échoué,
+    // qui tourne encore, ou qu'un redémarrage du serveur a perdu.
+    // (relevé par Codex et Copilot)
+    for (const travail of ['atrier', 'trie', 'livre'] as const) {
+      for (const analyse of ['attente', 'interrompu', 'echec'] as const) {
+        expect(suite({ analyse, travail }, projet), `${analyse}/${travail}`).toEqual(
+          suite({ analyse: 'complet', travail }, projet),
+        )
+      }
+    }
   })
 
   it('attend les propositions tant que le repérage n’a pas rendu', () => {

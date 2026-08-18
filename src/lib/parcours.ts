@@ -108,41 +108,46 @@ export type Suite =
 export function suite(phase: Phase, projet: { id: string }): Suite {
   const ici = lienProjet(projet.id)
 
-  // **La réparation d'abord.** `interrompu` est la seule impasse réelle de
-  // l'interface, et `echec` la seule chose qu'on puisse faire d'un échec dont le
-  // repérage n'a rien laissé. Les deux ne se rencontrent que tant que
-  // `candidates` est absent : passé ce point, l'écran a mieux à proposer.
-  if (phase.analyse === 'interrompu' || phase.analyse === 'echec') {
-    return { kind: 'action', libelle: 'Reprendre l’analyse', cible: ici }
-  }
-
-  // **L'attente ne vaut que quand il n'y a rien d'autre à faire**, et la nuance
-  // est celle de l'invariant : la phase choisit ce qu'on met en avant, elle ne
-  // retire jamais ce qui existe. `effacerArtefact` retire `candidates.json`
-  // avant de toucher à la base, donc pendant un repérage forcé
-  // `analyse === 'attente'` coexiste avec les clips de la passe précédente,
-  // toujours là et toujours montables. Faire attendre là cacherait à Julien le
-  // travail qu'il vient de faire. (relevé par Codex)
+  // **L'état de l'analyse ne commande que lorsqu'il n'y a rien à décider ni à
+  // monter**, et c'est l'invariant : la phase choisit ce que l'écran met en
+  // avant, elle ne retire jamais ce qui existe. `effacerArtefact` retire
+  // `candidates.json` **avant** de toucher à la base, donc les clips de la passe
+  // précédente survivent à un repérage forcé — qu'il tourne encore (`attente`),
+  // qu'il ait échoué (`echec`) ou qu'un redémarrage du serveur l'ait perdu
+  // (`interrompu`). Faire passer une réparation ou une attente devant leur tri
+  // et leur montage cacherait à Julien le travail qu'il vient de faire.
+  // (relevé par Codex et Copilot)
   //
-  // On nomme la cause, jamais une durée restante. Le repérage produit l'artefact
-  // qui ouvre le tri — ce n'est pas le transcript, même s'il le précède.
-  if (phase.analyse === 'attente' && phase.travail === 'rien') {
-    return {
-      kind: 'attente',
-      raison: 'Le repérage n’a pas encore rendu ses propositions.',
-      debloquePar: 'candidates',
+  // L'incident, lui, ne disparaît pas pour autant : le bandeau d'erreur et le
+  // bouton de reprise sont des surfaces propres de l'écran de projet, servies
+  // par `ProjectStatus.error` et `running`, pas par cette fonction.
+  if (phase.travail === 'rien') {
+    // `interrompu` est la seule impasse réelle de l'interface — `progression()`
+    // lit une `Map` du processus Next, qu'un redémarrage vide sans laisser
+    // d'erreur — et la reprise est l'ajout qui la ferme.
+    if (phase.analyse === 'interrompu' || phase.analyse === 'echec') {
+      return { kind: 'action', libelle: 'Reprendre l’analyse', cible: ici }
     }
-  }
-
-  switch (phase.travail) {
+    // On nomme la cause, jamais une durée restante. Le repérage produit
+    // l'artefact qui ouvre le tri — ce n'est pas le transcript, même s'il le
+    // précède.
+    if (phase.analyse === 'attente') {
+      return {
+        kind: 'attente',
+        raison: 'Le repérage n’a pas encore rendu ses propositions.',
+        debloquePar: 'candidates',
+      }
+    }
     // **`suite` nomme la direction, l'écran décide de l'activation.** Une
     // exécution peut très bien tourner ici — l'encodage du proxy pendant qu'on
     // trie — et `lancer` lève alors `ExécutionEnCoursError`, dont la route fait
     // un 409. C'est `running` qui le dit, et `running` n'est pas dans la phase :
     // l'écran de projet l'a sous la main et désactive le contrôle avec sa raison
     // écrite à côté, jamais dans une bulle d'aide.
-    case 'rien':
-      return { kind: 'action', libelle: 'Relancer le repérage', cible: ici }
+    return { kind: 'action', libelle: 'Relancer le repérage', cible: ici }
+  }
+
+  switch (phase.travail) {
     case 'atrier':
       return { kind: 'action', libelle: 'Trier les propositions', cible: ici }
     case 'livre':

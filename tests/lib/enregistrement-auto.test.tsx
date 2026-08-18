@@ -122,6 +122,10 @@ function monter(depart: Props) {
   const appels: Appel[] = []
   const reconcilie = vi.fn()
   let props = depart
+  // Une réponse peut arriver après le démontage — c'est tout l'objet du dernier
+  // cas. Le store, lui, survit ; ce harnais tient son rôle, donc il enregistre
+  // l'appel sans rejouer un rendu qui n'a plus de conteneur.
+  let monte = true
 
   const vue = renderHook(
     (rendus: Props) =>
@@ -136,7 +140,7 @@ function monter(depart: Props) {
         reconcilier: (clipId, valeurs) => {
           reconcilie(clipId, valeurs)
           props = { ...props, ...valeurs }
-          vue.rerender(props)
+          if (monte) vue.rerender(props)
         },
       }),
     { initialProps: depart },
@@ -146,6 +150,10 @@ function monter(depart: Props) {
     ...vue,
     appels,
     reconcilie,
+    unmount: () => {
+      monte = false
+      vue.unmount()
+    },
     /** Un geste de l'utilisateur, ou une réponse du serveur adoptée par le cache. */
     rejouer(suite: Partial<Props>) {
       props = { ...props, ...suite }
@@ -339,6 +347,22 @@ describe('useEnregistrementAuto', () => {
       expect(appels).toHaveLength(3)
       expect(appels[2].patch).toEqual({ cropX: 0.8 })
     })
+  })
+
+  // **Le compteur de tentatives appartient à une instance du hook**, et la
+  // promesse lui survit. Rouvrir le même clip donne un compteur neuf, incapable
+  // de dépasser une écriture partie sous l'écran précédent — pendant que le
+  // store, lui, est global et que sa garde ne regarde que l'identifiant du clip,
+  // le même dans les deux sessions. (relevé par Codex)
+  it('n’adopte plus rien pour une écriture encore en vol au démontage', async () => {
+    const { unmount, appels, reconcilie } = monter({ ...auRepos, cropX: 0.8 })
+    act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+    expect(appels).toHaveLength(1)
+
+    unmount()
+    await agir(() => appels[0].resoudre(reponse(clip({ cropX: 0.2 }), false)))
+
+    expect(reconcilie).not.toHaveBeenCalled()
   })
 
   describe('quand le serveur refuse pour jeton périmé', () => {

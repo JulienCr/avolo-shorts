@@ -259,7 +259,15 @@ export function useEnregistrementAuto({
    * tentative suivante a déjà réglé. Rien n'est perdu à s'en abstenir : c'est
    * précisément parce qu'une tentative plus récente est partie que celle-ci est
    * dépassée, et c'est la réponse de celle-là qui dit l'état du serveur.
-   * (relevé par Copilot puis, pour la réconciliation, par Codex)
+   *
+   * **Le compteur appartient à une instance du hook, et la promesse lui
+   * survit.** Rouvrir le même clip donne donc un compteur neuf, incapable de
+   * dépasser une écriture partie sous l'écran précédent — laquelle se croirait
+   * encore la dernière et écrirait dans un montage qui n'est plus le sien : la
+   * garde du store ne compare que l'identifiant du clip, et c'est le même. Le
+   * démontage incrémente donc le compteur une dernière fois, ce qui périme d'un
+   * coup tout ce qui est encore en vol.
+   * (relevé par Copilot puis, pour la réconciliation et le démontage, par Codex)
    */
   const derniereTentative = useRef(0)
   const ecrireRef = useRef(ecrire)
@@ -374,6 +382,9 @@ export function useEnregistrementAuto({
     return () => {
       window.removeEventListener('pagehide', vider)
       vider()
+      // **Et pas dans `vider`** : `pagehide` se déclenche sur un écran bien
+      // vivant, qui a encore besoin de la réponse de son écriture en vol.
+      derniereTentative.current += 1
     }
   }, [])
 

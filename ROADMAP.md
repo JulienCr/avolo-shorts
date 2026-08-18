@@ -383,9 +383,19 @@ plancher que documente `assets/brand/README.md`.
 checkout voisin, ce qui n'est pas une sauvegarde. Un worktree neuf naît sans
 elles ; `avolo-apercu` les y recopie comme il recopie le `.env`.
 
-**Le vrai risque, lui, est intact** : `collecterMarques` traite un dossier vide
-comme « rendre sans marque », en silence — donc une série entière peut sortir
-sans logo sans que rien ne le signale. C'est l'issue #37, en cours.
+**Le silence, lui, est fermé** : l'issue #37 est livrée. Un clip dont `branding`
+vaut `true` — la valeur par défaut de tout clip repéré — refuse de se rendre
+quand **aucune** des deux marques n'est exploitable, avant tout encodage. Une
+seule des deux suffit : rien ne distingue « l'opérateur n'a qu'un logo » d'une
+dégradation, alors que zéro ne se confond avec rien.
+
+**Ce qui reste, et qui se voit à l'image** : les trois rendus présents sur le
+disque le 18 août — celui de 6 h 50 comme ceux de 14 h 08 — **ne portent aucune
+marque**, vérifié en isolant la bande des 13 à 52 % de hauteur. La ligne qui
+affirmait ici que « les rendus du matin les portent incrustés » était fausse.
+Et ces fichiers-là ne repasseront jamais par la nouvelle porte : `sauterLeRendu`
+constate leur présence, pas leur contenu, donc l'export les saute et répond
+`skipped: true`. Le remède est `--force`, la cause est l'issue #48.
 
 **Les worktrees d'agents pèsent 13 Go** sous `.claude/worktrees/`. Avant d'en
 supprimer un, `git status --short --ignored` : un worktree ne contient pas que du

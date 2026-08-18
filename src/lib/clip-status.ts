@@ -43,7 +43,10 @@ export type Decision = 'kept' | 'discarded'
  * exiger un troisième bouton pour défaire coûterait une colonne de plus sur
  * vingt-cinq cartes.
  */
-export function basculerStatut(courant: ClipStatus, decision: Decision): ClipStatus {
+export function basculerStatut(
+  courant: ClipStatus,
+  decision: Decision,
+): Exclude<ClipStatus, 'exported'> {
   const actif = decision === 'kept' ? estGarde(courant) : estEcarte(courant)
   return actif ? 'candidate' : decision
 }

@@ -35,7 +35,6 @@ const PROJECT_ID = '2026-03-08-caro-mdlm'
 const PROJET: ProjectSummary = {
   id: PROJECT_ID,
   title: 'LA SCÈNE AVOLO — 8 mars, Caro & MDLM',
-  sourcePath: '/mnt/j/Drive partagés/Avolo/03_LA_SCENE_AVOLO/Replay/2026-03-08-caro-mdlm.mp4',
   durationSec: 10_212,
   createdAt: '2026-08-18T09:12:00+02:00',
 }

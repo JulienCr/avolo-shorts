@@ -93,13 +93,24 @@ export function TranscriptSurface({
   // quand le clip enregistré change ; repositionner à chaque fois ferait fuir
   // le texte sous les yeux pendant qu'on monte. Le repère est donc `cle`, pas
   // la valeur.
+  //
+  // Le repère se pose **quand le défilement a eu lieu**, pas quand il est
+  // programmé. `deplacer` vient du virtualiseur et rien ne garantit sa
+  // stabilité d'un rendu à l'autre : si l'effet se rejoue avant l'image, son
+  // nettoyage annule la précédente, et un repère posé trop tôt court-circuiterait
+  // la nouvelle. Le défilement initial n'aurait alors jamais lieu.
   const deplacer = virtualiseur.scrollToIndex
   const positionne = useRef<string | null>(null)
   useEffect(() => {
     if (positionne.current === cle) return
-    positionne.current = cle
-    if (ligneInitiale <= 0) return
-    const image = requestAnimationFrame(() => deplacer(ligneInitiale, { align: 'start' }))
+    if (ligneInitiale <= 0) {
+      positionne.current = cle
+      return
+    }
+    const image = requestAnimationFrame(() => {
+      positionne.current = cle
+      deplacer(ligneInitiale, { align: 'start' })
+    })
     return () => cancelAnimationFrame(image)
   }, [cle, deplacer, ligneInitiale])
 
@@ -176,6 +187,11 @@ function Mot({
   // entre l'appui et le relâchement qui les sépare — donc on décide au
   // relâchement, pas à l'appui.
   const glisse = useRef(false)
+  // Et un shift-clic **étend une sélection**, y compris sur un mot barré : sans
+  // cette mémoire, l'appui étendait la sélection puis le relâchement remontait
+  // le mot et vidait la sélection. L'intention exprimée par la touche était
+  // perdue, alors que le chemin clavier, lui, la respectait déjà.
+  const etendait = useRef(false)
 
   return (
     // `role="button"` et non un `<button>` : un bouton est un bloc en ligne, et
@@ -194,6 +210,7 @@ function Mot({
       title={mot.kept ? undefined : 'Cliquer pour remonter ce mot'}
       onPointerDown={(e) => {
         glisse.current = false
+        etendait.current = e.shiftKey
         onSelectionner(mot.index, e.shiftKey)
       }}
       onPointerEnter={() => {
@@ -201,7 +218,7 @@ function Mot({
         onEtendre(mot.index)
       }}
       onPointerUp={() => {
-        if (!glisse.current && !mot.kept) onRemonter(mot.index)
+        if (!glisse.current && !etendait.current && !mot.kept) onRemonter(mot.index)
       }}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return

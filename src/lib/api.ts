@@ -40,11 +40,20 @@ export type { Clip, ClipStatus, Ratio, Segment }
 /** Les étapes du graphe d'analyse (tâche 6). */
 export type StepName = 'proxy' | 'audio' | 'transcript' | 'candidates' | 'renders'
 
+/**
+ * Un projet, vu du client.
+ *
+ * **Pas de `sourcePath`.** Le chemin du fichier existe côté serveur — il est
+ * dans la table `projects` (tâche 6) — mais il ne traverse pas cette frontière :
+ * aucun écran ne le lit, et le publier ici l'exposerait à tout consommateur de
+ * l'API, y compris l'API externe de la spec §5, avec le point de montage et
+ * l'organisation interne du Drive partagé dedans. Un type d'API est une
+ * promesse : ce qu'il porte finit par sortir.
+ */
 export type ProjectSummary = {
   id: string
   /** Dérivé du nom de fichier d'origine, jamais d'un hachage (spec §12). */
   title: string
-  sourcePath: string
   durationSec: number
   createdAt: string
 }
@@ -109,11 +118,21 @@ export type ClipDetail = {
  * les segments avant écriture (tâche 10, étape 2).
  */
 export type ClipPatch = Partial<
-  Pick<
-    Clip,
-    'segments' | 'ratio' | 'cropX' | 'title' | 'description' | 'status' | 'captions' | 'branding'
-  >
->
+  Pick<Clip, 'segments' | 'ratio' | 'cropX' | 'title' | 'description' | 'captions' | 'branding'>
+> & {
+  /**
+   * **`exported` est absent, et c'est délibéré.** Un clip devient exporté parce
+   * qu'un MP4 a été produit (`POST /api/clips/:id/export`, tâche 14), jamais
+   * parce que quelqu'un l'a écrit. Laisser le client poser ce statut
+   * permettrait de marquer comme exporté un clip dont rien n'a été rendu, et
+   * `mergeCandidates` le ferait alors survivre à toutes les passes suivantes.
+   *
+   * **Exigence pour la tâche 10 :** la route doit refuser `exported` venant du
+   * client, comme elle refuse déjà `id`, `projectId` et `pass`. Le type ne
+   * protège que ce dépôt-ci.
+   */
+  status?: Exclude<ClipStatus, 'exported'>
+}
 
 /**
  * La latence simulée des fixtures.

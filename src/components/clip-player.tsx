@@ -52,10 +52,13 @@ export function ClipPlayer({
     setPosition(v.currentTime)
   }, [segments, debut])
 
-  // Une coupe faite pendant la lecture doit se voir tout de suite.
+  // Une coupe doit se voir tout de suite — **même en pause**. Sans cette
+  // seconde condition, la tête de lecture restait affichée au milieu d'un
+  // passage qu'on venait de retirer jusqu'à la reprise : le lecteur se recalait
+  // bien, mais le nombre affiché mentait entre-temps.
   useEffect(() => {
-    if (enLecture) surTemps()
-  }, [enLecture, surTemps])
+    surTemps()
+  }, [surTemps])
 
   function basculer() {
     const v = video.current

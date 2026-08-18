@@ -93,8 +93,12 @@ export function CropOverlay({
         role="slider"
         tabIndex={fige ? -1 : 0}
         aria-label="Position horizontale du cadre"
-        aria-valuemin={0}
-        aria-valuemax={100}
+        // La plage réelle, pas 0-100 : le centre d'un 9:16 ne peut aller que de
+        // 15,8 à 84,2 % puisque le rectangle ne sort jamais du cadre. Annoncer
+        // « 16 sur 100 » à la butée gauche laisserait croire qu'il reste de la
+        // marge.
+        aria-valuemin={Math.round((largeur / 2) * 100)}
+        aria-valuemax={Math.round((1 - largeur / 2) * 100)}
         aria-valuenow={Math.round(centre * 100)}
         aria-valuetext={`${Math.round(centre * 100)} % de la largeur`}
         aria-disabled={fige || undefined}

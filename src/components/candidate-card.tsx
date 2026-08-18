@@ -27,13 +27,14 @@ export function CandidateCard({
   clip,
   onGarder,
   onEcarter,
-  enAttente,
 }: {
   clip: CandidateClip
   onGarder: () => void
   onEcarter: () => void
-  enAttente?: boolean
 }) {
+  // Pas d'indicateur « écriture en vol » : la mise à jour est optimiste, donc la
+  // carte affiche déjà la décision. Une pulsation par-dessus dirait qu'il se
+  // passe quelque chose qu'on ne peut de toute façon pas attendre.
   const duree = clipDuration(clip.segments)
   const debut = clip.segments[0]?.start ?? 0
   const coupes = Math.max(0, clip.segments.length - 1)
@@ -49,7 +50,6 @@ export function CandidateCard({
         'group/carte flex flex-col overflow-hidden rounded-xl border bg-card transition-colors',
         garde && 'border-stage/60 ring-1 ring-stage/25',
         ecarte && 'opacity-55 hover:opacity-100',
-        enAttente && 'animate-pulse',
       )}
     >
       <Link

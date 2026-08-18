@@ -11,8 +11,11 @@ import { useProjets } from '@/lib/queries'
 /**
  * La liste des émissions analysées.
  *
- * L'ingestion (tâche 7) et le lanceur (tâche 10) n'existent pas encore : cette
- * page n'ouvre donc rien de nouveau, elle mène au tri de ce qui est déjà là.
+ * L'ingestion (tâche 7) et le lanceur (tâche 10) existent depuis les PR #18 et
+ * #20, mais rien ici ne les appelle : `POST /api/projects` et
+ * `POST /api/projects/:id/run` n'ont pas d'appelant côté navigateur. Le
+ * sélecteur de source et la création d'un projet sont la tâche 15. D'ici là,
+ * cette page n'ouvre rien de nouveau, elle mène au tri de ce qui est déjà là.
  */
 export default function Accueil() {
   const projets = useProjets()

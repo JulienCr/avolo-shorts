@@ -19,11 +19,11 @@ transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
 le transcript, cadrage manuel, rendu avec sous-titres karaoké incrustés et
 logo, export en deux formats et l'API qui pilote le tout.
 
-**Mais l'export n'est pas atteignable depuis l'interface**, ce qui rend la
-chaîne incomplète du point de vue de son utilisateur. Le détail est plus bas,
-sous « Le raccord manquant ». Ne pas lire « itération 0 livrée » comme
-« utilisable de bout en bout au clavier » : la chaîne se pilote encore en
-`curl` pour sa dernière étape.
+**Mais trois parcours n'ont pas de bouton** : créer une émission, relancer une
+analyse, exporter un clip. La chaîne est donc incomplète du point de vue de son
+utilisateur. Le détail est plus bas, sous « Le raccord manquant ». Ne pas lire
+« itération 0 livrée » comme « utilisable de bout en bout au clavier » : l'entrée
+du tunnel et sa sortie se pilotent encore en `curl`.
 
 ## Ce qui le prouve
 
@@ -85,15 +85,23 @@ sans repayer les six minutes de proxy.
 
 ## Ce qui reste
 
-### Le raccord manquant : l'export est inaccessible depuis l'interface
+### Le raccord manquant : trois parcours orphelins
 
 C'est le premier chantier, avant les itérations suivantes, parce qu'il empêche
 d'utiliser ce qui est déjà construit. Constaté par Julien devant l'écran, puis
 vérifié dans le code.
 
-Un clip affiche l'étiquette « exporté » et rien ne permet de déclencher un
-export, de lire le fichier produit, ni de récupérer les textes. Trois pièces
-manquent, toutes du même côté :
+**Le trou est plus large que l'export.** `src/lib/api.ts` ne porte que quatre
+`GET` et un `PATCH`, et **trois routes `POST` n'ont aucun appelant côté
+navigateur** : `POST /api/projects`, `POST /api/projects/:id/run` et
+`POST /api/clips/:id/export`. Il n'existe donc ni bouton « nouvelle émission »,
+ni bouton « relancer », ni bouton « exporter ». Le serveur répond aux trois,
+personne ne les appelle. L'entrée du tunnel a déjà sa tâche, la 15 du plan,
+ajoutée le 18 août 2026 par la PR #25 ; les deux autres n'en ont pas.
+
+Sur l'export, le plus visible des trois, un clip affiche l'étiquette « exporté »
+et rien ne permet de déclencher le rendu, de lire le fichier produit, ni de
+récupérer les textes. Trois pièces manquent, toutes du même côté :
 
 1. **Aucune route ne sert un fichier rendu.** `/api/projects/:id/proxy` existe et
    gère les requêtes partielles, mais rien d'équivalent pour
@@ -117,9 +125,17 @@ tournaient, donc avant que la route d'export existe. Quand la tâche 10 a branch
 l'interface appelait déjà, et l'export n'en faisait pas partie. Chaque agent a
 livré son périmètre, et personne ne possédait le raccord.
 
-La leçon vaut pour la suite : **quand un périmètre est découpé pour paralléliser,
-quelqu'un doit posséder explicitement la jonction**, sinon elle tombe entre deux
-rapports tous deux exacts.
+La leçon vaut pour la suite, et les trois parcours orphelins la renforcent :
+**quand un périmètre est découpé pour paralléliser, quelqu'un doit posséder
+explicitement la jonction**, sinon elle tombe entre deux rapports tous deux
+exacts.
+
+**Le trou se referme en deux fois.** Julien a tranché le 18 août 2026 : le
+chantier en cours ne livre que le côté serveur, les routes qui manquent et les
+fonctions correspondantes de `src/lib/api.ts`. Les gestes d'interface, bouton par
+bouton, partent dans une passe UI/UX complète menée par une session séparée.
+D'ici là, ne pas lire « `exportClip` existe » comme « le raccord est fait » : la
+dernière étape se pilotera toujours en `curl`.
 
 ### Trois anomalies ouvertes
 

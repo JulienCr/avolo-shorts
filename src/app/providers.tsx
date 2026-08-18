@@ -6,11 +6,12 @@ import { useState, type ReactNode } from 'react'
 /**
  * TanStack Query, posé dès l'itération 0.
  *
- * Il n'y a pourtant rien à rafraîchir tant que les données viennent de
- * fixtures — et c'est précisément la raison de le poser maintenant. L'analyse
- * dure 30 à 45 minutes (spec §13) : le suivi d'avancement, l'invalidation et la
- * reprise d'étape passeront tous par ici. Les brancher plus tard voudrait dire
- * reprendre chaque composant ; les brancher maintenant ne coûte que ce fichier.
+ * Il a d'abord servi des fixtures, où il n'y avait rien à rafraîchir — et
+ * c'était précisément la raison de le poser si tôt. L'analyse dure 30 à
+ * 45 minutes (spec §13) : le suivi d'avancement, l'invalidation et la reprise
+ * d'étape devaient tous passer par ici. Ils y passent depuis que la tâche 10 a
+ * branché `@/lib/api` sur les vraies routes, sans que `@/lib/queries` ait eu à
+ * changer. Les brancher plus tard aurait voulu dire reprendre chaque composant.
  */
 export function Providers({ children }: { children: ReactNode }) {
   // Dans un `useState`, pas au niveau du module : un client partagé entre deux

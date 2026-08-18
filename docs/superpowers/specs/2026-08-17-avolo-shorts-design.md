@@ -574,22 +574,34 @@ cadre large et stable vaut mieux qu'un cadre serré qui vacille.
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
 tout crop pris à droite : on l'accepte.
 
-**Le panneau de chat mange le bord droit sur toute la hauteur.** Constaté à
-l'image le 18 août 2026 sur `2025-06-15-cqlp`, en regardant un rendu et non le
-filtergraph : le chat Twitch occupe environ 20 % de la largeur, du haut jusqu'en
-bas. Ce n'est pas le logo, qu'on accepte parce qu'il est petit et coincé ; c'est
-une bande entière, et un 1:1 centré l'attrape.
+**Le panneau de chat de `2025-06-15-cqlp` est un cas unique.** Constaté à l'image
+le 18 août 2026, en regardant un rendu et non le filtergraph : le chat Twitch
+occupe environ 20 % de la largeur, du haut jusqu'en bas. Ce n'est pas le logo,
+qu'on accepte parce qu'il est petit et coincé ; c'est une bande entière, et un 1:1
+centré l'attrape. Une première version de ce paragraphe en tirait une contrainte
+permanente et demandait de traiter cette bande comme interdite.
 
-La contrainte est donc plus dure que ne le laissait croire la liste ci-dessus :
-avec le bloc de gauche, entre un cinquième et un tiers de la largeur est dépensé
-avant même de cadrer, alors que 24 à 33 % du temps seulement tient déjà dans un
-9:16. Le cadrage automatique de l'itération 1 doit traiter ces deux bandes comme
-interdites, et non comme un décor qu'on préfère éviter.
+Le prélèvement d'images sur trois autres émissions, le même jour, dément la
+généralisation. `2025-11-09-realisateur`, `2026-03-08-caro-mdlm` et
+`2026-02-01-faq` n'incrustent aucun chat : l'image est pleine et seul le petit
+logo en haut à droite revient à chaque fois. Sur `2025-06-15-cqlp` elle-même, le
+panneau va et vient, présent à 15 minutes et absent à 40, 60 et 90. Julien a
+tranché : le chat ne sera pas réincrusté, cette émission restera la seule à le
+porter.
 
-Le remède le moins cher n'est pas ici. Il est en amont, dans OBS : enregistrer un
-programme propre sans chat ni habillage, ou une seconde sortie d'archive, rend
-ces bandes au cadrage sans une ligne de code. À poser quand la mise en scène de
-l'émission se retravaille.
+**Le cadrage automatique de l'itération 1 n'a donc pas de zone interdite à
+gérer.** Le bloc de gauche reste ce que le paragraphe précédent en dit, une
+préférence. Et le calcul qui suivait ici, entre un cinquième et un tiers de la
+largeur dépensé avant même de cadrer alors que 24 à 33 % du temps seulement tient
+déjà dans un 9:16, ne vaut que pour cette émission et pour ses passages avec
+chat. Qui cadrera `cqlp` verra ses ratios monter sans que l'algorithme ait un
+défaut : c'est un cas de test, pas un gabarit.
+
+Le remède le moins cher reste en amont, dans OBS : enregistrer un programme
+propre, ou une seconde sortie d'archive, rend au cadrage ce qu'une incrustation
+lui prend, sans une ligne de code. Il n'y a plus de bande permanente à récupérer,
+donc plus de chantier ; la réponse est notée pour le jour où un habillage revient
+dans le programme.
 
 ## 11. Le rendu
 

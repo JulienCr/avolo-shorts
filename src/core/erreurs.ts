@@ -53,11 +53,34 @@ const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 /**
  * Remplace tout chemin absolu par `…/<nom de fichier>`.
  *
+ * **`racines` est ce qui rend l'épuration exacte, et son absence ce qui la rend
+ * approximative.** Un chemin nu se coupe au premier espace, faute de savoir où
+ * il se termine — et `REPLAY_DIR` vaut littéralement
+ * `/mnt/j/Drive partagés/Avolo/…`. Sur un message où `runFfmpeg` a joint son
+ * argv par des espaces, la passe générique laissait donc la queue du chemin :
+ * l'organisation interne du Drive partagé sortait quand même, un cran plus
+ * loin. (relevé par Codex)
+ *
+ * Une racine connue, elle, se remplace **littéralement**, espaces compris, et
+ * ce qui reste derrière est le chemin *relatif* à cette racine — un nom de
+ * fichier de replay, ou `<projet>/renders/<clip>.mp4`. C'est-à-dire ce que
+ * l'appelant a lui-même nommé, et rien de l'arborescence de la machine.
+ *
  * Ce qui n'est pas un chemin absolu passe intact : les messages du projet sont
  * écrits pour être lus, et ce sont eux qui disent quoi faire.
  */
-export function épurerChemins(message: string): string {
-  return message
+export function épurerChemins(message: string, racines: readonly string[] = []): string {
+  let sortie = message
+  // Les plus longues d'abord : `STAGE_DIR` peut être sous `PROJECTS_DIR`, et
+  // remplacer le parent en premier laisserait l'enfant à moitié épuré.
+  for (const racine of [...racines].filter((r) => r !== '').sort((a, b) => b.length - a.length)) {
+    // `split`/`join` plutôt qu'une expression régulière : une racine est du
+    // texte venu de l'environnement, et l'échapper pour un moteur d'expressions
+    // est une occasion d'erreur que ce remplacement littéral n'a pas.
+    sortie = sortie.split(racine).join('…')
+  }
+
+  return sortie
     .replace(ENTRE_GUILLEMETS, (brut) => {
       const dedans = brut.slice(1, -1)
       return estAbsolu(dedans) ? `"${abréger(dedans)}"` : brut
@@ -70,6 +93,6 @@ export function épurerChemins(message: string): string {
  * Le message d'une erreur, épuré. Une valeur qui n'est pas une `Error` est
  * rendue en texte plutôt qu'en `[object Object]`.
  */
-export function messageÉpuré(erreur: unknown): string {
-  return épurerChemins(erreur instanceof Error ? erreur.message : String(erreur))
+export function messageÉpuré(erreur: unknown, racines: readonly string[] = []): string {
+  return épurerChemins(erreur instanceof Error ? erreur.message : String(erreur), racines)
 }

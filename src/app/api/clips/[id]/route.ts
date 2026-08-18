@@ -90,8 +90,19 @@ export const PATCH = route(
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
     // cache ne montre plus le début du clip. On l'efface plutôt que de la
     // laisser mentir — elle se refabrique au prochain affichage de la carte.
+    //
+    // **Au pire des cas, pas d'erreur.** L'écriture en base est déjà validée à
+    // ce point : lever ici rendrait 500 sur un montage pourtant enregistré, et
+    // l'écriture optimiste de l'interface remettrait l'ancienne version à
+    // l'écran alors que la base porte la nouvelle. Une vignette périmée est un
+    // défaut d'affichage, une divergence client/serveur en est un autre.
+    // (relevé par Codex)
     if (suivant.segments[0]?.start !== clip.segments[0]?.start) {
-      fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
+      try {
+        fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
+      } catch (cause) {
+        console.warn(`Vignette non effacée pour ${clip.id} :`, cause)
+      }
     }
 
     return json(suivant)

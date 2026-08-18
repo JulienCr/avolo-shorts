@@ -529,6 +529,7 @@ export async function runCandidates(
   const notées: ScoredWindow[] = []
   const nonNotées: string[] = []
   let lotsRefusés = 0
+  let lotsRépondus = 0
   for (let i = 0; i < fenêtres.length; i += taille) {
     const lot = fenêtres.slice(i, i + taille)
     let réponse: unknown
@@ -564,6 +565,7 @@ export async function runCandidates(
       }
       continue
     }
+    lotsRépondus += 1
     const { scored, missing } = parseScoreResponse(réponse, lot)
     notées.push(...scored)
     nonNotées.push(...missing)
@@ -573,7 +575,13 @@ export async function runCandidates(
   }
   // Tous les lots refusés : là, c'est bien la vidéo. On le dit avec l'erreur
   // qui ne se réessaie pas, plutôt que de détailler un panier vide.
-  if (lotsRefusés > 0 && notées.every((n) => !n.notée)) {
+  //
+  // **Le compte des lots, pas celui des notes.** Un lot qui répond en omettant
+  // toutes ses fenêtres est une réponse dégradée mais utilisable — c'est le sens
+  // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
+  // refus transformait ce repli en échec définitif dès qu'un seul lot était
+  // bloqué. (relevé par Codex)
+  if (lotsRefusés > 0 && lotsRépondus === 0) {
     throw new GeminiBlockedError(
       `Gemini a refusé les ${lotsRefusés} lot(s) de notation de cette vidéo. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
     )

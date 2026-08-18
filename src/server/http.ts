@@ -1,8 +1,8 @@
 import type { z } from 'zod'
 
-import { messageÉpuré } from '@/core/erreurs'
-import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
+import { messageSûr } from '@/server/erreurs'
 import { ExécutionEnCoursError, ProjetInconnuError } from '@/server/run'
+import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
 
 /**
  * La frontière HTTP : ce qui traverse, et sous quel code.
@@ -69,7 +69,7 @@ export function statutPour(erreur: unknown): number {
 export function réponseErreur(erreur: unknown, contexte?: string): Response {
   const statut = statutPour(erreur)
   console.error(`[api${contexte === undefined ? '' : ` ${contexte}`}] ${statut} —`, erreur)
-  return json({ error: messageÉpuré(erreur) }, { status: statut })
+  return json({ error: messageSûr(erreur) }, { status: statut })
 }
 
 /**

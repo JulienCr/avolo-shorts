@@ -2,10 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import { messageÉpuré } from '@/core/erreurs'
 import { planSteps, type StepName } from '@/core/graph'
 import { avancementWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
+import { messageSûr } from '@/server/erreurs'
 import {
   audioPath,
   candidatesPath,
@@ -257,7 +257,7 @@ function écrireStatut(projectId: string, statut: Statut): void {
     fs.writeFileSync(provisoire, `${JSON.stringify(statut, null, 2)}\n`, 'utf8')
     fs.renameSync(provisoire, fichier)
   } catch (cause) {
-    console.warn(`status.json non écrit pour ${projectId} : ${messageÉpuré(cause)}`)
+    console.warn(`status.json non écrit pour ${projectId} : ${messageSûr(cause)}`)
   }
 }
 
@@ -502,7 +502,7 @@ async function exécuter(
       cibles: exécution.cibles,
       plan: exécution.plan,
       running: null,
-      error: messageÉpuré(cause),
+      error: messageSûr(cause),
       finishedAt: Date.now(),
     })
     throw cause

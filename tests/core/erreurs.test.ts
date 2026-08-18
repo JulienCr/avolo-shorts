@@ -47,6 +47,44 @@ describe('épurerChemins', () => {
     )
   })
 
+  /**
+   * Le cas qui a motivé le paramètre `racines` : `REPLAY_DIR` vaut littéralement
+   * `/mnt/j/Drive partagés/…`, et `runFfmpeg` joint son argv par des espaces. La
+   * passe générique s'arrête au premier espace, donc elle laissait sortir la
+   * queue du chemin — l'organisation interne du Drive partagé, un cran plus
+   * loin. (relevé par Codex)
+   */
+  it('épure un chemin à espaces quand la racine est connue', () => {
+    const racine = '/mnt/j/Drive partagés/Avolo/03_LA_SCENE_AVOLO/Replay'
+    const brut = `Commande : /usr/bin/ffmpeg -i ${racine}/2025-06-15-cqlp.mp4 -vn`
+
+    expect(épurerChemins(brut, [racine])).toBe(
+      'Commande : …/ffmpeg -i …/2025-06-15-cqlp.mp4 -vn',
+    )
+    // Sans la racine, la queue du chemin survit : c'est exactement ce que le
+    // paramètre corrige, et le laisser démontré évite de le croire inutile.
+    expect(épurerChemins(brut)).toContain('03_LA_SCENE_AVOLO')
+  })
+
+  it('épure le chemin relatif sous une racine, sans le réduire à un nom', () => {
+    const racine = '/home/julien/dev/avolo-shorts/projects'
+    // Ce qui reste est ce que l'appelant a lui-même nommé : son projet et son
+    // clip. L'arborescence de la machine, elle, est partie.
+    expect(épurerChemins(`échec sur ${racine}/2025-06-15/renders/c01.mp4`, [racine])).toBe(
+      'échec sur …/2025-06-15/renders/c01.mp4',
+    )
+  })
+
+  it('retire la racine la plus longue en premier', () => {
+    // `STAGE_DIR` peut vivre sous `PROJECTS_DIR` : traiter le parent d'abord
+    // laisserait l'enfant à moitié épuré.
+    const parent = '/data/avolo'
+    const enfant = '/data/avolo/stage'
+    expect(épurerChemins(`copie vers ${enfant}/x.mp4`, [parent, enfant])).toBe(
+      'copie vers …/x.mp4',
+    )
+  })
+
   it('ne mange pas le chemin d’une URL', () => {
     expect(épurerChemins('appel à https://generativelanguage.googleapis.com/v1beta')).toBe(
       'appel à https://generativelanguage.googleapis.com/v1beta',

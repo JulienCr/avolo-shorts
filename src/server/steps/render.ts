@@ -260,8 +260,8 @@ export type EmpreinteRendu = FormeRendue & {
 export type MarqueIncrustée = { nom: string; contenu: string }
 
 /**
- * Ce qui décide de l'allure des sous-titres à l'image — **le preset et la police
- * réellement disponible**, et pas seulement le premier.
+ * Ce qui décide de l'allure des sous-titres à l'image — **le preset et les
+ * polices réellement là**, et pas seulement le premier.
  *
  * `fontsDir` est une entrée du rendu : quand `fonts/` manque, libass se rabat sur
  * fontconfig, ne trouve pas Anton et incruste dans une autre police, sans un mot
@@ -269,8 +269,14 @@ export type MarqueIncrustée = { nom: string; contenu: string }
  * preset serait identique avant et après le retour d'Anton, et l'export
  * sauterait indéfiniment sur la vidéo rendue dans la mauvaise police.
  * (relevé par Copilot)
+ *
+ * **Le contenu du dossier, pas sa seule existence.** Remplacer
+ * `Anton-Regular.ttf` en laissant `fonts/` en place est la forme normale d'une
+ * mise à jour de police, et un booléen de présence n'y verrait rien.
+ * (relevé par Codex) `polices` porte donc le condensat de ce que le dossier
+ * contient — voir `condensatDesPolices`.
  */
-export type LookDesSousTitres = { style: CaptionStyle; policeDisponible: boolean }
+export type LookDesSousTitres = { style: CaptionStyle; polices: string }
 
 /**
  * Le schéma de lecture. **Non strict, et volontairement** : une version
@@ -289,16 +295,16 @@ const SCHÉMA_EMPREINTE = z.object({
 })
 
 /**
- * L'identité du contenu d'un fichier de marque.
+ * L'identité du contenu d'un fichier — une marque, une police.
  *
  * SHA-256 plutôt que la taille et la date : une copie change la date sans
- * changer l'image, et le rendu serait déclaré périmé pour rien à chaque
- * synchronisation de dossier. Le condensat ne bouge que si l'image bouge.
+ * changer le fichier, et le rendu serait déclaré périmé pour rien à chaque
+ * synchronisation de dossier. Le condensat ne bouge que si le contenu bouge.
  *
- * Le coût est la lecture de quarante kilo-octets, dans une fonction qui lance
- * déjà un ffprobe par marque.
+ * Le coût est la lecture de quelques dizaines de kilo-octets, sur un chemin qui
+ * lance déjà un ffprobe par marque.
  */
-function contenuDeLaMarque(chemin: string): string {
+function contenuDuFichier(chemin: string): string {
   return createHash('sha256').update(fs.readFileSync(chemin)).digest('hex')
 }
 
@@ -312,9 +318,46 @@ function contenuDeLaMarque(chemin: string): string {
  */
 function condensatDuLook(look: LookDesSousTitres): string {
   const stable = Object.entries(look.style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return createHash('sha256')
-    .update(JSON.stringify([stable, look.policeDisponible]))
-    .digest('hex')
+  return createHash('sha256').update(JSON.stringify([stable, look.polices])).digest('hex')
+}
+
+/** Ce que libass sait charger depuis un `fontsdir`. */
+const EXTENSIONS_DE_POLICE = ['.ttf', '.otf', '.ttc']
+
+/**
+ * Le condensat du dossier de polices : ce que libass y trouvera.
+ *
+ * **Le contenu de chaque fichier, pas seulement leur liste.** Une police mise à
+ * jour garde son nom, et c'est même la forme normale de la mise à jour : sans
+ * lire les octets, un rendu incrusté avec l'ancienne version sauterait
+ * indéfiniment. Anton pèse 167 ko, sur un chemin qui lance déjà deux ffprobe.
+ * (relevé par Codex)
+ *
+ * Un dossier absent ou illisible rend le condensat de la liste vide, qui est
+ * différent de celui de n'importe quel dossier peuplé : c'est exactement ce
+ * qu'il faut, puisque libass se rabat alors sur fontconfig.
+ *
+ * Un fichier qu'on ne sait pas lire entre dans le condensat par son nom et un
+ * marqueur, plutôt que d'être ignoré : le rendu qui suivra n'aura pas la même
+ * police, et l'empreinte doit le voir.
+ */
+export function condensatDesPolices(dossier: string): string {
+  let noms: string[]
+  try {
+    noms = fs.readdirSync(dossier).filter((nom) =>
+      EXTENSIONS_DE_POLICE.includes(path.extname(nom).toLowerCase()),
+    )
+  } catch {
+    noms = []
+  }
+  const entrées = noms.sort().map((nom): [string, string] => {
+    try {
+      return [nom, contenuDuFichier(path.join(dossier, nom))]
+    } catch {
+      return [nom, 'illisible']
+    }
+  })
+  return createHash('sha256').update(JSON.stringify(entrées)).digest('hex')
 }
 
 /** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
@@ -760,7 +803,7 @@ export async function collecterMarques(brandDir?: string): Promise<MarqueNative[
     // que ffprobe ne sait pas mesurer.
     let contenu: string
     try {
-      contenu = contenuDeLaMarque(chemin)
+      contenu = contenuDuFichier(chemin)
     } catch (erreur) {
       console.warn(
         `Marque illisible, ignorée : ${chemin} (${erreur instanceof Error ? erreur.name : 'erreur inconnue'})`,
@@ -998,12 +1041,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   const marques = clip.branding ? await collecterMarques(options.brandDir) : []
 
   // Le look entre dans l'empreinte, donc il se résout avant la décision de saut
-  // et non plus au moment d'écrire le `.ass`. La disponibilité de la police se
-  // constate ici **sans rien dire** : l'avertissement appartient au chemin qui
-  // encode, et le poser ici le ferait sonner à chaque export sauté.
+  // et non plus au moment d'écrire le `.ass`. Les polices se relèvent ici **sans
+  // rien dire** : l'avertissement appartient au chemin qui encode, et le poser
+  // ici le ferait sonner à chaque export sauté.
   const look: LookDesSousTitres = {
     style: options.style ?? DEFAULT_CAPTION_STYLE,
-    policeDisponible: fs.existsSync(dossierDesPolices(options.fontsDir)),
+    polices: condensatDesPolices(dossierDesPolices(options.fontsDir)),
   }
 
   // Ce que les fichiers présents décrivent, s'il y en a.
@@ -1144,9 +1187,8 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, look.style)
       : undefined
     // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
-    // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Sa
-    // *présence*, elle, a déjà été constatée plus haut pour l'empreinte : c'est
-    // le même fait, lu une seule fois.
+    // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
+    // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
     const fontsDir =
       assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
 

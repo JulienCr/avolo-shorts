@@ -11,6 +11,7 @@ import {
   cheminsRendu,
   collecterMarques,
   écarterRenduPérimé,
+  condensatDesPolices,
   écartDeLEmpreinte,
   type CeQuOnIncrusterait,
   type LookDesSousTitres,
@@ -53,6 +54,12 @@ let racine: string
 let replay: string
 let stage: string
 let projets: string
+/**
+ * Le dossier de polices de ces tests, **jetable et vide**. Sans lui, le condensat
+ * du look dépendrait du `fonts/` du dépôt — peuplé sur la machine de l'opérateur,
+ * réduit en CI —, et le verdict de l'empreinte varierait avec la machine.
+ */
+let polices: string
 const envDépart = { ...process.env }
 
 beforeEach(() => {
@@ -60,7 +67,8 @@ beforeEach(() => {
   replay = path.join(racine, 'Replay')
   stage = path.join(racine, 'stage')
   projets = path.join(racine, 'projects')
-  for (const d of [replay, stage, projets]) fs.mkdirSync(d, { recursive: true })
+  polices = path.join(racine, 'polices-vides')
+  for (const d of [replay, stage, projets, polices]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
 
   process.env.REPLAY_DIR = replay
@@ -125,11 +133,13 @@ function empreinteAvec(
   marques: readonly MarqueNative[],
   incrustés = true,
 ): ReturnType<typeof empreinteDuRendu> {
-  return empreinteDuRendu(c, marques, { incrustés, look: LOOK })
+  return empreinteDuRendu(c, marques, { incrustés, look: look() })
 }
 
-/** Le look de référence : le preset par défaut, avec Anton sous la main. */
-const LOOK: LookDesSousTitres = { style: DEFAULT_CAPTION_STYLE, policeDisponible: true }
+/** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
+function look(): LookDesSousTitres {
+  return { style: DEFAULT_CAPTION_STYLE, polices: condensatDesPolices(polices) }
+}
 
 /** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
 function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncrusterait {
@@ -403,9 +413,9 @@ describe("l'empreinte de rendu", () => {
      */
     it('dit « style » quand le preset des sous-titres a changé', () => {
       const incrusté = empreinteAvec(clip(), marques)
-      const autre = { ...LOOK, style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
+      const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
       expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: autre }))).toBe('style')
-      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: LOOK }))).toBeNull()
+      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: look() }))).toBeNull()
     })
 
     it("ignore l'ordre des clés du preset, qui ne change pas une image", () => {
@@ -418,7 +428,7 @@ describe("l'empreinte de rendu", () => {
         écartDeLEmpreinte(
           empreinteAvec(clip(), marques),
           clip(),
-          observé({ look: { ...LOOK, style: réordonné } }),
+          observé({ look: { ...look(), style: réordonné } }),
         ),
       ).toBeNull()
     })
@@ -427,7 +437,7 @@ describe("l'empreinte de rendu", () => {
       // Le preset n'a alors rien décrit de l'image : le comparer périmerait au
       // premier réglage de police un clip qui n'en porte pas.
       const sansSousTitres = empreinteAvec(clip({ captions: false }), marques, false)
-      const autre = { ...LOOK, style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
+      const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
       expect(
         écartDeLEmpreinte(sansSousTitres, clip({ captions: false }), observé({ look: autre })),
       ).toBeNull()
@@ -487,6 +497,52 @@ describe("l'empreinte de rendu", () => {
       const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png']))
       const remplacé = marquesNommées(['logo.png'], () => 'une tout autre image')
       expect(lesMarquesOntBougé(empreinte, remplacé, true)).toBe(true)
+    })
+  })
+
+  /**
+   * Le condensat du dossier de polices, isolé : c'est lui qui distingue un rendu
+   * incrusté avec Anton d'un rendu incrusté avec le repli de fontconfig, et deux
+   * versions d'Anton l'une de l'autre. (relevé par Copilot et par Codex)
+   */
+  describe('condensatDesPolices', () => {
+    const poser = (nom: string, contenu: string): void => {
+      fs.writeFileSync(path.join(polices, nom), contenu)
+    }
+
+    it("confond un dossier vide et un dossier absent, qui rendent la même image", () => {
+      // Les deux mènent au même repli fontconfig. Les distinguer périmerait un
+      // rendu sur la seule création d'un dossier vide.
+      expect(condensatDesPolices(polices)).toBe(condensatDesPolices(path.join(racine, 'jamais')))
+    })
+
+    it('change quand une police arrive', () => {
+      const vide = condensatDesPolices(polices)
+      poser('Anton-Regular.ttf', 'pas vraiment une police')
+      expect(condensatDesPolices(polices)).not.toBe(vide)
+    })
+
+    it("change quand une police est remplacée sous le même nom", () => {
+      poser('Anton-Regular.ttf', 'la version d’hier')
+      const avant = condensatDesPolices(polices)
+      poser('Anton-Regular.ttf', 'la version d’aujourd’hui')
+      expect(condensatDesPolices(polices)).not.toBe(avant)
+    })
+
+    it("ne bouge pas pour un fichier que libass ne chargera pas", () => {
+      poser('Anton-Regular.ttf', 'pas vraiment une police')
+      const avant = condensatDesPolices(polices)
+      poser('README.md', 'où trouver Anton')
+      expect(condensatDesPolices(polices)).toBe(avant)
+    })
+
+    it("ne dépend pas de l'ordre de lecture du dossier", () => {
+      poser('a.ttf', 'une')
+      poser('b.otf', 'deux')
+      const attendu = condensatDesPolices(polices)
+      fs.rmSync(path.join(polices, 'a.ttf'))
+      poser('a.ttf', 'une')
+      expect(condensatDesPolices(polices)).toBe(attendu)
     })
   })
 
@@ -874,7 +930,7 @@ describe('renderClip, la porte des marques', () => {
 
   it("refuse un clip qui demande des marques quand le dossier n'en porte aucune", async () => {
     const { db, c, brandDir } = préparer()
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/logo\.png/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/logo\.png/)
   })
 
   it("refuse pareillement quand le dossier des marques n'existe pas", async () => {
@@ -884,13 +940,13 @@ describe('renderClip, la porte des marques', () => {
     // son README étant versionné.
     const { db, c } = préparer()
     await expect(
-      renderClip(c.id, { db, brandDir: path.join(racine, 'nulle-part') }),
+      renderClip(c.id, { db, brandDir: path.join(racine, 'nulle-part'), fontsDir: polices }),
     ).rejects.toThrow(/logo\.png/)
   })
 
   it('nomme les deux issues : déposer une marque, ou couper le branding', async () => {
     const { db, c, brandDir } = préparer()
-    const message = await refus(renderClip(c.id, { db, brandDir }))
+    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
     expect(message).toMatch(/assets\/brand\//)
     expect(message).toMatch(/branding/)
   })
@@ -901,7 +957,7 @@ describe('renderClip, la porte des marques', () => {
     // Drive en 9p et coûte un aller-retour.
     const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/marques/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/marques/)
     for (const chemin of [
       attendus.mp4,
       attendus.variant9x16 as string,
@@ -916,7 +972,7 @@ describe('renderClip, la porte des marques', () => {
     // Le message part dans le corps d'une réponse HTTP. La mesure est celle du
     // dépôt : épuré, il doit être identique à lui-même.
     const { db, c, brandDir } = préparer()
-    const message = await refus(renderClip(c.id, { db, brandDir }))
+    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
     expect(message).toMatch(/logo\.png/)
     expect(épurerChemins(message)).toBe(message)
   })
@@ -925,7 +981,7 @@ describe('renderClip, la porte des marques', () => {
     // Il ne va pas jusqu'au bout — ni transcript ni ffmpeg ici — et c'est ce qui
     // rend l'assertion nette : il échoue plus loin, sur autre chose.
     const { db, c, brandDir } = préparer({ branding: false })
-    const message = await refus(renderClip(c.id, { db, brandDir }))
+    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
     expect(message).not.toMatch(/marque/i)
   })
 
@@ -939,7 +995,7 @@ describe('renderClip, la porte des marques', () => {
       fs.writeFileSync(chemin, '')
     }
     poserEmpreinte(c, '1:1')
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(résultat.skipped).toBe(true)
   })
 
@@ -957,7 +1013,7 @@ describe('renderClip, la porte des marques', () => {
       fs.writeFileSync(chemin, '')
     }
 
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/logo\.png/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/logo\.png/)
   })
 })
 
@@ -1007,7 +1063,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
     poserEmpreinte(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(résultat).toEqual({
       mp4: attendus.mp4,
       variant9x16: attendus.variant9x16,
@@ -1022,7 +1078,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.texts])
     poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(résultat.skipped).toBe(true)
     expect(résultat.variant9x16).toBeNull()
   })
@@ -1037,7 +1093,7 @@ describe('renderClip, chemin du saut', () => {
     const avant = fs.statSync(attendus.variant9x16 as string).mtimeMs
     putClip(db, { ...c, description: 'Corrigée après coup. #impro' })
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
 
     expect(résultat.skipped).toBe(true)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Corrigée après coup.')
@@ -1052,7 +1108,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.texts, périmée])
     poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
 
     expect(résultat.skipped).toBe(true)
     expect(fs.existsSync(périmée)).toBe(false)
@@ -1067,7 +1123,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
     poserEmpreinte(c, '1:1')
 
-    await renderClip(c.id, { db, brandDir })
+    await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
 
@@ -1080,7 +1136,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.variant9x16 as string])
     poserEmpreinte(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(résultat.skipped).toBe(false)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
     expect(getClip(db, c.id)?.status).toBe('exported')
@@ -1095,7 +1151,7 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, périmée])
     poserEmpreinte(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir })
+    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
     expect(résultat.variant9x16).toBeNull()
     expect(fs.existsSync(périmée)).toBe(false)
   })
@@ -1222,12 +1278,12 @@ describe('renderClip, chemin du saut', () => {
 
   it('refuse un clip inconnu', async () => {
     const { db, brandDir } = préparer()
-    await expect(renderClip('clip_inexistant', { db, brandDir })).rejects.toThrow(/Clip inconnu/)
+    await expect(renderClip('clip_inexistant', { db, brandDir, fontsDir: polices })).rejects.toThrow(/Clip inconnu/)
   })
 
   it("refuse un clip sans segment, plutôt que de rendre un fichier vide", async () => {
     const { db, c, brandDir } = préparer({ segments: [] })
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/aucun segment/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/aucun segment/)
   })
 
   it("refuse un clip vidé après un premier export, au lieu de sauter dessus", async () => {
@@ -1238,14 +1294,14 @@ describe('renderClip, chemin du saut', () => {
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
 
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/aucun segment/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/aucun segment/)
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   it("dit quoi faire quand la copie de travail a disparu", async () => {
     const { db, c, brandDir } = préparer()
     // Rien dans `stage/` : `stagedPath` est transitoire par contrat.
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/copie de travail/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/copie de travail/)
   })
 
   // **La variante réclame la source, même quand le natif est déjà là**, et c'est
@@ -1259,6 +1315,6 @@ describe('renderClip, chemin du saut', () => {
     poser([attendus.mp4, attendus.texts])
     poserEmpreinte(c, '1:1')
 
-    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/copie de travail/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/copie de travail/)
   })
 })

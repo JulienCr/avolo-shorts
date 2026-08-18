@@ -574,14 +574,57 @@ describe('le preset de sous-titres', () => {
     await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
     const sansPolice = lireEmpreinte(chemins.empreinte)?.sousTitres
 
-    // Anton revient.
+    // Anton arrive.
     fs.mkdirSync(polices, { recursive: true })
+    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'pas vraiment une police')
     encodages = []
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
 
     expect(résultat.skipped).toBe(false)
     expect(encodages).toContain(chemins.mp4)
     expect(lireEmpreinte(chemins.empreinte)?.sousTitres).not.toBe(sansPolice)
+  })
+
+  /**
+   * **Remplacer la police en gardant son nom est la forme normale d'une mise à
+   * jour**, et le dossier existe avant comme après : un booléen de présence n'y
+   * verrait rien, et l'export sauterait indéfiniment sur la vidéo rendue avec
+   * l'ancienne. (relevé par Codex)
+   */
+  it('ne laisse pas sauter un rendu incrusté avec une autre version de la police', async () => {
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const polices = path.join(racine, 'fonts')
+    fs.mkdirSync(polices, { recursive: true })
+    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’hier')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    const avant = lireEmpreinte(chemins.empreinte)?.sousTitres
+
+    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’aujourd’hui')
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+
+    expect(résultat.skipped).toBe(false)
+    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).not.toBe(avant)
+  })
+
+  it("ignore un fichier du dossier qui n'est pas une police", async () => {
+    // Le condensat ne doit pas réagir à un `README.md` déposé à côté d'Anton :
+    // libass ne le chargera pas.
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true }))
+    const polices = path.join(racine, 'fonts')
+    fs.mkdirSync(polices, { recursive: true })
+    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'pas vraiment une police')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+
+    fs.writeFileSync(path.join(polices, 'README.md'), 'où trouver Anton')
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
   })
 
   it("ne note aucun preset quand aucun mot ne tombe dans les segments", async () => {

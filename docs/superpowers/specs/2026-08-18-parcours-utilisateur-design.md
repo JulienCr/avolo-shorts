@@ -639,7 +639,7 @@ tourne : ce qui la rend gratuite est ce qu'elle ne demande pas.
 | État | Ce qui s'affiche |
 |---|---|
 | Chargement | squelettes aux dimensions finales, pour que la grille ne saute pas quand les cartes arrivent. Les vignettes ont leur propre chargement, plus lent, indépendant. |
-| Vide | deux vides distincts, et les confondre serait un défaut de diagnostic. **Aucun projet** : la section disparaît, la grille prend toute la place. **Aucune source** : la ligne de montage de `GET /api/sources` dit `fstype` et `entries`, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). |
+| Vide | deux vides distincts, et les confondre serait un défaut de diagnostic. **Aucun projet** : la section disparaît, la grille prend toute la place. **Aucune source** : la ligne de montage de `GET /api/sources` porte `fstype`, `entrées` et une `cause` nommée, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). **La cause vient du serveur, l'écran ne la devine pas** : c'est lui qui a essayé de lire, donc lui seul sait si le chemin était absent, refusé, muet ou illisible. Un écran qui énumère trois hypothèses fait relire trois choses là où une seule a échoué. |
 | Erreur | `GET /api/sources` en échec affiche le message du serveur et un bouton « réessayer ». Le 503 de `POST /api/projects` sur un Drive muet a son propre texte, déjà écrit côté serveur : le reprendre tel quel plutôt que le réécrire. |
 | Désactivé | la carte sur laquelle on vient de cliquer, le temps que `POST /api/projects` réponde. La réponse arrive en quelques centaines de millisecondes, mais elle traverse un `lstat` sur un montage 9p qui peut mettre plusieurs secondes : sans cet état, on clique deux fois. Un second cas viendra plus tard, la source dont le fichier grossit encore parce que le live vient de finir, que rien ne surveille en itération 0. |
 | Succès | la création répond 202 et redirige. La redirection **est** la confirmation : une notification en plus dirait deux fois la même chose. |
@@ -978,8 +978,13 @@ courant :
 - si un plan a été **divisé**, elle suit la moitié qu'elle recouvre le plus, et
   l'autre repasse en automatique ;
 - si deux plans ont été **fusionnés**, les deux dérogations tombent sur le même
-  plan : on garde celle du plus grand recouvrement, l'égalité se tranchant par
-  l'intervalle qui commence le plus tôt ;
+  plan : on garde celle du plus grand recouvrement ;
+- **les deux égalités se tranchent par ce qui commence le plus tôt**, et elles
+  sont toutes deux atteignables. Une coupe exactement au milieu donne à une
+  dérogation deux moitiés qu'elle recouvre autant : elle suit la première. Deux
+  dérogations peuvent de même recouvrir également le plan qui les a absorbées :
+  on garde celle qui commence le plus tôt. Sans cette ligne, la moitié gagnante
+  dépendrait de l'ordre de parcours, ce qui est une décision prise par personne ;
 - un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
   automatique.
 
@@ -1550,14 +1555,20 @@ dessous. L'ordre n'est pas un détail de mise en page : lue en premier, une mesu
 de mécanisme fait croire qu'on parle d'un incident technique, alors qu'on parle de
 matière qui n'a pas été jugée.
 
-**Et c'est la couverture qui décide s'il y a quelque chose à dire, pas le refus.**
-La règle tient en une ligne : un lot refusé puis recoupé et noté ne coûte rien, et
-un repérage qui a tout noté n'annonce aucune perte, quel que soit le nombre de
-refus qu'il a fallu pour y arriver. `motDuRepérage` ne la tient pas encore : son
-prédicat s'allume dès `lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`
-lui fait écrire « le repérage n'a jugé que 100 % de ce qui se dit dans
-l'émission », qui se réfute tout seul. Le refus décrit une passe, la couverture
-décrit un résultat, et c'est le résultat qu'on montre. (relevé par Codex)
+**Et c'est le compte des fenêtres qui décide s'il y a quelque chose à dire, pas le
+refus.** Une fenêtre non notée est une perte ; un lot refusé puis recoupé et noté
+ne coûte rien. La couverture, elle, ne décide pas : elle **mesure** l'étendue de
+la perte une fois qu'on sait qu'il y en a une. La distinction n'est pas
+scolastique, parce que les fenêtres se chevauchent d'environ 30 secondes : une
+fenêtre du milieu peut manquer sans laisser le moindre trou dans le temps, donc
+une couverture sincèrement totale peut cacher une fenêtre que personne n'a jugée.
+Le déclencheur est `notées < fenêtres`, et lui seul.
+
+`motDuRepérage` tient la première moitié de cette règle et pas la seconde : son
+prédicat ajoute `|| lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`, où
+la descente finit par tout noter, lui fait écrire « le repérage n'a jugé que
+100 % de ce qui se dit dans l'émission », une phrase qui se réfute toute seule.
+(relevé par Codex et Copilot)
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,

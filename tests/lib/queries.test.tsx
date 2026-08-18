@@ -203,7 +203,7 @@ describe('useCreerProjet', () => {
   })
 })
 
-describe('les settings', () => {
+describe('les réglages', () => {
   const settings: Settings = {
     selection: {
       minutesParClip: 6,
@@ -227,7 +227,7 @@ describe('les settings', () => {
 
   /**
    * **La réponse remplace le cache, elle ne l'invalide pas.** La route rend les
-   * settings *résultants*, champs non touchés compris : invalider ferait une
+   * réglages *résultants*, champs non touchés compris : invalider ferait une
    * seconde requête pour obtenir exactement le corps qu'on vient de recevoir.
    */
   it('remplacent le cache avec la réponse plutôt que de la redemander', async () => {
@@ -280,7 +280,7 @@ describe('les settings', () => {
   })
 })
 
-describe('useStopAnalysis', () => {
+describe('useArrêter', () => {
   /**
    * **L'état du projet et la bibliothèque s'invalident quoi qu'il arrive.** Les
    * deux n'interrogent en boucle que tant que quelque chose tourne : sans cette
@@ -303,7 +303,7 @@ describe('useStopAnalysis', () => {
   })
 
   /**
-   * `stopped: false` n'est pas un échec : rien ne tournait. L'écran n'a rien à
+   * `arrêtée: false` n'est pas un échec : rien ne tournait. L'écran n'a rien à
    * dire de plus que ce que l'état rafraîchi montre déjà.
    */
   it('traite « rien ne tournait » comme un succès', async () => {

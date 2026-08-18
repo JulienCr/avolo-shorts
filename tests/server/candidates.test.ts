@@ -182,30 +182,30 @@ describe('appelerGemini', () => {
    * venait de demander.
    */
   it('refuse de réessayer quand l’arrêt est demandé', async () => {
-    const contrôleur = new AbortController()
+    const controller = new AbortController()
     let essais = 0
     const appel: AppelGemini = async () => {
       essais += 1
-      contrôleur.abort()
+      controller.abort()
       const erreur = new Error('This operation was aborted')
       erreur.name = 'AbortError'
       throw erreur
     }
     await expect(
-      appelerGemini(appel, 'p', 'score', { sleep, signal: contrôleur.signal }),
+      appelerGemini(appel, 'p', 'score', { sleep, signal: controller.signal }),
     ).rejects.toThrow(/Arrêt demandé/)
     expect(essais).toBe(1)
     expect(attentes).toEqual([])
   })
 
   it('ne part même pas quand l’arrêt est déjà demandé', async () => {
-    const contrôleur = new AbortController()
-    contrôleur.abort()
+    const controller = new AbortController()
+    controller.abort()
     const appel: AppelGemini = async () => {
       throw new Error("l'appel ne devait pas partir")
     }
     await expect(
-      appelerGemini(appel, 'p', 'score', { sleep, signal: contrôleur.signal }),
+      appelerGemini(appel, 'p', 'score', { sleep, signal: controller.signal }),
     ).rejects.toThrow(/Arrêt demandé/)
   })
 
@@ -218,7 +218,7 @@ describe('appelerGemini', () => {
    * (relevé par Copilot)
    */
   it('coupe l’attente entre deux tentatives au lieu de la subir', async () => {
-    const contrôleur = new AbortController()
+    const controller = new AbortController()
     // Un `sleep` qui ne se règle jamais : c'est le pire cas, et il reproduit
     // exactement une attente de quatre-vingt-dix secondes.
     const jamais = () => new Promise<void>(() => {})
@@ -226,15 +226,15 @@ describe('appelerGemini', () => {
       throw new Error('503 UNAVAILABLE: model overloaded')
     }
 
-    const promesse = appelerGemini(appel, 'p', 'score', {
+    const promise = appelerGemini(appel, 'p', 'score', {
       sleep: jamais,
-      signal: contrôleur.signal,
+      signal: controller.signal,
     })
     // Laisser la première tentative échouer et entrer dans l'attente.
     await new Promise((r) => setTimeout(r, 5))
-    contrôleur.abort()
+    controller.abort()
 
-    await expect(promesse).rejects.toThrow(/Arrêt demandé/)
+    await expect(promise).rejects.toThrow(/Arrêt demandé/)
   })
 
   it('réessaie une erreur passagère et rend le succès suivant', async () => {

@@ -375,10 +375,14 @@ export async function cleanStage(
   for (const name of names) {
     const filePath = path.join(dir, name)
     if (copiesInFlight.has(filePath)) continue
-    const kept = options.keep?.()
-    if (kept === null) continue
-    if (kept !== undefined && new Set(kept).has(filePath)) continue
+    // **`keep` est appelé dans le `try`**, et pas au-dessus : c'est du code
+    // de l'appelant, et une exception qui en sortirait ferait rejeter un
+    // nettoyage dont ce commentaire annonce trois lignes plus haut qu'il
+    // n'échoue jamais. Ici elle vaut « on ne sait pas », donc « on épargne ».
     try {
+      const kept = options.keep?.()
+      if (kept === null) continue
+      if (kept !== undefined && new Set(kept).has(filePath)) continue
       // `lstat` : un lien symbolique n'est pas une copie de travail, et le
       // suivre ferait effacer ce qu'il désigne.
       const stat = await fsp.lstat(filePath)

@@ -72,7 +72,7 @@ describe('les cibles de reprise', () => {
 
 describe('les champs de repérage', () => {
   /**
-   * `SelectionSettings` est ce que l'API promet, `DimensionsRepérage` est ce qu'un
+   * `ChampsRepérage` est ce que l'API promet, `DimensionsRepérage` est ce qu'un
    * calcul pur reçoit. Les deux affectations sont le contrôle : l'une attrape un
    * champ que le client ignorerait, l'autre un champ que le client inventerait.
    * Sans elles, un réglage ajouté au calcul serait réglable nulle part, et un
@@ -85,7 +85,7 @@ describe('les champs de repérage', () => {
   })
 
   /**
-   * Et le registre les couvre tous. `SETTING_FIELDS` se dérive des clés de
+   * Et le registre les couvre tous. `REGISTRE_RÉGLAGES` se dérive des clés de
    * `DIMENSIONS_PAR_DÉFAUT`, donc l'égalité est vraie par construction — ce test
    * la tient le jour où quelqu'un remplacera la dérivation par une liste écrite
    * à la main, ce qui est exactement la forme qu'avait le code d'avant.

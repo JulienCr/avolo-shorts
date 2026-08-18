@@ -245,15 +245,15 @@ describe('compter', () => {
 const CQLP: ShowSize = { durationSec: 5_940, sizeBytes: 4_300_000_000, windows: 83 }
 
 /** Une émission de vingt minutes, celle du §4.2 du retour d'usage. */
-const TWENTY_MINUTES: ShowSize = { durationSec: 1_200, sizeBytes: null, windows: null }
+const VINGT_MINUTES: ShowSize = { durationSec: 1_200, sizeBytes: null, windows: null }
 
-/** Le midpoint de la fourchette, arrondi à la seconde. */
+/** Le centre de la fourchette, arrondi à la seconde. */
 function midpoint(f: { lowSec: number; highSec: number } | null): number {
   if (f === null) throw new Error('fourchette absente')
   return Math.round((f.lowSec + f.highSec) / 2)
 }
 
-describe('stepDurationRange', () => {
+describe('fourchetteDÉtape', () => {
   /**
    * **Le contrat entre les deux tables, tant qu'elles coexistent.** `ÉTAPES`
    * porte les coûts constants que le panneau d'avancement lit encore ; celle-ci
@@ -264,13 +264,13 @@ describe('stepDurationRange', () => {
    * Aristarque)
    */
   it('retrouve, sur l’émission de référence, exactement les coûts d’ÉTAPES', () => {
-    for (const decrite of ÉTAPES) {
-      const range = stepDurationRange(decrite.nom, CQLP)
-      if (decrite.coûtSec === null) {
-        expect(range, decrite.nom).toBeNull()
+    for (const described of ÉTAPES) {
+      const range = stepDurationRange(described.nom, CQLP)
+      if (described.coûtSec === null) {
+        expect(range, described.nom).toBeNull()
         continue
       }
-      expect(midpoint(range), decrite.nom).toBe(decrite.coûtSec)
+      expect(midpoint(range), described.nom).toBe(described.coûtSec)
     }
     // Et les quatre valeurs elles-mêmes, écrites en clair : un `ÉTAPES` vidé
     // ferait passer la boucle ci-dessus sans rien vérifier.
@@ -280,37 +280,37 @@ describe('stepDurationRange', () => {
     expect(midpoint(stepDurationRange('candidates', CQLP))).toBe(30)
   })
 
-  it('annonce beaucoup moins sur single émission de vingt minutes', () => {
-    // C'est tout l'objet de la fonction : single émission cinq fois plus courte ne
+  it('annonce beaucoup moins sur une émission de vingt minutes', () => {
+    // C'est tout l'objet de la fonction : une émission cinq fois plus courte ne
     // doit pas annoncer les six minutes de proxy de l'émission de référence.
-    const proxy = stepDurationRange('proxy', TWENTY_MINUTES)
+    const proxy = stepDurationRange('proxy', VINGT_MINUTES)
     expect(midpoint(proxy)).toBe(73)
     expect(proxy!.highSec).toBeLessThan(360)
   })
 
   it('reste proportionnelle : doubler la durée double le coût', () => {
-    const single = midpoint(stepDurationRange('proxy', { ...CQLP, windows: null }))
-    const doubled = midpoint(
+    const une = midpoint(stepDurationRange('proxy', { ...CQLP, windows: null }))
+    const deux = midpoint(
       stepDurationRange('proxy', { durationSec: 11_880, sizeBytes: null, windows: null }),
     )
-    expect(doubled).toBe(single * 2)
+    expect(deux).toBe(une * 2)
   })
 
   it('compte le repérage en fenêtres quand on les connaît', () => {
     // Deux fois plus de fenêtres pour la même durée : le repérage coûte le
     // double, alors que le proxy ne bouge pas.
-    const withWindows = stepDurationRange('candidates', { ...CQLP, windows: 166 })
-    expect(midpoint(withWindows)).toBe(60)
+    const avec = stepDurationRange('candidates', { ...CQLP, windows: 166 })
+    expect(midpoint(avec)).toBe(60)
   })
 
-  it('déduit single durée de la taille du fichier, et élargit la fourchette', () => {
+  it('déduit une durée de la taille du fichier, et élargit la fourchette', () => {
     const fromSize = stepDurationRange('proxy', {
       durationSec: null,
       sizeBytes: 4_300_000_000,
       windows: null,
     })
-    // Le midpoint est le même — c'est le débit de la même émission — mais la
-    // fourchette est doubled fois plus large, parce que le débit vidéo n'a jamais
+    // Le centre est le même — c'est le débit de la même émission — mais la
+    // fourchette est deux fois plus large, parce que le débit vidéo n'a jamais
     // été relevé sur plus d'un fichier.
     expect(midpoint(fromSize)).toBe(360)
     const fromDuration = stepDurationRange('proxy', CQLP)
@@ -319,17 +319,17 @@ describe('stepDurationRange', () => {
     )
   })
 
-  it('préfère la durée à la taille quand les doubled sont là', () => {
+  it('préfère la durée à la taille quand les deux sont là', () => {
     // Une taille aberrante ne doit rien changer tant que la durée est connue.
     const f = stepDurationRange('proxy', { ...CQLP, sizeBytes: 1 })
     expect(midpoint(f)).toBe(360)
   })
 
-  it('n’annonce rien pour single step jamais chronométrée', () => {
+  it('n’annonce rien pour une étape jamais chronométrée', () => {
     // `analysis` est absente de la table des débits pour la même raison qu'elle
     // porte `coûtSec: null` dans `ÉTAPES` : personne ne l'a mesurée.
     expect(stepDurationRange('analysis', CQLP)).toBeNull()
-    expect(ÉTAPES.find((e) => e.nom === 'analysis')?.coûtSec).toBeNull()
+    expect(ÉTAPES.find((é) => é.nom === 'analysis')?.coûtSec).toBeNull()
   })
 
   it('n’annonce rien pour les rendus, qui ne passent pas par le graphe', () => {
@@ -337,13 +337,13 @@ describe('stepDurationRange', () => {
   })
 
   it('n’annonce rien quand l’émission n’a livré ni durée ni taille', () => {
-    const unknownSize: ShowSize = { durationSec: null, sizeBytes: null, windows: null }
+    const inconnue: ShowSize = { durationSec: null, sizeBytes: null, windows: null }
     for (const step of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
-      expect(stepDurationRange(step, unknownSize)).toBeNull()
+      expect(stepDurationRange(step, inconnue)).toBeNull()
     }
   })
 
-  it('traite zéro et les valeurs aberrantes comme single absence', () => {
+  it('traite zéro et les valeurs aberrantes comme une absence', () => {
     expect(
       stepDurationRange('proxy', { durationSec: 0, sizeBytes: 0, windows: 0 }),
     ).toBeNull()
@@ -367,9 +367,9 @@ describe('stepDurationRange', () => {
     expect(midpoint(f)).toBe(30)
   })
 
-  it('rend single borne basse jamais négative', () => {
+  it('rend une borne basse jamais négative', () => {
     for (const step of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
-      const f = stepDurationRange(step, TWENTY_MINUTES)
+      const f = stepDurationRange(step, VINGT_MINUTES)
       expect(f!.lowSec).toBeGreaterThanOrEqual(0)
       expect(f!.lowSec).toBeLessThanOrEqual(f!.highSec)
     }

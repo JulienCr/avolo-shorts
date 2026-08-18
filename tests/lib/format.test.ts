@@ -55,7 +55,7 @@ describe('formatTimecode', () => {
   })
 })
 
-describe('formatDurationRange', () => {
+describe('formatFourchette', () => {
   it('rend deux bornes en minutes', () => {
     // L'exemple du §4.2 du retour d'usage, mot pour mot.
     expect(formatDurationRange({ lowSec: 135, highSec: 165 })).toBe('environ 2–3 min')

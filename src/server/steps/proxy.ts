@@ -45,14 +45,19 @@ export function encodeurProxy(): EncoderName {
 }
 
 export function buildProxy(o: OptionsProxy): Promise<Artefact> {
-  const dst = proxyPath(o.projectId)
-  const encoder = o.encoder ?? encodeurProxy()
   return produireArtefact({
-    dst,
+    dst: proxyPath(o.projectId),
     force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
     quoi: `proxy de ${o.projectId}`,
-    args: (destination) => proxyArgs({ src: o.input, dst: destination, encoder }),
+    // Le choix de l'encodeur est **dans** la fonction paresseuse, et pas
+    // au-dessus : `encodeurProxy` lève sur un `FFMPEG_ENCODER` inconnu, et
+    // au-dessus il levait donc même quand le proxy était déjà là. Un artefact
+    // présent doit revenir tout de suite, quoi que porte l'environnement — la
+    // valeur fautive éclate au premier encodage qui en a vraiment besoin.
+    // (relevé par Copilot)
+    args: (destination) =>
+      proxyArgs({ src: o.input, dst: destination, encoder: o.encoder ?? encodeurProxy() }),
   })
 }

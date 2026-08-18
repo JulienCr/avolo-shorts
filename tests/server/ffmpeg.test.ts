@@ -100,6 +100,16 @@ describe('créerJournal', () => {
     expect(j.texte()).toBe('a\nb')
   })
 
+  it('rend les enregistrements complets, et eux seuls', () => {
+    // C'est ce que `runFfmpeg` analyse pour la progression : une marque de temps
+    // coupée par la frontière d'un morceau serait perdue des deux côtés si l'on
+    // lisait le morceau brut. (relevé par Copilot)
+    const j = créerJournal()
+    expect(j.ajouter('frame=1 time=00:0')).toEqual([])
+    expect(j.ajouter('0:05.00\rframe=2 time=00:00:06.00')).toEqual(['frame=1 time=00:00:05.00'])
+    expect(analyserMarqueTemps(j.ajouter('\r').join('\n'))).toBe(6)
+  })
+
   it('borne la queue : un flux sans fin de ligne ne fait pas gonfler le carnet', () => {
     // Le carnet existe pour ne *pas* tout garder ; il suffirait d'un flux sans
     // séparateur pour qu'il garde tout. C'est la fin qui intéresse.

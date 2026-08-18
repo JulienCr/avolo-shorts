@@ -10,7 +10,6 @@
  */
 
 import { closeDb, getDb } from '@/server/db'
-import { encoderName } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
 import { ingest } from '@/server/steps/ingest'
@@ -47,11 +46,12 @@ async function main(): Promise<number> {
       projet.copied ? `copiée en ${durée(tCopie())}` : 'déjà présente, rien à faire'
     }`,
   )
-  // Deux encodeurs, et ce n'est pas une incohérence : `auto` vaut x264 pour le
-  // proxy, où NVENC est mesuré plus lent (12,8x contre 13,8x), et nvenc pour
-  // l'export, où il gagne un facteur 2,3. Afficher les deux fait aussi tourner
-  // la sonde NVENC, donc dit tout de suite si la carte répond.
-  console.log(`Encodeur : ${encodeurProxy()} pour le proxy, ${encoderName()} pour l'export`)
+  // **Seulement l'encodeur du proxy.** Afficher aussi celui de l'export
+  // appellerait `encoderName()`, donc la sonde NVENC — qui lance un vrai ffmpeg
+  // sur le GPU. Une relance où tout est déjà là paierait cet appel pour rien, et
+  // contredirait la garantie qui fonde cette commande : rien ne se recalcule.
+  // L'export n'est pas l'affaire de l'ingestion. (relevé par Copilot)
+  console.log(`Encodeur : ${encodeurProxy()} (proxy)`)
 
   const barreProxy = créerBarre('  proxy ')
   const tProxy = chrono()

@@ -89,8 +89,16 @@ export type Avancement = {
 
 /** Le carnet des dernières lignes de stderr. */
 export type Journal = {
-  /** Absorbe un morceau de flux, coupé n'importe où. */
-  ajouter(morceau: string): void
+  /**
+   * Absorbe un morceau de flux, coupé n'importe où, et rend **les
+   * enregistrements complets** qu'il vient d'en tirer.
+   *
+   * Ce retour n'est pas décoratif : `runFfmpeg` y lit la progression. Analyser
+   * le morceau brut manquerait une marque `time=00:0` / `0:05.00` coupée en
+   * deux par la frontière du morceau — le carnet, lui, reporte déjà la queue.
+   * (relevé par Copilot)
+   */
+  ajouter(morceau: string): string[]
   /** Les lignes retenues, la plus ancienne d'abord. */
   lignes(): string[]
   /** Les mêmes, prêtes pour un message d'erreur. */
@@ -138,7 +146,7 @@ export function créerJournal(max = 20): Journal {
   }
 
   return {
-    ajouter(morceau: string): void {
+    ajouter(morceau: string): string[] {
       const texte = reste + morceau
       const parts = texte.split(/\r\n|[\r\n]/)
       reste = parts.pop() ?? ''
@@ -148,6 +156,9 @@ export function créerJournal(max = 20): Journal {
       // finisse par tout garder. C'est la fin qui intéresse, on coupe le début.
       if (reste.length > TAILLE_QUEUE_MAX) reste = reste.slice(-TAILLE_QUEUE_MAX)
       for (const p of parts) pousser(p)
+      // Les enregistrements bruts, avant le filtrage de `pousser` : l'appelant
+      // y cherche une marque de temps, pas une ligne à afficher.
+      return parts
     },
     lignes,
     texte: () => lignes().join('\n'),
@@ -252,9 +263,13 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
 
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (morceau: string) => {
-      journal.ajouter(morceau)
+      // On analyse ce que le carnet vient de **terminer**, pas le morceau brut :
+      // stderr est un flux, et une marque `time=00:0` / `0:05.00` coupée en deux
+      // par la frontière d'un morceau serait perdue des deux côtés. Le carnet
+      // reporte déjà la queue, il n'y a rien à rebâtir ici. (relevé par Copilot)
+      const complètes = journal.ajouter(morceau)
       if (options.onProgress === undefined) return
-      const secondes = analyserMarqueTemps(morceau)
+      const secondes = analyserMarqueTemps(complètes.join('\n'))
       if (secondes === null) return
       options.onProgress({
         seconds: secondes,

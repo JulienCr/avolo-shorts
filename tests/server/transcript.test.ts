@@ -61,6 +61,18 @@ describe('environnementWorker', () => {
     expect(env.LD_LIBRARY_PATH).not.toMatch(/:$/)
   })
 
+  it('redécoupe le chemin hérité : un segment vide au milieu compte aussi', () => {
+    // La première version ne regardait que la valeur héritée entière, donc
+    // `/usr/lib::/opt/lib:` la traversait telle quelle — avec ses deux segments
+    // vides, chacun désignant le dossier courant. (relevé par Copilot)
+    const env = environnementWorker({
+      cudnn: ['/venv/cudnn'],
+      base: { LD_LIBRARY_PATH: '/usr/lib::/opt/lib:' },
+    })
+    expect(env.LD_LIBRARY_PATH).toBe('/venv/cudnn:/usr/lib:/opt/lib')
+    expect(env.LD_LIBRARY_PATH.split(':').filter((s) => s === '')).toEqual([])
+  })
+
   it('conserve le reste de l environnement', () => {
     const env = environnementWorker({ cudnn: [], base: { PATH: '/usr/bin', HOME: '/home/julien' } })
     expect(env.PATH).toBe('/usr/bin')

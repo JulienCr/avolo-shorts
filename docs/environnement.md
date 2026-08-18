@@ -297,15 +297,23 @@ ce dépôt-là :
 
 ```
 TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
-LD_LIBRARY_PATH=<venv>/lib/pythonX.Y/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
+LD_LIBRARY_PATH=<venv>/lib/pythonX.Y/site-packages/nvidia/cudnn/lib
+                [:<chaque segment non vide du LD_LIBRARY_PATH hérité>]
 ```
 
 Sans la seconde, CTranslate2 ne trouve pas cuDNN et le chargement du modèle
 échoue sur une bibliothèque introuvable — un message qui ne nomme ni Python, ni
-sa version, ni pip. **Ce n'est pas facultatif.** Deux écarts avec le
-`run-wsl.sh` : la version de Python se lit dans le venv au lieu d'être codée à
-`3.10`, et un segment vide est écarté du chemin (un `LD_LIBRARY_PATH` qui se
-termine par `:` désigne le dossier courant).
+sa version, ni pip. **Ce n'est pas facultatif.**
+
+Deux écarts avec le `run-wsl.sh`, qui écrit `…/cudnn/lib:${LD_LIBRARY_PATH}` :
+
+- **la version de Python se lit dans le venv** au lieu d'être codée à `3.10` ;
+- **le chemin hérité est redécoupé, et ses segments vides sont jetés.** La forme
+  du shell en produit un dès que la variable est absente, vide, ou finit par
+  `:` — et un segment vide dans `LD_LIBRARY_PATH` désigne le **dossier
+  courant**, donc ferait chercher les bibliothèques du processus là où il a été
+  lancé. Écrire le `:` du shell sous condition ne suffirait d'ailleurs pas : un
+  `/usr/lib::/opt/lib` hérité porte le sien au milieu.
 
 `worker/requirements.txt` dit quoi installer sur une machine qui n'a pas ce
 venv — à ne pas lancer par réflexe sur celle-ci.

@@ -65,9 +65,13 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  * - `LD_LIBRARY_PATH` : CTranslate2 charge cuDNN par le chargeur dynamique, qui
  *   ne connaît rien aux paquets pip. Sans ce chemin, le modèle ne se charge pas.
  *
- * Les segments vides sont écartés, et ce n'est pas de la propreté : un
- * `LD_LIBRARY_PATH` qui se termine par `:` désigne le **dossier courant**, et
- * ferait chercher les bibliothèques du processus là où il a été lancé.
+ * **Le chemin hérité est redécoupé avant d'être filtré**, et ce n'est pas de la
+ * propreté : un segment vide dans `LD_LIBRARY_PATH` désigne le **dossier
+ * courant**, donc ferait chercher les bibliothèques du processus là où il a été
+ * lancé — un dossier que n'importe qui peut garnir. La première version ne
+ * regardait que la valeur héritée *entière* : `/usr/lib:` la traversait sans
+ * encombre et ressortait telle quelle, avec son segment vide, alors même que ce
+ * commentaire annonçait le contraire. (relevé par Copilot)
  *
  * Pure : l'environnement de départ est un argument.
  */
@@ -75,9 +79,8 @@ export function environnementWorker<T extends Record<string, string | undefined>
   cudnn: readonly string[]
   base: T
 }): T & { TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: string; LD_LIBRARY_PATH: string } {
-  const chemins = [...o.cudnn, o.base.LD_LIBRARY_PATH].filter(
-    (c): c is string => typeof c === 'string' && c !== '',
-  )
+  const hérité = (o.base.LD_LIBRARY_PATH ?? '').split(':')
+  const chemins = [...o.cudnn, ...hérité].filter((c) => c !== '')
   // `Object.assign` et non un littéral en `...` : l'étalement d'un générique
   // perd l'intersection, et `process.env` porte des propriétés obligatoires
   // (Next y déclare `NODE_ENV`) que le type de retour doit conserver.

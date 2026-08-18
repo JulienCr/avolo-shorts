@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodeArgs } from '@/core/ffmpeg/encoder'
-import { audioArgs, blurredVariantArgs, proxyArgs, renderArgs } from '@/core/ffmpeg/args'
+import { audioArgs, blurredVariantArgs, proxyArgs, renderArgs, thumbArgs } from '@/core/ffmpeg/args'
 
 const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
 
@@ -101,6 +101,22 @@ describe('audioArgs', () => {
   // décodage vidéo complet pour rien.
   it('ne décode pas la vidéo sur le GPU', () => {
     expect(audioArgs({ src: '/s.mp4', dst: '/a.wav' })).not.toContain('-hwaccel')
+  })
+})
+
+describe('thumbArgs', () => {
+  it('saute avant de décoder, et ne sort qu’une image', () => {
+    const a = thumbArgs({ src: '/p.mp4', dst: '/t.jpg', at: 2841.2 })
+    // `-ss` **avant** `-i` : sinon ffmpeg décode depuis le début, et une vignette
+    // prise à quarante minutes coûte quarante minutes de décodage.
+    expect(a.indexOf('-ss')).toBeLessThan(a.indexOf('-i'))
+    expect(a.join(' ')).toContain('-frames:v 1')
+    expect(a).toContain('-an')
+    expect(a[a.length - 1]).toBe('/t.jpg')
+  })
+
+  it('ne demande jamais un instant négatif', () => {
+    expect(thumbArgs({ src: '/p.mp4', dst: '/t.jpg', at: -3 })[7]).toBe('0')
   })
 })
 

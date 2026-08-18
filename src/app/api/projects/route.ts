@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { getDb, listProjects } from '@/server/db'
 import { corps, ErreurHttp, introuvable, json, requêteInvalide, route } from '@/server/http'
-import { resolveSource } from '@/server/paths'
+import { replayDir, resolveSource } from '@/server/paths'
 import { créerProjet } from '@/server/run'
 import { DÉLAI_STAT_MS, statAvecDélai } from '@/server/steps/ingest'
 import { résuméProjet } from '@/server/vues'
@@ -31,7 +31,15 @@ export const GET = route('GET /api/projects', async () => {
 export const POST = route('POST /api/projects', async (requête: Request) => {
   const { source } = await corps(requête, CRÉATION)
 
-  // La forme du chemin d'abord : un fichier posé directement dans `REPLAY_DIR`,
+  // **Appelé pour lui-même, et hors du `try` qui suit** : `replayDir()` lève si
+  // `REPLAY_DIR` manque ou est vide, et `resolveSource` l'appelle. Sous le
+  // `try`, cette erreur de configuration deviendrait un 400 — on dirait à
+  // l'appelant que sa demande est mal formée alors que c'est le serveur qui
+  // n'est pas monté. La route du proxy pose déjà la même garde.
+  // (relevé par Copilot)
+  replayDir()
+
+  // La forme du chemin ensuite : un fichier posé directement dans `REPLAY_DIR`,
   // ni au-dessus ni dans un sous-dossier. C'est la faute de l'appelant, donc 400.
   let sourcePath: string
   try {

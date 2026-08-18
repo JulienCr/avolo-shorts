@@ -96,7 +96,13 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
             ressemble trait pour trait à un repérage qui n'a rien trouvé, et on
             relance la même chose en attendant un autre résultat. */}
         {projet.data?.error && !projet.data.running && (
-          <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <div
+            // La bannière apparaît après coup, une fois l'interrogation revenue :
+            // sans région live, un lecteur d'écran ne dit rien d'une analyse de
+            // quarante minutes qui vient d'échouer. (relevé par Copilot)
+            role="alert"
+            className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3"
+          >
             <p className="text-sm font-medium text-destructive">La dernière analyse a échoué.</p>
             <p className="mt-1 text-sm text-muted-foreground">{projet.data.error}</p>
           </div>

@@ -280,6 +280,26 @@ panneau d'attente sur un écran parfaitement triable, c'est-à-dire annulé le r
 artefacts manquants, une exécution dans un cas et rien dans l'autre. (relevé par
 Copilot)
 
+**La phase choisit ce que l'écran met en avant, elle ne retire jamais ce qui
+existe.** C'est l'invariant, et il vaut mieux que les préconditions qui suivent :
+trois relectures successives ont trouvé trois façons différentes de le violer
+(`encours` recouvrant `triable`, puis `interrompu`, puis `{ attente, trie }` après
+un repérage forcé), ce qui veut dire que le défaut n'est pas dans une valeur mais
+dans la manière de s'en servir. Le panneau d'avancement remplace la grille
+**seulement quand la grille serait vide**. Le reste du temps il se replie en
+bande, et un échec s'affiche en bandeau.
+
+Le troisième cas mérite d'être nommé parce qu'il est mesurable dans le code :
+`effacerArtefact` (`src/server/steps/candidates.ts`) retire `candidates.json`
+**avant** de toucher à la base, donc pendant un repérage forcé `steps.candidates`
+vaut `false` alors que les clips gardés sont toujours en base et toujours
+montables. `{ attente, trie }` est donc atteignable, et une implémentation qui
+laisserait la phase commander l'affichage cacherait à Julien le travail qu'il
+vient de faire. (relevé par Aristarque)
+
+Les deux préconditions ci-dessous sont des conséquences de cet invariant, pas des
+règles indépendantes.
+
 **`interrompu` et `echec` ne s'appliquent que tant que `candidates` est absent.**
 Sans cette précondition, ils recouvrent `triable` exactement comme `encours` le
 faisait : une exécution interrompue pendant l'encodage du proxy cacherait la
@@ -352,7 +372,10 @@ déroule donc : ingestion, audio, transcript, candidats, **puis** proxy. Les
 candidats arrivent avant le proxy.
 
 Chiffres mesurés le 18 août 2026 sur `2025-06-15-cqlp.mp4` (4,3 Go, 1 h 39),
-consignés dans `ROADMAP.md` :
+consignés dans `ROADMAP.md`. **Ils contredisent la spec §6, qui annonce 15 à
+25 min de transcription et 30 à 45 min d'analyse : voir 9.1, où l'arbitrage est
+laissé à Julien.** Ce qui suit est bâti sur la mesure, et seuls les nombres en
+dépendent. (relevé par Aristarque)
 
 | | Coût | Cumul |
 |---|---|---|
@@ -650,9 +673,22 @@ Sans la seconde image, le sélecteur de ratio demande d'arbitrer à l'aveugle
 l'unique mesure qui fonde le projet.
 
 Un seul `<video>` décode, et le canevas de sortie se peint à partir de lui par
-`drawImage` sur `requestVideoFrameCallback`. Deux éléments `<video>` sur la même
-source seraient plus courts à écrire et décoderaient deux fois le même flux, sur
-un proxy que la page lit déjà en requêtes partielles.
+`drawImage`. Deux éléments `<video>` sur la même source seraient plus courts à
+écrire et décoderaient deux fois le même flux, sur un proxy que la page lit déjà
+en requêtes partielles.
+
+**Le canevas se redessine sur deux déclencheurs, pas un.** `requestVideoFrameCallback`
+pendant la lecture, et **tout changement de crop ou de ratio**, par un `drawImage`
+direct sur l'image courante. Le second est le plus important des deux : le geste
+réel est « on met en pause, on regarde, on ajuste », et une vidéo en pause ne
+produit aucune image, donc aucun callback. Un implémenteur qui ne câblerait que le
+callback livrerait un aperçu qui ne bouge pas quand on déplace le rectangle, sur
+l'écran dont c'est la seule raison d'être. (relevé par Aristarque)
+
+`requestVideoFrameCallback` n'existe pas avant Chrome 84, Firefox 110 et
+Safari 17.4. Sans conséquence sur une machine fixe et un seul navigateur, mais une
+garde (`'requestVideoFrameCallback' in HTMLVideoElement.prototype`) avec repli sur
+un `timeupdate` évite un échec silencieux, et c'est une ligne.
 
 **2. Le transcript devient l'organe de navigation temporelle.** Cliquer un mot
 place la lecture dessus ; la lecture surligne le mot en cours et fait défiler le
@@ -762,7 +798,12 @@ Le point de départ, arrêté côté serveur :
   dans un même clip (spec §10) ;
 - **le ratio se recalcule depuis l'EDL, il n'est pas stocké.** Retirer le passage
   où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1 ;
-- `analysis.json` portera les frontières de plans et les boîtes de personnes.
+- les frontières de plans et les boîtes de personnes existeront, portées par un
+  `analysis.json` annoncé côté serveur. **C'est un écart avec la spec §5**, qui
+  définit deux artefacts distincts, `shots.json` et `people.json` ; ce document
+  n'en décide pas et le signale en 9.3. Rien ici n'en dépend : l'écran a besoin
+  que les frontières existent, pas de savoir dans quel fichier. (relevé par
+  Aristarque)
 
 #### La décision : un mode explicite, puis un réglage par plan
 
@@ -1336,7 +1377,11 @@ défauts que chacun ferme par rapport à son coût.
    se poser dès que le modèle serveur existe.
 
 Les lots 3 et 5 dépendent chacun d'un travail serveur en cours dans l'autre
-session. Les lots 1, 2, 4 et 6 ne dépendent de rien qui n'existe pas.
+session. **Le lot 1 en dépend aussi, d'un petit** : son bouton de reprise a besoin
+que `POST /run` accepte une liste de cibles (§9.4). Sans elle, le lot reste
+livrable, mais son bouton ne reconstruit que les candidats et laisse le proxy
+manquant, ce qui referme l'impasse à moitié. (relevé par Aristarque). Les lots 2, 4
+et 6 ne dépendent de rien qui n'existe pas.
 
 L'ordre a changé une fois, à la lecture de ce que livre la session serveur : les
 trois lots qui ferment un parcours orphelin (1, 3 et 5) sont remontés devant ceux
@@ -1397,6 +1442,13 @@ Je n'y touche pas, et je les signale.
 document est de la même famille, puisqu'elle contredit elle aussi l'approche
 spontanée : *le parcours est un objet qui traverse des phases, pas un tunnel à
 étapes*. Le réflexe qu'elle remplace est l'assistant à cinq écrans.
+
+**La spec §5 et le nom des artefacts.** §5 définit `shots.json` (les frontières de
+plans) et `people.json` (les boîtes de personnes), et la session serveur annonce un
+`analysis.json` qui porterait les deux. Ce n'est pas une question d'interface et je
+ne la tranche pas, mais un lecteur de ce document pourrait croire qu'`analysis.json`
+est le nom canonique alors que la spec dit autre chose. Une fusion décidée mérite
+d'être écrite en §5 ; sinon c'est le mot qui est à corriger. (relevé par Aristarque)
 
 **La spec §13, deux fois.** D'abord la bande des plans, qu'elle décrit « en
 lecture seule ». La dérogation de cadrage par plan a besoin d'y désigner un plan,
@@ -1489,6 +1541,18 @@ commit `5412597` :
 
 **L'épuration des messages est-elle effective ?** Oui, et pas seulement documentée.
 `run.ts` écrit `error: messageSûr(cause)`, et `src/core/erreurs.ts` remplace tout
-chemin absolu par `…/<nom de fichier>` et caviarde les clés dans les URL. La règle
+chemin absolu par `…/<nom de fichier>`. Le caviardage porte bien sur les
+**paramètres de requête** (`/([?&](?:key|api_?key)=)[^&\s"']+/gi`), ce qui était la
+question posée : une clé passée en en-tête ne se retrouve pas dans un message, une
+clé dans une URL, si. Le module note d'ailleurs que le SDK Gemini utilisé passe sa
+clé en en-tête, et que le caviardage est une ceinture par-dessus des bretelles
+parce que ce dépôt est public et que la version du SDK bougera. La règle
 d'interface tient donc : l'écran affiche ce message, il n'en compose jamais un
 depuis une exception.
+
+**`status.json` est-il dans la spec ?** Non, et c'est une lacune de la spec, pas
+une invention de ce document. Le fichier existe : `projects/<id>/status.json`,
+écrit par `écrireStatut` dans `src/server/run.ts`, à côté puis renommé. La liste
+d'artefacts de §5 ne le mentionne pas, alors qu'il porte l'état d'exécution dont
+dépend tout le suivi d'avancement. À signaler à qui tiendra §5 à jour ; ce n'est
+pas un écart de conception, seulement un fichier arrivé après la liste.

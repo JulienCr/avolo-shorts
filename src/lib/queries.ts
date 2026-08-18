@@ -75,47 +75,55 @@ export function usePatchClip() {
       await client.cancelQueries({ queryKey: cles.candidats(projectId) })
       await client.cancelQueries({ queryKey: cles.clip(clipId) })
 
-      const candidats = client.getQueryData<CandidateClip[]>(cles.candidats(projectId))
-      const detail = client.getQueryData<ClipDetail>(cles.clip(clipId))
+      // **L'instantané ne porte que le clip touché, pas la liste entière.**
+      // Sur vingt-cinq cartes on en trie plusieurs par seconde, donc plusieurs
+      // écritures se chevauchent : une liste complète capturée avant celle-ci,
+      // restaurée telle quelle en cas d'échec, annulerait au passage les
+      // décisions prises entre-temps sur les *autres* cartes — et qui, elles,
+      // ont réussi.
+      const precedentCandidat = client
+        .getQueryData<CandidateClip[]>(cles.candidats(projectId))
+        ?.find((c) => c.id === clipId)
+      const precedentClip = client.getQueryData<ClipDetail>(cles.clip(clipId))?.clip
 
-      if (candidats) {
-        client.setQueryData<CandidateClip[]>(
-          cles.candidats(projectId),
-          candidats.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
-        )
-      }
-      if (detail) {
-        client.setQueryData<ClipDetail>(cles.clip(clipId), {
-          ...detail,
-          clip: { ...detail.clip, ...patch },
-        })
-      }
+      client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
+        liste?.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
+      )
+      client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
+        detail ? { ...detail, clip: { ...detail.clip, ...patch } } : detail,
+      )
 
-      return { candidats, detail }
+      return { precedentCandidat, precedentClip }
     },
 
     onError(_erreur, { clipId, projectId }, contexte) {
-      // Remettre exactement ce qui était là, plutôt qu'invalider : invalider
-      // laisserait l'écran dans son état optimiste — donc faux — le temps du
-      // rechargement.
-      if (contexte?.candidats) {
-        client.setQueryData(cles.candidats(projectId), contexte.candidats)
+      // Remettre ce clip-là comme il était, **dans le cache tel qu'il est
+      // maintenant** — pas invalider : invalider laisserait l'écran dans son
+      // état optimiste, donc faux, le temps du rechargement.
+      const precedentCandidat = contexte?.precedentCandidat
+      if (precedentCandidat) {
+        client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
+          liste?.map((c) => (c.id === clipId ? precedentCandidat : c)),
+        )
       }
-      if (contexte?.detail) client.setQueryData(cles.clip(clipId), contexte.detail)
+      const precedentClip = contexte?.precedentClip
+      if (precedentClip) {
+        client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
+          detail ? { ...detail, clip: precedentClip } : detail,
+        )
+      }
     },
 
     onSuccess(clip: Clip, { clipId, projectId }) {
       // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
-      // qui fait foi, pas celle qu'on lui a envoyée.
-      const candidats = client.getQueryData<CandidateClip[]>(cles.candidats(projectId))
-      if (candidats) {
-        client.setQueryData<CandidateClip[]>(
-          cles.candidats(projectId),
-          candidats.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
-        )
-      }
-      const detail = client.getQueryData<ClipDetail>(cles.clip(clipId))
-      if (detail) client.setQueryData<ClipDetail>(cles.clip(clipId), { ...detail, clip })
+      // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
+      // l'entrée concernée.
+      client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
+        liste?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
+      )
+      client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
+        detail ? { ...detail, clip } : detail,
+      )
     },
   })
 }

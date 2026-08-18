@@ -7,7 +7,8 @@ import { AppBar } from '@/components/app-bar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { clipDuration } from '@/core/edl'
-import type { CandidateClip, ClipStatus, StepName } from '@/lib/api'
+import type { CandidateClip, StepName } from '@/lib/api'
+import { basculerStatut, estEcarte, estGarde, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 
@@ -37,12 +38,13 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
 
   const liste = useMemo(() => candidats.data ?? [], [candidats.data])
   const compte = useMemo(() => compter(liste), [liste])
-  const visibles = voirEcartes ? liste : liste.filter((c) => c.status !== 'discarded')
+  const visibles = voirEcartes ? liste : liste.filter((c) => !estEcarte(c.status))
 
-  function basculer(clip: CandidateClip, vers: ClipStatus) {
-    // Le même bouton reprend sa décision : rappuyer sur « Gardé » ramène le clip
-    // au rang de proposition. Un tri se corrige.
-    const status: ClipStatus = clip.status === vers ? 'candidate' : vers
+  function basculer(clip: CandidateClip, decision: Decision) {
+    // `basculerStatut` est la même définition que celle qu'affiche la carte —
+    // elles divergeaient, et le bouton « Gardé » d'un clip exporté produisait un
+    // changement d'état invisible.
+    const status = basculerStatut(clip.status, decision)
     patch.mutate({ clipId: clip.id, projectId: id, patch: { status } })
   }
 
@@ -127,11 +129,11 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
 }
 
 function compter(liste: CandidateClip[]) {
-  const gardes = liste.filter((c) => c.status === 'kept' || c.status === 'exported')
+  const gardes = liste.filter((c) => estGarde(c.status))
   return {
     aTrier: liste.filter((c) => c.status === 'candidate').length,
     gardes: gardes.length,
-    ecartes: liste.filter((c) => c.status === 'discarded').length,
+    ecartes: liste.filter((c) => estEcarte(c.status)).length,
     dureeGardee: gardes.reduce((total, c) => total + clipDuration(c.segments), 0),
   }
 }

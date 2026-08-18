@@ -5,6 +5,7 @@ import Link from 'next/link'
 
 import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
+import { LIBELLES_STATUT, estEcarte, estGarde } from '@/lib/clip-status'
 import { formatDuration, formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -36,8 +37,11 @@ export function CandidateCard({
   const duree = clipDuration(clip.segments)
   const debut = clip.segments[0]?.start ?? 0
   const coupes = Math.max(0, clip.segments.length - 1)
-  const garde = clip.status === 'kept' || clip.status === 'exported'
-  const ecarte = clip.status === 'discarded'
+  // La même définition que celle du gestionnaire de clic (`basculerStatut`) :
+  // les deux divergeaient, et le bouton « Gardé » d'un clip exporté produisait
+  // alors un changement d'état invisible.
+  const garde = estGarde(clip.status)
+  const ecarte = estEcarte(clip.status)
 
   return (
     <article
@@ -66,9 +70,9 @@ export function CandidateCard({
         </div>
 
         {garde && (
-          <span className="absolute top-2 left-2 flex items-center gap-1 rounded-md bg-stage px-1.5 py-0.5 text-[0.68rem] font-semibold text-stage-foreground">
+          <span className="absolute top-2 left-2 flex items-center gap-1 rounded-md bg-stage px-1.5 py-0.5 text-[0.68rem] font-semibold text-stage-foreground capitalize">
             <Check className="size-3" aria-hidden />
-            Gardé
+            {LIBELLES_STATUT[clip.status]}
           </span>
         )}
       </Link>
@@ -111,7 +115,7 @@ export function CandidateCard({
             aria-pressed={garde}
           >
             <Check aria-hidden />
-            {garde ? 'Gardé' : 'Garder'}
+            <span className="capitalize">{garde ? LIBELLES_STATUT[clip.status] : 'Garder'}</span>
           </Button>
           <Button
             size="sm"

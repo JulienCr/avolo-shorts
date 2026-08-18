@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowLeftToLine, ArrowRightToLine, Scissors, Undo2 } from 'lucide-react'
-import { use, useEffect, useMemo } from 'react'
+import { use, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AppBar } from '@/components/app-bar'
 import { ClipPlayer } from '@/components/clip-player'
@@ -11,22 +11,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { clipDuration, type ClipStatus, type Segment } from '@/core/edl'
+import { clipDuration, type Segment } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
 import type { ClipDetail, ClipPatch } from '@/lib/api'
+import { LIBELLES_STATUT } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, selectionBounds } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { usePatchClip, useClip } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { useEditeur, usePeutAnnuler, useSegments } from '@/store/editor'
-
-const LIBELLES_STATUT: Record<ClipStatus, string> = {
-  candidate: 'proposition',
-  kept: 'gardé',
-  discarded: 'écarté',
-  exported: 'exporté',
-}
 
 /**
  * L'écran de clip.
@@ -106,7 +100,7 @@ function Editeur({ detail }: { detail: ClipDetail }) {
     return i < 0 ? 0 : i
   }, [lines, clip.segments])
 
-  useEnregistrementAuto({
+  const enregistrement = useEnregistrementAuto({
     reference: clip,
     segments,
     ratio: editeur.ratio,
@@ -130,16 +124,18 @@ function Editeur({ detail }: { detail: ClipDetail }) {
         ]}
       >
         {/* Trois états, dont l'échec : un montage qui n'est pas parti doit se
-            voir, sinon on ferme l'onglet en croyant l'avoir enregistré. */}
+            voir, sinon on ferme l'onglet en croyant l'avoir enregistré. Et
+            « enregistré » n'apparaît qu'une fois le dernier état local
+            réellement écrit — pas pendant les 600 ms de temporisation. */}
         <span
           className={cn(
             'text-[0.7rem]',
-            patch.isError ? 'text-destructive' : 'text-muted-foreground',
+            enregistrement === 'echec' ? 'text-destructive' : 'text-muted-foreground',
           )}
         >
-          {patch.isError
+          {enregistrement === 'echec'
             ? 'échec de l’enregistrement'
-            : patch.isPending
+            : enregistrement === 'en-attente' || patch.isPending
               ? 'enregistrement…'
               : 'enregistré'}
         </span>
@@ -333,6 +329,32 @@ function useRaccourcis({
   }, [annuler, retirer, echapper, aSelection])
 }
 
+/** L'état affiché dans la barre : trois valeurs, dont l'échec. */
+type EtatEnregistrement = 'enregistre' | 'en-attente' | 'echec'
+
+type Variables = { clipId: string; projectId: string; patch: ClipPatch }
+
+/** Ce qui a changé depuis la version connue du serveur, ou `null` si rien. */
+function differences(
+  reference: ClipDetail['clip'],
+  segments: Segment[],
+  ratio: ClipDetail['clip']['ratio'],
+  cropX: number,
+): ClipPatch | null {
+  const memesSegments =
+    segments.length === reference.segments.length &&
+    segments.every(
+      (s, i) => s.start === reference.segments[i].start && s.end === reference.segments[i].end,
+    )
+  if (memesSegments && ratio === reference.ratio && cropX === reference.cropX) return null
+
+  return {
+    ...(memesSegments ? {} : { segments }),
+    ...(ratio === reference.ratio ? {} : { ratio }),
+    ...(cropX === reference.cropX ? {} : { cropX }),
+  }
+}
+
 /**
  * L'enregistrement, en différé.
  *
@@ -340,6 +362,23 @@ function useRaccourcis({
  * un montage. On attend donc que le geste se pose, et on n'envoie que ce qui a
  * réellement changé par rapport à la version connue du serveur — sans quoi la
  * réponse de l'écriture, qui met à jour cette version, relancerait une écriture.
+ *
+ * **Trois défauts trouvés en review vivent ici, et ils tiennent tous à la même
+ * cause : un différé est une promesse d'écrire plus tard, et rien ne garantit
+ * qu'il y ait un plus tard.**
+ *
+ * - *Quitter dans les 600 ms perdait la modification.* Le nettoyage de l'effet
+ *   annulait le seul `PATCH` programmé, et l'écran affichait « enregistré ». Le
+ *   dernier état en attente est donc gardé dans une ref et **vidé au
+ *   démontage** — au démontage seulement, pas à chaque changement de
+ *   dépendance, sinon on écrirait à chaque frappe.
+ * - *Un échec bouclait sans fin.* Le rollback remet l'ancienne version en
+ *   cache, la comparaison redevient donc inégale, et le même `PATCH` repartait
+ *   600 ms plus tard, indéfiniment. On retient la signature de la tentative
+ *   ratée et on ne la rejoue pas telle quelle : il faut un nouveau geste.
+ * - *« Enregistré » mentait.* `isPending` n'est vrai qu'une fois le minuteur
+ *   écoulé, donc la barre affirmait « enregistré » pendant l'attente et après
+ *   un échec. D'où cet état à trois valeurs.
  */
 function useEnregistrementAuto({
   reference,
@@ -354,28 +393,62 @@ function useEnregistrementAuto({
   ratio: ClipDetail['clip']['ratio']
   cropX: number
   /** `mutate` de TanStack Query, référentiellement stable — donc utilisable en dépendance. */
-  ecrire: (variables: { clipId: string; projectId: string; patch: ClipPatch }) => void
-}) {
+  ecrire: (
+    variables: Variables,
+    options?: { onSuccess?: () => void; onError?: () => void },
+  ) => void
+}): EtatEnregistrement {
+  // L'état visible se **déduit**, il ne se stocke pas : « il reste quelque chose
+  // à écrire » est exactement « la comparaison n'est pas vide ». Seul l'échec
+  // est un fait extérieur, donc lui seul est un état, et il n'est posé que
+  // depuis une réponse — jamais dans le corps d'un effet.
+  const modif = differences(reference, segments, ratio, cropX)
+  const signature = modif ? JSON.stringify(modif) : null
+  const [echec, setEchec] = useState<string | null>(null)
+  const bloque = signature !== null && echec === signature
+
+  /** Ce qui est promis mais pas encore parti. Vidé au démontage. */
+  const enAttente = useRef<Variables | null>(null)
+  const ecrireRef = useRef(ecrire)
+
   useEffect(() => {
-    const memesSegments =
-      segments.length === reference.segments.length &&
-      segments.every(
-        (s, i) => s.start === reference.segments[i].start && s.end === reference.segments[i].end,
-      )
-    if (memesSegments && ratio === reference.ratio && cropX === reference.cropX) return
+    ecrireRef.current = ecrire
+  }, [ecrire])
+
+  useEffect(() => {
+    if (signature === null || bloque) {
+      enAttente.current = null
+      return
+    }
+
+    const variables: Variables = {
+      clipId: reference.id,
+      projectId: reference.projectId,
+      patch: differences(reference, segments, ratio, cropX) ?? {},
+    }
+    enAttente.current = variables
 
     const minuteur = setTimeout(() => {
-      ecrire({
-        clipId: reference.id,
-        projectId: reference.projectId,
-        patch: {
-          ...(memesSegments ? {} : { segments }),
-          ...(ratio === reference.ratio ? {} : { ratio }),
-          ...(cropX === reference.cropX ? {} : { cropX }),
-        },
+      enAttente.current = null
+      ecrireRef.current(variables, {
+        onSuccess: () => setEchec(null),
+        onError: () => setEchec(signature),
       })
     }, 600)
 
     return () => clearTimeout(minuteur)
-  }, [reference, segments, ratio, cropX, ecrire])
+  }, [signature, bloque, reference, segments, ratio, cropX])
+
+  // Le démontage, et lui seul : dépendances vides, et rien d'autre que des refs
+  // à l'intérieur. Une dépendance ici rejouerait le vidage à chaque rendu.
+  useEffect(
+    () => () => {
+      const variables = enAttente.current
+      if (variables) ecrireRef.current(variables)
+    },
+    [],
+  )
+
+  if (bloque) return 'echec'
+  return signature === null ? 'enregistre' : 'en-attente'
 }

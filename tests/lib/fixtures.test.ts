@@ -90,6 +90,19 @@ describe('le détail d’un clip', () => {
   it('un clip inconnu lève, il ne rend pas un clip vide', () => {
     expect(() => fixtureClipDetail('néant')).toThrow()
   })
+
+  it('survit à un clip vidé de tous ses segments', () => {
+    // Sélectionner tout et retirer laisse une liste vide, ce qui est un état
+    // légitime : on reconstruit ensuite en cliquant les mots barrés. La fenêtre
+    // de transcript doit donc tenir sans segments — sinon on perd le texte au
+    // moment précis où il faut le relire.
+    const avant = fixtureClipDetail('c07').lines.length
+    patchFixtureClip('c07', { segments: [] })
+
+    const apres = fixtureClipDetail('c07')
+    expect(apres.clip.segments).toEqual([])
+    expect(apres.lines.length).toBe(avant)
+  })
 })
 
 describe('patchFixtureClip', () => {

@@ -86,6 +86,13 @@ export type CandidateClip = Clip & {
  * d'autre : sans elle, on ne pourrait qu'enlever, jamais étendre. Les mots hors
  * segments — contexte compris — s'affichent barrés, et c'est la même règle pour
  * les deux, donc un seul cas à écrire.
+ *
+ * **Exigence pour la tâche 10 :** cette fenêtre se calcule sur l'étendue
+ * d'origine du candidat, pas sur `clip.segments`. Retirer tous les mots d'un
+ * clip laisse une liste vide, et une fenêtre dérivée de cette liste-là
+ * n'existerait plus : on perdrait le transcript au moment précis où il faut le
+ * relire pour reconstruire le clip. La route a donc besoin de garder cette
+ * étendue — le premier jeu de segments de la passe de repérage suffit.
  */
 export type ClipDetail = {
   clip: Clip

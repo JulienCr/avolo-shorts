@@ -358,6 +358,23 @@ function construireClips(): Map<string, CandidateClip> {
 
 const CLIPS = construireClips()
 
+/**
+ * L'étendue d'origine de chaque clip, figée à la construction.
+ *
+ * C'est **elle** qui décide de la fenêtre de transcript, et non les segments
+ * courants : retirer tous les mots d'un clip laisse une liste vide, et une
+ * fenêtre dérivée de cette liste-là n'existerait plus. On perdrait le
+ * transcript au moment précis où il faut le relire pour reconstruire le clip.
+ * Voir la note sur `ClipDetail.lines` dans `api.ts`, qui en fait une exigence
+ * pour la route de la tâche 10.
+ */
+const ETENDUES = new Map(
+  [...CLIPS.values()].map((c) => [
+    c.id,
+    { start: c.segments[0].start, end: c.segments[c.segments.length - 1].end },
+  ]),
+)
+
 export function fixtureProject(): ProjectSummary {
   return { ...PROJET }
 }
@@ -392,8 +409,12 @@ export function fixtureClipDetail(clipId: string): ClipDetail {
   const clip = CLIPS.get(clipId)
   if (!clip) throw new Error(`Clip inconnu : ${clipId}`)
 
-  const debut = clip.segments[0].start - CONTEXTE_S
-  const fin = clip.segments[clip.segments.length - 1].end + CONTEXTE_S
+  // Sur l'étendue d'origine, jamais sur `clip.segments` : un clip vidé de tous
+  // ses mots n'en a plus, et lire `segments[0]` levait alors — le clip
+  // paraissait introuvable au rechargement.
+  const etendue = ETENDUES.get(clipId) ?? { start: 0, end: 0 }
+  const debut = etendue.start - CONTEXTE_S
+  const fin = etendue.end + CONTEXTE_S
 
   return {
     clip: { ...clip, segments: clip.segments.map((s) => ({ ...s })) },

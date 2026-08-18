@@ -93,12 +93,37 @@ export async function attendre(projectId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Le dernier emplacement connu du sidecar, par projet, avec sa date de
+ * péremption.
+ *
+ * **Ce cache n'est pas une optimisation, c'est une protection.** L'écran de tri
+ * interroge `GET /api/projects/:id` toutes les deux secondes tant qu'une analyse
+ * tourne, et ce relevé finit sur le Drive quand le transcript n'est pas dans le
+ * projet. Or `montageRépond` s'appuie sur `fsp.stat`, qui **consomme un fil du
+ * vivier de libuv** quand le montage ne répond pas — le vivier en compte quatre
+ * par défaut. Sans cache, huit secondes de sondage suffisaient à les prendre
+ * tous les quatre et à figer *tout* ce qui touche au disque dans le serveur, y
+ * compris l'analyse en cours. Le mode de panne visé par la garde était devenu
+ * une façon de la déclencher.
+ *
+ * D'où deux durées de vie, et l'asymétrie est le cœur du garde-fou : une réponse
+ * obtenue se périme vite, un silence se retient longtemps. La sonde en vol est
+ * partagée, donc deux requêtes simultanées n'en lancent jamais deux.
+ */
+type EntréeSidecar = { valeur: string | null; expire: number; enVol?: Promise<string | null> }
+const sidecars = new Map<string, EntréeSidecar>()
+
+/** Assez court pour qu'un transcript qui vient d'être écrit apparaisse presque tout de suite. */
+const TTL_SIDECAR_MS = 4_000
+/** Assez long pour qu'un montage muet ne soit pas resondé à chaque interrogation. */
+const TTL_MONTAGE_MUET_MS = 60_000
+
+/**
  * Le `transcript.json` du sidecar, **sans rien créer**.
  *
  * `placeSidecar` est l'autorité sur l'emplacement, mais elle *écrit* pour
  * décider — elle crée le dossier et y pose une sonde. Un relevé de présence,
- * lui, est appelé à chaque `GET /api/projects/:id`, c'est-à-dire toutes les deux
- * secondes pendant une analyse : il n'a rien à créer sur un Drive partagé.
+ * lui, n'a rien à créer sur un Drive partagé.
  *
  * Les deux emplacements sont regardés dans l'ordre inverse de `placeSidecar`, et
  * la raison est le coût : le repli est local et répond en microsecondes, le
@@ -110,16 +135,53 @@ export async function attendre(projectId: string): Promise<void> {
  * et qu'il n'y en a pas de copie locale.
  */
 export async function cheminTranscript(projet: Project): Promise<string | null> {
+  const clé = cléSidecar(projet)
+  const entrée = sidecars.get(clé)
+  if (entrée !== undefined) {
+    if (entrée.enVol !== undefined) return entrée.enVol
+    if (entrée.expire > Date.now()) return entrée.valeur
+  }
+
+  const travail = chercherSidecar(projet, clé)
+  sidecars.set(clé, { valeur: null, expire: 0, enVol: travail })
+  return travail
+}
+
+/**
+ * La clé retient **les deux dossiers dont dépend la réponse**, pas seulement
+ * l'identifiant du projet : le sidecar peut être dans `PROJECTS_DIR` ou à côté
+ * de l'original, et une entrée qui ne nommerait que le projet resterait valable
+ * après un changement de l'un ou de l'autre. Le calcul est de la manipulation de
+ * chemins, il ne touche pas au disque.
+ */
+function cléSidecar(projet: Project): string {
+  return `${projectDir(projet.id)}\0${projet.sourcePath}`
+}
+
+async function chercherSidecar(projet: Project, clé: string): Promise<string | null> {
+  const retenir = (valeur: string | null, ttl: number): string | null => {
+    sidecars.set(clé, { valeur, expire: Date.now() + ttl })
+    return valeur
+  }
+
   const nomSidecar = path.basename(sidecarDir(projet.sourcePath))
   const repli = path.join(projectDir(projet.id), nomSidecar, 'transcript.json')
-  if (fs.existsSync(repli)) return repli
+  if (fs.existsSync(repli)) return retenir(repli, TTL_SIDECAR_MS)
 
   // **Sonder avant de toucher au Drive.** Monté avec son transport mort dessous,
   // il ne répond pas, et un `existsSync` synchrone gèle la boucle d'événements —
   // donc le serveur entier, pas seulement cette requête.
-  if (!(await montageRépond(projet.sourcePath))) return null
+  if (!(await montageRépond(projet.sourcePath))) return retenir(null, TTL_MONTAGE_MUET_MS)
   const voulu = path.join(sidecarDir(projet.sourcePath), 'transcript.json')
-  return fs.existsSync(voulu) ? voulu : null
+  return retenir(fs.existsSync(voulu) ? voulu : null, TTL_SIDECAR_MS)
+}
+
+/**
+ * Oublie l'emplacement retenu. Appelé après la transcription : l'étape vient
+ * précisément de créer le fichier dont on avait constaté l'absence.
+ */
+export function oublierSidecar(projet: Project): void {
+  sidecars.delete(cléSidecar(projet))
 }
 
 /** Y a-t-il au moins un rendu ? Un dossier vide n'est pas une étape faite. */
@@ -154,9 +216,15 @@ export async function relevéPrésence(projet: Project): Promise<Record<StepName
 /**
  * Ce que porte `projects/<id>/status.json`.
  *
- * Le `pid` n'est pas décoratif : il dit *qui* prétend faire tourner cette
- * analyse. Un fichier dont le `pid` n'est pas le nôtre décrit une exécution
- * d'avant le dernier redémarrage, donc une exécution qui ne tourne plus.
+ * **Ce fichier est une trace, pas une source.** `GET /api/projects/:id` ne le lit
+ * jamais : `steps` se relève sur les artefacts et `running` sort de la table en
+ * mémoire, seule à savoir ce qui tourne *dans ce processus*. C'est ce qui rend un
+ * redémarrage de Next inoffensif, alors que croire ce fichier ferait annoncer une
+ * transcription morte avec le dernier redémarrage.
+ *
+ * Le `pid` est là pour la personne qui l'ouvre : il dit quel processus a écrit
+ * ces lignes, donc si le `running` qu'elles portent a encore un sens. `error` est
+ * la seule chose que ce fichier soit seul à savoir, une fois l'exécution finie.
  */
 export type Statut = {
   pid: number
@@ -367,7 +435,7 @@ export async function lancer(
  * pas au Drive du tout**, ce qui est exactement ce qu'on veut d'un montage lent
  * qui décroche.
  */
-function faut_ilIngérer(projet: Project, plan: readonly StepName[]): boolean {
+function ingestionNécessaire(projet: Project, plan: readonly StepName[]): boolean {
   const besoinDeLaCopie = plan.includes('proxy') || plan.includes('audio')
   const copieLà = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
   return (besoinDeLaCopie && !copieLà) || projet.durationSec === null
@@ -390,7 +458,7 @@ async function exécuter(
   }
 
   try {
-    if (faut_ilIngérer(projet, exécution.plan)) {
+    if (ingestionNécessaire(projet, exécution.plan)) {
       // L'ingestion n'est pas une étape du graphe — la source est là ou le
       // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
       // celui de la première étape à faire, dont la progression est bien à zéro
@@ -411,7 +479,6 @@ async function exécuter(
       await exécuterÉtape(étape, projet, db, étapes, avancer)
     }
 
-    exécution.courante.progress = 1
     écrireStatut(projectId, {
       pid: process.pid,
       updatedAt: Date.now(),
@@ -488,6 +555,10 @@ async function exécuterÉtape(
           avancer(avancementWorker(ligne))
         },
       })
+      // L'emplacement retenu disait « pas de transcript », et c'était vrai il y
+      // a quarante minutes. Sans cet oubli, l'étape suivante consulterait une
+      // absence que l'étape qui vient de finir a précisément levée.
+      oublierSidecar(projet)
       return
     }
 

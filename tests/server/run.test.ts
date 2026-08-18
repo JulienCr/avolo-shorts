@@ -5,12 +5,14 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
-import { openDb, upsertProject } from '@/server/db'
+import { openDb, upsertProject, type Project } from '@/server/db'
 import {
+  cheminTranscript,
   ExécutionEnCoursError,
   lancer,
   lireStatut,
   planPourCibles,
+  oublierSidecar,
   ProjetInconnuError,
   progression,
   relevéPrésence,
@@ -162,6 +164,35 @@ describe('relevéPrésence', () => {
       candidates: false,
       renders: false,
     })
+  })
+})
+
+describe('cheminTranscript', () => {
+  const projet = (): Project => ({
+    id: PROJET,
+    sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`),
+    stagedPath: null,
+    durationSec: null,
+    sizeBytes: null,
+    mtimeMs: null,
+    createdAt: 0,
+  })
+
+  /**
+   * Le prix du cache, énoncé : une absence se retient. C'est ce qui empêche
+   * l'écran de tri, qui interroge toutes les deux secondes, de sonder un Drive
+   * muet à chaque fois — et le sondage y consomme un fil du vivier de libuv, qui
+   * n'en compte que quatre.
+   */
+  it('retient une absence, et l’oublie quand on le lui demande', async () => {
+    poserProjet()
+    expect(await cheminTranscript(projet())).toBeNull()
+
+    poserTranscript()
+    expect(await cheminTranscript(projet())).toBeNull()
+
+    oublierSidecar(projet())
+    expect(await cheminTranscript(projet())).toContain('transcript.json')
   })
 })
 

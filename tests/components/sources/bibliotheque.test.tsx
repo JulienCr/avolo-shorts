@@ -17,6 +17,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Bibliotheque from '@/app/page'
+import { cleSources } from '@/components/sources/use-sources'
 import type { ProjectListItem, SourcesListing } from '@/lib/api'
 import { useProjets } from '@/lib/queries'
 
@@ -70,7 +71,8 @@ function serveur(
   reponses: {
     projets?: () => Response
     sources?: () => Response
-    creation?: () => Response
+    /** Une promesse ici sert à retenir la réponse le temps de démonter la page. */
+    creation?: () => Response | Promise<Response>
   } = {},
 ) {
   const appels: string[] = []
@@ -87,7 +89,8 @@ function serveur(
   return appels
 }
 
-function enveloppe() {
+/** Le client est rendu avec l'enveloppe : il survit au démontage de la page. */
+function harnais() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -97,17 +100,22 @@ function enveloppe() {
   function Enveloppe({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>
   }
-  return Enveloppe
+  return { client, Enveloppe }
+}
+
+function enveloppe() {
+  return harnais().Enveloppe
 }
 
 async function monter() {
-  const Enveloppe = enveloppe()
-  render(
+  const { client, Enveloppe } = harnais()
+  const vue = render(
     <Enveloppe>
       <Bibliotheque />
     </Enveloppe>,
   )
   await waitFor(() => expect(screen.getByText('2025-06-15-cqlp.mp4')).toBeTruthy())
+  return { client, ...vue }
 }
 
 describe('la bibliothèque', () => {
@@ -166,6 +174,31 @@ describe('la bibliothèque', () => {
     expect(appels.filter((a) => a === 'GET /api/sources')).toHaveLength(1)
   })
 
+  it('marque la source même si l’on quitte la bibliothèque avant la réponse', async () => {
+    // **Le chemin que les liens de projet laissent ouvert exprès.** Une création
+    // traverse un `lstat` 9p qui peut mettre plusieurs secondes, et on peut très
+    // bien partir trier un autre projet pendant ce temps. TanStack n'appelle
+    // alors plus les rappels passés à `mutate` — l'observateur est démonté —, et
+    // la marque manquerait pendant les trente secondes du `staleTime`, c'est-à
+    // dire exactement la fenêtre du retour. (relevé par Codex)
+    let repondre: (r: Response) => void = () => {}
+    const differee = new Promise<Response>((resoudre) => {
+      repondre = resoudre
+    })
+    serveur({ creation: () => differee })
+    const { client, unmount } = await monter()
+
+    await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
+    unmount()
+    repondre(reponse({ projectId: CQLP.id, plan: [] }, 202))
+
+    await waitFor(() =>
+      expect(client.getQueryData<SourcesListing>(cleSources)?.sources[0]?.projectId).toBe(CQLP.id),
+    )
+    // Mais on ne ramène personne de force sur un écran qu'il vient de quitter.
+    expect(pousser).not.toHaveBeenCalled()
+  })
+
   it('affiche le message du serveur quand la création échoue, et ne va nulle part', async () => {
     const duServeur = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
     serveur({ creation: () => reponse({ error: duServeur }, 503) })
@@ -193,7 +226,7 @@ describe('la bibliothèque', () => {
 
   it('affiche le message du serveur quand les replays ne se listent pas', async () => {
     serveur({ sources: () => reponse({ error: 'REPLAY_DIR est absent.' }, 500) })
-    const Enveloppe = enveloppe()
+    const { Enveloppe } = harnais()
     render(
       <Enveloppe>
         <Bibliotheque />
@@ -211,7 +244,7 @@ describe('la bibliothèque', () => {
       sources: () =>
         reponse({ sources: [], montage: { disponible: false, fstype: null, entrées: 0 } }),
     })
-    const Enveloppe = enveloppe()
+    const { Enveloppe } = harnais()
     render(
       <Enveloppe>
         <Bibliotheque />

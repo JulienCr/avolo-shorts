@@ -2,6 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
 import { AppBar } from '@/components/parcours/app-bar'
 import { GrilleSources } from '@/components/sources/grille-sources'
@@ -49,21 +50,39 @@ export default function Bibliotheque() {
     enCours: creer.isPending ? (creer.variables ?? null) : null,
     erreur: creer.isError ? messageServeur(creer.error) : null,
     lancer: (source: Source) => {
-      creer.mutate(source.name, {
-        // **La redirection est la confirmation.** La réponse est un 202 — l'analyse
-        // est acceptée et lancée, pas faite —, et l'écran de projet est
-        // exactement celui qui sait montrer une analyse qui commence. Une
-        // notification en plus dirait deux fois la même chose.
-        onSuccess: ({ projectId }) => {
-          // **Avant de naviguer**, pour que le retour trouve la carte à jour :
-          // le `staleTime` de 30 s couvre précisément le temps qu'on passe sur
-          // l'écran de projet avant de revenir.
-          marquerSourceAnalysée(client, source.name, projectId)
-          router.push(lienProjet(projectId))
-        },
-      })
+      // **`mutateAsync` et non `mutate`, et le rappel n'est pas passé à
+      // TanStack.** Les liens vers un projet existant restent ouverts pendant
+      // une création — c'est le seul geste encore utile pendant l'attente —,
+      // donc on peut quitter la bibliothèque avant que le `lstat` 9p ne réponde.
+      // TanStack n'appelle alors plus les rappels donnés à `mutate` : son
+      // observateur est démonté. La marque manquerait pendant les trente
+      // secondes du `staleTime`, c'est-à-dire exactement la fenêtre du retour.
+      // Une chaîne de promesse, elle, ne dépend d'aucun observateur, et le
+      // client de requêtes vit au-dessus de cette page. (relevé par Codex)
+      void creer
+        .mutateAsync(source.name)
+        .then(({ projectId }) => marquerSourceAnalysée(client, source.name, projectId))
+        .catch(() => {
+          // L'échec est déjà porté par `creer.isError`, qui alimente l'alerte de
+          // la grille. Rattrapé ici seulement pour ne pas laisser un rejet nu.
+        })
     },
   }
+
+  // **La redirection, elle, reste liée à l'écran**, et c'est tout l'intérêt de
+  // la séparer de la correction du cache : ramener de force sur la bibliothèque
+  // quelqu'un qui vient d'aller trier un autre projet serait pire que de ne rien
+  // faire. Un effet ne s'exécute pas sur un composant démonté, ce qui exprime la
+  // règle sans qu'on ait à tenir un drapeau « suis-je encore là ».
+  //
+  // **La redirection est la confirmation.** La réponse est un 202 — l'analyse est
+  // acceptée et lancée, pas faite —, et l'écran de projet est celui qui sait
+  // montrer une analyse qui commence. Une notification en plus dirait deux fois
+  // la même chose.
+  const projetCree = creer.data?.projectId
+  useEffect(() => {
+    if (projetCree !== undefined) router.push(lienProjet(projetCree))
+  }, [projetCree, router])
 
   return (
     <div className="flex min-h-full flex-col">

@@ -94,6 +94,11 @@ export function EcranDeProjet({ id }: { id: string }) {
               <AlertTitle>La dernière analyse a échoué.</AlertTitle>
               <AlertDescription>
                 <p>{erreur}</p>
+                {/* `running !== null` est toujours faux sous la garde ci-dessus,
+                    et c'est délibéré : la garde tient à un contrat de serveur —
+                    `error` n'est servi qu'au repos — et le jour où elle bouge,
+                    le bouton doit se désactiver tout seul plutôt que de rester
+                    figé sur un `false` écrit à la main. */}
                 <BoutonReprise projectId={id} enCours={running !== null} />
               </AlertDescription>
             </Alert>

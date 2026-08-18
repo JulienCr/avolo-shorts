@@ -106,20 +106,22 @@ describe('ChampsTextes', () => {
     expect(onEcrire.mock.calls[0][0]).toEqual({ title: 'Presque' })
   })
 
-  it('garde la frappe quand l’écriture échoue', () => {
+  it('garde la frappe quand l’écriture échoue', async () => {
     // `usePatchClip` remet l'ancienne version en cache quand le `PATCH` échoue.
     // Si la valeur locale était déjà tenue pour synchronisée, l'adoption la
     // remplace par celle d'avant : le texte est perdu **en silence**, et la
     // barre affiche « enregistré » puisqu'elle ne suit que le montage.
     // (relevé par Codex)
-    const onEcrire = vi.fn(
-      (_champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
-        suites?.onError?.(),
-    )
+    const onEcrire = vi.fn(async (champs: ClipPatch) => {
+      void champs
+      throw new Error('réseau coupé')
+    })
     const { rerender } = render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
-    act(() => void vi.advanceTimersByTime(600))
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
     // Le rollback du cache : le clip repasse à la version du serveur.
     rerender(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
 
@@ -127,15 +129,17 @@ describe('ChampsTextes', () => {
     expect(screen.getByText(/n’a pas été enregistré/i)).toBeTruthy()
   })
 
-  it('renvoie la frappe restée en plan quand on le lui demande', () => {
-    const onEcrire = vi.fn(
-      (_champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
-        suites?.onError?.(),
-    )
+  it('renvoie la frappe restée en plan quand on le lui demande', async () => {
+    const onEcrire = vi.fn(async (champs: ClipPatch) => {
+      void champs
+      throw new Error('réseau coupé')
+    })
     render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
-    act(() => void vi.advanceTimersByTime(600))
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
     expect(onEcrire).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
@@ -147,7 +151,7 @@ describe('ChampsTextes', () => {
     // L'écriture optimiste fait passer le clip par la valeur qu'on vient
     // d'envoyer : avancer la référence dessus rendrait le rollback
     // indiscernable d'une écriture venue d'ailleurs.
-    const onEcrire = vi.fn(() => {})
+    const onEcrire = vi.fn(() => new Promise<void>(() => {}))
     const { rerender } = render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
@@ -156,6 +160,30 @@ describe('ChampsTextes', () => {
     rerender(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
 
     expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('Le vrai titre')
+  })
+
+  it('ne reste pas bloqué quand une autre écriture prend l’observateur', async () => {
+    // Les rappels passés à `mutate` sont attachés à **la dernière** mutation de
+    // l'observateur : une écriture de marques partie entre-temps efface ceux du
+    // titre, qui ne se règle alors jamais — le champ reste « en vol » à jamais
+    // et refuse toute écriture suivante. La promesse, elle, appartient à la
+    // mutation. (relevé par Copilot)
+    const onEcrire = vi.fn(async (champs: ClipPatch) => {
+      void champs
+    })
+    render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un' } })
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
+    fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Deux' } })
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
+
+    expect(onEcrire).toHaveBeenCalledTimes(2)
+    expect(onEcrire.mock.calls[1][0]).toEqual({ title: 'Deux' })
   })
 
   it('adopte la valeur du serveur quand rien n’est en attente', () => {

@@ -11,6 +11,7 @@ import {
   Redo2,
   Undo2,
 } from 'lucide-react'
+import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -72,6 +73,24 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [recherche, setRecherche] = useState(false)
+  /**
+   * Les champs de texte dont l'écriture est restée en échec.
+   *
+   * Ils ne se déduisent pas de `patch.isError`, qui ne décrit que le dernier
+   * appel de l'observateur partagé : une écriture qui aboutit derrière une qui
+   * a échoué le remet à faux, et l'export repartirait contre un texte que le
+   * serveur n'a pas. (relevé par Codex et par Copilot)
+   */
+  const [textesEnEchec, setTextesEnEchec] = useState<string[]>([])
+  const signalerEchecTexte = useCallback((champ: string, enEchec: boolean) => {
+    setTextesEnEchec((liste) =>
+      enEchec
+        ? liste.includes(champ)
+          ? liste
+          : [...liste, champ]
+        : liste.filter((autre) => autre !== champ),
+    )
+  }, [])
   const [aide, setAide] = useState(false)
 
   // Le store se charge du clip une fois, et pas à chaque passage de la requête :
@@ -151,11 +170,39 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
   // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
   // vient de refuser, et son rollback a déjà remis la valeur d'avant à l'écran.
   // (relevé par Copilot)
-  const enEchec = enregistrement === 'echec' || patch.isError
+  const enEchec = enregistrement === 'echec' || patch.isError || textesEnEchec.length > 0
+  const dernierRefus = patch.isError ? patch.variables : undefined
 
+  // **Toutes les écritures en vol sur ce clip, et pas seulement la dernière.**
+  // `isPending` décrit le dernier appel de l'observateur, que les champs de
+  // texte, les marques et l'enregistrement du montage partagent : une écriture
+  // récente qui aboutit le remet à faux alors qu'une plus ancienne est encore
+  // en vol, et l'export part contre un état que le serveur n'a pas encore.
+  // (relevé par Copilot)
+  // Ce que la barre sait renvoyer : l'écart de montage que l'écriture différée
+  // refuse de rejouer telle quelle, ou la dernière écriture directe refusée.
+  const peutRenvoyer =
+    differences(clip, segments, editeur.ratio, editeur.cropX) !== null ||
+    (dernierRefus !== undefined && dernierRefus.clipId === clip.id)
+
+  const ecrituresEnVol = useIsMutating({
+    predicate: (mutation) =>
+      (mutation.state.variables as { clipId?: string } | undefined)?.clipId === clip.id,
+  })
+
+  /**
+   * Une écriture directe — titre, description, marques.
+   *
+   * **`mutateAsync`, et pas `mutate`.** Les rappels de `mutate` sont attachés à
+   * la dernière mutation de l'observateur, que `usePatchClip` partage entre
+   * tous les champs et l'enregistrement du montage : une écriture partie
+   * entre-temps efface ceux de la précédente, dont l'appelant n'apprend jamais
+   * le sort. La promesse de `mutateAsync`, elle, appartient à la mutation.
+   * (relevé par Copilot)
+   */
   const ecrire = useCallback(
-    (champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
-      patch.mutate({ clipId: clip.id, projectId: clip.projectId, patch: champs }, suites),
+    (champs: ClipPatch) =>
+      patch.mutateAsync({ clipId: clip.id, projectId: clip.projectId, patch: champs }),
     [patch, clip.id, clip.projectId],
   )
 
@@ -224,7 +271,11 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             différée retient la signature de la tentative ratée et ne la rejoue
             pas telle quelle — sans quoi elle boucle. Ce bouton refait la même
             comparaison et l'envoie, ce qui débloque sans rien inventer. */}
-        {enEchec && (
+        {/* **Le bouton ne paraît que s'il a quelque chose à renvoyer.** Un
+            échec qui ne porte que sur un champ de texte se rattrape à côté du
+            champ, où le geste est déjà : un second bouton, inerte, y ferait
+            croire à une reprise qui n'a pas lieu. */}
+        {enEchec && peutRenvoyer && (
           <Button
             size="sm"
             variant="outline"
@@ -235,11 +286,11 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               // recalculer, seulement une requête à refaire.
               const modif = differences(clip, segments, editeur.ratio, editeur.cropX)
               if (modif) {
-                ecrire(modif)
+                void ecrire(modif).catch(() => {})
                 return
               }
               const refusé = patch.variables
-              if (refusé && refusé.clipId === clip.id) ecrire(refusé.patch)
+              if (refusé && refusé.clipId === clip.id) void ecrire(refusé.patch).catch(() => {})
             }}
           >
             <RotateCw aria-hidden />
@@ -339,7 +390,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             </span>
           </div>
 
-          <ChampsTextes clip={clip} onEcrire={ecrire} />
+          <ChampsTextes clip={clip} onEcrire={ecrire} onEchec={signalerEchecTexte} />
 
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
             <dt className="text-muted-foreground">Bornes</dt>
@@ -376,9 +427,11 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             empreinte={empreinteDuRendu}
             // `enregistrement` ne suit que le montage : le titre, la description
             // et les marques passent par la même mutation sans y figurer.
-            ecritureEnCours={patch.isPending}
-            ecritureEnEchec={patch.isError}
-            onBranding={(branding) => ecrire({ branding })}
+            ecritureEnCours={ecrituresEnVol > 0}
+            ecritureEnEchec={patch.isError || textesEnEchec.length > 0}
+            // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se lit
+            // dans la barre d'application et dans le garde-fou du panneau.
+            onBranding={(branding) => void ecrire({ branding }).catch(() => {})}
           />
         </section>
 

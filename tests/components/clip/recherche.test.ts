@@ -20,6 +20,18 @@ describe('normaliser', () => {
 })
 
 describe('chercher', () => {
+  it('trouve un mot que le transcript entoure d’espaces', () => {
+    // `lireTranscript` transmet les mots de WhisperX tels quels. Le décalage
+    // était noté avant d'ajouter la forme brute : l'occurrence commençait donc
+    // un caractère plus loin que le mot, et se faisait écarter.
+    // (relevé par Copilot)
+    expect(chercher([{ word: 'le' }, { word: ' salut ' }], 'salut')).toEqual([1])
+  })
+
+  it('ignore un mot qui n’est que du blanc', () => {
+    expect(chercher([{ word: '  ' }, { word: 'salut' }], 'salut')).toEqual([1])
+  })
+
   it('rend l’index de chaque mot qui commence une occurrence', () => {
     expect(chercher(mots, 'theatre')).toEqual([1, 6])
   })

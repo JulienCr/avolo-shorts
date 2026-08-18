@@ -27,6 +27,7 @@ import { TEMPORISATION_MS } from '@/lib/enregistrement'
 export function ChampsTextes({
   clip,
   onEcrire,
+  onEchec,
 }: {
   clip: Clip
   /**
@@ -36,23 +37,29 @@ export function ChampsTextes({
    * pas si son écriture a abouti, et il n'a aucun autre moyen de l'apprendre :
    * l'état de la barre d'application ne suit que le montage.
    */
-  onEcrire: (
-    patch: ClipPatch,
-    suites?: { onSuccess?: () => void; onError?: () => void },
-  ) => void
+  onEcrire: (patch: ClipPatch) => Promise<unknown> | void
+  /**
+   * Ce champ-là a-t-il une écriture restée en échec ?
+   *
+   * **L'export en a besoin, et il ne peut pas le déduire.** `patch.isError` ne
+   * décrit que le dernier appel de l'observateur partagé : une écriture de
+   * marques qui aboutit le remet à faux alors que le titre, lui, n'est toujours
+   * pas écrit — et le rendu produirait un `.txt` portant le texte d'avant
+   * pendant que l'écran affiche le nouveau. (relevé par Codex et par Copilot)
+   */
+  onEchec?: (champ: 'title' | 'description', enEchec: boolean) => void
 }) {
   const identifiant = useId()
 
   const titre = useTexteDifféré(
     clip.title,
-    useCallback<Ecrire>((title, suites) => onEcrire({ title }, suites), [onEcrire]),
+    useCallback<Ecrire>((title) => onEcrire({ title }), [onEcrire]),
+    useCallback((enEchec: boolean) => onEchec?.('title', enEchec), [onEchec]),
   )
   const description = useTexteDifféré(
     clip.description,
-    useCallback<Ecrire>(
-      (description, suites) => onEcrire({ description }, suites),
-      [onEcrire],
-    ),
+    useCallback<Ecrire>((description) => onEcrire({ description }), [onEcrire]),
+    useCallback((enEchec: boolean) => onEchec?.('description', enEchec), [onEchec]),
   )
 
   return (
@@ -133,7 +140,11 @@ function Echec({
  * rechargement ; une frappe en cours, elle, est postérieure — personne ne l'a
  * refusée, et l'écraser serait perdre un geste au milieu d'un mot.
  */
-function useTexteDifféré(valeurServeur: string, écrire: Ecrire) {
+function useTexteDifféré(
+  valeurServeur: string,
+  écrire: Ecrire,
+  signaler?: (enEchec: boolean) => void,
+) {
   const [valeur, setValeur] = useState(valeurServeur)
   const [echec, setEchec] = useState(false)
 
@@ -149,9 +160,11 @@ function useTexteDifféré(valeurServeur: string, écrire: Ecrire) {
   // mutation. Le garder dans un `ref` évite de reprogrammer la temporisation à
   // chaque fois, ce qui la repousserait indéfiniment pendant qu'on tape.
   const écrireRef = useRef(écrire)
+  const signalerRef = useRef(signaler)
   useEffect(() => {
     écrireRef.current = écrire
-  }, [écrire])
+    signalerRef.current = signaler
+  }, [écrire, signaler])
 
   /**
    * Envoie ce qui reste à écrire, et **n'avance la référence qu'au succès**.
@@ -177,17 +190,23 @@ function useTexteDifféré(valeurServeur: string, écrire: Ecrire) {
     if (àÉcrire === envoyé.current) return
 
     envoyé.current = àÉcrire
-    écrireRef.current(àÉcrire, {
-      onSuccess: () => {
+    // `Promise.resolve` enveloppe aussi bien une écriture qui ne rend rien :
+    // le contrat reste « la promesse se règle », pas « l'appelant en rend une ».
+    Promise.resolve(écrireRef.current(àÉcrire)).then(
+      () => {
         référence.current = àÉcrire
         if (envoyé.current === àÉcrire) envoyé.current = null
         setEchec(false)
+        // Depuis le règlement de la promesse, donc depuis un événement : jamais
+        // depuis un effet, qui ferait écrire l'état d'un parent pendant un rendu.
+        signalerRef.current?.(false)
       },
-      onError: () => {
+      () => {
         if (envoyé.current === àÉcrire) envoyé.current = null
         setEchec(true)
+        signalerRef.current?.(true)
       },
-    })
+    )
   }, [])
 
   const saisir = useCallback(
@@ -232,7 +251,14 @@ function useTexteDifféré(valeurServeur: string, écrire: Ecrire) {
   return { valeur, saisir, vider, echec }
 }
 
-type Ecrire = (
-  valeur: string,
-  suites: { onSuccess: () => void; onError: () => void },
-) => void
+/**
+ * Écrire une valeur, et **rendre une promesse qui se règle pour cette
+ * écriture-là**.
+ *
+ * Les rappels passés à `mutate` sont attachés à la *dernière* mutation de
+ * l'observateur : une écriture de marques partie entre-temps efface ceux du
+ * titre, dont l'écriture ne se règle alors jamais. Le champ reste « en vol » à
+ * jamais, refuse toute écriture suivante, et n'affiche aucun échec. La promesse,
+ * elle, appartient à la mutation et non à l'observateur. (relevé par Copilot)
+ */
+type Ecrire = (valeur: string) => Promise<unknown> | void

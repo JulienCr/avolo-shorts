@@ -39,8 +39,16 @@ export function chercher(mots: readonly { word: string }[], requête: string): n
   let texte = ''
   const motAuDécalage = new Map<number, number>()
   for (const [index, mot] of mots.entries()) {
+    // **Le mot est ébarbé avant que son décalage ne soit noté.**
+    // `lireTranscript` transmet ce que WhisperX rend, espaces compris : noter le
+    // décalage puis ajouter la forme brute faisait commencer l'occurrence un
+    // caractère plus loin que le mot, et la comparaison à un décalage de début
+    // de mot l'écartait. Un mot qui n'est que du blanc ne désigne rien, et ne
+    // prend donc pas de place non plus. (relevé par Copilot)
+    const normalisé = normaliser(mot.word).trim()
+    if (normalisé === '') continue
     motAuDécalage.set(texte.length, index)
-    texte += `${normaliser(mot.word)} `
+    texte += `${normalisé} `
   }
 
   const trouvés: number[] = []

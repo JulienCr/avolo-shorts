@@ -343,6 +343,7 @@ export function TranscriptSurface({
                         auCurseur={mot.index === curseur}
                         onSelectionner={onSelectionner}
                         onEtendre={onEtendre}
+                        onTerminer={onTerminer}
                         onRemonter={onRemonter}
                         onPlacer={(index) => {
                           // Le clic sur un mot **reprend** le suivi : c'est le
@@ -436,6 +437,7 @@ function Mot({
   auCurseur,
   onSelectionner,
   onEtendre,
+  onTerminer,
   onRemonter,
   onPlacer,
 }: {
@@ -444,6 +446,7 @@ function Mot({
   auCurseur: boolean
   onSelectionner: (index: number, etendre: boolean) => void
   onEtendre: (index: number) => void
+  onTerminer: () => void
   onRemonter: (index: number) => void
   onPlacer: (index: number) => void
 }) {
@@ -499,6 +502,11 @@ function Mot({
         if (e.shiftKey) onSelectionner(mot.index, true)
         else if (mot.kept) {
           onSelectionner(mot.index, false)
+          // **Le glissé se referme.** `commencerSelection` l'ouvre, et le
+          // clavier n'a pas de relâchement de bouton pour le clore : sans cette
+          // ligne, passer la souris sur un mot voisin étend la sélection alors
+          // qu'aucun bouton n'est enfoncé. (relevé par Codex)
+          onTerminer()
           onPlacer(mot.index)
         } else onRemonter(mot.index)
       }}

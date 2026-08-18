@@ -191,6 +191,15 @@ describe('le tabindex glissant', () => {
     expect(premier.getAttribute('tabindex')).toBe('-1')
   })
 
+  it('referme le glissé après une activation au clavier', () => {
+    // `commencerSelection` ouvre un glissé ; sans le refermer, passer la souris
+    // sur un mot voisin étend la sélection alors qu'aucun bouton n'est enfoncé.
+    // (relevé par Codex)
+    const { onTerminer } = monter()
+    fireEvent.keyDown(screen.getByText(/m0-2/), { key: 'Enter' })
+    expect(onTerminer).toHaveBeenCalled()
+  })
+
   it('sélectionne le mot atteint à la flèche', () => {
     // Le curseur du clavier et la sélection doivent coïncider, sinon `I` et `O`
     // posent la borne sur un mot cliqué il y a trois gestes — silencieusement.

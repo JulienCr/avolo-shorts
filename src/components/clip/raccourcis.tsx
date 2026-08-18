@@ -32,6 +32,16 @@ const ACTIVABLES = 'button, [role="button"], a[href], summary'
 const FLECHES = '[role="slider"], [role="tab"], [role="radio"], [role="option"]'
 
 /**
+ * Ce qui possède **toutes** les touches : une boîte de dialogue et son contenu.
+ *
+ * Sans cette ligne, `Échap` referme la liste des raccourcis *et* vide la
+ * sélection du transcript, et `Suppr`, `I` ou `O` montent le clip pendant qu'on
+ * lit une confirmation d'écrasement. Un modal capture le focus précisément pour
+ * que rien derrière lui ne réponde. (relevé par Copilot)
+ */
+const MODAUX = '[role="dialog"], [role="alertdialog"]'
+
+/**
  * Cette touche appartient-elle déjà à la cible ?
  *
  * **La garde est par touche, et c'est le seul énoncé qui tienne.** Écarter tout
@@ -51,6 +61,7 @@ const FLECHES = '[role="slider"], [role="tab"], [role="radio"], [role="option"]'
 export function volerait(cible: EventTarget | null, touche: string): boolean {
   if (!(cible instanceof HTMLElement)) return false
   if (cible.isContentEditable || cible.closest(CHAMPS)) return true
+  if (cible.closest(MODAUX)) return true
   if ((touche === ' ' || touche === 'Enter') && cible.closest(ACTIVABLES)) return true
   if (touche.startsWith('Arrow') && cible.closest(FLECHES)) return true
   return false

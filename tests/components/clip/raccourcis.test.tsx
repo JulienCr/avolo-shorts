@@ -137,6 +137,25 @@ describe('useRaccourcis', () => {
 })
 
 describe('volerait', () => {
+  it('laisse toutes les touches à une boîte de dialogue', () => {
+    // Sinon `Échap` referme la liste des raccourcis **et** vide la sélection du
+    // transcript, et `Suppr` monte le clip pendant qu'on lit une confirmation
+    // d'écrasement. (relevé par Copilot)
+    const boîte = document.createElement('div')
+    boîte.setAttribute('role', 'dialog')
+    const bouton = document.createElement('button')
+    boîte.append(bouton)
+    for (const touche of ['Escape', 'Delete', 'i', 'o', '?', ' ']) {
+      expect(volerait(bouton, touche)).toBe(true)
+    }
+  })
+
+  it('laisse toutes les touches à une boîte d’alerte', () => {
+    const boîte = document.createElement('div')
+    boîte.setAttribute('role', 'alertdialog')
+    expect(volerait(boîte, 'Delete')).toBe(true)
+  })
+
   it('laisse passer une cible qui n’est pas un élément', () => {
     // `window` et `document` sont des cibles d'événement clavier, et `closest`
     // n'existe pas dessus : sans ce contrôle, le gestionnaire levait une

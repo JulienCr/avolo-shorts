@@ -284,3 +284,91 @@ describe('l’échec d’une écriture directe', () => {
     )
   })
 })
+
+describe('l’export et les écritures qui se chevauchent', () => {
+  it('reste bloqué tant qu’une écriture est en vol, même si une plus récente est passée', async () => {
+    // `isPending` ne décrit que le dernier appel de l'observateur, que tous les
+    // champs partagent : une écriture plus récente qui aboutit le remet à faux
+    // alors que la première est encore en vol, et l'export part contre un état
+    // que le serveur n'a pas encore. (relevé par Copilot)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let patchs = 0
+      const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+        if (options?.method === 'PATCH') {
+          patchs += 1
+          // La première n'aboutit jamais ; la seconde, si.
+          if (patchs === 1) return new Promise<Response>(() => {})
+          return reponse({
+            applied: true,
+            clip: detail('c2').clip,
+            outputs: detail('c2').outputs,
+            seq: 2,
+          })
+        }
+        if (String(url).includes('/candidates')) return reponse(candidats)
+        return reponse(detail('c2'))
+      })
+      vi.stubGlobal('fetch', fetch)
+      await monter('c2')
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+      fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un autre titre' } })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+
+      expect(patchs).toBe(2)
+      expect(
+        screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-disabled'),
+      ).toBe('true')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('un texte resté non enregistré', () => {
+  it('bloque l’export même après une écriture plus récente qui aboutit', async () => {
+    // Une écriture de marques qui passe remet `patch.isError` à faux, alors que
+    // le titre, lui, n'est toujours pas écrit : l'export produirait un `.txt`
+    // portant le texte d'avant pendant que l'écran affiche le nouveau.
+    // (relevé par Codex et par Copilot)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let patchs = 0
+      const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+        if (options?.method === 'PATCH') {
+          patchs += 1
+          if (patchs === 1) throw new Error('réseau coupé')
+          return reponse({
+            applied: true,
+            clip: detail('c2').clip,
+            outputs: detail('c2').outputs,
+            seq: 2,
+          })
+        }
+        if (String(url).includes('/candidates')) return reponse(candidats)
+        return reponse(detail('c2'))
+      })
+      vi.stubGlobal('fetch', fetch)
+      await monter('c2')
+
+      fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un autre titre' } })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+      fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+
+      expect(patchs).toBe(2)
+      expect(
+        screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-disabled'),
+      ).toBe('true')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

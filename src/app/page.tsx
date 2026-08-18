@@ -82,7 +82,14 @@ export default function Bibliotheque() {
           listing={sources.data}
           chargement={sources.isPending}
           erreur={sources.isError ? messageServeur(sources.error) : null}
-          onReessayer={() => void sources.refetch()}
+          onReessayer={() => {
+            // **L'échec de création s'oublie avec le rafraîchissement**, parce
+            // que c'est lui qui le rend caduc : sur une source disparue entre
+            // l'affichage et le clic, la carte s'en va et le message continuerait
+            // sinon de nommer un fichier qui n'est plus là.
+            creer.reset()
+            void sources.refetch()
+          }}
           creation={creation}
         />
       </main>

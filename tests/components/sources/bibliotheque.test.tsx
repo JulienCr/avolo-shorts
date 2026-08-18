@@ -154,6 +154,20 @@ describe('la bibliothèque', () => {
     expect(pousser).not.toHaveBeenCalled()
   })
 
+  it('efface l’échec de création quand on rafraîchit la liste', async () => {
+    // Sinon le message survit à ce qui l'a causé : sur une source disparue
+    // entre l'affichage et le clic, on rafraîchit, la carte s'en va, et l'alerte
+    // continue de nommer un fichier qui n'est plus là.
+    serveur({ creation: () => reponse({ error: 'Aucun replay nommé "vieux.mp4".' }, 404) })
+    await monter()
+
+    await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Rafraîchir' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
   it('affiche le message du serveur quand les replays ne se listent pas', async () => {
     serveur({ sources: () => reponse({ error: 'REPLAY_DIR est absent.' }, 500) })
     const Enveloppe = enveloppe()

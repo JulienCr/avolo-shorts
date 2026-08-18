@@ -30,6 +30,17 @@ describe('formatOctets', () => {
     expect(formatOctets(1_500_000)).toBe('1,5 Mo')
   })
 
+  it('promeut la valeur qui arrondit à la borne du multiple suivant', () => {
+    // L'arrondi vient **après** le choix du multiple : 999 999 999 octets
+    // tombent sur Mo, puis s'arrondissent à 1000, et la carte annonçait
+    // « 1000 Mo » — une unité que personne n'écrit, juste sous le seuil du Go.
+    // (relevé par Copilot)
+    expect(formatOctets(999_999_999)).toBe('1 Go')
+    expect(formatOctets(999_999)).toBe('1 Mo')
+    // Et la borne exacte, elle, n'a jamais eu de problème : la boucle la passe.
+    expect(formatOctets(1_000_000_000)).toBe('1 Go')
+  })
+
   it('compte les octets au singulier tant qu’il n’y en a qu’un', () => {
     expect(formatOctets(1)).toBe('1 octet')
     expect(formatOctets(999)).toBe('999 octets')

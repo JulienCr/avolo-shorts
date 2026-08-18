@@ -43,7 +43,18 @@ export function formatOctets(octets: number): string {
     valeur /= 1000
     rang += 1
   }
-  const arrondi = valeur < 100 ? Math.round(valeur * 10) / 10 : Math.round(valeur)
+  let arrondi = valeur < 100 ? Math.round(valeur * 10) / 10 : Math.round(valeur)
+
+  // **L'arrondi peut franchir la borne que la boucle vient de refuser.**
+  // 999 999 999 octets valent 999,999999 Mo : la boucle s'arrête sous 1000,
+  // l'arrondi rend 1000, et la carte annonçait « 1000 Mo » — une unité que
+  // personne n'écrit, juste sous le seuil du Go. La promotion se fait donc
+  // après l'arrondi, jamais avant. (relevé par Copilot)
+  if (arrondi >= 1000 && rang < MULTIPLES.length - 1) {
+    arrondi = 1
+    rang += 1
+  }
+
   return `${String(arrondi).replace('.', ',')} ${MULTIPLES[rang]}`
 }
 

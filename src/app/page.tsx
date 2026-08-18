@@ -3,7 +3,7 @@
 import { ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 
-import { AppBar } from '@/components/app-bar'
+import { AppBar } from '@/components/parcours/app-bar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDuration } from '@/lib/format'
 import { useProjets } from '@/lib/queries'
@@ -22,7 +22,7 @@ export default function Accueil() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar chemin={[]} />
+      <AppBar lieu={{ kind: 'bibliotheque' }} />
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
         <h1 className="text-xl font-semibold tracking-tight">Émissions</h1>

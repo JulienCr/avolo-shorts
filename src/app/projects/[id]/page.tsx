@@ -2,8 +2,8 @@
 
 import { use, useMemo, useState } from 'react'
 
-import { CandidateCard } from '@/components/candidate-card'
-import { AppBar } from '@/components/app-bar'
+import { CandidateCard } from '@/components/tri/candidate-card'
+import { AppBar } from '@/components/parcours/app-bar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { compter, LIBELLES_ETAPES } from '@/core/parcours'
@@ -42,7 +42,7 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar chemin={[{ libelle: projet.data?.project.title ?? id }]}>
+      <AppBar lieu={{ kind: 'projet', projet: { id, titre: projet.data?.project.title ?? id } }}>
         {projet.data?.running && <Progression running={projet.data.running} />}
       </AppBar>
 

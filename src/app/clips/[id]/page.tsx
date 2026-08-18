@@ -3,10 +3,10 @@
 import { ArrowLeftToLine, ArrowRightToLine, Scissors, Undo2 } from 'lucide-react'
 import { use, useEffect, useMemo } from 'react'
 
-import { AppBar } from '@/components/app-bar'
-import { ClipPlayer } from '@/components/clip-player'
-import { CropOverlay, RatioPicker } from '@/components/crop-picker'
-import { TranscriptSurface } from '@/components/transcript-surface'
+import { AppBar } from '@/components/parcours/app-bar'
+import { ClipPlayer } from '@/components/clip/clip-player'
+import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
+import { TranscriptSurface } from '@/components/clip/transcript-surface'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -40,7 +40,7 @@ export default function PageDeClip({ params }: { params: Promise<{ id: string }>
         <Editeur detail={detail.data} />
       ) : (
         <>
-          <AppBar chemin={[{ libelle: detail.isError ? 'Clip introuvable' : '…' }]} />
+          <AppBar lieu={{ kind: 'inconnu', libelle: detail.isError ? 'Clip introuvable' : '…' }} />
           <main className="mx-auto w-full max-w-5xl flex-1 p-6">
             {detail.isError ? (
               <p className="text-sm text-muted-foreground">
@@ -119,10 +119,11 @@ function Editeur({ detail }: { detail: ClipDetail }) {
   return (
     <>
       <AppBar
-        chemin={[
-          { libelle: project.title, href: `/projects/${clip.projectId}` },
-          { libelle: clip.title },
-        ]}
+        lieu={{
+          kind: 'clip',
+          projet: { id: clip.projectId, titre: project.title },
+          clip: { titre: clip.title },
+        }}
       >
         {/* Trois états, dont l'échec : un montage qui n'est pas parti doit se
             voir, sinon on ferme l'onglet en croyant l'avoir enregistré. Et

@@ -573,14 +573,32 @@ export type BilanNotation = {
   fenêtres: number
   /** Celles qui portent une note du modèle. */
   notées: number
-  /** Celles qui n'en portent aucune : refusées par le filtre, ou omises. */
+  /**
+   * Celles qui n'en portent aucune : refusées par le filtre, omises par une
+   * réponse, ou **pas encore soumises quand la passe s'est interrompue**.
+   *
+   * L'invariant tient à tout instant, y compris au milieu d'une passe et après
+   * une panne : `notées + jamaisNotées.length === fenêtres`. Il ne tenait pas
+   * quand la liste se remplissait au fil des refus — une erreur réseau sortait
+   * de la boucle, et le bilan annonçait « 2 fenêtres sur 4 jugées » avec une
+   * liste de perdues vide, c'est-à-dire un décompte de perte qui ne localisait
+   * pas la perte. La liste part donc pleine et se vide de ce qui est noté.
+   * (relevé par Copilot)
+   */
   jamaisNotées: string[]
   /**
    * Celles que le filtre refuse **seules**, lot réduit à elles. Distinctes des
    * précédentes : là, le refus vise bien cette fenêtre-là et pas l'assemblage.
    */
   refusées: string[]
-  /** Les appels de notation, refus et récupération compris. */
+  /**
+   * Les **requêtes** de notation, refus, relances et récupération comprises.
+   *
+   * Les requêtes et non les lots : `appelerGemini` réessaie jusqu'à trois fois
+   * une erreur passagère, et c'est la requête qui consomme le quota — 15 par
+   * minute sur le palier gratuit. Compter les lots sous-estimait exactement le
+   * nombre dont on se sert pour raisonner sur ce plafond. (relevé par Copilot)
+   */
   appels: number
   /** Les lots refusés, toutes profondeurs de découpe confondues. */
   lotsRefusés: number
@@ -641,6 +659,15 @@ export async function runCandidates(
   const db = options.db ?? getDb()
   const appel = options.appel ?? clientParDéfaut()
   const sleep = options.sleep ?? attendre
+
+  // **Le bilan de la passe précédente tombe ici, avant tout le reste.** Il n'est
+  // posé qu'une fois le transcript lu et les fenêtres construites : une
+  // exécution qui échoue avant — projet inconnu, durée manquante, transcript
+  // illisible — laissait sinon `dernierBilan` répondre le décompte d'une passe
+  // antérieure, sans rien qui permette de voir qu'il est périmé. Le raccord à
+  // venir dans `écrireStatut` aurait recopié ce chiffre dans `status.json`.
+  // (relevé par Copilot)
+  bilans.delete(projectId)
 
   const projet = getProject(db, projectId)
   if (!projet) throw new Error(`Projet inconnu : ${projectId}`)
@@ -726,6 +753,22 @@ function tailleDeLot(): number {
   return Number.isFinite(brut) && brut >= 1 ? brut : LOT_NOTATION_PAR_DÉFAUT
 }
 
+/**
+ * L'état d'une notation en cours : ce qui est noté, ce qui ne l'est pas, et le
+ * bilan qui les compte.
+ *
+ * `nonNotées` est la source de vérité et `bilan.jamaisNotées` en est le reflet
+ * sérialisable, réécrit à chaque changement. Deux listes tenues séparément
+ * finiraient par diverger, et c'est le décompte de perte qui mentirait.
+ */
+type Ardoise = {
+  bilan: BilanNotation
+  /** Les fenêtres sans note. Pleine au départ, elle se vide de ce qui est noté. */
+  nonNotées: Set<string>
+  /** Les notes rassemblées, réconciliation comprise. */
+  notées: ScoredWindow[]
+}
+
 /** Ce dont la notation a besoin, et rien de plus. */
 type ContexteNotation = {
   projectId: string
@@ -752,23 +795,31 @@ async function noterLesFenêtres(
   const lots: Window[][] = []
   for (let i = 0; i < fenêtres.length; i += taille) lots.push(fenêtres.slice(i, i + taille))
 
-  const notées: ScoredWindow[] = []
-  const bilan: BilanNotation = {
-    fenêtres: fenêtres.length,
-    notées: 0,
-    jamaisNotées: [],
-    refusées: [],
-    appels: 0,
-    lotsRefusés: 0,
-    lotsRépondus: 0,
+  // **La liste des non notées part pleine.** Toute fenêtre est non jugée tant
+  // qu'une réponse ne la juge pas, y compris celles qu'une panne empêchera même
+  // de soumettre : c'est ce qui rend le bilan honnête à l'instant où il est lu,
+  // et pas seulement à la fin. (relevé par Copilot)
+  const ardoise: Ardoise = {
+    notées: [],
+    nonNotées: new Set(fenêtres.map((f) => f.id)),
+    bilan: {
+      fenêtres: fenêtres.length,
+      notées: 0,
+      jamaisNotées: fenêtres.map((f) => f.id),
+      refusées: [],
+      appels: 0,
+      lotsRefusés: 0,
+      lotsRépondus: 0,
+    },
   }
+  const { bilan, notées } = ardoise
   bilans.set(ctx.projectId, bilan)
 
   const refusés: Window[][] = []
   for (const lot of lots) {
-    const lu = await noterUnLot(lot, ctx, bilan)
+    const lu = await noterUnLot(lot, ctx, ardoise)
     if (lu === null) refusés.push(lot)
-    else ranger(lu, notées, bilan)
+    else ranger(lu, ardoise)
   }
 
   const budget = lots.length * RÉCUPÉRATION_MAX
@@ -777,7 +828,7 @@ async function noterLesFenêtres(
     console.warn(
       `${refusés.length} lot(s) refusés par le filtre, ${enJeu} fenêtre(s) ; on les recoupe.`,
     )
-    await récupérer(refusés, ctx, bilan, notées, budget)
+    await récupérer(refusés, ctx, ardoise, budget)
   }
 
   // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo. On le dit
@@ -812,7 +863,7 @@ async function noterLesFenêtres(
     throw new GeminiBlockedError(
       jusquÀLaFenêtreSeule
         ? `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
-        : `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} l'ont été. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
+        : `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
     )
   }
 
@@ -845,13 +896,18 @@ async function noterLesFenêtres(
 async function noterUnLot(
   lot: Window[],
   ctx: ContexteNotation,
-  bilan: BilanNotation,
+  { bilan }: Ardoise,
 ): Promise<{ scored: ScoredWindow[]; missing: string[] } | null> {
-  bilan.appels += 1
+  // Compté **dans** la couture réseau, pas avant l'appel : `appelerGemini`
+  // réessaie jusqu'à trois fois, et c'est chaque requête qui coûte du quota.
+  const compter: AppelGemini = (prompt, mode) => {
+    bilan.appels += 1
+    return ctx.appel(prompt, mode)
+  }
   let brut: unknown
   try {
     brut = await appelerGemini(
-      ctx.appel,
+      compter,
       scorePrompt({
         language: ctx.language,
         videoDuration: ctx.videoDuration,
@@ -900,8 +956,7 @@ async function noterUnLot(
 async function récupérer(
   refusés: Window[][],
   ctx: ContexteNotation,
-  bilan: BilanNotation,
-  notées: ScoredWindow[],
+  ardoise: Ardoise,
   budget: number,
 ): Promise<void> {
   const file = [...refusés]
@@ -912,47 +967,51 @@ async function récupérer(
     // c'est bien elle que le filtre vise. Le cas ne s'est pas produit sur
     // l'émission mesurée ; il reste possible sur une autre.
     if (lot.length === 1) {
-      bilan.refusées.push(lot[0].id)
-      abandonner(lot, notées, bilan, 'fenêtre refusée par le filtre')
+      ardoise.bilan.refusées.push(lot[0].id)
+      abandonner(lot, ardoise, 'fenêtre refusée par le filtre')
       continue
     }
 
     const milieu = Math.ceil(lot.length / 2)
     for (const moitié of [lot.slice(0, milieu), lot.slice(milieu)]) {
       if (restant <= 0) {
-        abandonner(moitié, notées, bilan, 'lot refusé, budget de récupération épuisé')
+        abandonner(moitié, ardoise, 'lot refusé, budget de récupération épuisé')
         continue
       }
       restant -= 1
-      const lu = await noterUnLot(moitié, ctx, bilan)
+      const lu = await noterUnLot(moitié, ctx, ardoise)
       if (lu === null) file.push(moitié)
-      else ranger(lu, notées, bilan)
+      else ranger(lu, ardoise)
     }
   }
 }
 
-/** Un lot dont on ne tirera rien : dernier au classement, et compté comme tel. */
-function abandonner(
-  lot: Window[],
-  notées: ScoredWindow[],
-  bilan: BilanNotation,
-  raison: string,
-): void {
+/**
+ * Un lot dont on ne tirera rien : dernier au classement, et compté comme tel.
+ *
+ * Il reste dans `nonNotées` — il n'en est jamais sorti — donc rien n'a à l'y
+ * remettre. Ce qui s'ajoute ici est seulement l'entrée de classement qui le fait
+ * finir dernier plutôt que dehors.
+ */
+function abandonner(lot: Window[], ardoise: Ardoise, raison: string): void {
   for (const fenêtre of lot) {
-    notées.push({ id: fenêtre.id, score: 0, reason: raison, notée: false })
-    bilan.jamaisNotées.push(fenêtre.id)
+    ardoise.notées.push({ id: fenêtre.id, score: 0, reason: raison, notée: false })
   }
 }
 
 /** Range un lot lu, en séparant ce qui porte une note de ce qui n'en porte pas. */
-function ranger(
-  lu: { scored: ScoredWindow[]; missing: string[] },
-  notées: ScoredWindow[],
-  bilan: BilanNotation,
-): void {
-  notées.push(...lu.scored)
-  bilan.notées += lu.scored.length - lu.missing.length
-  bilan.jamaisNotées.push(...lu.missing)
+function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardoise): void {
+  const { bilan, nonNotées } = ardoise
+  ardoise.notées.push(...lu.scored)
+  const omises = new Set(lu.missing)
+  for (const note of lu.scored) {
+    if (omises.has(note.id)) continue
+    // `delete` rend faux sur une fenêtre déjà notée : le compte suit le retrait
+    // effectif, jamais la longueur du lot, pour qu'un identifiant vu deux fois
+    // ne compte pas deux jugements.
+    if (nonNotées.delete(note.id)) bilan.notées += 1
+  }
+  bilan.jamaisNotées = [...nonNotées]
 }
 
 /** Retire le marqueur avant de toucher à la base. */

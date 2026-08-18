@@ -606,7 +606,8 @@ describe("l'étape de repérage", () => {
     )
     expect(erreur).toBeInstanceOf(GeminiBlockedError)
     expect(erreur!.message).toMatch(/budget de récupération \(3 appel\(s\)\)/)
-    expect(erreur!.message).toMatch(/1 sur 4 l'ont été/)
+    // L'accord suit le compte : une seule fenêtre essayée seule, donc singulier.
+    expect(erreur!.message).toMatch(/1 sur 4 l'a été/)
     expect(erreur!.message).not.toMatch(/jusqu'à la fenêtre seule/)
     // Ce qui reste vrai malgré tout : la perte est chiffrée, pas avalée.
     const bilan = dernierBilan(ID)!
@@ -721,6 +722,70 @@ describe("l'étape de repérage", () => {
       expect(bilan.notées).toBe(4)
       expect(bilan.jamaisNotées).toEqual([])
       expect(bilan.refusées).toEqual([])
+    })
+
+    /**
+     * L'invariant du bilan : `notées + jamaisNotées === fenêtres`, **y compris
+     * quand la passe casse en route**. La liste se remplissait au fil des refus,
+     * donc une erreur réseau sortait de la boucle et laissait un bilan qui
+     * annonçait des fenêtres jugées sans localiser les autres — un décompte de
+     * perte qui ne comptait pas la perte. (relevé par Copilot)
+     */
+    it('localise la perte même quand la passe casse en cours de route', async () => {
+      process.env.SCORE_BATCH = '2'
+      let lots = 0
+      // Une panne qui n'a rien de passager : elle sort de la boucle au premier
+      // coup, ce qui est exactement le cas où le bilan restait muet.
+      const casse: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score' && ++lots === 2) throw new Error('403 PERMISSION_DENIED')
+        return modèle([])(prompt, mode)
+      }
+      await expect(
+        runCandidates(ID, { db, appel: casse, sleep: async () => {} }),
+      ).rejects.toThrow(/PERMISSION_DENIED/)
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées).toBe(2)
+      expect(bilan.jamaisNotées).toEqual(['window_003', 'window_004'])
+      expect(bilan.notées + bilan.jamaisNotées.length).toBe(bilan.fenêtres)
+    })
+
+    /**
+     * Un bilan périmé est pire qu'un bilan absent : il a l'air d'un résultat.
+     * (relevé par Copilot)
+     */
+    it('n’expose pas le bilan de la passe précédente quand la suivante échoue avant de noter', async () => {
+      await runCandidates(ID, { db, appel: modèle([]), sleep: async () => {} })
+      expect(dernierBilan(ID)!.notées).toBeGreaterThan(0)
+
+      upsertProject(db, {
+        id: ID,
+        sourcePath: path.join(replay, SOURCE),
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      await expect(runCandidates(ID, { db, appel: modèle([]) })).rejects.toThrow(/durée/)
+      expect(dernierBilan(ID)).toBeNull()
+    })
+
+    /**
+     * Le compteur sert à raisonner sur un plafond de 15 requêtes par minute :
+     * il doit compter les requêtes, pas les lots. (relevé par Copilot)
+     */
+    it('compte les relances comme des requêtes, parce que le quota les compte', async () => {
+      process.env.SCORE_BATCH = '4'
+      let essais = 0
+      const capricieux: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score' && ++essais === 1) throw new Error('503 unavailable')
+        return modèle([])(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: capricieux, sleep: async () => {} })
+
+      // Un seul lot, mais deux requêtes : l'échec passager et la relance.
+      expect(dernierBilan(ID)!.appels).toBe(2)
     })
 
     it('compte aussi les fenêtres qu’une réponse omet', async () => {

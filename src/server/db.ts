@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE TABLE IF NOT EXISTS clips (
+  -- Unique pour **toute la base**, et non par projet : la spec §12 expose
+  -- \`GET /api/clips/:id\` et \`PATCH /api/clips/:id\`, sans projet dans le
+  -- chemin. Une clé composite (projectId, id) rendrait ces routes ambiguës.
+  -- La contrepartie est portée par \`vérifierPropriété\` plus bas, qui refuse
+  -- qu'un identifiant change de projet, et par le contrat d'identifiants de
+  -- \`core/candidates.ts\` : dérivés du projet et des bornes, jamais d'un
+  -- compteur reparti de 1.
   id          TEXT PRIMARY KEY,
   projectId   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   -- La liste de segments, en JSON. Le clip est une liste (spec §5) : une
@@ -238,7 +245,6 @@ const INSÉRER_CLIP = `
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
           @title, @description, @status, @pass)
   ON CONFLICT(id) DO UPDATE SET
-    projectId   = excluded.projectId,
     segments    = excluded.segments,
     ratio       = excluded.ratio,
     cropX       = excluded.cropX,
@@ -249,9 +255,33 @@ const INSÉRER_CLIP = `
     status      = excluded.status,
     pass        = excluded.pass`
 
+/**
+ * Refuse qu'un identifiant de clip change de projet.
+ *
+ * `clips.id` est unique pour toute la base, et l'`ON CONFLICT(id)` ci-dessus
+ * rattrapait la collision en écrivant par-dessus le clip existant. Deux projets
+ * qui produisaient un `clip_07` — ce que fait n'importe quel compteur reparti de
+ * 1 — se volaient donc silencieusement leurs clips : l'écriture du second
+ * effaçait le premier, et un `replaceClips` sur l'un emportait le travail de
+ * l'autre. Une collision est désormais une erreur, jamais un déménagement.
+ * (relevé par Codex, Copilot et Aristarque)
+ */
+function vérifierPropriété(db: Database.Database, ligne: LigneClip): void {
+  const existant = db.prepare('SELECT projectId FROM clips WHERE id = ?').get(ligne.id) as
+    | { projectId: string }
+    | undefined
+  if (existant && existant.projectId !== ligne.projectId) {
+    throw new Error(
+      `Le clip ${ligne.id} appartient au projet ${existant.projectId} : un identifiant de clip est unique pour toute la base, il ne change pas de projet.`,
+    )
+  }
+}
+
 /** Écrit un clip. C'est ce que fait `PATCH /api/clips/:id` après relecture. */
 export function putClip(db: Database.Database, clip: Clip): void {
-  db.prepare(INSÉRER_CLIP).run(ligneDepuisClip(clip))
+  const ligne = ligneDepuisClip(clip)
+  vérifierPropriété(db, ligne)
+  db.prepare(INSÉRER_CLIP).run(ligne)
 }
 
 /**
@@ -275,7 +305,12 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
   const écrire = db.transaction(() => {
     db.prepare('DELETE FROM clips WHERE projectId = ?').run(projectId)
     const insérer = db.prepare(INSÉRER_CLIP)
-    for (const ligne of lignes) insérer.run(ligne)
+    for (const ligne of lignes) {
+      // Après le DELETE : ce qui reste sous cet identifiant appartient
+      // forcément à un autre projet. La transaction annule tout le lot.
+      vérifierPropriété(db, ligne)
+      insérer.run(ligne)
+    }
   })
   écrire()
 }

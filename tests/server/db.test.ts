@@ -149,6 +149,23 @@ describe('replaceClips', () => {
     expect(() => replaceClips(db, PROJET.id, [clip('a', { projectId: 'autre' })])).toThrow()
   })
 
+  // Un identifiant de clip est unique pour toute la base — la spec §12 expose
+  // `GET /api/clips/:id` sans projet dans le chemin. L'upsert rattrapait la
+  // collision en déplaçant le clip d'un projet à l'autre, ce qui détruisait le
+  // travail du premier. (relevé par Codex, Copilot et Aristarque)
+  it('refuse de déménager un identifiant déjà pris par un autre projet', () => {
+    upsertProject(db, { ...PROJET, id: 'autre-emission' })
+    putClip(db, clip('clip_07'))
+
+    expect(() =>
+      replaceClips(db, 'autre-emission', [clip('clip_07', { projectId: 'autre-emission' })]),
+    ).toThrow(/appartient au projet/)
+
+    // Et le clip d'origine est intact : la transaction a tout annulé.
+    expect(getClip(db, 'clip_07')?.projectId).toBe(PROJET.id)
+    expect(getClips(db, PROJET.id)).toHaveLength(1)
+  })
+
   // L'enchaînement réel de la tâche 9 : la fusion décide, la base enregistre.
   // Une passe de repérage ne doit pas ressusciter ce qu'un humain vient
   // d'écarter (spec §5).

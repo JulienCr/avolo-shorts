@@ -65,20 +65,28 @@ describe('les chemins du projet', () => {
     expect(projectIdFromSource(path.join(replay, SOURCE))).toBe(ID)
   })
 
-  it('résout un nom nu contre REPLAY_DIR, et laisse un chemin absolu tel quel', () => {
+  it('résout un nom nu contre REPLAY_DIR, chemin complet accepté', () => {
     expect(resolveSource(SOURCE)).toBe(path.join(replay, SOURCE))
-    expect(resolveSource(`2026/${SOURCE}`)).toBe(path.join(replay, '2026', SOURCE))
-    expect(resolveSource('/ailleurs/x.mp4')).toBe('/ailleurs/x.mp4')
+    expect(resolveSource(path.join(replay, SOURCE))).toBe(path.join(replay, SOURCE))
   })
 
-  // `source` arrive du réseau (`POST /api/projects`). Sans ce contrôle, il
-  // désigne n'importe quel fichier de la machine.
-  it.each(['../evasion.mp4', '../../etc/passwd', 'a/../../evasion.mp4'])(
-    'refuse la source %j, qui sort de REPLAY_DIR',
-    (mauvaise) => {
-      expect(() => resolveSource(mauvaise)).toThrow()
-    },
-  )
+  // `source` arrive du réseau (`POST /api/projects`). Sans ce contrôle il
+  // désigne n'importe quel fichier de la machine — un chemin absolu compris,
+  // qu'aucun code ici ne peut distinguer d'une saisie. (relevé par Copilot et
+  // Aristarque)
+  //
+  // Les sous-dossiers tombent sous la même règle pour une autre raison :
+  // `projectIdFromSource` et `stagedPath` ne gardent que le nom du fichier, donc
+  // `2025/show.mp4` et `2026/show.mp4` se partageraient un seul projet.
+  it.each([
+    '../evasion.mp4',
+    '../../etc/passwd',
+    'a/../../evasion.mp4',
+    '/etc/passwd',
+    '2026/emission.mp4',
+  ])('refuse la source %j, qui n’est pas un fichier de REPLAY_DIR', (mauvaise) => {
+    expect(() => resolveSource(mauvaise)).toThrow()
+  })
 
   it('range proxy, audio, candidats et rendus dans le projet', () => {
     expect(proxyPath(ID)).toBe(path.join(projets, ID, 'proxy.mp4'))
@@ -155,6 +163,29 @@ describe('le sidecar', () => {
     expect(dir).toBe(voulu)
     expect(fallback).toBe(false)
   })
+
+  // Le ménage après une sonde ratée ne doit emporter que du vide : un `rm -rf`
+  // détruirait le transcript qu'un autre processus vient d'écrire entre notre
+  // contrôle d'existence et l'échec de la sonde. (relevé par Copilot)
+  it.skipIf(process.getuid?.() === 0)(
+    'n’efface jamais un sidecar qui contient déjà quelque chose',
+    () => {
+      // Un sidecar non vide mais sans transcript : la sonde d'écriture s'exécute
+      // vraiment, et échoue. Le ménage qui suit ne doit emporter que du vide.
+      const voulu = path.join(replay, `${ID}.avolo`)
+      fs.mkdirSync(voulu)
+      fs.writeFileSync(path.join(voulu, 'meta.json'), '{"version":1}')
+      fs.chmodSync(voulu, 0o500)
+
+      try {
+        const { fallback } = placeSidecar(SOURCE, ID)
+        expect(fallback).toBe(true)
+        expect(fs.existsSync(path.join(voulu, 'meta.json'))).toBe(true)
+      } finally {
+        fs.chmodSync(voulu, 0o755)
+      }
+    },
+  )
 
   it('retrouve un transcript déjà posé dans le projet par une passe précédente', () => {
     const repli = path.join(projets, ID, `${ID}.avolo`)

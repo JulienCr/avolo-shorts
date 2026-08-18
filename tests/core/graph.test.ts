@@ -16,6 +16,14 @@ const none: Record<StepName, boolean> = {
   renders: false,
 }
 
+const all: Record<StepName, boolean> = {
+  proxy: true,
+  audio: true,
+  transcript: true,
+  candidates: true,
+  renders: true,
+}
+
 describe('planSteps', () => {
   it('remonte les dépendances manquantes, dans l’ordre', () => {
     expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
@@ -36,17 +44,40 @@ describe('planSteps', () => {
   })
 
   it('force recalcule l’étape visée et tout ce qui en dépend', () => {
-    const all: Record<StepName, boolean> = {
-      proxy: true,
-      audio: true,
-      transcript: true,
-      candidates: true,
-      renders: true,
-    }
     expect(planSteps('renders', all, ['transcript'])).toEqual([
       'transcript',
       'candidates',
       'renders',
+    ])
+  })
+
+  // Le cas courant, et pas un cas limite : le transcript vit dans un sidecar à
+  // côté de la vidéo et survit à la suppression du projet, `audio.wav` non.
+  // Recréer le projet donne exactement cet état. Remonter la présence rendrait
+  // le WAV puis retranscrirait deux heures cinquante pour réécrire à
+  // l'identique ce qui était déjà là. (relevé par Copilot)
+  it('ne refait pas l’audio disparu sous un transcript toujours là', () => {
+    expect(planSteps('candidates', { ...none, transcript: true })).toEqual(['candidates'])
+  })
+
+  it('refait quand même l’audio si le transcript manque aussi', () => {
+    expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
+  })
+
+  it('force la cible elle-même, artefact présent ou non', () => {
+    expect(planSteps('transcript', all, ['transcript'])).toEqual(['transcript'])
+  })
+
+  // `force` dit *comment* atteindre la cible, il n'ajoute pas de cible.
+  it('ignore une étape forcée qui ne mène pas à la cible', () => {
+    expect(planSteps('transcript', all, ['proxy'])).toEqual([])
+  })
+
+  it('remonte jusqu’à l’étape forcée, sans dépasser', () => {
+    expect(planSteps('candidates', all, ['audio'])).toEqual([
+      'audio',
+      'transcript',
+      'candidates',
     ])
   })
 })

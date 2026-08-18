@@ -42,7 +42,12 @@ const DEPS: Record<StepName, readonly StepName[]> = {
  * **`force` entraîne l'aval avec lui.** Reforcer le transcript sans reprendre le
  * repérage ni les rendus laisserait sur le disque des candidats calculés sur un
  * texte qui n'existe plus — la contradiction silencieuse que le graphe est censé
- * empêcher. Une étape se refait donc dès qu'une de ses dépendances se refait.
+ * empêcher. Une étape se refait donc dès qu'une de ses dépendances est forcée.
+ *
+ * **La présence, elle, ne remonte pas.** Un artefact présent est bon, et ce qui
+ * l'a produit ne le regarde plus : une dépendance absente sous un artefact
+ * présent n'est pas reconstruite. C'est ce qui distingue ce graphe d'un `make`,
+ * et ce que le sidecar exige — voir `àRefaire` plus bas.
  *
  * Une étape nommée dans `force` mais qui ne mène pas à `target` est ignorée :
  * forcer le proxy en demandant le transcript ne construit pas le proxy. `force`
@@ -57,30 +62,44 @@ export function planSteps(
   force: readonly StepName[] = [],
 ): StepName[] {
   const forcées = new Set(force)
+
+  // Deux questions distinctes, et les confondre est le piège de cet étage.
+  //
+  // 1. « Une étape en amont va-t-elle être refaite ? » — seul `force` la pose,
+  //    et elle descend le graphe.
+  // 2. « Faut-il fabriquer une dépendance absente ? » — elle ne se pose que si
+  //    l'étape courante doit elle-même être fabriquée.
+  //
+  // Les mélanger fait remonter la *présence* comme le fait un `make`, et
+  // reconstruit alors une dépendance absente sous un artefact déjà là.
+  const forcéEnAmont = (step: StepName): boolean =>
+    forcées.has(step) || DEPS[step].some(forcéEnAmont)
+
+  /**
+   * Une étape présente est une étape bonne — c'est la définition même du graphe
+   * par présence. Ce que sa fabrication a consommé ne la regarde plus.
+   *
+   * Le cas qui l'exige est le cas courant : le transcript vit dans un sidecar à
+   * côté de la vidéo et survit à la suppression du projet, `audio.wav` non.
+   * Recréer le projet donne donc `transcript: true, audio: false`, et remonter
+   * la présence rendrait le WAV puis retranscrirait deux heures cinquante — pour
+   * réécrire à l'identique le fichier qu'on avait déjà.
+   */
+  const àRefaire = (step: StepName): boolean => forcéEnAmont(step) || !exists[step]
+
   const plan: StepName[] = []
-  // Mémoïsation : un graphe en losange visiterait sinon deux fois la même
-  // branche, et l'inscrirait deux fois au plan.
-  const àRefaire = new Map<StepName, boolean>()
+  const inscrites = new Set<StepName>()
 
-  const visiter = (step: StepName): boolean => {
-    const connu = àRefaire.get(step)
-    if (connu !== undefined) return connu
-
-    // Les dépendances d'abord, toutes : c'est ce qui les place avant dans le
-    // plan, et ce qui propage un `force` vers l'aval. Pas de `some` ni de `||`
-    // en tête de boucle — un court-circuit sauterait la visite d'une dépendance,
-    // donc son inscription au plan.
-    let refaire = false
+  const planifier = (step: StepName): void => {
+    if (inscrites.has(step)) return
+    inscrites.add(step)
+    // Les dépendances d'abord : c'est ce qui les place avant dans le plan.
     for (const dep of DEPS[step]) {
-      if (visiter(dep)) refaire = true
+      if (àRefaire(dep)) planifier(dep)
     }
-
-    refaire = refaire || forcées.has(step) || !exists[step]
-    àRefaire.set(step, refaire)
-    if (refaire) plan.push(step)
-    return refaire
+    plan.push(step)
   }
 
-  visiter(target)
+  if (àRefaire(target)) planifier(target)
   return plan
 }

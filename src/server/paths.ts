@@ -49,19 +49,31 @@ export function projectsDir(): string {
  * Le chemin de l'original, qu'on l'ait désigné par son nom de fichier (ce que
  * fait `POST /api/projects`) ou par un chemin complet.
  *
- * Un nom relatif est résolu contre `REPLAY_DIR` **et doit y rester** : il arrive
- * du réseau, et `../../etc/passwd` désigne autre chose qu'un replay. Les
- * sous-dossiers, eux, passent — le dossier de replays peut être rangé par année.
- * Un chemin absolu est pris tel quel : c'est un geste explicite de l'opérateur,
- * pas une valeur de formulaire.
+ * **Une seule règle, sans exception : la source est un fichier posé directement
+ * dans `REPLAY_DIR`.** Ni au-dessus, ni dans un sous-dossier.
+ *
+ * `source` arrive du réseau, et deux façons de sortir du cadre se ressemblent
+ * assez pour être traitées ensemble. `../../etc/passwd` désigne un fichier qui
+ * n'est pas un replay ; un chemin absolu vers n'importe où aussi, et le tenir
+ * pour « un geste explicite de l'opérateur » suppose une distinction que rien
+ * ici ne peut faire — un corps de requête JSON a le même goût qu'une saisie.
+ * Traiter un fichier rangé ailleurs se fait en pointant `REPLAY_DIR` dessus.
+ *
+ * Les sous-dossiers sont refusés pour une raison différente et tout aussi
+ * concrète : `projectIdFromSource` et `stagedPath` ne gardent que le nom du
+ * fichier, donc `2025/show.mp4` et `2026/show.mp4` se partageraient
+ * `projects/show/` et `stage/show.mp4` — deux émissions dans un seul projet,
+ * silencieusement. Le dossier de replays est plat et ses noms portent déjà la
+ * date ; le jour où il ne le sera plus, c'est l'identifiant qu'il faudra
+ * reprendre, pas ce contrôle qu'il faudra retirer.
  */
 export function resolveSource(source: string): string {
-  if (path.isAbsolute(source)) return path.normalize(source)
-
   const replays = replayDir()
   const résolu = path.resolve(replays, source)
-  if (résolu !== replays && !résolu.startsWith(replays + path.sep)) {
-    throw new Error(`Source hors de REPLAY_DIR : ${JSON.stringify(source)}`)
+  if (path.dirname(résolu) !== replays) {
+    throw new Error(
+      `Source hors de REPLAY_DIR : ${JSON.stringify(source)}. Attendu : un fichier posé directement dans ${replays}.`,
+    )
   }
   return résolu
 }
@@ -188,25 +200,33 @@ function préparerDossier(dir: string): boolean {
   // Nom unique : deux processus peuvent sonder le même dossier en même temps, et
   // l'un ne doit pas effacer la sonde de l'autre.
   const sonde = path.join(dir, `.avolo-sonde-${process.pid}-${Date.now().toString(36)}`)
+  let réussi = false
   try {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(sonde, '')
+    réussi = true
     return true
   } catch {
-    // Un dossier créé puis inutilisable ne doit pas rester derrière nous.
-    if (!existait) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true })
-      } catch {
-        // Rien à faire de plus : on rend `false`, l'appelant se rabat.
-      }
-    }
     return false
   } finally {
     try {
       fs.rmSync(sonde, { force: true })
     } catch {
-      // La sonde peut avoir disparu avec le dossier ; sans conséquence.
+      // La sonde peut avoir disparu ; sans conséquence.
+    }
+    // Un dossier créé puis inutilisable ne doit pas rester derrière nous — mais
+    // **seulement s'il est vide**. Un `rm -rf` emporterait le transcript qu'un
+    // autre processus vient d'y écrire entre notre `existsSync` et l'échec de
+    // notre sonde ; un nom de sonde unique ne protège de rien contre ça, et le
+    // fichier détruit serait précisément celui que tout ce module sert à
+    // préserver. `rmdirSync` échoue sur un dossier non vide, ce qui est
+    // exactement le garde-fou voulu. (relevé par Copilot)
+    if (!réussi && !existait) {
+      try {
+        fs.rmdirSync(dir)
+      } catch {
+        // Non vide, ou jamais créé. Dans les deux cas, on n'y touche pas.
+      }
     }
   }
 }

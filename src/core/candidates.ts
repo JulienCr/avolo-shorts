@@ -28,12 +28,26 @@ import type { Clip } from '@/core/edl'
  * humain est donc jetée, et l'humain conservé.
  *
  * **L'`id` est ce qui identifie un clip d'une passe à l'autre**, et la
- * conséquence vise l'appelant : les identifiants doivent être uniques *à travers*
- * les passes, jamais renumérotés depuis 1 à chaque lot. Un `clip_01` régénéré à
- * la passe 2 hériterait du refus prononcé sur le `clip_01` de la passe 1, sans
- * erreur et sans trace. Les faire dériver du numéro de passe suffit.
+ * conséquence vise le producteur : il doit le dériver de *ce que le clip
+ * désigne* — projet et bornes calées sur les mots — et surtout pas du numéro de
+ * passe ni d'un compteur reparti de 1. Un `clip_01` renuméroté à chaque lot rend
+ * la garantie ci-dessus inopérante dans un sens comme dans l'autre : la même
+ * proposition écartée revient sous un nouvel `id`, et une proposition sans
+ * rapport hérite du refus prononcé sur le `clip_01` de la passe précédente.
+ * Un identifiant dérivé du contenu règle les deux d'un coup, et donne du même
+ * geste l'unicité entre projets que la base attend (`src/server/db.ts`).
+ *
+ * La reconnaissance est donc **exacte, pas approchée** : une proposition qui
+ * recouvre largement un clip écarté sans tomber sur les mêmes bornes est un
+ * clip différent, et elle passe. Rapprocher deux bornes voisines demande un
+ * seuil que personne n'a arrêté ; c'est une question de qualité du repérage,
+ * donc l'itération 3.
  *
  * La fonction ne modifie ni `existing` ni `incoming`.
+ *
+ * @throws si une proposition entrante porte déjà un statut humain — elle
+ * franchirait la frontière que toute la fonction sert à tenir, et serait
+ * conservée pour toujours sans que personne n'ait rien décidé.
  */
 export function mergeCandidates(existing: Clip[], incoming: Clip[], pass: number): Clip[] {
   // Les décisions humaines, dans leur ordre d'origine. Ce qui reste de
@@ -48,6 +62,11 @@ export function mergeCandidates(existing: Clip[], incoming: Clip[], pass: number
 
   const nouveaux: Clip[] = []
   for (const clip of incoming) {
+    if (clip.status !== 'candidate') {
+      throw new Error(
+        `Le clip ${clip.id} entre avec le statut « ${clip.status} » : un lot de repérage ne propose que des candidats.`,
+      )
+    }
     if (pris.has(clip.id)) continue
     pris.add(clip.id)
     // Le numéro de passe vient du lot, pas du clip : le producteur n'a pas à le

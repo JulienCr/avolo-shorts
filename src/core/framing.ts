@@ -232,14 +232,15 @@ function réglage(valeur: number | undefined, défaut: number): number {
  * Une boîte du **premier plan** : quelqu'un entre la caméra et le plateau, dont
  * le bord bas de l'image coupe le corps, et dont il ne reste qu'une tranche.
  *
- * **Sur `2025-06-15-cqlp`, ce sont 34 % des boîtes**, et elles ruinaient le
+ * **Sur `2025-06-15-cqlp`, ce sont 33,8 % des boîtes**, et elles ruinaient le
  * cadrage automatique : des têtes de spectateurs au premier rang, collées au bas
  * de l'image, à gauche et à droite du cadre. Leur empan va d'un bord à l'autre
  * pendant que les comédiens tiennent dans le tiers central, donc tous les clips
  * sortaient en 16:9 — c'est-à-dire au ratio le plus large, c'est-à-dire à rien.
  *
- * **Le critère est double, et aucune de ses deux moitiés ne suffit** — les deux
- * contre-exemples ont été trouvés en regardant les images, pas les chiffres :
+ * **Le critère est double, et aucune de ses deux moitiés ne suffit.** Les trois
+ * points ci-dessous ont tous été trouvés en regardant les images, aucun en lisant
+ * un histogramme :
  *
  * - *Le bord bas seul jette les comédiens.* 76 % des boîtes de comédiens
  *   touchent le bas de l'image : ils jouent debout et leurs pieds y sont. Couper
@@ -255,17 +256,17 @@ function réglage(valeur: number | undefined, défaut: number): number {
  *
  * **Les deux seuils tombent dans un creux, ils ne sont pas choisis.** Sur les
  * boîtes collées au bas, la hauteur est franchement bimodale : le mode du public
- * culmine entre 0,08 et 0,24, celui des comédiens repart à partir de 0,40, et
- * entre 0,32 et 0,39 il ne reste que **29 boîtes sur 26 436**. 0,35 est le fond
+ * tient entre 0,08 et 0,25, celui des comédiens repart à partir de 0,40, et
+ * entre les deux il ne reste que **29 boîtes sur 26 436**. 0,35 est le fond
  * de ce creux. Déplacer le seuil de ±0,03 ne change donc presque rien — c'est ce
  * qui en fait un réglage tenable et non un nombre magique.
  *
  * **Ce filtre est un réglage et vit ici, pas dans le détecteur.** La sortie de
  * `worker/detect.py` est une donnée : un filtre posé dedans est irréversible
  * sans relancer le GPU, alors que relire un `analysis.json` est instantané. Et
- * le phénomène n'est **pas général** — `2026-03-08-caro-mdlm` ne compte que 26
- * boîtes de premier plan sur 3 083 —, donc ce qui se règle doit rester réglable
- * (spec §5).
+ * le phénomène n'est **pas général** — `2026-03-08-caro-mdlm` n'a que 832 boîtes
+ * de premier plan sur 45 362, soit 1,8 % contre 33,8 % —, donc ce qui se règle
+ * doit rester réglable (spec §5). Le détail est dans `docs/premier-plan.md`.
  *
  * Une boîte dont la hauteur ne se mesure pas est **gardée** : un filtre qui ne
  * peut pas juger ne rejette pas.

@@ -572,6 +572,23 @@ describe('blurredVariantArgs', () => {
     )
   })
 
+  // Le même graphe **sans sous-titre ni marque**, parce que l'avant-plan n'y
+  // porte alors qu'une seule étape et que c'est le cas limite d'`enchaîner` :
+  // la première étape est aussi la dernière, donc elle doit écrire directement
+  // dans l'étiquette terminale au lieu d'un `vf0` que plus personne ne lirait.
+  // Un clip sans sous-titres est un réglage de l'interface, pas une curiosité.
+  // (relevé par Aristarque)
+  it("assemble le graphe de la variante d'un clip sans sous-titres", () => {
+    expect(graphe(blurredVariantArgs(base))).toBe(
+      '[0:v]crop=1080:1080:420:0,scale=1080:1080:flags=lanczos,setsar=1[vd];' +
+        `[0:a]${LOUDNORM},${RESAMPLE}[a];` +
+        '[vd]split=2[bga][fga];' +
+        '[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];' +
+        '[fga]scale=1080:-2[fg];' +
+        '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
+    )
+  })
+
   // Le son ne peut plus être recopié du natif — la variante ne le lit plus. Il
   // est normalisé **une fois**, depuis la source, exactement comme celui du
   // natif : c'est le même traitement sur le même PCM, donc aucune compression

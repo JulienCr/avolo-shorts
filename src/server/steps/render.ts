@@ -170,7 +170,8 @@ export function sauterLeRendu(
 }
 
 /**
- * Faut-il rallumer ffmpeg, et **c'est les deux sorties ou aucune**.
+ * Faut-il rallumer ffmpeg — et si oui, **pour les deux sorties, jamais une
+ * seule**.
  *
  * Pure comme `sauterLeRendu`, et elle répond à la question d'après : la première
  * dit si l'appel a encore quelque chose à faire, celle-ci si ce quelque chose est

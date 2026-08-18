@@ -344,7 +344,24 @@ fi
 # processus, donc à la racine du dépôt et sous une version qui bouge.
 if [ "$SKIP_DETECT" -eq 0 ]; then
   poids="$MODELS_DIR/$YOLO_MODEL"
-  if [ "$FORCE" -eq 0 ] && [ -s "$poids" ]; then
+  # **La présence ne vaut pas conformité**, exactement comme pour ffmpeg et pour
+  # le venv plus haut : ce script vérifie par un contrôle réel, jamais par un
+  # fichier qui existe. Sauter le téléchargement sur la seule présence garderait
+  # en silence un fichier tronqué, ou le `yolo11m.pt` d'une autre `YOLO_RELEASE`
+  # — donc un `YOLO_RELEASE=… ./setup.sh` qui n'installe pas la release demandée.
+  # Quarante mégaoctets à hacher, c'est instantané ; s'en priver coûte une
+  # détection qui tourne sur des poids que personne n'a demandés.
+  poids_conformes=0
+  if [ -s "$poids" ]; then
+    if [ -z "$YOLO_SHA256" ]; then
+      poids_conformes=1
+    elif [ "$(sha256sum "$poids" | cut -d' ' -f1)" = "$YOLO_SHA256" ]; then
+      poids_conformes=1
+    else
+      say "Poids $YOLO_MODEL présents mais de somme inattendue : ils sont remplacés."
+    fi
+  fi
+  if [ "$FORCE" -eq 0 ] && [ "$poids_conformes" -eq 1 ]; then
     say "Poids $YOLO_MODEL déjà en place."
   else
     command -v curl >/dev/null 2>&1 || { bad "curl est requis"; exit 1; }

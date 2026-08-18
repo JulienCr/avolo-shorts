@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
-import { cheminTemporaire, créerJournal, type Artefact } from '@/server/ffmpeg'
+import { cheminTemporaire, créerJournal, ffmpegBin, type Artefact } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { analysisPath, proxyPath } from '@/server/paths'
 
@@ -311,7 +311,10 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
     script,
     '--proxy', proxy,
     '--out', temporaire,
-    '--ffmpeg', process.env.FFMPEG_BIN || 'ffmpeg',
+    // `ffmpegBin()` et non `process.env.FFMPEG_BIN` relu ici : le binaire de
+    // `setup.sh` se désigne d'un seul endroit, sinon un jour l'un des deux
+    // apprend un repli que l'autre ignore.
+    '--ffmpeg', ffmpegBin(),
     '--model', modèle,
     '--proxy-size', formatTaille(sondageProxy.width, sondageProxy.height),
     '--source-size', formatTaille(sondageSource.width, sondageSource.height),

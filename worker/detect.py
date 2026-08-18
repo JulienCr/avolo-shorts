@@ -281,25 +281,25 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
             # boîte qui déborde de quelques pixels quand le sujet est coupé par
             # le bord, et une fraction hors de [0, 1] ferait sortir le crop du
             # cadre.
-            gx0 = round(min(max(x0 / largeur, 0.0), 1.0), 4)
-            gx1 = round(min(max(x1 / largeur, 0.0), 1.0), 4)
-            gy0 = round(min(max(y0 / hauteur, 0.0), 1.0), 4)
-            gy1 = round(min(max(y1 / hauteur, 0.0), 1.0), 4)
+            fx0 = round(min(max(x0 / largeur, 0.0), 1.0), 4)
+            fx1 = round(min(max(x1 / largeur, 0.0), 1.0), 4)
+            fy0 = round(min(max(y0 / hauteur, 0.0), 1.0), 4)
+            fy1 = round(min(max(y1 / hauteur, 0.0), 1.0), 4)
             # **Une boîte d'aire nulle ne se transmet pas.** Le bornage ci-dessus
             # écrase sur un même bord une boîte entièrement hors cadre, et
             # l'arrondi au dix-millième en écrase une plus fine qu'un cinquième
             # de pixel. Ce qui en sort a la forme d'une détection et n'a plus de
             # sujet : le percentile 90 du cadrage la compterait comme une
             # personne de largeur nulle et refermerait le crop d'autant.
-            if gx1 <= gx0 or gy1 <= gy0:
+            if fx1 <= fx0 or fy1 <= fy0:
                 continue
             sorties.append(
                 {
                     "t": instant,
-                    "x0": gx0,
-                    "x1": gx1,
-                    "y0": gy0,
-                    "y1": gy1,
+                    "x0": fx0,
+                    "x1": fx1,
+                    "y0": fy0,
+                    "y1": fy1,
                     "score": round(score, 3),
                 }
             )

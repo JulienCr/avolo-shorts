@@ -24,9 +24,12 @@ import { corps, json, route } from '@/server/http'
  * lisible, rien de plus. Une clé inconnue et une valeur hors bornes ressortent
  * en 400 par `InvalidSettingError`, avec un message qui nomme la clé.
  */
-export const GET = route('GET /api/settings', async (_request: Request) =>
-  json(effectiveSettings(getDb())),
-)
+// Aucun paramètre : `route` est générique sur ses arguments, et un
+// `_request` déclaré serait le seul argument de la fonction — donc signalé
+// comme inutilisé, contrairement à celui des routes qui lisent leur contexte
+// derrière lui (`no-unused-vars` ne rapporte qu'après le dernier argument
+// utilisé).
+export const GET = route('GET /api/settings', async () => json(effectiveSettings(getDb())))
 
 export const PUT = route('PUT /api/settings', async (request: Request) => {
   // **Un corps vide vaut `{}`**, donc un `PUT` nu ne change rien et rend l'état

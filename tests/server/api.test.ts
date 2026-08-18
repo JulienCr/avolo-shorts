@@ -212,11 +212,50 @@ describe('GET /api/projects', () => {
       'error',
       'id',
       'running',
+      'stopped',
       'title',
     ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.
     expect(JSON.stringify(projets)).not.toContain(racine)
+  })
+
+  /**
+   * **La bibliothèque n'a pas `steps`, donc elle ne peut pas déduire l'arrêt.**
+   * Une analyse arrêtée après l'ingestion ne tourne pas, n'a pas d'erreur et a
+   * une durée : sans ce champ, elle est indiscernable d'une analyse finie, et
+   * l'écran l'annonce « Analysée ».
+   */
+  it('publie l’arrêt de la dernière exécution', async () => {
+    poserStatut({ stopped: true })
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].stopped).toBe(true)
+  })
+
+  /** Comme `error` : ce qu'on afficherait serait l'arrêt d'avant. */
+  it('tait l’arrêt pendant qu’une exécution tourne', async () => {
+    poserStatut({ stopped: true })
+    poserTranscript()
+    let relacher: (() => void) | undefined
+    const blocked = new Promise<Clip[]>((resolve) => {
+      relacher = () => resolve([])
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => blocked } })
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].running).not.toBeNull()
+      expect(projets[0].stopped).toBe(false)
+    } finally {
+      relacher?.()
+      await laisserFinir()
+    }
+  })
+
+  /** Un `status.json` d'avant cette PR ne porte pas le champ : « pas arrêtée ». */
+  it('lit un statut sans le champ comme une exécution non arrêtée', async () => {
+    poserStatut({})
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].stopped).toBe(false)
   })
 
   it('dérive le titre du nom de fichier', async () => {
@@ -427,6 +466,20 @@ describe('GET /api/projects/:id', () => {
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
     expect(état.error).toBeNull()
+  })
+
+  /**
+   * Les deux champs que l'écran d'analyse ne peut pas déduire : l'arrêt, qui ne
+   * laisse ni `running` ni `error` ni artefact, et la taille de la source, dont
+   * `stepDurationRange` a besoin pour annoncer une durée **avant** que ffprobe
+   * n'ait relevé la vraie.
+   */
+  it('publie l’arrêt et la taille de la source', async () => {
+    poserStatut({ stopped: true })
+    const réponse = await getProjet(new Request('http://x'), contexte(PROJET))
+    const état = (await réponse.json()) as ProjectStatus
+    expect(état.stopped).toBe(true)
+    expect(état.sizeBytes).toBe(12)
   })
 
   it('rend 404 sur un projet inconnu', async () => {
@@ -1259,7 +1312,7 @@ describe('/api/settings', () => {
     )
 
   it('rend les réglages effectifs, défauts compris', async () => {
-    const reponse = await getSettingsRoute(new Request('http://x'))
+    const reponse = await getSettingsRoute()
     expect(reponse.status).toBe(200)
     expect(await reponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
   })
@@ -1271,7 +1324,7 @@ describe('/api/settings', () => {
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
     })
     // Et ça persiste : la lecture suivante le voit.
-    expect(await (await getSettingsRoute(new Request('http://x'))).json()).toEqual({
+    expect(await (await getSettingsRoute()).json()).toEqual({
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
     })
   })
@@ -1291,7 +1344,7 @@ describe('/api/settings', () => {
     expect((await ecrire({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
     expect((await ecrire({ selection: { minutesParClip: '4' } })).status).toBe(400)
     // Et rien n'a été écrit : la lecture rend toujours les défauts.
-    expect(await (await getSettingsRoute(new Request('http://x'))).json()).toEqual({
+    expect(await (await getSettingsRoute()).json()).toEqual({
       selection: DIMENSIONS_PAR_DÉFAUT,
     })
   })

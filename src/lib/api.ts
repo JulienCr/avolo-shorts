@@ -206,6 +206,33 @@ export type ProjectStatus = {
    * pas présenter un décompte partiel comme un résultat.
    */
   repérage: BilanRepérage | null
+  /**
+   * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
+   *
+   * **Le même champ que celui de `ProjectListItem`, tiré du même relevé.** Deux
+   * écrans qui déduiraient la même chose par deux chemins différents finissent
+   * par diverger, et celui-ci n'est pas dérivable : un arrêt ne laisse ni
+   * `running`, ni `error`, ni artefact particulier.
+   *
+   * Faux pendant qu'une exécution tourne, comme `error`.
+   */
+  stopped: boolean
+  /**
+   * La taille du fichier source en octets, ou `null` tant que l'ingestion ne
+   * l'a pas relevée.
+   *
+   * **Elle est là pour la seule chose qui en dépende** : `stepDurationRange`
+   * (`src/core/parcours.ts`) s'en sert pour suppléer la durée, qui manque
+   * précisément au moment où le panneau d'avancement apparaît — un projet créé
+   * il y a trois secondes n'a pas encore été sondé par ffprobe. Sans elle, la
+   * branche existe et ne sert jamais, et le panneau se tait pendant la copie,
+   * c'est-à-dire pendant l'étape la plus longue sur un fichier de 12 Go.
+   *
+   * **Sur `ProjectStatus` et non sur `ProjectSummary`** : la bibliothèque n'en
+   * fait rien, et `résuméProjet` documente qu'il porte quatre champs et pas un
+   * de plus. La colonne, elle, est déjà en base.
+   */
+  sizeBytes: number | null
 }
 
 /**
@@ -313,6 +340,24 @@ export type ProjectListItem = ProjectSummary & {
   running: { step: StepName; progress: number } | null
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
+  /**
+   * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
+   *
+   * **Il vient du même `status.json` qu'`error`**, dans la même lecture : la
+   * liste ne paie donc toujours que deux relevés, et la décision de §3.1 tient.
+   *
+   * **Il est publié parce que la bibliothèque n'a pas `steps`.** L'écran de
+   * projet déduit « interrompue » de `phaseProjet`, qui lit le relevé de
+   * présence ; la liste, elle, ne l'a pas — c'est exactement ce que le partage
+   * ci-dessus lui refuse. Sans ce champ, une analyse arrêtée après l'ingestion
+   * est indiscernable d'une analyse finie : elle ne tourne pas, elle n'a pas
+   * d'erreur, et elle a une durée.
+   *
+   * **Faux pendant qu'une exécution tourne**, pour la raison exacte qui tait
+   * `error` : ce qu'on afficherait serait l'arrêt d'avant, et deux écrans qui se
+   * contredisent sur le même projet valent moins que pas d'écran du tout.
+   */
+  stopped: boolean
 }
 
 /**

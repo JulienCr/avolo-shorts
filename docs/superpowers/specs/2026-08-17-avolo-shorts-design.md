@@ -1121,6 +1121,15 @@ peuvent pas diverger.
 
 ## 13. L'interface
 
+**Écran de bibliothèque.** Une carte par replay, portant l'état de son analyse.
+Un projet n'est que l'état de traitement d'un replay : deux listes séparées
+faisaient apparaître une émission analysée deux fois, sans rien qui dise que
+c'était la même.
+
+**Écran d'émission.** Le tri des candidats, et au-dessus le replay lui-même : le
+proxy en lecture, et une bande de couverture qui montre où sont, dans l'heure
+quarante, les clips qu'on en a tirés. Voir l'arbitrage sur la timeline, plus bas.
+
 **Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
 premières phrases. Garder ou écarter d'un clic. Trier 25 candidats occupe plus de
 temps que monter les trois qui survivent, donc cet écran se soigne en premier.
@@ -1156,6 +1165,22 @@ on décrit « une interface de montage » : **la surface d'édition ici est le
 transcript**, et la bande des plans est en lecture seule. Construire un NLE
 reviendrait à bâtir le morceau le plus difficile du métier pour un produit qui
 ne s'en sert pas.
+
+**Ce que ce refus ne couvre pas, et il faut le dire ici sous peine de faire lire
+une contradiction.** Deux bandes horizontales existent dans le produit : celle des
+plans, sur l'écran de clip, et **la bande de couverture** de la vue Émission — un
+bloc par clip gardé sur toute la durée du replay, les chevauchements répartis en
+voies, survol pour le résumé, clic pour ouvrir. Aucune des deux n'est une piste de
+montage : rien ne s'y déplace, rien ne s'y coupe, rien ne s'y étire, et ce qu'on y
+clique navigue au lieu d'éditer.
+
+Ce que le refus vise est le **coût** — un NLE est le morceau le plus difficile du
+métier — et la **place** : une timeline éditable prendrait le rôle que le
+transcript tient. Une bande en lecture seule ne paie ni l'un ni l'autre, et elle
+rend visible une propriété de l'émission que trois écrans ne savaient pas dire :
+ce qui en a été extrait, et ce qui reste inexploité. Le placement en voies vit
+dans `src/core/coverage.ts`, pur, ce qui est la mesure de ce qu'il coûte : une
+fonction et son test, pas un banc de montage.
 
 La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
 l'installation.

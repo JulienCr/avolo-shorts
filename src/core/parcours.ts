@@ -137,13 +137,14 @@ function travailProjet(clips: readonly { status: ClipStatus }[]): Travail {
   // exportés » est vrai d'une liste vide, et après avoir tout écarté la phase
   // terminale annonçait un livrable alors qu'aucun MP4 n'existe.
   //
-  // Et il se lit sur `status === 'exported'`, sans champ de plus. Le serveur
-  // fait déjà sortir un clip de cet état dès qu'un champ qui change l'image
-  // bouge — `écarterRenduPérimé` (`src/app/api/clips/[id]/route.ts`), y compris
-  // quand l'effacement des fichiers échoue — et `sortiesDuClip` cesse alors de
-  // publier ses URL. La conception tenait `livre` pour indisponible faute d'une
-  // fraîcheur de rendu publiée ; la vérification a montré la prémisse fausse, et
-  // les §2.3 et §9.4 du document de conception ont été amendées en conséquence.
+  // Et il se lit sur `status === 'exported'`, sans champ de plus.
+  // `écarterRenduPérimé` (`src/server/steps/render.ts`, appelé par le `PATCH`)
+  // fait sortir le clip de cet état dès qu'un champ que l'encodage consomme
+  // change — segments, ratio, cadrage, sous-titres, marque —, et `sortiesDuClip`
+  // rend quatre `null` dès que le statut n'est plus `exported`, effacement des
+  // fichiers réussi ou non. La conception a tenu `livre` pour indisponible faute
+  // d'un champ de fraîcheur ; la vague de l'export avait déjà satisfait la
+  // demande, et ses §2.3 et §9.4 sont amendées depuis.
   const gardes = clips.filter((c) => estGarde(c.status))
   if (gardes.length > 0 && gardes.every((c) => c.status === 'exported')) return 'livre'
 

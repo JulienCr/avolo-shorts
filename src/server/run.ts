@@ -4,6 +4,7 @@ import path from 'node:path'
 import type Database from 'better-sqlite3'
 
 import { planSteps, type StepName } from '@/core/graph'
+import type { BilanRepérage } from '@/lib/api'
 import { avancementWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
 import { messageSûr } from '@/server/erreurs'
@@ -21,7 +22,12 @@ import {
 } from '@/server/paths'
 import { runAnalysis } from '@/server/steps/analysis'
 import { extractAudio } from '@/server/steps/audio'
-import { runCandidates } from '@/server/steps/candidates'
+import {
+  dernierBilan,
+  oublierBilan,
+  runCandidates,
+  type BilanNotation,
+} from '@/server/steps/candidates'
 import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
@@ -57,6 +63,8 @@ type Exécution = {
   cibles: StepName[]
   plan: StepName[]
   courante: Progression
+  /** Où en est l'étape `candidates` **dans cette exécution**. Voir `bilanDeRepérage`. */
+  repérage: ÉtatRepérage
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
   dernièreÉcriture: number
   terminée: Promise<void>
@@ -321,6 +329,71 @@ export type Statut = {
   /** Le message d'échec, **déjà épuré** : ce fichier se recopie dans un rapport. */
   error: string | null
   finishedAt: number | null
+  /**
+   * Ce que le repérage de **cette** exécution n'a pas jugé, ou `null`.
+   *
+   * Le bilan lui-même vit en mémoire dans le processus qui l'a produit
+   * (`dernierBilan`) ; c'est ici qu'il devient lisible depuis une requête HTTP —
+   * **et qu'il survit au processus**. Rien ne réécrit ce fichier tant qu'une
+   * nouvelle exécution ne tourne pas, donc après un redémarrage de Next il
+   * décrit encore la dernière passe de repérage du projet. C'est voulu, et c'est
+   * l'inverse de `running`, que le redémarrage doit précisément faire oublier :
+   * un décompte de perte qualifie des propositions qui sont, elles aussi,
+   * toujours là. (relevé par Copilot)
+   *
+   * Déduit par `bilanDeRepérage`, jamais recopié tel quel — voir pourquoi là-bas.
+   */
+  repérage: BilanRepérage | null
+}
+
+/**
+ * Où en est l'étape `candidates` d'une exécution donnée.
+ *
+ * **C'est le sort de l'étape qui qualifie le bilan, pas celui de l'exécution**,
+ * et la nuance porte le champ `partiel`. Une création vise
+ * `['candidates', 'proxy', 'analysis']` : le repérage y finit en trente
+ * secondes, le proxy tourne six minutes derrière lui, et l'analyse peut échouer
+ * ensuite. Déduire l'état du bilan de l'`error` et du `finishedAt` de
+ * l'exécution marquait donc partiel un décompte complet pendant tout le proxy —
+ * et **définitivement** si une étape ultérieure tombait, puisque l'échec reste
+ * écrit. (relevé par Codex et Copilot)
+ */
+export type ÉtatRepérage = 'absent' | 'en cours' | 'fait' | 'échoué'
+
+/**
+ * Ce qu'on publie d'une notation, à partir du bilan que le repérage a laissé
+ * en mémoire et de l'état de son étape.
+ *
+ * **Trois raisons de ne pas recopier le bilan tel quel.**
+ *
+ * 1. *Il décrit une notation tentée, pas une notation réussie.* Il est posé
+ *    avant le premier appel et se remplit au fil de l'eau : une passe qui tombe
+ *    à la quarantième fenêtre en laisse un qui dit « 40 sur 83 ». Publié seul,
+ *    ce chiffre passerait pour un résultat. D'où `partiel`, que seul l'état de
+ *    l'étape peut dire — le bilan, lui, ne sait pas s'il est fini.
+ * 2. *Il survit à l'exécution qui l'a produit.* La table est celle du processus,
+ *    pas celle d'une passe : une relance qui ne vise que le proxy y recopierait
+ *    le décompte d'un repérage qu'elle n'a pas fait. D'où `'absent'` — et, à
+ *    l'autre bout, l'oubli posé par `lancer` avant que l'exécution ne commence,
+ *    sans quoi une passe qui met une demi-heure à atteindre le repérage
+ *    publierait celui d'avant pendant tout ce temps.
+ * 3. *Il nomme les fenêtres.* `jamaisNotées` et `refusées` portent jusqu'à 83
+ *    identifiants ; l'écran compte, il ne localise pas. Les identifiants restent
+ *    au journal, qui est l'endroit d'où l'on va relire le transcript.
+ */
+export function bilanDeRepérage(
+  bilan: BilanNotation | null,
+  état: ÉtatRepérage,
+): BilanRepérage | null {
+  if (bilan === null || état === 'absent') return null
+  return {
+    fenêtres: bilan.fenêtres,
+    notées: bilan.notées,
+    lotsRefusés: bilan.lotsRefusés,
+    lotsRépondus: bilan.lotsRépondus,
+    couverture: bilan.couverture,
+    partiel: état !== 'fait',
+  }
 }
 
 function cheminStatut(projectId: string): string {
@@ -335,12 +408,24 @@ function cheminStatut(projectId: string): string {
  * L'écriture ne fait jamais échouer une étape : perdre le suivi d'avancement est
  * ennuyeux, perdre une transcription de quarante minutes ne l'est pas.
  */
-function écrireStatut(projectId: string, statut: Statut): void {
+function écrireStatut(
+  projectId: string,
+  statut: Omit<Statut, 'repérage'>,
+  repérage: ÉtatRepérage,
+): void {
   try {
+    // **Le bilan se déduit ici, pas au point d'appel.** Il y a cinq endroits qui
+    // écrivent ce fichier — début d'étape, marque de temps, plan vide, succès,
+    // échec — et un raccord posé dans quatre d'entre eux manquerait au cinquième
+    // sans que rien ne le signale.
+    const complet: Statut = {
+      ...statut,
+      repérage: bilanDeRepérage(dernierBilan(projectId), repérage),
+    }
     const fichier = cheminStatut(projectId)
     fs.mkdirSync(path.dirname(fichier), { recursive: true })
     const provisoire = `${fichier}.${process.pid}.tmp`
-    fs.writeFileSync(provisoire, `${JSON.stringify(statut, null, 2)}\n`, 'utf8')
+    fs.writeFileSync(provisoire, `${JSON.stringify(complet, null, 2)}\n`, 'utf8')
     fs.renameSync(provisoire, fichier)
   } catch (cause) {
     console.warn(`status.json non écrit pour ${projectId} : ${messageSûr(cause)}`)
@@ -367,15 +452,19 @@ function publier(exécution: Exécution, changementDÉtape: boolean): void {
   const maintenant = Date.now()
   if (!changementDÉtape && maintenant - exécution.dernièreÉcriture < PÉRIODE_ÉCRITURE_MS) return
   exécution.dernièreÉcriture = maintenant
-  écrireStatut(exécution.projectId, {
-    pid: process.pid,
-    updatedAt: maintenant,
-    cibles: exécution.cibles,
-    plan: exécution.plan,
-    running: { ...exécution.courante },
-    error: null,
-    finishedAt: null,
-  })
+  écrireStatut(
+    exécution.projectId,
+    {
+      pid: process.pid,
+      updatedAt: maintenant,
+      cibles: exécution.cibles,
+      plan: exécution.plan,
+      running: { ...exécution.courante },
+      error: null,
+      finishedAt: null,
+    },
+    exécution.repérage,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +550,7 @@ export async function lancer(
     cibles: [...cibles],
     plan: [],
     courante: { step: cibles[0] ?? 'candidates', progress: 0 },
+    repérage: 'absent',
     dernièreÉcriture: 0,
     terminée: Promise.resolve(),
   }
@@ -480,6 +570,13 @@ export async function lancer(
 
     const présence = await relevéPrésence(projet)
     exécution.plan = planPourCibles(cibles, présence, force)
+    // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
+    // exécution qui vise `candidates` peut passer une demi-heure dans la
+    // transcription avant d'y arriver, et `status.json` publierait pendant tout
+    // ce temps le décompte de la passe précédente comme s'il décrivait celle-ci.
+    // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
+    // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
+    if (exécution.plan.includes('candidates')) oublierBilan(projectId)
     exécution.courante = { step: exécution.plan[0] ?? cibles[0] ?? 'candidates', progress: 0 }
 
     // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
@@ -495,15 +592,19 @@ export async function lancer(
     // suivre et rien à verrouiller.
     if (exécution.plan.length === 0 && !doitIngérer) {
       enCours.delete(projectId)
-      écrireStatut(projectId, {
-        pid: process.pid,
-        updatedAt: Date.now(),
-        cibles: [...cibles],
-        plan: [],
-        running: null,
-        error: null,
-        finishedAt: Date.now(),
-      })
+      écrireStatut(
+        projectId,
+        {
+          pid: process.pid,
+          updatedAt: Date.now(),
+          cibles: [...cibles],
+          plan: [],
+          running: null,
+          error: null,
+          finishedAt: Date.now(),
+        },
+        'absent',
+      )
       return { projectId, plan: [] }
     }
 
@@ -558,6 +659,20 @@ async function exécuter(
     publier(exécution, false)
   }
 
+  /**
+   * Le bilan du repérage vient de changer : `status.json` doit le dire tout de
+   * suite.
+   *
+   * **Hors de la temporisation d'écriture**, contrairement à `avancer`. Celle-ci
+   * existe pour les marques de temps de ffmpeg, qui arrivent plusieurs fois par
+   * seconde et ne portent qu'un pourcentage ; un lot noté est un changement
+   * d'état, il y en a une trentaine sur une passe entière, et l'écran qui
+   * interroge toutes les deux secondes doit pouvoir le voir monter.
+   */
+  const signalerLeBilan = (): void => {
+    publier(exécution, true)
+  }
+
   try {
     if (doitIngérer) {
       // L'ingestion n'est pas une étape du graphe — la source est là ou le
@@ -575,20 +690,34 @@ async function exécuter(
 
     for (const étape of exécution.plan) {
       exécution.courante = { step: étape, progress: 0 }
+      // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
+      // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
+      // `ÉtatRepérage`.
+      if (étape === 'candidates') exécution.repérage = 'en cours'
       publier(exécution, true)
       console.log(`[${projectId}] ${étape}…`)
-      await exécuterÉtape(étape, projet, db, étapes, avancer)
+      try {
+        await exécuterÉtape(étape, projet, db, étapes, avancer, signalerLeBilan)
+      } catch (cause) {
+        if (étape === 'candidates') exécution.repérage = 'échoué'
+        throw cause
+      }
+      if (étape === 'candidates') exécution.repérage = 'fait'
     }
 
-    écrireStatut(projectId, {
-      pid: process.pid,
-      updatedAt: Date.now(),
-      cibles: exécution.cibles,
-      plan: exécution.plan,
-      running: null,
-      error: null,
-      finishedAt: Date.now(),
-    })
+    écrireStatut(
+      projectId,
+      {
+        pid: process.pid,
+        updatedAt: Date.now(),
+        cibles: exécution.cibles,
+        plan: exécution.plan,
+        running: null,
+        error: null,
+        finishedAt: Date.now(),
+      },
+      exécution.repérage,
+    )
     console.log(`[${projectId}] terminé : ${exécution.plan.join(' → ')}`)
   } catch (cause) {
     // **Le message complet au journal, sa version épurée dans le fichier.** Les
@@ -597,15 +726,19 @@ async function exécuter(
     // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
     // qu'on recopie dans un rapport ou qu'une route finirait par servir.
     console.error(`[${projectId}] échec sur ${exécution.courante.step} :`, cause)
-    écrireStatut(projectId, {
-      pid: process.pid,
-      updatedAt: Date.now(),
-      cibles: exécution.cibles,
-      plan: exécution.plan,
-      running: null,
-      error: messageSûr(cause),
-      finishedAt: Date.now(),
-    })
+    écrireStatut(
+      projectId,
+      {
+        pid: process.pid,
+        updatedAt: Date.now(),
+        cibles: exécution.cibles,
+        plan: exécution.plan,
+        running: null,
+        error: messageSûr(cause),
+        finishedAt: Date.now(),
+      },
+      exécution.repérage,
+    )
     throw cause
   }
 }
@@ -625,6 +758,7 @@ async function exécuterÉtape(
   db: Database.Database,
   étapes: Étapes,
   avancer: (fraction: number | null) => void,
+  signalerLeBilan: () => void,
 ): Promise<void> {
   switch (étape) {
     case 'proxy':
@@ -687,7 +821,11 @@ async function exécuterÉtape(
     }
 
     case 'candidates': {
-      await étapes.runCandidates(projet.id, { db })
+      // `onBilan` est ce qui rend le décompte lisible **pendant** la notation.
+      // Sans lui, `status.json` ne le porte qu'une fois l'étape finie, et l'écran
+      // affiche « rien à signaler » pendant les trente secondes où la perte se
+      // constitue. (relevé par Codex et Copilot)
+      await étapes.runCandidates(projet.id, { db, onBilan: signalerLeBilan })
       return
     }
 

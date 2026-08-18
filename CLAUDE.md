@@ -17,6 +17,16 @@ Le projet remplace `~/dev/openshorts`, qui n'est pas mauvais mais résout un aut
 problème (suivre un sujet plutôt que cadrer une scène, détecter des visages
 plutôt que des corps).
 
+**Une spec est datée, et le code peut l'avoir rattrapée.** Avant d'implémenter ce
+qu'elle réclame, regarde à quel commit elle a été écrite et ce qui a été fusionné
+depuis : le 18 août, deux de ses demandes étaient déjà satisfaites — les zones de
+cadrage interdites, qu'un constat ultérieur a réduites à un cas unique, et un
+champ de fraîcheur des rendus que la vague de l'export avait rendu inutile. Obéir
+au texte y aurait ajouté une seconde source de vérité sur une question déjà
+tranchée, et deux sources sur la même question finissent par diverger. Quand tu
+constates l'écart, **corrige la spec dans le même mouvement** : elle fait
+autorité, donc la laisser fausse coûte au suivant ce qu'elle vient de te coûter.
+
 ## Les décisions à ne pas défaire par réflexe
 
 Chacune a coûté une mesure ou un aller-retour, et chacune contredit l'approche

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type BetterSqlite3 from 'better-sqlite3'
 import type { GenerateContentResponse } from '@google/genai'
 import { openDb, upsertProject, getClips, putClip } from '@/server/db'
+import { attendre, lancer, lireStatut } from '@/server/run'
 import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
   appelerGemini,
@@ -15,6 +16,7 @@ import {
   GeminiBlockedError,
   leverSiBloquée,
   lireTranscript,
+  partCouverte,
   runCandidates,
   type AppelGemini,
   type ModeGemini,
@@ -648,6 +650,158 @@ describe("l'étape de repérage", () => {
   })
 
   /**
+   * Le raccord annoncé par `dernierBilan` et resté ouvert une itération : la
+   * perte du repérage n'allait pas plus loin que le journal du serveur. Sur
+   * `2025-06-15-cqlp`, quatre lots sur onze reviennent `PROHIBITED_CONTENT` —
+   * un tiers du matériau écarté sans être jugé, et Julien triait vingt-cinq
+   * cartes en croyant regarder ce que l'émission a de mieux.
+   */
+  describe('le raccord avec status.json', () => {
+    it('fait remonter le décompte de la passe dans le statut', async () => {
+      process.env.SCORE_BATCH = '2'
+      await lancer(ID, ['candidates'], {
+        db,
+        étapes: {
+          runCandidates: (id) =>
+            runCandidates(id, { db, appel: modèle([]), sleep: async () => {} }),
+        },
+      })
+      await attendre(ID)
+
+      expect(lireStatut(ID)?.repérage).toEqual({
+        fenêtres: 4,
+        notées: 4,
+        lotsRefusés: 0,
+        lotsRépondus: 2,
+        couverture: 1,
+        partiel: false,
+      })
+    })
+
+    /**
+     * **Le bilan décrit une notation tentée.** Une passe que le filtre arrête
+     * laisse un décompte à zéro, et c'est exactement le moment où l'écran doit
+     * le dire — mais en le marquant partiel, faute de quoi « 0 fenêtre notée »
+     * passerait pour un résultat.
+     */
+    it('marque partielle une passe que le filtre a arrêtée', async () => {
+      process.env.SCORE_BATCH = '4'
+      const toutRefusé: AppelGemini = async () =>
+        réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+      await lancer(ID, ['candidates'], {
+        db,
+        étapes: {
+          runCandidates: (id) => runCandidates(id, { db, appel: toutRefusé, sleep: async () => {} }),
+        },
+      })
+      await attendre(ID).catch(() => {})
+
+      const statut = lireStatut(ID)
+      expect(statut?.error).toMatch(/refusé/)
+      expect(statut?.repérage).toMatchObject({ notées: 0, couverture: 0, partiel: true })
+    })
+
+    /**
+     * **Le sort du repérage, pas celui de l'exécution.** Une création vise
+     * `['candidates', 'proxy', 'analysis']` : le repérage finit en trente
+     * secondes, et ce qui suit peut échouer sans rien lui retirer. Déduire
+     * `partiel` de l'`error` de l'exécution marquait un bilan complet comme
+     * partiel — définitivement, puisque l'échec reste écrit.
+     * (relevé par Codex et Copilot)
+     */
+    it('ne marque pas partiel un repérage réussi sous une exécution qui échoue', async () => {
+      process.env.SCORE_BATCH = '2'
+      await lancer(ID, ['candidates', 'proxy'], {
+        db,
+        étapes: {
+          // La copie de travail manque, donc l'ingestion est demandée ; celle-ci
+          // réussit sans rien inscrire, et l'étape `proxy` échoue derrière —
+          // après un repérage qui, lui, a abouti.
+          ingest: async () => ({
+            projectId: ID,
+            sourcePath: path.join(replay, SOURCE),
+            stagedPath: path.join(racine, 'stage', SOURCE),
+            copied: false,
+            sizeBytes: 0,
+            mtimeMs: 0,
+            durationSec: 240,
+          }),
+          runCandidates: (id) =>
+            runCandidates(id, { db, appel: modèle([]), sleep: async () => {} }),
+        },
+      })
+      await attendre(ID).catch(() => {})
+
+      const statut = lireStatut(ID)
+      expect(statut?.error).toMatch(/copie de travail/)
+      expect(statut?.repérage).toMatchObject({ notées: 4, couverture: 1, partiel: false })
+    })
+
+    /**
+     * **Le décompte doit être lisible pendant la notation, pas seulement après.**
+     * L'écran interroge toutes les deux secondes ; le lanceur, lui, n'écrivait le
+     * statut qu'au changement d'étape, c'est-à-dire avant le premier appel au
+     * modèle et plus jamais avant la fin. `repérage` restait donc nul pendant
+     * toute la passe — l'information la plus utile, absente exactement pendant
+     * qu'elle se construit. (relevé par Codex et Copilot)
+     */
+    it('publie le décompte pendant la notation, pas seulement à la fin', async () => {
+      process.env.SCORE_BATCH = '2'
+      const vus: unknown[] = []
+      const espion: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score') vus.push(lireStatut(ID)?.repérage ?? null)
+        return modèle([])(prompt, mode)
+      }
+
+      await lancer(ID, ['candidates'], {
+        db,
+        étapes: {
+          // Les options du lanceur sont **transmises**, `onBilan` compris : c'est
+          // le raccord qu'on teste, et un doublon qui les jette le testerait à
+          // vide.
+          runCandidates: (id, options) =>
+            runCandidates(id, { ...options, db, appel: espion, sleep: async () => {} }),
+        },
+      })
+      await attendre(ID)
+
+      // Deux lots : au premier appel rien n'est encore jugé, au second le premier
+      // lot est rangé et le statut le dit déjà.
+      expect(vus).toHaveLength(2)
+      expect(vus[0]).toBeNull()
+      expect(vus[1]).toMatchObject({ notées: 2, fenêtres: 4, partiel: true })
+    })
+
+    /**
+     * Le bilan vit dans ce processus et survit à la passe qui l'a produit. Sans
+     * l'oubli posé au lancement, une seconde exécution publierait le décompte de
+     * la première pendant tout le temps qu'elle met à arriver au repérage —
+     * une demi-heure, quand la transcription est du voyage.
+     */
+    it('oublie le bilan de la passe précédente dès le lancement de la suivante', async () => {
+      await lancer(ID, ['candidates'], {
+        db,
+        étapes: {
+          runCandidates: (id) =>
+            runCandidates(id, { db, appel: modèle([]), sleep: async () => {} }),
+        },
+      })
+      await attendre(ID)
+      expect(lireStatut(ID)?.repérage).not.toBeNull()
+
+      // Une seconde passe dont l'étape ne note rien : le décompte publié ne peut
+      // venir que de la précédente.
+      await lancer(ID, ['candidates'], {
+        db,
+        force: true,
+        étapes: { runCandidates: async () => [] },
+      })
+      await attendre(ID)
+      expect(lireStatut(ID)?.repérage).toBeNull()
+    })
+  })
+
+  /**
    * La récupération, et c'est le cœur de cette étape.
    *
    * Mesuré sur `2025-06-15-cqlp` le 18 août 2026 : quatre lots de huit sur onze
@@ -707,6 +861,75 @@ describe("l'étape de repérage", () => {
       expect(bilan.refusées).toEqual(['window_002'])
       // Elle a été soumise seule **une** fois, et pas une de plus.
       expect(lots.filter((l) => l.length === 1 && l[0] === 'window_002')).toHaveLength(1)
+    })
+
+    /**
+     * L'invariant écrit dans `BilanNotation`, et il tient **à tout instant** :
+     * une fenêtre est non jugée tant qu'une réponse ne la juge pas, y compris
+     * quand une panne l'empêche d'être soumise. Le contrôler ici, sur la passe
+     * la plus accidentée, est ce qui empêche un décompte de perte de mentir sur
+     * l'ampleur de la perte.
+     */
+    it('garde notées + jamaisNotées = fenêtres, panne comprise', async () => {
+      process.env.SCORE_BATCH = '2'
+      await runCandidates(ID, { db, appel: refusant(['window_002'], []), sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées + bilan.jamaisNotées.length).toBe(bilan.fenêtres)
+    })
+
+    /**
+     * **La couverture est la seule mesure qui réponde à la question posée**
+     * (spec §7.2) : « quelle part de l'émission a été jugée ». Un compte de lots
+     * ne la donne pas — les fenêtres se chevauchent de 30 s, le dernier lot est
+     * plus court, et une fenêtre couvre de la parole, pas une tranche d'horloge.
+     *
+     * Le transcript de ce fichier va de 0 à 235,25 s (premier mot au dernier), et
+     * `buildWindows` en tire quatre fenêtres : [0, 93,5], [66, 159,5],
+     * [132, 225,5] et [198, 237,5]. `window_002` écartée, l'union des trois
+     * autres vaut 93,5 + 103,25 = 196,75 s, soit 83,6 %.
+     */
+    it('rapporte l’union des fenêtres notées à l’étendue du transcript', async () => {
+      process.env.SCORE_BATCH = '2'
+      await runCandidates(ID, { db, appel: refusant(['window_002'], []), sleep: async () => {} })
+
+      expect(dernierBilan(ID)!.couverture).toBeCloseTo(196.75 / 235.25, 3)
+    })
+
+    /**
+     * Le contrôle qui distingue une union d'une somme, et il n'est pas
+     * théorique : additionner les trois fenêtres donnerait 226,5 s, soit 96,3 %
+     * — un chiffre qui annoncerait presque toute l'émission jugée là où un
+     * sixième lui manque. Les 30 s de chevauchement seraient comptées deux fois.
+     */
+    it('mesure une union, pas une somme de fenêtres qui se chevauchent', async () => {
+      process.env.SCORE_BATCH = '2'
+      await runCandidates(ID, { db, appel: refusant(['window_002'], []), sleep: async () => {} })
+
+      expect(dernierBilan(ID)!.couverture).not.toBeCloseTo(226.5 / 235.25, 3)
+    })
+
+    it('couvre tout quand toutes les fenêtres sont notées', async () => {
+      process.env.SCORE_BATCH = '2'
+      await runCandidates(ID, { db, appel: modèle([]), sleep: async () => {} })
+
+      expect(dernierBilan(ID)!.couverture).toBe(1)
+    })
+
+    /**
+     * Une passe dont rien n'a répondu lève, et le bilan qu'elle laisse derrière
+     * elle doit dire zéro — pas « pas de chiffre ». C'est exactement le cas où
+     * l'écran a le plus besoin de le dire.
+     */
+    it('vaut zéro quand aucune fenêtre n’a été notée', async () => {
+      process.env.SCORE_BATCH = '4'
+      const toutRefusé: AppelGemini = async () =>
+        réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+      await expect(
+        runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} }),
+      ).rejects.toThrow(GeminiBlockedError)
+
+      expect(dernierBilan(ID)!.couverture).toBe(0)
     })
 
     it('borne la descente à un budget, et compte ce qu’il ne paie pas', async () => {
@@ -971,5 +1194,63 @@ describe("l'étape de repérage", () => {
         expect((erreur as Error).message).not.toContain(racine)
       }
     })
+  })
+})
+
+/**
+ * La part couverte, seule. Les cas limites d'une mesure ne se rencontrent pas
+ * dans une passe complète : un transcript sans mot aligné, une fenêtre qui
+ * déborde de l'étendue, une liste vide.
+ */
+describe('partCouverte', () => {
+  it('additionne des intervalles disjoints', () => {
+    expect(partCouverte([{ start: 0, end: 10 }, { start: 20, end: 30 }], { start: 0, end: 40 })).toBe(
+      0.5,
+    )
+  })
+
+  it('ne compte qu’une fois ce que deux intervalles se partagent', () => {
+    expect(partCouverte([{ start: 0, end: 30 }, { start: 20, end: 40 }], { start: 0, end: 40 })).toBe(
+      1,
+    )
+  })
+
+  it('accepte des intervalles dans le désordre', () => {
+    expect(partCouverte([{ start: 20, end: 30 }, { start: 0, end: 10 }], { start: 0, end: 40 })).toBe(
+      0.5,
+    )
+  })
+
+  /**
+   * Une fenêtre se cale sur des **segments**, dont la fin dépasse le dernier mot
+   * aligné : sans écrêtage, la part dépasserait 1 et l'écran annoncerait 104 %.
+   */
+  it('écrête à l’étendue, donc ne dépasse jamais 1', () => {
+    expect(partCouverte([{ start: -50, end: 500 }], { start: 0, end: 40 })).toBe(1)
+  })
+
+  it('ignore ce qui tombe entièrement hors de l’étendue', () => {
+    expect(partCouverte([{ start: 100, end: 200 }], { start: 0, end: 40 })).toBe(0)
+  })
+
+  it('rend zéro sans intervalle', () => {
+    expect(partCouverte([], { start: 0, end: 40 })).toBe(0)
+  })
+
+  /**
+   * Un transcript sans mot aligné n'a pas d'étendue. Zéro plutôt qu'une
+   * division par zéro : il n'y avait pas de matière, donc aucune part n'en a été
+   * jugée.
+   */
+  it('rend zéro quand l’étendue est vide, sans diviser par zéro', () => {
+    expect(partCouverte([{ start: 0, end: 10 }], { start: 12, end: 12 })).toBe(0)
+  })
+
+  /**
+   * Arrondi au dix-millième : `status.json` se relit à l'œil, et
+   * `0.3333333333333333` n'y apprend rien de plus que `0.3333`.
+   */
+  it('arrondit au dix-millième', () => {
+    expect(partCouverte([{ start: 0, end: 1 }], { start: 0, end: 3 })).toBe(0.3333)
   })
 })

@@ -8,7 +8,8 @@
  * bougé d'une ligne, et aucun composant n'a été touché.
  *
  * ```
- * GET   /api/projects                       -> ProjectSummary[]
+ * GET   /api/sources                        -> SourcesListing
+ * GET   /api/projects                       -> ProjectListItem[]
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
@@ -35,12 +36,30 @@
  */
 
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import type { StepName } from '@/core/graph'
 import type { TranscriptLine } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
 
-/** Les étapes du graphe d'analyse (tâche 6). */
-export type StepName = 'proxy' | 'audio' | 'transcript' | 'candidates' | 'renders'
+/**
+ * Les étapes du graphe d'analyse (tâche 6), **importées de l'autorité** plutôt
+ * que réécrites ici.
+ *
+ * Cette union a vécu recopiée à la main pendant deux itérations, et les deux
+ * exemplaires ne se contraignaient pas : `analysis`, ajoutée au graphe par la
+ * PR #31, manquait à celui-ci. Rien n'échouait — ni la compilation, ni les
+ * tests —, seul l'écran le disait en affichant un libellé vide et un
+ * `aria-label` « undefined en cours » (issue #39).
+ *
+ * **Importer `@/core/graph` d'ici ne franchit aucune frontière.** La règle de
+ * pureté interdit à `src/core` de dépendre du reste du dépôt, pas l'inverse :
+ * `tests/core/purete.test.ts` et le bloc `src/core/**` d'`eslint.config.mjs`
+ * ne contrôlent que les fichiers de `src/core`. Ce fichier importe déjà
+ * `@/core/edl` pour la même raison. Et le type ne coûte rien au paquet du
+ * navigateur : `graph.ts` n'a aucune dépendance, et un `import type`
+ * s'efface à la compilation.
+ */
+export type { StepName }
 
 /**
  * Les étapes que le lanceur sait fabriquer.
@@ -91,6 +110,62 @@ export type ProjectSummary = {
 }
 
 /**
+ * Ce que le repérage n'a pas jugé.
+ *
+ * `null` quand la dernière exécution connue ne décrit aucune notation : elle ne
+ * visait pas le repérage, ou elle s'est arrêtée avant de l'atteindre.
+ *
+ * **Il survit à un redémarrage du serveur**, contrairement à `running`. Le bilan
+ * est calculé en mémoire mais écrit dans `status.json`, et rien ne le réécrit
+ * tant qu'une nouvelle exécution ne tourne pas : ce qu'on lit après un
+ * redémarrage décrit donc la dernière passe de repérage **écrite pour ce
+ * projet**, et non une passe de ce processus-ci. C'est le comportement voulu —
+ * le décompte qualifie les propositions qu'on a sous les yeux, qui sont elles
+ * aussi d'hier. (relevé par Copilot)
+ *
+ * **Ce n'est pas cosmétique.** Sur `2025-06-15-cqlp`, quatre lots de fenêtres
+ * sur onze reviennent `PROHIBITED_CONTENT` de façon reproductible : un tiers du
+ * matériau est écarté sans être jugé, en silence. Sans ce champ, on trie
+ * vingt-cinq cartes en croyant regarder ce que l'émission a de mieux, alors
+ * qu'on regarde ce qu'elle a de mieux **dans les deux tiers qui ont été notés**
+ * — et rien n'invite à aller chercher dans le tiers manquant (spec §7.2).
+ */
+export type BilanRepérage = {
+  /** Les fenêtres que la passe avait à noter. */
+  fenêtres: number
+  /** Celles qui portent une note du modèle. */
+  notées: number
+  /** Les lots refusés par le filtre de sécurité, toutes profondeurs de découpe confondues. */
+  lotsRefusés: number
+  /** Les lots auxquels le modèle a répondu. */
+  lotsRépondus: number
+  /**
+   * La part de l'étendue du transcript couverte par les fenêtres notées, entre
+   * 0 et 1. **L'union des intervalles, pas leur somme** : `buildWindows`
+   * chevauche deux fenêtres consécutives d'environ 30 s, et le dernier lot est
+   * plus court que les autres. Le dénominateur est l'étendue du transcript —
+   * premier mot au dernier —, jamais la durée de l'émission : le silence n'est
+   * pas de la matière qu'on aurait omis de juger.
+   */
+  couverture: number
+  /**
+   * Vrai quand la passe de repérage ne s'est pas terminée : `notées` décrit
+   * alors ce qui avait été jugé au moment de l'arrêt.
+   *
+   * **Le sort de l'étape `candidates`, jamais celui de l'exécution qui la
+   * porte** — et surtout pas du bilan seul, qui ne sait pas s'il est fini. Une
+   * création vise `['candidates', 'proxy', 'analysis']` : le repérage finit en
+   * trente secondes, le proxy tourne six minutes derrière lui, et l'analyse peut
+   * échouer ensuite sans rien lui retirer. Un client qui refabriquerait ce
+   * drapeau depuis un `error` et un `finishedAt` d'exécution afficherait donc
+   * « décompte provisoire » sur un repérage complet — définitivement, si une
+   * étape ultérieure tombe. Le serveur a déjà fait la déduction ; il n'y a rien
+   * à recalculer ici. (relevé par Copilot)
+   */
+  partiel: boolean
+}
+
+/**
  * L'état d'un projet : ce qui est déjà là, et ce qui tourne.
  *
  * `steps` est la **présence de l'artefact**, pas une clé de validité — c'est le
@@ -115,6 +190,86 @@ export type ProjectStatus = {
    * Le message est déjà épuré de ses chemins absolus, comme celui d'une réponse
    * d'erreur.
    */
+  error: string | null
+  /**
+   * Ce que le repérage n'a pas jugé, ou `null`.
+   *
+   * **À lire avec `error`, jamais seul** : le bilan décrit une notation
+   * *tentée*. Le serveur a déjà fait ce croisement — c'est ce que porte
+   * `partiel` —, et l'écran n'a donc pas à le refaire ; il a en revanche à ne
+   * pas présenter un décompte partiel comme un résultat.
+   */
+  repérage: BilanRepérage | null
+}
+
+/**
+ * Un replay du dossier des sources, tel que la bibliothèque le propose.
+ *
+ * **Pas de vignette dans ce lot.** Extraire une image de vingt et un fichiers de
+ * 4 à 12 Go à travers un montage 9p est un coût que personne n'a mesuré, et la
+ * carte s'en passe : le nom d'un replay porte déjà sa date et son émission.
+ *
+ * L'arbitrage vient de la vague d'interface, et il **contredit la spec §12**,
+ * qui prescrit un `GET /api/sources/thumb`. La contradiction est connue et ne se
+ * tranche pas ici : elle appartient au document, pas à ce type — le dire est
+ * plus honnête que de laisser croire que les deux s'accordent.
+ * (relevé par Copilot et Aristarque)
+ */
+export type Source = {
+  /** Le nom du fichier dans `REPLAY_DIR`, tel que `createProject` l'attend — jamais un chemin. */
+  name: string
+  sizeBytes: number
+  /** ISO 8601. */
+  modifiedAt: string
+  /**
+   * Le projet déjà créé sur cette source, ou `null`. Une source analysée mène à
+   * son projet au lieu de relancer une création : `créerProjet` est idempotent
+   * sur ce cas, mais proposer deux chemins vers le même endroit sans le dire
+   * fait douter de ce qu'on vient de déclencher.
+   */
+  projectId: string | null
+}
+
+/**
+ * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
+ * porte**.
+ */
+export type SourcesListing = {
+  sources: Source[]
+  /**
+   * La ligne de montage. Elle existe pour que l'écran distingue « ce dossier est
+   * vide » de « ce montage n'a pas eu lieu » — l'incident réel d'OpenShorts
+   * (spec §12) : les deux rendaient la même page.
+   */
+  montage: {
+    /** Faux quand le dossier des replays est absent, ou que son transport est mort. */
+    disponible: boolean
+    /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
+    fstype: string | null
+    /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */
+    entrées: number
+  }
+}
+
+/**
+ * Un projet dans la bibliothèque : son résumé, et **ce que l'écran peut savoir
+ * sans rien payer**.
+ *
+ * « Trois analyses en cours, une en échec » n'est pas dérivable d'un
+ * `ProjectSummary`, et la forme évidente — un `GET /api/projects/:id` par projet
+ * — est à écarter : elle multiplierait par vingt et un un appel qui exécute
+ * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde. Quatre
+ * fils du vivier de libuv suffisent à figer tout ce qui touche au disque dans le
+ * serveur, analyse en cours comprise (spec §3.1).
+ *
+ * D'où le partage : la liste ne porte que **deux lectures gratuites**, et la
+ * présence des artefacts se résout quand on ouvre le projet, là où le sondage se
+ * paie de toute façon.
+ */
+export type ProjectListItem = ProjectSummary & {
+  /** Ce qui tourne **dans ce processus**, ou `null`. Une lecture de `Map`. */
+  running: { step: StepName; progress: number } | null
+  /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
 }
 
@@ -366,12 +521,24 @@ async function poster<T>(chemin: string, corps: unknown): Promise<T> {
   return (await réponse.json()) as T
 }
 
-export function listProjects(): Promise<ProjectSummary[]> {
-  return lire<ProjectSummary[]>('/api/projects')
+export function listProjects(): Promise<ProjectListItem[]> {
+  return lire<ProjectListItem[]>('/api/projects')
 }
 
 export function getProject(projectId: string): Promise<ProjectStatus> {
   return lire<ProjectStatus>(`/api/projects/${encodeURIComponent(projectId)}`)
+}
+
+/**
+ * Les replays disponibles, et l'état du montage qui les porte.
+ *
+ * **Un échec du montage n'est pas un échec de la requête** : la réponse est un
+ * 200 dont `montage.disponible` vaut faux. C'est ce qui permet à l'écran de dire
+ * « le dossier des replays n'est pas monté » et le geste qui le répare, au lieu
+ * d'afficher une erreur qui ne distingue rien.
+ */
+export function listSources(): Promise<SourcesListing> {
+  return lire<SourcesListing>('/api/sources')
 }
 
 /**
@@ -390,20 +557,42 @@ export function createProject(source: string): Promise<RunPlan> {
 }
 
 /**
- * Recalcule jusqu'à une cible : le serveur remonte les dépendances, refait ce
- * qui manque, et s'arrête là.
+ * Recalcule jusqu'à une ou plusieurs cibles : le serveur remonte les
+ * dépendances, refait ce qui manque, et s'arrête là.
+ *
+ * **Une cible nomme un résultat à atteindre, pas une étape à refaire**, et
+ * c'est pourquoi la forme à plusieurs cibles existe. Viser `candidates` seul ne
+ * construit jamais le proxy : rien n'en dépend dans le graphe — le transcript
+ * lit le WAV, pas la vidéo. Le bouton de reprise laisserait alors le projet
+ * dans l'impasse dont il devait le sortir. Voir `CIBLES_DE_REPRISE`.
+ *
+ * La forme à une cible reste valide, et c'est délibéré : elle couvre le cas le
+ * plus fréquent — relancer le repérage — sans obliger chaque appelant à écrire
+ * un tableau d'un élément.
  *
  * `force` refait une étape dont l'artefact est pourtant présent — `true` vaut
- * « la cible », ce qui couvre le cas courant : relancer le repérage pour obtenir
- * d'autres propositions sans avoir changé un paramètre.
+ * « les cibles », ce qui couvre le cas courant : relancer le repérage pour
+ * obtenir d'autres propositions sans avoir changé un paramètre.
  */
 export function runProject(
   projectId: string,
-  target: RunTarget,
-  force?: boolean | RunTarget[],
+  targets: RunTarget | readonly RunTarget[],
+  force?: boolean | readonly RunTarget[],
 ): Promise<RunPlan> {
-  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, { target, force })
+  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
+    target: targets,
+    force,
+  })
 }
+
+/**
+ * Les cibles d'une reprise : les mêmes que celles d'une création.
+ *
+ * Recopiées ici plutôt qu'importées : `CIBLES_INITIALES` vit dans
+ * `src/server/run.ts`, et l'importer ferait entrer du code serveur dans le
+ * paquet du navigateur. La duplication est délibérée et un test la garde.
+ */
+export const CIBLES_DE_REPRISE: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
 
 export function listCandidates(projectId: string): Promise<CandidateClip[]> {
   return lire<CandidateClip[]>(`/api/projects/${encodeURIComponent(projectId)}/candidates`)

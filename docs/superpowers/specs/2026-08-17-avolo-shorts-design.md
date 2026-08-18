@@ -170,12 +170,22 @@ Dans le périmètre :
 - choix du cadre et rendu ;
 - sous-titres incrustés, logo et mention Twitch ;
 - interface de tri et de montage ;
-- API de déclenchement.
+- API de déclenchement ;
+- **la publication vers Instagram, Facebook, TikTok et YouTube Shorts**, dont la
+  conception vit à part dans
+  `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`.
+
+Cette dernière ligne était dans le hors-périmètre jusqu'au 18 août 2026 — « l'outil
+produit des fichiers MP4 et les textes, Julien publie avec ses outils » — et un
+spike l'en a sortie le jour même : Instagram et Facebook se publient gratuitement,
+sans démarche et sans revue, depuis une app Meta en mode développement. Ce qui
+reste vrai de l'ancienne phrase est que le `.txt` continue d'exister, pour les
+réseaux qu'on ne branche pas et pour le rattrapage à la main.
 
 Hors périmètre :
 
-- la publication sur les réseaux. L'outil produit des fichiers MP4 et les textes
-  (titre, description, hashtags). Julien publie avec ses outils.
+- l'ordonnancement des publications, le multi-comptes et les statistiques de
+  performance : voir le §4 de la spec de publication.
 - le doublage, la traduction, les effets vidéo générés, les vignettes.
 - le multi-utilisateur, la facturation, tout ce qui relève d'un SaaS.
 

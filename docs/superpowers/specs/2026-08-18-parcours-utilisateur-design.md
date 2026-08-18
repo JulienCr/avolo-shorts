@@ -332,24 +332,31 @@ supprime la question. (relevé par Copilot)
 est vrai d'une liste vide : après avoir tout écarté, la phase terminale annonçait
 un livrable alors qu'aucun MP4 n'existe. (relevé par Copilot)
 
-**`livre` se lit sur le statut `exported`, et la réserve qui précédait est
-levée.** Ce document a d'abord écrit l'inverse : rouvrir un clip exporté pour en
-retoucher le montage laisserait son statut à `exported` alors que le MP4 sur le
-disque décrit l'édition précédente, donc il faudrait comparer le clip à son rendu
-plutôt que lire une étiquette, donc `livre` resterait indisponible tant que le
-serveur ne publierait pas une fraîcheur de rendu. (relevé par Codex)
+**`livre` se déduit du statut `exported`, et c'est vrai depuis le 18 août.**
 
-**Vérifié le 18 août 2026, la prémisse est fausse : le serveur le fait déjà.**
-`écarterRenduPérimé` (`src/app/api/clips/[id]/route.ts`, appelé par le `PATCH`)
-fait sortir le clip d'`exported` dès qu'un champ qui change l'image bouge —
-segments, ratio, cadrage, sous-titres, marque — **y compris quand l'effacement
-des fichiers échoue**, le statut étant reposé dans la branche d'erreur. Et
-`sortiesDuClip` (`src/server/rendus.ts`) rend quatre `null` dès que
-`status !== 'exported'`, donc ce qui reste sur le disque n'est plus offert comme
-la livraison du jour. Un statut `exported` décrit bien un rendu à jour.
+Ce document affirmait le contraire, à raison au moment où il a été écrit : rouvrir
+un clip exporté pour en retoucher le montage laissait son statut à `exported`
+alors que le MP4 décrivait l'édition précédente, et il fallait donc demander au
+serveur un champ de fraîcheur. Le raisonnement était juste, la demande aussi — et
+la vague de l'export l'a satisfaite avant que ce document ne soit lu.
 
-`livre` exige donc, et seulement, **au moins un clip gardé et tous les gardés en
-`exported`** — sans champ supplémentaire et sans demande au serveur.
+`écarterRenduPérimé` (`src/server/steps/render.ts`) fait sortir le clip
+d'`exported` dès qu'un champ **que l'encodage consomme** change : segments,
+ratio, cadrage, sous-titres, marque. Le titre et la description n'y sont pas, et
+c'est délibéré — ils ne vont que dans le `.txt`, réécrit depuis l'état à jour, et
+les compter ferait perdre son statut à un clip dont on a corrigé une faute de
+frappe.
+
+Et l'invariant ne tient pas à l'effacement des fichiers, qui peut échouer : il
+tient à `sortiesDuClip` (`src/server/rendus.ts`), qui rend quatre `null` dès que
+`status !== 'exported'`. Des fichiers présents sous un clip qui ne porte pas ce
+statut décrivent autre chose que sa livraison, et les publier servirait la vidéo
+d'avant sans que rien ne le signale.
+
+**Donc pas de champ de fraîcheur à ajouter**, et ne pas en ajouter un en croyant
+obéir à ce paragraphe : il ferait doublon avec un invariant déjà tenu, et deux
+sources de vérité sur la même question finissent par diverger. (demande relevée
+par Codex, satisfaite par la PR #28, constaté le 18 août)
 
 Ces valeurs ne sont pas un décor. Chacune répond à une question qu'un écran pose
 aujourd'hui à sa façon, avec ses propres `if` :
@@ -846,8 +853,16 @@ absente n'est pas une anomalie quand le ratio est déjà 9:16, et l'interface do
 le dire ainsi plutôt que de montrer une case vide.
 
 **Les textes** : titre, description et hashtags, dans une zone qui se copie d'un
-bouton. Le fichier `.txt` existe sur le disque et Julien publie avec ses propres
-outils : ce qu'il lui faut ici est le presse-papiers, pas un chemin.
+bouton. Le fichier `.txt` existe sur le disque : ce qu'il faut ici est le
+presse-papiers, pas un chemin.
+
+**Le presse-papiers n'est plus seul depuis le 18 août 2026.** Ce paragraphe disait
+« Julien publie avec ses propres outils » ; un spike a montré qu'Instagram et
+Facebook se publient gratuitement depuis l'outil, et le panneau gagne donc une
+seconde moitié — cases à cocher des plateformes, bouton, une ligne d'état par
+plateforme. La conception en est à part, dans
+`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
+laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
 **Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
 sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif
@@ -1559,11 +1574,11 @@ que `lancer` en prend une liste et que `créerProjet` lui passe déjà
 graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
 fin du premier.
 
-~~**La fraîcheur des rendus.**~~ **Demande retirée le 18 août 2026** : elle
-supposait qu'une réédition ne défasse pas le statut `exported`, ce qui est faux —
-`écarterRenduPérimé` l'en fait sortir dès qu'un champ qui change l'image bouge, et
-`sortiesDuClip` cesse alors de publier les URL. `livre` se lit donc sur le statut,
-sans champ supplémentaire. Le détail est en 2.3.
+**~~La fraîcheur des rendus.~~ Résolu le 18 août, avant même d'être demandé.**
+Une réédition **défait** bien le statut `exported` : `écarterRenduPérimé` s'en
+charge sur chaque `PATCH`, et `sortiesDuClip` refuse de servir des fichiers sous
+un clip qui ne porte plus ce statut. `livre` se lit donc sur `exported`, sans
+champ supplémentaire. Le détail est en 2.3.
 
 ### 9.5 Quatre questions de la relecture, et leurs réponses
 

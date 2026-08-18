@@ -1,7 +1,7 @@
 import type { z } from 'zod'
 
 import { messageSûr } from '@/server/erreurs'
-import { ExécutionEnCoursError, ProjetInconnuError } from '@/server/run'
+import { CollisionDeProjetError, ExécutionEnCoursError, ProjetInconnuError } from '@/server/run'
 import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
 
 /**
@@ -52,6 +52,9 @@ export function statutPour(erreur: unknown): number {
   if (erreur instanceof ErreurHttp) return erreur.statut
   if (erreur instanceof ProjetInconnuError) return 404
   if (erreur instanceof ExécutionEnCoursError) return 409
+  // Deux sources différentes pour un même identifiant : la demande est bien
+  // formée, elle entre en conflit avec ce qui existe déjà.
+  if (erreur instanceof CollisionDeProjetError) return 409
   // Le filtre de contenu a refusé : ni la faute de l'appelant, ni un défaut du
   // serveur. 422 — la demande est bien formée, elle ne peut simplement pas être
   // traitée.

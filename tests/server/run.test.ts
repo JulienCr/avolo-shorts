@@ -5,9 +5,11 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
-import { openDb, upsertProject, type Project } from '@/server/db'
+import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
   cheminTranscript,
+  CollisionDeProjetError,
+  créerProjet,
   ExécutionEnCoursError,
   lancer,
   lireStatut,
@@ -191,6 +193,26 @@ describe('relevéPrésence', () => {
     fs.writeFileSync(path.join(rendus, 'clip.mp4'), '')
     oublierSidecar(projet)
     expect((await relevéPrésence(projet)).renders).toBe(true)
+  })
+})
+
+describe('créerProjet', () => {
+  /**
+   * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
+   * tous deux `show`. Sans refus, la seconde ingestion gardait la copie de
+   * travail, la durée et les artefacts de la première, et l'outil continuait de
+   * servir l'autre vidéo sans un mot. (relevé par Copilot)
+   */
+  it('refuse deux sources qui se partageraient un identifiant', async () => {
+    poserProjet()
+    fs.writeFileSync(path.join(racine, 'replays', `${PROJET}.mov`), '')
+
+    await expect(
+      créerProjet(`${PROJET}.mov`, { db, étapes: étapesFactices() }),
+    ).rejects.toBeInstanceOf(CollisionDeProjetError)
+
+    // Et le projet d'origine n'a pas bougé.
+    expect(getProject(db, PROJET)?.sourcePath).toBe(path.join(racine, 'replays', `${PROJET}.mp4`))
   })
 })
 

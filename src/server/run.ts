@@ -77,6 +77,31 @@ export class ProjetInconnuError extends Error {
   }
 }
 
+/**
+ * Deux sources différentes pour un même identifiant. La route en fait un 409.
+ *
+ * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
+ * tous deux `show`. Sans ce refus, la seconde ingestion réécrivait `sourcePath`
+ * et gardait la copie de travail, la durée et les artefacts de la première — le
+ * plan ressortait vide et l'outil continuait de servir l'autre vidéo, sans un
+ * mot. On refuse plutôt que de réinitialiser : effacer le travail d'un projet
+ * parce qu'un fichier porte un nom voisin serait pire que de le dire.
+ * (relevé par Copilot)
+ */
+export class CollisionDeProjetError extends Error {
+  constructor(
+    readonly projectId: string,
+    readonly attendu: string,
+    readonly reçu: string,
+  ) {
+    super(
+      `L'identifiant ${projectId} désigne déjà ${JSON.stringify(path.basename(attendu))}. ` +
+        `${JSON.stringify(path.basename(reçu))} lui donnerait le même projet : renommer l'un des deux fichiers.`,
+    )
+    this.name = 'CollisionDeProjetError'
+  }
+}
+
 /** L'avancement en cours, ou `null` si rien ne tourne. */
 export function progression(projectId: string): Progression | null {
   const exécution = enCours.get(projectId)
@@ -228,11 +253,15 @@ export async function relevéPrésence(projet: Project): Promise<Record<StepName
 /**
  * Ce que porte `projects/<id>/status.json`.
  *
- * **Ce fichier est une trace, pas une source.** `GET /api/projects/:id` ne le lit
- * jamais : `steps` se relève sur les artefacts et `running` sort de la table en
- * mémoire, seule à savoir ce qui tourne *dans ce processus*. C'est ce qui rend un
- * redémarrage de Next inoffensif, alors que croire ce fichier ferait annoncer une
- * transcription morte avec le dernier redémarrage.
+ * **Ni `steps` ni `running` ne sortent d'ici.** `steps` se relève sur les
+ * artefacts et `running` sort de la table en mémoire, seule à savoir ce qui
+ * tourne *dans ce processus* : c'est ce qui rend un redémarrage de Next
+ * inoffensif, alors que croire ce fichier ferait annoncer une transcription
+ * morte avec le dernier redémarrage.
+ *
+ * `error` fait exception, et c'est la raison d'être du fichier : une exécution
+ * de tâche de fond n'a aucune réponse HTTP où loger son échec, donc
+ * `GET /api/projects/:id` va le chercher là — mais seulement au repos.
  *
  * Le `pid` est là pour la personne qui l'ouvre : il dit quel processus a écrit
  * ces lignes, donc si le `running` qu'elles portent a encore un sens. `error` est
@@ -273,7 +302,11 @@ function écrireStatut(projectId: string, statut: Statut): void {
   }
 }
 
-/** Le dernier statut connu, ou `null`. Lu par les scripts, pas par les routes. */
+/**
+ * Le dernier statut connu, ou `null`.
+ *
+ * Lu par `GET /api/projects/:id` pour le seul champ `error` — voir `Statut`.
+ */
 export function lireStatut(projectId: string): Statut | null {
   try {
     return JSON.parse(fs.readFileSync(cheminStatut(projectId), 'utf8')) as Statut
@@ -625,6 +658,10 @@ export async function créerProjet(
   const db = options.db ?? getDb()
 
   const existant = getProject(db, projectId)
+  // Un identifiant, une source. Voir `CollisionDeProjetError`.
+  if (existant !== undefined && existant.sourcePath !== sourcePath) {
+    throw new CollisionDeProjetError(projectId, existant.sourcePath, sourcePath)
+  }
   upsertProject(db, {
     id: projectId,
     sourcePath,

@@ -419,6 +419,69 @@ describe('vignetteSource', () => {
     for (const r of résultats) expect((r as Error).message).toMatch(/ne répond pas/)
   })
 
+  /**
+   * **Une durée fixe ne fermait pas le cas, elle le retardait.** À chaque
+   * expiration, la requête suivante repartait sur le montage mort et y laissait
+   * un fil de plus : quatre intervalles, et le vivier de libuv était épuisé
+   * comme si le disjoncteur n'existait pas. La condition n'est donc pas une
+   * durée mais l'appel lui-même — tant qu'il n'a rien rendu, on n'en lance pas
+   * un second, quel que soit le temps écoulé. (relevé par Codex)
+   */
+  it('reste ouvert tant que l’accès abandonné n’est pas revenu', async () => {
+    poserVidéo('a.mp4')
+    poserVidéo('b.mp4')
+    let partis = 0
+    let libérer: (() => void) | null = null
+    const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => {
+      partis += 1
+      return new Promise((résoudre) => {
+        libérer = () => résoudre(fs.lstatSync(path.join(replays, 'a.mp4')))
+      })
+    })
+
+    await expect(vignetteSource('a.mp4', { timeoutMs: 20 })).rejects.toThrow(/ne répond pas/)
+    expect(partis).toBe(1)
+
+    // Autant de temps qu'on veut : rien ne rouvre le passage tant que le premier
+    // `lstat` occupe son fil.
+    await new Promise((r) => setTimeout(r, 60))
+    await expect(vignetteSource('b.mp4', { timeoutMs: 20 })).rejects.toThrow(/ne répond pas/)
+    expect(partis).toBe(1)
+
+    // Et il se rouvre tout seul quand l'appel se règle enfin.
+    ;(libérer as unknown as () => void)()
+    await new Promise((r) => setTimeout(r, 0))
+    lstat.mockRestore()
+
+    const chemin = await vignetteSource('a.mp4', { sonder: async () => 60, extraire: extraireOk() })
+    expect(chemin).not.toBeNull()
+  })
+
+  /**
+   * **La sonde de durée a son propre délai, et elle a droit à sa fermeture.**
+   * `probe` s'arrête sur le `timeout` d'`execFile`, qui envoie un signal puis
+   * attend la sortie du processus : entre les deux il y a un intervalle court et
+   * parfaitement normal. Une garde extérieure calée sur la même échéance le
+   * gagnait systématiquement — elle ouvrait le disjoncteur et faisait tomber les
+   * vignettes voisines, là où la sonde allait rendre `null` et laisser jouer
+   * l'instant de repli. (relevé par Codex)
+   */
+  it('laisse la sonde de durée finir de se fermer avant de conclure', async () => {
+    poserVidéo('lente.mp4')
+    const appels: { src: string; dst: string; at: number }[] = []
+
+    // Une sonde qui rend `null` un peu après son propre délai, comme le fait un
+    // ffprobe qu'on vient de signaler.
+    const chemin = await vignetteSource('lente.mp4', {
+      timeoutMs: 40,
+      sonder: () => new Promise((r) => setTimeout(() => r(null), 55)),
+      extraire: extraireOk(appels),
+    })
+
+    expect(chemin).not.toBeNull()
+    expect(appels[0].at).toBe(REPLI_INSTANT_S)
+  })
+
   it('rouvre le passage une fois le disjoncteur réarmé', async () => {
     poserVidéo('e.mp4')
     const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => new Promise(() => {}))

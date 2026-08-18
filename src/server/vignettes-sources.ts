@@ -204,6 +204,12 @@ export function instantVignetteSource(durationSec: number | null): number {
   return durationSec / 3
 }
 
+/**
+ * De combien la garde extérieure d'une sonde dépasse le délai de la sonde
+ * elle-même. Voir le point d'appel, dans `produire`.
+ */
+const MARGE_FERMETURE = 2
+
 export type OptionsVignetteSource = {
   /** Le délai de garde de chaque accès au montage. */
   timeoutMs?: number
@@ -235,28 +241,51 @@ export class MontageMuetError extends Error {
 }
 
 /**
- * Le repos que s'accorde le disjoncteur après un renoncement.
+ * L'accès qu'on a cessé d'attendre et qui n'est **toujours pas revenu**.
  *
- * **Ce qu'il borne, et ce qu'il ne borne pas.** Un appel système abandonné garde
- * son fil pour toujours : on ne supprime pas la casse, on la ramène à **un fil
- * par minute** au lieu d'un par requête. Sur une grille de vingt et une cartes,
- * c'est la différence entre un serveur figé et un serveur qui affiche vingt et
- * une cases grises.
+ * C'est le disjoncteur, et sa condition n'est pas une durée. Une durée fixe ne
+ * fait que retarder l'accumulation qu'elle prétend fermer : à chaque expiration,
+ * la requête suivante repart sur le montage mort et y laisse un fil de plus,
+ * si bien qu'au bout de quatre intervalles le vivier de libuv est épuisé comme
+ * si le disjoncteur n'existait pas. C'était le défaut de la version d'avant, et
+ * son commentaire l'assumait au lieu de le corriger. (relevé par Codex)
  *
- * Une minute, parce que les deux erreurs coûtent : trop court, une page rechargée
- * par impatience repaie un fil ; trop long, un partage qui revient reste
- * inutilisable alors qu'il répond. C'est aussi l'exposition que `listerSources`
- * accepte déjà — une sonde par requête, sans disjoncteur —, et la grille n'affiche
- * de toute façon aucune vignette quand la liste, elle, a échoué.
+ * La bonne condition est **l'appel lui-même** : tant qu'il n'a rien rendu, on
+ * n'en lance pas un second. On ne peut pas l'annuler — c'est le prix d'un appel
+ * système non interruptible —, mais on peut refuser de l'accompagner. Le coût
+ * d'un montage mort est donc **un fil, une fois**, quel que soit le nombre de
+ * requêtes et le temps que ça dure. C'est ce que l'en-tête de ce fichier promet
+ * depuis le début.
+ *
+ * **La contrepartie, assumée** : sur un montage dont l'appel ne revient jamais,
+ * les vignettes restent indisponibles jusqu'au redémarrage du serveur. C'est le
+ * bon côté du choix — une case grise sur une carte, contre un serveur dont plus
+ * rien ne touche au disque. `réarmerLeDisjoncteur` est la sortie explicite ; il
+ * n'a pas d'appelant en production, et lui en donner un demanderait de savoir de
+ * l'extérieur que le montage répond, ce qui est le régulateur partagé décrit
+ * plus haut.
  */
-export const REPOS_APRÈS_MUTISME_MS = 60_000
+let enSouffrance: Promise<unknown> | null = null
 
-/** L'instant jusqu'auquel on refuse de toucher au montage. */
-let muetJusquà = 0
+/** Retient l'accès abandonné jusqu'à ce qu'il se règle enfin. */
+function retenir(brut: Promise<unknown>): void {
+  enSouffrance = brut
+  // **Le `catch` est sur la chaîne, pas à côté d'elle** — même piège que la
+  // sonde de `sources.ts` : `finally` propage le rejet, et un `catch` posé en
+  // parallèle laisserait la promesse dérivée sans gestionnaire.
+  //
+  // Le contrôle d'identité évite qu'un règlement tardif ne rouvre le passage
+  // par-dessus un renoncement plus récent.
+  void brut
+    .finally(() => {
+      if (enSouffrance === brut) enSouffrance = null
+    })
+    .catch(() => {})
+}
 
-/** Remet le disjoncteur à zéro. Pour les tests, qui n'ont pas une minute. */
+/** Rouvre le passage. La sortie explicite, et ce dont les tests se servent. */
 export function réarmerLeDisjoncteur(): void {
-  muetJusquà = 0
+  enSouffrance = null
 }
 
 /**
@@ -275,12 +304,13 @@ async function sousGarde<T>(travail: () => Promise<T>, timeoutMs: number): Promi
   // disjoncteur ait pu dire non — et le disjoncteur ne protège plus rien. La
   // première version faisait exactement ça, et un test qui compte les départs
   // l'a montré : trois requêtes, trois `lstat` partis.
-  if (Date.now() < muetJusquà) throw new MontageMuetError()
+  if (enSouffrance !== null) throw new MontageMuetError()
+  const brut = travail()
   try {
-    return await attendreOuRenoncer(travail(), timeoutMs, RENONCEMENT)
+    return await attendreOuRenoncer(brut, timeoutMs, RENONCEMENT)
   } catch (cause) {
     if (cause instanceof Error && cause.message === RENONCEMENT) {
-      muetJusquà = Date.now() + REPOS_APRÈS_MUTISME_MS
+      retenir(brut)
       throw new MontageMuetError()
     }
     throw cause
@@ -405,7 +435,18 @@ async function produire(
   const temporaire = cheminTemporaire(destination)
   const sonder = options.sonder ?? probeDuration
   const extraire = options.extraire ?? extraireAvecFfmpeg
-  const at = instantVignetteSource(await sousGarde(() => sonder(source, timeoutMs), timeoutMs))
+  // **Le double, et c'est ce qui laisse ffprobe finir proprement.** `probe`
+  // s'arrête sur son propre `timeout`, mais `execFile` envoie d'abord un signal
+  // et ne rend la main qu'à la fermeture du processus : entre les deux il y a un
+  // intervalle, court et parfaitement normal. Une garde extérieure calée sur la
+  // même échéance le gagnait systématiquement — elle ouvrait le disjoncteur et
+  // faisait tomber les vignettes voisines, là où la sonde allait rendre `null` et
+  // laisser jouer l'instant de repli. Elle attend donc deux fois plus longtemps
+  // que celle qu'elle surveille, et ne se déclenche que sur un ffprobe qui ne
+  // ferme jamais. (relevé par Codex)
+  const at = instantVignetteSource(
+    await sousGarde(() => sonder(source, timeoutMs), timeoutMs * MARGE_FERMETURE),
+  )
 
   try {
     await extraire({ src: source, dst: temporaire, at }, timeoutMs)

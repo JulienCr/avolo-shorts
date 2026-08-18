@@ -1,8 +1,9 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SourcesListing } from '@/lib/api'
 import { openDb, upsertProject } from '@/server/db'
@@ -246,6 +247,7 @@ describe('listerSources', () => {
     const listing = await listerSources({ db })
     expect(listing.sources).toEqual([])
     expect(listing.montage.disponible).toBe(true)
+    expect(listing.montage.cause).toBeNull()
     expect(listing.montage.entrées).toBe(0)
   })
 
@@ -255,6 +257,7 @@ describe('listerSources', () => {
     const listing = await listerSources({ db })
     expect(listing.sources).toEqual([])
     expect(listing.montage.disponible).toBe(false)
+    expect(listing.montage.cause).toBe('absent')
     expect(listing.montage.entrées).toBe(0)
   })
 
@@ -272,7 +275,93 @@ describe('listerSources', () => {
       relever: () => new Promise(() => {}),
     })
     expect(listing.montage.disponible).toBe(false)
+    expect(listing.montage.cause).toBe('muet')
     expect(listing.sources).toEqual([])
+  })
+
+  /**
+   * **Quatre causes, quatre noms** (issue #56, point 5). Tant que
+   * `releverAvecGarde` les collapsait, l'écran devait énumérer les trois gestes
+   * possibles — vérifier le chemin, vérifier les droits, remonter le partage —
+   * là où le serveur en connaissait un seul.
+   *
+   * L'erreur porte un `code` d'`errno` ; le code d'échec publié, lui, est un mot
+   * énuméré. Ce dépôt est public, et la valeur part sur le réseau.
+   */
+  it.each([
+    ['ENOENT', 'absent'],
+    ['ENOTDIR', 'absent'],
+    ['ENAMETOOLONG', 'absent'],
+    ['EACCES', 'refusé'],
+    ['EPERM', 'refusé'],
+    ['EIO', 'illisible'],
+    ['ESTALE', 'illisible'],
+  ])('nomme la cause : %s donne « %s »', async (code, attendue) => {
+    const listing = await listerSources({
+      db,
+      relever: () => {
+        const erreur: NodeJS.ErrnoException = new Error('le message du système')
+        erreur.code = code
+        return Promise.reject(erreur)
+      },
+    })
+
+    expect(listing.montage.disponible).toBe(false)
+    expect(listing.montage.cause).toBe(attendue)
+  })
+
+  it('range sous « illisible » une erreur sans code plutôt que de deviner', async () => {
+    const listing = await listerSources({ db, relever: () => Promise.reject(new Error('boum')) })
+    expect(listing.montage.cause).toBe('illisible')
+  })
+
+  /**
+   * **Le cas que l'issue #56 appelle « le diagnostic le plus trompeur
+   * possible ».** `fstypeDeMontage` remonte au montage le plus profond qui
+   * *contienne* le chemin : un `REPLAY_DIR` mal orthographié sous un partage 9p
+   * parfaitement sain rend donc `disponible: false` **avec** `fstype: '9p'`. Sans
+   * la cause, l'écran conclut au transport mort et envoie remonter un partage
+   * qui répond ; avec elle, il dit « ce chemin n'existe pas ».
+   */
+  it('dit « absent », pas « muet », sur un REPLAY_DIR mal orthographié', async () => {
+    process.env.REPLAY_DIR = path.join(replays, 'Repaly')
+
+    const listing = await listerSources({ db })
+    expect(listing.montage.disponible).toBe(false)
+    expect(listing.montage.cause).toBe('absent')
+  })
+
+  /**
+   * Dans `releverLeDossier`, un `lstat` refusé sur **un seul fichier** fait
+   * basculer tout le dossier. La bascule est voulue — un catalogue amputé
+   * présenté comme complet est pire —, mais elle était muette : elle porte
+   * maintenant `refusé`, ce qui envoie regarder les droits plutôt que le
+   * partage. (second cas mesuré de l'issue #56)
+   */
+  it('nomme un droit refusé sur un seul fichier comme un refus, pas un silence', async () => {
+    poserVidéo('lisible.mp4')
+    const lstat = vi.spyOn(fsp, 'lstat').mockImplementation(() => {
+      const erreur: NodeJS.ErrnoException = new Error('permission denied')
+      erreur.code = 'EACCES'
+      return Promise.reject(erreur)
+    })
+
+    const listing = await listerSources({ db })
+    lstat.mockRestore()
+
+    expect(listing.montage.disponible).toBe(false)
+    expect(listing.montage.cause).toBe('refusé')
+  })
+
+  /**
+   * L'URL est **toujours** là, contrairement à celle d'un candidat : la source
+   * existe, on vient de la mesurer. Ce qui peut manquer est l'image au bout.
+   */
+  it('donne à chaque source l’URL de sa vignette, encodée', async () => {
+    poserVidéo('2026-01-11-méchante.mp4')
+
+    const [source] = (await listerSources({ db })).sources
+    expect(source.thumbnailUrl).toBe('/api/sources/thumb?file=2026-01-11-m%C3%A9chante.mp4')
   })
 
   /**

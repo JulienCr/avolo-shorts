@@ -163,7 +163,13 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
  * une image décorative annoncée deux fois n'aide personne.
  */
 function Vignette({ source }: { source: Source }) {
-  const [échouée, setÉchouée] = useState(false)
+  // **L'URL qui a échoué, pas un booléen.** L'échec appartient à l'image, pas à
+  // la position dans la grille : React réutilise un composant d'une carte à
+  // l'autre quand la liste se réordonne — une création qui remonte un replay
+  // suffit —, et un booléen resterait alors posé sur la source suivante, qui
+  // n'aurait jamais sa chance. Une `key` sur le `<img>` n'y suffirait pas :
+  // quand l'état est vrai, il n'y a pas de `<img>` à remonter.
+  const [échouée, setÉchouée] = useState<string | null>(null)
 
   return (
     <span
@@ -172,24 +178,18 @@ function Vignette({ source }: { source: Source }) {
       className="relative flex aspect-video h-full shrink-0 items-center justify-center overflow-hidden border-r bg-muted/50 text-muted-foreground/40"
     >
       <Film className="size-5" />
-      {!échouée && (
-        // **`key` sur l'URL** : React réutiliserait l'élément d'une carte à
-        // l'autre quand la liste se réordonne, et `échouée` resterait posé sur
-        // une image qui n'a rien à voir. Remonter l'élément remet l'état à zéro
-        // en même temps que la source.
-        //
+      {échouée !== source.thumbnailUrl && (
         // Même raison que dans `candidate-card.tsx` pour l'exception de lint :
         // la vignette sort d'une route locale à une taille déjà fixée (640 de
         // large), `next/image` n'aurait rien à optimiser, et le faire passer par
         // `/_next/image` ajouterait un second décodage par carte.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          key={source.thumbnailUrl}
           src={source.thumbnailUrl}
           alt=""
           loading="lazy"
           decoding="async"
-          onError={() => setÉchouée(true)}
+          onError={() => setÉchouée(source.thumbnailUrl)}
           className="absolute inset-0 size-full object-cover"
         />
       )}

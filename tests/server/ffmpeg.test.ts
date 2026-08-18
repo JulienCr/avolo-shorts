@@ -8,6 +8,7 @@ import {
   choisirEncodeur,
   créerJournal,
   produireArtefact,
+  runFfmpeg,
 } from '@/server/ffmpeg'
 
 /**
@@ -216,5 +217,43 @@ describe('produireArtefact — la décision de sauter', () => {
     await expect(produireArtefact({ dst, args: jamais })).rejects.toThrow(/ne devait pas tourner/)
     // Le dossier a bien été créé, et rien de partiel n'y traîne.
     expect(fs.readdirSync(path.dirname(dst))).toEqual([])
+  })
+})
+
+/**
+ * **Le seul morceau de `runFfmpeg` qui s'éprouve sans ffmpeg**, parce qu'il ne
+ * dépend pas du binaire : le délai de garde s'exerce sur n'importe quel
+ * processus, et `sleep` en est un qui ne rend pas la main.
+ *
+ * Il existe pour la vignette d'une source, qui lit **l'original sur le montage
+ * 9p** (issue #41). Le Drive décroche de deux façons que `/proc/mounts` ne
+ * distingue pas, et un ffmpeg qui pend dessus ne rend jamais la main : ni le
+ * processus, ni la requête HTTP qui l'attend. Renoncer sans tuer laisserait un
+ * processus par vignette demandée pendant que le partage est tombé.
+ */
+describe('runFfmpeg, le délai de garde', () => {
+  it('tue le processus qui ne répond pas, et le dit', async () => {
+    const début = Date.now()
+    await expect(
+      runFfmpeg(['30'], { bin: 'sleep', timeoutMs: 60, quoi: 'vignette de source e.mp4' }),
+    ).rejects.toThrow(/n'a pas répondu en 60 ms — vignette de source e\.mp4/)
+    // Il rend la main tout de suite, sans attendre que le processus veuille bien
+    // mourir : sur un montage mort, il part en sommeil non interruptible et
+    // `close` peut n'arriver que bien plus tard.
+    expect(Date.now() - début).toBeLessThan(5_000)
+  })
+
+  /**
+   * **Le défaut reste « ne jamais renoncer »**, et c'est le bon : un proxy prend
+   * six minutes, un export jusqu'à une minute, et une borne posée par mégarde
+   * les ferait échouer le jour où la machine est chargée. Sans `timeoutMs`, la
+   * minuterie ne doit donc pas exister du tout.
+   */
+  it('ne borne rien quand personne ne le demande', async () => {
+    await expect(runFfmpeg(['0.05'], { bin: 'sleep' })).resolves.toBeUndefined()
+  })
+
+  it('laisse passer un processus plus rapide que son délai', async () => {
+    await expect(runFfmpeg(['0.05'], { bin: 'sleep', timeoutMs: 5_000 })).resolves.toBeUndefined()
   })
 })

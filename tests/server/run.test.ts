@@ -266,6 +266,25 @@ describe('analysis', () => {
 
 describe('créerProjet', () => {
   /**
+   * **Ce que `POST /api/projects` vise, et le seul endroit qui le dise.**
+   * `CIBLES_INITIALES` porte `analysis` parce que personne ne clique « détecte
+   * les corps » : on veut un projet dont le cadrage sait déjà se calculer. Les
+   * cas plus haut visent `analysis` explicitement, donc aucun ne verrait cette
+   * cible disparaître de la liste — la suite resterait verte et un projet neuf
+   * n'aurait plus jamais d'analyse. (relevé par Copilot)
+   */
+  it('vise l’analyse à la création, après le proxy dont elle dépend', async () => {
+    poserProjet()
+    const { plan } = await créerProjet(`${PROJET}.mp4`, { db, étapes: étapesFactices() })
+    expect(plan).toContain('analysis')
+    expect(plan.indexOf('proxy')).toBeLessThan(plan.indexOf('analysis'))
+
+    await attendre(PROJET)
+    expect(appels).toContain('analysis')
+    expect(appels.indexOf('proxy')).toBeLessThan(appels.indexOf('analysis'))
+  })
+
+  /**
    * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
    * tous deux `show`. Sans refus, la seconde ingestion gardait la copie de
    * travail, la durée et les artefacts de la première, et l'outil continuait de

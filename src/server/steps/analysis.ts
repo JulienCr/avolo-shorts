@@ -467,9 +467,18 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
+      // **Le code d'erreur, pas `cause.message`.** Node y écrit
+      // `spawn <chemin> ENOENT`, avec le chemin **nu** : rien ne peut le citer
+      // après coup, et l'épuration d'un chemin nu s'arrête à la première espace.
+      // Un dépôt cloné sous `/home/jean/Mon dossier` publierait donc la queue de
+      // son arborescence dans `status.json`. Le chemin est déjà là, cité, juste
+      // avant — et `ENOENT` ou `EACCES` est tout ce que le message ajoutait.
+      // L'erreur d'origine reste attachée en `cause` pour le journal du serveur.
+      // (relevé par Copilot)
+      const code = (cause as NodeJS.ErrnoException).code ?? 'échec au démarrage'
       reject(
         new Error(
-          `Le worker de détection n'a pas pu démarrer (${JSON.stringify(python)}) : ${cause.message}. ` +
+          `Le worker de détection n'a pas pu démarrer (${JSON.stringify(python)}) : ${code}. ` +
             'Voir DETECT_PYTHON dans .env, et setup.sh.',
           { cause },
         ),

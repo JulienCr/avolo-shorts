@@ -381,8 +381,48 @@ describe('runAnalysis', () => {
     expect(messageSûr(new Error(commande))).not.toContain('Mon dossier')
 
     // Et la forme que Node écrit tout seul, sans guillemets, sur un spawn en
-    // échec : celle-là ne se cite pas, c'est `racines()` qui la couvre.
+    // échec : celle-là ne se cite pas. `racines()` la couvre quand
+    // `DETECT_PYTHON` est posée…
     process.env.DETECT_PYTHON = python
     expect(messageSûr(new Error(`spawn ${python} ENOENT`))).not.toContain('Mon dossier')
+  })
+
+  /**
+   * …et quand elle ne l'est pas, `racines()` ne connaît rien du venv, puisque le
+   * chemin vient alors de `process.cwd()`. C'est pour ce cas-là que le message
+   * de démarrage ne reprend **que le code** de l'erreur : le chemin y est déjà,
+   * entre guillemets, donc épurable. (relevé par Copilot)
+   */
+  it('ne remonte que le code d’erreur quand le worker ne démarre pas', async () => {
+    const dossier = path.join(racine, 'Mon dossier')
+    fs.mkdirSync(dossier, { recursive: true })
+    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+
+    // Un interpréteur qui existe mais n'est pas exécutable : `spawn` échoue à
+    // l'exécution, pas au contrôle de présence de l'étape.
+    const python = path.join(dossier, 'python')
+    fs.writeFileSync(python, '', { mode: 0o644 })
+    const script = path.join(dossier, 'detect.py')
+    fs.writeFileSync(script, '')
+    const modèle = path.join(dossier, 'yolo11m.pt')
+    fs.writeFileSync(modèle, '')
+    const faux = path.join(racine, 'ffprobe-ok')
+    fs.writeFileSync(
+      faux,
+      '#!/bin/sh\necho \'{"streams":[{"width":960,"height":540,"r_frame_rate":"30/1"}],' +
+        '"format":{"duration":"10"}}\'\n',
+      { mode: 0o755 },
+    )
+    process.env.FFPROBE_BIN = faux
+    process.env.DETECT_PYTHON = python
+    process.env.DETECT_WORKER = script
+    process.env.DETECT_MODEL = modèle
+    const erreur = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
+      (cause: unknown) => cause,
+    )
+    expect(erreur).toBeInstanceOf(Error)
+    expect((erreur as Error).message).toMatch(/EACCES|ENOENT/)
+    // Le message composé ne reprend pas la phrase de Node, donc pas son chemin nu.
+    expect((erreur as Error).message).not.toContain(`spawn ${python}`)
   })
 })

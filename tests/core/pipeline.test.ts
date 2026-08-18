@@ -40,4 +40,18 @@ describe('avancementWorker', () => {
     expect(avancementWorker('      5936.9 s')).toBeNull()
     expect(avancementWorker('')).toBeNull()
   })
+
+  /**
+   * Les deux workers écrivent leurs phases sous la même forme, et le second en
+   * écrit aussi l'avancement **à l'intérieur** d'une phase. Cette ligne-là ne
+   * doit surtout pas porter de crochets : `[1620/11874]` serait lu comme une
+   * étape 1620 sur 11874, donc une progression qui retombe à zéro et y reste
+   * pendant les trois minutes de détection.
+   */
+  it('lit les phases de detect.py sans se laisser prendre par ses compteurs', () => {
+    expect(avancementWorker('[1/4] Frontières de plans (score de scène ≥ 0.4)…')).toBe(0)
+    expect(avancementWorker('[3/4] Détection des corps (11874 images à 2.0 im/s…')).toBe(0.5)
+    expect(avancementWorker('      1620/11874 images (14 %), 124 im/s')).toBeNull()
+    expect(avancementWorker('      131 plans, 130 frontières retenues sur 1232 candidates')).toBeNull()
+  })
 })

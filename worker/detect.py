@@ -212,10 +212,15 @@ def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int)
         # c'est ce qui met fin au décodage quand on sort de la boucle en avance.
         if proc.stdout is not None:
             proc.stdout.close()
-        code = proc.wait()
+        # **Vider stderr avant d'attendre, et pas après.** Le tampon d'un tube
+        # fait 64 ko : un ffmpeg bavard le remplit, se bloque en écriture, et le
+        # `wait()` d'un parent qui ne lit pas ne revient alors jamais. Le cas est
+        # rare avec `-loglevel error` — il faut une erreur par image —, et c'est
+        # exactement le genre de blocage qu'on ne diagnostique pas à chaud.
         erreur = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
         if proc.stderr is not None:
             proc.stderr.close()
+        code = proc.wait()
         # Le code 0 est le cas nominal ; un tube fermé en avance donne 141
         # (128 + SIGPIPE), qui n'est pas une erreur de décodage.
         if code not in (0, 141, -13):

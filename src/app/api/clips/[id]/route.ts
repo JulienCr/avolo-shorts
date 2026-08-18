@@ -2,9 +2,11 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
+import { resolveRatio } from '@/core/framing'
 import { getClip, getDb, getProject, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
+import { cheminsRendu, écarterRenduPérimé } from '@/server/steps/render'
 import { vignettePath } from '@/server/thumbs'
 import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from '@/server/vues'
 
@@ -127,6 +129,29 @@ export const PATCH = route(
       appliqué = résultat.applied
     }
 
+    // **Un rendu qui ne décrit plus le clip est écarté ici.**
+    //
+    // Le modèle de l'itération 0 fait foi sur la présence du fichier : un clip
+    // exporté puis remonté garde ses MP4 et son statut `exported`, donc
+    // `outputs` publierait une vidéo qui montre le montage d'avant, la route des
+    // rendus la servirait, et un export sans `force` la sauterait pour cause de
+    // fichiers complets. `renderClip` connaît déjà ce cas — il le traite pour un
+    // montage modifié *pendant* l'encodage — et c'est exactement la même
+    // question posée un instant plus tard. On réutilise donc sa décision plutôt
+    // que d'en inventer une seconde. (relevé par Copilot)
+    //
+    // Les chemins se calculent sur le clip **d'avant** : c'est lui qui dit sous
+    // quel ratio les fichiers à écarter ont été écrits, et un passage de 1:1 à
+    // 9:16 change le jeu.
+    if (écrit.status === 'exported' || clip.status === 'exported') {
+      écarterRenduPérimé(
+        db,
+        id,
+        cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio)),
+        clip,
+      )
+    }
+
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
     // cache ne montre plus le début du clip. On l'efface plutôt que de la
     // laisser mentir — elle se refabrique au prochain affichage de la carte.
@@ -157,6 +182,12 @@ export const PATCH = route(
     // écriture dont on vient précisément d'établir qu'elle est périmée. Le clip
     // rendu est celui que la base porte, donc l'appelant se remet d'accord avec
     // elle sans une requête de plus.
-    return json({ applied: appliqué, clip: écrit })
+    // **Les sorties partent avec la réponse**, relues après l'éventuel écart.
+    // L'appelant tient son cache à jour sur une écriture optimiste : sans elles,
+    // il garderait l'URL d'un rendu que ce `PATCH` vient de faire disparaître, et
+    // son lecteur vidéo pointerait sur un 404 jusqu'au prochain rechargement.
+    // (relevé par Aristarque)
+    const relu = getClip(db, id) ?? écrit
+    return json({ applied: appliqué, clip: relu, outputs: sortiesDuClip(relu) })
   },
 )

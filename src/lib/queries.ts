@@ -133,13 +133,20 @@ function jetonDuGeste(): number {
 export function usePatchClip() {
   const client = useQueryClient()
 
-  // **Le numéro de la dernière écriture partie, par clip.**
+  // **Le numéro du dernier geste parti, par clip.**
   //
   // Deux clics rapides sur la même carte se chevauchent : si le second réussit
   // avant que le premier n'échoue, le rollback du premier écraserait une
   // décision pourtant confirmée. Et une réponse tardive du premier écraserait
   // de même celle du second. On ne tient donc compte d'une réponse que si elle
   // est encore la dernière écriture lancée sur ce clip.
+  //
+  // **C'est le jeton envoyé au serveur, pas un second compteur.** Il l'a été,
+  // et il était pris après les points d'attente de `onMutate` : deux gestes
+  // pouvaient y prendre leurs numéros dans le désordre, et la garde se trompait
+  // alors sur laquelle des deux réponses était la dernière — le même défaut que
+  // côté serveur, un étage plus haut. Un seul numéro, pris une seule fois, ne
+  // peut pas donner deux ordres différents. (relevé par Copilot)
   const derniere = useRef(new Map<string, number>())
 
   return useMutation({
@@ -161,7 +168,9 @@ export function usePatchClip() {
       // peut finir avant lui et prendre le plus petit numéro. Le vieux geste
       // passerait alors pour le plus récent, ce qui est exactement le défaut que
       // ce jeton existe pour fermer. (relevé par Codex)
-      variables.seq = jetonDuGeste()
+      const jeton = jetonDuGeste()
+      variables.seq = jeton
+      derniere.current.set(clipId, jeton)
 
       // Annuler les requêtes en vol : une réponse partie avant la modification
       // arriverait après elle et l'écraserait.
@@ -186,10 +195,7 @@ export function usePatchClip() {
         detail ? { ...detail, clip: { ...detail.clip, ...patch } } : detail,
       )
 
-      const jeton = (derniere.current.get(clipId) ?? 0) + 1
-      derniere.current.set(clipId, jeton)
-
-      return { precedentCandidat, precedentClip, jeton }
+      return { precedentCandidat, precedentClip, jeton: variables.seq }
     },
 
     onError(_erreur, { clipId, projectId }, contexte) {
@@ -213,7 +219,7 @@ export function usePatchClip() {
       }
     },
 
-    onSuccess({ clip }: PatchClipResult, { clipId, projectId }, contexte) {
+    onSuccess({ clip, outputs }: PatchClipResult, { clipId, projectId }, contexte) {
       // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
       // récente remettrait l'ancien état, sans erreur et sans trace.
       if (contexte?.jeton !== derniere.current.get(clipId)) return
@@ -229,8 +235,11 @@ export function usePatchClip() {
       client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
         liste?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
       )
+      // Les sorties viennent du serveur elles aussi : une écriture qui remonte
+      // un clip exporté écarte ses MP4, et le cache ne doit pas garder l'URL
+      // d'un fichier que ce `PATCH` vient de faire disparaître.
       client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
-        detail ? { ...detail, clip } : detail,
+        detail ? { ...detail, clip, outputs } : detail,
       )
     },
   })

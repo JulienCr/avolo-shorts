@@ -622,6 +622,52 @@ describe('PATCH /api/clips/:id', () => {
     })
 
     /**
+     * Un clip exporté puis remonté garde ses fichiers : le modèle de
+     * l'itération 0 fait foi sur leur présence, donc `outputs` publierait une
+     * vidéo qui montre le montage d'avant, et un export sans `force` la
+     * sauterait. (relevé par Copilot)
+     */
+    it('écarte un rendu que l’édition vient de périmer', async () => {
+      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+
+      const résultat = await corpsDe(await patcher({ segments: [{ start: 61, end: 91 }], seq: 50 }))
+
+      expect(résultat.applied).toBe(true)
+      // Les fichiers décrivaient un montage que personne ne veut plus.
+      expect(résultat.outputs.mp4Url).toBeNull()
+      expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`))).toBe(
+        false,
+      )
+      // Et le clip redevient ce qu'il est : gardé, pas exporté.
+      expect(résultat.clip.status).toBe('kept')
+    })
+
+    it('laisse le rendu en place quand l’édition ne le périme pas', async () => {
+      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+
+      // Le titre et la description ne vont que dans le `.txt`, que l'export
+      // réécrit sans réencoder : le MP4 les ignore.
+      const résultat = await corpsDe(await patcher({ title: 'Un autre titre', seq: 50 }))
+
+      expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
+      expect(résultat.clip.status).toBe('exported')
+    })
+
+    it('rend les sorties d’un clip que rien n’a exporté', async () => {
+      const résultat = await corpsDe(await patcher({ title: 'Peu importe', seq: 50 }))
+      // Le champ est là même quand il n'y a rien à publier : l'appelant tient
+      // son cache dessus, et une absence de champ le laisserait sur l'ancien.
+      expect(résultat.outputs).toEqual({
+        mp4Url: null,
+        variant9x16Url: null,
+        variant9x16Due: false,
+        textsUrl: null,
+      })
+    })
+
+    /**
      * La vignette suit le premier segment, et `PATCH` l'efface quand il bouge.
      * Une écriture refusée n'a rien déplacé : l'effacer là ferait payer une
      * régénération à une écriture qui n'a pas eu lieu.

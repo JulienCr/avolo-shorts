@@ -236,6 +236,16 @@ export type PatchClipResult = {
    */
   applied: boolean
   clip: Clip
+  /**
+   * Les sorties **après** cette écriture.
+   *
+   * Elles voyagent avec la réponse parce qu'un `PATCH` peut les faire
+   * disparaître : remonter un clip déjà exporté écarte les MP4, qui décrivaient
+   * le montage d'avant. Sans ce champ, un cache tenu par écriture optimiste
+   * garderait l'URL d'un rendu qui n'existe plus, et le lecteur vidéo pointerait
+   * sur un 404 jusqu'au prochain rechargement.
+   */
+  outputs: ClipOutputs
 }
 
 /**

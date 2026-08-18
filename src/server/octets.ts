@@ -128,9 +128,15 @@ export async function servirFichier(
       // 416, et `Content-Range: bytes */<taille>` : la taille réelle est la
       // seule information qui permette au client de reformuler une demande
       // correcte.
+      //
+      // **Les en-têtes de l'appelant valent ici aussi.** Un 416 est cacheable
+      // par heuristique : sans le `Cache-Control` de la route, un refus calculé
+      // sur l'ancienne taille peut survivre à un ré-export qui remplace le
+      // fichier sous la même URL, et bloquer une demande devenue légitime.
+      // (relevé par Copilot et Aristarque)
       return new Response(null, {
         status: 416,
-        headers: { 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
+        headers: { ...entêtes, 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
       })
     }
 

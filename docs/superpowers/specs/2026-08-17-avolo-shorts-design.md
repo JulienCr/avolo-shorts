@@ -122,12 +122,14 @@ plus solide que la mosaïque, ce n'est pas les vingt du fonds.
 
 - Pas d'audio multipiste. Le mix se fait en amont sur une table qui n'exporte pas
   en multipiste. Aucune conception ne peut supposer une piste par micro.
-- Pas de rires : l'émission n'est pas jouée devant un public. **La seconde moitié
-  est démentie depuis le 18 août 2026** : sur `2025-06-15-cqlp`, 34 % des boîtes de
-  personnes sont des têtes de spectateurs au bord bas de l'image, contre 26 sur
-  3 083 pour `2026-03-08-caro-mdlm`. Il y a donc du public sur certaines émissions.
-  Ce que la mesure ne dit pas, c'est s'il s'entend : aucune conception ne doit pour
-  autant compter sur une piste de rires, puisque le mix n'en sort pas.
+- Les rires, signal **non mesuré**. La spec a longtemps écrit « pas de rires :
+  l'émission n'est pas jouée devant un public », et la seconde moitié est démentie
+  depuis le 18 août 2026 : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
+  des têtes de spectateurs au bord bas de l'image, contre 26 sur 3 083 pour
+  `2026-03-08-caro-mdlm`. Il y a donc du public sur certaines émissions. Personne
+  n'a écouté si ce public s'entend. L'absence de piste séparée rend un rire plus
+  dur à isoler, pas absent du mix : ni fonder ni écarter quoi que ce soit là-dessus
+  avant d'avoir mesuré.
 - Musique de fond fréquente, effets sonores quasi absents.
 - Habillage incrusté sur les vingt émissions existantes : bloc « SOMMAIRE » sur
   environ 20 % à gauche, listes de défis à droite, cartouches de jeu en bas
@@ -486,10 +488,10 @@ passages détectés comme musicaux.
 Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
 improvisation. Cette phrase disait « sans public », ce que la détection au corps du
 18 août 2026 a démenti : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
-des spectateurs au premier plan. L'argument tient quand même, parce qu'il ne
-reposait pas sur l'absence de public mais sur celle d'un signal de rires
-exploitable, et le mix ne sort pas de piste séparée. La réponse n'est donc pas un
-meilleur juge mais
+des spectateurs au premier plan. Le choix de conception ne bouge pas pour autant,
+parce qu'il ne reposait pas sur l'absence de public : aucune des sources ci-dessous
+ne consomme de rires, et personne n'a mesuré si ceux-là s'entendent dans le mix.
+La réponse n'est donc pas un meilleur juge mais
 **plusieurs sources indépendantes fusionnées**. Une source aveugle sur un type de
 moment est rattrapée par une autre. Julien trie ensuite, et l'objectif de
 l'étage est le rappel, pas la précision.
@@ -1003,3 +1005,7 @@ confirmer sur du plan très large.
 - Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche
   mieux au moment d'écrire le code, et l'itération 0 n'en dépend pas : elle
   n'utilise que la transcription, pas les locuteurs.
+- **Les rires s'entendent-ils dans le mix ?** Question ouverte depuis que le public
+  a été trouvé au premier plan de `2025-06-15-cqlp`, le 18 août 2026. Écouter
+  quelques minutes suffirait à trancher. Une réponse positive ouvrirait une source
+  de repérage que la section 7 s'était interdite d'envisager.

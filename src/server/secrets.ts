@@ -131,8 +131,19 @@ function diagnostic(cause: unknown): string {
     .join(' ')
 }
 
-/** Ce que dit 1Password quand il n'est ni déverrouillé ni autorisé. */
-const PAS_DÉVERROUILLÉ = /not signed in|sign ?in|not authoriz|unlock|desktop app|authorization/i
+/**
+ * Ce que dit 1Password quand il n'est ni déverrouillé ni autorisé.
+ *
+ * **Des phrases, pas des mots isolés.** Le diagnostic testé contient le nom du
+ * coffre, de la fiche et du champ : un champ nommé `signin`, `unlock` ou
+ * `authorization` faisait répondre « déverrouiller 1Password » à un champ
+ * simplement absent. Une phrase de plusieurs mots ne se confond pas avec un nom
+ * de champ, et une phrase qu'on aurait manqué ici retombe sur le remède
+ * générique — qui montre de toute façon le diagnostic brut. Le sens de l'erreur
+ * est celui-là. (relevé par Copilot et par Aristarque)
+ */
+const PAS_DÉVERROUILLÉ =
+  /not (?:currently )?signed in|(?:isn'?t|not) authoriz|connecting to desktop app|authorization (?:prompt|timeout)/i
 
 /**
  * Le remède, et c'est tout l'intérêt de ce fichier.
@@ -156,6 +167,12 @@ function remède(cause: unknown): string {
   // cette branche, le remède commençait par un point isolé et ne nommait pas
   // la cause la plus probable — une approbation restée à l'écran.
   // (relevé par Copilot et par Aristarque)
+  //
+  // `killed` et non le code de sortie : mesuré, un dépassement de `maxBuffer`
+  // rend `code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'` et laisse `killed`
+  // **indéfini**, tandis qu'un délai rend `code: null`, `killed: true`,
+  // `signal: 'SIGTERM'`. Les deux ne se confondent donc pas. (relevé par
+  // Aristarque, qui demandait à ce que ce soit vérifié)
   if ((cause as { killed?: unknown } | undefined)?.killed === true) {
     return (
       `1Password n'a pas répondu en ${DÉLAI_MS / 1000} s. L'application attend ` +
@@ -222,6 +239,11 @@ export function exigerSecret(nom: string, env: Environnement = process.env): str
  *
  * - **Sans référence, `lire` n'est jamais appelé.** C'est ce qui rend ce chemin
  *   traversable par un CI sans 1Password et par un dépôt fraîchement cloné.
+ * - **`OP_BIN` est hors du balayage**, parce qu'elle nomme l'outil qui ferait la
+ *   lecture : une `OP_BIN=op://…` demanderait à `op` de se lire lui-même, et
+ *   `execFile` échouerait en `ENOENT` sur un binaire nommé `op://…` — donc sur
+ *   « installer 1Password CLI », qui est un diagnostic faux. (relevé par
+ *   Aristarque)
  * - **Tout ou rien.** Les lectures se font d'abord, les écritures ensuite : un
  *   échec ne laisse pas un environnement à moitié résolu, où la variable
  *   suivante partirait quand même chez le fournisseur d'API.
@@ -236,7 +258,7 @@ export async function résoudreSecrets(
   // l'ordre suit celui d'énumération de `process.env` se compare mal d'un
   // lancement à l'autre.
   const noms = Object.keys(env)
-    .filter((nom) => estRéférence(env[nom]))
+    .filter((nom) => nom !== 'OP_BIN' && estRéférence(env[nom]))
     .sort()
   if (noms.length === 0) return []
 

@@ -58,7 +58,7 @@ describe('chargerEnv', () => {
     expect(process.env.AVOLO_TEST_POSÉE).toBe('de-la-ligne-de-commande')
   })
 
-  it("tolère un fichier absent : les défauts de paths.ts suffisent", async () => {
+  it("tolère un fichier absent : les valeurs par défaut de paths.ts suffisent", async () => {
     await expect(chargerEnv(path.join(dossier, 'jamais-écrit'))).resolves.toBeUndefined()
   })
 

@@ -203,6 +203,45 @@ describe('résoudreSecrets', () => {
     expect(message).not.toMatch(/\.\s+\./)
   })
 
+  it("ne prend pas un champ nommé « signin » pour une session verrouillée", async () => {
+    // Le diagnostic testé contient le nom du champ. Sur des mots isolés, un
+    // champ absent nommé `signin`, `unlock` ou `authorization` faisait répondre
+    // « déverrouiller 1Password » à un `.env` qui nomme mal son champ.
+    // (relevé par Copilot et par Aristarque)
+    const piège = new Error(
+      "[ERROR] 2026/08/18 15:07:28 could not read secret 'op://c/f/signin': item 'c/f' does not have a field 'signin'",
+    )
+    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/signin' }
+
+    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(piège)))
+    expect(message).not.toMatch(/déverrouill/i)
+    expect(message).toContain('does not have a field')
+  })
+
+  it("ne résout rien du tout quand une seule lecture échoue", async () => {
+    // La propriété « tout ou rien » : un environnement à moitié résolu ferait
+    // partir la variable suivante chez le fournisseur d'API alors que le
+    // démarrage a déjà échoué. (relevé par Aristarque)
+    const { lire } = lecteurFactice({ 'op://c/f/BONNE': 'la-vraie-clé' })
+    const env: Environnement = { A_KEY: 'op://c/f/BONNE', B_KEY: 'op://c/f/ABSENTE' }
+
+    await messageDÉchec(résoudreSecrets(env, lire))
+    expect(env.A_KEY).toBe('op://c/f/BONNE')
+    expect(env.B_KEY).toBe('op://c/f/ABSENTE')
+  })
+
+  it("ne balaye pas OP_BIN, qui nomme l'outil de la lecture", async () => {
+    // Une `OP_BIN=op://…` demanderait à `op` de se lire lui-même : `execFile`
+    // échouerait en ENOENT sur un binaire nommé `op://…`, donc sur « installer
+    // 1Password CLI », qui accuse la mauvaise chose. (relevé par Aristarque)
+    const { lire, appels } = lecteurFactice({})
+    const env: Environnement = { OP_BIN: 'op://c/f/CHEMIN' }
+
+    expect(await résoudreSecrets(env, lire)).toEqual([])
+    expect(appels).toEqual([])
+    expect(env.OP_BIN).toBe('op://c/f/CHEMIN')
+  })
+
   it("n'écrit jamais la valeur d'un secret dans le message d'échec", async () => {
     // Deux variables, une qui résout et une qui échoue : le message ne doit
     // rien porter de la première. Les journaux de ce dépôt se recopient dans
@@ -234,7 +273,7 @@ describe('exigerSecret', () => {
     expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/Relancer le serveur/)
   })
 
-  it('ne cite pas la référence, qui remonterait jusqu au client HTTP', () => {
+  it("ne cite pas la référence, qui remonterait jusqu'au client HTTP", () => {
     // Cette erreur-là est levée en servant : elle traverse `runCandidates`,
     // `status.json` et le champ `error` de `GET /api/projects/:id`. Et
     // `épurerChemins` ne la nettoie pas — `POSIX_NU` exclut un `/` précédé de

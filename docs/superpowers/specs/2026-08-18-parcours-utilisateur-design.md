@@ -238,7 +238,6 @@ et c'est précisément ce que 2.4 exploite.
 ```ts
 /** Ce que la machine a produit. Des artefacts, jamais une activité. */
 export type Analyse =
-  | 'neuf'         // rien sur le disque, rien ne tourne encore
   | 'attente'      // les candidats manquent, une exécution tourne
   | 'interrompu'   // il manque une étape et rien ne tourne
   | 'echec'        // la dernière exécution a échoué
@@ -260,7 +259,16 @@ export function phaseProjet(
 ): { analyse: Analyse; travail: Travail }
 ```
 
-Quatre propriétés de ce modèle, dont trois viennent de la première relecture.
+Cinq propriétés de ce modèle, et quatre viennent de la relecture.
+
+**Il n'y a pas de valeur `neuf`.** Une version précédente en portait une, pour
+« rien sur le disque et rien ne tourne encore ». Elle n'est pas observable :
+`créerProjet` appelle `lancer` avant de répondre, et `lancer` pose sa réservation
+dans `enCours` avant son premier `await`. Un projet que le client peut voir a donc
+toujours quelque chose qui tourne, ou quelque chose sur le disque. La forme « aucun
+artefact, aucune exécution » ne décrit pas un projet neuf : elle décrit une
+exécution morte, et c'est `interrompu`. Deux valeurs que rien ne distingue sont
+une invitation à en choisir une au hasard. (relevé par Copilot)
 
 **L'axe `Analyse` décrit ce qui est disponible, pas ce qui s'agite.** Une première
 version portait une valeur `encours`, et elle recouvrait `triable` : pendant les
@@ -458,8 +466,9 @@ passages, choisir un cadre, prévisualiser. Deux exigences en découlent.
 
 **Sa sortie ramène dans la boucle.** Deux issues, pas une : « retour au tri » et
 « clip suivant à monter ». La seconde est ce qui évite de repasser par la grille
-entre chaque clip, et elle se calcule côté client sur la liste des gardés déjà en
-cache.
+entre chaque clip, et elle se calcule côté client sur la liste des candidats du
+projet, que la page de clip **interroge elle-même** plutôt que de la supposer en
+cache (voir 3.3).
 
 **L'export vit ici, pas ailleurs.** Le rendu se demande par clip parce que c'est
 par clip qu'on choisit le ratio et le cadrage : le lanceur de `run.ts` refuse
@@ -571,7 +580,7 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 | État | Ce qui s'affiche |
 |---|---|
 | Chargement | squelettes de cartes tant que `GET /candidates` n'a pas répondu. **À ne pas confondre avec l'attente d'analyse** : le premier dure 200 ms, le second neuf minutes. Aujourd'hui les deux rendent la même grille grise. |
-| Vide | quatre vides différents, chacun avec son texte et son action. `neuf` ou `attente` : le panneau d'avancement, pas un message. `{ triable, rien }` : le repérage a rendu une liste vide, proposer « relancer le repérage » avec `force`. `trie` : « tout est trié, 4 clips gardés », avec la liste. `echec` : le message du serveur et le bouton de reprise. |
+| Vide | quatre vides différents, chacun avec son texte et son action. `attente` : le panneau d'avancement, pas un message. `{ triable, rien }` : le repérage a rendu une liste vide, proposer « relancer le repérage » avec `force`. `trie` : « tout est trié, 4 clips gardés », avec la liste. `echec` : le message du serveur et le bouton de reprise. |
 | Erreur | deux origines à distinguer. L'analyse a échoué (`ProjectStatus.error`) : bandeau en `role="alert"`, message serveur, bouton « reprendre l'analyse ». La liste ne se charge pas : message local et « réessayer ». La seconde n'efface pas la première. |
 | Désactivé | tant qu'une exécution tourne (`running` non nul, quelle que soit la phase), le bouton « relancer le repérage » est désactivé, parce que `lancer` lève `ExécutionEnCoursError` et que la route en fait un 409. Pendant `triable`, l'action « monter » de chaque carte est désactivée : pas de proxy, donc rien à lire. **Dans les deux cas la raison est écrite à côté du contrôle, pas dans une bulle d'aide.** Un contrôle désactivé sans raison visible est un cul-de-sac silencieux. |
 | Succès | la décision est optimiste et instantanée : la carte change d'apparence, sans notification. Le succès de la boucle entière, lui, se marque : « tout est trié ». |
@@ -783,33 +792,35 @@ clip**, retirer un segment en amont décale tous les rangs, et chaque dérogatio
 atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
-La clé désigne donc le plan **dans la source**. Reste à choisir entre son rang
-parmi les frontières de `analysis.json` et son instant de début, et je recommande
-**l'instant** :
+La clé désigne donc le plan **dans la source**. Et pas par son instant de début,
+qui paraît suffire et ne suffit pas : si une redétection déplace une frontière de
+10,0 s à 10,3 s, la clé 10,0 s tombe désormais **dans le plan précédent**, un plan
+la contient bel et bien, et la dérogation s'applique au mauvais cadre sans que
+rien ne le signale. Prendre le milieu du plan plutôt que son début rend le cas
+plus rare, pas impossible. (relevé par Copilot)
 
-- `shots.json` vit dans le projet précisément parce que son seuil de détection se
-  réglera (spec §5, « ce qui se règle doit vivre là où on le règle »). Une
-  redétection renumérote les plans, donc invalide tout rang ;
-- un instant en secondes dans la source survit à la redétection et retombe sur le
-  plan qui le contient, quel que soit le découpage ;
-- c'est enfin la façon dont tout le reste du produit s'ancre : les segments, les
-  mots, les marqueurs `[SECONDS]`. Une seule convention de temps dans tout le
-  modèle.
+**Une dérogation porte donc l'intervalle source du plan tel qu'il était quand elle
+a été posée**, et se résout par **recouvrement maximal** avec le découpage
+courant :
 
-Une règle de résolution suffit à couvrir la redétection : **une dérogation
-s'applique au plan qui contient son instant, ou au plus proche si aucun ne le
-contient** ; si une fusion de plans en réunit plusieurs dans le même, on garde
-celle dont l'instant est le plus proche du début du plan et on écarte les autres.
+- elle s'applique au plan actuel avec lequel son intervalle se recouvre le plus ;
+- si un plan a été **divisé**, elle suit la moitié qu'elle recouvre le plus, et
+  l'autre repasse en automatique ;
+- si deux plans ont été **fusionnés**, les deux dérogations tombent sur le même
+  plan : on garde celle du plus grand recouvrement, l'égalité se tranchant par
+  l'intervalle qui commence le plus tôt ;
+- un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
+  automatique. Visible dans la bande, donc jamais silencieux.
 
-La seconde moitié de la première clause n'est pas une précaution de style. Elle
-rend la résolution **totale** sans rien supposer du détecteur : personne n'a
-vérifié qu'il partitionne la durée entière quel que soit son seuil, et une
-dérogation qui ne tomberait dans aucun plan serait perdue en silence, au rendu,
-sans que rien à l'écran l'annonce. Une fonction totale coûte une comparaison de
-plus et supprime la question. (relevé par Aristarque)
+Cette forme n'est pas plus chère à écrire qu'un instant, elle est totale par
+construction, et elle ne suppose rien du détecteur : personne n'a vérifié qu'il
+partitionne la durée entière quel que soit son seuil, et `shots.json` vit dans le
+projet précisément parce que ce seuil se réglera (spec §5, « ce qui se règle doit
+vivre là où on le règle »).
 
-Le tout est déterministe et sans surprise à l'écran, puisque la bande montre le
-résultat.
+Un intervalle en secondes dans la source est enfin la façon dont tout le reste du
+produit s'ancre : les segments, les mots, les marqueurs `[SECONDS]`. Une seule
+convention de temps dans tout le modèle.
 
 #### Le ratio, exactement comme le crop
 
@@ -1080,9 +1091,9 @@ clipSuivant(clips, courant)  // le prochain gardé à monter, ou null
 
 `suite` est le morceau qui compte : c'est lui qui garantit qu'aucun état n'est une
 impasse, et le fait qu'il soit **une fonction unique** rend cette garantie
-testable. Le test ne parcourt pas le produit cartésien des couples : trois d'entre
-eux sont inatteignables (`neuf` ne coexiste avec aucun travail décidé), et forcer
-une action sur un état impossible oblige à en inventer une. Il énumère donc des
+testable. Le test ne parcourt pas le produit cartésien des couples : plusieurs
+sont inatteignables (`attente` ne coexiste avec aucun travail décidé, faute de
+candidats), et forcer une action sur un état impossible oblige à en inventer une. Il énumère donc des
 **entrées** (relevés de présence, exécution en cours, statuts de clips), les passe
 à `phaseProjet`, et vérifie que `suite` rend un résultat pour chaque couple ainsi
 produit. Enumérer les entrées plutôt que les sorties vaut mieux qu'une relecture
@@ -1409,9 +1420,11 @@ listées ici parce qu'elles ne s'écrivent pas dans `src/app/`.
 **Le modèle de cadrage.** `cropX: number | null` n'exprime pas la décision : il
 faut un mode explicite (`auto` ou `manuel`) et, en manuel, une dérogation **par
 plan**, dont la clé désigne le plan dans la source et non son rang dans le clip.
-Je recommande l'instant de début plutôt que le rang parmi les frontières, parce
-que le seuil de détection des plans se réglera et renumérotera tout. Le
-raisonnement complet est en 3.5.
+La clé n'est ni un rang, ni un instant : c'est **l'intervalle source du plan tel
+qu'il était quand la dérogation a été posée**, résolu par recouvrement maximal
+avec le découpage courant. Un rang ne survit pas à une redétection, et un instant
+de début tombe dans le plan voisin dès qu'une frontière bouge de trois dixièmes.
+Le raisonnement complet, avec les règles de division et de fusion, est en 3.5.
 
 **Le recalcul sous un ratio épinglé.** Si le ratio est épinglé, les crops
 automatiques doivent être calculés pour ce ratio-là. Sinon l'épinglage produit le

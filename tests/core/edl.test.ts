@@ -140,7 +140,7 @@ describe('removeRange', () => {
     expect(removeRange([{ start: 0, end: 100 }], 60, 40)).toEqual([{ start: 0, end: 100 }])
   })
 
-  it('rend une liste normalisée même sur une entrée qui ne l était pas', () => {
+  it("rend une liste normalisée même sur une entrée qui ne l'était pas", () => {
     expect(
       removeRange(
         [
@@ -153,6 +153,21 @@ describe('removeRange', () => {
     ).toEqual([
       { start: 10, end: 25 },
       { start: 30, end: 40 },
+    ])
+  })
+
+  // Aristarque : `normalizeSegments` avait son test de non-mutation, les deux
+  // autres non. L'invariant vaut pour les trois — c'est lui qui autorise
+  // l'interface à garder une référence sur l'EDL affichée pendant un calcul.
+  it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
+    const entree = [
+      { start: 0, end: 100 },
+      { start: 200, end: 300 },
+    ]
+    removeRange(entree, 40, 250)
+    expect(entree).toEqual([
+      { start: 0, end: 100 },
+      { start: 200, end: 300 },
     ])
   })
 })
@@ -208,9 +223,39 @@ describe('moveBoundary', () => {
     ])
   })
 
-  it('sur une liste vide, il n y a pas de borne à déplacer', () => {
+  it("sur une liste vide, il n'y a pas de borne à déplacer", () => {
     expect(moveBoundary([], 'start', 5)).toEqual([])
     expect(moveBoundary([], 'end', 5)).toEqual([])
+  })
+
+  // Trouvé par les trois relecteurs de la PR #6, et c'est un vrai défaut :
+  // l'utilisateur demandait 35, la version précédente rendait 30. Elle ne
+  // touchait que le segment extérieur, que `normalizeSegments` jetait ensuite
+  // parce qu'il était devenu inversé — le voisin, lui, n'était pas rogné. La
+  // valeur demandée disparaissait sans erreur.
+  it('rétrécir jusque dans un autre segment tombe sur la borne demandée', () => {
+    const edl = [
+      { start: 10, end: 20 },
+      { start: 30, end: 40 },
+    ]
+    expect(moveBoundary(edl, 'start', 35)).toEqual([{ start: 35, end: 40 }])
+    expect(moveBoundary(edl, 'end', 15)).toEqual([{ start: 10, end: 15 }])
+  })
+
+  it("rétrécir à l'intérieur du premier segment ne touche pas aux suivants", () => {
+    expect(
+      moveBoundary(
+        [
+          { start: 10, end: 20 },
+          { start: 30, end: 40 },
+        ],
+        'start',
+        15,
+      ),
+    ).toEqual([
+      { start: 15, end: 20 },
+      { start: 30, end: 40 },
+    ])
   })
 
   it('un déplacement qui traverse la borne opposée retire le segment', () => {
@@ -229,5 +274,21 @@ describe('moveBoundary', () => {
   it('étendre sans plafond : une borne repoussée très loin est acceptée', () => {
     const out = moveBoundary([{ start: 10, end: 20 }], 'end', 3600)
     expect(clipDuration(out)).toBe(3590)
+  })
+
+  // Le chemin « étendre » écrit `premier.start` / `dernier.end` : c'est celui
+  // qui muterait l'entrée si `normalizeSegments` cessait un jour de recopier.
+  it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
+    const entree = [
+      { start: 10, end: 20 },
+      { start: 30, end: 40 },
+    ]
+    moveBoundary(entree, 'start', 5)
+    moveBoundary(entree, 'end', 55)
+    moveBoundary(entree, 'start', 35)
+    expect(entree).toEqual([
+      { start: 10, end: 20 },
+      { start: 30, end: 40 },
+    ])
   })
 })

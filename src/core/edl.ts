@@ -136,8 +136,9 @@ export function removeRange(segments: Segment[], from: number, to: number): Segm
  * la trace des retraits déjà faits : les bouger reviendrait à annuler une coupe,
  * ce qui est une autre opération.
  *
- * `to` n'est pas contraint : le déplacer au-delà de la borne opposée vide le
- * segment, que `normalizeSegments` retire alors de la liste.
+ * `to` n'est pas contraint. Étendre n'a pas de plafond, et rétrécir peut
+ * traverser autant de segments qu'on veut : la borne obtenue est toujours celle
+ * qu'on a demandée, jusqu'à vider le clip.
  */
 export function moveBoundary(segments: Segment[], edge: 'start' | 'end', to: number): Segment[] {
   // Normaliser **avant** de choisir la borne, et pas seulement après. « Premier »
@@ -145,11 +146,33 @@ export function moveBoundary(segments: Segment[], edge: 'start' | 'end', to: num
   // tableau : sur une liste arrivée désordonnée — d'un JSON, de la base — un
   // `segments[0]` brut déplacerait la borne d'un segment du milieu, sans erreur
   // et sans trace.
-  const out = normalizeSegments(segments)
-  if (out.length === 0) return []
-  if (edge === 'start') out[0].start = to
-  else out[out.length - 1].end = to
-  // Second passage : le déplacement peut avoir vidé le segment, ou l'avoir fait
-  // recouvrir son voisin.
-  return normalizeSegments(out)
+  const segs = normalizeSegments(segments)
+  if (segs.length === 0) return []
+
+  // Deux gestes distincts, et c'est le sens de `to` qui les sépare.
+  //
+  // **Étendre** ajoute de la source que le clip n'avait pas : seul le segment
+  // extérieur bouge, il n'y a rien d'autre à toucher.
+  //
+  // **Rétrécir** est un *retrait* — tout ce qui précède `to` (ou le suit) sort
+  // du clip — et le passer par `removeRange` est ce qui le rend correct quand la
+  // borne traverse plusieurs segments. Déplacer seulement la borne du segment
+  // extérieur l'inversait, `normalizeSegments` le jetait, et le voisin n'était
+  // pas rogné : demander 35 sur `[{10,20},{30,40}]` rendait 30. La valeur
+  // demandée disparaissait sans erreur — le pire des deux mondes.
+  if (edge === 'start') {
+    const premier = segs[0]
+    if (to <= premier.start) {
+      premier.start = to
+      return normalizeSegments(segs)
+    }
+    return removeRange(segs, premier.start, to)
+  }
+
+  const dernier = segs[segs.length - 1]
+  if (to >= dernier.end) {
+    dernier.end = to
+    return normalizeSegments(segs)
+  }
+  return removeRange(segs, to, dernier.end)
 }

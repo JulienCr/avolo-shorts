@@ -3,12 +3,12 @@
 import { useRef } from 'react'
 
 import type { Ratio } from '@/core/edl'
+import { resolveRatio } from '@/core/framing'
 import {
-  RATIOS,
+  ORDRE_RATIOS,
   clampCropX,
   cropLeftFraction,
   cropWidthFraction,
-  previewRatio,
 } from '@/lib/crop-preview'
 import { cn } from '@/lib/utils'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -47,7 +47,9 @@ export function CropOverlay({
   // appui — un déplacement que personne n'a demandé.
   const prise = useRef(0)
 
-  const effectif = previewRatio(ratio)
+  // `resolveRatio` vient de `@/core/framing` : c'est le rendu qui décide de ce
+  // que vaut `'auto'`, l'aperçu ne fait que le lui demander.
+  const effectif = resolveRatio(ratio)
   const largeur = cropWidthFraction(effectif)
   const gauche = cropLeftFraction(cropX, largeur)
   const centre = clampCropX(cropX, largeur)
@@ -155,7 +157,7 @@ export function RatioPicker({
   ratio: Ratio | 'auto'
   onRatio: (ratio: Ratio | 'auto') => void
 }) {
-  const valeurs: (Ratio | 'auto')[] = ['auto', ...RATIOS]
+  const valeurs: (Ratio | 'auto')[] = ['auto', ...ORDRE_RATIOS]
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -12,8 +12,9 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { clipDuration, type ClipStatus, type Segment } from '@/core/edl'
+import { resolveRatio } from '@/core/framing'
 import type { ClipDetail, ClipPatch } from '@/lib/api'
-import { clampCropX, cropWidthFraction, previewRatio } from '@/lib/crop-preview'
+import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, selectionBounds } from '@/lib/editing'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { usePatchClip, useClip } from '@/lib/queries'
@@ -191,7 +192,7 @@ function Editeur({ detail }: { detail: ClipDetail }) {
                 passe par un ratio où elle ne tient pas. */}
             <dd className="font-mono tabular-nums">
               {Math.round(
-                clampCropX(editeur.cropX, cropWidthFraction(previewRatio(editeur.ratio))) * 100,
+                clampCropX(editeur.cropX, cropWidthFraction(resolveRatio(editeur.ratio))) * 100,
               )}{' '}
               %
             </dd>

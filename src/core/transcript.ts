@@ -255,6 +255,47 @@ function atLeastOneWindow(nWindows: number): number {
 }
 
 /**
+ * Le temps où **quelqu'un parle**, en secondes : l'union des segments
+ * utilisables, jamais leur somme ni l'écart du premier au dernier.
+ *
+ * **L'écart du premier mot au dernier n'est pas une durée de parole**, et
+ * l'erreur n'est pas théorique : mesurée le 18 août 2026 sur les deux émissions
+ * du dépôt, elle surestime de 19 à 21 % — 6642 s d'écart pour 5244 s de parole
+ * sur `2026-22-02-entre-nous`, 5755 s pour 4635 s sur `2025-06-15-cqlp` —, et le
+ * plus grand trou isolé fait 4 min 46 sur la première et 6 min 43 sur la
+ * seconde. Une émission dont deux conversations encadrent une
+ * heure d'écran d'attente aurait compté une heure de matière qui n'existe pas,
+ * et `clipCountTargets` aurait réclamé au modèle des clips que le transcript ne
+ * porte pas. (relevé par Codex)
+ *
+ * C'est aussi ce qui rétablit la propriété que le compte de fenêtres avait et
+ * que l'écart avait perdue : les fenêtres se bâtissent sur les segments
+ * utilisables, donc les deux mesures décrivent enfin la même matière.
+ *
+ * L'union et non la somme : rien n'interdit à deux segments de se chevaucher, et
+ * les additionner compterait deux fois le temps commun.
+ */
+export function secondesDeParole(tx: Transcript): number {
+  const intervalles = usableSegments(tx)
+    .map((s) => ({ start: s.start, end: s.end }))
+    .filter((i) => i.end > i.start)
+    .sort((a, b) => a.start - b.start)
+
+  let total = 0
+  let courant: { start: number; end: number } | null = null
+  for (const i of intervalles) {
+    if (courant === null || i.start > courant.end) {
+      if (courant !== null) total += courant.end - courant.start
+      courant = { ...i }
+    } else if (i.end > courant.end) {
+      courant.end = i.end
+    }
+  }
+  if (courant !== null) total += courant.end - courant.start
+  return total
+}
+
+/**
  * Ce qui dimensionne le repérage, en unités qu'une personne peut régler.
  *
  * Ces valeurs vivent en base (`src/server/db.ts`) et arrivent ici **en
@@ -284,7 +325,14 @@ export type DimensionsRepérage = {
  * connaître son propre comportement nominal.
  */
 export const DIMENSIONS_PAR_DÉFAUT: DimensionsRepérage = {
-  minutesParClip: 7,
+  // Six et non sept, et le chiffre a une histoire : sept avait été arrêté sur
+  // une mesure qui prenait l'écart du premier mot au dernier pour de la parole,
+  // donc sur 21 % de matière qui n'existe pas. `secondesDeParole` a corrigé la
+  // mesure ; six rend, sur la mesure juste, le rendement qui avait été retenu
+  // sur la fausse — 15 clips pour `2026-22-02-entre-nous`, 13 pour
+  // `2025-06-15-cqlp`. Corriger l'un sans l'autre aurait livré un rendement que
+  // personne n'a choisi.
+  minutesParClip: 6,
   fenetresParClip: 2,
   clipsMinimum: 6,
   fenetresMinimum: 10,
@@ -362,10 +410,19 @@ export function clipCountTargets(
     1,
     Math.min(créneaux(parole), Math.max(dimensions.clipsMinimum, parMinutes)),
   )
-  if (dimensions.clipsMaximum > 0) plancher = Math.min(plancher, dimensions.clipsMaximum)
   // Le plafond laisse une fenêtre riche en rendre plus d'un, sans inviter au
   // remplissage. Il est surtout décoratif : voir le premier paragraphe.
-  const plafond = Math.max(plancher + 2, Math.round(plancher * 1.5))
+  let plafond = Math.max(plancher + 2, Math.round(plancher * 1.5))
+  // **`clipsMaximum` borne les DEUX bornes.** Ne plafonner que le plancher
+  // laissait le plafond repartir au-dessus — un maximum de 10 rendait `[10, 15]`
+  // et le prompt autorisait toujours quinze clips, ce qui vidait de son sens un
+  // réglage documenté comme absolu. Le plancher suit le plafond quand celui-ci
+  // descend sous lui, pour que l'intervalle reste valide. (relevé par Codex et
+  // Copilot)
+  if (dimensions.clipsMaximum > 0) {
+    plafond = Math.min(plafond, dimensions.clipsMaximum)
+    plancher = Math.min(plancher, plafond)
+  }
   return [plancher, plafond]
 }
 

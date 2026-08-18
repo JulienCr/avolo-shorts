@@ -7,6 +7,7 @@ import {
   clipCountTargets,
   DIMENSIONS_PAR_DÉFAUT,
   mergeOverlappingWindows,
+  secondesDeParole,
   shortlistSize,
   snapToWords,
   windowTextWithAnchors,
@@ -267,21 +268,53 @@ describe('mergeOverlappingWindows', () => {
   })
 })
 
-// Les deux émissions du dépôt, mesurées le 18 août 2026 : étendue de parole du
-// premier mot aligné au dernier, et nombre de fenêtres réellement construites.
-// Ce sont elles qui ancrent les attentes ci-dessous — pas des durées rondes.
-const CQLP = { parole: 5755.5, fenêtres: 83 }
-const ENTRE_NOUS = { parole: 6642.3, fenêtres: 95 }
+// Les deux émissions du dépôt, mesurées le 18 août 2026 : union des segments qui
+// portent de la prose, et nombre de fenêtres réellement construites. Ce sont
+// elles qui ancrent les attentes ci-dessous — pas des durées rondes.
+//
+// Ces durées ne sont **pas** l'écart du premier mot au dernier, qui vaut 5755,5 s
+// et 6642,3 s : voir `secondesDeParole`, l'écart surestime de 21 %.
+const CQLP = { parole: 4635.3, fenêtres: 83 }
+const ENTRE_NOUS = { parole: 5244.5, fenêtres: 95 }
 const min = (m: number) => m * 60
+
+describe('secondesDeParole', () => {
+  // La raison d'être de cette fonction : l'écart du premier au dernier mot
+  // compte le silence du milieu, et sur les deux émissions du dépôt cela
+  // surestime de 21 %. (relevé par Codex)
+  it('ne compte pas le silence entre deux prises de parole', () => {
+    const tx = {
+      segments: [seg(0, 30, 'avant'), seg(3630, 3660, 'après')],
+    }
+    expect(secondesDeParole(tx)).toBe(60)
+    // L'écart, lui, en compterait 3660.
+  })
+
+  it('fusionne deux segments qui se chevauchent au lieu de les additionner', () => {
+    const tx = { segments: [seg(0, 40, 'un'), seg(30, 60, 'deux')] }
+    expect(secondesDeParole(tx)).toBe(60)
+  })
+
+  // `buildWindows` écarte déjà les segments sans prose — WhisperX en émet sur
+  // les silences —, et cette fonction doit voir la même matière que lui.
+  it('ignore les segments sans prose, comme le fenêtrage', () => {
+    const tx = { segments: [seg(0, 30, 'un'), seg(30, 90, '   '), seg(90, 120, 'deux')] }
+    expect(secondesDeParole(tx)).toBe(60)
+  })
+
+  it('rend zéro sur un transcript vide', () => {
+    expect(secondesDeParole({ segments: [] })).toBe(0)
+  })
+})
 
 describe('clipCountTargets', () => {
   // Le plancher est tout l'intérêt : mesuré en production, le modèle rend le
   // minimum qu'on lui donne. Les utilisateurs qui recevaient 1 à 3 clips
   // revenaient 0,4 % du temps contre 16 % pour ceux qui en recevaient 4 à 9.
-  it('suit la durée de parole, un clip toutes les sept minutes par défaut', () => {
-    expect(clipCountTargets(CQLP.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(14)
-    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(16)
-    expect(clipCountTargets(min(180), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(26)
+  it('suit la durée de parole, un clip toutes les six minutes par défaut', () => {
+    expect(clipCountTargets(CQLP.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(13)
+    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(15)
+    expect(clipCountTargets(min(180), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(30)
   })
 
   // Le défaut qui a motivé tout ce changement : la cible était `[6, 12]` pour
@@ -294,10 +327,13 @@ describe('clipCountTargets', () => {
   })
 
   it('le plancher absolu tient les sources courtes hors de la zone morte', () => {
-    // Un quart d'heure ne vaut que deux clips au prorata : `clipsMinimum` prend
-    // le relais, et c'est la mesure de rétention qui le justifie.
+    // Un quart d'heure de parole ne vaut que trois clips au prorata, une
+    // demi-heure cinq : `clipsMinimum` prend le relais, et c'est la mesure de
+    // rétention qui le justifie.
     expect(clipCountTargets(min(15), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(6)
-    expect(clipCountTargets(min(45), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(6)
+    expect(clipCountTargets(min(30), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(6)
+    // Au-delà, le prorata reprend la main.
+    expect(clipCountTargets(min(45), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(8)
   })
 
   it('les créneaux tiennent les sources trop courtes pour ce plancher', () => {
@@ -306,17 +342,30 @@ describe('clipCountTargets', () => {
     expect(clipCountTargets(min(5), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(3)
   })
 
-  it('clipsMaximum plafonne quand il est posé, et zéro veut dire aucun', () => {
+  // Ne plafonner que le plancher laissait le plafond repartir au-dessus : un
+  // maximum de 10 rendait `[10, 15]`, et le prompt autorisait toujours quinze
+  // clips. Le tuple entier est vérifié, pas seulement sa première borne.
+  // (relevé par Codex et Copilot)
+  it('clipsMaximum borne les deux bornes, et zéro veut dire aucune', () => {
     const borné = { ...DIMENSIONS_PAR_DÉFAUT, clipsMaximum: 10 }
-    expect(clipCountTargets(ENTRE_NOUS.parole, borné)[0]).toBe(10)
-    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(16)
+    expect(clipCountTargets(ENTRE_NOUS.parole, borné)).toEqual([10, 10])
+    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)).toEqual([15, 23])
+    // Le plafond ne descend jamais sous le plancher, quel que soit le maximum.
+    for (let max = 1; max <= 40; max++) {
+      const [bas, haut] = clipCountTargets(ENTRE_NOUS.parole, {
+        ...DIMENSIONS_PAR_DÉFAUT,
+        clipsMaximum: max,
+      })
+      expect(bas).toBeLessThanOrEqual(haut)
+      expect(haut).toBeLessThanOrEqual(max)
+    }
   })
 
   it('le rendement se règle', () => {
     const dense = { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 }
     const sobre = { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 12 }
-    expect(clipCountTargets(ENTRE_NOUS.parole, dense)[0]).toBe(28)
-    expect(clipCountTargets(ENTRE_NOUS.parole, sobre)[0]).toBe(9)
+    expect(clipCountTargets(ENTRE_NOUS.parole, dense)[0]).toBe(22)
+    expect(clipCountTargets(ENTRE_NOUS.parole, sobre)[0]).toBe(7)
   })
 
   it('le plancher ne dépasse jamais le plafond', () => {
@@ -344,15 +393,15 @@ describe('clipCountTargets', () => {
 
 describe('shortlistSize', () => {
   it('suit le plancher de clips, à raison de deux fenêtres par clip', () => {
-    expect(shortlistSize(CQLP.parole, CQLP.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(28)
-    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(32)
+    expect(shortlistSize(CQLP.parole, CQLP.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(26)
+    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(30)
   })
 
   // Le plafond plat de 24 est retiré : c'est lui qui faisait examiner un quart
   // de la matière d'un 1 h 51 et la même chose d'un trois heures.
   it('ne sature plus au-delà de deux heures', () => {
     const troisHeures = shortlistSize(min(180), 154, DIMENSIONS_PAR_DÉFAUT)
-    expect(troisHeures).toBe(52)
+    expect(troisHeures).toBe(60)
     expect(troisHeures).toBeGreaterThan(
       shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DIMENSIONS_PAR_DÉFAUT),
     )
@@ -366,15 +415,24 @@ describe('shortlistSize', () => {
     }
   })
 
-  it('les sources courtes gardent le plancher plat de dix', () => {
+  // Le plancher de dix ne mord que sous le produit `clipsMinimum ×
+  // fenetresParClip`, qui vaut douze : le nommer « plancher de dix » figerait
+  // une règle que la fonction n'applique pas. (relevé par Copilot)
+  it('les sources courtes suivent le plancher de clips, pas fenetresMinimum', () => {
     expect(shortlistSize(min(15), 13, DIMENSIONS_PAR_DÉFAUT)).toBe(12)
     // Moins de fenêtres que le plancher : c'est le réel qui gagne.
     expect(shortlistSize(min(15), 4, DIMENSIONS_PAR_DÉFAUT)).toBe(4)
   })
 
+  it('fenetresMinimum reprend la main quand le produit descend sous lui', () => {
+    const étroit = { ...DIMENSIONS_PAR_DÉFAUT, fenetresParClip: 1 }
+    // Six clips à une fenêtre chacun ne feraient que six fenêtres examinées.
+    expect(shortlistSize(min(15), 13, étroit)).toBe(10)
+  })
+
   it('fenetresParClip règle la largeur de l examen', () => {
     const large = { ...DIMENSIONS_PAR_DÉFAUT, fenetresParClip: 4 }
-    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, large)).toBe(64)
+    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, large)).toBe(60)
   })
 
   it('une entrée dégénérée ne casse rien', () => {

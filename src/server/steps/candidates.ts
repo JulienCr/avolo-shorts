@@ -29,6 +29,7 @@ import {
   buildWindows,
   clipCountTargets,
   mergeOverlappingWindows,
+  secondesDeParole,
   shortlistSize,
   type Transcript,
   type Window,
@@ -879,11 +880,14 @@ export async function runCandidates(
   const fenêtres = buildWindows(transcript, durée)
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
-  // L'étendue de parole, calculée une fois : elle sert de dénominateur à la
-  // couverture ET de mesure de la matière au dimensionnement. La recalculer
-  // ferait deux autorités sur le même chiffre.
+  // **Deux mesures voisines, et elles ne sont pas interchangeables.**
+  // `étendue` va du premier mot aligné au dernier : c'est le dénominateur de la
+  // couverture, celui qui dit quelle part du *déroulé* a été jugée.
+  // `paroleSec` est l'union des segments qui portent de la prose : c'est la
+  // matière, celle qui dit combien de clips l'émission peut donner. Sur les deux
+  // émissions du dépôt, la seconde vaut 79 à 80 % de la première.
   const étendue = étendueDuTranscript(mots)
-  const paroleSec = étendue.end - étendue.start
+  const paroleSec = secondesDeParole(transcript)
   const réglages = getRéglages(db)
 
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
@@ -1292,7 +1296,6 @@ function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardo
   )
 }
 
-/** Retire le marqueur avant de toucher à la base. */
 /** Ce dont la passe de détail a besoin, une fois les blocs choisis. */
 type ContexteDétail = {
   projectId: string
@@ -1340,16 +1343,24 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
   // complète sur k blocs est `2k - 2` appels ; le facteur laisse la marge sans
   // laisser la récursion courir sur une vidéo que le fournisseur refuse en bloc.
   const budget: Budget = { restant: Math.max(1, blocs.length * RÉCUPÉRATION_MAX) }
-  const refusés: string[] = []
-  const clips = await descendre(blocs, blocs.length, ctx, budget, refusés)
+  const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
+  const clips = await descendre(blocs, blocs.length, ctx, budget, ardoise)
+  const { refusés } = ardoise
 
   if (refusés.length > 0) {
     console.warn(
       `Détail : ${refusés.length} bloc(s) refusé(s) par le filtre et abandonné(s) : ${refusés.join(', ')}.`,
     )
   }
-  // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo.
-  if (clips.length === 0 && refusés.length > 0) {
+  // Rien n'a **répondu**, découpe comprise : là seulement, c'est la vidéo.
+  //
+  // **Le compte des réponses, jamais celui des clips.** `parseDetailResponse`
+  // tient `shorts: []` pour une réponse valide — « aucun moment exploitable
+  // ici » —, donc une moitié qui répond vide pendant que l'autre est refusée
+  // laisse `clips` vide sans qu'aucun refus global n'ait eu lieu. Compter les
+  // clips faisait alors échouer toute l'étape en accusant la vidéo d'un refus
+  // qu'elle n'a pas subi. (relevé par Codex et Copilot)
+  if (ardoise.réussis === 0 && refusés.length > 0) {
     throw new GeminiBlockedError(
       `Gemini a refusé la passe de détail de cette vidéo, jusqu'au bloc seul (${refusés.length} bloc(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
@@ -1357,6 +1368,14 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
   }
   return clips
 }
+
+/**
+ * Ce que la descente ramène en plus des clips.
+ *
+ * `réussis` compte les **réponses**, pas les clips : voir le verdict de
+ * `détailler`, que cette distinction sépare d'un faux refus.
+ */
+type ArdoiseDétail = { refusés: string[]; réussis: number }
 
 /**
  * Un lot de blocs, recoupé en deux tant que le filtre refuse.
@@ -1370,11 +1389,11 @@ async function descendre(
   totalBlocs: number,
   ctx: ContexteDétail,
   budget: Budget,
-  refusés: string[],
+  ardoise: ArdoiseDétail,
 ): Promise<Clip[]> {
   if (lot.length === 0) return []
   if (budget.restant <= 0) {
-    refusés.push(...lot.map((b) => b.id))
+    ardoise.refusés.push(...lot.map((b) => b.id))
     return []
   }
   budget.restant -= 1
@@ -1384,7 +1403,7 @@ async function descendre(
   const max = Math.max(min + 1, Math.round(ctx.maxClips * part))
 
   try {
-    return await appelerGemini(
+    const clips = await appelerGemini(
       ctx.appel,
       detailPrompt({
         language: ctx.transcript.language,
@@ -1405,21 +1424,26 @@ async function descendre(
           }),
       },
     )
+    // Compté ici, sur la réponse, et non sur `clips.length` plus haut : une
+    // réponse vide reste une réponse.
+    ardoise.réussis += 1
+    return clips
   } catch (erreur) {
     if (!(erreur instanceof GeminiBlockedError)) throw erreur
     // Un bloc seul et toujours refusé : il n'y a plus rien à recouper, et c'est
     // bien lui que le filtre vise.
     if (lot.length === 1) {
-      refusés.push(lot[0].id)
+      ardoise.refusés.push(lot[0].id)
       return []
     }
     const milieu = Math.ceil(lot.length / 2)
-    const gauche = await descendre(lot.slice(0, milieu), totalBlocs, ctx, budget, refusés)
-    const droite = await descendre(lot.slice(milieu), totalBlocs, ctx, budget, refusés)
+    const gauche = await descendre(lot.slice(0, milieu), totalBlocs, ctx, budget, ardoise)
+    const droite = await descendre(lot.slice(milieu), totalBlocs, ctx, budget, ardoise)
     return [...gauche, ...droite]
   }
 }
 
+/** Retire le marqueur avant de toucher à la base. */
 function effacerArtefact(projectId: string): void {
   fs.rmSync(candidatesPath(projectId), { force: true })
 }

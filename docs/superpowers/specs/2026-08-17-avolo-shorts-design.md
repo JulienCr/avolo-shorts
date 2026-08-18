@@ -513,7 +513,9 @@ l'étage est le rappel, pas la précision.
 
 1. **Gemini sur le transcript.** Fenêtres de 90 secondes chevauchées de 30, notées
    par lots avec un barème ancré, mécanique reprise d'OpenShorts. On garde le
-   haut du panier. Cette source ne voit pas le jeu physique, par construction.
+   haut du panier, **à hauteur de ce que la matière porte** — voir « Combien on
+   en garde » ci-dessous. Cette source ne voit pas le jeu physique, par
+   construction.
 2. **Le mouvement des corps.** Les boîtes de personnes sont déjà échantillonnées à
    2 images par seconde pour le cadrage ; la quantité de déplacement s'en déduit
    sans coût. Une bouffée d'agitation après une phase calme est la signature d'un
@@ -526,6 +528,42 @@ l'étage est le rappel, pas la précision.
 5. **La densité des tours de parole.** Un échange vif se distingue d'un monologue,
    et cela ne demande pas de savoir *qui* parle, seulement *que* ça change. C'est
    la partie robuste de la diarisation.
+
+### Combien on en garde
+
+**Le dimensionnement suit la matière, jamais un plafond plat.** La règle
+précédente prenait une part des fenêtres bornée à 24, et une cible de clips
+bornée à `[6, 12]` ; les deux saturaient si tôt qu'une capsule de dix minutes et
+un live de deux heures recevaient la même consigne. Mesuré le 18 août 2026 :
+`2026-22-02-entre-nous`, 1 h 53, a rendu six clips — le plancher exact, parce que
+le modèle rend toujours le minimum qu'on lui donne.
+
+L'unité est la **durée de parole** : l'union des segments qui portent de la
+prose, jamais l'écart du premier mot au dernier. La distinction n'est pas
+théorique — sur les deux émissions mesurées, l'écart surestime de 19 à 21 %, et le
+plus grand silence isolé fait 4 min 46 sur l'une, 6 min 43 sur l'autre. C'est
+aussi ce qui rend la mesure comparable au fenêtrage, qui se bâtit sur les mêmes
+segments.
+
+```
+plancher de clips  = étendue de parole / minutesParClip, borné par clipsMinimum
+                     et par le nombre de créneaux de 90 s
+plafond            = une moitié en plus, borné par clipsMaximum
+présélection       = plancher × fenetresParClip, borné par fenetresMinimum et par
+                     le nombre de fenêtres réelles
+```
+
+Les cinq constantes sont des **réglages globaux tenus en base** (table
+`settings`), modifiables sans toucher au code. Défauts : un clip toutes les
+**6 minutes** de parole, **2** fenêtres examinées par clip demandé, plancher de
+**6** clips et de **10** fenêtres, aucun plafond absolu. Sur les deux émissions
+mesurées, cela donne 15 clips sur 30 fenêtres et 13 sur 26, contre 6 sur 24 pour
+les deux auparavant.
+
+Le calcul reste **pur** : `src/core/` ne lit ni base ni environnement, les
+réglages lui arrivent en argument depuis `runCandidates`.
+
+### Ce que la fusion en fait
 
 Les cinq produisent des ancres. On fusionne et on déduplique, ce qui laisse une
 quarantaine de régions.

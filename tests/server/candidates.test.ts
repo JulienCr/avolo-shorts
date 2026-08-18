@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type BetterSqlite3 from 'better-sqlite3'
 import type { GenerateContentResponse } from '@google/genai'
-import { openDb, upsertProject, getClips, putClip } from '@/server/db'
+import { openDb, upsertProject, getClips, putClip, setRéglage } from '@/server/db'
 import { attendre, lancer, lireStatut } from '@/server/run'
 import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
@@ -497,13 +497,14 @@ describe("l'étape de repérage", () => {
     expect(blocs).toBe(1)
 
     const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
-    // 239 s de parole : le prorata donne un clip, `clipsMinimum` en voudrait
-    // six, et les trois créneaux de 90 s tranchent à trois. Fusionner remanie la
-    // charge utile, cela ne sélectionne pas moins de matière — et depuis que la
-    // cible se calcule sur la durée de parole, la fusion ne peut plus
+    // 40 segments de 3,5 s : 140 s de parole, et non les 239 s que sépare le
+    // premier mot du dernier. Le prorata n'en tire aucun clip, `clipsMinimum` en
+    // voudrait six, et les deux créneaux de 90 s tranchent à deux. Fusionner
+    // remanie la charge utile, cela ne sélectionne pas moins de matière — et
+    // depuis que la cible se calcule sur la parole, la fusion ne peut plus
     // l'atteindre du tout, ce qui rend l'ancienne inversion impossible plutôt
     // que seulement évitée.
-    expect([Number(min), Number(max)]).toEqual([3, 5])
+    expect([Number(min), Number(max)]).toEqual([2, 4])
   })
 
   it('la passe suivante ne ressuscite pas un clip écarté', async () => {
@@ -1189,15 +1190,22 @@ describe("l'étape de repérage", () => {
         mtimeMs: null,
         createdAt: 0,
       })
+      // Ces grappes ne portent que 384 s de parole, donc la présélection par
+      // défaut n'en retiendrait que dix des quinze fenêtres et la découpe
+      // n'aurait plus huit blocs à recouper. Le réglage élargit l'examen : ce
+      // qui s'exerce ici est le garde-fou, pas le dimensionnement.
+      setRéglage(db, 'fenetresParClip', 8)
     })
 
     /**
      * Un modèle qui note tout, et qui rend un clip par bloc — sauf quand la
-     * charge qu'on lui soumet remplit `refuse`, auquel cas il la bloque.
+     * charge qu'on lui soumet remplit `refuse`, auquel cas il la bloque. Avec
+     * `vide`, il répond `shorts: []` : une réponse valide qui ne trouve rien.
      */
     function détailleur(
       refuse: (blocs: string[]) => boolean,
       charges: string[][] = [],
+      vide = false,
     ): AppelGemini {
       return async (prompt, mode) => {
         if (mode === 'score') {
@@ -1224,7 +1232,7 @@ describe("l'étape de repérage", () => {
         }
         return réponse(
           JSON.stringify({
-            shorts: blocs.map((b) => ({
+            shorts: (vide ? [] : blocs).map((b) => ({
               start: b.start,
               end: b.start + 32,
               source_window_id: b.id,
@@ -1291,6 +1299,27 @@ describe("l'étape de repérage", () => {
       await expect(
         runCandidates(ID, { db, appel: détailleur(() => true), sleep: async () => {} }),
       ).rejects.toThrow(/jusqu'au bloc seul/)
+    })
+
+    /**
+     * Le verdict compte les **réponses**, jamais les clips.
+     *
+     * `parseDetailResponse` tient `shorts: []` pour une réponse valide — « aucun
+     * moment exploitable ici ». Une moitié qui répond vide pendant que l'autre
+     * est refusée laissait donc `clips` vide avec des refus au compteur, et
+     * l'étape échouait en accusant la vidéo d'un refus qu'elle n'a pas subi.
+     * (relevé par Codex et Copilot)
+     */
+    it('ne confond pas « aucun clip trouvé » avec « aucune réponse »', async () => {
+      const clips = await runCandidates(ID, {
+        db,
+        // Tout ce qui porte le dernier bloc est refusé ; le reste répond vide.
+        appel: détailleur((blocs) => blocs.includes('window_015'), [], true),
+        sleep: async () => {},
+      })
+
+      expect(clips).toEqual([])
+      expect(getClips(db, ID)).toEqual([])
     })
 
     /**

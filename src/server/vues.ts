@@ -181,10 +181,16 @@ function étendueDepuisArtefact(clip: Clip): Étendue | null {
         const c = brut as Partial<Clip>
         const segments = c.segments ?? []
         if (typeof c.id !== 'string' || segments.length === 0) continue
-        étendues.set(c.id, {
-          start: segments[0].start,
-          end: segments[segments.length - 1].end,
-        })
+        const start = segments[0]?.start
+        const end = segments[segments.length - 1]?.end
+        // **Des nombres, vérifiés.** Un artefact corrompu mais JSON-valide —
+        // `"start": "foo"` — donnerait une étendue non numérique, donc une
+        // fenêtre `NaN` qui ne retient aucune ligne : l'écran de clip s'ouvrirait
+        // vide au lieu de retomber sur le transcript entier, et le repli qui
+        // existe pour ce cas serait justement contourné. (relevé par Aristarque)
+        if (typeof start !== 'number' || typeof end !== 'number') continue
+        if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+        étendues.set(c.id, { start, end })
       }
     } catch (cause) {
       // Un artefact illisible ne doit pas empêcher d'ouvrir un clip : on retombe

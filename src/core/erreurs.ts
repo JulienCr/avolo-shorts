@@ -51,7 +51,30 @@ const POSIX_NU = /(?<![\w:.~…/\\-])\/[^\s"'\\]+(?:\/[^\s"'\\]*)*/g
 const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 
 /**
- * Remplace tout chemin absolu par `…/<nom de fichier>`.
+ * Une clé d'API dans une URL de requête.
+ *
+ * Vérifié sur `@google/genai@2.17.1` : la clé passe dans l'en-tête
+ * `x-goog-api-key`, jamais dans l'URL — le seul `?key=` du paquet sert au
+ * WebSocket de génération musicale, que rien ici n'appelle. Le caviardage est
+ * donc une ceinture par-dessus des bretelles, et il coûte une ligne : ce dépôt
+ * est public, ses journaux se recopient dans des rapports, et la version du SDK
+ * bougera.
+ *
+ * **Il vit ici plutôt que dans le module Gemini** parce que la frontière HTTP en
+ * a besoin sans avoir à connaître le fournisseur : le message d'une erreur de
+ * repérage traverse `status.json` puis le champ `error` de
+ * `GET /api/projects/:id`, et n'était caviardé sur aucun de ces deux chemins.
+ * (relevé par Aristarque)
+ */
+const CLÉ_DANS_URL = /([?&](?:key|api_?key)=)[^&\s"']+/gi
+
+/** Retire une clé d'API d'un message avant de le publier ou de le journaliser. */
+export function caviarderClés(message: string): string {
+  return message.replace(CLÉ_DANS_URL, '$1[caviardé]')
+}
+
+/**
+ * Remplace tout chemin absolu par `…/<nom de fichier>`, et caviarde les clés.
  *
  * **`racines` est ce qui rend l'épuration exacte, et son absence ce qui la rend
  * approximative.** Un chemin nu se coupe au premier espace, faute de savoir où
@@ -80,7 +103,7 @@ export function épurerChemins(message: string, racines: readonly string[] = [])
     sortie = sortie.split(racine).join('…')
   }
 
-  return sortie
+  return caviarderClés(sortie)
     .replace(ENTRE_GUILLEMETS, (brut) => {
       const dedans = brut.slice(1, -1)
       return estAbsolu(dedans) ? `"${abréger(dedans)}"` : brut

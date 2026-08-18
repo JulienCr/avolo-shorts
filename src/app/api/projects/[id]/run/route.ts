@@ -16,8 +16,6 @@ import { CIBLES_LANÇABLES, lancer } from '@/server/run'
  * `POST /api/clips/:id/export`.
  */
 
-const ÉTAPES = ['proxy', 'audio', 'transcript', 'candidates', 'renders'] as const
-
 const DEMANDE = z.strictObject({
   target: z.enum(CIBLES_LANÇABLES),
   /**
@@ -27,8 +25,13 @@ const DEMANDE = z.strictObject({
    *
    * `force` entraîne l'aval avec lui, mais c'est `planSteps` qui s'en charge :
    * cette route ne fait que transmettre.
+   *
+   * **Les mêmes étapes que `target`, pas une de plus.** `renders` y était admis
+   * et n'y servait à rien : aucune cible lançable n'en dépend, donc `planSteps`
+   * l'ignore, et le client recevait un 202 dont le plan ne parlait pas de ce
+   * qu'il venait de demander. (relevé par Aristarque)
    */
-  force: z.union([z.boolean(), z.array(z.enum(ÉTAPES))]).optional(),
+  force: z.union([z.boolean(), z.array(z.enum(CIBLES_LANÇABLES))]).optional(),
 })
 
 export const POST = route(

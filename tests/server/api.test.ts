@@ -298,6 +298,23 @@ describe('PATCH /api/clips/:id', () => {
     expect(clip.segments).toEqual([{ start: 60, end: 95 }])
   })
 
+  /**
+   * Un clip vidé de tous ses mots est un état légitime — c'est ce que produit
+   * l'écran de clip quand on retire tout —, et deux choses s'y jouent :
+   * `normalizeSegments([])` doit rendre `[]`, et la comparaison des premiers
+   * segments doit tenir quand les deux valent `undefined`, sans quoi l'éviction
+   * de la vignette partirait sur un clip qui n'en a jamais eu.
+   * (relevé par Aristarque)
+   */
+  it('accepte une liste de segments vide', async () => {
+    const réponse = await patcher({ segments: [] })
+    expect(réponse.status).toBe(200)
+    expect(((await réponse.json()) as Clip).segments).toEqual([])
+
+    // Et une seconde fois : les deux côtés sont vides, rien ne doit lever.
+    expect((await patcher({ segments: [] })).status).toBe(200)
+  })
+
   it('accepte les trois statuts humains et les enregistre', async () => {
     const réponse = await patcher({ status: 'kept' })
     expect(réponse.status).toBe(200)

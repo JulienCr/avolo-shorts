@@ -10,6 +10,7 @@ import {
 } from '@google/genai'
 import { z } from 'zod'
 import { mergeCandidates } from '@/core/candidates'
+import { caviarderClés } from '@/core/erreurs'
 import type { Clip } from '@/core/edl'
 import {
   parseDetailResponse,
@@ -338,16 +339,13 @@ export function estPassagère(erreur: unknown): boolean {
 /**
  * Retire une clé d'API d'un message avant de le journaliser.
  *
- * Vérifié sur `@google/genai@2.17.1` : `generateContent` passe la clé dans
- * l'en-tête `x-goog-api-key`, jamais dans l'URL — le seul `?key=` du paquet sert
- * au WebSocket de génération musicale, que rien ici n'appelle. Le caviardage est
- * donc une ceinture par-dessus des bretelles, et il coûte une ligne : ce dépôt
- * est public, ses journaux se recopient dans des rapports, et la version du SDK
- * bougera. (relevé par Aristarque)
+ * **Le motif vit dans `@/core/erreurs`** depuis qu'il sert aussi à la frontière
+ * HTTP : le message d'une erreur de repérage traverse `status.json` puis le
+ * champ `error` de `GET /api/projects/:id`, et ne passait par aucun caviardage
+ * sur ce chemin-là. Deux copies du même motif auraient vieilli séparément.
+ * (relevé par Aristarque)
  */
-export function caviarder(message: string): string {
-  return message.replace(/([?&](?:key|api_?key)=)[^&\s"']+/gi, '$1[caviardé]')
-}
+export const caviarder = caviarderClés
 
 const attendre = (ms: number): Promise<void> =>
   new Promise((résoudre) => {

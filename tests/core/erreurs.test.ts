@@ -92,6 +92,21 @@ describe('épurerChemins', () => {
   })
 })
 
+describe('le caviardage des clés', () => {
+  /**
+   * Le filet couvre désormais la frontière HTTP, pas seulement le journal de
+   * `appelerGemini` : le message d'une erreur de repérage traverse `status.json`
+   * puis le champ `error` de `GET /api/projects/:id`. (relevé par Aristarque)
+   */
+  it('retire une clé d’API où qu’elle passe', () => {
+    expect(épurerChemins('échec sur https://x/v1?key=AQ.secret-42&alt=json')).toBe(
+      'échec sur https://x/v1?key=[caviardé]&alt=json',
+    )
+    expect(messageÉpuré(new Error('POST /v1?api_key=abc123'))).toContain('api_key=[caviardé]')
+    expect(messageÉpuré(new Error('POST /v1?api_key=abc123'))).not.toContain('abc123')
+  })
+})
+
 describe('messageÉpuré', () => {
   it('lit le message d’une Error', () => {
     expect(messageÉpuré(new Error('échec sur /var/tmp/x.wav'))).toBe('échec sur …/x.wav')

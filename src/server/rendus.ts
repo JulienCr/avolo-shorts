@@ -2,10 +2,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
-import type { ClipOutputs } from '@/lib/api'
+import type { CadrageClip, ClipOutputs } from '@/lib/api'
+import { cadrageDuClip } from '@/server/cadrage'
 import { estUneAbsence } from '@/server/octets'
-import { cheminsRendu, empreinteÀJour, lireEmpreinte } from '@/server/steps/render'
+import {
+  cadrageRendu,
+  cheminsRendu,
+  empreinteÀJour,
+  formeRendue,
+  lireEmpreinte,
+} from '@/server/steps/render'
 
 /**
  * Les sorties d'un clip : ce que l'export a produit, et sous quel nom on le
@@ -53,8 +59,12 @@ function sortie(chemin: string, type: string): SortieClip {
  * un sous-titre surprend. Il n'a rien à faire dans une livraison, et une route
  * qui le servirait laisserait croire l'inverse.
  */
-function sorties(clip: Clip): Sorties {
-  const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
+function sorties(clip: Clip, cadrage: CadrageClip): Sorties {
+  // **Le ratio résolu, jamais celui du clip.** Un clip en `auto` n'a pas de
+  // ratio à lui : c'est `computeFraming` qui le choisit, et c'est sous ce
+  // ratio-là que l'export a écrit ses fichiers. Le lire ailleurs ferait chercher
+  // une variante 9:16 sous un clip qui n'en a pas, ou l'inverse.
+  const chemins = cheminsRendu(clip.projectId, clip.id, cadrage.ratio)
   return {
     mp4: sortie(chemins.mp4, 'video/mp4'),
     variant9x16:
@@ -129,12 +139,13 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * la même fonction que celle du rendu, avec deux critères de moins — voir
  * `CeQuOnIncrusterait`.
  */
-export function livraisonÀJour(clip: Clip): boolean {
+export function livraisonÀJour(clip: Clip, cadrage: CadrageClip = cadrageDuClip(clip)): boolean {
   if (clip.status !== 'exported') return false
-  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, {
-    marques: null,
-    look: null,
-  })
+  return empreinteÀJour(
+    lireEmpreinte(sorties(clip, cadrage).empreinte),
+    formeRendue(clip, cadrageRendu(cadrage)),
+    { marques: null, look: null },
+  )
 }
 
 /**
@@ -146,9 +157,9 @@ export function livraisonÀJour(clip: Clip): boolean {
  * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
  * le premier — sur le clip le mieux livré de la bibliothèque.
  */
-export function sortiesDuClip(clip: Clip): ClipOutputs {
-  const { mp4, variant9x16, texts } = sorties(clip)
-  if (!livraisonÀJour(clip)) {
+export function sortiesDuClip(clip: Clip, cadrage: CadrageClip = cadrageDuClip(clip)): ClipOutputs {
+  const { mp4, variant9x16, texts } = sorties(clip, cadrage)
+  if (!livraisonÀJour(clip, cadrage)) {
     return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
   }
   return {
@@ -172,7 +183,11 @@ export function sortiesDuClip(clip: Clip): ClipOutputs {
  * sont pas des sorties : ce sont des pièces internes, et une route qui les
  * servirait laisserait croire qu'elles font partie de la livraison.
  */
-export function sortieNommée(clip: Clip, nom: string): SortieClip | null {
-  const { mp4, variant9x16, texts } = sorties(clip)
+export function sortieNommée(
+  clip: Clip,
+  nom: string,
+  cadrage: CadrageClip = cadrageDuClip(clip),
+): SortieClip | null {
+  const { mp4, variant9x16, texts } = sorties(clip, cadrage)
   return [mp4, variant9x16, texts].find((s) => s !== null && s.nom === nom) ?? null
 }

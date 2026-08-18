@@ -2,11 +2,12 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
+import { cadrageDuClip } from '@/server/cadrage'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
 import {
+  cadrageRendu,
   cheminsRendu,
   texteDePublication,
   écarterRenduPérimé,
@@ -76,6 +77,13 @@ export const GET = route(
     if (projet === undefined) throw introuvable(`Projet inconnu : ${clip.projectId}`)
 
     const transcript = await transcriptDuProjet(projet)
+    // **Le cadrage se résout ici, pas dans le navigateur.** `computeFraming` a
+    // besoin des plans, des boîtes de personnes et des dimensions de la source ;
+    // `analysis.json` pèse deux à trois méga-octets par projet. Six appels du
+    // navigateur le demandaient à `resolveRatio`, qui rendait `9:16` en dur : ils
+    // lisent désormais ce champ, et voient donc exactement ce que ffmpeg
+    // découpera.
+    const cadrage = cadrageDuClip(clip)
     return json({
       clip,
       project: résuméProjet(projet),
@@ -88,7 +96,8 @@ export const GET = route(
       // Ce que l'export a produit, en URL. Sans elles, un clip affiche
       // « exporté » et son MP4 reste inatteignable depuis le navigateur : la
       // chaîne s'arrête à un mètre de son but.
-      outputs: sortiesDuClip(clip),
+      outputs: sortiesDuClip(clip, cadrage),
+      framing: cadrage,
     })
   },
 )
@@ -153,7 +162,9 @@ export const PATCH = route(
     //
     // Les chemins se calculent sur le clip **d'avant** : c'est lui qui dit sous
     // quel ratio les fichiers à écarter ont été écrits, et un passage de 1:1 à
-    // 9:16 change le jeu.
+    // 9:16 change le jeu. Ce ratio-là est **le ratio résolu**, pas `clip.ratio` :
+    // un clip en `auto` n'en a pas à lui, c'est `computeFraming` qui le choisit,
+    // et c'est sous celui-là que l'export a écrit.
     // Sans condition sur le statut : `leRenduEstPérimé` ne se déclenche que
     // lorsqu'un champ qui change l'image a bougé, et un clip que rien n'a rendu
     // n'a pas de fichier à effacer — trois `rmSync` sur des chemins absents. La
@@ -169,9 +180,10 @@ export const PATCH = route(
     // ici que `écarterRenduPérimé` efface trois fichiers : un échec au deuxième
     // laisse un jeu de sorties incomplet, que la réponse décrira tel qu'il est,
     // puisqu'elle relit le disque après coup. (relevé par Copilot)
-    const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
+    const cadrageAvant = cadrageDuClip(clip)
+    const chemins = cheminsRendu(clip.projectId, clip.id, cadrageAvant.ratio)
     try {
-      const périmé = écarterRenduPérimé(db, id, chemins, clip)
+      const périmé = écarterRenduPérimé(db, id, chemins, clip, cadrageRendu(cadrageAvant))
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
       //
@@ -187,7 +199,7 @@ export const PATCH = route(
         const varianteAprès = cheminsRendu(
           écrit.projectId,
           écrit.id,
-          resolveRatio(écrit.ratio),
+          cadrageDuClip(écrit).ratio,
         ).variant9x16
         if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
       }
@@ -265,7 +277,20 @@ export const PATCH = route(
     // il garderait l'URL d'un rendu que ce `PATCH` vient de faire disparaître, et
     // son lecteur vidéo pointerait sur un 404 jusqu'au prochain rechargement.
     // (relevé par Aristarque)
+    // **Le cadrage part avec la réponse, et c'est ce que rater coûterait le plus
+    // cher.** Le ratio et les crops se recalculent sur les segments et ne sont
+    // pas stockés : retirer un passage peut faire retomber un 16:9 en 1:1 sans
+    // qu'aucun geste de cadrage n'ait été fait. Sans ce champ, l'écran garderait
+    // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
+    // mentirait sur ce que l'export produira.
     const relu = getClip(db, id) ?? écrit
-    return json({ applied: appliqué, clip: relu, outputs: sortiesDuClip(relu), seq: plancher })
+    const cadrageAprès = cadrageDuClip(relu)
+    return json({
+      applied: appliqué,
+      clip: relu,
+      outputs: sortiesDuClip(relu, cadrageAprès),
+      framing: cadrageAprès,
+      seq: plancher,
+    })
   },
 )

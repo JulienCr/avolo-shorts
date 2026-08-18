@@ -21,7 +21,7 @@
  *    CPU, on encode sur GPU.
  */
 
-import { normalizeSegments, type Segment } from '@/core/edl'
+import type { Segment } from '@/core/edl'
 import { outputSize } from '@/core/framing'
 import {
   LOUDNORM,
@@ -290,11 +290,39 @@ function accélération(encoder: EncoderName): string[] {
   return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []
 }
 
+/** Un rectangle à découper dans l'image source, tel que `cropRect` le rend. */
+export type Rectangle = { w: number; h: number; x: number; y: number }
+
+/**
+ * Un morceau à décoder, **avec le rectangle qui lui appartient**.
+ *
+ * C'est le changement que le cadrage automatique impose au rendu : la position
+ * du crop est fixe *à l'intérieur d'un plan* et saute à ses frontières
+ * (spec §10). Un segment qui traverse une frontière se découpe donc en autant
+ * d'entrées que de plans traversés, chacune avec son propre rectangle — un
+ * `-ss`/`-t`/`-i` par entrée, et un `crop=` par entrée dans le graphe.
+ *
+ * **Ce n'est pas une caméra qui suit.** Le rectangle ne bouge qu'aux endroits où
+ * une coupe existe déjà, donc où le saut est invisible ; entre deux frontières
+ * il ne bouge pas d'un pixel.
+ */
+export type SegmentCadré = Segment & { crop: Rectangle }
+
 export type RenderOptions = {
   src: string
   dst: string
-  segments: Segment[]
-  crop: { w: number; h: number; x: number; y: number }
+  /**
+   * Les morceaux à concaténer, dans l'ordre, chacun avec son rectangle.
+   *
+   * **Ils ne sont pas normalisés ici, et c'est le point.** `normalizeSegments`
+   * fusionne deux segments qui se touchent — ce qu'il faut sur une liste de
+   * montage, et ce qu'il ne faut surtout pas ici : deux entrées adjacentes qui
+   * se touchent sont précisément les deux moitiés d'un segment coupé sur une
+   * frontière de plan, et les fusionner ferait cadrer la seconde avec le
+   * rectangle de la première. L'appelant normalise le montage *avant* de le
+   * découper par plan ; ce qui arrive ici est déjà canonique et se contrôle.
+   */
+  segments: SegmentCadré[]
   out: { w: number; h: number }
   assPath?: string
   fontsDir?: string
@@ -354,10 +382,10 @@ const SIGMA_DU_FOND = 12
  * exactes, pas de décodage depuis le début du fichier) :
  *
  * ```
- * -hwaccel cuda -ss <s0> -t <d0> -i src      un quadruplet par segment
+ * -hwaccel cuda -ss <s0> -t <d0> -i src      un quadruplet par entrée
  * -hwaccel cuda -ss <s1> -t <d1> -i src
  * -filter_complex
- *   [0:v]crop=…,scale=…,setsar=1[v0]; [1:v]…[v1];
+ *   [0:v]crop=…,scale=…,setsar=1[v0]; [1:v]…[v1];   un crop par entrée
  *   [v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];
  *   [ac]loudnorm=…,aresample=48000[a];
  *   [vc]ass=filename='…':fontsdir='…'[v]
@@ -368,11 +396,14 @@ const SIGMA_DU_FOND = 12
  * un flux issu de `-map [a]` fait échouer ffmpeg : « Simple and complex
  * filtering cannot be used together for the same stream ».
  *
- * **Limite assumée :** un `-ss`/`-i` par segment ouvre un décodeur par segment.
- * C'est mesuré bon jusqu'à une dizaine, ce qui couvre l'itération 0. Le
- * nettoyage déterministe des hésitations de l'itération 3 produira des dizaines
- * de coupures : il faudra alors rendre segment par segment puis concaténer en
- * copie de flux. Ne pas le construire maintenant.
+ * **Limite assumée :** un `-ss`/`-i` par entrée ouvre un décodeur par entrée.
+ * C'est mesuré bon jusqu'à une dizaine. Le cadrage automatique en ajoute :
+ * un segment qui traverse cinq plans compte pour cinq entrées, et la médiane des
+ * plans est de 5,3 s sur `2026-03-08-caro-mdlm`. `renderClip` compte et le dit
+ * au journal au-delà du seuil. Le nettoyage déterministe des hésitations de
+ * l'itération 3 produira des dizaines de coupures : il faudra alors rendre
+ * morceau par morceau puis concaténer en copie de flux. Ne pas le construire
+ * maintenant.
  */
 export function renderArgs(o: RenderOptions): string[] {
   return construireLeRendu(o, null)
@@ -423,24 +454,41 @@ function construireLeRendu(
   o: RenderOptions,
   canevas: { w: number; h: number } | null,
 ): string[] {
-  // Valider les bornes **avant** de normaliser, et c'est l'ordre qui compte :
-  // `normalizeSegments` garde un segment si `end > start`, comparaison qui est
-  // fausse dès qu'une borne vaut `NaN` — le segment disparaît donc en silence,
-  // et un clip de trois segments en rendrait deux sans un mot. Une borne
-  // infinie, elle, traverse la normalisation et ressort en `-t Infinity`.
-  o.segments.forEach((s, i) => {
-    nombre(s.start, `segments[${i}].start`)
-    nombre(s.end, `segments[${i}].end`)
-  })
-
-  // Normaliser ensuite : deux segments qui se touchent ne valent qu'un
-  // décodeur, et un segment vide ou inversé en vaut zéro.
-  const segments = normalizeSegments(o.segments)
+  // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
+  // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
+  // disparaîtrait et un clip de trois entrées en rendrait deux sans un mot —, et
+  // une borne infinie ressortirait en `-t Infinity`. Mais fusionner n'est plus
+  // permis ici : deux entrées qui se touchent sont les deux moitiés d'un segment
+  // coupé sur une frontière de plan, et chacune porte son propre rectangle.
+  const segments = o.segments
   if (segments.length === 0) {
     throw new Error(
       "Aucun segment à rendre : un clip est une liste de segments, et une liste vide n'a pas de durée.",
     )
   }
+  segments.forEach((s, i) => {
+    nombre(s.start, `segments[${i}].start`)
+    nombre(s.end, `segments[${i}].end`)
+    if (s.end <= s.start) {
+      throw new Error(
+        `segments[${i}] ne dure pas : ${secondes(s.start)} → ${secondes(s.end)}. ` +
+          "Un morceau vide ouvre un décodeur qui ne rend aucune image, et décale d'autant les " +
+          'sous-titres, qui sont calés sur la somme des durées demandées.',
+      )
+    }
+    // **Strictement croissantes et sans recouvrement.** Le recalage des
+    // sous-titres additionne les durées des entrées dans leur ordre : deux
+    // entrées qui se chevauchent feraient afficher les bons mots au mauvais
+    // moment sur tout ce qui suit, et aucun test de durée ne le verrait.
+    const précédent = i === 0 ? null : segments[i - 1]
+    if (précédent !== null && s.start < précédent.end) {
+      throw new Error(
+        `segments[${i}] commence avant la fin de segments[${i - 1}] ` +
+          `(${secondes(s.start)} < ${secondes(précédent.end)}). Les entrées se concatènent dans ` +
+          "l'ordre où elles arrivent, et les sous-titres sont recalés sur cette somme.",
+      )
+    }
+  })
 
   const logos = o.logos ?? []
   const multi = segments.length > 1
@@ -477,15 +525,20 @@ function construireLeRendu(
   const contenu = étapes.length === 0 ? terminal : multi ? 'vc' : 'vd'
 
   const graphe: string[] = []
-  const c = o.crop
-  const filtreImage = [
-    `crop=${nombre(c.w, 'crop.w')}:${nombre(c.h, 'crop.h')}` +
-      `:${nombre(c.x, 'crop.x')}:${nombre(c.y, 'crop.y')}`,
-    `scale=${nombre(o.out.w, 'out.w')}:${nombre(o.out.h, 'out.h')}:flags=lanczos`,
-    'setsar=1',
-  ].join(',')
+  // **La mise à l'échelle est commune, le crop ne l'est plus.** Tous les
+  // rectangles d'un même clip ont la même taille — le ratio est choisi une fois
+  // par clip — et seule leur abscisse change d'un plan à l'autre. Les segments
+  // sortent donc tous au même format, ce que `concat` exige.
+  const misÀLÉchelle = `scale=${nombre(o.out.w, 'out.w')}:${nombre(o.out.h, 'out.h')}:flags=lanczos`
 
-  segments.forEach((_, i) => {
+  segments.forEach((s, i) => {
+    const c = s.crop
+    const filtreImage = [
+      `crop=${nombre(c.w, `segments[${i}].crop.w`)}:${nombre(c.h, `segments[${i}].crop.h`)}` +
+        `:${nombre(c.x, `segments[${i}].crop.x`)}:${nombre(c.y, `segments[${i}].crop.y`)}`,
+      misÀLÉchelle,
+      'setsar=1',
+    ].join(',')
     graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : contenu}]`)
   })
 

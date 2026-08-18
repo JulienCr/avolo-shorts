@@ -61,10 +61,14 @@ dans le tableau ci-dessus : 34 % des boîtes de personnes y sont du public au
 premier plan ; écarté, l'empan médian tombe de 0,68 à 0,50 et la part du temps qui
 tient dans un 1:1 passe de 33 % à 64 %.
 
-Le tableau n'est pas réécrit : il reste ce que la méthode du 17 août a mesuré. Mais
-son 48 % sous-estime le dispositif plutôt qu'il ne le décrit. Sur
-`2026-03-08-caro-mdlm`, 26 boîtes sur 3 083 : le public au cadre appartient à une
-émission, pas au fonds.
+Le tableau n'est pas réécrit : il reste ce que la méthode du 17 août a mesuré. Et
+ce qu'on peut en conclure s'arrête là où s'arrêtent les mesures : la méthode
+**peut** sous-estimer la couverture, largement, partout où du public entre dans le
+cadre. Pas que son 48 % la sous-estime en fait. L'écart de 33 % à 64 % a été
+mesuré sur `2025-06-15-cqlp`, qui n'est pas dans le tableau ;
+`2026-03-08-caro-mdlm`, elle, n'a que 26 boîtes de public sur 3 083. Le public au
+cadre appartient à une émission, pas au fonds. Trancher demanderait de repasser les
+trois émissions du tableau à la détection au corps, premier plan écarté.
 
 ### Taille des sujets
 

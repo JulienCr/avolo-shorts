@@ -191,6 +191,20 @@ export function ratioCoverage(ratio: Ratio, srcW: number, srcH: number): number 
   return Math.min(1, (RATIOS[ratio] * srcH) / srcW)
 }
 
+/**
+ * Un réglage, ou son défaut. `??` ne suffit pas : il ne remplace que `undefined`,
+ * et laisse passer un `NaN`, qui se propage au lieu d'être corrigé.
+ *
+ * `margin` à `NaN` rendait toutes les bornes d'empan `NaN`, donc un `cropX` à
+ * `NaN` **étiqueté `source: 'auto'`** : `cropRect` retombant sur le centre par sa
+ * propre garde, rien ne se voyait à l'image, et la panne n'existait que dans ce
+ * que l'interface affiche — « calculé » pour un plan qu'aucun calcul n'avait
+ * cadré. C'est exactement pour ça qu'elle aurait survécu. (relevé par Aristarque)
+ */
+function réglage(valeur: number | undefined, défaut: number): number {
+  return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : défaut
+}
+
 /** L'empan des personnes d'une image, marge comprise, en fractions de largeur. */
 type Empan = { t: number; g: number; d: number }
 
@@ -215,13 +229,13 @@ function dansIntervalle(t: number, début: number, fin: number): boolean {
  *
  * Une image dont aucune boîte n'est retenue **ne rend rien**, plutôt qu'une
  * largeur nulle : elle ne dit pas que le cadre peut être serré, elle ne dit
- * rien. La compter pour zéro tirerait le percentile vers un ratio trop étroit
+ * rien. La compter pour zéro tirerait la décision vers un ratio trop étroit
  * pour les images où il y a quelqu'un — et sur les émissions mesurées, ces
  * images-là font de 5 à 30 % du total.
  */
 function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
-  const seuil = options.minScore ?? SCORE_MINIMAL
-  const marge = Math.max(0, options.margin ?? MARGE)
+  const seuil = réglage(options.minScore, SCORE_MINIMAL)
+  const marge = Math.max(0, réglage(options.margin, MARGE))
 
   const parImage = new Map<number, Empan>()
   for (const b of boxes) {
@@ -253,23 +267,14 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
 /**
  * La largeur nécessaire pour contenir les personnes, une valeur par image, en
  * fraction de la largeur source.
+ *
+ * **Elle mesure, elle ne décide pas.** Le ratio ne s'en déduit pas, et c'est le
+ * point que la première version de ce module ratait : une largeur par image
+ * suppose un crop libre par image, alors que le crop est fixe pour tout le plan.
+ * Voir `chooseRatio`, qui juge ce qu'une position fixe cadre vraiment.
  */
 export function requiredWidths(boxes: PersonBox[], options: FramingOptions = {}): number[] {
   return empans(boxes, options).map((e) => e.d - e.g)
-}
-
-/**
- * Le percentile par **rang le plus proche** : la valeur rendue est une largeur
- * réellement mesurée sur une image, jamais une interpolation entre deux.
- *
- * Ça compte pour ce qu'on en fait : « le cadre qui contient les gens sur 90 %
- * des images » est une phrase vérifiable en regardant la vidéo, « le cadre
- * interpolé entre la 36e et la 37e image » n'en est pas une.
- */
-function percentile(valeurs: number[], p: number): number {
-  const triées = [...valeurs].sort((a, b) => a - b)
-  const rang = Math.min(triées.length, Math.max(1, Math.ceil(p * triées.length)))
-  return triées[rang - 1]
 }
 
 /** Les quatre ratios du plus étroit au plus large, déduits de `RATIOS`. */
@@ -280,11 +285,27 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).
 const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
 
 /**
- * Le plus petit ratio qui couvre le **percentile 90** des largeurs.
+ * Le plus petit ratio dont **un crop fixe par plan cadre 90 % des images**.
  *
- * **Percentile 90, pas maximum.** Une seule image où quelqu'un traverse le cadre
- * condamnerait le clip entier au 16:9. Le prix est assumé et il faut le dire :
- * sur les 10 % d'images restantes, un sujet peut sortir partiellement du cadre.
+ * **Le seuil de 90 %, pas le maximum.** Une seule image où quelqu'un traverse le
+ * cadre condamnerait le clip entier au 16:9. Le prix est assumé et il faut le
+ * dire : sur les 10 % d'images restantes, un sujet peut sortir partiellement du
+ * cadre.
+ *
+ * **Ce qu'on compte, et c'est là que la première version se trompait.** Elle
+ * prenait le percentile 90 des largeurs *par image*. Or une largeur par image
+ * suppose un crop libre par image, et le crop est fixe pour tout le plan : un
+ * sujet étroit à gauche pendant la moitié d'un plan puis à droite pendant
+ * l'autre tient dans un 9:16 image par image, alors qu'aucune position fixe de
+ * 9:16 n'en cadre plus de la moitié. Le percentile des largeurs était une
+ * approximation du critère, et elle se casse exactement là où la spec §10 dit
+ * qu'il faut monter : « un plan de trois minutes où les comédiens traversent le
+ * plateau impose un crop large, donc un ratio qui monte, parfois jusqu'au
+ * 16:9 ». On évalue donc, pour chaque ratio candidat, ce qu'une position fixe
+ * par plan cadre réellement. (relevé par Copilot et Codex)
+ *
+ * Le seuil reste celui de la spec, et le geste aussi : « 90 % des images
+ * tiennent » est une phrase vérifiable en regardant la vidéo.
  *
  * Pourquoi les ratios médians existent, et c'est le chiffre qui porte le
  * produit : sur trois émissions, seuls 24 à 33 % du temps tiennent dans un 9:16,
@@ -300,15 +321,41 @@ const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARG
  * 16:9 sort une vidéo visiblement large, que Julien rattrape d'un clic en
  * épinglant un ratio. Entre une faute silencieuse et une faute voyante, on
  * prend la voyante.
+ *
+ * Les boîtes arrivent **groupées par plan**, parce que c'est la granularité du
+ * crop. Le même déplacement réparti sur deux plans ne coûte rien — une coupe
+ * existe entre les deux, et le crop a le droit d'y sauter.
  */
-export function chooseRatio(widths: number[], srcW: number, srcH: number): Ratio {
-  const utiles = widths.filter((w) => Number.isFinite(w))
-  if (utiles.length === 0) return LE_PLUS_LARGE
+export function chooseRatio(
+  peoplePerShot: PersonBox[][],
+  srcW: number,
+  srcH: number,
+  options: FramingOptions = {},
+): Ratio {
+  return choisirRatio(
+    peoplePerShot.map((boxes) => empans(boxes, options)),
+    srcW,
+    srcH,
+  )
+}
 
-  const p90 = percentile(utiles, 0.9)
+/** Le même choix, sur des empans déjà calculés — ce que `computeFraming` a en main. */
+function choisirRatio(mesuresParPlan: Empan[][], srcW: number, srcH: number): Ratio {
+  const total = mesuresParPlan.reduce((n, m) => n + m.length, 0)
+  if (total === 0) return LE_PLUS_LARGE
+
   for (const r of DU_PLUS_ÉTROIT_AU_PLUS_LARGE) {
-    if (ratioCoverage(r, srcW, srcH) >= p90) return r
+    const largeur = ratioCoverage(r, srcW, srcH)
+    const cadrées = mesuresParPlan.reduce((n, m) => n + cropDuPlan(m, largeur).cadrées, 0)
+    // `× 10 ≥ × 9` plutôt que `≥ 0,9 ×` : `0.9 * 40` vaut 36,000000000000004, et
+    // 36 images sur 40 rateraient de justesse le seuil qu'elles atteignent pile.
+    if (cadrées * 10 >= total * 9) return r
   }
+
+  // Inatteignable en pratique : le ratio le plus large couvre toute la largeur
+  // de la source, donc une position unique y cadre toutes les images. Le filet
+  // reste, parce qu'une fonction qui rend `undefined` sur un cas qu'on croyait
+  // impossible est pire que celle qui rend le pire ratio.
   return LE_PLUS_LARGE
 }
 
@@ -324,18 +371,23 @@ export function chooseRatio(widths: number[], srcW: number, srcH: number): Ratio
  *
  * Le critère est le nombre d'images **entièrement cadrées**. Une image plus large
  * que la fenêtre n'en donne aucune position possible : elle fait partie de ce que
- * le percentile 90 a déjà accepté de sacrifier, et la compter reviendrait à
+ * le seuil de 90 % a déjà accepté de sacrifier, et la compter reviendrait à
  * laisser un passant tirer le cadre derrière lui pour tout le plan.
  *
  * À nombre d'images égal, on prend la position la plus proche du centre médian
- * de l'action. Un départage déterministe, qui ne penche ni à gauche — où traîne
- * le bloc « SOMMAIRE » — ni à droite.
+ * de l'action. Le départage est déterministe et ne penche d'aucun côté : il n'y
+ * a **pas de zone interdite** ici, malgré ce que la spec §10 réclame encore —
+ * constaté à l'image, le panneau de chat n'existe que sur `2025-06-15-cqlp` et
+ * le bloc « SOMMAIRE » reste une préférence, pas une interdiction. Ce passage
+ * de la spec est en cours de correction ailleurs.
  *
- * `null` quand le plan n'a **aucune** image mesurée : l'appelant décide, et il
- * n'y a rien à moyenner.
+ * `cropX` vaut `null` quand le plan n'a **aucune** image mesurée : l'appelant
+ * décide, et il n'y a rien à moyenner. `cadrées` compte les images que la
+ * position rendue cadre entièrement — c'est ce dont `chooseRatio` a besoin pour
+ * juger un ratio sur ce qu'il permet vraiment, et non sur une largeur.
  */
-function cropDuPlan(mesures: Empan[], largeur: number): number | null {
-  if (mesures.length === 0) return null
+function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; cadrées: number } {
+  if (mesures.length === 0) return { cropX: null, cadrées: 0 }
 
   const demi = largeur / 2
   // Le crop reste dans l'image : `cropRect` borne déjà, mais rendre une valeur
@@ -349,23 +401,38 @@ function cropDuPlan(mesures: Empan[], largeur: number): number | null {
   const intervalles = mesures
     .filter((e) => e.d - e.g <= largeur + 1e-9)
     .map((e) => ({ lo: e.d - demi, hi: e.g + demi }))
-  if (intervalles.length === 0) return légal(cible)
+  if (intervalles.length === 0) return { cropX: légal(cible), cadrées: 0 }
 
   // Le recouvrement maximal est atteint sur au moins un `lo` : au-dessous, une
   // image de plus sortirait du cadre. On les essaie donc tous, et pour chacun on
-  // s'étend jusqu'où les mêmes images restent cadrées, pour se poser au milieu
-  // plutôt que collé au bord.
+  // regarde jusqu'où les mêmes images restent cadrées — ce plateau.
   let meilleur = { images: -1, centre: cible }
   for (const { lo } of intervalles) {
-    const couvrants = intervalles.filter((i) => i.lo <= lo && lo <= i.hi)
-    const centre = (lo + Math.min(...couvrants.map((i) => i.hi))) / 2
+    let images = 0
+    let hi = Number.POSITIVE_INFINITY
+    for (const i of intervalles) {
+      if (i.lo <= lo && lo <= i.hi) {
+        images++
+        if (i.hi < hi) hi = i.hi
+      }
+    }
+    // La cible **projetée** dans le plateau, et non le milieu du plateau. Tout
+    // point du plateau cadre exactement les mêmes images, donc la marge que
+    // donnerait le milieu ne protège de rien : rien ne bouge à l'intérieur d'un
+    // plan, et les images sont toutes déjà connues. Se rapprocher du centre de
+    // l'action, en revanche, se voit. (relevé par Copilot et Codex)
+    const centre = borner(cible, lo, hi)
     const mieux =
-      couvrants.length > meilleur.images ||
-      (couvrants.length === meilleur.images &&
-        Math.abs(centre - cible) < Math.abs(meilleur.centre - cible))
-    if (mieux) meilleur = { images: couvrants.length, centre }
+      images > meilleur.images ||
+      (images === meilleur.images && Math.abs(centre - cible) < Math.abs(meilleur.centre - cible))
+    if (mieux) meilleur = { images, centre }
   }
-  return légal(meilleur.centre)
+
+  const cropX = légal(meilleur.centre)
+  // Recompté sur la position finalement rendue. Le bornage dans l'image ne peut
+  // pas sortir du plateau — ça se démontre — mais compter ce qu'on rend vraiment
+  // survit à une démonstration qui se périme.
+  return { cropX, cadrées: intervalles.filter((i) => i.lo <= cropX && cropX <= i.hi).length }
 }
 
 /** Le cadrage d'un plan du clip. */
@@ -442,6 +509,9 @@ const TOLÉRANCE_DÉROGATION_MS = 250
  * Le cadrage complet d'un clip : le ratio, puis un crop par plan, puis les
  * dérogations humaines par-dessus.
  *
+ * Le ratio se choisit sur ce qu'un crop fixe par plan cadre réellement, pas sur
+ * les largeurs par image — voir `chooseRatio`.
+ *
  * **Quand le ratio est épinglé, le choix du ratio est sauté — mais pas le calcul
  * des crops.** Ils se calculent alors pour *ce* ratio : sans ça, des crops
  * cadrés pour un 1:1 se retrouveraient posés dans un canevas 4:5, décalés de la
@@ -463,17 +533,24 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   const montées = req.people.filter((b) =>
     segments.some((s) => dansIntervalle(b.t, s.start, s.end)),
   )
-  const mesures = empans(montées, options)
 
-  const ratio =
-    req.ratio === 'auto' ? chooseRatio(mesures.map((e) => e.d - e.g), req.srcW, req.srcH) : req.ratio
+  // Groupées par plan dès maintenant : c'est la granularité du crop, donc celle
+  // à laquelle le ratio doit être jugé. Une image qui ne tombe dans aucun plan
+  // ne compte pas — sans plan, elle n'a pas de crop, et on ne peut donc pas dire
+  // si elle serait cadrée.
+  const plans = shotsForSegments(req.shots, segments)
+  const mesuresParPlan = plans.map((plan) =>
+    empans(
+      montées.filter((b) => dansIntervalle(b.t, plan.start, plan.end)),
+      options,
+    ),
+  )
+
+  const ratio = req.ratio === 'auto' ? choisirRatio(mesuresParPlan, req.srcW, req.srcH) : req.ratio
   const largeur = ratioCoverage(ratio, req.srcW, req.srcH)
 
-  const shots: ShotFraming[] = shotsForSegments(req.shots, segments).map((plan) => {
-    const calculé = cropDuPlan(
-      mesures.filter((e) => dansIntervalle(e.t, plan.start, plan.end)),
-      largeur,
-    )
+  const shots: ShotFraming[] = plans.map((plan, i) => {
+    const { cropX: calculé } = cropDuPlan(mesuresParPlan[i], largeur)
     return {
       shot: plan,
       key: shotStartMs(plan),

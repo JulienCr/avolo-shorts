@@ -287,6 +287,14 @@ describe('requiredWidths', () => {
     expect(requiredWidths(boîtes, { margin: 0 })).toHaveLength(1)
   })
 
+  // `??` ne remplace que `undefined` : un `NaN` se propageait jusqu'à un `cropX`
+  // à `NaN` étiqueté `'auto'`, invisible à l'image mais faux dans l'interface.
+  it('retombe sur les réglages par défaut quand ils ne sont pas finis', () => {
+    const boîtes = [boîte(1, 0.4, 0.6, 0.9), boîte(1, 0.95, 0.99, 0.2)]
+    expect(requiredWidths(boîtes, { margin: Number.NaN })).toEqual(requiredWidths(boîtes))
+    expect(requiredWidths(boîtes, { minScore: Number.NaN })).toEqual(requiredWidths(boîtes))
+  })
+
   it('ignore une boîte inversée ou aux bornes non finies', () => {
     expect(requiredWidths([boîte(1, 0.6, 0.4)], { margin: 0 })).toEqual([])
     expect(requiredWidths([boîte(1, Number.NaN, 0.4)], { margin: 0 })).toEqual([])
@@ -294,35 +302,65 @@ describe('requiredWidths', () => {
 })
 
 describe('chooseRatio', () => {
+  /** Un plan de 20 images où l'action ne bouge pas. */
+  const fixe = (x0: number, x1: number): PersonBox[] => échantillon(0, 10, [[x0, x1]])
+  const sansMarge = { margin: 0 }
+
   it('retient le plus petit ratio qui couvre', () => {
-    expect(chooseRatio([0.3], SRC_W, SRC_H)).toBe('9:16')
-    expect(chooseRatio([0.4], SRC_W, SRC_H)).toBe('4:5')
-    expect(chooseRatio([0.5], SRC_W, SRC_H)).toBe('1:1')
-    expect(chooseRatio([0.8], SRC_W, SRC_H)).toBe('16:9')
+    expect(chooseRatio([fixe(0.35, 0.65)], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio([fixe(0.3, 0.7)], SRC_W, SRC_H, sansMarge)).toBe('4:5')
+    expect(chooseRatio([fixe(0.25, 0.75)], SRC_W, SRC_H, sansMarge)).toBe('1:1')
+    expect(chooseRatio([fixe(0.1, 0.9)], SRC_W, SRC_H, sansMarge)).toBe('16:9')
   })
 
   it('couvre pile la largeur mesurée, sans marge supplémentaire', () => {
-    expect(chooseRatio([ratioCoverage('9:16', SRC_W, SRC_H)], SRC_W, SRC_H)).toBe('9:16')
-    expect(chooseRatio([ratioCoverage('9:16', SRC_W, SRC_H) + 1e-6], SRC_W, SRC_H)).toBe('4:5')
+    const w = ratioCoverage('9:16', SRC_W, SRC_H)
+    expect(chooseRatio([fixe(0.5 - w / 2, 0.5 + w / 2)], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(
+      chooseRatio([fixe(0.5 - w / 2 - 1e-4, 0.5 + w / 2 + 1e-4)], SRC_W, SRC_H, sansMarge),
+    ).toBe('4:5')
   })
 
-  // Le cœur de la décision : **percentile 90, pas maximum**. Une seule image où
-  // quelqu'un traverse le cadre condamnerait le clip entier au 16:9.
+  // Le cœur de la décision : le seuil est à 90 %, pas au maximum. Deux images
+  // sur vingt où quelqu'un traverse ne condamnent pas le clip au 16:9.
   it('absorbe une traversée que le maximum aurait payée en 16:9', () => {
-    const largeurs = [...Array<number>(18).fill(0.3), 0.95, 0.98]
-    expect(chooseRatio(largeurs, SRC_W, SRC_H)).toBe('9:16')
-    expect(Math.max(...largeurs)).toBeGreaterThan(ratioCoverage('1:1', SRC_W, SRC_H))
+    const plan = [...échantillon(0, 9, [[0.35, 0.65]]), ...échantillon(9, 10, [[0.02, 0.98]])]
+    expect(chooseRatio([plan], SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(Math.max(...requiredWidths(plan, sansMarge))).toBeGreaterThan(
+      ratioCoverage('1:1', SRC_W, SRC_H),
+    )
   })
 
   it('cède quand plus de 10 % des images débordent', () => {
-    const largeurs = [...Array<number>(15).fill(0.3), ...Array<number>(5).fill(0.95)]
-    expect(chooseRatio(largeurs, SRC_W, SRC_H)).toBe('16:9')
+    const plan = [...échantillon(0, 7.5, [[0.35, 0.65]]), ...échantillon(7.5, 10, [[0.02, 0.98]])]
+    expect(chooseRatio([plan], SRC_W, SRC_H, sansMarge)).toBe('16:9')
   })
 
-  it('rend une valeur mesurée, jamais une interpolation entre deux images', () => {
-    // Rang le plus proche : sur dix images, le percentile 90 est la neuvième.
-    const largeurs = [...Array<number>(9).fill(0.3), 0.8]
-    expect(chooseRatio(largeurs, SRC_W, SRC_H)).toBe('9:16')
+  // Ce qu'une largeur par image ne peut pas voir, et que la première version de
+  // ce module ratait : le crop est **fixe** pour tout le plan. Un sujet étroit
+  // qui passe de gauche à droite pendant le plan tient dans un 9:16 image par
+  // image — chaque largeur vaut 0,20 — mais aucune position fixe de 9:16 n'en
+  // cadre plus de la moitié. C'est le cas que la spec §10 annonce : « un plan de
+  // trois minutes où les comédiens traversent le plateau impose un crop large,
+  // donc un ratio qui monte, parfois jusqu'au 16:9 ».
+  it('fait monter le ratio quand l’action se déplace à l’intérieur d’un plan', () => {
+    const traversée = [
+      ...échantillon(0, 5, [[0.05, 0.25]]),
+      ...échantillon(5, 10, [[0.75, 0.95]]),
+    ]
+    // Toutes les images tiendraient individuellement dans un 9:16.
+    expect(Math.max(...requiredWidths(traversée, sansMarge))).toBeLessThan(
+      ratioCoverage('9:16', SRC_W, SRC_H),
+    )
+    expect(chooseRatio([traversée], SRC_W, SRC_H, sansMarge)).toBe('16:9')
+  })
+
+  // Le pendant, sans lequel le précédent inviterait à sur-corriger : entre deux
+  // plans le crop a le droit de sauter, puisqu'une coupe existe déjà là.
+  it('ne fait pas monter le ratio quand le déplacement est entre deux plans', () => {
+    const gauche = échantillon(0, 5, [[0.05, 0.25]])
+    const droite = échantillon(5, 10, [[0.75, 0.95]])
+    expect(chooseRatio([gauche, droite], SRC_W, SRC_H, sansMarge)).toBe('9:16')
   })
 
   // Aucune mesure : on ne sait rien de l'endroit où sont les gens. Le 16:9 est
@@ -331,6 +369,7 @@ describe('chooseRatio', () => {
   // comédiens sans que rien ne le signale.
   it('sans aucune mesure, prend le ratio le plus large plutôt que de couper à l’aveugle', () => {
     expect(chooseRatio([], SRC_W, SRC_H)).toBe('16:9')
+    expect(chooseRatio([[], []], SRC_W, SRC_H)).toBe('16:9')
   })
 })
 
@@ -366,9 +405,10 @@ describe('computeFraming', () => {
   })
 
   // Le crop couvre l'action, il ne la moyenne pas. Ici les comédiens dérivent
-  // vers la droite pendant le plan : la fenêtre posée à 0,30 cadre entièrement
-  // 16 images sur 20, là où le centre moyen de l'action — 0,20, où se trouvent
-  // la moitié des images — n'en cadrerait que 10.
+  // vers la droite pendant le plan : le plateau [0,295 ; 0,305] cadre entièrement
+  // 16 images sur 20, là où le centre médian de l'action — 0,20, où se trouvent
+  // la moitié des images — n'en cadrerait que 10. Dans ce plateau on prend le
+  // point le plus proche de ce centre, donc son bord gauche.
   it('cadre le plus d’images possible, et non la position moyenne de l’action', () => {
     const dérive = [
       ...échantillon(0, 5, [[0.1, 0.3]]),
@@ -382,7 +422,7 @@ describe('computeFraming', () => {
       people: dérive,
       ratio: '4:5',
     })
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.3, 6)
+    expect(cadrage.shots[0].cropX).toBeCloseTo(0.295, 6)
   })
 
   it('ne rend jamais un crop qui sortirait du cadre', () => {
@@ -395,6 +435,31 @@ describe('computeFraming', () => {
 
   it('refuse une source aux dimensions invalides', () => {
     expect(() => computeFraming({ ...base, srcW: Number.NaN })).toThrow(/source/)
+  })
+
+  it('ne laisse pas un réglage non fini produire un crop « calculé » qui ne l’est pas', () => {
+    const cadrage = computeFraming({ ...base, margin: Number.NaN })
+    expect(cadrage).toEqual(computeFraming(base))
+    expect(cadrage.shots.every((s) => Number.isFinite(s.cropX))).toBe(true)
+  })
+
+  // Le repli de `cropDuPlan` : un ratio épinglé trop étroit pour l'action, donc
+  // aucune position ne cadre une image entière. On se pose alors sur le centre
+  // **médian** de l'action — 0,325, où sont les 12 premières images — et non sur
+  // le milieu de son étendue, qui serait 0,5 et ne montrerait ni l'un ni l'autre.
+  it('se pose sur la médiane de l’action quand aucune image ne tient dans la fenêtre', () => {
+    const cadrage = computeFraming({
+      ...base,
+      shots: [PLAN_A],
+      segments: [seg(0, 10)],
+      people: [
+        ...échantillon(0, 6, [[0.1, 0.55]]),
+        ...échantillon(6, 10, [[0.45, 0.9]]),
+      ],
+      ratio: '9:16',
+    })
+    expect(cadrage.shots[0].source).toBe('auto')
+    expect(cadrage.shots[0].cropX).toBeCloseTo(0.325, 6)
   })
 
   describe('quand le ratio est épinglé', () => {

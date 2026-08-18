@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { StepName } from '@/core/graph'
 import { phaseProjet } from '@/core/parcours'
 import { dispositionAvancement } from '@/components/tri/modele'
-import { BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
+import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 
 afterEach(cleanup)
 
@@ -123,14 +123,6 @@ describe('PanneauAvancement', () => {
     expect(barre.closest('[aria-live]')).toBeNull()
   })
 
-  it('n’annonce à voix haute que l’étape, dans une région polie', () => {
-    monter(['audio'])
-    const région = screen.getByTestId('annonce')
-    expect(région.getAttribute('aria-live')).toBe('polite')
-    expect(région.textContent).toContain('Transcription')
-    expect(région.textContent).not.toContain('42')
-  })
-
   it('dit ce qui devient possible ensuite, jamais quand', () => {
     monter(['audio'])
     expect(screen.getByTestId('ensuite').textContent).toMatch(/tri/i)
@@ -161,6 +153,33 @@ describe('PanneauAvancement', () => {
     // inventer une donnée.
     monter(['audio'])
     expect(screen.getByTestId('ecoule').textContent).toMatch(/écran/i)
+  })
+})
+
+describe('AnnonceDÉtape', () => {
+  it('n’annonce que l’étape, dans une région polie, sans la progression', () => {
+    render(<AnnonceDÉtape running={enCours} steps={releve(['audio'])} />)
+    const région = screen.getByTestId('annonce')
+    expect(région.getAttribute('aria-live')).toBe('polite')
+    expect(région.textContent).toContain('Transcription')
+    expect(région.textContent).not.toContain('42')
+  })
+
+  it('annonce la fin quand toutes les étapes du graphe sont là', () => {
+    render(
+      <AnnonceDÉtape
+        running={null}
+        steps={releve(['audio', 'transcript', 'candidates', 'proxy', 'analysis'])}
+      />,
+    )
+    expect(screen.getByTestId('annonce').textContent).toMatch(/terminée/i)
+  })
+
+  it('distingue une analyse arrêtée d’une analyse terminée', () => {
+    // `renders` ne passe jamais par le graphe : l'exiger empêcherait toute
+    // analyse d'être jamais annoncée comme terminée.
+    render(<AnnonceDÉtape running={null} steps={releve(['audio'])} />)
+    expect(screen.getByTestId('annonce').textContent).toMatch(/arrêtée/i)
   })
 })
 

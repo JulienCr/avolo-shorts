@@ -146,6 +146,45 @@ describe('la boucle de tri, au clavier', () => {
     expect(document.activeElement).toBe(carte('Extrait 1'))
   })
 
+  it('« Entrée » ouvre le clip de la carte sélectionnée', async () => {
+    const ouverts: string[] = []
+    // En capture, et avec `preventDefault` : sans lui, jsdom tenterait la
+    // navigation et la noierait dans une erreur « Not implemented ».
+    const espion = (événement: Event) => {
+      const lien = (événement.target as HTMLElement).closest('a[data-ouvrir]')
+      if (lien !== null) {
+        événement.preventDefault()
+        ouverts.push(lien.getAttribute('href') ?? '')
+      }
+    }
+    document.addEventListener('click', espion, true)
+    try {
+      render(<Harnais depart={[candidat(1), candidat(2)]} />)
+      const utilisateur = await focaliser('Extrait 1')
+      await utilisateur.keyboard('j{Enter}')
+      expect(ouverts).toEqual(['/clips/c2'])
+    } finally {
+      document.removeEventListener('click', espion, true)
+    }
+  })
+
+  it('ne rend jamais son statut d’exporté à un clip défait', async () => {
+    // `PATCH` refuse `exported` : un clip devient exporté parce qu'un MP4 a été
+    // produit, jamais parce que quelqu'un l'a écrit — et la décision qu'on
+    // défait a de toute façon fait écarter le rendu. `kept` est le maximum
+    // honnête.
+    render(<Harnais depart={[candidat(1, 'exported')]} vueInitiale="gardes" />)
+    const utilisateur = await focaliser('Extrait 1')
+
+    await utilisateur.keyboard('e')
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /remettre/i })).toBeTruthy()
+
+    await utilisateur.keyboard('u')
+    const gardé = within(carte('Extrait 1')).getByRole('button', { name: /gardé/i })
+    expect(gardé.getAttribute('aria-pressed')).toBe('true')
+    expect(gardé.textContent).not.toMatch(/exporté/i)
+  })
+
   it('ne fait rien sur une pile vide', async () => {
     render(<Harnais depart={[candidat(1), candidat(2)]} />)
     const utilisateur = await focaliser('Extrait 1')

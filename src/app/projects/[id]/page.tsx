@@ -8,7 +8,7 @@ import { compter, phaseProjet } from '@/core/parcours'
 import { lienProjet } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
 import { AppBar } from '@/components/parcours/app-bar'
-import { BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
+import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 import { FilDeTri } from '@/components/tri/fil'
 import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
 import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
@@ -71,6 +71,11 @@ function EcranDeProjet({ id }: { id: string }) {
       </AppBar>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
+        {/* Au-dessus de la disposition, pour survivre au panneau : c'est
+            précisément quand il cède la place à la grille qu'il y a quelque
+            chose à annoncer. */}
+        <AnnonceDÉtape running={running} steps={steps} />
+
         <div className="flex flex-col gap-4">
           {/* **Deux origines d'erreur, et la seconde n'efface pas la première.**
               L'analyse a échoué : c'est un fait du serveur, il vit en bandeau et

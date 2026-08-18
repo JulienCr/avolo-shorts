@@ -61,14 +61,6 @@ export function PanneauAvancement({
             : 'L’analyse s’est arrêtée.'}
       </h1>
 
-      {/* **Une région polie, et elle n'annonce que l'étape.** L'écran interroge
-          l'état toutes les deux secondes : une région live posée sur le
-          pourcentage produirait une annonce toutes les deux secondes pendant
-          neuf minutes. Quatre annonces sur toute l'analyse suffisent. */}
-      <p data-testid="annonce" aria-live="polite" className="sr-only">
-        {running !== null ? `${LIBELLES_ETAPES[running.step]} en cours.` : 'Aucune étape en cours.'}
-      </p>
-
       {running !== null && (
         <div className="mt-4">
           <Progress
@@ -135,6 +127,46 @@ export function PanneauAvancement({
 
       {àReprendre && <div className="mt-5">{reprise}</div>}
     </section>
+  )
+}
+
+/**
+ * Ce qui se dit à voix haute d'une analyse en cours.
+ *
+ * **Elle n'annonce que les changements d'étape, et la fin.** L'écran interroge
+ * l'état toutes les deux secondes : une région live posée sur le pourcentage
+ * produirait une annonce toutes les deux secondes pendant neuf minutes. Le
+ * `progressbar`, lui, met `aria-valuenow` à jour en silence. Quatre annonces sur
+ * toute l'analyse, et c'est le compte juste.
+ *
+ * **Elle se pose au-dessus de la disposition, jamais dans le panneau.** Le
+ * panneau disparaît au moment précis où le repérage rend ses propositions — la
+ * grille le remplace —, donc une région qui vivrait dedans serait démontée
+ * pendant le seul changement qui vaille d'être annoncé. Une région live n'annonce
+ * que ce qui change **pendant qu'elle est là**.
+ *
+ * **Le texte s'ajuste pendant le rendu, pas dans un effet.** Comparer l'étape
+ * précédente dans un `useEffect` pour poser un message d'état est le réflexe, et
+ * il est interdit ici (`react-hooks/set-state-in-effect`) — pour une bonne
+ * raison : React ne réécrit le nœud de texte que si son contenu a changé, donc
+ * un rendu direct annonce déjà exactement les changements, sans second état à
+ * tenir d'accord.
+ */
+export function AnnonceDÉtape({
+  running,
+  steps,
+}: {
+  running: { step: StepName } | null
+  steps: Record<StepName, boolean>
+}) {
+  return (
+    <p data-testid="annonce" aria-live="polite" className="sr-only">
+      {running !== null
+        ? `${LIBELLES_ETAPES[running.step]} en cours.`
+        : ÉTAPES.every(({ nom }) => steps[nom] === true)
+          ? 'L’analyse est terminée.'
+          : 'L’analyse s’est arrêtée.'}
+    </p>
   )
 }
 

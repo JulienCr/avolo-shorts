@@ -332,16 +332,31 @@ supprime la question. (relevé par Copilot)
 est vrai d'une liste vide : après avoir tout écarté, la phase terminale annonçait
 un livrable alors qu'aucun MP4 n'existe. (relevé par Copilot)
 
-**Et `livre` ne se déduit pas du statut `exported`.** Rouvrir un clip exporté pour
-en retoucher le montage laisse son statut à `exported` alors que le MP4 sur le
-disque décrit l'édition précédente. Ce va-et-vient est un parcours normal, décrit
-en 2.1. Il faut donc comparer le clip à son rendu, et non lire une étiquette.
-**C'est une demande au serveur** : `GET /api/clips/:id` doit dire si le rendu est
-plus ancien que la dernière modification du clip, par exemple en portant la date
-de modification du clip à côté de celle de ses sorties. Tant que ce champ n'existe
-pas, `livre` est indisponible, et l'écran de clip marque simplement « rendu
-antérieur à vos dernières modifications » quand il peut le savoir. (relevé par
-Codex)
+**`livre` se déduit du statut `exported`, et c'est vrai depuis le 18 août.**
+
+Ce document affirmait le contraire, à raison au moment où il a été écrit : rouvrir
+un clip exporté pour en retoucher le montage laissait son statut à `exported`
+alors que le MP4 décrivait l'édition précédente, et il fallait donc demander au
+serveur un champ de fraîcheur. Le raisonnement était juste, la demande aussi — et
+la vague de l'export l'a satisfaite avant que ce document ne soit lu.
+
+`écarterRenduPérimé` (`src/server/steps/render.ts`) fait sortir le clip
+d'`exported` dès qu'un champ **que l'encodage consomme** change : segments,
+ratio, cadrage, sous-titres, marque. Le titre et la description n'y sont pas, et
+c'est délibéré — ils ne vont que dans le `.txt`, réécrit depuis l'état à jour, et
+les compter ferait perdre son statut à un clip dont on a corrigé une faute de
+frappe.
+
+Et l'invariant ne tient pas à l'effacement des fichiers, qui peut échouer : il
+tient à `sortiesDuClip` (`src/server/rendus.ts`), qui rend quatre `null` dès que
+`status !== 'exported'`. Des fichiers présents sous un clip qui ne porte pas ce
+statut décrivent autre chose que sa livraison, et les publier servirait la vidéo
+d'avant sans que rien ne le signale.
+
+**Donc pas de champ de fraîcheur à ajouter**, et ne pas en ajouter un en croyant
+obéir à ce paragraphe : il ferait doublon avec un invariant déjà tenu, et deux
+sources de vérité sur la même question finissent par diverger. (demande relevée
+par Codex, satisfaite par la PR #28, constaté le 18 août)
 
 Ces valeurs ne sont pas un décor. Chacune répond à une question qu'un écran pose
 aujourd'hui à sa façon, avec ses propres `if` :
@@ -824,8 +839,16 @@ absente n'est pas une anomalie quand le ratio est déjà 9:16, et l'interface do
 le dire ainsi plutôt que de montrer une case vide.
 
 **Les textes** : titre, description et hashtags, dans une zone qui se copie d'un
-bouton. Le fichier `.txt` existe sur le disque et Julien publie avec ses propres
-outils : ce qu'il lui faut ici est le presse-papiers, pas un chemin.
+bouton. Le fichier `.txt` existe sur le disque : ce qu'il faut ici est le
+presse-papiers, pas un chemin.
+
+**Le presse-papiers n'est plus seul depuis le 18 août 2026.** Ce paragraphe disait
+« Julien publie avec ses propres outils » ; un spike a montré qu'Instagram et
+Facebook se publient gratuitement depuis l'outil, et le panneau gagne donc une
+seconde moitié — cases à cocher des plateformes, bouton, une ligne d'état par
+plateforme. La conception en est à part, dans
+`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
+laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
 **Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
 sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif
@@ -1537,11 +1560,11 @@ que `lancer` en prend une liste et que `créerProjet` lui passe déjà
 graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
 fin du premier.
 
-**La fraîcheur des rendus.** `livre` ne peut pas se déduire du statut `exported`,
-qu'une réédition ne défait pas. Il faut pouvoir comparer un clip à ses sorties,
-par exemple en portant sa date de modification à côté de celles des rendus. Sans
-ce champ, la phase terminale du parcours reste indisponible et l'écran de clip ne
-peut pas dire qu'un rendu est périmé.
+**~~La fraîcheur des rendus.~~ Résolu le 18 août, avant même d'être demandé.**
+Une réédition **défait** bien le statut `exported` : `écarterRenduPérimé` s'en
+charge sur chaque `PATCH`, et `sortiesDuClip` refuse de servir des fichiers sous
+un clip qui ne porte plus ce statut. `livre` se lit donc sur `exported`, sans
+champ supplémentaire. Le détail est en 2.3.
 
 ### 9.5 Quatre questions de la relecture, et leurs réponses
 

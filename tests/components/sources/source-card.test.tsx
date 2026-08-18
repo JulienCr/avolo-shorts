@@ -10,7 +10,7 @@
  * parfois plusieurs secondes.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,6 +24,7 @@ const NEUVE: Source = {
   sizeBytes: 4_300_000_000,
   modifiedAt: '2025-06-15T19:04:00.000Z',
   projectId: null,
+  thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
 }
 
 function creation(partiel: Partial<Creation> = {}): Creation {
@@ -126,5 +127,89 @@ describe('SourceCard', () => {
     // Un fichier de 0 octet existe : un enregistrement qui vient de commencer.
     render(<SourceCard source={{ ...NEUVE, sizeBytes: 0 }} creation={creation()} />)
     expect(screen.getByText(/0 octet/)).toBeTruthy()
+  })
+})
+
+/**
+ * La vignette (issue #41).
+ *
+ * **Ce qui compte n'est pas qu'une image s'affiche**, c'est que la carte ne
+ * bouge pas selon qu'elle s'affiche ou non. L'image arrive plusieurs secondes
+ * après la carte — elle se tire de l'original, sur un montage 9p —, et une case
+ * qui prendrait ses dimensions ferait sauter la grille au moment où l'œil s'y
+ * pose. Elle a la même valeur quand elle n'arrive jamais : un replay de zéro
+ * octet, un fichier disparu depuis la liste, une extraction en échec.
+ */
+describe('SourceCard, la vignette', () => {
+  function vignette(): HTMLElement {
+    const élément = document.querySelector('[data-slot="vignette"]')
+    if (élément === null) throw new Error('pas d’emplacement de vignette')
+    return élément as HTMLElement
+  }
+
+  it('pointe la route de vignette, sans agrandir la carte', () => {
+    render(<SourceCard source={NEUVE} creation={creation()} />)
+
+    const image = vignette().querySelector('img')
+    expect(image?.getAttribute('src')).toBe(NEUVE.thumbnailUrl)
+    // La case porte le rapport et la hauteur, jamais l'image : c'est ce qui rend
+    // le chargement indépendant du reste de la carte (conception §3.1).
+    expect(vignette().className).toContain('aspect-video')
+    expect(image?.className).toContain('absolute')
+  })
+
+  /**
+   * Le chargement au défilement que la spec §12 demande — « on demande celle
+   * d'une carte quand elle entre dans le champ » — est celui du navigateur. Sur
+   * vingt et une cartes, la première page en déclenche huit, pas vingt et une,
+   * et un observateur d'intersection écrit à la main ferait la même chose en
+   * moins bien.
+   */
+  it('ne demande son image qu’à l’approche du champ', () => {
+    render(<SourceCard source={NEUVE} creation={creation()} />)
+    expect(vignette().querySelector('img')?.getAttribute('loading')).toBe('lazy')
+  })
+
+  it('retombe sur le pictogramme quand l’image n’arrive pas', () => {
+    render(<SourceCard source={NEUVE} creation={creation()} />)
+
+    const image = vignette().querySelector('img')
+    expect(image).not.toBeNull()
+    fireEvent.error(image as HTMLImageElement)
+
+    // L'image disparaît, la case reste — donc la carte ne change pas de taille
+    // entre « en attente » et « jamais arrivée ».
+    expect(vignette().querySelector('img')).toBeNull()
+    expect(vignette().querySelector('svg')).not.toBeNull()
+    expect(vignette().className).toContain('aspect-video')
+  })
+
+  /**
+   * **L'état d'échec appartient à l'URL, pas à la position dans la grille.**
+   * React réutilise un élément d'une carte à l'autre quand la liste se
+   * réordonne — une création qui remonte un replay suffit —, et sans `key`
+   * l'échec d'une source resterait posé sur l'image d'une autre, qui n'aurait
+   * alors jamais sa chance.
+   */
+  it('rend sa chance à une autre source rendue au même endroit', () => {
+    const { rerender } = render(<SourceCard source={NEUVE} creation={creation()} />)
+    fireEvent.error(vignette().querySelector('img') as HTMLImageElement)
+    expect(vignette().querySelector('img')).toBeNull()
+
+    const autre = { ...NEUVE, name: 'b.mp4', thumbnailUrl: '/api/sources/thumb?file=b.mp4' }
+    rerender(<SourceCard source={autre} creation={creation()} />)
+
+    expect(vignette().querySelector('img')?.getAttribute('src')).toBe(autre.thumbnailUrl)
+  })
+
+  /**
+   * Le nom du replay est à trois centimètres de l'image, et il porte déjà la
+   * date et l'émission. Une image décorative annoncée en plus n'ajoute rien et
+   * allonge la lecture d'une grille de vingt et une cartes.
+   */
+  it('ne se fait pas annoncer deux fois', () => {
+    render(<SourceCard source={NEUVE} creation={creation()} />)
+    expect(vignette().getAttribute('aria-hidden')).toBe('true')
+    expect(vignette().querySelector('img')?.getAttribute('alt')).toBe('')
   })
 })

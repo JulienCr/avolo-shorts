@@ -57,18 +57,32 @@ projet se gagne là.
 prend l'empan de tout ce que le détecteur trouve, sans distinguer un comédien sur
 le plateau d'une tête de spectateur collée au bord bas de l'image. La détection au
 corps du 18 août 2026 dit ce que ça coûte, sur `2025-06-15-cqlp` qui n'est pas
-dans le tableau ci-dessus : 34 % des boîtes de personnes y sont du public au
-premier plan ; écarté, l'empan médian tombe de 0,68 à 0,50 et la part du temps qui
-tient dans un 1:1 passe de 33 % à 64 %.
+dans le tableau ci-dessus : **33,8 % des boîtes y sont du public au premier plan**
+et, une fois le filtre de la §10 posé, l'empan médian tombe de 0,661 à 0,540 et la
+part des images qui tient dans un 1:1 passe de 31,3 % à 55,1 %.
+
+Ces quatre chiffres remplacent ceux qui figuraient ici — 0,68 à 0,50 et 33 % à
+64 %. Ils venaient d'un écartement provisoire du premier plan, plus large que
+celui qui a été retenu ; le détail de la différence est dans
+`docs/premier-plan.md`.
 
 Le tableau n'est pas réécrit : il reste ce que la méthode du 17 août a mesuré. Et
 ce qu'on peut en conclure s'arrête là où s'arrêtent les mesures : la méthode
 **peut** sous-estimer la couverture, largement, partout où du public entre dans le
-cadre. Pas que son 48 % la sous-estime en fait. L'écart de 33 % à 64 % a été
-mesuré sur `2025-06-15-cqlp`, qui n'est pas dans le tableau ;
-`2026-03-08-caro-mdlm`, elle, n'a que 26 boîtes de public sur 3 083. Le public au
-cadre appartient à une émission, pas au fonds. Trancher demanderait de repasser les
-trois émissions du tableau à la détection au corps, premier plan écarté.
+cadre. Pas que son 48 % la sous-estime en fait. L'écart a été mesuré sur
+`2025-06-15-cqlp`, qui n'est pas dans le tableau ; `2026-03-08-caro-mdlm`,
+repassée en entier à la détection le 18 août, n'a que **832 boîtes de premier plan
+sur 45 362, soit 1,8 %**. Le public au cadre appartient à une émission, pas au
+fonds. Trancher demanderait de repasser les trois émissions du tableau à la
+détection au corps, premier plan écarté.
+
+**Et un chiffre par image ne prédit pas un ratio par clip.** Sur `cqlp`, 55,1 %
+des images tiennent dans un 1:1 après filtrage, mais seules 20 % des fenêtres de
+30 s en sortent avec un ratio de 1:1 ou plus serré. L'écart n'est pas une erreur :
+le crop est fixe à l'intérieur d'un plan et doit cadrer 90 % des images du clip,
+donc une image cadrable isolément ne l'est pas forcément par la position qui cadre
+ses voisines. Les deux grandeurs se ressemblent assez pour qu'on les confonde, et
+c'est la confusion qui ferait chercher un défaut là où il n'y en a pas.
 
 ### Taille des sujets
 
@@ -128,8 +142,8 @@ plus solide que la mosaïque, ce ne sont pas les vingt du fonds.
   en multipiste. Aucune conception ne peut supposer une piste par micro.
 - Les rires, signal **non mesuré**. La spec a longtemps écrit « pas de rires :
   l'émission n'est pas jouée devant un public », et la seconde moitié est démentie
-  depuis le 18 août 2026 : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
-  des têtes de spectateurs au bord bas de l'image, contre 26 sur 3 083 pour
+  depuis le 18 août 2026 : sur `2025-06-15-cqlp`, 33,8 % des boîtes de personnes
+  sont des têtes de spectateurs au bord bas de l'image, contre 1,8 % pour
   `2026-03-08-caro-mdlm`. Il y a donc du public sur certaines émissions. Personne
   n'a écouté si ce public s'entend. L'absence de piste séparée rend un rire plus
   dur à isoler, pas absent du mix : ni fonder ni écarter quoi que ce soit là-dessus
@@ -230,7 +244,7 @@ réglage de dernier recours, et l'automatique ne fera que le préremplir.
 
 | Itération | Contenu |
 |---|---|
-| 1 | Cadrage automatique : détection de personnes et de plans, ratio au percentile 90, crop fixe par plan, coupes posées sur les frontières |
+| 1 | Cadrage automatique : détection de personnes et de plans, ratio au seuil de 90 % d’images cadrées, crop fixe par plan, coupes posées sur les frontières |
 | 2 | Qualité du repérage : les quatre autres pourvoyeurs, reclassement en vision |
 | 3 | Sous-titres : nettoyage déterministe des hésitations, correction par modèle local, personnalisation du style |
 | 4 | Automatisation : watcher sur le dossier de replays, webhook, graphe complet avec clés de validité |
@@ -651,11 +665,55 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
 
 ## 10. Le cadrage
 
-**Le ratio est choisi une fois par clip.** Pour chaque image des segments retenus,
-on calcule la largeur nécessaire, on prend le **percentile 90** (pas le maximum,
-sinon une seule image où quelqu'un traverse le cadre condamne le clip entier), et
-on retient le plus petit ratio qui couvre. Sur les 10 % restants, un sujet peut
-sortir partiellement du cadre.
+**Le ratio est choisi une fois par clip** : le plus petit dont **un crop fixe par
+plan cadre 90 % des images** des segments retenus. Pas le maximum, sinon une seule
+image où quelqu'un traverse le cadre condamne le clip entier ; sur les 10 %
+restants, un sujet peut sortir partiellement du cadre.
+
+Ce paragraphe demandait le **percentile 90 des largeurs par image**, et c'est
+faux : une largeur par image suppose un crop libre par image, alors que le crop
+est fixe pour tout le plan. Un sujet étroit à gauche pendant la moitié d'un plan
+puis à droite pendant l'autre tient dans un 9:16 image par image, alors qu'aucune
+position fixe de 9:16 n'en cadre plus de la moitié. Le code a tranché en premier
+(`chooseRatio`, relevé en review) ; le texte suit.
+
+**Le public au premier plan ne compte pas.** Une boîte de personne **tronquée par
+le bord bas** de l'image et dont il ne reste qu'une **tranche courte** est écartée
+avant tout calcul d'empan : c'est quelqu'un entre la caméra et le plateau, pas un
+comédien. Sur `2025-06-15-cqlp`, ce sont 33,8 % des boîtes, et sans ce filtre tous
+les clips sortaient en 16:9.
+
+Les deux conditions sont nécessaires et aucune ne suffit — le point s'est payé, et
+les deux contre-exemples ont été trouvés en regardant les images :
+
+- Le bord bas seul jette les comédiens. 76 % de leurs boîtes touchent le bas du
+  cadre, puisqu'ils jouent debout ; couper là-dessus ne laisse survivre que 16 %
+  des boîtes, et le ratio qui en résulte est calculé sur un tiers des images.
+- La hauteur seule jette les plans lointains. Deux comédiens assis dans le noir
+  donnent des boîtes courtes qui flottent au milieu du cadre — 3 075 sur
+  `2026-03-08-caro-mdlm`.
+
+Les seuils par défaut sont `y1 ≥ 0,97` et une hauteur inférieure à `0,35`. Le
+second tombe dans un creux de la distribution : entre 0,32 et 0,40, il ne reste
+que 29 boîtes sur 26 436. Ce sont des **réglages** (`FramingOptions`), pas des
+constantes, parce que le phénomène appartient à une émission et pas au fonds :
+1,8 % des boîtes sur `caro-mdlm` contre 33,8 % sur `cqlp`. Le filtre vit dans
+`src/core/framing.ts`, jamais dans `worker/detect.py` : la sortie du détecteur
+reste brute, et un filtre posé dedans se paierait en heures de GPU pour être
+défait. Le détail de la mesure, images comprises, est dans `docs/premier-plan.md`.
+
+Conséquence à connaître : quand le filtre vide un clip de toute mesure, le ratio
+monte au plus large, comme n'importe quel clip qu'aucune détection ne renseigne.
+Le cas s'est produit sur une fenêtre de `caro-mdlm` dont la seule détection était
+un poisson rouge du générique de fin. C'est le comportement voulu — une faute
+voyante plutôt qu'un cadrage serré sur rien.
+
+**Le filtre ne suffit pas à sortir `cqlp` du 16:9, et ce n'est pas un défaut du
+filtre.** Ses dix clips y restent, vérification à l'image comprise : les deux
+comédiens y sont réellement aux deux bords du cadre. Ce qui se gagne se mesure
+ailleurs — l'empan médian passe de 0,661 à 0,540, la part des images qui tient
+dans un 1:1 de 31,3 % à 55,1 %, et 25 fenêtres de 30 s sur 197 se resserrent sans
+qu'aucune ne s'élargisse.
 
 **La position du crop est fixe à l'intérieur de chaque plan**, calculée pour
 couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une

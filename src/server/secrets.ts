@@ -61,8 +61,22 @@ import { promisify } from 'node:util'
 
 const execFileP = promisify(execFile)
 
-/** Le préfixe d'une adresse de secret 1Password. */
-const PRÉFIXE = 'op://'
+/**
+ * Les préfixes qu'une adresse de secret peut porter. Un seul aujourd'hui, celui
+ * de 1Password.
+ *
+ * **La liste est exportée parce qu'elle en contraint une autre.**
+ * `src/core/erreurs.ts` caviarde les références dans les messages servis par
+ * l'API, et la frontière de pureté lui interdit d'importer ce fichier : il en
+ * recopie donc le préfixe à la main. Deux exemplaires d'une même vérité ne se
+ * contraignent pas tout seuls, et la dépendance a vécu un temps en commentaire
+ * des deux côtés — ce qui ne la faisait échouer nulle part.
+ * `tests/core/erreurs.test.ts` lit désormais cette liste et exige que chacune
+ * de ses formes ressorte caviardée : un préfixe ajouté ici sans passe
+ * correspondante là-bas fait rougir la suite au lieu de sortir en silence sur
+ * un dépôt public. (issue #49)
+ */
+export const PRÉFIXES_DE_RÉFÉRENCE: readonly string[] = ['op://']
 
 /**
  * Ce qu'on laisse à `op`. Une lecture coûte 2,5 s, mais l'application peut
@@ -90,9 +104,29 @@ export type LecteurDeSecret = (référence: string) => Promise<string>
  */
 export type Environnement = Record<string, string | undefined>
 
+/**
+ * Ce qu'une référence nomme, sans son préfixe — `<coffre>/<fiche>/<champ>` —,
+ * ou `undefined` quand la valeur n'est pas une référence.
+ *
+ * Le préfixe se sépare ici plutôt que chez l'appelant parce que c'est ici qu'on
+ * sait lequel a mordu. `caviarderRéférencesConnues` (`src/server/erreurs.ts`)
+ * s'en sert pour retirer d'un message d'erreur la référence entière **en
+ * remettant son préfixe derrière** : c'est lui qui dit que la variable portait
+ * une adresse et non une valeur littérale.
+ *
+ * Le corps d'un préfixe nu est la chaîne vide, et non `undefined` :
+ * `op://` reste une référence — mal formée, mais une référence —, simplement
+ * elle ne nomme rien.
+ */
+export function corpsDeRéférence(valeur: string | undefined): string | undefined {
+  if (valeur === undefined) return undefined
+  const préfixe = PRÉFIXES_DE_RÉFÉRENCE.find((p) => valeur.startsWith(p))
+  return préfixe === undefined ? undefined : valeur.slice(préfixe.length)
+}
+
 /** Une valeur est-elle une adresse plutôt qu'un secret ? */
 export function estRéférence(valeur: string | undefined): boolean {
-  return valeur !== undefined && valeur.startsWith(PRÉFIXE)
+  return corpsDeRéférence(valeur) !== undefined
 }
 
 /**

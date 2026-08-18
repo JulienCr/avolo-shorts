@@ -240,6 +240,23 @@ export type OptionsFfmpeg = {
   quoi?: string
   /** Le binaire, si ce n'est pas `ffmpegBin()`. */
   bin?: string
+  /**
+   * Le délai au bout duquel le processus est **tué**, ou `undefined` pour ne
+   * jamais renoncer — ce qui reste le défaut, et le bon défaut : un proxy prend
+   * six minutes, un export jusqu'à une minute, et une borne arbitraire les
+   * ferait échouer le jour où la machine est chargée.
+   *
+   * Il existe pour le seul appelant qui lise **l'original sur le montage 9p**,
+   * la vignette d'une source. Le Drive décroche de deux façons que
+   * `/proc/mounts` ne distingue pas, et un ffmpeg qui pend dessus ne rend
+   * jamais la main : ni le processus, ni la requête HTTP qui l'attend.
+   *
+   * **Renoncer ne suffit pas ici, il faut tuer.** Ailleurs dans ce dépôt on se
+   * contente de cesser d'attendre — un appel système n'est pas annulable. Un
+   * processus, lui, l'est : le laisser derrière soi accumulerait un ffmpeg par
+   * vignette demandée pendant que le partage est tombé.
+   */
+  timeoutMs?: number
 }
 
 /**
@@ -260,6 +277,28 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
 
   return new Promise<void>((resolve, reject) => {
     const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+
+    // **On rejette *et* on tue, dans cet ordre.** Sur un montage 9p mort, le
+    // processus part en sommeil non interruptible : `SIGKILL` est enregistré
+    // mais `close` peut n'arriver que bien plus tard, voire jamais. Attendre la
+    // fin du processus pour rendre la main reproduirait exactement le blocage
+    // qu'on ferme. Un `reject` après règlement est sans effet, donc le `close`
+    // qui finira peut-être par venir ne dit rien de plus.
+    const renoncer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            proc.kill('SIGKILL')
+            reject(
+              new Error(
+                `ffmpeg n'a pas répondu en ${options.timeoutMs} ms` +
+                  `${options.quoi === undefined ? '' : ` — ${options.quoi}`}, il a été tué. ` +
+                  'Sur un chemin du montage 9p, cela veut dire que le partage a perdu son ' +
+                  "transport : /proc/mounts ne le distingue pas d'un partage sain.",
+              ),
+            )
+          }, options.timeoutMs)
+    const finir = () => clearTimeout(renoncer)
 
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (morceau: string) => {
@@ -283,6 +322,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     // sur une machine où `setup.sh` n'a pas tourné. Sans ce gestionnaire, la
     // promesse ne se réglerait jamais.
     proc.on('error', (cause) => {
+      finir()
       reject(
         new Error(
           `ffmpeg n'a pas pu démarrer (${bin}) : ${cause.message}. ` +
@@ -293,6 +333,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     })
 
     proc.on('close', (code, signal) => {
+      finir()
       if (code === 0) {
         resolve()
         return

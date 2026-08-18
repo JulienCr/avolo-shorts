@@ -618,6 +618,17 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         logos,
       }
 
+      // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
+      // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
+      // rendre ; la laisser le temps du natif ouvre une fenêtre où un arrêt
+      // brutal — coupure, tueur de mémoire — laisse l'ancienne 9:16 à côté d'un
+      // natif tout neuf, et la relance suivante, sans `force`, trouve les trois
+      // sorties présentes et saute définitivement sur cette paire incohérente.
+      // Effacée d'abord, n'importe quelle interruption laisse une sortie
+      // manquante, donc réessayable. (relevé par Copilot)
+      const variante = chemins.variant9x16
+      if (variante !== null) fs.rmSync(variante, { force: true })
+
       await produireArtefact({
         dst: chemins.mp4,
         // `true` et non `options.force` : la décision est prise au-dessus, une
@@ -639,18 +650,9 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // et un natif réencodé alors que la variante est restée en place laisserait
       // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
       // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
-      //
-      // **Et la périmée est effacée AVANT le nouvel encodage**, pas seulement
-      // refaite. Le contrefactuel, que le code ne montre plus une fois écrit : si
-      // on la laissait là et que son encodage échouait, la fonction lèverait en
-      // laissant les deux sorties présentes — l'ancienne variante à côté du natif
-      // tout neuf —, et la relance suivante, sans `force`, sauterait sur cette
-      // paire incohérente. Effacée d'abord, un échec laisse une sortie manquante,
-      // donc réessayable. (relevé par Copilot)
-      if (chemins.variant9x16 !== null) {
-        fs.rmSync(chemins.variant9x16, { force: true })
+      if (variante !== null) {
         await produireArtefact({
-          dst: chemins.variant9x16,
+          dst: variante,
           force: true,
           durationSec: durée,
           onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),

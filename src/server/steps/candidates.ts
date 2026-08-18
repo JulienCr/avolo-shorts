@@ -528,24 +528,58 @@ export async function runCandidates(
   const taille = tailleDeLot()
   const notées: ScoredWindow[] = []
   const nonNotées: string[] = []
+  let lotsRefusés = 0
   for (let i = 0; i < fenêtres.length; i += taille) {
     const lot = fenêtres.slice(i, i + taille)
-    const réponse = await appelerGemini(
-      appel,
-      scorePrompt({
-        language: transcript.language,
-        videoDuration: durée,
-        windowsJson: scoreWindowsJson(lot),
-      }),
-      'score',
-      { sleep },
-    )
+    let réponse: unknown
+    try {
+      réponse = await appelerGemini(
+        appel,
+        scorePrompt({
+          language: transcript.language,
+          videoDuration: durée,
+          windowsJson: scoreWindowsJson(lot),
+        }),
+        'score',
+        { sleep },
+      )
+    } catch (erreur) {
+      if (!(erreur instanceof GeminiBlockedError)) throw erreur
+      // **Un lot refusé n'est pas une vidéo refusée.** Mesuré sur
+      // `2025-06-15-cqlp` le 18 août 2026 : sur 83 fenêtres, un seul lot de 8
+      // revient `PROHIBITED_CONTENT`, de façon reproductible, et les autres
+      // passent. Faire remonter ce refus rendait l'émission entière
+      // inanalysable — quarante minutes de transcription pour rien, et un
+      // message qui accuse la vidéo là où huit fenêtres sur quatre-vingt-trois
+      // sont en cause.
+      //
+      // Les fenêtres du lot sont donc classées dernières, exactement comme
+      // celles qu'une réponse omet. La conséquence porte sur `SCORE_BATCH` : un
+      // lot large perd plus de matière quand il tombe, un lot étroit multiplie
+      // les appels. Le refus, lui, reste déterministe et n'est jamais réessayé.
+      lotsRefusés += 1
+      for (const fenêtre of lot) {
+        notées.push({ id: fenêtre.id, score: 0, reason: 'lot refusé par le filtre', notée: false })
+        nonNotées.push(fenêtre.id)
+      }
+      continue
+    }
     const { scored, missing } = parseScoreResponse(réponse, lot)
     notées.push(...scored)
     nonNotées.push(...missing)
   }
   if (nonNotées.length > 0) {
     console.warn(`${nonNotées.length} fenêtre(s) sont revenues sans note ; classées dernières.`)
+  }
+  // Tous les lots refusés : là, c'est bien la vidéo. On le dit avec l'erreur
+  // qui ne se réessaie pas, plutôt que de détailler un panier vide.
+  if (lotsRefusés > 0 && notées.every((n) => !n.notée)) {
+    throw new GeminiBlockedError(
+      `Gemini a refusé les ${lotsRefusés} lot(s) de notation de cette vidéo. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+    )
+  }
+  if (lotsRefusés > 0) {
+    console.warn(`${lotsRefusés} lot(s) refusés par le filtre de contenu ; classés derniers.`)
   }
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.

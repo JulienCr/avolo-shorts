@@ -495,6 +495,42 @@ describe("l'étape de repérage", () => {
     expect(restes).toEqual([])
   })
 
+  /**
+   * Un lot de notation refusé n'est pas une vidéo refusée.
+   *
+   * Mesuré sur `2025-06-15-cqlp` le 18 août 2026 : sur 83 fenêtres, un seul lot
+   * de 8 revient `PROHIBITED_CONTENT` de façon reproductible, et les 75 autres
+   * fenêtres passent. Faire remonter ce refus rendait l'émission entière
+   * inanalysable — quarante minutes de transcription pour rien.
+   */
+  it('poursuit la notation quand un lot est refusé par le filtre', async () => {
+    // Une fenêtre par lot : le transcript de ce test en produit une poignée, et
+    // il en faut plusieurs pour qu'il y ait un « reste » à poursuivre.
+    process.env.SCORE_BATCH = '1'
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    const normal = modèle(prompts)
+    let lots = 0
+    const unLotRefusé: AppelGemini = async (prompt, mode) => {
+      if (mode === 'score' && ++lots === 2) {
+        return réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+      }
+      return normal(prompt, mode)
+    }
+
+    const clips = await runCandidates(ID, { db, appel: unLotRefusé, sleep: async () => {} })
+    expect(clips).toHaveLength(2)
+    // Le lot refusé n'a pas été réessayé : il l'est une fois, pas trois.
+    expect(prompts.filter((p) => p.mode === 'score')).toHaveLength(lots - 1)
+  })
+
+  it('mais un refus sur **tous** les lots reste un refus de la vidéo', async () => {
+    const toutRefusé: AppelGemini = async () =>
+      réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+    await expect(
+      runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} }),
+    ).rejects.toThrow(GeminiBlockedError)
+  })
+
   it('refuse de repérer un projet dont la durée n’est pas connue', async () => {
     upsertProject(db, {
       id: ID,

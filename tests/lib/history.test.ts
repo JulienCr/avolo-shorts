@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Segment } from '@/core/edl'
-import { canUndo, pushHistory, startHistory, undoHistory } from '@/lib/history'
+import {
+  canRedo,
+  canUndo,
+  pushHistory,
+  redoHistory,
+  startHistory,
+  undoHistory,
+} from '@/lib/history'
 
 const a: Segment[] = [{ start: 0, end: 100 }]
 const b: Segment[] = [
@@ -68,5 +75,47 @@ describe('undoHistory', () => {
   it('un Ctrl+Z de trop ne casse rien', () => {
     const h = startHistory(a)
     expect(undoHistory(h)).toBe(h)
+  })
+})
+
+describe('redoHistory', () => {
+  it('refait ce qu’on vient d’annuler', () => {
+    const h = redoHistory(undoHistory(pushHistory(startHistory(a), b)))
+    expect(h.present).toBe(b)
+    expect(canUndo(h)).toBe(true)
+    expect(canRedo(h)).toBe(false)
+  })
+
+  it('refait dans l’ordre où les gestes ont eu lieu', () => {
+    let h = pushHistory(pushHistory(startHistory(a), b), c)
+    h = undoHistory(undoHistory(h))
+    expect(h.present).toBe(a)
+
+    h = redoHistory(h)
+    expect(h.present).toBe(b)
+    h = redoHistory(h)
+    expect(h.present).toBe(c)
+  })
+
+  it('un Ctrl+Shift+Z de trop ne casse rien', () => {
+    const h = startHistory(a)
+    expect(canRedo(h)).toBe(false)
+    expect(redoHistory(h)).toBe(h)
+  })
+
+  it('un nouveau geste efface ce qu’il y avait à refaire', () => {
+    // La branche qu'on vient d'abandonner n'a plus de sens : garder un
+    // rétablissement après un geste divergent ferait réapparaître un montage
+    // que personne ne pourrait plus situer.
+    const h = redoHistory(pushHistory(undoHistory(pushHistory(startHistory(a), b)), c))
+    expect(h.present).toBe(c)
+    expect(canRedo(h)).toBe(false)
+  })
+
+  it('un geste sans effet ne perd pas le rétablissement', () => {
+    // `pushHistory` rend l'historique inchangé quand rien n'a bougé : il ne
+    // s'est rien passé, donc il n'y a rien à abandonner.
+    const h = undoHistory(pushHistory(startHistory(a), b))
+    expect(pushHistory(h, [...a])).toBe(h)
   })
 })

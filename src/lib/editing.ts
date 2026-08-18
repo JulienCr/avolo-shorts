@@ -252,3 +252,26 @@ export function playbackAction(
   if (position >= seg.start - epsilon) return { kind: 'play' }
   return { kind: 'seek', to: seg.start }
 }
+
+/**
+ * La phrase sur laquelle ouvrir le transcript : celle où le clip commence.
+ *
+ * **Sur le clip enregistré, jamais sur le montage en cours.** Chaque coupe
+ * déplacerait sinon le début du clip, donc cette valeur, donc le défilement — le
+ * texte fuirait sous les yeux à chaque geste. La surface, elle, ne s'en sert
+ * qu'une fois par clip.
+ *
+ * « La première phrase du clip » est une règle de produit, pas une mise en
+ * page : sans elle, on ouvre sur la marge de contexte qui précède l'extrait,
+ * c'est-à-dire sur du texte qui n'en fait pas partie.
+ *
+ * Rend `0` quand rien ne correspond — un clip vidé de tous ses mots, un début
+ * postérieur à la dernière phrase : la fenêtre de transcript existe toujours, et
+ * c'est précisément là qu'il faut la relire pour reconstruire le clip.
+ */
+export function ligneInitiale(lines: TranscriptLine[], segments: Segment[]): number {
+  const debut = segments[0]?.start
+  if (debut === undefined) return 0
+  const i = lines.findIndex((l) => l.end > debut)
+  return i < 0 ? 0 : i
+}

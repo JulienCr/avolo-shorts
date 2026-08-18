@@ -6,6 +6,7 @@ import {
   clipBounds,
   indexTranscript,
   isWordKept,
+  ligneInitiale,
   moveBoundaryToWord,
   playbackAction,
   removeSelection,
@@ -302,5 +303,31 @@ describe('playbackAction', () => {
 
   it('un clip vide est fini d’emblée', () => {
     expect(playbackAction([], 0)).toEqual({ kind: 'end' })
+  })
+})
+
+describe('ligneInitiale', () => {
+  const lignes: TranscriptLine[] = [
+    { id: 'l0', start: 0, end: 5, words: [] },
+    { id: 'l1', start: 5, end: 10, words: [] },
+    { id: 'l2', start: 10, end: 15, words: [] },
+  ]
+
+  it('ouvre sur la phrase où le clip commence, pas sur le contexte d’avant', () => {
+    expect(ligneInitiale(lignes, [{ start: 11, end: 14 }])).toBe(2)
+  })
+
+  it('prend la phrase qui contient le début, même s’il tombe en son milieu', () => {
+    expect(ligneInitiale(lignes, [{ start: 7.5, end: 9 }])).toBe(1)
+  })
+
+  it('ouvre en haut quand le clip n’a plus de segment', () => {
+    // Un clip dont tous les mots ont été retirés : la fenêtre de transcript
+    // existe toujours, et c'est précisément là qu'il faut la relire.
+    expect(ligneInitiale(lignes, [])).toBe(0)
+  })
+
+  it('ouvre en haut quand aucune phrase ne va jusque-là', () => {
+    expect(ligneInitiale(lignes, [{ start: 99, end: 100 }])).toBe(0)
   })
 })

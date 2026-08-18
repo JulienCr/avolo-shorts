@@ -3,9 +3,10 @@
 import { ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 
-import { AppBar } from '@/components/app-bar'
+import { AppBar } from '@/components/parcours/app-bar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDuration } from '@/lib/format'
+import { lienProjet } from '@/lib/parcours'
 import { useProjets } from '@/lib/queries'
 
 /**
@@ -22,7 +23,7 @@ export default function Accueil() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar chemin={[]} />
+      <AppBar lieu={{ kind: 'bibliotheque' }} />
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
         <h1 className="text-xl font-semibold tracking-tight">Émissions</h1>
@@ -42,7 +43,7 @@ export default function Accueil() {
           {projets.data?.map((projet) => (
             <li key={projet.id}>
               <Link
-                href={`/projects/${projet.id}`}
+                href={lienProjet(projet.id)}
                 className="flex items-center gap-4 rounded-xl border bg-card px-4 py-3 transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="min-w-0 flex-1">

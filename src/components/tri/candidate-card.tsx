@@ -7,6 +7,7 @@ import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
 import { LIBELLES_STATUT, estEcarte, estGarde } from '@/lib/clip-status'
 import { formatDuration, formatTimecode } from '@/lib/format'
+import { lienClip } from '@/lib/parcours'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -53,7 +54,7 @@ export function CandidateCard({
       )}
     >
       <Link
-        href={`/clips/${clip.id}`}
+        href={lienClip(clip.id)}
         className="relative block aspect-video overflow-hidden bg-zinc-950 outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Vignette url={clip.thumbnailUrl} titre={clip.title} />
@@ -80,7 +81,7 @@ export function CandidateCard({
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">
           <Link
-            href={`/clips/${clip.id}`}
+            href={lienClip(clip.id)}
             className="line-clamp-2 text-sm leading-snug font-medium text-balance outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             {clip.title}

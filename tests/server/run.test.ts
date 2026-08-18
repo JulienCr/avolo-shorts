@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { StepName } from '@/core/graph'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
+  attendre,
   cheminTranscript,
   CollisionDeProjetError,
   créerProjet,
@@ -38,6 +39,8 @@ const PROJET = '2025-06-15-cqlp'
 let racine: string
 let db: Database.Database
 let appels: StepName[]
+/** La vidéo que le lanceur donne à l'analyse pour en relever les dimensions. */
+let sourcesAnalyse: string[]
 
 /** Les étapes, remplacées par des témoins qui ne font qu'écrire leur artefact. */
 function étapesFactices(échouer?: StepName): Partial<Étapes> {
@@ -70,6 +73,12 @@ function étapesFactices(échouer?: StepName): Partial<Étapes> {
       await noter('transcript', fichier)
       return { path: fichier, skipped: false, fallback: true }
     },
+    runAnalysis: async (o) => {
+      const fichier = path.join(racine, 'projects', o.projectId, 'analysis.json')
+      await noter('analysis', fichier)
+      sourcesAnalyse.push(o.source)
+      return { path: fichier, skipped: false }
+    },
     runCandidates: async (id) => {
       await noter('candidates', path.join(racine, 'projects', id, 'candidates.json'))
       return []
@@ -97,6 +106,13 @@ function poserProjet(o: { durationSec?: number | null; copie?: boolean } = {}): 
   })
 }
 
+/** Le proxy déjà là : l'analyse en dépend, et le poser évite de le refaire. */
+function poserProxy(): void {
+  const dossier = path.join(racine, 'projects', PROJET)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(path.join(dossier, 'proxy.mp4'), '')
+}
+
 /** Le transcript déjà là, dans le repli du projet — le cas de la vérification. */
 function poserTranscript(): void {
   const dossier = path.join(racine, 'projects', PROJET, `${PROJET}.avolo`)
@@ -112,6 +128,7 @@ beforeEach(() => {
   fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
   db = openDb(':memory:')
   appels = []
+  sourcesAnalyse = []
 })
 
 afterEach(() => {
@@ -124,6 +141,7 @@ describe('planPourCibles', () => {
     proxy: false,
     audio: false,
     transcript: false,
+    analysis: false,
     candidates: false,
     renders: false,
   }
@@ -164,6 +182,7 @@ describe('relevéPrésence', () => {
       proxy: true,
       audio: false,
       transcript: true,
+      analysis: false,
       candidates: false,
       renders: false,
     })
@@ -197,7 +216,74 @@ describe('relevéPrésence', () => {
   })
 })
 
+/**
+ * L'analyse d'image, dans le lanceur. Ce que ces cas figent n'est pas la
+ * détection — elle est injectée — mais **ce que le lanceur accepte de lui
+ * donner**, et à quel prix.
+ */
+describe('analysis', () => {
+  it('ne construit que le proxy pour atteindre l’analyse', async () => {
+    poserProjet()
+    const { plan } = await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
+    expect(plan).toEqual(['proxy', 'analysis'])
+    await attendre(PROJET)
+    expect(appels).toEqual(['proxy', 'analysis'])
+  })
+
+  /**
+   * **Le repli sur l'original quand la copie de travail a disparu.** L'analyse
+   * ne lit de la source que ses dimensions, recopiées dans `analysis.json` pour
+   * dire à quoi ses fractions se rapportent — un en-tête, pas de la vidéo.
+   * Exiger la copie ferait payer cinq minutes de recopie depuis un montage 9p
+   * lent pour relancer une analyse dont le proxy est déjà sur le disque.
+   */
+  it('se rabat sur l’original quand la copie de travail n’est plus là', async () => {
+    poserProjet({ copie: false })
+    poserProxy()
+
+    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
+    await attendre(PROJET)
+    expect(sourcesAnalyse).toEqual([path.join(racine, 'replays', `${PROJET}.mp4`)])
+  })
+
+  it('préfère la copie de travail quand elle est là', async () => {
+    poserProjet()
+    poserProxy()
+
+    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
+    await attendre(PROJET)
+    expect(sourcesAnalyse).toEqual([path.join(racine, 'stage', `${PROJET}.mp4`)])
+  })
+
+  it('ne relance pas la transcription pour une analyse', async () => {
+    poserProjet()
+    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
+    await attendre(PROJET)
+    expect(appels).not.toContain('transcript')
+    expect(appels).not.toContain('audio')
+  })
+})
+
 describe('créerProjet', () => {
+  /**
+   * **Ce que `POST /api/projects` vise, et le seul endroit qui le dise.**
+   * `CIBLES_INITIALES` porte `analysis` parce que personne ne clique « détecte
+   * les corps » : on veut un projet dont le cadrage sait déjà se calculer. Les
+   * cas plus haut visent `analysis` explicitement, donc aucun ne verrait cette
+   * cible disparaître de la liste — la suite resterait verte et un projet neuf
+   * n'aurait plus jamais d'analyse. (relevé par Copilot)
+   */
+  it('vise l’analyse à la création, après le proxy dont elle dépend', async () => {
+    poserProjet()
+    const { plan } = await créerProjet(`${PROJET}.mp4`, { db, étapes: étapesFactices() })
+    expect(plan).toContain('analysis')
+    expect(plan.indexOf('proxy')).toBeLessThan(plan.indexOf('analysis'))
+
+    await attendre(PROJET)
+    expect(appels).toContain('analysis')
+    expect(appels.indexOf('proxy')).toBeLessThan(appels.indexOf('analysis'))
+  })
+
   /**
    * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
    * tous deux `show`. Sans refus, la seconde ingestion gardait la copie de

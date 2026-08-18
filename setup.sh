@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 #
-# Installe un ffmpeg qui sait parler à la carte : NVENC pour encoder, CUDA pour
-# décoder, libass pour incruster les sous-titres.
+# Monte les deux dépendances natives du projet.
 #
-# Le paquet ffmpeg d'Ubuntu embarque libass mais n'est pas compilé avec NVENC.
-# Le build statique de BtbN embarque les trois. Voir docs/environnement.md pour
-# les mesures qui justifient l'opération.
+# 1. **Un ffmpeg qui sait parler à la carte** : NVENC pour encoder, CUDA pour
+#    décoder, libass pour incruster les sous-titres. Le paquet d'Ubuntu embarque
+#    libass mais n'est pas compilé avec NVENC ; le build statique de BtbN
+#    embarque les trois. Voir docs/environnement.md pour les mesures.
+# 2. **Le venv de la détection**, `worker/venv`, avec torch CUDA, ultralytics et
+#    les poids YOLO. C'est ce que `worker/detect.py` fait tourner.
 #
-# Le script est idempotent : relancé, il ne retélécharge rien tant que le binaire
-# en place expose les trois capacités. `--force` passe outre.
+# Le script est idempotent : relancé, il ne retélécharge rien tant que ce qui est
+# en place convient. `--force` passe outre. `--skip-detect` saute la seconde
+# partie, qui pèse sept gigaoctets.
+#
+# Les deux moitiés vérifient leurs capacités **par un vrai essai** plutôt que par
+# la présence d'un fichier — `nvenc_encodes()` encode quelques images, et
+# `cuda_infers()` fait tourner une prédiction YOLO sur le GPU. Un encodeur compilé
+# peut échouer au premier appel si le pilote ne suit pas ; un `import torch`
+# réussit très bien sur une roue processeur qui ne verra jamais la carte ; et un
+# couple torch/torchvision dépareillé ne tombe qu'à la suppression des non-maxima,
+# c'est-à-dire une fois la détection lancée.
 
 set -euo pipefail
 
@@ -30,20 +41,56 @@ FFPROBE="$DEST/bin/ffprobe"
 RELEASE="${FFMPEG_RELEASE:-autobuild-2026-08-17-13-05}"
 BASE_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/$RELEASE"
 
+# Le venv de la détection, **dans le dépôt et pas ailleurs**. `WHISPER_PYTHON`
+# pointe celui du diariseur de ~/dev/rythmo-impro, qui appartient à un autre
+# dépôt et porte son propre correctif cuDNN : on n'y installe rien.
+VENV="$REPO_DIR/worker/venv"
+VENV_PY="$VENV/bin/python"
+MODELS_DIR="$REPO_DIR/worker/models"
+
+# Les poids YOLO, épinglés sur une release d'ultralytics/assets pour la même
+# raison que le build ffmpeg : une étiquette mobile rendrait l'installation non
+# reproductible. `yolo11m` est le modèle mesuré (docs de la PR d'itération 1) ;
+# `yolo11x` détecte un peu plus mais coûte 40 % de temps en plus.
+YOLO_RELEASE="${YOLO_RELEASE:-v8.3.0}"
+YOLO_MODEL="${YOLO_MODEL:-yolo11m.pt}"
+YOLO_URL="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/$YOLO_MODEL"
+# La somme du fichier réellement installé le 18 août 2026. ultralytics/assets ne
+# publie pas de `checksums.sha256`, donc elle est écrite ici plutôt que lue.
+#
+# **Elle vaut pour `yolo11m.pt` et pour lui seul.** Demander un autre `YOLO_MODEL`
+# sans rien dire de plus fait donc échouer l'installation sur une somme qui n'est
+# pas la sienne — ce qui est le bon défaut, mais mérite d'être écrit : il faut
+# alors fournir `YOLO_SHA256` du modèle voulu, ou la vider pour ne pas vérifier.
+# (relevé par Copilot)
+#
+# `${VAR-défaut}` et non `${VAR:-défaut}` : la seconde forme remplace aussi une
+# valeur **vide**, donc `YOLO_SHA256= ./setup.sh` — la façon documentée de ne pas
+# vérifier — reprendrait la somme de `yolo11m` et ferait échouer l'installation
+# de tout autre modèle. Ne pas vérifier doit rester possible.
+YOLO_SHA256="${YOLO_SHA256-d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95}"
+
 FORCE=0
+SKIP_DETECT=0
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
+    --skip-detect) SKIP_DETECT=1 ;;
     -h|--help)
       cat <<'EOF'
-Usage : ./setup.sh [--force]
+Usage : ./setup.sh [--force] [--skip-detect]
 
-  --force   réinstalle même si le binaire en place convient.
+  --force         réinstalle même si ce qui est en place convient.
+  --skip-detect   n'installe pas worker/venv (torch CUDA + ultralytics, 7 Go).
 
 Variables :
-  FFMPEG_PREFIX    dossier d'installation (défaut : ~/.local/opt)
+  FFMPEG_PREFIX    dossier d'installation de ffmpeg (défaut : ~/.local/opt)
   FFMPEG_RELEASE   release BtbN à installer (défaut : le build mesuré).
                    `latest` prend le dernier build nocturne.
+  YOLO_RELEASE     release ultralytics/assets des poids (défaut : v8.3.0)
+  YOLO_MODEL       le fichier de poids (défaut : yolo11m.pt)
+  YOLO_SHA256      sa somme attendue ; vide pour ne pas vérifier
+  PYTHON           l'interpréteur qui crée worker/venv (défaut : python3)
 EOF
       exit 0
       ;;
@@ -236,6 +283,163 @@ else
   rm -rf "$DEST.old"
 fi
 
+# --- le venv de la détection --------------------------------------------------
+#
+# `worker/detect.py` a besoin de torch **avec CUDA** et d'ultralytics. Il ne peut
+# pas emprunter le venv du diariseur : celui-ci appartient à ~/dev/rythmo-impro,
+# et faire résoudre à pip les contraintes de WhisperX et celles d'ultralytics
+# dans le même arbre ferait casser la transcription d'un dépôt par la mise à jour
+# d'un autre. Les sept gigaoctets en double sont le prix de cette isolation.
+
+# La preuve que la carte répond depuis ce venv, l'équivalent de `nvenc_encodes`
+# pour le GPU : on alloue, on calcule, et on prédit pour de bon — jamais un
+# `import torch`. Une roue processeur s'importe très bien, ne voit jamais la
+# carte, et ferait tourner la détection des heures au lieu de cinq minutes, sans
+# un mot.
+cuda_infers() {
+  "$1" - <<'PY' >/dev/null 2>&1
+import sys
+
+import numpy as np
+import torch
+
+if not torch.cuda.is_available():
+    sys.exit(1)
+# Une allocation et un calcul réels : `is_available()` répond oui sur un pilote
+# qui refusera d'allouer, et l'échec tomberait alors au milieu d'une analyse.
+(torch.zeros(64, 64, device="cuda") @ torch.zeros(64, 64, device="cuda")).sum().item()
+
+# **La suppression des non-maxima, appelée en propre.** C'est l'opérateur qui
+# tombe quand `torch` et `torchvision` sont dépareillés : compilé, chargé
+# paresseusement, et invisible à tout ce qui précède. Il s'appelle directement
+# plutôt qu'à travers une prédiction, parce qu'`ultralytics` **le saute** quand
+# aucune candidate ne dépasse le seuil de confiance — ce qui est le cas d'un
+# réseau non entraîné sur une image de synthèse. La sonde aurait alors annoncé
+# bon un couple qui casse à la première vraie détection. (relevé par Copilot)
+import torchvision  # noqa: E402
+
+torchvision.ops.nms(
+    torch.tensor([[0.0, 0.0, 10.0, 10.0], [1.0, 1.0, 11.0, 11.0]], device="cuda"),
+    torch.tensor([0.9, 0.8], device="cuda"),
+    0.5,
+)
+
+# Puis la passe avant d'un vrai réseau, sur le vrai chemin d'ultralytics :
+# préparation de l'image, inférence, décodage. `yolo11n.yaml` et non les poids —
+# la structure est livrée dans le paquet, donc rien à télécharger, et cette
+# vérification tourne **avant** que setup.sh n'aille chercher `yolo11m.pt`. Les
+# poids ne changent pas ce qui est éprouvé ici : le réseau non entraîné passe par
+# exactement les mêmes opérateurs.
+from ultralytics import YOLO  # noqa: E402
+
+# `quantize=16` n'est pas décoratif ici : c'est l'argument que `detect.py` passe
+# à chaque lot, et il n'existe que depuis ultralytics 8.4 (il remplace `half`).
+# Comme cette sonde décide aussi de **sauter** l'installation des versions
+# épinglées quand un venv est déjà là, ne pas l'exercer laisserait un venv plus
+# ancien être déclaré conforme, puis échouer au premier lot du worker.
+# (relevé par Copilot)
+YOLO("yolo11n.yaml").predict(
+    np.zeros((64, 64, 3), dtype=np.uint8),
+    device="cuda",
+    classes=[0],
+    quantize=16,
+    verbose=False,
+)
+PY
+}
+
+if [ "$SKIP_DETECT" -eq 1 ]; then
+  say "worker/venv sauté (--skip-detect) : l'étape analysis ne tournera pas"
+elif [ "$FORCE" -eq 0 ] && [ -x "$VENV_PY" ] && cuda_infers "$VENV_PY"; then
+  say "worker/venv déjà en place, CUDA répond."
+  ok "$("$VENV_PY" -c 'import torch,ultralytics;print(f"torch {torch.__version__}, ultralytics {ultralytics.__version__}")')"
+else
+  PYTHON="${PYTHON:-python3}"
+  command -v "$PYTHON" >/dev/null 2>&1 || { bad "$PYTHON est requis pour créer worker/venv"; exit 1; }
+
+  say "Création de worker/venv avec $PYTHON"
+  # Pas de `rm -rf` : un venv existant se met à jour par un `pip install`, et
+  # détruire celui qui est là ferait retélécharger sept gigaoctets pour corriger
+  # un paquet manquant.
+  "$PYTHON" -m venv "$VENV" || { bad "création du venv impossible (python3-venv installé ?)"; exit 1; }
+  "$VENV_PY" -m pip install --quiet --upgrade pip
+
+  say "Installation de torch CUDA et d'ultralytics (plusieurs Go)"
+  # L'index PyTorch est celui des roues CUDA 12.8. Sans lui, pip prend la
+  # variante processeur, qui s'importe et ne voit pas la carte.
+  if ! "$VENV_PY" -m pip install \
+      --extra-index-url https://download.pytorch.org/whl/cu128 \
+      -r "$REPO_DIR/worker/requirements-detect.txt"; then
+    bad "l'installation des dépendances de détection a échoué"
+    exit 1
+  fi
+
+  say "Vérification : une inférence réelle sur le GPU"
+  if cuda_infers "$VENV_PY"; then
+    ok "CUDA répond depuis worker/venv"
+    ok "$("$VENV_PY" -c 'import torch,ultralytics;print(f"torch {torch.__version__}, ultralytics {ultralytics.__version__}")')"
+  else
+    bad "torch est installé mais CUDA ne répond pas depuis worker/venv."
+    bad "Cause la plus fréquente : la roue processeur a été installée. Vérifier avec"
+    bad "  $VENV_PY -c 'import torch; print(torch.__version__)'  — une roue CUDA finit par +cu128."
+    exit 1
+  fi
+fi
+
+# Les poids, à côté du venv. Téléchargés ici plutôt que laissés à ultralytics :
+# livré à lui-même il les tire au premier appel, dans le dossier de travail du
+# processus, donc à la racine du dépôt et sous une version qui bouge.
+if [ "$SKIP_DETECT" -eq 0 ]; then
+  poids="$MODELS_DIR/$YOLO_MODEL"
+  # **La présence ne vaut pas conformité**, exactement comme pour ffmpeg et pour
+  # le venv plus haut : ce script vérifie par un contrôle réel, jamais par un
+  # fichier qui existe. Sauter le téléchargement sur la seule présence garderait
+  # en silence un fichier tronqué, ou le `yolo11m.pt` d'une autre `YOLO_RELEASE`
+  # — donc un `YOLO_RELEASE=… ./setup.sh` qui n'installe pas la release demandée.
+  # Quarante mégaoctets à hacher, c'est instantané ; s'en priver coûte une
+  # détection qui tourne sur des poids que personne n'a demandés.
+  poids_conformes=0
+  if [ -s "$poids" ]; then
+    if [ -z "$YOLO_SHA256" ]; then
+      poids_conformes=1
+    elif [ "$(sha256sum "$poids" | cut -d' ' -f1)" = "$YOLO_SHA256" ]; then
+      poids_conformes=1
+    else
+      say "Poids $YOLO_MODEL présents mais de somme inattendue : ils sont remplacés."
+    fi
+  fi
+  if [ "$FORCE" -eq 0 ] && [ "$poids_conformes" -eq 1 ]; then
+    say "Poids $YOLO_MODEL déjà en place."
+  else
+    command -v curl >/dev/null 2>&1 || { bad "curl est requis"; exit 1; }
+    mkdir -p "$MODELS_DIR"
+    say "Téléchargement de $YOLO_MODEL ($YOLO_RELEASE)"
+    # Dans un fichier temporaire : un téléchargement coupé ne doit pas laisser
+    # des poids tronqués sous le nom définitif, que la relance prendrait pour un
+    # fichier valable — la même règle que `produireArtefact` côté Node.
+    tmp_poids="$poids.partiel.$$"
+    if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_poids" "$YOLO_URL"; then
+      rm -f "$tmp_poids"
+      bad "téléchargement de $YOLO_URL en échec"
+      exit 1
+    fi
+    if [ -n "$YOLO_SHA256" ]; then
+      somme="$(sha256sum "$tmp_poids" | cut -d' ' -f1)"
+      if [ "$somme" != "$YOLO_SHA256" ]; then
+        rm -f "$tmp_poids"
+        bad "somme SHA-256 inattendue pour $YOLO_MODEL : $somme"
+        bad "attendue : $YOLO_SHA256 (ajuster YOLO_SHA256 pour un autre modèle)"
+        exit 1
+      fi
+      ok "somme conforme"
+    else
+      say "YOLO_SHA256 vide : la somme n'est pas vérifiée"
+    fi
+    mv "$tmp_poids" "$poids"
+    ok "poids installés dans $poids"
+  fi
+fi
+
 # --- rappeler la configuration ------------------------------------------------
 
 if [ ! -f "$REPO_DIR/.env" ] && [ -f "$REPO_DIR/.env.example" ]; then
@@ -243,3 +447,12 @@ if [ ! -f "$REPO_DIR/.env" ] && [ -f "$REPO_DIR/.env.example" ]; then
 fi
 
 say "Prêt. FFMPEG_BIN=$FFMPEG"
+if [ "$SKIP_DETECT" -eq 0 ]; then
+  say "       DETECT_PYTHON=$VENV_PY"
+  # **`YOLO_MODEL` ne configure que le téléchargement.** Le serveur, lui, lit
+  # `DETECT_MODEL` et retombe sur `worker/models/yolo11m.pt` : demander un autre
+  # modèle sans reporter cette ligne dans `.env` téléchargerait `yolo11x.pt` pour
+  # faire tourner l'analyse sur autre chose, ou échouer. On affiche donc le
+  # chemin réellement installé. (relevé par Copilot)
+  say "       DETECT_MODEL=$poids"
+fi

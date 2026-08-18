@@ -12,6 +12,7 @@ const none: Record<StepName, boolean> = {
   proxy: false,
   audio: false,
   transcript: false,
+  analysis: false,
   candidates: false,
   renders: false,
 }
@@ -20,6 +21,7 @@ const all: Record<StepName, boolean> = {
   proxy: true,
   audio: true,
   transcript: true,
+  analysis: true,
   candidates: true,
   renders: true,
 }
@@ -88,5 +90,39 @@ describe('planSteps', () => {
       'transcript',
       'candidates',
     ])
+  })
+})
+
+/**
+ * L'analyse d'image (spec §6) : YOLO et le score de scène tournent sur le proxy,
+ * et sur rien d'autre. Ces quatre cas figent la symétrie avec `transcript` — une
+ * étape qui lit le son, une étape qui lit l'image, et aucune qui attende
+ * l'autre.
+ */
+describe('planSteps — analysis', () => {
+  it('construit le proxy, et lui seul, pour atteindre l’analyse', () => {
+    expect(planSteps('analysis', none)).toEqual(['proxy', 'analysis'])
+  })
+
+  it('ne touche ni à l’audio ni au transcript', () => {
+    const plan = planSteps('analysis', none)
+    expect(plan).not.toContain('audio')
+    expect(plan).not.toContain('transcript')
+  })
+
+  it('ne refait rien quand le proxy et l’analyse sont là', () => {
+    expect(planSteps('analysis', { ...none, proxy: true, analysis: true })).toEqual([])
+  })
+
+  // Un proxy refait est un proxy dont les images ont pu changer — cadence,
+  // dimensions, encodeur. Les boîtes qui en viennent ne valent plus rien.
+  it('reprend l’analyse quand le proxy est forcé', () => {
+    expect(planSteps('analysis', all, ['proxy'])).toEqual(['proxy', 'analysis'])
+  })
+
+  // La réciproque n'est pas vraie : l'analyse ne porte rien en aval du graphe,
+  // et le rendu se lance par clip, jamais par le graphe.
+  it('ne fait pas repartir le repérage des candidats', () => {
+    expect(planSteps('candidates', all, ['analysis'])).toEqual([])
   })
 })

@@ -67,6 +67,10 @@ async function main(): Promise<number> {
     proxy: fs.existsSync(proxyPath(projectId)),
     audio: fs.existsSync(audio),
     transcript: fs.existsSync(placement.transcript),
+    // Ce script ne vise que le transcript : ni l'analyse ni les candidats
+    // n'entrent dans son plan, et un `false` ne les y fait pas entrer non plus
+    // — `planSteps` ne remonte que les dépendances de la cible.
+    analysis: false,
     candidates: false,
     renders: false,
   }

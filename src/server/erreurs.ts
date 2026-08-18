@@ -28,11 +28,26 @@ function racines(): string[] {
   }
 
   // Les binaires nommés par l'environnement vivent ailleurs — un ffmpeg
-  // compilé à la main, le venv du diariseur — et `runFfmpeg` comme
-  // `lancerWorker` les écrivent en tête de la commande qu'ils citent. On retient
-  // leur **dossier**, pas le binaire : c'est ce qui sort l'arborescence du
-  // message tout en gardant lisible le nom de l'outil qui a échoué.
-  for (const variable of ['FFMPEG_BIN', 'FFPROBE_BIN', 'WHISPER_PYTHON', 'WHISPER_WORKER']) {
+  // compilé à la main, le venv du diariseur, celui de la détection — et
+  // `runFfmpeg` comme `lancerWorker` les écrivent en tête de la commande qu'ils
+  // citent. On retient leur **dossier**, pas le binaire : c'est ce qui sort
+  // l'arborescence du message tout en gardant lisible le nom de l'outil qui a
+  // échoué.
+  //
+  // Les trois `DETECT_*` sont là depuis l'itération 1. Les passes génériques
+  // d'`épurerChemins` les attrapent déjà quand leur chemin n'a pas d'espace, ce
+  // qui est le cas courant ; mais le message d'un `spawn` en échec recopie le
+  // chemin tel que **Node** l'écrit, sans guillemets, et cette forme-là se
+  // couperait au premier espace. (relevé par Aristarque et Copilot)
+  for (const variable of [
+    'FFMPEG_BIN',
+    'FFPROBE_BIN',
+    'WHISPER_PYTHON',
+    'WHISPER_WORKER',
+    'DETECT_PYTHON',
+    'DETECT_WORKER',
+    'DETECT_MODEL',
+  ]) {
     const valeur = process.env[variable]
     // **Absolu, et pas la racine.** Un `FFMPEG_BIN=ffmpeg` donnerait `.` et un
     // `/ffmpeg` donnerait `/` : remplacer l'un ou l'autre partout dans un

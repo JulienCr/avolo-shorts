@@ -11,11 +11,19 @@ dist/
 next-env.d.ts
 .vercel/
 
-# Python (worker)
+# Python (worker). `venv/` attrape `worker/venv`, que setup.sh monte et qui pèse
+# sept gigaoctets — torch CUDA et ses bibliothèques NVIDIA. Il est nommé en clair
+# malgré le motif générique : c'est le seul du dépôt, et un `git add worker/`
+# distrait suffirait à le pousser.
 __pycache__/
 *.py[cod]
 venv/
 .venv/
+/worker/venv/
+
+# Les poids YOLO, téléchargés par setup.sh depuis une release épinglée. Quarante
+# mégaoctets qui se retéléchargent en dix secondes.
+/worker/models/
 
 # Secrets et configuration locale. Le dépôt est public : on ignore toute la
 # famille plutôt que les trois noms auxquels on pense. `.env.production`,

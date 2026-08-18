@@ -10,8 +10,8 @@
  * testable en CI sans GPU, sans ffmpeg et sans vidéo.
  */
 
-/** Les cinq étapes de l'itération 0, chacune adossée à un artefact. */
-export type StepName = 'proxy' | 'audio' | 'transcript' | 'candidates' | 'renders'
+/** Les six étapes, chacune adossée à un artefact. */
+export type StepName = 'proxy' | 'audio' | 'transcript' | 'analysis' | 'candidates' | 'renders'
 
 /**
  * Le graphe, écrit dans le sens « ce dont j'ai besoin ».
@@ -21,11 +21,23 @@ export type StepName = 'proxy' | 'audio' | 'transcript' | 'candidates' | 'render
  * proxy** : WhisperX lit le WAV, pas la vidéo. Viser le transcript ne doit donc
  * pas déclencher douze minutes de proxy pour rien — c'est tout l'intérêt de
  * décrire le graphe plutôt que d'aligner les étapes dans une liste.
+ *
+ * **`analysis` dépend du proxy, et de lui seul.** YOLO et le score de scène de
+ * ffmpeg tournent sur le proxy 960x540 (spec §6) ; ni le WAV ni le transcript
+ * n'entrent dans un calcul d'image. La symétrie avec `transcript` est exacte :
+ * l'une lit le son, l'autre lit l'image, et aucune n'attend l'autre.
+ *
+ * `renders` ne dépend pas encore d'`analysis`. Le cadrage automatique arrive
+ * dans la même itération mais par un autre chemin — le rendu se lance par clip
+ * (`POST /api/clips/:id/export`), pas par le graphe —, et lui inventer une
+ * dépendance ici ferait recalculer les rendus au premier changement de modèle
+ * sans que personne ne l'ait demandé.
  */
 const DEPS: Record<StepName, readonly StepName[]> = {
   proxy: [],
   audio: [],
   transcript: ['audio'],
+  analysis: ['proxy'],
   candidates: ['transcript'],
   renders: ['candidates'],
 }

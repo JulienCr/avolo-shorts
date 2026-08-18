@@ -153,6 +153,7 @@ describe('GET /api/projects/:id', () => {
       proxy: true,
       audio: false,
       transcript: true,
+      analysis: false,
       candidates: false,
       renders: false,
     })

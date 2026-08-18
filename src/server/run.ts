@@ -8,6 +8,7 @@ import { avancementWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
 import { messageSûr } from '@/server/erreurs'
 import {
+  analysisPath,
   audioPath,
   candidatesPath,
   projectDir,
@@ -18,6 +19,7 @@ import {
   sidecarDir,
   stagedPath,
 } from '@/server/paths'
+import { runAnalysis } from '@/server/steps/analysis'
 import { extractAudio } from '@/server/steps/audio'
 import { runCandidates } from '@/server/steps/candidates'
 import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
@@ -283,6 +285,7 @@ export async function relevéPrésence(projet: Project): Promise<Record<StepName
     proxy: fs.existsSync(proxyPath(projet.id)),
     audio: fs.existsSync(audioPath(projet.id)),
     transcript: (await cheminTranscript(projet)) !== null,
+    analysis: fs.existsSync(analysisPath(projet.id)),
     candidates: fs.existsSync(candidatesPath(projet.id)),
     renders: rendusPrésents(projet.id),
   }
@@ -385,10 +388,11 @@ export type Étapes = {
   buildProxy: typeof buildProxy
   extractAudio: typeof extractAudio
   transcribe: typeof transcribe
+  runAnalysis: typeof runAnalysis
   runCandidates: typeof runCandidates
 }
 
-const ÉTAPES: Étapes = { ingest, buildProxy, extractAudio, transcribe, runCandidates }
+const ÉTAPES: Étapes = { ingest, buildProxy, extractAudio, transcribe, runAnalysis, runCandidates }
 
 export type OptionsLancement = {
   /** Les étapes à refaire même si leur artefact est là. `true` vaut « la cible ». */
@@ -405,7 +409,7 @@ export type OptionsLancement = {
  * fabriquer, et prétendre le contraire ferait une exécution qui s'arrête sans
  * rien produire.
  */
-export const CIBLES_LANÇABLES = ['proxy', 'audio', 'transcript', 'candidates'] as const
+export const CIBLES_LANÇABLES = ['proxy', 'audio', 'transcript', 'analysis', 'candidates'] as const
 export type CibleLançable = (typeof CIBLES_LANÇABLES)[number]
 
 /**
@@ -659,6 +663,29 @@ async function exécuterÉtape(
       return
     }
 
+    case 'analysis': {
+      // La copie de travail si elle est là, l'original sinon. Ce n'est pas de
+      // la vidéo qu'on lit ici, seulement ses dimensions : `analysis.json` les
+      // recopie pour dire à quoi ses fractions se rapportent, et un en-tête se
+      // lit même sur le Drive. **Sans repli sur la copie, on la rendrait
+      // obligatoire** — donc on paierait cinq minutes de recopie depuis un
+      // montage lent pour relancer une analyse dont le proxy est déjà là.
+      const source =
+        projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
+          ? projet.stagedPath
+          : projet.sourcePath
+      await étapes.runAnalysis({
+        projectId: projet.id,
+        source,
+        force: true,
+        onLog: (ligne) => {
+          console.log(`[${projet.id}] detect | ${ligne}`)
+          avancer(avancementWorker(ligne))
+        },
+      })
+      return
+    }
+
     case 'candidates': {
       await étapes.runCandidates(projet.id, { db })
       return
@@ -679,8 +706,15 @@ async function exécuterÉtape(
 // La création d'un projet
 // ---------------------------------------------------------------------------
 
-/** Ce que `POST /api/projects` vise : les candidats, **et** le proxy. */
-export const CIBLES_INITIALES: StepName[] = ['candidates', 'proxy']
+/**
+ * Ce que `POST /api/projects` vise : les candidats, le proxy, **et** l'analyse.
+ *
+ * L'analyse est là parce qu'elle ne se demande jamais toute seule : personne ne
+ * clique « détecte les corps », on veut un projet dont le cadrage sait déjà se
+ * calculer. Elle coûte trois minutes sur une chaîne qui en dure quarante, et son
+ * unique dépendance — le proxy — est déjà visée.
+ */
+export const CIBLES_INITIALES: StepName[] = ['candidates', 'proxy', 'analysis']
 
 /**
  * Inscrit un projet et lance son analyse.

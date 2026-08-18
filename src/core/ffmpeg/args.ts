@@ -1,0 +1,417 @@
+/**
+ * Les constructeurs d'argv ffmpeg — purs, et testés en CI sans ffmpeg.
+ *
+ * Rien ici ne lance quoi que ce soit : ces fonctions rendent des tableaux de
+ * chaînes, `src/server/` les passe à `spawn`. C'est ce qu'OpenShorts a fini par
+ * faire en extrayant `general_render_cmd` — « split out so CI can assert on it
+ * without ffmpeg » — et c'est la seule façon de vérifier une ligne de commande
+ * ffmpeg sans GPU, sans vidéo et sans y passer la journée.
+ *
+ * **Deux règles mesurées, que les tests verrouillent :**
+ *
+ * 1. `-hwaccel` est une option d'**entrée** : sa portée s'arrête au `-i` qui
+ *    suit. Avec N segments il y a N `-hwaccel cuda`, un devant chaque couple
+ *    `-ss`/`-i`. Posée une seule fois en tête, seul le premier segment
+ *    décoderait sur le GPU et les suivants retomberaient en logiciel — sans
+ *    erreur, juste plus lentement, la manière la plus coûteuse de se tromper.
+ * 2. **Jamais `-hwaccel_output_format cuda`.** Combiné à `-pix_fmt yuv420p`, il
+ *    fait échouer l'encodage sur « Nothing was written into output file », sans
+ *    message utile. Et libass exige de toute façon des images en mémoire
+ *    système pour incruster les sous-titres. On décode sur GPU, on filtre sur
+ *    CPU, on encode sur GPU.
+ */
+
+import { normalizeSegments, type Segment } from '@/core/edl'
+import { outputSize } from '@/core/framing'
+import {
+  LOUDNORM,
+  METADATA_SCRUB,
+  RESAMPLE,
+  videoEncodeArgs,
+  type EncoderName,
+} from '@/core/ffmpeg/encoder'
+
+/**
+ * Options communes à toutes les commandes.
+ *
+ * `-loglevel warning` plutôt que `error` : `src/server/` remonte les dernières
+ * lignes de stderr quand ffmpeg échoue, et une commande qui produit un fichier
+ * inutilisable a souvent averti avant. `-stats` garde la ligne `time=` dont la
+ * barre de progression se nourrit.
+ */
+const GLOBALES: readonly string[] = [
+  '-hide_banner',
+  '-nostdin',
+  '-y',
+  '-loglevel',
+  'warning',
+  '-stats',
+]
+
+/**
+ * La destination, précédée de `--`.
+ *
+ * Le fichier de sortie est **positionnel** : un chemin commençant par `-` est
+ * lu comme une option. Mesuré : `ffmpeg … -sortie.mp4` échoue sur
+ * « Unrecognized option 'sortie.mp4' », et `ffmpeg … -- -sortie.mp4` écrit le
+ * fichier. Sur un chemin absolu, `--` ne change rien — c'est donc une garde
+ * gratuite, et ces fonctions étant pures elles ne peuvent rien supposer des
+ * conventions de nommage de l'appelant.
+ */
+function destination(dst: string): string[] {
+  return ['--', dst]
+}
+
+/**
+ * Un instant en secondes, tel que ffmpeg le lit.
+ *
+ * `String(n)` suffirait presque, mais rend `1e-7` sur les très petites valeurs
+ * et traîne les débris de la virgule flottante : `2856.9 - 2841.2` vaut
+ * `15.699999999999818`. On tronque à la microseconde et on retire les zéros de
+ * queue — largement en deçà d'une image, même à 60 fps.
+ */
+function secondes(n: number): string {
+  return n.toFixed(6).replace(/\.?0+$/, '')
+}
+
+/**
+ * Échappe une valeur destinée à une option de filtre ffmpeg, écrite entre
+ * apostrophes.
+ *
+ * **Mesuré sur le binaire, pas déduit de la documentation.** Une valeur de
+ * filtre traverse `av_get_token` **deux fois** — une fois quand le graphe est
+ * découpé en filtres, une fois quand les options du filtre sont séparées — et
+ * les règles ne sont pas les mêmes des deux côtés d'une apostrophe :
+ *
+ * - **entre apostrophes, la contre-oblique n'échappe rien** : tout est littéral
+ *   jusqu'à l'apostrophe suivante. Écrire `\'` à l'intérieur ne produit donc pas
+ *   une apostrophe, il ferme la chaîne et laisse traîner une contre-oblique.
+ *   C'était le défaut de la première version : `filename='/l\'été\:2026/c.ass'`
+ *   échoue à l'analyse sur « No option name near '2026' ».
+ * - **hors apostrophes, `\X` rend `X`**, quel que soit `X`. Sur-échapper est
+ *   donc sans effet, sous-échapper coûte le caractère.
+ *
+ * D'où les trois règles, dans cet ordre :
+ *
+ * | dans le chemin | émis | pourquoi |
+ * |---|---|---|
+ * | `\` | `\\` | le second niveau la lirait comme une échappée |
+ * | `:` | `\:` | le second niveau y sépare les options |
+ * | `'` | `'\\\''` | fermer, écrire `\'` **doublement échappé**, rouvrir |
+ *
+ * La dernière ligne est la seule qui ne se devine pas. Hors des apostrophes,
+ * pour que le **second** niveau reçoive `\'` — soit une apostrophe littérale —,
+ * le **premier** doit lui livrer `\'`, ce qui s'écrit `\\` puis `\'`, soit
+ * `\\\'`. Encadré des deux apostrophes de fermeture et de réouverture, cela
+ * donne `'\\\''`.
+ *
+ * Vérifié par aller-retour sur des fichiers réellement posés sur le disque, aux
+ * chemins `l'été:2026`, `a'b'c`, `[x],y;z=w`, `dos\slash` et `';exit[v];a='` :
+ * libass les charge tous les cinq, et la tentative d'évasion reste dans la
+ * valeur au lieu de rouvrir le graphe.
+ *
+ * L'ordre des trois remplacements compte : `\` d'abord, sinon on doublerait les
+ * contre-obliques qu'on vient d'écrire.
+ */
+function échapper(valeur: string): string {
+  return valeur
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "'\\\\\\''")
+}
+
+/**
+ * Un nombre destiné au graphe de filtres.
+ *
+ * TypeScript garantit `number` à la compilation, et rien à l'exécution : une
+ * valeur venue d'un JSON de branding ou de la base peut arriver ici à travers
+ * un cast. Un `NaN` sortirait en `crop=608:1080:NaN:0`, que ffmpeg refuse avec
+ * un message qui ne nomme pas la cause ; une chaîne forcée sortirait telle
+ * quelle **dans le graphe**, où elle n'a rien à faire.
+ *
+ * `Number.isFinite` ferme les deux d'un coup, et c'est la garde que `cropRect`
+ * applique déjà à `cropX` : une fonction pure ne peut rien supposer de son
+ * appelant.
+ */
+function nombre(n: number, quoi: string): string {
+  if (!Number.isFinite(n)) {
+    // `String` et non `JSON.stringify` : ce dernier rend `null` pour `NaN`
+    // comme pour les deux infinis, donc le message désignerait une valeur que
+    // l'appelant n'a pas passée. Un diagnostic qui ment coûte plus qu'il ne
+    // rapporte.
+    throw new Error(`${quoi} doit être un nombre fini, reçu ${String(n)}.`)
+  }
+  return String(n)
+}
+
+/**
+ * Une option de filtre, valeur entre apostrophes : `filename='/c.ass'`.
+ *
+ * Les apostrophes ne sont pas décoratives : elles rendent `[`, `]`, `,` et `;`
+ * littéraux pour le découpage du graphe, donc un chemin ne peut pas en sortir
+ * même si la table d'échappement venait à être rognée.
+ */
+function option(nom: string, valeur: string): string {
+  return `${nom}='${échapper(valeur)}'`
+}
+
+/**
+ * Le proxy : ce sur quoi l'interface scrube, et sur quoi l'itération 1 fera
+ * tourner la détection.
+ *
+ * 960x540 plutôt que 640x360 (spec §6) : un comédien qui occupe 6 % de la
+ * largeur ne fait que 38 pixels de large sur un proxy 640, ce qui est mince
+ * pour YOLO.
+ *
+ * `fps=30` **quelle que soit la source**. Les replays ne sont pas tous en 60 —
+ * `2025-06-15-cqlp.mp4` est en 30 — et le filtre traite les deux cas.
+ *
+ * `-g 30` pose une image clé par seconde : c'est ce qui rend le scrub instantané
+ * dans le navigateur.
+ *
+ * **Le palier est `fast`, et l'encodeur se choisit à l'appel.** Mesuré sur cette
+ * machine, le proxy ne gagne rien au GPU : 13,8x en x264 contre 12,8x en NVENC,
+ * le redimensionnement se faisant sur le processeur dans les deux cas.
+ */
+export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName }): string[] {
+  return [
+    ...GLOBALES,
+    ...accélération(o.encoder),
+    '-i', o.src,
+    // `-map` explicite, et `0:v:0` plutôt que `0:v` : une source peut porter
+    // une pochette, que ffmpeg expose comme un second flux vidéo et
+    // embarquerait dans le proxy servi au navigateur. Le `?` sur l'audio laisse
+    // passer une source muette.
+    '-map', '0:v:0',
+    '-map', '0:a:0?',
+    '-vf', 'fps=30,scale=960:540',
+    '-g', '30',
+    ...videoEncodeArgs(o.encoder, 'fast'),
+    // Le son sert au montage : le repérage des coupes se fait à l'oreille.
+    '-c:a', 'aac', '-b:a', '128k',
+    ...METADATA_SCRUB,
+    '-movflags', '+faststart',
+    ...destination(o.dst),
+  ]
+}
+
+/**
+ * L'audio pour WhisperX : WAV 16 kHz mono, ce que le modèle attend et ce qu'il
+ * rééchantillonnerait lui-même sinon.
+ *
+ * `-vn` : rien à décoder du côté image, donc rien à accélérer non plus.
+ */
+export function audioArgs(o: { src: string; dst: string }): string[] {
+  return [
+    ...GLOBALES,
+    '-i', o.src,
+    '-vn',
+    '-ac', '1',
+    '-ar', '16000',
+    '-c:a', 'pcm_s16le',
+    ...destination(o.dst),
+  ]
+}
+
+/** `-hwaccel cuda` seul, et seulement quand on encodera sur le GPU. */
+function accélération(encoder: EncoderName): string[] {
+  return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []
+}
+
+export type RenderOptions = {
+  src: string
+  dst: string
+  segments: Segment[]
+  crop: { w: number; h: number; x: number; y: number }
+  out: { w: number; h: number }
+  assPath?: string
+  fontsDir?: string
+  logos?: { path: string; x: number; y: number; w: number; h: number }[]
+  encoder: EncoderName
+}
+
+/**
+ * Le rendu d'un clip, **depuis l'original** et jamais depuis le proxy.
+ *
+ * La forme, validée sur la machine (36 secondes produites en 10, bornes
+ * exactes, pas de décodage depuis le début du fichier) :
+ *
+ * ```
+ * -hwaccel cuda -ss <s0> -t <d0> -i src      un quadruplet par segment
+ * -hwaccel cuda -ss <s1> -t <d1> -i src
+ * -filter_complex
+ *   [0:v]crop=…,scale=…,setsar=1[v0]; [1:v]…[v1];
+ *   [v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];
+ *   [ac]loudnorm=…,aresample=48000[a];
+ *   [vc]ass=filename='…':fontsdir='…'[v]
+ * -map [v] -map [a] <encodeur> -c:a aac -movflags +faststart -- dst
+ * ```
+ *
+ * **La normalisation de sonie est dans le graphe, pas en `-af`.** Un `-af` sur
+ * un flux issu de `-map [a]` fait échouer ffmpeg : « Simple and complex
+ * filtering cannot be used together for the same stream ».
+ *
+ * **Limite assumée :** un `-ss`/`-i` par segment ouvre un décodeur par segment.
+ * C'est mesuré bon jusqu'à une dizaine, ce qui couvre l'itération 0. Le
+ * nettoyage déterministe des hésitations de l'itération 3 produira des dizaines
+ * de coupures : il faudra alors rendre segment par segment puis concaténer en
+ * copie de flux. Ne pas le construire maintenant.
+ */
+export function renderArgs(o: RenderOptions): string[] {
+  // Valider les bornes **avant** de normaliser, et c'est l'ordre qui compte :
+  // `normalizeSegments` garde un segment si `end > start`, comparaison qui est
+  // fausse dès qu'une borne vaut `NaN` — le segment disparaît donc en silence,
+  // et un clip de trois segments en rendrait deux sans un mot. Une borne
+  // infinie, elle, traverse la normalisation et ressort en `-t Infinity`.
+  o.segments.forEach((s, i) => {
+    nombre(s.start, `segments[${i}].start`)
+    nombre(s.end, `segments[${i}].end`)
+  })
+
+  // Normaliser ensuite : deux segments qui se touchent ne valent qu'un
+  // décodeur, et un segment vide ou inversé en vaut zéro.
+  const segments = normalizeSegments(o.segments)
+  if (segments.length === 0) {
+    throw new Error('renderArgs : aucun segment à rendre.')
+  }
+
+  const logos = o.logos ?? []
+  const multi = segments.length > 1
+
+  // Les étapes vidéo qui suivent le découpage. On les compte **avant** de les
+  // écrire, parce que c'est la dernière — quelle qu'elle soit — qui sort en
+  // `[v]` : sans cela il faudrait un filtre de rattrapage, ou un `-map` dont le
+  // nom change avec les options.
+  const suite: ((entrée: string, sortie: string) => string)[] = []
+  if (o.assPath !== undefined) {
+    const options = [option('filename', o.assPath)]
+    // `filename=` nommé et non positionnel : un chemin en position portant un
+    // `:` serait lu comme le début de l'option suivante.
+    if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
+    suite.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+  }
+  // Les logos passent **après** l'incrustation des sous-titres : une marque
+  // posée dessous serait recouverte par le premier carton qui monte assez haut.
+  logos.forEach((logo, i) => {
+    const x = nombre(logo.x, `logos[${i}].x`)
+    const y = nombre(logo.y, `logos[${i}].y`)
+    suite.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
+  })
+
+  const sortieDécoupage = suite.length === 0 ? 'v' : multi ? 'vc' : 'vd'
+
+  const graphe: string[] = []
+  const c = o.crop
+  const filtreImage = [
+    `crop=${nombre(c.w, 'crop.w')}:${nombre(c.h, 'crop.h')}` +
+      `:${nombre(c.x, 'crop.x')}:${nombre(c.y, 'crop.y')}`,
+    `scale=${nombre(o.out.w, 'out.w')}:${nombre(o.out.h, 'out.h')}:flags=lanczos`,
+    'setsar=1',
+  ].join(',')
+
+  segments.forEach((_, i) => {
+    graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : sortieDécoupage}]`)
+  })
+
+  // Pas de `?` sur les entrées audio, contrairement à `blurredVariantArgs`, et
+  // c'est délibéré : une étiquette de graphe ne s'annote pas, et `concat` avec
+  // `a=1` exige de toute façon une piste son sur **chaque** entrée. Un replay
+  // muet est un replay raté ; mieux vaut que le rendu échoue franchement que
+  // de livrer un clip silencieux.
+  let audio: string
+  if (multi) {
+    const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
+    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${sortieDécoupage}][ac]`)
+    audio = 'ac'
+  } else {
+    audio = '0:a'
+  }
+  // `aresample` derrière `loudnorm`, et ce n'est pas décoratif : en passe
+  // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce
+  // taux. ffmpeg insère alors tout seul un rééchantillonnage vers le plus haut
+  // taux que l'AAC accepte — mesuré, une source à 44,1 kHz ressortait en
+  // **96 kHz**, et la variante floutée en héritait par `-c:a copy`. Personne ne
+  // livre du 96 kHz.
+  graphe.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
+
+  // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
+  // les superpose. La position donnée est le coin supérieur gauche.
+  logos.forEach((logo, i) => {
+    const w = nombre(logo.w, `logos[${i}].w`)
+    const h = nombre(logo.h, `logos[${i}].h`)
+    graphe.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
+  })
+
+  let vidéo = sortieDécoupage
+  suite.forEach((étape, i) => {
+    const sortie = i === suite.length - 1 ? 'v' : `vf${i}`
+    graphe.push(étape(vidéo, sortie))
+    vidéo = sortie
+  })
+
+  return [
+    ...GLOBALES,
+    // Un `-hwaccel` **par entrée**, et non un seul en tête : c'est une option
+    // d'entrée, sa portée s'arrête au `-i` qui suit.
+    ...segments.flatMap((s) => [
+      ...accélération(o.encoder),
+      '-ss', secondes(s.start),
+      '-t', secondes(s.end - s.start),
+      '-i', o.src,
+    ]),
+    // Les logos n'ont pas de `-hwaccel` : décoder un PNG sur le GPU ne rapporte
+    // rien et le ferait remonter en mémoire vidéo pour redescendre aussitôt.
+    ...logos.flatMap((logo) => ['-i', logo.path]),
+    '-filter_complex', graphe.join(';'),
+    '-map', '[v]',
+    '-map', '[a]',
+    ...videoEncodeArgs(o.encoder, 'quality'),
+    '-c:a', 'aac', '-b:a', '192k',
+    ...METADATA_SCRUB,
+    '-movflags', '+faststart',
+    ...destination(o.dst),
+  ]
+}
+
+/**
+ * La variante 9:16 sur fond flouté, pour TikTok et Shorts, à partir du rendu
+ * natif déjà produit.
+ *
+ * **Le contenu est déjà cropé**, donc il se pose **pleine largeur** et centré —
+ * et non au ratio 0,42 d'OpenShorts, qui partait de 16:9 brut et rognait les
+ * côtés pour gagner en présence. Un 1:1 occupe alors 56 % de la hauteur et un
+ * 4:5 en occupe 70 %, contre 32 % pour un 16:9 en letterbox : c'est exactement
+ * le bénéfice que la spec §2 reproche à OpenShorts de ne pas prendre.
+ *
+ * Le son est **recopié** : le rendu natif l'a déjà passé au `loudnorm`, et le
+ * repasser le comprimerait deux fois.
+ */
+export function blurredVariantArgs(o: {
+  src: string
+  dst: string
+  encoder: EncoderName
+}): string[] {
+  // La variante est toujours en 9:16 : c'est sa raison d'être.
+  const { w, h } = outputSize('9:16')
+  const graphe = [
+    '[0:v]split=2[bga][fga]',
+    `[bga]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},gblur=sigma=12[bg]`,
+    `[fga]scale=${w}:-2[fg]`,
+    '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
+  ].join(';')
+
+  return [
+    ...GLOBALES,
+    ...accélération(o.encoder),
+    '-i', o.src,
+    '-filter_complex', graphe,
+    '-map', '[v]',
+    // Le `?` compte : une source muette doit quand même se rendre.
+    '-map', '0:a:0?',
+    '-c:a', 'copy',
+    ...videoEncodeArgs(o.encoder, 'quality'),
+    ...METADATA_SCRUB,
+    '-movflags', '+faststart',
+    ...destination(o.dst),
+  ]
+}

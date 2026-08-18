@@ -15,8 +15,15 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ExportResult, RunPlan } from '@/lib/api'
-import { cles, useCreerProjet, useExporter } from '@/lib/queries'
+import type { ExportResult, RunPlan, Réglages } from '@/lib/api'
+import {
+  cles,
+  useArrêter,
+  useCreerProjet,
+  useExporter,
+  useRéglages,
+  useÉcrireRéglages,
+} from '@/lib/queries'
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
 function reponse(corps: unknown, status = 200): Response {
@@ -193,6 +200,135 @@ describe('useCreerProjet', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('le dossier des replays n’est pas monté')
     expect(invalide).not.toHaveBeenCalled()
+  })
+})
+
+describe('les réglages', () => {
+  const réglages: Réglages = {
+    selection: {
+      minutesParClip: 6,
+      fenetresParClip: 2,
+      clipsMinimum: 6,
+      fenetresMinimum: 10,
+      clipsMaximum: 0,
+    },
+  }
+
+  it('se lisent sans interrogation en boucle', async () => {
+    const appel = vi.fn(async () => reponse(réglages))
+    vi.stubGlobal('fetch', appel)
+    const { enveloppe } = harnais()
+    const { result } = renderHook(() => useRéglages(), { wrapper: enveloppe })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(réglages)
+    expect(appel).toHaveBeenCalledWith('/api/settings', expect.anything())
+  })
+
+  /**
+   * **La réponse remplace le cache, elle ne l'invalide pas.** La route rend les
+   * réglages *résultants*, champs non touchés compris : invalider ferait une
+   * seconde requête pour obtenir exactement le corps qu'on vient de recevoir.
+   */
+  it('remplacent le cache avec la réponse plutôt que de la redemander', async () => {
+    const après: Réglages = { selection: { ...réglages.selection, minutesParClip: 4 } }
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(après)))
+    const { client, invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate({ selection: { minutesParClip: 4 } })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(client.getQueryData(cles.reglages)).toEqual(après)
+    expect(invalide).not.toHaveBeenCalled()
+  })
+
+  /**
+   * **Changer un réglage ne recalcule rien** (retour d'usage §6.1). Invalider
+   * les projets ou les candidats laisserait croire le contraire : l'écran
+   * rechargerait des listes que rien n'a touchées, et l'utilisateur y lirait un
+   * effet qui n'existe pas.
+   */
+  it('n’invalident ni les projets ni les candidats', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(réglages)))
+    const { invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate({ selection: { clipsMaximum: 12 } })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalide).not.toHaveBeenCalled()
+  })
+
+  it('remontent le refus du serveur sur une valeur hors bornes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        reponse({ error: 'Réglage selection.minutesParClip : un entier supérieur…' }, 400),
+      ),
+    )
+    const { enveloppe } = harnais()
+    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate({ selection: { minutesParClip: 0 } })
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error?.message).toContain('Réglage selection.minutesParClip')
+  })
+})
+
+describe('useArrêter', () => {
+  /**
+   * **L'état du projet et la bibliothèque s'invalident quoi qu'il arrive.** Les
+   * deux n'interrogent en boucle que tant que quelque chose tourne : sans cette
+   * invalidation, une liste ouverte dans un autre onglet garderait l'analyse
+   * arrêtée pour vivante, et son sondage s'arrêterait sur cet état-là.
+   */
+  it('invalide le projet et la bibliothèque', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: true })))
+    const { invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate('p1')
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projet('p1') })
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projets })
+    // Les candidats, non : un arrêt ne produit rien, la liste est celle d'avant.
+    expect(invalide).not.toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
+  })
+
+  /**
+   * `arrêtée: false` n'est pas un échec : rien ne tournait. L'écran n'a rien à
+   * dire de plus que ce que l'état rafraîchi montre déjà.
+   */
+  it('traite « rien ne tournait » comme un succès', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: false })))
+    const { enveloppe } = harnais()
+    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate('p1')
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual({ arrêtée: false })
+  })
+
+  /** Et même en échec, l'état du projet se recharge : c'est là qu'on saura. */
+  it('invalide aussi quand la requête échoue', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'Projet inconnu' }, 404)))
+    const { invalide, enveloppe } = harnais()
+    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+
+    await act(async () => {
+      result.current.mutate('p1')
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projet('p1') })
   })
 })
 

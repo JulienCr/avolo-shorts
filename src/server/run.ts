@@ -686,7 +686,8 @@ export async function lancer(
       // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
       // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
       // c'est voulu, le TTL vaut pour elle comme pour les autres.
-      void nettoyerStage({ garder: copiesEnUsage(db) }).catch(() => {})
+      const garder = copiesEnUsage(db)
+      if (garder !== null) void nettoyerStage({ garder }).catch(() => {})
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
@@ -700,19 +701,31 @@ export async function lancer(
 }
 
 /**
- * Les copies de travail qu'une exécution est en train de lire.
+ * Les copies de travail qu'une exécution est en train de lire, ou `null` si on
+ * n'a pas pu le savoir.
  *
  * Effacer sous un ffmpeg ne le casse pas — le descripteur ouvert survit à
  * l'`unlink` sous Linux — mais l'étape d'après repaierait la copie, et sur une
  * source de 12 Go cela veut dire cinq minutes de Drive. Deux projets peuvent
  * tourner en même temps : `enCours` est une table par projet, pas un verrou
  * global.
+ *
+ * **`null` veut dire « ne nettoie pas », pas « n'épargne rien ».** Cette
+ * fonction est appelée depuis le `finally` d'une exécution, et `closeDb`
+ * s'accroche à l'arrêt du serveur : la base peut s'être refermée entre les deux.
+ * Rendre une liste vide ferait alors effacer à l'aveugle exactement les copies
+ * qu'on cherchait à épargner, et laisser lever ferait rejeter une exécution qui,
+ * elle, s'est bien passée. Ne rien nettoyer coûte au pire un passage sauté.
  */
-function copiesEnUsage(db: Database.Database): string[] {
+function copiesEnUsage(db: Database.Database): string[] | null {
   const chemins: string[] = []
-  for (const id of enCours.keys()) {
-    const copie = getProject(db, id)?.stagedPath
-    if (copie != null) chemins.push(copie)
+  try {
+    for (const id of enCours.keys()) {
+      const copie = getProject(db, id)?.stagedPath
+      if (copie != null) chemins.push(copie)
+    }
+  } catch {
+    return null
   }
   return chemins
 }

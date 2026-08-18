@@ -392,11 +392,15 @@ function créneaux(speechSeconds: number): number {
  * deux émissions du dépôt, une fenêtre tombe tous les 69,3 s et 69,9 s : les
  * deux grandeurs portent le même signal à 1 % près, et changer d'entrée ne
  * change rien par soi-même — ce sont les plafonds plats qui bloquaient. La durée
- * est retenue parce qu'elle rend la règle énonçable : « un clip toutes les sept
- * minutes de parole » se règle et s'audite, « 30 % des fenêtres » non. Et
- * l'étendue de parole, du premier mot aligné au dernier, vaut mieux que la durée
- * vidéo : 175 à 181 s de silence en tête et en queue sur ces deux émissions, que
- * la durée vidéo compterait comme de la matière.
+ * est retenue parce qu'elle rend la règle énonçable : « un clip toutes les
+ * `minutesParClip` minutes de parole » se règle et s'audite, « 30 % des
+ * fenêtres » non.
+ *
+ * **Et « parole » veut dire `secondesDeParole`**, l'union des segments qui
+ * portent de la prose — pas la durée vidéo, pas l'écart du premier mot au
+ * dernier. Les trois diffèrent : la durée vidéo ajoute 175 à 181 s de silence en
+ * tête et en queue, l'écart ajoute encore tous les trous du milieu, soit 19 à
+ * 21 % de plus. Voir `secondesDeParole`, qui porte la mesure.
  */
 export function clipCountTargets(
   speechSeconds: number,

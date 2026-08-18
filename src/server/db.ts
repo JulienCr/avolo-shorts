@@ -288,7 +288,12 @@ export function setRéglage(
     throw new Error(`Réglage inconnu : ${String(champ)}`)
   }
   const plancher = plancherDuChamp(champ)
-  if (!Number.isInteger(valeur) || valeur < plancher) {
+  // `isSafeInteger` et non `isInteger`, **la même règle que le lecteur** :
+  // `isInteger(1e100)` est vrai, `String(1e100)` donne `"1e+100"`, et
+  // `getRéglages` refuse cette écriture. Une écriture réussie se relisait donc
+  // en défaut, ce qui est le pire des retours — l'écran de réglages aurait juré
+  // avoir enregistré. (relevé par Copilot)
+  if (!Number.isSafeInteger(valeur) || valeur < plancher) {
     throw new Error(
       `Réglage ${String(champ)} : un entier supérieur ou égal à ${plancher} est attendu, reçu ${valeur}.`,
     )

@@ -169,6 +169,17 @@ describe('les réglages', () => {
     expect(() => setRéglage(db, 'minutesParClip', 4.5)).toThrow()
   })
 
+  /**
+   * L'écrivain et le lecteur doivent appliquer la **même** règle. `isInteger`
+   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getRéglages` refuse :
+   * l'écriture réussissait donc, et la relecture rendait le défaut sans qu'un
+   * mot le signale. (relevé par Copilot)
+   */
+  it('refusent un entier non sûr, comme le lecteur', () => {
+    expect(() => setRéglage(db, 'minutesParClip', 1e100)).toThrow()
+    expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
+  })
+
   // Le contrat qui relie la table au type : une clé ajoutée à `DimensionsRepérage`
   // sans être relue ici passerait inaperçue jusqu'à ce qu'on la règle en vain.
   it('savent lire et écrire chacun des champs de DimensionsRepérage', () => {

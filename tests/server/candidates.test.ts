@@ -507,6 +507,22 @@ describe("l'étape de repérage", () => {
     expect([Number(min), Number(max)]).toEqual([2, 4])
   })
 
+  /**
+   * Le plafond absolu doit survivre au trajet jusqu'au prompt. Il se perdait
+   * dans la passe de détail, sans même de découpe : un `Math.max(min + 1, …)`
+   * relevait la borne haute d'un cran après que `clipCountTargets` l'eut posée.
+   * (relevé par Copilot)
+   */
+  it('ne relève pas la borne haute que clipsMaximum vient de poser', async () => {
+    setRéglage(db, 'clipsMaximum', 2)
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
+
+    const détail = prompts.find((p) => p.mode === 'detail')!.prompt
+    const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
+    expect([Number(min), Number(max)]).toEqual([2, 2])
+  })
+
   it('la passe suivante ne ressuscite pas un clip écarté', async () => {
     const prompts: { mode: ModeGemini; prompt: string }[] = []
     const premiers = await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
@@ -1299,6 +1315,36 @@ describe("l'étape de repérage", () => {
       await expect(
         runCandidates(ID, { db, appel: détailleur(() => true), sleep: async () => {} }),
       ).rejects.toThrow(/jusqu'au bloc seul/)
+    })
+
+    /**
+     * La descente se borne toute seule, et c'est ce qui la dispense du budget
+     * de `récupérer` : elle parcourt un arbre binaire sur un ensemble de blocs
+     * **fixe**, donc `2k - 1` appels au pire. Un plafond calqué sur `récupérer`
+     * — `3k` — n'aurait jamais pu se déclencher, et aurait laissé derrière lui
+     * une branche morte et un message d'erreur pour un cas impossible.
+     *
+     * Le message peut donc affirmer « jusqu'au bloc seul » sans prudence
+     * oratoire : contrairement à `noterLesFenêtres`, la descente y arrive
+     * toujours.
+     */
+    it('se borne à 2k-1 appels, sans budget à tenir', async () => {
+      const charges: string[][] = []
+      const erreur = await runCandidates(ID, {
+        db,
+        appel: détailleur(() => true, charges),
+        sleep: async () => {},
+      }).then(
+        () => null,
+        (e: Error) => e,
+      )
+
+      expect(erreur).toBeInstanceOf(GeminiBlockedError)
+      expect(erreur!.message).toMatch(/jusqu'au bloc seul/)
+      // Huit blocs tous refusés : 15 appels, et chacun des huit a bien été
+      // soumis seul avant d'être compté comme refusé.
+      expect(charges).toHaveLength(2 * GRAPPES - 1)
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(GRAPPES)
     })
 
     /**

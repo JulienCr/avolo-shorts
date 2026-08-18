@@ -1331,6 +1331,16 @@ type ContexteDétail = {
  * `noterLesFenêtres`, où « tous les lots ont été refusés » ne dit rien de la
  * vidéo tant qu'on n'a pas essayé de plus petites charges.
  *
+ * **Pas de budget, contrairement à `récupérer`, et ce n'est pas un oubli.** La
+ * descente est un arbre binaire sur un ensemble de blocs **fixe** : elle coûte
+ * au pire `2k - 1` appels pour k blocs, et s'arrête d'elle-même. `récupérer`, où
+ * les moitiés refusées retournent dans une file, n'a pas cette garantie — c'est
+ * ce qui lui vaut son plafond. En poser un ici aurait donné soit une borne
+ * arbitraire, soit — avec le facteur de `récupérer`, `3k` — une branche que rien
+ * ne peut atteindre, et un message d'erreur prudent pour un cas qui n'existe
+ * pas. Le coût du pire cas reste visible : 60 blocs tous refusés font 119
+ * appels, ce qui est cher et borné.
+ *
  * **Ce que la découpe coûte, et qui est assumé.** Le prompt demande de ne jamais
  * rendre deux clips qui racontent la même chose « même entre fenêtres
  * différentes » ; deux moitiés appelées séparément ne peuvent plus se comparer.
@@ -1338,18 +1348,18 @@ type ContexteDétail = {
  * ensuite sur les bornes.
  */
 async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]> {
-  // En appels de détail, relances réseau non comprises — celles-ci sont bornées
-  // par `TENTATIVES` à l'intérieur d'`appelerGemini`. Le pire cas d'une descente
-  // complète sur k blocs est `2k - 2` appels ; le facteur laisse la marge sans
-  // laisser la récursion courir sur une vidéo que le fournisseur refuse en bloc.
-  const budget: Budget = { restant: Math.max(1, blocs.length * RÉCUPÉRATION_MAX) }
   const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
-  const clips = await descendre(blocs, blocs.length, ctx, budget, ardoise)
-  const { refusés } = ardoise
+  const clips = await descendre(
+    blocs,
+    { min: ctx.minClips, max: ctx.maxClips },
+    ctx,
+    ardoise,
+  )
 
-  if (refusés.length > 0) {
+  if (ardoise.refusés.length > 0) {
     console.warn(
-      `Détail : ${refusés.length} bloc(s) refusé(s) par le filtre et abandonné(s) : ${refusés.join(', ')}.`,
+      `Détail : ${ardoise.refusés.length} bloc(s) refusé(s) seul(s) par le filtre ` +
+        `et abandonné(s) : ${ardoise.refusés.join(', ')}.`,
     )
   }
   // Rien n'a **répondu**, découpe comprise : là seulement, c'est la vidéo.
@@ -1360,9 +1370,13 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
   // laisse `clips` vide sans qu'aucun refus global n'ait eu lieu. Compter les
   // clips faisait alors échouer toute l'étape en accusant la vidéo d'un refus
   // qu'elle n'a pas subi. (relevé par Codex et Copilot)
-  if (ardoise.réussis === 0 && refusés.length > 0) {
+  if (ardoise.réussis === 0 && ardoise.refusés.length > 0) {
+    // **Le message n'affirme ici que ce qui a bel et bien été essayé**, parce
+    // que la descente va toujours jusqu'au bout — voir le paragraphe sur son
+    // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
+    // formule prudente que ce dernier a dû se donner après coup.
     throw new GeminiBlockedError(
-      `Gemini a refusé la passe de détail de cette vidéo, jusqu'au bloc seul (${refusés.length} bloc(s)). ` +
+      `Gemini a refusé la passe de détail de cette vidéo, jusqu'au bloc seul (${ardoise.refusés.length} bloc(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
     )
   }
@@ -1374,33 +1388,41 @@ async function détailler(blocs: Window[], ctx: ContexteDétail): Promise<Clip[]
  *
  * `réussis` compte les **réponses**, pas les clips : voir le verdict de
  * `détailler`, que cette distinction sépare d'un faux refus.
+ *
+ * `refusés` ne porte que des blocs soumis **seuls** et refusés : la descente
+ * n'abandonne rien d'autre, donc tout ce qui y figure a bel et bien été essayé.
  */
 type ArdoiseDétail = { refusés: string[]; réussis: number }
 
 /**
  * Un lot de blocs, recoupé en deux tant que le filtre refuse.
  *
- * `totalBlocs` sert à mettre la cible de clips au prorata : demander `minClips`
- * à chaque moitié en rendrait deux fois trop, et le plancher est ce que le
- * modèle rend (voir `clipCountTargets`).
+ * **La cible se partage, elle ne se recalcule pas.** Chaque appel reçoit
+ * l'intervalle qui lui revient. La version précédente recalculait un prorata
+ * depuis la racine et arrondissait chaque enfant indépendamment ; surtout, elle
+ * perdait le plafond dès le premier appel, sans même de découpe :
+ * `Math.max(min + 1, …)` transformait une cible plafonnée à `[10, 10]` en
+ * `[10, 11]`. (relevé par Copilot)
+ *
+ * **Ce que le partage ne garantit pas, et pourquoi.** Une part qui s'arrondit à
+ * zéro est relevée à un, si bien que la somme des plafonds enfants peut dépasser
+ * celui du parent d'une unité par moitié concernée. C'est un choix : l'inverse —
+ * ne pas soumettre la moitié dont la part est nulle — abandonnerait une région
+ * entière de l'émission pour respecter à la lettre un nombre qui n'est de toute
+ * façon qu'une consigne de prompt, que ni le modèle ni `parseDetailResponse`
+ * n'imposent. Un premier essai le faisait, et perdait deux blocs sur huit dès le
+ * cas de test le plus banal.
  */
 async function descendre(
   lot: Window[],
-  totalBlocs: number,
+  cible: { min: number; max: number },
   ctx: ContexteDétail,
-  budget: Budget,
   ardoise: ArdoiseDétail,
 ): Promise<Clip[]> {
   if (lot.length === 0) return []
-  if (budget.restant <= 0) {
-    ardoise.refusés.push(...lot.map((b) => b.id))
-    return []
-  }
-  budget.restant -= 1
 
-  const part = lot.length / totalBlocs
-  const min = Math.max(1, Math.round(ctx.minClips * part))
-  const max = Math.max(min + 1, Math.round(ctx.maxClips * part))
+  const max = Math.max(1, cible.max)
+  const min = Math.min(Math.max(1, cible.min), max)
 
   try {
     const clips = await appelerGemini(
@@ -1437,8 +1459,22 @@ async function descendre(
       return []
     }
     const milieu = Math.ceil(lot.length / 2)
-    const gauche = await descendre(lot.slice(0, milieu), totalBlocs, ctx, budget, ardoise)
-    const droite = await descendre(lot.slice(milieu), totalBlocs, ctx, budget, ardoise)
+    // Le partage se fait par soustraction, jamais par deux arrondis : la somme
+    // rend alors exactement ce que le parent avait, au relèvement à un près
+    // documenté ci-dessus.
+    const partager = (total: number): [number, number] => {
+      const àGauche = Math.round((total * milieu) / lot.length)
+      return [àGauche, total - àGauche]
+    }
+    const [maxG, maxD] = partager(max)
+    const [minG, minD] = partager(min)
+    const gauche = await descendre(
+      lot.slice(0, milieu),
+      { min: minG, max: maxG },
+      ctx,
+      ardoise,
+    )
+    const droite = await descendre(lot.slice(milieu), { min: minD, max: maxD }, ctx, ardoise)
     return [...gauche, ...droite]
   }
 }

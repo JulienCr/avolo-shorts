@@ -81,7 +81,14 @@ CREATE TABLE IF NOT EXISTS clips (
   title       TEXT NOT NULL,
   description TEXT NOT NULL,
   status      TEXT NOT NULL,
-  pass        INTEGER NOT NULL
+  pass        INTEGER NOT NULL,
+  -- Le numéro d'ordre du **geste** qui a écrit ce clip pour la dernière fois.
+  -- L'interface envoie délibérément des écritures qui se chevauchent, et l'ordre
+  -- de traitement est celui de l'arrivée : sans ce repère, deux clics rapides
+  -- peuvent laisser la valeur la plus ancienne en base. Voir
+  -- \`putClipSiPlusRécent\`. Zéro par défaut : tout jeton le dépasse, donc une
+  -- ligne écrite avant cette colonne ne bloque personne.
+  seq         INTEGER NOT NULL DEFAULT 0
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -97,8 +104,29 @@ export function defaultDbPath(): string {
 }
 
 /**
- * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` : il n'y a
- * pas de migration en itération 0, et une base absente est le cas courant.
+ * Ce que `CREATE TABLE IF NOT EXISTS` ne sait pas faire : ajouter une colonne à
+ * une table déjà là.
+ *
+ * Les bases ouvertes avant l'arrivée de `seq` existent — il y en a une sur cette
+ * machine, avec les clips d'une émission entière dedans — et le schéma ci-dessus
+ * les laisserait telles quelles : chaque écriture ordonnée échouerait alors sur
+ * une colonne inconnue.
+ *
+ * Le contrôle porte sur la présence de la colonne, pas sur un numéro de version :
+ * il n'y a pas de table de migrations à tenir, et `PRAGMA table_info` dit la
+ * vérité même sur une base à l'historique inconnu. Le jour où les migrations se
+ * comptent, ce sera le moment d'en tenir la liste — pas avant.
+ */
+function migrer(db: Database.Database): void {
+  const colonnes = db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]
+  if (!colonnes.some((colonne) => colonne.name === 'seq')) {
+    db.exec('ALTER TABLE clips ADD COLUMN seq INTEGER NOT NULL DEFAULT 0')
+  }
+}
+
+/**
+ * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` couvre le
+ * cas courant — une base absente —, `migrer` celles qui existaient déjà.
  *
  * Passer `':memory:'` donne une base jetable — c'est ce que font les tests.
  */
@@ -114,6 +142,7 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   // session et non de fichier.
   db.pragma('foreign_keys = ON')
   db.exec(SCHÉMA)
+  migrer(db)
   return db
 }
 
@@ -286,6 +315,70 @@ export function putClip(db: Database.Database, clip: Clip): void {
   const ligne = ligneDepuisClip(clip)
   vérifierPropriété(db, ligne)
   db.prepare(INSÉRER_CLIP).run(ligne)
+}
+
+/**
+ * `UPDATE` et non `INSERT … ON CONFLICT` : la garde d'ordre est dans le `WHERE`.
+ *
+ * C'est ce qui rend la comparaison et l'écriture indissociables. Lire `seq`, le
+ * comparer en JavaScript puis écrire laisserait entre les deux la fenêtre même
+ * qu'on cherche à fermer.
+ *
+ * **`seq <= @seq`, donc seul un jeton strictement inférieur est refusé.** Deux
+ * gestes portant le même numéro sont simultanés pour qui les regarde ; les
+ * départager par leur ordre d'arrivée reviendrait à trancher au hasard, et à
+ * refuser une écriture qui n'a rien de périmé.
+ */
+const ÉCRIRE_SI_PLUS_RÉCENT = `
+  UPDATE clips SET
+    segments    = @segments,
+    ratio       = @ratio,
+    cropX       = @cropX,
+    captions    = @captions,
+    branding    = @branding,
+    title       = @title,
+    description = @description,
+    status      = @status,
+    pass        = @pass,
+    seq         = @seq
+  WHERE id = @id AND seq <= @seq`
+
+/**
+ * Écrit un clip **seulement si le geste qui le porte n'est pas plus ancien que
+ * le dernier appliqué**. Rend faux quand une écriture plus récente a déjà gagné.
+ *
+ * L'interface envoie délibérément des écritures qui se chevauchent, et rien ne
+ * garantit que la première partie arrive la première : sans ce jeton, la base
+ * finit sur la valeur la plus ancienne pendant que l'écran, lui, affiche la
+ * bonne — et l'écart ne se voit qu'au rechargement (issue #21). Sérialiser les
+ * écritures côté serveur ne réglerait rien : cela alignerait l'ordre de
+ * traitement sur l'ordre d'arrivée, qui est précisément ce dont on se méfie.
+ *
+ * **Faux ne veut pas dire « échec ».** L'appelant relit le clip et le rend tel
+ * quel : c'est un résultat, pas une erreur d'enregistrement.
+ */
+export function putClipSiPlusRécent(db: Database.Database, clip: Clip, seq: number): boolean {
+  const ligne = ligneDepuisClip(clip)
+  // Le `WHERE` ne porte que sur `id`, et l'`UPDATE` ne réécrit pas `projectId` :
+  // sans ce contrôle, un identifiant appartenant à un autre projet se ferait
+  // écraser en silence, ce que `putClip` refuse déjà.
+  vérifierPropriété(db, ligne)
+  // Les paramètres nommés, un par un : `better-sqlite3` refuse un objet qui
+  // porte une clé dont la requête ne se sert pas, et `projectId` en est une.
+  const résultat = db.prepare(ÉCRIRE_SI_PLUS_RÉCENT).run({
+    id: ligne.id,
+    segments: ligne.segments,
+    ratio: ligne.ratio,
+    cropX: ligne.cropX,
+    captions: ligne.captions,
+    branding: ligne.branding,
+    title: ligne.title,
+    description: ligne.description,
+    status: ligne.status,
+    pass: ligne.pass,
+    seq,
+  })
+  return résultat.changes > 0
 }
 
 /**

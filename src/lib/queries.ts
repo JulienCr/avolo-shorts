@@ -20,9 +20,9 @@ import {
   listProjects,
   patchClip,
   type CandidateClip,
-  type Clip,
   type ClipDetail,
   type ClipPatch,
+  type PatchClipResult,
 } from '@/lib/api'
 
 export const cles = {
@@ -79,6 +79,36 @@ export function useClip(clipId: string) {
 type Variables = { clipId: string; projectId: string; patch: ClipPatch }
 
 /**
+ * Le dernier jeton d'ordre distribué. Au module, donc partagé par tous les
+ * écrans et tous les clips — la comparaison, elle, se fait par clip côté
+ * serveur, et une horloge commune ne coûte rien.
+ */
+let dernierJeton = 0
+
+/**
+ * Le numéro d'ordre du **geste**, à envoyer au serveur.
+ *
+ * Il part de l'horloge et non de zéro, et c'est ce qui le distingue du compteur
+ * `derniere` plus bas. Ce dernier ordonne les réponses dans un cache qui meurt
+ * avec la page : reparti de zéro à chaque montage, il conviendrait très bien.
+ * Le serveur, lui, garde le dernier jeton appliqué **entre deux
+ * rechargements** : un compteur remis à 1 y arriverait derrière tout ce que la
+ * session précédente a écrit, et le serveur refuserait une modification
+ * parfaitement fraîche. C'est le défaut inverse de celui qu'on corrige, et il
+ * coûte plus cher — une écriture perdue plutôt qu'une écriture désordonnée.
+ *
+ * Strictement croissant, même sur deux gestes tombés dans la même milliseconde :
+ * `Date.now()` ne les distinguerait pas, et le serveur accepte les jetons égaux
+ * — deux écritures se retrouveraient départagées par leur ordre d'arrivée,
+ * c'est-à-dire par ce dont on se méfie.
+ */
+function jetonDuGeste(): number {
+  const maintenant = Date.now()
+  dernierJeton = maintenant > dernierJeton ? maintenant : dernierJeton + 1
+  return dernierJeton
+}
+
+/**
  * L'écriture, **optimiste**.
  *
  * Garder ou écarter doit tenir en un clic, sans boîte de dialogue et sans
@@ -99,7 +129,12 @@ export function usePatchClip() {
   const derniere = useRef(new Map<string, number>())
 
   return useMutation({
-    mutationFn: ({ clipId, patch }: Variables) => patchClip(clipId, patch),
+    // **Le jeton se prend ici, pas dans `onMutate`.** C'est le seul endroit qui
+    // soit à la fois synchrone et immédiatement suivi du départ de la requête :
+    // `onMutate` attend deux annulations de requêtes avant de rendre la main, et
+    // deux écritures lancées coup sur coup y entrelacent leurs points d'attente.
+    // Un jeton posé là et relu ici pourrait ne plus être le sien.
+    mutationFn: ({ clipId, patch }: Variables) => patchClip(clipId, patch, jetonDuGeste()),
 
     async onMutate({ clipId, projectId, patch }: Variables) {
       // Annuler les requêtes en vol : une réponse partie avant la modification
@@ -152,7 +187,7 @@ export function usePatchClip() {
       }
     },
 
-    onSuccess(clip: Clip, { clipId, projectId }, contexte) {
+    onSuccess({ clip }: PatchClipResult, { clipId, projectId }, contexte) {
       // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
       // récente remettrait l'ancien état, sans erreur et sans trace.
       if (contexte?.jeton !== derniere.current.get(clipId)) return
@@ -160,6 +195,11 @@ export function usePatchClip() {
       // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
       // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
       // l'entrée concernée.
+      //
+      // **Le même geste que `applied` soit vrai ou faux.** Refusée, l'écriture
+      // rend le clip *gagnant* : l'adopter est exactement ce qu'il faut faire —
+      // c'est l'état de la base, et c'est le seul chemin par lequel une écriture
+      // venue d'un autre onglet revient à l'écran sans rechargement.
       client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
         liste?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
       )

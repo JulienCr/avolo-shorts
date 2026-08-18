@@ -2,14 +2,16 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { getClip, getDb, getProject, putClip } from '@/server/db'
+import { getClip, getDb, getProject, putClip, putClipSiPlusRécent } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
+import { sortiesDuClip } from '@/server/rendus'
 import { vignettePath } from '@/server/thumbs'
 import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from '@/server/vues'
 
 /**
- * `GET /api/clips/:id` — un clip et de quoi le monter.
- * `PATCH /api/clips/:id` — l'édition de l'EDL.
+ * `GET /api/clips/:id` — un clip, de quoi le monter, et ce que l'export en a
+ * produit.
+ * `PATCH /api/clips/:id` — l'édition de l'EDL, ordonnée par le jeton du geste.
  */
 
 /**
@@ -39,6 +41,21 @@ const ÉDITION = z.strictObject({
   captions: z.boolean().optional(),
   branding: z.boolean().optional(),
   status: z.enum(['candidate', 'kept', 'discarded']).optional(),
+  /**
+   * Le numéro d'ordre du **geste**, et non de l'arrivée.
+   *
+   * `usePatchClip` envoie délibérément des écritures qui se chevauchent : deux
+   * clics rapides sur la même carte partent en deux requêtes, et rien ne
+   * garantit que la première arrive la première. Traitée dans le désordre, la
+   * base finit sur la valeur la plus ancienne pendant que l'écran affiche la
+   * bonne — l'écart n'apparaît qu'au rechargement (issue #21). Ce numéro est la
+   * seule chose que le serveur ne pouvait pas deviner.
+   *
+   * **Facultatif.** Un appelant qui n'ordonne pas ses écritures — un `curl`, un
+   * script — n'entre pas dans cette course : il écrit, et le jeton en base ne
+   * bouge pas.
+   */
+  seq: z.number().int().min(0).optional(),
 })
 
 export const GET = route(
@@ -61,6 +78,10 @@ export const GET = route(
       // pour le reconstruire. Voir `étendueOrigine`.
       lines: transcript === null ? [] : lignesAutourDuClip(transcript, clip),
       proxyUrl: urlProxy(clip.projectId),
+      // Ce que l'export a produit, en URL. Sans elles, un clip affiche
+      // « exporté » et son MP4 reste inatteignable depuis le navigateur : la
+      // chaîne s'arrête à un mètre de son but.
+      outputs: sortiesDuClip(clip),
     })
   },
 )
@@ -76,7 +97,7 @@ export const PATCH = route(
     // fusion, et la modification du premier disparaissait sans un mot. Lecture,
     // fusion et écriture se suivent maintenant sans point d'attente, ce qui suffit
     // sur le fil unique de Node. (relevé par Copilot)
-    const édition = await corps(requête, ÉDITION)
+    const { seq, ...édition } = await corps(requête, ÉDITION)
 
     const db = getDb()
     const clip = getClip(db, id)
@@ -92,7 +113,31 @@ export const PATCH = route(
       // ffmpeg de plus au rendu.
       segments: normalizeSegments(édition.segments ?? clip.segments),
     }
-    putClip(db, suivant)
+
+    // Le jeton, quand il y en a un : la comparaison et l'écriture sont dans la
+    // même requête SQL, sans quoi la fenêtre qu'on ferme se rouvrirait entre les
+    // deux.
+    let appliqué = true
+    if (seq === undefined) {
+      putClip(db, suivant)
+    } else {
+      appliqué = putClipSiPlusRécent(db, suivant, seq)
+    }
+
+    if (!appliqué) {
+      // **200, et pas 409.** Une écriture plus récente a gagné : c'est un
+      // résultat, pas un échec d'enregistrement. Un code d'erreur ferait
+      // afficher « la sauvegarde a échoué » sur le clip le mieux enregistré de
+      // la session, et pousserait l'interface à réessayer une écriture dont on
+      // vient précisément d'établir qu'elle est périmée.
+      //
+      // Le clip rendu est le **gagnant**, relu en base : c'est ce qui permet à
+      // l'appelant de se remettre d'accord sans une requête de plus. Rien
+      // n'ayant été écrit, la vignette n'a pas non plus à être effacée.
+      const gagnant = getClip(db, id)
+      if (gagnant === undefined) throw introuvable(`Clip inconnu : ${id}`)
+      return json({ applied: false, clip: gagnant })
+    }
 
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
     // cache ne montre plus le début du clip. On l'efface plutôt que de la
@@ -112,6 +157,6 @@ export const PATCH = route(
       }
     }
 
-    return json(suivant)
+    return json({ applied: true, clip: suivant })
   },
 )

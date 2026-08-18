@@ -1,7 +1,10 @@
 # Parcours utilisateur : conception de l'interface
 
 Date : 18 août 2026.
-Statut : proposition. Aucune ligne de `src/` n'a été écrite pour l'accompagner.
+Statut : appliqué. Les lots de la section 8 sont livrés sauf le dernier, le
+cadrage automatique de la 3.5, qui attend l'itération 1. **L'état lot par lot se
+lit en section 8 et nulle part ailleurs** : un état recopié en tête de document
+vieillit sans que personne ne le relise.
 
 Ce document décide de la **forme du parcours** et de ce que chaque écran doit
 porter. Il ne décide ni du pipeline, ni de l'API, ni du cadrage : la conception
@@ -19,6 +22,12 @@ première passe de relecture (Copilot, Codex, Aristarque) et l'arbitrage de Juli
 sur le mode de cadrage, qui a fait réécrire la section 3.5.
 
 ## 1. L'état actuel
+
+**Cette section décrit le code au commit `5412597`, et elle ne se met pas à
+jour.** C'est le diagnostic qui a fait écrire le reste, pas un état des lieux. Ses
+« aujourd'hui », comme ceux des sections 5 et 6, nomment ce qui manquait alors ;
+les lire au présent ferait rouvrir des défauts refermés depuis. Ce qui vaut
+maintenant se lit dans les sections qui décident, et l'avancement en section 8.
 
 L'interface est jugée « déplorable » par son propriétaire. Ce jugement est juste,
 mais il porte moins sur ce qui est écrit que sur ce qui manque : chaque fichier

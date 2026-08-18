@@ -2,9 +2,11 @@
  * L'analyse de l'en-tête `Range` (RFC 7233).
  *
  * Elle vit dans `src/core/` parce que c'est du calcul sur une chaîne, et que
- * c'est là que sont les bugs : la route qui l'utilise ouvre un fichier et pousse
- * des octets, deux gestes qu'aucun test de CI ne peut faire ici. Les bornes,
- * elles, se vérifient sans fichier ni serveur.
+ * c'est là que sont les bugs. Ce qui reste dans la route — ouvrir, décrire,
+ * pousser des octets — se vérifie au `curl` contre un serveur qui tourne, et
+ * c'est cette dépendance-là que la CI n'a pas ; toucher au disque, elle sait
+ * faire, `tests/server/paths.test.ts` ne fait que ça. (relevé par Copilot, dont
+ * la version précédente de ce paragraphe donnait une raison fausse.)
  *
  * L'enjeu n'est pas cosmétique : sans réponse aux requêtes partielles, la barre
  * de lecture d'un `<video>` ne fonctionne pas — le navigateur ne peut pas

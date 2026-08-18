@@ -407,6 +407,11 @@ const ATTENTE_QUOTA_MAX_MS = 90_000
 export function délaiDeQuota(message: string): number | null {
   const trouvé = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message)
   if (trouvé === null) return null
+  // `ceil` et non `round` : la seule erreur qui coûte quelque chose ici est
+  // d'attendre **moins** que demandé, ce qui rejoue la requête dans la fenêtre
+  // encore fermée et brûle un essai sur trois. Arrondir au-dessus ne peut donc
+  // que faire attendre une milliseconde de trop, y compris si la conversion en
+  // flottant dépassait l'entier d'un cheveu. (relevé par Aristarque)
   return Math.min(Math.ceil(Number(trouvé[1]) * 1000), ATTENTE_QUOTA_MAX_MS)
 }
 

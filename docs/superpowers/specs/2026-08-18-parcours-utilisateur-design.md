@@ -959,33 +959,59 @@ clip**, retirer un segment en amont décale tous les rangs, et chaque dérogatio
 atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
-La clé désigne donc le plan **dans la source**, et c'est son instant de début en
-**millisecondes entières** : `shotStartMs(shot)`, soit `Math.round(shot.start *
-1000)`. La milliseconde n'est pas un détail d'unité à traduire au moment de
-persister. Les bornes d'un plan sont en secondes flottantes, et deux écritures de
-`10.400000000000001` ne se retrouvent pas dans un objet JSON ; une table indexée
-en secondes raterait donc ses appariements d'un facteur mille, ou de rien du tout,
-selon le flottant. `computeFraming` (`src/core/framing.ts`) et `shotStartMs`
-(`src/core/shots.ts`) portent la décision, et c'est leur signature qui fait foi
-pour l'écran comme pour la base.
+La clé désigne donc le plan **dans la source**. Et pas par son instant de début,
+qui paraît suffire et ne suffit pas : si une redétection déplace une frontière de
+10,0 s à 10,3 s, la clé 10,0 s tombe désormais **dans le plan précédent**, un plan
+la contient bel et bien, et la dérogation s'applique au mauvais cadre sans que
+rien ne le signale. Prendre le milieu du plan plutôt que son début rend le cas
+plus rare, pas impossible. (relevé par Copilot)
 
-Restait le cas qui avait fait proposer autre chose : une redétection déplace une
-frontière de 10,0 s à 10,3 s, et la clé 10,0 s tombe dans le plan précédent, qui
-la contient bel et bien. Il est réglé par un appariement **au plus proche début de
-plan, dans une tolérance**, calibrée sur les quelques images dont une frontière
-bouge d'une passe à l'autre. Deux clés qui tombent sur le même plan ne s'écrasent
-pas : la plus proche gagne, l'autre est rejetée.
+**Une dérogation porte donc l'intervalle source du plan tel qu'il était quand elle
+a été posée**, et se résout par **recouvrement maximal** avec le découpage
+courant :
 
-**La tolérance est un réglage, pas une preuve.** Rien dans le format des plans
-n'interdit deux frontières séparées de moins qu'elle : `SCHÉMA_PLAN` demande
-seulement qu'un plan finisse après son début, et un montage nerveux en produirait.
-Sur ce corpus les plans durent des secondes, donc le cas ne se pose pas ; le jour
-où il se posera, la clé devra porter l'intervalle plutôt que l'instant, et c'est
-alors le modèle qu'il faut changer, pas la tolérance qu'il faut resserrer.
+- elle s'applique au plan actuel avec lequel son intervalle se recouvre le plus ;
+- si un plan a été **divisé**, elle suit la moitié qu'elle recouvre le plus, et
+  l'autre repasse en automatique ;
+- si deux plans ont été **fusionnés**, les deux dérogations tombent sur le même
+  plan : on garde celle du plus grand recouvrement, l'égalité se tranchant par
+  l'intervalle qui commence le plus tôt ;
+- un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
+  automatique.
 
-**Une dérogation qui n'apparie aucun plan n'est jamais reportée sur une voisine.**
-Elle est rendue à l'appelant, dans `rejectedOverrides`, et son plan d'origine, s'il
-existe encore, garde son cadrage calculé. C'est le mode de défaillance qui
+**Les deux bornes se persistent en millisecondes entières.** Celles d'un plan sont
+des secondes flottantes, et l'arrondi n'est pas une commodité d'écriture : deux
+calculs d'une même frontière peuvent différer sur leurs derniers bits, et c'est
+lui qui leur rend la même valeur. Un intervalle persisté en secondes raterait son
+recouvrement d'un facteur mille, et le rattraper après coup demanderait de relire
+des dérogations dont on ne saurait plus dans quelle unité elles ont été écrites.
+`shotStartMs` (`src/core/shots.ts`) porte déjà l'arrondi et son raisonnement au
+point d'appel ; la seconde borne reçoit le même traitement.
+
+**Ce qui a décidé de cette forme n'est pas la frontière qui bouge de trois
+dixièmes, c'est que le seuil de détection des plans va être reréglé.** La spec §5
+place `shots.json` dans le projet précisément parce que ce seuil se règle, et
+`ROADMAP.md` note que le seuil de scène à 0,4 a été mesuré image par image et
+revient à qui reprendra le détecteur. Une redétection à seuil différent ne décale
+pas une frontière de quelques images : elle les déplace **toutes**, de n'importe
+combien. Sous une clé qui est un instant, toutes les dérogations posées avant ce
+réglage atterrissent sur le mauvais plan ou disparaissent le même jour. Sous le
+recouvrement, chacune se dégrade seule et proprement. Ce n'est pas un cas
+hypothétique à couvrir par prudence, c'est une tâche au calendrier.
+
+**Un appariement par tolérance ne remplace pas cette forme, et il rate même
+l'exemple qui l'a fait poser.** Cet exemple est une frontière qui bouge de trois
+dixièmes de seconde ; la tolérance de `computeFraming` est de 250 ms, donc elle ne
+le couvre pas. Et le seuil ne se répare pas en se desserrant : rien dans
+`SCHÉMA_PLAN` n'interdit deux frontières séparées de moins que lui, un plan devant
+seulement finir après son début, donc une tolérance assez large pour rattraper un
+déplacement est assez large pour sauter sur le plan voisin. Le recouvrement, lui,
+est total par construction et ne suppose rien du détecteur, ce qui est exactement
+ce qu'on demande d'une clé qui doit survivre au réglage de celui-ci.
+
+**Une dérogation qui ne recouvre plus rien n'est jamais reportée sur une
+voisine.** Elle est rendue à l'appelant, dans `rejectedOverrides`, et le plan qui
+l'aurait reçue garde son cadrage calculé. C'est le mode de défaillance qui
 comptait : un cadrage humain posé sur le mauvais plan produit un clip qui se rend,
 faux, et que rien ne signale.
 
@@ -1000,11 +1026,12 @@ son compte. Reposer un cadrage coûte un geste ; s'apercevoir trois semaines plu
 tard qu'il n'a jamais été appliqué coûte une relecture de tout ce qui est sorti
 depuis.
 
-Une version précédente de ce document demandait de porter l'**intervalle** source
-du plan et de résoudre par recouvrement maximal, avec ses règles de division et de
-fusion. C'est plus total, et ce n'est pas ce qui a été écrit. La proposition ne se
-garde pas à côté de la décision : entre deux modèles de clé dans un même document,
-c'est celui qui n'existe pas qu'on implémenterait.
+**`computeFraming` indexe encore ses dérogations sur l'instant de début**, avec
+un appariement au plus proche dans une tolérance de 250 ms. C'est l'itération 0 de
+la fonction pure, pas une seconde option à peser : la tâche qui écrit la
+persistance du cadrage remplace cet appariement par le recouvrement décrit ici.
+Entre deux modèles de clé dans un même document, c'est toujours celui qui n'a pas
+été retenu qu'on finit par écrire.
 
 #### Le ratio, exactement comme le crop
 
@@ -1485,12 +1512,13 @@ tranche de temps. Sept lots sur onze ne font donc pas 64 % de quoi que ce soit.
 
 Deux grandeurs, et elles ne répondent pas à la même question :
 
-- **le compte de lots refusés**, « 4 lots de fenêtres sur 11 ont été refusés par
-  le filtre de sécurité du modèle », dit ce qui s'est passé et rien de plus. Le
+- **le compte de lots refusés** dit ce qui s'est passé et rien de plus. Le
   confondre avec de la matière perdue serait faux depuis que le repérage recoupe
   les lots refusés et les resoumet : sur `2025-06-15-cqlp`, 83 fenêtres sur 83
-  finissent notées après quatre refus. La perte, quand il y en a une, se lit
-  ailleurs ;
+  finissent notées. Ne pas illustrer ce compte par un nombre pris sur le premier
+  passage : `lotsRefusés` s'incrémente à **chaque profondeur** de la descente et
+  `lotsRépondus` compte les sous-lots, donc le total que l'écran reçoit n'est pas
+  celui du premier tour. La perte, quand il y en a une, se lit ailleurs ;
 - **la couverture temporelle**, l'union des fenêtres effectivement notées
   rapportée à l'étendue du transcript, répond à la question que Julien se pose.
   Ce document la demandait au serveur ; elle existe (`BilanRepérage.couverture`),
@@ -1542,7 +1570,8 @@ défauts que chacun ferme par rapport à son coût.
 2. **Le tri comme boucle.** Clavier, pas de compactage sous la main, fin de boucle
    marquée, `tabs` pour les trois vues et la couverture du repérage. C'est
    l'écran que la spec demande de soigner en premier, et le seul dont le coût se
-   paie trente fois par émission.
+   paie trente fois par émission. Livré avec un défaut connu, décrit en 7.2 : la
+   phrase de couverture s'allume sur un refus au lieu de s'allumer sur une perte.
 3. **Les textes et l'export.** Titre, description, panneau d'export sur
    `exportClip`, lecture des rendus. Ferme la sortie du tunnel, donc rend le
    parcours entier vérifiable pour la première fois.
@@ -1667,17 +1696,24 @@ sont listées ici parce qu'elles ne s'écrivent pas dans `src/app/`. Celles qui 
 satisfaites restent, barrées : les retirer ferait redemander demain ce qui a déjà
 été payé.
 
-**Le modèle de cadrage, arbitré, calculé, pas encore enregistrable.** La forme
-est arrêtée et elle est écrite : `computeFraming` (`src/core/framing.ts`) prend un
-`cropMode` explicite, `auto` ou `manual`, et une table de dérogations **par
-plan**, indexée sur `shotStartMs`, l'instant de début du plan dans la source en
-millisecondes entières. Persister des secondes ici raterait l'appariement d'un
-facteur mille ; le raisonnement est en 3.5.
+**Le modèle de cadrage, arbitré, à moitié écrit.** Il faut un `cropMode`
+explicite, `auto` ou `manual`, et, en manuel, une dérogation **par plan**. La
+clé n'est ni un rang, ni un instant : c'est **l'intervalle source du plan tel
+qu'il était quand la dérogation a été posée**, résolu par recouvrement maximal
+avec le découpage courant, **ses deux bornes en millisecondes entières**. Un rang
+ne survit pas à un retrait de segment en amont, un instant ne survit pas au
+prochain réglage du seuil de détection, et des secondes flottantes ne se
+retrouvent pas d'une écriture à l'autre. Le raisonnement complet, avec les règles
+de division et de fusion, est en 3.5.
 
-Ce qui manque est la persistance. Un clip ne porte toujours qu'un `cropX` unique,
-en base comme dans `ClipPatch`, donc rien de ce que `computeFraming` sait recevoir
-ne peut être enregistré. **C'est le préalable du lot 7** : sans les deux champs,
-l'écran calculerait un cadrage par plan qui disparaîtrait au rechargement.
+`computeFraming` (`src/core/framing.ts`) prend déjà le mode et une table par plan,
+mais l'indexe sur l'instant de début avec une tolérance de 250 ms : c'est
+l'itération 0 de la fonction pure, et la tâche de persistance la remplace.
+
+**Rien n'est enregistrable aujourd'hui.** Un clip ne porte qu'un `cropX` unique,
+en base comme dans `ClipPatch`. **C'est le préalable du lot 7** : sans le mode et
+la table, l'écran calculerait un cadrage par plan qui disparaîtrait au
+rechargement.
 
 **~~Le recalcul sous un ratio épinglé.~~ Livré.** `computeFraming` saute le choix
 du ratio quand il est épinglé, jamais le calcul des crops : ceux-ci se calculent

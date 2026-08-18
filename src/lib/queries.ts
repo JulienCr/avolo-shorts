@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Les accès aux données, vus par les composants.
  *
@@ -5,7 +7,6 @@
  * jour où ses corps deviennent des `fetch` (tâche 10), ce fichier ne bouge pas
  * non plus.
  */
-'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 

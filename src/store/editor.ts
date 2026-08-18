@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * L'état local de l'écran de clip.
  *
@@ -10,7 +12,6 @@
  * L'annulation est une **pile d'instantanés** (`@/lib/history`), pas un journal
  * d'opérations inversibles. Spec §13 : l'EDL est une structure simple.
  */
-'use client'
 
 import { create } from 'zustand'
 

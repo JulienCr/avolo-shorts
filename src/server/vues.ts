@@ -45,6 +45,14 @@ export function résuméProjet(projet: Project): ProjectSummary {
  * avec un délai de garde : quatre fils du vivier de libuv suffisent à figer tout
  * ce qui touche au disque dans le serveur (voir le cache de `run.ts`).
  *
+ * **Les deux lectures sont synchrones, et c'est voulu.** `lireStatut` fait un
+ * `readFileSync` sur un fichier de quelques centaines d'octets dans
+ * `PROJECTS_DIR`, jamais sur le Drive : vingt et un se comptent en fractions de
+ * milliseconde. Les rendre asynchrones n'y gagnerait rien et supprimerait la
+ * seule propriété qui rende la réponse cohérente — rien ne s'intercale entre le
+ * `progression` et le `lireStatut` d'un même projet, donc aucun d'eux ne décrit
+ * un instant que l'autre ignore.
+ *
  * `error` se tait pendant qu'une exécution tourne, exactement comme dans
  * `GET /api/projects/:id` : l'échec affiché serait celui d'avant, et deux
  * écrans qui se contredisent sur le même projet valent moins que pas d'écran du

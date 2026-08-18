@@ -429,7 +429,9 @@ dépendent. (relevé par Aristarque)
 Autrement dit : **un tiers de l'attente sépare le lancement de la première
 décision possible, et les deux tiers restants ne bloquent que le montage.** Sur
 l'émission la plus longue du corpus (2 h 50), les mêmes rapports donnent environ
-5 minutes jusqu'aux candidats et 15 minutes au total.
+5 minutes jusqu'aux candidats et 15 minutes jusqu'au montage. Ces proportions
+mesurent l'attente d'un humain, pas la durée d'une exécution : l'analyse d'image
+tourne encore quand le montage s'ouvre, et personne ne l'attend.
 
 De là, trois régimes et trois écrans différents pour le même projet.
 
@@ -960,11 +962,13 @@ atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
 La clé désigne donc le plan **dans la source**. Et pas par son instant de début,
-qui paraît suffire et ne suffit pas : si une redétection déplace une frontière de
-10,0 s à 10,3 s, la clé 10,0 s tombe désormais **dans le plan précédent**, un plan
-la contient bel et bien, et la dérogation s'applique au mauvais cadre sans que
-rien ne le signale. Prendre le milieu du plan plutôt que son début rend le cas
-plus rare, pas impossible. (relevé par Copilot)
+qui paraît suffire et ne suffit pas : il parie que la frontière qui le porte sera
+encore là, et à la même place, la prochaine fois que les plans seront détectés.
+Une frontière déplacée de 10,0 s à 10,3 s fait tomber la clé 10,0 s **dans le plan
+précédent**, qui la contient bel et bien, et la dérogation s'applique au mauvais
+cadre sans que rien ne le signale ; une frontière retirée, elle, emporte sa clé.
+Prendre le milieu du plan plutôt que son début rend le premier cas plus rare, pas
+impossible, et ne fait rien pour le second. (relevé par Copilot)
 
 **Une dérogation porte donc l'intervalle source du plan tel qu'il était quand elle
 a été posée**, et se résout par **recouvrement maximal** avec le découpage
@@ -979,25 +983,36 @@ courant :
 - un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
   automatique.
 
-**Les deux bornes se persistent en millisecondes entières.** Celles d'un plan sont
-des secondes flottantes, et l'arrondi n'est pas une commodité d'écriture : deux
-calculs d'une même frontière peuvent différer sur leurs derniers bits, et c'est
-lui qui leur rend la même valeur. Un intervalle persisté en secondes raterait son
-recouvrement d'un facteur mille, et le rattraper après coup demanderait de relire
-des dérogations dont on ne saurait plus dans quelle unité elles ont été écrites.
-`shotStartMs` (`src/core/shots.ts`) porte déjà l'arrondi et son raisonnement au
-point d'appel ; la seconde borne reçoit le même traitement.
+**Les deux bornes se persistent en millisecondes entières.** Le recouvrement, lui,
+se calcule aussi bien sur des flottants : ce n'est pas l'arithmétique qui réclame
+l'entier, c'est le fait qu'une seule unité doit régner sur tout le modèle du crop.
+`detect.py` arrondit déjà `start` et `end` à la milliseconde, `shotStartMs`
+(`src/core/shots.ts`) rearrondit avec son raisonnement au point d'appel, et
+`computeFraming` indexe en entiers. Une table écrite en secondes cohabiterait donc
+avec des plans lus en millisecondes, et c'est ce mélange qui rate d'un facteur
+mille, pas le calcul. Le rattraper après coup demanderait de relire des
+dérogations dont on ne saurait plus dans quelle unité elles ont été écrites.
 
 **Ce qui a décidé de cette forme n'est pas la frontière qui bouge de trois
 dixièmes, c'est que le seuil de détection des plans va être reréglé.** La spec §5
 place `shots.json` dans le projet précisément parce que ce seuil se règle, et
 `ROADMAP.md` note que le seuil de scène à 0,4 a été mesuré image par image et
-revient à qui reprendra le détecteur. Une redétection à seuil différent ne décale
-pas une frontière de quelques images : elle les déplace **toutes**, de n'importe
-combien. Sous une clé qui est un instant, toutes les dérogations posées avant ce
-réglage atterrissent sur le mauvais plan ou disparaissent le même jour. Sous le
-recouvrement, chacune se dégrade seule et proprement. Ce n'est pas un cas
-hypothétique à couvrir par prudence, c'est une tâche au calendrier.
+revient à qui reprendra le détecteur.
+
+Un réglage ne déplace pas les frontières : `plans()` (`worker/detect.py`) filtre
+des instants candidats et rend tels quels ceux qui passent. Il en **ajoute** et il
+en **retire**, et son garde-fou de durée minimale fait qu'une frontière
+nouvellement admise peut en faire tomber une autre plus loin. Une redétection
+produit donc exactement des plans divisés et des plans fusionnés, c'est-à-dire les
+deux cas que les règles ci-dessus nomment.
+
+Sous une clé qui est un instant, la dégradation n'est pas symétrique : une
+frontière qui survit garde sa dérogation, une frontière retirée fait disparaître
+la sienne, et la moitié née d'une frontière ajoutée n'en a jamais eu. Le jour du
+réglage, on perd donc le cadrage humain **des plans qui ont le plus changé**, et
+on le perd en silence. Sous le recouvrement, chaque dérogation suit le plan qui
+l'a absorbée. Ce n'est pas un cas hypothétique à couvrir par prudence, c'est une
+tâche au calendrier.
 
 **Un appariement par tolérance ne remplace pas cette forme, et il rate même
 l'exemple qui l'a fait poser.** Cet exemple est une frontière qui bouge de trois
@@ -1017,11 +1032,12 @@ faux, et que rien ne signale.
 
 Ce qu'il en reste pour l'écran tient en une exigence : **une dérogation tombée se
 voit, et la bande ne suffit pas à la montrer.** Un plan « automatique » y est
-indistinguable d'un plan qui n'a jamais été dérogé ; pire, une clé rejetée parce
-qu'une autre visait le même plan laisse ce plan en `manual`, donc aucun état de la
-bande ne change, et une clé qui n'apparie rien du tout n'a même pas de plan à
-marquer. L'écran lit donc `rejectedOverrides` et l'énonce à part, en clair et de
-façon permanente : « une dérogation de cadrage n'a pas retrouvé son plan », avec
+indistinguable d'un plan qui n'a jamais été dérogé ; pire, une dérogation écartée
+parce qu'une autre recouvrait mieux le même plan laisse ce plan dérogé, donc aucun
+état de la bande ne change, et une dérogation qui ne recouvre plus rien n'a même
+pas de plan à marquer. L'écran lit donc `rejectedOverrides` et l'énonce à part, en
+clair et de façon permanente : « une dérogation de cadrage n'a pas retrouvé son
+plan », avec
 son compte. Reposer un cadrage coûte un geste ; s'apercevoir trois semaines plus
 tard qu'il n'a jamais été appliqué coûte une relecture de tout ce qui est sorti
 depuis.
@@ -1487,16 +1503,21 @@ et le geste devient prévisible dans les deux cas.
 
 ### 7.2 Le filtre de sécurité de Gemini, et ce que l'écran en dit
 
-Quatre lots de notation sur onze reviennent `PROHIBITED_CONTENT` sur
-`2025-06-15-cqlp`, de façon reproductible. Un tiers du matériau est écarté sans
-être jugé, **en silence**.
+Des lots de notation reviennent `PROHIBITED_CONTENT` sur `2025-06-15-cqlp`, de
+façon reproductible. Au moment où cette section a été écrite, un tiers du matériau
+était écarté sans être jugé, **en silence**, et c'est ce silence qu'elle traite.
 
-La cause se traite ailleurs et se traitera plus tard. Mais le silence, lui, est
-une décision d'interface, et c'est la mauvaise. Julien trie vingt-cinq cartes en
-croyant regarder ce que l'émission a de mieux, alors qu'il regarde ce que
-l'émission a de mieux **dans les deux tiers qui ont été notés**. Sans le mot, il
-attribuera au repérage une qualité qui n'est pas la sienne, et il n'aura aucune
-raison d'aller chercher dans le tiers manquant.
+**La cause a été traitée depuis, et pas le silence.** Le repérage recoupe
+désormais les lots refusés et resoumet les moitiés : sur cette émission, les 83
+fenêtres finissent toutes notées. La perte n'est donc plus le cas courant, elle
+est le cas résiduel, celui d'un lot refusé jusqu'à la fenêtre seule, et c'est ce
+qui rend la suite plus exigeante et non moins. Julien trierait vingt-cinq
+cartes en croyant regarder ce que l'émission a de mieux, alors qu'il regarderait
+ce que l'émission a de mieux **dans la part qui a été notée**. Sans le mot, il
+attribuerait au repérage une qualité qui n'est pas la sienne, et il n'aurait
+aucune raison d'aller chercher dans ce qui manque. Un défaut devenu rare se
+signale de la même façon qu'un défaut fréquent : c'est précisément parce qu'on ne
+l'attend plus qu'il faut le dire.
 
 Le décompte remonte dans `status.json`, et il y survit à un redémarrage du
 serveur, ce que `running` ne fait pas. Trois exigences sur ce qu'on en fait, et

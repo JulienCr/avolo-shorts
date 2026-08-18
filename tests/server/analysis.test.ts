@@ -140,6 +140,56 @@ describe('SCHÉMA_ANALYSE', () => {
     expect(échec.success ? '' : échec.error.issues[0]?.message).toMatch(/deux fois/)
   })
 
+  /**
+   * L'autre façon de mentir, symétrique et plus discrète : un trou ne fait pas
+   * compter deux fois, il fait **disparaître**. `computeFraming` ignore les
+   * boîtes qui n'appartiennent à aucun plan, donc l'intervalle est cadré par
+   * défaut — comme si personne n'y était jamais apparu. Même chose pour une
+   * liste qui ne commence pas à zéro : le début de l'émission devient un trou.
+   * (relevé par Copilot)
+   */
+  it('refuse un trou entre deux plans, ou un début après zéro', () => {
+    const trou = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 0, end: 10 },
+        { start: 25, end: 40 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(trou).success).toBe(false)
+
+    const départTardif = { ...ANALYSE_VALIDE, shots: [{ start: 4, end: 40 }] }
+    expect(SCHÉMA_ANALYSE.safeParse(départTardif).success).toBe(false)
+
+    const échec = SCHÉMA_ANALYSE.safeParse(trou)
+    expect(échec.success ? '' : échec.error.issues[0]?.message).toMatch(/disparaître/)
+  })
+
+  /**
+   * La tolérance vaut la granularité de `detect.py`, qui arrondit ses bornes à
+   * la milliseconde : un écart d'un millième est un artefact d'arrondi, pas un
+   * trou. Un vrai trou se compte en secondes.
+   */
+  it('tolère l’arrondi à la milliseconde, pas plus', () => {
+    const arrondi = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 0, end: 12.4 },
+        { start: 12.401, end: 30 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(arrondi).success).toBe(true)
+
+    const centième = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 0, end: 12.4 },
+        { start: 12.41, end: 30 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(centième).success).toBe(false)
+  })
+
   it('accepte des plans qui se touchent, ce que detect.py produit', () => {
     // `plans()` découpe `[0, durée]` à des frontières successives : la fin de
     // l'un **est** le début du suivant. Interdire ça condamnerait toute analyse.

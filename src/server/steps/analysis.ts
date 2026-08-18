@@ -81,32 +81,49 @@ const SCHÉMA_BOÎTE = z
   })
 
 /**
- * Les plans se suivent sans se chevaucher.
+ * La granularité de `detect.py` : il arrondit ses bornes à la milliseconde.
+ *
+ * Deux arrondis d'un même instant donnent le même nombre, donc la tolérance est
+ * inutile pour le producteur d'aujourd'hui — qui calcule les deux bornes depuis
+ * la même liste. Elle vaut pour le suivant, qui pourrait les calculer
+ * séparément : un écart d'une milliseconde serait alors un artefact d'arrondi,
+ * pas un trou. Un vrai trou se compte en secondes.
+ */
+const TOLÉRANCE_PLAN = 0.001
+
+/**
+ * Les plans partitionnent `[0, durée]` : ils partent de zéro, se suivent bout à
+ * bout, et ne se chevauchent pas.
  *
  * **Un invariant de la collection, pas de l'élément**, et c'est ce qui le rend
  * facile à oublier : chaque plan pris isolément peut être irréprochable pendant
- * que la liste ment. Deux plans qui se recouvrent font compter **deux fois** les
- * boîtes de leur zone commune, donc gonflent le total sur lequel `chooseRatio`
- * cherche son seuil de 90 % — et le clip sort dans un cadre plus large que
- * nécessaire, sans erreur et sans avertissement.
+ * que la liste ment. Les deux façons de mentir coûtent, et différemment.
  *
- * Se toucher est normal, se chevaucher ne l'est pas : `plans()` découpe
- * `[0, durée]` à des frontières successives, donc la fin de l'un est le début du
- * suivant. Le test est `start < end du précédent`, ce qui attrape d'un coup le
- * recouvrement et le désordre — un plan qui remonte le temps commence forcément
- * avant la fin de celui qui le précède.
+ * - **Se chevaucher fait compter deux fois** les boîtes de la zone commune, donc
+ *   gonfle le total sur lequel `chooseRatio` cherche son seuil de 90 % : le clip
+ *   sort dans un cadre plus large que nécessaire.
+ * - **Laisser un trou fait disparaître** les boîtes qui y tombent, puisque
+ *   `computeFraming` ignore celles qui n'appartiennent à aucun plan : l'intervalle
+ *   est alors cadré par défaut, comme si personne n'y était jamais apparu.
  *
- * Aujourd'hui `detect.py` ne peut pas produire autre chose. C'est précisément
- * pour ça que le schéma le vérifie : l'itération 1 va itérer sur le détecteur,
- * et cet invariant-là ne casse pas bruyamment. (relevé par Aristarque sur la PR
- * du cadrage)
+ * Les deux se voient à l'image et aucune ne lève d'erreur. Le test unique —
+ * chaque début colle à la fin du précédent, le premier vaut zéro — les attrape
+ * toutes les deux, plus le désordre au passage : un plan qui remonte le temps ne
+ * colle à rien.
+ *
+ * Aujourd'hui `detect.py` ne peut pas produire autre chose : il découpe
+ * `[0, durée]` à des frontières successives. C'est précisément l'argument —
+ * l'itération 1 va itérer sur le détecteur, et cet invariant-là ne casse pas
+ * bruyamment. (relevé par Aristarque sur la PR du cadrage, précisé par Copilot)
  */
-function plansSuccessifs(plans: readonly { start: number; end: number }[]): boolean {
+function plansEnPartition(plans: readonly { start: number; end: number }[]): boolean {
+  const premier = plans[0]
+  if (premier === undefined || Math.abs(premier.start) > TOLÉRANCE_PLAN) return false
   for (let i = 1; i < plans.length; i += 1) {
     const précédent = plans[i - 1]
     const courant = plans[i]
     if (précédent === undefined || courant === undefined) return false
-    if (courant.start < précédent.end) return false
+    if (Math.abs(courant.start - précédent.end) > TOLÉRANCE_PLAN) return false
   }
   return true
 }
@@ -120,11 +137,12 @@ export const SCHÉMA_ANALYSE = z.object({
   shots: z
     .array(SCHÉMA_PLAN)
     .min(1)
-    .refine(plansSuccessifs, {
+    .refine(plansEnPartition, {
       message:
-        'les plans doivent se suivre sans se chevaucher : deux plans qui se recouvrent font ' +
-        'compter deux fois les boîtes de leur zone commune, ce qui gonfle le total du choix de ' +
-        'ratio et élargit le cadre sans que rien ne le signale',
+        'les plans doivent partitionner [0, durée] : partir de zéro et se suivre bout à bout. ' +
+        'Deux plans qui se recouvrent font compter deux fois les boîtes de leur zone commune et ' +
+        'élargissent le cadre ; un trou entre deux plans fait disparaître celles qui y tombent, ' +
+        'et l’intervalle est cadré par défaut. Ni l’une ni l’autre ne lève d’erreur',
     }),
   boxes: z.array(SCHÉMA_BOÎTE),
 })

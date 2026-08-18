@@ -77,3 +77,23 @@ export function chrono(): () => number {
   const départ = process.hrtime.bigint()
   return () => Number(process.hrtime.bigint() - départ) / 1e9
 }
+
+/**
+ * Rend la main, pour de bon.
+ *
+ * `process.exitCode` seul ne suffit pas ici : quand le délai de garde du montage
+ * se déclenche, la requête `fs` abandonnée reste **en vol** — un appel système
+ * ne s'annule pas —, et une requête en vol maintient la boucle d'événements
+ * vivante. Le script afficherait donc son message d'erreur puis resterait
+ * planté, ce qui est exactement ce que le délai de garde était censé éviter.
+ * (relevé par Copilot)
+ *
+ * Le `write` vide avant de sortir : `process.exit` tronque une sortie standard
+ * branchée sur un tube, et son rappel n'est appelé qu'une fois le flux écoulé.
+ */
+export function quitter(code: number): void {
+  process.exitCode = code
+  process.stdout.write('', () => {
+    process.exit(code)
+  })
+}

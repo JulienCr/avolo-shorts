@@ -70,7 +70,7 @@ describe('environnementWorker', () => {
       base: { LD_LIBRARY_PATH: '/usr/lib::/opt/lib:' },
     })
     expect(env.LD_LIBRARY_PATH).toBe('/venv/cudnn:/usr/lib:/opt/lib')
-    expect(env.LD_LIBRARY_PATH.split(':').filter((s) => s === '')).toEqual([])
+    expect((env.LD_LIBRARY_PATH ?? '').split(':').filter((s) => s === '')).toEqual([])
   })
 
   it('conserve le reste de l environnement', () => {
@@ -79,11 +79,34 @@ describe('environnementWorker', () => {
     expect(env.HOME).toBe('/home/julien')
   })
 
-  it("n'ajoute pas de HF_TOKEN : sans pyannote, les modèles d'alignement sont publics", () => {
-    // Le jeton et l'accord sur le Hub ne sont exigés que par pyannote, dont
-    // l'itération 0 se passe (spec §17).
-    const env = environnementWorker({ cudnn: [], base: {} as Record<string, string | undefined> })
+  it("n'ajoute pas de HF_TOKEN : sans diarisation, aucun jeton n'est exigé", () => {
+    const env = environnementWorker({ cudnn: [], base: {} })
     expect(env.HF_TOKEN).toBeUndefined()
     expect(Object.keys(env).sort()).toEqual(['LD_LIBRARY_PATH', 'TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD'])
+  })
+
+  it('retire les secrets hérités : le worker de transcription n en a aucun besoin', () => {
+    // Le chemin de fuite n'est pas théorique : le stderr du worker est remonté
+    // par `onLog`, que la tâche 10 exposera à un client HTTP. Il suffit qu'une
+    // bibliothèque Python vide son environnement dans une trace.
+    // (relevé par Aristarque)
+    const env = environnementWorker({
+      cudnn: [],
+      base: {
+        GEMINI_API_KEY: 'secret',
+        HF_TOKEN: 'secret',
+        AWS_SECRET_ACCESS_KEY: 'secret',
+        DB_PASSWORD: 'secret',
+        PATH: '/usr/bin',
+        HOME: '/home/julien',
+      },
+    })
+    expect(env.GEMINI_API_KEY).toBeUndefined()
+    expect(env.HF_TOKEN).toBeUndefined()
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
+    expect(env.DB_PASSWORD).toBeUndefined()
+    // Et rien d'utile n'est parti avec.
+    expect(env.PATH).toBe('/usr/bin')
+    expect(env.HOME).toBe('/home/julien')
   })
 })

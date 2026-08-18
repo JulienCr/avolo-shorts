@@ -99,17 +99,69 @@ export function décisionCopie(o: {
  * par défaut, donc quatre montages morts sondés coup sur coup gèleraient tout ce
  * qui touche au disque. En itération 0 il y a un `stat` par ingestion, et le
  * message dit quoi faire ; le jour où un veilleur balaiera le dossier de replays
- * (itération 4), il faudra un sondage qui ne consomme pas de fil.
+ * (itération 4), il faudra un sondage qui ne consomme pas de fil. La requête
+ * abandonnée maintient par ailleurs la boucle d'événements en vie : les scripts
+ * de `scripts/` sortent donc par `quitter()`, qui ne s'en remet pas au seul
+ * `process.exitCode`. (relevé par Copilot)
+ *
+ * **Le message porte le chemin complet.** Comme ceux de `runFfmpeg`, il est
+ * destiné à un journal de serveur : une route qui le renverrait tel quel
+ * exposerait l'arborescence de la machine. (relevé par Aristarque)
  */
 export async function statAvecDélai(chemin: string, timeoutMs: number): Promise<fs.Stats> {
   return attendreOuRenoncer(
-    fsp.stat(chemin),
+    // `lstat` et non `stat`, et c'est ce qui ferme la porte des liens
+    // symboliques. `resolveSource` valide la **forme** du chemin avec
+    // `path.resolve`, qui ne suit pas les liens : un `REPLAY_DIR/emission.mp4`
+    // pointant sur `/etc/shadow` passerait son contrôle de dossier parent, et
+    // `stat` — qui suit les liens — le déclarerait fichier. Le contenu de la
+    // cible partirait alors dans `stage/`, puis dans un proxy consultable.
+    // `lstat` décrit le lien lui-même, donc `isFile()` est faux et l'ingestion
+    // s'arrête. Le montage 9p du Drive ne porte de toute façon pas de liens.
+    // (relevé par Aristarque)
+    fsp.lstat(chemin),
     timeoutMs,
     `Le dossier des replays ne répond pas (${timeoutMs} ms sur ${JSON.stringify(chemin)}). ` +
       'REPLAY_DIR est monté en 9p : il peut être absent, ou monté avec son transport mort ' +
       "dessous — /proc/mounts ne les distingue pas. Rouvrir l'explorateur Windows sur le " +
       'lecteur, ou remonter le partage.',
   )
+}
+
+/** Délai par défaut des gardes sur le Drive. Généreux : il est lent, pas mort. */
+export const DÉLAI_STAT_MS = 20_000
+
+/**
+ * Le montage **répond-il** ? Pas « le fichier existe-t-il » : `false` veut dire
+ * qu'aucune réponse n'est venue dans le temps imparti, et rien d'autre. Une
+ * erreur en est une, de réponse — un `ENOENT` immédiat prouve que le système de
+ * fichiers est vivant.
+ *
+ * C'est la distinction qui compte pour un montage 9p : **absent**, il répond
+ * `ENOENT` en une microseconde et tout ce qui suit se déroule normalement ;
+ * **monté avec son transport mort**, il ne répond rien du tout et gèle
+ * l'appelant. `/proc/mounts` ne les distingue pas, cette fonction si.
+ *
+ * Elle existe pour être appelée **avant du synchrone**. `fs.existsSync` sur un
+ * montage mort ne bloque pas un fil du vivier comme le fait `fsp.stat` : il
+ * gèle la boucle d'événements entière, donc tout le serveur. `placeSidecar` en
+ * fait plusieurs, et c'est ce qui rend ce sondage nécessaire côté transcription.
+ * (relevé par Copilot et Aristarque)
+ */
+export async function montageRépond(chemin: string, timeoutMs = DÉLAI_STAT_MS): Promise<boolean> {
+  try {
+    await attendreOuRenoncer(
+      fsp.stat(chemin).then(
+        () => true,
+        () => true,
+      ),
+      timeoutMs,
+      'muet',
+    )
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -207,9 +259,6 @@ export type Ingestion = {
   copied: boolean
 } & Empreinte
 
-/** Délai par défaut du `stat` de garde. Généreux : le Drive est lent, pas mort. */
-const DÉLAI_STAT_MS = 20_000
-
 /**
  * Ingère un replay : contrôle le montage, copie en local, relève l'empreinte,
  * inscrit le projet.
@@ -226,9 +275,13 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   const destination = stagedPath(source)
 
   const stat = await statAvecDélai(sourcePath, options.statTimeoutMs ?? DÉLAI_STAT_MS)
+  // `statAvecDélai` fait un `lstat` : un lien symbolique n'est donc pas un
+  // fichier, et il est refusé ici même s'il pointe sur une vraie vidéo. C'est
+  // volontaire — voir le commentaire de `statAvecDélai`.
   if (!stat.isFile()) {
     throw new Error(
-      `${JSON.stringify(source)} n'est pas un fichier. Un replay est un fichier posé dans REPLAY_DIR.`,
+      `${JSON.stringify(source)} n'est pas un fichier ordinaire. Un replay est un fichier posé ` +
+        'directement dans REPLAY_DIR — ni un dossier, ni un lien symbolique.',
     )
   }
 

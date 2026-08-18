@@ -14,7 +14,7 @@ import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
 import { ingest } from '@/server/steps/ingest'
 import { buildProxy, encodeurProxy } from '@/server/steps/proxy'
-import { chargerEnv, chrono, créerBarre, durée, finBarre, taille } from './dev-commun'
+import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter, taille } from './dev-commun'
 
 async function main(): Promise<number> {
   chargerEnv()
@@ -46,13 +46,6 @@ async function main(): Promise<number> {
       projet.copied ? `copiée en ${durée(tCopie())}` : 'déjà présente, rien à faire'
     }`,
   )
-  // **Seulement l'encodeur du proxy.** Afficher aussi celui de l'export
-  // appellerait `encoderName()`, donc la sonde NVENC — qui lance un vrai ffmpeg
-  // sur le GPU. Une relance où tout est déjà là paierait cet appel pour rien, et
-  // contredirait la garantie qui fonde cette commande : rien ne se recalcule.
-  // L'export n'est pas l'affaire de l'ingestion. (relevé par Copilot)
-  console.log(`Encodeur : ${encodeurProxy()} (proxy)`)
-
   const barreProxy = créerBarre('  proxy ')
   const tProxy = chrono()
   const proxy = await buildProxy({
@@ -63,8 +56,17 @@ async function main(): Promise<number> {
     onProgress: (a) => barreProxy(a.fraction),
   })
   finBarre()
+  // L'encodeur ne s'affiche **que si un encodage a eu lieu**, et pas au-dessus :
+  // `encodeurProxy()` lève sur un `FFMPEG_ENCODER` inconnu, or `buildProxy` rend
+  // justement ce choix paresseux pour qu'un proxy déjà là revienne tout de suite,
+  // quoi que porte l'environnement. L'afficher plus haut aurait rétabli d'une
+  // main ce que l'autre venait de retirer. Rien n'appelle `encoderName()` non
+  // plus : ce serait la sonde NVENC, donc un vrai ffmpeg sur le GPU, dans une
+  // commande d'ingestion qui promet de ne rien recalculer. (relevé par Copilot)
   console.log(
-    `Proxy    : ${proxy.path} — ${proxy.skipped ? 'déjà là, rien à faire' : `encodé en ${durée(tProxy())}`}`,
+    `Proxy    : ${proxy.path} — ${
+      proxy.skipped ? 'déjà là, rien à faire' : `encodé en ${durée(tProxy())} (${encodeurProxy()})`
+    }`,
   )
 
   const barreAudio = créerBarre('  audio ')
@@ -93,10 +95,10 @@ async function main(): Promise<number> {
 main()
   .then((code) => {
     closeDb()
-    process.exitCode = code
+    quitter(code)
   })
   .catch((erreur: unknown) => {
     closeDb()
     console.error(erreur instanceof Error ? erreur.message : erreur)
-    process.exitCode = 1
+    quitter(1)
   })

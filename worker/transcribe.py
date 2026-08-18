@@ -76,7 +76,11 @@ def main() -> int:
 
     journal(f"[3/4] Transcription (batch {a.batch_size}, langue {a.language})…")
     result = model.transcribe(audio, batch_size=a.batch_size, language=a.language)
-    langue = result.get("language", a.language)
+    # `or` et non le défaut de `get` : celui-ci ne joue que si la clé est
+    # absente, pas si elle est présente et vaut `None`. `langue` partirait alors
+    # à `None` dans `load_align_model`, qui échouerait sur un message qui ne
+    # nomme pas la langue. (relevé par Aristarque)
+    langue = result.get("language") or a.language
 
     # Rendre la VRAM du modèle de transcription avant de charger celui
     # d'alignement. `empty_cache()` ne suffit pas à tout rendre avec CTranslate2

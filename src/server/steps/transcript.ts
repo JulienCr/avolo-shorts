@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { cheminTemporaire, créerJournal, type Artefact } from '@/server/ffmpeg'
-import { placeSidecar } from '@/server/paths'
+import { placeSidecar, resolveSource } from '@/server/paths'
+import { montageRépond } from '@/server/steps/ingest'
 
 /**
  * La transcription : WhisperX en sous-processus, et le résultat dans le sidecar.
@@ -65,6 +66,9 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  * - `LD_LIBRARY_PATH` : CTranslate2 charge cuDNN par le chargeur dynamique, qui
  *   ne connaît rien aux paquets pip. Sans ce chemin, le modèle ne se charge pas.
  *
+ * **Les secrets ne franchissent pas la frontière de processus** — voir `SECRET`
+ * plus bas.
+ *
  * **Le chemin hérité est redécoupé avant d'être filtré**, et ce n'est pas de la
  * propreté : un segment vide dans `LD_LIBRARY_PATH` désigne le **dossier
  * courant**, donc ferait chercher les bibliothèques du processus là où il a été
@@ -75,20 +79,42 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  *
  * Pure : l'environnement de départ est un argument.
  */
-export function environnementWorker<T extends Record<string, string | undefined>>(o: {
+export function environnementWorker(o: {
   cudnn: readonly string[]
-  base: T
-}): T & { TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: string; LD_LIBRARY_PATH: string } {
+  base: Record<string, string | undefined>
+}): NodeJS.ProcessEnv {
   const hérité = (o.base.LD_LIBRARY_PATH ?? '').split(':')
   const chemins = [...o.cudnn, ...hérité].filter((c) => c !== '')
-  // `Object.assign` et non un littéral en `...` : l'étalement d'un générique
-  // perd l'intersection, et `process.env` porte des propriétés obligatoires
-  // (Next y déclare `NODE_ENV`) que le type de retour doit conserver.
-  return Object.assign({}, o.base, {
-    TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: '1',
-    LD_LIBRARY_PATH: chemins.join(':'),
-  })
+
+  // `as NodeJS.ProcessEnv` sur l'accumulateur, et c'est la seule assertion du
+  // fichier : Next déclare `NODE_ENV` **obligatoire** sur ce type, or une copie
+  // filtrée ne peut pas prouver structurellement qu'elle l'a gardée. Elle la
+  // garde — `NODE_ENV` ne ressemble pas à un secret — mais cela se voit à
+  // l'exécution, pas à la compilation.
+  const transmis = {} as NodeJS.ProcessEnv
+  for (const [nom, valeur] of Object.entries(o.base)) {
+    if (!SECRET.test(nom)) transmis[nom] = valeur
+  }
+  transmis.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = '1'
+  transmis.LD_LIBRARY_PATH = chemins.join(':')
+  return transmis
 }
+
+/**
+ * Les noms de variables qui ne franchissent pas la frontière de processus.
+ *
+ * Le worker héritait de tout `process.env`, donc de `GEMINI_API_KEY` — une clé
+ * qui n'a rien à faire dans un processus de transcription. Le chemin de fuite
+ * n'est pas théorique : le stderr du worker est capturé et remonté par `onLog`,
+ * que `dev-transcribe` écrit sur la sortie standard et que la tâche 10 exposera
+ * à un client HTTP. Il suffit qu'une bibliothèque Python vide son environnement
+ * dans une trace pour que la clé parte avec. Le principe est le moindre
+ * privilège : ce processus n'a besoin d'aucun secret.
+ *
+ * `HF_TOKEN` tombe par la même règle, et c'est cohérent : sans pyannote en
+ * diarisation, il n'est jamais demandé. (relevé par Aristarque)
+ */
+const SECRET = /(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i
 
 /** Le contenu de `<venv>/lib`, ou rien si le dossier n'existe pas. */
 function dossiersLib(venvRoot: string): string[] {
@@ -160,6 +186,26 @@ export type Transcription = Artefact & {
  * nom définitif, que la relance suivante prendrait pour un transcript valide.
  */
 export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
+  // **Avant de laisser `placeSidecar` toucher le Drive.** Il y fait plusieurs
+  // appels *synchrones* — `existsSync`, `mkdirSync`, `writeFileSync` — et sur un
+  // montage 9p au transport mort, un appel synchrone ne bloque pas un fil du
+  // vivier comme le ferait `fsp.stat` : il gèle la boucle d'événements entière,
+  // donc tout le serveur, et jamais il ne se rabat.
+  //
+  // On échoue plutôt que de se rabattre, et c'est le seul choix honnête :
+  // « le Drive ne répond pas » n'est pas « le Drive est en lecture seule ». Le
+  // repli existe pour le second cas, où le montage répond — un `EACCES` est une
+  // réponse, et `placeSidecar` le traite très bien. (relevé par Copilot et
+  // Aristarque)
+  const dossierSource = path.dirname(resolveSource(o.source))
+  if (!(await montageRépond(dossierSource))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de décider où va le sidecar. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+
   const placement = placeSidecar(o.source, o.projectId)
 
   if (o.force !== true && fs.existsSync(placement.transcript)) {
@@ -215,6 +261,17 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
  * `close` et non `exit` : `exit` part dès que le processus meurt, `close` attend
  * que ses flux soient vidés. Sur un échec, la différence est précisément les
  * dernières lignes de la trace Python — celles qui disent pourquoi.
+ *
+ * **Le message d'échec porte la commande complète**, donc les chemins du venv et
+ * de l'audio. Comme ceux de `runFfmpeg` et de `statAvecDélai`, il est destiné à
+ * un journal de serveur, pas à une réponse HTTP. (relevé par Aristarque)
+ *
+ * **Les deux sorties sont capturées, aucune n'est héritée.** Le worker écrit son
+ * avancement sur stderr, mais ses dépendances — WhisperX, Lightning, pyannote —
+ * écrivent sur stdout par le module `logging`, sans rien demander à personne.
+ * Hérité, tout cela irait se mêler à la sortie du serveur quand la tâche 10
+ * branchera cette étape derrière l'API. Capturé, tout passe par `onLog`, qui
+ * décide. (relevé par Aristarque)
  */
 function lancerWorker(
   python: string,
@@ -225,17 +282,27 @@ function lancerWorker(
   const journal = créerJournal(40)
 
   return new Promise<void>((resolve, reject) => {
-    const proc = spawn(python, args, { env, stdio: ['ignore', 'inherit', 'pipe'] })
+    const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
 
-    proc.stderr.setEncoding('utf8')
-    let reste = ''
-    proc.stderr.on('data', (morceau: string) => {
-      journal.ajouter(morceau)
-      if (onLog === undefined) return
-      const lignes = (reste + morceau).split('\n')
-      reste = lignes.pop() ?? ''
-      for (const ligne of lignes) if (ligne.trim() !== '') onLog(ligne)
-    })
+    // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
+    // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
+    // l'autre.
+    const relayer = (flux: NodeJS.ReadableStream, journaliser: boolean): void => {
+      flux.setEncoding('utf8')
+      let reste = ''
+      flux.on('data', (morceau: string) => {
+        if (journaliser) journal.ajouter(morceau)
+        if (onLog === undefined) return
+        const lignes = (reste + morceau).split('\n')
+        reste = lignes.pop() ?? ''
+        for (const ligne of lignes) if (ligne.trim() !== '') onLog(ligne)
+      })
+    }
+
+    // Seul stderr nourrit le carnet d'erreur : c'est là que Python écrit sa
+    // trace, et stdout n'y ajouterait que du bruit de bibliothèque.
+    relayer(proc.stderr, true)
+    relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
       reject(

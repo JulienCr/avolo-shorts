@@ -20,7 +20,7 @@ import { closeDb, getDb, getProject } from '@/server/db'
 import { audioPath, placeSidecar, proxyPath } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
 import { transcribe } from '@/server/steps/transcript'
-import { chargerEnv, chrono, créerBarre, durée, finBarre } from './dev-commun'
+import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter } from './dev-commun'
 
 async function main(): Promise<number> {
   chargerEnv()
@@ -111,10 +111,10 @@ async function main(): Promise<number> {
 main()
   .then((code) => {
     closeDb()
-    process.exitCode = code
+    quitter(code)
   })
   .catch((erreur: unknown) => {
     closeDb()
     console.error(erreur instanceof Error ? erreur.message : erreur)
-    process.exitCode = 1
+    quitter(1)
   })

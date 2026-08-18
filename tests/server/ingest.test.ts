@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,6 +6,7 @@ import {
   attendreOuRenoncer,
   décisionCopie,
   empreinteSource,
+  montageRépond,
   statAvecDélai,
 } from '@/server/steps/ingest'
 
@@ -82,10 +83,28 @@ describe('statAvecDélai', () => {
     expect(stat.size).toBe(12)
   })
 
-  it('distingue un dossier d un fichier — c est ce que resolveSource ne fait pas', () => {
+  it('distingue un dossier d un fichier — c est ce que resolveSource ne fait pas', async () => {
     // `resolveSource` valide la forme du chemin ; ni l'existence ni le type.
+    // C'est `ingest` qui refuse ce qui n'est pas un fichier ordinaire, et il le
+    // décide sur ce `isFile()`. (relevé par Aristarque)
     const dossier = tmp()
-    return expect(statAvecDélai(dossier, 5_000)).resolves.toMatchObject({})
+    expect((await statAvecDélai(dossier, 5_000)).isFile()).toBe(false)
+  })
+
+  it('décrit le lien, pas sa cible : un lien symbolique n est pas un fichier', async () => {
+    // `resolveSource` valide la forme du chemin avec `path.resolve`, qui ne suit
+    // pas les liens. Un lien posé dans REPLAY_DIR et pointant ailleurs passerait
+    // donc son contrôle de dossier parent ; c'est le `lstat` qui ferme la porte,
+    // et c'est pour cela que ce n'est pas un `stat`. (relevé par Aristarque)
+    const dossier = tmp()
+    const cible = path.join(dossier, 'ailleurs.mp4')
+    fs.writeFileSync(cible, 'une vraie vidéo, mais pas à sa place')
+    const lien = path.join(dossier, 'replay.mp4')
+    fs.symlinkSync(cible, lien)
+
+    const stat = await statAvecDélai(lien, 5_000)
+    expect(stat.isSymbolicLink()).toBe(true)
+    expect(stat.isFile()).toBe(false)
   })
 
   it('remonte l absence sans attendre le délai', async () => {
@@ -93,6 +112,46 @@ describe('statAvecDélai', () => {
     await expect(statAvecDélai(path.join(dossier, 'absent.mp4'), 5_000)).rejects.toThrow(/ENOENT/)
   })
 
+})
+
+describe('montageRépond', () => {
+  const racines: string[] = []
+  const tmp = (): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-montage-'))
+    racines.push(d)
+    return d
+  }
+
+  afterEach(() => {
+    for (const d of racines.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  it('répond vrai sur un dossier vivant', async () => {
+    await expect(montageRépond(tmp(), 5_000)).resolves.toBe(true)
+  })
+
+  it("répond vrai sur un chemin absent : une erreur **est** une réponse", async () => {
+    // C'est toute la distinction que `/proc/mounts` ne fait pas. Un montage
+    // absent rend `ENOENT` en une microseconde et la suite se déroule
+    // normalement — c'est le montage au transport mort, qui ne rend rien du
+    // tout, qu'il faut attraper.
+    await expect(montageRépond(path.join(tmp(), 'absent'), 5_000)).resolves.toBe(true)
+  })
+
+  it('répond faux quand rien ne vient dans le temps imparti', async () => {
+    // Minuterie factice, et avancée **avant** de rendre la main à la boucle : le
+    // `stat` n'a alors pas encore pu revenir, donc la garde gagne à coup sûr.
+    // Un simple délai de zéro sur un fichier local serait une course, et les
+    // courses en test se perdent un jour sur dix.
+    vi.useFakeTimers()
+    try {
+      const promesse = montageRépond(tmp(), 5_000)
+      vi.advanceTimersByTime(5_000)
+      await expect(promesse).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('attendreOuRenoncer', () => {

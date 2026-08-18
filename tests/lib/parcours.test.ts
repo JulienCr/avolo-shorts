@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { phaseProjet, type Phase } from '@/core/parcours'
-import { chemin, clipSuivant, suite } from '@/lib/parcours'
+import { chemin, clipSuivant, lienParametres, suite } from '@/lib/parcours'
 
 const projet = { id: 'p1', titre: 'La scène Avolo du 15 juin' }
 
@@ -36,6 +36,13 @@ describe('chemin', () => {
       clip: { titre: 'La chute' },
     })
     expect(racine.href).toBe('/projects/2026-01-11%20m%C3%A9chante')
+  })
+
+  it('nomme les paramètres, en frère de la racine et non en quatrième étage', () => {
+    // Les réglages ne décrivent aucune émission : changer l'un d'eux ne
+    // recalcule rien. Les ranger sous une émission aurait suggéré le contraire.
+    expect(chemin({ kind: 'parametres' })).toEqual([{ libelle: 'Paramètres' }])
+    expect(lienParametres()).toBe('/parametres')
   })
 
   it('porte un cran quand l’objet n’est pas encore connu', () => {

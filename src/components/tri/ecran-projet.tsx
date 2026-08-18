@@ -13,7 +13,7 @@ import { AppBar } from '@/components/parcours/app-bar'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 import { FilDeTri } from '@/components/tri/fil'
 import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
-import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { BoutonArrêt, BoutonRelance, BoutonReprise } from '@/components/tri/relance'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -103,7 +103,17 @@ export function EcranDeProjet({ id }: { id: string }) {
   return (
     <div className="flex min-h-full flex-col">
       <AppBar lieu={{ kind: 'projet', projet: { id, titre: projet.data?.project.title ?? id } }}>
-        {disposition === 'bande' && running !== null && <BandeAvancement running={running} />}
+        {/* **L'arrêt suit l'avancement quand il se replie.** Le panneau cède la
+            place à la grille dès qu'il y a quelque chose à trier, et il reste
+            alors six minutes d'encodage : sans ce bouton, arrêter demanderait
+            d'attendre que l'analyse redevienne la seule chose à l'écran, ce qui
+            n'arrive jamais. */}
+        {disposition === 'bande' && running !== null && (
+          <>
+            <BandeAvancement running={running} />
+            <BoutonArrêt projectId={id} compact />
+          </>
+        )}
       </AppBar>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
@@ -177,6 +187,7 @@ export function EcranDeProjet({ id }: { id: string }) {
               erreur={erreur}
               taille={taille}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
+              arret={running !== null ? <BoutonArrêt projectId={id} /> : null}
             />
           ) : !prêt ? (
             <GrilleEnAttente />

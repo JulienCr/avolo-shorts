@@ -46,6 +46,24 @@ describe('AppBar', () => {
     expect(screen.getByRole('link', { name: 'avolo·shorts' })).toBeTruthy()
   })
 
+  it('mène aux paramètres depuis n’importe quel écran', () => {
+    // La barre est le seul élément que les écrans partagent, et les réglages
+    // n'appartiennent à aucun d'eux.
+    render(<AppBar lieu={{ kind: 'bibliotheque' }} />)
+    expect(screen.getByRole('link', { name: 'Paramètres' })).toHaveProperty(
+      'pathname',
+      '/parametres',
+    )
+  })
+
+  it('ne pose pas de lien vers l’écran des paramètres depuis lui-même', () => {
+    // Un lien vers soi n'est pas une navigation, et il volerait un arrêt de
+    // tabulation.
+    render(<AppBar lieu={{ kind: 'parametres' }} />)
+    expect(screen.queryByRole('link', { name: 'Paramètres' })).toBeNull()
+    expect(screen.getByText('Paramètres')).toBeTruthy()
+  })
+
   it('porte un emplacement pour l’indicateur d’exécution', () => {
     // La barre laisse la place, elle ne dessine pas l'indicateur : c'est
     // l'écran de projet qui sait ce qui tourne.

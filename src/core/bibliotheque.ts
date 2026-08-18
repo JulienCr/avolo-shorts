@@ -109,13 +109,20 @@ export type EntréeBibliothèque<S extends SourceLisible, P extends ProjetLisibl
  * quand elle répond, et muette au-delà — une exécution perdue **après**
  * l'ingestion retombe sur `analysée`.
  *
- * **Ce que ça coûterait de la compléter, et pourquoi ce n'est pas fait ici** :
- * `élémentDeListe` (`src/server/vues.ts`) lit déjà `status.json` pour son champ
- * `error`, et ce fichier porte `pid`, `running` et `finishedAt`. Un `running`
- * non nul sur le disque là où `progression()` ne rend rien **est** exactement
- * une exécution perdue, et la lecture est déjà payée. C'est une ligne côté
- * serveur, un champ de plus sur `ProjectListItem`, et rien à changer ici hors la
- * branche ci-dessous. Le champ n'existe pas au moment où ceci s'écrit.
+ * **Ce qu'elle ne couvre pas, et ce qui le couvrirait.** Deux cas échappent à la
+ * déduction et retombent sur `analysée` : une exécution perdue **après**
+ * l'ingestion, et une analyse **arrêtée** depuis l'écran — `publierLArrêt`
+ * (`src/server/run.ts`) écrit délibérément `error: null`, parce qu'un arrêt
+ * demandé n'est pas une panne.
+ *
+ * Le serveur, lui, sait les deux. `status.json` porte `arrêtée`, `pid` et
+ * `finishedAt`, et `élémentDeListe` (`src/server/vues.ts`) lit déjà ce fichier
+ * pour son champ `error` : la lecture est payée, il n'y aurait qu'un champ à
+ * publier. Le choix de ne pas le faire est écrit dans `Statut.arrêtée` et il
+ * tient pour l'écran de projet, où `phaseProjet` déduit `interrompu` de
+ * `steps` ; **la bibliothèque, elle, n'a pas `steps`** — c'est justement le
+ * sondage qu'elle refuse de payer. La branche ci-dessous est ce qui reste.
+ * (contrat manquant, signalé)
  */
 export function étatDÉmission(projet: ProjetLisible | null, projetAttendu: boolean): ÉtatÉmission {
   if (projet === null) {

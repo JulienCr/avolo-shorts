@@ -11,14 +11,19 @@ et les mesures qui la fondent.
 
 ## Où en est le projet
 
-**L'itération 0 est livrée.** La chaîne complète marche de bout en bout, interface
-comprise, avec le cadrage réglé à la main. Quatorze tâches, dix-neuf PR, 759
-tests, CI vert à chaque PR.
+**L'itération 0 est livrée, à un raccord près.** Quatorze tâches, dix-neuf PR,
+759 tests, CI vert à chaque PR.
 
 Ce qui tourne : ingestion depuis le Drive, proxy, extraction audio,
 transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
 le transcript, cadrage manuel, rendu avec sous-titres karaoké incrustés et
 logo, export en deux formats et l'API qui pilote le tout.
+
+**Mais l'export n'est pas atteignable depuis l'interface**, ce qui rend la
+chaîne incomplète du point de vue de son utilisateur. Le détail est plus bas,
+sous « Le raccord manquant ». Ne pas lire « itération 0 livrée » comme
+« utilisable de bout en bout au clavier » : la chaîne se pilote encore en
+`curl` pour sa dernière étape.
 
 ## Ce qui le prouve
 
@@ -80,11 +85,50 @@ sans repayer les six minutes de proxy.
 
 ## Ce qui reste
 
+### Le raccord manquant : l'export est inaccessible depuis l'interface
+
+C'est le premier chantier, avant les itérations suivantes, parce qu'il empêche
+d'utiliser ce qui est déjà construit. Constaté par Julien devant l'écran, puis
+vérifié dans le code.
+
+Un clip affiche l'étiquette « exporté » et rien ne permet de déclencher un
+export, de lire le fichier produit, ni de récupérer les textes. Trois pièces
+manquent, toutes du même côté :
+
+1. **Aucune route ne sert un fichier rendu.** `/api/projects/:id/proxy` existe et
+   gère les requêtes partielles, mais rien d'équivalent pour
+   `projects/<id>/renders/`. La mécanique est là et se réutilise :
+   `parseRange` dans `src/core/range.ts`, et la route proxy comme modèle.
+2. **`GET /api/clips/:id` ne dit rien des sorties produites.** Il rend
+   `{ clip, project, lines, proxyUrl }`. Il lui faut les rendus, en URL et jamais
+   en chemins absolus du serveur, avec `null` quand le fichier n'existe pas. La
+   variante 9:16 n'existe que si le ratio résolu n'est pas déjà 9:16 : son absence
+   n'est pas une anomalie.
+3. **`src/lib/api.ts` n'expose pas d'`exportClip`**, et l'écran de clip n'a ni
+   bouton, ni état d'attente, ni lecteur des sorties. L'export prend de dix
+   secondes à une minute : un bouton muet pendant ce temps passe pour cassé. Il
+   faut aussi traiter le ré-export, le serveur rendant `skipped: true` quand le
+   rendu existe déjà.
+
+**La cause est une couture d'orchestration, pas une erreur d'un agent.**
+L'interface a été construite contre des fixtures pendant que les autres tâches
+tournaient, donc avant que la route d'export existe. Quand la tâche 10 a branché
+`src/lib/api.ts` sur les vraies routes, elle a câblé les fonctions que
+l'interface appelait déjà, et l'export n'en faisait pas partie. Chaque agent a
+livré son périmètre, et personne ne possédait le raccord.
+
+La leçon vaut pour la suite : **quand un périmètre est découpé pour paralléliser,
+quelqu'un doit posséder explicitement la jonction**, sinon elle tombe entre deux
+rapports tous deux exacts.
+
 ### Trois anomalies ouvertes
 
-**#22, la seule qui presse.** Sur la variante 9:16, le fond flouté laisse relire
-les sous-titres : elle est construite depuis le rendu natif déjà incrusté, et le
-flou n'efface pas des lettres cerclées d'un contour épais. Ça compte parce que
+**#22, et elle est pire que son ticket ne le dit.** Sur la variante 9:16, le fond
+flouté ne laisse pas seulement « deviner » les sous-titres : le carton est
+pleinement lisible dans la bande du bas, à la même taille, le jaune du mot actif
+compris. Constaté à l'image, pas déduit du filtergraph. La variante est
+construite depuis le rendu natif déjà incrusté, et `gblur=sigma=12` n'efface pas
+des lettres cerclées d'un contour de 8. Ça compte parce que
 cette variante est ce qui permet à un 1:1 ou un 4:5 d'atteindre TikTok, donc le
 mécanisme qui porte la moitié du bénéfice mesuré en section 2 de la spec.
 

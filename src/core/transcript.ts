@@ -56,9 +56,14 @@ function round3(seconds: number): number {
  * en dérivent toutes deux la même : deux filtres différents feraient désigner
  * deux choses différentes par le même index, et la prose ressortirait décalée
  * d'un cran sans que rien ne le signale.
+ *
+ * Un segment sans prose est écarté : le transcript en porte (WhisperX émet des
+ * segments vides sur les silences), et une fenêtre n'a rien à en faire. Aucune
+ * garde ici contre un `tx` ou un `text` absents : le type est le contrat, et la
+ * validation d'un JSON venu du disque appartient à la frontière qui le lit.
  */
 function usableSegments(tx: Transcript): TxSegment[] {
-  return (tx?.segments ?? []).filter((s) => (s.text ?? '').trim() !== '')
+  return tx.segments.filter((s) => s.text.trim() !== '')
 }
 
 /**
@@ -334,16 +339,23 @@ function nearestCuttable(
  * ici — c'est l'intérêt d'en avoir fait une fonction.
  */
 function cutAfter(wordEnd: number, starts: number[], maxTail: number): number {
-  const following = starts.filter((s) => s >= wordEnd)
-  const gap = following.length > 0 ? Math.min(...following) - wordEnd : null
+  // `starts` est trié, donc le premier début à `wordEnd` ou après se trouve par
+  // dichotomie. La source filtre puis prend le `min` ; ici un
+  // `Math.min(...tableau)` étalerait jusqu'à 30 000 arguments sur la pile pour
+  // une émission de trois heures, et ce genre de dépassement n'arrive que sur la
+  // source la plus longue, c'est-à-dire le plus tard possible.
+  const index = bisectLeft(starts, wordEnd)
+  const gap = index < starts.length ? starts[index] - wordEnd : null
   const tail = gap === null ? maxTail : Math.min(maxTail, Math.max(0, gap) / 2)
   return wordEnd + tail
 }
 
 /** Le miroir de `cutAfter` : le point de coupe juste avant un mot. */
 function cutBefore(wordStart: number, ends: number[], maxLead: number): number {
-  const preceding = ends.filter((e) => e <= wordStart)
-  const gap = preceding.length > 0 ? wordStart - Math.max(...preceding) : null
+  // Idem : `ends` est trié, la dernière fin à `wordStart` ou avant est juste à
+  // gauche du point d'insertion.
+  const index = bisectRight(ends, wordStart)
+  const gap = index > 0 ? wordStart - ends[index - 1] : null
   const lead = gap === null ? maxLead : Math.min(maxLead, Math.max(0, gap) / 2)
   return Math.max(0, wordStart - lead)
 }
@@ -450,18 +462,21 @@ function snapEndToSpeech(
  *
  * Rendu `[début, fin]`, en ne retombant sur l'entrée brute que si aucune
  * combinaison de bornes calées et brutes ne tient dans la vidéo.
+ *
+ * Les trois constantes de calage ne sont **pas** des paramètres, alors qu'elles
+ * le sont dans la source. C'est la leçon du plafond de 60 secondes : un défaut
+ * de mot-clé jamais surchargé à l'unique site d'appel se lit comme un réglage
+ * alors que c'est une constante, et il devient invisible. Les régler se fait
+ * donc ici, en une ligne, comme une décision.
  */
 export function snapToWords(
   start: number,
   end: number,
   words: Word[],
   videoDuration: number,
-  maxLead = MAX_LEAD,
-  maxTail = MAX_TAIL,
-  maxSilenceSkip = MAX_SILENCE_SKIP,
 ): [number, number] {
   const original: [number, number] = [round3(start), round3(end)]
-  if (!words || words.length === 0) return original
+  if (words.length === 0) return original
 
   const intervals: [number, number][] = words
     .map((w): [number, number] => [w.start, w.end])
@@ -472,13 +487,13 @@ export function snapToWords(
 
   // DÉBUT : sur un début de mot, puis on recule dans le silence qui le précède.
   let newStart = start
-  const wordStart = snapStartToSpeech(newStart, starts, maxEnds, maxSilenceSkip)
-  if (wordStart !== null) newStart = cutBefore(wordStart, ends, maxLead)
+  const wordStart = snapStartToSpeech(newStart, starts, maxEnds, MAX_SILENCE_SKIP)
+  if (wordStart !== null) newStart = cutBefore(wordStart, ends, MAX_LEAD)
 
   // FIN : sur une fin de mot, puis on avance dans le silence qui la suit.
   let newEnd = end
-  const wordEnd = snapEndToSpeech(newEnd, ends, starts, maxEnds, maxSilenceSkip)
-  if (wordEnd !== null) newEnd = Math.min(videoDuration, cutAfter(wordEnd, starts, maxTail))
+  const wordEnd = snapEndToSpeech(newEnd, ends, starts, maxEnds, MAX_SILENCE_SKIP)
+  if (wordEnd !== null) newEnd = Math.min(videoDuration, cutAfter(wordEnd, starts, MAX_TAIL))
 
   // La paire la plus calée qui soit valide. openshorts rendait l'entrée brute
   // dès que sa réparation de durée échouait, ce qui jetait une borne AYANT

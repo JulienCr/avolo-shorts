@@ -229,6 +229,30 @@ export function useEnregistrementAuto({
 
   /** Ce qui est promis mais pas encore parti. Vidé au départ de la page. */
   const enAttente = useRef<Variables | null>(null)
+
+  /**
+   * Le rang de la dernière écriture **partie**, et le prix de `mutateAsync`.
+   *
+   * Deux enregistrements du montage se chevauchent dès qu'un aller-retour dure
+   * plus que les 600 ms de temporisation : un geste de plus fait repartir une
+   * écriture pendant que la précédente vole encore. Tant que les rappels
+   * vivaient sur l'observateur, la mutation dépassée en était détachée et sa
+   * réponse ne disait plus rien — c'était le défaut, mais c'était aussi, par
+   * accident, un ordre. Depuis que chaque promesse tient son propre sort, la
+   * réponse dépassée parle, et rien ne garantit qu'elle parle en premier.
+   *
+   * Deux façons de s'y tromper, symétriques et toutes deux silencieuses : le
+   * succès tardif d'une écriture dépassée effacerait l'échec de la plus récente
+   * — qui repartirait alors toute seule, garde-fou anti-boucle contourné par le
+   * chemin même qu'il surveille —, et l'échec tardif d'une écriture dépassée
+   * retiendrait une signature que le serveur n'a jamais refusée, minant la
+   * valeur correspondante jusqu'au prochain chargement.
+   *
+   * Seule la dernière tentative partie touche donc à `echec`. La réconciliation,
+   * elle, s'exécute pour **tout** refus : ses propres conditions la rendent
+   * inoffensive sur un champ qui a bougé depuis. (relevé par Copilot et Codex)
+   */
+  const derniereTentative = useRef(0)
   const ecrireRef = useRef(ecrire)
   const reconcilierRef = useRef(reconcilier)
 
@@ -264,13 +288,15 @@ export function useEnregistrementAuto({
 
     const minuteur = setTimeout(() => {
       enAttente.current = null
+      const tentative = ++derniereTentative.current
+      const estLaDerniere = () => tentative === derniereTentative.current
       // Un `then` à deux arguments, et non un `catch` en aval : celui-ci
       // rattraperait aussi ce que lève la branche de succès — une réconciliation
       // en défaut deviendrait un « échec réseau » affiché à l'utilisateur, avec
       // le blocage qui va avec.
       ecrireRef.current(variables).then(
         (resultat) => {
-          setEchec(null)
+          if (estLaDerniere()) setEchec(null)
           // **Le refus n'est pas un échec, mais il n'est pas rien non plus.**
           if (resultat.applied) return
           // `reference` est bien le clip contre lequel cet écart-là a été
@@ -286,7 +312,9 @@ export function useEnregistrementAuto({
           )
           if (àAdopter) reconcilierRef.current(resultat.clip.id, àAdopter)
         },
-        () => setEchec(signature),
+        () => {
+          if (estLaDerniere()) setEchec(signature)
+        },
       )
     }, TEMPORISATION_MS)
 

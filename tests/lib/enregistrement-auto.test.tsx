@@ -261,6 +261,61 @@ describe('useEnregistrementAuto', () => {
     expect(result.current).toBe('enregistre')
   })
 
+  // **Deux enregistrements du montage peuvent se chevaucher.** La temporisation
+  // est de 600 ms, un aller-retour peut être plus long, et un geste de plus fait
+  // repartir une écriture pendant que la précédente vole encore. Tant que les
+  // rappels vivaient sur l'observateur, la mutation dépassée était détachée et
+  // sa réponse ne disait plus rien ; depuis `mutateAsync`, elle parle — et si
+  // personne ne l'en empêche, elle parle **après** la plus récente.
+  // (relevé par Copilot et par Codex)
+  describe('quand deux enregistrements du montage se chevauchent', () => {
+    it('ne laisse pas le succès tardif du dépassé effacer l’échec du récent', async () => {
+      const { result, rejouer, appels } = monter({ ...auRepos, cropX: 0.8 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      rejouer({ cropX: 0.9 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      expect(appels.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
+
+      // Le plus récent échoue : c'est lui qui doit tenir le blocage.
+      await agir(() => appels[1].rejeter(new Error('réseau coupé')))
+      expect(result.current).toBe('echec')
+
+      // Puis le dépassé aboutit, en retard. Son `setEchec(null)` rouvrirait la
+      // porte, et l'écriture ratée repartirait toute seule 600 ms plus tard :
+      // le garde-fou anti-boucle contourné par le chemin qu'il surveille.
+      await agir(() => appels[0].resoudre(reponse(clip({ cropX: 0.8 }), true)))
+      act(() => void vi.advanceTimersByTime(10_000))
+
+      expect(result.current).toBe('echec')
+      expect(appels).toHaveLength(2)
+    })
+
+    it('ne retient pas la signature d’un échec tardif déjà dépassé', async () => {
+      const gagnant = clip({ cropX: 0.9 })
+      const { result, rejouer, appels } = monter({ ...auRepos, cropX: 0.8 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      rejouer({ cropX: 0.9 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+
+      // Le plus récent passe, et le cache adopte le clip rendu.
+      await agir(() => appels[1].resoudre(reponse(gagnant, true)))
+      rejouer({ reference: gagnant })
+      expect(result.current).toBe('enregistre')
+
+      // Le dépassé échoue après coup. Retenir sa signature poserait une mine :
+      // le serveur va très bien, mais le jour où l'utilisateur ramène le cadrage
+      // à cette valeur-là, l'écriture serait refusée par l'écran lui-même.
+      await agir(() => appels[0].rejeter(new Error('réseau coupé')))
+
+      rejouer({ cropX: 0.8 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+
+      expect(result.current).not.toBe('echec')
+      expect(appels).toHaveLength(3)
+      expect(appels[2].patch).toEqual({ cropX: 0.8 })
+    })
+  })
+
   describe('quand le serveur refuse pour jeton périmé', () => {
     it('n’affiche pas d’échec de l’enregistrement', async () => {
       const { result, appels } = monter({ ...auRepos, cropX: 0.8 })

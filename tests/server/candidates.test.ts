@@ -793,6 +793,21 @@ describe("l'étape de repérage", () => {
     })
 
     /**
+     * L'invariant écrit dans `BilanNotation`, et il tient **à tout instant** :
+     * une fenêtre est non jugée tant qu'une réponse ne la juge pas, y compris
+     * quand une panne l'empêche d'être soumise. Le contrôler ici, sur la passe
+     * la plus accidentée, est ce qui empêche un décompte de perte de mentir sur
+     * l'ampleur de la perte.
+     */
+    it('garde notées + jamaisNotées = fenêtres, panne comprise', async () => {
+      process.env.SCORE_BATCH = '2'
+      await runCandidates(ID, { db, appel: refusant(['window_002'], []), sleep: async () => {} })
+
+      const bilan = dernierBilan(ID)!
+      expect(bilan.notées + bilan.jamaisNotées.length).toBe(bilan.fenêtres)
+    })
+
+    /**
      * **La couverture est la seule mesure qui réponde à la question posée**
      * (spec §7.2) : « quelle part de l'émission a été jugée ». Un compte de lots
      * ne la donne pas — les fenêtres se chevauchent de 30 s, le dernier lot est
@@ -1158,5 +1173,13 @@ describe('partCouverte', () => {
    */
   it('rend zéro quand l’étendue est vide, sans diviser par zéro', () => {
     expect(partCouverte([{ start: 0, end: 10 }], { start: 12, end: 12 })).toBe(0)
+  })
+
+  /**
+   * Arrondi au dix-millième : `status.json` se relit à l'œil, et
+   * `0.3333333333333333` n'y apprend rien de plus que `0.3333`.
+   */
+  it('arrondit au dix-millième', () => {
+    expect(partCouverte([{ start: 0, end: 1 }], { start: 0, end: 3 })).toBe(0.3333)
   })
 })

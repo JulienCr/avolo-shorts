@@ -58,6 +58,16 @@ describe('fstypeDeMontage', () => {
     expect(fstypeDeMontage(avecEspace, '/mnt/mon drive/Replay')).toBe('9p')
   })
 
+  /**
+   * Le noyau empile les montages : un point remonté par-dessus un autre apparaît
+   * **après** lui, et c'est le dernier qui décrit ce qu'on atteint. Retenir le
+   * premier ferait annoncer le type du montage recouvert.
+   */
+  it('retient le dernier montage d’un même point, celui qui recouvre', () => {
+    const empilés = ['none /mnt/wsl tmpfs rw 0 0', 'drvfs /mnt/wsl 9p rw 0 0'].join('\n')
+    expect(fstypeDeMontage(empilés, '/mnt/wsl/x')).toBe('9p')
+  })
+
   it('rend null quand aucun montage ne porte le chemin', () => {
     expect(fstypeDeMontage('drvfs /mnt/j 9p rw 0 0', '/ailleurs')).toBeNull()
   })

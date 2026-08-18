@@ -175,7 +175,11 @@ export function fstypeDeMontage(montages: string, chemin: string): string | null
     if (champs.length < 3) continue
     const point = déséchapper(champs[1])
     if (point === '' || !contient(point, chemin)) continue
-    if (meilleur === null || point.length > meilleur.point.length) {
+    // `>=` et non `>` : à profondeur égale, c'est la **dernière** ligne qui
+    // décrit ce qu'on atteint. Le noyau empile les montages, et un point
+    // remonté par-dessus un autre apparaît après lui dans `/proc/mounts` — le
+    // cas se produit sous WSL, où `/mnt/wsl` est recouvert.
+    if (meilleur === null || point.length >= meilleur.point.length) {
       meilleur = { point, fstype: champs[2] }
     }
   }

@@ -655,7 +655,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
 
   // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
   // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
-  const empreinte = empreinteSource(stat, await probeDuration(destination))
+  const empreinte = empreinteSource(stat, await probeDuration(destination, undefined, options.signal))
 
   const ingestion: Ingestion = {
     projectId,

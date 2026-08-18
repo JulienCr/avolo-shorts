@@ -355,7 +355,18 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // toujours zéro octet sans jamais être « plus court que demandé », donc une
   // boucle qui produit indéfiniment des images vides. Le pire des symptômes :
   // pas d'erreur, pas de fin. (relevé par Copilot)
-  const sondageProxy = await probe(proxy)
+  // Une fonction et non l'expression écrite deux fois : `aborted` change de
+  // valeur entre les deux sondages, et TypeScript, qui l'ignore, retenait la
+  // restriction du premier contrôle jusqu'au second.
+  const isAborted = (): boolean => o.signal?.aborted === true
+
+  const sondageProxy = await probe(proxy, undefined, o.signal)
+  // **Le contrôle vient avant l'interprétation du sondage.** Un sondage
+  // abandonné rend un sondage vide, comme un fichier illisible : sans cette
+  // ligne, un arrêt demandé ressortait en « ffprobe n'a rien su dire du
+  // proxy — le refaire avec un run --force », qui envoie réencoder six minutes
+  // de vidéo parfaitement valide. (relevé par Copilot)
+  if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
     sondageProxy.width === null ||
     sondageProxy.height === null ||
@@ -374,7 +385,8 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // recopiées telles quelles dans `analysis.json`, où `SCHÉMA_TAILLE` les exige
   // positives. Un zéro qui passerait ici ferait échouer la validation **après**
   // les trois minutes de détection.
-  const sondageSource = await probe(o.source)
+  const sondageSource = await probe(o.source, undefined, o.signal)
+  if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
     sondageSource.width === null ||
     sondageSource.height === null ||

@@ -101,7 +101,7 @@ function diagnostic(montage: SourcesListing['montage']) {
       grave: false,
       icone: <FolderOpen aria-hidden />,
       titre: 'Aucune vidéo dans le dossier des replays.',
-      detail: `Le dossier est monté${suffixeFstype(montage.fstype)} et contient ${pluriel(
+      detail: `${relevé(montage.fstype)} Il contient ${pluriel(
         montage.entrées,
         'entrée',
         'entrées',
@@ -113,13 +113,29 @@ function diagnostic(montage: SourcesListing['montage']) {
     grave: false,
     icone: <Inbox aria-hidden />,
     titre: 'Le dossier des replays est vide.',
-    // **Le `fstype` est la preuve.** Sans lui, « vide » et « absent » se lisent
-    // de la même façon, et on repart chercher lequel des deux on regarde.
-    detail: `Il est bien monté${suffixeFstype(montage.fstype)} — il n’y a simplement rien dedans.`,
+    detail: `${relevé(montage.fstype)} Il n’y a rien dedans.`,
   }
 }
 
-/** `null` quand le relevé n'a pas abouti : on n'affiche alors pas de parenthèse vide. */
-function suffixeFstype(fstype: string | null): string {
-  return fstype === null ? '' : ` (${fstype})`
+/**
+ * Ce que le relevé dit du chemin, **y compris quand il répond**.
+ *
+ * **Un accès qui réussit ne prouve pas que le partage est là.** Un point de
+ * montage resté vide sur la racine locale se liste très bien : `readdir`
+ * réussit, `disponible` vaut vrai, et le dossier passe pour sain alors que le
+ * partage n'est nulle part. Le `fstype` est le seul signal qui le dise, et
+ * l'écran l'affichait comme une confirmation — « il est bien monté (ext4) ».
+ * (relevé par Codex)
+ *
+ * **Il énonce le relevé, il ne rend pas de verdict**, et c'est délibéré : rien
+ * n'interdit de pointer `REPLAY_DIR` sur un dossier local en développement, et
+ * déclarer « non monté » un dossier qui fonctionne serait une fausse alerte. Le
+ * fait suffit — celui qui lit sait ce qu'il a monté.
+ */
+function relevé(fstype: string | null): string {
+  if (fstype === MONTAGE_ATTENDU) return `Le partage ${MONTAGE_ATTENDU} répond.`
+  if (fstype === null) {
+    return `Aucun montage relevé ne porte ce chemin : le partage ${MONTAGE_ATTENDU} attendu n’est pas là.`
+  }
+  return `Système de fichiers relevé : ${fstype} — le partage ${MONTAGE_ATTENDU} attendu n’est pas là.`
 }

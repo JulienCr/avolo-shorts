@@ -121,6 +121,20 @@ describe('GrilleSources, les deux vides', () => {
     expect(screen.getByRole('alert').textContent).toContain('n’est pas monté')
   })
 
+  it('n’affirme pas « monté » quand le relevé n’est pas le partage attendu', () => {
+    // Un point de montage resté vide sur la racine locale se **liste** très
+    // bien : `readdir` réussit, `disponible` vaut vrai, et le dossier passait
+    // pour sain alors que le partage n'est nulle part. Le `fstype` est le seul
+    // signal qui le dise, et l'écran l'affichait comme une confirmation.
+    // (relevé par Codex)
+    grille({ listing: { sources: [], montage: { disponible: true, fstype: 'ext4', entrées: 0 } } })
+
+    expect(screen.getByText('Le dossier des replays est vide.')).toBeTruthy()
+    expect(screen.getByText(/ext4/)).toBeTruthy()
+    expect(screen.getByText(/n’est pas là/)).toBeTruthy()
+    expect(screen.queryByText(/bien monté/)).toBeNull()
+  })
+
   it('distingue un dossier plein d’autre chose', () => {
     // `entrées` compte tout, vidéos ou non. Trois fichiers dont aucune vidéo est
     // un diagnostic, pas un vide.

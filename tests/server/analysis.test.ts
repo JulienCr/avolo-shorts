@@ -571,6 +571,23 @@ describe('runAnalysis', () => {
   })
 
   /**
+   * L'autre moitié du même chemin d'erreur, et celle que la tête du fichier
+   * nomme : « un processus tué à la quatrième minute laisserait un JSON tronqué
+   * sous le nom définitif ». Un fichier tronqué s'arrête à `JSON.parse`, pas au
+   * schéma — donc à une autre ligne, dans une autre exception, sous le même
+   * `try`.
+   */
+  it('ne range pas non plus un JSON tronqué', async () => {
+    monterFauxWorker(racine, '{"version": 1, "shots": [')
+
+    await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow()
+
+    const projet = path.join(racine, 'projects', 'projet')
+    expect(fs.existsSync(path.join(projet, 'analysis.json'))).toBe(false)
+    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
+  })
+
+  /**
    * Le pendant, et il n'est pas décoratif : sans lui, un `runAnalysis` qui ne
    * rangerait **jamais** rien passerait le test ci-dessus les yeux fermés.
    */

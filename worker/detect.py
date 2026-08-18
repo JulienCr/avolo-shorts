@@ -71,6 +71,32 @@ def taille(valeur: str) -> tuple[int, int]:
     return int(m.group(1)), int(m.group(2))
 
 
+def arrondi_vers_le_bas(valeur: float, décimales: int) -> float:
+    """Tronque vers le bas, jamais vers le haut.
+
+    **Un arrondi au plus proche fait franchir un seuil inclusif.**
+    ``src/core/framing.ts`` ne garde que les boîtes dont le score atteint 0,5 ;
+    une détection à 0,4996 ressortait à ``0.5`` et passait le filtre, alors
+    qu'elle était dessous. Le seuil ne valait plus ce qu'il annonçait, et rien ne
+    pouvait le montrer : ni le fichier, où 0,5 est un score parfaitement ordinaire,
+    ni le cadrage, ni l'image.
+
+    L'arrondi lui-même n'est pas en cause — il tient la taille du fichier, trente
+    mille boîtes sur une émission, et sa lisibilité. C'est son **sens** qui
+    l'était. Vers le bas, la valeur écrite minore la vraie : un seuil inclusif
+    posé sur un multiple du millième dit alors exactement ce qu'il dit, et le
+    format ne bouge pas d'une virgule — un ``analysis.json`` déjà sur le disque
+    se relit sans rien savoir de ce changement.
+
+    Le résidu est un *ulp*, pas un millième : sur les 1001 multiples du millième,
+    quinze ont un voisin inférieur que ``valeur * 1000`` remonte à l'entier, d'au
+    plus 1,1e-16. Aucun n'est 0,5, et aucun écart de cet ordre ne ressemble à la
+    panne qu'on ferme, qui valait 4e-4.
+    """
+    facteur = 10**décimales
+    return math.floor(valeur * facteur) / facteur
+
+
 # ---------------------------------------------------------------------------
 # Les frontières de plans
 # ---------------------------------------------------------------------------
@@ -304,10 +330,54 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
                     "x1": fx1,
                     "y0": fy0,
                     "y1": fy1,
-                    "score": round(score, 3),
+                    # Vers le bas et non au plus proche : le seuil de
+                    # `framing.ts` est inclusif, et 0,4996 y devenait 0,5.
+                    "score": arrondi_vers_le_bas(score, 3),
                 }
             )
     return sorties
+
+
+# ---------------------------------------------------------------------------
+# Ce qu'on refuse avant de commencer
+# ---------------------------------------------------------------------------
+
+
+def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
+    """Ce qui cloche dans le couple seuil/plancher, ou ``None`` si rien.
+
+    Les frontières se décident en deux temps : ffmpeg ne rapporte que les images
+    au-dessus du **plancher de collecte**, et ``plans()`` applique ensuite le
+    **seuil** demandé. Un seuil sous le plancher portait donc sur des candidates
+    qui n'avaient jamais été collectées : l'argument était accepté, et il ne
+    faisait rien. Personne ne le rencontre au seuil retenu — 0,4, huit fois le
+    plancher —, et tout le monde le rencontrera le jour où l'on cherchera des
+    coupes plus discrètes, c'est-à-dire en itérant sur ce détecteur.
+
+    **Un refus et non un ``min()`` qui abaisserait le plancher tout seul.** Le
+    ``min()`` reproduirait le défaut un cran plus bas : à seuil nul,
+    ``gt(scene, 0)`` retient à peu près chaque image d'une émission de deux
+    heures, et ``scores_de_scène`` ramasse cette sortie en mémoire d'un seul
+    tenant. Le refus nomme les deux valeurs et laisse le choix — baisser le
+    plancher aussi — à qui sait ce qu'il cherche.
+
+    L'égalité passe : le plancher ne tait alors que les images strictement en
+    dessous du seuil, celles que ``plans()`` écarterait de toute façon.
+    """
+    if seuil <= 0:
+        return (
+            f"--scene-threshold vaut {seuil}, et un seuil nul ou négatif ne découpe pas : "
+            "il déclare une coupe à chaque image dont le score n'est pas nul. "
+            "Le score de scène de ffmpeg vit dans [0, 1] ; 0,4 est la valeur mesurée."
+        )
+    if seuil < plancher:
+        return (
+            f"--scene-threshold ({seuil}) est sous --scene-floor ({plancher}) : ffmpeg ne "
+            f"rapporte aucune image sous {plancher}, donc ce seuil-là ne serait jamais "
+            "appliqué. Baisser --scene-floor d'autant si des coupes plus discrètes sont "
+            "recherchées — au prix d'une passe ffmpeg plus bavarde."
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +440,10 @@ def main() -> int:
         return 2
     if a.duration <= 0:
         journal(f"Durée invalide : {a.duration}. Elle est relevée par ffprobe côté Node.")
+        return 2
+    refus = refus_du_seuil_de_scène(a.scene_threshold, a.scene_floor)
+    if refus is not None:
+        journal(refus)
         return 2
 
     largeur, hauteur = a.proxy_size

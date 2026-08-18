@@ -279,6 +279,24 @@ describe('requiredWidths', () => {
     ])
   })
 
+  /**
+   * **Le seuil est inclusif, et c'est un contrat avec `worker/detect.py`.**
+   *
+   * Le worker arrondissait ses scores au millième le plus proche : une détection
+   * à 0,4996 ressortait à `0.5` et passait ici, alors qu'elle était sous le
+   * seuil. Il tronque maintenant vers le bas, ce qui suppose que 0,5 pile compte
+   * — sans quoi la moitié des boîtes justes se perdrait à l'autre bout.
+   *
+   * Déplacer ce seuil d'un epsilon aurait été l'autre correctif possible : il
+   * écarterait les détections à 0,5 exactement, qui sont réelles, et il changerait
+   * la lecture des `analysis.json` déjà écrits. C'est pour cela qu'on a corrigé
+   * le producteur. (ticket #40)
+   */
+  it('garde une boîte pile au seuil, écarte celle qui est juste dessous', () => {
+    expect(requiredWidths([boîte(1, 0.4, 0.6, 0.5)], { margin: 0 })).toHaveLength(1)
+    expect(requiredWidths([boîte(1, 0.4, 0.6, 0.4999)], { margin: 0 })).toHaveLength(0)
+  })
+
   // Une image sans personne ne vaut pas une largeur de zéro : elle ne dit rien,
   // et la compter tirerait le percentile vers un ratio trop étroit pour les
   // images où il y a quelqu'un.

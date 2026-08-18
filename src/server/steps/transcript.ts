@@ -189,7 +189,9 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
     script,
     '--audio', o.audio,
     '--out', temporaire,
-    '--model', o.model ?? process.env.WHISPER_MODEL ?? 'large-v3',
+    // `||` et non `??` : une variable posée mais vide — ce qu'un `.env` produit
+    // facilement — donnerait `--model ''`, que WhisperX chercherait sur le Hub.
+    '--model', o.model ?? (process.env.WHISPER_MODEL || 'large-v3'),
     '--language', o.language ?? 'fr',
   ]
 

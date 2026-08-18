@@ -12,16 +12,18 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipStatus } from '@/core/edl'
 import { FilDeTri } from '@/components/tri/fil'
 import type { BilanRepérage, CandidateClip } from '@/lib/api'
 import type { Vue } from '@/components/tri/modele'
+import { écrireSessionTri } from '@/components/tri/session'
 
 afterEach(() => {
   cleanup()
   window.sessionStorage.clear()
+  vi.restoreAllMocks()
 })
 
 function candidat(n: number, status: ClipStatus = 'candidate'): CandidateClip {
@@ -239,6 +241,33 @@ describe('rien ne bouge sous la main', () => {
     rerender(<Nu liste={[candidat(1), candidat(2)]} />)
 
     expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2'])
+  })
+})
+
+describe('le retour depuis un clip', () => {
+  it('rend le focus à la carte d’où l’on est parti', () => {
+    // Sans cela le clavier repart du haut de la page à chaque aller-retour, soit
+    // quatre fois par émission. C'est l'écran de tri qui le porte : celui de
+    // clip ne fait que naviguer par un lien.
+    écrireSessionTri('p1', { carte: 'c2' })
+    render(<Harnais depart={[candidat(1), candidat(2), candidat(3)]} />)
+
+    expect(document.activeElement).toBe(carte('Extrait 2'))
+  })
+
+  it('ne vole pas le focus quand on arrive pour la première fois', () => {
+    // Une arrivée n'est pas un retour : déplacer le focus ferait sauter la page
+    // sur une carte que personne n'a demandée.
+    render(<Harnais depart={[candidat(1), candidat(2)]} />)
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('retrouve la position de défilement quand aucune carte n’est à reprendre', () => {
+    const defiler = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    écrireSessionTri('p1', { defilement: 940 })
+    render(<Harnais depart={[candidat(1), candidat(2)]} />)
+
+    expect(defiler).toHaveBeenCalledWith(0, 940)
   })
 })
 

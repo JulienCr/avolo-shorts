@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, CircleDashed, Loader2 } from 'lucide-react'
+import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
@@ -149,7 +149,7 @@ export function BandeAvancement({ running }: { running: { step: StepName; progre
   const part = pourcent(running.progress)
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <Loader2 className="size-3 animate-spin" aria-hidden />
+      <LoaderCircle className="size-3 animate-spin" aria-hidden />
       <span className="text-xs">{LIBELLES_ETAPES[running.step]}</span>
       <span
         role="progressbar"
@@ -184,7 +184,7 @@ function étatDÉtape(
 
 function Marque({ état }: { état: ÉtatDÉtape }) {
   if (état === 'faite') return <Check className="size-3.5 shrink-0 text-stage-foreground" aria-hidden />
-  if (état === 'encours') return <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+  if (état === 'encours') return <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
   return <CircleDashed className="size-3.5 shrink-0 opacity-50" aria-hidden />
 }
 

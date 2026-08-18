@@ -120,6 +120,22 @@ describe('motDuRepérage', () => {
     expect(mot?.detail).toBeNull()
   })
 
+  it('tient les deux bornes de la couverture', () => {
+    // Zéro : tous les lots refusés, rien n'a été jugé.
+    const rien = motDuRepérage(bilan({ notées: 0, lotsRefusés: 11, lotsRépondus: 0, couverture: 0 }))
+    expect(rien?.phrase).toContain('0 %')
+    expect(rien?.perte).toBe(true)
+
+    // Cent : les fenêtres se chevauchent d'environ 30 s, donc une fenêtre du
+    // milieu peut manquer sans laisser de trou. La couverture est alors
+    // sincèrement totale, et ce sont les comptes de fenêtres qui portent la
+    // perte.
+    const couvert = motDuRepérage(bilan({ notées: 82, lotsRefusés: 1, lotsRépondus: 10, couverture: 1 }))
+    expect(couvert?.phrase).toContain('100 %')
+    expect(couvert?.perte).toBe(true)
+    expect(couvert?.detail).toContain('1 lot de fenêtres sur 11')
+  })
+
   it('ne rapporte rien à zéro fenêtre', () => {
     // Un transcript vide : il n'y avait rien à noter, donc aucun pourcentage
     // n'a de dénominateur.

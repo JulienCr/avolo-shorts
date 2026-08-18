@@ -102,38 +102,35 @@ function EcranDeProjet({ id }: { id: string }) {
             </Alert>
           )}
 
-          {disposition === 'panneau' && (
+          {/* **Le panneau et le squelette ne coexistent pas.** Le premier décrit
+              une attente de neuf minutes, le second une requête de deux cents
+              millisecondes : les afficher ensemble ferait passer l'un pour
+              l'autre, ce qui est exactement ce que la conception reproche à
+              l'écran d'aujourd'hui. */}
+          {disposition === 'panneau' ? (
             <PanneauAvancement
               steps={steps}
               running={running}
               erreur={erreur}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
             />
-          )}
-
-          {projet.isPending || candidats.isPending ? (
+          ) : projet.isPending || candidats.isPending ? (
             <GrilleEnAttente />
           ) : (
-            disposition !== 'panneau' && (
-              <FilDeTri
-                projectId={id}
-                clips={clips}
-                vue={vue}
-                onVue={allerÀLaVue}
-                proxyPret={steps.proxy === true}
-                bilan={projet.data?.repérage ?? null}
-                onStatut={(clipId, status) =>
-                  patch.mutate({ clipId, projectId: id, patch: { status } })
-                }
-                entete={
-                  <BoutonRelance
-                    projectId={id}
-                    compte={compter(clips)}
-                    enCours={running !== null}
-                  />
-                }
-              />
-            )
+            <FilDeTri
+              projectId={id}
+              clips={clips}
+              vue={vue}
+              onVue={allerÀLaVue}
+              proxyPret={steps.proxy === true}
+              bilan={projet.data?.repérage ?? null}
+              onStatut={(clipId, status) =>
+                patch.mutate({ clipId, projectId: id, patch: { status } })
+              }
+              entete={
+                <BoutonRelance projectId={id} compte={compter(clips)} enCours={running !== null} />
+              }
+            />
           )}
 
           {/* Une écriture optimiste qui échoue remet la carte comme elle était.

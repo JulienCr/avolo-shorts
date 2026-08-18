@@ -357,26 +357,47 @@ function useSessionDeTri(
   courant: string | null,
   focaliser: (clipId: string | null) => void,
 ) {
-  // La carte à retrouver, lue une seule fois : après quoi c'est la sélection en
-  // cours qui fait foi, et la relire ferait sauter en arrière.
-  const àRetrouver = useRef<string | null | undefined>(undefined)
-  if (àRetrouver.current === undefined) àRetrouver.current = lireSessionTri(projectId).carte
-
   const poser = useRef(focaliser)
   useEffect(() => {
     poser.current = focaliser
   })
 
   useEffect(() => {
-    const carte = àRetrouver.current
-    àRetrouver.current = null
-    // Une seule fois, au montage : c'est un retour, pas une préférence.
-    if (carte !== null && carte !== undefined) poser.current(carte)
-  }, [])
+    // **Lu au montage seulement** : après quoi c'est la sélection en cours qui
+    // fait foi, et relire la session ferait sauter en arrière.
+    const { carte, defilement } = lireSessionTri(projectId)
+    // Le défilement d'abord, le focus ensuite : une carte retrouvée place la vue
+    // plus précisément qu'une position en pixels, et son `scrollIntoView`
+    // l'emporte alors. Une carte que la vue courante n'affiche plus — gardée
+    // alors qu'on revient sur « à trier » — laisse la position, qui est ce qui
+    // reste de vrai.
+    if (defilement > 0) window.scrollTo(0, defilement)
+    if (carte !== null) poser.current(carte)
+  }, [projectId])
 
   useEffect(() => {
     if (courant !== null) écrireSessionTri(projectId, { carte: courant })
   }, [projectId, courant])
+
+  useEffect(() => {
+    // **Étranglé à quatre écritures par seconde.** Un événement de défilement
+    // part à chaque image ; sérialiser la session soixante fois par seconde
+    // pour une valeur qu'on ne relit qu'au retour serait payer un travail
+    // continu pour un geste rare.
+    let planifié = 0
+    function surDéfilement() {
+      if (planifié !== 0) return
+      planifié = window.setTimeout(() => {
+        planifié = 0
+        écrireSessionTri(projectId, { defilement: window.scrollY })
+      }, 250)
+    }
+    window.addEventListener('scroll', surDéfilement, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', surDéfilement)
+      if (planifié !== 0) window.clearTimeout(planifié)
+    }
+  }, [projectId])
 }
 
 /**

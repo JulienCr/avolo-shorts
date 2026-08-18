@@ -8,9 +8,13 @@
  * docstrings d'origine : chaque constante y est justifiée par une mesure, et
  * plusieurs de ces justifications contredisent ce qui vient spontanément.
  *
- * **Une seule modification volontaire : `snapToWords` n'a plus de plancher ni de
- * plafond de durée.** Voir sa documentation — c'est le défaut qui a motivé tout
- * le projet.
+ * **La modification volontaire qui compte : `snapToWords` n'a plus de plancher
+ * ni de plafond de durée.** Voir sa documentation — c'est le défaut qui a motivé
+ * tout le projet.
+ *
+ * Un second écart, mineur mais réel, est documenté sur `shortlistSize` : les
+ * demis y sont arrondis vers le haut et non vers le pair, ce qui décale d'une
+ * fenêtre pour `n = 35`, `55` et `75`.
  *
  * Les deux surcharges d'environnement d'openshorts (`CLIP_SHORTLIST_MAX`,
  * `CLIP_TARGET_MIN`/`MAX`, pour ses campagnes A/B) ne sont pas portées : elles
@@ -208,6 +212,17 @@ function atLeastOneWindow(nWindows: number): number {
  * min(plafond, n)))` vaut `min(n, plafond)` dès que `plafond >= 3`, ce que le
  * `max(10, …)` garantit toujours. On écrit donc la forme réduite plutôt qu'un
  * `max(3, …)` mort ; un test vérifie l'équivalence sur tout le domaine.
+ *
+ * **`Math.round` arrondit les demis vers le haut, là où le `round` de Python
+ * les arrondit vers le pair.** L'écart est réel et se mesure : il porte sur
+ * `n = 35`, `55` et `75` — les trois seuls comptes où `n * 0.3` tombe pile sur
+ * un demi sans que le plancher de 10 ni le plafond de 24 ne rattrapent la
+ * différence — et il vaut une fenêtre. Il est **conservé délibérément** : la
+ * règle des demis est un artefact du `round` de Python, que rien dans le
+ * raisonnement ci-dessus ne réclame, et retenir une fenêtre de plus va dans le
+ * sens même de cette fonction, dont tout l'objet est de cesser d'affamer la
+ * passe de détail sur les longues sources. Un test épingle les trois valeurs
+ * pour que ce soit une décision et non un hasard.
  */
 export function shortlistSize(nWindows: number): number {
   const n = atLeastOneWindow(nWindows)
@@ -314,7 +329,17 @@ function isMidWord(time: number, starts: number[], maxEnds: number[]): boolean {
   return index >= 0 && maxEnds[index] > time
 }
 
-/** La frontière la plus proche de `time` qui ne soit pas enterrée dans un mot. */
+/**
+ * La frontière la plus proche de `time` qui ne soit pas enterrée dans un mot.
+ *
+ * Le repli sur `boundaries` est **inatteignable**, et c'est démontrable plutôt
+ * qu'espéré : appelée sur `starts`, le premier début n'a aucun mot avant lui
+ * donc `isMidWord` y est faux ; appelée sur `ends`, la fin maximale ne peut être
+ * dépassée par aucun `maxEnds`, donc `isMidWord` y est faux aussi. La liste
+ * filtrée n'est donc jamais vide. On garde quand même la garde, parce que
+ * `reduce` sans valeur initiale lèverait sur un tableau vide si l'invariant
+ * cédait un jour — mais personne ne doit croire ce chemin vivant.
+ */
 function nearestCuttable(
   time: number,
   boundaries: number[],
@@ -475,7 +500,14 @@ export function snapToWords(
   words: Word[],
   videoDuration: number,
 ): [number, number] {
-  const original: [number, number] = [round3(start), round3(end)]
+  // L'entrée du modèle, **non arrondie**. La source l'arrondit ici ; c'est une
+  // erreur qu'on ne reprend pas. `round3` existe pour nettoyer le bruit flottant
+  // que l'arithmétique de calage introduit (9,649999999999999 → 9,65) ; une
+  // borne qu'on se contente de rendre telle quelle n'a pas ce bruit, et
+  // l'arrondir ne peut qu'ajouter de l'erreur. Concrètement, une fin valide à
+  // 99,9995 s sur une vidéo de 99,9995 s ressortait à 100 — hors média, par le
+  // seul fait de l'arrondi.
+  const original: [number, number] = [start, end]
   if (words.length === 0) return original
 
   const intervals: [number, number][] = words
@@ -505,9 +537,28 @@ export function snapToWords(
     [original[0], newEnd],
     original,
   ]
+  // On valide la paire **telle qu'on la rend**, arrondie, et non la paire brute.
+  // Contrôler l'une puis rendre l'autre laissait passer une paire distante de
+  // moins d'une demi-milliseconde, que l'arrondi ramène sur la même valeur : une
+  // durée nulle après un contrôle `fin > début` pourtant réussi.
+  //
+  // La fin est reclampée **après** l'arrondi. Une fin calée ne peut pas dépasser
+  // la vidéo avant d'être arrondie — `newEnd` est déjà passée par un
+  // `Math.min(videoDuration, …)` — donc si elle la dépasse ensuite, c'est
+  // l'arrondi qui l'y a poussée, et le rattraper ne masque rien. Une fin brute
+  // réellement hors vidéo, elle, est rejetée un cran plus haut par
+  // `high > videoDuration` et n'atteint jamais ce clamp.
   for (const [low, high] of preferences) {
-    if (low < 0 || high > videoDuration || high <= low) continue
-    return [round3(low), round3(high)]
+    if (low < 0 || high > videoDuration) continue
+    const lo = round3(low)
+    const hi = Math.min(round3(high), videoDuration)
+    if (hi <= lo) continue
+    return [lo, hi]
   }
+  // Dernier recours : l'entrée du modèle, rendue telle quelle. Elle n'est
+  // volontairement ni bornée ni clampée — une borne hors vidéo est une erreur du
+  // modèle, que la passe de détail rejette (« rejette un clip dont les bornes
+  // sortent de la vidéo »). La rattraper ici masquerait ce que l'appelant doit
+  // voir.
   return original
 }

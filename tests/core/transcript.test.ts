@@ -209,6 +209,31 @@ describe('shortlistSize', () => {
       Math.min(n, Math.max(3, Math.min(Math.max(10, Math.min(24, Math.round(n * 0.3))), n)))
     for (let n = 1; n <= 300; n++) expect(shortlistSize(n)).toBe(duPlan(n))
   })
+
+  // Le test ci-dessus emploie `Math.round` des deux côtés : il ne peut donc pas
+  // voir l'écart avec le `round` de Python, qui arrondit les demis vers le pair.
+  // Ces trois valeurs sont les seules où l'écart survit au plancher de 10 et au
+  // plafond de 24. Il est délibéré ; on l'épingle pour qu'il reste une décision.
+  it('arrondit les demis vers le haut, pas vers le pair comme Python', () => {
+    // Python rendrait respectivement 10, 16 et 22.
+    expect(shortlistSize(35)).toBe(11)
+    expect(shortlistSize(55)).toBe(17)
+    expect(shortlistSize(75)).toBe(23)
+
+    // Et nulle part ailleurs : partout ailleurs les deux arrondis coïncident,
+    // ou bien le plancher et le plafond effacent leur différence.
+    const roundHalfToEven = (x: number) => {
+      const arrondi = Math.round(x)
+      return Math.abs(x % 1) === 0.5 && arrondi % 2 !== 0 ? arrondi - 1 : arrondi
+    }
+    const commePython = (n: number) =>
+      Math.min(n, Math.max(10, Math.min(24, roundHalfToEven(n * 0.3))))
+    const ecarts = []
+    for (let n = 1; n <= 300; n++) {
+      if (shortlistSize(n) !== commePython(n)) ecarts.push(n)
+    }
+    expect(ecarts).toEqual([35, 55, 75])
+  })
 })
 
 describe('clipCountTargets', () => {
@@ -367,5 +392,32 @@ describe('snapToWords', () => {
     const w = [word('fin', 98, 99.9)]
     const [, e] = snapToWords(90, 99.9, w, 100)
     expect(e).toBeLessThanOrEqual(100)
+  })
+
+  // La validation porte sur la paire ARRONDIE, celle qu'on rend, et non sur la
+  // paire brute : contrôler l'une puis rendre l'autre laissait sortir une borne
+  // hors média sur une durée fractionnaire. ffprobe rend six décimales, donc la
+  // durée fractionnaire n'a rien d'un cas de laboratoire.
+  it('une durée fractionnaire ne sort pas du média par l arrondi', () => {
+    const duree = 99.9995
+    const w = [word('fin', 98, duree)]
+    const [, e] = snapToWords(90, duree, w, duree)
+    expect(e).toBeLessThanOrEqual(duree)
+  })
+
+  // Le pendant dégénéré : deux bornes distantes de moins d'une demi-milliseconde
+  // s'arrondissent sur la même valeur, ce qui rendrait une durée nulle après un
+  // contrôle `fin > début` pourtant réussi.
+  it('ne rend jamais une paire que l arrondi a écrasée sur un point', () => {
+    // Les mots sont hors de portée : les deux bornes restent brutes et
+    // atteignent la validation telles quelles. Arrondies, elles tombent toutes
+    // deux sur 10,000 — la paire est donc refusée, et c'est l'entrée brute qui
+    // ressort, plutôt qu'un clip de durée nulle.
+    const [s, e] = snapToWords(9.9995, 10.0004, [word('loin', 200, 201)], 500)
+    expect(e).toBeGreaterThan(s)
+  })
+
+  it("l'entrée brute ressort sans arrondi, donc sans erreur ajoutée", () => {
+    expect(snapToWords(90, 99.9996, [], 99.9996)).toEqual([90, 99.9996])
   })
 })

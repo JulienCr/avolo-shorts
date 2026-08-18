@@ -38,6 +38,32 @@ describe('normalizeSegments', () => {
       { start: 30, end: 40 },
     ])
   })
+
+  // La fusion écrit `last.end`. Si `last` désignait un segment de l'appelant
+  // plutôt qu'une copie, l'EDL affichée à l'écran changerait sous les pieds de
+  // l'utilisateur pendant un simple calcul de durée.
+  it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
+    const entree = [
+      { start: 30, end: 40 },
+      { start: 10, end: 20 },
+      { start: 15, end: 25 },
+    ]
+    normalizeSegments(entree)
+    expect(entree).toEqual([
+      { start: 30, end: 40 },
+      { start: 10, end: 20 },
+      { start: 15, end: 25 },
+    ])
+  })
+
+  it('colle deux segments qui se touchent, puisque la source y est continue', () => {
+    expect(
+      normalizeSegments([
+        { start: 0, end: 10 },
+        { start: 10, end: 20 },
+      ]),
+    ).toEqual([{ start: 0, end: 20 }])
+  })
 })
 
 describe('removeRange', () => {
@@ -85,6 +111,50 @@ describe('removeRange', () => {
     const long = [{ start: 0, end: 300 }]
     expect(clipDuration(removeRange(long, 10, 20))).toBe(290)
   })
+
+  // Retirer les hésitations, c'est le même appel répété (spec §5). Le vérifier
+  // ici parce que c'est la composition qui porte la promesse, pas l'appel seul :
+  // chaque sortie doit rester une entrée valide pour le suivant.
+  it("s'enchaîne : quatre retraits sur un même segment laissent cinq morceaux", () => {
+    let edl = [{ start: 0, end: 100 }]
+    for (const [from, to] of [
+      [10, 12],
+      [30, 31],
+      [55, 60],
+      [80, 81],
+    ]) {
+      edl = removeRange(edl, from, to)
+    }
+    expect(edl).toEqual([
+      { start: 0, end: 10 },
+      { start: 12, end: 30 },
+      { start: 31, end: 55 },
+      { start: 60, end: 80 },
+      { start: 81, end: 100 },
+    ])
+    expect(clipDuration(edl)).toBe(91)
+  })
+
+  it('un intervalle vide ou inversé ne retire rien', () => {
+    expect(removeRange([{ start: 0, end: 100 }], 50, 50)).toEqual([{ start: 0, end: 100 }])
+    expect(removeRange([{ start: 0, end: 100 }], 60, 40)).toEqual([{ start: 0, end: 100 }])
+  })
+
+  it('rend une liste normalisée même sur une entrée qui ne l était pas', () => {
+    expect(
+      removeRange(
+        [
+          { start: 30, end: 40 },
+          { start: 10, end: 25 },
+        ],
+        0,
+        5,
+      ),
+    ).toEqual([
+      { start: 10, end: 25 },
+      { start: 30, end: 40 },
+    ])
+  })
 })
 
 describe('moveBoundary', () => {
@@ -118,5 +188,46 @@ describe('moveBoundary', () => {
       { start: 10, end: 20 },
       { start: 30, end: 55 },
     ])
+  })
+
+  // « Premier » et « dernier » veulent dire dans l'ordre du temps. Sans la
+  // normalisation d'entrée, une liste arrivée désordonnée — d'un JSON, de la
+  // base — verrait la borne d'un segment du milieu bouger sans erreur ni trace.
+  it("choisit la borne dans l'ordre du temps, pas dans celui du tableau", () => {
+    const desordre = [
+      { start: 30, end: 40 },
+      { start: 10, end: 20 },
+    ]
+    expect(moveBoundary(desordre, 'start', 5)).toEqual([
+      { start: 5, end: 20 },
+      { start: 30, end: 40 },
+    ])
+    expect(moveBoundary(desordre, 'end', 45)).toEqual([
+      { start: 10, end: 20 },
+      { start: 30, end: 45 },
+    ])
+  })
+
+  it('sur une liste vide, il n y a pas de borne à déplacer', () => {
+    expect(moveBoundary([], 'start', 5)).toEqual([])
+    expect(moveBoundary([], 'end', 5)).toEqual([])
+  })
+
+  it('un déplacement qui traverse la borne opposée retire le segment', () => {
+    expect(
+      moveBoundary(
+        [
+          { start: 10, end: 20 },
+          { start: 30, end: 40 },
+        ],
+        'start',
+        25,
+      ),
+    ).toEqual([{ start: 30, end: 40 }])
+  })
+
+  it('étendre sans plafond : une borne repoussée très loin est acceptée', () => {
+    const out = moveBoundary([{ start: 10, end: 20 }], 'end', 3600)
+    expect(clipDuration(out)).toBe(3590)
   })
 })

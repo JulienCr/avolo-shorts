@@ -26,6 +26,12 @@ import { cn } from '@/lib/utils'
  * Virtualisée **par phrase et non par mot** : une émission fait environ 20 000
  * mots, et laisser le navigateur composer les lignes d'une phrase coûte moins
  * que mesurer chaque mot pour les composer soi-même.
+ *
+ * **Son conteneur de défilement reste un élément réel, et la primitive
+ * `scroll-area` est refusée pour ça.** Le virtualiseur mesure la hauteur de cet
+ * élément et y pose ses positions ; une zone de défilement stylée interposerait
+ * son propre conteneur, et le `scrollToIndex` du positionnement initial
+ * retomberait à côté — sur la seule ligne qui compte, celle où le clip commence.
  */
 export function TranscriptSurface({
   cle,

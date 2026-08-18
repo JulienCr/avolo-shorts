@@ -235,6 +235,28 @@ bénéfice visuel mesuré. Le réglage manuel livré en itération 0 n'est pas j
 il reste comme réglage de dernier recours, et l'automatique ne fera que le
 préremplir.
 
+### La publication, qui s'ajoute et dont l'horloge tourne déjà
+
+Un spike du 18 août 2026 a sorti la publication du hors-périmètre. Sa conception
+est dans `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` ; trois
+choses en ressortent pour qui orchestre.
+
+**Deux audits sont à déposer, et ils ne tiennent pas dans une itération** : deux à
+six semaines chez YouTube comme chez TikTok, avec un refus possible. Ils se
+déposent donc **avant** le code qui en dépend, en parallèle du reste — c'est le
+« lot 0 » de la spec, qui ne contient pas une ligne de code.
+
+**Instagram et Facebook n'attendent rien** et se branchent quand on veut : une app
+Meta en mode développement publie réellement, gratuitement, sans revue, sur les
+comptes qui ont un rôle sur elle.
+
+**Le connecteur YouTube ne doit pas être écrit avant que son audit soit passé.**
+Sans audit, une vidéo envoyée par l'API est verrouillée en privé et ne peut plus
+être libérée, même à la main dans Studio : le connecteur produirait une vidéo morte
+et un ré-envoi manuel. C'est le contre-sens le plus coûteux du sujet, et il est
+d'autant plus facile à commettre que l'intuition désigne TikTok comme la
+plateforme difficile.
+
 ## Reprendre l'orchestration
 
 Le travail se fait en sous-agents, un par tâche, chacun dans son worktree, chacun
@@ -278,8 +300,15 @@ correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 ### Les reviews
 
-Trois relecteurs, trois surfaces différentes. En rater une fait passer une
-PR pour propre alors qu'elle ne l'est pas :
+**Aristarque est coupé depuis le 18 août au soir**, faute de jetons. Il reste
+Codex et Copilot. Son silence n'est pas une passe en attente : un agent qui
+l'attendrait ne fusionnerait jamais. Le critère d'arrêt ne change pas — trois
+passes —, il porte sur deux relecteurs au lieu de trois, et le bloc replié de
+Copilot devient d'autant plus le seul endroit où le gros des trouvailles se
+trouve. Ce qui suit décrit les trois surfaces, Aristarque compris, pour le jour
+où il sera rallumé.
+
+En rater une fait passer une PR pour propre alors qu'elle ne l'est pas :
 
 - Copilot et Codex déposent des fils en ligne **et un corps de review**. Copilot
   enterre le gros de ses trouvailles dans un bloc `<details><summary>Suppressed comments</summary>`
@@ -348,14 +377,32 @@ sur cinq a passé les trois tests.
 Des clips `clip_verif_*` restent en base ; les rendus de `clip_verif_auto` ont
 été effacés par une vérification du 18 août.
 
-**`assets/brand/` est vide dans le checkout principal** — `logo.png` et
-`twitch.png` ont disparu entre les rendus du matin, qui les portent incrustés, et
-l'après-midi. Le dossier est ignoré par git : les marques appartiennent à
-l'opérateur et personne ne peut les rendre. Deux substituts fabriqués pour les
-tests subsistent dans le worktree `fond-floute`. **Le vrai risque est ailleurs** :
-`collecterMarques` traite un dossier vide comme « rendre sans marque », en
-silence — donc une série entière peut sortir sans logo sans que rien ne le
-signale.
+**Les marques sont retrouvées, et l'endroit vaut d'être noté.** `logo.png` et
+`twitch.png` avaient disparu d'`assets/brand/` entre les rendus du 18 août au
+matin, qui les portent incrustés, et l'après-midi. Elles ont été récupérées dans
+**`~/dev/openshorts/assets/brand/`** — le projet que celui-ci remplace, où elles
+sont ignorées par git pour la même raison — et vérifiées par `collecterMarques` :
+`logo.png` 1000x996, `twitch.png` 996x224, toutes deux en RGBA, au-delà du
+plancher que documente `assets/brand/README.md`.
+
+**Elles ne sont versionnées nulle part, et c'est délibéré** : elles appartiennent
+à l'opérateur et ce dépôt est public. Elles n'ont donc survécu que par un
+checkout voisin, ce qui n'est pas une sauvegarde. Un worktree neuf naît sans
+elles ; `avolo-apercu` les y recopie comme il recopie le `.env`.
+
+**Le silence, lui, est fermé** : l'issue #37 est livrée. Un clip dont `branding`
+vaut `true` — la valeur par défaut de tout clip repéré — refuse de se rendre
+quand **aucune** des deux marques n'est exploitable, avant tout encodage. Une
+seule des deux suffit : rien ne distingue « l'opérateur n'a qu'un logo » d'une
+dégradation, alors que zéro ne se confond avec rien.
+
+**Ce qui reste, et qui se voit à l'image** : les trois rendus présents sur le
+disque le 18 août — celui de 6 h 50 comme ceux de 14 h 08 — **ne portent aucune
+marque**, vérifié en isolant la bande des 13 à 52 % de hauteur. La ligne qui
+affirmait ici que « les rendus du matin les portent incrustés » était fausse.
+Et ces fichiers-là ne repasseront jamais par la nouvelle porte : `sauterLeRendu`
+constate leur présence, pas leur contenu, donc l'export les saute et répond
+`skipped: true`. Le remède est `--force`, la cause est l'issue #48.
 
 **Les worktrees d'agents pèsent 13 Go** sous `.claude/worktrees/`. Avant d'en
 supprimer un, `git status --short --ignored` : un worktree ne contient pas que du

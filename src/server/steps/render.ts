@@ -356,9 +356,12 @@ function dossierDesPolices(donné?: string): string {
 /**
  * Les marques réellement présentes, avec leur taille native.
  *
- * **Un dossier vide n'est pas une erreur** : on rend sans marque. C'est le cas
- * d'un dépôt fraîchement cloné — `assets/brand/` est ignoré par git — et il ne
- * doit pas faire échouer un export de trois minutes.
+ * **Elle constate, elle ne juge pas** : un dossier vide rend une liste vide, et
+ * c'est tout. Ce qu'il faut en conclure dépend du clip — `branding` dit s'il en
+ * demande —, et cette décision-là est à `refuserFauteDeMarque`, juste dessous.
+ * Lui passer l'intention du clip l'obligerait à la connaître pour lire deux
+ * fichiers, et le dossier vide d'un dépôt fraîchement cloné n'a de sens qu'au
+ * regard de ce qu'on lui demande. (#37)
  *
  * La taille native se lit par ffprobe plutôt qu'en analysant l'en-tête du
  * fichier : le binaire est déjà là, il est déjà appelé par l'ingestion, et il
@@ -387,6 +390,31 @@ export async function collecterMarques(brandDir?: string): Promise<MarqueNative[
   return trouvées
 }
 
+/**
+ * Le clip demandait des marques, le dossier n'en portait aucune : on refuse.
+ *
+ * C'est le correctif de #37, et il tient tout entier dans le choix de **fonder
+ * la règle sur une intention déjà exprimée** plutôt que sur une heuristique. Un
+ * dossier vide n'est en soi ni normal ni anormal : il l'est sur un dépôt
+ * fraîchement cloné, il ne l'est pas sur la machine de l'opérateur, et rien dans
+ * le dossier ne permet de trancher — `assets/brand/` est toujours *présent*,
+ * son `README.md` étant versionné. Le clip, lui, sait ce qu'il veut.
+ *
+ * **Une seule marque suffit, et c'est délibéré.** Le logo et la mention sont
+ * facultatifs chacun de son côté — voir `MARQUES_ATTENDUES` et le README du
+ * dossier —, si bien que rien ne distingue « l'opérateur n'a qu'un logo » de
+ * « la mention a disparu ». Refuser là interdirait une installation soutenue
+ * pour rattraper une dégradation indécidable. Zéro, lui, ne se confond avec
+ * rien : la marque a été demandée, aucune n'est posée, et le fichier partirait
+ * sur Instagram sans elle.
+ */
+export function refuserFauteDeMarque(
+  branding: boolean,
+  marques: readonly MarqueNative[],
+): boolean {
+  return branding && marques.length === 0
+}
+
 /** Les mots-dièse d'un texte, dédoublonnés sans tenir compte de la casse. */
 export function motsDièse(texte: string): string[] {
   const vus = new Set<string>()
@@ -403,9 +431,13 @@ export function motsDièse(texte: string): string[] {
 /**
  * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
  *
- * La publication est hors périmètre (spec §3) — l'outil produit des fichiers et
- * des textes, Julien publie avec ses outils. Ce fichier est donc fait pour être
- * **copié**, pas analysé : trois sections nommées, dans l'ordre où on les colle.
+ * Ce fichier est fait pour être **copié**, pas analysé : trois sections nommées,
+ * dans l'ordre où on les colle. Il servait à publier à la main, la publication
+ * étant hors périmètre ; elle y est entrée le 18 août 2026
+ * (`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`), et le
+ * `.txt` reste pour les réseaux qu'on ne branche pas et pour le rattrapage quand
+ * une plateforme refuse. **Il n'est pas la source des textes publiés** : ceux-ci
+ * se dérivent du clip, par plateforme, et non de ce rendu-ci.
  *
  * **Les mots-dièse ne sont pas retirés de la description**, ils en sont extraits.
  * Le prompt de détail demande au modèle « une description puis 3 à 5 mots-dièse »
@@ -580,6 +612,37 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       )
     }
 
+    // **La porte des marques, et elle est ici pour deux raisons.** Avant tout ce
+    // qui coûte : la lecture du transcript traverse le Drive en 9p, l'encodage
+    // dure de dix secondes à une minute, et `POST /api/clips/:id/export` est
+    // synchrone — personne n'attend une minute pour apprendre qu'il manquait un
+    // PNG de quarante kilo-octets. Et après la copie de travail : sans source il
+    // n'y a rien à cadrer, là où une marque absente est un défaut de la
+    // livraison et non de l'entrée.
+    //
+    // **Rien de tout cela sur le chemin du saut**, plus haut, qui n'encode pas :
+    // y refuser ferait échouer une relance qui se contente de réécrire un
+    // `.txt`. Un clip exporté sans marque avant #37 saute donc pour toujours, et
+    // c'est `force` qui le rattrape.
+    //
+    // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a pas à
+    // payer deux `existsSync` et deux sondages.
+    const marques = clip.branding ? await collecterMarques(options.brandDir) : []
+    if (refuserFauteDeMarque(clip.branding, marques)) {
+      // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
+      // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
+      // et `collecterMarques` écarte la marque en le journalisant. Dire que le
+      // dossier est vide serait alors faux, et enverrait chercher un fichier qui
+      // est là.
+      throw new Error(
+        `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
+          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absentes, ou illisibles et ` +
+          `alors signalées au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
+          `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
+          `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
+      )
+    }
+
     const style = options.style ?? DEFAULT_CAPTION_STYLE
     // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
     // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
@@ -600,9 +663,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       const crop = cropRect(ratio, clip.cropX, taille.w, taille.h)
       const out = outputSize(ratio)
 
-      const logos = clip.branding
-        ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
-        : []
+      const logos = planifierMarques(out.w, out.h, marques)
 
       // Ce que les deux sorties ont en commun, c'est-à-dire tout sauf la mise
       // en page : mêmes segments, même rectangle, mêmes sous-titres, mêmes

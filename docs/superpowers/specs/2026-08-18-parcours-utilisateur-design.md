@@ -763,27 +763,41 @@ second »). Le jeton du serveur répond à la même question un étage plus bas,
 deux doivent rester distincts : celui du client ordonne les réponses, celui du
 serveur ordonne les écritures.
 
-**Et un refus ne déclenche rien du tout.** Une version précédente de ce document
-ajoutait une relecture du clip « pour réconcilier », en réponse à une question sur
-le multi-onglet. C'était doublement faux, et il vaut mieux l'écrire que de laisser
-la trace d'une bonne idée.
+**Mais un refus n'est pas non plus sans suite.** Une version précédente de ce
+document ajoutait une **relecture** du clip « pour réconcilier », en réponse à une
+question sur le multi-onglet. Cette relecture-là est doublement fausse, et il vaut
+mieux l'écrire que de laisser la trace d'une bonne idée.
 
-D'abord, il n'y a rien à réconcilier. Dans un seul onglet, un jeton périmé veut
-dire que deux de vos propres écritures se sont croisées et que la plus récente a
-gagné. Cette écriture-là part du même état local que celui qui est à l'écran :
-l'écran affiche donc déjà la version gagnante.
+D'abord elle ne marcherait pas : `useEditeur.charger` sort immédiatement quand
+l'identifiant du clip n'a pas changé, et cette garde est là pour une bonne
+raison — elle empêche un refetch d'écraser le montage en cours et sa pile
+d'annulation. Le cache serait rafraîchi et le montage local resterait tel quel.
+(relevé par Copilot)
 
-Ensuite, la relecture ne marcherait pas. `useEditeur.charger` sort immédiatement
-quand l'identifiant du clip n'a pas changé, et cette garde est là pour une bonne
-raison : elle empêche un refetch d'écraser le montage en cours et sa pile
-d'annulation. Le cache serait donc rafraîchi et le montage local resterait tel
-quel. (relevé par Copilot)
+Ensuite, la contourner reviendrait à **jeter le montage en cours** et sa pile
+d'annulation, ce qui n'est pas une opération à déclencher toute seule sur un refus
+qui, dans le seul mode d'emploi prévu, n'est pas une anomalie.
 
-Une vraie réconciliation demanderait un `recharger` qui contourne la garde, donc
-qui **jette le montage en cours**. Ce n'est pas une opération à déclencher toute
-seule sur un refus qui, dans le seul mode d'emploi prévu, n'est pas une anomalie.
-Si le multi-onglet devenait un usage, c'est ce chemin-là qu'il faudrait écrire, et
-il devrait demander avant de jeter.
+**Ce qu'il faut malgré tout, et que ce document a d'abord manqué** (constaté à
+l'implémentation, le 18 août 2026) : l'écran de clip garde ses segments, son ratio
+et son cadrage dans un store **séparé** du cache, et l'enregistrement différé
+compare *ce store* au clip du serveur. Laissé tel quel, il y retrouve l'écart,
+renvoie l'intention qu'on vient de refuser — **avec un jeton neuf, donc
+gagnant** — et la garantie d'ordre payée côté serveur ne sert plus à rien. Aucune
+donnée perdue ; la garantie annulée. Le contrat de `PatchClipResult` le dit
+d'ailleurs mot pour mot : « un appelant qui tient un état local doit s'y remettre
+d'accord ».
+
+La réconciliation retenue est donc la plus petite qui rétablisse la garantie :
+**adopter, champ par champ, la valeur du gagnant**, et seulement sur les champs
+qui *portent encore l'intention refusée* — un champ modifié pendant l'aller-retour
+porte un geste postérieur, que personne n'a refusé — et *dont le gagnant dit autre
+chose que la référence contre laquelle l'écart a été calculé* — sans quoi un refus
+dû au plancher de jeton, qu'une horloge remise en arrière suffit à produire, ferait
+perdre une modification parfaitement fraîche au lieu de la laisser repartir. Rien
+n'est empilé dans la pile d'annulation, qui reste entière ; `future`, en revanche,
+se vide quand le montage change, une branche abandonnée n'ayant plus de sens. Le
+raisonnement complet vit au point d'appel, dans `src/lib/enregistrement.ts`.
 
 **Le cadrage change de nature en itération 1**, et c'est traité en 3.5.
 
@@ -839,8 +853,16 @@ absente n'est pas une anomalie quand le ratio est déjà 9:16, et l'interface do
 le dire ainsi plutôt que de montrer une case vide.
 
 **Les textes** : titre, description et hashtags, dans une zone qui se copie d'un
-bouton. Le fichier `.txt` existe sur le disque et Julien publie avec ses propres
-outils : ce qu'il lui faut ici est le presse-papiers, pas un chemin.
+bouton. Le fichier `.txt` existe sur le disque : ce qu'il faut ici est le
+presse-papiers, pas un chemin.
+
+**Le presse-papiers n'est plus seul depuis le 18 août 2026.** Ce paragraphe disait
+« Julien publie avec ses propres outils » ; un spike a montré qu'Instagram et
+Facebook se publient gratuitement depuis l'outil, et le panneau gagne donc une
+seconde moitié — cases à cocher des plateformes, bouton, une ligne d'état par
+plateforme. La conception en est à part, dans
+`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
+laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
 **Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
 sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif
@@ -1577,11 +1599,12 @@ depuis une exception.** C'est aussi ce qui garantit qu'une région `role="alert"
 ne lise pas une trace à voix haute.
 
 **Le multi-onglet est-il un cas d'usage ?** Non : un utilisateur, une machine, un
-onglet. Et le refus d'un `PATCH` périmé n'y change rien : dans un seul onglet il
-signifie que la plus récente de vos deux écritures a gagné, et c'est déjà ce que
-l'écran affiche (3.3). J'avais d'abord proposé une relecture pour réconcilier ;
-elle est inutile, et la garde de `charger` l'aurait de toute façon rendue sans
-effet.
+onglet. Et le refus d'un `PATCH` périmé y garde son sens : la plus récente de vos
+deux écritures a gagné. J'avais d'abord proposé une **relecture** pour
+réconcilier ; elle est inutile, et la garde de `charger` l'aurait de toute façon
+rendue sans effet. Ce qu'il faut à la place — une adoption champ par champ dans le
+store, pour que l'enregistrement différé cesse de renvoyer l'intention refusée —
+est décrit en 3.3 depuis l'implémentation.
 
 **La mesure de transcription contredit-elle la spec §6 ?** Oui, et c'est la §9.1
 ci-dessus. Deux documents de `docs/superpowers/specs/` se contredisent sur un fait

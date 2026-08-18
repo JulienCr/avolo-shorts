@@ -200,3 +200,129 @@ describe('annuler', () => {
     expect(useEditeur.getState().historique.past.length).toBe(apres)
   })
 })
+
+describe('réconcilier après un PATCH refusé', () => {
+  // `applied: false` veut dire « une écriture plus récente a gagné ». Le cache
+  // adopte le clip rendu ; le store, lui, resterait sur l'intention refusée et
+  // la renverrait avec un jeton neuf — donc gagnant. Voir `@/lib/enregistrement`
+  // pour la forme retenue et pourquoi c'est celle-là.
+  it('adopte les valeurs du gagnant', () => {
+    useEditeur.getState().charger(clip())
+    useEditeur.getState().reconcilier('c1', {
+      segments: [{ start: 10, end: 12 }],
+      ratio: '1:1',
+      cropX: 0.2,
+    })
+
+    const etat = useEditeur.getState()
+    expect(etat.historique.present).toEqual([{ start: 10, end: 12 }])
+    expect(etat.ratio).toBe('1:1')
+    expect(etat.cropX).toBe(0.2)
+  })
+
+  it('ne vide pas la pile d’annulation', () => {
+    // C'est ce qui distingue cette réconciliation d'un rechargement forcé : le
+    // montage de la séance reste défaisable, y compris jusqu'avant le geste que
+    // le serveur vient d'écarter.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    const pile = useEditeur.getState().historique.past
+
+    useEditeur.getState().reconcilier('c1', { segments: [{ start: 10, end: 14.8 }] })
+    expect(useEditeur.getState().historique.past).toEqual(pile)
+  })
+
+  it('n’empile pas de pas à annuler', () => {
+    // Une réconciliation n'est pas un geste de l'utilisateur : l'empiler ferait
+    // d'un Ctrl+Z le moyen de remettre l'intention que le serveur a refusée.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.reconcilier('c1', { segments: [{ start: 10, end: 12 }] })
+    expect(useEditeur.getState().historique.past).toEqual([])
+  })
+
+  it('efface ce qu’il y avait à refaire', () => {
+    // La branche annulée n'a plus de sens une fois le montage remis d'accord
+    // avec le serveur : un `Ctrl+Shift+Z` y remettrait un état antérieur au
+    // gagnant, et l'enregistrement différé le renverrait avec un jeton neuf —
+    // donc gagnant. Exactement le défaut que la réconciliation ferme.
+    // (relevé par Copilot)
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+    expect(useEditeur.getState().historique.future).toHaveLength(1)
+
+    useEditeur.getState().reconcilier('c1', { segments: [{ start: 10, end: 12 }] })
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+
+  it('garde ce qu’il y avait à refaire quand le montage n’a pas bougé', () => {
+    // Un refus qui ne porte que sur le cadrage ne change pas de branche : la
+    // pile de rétablissement décrit toujours le même montage.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+    const aRefaire = useEditeur.getState().historique.future
+
+    useEditeur.getState().reconcilier('c1', { cropX: 0.2 })
+    expect(useEditeur.getState().historique.future).toEqual(aRefaire)
+  })
+
+  it('ne touche pas un autre clip que celui qui est ouvert', () => {
+    // Une écriture part en `keepalive` et lui survit à la navigation : sa
+    // réponse peut arriver alors que l'écran montre déjà le clip suivant.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip({ id: 'c2', segments: [{ start: 0, end: 5 }] }))
+    editeur.reconcilier('c1', { segments: [{ start: 10, end: 12 }], cropX: 0.9 })
+
+    const etat = useEditeur.getState()
+    expect(etat.historique.present).toEqual([{ start: 0, end: 5 }])
+    expect(etat.cropX).toBe(0.5)
+  })
+})
+
+describe('rétablir', () => {
+  it('refait le geste qu’on vient d’annuler', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    const monte = useEditeur.getState().historique.present
+
+    useEditeur.getState().annuler()
+    expect(useEditeur.getState().historique.present).toEqual([{ start: 10, end: 14.8 }])
+
+    useEditeur.getState().retablir()
+    expect(useEditeur.getState().historique.present).toEqual(monte)
+  })
+
+  it('un Ctrl+Shift+Z de trop ne fait rien', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.retablir()
+    expect(useEditeur.getState().historique.present).toEqual([{ start: 10, end: 14.8 }])
+  })
+
+  it('un nouveau geste efface ce qu’il y avait à refaire', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+
+    useEditeur.getState().commencerSelection(4, false)
+    useEditeur.getState().retirerSelection(mots())
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+
+  it('n’a rien à refaire sur un clip qu’on vient d’ouvrir', () => {
+    useEditeur.getState().charger(clip())
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+})

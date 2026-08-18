@@ -8,28 +8,24 @@
  * d'état invisible à l'écran, qui perdait au passage la trace de l'export.
  *
  * Une seule définition, lue par les deux.
+ *
+ * **Elle a déménagé dans `@/core/parcours` et ce module la ré-exporte.**
+ * `phaseProjet` en a besoin pour l'axe du travail humain, et la frontière de
+ * pureté interdit à `src/core` d'importer `src/lib` : la recopier là-bas aurait
+ * rendu deux endroits à un module qui existe précisément parce qu'ils
+ * divergeaient. Les appelants, eux, n'ont pas bougé.
  */
 
 import type { ClipStatus } from '@/core/edl'
+import { estEcarte, estGarde } from '@/core/parcours'
+
+export { estEcarte, estGarde }
 
 export const LIBELLES_STATUT: Record<ClipStatus, string> = {
   candidate: 'proposition',
   kept: 'gardé',
   discarded: 'écarté',
   exported: 'exporté',
-}
-
-/**
- * `exported` compte comme gardé : c'est une décision humaine qui a déjà produit
- * un fichier, pas une proposition en attente. `mergeCandidates` le traite
- * d'ailleurs pareil — il survit à une nouvelle passe de repérage (tâche 6).
- */
-export function estGarde(status: ClipStatus): boolean {
-  return status === 'kept' || status === 'exported'
-}
-
-export function estEcarte(status: ClipStatus): boolean {
-  return status === 'discarded'
 }
 
 /** Les deux seules décisions que l'écran de tri sait prendre. */

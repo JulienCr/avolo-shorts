@@ -27,6 +27,12 @@ const PAS_RAPIDE = 0.05
  * n'existent pas, et inviterait à recadrer verticalement, ce qui rognerait les
  * comédiens.
  *
+ * **Ce n'est pas un `slider`, et la primitive générique est refusée pour trois
+ * raisons cumulées** : sa plage dépend du ratio — le centre d'un 9:16 ne va que
+ * de 15,8 à 84,2 % —, la prise garde l'écart entre le point saisi et le centre
+ * pour ne pas sauter au premier appui, et il se fige en 16:9. Une primitive
+ * générique perdrait les trois.
+ *
  * Le réglage à la main n'est pas un pis-aller jetable : quand le cadrage
  * automatique arrivera (itération 1), il ne fera que préremplir cette valeur, et
  * ce rectangle restera le recours de dernier ressort.

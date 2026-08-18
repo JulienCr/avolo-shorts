@@ -14,6 +14,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import {
+  createProject,
+  exportClip,
   getClip,
   getProject,
   listCandidates,
@@ -29,6 +31,15 @@ export const cles = {
   projets: ['projets'] as const,
   projet: (projectId: string) => ['projet', projectId] as const,
   candidats: (projectId: string) => ['candidats', projectId] as const,
+  /**
+   * Le préfixe de **toutes** les listes de candidats, pour les invalider sans
+   * connaître le projet. TanStack apparie par préfixe : une clé plus courte
+   * couvre toutes celles qui commencent par elle.
+   *
+   * Un test tient les deux ensemble — une divergence rendrait l'invalidation
+   * silencieusement sans effet, ce qui est le pire des deux mondes.
+   */
+  tousCandidats: ['candidats'] as const,
   clip: (clipId: string) => ['clip', clipId] as const,
 }
 
@@ -311,6 +322,73 @@ export function usePatchClip() {
       clipsChevauchés.delete(clipId)
       void client.invalidateQueries({ queryKey: cles.clip(clipId) })
       void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+    },
+  })
+}
+
+/**
+ * Rendre un clip. **Synchrone, et long : de dix secondes à une minute.**
+ *
+ * Le hook n'en fait pas une écriture optimiste, contrairement au tri : il n'y a
+ * rien à afficher par avance, et l'attente est à montrer plutôt qu'à absorber —
+ * un bouton muet pendant une minute passe pour cassé. `isPending` est donc la
+ * surface d'attente de l'écran d'export, pas un détail d'implémentation.
+ *
+ * **Le clip s'invalide après coup**, et c'est la première des deux règles de
+ * fraîcheur. `ExportResult` rend des **noms de fichiers** — publier les chemins
+ * absolus du serveur exposerait l'arborescence de la machine — alors que ce sont
+ * les `ClipOutputs` de `GET /api/clips/:id` qui portent les URL lisibles par un
+ * `<video>` ou un `<a>`. Adopter la réponse dans le cache laisserait donc les
+ * sorties telles qu'elles étaient avant le rendu.
+ *
+ * **Les listes de candidats aussi**, et c'est la seconde. Le rendu pose
+ * `exported`, et ce statut vit dans la même liste que le compte des gardés, la
+ * phase du projet et le clip suivant à monter : sans cela la carte resterait sur
+ * « gardé » tant que la liste est en cache. Par préfixe, faute de connaître le
+ * projet ici — une liste inactive n'est alors pas rechargée, seulement marquée
+ * périmée. (relevé par Copilot)
+ *
+ * **`skipped: true` est un cas nominal**, et le plus fréquent quand on rouvre un
+ * clip déjà exporté : rien n'a été refait, tout est en place. Le traiter comme
+ * une erreur ferait passer un export réussi pour un échec.
+ *
+ * **Et `ExportResult.clip` est facultatif.** Une passe de repérage qui se
+ * termine pendant le rendu réécrit le jeu de clips du projet, et la route
+ * sérialise alors un corps sans ce champ : rien ici ne le lit, et un appelant
+ * qui voudrait le faire doit le garder.
+ */
+export function useExporter() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ clipId, force }: { clipId: string; force?: boolean }) =>
+      exportClip(clipId, force),
+    onSuccess(_resultat, { clipId }) {
+      void client.invalidateQueries({ queryKey: cles.clip(clipId) })
+      void client.invalidateQueries({ queryKey: cles.tousCandidats })
+    },
+  })
+}
+
+/**
+ * Ingérer un replay et lancer son analyse.
+ *
+ * **La liste des projets s'invalide** : le nouveau projet doit y apparaître, et
+ * c'est la seule chose que cette réponse change de ce qui est en cache.
+ *
+ * **La redirection appartient à l'écran, pas au hook.** La réponse est un 202 et
+ * rend un `RunPlan` : elle confirme que l'analyse est acceptée et lancée, pas
+ * qu'elle est faite. Ce qu'on fait de `projectId` — y aller, l'annoncer, rester
+ * sur la grille — est une décision de parcours, et un hook qui naviguerait
+ * empêcherait d'en changer sans le réécrire.
+ */
+export function useCreerProjet() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (source: string) => createProject(source),
+    onSuccess() {
+      void client.invalidateQueries({ queryKey: cles.projets })
     },
   })
 }

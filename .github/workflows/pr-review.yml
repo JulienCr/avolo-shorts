@@ -105,6 +105,11 @@ jobs:
       - uses: JulienCr/gh-actions/pr-review@v2
         with:
           pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+          # Éteint : le quota Ollama restant est gardé pour la prochaine version
+          # de l'action. Tant que cette ligne est là, une PR sans commentaire
+          # d'Aristarque n'a pas été jugée irréprochable, elle n'a pas été relue.
+          # Remettre `true` quand la nouvelle version sera prête.
+          enable: false
           ollama-api-key: ${{ secrets.OLLAMA_API_KEY }}
           # CLAUDE.md porte les sept décisions à ne pas défaire ; la spec porte
           # les mesures qui les fondent. Un relecteur qui n'a que la première

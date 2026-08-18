@@ -40,9 +40,18 @@ export const HAUTEUR_CARTE = 'h-24'
  * La carte d'un replay : **l'entrée du tunnel**.
  *
  * Nom, taille, date, et rien d'autre. **Pas de vignette dans ce lot** (issue
- * #41) : en extraire une de vingt et un fichiers de 4 à 12 Go à travers un
- * montage 9p coûte 2,7 s pièce, soit une minute et demie pour afficher une page
- * d'entrée. Le nom d'un replay porte déjà sa date et son émission.
+ * #41), et pour deux raisons dont aucune n'est le coût cumulé : la spec §12
+ * prévoit un chargement **à la demande, au défilement**, adossé à un cache
+ * local, donc les vingt et une extractions ne seraient jamais la latence d'une
+ * page. Ce qui manque est ce dispositif-là — une route, sa clé de cache (nom,
+ * taille, date de modification) et le déclenchement à l'entrée dans le champ —,
+ * et il ne tient pas dans ce lot. (relevé par Copilot)
+ *
+ * La seconde raison est plus dérangeante et vaut d'être écrite ici : **les
+ * replays de cette émission commencent tous sur le même plateau**. Une vignette
+ * tirée d'un instant précoce serait donc identique d'une carte à l'autre, là où
+ * le nom du fichier porte déjà la date et l'émission. Elle coûterait 2,7 s par
+ * fichier — mesuré, `-ss` avant `-i` — pour ne rien distinguer.
  *
  * L'emplacement, lui, est dessiné. Une image qui arriverait plus tard remplirait
  * la case sans déplacer une ligne de texte — c'est la seule chose qui coûte cher

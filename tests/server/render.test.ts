@@ -2,7 +2,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
+import type { Word } from '@/core/transcript'
 import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
   cheminsRendu,
@@ -12,6 +14,7 @@ import {
   planifierMarques,
   renderClip,
   sauterLeRendu,
+  sousTitresDuClip,
   texteDePublication,
   type MarqueNative,
 } from '@/server/steps/render'
@@ -225,6 +228,66 @@ describe('planifierMarques', () => {
   })
 })
 
+/**
+ * L'enchaînement des sous-titres, qui est **le seul endroit de cette étape où
+ * l'on peut se tromper sans rien casser de mesurable**. `retimeWords` est testé
+ * pour lui-même ailleurs ; ce qui se teste ici, c'est qu'il soit bien appelé, et
+ * que le preset traverse jusqu'au découpage.
+ */
+describe('sousTitresDuClip', () => {
+  const mots: Word[] = [
+    { word: 'un', start: 10.0, end: 10.4 },
+    { word: 'deux', start: 10.5, end: 11.0 },
+    // Dans la coupe interne : ce mot ne doit apparaître nulle part.
+    { word: 'coupé', start: 50.0, end: 50.5 },
+    { word: 'trois', start: 100.0, end: 100.4 },
+    { word: 'quatre', start: 100.5, end: 101.0 },
+  ]
+  const segments = [
+    { start: 10, end: 15 },
+    { start: 100, end: 105 },
+  ]
+
+  it('recale les mots sur la timeline du clip, pas sur celle de la source', () => {
+    const ass = sousTitresDuClip(mots, segments, DEFAULT_CAPTION_STYLE)
+    expect(ass).not.toBeNull()
+    // Le premier segment dure 5 s, donc le premier mot du second segment tombe à
+    // 5,00 s dans le clip — et surtout pas à 1:40, son heure dans l'émission.
+    expect(ass).toContain('0:00:05.00')
+    expect(ass).not.toContain('0:01:40')
+    // Le premier mot du clip est à l'origine.
+    expect(ass).toContain('Dialogue: 0,0:00:00.00')
+  })
+
+  it('laisse tomber les mots pris dans une coupe interne', () => {
+    expect(sousTitresDuClip(mots, segments, DEFAULT_CAPTION_STYLE)).not.toContain('COUPÉ')
+  })
+
+  it('passe maxChars et maxDuration du preset au découpage', () => {
+    // `renderAss` ne lit pas ces deux réglages : si l'enchaînement ne les
+    // transmet pas lui-même à `splitIntoCards`, un preset personnalisé garde le
+    // découpage par défaut, en silence.
+    const serré = { ...DEFAULT_CAPTION_STYLE, maxChars: 3 }
+    const large = { ...DEFAULT_CAPTION_STYLE, maxChars: 200, maxDuration: 60 }
+    // Un carton donne un événement par mot, tous porteurs du même texte à la
+    // surbrillance près : compter les textes distincts compte les cartons.
+    const cartons = (ass: string | null): number =>
+      new Set(
+        (ass ?? '')
+          .split('\n')
+          .filter((l) => l.startsWith('Dialogue:'))
+          .map((l) => l.slice(l.lastIndexOf(',,') + 2).replace(/\{[^}]*\}/g, '')),
+      ).size
+    expect(cartons(sousTitresDuClip(mots, segments, serré))).toBeGreaterThan(
+      cartons(sousTitresDuClip(mots, segments, large)),
+    )
+  })
+
+  it("rend null quand aucun mot ne tombe dans les segments", () => {
+    expect(sousTitresDuClip(mots, [{ start: 500, end: 510 }], DEFAULT_CAPTION_STYLE)).toBeNull()
+  })
+})
+
 describe('motsDièse', () => {
   it('les extrait dans leur ordre, sans doublon de casse', () => {
     expect(motsDièse('#Impro et #impro, puis #avolo')).toEqual(['#Impro', '#avolo'])
@@ -349,6 +412,19 @@ describe('renderClip, chemin du saut', () => {
     expect(résultat.skipped).toBe(false)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
     expect(getClip(db, c.id)?.status).toBe('exported')
+  })
+
+  it("efface la variante d'un ratio abandonné", async () => {
+    // Le clip est repassé en 9:16, donc plus de variante due — mais celle du 1:1
+    // d'avant est encore là, à ressembler à une livraison à jour.
+    const { db, c } = préparer({ ratio: '9:16' })
+    const attendus = cheminsRendu(ID, c.id, '9:16')
+    const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
+    poser([attendus.mp4, périmée])
+
+    const résultat = await renderClip(c.id, { db })
+    expect(résultat.variant9x16).toBeNull()
+    expect(fs.existsSync(périmée)).toBe(false)
   })
 
   it("n'écrase pas un montage fait pendant l'export", () => {

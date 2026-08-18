@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3'
 import { DEFAULT_CAPTION_STYLE, renderAss, type CaptionStyle } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
-import { clipDuration, type Clip, type Ratio } from '@/core/edl'
+import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
 import { blurredVariantArgs, renderArgs } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize, resolveRatio } from '@/core/framing'
@@ -94,11 +94,23 @@ export type CheminsRendu = {
   ass: string
 }
 
+/**
+ * Le nom de la variante, **due ou non**.
+ *
+ * Séparé de `cheminsRendu` parce qu'il sert aussi à effacer celle d'un ratio
+ * abandonné : un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et
+ * l'ancienne resterait sur le disque à ressembler à une livraison à jour.
+ * (relevé par Copilot)
+ */
+function cheminVariante(projectId: string, clipId: string): string {
+  return path.join(rendersDir(projectId), `${clipId}-9x16.mp4`)
+}
+
 export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): CheminsRendu {
   const dossier = rendersDir(projectId)
   return {
     mp4: path.join(dossier, `${clipId}.mp4`),
-    variant9x16: ratio === '9:16' ? null : path.join(dossier, `${clipId}-9x16.mp4`),
+    variant9x16: ratio === '9:16' ? null : cheminVariante(projectId, clipId),
     texts: path.join(dossier, `${clipId}.txt`),
     ass: path.join(dossier, `${clipId}.ass`),
   }
@@ -374,19 +386,25 @@ async function écrireFichier(chemin: string, contenu: string): Promise<void> {
 }
 
 /**
- * Les dimensions de la source. **Pas de 1920x1080 supposé** : `cropRect` en
- * dépend entièrement, et sur une source 4K un crop calculé pour du 1080p
- * découperait un rectangle du coin supérieur gauche — une erreur qui ne lève rien
- * et se voit seulement à l'image.
+ * Les dimensions de la source. **Ni 1920x1080 supposé, ni repli du tout.**
  *
- * Le repli sur 1920x1080 ne sert que le cas où ffprobe ne sait rien dire, et il
- * le dit.
+ * `cropRect` en dépend entièrement : sur une source 4K, un crop calculé pour du
+ * 1080p découperait un rectangle du coin supérieur gauche. L'erreur ne lève rien,
+ * ne se voit qu'à l'image, et coûte un export de trois minutes.
+ *
+ * Une première version supposait 1920x1080 quand ffprobe ne savait rien dire, ce
+ * qui recréait précisément le défaut que cette fonction existe pour éviter :
+ * aucun crop sûr ne se calcule sans dimensions, donc on échoue plutôt que de
+ * livrer un cadrage plausible et faux. Les dimensions nulles ou négatives tombent
+ * par le même chemin. (relevé par Copilot)
  */
 async function dimensionsSource(src: string): Promise<{ w: number; h: number }> {
   const { width, height } = await probe(src)
-  if (width === null || height === null) {
-    console.warn(`ffprobe n'a pas su dire les dimensions de la source ; on suppose 1920x1080.`)
-    return { w: 1920, h: 1080 }
+  if (width === null || height === null || width <= 0 || height <= 0) {
+    throw new Error(
+      "ffprobe n'a pas su dire les dimensions de la copie de travail : sans elles, aucun " +
+        'rectangle de crop ne peut être calculé, et en supposer suffirait à livrer un cadrage faux.',
+    )
   }
   return { w: width, h: height }
 }
@@ -467,6 +485,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     const assPath = clip.captions
       ? await écrireSousTitres(clip, chemins.ass, projet, style)
       : undefined
+    // Le `.ass` d'un passage précédent ne survit pas à un rendu qui n'en incruste
+    // pas : il est gardé pour relire ce que libass a posé sur l'image, donc un
+    // fichier périmé y décrirait des sous-titres que le MP4 ne porte pas.
+    // (relevé par Copilot)
+    if (assPath === undefined) fs.rmSync(chemins.ass, { force: true })
     // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : le
     // chercher sans cela ferait avertir sur un clip qui n'a pas de sous-titres.
     const fontsDir = assPath === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
@@ -513,6 +536,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       args: (destination) =>
         blurredVariantArgs({ src: chemins.mp4, dst: destination, encoder: encodeur() }),
     })
+  } else {
+    // Un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et
+    // l'ancienne resterait à côté du nouveau MP4 en ressemblant à une livraison à
+    // jour — alors que `RenderResult` annonce qu'il n'y en a pas.
+    // (relevé par Copilot)
+    fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
   }
 
   // **Le titre et la description se relisent en base, pour la même raison que le
@@ -576,14 +605,19 @@ function dossierDesPolicesUtilisable(donné?: string): string | undefined {
 }
 
 /**
- * Écrit le `.ass` du clip et rend son chemin, ou `undefined` s'il n'y a rien à
- * incruster.
+ * Le document ASS d'un clip, ou `null` quand aucun mot ne tombe dans ses
+ * segments.
  *
- * **Les trois lignes qui comptent, dans l'ordre :**
+ * **Sortie en fonction à part parce que c'est l'enchaînement qui compte**, et
+ * qu'il est le seul de cette étape à pouvoir se tromper sans rien casser de
+ * mesurable. Un test qui ne verrait que le chemin du saut resterait vert si la
+ * première ligne disparaissait. (relevé par Copilot)
  *
- * 1. `retimeWords(mots, clip.segments)` — le recalage sur la timeline du clip.
- *    Sans lui, un karaoké calé sur l'émission entière n'affiche rien du tout, et
- *    avec une seule coupe interne il dérive à partir de la coupe.
+ * **Les trois lignes, dans l'ordre :**
+ *
+ * 1. `retimeWords(mots, segments)` — le recalage sur la timeline du clip. Sans
+ *    lui, un karaoké calé sur l'émission entière n'affiche rien du tout, et avec
+ *    une seule coupe interne il dérive à partir de la coupe.
  * 2. `splitIntoCards(mots, style.maxChars, style.maxDuration)` — et les deux
  *    réglages sont passés **explicitement**. `renderAss` ne les lit pas : ils
  *    décrivent un découpage déjà fait quand le rendu commence. Les omettre marche
@@ -592,6 +626,22 @@ function dossierDesPolicesUtilisable(donné?: string): string | undefined {
  *    longueur par défaut pendant que tout le reste du style change.
  * 3. `renderAss` — dont la sortie commence par un BOM UTF-8 et s'écrit telle
  *    quelle.
+ */
+export function sousTitresDuClip(
+  mots: Word[],
+  segments: Segment[],
+  style: CaptionStyle,
+): string | null {
+  const recalés = retimeWords(mots, segments)
+  const cartons = splitIntoCards(recalés, style.maxChars, style.maxDuration)
+  return cartons.length === 0 ? null : renderAss(cartons, style)
+}
+
+/**
+ * Écrit le `.ass` du clip et rend son chemin, ou `undefined` s'il n'y a rien à
+ * incruster — auquel cas un `.ass` d'un passage précédent est **effacé**. Il est
+ * gardé sur le disque pour relire ce que libass a incrusté ; un fichier périmé y
+ * raconterait des sous-titres que le MP4 ne porte pas. (relevé par Copilot)
  */
 async function écrireSousTitres(
   clip: Clip,
@@ -612,13 +662,12 @@ async function écrireSousTitres(
   const transcript = lireTranscript(placement.transcript)
   const mots: Word[] = transcript.segments.flatMap((s) => s.words)
 
-  const recalés = retimeWords(mots, clip.segments)
-  const cartons = splitIntoCards(recalés, style.maxChars, style.maxDuration)
-  if (cartons.length === 0) {
+  const document = sousTitresDuClip(mots, clip.segments, style)
+  if (document === null) {
     console.warn(`Clip ${clip.id} : aucun mot dans les segments retenus, rendu sans sous-titres.`)
     return undefined
   }
 
-  await écrireFichier(chemin, renderAss(cartons, style))
+  await écrireFichier(chemin, document)
   return chemin
 }

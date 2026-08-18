@@ -1,0 +1,155 @@
+'use client'
+
+import { FolderOpen, Inbox, TriangleAlert } from 'lucide-react'
+
+import { pluriel } from '@/components/sources/textes'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import type { SourcesListing } from '@/lib/api'
+
+/**
+ * La ligne de montage : **ce qui distingue trois vides que rien d'autre ne
+ * distingue**.
+ *
+ * C'est un incident réel d'OpenShorts (spec §12) : « le dossier des replays est
+ * vide » et « le dossier des replays n'existe pas » rendaient la même page, donc
+ * on cherchait des fichiers manquants pendant que le partage était tombé.
+ * `SourcesListing.montage` existe pour ça, et l'écran serait fautif de ne pas
+ * s'en servir.
+ *
+ * Le troisième vient en prime et ne coûte rien : `entrées` compte **toutes** les
+ * entrées du dossier, vidéos ou non. Un dossier qui en porte trois sans qu'aucune
+ * ne soit une vidéo n'est pas vide, il est mal rempli — et le dire épargne de
+ * remonter un partage qui fonctionne.
+ *
+ * **Chaque état porte son geste.** Le pire cas du parcours — montage absent et
+ * aucun projet — est la seule chose que la page affiche alors ; s'il ne portait
+ * qu'un constat, la bibliothèque serait une impasse.
+ */
+export function LigneMontage({
+  montage,
+  onReessayer,
+}: {
+  montage: SourcesListing['montage']
+  onReessayer: () => void
+}) {
+  const { titre, detail, icone, grave } = diagnostic(montage)
+
+  return (
+    <Alert
+      variant={grave ? 'destructive' : 'default'}
+      // **`role="alert"` est assertif, et deux de ces trois états ne sont pas des
+      // pannes.** La primitive le pose en dur ; un dossier vide interromprait
+      // donc la lecture en cours comme le ferait un montage tombé.
+      //
+      // Mais il ne devient pas poli pour autant : la conception §4.3 admet
+      // **trois** régions live — l'avancement, les erreurs, le résultat d'un
+      // export — et « pas une de plus ». Un dossier vide n'est aucune des trois,
+      // et il se lit en arrivant sur la page comme s'y lit la grille elle-même,
+      // qu'on n'annonce pas davantage. `undefined` retire l'attribut : la
+      // primitive pose son `role` avant l'étalement des props.
+      // (relevé par Copilot, qui avait d'abord suggéré `status`)
+      role={grave ? 'alert' : undefined}
+      className="px-4 py-3"
+    >
+      {icone}
+      <AlertTitle className="text-sm">{titre}</AlertTitle>
+      <AlertDescription className="text-xs">{detail}</AlertDescription>
+      <AlertAction>
+        <Button variant="outline" size="sm" onClick={onReessayer}>
+          Réessayer
+        </Button>
+      </AlertAction>
+    </Alert>
+  )
+}
+
+/**
+ * Le système de fichiers du partage, tel que `CLAUDE.md` le décrit et que le 503
+ * de `POST /api/projects` le nomme déjà à l'utilisateur. Il n'est pas deviné
+ * ici : c'est la même valeur, écrite au même endroit du produit.
+ */
+const MONTAGE_ATTENDU = '9p'
+
+/** Le geste qui répare, identique aux deux modes de panne — il vient de `CLAUDE.md`. */
+const REPARATION = 'Rouvrir le lecteur côté Windows, ou remonter le partage.'
+
+function diagnostic(montage: SourcesListing['montage']) {
+  if (!montage.disponible) {
+    // **`fstype` se relève même quand l'accès échoue, et c'est là qu'il sert le
+    // plus** — le commentaire de `fstypeDeMontage` (`src/server/sources.ts`) le
+    // dit ainsi : « un `ext4` là où on attend un `9p` dit “ce montage n'a pas eu
+    // lieu” ». Les deux modes de panne de `CLAUDE.md` se distinguent donc ici, et
+    // les annoncer pareil referait l'incident que ce champ existe pour fermer.
+    // Le geste, lui, est le même dans les deux cas. (relevé par Copilot)
+    if (montage.fstype === MONTAGE_ATTENDU) {
+      return {
+        grave: true,
+        icone: <TriangleAlert aria-hidden />,
+        // **On ne conclut pas au transport mort.** `disponible: false` recouvre
+        // quatre causes, et `releverAvecGarde` le dit lui-même : « absence,
+        // droits, transport mort, délai dépassé : du point de vue de l'écran,
+        // c'est le même fait ». Un `REPLAY_DIR` mal orthographié sous un partage
+        // sain tombe exactement ici, et envoyer remonter le partage ferait
+        // perdre le seul geste utile — relire le chemin. Ce que l'écran sait,
+        // c'est que la lecture a échoué et que le partage attendu, lui, est là.
+        // (relevé par Codex)
+        titre: 'Le dossier des replays n’a pas pu être lu.',
+        detail: `Le partage ${MONTAGE_ATTENDU} attendu répond, donc le chemin est peut-être absent ou refusé — ou le partage a perdu son transport sans que /proc/mounts le dise. Vérifier REPLAY_DIR et ses droits ; s’ils sont bons, ${REPARATION.charAt(0).toLowerCase()}${REPARATION.slice(1)}`,
+      }
+    }
+    return {
+      grave: true,
+      icone: <TriangleAlert aria-hidden />,
+      titre: 'Le dossier des replays n’est pas monté.',
+      detail: `${
+        montage.fstype === null
+          ? 'Aucun montage relevé ne porte REPLAY_DIR'
+          : `Le chemin est servi par ${montage.fstype}, pas par le partage ${MONTAGE_ATTENDU} attendu`
+      }. ${REPARATION}`,
+    }
+  }
+
+  if (montage.entrées > 0) {
+    return {
+      grave: false,
+      icone: <FolderOpen aria-hidden />,
+      titre: 'Aucune vidéo dans le dossier des replays.',
+      detail: `${relevé(montage.fstype)} Il contient ${pluriel(
+        montage.entrées,
+        'entrée',
+        'entrées',
+      )}, mais aucune ne porte une extension de vidéo.`,
+    }
+  }
+
+  return {
+    grave: false,
+    icone: <Inbox aria-hidden />,
+    titre: 'Le dossier des replays est vide.',
+    detail: `${relevé(montage.fstype)} Il n’y a rien dedans.`,
+  }
+}
+
+/**
+ * Ce que le relevé dit du chemin, **y compris quand il répond**.
+ *
+ * **Un accès qui réussit ne prouve pas que le partage est là.** Un point de
+ * montage resté vide sur la racine locale se liste très bien : `readdir`
+ * réussit, `disponible` vaut vrai, et le dossier passe pour sain alors que le
+ * partage n'est nulle part. Le `fstype` est le seul signal qui le dise, et
+ * l'écran l'affichait comme une confirmation — « il est bien monté (ext4) ».
+ * (relevé par Codex)
+ *
+ * **Il énonce le relevé, il ne rend pas de verdict**, et c'est délibéré : rien
+ * n'interdit de pointer `REPLAY_DIR` sur un dossier local en développement, et
+ * déclarer « non monté » un dossier qui fonctionne serait une fausse alerte. Le
+ * fait suffit — celui qui lit sait ce qu'il a monté.
+ */
+function relevé(fstype: string | null): string {
+  if (fstype === MONTAGE_ATTENDU) return `Le partage ${MONTAGE_ATTENDU} répond.`
+  if (fstype === null) {
+    return `Aucun montage relevé ne porte ce chemin : le partage ${MONTAGE_ATTENDU} attendu n’est pas là.`
+  }
+  return `Système de fichiers relevé : ${fstype} — le partage ${MONTAGE_ATTENDU} attendu n’est pas là.`
+}

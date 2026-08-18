@@ -6,7 +6,7 @@ import type Database from 'better-sqlite3'
 import type { Source, SourcesListing } from '@/lib/api'
 import { getDb, listProjects } from '@/server/db'
 import { estUneAbsence } from '@/server/octets'
-import { projectIdFromSource, replayDir } from '@/server/paths'
+import { replayDir, resolveSource } from '@/server/paths'
 import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
 
 /**
@@ -107,6 +107,7 @@ async function releverLeDossier(dir: string): Promise<RelevéDossier> {
   const entrées = await fsp.readdir(dir)
   const vidéos: RelevéDossier['vidéos'] = []
   for (const nom of entrées) {
+    if (estUnMoignon(nom)) continue
     if (!EXTENSIONS_VIDÉO.has(path.extname(nom).toLowerCase())) continue
     let info: fs.Stats
     try {
@@ -123,6 +124,22 @@ async function releverLeDossier(dir: string): Promise<RelevéDossier> {
     vidéos.push({ name: nom, sizeBytes: info.size, mtimeMs: info.mtimeMs })
   }
   return { entrées: entrées.length, vidéos }
+}
+
+/**
+ * Les entrées cachées et celles qui commencent par `$`.
+ *
+ * **Un dossier adossé à un Drive porte des téléchargements partiels**, et ils
+ * portent l'extension de leur destination : `.com.google.Chrome.….mp4` a tout
+ * d'une vidéo pour un filtre d'extension, et rien d'une vidéo pour ffprobe. Les
+ * proposer ferait des cartes qui échouent à l'ingestion, ce qui ressemble à un
+ * défaut de l'outil. La spec les écarte nommément (§ « Lister les sources »).
+ *
+ * **Elles restent comptées dans `entrées`.** Un dossier plein de moignons n'est
+ * pas un dossier vide, et c'est cette distinction-là qui porte le diagnostic.
+ */
+function estUnMoignon(nom: string): boolean {
+  return nom.startsWith('.') || nom.startsWith('$')
 }
 
 /** Le relevé, ou `null` quand le montage n'a pas répondu à temps. */
@@ -238,7 +255,8 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
   }
   if (relevé === null) return { sources: [], montage }
 
-  const projets = new Set(listProjects(db).map((p) => p.id))
+  // **Indexés par leur source, pas par leur identifiant.** Voir `projetDe`.
+  const projets = new Map(listProjects(db).map((p) => [p.sourcePath, p.id]))
   const sources: Source[] = relevé.vidéos
     .slice()
     .sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name))
@@ -253,19 +271,28 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
 }
 
 /**
- * Le projet qu'une source a produit, ou `null`.
+ * Le projet né de **cette source**, ou `null`.
  *
- * L'identifiant passe par `projectIdFromSource` plutôt que par un `slice` local :
- * c'est lui qui fait autorité, et deux façons de dériver le même identifiant
- * finiraient par ne plus s'accorder — la carte mènerait alors à un projet qui
- * n'existe pas. Il lève sur un nom que `resolveSource` refuse ; un nom venu de
- * `readdir` n'en fait pas partie, mais le refuser ici plutôt que de laisser
- * tomber la liste entière coûte une ligne.
+ * **Le rattachement se fait sur le chemin, jamais sur l'identifiant dérivé.**
+ * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
+ * tous deux `show`. Chercher l'identifiant dans la table ferait mener la carte
+ * du MOV au projet du MP4 — une autre vidéo, sous un titre qui ne la décrit pas
+ * — alors que `créerProjet` refuse précisément cette paire par un
+ * `CollisionDeProjetError`. Le MOV reste donc « à créer », et la création
+ * répondra 409 avec le message qui nomme les deux fichiers : un cul-de-sac qui
+ * s'explique vaut mieux qu'un lien vers la mauvaise vidéo.
+ * (relevé par Codex et Copilot)
+ *
+ * Le chemin passe par `resolveSource`, comme celui qu'`upsertProject` a écrit :
+ * deux façons de normaliser le même chemin finiraient par ne plus s'accorder, et
+ * la bibliothèque annoncerait des sources neuves qu'elle a déjà analysées.
+ * `resolveSource` lève sur un nom qu'elle refuse ; un nom venu de `readdir` n'en
+ * fait pas partie, mais le rattraper ici plutôt que de laisser tomber la liste
+ * entière coûte une ligne.
  */
-function projetDe(nom: string, projets: ReadonlySet<string>): string | null {
+function projetDe(nom: string, projets: ReadonlyMap<string, string>): string | null {
   try {
-    const id = projectIdFromSource(nom)
-    return projets.has(id) ? id : null
+    return projets.get(resolveSource(nom)) ?? null
   } catch {
     return null
   }

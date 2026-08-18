@@ -144,9 +144,15 @@ afterEach(() => {
  * **Un bilan décrit une notation tentée, pas une notation réussie.** Il est posé
  * avant le premier appel et se remplit au fil de l'eau : une passe qui échoue à
  * la quarantième fenêtre en laisse un qui dit « 40 sur 83 ». Le lire seul ferait
- * afficher ce chiffre comme un résultat. C'est pourquoi la déduction croise
- * `error` et `finishedAt`, et c'est ce que ces cas figent.
- * (relevé en review sur la PR qui a écrit `dernierBilan`)
+ * afficher ce chiffre comme un résultat.
+ *
+ * **Ce qui le qualifie est le sort de l'étape `candidates`, pas celui de
+ * l'exécution.** Une création vise `['candidates', 'proxy', 'analysis']` : le
+ * repérage y finit en trente secondes, le proxy tourne six minutes derrière lui,
+ * et l'analyse peut échouer ensuite. Déduire `partiel` de l'`error` et du
+ * `finishedAt` de l'exécution marquait donc partiel un bilan complet pendant tout
+ * le proxy, et **définitivement** si une étape ultérieure tombait.
+ * (relevé par Codex et Copilot)
  */
 describe('bilanDeRepérage', () => {
   const bilan: BilanNotation = {
@@ -161,12 +167,20 @@ describe('bilanDeRepérage', () => {
   }
 
   it('rend null quand aucune notation n’est décrite', () => {
-    expect(bilanDeRepérage(null, { plan: ['candidates'], error: null, finishedAt: 1 })).toBeNull()
+    expect(bilanDeRepérage(null, 'fait')).toBeNull()
+  })
+
+  /**
+   * Le bilan vit dans ce processus et survit à l'exécution qui l'a produit. Une
+   * relance qui ne vise que le proxy y recopierait sinon le décompte d'un
+   * repérage qu'elle n'a pas fait.
+   */
+  it('rend null quand le repérage n’a pas tourné dans cette exécution', () => {
+    expect(bilanDeRepérage(bilan, 'absent')).toBeNull()
   })
 
   it('publie les décomptes, jamais la liste des identifiants', () => {
-    const publié = bilanDeRepérage(bilan, { plan: ['candidates'], error: null, finishedAt: 1 })
-    expect(publié).toEqual({
+    expect(bilanDeRepérage(bilan, 'fait')).toEqual({
       fenêtres: 83,
       notées: 51,
       lotsRefusés: 4,
@@ -176,26 +190,24 @@ describe('bilanDeRepérage', () => {
     })
   })
 
-  it('marque partiel une passe qui a échoué', () => {
-    expect(bilanDeRepérage(bilan, { plan: ['candidates'], error: 'Gemini a refusé', finishedAt: 1 })?.partiel).toBe(true)
+  it('marque partiel un repérage qui a échoué', () => {
+    expect(bilanDeRepérage(bilan, 'échoué')?.partiel).toBe(true)
   })
 
   /**
-   * Une passe en cours n'a pas de `finishedAt` : ce qu'elle annonce est un
-   * décompte provisoire, et le dire est précisément le rôle de ce drapeau.
+   * Une notation en cours n'a pas fini : ce qu'elle annonce est un décompte
+   * provisoire, et le dire est précisément le rôle de ce drapeau.
    */
-  it('marque partiel une passe qui n’est pas terminée', () => {
-    expect(bilanDeRepérage(bilan, { plan: ['candidates'], error: null, finishedAt: null })?.partiel).toBe(true)
+  it('marque partiel un repérage en cours', () => {
+    expect(bilanDeRepérage(bilan, 'en cours')?.partiel).toBe(true)
   })
 
   /**
-   * **Le bilan vit dans ce processus et survit à l'exécution qui l'a produit.**
-   * Une relance qui ne vise que le proxy réécrit `status.json` : sans cette
-   * garde, elle y recopierait le décompte d'un repérage qu'elle n'a pas fait, et
-   * l'écran l'afficherait comme s'il décrivait ce qui vient de tourner.
+   * Le cas que les deux relecteurs ont nommé : le repérage est fini et bon,
+   * l'exécution ne l'est pas encore.
    */
-  it('rend null quand l’exécution ne visait pas le repérage', () => {
-    expect(bilanDeRepérage(bilan, { plan: ['proxy'], error: null, finishedAt: 1 })).toBeNull()
+  it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
+    expect(bilanDeRepérage(bilan, 'fait')?.partiel).toBe(false)
   })
 })
 

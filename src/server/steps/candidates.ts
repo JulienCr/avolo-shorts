@@ -607,6 +607,20 @@ export type RepérageOptions = {
   /** La couture réseau. Les tests en passent une qui rend des réponses figées. */
   appel?: AppelGemini
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Appelé chaque fois qu'un lot a été traité, avec le bilan à jour.
+   *
+   * **Sans lui, le décompte n'existe qu'une fois la passe finie.** Le lanceur
+   * n'écrit `status.json` qu'au changement d'étape, donc avant le premier appel
+   * au modèle et plus jamais avant la fin : l'écran, qui interroge toutes les
+   * deux secondes, verrait `repérage: null` pendant toute la notation — c'est
+   * l'information la plus utile, absente exactement pendant qu'elle se
+   * construit. (relevé par Codex et Copilot)
+   *
+   * Le bilan passé est **celui qui vit**, muté au fil de l'eau : le lire tout de
+   * suite, ne pas le garder.
+   */
+  onBilan?: (bilan: BilanNotation) => void
 }
 
 /**
@@ -847,14 +861,18 @@ export async function runCandidates(
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
-  const { notées, bilan } = await noterLesFenêtres(fenêtres, {
-    projectId,
-    language: transcript.language,
-    videoDuration: durée,
-    étendue: étendueDuTranscript(mots),
-    appel,
-    sleep,
-  })
+  const { notées, bilan } = await noterLesFenêtres(
+    fenêtres,
+    {
+      projectId,
+      language: transcript.language,
+      videoDuration: durée,
+      étendue: étendueDuTranscript(mots),
+      appel,
+      sleep,
+    },
+    options.onBilan,
+  )
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
   const retenues = shortlistFromScores(notées, fenêtres)
@@ -935,6 +953,8 @@ type Ardoise = {
   étendues: Map<string, Étendue>
   /** L'étendue du transcript, dénominateur de la couverture. */
   transcript: Étendue
+  /** Prévenu après chaque lot traité. Voir `RepérageOptions.onBilan`. */
+  publier?: (bilan: BilanNotation) => void
 }
 
 /**
@@ -971,6 +991,7 @@ type ContexteNotation = {
 async function noterLesFenêtres(
   fenêtres: Window[],
   ctx: ContexteNotation,
+  onBilan?: (bilan: BilanNotation) => void,
 ): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
   const taille = tailleDeLot()
   const lots: Window[][] = []
@@ -985,6 +1006,7 @@ async function noterLesFenêtres(
     nonNotées: new Set(fenêtres.map((f) => f.id)),
     étendues: new Map(fenêtres.map((f) => [f.id, { start: f.start, end: f.end }])),
     transcript: ctx.étendue,
+    publier: onBilan,
     bilan: {
       fenêtres: fenêtres.length,
       notées: 0,
@@ -1025,6 +1047,10 @@ async function noterEtRécupérer(
     const lu = await noterUnLot(lot, ctx, ardoise)
     if (lu === null) refusés.push(lot)
     else ranger(lu, ardoise)
+    // **Après le lot entier, pas dans `ranger`.** Un lot refusé ne range rien et
+    // change pourtant le bilan — `lotsRefusés`, `appels` —, et c'est justement le
+    // chiffre qu'on veut voir monter en direct.
+    ardoise.publier?.(bilan)
   }
 
   const budget = lots.length * RÉCUPÉRATION_MAX
@@ -1185,6 +1211,7 @@ async function récupérer(
     if (lot.length === 1) {
       ardoise.bilan.refusées.push(lot[0].id)
       abandonner(lot, ardoise, 'fenêtre refusée par le filtre')
+      ardoise.publier?.(ardoise.bilan)
       continue
     }
 
@@ -1202,6 +1229,7 @@ async function récupérer(
       const lu = await noterUnLot(moitié, ctx, ardoise, budget)
       if (lu === null) file.push(moitié)
       else ranger(lu, ardoise)
+      ardoise.publier?.(ardoise.bilan)
     }
   }
 }

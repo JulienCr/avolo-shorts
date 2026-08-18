@@ -702,6 +702,77 @@ describe("l'étape de repérage", () => {
     })
 
     /**
+     * **Le sort du repérage, pas celui de l'exécution.** Une création vise
+     * `['candidates', 'proxy', 'analysis']` : le repérage finit en trente
+     * secondes, et ce qui suit peut échouer sans rien lui retirer. Déduire
+     * `partiel` de l'`error` de l'exécution marquait un bilan complet comme
+     * partiel — définitivement, puisque l'échec reste écrit.
+     * (relevé par Codex et Copilot)
+     */
+    it('ne marque pas partiel un repérage réussi sous une exécution qui échoue', async () => {
+      process.env.SCORE_BATCH = '2'
+      await lancer(ID, ['candidates', 'proxy'], {
+        db,
+        étapes: {
+          // La copie de travail manque, donc l'ingestion est demandée ; celle-ci
+          // réussit sans rien inscrire, et l'étape `proxy` échoue derrière —
+          // après un repérage qui, lui, a abouti.
+          ingest: async () => ({
+            projectId: ID,
+            sourcePath: path.join(replay, SOURCE),
+            stagedPath: path.join(racine, 'stage', SOURCE),
+            copied: false,
+            sizeBytes: 0,
+            mtimeMs: 0,
+            durationSec: 240,
+          }),
+          runCandidates: (id) =>
+            runCandidates(id, { db, appel: modèle([]), sleep: async () => {} }),
+        },
+      })
+      await attendre(ID).catch(() => {})
+
+      const statut = lireStatut(ID)
+      expect(statut?.error).toMatch(/copie de travail/)
+      expect(statut?.repérage).toMatchObject({ notées: 4, couverture: 1, partiel: false })
+    })
+
+    /**
+     * **Le décompte doit être lisible pendant la notation, pas seulement après.**
+     * L'écran interroge toutes les deux secondes ; le lanceur, lui, n'écrivait le
+     * statut qu'au changement d'étape, c'est-à-dire avant le premier appel au
+     * modèle et plus jamais avant la fin. `repérage` restait donc nul pendant
+     * toute la passe — l'information la plus utile, absente exactement pendant
+     * qu'elle se construit. (relevé par Codex et Copilot)
+     */
+    it('publie le décompte pendant la notation, pas seulement à la fin', async () => {
+      process.env.SCORE_BATCH = '2'
+      const vus: unknown[] = []
+      const espion: AppelGemini = async (prompt, mode) => {
+        if (mode === 'score') vus.push(lireStatut(ID)?.repérage ?? null)
+        return modèle([])(prompt, mode)
+      }
+
+      await lancer(ID, ['candidates'], {
+        db,
+        étapes: {
+          // Les options du lanceur sont **transmises**, `onBilan` compris : c'est
+          // le raccord qu'on teste, et un doublon qui les jette le testerait à
+          // vide.
+          runCandidates: (id, options) =>
+            runCandidates(id, { ...options, db, appel: espion, sleep: async () => {} }),
+        },
+      })
+      await attendre(ID)
+
+      // Deux lots : au premier appel rien n'est encore jugé, au second le premier
+      // lot est rangé et le statut le dit déjà.
+      expect(vus).toHaveLength(2)
+      expect(vus[0]).toBeNull()
+      expect(vus[1]).toMatchObject({ notées: 2, fenêtres: 4, partiel: true })
+    })
+
+    /**
      * Le bilan vit dans ce processus et survit à la passe qui l'a produit. Sans
      * l'oubli posé au lancement, une seconde exécution publierait le décompte de
      * la première pendant tout le temps qu'elle met à arriver au repérage —

@@ -138,6 +138,24 @@ describe('listerSources', () => {
     expect(listing.montage.entrées).toBe(3)
   })
 
+  /**
+   * **Un dossier adossé à un Drive porte des téléchargements partiels**, et ils
+   * ont l'extension de leur destination : proposés, ils apparaîtraient comme des
+   * vidéos cassées. La spec les écarte nommément (§ « Lister les sources »).
+   * Ils restent comptés dans `entrées` — un dossier plein de moignons n'est pas
+   * un dossier vide, et c'est justement cette distinction qui porte le
+   * diagnostic.
+   */
+  it('écarte les entrées cachées et celles en `$`, sans cesser de les compter', async () => {
+    poserVidéo('vraie.mp4')
+    poserVidéo('.com.google.Chrome.partiel.mp4')
+    poserVidéo('$RECYCLE.mp4')
+
+    const listing = await listerSources({ db })
+    expect(listing.sources.map((s) => s.name)).toEqual(['vraie.mp4'])
+    expect(listing.montage.entrées).toBe(3)
+  })
+
   it('reconnaît une vidéo quelle que soit la casse de son extension', async () => {
     poserVidéo('EMISSION.MP4')
 
@@ -189,6 +207,34 @@ describe('listerSources', () => {
     const parNom = new Map(listing.sources.map((s) => [s.name, s.projectId]))
     expect(parNom.get('2025-06-15-cqlp.mp4')).toBe('2025-06-15-cqlp')
     expect(parNom.get('2026-03-08-caro-mdlm.mp4')).toBeNull()
+  })
+
+  /**
+   * **Un identifiant n'est pas une source.** `projectIdFromSource` retire
+   * l'extension : `show.mp4` et `show.mov` donnent tous deux `show`. Rattacher
+   * sur l'identifiant seul ferait mener la carte du MOV au projet du MP4 — une
+   * autre vidéo —, alors que `créerProjet` refuse précisément cette paire par un
+   * `CollisionDeProjetError`. La carte doit rester « à créer » : la création
+   * répondra 409 avec le message qui nomme les deux fichiers, ce qui est un
+   * cul-de-sac qui s'explique, là où un lien vers la mauvaise vidéo n'en est pas
+   * un. (relevé par Codex et Copilot)
+   */
+  it('ne rattache pas une source à un projet né d’un autre fichier', async () => {
+    poserVidéo('show.mp4')
+    poserVidéo('show.mov')
+    upsertProject(db, {
+      id: 'show',
+      sourcePath: path.join(replays, 'show.mp4'),
+      stagedPath: null,
+      durationSec: 100,
+      sizeBytes: null,
+      mtimeMs: null,
+      createdAt: 0,
+    })
+
+    const parNom = new Map((await listerSources({ db })).sources.map((s) => [s.name, s.projectId]))
+    expect(parNom.get('show.mp4')).toBe('show')
+    expect(parNom.get('show.mov')).toBeNull()
   })
 
   /**

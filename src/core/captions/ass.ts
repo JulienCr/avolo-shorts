@@ -248,7 +248,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
       // L'événement commence au mot actif — ce qui, pour le premier, revient au
       // début du carton — et se termine au début du mot suivant.
       const debut = card[i].start
-      const fin = i < card.length - 1 ? card[i + 1].start : card[card.length - 1].end
+      const fin = i < card.length - 1 ? card[i + 1].start : card[i].end
       if (fin <= debut) continue
 
       const parts = card.map((autre, j) => {

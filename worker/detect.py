@@ -210,48 +210,52 @@ def flux_images(ffmpeg: str, proxy: str, fps: float, largeur: int, hauteur: int)
     # processus qui s'attendent, sans un mot et sans fin. Vider stderr dans le
     # `finally` ne l'évite pas : on n'y arrive jamais. Un fichier temporaire n'a
     # pas de capacité, donc pas d'interblocage, et se relit après la sortie.
-    journal_erreur = tempfile.TemporaryFile()
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=journal_erreur)
-    try:
-        while True:
-            brut = proc.stdout.read(octets)
-            if len(brut) < octets:
-                # **Un reste non nul dit que la géométrie annoncée est fausse.**
-                # Node lit les dimensions du proxy avec ffprobe et les passe
-                # ici ; si elles ne correspondaient pas, chaque image serait
-                # cisaillée et la détection rendrait des boîtes plausibles mais
-                # décalées. Un décalage silencieux vaut moins qu'un échec.
-                if brut:
-                    raise RuntimeError(
-                        f"Flux tronqué : {len(brut)} octets de reste pour des images de "
-                        f"{octets} ({largeur}x{hauteur}x3). Les dimensions passées ne sont "
-                        f"pas celles du proxy."
-                    )
-                break
-            # `copy()` : `frombuffer` rend un tableau en lecture seule, et
-            # ultralytics écrit dans celui qu'on lui donne quand il redimensionne
-            # sur place.
-            yield np.frombuffer(brut, dtype=np.uint8).reshape(hauteur, largeur, 3).copy()
-    finally:
-        # Fermer le tube fait recevoir un SIGPIPE à ffmpeg s'il écrit encore :
-        # c'est ce qui met fin au décodage quand on sort de la boucle en avance.
-        if proc.stdout is not None:
-            proc.stdout.close()
-        code = proc.wait()
-        # Après `wait()` : le fichier est complet, et personne n'écrit plus
-        # dedans. `TemporaryFile` s'efface à la fermeture, sans nom sur le disque.
-        journal_erreur.seek(0)
-        erreur = journal_erreur.read().decode("utf-8", "replace")
-        journal_erreur.close()
-        # Le code 0 est le cas nominal ; un tube fermé en avance donne 141
-        # (128 + SIGPIPE), qui n'est pas une erreur de décodage.
-        if code not in (0, 141, -13):
-            queue = "\n".join(erreur.strip().splitlines()[-20:])
-            raise RuntimeError(
-                f"ffmpeg a échoué en décodant le proxy (code {code}).\n"
-                f"Commande : {' '.join(args)}\n"
-                f"Dernières lignes :\n{queue or '(stderr vide)'}"
-            )
+    # `TemporaryFile` n'a pas de nom sur le disque et s'efface à la fermeture.
+    # `with` sur le fichier, et non un `close()` dans le `finally` : un
+    # `Popen` qui échoue — binaire absent, plus de processus — laisserait sinon
+    # un descripteur ouvert dans une trame que la trace d'erreur maintient en vie.
+    with tempfile.TemporaryFile() as journal_erreur:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=journal_erreur)
+        try:
+            while True:
+                brut = proc.stdout.read(octets)
+                if len(brut) < octets:
+                    # **Un reste non nul dit que la géométrie annoncée est
+                    # fausse.** Node lit les dimensions du proxy avec ffprobe et
+                    # les passe ici ; si elles ne correspondaient pas, chaque
+                    # image serait cisaillée et la détection rendrait des boîtes
+                    # plausibles mais décalées. Un décalage silencieux vaut moins
+                    # qu'un échec.
+                    if brut:
+                        raise RuntimeError(
+                            f"Flux tronqué : {len(brut)} octets de reste pour des images de "
+                            f"{octets} ({largeur}x{hauteur}x3). Les dimensions passées ne sont "
+                            f"pas celles du proxy."
+                        )
+                    break
+                # `copy()` : `frombuffer` rend un tableau en lecture seule, et
+                # ultralytics écrit dans celui qu'on lui donne quand il
+                # redimensionne sur place.
+                yield np.frombuffer(brut, dtype=np.uint8).reshape(hauteur, largeur, 3).copy()
+        finally:
+            # Fermer le tube fait recevoir un SIGPIPE à ffmpeg s'il écrit encore :
+            # c'est ce qui met fin au décodage quand on sort de la boucle en avance.
+            if proc.stdout is not None:
+                proc.stdout.close()
+            code = proc.wait()
+            # Après `wait()` : le fichier est complet, et personne n'écrit plus
+            # dedans.
+            journal_erreur.seek(0)
+            erreur = journal_erreur.read().decode("utf-8", "replace")
+            # Le code 0 est le cas nominal ; un tube fermé en avance donne 141
+            # (128 + SIGPIPE), qui n'est pas une erreur de décodage.
+            if code not in (0, 141, -13):
+                queue = "\n".join(erreur.strip().splitlines()[-20:])
+                raise RuntimeError(
+                    f"ffmpeg a échoué en décodant le proxy (code {code}).\n"
+                    f"Commande : {' '.join(args)}\n"
+                    f"Dernières lignes :\n{queue or '(stderr vide)'}"
+                )
 
 
 def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, hauteur: int):

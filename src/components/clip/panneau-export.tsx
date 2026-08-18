@@ -3,7 +3,7 @@
 import { Check, Copy, FileText, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
-import { compterLesPlans, ratiosDesPlans } from '@/components/clip/cadrage'
+import { plansSansMesure, ratiosDesPlans } from '@/components/clip/cadrage'
 import type { Clip, Ratio } from '@/core/edl'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -101,7 +101,8 @@ export function PanneauExport({
   // Le ratio **natif** résolu, celui sous lequel l'export écrit ses fichiers.
   const natif = cadrage.ratio
   const noms = nomsDeSortie(clip.id, natif)
-  const plans = compterLesPlans(cadrage)
+  const plans = cadrage.shots.length
+  const sansMesure = plansSansMesure(cadrage)
   const cadres = ratiosDesPlans(cadrage)
   const déjàLivré = outputs.mp4Url !== null
 
@@ -139,16 +140,16 @@ export function PanneauExport({
           jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
           passerait en fraude. */}
       <p className="text-[0.75rem] text-muted-foreground">
-        {plans.total === 1 ? '1 plan' : `${plans.total} plans`}, cadrés{' '}
+        {plans === 1 ? '1 plan' : `${plans} plans`}, cadrés{' '}
         <span className="font-mono">{cadres.join(', ') || '—'}</span>
         {cadres.length > 1 && ' selon le plan, dans la variante 9:16'}
-        {plans.défaut > 0 && (
+        {sansMesure > 0 && (
           <>
             {' · '}
             <span className="text-amber-500 dark:text-amber-400">
-              {plans.défaut === 1
+              {sansMesure === 1
                 ? '1 plan sans mesure, centré par défaut'
-                : `${plans.défaut} plans sans mesure, centrés par défaut`}
+                : `${sansMesure} plans sans mesure, centrés par défaut`}
             </span>
           </>
         )}

@@ -494,10 +494,11 @@ function construireLeRendu(
   // sans que rien ne le nomme. Il ne sert plus à composer la chaîne d'échelle,
   // qui passe désormais par `tailleDansLeCanevas` — d'où la garde explicite, que
   // ce détour avait fait disparaître.
-  const canevas = {
-    w: Number(nombre(canevasDemandé.w, 'out.w')),
-    h: Number(nombre(canevasDemandé.h, 'out.h')),
-  }
+  // Appelées pour leur refus et non pour leur valeur : elles lèvent sur un
+  // nombre non fini, et c'est tout ce qu'on leur demande ici.
+  nombre(canevasDemandé.w, 'out.w')
+  nombre(canevasDemandé.h, 'out.h')
+  const canevas = canevasDemandé
   // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
   // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
   // disparaîtrait et un clip de trois entrées en rendrait deux sans un mot —, et

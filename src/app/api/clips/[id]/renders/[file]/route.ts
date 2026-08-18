@@ -1,6 +1,7 @@
 import { getClip, getDb } from '@/server/db'
 import { introuvable, route } from '@/server/http'
 import { servirFichier } from '@/server/octets'
+import { cadrageDuClip } from '@/server/cadrage'
 import { livraisonÀJour, sortieNommée } from '@/server/rendus'
 
 /**
@@ -53,11 +54,17 @@ export const GET = route(
     // pour une recette antérieure et pour un montage modifié. Nommer une seule
     // de ces causes enverrait chercher le défaut là où il n'est pas trois fois
     // sur quatre. (relevé par Copilot)
-    if (!livraisonÀJour(clip)) {
+    // **Un seul cadrage pour les deux questions.** Il décide du verdict de
+    // fraîcheur *et* du nom des fichiers — le ratio natif dit si une variante
+    // 9:16 est due. Le résoudre deux fois ouvrirait une fenêtre où une relance
+    // d'analyse tomberait entre les deux : la porte se déclarerait ouverte sur
+    // un jeu de noms, puis chercherait le fichier dans l'autre.
+    const cadrage = cadrageDuClip(clip)
+    if (!livraisonÀJour(clip, cadrage)) {
       throw introuvable(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
     }
 
-    const sortie = sortieNommée(clip, file)
+    const sortie = sortieNommée(clip, file, cadrage)
     if (sortie === null) {
       throw introuvable(`Le clip ${id} ne produit aucun fichier nommé ${JSON.stringify(file)}.`)
     }

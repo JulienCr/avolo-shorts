@@ -15,8 +15,9 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ExportResult, RunPlan } from '@/lib/api'
-import { cles, useCreerProjet, useExporter } from '@/lib/queries'
+import type { ClipDetail, ExportResult, PatchClipResult, RunPlan } from '@/lib/api'
+import { cles, useCreerProjet, useExporter, usePatchClip } from '@/lib/queries'
+import { cadrage, plan } from '../fixtures/cadrage'
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
 function reponse(corps: unknown, status = 200): Response {
@@ -143,6 +144,101 @@ describe('useExporter', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('ffmpeg a rendu 1')
     expect(invalide).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePatchClip', () => {
+  const clip: ExportResult['clip'] = {
+    id: 'c1',
+    projectId: 'p1',
+    segments: [{ start: 0, end: 20 }],
+    ratio: 'auto',
+    cropX: 0.5,
+    captions: true,
+    branding: true,
+    title: 'Un titre',
+    description: '',
+    status: 'kept',
+    pass: 1,
+  }
+
+  const detail = (framing: ClipDetail['framing']): ClipDetail => ({
+    clip: clip!,
+    project: { id: 'p1', title: 'p1', durationSec: 60, createdAt: '' },
+    lines: [],
+    proxyUrl: null,
+    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    framing,
+  })
+
+  /**
+   * **Le cadrage se recalcule sur les segments et n'est pas stocké**, donc
+   * retirer un passage peut le changer sans qu'aucun geste de cadrage n'ait eu
+   * lieu. Le serveur le renvoie sur chaque `PATCH` exprès ; ne pas l'adopter
+   * laisserait le rectangle, l'aperçu et le panneau d'export sur le cadrage
+   * d'avant la coupe jusqu'à la prochaine navigation — pendant que l'export
+   * utiliserait déjà le nouveau. Le publier sans l'adopter déplace le mensonge
+   * au lieu de le refermer. (relevé par Codex)
+   */
+  it('adopte le cadrage que le serveur renvoie, pas seulement le clip', async () => {
+    const { client, enveloppe } = harnais()
+    const avant = cadrage({ ratio: '16:9', shots: [plan(0, 20, '16:9', 0.5)] })
+    const après = cadrage({ ratio: '1:1', shots: [plan(0, 12, '1:1', 0.3)] })
+    client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
+
+    const réponse: PatchClipResult = {
+      applied: true,
+      clip: { ...clip!, segments: [{ start: 0, end: 12 }] },
+      outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+      framing: après,
+      seq: 1,
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(réponse)))
+
+    const { result } = renderHook(() => usePatchClip(), { wrapper: enveloppe })
+    await act(async () => {
+      await result.current.mutateAsync({
+        clipId: 'c1',
+        projectId: 'p1',
+        patch: { segments: [{ start: 0, end: 12 }] },
+      })
+    })
+
+    const cache = client.getQueryData<ClipDetail>(cles.clip('c1'))
+    expect(cache?.framing).toEqual(après)
+    expect(cache?.clip.segments).toEqual([{ start: 0, end: 12 }])
+  })
+
+  /**
+   * **Le même geste que `applied` soit vrai ou faux.** Refusée, l'écriture rend
+   * le clip *gagnant* et le cadrage qui va avec : c'est l'état de la base, et
+   * c'est le seul par lequel l'écran peut se remettre d'accord.
+   */
+  it('adopte aussi le cadrage d’une écriture écartée', async () => {
+    const { client, enveloppe } = harnais()
+    const avant = cadrage({ ratio: '16:9', shots: [plan(0, 20, '16:9', 0.5)] })
+    const gagnant = cadrage({ ratio: '4:5', shots: [plan(0, 20, '4:5', 0.7)] })
+    client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        reponse({
+          applied: false,
+          clip,
+          outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          framing: gagnant,
+          seq: 9,
+        } satisfies PatchClipResult),
+      ),
+    )
+
+    const { result } = renderHook(() => usePatchClip(), { wrapper: enveloppe })
+    await act(async () => {
+      await result.current.mutateAsync({ clipId: 'c1', projectId: 'p1', patch: { cropX: 0.1 } })
+    })
+
+    expect(client.getQueryData<ClipDetail>(cles.clip('c1'))?.framing).toEqual(gagnant)
   })
 })
 

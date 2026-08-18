@@ -93,36 +93,39 @@ export function indexDuPlan(shots: readonly ShotFraming[], position: number): nu
  * par seconde et re-rendrait le rectangle de cadrage à cette cadence — ce que le
  * store de lecture existe précisément pour éviter.
  *
- * **Le premier plan à défaut**, et pas un cadrage centré : avant la première
- * `timeupdate` la position vaut zéro, qui peut tomber avant le début du clip.
- * Montrer le cadre du premier plan est ce que le rendu montrera à la première
- * image ; montrer un cadre centré serait une image que personne ne verra.
+ * **Deux absences, et une seule vaut le premier plan.** Avant la première
+ * `timeupdate` la position vaut zéro, donc tombe avant le début du clip : montrer
+ * le cadre du premier plan est ce que le rendu montrera à sa première image, là
+ * où un cadre centré serait une image que personne ne verra.
+ *
+ * **Un intervalle qu'aucun plan ne couvre, lui, rend `null`** — et les appelants
+ * retombent alors sur le 16:9 centré, exactement ce que `découperParPlan` donne
+ * au rendu dans le même cas. Le cas est atteignable : les plans partitionnent la
+ * durée du *proxy*, et la source peut finir quelques images plus loin. Y montrer
+ * le cadre du premier plan ferait dire à l'écran autre chose que ce que le
+ * fichier contiendra, ce qui est précisément ce que cette PR ferme.
+ * (relevé par Codex)
  */
 export function usePlanCourant(cadrage: CadrageClip): ShotFraming | null {
   const index = useLecture((e) => indexDuPlan(cadrage.shots, e.position))
-  return cadrage.shots[index] ?? cadrage.shots[0] ?? null
+  const avantLePremier = useLecture(
+    (e) => cadrage.shots.length > 0 && e.position < cadrage.shots[0].shot.start,
+  )
+  if (index >= 0) return cadrage.shots[index]
+  return avantLePremier ? cadrage.shots[0] : null
 }
 
 /**
- * Combien de plans portent chaque origine de cadrage.
+ * Combien de plans **que personne n'a cadrés**, ni la machine ni l'humain — le
+ * détecteur n'y a rien mesuré, et ils sont posés au centre par défaut.
  *
- * `default` compte les plans **que personne n'a cadrés, ni la machine ni
- * l'humain** — le détecteur n'y a rien mesuré. §3.5 demande qu'il soit distinct
- * des deux autres : ce n'est pas une décision, c'est un plan qu'il faut aller
- * regarder.
+ * §3.5 demande que ce cas soit distinct des deux autres, et c'est le seul des
+ * trois qui vaille un compte : ce n'est pas une décision, c'est un plan qu'il
+ * faut aller regarder. Compter les deux autres ne dirait rien de plus que le
+ * total, dont ils sont le complément.
  */
-export function compterLesPlans(cadrage: CadrageClip): {
-  total: number
-  auto: number
-  défaut: number
-  manuel: number
-} {
-  return {
-    total: cadrage.shots.length,
-    auto: cadrage.shots.filter((p) => p.source === 'auto').length,
-    défaut: cadrage.shots.filter((p) => p.source === 'default').length,
-    manuel: cadrage.shots.filter((p) => p.source === 'manual').length,
-  }
+export function plansSansMesure(cadrage: CadrageClip): number {
+  return cadrage.shots.filter((p) => p.source === 'default').length
 }
 
 /**

@@ -51,7 +51,7 @@ describe('estRéférence', () => {
   it("laisse passer ce qui n'en est pas une", () => {
     // Une valeur littérale reste une valeur littérale : `op://` est une
     // possibilité, pas une obligation.
-    for (const valeur of ['AQ.une-clé-littérale', '', 'https://exemple/op://', 'OP://MAJUSCULES']) {
+    for (const valeur of ['une-clé-littérale', '', 'https://exemple/op://', 'OP://MAJUSCULES']) {
       expect(estRéférence(valeur)).toBe(false)
     }
     expect(estRéférence(undefined)).toBe(false)

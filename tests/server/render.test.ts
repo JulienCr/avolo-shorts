@@ -336,6 +336,20 @@ describe('renderClip, chemin du saut', () => {
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
+  it("écrit le .txt manquant sans relire le transcript ni rappeler ffmpeg", async () => {
+    // La reprise d'un passage interrompu juste après l'encodage. Aucun transcript
+    // n'existe dans ce dossier de replays jetable : si l'étape allait le lire,
+    // `lireTranscript` lèverait. C'est ce qui rend ce test concluant.
+    const { db, c } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    poser([attendus.mp4, attendus.variant9x16 as string])
+
+    const résultat = await renderClip(c.id, { db })
+    expect(résultat.skipped).toBe(false)
+    expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
+    expect(getClip(db, c.id)?.status).toBe('exported')
+  })
+
   it('refuse un clip inconnu', async () => {
     const { db } = préparer()
     await expect(renderClip('clip_inexistant', { db })).rejects.toThrow(/Clip inconnu/)

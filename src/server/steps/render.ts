@@ -440,50 +440,65 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     )
   }
 
-  // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
-  // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
-  // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
-  const src = projet.stagedPath ?? stagedPath(projet.sourcePath)
-  if (!fs.existsSync(src)) {
-    throw new Error(
-      `La copie de travail du projet ${clip.projectId} est absente. Le rendu part de l'original, ` +
-        'jamais du proxy : relancer l\'ingestion pour la reconstituer.',
-    )
+  // **L'encodeur se résout à l'appel, dans la fonction paresseuse.** `encoderName`
+  // lève sur un `FFMPEG_ENCODER` inconnu — refus voulu, jamais un repli silencieux
+  // — et le résoudre ici le ferait lever aussi sur un clip dont le MP4 est déjà
+  // là. C'est la leçon relevée sur `buildProxy` : un artefact présent doit revenir
+  // tout de suite, quoi que porte l'environnement.
+  const encodeur = (): EncoderName => options.encoder ?? encoderName()
+
+  // **On ne prépare que ce que le rendu va vraiment consommer.** Un passage
+  // interrompu juste après l'encodage laisse le MP4 sans son `.txt` : cette
+  // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
+  // aller-retour en 9p, ni des trois sondages ffprobe.
+  if (options.force === true || !fs.existsSync(chemins.mp4)) {
+    // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
+    // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
+    // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
+    const src = projet.stagedPath ?? stagedPath(projet.sourcePath)
+    if (!fs.existsSync(src)) {
+      throw new Error(
+        `La copie de travail du projet ${clip.projectId} est absente. Le rendu part de l'original, ` +
+          "jamais du proxy : relancer l'ingestion pour la reconstituer.",
+      )
+    }
+
+    const style = options.style ?? DEFAULT_CAPTION_STYLE
+    const assPath = clip.captions
+      ? await écrireSousTitres(clip, chemins.ass, projet, style)
+      : undefined
+    // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : le
+    // chercher sans cela ferait avertir sur un clip qui n'a pas de sous-titres.
+    const fontsDir = assPath === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
+
+    const taille = await dimensionsSource(src)
+    const crop = cropRect(ratio, clip.cropX, taille.w, taille.h)
+    const out = outputSize(ratio)
+
+    const logos = clip.branding
+      ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
+      : []
+
+    await produireArtefact({
+      dst: chemins.mp4,
+      force: options.force,
+      durationSec: durée,
+      onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
+      quoi: `rendu ${ratio} du clip ${clipId}`,
+      args: (destination) =>
+        renderArgs({
+          src,
+          dst: destination,
+          segments: clip.segments,
+          crop,
+          out,
+          assPath,
+          fontsDir,
+          logos,
+          encoder: encodeur(),
+        }),
+    })
   }
-
-  const style = options.style ?? DEFAULT_CAPTION_STYLE
-  const assPath = clip.captions ? await écrireSousTitres(clip, chemins.ass, projet, style) : undefined
-
-  const taille = await dimensionsSource(src)
-  const crop = cropRect(ratio, clip.cropX, taille.w, taille.h)
-  const out = outputSize(ratio)
-
-  const logos = clip.branding
-    ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
-    : []
-
-  const encoder = options.encoder ?? encoderName()
-  const fontsDir = dossierDesPolicesUtilisable(options.fontsDir)
-
-  await produireArtefact({
-    dst: chemins.mp4,
-    force: options.force,
-    durationSec: durée,
-    onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-    quoi: `rendu ${ratio} du clip ${clipId}`,
-    args: (destination) =>
-      renderArgs({
-        src,
-        dst: destination,
-        segments: clip.segments,
-        crop,
-        out,
-        assPath,
-        fontsDir,
-        logos,
-        encoder,
-      }),
-  })
 
   // La variante part du rendu natif et non de la source : le contenu y est déjà
   // cropé, sous-titré et marqué, et son son est déjà passé au `loudnorm` — d'où
@@ -496,7 +511,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
       quoi: `variante 9:16 du clip ${clipId}`,
       args: (destination) =>
-        blurredVariantArgs({ src: chemins.mp4, dst: destination, encoder }),
+        blurredVariantArgs({ src: chemins.mp4, dst: destination, encoder: encodeur() }),
     })
   }
 
@@ -559,6 +574,12 @@ async function écrireSousTitres(
   // **Par `placeSidecar`, jamais par `transcriptPath`.** Le second rend le chemin
   // voulu, à côté de l'original, et ignore le repli dans le projet : un
   // transcript rangé là par une passe précédente passerait pour absent.
+  //
+  // `lireTranscript` vient de l'étape de repérage plutôt que d'être réécrit ici.
+  // C'est la même lecture, avec la même validation et la même règle sur les mots
+  // non alignés — que WhisperX émet, et qui ne doivent pas faire échouer un
+  // export. Deux lectures du même fichier finiraient par ne plus dire la même
+  // chose du même JSON.
   const placement = placeSidecar(projet.sourcePath, clip.projectId)
   const transcript = lireTranscript(placement.transcript)
   const mots: Word[] = transcript.segments.flatMap((s) => s.words)

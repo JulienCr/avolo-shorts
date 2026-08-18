@@ -532,6 +532,17 @@ describe('renderClip, la porte des marques', () => {
     await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/logo\.png/)
   })
 
+  it("refuse pareillement quand le dossier des marques n'existe pas", async () => {
+    // `collecterMarques` ne distingue pas les deux, et il n'y a rien à
+    // distinguer : la marque a été demandée, aucune n'est posée. La piste 3 de
+    // l'issue butait là — `assets/brand/` est de toute façon toujours présent,
+    // son README étant versionné.
+    const { db, c } = préparer()
+    await expect(
+      renderClip(c.id, { db, brandDir: path.join(racine, 'nulle-part') }),
+    ).rejects.toThrow(/logo\.png/)
+  })
+
   it('nomme les deux issues : déposer une marque, ou couper le branding', async () => {
     const { db, c, brandDir } = préparer()
     const message = await refus(renderClip(c.id, { db, brandDir }))

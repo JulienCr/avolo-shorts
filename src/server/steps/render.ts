@@ -620,14 +620,21 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // y refuser ferait échouer une relance qui se contente de réécrire un
     // `.txt`. Un clip exporté sans marque avant #37 saute donc pour toujours, et
     // c'est `force` qui le rattrape.
+    // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a pas à
+    // payer deux `existsSync` et deux sondages.
     const marques = clip.branding ? await collecterMarques(options.brandDir) : []
     if (refuserFauteDeMarque(clip.branding, marques)) {
+      // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
+      // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
+      // et `collecterMarques` écarte la marque en le journalisant. Dire que le
+      // dossier est vide serait alors faux, et enverrait chercher un fichier qui
+      // est là.
       throw new Error(
-        `Le clip ${clipId} demande des marques et le dossier des marques n'en porte aucune : ni ` +
-          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')}. L'export produirait un MP4 sans ` +
-          `logo sans que rien ne le signale, et le rendu est la dernière étape avant publication. ` +
-          `Déposer au moins l'une d'elles dans assets/brand/ — son README dit le format —, ou ` +
-          `passer branding à false sur ce clip.`,
+        `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
+          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absente, ou illisible et ` +
+          `alors signalée au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
+          `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
+          `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
       )
     }
 

@@ -14,8 +14,9 @@ Il s'appuie sur une lecture complète des trois écrans, des cinq composants mé
 du store et des routes qui les alimentent, au commit `5412597`, et sur ce que la
 session qui tient le travail serveur a annoncé de la suite : les trois fonctions
 clientes qui manquent, le jeton de séquence sur `PATCH`, le décompte des lots
-refusés par Gemini, et le passage de `cropX` à `number | null` quand le cadrage
-automatique arrivera.
+refusés par Gemini, et le cadrage automatique de l'itération 1. Il intègre la
+première passe de relecture (Copilot, Codex, Aristarque) et l'arbitrage de Julien
+sur le mode de cadrage, qui a fait réécrire la section 3.5.
 
 ## 1. L'état actuel
 
@@ -50,9 +51,10 @@ plus une route qui n'existe pas.
 ### 1.2 `src/app/page.tsx` (60 lignes)
 
 1. **Le mauvais écran d'accueil.** Il liste les projets, alors que l'entrée du
-   parcours est le choix d'une source parmi 21 replays (spec §13). Les deux listes
-   sont utiles et ce ne sont pas les mêmes : l'une est un point de départ,
-   l'autre une bibliothèque de travail en cours.
+   parcours est le choix d'une source parmi 21 replays (spec §13). La tâche 15 du
+   plan n'est pas faite : ni `src/app/api/sources/`, ni `source-card.tsx`. Les
+   deux listes sont utiles et ce ne sont pas les mêmes : l'une est un point de
+   départ, l'autre une bibliothèque de travail en cours.
 2. **Aucun projet n'y dit son état.** `résuméProjet` rend quatre champs, dont
    aucun ne dit si l'analyse tourne, a fini ou a échoué. Un projet créé il y a
    trois secondes et un projet transcrit s'affichent à l'identique, à ceci près
@@ -234,21 +236,21 @@ prise. Ce que la machine fabrique et ce que l'humain décide avancent séparéme
 et c'est précisément ce que 2.4 exploite.
 
 ```ts
-/** Ce que la machine a produit. */
+/** Ce que la machine a produit. Des artefacts, jamais une activité. */
 export type Analyse =
-  | 'neuf'         // inscrit, rien sur le disque
-  | 'encours'      // une exécution tourne
-  | 'interrompu'   // il manque des artefacts et rien ne tourne
+  | 'neuf'         // rien sur le disque, rien ne tourne encore
+  | 'attente'      // les candidats manquent, une exécution tourne
+  | 'interrompu'   // il manque une étape et rien ne tourne
   | 'echec'        // la dernière exécution a échoué
   | 'triable'      // candidats présents, proxy absent : on trie, on ne monte pas
-  | 'complet'      // tout est là
+  | 'complet'      // candidats et proxy présents
 
 /** Ce que l'humain a décidé. */
 export type Travail =
-  | 'rien'         // aucun candidat encore
-  | 'atrier'       // il reste des propositions en attente
+  | 'rien'         // aucune proposition dans la liste
+  | 'atrier'       // il reste des propositions en attente de décision
   | 'trie'         // plus aucune proposition en attente
-  | 'livre'        // tous les clips gardés sont exportés
+  | 'livre'        // au moins un clip gardé, et tous ont un rendu à jour
 
 export function phaseProjet(
   steps: Record<StepName, boolean>,
@@ -258,8 +260,42 @@ export function phaseProjet(
 ): { analyse: Analyse; travail: Travail }
 ```
 
-Ces dix valeurs ne sont pas un décor. Chacune répond à une question qu'un écran
-pose aujourd'hui à sa façon, avec ses propres `if` :
+Quatre propriétés de ce modèle, dont trois viennent de la première relecture.
+
+**L'axe `Analyse` décrit ce qui est disponible, pas ce qui s'agite.** Une première
+version portait une valeur `encours`, et elle recouvrait `triable` : pendant les
+six minutes d'encodage du proxy, une exécution tourne **et** les candidats sont
+là. Une implémentation qui aurait donné la priorité à `encours` aurait affiché le
+panneau d'attente sur un écran parfaitement triable, c'est-à-dire annulé le régime
+2 de 2.4. « Quelque chose tourne » est déjà un champ de l'API (`running`) et se lit
+à côté. `attente` et `interrompu` se distinguent d'ailleurs par lui seul : mêmes
+artefacts manquants, une exécution dans un cas et rien dans l'autre. (relevé par
+Copilot)
+
+**`triable` teste la présence de l'artefact, pas son contenu.** C'est le graphe de
+l'itération 0, où « à jour » veut dire « le fichier est là ». Un `candidates.json`
+qui ne contient rien donne donc `{ triable, rien }`, et c'est l'axe `Travail` qui
+porte le vide. Cette séparation est la raison d'être des deux axes : sans elle, il
+faudrait une valeur `triable-mais-vide` sur l'axe des artefacts. (relevé par
+Aristarque)
+
+**`livre` exige au moins un clip gardé.** « Tous les clips gardés sont exportés »
+est vrai d'une liste vide : après avoir tout écarté, la phase terminale annonçait
+un livrable alors qu'aucun MP4 n'existe. (relevé par Copilot)
+
+**Et `livre` ne se déduit pas du statut `exported`.** Rouvrir un clip exporté pour
+en retoucher le montage laisse son statut à `exported` alors que le MP4 sur le
+disque décrit l'édition précédente. Ce va-et-vient est un parcours normal, décrit
+en 2.1. Il faut donc comparer le clip à son rendu, et non lire une étiquette.
+**C'est une demande au serveur** : `GET /api/clips/:id` doit dire si le rendu est
+plus ancien que la dernière modification du clip, par exemple en portant la date
+de modification du clip à côté de celle de ses sorties. Tant que ce champ n'existe
+pas, `livre` est indisponible, et l'écran de clip marque simplement « rendu
+antérieur à vos dernières modifications » quand il peut le savoir. (relevé par
+Codex)
+
+Ces valeurs ne sont pas un décor. Chacune répond à une question qu'un écran pose
+aujourd'hui à sa façon, avec ses propres `if` :
 
 - `interrompu` **n'existe pas dans l'interface actuelle**, et c'est l'impasse
   décrite en 1.3. C'est la seule valeur qui appelle une action de réparation.
@@ -267,10 +303,23 @@ pose aujourd'hui à sa façon, avec ses propres `if` :
 - `trie` est l'événement de fin de boucle, aujourd'hui invisible.
 - `livre` est le succès du parcours, aujourd'hui inexprimable.
 
-Le couple compte autant que ses membres : `{ triable, trie }` est un état réel et
-fréquent, celui où Julien a fini de trier avant que le proxy ne soit encodé.
-L'écran doit alors dire « tout est trié, le montage s'ouvre dans trois minutes »,
-ce qu'aucune échelle unique ne sait exprimer.
+Le couple compte autant que ses membres. `{ triable, trie }` est un état réel :
+Julien a fini de trier avant que le proxy ne soit encodé. **Il n'a aucune action
+qui fasse avancer le montage**, et c'est ce qui a fait apparaître le défaut de la
+règle « aucune phase sans action » : forcer une action sur cet état-là revenait à
+en inventer une. D'où la forme de `suite` :
+
+```ts
+type Suite =
+  | { kind: 'action'; libelle: string; cible: string }
+  | { kind: 'attente'; raison: string; debloquePar: StepName }
+```
+
+L'attente est un résultat de plein droit, avec sa raison et ce qui la lèvera. Sur
+`{ triable, trie }` l'écran dit donc que le montage s'ouvrira quand le proxy sera
+encodé, et propose la seule chose réellement disponible sans proxy : écrire les
+titres et les descriptions des clips gardés. Ce n'est pas un lot de consolation,
+c'est un livrable du produit (spec §3). (relevé par Aristarque)
 
 Une conséquence de forme : **la liste des étapes et leurs libellés sont des
 données, pas du code d'écran**. Aujourd'hui `LIBELLES_ETAPES` est un `Record`
@@ -316,14 +365,24 @@ conséquences à assumer explicitement :
 
 - les vignettes sont absentes, puisqu'elles se tirent du proxy
   (`vues.ts:urlVignette` rend `null` sans lui). Le repli actuel dit « vignette en
-  attente du proxy », ce qui est exact ; il lui manque **quand** : « les images
-  arrivent avec le proxy, dans environ six minutes ». Une attente nommée est une
-  attente supportable ;
+  attente du proxy », ce qui est exact ; il lui manque **ce qui la lèvera** :
+  « les images arrivent avec le proxy, en cours d'encodage ». Une attente dont on
+  connaît la cause est une attente supportable, et c'est **la cause qu'on nomme,
+  jamais une durée restante** (voir plus bas) ;
 - l'action « monter » d'une carte est **désactivée avec sa raison**, parce que
   l'écran de clip ne peut rien lire sans proxy. Le tri, lui, marche entièrement :
   titre, durée, trois premières phrases, garder ou écarter.
 
 **Régime 3, complet.** Rien de particulier, et c'est le but.
+
+**Une règle qui vaut partout : on affiche le coût d'une étape, jamais le temps
+qu'il reste.** Le coût est une mesure (« le proxy coûte environ 6 min sur 1 h 40
+d'émission ») ; le temps restant est une extrapolation à partir de deux points sur
+une seule émission, et une estimation fausse coûte plus cher qu'une absence
+d'estimation. Une première version de ce document annonçait « les images arrivent
+dans six minutes » et « le montage s'ouvre dans trois minutes » tout en interdisant
+le temps restant vingt lignes plus loin. La règle est la même sur les deux
+surfaces. (relevé par Aristarque)
 
 Ce découpage n'est pas une commodité d'affichage, c'est ce qui rend la
 trente-cinquième minute vivable : elle n'existe pas. Il y a trois minutes
@@ -492,7 +551,7 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 
 | | |
 |---|---|
-| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, images dans 6 min », « 12 à trier », « tout est trié ». À côté du compte, **la couverture du repérage** quand elle n'est pas entière : « 27 propositions, tirées de 64 % de l'émission ». Voir 7.2. |
+| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, les images arrivent avec le proxy », « 12 à trier », « tout est trié ». À côté du compte, **ce que le repérage n'a pas jugé** quand c'est le cas : « 4 lots de fenêtres sur 11 n'ont pas été notés ». Voir 7.2. |
 | **Navigation** | vers le haut, la bibliothèque. Vers le bas, un clip. Aucune navigation latérale. |
 | **Persistance aller** | rien à transmettre : l'identifiant du projet est dans l'URL. |
 | **Persistance retour** | trois choses à retrouver en revenant d'un clip : la position de défilement, la vue active (à trier / gardés / écartés) et le focus sur la carte d'où l'on est parti. La vue dans l'URL (`?vue=gardes`), les deux autres dans l'état de session. L'URL pour la vue parce qu'un rechargement doit rendre le même écran ; la session pour le reste, parce qu'une position de défilement dans une URL est une URL qu'on ne peut plus partager. |
@@ -503,9 +562,9 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 | État | Ce qui s'affiche |
 |---|---|
 | Chargement | squelettes de cartes tant que `GET /candidates` n'a pas répondu. **À ne pas confondre avec l'attente d'analyse** : le premier dure 200 ms, le second neuf minutes. Aujourd'hui les deux rendent la même grille grise. |
-| Vide | quatre vides différents, chacun avec son texte et son action. `neuf` ou `encours` : le panneau d'avancement, pas un message. `triable` avec zéro candidat : le repérage a rendu une liste vide, proposer « relancer le repérage » avec `force`. `trie` : « tout est trié, 4 clips gardés », avec la liste. `echec` : le message du serveur et le bouton de reprise. |
+| Vide | quatre vides différents, chacun avec son texte et son action. `neuf` ou `attente` : le panneau d'avancement, pas un message. `{ triable, rien }` : le repérage a rendu une liste vide, proposer « relancer le repérage » avec `force`. `trie` : « tout est trié, 4 clips gardés », avec la liste. `echec` : le message du serveur et le bouton de reprise. |
 | Erreur | deux origines à distinguer. L'analyse a échoué (`ProjectStatus.error`) : bandeau en `role="alert"`, message serveur, bouton « reprendre l'analyse ». La liste ne se charge pas : message local et « réessayer ». La seconde n'efface pas la première. |
-| Désactivé | pendant `encours`, le bouton « relancer le repérage » est désactivé, parce que `lancer` lève `ExécutionEnCoursError` et que la route en fait un 409. Pendant `triable`, l'action « monter » de chaque carte est désactivée : pas de proxy, donc rien à lire. **Dans les deux cas la raison est écrite à côté du contrôle, pas dans une bulle d'aide.** Un contrôle désactivé sans raison visible est un cul-de-sac silencieux. |
+| Désactivé | tant qu'une exécution tourne (`running` non nul, quelle que soit la phase), le bouton « relancer le repérage » est désactivé, parce que `lancer` lève `ExécutionEnCoursError` et que la route en fait un 409. Pendant `triable`, l'action « monter » de chaque carte est désactivée : pas de proxy, donc rien à lire. **Dans les deux cas la raison est écrite à côté du contrôle, pas dans une bulle d'aide.** Un contrôle désactivé sans raison visible est un cul-de-sac silencieux. |
 | Succès | la décision est optimiste et instantanée : la carte change d'apparence, sans notification. Le succès de la boucle entière, lui, se marque : « tout est trié ». |
 
 **Le panneau d'avancement** porte quatre choses, et pas une de plus : l'étape en
@@ -529,7 +588,10 @@ un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »)
 **Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aujourd'hui aucune
 issue, et le bouton de reprise est l'ajout qui le ferme. Il appelle
 `POST /run` avec `{ target: 'candidates' }`, ou `'proxy'` si le proxy seul manque,
-la cible se déduisant de `steps`.
+la cible se déduisant de `steps`. La liste des cibles s'enrichit (`analysis`
+arrive avec l'itération 1), ce qui est une raison de plus pour que l'écran ne
+nomme aucune cible en dur : il déduit la première étape absente de la liste des
+étapes, qui est une donnée.
 
 **Clavier** : voir la section 4. C'est l'écran qui en dépend le plus.
 
@@ -541,7 +603,7 @@ la cible se déduisant de `steps`.
 | | |
 |---|---|
 | **Repérage** | fil d'Ariane `avolo·shorts / <émission> / <titre du clip>`, et le rang dans les gardés : « clip 2 sur 4 gardés ». C'est ce rang qui dit qu'on est dans une boucle et pas au bout du monde. |
-| **Navigation** | retour au tri par le fil d'Ariane. « Clip suivant à monter » et « précédent », calculés sur la liste des gardés déjà en cache. Aucun chargement supplémentaire. |
+| **Navigation** | retour au tri par le fil d'Ariane. « Clip suivant à monter » et « précédent », calculés sur la liste des candidats du projet. **La page interroge cette liste elle-même**, elle ne suppose pas qu'elle est en cache : arriver ici par une URL partagée, un signet ou un rechargement est un parcours que 2.2 promet de rendre repreneur, et le cache est alors vide. Venant de l'écran de tri, la requête est un succès de cache et ne coûte rien. (relevé par Codex et Copilot) |
 | **Persistance aller** | rien. Le clip vient de l'API, le montage en cours vient du store. |
 | **Persistance retour** | l'enregistrement différé écrit avant de quitter (`pagehide` et démontage, `keepalive: true`). Ce qui **ne** survit pas est la pile d'annulation, remise à zéro au changement de clip par la garde de `charger`. C'est acceptable et il faut le dire : `Ctrl+Z` défait le montage de cette séance, pas celui d'hier. |
 | **Validation** | le titre et la description sont libres, et rien ne s'y valide pendant la frappe. Une seule règle, dite au moment de l'export : un titre vide n'empêche pas le rendu mais produit un `.txt` dont la première ligne est vide, donc rien à coller au moment de publier. L'avertissement se pose sur le bouton d'export, pas sur le champ. |
@@ -591,6 +653,12 @@ second »). Le jeton du serveur répond à la même question un étage plus bas,
 deux doivent rester distincts : celui du client ordonne les réponses, celui du
 serveur ordonne les écritures.
 
+**Un refus déclenche quand même une relecture du clip.** Sans elle, l'écran garde
+son état local et affiche « enregistré » ; au rechargement, ce qu'il montrait
+disparaît. Le cas est théorique avec un seul onglet, et deux onglets sur le
+même clip ne sont pas un usage prévu ; une requête de plus est un prix ridicule
+pour ne pas avoir à en dépendre. (relevé par Aristarque)
+
 **Le cadrage change de nature en itération 1**, et c'est traité en 3.5.
 
 **Les cinq états**
@@ -599,7 +667,7 @@ serveur ordonne les écritures.
 |---|---|
 | Chargement | squelettes déjà en place, à conserver. |
 | Vide | un clip dont tous les mots ont été retirés : durée nulle, transcript entièrement barré, export désactivé avec sa raison. Le cas est prévu côté serveur (`étendueOrigine` retombe sur `candidates.json`) et n'a pas de rendu propre aujourd'hui. |
-| Erreur | trois surfaces, séparées. L'enregistrement a échoué : l'état à trois valeurs existe déjà, il lui manque un bouton « réessayer » plutôt que l'attente d'un nouveau geste. Le clip est introuvable : page dédiée avec retour à la bibliothèque. L'export a échoué : message dans le panneau d'export, avec le code renvoyé. **Le refus d'un `PATCH` périmé n'est aucune des trois** : voir plus bas. |
+| Erreur | trois surfaces, séparées. L'enregistrement a échoué : l'état à trois valeurs existe déjà, il lui manque un bouton « réessayer » plutôt que l'attente d'un nouveau geste. Le clip est introuvable : page dédiée avec retour à la bibliothèque. L'export a échoué : message dans le panneau d'export, avec le code renvoyé. **Le refus d'un `PATCH` périmé n'est aucune des trois**, et c'est expliqué juste au-dessus du présent tableau. |
 | Désactivé | l'export tant qu'un enregistrement est en attente ou en échec, parce que rendre un état non enregistré produirait un fichier qui ne correspond à rien de persistant. Le curseur de cadrage en 16:9, déjà géré. Le bouton « clip suivant » sur le dernier. |
 | Succès | l'export produit un ou deux fichiers et le panneau les montre : lecture sur place, taille et texte à copier. C'est le seul succès du parcours qui mérite d'être vu. |
 
@@ -658,127 +726,155 @@ dans les autres.
 ### 3.5 Le cadrage quand l'automatique arrive
 
 L'itération 1 change le sens du sélecteur de cadrage, et c'est le changement le
-plus structurant qui attende cet écran. Trois faits, arrêtés côté serveur :
+plus structurant qui attende cet écran. Julien a arbitré les deux questions
+ouvertes ; ce qui suit décrit la décision et ce qu'elle demande à l'écran.
 
-- `cropX` passe de `number` à `number | null`. `null` vaut « automatique », un
-  nombre vaut « dérogation humaine, sur tout le clip, gagnante » ;
-- **la position du crop devient fixe par plan, donc variable d'un plan à l'autre
-  dans un même clip** (spec §10) ;
+Le point de départ, arrêté côté serveur :
+
+- la position du crop devient **fixe par plan**, donc variable d'un plan à l'autre
+  dans un même clip (spec §10) ;
 - **le ratio se recalcule depuis l'EDL, il n'est pas stocké.** Retirer le passage
-  où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1.
+  où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1 ;
+- `analysis.json` portera les frontières de plans et les boîtes de personnes.
 
-#### La règle : `ratio` et `cropX` se traitent pareil
+#### La décision : un mode explicite, puis un réglage par plan
 
-Ce sont deux réglages voisins, tous deux à trois états (automatique, dérogé,
-retour à l'automatique). Deux mécaniques différentes seraient une dette
-d'interface payée à chaque ouverture d'un clip. Trois obligations, les mêmes pour
-les deux :
+**L'automatique ne doit jamais être écrasé par accident.** Deux conséquences, et
+la première annule ce que proposait la version précédente de ce document.
 
-1. **Montrer ce que l'automatique a décidé, même quand on n'y touche pas.** Le
-   sélecteur de ratio affiche `auto → 4:5`, pas `auto`. Le rectangle de cadrage se
-   dessine à la position calculée.
-2. **Un geste pour déroger, et c'est le geste naturel.** Cliquer une pastille de
-   ratio, saisir le rectangle. Aucun interrupteur préalable à basculer.
-3. **Un geste pour revenir**, visible au même endroit. La pastille `auto` du
-   sélecteur de ratio le fait déjà, et c'est le bon modèle ; le rectangle n'a
-   aucun équivalent aujourd'hui et lui en doit un.
+**Bouger le curseur ne change pas de mode.** Un geste explicite fait basculer en
+manuel : un bouton, à côté du sélecteur, qui dit ce qu'il fait (« passer en
+cadrage manuel »). J'avais proposé l'inverse, en pariant que la saisie du
+rectangle serait une déclaration d'intention suffisante et que le voir cesser de
+bouger enseignerait le reste. Le pari est mauvais : le geste qui explore et le
+geste qui décide sont le même, et on découvre alors qu'on a détruit le cadrage
+automatique en essayant de le regarder. Un mode se prend, il ne se déclenche pas.
 
-#### En automatique, le rectangle bouge, et c'est ce qui rend la falaise visible
+**En manuel, le crop se règle par plan.** La dérogation globale sur tout le clip
+est écartée : elle effacerait le cadrage des plans qui étaient bons pour réparer
+celui qui ne l'était pas.
 
-C'est la conséquence d'interface de « le crop est fixe à l'intérieur d'un plan ».
-En automatique, la position du cadre n'est pas un nombre, c'est une fonction du
-temps : le rectangle saute aux frontières de plans pendant la lecture. Le voir
-sauter apprend en trois secondes ce qu'aucune phrase d'aide n'explique.
+`cropX: number | null` n'exprime plus cela, et **c'est une demande au serveur** :
+il faut un mode (`auto` ou `manuel`) et, en manuel, une dérogation par plan.
 
-Et le jour où l'on saisit le rectangle, **il s'arrête de sauter**. La dérogation
-n'a donc pas besoin d'être annoncée par un avertissement : elle se voit. C'est le
-seul endroit de ce document où un comportement remplace un texte, et c'est
-possible parce que la chose à comprendre est un mouvement.
+#### La clé d'un plan désigne la source, jamais le clip
 
-#### Les frontières de plans se lisent dans le transcript
+Le détail qui se paie en bug silencieux. Les crops se recalculent depuis l'EDL et
+ne sont pas stockés. Si une dérogation est indexée sur le **rang du plan dans le
+clip**, retirer un segment en amont décale tous les rangs, et chaque dérogation
+atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
+est faux.
 
-L'itération 0 avait écarté la bande des plans faute de plans. La question se
-rouvre, et l'argument est bon : c'est aux frontières que le crop saute, et c'est
-là que les coupes se posent de préférence.
+La clé désigne donc le plan **dans la source**. Reste à choisir entre son rang
+parmi les frontières de `analysis.json` et son instant de début, et je recommande
+**l'instant** :
 
-**Je propose de ne pas la mettre sous le lecteur, mais dans le transcript.** Une
-frontière de plan est un filet horizontal en travers du texte, à l'instant où elle
-tombe, dans la gouttière qui porte déjà les positions. Trois raisons :
+- `shots.json` vit dans le projet précisément parce que son seuil de détection se
+  réglera (spec §5, « ce qui se règle doit vivre là où on le règle »). Une
+  redétection renumérote les plans, donc invalide tout rang ;
+- un instant en secondes dans la source survit à la redétection et retombe sur le
+  plan qui le contient, quel que soit le découpage ;
+- c'est enfin la façon dont tout le reste du produit s'ancre : les segments, les
+  mots, les marqueurs `[SECONDS]`. Une seule convention de temps dans tout le
+  modèle.
 
-- la surface d'édition reste unique. Une bande sous le lecteur rouvre un axe
-  temporel horizontal, c'est-à-dire la première moitié d'une timeline ;
-- la frontière apparaît **là où l'on décide**. Quelqu'un qui retire une phrase
-  voit du même regard qu'une frontière est à deux mots, donc que sa coupe peut s'y
-  poser ;
-- un filet dans un texte est un saut de paragraphe, une forme que tout le monde
-  lit sans apprentissage.
+Une règle de résolution suffit à couvrir la redétection : **une dérogation
+s'applique au plan qui contient son instant** ; si une fusion de plans en réunit
+plusieurs dans le même, on garde celle dont l'instant est le plus proche du début
+du plan et on écarte les autres. Déterministe, et sans surprise à l'écran puisque
+la bande montre le résultat.
 
-La bande sous le lecteur reste le repli si les filets s'avèrent illisibles à
-l'usage. Elle serait en lecture seule dans les deux cas, comme la spec §13 le
-prévoit.
+#### Le ratio, exactement comme le crop
 
-#### Réserve 1 : la dérogation n'a pas la granularité de l'automatique
+Julien suit la recommandation de symétrie. Les deux réglages ont donc le même
+vocabulaire, et c'est ce qui rend l'écran apprenable en une fois :
 
-L'automatique donne un crop **par plan**, la dérogation est un nombre **pour tout
-le clip**. Saisir le rectangle une seule fois efface donc le cadrage de tous les
-plans, y compris ceux qui étaient bons. C'est une falaise, pas un réglage, et la
-formule qui la décrit le mieux est : l'outil de dernier recours détruit d'abord
-tout ce qui marchait.
+| | Ratio | Crop |
+|---|---|---|
+| État par défaut | `auto`, valeur calculée affichée (`auto → 4:5`) | `auto`, rectangle dessiné à la position calculée |
+| Déroger | choisir une pastille de ratio | bouton « cadrage manuel », puis saisir le rectangle |
+| Portée de la dérogation | le clip | le plan courant |
+| Revenir | pastille `auto` | bouton « revenir à l'automatique », ce plan ou tous |
+| Effet d'une modification du montage | aucun si épinglé, recalcul si `auto` | aucun si dérogé, recalcul si `auto` |
 
-**Ce qui décide, et personne ne l'a mesuré : combien de plans dans un clip.** Le
-corpus mesuré a des plans continus de plusieurs minutes (spec §2, « les comédiens
-jouent debout, face à face, de profil, dans un plan continu de plusieurs
-minutes »), et les candidats font de 37 à 167 secondes. Si la plupart des clips
-tiennent dans un seul plan, la falaise n'existe pas et le nombre unique suffit.
-Si un tiers d'entre eux traversent trois plans ou plus, le nombre unique est un
-outil de démolition.
+**Un ratio épinglé ne bouge plus quand le montage change.** C'est le sens de
+l'épinglage, et c'est ce qui manquait pour que le recalcul soit acceptable.
 
-Le compte est bon marché une fois `analysis.json` produit : compter les frontières
-qui tombent dans l'étendue de chaque candidat. **Cette mesure est à faire avant
-d'écrire la moindre ligne du sélecteur d'itération 1.**
+**Une conséquence serveur à signaler** : si le ratio est épinglé, les crops
+automatiques doivent être recalculés **pour ce ratio**, pas pour celui que le
+percentile aurait choisi. Sinon des cadres calculés pour un 1:1 se retrouvent posés
+dans un canevas 4:5, et l'épinglage produit exactement le défaut qu'il devait
+éviter.
 
-Ce que je recommande en attendant, et l'arbitrage est à Julien :
+#### Voir d'un coup d'œil ce qui est automatique et ce qui ne l'est pas
 
-- **l'interface d'itération 1 ne propose qu'une dérogation globale**, parce qu'une
-  dérogation par plan demande de désigner un plan, donc une surface de désignation
-  que rien ne justifie tant que la mesure n'est pas faite ;
-- **la forme persistée, elle, mérite d'être choisie une fois.** Une liste de
-  `{ start, end, cropX }` couvre les deux cas (la dérogation globale est l'entrée
-  unique qui couvre tout le clip), s'ancre dans le temps de la source comme tout le
-  reste du produit, et **survit à une redétection des plans** là où une clé de plan
-  ne survivrait pas : `shots.json` vit dans le projet précisément parce que son
-  seuil se réglera. Le prix de ne pas le faire est une migration des clips
-  enregistrés, ce qui, sur une bibliothèque d'un seul utilisateur, est un script.
-  Je signale le choix, je ne le force pas.
+Trois porteurs, et pas un de plus.
 
-Un mot sur `CLAUDE.md`, qui interdit d'anticiper une itération au prétexte que
-« c'est presque le même code ». La règle vise le code. Ici il s'agit d'un champ
-**persisté**, et le coût de se tromper ne se paie pas à l'écriture mais à la
-migration. C'est la seule raison pour laquelle je pose la question maintenant
-plutôt qu'en itération 1.
+**Le sélecteur de ratio.** `auto → 4:5` quand il calcule, `4:5` seul et marqué
+quand il est épinglé. Un mot, au même endroit, dans les deux cas.
 
-#### Réserve 2 : un montage ne doit pas changer un format en silence
+**La bande des plans**, en lecture, sous le lecteur. Elle est désormais justifiée :
+c'est aux frontières que le crop saute, c'est là que les coupes se posent de
+préférence, et c'est la seule façon de voir quels plans ont été dérogés. Chaque
+plan y porte deux états et pas trois : automatique, ou dérogé. Pas d'état
+« validé » : il faudrait le poser à la main, et un clip de quatre plans deviendrait
+une liste de contrôle.
 
-Le ratio se recalcule depuis l'EDL. Retirer une digression peut donc faire passer
-un clip de 16:9 à 1:1, c'est-à-dire du tiers de la hauteur d'écran aux
-cinquante-six centièmes. C'est une bonne nouvelle, et elle ne doit pas arriver par
-surprise.
+**Elle est en lecture au sens du montage.** On n'y déplace pas une frontière, on
+n'y pose pas une coupe, on n'y traîne pas de tête de lecture. Elle porte une seule
+interaction, qui n'est pas temporelle : désigner le plan qu'on cadre. C'est ce qui
+la sépare d'un banc de montage, et la séparation doit être tenue au moment de
+l'écrire, parce qu'une bande horizontale appelle toutes les autres.
 
-**Épingler est déjà possible et il faut le rendre lisible.** `ratio` porte
-`'auto' | <ratio>` : choisir 4:5 est déjà une dérogation, et le sélecteur la
-propose déjà. Ce qui manque est le reste de la symétrie de la règle ci-dessus :
-l'affichage de la valeur calculée sous `auto`, et l'annonce du changement.
+Les frontières apparaissent **aussi** dans le transcript, sous forme d'un filet en
+travers du texte. La bande dit où l'on en est parmi les plans ; le filet dit à
+celui qui retire une phrase qu'une frontière est à deux mots, donc que sa coupe
+peut s'y poser. Deux questions différentes, deux endroits.
 
-Concrètement, quand une modification du montage change le ratio résolu, la
-pastille `auto` le dit à cet instant : « auto → 1:1, c'était 16:9 ». Une ligne, à
-côté du sélecteur, pas une notification. Julien épingle s'il n'est pas d'accord, et
-le geste pour épingler est celui qu'il connaît déjà.
+#### Naviguer de plan en plan sans banc de montage
 
-Ma position sur la question posée : **non, il ne faut pas épingler par défaut.**
-Le recalcul est ce qui produit le bénéfice mesuré à la section 2 de la conception,
-et un format épinglé d'office le gèlerait sur l'état du clip au moment où il a été
-ouvert, c'est-à-dire avant montage, c'est-à-dire au pire moment. Ce qu'il faut
-n'est pas moins de recalcul, c'est moins de silence.
+**Le plan qu'on cadre est celui sous la tête de lecture.** Aucune sélection dans
+le cas courant : on lit, on s'arrête sur le plan mal cadré, on saisit le
+rectangle, il s'applique à ce plan. Deux touches, `,` et `.`, sautent à la
+frontière précédente et suivante ; ce sont deux boutons de recherche, pas une
+piste.
+
+C'est la réponse à « comment on navigue sans que ça devienne un banc » : on ne
+navigue pas dans une timeline, on déplace la lecture, et la lecture est déjà le
+seul organe de navigation temporelle de cet écran (3.3, point 2).
+
+#### Revenir à l'automatique sans craindre de perdre son travail
+
+Trois retours, du plus fin au plus large, et **aucun n'est destructeur** :
+
+- ce plan revient à l'automatique ;
+- tout le clip revient à l'automatique, ce qui efface toutes les dérogations : le
+  seul des trois qui mérite une confirmation, avec le nombre de plans concernés ;
+- `Ctrl+Z`.
+
+Le troisième est le vrai. Il suppose une chose que ce document demande
+explicitement : **l'historique d'annulation couvre le cadrage, pas seulement les
+segments.** `history.ts` empile aujourd'hui des `Segment[]` ; l'instantané devient
+`{ segments, ratio, mode, dérogations }`. Sans cela, « revenir en arrière »
+signifie deux choses différentes selon le geste qu'on vient de faire, ce qui est
+la manière la plus sûre de faire douter quelqu'un de son propre outil.
+
+#### Ce que l'écran montre d'une décision qu'on n'a pas encore regardée
+
+La question est réelle : l'automatique décide pour chaque plan, et rien ne garantit
+qu'on ait regardé le résultat avant d'exporter.
+
+**La réponse n'est pas une case à cocher par plan.** C'est de rendre la décision
+visible sans qu'on la demande : la valeur calculée à côté de `auto`, le rectangle
+dessiné à la position calculée, et **le rectangle qui saute aux frontières pendant
+la lecture**. Regarder le clip une fois, ce qu'on fait de toute façon avant de
+l'exporter, est ce qui passe la décision en revue.
+
+Ce que l'écran doit empêcher, en revanche, c'est qu'on livre sans avoir vu ce qui
+a été décidé pour nous. **Le panneau d'export énonce donc le cadrage** :
+le ratio résolu et combien de plans sont cadrés automatiquement, sur la dernière
+surface avant la livraison. Ça ne coûte rien et ça retire le seul cas où
+l'automatique passerait en fraude.
 
 ## 4. Le clavier et l'accessibilité
 
@@ -810,10 +906,20 @@ Trois règles derrière ce tableau.
 geste sur deux. `U` revient sur la décision précédente **et sur sa carte**, sinon
 on corrige à l'aveugle.
 
-**Aucun raccourci ne vole une frappe à un champ de saisie.** La garde existe déjà
-dans `useRaccourcis`, avec le contrôle `instanceof HTMLElement` sans lequel aucun
-raccourci ne fonctionnait. Elle doit suivre partout où des raccourcis se posent,
-et l'écran de clip va gagner deux champs de texte.
+**Aucun raccourci ne vole une frappe à un élément interactif**, et « interactif »
+ne veut pas dire « champ de saisie ». La garde actuelle de `useRaccourcis` n'écarte
+que `input, textarea, select` et le contenu éditable, ce qui suffisait à trois
+raccourcis dont aucun n'était une touche d'activation. Ce n'est plus vrai : `Espace`
+sur un bouton d'export qui a le focus l'active **et** lance la lecture, et les
+flèches sur les onglets du tri déplacent à la fois l'onglet actif et la carte
+sélectionnée. La garde écarte donc tout élément qui traite déjà la touche :
+`button`, `a[href]`, `[role="button"]`, `[role="tab"]`, `[role="slider"]`,
+`summary`, en plus des champs. Le contrôle `instanceof HTMLElement` reste, sans
+lequel aucun raccourci ne fonctionnait. (relevé par Codex)
+
+Corollaire sur `Espace` : il ne peut pas être un raccourci global inconditionnel.
+Il ne pilote la lecture que si le focus est sur le corps du document ou sur la
+surface transcript.
 
 **`?` existe parce que le reste existe.** Douze raccourcis qui ne se découvrent
 que dans un `title` HTML sont douze raccourcis que personne n'utilise. Aujourd'hui
@@ -929,9 +1035,13 @@ clipSuivant(clips, courant)  // le prochain gardé à monter, ou null
 
 `suite` est le morceau qui compte : c'est lui qui garantit qu'aucun état n'est une
 impasse, et le fait qu'il soit **une fonction unique** rend cette garantie
-testable. Un test qui énumère les vingt-quatre couples de phases et vérifie
-qu'aucun ne rend `null`
-vaut mieux qu'une relecture des trois écrans.
+testable. Le test ne parcourt pas le produit cartésien des couples : trois d'entre
+eux sont inatteignables (`neuf` ne coexiste avec aucun travail décidé), et forcer
+une action sur un état impossible oblige à en inventer une. Il énumère donc des
+**entrées** (relevés de présence, exécution en cours, statuts de clips), les passe
+à `phaseProjet`, et vérifie que `suite` rend un résultat pour chaque couple ainsi
+produit. Enumérer les entrées plutôt que les sorties vaut mieux qu'une relecture
+des trois écrans. (relevé par Aristarque)
 
 ### 5.3 Ajouter ou retirer une étape
 
@@ -943,8 +1053,12 @@ pourvoyeurs de candidats. Pour que ce soit une ligne et non une refonte :
   vit dans un fichier de page ;
 - **le panneau d'avancement itère cette liste**, il ne connaît aucun nom d'étape ;
 - **`phaseProjet` ne cite aucune étape par son nom** sauf celles qui changent ce
-  que l'utilisateur peut faire : le transcript ouvre le tri, le proxy ouvre le
-  montage. Les autres ne sont que du temps qui passe.
+  que l'utilisateur peut faire : `candidates` ouvre le tri, `proxy` ouvre le
+  montage. Les autres ne sont que du temps qui passe. Ce n'est **pas** le
+  transcript qui ouvre le tri, même s'il le précède : la liste reste vide jusqu'à
+  la fin du repérage, et en itération 1 les candidats dépendront aussi de `shots`
+  et `people`. Nommer l'étape qui produit l'artefact qu'on affiche est la seule
+  formulation qui survive à l'ajout d'étapes. (relevé par Copilot)
 
 Retirer une étape suit le même chemin. Le test qui protège : donner à
 `phaseProjet` un relevé de présence portant une étape inconnue et vérifier qu'elle
@@ -975,9 +1089,10 @@ fichier annonce une couverture qu'elle n'a pas »), mais l'environnement est `no
 
 Le minimum utile, par ordre de valeur :
 
-1. **`phaseProjet` et `suite`, en tests purs, sans DOM.** Les vingt-quatre
-   couples de phases, et l'invariant « aucun couple sans action ». C'est le test
-   qui remplace la relecture des écrans.
+1. **`phaseProjet` et `suite`, en tests purs, sans DOM.** Les couples que
+   `phaseProjet` produit réellement, et l'invariant « aucun couple atteignable
+   sans issue », l'issue pouvant être une attente nommée. C'est le test qui
+   remplace la relecture des écrans.
 2. **`enregistrement.ts`**, une fois sorti de la page : les trois défauts trouvés
    en revue (quitter dans les 600 ms, la boucle d'échec, le « enregistré » qui
    ment) sont des tests, pas des commentaires.
@@ -1096,22 +1211,42 @@ raison d'aller chercher dans le tiers manquant.
 Le décompte remonte dans `status.json` : le champ existera. Trois exigences sur ce
 qu'on en fait, et aucune n'est cosmétique.
 
-**Ça se dit en couverture, pas en incident.** « 4 lots sur 11 ont été refusés par
-le filtre de sécurité » est un message pour celui qui a écrit le code. « 27
-propositions, tirées de 64 % de l'émission » est ce que Julien a besoin de savoir
-pour décider s'il fait confiance à la liste. Le détail technique se replie sous
-la phrase, pour qui veut le lire.
+**On dit ce qu'on a mesuré, pas ce qui sonne mieux.** Une première version de ce
+document proposait « 27 propositions, tirées de 64 % de l'émission ». Le chiffre
+est faux et les trois relecteurs l'ont attrapé : ce que le serveur compte, ce sont
+des **lots**, et un lot n'est pas une part d'émission. Les fenêtres se chevauchent
+de 30 secondes (`src/core/transcript.ts`), le dernier lot est plus court que les
+autres puisqu'il sort d'un `slice`, et une fenêtre couvre de la parole et non une
+tranche de temps. Sept lots sur onze ne font donc pas 64 % de quoi que ce soit.
+
+Deux formulations tiennent debout, et la seconde suppose un travail serveur :
+
+- avec le champ annoncé, **la phrase compte des lots** : « 4 lots de fenêtres sur
+  11 n'ont pas été notés ». C'est opaque pour qui ne connaît pas le découpage,
+  mais c'est vrai, et une ligne d'explication repliée suffit à le rendre lisible ;
+- ce qu'il faudrait vraiment est **une couverture temporelle** : l'union des
+  fenêtres effectivement notées, rapportée à l'étendue du transcript. C'est la
+  seule mesure qui réponde à la question que Julien se pose, et elle se calcule au
+  même endroit que le décompte. **Je la demande explicitement au serveur.** Tant
+  qu'elle n'existe pas, l'écran s'en tient au compte de lots.
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
 et ça vit à côté du compte. Une information qui change la confiance qu'on accorde
 à un écran ne peut pas s'afficher trois secondes.
 
-**Ça porte une action.** « Relancer le repérage » est le seul recours disponible :
-le découpage en lots n'est pas déterministe dans ce qu'il déclenche, donc une
-seconde passe peut noter des fenêtres que la première a laissées de côté. Le
-bouton existe déjà par ailleurs, pour la reprise ; ici il a une seconde raison
-d'être, et l'écran doit la dire.
+**Et ça ne porte pas de fausse action.** Une première version proposait « relancer
+le repérage » comme recours, en supposant le découpage non déterministe. Il l'est :
+`buildWindows` et le découpage en lots sont déterministes, et le serveur traite
+`GeminiBlockedError` comme reproductible et jamais réessayable. Une seconde passe
+soumettrait exactement les mêmes charges et se ferait refuser exactement pareil,
+en consommant du quota pour rien. (relevé par Codex et Copilot)
+
+Ce qui changerait quelque chose est de **changer ce qui est soumis** : une autre
+taille de lot, d'autres réglages de sécurité, un autre découpage. C'est du travail
+serveur, et l'écran n'a pas à le promettre. Il énonce la perte, il ne feint pas de
+la réparer. Un bouton qui ne répare rien est pire que pas de bouton : il fait
+croire que le problème est traité.
 
 Je décris ce que l'écran en fait. La correction de la cause, elle, ne relève pas
 de ce document.
@@ -1138,8 +1273,11 @@ défauts que chacun ferme par rapport à son coût.
    états d'analyse par projet, ligne de montage. Ferme l'entrée du tunnel.
 6. **Le transcript comme organe de navigation.** Clic pour se placer, surlignage
    du mot en cours, `tabindex` glissant, rétablissement.
-7. **Le cadrage automatique** (section 3.5), avec l'itération 1 et pas avant. La
-   mesure du nombre de plans par clip se fait au début de ce lot, pas à la fin.
+7. **Le cadrage automatique** (section 3.5), avec l'itération 1 et pas avant. Trois
+   pièces, dans cet ordre : le mode explicite et le retour à l'automatique,
+   l'historique d'annulation étendu au cadrage, puis la bande des plans et la
+   dérogation par plan. Les deux premières ne dépendent pas des plans et peuvent
+   se poser dès que le modèle serveur existe.
 
 Les lots 3 et 5 dépendent chacun d'un travail serveur en cours dans l'autre
 session. Les lots 1, 2, 4 et 6 ne dépendent de rien qui n'existe pas.
@@ -1200,25 +1338,53 @@ décrit comme « une couture d'orchestration » : chaque agent a livré son pér
 et personne ne possédait le raccord. Une ligne dans §13 disant que l'export est un
 panneau de l'écran de clip aurait suffi à le faire exister.
 
-### 9.4 Les deux arbitrages du cadrage automatique
+### 9.4 Les arbitrages du cadrage, et ce qu'ils demandent au serveur
 
-Ils sont argumentés en 3.5 et ils reviennent ici parce qu'ils demandent une
-décision de Julien avant que quiconque écrive le sélecteur d'itération 1.
+Les deux questions que ce document posait sont tranchées, et la section 3.5 décrit
+la décision plutôt que l'alternative. Elles laissent trois demandes au serveur,
+listées ici parce qu'elles ne s'écrivent pas dans `src/app/`.
 
-**La granularité de la dérogation.** L'automatique cadre par plan, la dérogation
-proposée porte sur tout le clip. Ma position : l'interface d'itération 1 s'en
-tient à la dérogation globale, et **la mesure du nombre de plans par clip se fait
-d'abord**, parce que c'est elle qui dit si la falaise existe. La forme persistée,
-elle, mérite d'être choisie une fois : une liste de `{ start, end, cropX }` couvre
-les deux granularités et survit à une redétection des plans. Ce qui me ferait
-changer d'avis : une mesure montrant qu'un clip sur trois traverse trois plans ou
-plus. La dérogation par plan deviendrait alors nécessaire tout de suite, avec la
-surface de désignation qu'elle implique.
+**Le modèle de cadrage.** `cropX: number | null` n'exprime pas la décision : il
+faut un mode explicite (`auto` ou `manuel`) et, en manuel, une dérogation **par
+plan**, dont la clé désigne le plan dans la source et non son rang dans le clip.
+Je recommande l'instant de début plutôt que le rang parmi les frontières, parce
+que le seuil de détection des plans se réglera et renumérotera tout. Le
+raisonnement complet est en 3.5.
 
-**L'épinglage du ratio.** Il est déjà possible et ma position est de ne pas
-l'imposer par défaut : le recalcul depuis l'EDL est ce qui produit le bénéfice
-mesuré, et l'épingler d'office le gèlerait sur l'état d'avant montage. Ce qu'il
-faut n'est pas moins de recalcul, c'est moins de silence. Ce qui me ferait changer
-d'avis : constater à l'usage qu'un format change plusieurs fois pendant le montage
-d'un même clip. L'annonce deviendrait alors du bruit, et l'épinglage au premier
-choix serait plus honnête.
+**Le recalcul sous un ratio épinglé.** Si le ratio est épinglé, les crops
+automatiques doivent être calculés pour ce ratio-là. Sinon l'épinglage produit le
+défaut qu'il devait éviter.
+
+**La fraîcheur des rendus.** `livre` ne peut pas se déduire du statut `exported`,
+qu'une réédition ne défait pas. Il faut pouvoir comparer un clip à ses sorties,
+par exemple en portant sa date de modification à côté de celles des rendus. Sans
+ce champ, la phase terminale du parcours reste indisponible et l'écran de clip ne
+peut pas dire qu'un rendu est périmé.
+
+### 9.5 Quatre questions de la relecture, et leurs réponses
+
+Aristarque a posé quatre questions à vérifier. Trois se referment sur du code
+existant, et je consigne la vérification plutôt que de la laisser ouverte.
+
+**Le `pid` de `status.json` fuite-t-il au client ?** Non.
+`GET /api/projects/:id` construit sa réponse champ par champ
+(`{ project, steps, running, error }`) et ne sérialise jamais `status.json` en
+bloc. Le `pid` reste côté serveur, et la déduction de `interrompu` décrite en 2.4
+n'y touche pas.
+
+**Le message d'erreur expose-t-il l'intérieur de la machine ?** Non, et c'est déjà
+documenté : `ProjectStatus.error` est « déjà épuré de ses chemins absolus, comme
+celui d'une réponse d'erreur ». La règle d'interface qui en découle mérite d'être
+écrite : **l'écran affiche le message du serveur, il n'en compose jamais un
+depuis une exception.** C'est aussi ce qui garantit qu'une région `role="alert"`
+ne lise pas une trace à voix haute.
+
+**Le multi-onglet est-il un cas d'usage ?** Non : un utilisateur, une machine, un
+onglet. Le refus d'un `PATCH` périmé déclenche quand même une relecture du clip
+(3.3), ce qui referme la question sans avoir à en dépendre.
+
+**La mesure de transcription contredit-elle la spec §6 ?** Oui, et c'est la §9.1
+ci-dessus. Deux documents de `docs/superpowers/specs/` se contredisent sur un fait
+mesuré, et toute la conception de l'attente repose sur celui des deux qui vient
+d'une émission réelle. C'est la seule question de cette liste qui reste ouverte, et
+elle demande une décision plutôt qu'une vérification.

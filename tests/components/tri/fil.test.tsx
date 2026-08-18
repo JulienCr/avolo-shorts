@@ -319,6 +319,27 @@ describe('rien ne bouge sous la main', () => {
   })
 })
 
+describe('la liste des raccourcis', () => {
+  it('s’ouvre à « ? »', async () => {
+    // Sept raccourcis qui ne se découvrent que dans un attribut `title` sont
+    // sept raccourcis que personne n'utilise.
+    render(<Harnais depart={[candidat(1)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+
+    await utilisateur.keyboard('?')
+
+    expect(within(screen.getByRole('dialog')).getByText(/défaire la dernière décision/i)).toBeTruthy()
+  })
+
+  it('s’ouvre aussi au bouton, pour qui n’a pas encore lu la liste', async () => {
+    render(<Harnais depart={[candidat(1)]} />)
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /raccourcis/i }))
+
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+})
+
 describe('ce que la carte expose', () => {
   it('ne cache pas la durée ni l’état derrière le lien de la vignette', () => {
     // Le lien de la vignette double celui du titre : il est retiré de l'arbre

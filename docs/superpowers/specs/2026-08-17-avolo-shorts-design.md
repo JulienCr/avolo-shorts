@@ -84,6 +84,32 @@ donc une image cadrable isolément ne l'est pas forcément par la position qui c
 ses voisines. Les deux grandeurs se ressemblent assez pour qu'on les confonde, et
 c'est la confusion qui ferait chercher un défaut là où il n'y en a pas.
 
+### Le ratio par clip, mesuré
+
+Le tableau ci-dessus compte des images. Ce qui sort du produit est **un ratio par
+clip**, et il a été mesuré le 18 août 2026 sur trois émissions entières, filtre
+du premier plan actif (`scripts/mesure-ratios.ts`).
+
+| | `2025-06-15-cqlp` | `2026-03-08-caro-mdlm` | `2026-22-02-entre-nous` |
+|---|---|---|---|
+| Clips en 1:1 ou plus serré | 2 sur 8 | 0 sur 6 | 0 sur 6 |
+| Fenêtres de 30 s sous le 16:9 | 25 % (197) | 1 % (339) | 8 % (227) |
+| Empan résiduel médian | 0,551 | 0,778 | 0,614 |
+
+**Le cumul de 48 % du tableau des images ne se retrouve pas en clips.** Ce n'est
+pas une contradiction — un crop fixe par plan doit cadrer 90 % des images du
+clip, et le paragraphe précédent dit pourquoi les deux grandeurs divergent —,
+mais l'ordre de grandeur n'est pas celui qu'on pouvait déduire. Et ce sont deux
+émissions **sans chat incrusté** qui sortent le plus large, ce qui retire au
+panneau de `cqlp` la responsabilité qu'on lui prêtait (voir §10).
+
+L'explication tient au dispositif, pas au calcul : les trois émissions du tableau
+d'images sont de 2025, avec des comédiens debout sur un plateau ; les deux
+mesurées ici sont à trois personnes assises et écartées, avec incrustations et
+diffusions de vidéo plein cadre. **Rien ne dit combien des vingt émissions
+ressemblent aux unes ou aux autres**, et c'est la mesure qui manque avant de
+promettre un bénéfice visuel. Le détail est dans `docs/ratios-par-clip.md`.
+
 ### Taille des sujets
 
 | Taille du plus gros visage | Duo | Groupe | Trio |
@@ -237,6 +263,21 @@ même, chacune pour sa raison :
   vitesse d'itération, puisqu'il épargne le proxy et l'analyse, pas les deux
   minutes du transcript.
 
+**Le rendu, lui, ne se saute plus sur une présence de fichier** : depuis
+l'issue #48, il se saute sur une **empreinte persistée** à côté des sorties
+(`projects/<projet>/renders/<clip>.rendu.json`), et une empreinte absente vaut
+*périmé*, jamais *inconnu* — c'est ce qui fait repasser par la porte les rendus
+posés avant elle. Elle porte les cinq champs qui disent ce qui était **demandé**
+(`segments`, `ratio`, `cropX`, `captions`, `branding`) et trois qui disent ce qui
+a été **obtenu** : le condensat de chaque marque réellement incrustée — les deux
+fichiers portent des noms fixes, donc le nom seul ne distingue pas une mise à
+jour —, un condensat du style des sous-titres qui inclut le contenu du dossier de
+polices — sans `fonts/`, libass se rabat sur fontconfig et incruste dans une
+autre police sans un mot —, et une `version` de recette pour le cas général du
+rendu produit dans des conditions qui ne sont plus celles d'aujourd'hui. Le reste
+des étapes en est toujours à la présence de fichier ; la clé de validité générale
+reste l'itération 4.
+
 Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme
 réglage de dernier recours, et l'automatique ne fera que le préremplir.
 
@@ -316,13 +357,27 @@ Replay/
 projects/2026-03-08-caro-mdlm/
   source.json          chemin vers l'original, jamais copié
   proxy.mp4            960x540 à 30 fps, keyframe toutes les 1 s, environ 1,4 Go
-  shots.json           frontières de plans
-  people.json          boîtes de personnes échantillonnées
+  analysis.json  frontières de plans, boîtes de personnes et dimensions de la source
   audio.json           musique, silences, événements
   candidates.json      les propositions, par passe
+  status.json          l'état d'exécution
   clips/               les EDL
   renders/             les MP4 produits
 ```
+
+**Un seul fichier pour les plans et les personnes.** Cette liste a longtemps
+porté `shots.json` et `people.json` ; l'analyse en écrit un seul,
+`analysis.json`, et l'étape qui le produit s'appelle `analysis`. Les deux mesures
+sortent de la même passe sur le même proxy, donc les séparer ferait deux
+écritures à tenir d'accord pour un fichier qu'on relit toujours entier. Il porte
+aussi les dimensions de la source, sans lesquelles le rendu ne sait pas à quoi
+les fractions se rapportent. L'argument qui plaçait `shots.json` dans le projet
+vaut inchangé : le seuil de détection se règle, et ce qui se règle vit là où on
+le règle.
+
+`status.json` est écrit par `écrireStatut` (`src/server/run.ts`) et porte l'état
+d'exécution. Il est arrivé après cette liste, et tout le suivi d'avancement en
+dépend.
 
 Le transcript est une propriété du fichier vidéo, pas un paramètre de projet. Le
 poser à côté de la source le fait survivre à la suppression du projet, le rend
@@ -337,12 +392,10 @@ redirection passe par `--output-dir`. Le sidecar tient sur ses propres raisons,
 il n'a pas de précédent maison.
 
 Le proxy reste dans le projet : 1,4 Go par émission n'ont rien à faire sur un
-Drive partagé. `people.json` aussi, parce qu'il dépend du détecteur et du taux
-d'échantillonnage.
-
-`shots.json` reste également dans le projet, alors qu'un changement de plan est
-un fait de la vidéo. La raison est pratique et l'emporte : le seuil de détection
-demandera des réglages, et ce qui se règle doit vivre là où on le règle.
+Drive partagé. `analysis.json` aussi, parce qu'il dépend du détecteur et du taux
+d'échantillonnage — et il y reste alors même qu'un changement de plan est un fait
+de la vidéo, pour la raison pratique déjà dite : le seuil de détection demande
+des réglages, et ce qui se règle vit là où on le règle.
 
 **Le proxy est en 960x540 plutôt qu'en 640x360.** Un sujet occupant 6 % de la
 largeur ne fait que 38 px sur un proxy 640, ce qui est mince pour YOLO ; à 960 il
@@ -715,6 +768,16 @@ ailleurs — l'empan médian passe de 0,661 à 0,540, la part des images qui tie
 dans un 1:1 de 31,3 % à 55,1 %, et 25 fenêtres de 30 s sur 197 se resserrent sans
 qu'aucune ne s'élargisse.
 
+**La marge est un réglage mesuré depuis le 18 août 2026, et elle vaut 0,01.**
+Elle comptait 0,02 sans avoir jamais été éprouvée, et elle pèse **deux fois** —
+une fois de chaque côté —, donc 0,04 sur les 0,5625 qu'un 1:1 couvre. À 0,01,
+aucun clip ni aucune fenêtre ne s'élargit sur les trois émissions mesurées, deux
+clips de `cqlp` passent au 1:1 et quinze fenêtres sur 197 se resserrent. Zéro
+donne la même répartition par clip et supprime tout l'air ; 0,01 en laisse encore
+19 px sur une sortie de 1 080, et le rectangle de crop dessiné à cette valeur
+garde de l'air des deux côtés des comédiens. Le détail est dans
+`docs/ratios-par-clip.md`.
+
 **La position du crop est fixe à l'intérieur de chaque plan**, calculée pour
 couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une
 coupe existe déjà, donc où le saut est invisible.
@@ -760,6 +823,27 @@ largeur dépensé avant même de cadrer alors que 24 à 33 % du temps seulement 
 déjà dans un 9:16, ne vaut que pour cette émission et pour ses passages avec
 chat. Qui cadrera `cqlp` verra ses ratios monter sans que l'algorithme ait un
 défaut : c'est un cas de test, pas un gabarit.
+
+**Sauf que la mesure a démenti la moitié de cette phrase le 18 août 2026 :
+`cqlp` n'est pas le pire cas, c'est le meilleur des trois mesurés.** Le
+18 août au soir, `2026-03-08-caro-mdlm` et `2026-22-02-entre-nous` — deux
+émissions sans chat incrusté — sortent **six clips sur six en 16:9** chacune,
+là où `cqlp` en sort deux sur huit en 1:1. Sur des fenêtres de 30 s qui couvrent
+l'émission entière, la part qui descend sous le 16:9 est de **25 % sur `cqlp`,
+8 % sur `entre-nous` et 1 % sur `caro-mdlm`**. Le chat n'est donc pas ce qui
+élargit, et le corriger en amont ne rendrait pas les ratios qu'on croyait qu'il
+prenait.
+
+Vérifié à l'image, l'écartement est réel sur les deux émissions propres, et il
+appartient au dispositif de tournage bien plus qu'à l'algorithme : trois
+personnes assises d'un bord à l'autre, un gros plan incrusté sur le tiers gauche
+avec ses propres sous-titres, une diffusion de vidéo en plein cadre avec deux
+bulles de webcam au coin. Deux causes évitables s'y ajoutent, toutes deux hors
+du sujet du filtre du premier plan : des **faux positifs** posés sur du mobilier
+vide pendant que le seul comédien présent n'a aucune boîte, et des boîtes de
+corps qui suivent des **jambes tendues** jusqu'à un bord que la tête n'atteint
+pas. Le détail, les images et la reproduction sont dans
+`docs/ratios-par-clip.md`.
 
 Le remède le moins cher reste en amont, dans OBS : enregistrer un programme
 propre, ou une seconde sortie d'archive, rend au cadrage ce qu'une incrustation

@@ -1,6 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Fragment, useEffect } from 'react'
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 /**
  * Les raccourcis de l'écran de clip, et la garde qui les empêche de voler une
@@ -123,4 +131,59 @@ export function useRaccourcis({
     window.addEventListener('keydown', surTouche)
     return () => window.removeEventListener('keydown', surTouche)
   }, [lectureOuPause, annuler, retablir, retirer, echapper, poserBorne, chercher, aide, aSelection])
+}
+
+/**
+ * Les raccourcis, écrits quelque part.
+ *
+ * `?` existe parce que le reste existe : douze raccourcis qui ne se découvrent
+ * que dans un attribut `title` sont douze raccourcis que personne n'utilise. La
+ * primitive `dialog` porte le piège de focus, la fermeture par `Échap` et le
+ * retour du focus au déclencheur — les trois choses qu'une boîte écrite à la
+ * main rate.
+ */
+const TABLE: { touche: string; effet: string }[] = [
+  { touche: 'Espace', effet: 'Lecture, pause' },
+  { touche: 'Ctrl+Z', effet: 'Annuler le dernier geste' },
+  { touche: 'Ctrl+Shift+Z', effet: 'Rétablir' },
+  { touche: 'Suppr', effet: 'Retirer la sélection' },
+  { touche: 'Échap', effet: 'Vider la sélection' },
+  { touche: 'I', effet: 'Commencer le clip sur le mot sélectionné' },
+  { touche: 'O', effet: 'Terminer le clip sur le mot sélectionné' },
+  { touche: 'Ctrl+F', effet: 'Chercher dans le transcript' },
+  { touche: '←  →', effet: 'Mot précédent, suivant (dans le transcript)' },
+  { touche: 'Entrée', effet: 'Placer la lecture sur le mot, ou le remonter' },
+  { touche: '?', effet: 'Cette liste' },
+]
+
+export function DialogueRaccourcis({
+  ouvert,
+  onOuvert,
+}: {
+  ouvert: boolean
+  onOuvert: (ouvert: boolean) => void
+}) {
+  return (
+    <Dialog open={ouvert} onOpenChange={onOuvert}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Raccourcis</DialogTitle>
+          <DialogDescription>
+            Toutes ces touches sont directes en AZERTY.
+          </DialogDescription>
+        </DialogHeader>
+
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[0.8rem]">
+          {TABLE.map(({ touche, effet }) => (
+            <Fragment key={touche}>
+              <dt className="text-right font-mono text-[0.8rem] whitespace-nowrap text-muted-foreground">
+                {touche}
+              </dt>
+              <dd>{effet}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      </DialogContent>
+    </Dialog>
+  )
 }

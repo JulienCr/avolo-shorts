@@ -154,11 +154,21 @@ export function reconciliation(
 /** Ce que `usePatchClip` attend comme variables, réduit à ce qu'on lui donne ici. */
 type Variables = { clipId: string; projectId: string; patch: ClipPatch }
 
-/** `mutate` de TanStack Query, référentiellement stable — donc utilisable en dépendance. */
-type Ecrire = (
-  variables: Variables,
-  options?: { onSuccess?: (resultat: PatchClipResult) => void; onError?: () => void },
-) => void
+/**
+ * `mutateAsync` de TanStack Query, référentiellement stable — donc utilisable en
+ * dépendance.
+ *
+ * **Une promesse, et surtout pas des rappels.** Les rappels passés à `mutate`
+ * sont attachés à la **dernière** mutation de l'observateur, que l'écran de clip
+ * partage entre cet enregistrement différé et les écritures directes de titre,
+ * de description et de marques. Une écriture de champ partie entre le départ du
+ * montage et sa réponse emportait donc le sort de celui-ci — sans exception,
+ * sans trace, et avec elle la réconciliation d'un `PATCH` refusé pour jeton
+ * périmé, c'est-à-dire la garantie d'ordre que tout ce fichier existe pour
+ * tenir. `ecran-clip.tsx` porte le même raisonnement sur les écritures
+ * directes, où le défaut avait été trouvé en premier. (issue #55)
+ */
+type Ecrire = (variables: Variables) => Promise<PatchClipResult>
 
 /**
  * L'enregistrement, en différé.
@@ -219,6 +229,47 @@ export function useEnregistrementAuto({
 
   /** Ce qui est promis mais pas encore parti. Vidé au départ de la page. */
   const enAttente = useRef<Variables | null>(null)
+
+  /**
+   * Le rang de la dernière écriture **partie**, et le prix de `mutateAsync`.
+   *
+   * Deux enregistrements du montage se chevauchent dès qu'un aller-retour dure
+   * plus que les 600 ms de temporisation : un geste de plus fait repartir une
+   * écriture pendant que la précédente vole encore. Tant que les rappels
+   * vivaient sur l'observateur, la mutation dépassée en était détachée et sa
+   * réponse ne disait plus rien — c'était le défaut, mais c'était aussi, par
+   * accident, un ordre. Depuis que chaque promesse tient son propre sort, la
+   * réponse dépassée parle, et rien ne garantit qu'elle parle en premier.
+   *
+   * Deux façons de s'y tromper, symétriques et toutes deux silencieuses : le
+   * succès tardif d'une écriture dépassée effacerait l'échec de la plus récente
+   * — qui repartirait alors toute seule, garde-fou anti-boucle contourné par le
+   * chemin même qu'il surveille —, et l'échec tardif d'une écriture dépassée
+   * retiendrait une signature que le serveur n'a jamais refusée, minant la
+   * valeur correspondante jusqu'au prochain chargement.
+   *
+   * Une réponse dépassée ne décide donc plus de rien — ni de `echec`, ni de la
+   * réconciliation. Cette seconde moitié n'allait pas de soi, et les deux
+   * relecteurs ont d'abord conclu l'inverse : la réconciliation semble
+   * s'autoprotéger, puisqu'elle n'adopte que sur un champ qui *porte encore*
+   * l'intention refusée. Mais « porte encore la même valeur » n'est pas « n'a
+   * pas bougé » : l'utilisateur qui ramène le cadrage là où il était pendant que
+   * la réponse dépassée voyage repasse cette condition avec un geste qui, lui,
+   * est le plus récent de tous — et se le fait écraser par un gagnant que la
+   * tentative suivante a déjà réglé. Rien n'est perdu à s'en abstenir : c'est
+   * précisément parce qu'une tentative plus récente est partie que celle-ci est
+   * dépassée, et c'est la réponse de celle-là qui dit l'état du serveur.
+   *
+   * **Le compteur appartient à une instance du hook, et la promesse lui
+   * survit.** Rouvrir le même clip donne donc un compteur neuf, incapable de
+   * dépasser une écriture partie sous l'écran précédent — laquelle se croirait
+   * encore la dernière et écrirait dans un montage qui n'est plus le sien : la
+   * garde du store ne compare que l'identifiant du clip, et c'est le même. Le
+   * démontage incrémente donc le compteur une dernière fois, ce qui périme d'un
+   * coup tout ce qui est encore en vol.
+   * (relevé par Copilot puis, pour la réconciliation et le démontage, par Codex)
+   */
+  const derniereTentative = useRef(0)
   const ecrireRef = useRef(ecrire)
   const reconcilierRef = useRef(reconcilier)
 
@@ -254,13 +305,23 @@ export function useEnregistrementAuto({
 
     const minuteur = setTimeout(() => {
       enAttente.current = null
-      ecrireRef.current(variables, {
-        onSuccess: (resultat) => {
+      const tentative = ++derniereTentative.current
+      const estLaDerniere = () => tentative === derniereTentative.current
+      // Un `then` à deux arguments, et non un `catch` en aval : celui-ci
+      // rattraperait aussi ce que lève la branche de succès — une réconciliation
+      // en défaut deviendrait un « échec réseau » affiché à l'utilisateur, avec
+      // le blocage qui va avec.
+      ecrireRef.current(variables).then(
+        (resultat) => {
+          if (!estLaDerniere()) return
           setEchec(null)
           // **Le refus n'est pas un échec, mais il n'est pas rien non plus.**
           if (resultat.applied) return
           // `reference` est bien le clip contre lequel cet écart-là a été
           // calculé : l'effet le capture avec les variables qu'il programme.
+          // `actuel.current`, lui, se lit **maintenant** — l'état local au
+          // moment où la réponse arrive, et non celui du rendu qui a lancé
+          // l'écriture. Toute la réconciliation tient à cette distinction.
           const àAdopter = reconciliation(
             variables.patch,
             resultat.clip,
@@ -269,8 +330,10 @@ export function useEnregistrementAuto({
           )
           if (àAdopter) reconcilierRef.current(resultat.clip.id, àAdopter)
         },
-        onError: () => setEchec(signature),
-      })
+        () => {
+          if (estLaDerniere()) setEchec(signature)
+        },
+      )
     }, TEMPORISATION_MS)
 
     return () => clearTimeout(minuteur)
@@ -289,6 +352,13 @@ export function useEnregistrementAuto({
   // composant pour le réconcilier, et `reconcilier` refuserait de toute façon de
   // toucher un autre clip que celui que le store porte.
   //
+  // Ne pas attendre n'est pas ne pas reprendre, en revanche : depuis que
+  // `ecrire` rend une promesse, la laisser tomber ferait d'un échec de départ un
+  // **rejet non géré** — une suite de tests qui rougit ailleurs qu'à l'endroit
+  // du défaut, et une console de production salie à chaque fermeture d'onglet
+  // sur un réseau capricieux. D'où le `catch` vide plus bas, qui est une
+  // décision et non un oubli.
+  //
   // La conséquence, qu'il vaut mieux écrire que découvrir : si l'on **revient
   // sur le même clip** avant que le store n'ait changé de clip, la garde de
   // `charger` le laisse tel quel — c'est sa raison d'être —, la comparaison
@@ -306,12 +376,24 @@ export function useEnregistrementAuto({
     const vider = () => {
       const variables = enAttente.current
       enAttente.current = null
-      if (variables) ecrireRef.current(variables)
+      if (!variables) return
+      // **Ce vidage prend un rang comme n'importe quelle écriture.** Il porte
+      // une intention plus récente que ce qui vole encore, donc les réponses en
+      // attente ne sont plus d'actualité — et sur une page restaurée depuis le
+      // bfcache, elles auraient tout le temps de croire le contraire.
+      // Ici et non plus haut : un `pagehide` qui n'a rien à écrire ne périme
+      // rien. (relevé par Copilot)
+      derniereTentative.current += 1
+      ecrireRef.current(variables).catch(() => {})
     }
     window.addEventListener('pagehide', vider)
     return () => {
       window.removeEventListener('pagehide', vider)
       vider()
+      // **Inconditionnel, celui-ci** : `vider` ne prend un rang que s'il écrit,
+      // et l'écran qui s'en va périme ses réponses même sans rien avoir à
+      // envoyer.
+      derniereTentative.current += 1
     }
   }, [])
 

@@ -607,6 +607,20 @@ export type RepérageOptions = {
   /** La couture réseau. Les tests en passent une qui rend des réponses figées. */
   appel?: AppelGemini
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Appelé chaque fois qu'un lot a été traité, avec le bilan à jour.
+   *
+   * **Sans lui, le décompte n'existe qu'une fois la passe finie.** Le lanceur
+   * n'écrit `status.json` qu'au changement d'étape, donc avant le premier appel
+   * au modèle et plus jamais avant la fin : l'écran, qui interroge toutes les
+   * deux secondes, verrait `repérage: null` pendant toute la notation — c'est
+   * l'information la plus utile, absente exactement pendant qu'elle se
+   * construit. (relevé par Codex et Copilot)
+   *
+   * Le bilan passé est **celui qui vit**, muté au fil de l'eau : le lire tout de
+   * suite, ne pas le garder.
+   */
+  onBilan?: (bilan: BilanNotation) => void
 }
 
 /**
@@ -659,6 +673,92 @@ export type BilanNotation = {
   lotsRefusés: number
   /** Les lots auxquels le modèle a répondu. */
   lotsRépondus: number
+  /**
+   * La part de l'étendue du transcript couverte par les fenêtres notées, entre
+   * 0 et 1.
+   *
+   * **L'union des intervalles, pas leur somme**, et l'écart n'est pas
+   * théorique : `buildWindows` chevauche deux fenêtres consécutives d'environ
+   * 30 secondes, et le dernier lot est plus court que les autres. Une somme
+   * compterait les recouvrements deux fois et annoncerait presque toute
+   * l'émission jugée là où un sixième lui manque.
+   *
+   * **Le dénominateur est l'étendue du transcript** — premier mot au dernier —,
+   * jamais la durée de l'émission : le silence n'est pas de la matière qu'on
+   * aurait omis de juger. C'est le chiffre que la spec §7.2 demande
+   * explicitement, « la seule mesure qui réponde à la question que Julien se
+   * pose ».
+   */
+  couverture: number
+}
+
+/** Un intervalle de temps, en secondes. */
+export type Étendue = { start: number; end: number }
+
+/**
+ * La part de `étendue` que couvrent `intervalles`, entre 0 et 1.
+ *
+ * **Une union, pas une somme.** Les fenêtres de notation se chevauchent
+ * délibérément de 30 secondes pour qu'aucun moment ne soit coupé en deux ;
+ * additionner leurs durées compterait ces 30 secondes deux fois.
+ *
+ * Chaque intervalle est **écrêté** à l'étendue avant d'être fusionné : une
+ * fenêtre se cale sur des segments, dont la fin dépasse le dernier mot aligné,
+ * et sans écrêtage la part dépasserait 1 — l'écran annoncerait 104 %.
+ *
+ * Une étendue vide rend 0 plutôt qu'une division par zéro : il n'y avait pas de
+ * matière, donc aucune part n'en a été jugée.
+ *
+ * Le résultat est arrondi au dix-millième. `status.json` se relit à l'œil, et
+ * `0.8363443145589798` n'y apprend rien de plus que `0.8363`.
+ *
+ * Pure, et exportée pour être testée sur ses cas limites : ils ne se rencontrent
+ * pas dans une passe complète.
+ */
+export function partCouverte(intervalles: readonly Étendue[], étendue: Étendue): number {
+  const total = étendue.end - étendue.start
+  if (!(total > 0)) return 0
+
+  const écrêtés = intervalles
+    .map((i) => ({
+      start: Math.max(i.start, étendue.start),
+      end: Math.min(i.end, étendue.end),
+    }))
+    .filter((i) => i.end > i.start)
+    .sort((a, b) => a.start - b.start)
+
+  let couvert = 0
+  let courant: Étendue | null = null
+  for (const i of écrêtés) {
+    if (courant === null || i.start > courant.end) {
+      if (courant !== null) couvert += courant.end - courant.start
+      courant = { ...i }
+    } else if (i.end > courant.end) {
+      courant.end = i.end
+    }
+  }
+  if (courant !== null) couvert += courant.end - courant.start
+
+  return Math.round((couvert / total) * 10_000) / 10_000
+}
+
+/**
+ * L'étendue du transcript : du premier mot aligné au dernier.
+ *
+ * **Pas la durée de l'émission**, et c'est le dénominateur qui donne son sens à
+ * la couverture : une émission qui commence par cinq minutes de silence n'a pas
+ * cinq minutes de matière non jugée. Les mots arrivent en général ordonnés, mais
+ * on ne le suppose pas — un transcript vient du disque.
+ */
+export function étendueDuTranscript(mots: readonly Word[]): Étendue {
+  if (mots.length === 0) return { start: 0, end: 0 }
+  let start = Number.POSITIVE_INFINITY
+  let end = Number.NEGATIVE_INFINITY
+  for (const mot of mots) {
+    if (mot.start < start) start = mot.start
+    if (mot.end > end) end = mot.end
+  }
+  return end > start ? { start, end } : { start: 0, end: 0 }
 }
 
 /**
@@ -692,6 +792,20 @@ const bilans = new Map<string, BilanNotation>()
  */
 export function dernierBilan(projectId: string): BilanNotation | null {
   return bilans.get(projectId) ?? null
+}
+
+/**
+ * Oublie le bilan d'un projet, **avant** qu'une exécution qui vise le repérage
+ * ne commence.
+ *
+ * `runCandidates` fait déjà ce nettoyage à sa première ligne, mais trop tard
+ * pour le lanceur : une exécution qui vise `candidates` peut passer une demi-heure
+ * dans la transcription avant d'y arriver, et pendant tout ce temps `status.json`
+ * publierait le décompte de la passe précédente comme s'il décrivait celle-ci.
+ * Le lanceur appelle donc ceci dès qu'il retient un plan qui contient l'étape.
+ */
+export function oublierBilan(projectId: string): void {
+  bilans.delete(projectId)
 }
 
 /**
@@ -747,13 +861,18 @@ export async function runCandidates(
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
-  const { notées, bilan } = await noterLesFenêtres(fenêtres, {
-    projectId,
-    language: transcript.language,
-    videoDuration: durée,
-    appel,
-    sleep,
-  })
+  const { notées, bilan } = await noterLesFenêtres(
+    fenêtres,
+    {
+      projectId,
+      language: transcript.language,
+      videoDuration: durée,
+      étendue: étendueDuTranscript(mots),
+      appel,
+      sleep,
+    },
+    options.onBilan,
+  )
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
   const retenues = shortlistFromScores(notées, fenêtres)
@@ -827,6 +946,15 @@ type Ardoise = {
   nonNotées: Set<string>
   /** Les notes rassemblées, réconciliation comprise. */
   notées: ScoredWindow[]
+  /**
+   * L'étendue de chaque fenêtre, par identifiant. `nonNotées` ne porte que des
+   * identifiants ; la couverture, elle, se calcule sur des intervalles.
+   */
+  étendues: Map<string, Étendue>
+  /** L'étendue du transcript, dénominateur de la couverture. */
+  transcript: Étendue
+  /** Prévenu après chaque lot traité. Voir `RepérageOptions.onBilan`. */
+  publier?: (bilan: BilanNotation) => void
 }
 
 /**
@@ -845,6 +973,8 @@ type ContexteNotation = {
   projectId: string
   language: string
   videoDuration: number
+  /** L'étendue du transcript : le dénominateur de `couverture`. */
+  étendue: Étendue
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
 }
@@ -861,6 +991,7 @@ type ContexteNotation = {
 async function noterLesFenêtres(
   fenêtres: Window[],
   ctx: ContexteNotation,
+  onBilan?: (bilan: BilanNotation) => void,
 ): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
   const taille = tailleDeLot()
   const lots: Window[][] = []
@@ -873,6 +1004,9 @@ async function noterLesFenêtres(
   const ardoise: Ardoise = {
     notées: [],
     nonNotées: new Set(fenêtres.map((f) => f.id)),
+    étendues: new Map(fenêtres.map((f) => [f.id, { start: f.start, end: f.end }])),
+    transcript: ctx.étendue,
+    publier: onBilan,
     bilan: {
       fenêtres: fenêtres.length,
       notées: 0,
@@ -881,6 +1015,9 @@ async function noterLesFenêtres(
       appels: 0,
       lotsRefusés: 0,
       lotsRépondus: 0,
+      // Rien n'est noté avant le premier appel : la couverture part de zéro et
+      // grandit avec les réponses, comme le reste du bilan.
+      couverture: 0,
     },
   }
   const { bilan } = ardoise
@@ -910,6 +1047,10 @@ async function noterEtRécupérer(
     const lu = await noterUnLot(lot, ctx, ardoise)
     if (lu === null) refusés.push(lot)
     else ranger(lu, ardoise)
+    // **Après le lot entier, pas dans `ranger`.** Un lot refusé ne range rien et
+    // change pourtant le bilan — `lotsRefusés`, `appels` —, et c'est justement le
+    // chiffre qu'on veut voir monter en direct.
+    ardoise.publier?.(bilan)
   }
 
   const budget = lots.length * RÉCUPÉRATION_MAX
@@ -1070,6 +1211,7 @@ async function récupérer(
     if (lot.length === 1) {
       ardoise.bilan.refusées.push(lot[0].id)
       abandonner(lot, ardoise, 'fenêtre refusée par le filtre')
+      ardoise.publier?.(ardoise.bilan)
       continue
     }
 
@@ -1087,6 +1229,7 @@ async function récupérer(
       const lu = await noterUnLot(moitié, ctx, ardoise, budget)
       if (lu === null) file.push(moitié)
       else ranger(lu, ardoise)
+      ardoise.publier?.(ardoise.bilan)
     }
   }
 }
@@ -1117,6 +1260,13 @@ function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardo
     if (nonNotées.delete(note.id)) bilan.notées += 1
   }
   bilan.jamaisNotées = [...nonNotées]
+  // Recalculée **ici et nulle part ailleurs** : c'est le seul endroit où
+  // `nonNotées` rétrécit, donc le seul où la couverture change. La déduire
+  // ailleurs ferait une seconde autorité sur le même chiffre.
+  bilan.couverture = partCouverte(
+    [...ardoise.étendues].filter(([id]) => !nonNotées.has(id)).map(([, étendue]) => étendue),
+    ardoise.transcript,
+  )
 }
 
 /** Retire le marqueur avant de toucher à la base. */

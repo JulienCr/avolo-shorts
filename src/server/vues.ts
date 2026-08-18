@@ -2,11 +2,11 @@ import fs from 'node:fs'
 
 import type { Clip, Segment } from '@/core/edl'
 import { titreProjet } from '@/core/pipeline'
-import type { CandidateClip, ProjectSummary } from '@/lib/api'
+import type { CandidateClip, ProjectListItem, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Project } from '@/server/db'
 import { candidatesPath, proxyPath } from '@/server/paths'
-import { cheminTranscript } from '@/server/run'
+import { cheminTranscript, lireStatut, progression } from '@/server/run'
 import { lireTranscript, type TranscriptLu } from '@/server/steps/candidates'
 
 /**
@@ -30,6 +30,40 @@ export function résuméProjet(projet: Project): ProjectSummary {
     // s'affiche en `0:00` là où `null` casserait le formatage.
     durationSec: projet.durationSec ?? 0,
     createdAt: new Date(projet.createdAt).toISOString(),
+  }
+}
+
+/**
+ * Le projet dans la bibliothèque : son résumé, ce qui tourne, et le dernier
+ * échec.
+ *
+ * **Rien ici ne touche au Drive, et c'est la seule chose qui compte.** La
+ * bibliothèque appelle cette fonction une fois par projet — vingt et une fois
+ * aujourd'hui —, donc tout ce qu'elle fait est multiplié d'autant. `progression`
+ * lit une `Map` du processus ; `lireStatut` lit un petit fichier local. Ni
+ * `relevéPrésence`, ni `urlProxy`, ni quoi que ce soit qui sonde un montage 9p
+ * avec un délai de garde : quatre fils du vivier de libuv suffisent à figer tout
+ * ce qui touche au disque dans le serveur (voir le cache de `run.ts`).
+ *
+ * **Les deux lectures sont synchrones, et c'est voulu.** `lireStatut` fait un
+ * `readFileSync` sur un fichier de quelques centaines d'octets dans
+ * `PROJECTS_DIR`, jamais sur le Drive : vingt et un se comptent en fractions de
+ * milliseconde. Les rendre asynchrones n'y gagnerait rien et supprimerait la
+ * seule propriété qui rende la réponse cohérente — rien ne s'intercale entre le
+ * `progression` et le `lireStatut` d'un même projet, donc aucun d'eux ne décrit
+ * un instant que l'autre ignore.
+ *
+ * `error` se tait pendant qu'une exécution tourne, exactement comme dans
+ * `GET /api/projects/:id` : l'échec affiché serait celui d'avant, et deux
+ * écrans qui se contredisent sur le même projet valent moins que pas d'écran du
+ * tout.
+ */
+export function élémentDeListe(projet: Project): ProjectListItem {
+  const running = progression(projet.id)
+  return {
+    ...résuméProjet(projet),
+    running,
+    error: running === null ? (lireStatut(projet.id)?.error ?? null) : null,
   }
 }
 

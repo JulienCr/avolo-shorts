@@ -403,9 +403,13 @@ export function motsDièse(texte: string): string[] {
 /**
  * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
  *
- * La publication est hors périmètre (spec §3) — l'outil produit des fichiers et
- * des textes, Julien publie avec ses outils. Ce fichier est donc fait pour être
- * **copié**, pas analysé : trois sections nommées, dans l'ordre où on les colle.
+ * Ce fichier est fait pour être **copié**, pas analysé : trois sections nommées,
+ * dans l'ordre où on les colle. Il servait à publier à la main, la publication
+ * étant hors périmètre ; elle y est entrée le 18 août 2026
+ * (`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`), et le
+ * `.txt` reste pour les réseaux qu'on ne branche pas et pour le rattrapage quand
+ * une plateforme refuse. **Il n'est pas la source des textes publiés** : ceux-ci
+ * se dérivent du clip, par plateforme, et non de ce rendu-ci.
  *
  * **Les mots-dièse ne sont pas retirés de la description**, ils en sont extraits.
  * Le prompt de détail demande au modèle « une description puis 3 à 5 mots-dièse »

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GET as servirRendu } from '@/app/api/clips/[id]/renders/[file]/route'
 import { GET as getClipRoute, PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
@@ -9,16 +9,20 @@ import { GET as getCandidats } from '@/app/api/projects/[id]/candidates/route'
 import { GET as getProjet } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
+import { GET as listerSources } from '@/app/api/sources/route'
 import type { Clip } from '@/core/edl'
 import type {
   CandidateClip,
   ClipDetail,
   PatchClipResult,
+  ProjectListItem,
   ProjectStatus,
   ProjectSummary,
+  SourcesListing,
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
+import { lancer, lireStatut, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
 
@@ -45,6 +49,44 @@ function contexte(id: string): { params: Promise<{ id: string }> } {
 /** Idem, pour la route qui sert un fichier de rendu nommé. */
 function contexteRendu(id: string, file: string): { params: Promise<{ id: string; file: string }> } {
   return { params: Promise.resolve({ id, file }) }
+}
+
+/** Rend une liste de clips vide : `runCandidates` en rend une, l'étape témoin aussi. */
+function resolveVide(résoudre: (clips: Clip[]) => void): void {
+  résoudre([])
+}
+
+/** Un `status.json` posé à la main, comme une exécution terminée l'aurait écrit. */
+function poserStatut(champs: Record<string, unknown>): void {
+  const dossier = path.join(racine, 'projects', PROJET)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(
+    path.join(dossier, 'status.json'),
+    JSON.stringify({
+      pid: 1,
+      updatedAt: 0,
+      cibles: ['candidates'],
+      plan: ['candidates'],
+      running: null,
+      error: null,
+      finishedAt: 1,
+      repérage: null,
+      ...champs,
+    }),
+  )
+}
+
+/**
+ * Laisse l'exécution de fond se terminer avant de rendre la main.
+ *
+ * `POST /run` répond 202 et laisse une promesse derrière lui. Sans cette
+ * attente, elle se règlerait pendant le test suivant — dont le `beforeEach` a
+ * déjà effacé le dossier sous ses pieds.
+ */
+async function laisserFinir(): Promise<void> {
+  for (let i = 0; i < 400 && progression(PROJET) !== null; i += 1) {
+    await new Promise((résoudre) => setTimeout(résoudre, 5))
+  }
 }
 
 /** Cent octets reconnaissables, pour distinguer une tranche du fichier entier. */
@@ -125,10 +167,17 @@ describe('GET /api/projects', () => {
   it('ne publie ni sourcePath ni stagedPath', async () => {
     const réponse = await listerProjets()
     expect(réponse.status).toBe(200)
-    const projets = (await réponse.json()) as ProjectSummary[]
+    const projets = (await réponse.json()) as ProjectListItem[]
 
     expect(projets).toHaveLength(1)
-    expect(Object.keys(projets[0]).sort()).toEqual(['createdAt', 'durationSec', 'id', 'title'])
+    expect(Object.keys(projets[0]).sort()).toEqual([
+      'createdAt',
+      'durationSec',
+      'error',
+      'id',
+      'running',
+      'title',
+    ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.
     expect(JSON.stringify(projets)).not.toContain(racine)
@@ -137,6 +186,106 @@ describe('GET /api/projects', () => {
   it('dérive le titre du nom de fichier', async () => {
     const projets = (await (await listerProjets()).json()) as ProjectSummary[]
     expect(projets[0].title).toBe('méchante — 11 janvier 2026')
+  })
+
+  /**
+   * « Trois analyses en cours, une en échec » : la bibliothèque ne peut pas le
+   * dire d'un `ProjectSummary`, et la seule autre forme — une requête par projet
+   * — est à écarter. Elle multiplierait par vingt et un un appel qui exécute
+   * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde : quatre
+   * fils du vivier de libuv suffisent à figer le serveur entier (spec §3.1).
+   */
+  it('dit ce qui tourne, sans sonder le moindre artefact', async () => {
+    // Le transcript déjà là : le plan se réduit au repérage, seule étape qu'on
+    // remplace ici par un témoin qu'on tient en main.
+    poserTranscript()
+    let relâcher = (): void => {}
+    const enCours = new Promise<Clip[]>((résoudre) => {
+      relâcher = () => resolveVide(résoudre)
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+
+    const sonde = vi.spyOn(fs, 'existsSync')
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].running).toEqual({ step: 'candidates', progress: 0 })
+      // **Le contrôle qui porte la décision.** `relevéPrésence` est fait de
+      // `existsSync` : s'il revenait dans cette route, ce compteur le dirait.
+      expect(sonde).not.toHaveBeenCalled()
+    } finally {
+      sonde.mockRestore()
+      relâcher()
+      await laisserFinir()
+    }
+  })
+
+  it('rend null quand rien ne tourne et que rien n’a échoué', async () => {
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].running).toBeNull()
+    expect(projets[0].error).toBeNull()
+  })
+
+  /**
+   * L'échec d'une tâche de fond n'a aucune réponse HTTP où loger : `status.json`
+   * en est le seul dépositaire, et c'est un petit fichier local — ni Drive, ni
+   * délai de garde.
+   */
+  it('remonte l’échec de la dernière exécution terminée', async () => {
+    poserStatut({ error: 'Gemini a refusé le contenu de cette vidéo.' })
+
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].error).toContain('Gemini')
+  })
+
+  /**
+   * Le même partage que `GET /api/projects/:id` : pendant qu'une exécution
+   * tourne, l'échec affiché serait celui d'avant. Les deux routes doivent en
+   * dire la même chose, sans quoi la bibliothèque et l'écran de projet se
+   * contrediraient sur le même projet.
+   */
+  it('n’affiche pas l’échec d’avant pendant qu’une exécution tourne', async () => {
+    poserStatut({ error: 'un échec d’avant' })
+    poserTranscript()
+    let relâcher = (): void => {}
+    const enCours = new Promise<Clip[]>((résoudre) => {
+      relâcher = () => resolveVide(résoudre)
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].error).toBeNull()
+    } finally {
+      relâcher()
+      await laisserFinir()
+    }
+  })
+})
+
+describe('GET /api/sources', () => {
+  it('rend les replays et la ligne de montage', async () => {
+    const réponse = await listerSources()
+    expect(réponse.status).toBe(200)
+    const listing = (await réponse.json()) as SourcesListing
+
+    expect(listing.sources.map((s) => s.name)).toEqual([`${PROJET}.mp4`])
+    // La source a déjà son projet : la carte y mène au lieu d'en recréer un.
+    expect(listing.sources[0].projectId).toBe(PROJET)
+    expect(listing.montage.disponible).toBe(true)
+    expect(JSON.stringify(listing.sources)).not.toContain(racine)
+  })
+
+  /**
+   * `REPLAY_DIR` absent de l'environnement n'est pas un montage indisponible :
+   * c'est le serveur qui n'est pas monté, et personne n'y peut rien depuis
+   * l'écran. Le déguiser en `disponible: false` enverrait rouvrir un lecteur
+   * Windows là où il manque une ligne de `.env`.
+   */
+  it('rend 500 quand REPLAY_DIR n’est pas configurée', async () => {
+    delete process.env.REPLAY_DIR
+    const réponse = await listerSources()
+    expect(réponse.status).toBe(500)
+    expect(((await réponse.json()) as { error: string }).error).toContain('REPLAY_DIR')
   })
 })
 
@@ -184,6 +333,57 @@ describe('GET /api/projects/:id', () => {
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
     expect(état.error).toContain('PROHIBITED_CONTENT')
+  })
+
+  /**
+   * **Ce que le repérage n'a pas jugé** (spec §7.2). Quatre lots sur onze
+   * reviennent `PROHIBITED_CONTENT` sur `2025-06-15-cqlp` : un tiers du
+   * matériau écarté sans être jugé, et rien à l'écran ne le disait. Sans ce
+   * champ, on trie vingt-cinq cartes en croyant regarder ce que l'émission a de
+   * mieux, alors qu'on regarde ce qu'elle a de mieux dans les deux tiers notés.
+   *
+   * **Le `status.json` est posé à la main, sans qu'aucun bilan ne vive en
+   * mémoire** : c'est aussi ce qui fige la persistance. Le décompte survit au
+   * processus qui l'a produit, comme les propositions qu'il qualifie.
+   */
+  it('publie ce que le repérage n’a pas jugé', async () => {
+    poserStatut({
+      repérage: {
+        fenêtres: 83,
+        notées: 51,
+        lotsRefusés: 4,
+        lotsRépondus: 7,
+        couverture: 0.6412,
+        partiel: false,
+      },
+    })
+
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.repérage).toEqual({
+      fenêtres: 83,
+      notées: 51,
+      lotsRefusés: 4,
+      lotsRépondus: 7,
+      couverture: 0.6412,
+      partiel: false,
+    })
+  })
+
+  /**
+   * `null` et non un objet à zéro : « aucune notation n'est décrite » n'est pas
+   * « aucune fenêtre n'a été notée ». Un zéro affiché ferait annoncer une perte
+   * totale sur un projet dont le repérage n'a simplement jamais tourné dans ce
+   * processus.
+   */
+  it('rend null quand aucune notation n’est décrite', async () => {
+    poserStatut({})
+
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.repérage).toBeNull()
   })
 
   it('ne rend pas d’échec quand rien n’a jamais tourné', async () => {
@@ -885,6 +1085,63 @@ describe('POST /api/projects/:id/run', () => {
     expect((await lancerRoute({ target: 'renders' })).status).toBe(400)
     expect((await lancerRoute({ target: 'nimporte' })).status).toBe(400)
     expect((await lancerRoute({ target: 'candidates', inconnu: 1 })).status).toBe(400)
+  })
+
+  /**
+   * **Le bouton de reprise vise deux résultats, pas une étape.** Viser
+   * `candidates` seul ne construit jamais le proxy — rien n'en dépend dans le
+   * graphe —, et le projet resterait dans l'impasse dont on voulait le sortir.
+   *
+   * L'état posé ici le montre : le repérage est déjà fait, le proxy non. Une
+   * cible seule rendrait un plan vide (le cas au-dessus), la liste rend
+   * `['proxy']`.
+   *
+   * Le replay est retiré du dossier pour que l'exécution de fond échoue tout de
+   * suite sur son `lstat`, au lieu de lancer un vrai encodage : ce qui se teste
+   * ici est le plan, pas ffmpeg.
+   */
+  it('accepte une liste de cibles et les planifie toutes', async () => {
+    poserTranscript()
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.rmSync(path.join(racine, 'replays', `${PROJET}.mp4`), { force: true })
+
+    const réponse = await lancerRoute({ target: ['candidates', 'proxy'] })
+    expect(réponse.status).toBe(202)
+    expect(await réponse.json()).toEqual({ projectId: PROJET, plan: ['proxy'] })
+    await laisserFinir()
+  })
+
+  /**
+   * **Une liste vide est une demande mal formée, pas un plan vide.** Le plan
+   * vide a déjà un sens — « tout était là, il n'y avait rien à faire » — et
+   * l'écran l'affiche comme un succès. Accepter `[]` ferait donc répondre
+   * « c'est fait » à une demande qui ne visait rien.
+   */
+  it('refuse une liste de cibles vide', async () => {
+    expect((await lancerRoute({ target: [] })).status).toBe(400)
+  })
+
+  /**
+   * **Une cible répétée n'est pas refusée, elle est réduite.** Le plan, lui, ne
+   * changeait pas — `planPourCibles` ne planifie jamais deux fois la même étape
+   * — mais `lancer` garde la liste reçue dans `cibles`, et `status.json` la
+   * réécrit à chaque mise à jour, jusqu'à une fois par seconde pendant les six
+   * minutes d'un proxy. Une liste qui répète mille fois `candidates` rendait donc
+   * chaque écriture arbitrairement volumineuse, pour un plan identique.
+   * (relevé par Copilot)
+   */
+  it('réduit une cible répétée au lieu de la recopier dans le statut', async () => {
+    poserTranscript()
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+
+    const réponse = await lancerRoute({ target: ['candidates', 'candidates', 'candidates'] })
+    expect(réponse.status).toBe(202)
+    expect(lireStatut(PROJET)?.cibles).toEqual(['candidates'])
+  })
+
+  it('refuse une cible interdite au milieu d’une liste', async () => {
+    expect((await lancerRoute({ target: ['candidates', 'renders'] })).status).toBe(400)
+    expect((await lancerRoute({ target: ['candidates', 'nimporte'] })).status).toBe(400)
   })
 
   it('rend 404 sur un projet inconnu', async () => {

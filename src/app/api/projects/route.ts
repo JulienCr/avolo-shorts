@@ -6,7 +6,7 @@ import { corps, ErreurHttp, introuvable, json, requêteInvalide, route } from '@
 import { replayDir, resolveSource } from '@/server/paths'
 import { créerProjet } from '@/server/run'
 import { DÉLAI_STAT_MS, statAvecDélai } from '@/server/steps/ingest'
-import { résuméProjet } from '@/server/vues'
+import { élémentDeListe } from '@/server/vues'
 
 /**
  * `GET /api/projects` — la bibliothèque.
@@ -19,7 +19,7 @@ const CRÉATION = z.strictObject({
 })
 
 export const GET = route('GET /api/projects', async () => {
-  return json(listProjects(getDb()).map(résuméProjet))
+  return json(listProjects(getDb()).map(élémentDeListe))
 })
 
 /**

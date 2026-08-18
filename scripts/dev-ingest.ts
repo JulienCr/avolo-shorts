@@ -10,6 +10,7 @@
  */
 
 import { closeDb, getDb } from '@/server/db'
+import { encoderName } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
 import { ingest } from '@/server/steps/ingest'
@@ -46,9 +47,11 @@ async function main(): Promise<number> {
       projet.copied ? `copiée en ${durée(tCopie())}` : 'déjà présente, rien à faire'
     }`,
   )
-  // `auto` vaut x264 pour le proxy, et c'est la mesure qui le dit : NVENC y est
-  // plus lent (12,8x contre 13,8x). Voir `encodeurProxy`.
-  console.log(`Encodeur : ${encodeurProxy()} (proxy)`)
+  // Deux encodeurs, et ce n'est pas une incohérence : `auto` vaut x264 pour le
+  // proxy, où NVENC est mesuré plus lent (12,8x contre 13,8x), et nvenc pour
+  // l'export, où il gagne un facteur 2,3. Afficher les deux fait aussi tourner
+  // la sonde NVENC, donc dit tout de suite si la carte répond.
+  console.log(`Encodeur : ${encodeurProxy()} pour le proxy, ${encoderName()} pour l'export`)
 
   const barreProxy = créerBarre('  proxy ')
   const tProxy = chrono()

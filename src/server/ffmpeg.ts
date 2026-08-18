@@ -200,19 +200,13 @@ function sonderNvenc(): boolean {
   return sondeNvenc
 }
 
-/** Oublie le résultat de la sonde. Pour les tests, et pour eux seuls. */
-export function réinitialiserSondeNvenc(): void {
-  sondeNvenc = null
-}
-
 /**
  * L'encodeur à utiliser. `FFMPEG_ENCODER` fait foi ; `auto` sonde une fois.
  *
- * Rappel mesuré, qui surprend : **NVENC est plus lent que le CPU sur le proxy**
- * (12,8x contre 13,8x), parce que le travail y est dominé par le
- * redimensionnement, qui reste sur le processeur. Il gagne un facteur 2,3 sur
- * l'export. `proxyArgs` reçoit tout de même son encodeur en argument : le choix
- * se fait à l'appel, pas dans le constructeur d'argv.
+ * C'est l'encodeur **de l'export**, celui qui gagne le facteur 2,3 au GPU (4,58x
+ * contre 1,97x). Le proxy a le sien, `encodeurProxy` dans `steps/proxy.ts`, et
+ * il rend x264 sur `auto` : le redimensionnement y domine le travail et reste
+ * sur le processeur dans les deux cas, si bien que NVENC y est plus lent.
  */
 export function encoderName(): EncoderName {
   return choisirEncodeur(process.env.FFMPEG_ENCODER, sonderNvenc)

@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   analyserMarqueTemps,
   cheminTemporaire,
   choisirEncodeur,
   créerJournal,
+  produireArtefact,
 } from '@/server/ffmpeg'
 
 /**
@@ -147,5 +151,52 @@ describe('cheminTemporaire', () => {
 
   it('reste dans le dossier de destination même sans jeton', () => {
     expect(cheminTemporaire('/p/proxy.mp4')).toMatch(/^\/p\/proxy\.partiel-\d+-\d+\.mp4$/)
+  })
+})
+
+describe('produireArtefact — la décision de sauter', () => {
+  const racines: string[] = []
+  const tmp = (): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ffmpeg-'))
+    racines.push(d)
+    return d
+  }
+
+  afterEach(() => {
+    for (const d of racines.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  // Le drapeau : `args` n'est appelé que si l'étape doit vraiment tourner. Il
+  // lève, donc le seul fait qu'il soit appelé se voit — et aucun test ici
+  // n'atteint ffmpeg.
+  const jamais = () => {
+    throw new Error("l'étape ne devait pas tourner")
+  }
+
+  it("ne lance rien quand l'artefact est déjà là", async () => {
+    const dossier = tmp()
+    const dst = path.join(dossier, 'proxy.mp4')
+    fs.writeFileSync(dst, 'un proxy')
+    await expect(produireArtefact({ dst, args: jamais })).resolves.toEqual({
+      path: dst,
+      skipped: true,
+    })
+  })
+
+  it('force court-circuite la présence', async () => {
+    const dossier = tmp()
+    const dst = path.join(dossier, 'proxy.mp4')
+    fs.writeFileSync(dst, 'un proxy')
+    await expect(produireArtefact({ dst, force: true, args: jamais })).rejects.toThrow(
+      /ne devait pas tourner/,
+    )
+  })
+
+  it("lance l'étape quand l'artefact manque, et ne laisse pas de moignon", async () => {
+    const dossier = tmp()
+    const dst = path.join(dossier, 'sous-dossier', 'proxy.mp4')
+    await expect(produireArtefact({ dst, args: jamais })).rejects.toThrow(/ne devait pas tourner/)
+    // Le dossier a bien été créé, et rien de partiel n'y traîne.
+    expect(fs.readdirSync(path.dirname(dst))).toEqual([])
   })
 })

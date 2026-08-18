@@ -1,7 +1,7 @@
 import { getClip, getDb } from '@/server/db'
 import { introuvable, route } from '@/server/http'
 import { servirFichier } from '@/server/octets'
-import { sortieNommée } from '@/server/rendus'
+import { livraisonÀJour, sortieNommée } from '@/server/rendus'
 
 /**
  * `GET /api/clips/:id/renders/:file` — un fichier produit par l'export.
@@ -33,16 +33,28 @@ export const GET = route(
     const clip = getClip(getDb(), id)
     if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
 
-    // **Un clip non exporté ne sert rien**, même si le fichier est là.
+    // **Un clip sans livraison à jour ne sert rien**, même si le fichier est là.
     //
-    // `status` ne vaut `exported` que si `renderClip` a fini d'écrire ; une
-    // édition qui périme le rendu le repose à `kept`. Des fichiers qui survivent
-    // sous un clip `kept` — un effacement qui a échoué, les restes d'un montage
-    // abandonné — décrivent la version d'avant. `sortiesDuClip` a cessé de les
-    // publier ; les servir quand même à qui a gardé l'URL laisserait exactement
-    // le même mensonge sortir par l'autre porte. (relevé par Copilot)
-    if (clip.status !== 'exported') {
-      throw introuvable(`Le clip ${id} n'a pas de rendu à jour : son montage a changé depuis.`)
+    // Des fichiers qui survivent sous un clip `kept` — un effacement qui a
+    // échoué, les restes d'un montage abandonné — décrivent la version d'avant.
+    // `sortiesDuClip` a cessé de les publier ; les servir quand même à qui a
+    // gardé l'URL laisserait exactement le même mensonge sortir par l'autre
+    // porte. (relevé par Copilot)
+    //
+    // **Le même verdict que la publication des URL, par la même fonction.** Le
+    // statut ne suffit pas : depuis #48, un clip `exported` dont l'empreinte ne
+    // décrit plus le rendu n'a pas de livraison à jour non plus, et l'URL de son
+    // MP4 est stable — un lecteur qui l'a gardée continuerait de tirer
+    // précisément le fichier que l'autre porte déclare indisponible.
+    // (relevé par Codex)
+    //
+    // **Le message reste générique**, et il l'est volontairement : ce verdict est
+    // faux pour un clip jamais exporté, pour une empreinte absente ou illisible,
+    // pour une recette antérieure et pour un montage modifié. Nommer une seule
+    // de ces causes enverrait chercher le défaut là où il n'est pas trois fois
+    // sur quatre. (relevé par Copilot)
+    if (!livraisonÀJour(clip)) {
+      throw introuvable(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
     }
 
     const sortie = sortieNommée(clip, file)

@@ -5,7 +5,7 @@ import type { Clip } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
 import type { ClipOutputs } from '@/lib/api'
 import { estUneAbsence } from '@/server/octets'
-import { cheminsRendu } from '@/server/steps/render'
+import { cheminsRendu, empreinteÀJour, lireEmpreinte } from '@/server/steps/render'
 
 /**
  * Les sorties d'un clip : ce que l'export a produit, et sous quel nom on le
@@ -37,6 +37,8 @@ type Sorties = {
   /** `null` quand le ratio résolu est **déjà** 9:16 : la variante n'est pas due. */
   variant9x16: SortieClip | null
   texts: SortieClip
+  /** Le chemin de l'empreinte. **Pas une sortie** : elle ne se publie ni ne se sert. */
+  empreinte: string
 }
 
 function sortie(chemin: string, type: string): SortieClip {
@@ -58,6 +60,7 @@ function sorties(clip: Clip): Sorties {
     variant9x16:
       chemins.variant9x16 === null ? null : sortie(chemins.variant9x16, 'video/mp4'),
     texts: sortie(chemins.texts, 'text/plain; charset=utf-8'),
+    empreinte: chemins.empreinte,
   }
 }
 
@@ -96,6 +99,45 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
 }
 
 /**
+ * Ce clip a-t-il une livraison à jour, c'est-à-dire des fichiers qui le
+ * décrivent encore ?
+ *
+ * **Une seule question, deux portes.** `sortiesDuClip` publie les URL et
+ * `GET /api/clips/:id/renders/:file` pousse les octets ; les deux doivent
+ * répondre pareil, sinon la porte qui reste ouverte laisse sortir exactement ce
+ * que l'autre déclare indisponible — un consommateur qui a gardé l'URL continue
+ * de tirer le rendu périmé. (relevé par Codex)
+ *
+ * **Le statut d'abord**, et c'est un invariant, pas une précaution : `status` ne
+ * devient `exported` que dans `renderClip`, une fois les fichiers écrits — la
+ * route d'édition refuse ce statut au client. Des fichiers présents sous un clip
+ * qui ne le porte pas décrivent donc autre chose que sa livraison : un rendu
+ * qu'une édition vient de périmer et dont l'effacement a échoué, ou les restes
+ * d'un montage abandonné. (relevé par Copilot)
+ *
+ * **Et le statut ne suffit pas non plus** (#48). Un clip peut le porter sur des
+ * fichiers qui ne le décrivent plus : ceux qui étaient sur le disque avant que
+ * l'empreinte existe, ou ceux qu'un rendu antérieur a produits sous une autre
+ * recette. C'est ici que le rendu « se dit à jour », donc c'est ici qu'il doit
+ * avoir de quoi le prouver. Le contrat le dit déjà : `mp4Url: null` veut dire
+ * « pas de livraison à jour », pas « jamais exporté » (`src/lib/api.ts`), et
+ * l'écran propose alors l'export — qui refera ce qu'il faut plutôt que de sauter
+ * dessus.
+ *
+ * **Sans sonder le dossier des marques ni le look des sous-titres** : un `GET` se
+ * sert à chaque affichage de carte et ne lance pas deux ffprobe pour cela. C'est
+ * la même fonction que celle du rendu, avec deux critères de moins — voir
+ * `CeQuOnIncrusterait`.
+ */
+export function livraisonÀJour(clip: Clip): boolean {
+  if (clip.status !== 'exported') return false
+  return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, {
+    marques: null,
+    look: null,
+  })
+}
+
+/**
  * Ce que `GET /api/clips/:id` dit des sorties.
  *
  * **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.**
@@ -106,15 +148,7 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  */
 export function sortiesDuClip(clip: Clip): ClipOutputs {
   const { mp4, variant9x16, texts } = sorties(clip)
-  // **Seul un clip exporté a des sorties**, et c'est un invariant, pas une
-  // précaution : `status` ne devient `exported` que dans `renderClip`, une fois
-  // les fichiers écrits — la route d'édition refuse ce statut au client. Des
-  // fichiers présents sous un clip qui ne le porte pas décrivent donc autre
-  // chose que sa livraison : un rendu qu'une édition vient de périmer et dont
-  // l'effacement a échoué, ou les restes d'un montage abandonné. Les publier
-  // ferait servir la vidéo d'avant sans que rien ne le signale.
-  // (relevé par Copilot)
-  if (clip.status !== 'exported') {
+  if (!livraisonÀJour(clip)) {
     return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
   }
   return {
@@ -133,6 +167,10 @@ export function sortiesDuClip(clip: Clip): ClipOutputs {
  * fait sur des noms déjà construits par `cheminsRendu`, donc `../` et compagnie
  * ne désignent rien — pas parce qu'ils sont filtrés, mais parce qu'ils ne
  * figurent pas dans la liste.
+ *
+ * **Ni le `.ass` ni l'empreinte n'y figurent**, pour la même raison qu'ils ne
+ * sont pas des sorties : ce sont des pièces internes, et une route qui les
+ * servirait laisserait croire qu'elles font partie de la livraison.
  */
 export function sortieNommée(clip: Clip, nom: string): SortieClip | null {
   const { mp4, variant9x16, texts } = sorties(clip)

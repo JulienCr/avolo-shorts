@@ -1,7 +1,9 @@
 # Parcours utilisateur : conception de l'interface
 
 Date : 18 août 2026.
-Statut : proposition. Aucune ligne de `src/` n'a été écrite pour l'accompagner.
+Statut : appliqué. **L'avancement se lit en section 8 et nulle part ailleurs**,
+lot par lot : un état recopié en tête de document vieillit sans que personne ne
+le relise, et celui-ci avait déjà vieilli d'une vague entière.
 
 Ce document décide de la **forme du parcours** et de ce que chaque écran doit
 porter. Il ne décide ni du pipeline, ni de l'API, ni du cadrage : la conception
@@ -19,6 +21,12 @@ première passe de relecture (Copilot, Codex, Aristarque) et l'arbitrage de Juli
 sur le mode de cadrage, qui a fait réécrire la section 3.5.
 
 ## 1. L'état actuel
+
+**Cette section décrit le code au commit `5412597`, et elle ne se met pas à
+jour.** C'est le diagnostic qui a fait écrire le reste, pas un état des lieux. Ses
+« aujourd'hui », comme ceux des sections 5 et 6, nomment ce qui manquait alors ;
+les lire au présent ferait rouvrir des défauts refermés depuis. Ce qui vaut
+maintenant se lit dans les sections qui décident, et l'avancement en section 8.
 
 L'interface est jugée « déplorable » par son propriétaire. Ce jugement est juste,
 mais il porte moins sur ce qui est écrit que sur ce qui manque : chaque fichier
@@ -386,17 +394,22 @@ titres et les descriptions des clips gardés. Ce n'est pas un lot de consolation
 c'est un livrable du produit (spec §3). (relevé par Aristarque)
 
 Une conséquence de forme : **la liste des étapes et leurs libellés sont des
-données, pas du code d'écran**. Aujourd'hui `LIBELLES_ETAPES` est un `Record`
-déclaré dans la page de tri ; ajouter `shots` et `people` en itération 1
-obligerait à éditer une page. Le tableau des étapes, avec pour chacune son
-libellé, son ordre attendu et son coût mesuré, vit à côté de `phaseProjet`.
+données, pas du code d'écran**. `LIBELLES_ETAPES` était un `Record` déclaré dans
+la page de tri, et l'étape que l'itération 1 a ajoutée y manquait. L'écran
+affichait alors un libellé vide pendant toute l'analyse d'un projet neuf. Le
+tableau des étapes, avec pour chacune son libellé, son ordre attendu et son coût
+mesuré, vit donc à côté de `phaseProjet`.
 
 ### 2.4 L'attente : trois régimes, pas un écran de chargement
 
-**Le fait qui commande tout ici est un ordre d'exécution.**
-`CIBLES_INITIALES = ['candidates', 'proxy']` (`run.ts`), et `planPourCibles`
-déroule donc : ingestion, audio, transcript, candidats, **puis** proxy. Les
-candidats arrivent avant le proxy.
+**Le fait qui commande tout ici est un ordre d'exécution.** `CIBLES_INITIALES`
+(`run.ts`) vise les candidats **et** le proxy, et `planPourCibles` déroule donc :
+ingestion, audio, transcript, candidats, **puis** proxy, puis ce qui dépend du
+proxy. La liste des cibles s'allonge, l'analyse d'image y étant entrée avec la
+PR #31. La place des candidats devant le proxy, elle, ne bouge pas, et c'est
+d'elle seule que dépend tout ce qui suit. Ne pas recopier la liste ici : elle vit
+dans `run.ts`, et sa copie cliente `CIBLES_DE_REPRISE` (`src/lib/api.ts`) est
+gardée par un test.
 
 Chiffres mesurés le 18 août 2026 sur `2025-06-15-cqlp.mp4` (4,3 Go, 1 h 39),
 consignés dans `ROADMAP.md`. **Ils contredisent la spec §6, qui annonce 15 à
@@ -410,12 +423,15 @@ dépendent. (relevé par Aristarque)
 | Extraction audio | 6 s | 0:51 |
 | Transcription WhisperX | 1 min 41 | 2:32 |
 | Repérage Gemini | 30 s | **3:02, les candidats sont là** |
-| Proxy 960x540 | 6 min | **9:02, tout est là** |
+| Proxy 960x540 | 6 min | **9:02, le montage s'ouvre** |
+| Analyse d'image | jamais chronométrée sur une émission entière | l'exécution continue |
 
 Autrement dit : **un tiers de l'attente sépare le lancement de la première
 décision possible, et les deux tiers restants ne bloquent que le montage.** Sur
 l'émission la plus longue du corpus (2 h 50), les mêmes rapports donnent environ
-5 minutes jusqu'aux candidats et 15 minutes au total.
+5 minutes jusqu'aux candidats et 15 minutes jusqu'au montage. Ces proportions
+mesurent l'attente d'un humain, pas la durée d'une exécution : l'analyse d'image
+tourne encore quand le montage s'ouvre, et personne ne l'attend.
 
 De là, trois régimes et trois écrans différents pour le même projet.
 
@@ -440,7 +456,14 @@ conséquences à assumer explicitement :
   l'écran de clip ne peut rien lire sans proxy. Le tri, lui, marche entièrement :
   titre, durée, trois premières phrases, garder ou écarter.
 
-**Régime 3, complet.** Rien de particulier, et c'est le but.
+**Régime 3, complet.** Rien de particulier, et c'est le but. Une seule chose à ne
+pas rater en l'écrivant : **l'exécution ne s'arrête pas quand le montage
+s'ouvre.** L'analyse d'image dépend du proxy, donc elle passe après lui, et elle
+alimente un cadrage automatique que l'écran ne montre pas encore. La bande
+d'avancement reste donc dans la barre d'application après 9:02. Un écran qui la
+rangerait à l'ouverture du montage annoncerait une fin qui n'a pas eu lieu, et
+c'est le genre de mensonge qu'on ne remarque qu'une fois : la fois où l'analyse
+échoue en silence.
 
 **Une règle qui vaut partout : on affiche le coût d'une étape, jamais le temps
 qu'il reste.** Le coût est une mesure (« le proxy coûte environ 6 min sur 1 h 40
@@ -587,13 +610,13 @@ le dire fait douter de ce qu'on vient de déclencher.
 | **Navigation** | sortante seulement. Un projet mène à son écran, une source neuve crée un projet puis y mène. |
 | **Persistance aller** | aucune. Il n'y a rien à saisir. |
 | **Persistance retour** | la position de défilement de la grille des sources, gardée pendant la session. Vingt et une cartes chargées à la demande : revenir en haut à chaque retour ferait redemander les vignettes déjà vues. |
-| **D'où viennent les états** | `GET /api/projects` ne rend que des `ProjectSummary` et `useProjets` ne sonde rien : l'exigence de suivi multi-projets n'est pas implémentable telle quelle. Voir juste après. |
+| **D'où viennent les états** | de la liste elle-même, enrichie de ce qui est gratuit à calculer. C'était une demande au serveur, et elle est satisfaite. Voir juste après. |
 | **Validation** | aucune saisie, donc aucune validation. La seule erreur possible vient du serveur. |
 
-**Ce que la bibliothèque demande au serveur, et ce qu'elle ne doit pas demander.**
-Montrer plusieurs analyses à la fois suppose un état par projet, que
-`GET /api/projects` ne porte pas (relevé par Copilot). Deux formes possibles, et
-elles ne se valent pas :
+**Ce que la bibliothèque a demandé au serveur, et ce qu'elle ne devait pas
+demander.** Montrer plusieurs analyses à la fois suppose un état par projet, que
+`GET /api/projects` ne portait pas (relevé par Copilot). Deux formes étaient
+possibles, et elles ne se valaient pas :
 
 - **une requête par projet** (`GET /api/projects/:id` pour chacun) : à écarter.
   Elle multiplie par vingt et un un appel qui exécute `relevéPrésence`, lequel
@@ -605,16 +628,18 @@ elles ne se valent pas :
   et la dernière a-t-elle échoué (`lireStatut(id)?.error`, un petit fichier
   local). Ni l'un ni l'autre ne touche au Drive.
 
-C'est la seconde, et elle suffit exactement à ce que la bibliothèque doit dire :
-« trois analyses en cours, une en échec ». La présence des artefacts, elle, se
-résout quand on ouvre le projet, là où le sondage se paie de toute façon.
+C'est la seconde qui a été retenue, et elle suffit exactement à ce que la
+bibliothèque doit dire : « trois analyses en cours, une en échec ». La présence
+des artefacts, elle, se résout quand on ouvre le projet, là où le sondage se paie
+de toute façon. Le sondage de la liste s'arrête d'ailleurs dès que plus rien ne
+tourne : ce qui la rend gratuite est ce qu'elle ne demande pas.
 
 **Les cinq états**
 
 | État | Ce qui s'affiche |
 |---|---|
 | Chargement | squelettes aux dimensions finales, pour que la grille ne saute pas quand les cartes arrivent. Les vignettes ont leur propre chargement, plus lent, indépendant. |
-| Vide | deux vides distincts, et les confondre serait un défaut de diagnostic. **Aucun projet** : la section disparaît, la grille prend toute la place. **Aucune source** : la ligne de montage de `GET /api/sources` dit `fstype` et `entries`, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). |
+| Vide | deux vides distincts, et les confondre serait un défaut de diagnostic. **Aucun projet** : la section disparaît, la grille prend toute la place. **Aucune source** : la ligne de montage de `GET /api/sources` porte `fstype`, `entrées` et une `cause` nommée, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). **La cause vient du serveur, l'écran ne la devine pas** : c'est lui qui a essayé de lire, donc lui seul sait si le chemin était absent, refusé, muet ou illisible. Un écran qui énumère trois hypothèses fait relire trois choses là où une seule a échoué. |
 | Erreur | `GET /api/sources` en échec affiche le message du serveur et un bouton « réessayer ». Le 503 de `POST /api/projects` sur un Drive muet a son propre texte, déjà écrit côté serveur : le reprendre tel quel plutôt que le réécrire. |
 | Désactivé | la carte sur laquelle on vient de cliquer, le temps que `POST /api/projects` réponde. La réponse arrive en quelques centaines de millisecondes, mais elle traverse un `lstat` sur un montage 9p qui peut mettre plusieurs secondes : sans cet état, on clique deux fois. Un second cas viendra plus tard, la source dont le fichier grossit encore parce que le live vient de finir, que rien ne surveille en itération 0. |
 | Succès | la création répond 202 et redirige. La redirection **est** la confirmation : une notification en plus dirait deux fois la même chose. |
@@ -639,7 +664,7 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 
 | | |
 |---|---|
-| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, les images arrivent avec le proxy », « 12 à trier », « tout est trié ». À côté du compte, **ce que le repérage n'a pas jugé** quand c'est le cas : « 4 lots de fenêtres sur 11 n'ont pas été notés ». Voir 7.2. |
+| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, les images arrivent avec le proxy », « 12 à trier », « tout est trié ». À côté du compte, **la part de l'émission que le repérage a effectivement jugée** quand elle n'est pas entière, et sous elle le compte des lots refusés qui l'explique. Voir 7.2. |
 | **Navigation** | vers le haut, la bibliothèque. Vers le bas, un clip. Aucune navigation latérale. |
 | **Persistance aller** | rien à transmettre : l'identifiant du projet est dans l'URL. |
 | **Persistance retour** | trois choses à retrouver en revenant d'un clip : la position de défilement, la vue active (à trier / gardés / écartés) et le focus sur la carte d'où l'on est parti. La vue dans l'URL (`?vue=gardes`), les deux autres dans l'état de session. L'URL pour la vue parce qu'un rechargement doit rendre le même écran ; la session pour le reste, parce qu'une position de défilement dans une URL est une URL qu'on ne peut plus partager. |
@@ -656,12 +681,22 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 | Succès | la décision est optimiste et instantanée : la carte change d'apparence, sans notification. Le succès de la boucle entière, lui, se marque : « tout est trié ». |
 
 **Le panneau d'avancement** porte quatre choses, et pas une de plus : l'étape en
-cours et sa progression, la liste ordonnée des étapes avec celles déjà faites, le
-temps écoulé depuis le lancement, et une phrase qui dit ce qui devient possible
-ensuite. Le temps restant **n'est pas affiché** : les seules mesures dont on
-dispose sont deux points sur une émission, et une estimation fausse coûte plus
-cher qu'une absence d'estimation. Le coût attendu par étape, lui, s'affiche comme
-un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »).
+cours et sa progression, la liste ordonnée des étapes avec celles déjà faites, une
+durée, et une phrase qui dit ce qui devient possible ensuite. Le temps restant
+**n'est pas affiché** : les seules mesures dont on dispose sont deux points sur
+une émission, et une estimation fausse coûte plus cher qu'une absence
+d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de grandeur
+mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »).
+
+**La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**
+Ce document réclamait le temps écoulé depuis le lancement. `ProjectStatus` ne le
+publie pas : `status.json` porte un `updatedAt` et un `finishedAt`, jamais un
+`startedAt`. Sur un projet dont l'analyse a démarré avant qu'on ouvre l'écran,
+l'afficher reviendrait donc à inventer un chiffre, et il n'y a rien de plus
+coûteux qu'un chiffre faux à côté d'une attente de neuf minutes. Le panneau
+compte le temps qu'il a passé à regarder tourner l'analyse, et l'annonce ainsi :
+« analyse suivie depuis cet écran ». Le jour où le serveur publiera l'instant du
+lancement, c'est le libellé qui change, pas la place.
 
 **Actions destructrices**
 
@@ -673,22 +708,23 @@ un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »)
   sont conservés, les 19 propositions en attente sont remplacées ». Une
   confirmation qui ne dit pas ce qui va disparaître ne fait que retarder le clic.
 
-**Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aujourd'hui aucune
-issue, et le bouton de reprise est l'ajout qui le ferme. Il appelle
-`POST /run` avec **les mêmes cibles que la création**, `candidates` et `proxy`, et
-laisse le graphe planifier les intermédiaires.
+**Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aucune issue par
+lui-même, et le bouton de reprise est ce qui le ferme. Il appelle `POST /run` avec
+**les mêmes cibles que la création** et laisse le graphe planifier les
+intermédiaires. Il ne les énumère pas : il vise `CIBLES_DE_REPRISE`, une
+constante, parce qu'une liste recopiée dans un écran se sépare un jour de celle
+qui crée les projets et laisse alors le projet à moitié reconstruit.
 
 Une cible nomme un résultat à atteindre, pas une étape à refaire : viser la
 première étape absente (`transcript`, par exemple) reconstruirait celle-là et
 s'arrêterait, laissant le projet dans l'impasse d'où l'on voulait le sortir.
 (relevé par Copilot)
 
-Il y a là **une demande au serveur** : `POST /run` n'accepte aujourd'hui qu'une
-cible, alors que `lancer` en prend déjà une liste et que `créerProjet` lui en
-passe deux. Viser `candidates` seul ne construit jamais le proxy, puisque rien
-n'en dépend dans le graphe. Tant que la route ne prend pas de liste, l'écran doit
-enchaîner deux appels en attendant la fin du premier, ce qui est une séquence que
-l'interface n'a aucune raison de porter.
+C'était là une demande au serveur, et **la route prend désormais une cible ou une
+liste**. La raison qui la fondait vaut d'être retenue, parce qu'elle décide encore
+de ce que le bouton vise : reprendre sur `candidates` seul ne construit jamais le
+proxy, rien n'en dépendant dans le graphe, et l'impasse ne serait refermée qu'à
+moitié.
 
 **Clavier** : voir la section 4. C'est l'écran qui en dépend le plus.
 
@@ -890,12 +926,11 @@ Le point de départ, arrêté côté serveur :
   dans un même clip (spec §10) ;
 - **le ratio se recalcule depuis l'EDL, il n'est pas stocké.** Retirer le passage
   où un comédien traverse le plateau peut faire retomber un 16:9 en 1:1 ;
-- les frontières de plans et les boîtes de personnes existeront, portées par un
-  `analysis.json` annoncé côté serveur. **C'est un écart avec la spec §5**, qui
-  définit deux artefacts distincts, `shots.json` et `people.json` ; ce document
-  n'en décide pas et le signale en 9.3. Rien ici n'en dépend : l'écran a besoin
-  que les frontières existent, pas de savoir dans quel fichier. (relevé par
-  Aristarque)
+- les frontières de plans et les boîtes de personnes existent, portées par un
+  `analysis.json` unique. **C'est un écart avec la spec §5**, qui définit deux
+  artefacts distincts, `shots.json` et `people.json` ; ce document n'en décide pas
+  et le signale en 9.3. Rien ici n'en dépend : l'écran a besoin que les frontières
+  existent, pas de savoir dans quel fichier. (relevé par Aristarque)
 
 #### La décision : un mode explicite, puis un réglage par plan
 
@@ -914,8 +949,9 @@ automatique en essayant de le regarder. Un mode se prend, il ne se déclenche pa
 est écartée : elle effacerait le cadrage des plans qui étaient bons pour réparer
 celui qui ne l'était pas.
 
-`cropX: number | null` n'exprime plus cela, et **c'est une demande au serveur** :
-il faut un mode (`auto` ou `manuel`) et, en manuel, une dérogation par plan.
+Le `cropX` unique d'un clip n'exprime plus cela. `computeFraming` prend désormais
+le mode et la table de dérogations ; ce que le clip enregistre, lui, n'a pas
+bougé, et c'est le préalable du lot 7. Voir 9.4.
 
 #### La clé d'un plan désigne la source, jamais le clip
 
@@ -926,11 +962,13 @@ atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
 La clé désigne donc le plan **dans la source**. Et pas par son instant de début,
-qui paraît suffire et ne suffit pas : si une redétection déplace une frontière de
-10,0 s à 10,3 s, la clé 10,0 s tombe désormais **dans le plan précédent**, un plan
-la contient bel et bien, et la dérogation s'applique au mauvais cadre sans que
-rien ne le signale. Prendre le milieu du plan plutôt que son début rend le cas
-plus rare, pas impossible. (relevé par Copilot)
+qui paraît suffire et ne suffit pas : il parie que la frontière qui le porte sera
+encore là, et à la même place, la prochaine fois que les plans seront détectés.
+Une frontière déplacée de 10,0 s à 10,3 s fait tomber la clé 10,0 s **dans le plan
+précédent**, qui la contient bel et bien, et la dérogation s'applique au mauvais
+cadre sans que rien ne le signale ; une frontière retirée, elle, emporte sa clé.
+Prendre le milieu du plan plutôt que son début rend le premier cas plus rare, pas
+impossible, et ne fait rien pour le second. (relevé par Copilot)
 
 **Une dérogation porte donc l'intervalle source du plan tel qu'il était quand elle
 a été posée**, et se résout par **recouvrement maximal** avec le découpage
@@ -940,20 +978,81 @@ courant :
 - si un plan a été **divisé**, elle suit la moitié qu'elle recouvre le plus, et
   l'autre repasse en automatique ;
 - si deux plans ont été **fusionnés**, les deux dérogations tombent sur le même
-  plan : on garde celle du plus grand recouvrement, l'égalité se tranchant par
-  l'intervalle qui commence le plus tôt ;
+  plan : on garde celle du plus grand recouvrement ;
+- **les deux égalités se tranchent par ce qui commence le plus tôt**, et elles
+  sont toutes deux atteignables. Une coupe exactement au milieu donne à une
+  dérogation deux moitiés qu'elle recouvre autant : elle suit la première. Deux
+  dérogations peuvent de même recouvrir également le plan qui les a absorbées :
+  on garde celle qui commence le plus tôt. Sans cette ligne, la moitié gagnante
+  dépendrait de l'ordre de parcours, ce qui est une décision prise par personne ;
 - un recouvrement nul partout fait tomber la dérogation, et le plan repasse en
-  automatique. Visible dans la bande, donc jamais silencieux.
+  automatique.
 
-Cette forme n'est pas plus chère à écrire qu'un instant, elle est totale par
-construction, et elle ne suppose rien du détecteur : personne n'a vérifié qu'il
-partitionne la durée entière quel que soit son seuil, et `shots.json` vit dans le
-projet précisément parce que ce seuil se réglera (spec §5, « ce qui se règle doit
-vivre là où on le règle »).
+**Les deux bornes se persistent en millisecondes entières.** Le recouvrement, lui,
+se calcule aussi bien sur des flottants : ce n'est pas l'arithmétique qui réclame
+l'entier, c'est le fait qu'une seule unité doit régner sur tout le modèle du crop.
+`detect.py` arrondit déjà `start` et `end` à la milliseconde, `shotStartMs`
+(`src/core/shots.ts`) rearrondit avec son raisonnement au point d'appel, et
+`computeFraming` indexe en entiers. Une table écrite en secondes cohabiterait donc
+avec des plans lus en millisecondes, et c'est ce mélange qui rate d'un facteur
+mille, pas le calcul. Le rattraper après coup demanderait de relire des
+dérogations dont on ne saurait plus dans quelle unité elles ont été écrites.
 
-Un intervalle en secondes dans la source est enfin la façon dont tout le reste du
-produit s'ancre : les segments, les mots, les marqueurs `[SECONDS]`. Une seule
-convention de temps dans tout le modèle.
+**Ce qui a décidé de cette forme n'est pas la frontière qui bouge de trois
+dixièmes, c'est que le seuil de détection des plans va être reréglé.** La spec §5
+place `shots.json` dans le projet précisément parce que ce seuil se règle, et
+`ROADMAP.md` note que le seuil de scène à 0,4 a été mesuré image par image et
+revient à qui reprendra le détecteur.
+
+Un réglage ne déplace pas les frontières : `plans()` (`worker/detect.py`) filtre
+des instants candidats et rend tels quels ceux qui passent. Il en **ajoute** et il
+en **retire**, et son garde-fou de durée minimale fait qu'une frontière
+nouvellement admise peut en faire tomber une autre plus loin. Une redétection
+produit donc exactement des plans divisés et des plans fusionnés, c'est-à-dire les
+deux cas que les règles ci-dessus nomment.
+
+Sous une clé qui est un instant, la dégradation n'est pas symétrique : une
+frontière qui survit garde sa dérogation, une frontière retirée fait disparaître
+la sienne, et la moitié née d'une frontière ajoutée n'en a jamais eu. Le jour du
+réglage, on perd donc le cadrage humain **des plans qui ont le plus changé**, et
+on le perd en silence. Sous le recouvrement, chaque dérogation suit le plan qui
+l'a absorbée. Ce n'est pas un cas hypothétique à couvrir par prudence, c'est une
+tâche au calendrier.
+
+**Un appariement par tolérance ne remplace pas cette forme, et il rate même
+l'exemple qui l'a fait poser.** Cet exemple est une frontière qui bouge de trois
+dixièmes de seconde ; la tolérance de `computeFraming` est de 250 ms, donc elle ne
+le couvre pas. Et le seuil ne se répare pas en se desserrant : rien dans
+`SCHÉMA_PLAN` n'interdit deux frontières séparées de moins que lui, un plan devant
+seulement finir après son début, donc une tolérance assez large pour rattraper un
+déplacement est assez large pour sauter sur le plan voisin. Le recouvrement, lui,
+est total par construction et ne suppose rien du détecteur, ce qui est exactement
+ce qu'on demande d'une clé qui doit survivre au réglage de celui-ci.
+
+**Une dérogation qui ne recouvre plus rien n'est jamais reportée sur une
+voisine.** Elle est rendue à l'appelant, dans `rejectedOverrides`, et le plan qui
+l'aurait reçue garde son cadrage calculé. C'est le mode de défaillance qui
+comptait : un cadrage humain posé sur le mauvais plan produit un clip qui se rend,
+faux, et que rien ne signale.
+
+Ce qu'il en reste pour l'écran tient en une exigence : **une dérogation tombée se
+voit, et la bande ne suffit pas à la montrer.** Un plan « automatique » y est
+indistinguable d'un plan qui n'a jamais été dérogé ; pire, une dérogation écartée
+parce qu'une autre recouvrait mieux le même plan laisse ce plan dérogé, donc aucun
+état de la bande ne change, et une dérogation qui ne recouvre plus rien n'a même
+pas de plan à marquer. L'écran lit donc `rejectedOverrides` et l'énonce à part, en
+clair et de façon permanente : « une dérogation de cadrage n'a pas retrouvé son
+plan », avec
+son compte. Reposer un cadrage coûte un geste ; s'apercevoir trois semaines plus
+tard qu'il n'a jamais été appliqué coûte une relecture de tout ce qui est sorti
+depuis.
+
+**`computeFraming` indexe encore ses dérogations sur l'instant de début**, avec
+un appariement au plus proche dans une tolérance de 250 ms. C'est l'itération 0 de
+la fonction pure, pas une seconde option à peser : la tâche qui écrit la
+persistance du cadrage remplace cet appariement par le recouvrement décrit ici.
+Entre deux modèles de clé dans un même document, c'est toujours celui qui n'a pas
+été retenu qu'on finit par écrire.
 
 #### Le ratio, exactement comme le crop
 
@@ -971,11 +1070,11 @@ vocabulaire, et c'est ce qui rend l'écran apprenable en une fois :
 **Un ratio épinglé ne bouge plus quand le montage change.** C'est le sens de
 l'épinglage, et c'est ce qui manquait pour que le recalcul soit acceptable.
 
-**Une conséquence serveur à signaler** : si le ratio est épinglé, les crops
-automatiques doivent être recalculés **pour ce ratio**, pas pour celui que le
-percentile aurait choisi. Sinon des cadres calculés pour un 1:1 se retrouvent posés
-dans un canevas 4:5, et l'épinglage produit exactement le défaut qu'il devait
-éviter.
+**Une conséquence serveur, demandée puis livrée** : quand le ratio est épinglé,
+`computeFraming` saute le choix du ratio mais pas le calcul des crops, qui se
+font **pour ce ratio** et non pour celui que le percentile aurait choisi. Sans
+cela, des cadres calculés pour un 1:1 se retrouveraient posés dans un canevas
+4:5, et l'épinglage produirait exactement le défaut qu'il devait éviter.
 
 #### Voir d'un coup d'œil ce qui est automatique et ce qui ne l'est pas
 
@@ -987,9 +1086,15 @@ quand il est épinglé. Un mot, au même endroit, dans les deux cas.
 **La bande des plans**, en lecture, sous le lecteur. Elle est désormais justifiée :
 c'est aux frontières que le crop saute, c'est là que les coupes se posent de
 préférence, et c'est la seule façon de voir quels plans ont été dérogés. Chaque
-plan y porte deux états et pas trois : automatique, ou dérogé. Pas d'état
-« validé » : il faudrait le poser à la main, et un clip de quatre plans deviendrait
-une liste de contrôle.
+plan y porte **l'origine de son cadrage**, telle que `computeFraming` la rend :
+calculé sur des boîtes de personnes, posé à la main ou **centré faute d'avoir
+mesuré quoi que ce soit sur ce plan**. Le troisième mérite d'être distinct des
+deux autres : ce n'est pas une décision, c'est un plan que personne n'a cadré, ni
+la machine ni l'humain, et c'est précisément celui qu'il faut aller regarder.
+
+**Pas d'état « validé »** en revanche : il faudrait le poser à la main, et un clip
+de quatre plans deviendrait une liste de contrôle. La bande dit d'où vient un
+cadrage, jamais si quelqu'un l'a approuvé.
 
 **Elle est en lecture au sens du montage.** On n'y déplace pas une frontière, on
 n'y pose pas une coupe, on n'y traîne pas de tête de lecture. Elle porte une seule
@@ -1015,9 +1120,9 @@ peut s'y poser. Deux questions différentes, deux endroits.
 
 **Le plan qu'on cadre est celui sous la tête de lecture.** Aucune sélection dans
 le cas courant : on lit, on s'arrête sur le plan mal cadré, on saisit le
-rectangle, il s'applique à ce plan. Deux touches, `,` et `.`, sautent à la
-frontière précédente et suivante ; ce sont deux boutons de recherche, pas une
-piste.
+rectangle, il s'applique à ce plan. Deux touches sautent à la frontière précédente
+et suivante. La section 4.1 dit lesquelles, et c'est le seul endroit qui les
+attribue ; ce sont deux boutons de recherche, pas une piste.
 
 C'est la réponse à « comment on navigue sans que ça devienne un banc » : on ne
 navigue pas dans une timeline, on déplace la lecture, et la lecture est déjà le
@@ -1078,7 +1183,7 @@ mêmes au clavier.
 | Clip | `Échap` | vider la sélection |
 | Clip | `I` / `O` | poser la borne de début, de fin, sur le mot sous le curseur |
 | Clip | `Ctrl+F` | chercher dans le transcript |
-| Clip | `Alt+←` / `Alt+→` | plan précédent, suivant (itération 1, voir 3.5) |
+| Clip | `,` / `.` | frontière de plan précédente, suivante (itération 1, voir 3.5) |
 | Partout | `?` | la liste des raccourcis |
 
 Trois règles derrière ce tableau.
@@ -1102,17 +1207,28 @@ Corollaire sur `Espace` : il ne peut pas être un raccourci global inconditionne
 Il ne pilote la lecture que si le focus est sur le corps du document ou sur la
 surface transcript.
 
-**`?` existe parce que le reste existe.** Douze raccourcis qui ne se découvrent
-que dans un `title` HTML sont douze raccourcis que personne n'utilise. Aujourd'hui
-`Ctrl+Z` n'est annoncé que par l'attribut `title` du bouton « Annuler ».
+**Ce tableau est le seul endroit où une touche est attribuée.** Une version
+précédente donnait `Alt+←` et `Alt+→` ici pour la navigation de plan en plan, et
+`,` et `.` en 3.5 : deux raccourcis pour un même geste, dans un document qui
+n'existe que pour être la source unique de qui l'implémentera. `,` et `.`
+l'emportent parce qu'`Alt+←` est le retour arrière du navigateur, sur l'écran
+qu'on quitte le plus souvent.
 
-**Toutes ces touches sont directes en AZERTY.** Une première version proposait
+**`?` existe parce que le reste existe.** Des raccourcis qui ne se découvrent que
+dans un `title` HTML sont des raccourcis que personne n'utilise. Le compte est
+celui du tableau ci-dessus, et il n'a pas à être écrit deux fois.
+
+**Les touches de boucle sont directes en AZERTY.** Une première version proposait
 `[`, `]` et `/`, qui demandent `Alt Gr` ou `Shift` sur le clavier de la seule
 personne qui utilisera cet outil : un raccourci à deux mains n'économise rien sur
-un geste répété trente fois. `I` et `O` sont d'ailleurs la convention des bancs de
-montage pour les points d'entrée et de sortie, et `Ctrl+F` remplace celui du
-navigateur, que la virtualisation neutralise de toute façon. (relevé par
-Aristarque)
+un geste répété trente fois. Deux touches du tableau coûtent malgré tout un
+`Shift`, `.` et `?`, et aucune des deux n'est un geste de boucle : sauter de plan
+en plan se fait quelques fois par clip, ouvrir l'aide une fois par mois. C'est le
+geste répété que la règle protège, et l'étendre à tout le tableau la rendrait
+inapplicable. `I` et `O` sont d'ailleurs la
+convention des bancs de montage pour les points d'entrée et de sortie, et `Ctrl+F`
+remplace celui du navigateur, que la virtualisation neutralise de toute façon.
+(relevé par Aristarque)
 
 ### 4.2 L'ordre de tabulation, et le cas du transcript
 
@@ -1140,8 +1256,14 @@ effet.
 toutes les deux secondes : une région live sur le pourcentage produirait une
 annonce toutes les deux secondes pendant neuf minutes. Le `role="progressbar"`
 met à jour `aria-valuenow` en silence, et une région `aria-live="polite"`
-distincte n'annonce que **les changements d'étape** et la fin. Quatre annonces sur
-toute l'analyse.
+distincte n'annonce que **les changements d'étape** et la fin. Une annonce par
+changement d'étape observé, plus celle de fin. Observé, parce que la région rend
+l'étape que le dernier sondage a rapportée : une étape plus courte que les deux
+secondes de l'intervalle peut passer entre deux relevés sans jamais être annoncée,
+et promettre l'exhaustivité surévaluerait ce qu'un lecteur d'écran reçoit. Le
+compte, lui, se lit dans `ÉTAPES` et ne s'écrit pas ici : l'itération 2 en
+ajoutera, l'itération 4 aussi, et un total figé dans une phrase ne deviendrait
+faux que ce jour-là, trop tard pour que quiconque s'en aperçoive.
 
 **Trois régions live, et pas une de plus** : l'avancement (changements d'étape),
 les erreurs (`role="alert"`, donc `assertive`) et le résultat d'un export. Le
@@ -1234,8 +1356,9 @@ des trois écrans. (relevé par Aristarque)
 
 ### 5.3 Ajouter ou retirer une étape
 
-L'itération 1 ajoute `shots` et `people` au graphe, l'itération 2 ajoute quatre
-pourvoyeurs de candidats. Pour que ce soit une ligne et non une refonte :
+L'itération 1 a ajouté une étape au graphe, `analysis`, qui porte les frontières
+de plans et les boîtes de personnes ; l'itération 2 ajoute quatre pourvoyeurs de
+candidats. Pour que ce soit une ligne et non une refonte :
 
 - **les étapes sont une liste de données**, avec libellé, ordre et coût attendu,
   posée à côté de `phaseProjet` dans `src/core/`. Aujourd'hui `LIBELLES_ETAPES`
@@ -1245,9 +1368,8 @@ pourvoyeurs de candidats. Pour que ce soit une ligne et non une refonte :
   que l'utilisateur peut faire : `candidates` ouvre le tri, `proxy` ouvre le
   montage. Les autres ne sont que du temps qui passe. Ce n'est **pas** le
   transcript qui ouvre le tri, même s'il le précède : la liste reste vide jusqu'à
-  la fin du repérage, et en itération 1 les candidats dépendront aussi de `shots`
-  et `people`. Nommer l'étape qui produit l'artefact qu'on affiche est la seule
-  formulation qui survive à l'ajout d'étapes. (relevé par Copilot)
+  la fin du repérage. Nommer l'étape qui produit l'artefact qu'on affiche est la
+  seule formulation qui survive à l'ajout d'étapes. (relevé par Copilot)
 
 Retirer une étape suit le même chemin. Le test qui protège : donner à
 `phaseProjet` un relevé de présence portant une étape inconnue et vérifier qu'elle
@@ -1358,7 +1480,7 @@ contrôler à l'installation.
   quelque part, et une notification qui disparaît est une mauvaise surface
   d'erreur.
 - **`command`** : une palette de commandes sur trois écrans est un gadget. Les
-  douze raccourcis de la section 4 couvrent le besoin.
+  raccourcis de la section 4 couvrent le besoin, et `?` les fait découvrir.
 
 ## 7. Deux points ouverts du `ROADMAP.md`
 
@@ -1386,19 +1508,25 @@ et le geste devient prévisible dans les deux cas.
 
 ### 7.2 Le filtre de sécurité de Gemini, et ce que l'écran en dit
 
-Quatre lots de notation sur onze reviennent `PROHIBITED_CONTENT` sur
-`2025-06-15-cqlp`, de façon reproductible. Un tiers du matériau est écarté sans
-être jugé, **en silence**.
+Des lots de notation reviennent `PROHIBITED_CONTENT` sur `2025-06-15-cqlp`, de
+façon reproductible. Au moment où cette section a été écrite, un tiers du matériau
+était écarté sans être jugé, **en silence**, et c'est ce silence qu'elle traite.
 
-La cause se traite ailleurs et se traitera plus tard. Mais le silence, lui, est
-une décision d'interface, et c'est la mauvaise. Julien trie vingt-cinq cartes en
-croyant regarder ce que l'émission a de mieux, alors qu'il regarde ce que
-l'émission a de mieux **dans les deux tiers qui ont été notés**. Sans le mot, il
-attribuera au repérage une qualité qui n'est pas la sienne, et il n'aura aucune
-raison d'aller chercher dans le tiers manquant.
+**La cause a été traitée depuis, et pas le silence.** Le repérage recoupe
+désormais les lots refusés et resoumet les moitiés : sur cette émission, les 83
+fenêtres finissent toutes notées. La perte n'est donc plus le cas courant, elle
+est le cas résiduel, celui d'un lot refusé jusqu'à la fenêtre seule, et c'est ce
+qui rend la suite plus exigeante et non moins. Julien trierait vingt-cinq
+cartes en croyant regarder ce que l'émission a de mieux, alors qu'il regarderait
+ce que l'émission a de mieux **dans la part qui a été notée**. Sans le mot, il
+attribuerait au repérage une qualité qui n'est pas la sienne, et il n'aurait
+aucune raison d'aller chercher dans ce qui manque. Un défaut devenu rare se
+signale de la même façon qu'un défaut fréquent : c'est précisément parce qu'on ne
+l'attend plus qu'il faut le dire.
 
-Le décompte remonte dans `status.json` : le champ existera. Trois exigences sur ce
-qu'on en fait, et aucune n'est cosmétique.
+Le décompte remonte dans `status.json`, et il y survit à un redémarrage du
+serveur, ce que `running` ne fait pas. Trois exigences sur ce qu'on en fait, et
+aucune n'est cosmétique.
 
 **On dit ce qu'on a mesuré, pas ce qui sonne mieux.** Une première version de ce
 document proposait « 27 propositions, tirées de 64 % de l'émission ». Le chiffre
@@ -1408,16 +1536,39 @@ de 30 secondes (`src/core/transcript.ts`), le dernier lot est plus court que les
 autres puisqu'il sort d'un `slice`, et une fenêtre couvre de la parole et non une
 tranche de temps. Sept lots sur onze ne font donc pas 64 % de quoi que ce soit.
 
-Deux formulations tiennent debout, et la seconde suppose un travail serveur :
+Deux grandeurs, et elles ne répondent pas à la même question :
 
-- avec le champ annoncé, **la phrase compte des lots** : « 4 lots de fenêtres sur
-  11 n'ont pas été notés ». C'est opaque pour qui ne connaît pas le découpage,
-  mais c'est vrai, et une ligne d'explication repliée suffit à le rendre lisible ;
-- ce qu'il faudrait vraiment est **une couverture temporelle** : l'union des
-  fenêtres effectivement notées, rapportée à l'étendue du transcript. C'est la
-  seule mesure qui réponde à la question que Julien se pose, et elle se calcule au
-  même endroit que le décompte. **Je la demande explicitement au serveur.** Tant
-  qu'elle n'existe pas, l'écran s'en tient au compte de lots.
+- **le compte de lots refusés** dit ce qui s'est passé et rien de plus. Le
+  confondre avec de la matière perdue serait faux depuis que le repérage recoupe
+  les lots refusés et les resoumet : sur `2025-06-15-cqlp`, 83 fenêtres sur 83
+  finissent notées. Ne pas illustrer ce compte par un nombre pris sur le premier
+  passage : `lotsRefusés` s'incrémente à **chaque profondeur** de la descente et
+  `lotsRépondus` compte les sous-lots, donc le total que l'écran reçoit n'est pas
+  celui du premier tour. La perte, quand il y en a une, se lit ailleurs ;
+- **la couverture temporelle**, l'union des fenêtres effectivement notées
+  rapportée à l'étendue du transcript, répond à la question que Julien se pose.
+  Ce document la demandait au serveur ; elle existe (`BilanRepérage.couverture`),
+  calculée au même endroit que le décompte.
+
+C'est donc la couverture qui porte la phrase, et les lots qui l'expliquent
+dessous. L'ordre n'est pas un détail de mise en page : lue en premier, une mesure
+de mécanisme fait croire qu'on parle d'un incident technique, alors qu'on parle de
+matière qui n'a pas été jugée.
+
+**Et c'est le compte des fenêtres qui décide s'il y a quelque chose à dire, pas le
+refus.** Une fenêtre non notée est une perte ; un lot refusé puis recoupé et noté
+ne coûte rien. La couverture, elle, ne décide pas : elle **mesure** l'étendue de
+la perte une fois qu'on sait qu'il y en a une. La distinction n'est pas
+scolastique, parce que les fenêtres se chevauchent d'environ 30 secondes : une
+fenêtre du milieu peut manquer sans laisser le moindre trou dans le temps, donc
+une couverture sincèrement totale peut cacher une fenêtre que personne n'a jugée.
+Le déclencheur est `notées < fenêtres`, et lui seul.
+
+`motDuRepérage` tient la première moitié de cette règle et pas la seconde : son
+prédicat ajoute `|| lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`, où
+la descente finit par tout noter, lui fait écrire « le repérage n'a jugé que
+100 % de ce qui se dit dans l'émission », une phrase qui se réfute toute seule.
+(relevé par Codex et Copilot)
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
@@ -1451,7 +1602,8 @@ défauts que chacun ferme par rapport à son coût.
 2. **Le tri comme boucle.** Clavier, pas de compactage sous la main, fin de boucle
    marquée, `tabs` pour les trois vues et la couverture du repérage. C'est
    l'écran que la spec demande de soigner en premier, et le seul dont le coût se
-   paie trente fois par émission.
+   paie trente fois par émission. Livré avec un défaut connu, décrit en 7.2 : la
+   phrase de couverture s'allume sur un refus au lieu de s'allumer sur une perte.
 3. **Les textes et l'export.** Titre, description, panneau d'export sur
    `exportClip`, lecture des rendus. Ferme la sortie du tunnel, donc rend le
    parcours entier vérifiable pour la première fois.
@@ -1468,12 +1620,19 @@ défauts que chacun ferme par rapport à son coût.
    dérogation par plan. Les deux premières ne dépendent pas des plans et peuvent
    se poser dès que le modèle serveur existe.
 
-Les lots 3 et 5 dépendent chacun d'un travail serveur en cours dans l'autre
-session. **Le lot 1 en dépend aussi, d'un petit** : son bouton de reprise a besoin
-que `POST /run` accepte une liste de cibles (§9.4). Sans elle, le lot reste
-livrable, mais son bouton ne reconstruit que les candidats et laisse le proxy
-manquant, ce qui referme l'impasse à moitié. (relevé par Aristarque). Les lots 2, 4
-et 6 ne dépendent de rien qui n'existe pas.
+**Les six premiers sont livrés**, et les trois dépendances serveur qu'ils
+attendaient sont satisfaites : les fonctions clientes d'action, le jeton de
+séquence sur `PATCH`, et la liste de cibles pour `POST /run` sans laquelle le
+bouton de reprise n'aurait reconstruit que les candidats.
+
+**Le septième ne l'est pas, et ce n'est pas l'interface qui le retient.** Il lit
+le résultat du cadrage automatique, qui est en ligne et ne produit rien
+d'utilisable : sur `2025-06-15-cqlp`, les trente clips sortent tous en 16:9, parce
+qu'un tiers des boîtes de personnes sont des têtes de spectateurs collées au bord
+bas de l'image. Offrir de déroger à un calcul qui ne calcule rien coûterait plus
+que de ne rien offrir : on croirait corriger la machine alors qu'on la
+remplacerait à chaque plan. `ROADMAP.md` tient la liste des morceaux d'itération 1
+qui viennent avant, et leur ordre.
 
 L'ordre a changé une fois, à la lecture de ce que livre la session serveur : les
 trois lots qui ferment un parcours orphelin (1, 3 et 5) sont remontés devant ceux
@@ -1499,8 +1658,8 @@ honnête suffit.
 
 Si le chiffre de 35 minutes vient d'une mesure que je n'ai pas trouvée, ce sont
 **les nombres** de la section 2.4 qui changent, pas sa structure : les trois
-régimes viennent de l'**ordre** des étapes (`CIBLES_INITIALES = ['candidates',
-'proxy']`, `run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
+régimes viennent de l'**ordre** des étapes que `CIBLES_INITIALES` déclenche
+(`run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
 quelle que soit la vitesse de WhisperX, donc « triable mais pas montable » existe
 dans les deux mondes. Ce qui change est l'ampleur des moyens : à trente-cinq
 minutes il faut une file d'attente, des notifications et un suivi hors écran ; à
@@ -1512,10 +1671,10 @@ qui mérite une note. (relevé par Aristarque, qui l'a signalé indépendamment)
 
 ### 9.2 L'ordre des candidats et du proxy
 
-`CIBLES_INITIALES = ['candidates', 'proxy']` est ce qui rend possible le régime
-« triable » de 2.4, et je propose de le garder. Le prix est que la grille de tri
-passe ses six premières minutes sans vignettes, sur l'écran que la spec demande de
-soigner en premier.
+Que `CIBLES_INITIALES` place les candidats avant le proxy est ce qui rend
+possible le régime « triable » de 2.4, et je propose de le garder. Le prix est
+que la grille de tri passe ses six premières minutes sans vignettes, sur l'écran
+que la spec demande de soigner en premier.
 
 Une autre voie existe et je ne la tranche pas, parce qu'elle est côté serveur :
 extraire les vignettes des candidats **de la copie locale de l'original** plutôt
@@ -1536,11 +1695,17 @@ spontanée : *le parcours est un objet qui traverse des phases, pas un tunnel à
 étapes*. Le réflexe qu'elle remplace est l'assistant à cinq écrans.
 
 **La spec §5 et le nom des artefacts.** §5 définit `shots.json` (les frontières de
-plans) et `people.json` (les boîtes de personnes), et la session serveur annonce un
-`analysis.json` qui porterait les deux. Ce n'est pas une question d'interface et je
-ne la tranche pas, mais un lecteur de ce document pourrait croire qu'`analysis.json`
-est le nom canonique alors que la spec dit autre chose. Une fusion décidée mérite
-d'être écrite en §5 ; sinon c'est le mot qui est à corriger. (relevé par Aristarque)
+plans) et `people.json` (les boîtes de personnes). Le code en a écrit un seul,
+`analysis.json`, qui porte les deux, et ce n'est plus une annonce : le fichier
+existe, l'étape qui le produit s'appelle `analysis`, et `lireAnalyse` le relit et
+le valide. Le raccord entre ce fichier et le cadrage reste à écrire :
+`computeFraming` est une fonction pure qui reçoit des plans et des boîtes déjà
+lus, la frontière de `src/core` lui interdisant de toucher au disque, et rien en
+production ne l'appelle encore. Ce n'est pas une question d'interface et je ne la
+tranche pas. Mais deux
+noms pour un fichier, dont un seul existe, est exactement ce qui envoie le suivant
+chercher un artefact absent. La fusion demande à être écrite en §5. (relevé par
+Aristarque)
 
 **La spec §13, deux fois.** D'abord la bande des plans, qu'elle décrit « en
 lecture seule ». La dérogation de cadrage par plan a besoin d'y désigner un plan,
@@ -1558,28 +1723,40 @@ panneau de l'écran de clip aurait suffi à le faire exister.
 ### 9.4 Les arbitrages du cadrage, et ce qu'ils demandent au serveur
 
 Les deux questions que ce document posait sont tranchées, et la section 3.5 décrit
-la décision plutôt que l'alternative. Elles laissent trois demandes au serveur,
-listées ici parce qu'elles ne s'écrivent pas dans `src/app/`.
+la décision plutôt que l'alternative. Les demandes au serveur qu'elles laissaient
+sont listées ici parce qu'elles ne s'écrivent pas dans `src/app/`. Celles qui sont
+satisfaites restent, barrées : les retirer ferait redemander demain ce qui a déjà
+été payé.
 
-**Le modèle de cadrage.** `cropX: number | null` n'exprime pas la décision : il
-faut un mode explicite (`auto` ou `manuel`) et, en manuel, une dérogation **par
-plan**, dont la clé désigne le plan dans la source et non son rang dans le clip.
-La clé n'est ni un rang, ni un instant : c'est **l'intervalle source du plan tel
+**Le modèle de cadrage, arbitré, à moitié écrit.** Il faut un `cropMode`
+explicite, `auto` ou `manual`, et, en manuel, une dérogation **par plan**. La
+clé n'est ni un rang, ni un instant : c'est **l'intervalle source du plan tel
 qu'il était quand la dérogation a été posée**, résolu par recouvrement maximal
-avec le découpage courant. Un rang ne survit pas à une redétection, et un instant
-de début tombe dans le plan voisin dès qu'une frontière bouge de trois dixièmes.
-Le raisonnement complet, avec les règles de division et de fusion, est en 3.5.
+avec le découpage courant, **ses deux bornes en millisecondes entières**. Un rang
+ne survit pas à un retrait de segment en amont, un instant ne survit pas au
+prochain réglage du seuil de détection, et des secondes flottantes ne se
+retrouvent pas d'une écriture à l'autre. Le raisonnement complet, avec les règles
+de division et de fusion, est en 3.5.
 
-**Le recalcul sous un ratio épinglé.** Si le ratio est épinglé, les crops
-automatiques doivent être calculés pour ce ratio-là. Sinon l'épinglage produit le
-défaut qu'il devait éviter.
+`computeFraming` (`src/core/framing.ts`) prend déjà le mode et une table par plan,
+mais l'indexe sur l'instant de début avec une tolérance de 250 ms : c'est
+l'itération 0 de la fonction pure, et la tâche de persistance la remplace.
 
-**Une liste de cibles pour `POST /run`.** La route n'accepte qu'une cible, alors
-que `lancer` en prend une liste et que `créerProjet` lui passe déjà
-`['candidates', 'proxy']`. Le bouton de reprise a besoin des deux : viser
-`candidates` seul ne construit jamais le proxy, puisque rien n'en dépend dans le
-graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
-fin du premier.
+**Rien n'est enregistrable aujourd'hui.** Un clip ne porte qu'un `cropX` unique,
+en base comme dans `ClipPatch`. **C'est le préalable du lot 7** : sans le mode et
+la table, l'écran calculerait un cadrage par plan qui disparaîtrait au
+rechargement.
+
+**~~Le recalcul sous un ratio épinglé.~~ Livré.** `computeFraming` saute le choix
+du ratio quand il est épinglé, jamais le calcul des crops : ceux-ci se calculent
+pour ce ratio-là. Sinon des cadres calculés pour un 1:1 se retrouveraient posés
+dans un canevas 4:5, décalés de la différence de largeur, et l'épinglage
+produirait le défaut qu'il devait éviter.
+
+**~~Une liste de cibles pour `POST /run`.~~ Livrée.** La route accepte une cible
+ou une liste, et `runProject` aussi. La forme à une cible reste valide, ce qui est
+délibéré : elle couvre le cas le plus fréquent, relancer le repérage, sans obliger
+chaque appelant à écrire un tableau d'un élément.
 
 **~~La fraîcheur des rendus.~~ Résolu le 18 août, avant même d'être demandé.**
 Une réédition **défait** bien le statut `exported` : `écarterRenduPérimé` s'en

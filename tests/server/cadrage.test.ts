@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
-import { cadrageDuClip, oublierLesAnalyses } from '@/server/cadrage'
+import { cadrageAvec, cadrageDuClip, lireLAnalyse, oublierLesAnalyses } from '@/server/cadrage'
 import { analysisPath } from '@/server/paths'
 
 /**
@@ -216,5 +216,41 @@ describe('cadrageDuClip', () => {
     // Plus aucune boîte : le plan est centré par défaut, et ça se voit.
     expect(après.shots[0].source).toBe('default')
     expect(après.ratio).toBe('16:9')
+  })
+})
+
+/**
+ * **La lecture et le calcul sont séparés parce que l'une est faillible et
+ * l'autre non.**
+ *
+ * `PATCH /api/clips/:id` a besoin du cadrage *après* avoir écrit en base. Une
+ * erreur de système de fichiers à ce moment-là rendrait 500 sur un montage
+ * pourtant enregistré, et l'écriture optimiste de l'interface remettrait
+ * l'ancienne version à l'écran pendant que la base porte la nouvelle — la
+ * divergence exacte que cette route évite déjà pour les sorties et la vignette.
+ * (relevé par Copilot)
+ */
+describe('cadrageAvec', () => {
+  it('calcule sans toucher au disque', () => {
+    écrireAnalyse()
+    const source = lireLAnalyse(ID)
+
+    // `PROJECTS_DIR` mis hors d'atteinte : si le calcul lisait quoi que ce soit,
+    // il lèverait ou se rabattrait sur `sans-analyse`. Il fait ni l'un ni l'autre.
+    process.env.PROJECTS_DIR = path.join(racine, 'nulle-part')
+    oublierLesAnalyses()
+
+    const cadrage = cadrageAvec(clip(), source)
+    expect(cadrage.origine).toBe('calculé')
+    expect(cadrage.shots).toHaveLength(2)
+
+    // Et le contrôle négatif, sans lequel le précédent ne prouverait rien : la
+    // moitié faillible, elle, voit bien le dossier vide.
+    expect(cadrageDuClip(clip()).origine).toBe('sans-analyse')
+  })
+
+  it('rend le même cadrage que le chemin complet', () => {
+    écrireAnalyse()
+    expect(cadrageAvec(clip(), lireLAnalyse(ID))).toEqual(cadrageDuClip(clip()))
   })
 })

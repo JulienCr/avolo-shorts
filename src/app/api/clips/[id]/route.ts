@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { cadrageDuClip } from '@/server/cadrage'
+import { cadrageAvec, cadrageDuClip, lireLAnalyse } from '@/server/cadrage'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
@@ -119,6 +119,21 @@ export const PATCH = route(
     const clip = getClip(db, id)
     if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
 
+    // **L'analyse se lit AVANT l'écriture, et c'est la seule raison de la lire
+    // ici plutôt que là où on s'en sert.**
+    //
+    // `lireLAnalyse` touche au disque et relaie une panne — un refus de droits,
+    // un montage mort — au lieu de la maquiller en absence. Appelée après le
+    // `putClip`, elle rendrait 500 sur un montage pourtant enregistré, et
+    // l'écriture optimiste de l'interface remettrait l'ancienne version à
+    // l'écran alors que la base porte la nouvelle. C'est exactement la
+    // divergence que cette route évite déjà pour les sorties et la vignette, et
+    // il aurait été absurde de la réintroduire par le cadrage.
+    //
+    // Ce qui suit l'écriture n'est plus que `cadrageAvec`, qui est pur.
+    // (relevé par Copilot)
+    const analyse = lireLAnalyse(clip.projectId)
+
     const suivant: Clip = {
       ...clip,
       ...édition,
@@ -180,7 +195,7 @@ export const PATCH = route(
     // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
     // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
     // fichiers à écarter ont été écrits.
-    const cadrageAvant = cadrageDuClip(clip)
+    const cadrageAvant = cadrageAvec(clip, analyse)
     const chemins = cheminsRendu(clip.projectId, clip.id, cadrageAvant.ratio)
     try {
       const périmé = écarterRenduPérimé(db, id, chemins, clip, cadrageRendu(cadrageAvant))
@@ -199,7 +214,7 @@ export const PATCH = route(
         const varianteAprès = cheminsRendu(
           écrit.projectId,
           écrit.id,
-          cadrageDuClip(écrit).ratio,
+          cadrageAvec(écrit, analyse).ratio,
         ).variant9x16
         if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
       }
@@ -284,7 +299,7 @@ export const PATCH = route(
     // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
     // mentirait sur ce que l'export produira.
     const relu = getClip(db, id) ?? écrit
-    const cadrageAprès = cadrageDuClip(relu)
+    const cadrageAprès = cadrageAvec(relu, analyse)
     return json({
       applied: appliqué,
       clip: relu,

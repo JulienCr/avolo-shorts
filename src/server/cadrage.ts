@@ -122,7 +122,29 @@ export function oublierLesAnalyses(): void {
   cache.clear()
 }
 
-function analyseDuProjet(projectId: string): { analyse: Analyse | null; origine: OrigineCadrage } {
+/**
+ * Ce qu'une lecture d'analyse rend : les plans et les boîtes, ou pourquoi il n'y
+ * en a pas.
+ *
+ * **Nommé et exporté parce que la lecture est faillible et le calcul ne l'est
+ * pas.** `PATCH /api/clips/:id` a besoin du cadrage *après* avoir écrit en base,
+ * et une erreur de système de fichiers à ce moment-là rendrait 500 sur un
+ * montage pourtant enregistré : l'écriture optimiste de l'interface remettrait
+ * alors l'ancienne version à l'écran pendant que la base porte la nouvelle. La
+ * route lit donc l'analyse **avant** d'écrire, et n'appelle après que le calcul,
+ * qui ne touche à rien. (relevé par Copilot)
+ */
+export type SourceDuCadrage = { analyse: Analyse | null; origine: OrigineCadrage }
+
+/**
+ * Lit l'analyse d'un projet. **C'est la seule fonction faillible du module** :
+ * elle touche au disque, et relaie une panne au lieu de la maquiller en absence.
+ */
+export function lireLAnalyse(projectId: string): SourceDuCadrage {
+  return analyseDuProjet(projectId)
+}
+
+function analyseDuProjet(projectId: string): SourceDuCadrage {
   const fichier = analysisPath(projectId)
   let info: fs.Stats
   try {
@@ -165,7 +187,18 @@ function analyseDuProjet(projectId: string): { analyse: Analyse | null; origine:
  * fichiers écarter, et de celui d'après pour le publier.
  */
 export function cadrageDuClip(clip: Clip): CadrageRésolu {
-  const { analyse, origine } = analyseDuProjet(clip.projectId)
+  return cadrageAvec(clip, analyseDuProjet(clip.projectId))
+}
+
+/**
+ * Le même cadrage, sur une analyse **déjà lue**. Pure : aucun accès au disque,
+ * donc rien qui puisse lever.
+ *
+ * C'est la moitié que `PATCH /api/clips/:id` appelle après avoir écrit en base —
+ * voir `SourceDuCadrage` pour ce que la séparation protège.
+ */
+export function cadrageAvec(clip: Clip, source: SourceDuCadrage): CadrageRésolu {
+  const { analyse, origine } = source
   if (analyse === null) return repli(clip, origine === 'calculé' ? 'sans-analyse' : origine)
 
   const shots: Shot[] = analyse.shots

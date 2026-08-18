@@ -480,14 +480,16 @@ const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARG
  * épinglant un ratio. Entre une faute silencieuse et une faute voyante, on
  * prend la voyante.
  *
- * **Les boîtes arrivent pour UN plan, et c'est le changement du 18 août 2026.**
+ * **Les boîtes arrivent pour UN plan, et c'est le changement du 19 août 2026.**
  * Le choix se faisait par clip, sur tous les plans à la fois ; il se fait
- * désormais par plan, et le format du fichier ne dépend plus de lui — toutes les
- * sorties sont en 9:16, le cadre retenu s'y pose et le fond flouté remplit ce
- * qui reste. Un ratio par clip écrasait sous le plan le plus large la part du
- * temps qui descend sous le 16:9 : 25 % sur `2025-06-15-cqlp`, 8 % sur
+ * désormais chez chacun. Un ratio unique écrasait sous le plan le plus large la
+ * part du temps qui descend sous le 16:9 : 25 % sur `2025-06-15-cqlp`, 8 % sur
  * `2026-22-02-entre-nous`, 1 % sur `2026-03-08-caro-mdlm`. Le saut de taille
  * tombe sur une coupe, donc il ne se voit pas.
+ *
+ * **Ce que ce choix décide dépend de la sortie**, et c'est écrit en tête du
+ * module : le fichier natif prend le plus large de ces ratios et le garde d'un
+ * bout à l'autre, la variante 9:16 pose chaque plan au sien.
  *
  * Le percentile, lui, reste, et s'applique **à l'intérieur** du plan : c'est là
  * que le crop est fixe, donc là que la question a un sens.
@@ -619,9 +621,11 @@ export type ShotFraming = {
   /**
    * Le cadre pris dans la source pour ce plan : le plus serré qui tienne.
    *
-   * **Ce n'est pas le format du fichier**, qui vaut toujours 9:16 : c'est ce
-   * qu'on découpe, et qui sera posé sur le canevas avec un fond flouté autour —
-   * pleine hauteur pour un 9:16, 31,6 % pour un 16:9.
+   * **Ce n'est pas le format du fichier natif**, qui vaut `ClipFraming.ratio` —
+   * le plus large des plans — d'un bout à l'autre du clip. C'est le cadre que la
+   * **variante 9:16** pose sur son canevas, avec un fond flouté autour : pleine
+   * hauteur pour un 9:16, 70,3 % pour un 4:5, 56,3 % pour un 1:1, 31,6 % pour un
+   * 16:9.
    */
   ratio: Ratio
   /**
@@ -696,8 +700,9 @@ export type FramingRequest = FramingOptions & {
    *
    * `'auto'` laisse chaque plan choisir le cadre le plus serré qui tienne. Une
    * valeur concrète le force partout : c'est l'échappatoire quand l'automatique
-   * choisit mal, et elle porte sur le **cadre**, pas sur le format du fichier,
-   * qui reste 9:16 dans les deux cas.
+   * choisit mal. Elle porte sur le **cadre pris dans la source**, et le fichier
+   * natif sort alors à ce ratio-là — c'est le plus large des plans, et ils l'ont
+   * tous.
    */
   ratio: Ratio | 'auto'
   /**
@@ -731,8 +736,9 @@ const TOLÉRANCE_DÉROGATION_MS = 250
  * dérogations humaines par-dessus.
  *
  * Chaque plan reçoit le cadre le plus serré qu'une position fixe y tienne pour
- * 90 % de ses images — voir `chooseRatio`. Le format du fichier ne s'en déduit
- * pas : il vaut 9:16 pour tous.
+ * 90 % de ses images — voir `chooseRatio`. Le fichier **natif**, lui, prend le
+ * plus large de ces ratios et le garde d'un bout à l'autre (`ClipFraming.ratio`) ;
+ * la variante 9:16 pose chaque plan au sien.
  *
  * **Quand le ratio est épinglé, le choix est sauté — mais pas le calcul des
  * crops.** Ils se calculent alors pour *ce* ratio-là : sans ça, des crops cadrés

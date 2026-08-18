@@ -60,7 +60,13 @@ const MODE_DE_CADRAGE = 'auto' as const
  */
 export type CadrageRésolu = CadrageClip
 
-/** Le repli quand l'analyse manque : le clip tel que l'itération 0 le rendait. */
+/**
+ * Le repli quand l'analyse manque : le clip tel que l'itération 0 le rendait.
+ *
+ * Un plan unique qui couvre le clip, portant le ratio épinglé — ou 9:16, la
+ * réponse de `resolveRatio` à `'auto'` quand aucune analyse n'a mesuré quoi que
+ * ce soit — et le `cropX` réglé à la main.
+ */
 function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): CadrageRésolu {
   const bornes = clip.segments.reduce<{ start: number; end: number } | null>(
     (acc, s) => (acc === null ? { ...s } : { start: Math.min(acc.start, s.start), end: Math.max(acc.end, s.end) }),
@@ -75,9 +81,21 @@ function repli(clip: Clip, origine: Exclude<OrigineCadrage, 'calculé'>): Cadrag
   // l'écran de clip, ou de son défaut à 0,5 pour un clip qu'on n'a pas touché.
   // Ce qui manque, c'est la mesure, et `origine` le dit à part.
   const shot: Shot = bornes ?? { start: 0, end: 0 }
+  const ratio = resolveRatio(clip.ratio)
   return {
-    ratio: resolveRatio(clip.ratio),
-    shots: [{ shot, key: Math.round(shot.start * 1000), cropX: clip.cropX, source: 'manual' }],
+    ratio,
+    shots: [
+      {
+        shot,
+        key: Math.round(shot.start * 1000),
+        ratio,
+        // Les deux positions sont la même : sans plan à distinguer, il n'y a
+        // qu'un cadre, et c'est celui que l'humain a réglé.
+        cropX: clip.cropX,
+        cropXNatif: clip.cropX,
+        source: 'manual',
+      },
+    ],
     rejectedOverrides: [],
     origine,
   }

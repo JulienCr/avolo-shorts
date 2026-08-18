@@ -21,8 +21,8 @@
  *    CPU, on encode sur GPU.
  */
 
-import type { Segment } from '@/core/edl'
-import { outputSize } from '@/core/framing'
+import type { Ratio, Segment } from '@/core/edl'
+import { outputSize, tailleDansLeCanevas } from '@/core/framing'
 import {
   LOUDNORM,
   METADATA_SCRUB,
@@ -294,35 +294,51 @@ function accélération(encoder: EncoderName): string[] {
 export type Rectangle = { w: number; h: number; x: number; y: number }
 
 /**
- * Un morceau à décoder, **avec le rectangle qui lui appartient**.
+ * Un morceau à décoder, **avec le cadre qui lui appartient**.
  *
- * C'est le changement que le cadrage automatique impose au rendu : la position
- * du crop est fixe *à l'intérieur d'un plan* et saute à ses frontières
+ * C'est ce que le cadrage automatique impose au rendu : le ratio et la position
+ * du crop sont fixes *à l'intérieur d'un plan* et sautent à ses frontières
  * (spec §10). Un segment qui traverse une frontière se découpe donc en autant
- * d'entrées que de plans traversés, chacune avec son propre rectangle — un
- * `-ss`/`-t`/`-i` par entrée, et un `crop=` par entrée dans le graphe.
+ * d'entrées que de plans traversés, chacune avec son rectangle et son ratio — un
+ * `-ss`/`-t`/`-i` par entrée, et une composition par entrée dans le graphe.
  *
- * **Ce n'est pas une caméra qui suit.** Le rectangle ne bouge qu'aux endroits où
- * une coupe existe déjà, donc où le saut est invisible ; entre deux frontières
- * il ne bouge pas d'un pixel.
+ * **Ce n'est pas une caméra qui suit.** Le cadre ne bouge qu'aux endroits où une
+ * coupe existe déjà, donc où le saut est invisible ; entre deux frontières il ne
+ * bouge pas d'un pixel.
  */
-export type SegmentCadré = Segment & { crop: Rectangle }
+export type SegmentCadré = Segment & {
+  crop: Rectangle
+  /**
+   * Le ratio du cadre, qui décide de la place qu'il occupe dans le canevas.
+   *
+   * Il se déduirait presque de `crop` — presque, et c'est pourquoi il est
+   * explicite : `cropRect` arrondit ses composantes au pair, donc un 9:16 sort
+   * en 608x1080 et non en 607,5x1080. La hauteur calculée depuis ce rapport
+   * tomberait à 1918 au lieu de 1920, et laisserait une bande de fond flouté de
+   * un pixel en haut et en bas d'un cadre qui devait remplir.
+   */
+  ratio: Ratio
+}
 
 export type RenderOptions = {
   src: string
   dst: string
   /**
-   * Les morceaux à concaténer, dans l'ordre, chacun avec son rectangle.
+   * Les morceaux à concaténer, dans l'ordre, chacun avec son cadre.
    *
    * **Ils ne sont pas normalisés ici, et c'est le point.** `normalizeSegments`
    * fusionne deux segments qui se touchent — ce qu'il faut sur une liste de
    * montage, et ce qu'il ne faut surtout pas ici : deux entrées adjacentes qui
    * se touchent sont précisément les deux moitiés d'un segment coupé sur une
-   * frontière de plan, et les fusionner ferait cadrer la seconde avec le
-   * rectangle de la première. L'appelant normalise le montage *avant* de le
-   * découper par plan ; ce qui arrive ici est déjà canonique et se contrôle.
+   * frontière de plan, et les fusionner ferait cadrer la seconde avec le cadre
+   * de la première. L'appelant normalise le montage *avant* de le découper par
+   * plan ; ce qui arrive ici est déjà canonique et se contrôle.
    */
   segments: SegmentCadré[]
+  /**
+   * Le canevas du **rendu natif** : `outputSize` du ratio le plus large que les
+   * plans demandent. La variante 9:16 l'ignore, elle a le sien.
+   */
   out: { w: number; h: number }
   assPath?: string
   fontsDir?: string
@@ -341,9 +357,8 @@ type Étape = (entrée: string, sortie: string) => string
  * Sans cela il faudrait un filtre de rattrapage, ou un `-map` dont le nom
  * change avec les options.
  *
- * Aucune étape : rien n'est écrit et l'entrée ressort telle quelle. C'est le
- * cas d'un rendu natif sans sous-titres ni marque, où le découpage écrit
- * directement dans l'étiquette terminale.
+ * Aucune étape : rien n'est écrit et l'entrée ressort telle quelle. L'appelant
+ * a alors fait écrire l'étiquette terminale par ce qui précède.
  */
 function enchaîner(
   graphe: string[],
@@ -371,15 +386,22 @@ function enchaîner(
  * compris. Un flou gaussien étale un trait à fort contraste, il ne le détruit
  * pas ; il faudrait un sigma tel que le fond cesserait d'être une image.
  *
- * La bonne réponse est en amont : ne jamais mettre de texte dans le fond.
+ * La bonne réponse est en amont : ne jamais mettre de texte dans le fond. C'est
+ * ce que garantit le `split`, qui prend sa branche **avant** toute incrustation.
  */
 const SIGMA_DU_FOND = 12
 
 /**
- * Le rendu d'un clip, **depuis l'original** et jamais depuis le proxy.
+ * Le rendu **natif** d'un clip, celui du feed d'Instagram et de Facebook, depuis
+ * l'original et jamais depuis le proxy.
  *
- * La forme, validée sur la machine (36 secondes produites en 10, bornes
- * exactes, pas de décodage depuis le début du fichier) :
+ * **Un seul ratio pour tout le clip** — `o.out` —, et les entrées le portent
+ * toutes : une vidéo de feed dont les bandes latérales apparaîtraient et
+ * disparaîtraient au fil des plans serait exactement le défaut que le fond
+ * flouté existe pour éviter. Ce qui varie ici est la seule **position** du crop,
+ * qui saute aux frontières de plans.
+ *
+ * La forme, pour deux entrées :
  *
  * ```
  * -hwaccel cuda -ss <s0> -t <d0> -i src      un quadruplet par entrée
@@ -392,13 +414,19 @@ const SIGMA_DU_FOND = 12
  * -map [v] -map [a] <encodeur> -c:a aac -movflags +faststart -- dst
  * ```
  *
+ * **Les sous-titres et les marques s'incrustent APRÈS la composition**, une
+ * seule fois, à l'échelle du canevas. Sur le natif ça ne change rien — le cadre
+ * remplit son canevas —, mais c'est la même fonction qui rend la variante, où le
+ * point décide de tout : l'ordre précédent réduisait le texte avec l'image, et
+ * un 16:9 posé dans un 9:16 s'y retrouvait à 31,6 % de sa taille, illisible.
+ *
  * **La normalisation de sonie est dans le graphe, pas en `-af`.** Un `-af` sur
  * un flux issu de `-map [a]` fait échouer ffmpeg : « Simple and complex
  * filtering cannot be used together for the same stream ».
  *
  * **Limite assumée :** un `-ss`/`-i` par entrée ouvre un décodeur par entrée.
- * C'est mesuré bon jusqu'à une dizaine. Le cadrage automatique en ajoute :
- * un segment qui traverse cinq plans compte pour cinq entrées, et la médiane des
+ * C'est mesuré bon jusqu'à une dizaine. Le cadrage automatique en ajoute : un
+ * segment qui traverse cinq plans compte pour cinq entrées, et la médiane des
  * plans est de 5,3 s sur `2026-03-08-caro-mdlm`. `renderClip` compte et le dit
  * au journal au-delà du seuil. Le nettoyage déterministe des hésitations de
  * l'itération 3 produira des dizaines de coupures : il faudra alors rendre
@@ -406,60 +434,63 @@ const SIGMA_DU_FOND = 12
  * maintenant.
  */
 export function renderArgs(o: RenderOptions): string[] {
-  return construireLeRendu(o, null)
+  return construireLeRendu(o, o.out)
 }
 
 /**
  * La variante 9:16 sur fond flouté, pour TikTok et Shorts.
  *
- * **Le contenu est déjà cropé**, donc il se pose **pleine largeur** et centré —
- * et non au ratio 0,42 d'OpenShorts, qui partait de 16:9 brut et rognait les
- * côtés pour gagner en présence. Un 1:1 occupe alors 56 % de la hauteur et un
- * 4:5 en occupe 70 %, contre 32 % pour un 16:9 en letterbox : c'est exactement
- * le bénéfice que la spec §2 reproche à OpenShorts de ne pas prendre.
+ * **C'est ici que le ratio varie par plan.** Chaque entrée est posée sur le
+ * canevas vertical au cadre le plus serré qui tienne sur son plan, le fond
+ * flouté prenant le reste : un 9:16 remplit, un 4:5 occupe 70,3 % de la hauteur,
+ * un 1:1 56,3 %, un 16:9 31,6 %. Le saut de taille tombe sur une coupe, donc il
+ * ne se voit pas — c'est le même argument qui justifie déjà le crop qui saute
+ * aux frontières. C'est aussi exactement le bénéfice que la spec §2 reproche à
+ * OpenShorts de ne pas prendre : un 16:9 en letterbox n'occupe que 31,6 % de
+ * l'écran, un 4:5 en occupe 70 %.
  *
- * **Elle se rend depuis la source, avec les mêmes arguments que le rendu
- * natif, et c'est le correctif de #22.** Elle partait auparavant du MP4 natif
- * déjà terminé : son fond était donc un agrandissement du clip fini, cartons de
- * sous-titres compris, et le flou ne les effaçait pas — constaté à l'image, le
- * carton restait lisible à la même taille dans la bande du bas, sous le vrai.
- * Monter le sigma ne répare pas ça (voir `SIGMA_DU_FOND`) ; tirer le fond d'un
- * contenu qui n'a jamais porté de texte, si. Le `split` est donc **avant**
- * l'incrustation, et le fond ne peut plus contenir de texte par construction.
+ * **Elle se rend depuis la source, et c'est le correctif de #22.** Elle partait
+ * auparavant du MP4 natif déjà terminé : son fond était donc un agrandissement
+ * du clip fini, cartons de sous-titres compris, et le flou ne les effaçait pas —
+ * constaté à l'image, le carton restait lisible à la même taille dans la bande
+ * du bas, sous le vrai. Monter le sigma ne répare pas ça (voir `SIGMA_DU_FOND`) ;
+ * tirer le fond d'un contenu qui n'a jamais porté de texte, si. Le `split` est
+ * donc **avant** l'incrustation, et le fond ne peut plus contenir de texte par
+ * construction.
  *
- * Ce que ça coûte : le décodage des segments une seconde fois, soit une
- * fraction de l'encodage — mesuré, le décodage seul tourne à 16x contre 4,6x
- * pour l'export. Ce que ça rapporte en plus : l'avant-plan ne traverse plus
- * deux encodages successifs, puisqu'il ne recycle plus un MP4 déjà encodé.
+ * C'est aussi ce qui rend le ratio par plan gratuit : les deux sorties étant
+ * deux rendus indépendants, un plan serré n'est jamais rétréci deux fois.
  *
- * Le son est normalisé depuis la source comme celui du natif, et non plus
+ * Ce que ça coûte : le décodage des segments une seconde fois, soit une fraction
+ * de l'encodage — mesuré, le décodage seul tourne à 16x contre 4,6x pour
+ * l'export. Le son est normalisé depuis la source comme celui du natif, et non
  * recopié : c'est le même `loudnorm` sur le même PCM d'origine, donc toujours
  * une seule compression.
  */
 export function blurredVariantArgs(o: RenderOptions): string[] {
-  // La variante est toujours en 9:16 : c'est sa raison d'être.
   return construireLeRendu(o, outputSize('9:16'))
 }
 
 /**
  * Le constructeur commun aux deux sorties d'un clip.
  *
- * `canevas` porte toute la différence : `null` rend le format natif, une taille
- * rend la variante posée sur son fond flouté. Le reste — les segments, le
- * rectangle de crop, les sous-titres, les marques, la sonie — est **le même**,
- * et c'est le point : les deux fichiers doivent montrer le même cadre. Deux
- * constructeurs séparés l'ont laissé diverger une fois déjà (#22).
+ * `canevas` porte toute la différence, et le reste est **le même** : les mêmes
+ * morceaux, les mêmes sous-titres, la même sonie. Deux constructeurs séparés
+ * l'ont laissé diverger une fois déjà (#22).
+ *
+ * **Chaque entrée est composée sur le canevas avant la concaténation**, parce
+ * que `concat` exige des flux de même taille : une entrée dont le cadre ne
+ * remplit pas le canevas sort son fond de son propre `split`, le floute, et se
+ * pose dessus. Le natif n'y passe jamais — son cadre a le ratio du canevas — et
+ * le graphe s'y réduit à `crop,scale,setsar`.
  */
-function construireLeRendu(
-  o: RenderOptions,
-  canevas: { w: number; h: number } | null,
-): string[] {
+function construireLeRendu(o: RenderOptions, canevas: { w: number; h: number }): string[] {
   // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
   // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
   // disparaîtrait et un clip de trois entrées en rendrait deux sans un mot —, et
   // une borne infinie ressortirait en `-t Infinity`. Mais fusionner n'est plus
   // permis ici : deux entrées qui se touchent sont les deux moitiés d'un segment
-  // coupé sur une frontière de plan, et chacune porte son propre rectangle.
+  // coupé sur une frontière de plan, et chacune porte son propre cadre.
   const segments = o.segments
   if (segments.length === 0) {
     throw new Error(
@@ -493,8 +524,7 @@ function construireLeRendu(
   const logos = o.logos ?? []
   const multi = segments.length > 1
 
-  // Les étapes qui suivent le découpage. Sur la variante, elles ne s'appliquent
-  // qu'à l'avant-plan : le fond est tiré du même contenu **avant** elles.
+  // Ce qui s'incruste **sur le canevas composé**, une seule fois, à sa taille.
   const étapes: Étape[] = []
   if (o.assPath !== undefined) {
     const options = [option('filename', o.assPath)]
@@ -510,36 +540,47 @@ function construireLeRendu(
     const y = nombre(logo.y, `logos[${i}].y`)
     étapes.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
   })
-  // La mise à la largeur du canevas ferme la chaîne de l'avant-plan. Elle ne
-  // change rien à un 1:1 ou à un 4:5, déjà larges de 1080, et ramène un 16:9 de
-  // 1920 à 1080.
-  if (canevas !== null) {
-    étapes.push((e, s) => `[${e}]scale=${canevas.w}:-2[${s}]`)
-  }
 
-  // Où finit la chaîne : `[v]` pour le rendu natif, `[fg]` pour l'avant-plan de
-  // la variante, que la superposition consomme ensuite.
-  const terminal = canevas === null ? 'v' : 'fg'
-  // Et où sort le découpage. Sur un rendu natif sans sous-titre ni marque, rien
-  // ne suit : c'est le découpage lui-même qui écrit `[v]`.
-  const contenu = étapes.length === 0 ? terminal : multi ? 'vc' : 'vd'
+  // Où finit tout le graphe. Quand rien ne s'incruste, c'est la composition —
+  // ou la concaténation — qui écrit directement cette étiquette : un graphe ne
+  // porte pas de filtre de rattrapage, et un `-map` dont le nom changerait avec
+  // les options se paierait un jour.
+  const terminal = 'v'
+  const étiquetteConcat = étapes.length === 0 ? terminal : 'vc'
+  const étiquetteEntrée = (i: number): string =>
+    multi ? `v${i}` : étapes.length === 0 ? terminal : 'v0'
 
   const graphe: string[] = []
-  // **La mise à l'échelle est commune, le crop ne l'est plus.** Tous les
-  // rectangles d'un même clip ont la même taille — le ratio est choisi une fois
-  // par clip — et seule leur abscisse change d'un plan à l'autre. Les segments
-  // sortent donc tous au même format, ce que `concat` exige.
-  const misÀLÉchelle = `scale=${nombre(o.out.w, 'out.w')}:${nombre(o.out.h, 'out.h')}:flags=lanczos`
-
   segments.forEach((s, i) => {
     const c = s.crop
-    const filtreImage = [
+    const crop =
       `crop=${nombre(c.w, `segments[${i}].crop.w`)}:${nombre(c.h, `segments[${i}].crop.h`)}` +
-        `:${nombre(c.x, `segments[${i}].crop.x`)}:${nombre(c.y, `segments[${i}].crop.y`)}`,
-      misÀLÉchelle,
-      'setsar=1',
-    ].join(',')
-    graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : contenu}]`)
+      `:${nombre(c.x, `segments[${i}].crop.x`)}:${nombre(c.y, `segments[${i}].crop.y`)}`
+    const dans = tailleDansLeCanevas(s.ratio, canevas)
+    const sortie = étiquetteEntrée(i)
+
+    if (dans.h >= canevas.h) {
+      // Le cadre remplit le canevas : pas de fond à fabriquer, et le composer
+      // quand même ferait payer un `gblur` sur une image que rien ne montre.
+      graphe.push(
+        `[${i}:v]${crop},scale=${canevas.w}:${canevas.h}:flags=lanczos,setsar=1[${sortie}]`,
+      )
+      return
+    }
+
+    // **Le `split` d'abord, l'incrustation nulle part ici.** Le fond est tiré du
+    // contenu *avant* que quoi que ce soit ne s'y pose — c'est le correctif de
+    // #22, et il est structurel : le fond ne peut pas porter de texte puisqu'il
+    // n'en a jamais vu passer. `force_original_aspect_ratio=increase` puis
+    // `crop` couvrent le canevas sans déformer.
+    graphe.push(`[${i}:v]${crop},setsar=1[c${i}]`)
+    graphe.push(`[c${i}]split=2[bga${i}][fga${i}]`)
+    graphe.push(
+      `[bga${i}]scale=${canevas.w}:${canevas.h}:force_original_aspect_ratio=increase,` +
+        `crop=${canevas.w}:${canevas.h},gblur=sigma=${SIGMA_DU_FOND}[bg${i}]`,
+    )
+    graphe.push(`[fga${i}]scale=${dans.w}:${dans.h}:flags=lanczos[fg${i}]`)
+    graphe.push(`[bg${i}][fg${i}]overlay=x=0:y=(H-h)/2,setsar=1[${sortie}]`)
   })
 
   // Pas de `?` sur les entrées audio, et c'est délibéré : une étiquette de
@@ -547,12 +588,15 @@ function construireLeRendu(
   // piste son sur **chaque** entrée. Un replay muet est un replay raté ; mieux
   // vaut que le rendu échoue franchement que de livrer un clip silencieux.
   let audio: string
+  let contenu: string
   if (multi) {
     const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
-    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${contenu}][ac]`)
+    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${étiquetteConcat}][ac]`)
     audio = 'ac'
+    contenu = étiquetteConcat
   } else {
     audio = '0:a'
+    contenu = étiquetteEntrée(0)
   }
   // `aresample` derrière `loudnorm`, et ce n'est pas décoratif : en passe
   // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce
@@ -569,21 +613,7 @@ function construireLeRendu(
     graphe.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
-  if (canevas === null) {
-    enchaîner(graphe, contenu, étapes, terminal)
-  } else {
-    // **Le fond sort du `split`, donc d'avant l'incrustation.** C'est toute la
-    // correction de #22 : le fond ne peut pas porter de sous-titre puisqu'il
-    // n'en a jamais vu passer. `force_original_aspect_ratio=increase` puis
-    // `crop` couvrent le canevas sans déformer.
-    graphe.push(`[${contenu}]split=2[bga][fga]`)
-    graphe.push(
-      `[bga]scale=${canevas.w}:${canevas.h}:force_original_aspect_ratio=increase,` +
-        `crop=${canevas.w}:${canevas.h},gblur=sigma=${SIGMA_DU_FOND}[bg]`,
-    )
-    const avantPlan = enchaîner(graphe, 'fga', étapes, terminal)
-    graphe.push(`[bg][${avantPlan}]overlay=x=0:y=(H-h)/2,setsar=1[v]`)
-  }
+  enchaîner(graphe, contenu, étapes, terminal)
 
   return [
     ...GLOBALES,

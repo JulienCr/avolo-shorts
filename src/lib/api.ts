@@ -424,13 +424,20 @@ export type ClipDetail = {
  * **Un clip a une ou deux vidéos**, et `variant9x16Due` dit laquelle des deux
  * situations on regarde quand `variant9x16Url` vaut `null` :
  *
- * - `variant9x16Due === false` — le ratio résolu est **déjà** 9:16, la variante
- *   à fond flouté serait le même cadre réencodé une seconde fois. Elle
+ * - `variant9x16Due === false` — le ratio natif résolu est **déjà** 9:16, la
+ *   variante à fond flouté serait le même cadre réencodé une seconde fois. Elle
  *   n'existera jamais, et son absence n'est pas une anomalie : une interface qui
  *   afficherait « rendu manquant » ici le ferait sur le clip le mieux livré de
  *   la bibliothèque ;
  * - `variant9x16Due === true` — elle est due. `null` veut alors dire « pas
  *   encore produite », et c'est un export qui reste à faire.
+ *
+ * Les deux ne montrent pas le même cadre, et c'est voulu (spec §11) : le natif
+ * garde **un seul ratio** pour tout le clip — le plus large que ses plans
+ * demandent —, parce qu'une vidéo de feed dont les bandes latérales
+ * apparaîtraient et disparaîtraient serait le défaut que le fond flouté existe
+ * pour éviter ; la variante 9:16 pose **chaque plan à son propre ratio** sur son
+ * canevas vertical.
  */
 export type ClipOutputs = {
   /**
@@ -446,7 +453,7 @@ export type ClipOutputs = {
   mp4Url: string | null
   /** La variante 9:16 sur fond flouté. Voir `variant9x16Due` avant de lire ce `null`. */
   variant9x16Url: string | null
-  /** Vrai quand la variante 9:16 est **due**, c'est-à-dire quand le ratio résolu ne l'est pas. */
+  /** Vrai quand la variante 9:16 est **due**, c'est-à-dire quand le ratio natif ne l'est pas. */
   variant9x16Due: boolean
   /** Le `.txt` de publication : titre, description, mots-dièse. */
   textsUrl: string | null
@@ -557,9 +564,9 @@ export type ExportResult = {
    * `undefined` au retour d'un export par ailleurs réussi. (relevé par Copilot)
    */
   clip?: Clip
-  /** Le rendu au ratio du clip. Toujours produit. */
+  /** Le rendu au ratio natif du clip. Toujours produit. */
   mp4: string
-  /** La variante 9:16 sur fond flouté, ou `null` quand le clip est déjà en 9:16. */
+  /** La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est déjà 9:16. */
   variant9x16: string | null
   /** Le `.txt` : titre, description, mots-dièse. */
   texts: string

@@ -40,7 +40,7 @@ export type SortieClip = {
 
 type Sorties = {
   mp4: SortieClip
-  /** `null` quand le ratio résolu est **déjà** 9:16 : la variante n'est pas due. */
+  /** `null` quand le ratio natif résolu est **déjà** 9:16 : la variante n'est pas due. */
   variant9x16: SortieClip | null
   texts: SortieClip
   /** Le chemin de l'empreinte. **Pas une sortie** : elle ne se publie ni ne se sert. */
@@ -60,10 +60,11 @@ function sortie(chemin: string, type: string): SortieClip {
  * qui le servirait laisserait croire l'inverse.
  */
 function sorties(clip: Clip, cadrage: CadrageClip): Sorties {
-  // **Le ratio résolu, jamais celui du clip.** Un clip en `auto` n'a pas de
-  // ratio à lui : c'est `computeFraming` qui le choisit, et c'est sous ce
-  // ratio-là que l'export a écrit ses fichiers. Le lire ailleurs ferait chercher
-  // une variante 9:16 sous un clip qui n'en a pas, ou l'inverse.
+  // **Le ratio NATIF résolu, jamais `clip.ratio`.** Un clip en `auto` n'a pas de
+  // ratio à lui : c'est `computeFraming` qui le choisit — le plus large de ses
+  // plans —, et c'est sous ce ratio-là que l'export a décidé s'il devait une
+  // variante. Le lire ailleurs ferait chercher un `-9x16.mp4` sous un clip qui
+  // n'en a pas, ou l'inverse.
   const chemins = cheminsRendu(clip.projectId, clip.id, cadrage.ratio)
   return {
     mp4: sortie(chemins.mp4, 'video/mp4'),
@@ -152,15 +153,21 @@ export function livraisonÀJour(clip: Clip, cadrage: CadrageClip = cadrageDuClip
  * Ce que `GET /api/clips/:id` dit des sorties.
  *
  * **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même chose.**
- * Un clip déjà en 9:16 n'a pas de variante à fond flouté et n'en aura jamais :
- * son absence est le fonctionnement normal. Un clip en 1:1 qui n'en a pas encore
- * n'est pas fini. Sans ce booléen, une interface affiche « rendu manquant » sur
- * le premier — sur le clip le mieux livré de la bibliothèque.
+ * Un clip dont le ratio natif est déjà 9:16 n'a pas de variante à fond flouté et
+ * n'en aura jamais : son absence est le fonctionnement normal. Un clip en 1:1 qui
+ * n'en a pas encore n'est pas fini. Sans ce booléen, une interface affiche
+ * « rendu manquant » sur le premier — sur le clip le mieux livré de la
+ * bibliothèque.
  */
 export function sortiesDuClip(clip: Clip, cadrage: CadrageClip = cadrageDuClip(clip)): ClipOutputs {
   const { mp4, variant9x16, texts } = sorties(clip, cadrage)
   if (!livraisonÀJour(clip, cadrage)) {
-    return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
+    return {
+      mp4Url: null,
+      variant9x16Url: null,
+      variant9x16Due: variant9x16 !== null,
+      textsUrl: null,
+    }
   }
   return {
     mp4Url: urlSiProduit(clip, mp4),

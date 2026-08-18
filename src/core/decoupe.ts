@@ -2,21 +2,30 @@
  * Le découpage d'un montage **par plan**, la pièce qui manquait entre le cadrage
  * et le rendu.
  *
- * `computeFraming` rend un `cropX` par plan de la source. `renderArgs` veut une
- * liste de morceaux à décoder, chacun avec son rectangle. Entre les deux, il
- * faut couper les segments du montage aux frontières de plans : un segment qui
- * traverse cinq plans devient cinq entrées, et la position du crop saute là où
- * une coupe existe déjà — donc là où le saut est invisible (spec §10).
+ * `computeFraming` rend un ratio et un `cropX` par plan de la source.
+ * `renderArgs` veut une liste de morceaux à décoder, chacun avec son cadre.
+ * Entre les deux, il faut couper les segments du montage aux frontières de
+ * plans : un segment qui traverse cinq plans devient cinq entrées, et le cadre
+ * saute là où une coupe existe déjà — donc là où le saut est invisible
+ * (spec §10).
  *
  * Pur, et testé sans ffmpeg.
  */
 
 import { normalizeSegments } from '@/core/edl'
-import type { Segment } from '@/core/edl'
-import type { Shot } from '@/core/shots'
+import type { Ratio, Segment } from '@/core/edl'
+import type { ShotFraming } from '@/core/framing'
 
-/** Un morceau à décoder et la position de crop qui lui revient. */
-export type MorceauCadré = Segment & { cropX: number }
+/**
+ * Un morceau à décoder et le cadre qui lui revient, **pour les deux sorties**.
+ *
+ * Le natif garde un seul ratio pour tout le clip et n'a besoin que de
+ * `cropXNatif` ; la variante 9:16 pose chaque plan à son propre ratio et lit
+ * `ratio` et `cropX`. Un découpage unique les sert tous les deux : les bornes
+ * sont les mêmes, et c'est ce qui garantit que les deux fichiers montrent les
+ * mêmes images aux mêmes instants.
+ */
+export type MorceauCadré = Segment & { ratio: Ratio; cropX: number; cropXNatif: number }
 
 /**
  * La durée minimale d'un morceau, en secondes.
@@ -56,8 +65,9 @@ export const DURÉE_MINIMALE_MORCEAU = 0.04
  */
 export function découperParPlan(
   segments: readonly Segment[],
-  shots: readonly { shot: Shot; cropX: number }[],
-  cropParDéfaut: number,
+  shots: readonly ShotFraming[],
+  /** Le cadre d'un intervalle qu'aucun plan ne couvre. */
+  défaut: { ratio: Ratio; cropX: number; cropXNatif: number },
 ): MorceauCadré[] {
   // Le montage se normalise ici, une fois : trié, sans chevauchement, sans
   // segment vide. Ce qui sort, en revanche, ne se normalise plus jamais — deux
@@ -65,7 +75,7 @@ export function découperParPlan(
   // cadrer le second avec le rectangle du premier.
   const segs = normalizeSegments(segments as Segment[])
 
-  const plans = shots
+  const plans: ShotFraming[] = shots
     .filter((p) => Number.isFinite(p.shot.start) && Number.isFinite(p.shot.end))
     .slice()
     .sort((a, b) => a.shot.start - b.shot.start)
@@ -96,14 +106,21 @@ export function découperParPlan(
     for (let i = 0; i + 1 < bornes.length; i += 1) {
       const début = bornes[i]
       const fin = bornes[i + 1]
-      morceaux.push({ start: début, end: fin, cropX: cropDuMilieu(plans, début, fin, cropParDéfaut) })
+      const cadre = cadreDuMilieu(plans, début, fin, défaut)
+      morceaux.push({
+        start: début,
+        end: fin,
+        ratio: cadre.ratio,
+        cropX: cadre.cropX,
+        cropXNatif: cadre.cropXNatif,
+      })
     }
   }
   return morceaux
 }
 
 /**
- * Le crop du plan qui contient le **milieu** du morceau.
+ * Le cadre du plan qui contient le **milieu** du morceau.
  *
  * Le milieu et non le début : une borne de segment peut tomber exactement sur
  * une frontière, et `start` appartiendrait alors au plan qui se termine là
@@ -111,13 +128,15 @@ export function découperParPlan(
  * d'avant, sur toute sa durée. Le milieu est à l'intérieur d'un seul plan par
  * construction, dès lors que le morceau ne dure pas zéro.
  */
-function cropDuMilieu(
-  plans: readonly { shot: Shot; cropX: number }[],
+function cadreDuMilieu(
+  plans: readonly ShotFraming[],
   début: number,
   fin: number,
-  défaut: number,
-): number {
+  défaut: { ratio: Ratio; cropX: number; cropXNatif: number },
+): { ratio: Ratio; cropX: number; cropXNatif: number } {
   const milieu = (début + fin) / 2
   const trouvé = plans.find((p) => p.shot.start <= milieu && milieu < p.shot.end)
-  return trouvé?.cropX ?? défaut
+  return trouvé === undefined
+    ? défaut
+    : { ratio: trouvé.ratio, cropX: trouvé.cropX, cropXNatif: trouvé.cropXNatif }
 }

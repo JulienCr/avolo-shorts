@@ -58,13 +58,13 @@ export type SortieRendu = 'natif' | '9x16'
 
 export type AvancementRendu = Avancement & { sortie: SortieRendu }
 
-/** Ce que `renderClip` rend à son appelant — la route d'export, en itération 0. */
+/** Ce que `renderClip` rend à son appelant — la route d'export. */
 export type RenderResult = {
-  /** Le rendu au ratio du clip. Toujours produit. */
+  /** Le rendu au ratio natif du clip — celui du feed. Toujours produit. */
   mp4: string
   /**
-   * La variante 9:16 sur fond flouté, ou `null` quand le clip est **déjà** en
-   * 9:16 et qu'elle serait une copie du fichier précédent.
+   * La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est
+   * **déjà** 9:16 et qu'elle serait une copie du fichier précédent.
    */
   variant9x16: string | null
   /** Le `.txt` : titre, description, mots-dièse. */
@@ -93,10 +93,10 @@ export type OptionsRendu = {
 }
 
 /**
- * Les cinq chemins d'un clip. `variant9x16` vaut `null` quand le clip est déjà
- * en 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un 1:1
- * sur TikTok et Shorts : sur un clip déjà en 9:16, elle serait le même cadre
- * rendu une seconde fois (spec §11).
+ * Les cinq chemins d'un clip. `variant9x16` vaut `null` quand le ratio natif est
+ * déjà 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un
+ * 1:1 sur TikTok et Shorts, et sur un clip déjà vertical elle serait le même
+ * cadre rendu une seconde fois (spec §11).
  *
  * Le `.ass` est un **intermédiaire** : il est réécrit à chaque passage et ne
  * compte pas dans la décision de saut. Il reste sur le disque exprès — c'est le
@@ -152,14 +152,20 @@ function vérifierClipId(clipId: string): string {
  * Le nom de la variante, **due ou non**.
  *
  * Séparé de `cheminsRendu` parce qu'il sert aussi à effacer celle d'un ratio
- * abandonné : un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et
- * l'ancienne resterait sur le disque à ressembler à une livraison à jour.
- * (relevé par Copilot)
+ * abandonné : un clip dont le ratio natif retombe à 9:16 n'a plus de variante à
+ * produire, et l'ancienne resterait sur le disque à ressembler à une livraison à
+ * jour. (relevé par Copilot)
  */
 function cheminVariante(projectId: string, clipId: string): string {
   return path.join(rendersDir(projectId), `${vérifierClipId(clipId)}-9x16.mp4`)
 }
 
+/**
+ * **Le ratio attendu est le ratio NATIF résolu**, celui que `computeFraming`
+ * choisit — le plus large des plans —, jamais `clip.ratio` : un clip en `auto`
+ * n'en a pas à lui, et lire le mauvais ferait chercher une variante sous un clip
+ * qui n'en a pas, ou l'inverse.
+ */
 export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): CheminsRendu {
   const dossier = rendersDir(projectId)
   const nom = vérifierClipId(clipId)
@@ -169,8 +175,9 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
     texts: path.join(dossier, `${nom}.txt`),
     ass: path.join(dossier, `${nom}.ass`),
     // **Le nom ne dépend pas du ratio**, contrairement à celui de la variante :
-    // l'empreinte décrit le rendu quel que soit le ratio, et un clip repassé de
-    // 1:1 à 9:16 doit retrouver — pour l'écarter — celle qu'il a écrite avant.
+    // l'empreinte décrit le rendu quel que soit le ratio, et un clip dont le
+    // ratio natif change doit retrouver — pour l'écarter — celle qu'il a écrite
+    // avant.
     empreinte: path.join(dossier, `${nom}.rendu.json`),
   }
 }
@@ -221,17 +228,22 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
 export const VERSION_EMPREINTE = 2
 
 /**
- * Le cadrage tel que l'empreinte le retient : le ratio de sortie, et le crop de
- * chaque plan traversé **avec ses bornes dans la source**.
+ * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
+ * dans la source, son ratio et sa position**.
  *
  * Les bornes en font partie parce qu'elles changent l'image : une frontière qui
- * se déplace fait sauter le crop ailleurs, donc le fichier ne montre plus ce que
- * la chaîne montrerait. `source` n'y est pas — savoir qu'un crop est calculé ou
- * posé à la main ne change pas un pixel.
+ * se déplace fait sauter le cadre ailleurs, donc le fichier ne montre plus ce
+ * que la chaîne montrerait. `source` n'y est pas — savoir qu'un cadre est
+ * calculé ou posé à la main ne change pas un pixel.
+ *
+ * Les deux positions y sont, parce que les deux fichiers les consomment : le
+ * natif prend `cropXNatif` sous `ratio`, la variante prend `cropX` sous le
+ * `ratio` de chaque plan.
  */
 export type CadrageRendu = {
+  /** Le ratio du fichier natif : le plus large que les plans demandent. */
   ratio: Ratio
-  shots: { start: number; end: number; cropX: number }[]
+  shots: { start: number; end: number; ratio: Ratio; cropX: number; cropXNatif: number }[]
 }
 
 /**
@@ -271,7 +283,9 @@ export function cadrageRendu(cadrage: CadrageRésolu): CadrageRendu {
     shots: cadrage.shots.map((s) => ({
       start: s.shot.start,
       end: s.shot.end,
+      ratio: s.ratio,
       cropX: s.cropX,
+      cropXNatif: s.cropXNatif,
     })),
   }
 }
@@ -374,7 +388,9 @@ const SCHÉMA_EMPREINTE = z.object({
       z.object({
         start: z.number().finite(),
         end: z.number().finite(),
+        ratio: z.enum(['9:16', '4:5', '1:1', '16:9']),
         cropX: z.number().finite(),
+        cropXNatif: z.number().finite(),
       }),
     ),
   }),
@@ -480,7 +496,13 @@ export function empreinteDuRendu(
     // fichier porte est décidé ici, pas par ce qu'un type voisin gagnerait.
     cadrage: {
       ratio: clip.cadrage.ratio,
-      shots: clip.cadrage.shots.map((p) => ({ start: p.start, end: p.end, cropX: p.cropX })),
+      shots: clip.cadrage.shots.map((p) => ({
+        start: p.start,
+        end: p.end,
+        ratio: p.ratio,
+        cropX: p.cropX,
+        cropXNatif: p.cropXNatif,
+      })),
     },
     captions: clip.captions,
     branding: clip.branding,
@@ -1120,11 +1142,16 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   }
 
   // **Le cadrage se résout ici, une fois, et tout ce qui suit le suit.** Le
-  // ratio ne vient plus du clip : il vient de `computeFraming`, qui l'a choisi
-  // sur ce qu'un crop fixe par plan cadre réellement (spec §10) — sauf quand
-  // l'humain l'a épinglé, auquel cas c'est le sien, avec les crops recalculés
-  // pour lui. `'auto'` n'atteint donc jamais `cropRect`, dont la table des
-  // ratios n'a pas cette clé.
+  // ratio ne vient plus du clip et n'est plus unique : `computeFraming` en
+  // choisit un **par plan**, le plus serré qu'une position fixe y tienne
+  // (spec §10) — sauf quand l'humain l'a épinglé, auquel cas c'est le sien
+  // partout, avec les crops recalculés pour lui. `'auto'` n'atteint donc jamais
+  // `cropRect`, dont la table des ratios n'a pas cette clé.
+  //
+  // Les deux sorties n'en font pas le même usage : le **natif** garde un seul
+  // ratio pour tout le clip — le plus large des plans, `cadrage.ratio` —, la
+  // **variante 9:16** pose chaque plan à son propre ratio sur son canevas
+  // vertical. Le raisonnement est en tête de `src/core/framing.ts`.
   //
   // Quand l'analyse manque, `cadrageDuClip` se rabat sur le réglage manuel du
   // clip et le dit dans `origine` — l'écran l'affiche, et le journal aussi
@@ -1193,9 +1220,9 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // (relevé par Aristarque)
     écrireTexteDePublication(db, clipId, clip, chemins.texts)
     // La variante d'un ratio abandonné s'efface ici aussi. Le chemin non sauté le
-    // fait déjà ; sans cela, un clip repassé en 9:16 dont les sorties sont
-    // complètes garderait son ancienne variante alors que `RenderResult` annonce
-    // qu'il n'y en a pas. (relevé par Aristarque)
+    // fait déjà ; sans cela, un clip dont le ratio natif retombe à 9:16 et dont
+    // les sorties sont complètes garderait son ancienne variante alors que
+    // `RenderResult` annonce qu'il n'y en a pas. (relevé par Aristarque)
     if (chemins.variant9x16 === null) {
       fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
     }
@@ -1236,17 +1263,16 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // c'est lui qui décide du sort du `.ass` provisoire, dans le `finally`.
   let natifEncodé = false
 
-  // **Les deux sorties se rendent depuis la source, avec les mêmes arguments, et
-  // elles se refont ensemble.** La variante partait du MP4 natif ; elle en
-  // héritait alors les sous-titres dans son fond flouté (#22). Elle a donc besoin
-  // de tout ce que le natif consomme — le transcript, le rectangle de crop, les
-  // marques — et de l'instantané du clip qui a servi au natif : voir
-  // `refaireLesSorties`, qui porte le raisonnement.
+  // **Les deux sorties se rendent depuis la source et se refont ensemble.** La
+  // variante partait du MP4 natif ; elle en héritait alors les sous-titres dans
+  // son fond flouté (#22). C'est aussi ce qui rend le ratio par plan gratuit :
+  // les deux étant deux rendus indépendants, un plan serré n'est jamais rétréci
+  // deux fois.
   //
   // **On ne prépare que ce qu'un encodage va vraiment consommer.** Un passage
   // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
-  // aller-retour en 9p, ni des trois sondages ffprobe.
+  // aller-retour en 9p, ni des sondages ffprobe.
   if (refaireLesSorties(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
     // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
     // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
@@ -1312,30 +1338,28 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
 
     try {
       const taille = await dimensionsSource(src)
-      const out = outputSize(ratio)
 
-      // **Le montage découpé aux frontières de plans.** C'est ici que le crop
+      // **Le montage découpé aux frontières de plans.** C'est ici que le cadre
       // cesse d'être unique : un segment qui traverse cinq plans devient cinq
-      // entrées, chacune avec le rectangle de son plan, et le cadre saute là où
-      // une coupe existe déjà.
+      // entrées, chacune avec le ratio et la position de son plan, et le cadre
+      // saute là où une coupe existe déjà.
       //
       // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
       // recalage des sous-titres : `découperParPlan` recopie les bornes
       // intermédiaires au lieu de les recalculer, donc chaque segment se
       // retrouve couvert exactement. `sousTitresDuClip` continue de lire
       // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
-      const morceaux: SegmentCadré[] = découperParPlan(
+      const découpés = découperParPlan(
         clip.segments,
         cadrage.shots,
-        // Le repli d'un intervalle qu'aucun plan ne couvre. Centré, comme
-        // `computeFraming` centre un plan sur lequel il n'a rien mesuré : deux
-        // défauts qui divergent finissent par se contredire.
-        0.5,
-      ).map((m) => ({
-        start: m.start,
-        end: m.end,
-        crop: cropRect(ratio, m.cropX, taille.w, taille.h),
-      }))
+        // Le repli d'un intervalle qu'aucun plan ne couvre : le cadre le plus
+        // large, centré. Le plus large parce qu'on ne sait rien de ce qui s'y
+        // passe et qu'un 9:16 aveugle jetterait 68 % de la largeur sans le dire
+        // — c'est déjà ce que `chooseRatio` fait quand il ne mesure rien. Centré,
+        // comme `computeFraming` centre un plan sur lequel il n'a rien mesuré :
+        // deux défauts qui divergent finissent par se contredire.
+        { ratio: '16:9', cropX: 0.5, cropXNatif: 0.5 },
+      )
 
       // **Un décodeur par entrée**, et le graphe est mesuré bon jusqu'à une
       // dizaine (`renderArgs`). Le découpage par plan en ajoute : la médiane des
@@ -1343,28 +1367,39 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // peut en traverser une douzaine. On le dit plutôt que de le découvrir sur
       // un export qui rame — il n'y a rien à décider ici, et refuser serait pire
       // que lent.
-      if (morceaux.length > SEUIL_DE_MORCEAUX) {
+      if (découpés.length > SEUIL_DE_MORCEAUX) {
         console.warn(
-          `Clip ${clipId} : ${morceaux.length} morceaux à décoder (${clip.segments.length} segments ` +
+          `Clip ${clipId} : ${découpés.length} morceaux à décoder (${clip.segments.length} segments ` +
             `découpés sur ${cadrage.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
             `dizaine, l'export ralentit.`,
         )
       }
 
-      const logos = planifierMarques(out.w, out.h, marques)
+      // **Le natif garde un seul ratio pour tout le clip** — seule la position
+      // saute aux frontières. La variante, elle, prend le ratio de chaque plan.
+      const out = outputSize(ratio)
+      const vertical = outputSize('9:16')
+      const morceauxNatifs: SegmentCadré[] = découpés.map((m) => ({
+        start: m.start,
+        end: m.end,
+        ratio,
+        crop: cropRect(ratio, m.cropXNatif, taille.w, taille.h),
+      }))
+      const morceauxVerticaux: SegmentCadré[] = découpés.map((m) => ({
+        start: m.start,
+        end: m.end,
+        ratio: m.ratio,
+        crop: cropRect(m.ratio, m.cropX, taille.w, taille.h),
+      }))
 
-      // Ce que les deux sorties ont en commun, c'est-à-dire tout sauf la mise
-      // en page : mêmes morceaux, mêmes rectangles, mêmes sous-titres, mêmes
-      // marques. Les partager dans un seul objet est ce qui garantit que les
-      // deux fichiers montrent le même cadre.
-      const commun = {
-        src,
-        segments: morceaux,
-        out,
-        assPath: assProvisoire,
-        fontsDir,
-        logos,
-      }
+      // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
+      // une fois pour les deux : elles s'incrustent après la composition, à la
+      // taille du fichier produit, et `planifierMarques` raisonne en fractions
+      // de ce canevas. Les planifier une seule fois poserait dans la variante
+      // une bande calculée pour un autre format. C'est la même raison que pour
+      // les sous-titres — voir `renderArgs`.
+      const logos = planifierMarques(out.w, out.h, marques)
+      const logosVerticaux = planifierMarques(vertical.w, vertical.h, marques)
 
       // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
       // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
@@ -1397,7 +1432,17 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         durationSec: durée,
         onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
         quoi: `rendu ${ratio} du clip ${clipId}`,
-        args: (destination) => renderArgs({ ...commun, dst: destination, encoder: encodeur() }),
+        args: (destination) =>
+          renderArgs({
+            src,
+            segments: morceauxNatifs,
+            out,
+            assPath: assProvisoire,
+            fontsDir,
+            logos,
+            dst: destination,
+            encoder: encodeur(),
+          }),
       })
       // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
       // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
@@ -1416,7 +1461,16 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
           onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
           quoi: `variante 9:16 du clip ${clipId}`,
           args: (destination) =>
-            blurredVariantArgs({ ...commun, dst: destination, encoder: encodeur() }),
+            blurredVariantArgs({
+              src,
+              segments: morceauxVerticaux,
+              out: vertical,
+              assPath: assProvisoire,
+              fontsDir,
+              logos: logosVerticaux,
+              dst: destination,
+              encoder: encodeur(),
+            }),
         })
       }
 
@@ -1473,9 +1527,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     }
   }
 
-  // Un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et l'ancienne
-  // resterait à côté du nouveau MP4 en ressemblant à une livraison à jour — alors
-  // que `RenderResult` annonce qu'il n'y en a pas. (relevé par Copilot)
+  // Un clip dont le ratio natif retombe à 9:16 n'a plus de variante à produire,
+  // et l'ancienne resterait à côté du nouveau MP4 en ressemblant à une livraison
+  // à jour — alors que `RenderResult` annonce qu'il n'y en a pas.
+  // (relevé par Copilot)
   if (chemins.variant9x16 === null) {
     fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
   }
@@ -1654,7 +1709,9 @@ export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boo
       (p, i) =>
         p.start === àJour.cadrage.shots[i].start &&
         p.end === àJour.cadrage.shots[i].end &&
-        p.cropX === àJour.cadrage.shots[i].cropX,
+        p.ratio === àJour.cadrage.shots[i].ratio &&
+        p.cropX === àJour.cadrage.shots[i].cropX &&
+        p.cropXNatif === àJour.cadrage.shots[i].cropXNatif,
     )
   return (
     !mêmesSegments ||

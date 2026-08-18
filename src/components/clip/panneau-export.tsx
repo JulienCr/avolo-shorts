@@ -3,8 +3,8 @@
 import { Check, Copy, FileText, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
+import { compterLesPlans, ratiosDesPlans } from '@/components/clip/cadrage'
 import type { Clip, Ratio } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { nomsDeSortie, texteDePublication } from '@/components/clip/textes'
-import { ApiError, type ClipOutputs } from '@/lib/api'
+import { ApiError, type CadrageClip, type ClipOutputs } from '@/lib/api'
 import type { EtatEnregistrement } from '@/lib/enregistrement'
 import { useExporter } from '@/lib/queries'
 
@@ -34,7 +34,7 @@ import { useExporter } from '@/lib/queries'
 export function PanneauExport({
   clip,
   outputs,
-  ratio,
+  cadrage,
   duree,
   empreinte,
   enregistrement,
@@ -45,8 +45,14 @@ export function PanneauExport({
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
   outputs: ClipOutputs
-  /** Le ratio **en cours d'édition**, qui n'est pas encore celui du clip enregistré. */
-  ratio: Ratio | 'auto'
+  /**
+   * Le cadrage que le serveur publie.
+   *
+   * **Le panneau d'export énonce le cadrage** (§3.5) : c'est la dernière surface
+   * avant la livraison, et le seul endroit où l'automatique passerait en fraude
+   * si personne ne l'y disait. Ça ne coûte rien et ça retire ce cas.
+   */
+  cadrage: CadrageClip
   /** La durée montée. Zéro veut dire qu'il ne reste rien à rendre. */
   duree: number
   /**
@@ -91,9 +97,12 @@ export function PanneauExport({
    */
   const [signatureRendue, setSignatureRendue] = useState<string | null>(null)
 
-  const effectif = resolveRatio(ratio)
   const signature = `${clip.id}|${empreinte}`
-  const noms = nomsDeSortie(clip.id, effectif)
+  // Le ratio **natif** résolu, celui sous lequel l'export écrit ses fichiers.
+  const natif = cadrage.ratio
+  const noms = nomsDeSortie(clip.id, natif)
+  const plans = compterLesPlans(cadrage)
+  const cadres = ratiosDesPlans(cadrage)
   const déjàLivré = outputs.mp4Url !== null
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
@@ -122,10 +131,30 @@ export function PanneauExport({
         <h2 id="titre-export" className="text-sm font-medium">
           Export
         </h2>
-        <span className="font-mono text-[0.75rem] text-muted-foreground">{effectif}</span>
+        <span className="font-mono text-[0.75rem] text-muted-foreground">{natif}</span>
       </div>
 
-      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} effectif={effectif} />
+      {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
+          livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
+          jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
+          passerait en fraude. */}
+      <p className="text-[0.75rem] text-muted-foreground">
+        {plans.total === 1 ? '1 plan' : `${plans.total} plans`}, cadrés{' '}
+        <span className="font-mono">{cadres.join(', ') || '—'}</span>
+        {cadres.length > 1 && ' selon le plan, dans la variante 9:16'}
+        {plans.défaut > 0 && (
+          <>
+            {' · '}
+            <span className="text-amber-500 dark:text-amber-400">
+              {plans.défaut === 1
+                ? '1 plan sans mesure, centré par défaut'
+                : `${plans.défaut} plans sans mesure, centrés par défaut`}
+            </span>
+          </>
+        )}
+      </p>
+
+      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} natif={natif} />
 
       {clip.title.trim() === '' && (
         // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
@@ -257,38 +286,40 @@ export function PanneauExport({
 /**
  * Ce que l'export produira, et ce qu'il a produit — **une seule liste**.
  *
- * Deux fichiers quand le ratio n'est pas 9:16 (le natif pour le fil, la variante
- * floutée pour TikTok et Shorts), un seul sinon. C'est la seule conséquence du
- * choix de ratio qui ne se voyait nulle part, alors qu'elle change ce qu'on aura
- * à publier.
+ * Deux vidéos quand le ratio natif n'est pas 9:16 : le natif pour le feed
+ * d'Instagram et de Facebook, la variante floutée pour TikTok et Shorts. Et
+ * elles ne montrent pas le même cadre — le natif garde un seul ratio pour tout
+ * le clip, la variante pose chaque plan au sien. C'est la conséquence du choix
+ * de ratio qui ne se voyait nulle part, alors qu'elle change ce qu'on aura à
+ * publier.
  */
 function ListeDesSorties({
   clip,
   outputs,
   noms,
-  effectif,
+  natif,
 }: {
   clip: Clip
   outputs: ClipOutputs
   noms: ReturnType<typeof nomsDeSortie>
-  effectif: Ratio
+  natif: Ratio
 }) {
   return (
     <ul className="flex flex-col gap-2">
       <Sortie
         nom={noms.mp4}
-        libellé={`le rendu ${effectif}`}
+        libellé={`le rendu ${natif}, pour le feed`}
         url={outputs.mp4Url}
-        étiquette={`Le rendu ${effectif} de ${clip.title || 'ce clip'}`}
+        étiquette={`Le rendu ${natif} de ${clip.title || 'ce clip'}`}
       />
 
       {noms.variant9x16 === null ? (
         // **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même
-        // chose.** Un clip déjà en 9:16 n'aura jamais de variante à fond flouté,
-        // et annoncer un rendu manquant ici le ferait sur le clip le mieux livré
-        // de la bibliothèque.
+        // chose.** Un clip dont le ratio natif est déjà 9:16 n'aura jamais de
+        // variante à fond flouté, et annoncer un rendu manquant ici le ferait sur
+        // le clip le mieux livré de la bibliothèque.
         <li className="text-[0.75rem] text-muted-foreground">
-          Le clip est déjà en 9:16 : pas de variante à produire.
+          Le ratio natif est déjà 9:16 : pas de variante à produire.
         </li>
       ) : (
         <Sortie

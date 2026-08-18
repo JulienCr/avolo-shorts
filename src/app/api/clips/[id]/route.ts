@@ -160,11 +160,6 @@ export const PATCH = route(
     // question posée un instant plus tard. On réutilise donc sa décision plutôt
     // que d'en inventer une seconde. (relevé par Copilot)
     //
-    // Les chemins se calculent sur le clip **d'avant** : c'est lui qui dit sous
-    // quel ratio les fichiers à écarter ont été écrits, et un passage de 1:1 à
-    // 9:16 change le jeu. Ce ratio-là est **le ratio résolu**, pas `clip.ratio` :
-    // un clip en `auto` n'en a pas à lui, c'est `computeFraming` qui le choisit,
-    // et c'est sous celui-là que l'export a écrit.
     // Sans condition sur le statut : `leRenduEstPérimé` ne se déclenche que
     // lorsqu'un champ qui change l'image a bougé, et un clip que rien n'a rendu
     // n'a pas de fichier à effacer — trois `rmSync` sur des chemins absents. La
@@ -180,6 +175,11 @@ export const PATCH = route(
     // ici que `écarterRenduPérimé` efface trois fichiers : un échec au deuxième
     // laisse un jeu de sorties incomplet, que la réponse décrira tel qu'il est,
     // puisqu'elle relit le disque après coup. (relevé par Copilot)
+    // **Le cadrage d'avant l'écriture**, et c'est lui qui décide de ce qui est
+    // périmé : le ratio et les crops se recalculent sur les segments, donc
+    // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
+    // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
+    // fichiers à écarter ont été écrits.
     const cadrageAvant = cadrageDuClip(clip)
     const chemins = cheminsRendu(clip.projectId, clip.id, cadrageAvant.ratio)
     try {
@@ -187,10 +187,10 @@ export const PATCH = route(
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
       //
-      // `chemins` ne connaît que l'ancien ratio, et c'est ce qu'il faut pour
-      // effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1 n'avait
-      // pas de variante due, donc un `-9x16.mp4` abandonné par une période
-      // antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
+      // `chemins` ne connaît que l'ancien ratio natif, et c'est ce qu'il faut
+      // pour effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1
+      // n'avait pas de variante due, donc un `-9x16.mp4` abandonné par une
+      // période antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
       // *nouveau*, le publiait aussitôt comme la livraison du jour. Le nom de la
       // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
       // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.

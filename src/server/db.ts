@@ -362,6 +362,18 @@ function lireJetons(db: Database.Database, id: string): JetonsClip {
   }
 }
 
+/**
+ * Le plus grand jeton que la base retient pour ce clip, tous champs confondus.
+ *
+ * Sert aux écritures **sans jeton** : elles n'entrent pas dans la course, mais
+ * leur réponse porte le même contrat que les autres, et annoncer `0` là où la
+ * base garde 300 donnerait à l'appelant un plancher faux — donc un recalage qui
+ * l'enfonce au lieu de le sortir. (relevé par Copilot)
+ */
+export function plancherDOrdre(db: Database.Database, id: string): number {
+  return Math.max(0, ...Object.values(lireJetons(db, id)))
+}
+
 /** Le résultat d'une écriture ordonnée. */
 export type ÉcritureOrdonnée = {
   /** Le clip tel que la base le porte **après** l'écriture. */

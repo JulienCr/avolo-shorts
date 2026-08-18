@@ -664,6 +664,14 @@ describe('PATCH /api/clips/:id', () => {
       expect(await titreEnBase()).toBe('deux')
     })
 
+    it('annonce le plancher retenu même sans jeton', async () => {
+      await patcher({ title: 'ordonné', seq: 300 })
+      const sansJeton = await corpsDe(await patcher({ title: 'depuis curl' }))
+      // La base garde 300 : annoncer 0 recalerait l'appelant vers le bas, donc
+      // vers des jetons que le serveur refuserait aussitôt.
+      expect(sansJeton.seq).toBe(300)
+    })
+
     it('écrit sans jeton, comme le fait un appel en `curl`', async () => {
       await patcher({ title: 'depuis l’interface', seq: 300 })
       const résultat = await corpsDe(await patcher({ title: 'depuis curl' }))

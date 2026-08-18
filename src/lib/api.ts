@@ -233,6 +233,14 @@ export type PatchClipResult = {
    * récent l'avait déjà touché. Les autres champs du même patch, eux, sont
    * écrits : l'ordre se compare champ par champ, parce que deux patches
    * partiels qui ne se recouvrent pas ne se contredisent sur rien.
+   *
+   * **Un appelant qui tient un état local doit s'y remettre d'accord**, et pas
+   * seulement mettre son cache à jour. L'écran de clip garde ses segments, son
+   * ratio et son crop dans un store séparé, et son enregistrement différé
+   * compare cet état à `clip` : sans réconciliation, il verrait à nouveau un
+   * écart, renverrait l'intention qu'on vient de refuser — avec un jeton neuf,
+   * donc gagnant — et l'ordre qu'on a payé ne servirait à rien. Ignorer ce
+   * booléen ne perd pas de données, il annule la garantie. (relevé par Copilot)
    */
   applied: boolean
   clip: Clip

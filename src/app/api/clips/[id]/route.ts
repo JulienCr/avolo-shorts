@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
-import { getClip, getDb, getProject, putClip, putClipOrdonné } from '@/server/db'
+import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
 import { cheminsRendu, texteDePublication, écarterRenduPérimé } from '@/server/steps/render'
@@ -123,6 +123,10 @@ export const PATCH = route(
     let plancher = 0
     if (seq === undefined) {
       putClip(db, suivant)
+      // `putClip` ne touche pas aux jetons : le plancher est celui d'avant, et
+      // c'est lui qu'il faut annoncer. Rendre `0` ici contredirait le contrat de
+      // `PatchClipResult.seq` et recalerait l'appelant vers le bas.
+      plancher = plancherDOrdre(db, id)
     } else {
       const résultat = putClipOrdonné(db, suivant, Object.keys(édition) as (keyof Clip)[], seq)
       if (résultat === undefined) throw introuvable(`Clip inconnu : ${id}`)

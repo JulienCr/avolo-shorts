@@ -141,6 +141,23 @@ describe('les trois gestes', () => {
   })
 })
 
+describe('le cadrage', () => {
+  it('accepte une valeur', () => {
+    useEditeur.getState().deplacerCrop(0.3)
+    expect(useEditeur.getState().cropX).toBeCloseTo(0.3, 6)
+  })
+
+  it('accepte une fonction de la précédente, pour les flèches répétées', () => {
+    // Six frappes dans le même tour de boucle : lues depuis la fermeture du
+    // rendu, elles calculeraient six fois le même résultat et le cadre
+    // n'avancerait que d'un cran.
+    const editeur = useEditeur.getState()
+    editeur.deplacerCrop(0.5)
+    for (let i = 0; i < 6; i++) editeur.deplacerCrop((p) => p - 0.01)
+    expect(useEditeur.getState().cropX).toBeCloseTo(0.44, 6)
+  })
+})
+
 describe('annuler', () => {
   it('dépile geste par geste', () => {
     const editeur = useEditeur.getState()

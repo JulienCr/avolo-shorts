@@ -59,7 +59,7 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
           <p className="text-sm text-muted-foreground">
             <span className="font-mono tabular-nums">{compte.aTrier}</span> à trier ·{' '}
             <span className="font-mono text-stage-foreground tabular-nums">{compte.gardes}</span>{' '}
-            gardés ·{' '}
+            gardé{compte.gardes > 1 ? 's' : ''} ·{' '}
             <span className="font-mono tabular-nums">
               {formatDuration(compte.dureeGardee)}
             </span>{' '}
@@ -74,7 +74,8 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
               onClick={() => setVoirEcartes((v) => !v)}
               aria-pressed={voirEcartes}
             >
-              {voirEcartes ? 'Masquer' : 'Revoir'} les {compte.ecartes} écartés
+              {voirEcartes ? 'Masquer' : 'Revoir'}{' '}
+              {compte.ecartes === 1 ? 'l’écarté' : `les ${compte.ecartes} écartés`}
             </Button>
           )}
         </div>

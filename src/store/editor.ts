@@ -53,7 +53,15 @@ type EtatEditeur = {
   terminerSelection: () => void
   viderSelection: () => void
   choisirRatio: (ratio: Ratio | 'auto') => void
-  deplacerCrop: (cropX: number) => void
+  /**
+   * Une valeur, ou une fonction de la précédente — comme `setState`.
+   *
+   * La seconde forme n'est pas un confort : les flèches du clavier se répètent
+   * plus vite que React ne rend, et six frappes lues dans la même fermeture
+   * calculent six fois le même résultat à partir de la même valeur. Le cadre
+   * n'avançait alors que d'un cran.
+   */
+  deplacerCrop: (cropX: number | ((precedent: number) => number)) => void
 }
 
 export const useEditeur = create<EtatEditeur>((set, get) => ({
@@ -140,7 +148,7 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
   },
 
   deplacerCrop(cropX) {
-    set({ cropX })
+    set((etat) => ({ cropX: typeof cropX === 'function' ? cropX(etat.cropX) : cropX }))
   },
 }))
 

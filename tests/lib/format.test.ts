@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, formatTimecode } from '@/lib/format'
+import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 
 describe('formatDuration', () => {
   it('rend des minutes et des secondes', () => {
@@ -21,6 +21,22 @@ describe('formatDuration', () => {
     expect(formatDuration(0)).toBe('0:00')
     expect(formatDuration(-5)).toBe('0:00')
     expect(formatDuration(Number.NaN)).toBe('0:00')
+  })
+})
+
+describe('formatSpan', () => {
+  it('donne le dixième sous la minute : trois mots ne valent pas « 0:00 »', () => {
+    expect(formatSpan(1.24)).toBe('1,2 s')
+    expect(formatSpan(0.4)).toBe('0,4 s')
+  })
+
+  it('repasse en m:ss au-delà de la minute, où le dixième ne renseigne plus', () => {
+    expect(formatSpan(72.4)).toBe('1:12')
+  })
+
+  it('rend « 0 s » sur une valeur absente', () => {
+    expect(formatSpan(0)).toBe('0 s')
+    expect(formatSpan(Number.NaN)).toBe('0 s')
   })
 })
 

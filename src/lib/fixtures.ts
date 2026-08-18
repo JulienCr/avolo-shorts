@@ -147,7 +147,7 @@ const DEPART = 2_400
  * Sans eux le transcript serait un ruban continu, et les candidats se
  * suivraient à la seconde près — ce qu'aucun replay ne ressemble.
  */
-const TROUS: Record<number, number> = { 14: 180, 25: 150, 41: 600, 54: 150, 67: 150, 76: 120 }
+const TROUS: Record<number, number> = { 14: 95, 25: 70, 41: 420, 54: 80, 67: 75, 76: 60 }
 
 function construireLignes(): TranscriptLine[] {
   const lignes: TranscriptLine[] = []
@@ -378,8 +378,15 @@ export function fixtureCandidates(projectId: string): CandidateClip[] {
     .map((c) => ({ ...c, segments: c.segments.map((s) => ({ ...s })) }))
 }
 
-/** La marge de transcript montrée autour du clip, pour pouvoir étendre ses bornes. */
-const CONTEXTE_S = 45
+/**
+ * La marge de transcript montrée autour du clip.
+ *
+ * C'est ce dont on dispose pour **étendre** les bornes : sans marge, l'écran de
+ * clip ne saurait qu'enlever. Deux minutes de chaque côté couvrent largement le
+ * cas réel — le repérage cale déjà les bornes sur les mots (tâche 3) — et
+ * donnent au passage assez de phrases pour que la virtualisation travaille.
+ */
+const CONTEXTE_S = 120
 
 export function fixtureClipDetail(clipId: string): ClipDetail {
   const clip = CLIPS.get(clipId)

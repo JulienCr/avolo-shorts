@@ -28,6 +28,20 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Une étendue courte : ce qu'une sélection de mots s'apprête à retirer.
+ *
+ * `formatDuration` ne convient pas ici — elle arrondit à la seconde, et trois
+ * mots retirés s'y affichent « 0:00 », ce qui ressemble à une panne. Sous la
+ * minute on donne donc le dixième de seconde, et au-delà on repasse en `m:ss`,
+ * où le dixième ne renseigne plus personne.
+ */
+export function formatSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0 s'
+  if (seconds < 60) return `${seconds.toFixed(1).replace('.', ',')} s`
+  return formatDuration(seconds)
+}
+
+/**
  * Une position dans la source, en `h:mm:ss`.
  *
  * Toujours les trois champs, contrairement à `formatDuration` : ces valeurs se

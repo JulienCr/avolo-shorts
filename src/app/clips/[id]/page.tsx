@@ -13,8 +13,9 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { clipDuration, type ClipStatus, type Segment } from '@/core/edl'
 import type { ClipDetail, ClipPatch } from '@/lib/api'
+import { clampCropX, cropWidthFraction, previewRatio } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, selectionBounds } from '@/lib/editing'
-import { formatDuration, formatTimecode } from '@/lib/format'
+import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { usePatchClip, useClip } from '@/lib/queries'
 import { useEditeur, usePeutAnnuler, useSegments } from '@/store/editor'
 
@@ -185,7 +186,15 @@ function Editeur({ detail }: { detail: ClipDetail }) {
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
             <dt className="text-muted-foreground">Cadre</dt>
-            <dd className="font-mono tabular-nums">{Math.round(editeur.cropX * 100)} %</dd>
+            {/* La valeur ramenée dans l'image, celle que dessine le rectangle —
+                pas la valeur brute du store, qui garde l'intention quand on
+                passe par un ratio où elle ne tient pas. */}
+            <dd className="font-mono tabular-nums">
+              {Math.round(
+                clampCropX(editeur.cropX, cropWidthFraction(previewRatio(editeur.ratio))) * 100,
+              )}{' '}
+              %
+            </dd>
           </dl>
         </section>
 
@@ -193,8 +202,14 @@ function Editeur({ detail }: { detail: ClipDetail }) {
           <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
             {selection && etendueSelection ? (
               <>
-                <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                  {formatDuration(etendueSelection.to - etendueSelection.from)} sélectionnés
+                <span className="text-xs text-muted-foreground">
+                  <span className="font-mono tabular-nums">
+                    {Math.abs(selection.tete - selection.ancre) + 1}
+                  </span>{' '}
+                  mots ·{' '}
+                  <span className="font-mono tabular-nums">
+                    {formatSpan(etendueSelection.to - etendueSelection.from)}
+                  </span>
                 </span>
                 <Button
                   size="sm"
@@ -273,8 +288,19 @@ function useRaccourcis({
     function surTouche(e: KeyboardEvent) {
       // Ne jamais voler une frappe à un champ de saisie : il n'y en a pas encore
       // ici, il y en aura (titre, description).
-      const cible = e.target as HTMLElement | null
-      if (cible?.isContentEditable || cible?.closest('input, textarea, select')) return
+      //
+      // Le test `instanceof HTMLElement` n'est pas une précaution de style : la
+      // cible d'un événement clavier n'est pas toujours un élément — `window` et
+      // `document` en sont aussi, et `closest` n'existe pas dessus. Sans lui, le
+      // gestionnaire levait une `TypeError` et **aucun raccourci ne
+      // fonctionnait**, sans rien afficher d'autre qu'une ligne de console.
+      const cible = e.target
+      if (
+        cible instanceof HTMLElement &&
+        (cible.isContentEditable || cible.closest('input, textarea, select'))
+      ) {
+        return
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()

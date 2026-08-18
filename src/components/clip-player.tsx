@@ -4,9 +4,8 @@ import { Pause, Play, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { Segment } from '@/core/edl'
-import { clipDuration } from '@/core/edl'
 import { playbackAction } from '@/lib/editing'
-import { formatDuration, formatTimecode } from '@/lib/format'
+import { formatTimecode } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -35,7 +34,7 @@ export function ClipPlayer({
   const [position, setPosition] = useState(segments[0]?.start ?? 0)
   const [enLecture, setEnLecture] = useState(false)
 
-  const duree = clipDuration(segments)
+  const coupes = Math.max(0, segments.length - 1)
   const debut = segments[0]?.start ?? 0
 
   // La position courante peut se retrouver hors du montage après une coupe :
@@ -83,46 +82,50 @@ export function ClipPlayer({
             playsInline
           />
         ) : (
-          <div className="flex size-full flex-col items-center justify-center gap-2 text-zinc-600">
+          <div className="flex size-full items-center justify-center text-zinc-700">
             <VideoOff className="size-6" aria-hidden />
-            <p className="text-xs">Le proxy n’a pas encore été construit.</p>
-            <p className="max-w-[24rem] text-center text-[0.7rem] text-zinc-700">
-              Le cadrage se règle quand même : le rectangle ci-dessous suit le ratio choisi.
-            </p>
           </div>
         )}
 
         {overlay}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          size="icon-sm"
-          variant="outline"
-          onClick={basculer}
-          disabled={!proxyUrl || segments.length === 0}
-          aria-label={enLecture ? 'Mettre en pause' : 'Lire'}
-        >
-          {enLecture ? <Pause aria-hidden /> : <Play aria-hidden />}
-        </Button>
+      {/* Sans proxy, pas de transport : un bouton désactivé et une position à
+          `0:00:00` prétendraient qu'il y a quelque chose à lire. */}
+      {proxyUrl ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={basculer}
+              disabled={segments.length === 0}
+              aria-label={enLecture ? 'Mettre en pause' : 'Lire'}
+            >
+              {enLecture ? <Pause aria-hidden /> : <Play aria-hidden />}
+            </Button>
 
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">
-          {formatTimecode(position)}
-        </span>
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+              {formatTimecode(position)}
+            </span>
+          </div>
 
-        <span className="ml-auto flex items-baseline gap-1.5">
-          <span className="text-[0.7rem] text-muted-foreground">durée</span>
-          <span className="font-mono text-base font-medium text-stage-foreground tabular-nums">
-            {formatDuration(duree)}
-          </span>
-        </span>
-      </div>
-
-      {segments.length > 1 && (
+          {/* La durée n'est pas répétée ici : elle vit au-dessus du transcript,
+              là où les coupes se font. Deux fois le même nombre, c'est un de
+              trop. */}
+          {coupes > 0 && (
+            <p className="text-[0.7rem] text-muted-foreground">
+              {coupes === 1
+                ? 'La lecture saute le passage retiré'
+                : `La lecture saute les ${coupes} passages retirés`}{' '}
+              — l’à-coup est normal ici, il n’existe pas au rendu.
+            </p>
+          )}
+        </>
+      ) : (
         <p className="text-[0.7rem] text-muted-foreground">
-          La lecture saute les {segments.length - 1} passage
-          {segments.length > 2 ? 's retirés' : ' retiré'} — l’à-coup est normal ici, il n’existe
-          pas au rendu.
+          Le proxy n’a pas encore été construit. Le cadrage se règle quand même : le rectangle
+          suit le ratio choisi.
         </p>
       )}
     </div>

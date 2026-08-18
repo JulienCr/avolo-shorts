@@ -38,7 +38,8 @@ export function CropOverlay({
 }: {
   ratio: Ratio | 'auto'
   cropX: number
-  onCropX: (cropX: number) => void
+  /** Une valeur, ou une fonction de la précédente — indispensable pour les flèches répétées. */
+  onCropX: (cropX: number | ((precedent: number) => number)) => void
 }) {
   const cadre = useRef<HTMLDivElement>(null)
   // L'écart entre le point saisi et le centre du rectangle, en fraction. Sans
@@ -60,8 +61,11 @@ export function CropOverlay({
 
   function surClavier(e: React.KeyboardEvent) {
     const pas = e.shiftKey ? PAS_RAPIDE : PAS
-    if (e.key === 'ArrowLeft') onCropX(clampCropX(centre - pas, largeur))
-    else if (e.key === 'ArrowRight') onCropX(clampCropX(centre + pas, largeur))
+    // Depuis la valeur précédente et non depuis `centre` : une flèche maintenue
+    // envoie plusieurs frappes avant le prochain rendu, et toutes liraient sinon
+    // la même valeur — le cadre n'avancerait que d'un cran.
+    if (e.key === 'ArrowLeft') onCropX((p) => clampCropX(p - pas, largeur))
+    else if (e.key === 'ArrowRight') onCropX((p) => clampCropX(p + pas, largeur))
     else if (e.key === 'Home') onCropX(clampCropX(0, largeur))
     else if (e.key === 'End') onCropX(clampCropX(1, largeur))
     else return

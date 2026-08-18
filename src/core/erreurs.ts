@@ -54,14 +54,6 @@ const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
 
 /**
- * Le nom d'un coffre ou d'une fiche. **Il peut porter des espaces**, et c'est ce
- * qui distingue une référence d'un chemin nu : la barre oblique qui ferme le
- * segment dit où il finit, là où un chemin nu doit s'arrêter au premier espace
- * faute de le savoir. (relevé par Codex)
- */
-const SEGMENT_ESPACÉ = String.raw`[^\s/"'\\]+(?: +[^\s/"'\\]+)*`
-
-/**
  * Une référence de secret — `op://<coffre>/<fiche>/<champ>`.
  *
  * **Ce n'est pas un secret** : une adresse n'est pas une valeur, et la lire ne
@@ -85,23 +77,22 @@ const SEGMENT_ESPACÉ = String.raw`[^\s/"'\\]+(?: +[^\s/"'\\]+)*`
  * pas d'autre forme. Le module est pur et ne peut pas l'importer : si le projet
  * gagnait une seconde forme, les deux se suivraient à la main.
  *
- * **Aucun délimiteur n'entre dans la reconnaissance, et c'est délibéré.** Une
- * première version traitait à part les références entre guillemets doubles, ce
- * qui laissait fuir les trois autres façons de citer une référence — dont celle
- * de `op` lui-même, qui écrit `could not read secret 'op://c/f/CLÉ'` entre
- * apostrophes, et dont ce diagnostic remonte tel quel dans le message de
- * `résoudreSecrets`. La forme de la référence suffit à la reconnaître ; s'en
- * remettre à ce qui l'entoure, c'était énumérer sans fin les entourages.
- * (relevé par Copilot)
+ * **Elle s'arrête au premier espace, comme un chemin nu et pour la même
+ * raison** : rien ne dit où elle finit. Un coffre ou une fiche au nom espacé y
+ * laisse donc sa queue — c'est la limite, elle est démontrée en test, et son
+ * remède est de citer la référence.
  *
- * Trois détails de la forme, et chacun décide de ce que le message vaut encore :
+ * Une grammaire qui traversait les espaces a été écrite puis retirée : elle
+ * autorisait un segment à s'étendre jusqu'à la barre oblique suivante, si bien
+ * qu'une référence sans champ avalait la prose jusqu'à l'URL du remède —
+ * `op://Coffre/Fiche est invalide, voir https://…` sortait réduit à `op://…`,
+ * diagnostic et remède compris. **Un caviardage qui rend l'erreur inutile finit
+ * par sauter** ; celui-ci préfère laisser passer une queue de nom de coffre, qui
+ * n'est pas un secret, plutôt que d'effacer ce qui dit quoi réparer. (relevé par
+ * Copilot)
  *
- * - **les deux premiers segments seulement portent des espaces.** Le coffre et
- *   la fiche en portent couramment, le champ presque jamais — il recopie le nom
- *   d'une variable. Étendre la permission au champ ferait déborder la référence
- *   sur la phrase qui suit dès qu'une barre oblique traîne plus loin : un `3/4`
- *   suffirait. Ce bornage-là est ce qui rend la grammaire sûre à lâcher dans une
- *   phrase française.
+ * Deux détails de la forme, et chacun décide de ce que le message vaut encore :
+ *
  * - **le préfixe nu ne se caviarde pas.** `op://` seul ne nomme ni coffre, ni
  *   fiche, ni champ : il n'y a rien à en retirer, et un message qui cite la
  *   forme — `exigerSecret` le fait — doit ressortir intact. (relevé par Copilot
@@ -114,16 +105,28 @@ const SEGMENT_ESPACÉ = String.raw`[^\s/"'\\]+(?: +[^\s/"'\\]+)*`
  * n'est pas un mot peut précéder une référence, et une référence qu'on ne
  * caviarde pas coûte plus cher qu'un mot rare qu'on abîme.
  */
-const RÉFÉRENCE_DE_SECRET = new RegExp(
-  String.raw`(?<!\w)op://(?:${SEGMENT_ESPACÉ}/){0,2}[^\s"'\\]+`,
-  'g',
-)
+const RÉFÉRENCE_NUE = /(?<!\w)op:\/\/[^\s"'\\]+/g
+
+/**
+ * Une référence citée, espaces compris.
+ *
+ * **Le délimiteur dit où elle finit**, ce que sa seule forme ne dit pas : c'est
+ * la même raison qui fait traiter les chemins entre guillemets avant les chemins
+ * nus. Deux formes, parce que deux existent pour de vrai — `op` cite les siennes
+ * entre apostrophes (`could not read secret 'op://c/f/CLÉ'`, que le message de
+ * `résoudreSecrets` recopie) et `JSON.stringify` entre guillemets doubles.
+ *
+ * Le contenu doit être non vide, sans quoi `"op://"` — qui ne nomme rien — se
+ * ferait caviarder ici après avoir été épargné par la passe nue.
+ * (relevé par Copilot)
+ */
+const RÉFÉRENCE_CITÉE = /(["'])op:\/\/[^"'\n]+\1/g
 
 /** Ce qui termine une phrase, et que la référence a pu emporter en la fermant. */
 const PONCTUATION_FINALE = /[.,;:!?)\]]+$/
 
 /** Ce qu'il reste d'une référence : son préfixe, et la ponctuation qu'elle bordait. */
-function épurerRéférence(brut: string): string {
+function épurerRéférenceNue(brut: string): string {
   return `${PRÉFIXE_DE_RÉFÉRENCE}…${brut.match(PONCTUATION_FINALE)?.[0] ?? ''}`
 }
 
@@ -186,7 +189,13 @@ export function épurerChemins(message: string, racines: readonly string[] = [])
       const dedans = brut.slice(1, -1)
       return estAbsolu(dedans) ? `"${abréger(dedans)}"` : brut
     })
-    .replace(RÉFÉRENCE_DE_SECRET, épurerRéférence)
+    // La citée d'abord : elle seule sait où finit une référence à espaces, et
+    // la passe nue la couperait au premier.
+    .replace(
+      RÉFÉRENCE_CITÉE,
+      (_, délimiteur: string) => `${délimiteur}${PRÉFIXE_DE_RÉFÉRENCE}…${délimiteur}`,
+    )
+    .replace(RÉFÉRENCE_NUE, épurerRéférenceNue)
     .replace(POSIX_NU, abréger)
     .replace(WINDOWS_NU, abréger)
 }

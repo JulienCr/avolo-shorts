@@ -134,30 +134,42 @@ describe('le caviardage des références de secret', () => {
   })
 
   /**
-   * Un coffre et une fiche portent couramment des espaces, et la référence les
-   * traverse : sa grammaire dit où elle finit, là où un chemin nu doit s'arrêter
-   * au premier espace faute de le savoir. (relevé par Codex)
+   * **Un coffre et une fiche portent couramment des espaces**, et une citation
+   * dit où la référence finit. Les deux formes qui existent pour de vrai : `op`
+   * cite les siennes entre apostrophes — `could not read secret 'op://c/f/CLÉ'`,
+   * diagnostic que `résoudreSecrets` recopie —, et `JSON.stringify` entre
+   * guillemets doubles. (relevé par Copilot et par Codex)
    */
-  it('caviarde une référence dont le coffre et la fiche portent des espaces', () => {
-    expect(épurerChemins('lecture de op://Coffre partagé/Avolo Shorts/Clé refusée')).toBe(
-      'lecture de op://… refusée',
-    )
-  })
-
-  /**
-   * Aucun délimiteur n'est nécessaire, et c'est ce qui compte : `op` cite ses
-   * propres références entre apostrophes — `could not read secret 'op://c/f/CLÉ'`
-   * —, et ce diagnostic-là remonte dans le message de `résoudreSecrets`.
-   * (relevé par Copilot)
-   */
-  it('caviarde une référence quel que soit ce qui l’entoure', () => {
+  it('caviarde une référence citée, espaces compris', () => {
     const dedans = 'op://Coffre partagé/Avolo Shorts/Clé'
     expect(épurerChemins(`valeur "${dedans}" refusée`)).toBe('valeur "op://…" refusée')
     expect(épurerChemins(`could not read secret '${dedans}'`)).toBe(
       "could not read secret 'op://…'",
     )
-    expect(épurerChemins(`« ${dedans} » est vide`)).toBe('« op://… » est vide')
-    expect(épurerChemins(`la réf est ${dedans}, dit-il`)).toBe('la réf est op://…, dit-il')
+    // Sans espace, la citation ne sert à rien : la passe nue suffit, quels que
+    // soient les chevrons autour.
+    expect(épurerChemins('« op://Coffre/Fiche/Clé » est vide')).toBe('« op://… » est vide')
+  })
+
+  /**
+   * **Hors citation, la référence s'arrête au premier espace** — même limite
+   * qu'un chemin nu, et pour la même raison : rien ne dit où elle finit. Une
+   * grammaire qui traversait les espaces sans citation a été essayée, et elle
+   * coûtait plus qu'elle ne rapportait : sur une référence sans champ, le
+   * deuxième segment avalait la prose jusqu'à la barre oblique suivante — celle
+   * d'une URL de remède, typiquement —, et le message perdait le diagnostic
+   * *et* le remède. Un caviardage qui rend l'erreur inutile finit par sauter.
+   * (relevé par Copilot)
+   */
+  it('s’arrête au premier espace, plutôt que de manger la phrase', () => {
+    expect(épurerChemins('op://Coffre/Fiche est invalide, voir https://docs.test/a')).toBe(
+      'op://… est invalide, voir https://docs.test/a',
+    )
+    // La contrepartie, laissée démontrée pour qu'on ne la croie pas couverte :
+    // la queue d'un coffre à espace survit si personne ne cite la référence.
+    expect(épurerChemins('lecture de op://Coffre partagé/Fiche/Clé refusée')).toBe(
+      'lecture de op://… partagé…/Clé refusée',
+    )
   })
 
   /**

@@ -294,6 +294,62 @@ describe('lireAnalyse', () => {
   })
 })
 
+/**
+ * Monte de quoi faire tourner `runAnalysis` jusqu'au bout sans GPU, sans torch
+ * et sans vidéo : un proxy vide, un `ffprobe` qui répond, et un worker qui écrit
+ * `charge` là où `--out` le lui dit avant de sortir par 0.
+ *
+ * **Des faux binaires plutôt que des doublures de modules**, comme le reste de
+ * ce fichier : `FFPROBE_BIN` et `DETECT_PYTHON` sont les coutures que le dépôt
+ * expose déjà, et aucun test de cette base n'installe de mock. Le worker sort
+ * par 0 : c'est le seul cas où la validation d'avant renommage a quelque chose à
+ * faire — un worker qui échoue est arrêté bien avant.
+ */
+function monterFauxWorker(racine: string, charge: string): void {
+  fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+
+  const ffprobe = path.join(racine, 'ffprobe-ok')
+  fs.writeFileSync(
+    ffprobe,
+    '#!/bin/sh\necho \'{"streams":[{"width":960,"height":540,"r_frame_rate":"30/1"}],' +
+      '"format":{"duration":"10"}}\'\n',
+    { mode: 0o755 },
+  )
+
+  const chargeFichier = path.join(racine, 'charge-du-worker')
+  fs.writeFileSync(chargeFichier, charge)
+  const python = path.join(racine, 'faux-detect')
+  // `--out` se relit dans `$@` : le worker ne connaît pas le nom du temporaire,
+  // que `cheminTemporaire` tire du PID et d'un compteur.
+  fs.writeFileSync(
+    python,
+    [
+      '#!/bin/sh',
+      'out=""',
+      'while [ $# -gt 0 ]; do',
+      '  if [ "$1" = "--out" ]; then out="$2"; fi',
+      '  shift',
+      'done',
+      `cat ${JSON.stringify(chargeFichier)} > "$out"`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  )
+
+  // Le script et les poids ne sont pas ouverts par ce faux worker : seul leur
+  // existence est contrôlée, en amont, par `runAnalysis`.
+  for (const [nom, variable] of [
+    ['detect.py', 'DETECT_WORKER'],
+    ['yolo11m.pt', 'DETECT_MODEL'],
+  ] as const) {
+    const chemin = path.join(racine, nom)
+    fs.writeFileSync(chemin, '')
+    process.env[variable] = chemin
+  }
+  process.env.FFPROBE_BIN = ffprobe
+  process.env.DETECT_PYTHON = python
+}
+
 describe('runAnalysis', () => {
   let racine: string
   const envDépart = { ...process.env }
@@ -474,5 +530,58 @@ describe('runAnalysis', () => {
     expect((erreur as Error).message).toMatch(/EACCES|ENOENT/)
     // Le message composé ne reprend pas la phrase de Node, donc pas son chemin nu.
     expect((erreur as Error).message).not.toContain(`spawn ${python}`)
+  })
+
+  /**
+   * **La propriété que la tête de ce fichier annonce, et que rien ne tenait.**
+   *
+   * `analysis.json` est relu et validé *avant* d'être renommé à sa place
+   * définitive. C'est ce qui empêche un artefact hors contrat de devenir
+   * l'artefact officiel — et le graphe de présence ne regarde que l'existence du
+   * fichier : une fois posé sous le nom définitif, un JSON malformé est sauté à
+   * toutes les relances suivantes, et le cadrage échoue trois étapes plus loin
+   * sans que personne ne sache d'où ça vient.
+   *
+   * Le test tient l'ordre des deux lignes, pas le refus : `lireAnalyse` a déjà
+   * ses propres cas plus haut. Ce qui compte ici est **ce qui reste sur le
+   * disque** après l'échec. Inverser validation et renommage laisse `analysis.json`
+   * en place et rend ce test rouge ; c'est la seule façon de prouver qu'il
+   * mesure l'ordre.
+   *
+   * Le worker est un script shell : ce qu'on éprouve est la mécanique de
+   * `runAnalysis`, pas YOLO. Il écrit ce qu'on lui a préparé à l'endroit que
+   * `--out` désigne, et sort par 0 — exactement le cas dangereux, celui d'un
+   * worker qui se croit content.
+   */
+  it('ne range pas sous le nom définitif un analysis.json hors contrat', async () => {
+    // Un JSON qui *parse* et qui ment : zéro plan. Un fichier tronqué serait le
+    // cas facile — celui-ci a la bonne forme et pas le bon contenu, donc il
+    // franchit `JSON.parse` et ne s'arrête qu'au schéma.
+    monterFauxWorker(racine, JSON.stringify({ ...ANALYSE_VALIDE, shots: [] }))
+
+    await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
+      /contrat de l'itération 1/,
+    )
+
+    const projet = path.join(racine, 'projects', 'projet')
+    expect(fs.existsSync(path.join(projet, 'analysis.json'))).toBe(false)
+    // Et le temporaire ne survit pas non plus : un `.partiel-…` oublié à chaque
+    // échec finirait par remplir le dossier du projet.
+    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
+  })
+
+  /**
+   * Le pendant, et il n'est pas décoratif : sans lui, un `runAnalysis` qui ne
+   * rangerait **jamais** rien passerait le test ci-dessus les yeux fermés.
+   */
+  it('range analysis.json une fois seulement, quand il est valide', async () => {
+    monterFauxWorker(racine, JSON.stringify(ANALYSE_VALIDE))
+
+    const projet = path.join(racine, 'projects', 'projet')
+    const artefact = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' })
+
+    expect(artefact).toEqual({ path: path.join(projet, 'analysis.json'), skipped: false })
+    expect(lireAnalyse(artefact.path).shots).toEqual([{ start: 0, end: 12.4 }])
+    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
   })
 })

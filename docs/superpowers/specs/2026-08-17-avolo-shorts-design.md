@@ -95,6 +95,16 @@ en a pas pendant la scène.
 - Aucune métadonnée de régie sur les émissions passées. Toute conception doit
   fonctionner sur le seul fichier mixé.
 
+**L'habillage de cette liste est observé, pas relevé.** Dix images prélevées le
+18 août 2026 sur quatre émissions (`2025-06-15-cqlp`, `2025-11-09-realisateur`,
+`2026-03-08-caro-mdlm`, `2026-02-01-faq`) ne montrent ni le bloc de gauche ni la
+liste de droite : un seul cartouche en bas à droite, et le logo en haut à droite
+partout. Dix images ne prouvent pas une absence, et ces éléments apparaissent sans
+doute par séquence plutôt qu'en permanence. Avant que le cadrage s'appuie sur
+cette liste pour poser des préférences de crop, il faut un relevé comparable à
+celui du 17 août sur les personnes : un échantillonnage régulier sur des émissions
+entières, et non quelques images choisies.
+
 ### Matériel
 
 RTX 4090, 24 Go, accessible depuis WSL. Julien possède déjà
@@ -391,13 +401,29 @@ La parenté s'arrête au diariseur.
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
 | Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 8 à 10 min |
-| Extraction audio | ffmpeg | 1 min |
-| Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
+| Extraction audio | ffmpeg | 10 s |
+| Transcript et alignement au mot | WhisperX large-v3 | 2 min |
+| Locuteurs | pyannote, hors itération 0 | non mesuré |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
 | Frontières de plans | détection sur le proxy | 2 min |
 | Personnes | YOLO classe *person*, 2 images par seconde | 5 min |
 | Analyse audio | voir plus bas | 5 min |
 | Repérage des candidats | Gemini | 1 min |
+
+**Quatre de ces lignes sont mesurées, les autres restent des estimations.**
+Relevé le 18 août 2026 sur `2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 :
+proxy en 6 min, soit 16,4x le temps réel et 7 min pour 2 h, ce qui tient dans la
+fourchette annoncée ; extraction audio en 6 s ; transcription et alignement en
+1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre autres
+lignes n'ont encore rien derrière elles.
+
+**La transcription était l'estimation la plus fausse, et dans le bon sens** :
+15 à 25 minutes annoncées contre 1 min 41 s mesurées, une quinzaine de fois
+moins. Le chiffre change ce qu'on peut se permettre, puisque retranscrire une
+émission cesse d'être une décision qu'on pèse. La mesure ne couvre pas les
+locuteurs, d'où leur ligne à part : `worker/transcribe.py` transcrit et aligne, il
+n'instancie jamais le pipeline de diarisation, que l'itération 0 n'utilise pas
+(§17).
 
 La musique de fond gêne Whisper. La suppression de voix MDX23C du diariseur
 existant corrige cela mais coûte cher, donc elle ne se déclenche que sur les

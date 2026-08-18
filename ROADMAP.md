@@ -300,8 +300,15 @@ correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 ### Les reviews
 
-Trois relecteurs, trois surfaces différentes. En rater une fait passer une
-PR pour propre alors qu'elle ne l'est pas :
+**Aristarque est coupé depuis le 18 août au soir**, faute de jetons. Il reste
+Codex et Copilot. Son silence n'est pas une passe en attente : un agent qui
+l'attendrait ne fusionnerait jamais. Le critère d'arrêt ne change pas — trois
+passes —, il porte sur deux relecteurs au lieu de trois, et le bloc replié de
+Copilot devient d'autant plus le seul endroit où le gros des trouvailles se
+trouve. Ce qui suit décrit les trois surfaces, Aristarque compris, pour le jour
+où il sera rallumé.
+
+En rater une fait passer une PR pour propre alors qu'elle ne l'est pas :
 
 - Copilot et Codex déposent des fils en ligne **et un corps de review**. Copilot
   enterre le gros de ses trouvailles dans un bloc `<details><summary>Suppressed comments</summary>`

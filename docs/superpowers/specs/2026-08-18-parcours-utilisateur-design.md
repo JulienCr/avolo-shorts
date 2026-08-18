@@ -864,12 +864,19 @@ plateforme. La conception en est à part, dans
 `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
 laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
-**Un défaut connu à signaler dans le panneau.** L'anomalie #22 laisse les
-sous-titres lisibles dans le fond flouté de la variante 9:16, jaune du mot actif
-compris. Tant qu'elle n'est pas corrigée, le panneau le dit sur la variante
-concernée. Livrer un
-fichier dont on connaît le défaut sans le dire est ce qui fait perdre confiance
-dans les autres.
+**Un défaut connu à signaler dans le panneau — et il n'y en a plus.** Ce
+paragraphe demandait au panneau d'avertir sur la variante 9:16, dont l'anomalie
+#22 laissait les sous-titres lisibles dans le fond flouté, jaune du mot actif
+compris. **Elle est fermée** : la variante tire désormais son fond d'avant
+l'incrustation, vérifié à l'image — 43 tuiles sur 43 sans un pixel de texte,
+contre 43 sur 43 lisibles avant (`ROADMAP.md` porte la mesure). Le panneau
+n'affiche donc **aucun** avertissement pour ce défaut-là : en afficher un
+signalerait un défaut qui n'existe plus, ce qui coûte la même confiance que de
+taire celui qui existe.
+
+La règle qui restait bonne, elle, ne bouge pas : livrer un fichier dont on
+connaît le défaut sans le dire est ce qui fait perdre confiance dans les autres.
+Le jour où une anomalie de rendu rouvre, c'est ici qu'elle se dit.
 
 ### 3.5 Le cadrage quand l'automatique arrive
 

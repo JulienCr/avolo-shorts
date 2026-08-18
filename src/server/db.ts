@@ -371,6 +371,16 @@ export type ÉcritureOrdonnée = {
    * l'avait déjà touché. Les autres champs du même patch, eux, sont écrits.
    */
   applied: boolean
+  /**
+   * Le plus grand jeton que la base retient pour ce clip, tous champs confondus.
+   *
+   * Il repart au client pour qu'il puisse se recaler : ses jetons viennent de son
+   * horloge, et une horloge remise en arrière — un décalage NTP corrigé — lui
+   * ferait produire des numéros inférieurs à ce que le serveur a déjà appliqué,
+   * donc refuser ses écritures jusqu'à ce que l'horloge rattrape. Une réponse
+   * suffit alors à lui apprendre le plancher. (relevé par Copilot)
+   */
+  seq: number
 }
 
 /**
@@ -422,16 +432,17 @@ export function putClipOrdonné(
     putClip(db, suivant)
 
     const retenus = champs.filter((champ) => !écartés.includes(champ))
+    const àJourOuInchangés: JetonsClip = { ...jetons }
     if (retenus.length > 0) {
-      const àJour: JetonsClip = { ...jetons }
-      for (const champ of retenus) àJour[champ] = seq
+      for (const champ of retenus) àJourOuInchangés[champ] = seq
       db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id').run({
         id: clip.id,
-        seqs: JSON.stringify(àJour),
+        seqs: JSON.stringify(àJourOuInchangés),
       })
     }
 
-    return { clip: suivant, applied: écartés.length === 0 }
+    const plancher = Math.max(0, ...Object.values(àJourOuInchangés))
+    return { clip: suivant, applied: écartés.length === 0, seq: plancher }
   })
   return écrire()
 }

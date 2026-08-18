@@ -246,6 +246,15 @@ export type PatchClipResult = {
    * sur un 404 jusqu'au prochain rechargement.
    */
   outputs: ClipOutputs
+  /**
+   * Le plus grand jeton d'ordre que la base retient pour ce clip.
+   *
+   * `patchClip` le pose lui-même comme plancher : les jetons viennent de
+   * l'horloge du navigateur, et une horloge remise en arrière produirait des
+   * numéros inférieurs à ce que le serveur a déjà appliqué — donc des écritures
+   * refusées jusqu'à ce que l'horloge rattrape. Une réponse suffit à recaler.
+   */
+  seq: number
 }
 
 /**

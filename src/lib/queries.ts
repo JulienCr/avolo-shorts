@@ -260,7 +260,15 @@ export function usePatchClip() {
       }
     },
 
-    onSuccess({ clip, outputs }: PatchClipResult, { clipId, projectId }, contexte) {
+    onSuccess({ clip, outputs, seq }: PatchClipResult, { clipId, projectId }, contexte) {
+      // **Le plancher du serveur, avant tout le reste.** Nos jetons viennent de
+      // l'horloge ; une horloge remise en arrière nous ferait produire des
+      // numéros que le serveur a déjà dépassés, donc des écritures refusées
+      // jusqu'à ce qu'elle rattrape. Une réponse suffit à se recaler, et ce
+      // recalage vaut même pour une réponse qu'on s'apprête à ignorer.
+      // (relevé par Copilot)
+      if (seq > dernierJeton) dernierJeton = seq
+
       // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
       // récente remettrait l'ancien état, sans erreur et sans trace.
       if (contexte?.jeton !== derniereÉcriture.get(clipId)) return

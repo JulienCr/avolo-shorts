@@ -120,6 +120,7 @@ export const PATCH = route(
     // a **envoyés** — les clés du corps, pas celles qui ont changé de valeur.
     let écrit = suivant
     let appliqué = true
+    let plancher = 0
     if (seq === undefined) {
       putClip(db, suivant)
     } else {
@@ -127,6 +128,7 @@ export const PATCH = route(
       if (résultat === undefined) throw introuvable(`Clip inconnu : ${id}`)
       écrit = résultat.clip
       appliqué = résultat.applied
+      plancher = résultat.seq
     }
 
     // **Un rendu qui ne décrit plus le clip est écarté ici.**
@@ -250,6 +252,6 @@ export const PATCH = route(
     // son lecteur vidéo pointerait sur un 404 jusqu'au prochain rechargement.
     // (relevé par Aristarque)
     const relu = getClip(db, id) ?? écrit
-    return json({ applied: appliqué, clip: relu, outputs: sortiesDuClip(relu) })
+    return json({ applied: appliqué, clip: relu, outputs: sortiesDuClip(relu), seq: plancher })
   },
 )

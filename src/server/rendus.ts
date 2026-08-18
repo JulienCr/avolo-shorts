@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
 import type { ClipOutputs } from '@/lib/api'
+import { estUneAbsence } from '@/server/octets'
 import { cheminsRendu } from '@/server/steps/render'
 
 /**
@@ -80,8 +81,15 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
   let info: fs.Stats
   try {
     info = fs.statSync(fichier.chemin)
-  } catch {
-    return null
+  } catch (erreur) {
+    // **Seule une absence vaut `null`.** Un refus de droits ou un montage mort
+    // n'est pas « pas encore exporté » : l'avaler ferait annoncer un projet
+    // vierge à un serveur en panne, et enverrait chercher le défaut à l'exact
+    // opposé de là où il est. `servirFichier` fait la même distinction sur les
+    // mêmes codes — les deux bouts du contrat doivent tomber d'accord.
+    // (relevé par Copilot)
+    if (estUneAbsence(erreur)) return null
+    throw erreur
   }
   if (!info.isFile()) return null
   return `/api/clips/${encodeURIComponent(clip.id)}/renders/${encodeURIComponent(fichier.nom)}`

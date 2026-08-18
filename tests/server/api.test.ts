@@ -642,6 +642,19 @@ describe('PATCH /api/clips/:id', () => {
       expect(await titreEnBase()).toBe('même')
     })
 
+    it('rend le plancher d’ordre, de quoi se recaler après un retour d’horloge', async () => {
+      await patcher({ title: 'venu du futur', seq: 4_000_000_000_000 })
+      // Le client dont l'horloge vient d'être corrigée envoie plus petit.
+      const refusé = await corpsDe(await patcher({ title: 'après correction', seq: 100 }))
+      expect(refusé.applied).toBe(false)
+      // La réponse porte le plancher : une seule requête suffit à l'apprendre.
+      expect(refusé.seq).toBe(4_000_000_000_000)
+
+      const repris = await corpsDe(await patcher({ title: 'recalé', seq: 4_000_000_000_001 }))
+      expect(repris.applied).toBe(true)
+      expect(await titreEnBase()).toBe('recalé')
+    })
+
     it('accepte un jeton égal au dernier appliqué', async () => {
       await patcher({ title: 'un', seq: 7 })
       const résultat = await corpsDe(await patcher({ title: 'deux', seq: 7 }))

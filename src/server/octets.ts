@@ -35,9 +35,9 @@ import { parseRange, type ByteRange } from '@/core/range'
  * refusés, montage mort, disque en vrac. Les déguiser en absence ferait chercher
  * le bug du côté de l'artefact manquant, là où il n'y a rien à trouver.
  */
-const ABSENCE = new Set(['ENOENT', 'ENOTDIR', 'ENAMETOOLONG', 'EISDIR'])
+export const ABSENCE = new Set(['ENOENT', 'ENOTDIR', 'ENAMETOOLONG', 'EISDIR'])
 
-function estUneAbsence(erreur: unknown): boolean {
+export function estUneAbsence(erreur: unknown): boolean {
   const code = (erreur as NodeJS.ErrnoException).code
   return code !== undefined && ABSENCE.has(code)
 }

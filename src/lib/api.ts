@@ -109,6 +109,45 @@ export type ProjectSummary = {
 }
 
 /**
+ * Ce que le repérage n'a pas jugé.
+ *
+ * `null` quand aucune notation n'est décrite : rien n'a tourné dans ce
+ * processus, ou le bilan ne concerne pas la dernière exécution.
+ *
+ * **Ce n'est pas cosmétique.** Sur `2025-06-15-cqlp`, quatre lots de fenêtres
+ * sur onze reviennent `PROHIBITED_CONTENT` de façon reproductible : un tiers du
+ * matériau est écarté sans être jugé, en silence. Sans ce champ, on trie
+ * vingt-cinq cartes en croyant regarder ce que l'émission a de mieux, alors
+ * qu'on regarde ce qu'elle a de mieux **dans les deux tiers qui ont été notés**
+ * — et rien n'invite à aller chercher dans le tiers manquant (spec §7.2).
+ */
+export type BilanRepérage = {
+  /** Les fenêtres que la passe avait à noter. */
+  fenêtres: number
+  /** Celles qui portent une note du modèle. */
+  notées: number
+  /** Les lots refusés par le filtre de sécurité, toutes profondeurs de découpe confondues. */
+  lotsRefusés: number
+  /** Les lots auxquels le modèle a répondu. */
+  lotsRépondus: number
+  /**
+   * La part de l'étendue du transcript couverte par les fenêtres notées, entre
+   * 0 et 1. **L'union des intervalles, pas leur somme** : `buildWindows`
+   * chevauche deux fenêtres consécutives d'environ 30 s, et le dernier lot est
+   * plus court que les autres. Le dénominateur est l'étendue du transcript —
+   * premier mot au dernier —, jamais la durée de l'émission : le silence n'est
+   * pas de la matière qu'on aurait omis de juger.
+   */
+  couverture: number
+  /**
+   * Vrai quand la passe ne s'est pas terminée : `notées` décrit alors ce qui
+   * avait été jugé au moment de l'arrêt. Se déduit d'`error` et `finishedAt`,
+   * jamais du bilan seul.
+   */
+  partiel: boolean
+}
+
+/**
  * L'état d'un projet : ce qui est déjà là, et ce qui tourne.
  *
  * `steps` est la **présence de l'artefact**, pas une clé de validité — c'est le
@@ -134,6 +173,15 @@ export type ProjectStatus = {
    * d'erreur.
    */
   error: string | null
+  /**
+   * Ce que le repérage n'a pas jugé, ou `null`.
+   *
+   * **À lire avec `error`, jamais seul** : le bilan décrit une notation
+   * *tentée*. Le serveur a déjà fait ce croisement — c'est ce que porte
+   * `partiel` —, et l'écran n'a donc pas à le refaire ; il a en revanche à ne
+   * pas présenter un décompte partiel comme un résultat.
+   */
+  repérage: BilanRepérage | null
 }
 
 /**

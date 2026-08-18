@@ -6,9 +6,11 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
+import type { BilanNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
   attendre,
+  bilanDeRepérage,
   cheminTranscript,
   CollisionDeProjetError,
   créerProjet,
@@ -134,6 +136,67 @@ beforeEach(() => {
 afterEach(() => {
   db.close()
   fs.rmSync(racine, { recursive: true, force: true })
+})
+
+/**
+ * Le bilan du repérage, tel que `status.json` le porte.
+ *
+ * **Un bilan décrit une notation tentée, pas une notation réussie.** Il est posé
+ * avant le premier appel et se remplit au fil de l'eau : une passe qui échoue à
+ * la quarantième fenêtre en laisse un qui dit « 40 sur 83 ». Le lire seul ferait
+ * afficher ce chiffre comme un résultat. C'est pourquoi la déduction croise
+ * `error` et `finishedAt`, et c'est ce que ces cas figent.
+ * (relevé en review sur la PR qui a écrit `dernierBilan`)
+ */
+describe('bilanDeRepérage', () => {
+  const bilan: BilanNotation = {
+    fenêtres: 83,
+    notées: 51,
+    jamaisNotées: Array.from({ length: 32 }, (_, i) => `window_${i}`),
+    refusées: [],
+    appels: 14,
+    lotsRefusés: 4,
+    lotsRépondus: 7,
+    couverture: 0.6412,
+  }
+
+  it('rend null quand aucune notation n’est décrite', () => {
+    expect(bilanDeRepérage(null, { plan: ['candidates'], error: null, finishedAt: 1 })).toBeNull()
+  })
+
+  it('publie les décomptes, jamais la liste des identifiants', () => {
+    const publié = bilanDeRepérage(bilan, { plan: ['candidates'], error: null, finishedAt: 1 })
+    expect(publié).toEqual({
+      fenêtres: 83,
+      notées: 51,
+      lotsRefusés: 4,
+      lotsRépondus: 7,
+      couverture: 0.6412,
+      partiel: false,
+    })
+  })
+
+  it('marque partiel une passe qui a échoué', () => {
+    expect(bilanDeRepérage(bilan, { plan: ['candidates'], error: 'Gemini a refusé', finishedAt: 1 })?.partiel).toBe(true)
+  })
+
+  /**
+   * Une passe en cours n'a pas de `finishedAt` : ce qu'elle annonce est un
+   * décompte provisoire, et le dire est précisément le rôle de ce drapeau.
+   */
+  it('marque partiel une passe qui n’est pas terminée', () => {
+    expect(bilanDeRepérage(bilan, { plan: ['candidates'], error: null, finishedAt: null })?.partiel).toBe(true)
+  })
+
+  /**
+   * **Le bilan vit dans ce processus et survit à l'exécution qui l'a produit.**
+   * Une relance qui ne vise que le proxy réécrit `status.json` : sans cette
+   * garde, elle y recopierait le décompte d'un repérage qu'elle n'a pas fait, et
+   * l'écran l'afficherait comme s'il décrivait ce qui vient de tourner.
+   */
+  it('rend null quand l’exécution ne visait pas le repérage', () => {
+    expect(bilanDeRepérage(bilan, { plan: ['proxy'], error: null, finishedAt: 1 })).toBeNull()
+  })
 })
 
 describe('planPourCibles', () => {

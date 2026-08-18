@@ -48,6 +48,26 @@ function contexteRendu(id: string, file: string): { params: Promise<{ id: string
   return { params: Promise.resolve({ id, file }) }
 }
 
+/** Un `status.json` posé à la main, comme une exécution terminée l'aurait écrit. */
+function poserStatut(champs: Record<string, unknown>): void {
+  const dossier = path.join(racine, 'projects', PROJET)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(
+    path.join(dossier, 'status.json'),
+    JSON.stringify({
+      pid: 1,
+      updatedAt: 0,
+      cibles: ['candidates'],
+      plan: ['candidates'],
+      running: null,
+      error: null,
+      finishedAt: 1,
+      repérage: null,
+      ...champs,
+    }),
+  )
+}
+
 /**
  * Laisse l'exécution de fond se terminer avant de rendre la main.
  *
@@ -198,6 +218,53 @@ describe('GET /api/projects/:id', () => {
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
     expect(état.error).toContain('PROHIBITED_CONTENT')
+  })
+
+  /**
+   * **Ce que le repérage n'a pas jugé** (spec §7.2). Quatre lots sur onze
+   * reviennent `PROHIBITED_CONTENT` sur `2025-06-15-cqlp` : un tiers du
+   * matériau écarté sans être jugé, et rien à l'écran ne le disait. Sans ce
+   * champ, on trie vingt-cinq cartes en croyant regarder ce que l'émission a de
+   * mieux, alors qu'on regarde ce qu'elle a de mieux dans les deux tiers notés.
+   */
+  it('publie ce que le repérage n’a pas jugé', async () => {
+    poserStatut({
+      repérage: {
+        fenêtres: 83,
+        notées: 51,
+        lotsRefusés: 4,
+        lotsRépondus: 7,
+        couverture: 0.6412,
+        partiel: false,
+      },
+    })
+
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.repérage).toEqual({
+      fenêtres: 83,
+      notées: 51,
+      lotsRefusés: 4,
+      lotsRépondus: 7,
+      couverture: 0.6412,
+      partiel: false,
+    })
+  })
+
+  /**
+   * `null` et non un objet à zéro : « aucune notation n'est décrite » n'est pas
+   * « aucune fenêtre n'a été notée ». Un zéro affiché ferait annoncer une perte
+   * totale sur un projet dont le repérage n'a simplement jamais tourné dans ce
+   * processus.
+   */
+  it('rend null quand aucune notation n’est décrite', async () => {
+    poserStatut({})
+
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.repérage).toBeNull()
   })
 
   it('ne rend pas d’échec quand rien n’a jamais tourné', async () => {

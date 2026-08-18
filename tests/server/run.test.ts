@@ -165,6 +165,33 @@ describe('relevéPrésence', () => {
       renders: false,
     })
   })
+
+  /**
+   * `cheminTemporaire` garde l'extension d'origine — ffmpeg choisit son muxeur
+   * dessus —, donc un encodage en cours ou tué laisse un `.partiel-….mp4` dans
+   * le dossier des rendus. (relevé par Copilot)
+   */
+  it('ne compte pas un rendu encore en cours d’écriture', async () => {
+    poserProjet()
+    const rendus = path.join(racine, 'projects', PROJET, 'renders')
+    fs.mkdirSync(rendus, { recursive: true })
+    fs.writeFileSync(path.join(rendus, 'clip.partiel-1234-1.mp4'), '')
+
+    const projet: Project = {
+      id: PROJET,
+      sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`),
+      stagedPath: null,
+      durationSec: null,
+      sizeBytes: null,
+      mtimeMs: null,
+      createdAt: 0,
+    }
+    expect((await relevéPrésence(projet)).renders).toBe(false)
+
+    fs.writeFileSync(path.join(rendus, 'clip.mp4'), '')
+    oublierSidecar(projet)
+    expect((await relevéPrésence(projet)).renders).toBe(true)
+  })
 })
 
 describe('cheminTranscript', () => {

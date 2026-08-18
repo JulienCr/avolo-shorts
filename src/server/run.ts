@@ -184,10 +184,22 @@ export function oublierSidecar(projet: Project): void {
   sidecars.delete(cléSidecar(projet))
 }
 
-/** Y a-t-il au moins un rendu ? Un dossier vide n'est pas une étape faite. */
+/**
+ * Y a-t-il au moins un rendu ? Un dossier vide n'est pas une étape faite.
+ *
+ * **Les fichiers temporaires ne comptent pas.** `cheminTemporaire` garde
+ * l'extension d'origine — ffmpeg choisit son muxeur dessus —, si bien qu'un
+ * encodage en cours ou interrompu laisse un `clip.partiel-1234-1.mp4` dans le
+ * dossier. Un `endsWith('.mp4')` nu annonçait donc `renders: true` pendant que
+ * ffmpeg tournait encore, et après un processus tué. (relevé par Copilot)
+ */
+const TEMPORAIRE = '.partiel-'
+
 function rendusPrésents(projectId: string): boolean {
   try {
-    return fs.readdirSync(rendersDir(projectId)).some((nom) => nom.endsWith('.mp4'))
+    return fs
+      .readdirSync(rendersDir(projectId))
+      .some((nom) => nom.endsWith('.mp4') && !nom.includes(TEMPORAIRE))
   } catch {
     return false
   }

@@ -24,9 +24,10 @@ import { ORDRE_RATIOS } from '@/lib/crop-preview'
  * Le ratio du cadre pris dans la source pour **ce plan**, tel que l'écran peut
  * le savoir tout de suite.
  *
- * **Ce n'est pas le format du fichier**, qui vaut toujours 9:16 : c'est ce qu'on
- * découpe, et qui sera posé sur le canevas, le fond flouté remplissant ce qui
- * reste.
+ * **Ce n'est pas le format du fichier natif**, qui vaut le plus large des plans
+ * (`PublishedFraming.ratio`) d'un bout à l'autre du clip. C'est le cadre que la
+ * **variante 9:16** pose sur son canevas vertical, le fond flouté remplissant ce
+ * qui reste. (relevé par Copilot)
  *
  * Un ratio épinglé est celui-là, sans attendre : `computeFraming` le prend
  * verbatim pour tous les plans et n'a que les crops à recalculer. C'est ce qui

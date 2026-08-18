@@ -9,6 +9,7 @@ import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
   cheminsRendu,
   collecterMarques,
+  leRenduEstPérimé,
   marquerExporté,
   motsDièse,
   planifierMarques,
@@ -288,6 +289,38 @@ describe('sousTitresDuClip', () => {
   })
 })
 
+describe('leRenduEstPérimé', () => {
+  it('est faux quand rien de ce qui va à l’image n’a bougé', () => {
+    expect(leRenduEstPérimé(clip(), clip())).toBe(false)
+  })
+
+  it("ignore le titre et la description, qui ne vont que dans le .txt", () => {
+    expect(leRenduEstPérimé(clip(), clip({ title: 'Autre', description: 'Autre' }))).toBe(false)
+  })
+
+  it("ignore le statut et le numéro de passe", () => {
+    expect(leRenduEstPérimé(clip(), clip({ status: 'exported', pass: 9 }))).toBe(false)
+  })
+
+  it('voit chacun des cinq champs qui vont à l’image', () => {
+    const cas: Partial<Clip>[] = [
+      { segments: [{ start: 0, end: 5 }] },
+      { ratio: '4:5' },
+      { cropX: 0.2 },
+      { captions: false },
+      { branding: false },
+    ]
+    for (const surcharge of cas) {
+      expect(leRenduEstPérimé(clip(), clip(surcharge))).toBe(true)
+    }
+  })
+
+  it('voit un segment déplacé, à nombre de segments égal', () => {
+    const bougé = clip().segments.map((s, i) => (i === 1 ? { start: s.start, end: s.end + 1 } : s))
+    expect(leRenduEstPérimé(clip(), clip({ segments: bougé }))).toBe(true)
+  })
+})
+
 describe('motsDièse', () => {
   it('les extrait dans leur ordre, sans doublon de casse', () => {
     expect(motsDièse('#Impro et #impro, puis #avolo')).toEqual(['#Impro', '#avolo'])
@@ -427,26 +460,35 @@ describe('renderClip, chemin du saut', () => {
     expect(fs.existsSync(périmée)).toBe(false)
   })
 
-  it("n'écrase pas un montage fait pendant l'export", () => {
+  it("n'écrase pas un texte corrigé pendant l'export", () => {
     // Le défaut relevé par Codex : `renderClip` tient un clip lu avant son
     // premier `await`, et un export dure des minutes. Réécrire cet instantané
-    // pour changer une colonne rendrait au clip son EDL d'avant.
+    // pour changer une colonne rendrait au clip son titre d'avant.
     const { db, c } = préparer()
-    const pendantLExport: Clip = { ...c, segments: [{ start: 0, end: 5 }], title: 'Retitré' }
-    putClip(db, pendantLExport)
+    putClip(db, { ...c, title: 'Retitré' })
 
-    marquerExporté(db, c.id)
+    marquerExporté(db, c.id, c)
 
     const relu = getClip(db, c.id)
     expect(relu?.status).toBe('exported')
-    expect(relu?.segments).toEqual([{ start: 0, end: 5 }])
     expect(relu?.title).toBe('Retitré')
+  })
+
+  it("laisse le clip non exporté si le montage a bougé pendant l'encodage", () => {
+    // La suite du même défaut : les fichiers décrivent l'EDL d'avant, donc
+    // annoncer « exporté » ferait publier un cadre déjà corrigé.
+    const { db, c } = préparer()
+    putClip(db, { ...c, segments: [{ start: 0, end: 5 }] })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
     const { db, c } = préparer()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    marquerExporté(db, c.id)
+    marquerExporté(db, c.id, c)
     expect(getClip(db, c.id)).toBeUndefined()
   })
 

@@ -552,8 +552,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   await écrireFichier(chemins.texts, texteDePublication(getClip(db, clipId) ?? clip))
 
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
-  // l'encodage protégerait un clip qui n'existe pas.
-  marquerExporté(db, clipId)
+  // l'encodage protégerait un clip qui n'existe pas. `clip` est passé pour dire
+  // **ce qui a été rendu** — si le montage a bougé entre-temps, le clip n'est pas
+  // marqué exporté.
+  marquerExporté(db, clipId, clip)
 
   return {
     mp4: chemins.mp4,
@@ -582,10 +584,48 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
  * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
  * ressuscité, puisqu'on n'écrit que ce qu'on vient de lire.
  */
-export function marquerExporté(db: Database.Database, clipId: string): void {
+export function marquerExporté(db: Database.Database, clipId: string, rendu: Clip): void {
   const àJour = getClip(db, clipId)
-  if (àJour === undefined || àJour.status === 'exported') return
+  if (àJour === undefined) return
+  // **Le montage a changé pendant l'encodage : les fichiers décrivent la version
+  // d'avant.** Les annoncer `exported` dirait « c'est fait » sur un cadre que
+  // l'utilisateur vient de corriger, et il publierait l'ancien. On laisse le clip
+  // dans le statut qu'il a — `kept` survit tout aussi bien à une passe de
+  // repérage — et on le dit. (relevé par Copilot)
+  if (leRenduEstPérimé(rendu, àJour)) {
+    console.warn(
+      `Clip ${clipId} : le montage a changé pendant l'export, les fichiers produits décrivent la version d'avant. Statut laissé à « ${àJour.status} », à réexporter.`,
+    )
+    return
+  }
+  if (àJour.status === 'exported') return
   putClip(db, { ...àJour, status: 'exported' })
+}
+
+/**
+ * Vrai quand ce qui a été rendu ne décrit plus le clip.
+ *
+ * **Seuls les champs que l'encodage consomme comptent.** Les segments, le ratio,
+ * le cadrage, les sous-titres et la marque sont dans l'image : les changer périme
+ * le fichier. Le titre et la description, eux, ne vont que dans le `.txt`, qui est
+ * réécrit depuis l'état à jour — les compter ici ferait perdre son statut à un
+ * clip dont on a seulement corrigé une faute de frappe.
+ *
+ * Pure, donc testable sans base ni ffmpeg.
+ */
+export function leRenduEstPérimé(rendu: Clip, àJour: Clip): boolean {
+  const mêmesSegments =
+    rendu.segments.length === àJour.segments.length &&
+    rendu.segments.every(
+      (s, i) => s.start === àJour.segments[i].start && s.end === àJour.segments[i].end,
+    )
+  return (
+    !mêmesSegments ||
+    rendu.ratio !== àJour.ratio ||
+    rendu.cropX !== àJour.cropX ||
+    rendu.captions !== àJour.captions ||
+    rendu.branding !== àJour.branding
+  )
 }
 
 /**

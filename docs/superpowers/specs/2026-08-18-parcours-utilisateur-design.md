@@ -1,10 +1,9 @@
 # Parcours utilisateur : conception de l'interface
 
 Date : 18 août 2026.
-Statut : appliqué. Les lots de la section 8 sont livrés sauf le dernier, le
-cadrage automatique de la 3.5, qui attend l'itération 1. **L'état lot par lot se
-lit en section 8 et nulle part ailleurs** : un état recopié en tête de document
-vieillit sans que personne ne le relise.
+Statut : appliqué. **L'avancement se lit en section 8 et nulle part ailleurs**,
+lot par lot : un état recopié en tête de document vieillit sans que personne ne
+le relise, et celui-ci avait déjà vieilli d'une vague entière.
 
 Ce document décide de la **forme du parcours** et de ce que chaque écran doit
 porter. Il ne décide ni du pipeline, ni de l'API, ni du cadrage : la conception
@@ -424,7 +423,8 @@ dépendent. (relevé par Aristarque)
 | Extraction audio | 6 s | 0:51 |
 | Transcription WhisperX | 1 min 41 | 2:32 |
 | Repérage Gemini | 30 s | **3:02, les candidats sont là** |
-| Proxy 960x540 | 6 min | **9:02, tout est là** |
+| Proxy 960x540 | 6 min | **9:02, le montage s'ouvre** |
+| Analyse d'image | jamais chronométrée sur une émission entière | l'exécution continue |
 
 Autrement dit : **un tiers de l'attente sépare le lancement de la première
 décision possible, et les deux tiers restants ne bloquent que le montage.** Sur
@@ -454,7 +454,14 @@ conséquences à assumer explicitement :
   l'écran de clip ne peut rien lire sans proxy. Le tri, lui, marche entièrement :
   titre, durée, trois premières phrases, garder ou écarter.
 
-**Régime 3, complet.** Rien de particulier, et c'est le but.
+**Régime 3, complet.** Rien de particulier, et c'est le but. Une seule chose à ne
+pas rater en l'écrivant : **l'exécution ne s'arrête pas quand le montage
+s'ouvre.** L'analyse d'image dépend du proxy, donc elle passe après lui, et elle
+alimente un cadrage automatique que l'écran ne montre pas encore. La bande
+d'avancement reste donc dans la barre d'application après 9:02. Un écran qui la
+rangerait à l'ouverture du montage annoncerait une fin qui n'a pas eu lieu, et
+c'est le genre de mensonge qu'on ne remarque qu'une fois : la fois où l'analyse
+échoue en silence.
 
 **Une règle qui vaut partout : on affiche le coût d'une étape, jamais le temps
 qu'il reste.** Le coût est une mesure (« le proxy coûte environ 6 min sur 1 h 40
@@ -952,11 +959,15 @@ clip**, retirer un segment en amont décale tous les rangs, et chaque dérogatio
 atterrit sur le plan voisin. Rien ne le signale : le clip se rend, et le cadrage
 est faux.
 
-La clé désigne donc le plan **dans la source**, et c'est son instant de début.
-`computeFraming` (`src/core/framing.ts`) l'a arbitré ainsi, et c'est sa signature
-qui fait foi pour l'écran. Un temps source est aussi la façon dont tout le reste
-du produit s'ancre : les segments, les mots, les marqueurs `[SECONDS]`. Une
-seule convention de temps dans tout le modèle.
+La clé désigne donc le plan **dans la source**, et c'est son instant de début en
+**millisecondes entières** : `shotStartMs(shot)`, soit `Math.round(shot.start *
+1000)`. La milliseconde n'est pas un détail d'unité à traduire au moment de
+persister. Les bornes d'un plan sont en secondes flottantes, et deux écritures de
+`10.400000000000001` ne se retrouvent pas dans un objet JSON ; une table indexée
+en secondes raterait donc ses appariements d'un facteur mille, ou de rien du tout,
+selon le flottant. `computeFraming` (`src/core/framing.ts`) et `shotStartMs`
+(`src/core/shots.ts`) portent la décision, et c'est leur signature qui fait foi
+pour l'écran comme pour la base.
 
 Restait le cas qui avait fait proposer autre chose : une redétection déplace une
 frontière de 10,0 s à 10,3 s, et la clé 10,0 s tombe dans le plan précédent, qui
@@ -1159,13 +1170,14 @@ qu'on quitte le plus souvent.
 dans un `title` HTML sont des raccourcis que personne n'utilise. Le compte est
 celui du tableau ci-dessus, et il n'a pas à être écrit deux fois.
 
-**Ces touches sont directes en AZERTY**, à une près. Une première version
-proposait `[`, `]` et `/`, qui demandent `Alt Gr` ou `Shift` sur le clavier de la
-seule personne qui utilisera cet outil : un raccourci à deux mains n'économise
-rien sur un geste répété trente fois. L'exception est `.`, qui coûte un `Shift`,
-et elle est assumée parce que sauter de plan en plan se fait quelques fois par
-clip et non trente fois par émission. La règle vaut pour les gestes de boucle, et
-la dire à moitié la rendrait inapplicable. `I` et `O` sont d'ailleurs la
+**Les touches de boucle sont directes en AZERTY.** Une première version proposait
+`[`, `]` et `/`, qui demandent `Alt Gr` ou `Shift` sur le clavier de la seule
+personne qui utilisera cet outil : un raccourci à deux mains n'économise rien sur
+un geste répété trente fois. Deux touches du tableau coûtent malgré tout un
+`Shift`, `.` et `?`, et aucune des deux n'est un geste de boucle : sauter de plan
+en plan se fait quelques fois par clip, ouvrir l'aide une fois par mois. C'est le
+geste répété que la règle protège, et l'étendre à tout le tableau la rendrait
+inapplicable. `I` et `O` sont d'ailleurs la
 convention des bancs de montage pour les points d'entrée et de sortie, et `Ctrl+F`
 remplace celui du navigateur, que la virtualisation neutralise de toute façon.
 (relevé par Aristarque)
@@ -1489,6 +1501,15 @@ dessous. L'ordre n'est pas un détail de mise en page : lue en premier, une mesu
 de mécanisme fait croire qu'on parle d'un incident technique, alors qu'on parle de
 matière qui n'a pas été jugée.
 
+**Et c'est la couverture qui décide s'il y a quelque chose à dire, pas le refus.**
+La règle tient en une ligne : un lot refusé puis recoupé et noté ne coûte rien, et
+un repérage qui a tout noté n'annonce aucune perte, quel que soit le nombre de
+refus qu'il a fallu pour y arriver. `motDuRepérage` ne la tient pas encore : son
+prédicat s'allume dès `lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`
+lui fait écrire « le repérage n'a jugé que 100 % de ce qui se dit dans
+l'émission », qui se réfute tout seul. Le refus décrit une passe, la couverture
+décrit un résultat, et c'est le résultat qu'on montre. (relevé par Codex)
+
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
 et ça vit à côté du compte. Une information qui change la confiance qu'on accorde
@@ -1649,8 +1670,9 @@ satisfaites restent, barrées : les retirer ferait redemander demain ce qui a d�
 **Le modèle de cadrage, arbitré, calculé, pas encore enregistrable.** La forme
 est arrêtée et elle est écrite : `computeFraming` (`src/core/framing.ts`) prend un
 `cropMode` explicite, `auto` ou `manual`, et une table de dérogations **par
-plan**, indexée sur l'instant de début du plan dans la source. Le raisonnement est
-en 3.5.
+plan**, indexée sur `shotStartMs`, l'instant de début du plan dans la source en
+millisecondes entières. Persister des secondes ici raterait l'appariement d'un
+facteur mille ; le raisonnement est en 3.5.
 
 Ce qui manque est la persistance. Un clip ne porte toujours qu'un `cropX` unique,
 en base comme dans `ClipPatch`, donc rien de ce que `computeFraming` sait recevoir

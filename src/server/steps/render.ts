@@ -470,6 +470,17 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   const ratio = resolveRatio(clip.ratio)
   const chemins = cheminsRendu(clip.projectId, clipId, ratio)
 
+  // **L'EDL se valide avant la décision de saut**, et l'ordre compte : l'édition
+  // autorise de vider un clip, et un clip vidé après un premier export a encore
+  // ses fichiers. Le saut le rendrait alors `skipped: true` en le marquant
+  // exporté, alors qu'il ne décrit plus rien. (relevé par Copilot)
+  const durée = clipDuration(clip.segments)
+  if (durée <= 0) {
+    throw new Error(
+      `Le clip ${clipId} ne porte aucun segment à rendre. Un clip est une liste de segments, et une liste vide n'a pas de durée.`,
+    )
+  }
+
   // **Le saut se décide avant de toucher au transcript.** Le sidecar vit sur le
   // Drive partagé, monté en 9p, lent et sujet au décrochage : un clip déjà rendu
   // ne doit pas payer un aller-retour dessus pour s'entendre dire qu'il n'y a
@@ -487,13 +498,6 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       texts: chemins.texts,
       skipped: true,
     }
-  }
-
-  const durée = clipDuration(clip.segments)
-  if (durée <= 0) {
-    throw new Error(
-      `Le clip ${clipId} ne porte aucun segment à rendre. Un clip est une liste de segments, et une liste vide n'a pas de durée.`,
-    )
   }
 
   // **L'encodeur se résout à l'appel, dans la fonction paresseuse.** `encoderName`
@@ -524,46 +528,59 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     }
 
     const style = options.style ?? DEFAULT_CAPTION_STYLE
-    const assPath = clip.captions
-      ? await écrireSousTitres(clip, chemins.ass, projet, style)
+    // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
+    // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
+    // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
+    // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
+    // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
+    // en place. (relevé par Copilot)
+    const assProvisoire = clip.captions
+      ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, style)
       : undefined
-    // Le `.ass` d'un passage précédent ne survit pas à un rendu qui n'en incruste
-    // pas : il est gardé pour relire ce que libass a posé sur l'image, donc un
-    // fichier périmé y décrirait des sous-titres que le MP4 ne porte pas.
-    // (relevé par Copilot)
-    if (assPath === undefined) fs.rmSync(chemins.ass, { force: true })
     // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : le
     // chercher sans cela ferait avertir sur un clip qui n'a pas de sous-titres.
-    const fontsDir = assPath === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
+    const fontsDir =
+      assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
 
-    const taille = await dimensionsSource(src)
-    const crop = cropRect(ratio, clip.cropX, taille.w, taille.h)
-    const out = outputSize(ratio)
+    try {
+      const taille = await dimensionsSource(src)
+      const crop = cropRect(ratio, clip.cropX, taille.w, taille.h)
+      const out = outputSize(ratio)
 
-    const logos = clip.branding
-      ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
-      : []
+      const logos = clip.branding
+        ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
+        : []
 
-    const natif = await produireArtefact({
-      dst: chemins.mp4,
-      force: options.force,
-      durationSec: durée,
-      onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-      quoi: `rendu ${ratio} du clip ${clipId}`,
-      args: (destination) =>
-        renderArgs({
-          src,
-          dst: destination,
-          segments: clip.segments,
-          crop,
-          out,
-          assPath,
-          fontsDir,
-          logos,
-          encoder: encodeur(),
-        }),
-    })
-    natifEncodé = !natif.skipped
+      const natif = await produireArtefact({
+        dst: chemins.mp4,
+        force: options.force,
+        durationSec: durée,
+        onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
+        quoi: `rendu ${ratio} du clip ${clipId}`,
+        args: (destination) =>
+          renderArgs({
+            src,
+            dst: destination,
+            segments: clip.segments,
+            crop,
+            out,
+            assPath: assProvisoire,
+            fontsDir,
+            logos,
+            encoder: encodeur(),
+          }),
+      })
+      natifEncodé = !natif.skipped
+    } finally {
+      // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté ou
+      // sauté laisse en place celui qui décrit la vidéo réellement sur le disque.
+      if (natifEncodé) {
+        if (assProvisoire === undefined) fs.rmSync(chemins.ass, { force: true })
+        else await fsp.rename(assProvisoire, chemins.ass)
+      } else if (assProvisoire !== undefined) {
+        await fsp.rm(assProvisoire, { force: true }).catch(() => {})
+      }
+    }
   }
 
   // La variante part du rendu natif et non de la source : le contenu y est déjà
@@ -644,9 +661,17 @@ export function marquerExporté(db: Database.Database, clipId: string, rendu: Cl
   // dans le statut qu'il a — `kept` survit tout aussi bien à une passe de
   // repérage — et on le dit. (relevé par Copilot)
   if (leRenduEstPérimé(rendu, àJour)) {
+    // **Un clip déjà `exported` est rétrogradé, pas seulement laissé en place.**
+    // Un rerendu forcé sur un clip exporté dont le cadrage change en cours de
+    // route garderait sinon le statut que ce garde-fou existe pour ne pas
+    // annoncer. `kept` est le statut de « décidé, reste à exporter » ; les autres
+    // décisions humaines — `discarded` en particulier — ne se touchent pas.
+    // (relevé par Copilot)
+    const statut = àJour.status === 'exported' ? 'kept' : àJour.status
     console.warn(
-      `Clip ${clipId} : le montage a changé pendant l'export, les fichiers produits décrivent la version d'avant. Statut laissé à « ${àJour.status} », à réexporter.`,
+      `Clip ${clipId} : le montage a changé pendant l'export, les fichiers produits décrivent la version d'avant. Statut ${statut === àJour.status ? `laissé à « ${statut} »` : `ramené à « ${statut} »`}, à réexporter.`,
     )
+    if (statut !== àJour.status) putClip(db, { ...àJour, status: statut })
     return
   }
   if (àJour.status === 'exported') return

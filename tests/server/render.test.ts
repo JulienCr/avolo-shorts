@@ -25,9 +25,14 @@ import {
  * des sorties selon le ratio, la décision de saut, le nom des fichiers, la
  * doctrine de placement des marques, et le texte de publication.
  *
- * **Ce qui ne s'y teste pas, et c'est normal** : que les sous-titres suivent la
- * parole après une coupe interne. Cela ne se voit qu'à l'œil, sur un vrai rendu,
- * et c'est la vérification manuelle de la tâche 14.
+ * **Le recalage après une coupe interne s'y teste**, et c'est le point le plus
+ * important du fichier : `sousTitresDuClip` plus bas vérifie sur deux segments
+ * distants que le premier mot du second tombe à la durée du premier, et pas à son
+ * heure dans l'émission.
+ *
+ * **Ce qui ne s'y teste pas, et c'est normal** : que libass incruste bien ce
+ * document sur l'image, au bon endroit et à la bonne heure. Cela ne se voit qu'à
+ * l'œil, sur un vrai rendu, et c'est la vérification manuelle de la tâche 14.
  */
 
 const SOURCE = '2025-06-15-cqlp.mp4'
@@ -515,6 +520,36 @@ describe('renderClip, chemin du saut', () => {
   it("refuse un clip sans segment, plutôt que de rendre un fichier vide", async () => {
     const { db, c } = préparer({ segments: [] })
     await expect(renderClip(c.id, { db })).rejects.toThrow(/aucun segment/)
+  })
+
+  it("refuse un clip vidé après un premier export, au lieu de sauter dessus", async () => {
+    // L'édition autorise de vider un clip, et ses anciens fichiers sont encore
+    // là : sans validation avant la décision de saut, il ressortirait
+    // `skipped: true` et marqué exporté. (relevé par Copilot)
+    const { db, c } = préparer({ segments: [] })
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+
+    await expect(renderClip(c.id, { db })).rejects.toThrow(/aucun segment/)
+    expect(getClip(db, c.id)?.status).toBe('kept')
+  })
+
+  it("rétrograde un clip déjà exporté dont le montage a bougé", () => {
+    const { db, c } = préparer({ status: 'exported' })
+    putClip(db, { ...c, status: 'exported', cropX: 0.1 })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('kept')
+  })
+
+  it("ne touche pas à un clip écarté dont le montage a bougé", () => {
+    const { db, c } = préparer({ status: 'discarded' })
+    putClip(db, { ...c, status: 'discarded', cropX: 0.1 })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('discarded')
   })
 
   it("dit quoi faire quand la copie de travail a disparu", async () => {

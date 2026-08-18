@@ -19,7 +19,7 @@ import type { Ratio } from '@/core/edl'
  * La largeur pour une hauteur de 1. C'est la seule grandeur dont la géométrie
  * ait besoin : les noms `9:16` et compagnie sont des étiquettes de produit.
  */
-export const RATIOS: Record<Ratio, number> = {
+export const RATIOS: Readonly<Record<Ratio, number>> = {
   '9:16': 9 / 16,
   '4:5': 4 / 5,
   '1:1': 1,
@@ -47,14 +47,17 @@ export function resolveRatio(r: Ratio | 'auto'): Ratio {
  * que les plateformes verticales servent, et monter plus haut ne fait grossir le
  * fichier que pour être redescendu chez elles.
  */
+const TAILLES: Readonly<Record<Ratio, { w: number; h: number }>> = {
+  '9:16': { w: 1080, h: 1920 },
+  '4:5': { w: 1080, h: 1350 },
+  '1:1': { w: 1080, h: 1080 },
+  '16:9': { w: 1920, h: 1080 },
+}
+
 export function outputSize(ratio: Ratio): { w: number; h: number } {
-  const tailles: Record<Ratio, { w: number; h: number }> = {
-    '9:16': { w: 1080, h: 1920 },
-    '4:5': { w: 1080, h: 1350 },
-    '1:1': { w: 1080, h: 1080 },
-    '16:9': { w: 1920, h: 1080 },
-  }
-  return { ...tailles[ratio] }
+  // Une copie : la table est une constante du module, et l'appelant passe le
+  // résultat à `renderArgs`, qui n'a aucune raison de pouvoir la modifier.
+  return { ...TAILLES[ratio] }
 }
 
 /** Le pair immédiatement inférieur ou égal, jamais négatif. */

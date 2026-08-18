@@ -446,12 +446,20 @@ repéré : un dépôt fraîchement cloné voit donc ses exports échouer tant qu
 pas de marque, et `branding: false` sur le clip est la façon de rendre
 volontairement sans. L'une des deux images suffit à faire passer l'export.
 
-Un clip produit **deux fichiers dès que son ratio n'est pas 9:16** : le format
-natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur fond
-flouté pour TikTok et Shorts. **Les deux se rendent depuis la source**, avec les
-mêmes segments, le même rectangle de crop, les mêmes sous-titres et les mêmes
-marques — voir la section suivante, qui explique pourquoi la variante ne part
-plus du natif.
+Un clip produit **deux fichiers dès que son ratio natif n'est pas 9:16** : le
+format natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur
+fond flouté pour TikTok et Shorts. **Les deux se rendent depuis la source**, avec
+les mêmes segments et les mêmes sous-titres — voir la section suivante, qui
+explique pourquoi la variante ne part plus du natif.
+
+**Ils n'ont plus le même rectangle de crop, et c'est le cadrage automatique du
+19 août 2026.** Le ratio se choisit désormais **par plan** : le natif prend le
+plus large de ceux que ses plans demandent et le garde d'un bout à l'autre —
+une vidéo de feed à bandes latérales intermittentes serait le défaut que le fond
+flouté existe pour éviter —, tandis que la variante pose chaque plan au sien.
+Chaque sortie a donc son propre jeu de rectangles, et ses propres marques, que
+`planifierMarques` calcule en fractions du canevas qu'on lui donne. Le
+raisonnement est en tête de `src/core/framing.ts`.
 
 Mesuré le 18 août 2026 sur `2025-06-15-cqlp.mp4`, un clip de 43,2 s monté en
 trois segments et rendu en 1:1 : **15 s pour les deux sorties**, le natif et sa
@@ -482,20 +490,42 @@ fond d'être une image. `SIGMA_DU_FOND` vaut toujours 12 dans
 
 **Ce qui répare, c'est de ne jamais mettre de texte dans le fond.** La variante
 se rend depuis la source comme le natif, et le `split` qui sépare le fond de
-l'avant-plan est posé **avant** l'incrustation :
+l'avant-plan est posé **avant** l'incrustation.
+
+**Le graphe a changé de forme le 19 août 2026, et le `split` a suivi.** Le ratio
+variant par plan, `concat` — qui exige des flux de même taille — impose de
+composer **chaque entrée** sur le canevas avant de les concaténer, au lieu d'un
+`split` unique posé après. Une entrée dont le cadre remplit déjà le canevas n'en
+fabrique aucun fond ; les autres tirent le leur de leur propre `split`, pour deux
+entrées dont la seconde est en 16:9 :
 
 ```
-[vc]split=2[bga][fga];
-[bga]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg];
-[fga]ass=…[vf0];[vf0][lg0]overlay=…[vf1];[vf1]scale=1080:-2[fg];
-[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]
+[0:v]crop=…,scale=1080:1920:flags=lanczos,setsar=1[v0];
+[1:v]crop=…,setsar=1[c1]; [c1]split=2[bga1][fga1];
+[bga1]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg1];
+[fga1]scale=1080:608:flags=lanczos[fg1];
+[bg1][fg1]overlay=x=0:y=(H-h)/2,setsar=1[v1];
+[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[vc][ac];
+[ac]loudnorm=…,aresample=48000[a];
+[vc]ass=…[vf0]; [vf0][lg0]overlay=…[v]
 ```
 
-Le fond ne peut plus contenir de sous-titre ni de marque : il n'en a jamais vu
-passer. C'est correct par construction, là où un sigma plus haut n'aurait été
-qu'un réglage à défendre. Vérifié à l'image sur le même clip, avec la même
-mosaïque : **43 tuiles sur 43 sans un pixel de texte**, et la bande du haut est
-propre elle aussi.
+**Les sous-titres et les marques sont passés après la composition**, et c'est le
+second changement. Incrustés avant la mise à l'échelle, ils étaient réduits avec
+l'image : un plan 16:9 posé dans un canevas 9:16 y ramenait le texte à 31,6 % de
+sa taille, et avec un ratio qui varie par plan il aurait changé de taille à
+chaque coupe. Le fond, lui, sort toujours d'avant toute incrustation.
+
+Le fond ne peut donc pas contenir de sous-titre ni de marque : il n'en a jamais
+vu passer. C'est correct par construction, là où un sigma plus haut n'aurait été
+qu'un réglage à défendre. Vérifié à l'image en août 2026 sur le clip 1:1 de
+`2025-06-15-cqlp`, avec la mosaïque décrite plus haut : **43 tuiles sur 43 sans
+un pixel de texte**, et la bande du haut est propre elle aussi. Revérifié sur la
+nouvelle forme du graphe avec
+`2026-22-02-entre-nous_001495095-001538044` — 42,949 s, cinq plans dont un 4:5
+d'une seconde, donc deux jonctions internes là où il n'y en avait aucune : le
+carton affiche les bons mots aux quatre instants contrôlés, y compris après les
+deux jonctions et à la dernière seconde du clip.
 
 Le même jour, même clip, sortie vers `-f null`, meilleur temps de quatre passes :
 

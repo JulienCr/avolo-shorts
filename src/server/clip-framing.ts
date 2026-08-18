@@ -172,6 +172,23 @@ export function projectAnalysis(projectId: string): FramingSource {
   try {
     entry = { key, analyse: lireAnalyse(file), origin: 'computed' }
   } catch (cause) {
+    // **Une panne du système de fichiers traverse, elle ne devient pas un
+    // « illisible ».**
+    //
+    // `statSync` a réussi juste au-dessus, et ça ne veut pas dire que le fichier
+    // s'ouvre : `src/server/octets.ts` documente le cas d'un `chmod 000`, où
+    // `stat` répond et `open` refuse. `lireAnalyse` lit puis analyse, donc son
+    // `readFileSync` peut lever `EACCES` ou `EIO` — et les avaler ici ferait
+    // cadrer tout un projet à la main sur une panne de montage, avec un journal
+    // qui dit « illisible » d'un fichier parfaitement valide. Le sens de la
+    // panne irait alors vers le silence, ce qui est exactement l'inverse de ce
+    // que cette PR construit. (relevé par Copilot)
+    //
+    // Le repli est réservé à ce qu'il décrit : un JSON tronqué, un schéma qui ne
+    // colle pas, une version inconnue. Ceux-là n'ont pas de `code` — les erreurs
+    // système de Node en ont toujours un.
+    if (typeof (cause as { code?: unknown } | null)?.code === 'string') throw cause
+
     // Le message porte le détail du schéma et le nom du fichier ; il va au
     // journal, jamais à la réponse. L'écran, lui, reçoit `analyse-illisible`.
     console.warn(

@@ -186,12 +186,13 @@ export function CropOverlay({
 /**
  * Le choix du ratio.
  *
- * **Une contrainte, pas un format de sortie.** Le fichier fait 1080x1920 dans
- * tous les cas ; ce que ce sélecteur décide est le **cadre pris dans la
- * source**. `auto` laisse chaque plan prendre le plus serré qui tienne chez lui,
- * une pastille concrète le force partout — c'est l'échappatoire quand
- * l'automatique choisit mal, et c'est pour ça qu'il est ici plutôt que dans une
- * page de réglages.
+ * **Une contrainte sur le cadre, pas un format de sortie unique.** Ce que ce
+ * sélecteur décide est le **cadre pris dans la source** : `auto` laisse chaque
+ * plan prendre le plus serré qui tienne chez lui, une pastille concrète le force
+ * partout. Le fichier natif sort alors à ce ratio-là — épingler 4:5 donne un
+ * natif 4:5 —, et seule la variante, quand elle est due, a un canevas 1080x1920
+ * constant. C'est l'échappatoire quand l'automatique choisit mal, et c'est pour
+ * ça qu'il est ici plutôt que dans une page de réglages. (relevé par Copilot)
  */
 export function RatioPicker({
   framing,

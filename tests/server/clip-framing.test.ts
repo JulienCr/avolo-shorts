@@ -169,6 +169,44 @@ describe('clipFraming', () => {
   })
 
   /**
+   * **Une panne du système de fichiers traverse, elle ne devient pas un
+   * « illisible ».**
+   *
+   * `statSync` réussit sur un fichier qu'on ne peut pas ouvrir — le dépôt
+   * documente le cas d'un `chmod 000` dans `src/server/octets.ts` —, et
+   * `lireAnalyse` lit avant d'analyser. Avaler son `EACCES` ferait cadrer tout un
+   * projet à la main sur une panne de montage, avec un journal qui dit
+   * « illisible » d'un fichier parfaitement valide : le sens de la panne irait
+   * vers le silence. (relevé par Copilot)
+   */
+  it('relaie un refus de droits au lieu de le prendre pour un contrat non respecté', () => {
+    écrireAnalyse()
+    fs.chmodSync(analysisPath(ID), 0o000)
+    try {
+      // Le contrôle qui rend le test honnête : sous root, `chmod 000` n'empêche
+      // rien, et l'assertion passerait pour la mauvaise raison.
+      let lisible = true
+      try {
+        fs.readFileSync(analysisPath(ID))
+      } catch {
+        lisible = false
+      }
+      if (lisible) return
+
+      expect(() => clipFraming(clip())).toThrow()
+    } finally {
+      fs.chmodSync(analysisPath(ID), 0o644)
+    }
+  })
+
+  it('garde le repli pour un JSON qui ne suit pas son contrat', () => {
+    const espion = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fs.writeFileSync(analysisPath(ID), '{"version": 1}')
+    expect(clipFraming(clip()).origin).toBe('unreadable-analysis')
+    espion.mockRestore()
+  })
+
+  /**
    * Le cas atteignable sous une analyse pourtant valide : les segments tombent
    * hors de l'étendue analysée. Un rendu sans crop du tout ne veut rien dire, et
    * un repli silencieux ne se verrait qu'à l'image.

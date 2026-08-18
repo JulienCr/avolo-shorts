@@ -162,9 +162,18 @@ export function GrilleSources({
  * création, c'est-à-dire précisément au retour qui compte. (relevé par Codex)
  *
  * Ce que cela ne rattrape pas : une rangée de projet qui change de hauteur
- * **après** la restauration, au tour de sondage suivant. Il faudrait pour cela
- * s'ancrer sur une carte nommée et se réancrer à chaque changement de mise en
- * page ; c'est un autre dispositif, pas un réglage de celui-ci.
+ * **après** la restauration, au tour de sondage suivant — `LigneProjet` passe de
+ * `min-h-16` à plus haut quand une barre d'avancement y apparaît. Il faudrait
+ * pour cela s'ancrer sur une carte nommée et se réancrer à chaque changement de
+ * mise en page ; c'est un autre dispositif, pas un réglage de celui-ci.
+ *
+ * **L'issue #56 pariait que nommer la cause d'un montage muet (son point 5)
+ * fermerait ce cas-là ; vérifié en livrant ce point, ce n'est pas vrai.** Les
+ * deux ne se touchent pas : la ligne de montage ne se rend que lorsque la grille
+ * est vide, c'est-à-dire quand `pret` vaut faux et que ce hook ne restaure
+ * rien. Ce qui grandit est une rangée de la section des projets, au-dessus, et
+ * aucun code d'échec de lecture du Drive ne la concerne. Le cas reste donc
+ * ouvert, tel quel.
  *
  * L'écriture est directe et non temporisée : `sessionStorage.setItem` sur une
  * chaîne de trois caractères se compte en microsecondes, et une temporisation

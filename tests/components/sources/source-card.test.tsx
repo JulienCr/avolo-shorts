@@ -24,6 +24,7 @@ const NEUVE: Source = {
   sizeBytes: 4_300_000_000,
   modifiedAt: '2025-06-15T19:04:00.000Z',
   projectId: null,
+  thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
 }
 
 function creation(partiel: Partial<Creation> = {}): Creation {

@@ -406,9 +406,8 @@ describe('computeFraming', () => {
 
   // Le crop couvre l'action, il ne la moyenne pas. Ici les comédiens dérivent
   // vers la droite pendant le plan : le plateau [0,295 ; 0,305] cadre entièrement
-  // 16 images sur 20, là où le centre médian de l'action — 0,20, où se trouvent
-  // la moitié des images — n'en cadrerait que 10. Dans ce plateau on prend le
-  // point le plus proche de ce centre, donc son bord gauche.
+  // 16 images sur 20, là où la position la plus peuplée — 0,20, où se trouvent
+  // la moitié des images — n'en cadrerait que 10.
   it('cadre le plus d’images possible, et non la position moyenne de l’action', () => {
     const dérive = [
       ...échantillon(0, 5, [[0.1, 0.3]]),
@@ -422,7 +421,75 @@ describe('computeFraming', () => {
       people: dérive,
       ratio: '4:5',
     })
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.295, 6)
+    expect(cadrage.shots[0].cropX).toBeCloseTo(0.3, 6)
+  })
+
+  // Dans le plateau, on se pose sur le centre médian de l'action et non au
+  // milieu du plateau : tout point du plateau cadre les mêmes images, donc la
+  // marge que donnerait le milieu ne protège de rien, alors que l'écart au
+  // centre de l'action se voit. Ici, 0,35 où sont les douze images contre 0,42
+  // au milieu du plateau — 134 px sur 1920.
+  it('se pose sur le centre de l’action dans le plateau, pas au milieu du plateau', () => {
+    const cadrage = computeFraming({
+      ...base,
+      shots: [PLAN_A],
+      segments: [seg(0, 10)],
+      people: [
+        ...échantillon(0, 6, [[0.3, 0.4]]),
+        ...échantillon(6, 10, [[0.44, 0.54]]),
+      ],
+      ratio: '1:1',
+    })
+    expect(cadrage.shots[0].cropX).toBeCloseTo(0.35, 6)
+  })
+
+  // Un plan partagé en deux moitiés symétriques n'a pas de bonne réponse. Ce qui
+  // compte est que la médiane de l'action tombe au milieu — et non sur la moitié
+  // gauche, ce que faisait la médiane basse d'un effectif pair — et que le
+  // départage restant soit annoncé : la position la plus à gauche.
+  //
+  // Le cadrage automatique n'atteint jamais ce cas : un tel plan ne cadre que la
+  // moitié de ses images, donc le ratio monte jusqu'à les prendre toutes.
+  it('ne penche pas à gauche sur un plan symétrique, et le dit quand il faut trancher', () => {
+    const symétrique = {
+      ...base,
+      shots: [PLAN_A],
+      segments: [seg(0, 10)],
+      people: [
+        ...échantillon(0, 5, [[0.1, 0.3]]),
+        ...échantillon(5, 10, [[0.7, 0.9]]),
+      ],
+    }
+    expect(computeFraming(symétrique).ratio).toBe('16:9')
+    expect(computeFraming(symétrique).shots[0].cropX).toBeCloseTo(0.5, 6)
+
+    // Ratio épinglé trop étroit : les deux moitiés s'excluent, aucune ne cadre
+    // plus d'images que l'autre, et le départage tombe à gauche.
+    const épinglé = computeFraming({ ...symétrique, ratio: '4:5' })
+    expect(épinglé.shots[0].cropX).toBeCloseTo(0.305, 6)
+
+    // Et « à gauche » veut bien dire à gauche dans l'image, pas en premier dans
+    // le tableau : l'ordre des boîtes dans un JSON n'est pas une décision.
+    const àLenvers = computeFraming({
+      ...symétrique,
+      ratio: '4:5',
+      people: [...symétrique.people].reverse(),
+    })
+    expect(àLenvers.shots[0].cropX).toBeCloseTo(0.305, 6)
+
+    // Le seuil sous lequel deux positions sont réputées à égalité. La moitié
+    // droite est ici mathématiquement plus proche du centre de l'action, mais de
+    // 5e-10 — soit un millionième de pixel sur 1920. Sans ce seuil, c'est le
+    // dernier bit d'un flottant qui cadrerait le plan.
+    const presqueÉgal = computeFraming({
+      ...symétrique,
+      ratio: '4:5',
+      people: [
+        ...échantillon(0, 5, [[0.1, 0.3]]),
+        ...échantillon(5, 10, [[0.7, 0.9 - 5e-10]]),
+      ],
+    })
+    expect(presqueÉgal.shots[0].cropX).toBeCloseTo(0.305, 6)
   })
 
   it('ne rend jamais un crop qui sortirait du cadre', () => {

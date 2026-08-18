@@ -205,6 +205,19 @@ function réglage(valeur: number | undefined, défaut: number): number {
   return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : défaut
 }
 
+/**
+ * La médiane, au sens strict : sur un nombre **pair** de valeurs, le milieu des
+ * deux centrales et non la plus basse des deux.
+ *
+ * La différence ne se voit que sur un plan partagé en deux moitiés égales — et
+ * c'est exactement le cas où prendre la plus basse fait pencher à gauche un
+ * départage qui n'a aucune raison de pencher. (relevé par Copilot)
+ */
+function médiane(triées: number[]): number {
+  const m = triées.length >> 1
+  return triées.length % 2 === 1 ? triées[m] : (triées[m - 1] + triées[m]) / 2
+}
+
 /** L'empan des personnes d'une image, marge comprise, en fractions de largeur. */
 type Empan = { t: number; g: number; d: number }
 
@@ -375,8 +388,15 @@ function choisirRatio(mesuresParPlan: Empan[][], srcW: number, srcH: number): Ra
  * laisser un passant tirer le cadre derrière lui pour tout le plan.
  *
  * À nombre d'images égal, on prend la position la plus proche du centre médian
- * de l'action. Le départage est déterministe et ne penche d'aucun côté : il n'y
- * a **pas de zone interdite** ici, malgré ce que la spec §10 réclame encore —
+ * de l'action ; à égalité parfaite — un plan partagé en deux moitiés
+ * symétriques — la position la plus à gauche. Ce dernier départage est
+ * arbitraire, et le dire vaut mieux que de le maquiller : deux moitiés
+ * symétriques n'ont pas de bonne réponse. Le cadrage automatique n'y arrive
+ * d'ailleurs jamais, puisqu'un tel plan ne cadre que la moitié de ses images et
+ * fait donc monter le ratio ; il faut un ratio épinglé à la main pour l'atteindre.
+ *
+ * Il n'y a **pas de zone interdite** ici, malgré ce que la spec §10 réclame
+ * encore —
  * constaté à l'image, le panneau de chat n'existe que sur `2025-06-15-cqlp` et
  * le bloc « SOMMAIRE » reste une préférence, pas une interdiction. Ce passage
  * de la spec est en cours de correction ailleurs.
@@ -394,13 +414,16 @@ function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; 
   // qu'il faudra borner plus loin, c'est rendre une donnée fausse.
   const légal = (c: number): number => borner(c, demi, 1 - demi)
 
-  const centres = mesures.map((e) => (e.g + e.d) / 2).sort((a, b) => a - b)
-  const cible = centres[Math.floor((centres.length - 1) / 2)]
+  const cible = médiane(mesures.map((e) => (e.g + e.d) / 2).sort((a, b) => a - b))
 
-  // L'intervalle des centres qui cadrent entièrement cette image.
+  // L'intervalle des centres qui cadrent entièrement cette image. Triés par
+  // `lo` : à recouvrement et à distance égaux, c'est le premier essayé qui
+  // l'emporte, et « le premier » doit vouloir dire le plus à gauche plutôt que
+  // le premier dans l'ordre des images, qui ne veut rien dire.
   const intervalles = mesures
     .filter((e) => e.d - e.g <= largeur + 1e-9)
     .map((e) => ({ lo: e.d - demi, hi: e.g + demi }))
+    .sort((a, b) => a.lo - b.lo)
   if (intervalles.length === 0) return { cropX: légal(cible), cadrées: 0 }
 
   // Le recouvrement maximal est atteint sur au moins un `lo` : au-dessous, une
@@ -422,9 +445,16 @@ function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; 
     // plan, et les images sont toutes déjà connues. Se rapprocher du centre de
     // l'action, en revanche, se voit. (relevé par Copilot et Codex)
     const centre = borner(cible, lo, hi)
+    // Le `1e-9` fait tenir la règle annoncée. Sans lui, deux positions
+    // symétriques ne sont jamais à égalité *exacte* — `0.92 - 0.225` et
+    // `0.08 + 0.225` ne tombent pas à la même distance de 0,5 à 4e-17 près — et
+    // c'est ce bruit-là qui tranchait, pas le tri. Un départage qui dépend du
+    // dernier bit d'un flottant n'est pas déterministe, il est seulement stable
+    // tant que personne ne touche à l'arithmétique.
     const mieux =
       images > meilleur.images ||
-      (images === meilleur.images && Math.abs(centre - cible) < Math.abs(meilleur.centre - cible))
+      (images === meilleur.images &&
+        Math.abs(centre - cible) < Math.abs(meilleur.centre - cible) - 1e-9)
     if (mieux) meilleur = { images, centre }
   }
 

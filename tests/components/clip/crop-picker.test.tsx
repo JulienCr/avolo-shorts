@@ -98,4 +98,22 @@ describe('RatioPicker', () => {
     expect(screen.queryByText(/n’a pas tourné/i)).toBeNull()
     expect(screen.getByText(/calculé pour chaque plan/i)).toBeTruthy()
   })
+
+  // **Une seule ligne à la fois.** Quand les cadres varient, la ligne qui
+  // l'annonce dit déjà que le calcul décide par plan : la doubler ferait trois
+  // paragraphes empilés sous un sélecteur de six pastilles.
+  it('n’empile pas deux explications quand le cadre varie', () => {
+    render(
+      <RatioPicker
+        cadrage={cadrage({
+          ratio: '16:9',
+          shots: [plan(0, 50, '4:5', 0.5), plan(50, 100, '16:9', 0.5)],
+        })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/change avec les plans/i)).toBeTruthy()
+    expect(screen.queryByText(/calculé pour chaque plan/i)).toBeNull()
+  })
 })

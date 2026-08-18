@@ -176,6 +176,66 @@ describe('découperParPlan', () => {
     expect(m).toEqual([{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNatif: 0.5 }])
   })
 
+  /**
+   * **Deux plans consécutifs au même cadre ne valent qu'une entrée**, et c'est
+   * le cas courant : sur `2026-22-02-entre-nous`, un clip de 13 plans les rend
+   * tous en 16:9 pleine largeur — donc au même rectangle exactement — et
+   * s'ouvrirait sinon treize décodeurs pour ne rien changer à l'image. Le graphe
+   * est mesuré bon jusqu'à une dizaine d'entrées.
+   *
+   * Ça resserre aussi le recalage plutôt que de le desserrer : chaque coupe
+   * interne est un endroit où la durée demandée s'arrondit à l'image, et en
+   * retirer une retire un arrondi.
+   */
+  it('fusionne deux plans consécutifs au même cadre', () => {
+    const m = découperParPlan(
+      [seg(0, 30)],
+      [plan(0, 10, '16:9', 0.5), plan(10, 20, '16:9', 0.5), plan(20, 30, '16:9', 0.5)],
+      DÉFAUT,
+    )
+    expect(m).toEqual([{ start: 0, end: 30, ratio: '16:9', cropX: 0.5, cropXNatif: 0.5 }])
+  })
+
+  it('ne fusionne pas deux plans dont le cadre diffère', () => {
+    const parRatio = découperParPlan(
+      [seg(0, 20)],
+      [plan(0, 10, '16:9', 0.5), plan(10, 20, '1:1', 0.5)],
+      DÉFAUT,
+    )
+    expect(parRatio).toHaveLength(2)
+
+    const parPosition = découperParPlan(
+      [seg(0, 20)],
+      [plan(0, 10, '1:1', 0.3), plan(10, 20, '1:1', 0.7)],
+      DÉFAUT,
+    )
+    expect(parPosition).toHaveLength(2)
+  })
+
+  // **La fusion ne franchit pas une coupe du montage.** Deux segments séparés
+  // par un retrait ne se touchent pas : les recoller ferait revenir le passage
+  // retiré, sans erreur ni trace.
+  it('ne fusionne jamais par-dessus un passage retiré', () => {
+    const m = découperParPlan(
+      [seg(0, 10), seg(20, 30)],
+      [plan(0, 40, '16:9', 0.5)],
+      DÉFAUT,
+    )
+    expect(m).toEqual([
+      { start: 0, end: 10, ratio: '16:9', cropX: 0.5, cropXNatif: 0.5 },
+      { start: 20, end: 30, ratio: '16:9', cropX: 0.5, cropXNatif: 0.5 },
+    ])
+  })
+
+  // La fusion se fait sur les **trois** composantes du cadre : deux plans au même
+  // ratio et à la même position dans la variante peuvent différer dans le natif,
+  // et les recoller poserait le cadre de l'un sur l'autre dans le fichier du feed.
+  it('ne fusionne pas quand seule la position du natif diffère', () => {
+    const a = { ...plan(0, 10, '9:16', 0.2), cropXNatif: 0.3 }
+    const b = { ...plan(10, 20, '9:16', 0.2), cropXNatif: 0.7 }
+    expect(découperParPlan([seg(0, 20)], [a, b], DÉFAUT)).toHaveLength(2)
+  })
+
   it('rend une liste vide pour un montage vide', () => {
     expect(découperParPlan([], [plan(0, 10, '1:1', 0.5)], DÉFAUT)).toEqual([])
   })

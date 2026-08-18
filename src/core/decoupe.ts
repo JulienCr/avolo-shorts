@@ -107,6 +107,31 @@ export function découperParPlan(
       const début = bornes[i]
       const fin = bornes[i + 1]
       const cadre = cadreDuMilieu(plans, début, fin, défaut)
+
+      // **Deux plans consécutifs au même cadre ne valent qu'une entrée.** C'est
+      // le cas courant et non l'exception : sur `2026-22-02-entre-nous`, quatre
+      // des cinq plans d'un clip sortent en 16:9 pleine largeur, donc au même
+      // rectangle exactement. Les garder séparés ouvrirait un décodeur par
+      // frontière pour ne rien changer à l'image — et le graphe est mesuré bon
+      // jusqu'à une dizaine d'entrées.
+      //
+      // **Et ça resserre le recalage plutôt que de le desserrer.** Chaque coupe
+      // interne est un endroit où la durée demandée s'arrondit à l'image ; en
+      // retirer une retire un arrondi. La fusion ne peut avoir lieu qu'entre
+      // deux morceaux **contigus** au **même cadre**, donc les images produites
+      // sont exactement les mêmes.
+      const dernier = morceaux[morceaux.length - 1]
+      if (
+        dernier !== undefined &&
+        dernier.end === début &&
+        dernier.ratio === cadre.ratio &&
+        dernier.cropX === cadre.cropX &&
+        dernier.cropXNatif === cadre.cropXNatif
+      ) {
+        dernier.end = fin
+        continue
+      }
+
       morceaux.push({
         start: début,
         end: fin,

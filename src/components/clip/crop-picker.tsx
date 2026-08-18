@@ -270,7 +270,11 @@ export function RatioPicker({
         </p>
       )}
 
-      {origine === null && (
+      {/* **Une seule ligne à la fois, et c'est délibéré.** Quand les cadres
+          varient, la ligne au-dessus dit déjà que le calcul décide par plan ; la
+          répéter en dessous ferait trois paragraphes empilés sous un sélecteur
+          de six pastilles, et personne ne lit le troisième. */}
+      {origine === null && variés.length <= 1 && (
         <p className="basis-full text-[0.75rem] text-muted-foreground">
           Le cadre est calculé pour chaque plan et saute à leurs frontières. Le régler à la main
           demande la dérogation par plan, qui n’est pas encore enregistrable.

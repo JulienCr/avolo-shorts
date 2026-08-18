@@ -6,7 +6,12 @@ import { resolveRatio } from '@/core/framing'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
-import { cheminsRendu, texteDePublication, écarterRenduPérimé } from '@/server/steps/render'
+import {
+  cheminsRendu,
+  texteDePublication,
+  écarterRenduPérimé,
+  écrireTexteDePublication,
+} from '@/server/steps/render'
 import { vignettePath } from '@/server/thumbs'
 import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from '@/server/vues'
 
@@ -196,15 +201,20 @@ export const PATCH = route(
       // vidéo pour une faute de frappe corrigée. Réécrit **seulement s'il
       // existe** : en fabriquer un pour un clip que rien n'a rendu ferait
       // annoncer une sortie qui n'en est pas une. (relevé par Copilot)
-      const texte = texteDePublication(écrit)
-      if (texte !== texteDePublication(clip) && fs.existsSync(chemins.texts)) {
-        // Écrit à côté puis renommé : `renderClip` peut réécrire ce même fichier
-        // au même moment, et un `writeFileSync` direct laisserait un texte mêlé
-        // des deux. Le renommage est atomique, donc le lecteur voit l'une ou
-        // l'autre version, jamais un mélange. (relevé par Copilot)
-        const provisoire = `${chemins.texts}.${process.pid}.tmp`
-        fs.writeFileSync(provisoire, texte)
-        fs.renameSync(provisoire, chemins.texts)
+      //
+      // **L'écriture elle-même appartient à `renderClip`**, et c'est le troisième
+      // point de #48 : les deux chemins écrivaient ce fichier chacun de son
+      // côté, sans que rien ne dise laquelle des deux versions survit. La règle
+      // est maintenant écrite une fois, dans `écrireTexteDePublication` — le
+      // `.txt` porte l'état de la base au moment de son écriture — et les deux
+      // appelants s'y tiennent. Ce qui reste ici est la seule chose qui relève
+      // du `PATCH` : ne pas fabriquer un `.txt` pour un clip que rien n'a rendu,
+      // et ne pas réécrire pour rien.
+      if (
+        texteDePublication(écrit) !== texteDePublication(clip) &&
+        fs.existsSync(chemins.texts)
+      ) {
+        écrireTexteDePublication(db, id, écrit, chemins.texts)
       }
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${clip.id} :`, cause)

@@ -8,7 +8,13 @@ import type { Clip } from '@/core/edl'
 import { closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
 import type { Artefact, OptionsArtefact } from '@/server/ffmpeg'
 import type { Sondage } from '@/server/ffprobe'
-import { cheminsRendu, renderClip } from '@/server/steps/render'
+import { sortieNommée, sortiesDuClip } from '@/server/rendus'
+import {
+  cheminsRendu,
+  lireEmpreinte,
+  renderClip,
+  VERSION_EMPREINTE,
+} from '@/server/steps/render'
 
 /**
  * L'empreinte de rendu (issue #48) : ce qui garde la valeur qu'avaient au rendu
@@ -247,5 +253,205 @@ describe("l'ordre d'écriture du .txt", () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(fs.readFileSync(chemins.texts, 'utf8')).toContain('Corrigée pendant l’export.')
+  })
+
+  it("laisse gagner la base aussi quand c'est le PATCH qui écrit en dernier", async () => {
+    // L'autre sens, et c'est la même règle : le `.txt` porte l'état de la base
+    // au moment de son écriture, quel que soit le chemin qui l'écrit.
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    await patcher({ title: 'Retitré après coup' })
+
+    expect(fs.readFileSync(chemins.texts, 'utf8')).toContain('Retitré après coup')
+  })
+})
+
+/**
+ * **Le quatrième cas de l'issue**, mesuré sur les trois rendus du 18 août : ils
+ * ne portent aucune marque incrustée alors que `branding` valait `true` au rendu
+ * comme aujourd'hui. Aucune empreinte n'existait pour le dire, et
+ * `sauterLeRendu` constatant des fichiers, l'export les sautait pour toujours.
+ */
+describe('un rendu sans empreinte, déjà sur le disque', () => {
+  it('est refait plutôt que sauté, sans avoir à connaître --force', async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toEqual([chemins.mp4, chemins.variant9x16])
+    // Et il en laisse une, donc le cas ne se reproduit qu'une fois par clip.
+    expect(lireEmpreinte(chemins.empreinte)?.marques).toEqual(['logo.png', 'twitch.png'])
+  })
+
+  it('le dit au journal, plutôt que de refaire en silence', async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+
+    const messages: string[] = []
+    const avant = console.warn
+    console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
+    try {
+      await renderClip(CLIP, { db: getDb(), brandDir })
+    } finally {
+      console.warn = avant
+    }
+
+    expect(messages.some((m) => m.includes('aucune empreinte'))).toBe(true)
+  })
+
+  it("se tait sous `force`, où la décision ne vient pas de l'empreinte", async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+
+    const messages: string[] = []
+    const avant = console.warn
+    console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
+    try {
+      await renderClip(CLIP, { db: getDb(), brandDir, force: true })
+    } finally {
+      console.warn = avant
+    }
+
+    expect(messages.some((m) => m.includes('empreinte'))).toBe(false)
+  })
+})
+
+/**
+ * Ce que l'empreinte porte au-delà des cinq champs : les marques réellement
+ * incrustées. C'est ce qui distingue « le clip demandait des marques » de « ce
+ * fichier en porte ».
+ */
+describe('les marques incrustées', () => {
+  it("périme le rendu quand une marque est déposée après coup", async () => {
+    fs.rmSync(path.join(brandDir, 'twitch.png'))
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual(['logo.png'])
+
+    fs.writeFileSync(path.join(brandDir, 'twitch.png'), 'pas vraiment un PNG')
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual([
+      'logo.png',
+      'twitch.png',
+    ])
+  })
+
+  it('périme le rendu quand une marque est retirée du dossier', async () => {
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    fs.rmSync(path.join(brandDir, 'twitch.png'))
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(lireEmpreinte(cheminsRendu(ID, CLIP, '1:1').empreinte)?.marques).toEqual(['logo.png'])
+  })
+
+  /**
+   * **Le dossier vidé ne périme rien**, et c'est l'exception à écrire une fois.
+   * Un clip qui demande des marques dont aucune n'est exploitable ne peut pas se
+   * rendre (#37) : périmer transformerait une livraison correcte en export qui
+   * refuse. Les deux PNG ont vraiment disparu d'`assets/brand/` le 18 août.
+   */
+  it("laisse sauter quand le dossier est vidé, plutôt que de refuser l'export", async () => {
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+  })
+})
+
+/**
+ * Ce que l'interface voit. C'est là que le rendu « se dit à jour », donc c'est là
+ * qu'il doit avoir de quoi le prouver.
+ */
+describe('les sorties publiées', () => {
+  it("ne publie rien sous un rendu que rien ne certifie", () => {
+    const c = { ...clip(), status: 'exported' as const }
+    putClip(getDb(), c)
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+
+    const sorties = sortiesDuClip(c)
+
+    expect(sorties.mp4Url).toBeNull()
+    expect(sorties.textsUrl).toBeNull()
+    expect(sorties.variant9x16Url).toBeNull()
+    // **Mais la variante reste due**, et le `null` ci-dessus ne veut pas dire
+    // « n'existera jamais » : les deux `null` ne se confondent pas.
+    expect(sorties.variant9x16Due).toBe(true)
+  })
+
+  it('les publie dès que l’export a laissé son empreinte', async () => {
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    const àJour = getClip(getDb(), CLIP)
+    expect(àJour?.status).toBe('exported')
+    const sorties = sortiesDuClip(àJour as Clip)
+    expect(sorties.mp4Url).not.toBeNull()
+    expect(sorties.variant9x16Url).not.toBeNull()
+    expect(sorties.textsUrl).not.toBeNull()
+  })
+
+  it("ne sert pas l'empreinte comme si elle était une sortie", async () => {
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const àJour = getClip(getDb(), CLIP) as Clip
+
+    expect(sortieNommée(àJour, `${CLIP}.rendu.json`)).toBeNull()
+    // Le contrôle vaut quelque chose : le vrai nom, lui, se sert.
+    expect(sortieNommée(àJour, `${CLIP}.mp4`)).not.toBeNull()
+  })
+
+  it("cesse de les publier quand un PATCH périme le rendu, empreinte comprise", async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(chemins.empreinte)).toBe(true)
+
+    await patcher({ cropX: 0.1 })
+
+    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    expect(fs.existsSync(chemins.mp4)).toBe(false)
+    expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+})
+
+/** La recette de rendu, et le seul champ de l'empreinte qui ne décrive pas le clip. */
+describe('la version de recette', () => {
+  it('périme un rendu produit sous une version antérieure', async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    const empreinte = lireEmpreinte(chemins.empreinte)
+    expect(empreinte?.version).toBe(VERSION_EMPREINTE)
+    fs.writeFileSync(
+      chemins.empreinte,
+      JSON.stringify({ ...empreinte, version: VERSION_EMPREINTE - 1 }),
+    )
+
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
   })
 })

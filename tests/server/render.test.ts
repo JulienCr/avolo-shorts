@@ -260,6 +260,194 @@ describe('refaireLesSorties', () => {
 })
 
 /**
+ * L'empreinte elle-même : ce qu'elle porte, ce qu'elle refuse, et où elle vit.
+ *
+ * Tout ce qui décide y est pur — l'appelant a lu le disque — donc rien de ce
+ * bloc ne demande ffmpeg, ce qui est la condition pour que la CI le voie.
+ */
+describe("l'empreinte de rendu", () => {
+  it("se range à côté des sorties, sous un nom qui ne dépend pas du ratio", () => {
+    // Un clip repassé de 1:1 à 9:16 doit retrouver — pour l'écarter — celle
+    // qu'il a écrite avant, ce que le nom de la variante ne permet pas.
+    const attendu = path.join(projets, ID, 'renders', 'clip_0001.rendu.json')
+    for (const ratio of ['9:16', '4:5', '1:1', '16:9'] as const) {
+      expect(cheminsRendu(ID, 'clip_0001', ratio).empreinte).toBe(attendu)
+    }
+  })
+
+  it('porte les cinq champs du clip, la version, et ce qui a été incrusté', () => {
+    const e = empreinteDuRendu(clip(), marquesNommées(['twitch.png', 'logo.png']), true)
+    expect(e).toEqual({
+      version: VERSION_EMPREINTE,
+      segments: clip().segments,
+      ratio: '1:1',
+      cropX: 0.5,
+      captions: true,
+      branding: true,
+      // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
+      marques: ['logo.png', 'twitch.png'],
+      sousTitres: true,
+    })
+  })
+
+  it("consigne l'absence de sous-titres sur un clip qui en demandait", () => {
+    // Un clip dont aucun mot ne tombe dans les segments se rend sans, en le
+    // journalisant. L'empreinte dit ce qui a été incrusté, pas ce qui était
+    // demandé — les deux champs sont là et ils divergent.
+    const e = empreinteDuRendu(clip({ captions: true }), [], false)
+    expect(e.captions).toBe(true)
+    expect(e.sousTitres).toBe(false)
+  })
+
+  describe('écartDeLEmpreinte', () => {
+    const marques = marquesNommées(['logo.png'])
+    const àCôté = (surcharges: Partial<Clip> = {}): ReturnType<typeof empreinteDuRendu> =>
+      empreinteDuRendu(clip(surcharges), marques, true)
+
+    it('ne trouve rien à redire quand tout concorde', () => {
+      expect(écartDeLEmpreinte(àCôté(), clip(), marques)).toBeNull()
+    })
+
+    it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
+      expect(écartDeLEmpreinte(null, clip(), marques)).toBe('absente')
+    })
+
+    it('dit « recette » sur une version qui n’est plus la nôtre', () => {
+      const vieille = { ...àCôté(), version: VERSION_EMPREINTE - 1 }
+      expect(écartDeLEmpreinte(vieille, clip(), marques)).toBe('recette')
+    })
+
+    it('dit « montage » sur chacun des cinq champs qui vont à l’image', () => {
+      const cas: Partial<Clip>[] = [
+        { segments: [{ start: 0, end: 5 }] },
+        { ratio: '9:16' },
+        { cropX: 0.2 },
+        { captions: false },
+        { branding: false },
+      ]
+      for (const surcharge of cas) {
+        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), marques)).toBe('montage')
+      }
+    })
+
+    it("ignore le titre, la description et le statut, qui ne vont pas à l'image", () => {
+      const indifférents: Partial<Clip>[] = [
+        { title: 'Autre chose' },
+        { description: 'Autre chose' },
+        { status: 'exported' },
+        { pass: 9 },
+      ]
+      for (const surcharge of indifférents) {
+        expect(écartDeLEmpreinte(àCôté(), clip(surcharge), marques)).toBeNull()
+      }
+    })
+
+    it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
+      const deux = marquesNommées(['logo.png', 'twitch.png'])
+      expect(écartDeLEmpreinte(àCôté(), clip(), deux)).toBe('marques')
+    })
+
+    it('dit « marques » quand une marque a été retirée du dossier', () => {
+      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png', 'twitch.png']), true)
+      expect(écartDeLEmpreinte(empreinte, clip(), marques)).toBe('marques')
+    })
+
+    /**
+     * **Le seul appelant qui ne sonde pas le dossier**, et c'est un arbitrage de
+     * coût : `GET /api/clips/:id` se sert à chaque affichage de carte et ne
+     * lance pas deux ffprobe pour cela. C'est la même fonction, avec un critère
+     * de moins — jamais un second avis sur la même question.
+     */
+    it('ne juge pas des marques quand on ne les lui donne pas', () => {
+      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png', 'twitch.png']), true)
+      expect(écartDeLEmpreinte(empreinte, clip(), null)).toBeNull()
+      // Le reste continue de compter.
+      expect(écartDeLEmpreinte(empreinte, clip({ cropX: 0.1 }), null)).toBe('montage')
+    })
+  })
+
+  describe('lesMarquesOntBougé', () => {
+    it("ne périme rien quand le dossier est vide et que le clip en demandait", () => {
+      // Les deux PNG ont vraiment disparu d'`assets/brand/` le 18 août. Un clip
+      // qui demande des marques dont aucune n'est exploitable ne peut pas se
+      // rendre (#37) : périmer son rendu changerait une livraison correcte en
+      // export qui refuse.
+      const empreinte = empreinteDuRendu(clip(), marquesNommées(['logo.png']), true)
+      expect(lesMarquesOntBougé(empreinte, [], true)).toBe(false)
+    })
+
+    it('périme quand le clip ne demandait pas de marque et qu’il en reste une', () => {
+      // Le dossier vide n'excuse que le clip qui en demande. Ici l'empreinte
+      // porte une marque incrustée alors que plus rien ne devrait l'être.
+      const empreinte = empreinteDuRendu(clip({ branding: false }), marquesNommées(['logo.png']), true)
+      expect(lesMarquesOntBougé(empreinte, [], false)).toBe(true)
+    })
+
+    it("compare sans tenir compte de l'ordre", () => {
+      const empreinte = { ...empreinteDuRendu(clip(), [], true), marques: ['twitch.png', 'logo.png'] }
+      expect(lesMarquesOntBougé(empreinte, marquesNommées(['logo.png', 'twitch.png']), true)).toBe(
+        false,
+      )
+    })
+  })
+
+  describe('lireEmpreinte', () => {
+    const chemin = (): string => cheminsRendu(ID, 'clip_0001', '1:1').empreinte
+
+    it("rend null sur un fichier absent, et c'est le cas normal", () => {
+      expect(lireEmpreinte(chemin())).toBeNull()
+    })
+
+    it('relit ce que `empreinteDuRendu` a écrit', () => {
+      const c = clip()
+      poserEmpreinte(c, '1:1', ['logo.png'])
+      expect(lireEmpreinte(chemin())).toEqual(empreinteDuRendu(c, marquesNommées(['logo.png']), true))
+    })
+
+    it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
+      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.writeFileSync(chemin(), '{"version": 1, "segm')
+      expect(lireEmpreinte(chemin())).toBeNull()
+    })
+
+    it('rend null sur un fichier bien formé mais qui n’est pas une empreinte', () => {
+      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.writeFileSync(chemin(), JSON.stringify({ version: 1 }))
+      expect(lireEmpreinte(chemin())).toBeNull()
+    })
+
+    it("garde un champ inconnu sans s'en offusquer : c'est `version` qui tranche", () => {
+      // Une version ultérieure ajoutera des champs. Refuser d'analyser dirait
+      // « illisible » d'un fichier parfaitement formé, alors que le seul verdict
+      // qui vaille est celui de `version`.
+      const c = clip()
+      const brut = { ...empreinteDuRendu(c, [], true), venuDuFutur: 42 }
+      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.writeFileSync(chemin(), JSON.stringify(brut))
+      expect(lireEmpreinte(chemin())?.version).toBe(VERSION_EMPREINTE)
+    })
+
+    it("ne publie aucun chemin absolu dans ce qu'il journalise", () => {
+      // Le journal d'un `GET` finit sous les yeux de qui lit les traces, et le
+      // chemin porte l'arborescence de la machine.
+      const messages: string[] = []
+      const avant = console.warn
+      console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
+      try {
+        fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+        fs.writeFileSync(chemin(), 'pas du json')
+        lireEmpreinte(chemin())
+      } finally {
+        console.warn = avant
+      }
+      expect(messages.length).toBe(1)
+      expect(messages[0]).toContain('clip_0001.rendu.json')
+      expect(messages[0]).not.toContain(projets)
+    })
+  })
+})
+
+/**
  * La doctrine de `branding.py:63-70`, reprise comme raisonnement (spec §15).
  * Chacun de ces tests fige une décision qui a coûté une mesure là-bas.
  */
@@ -799,7 +987,7 @@ describe('renderClip, chemin du saut', () => {
     // Le défaut relevé par Codex : `renderClip` tient un clip lu avant son
     // premier `await`, et un export dure des minutes. Réécrire cet instantané
     // pour changer une colonne rendrait au clip son titre d'avant.
-    const { db, c, brandDir } = préparer()
+    const { db, c } = préparer()
     putClip(db, { ...c, title: 'Retitré' })
 
     marquerExporté(db, c.id, c)
@@ -810,7 +998,7 @@ describe('renderClip, chemin du saut', () => {
   })
 
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
-    const { db, c, brandDir } = préparer()
+    const { db, c } = préparer()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
     marquerExporté(db, c.id, c)
     expect(getClip(db, c.id)).toBeUndefined()
@@ -821,7 +1009,7 @@ describe('renderClip, chemin du saut', () => {
     // à `candidate` (`src/lib/clip-status.ts`). C'est l'écart de statut qui
     // compte, pas sa valeur. (relevé par Copilot)
     for (const décidé of ['discarded', 'candidate'] as const) {
-      const { db, c, brandDir } = préparer()
+      const { db, c } = préparer()
       putClip(db, { ...c, status: décidé })
 
       marquerExporté(db, c.id, c)
@@ -831,13 +1019,64 @@ describe('renderClip, chemin du saut', () => {
     }
   })
 
+  /**
+   * **Le premier point de #48, et le plus grave.** L'écart de statut ne couvre
+   * pas le montage : retirer un passage, déplacer une borne ou changer le ratio
+   * laisse un clip `kept` en `kept`. `marquerExporté` posait alors `exported`
+   * sur des fichiers décrivant le montage d'avant, `sortiesDuClip` publiait
+   * leurs URL, et l'interface les affichait comme la livraison du jour.
+   *
+   * Ses deux appelants passent aussi par `écarterRenduPérimé` une ligne plus
+   * haut. Ce test ne dit donc pas qu'un chemin est ouvert : il dit que la
+   * garantie appartient à cette fonction, qui est exportée, plutôt qu'à l'ordre
+   * de ses appels.
+   */
+  it("refuse « exported » quand le montage a bougé pendant l'export", () => {
+    const { db, c } = préparer()
+    putClip(db, { ...c, segments: [{ start: 100, end: 104 }] })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('kept')
+  })
+
+  it('refuse pareillement sur chacun des cinq champs qui vont à l’image', () => {
+    const cas: Partial<Clip>[] = [
+      { segments: [{ start: 0, end: 5 }] },
+      { ratio: '9:16' },
+      { cropX: 0.2 },
+      { captions: false },
+      { branding: false },
+    ]
+    for (const surcharge of cas) {
+      const { db, c } = préparer()
+      putClip(db, { ...c, ...surcharge })
+
+      marquerExporté(db, c.id, c)
+
+      expect(getClip(db, c.id)?.status).toBe('kept')
+      db.close()
+    }
+  })
+
+  it("pose « exported » quand rien de ce qui va à l'image n'a bougé", () => {
+    // Le cas nominal reste nominal : seul le texte a changé.
+    const { db, c } = préparer()
+    putClip(db, { ...c, description: 'Corrigée.' })
+
+    marquerExporté(db, c.id, c)
+
+    expect(getClip(db, c.id)?.status).toBe('exported')
+  })
+
   it("écarte les fichiers d'un rendu que le montage a rendu caduc", () => {
     // Refuser le statut ne suffisait pas : les MP4 restaient là, donc l'export
     // suivant sautait et annonçait « exporté » sur le montage d'avant. On retire
     // ce qu'on sait faux. (relevé par Copilot)
-    const { db, c, brandDir } = préparer({ status: 'exported' })
+    const { db, c } = préparer({ status: 'exported' })
     const chemins = cheminsRendu(ID, c.id, '1:1')
     poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+    poserEmpreinte(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
     expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(true)
@@ -845,17 +1084,23 @@ describe('renderClip, chemin du saut', () => {
     expect(fs.existsSync(chemins.mp4)).toBe(false)
     expect(fs.existsSync(chemins.variant9x16 as string)).toBe(false)
     expect(fs.existsSync(chemins.texts)).toBe(false)
+    // **L'empreinte part avec eux**, et elle part la première : la laisser
+    // certifierait des fichiers absents, et un effacement à moitié réussi
+    // ferait sauter l'export suivant sur une livraison amputée.
+    expect(fs.existsSync(chemins.empreinte)).toBe(false)
     // Plus rien sur le disque ne justifie « exporté ».
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   it("ne touche à rien quand le montage n'a pas bougé", () => {
-    const { db, c, brandDir } = préparer()
+    const { db, c } = préparer()
     const chemins = cheminsRendu(ID, c.id, '1:1')
     poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
+    poserEmpreinte(c, '1:1')
 
     expect(écarterRenduPérimé(db, c.id, chemins, c)).toBe(false)
     expect(fs.existsSync(chemins.mp4)).toBe(true)
+    expect(fs.existsSync(chemins.empreinte)).toBe(true)
   })
 
   it('refuse un clip inconnu', async () => {

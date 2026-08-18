@@ -160,7 +160,11 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     segments,
     ratio: editeur.ratio,
     cropX: editeur.cropX,
-    ecrire: patch.mutate,
+    // **`mutateAsync` ici aussi**, et pour la raison écrite sur `ecrire` plus
+    // bas : cet observateur-ci est celui que les champs de texte et les marques
+    // se partagent avec le montage, donc `mutate` aurait laissé la première
+    // frappe de titre emporter le sort de l'enregistrement en vol. (issue #55)
+    ecrire: patch.mutateAsync,
     reconcilier: editeur.reconcilier,
   })
 

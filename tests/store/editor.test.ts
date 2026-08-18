@@ -200,3 +200,58 @@ describe('annuler', () => {
     expect(useEditeur.getState().historique.past.length).toBe(apres)
   })
 })
+
+describe('réconcilier après un PATCH refusé', () => {
+  // `applied: false` veut dire « une écriture plus récente a gagné ». Le cache
+  // adopte le clip rendu ; le store, lui, resterait sur l'intention refusée et
+  // la renverrait avec un jeton neuf — donc gagnant. Voir `@/lib/enregistrement`
+  // pour la forme retenue et pourquoi c'est celle-là.
+  it('adopte les valeurs du gagnant', () => {
+    useEditeur.getState().charger(clip())
+    useEditeur.getState().reconcilier('c1', {
+      segments: [{ start: 10, end: 12 }],
+      ratio: '1:1',
+      cropX: 0.2,
+    })
+
+    const etat = useEditeur.getState()
+    expect(etat.historique.present).toEqual([{ start: 10, end: 12 }])
+    expect(etat.ratio).toBe('1:1')
+    expect(etat.cropX).toBe(0.2)
+  })
+
+  it('ne vide pas la pile d’annulation', () => {
+    // C'est ce qui distingue cette réconciliation d'un rechargement forcé : le
+    // montage de la séance reste défaisable, y compris jusqu'avant le geste que
+    // le serveur vient d'écarter.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    const pile = useEditeur.getState().historique.past
+
+    useEditeur.getState().reconcilier('c1', { segments: [{ start: 10, end: 14.8 }] })
+    expect(useEditeur.getState().historique.past).toEqual(pile)
+  })
+
+  it('n’empile pas de pas à annuler', () => {
+    // Une réconciliation n'est pas un geste de l'utilisateur : l'empiler ferait
+    // d'un Ctrl+Z le moyen de remettre l'intention que le serveur a refusée.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.reconcilier('c1', { segments: [{ start: 10, end: 12 }] })
+    expect(useEditeur.getState().historique.past).toEqual([])
+  })
+
+  it('ne touche pas un autre clip que celui qui est ouvert', () => {
+    // Une écriture part en `keepalive` et lui survit à la navigation : sa
+    // réponse peut arriver alors que l'écran montre déjà le clip suivant.
+    const editeur = useEditeur.getState()
+    editeur.charger(clip({ id: 'c2', segments: [{ start: 0, end: 5 }] }))
+    editeur.reconcilier('c1', { segments: [{ start: 10, end: 12 }], cropX: 0.9 })
+
+    const etat = useEditeur.getState()
+    expect(etat.historique.present).toEqual([{ start: 0, end: 5 }])
+    expect(etat.cropX).toBe(0.5)
+  })
+})

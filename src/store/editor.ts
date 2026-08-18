@@ -16,6 +16,7 @@
 import { create } from 'zustand'
 
 import type { Clip, Ratio, Segment } from '@/core/edl'
+import type { ChampsSuivis } from '@/lib/enregistrement'
 import {
   moveBoundaryToWord,
   removeSelection,
@@ -45,6 +46,11 @@ type EtatEditeur = {
 
   /** Charge un clip. Ne fait rien si c'est déjà celui-là — voir le commentaire. */
   charger: (clip: Clip) => void
+  /**
+   * Remet le montage d'accord avec le serveur après un `PATCH` refusé pour jeton
+   * périmé. **Le seul chemin qui écrive ces champs sans passer par un geste.**
+   */
+  reconcilier: (clipId: string, valeurs: Partial<ChampsSuivis>) => void
   retirerSelection: (mots: ClipWord[]) => void
   remonterMot: (mots: ClipWord[], index: number) => void
   poserBorne: (mots: ClipWord[], index: number, bord: 'start' | 'end') => void
@@ -87,6 +93,31 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
       cropX: clip.cropX,
       selection: null,
       enGlissade: false,
+    })
+  },
+
+  reconcilier(clipId, valeurs) {
+    // **La garde du clip, et elle n'est pas décorative.** Une écriture part en
+    // `keepalive` et survit à la navigation : sa réponse peut arriver alors que
+    // l'écran a déjà chargé le clip suivant. Sans ce test, un refus concernant
+    // le clip qu'on vient de quitter viendrait écrire dans le montage du clip
+    // qu'on ouvre.
+    const etat = get()
+    if (etat.clipId !== clipId) return
+
+    // **`present` seul : ni `past`, ni `future`.** Ce n'est pas un geste de
+    // l'utilisateur, donc rien ne s'empile — un `Ctrl+Z` qui défait une
+    // réconciliation remettrait l'intention que le serveur vient d'écarter, et
+    // la renverrait avec un jeton neuf, donc gagnant. Et la pile reste entière :
+    // c'est ce qui sépare cette réconciliation d'un rechargement forcé, qui
+    // jetterait le montage de la séance pour un cas qui, à un onglet, n'est pas
+    // une anomalie.
+    set({
+      ...(valeurs.segments === undefined
+        ? {}
+        : { historique: { ...etat.historique, present: valeurs.segments } }),
+      ...(valeurs.ratio === undefined ? {} : { ratio: valeurs.ratio }),
+      ...(valeurs.cropX === undefined ? {} : { cropX: valeurs.cropX }),
     })
   },
 

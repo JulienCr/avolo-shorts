@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowLeftToLine, ArrowRightToLine, Scissors, Undo2 } from 'lucide-react'
-import { use, useEffect, useMemo, useRef, useState } from 'react'
+import { use, useEffect, useMemo } from 'react'
 
 import { AppBar } from '@/components/app-bar'
 import { ClipPlayer } from '@/components/clip-player'
@@ -11,12 +11,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { clipDuration, type Segment } from '@/core/edl'
+import { clipDuration } from '@/core/edl'
 import { resolveRatio } from '@/core/framing'
-import type { ClipDetail, ClipPatch } from '@/lib/api'
+import type { ClipDetail } from '@/lib/api'
 import { LIBELLES_STATUT } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
-import { clipBounds, indexTranscript, selectionBounds } from '@/lib/editing'
+import { clipBounds, indexTranscript, ligneInitiale, selectionBounds } from '@/lib/editing'
+import { useEnregistrementAuto } from '@/lib/enregistrement'
 import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
 import { usePatchClip, useClip } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -88,17 +89,9 @@ function Editeur({ detail }: { detail: ClipDetail }) {
     ? selectionBounds(words, selection.ancre, selection.tete)
     : null
 
-  // La première phrase du clip, pour ne pas ouvrir sur le contexte qui le
-  // précède. Calculée sur le clip **enregistré** et non sur le montage en
-  // cours : sinon chaque coupe déplacerait le début du clip, donc la valeur,
-  // donc le défilement — le texte fuirait sous les yeux à chaque geste.
+  // Calculée sur le clip **enregistré**, et la règle est dans `@/lib/editing`.
   // La surface, elle, ne s'en sert qu'une fois par clip (voir `cle`).
-  const ligneInitiale = useMemo(() => {
-    const debut = clip.segments[0]?.start
-    if (debut === undefined) return 0
-    const i = lines.findIndex((l) => l.end > debut)
-    return i < 0 ? 0 : i
-  }, [lines, clip.segments])
+  const premiereLigne = useMemo(() => ligneInitiale(lines, clip.segments), [lines, clip.segments])
 
   const enregistrement = useEnregistrementAuto({
     // **Tant que le store n'a pas chargé ce clip, on n'enregistre rien.** Au
@@ -113,6 +106,7 @@ function Editeur({ detail }: { detail: ClipDetail }) {
     ratio: editeur.ratio,
     cropX: editeur.cropX,
     ecrire: patch.mutate,
+    reconcilier: editeur.reconcilier,
   })
 
   useRaccourcis({
@@ -274,7 +268,7 @@ function Editeur({ detail }: { detail: ClipDetail }) {
               lines={lignesIndexees}
               words={words}
               selection={selection}
-              ligneInitiale={ligneInitiale}
+              ligneInitiale={premiereLigne}
               onSelectionner={editeur.commencerSelection}
               onEtendre={editeur.etendreSelection}
               onTerminer={editeur.terminerSelection}
@@ -334,144 +328,4 @@ function useRaccourcis({
     window.addEventListener('keydown', surTouche)
     return () => window.removeEventListener('keydown', surTouche)
   }, [annuler, retirer, echapper, aSelection])
-}
-
-/** L'état affiché dans la barre : trois valeurs, dont l'échec. */
-type EtatEnregistrement = 'enregistre' | 'en-attente' | 'echec'
-
-type Variables = { clipId: string; projectId: string; patch: ClipPatch }
-
-/** Ce qui a changé depuis la version connue du serveur, ou `null` si rien. */
-function differences(
-  reference: ClipDetail['clip'],
-  segments: Segment[],
-  ratio: ClipDetail['clip']['ratio'],
-  cropX: number,
-): ClipPatch | null {
-  const memesSegments =
-    segments.length === reference.segments.length &&
-    segments.every(
-      (s, i) => s.start === reference.segments[i].start && s.end === reference.segments[i].end,
-    )
-  if (memesSegments && ratio === reference.ratio && cropX === reference.cropX) return null
-
-  return {
-    ...(memesSegments ? {} : { segments }),
-    ...(ratio === reference.ratio ? {} : { ratio }),
-    ...(cropX === reference.cropX ? {} : { cropX }),
-  }
-}
-
-/**
- * L'enregistrement, en différé.
- *
- * Un `PATCH` par mot cliqué ferait une écriture toutes les deux secondes pendant
- * un montage. On attend donc que le geste se pose, et on n'envoie que ce qui a
- * réellement changé par rapport à la version connue du serveur — sans quoi la
- * réponse de l'écriture, qui met à jour cette version, relancerait une écriture.
- *
- * **Trois défauts trouvés en review vivent ici, et ils tiennent tous à la même
- * cause : un différé est une promesse d'écrire plus tard, et rien ne garantit
- * qu'il y ait un plus tard.**
- *
- * - *Quitter dans les 600 ms perdait la modification.* Le nettoyage de l'effet
- *   annulait le seul `PATCH` programmé, et l'écran affichait « enregistré ». Le
- *   dernier état en attente est donc gardé dans une ref et **vidé au
- *   démontage** — au démontage seulement, pas à chaque changement de
- *   dépendance, sinon on écrirait à chaque frappe.
- * - *Un échec bouclait sans fin.* Le rollback remet l'ancienne version en
- *   cache, la comparaison redevient donc inégale, et le même `PATCH` repartait
- *   600 ms plus tard, indéfiniment. On retient la signature de la tentative
- *   ratée et on ne la rejoue pas telle quelle : il faut un nouveau geste.
- * - *« Enregistré » mentait.* `isPending` n'est vrai qu'une fois le minuteur
- *   écoulé, donc la barre affirmait « enregistré » pendant l'attente et après
- *   un échec. D'où cet état à trois valeurs.
- */
-function useEnregistrementAuto({
-  pret,
-  reference,
-  segments,
-  ratio,
-  cropX,
-  ecrire,
-}: {
-  /** Faux tant que le store n'a pas chargé ce clip : il n'y a alors rien de vrai à comparer. */
-  pret: boolean
-  /** Le clip tel que le serveur le connaît : la référence de comparaison. */
-  reference: ClipDetail['clip']
-  segments: Segment[]
-  ratio: ClipDetail['clip']['ratio']
-  cropX: number
-  /** `mutate` de TanStack Query, référentiellement stable — donc utilisable en dépendance. */
-  ecrire: (
-    variables: Variables,
-    options?: { onSuccess?: () => void; onError?: () => void },
-  ) => void
-}): EtatEnregistrement {
-  // L'état visible se **déduit**, il ne se stocke pas : « il reste quelque chose
-  // à écrire » est exactement « la comparaison n'est pas vide ». Seul l'échec
-  // est un fait extérieur, donc lui seul est un état, et il n'est posé que
-  // depuis une réponse — jamais dans le corps d'un effet.
-  const modif = pret ? differences(reference, segments, ratio, cropX) : null
-  const signature = modif ? JSON.stringify(modif) : null
-  const [echec, setEchec] = useState<string | null>(null)
-  const bloque = signature !== null && echec === signature
-
-  /** Ce qui est promis mais pas encore parti. Vidé au départ de la page. */
-  const enAttente = useRef<Variables | null>(null)
-  const ecrireRef = useRef(ecrire)
-
-  useEffect(() => {
-    ecrireRef.current = ecrire
-  }, [ecrire])
-
-  useEffect(() => {
-    if (signature === null || bloque) {
-      enAttente.current = null
-      return
-    }
-
-    const variables: Variables = {
-      clipId: reference.id,
-      projectId: reference.projectId,
-      patch: differences(reference, segments, ratio, cropX) ?? {},
-    }
-    enAttente.current = variables
-
-    const minuteur = setTimeout(() => {
-      enAttente.current = null
-      ecrireRef.current(variables, {
-        onSuccess: () => setEchec(null),
-        onError: () => setEchec(signature),
-      })
-    }, 600)
-
-    return () => clearTimeout(minuteur)
-  }, [signature, bloque, reference, segments, ratio, cropX])
-
-  // Le départ : démontage du composant **et** fermeture de l'onglet.
-  //
-  // Les deux, parce qu'aucun des deux ne couvre l'autre. React n'exécute pas
-  // toujours son nettoyage quand la page se ferme ; et `pagehide` ne se
-  // déclenche pas quand on passe simplement d'un clip à l'autre. Le drapeau
-  // `enAttente` est remis à `null` par celui qui vide en premier, donc le second
-  // ne double pas l'écriture.
-  //
-  // Dépendances vides, rien d'autre que des refs à l'intérieur : une dépendance
-  // ici rejouerait le vidage à chaque rendu, ce qui annulerait la temporisation.
-  useEffect(() => {
-    const vider = () => {
-      const variables = enAttente.current
-      enAttente.current = null
-      if (variables) ecrireRef.current(variables)
-    }
-    window.addEventListener('pagehide', vider)
-    return () => {
-      window.removeEventListener('pagehide', vider)
-      vider()
-    }
-  }, [])
-
-  if (bloque) return 'echec'
-  return signature === null ? 'enregistre' : 'en-attente'
 }

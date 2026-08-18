@@ -221,6 +221,27 @@ describe('useEnregistrementAuto', () => {
       expect(appels).toHaveLength(1)
     })
 
+    it('réessaie quand le refus vient du plancher de jeton, pas d’un croisement', () => {
+      // Une horloge de navigateur remise en arrière produit des jetons
+      // inférieurs à ce que la base a déjà appliqué : le serveur refuse une
+      // modification pourtant fraîche et rend la valeur d'avant — celle qu'on a
+      // déjà en référence. `usePatchClip` se recale sur le plancher annoncé, et
+      // la tentative suivante passe. Réconcilier ici tuerait ce rétablissement
+      // et perdrait la modification.
+      const { rejouer, appels, reconcilie } = monter({ ...auRepos, cropX: 0.8 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      act(() => appels[0].onSuccess?.(reponse(auRepos.reference, false)))
+
+      expect(reconcilie).not.toHaveBeenCalled()
+
+      // Un geste de plus, et l'écriture repart — avec un jeton au-dessus du
+      // plancher, donc gagnante.
+      rejouer({ cropX: 0.81 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      expect(appels).toHaveLength(2)
+      expect(appels[1].patch).toEqual({ cropX: 0.81 })
+    })
+
     it('ne jette pas un geste posé pendant l’aller-retour', () => {
       const { rejouer, appels, reconcilie } = monter({ ...auRepos, cropX: 0.8 })
       act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))

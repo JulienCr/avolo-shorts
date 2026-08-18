@@ -56,12 +56,31 @@ describe('reconciliation', () => {
   // l'enregistrement différé la renvoie avec un jeton neuf — donc gagnant.
   it('adopte la valeur du serveur sur le champ refusé', () => {
     const gagnant = clip({ cropX: 0.9 })
-    const àAdopter = reconciliation({ cropX: 0.3 }, gagnant, {
-      segments: gagnant.segments,
-      ratio: 'auto',
-      cropX: 0.3,
-    })
+    const àAdopter = reconciliation(
+      { cropX: 0.3 },
+      gagnant,
+      { segments: gagnant.segments, ratio: 'auto', cropX: 0.3 },
+      clip(),
+    )
     expect(àAdopter).toEqual({ cropX: 0.9 })
+  })
+
+  it('laisse repartir l’intention quand personne d’autre n’a écrit ce champ', () => {
+    // Le refus n'est alors pas un croisement mais un **plancher de jeton** : une
+    // horloge de navigateur remise en arrière produit des numéros inférieurs à
+    // ce que la base a déjà appliqué. Le serveur rend la valeur d'avant, celle
+    // qu'on avait déjà en référence — donc rien n'a gagné contre nous. Adopter
+    // ici perdrait la modification, alors que la réponse a suffi à recaler le
+    // jeton et que la tentative suivante passera.
+    const référence = clip({ cropX: 0.5 })
+    expect(
+      reconciliation(
+        { cropX: 0.3 },
+        référence,
+        { segments: référence.segments, ratio: 'auto', cropX: 0.3 },
+        référence,
+      ),
+    ).toBeNull()
   })
 
   it('ne touche pas un champ que l’utilisateur a modifié depuis l’envoi', () => {
@@ -69,11 +88,12 @@ describe('reconciliation', () => {
     // le serveur ici jetterait un geste postérieur, que rien n'a refusé.
     const gagnant = clip({ cropX: 0.9 })
     expect(
-      reconciliation({ cropX: 0.3 }, gagnant, {
-        segments: gagnant.segments,
-        ratio: 'auto',
-        cropX: 0.42,
-      }),
+      reconciliation(
+        { cropX: 0.3 },
+        gagnant,
+        { segments: gagnant.segments, ratio: 'auto', cropX: 0.42 },
+        clip(),
+      ),
     ).toBeNull()
   })
 
@@ -83,11 +103,12 @@ describe('reconciliation', () => {
     // à voir avec ce refus.
     const gagnant = clip({ cropX: 0.9, ratio: '1:1' })
     expect(
-      reconciliation({ cropX: 0.3 }, gagnant, {
-        segments: gagnant.segments,
-        ratio: 'auto',
-        cropX: 0.3,
-      }),
+      reconciliation(
+        { cropX: 0.3 },
+        gagnant,
+        { segments: gagnant.segments, ratio: 'auto', cropX: 0.3 },
+        clip(),
+      ),
     ).toEqual({ cropX: 0.9 })
   })
 
@@ -97,11 +118,12 @@ describe('reconciliation', () => {
     // surtout une écriture dans le store qui n'apprendrait rien.
     const gagnant = clip({ cropX: 0.3 })
     expect(
-      reconciliation({ cropX: 0.3 }, gagnant, {
-        segments: gagnant.segments,
-        ratio: 'auto',
-        cropX: 0.3,
-      }),
+      reconciliation(
+        { cropX: 0.3 },
+        gagnant,
+        { segments: gagnant.segments, ratio: 'auto', cropX: 0.3 },
+        clip(),
+      ),
     ).toBeNull()
   })
 
@@ -115,11 +137,12 @@ describe('reconciliation', () => {
     // décrivent le même montage : une comparaison d'identité ne verrait pas
     // qu'ils sont égaux et laisserait l'intention refusée repartir.
     expect(
-      reconciliation({ segments: local.map((s) => ({ ...s })) }, gagnant, {
-        segments: local,
-        ratio: 'auto',
-        cropX: 0.5,
-      }),
+      reconciliation(
+        { segments: local.map((s) => ({ ...s })) },
+        gagnant,
+        { segments: local, ratio: 'auto', cropX: 0.5 },
+        clip({ segments: [{ start: 10, end: 13 }] }),
+      ),
     ).toEqual({ segments: gagnant.segments })
   })
 
@@ -128,11 +151,12 @@ describe('reconciliation', () => {
     // ici écrirait dans un état qui ne les porte pas.
     const gagnant = clip({ title: 'Le titre du serveur' })
     expect(
-      reconciliation({ title: 'Mon titre' }, gagnant, {
-        segments: gagnant.segments,
-        ratio: 'auto',
-        cropX: 0.5,
-      }),
+      reconciliation(
+        { title: 'Mon titre' },
+        gagnant,
+        { segments: gagnant.segments, ratio: 'auto', cropX: 0.5 },
+        clip(),
+      ),
     ).toBeNull()
   })
 })

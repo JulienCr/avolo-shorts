@@ -86,14 +86,31 @@ export function differences(
  *    d'emploi prévu — un utilisateur, une machine, un onglet —, n'est pas une
  *    anomalie mais le croisement de deux de vos propres écritures.
  * 3. *Adopter, champ par champ, la valeur du gagnant — et seulement sur les
- *    champs qui portent encore l'intention refusée.* C'est celle-ci.
+ *    champs qui portent encore l'intention refusée et sur lesquels quelqu'un a
+ *    réellement écrit.* C'est celle-ci.
  *
- * Le « seulement » est ce qui la rend sûre. Entre l'envoi et la réponse il
+ * **Deux conditions, et chacune ferme une façon de perdre un geste.**
+ *
+ * *Le champ porte encore l'intention refusée.* Entre l'envoi et la réponse il
  * s'écoule un aller-retour réseau, pendant lequel l'utilisateur continue de
  * monter. Un champ qui a bougé depuis porte une intention **postérieure** au
- * refus : personne ne l'a refusée, et l'écraser serait perdre un geste. Un
- * champ resté sur la valeur refusée, lui, n'a plus aucune chance d'être écrit —
- * l'adopter est exactement ce que « la version du serveur fait foi » veut dire.
+ * refus : personne ne l'a refusée, et l'écraser serait perdre un geste.
+ *
+ * *Le gagnant en dit autre chose que la référence.* Un refus ne veut pas
+ * toujours dire qu'une écriture concurrente a gagné : les jetons viennent de
+ * l'horloge du navigateur, et une horloge remise en arrière produit des numéros
+ * inférieurs à ce que la base a déjà appliqué — le serveur refuse alors une
+ * modification parfaitement fraîche, et rend la valeur d'avant, c'est-à-dire
+ * celle qu'on avait déjà en référence. `usePatchClip` se recale sur le plancher
+ * annoncé et la tentative suivante passe : adopter ici tuerait ce
+ * rétablissement, puisque la comparaison retomberait à zéro et que rien ne
+ * repartirait. Comparer au **clip contre lequel on a calculé l'écart** distingue
+ * les deux cas sans rien demander de plus au serveur.
+ *
+ * S'y ajoute un filtre sans mystère : un champ dont le gagnant porte déjà la
+ * valeur locale n'a rien à adopter. C'est le cas d'un patch partiellement
+ * appliqué — `applied` est faux à cause d'un *autre* champ — et écrire dans le
+ * store n'y apprendrait rien.
  *
  * Rien n'est empilé dans l'historique : ce n'est pas un geste de l'utilisateur,
  * et un `Ctrl+Z` qui défait une réconciliation remettrait l'intention refusée.
@@ -102,20 +119,32 @@ export function reconciliation(
   refuse: ClipPatch,
   gagnant: Clip,
   local: ChampsSuivis,
+  reference: Clip,
 ): Partial<ChampsSuivis> | null {
   const àAdopter: Partial<ChampsSuivis> = {}
 
   if (
     refuse.segments !== undefined &&
     mêmesSegments(local.segments, refuse.segments) &&
-    !mêmesSegments(local.segments, gagnant.segments)
+    !mêmesSegments(gagnant.segments, reference.segments) &&
+    !mêmesSegments(gagnant.segments, local.segments)
   ) {
     àAdopter.segments = gagnant.segments
   }
-  if (refuse.ratio !== undefined && local.ratio === refuse.ratio && local.ratio !== gagnant.ratio) {
+  if (
+    refuse.ratio !== undefined &&
+    local.ratio === refuse.ratio &&
+    gagnant.ratio !== reference.ratio &&
+    gagnant.ratio !== local.ratio
+  ) {
     àAdopter.ratio = gagnant.ratio
   }
-  if (refuse.cropX !== undefined && local.cropX === refuse.cropX && local.cropX !== gagnant.cropX) {
+  if (
+    refuse.cropX !== undefined &&
+    local.cropX === refuse.cropX &&
+    gagnant.cropX !== reference.cropX &&
+    gagnant.cropX !== local.cropX
+  ) {
     àAdopter.cropX = gagnant.cropX
   }
 
@@ -230,7 +259,14 @@ export function useEnregistrementAuto({
           setEchec(null)
           // **Le refus n'est pas un échec, mais il n'est pas rien non plus.**
           if (resultat.applied) return
-          const àAdopter = reconciliation(variables.patch, resultat.clip, actuel.current)
+          // `reference` est bien le clip contre lequel cet écart-là a été
+          // calculé : l'effet le capture avec les variables qu'il programme.
+          const àAdopter = reconciliation(
+            variables.patch,
+            resultat.clip,
+            actuel.current,
+            reference,
+          )
           if (àAdopter) reconcilierRef.current(resultat.clip.id, àAdopter)
         },
         onError: () => setEchec(signature),

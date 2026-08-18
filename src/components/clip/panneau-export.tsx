@@ -127,7 +127,14 @@ export function PanneauExport({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          onClick={() => (déjàLivré ? setConfirmation(true) : lancer(false))}
+          onClick={() => {
+            // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
+            // la boîte de confirmation s'ouvrait quand même : on confirmait, et
+            // rien ne partait, sans qu'une ligne le dise.
+            if (empêchement !== null || exporter.isPending) return
+            if (déjàLivré) setConfirmation(true)
+            else lancer(false)
+          }}
           aria-disabled={empêchement !== null || undefined}
           aria-busy={exporter.isPending || undefined}
         >

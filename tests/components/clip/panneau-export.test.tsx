@@ -121,6 +121,22 @@ describe('les raisons de ne pas pouvoir exporter', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it('n’ouvre pas non plus la confirmation de ré-export', () => {
+    // Le garde-fou est sur le lancement ; sans le même sur l'ouverture, la boîte
+    // s'ouvre, on confirme, et rien ne part — sans qu'une ligne le dise.
+    monter({
+      enregistrement: 'en-attente',
+      outputs: {
+        mp4Url: '/api/clips/c1/renders/c1.mp4',
+        variant9x16Url: null,
+        variant9x16Due: true,
+        textsUrl: null,
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
   it('refuse un clip dont tous les mots ont été retirés', () => {
     monter({ duree: 0 })
     expect(boutonExporter().getAttribute('aria-disabled')).toBe('true')

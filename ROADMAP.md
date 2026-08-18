@@ -213,10 +213,18 @@ Quatre faits payés par la vague du 18 août, et qui coûtent cher à redécouvr
   racine du projet (`Could not find the Next.js package`) et le serveur de dev
   meurt. Avec les liens matériels de pnpm, sept installations réelles coûtent
   **300 Mo**. L'économie n'a jamais existé.
-- **`next dev` et `next build` ne démarrent pas dans un worktree** dont le
-  `node_modules` sort de l'arborescence. Seuls `vitest`, `tsc` et `eslint` y
-  tournent. Une vérification qui a besoin d'un vrai serveur passe par un harnais
-  HTTP Node montant les mêmes gestionnaires.
+- **`next dev` et `next build` marchent dans un worktree qui a sa propre
+  installation**, et échouent seulement quand son `node_modules` sort de
+  l'arborescence — c'est-à-dire dans le cas du lien symbolique décrit juste
+  au-dessus, où Turbopack refuse un chemin qui quitte la racine du projet. Les
+  deux ont été éprouvés : `next dev` est prêt en moins de 200 ms, `next build`
+  passe. La formulation précédente laissait croire qu'un worktree ne pouvait pas
+  servir de vrai serveur et envoyait fabriquer un harnais HTTP Node ; ce n'est
+  pas nécessaire. Deux choses à savoir en revanche : le port est figé à 4005 dans
+  `package.json`, donc deux worktrees se le disputent (`pnpm exec next dev -p
+  4006`), et **`STAGE_DIR` et `PROJECTS_DIR` sont relatifs dans `.env`** — copié
+  tel quel, un worktree part sur un `./projects` vide et l'interface se charge
+  sans rien montrer, ce qui ressemble trait pour trait à une régression.
 - **`eslint` lancé depuis la racine lit les worktrees** et échoue sur les types
   générés par Next qui s'y trouvent. Ce n'est pas un défaut du dépôt : la CI part
   d'un clone frais et ne les voit pas. Restreindre à `src scripts tests` pour un

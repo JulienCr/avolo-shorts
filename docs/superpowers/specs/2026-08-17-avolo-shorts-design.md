@@ -764,10 +764,23 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
 
 ## 10. Le cadrage
 
-**Le ratio est choisi une fois par clip** : le plus petit dont **un crop fixe par
-plan cadre 90 % des images** des segments retenus. Pas le maximum, sinon une seule
-image où quelqu'un traverse le cadre condamne le clip entier ; sur les 10 %
-restants, un sujet peut sortir partiellement du cadre.
+**Le ratio est choisi par plan** : pour chaque plan, le plus petit dont un crop
+fixe cadre 90 % de ses images. Pas le maximum, sinon une seule image où quelqu'un
+traverse le cadre condamne le plan entier ; sur les 10 % restants, un sujet peut
+sortir partiellement du cadre.
+
+**Ce paragraphe demandait un ratio unique pour tout le clip, et la mesure l'a
+démenti.** Sur trois émissions, la part des fenêtres de 30 s qui descend sous le
+16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur `2026-22-02-entre-nous` et 1 % sur
+`2026-03-08-caro-mdlm` — mais un ratio unique par clip écrase ces moments-là sous
+le plan le plus large, et **la totalité des clips mesurés sortait en 16:9**. Le
+filtre du premier plan et la marge de confort ont été mesurés l'un et l'autre :
+ni l'un ni l'autre ne déplace ce résultat. Un ratio par plan est ce qui récupère
+ces 8 à 25 %, et c'est le seul levier que le choix du ratio conserve.
+
+Le saut de taille tombe **sur une coupe**, donc il ne se voit pas. C'est
+exactement l'argument qui justifie déjà le crop qui saute aux frontières, appliqué
+à la grandeur voisine.
 
 Ce paragraphe demandait le **percentile 90 des largeurs par image**, et c'est
 faux : une largeur par image suppose un crop libre par image, alors que le crop
@@ -909,9 +922,29 @@ Depuis l'original, jamais depuis le proxy.
 4. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
    (chrome des plateformes en haut, sous-titres en bas).
 
-Deux fichiers par clip quand le ratio n'est pas 9:16 : le format natif (4:5 ou
-1:1) pour le feed Instagram et Facebook, et une variante 9:16 plein écran avec le
-contenu posé sur fond flouté pour TikTok et Shorts.
+Deux fichiers par clip quand le natif n'est pas déjà 9:16, et ils ne se déduisent
+pas l'un de l'autre :
+
+- **le natif**, à **un ratio unique pour tout le clip** — le plus large de ceux que
+  ses plans demandent —, pour le feed Instagram et Facebook. Pas de variation à
+  l'intérieur : une vidéo de feed à bandes latérales intermittentes serait le
+  défaut que le fond flouté existe pour éviter ;
+- **le 9:16**, pour TikTok et Shorts, où **chaque plan est posé au cadre le plus
+  serré qui tienne** sur un canevas vertical constant, le fond flouté prenant ce
+  qui reste. Un plan en 9:16 remplit le canevas, un 1:1 en occupe 56,3 % de la
+  hauteur, un 16:9 31,6 %.
+
+**Les deux sont deux rendus indépendants de la source** : `blurredVariantArgs`
+refait tout le chemin — décoder, recadrer, mettre à l'échelle, composer — plutôt
+que de partir du fichier natif. C'est ce qui permet au 9:16 de resserrer un plan
+que le natif a dû élargir, sans que ce plan soit rétréci deux fois.
+
+**Les sous-titres et les marques s'incrustent sur le canevas, après composition.**
+Les incruster dans l'image avant sa mise à l'échelle les réduit avec elle : sur un
+plan 16:9 posé dans un canevas 9:16, le texte tombe à 31,6 % de sa taille. Avec un
+ratio qui varie par plan, il changerait de taille à chaque coupe. Le fond flouté,
+lui, continue d'être tiré d'**avant** toute incrustation — c'est l'anomalie #22, et
+le `split` du filtergraph la referme.
 
 ### Encodage : ce que NVENC apporte, et où
 

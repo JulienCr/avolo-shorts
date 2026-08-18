@@ -1067,6 +1067,13 @@ vocabulaire, et c'est ce qui rend l'écran apprenable en une fois :
 | Revenir | pastille `auto` | bouton « revenir à l'automatique », ce plan ou tous |
 | Effet d'une modification du montage | aucun si épinglé, recalcul si `auto` | aucun si dérogé, recalcul si `auto` |
 
+**Le calcul, lui, rend désormais un ratio par plan** (spec §10) : le ratio du clip
+est le plus large d'entre eux, et c'est celui que le sélecteur affiche. Épingler
+reste une décision qui porte sur le clip entier — c'est ce qu'on veut d'une
+échappatoire, un cadrage stable quand l'automatique choisit mal —, et la valeur
+affichée à côté d'`auto` reste donc une valeur unique. La variation par plan se
+voit dans la bande des plans et dans la sortie 9:16, pas dans le sélecteur.
+
 **Un ratio épinglé ne bouge plus quand le montage change.** C'est le sens de
 l'épinglage, et c'est ce qui manquait pour que le recalcul soit acceptable.
 

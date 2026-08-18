@@ -248,9 +248,18 @@ export function useEnregistrementAuto({
    * retiendrait une signature que le serveur n'a jamais refusée, minant la
    * valeur correspondante jusqu'au prochain chargement.
    *
-   * Seule la dernière tentative partie touche donc à `echec`. La réconciliation,
-   * elle, s'exécute pour **tout** refus : ses propres conditions la rendent
-   * inoffensive sur un champ qui a bougé depuis. (relevé par Copilot et Codex)
+   * Une réponse dépassée ne décide donc plus de rien — ni de `echec`, ni de la
+   * réconciliation. Cette seconde moitié n'allait pas de soi, et les deux
+   * relecteurs ont d'abord conclu l'inverse : la réconciliation semble
+   * s'autoprotéger, puisqu'elle n'adopte que sur un champ qui *porte encore*
+   * l'intention refusée. Mais « porte encore la même valeur » n'est pas « n'a
+   * pas bougé » : l'utilisateur qui ramène le cadrage là où il était pendant que
+   * la réponse dépassée voyage repasse cette condition avec un geste qui, lui,
+   * est le plus récent de tous — et se le fait écraser par un gagnant que la
+   * tentative suivante a déjà réglé. Rien n'est perdu à s'en abstenir : c'est
+   * précisément parce qu'une tentative plus récente est partie que celle-ci est
+   * dépassée, et c'est la réponse de celle-là qui dit l'état du serveur.
+   * (relevé par Copilot puis, pour la réconciliation, par Codex)
    */
   const derniereTentative = useRef(0)
   const ecrireRef = useRef(ecrire)
@@ -296,7 +305,8 @@ export function useEnregistrementAuto({
       // le blocage qui va avec.
       ecrireRef.current(variables).then(
         (resultat) => {
-          if (estLaDerniere()) setEchec(null)
+          if (!estLaDerniere()) return
+          setEchec(null)
           // **Le refus n'est pas un échec, mais il n'est pas rien non plus.**
           if (resultat.applied) return
           // `reference` est bien le clip contre lequel cet écart-là a été

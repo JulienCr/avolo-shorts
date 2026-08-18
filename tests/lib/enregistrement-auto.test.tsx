@@ -290,6 +290,31 @@ describe('useEnregistrementAuto', () => {
       expect(appels).toHaveLength(2)
     })
 
+    it('ne réconcilie pas sur un refus dépassé, même si la valeur est revenue', async () => {
+      // Le cas que la première garde laissait ouvert : « ce champ porte encore
+      // l'intention refusée » ne sait pas distinguer « personne n'y a touché »
+      // de « l'utilisateur est repassé par là ». Sur une réponse dépassée, la
+      // seconde lecture est la bonne, et adopter le gagnant écraserait le geste
+      // le plus récent de tous. (relevé par Codex)
+      const { rejouer, appels, reconcilie } = monter({ ...auRepos, cropX: 0.8 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      rejouer({ cropX: 0.9 })
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      expect(appels.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
+
+      // L'utilisateur ramène le cadrage là où il était, avant que la première
+      // réponse ne revienne.
+      rejouer({ cropX: 0.8 })
+      await agir(() => appels[0].resoudre(reponse(clip({ cropX: 0.9 }), false)))
+
+      expect(reconcilie).not.toHaveBeenCalled()
+
+      // Et le geste survit : c'est lui qui part.
+      act(() => void vi.advanceTimersByTime(TEMPORISATION_MS))
+      expect(appels).toHaveLength(3)
+      expect(appels[2].patch).toEqual({ cropX: 0.8 })
+    })
+
     it('ne retient pas la signature d’un échec tardif déjà dépassé', async () => {
       const gagnant = clip({ cropX: 0.9 })
       const { result, rejouer, appels } = monter({ ...auRepos, cropX: 0.8 })

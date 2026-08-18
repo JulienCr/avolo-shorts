@@ -27,6 +27,32 @@ tranchée, et deux sources sur la même question finissent par diverger. Quand t
 constates l'écart, **corrige la spec dans le même mouvement** : elle fait
 autorité, donc la laisser fausse coûte au suivant ce qu'elle vient de te coûter.
 
+## La langue
+
+**Le code est en anglais. Toujours, et sans exception.** Identifiants, noms de
+fonctions, de variables, de types, de constantes, de fichiers, de champs de base,
+de clés JSON. **Aucun accent dans un identifiant** — un accent casse la complétion
+sur un clavier qui ne l'a pas en accès direct, rend un `grep` dépendant de la
+normalisation Unicode (`é` précomposé et `e` + accent combinant sont deux chaînes
+distinctes qui s'affichent pareil), et traverse mal les outils qui supposent
+l'ASCII.
+
+**Tout le reste est en français** : les libellés de l'interface et tout ce qu'un
+utilisateur lit, les commentaires, les messages de commit, les titres et corps de
+PR, les réponses de review, la documentation, les specs. Ce qui s'exécute est en
+anglais, ce qui se lit est en français.
+
+Le dépôt ne respecte pas encore cette règle — 333 identifiants accentués dans 72
+fichiers, plus ceux qui sont français sans accent. C'est l'**issue #73**, et la
+règle vaut dès maintenant pour tout code neuf : ne pas ajouter à la dette en
+attendant qu'elle soit soldée.
+
+Le glissement s'explique et vaut d'être connu, parce qu'il se reproduira sinon :
+la prose de ce dépôt est française, ses specs et ses commentaires le sont, et un
+agent francise les identifiants par mimétisme sans que personne ne l'ait demandé.
+Une consigne « le français est la langue du dépôt » doit donc **énumérer ce qu'elle
+couvre** et exclure le code, faute de quoi elle est lue comme couvrant tout.
+
 ## Les décisions à ne pas défaire par réflexe
 
 Chacune a coûté une mesure ou un aller-retour, et chacune contredit l'approche

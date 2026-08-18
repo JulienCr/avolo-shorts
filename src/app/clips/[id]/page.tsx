@@ -315,6 +315,13 @@ function useRaccourcis({
         return
       }
 
+      // **Pas de garde sur `shiftKey`, et c'est un piège pour la suite.**
+      // `Ctrl+Shift+Z` — le raccourci standard du rétablissement — tombe donc
+      // ici et annule. Le store sait rétablir depuis cette PR (`retablir`,
+      // `usePeutRetablir`), mais la touche appartient à l'écran, donc à la vague
+      // qui vient : celle-ci devra soit tester `!e.shiftKey` ici, soit placer le
+      // rétablissement avant cette branche, sinon il sera avalé sans un mot.
+      // (relevé par Aristarque)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         annuler()

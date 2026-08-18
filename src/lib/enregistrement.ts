@@ -285,9 +285,20 @@ export function useEnregistrementAuto({
   // ne double pas l'écriture.
   //
   // **Ce vidage-là n'attend pas de réponse**, et c'est volontaire : il part au
-  // moment où la page s'en va. Un refus qui reviendrait après n'aurait plus de
-  // montage local à réconcilier, et `reconcilier` refuserait de toute façon de
-  // toucher un autre clip que celui qu'il porte.
+  // moment où la page s'en va. Un refus qui reviendrait après n'a plus de
+  // composant pour le réconcilier, et `reconcilier` refuserait de toute façon de
+  // toucher un autre clip que celui que le store porte.
+  //
+  // La conséquence, qu'il vaut mieux écrire que découvrir : si l'on **revient
+  // sur le même clip** avant que le store n'ait changé de clip, la garde de
+  // `charger` le laisse tel quel — c'est sa raison d'être —, la comparaison
+  // retrouve l'écart contre la nouvelle référence, et l'intention repart avec un
+  // jeton neuf, donc gagnante. C'est un « dernier auteur gagne », et il est
+  // correct dans le mode d'emploi prévu — un utilisateur, une machine, un
+  // onglet : l'auteur en question est le même que celui du gagnant précédent, et
+  // ce qu'il voit à l'écran est ce qu'il veut garder. Le jour où deux onglets
+  // deviendraient un usage, c'est ici qu'il faudrait demander avant d'écraser.
+  // (relevé par Aristarque)
   //
   // Dépendances vides, rien d'autre que des refs à l'intérieur : une dépendance
   // ici rejouerait le vidage à chaque rendu, ce qui annulerait la temporisation.

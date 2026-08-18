@@ -142,12 +142,20 @@ export function créerJournal(max = 20): Journal {
       const texte = reste + morceau
       const parts = texte.split(/\r\n|[\r\n]/)
       reste = parts.pop() ?? ''
+      // Une queue sans fin de ligne ne peut pas grandir indéfiniment : un
+      // encodage dure des heures, et il suffirait d'un flux sans séparateur pour
+      // que ce carnet — dont le but est justement de ne *pas* tout garder —
+      // finisse par tout garder. C'est la fin qui intéresse, on coupe le début.
+      if (reste.length > TAILLE_QUEUE_MAX) reste = reste.slice(-TAILLE_QUEUE_MAX)
       for (const p of parts) pousser(p)
     },
     lignes,
     texte: () => lignes().join('\n'),
   }
 }
+
+/** De quoi tenir la plus longue ligne que ffmpeg écrive, et pas un flux entier. */
+const TAILLE_QUEUE_MAX = 8_192
 
 /**
  * L'encodeur demandé, une fois la sonde consultée si besoin.

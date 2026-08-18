@@ -99,6 +99,14 @@ describe('créerJournal', () => {
     j.ajouter('a\n\n\r\nb\n')
     expect(j.texte()).toBe('a\nb')
   })
+
+  it('borne la queue : un flux sans fin de ligne ne fait pas gonfler le carnet', () => {
+    // Le carnet existe pour ne *pas* tout garder ; il suffirait d'un flux sans
+    // séparateur pour qu'il garde tout. C'est la fin qui intéresse.
+    const j = créerJournal()
+    for (let i = 0; i < 100; i++) j.ajouter('x'.repeat(1000))
+    expect(j.texte().length).toBeLessThanOrEqual(8192)
+  })
 })
 
 describe('choisirEncodeur', () => {

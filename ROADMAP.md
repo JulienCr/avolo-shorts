@@ -11,8 +11,8 @@ et les mesures qui la fondent.
 
 ## Où en est le projet
 
-**L'itération 0 est livrée, entièrement, et la moitié de l'itération 1 avec.**
-Neuf PR fusionnées le 18 août 2026, 965 tests, CI verte à chaque PR.
+**L'itération 0 est livrée, l'interface avec, et la moitié de l'itération 1.**
+Dix-sept PR fusionnées le 18 août 2026, **1494 tests**, CI verte à chaque PR.
 
 Ce qui tourne : ingestion depuis le Drive, proxy, extraction audio,
 transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
@@ -21,12 +21,18 @@ logo, export en deux formats, l'API qui pilote le tout — et, depuis cette
 vague, la détection des corps et des plans, le cadrage automatique en fonctions
 pures, et les secrets résolus depuis 1Password.
 
-**Le raccord côté serveur est fait.** Les trois routes orphelines ont leurs
-fonctions dans `src/lib/api.ts` (`createProject`, `runProject`, `exportClip`),
-`GET /api/clips/:id` rend les sorties produites en URL, et une route sert les
-rendus en requêtes partielles. **Les gestes d'interface, eux, n'existent
-toujours pas** : ils appartiennent à la passe UI/UX, dont la conception est
-livrée dans `docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`.
+**Le parcours est entier, et vérifiable à la souris.** C'était le critère de
+réussite que la conception se donnait : *sans avoir tapé un chemin ni ouvert un
+terminal*, choisir une source, lancer l'analyse, la suivre, reprendre une
+exécution morte, trier au clavier, monter dans le transcript, cadrer, exporter,
+copier les textes. Six des sept lots de la §8 sont livrés — il ne reste que le
+septième, le cadrage automatique, et il attend l'itération 1.
+
+Deux vagues d'agents l'ont écrit. La première a posé le contrat et le socle : le
+`StepName` client dérivé du graphe, `POST /run` en liste de cibles, le bilan du
+repérage dans `status.json`, `GET /api/sources`, puis `phaseProjet`, la
+navigation décrite une fois, le protocole d'écriture différée sorti des pages et
+les huit primitives manquantes. La seconde a écrit les trois écrans.
 
 **Les trois anomalies sont fermées.** #22 — la variante 9:16 tire désormais son
 fond d'avant l'incrustation, vérifié à l'image : 43 tuiles sur 43 sans un pixel
@@ -141,42 +147,78 @@ entrée garde son crop calculé), et `ratio` qui devient **épinglable**. Un rat
 dans le clip : indexée sur le rang, une dérogation se décale au premier retrait
 de segment en amont et atterrit sur le mauvais plan, sans erreur ni signal.
 
-### L'interface
+### L'interface est livrée, sauf son dernier lot
 
-Aucun geste. La conception est livrée
-(`docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md`, §8 porte
-l'ordre de mise en œuvre) et c'est le chantier suivant.
+Les trois écrans sont en ligne (PR #50, #51, #52). Ce qui suit dit ce qu'il faut
+savoir avant d'y toucher, et ce qui reste.
 
-Ce que le serveur impose et qu'une interface écrite sans le savoir présenterait
-comme des erreurs :
+**Ce que le serveur impose, et qu'une interface écrite sans le savoir
+présenterait comme des erreurs.** Ces contraintes ne disparaissent pas parce que
+les écrans existent : elles sont désormais tenues quelque part, et les défaire
+casse un comportement voulu.
 
-- **L'export est synchrone et dure de dix secondes à une minute.** Un bouton muet
-  pendant ce temps passe pour cassé.
-- **`skipped: true` au ré-export est un cas nominal**, pas un échec.
-- **Un clip a une ou deux sorties.** La variante 9:16 n'existe que si le ratio
-  résolu n'est pas déjà 9:16 ; son absence alors n'est pas une anomalie.
-  `variant9x16Due` distingue « n'existera jamais » de « due, pas encore produite ».
-- **Un `PATCH` refusé pour jeton périmé est un cas nominal** — « une écriture plus
-  récente a gagné », pas « la sauvegarde a échoué ». **Et `applied: false` doit
-  réconcilier l'état local**, sinon la sauvegarde différée renvoie l'intention
-  refusée avec un jeton neuf et annule la garantie d'ordre. C'est le premier
-  geste à faire.
-- **Le vocabulaire d'étapes est recopié, pas dérivé.** `LIBELLES_ETAPES` porte sur
-  le `StepName` **client** de `src/lib/api.ts:35`, une union écrite à la main et
-  distincte de `src/core/graph.ts`. `analysis` y manque, donc l'écran affiche un
-  libellé vide et un `aria-label` « undefined en cours » pendant l'analyse d'un
-  projet neuf. Correctif en deux lignes indissociables. La cause — deux contrats
-  qui ne se contraignent pas — vaut mieux qu'un correctif par symptôme.
-- **La perte du repérage doit rester visible.** `dernierBilan(projectId)` est
-  exporté par `src/server/steps/candidates.ts` ; il reste à le faire remonter
-  dans `status.json` (une ligne dans `écrireStatut`, `src/server/run.ts`), en
-  croisant avec `error`/`finishedAt` — le bilan décrit une notation *tentée*.
+- **L'export est synchrone et dure de dix secondes à une minute.** Le bouton est
+  un indicateur de travail et n'est pas annulable — le rendu ffmpeg ne
+  s'interrompt pas proprement.
+- **`skipped: true` au ré-export est un cas nominal**, et l'écran le dit comme un
+  succès.
+- **Un clip a une ou deux sorties.** `variant9x16Due` distingue « n'existera
+  jamais » de « due, pas encore produite ».
+- **Un `PATCH` refusé pour jeton périmé est un cas nominal**, et `applied: false`
+  réconcilie l'état local — sinon l'intention refusée repart avec un jeton neuf,
+  gagnant. La réconciliation est dans `src/lib/enregistrement.ts`, et **elle est
+  aujourd'hui neutralisée par l'issue #55** : les rappels de `mutate` vivent sur
+  un observateur partagé, qu'une écriture de titre vole au montage.
+- **Le ratio et les crops se recalculent sur les segments courants**, ils ne sont
+  pas stockés. Retirer un passage peut changer le ratio sous les doigts.
 
-### Ce que la vague a laissé, et où c'est suivi
+**Le lot 7 reste, et il n'attend pas l'interface.** Mode de cadrage explicite,
+retour à l'automatique, historique d'annulation étendu au cadrage, bande des
+plans, dérogation par plan (§3.5). Une PR d'écran, à peu près la taille de #50.
+Mais il est **bloqué en amont** par les quatre morceaux d'itération 1 listés
+au-dessus, à commencer par le filtre du premier plan. Le montrer avant eux
+reviendrait à offrir de déroger à un cadrage automatique qui ne calcule rien
+d'utilisable.
 
-Les trois points ouverts au sortir de la première vague sont traités ou
-transformés en tickets. Le tracker prend le relais ; cette section ne le double
-pas, elle dit seulement où regarder.
+**Ce qui a été payé cher et qu'il ne faut pas défaire.** Les deux plus subtils,
+trouvés en review et documentés au point d'appel : la garde des raccourcis doit
+écarter **tout élément qui traite déjà la touche** (`button`, `a[href]`,
+`[role="button"]`, `[role="tab"]`, `[role="slider"]`, `summary`), faute de quoi
+le clavier meurt dès qu'on décide à la souris — le focus reste sur le bouton et
+plus rien ne répond, pendant que la carte garde son anneau de sélection. Et le
+compteur de temps du panneau d'avancement **ne compte pas des battements** : un
+onglet en arrière-plan les étrangle, et l'écran affirmerait trois minutes là où
+neuf se sont écoulées, sur la seule surface censée dire l'attente.
+
+**`use(params)` ne se résout pas sous jsdom.** Les trois écrans vivent donc dans
+`src/components/<étape>/ecran-*.tsx` et leur fichier de route tombe à quelques
+dizaines de lignes. Ce n'est pas une préférence de style : c'est la seule façon
+de monter un écran en test, et l'extraction a révélé trois défauts au premier
+montage sur l'écran de projet.
+
+### Ce que les vagues ont laissé, et où c'est suivi
+
+Tout est en tickets. **Le tracker fait autorité ; cette section ne le double pas**,
+elle dit seulement quoi lire en premier.
+
+**Les deux qui comptent, dans cet ordre :**
+
+- **#55 (P1, correctif d'une ligne)** — les rappels passés à `patch.mutate` vivent
+  sur un observateur que `usePatchClip` partage entre le montage et les écritures
+  de champs. Taper un titre pendant que le montage s'enregistre **vole ses
+  rappels** : la réconciliation d'un `PATCH` refusé n'a jamais lieu, l'intention
+  écartée repart avec un jeton neuf et gagne, et un échec devient muet pendant que
+  la barre affiche « enregistré ». C'est exactement la garantie d'ordre que le
+  socle avait été écrit pour établir. `mutateAsync` la referme.
+- **#48 (P1)** — un rendu peut se dire à jour sans l'être, par quatre chemins qu'une
+  seule empreinte de rendu persistée ferme.
+
+**Les trois autres :** #54 (la conception contredit le code sur six points
+vérifiés, à reprendre en une fois), #56 (six restes d'interface, chacun borné et
+documenté au point d'appel), #41 (les vignettes de source, avec la mesure et
+l'argument qui la rend discutable), #49 (deux résidus du caviardage).
+
+Ce qui a été fermé en route : #37, #38, #39, #40.
 
 - **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
   dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien
@@ -453,7 +495,14 @@ Et ces fichiers-là ne repasseront jamais par la nouvelle porte : `sauterLeRendu
 constate leur présence, pas leur contenu, donc l'export les saute et répond
 `skipped: true`. Le remède est `--force`, la cause est l'issue #48.
 
-**Les worktrees d'agents pèsent 13 Go** sous `.claude/worktrees/`. Avant d'en
-supprimer un, `git status --short --ignored` : un worktree ne contient pas que du
-versionné. Celui de l'analyse porte les **7,8 Go du venv de détection et les
-poids YOLO**, qui n'existent nulle part ailleurs.
+**Quatorze worktrees traînent** sous `.claude/worktrees/`, dont neuf dont la
+branche est fusionnée. Avant d'en supprimer un, `git status --short --ignored` :
+un worktree ne contient pas que du versionné. Celui de l'analyse porte les
+**7,8 Go du venv de détection et les poids YOLO**, qui n'existent nulle part
+ailleurs, et chacun porte son propre `node_modules` — une vraie installation,
+jamais un lien, pour la raison écrite plus haut.
+
+Deux d'entre eux ne sont pas des worktrees d'agent : `apercu-feat-ui-*` sont
+créés détachés par `~/.local/bin/avolo-apercu`, qui sert une branche sur un
+serveur de développement sans la prendre à son agent. Ils se recyclent, ils ne se
+gardent pas.

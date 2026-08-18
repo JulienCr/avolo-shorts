@@ -24,6 +24,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 const RACINE = path.resolve(import.meta.dirname, '..', '..')
 
 /**
+ * L'environnement des deux lancements Python, `.pyc` en moins : sans cela,
+ * `pnpm test` sème un `worker/__pycache__/` que personne n'a demandé. Il est
+ * ignoré par git, donc il ne salirait qu'un `ls` — mais un artefact de build
+ * qu'aucune commande de build n'a produit se fait chercher longtemps.
+ */
+const SANS_BYTECODE = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+
+/**
  * Évalue `code` avec `detect` importé, et rend ce que le code imprime en JSON.
  *
  * `python3` du système, pas celui de `worker/venv` : ce qui est éprouvé ici ne
@@ -38,7 +46,10 @@ function évaluer(code: string): unknown {
   ].join('\n')
   let sortie: string
   try {
-    sortie = execFileSync('python3', ['-c', `${préambule}\n${code}`], { encoding: 'utf8' })
+    sortie = execFileSync('python3', ['-c', `${préambule}\n${code}`], {
+      encoding: 'utf8',
+      env: SANS_BYTECODE,
+    })
   } catch (cause) {
     const détail = cause instanceof Error ? cause.message : String(cause)
     throw new Error(`python3 n'a pas pu évaluer worker/detect.py : ${détail}`, { cause })
@@ -191,7 +202,7 @@ describe('detect.py — le refus, en ligne de commande', () => {
         '--duration', '10',
         '--scene-threshold', seuil,
       ],
-      { encoding: 'utf8' },
+      { encoding: 'utf8', env: SANS_BYTECODE },
     )
     return { status: r.status, stderr: r.stderr }
   }

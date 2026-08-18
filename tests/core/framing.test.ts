@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  FRAMING_DEFAULTS,
   RATIOS,
   chooseRatio,
   computeFraming,
@@ -268,6 +269,27 @@ describe('requiredWidths', () => {
     expect(requiredWidths([boîte(1, 0.4, 0.6)])[0]).toBeGreaterThan(0.2)
   })
 
+  // **La marge compte deux fois**, une fois de chaque côté, et c'est ce qui rend
+  // son défaut cher : à 0,02 elle dépensait 0,04 de largeur là où un 1:1 n'en
+  // couvre que 0,5625. Le balayage du 18 août 2026 l'a fait tomber à 0,01, et ce
+  // test dit ce que la baisse achète — l'empan brut de 0,53 ci-dessous, qui est
+  // l'ordre de grandeur des deux clips de `2025-06-15-cqlp` qui basculent, tient
+  // dans un 1:1 à 0,01 et n'y tient pas à 0,02. Le détail et les images sont dans
+  // `docs/ratios-par-clip.md`.
+  it('coûte deux fois sa valeur, et le défaut arbitre le seuil du 1:1', () => {
+    expect(FRAMING_DEFAULTS.margin).toBe(0.01)
+
+    const empan = (marge: number): number =>
+      requiredWidths([boîte(1, 0.235, 0.765)], { margin: marge })[0]
+    expect(empan(0)).toBeCloseTo(0.53, 10)
+    expect(empan(0.01)).toBeCloseTo(0.55, 10)
+    expect(empan(0.02)).toBeCloseTo(0.57, 10)
+
+    const un1x1 = ratioCoverage('1:1', SRC_W, SRC_H)
+    expect(empan(FRAMING_DEFAULTS.margin)).toBeLessThanOrEqual(un1x1)
+    expect(empan(0.02)).toBeGreaterThan(un1x1)
+  })
+
   it('borne la largeur à 1 : rien ne dépasse la source', () => {
     expect(requiredWidths([boîte(1, 0, 1)], { margin: 0.1 })).toEqual([1])
   })
@@ -478,6 +500,13 @@ describe('computeFraming', () => {
         ...échantillon(0, 5, [[0.1, 0.3]]),
         ...échantillon(5, 10, [[0.7, 0.9]]),
       ],
+      // **La marge est posée ici, et à zéro.** Ce test porte sur le départage
+      // entre deux positions à égalité, pas sur l'air laissé autour des gens :
+      // laisser le défaut ferait bouger les nombres attendus au prochain
+      // réglage de `margin`, sur un test qui ne le mesure pas. Le 18 août 2026,
+      // c'est exactement ce qui est arrivé — le défaut est passé de 0,02 à 0,01
+      // et trois assertions ont cassé sans qu'aucun comportement ne change.
+      margin: 0,
     }
     expect(computeFraming(symétrique).ratio).toBe('16:9')
     expect(computeFraming(symétrique).shots[0].cropX).toBeCloseTo(0.5, 6)
@@ -485,7 +514,7 @@ describe('computeFraming', () => {
     // Ratio épinglé trop étroit : les deux moitiés s'excluent, aucune ne cadre
     // plus d'images que l'autre, et le départage tombe à gauche.
     const épinglé = computeFraming({ ...symétrique, ratio: '4:5' })
-    expect(épinglé.shots[0].cropX).toBeCloseTo(0.305, 6)
+    expect(épinglé.shots[0].cropX).toBeCloseTo(0.325, 6)
 
     // Et « à gauche » veut bien dire à gauche dans l'image, pas en premier dans
     // le tableau : l'ordre des boîtes dans un JSON n'est pas une décision.
@@ -494,7 +523,7 @@ describe('computeFraming', () => {
       ratio: '4:5',
       people: [...symétrique.people].reverse(),
     })
-    expect(àLenvers.shots[0].cropX).toBeCloseTo(0.305, 6)
+    expect(àLenvers.shots[0].cropX).toBeCloseTo(0.325, 6)
 
     // Le seuil sous lequel deux positions sont réputées à égalité. La moitié
     // droite est ici mathématiquement plus proche du centre de l'action, mais de
@@ -508,7 +537,7 @@ describe('computeFraming', () => {
         ...échantillon(5, 10, [[0.7, 0.9 - 5e-10]]),
       ],
     })
-    expect(presqueÉgal.shots[0].cropX).toBeCloseTo(0.305, 6)
+    expect(presqueÉgal.shots[0].cropX).toBeCloseTo(0.325, 6)
   })
 
   it('ne rend jamais un crop qui sortirait du cadre', () => {
@@ -558,6 +587,10 @@ describe('computeFraming', () => {
         [0.55, 0.7],
         [0.85, 0.99],
       ]),
+      // Posée, pour la même raison que plus haut — et ici elle décide en plus du
+      // ratio choisi : à marge nulle l'empan tombe à 0,44, que le 4:5 couvre, et
+      // le test ne comparerait plus un 9:16 épinglé à un 1:1 automatique.
+      margin: 0.02,
     }
 
     it('saute le choix du ratio mais pas le calcul des crops', () => {
@@ -896,12 +929,15 @@ describe('le premier plan écarté du cadrage', () => {
       // Épinglé : c'est la seule façon de comparer deux positions comparables.
       ratio: '1:1' as const,
       cropMode: 'auto' as const,
+      // Et la marge posée, pour que le déplacement mesuré soit celui du filtre
+      // et non celui d'un réglage qui bouge à côté.
+      margin: 0,
     }
     const sansFiltre = computeFraming({ ...commun, foregroundMaxHeight: 0 }).shots[0].cropX
     const avecFiltre = computeFraming(commun).shots[0].cropX
     // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
     // le milieu de l'action, qu'ils occupent symétriquement.
-    expect(sansFiltre).toBeCloseTo(0.325, 3)
+    expect(sansFiltre).toBeCloseTo(0.315, 3)
     expect(avecFiltre).toBeCloseTo(0.5, 3)
   })
 })

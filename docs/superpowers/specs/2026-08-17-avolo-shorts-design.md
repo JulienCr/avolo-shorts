@@ -237,6 +237,21 @@ même, chacune pour sa raison :
   vitesse d'itération, puisqu'il épargne le proxy et l'analyse, pas les deux
   minutes du transcript.
 
+**Le rendu, lui, ne se saute plus sur une présence de fichier** : depuis
+l'issue #48, il se saute sur une **empreinte persistée** à côté des sorties
+(`projects/<projet>/renders/<clip>.rendu.json`), et une empreinte absente vaut
+*périmé*, jamais *inconnu* — c'est ce qui fait repasser par la porte les rendus
+posés avant elle. Elle porte les cinq champs qui disent ce qui était **demandé**
+(`segments`, `ratio`, `cropX`, `captions`, `branding`) et trois qui disent ce qui
+a été **obtenu** : le condensat de chaque marque réellement incrustée — les deux
+fichiers portent des noms fixes, donc le nom seul ne distingue pas une mise à
+jour —, un condensat du style des sous-titres qui inclut le contenu du dossier de
+polices — sans `fonts/`, libass se rabat sur fontconfig et incruste dans une
+autre police sans un mot —, et une `version` de recette pour le cas général du
+rendu produit dans des conditions qui ne sont plus celles d'aujourd'hui. Le reste
+des étapes en est toujours à la présence de fichier ; la clé de validité générale
+reste l'itération 4.
+
 Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme
 réglage de dernier recours, et l'automatique ne fera que le préremplir.
 

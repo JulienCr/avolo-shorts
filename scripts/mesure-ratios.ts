@@ -26,11 +26,19 @@
  * 2. **La répartition comparée**, clips et fenêtres régulières. Dix clips ne font
  *    pas une distribution ; les fenêtres disent ce qu'un clip quelconque
  *    deviendrait.
- * 3. **Le balayage de la marge.** `FramingOptions.margin` vaut 2 % et n'a jamais
- *    été mesuré : c'est un réglage de confort, posé parce qu'un crop pile sur la
+ * 3. **Le balayage de la marge.** `FramingOptions.margin` valait 2 % sans avoir
+ *    jamais été mesuré : un réglage de confort, posé parce qu'un crop pile sur la
  *    boîte du détecteur met un coude au bord. Elle coûte deux fois sa valeur en
  *    empan — une fois de chaque côté — et arbitre plusieurs clips autour du seuil
- *    du 1:1.
+ *    du 1:1. C'est ce balayage qui l'a fait tomber à 1 %.
+ *
+ * Et `--instants N` imprime, par clip, les N images qui **font monter le ratio** :
+ * les plus larges après filtrage, une par plan au plus, parce que le crop est
+ * fixe à l'intérieur d'un plan et que deux images du même plan ont le même
+ * cadrage à expliquer. La ligne à passer à `vignettes-premier-plan.ts` est
+ * imprimée avec — un chiffre ne dit pas si les comédiens sont *vraiment* aux deux
+ * bords, et sur ce sujet le dépôt s'est déjà trompé une fois en ne regardant que
+ * des histogrammes.
  *
  * Rien n'échoue ici : le script imprime des chiffres, et c'est en les lisant
  * qu'on décide.
@@ -42,6 +50,7 @@ import { FRAMING_DEFAULTS, RATIOS, computeFraming, ratioCoverage, requiredWidths
 import type { FramingOptions } from '@/core/framing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
+import type { PersonBox } from '@/core/shots'
 import { closeDb, getClips, getDb } from '@/server/db'
 import { analysisPath } from '@/server/paths'
 import { lireAnalyse, type Analyse } from '@/server/steps/analysis'
@@ -53,13 +62,17 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE = (Object.keys(RATIOS) as Ratio[]).sort(
 )
 
 /**
- * Les marges balayées, **en incluant le défaut**.
+ * Les marges balayées : les quatre valeurs de la campagne, **plus le défaut en
+ * vigueur**.
  *
- * Il y est par `FRAMING_DEFAULTS.margin` et non recopié : un balayage qui
- * écrirait `0.02` en dur continuerait de viser l'ancienne valeur le jour où elle
- * bouge, et c'est précisément un jour où l'on relance ce script.
+ * Le défaut y est par `FRAMING_DEFAULTS.margin` et non recopié — sans quoi le
+ * jour où il bouge, le balayage continuerait de viser l'ancienne valeur sans
+ * rien signaler. Et les quatre valeurs restent écrites en clair *à côté* de lui,
+ * parce que la campagne les compare : les fondre dans le défaut a fait
+ * disparaître 0,02 de la sortie à la seconde où il a cessé d'être le défaut,
+ * c'est-à-dire à la seconde où la comparaison devenait intéressante.
  */
-const MARGES = [...new Set([0, 0.01, FRAMING_DEFAULTS.margin, 0.03])].sort((a, b) => a - b)
+const MARGES = [...new Set([0, 0.01, 0.02, 0.03, FRAMING_DEFAULTS.margin])].sort((a, b) => a - b)
 
 /** Une découpe à cadrer : un nom et des segments. */
 type Découpe = { nom: string; segments: Segment[] }
@@ -267,16 +280,88 @@ function balayage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
     const ratios = découpes.map((d) => ratioDe(d, émission.analyse, options))
     const compte = répartition(ratios)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
-    const resserrés = ratios.filter((r, i) => RATIOS[r] < RATIOS[référence[i]]).length
-    const élargis = ratios.filter((r, i) => RATIOS[r] > RATIOS[référence[i]]).length
+    const déplacés = découpes
+      .map((d, i) => ({ nom: d.nom, avant: référence[i], après: ratios[i] }))
+      .filter((e) => e.avant !== e.après)
+    const resserrés = déplacés.filter((e) => RATIOS[e.après] < RATIOS[e.avant]).length
     const défaut = marge === FRAMING_DEFAULTS.margin ? ' ←' : '  '
     console.log(
       `  ${marge.toFixed(2)}${défaut}   ` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(6)).join(' ') +
         `   ${nombre(médiane(empans)).padStart(9)}` +
-        `   ${resserrés} resserré(s), ${élargis} élargi(s)`,
+        `   ${resserrés} resserré(s), ${déplacés.length - resserrés} élargi(s)`,
     )
+    // **Nommés sur les clips, comptés sur les fenêtres.** Un clip qui bascule est
+    // une décision qu'on ira vérifier à l'image ; deux cents fenêtres nommées
+    // noieraient le tableau qu'elles sont censées expliquer.
+    if (quoi !== 'clips') continue
+    for (const e of déplacés) {
+      console.log(`           ${e.nom} : ${e.avant} → ${e.après}`)
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Où regarder
+// ---------------------------------------------------------------------------
+
+/**
+ * Les instants qui font monter le ratio d'un clip.
+ *
+ * Les plus larges après filtrage, **une image par plan au plus** : les images
+ * les plus larges sont contiguës, et les six premières du classement montrent six
+ * fois la même seconde. Un plan est la bonne granularité parce que le crop y est
+ * fixe — deux images du même plan ont le même cadrage à expliquer. C'est la même
+ * règle que `--large` de `vignettes-premier-plan.ts`, pour la même raison.
+ */
+function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number): number[] {
+  const segments = normalizeSegments(découpe.segments)
+  const dedans = analyse.boxes.filter((b) => segments.some((s) => b.t >= s.start && b.t < s.end))
+
+  // Par image, en passant par `requiredWidths` plutôt qu'en refaisant le calcul :
+  // le seuil de confiance, la marge et le filtre du premier plan y sont déjà, et
+  // une seconde copie de ces trois réglages finirait par diverger de celle qui
+  // décide vraiment.
+  const parImage = new Map<number, PersonBox[]>()
+  for (const b of dedans) {
+    const clé = Math.round(b.t * 1000)
+    const déjà = parImage.get(clé)
+    if (déjà) déjà.push(b)
+    else parImage.set(clé, [b])
+  }
+
+  const classées = [...parImage.entries()]
+    .map(([clé, boîtes]) => ({ t: clé / 1000, empan: requiredWidths(boîtes)[0] }))
+    .filter((e): e is { t: number; empan: number } => e.empan !== undefined)
+    .sort((a, b) => b.empan - a.empan)
+
+  const vus = new Set<number>()
+  const out: number[] = []
+  for (const e of classées) {
+    if (out.length >= n) break
+    const plan = analyse.shots.find((p) => e.t >= p.start && e.t < p.end)
+    const clé = plan === undefined ? -Math.round(e.t * 1000) - 1 : Math.round(plan.start * 1000)
+    if (vus.has(clé)) continue
+    vus.add(clé)
+    out.push(e.t)
+  }
+  return out.sort((a, b) => a - b)
+}
+
+function oùRegarder(émission: Émission, n: number): void {
+  console.log(`\n  ${émission.id}`)
+  const tous: number[] = []
+  for (const clip of émission.clips) {
+    const instants = instantsQuiÉlargissent(clip, émission.analyse, n)
+    if (instants.length === 0) continue
+    tous.push(...instants)
+    console.log(`    ${clip.nom} : ${instants.map((t) => t.toFixed(1)).join(' ')}`)
+  }
+  if (tous.length === 0) return
+  console.log(
+    `\n    pnpm tsx scripts/vignettes-premier-plan.ts ${émission.id} ` +
+      `${tous.map((t) => t.toFixed(1)).join(' ')} --out <dossier>`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -284,9 +369,30 @@ function balayage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
 async function main(): Promise<number> {
   await chargerEnv()
 
-  const ids = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+  const arguments_ = process.argv.slice(2)
+  const iInstants = arguments_.indexOf('--instants')
+  // La valeur qui suit `--instants` n'est pas un identifiant de projet : la
+  // retirer avant de lire les positionnels, sinon `--instants 3` demande un
+  // projet nommé « 3 » et va lire une analyse qui n'existe pas.
+  const ids = arguments_.filter(
+    (a, i) => !a.startsWith('--') && !(iInstants >= 0 && i === iInstants + 1),
+  )
   if (ids.length === 0) {
-    console.error('Usage : pnpm tsx scripts/mesure-ratios.ts <projectId…>')
+    console.error('Usage : pnpm tsx scripts/mesure-ratios.ts <projectId…> [--instants N]')
+    return 1
+  }
+  // Un compte illisible est **refusé**, pas remplacé par le défaut : `--instants 0`
+  // qui imprimerait trois instants est le genre de silence qui fait chercher le
+  // défaut ailleurs.
+  const brutInstants = iInstants >= 0 ? arguments_[iInstants + 1] : undefined
+  const nInstants =
+    iInstants < 0
+      ? null
+      : brutInstants === undefined || brutInstants.startsWith('--')
+        ? 3
+        : Number(brutInstants)
+  if (nInstants !== null && (!Number.isInteger(nInstants) || nInstants <= 0)) {
+    console.error(`--instants attend un entier ≥ 1, reçu « ${String(brutInstants)} ».`)
     return 1
   }
 
@@ -311,6 +417,11 @@ async function main(): Promise<number> {
     console.log('  (« déplacés » se compte par rapport à la marge par défaut)')
     for (const e of émissions) balayage(e, 'clips')
     for (const e of émissions) balayage(e, 'fenêtres')
+
+    if (nInstants !== null) {
+      console.log('\n=== 4. Où regarder — les images qui font monter le ratio ===')
+      for (const e of émissions) oùRegarder(e, nInstants)
+    }
 
     return 0
   } finally {

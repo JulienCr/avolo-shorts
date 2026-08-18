@@ -186,6 +186,17 @@ function remède(cause: unknown): string {
  * partirait comme clé chez le fournisseur d'API et reviendrait en 401 — soit
  * exactement le diagnostic faux que tout ce module existe pour éviter.
  * (relevé par Copilot)
+ *
+ * **Le message ne cite pas la référence**, contrairement à ceux de
+ * `résoudreSecrets`, et la différence n'est pas un oubli. Cette erreur-ci est
+ * levée *en servant* : elle remonte par `runCandidates`, `status.json` et le
+ * champ `error` de `GET /api/projects/:id` jusqu'à un client HTTP. Or
+ * `épurerChemins` ne la nettoie pas — vérifié : `POSIX_NU` exclut un `/`
+ * précédé de `:` ou d'un autre `/`, donc `op://Personal/Avolo-Shorts/…` passe
+ * intact —, et le nom du coffre et de la fiche sortiraient sur un dépôt public.
+ * L'opérateur, lui, a son propre `.env` sous les yeux : la référence ne lui
+ * apprend rien. Celles de `résoudreSecrets` restent complètes parce qu'elles ne
+ * quittent jamais le terminal du démarrage. (relevé par Aristarque)
  */
 export function exigerSecret(nom: string, env: Environnement = process.env): string {
   const valeur = env[nom]
@@ -194,7 +205,7 @@ export function exigerSecret(nom: string, env: Environnement = process.env): str
   }
   if (estRéférence(valeur)) {
     throw new Error(
-      `${nom} vaut encore une adresse 1Password (${valeur}), donc la résolution du ` +
+      `${nom} vaut encore une adresse 1Password (op://…), donc la résolution du ` +
         'démarrage a été défaite — typiquement un .env modifié pendant que le serveur ' +
         'tourne. Relancer le serveur.',
     )

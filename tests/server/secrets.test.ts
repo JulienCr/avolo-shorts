@@ -232,6 +232,25 @@ describe('exigerSecret', () => {
     // (relevé par Copilot)
     const env: Environnement = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
     expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/Relancer le serveur/)
-    expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/op:\/\/Personal/)
+  })
+
+  it('ne cite pas la référence, qui remonterait jusqu au client HTTP', () => {
+    // Cette erreur-là est levée en servant : elle traverse `runCandidates`,
+    // `status.json` et le champ `error` de `GET /api/projects/:id`. Et
+    // `épurerChemins` ne la nettoie pas — `POSIX_NU` exclut un `/` précédé de
+    // `:` ou d'un autre `/`, donc `op://Coffre/Fiche/…` passe intact. Le nom du
+    // coffre et de la fiche sortiraient sur un dépôt public, pour n'apprendre
+    // rien à un opérateur qui a son `.env` sous les yeux.
+    // (relevé par Aristarque)
+    const env: Environnement = { GEMINI_API_KEY: 'op://CoffreSecret/FicheSecrète/CHAMP' }
+    try {
+      exigerSecret('GEMINI_API_KEY', env)
+      expect.unreachable('exigerSecret devait lever')
+    } catch (erreur: unknown) {
+      const message = erreur instanceof Error ? erreur.message : String(erreur)
+      expect(message).not.toContain('CoffreSecret')
+      expect(message).not.toContain('FicheSecrète')
+      expect(message).not.toContain('CHAMP')
+    }
   })
 })

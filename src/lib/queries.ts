@@ -149,6 +149,31 @@ export function usePatchClip() {
   // peut pas donner deux ordres différents. (relevé par Copilot)
   const derniere = useRef(new Map<string, number>())
 
+  // **Les clips dont deux écritures se sont réellement chevauchées.**
+  //
+  // La garde ci-dessus travaille sur la réponse **entière**, alors que le
+  // serveur, lui, ordonne champ par champ : un `{ title }` ancien et un
+  // `{ status }` récent qui se croisent sont tous les deux écrits en base, mais
+  // le cache ne garde que la réponse la plus récente — celle du `status`, qui
+  // porte le titre d'avant — et ignore l'autre. Le cache diverge alors de la
+  // base jusqu'au prochain chargement. (relevé par Copilot)
+  //
+  // Reproduire la comparaison par champ ici ne suffirait pas : le serveur
+  // modifie aussi des champs que personne n'a demandés — remonter un clip
+  // exporté le repasse en `kept` et efface ses sorties. Seule une relecture dit
+  // la vérité, et on ne la paie que dans le cas qui la rend nécessaire.
+  const chevauchés = useRef(new Set<string>())
+
+  /**
+   * Les écritures en vol sur ce clip, **celle qui appelle comprise** :
+   * `onMutate` et `onSettled` s'exécutent tous deux avant que TanStack ne sorte
+   * la mutation de l'état `pending`.
+   */
+  const enVol = (clipId: string): number =>
+    client.isMutating({
+      predicate: (mutation) => (mutation.state.variables as Variables | undefined)?.clipId === clipId,
+    })
+
   return useMutation({
     // Le jeton a été posé sur ces variables par `onMutate`, qui s'exécute avant.
     mutationFn: ({ clipId, patch, seq }: Variables) => patchClip(clipId, patch, seq),
@@ -171,6 +196,8 @@ export function usePatchClip() {
       const jeton = jetonDuGeste()
       variables.seq = jeton
       derniere.current.set(clipId, jeton)
+      // Deux, parce que celle-ci y est déjà.
+      if (enVol(clipId) > 1) chevauchés.current.add(clipId)
 
       // Annuler les requêtes en vol : une réponse partie avant la modification
       // arriverait après elle et l'écraserait.
@@ -241,6 +268,27 @@ export function usePatchClip() {
       client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
         detail ? { ...detail, clip, outputs } : detail,
       )
+    },
+
+    /**
+     * La réconciliation, **une seule fois, à la fin de la rafale**.
+     *
+     * Pas à chaque écriture : le détail d'un clip porte sa fenêtre de
+     * transcript, et la redemander après chaque geste ferait payer un montage
+     * entier pour un cas qui ne se produit qu'en cas de croisement. Pas non plus
+     * pendant la rafale, sans quoi la relecture partirait avant que les
+     * écritures qu'elle doit refléter ne soient arrivées.
+     *
+     * Le rollback de `onError`, lui, reste immédiat : une invalidation laisserait
+     * l'écran dans son état optimiste, donc faux, le temps du rechargement.
+     */
+    onSettled(_données, _erreur, { clipId, projectId }: Variables) {
+      if (!chevauchés.current.has(clipId)) return
+      // Une, parce que celle-ci y est encore.
+      if (enVol(clipId) > 1) return
+      chevauchés.current.delete(clipId)
+      void client.invalidateQueries({ queryKey: cles.clip(clipId) })
+      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
     },
   })
 }

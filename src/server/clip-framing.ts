@@ -176,7 +176,7 @@ export function projectAnalysis(projectId: string): FramingSource {
     // journal, jamais à la réponse. L'écran, lui, reçoit `analyse-illisible`.
     console.warn(
       `Analyse illisible pour le projet ${projectId} : ${cause instanceof Error ? cause.message : String(cause)} ` +
-        `Le framing automatique se rabat sur le réglage manuel du clip.`,
+        `Le cadrage automatique se rabat sur le réglage manuel du clip.`,
     )
     entry = { key, analyse: null, origin: 'unreadable-analysis' }
   }

@@ -1370,7 +1370,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       if (pieces.length > PIECE_COUNT_WARN) {
         console.warn(
           `Clip ${clipId} : ${pieces.length} morceaux à décoder (${clip.segments.length} segments ` +
-            `pieces sur ${framing.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
+            `découpés sur ${framing.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
             `dizaine, l'export ralentit.`,
         )
       }

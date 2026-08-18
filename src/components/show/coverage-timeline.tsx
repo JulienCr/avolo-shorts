@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { clipDuration } from '@/core/edl'
-import { géométrie, instantAuClic, part, placerEnVoies, étendue } from '@/core/couverture'
+import { blockGeometry, fractionOf, placeInLanes, spanOf, timeAtClick } from '@/core/coverage'
 import type { CandidateClip } from '@/lib/api'
 import { LIBELLES_STATUT } from '@/lib/clip-status'
 import { formatDuration, formatTimecode } from '@/lib/format'
@@ -32,27 +32,27 @@ import { cn } from '@/lib/utils'
  * **Les chevauchements se voient.** Deux candidats issus de la même scène se
  * recouvrent régulièrement — le repérage propose des fenêtres qui se chevauchent
  * d'une trentaine de secondes —, et sur une seule ligne le second efface le
- * premier. `placerEnVoies` (`@/core/couverture`, pur) les répartit sur le nombre
+ * premier. `placeInLanes` (`@/core/coverage`, pur) les répartit sur le nombre
  * minimal de voies.
  */
-export function BandeCouverture({
+export function CoverageTimeline({
   clips,
-  duréeSec,
-  instant,
-  onAller,
+  durationSec,
+  time,
+  onSeek,
 }: {
   /** Les clips **gardés**. Les propositions et les écartés n'ont rien extrait. */
   clips: readonly CandidateClip[]
   /** La durée de l'émission, en secondes. */
-  duréeSec: number
+  durationSec: number
   /** L'instant courant du lecteur, en secondes. */
-  instant: number
+  time: number
   /** Déplacer la lecture. `null` quand il n'y a pas de proxy à déplacer. */
-  onAller: ((secondes: number) => void) | null
+  onSeek: ((seconds: number) => void) | null
 }) {
-  const { placés, voies } = placerEnVoies(clips, (clip) => étendue(clip.segments))
+  const { placed, lanes } = placeInLanes(clips, (clip) => spanOf(clip.segments))
 
-  if (duréeSec <= 0) {
+  if (durationSec <= 0) {
     return (
       <p className="text-xs text-muted-foreground">
         La durée de l’émission n’est pas encore connue : elle est sondée à
@@ -64,7 +64,7 @@ export function BandeCouverture({
   return (
     <div className="flex flex-col gap-1.5">
       <div
-        data-testid="bande-couverture"
+        data-testid="coverage-timeline"
         role="group"
         aria-label="Couverture de l’émission par les clips gardés"
         // **Un clic hors bloc déplace la lecture.** C'est la demande explicite
@@ -73,18 +73,18 @@ export function BandeCouverture({
         // toute la durée. Les blocs sont des liens posés dessus, donc leur clic
         // ne descend pas jusqu'ici.
         onClick={(e) => {
-          if (onAller === null) return
-          const cadre = e.currentTarget.getBoundingClientRect()
-          onAller(instantAuClic(e.clientX - cadre.left, cadre.width, duréeSec))
+          if (onSeek === null) return
+          const rect = e.currentTarget.getBoundingClientRect()
+          onSeek(timeAtClick(e.clientX - rect.left, rect.width, durationSec))
         }}
         className={cn(
           'relative w-full overflow-hidden rounded-md border bg-muted/50',
-          onAller !== null && 'cursor-pointer',
+          onSeek !== null && 'cursor-pointer',
         )}
-        style={{ height: `calc(var(--spacing) * 6 * ${Math.max(1, voies)} + 2px)` }}
+        style={{ height: `calc(var(--spacing) * 6 * ${Math.max(1, lanes)} + 2px)` }}
       >
-        {placés.map(({ item, intervalle, voie }) => {
-          const { gauche, largeur } = géométrie(intervalle, duréeSec)
+        {placed.map(({ item, interval, lane }) => {
+          const { left, width } = blockGeometry(interval, durationSec)
           return (
             <Tooltip key={item.id}>
               <TooltipTrigger
@@ -92,7 +92,7 @@ export function BandeCouverture({
                   <Link
                     href={lienClip(item.id)}
                     data-clip={item.id}
-                    aria-label={`${item.title} — ${formatTimecode(intervalle.début)} à ${formatTimecode(intervalle.fin)}`}
+                    aria-label={`${item.title} — ${formatTimecode(interval.start)} à ${formatTimecode(interval.end)}`}
                     // `min-w` plutôt qu'une largeur élargie dans le calcul :
                     // élargir en amont ferait glisser le bord gauche de tout ce
                     // qui suit, alors qu'un bloc de trente secondes sur une
@@ -105,16 +105,16 @@ export function BandeCouverture({
                         : 'border-stage/70 bg-stage/40 hover:bg-stage/60',
                     )}
                     style={{
-                      left: `${gauche}%`,
-                      width: `${largeur}%`,
-                      top: `calc(var(--spacing) * 6 * ${voie} + 1px)`,
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      top: `calc(var(--spacing) * 6 * ${lane} + 1px)`,
                       height: 'calc(var(--spacing) * 6 - 2px)',
                     }}
                   />
                 }
               />
               <TooltipContent className="max-w-72 p-0">
-                <Résumé clip={item} début={intervalle.début} fin={intervalle.fin} />
+                <ClipSummary clip={item} start={interval.start} end={interval.end} />
               </TooltipContent>
             </Tooltip>
           )
@@ -126,16 +126,16 @@ export function BandeCouverture({
             contrôles du lecteur, et une seconde source la dirait deux fois. */}
         <div
           aria-hidden
-          data-testid="tete-de-lecture"
+          data-testid="playhead"
           className="pointer-events-none absolute inset-y-0 w-px bg-foreground/70"
-          style={{ left: `${part(instant, duréeSec) * 100}%` }}
+          style={{ left: `${fractionOf(time, durationSec) * 100}%` }}
         />
       </div>
 
       <p className="text-xs text-muted-foreground tabular-nums">
         {clips.length === 0
           ? 'Aucun clip gardé pour l’instant : la bande montrera ce qui aura été extrait.'
-          : `${clips.length === 1 ? '1 clip gardé' : `${clips.length} clips gardés`} sur ${formatDuration(duréeSec)} d’émission.`}
+          : `${clips.length === 1 ? '1 clip gardé' : `${clips.length} clips gardés`} sur ${formatDuration(durationSec)} d’émission.`}
       </p>
     </div>
   )
@@ -150,7 +150,7 @@ export function BandeCouverture({
  * (`GET /api/clips/:id/thumb`) et vaut `null` tant qu'il n'est pas encodé — ce
  * qui est le cas exact où cette vue montre déjà que les images manquent.
  */
-function Résumé({ clip, début, fin }: { clip: CandidateClip; début: number; fin: number }) {
+function ClipSummary({ clip, start, end }: { clip: CandidateClip; start: number; end: number }) {
   return (
     <div className="flex w-72 flex-col">
       <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-t-md bg-muted text-muted-foreground/40">
@@ -172,7 +172,7 @@ function Résumé({ clip, début, fin }: { clip: CandidateClip; début: number; 
       <div className="flex flex-col gap-1 p-2.5">
         <p className="text-sm font-medium">{clip.title || 'Sans titre'}</p>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {formatTimecode(début)} → {formatTimecode(fin)} · {formatDuration(clipDuration(clip.segments))}
+          {formatTimecode(start)} → {formatTimecode(end)} · {formatDuration(clipDuration(clip.segments))}
         </p>
         <div>
           <Badge variant="secondary" className="text-xs">

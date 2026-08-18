@@ -8,12 +8,12 @@ import { compter, phaseProjet, type TailleÉmission } from '@/core/parcours'
 import { CIBLES_DE_REPRISE } from '@/lib/api'
 import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
-import { VueÉmission } from '@/components/emission/vue-emission'
+import { ShowView } from '@/components/show/show-view'
 import { AppBar } from '@/components/parcours/app-bar'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 import { FilDeTri } from '@/components/tri/fil'
 import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
-import { BoutonArrêt, BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { BoutonRelance, BoutonReprise, StopButton } from '@/components/tri/relance'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -111,7 +111,7 @@ export function EcranDeProjet({ id }: { id: string }) {
         {disposition === 'bande' && running !== null && (
           <>
             <BandeAvancement running={running} />
-            <BoutonArrêt projectId={id} compact />
+            <StopButton projectId={id} compact />
           </>
         )}
       </AppBar>
@@ -187,7 +187,7 @@ export function EcranDeProjet({ id }: { id: string }) {
               erreur={erreur}
               taille={taille}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
-              arret={running !== null ? <BoutonArrêt projectId={id} /> : null}
+              arret={running !== null ? <StopButton projectId={id} /> : null}
             />
           ) : !prêt ? (
             <GrilleEnAttente />
@@ -204,10 +204,10 @@ export function EcranDeProjet({ id }: { id: string }) {
                   ne prend la page que lorsqu'il n'y a rien d'autre à montrer, et
                   poser un lecteur sans proxy sous une analyse qui commence
                   n'apprendrait rien. */}
-              <VueÉmission
+              <ShowView
                 projectId={id}
-                duréeSec={projet.data?.project.durationSec ?? 0}
-                proxyPret={steps.proxy === true}
+                durationSec={projet.data?.project.durationSec ?? 0}
+                proxyReady={steps.proxy === true}
                 clips={clips}
               />
 

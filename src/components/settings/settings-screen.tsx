@@ -3,8 +3,8 @@
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 
 import { AppBar } from '@/components/parcours/app-bar'
-import { SectionHook } from '@/components/parametres/hook'
-import { SectionRepérage } from '@/components/parametres/reperage'
+import { HookSection } from '@/components/settings/hook-section'
+import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -34,18 +34,14 @@ import { useRéglages, useÉcrireRéglages } from '@/lib/queries'
  * une règle qui souffre une exception n'en est plus une, et c'est ce qui rend
  * l'écran montable en test.
  */
-export function EcranParametres() {
-  const réglages = useRéglages()
-  const écrire = useÉcrireRéglages()
+export function SettingsScreen() {
+  const settings = useRéglages()
+  const save = useÉcrireRéglages()
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar lieu={{ kind: 'parametres' }}>
-        <ÉtatDÉcriture
-          enVol={écrire.isPending}
-          écrit={écrire.isSuccess}
-          échoué={écrire.isError}
-        />
+      <AppBar lieu={{ kind: 'settings' }}>
+        <SaveState pending={save.isPending} saved={save.isSuccess} failed={save.isError} />
       </AppBar>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-6">
@@ -56,26 +52,26 @@ export function EcranParametres() {
             reviendrait tout seul à sa valeur d'avant — `useÉcrireRéglages`
             n'écrit pas en optimiste — et on croirait à un écran qui ne réagit
             pas. */}
-        {écrire.isError && (
+        {save.isError && (
           <Alert variant="destructive">
             <TriangleAlert aria-hidden />
             <AlertTitle>Le réglage n’a pas été enregistré.</AlertTitle>
-            <AlertDescription>{écrire.error.message}</AlertDescription>
+            <AlertDescription>{save.error.message}</AlertDescription>
           </Alert>
         )}
 
-        {réglages.isError ? (
+        {settings.isError ? (
           <Alert variant="destructive">
             <TriangleAlert aria-hidden />
             <AlertTitle>Les réglages ne se chargent pas.</AlertTitle>
-            <AlertDescription>{réglages.error.message}</AlertDescription>
+            <AlertDescription>{settings.error.message}</AlertDescription>
             <AlertAction>
-              <Button variant="outline" size="sm" onClick={() => void réglages.refetch()}>
+              <Button variant="outline" size="sm" onClick={() => void settings.refetch()}>
                 Réessayer
               </Button>
             </AlertAction>
           </Alert>
-        ) : réglages.data === undefined ? (
+        ) : settings.data === undefined ? (
           // **Pas de valeurs par défaut en attendant.** Les afficher ferait voir
           // les constantes du code là où la base porte peut-être autre chose, et
           // le premier geste écrirait alors une valeur que personne n'a choisie.
@@ -85,16 +81,16 @@ export function EcranParametres() {
             ))}
           </div>
         ) : (
-          <SectionRepérage
-            valeurs={réglages.data.selection}
-            désactivé={écrire.isPending}
-            onChanger={(patch) => écrire.mutate({ selection: patch })}
+          <SelectionSection
+            values={settings.data.selection}
+            disabled={save.isPending}
+            onChange={(patch) => save.mutate({ selection: patch })}
           />
         )}
 
         <Separator />
 
-        <SectionHook />
+        <HookSection />
       </main>
     </div>
   )
@@ -108,16 +104,16 @@ export function EcranParametres() {
  * barre réserve à chaque écran pour ce qu'il a à dire de son travail en cours —
  * l'écran de projet y met son avancement, celui de clip son enregistrement.
  */
-function ÉtatDÉcriture({
-  enVol,
-  écrit,
-  échoué,
+function SaveState({
+  pending,
+  saved,
+  failed,
 }: {
-  enVol: boolean
-  écrit: boolean
-  échoué: boolean
+  pending: boolean
+  saved: boolean
+  failed: boolean
 }) {
-  if (enVol) {
+  if (pending) {
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
@@ -125,7 +121,7 @@ function ÉtatDÉcriture({
       </span>
     )
   }
-  if (échoué || !écrit) return null
+  if (failed || !saved) return null
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Check className="size-3.5" aria-hidden />

@@ -40,7 +40,7 @@ import {
  * un curseur qui montrerait son effet sur « une émission » sans dire laquelle
  * ferait croire à une prédiction.
  */
-const PAROLE_DE_RÉFÉRENCE_SEC = 90 * 60
+const REFERENCE_SPEECH_SEC = 90 * 60
 
 /**
  * Assez de fenêtres pour que la présélection ne soit pas bornée par l'émission.
@@ -50,72 +50,72 @@ const PAROLE_DE_RÉFÉRENCE_SEC = 90 * 60
  * des émissions permet, pas ce que le réglage demande. La phrase le dit :
  * « si l'émission en compte assez ».
  */
-const FENÊTRES_À_VOLONTÉ = 10_000
+const UNBOUNDED_WINDOWS = 10_000
 
 /** Un réglage, tel que l'écran le présente. */
-type Champ = {
-  clé: keyof DimensionsRepérage
-  libelle: string
-  explication: string
+type Field = {
+  key: keyof DimensionsRepérage
+  label: string
+  help: string
   /** L'unité qui suit la boîte de saisie, ou `null`. */
-  unité: string | null
+  unit: string | null
   /** La plus petite valeur qui ait un sens. */
   minimum: number
 }
 
-const CHAMPS: readonly Champ[] = [
+const FIELDS: readonly Field[] = [
   {
-    clé: 'minutesParClip',
-    libelle: 'Une proposition par tranche de',
-    explication:
+    key: 'minutesParClip',
+    label: 'Une proposition par tranche de',
+    help:
       'Le repérage demande au modèle un extrait par tranche de parole. Plus la valeur est basse, plus il en propose sur une même émission.',
-    unité: 'minutes de parole',
+    unit: 'minutes de parole',
     minimum: 1,
   },
   {
-    clé: 'clipsMinimum',
-    libelle: 'Propositions demandées au minimum',
-    explication:
+    key: 'clipsMinimum',
+    label: 'Propositions demandées au minimum',
+    help:
       'Le modèle s’assied sur le minimum qu’on lui donne : mesuré en production, 95 % des passes rendaient trois extraits ou moins alors que le prompt était libre d’en rendre bien plus. C’est ce nombre-là qui décide, pas la consigne.',
-    unité: null,
+    unit: null,
     minimum: 1,
   },
   {
-    clé: 'clipsMaximum',
-    libelle: 'Propositions demandées au maximum',
-    explication:
+    key: 'clipsMaximum',
+    label: 'Propositions demandées au maximum',
+    help:
       'Borne les deux bouts de la fourchette envoyée au modèle. À zéro, aucune limite ne s’applique.',
-    unité: '0 = illimité',
+    unit: '0 = illimité',
     minimum: 0,
   },
   {
-    clé: 'fenetresParClip',
-    libelle: 'Fenêtres examinées par proposition demandée',
-    explication:
+    key: 'fenetresParClip',
+    label: 'Fenêtres examinées par proposition demandée',
+    help:
       'L’émission est notée par fenêtres de 90 secondes, puis seules les meilleures partent à la passe de détail. Ce nombre dit combien de fenêtres accompagnent chaque extrait demandé : plus haut, le modèle a plus de matière — et une charge trop grosse dilue son attention.',
-    unité: null,
+    unit: null,
     minimum: 1,
   },
   {
-    clé: 'fenetresMinimum',
-    libelle: 'Fenêtres examinées au minimum',
-    explication:
+    key: 'fenetresMinimum',
+    label: 'Fenêtres examinées au minimum',
+    help:
       'Un plancher, pour qu’une émission courte ne parte pas avec trop peu de matière. Il ne s’applique pas au-delà de ce que l’émission contient.',
-    unité: null,
+    unit: null,
     minimum: 1,
   },
 ]
 
-export function SectionRepérage({
-  valeurs,
-  onChanger,
-  désactivé = false,
+export function SelectionSection({
+  values,
+  onChange,
+  disabled = false,
 }: {
-  valeurs: DimensionsRepérage
+  values: DimensionsRepérage
   /** Écrit un ou plusieurs champs. L'écran décide quand et comment. */
-  onChanger: (patch: Partial<DimensionsRepérage>) => void
+  onChange: (patch: Partial<DimensionsRepérage>) => void
   /** Le temps qu'une lecture ou une écriture soit en vol. */
-  désactivé?: boolean
+  disabled?: boolean
 }) {
   return (
     <section aria-labelledby="titre-reperage" className="flex flex-col gap-5">
@@ -131,19 +131,19 @@ export function SectionRepérage({
       </div>
 
       <div className="flex flex-col gap-4">
-        {CHAMPS.map((champ) => (
-          <Réglage
-            key={champ.clé}
-            champ={champ}
-            valeur={valeurs[champ.clé]}
-            défaut={DIMENSIONS_PAR_DÉFAUT[champ.clé]}
-            désactivé={désactivé}
-            onChanger={(valeur) => onChanger({ [champ.clé]: valeur })}
+        {FIELDS.map((field) => (
+          <SettingField
+            key={field.key}
+            field={field}
+            value={values[field.key]}
+            defaultValue={DIMENSIONS_PAR_DÉFAUT[field.key]}
+            disabled={disabled}
+            onChange={(value) => onChange({ [field.key]: value })}
           />
         ))}
       </div>
 
-      <Estimation valeurs={valeurs} />
+      <Estimate values={values} />
     </section>
   )
 }
@@ -160,94 +160,92 @@ export function SectionRepérage({
  * une écriture refusée, une valeur bornée côté serveur ou un autre onglet
  * doivent se voir ici plutôt que de laisser un brouillon divergent à l'écran.
  */
-function Réglage({
-  champ,
-  valeur,
-  défaut,
-  désactivé,
-  onChanger,
+function SettingField({
+  field,
+  value,
+  defaultValue,
+  disabled,
+  onChange,
 }: {
-  champ: Champ
-  valeur: number
-  défaut: number
-  désactivé: boolean
-  onChanger: (valeur: number) => void
+  field: Field
+  value: number
+  defaultValue: number
+  disabled: boolean
+  onChange: (value: number) => void
 }) {
   const id = useId()
-  const aide = `${id}-aide`
-  const [brouillon, setBrouillon] = useState(String(valeur))
+  const helpId = `${id}-help`
+  const [draft, setDraft] = useState(String(value))
   // **Le recalage se fait pendant le rendu, pas dans un effet.** Un effet qui
   // appelle `setState` déclenche un rendu en cascade — `react-hooks/set-state-in-effect`
   // le refuse — et il repeindrait l'ancienne valeur une image avant la nouvelle.
   // C'est le motif documenté par React pour l'état qui se recale sur ses props :
   // on compare à ce qu'on avait vu, on met à jour, React relance le rendu avant
   // de valider quoi que ce soit.
-  const [vue, setVue] = useState(valeur)
-  if (vue !== valeur) {
-    setVue(valeur)
-    setBrouillon(String(valeur))
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    setDraft(String(value))
   }
 
-  function valider() {
-    const lu = Number(brouillon)
+  function commit() {
+    const parsed = Number(draft)
     // Une saisie qui ne décrit aucun nombre revient à la valeur en place :
     // refuser en silence laisserait une boîte vide sur un écran qui n'a aucune
     // autre façon de dire ce qui s'applique.
-    if (!Number.isFinite(lu)) return setBrouillon(String(valeur))
-    const borné = Math.max(champ.minimum, Math.round(lu))
-    setBrouillon(String(borné))
-    if (borné !== valeur) onChanger(borné)
+    if (!Number.isFinite(parsed)) return setDraft(String(value))
+    const bounded = Math.max(field.minimum, Math.round(parsed))
+    setDraft(String(bounded))
+    if (bounded !== value) onChange(bounded)
   }
 
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Label htmlFor={id} className="text-sm font-medium">
-          {champ.libelle}
+          {field.label}
         </Label>
         <Input
           id={id}
           type="number"
           inputMode="numeric"
-          min={champ.minimum}
+          min={field.minimum}
           step={1}
-          disabled={désactivé}
-          aria-describedby={aide}
-          value={brouillon}
-          onChange={(e) => setBrouillon(e.target.value)}
-          onBlur={valider}
+          disabled={disabled}
+          aria-describedby={helpId}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()
-              valider()
+              commit()
             }
           }}
           className="h-8 w-24 text-sm tabular-nums"
         />
-        {champ.unité !== null && (
-          <span className="text-sm text-muted-foreground">{champ.unité}</span>
-        )}
+        {field.unit !== null && <span className="text-sm text-muted-foreground">{field.unit}</span>}
 
         {/* **Le retour au défaut ne s'affiche que s'il y a quelque chose à
             défaire.** Un bouton toujours présent et sans effet sur quatre
             réglages sur cinq apprend à ne plus le lire. Sa valeur est écrite
             dessus : « revenir à 6 » dit à la fois ce qu'il fera et ce que le
             défaut vaut, ce qui économise une ligne par réglage. */}
-        {valeur !== défaut && (
+        {value !== defaultValue && (
           <Button
             variant="ghost"
             size="sm"
-            disabled={désactivé}
-            onClick={() => onChanger(défaut)}
+            disabled={disabled}
+            onClick={() => onChange(defaultValue)}
             className="ml-auto text-xs"
           >
             <RotateCcw aria-hidden />
-            Revenir à {défaut}
+            Revenir à {defaultValue}
           </Button>
         )}
       </div>
-      <p id={aide} className="text-xs text-muted-foreground">
-        {champ.explication}
+      <p id={helpId} className="text-xs text-muted-foreground">
+        {field.help}
       </p>
     </div>
   )
@@ -263,23 +261,23 @@ function Réglage({
  * arrivé une fois, entre le plancher de clips et la taille de présélection, et
  * `shortlistSize` dérive du premier depuis.
  */
-function Estimation({ valeurs }: { valeurs: DimensionsRepérage }) {
-  const [plancher, plafond] = clipCountTargets(PAROLE_DE_RÉFÉRENCE_SEC, valeurs)
-  const fenêtres = shortlistSize(PAROLE_DE_RÉFÉRENCE_SEC, FENÊTRES_À_VOLONTÉ, valeurs)
+function Estimate({ values }: { values: DimensionsRepérage }) {
+  const [low, high] = clipCountTargets(REFERENCE_SPEECH_SEC, values)
+  const windows = shortlistSize(REFERENCE_SPEECH_SEC, UNBOUNDED_WINDOWS, values)
 
   return (
     <div
-      data-testid="estimation-reperage"
+      data-testid="selection-estimate"
       className="rounded-xl border border-stage/50 bg-stage-muted px-4 py-3 text-sm"
     >
       <p className="font-medium">Pour une émission avec environ 90 min de parole</p>
       <ul className="mt-1 flex flex-col gap-0.5 text-sm tabular-nums">
         <li>
-          {plancher === plafond
-            ? `~${plancher} clips demandés au modèle`
-            : `~${plancher} à ${plafond} clips demandés au modèle`}
+          {low === high
+            ? `~${low} clips demandés au modèle`
+            : `~${low} à ${high} clips demandés au modèle`}
         </li>
-        <li>~{fenêtres} fenêtres examinées en détail, si l’émission en compte assez</li>
+        <li>~{windows} fenêtres examinées en détail, si l’émission en compte assez</li>
       </ul>
     </div>
   )

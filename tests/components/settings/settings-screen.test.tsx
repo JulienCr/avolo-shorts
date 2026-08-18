@@ -15,7 +15,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { EcranParametres } from '@/components/parametres/ecran-parametres'
+import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
 import type { Réglages } from '@/lib/api'
 
@@ -69,7 +69,7 @@ async function monter() {
   const Enveloppe = enveloppe()
   const vue = render(
     <Enveloppe>
-      <EcranParametres />
+      <SettingsScreen />
     </Enveloppe>,
   )
   await waitFor(() => expect(screen.getByLabelText(/tranche de/i)).toBeTruthy())
@@ -167,7 +167,7 @@ describe('les réglages du repérage', () => {
     // ensemble.
     serveur()
     await monter()
-    const estimation = screen.getByTestId('estimation-reperage')
+    const estimation = screen.getByTestId('selection-estimate')
     expect(estimation.textContent).toContain('90 min de parole')
     expect(estimation.textContent).toMatch(/clips demandés/)
   })
@@ -177,7 +177,7 @@ describe('les réglages du repérage', () => {
       écriture: () => reponse({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
     })
     await monter()
-    const avant = screen.getByTestId('estimation-reperage').textContent
+    const avant = screen.getByTestId('selection-estimate').textContent
 
     const champ = screen.getByLabelText(/tranche de/i)
     await userEvent.clear(champ)
@@ -185,7 +185,7 @@ describe('les réglages du repérage', () => {
     await userEvent.tab()
 
     await waitFor(() =>
-      expect(screen.getByTestId('estimation-reperage').textContent).not.toBe(avant),
+      expect(screen.getByTestId('selection-estimate').textContent).not.toBe(avant),
     )
   })
 })
@@ -215,7 +215,7 @@ describe('les pannes', () => {
     const Enveloppe = enveloppe()
     render(
       <Enveloppe>
-        <EcranParametres />
+        <SettingsScreen />
       </Enveloppe>,
     )
 

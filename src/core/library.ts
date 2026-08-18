@@ -30,35 +30,34 @@ import type { StepName } from '@/core/graph'
  * L'état d'une émission dans la bibliothèque.
  *
  * Cinq valeurs, et **quatre se lisent sur ce que la liste des projets porte
- * déjà**. La cinquième, `interrompue`, mérite son paragraphe (voir
- * `étatDÉmission`).
+ * déjà**. La cinquième, `interrupted`, mérite son paragraphe (voir `showState`).
  */
-export type ÉtatÉmission =
+export type ShowState =
   /** Aucun projet : le replay est là, personne ne l'a analysé. */
-  | 'neuve'
+  | 'new'
   /** Une exécution tourne. */
-  | 'analyse'
+  | 'analyzing'
   /** Une exécution a été perdue ou arrêtée sans laisser d'échec. */
-  | 'interrompue'
+  | 'interrupted'
   /** La dernière exécution terminée a échoué. */
-  | 'echec'
+  | 'failed'
   /** Le projet est au repos et son ingestion a abouti. */
-  | 'analysée'
+  | 'analyzed'
 
 /** Ce que la bibliothèque lit d'un replay. */
-export type SourceLisible = {
+export type LibrarySource = {
   name: string
   /** Le projet déjà créé sur cette source, ou `null`. */
   projectId: string | null
 }
 
 /** Ce que la bibliothèque lit d'un projet — les deux lectures gratuites, et le résumé. */
-export type ProjetLisible = {
+export type LibraryProject = {
   id: string
   title: string
   /**
    * La durée sondée à l'ingestion. **Zéro veut dire « pas encore sondée »**, et
-   * c'est ce qui rend `interrompue` observable sans rien demander de plus au
+   * c'est ce qui rend `interrupted` observable sans rien demander de plus au
    * serveur : `résuméProjet` rend `projet.durationSec ?? 0`, et la colonne n'est
    * écrite qu'une fois l'ingestion passée.
    */
@@ -70,12 +69,12 @@ export type ProjetLisible = {
 /**
  * Une carte de la bibliothèque.
  *
- * `source` et `projet` sont rendus tels quels, pas résumés : la carte affiche la
+ * `source` et `project` sont rendus tels quels, pas résumés : la carte affiche la
  * vignette, la taille et la date du replay, l'avancement et le message d'échec
  * du projet. Les recopier ici ferait un troisième modèle à tenir d'accord avec
  * deux contrats d'API.
  */
-export type EntréeBibliothèque<S extends SourceLisible, P extends ProjetLisible> = {
+export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
   /**
    * La clé de liste, **stable d'un relevé à l'autre**.
    *
@@ -84,20 +83,20 @@ export type EntréeBibliothèque<S extends SourceLisible, P extends ProjetLisibl
    * extension, un identifiant de projet non — et de toute façon une entrée
    * orpheline n'existe que parce qu'aucune source ne la réclame.
    */
-  clé: string
+  key: string
   /** Ce qui s'affiche et sur quoi porte la recherche. */
-  titre: string
+  title: string
   /** Le replay, ou `null` s'il a disparu du Drive. */
   source: S | null
   /** Le projet, ou `null` si personne n'a lancé l'analyse. */
-  projet: P | null
-  état: ÉtatÉmission
+  project: P | null
+  state: ShowState
 }
 
 /**
  * L'état d'une émission, **et ce que le serveur ne dit pas encore**.
  *
- * Les quatre premières valeurs se lisent directement. `interrompue` est le cas
+ * Les quatre premières valeurs se lisent directement. `interrupted` est le cas
  * difficile : `progression()` lit une `Map` du processus Next, qu'un redémarrage
  * vide **sans laisser d'erreur**, et il y a un redémarrage à chaque édition en
  * développement. Vue de la liste, une exécution perdue est donc indiscernable
@@ -107,10 +106,10 @@ export type EntréeBibliothèque<S extends SourceLisible, P extends ProjetLisibl
  * première étape du plan, et c'est elle qui écrit la durée : un projet au repos
  * qui n'en a pas n'a pas fini ce qu'il avait commencé. La déduction est vraie
  * quand elle répond, et muette au-delà — une exécution perdue **après**
- * l'ingestion retombe sur `analysée`.
+ * l'ingestion retombe sur `analyzed`.
  *
  * **Ce qu'elle ne couvre pas, et ce qui le couvrirait.** Deux cas échappent à la
- * déduction et retombent sur `analysée` : une exécution perdue **après**
+ * déduction et retombent sur `analyzed` : une exécution perdue **après**
  * l'ingestion, et une analyse **arrêtée** depuis l'écran — `publierLArrêt`
  * (`src/server/run.ts`) écrit délibérément `error: null`, parce qu'un arrêt
  * demandé n'est pas une panne.
@@ -124,23 +123,23 @@ export type EntréeBibliothèque<S extends SourceLisible, P extends ProjetLisibl
  * sondage qu'elle refuse de payer. La branche ci-dessous est ce qui reste.
  * (contrat manquant, signalé)
  */
-export function étatDÉmission(projet: ProjetLisible | null, projetAttendu: boolean): ÉtatÉmission {
-  if (projet === null) {
+export function showState(project: LibraryProject | null, projectExpected: boolean): ShowState {
+  if (project === null) {
     // **Une source qui annonce un projet que la liste ne porte pas encore n'est
     // pas une source neuve.** Les deux requêtes ne se rafraîchissent pas
     // ensemble : `marquerSourceAnalysée` inscrit le `projectId` dans le cache
     // des sources dès la réponse de création, et la liste des projets arrive au
-    // tour suivant. Retomber sur `neuve` pendant cette fenêtre reproposerait
+    // tour suivant. Retomber sur `new` pendant cette fenêtre reproposerait
     // « lancer l'analyse » sur un projet qui vient d'en lancer une, et le second
     // clic rend un 409 (`ExécutionEnCoursError`). `créerProjet` lance avant de
     // répondre : « en cours » est donc aussi le plus probable des deux.
-    return projetAttendu ? 'analyse' : 'neuve'
+    return projectExpected ? 'analyzing' : 'new'
   }
   // Ce qui tourne l'emporte sur ce qui a échoué, comme dans `analyseProjet` :
   // `error` décrit la dernière exécution *terminée*.
-  if (projet.running !== null) return 'analyse'
-  if (projet.error !== null) return 'echec'
-  return projet.durationSec > 0 ? 'analysée' : 'interrompue'
+  if (project.running !== null) return 'analyzing'
+  if (project.error !== null) return 'failed'
+  return project.durationSec > 0 ? 'analyzed' : 'interrupted'
 }
 
 /**
@@ -156,68 +155,68 @@ export function étatDÉmission(projet: ProjetLisible | null, projetAttendu: boo
  * Ces entrées passent **après** les replays, jamais mêlées : ce sont des restes,
  * pas des propositions de travail.
  */
-export function bibliothèque<S extends SourceLisible, P extends ProjetLisible>(
+export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
   sources: readonly S[],
-  projets: readonly P[],
-): EntréeBibliothèque<S, P>[] {
-  const parId = new Map(projets.map((p) => [p.id, p]))
-  const réclamés = new Set<string>()
+  projects: readonly P[],
+): LibraryEntry<S, P>[] {
+  const byId = new Map(projects.map((p) => [p.id, p]))
+  const claimed = new Set<string>()
 
-  const entrées = sources.map((source): EntréeBibliothèque<S, P> => {
-    const projet = source.projectId === null ? null : (parId.get(source.projectId) ?? null)
-    if (projet !== null) réclamés.add(projet.id)
+  const entries = sources.map((source): LibraryEntry<S, P> => {
+    const project = source.projectId === null ? null : (byId.get(source.projectId) ?? null)
+    if (project !== null) claimed.add(project.id)
     return {
-      clé: source.name,
-      titre: source.name,
+      key: source.name,
+      title: source.name,
       source,
-      projet,
-      état: étatDÉmission(projet, source.projectId !== null),
+      project,
+      state: showState(project, source.projectId !== null),
     }
   })
 
-  for (const projet of projets) {
-    if (réclamés.has(projet.id)) continue
-    entrées.push({
-      clé: projet.id,
-      titre: projet.title,
+  for (const project of projects) {
+    if (claimed.has(project.id)) continue
+    entries.push({
+      key: project.id,
+      title: project.title,
       source: null,
-      projet,
-      état: étatDÉmission(projet, true),
+      project,
+      state: showState(project, true),
     })
   }
 
-  return entrées
+  return entries
 }
 
 /**
  * Les cinq filtres.
  *
- * **`interrompue` se range avec `echec`**, et c'est le regroupement que demande
+ * **`interrupted` se range avec `failed`**, et c'est le regroupement que demande
  * le retour d'usage — « analyse interrompue / en erreur » y est un seul état.
  * Les deux appellent d'ailleurs le même geste : reprendre l'analyse.
  */
-export type Filtre = 'tous' | 'aanalyser' | 'encours' | 'analysees' | 'erreurs'
+export type LibraryFilter = 'all' | 'toAnalyze' | 'running' | 'analyzed' | 'errors'
 
-export const FILTRES: readonly { valeur: Filtre; libelle: string }[] = [
-  { valeur: 'tous', libelle: 'Tous' },
-  { valeur: 'aanalyser', libelle: 'À analyser' },
-  { valeur: 'encours', libelle: 'En cours' },
-  { valeur: 'analysees', libelle: 'Analysés' },
-  { valeur: 'erreurs', libelle: 'Erreurs' },
+export const LIBRARY_FILTERS: readonly { value: LibraryFilter; label: string }[] = [
+  { value: 'all', label: 'Tous' },
+  { value: 'toAnalyze', label: 'À analyser' },
+  { value: 'running', label: 'En cours' },
+  { value: 'analyzed', label: 'Analysés' },
+  { value: 'errors', label: 'Erreurs' },
 ]
 
-export function retenuParFiltre(état: ÉtatÉmission, filtre: Filtre): boolean {
-  switch (filtre) {
-    case 'tous':
+export function matchesFilter(state: ShowState, filter: LibraryFilter): boolean {
+  switch (filter) {
+    case 'all':
       return true
-    case 'aanalyser':
-      return état === 'neuve'
-    case 'encours':
-      return état === 'analyse'
-    case 'analysees':
-      return état === 'analysée'
-    case 'erreurs':
-      return état === 'echec' || état === 'interrompue'
+    case 'toAnalyze':
+      return state === 'new'
+    case 'running':
+      return state === 'analyzing'
+    case 'analyzed':
+      return state === 'analyzed'
+    case 'errors':
+      return state === 'failed' || state === 'interrupted'
   }
 }
 
@@ -230,8 +229,8 @@ export function retenuParFiltre(état: ÉtatÉmission, filtre: Filtre): boolean 
  * boîte de recherche. `NFD` sépare la lettre de son signe, la plage `U+0300` à
  * `U+036F` retire les signes, et ce qui reste se compare en minuscules.
  */
-export function normaliser(texte: string): string {
-  return texte
+export function normalizeForSearch(text: string): string {
+  return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/gu, '')
     .toLowerCase()
@@ -245,16 +244,16 @@ export function normaliser(texte: string): string {
  * dans un identifiant qu'aucun écran ne montre rendrait des cartes qu'on ne
  * saurait pas expliquer. Une requête vide ne retire rien.
  */
-export function filtrer<S extends SourceLisible, P extends ProjetLisible>(
-  entrées: readonly EntréeBibliothèque<S, P>[],
-  filtre: Filtre,
-  recherche: string,
-): EntréeBibliothèque<S, P>[] {
-  const requête = normaliser(recherche)
-  return entrées.filter(
+export function filterEntries<S extends LibrarySource, P extends LibraryProject>(
+  entries: readonly LibraryEntry<S, P>[],
+  filter: LibraryFilter,
+  search: string,
+): LibraryEntry<S, P>[] {
+  const query = normalizeForSearch(search)
+  return entries.filter(
     (e) =>
-      retenuParFiltre(e.état, filtre) &&
-      (requête === '' || normaliser(e.titre).includes(requête)),
+      matchesFilter(e.state, filter) &&
+      (query === '' || normalizeForSearch(e.title).includes(query)),
   )
 }
 
@@ -266,14 +265,14 @@ export function filtrer<S extends SourceLisible, P extends ProjetLisible>(
  * information mouvante, et « Erreurs 0 » cesserait de vouloir dire « rien n'a
  * échoué ».
  */
-export function comptesParFiltre<S extends SourceLisible, P extends ProjetLisible>(
-  entrées: readonly EntréeBibliothèque<S, P>[],
-): Record<Filtre, number> {
-  const comptes = { tous: 0, aanalyser: 0, encours: 0, analysees: 0, erreurs: 0 }
-  for (const entrée of entrées) {
-    for (const { valeur } of FILTRES) {
-      if (retenuParFiltre(entrée.état, valeur)) comptes[valeur] += 1
+export function countsByFilter<S extends LibrarySource, P extends LibraryProject>(
+  entries: readonly LibraryEntry<S, P>[],
+): Record<LibraryFilter, number> {
+  const counts = { all: 0, toAnalyze: 0, running: 0, analyzed: 0, errors: 0 }
+  for (const entry of entries) {
+    for (const { value } of LIBRARY_FILTERS) {
+      if (matchesFilter(entry.state, value)) counts[value] += 1
     }
   }
-  return comptes
+  return counts
 }

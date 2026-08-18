@@ -8,7 +8,7 @@ import { formatDateSource, formatOctets } from '@/components/sources/textes'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { EntréeBibliothèque, ÉtatÉmission } from '@/core/bibliotheque'
+import type { LibraryEntry, ShowState } from '@/core/library'
 import { LIBELLES_ETAPES } from '@/core/parcours'
 import type { ProjectListItem, Source } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
@@ -16,7 +16,7 @@ import { lienProjet } from '@/lib/parcours'
 import { cn } from '@/lib/utils'
 
 /** Une entrée de bibliothèque telle que les écrans la manipulent. */
-export type Entrée = EntréeBibliothèque<Source, ProjectListItem>
+export type Entry = LibraryEntry<Source, ProjectListItem>
 
 /**
  * Une création de projet, vue par la bibliothèque.
@@ -29,10 +29,10 @@ export type Entrée = EntréeBibliothèque<Source, ProjectListItem>
  */
 export type Creation = {
   /** Le nom de la source dont la création est en vol, ou `null`. */
-  enCours: string | null
+  pending: string | null
   /** Le message **du serveur**, jamais composé depuis une exception. */
-  erreur: string | null
-  lancer: (source: Source) => void
+  error: string | null
+  start: (source: Source) => void
 }
 
 /**
@@ -51,15 +51,15 @@ export type Creation = {
  * qui le répare. Un message tronqué sur la carte aurait été le pire des trois —
  * il aurait promis une cause en la cachant.
  */
-export const HAUTEUR_CARTE = 'h-24'
+export const CARD_HEIGHT = 'h-24'
 
 /** Ce que dit chaque état, en toutes lettres. */
-const LIBELLES_ÉTAT: Record<ÉtatÉmission, string> = {
-  neuve: 'À analyser',
-  analyse: 'Analyse en cours',
-  interrompue: 'Analyse interrompue',
-  echec: 'Analyse en erreur',
-  analysée: 'Analysée',
+const STATE_LABELS: Record<ShowState, string> = {
+  new: 'À analyser',
+  analyzing: 'Analyse en cours',
+  interrupted: 'Analyse interrompue',
+  failed: 'Analyse en erreur',
+  analyzed: 'Analysée',
 }
 
 /**
@@ -82,43 +82,45 @@ const LIBELLES_ÉTAT: Record<ÉtatÉmission, string> = {
  * dont deux ont du travail dessus, c'est exactement la question qu'on se pose en
  * arrivant.
  */
-export function CarteÉmission({ entrée, creation }: { entrée: Entrée; creation: Creation }) {
-  const { source, projet, état } = entrée
-  const enCreation = source !== null && creation.enCours === source.name
+export function ShowCard({ entry, creation }: { entry: Entry; creation: Creation }) {
+  const { source, project, state } = entry
+  const creating = source !== null && creation.pending === source.name
   // **Toutes les cartes, pas seulement celle qu'on vient de cliquer.** Deux
   // créations en vol se disputeraient la redirection : on atterrirait sur celle
   // qui a répondu la dernière, sans que rien ne dise laquelle. Les liens vers un
   // projet existant, eux, restent ouverts — une navigation ne dispute rien, et
   // c'est le seul geste encore utile pendant l'attente.
-  const bloquee = creation.enCours !== null
+  const blocked = creation.pending !== null
 
   // **Que des `span`, jamais un `div` ni un `p`.** Le modèle de contenu d'un
   // `button` n'admet que du contenu de phrase, et ce corps-ci sert aussi bien au
   // bouton d'une émission neuve qu'au lien de toutes les autres.
-  const corps = (
+  const body = (
     <>
-      <Vignette source={source} />
+      <Thumbnail source={source} />
       <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
-        <span data-titre className="truncate text-sm font-medium">{entrée.titre}</span>
+        <span data-title className="truncate text-sm font-medium">
+          {entry.title}
+        </span>
         <span className="truncate text-xs text-muted-foreground tabular-nums">
-          <Sous entrée={entrée} />
+          <Subtitle entry={entry} />
         </span>
         {/* La ligne d'état, **de hauteur fixe dans les cinq cas**. Voir
-            `HAUTEUR_CARTE` : c'est ce qui empêche la grille de bouger sous la
+            `CARD_HEIGHT` : c'est ce qui empêche la grille de bouger sous la
             main au tour de sondage suivant. */}
         <span className="mt-0.5 flex h-5 items-center gap-1.5 text-xs font-medium">
-          <LigneDÉtat entrée={entrée} enCreation={enCreation} />
+          <StateLine entry={entry} creating={creating} />
         </span>
       </span>
     </>
   )
 
-  const carte = cn(
+  const cardClass = cn(
     'flex w-full items-stretch overflow-hidden rounded-xl border text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-    HAUTEUR_CARTE,
-    état === 'analysée'
+    CARD_HEIGHT,
+    state === 'analyzed'
       ? 'border-stage/50 bg-stage-muted'
-      : état === 'echec'
+      : state === 'failed'
         ? 'border-destructive/40 bg-card'
         : 'bg-card',
   )
@@ -130,26 +132,26 @@ export function CarteÉmission({ entrée, creation }: { entrée: Entrée; creati
   // projets ne connaît encore rien. Ne lire que `projet` laissait alors un
   // bouton de création sur une émission dont l'analyse venait de partir, et le
   // second clic rend un 409 (`ExécutionEnCoursError`).
-  const projectId = projet?.id ?? source?.projectId ?? null
+  const projectId = project?.id ?? source?.projectId ?? null
 
   if (projectId !== null) {
     return (
       <Link
         href={lienProjet(projectId)}
-        data-etat={état}
-        className={cn(carte, état === 'analysée' ? 'hover:brightness-98' : 'hover:bg-muted')}
+        data-state={state}
+        className={cn(cardClass, state === 'analyzed' ? 'hover:brightness-98' : 'hover:bg-muted')}
       >
-        {corps}
+        {body}
       </Link>
     )
   }
 
   // Reste le cas neuf, le seul qui écrive. Une entrée sans projet a forcément une
-  // source : `bibliothèque` ne fabrique d'entrée orpheline que depuis un projet.
+  // source : `buildLibrary` ne fabrique d'entrée orpheline que depuis un projet.
   return (
     <button
       type="button"
-      data-etat={état}
+      data-state={state}
       // **Deux mécanismes, et le partage est celui de la conception §4.4.**
       //
       // La carte qu'on vient de cliquer garde son `aria-disabled` : `disabled`
@@ -160,19 +162,19 @@ export function CarteÉmission({ entrée, creation }: { entrée: Entrée; creati
       //
       // Les autres, elles, sortent bel et bien : personne n'a le focus dessus, et
       // « une création tourne ailleurs » ne vaut pas d'être découvert au clavier.
-      disabled={bloquee && !enCreation}
-      aria-disabled={enCreation || undefined}
+      disabled={blocked && !creating}
+      aria-disabled={creating || undefined}
       onClick={() => {
-        if (bloquee || source === null) return
-        creation.lancer(source)
+        if (blocked || source === null) return
+        creation.start(source)
       }}
       className={cn(
-        carte,
+        cardClass,
         'hover:bg-muted disabled:pointer-events-none',
-        enCreation ? 'ring-2 ring-ring/40' : 'disabled:opacity-55',
+        creating ? 'ring-2 ring-ring/40' : 'disabled:opacity-55',
       )}
     >
-      {corps}
+      {body}
     </button>
   )
 }
@@ -184,16 +186,16 @@ export function CarteÉmission({ entrée, creation }: { entrée: Entrée; creati
  * c'est précisément ce qu'il faut dire. Sa durée, elle, a été sondée à
  * l'ingestion et vit en base : elle survit à la disparition du replay.
  */
-function Sous({ entrée }: { entrée: Entrée }) {
-  if (entrée.source !== null) {
+function Subtitle({ entry }: { entry: Entry }) {
+  if (entry.source !== null) {
     return (
       <>
-        {formatOctets(entrée.source.sizeBytes)} · {formatDateSource(entrée.source.modifiedAt)}
+        {formatOctets(entry.source.sizeBytes)} · {formatDateSource(entry.source.modifiedAt)}
       </>
     )
   }
-  const durée = entrée.projet?.durationSec ?? 0
-  return <>Replay introuvable{durée > 0 && <> · {formatDuration(durée)}</>}</>
+  const durationSec = entry.project?.durationSec ?? 0
+  return <>Replay introuvable{durationSec > 0 && <> · {formatDuration(durationSec)}</>}</>
 }
 
 /**
@@ -204,51 +206,51 @@ function Sous({ entrée }: { entrée: Entrée }) {
  * vivent le message du serveur et le bouton de reprise. Un état sans issue est
  * exactement ce que la conception §2.7 interdit.
  */
-function LigneDÉtat({ entrée, enCreation }: { entrée: Entrée; enCreation: boolean }) {
-  const { projet, état } = entrée
+function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
+  const { project, state } = entry
 
-  if (état === 'analyse' && projet?.running != null) {
+  if (state === 'analyzing' && project?.running != null) {
     // La barre plutôt que le badge : c'est la seule information qui bouge, et
     // c'est ce qu'on vient regarder. Le pourcentage se voit, il ne s'annonce pas
     // — la région live de la grille parle aux changements d'étape seulement.
-    const part = Math.round(Math.min(1, Math.max(0, projet.running.progress)) * 100)
-    const libelle = LIBELLES_ETAPES[projet.running.step]
+    const percent = Math.round(Math.min(1, Math.max(0, project.running.progress)) * 100)
+    const label = LIBELLES_ETAPES[project.running.step]
     return (
       <Progress
-        value={part}
+        value={percent}
         locale="fr-FR"
-        aria-label={`${libelle} en cours`}
+        aria-label={`${label} en cours`}
         className="w-full gap-x-2 gap-y-0.5"
       >
-        <span className="text-xs font-normal text-muted-foreground">{libelle}</span>
+        <span className="text-xs font-normal text-muted-foreground">{label}</span>
         <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
-          {part} %
+          {percent} %
         </span>
       </Progress>
     )
   }
 
-  if (état === 'analyse') {
+  if (state === 'analyzing') {
     // Le projet existe et rien ne tourne encore de ce que la liste sache : c'est
     // la fenêtre entre la réponse de création et le premier relevé.
     return (
       <>
         <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        <span>{LIBELLES_ÉTAT.analyse}</span>
+        <span>{STATE_LABELS.analyzing}</span>
       </>
     )
   }
 
-  if (état === 'echec' || état === 'interrompue') {
-    const Icône = état === 'echec' ? TriangleAlert : RotateCcw
+  if (state === 'failed' || state === 'interrupted') {
+    const Icon = state === 'failed' ? TriangleAlert : RotateCcw
     return (
       <>
-        <Icône
-          className={cn('size-3.5 shrink-0', état === 'echec' && 'text-destructive')}
+        <Icon
+          className={cn('size-3.5 shrink-0', state === 'failed' && 'text-destructive')}
           aria-hidden
         />
-        <span className={cn('truncate', état === 'echec' && 'text-destructive')}>
-          {LIBELLES_ÉTAT[état]}
+        <span className={cn('truncate', state === 'failed' && 'text-destructive')}>
+          {STATE_LABELS[state]}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
           Reprendre
@@ -258,13 +260,13 @@ function LigneDÉtat({ entrée, enCreation }: { entrée: Entrée; enCreation: bo
     )
   }
 
-  if (état === 'analysée') {
+  if (state === 'analyzed') {
     return (
       <>
         <Badge className="border-stage/40 bg-stage/20 text-stage-foreground">
-          {LIBELLES_ÉTAT.analysée}
+          {STATE_LABELS.analyzed}
         </Badge>
-        {entrée.source === null && (
+        {entry.source === null && (
           <span className="flex items-center gap-1 text-muted-foreground">
             <Unplug className="size-3.5" aria-hidden />
             Orpheline
@@ -278,7 +280,7 @@ function LigneDÉtat({ entrée, enCreation }: { entrée: Entrée; enCreation: bo
     )
   }
 
-  if (enCreation) {
+  if (creating) {
     return (
       <>
         <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
@@ -311,7 +313,7 @@ function LigneDÉtat({ entrée, enCreation }: { entrée: Entrée; enCreation: bo
  * jamais, et pour une entrée orpheline — dont le fichier n'existe plus, donc
  * dont aucune URL ne rendrait rien.
  */
-function Vignette({ source }: { source: Source | null }) {
+function Thumbnail({ source }: { source: Source | null }) {
   // **L'URL qui a échoué, pas un booléen.** L'échec appartient à l'image, pas à
   // la position dans la grille : React réutilise un composant d'une carte à
   // l'autre quand la liste se réordonne — un filtre suffit —, et un booléen
@@ -321,7 +323,7 @@ function Vignette({ source }: { source: Source | null }) {
   // utile plutôt que décorative : sans elle, l'URL d'une source serait
   // éternelle, et un replay réenregistré depuis l'échec ne serait jamais
   // redemandé.
-  const [échouée, setÉchouée] = useState<string | null>(null)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
 
   return (
     <span
@@ -330,7 +332,7 @@ function Vignette({ source }: { source: Source | null }) {
       className="relative flex aspect-video h-full shrink-0 items-center justify-center overflow-hidden border-r bg-muted/50 text-muted-foreground/40"
     >
       <Film className="size-5" />
-      {source !== null && échouée !== source.thumbnailUrl && (
+      {source !== null && failedUrl !== source.thumbnailUrl && (
         // Même raison que dans `candidate-card.tsx` pour l'exception de lint :
         // la vignette sort d'une route locale à une taille déjà fixée (640 de
         // large), `next/image` n'aurait rien à optimiser, et le faire passer par
@@ -341,7 +343,7 @@ function Vignette({ source }: { source: Source | null }) {
           alt=""
           loading="lazy"
           decoding="async"
-          onError={() => setÉchouée(source.thumbnailUrl)}
+          onError={() => setFailedUrl(source.thumbnailUrl)}
           className="absolute inset-0 size-full object-cover"
         />
       )}
@@ -355,6 +357,6 @@ function Vignette({ source }: { source: Source | null }) {
  * C'est tout son intérêt : une grille qui se remplit de cartes plus hautes que
  * ses squelettes fait sauter la page au moment où l'œil s'y pose.
  */
-export function CarteÉmissionSquelette() {
-  return <Skeleton className={cn('w-full rounded-xl', HAUTEUR_CARTE)} />
+export function ShowCardSkeleton() {
+  return <Skeleton className={cn('w-full rounded-xl', CARD_HEIGHT)} />
 }

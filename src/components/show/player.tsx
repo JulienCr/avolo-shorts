@@ -23,11 +23,11 @@ import type { RefObject } from 'react'
  * déjà aux requêtes partielles (`src/core/range.ts`) : sans cela, un `<video>`
  * ne peut pas sauter et la barre de lecture reste inerte.
  */
-export function LecteurÉmission({
+export function ShowPlayer({
   projectId,
-  proxyPret,
+  proxyReady,
   video,
-  onInstant,
+  onTime,
 }: {
   projectId: string
   /**
@@ -37,12 +37,12 @@ export function LecteurÉmission({
    * tri s'ouvre bien avant. L'absence se dit avec **ce qui la lèvera** : une
    * attente dont on connaît la cause est une attente supportable.
    */
-  proxyPret: boolean
+  proxyReady: boolean
   video: RefObject<HTMLVideoElement | null>
   /** L'instant courant, en secondes. La bande de couverture s'en sert. */
-  onInstant: (secondes: number) => void
+  onTime: (seconds: number) => void
 }) {
-  if (!proxyPret) {
+  if (!proxyReady) {
     return (
       <div
         data-testid="proxy-absent"
@@ -68,11 +68,11 @@ export function LecteurÉmission({
       preload="metadata"
       controls
       src={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
-      onTimeUpdate={(e) => onInstant(e.currentTarget.currentTime)}
+      onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}
       // Un saut à la souris dans la barre du navigateur doit bouger la tête de
       // lecture de la bande, et `timeupdate` ne se déclenche pas toujours à
       // l'arrêt : `seeked` ferme le cas.
-      onSeeked={(e) => onInstant(e.currentTarget.currentTime)}
+      onSeeked={(e) => onTime(e.currentTarget.currentTime)}
       className="aspect-video w-full rounded-xl border bg-black"
     />
   )

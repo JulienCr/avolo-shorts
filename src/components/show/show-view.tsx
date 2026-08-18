@@ -2,8 +2,8 @@
 
 import { useRef, useState } from 'react'
 
-import { BandeCouverture } from '@/components/emission/couverture'
-import { LecteurÉmission } from '@/components/emission/lecteur'
+import { CoverageTimeline } from '@/components/show/coverage-timeline'
+import { ShowPlayer } from '@/components/show/player'
 import { estGarde } from '@/lib/clip-status'
 import type { CandidateClip } from '@/lib/api'
 
@@ -25,26 +25,26 @@ import type { CandidateClip } from '@/lib/api'
  * minutes, le panneau d'avancement occupe la page et cette vue n'existe pas ;
  * c'est l'écran de projet qui en décide, pas elle.
  */
-export function VueÉmission({
+export function ShowView({
   projectId,
-  duréeSec,
-  proxyPret,
+  durationSec,
+  proxyReady,
   clips,
 }: {
   projectId: string
   /** La durée de l'émission, sondée à l'ingestion. */
-  duréeSec: number
-  proxyPret: boolean
+  durationSec: number
+  proxyReady: boolean
   /** Tous les candidats. La bande ne garde que les gardés. */
   clips: readonly CandidateClip[]
 }) {
   const video = useRef<HTMLVideoElement>(null)
-  const [instant, setInstant] = useState(0)
+  const [time, setTime] = useState(0)
 
   // `estGarde` et non `status === 'kept'` : un clip exporté est une décision
   // humaine qui a déjà produit un fichier, et c'est justement celui qu'on veut
   // voir sur la bande.
-  const gardés = clips.filter((c) => estGarde(c.status))
+  const kept = clips.filter((c) => estGarde(c.status))
 
   /**
    * Déplacer la lecture.
@@ -54,14 +54,14 @@ export function VueÉmission({
    * déplacement qui n'aurait rien à déplacer. Un curseur qui change de forme sur
    * une surface inerte est la façon la plus sûre de faire cliquer trois fois.
    */
-  const aller = proxyPret
-    ? (secondes: number) => {
-        const élément = video.current
-        if (élément !== null) élément.currentTime = secondes
+  const seek = proxyReady
+    ? (seconds: number) => {
+        const element = video.current
+        if (element !== null) element.currentTime = seconds
         // L'état local suit tout de suite : `seeked` peut mettre plusieurs
         // centaines de millisecondes sur un fichier d'un gigaoctet, et la tête
         // de lecture doit répondre au clic, pas à la fin du saut.
-        setInstant(secondes)
+        setTime(seconds)
       }
     : null
 
@@ -71,18 +71,13 @@ export function VueÉmission({
         L’émission
       </h2>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-        <LecteurÉmission
+        <ShowPlayer
           projectId={projectId}
-          proxyPret={proxyPret}
+          proxyReady={proxyReady}
           video={video}
-          onInstant={setInstant}
+          onTime={setTime}
         />
-        <BandeCouverture
-          clips={gardés}
-          duréeSec={duréeSec}
-          instant={instant}
-          onAller={aller}
-        />
+        <CoverageTimeline clips={kept} durationSec={durationSec} time={time} onSeek={seek} />
       </div>
     </section>
   )

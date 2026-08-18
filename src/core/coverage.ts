@@ -24,7 +24,7 @@
 import type { Segment } from '@/core/edl'
 
 /** Un intervalle de la source, en secondes. */
-export type Intervalle = { début: number; fin: number }
+export type Interval = { start: number; end: number }
 
 /**
  * L'étendue d'un clip dans la source : du premier début à la dernière fin.
@@ -39,28 +39,28 @@ export type Intervalle = { début: number; fin: number }
  * n'occupe aucune place, et lui en dessiner une de largeur nulle mettrait un
  * bloc invisible mais cliquable sur la bande.
  */
-export function étendue(segments: readonly Segment[]): Intervalle | null {
+export function spanOf(segments: readonly Segment[]): Interval | null {
   if (segments.length === 0) return null
-  let début = Infinity
-  let fin = -Infinity
+  let start = Infinity
+  let end = -Infinity
   for (const s of segments) {
-    if (s.start < début) début = s.start
-    if (s.end > fin) fin = s.end
+    if (s.start < start) start = s.start
+    if (s.end > end) end = s.end
   }
   // Une liste de segments dégénérés — bornes non finies, fin avant début — ne
   // décrit aucune étendue. `normalizeSegments` les écarte en amont ; ici on ne
   // fabrique pas un rectangle à partir d'un `NaN`.
-  if (!Number.isFinite(début) || !Number.isFinite(fin) || fin <= début) return null
-  return { début, fin }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  return { start, end }
 }
 
 /** Un intervalle et la voie où il se dessine. */
-export type Placé<T> = { item: T; intervalle: Intervalle; voie: number }
+export type Placed<T> = { item: T; interval: Interval; lane: number }
 
-export type Placement<T> = {
-  placés: Placé<T>[]
+export type LanePlacement<T> = {
+  placed: Placed<T>[]
   /** Le nombre de voies occupées. Zéro quand il n'y a rien à placer. */
-  voies: number
+  lanes: number
 }
 
 /**
@@ -92,35 +92,35 @@ export type Placement<T> = {
  * l'autre : sans lui, deux relevés successifs échangeraient les voies de deux
  * clips voisins et la bande clignoterait.
  */
-export function placerEnVoies<T>(
+export function placeInLanes<T>(
   items: readonly T[],
-  borne: (item: T) => Intervalle | null,
-): Placement<T> {
-  const bornés = items
-    .map((item) => ({ item, intervalle: borne(item) }))
-    .filter((x): x is { item: T; intervalle: Intervalle } => x.intervalle !== null)
+  bounds: (item: T) => Interval | null,
+): LanePlacement<T> {
+  const bounded = items
+    .map((item) => ({ item, interval: bounds(item) }))
+    .filter((x): x is { item: T; interval: Interval } => x.interval !== null)
 
   // `toSorted` rend une copie : l'ordre de l'appelant — celui du repérage — ne
   // bouge pas sous ses pieds. Et il est stable, ce qui est ici une propriété du
   // rendu et non un détail : voir plus haut.
-  const ordonnés = bornés.toSorted((a, b) => a.intervalle.début - b.intervalle.début)
+  const sorted = bounded.toSorted((a, b) => a.interval.start - b.interval.start)
 
   /** La dernière fin posée dans chaque voie. */
-  const fins: number[] = []
-  const placés: Placé<T>[] = []
+  const lastEnds: number[] = []
+  const placed: Placed<T>[] = []
 
-  for (const { item, intervalle } of ordonnés) {
-    let voie = fins.findIndex((fin) => fin <= intervalle.début)
-    if (voie < 0) {
-      voie = fins.length
-      fins.push(intervalle.fin)
+  for (const { item, interval } of sorted) {
+    let lane = lastEnds.findIndex((end) => end <= interval.start)
+    if (lane < 0) {
+      lane = lastEnds.length
+      lastEnds.push(interval.end)
     } else {
-      fins[voie] = intervalle.fin
+      lastEnds[lane] = interval.end
     }
-    placés.push({ item, intervalle, voie })
+    placed.push({ item, interval, lane })
   }
 
-  return { placés, voies: fins.length }
+  return { placed, lanes: lastEnds.length }
 }
 
 /**
@@ -133,13 +133,13 @@ export function placerEnVoies<T>(
  * partout, ce qui replie la bande sur elle-même plutôt que de propager un
  * `NaN` dans un attribut de style.
  */
-export function part(instant: number, duréeSec: number): number {
-  if (!Number.isFinite(instant) || !Number.isFinite(duréeSec) || duréeSec <= 0) return 0
-  return Math.min(1, Math.max(0, instant / duréeSec))
+export function fractionOf(time: number, durationSec: number): number {
+  if (!Number.isFinite(time) || !Number.isFinite(durationSec) || durationSec <= 0) return 0
+  return Math.min(1, Math.max(0, time / durationSec))
 }
 
 /** La géométrie d'un bloc sur la bande, en pourcentages prêts à poser. */
-export type Géométrie = { gauche: number; largeur: number }
+export type BlockGeometry = { left: number; width: number }
 
 /**
  * Où poser un bloc, en pour cent de la largeur de la bande.
@@ -150,10 +150,10 @@ export type Géométrie = { gauche: number; largeur: number }
  * garde le bloc cliquable sans déplacer son bord gauche, là où élargir ici
  * ferait glisser tout ce qui suit.
  */
-export function géométrie(intervalle: Intervalle, duréeSec: number): Géométrie {
-  const gauche = part(intervalle.début, duréeSec)
-  const droite = part(intervalle.fin, duréeSec)
-  return { gauche: arrondi(gauche * 100), largeur: arrondi(Math.max(0, droite - gauche) * 100) }
+export function blockGeometry(interval: Interval, durationSec: number): BlockGeometry {
+  const left = fractionOf(interval.start, durationSec)
+  const right = fractionOf(interval.end, durationSec)
+  return { left: roundPercent(left * 100), width: roundPercent(Math.max(0, right - left) * 100) }
 }
 
 /**
@@ -167,18 +167,18 @@ export function géométrie(intervalle: Intervalle, duréeSec: number): Géomét
  * différences là où rien n'a bougé. À cette précision, la bande la plus large
  * qu'un écran porte se trompe de moins d'un millième de pixel.
  */
-function arrondi(pourcent: number): number {
-  return Math.round(pourcent * 10_000) / 10_000
+function roundPercent(percent: number): number {
+  return Math.round(percent * 10_000) / 10_000
 }
 
 /**
  * L'instant que désigne un clic sur la bande, en secondes.
  *
- * `x` et `largeur` sont ceux du rectangle de la bande, en pixels. Une largeur
+ * `x` et `width` sont ceux du rectangle de la bande, en pixels. Une largeur
  * nulle — la bande n'est pas encore mise en page — rend 0 plutôt que l'infini.
  */
-export function instantAuClic(x: number, largeur: number, duréeSec: number): number {
-  if (!Number.isFinite(x) || !Number.isFinite(largeur) || largeur <= 0) return 0
-  if (!Number.isFinite(duréeSec) || duréeSec <= 0) return 0
-  return Math.min(duréeSec, Math.max(0, (x / largeur) * duréeSec))
+export function timeAtClick(x: number, width: number, durationSec: number): number {
+  if (!Number.isFinite(x) || !Number.isFinite(width) || width <= 0) return 0
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 0
+  return Math.min(durationSec, Math.max(0, (x / width) * durationSec))
 }

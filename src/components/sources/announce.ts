@@ -34,31 +34,33 @@ import type { ProjectListItem, StepName } from '@/lib/api'
  * **Et la comparaison porte sur une signature, jamais sur l'identité du
  * tableau.** TanStack Query partage ses structures et rend donc la même
  * référence tant que rien ne change ; mais un appelant qui écrirait
- * `projets={data ?? []}` fabriquerait un tableau neuf à chaque rendu, et la
+ * `projects={data ?? []}` fabriquerait un tableau neuf à chaque rendu, et la
  * comparaison par identité boucherait indéfiniment. Une chaîne dérivée ne peut
  * pas se tromper là-dessus.
  *
  * Ce module a suivi la disparition de la section « Projets » : il vivait dans
  * `liste-projets.tsx`, et c'est la bibliothèque unifiée qui le monte désormais.
  */
-type Mémoire = {
+type Memory = {
   /** Ce qui a produit l'annonce en cours : l'étape et l'échec de chaque projet. */
   signature: string
-  étapes: Map<string, StepName>
-  annonce: string
+  steps: Map<string, StepName>
+  message: string
 }
 
-export function useAnnonceAnalyses(projets: readonly ProjectListItem[] | undefined): string {
-  const [mémoire, setMémoire] = useState<Mémoire>(() => ({
+export function useAnalysisAnnouncement(
+  projects: readonly ProjectListItem[] | undefined,
+): string {
+  const [memory, setMemory] = useState<Memory>(() => ({
     signature: '',
-    étapes: new Map(),
-    annonce: '',
+    steps: new Map(),
+    message: '',
   }))
 
-  const signature = signer(projets)
-  if (signature !== mémoire.signature) setMémoire(annoncer(mémoire, projets, signature))
+  const signature = sign(projects)
+  if (signature !== memory.signature) setMemory(announce(memory, projects, signature))
 
-  return mémoire.annonce
+  return memory.message
 }
 
 /**
@@ -66,30 +68,30 @@ export function useAnnonceAnalyses(projets: readonly ProjectListItem[] | undefin
  * et le fait qu'il ait échoué. La progression n'y est pas — c'est ce qui fait
  * qu'un tour de sondage sur un pourcentage qui avance ne dit rien.
  */
-function signer(projets: readonly ProjectListItem[] | undefined): string {
-  return (projets ?? [])
+function sign(projects: readonly ProjectListItem[] | undefined): string {
+  return (projects ?? [])
     .map((p) => `${p.id}\u0000${p.running?.step ?? ''}\u0000${p.error !== null}`)
     .join('\u0001')
 }
 
 /** Pure : l'annonce d'avant, l'état d'après, et ce qu'il faut en dire. */
-function annoncer(
-  mémoire: Mémoire,
-  projets: readonly ProjectListItem[] | undefined,
+function announce(
+  memory: Memory,
+  projects: readonly ProjectListItem[] | undefined,
   signature: string,
-): Mémoire {
-  const étapes = new Map<string, StepName>()
-  for (const p of projets ?? []) {
-    if (p.running !== null) étapes.set(p.id, p.running.step)
+): Memory {
+  const steps = new Map<string, StepName>()
+  for (const p of projects ?? []) {
+    if (p.running !== null) steps.set(p.id, p.running.step)
   }
 
   const messages: string[] = []
-  for (const p of projets ?? []) {
-    const avant = mémoire.étapes.get(p.id)
-    const maintenant = étapes.get(p.id)
-    if (maintenant !== undefined && maintenant !== avant) {
-      messages.push(`${p.title} : ${LIBELLES_ETAPES[maintenant]}.`)
-    } else if (maintenant === undefined && avant !== undefined) {
+  for (const p of projects ?? []) {
+    const before = memory.steps.get(p.id)
+    const now = steps.get(p.id)
+    if (now !== undefined && now !== before) {
+      messages.push(`${p.title} : ${LIBELLES_ETAPES[now]}.`)
+    } else if (now === undefined && before !== undefined) {
       messages.push(`${p.title} : ${p.error !== null ? 'analyse en échec' : 'analyse terminée'}.`)
     }
   }
@@ -99,7 +101,7 @@ function annoncer(
   // d'écran, une annonce de plus.
   return {
     signature,
-    étapes,
-    annonce: messages.length > 0 ? messages.join(' ') : mémoire.annonce,
+    steps,
+    message: messages.length > 0 ? messages.join(' ') : memory.message,
   }
 }

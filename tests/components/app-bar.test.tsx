@@ -52,14 +52,14 @@ describe('AppBar', () => {
     render(<AppBar lieu={{ kind: 'bibliotheque' }} />)
     expect(screen.getByRole('link', { name: 'Paramètres' })).toHaveProperty(
       'pathname',
-      '/parametres',
+      '/settings',
     )
   })
 
   it('ne pose pas de lien vers l’écran des paramètres depuis lui-même', () => {
     // Un lien vers soi n'est pas une navigation, et il volerait un arrêt de
     // tabulation.
-    render(<AppBar lieu={{ kind: 'parametres' }} />)
+    render(<AppBar lieu={{ kind: 'settings' }} />)
     expect(screen.queryByRole('link', { name: 'Paramètres' })).toBeNull()
     expect(screen.getByText('Paramètres')).toBeTruthy()
   })

@@ -2,7 +2,7 @@ import { Settings } from 'lucide-react'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
-import { chemin, lienParametres, type Lieu } from '@/lib/parcours'
+import { chemin, settingsLink, type Lieu } from '@/lib/parcours'
 import { cn } from '@/lib/utils'
 
 /**
@@ -86,13 +86,13 @@ export function AppBar({
             recalcule rien, un recalcul reste une action explicite —, donc ils
             n'ont pas de place dans la hiérarchie des trois écrans. La barre est
             le seul élément que ces trois écrans partagent, et la profondeur ne
-            dépasse toujours pas trois : `/parametres` est un frère de la racine.
+            dépasse toujours pas trois : `/settings` est un frère de la racine.
 
             Il disparaît sur l'écran des paramètres lui-même : un lien vers soi
             n'est pas une navigation, et il volerait un arrêt de tabulation. */}
-        {lieu.kind !== 'parametres' && (
+        {lieu.kind !== 'settings' && (
           <Link
-            href={lienParametres()}
+            href={settingsLink()}
             aria-label="Paramètres"
             className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >

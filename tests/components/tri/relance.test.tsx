@@ -15,7 +15,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CIBLES_DE_REPRISE } from '@/lib/api'
-import { BoutonArrêt, BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { BoutonRelance, BoutonReprise, StopButton } from '@/components/tri/relance'
 
 function reponse(corps: unknown, status = 202): Response {
   return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => corps } as Response
@@ -39,7 +39,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('BoutonArrêt', () => {
+describe('StopButton', () => {
   it('demande l’arrêt au serveur, sans confirmation', async () => {
     // L'arrêt ne détruit aucun artefact ni aucune décision humaine : il rend du
     // temps de calcul, et le geste inverse est à un clic. Une boîte de dialogue
@@ -47,7 +47,7 @@ describe('BoutonArrêt', () => {
     // de lancer la mauvaise émission veut faire vite.
     const appel = vi.fn(async () => reponse({ arrêtée: true }, 200))
     vi.stubGlobal('fetch', appel)
-    render(<BoutonArrêt projectId="p1" />, { wrapper: enveloppe })
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
 
@@ -61,7 +61,7 @@ describe('BoutonArrêt', () => {
     // Rien ne reprend un processus exactement là où il s'est interrompu : ffmpeg
     // est tué, WhisperX aussi, et ce qui repart repart du début de son étape.
     vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: true }, 200)))
-    render(<BoutonArrêt projectId="p1" />, { wrapper: enveloppe })
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     expect(document.body.textContent).not.toMatch(/pause|suspendre/i)
   })
@@ -71,7 +71,7 @@ describe('BoutonArrêt', () => {
     // redémarrage du serveur a emporté l'exécution. Le dire comme un échec
     // ferait chercher un défaut là où il n'y a qu'une course perdue.
     vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: false }, 200)))
-    render(<BoutonArrêt projectId="p1" />, { wrapper: enveloppe })
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
 
@@ -83,7 +83,7 @@ describe('BoutonArrêt', () => {
       'fetch',
       vi.fn(async () => reponse({ error: 'Le serveur ne répond pas.' }, 500)),
     )
-    render(<BoutonArrêt projectId="p1" />, { wrapper: enveloppe })
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
 

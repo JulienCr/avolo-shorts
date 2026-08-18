@@ -38,22 +38,22 @@ import {
 
 /** Les quatre seules transitions du premier lot. */
 export const TRANSITIONS = [
-  { valeur: 'aucune', libelle: 'Aucune' },
-  { valeur: 'fade', libelle: 'Fondu' },
-  { valeur: 'glitch', libelle: 'Glitch' },
-  { valeur: 'scanline', libelle: 'Scanline' },
+  { value: 'none', label: 'Aucune' },
+  { value: 'fade', label: 'Fondu' },
+  { value: 'glitch', label: 'Glitch' },
+  { value: 'scanline', label: 'Scanline' },
 ] as const
 
 const POSITIONS = [
-  { valeur: 'haut', libelle: 'Tiers supérieur' },
-  { valeur: 'centre', libelle: 'Centre' },
-  { valeur: 'bas', libelle: 'Tiers inférieur' },
+  { value: 'top', label: 'Tiers supérieur' },
+  { value: 'center', label: 'Centre' },
+  { value: 'bottom', label: 'Tiers inférieur' },
 ] as const
 
-const ALIGNEMENTS = [
-  { valeur: 'gauche', libelle: 'À gauche' },
-  { valeur: 'centre', libelle: 'Centré' },
-  { valeur: 'droite', libelle: 'À droite' },
+const ALIGNMENTS = [
+  { value: 'left', label: 'À gauche' },
+  { value: 'center', label: 'Centré' },
+  { value: 'right', label: 'À droite' },
 ] as const
 
 /**
@@ -68,21 +68,21 @@ const ALIGNEMENTS = [
  * résoudre. En proposer d'autres inviterait à choisir une police que ffmpeg ne
  * trouverait pas — un rendu correct à l'écran et faux dans le fichier.
  */
-export const HOOK_PAR_DÉFAUT = {
-  activé: true,
-  duréeSec: 2,
-  police: 'Anton',
-  taille: 56,
-  position: 'haut',
-  couleurTexte: '#FFFFFF',
-  couleurFond: '#000000',
-  opacitéFond: 60,
-  alignement: 'centre',
-  apparition: 'fade',
-  disparition: 'fade',
+export const HOOK_DEFAULTS = {
+  enabled: true,
+  durationSec: 2,
+  font: 'Anton',
+  size: 56,
+  position: 'top',
+  textColor: '#FFFFFF',
+  backgroundColor: '#000000',
+  backgroundOpacity: 60,
+  alignment: 'center',
+  enter: 'fade',
+  exit: 'fade',
 } as const
 
-export function SectionHook() {
+export function HookSection() {
   return (
     <section aria-labelledby="titre-hook" className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
@@ -117,67 +117,59 @@ export function SectionHook() {
           enregistrées.
         </p>
 
-        <Ligne>
-          <ChampCase libelle="Hook activé par défaut" coché={HOOK_PAR_DÉFAUT.activé} />
-          <ChampNombre
-            libelle="Durée"
-            valeur={HOOK_PAR_DÉFAUT.duréeSec}
-            unité="secondes"
-            pas={0.5}
+        <Row>
+          <CheckboxField label="Hook activé par défaut" checked={HOOK_DEFAULTS.enabled} />
+          <NumberField
+            label="Durée"
+            value={HOOK_DEFAULTS.durationSec}
+            unit="secondes"
+            step={0.5}
           />
-        </Ligne>
+        </Row>
 
-        <Ligne>
-          <ChampChoix
-            libelle="Police"
-            valeur={HOOK_PAR_DÉFAUT.police}
-            options={[{ valeur: 'Anton', libelle: 'Anton — la seule police embarquée' }]}
+        <Row>
+          <SelectField
+            label="Police"
+            value={HOOK_DEFAULTS.font}
+            options={[{ value: 'Anton', label: 'Anton — la seule police embarquée' }]}
           />
-          <ChampNombre libelle="Taille" valeur={HOOK_PAR_DÉFAUT.taille} unité="points" pas={1} />
-        </Ligne>
+          <NumberField label="Taille" value={HOOK_DEFAULTS.size} unit="points" step={1} />
+        </Row>
 
-        <Ligne>
-          <ChampChoix
-            libelle="Position"
-            valeur={HOOK_PAR_DÉFAUT.position}
-            options={POSITIONS}
-          />
-          <ChampChoix
-            libelle="Alignement"
-            valeur={HOOK_PAR_DÉFAUT.alignement}
-            options={ALIGNEMENTS}
-          />
-        </Ligne>
+        <Row>
+          <SelectField label="Position" value={HOOK_DEFAULTS.position} options={POSITIONS} />
+          <SelectField label="Alignement" value={HOOK_DEFAULTS.alignment} options={ALIGNMENTS} />
+        </Row>
 
-        <Ligne>
-          <ChampCouleur libelle="Couleur du texte" valeur={HOOK_PAR_DÉFAUT.couleurTexte} />
-          <ChampCouleur libelle="Couleur du fond" valeur={HOOK_PAR_DÉFAUT.couleurFond} />
-          <ChampNombre
-            libelle="Opacité du fond"
-            valeur={HOOK_PAR_DÉFAUT.opacitéFond}
-            unité="%"
-            pas={5}
+        <Row>
+          <ColorField label="Couleur du texte" value={HOOK_DEFAULTS.textColor} />
+          <ColorField label="Couleur du fond" value={HOOK_DEFAULTS.backgroundColor} />
+          <NumberField
+            label="Opacité du fond"
+            value={HOOK_DEFAULTS.backgroundOpacity}
+            unit="%"
+            step={5}
           />
-        </Ligne>
+        </Row>
 
-        <Ligne>
-          <ChampChoix
-            libelle="Effet d’apparition"
-            valeur={HOOK_PAR_DÉFAUT.apparition}
+        <Row>
+          <SelectField
+            label="Effet d’apparition"
+            value={HOOK_DEFAULTS.enter}
             options={TRANSITIONS}
           />
-          <ChampChoix
-            libelle="Effet de disparition"
-            valeur={HOOK_PAR_DÉFAUT.disparition}
+          <SelectField
+            label="Effet de disparition"
+            value={HOOK_DEFAULTS.exit}
             options={TRANSITIONS}
           />
-        </Ligne>
+        </Row>
       </fieldset>
     </section>
   )
 }
 
-function Ligne({ children }: { children: React.ReactNode }) {
+function Row({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-end gap-x-6 gap-y-4 rounded-xl border px-4 py-3">
       {children}
@@ -185,75 +177,75 @@ function Ligne({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ChampCase({ libelle, coché }: { libelle: string; coché: boolean }) {
+function CheckboxField({ label, checked }: { label: string; checked: boolean }) {
   const id = useId()
   return (
     <div className="flex items-center gap-2">
-      <Checkbox id={id} checked={coché} />
+      <Checkbox id={id} checked={checked} />
       <Label htmlFor={id} className="text-sm font-normal">
-        {libelle}
+        {label}
       </Label>
     </div>
   )
 }
 
-function ChampNombre({
-  libelle,
-  valeur,
-  unité,
-  pas,
+function NumberField({
+  label,
+  value,
+  unit,
+  step,
 }: {
-  libelle: string
-  valeur: number
-  unité: string
-  pas: number
+  label: string
+  value: number
+  unit: string
+  step: number
 }) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
-        {libelle}
+        {label}
       </Label>
       <div className="flex items-center gap-2">
         <Input
           id={id}
           type="number"
-          step={pas}
-          value={valeur}
+          step={step}
+          value={value}
           readOnly
           className="h-8 w-20 text-sm tabular-nums"
         />
-        <span className="text-xs text-muted-foreground">{unité}</span>
+        <span className="text-xs text-muted-foreground">{unit}</span>
       </div>
     </div>
   )
 }
 
-function ChampChoix({
-  libelle,
-  valeur,
+function SelectField({
+  label,
+  value,
   options,
 }: {
-  libelle: string
-  valeur: string
-  options: readonly { valeur: string; libelle: string }[]
+  label: string
+  value: string
+  options: readonly { value: string; label: string }[]
 }) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
-        {libelle}
+        {label}
       </Label>
-      <Select value={valeur}>
+      <Select value={value}>
         <SelectTrigger id={id} className="w-52">
           {/* Le libellé, pas la valeur : sans lui la boîte affiche `fade` là où
               l'écran dit « Fondu » partout ailleurs. */}
-          <SelectValue>{options.find((o) => o.valeur === valeur)?.libelle ?? valeur}</SelectValue>
+          <SelectValue>{options.find((o) => o.value === value)?.label ?? value}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((o) => (
-            <SelectItem key={o.valeur} value={o.valeur}>
-              {o.libelle}
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
             </SelectItem>
           ))}
         </SelectContent>
@@ -262,25 +254,20 @@ function ChampChoix({
   )
 }
 
-function ChampCouleur({ libelle, valeur }: { libelle: string; valeur: string }) {
+function ColorField({ label, value }: { label: string; value: string }) {
   const id = useId()
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
-        {libelle}
+        {label}
       </Label>
       <div className="flex items-center gap-2">
         <span
           aria-hidden
           className="size-6 shrink-0 rounded-md border"
-          style={{ backgroundColor: valeur }}
+          style={{ backgroundColor: value }}
         />
-        <Input
-          id={id}
-          value={valeur}
-          readOnly
-          className="h-8 w-24 font-mono text-sm uppercase"
-        />
+        <Input id={id} value={value} readOnly className="h-8 w-24 font-mono text-sm uppercase" />
       </div>
     </div>
   )

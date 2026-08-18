@@ -18,7 +18,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { VueÉmission } from '@/components/emission/vue-emission'
+import { ShowView } from '@/components/show/show-view'
 import type { Segment } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
 
@@ -27,12 +27,12 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const DURÉE = 6_000
+const DURATION = 6_000
 
 function clip(
   id: string,
   segments: Segment[],
-  partiel: Partial<CandidateClip> = {},
+  partial: Partial<CandidateClip> = {},
 ): CandidateClip {
   return {
     id,
@@ -48,18 +48,18 @@ function clip(
     pass: 1,
     preview: 'Trois premières phrases.',
     thumbnailUrl: `/api/clips/${id}/thumb`,
-    ...partiel,
+    ...partial,
   }
 }
 
-function vue(partiel: Partial<Parameters<typeof VueÉmission>[0]> = {}) {
+function vue(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
   return render(
-    <VueÉmission
+    <ShowView
       projectId="cqlp"
-      duréeSec={DURÉE}
-      proxyPret
+      durationSec={DURATION}
+      proxyReady
       clips={[clip('a', [{ start: 600, end: 660 }])]}
-      {...partiel}
+      {...partial}
     />,
   )
 }
@@ -67,7 +67,7 @@ function vue(partiel: Partial<Parameters<typeof VueÉmission>[0]> = {}) {
 /** Les blocs de la bande, dans l'ordre du DOM. */
 function blocs(): HTMLElement[] {
   return Array.from(
-    screen.getByTestId('bande-couverture').querySelectorAll<HTMLElement>('[data-clip]'),
+    screen.getByTestId('coverage-timeline').querySelectorAll<HTMLElement>('[data-clip]'),
   )
 }
 
@@ -135,8 +135,8 @@ describe('la bande de couverture', () => {
   it('se tait sur la durée tant que l’ingestion ne l’a pas sondée', () => {
     // `durationSec` vaut zéro sur un projet créé il y a trois secondes : dessiner
     // une bande sans échelle placerait tous les blocs au même endroit.
-    vue({ duréeSec: 0 })
-    expect(screen.queryByTestId('bande-couverture')).toBeNull()
+    vue({ durationSec: 0 })
+    expect(screen.queryByTestId('coverage-timeline')).toBeNull()
     expect(screen.getByText(/n’est pas encore connue/)).toBeTruthy()
   })
 })
@@ -144,7 +144,7 @@ describe('la bande de couverture', () => {
 describe('le lecteur et la bande', () => {
   it('déplace la lecture au clic hors bloc', async () => {
     vue()
-    const bande = screen.getByTestId('bande-couverture')
+    const bande = screen.getByTestId('coverage-timeline')
     // jsdom ne met rien en page : le rectangle est nul, et `instantAuClic` rend
     // alors 0 plutôt qu'un infini. Ce qui se vérifie ici est le câblage —
     // l'arithmétique est éprouvée dans `tests/core/couverture.test.ts`.
@@ -164,18 +164,18 @@ describe('le lecteur et la bande', () => {
 
     const vidéo = screen.getByTestId('lecteur-emission') as HTMLVideoElement
     expect(vidéo.currentTime).toBe(1_500)
-    expect(screen.getByTestId('tete-de-lecture').style.left).toBe('25%')
+    expect(screen.getByTestId('playhead').style.left).toBe('25%')
   })
 
   it('ne promet aucun déplacement quand le proxy n’est pas encodé', async () => {
     // Un curseur qui change de forme sur une surface inerte est la façon la plus
     // sûre de faire cliquer trois fois.
-    vue({ proxyPret: false })
+    vue({ proxyReady: false })
     expect(screen.queryByTestId('lecteur-emission')).toBeNull()
     expect(screen.getByTestId('proxy-absent').textContent).toContain(
       'Les images arrivent avec le proxy',
     )
-    expect(screen.getByTestId('bande-couverture').className).not.toContain('cursor-pointer')
+    expect(screen.getByTestId('coverage-timeline').className).not.toContain('cursor-pointer')
   })
 
   it('sert le proxy par la route qui répond aux requêtes partielles', () => {

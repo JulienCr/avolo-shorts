@@ -19,7 +19,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { EcranBibliotheque } from '@/components/sources/ecran-bibliotheque'
+import { LibraryScreen } from '@/components/sources/library-screen'
 import { cleSources } from '@/components/sources/use-sources'
 import type { ProjectListItem, SourcesListing } from '@/lib/api'
 import { useProjets } from '@/lib/queries'
@@ -115,7 +115,7 @@ function poser() {
   const { client, Enveloppe } = harnais()
   const vue = render(
     <Enveloppe>
-      <EcranBibliotheque />
+      <LibraryScreen />
     </Enveloppe>,
   )
   return { client, ...vue }

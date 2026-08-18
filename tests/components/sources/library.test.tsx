@@ -14,9 +14,9 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { GrilleBibliotheque } from '@/components/sources/bibliotheque'
-import type { Creation } from '@/components/sources/carte-emission'
-import { bibliothèque } from '@/core/bibliotheque'
+import { LibraryGrid } from '@/components/sources/library'
+import type { Creation } from '@/components/sources/show-card'
+import { buildLibrary } from '@/core/library'
 import type { CauseIndisponible, ProjectListItem, Source, SourcesListing } from '@/lib/api'
 
 afterEach(() => {
@@ -42,7 +42,7 @@ function source(name: string, projectId: string | null = null): Source {
   }
 }
 
-function projet(id: string, partiel: Partial<ProjectListItem> = {}): ProjectListItem {
+function project(id: string, partial: Partial<ProjectListItem> = {}): ProjectListItem {
   return {
     id,
     title: id,
@@ -50,12 +50,12 @@ function projet(id: string, partiel: Partial<ProjectListItem> = {}): ProjectList
     createdAt: '2025-06-15T19:04:00.000Z',
     running: null,
     error: null,
-    ...partiel,
+    ...partial,
   }
 }
 
-function creation(partiel: Partial<Creation> = {}): Creation {
-  return { enCours: null, erreur: null, lancer: vi.fn(), ...partiel }
+function creation(partial: Partial<Creation> = {}): Creation {
+  return { pending: null, error: null, start: vi.fn(), ...partial }
 }
 
 /** Les cinq états, une émission chacun. */
@@ -67,22 +67,22 @@ const SOURCES = [
   source('e-analysee.mp4', 'e'),
 ]
 const PROJETS = [
-  projet('b', { running: { step: 'proxy', progress: 0.3 } }),
-  projet('c', { durationSec: 0 }),
-  projet('d', { error: 'ffmpeg est tombé.' }),
-  projet('e'),
+  project('b', { running: { step: 'proxy', progress: 0.3 } }),
+  project('c', { durationSec: 0 }),
+  project('d', { error: 'ffmpeg est tombé.' }),
+  project('e'),
 ]
 
-function grille(props: Partial<Parameters<typeof GrilleBibliotheque>[0]> = {}) {
+function grille(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
   return render(
-    <GrilleBibliotheque
-      entrées={bibliothèque(SOURCES, PROJETS)}
-      projets={PROJETS}
-      montage={MONTÉ}
-      chargement={false}
-      erreur={null}
-      erreurProjets={null}
-      onReessayer={vi.fn()}
+    <LibraryGrid
+      entries={buildLibrary(SOURCES, PROJETS)}
+      projects={PROJETS}
+      mount={MONTÉ}
+      loading={false}
+      error={null}
+      projectsError={null}
+      onRetry={vi.fn()}
       creation={creation()}
       {...props}
     />,
@@ -93,7 +93,7 @@ function grille(props: Partial<Parameters<typeof GrilleBibliotheque>[0]> = {}) {
 function titres(): string[] {
   return screen
     .getAllByRole('listitem')
-    .map((li) => li.querySelector('[data-titre]')?.textContent ?? '')
+    .map((li) => li.querySelector('[data-title]')?.textContent ?? '')
 }
 
 describe('la grille unifiée', () => {
@@ -132,7 +132,7 @@ describe('les filtres', () => {
   })
 
   it('dit pourquoi un filtre ne rend rien, sans le confondre avec un dossier vide', async () => {
-    grille({ entrées: bibliothèque([source('a.mp4')], []) })
+    grille({ entries: buildLibrary([source('a.mp4')], []) })
     await userEvent.click(screen.getByRole('tab', { name: /Analysés/ }))
     expect(screen.getByText('Aucune émission n’est encore analysée.')).toBeTruthy()
   })
@@ -172,13 +172,13 @@ describe('la recherche', () => {
 
 describe('les états d’écran', () => {
   it('pose des squelettes tant qu’une des deux listes n’a pas répondu', () => {
-    const { container } = grille({ chargement: true })
+    const { container } = grille({ loading: true })
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
     expect(screen.queryByRole('tab')).toBeNull()
   })
 
   it('affiche le message du serveur quand les émissions ne se listent pas', () => {
-    grille({ erreur: 'REPLAY_DIR est absent.' })
+    grille({ error: 'REPLAY_DIR est absent.' })
     expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy()
   })
 
@@ -186,7 +186,7 @@ describe('les états d’écran', () => {
     // Sans ce mot, une API de projets en panne rendait la même page qu'une
     // bibliothèque où rien n'est analysé : dix-huit cartes « À analyser » sur
     // des émissions déjà traitées, ce qui invite à relancer pour rien.
-    grille({ erreurProjets: 'La base ne répond pas.' })
+    grille({ projectsError: 'La base ne répond pas.' })
     expect(screen.getByText(/annoncer « À analyser » à tort/)).toBeTruthy()
     expect(screen.getByText('La base ne répond pas.')).toBeTruthy()
   })
@@ -194,9 +194,9 @@ describe('les états d’écran', () => {
   it('distingue un dossier vide d’un montage qui n’a pas eu lieu', () => {
     const cause: CauseIndisponible = 'absent'
     grille({
-      entrées: [],
-      projets: [],
-      montage: { disponible: false, cause, fstype: null, entrées: 0 },
+      entries: [],
+      projects: [],
+      mount: { disponible: false, cause, fstype: null, entrées: 0 },
     })
     expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy()
     expect(screen.queryByRole('tab')).toBeNull()
@@ -205,7 +205,7 @@ describe('les états d’écran', () => {
   it('affiche l’échec d’une création au-dessus de la grille, pas dans la carte', () => {
     // La carte peut avoir disparu sous un filtre au rendu suivant, et le
     // message serait parti avec elle.
-    grille({ creation: creation({ erreur: 'Le dossier des replays ne répond pas.' }) })
+    grille({ creation: creation({ error: 'Le dossier des replays ne répond pas.' }) })
     const alerte = screen.getByRole('alert')
     expect(within(alerte).getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
   })

@@ -26,7 +26,7 @@ import {
  * rien, donc elle ne se confirme pas —, la relance forcée **remplace** les
  * propositions en attente, donc elle énonce le partage avant.
  *
- * Et son inverse, `BoutonArrêt`, qui rend le travail au serveur.
+ * Et son inverse, `StopButton`, qui rend le travail au serveur.
  */
 
 const RAISON_EN_COURS = 'Une exécution est déjà en cours ; la relance sera possible à sa fin.'
@@ -93,7 +93,7 @@ export function BoutonReprise({ projectId, enCours }: { projectId: string; enCou
  * qu'une course perdue de quelques secondes ; l'écran ne montre donc rien de
  * particulier, et le sondage suivant dit la vérité.
  */
-export function BoutonArrêt({
+export function StopButton({
   projectId,
   compact = false,
 }: {
@@ -107,16 +107,16 @@ export function BoutonArrêt({
    */
   compact?: boolean
 }) {
-  const arrêt = useArrêter()
+  const stop = useArrêter()
 
-  const bouton = (
+  const button = (
     <Button
       variant="outline"
       size={compact ? 'sm' : 'default'}
-      aria-disabled={arrêt.isPending}
+      aria-disabled={stop.isPending}
       onClick={() => {
-        if (arrêt.isPending) return
-        arrêt.mutate(projectId)
+        if (stop.isPending) return
+        stop.mutate(projectId)
       }}
     >
       <Square aria-hidden />
@@ -127,8 +127,8 @@ export function BoutonArrêt({
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        {bouton}
-        {arrêt.isError && (
+        {button}
+        {stop.isError && (
           <span role="alert" className="max-w-48 truncate text-xs text-destructive">
             L’arrêt n’est pas parti.
           </span>
@@ -139,13 +139,13 @@ export function BoutonArrêt({
 
   return (
     <div className="flex flex-col gap-1.5">
-      {bouton}
-      {arrêt.isPending && (
+      {button}
+      {stop.isPending && (
         <p className="max-w-xs text-xs text-muted-foreground">Demande en cours d’envoi.</p>
       )}
-      {arrêt.isError && (
+      {stop.isError && (
         <Alert variant="destructive" className="max-w-sm">
-          <AlertDescription>L’arrêt n’est pas parti : {arrêt.error.message}</AlertDescription>
+          <AlertDescription>L’arrêt n’est pas parti : {stop.error.message}</AlertDescription>
         </Alert>
       )}
     </div>

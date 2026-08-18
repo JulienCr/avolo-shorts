@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
 import { AppBar } from '@/components/parcours/app-bar'
-import { GrilleBibliotheque } from '@/components/sources/bibliotheque'
-import type { Creation } from '@/components/sources/carte-emission'
+import { LibraryGrid } from '@/components/sources/library'
+import type { Creation } from '@/components/sources/show-card'
 import { messageServeur } from '@/components/sources/textes'
 import { marquerSourceAnalysée, useSources } from '@/components/sources/use-sources'
-import { bibliothèque } from '@/core/bibliotheque'
+import { buildLibrary } from '@/core/library'
 import type { Source } from '@/lib/api'
 import { lienProjet } from '@/lib/parcours'
 import { useCreerProjet, useProjets } from '@/lib/queries'
@@ -25,7 +25,7 @@ import { useCreerProjet, useProjets } from '@/lib/queries'
  * déjà.
  *
  * **L'écran ne calcule rien.** Il tient les trois requêtes, décide de ce qu'on
- * fait d'un 202, et passe le reste à `bibliothèque` (pur) puis à une grille qui
+ * fait d'un 202, et passe le reste à `buildLibrary` (pur) puis à une grille qui
  * n'a besoin d'aucun serveur pour être montée. La redirection appartient bien
  * ici : `useCreerProjet` s'arrête à l'invalidation, parce qu'aller au projet,
  * l'annoncer ou rester sur la grille est une décision de parcours, et un hook
@@ -36,20 +36,20 @@ import { useCreerProjet, useProjets } from '@/lib/queries'
  * ne se résout pas sous jsdom — mais elle vaut d'être tenue partout, sans quoi
  * elle se perd.
  */
-export function EcranBibliotheque() {
+export function LibraryScreen() {
   const router = useRouter()
   const client = useQueryClient()
-  const projets = useProjets()
+  const projects = useProjets()
   const sources = useSources()
-  const creer = useCreerProjet()
+  const create = useCreerProjet()
 
   const creation: Creation = {
     // Le **nom** de la source en cours de création, pas un booléen : c'est ce
     // qui permet à la carte cliquée d'afficher l'attente et aux autres de se
     // contenter de se taire.
-    enCours: creer.isPending ? (creer.variables ?? null) : null,
-    erreur: creer.isError ? messageServeur(creer.error) : null,
-    lancer: (source: Source) => {
+    pending: create.isPending ? (create.variables ?? null) : null,
+    error: create.isError ? messageServeur(create.error) : null,
+    start: (source: Source) => {
       // **`mutateAsync` et non `mutate`, et le rappel n'est pas passé à
       // TanStack.** Les liens vers une émission déjà analysée restent ouverts
       // pendant une création — c'est le seul geste encore utile pendant
@@ -59,7 +59,7 @@ export function EcranBibliotheque() {
       // trente secondes du `staleTime`, c'est-à-dire exactement la fenêtre du
       // retour. Une chaîne de promesse, elle, ne dépend d'aucun observateur, et
       // le client de requêtes vit au-dessus de cet écran. (relevé par Codex)
-      void creer
+      void create
         .mutateAsync(source.name)
         .then(({ projectId }) => marquerSourceAnalysée(client, source.name, projectId))
         .catch(() => {
@@ -79,12 +79,12 @@ export function EcranBibliotheque() {
   // est acceptée et lancée, pas faite —, et la vue Émission est celle qui sait
   // montrer une analyse qui commence. Une notification en plus dirait deux fois
   // la même chose.
-  const projetCree = creer.data?.projectId
+  const createdProjectId = create.data?.projectId
   useEffect(() => {
-    if (projetCree !== undefined) router.push(lienProjet(projetCree))
-  }, [projetCree, router])
+    if (createdProjectId !== undefined) router.push(lienProjet(createdProjectId))
+  }, [createdProjectId, router])
 
-  const entrées = bibliothèque(sources.data?.sources ?? [], projets.data ?? [])
+  const entries = buildLibrary(sources.data?.sources ?? [], projects.data ?? [])
 
   return (
     <div className="flex min-h-full flex-col">
@@ -97,27 +97,27 @@ export function EcranBibliotheque() {
       <main className="mx-auto flex w-full max-w-[110rem] flex-1 flex-col gap-6 px-6 py-6">
         <h1 className="sr-only">Bibliothèque</h1>
 
-        <GrilleBibliotheque
-          entrées={entrées}
-          projets={projets.data}
-          montage={sources.data?.montage}
+        <LibraryGrid
+          entries={entries}
+          projects={projects.data}
+          mount={sources.data?.montage}
           // **Les deux requêtes, pas une.** Monter la grille dès que les sources
           // répondent afficherait dix-huit cartes « À analyser » le temps que la
           // liste des projets arrive, puis les basculerait sous les yeux —
           // exactement le saut que les squelettes existent pour éviter.
-          chargement={sources.isPending || projets.isPending}
+          loading={sources.isPending || projects.isPending}
           // Le message du serveur, jamais une phrase composée depuis
           // l'exception.
-          erreur={sources.isError ? messageServeur(sources.error) : null}
-          erreurProjets={projets.isError ? messageServeur(projets.error) : null}
-          onReessayer={() => {
+          error={sources.isError ? messageServeur(sources.error) : null}
+          projectsError={projects.isError ? messageServeur(projects.error) : null}
+          onRetry={() => {
             // **L'échec de création s'oublie avec le rafraîchissement**, parce
             // que c'est lui qui le rend caduc : sur une source disparue entre
             // l'affichage et le clic, la carte s'en va et le message continuerait
             // sinon de nommer un fichier qui n'est plus là.
-            creer.reset()
+            create.reset()
             void sources.refetch()
-            void projets.refetch()
+            void projects.refetch()
           }}
           creation={creation}
         />

@@ -40,7 +40,7 @@ export type Lieu =
   | { kind: 'bibliotheque' }
   | { kind: 'projet'; projet: Reperes }
   | { kind: 'clip'; projet: Reperes; clip: { titre: string } }
-  | { kind: 'parametres' }
+  | { kind: 'settings' }
   | { kind: 'inconnu'; libelle: string }
 
 /** L'URL d'un projet. Encodée : les identifiants portent accents et espaces. */
@@ -51,14 +51,18 @@ export function lienProjet(projectId: string): string {
 /**
  * L'URL des paramètres.
  *
- * **Un frère de la bibliothèque, pas un quatrième étage.** Les réglages ne
- * décrivent aucune émission : ils se rejoignent depuis n'importe où et se
- * quittent par le haut, comme la racine. Les ranger sous une émission aurait
+ * **Un frère de la bibliothèque, pas un quatrième étage.** Le nom anglais tranche
+ * avec `lienProjet` et `lienClip`, ses deux voisins : le dépôt renomme ses
+ * identifiants français par l'issue #73, et ce qui s'écrit après la règle ne
+ * doit pas ajouter à la dette qu'elle solde.
+ *
+ * Les réglages ne décrivent aucune émission : ils se rejoignent depuis n'importe
+ * où et se quittent par le haut, comme la racine. Les ranger sous une émission aurait
  * suggéré qu'ils lui appartiennent, alors que changer un réglage ne recalcule
  * rien — un recalcul reste une action explicite.
  */
-export function lienParametres(): string {
-  return '/parametres'
+export function settingsLink(): string {
+  return '/settings'
 }
 
 /** L'URL d'un clip. Même règle : l'identifiant hérite de celui du projet. */
@@ -84,7 +88,7 @@ export function chemin(lieu: Lieu): { libelle: string; href?: string }[] {
         { libelle: lieu.projet.titre, href: lienProjet(lieu.projet.id) },
         { libelle: lieu.clip.titre },
       ]
-    case 'parametres':
+    case 'settings':
       return [{ libelle: 'Paramètres' }]
     case 'inconnu':
       return [{ libelle: lieu.libelle }]

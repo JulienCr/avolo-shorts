@@ -463,11 +463,9 @@ function choisirRatio(mesuresParPlan: Empan[][], srcW: number, srcH: number): Ra
  * d'ailleurs jamais, puisqu'un tel plan ne cadre que la moitié de ses images et
  * fait donc monter le ratio ; il faut un ratio épinglé à la main pour l'atteindre.
  *
- * Il n'y a **pas de zone interdite** ici, malgré ce que la spec §10 réclame
- * encore —
+ * Il n'y a **pas de zone interdite** ici, et la spec §10 ne le réclame plus :
  * constaté à l'image, le panneau de chat n'existe que sur `2025-06-15-cqlp` et
- * le bloc « SOMMAIRE » reste une préférence, pas une interdiction. Ce passage
- * de la spec est en cours de correction ailleurs.
+ * le bloc « SOMMAIRE » reste une préférence, pas une interdiction.
  *
  * `cropX` vaut `null` quand le plan n'a **aucune** image mesurée : l'appelant
  * décide, et il n'y a rien à moyenner. `cadrées` compte les images que la

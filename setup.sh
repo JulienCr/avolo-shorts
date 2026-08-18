@@ -15,9 +15,11 @@
 #
 # Les deux moitiés vérifient leurs capacités **par un vrai essai** plutôt que par
 # la présence d'un fichier — `nvenc_encodes()` encode quelques images, et
-# `cuda_infers()` fait tourner une inférence YOLO sur le GPU. Un encodeur compilé
-# peut échouer au premier appel si le pilote ne suit pas, et un `import torch`
-# réussit très bien sur une roue processeur qui ne verra jamais la carte.
+# `cuda_infers()` fait tourner une prédiction YOLO sur le GPU. Un encodeur compilé
+# peut échouer au premier appel si le pilote ne suit pas ; un `import torch`
+# réussit très bien sur une roue processeur qui ne verra jamais la carte ; et un
+# couple torch/torchvision dépareillé ne tombe qu'à la suppression des non-maxima,
+# c'est-à-dire une fois la détection lancée.
 
 set -euo pipefail
 
@@ -285,19 +287,39 @@ fi
 # d'un autre. Les sept gigaoctets en double sont le prix de cette isolation.
 
 # La preuve que la carte répond depuis ce venv, l'équivalent de `nvenc_encodes`
-# pour le GPU : une inférence réelle sur un tenseur, pas un `import torch`. Une
-# roue processeur s'importe très bien, ne voit jamais la carte, et ferait tourner
-# la détection des heures au lieu de cinq minutes — sans un mot.
+# pour le GPU : on alloue, on calcule, et on prédit pour de bon — jamais un
+# `import torch`. Une roue processeur s'importe très bien, ne voit jamais la
+# carte, et ferait tourner la détection des heures au lieu de cinq minutes, sans
+# un mot.
 cuda_infers() {
   "$1" - <<'PY' >/dev/null 2>&1
 import sys
+
+import numpy as np
 import torch
+
 if not torch.cuda.is_available():
     sys.exit(1)
-# Une multiplication réelle : `is_available()` répond oui sur un pilote qui
-# refusera d'allouer, et l'échec tomberait alors au milieu d'une analyse.
+# Une allocation et un calcul réels : `is_available()` répond oui sur un pilote
+# qui refusera d'allouer, et l'échec tomberait alors au milieu d'une analyse.
 (torch.zeros(64, 64, device="cuda") @ torch.zeros(64, 64, device="cuda")).sum().item()
+
+# Puis **une vraie prédiction**, parce que le chemin qui casse n'est pas celui
+# qu'on vient d'éprouver. `import torch` réussit sur une roue processeur ; une
+# multiplication réussit sur un couple torch/torchvision dépareillé ; c'est la
+# suppression des non-maxima qui tombe alors, en plein milieu de la détection,
+# sur un opérateur compilé que rien n'a chargé avant. Trois secondes ici valent
+# mieux qu'un échec à la quatrième minute.
+#
+# `yolo11n.yaml` et non les poids : la structure est livrée dans le paquet, donc
+# rien à télécharger, et cette vérification tourne **avant** que setup.sh n'aille
+# chercher `yolo11m.pt`. Les poids ne changent pas ce qui est éprouvé ici — le
+# réseau non entraîné passe par exactement les mêmes opérateurs.
 from ultralytics import YOLO  # noqa: E402
+
+YOLO("yolo11n.yaml").predict(
+    np.zeros((64, 64, 3), dtype=np.uint8), device="cuda", classes=[0], verbose=False
+)
 PY
 }
 

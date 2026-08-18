@@ -10,6 +10,7 @@ import {
   dossierVignettesSources,
   instantVignetteSource,
   REPLI_INSTANT_S,
+  réarmerLeDisjoncteur,
   urlVignetteSource,
   vignetteSource,
   vignetteSourcePath,
@@ -38,6 +39,9 @@ beforeEach(() => {
   process.env.REPLAY_DIR = replays
   process.env.STAGE_DIR = path.join(racine, 'stage')
   process.env.PROJECTS_DIR = path.join(racine, 'projects')
+  // Le disjoncteur est global au module, donc au fichier de test : un
+  // renoncement dans un cas condamnerait le suivant pendant une minute.
+  réarmerLeDisjoncteur()
 })
 
 afterEach(() => {
@@ -329,6 +333,82 @@ describe('vignetteSource', () => {
     ).rejects.toThrow(/ne répond pas/)
     expect(extraire).not.toHaveBeenCalled()
     lstat.mockRestore()
+  })
+
+  /**
+   * **Sérialiser ne suffit pas, et c'est le piège que Codex a relevé.** La file
+   * borne les départs simultanés, pas l'accumulation : le premier accès renonce
+   * au bout du délai, la file avance, et le suivant part sur le même montage
+   * mort et s'y bloque à son tour. Un `lstat` abandonné garde son fil du vivier
+   * de libuv, qui en compte quatre — quatre requêtes suffisent donc à figer tout
+   * ce qui touche au disque dans le serveur, il leur faut seulement un peu plus
+   * de temps.
+   *
+   * Ce qui se vérifie ici est donc un compte : **un seul `lstat` parti**, pas
+   * dix-huit.
+   */
+  it('ne relance pas un accès par requête après un premier renoncement', async () => {
+    for (const nom of ['a.mp4', 'b.mp4', 'c.mp4']) poserVidéo(nom)
+    let partis = 0
+    const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => {
+      partis += 1
+      return new Promise(() => {})
+    })
+
+    const demandes = ['a.mp4', 'b.mp4', 'c.mp4'].map((n) =>
+      vignetteSource(n, { timeoutMs: 20, sonder: SONDE_MUETTE, extraire: extraireOk() }).catch(
+        (c: unknown) => c,
+      ),
+    )
+    const résultats = await Promise.all(demandes)
+    lstat.mockRestore()
+
+    expect(partis).toBe(1)
+    for (const r of résultats) expect((r as Error).message).toMatch(/ne répond pas/)
+  })
+
+  it('rouvre le passage une fois le disjoncteur réarmé', async () => {
+    poserVidéo('e.mp4')
+    const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => new Promise(() => {}))
+    await expect(
+      vignetteSource('e.mp4', { timeoutMs: 20, sonder: SONDE_MUETTE }),
+    ).rejects.toThrow(/ne répond pas/)
+    lstat.mockRestore()
+
+    réarmerLeDisjoncteur()
+    const chemin = await vignetteSource('e.mp4', {
+      sonder: async () => 60,
+      extraire: extraireOk(),
+    })
+    expect(chemin).not.toBeNull()
+  })
+
+  /**
+   * **Le délai d'`execFile` ne se déclenche pas sur un processus qui ne sort
+   * pas.** Il envoie un signal puis attend la sortie du fils pour rendre la
+   * main ; un ffprobe en sommeil non interruptible sur un 9p mort ne sort
+   * jamais, donc `probe` ne se règle jamais — et la file entière restait bloquée
+   * pour de bon, y compris pour des sources que rien n'empêchait de servir.
+   * (relevé par Codex)
+   */
+  it('renonce sur une sonde de durée qui ne revient pas, sans boucher la file', async () => {
+    poserVidéo('lente.mp4')
+    poserVidéo('bonne.mp4')
+
+    await expect(
+      vignetteSource('lente.mp4', {
+        timeoutMs: 20,
+        sonder: () => new Promise(() => {}),
+        extraire: extraireOk(),
+      }),
+    ).rejects.toThrow(/ne répond pas/)
+
+    réarmerLeDisjoncteur()
+    const chemin = await vignetteSource('bonne.mp4', {
+      sonder: async () => 60,
+      extraire: extraireOk(),
+    })
+    expect(chemin).not.toBeNull()
   })
 
   /**

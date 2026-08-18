@@ -7,7 +7,7 @@ import { cheminTemporaire, runFfmpeg } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
 import { estUneAbsence } from '@/server/octets'
 import { resolveSource, stageDir } from '@/server/paths'
-import { statAvecDélai, DÉLAI_STAT_MS } from '@/server/steps/ingest'
+import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
 
 /**
  * La vignette d'une **source** : une image tirée de l'original, gardée sur le
@@ -34,13 +34,20 @@ import { statAvecDélai, DÉLAI_STAT_MS } from '@/server/steps/ingest'
  *    imposerait un aller distant avant même de savoir s'il y a quelque chose à
  *    calculer. Un fichier remplacé change de taille ou de date, donc invalide
  *    sa vignette tout seul.
- * 3. **Un accès au 9p à la fois, tout le serveur confondu.** C'est la règle que
- *    `sources.ts` énonce en tête et qui a coûté quelque chose : renoncer n'est
- *    pas annuler, un `lstat` abandonné garde son fil du vivier de libuv, et le
- *    vivier en compte quatre. Six vignettes demandées de front sur un montage
- *    mort — la limite de connexions d'un navigateur — figeraient tout ce qui
- *    touche au disque dans le serveur, analyse en cours comprise. Sérialisées,
- *    elles coûtent **un** fil, une fois.
+ * 3. **Un accès au 9p à la fois, et un disjoncteur derrière.** C'est la règle
+ *    que `sources.ts` énonce en tête et qui a coûté quelque chose : renoncer
+ *    n'est pas annuler, un `lstat` abandonné garde son fil du vivier de libuv,
+ *    et le vivier en compte quatre. Six vignettes demandées de front sur un
+ *    montage mort — la limite de connexions d'un navigateur — figeraient tout
+ *    ce qui touche au disque dans le serveur, analyse en cours comprise.
+ *
+ *    **Mais sérialiser ne suffit pas**, et c'est le piège : la file borne les
+ *    départs simultanés, pas l'accumulation. Le premier accès renonce au bout
+ *    du délai, la file avance, le suivant part sur le même montage mort et se
+ *    bloque à son tour — quatre requêtes suffisent, il leur faut seulement un
+ *    peu plus de temps. D'où le disjoncteur, plus bas : le premier
+ *    renoncement condamne les suivants sans qu'ils touchent au disque.
+ *    (relevé par Codex)
  * 4. **Écriture sous nom temporaire, renommée une fois seulement**, comme
  *    partout ailleurs : un ffmpeg interrompu laisserait sinon un JPEG tronqué
  *    que la visite suivante servirait sans le refaire.
@@ -159,6 +166,80 @@ export type OptionsVignetteSource = {
 }
 
 /**
+ * Le message que le délai de garde donne à son rejet — même motif que dans
+ * `sources.ts`, et pour la même raison : `attendreOuRenoncer` construit son
+ * `Error` lui-même, et c'est la seule chose qui distingue « personne n'a
+ * répondu » d'un code d'erreur du système de fichiers. Il ne s'affiche nulle
+ * part.
+ */
+const RENONCEMENT = 'vignettes:délai-dépassé'
+
+/** Ce que l'appelant voit quand le montage n'a pas répondu. */
+export class MontageMuetError extends Error {
+  constructor() {
+    super(
+      'Le dossier des replays ne répond pas. REPLAY_DIR est monté en 9p : il peut avoir perdu ' +
+        "son transport sans que /proc/mounts le dise. Rouvrir l'explorateur Windows sur le " +
+        'lecteur, ou remonter le partage.',
+    )
+    this.name = 'MontageMuetError'
+  }
+}
+
+/**
+ * Le repos que s'accorde le disjoncteur après un renoncement.
+ *
+ * **Ce qu'il borne, et ce qu'il ne borne pas.** Un appel système abandonné garde
+ * son fil pour toujours : on ne supprime pas la casse, on la ramène à **un fil
+ * par minute** au lieu d'un par requête. Sur une grille de vingt et une cartes,
+ * c'est la différence entre un serveur figé et un serveur qui affiche vingt et
+ * une cases grises.
+ *
+ * Une minute, parce que les deux erreurs coûtent : trop court, une page rechargée
+ * par impatience repaie un fil ; trop long, un partage qui revient reste
+ * inutilisable alors qu'il répond. C'est aussi l'exposition que `listerSources`
+ * accepte déjà — une sonde par requête, sans disjoncteur —, et la grille n'affiche
+ * de toute façon aucune vignette quand la liste, elle, a échoué.
+ */
+export const REPOS_APRÈS_MUTISME_MS = 60_000
+
+/** L'instant jusqu'auquel on refuse de toucher au montage. */
+let muetJusquà = 0
+
+/** Remet le disjoncteur à zéro. Pour les tests, qui n'ont pas une minute. */
+export function réarmerLeDisjoncteur(): void {
+  muetJusquà = 0
+}
+
+/**
+ * Un accès au montage, sous délai de garde et derrière le disjoncteur.
+ *
+ * Les deux accès du parcours y passent — le `lstat` et la sonde de durée. Le
+ * second n'est pas décoratif : `probe` s'appuie sur le `timeout` d'`execFile`,
+ * qui envoie un signal puis **attend la sortie du processus** pour rendre la
+ * main. Un ffprobe en sommeil non interruptible sur un 9p mort ne sort jamais,
+ * donc ce délai-là ne se déclenche jamais non plus, et la file entière restait
+ * bloquée pour de bon. (relevé par Codex)
+ */
+async function sousGarde<T>(travail: () => Promise<T>, timeoutMs: number): Promise<T> {
+  // **Un thunk, pas une promesse.** Une promesse passée en argument est
+  // construite au point d'appel, donc l'appel système part **avant** que le
+  // disjoncteur ait pu dire non — et le disjoncteur ne protège plus rien. La
+  // première version faisait exactement ça, et un test qui compte les départs
+  // l'a montré : trois requêtes, trois `lstat` partis.
+  if (Date.now() < muetJusquà) throw new MontageMuetError()
+  try {
+    return await attendreOuRenoncer(travail(), timeoutMs, RENONCEMENT)
+  } catch (cause) {
+    if (cause instanceof Error && cause.message === RENONCEMENT) {
+      muetJusquà = Date.now() + REPOS_APRÈS_MUTISME_MS
+      throw new MontageMuetError()
+    }
+    throw cause
+  }
+}
+
+/**
  * La file d'attente des accès au Drive : **une à la fois**.
  *
  * Voir le point 3 en tête de fichier. Elle est volontairement globale au module
@@ -234,16 +315,21 @@ function résoudre(nom: string): string {
 }
 
 /**
- * `lstat` sous délai de garde, ou `null` si le fichier n'est pas là.
+ * `lstat` sous garde, ou `null` si le fichier n'est pas là.
  *
- * `lstat` et non `stat`, comme `statAvecDélai` le fait déjà pour l'ingestion :
- * un lien de `REPLAY_DIR` pointant sur `/etc/shadow` passerait le contrôle de
+ * `lstat` et non `stat`, comme `statAvecDélai` le fait pour l'ingestion : un
+ * lien de `REPLAY_DIR` pointant sur `/etc/shadow` passerait le contrôle de
  * dossier parent de `resolveSource`, que `path.resolve` fait sans suivre les
  * liens. `stat` le déclarerait fichier et ffmpeg irait le lire.
+ *
+ * L'appel passe par `sousGarde` plutôt que par `statAvecDélai` pour une seule
+ * raison : le disjoncteur a besoin de **reconnaître** le renoncement, et
+ * `statAvecDélai` rend un `Error` que rien ne distingue d'une panne du système
+ * de fichiers.
  */
 async function relever(source: string, timeoutMs: number): Promise<fs.Stats | null> {
   try {
-    return await statAvecDélai(source, timeoutMs)
+    return await sousGarde(() => fsp.lstat(source), timeoutMs)
   } catch (cause) {
     if (estUneAbsence(cause)) return null
     throw cause
@@ -263,7 +349,7 @@ async function produire(
   const temporaire = cheminTemporaire(destination)
   const sonder = options.sonder ?? probeDuration
   const extraire = options.extraire ?? extraireAvecFfmpeg
-  const at = instantVignetteSource(await sonder(source, timeoutMs))
+  const at = instantVignetteSource(await sousGarde(() => sonder(source, timeoutMs), timeoutMs))
 
   try {
     await extraire({ src: source, dst: temporaire, at }, timeoutMs)

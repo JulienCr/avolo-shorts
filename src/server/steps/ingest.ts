@@ -5,8 +5,9 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
 import { getDb, getProject, upsertProject } from '@/server/db'
+import { cheminTemporaire } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
-import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
+import { projectIdFromSource, resolveSource, stagedPath } from '@/server/paths'
 
 /**
  * L'ingestion : amener un replay du Drive partagé jusqu'à une copie locale
@@ -160,7 +161,7 @@ async function copier(
   onProgress?: (a: AvancementCopie) => void,
 ): Promise<void> {
   await fsp.mkdir(path.dirname(dst), { recursive: true })
-  const temporaire = `${dst}.partiel-${process.pid}`
+  const temporaire = cheminTemporaire(dst)
 
   let fait = 0
   const compteur = new Transform({
@@ -246,7 +247,6 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   })
 
   if (décision === 'copier') {
-    await fsp.mkdir(stageDir(), { recursive: true })
     await copier(sourcePath, destination, stat.size, options.onProgress)
   }
 

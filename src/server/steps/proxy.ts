@@ -1,6 +1,6 @@
 import { proxyArgs } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
-import { encoderName, produireArtefact, type Artefact, type Avancement } from '@/server/ffmpeg'
+import { choisirEncodeur, produireArtefact, type Artefact, type Avancement } from '@/server/ffmpeg'
 import { proxyPath } from '@/server/paths'
 
 /**
@@ -9,14 +9,6 @@ import { proxyPath } from '@/server/paths'
  *
  * L'argv vient de `core/ffmpeg/args.ts`, où il est pur et testé. Ici on
  * n'ajoute qu'une chose : le choix de l'encodeur, qui dépend de la machine.
- *
- * **Sur cette machine, l'encodeur par défaut est le processeur, et c'est
- * mesuré** : 13,8x en x264 contre 12,8x en NVENC. Le travail est dominé par le
- * redimensionnement, qui reste sur le processeur dans les deux cas, et la
- * descente des images depuis la mémoire du GPU coûte plus qu'elle ne rapporte.
- * `encoderName()` rend malgré tout ce que `FFMPEG_ENCODER` demande : le proxy est
- * un cas particulier, pas une règle générale, et c'est l'export qui gagne le
- * facteur 2,3.
  */
 export type OptionsProxy = {
   projectId: string
@@ -30,9 +22,31 @@ export type OptionsProxy = {
   encoder?: EncoderName
 }
 
+/**
+ * L'encodeur du proxy. **`auto` vaut x264, et la sonde NVENC n'est même pas
+ * consultée.**
+ *
+ * Ce n'est pas une entorse à `FFMPEG_ENCODER=auto`, c'est ce que `auto` veut
+ * dire ici : *le meilleur pour cette étape*. Or il est mesuré, et il surprend —
+ * **NVENC est plus lent que le processeur sur le proxy**, 12,8x contre 13,8x. Le
+ * travail y est dominé par le redimensionnement, qui se fait sur le processeur
+ * dans les deux cas, et la descente des images depuis la mémoire du GPU coûte
+ * plus qu'elle ne rapporte. Une mesure antérieure sur le fichier entier donnait
+ * 14,2x contre 15,7x : même conclusion.
+ *
+ * La spec §6 porte donc `ffmpeg, CPU` pour cette étape. Une valeur explicite,
+ * elle, est respectée : `FFMPEG_ENCODER=nvenc` reste un choix qu'on peut faire,
+ * il coûte simplement une minute sur douze.
+ *
+ * L'export, lui, gagne un facteur 2,3 au GPU et passe par `encoderName()`.
+ */
+export function encodeurProxy(): EncoderName {
+  return choisirEncodeur(process.env.FFMPEG_ENCODER, () => false)
+}
+
 export function buildProxy(o: OptionsProxy): Promise<Artefact> {
   const dst = proxyPath(o.projectId)
-  const encoder = o.encoder ?? encoderName()
+  const encoder = o.encoder ?? encodeurProxy()
   return produireArtefact({
     dst,
     force: o.force,

@@ -137,4 +137,15 @@ describe('cheminTemporaire', () => {
   it('accepte un fichier sans extension', () => {
     expect(cheminTemporaire('/a/b/sortie', 7)).toBe('/a/b/sortie.partiel-7')
   })
+
+  it('donne deux noms distincts à deux écritures du même processus', () => {
+    // Rien n'interdit un `Promise.all([buildProxy(x), buildProxy(x)])` : sans
+    // ce compteur, les deux ffmpeg écriraient dans le même fichier et le
+    // renommage rendrait définitif un MP4 entrelacé.
+    expect(cheminTemporaire('/p/proxy.mp4')).not.toBe(cheminTemporaire('/p/proxy.mp4'))
+  })
+
+  it('reste dans le dossier de destination même sans jeton', () => {
+    expect(cheminTemporaire('/p/proxy.mp4')).toMatch(/^\/p\/proxy\.partiel-\d+-\d+\.mp4$/)
+  })
 })

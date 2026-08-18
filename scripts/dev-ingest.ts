@@ -10,11 +10,10 @@
  */
 
 import { closeDb, getDb } from '@/server/db'
-import { encoderName } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
 import { ingest } from '@/server/steps/ingest'
-import { buildProxy } from '@/server/steps/proxy'
+import { buildProxy, encodeurProxy } from '@/server/steps/proxy'
 import { chargerEnv, chrono, créerBarre, durée, finBarre, taille } from './dev-commun'
 
 async function main(): Promise<number> {
@@ -47,7 +46,9 @@ async function main(): Promise<number> {
       projet.copied ? `copiée en ${durée(tCopie())}` : 'déjà présente, rien à faire'
     }`,
   )
-  console.log(`Encodeur : ${encoderName()}`)
+  // `auto` vaut x264 pour le proxy, et c'est la mesure qui le dit : NVENC y est
+  // plus lent (12,8x contre 13,8x). Voir `encodeurProxy`.
+  console.log(`Encodeur : ${encodeurProxy()} (proxy)`)
 
   const barreProxy = créerBarre('  proxy ')
   const tProxy = chrono()

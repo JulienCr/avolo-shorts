@@ -354,16 +354,28 @@ export async function produireArtefact(o: OptionsArtefact): Promise<Artefact> {
   return { path: o.dst, skipped: false }
 }
 
+/** Distingue deux écritures simultanées **dans le même processus**. */
+let numéroÉcriture = 0
+
 /**
  * Le nom sous lequel on écrit avant de renommer.
  *
  * **L'extension est conservée**, et ce n'est pas cosmétique : ffmpeg choisit son
  * muxeur sur elle, et un `proxy.mp4.partiel-42` échouerait sur « Unable to find a
- * suitable output format ». Le numéro de processus évite que deux exécutions
- * concurrentes s'écrivent l'une sur l'autre — le renommage final, lui, est
- * atomique.
+ * suitable output format ».
+ *
+ * Le jeton distingue deux écritures concurrentes vers la même destination. Le
+ * numéro de processus ne suffit pas : rien n'interdit un
+ * `Promise.all([buildProxy(x), buildProxy(x)])`, où les deux ffmpeg
+ * écriraient dans le même fichier temporaire et produiraient un MP4 entrelacé
+ * que le renommage rendrait définitif. Un compteur de module ferme ce cas, le
+ * `pid` ferme celui de deux processus.
+ *
+ * Le renommage final, lui, est atomique : le dernier arrivé gagne, et les deux
+ * candidats sont corrects.
  */
-export function cheminTemporaire(dst: string, pid: number = process.pid): string {
+export function cheminTemporaire(dst: string, jeton?: string | number): string {
+  const marque = jeton ?? `${process.pid}-${++numéroÉcriture}`
   const ext = path.extname(dst)
-  return path.join(path.dirname(dst), `${path.basename(dst, ext)}.partiel-${pid}${ext}`)
+  return path.join(path.dirname(dst), `${path.basename(dst, ext)}.partiel-${marque}${ext}`)
 }

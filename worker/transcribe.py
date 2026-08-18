@@ -62,7 +62,13 @@ def main() -> int:
 
     départ = time.monotonic()
     journal(f"[1/4] Chargement du modèle {a.model} sur {a.device} ({a.compute_type})…")
-    model = whisperx.load_model(a.model, a.device, compute_type=a.compute_type)
+    # `language` dès le chargement, et pas seulement à la transcription : sans
+    # lui, WhisperX annonce « language will be detected for each audio file »
+    # et paie une passe de détection sur chaque extrait. Les replays sont en
+    # français, et c'est le seul cas que l'itération 0 rencontre.
+    model = whisperx.load_model(
+        a.model, a.device, compute_type=a.compute_type, language=a.language
+    )
 
     journal(f"[2/4] Lecture de l'audio {a.audio}…")
     audio = whisperx.load_audio(a.audio)

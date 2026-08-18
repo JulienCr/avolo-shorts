@@ -15,6 +15,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
+import type { ClipPatch } from '@/lib/api'
 import { ChampsTextes } from '@/components/clip/champs-textes'
 
 function clip(champs: Partial<Clip> = {}): Clip {
@@ -59,7 +60,7 @@ describe('ChampsTextes', () => {
 
     act(() => void vi.advanceTimersByTime(600))
     expect(onEcrire).toHaveBeenCalledTimes(1)
-    expect(onEcrire).toHaveBeenCalledWith({ title: 'La chute finale' })
+    expect(onEcrire.mock.calls[0][0]).toEqual({ title: 'La chute finale' })
   })
 
   it('n’écrit que le champ qui a changé', () => {
@@ -70,7 +71,7 @@ describe('ChampsTextes', () => {
 
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Autre chose' } })
     act(() => void vi.advanceTimersByTime(600))
-    expect(onEcrire).toHaveBeenCalledWith({ description: 'Autre chose' })
+    expect(onEcrire.mock.calls[0][0]).toEqual({ description: 'Autre chose' })
   })
 
   it('écrit tout de suite quand le champ perd le focus', () => {
@@ -80,7 +81,7 @@ describe('ChampsTextes', () => {
     const titre = screen.getByLabelText('Titre')
     fireEvent.change(titre, { target: { value: 'Un autre titre' } })
     fireEvent.blur(titre)
-    expect(onEcrire).toHaveBeenCalledWith({ title: 'Un autre titre' })
+    expect(onEcrire.mock.calls[0][0]).toEqual({ title: 'Un autre titre' })
   })
 
   it('n’écrit rien quand la valeur revient à celle du serveur', () => {
@@ -102,7 +103,59 @@ describe('ChampsTextes', () => {
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Presque' } })
     unmount()
-    expect(onEcrire).toHaveBeenCalledWith({ title: 'Presque' })
+    expect(onEcrire.mock.calls[0][0]).toEqual({ title: 'Presque' })
+  })
+
+  it('garde la frappe quand l’écriture échoue', () => {
+    // `usePatchClip` remet l'ancienne version en cache quand le `PATCH` échoue.
+    // Si la valeur locale était déjà tenue pour synchronisée, l'adoption la
+    // remplace par celle d'avant : le texte est perdu **en silence**, et la
+    // barre affiche « enregistré » puisqu'elle ne suit que le montage.
+    // (relevé par Codex)
+    const onEcrire = vi.fn(
+      (_champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
+        suites?.onError?.(),
+    )
+    const { rerender } = render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
+    act(() => void vi.advanceTimersByTime(600))
+    // Le rollback du cache : le clip repasse à la version du serveur.
+    rerender(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('Le vrai titre')
+    expect(screen.getByText(/n’a pas été enregistré/i)).toBeTruthy()
+  })
+
+  it('renvoie la frappe restée en plan quand on le lui demande', () => {
+    const onEcrire = vi.fn(
+      (_champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
+        suites?.onError?.(),
+    )
+    render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
+    act(() => void vi.advanceTimersByTime(600))
+    expect(onEcrire).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
+    expect(onEcrire).toHaveBeenCalledTimes(2)
+    expect(onEcrire.mock.calls[1][0]).toEqual({ title: 'Le vrai titre' })
+  })
+
+  it('n’adopte rien tant que son écriture est en vol', () => {
+    // L'écriture optimiste fait passer le clip par la valeur qu'on vient
+    // d'envoyer : avancer la référence dessus rendrait le rollback
+    // indiscernable d'une écriture venue d'ailleurs.
+    const onEcrire = vi.fn(() => {})
+    const { rerender } = render(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
+    act(() => void vi.advanceTimersByTime(600))
+    rerender(<ChampsTextes clip={clip({ title: 'Le vrai titre' })} onEcrire={onEcrire} />)
+    rerender(<ChampsTextes clip={clip()} onEcrire={onEcrire} />)
+
+    expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('Le vrai titre')
   })
 
   it('adopte la valeur du serveur quand rien n’est en attente', () => {

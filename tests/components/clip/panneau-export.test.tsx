@@ -65,6 +65,8 @@ function monter(props: Partial<Parameters<typeof PanneauExport>[0]> = {}) {
     ratio: '1:1' as const,
     duree: 20,
     enregistrement: 'enregistre' as const,
+    ecritureEnCours: false,
+    ecritureEnEchec: false,
     onBranding: vi.fn(),
     ...props,
   }
@@ -119,6 +121,28 @@ describe('les raisons de ne pas pouvoir exporter', () => {
 
     fireEvent.click(bouton)
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('refuse d’exporter pendant qu’une écriture est en vol', () => {
+    // `enregistrement` ne suit que les segments, le ratio et le cadrage. Une
+    // bascule des marques, un titre, une description partent par la même
+    // mutation sans y figurer : exporter dans la foulée fait lire au rendu la
+    // valeur d'avant, et produit un fichier qui contredit l'écran.
+    // (relevé par Codex)
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    monter({ ecritureEnCours: true })
+
+    const bouton = boutonExporter()
+    expect(bouton.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(bouton)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.getByText(/en cours d’écriture/i)).toBeTruthy()
+  })
+
+  it('refuse d’exporter quand la dernière écriture a échoué', () => {
+    monter({ ecritureEnEchec: true })
+    expect(boutonExporter().getAttribute('aria-disabled')).toBe('true')
   })
 
   it('n’ouvre pas non plus la confirmation de ré-export', () => {

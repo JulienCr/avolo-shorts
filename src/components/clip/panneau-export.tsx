@@ -37,6 +37,8 @@ export function PanneauExport({
   ratio,
   duree,
   enregistrement,
+  ecritureEnCours,
+  ecritureEnEchec,
   onBranding,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
@@ -46,7 +48,20 @@ export function PanneauExport({
   ratio: Ratio | 'auto'
   /** La durée montée. Zéro veut dire qu'il ne reste rien à rendre. */
   duree: number
+  /** L'écriture différée du **montage** : segments, ratio, cadrage. */
   enregistrement: EtatEnregistrement
+  /**
+   * Une écriture de clip, **quelle qu'elle soit**, est en vol.
+   *
+   * `enregistrement` ne couvre que le montage. Le titre, la description et les
+   * marques partent par la même mutation sans y figurer : sans ce second
+   * signal, basculer les marques puis exporter dans la foulée fait lire au
+   * rendu la valeur d'avant, et produit un fichier qui contredit l'écran.
+   * (relevé par Codex)
+   */
+  ecritureEnCours: boolean
+  /** La dernière écriture de clip a échoué — le rendu lirait un état qu'on n'a pas voulu. */
+  ecritureEnEchec: boolean
   onBranding: (branding: boolean) => void
 }) {
   const exporter = useExporter()
@@ -77,9 +92,11 @@ export function PanneauExport({
       ? 'Tous les mots ont été retirés : il n’y a rien à rendre.'
       : enregistrement === 'en-attente'
         ? 'Un enregistrement est en attente. Rendre maintenant produirait un fichier qui ne correspond à rien de persistant.'
-        : enregistrement === 'echec'
+        : enregistrement === 'echec' || ecritureEnEchec
           ? 'Le dernier enregistrement a échoué. Le rendu attend qu’il passe.'
-          : null
+          : ecritureEnCours
+            ? 'Une modification est en cours d’écriture. Le rendu lirait la version d’avant.'
+            : null
 
   function lancer(force: boolean) {
     if (empêchement !== null || exporter.isPending) return

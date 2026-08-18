@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { Clip } from '@/core/edl'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -28,18 +29,30 @@ export function ChampsTextes({
   onEcrire,
 }: {
   clip: Clip
-  /** Ce que l'écran fait de l'écart. La page y branche `usePatchClip`. */
-  onEcrire: (patch: ClipPatch) => void
+  /**
+   * Ce que l'écran fait de l'écart. La page y branche `usePatchClip`.
+   *
+   * **Les suites ne sont pas décoratives.** Sans elles, ce composant ne saurait
+   * pas si son écriture a abouti, et il n'a aucun autre moyen de l'apprendre :
+   * l'état de la barre d'application ne suit que le montage.
+   */
+  onEcrire: (
+    patch: ClipPatch,
+    suites?: { onSuccess?: () => void; onError?: () => void },
+  ) => void
 }) {
   const identifiant = useId()
 
   const titre = useTexteDifféré(
     clip.title,
-    useCallback((title: string) => onEcrire({ title }), [onEcrire]),
+    useCallback<Ecrire>((title, suites) => onEcrire({ title }, suites), [onEcrire]),
   )
   const description = useTexteDifféré(
     clip.description,
-    useCallback((description: string) => onEcrire({ description }), [onEcrire]),
+    useCallback<Ecrire>(
+      (description, suites) => onEcrire({ description }, suites),
+      [onEcrire],
+    ),
   )
 
   return (
@@ -53,6 +66,7 @@ export function ChampsTextes({
           onBlur={titre.vider}
           placeholder="Ce qui s’affichera au-dessus du clip"
         />
+        <Echec champ="Le titre" état={titre} />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -65,12 +79,38 @@ export function ChampsTextes({
           rows={3}
           placeholder="La description et les mots-dièse, tels qu’ils seront collés"
         />
+        <Echec champ="La description" état={description} />
       </div>
 
       {/* Rien ne se valide pendant la frappe : les deux textes sont libres. La
           seule règle se dit au moment de l'export — un titre vide n'empêche pas
           le rendu, il produit un `.txt` dont la première ligne est vide. */}
     </div>
+  )
+}
+
+/**
+ * L'échec d'une écriture de texte, et son geste de reprise.
+ *
+ * Il vit ici et non dans la barre d'application : celle-ci porte l'état du
+ * montage, qui ne sait rien de ces deux champs-là. Un échec muet ferait fermer
+ * l'onglet en croyant le titre enregistré.
+ */
+function Echec({
+  champ,
+  état,
+}: {
+  champ: string
+  état: { echec: boolean; vider: () => void }
+}) {
+  if (!état.echec) return null
+  return (
+    <p className="flex items-center gap-2 text-[0.75rem] text-destructive">
+      {champ} n’a pas été enregistré.
+      <Button size="xs" variant="outline" onClick={état.vider}>
+        Réessayer
+      </Button>
+    </p>
   )
 }
 
@@ -93,15 +133,16 @@ export function ChampsTextes({
  * rechargement ; une frappe en cours, elle, est postérieure — personne ne l'a
  * refusée, et l'écraser serait perdre un geste au milieu d'un mot.
  */
-function useTexteDifféré(valeurServeur: string, écrire: (valeur: string) => void) {
+function useTexteDifféré(valeurServeur: string, écrire: Ecrire) {
   const [valeur, setValeur] = useState(valeurServeur)
+  const [echec, setEchec] = useState(false)
 
-  // Ce qui n'a pas encore été écrit. Un `ref` et non un état : le vidage se fait
-  // depuis un `setTimeout` et depuis un nettoyage d'effet, deux endroits qui
-  // liraient sinon une valeur capturée au rendu d'avant.
-  const enAttente = useRef(false)
+  /** Ce que l'utilisateur a tapé en dernier. */
   const dernière = useRef(valeur)
+  /** La dernière valeur que le serveur a **confirmée**, ou qu'on a adoptée de lui. */
   const référence = useRef(valeurServeur)
+  /** La valeur dont l'écriture est en vol, ou `null`. */
+  const envoyé = useRef<string | null>(null)
   const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // `écrire` change à chaque rendu de la page — c'est une fermeture sur la
@@ -112,25 +153,47 @@ function useTexteDifféré(valeurServeur: string, écrire: (valeur: string) => v
     écrireRef.current = écrire
   }, [écrire])
 
+  /**
+   * Envoie ce qui reste à écrire, et **n'avance la référence qu'au succès**.
+   *
+   * C'était le défaut : la référence avançait au départ de la requête. Un
+   * `PATCH` en échec fait remettre l'ancienne version en cache par
+   * `usePatchClip` — c'est son rollback, et il est correct — l'adoption ne
+   * voyait alors plus rien de local en attente, et remplaçait le texte tapé par
+   * celui d'avant. **Perdu en silence**, la barre affichant « enregistré »
+   * puisqu'elle ne suit que le montage. (relevé par Codex)
+   */
   const vider = useCallback(() => {
     if (minuterie.current !== null) {
       clearTimeout(minuterie.current)
       minuterie.current = null
     }
-    if (!enAttente.current) return
-    enAttente.current = false
-    référence.current = dernière.current
-    écrireRef.current(dernière.current)
+    const àÉcrire = dernière.current
+    // Revenu à ce que le serveur porte : plus d'écart, donc rien à écrire. Sans
+    // ce test, corriger une faute puis la remettre enverrait un patch qui ne
+    // change rien.
+    if (àÉcrire === référence.current) return
+    // Déjà en vol sous cette forme : la relancer doublerait l'écriture.
+    if (àÉcrire === envoyé.current) return
+
+    envoyé.current = àÉcrire
+    écrireRef.current(àÉcrire, {
+      onSuccess: () => {
+        référence.current = àÉcrire
+        if (envoyé.current === àÉcrire) envoyé.current = null
+        setEchec(false)
+      },
+      onError: () => {
+        if (envoyé.current === àÉcrire) envoyé.current = null
+        setEchec(true)
+      },
+    })
   }, [])
 
   const saisir = useCallback(
     (suivant: string) => {
       setValeur(suivant)
       dernière.current = suivant
-      // Revenu à ce que le serveur porte : il n'y a plus d'écart, donc plus rien
-      // à écrire. Sans ce test, corriger une faute puis la remettre enverrait un
-      // patch qui ne change rien.
-      enAttente.current = suivant !== référence.current
       if (minuterie.current !== null) clearTimeout(minuterie.current)
       minuterie.current = setTimeout(vider, TEMPORISATION_MS)
     },
@@ -139,8 +202,18 @@ function useTexteDifféré(valeurServeur: string, écrire: (valeur: string) => v
 
   useEffect(() => {
     if (référence.current === valeurServeur) return
+    // **Rien ne s'adopte tant qu'une écriture est en vol.** Le cache passe par
+    // la valeur qu'on vient d'envoyer — l'écriture est optimiste — puis, si elle
+    // échoue, par celle d'avant. Ni l'une ni l'autre ne dit ce que porte la
+    // base, et avancer la référence sur la première rend la seconde
+    // indiscernable d'une écriture venue d'ailleurs.
+    if (envoyé.current !== null) return
+
+    const propre = dernière.current === référence.current
     référence.current = valeurServeur
-    if (enAttente.current) return
+    // Une frappe non écrite est **postérieure** : personne ne l'a refusée, et
+    // l'écraser serait perdre un geste au milieu d'un mot.
+    if (!propre) return
     dernière.current = valeurServeur
     setValeur(valeurServeur)
   }, [valeurServeur])
@@ -156,5 +229,10 @@ function useTexteDifféré(valeurServeur: string, écrire: (valeur: string) => v
     }
   }, [vider])
 
-  return { valeur, saisir, vider }
+  return { valeur, saisir, vider, echec }
 }
+
+type Ecrire = (
+  valeur: string,
+  suites: { onSuccess: () => void; onError: () => void },
+) => void

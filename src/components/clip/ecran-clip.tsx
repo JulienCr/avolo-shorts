@@ -132,8 +132,8 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
   })
 
   const ecrire = useCallback(
-    (champs: ClipPatch) =>
-      patch.mutate({ clipId: clip.id, projectId: clip.projectId, patch: champs }),
+    (champs: ClipPatch, suites?: { onSuccess?: () => void; onError?: () => void }) =>
+      patch.mutate({ clipId: clip.id, projectId: clip.projectId, patch: champs }, suites),
     [patch, clip.id, clip.projectId],
   )
 
@@ -342,6 +342,10 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
             ratio={editeur.ratio}
             duree={duree}
             enregistrement={enregistrement}
+            // `enregistrement` ne suit que le montage : le titre, la description
+            // et les marques passent par la même mutation sans y figurer.
+            ecritureEnCours={patch.isPending}
+            ecritureEnEchec={patch.isError}
             onBranding={(branding) => ecrire({ branding })}
           />
         </section>

@@ -151,6 +151,13 @@ describe('le caviardage des références de secret', () => {
     expect(épurerChemins(message)).toBe(message)
   })
 
+  it('ne laisse pas passer une référence collée à un tiret', () => {
+    // Le contexte de gauche ne protège qu'un mot entier — un schéma comme
+    // `desktop://` —, et un tiret n'est pas un mot : ce qui suit reste une
+    // référence, donc part.
+    expect(épurerChemins('--référence=-op://Coffre/Fiche/Champ')).toBe('--référence=-op://…')
+  })
+
   it('ne prend pas une URL pour une référence', () => {
     // Le remède d'un `op` introuvable, mot pour mot : il cite une URL de
     // documentation et le mot « op », et il doit rester lisible.

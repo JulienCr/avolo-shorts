@@ -86,11 +86,16 @@ const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
  *   un message cite la forme au lieu d'une référence, comme le fait
  *   `exigerSecret`.
  *
+ * Le contexte de gauche ne protège qu'un **mot** — sans lui, un schéma comme
+ * `desktop://` sortirait coupé en deux. Il ne protège rien d'autre : tout ce qui
+ * n'est pas un mot peut précéder une référence, et une référence qu'on ne
+ * caviarde pas coûte plus cher qu'un mot rare qu'on abîme.
+ *
  * Hors guillemets, la référence s'arrête au premier espace, comme un chemin nu
  * et pour la même raison : rien ne dit où elle finit. Un nom de coffre espacé y
  * laisserait donc sa queue — d'où la passe entre guillemets ci-dessous.
  */
-const RÉFÉRENCE_DE_SECRET = /(?<![\w-])op:\/\/[^\s"'\\]*[^\s"'\\.,;:!?)\]]/g
+const RÉFÉRENCE_DE_SECRET = /(?<!\w)op:\/\/[^\s"'\\]*[^\s"'\\.,;:!?)\]]/g
 
 /** Ce qu'il en reste. */
 const RÉFÉRENCE_ÉPURÉE = `${PRÉFIXE_DE_RÉFÉRENCE}…`

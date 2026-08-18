@@ -185,6 +185,28 @@ export type ProjectStatus = {
 }
 
 /**
+ * Un projet dans la bibliothèque : son résumé, et **ce que l'écran peut savoir
+ * sans rien payer**.
+ *
+ * « Trois analyses en cours, une en échec » n'est pas dérivable d'un
+ * `ProjectSummary`, et la forme évidente — un `GET /api/projects/:id` par projet
+ * — est à écarter : elle multiplierait par vingt et un un appel qui exécute
+ * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde. Quatre
+ * fils du vivier de libuv suffisent à figer tout ce qui touche au disque dans le
+ * serveur, analyse en cours comprise (spec §3.1).
+ *
+ * D'où le partage : la liste ne porte que **deux lectures gratuites**, et la
+ * présence des artefacts se résout quand on ouvre le projet, là où le sondage se
+ * paie de toute façon.
+ */
+export type ProjectListItem = ProjectSummary & {
+  /** Ce qui tourne **dans ce processus**, ou `null`. Une lecture de `Map`. */
+  running: { step: StepName; progress: number } | null
+  /** L'échec de la dernière exécution terminée. Un petit fichier local. */
+  error: string | null
+}
+
+/**
  * Un candidat, tel que l'écran de tri l'affiche.
  *
  * `preview` porte les trois premières phrases de l'extrait, préparées côté
@@ -432,8 +454,8 @@ async function poster<T>(chemin: string, corps: unknown): Promise<T> {
   return (await réponse.json()) as T
 }
 
-export function listProjects(): Promise<ProjectSummary[]> {
-  return lire<ProjectSummary[]>('/api/projects')
+export function listProjects(): Promise<ProjectListItem[]> {
+  return lire<ProjectListItem[]>('/api/projects')
 }
 
 export function getProject(projectId: string): Promise<ProjectStatus> {

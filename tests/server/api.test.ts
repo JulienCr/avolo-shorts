@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GET as servirRendu } from '@/app/api/clips/[id]/renders/[file]/route'
 import { GET as getClipRoute, PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
@@ -14,12 +14,13 @@ import type {
   CandidateClip,
   ClipDetail,
   PatchClipResult,
+  ProjectListItem,
   ProjectStatus,
   ProjectSummary,
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
-import { progression } from '@/server/run'
+import { lancer, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
 
@@ -46,6 +47,11 @@ function contexte(id: string): { params: Promise<{ id: string }> } {
 /** Idem, pour la route qui sert un fichier de rendu nommé. */
 function contexteRendu(id: string, file: string): { params: Promise<{ id: string; file: string }> } {
   return { params: Promise.resolve({ id, file }) }
+}
+
+/** Rend une liste de clips vide : `runCandidates` en rend une, l'étape témoin aussi. */
+function resolveVide(résoudre: (clips: Clip[]) => void): void {
+  résoudre([])
 }
 
 /** Un `status.json` posé à la main, comme une exécution terminée l'aurait écrit. */
@@ -159,10 +165,17 @@ describe('GET /api/projects', () => {
   it('ne publie ni sourcePath ni stagedPath', async () => {
     const réponse = await listerProjets()
     expect(réponse.status).toBe(200)
-    const projets = (await réponse.json()) as ProjectSummary[]
+    const projets = (await réponse.json()) as ProjectListItem[]
 
     expect(projets).toHaveLength(1)
-    expect(Object.keys(projets[0]).sort()).toEqual(['createdAt', 'durationSec', 'id', 'title'])
+    expect(Object.keys(projets[0]).sort()).toEqual([
+      'createdAt',
+      'durationSec',
+      'error',
+      'id',
+      'running',
+      'title',
+    ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.
     expect(JSON.stringify(projets)).not.toContain(racine)
@@ -171,6 +184,79 @@ describe('GET /api/projects', () => {
   it('dérive le titre du nom de fichier', async () => {
     const projets = (await (await listerProjets()).json()) as ProjectSummary[]
     expect(projets[0].title).toBe('méchante — 11 janvier 2026')
+  })
+
+  /**
+   * « Trois analyses en cours, une en échec » : la bibliothèque ne peut pas le
+   * dire d'un `ProjectSummary`, et la seule autre forme — une requête par projet
+   * — est à écarter. Elle multiplierait par vingt et un un appel qui exécute
+   * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde : quatre
+   * fils du vivier de libuv suffisent à figer le serveur entier (spec §3.1).
+   */
+  it('dit ce qui tourne, sans sonder le moindre artefact', async () => {
+    // Le transcript déjà là : le plan se réduit au repérage, seule étape qu'on
+    // remplace ici par un témoin qu'on tient en main.
+    poserTranscript()
+    let relâcher = (): void => {}
+    const enCours = new Promise<Clip[]>((résoudre) => {
+      relâcher = () => resolveVide(résoudre)
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+
+    const sonde = vi.spyOn(fs, 'existsSync')
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].running).toEqual({ step: 'candidates', progress: 0 })
+      // **Le contrôle qui porte la décision.** `relevéPrésence` est fait de
+      // `existsSync` : s'il revenait dans cette route, ce compteur le dirait.
+      expect(sonde).not.toHaveBeenCalled()
+    } finally {
+      sonde.mockRestore()
+      relâcher()
+      await laisserFinir()
+    }
+  })
+
+  it('rend null quand rien ne tourne et que rien n’a échoué', async () => {
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].running).toBeNull()
+    expect(projets[0].error).toBeNull()
+  })
+
+  /**
+   * L'échec d'une tâche de fond n'a aucune réponse HTTP où loger : `status.json`
+   * en est le seul dépositaire, et c'est un petit fichier local — ni Drive, ni
+   * délai de garde.
+   */
+  it('remonte l’échec de la dernière exécution terminée', async () => {
+    poserStatut({ error: 'Gemini a refusé le contenu de cette vidéo.' })
+
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].error).toContain('Gemini')
+  })
+
+  /**
+   * Le même partage que `GET /api/projects/:id` : pendant qu'une exécution
+   * tourne, l'échec affiché serait celui d'avant. Les deux routes doivent en
+   * dire la même chose, sans quoi la bibliothèque et l'écran de projet se
+   * contrediraient sur le même projet.
+   */
+  it('n’affiche pas l’échec d’avant pendant qu’une exécution tourne', async () => {
+    poserStatut({ error: 'un échec d’avant' })
+    poserTranscript()
+    let relâcher = (): void => {}
+    const enCours = new Promise<Clip[]>((résoudre) => {
+      relâcher = () => resolveVide(résoudre)
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].error).toBeNull()
+    } finally {
+      relâcher()
+      await laisserFinir()
+    }
   })
 })
 

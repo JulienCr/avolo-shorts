@@ -281,7 +281,9 @@ describe('renderAss', () => {
   // Le fichier part chez ffmpeg tel quel : le BOM est la marque que les lecteurs
   // de sous-titres attendent pour reconnaître de l'Unicode.
   it('écrit le fichier en UTF-8 avec BOM', () => {
-    expect(renderAss(cards, DEFAULT_CAPTION_STYLE).startsWith('﻿')).toBe(true)
+    // Par le point de code, pas par un littéral : un U+FEFF dans la source d'un
+    // test est invisible, donc le contrôle passerait encore après l'avoir perdu.
+    expect(renderAss(cards, DEFAULT_CAPTION_STYLE).codePointAt(0)).toBe(0xfeff)
   })
 
   it('rend un document valide, et sans événement, sans carton', () => {

@@ -42,6 +42,16 @@ export type CaptionStyle = {
 const POLICE_PAR_DEFAUT = 'Anton'
 
 /**
+ * Le BOM UTF-8 qui ouvre le fichier : c'est à lui que les lecteurs de
+ * sous-titres reconnaissent de l'Unicode.
+ *
+ * Nommé, et écrit par son point de code : un U+FEFF littéral au milieu d'une
+ * chaîne est **invisible dans la source**, et la première édition de l'en-tête
+ * le perdrait sans que personne ne le voie — jusqu'aux accents mangés au rendu.
+ */
+const BOM = '\uFEFF'
+
+/**
  * La marge basse, en unités de `PlayResY` — soit ~15 % de la hauteur de l'image.
  *
  * **C'est une mesure, pas un goût.** Les 25 (8,7 %) de la version précédente
@@ -170,8 +180,8 @@ function nomDePolice(nom: string): string {
  * de sous-titres identiques que de mots, dont un seul diffère à chaque fois.
  * C'est ce qui fait avancer le surlignage sans un seul clignotement.
  *
- * Les bornes de chaque événement : il commence au mot actif — sauf le premier,
- * qui commence au début du carton — et se termine au début du mot suivant, le
+ * Les bornes de chaque événement : il commence au mot actif — donc, pour le
+ * premier, au début du carton — et se termine au début du mot suivant, le
  * dernier tenant jusqu'à la fin du carton. Aucun trou entre deux mots, donc rien
  * qui disparaisse pendant un silence. Un événement dont la fin ne dépasse pas le
  * début est sauté : libass le rejetterait de toute façon, et deux mots qui
@@ -214,7 +224,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   // `Alignment: 2` — bas centré. C'est ce que `marginV` mesure : une marge
   // depuis le bas.
   const entete =
-    '﻿[Script Info]\n' +
+    BOM + '[Script Info]\n' +
     'ScriptType: v4.00+\n' +
     'PlayResY: 288\n' +
     'WrapStyle: 0\n' +
@@ -235,7 +245,9 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   for (const card of cards) {
     if (card.length === 0) continue
     for (let i = 0; i < card.length; i++) {
-      const debut = i === 0 ? card[0].start : card[i].start
+      // L'événement commence au mot actif — ce qui, pour le premier, revient au
+      // début du carton — et se termine au début du mot suivant.
+      const debut = card[i].start
       const fin = i < card.length - 1 ? card[i + 1].start : card[card.length - 1].end
       if (fin <= debut) continue
 

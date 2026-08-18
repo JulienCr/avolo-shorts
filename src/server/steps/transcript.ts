@@ -2,7 +2,13 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { cheminTemporaire, créerJournal, type Artefact } from '@/server/ffmpeg'
+import {
+  ArrêtDemandéError,
+  cheminTemporaire,
+  créerJournal,
+  propagerArrêt,
+  type Artefact,
+} from '@/server/ffmpeg'
 import { placeSidecar, resolveSource } from '@/server/paths'
 import { montageRépond } from '@/server/steps/ingest'
 
@@ -256,6 +262,15 @@ export type OptionsTranscript = {
   language?: string
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
   onLog?: (ligne: string) => void
+  /**
+   * L'arrêt demandé (`POST /api/projects/:id/stop`).
+   *
+   * **C'est l'étape où il compte le plus, et celle où il coûte le plus cher à
+   * rater.** WhisperX tient le GPU, et un processus laissé derrière soi garde la
+   * VRAM : la reprise démarrerait à côté de lui. `propagerArrêt` lui laisse dix
+   * secondes après le `SIGTERM` — CTranslate2 ne rend pas la main tout de suite.
+   */
+  signal?: AbortSignal
 }
 
 export type Transcription = Artefact & {
@@ -338,7 +353,7 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
   ]
 
   try {
-    await lancerWorker(python, args, env, o.onLog)
+    await lancerWorker(python, args, env, o.onLog, o.signal)
     await fsp.rename(temporaire, placement.transcript)
   } catch (cause) {
     await fsp.rm(temporaire, { force: true }).catch(() => {})
@@ -371,11 +386,19 @@ function lancerWorker(
   args: string[],
   env: NodeJS.ProcessEnv,
   onLog?: (ligne: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const journal = créerJournal(40)
 
   return new Promise<void>((resolve, reject) => {
+    // L'arrêt peut être arrivé pendant le sondage du montage, qui attend
+    // jusqu'à vingt secondes juste au-dessus.
+    if (signal?.aborted === true) {
+      reject(new ArrêtDemandéError('la transcription'))
+      return
+    }
     const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const débrancher = propagerArrêt(proc, signal)
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
@@ -412,6 +435,7 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
+      débrancher()
       reject(
         new Error(
           `Le worker de transcription n'a pas pu démarrer (${python}) : ${cause.message}. ` +
@@ -421,12 +445,18 @@ function lancerWorker(
       )
     })
 
-    proc.on('close', (code, signal) => {
+    proc.on('close', (code, signalUnix) => {
+      débrancher()
       if (code === 0) {
         resolve()
         return
       }
-      const cause = signal !== null ? `tué par ${signal}` : `code de sortie ${code}`
+      // Un arrêt demandé n'est pas un échec de la transcription. Voir `runFfmpeg`.
+      if (signal?.aborted === true) {
+        reject(new ArrêtDemandéError('la transcription'))
+        return
+      }
+      const cause = signalUnix !== null ? `tué par ${signalUnix}` : `code de sortie ${code}`
       reject(
         new Error(
           [

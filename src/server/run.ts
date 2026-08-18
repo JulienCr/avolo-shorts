@@ -28,7 +28,7 @@ import {
   runCandidates,
   type BilanNotation,
 } from '@/server/steps/candidates'
-import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
+import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest, nettoyerStage } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -52,6 +52,14 @@ import { transcribe } from '@/server/steps/transcript'
  *    annoncerait une transcription qui ne tourne plus. Ce qui survit à un
  *    redémarrage, ce sont les artefacts — donc `steps`. Seul le suivi
  *    d'avancement en cours est perdu, et il ne se rattrape pas.
+ * 4. **Une exécution s'arrête pour de vrai.** La table `enCours` tient un
+ *    `AbortController` par projet, et son signal descend jusque dans les
+ *    processus : `SIGTERM` puis `SIGKILL` sur ffmpeg et sur les deux workers
+ *    Python, fermeture des flux pour la copie d'ingestion, `abortSignal` pour
+ *    l'appel Gemini. Ce qui rend l'arrêt **sûr** est ailleurs, et c'est la
+ *    règle 2 de `produireArtefact` : chaque étape écrit sous un nom temporaire
+ *    et ne renomme qu'au succès, donc une étape tuée ne laisse rien que le
+ *    relevé de présence prendrait pour un artefact fait.
  */
 
 /** Ce que l'interface lit dans `ProjectStatus.running`. */
@@ -68,6 +76,21 @@ type Exécution = {
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
   dernièreÉcriture: number
   terminée: Promise<void>
+  /**
+   * De quoi arrêter le travail en cours, **jusque dans les processus**.
+   *
+   * `enCours` tenait déjà une exécution par projet ; c'est ici que se pose le
+   * contrôleur, parce que c'est la seule table qui sache ce qui tourne. Le
+   * signal descend ensuite dans chaque étape : ffmpeg et les deux workers
+   * Python reçoivent un `SIGTERM` puis un `SIGKILL`, la copie d'ingestion ferme
+   * ses flux, et l'appel Gemini part avec un `abortSignal`.
+   *
+   * **Une pause qui tuerait seulement l'affichage n'est pas une pause** (retour
+   * d'usage §11). Un proxy qu'on laisserait tourner tiendrait douze cœurs
+   * pendant six minutes après qu'on a demandé l'arrêt, et une transcription
+   * garderait le GPU.
+   */
+  contrôleur: AbortController
 }
 
 const enCours = new Map<string, Exécution>()
@@ -117,6 +140,35 @@ export class CollisionDeProjetError extends Error {
 export function progression(projectId: string): Progression | null {
   const exécution = enCours.get(projectId)
   return exécution === undefined ? null : { ...exécution.courante }
+}
+
+/**
+ * Arrête l'exécution en cours d'un projet. **Idempotent.**
+ *
+ * Rend `false` quand rien ne tournait, et ce n'est pas un échec : l'analyse
+ * venait de finir, ou un redémarrage de Next a emporté l'exécution avec lui —
+ * `enCours` est une table de *ce* processus. Le bouton peut donc se cliquer deux
+ * fois sans que l'appelant ait à décider lequel des deux clics comptait.
+ *
+ * **Elle ne bloque pas.** `propagerArrêt` laisse dix secondes à un `SIGTERM`
+ * avant le `SIGKILL`, et une route qui attendrait la mort effective du processus
+ * ferait patienter le navigateur d'autant. Ce qui dit que l'arrêt a eu lieu est
+ * `running` qui retombe à `null`, sur le même sondage qui suivait l'avancement.
+ *
+ * **Ce qui est fait reste fait.** Aucun artefact n'est effacé : les étapes
+ * écrivent sous un nom temporaire et ne renomment qu'au succès (voir
+ * `produireArtefact`), donc l'étape coupée n'a rien laissé qui la ferait passer
+ * pour faite, et les précédentes gardent les leurs. La reprise repart à la
+ * première étape manquante — c'est le graphe, rien de plus.
+ */
+export function arrêter(projectId: string): boolean {
+  const exécution = enCours.get(projectId)
+  if (exécution === undefined) return false
+  // Un second appel pendant que le premier finit de descendre : l'exécution est
+  // toujours là, la demande est toujours vraie, et `abort()` deux fois n'a pas
+  // d'effet supplémentaire.
+  if (!exécution.contrôleur.signal.aborted) exécution.contrôleur.abort()
+  return true
 }
 
 /** Attend la fin de l'exécution d'un projet. Pour les scripts et les tests. */
@@ -330,6 +382,21 @@ export type Statut = {
   error: string | null
   finishedAt: number | null
   /**
+   * Vrai quand l'exécution s'est arrêtée parce qu'on le lui a demandé.
+   *
+   * **Un arrêt demandé n'est pas un échec**, et c'est tout ce que ce champ sert
+   * à dire à qui ouvre le fichier : il porte `error: null` et un `finishedAt`,
+   * exactement comme une exécution qui a fini son plan, alors qu'il manque des
+   * artefacts. Sans lui, les deux cas sont indiscernables sur le disque.
+   *
+   * **Il ne traverse pas la frontière HTTP, et il n'a pas à la traverser.**
+   * `phaseProjet` (`src/core/parcours.ts`) déduit déjà l'état juste : plus rien
+   * ne tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
+   * propose de reprendre. Publier un second champ qui dit la même chose ferait
+   * deux vérités sur une question déjà tranchée.
+   */
+  arrêtée: boolean
+  /**
    * Ce que le repérage de **cette** exécution n'a pas jugé, ou `null`.
    *
    * Le bilan lui-même vit en mémoire dans le processus qui l'a produit
@@ -462,6 +529,7 @@ function publier(exécution: Exécution, changementDÉtape: boolean): void {
       running: { ...exécution.courante },
       error: null,
       finishedAt: null,
+      arrêtée: false,
     },
     exécution.repérage,
   )
@@ -553,6 +621,7 @@ export async function lancer(
     repérage: 'absent',
     dernièreÉcriture: 0,
     terminée: Promise.resolve(),
+    contrôleur: new AbortController(),
   }
   enCours.set(projectId, exécution)
 
@@ -602,6 +671,7 @@ export async function lancer(
           running: null,
           error: null,
           finishedAt: Date.now(),
+          arrêtée: false,
         },
         'absent',
       )
@@ -611,6 +681,13 @@ export async function lancer(
     publier(exécution, true)
     exécution.terminée = exécuter(exécution, projet, db, options, doitIngérer).finally(() => {
       enCours.delete(projectId)
+      // **Le nettoyage du cache de travail, après traitement** (retour d'usage
+      // §5). Best effort et sans attente : il ne fait pas partie de
+      // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
+      // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
+      // c'est voulu, le TTL vaut pour elle comme pour les autres.
+      const garder = copiesEnUsage(db)
+      if (garder !== null) void nettoyerStage({ garder }).catch(() => {})
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
@@ -621,6 +698,36 @@ export async function lancer(
     enCours.delete(projectId)
     throw cause
   }
+}
+
+/**
+ * Les copies de travail qu'une exécution est en train de lire, ou `null` si on
+ * n'a pas pu le savoir.
+ *
+ * Effacer sous un ffmpeg ne le casse pas — le descripteur ouvert survit à
+ * l'`unlink` sous Linux — mais l'étape d'après repaierait la copie, et sur une
+ * source de 12 Go cela veut dire cinq minutes de Drive. Deux projets peuvent
+ * tourner en même temps : `enCours` est une table par projet, pas un verrou
+ * global.
+ *
+ * **`null` veut dire « ne nettoie pas », pas « n'épargne rien ».** Cette
+ * fonction est appelée depuis le `finally` d'une exécution, et `closeDb`
+ * s'accroche à l'arrêt du serveur : la base peut s'être refermée entre les deux.
+ * Rendre une liste vide ferait alors effacer à l'aveugle exactement les copies
+ * qu'on cherchait à épargner, et laisser lever ferait rejeter une exécution qui,
+ * elle, s'est bien passée. Ne rien nettoyer coûte au pire un passage sauté.
+ */
+function copiesEnUsage(db: Database.Database): string[] | null {
+  const chemins: string[] = []
+  try {
+    for (const id of enCours.keys()) {
+      const copie = getProject(db, id)?.stagedPath
+      if (copie != null) chemins.push(copie)
+    }
+  } catch {
+    return null
+  }
+  return chemins
 }
 
 /**
@@ -673,6 +780,36 @@ async function exécuter(
     publier(exécution, true)
   }
 
+  const signal = exécution.contrôleur.signal
+
+  /**
+   * Le `status.json` d'une exécution qu'on a arrêtée.
+   *
+   * **Ni `running`, ni `error`.** Un arrêt demandé n'est pas une panne : écrire
+   * le message du ffmpeg tué — « ffmpeg a échoué (tué par SIGTERM) » — ferait
+   * afficher un bandeau d'échec à quelqu'un qui vient de cliquer « Arrêter ».
+   * L'état juste est celui que `phaseProjet` en déduit tout seul : plus rien ne
+   * tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
+   * propose de reprendre.
+   */
+  const publierLArrêt = (): void => {
+    écrireStatut(
+      projectId,
+      {
+        pid: process.pid,
+        updatedAt: Date.now(),
+        cibles: exécution.cibles,
+        plan: exécution.plan,
+        running: null,
+        error: null,
+        finishedAt: Date.now(),
+        arrêtée: true,
+      },
+      exécution.repérage,
+    )
+    console.log(`[${projectId}] arrêté sur ${exécution.courante.step}.`)
+  }
+
   try {
     if (doitIngérer) {
       // L'ingestion n'est pas une étape du graphe — la source est là ou le
@@ -681,6 +818,7 @@ async function exécuter(
       // tant que la copie n'est pas finie.
       const ingestion = await étapes.ingest(projet.sourcePath, {
         db,
+        signal,
         onProgress: (a) => avancer(a.fraction),
       })
       const relu = getProject(db, projectId)
@@ -689,6 +827,10 @@ async function exécuter(
     }
 
     for (const étape of exécution.plan) {
+      // **Le contrôle est à l'entrée de chaque étape, pas seulement dans les
+      // processus.** Un arrêt demandé pendant la transcription doit couper le
+      // worker *et* empêcher les six minutes de proxy qui la suivent de partir.
+      if (signal.aborted) break
       exécution.courante = { step: étape, progress: 0 }
       // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
       // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
@@ -697,12 +839,22 @@ async function exécuter(
       publier(exécution, true)
       console.log(`[${projectId}] ${étape}…`)
       try {
-        await exécuterÉtape(étape, projet, db, étapes, avancer, signalerLeBilan)
+        await exécuterÉtape(étape, projet, db, étapes, avancer, signalerLeBilan, signal)
       } catch (cause) {
-        if (étape === 'candidates') exécution.repérage = 'échoué'
+        // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
+        // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
+        // l'autre une décision, et le code se relit.
+        if (étape === 'candidates') exécution.repérage = signal.aborted ? 'en cours' : 'échoué'
         throw cause
       }
       if (étape === 'candidates') exécution.repérage = 'fait'
+    }
+
+    // L'arrêt tombé entre deux étapes, ou pendant la dernière : la boucle est
+    // sortie sans lever, et il ne faut surtout pas écrire un statut de succès.
+    if (signal.aborted) {
+      publierLArrêt()
+      return
     }
 
     écrireStatut(
@@ -715,11 +867,22 @@ async function exécuter(
         running: null,
         error: null,
         finishedAt: Date.now(),
+        arrêtée: false,
       },
       exécution.repérage,
     )
     console.log(`[${projectId}] terminé : ${exécution.plan.join(' → ')}`)
   } catch (cause) {
+    // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
+    // l'étape, elle vaut `ArrêtDemandéError`, une `AbortError` de `pipeline` ou
+    // le refus d'un flux fermé sous les pieds d'une bibliothèque tierce ; le
+    // seul fait commun est que quelqu'un a demandé l'arrêt. Et on ne relève pas
+    // l'erreur : une exécution arrêtée s'est terminée comme on le voulait, donc
+    // `attendre()` doit rendre la main sans rejeter.
+    if (signal.aborted) {
+      publierLArrêt()
+      return
+    }
     // **Le message complet au journal, sa version épurée dans le fichier.** Les
     // erreurs de `runFfmpeg`, `statAvecDélai` et `lancerWorker` portent la
     // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
@@ -736,6 +899,7 @@ async function exécuter(
         running: null,
         error: messageSûr(cause),
         finishedAt: Date.now(),
+        arrêtée: false,
       },
       exécution.repérage,
     )
@@ -759,6 +923,7 @@ async function exécuterÉtape(
   étapes: Étapes,
   avancer: (fraction: number | null) => void,
   signalerLeBilan: () => void,
+  signal: AbortSignal,
 ): Promise<void> {
   switch (étape) {
     case 'proxy':
@@ -773,6 +938,7 @@ async function exécuterÉtape(
         input: projet.stagedPath,
         durationSec: projet.durationSec,
         force: true,
+        signal,
         onProgress: (a: { fraction: number | null }) => avancer(a.fraction),
       }
       await (étape === 'proxy' ? étapes.buildProxy(commun) : étapes.extractAudio(commun))
@@ -785,6 +951,7 @@ async function exécuterÉtape(
         projectId: projet.id,
         audio: audioPath(projet.id),
         force: true,
+        signal,
         onLog: (ligne) => {
           console.log(`[${projet.id}] worker | ${ligne}`)
           avancer(avancementWorker(ligne))
@@ -804,14 +971,28 @@ async function exécuterÉtape(
       // lit même sur le Drive. **Sans repli sur la copie, on la rendrait
       // obligatoire** — donc on paierait cinq minutes de recopie depuis un
       // montage lent pour relancer une analyse dont le proxy est déjà là.
-      const source =
-        projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
-          ? projet.stagedPath
-          : projet.sourcePath
+      // **Mais un repli silencieux n'en est pas un.** C'est le cas que le §5 du
+      // retour d'usage décrit comme « extrêmement lent » : le travail bascule
+      // sur le montage 9p sans que rien ne le dise, et une lenteur inexpliquée
+      // se cherche pendant une demi-heure avant qu'on pense au montage. Ici
+      // elle reste bornée — on lit un en-tête, pas la vidéo —, ce qui justifie
+      // de ne pas repayer cinq minutes de recopie ; ce qui ne se justifie pas,
+      // c'est de le taire.
+      const copieLà = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
+      if (!copieLà) {
+        console.warn(
+          `[${projet.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
+            'relevées sur l’original — c’est-à-dire sur le montage 9p. Un ffprobe d’en-tête le ' +
+            'supporte ; une étape qui lirait la vidéo entière, non. Viser proxy ou audio ' +
+            'reconstitue la copie.',
+        )
+      }
+      const source = copieLà && projet.stagedPath !== null ? projet.stagedPath : projet.sourcePath
       await étapes.runAnalysis({
         projectId: projet.id,
         source,
         force: true,
+        signal,
         onLog: (ligne) => {
           console.log(`[${projet.id}] detect | ${ligne}`)
           avancer(avancementWorker(ligne))
@@ -825,7 +1006,7 @@ async function exécuterÉtape(
       // Sans lui, `status.json` ne le porte qu'une fois l'étape finie, et l'écran
       // affiche « rien à signaler » pendant les trente secondes où la perte se
       // constitue. (relevé par Codex et Copilot)
-      await étapes.runCandidates(projet.id, { db, onBilan: signalerLeBilan })
+      await étapes.runCandidates(projet.id, { db, signal, onBilan: signalerLeBilan })
       return
     }
 

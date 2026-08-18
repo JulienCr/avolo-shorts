@@ -31,6 +31,22 @@ export async function register(): Promise<void> {
 
   const { accrocherArrêt } = await import('@/server/arret')
   accrocherArrêt()
+
+  // **Le cache de travail, borné au démarrage** (retour d'usage §5). `stage/`
+  // porte plusieurs gigaoctets par émission ; sans passage régulier, il grossit
+  // jusqu'au disque. Huit heures de TTL, et une copie effacée ne coûte qu'une
+  // recopie — 45 secondes pour 4,3 Go —, jamais un artefact.
+  //
+  // **Sans `await`, et sans laisser d'échec remonter.** Le nettoyage n'est pas
+  // une condition de démarrage : `register()` lève exprès quand un secret ne se
+  // résout pas, parce que c'est une configuration fausse ; un `readdir` sur un
+  // dossier absent, lui, ne doit pas empêcher le serveur de servir. Et
+  // l'attendre ferait payer au premier chargement de page un balayage de disque
+  // dont personne n'attend le résultat.
+  const { nettoyerStage } = await import('@/server/steps/ingest')
+  void nettoyerStage().catch((cause: unknown) => {
+    console.warn('Nettoyage de stage/ au démarrage :', cause)
+  })
 }
 
 /**

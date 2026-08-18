@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Database, { type Database as BaseSqlite } from 'better-sqlite3'
 import {
+  appliquerRéglages,
+  champDeRéglage,
   getClip,
   getClips,
   getProject,
@@ -12,7 +14,10 @@ import {
   openDb,
   putClip,
   putClipOrdonné,
+  REGISTRE_RÉGLAGES,
   replaceClips,
+  RéglageInvalideError,
+  réglagesEffectifs,
   setRéglage,
   upsertProject,
   type Project,
@@ -187,6 +192,127 @@ describe('les réglages', () => {
       setRéglage(db, champ, 3)
       expect(getRéglages(db)[champ]).toBe(3)
     }
+  })
+})
+
+describe('le registre des réglages', () => {
+  it('décrit chaque champ de DimensionsRepérage, libellé compris', () => {
+    // Le contrat du §6.2 du retour d'usage : « éviter de présenter uniquement
+    // les noms techniques des clés ». Un champ ajouté sans libellé casse le
+    // type-check ; celui-ci vérifie qu'aucun ne reste vide.
+    for (const nom of Object.keys(DIMENSIONS_PAR_DÉFAUT)) {
+      const champ = champDeRéglage('selection', nom)
+      expect(champ, nom).toBeDefined()
+      expect(champ!.libellé.length).toBeGreaterThan(0)
+      expect(champ!.explication.length).toBeGreaterThan(0)
+      expect(champ!.défaut).toBe(DIMENSIONS_PAR_DÉFAUT[nom as keyof typeof DIMENSIONS_PAR_DÉFAUT])
+    }
+  })
+
+  /**
+   * **Jamais une clé d'API en clair dans `settings`.** La table se relit en
+   * clair avec `sqlite3`, et le dépôt est public : les secrets passent par
+   * `@/server/secrets`, qui les résout depuis 1Password. Une famille
+   * « intelligence artificielle » stockera un modèle et une *référence*, jamais
+   * une valeur — ce test tombe le jour où quelqu'un ajoute `apiKey` au registre.
+   */
+  it('ne porte aucun champ dont le nom annonce un secret', () => {
+    for (const champ of REGISTRE_RÉGLAGES) {
+      expect(`${champ.famille}.${champ.nom}`).not.toMatch(
+        /(cle|clé|key|token|secret|password|passwd|motdepasse)/i,
+      )
+    }
+  })
+
+  it('ne connaît pas une famille qui n’existe pas', () => {
+    expect(champDeRéglage('hook', 'duree')).toBeUndefined()
+    expect(champDeRéglage('selection', 'minutesParClipe')).toBeUndefined()
+  })
+
+  it('préfixe chaque clé stockée par sa famille', () => {
+    setRéglage(db, 'minutesParClip', 4)
+    expect(db.prepare('SELECT key FROM settings').all()).toEqual([
+      { key: 'selection.minutesParClip' },
+    ])
+  })
+})
+
+describe('appliquerRéglages', () => {
+  it('écrit plusieurs champs d’un coup et rend les réglages résultants', () => {
+    const résultat = appliquerRéglages(db, {
+      selection: { minutesParClip: 4, clipsMaximum: 12 },
+    })
+    expect(résultat.selection.minutesParClip).toBe(4)
+    expect(résultat.selection.clipsMaximum).toBe(12)
+    // Les champs non touchés ressortent à leur valeur effective, pas absents :
+    // l'écran affiche ce qui s'applique.
+    expect(résultat.selection.fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
+  })
+
+  it('refuse une clé inconnue', () => {
+    expect(() => appliquerRéglages(db, { selection: { minutesParClipe: 4 } })).toThrow(
+      RéglageInvalideError,
+    )
+  })
+
+  it('refuse une famille inconnue', () => {
+    expect(() => appliquerRéglages(db, { hook: { duree: 2 } })).toThrow(/inconnu/i)
+  })
+
+  it('refuse une valeur hors bornes', () => {
+    expect(() => appliquerRéglages(db, { selection: { minutesParClip: 0 } })).toThrow(
+      RéglageInvalideError,
+    )
+    expect(() => appliquerRéglages(db, { selection: { fenetresParClip: -1 } })).toThrow()
+    expect(() => appliquerRéglages(db, { selection: { clipsMinimum: 2.5 } })).toThrow()
+  })
+
+  it('refuse une valeur du mauvais type sans la convertir', () => {
+    // `"4"` n'est pas 4 : accepter la chaîne ferait passer `"4abc"` par le même
+    // chemin le jour où quelqu'un remplacerait le contrôle par un `Number()`.
+    expect(() => appliquerRéglages(db, { selection: { minutesParClip: '4' } })).toThrow()
+    expect(() => appliquerRéglages(db, { selection: { minutesParClip: null } })).toThrow()
+    expect(() => appliquerRéglages(db, { selection: { minutesParClip: true } })).toThrow()
+  })
+
+  it('refuse un corps qui n’est pas un objet de familles', () => {
+    for (const corps of [null, 42, 'selection', [], { selection: 4 }, { selection: [] }]) {
+      expect(() => appliquerRéglages(db, corps)).toThrow(RéglageInvalideError)
+    }
+  })
+
+  /**
+   * **Rien n'est écrit tant que tout n'est pas validé.** Un patch dont le second
+   * champ est hors bornes ne doit pas laisser le premier en base : l'appelant
+   * reçoit un refus et affiche l'état d'avant, alors que la moitié de sa saisie
+   * serait passée.
+   */
+  it('n’écrit rien quand un seul champ du patch est refusé', () => {
+    expect(() =>
+      appliquerRéglages(db, { selection: { minutesParClip: 4, fenetresParClip: 0 } }),
+    ).toThrow()
+    expect(getRéglages(db)).toEqual(DIMENSIONS_PAR_DÉFAUT)
+  })
+
+  it('accepte un patch vide sans rien changer', () => {
+    expect(appliquerRéglages(db, {}).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(appliquerRéglages(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
+  })
+
+  it('ne touche à aucune émission : changer un réglage ne recalcule rien', () => {
+    // Le §11 du retour d'usage, tenu par un test plutôt que par une intention :
+    // « toute modification d'un paramètre global ne doit pas silencieusement
+    // recalculer des émissions existantes ».
+    upsertProject(db, PROJET)
+    putClip(db, clip('clip_01', { status: 'kept' }))
+    appliquerRéglages(db, { selection: { minutesParClip: 4 } })
+    expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
+  })
+
+  it('rend la même chose que réglagesEffectifs', () => {
+    appliquerRéglages(db, { selection: { clipsMinimum: 9 } })
+    expect(réglagesEffectifs(db)).toEqual({ selection: getRéglages(db) })
   })
 })
 

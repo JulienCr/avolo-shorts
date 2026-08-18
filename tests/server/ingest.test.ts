@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,10 +6,14 @@ import {
   attendreOuRenoncer,
   décisionCopie,
   empreinteSource,
+  ingest,
   montageRépond,
+  nettoyerStage,
   statAvecDélai,
+  TTL_STAGE_MS,
   vérifierTailleCopiée,
 } from '@/server/steps/ingest'
+import { ArrêtDemandéError } from '@/server/ffmpeg'
 
 /**
  * Ce qui se teste de l'ingestion sans le Drive : la décision de recopier et la
@@ -200,5 +204,193 @@ describe('attendreOuRenoncer', () => {
     const tardif = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('tard')), 20))
     await expect(attendreOuRenoncer(tardif, 1, 'garde')).rejects.toThrow(/garde/)
     await new Promise((r) => setTimeout(r, 40))
+  })
+})
+
+/**
+ * Le cache de travail : `stage/` et ses bornes.
+ *
+ * **Il n'est jamais une source de vérité et peut être supprimé sans conséquence
+ * fonctionnelle** (retour d'usage §5). Ce que ces tests éprouvent est donc
+ * l'inverse de ce qu'on éprouve d'un artefact : non pas qu'une copie survit,
+ * mais qu'elle disparaît quand il le faut, et qu'elle ne disparaît pas sous les
+ * pieds de qui la lit.
+ */
+describe('nettoyerStage', () => {
+  let racine: string
+  const ancienStage = process.env.STAGE_DIR
+
+  beforeEach(() => {
+    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-stage-'))
+    process.env.STAGE_DIR = path.join(racine, 'stage')
+    fs.mkdirSync(process.env.STAGE_DIR, { recursive: true })
+  })
+
+  afterEach(() => {
+    if (ancienStage === undefined) delete process.env.STAGE_DIR
+    else process.env.STAGE_DIR = ancienStage
+    fs.rmSync(racine, { recursive: true, force: true })
+  })
+
+  /** Une copie de travail, avec l'âge qu'on veut lui donner. */
+  function poser(nom: string, âgeMs: number): string {
+    const chemin = path.join(process.env.STAGE_DIR as string, nom)
+    fs.writeFileSync(chemin, 'une copie')
+    const quand = new Date(Date.now() - âgeMs)
+    fs.utimesSync(chemin, quand, quand)
+    return chemin
+  }
+
+  it('retire ce qui a dépassé les huit heures', async () => {
+    const vieille = poser('vieille.mp4', TTL_STAGE_MS + 60_000)
+    expect(await nettoyerStage()).toEqual(['vieille.mp4'])
+    expect(fs.existsSync(vieille)).toBe(false)
+  })
+
+  it('garde ce qui est encore frais', async () => {
+    const fraîche = poser('fraiche.mp4', TTL_STAGE_MS - 60_000)
+    expect(await nettoyerStage()).toEqual([])
+    expect(fs.existsSync(fraîche)).toBe(true)
+  })
+
+  /**
+   * **Ce qu'une exécution est en train de lire est épargné.** Effacer sous un
+   * ffmpeg ne le casse pas — le descripteur ouvert survit à l'`unlink` sous
+   * Linux — mais l'étape suivante repaierait la copie, et sur une source de
+   * 12 Go cela veut dire cinq minutes de Drive.
+   */
+  it('épargne les copies qu’une exécution utilise', async () => {
+    const enUsage = poser('en-usage.mp4', TTL_STAGE_MS * 2)
+    poser('autre.mp4', TTL_STAGE_MS * 2)
+    expect(await nettoyerStage({ garder: [enUsage] })).toEqual(['autre.mp4'])
+    expect(fs.existsSync(enUsage)).toBe(true)
+  })
+
+  it('ne touche ni aux sous-dossiers ni aux liens', async () => {
+    const stage = process.env.STAGE_DIR as string
+    const cible = poser('cible.mp4', 0)
+    fs.mkdirSync(path.join(stage, 'un-dossier'))
+    fs.symlinkSync(cible, path.join(stage, 'un-lien.mp4'))
+    // Le lien est vieux au sens de `lstat` — il vient d'être créé, donc frais —
+    // mais même vieilli, ce n'est pas un fichier ordinaire.
+    const vieux = new Date(Date.now() - TTL_STAGE_MS * 2)
+    fs.lutimesSync(path.join(stage, 'un-lien.mp4'), vieux, vieux)
+    fs.utimesSync(path.join(stage, 'un-dossier'), vieux, vieux)
+
+    expect(await nettoyerStage()).toEqual([])
+    expect(fs.existsSync(cible)).toBe(true)
+    expect(fs.existsSync(path.join(stage, 'un-dossier'))).toBe(true)
+  })
+
+  /**
+   * **Best effort veut dire : ne jamais échouer.** Le nettoyage tourne au
+   * démarrage du serveur (`src/instrumentation.ts`), où lever ferait échouer
+   * `register()` — Next préfixe alors le message de « An error occurred while
+   * loading instrumentation hook » et le serveur ne sert plus rien, pour un
+   * dossier de cache absent.
+   */
+  it('ne lève pas quand le dossier n’existe pas', async () => {
+    process.env.STAGE_DIR = path.join(racine, 'jamais-créé')
+    await expect(nettoyerStage()).resolves.toEqual([])
+  })
+
+  it('accepte un TTL et une horloge, pour se tester sans attendre huit heures', async () => {
+    poser('a.mp4', 0)
+    expect(await nettoyerStage({ ttlMs: 0, maintenant: Date.now() + 1_000 })).toEqual(['a.mp4'])
+  })
+})
+
+/**
+ * L'ingestion elle-même, sur une source minuscule et sans Drive.
+ *
+ * `probeDuration` ne lève jamais — un ffprobe absent rend un sondage vide —,
+ * donc ces tests tournent sans binaire.
+ */
+describe('ingest', () => {
+  let racine: string
+  const avant = { replay: process.env.REPLAY_DIR, stage: process.env.STAGE_DIR }
+
+  /** Assez gros pour que la copie dure plus qu'un `stat`. */
+  const OCTETS = 16 * 1024 * 1024
+  const NOM = '2025-06-15-cqlp.mp4'
+
+  beforeEach(() => {
+    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ingest-'))
+    process.env.REPLAY_DIR = path.join(racine, 'replays')
+    process.env.STAGE_DIR = path.join(racine, 'stage')
+    fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
+    fs.writeFileSync(path.join(process.env.REPLAY_DIR, NOM), Buffer.alloc(OCTETS, 7))
+  })
+
+  afterEach(() => {
+    for (const [clé, valeur] of [
+      ['REPLAY_DIR', avant.replay],
+      ['STAGE_DIR', avant.stage],
+    ] as const) {
+      if (valeur === undefined) delete process.env[clé]
+      else process.env[clé] = valeur
+    }
+    fs.rmSync(racine, { recursive: true, force: true })
+  })
+
+  it('copie en gardant le nom du fichier d’origine', async () => {
+    const ingestion = await ingest(NOM, { db: null })
+    expect(path.basename(ingestion.stagedPath)).toBe(NOM)
+    expect(fs.statSync(ingestion.stagedPath).size).toBe(OCTETS)
+    expect(ingestion.copied).toBe(true)
+  })
+
+  /**
+   * **Deux traitements ne copient pas la même source deux fois.** Le cas n'est
+   * pas théorique : `enCours` interdit deux exécutions du même projet, mais rien
+   * n'interdit à `dev-ingest` de tourner à côté du serveur. Sans verrou, les
+   * deux `pipeline` se disputent la bande passante d'un montage à 97 Mo/s et le
+   * second renommage écrase le premier fichier pendant qu'une étape le lit.
+   *
+   * L'assertion porte sur l'invariant — *au plus une* copie — et non sur le
+   * chemin emprunté : si la première finit avant que la seconde ne décide, c'est
+   * le contrôle de taille qui l'arrête, et c'est aussi bien. Sans verrou et avec
+   * recouvrement, en revanche, les deux copient et le test tombe.
+   */
+  it('ne copie pas deux fois la même source en parallèle', async () => {
+    let copiesEnCours = 0
+    const suivre = () => {
+      copiesEnCours += 1
+    }
+    const [a, b] = await Promise.all([
+      ingest(NOM, { db: null, onProgress: suivre }),
+      ingest(NOM, { db: null, onProgress: suivre }),
+    ])
+    // Une seule des deux a écrit ; l'autre a attendu ou constaté la copie.
+    expect([a.copied, b.copied].filter(Boolean).length).toBeLessThanOrEqual(1)
+    expect(fs.statSync(a.stagedPath).size).toBe(OCTETS)
+    // Et rien de partiel ne traîne : `stage/` porte des fichiers de plusieurs
+    // gigaoctets, un moignon n'y serait ramassé par personne.
+    expect(fs.readdirSync(path.dirname(a.stagedPath))).toEqual([NOM])
+    expect(copiesEnCours).toBeGreaterThan(0)
+  })
+
+  /**
+   * **La seule chose du dépôt qui s'annule vraiment.** Ailleurs on cesse
+   * d'attendre un appel système qui continue derrière ; `pipeline` ferme les
+   * deux flux et rend la main pour de bon. C'est ce qui permet d'arrêter une
+   * analyse pendant les cinq minutes de copie depuis le Drive.
+   */
+  it('s’interrompt en cours de copie, sans laisser de moignon', async () => {
+    const contrôleur = new AbortController()
+    const promesse = ingest(NOM, {
+      db: null,
+      signal: contrôleur.signal,
+      onProgress: () => contrôleur.abort(),
+    })
+    await expect(promesse).rejects.toThrow(ArrêtDemandéError)
+    // Ni la copie définitive, ni son temporaire.
+    expect(fs.readdirSync(path.join(racine, 'stage'))).toEqual([])
+  })
+
+  it('ne recopie pas une copie de la bonne taille', async () => {
+    await ingest(NOM, { db: null })
+    const seconde = await ingest(NOM, { db: null })
+    expect(seconde.copied).toBe(false)
   })
 })

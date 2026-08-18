@@ -2,12 +2,15 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import {
   analyserMarqueTemps,
+  ArrêtDemandéError,
   cheminTemporaire,
   choisirEncodeur,
   créerJournal,
   produireArtefact,
+  propagerArrêt,
   runFfmpeg,
 } from '@/server/ffmpeg'
 
@@ -285,5 +288,191 @@ describe('runFfmpeg, le délai de garde', () => {
 
   it('laisse passer un processus plus rapide que son délai', async () => {
     await expect(runFfmpeg(['0.05'], { bin: 'sleep', timeoutMs: 5_000 })).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * L'arrêt d'une analyse, vu du plus bas étage : un processus fils qu'il faut
+ * vraiment tuer.
+ *
+ * **C'est la moitié qui manquait au parcours.** L'interface pouvait déjà cesser
+ * d'afficher une progression ; ce qui n'existait pas, c'est la mort du travail
+ * derrière. Une pause qui laisse tourner ffmpeg n'est pas une pause (retour
+ * d'usage §11) : le proxy garde douze cœurs pendant six minutes et la
+ * transcription garde le GPU.
+ *
+ * Comme le délai de garde plus haut, ces tests n'ont pas besoin de ffmpeg — ils
+ * s'exercent sur `sleep` et sur `sh`, qui sont des processus comme les autres.
+ */
+describe('propagerArrêt', () => {
+  let dossier: string
+
+  beforeEach(() => {
+    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(dossier, { recursive: true, force: true })
+  })
+
+  /** La fin du processus, avec le signal qui l'a emporté. */
+  function finDe(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
+    return new Promise((résoudre) => proc.on('close', (_code, signal) => résoudre(signal)))
+  }
+
+  it('envoie un SIGTERM, qui suffit à un processus ordinaire', async () => {
+    const proc = spawn('sleep', ['30'])
+    const contrôleur = new AbortController()
+    const débrancher = propagerArrêt(proc, contrôleur.signal)
+    const fin = finDe(proc)
+    contrôleur.abort()
+    expect(await fin).toBe('SIGTERM')
+    débrancher()
+  })
+
+  /**
+   * **Et un SIGKILL derrière, parce que le SIGTERM ne suffit pas toujours.**
+   * WhisperX doit rendre le modèle et la VRAM, et CTranslate2 y met plusieurs
+   * secondes ; un worker qui traînerait tiendrait le GPU pendant que la reprise
+   * essaie de démarrer à côté de lui. Le processus de ce test-ci ignore
+   * franchement le SIGTERM, ce qu'un worker occupé fait de fait.
+   */
+  it('tue pour de bon celui qui ignore le SIGTERM', async () => {
+    // **On attend que le fils annonce qu'il est prêt.** Un `abort()` posé dans
+    // la foulée du `spawn` arrive avant que le processus n'ait installé son
+    // gestionnaire, et le signal l'emporte alors par son comportement par
+    // défaut : le test passerait en n'éprouvant rien du tout.
+    const proc = spawn(process.execPath, [
+      '-e',
+      "process.on('SIGTERM', () => {}); console.log('prêt'); setTimeout(() => {}, 5000)",
+    ])
+    await new Promise((prêt) => proc.stdout?.once('data', prêt))
+
+    const contrôleur = new AbortController()
+    const débrancher = propagerArrêt(proc, contrôleur.signal, 80)
+    const fin = finDe(proc)
+    contrôleur.abort()
+    expect(await fin).toBe('SIGKILL')
+    débrancher()
+  })
+
+  /**
+   * **Le signal peut déjà avoir été levé.** Un arrêt demandé pendant qu'une
+   * étape se prépare — le `mkdir` de `produireArtefact`, les deux `ffprobe` de
+   * l'analyse — laisserait sinon partir un processus que plus personne
+   * n'attend, seul, jusqu'au bout.
+   */
+  it('tue un processus lancé après coup sur un signal déjà levé', async () => {
+    const contrôleur = new AbortController()
+    contrôleur.abort()
+    const proc = spawn('sleep', ['30'])
+    const fin = finDe(proc)
+    propagerArrêt(proc, contrôleur.signal)()
+    expect(await fin).toBe('SIGTERM')
+  })
+
+  it('ne fait rien du tout sans signal, et son débranchement est sûr', async () => {
+    const proc = spawn('sleep', ['0.05'])
+    const débrancher = propagerArrêt(proc, undefined)
+    expect(await finDe(proc)).toBeNull()
+    expect(() => {
+      débrancher()
+      débrancher()
+    }).not.toThrow()
+  })
+
+  /**
+   * Le débranchement retire l'écouteur : sans lui, chaque étape d'une exécution
+   * laisserait un écouteur de plus sur le même signal, et la minuterie du
+   * SIGKILL tiendrait la boucle d'événements en vie après le processus qu'elle
+   * visait.
+   */
+  it('ne laisse pas d’écouteur derrière lui', async () => {
+    const contrôleur = new AbortController()
+    const proc = spawn('sleep', ['0.05'])
+    const débrancher = propagerArrêt(proc, contrôleur.signal)
+    await finDe(proc)
+    débrancher()
+    // `abort()` après coup ne doit plus rien déclencher : le second `kill` sur
+    // un processus mort est de toute façon attrapé, et rien ne doit lever.
+    expect(() => contrôleur.abort()).not.toThrow()
+  })
+})
+
+describe('runFfmpeg, l’arrêt demandé', () => {
+  let dossier: string
+
+  beforeEach(() => {
+    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-ff-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(dossier, { recursive: true, force: true })
+  })
+
+  /**
+   * **Un arrêt demandé n'est pas un échec de ffmpeg.** Le processus meurt bien
+   * d'un SIGTERM, et le message que `close` écrirait sans ce contrôle — « ffmpeg
+   * a échoué (tué par SIGTERM) » — est exact et trompeur : il finirait dans
+   * `status.json`, puis dans le champ `error` de `GET /api/projects/:id`,
+   * c'est-à-dire sur la seule surface qui dise à quelqu'un ce qui s'est passé.
+   */
+  it('rejette un arrêt, pas un échec', async () => {
+    const contrôleur = new AbortController()
+    const promesse = runFfmpeg(['30'], {
+      bin: 'sleep',
+      signal: contrôleur.signal,
+      quoi: 'proxy de cqlp',
+    })
+    contrôleur.abort()
+    await expect(promesse).rejects.toThrow(ArrêtDemandéError)
+    await expect(promesse).rejects.toThrow(/Arrêt demandé — proxy de cqlp/)
+  })
+
+  it('ne lance même pas le processus quand l’arrêt est déjà demandé', async () => {
+    const témoin = path.join(dossier, 'lance.txt')
+    const contrôleur = new AbortController()
+    contrôleur.abort()
+    await expect(
+      runFfmpeg(['-c', `echo parti > ${témoin}`], { bin: 'sh', signal: contrôleur.signal }),
+    ).rejects.toThrow(ArrêtDemandéError)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(fs.existsSync(témoin)).toBe(false)
+  })
+
+  /**
+   * **Ce qui rend l'arrêt sûr** : l'écriture passe par un nom temporaire, effacé
+   * quand elle échoue. Sans cela, un encodage tué à la cinquième minute
+   * laisserait un MP4 tronqué sous le nom définitif, et `relevéPrésence` le
+   * prendrait pour un artefact valide — la reprise sauterait l'étape, et le
+   * projet porterait un proxy amputé que personne ne verrait.
+   */
+  it('ne laisse ni artefact ni moignon derrière un encodage tué', async () => {
+    const dst = path.join(dossier, 'proxy.mp4')
+    const contrôleur = new AbortController()
+    process.env.FFMPEG_BIN = 'sh'
+    try {
+      const promesse = produireArtefact({
+        dst,
+        signal: contrôleur.signal,
+        quoi: 'proxy de cqlp',
+        args: (temporaire) => ['-c', `sleep 5; echo tronqué > ${temporaire}`],
+      })
+      contrôleur.abort()
+      await expect(promesse).rejects.toThrow(ArrêtDemandéError)
+    } finally {
+      delete process.env.FFMPEG_BIN
+    }
+    expect(fs.existsSync(dst)).toBe(false)
+    expect(fs.readdirSync(dossier)).toEqual([])
+  })
+
+  it('laisse passer un processus qui finit avant l’arrêt', async () => {
+    const contrôleur = new AbortController()
+    await expect(
+      runFfmpeg(['0.05'], { bin: 'sleep', signal: contrôleur.signal }),
+    ).resolves.toBeUndefined()
+    // Et un arrêt demandé après coup n'a plus rien à couper.
+    expect(() => contrôleur.abort()).not.toThrow()
   })
 })

@@ -14,18 +14,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import {
+  arrêterAnalyse,
   createProject,
   exportClip,
   getClip,
   getProject,
   listCandidates,
   listProjects,
+  lireRéglages,
   patchClip,
   runProject,
+  écrireRéglages,
   type CandidateClip,
   type ClipDetail,
   type ClipPatch,
   type PatchClipResult,
+  type PatchRéglages,
+  type Réglages,
   type RunTarget,
 } from '@/lib/api'
 
@@ -43,6 +48,14 @@ export const cles = {
    */
   tousCandidats: ['candidats'] as const,
   clip: (clipId: string) => ['clip', clipId] as const,
+  /**
+   * Les réglages, une seule entrée pour toute l'application.
+   *
+   * Pas de clé par famille : la route rend l'objet entier — c'est ce qui permet
+   * à l'écran d'afficher les valeurs *effectives* après une écriture partielle —
+   * et deux entrées pour un même corps se périmeraient l'une sans l'autre.
+   */
+  reglages: ['reglages'] as const,
 }
 
 export function useProjets() {
@@ -468,6 +481,89 @@ export function useRelancer() {
       // — et l'écran promettait de suivre une exécution qu'il ne verrait jamais.
       // (relevé par Copilot)
       void client.invalidateQueries({ queryKey: cles.projet(projectId) })
+    },
+  })
+}
+
+/**
+ * Les réglages effectifs.
+ *
+ * **Aucune interrogation en boucle, et pas d'invalidation au retour sur la
+ * page** : ce sont des valeurs que seul cet écran modifie, sur cette machine.
+ * Les redemander périodiquement coûterait une requête pour un état qui ne change
+ * que quand on le change.
+ */
+export function useRéglages() {
+  return useQuery({ queryKey: cles.reglages, queryFn: lireRéglages })
+}
+
+/**
+ * Écrire un patch de réglages.
+ *
+ * **La réponse remplace le cache, elle ne l'invalide pas.** La route rend les
+ * réglages *résultants* — la base complétée par les défauts, champs non touchés
+ * compris —, donc il n'y a rien à aller rechercher. Invalider ferait une seconde
+ * requête pour obtenir exactement le corps qu'on vient de recevoir.
+ *
+ * **Pas d'écriture optimiste**, contrairement au tri : un réglage refusé pour
+ * cause de valeur hors bornes est un cas courant — on tape « 0 » dans un champ
+ * dont le plancher est 1 —, et l'affichage doit revenir à la valeur qui
+ * s'applique, pas à celle qu'on a tapée.
+ *
+ * **Rien d'autre ne s'invalide, et c'est la règle qui compte** : changer un
+ * réglage ne recalcule aucune émission (retour d'usage §6.1). Invalider les
+ * projets ou les candidats laisserait croire le contraire.
+ */
+/*
+ * **`eslint-disable` sur les deux lignes qui suivent, et pas un cran plus
+ * large.** `react-hooks/rules-of-hooks` reconnaît un crochet personnalisé au
+ * motif `^use[A-Z0-9]`, qui ne connaît que l'alphabet ASCII : `useÉcrireRéglages`
+ * en est un, `useRéglages` et `useArrêter` passent, et celui-ci ne passe pas
+ * pour la seule raison que sa quatrième lettre est un « É ». Renommer aurait
+ * cassé le contrat convenu avec l'écran de réglages, qui s'écrit en parallèle.
+ */
+/* eslint-disable react-hooks/rules-of-hooks */
+export function useÉcrireRéglages() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (patch: PatchRéglages) => écrireRéglages(patch),
+    onSuccess(réglages: Réglages) {
+      client.setQueryData(cles.reglages, réglages)
+    },
+  })
+}
+/* eslint-enable react-hooks/rules-of-hooks */
+
+/**
+ * Arrêter l'analyse en cours d'un projet.
+ *
+ * **L'état du projet s'invalide quoi qu'il arrive**, comme pour `useRelancer` et
+ * pour la même raison inversée : après l'arrêt, `running` doit retomber à `null`
+ * tout de suite. `useProjet` interroge en boucle tant que quelque chose tourne,
+ * donc le prochain sondage le verrait de toute façon — mais deux secondes plus
+ * tard, sur la seule surface censée dire ce qui se passe.
+ *
+ * **La bibliothèque aussi** : `useProjets` n'interroge en boucle que tant qu'un
+ * projet porte un `running`. Sans cette invalidation, une liste ouverte dans un
+ * autre onglet garderait l'analyse arrêtée pour vivante, et son sondage
+ * s'arrêterait sur cet état-là.
+ *
+ * **`arrêtée: false` n'est pas un échec.** Rien ne tournait — l'analyse venait
+ * de finir, ou un redémarrage du serveur a emporté l'exécution. L'écran n'a rien
+ * à dire de plus que ce que l'état rafraîchi montre déjà.
+ *
+ * **Les candidats ne s'invalident pas.** Un arrêt ne produit rien : les
+ * propositions à l'écran sont exactement celles d'avant.
+ */
+export function useArrêter() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (projectId: string) => arrêterAnalyse(projectId),
+    onSettled(_resultat, _erreur, projectId) {
+      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
+      void client.invalidateQueries({ queryKey: cles.projets })
     },
   })
 }

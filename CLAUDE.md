@@ -53,10 +53,13 @@ tiennent dans un 1:1 ou plus serré, et ce chiffre est stable sur les trois.
   est en 30. Sans conséquence, le filtre `fps=30` traite les deux. Les tournages
   à venir passeront en 30 fps.
 - **ffmpeg** : le binaire d'Ubuntu sous WSL n'a **ni `h264_nvenc` ni
-  `-hwaccel cuda`**. Il faut un build statique. NVENC ne gagne rien sur le proxy
-  (14,2x contre 15,7x) et un facteur trois sur l'export (2,02x contre 5,76x).
-  Ne jamais combiner `-pix_fmt yuv420p` et `-hwaccel_output_format cuda` :
-  l'encodage échoue sans message exploitable.
+  `-hwaccel cuda`**. Il faut un build statique, installé par `setup.sh`. Mesuré
+  avec ce binaire : NVENC est **plus lent** que le CPU sur le proxy (12,8x contre
+  13,8x) et lui gagne un facteur 2,3 sur l'export (4,58x contre 1,97x, en
+  `-preset p5`). Ne jamais combiner `-pix_fmt yuv420p` et
+  `-hwaccel_output_format cuda` : l'encodage échoue sans message exploitable.
+  Attention aux chiffres mesurés avec le ffmpeg **Windows** : il ne passe pas par
+  la passerelle CUDA de WSL et flatte l'export d'environ 25 %.
 - Le diariseur de `~/dev/rythmo-impro/diarizer` (WhisperX large-v3 + pyannote)
   existe déjà et fonctionne. Il tourne **en venv, pas en Docker** : son
   `run-wsl.sh` exporte `LD_LIBRARY_PATH` vers le `nvidia/cudnn/lib` du venv,
@@ -77,3 +80,32 @@ est en section 4 de la spec.
 
 Ne pas anticiper une itération ultérieure au prétexte que « c'est presque le
 même code ».
+
+## Les issues
+
+Le dépôt a des templates, vingt-cinq labels et un workflow qui étiquette tout
+seul. Il n'a presque pas d'issues, et c'est voulu : un backlog noyé cache ses
+propres urgences, et rien ne le noie plus vite qu'une flotte d'agents qui
+consigne chacun ce qu'il a remarqué.
+
+Une issue se crée si **les trois** tiennent :
+
+1. **Il y a une action différée.** Pas un fait, pas une réserve, pas une
+   observation. Si personne ne fera jamais rien, c'est une note.
+2. **Il n'y a pas de meilleur foyer.** Un commentaire au point d'appel, la tâche
+   du plan, ce fichier ou la spec valent mieux dès lors que la personne qui en a
+   besoin les lira au bon moment. Une issue qui double l'un d'eux vieillit
+   séparément et finit par le contredire.
+3. **Ce serait perdu autrement.** Rien dans le plan de l'itération en cours ne le
+   fera remonter au moment utile.
+
+Deux règles de portée :
+
+- **Dans l'itération en cours, le tracker est le plan**, pas la liste des issues.
+  Une issue sert à ce qui survit au plan.
+- **Un agent ne crée pas d'issue de sa propre initiative.** Il le signale dans son
+  rapport final, et celui qui orchestre tranche.
+
+Une exception, parce qu'elle vient d'ailleurs : au triage d'une review, une
+trouvaille réelle mais hors du périmètre de la PR se dépose en issue avec les
+labels du dépôt, et son numéro est consigné dans la réponse au relecteur.

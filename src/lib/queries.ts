@@ -21,10 +21,12 @@ import {
   listCandidates,
   listProjects,
   patchClip,
+  runProject,
   type CandidateClip,
   type ClipDetail,
   type ClipPatch,
   type PatchClipResult,
+  type RunTarget,
 } from '@/lib/api'
 
 export const cles = {
@@ -389,6 +391,56 @@ export function useCreerProjet() {
     mutationFn: (source: string) => createProject(source),
     onSuccess() {
       void client.invalidateQueries({ queryKey: cles.projets })
+    },
+  })
+}
+
+/**
+ * Relancer une analyse : la reprise d'une exécution morte, et le repérage forcé.
+ *
+ * **Les deux gestes, un seul hook.** Ils ne diffèrent que par leurs arguments —
+ * `CIBLES_DE_REPRISE` sans `force` pour l'une, `'candidates'` avec `force` pour
+ * l'autre — et par ce que l'écran dit avant de les déclencher. Leur fraîcheur,
+ * elle, est la même.
+ *
+ * **L'état du projet s'invalide, et c'est la règle qui compte.** `useProjet`
+ * n'interroge en boucle que tant que `running` est non nul (`refetchInterval`
+ * rend `false` au repos) : après le 202, le cache porte encore `running: null`,
+ * l'interrogation ne repart pas, et l'écran resterait immobile devant une
+ * analyse qui tourne — c'est-à-dire exactement l'impasse que le bouton de
+ * reprise existe pour fermer.
+ *
+ * **Les candidats aussi.** Un repérage forcé remplace les propositions en
+ * attente (`effacerArtefact` retire `candidates.json` avant de toucher à la
+ * base) : la liste en cache décrit alors la passe d'avant. Par clé complète et
+ * non par préfixe, contrairement à `useExporter` : on connaît le projet ici.
+ *
+ * **Pas d'écriture optimiste.** La réponse est un 202 qui rend un `RunPlan` : ce
+ * qu'elle confirme, c'est que l'analyse est acceptée, pas qu'elle est faite. Il
+ * n'y a rien à afficher par avance, et `isPending` ne dure que le temps de
+ * l'aller-retour.
+ *
+ * **Un 409 est un cas nommé, pas un échec générique.** `lancer` lève
+ * `ExécutionEnCoursError` quand une exécution tourne déjà, et la route en fait
+ * un 409 : `ApiError` porte le code, et l'écran a de quoi dire « une exécution
+ * tourne déjà » plutôt que « la relance a échoué ».
+ */
+export function useRelancer() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      targets,
+      force,
+    }: {
+      projectId: string
+      targets: RunTarget | readonly RunTarget[]
+      force?: boolean | readonly RunTarget[]
+    }) => runProject(projectId, targets, force),
+    onSuccess(_plan, { projectId }) {
+      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
+      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
     },
   })
 }

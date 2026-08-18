@@ -166,11 +166,18 @@ function useDefilementRetenu(pret: boolean) {
     if (Number.isFinite(y) && y > 0) window.scrollTo(0, y)
   }, [pret])
 
+  // **Et on n'écrit que pendant ce temps-là.** La restauration du navigateur
+  // tente l'ancienne position sur une page qui n'a alors que la hauteur de ses
+  // squelettes : elle est ramenée vers le haut, et l'événement de défilement
+  // qu'elle émet écrasait la position gardée — les cartes arrivaient ensuite sur
+  // une valeur rabotée. Même chose quand une erreur remplace la grille : il n'y
+  // a rien à retenir d'une page où il n'y a rien à voir. (relevé par Codex)
   useEffect(() => {
+    if (!pret) return
     const retenir = () => écrireSession(CLE_DEFILEMENT, String(window.scrollY))
     window.addEventListener('scroll', retenir, { passive: true })
     return () => window.removeEventListener('scroll', retenir)
-  }, [])
+  }, [pret])
 }
 
 /**

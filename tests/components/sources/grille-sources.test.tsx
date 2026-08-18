@@ -113,7 +113,11 @@ describe('GrilleSources, les deux vides', () => {
     grille({ listing: { sources: [], montage: { disponible: true, fstype: '9p', entrées: 0 } } })
 
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('Le dossier des replays est vide.')
+    // Ni région live du tout : la conception §4.3 en admet trois — l'avancement,
+    // les erreurs, le résultat d'un export — et « pas une de plus ». Un dossier
+    // vide n'est aucune des trois, et il se lit en arrivant sur la page.
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByText('Le dossier des replays est vide.')).toBeTruthy()
   })
 
   it('annonce le montage absent comme une erreur, lui', () => {
@@ -244,6 +248,22 @@ describe('GrilleSources, le retour', () => {
     grille({ listing: undefined, chargement: true })
 
     expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('ne réécrit pas la position tant que la grille n’est pas là', () => {
+    // La restauration du navigateur tente l'ancienne position sur une page qui
+    // n'a alors que la hauteur de ses squelettes : elle est ramenée vers le
+    // haut, et l'événement de défilement qu'elle émet écrasait la position
+    // gardée. Les cartes arrivaient ensuite sur une valeur rabotée.
+    // (relevé par Codex)
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    sessionStorage.setItem(CLE_DEFILEMENT, '420')
+
+    grille({ listing: undefined, chargement: true })
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+    window.dispatchEvent(new Event('scroll'))
+
+    expect(sessionStorage.getItem(CLE_DEFILEMENT)).toBe('420')
   })
 
   it('retient la position pendant qu’on descend', () => {

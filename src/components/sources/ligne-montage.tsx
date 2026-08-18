@@ -40,10 +40,16 @@ export function LigneMontage({
       variant={grave ? 'destructive' : 'default'}
       // **`role="alert"` est assertif, et deux de ces trois états ne sont pas des
       // pannes.** La primitive le pose en dur ; un dossier vide interromprait
-      // donc la lecture en cours comme le ferait un montage tombé. La conception
-      // §4.3 n'admet que trois régions live, et les erreurs sont la seule
-      // assertive — le reste est poli. (relevé par Copilot)
-      role={grave ? 'alert' : 'status'}
+      // donc la lecture en cours comme le ferait un montage tombé.
+      //
+      // Mais il ne devient pas poli pour autant : la conception §4.3 admet
+      // **trois** régions live — l'avancement, les erreurs, le résultat d'un
+      // export — et « pas une de plus ». Un dossier vide n'est aucune des trois,
+      // et il se lit en arrivant sur la page comme s'y lit la grille elle-même,
+      // qu'on n'annonce pas davantage. `undefined` retire l'attribut : la
+      // primitive pose son `role` avant l'étalement des props.
+      // (relevé par Copilot, qui avait d'abord suggéré `status`)
+      role={grave ? 'alert' : undefined}
       className="px-4 py-3"
     >
       {icone}

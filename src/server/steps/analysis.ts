@@ -31,6 +31,9 @@ import { analysisPath, proxyPath } from '@/server/paths'
  * relu et passé au schéma zod ci-dessous avant le renommage : un worker qui
  * écrirait un JSON incomplet laisserait sinon un artefact que le graphe par
  * présence prendrait pour bon, et le cadrage échouerait trois étapes plus loin.
+ * **L'ordre des deux lignes est tenu par `tests/server/analysis.test.ts`**, qui
+ * regarde ce qui reste sur le disque après un échec — une propriété annoncée ici
+ * et vérifiée nulle part serait pire qu'une propriété absente, puisqu'on s'y fie.
  */
 
 /**

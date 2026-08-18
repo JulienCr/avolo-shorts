@@ -101,10 +101,9 @@ describe('la boucle de tri, au clavier', () => {
 
     await utilisateur.keyboard('g')
 
-    expect(within(carte('Extrait 1')).getByRole('button', { name: /gardé/i })).toHaveProperty(
-      'ariaPressed',
-      'true',
-    )
+    expect(
+      within(carte('Extrait 1')).getByRole('button', { name: /gardé/i }).getAttribute('aria-pressed'),
+    ).toBe('true')
     expect(document.activeElement).toBe(carte('Extrait 2'))
   })
 
@@ -183,10 +182,13 @@ describe('la boucle de tri, au clavier', () => {
 
     await utilisateur.keyboard('g')
 
-    expect(within(carte('Extrait 1')).getByRole('button', { name: /gardé/i })).toHaveProperty(
-      'ariaPressed',
-      'true',
-    )
+    // La dernière décision fait tomber le compteur à zéro : la fin de boucle
+    // s'ajoute, mais la carte reste en place — sinon `U` n'aurait plus de carte
+    // où revenir.
+    expect(
+      within(carte('Extrait 1')).getByRole('button', { name: /gardé/i }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(screen.getByText(/tout est trié/i)).toBeTruthy()
   })
 })
 
@@ -220,8 +222,21 @@ describe('rien ne bouge sous la main', () => {
     // La liste figée l'est pour les décisions, pas pour les données : une passe
     // de repérage qui se termine pendant qu'on trie ajoute des cartes, et les
     // cacher jusqu'au prochain changement de vue serait un vide inexplicable.
-    const { rerender } = render(<Harnais depart={[candidat(1)]} />)
-    rerender(<Harnais depart={[candidat(1), candidat(2)]} />)
+    function Nu({ liste }: { liste: CandidateClip[] }) {
+      return (
+        <FilDeTri
+          projectId="p1"
+          clips={liste}
+          vue="atrier"
+          onVue={() => {}}
+          proxyPret
+          bilan={null}
+          onStatut={() => {}}
+        />
+      )
+    }
+    const { rerender } = render(<Nu liste={[candidat(1)]} />)
+    rerender(<Nu liste={[candidat(1), candidat(2)]} />)
 
     expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2'])
   })
@@ -233,10 +248,10 @@ describe('les comptes', () => {
     const utilisateur = await focaliser('Extrait 1')
 
     await utilisateur.keyboard('g')
-    expect(screen.getByTestId('comptes').textContent).toContain('1 gardé')
+    expect(screen.getByTestId('comptes').textContent).toContain('1 clip gardé')
 
     await utilisateur.keyboard('u')
-    expect(screen.getByTestId('comptes').textContent).toContain('0 gardé')
+    expect(screen.getByTestId('comptes').textContent).toContain('0 clip gardé')
     expect(screen.getByTestId('comptes').textContent).toContain('3 à trier')
   })
 
@@ -294,7 +309,7 @@ describe('le montage sans proxy', () => {
     const monter = screen.getByRole('button', { name: /monter/i })
     expect(monter.getAttribute('aria-disabled')).toBe('true')
     expect(monter.hasAttribute('disabled')).toBe(false)
-    expect(within(carte('Extrait 1')).getByText(/proxy/i)).toBeTruthy()
+    expect(within(carte('Extrait 1')).getByTestId('raison-monter').textContent).toMatch(/proxy/i)
   })
 
   it('rend « monter » cliquable dès que le proxy est là', () => {

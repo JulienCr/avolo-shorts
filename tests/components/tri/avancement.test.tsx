@@ -158,7 +158,7 @@ describe('PanneauAvancement', () => {
 
 describe('AnnonceDÉtape', () => {
   it('n’annonce que l’étape, dans une région polie, sans la progression', () => {
-    render(<AnnonceDÉtape running={enCours} steps={releve(['audio'])} />)
+    render(<AnnonceDÉtape running={enCours} steps={releve(['audio'])} connu />)
     const région = screen.getByTestId('annonce')
     expect(région.getAttribute('aria-live')).toBe('polite')
     expect(région.textContent).toContain('Transcription')
@@ -170,15 +170,24 @@ describe('AnnonceDÉtape', () => {
       <AnnonceDÉtape
         running={null}
         steps={releve(['audio', 'transcript', 'candidates', 'proxy', 'analysis'])}
+        connu
       />,
     )
     expect(screen.getByTestId('annonce').textContent).toMatch(/terminée/i)
   })
 
+  it('se tait tant que l’état du projet n’a pas répondu', () => {
+    // Sinon elle annonce « l'analyse s'est arrêtée » sur le seul fait qu'on ne
+    // sait encore rien — et c'est le premier mot qu'entendrait un lecteur
+    // d'écran en ouvrant la page.
+    render(<AnnonceDÉtape running={null} steps={releve([])} connu={false} />)
+    expect(screen.getByTestId('annonce').textContent).toBe('')
+  })
+
   it('distingue une analyse arrêtée d’une analyse terminée', () => {
     // `renders` ne passe jamais par le graphe : l'exiger empêcherait toute
     // analyse d'être jamais annoncée comme terminée.
-    render(<AnnonceDÉtape running={null} steps={releve(['audio'])} />)
+    render(<AnnonceDÉtape running={null} steps={releve(['audio'])} connu />)
     expect(screen.getByTestId('annonce').textContent).toMatch(/arrêtée/i)
   })
 })

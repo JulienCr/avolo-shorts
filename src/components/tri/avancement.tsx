@@ -155,17 +155,30 @@ export function PanneauAvancement({
 export function AnnonceDÉtape({
   running,
   steps,
+  connu,
 }: {
   running: { step: StepName } | null
   steps: Record<StepName, boolean>
+  /**
+   * L'état du projet a-t-il répondu ?
+   *
+   * **Elle se tait tant qu'il n'a pas répondu**, et elle reste montée pour
+   * autant. Se taire évite d'annoncer « l'analyse s'est arrêtée » sur le seul
+   * fait qu'on ne sait encore rien ; rester montée est ce qui fait que le
+   * premier vrai message, lui, sera bien annoncé — une région live n'annonce
+   * que ce qui change pendant qu'elle est là.
+   */
+  connu: boolean
 }) {
   return (
     <p data-testid="annonce" aria-live="polite" className="sr-only">
-      {running !== null
-        ? `${LIBELLES_ETAPES[running.step]} en cours.`
-        : ÉTAPES.every(({ nom }) => steps[nom] === true)
-          ? 'L’analyse est terminée.'
-          : 'L’analyse s’est arrêtée.'}
+      {!connu
+        ? ''
+        : running !== null
+          ? `${LIBELLES_ETAPES[running.step]} en cours.`
+          : ÉTAPES.every(({ nom }) => steps[nom] === true)
+            ? 'L’analyse est terminée.'
+            : 'L’analyse s’est arrêtée.'}
     </p>
   )
 }

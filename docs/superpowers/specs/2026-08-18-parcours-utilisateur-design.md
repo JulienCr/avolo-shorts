@@ -272,6 +272,15 @@ panneau d'attente sur un écran parfaitement triable, c'est-à-dire annulé le r
 artefacts manquants, une exécution dans un cas et rien dans l'autre. (relevé par
 Copilot)
 
+**`interrompu` et `echec` ne s'appliquent que tant que `candidates` est absent.**
+Sans cette précondition, ils recouvrent `triable` exactement comme `encours` le
+faisait : une exécution interrompue pendant l'encodage du proxy cacherait la
+grille de tri au moment précis où elle doit remplacer le panneau. Passé ce point,
+un échec ne décrit plus ce que l'écran peut faire, il décrit un incident : il
+s'affiche à côté, en bandeau, et la phase reste `triable` ou `complet`. La règle
+générale est celle de l'axe entier : **une valeur d'`Analyse` dit ce qui est
+disponible, jamais ce qui s'est passé.** (relevé par Aristarque)
+
 **`triable` teste la présence de l'artefact, pas son contenu.** C'est le graphe de
 l'itération 0, où « à jour » veut dire « le fichier est là ». Un `candidates.json`
 qui ne contient rien donne donc `{ triable, rien }`, et c'est l'axe `Travail` qui
@@ -587,11 +596,20 @@ un ordre de grandeur mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »)
 
 **Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aujourd'hui aucune
 issue, et le bouton de reprise est l'ajout qui le ferme. Il appelle
-`POST /run` avec `{ target: 'candidates' }`, ou `'proxy'` si le proxy seul manque,
-la cible se déduisant de `steps`. La liste des cibles s'enrichit (`analysis`
-arrive avec l'itération 1), ce qui est une raison de plus pour que l'écran ne
-nomme aucune cible en dur : il déduit la première étape absente de la liste des
-étapes, qui est une donnée.
+`POST /run` avec **les mêmes cibles que la création**, `candidates` et `proxy`, et
+laisse le graphe planifier les intermédiaires.
+
+Une cible nomme un résultat à atteindre, pas une étape à refaire : viser la
+première étape absente (`transcript`, par exemple) reconstruirait celle-là et
+s'arrêterait, laissant le projet dans l'impasse d'où l'on voulait le sortir.
+(relevé par Copilot)
+
+Il y a là **une demande au serveur** : `POST /run` n'accepte aujourd'hui qu'une
+cible, alors que `lancer` en prend déjà une liste et que `créerProjet` lui en
+passe deux. Viser `candidates` seul ne construit jamais le proxy, puisque rien
+n'en dépend dans le graphe. Tant que la route ne prend pas de liste, l'écran doit
+enchaîner deux appels en attendant la fin du premier, ce qui est une séquence que
+l'interface n'a aucune raison de porter.
 
 **Clavier** : voir la section 4. C'est l'écran qui en dépend le plus.
 
@@ -779,10 +797,19 @@ parmi les frontières de `analysis.json` et son instant de début, et je recomma
   modèle.
 
 Une règle de résolution suffit à couvrir la redétection : **une dérogation
-s'applique au plan qui contient son instant** ; si une fusion de plans en réunit
-plusieurs dans le même, on garde celle dont l'instant est le plus proche du début
-du plan et on écarte les autres. Déterministe, et sans surprise à l'écran puisque
-la bande montre le résultat.
+s'applique au plan qui contient son instant, ou au plus proche si aucun ne le
+contient** ; si une fusion de plans en réunit plusieurs dans le même, on garde
+celle dont l'instant est le plus proche du début du plan et on écarte les autres.
+
+La seconde moitié de la première clause n'est pas une précaution de style. Elle
+rend la résolution **totale** sans rien supposer du détecteur : personne n'a
+vérifié qu'il partitionne la durée entière quel que soit son seuil, et une
+dérogation qui ne tomberait dans aucun plan serait perdue en silence, au rendu,
+sans que rien à l'écran l'annonce. Une fonction totale coûte une comparaison de
+plus et supprime la question. (relevé par Aristarque)
+
+Le tout est déterministe et sans surprise à l'écran, puisque la bande montre le
+résultat.
 
 #### Le ratio, exactement comme le crop
 
@@ -825,6 +852,15 @@ n'y pose pas une coupe, on n'y traîne pas de tête de lecture. Elle porte une s
 interaction, qui n'est pas temporelle : désigner le plan qu'on cadre. C'est ce qui
 la sépare d'un banc de montage, et la séparation doit être tenue au moment de
 l'écrire, parce qu'une bande horizontale appelle toutes les autres.
+
+**C'est une interprétation de la spec §13, et je l'assume plutôt que de la
+glisser.** §13 écrit « une bande secondaire montre les plans et le ratio retenu,
+en lecture seule », et je lis « lecture seule » comme portant sur le montage :
+elle ne modifie ni les segments, ni les bornes, ni les frontières. Désigner un
+plan pour le cadrer ne touche à rien de tout cela. Si la lecture stricte est celle
+qui vaut, c'est §13 qu'il faut amender, pas la bande qu'il faut rendre inerte :
+sans désignation, la dérogation par plan n'a plus de surface. Porté en 9.3.
+(relevé par Aristarque)
 
 Les frontières apparaissent **aussi** dans le transcript, sous forme d'un filet en
 travers du texte. La bande dit où l'on en est parmi les plans ; le filet dit à
@@ -896,8 +932,9 @@ mêmes au clavier.
 | Clip | `Ctrl+Z` / `Ctrl+Shift+Z` | annuler, rétablir |
 | Clip | `Suppr` | retirer la sélection |
 | Clip | `Échap` | vider la sélection |
-| Clip | `[` / `]` | poser la borne de début, de fin, sur le mot sous le curseur |
-| Clip | `/` | chercher dans le transcript |
+| Clip | `I` / `O` | poser la borne de début, de fin, sur le mot sous le curseur |
+| Clip | `Ctrl+F` | chercher dans le transcript |
+| Clip | `Alt+←` / `Alt+→` | plan précédent, suivant (itération 1, voir 3.5) |
 | Partout | `?` | la liste des raccourcis |
 
 Trois règles derrière ce tableau.
@@ -924,6 +961,14 @@ surface transcript.
 **`?` existe parce que le reste existe.** Douze raccourcis qui ne se découvrent
 que dans un `title` HTML sont douze raccourcis que personne n'utilise. Aujourd'hui
 `Ctrl+Z` n'est annoncé que par l'attribut `title` du bouton « Annuler ».
+
+**Toutes ces touches sont directes en AZERTY.** Une première version proposait
+`[`, `]` et `/`, qui demandent `Alt Gr` ou `Shift` sur le clavier de la seule
+personne qui utilisera cet outil : un raccourci à deux mains n'économise rien sur
+un geste répété trente fois. `I` et `O` sont d'ailleurs la convention des bancs de
+montage pour les points d'entrée et de sortie, et `Ctrl+F` remplace celui du
+navigateur, que la virtualisation neutralise de toute façon. (relevé par
+Aristarque)
 
 ### 4.2 L'ordre de tabulation, et le cas du transcript
 
@@ -1304,8 +1349,18 @@ pas devant un écran pendant neuf minutes non plus), mais l'ampleur des moyens, 
 suivi hors écran. À neuf minutes dont trois avant la première décision, un panneau
 honnête suffit.
 
-Si le chiffre de 35 minutes vient d'une mesure que je n'ai pas trouvée, la
-section 2.4 est à refaire. Sinon, c'est la spec §6 qui mérite une note.
+Si le chiffre de 35 minutes vient d'une mesure que je n'ai pas trouvée, ce sont
+**les nombres** de la section 2.4 qui changent, pas sa structure : les trois
+régimes viennent de l'**ordre** des étapes (`CIBLES_INITIALES = ['candidates',
+'proxy']`, `run.ts`), pas de leur durée. Les candidats arrivent avant le proxy
+quelle que soit la vitesse de WhisperX, donc « triable mais pas montable » existe
+dans les deux mondes. Ce qui change est l'ampleur des moyens : à trente-cinq
+minutes il faut une file d'attente, des notifications et un suivi hors écran ; à
+neuf, un panneau honnête suffit.
+
+C'est aussi ce qui rend l'arbitrage tenable : on peut trancher plus tard sans
+refaire la conception, seulement l'outillage de l'attente. Sinon, c'est la spec §6
+qui mérite une note. (relevé par Aristarque, qui l'a signalé indépendamment)
 
 ### 9.2 L'ordre des candidats et du proxy
 
@@ -1332,7 +1387,14 @@ document est de la même famille, puisqu'elle contredit elle aussi l'approche
 spontanée : *le parcours est un objet qui traverse des phases, pas un tunnel à
 étapes*. Le réflexe qu'elle remplace est l'assistant à cinq écrans.
 
-**La spec §13** décrit l'écran de tri et l'écran de clip, et ne dit rien de
+**La spec §13, deux fois.** D'abord la bande des plans, qu'elle décrit « en
+lecture seule ». La dérogation de cadrage par plan a besoin d'y désigner un plan,
+ce qui ne touche ni aux segments, ni aux bornes, ni aux frontières. Je lis donc
+« lecture seule » comme portant sur le montage, et si c'est la lecture stricte qui
+vaut, c'est §13 qu'il faut amender : rendre la bande inerte retirerait sa surface à
+la décision que Julien vient de prendre. Le raisonnement est en 3.5.
+
+Ensuite l'export. §13 décrit l'écran de tri et l'écran de clip, et ne dit rien de
 l'export dans l'interface. Ce silence est exactement le trou que `ROADMAP.md`
 décrit comme « une couture d'orchestration » : chaque agent a livré son périmètre
 et personne ne possédait le raccord. Une ligne dans §13 disant que l'export est un
@@ -1354,6 +1416,13 @@ raisonnement complet est en 3.5.
 **Le recalcul sous un ratio épinglé.** Si le ratio est épinglé, les crops
 automatiques doivent être calculés pour ce ratio-là. Sinon l'épinglage produit le
 défaut qu'il devait éviter.
+
+**Une liste de cibles pour `POST /run`.** La route n'accepte qu'une cible, alors
+que `lancer` en prend une liste et que `créerProjet` lui passe déjà
+`['candidates', 'proxy']`. Le bouton de reprise a besoin des deux : viser
+`candidates` seul ne construit jamais le proxy, puisque rien n'en dépend dans le
+graphe. Sans cette liste, l'interface doit enchaîner deux appels en attendant la
+fin du premier.
 
 **La fraîcheur des rendus.** `livre` ne peut pas se déduire du statut `exported`,
 qu'une réédition ne défait pas. Il faut pouvoir comparer un clip à ses sorties,
@@ -1385,6 +1454,28 @@ onglet. Le refus d'un `PATCH` périmé déclenche quand même une relecture du c
 
 **La mesure de transcription contredit-elle la spec §6 ?** Oui, et c'est la §9.1
 ci-dessus. Deux documents de `docs/superpowers/specs/` se contredisent sur un fait
-mesuré, et toute la conception de l'attente repose sur celui des deux qui vient
-d'une émission réelle. C'est la seule question de cette liste qui reste ouverte, et
-elle demande une décision plutôt qu'une vérification.
+mesuré. C'est la seule question de cette liste qui reste ouverte, et elle demande
+une décision plutôt qu'une vérification. Ce que §9.1 précise depuis la seconde
+passe : seuls les nombres en dépendent, pas les trois régimes, qui viennent de
+l'ordre des étapes.
+
+**Les affirmations sur le code existant tiennent-elles ?** Aristarque a demandé de
+les vérifier plutôt que de les croire, ce qui est la bonne demande : ce document
+fonde plusieurs décisions dessus. Vérification faite, fichier par fichier, au
+commit `5412597` :
+
+| Affirmation | Où | Vérifié |
+|---|---|---|
+| `CIBLES_INITIALES = ['candidates', 'proxy']` | `src/server/run.ts` | oui, et `planPourCibles` déroule audio, transcript, candidats puis proxy |
+| `history.ts` n'a qu'une pile `past` | `src/lib/history.ts` | oui : `type History = { present, past }` |
+| `useRaccourcis` n'écarte que les champs | `src/app/clips/[id]/page.tsx` | oui : `cible.closest('input, textarea, select')` et `isContentEditable` |
+| `setPosition` à chaque `timeupdate` | `src/components/clip-player.tsx` | oui, dans `surTemps`, appelé par `onTimeUpdate` |
+| `usePatchClip` tient un jeton par clip | `src/lib/queries.ts` | oui : `useRef(new Map<string, number>())` |
+| `LIBELLES_ETAPES` vit dans un fichier de page | `src/app/projects/[id]/page.tsx` | oui, ligne 15 |
+| `src/lib/api.ts` n'appelle aucune route d'action | `src/lib/api.ts` | oui : quatre `GET` et un `PATCH`, rien d'autre |
+
+**L'épuration des messages est-elle effective ?** Oui, et pas seulement documentée.
+`run.ts` écrit `error: messageSûr(cause)`, et `src/core/erreurs.ts` remplace tout
+chemin absolu par `…/<nom de fichier>` et caviarde les clés dans les URL. La règle
+d'interface tient donc : l'écran affiche ce message, il n'en compose jamais un
+depuis une exception.

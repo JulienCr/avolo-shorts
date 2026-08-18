@@ -390,7 +390,7 @@ La parenté s'arrête au diariseur.
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU | 10 à 15 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 8 à 10 min |
 | Extraction audio | ffmpeg | 1 min |
 | Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
@@ -597,13 +597,21 @@ d'implémentation.
 
 | | CPU | NVENC |
 |---|---|---|
-| Proxy 960x540 à 30 fps | 14,2x | 15,7x |
-| Export 1080x1920 | 2,02x | **5,76x** |
+| Proxy 960x540 à 30 fps | **13,8x** | 12,8x |
+| Export 1080x1920 | 1,97x | **4,58x** en `p5`, 7,51x en `p4` |
+
+Ces chiffres sont ceux du **binaire Linux**, celui que le projet appelle. Deux
+mesures de la première passe ne valaient rien et sont remplacées ici : le proxy
+donnait 14,2x contre 15,7x — l'ordre des deux s'inverse, la conclusion ne bouge
+pas —, et l'export donnait 5,76x, relevé par erreur avec le ffmpeg **de
+Windows**, qui ne traverse pas la passerelle CUDA de WSL. Le CPU, lui, retombe
+sur sa valeur d'origine (1,97x contre 2,02x annoncés), donc la machine n'a pas
+changé de rythme. Le `p4` n'a pas été évalué en qualité.
 
 **Le proxy ne gagne rien à passer sur le GPU** : son goulot n'est pas l'encodeur.
 Une émission de 2h50 coûte une douzaine de minutes en CPU, ce qui reste dans
-l'ordre de grandeur de la section 6. **L'export gagne un facteur trois**, et
-c'est lui qui tourne une fois par clip validé.
+l'ordre de grandeur de la section 6. **L'export gagne un facteur 2,3**, et c'est
+lui qui tourne une fois par clip validé.
 
 **Le ffmpeg d'Ubuntu sous WSL n'a ni `h264_nvenc` ni `-hwaccel cuda`** : ses
 accélérations sont `vdpau`, `vaapi`, `qsv`, `drm` et `opencl`. Une version

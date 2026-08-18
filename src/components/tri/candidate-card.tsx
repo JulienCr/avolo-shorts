@@ -86,13 +86,22 @@ export function CandidateCard({
         selectionne && 'ring-2 ring-ring/70',
       )}
     >
-      <Link
-        href={lienClip(clip.id)}
-        tabIndex={-1}
-        aria-hidden
-        className="relative block aspect-video overflow-hidden bg-zinc-950 outline-none"
-      >
-        <Vignette url={clip.thumbnailUrl} titre={clip.title} proxyPret={proxyPret} />
+      {/* **Le lien couvre l'image, et rien d'autre.**
+          Il double celui du titre : deux liens vers la même destination
+          s'annoncent deux fois, donc celui-ci sort de l'arbre d'accessibilité et
+          du parcours de tabulation. Mais ce qui est **information** — la
+          position dans le replay, la durée, la marque de décision — doit rester
+          dehors, sinon elle disparaît avec lui. D'où la superposition plutôt que
+          l'imbrication, et `pointer-events-none` pour que le clic traverse. */}
+      <div className="relative aspect-video overflow-hidden bg-zinc-950">
+        <Link
+          href={lienClip(clip.id)}
+          tabIndex={-1}
+          aria-hidden
+          className="absolute inset-0 block outline-none"
+        >
+          <Vignette url={clip.thumbnailUrl} titre={clip.title} proxyPret={proxyPret} />
+        </Link>
 
         {/* Sur l'image, en bas : la position dans le replay à gauche, la durée à
             droite. Deux nombres, jamais au même endroit qu'un texte. */}
@@ -106,12 +115,12 @@ export function CandidateCard({
         </div>
 
         {garde && (
-          <span className="absolute top-2 left-2 flex items-center gap-1 rounded-md bg-stage px-1.5 py-0.5 text-xs font-semibold text-stage-foreground capitalize">
+          <span className="pointer-events-none absolute top-2 left-2 flex items-center gap-1 rounded-md bg-stage px-1.5 py-0.5 text-xs font-semibold text-stage-foreground capitalize">
             <Check className="size-3" aria-hidden />
             {LIBELLES_STATUT[clip.status]}
           </span>
         )}
-      </Link>
+      </div>
 
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">

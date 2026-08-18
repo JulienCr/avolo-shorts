@@ -319,6 +319,22 @@ describe('rien ne bouge sous la main', () => {
   })
 })
 
+describe('ce que la carte expose', () => {
+  it('ne cache pas la durée ni l’état derrière le lien de la vignette', () => {
+    // Le lien de la vignette double celui du titre : il est retiré de l'arbre
+    // d'accessibilité pour ne pas annoncer deux fois la même destination. Ce qui
+    // est **information** — la position dans le replay, la durée, la marque de
+    // décision — doit rester dehors, sinon on la perd avec lui.
+    render(<Harnais depart={[candidat(1, 'kept')]} vueInitiale="gardes" />)
+    const carte1 = carte('Extrait 1')
+
+    for (const texte of ['0:30', '0:01:40']) {
+      const noeud = within(carte1).getByText(texte)
+      expect(noeud.closest('[aria-hidden="true"]')).toBeNull()
+    }
+  })
+})
+
 describe('le retour depuis un clip', () => {
   it('rend le focus à la carte d’où l’on est parti', () => {
     // Sans cela le clavier repart du haut de la page à chaque aller-retour, soit

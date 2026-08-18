@@ -8,6 +8,7 @@ import { openDb, upsertProject, getClips, putClip } from '@/server/db'
 import { candidatesPath, sidecarDir } from '@/server/paths'
 import {
   appelerGemini,
+  caviarder,
   GeminiBlockedError,
   leverSiBloquée,
   lireTranscript,
@@ -67,14 +68,21 @@ describe('leverSiBloquée', () => {
     ).toThrow(GeminiBlockedError)
   })
 
-  it.each(['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED'])(
-    'laisse passer une fin normale « %s »',
-    (raison) => {
-      expect(() =>
-        leverSiBloquée(réponse('{}', { candidates: [{ finishReason: raison }] } as never)),
-      ).not.toThrow()
-    },
-  )
+  it.each(['STOP', 'FINISH_REASON_UNSPECIFIED'])('laisse passer une fin normale « %s »', (raison) => {
+    expect(() =>
+      leverSiBloquée(réponse('{}', { candidates: [{ finishReason: raison }] } as never)),
+    ).not.toThrow()
+  })
+
+  it('une troncature est une panne, pas un refus — donc elle se réessaie', () => {
+    // Une sortie structurée coupée en plein tableau ne parse en général pas,
+    // mais si le JSON se refermait quand même, un lot partiel remplaçait la
+    // passe précédente sans un mot. (relevé par Copilot)
+    const tronquée = () =>
+      leverSiBloquée(réponse('{}', { candidates: [{ finishReason: 'MAX_TOKENS' }] } as never))
+    expect(tronquée).toThrow(/MAX_TOKENS/)
+    expect(tronquée).not.toThrow(GeminiBlockedError)
+  })
 
   it('laisse passer une réponse qui ne renseigne aucune raison', () => {
     expect(() => leverSiBloquée(réponse('{}', { candidates: [{}] } as never))).not.toThrow()
@@ -89,6 +97,26 @@ describe('leverSiBloquée', () => {
         réponse('{}', { candidates: [{ finishReason: 'MALFORMED_FUNCTION_CALL' }] } as never),
       ),
     ).not.toThrow()
+  })
+})
+
+describe('caviarder', () => {
+  // Vérifié sur `@google/genai@2.17.1` : la clé passe par l'en-tête
+  // `x-goog-api-key`, jamais par l'URL. C'est une ceinture par-dessus des
+  // bretelles — le dépôt est public, ses journaux se recopient dans des
+  // rapports, et la version du SDK bougera. (relevé par Aristarque)
+  it.each([
+    ['https://x.googleapis.com/v1?key=AIzaSySECRET', 'AIzaSySECRET'],
+    ['GET /v1beta/models?alt=json&api_key=AIzaSySECRET&x=1', 'AIzaSySECRET'],
+    ['?apikey=AIzaSySECRET', 'AIzaSySECRET'],
+  ])('retire la clé de « %s »', (message, secret) => {
+    const propre = caviarder(message)
+    expect(propre).not.toContain(secret)
+    expect(propre).toContain('[caviardé]')
+  })
+
+  it('laisse un message ordinaire intact', () => {
+    expect(caviarder('503 UNAVAILABLE: model overloaded')).toBe('503 UNAVAILABLE: model overloaded')
   })
 })
 
@@ -198,6 +226,18 @@ describe('appelerGemini', () => {
         }),
     })
     expect(clips).toEqual([])
+    expect(essais).toBe(2)
+  })
+
+  it('réessaie une réponse tronquée', async () => {
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      return essais === 1
+        ? réponse('{"windows": [', { candidates: [{ finishReason: 'MAX_TOKENS' }] } as never)
+        : réponse('{"windows": []}')
+    }
+    expect(await appelerGemini(appel, 'p', 'score', { sleep })).toEqual({ windows: [] })
     expect(essais).toBe(2)
   })
 
@@ -439,6 +479,29 @@ describe("l'étape de repérage", () => {
       const fichier = path.join(racine, 'faux.json')
       fs.writeFileSync(fichier, JSON.stringify({ texte: 'bonjour' }))
       expect(() => lireTranscript(fichier)).toThrow(/illisible/)
+    })
+
+    // Le chemin porte l'arborescence du montage Google Drive, et l'erreur peut
+    // finir dans le corps d'une réponse HTTP — `resolveSource` a posé la règle.
+    // Les trois chemins d'échec sont couverts : fichier absent, JSON cassé,
+    // forme invalide. Le premier contournait la rédaction, parce qu'`ENOENT`
+    // écrit le chemin dans son propre message.
+    // (relevé par Aristarque, complété par Copilot)
+    it.each([
+      ['absent', undefined],
+      ['cassé', '{ pas du json'],
+      ['hors forme', '{"texte": "bonjour"}'],
+    ])('ne laisse pas fuiter le chemin du sidecar — fichier %s', (nom, contenu) => {
+      const fichier = path.join(racine, `sidecar-secret-${nom}.json`)
+      if (contenu !== undefined) fs.writeFileSync(fichier, contenu)
+      try {
+        lireTranscript(fichier)
+        expect.unreachable('lireTranscript aurait dû lever')
+      } catch (erreur) {
+        expect((erreur as Error).message).toMatch(/illisible dans le sidecar/)
+        expect((erreur as Error).message).not.toContain(fichier)
+        expect((erreur as Error).message).not.toContain(racine)
+      }
     })
   })
 })

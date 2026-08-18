@@ -251,7 +251,7 @@ describe('shortlistFromScores', () => {
   const douze = Array.from({ length: 12 }, (_, i) => fen(`window_${String(i + 1).padStart(3, '0')}`))
 
   it('retient le haut du panier', () => {
-    const notes = douze.map((w, i) => ({ id: w.id, score: i * 5, reason: '' }))
+    const notes = douze.map((w, i) => ({ id: w.id, score: i * 5, reason: '', notée: true }))
     const retenues = shortlistFromScores(notes, douze)
     expect(retenues).toHaveLength(10)
     expect(retenues[0].id).toBe('window_012')
@@ -264,7 +264,7 @@ describe('shortlistFromScores', () => {
   })
 
   it('ne retient jamais une fenêtre qui n’a pas été soumise', () => {
-    const retenues = shortlistFromScores([{ id: 'window_999', score: 100, reason: '' }], douze)
+    const retenues = shortlistFromScores([{ id: 'window_999', score: 100, reason: '', notée: true }], douze)
     expect(retenues.map((w) => w.id)).not.toContain('window_999')
     // La note fantôme ne mange pas non plus une place : dix fenêtres réelles
     // atteignent la présélection, pas neuf.
@@ -272,7 +272,7 @@ describe('shortlistFromScores', () => {
   })
 
   it('départage deux notes égales par l’ordre chronologique', () => {
-    const notes = douze.map((w) => ({ id: w.id, score: 50, reason: '' }))
+    const notes = douze.map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
     const retenues = shortlistFromScores(notes, douze)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
@@ -282,16 +282,32 @@ describe('shortlistFromScores', () => {
     // Gemini choisit. Une égalité qui tombe pile sur la coupure admettait alors
     // une fenêtre tardive en écartant une fenêtre antérieure, au hasard.
     // (relevé par Codex et Copilot)
-    const notes = [...douze].reverse().map((w) => ({ id: w.id, score: 50, reason: '' }))
+    const notes = [...douze].reverse().map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
     const retenues = shortlistFromScores(notes, douze)
     expect(retenues.map((w) => w.id)).toEqual(douze.slice(0, 10).map((w) => w.id))
   })
 
+  it('une fenêtre notée 0 passe devant une fenêtre jamais notée', () => {
+    // Le zéro de réconciliation et un vrai zéro portaient la même valeur, donc
+    // le départage chronologique les mêlait : une fenêtre antérieure jamais
+    // évaluée pouvait prendre, à la coupure, la place d'une fenêtre évaluée.
+    // (relevé par Copilot)
+    const quinze = Array.from({ length: 15 }, (_, i) =>
+      fen(`window_${String(i + 1).padStart(3, '0')}`),
+    )
+    const { scored } = parseScoreResponse(
+      { windows: [{ id: 'window_015', start: 0, end: 90, score: 0, reason: 'nul mais jugé' }] },
+      quinze,
+    )
+    const retenues = shortlistFromScores(scored, quinze)
+    expect(retenues[0].id).toBe('window_015')
+  })
+
   it('une note plus haute passe toujours devant, désordre ou pas', () => {
     const notes = [
-      { id: 'window_003', score: 10, reason: '' },
-      { id: 'window_011', score: 99, reason: '' },
-      { id: 'window_001', score: 50, reason: '' },
+      { id: 'window_003', score: 10, reason: '', notée: true },
+      { id: 'window_011', score: 99, reason: '', notée: true },
+      { id: 'window_001', score: 50, reason: '', notée: true },
     ]
     const retenues = shortlistFromScores(notes, douze)
     expect(retenues.slice(0, 3).map((w) => w.id)).toEqual([

@@ -73,6 +73,16 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
 const TENTATIVES = 3
 
 /**
+ * Le délai au-delà duquel un appel est abandonné, en millisecondes.
+ *
+ * Deux minutes est large : mesuré sur une émission de 109 minutes, les quinze
+ * appels du repérage complet ont tenu en 35 secondes à eux tous. La valeur ne
+ * sert donc pas à serrer la performance, seulement à garantir qu'un appel
+ * rendra la main.
+ */
+const DÉLAI_APPEL_MS = 120_000
+
+/**
  * Le filtre de contenu a refusé. **Ne jamais réessayer** : le refus est
  * déterministe, la même charge est rejetée à chaque fois (vérifié en production
  * chez openshorts le 23 juillet 2026 — une vidéo de stand-up revenait
@@ -100,17 +110,18 @@ export class GeminiBlockedError extends Error {
  * fois pour quinze secondes d'attente, et l'erreur finale ment sur la cause.
  * (relevé par Aristarque)
  *
- * `STOP` et `MAX_TOKENS` sont des fins normales. Les trois raisons d'outillage
- * ne peuvent pas se produire — cette étape ne déclare aucun outil — mais si
- * elles arrivaient, ce serait un défaut de notre côté et non un refus de
- * contenu, donc elles ne doivent pas porter un message qui accuse la vidéo.
- * L'absence de raison est normale aussi : tous les modèles ne la renseignent pas.
+ * `STOP` est la fin normale. Les trois raisons d'outillage ne peuvent pas se
+ * produire — cette étape ne déclare aucun outil — mais si elles arrivaient, ce
+ * serait un défaut de notre côté et non un refus de contenu, donc elles ne
+ * doivent pas porter un message qui accuse la vidéo. L'absence de raison est
+ * normale aussi : tous les modèles ne la renseignent pas.
+ *
+ * **`MAX_TOKENS` n'est pas ici** : voir `leverSiBloquée`.
  */
 const FINS_SANS_REFUS = new Set([
   '',
   'FINISH_REASON_UNSPECIFIED',
   'STOP',
-  'MAX_TOKENS',
   'MALFORMED_FUNCTION_CALL',
   'UNEXPECTED_TOOL_CALL',
   'TOO_MANY_TOOL_CALLS',
@@ -154,6 +165,7 @@ const MARQUEURS_PASSAGERS = [
   'did not contain a json object',
   'did not contain a "shorts" array',
   'failed to parse gemini json response',
+  'truncated (max_tokens)',
 ]
 
 /** Le mode d'appel : les deux passes n'ont ni le même schéma ni la même température. */
@@ -236,7 +248,18 @@ function configuration(mode: ModeGemini): GenerateContentConfig {
   }
 }
 
-/** Lève quand l'API a refusé de répondre pour des raisons de contenu. */
+/**
+ * Lève quand l'API n'a pas rendu une réponse complète — refus de contenu, ou
+ * troncature.
+ *
+ * Les deux se distinguent, et pas seulement dans le message. **Un refus est
+ * définitif et n'est jamais réessayé ; une troncature est un accident et se
+ * réessaie.** `MAX_TOKENS` passait ici pour une fin normale : une sortie
+ * structurée coupée en plein tableau ne parse en général pas, donc elle
+ * retombait sur la relance par hasard — mais si le JSON se refermait quand
+ * même, un lot partiel était accepté et `replaceClips` remplaçait la passe
+ * précédente par ce fragment, sans un mot. (relevé par Copilot)
+ */
 export function leverSiBloquée(réponse: GenerateContentResponse): void {
   const raison = réponse.promptFeedback?.blockReason
   if (raison) {
@@ -246,6 +269,11 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
   }
   for (const candidat of réponse.candidates ?? []) {
     const fin = String(candidat.finishReason ?? '').toUpperCase()
+    if (fin === 'MAX_TOKENS') {
+      // Une erreur ordinaire, pas un `GeminiBlockedError` : le message est dans
+      // les marqueurs passagers, donc l'appel repart.
+      throw new Error('Gemini response was truncated (MAX_TOKENS): the answer is incomplete.')
+    }
     if (!FINS_SANS_REFUS.has(fin)) {
       throw new GeminiBlockedError(
         `Gemini a interrompu sa réponse pour cette vidéo (${fin}) : la génération s'est arrêtée sur autre chose qu'une fin normale. C'est déterministe, la relance ne servirait à rien.`,
@@ -257,6 +285,20 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
 function estPassagère(message: string): boolean {
   const bas = message.toLowerCase()
   return MARQUEURS_PASSAGERS.some((marqueur) => bas.includes(marqueur))
+}
+
+/**
+ * Retire une clé d'API d'un message avant de le journaliser.
+ *
+ * Vérifié sur `@google/genai@2.17.1` : `generateContent` passe la clé dans
+ * l'en-tête `x-goog-api-key`, jamais dans l'URL — le seul `?key=` du paquet sert
+ * au WebSocket de génération musicale, que rien ici n'appelle. Le caviardage est
+ * donc une ceinture par-dessus des bretelles, et il coûte une ligne : ce dépôt
+ * est public, ses journaux se recopient dans des rapports, et la version du SDK
+ * bougera. (relevé par Aristarque)
+ */
+export function caviarder(message: string): string {
+  return message.replace(/([?&](?:key|api_?key)=)[^&\s"']+/gi, '$1[caviardé]')
 }
 
 const attendre = (ms: number): Promise<void> =>
@@ -298,7 +340,7 @@ export async function appelerGemini<T = unknown>(
       if (tentative >= TENTATIVES || !estPassagère(message)) throw erreur
       const attente = 5000 * 2 ** (tentative - 1)
       console.warn(
-        `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${message.slice(0, 150)}`,
+        `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
       await sleep(attente)
     }
@@ -312,7 +354,11 @@ function clientParDéfaut(): AppelGemini {
     throw new Error("GEMINI_API_KEY n'est pas définie. Voir .env.example.")
   }
   const modèle = process.env.GEMINI_MODEL || MODÈLE_PAR_DÉFAUT
-  const ai = new GoogleGenAI({ apiKey })
+  // **Un délai fini, sans quoi la politique de relance ne borne rien.** Une
+  // requête qui n'aboutit ni ne casse n'atteint jamais le `catch`, et immobilise
+  // la chaîne entière — trois tentatives ne servent à rien si la première ne
+  // rend jamais la main. (relevé par Copilot)
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: DÉLAI_APPEL_MS } })
   return (prompt, mode) =>
     ai.models.generateContent({ model: modèle, contents: prompt, config: configuration(mode) })
 }
@@ -345,19 +391,34 @@ export type TranscriptLu = Transcript & { language: string }
  * mot sans frontière n'en est pas une.
  */
 export function lireTranscript(fichier: string): TranscriptLu {
-  const brut: unknown = JSON.parse(fs.readFileSync(fichier, 'utf8'))
-  const lu = SCHÉMA_TRANSCRIPT.safeParse(brut)
-  if (!lu.success) {
-    // Le chemin va au journal, pas dans l'erreur. Il porte l'arborescence du
-    // montage Google Drive, et cette erreur peut finir dans le corps d'une
-    // réponse HTTP — `resolveSource` a posé la règle et la commente déjà.
-    // (relevé par Aristarque)
-    console.error(`Transcript illisible : ${fichier}`)
-    throw new Error(`Transcript illisible dans le sidecar : ${lu.error.message}`)
+  // **Le chemin va au journal, jamais dans l'erreur levée.** Il porte
+  // l'arborescence du montage Google Drive, et cette erreur peut finir dans le
+  // corps d'une réponse HTTP — `resolveSource` a posé la règle et la commente
+  // déjà. (relevé par Aristarque)
+  //
+  // La lecture et l'analyse JSON sont dans le `try`, pas seulement la
+  // validation : un `ENOENT` de `readFileSync` porte le chemin absolu dans son
+  // propre message et contournait la rédaction faite juste en dessous.
+  // (relevé par Copilot)
+  let cause: string
+  try {
+    const lu = SCHÉMA_TRANSCRIPT.safeParse(JSON.parse(fs.readFileSync(fichier, 'utf8')))
+    if (lu.success) return depuisSchéma(lu.data)
+    cause = lu.error.message
+  } catch (erreur) {
+    // Le NOM de l'erreur, pas son message : un `ENOENT` de `readFileSync` écrit
+    // le chemin absolu dans son message, et c'est précisément ce qui ne doit pas
+    // sortir d'ici.
+    cause = erreur instanceof Error ? erreur.name : 'erreur inconnue'
   }
+  console.error(`Transcript illisible : ${fichier}`)
+  throw new Error(`Transcript illisible dans le sidecar : ${cause}`)
+}
+
+function depuisSchéma(données: z.infer<typeof SCHÉMA_TRANSCRIPT>): TranscriptLu {
   return {
-    language: lu.data.language ?? 'unknown',
-    segments: lu.data.segments.map((s) => ({
+    language: données.language ?? 'unknown',
+    segments: données.segments.map((s) => ({
       start: s.start,
       end: s.end,
       text: s.text,

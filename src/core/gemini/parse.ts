@@ -19,6 +19,17 @@ export type ScoredWindow = {
   /** Entier de 0 à 100. Une note hors barème y est ramenée, pas jetée. */
   score: number
   reason: string
+  /**
+   * Faux quand la fenêtre n'a **pas** été notée et qu'on lui a posé un zéro de
+   * réconciliation.
+   *
+   * Le zéro seul ne suffisait pas à tenir la promesse « classée dernière » : une
+   * fenêtre que le modèle a réellement jugée nulle porte le même 0, et le
+   * départage chronologique mêlait alors les deux — une fenêtre antérieure
+   * jamais évaluée pouvait prendre la place, à la coupure, d'une fenêtre
+   * évaluée. Ce drapeau les sépare. (relevé par Copilot)
+   */
+  notée: boolean
 }
 
 // `z.number()` refuse `NaN` et l'infini, et `JSON.parse` ne sait de toute façon
@@ -90,11 +101,14 @@ export function parseScoreResponse(
       id,
       score: Math.min(100, Math.max(0, Math.round(score))),
       reason: reason ?? '',
+      notée: true,
     })
   }
 
   const missing = windows.map((w) => w.id).filter((id) => !vues.has(id))
-  for (const id of missing) scored.push({ id, score: 0, reason: 'non notée' })
+  for (const id of missing) {
+    scored.push({ id, score: 0, reason: 'non notée', notée: false })
+  }
   return { scored, missing }
 }
 
@@ -131,8 +145,14 @@ export function shortlistFromScores(scored: ScoredWindow[], windows: Window[]): 
   const retenues: Window[] = []
   const vues = new Set<string>()
 
+  // Une fenêtre notée passe **toujours** devant une fenêtre non notée, même
+  // quand la note vaut 0 : « classée dernière » n'était vrai que tant qu'aucune
+  // fenêtre n'était réellement notée 0. (relevé par Copilot)
   const triées = [...scored].sort(
-    (a, b) => b.score - a.score || positionDe(a.id) - positionDe(b.id),
+    (a, b) =>
+      Number(b.notée) - Number(a.notée) ||
+      b.score - a.score ||
+      positionDe(a.id) - positionDe(b.id),
   )
   for (const note of triées) {
     if (retenues.length >= cible) break

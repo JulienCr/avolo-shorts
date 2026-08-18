@@ -129,12 +129,12 @@ describe('detect.py — le score écrit dans analysis.json', () => {
  * l'argument était pris, et il n'avait aucun effet.
  *
  * **Refus plutôt qu'un `min()` silencieux.** Abaisser le plancher tout seul
- * reproduirait le défaut un cran plus bas : à seuil nul, `gt(scene, 0)` retient
- * à peu près chaque image d'une émission de deux heures, et `scores_de_scène`
- * ramasse cette sortie en mémoire d'un seul tenant. On refuse en nommant les
- * deux valeurs, ce qui laisse le choix — baisser le plancher aussi — à qui
- * cherche des coupes plus discrètes. C'est-à-dire à la prochaine itération sur
- * le détecteur. (relevé sur la PR #31, ticket #40)
+ * reproduirait le défaut un cran plus bas : à plancher nul, `gt(scene, 0)`
+ * retient à peu près chaque image d'une émission de deux heures, et
+ * `scores_de_scène` ramasse cette sortie en mémoire d'un seul tenant. On refuse
+ * en nommant les deux valeurs, ce qui laisse le choix — baisser le plancher
+ * aussi — à qui cherche des coupes plus discrètes. C'est-à-dire à la prochaine
+ * itération sur le détecteur. (relevé sur la PR #31, ticket #40)
  */
 describe('detect.py — le seuil de scène face à son plancher de collecte', () => {
   // Le paramètre est une **expression Python**, pas un nombre : `NaN` et
@@ -178,8 +178,8 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
   })
 
   it('refuse un seuil nul ou négatif', () => {
-    // C'est le `min()` que le refus évite : à zéro, abaisser le plancher pour
-    // « honorer » la demande ferait collecter toute la vidéo.
+    // Un seuil nul ne dit pas « ne coupe pas » : `plans()` n'écarte que
+    // `score < seuil`, donc il déclare une coupe à chaque candidate collectée.
     expect(typeof refus('0', '0')).toBe('string')
     expect(typeof refus('-1', '0.05')).toBe('string')
   })

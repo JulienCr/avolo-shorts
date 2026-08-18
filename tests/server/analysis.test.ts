@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { messageSûr } from '@/server/erreurs'
 import {
   environnementDétection,
   formatTaille,
@@ -237,5 +238,42 @@ describe('runAnalysis', () => {
     await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
       /setup\.sh/,
     )
+  })
+
+  /**
+   * **Les messages de cette étape nomment des chemins absolus, et c'est voulu** :
+   * ils sont écrits pour un journal de serveur. Ce qui compte est qu'aucun ne
+   * traverse `messageSûr` en gardant l'arborescence de la machine — le champ
+   * `error` de `status.json` ressort tel quel dans `GET /api/projects/:id`.
+   *
+   * Ces deux cas figent la propriété pour les trois chemins que l'itération 1
+   * ajoute (`DETECT_PYTHON`, `DETECT_WORKER`, `DETECT_MODEL`), sous leurs deux
+   * formes : entre guillemets pour les refus d'ouverture, et nu au milieu d'une
+   * ligne de commande pour l'échec du worker. (relevé par Aristarque)
+   */
+  it('n’expose pas l’arborescence de la machine quand un chemin manque', async () => {
+    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    process.env.DETECT_PYTHON = '/home/quelquun/dev/avolo-shorts/worker/venv/bin/python'
+
+    const erreur = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
+      (cause: unknown) => cause,
+    )
+    const publié = messageSûr(erreur)
+    expect(publié).not.toContain('quelquun')
+    expect(publié).toContain('…/python')
+    // Le remède survit à l'épuration : c'est lui qui dit quoi faire.
+    expect(publié).toContain('setup.sh')
+  })
+
+  it('n’expose pas la ligne de commande du worker en échec', () => {
+    const commande =
+      "L'analyse a échoué (code de sortie 3).\n" +
+      'Commande : /home/quelquun/dev/avolo-shorts/worker/venv/bin/python -u ' +
+      '/home/quelquun/dev/avolo-shorts/worker/detect.py --model ' +
+      '/home/quelquun/dev/avolo-shorts/worker/models/yolo11m.pt'
+    const publié = messageSûr(new Error(commande))
+    expect(publié).not.toContain('quelquun')
+    expect(publié).toContain('…/detect.py')
+    expect(publié).toContain('…/yolo11m.pt')
   })
 })

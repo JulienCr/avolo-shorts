@@ -53,6 +53,19 @@ Sur un canevas 9:16 de 1080x1920, un 16:9 en letterbox occupe 32 % de la hauteur
 un 1:1 en occupe 56 %, un 4:5 en occupe 70 %. La moitié du bénéfice visuel du
 projet se gagne là.
 
+**Ces mesures comptent toute personne détectée, spectateurs compris.** La méthode
+prend l'empan de tout ce que le détecteur trouve, sans distinguer un comédien sur
+le plateau d'une tête de spectateur collée au bord bas de l'image. La détection au
+corps du 18 août 2026 dit ce que ça coûte, sur `2025-06-15-cqlp` qui n'est pas
+dans le tableau ci-dessus : 34 % des boîtes de personnes y sont du public au
+premier plan ; écarté, l'empan médian tombe de 0,68 à 0,50 et la part du temps qui
+tient dans un 1:1 passe de 33 % à 64 %.
+
+Le tableau n'est pas réécrit : il reste ce que la méthode du 17 août a mesuré. Mais
+son 48 % sous-estime le dispositif plutôt qu'il ne le décrit. Sur
+`2026-03-08-caro-mdlm`, 26 boîtes sur 3 083 : le public au cadre appartient à une
+émission, pas au fonds.
+
 ### Taille des sujets
 
 | Taille du plus gros visage | Duo | Groupe | Trio |
@@ -82,11 +95,39 @@ artificiellement la colonne « aucun visage » : il faut détecter des corps. Et
 coupe interne ne pourra pas se cacher derrière un changement d'axe, puisqu'il n'y
 en a pas pendant la scène.
 
+**La seconde conséquence est démentie : les émissions sont multicaméra.** Détection
+de plans exécutée le 18 août 2026 sur deux émissions. 131 plans sur
+`2025-06-15-cqlp`, 1 h 39, médiane 27 s. 67 plans sur un extrait de 10 minutes de
+`2026-03-08-caro-mdlm`, médiane 5,3 s. Vérifié image par image sur 32 candidates :
+8 vraies coupes sur 10 dans la bande 0,40 à 0,50 du score de scène sur `cqlp`,
+10 sur 10 au-dessus de 0,40 sur `caro-mdlm`.
+
+La mosaïque n'était pas mal lue, elle était non représentative : vingt minutes
+d'une scène à deux, prélevées dans une émission qui compte 131 plans.
+
+**Une coupe interne peut donc se cacher derrière un changement d'axe.** Poser les
+coupes sur les frontières de plans cesse d'être un raffinement pour devenir utile,
+et le crop fixe par plan a de vraies frontières où se déplacer au lieu d'une seule
+par scène.
+
+**Le piège du détecteur, relevé au passage : ce n'est pas le mouvement qui fait
+monter le score de scène, c'est la lumière.** Des barres de LED qui basculent
+donnent 0,61 sans qu'aucune caméra ne bouge. Un seuil calé sur le seul score
+prendra des changements d'éclairage pour des coupes.
+
+Portée de tout ce qui précède : deux émissions, dont une seule en entier. C'est
+plus solide que la mosaïque, ce n'est pas les vingt du fonds.
+
 ### Contraintes de production
 
 - Pas d'audio multipiste. Le mix se fait en amont sur une table qui n'exporte pas
   en multipiste. Aucune conception ne peut supposer une piste par micro.
-- Pas de rires : l'émission n'est pas jouée devant un public.
+- Pas de rires : l'émission n'est pas jouée devant un public. **La seconde moitié
+  est démentie depuis le 18 août 2026** : sur `2025-06-15-cqlp`, 34 % des boîtes de
+  personnes sont des têtes de spectateurs au bord bas de l'image, contre 26 sur
+  3 083 pour `2026-03-08-caro-mdlm`. Il y a donc du public sur certaines émissions.
+  Ce que la mesure ne dit pas, c'est s'il s'entend : aucune conception ne doit pour
+  autant compter sur une piste de rires, puisque le mix n'en sort pas.
 - Musique de fond fréquente, effets sonores quasi absents.
 - Habillage incrusté sur les vingt émissions existantes : bloc « SOMMAIRE » sur
   environ 20 % à gauche, listes de défis à droite, cartouches de jeu en bas
@@ -443,7 +484,12 @@ passages détectés comme musicaux.
 ## 7. Le repérage des candidats
 
 Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
-improvisation sans public. La réponse n'est donc pas un meilleur juge mais
+improvisation. Cette phrase disait « sans public », ce que la détection au corps du
+18 août 2026 a démenti : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
+des spectateurs au premier plan. L'argument tient quand même, parce qu'il ne
+reposait pas sur l'absence de public mais sur celle d'un signal de rires
+exploitable, et le mix ne sort pas de piste séparée. La réponse n'est donc pas un
+meilleur juge mais
 **plusieurs sources indépendantes fusionnées**. Une source aveugle sur un type de
 moment est rattrapée par une autre. Julien trie ensuite, et l'objectif de
 l'étage est le rappel, pas la précision.
@@ -598,14 +644,18 @@ sortir partiellement du cadre.
 couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une
 coupe existe déjà, donc où le saut est invisible.
 
-Le mouvement de caméra perçu est nul. Sur des plans continus de plusieurs minutes
-avec des comédiens qui se déplacent, toute caméra qui suit finit par tanguer :
-c'est la cause du défaut reproché à OpenShorts, et elle est structurelle, pas
-dans un réglage d'amortissement.
+Le mouvement de caméra perçu est nul. Dès qu'un plan dure et que les comédiens se
+déplacent, toute caméra qui suit finit par tanguer : c'est la cause du défaut
+reproché à OpenShorts, et elle est structurelle, pas dans un réglage
+d'amortissement.
 
-Le prix est assumé : un plan de trois minutes où les comédiens traversent le
-plateau impose un crop large, donc un ratio qui monte, parfois jusqu'au 16:9. Un
-cadre large et stable vaut mieux qu'un cadre serré qui vacille.
+Le prix est assumé : un plan long où les comédiens traversent le plateau impose un
+crop large, donc un ratio qui monte, parfois jusqu'au 16:9. Un cadre large et
+stable vaut mieux qu'un cadre serré qui vacille. La détection de plans du 18 août
+2026 rend ce prix plus rare que ne le supposait ce paragraphe, qui parlait de
+plans continus de plusieurs minutes : la médiane est de 27 s sur
+`2025-06-15-cqlp` et de 5,3 s sur `2026-03-08-caro-mdlm`, donc le crop se
+recalcule souvent au lieu de tenir une scène entière.
 
 **Zones d'habillage.** Sur les vingt émissions existantes, le crop évite le bloc
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans

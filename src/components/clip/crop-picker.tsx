@@ -2,8 +2,15 @@
 
 import { useRef } from 'react'
 
+import {
+  isComputedFraming,
+  originMessage,
+  effectiveRatio,
+  shotRatios,
+  useCurrentShot,
+} from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
+import type { PublishedFraming } from '@/lib/api'
 import {
   ORDRE_RATIOS,
   clampCropX,
@@ -33,16 +40,32 @@ const PAS_RAPIDE = 0.05
  * pour ne pas sauter au premier appui, et il se fige en 16:9. Une primitive
  * générique perdrait les trois.
  *
- * Le réglage à la main n'est pas un pis-aller jetable : quand le cadrage
- * automatique arrivera (itération 1), il ne fera que préremplir cette valeur, et
- * ce rectangle restera le recours de dernier ressort.
+ * **Le rectangle saute aux frontières de plans pendant la lecture** dès que le
+ * cadrage est calculé : c'est là que le cadre change, c'est là qu'une coupe
+ * existe déjà, et c'est ce qui fait passer la décision en revue sans qu'on la
+ * demande (§3.5). Il est alors **inerte** — la position vient du calcul, et un
+ * curseur qui bougerait sans rien changer au fichier produit serait pire qu'un
+ * curseur figé. La dérogation par plan, qui le rendra réglable à nouveau, demande
+ * une table persistée que le clip ne porte pas encore (§9.4).
+ *
+ * **C'est le cadre de la variante 9:16 qu'il montre**, celui qui varie : le natif
+ * garde un seul ratio pour tout le clip, que le panneau d'export énonce. Montrer
+ * le cadre fixe ici reviendrait à ne rien montrer du travail de l'automatique.
+ *
+ * Quand l'analyse manque, le réglage à la main reprend la main entièrement :
+ * c'est le cadrage de l'itération 0, et il n'a jamais été jetable.
  */
 export function CropOverlay({
+  framing,
   ratio,
   cropX,
   onCropX,
 }: {
+  /** Le cadrage que le serveur publie : ratio résolu, crop par plan, origine. */
+  framing: PublishedFraming
+  /** Le ratio **en cours d'édition**, qui n'est pas encore celui du clip enregistré. */
   ratio: Ratio | 'auto'
+  /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
   /** Une valeur, ou une fonction de la précédente — indispensable pour les flèches répétées. */
   onCropX: (cropX: number | ((precedent: number) => number)) => void
@@ -53,13 +76,19 @@ export function CropOverlay({
   // appui — un déplacement que personne n'a demandé.
   const prise = useRef(0)
 
-  // `resolveRatio` vient de `@/core/framing` : c'est le rendu qui décide de ce
-  // que vaut `'auto'`, l'aperçu ne fait que le lui demander.
-  const effectif = resolveRatio(ratio)
+  // Le plan sous la lecture. Le `hook` s'appelle sans condition, et son résultat
+  // n'est consulté que si le cadrage est calculé.
+  const plan = useCurrentShot(framing)
+  const automatique = isComputedFraming(framing)
+
+  const effectif = effectiveRatio(plan, ratio)
+  const position = automatique ? (plan?.cropX ?? 0.5) : cropX
   const largeur = cropWidthFraction(effectif)
-  const gauche = cropLeftFraction(cropX, largeur)
-  const centre = clampCropX(cropX, largeur)
-  const fige = largeur >= 1
+  const gauche = cropLeftFraction(position, largeur)
+  const centre = clampCropX(position, largeur)
+  // Figé quand le cadre couvre toute la source — il n'y a rien à déplacer — ou
+  // quand c'est le calcul qui décide de sa position.
+  const fige = largeur >= 1 || automatique
 
   function fractionDuPointeur(clientX: number): number | null {
     const rect = cadre.current?.getBoundingClientRect()
@@ -98,7 +127,9 @@ export function CropOverlay({
       <div
         role="slider"
         tabIndex={fige ? -1 : 0}
-        aria-label="Position horizontale du cadre"
+        aria-label={
+          automatique ? 'Position horizontale du cadre, calculée' : 'Position horizontale du cadre'
+        }
         // La plage réelle, pas 0-100 : le centre d'un 9:16 ne peut aller que de
         // 15,8 à 84,2 % puisque le rectangle ne sort jamais du cadre. Annoncer
         // « 16 sur 100 » à la butée gauche laisserait croire qu'il reste de la
@@ -153,21 +184,31 @@ export function CropOverlay({
 }
 
 /**
- * Le choix du ratio, **par clip**.
+ * Le choix du ratio.
  *
- * Sur trois émissions, seuls 24 à 33 % du temps tiennent dans un 9:16, contre
- * 48 % jusqu'au 1:1 (spec §2). Tout sortir en 9:16 jette donc la moitié du
- * matériel : c'est pour ça que ce sélecteur existe, et pour ça qu'il est ici
- * plutôt que dans une page de réglages.
+ * **Une contrainte sur le cadre, pas un format de sortie unique.** Ce que ce
+ * sélecteur décide est le **cadre pris dans la source** : `auto` laisse chaque
+ * plan prendre le plus serré qui tienne chez lui, une pastille concrète le force
+ * partout. Le fichier natif sort alors à ce ratio-là — épingler 4:5 donne un
+ * natif 4:5 —, et seule la variante, quand elle est due, a un canevas 1080x1920
+ * constant. C'est l'échappatoire quand l'automatique choisit mal, et c'est pour
+ * ça qu'il est ici plutôt que dans une page de réglages. (relevé par Copilot)
  */
 export function RatioPicker({
+  framing,
   ratio,
   onRatio,
 }: {
+  /** Le cadrage que le serveur publie : c'est lui qui dit ce que vaut « auto ». */
+  framing: PublishedFraming
   ratio: Ratio | 'auto'
   onRatio: (ratio: Ratio | 'auto') => void
 }) {
   const valeurs: (Ratio | 'auto')[] = ['auto', ...ORDRE_RATIOS]
+  const plan = useCurrentShot(framing)
+  const effectif = effectiveRatio(plan, ratio)
+  const origin = originMessage(framing)
+  const varied = ratio === 'auto' ? shotRatios(framing) : []
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -191,19 +232,53 @@ export function RatioPicker({
         ))}
       </ToggleGroup>
 
-      {ratio === 'auto' && (
-        <p className="text-[0.75rem] text-muted-foreground">
-          « auto » vaut 9:16 en itération 0 — le cadrage automatique n’existe pas encore.
+      {/* **Un mot, au même endroit, dans les deux cas** (§3.5). Ce que le
+          sélecteur ne peut pas dire seul : ce que « auto » a choisi *pour le
+          plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
+      <p className="font-mono text-[0.75rem] text-muted-foreground">
+        {ratio === 'auto' ? `auto → ${effectif}` : `${effectif} · épinglé partout`}
+        {' · natif '}
+        {framing.ratio}
+      </p>
+
+      {/* **Le ratio se choisit par plan, et ce n'est pas devinable.** Sans cette
+          ligne, un cadre qui change de taille en cours de lecture passe pour un
+          défaut de rendu — alors que c'est le bénéfice qu'on cherche : un ratio
+          unique écraserait chaque plan serré sous le plus large. */}
+      {varied.length > 1 && (
+        <p className="basis-full text-[0.75rem] text-muted-foreground">
+          Le cadre change avec les plans — <span className="font-mono">{varied.join(', ')}</span> —
+          dans la variante 9:16, où chacun est posé sur fond flouté. Le rendu natif, celui du
+          feed, garde <span className="font-mono">{framing.ratio}</span> d’un bout à l’autre.
         </p>
       )}
 
+      {/* **Le repli se dit, il ne se subit pas.** `renders` ne dépend pas
+          d'`analysis` dans le graphe : rien ne garantit qu'un clip en « auto »
+          ait des plans sous la main, et un 9:16 centré posé sans un mot ne se
+          verrait qu'à l'image, trois minutes d'export plus tard. */}
+      {origin !== null && (
+        <p className="basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
+      )}
+
       {/* **La raison d'un contrôle inerte s'écrit à côté de lui.** Le curseur de
-          cadrage se fige en 16:9 puisque le cadre couvre alors toute la source ;
+          framing se fige en 16:9 puisque le cadre couvre alors toute la source ;
           sans cette phrase, il passe pour cassé — et une bulle d'aide ne
           conviendrait pas, elle serait invisible au clavier. */}
-      {resolveRatio(ratio) === '16:9' && (
-        <p className="text-[0.75rem] text-muted-foreground">
+      {effectif === '16:9' && (
+        <p className="basis-full text-[0.75rem] text-muted-foreground">
           En 16:9 le cadre occupe toute la largeur de la source : il n’y a rien à déplacer.
+        </p>
+      )}
+
+      {/* **Une seule ligne à la fois, et c'est délibéré.** Quand les cadres
+          varient, la ligne au-dessus dit déjà que le calcul décide par plan ; la
+          répéter en dessous ferait trois paragraphes empilés sous un sélecteur
+          de six pastilles, et personne ne lit le troisième. */}
+      {origin === null && varied.length <= 1 && (
+        <p className="basis-full text-[0.75rem] text-muted-foreground">
+          Le cadre est calculé pour chaque plan et saute à leurs frontières. Le régler à la main
+          demande la dérogation par plan, qui n’est pas encore enregistrable.
         </p>
       )}
     </div>

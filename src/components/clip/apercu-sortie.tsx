@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 
+import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
-import { RATIOS, cropRect, outputSize, resolveRatio } from '@/core/framing'
+import { RATIOS, cropRect, outputSize } from '@/core/framing'
+import type { PublishedFraming } from '@/lib/api'
 
 /**
  * Le canevas de sortie : **ce qu'on aura**, à côté de ce qu'on garde.
@@ -15,10 +17,11 @@ import { RATIOS, cropRect, outputSize, resolveRatio } from '@/core/framing'
  * arbitrer entre un 1:1 et un 4:5 en comparant deux rectangles larges sur une
  * image couchée cache exactement la différence qu'on cherche à voir.
  *
- * D'où ce second aperçu, au ratio choisi, **à l'échelle où il sera vu** : posé
- * dans un cadre 9:16, il occupe 32 % de la hauteur en 16:9, 56 % en 1:1, 70 % en
- * 4:5. Sans lui, le sélecteur de ratio demande d'arbitrer à l'aveugle l'unique
- * mesure qui fonde le projet (spec §2).
+ * D'où ce second aperçu, **à l'échelle où il sera vu**. Et ce n'est plus une
+ * illustration : la sortie est en 9:16, et le cadre du plan courant y occupe
+ * exactement cette part — 100 % en 9:16, 70,3 % en 4:5, 56,3 % en 1:1, 31,6 % en
+ * 16:9, le fond flouté remplissant le reste. Comme le ratio se choisit par plan,
+ * cette part change en cours de lecture, et c'est ce que le fichier fera.
  *
  * **Un seul `<video>` décode.** Le canevas se peint à partir de celui du lecteur,
  * par `drawImage`. Deux éléments sur la même source seraient plus courts à
@@ -70,26 +73,36 @@ function tailleDuCanevas(ratio: Ratio): { largeur: number; hauteur: number } {
 
 export function ApercuSortie({
   video,
+  framing,
   ratio,
   cropX,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
   video: HTMLVideoElement | null
+  /** Le cadrage que le serveur publie : ratio résolu, crop par plan. */
+  framing: PublishedFraming
+  /** Le ratio en cours d'édition. */
   ratio: Ratio | 'auto'
+  /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
 }) {
-  const canevas = useRef<HTMLCanvasElement>(null)
-  const effectif = resolveRatio(ratio)
+  const canvas = useRef<HTMLCanvasElement>(null)
+  // Le plan sous la lecture : le cadre saute à ses frontières, ici comme dans le
+  // rendu. Le `hook` rend un index, donc ce composant ne se re-rend qu'aux
+  // frontières et non à chaque `timeupdate`.
+  const plan = useCurrentShot(framing)
+  const position = isComputedFraming(framing) ? (plan?.cropX ?? 0.5) : cropX
+  const effectif = effectiveRatio(plan, ratio)
   const { largeur, hauteur } = tailleDuCanevas(effectif)
   const part = partDeLEcran(effectif)
 
   const peindre = useCallback(() => {
-    const cible = canevas.current
+    const cible = canvas.current
     if (cible === null || video === null) return
     const ctx = cible.getContext('2d')
     if (ctx === null) return
-    peindreSortie(ctx, video, { ratio: effectif, cropX, largeur, hauteur })
-  }, [video, effectif, cropX, largeur, hauteur])
+    peindreSortie(ctx, video, { ratio: effectif, cropX: position, largeur, hauteur })
+  }, [video, effectif, position, largeur, hauteur])
 
   // **Le premier des deux déclencheurs, et le plus important.** Tout changement
   // de crop ou de ratio repeint sur l'image courante : le geste réel est « on
@@ -149,14 +162,14 @@ export function ApercuSortie({
 
   return (
     <figure className="flex flex-col gap-1.5">
-      {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canevas y
+      {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit. */}
       <div
         className="relative mx-auto flex w-full max-w-40 items-center justify-center overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border"
         style={{ aspectRatio: String(RATIOS['9:16']) }}
       >
         <canvas
-          ref={canevas}
+          ref={canvas}
           width={largeur}
           height={hauteur}
           aria-hidden
@@ -167,7 +180,7 @@ export function ApercuSortie({
 
       <figcaption className="text-center text-[0.75rem] text-muted-foreground">
         <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> de la hauteur de
-        l’écran
+        l’écran <span className="font-mono">({effectif})</span>
       </figcaption>
     </figure>
   )

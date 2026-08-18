@@ -797,6 +797,17 @@ Le saut de taille tombe **sur une coupe**, donc il ne se voit pas. C'est
 exactement l'argument qui justifie déjà le crop qui saute aux frontières, appliqué
 à la grandeur voisine.
 
+**`ShotFraming` porte donc deux positions**, une par sortie. Une position
+optimisée pour un 9:16 posée dans la fenêtre 1:1 du natif n'est pas fausse — elle
+est bornée dans l'image — mais elle n'est plus celle qui cadre le plus d'images,
+et rien ne le dirait. Les deux se calculent sur les mêmes empans, et une
+dérogation humaine les écrit toutes les deux : elle porte sur *où regarder*, pas
+sur une fenêtre.
+
+Mesuré sur les 23 clips en base le 19 août 2026 : **huit portent au moins un plan
+plus serré que leur plan le plus large**, c'est-à-dire huit clips dont le 9:16
+gagne quelque chose qu'un ratio unique aurait écrasé.
+
 Ce paragraphe demandait le **percentile 90 des largeurs par image**, et c'est
 faux : une largeur par image suppose un crop libre par image, alors que le crop
 est fixe pour tout le plan. Un sujet étroit à gauche pendant la moitié d'un plan
@@ -929,8 +940,15 @@ dans le programme.
 
 Depuis l'original, jamais depuis le proxy.
 
-1. Concaténation des segments de l'EDL.
-2. Crop et mise à l'échelle, un réglage par plan.
+1. Découpage des segments de l'EDL **aux frontières de plans** : un segment qui
+   traverse cinq plans devient cinq entrées, chacune avec son cadre. Deux entrées
+   contiguës au même cadre sont refusionnées — sur les 23 clips en base, un clip
+   de 19 plans tous cadrés pareil retombe ainsi à une seule entrée, et le maximum
+   observé est de cinq.
+2. Crop et mise à l'échelle, un réglage par plan, puis **composition sur le
+   canevas** : un cadre qui ne le remplit pas tire son fond de son propre
+   `split`, le floute et se pose dessus. La composition précède la
+   concaténation, que `concat` exige de flux de même taille.
 3. Sous-titres incrustés depuis le transcript aligné au mot, **recalés sur la
    timeline du clip**. Après les coupes internes, les timings d'origine ne valent
    plus rien : c'est le piège principal du rendu.
@@ -960,6 +978,11 @@ plan 16:9 posé dans un canevas 9:16, le texte tombe à 31,6 % de sa taille. Ave
 ratio qui varie par plan, il changerait de taille à chaque coupe. Le fond flouté,
 lui, continue d'être tiré d'**avant** toute incrustation — c'est l'anomalie #22, et
 le `split` du filtergraph la referme.
+
+Corollaire d'implémentation : **les marques se planifient par canevas**, une fois
+pour chaque sortie et non une fois pour les deux. `planifierMarques` raisonne en
+fractions du canevas qu'on lui donne, donc un placement calculé sur le natif
+poserait dans la variante une bande dimensionnée pour un autre format.
 
 ### Encodage : ce que NVENC apporte, et où
 

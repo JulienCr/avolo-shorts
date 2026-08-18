@@ -2,11 +2,12 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { resolveRatio } from '@/core/framing'
+import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
 import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
 import {
+  renderedFraming,
   cheminsRendu,
   texteDePublication,
   écarterRenduPérimé,
@@ -76,6 +77,13 @@ export const GET = route(
     if (projet === undefined) throw introuvable(`Projet inconnu : ${clip.projectId}`)
 
     const transcript = await transcriptDuProjet(projet)
+    // **Le cadrage se résout ici, pas dans le navigateur.** `computeFraming` a
+    // besoin des plans, des boîtes de personnes et des dimensions de la source ;
+    // `analysis.json` pèse deux à trois méga-octets par projet. Six appels du
+    // navigateur le demandaient à `resolveRatio`, qui rendait `9:16` en dur : ils
+    // lisent désormais ce champ, et voient donc exactement ce que ffmpeg
+    // découpera.
+    const framing = clipFraming(clip)
     return json({
       clip,
       project: résuméProjet(projet),
@@ -88,7 +96,8 @@ export const GET = route(
       // Ce que l'export a produit, en URL. Sans elles, un clip affiche
       // « exporté » et son MP4 reste inatteignable depuis le navigateur : la
       // chaîne s'arrête à un mètre de son but.
-      outputs: sortiesDuClip(clip),
+      outputs: sortiesDuClip(clip, framing),
+      framing: framing,
     })
   },
 )
@@ -109,6 +118,21 @@ export const PATCH = route(
     const db = getDb()
     const clip = getClip(db, id)
     if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
+
+    // **L'analyse se lit AVANT l'écriture, et c'est la seule raison de la lire
+    // ici plutôt que là où on s'en sert.**
+    //
+    // `projectAnalysis` touche au disque et relaie une panne — un refus de droits,
+    // un montage mort — au lieu de la maquiller en absence. Appelée après le
+    // `putClip`, elle rendrait 500 sur un montage pourtant enregistré, et
+    // l'écriture optimiste de l'interface remettrait l'ancienne version à
+    // l'écran alors que la base porte la nouvelle. C'est exactement la
+    // divergence que cette route évite déjà pour les sorties et la vignette, et
+    // il aurait été absurde de la réintroduire par le cadrage.
+    //
+    // Ce qui suit l'écriture n'est plus que `framingWith`, qui est pur.
+    // (relevé par Copilot)
+    const analyse = projectAnalysis(clip.projectId)
 
     const suivant: Clip = {
       ...clip,
@@ -151,9 +175,6 @@ export const PATCH = route(
     // question posée un instant plus tard. On réutilise donc sa décision plutôt
     // que d'en inventer une seconde. (relevé par Copilot)
     //
-    // Les chemins se calculent sur le clip **d'avant** : c'est lui qui dit sous
-    // quel ratio les fichiers à écarter ont été écrits, et un passage de 1:1 à
-    // 9:16 change le jeu.
     // Sans condition sur le statut : `leRenduEstPérimé` ne se déclenche que
     // lorsqu'un champ qui change l'image a bougé, et un clip que rien n'a rendu
     // n'a pas de fichier à effacer — trois `rmSync` sur des chemins absents. La
@@ -169,16 +190,29 @@ export const PATCH = route(
     // ici que `écarterRenduPérimé` efface trois fichiers : un échec au deuxième
     // laisse un jeu de sorties incomplet, que la réponse décrira tel qu'il est,
     // puisqu'elle relit le disque après coup. (relevé par Copilot)
-    const chemins = cheminsRendu(clip.projectId, clip.id, resolveRatio(clip.ratio))
+    // **Le cadrage d'avant l'écriture**, et c'est lui qui décide de ce qui est
+    // périmé : le ratio et les crops se recalculent sur les segments, donc
+    // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
+    // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
+    // fichiers à écarter ont été écrits.
+    const framingBefore = framingWith(clip, analyse)
+    const chemins = cheminsRendu(clip.projectId, clip.id, framingBefore.ratio)
     try {
-      const périmé = écarterRenduPérimé(db, id, chemins, clip)
+      // **Le résolveur passe l'analyse déjà lue**, sinon `écarterRenduPérimé`
+      // rouvrirait `analysis.json` après l'écriture en base : une panne
+      // passagère y ferait redescendre un clip `exported` à `kept` par le
+      // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
+      // simple correction de titre. (relevé par Codex)
+      const périmé = écarterRenduPérimé(db, id, chemins, clip, renderedFraming(framingBefore), (c) =>
+        renderedFraming(framingWith(c, analyse)),
+      )
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
       //
-      // `chemins` ne connaît que l'ancien ratio, et c'est ce qu'il faut pour
-      // effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1 n'avait
-      // pas de variante due, donc un `-9x16.mp4` abandonné par une période
-      // antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
+      // `chemins` ne connaît que l'ancien ratio natif, et c'est ce qu'il faut
+      // pour effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1
+      // n'avait pas de variante due, donc un `-9x16.mp4` abandonné par une
+      // période antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
       // *nouveau*, le publiait aussitôt comme la livraison du jour. Le nom de la
       // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
       // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.
@@ -187,7 +221,7 @@ export const PATCH = route(
         const varianteAprès = cheminsRendu(
           écrit.projectId,
           écrit.id,
-          resolveRatio(écrit.ratio),
+          framingWith(écrit, analyse).ratio,
         ).variant9x16
         if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
       }
@@ -265,7 +299,20 @@ export const PATCH = route(
     // il garderait l'URL d'un rendu que ce `PATCH` vient de faire disparaître, et
     // son lecteur vidéo pointerait sur un 404 jusqu'au prochain rechargement.
     // (relevé par Aristarque)
+    // **Le cadrage part avec la réponse, et c'est ce que rater coûterait le plus
+    // cher.** Le ratio et les crops se recalculent sur les segments et ne sont
+    // pas stockés : retirer un passage peut faire retomber un 16:9 en 1:1 sans
+    // qu'aucun geste de cadrage n'ait été fait. Sans ce champ, l'écran garderait
+    // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
+    // mentirait sur ce que l'export produira.
     const relu = getClip(db, id) ?? écrit
-    return json({ applied: appliqué, clip: relu, outputs: sortiesDuClip(relu), seq: plancher })
+    const framingAfter = framingWith(relu, analyse)
+    return json({
+      applied: appliqué,
+      clip: relu,
+      outputs: sortiesDuClip(relu, framingAfter),
+      framing: framingAfter,
+      seq: plancher,
+    })
   },
 )

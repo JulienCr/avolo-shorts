@@ -85,6 +85,10 @@ describe('épurerChemins', () => {
     )
   })
 
+  it('rend une chaîne vide inchangée', () => {
+    expect(épurerChemins('')).toBe('')
+  })
+
   it('ne mange pas le chemin d’une URL', () => {
     expect(épurerChemins('appel à https://generativelanguage.googleapis.com/v1beta')).toBe(
       'appel à https://generativelanguage.googleapis.com/v1beta',
@@ -104,6 +108,76 @@ describe('le caviardage des clés', () => {
     )
     expect(messageÉpuré(new Error('POST /v1?api_key=abc123'))).toContain('api_key=[caviardé]')
     expect(messageÉpuré(new Error('POST /v1?api_key=abc123'))).not.toContain('abc123')
+  })
+})
+
+describe('le caviardage des références de secret', () => {
+  /**
+   * Une référence n'est pas une valeur : la lire ne donne accès à rien. Mais elle
+   * nomme le coffre, la fiche et le champ, et une erreur servie par l'API se lit
+   * dans un navigateur ou une capture d'écran. Ce qui reste lisible est le nom de
+   * la variable — il est dans `.env.example`, donc public, et c'est lui qui dit
+   * quoi aller regarder.
+   */
+  it('retire le coffre, la fiche et le champ, et garde la phrase entière', () => {
+    expect(
+      épurerChemins(
+        'GEMINI_API_KEY : impossible de lire op://Personal/Avolo-Shorts/GEMINI_API_KEY.',
+      ),
+    ).toBe('GEMINI_API_KEY : impossible de lire op://….')
+  })
+
+  it('caviarde chaque référence d’une chaîne, champ ou pas, et le chemin à côté', () => {
+    expect(
+      épurerChemins('op://Coffre/Fiche/Champ et op://Coffre/Fiche sur /var/tmp/x.wav'),
+    ).toBe('op://… et op://… sur …/x.wav')
+  })
+
+  /**
+   * Un nom de coffre à espace ne se coupe pas au premier espace, pour la même
+   * raison qu'un chemin à espace : les guillemets disent où la référence finit.
+   */
+  it('caviarde une référence entre guillemets, espaces compris', () => {
+    expect(épurerChemins('valeur "op://Coffre partagé/Avolo Shorts/Clé" refusée')).toBe(
+      'valeur "op://…" refusée',
+    )
+  })
+
+  it('laisse intact ce qui ne nomme déjà rien', () => {
+    // Le préfixe seul, et la forme que `exigerSecret` cite en toutes lettres.
+    expect(épurerChemins('une adresse commence par op://')).toBe('une adresse commence par op://')
+    const message =
+      'GEMINI_API_KEY vaut encore une adresse 1Password (op://…), donc la résolution a été défaite.'
+    expect(épurerChemins(message)).toBe(message)
+  })
+
+  it('ne prend pas une URL pour une référence', () => {
+    // Le remède d'un `op` introuvable, mot pour mot : il cite une URL de
+    // documentation et le mot « op », et il doit rester lisible.
+    const message =
+      'La commande « op » est introuvable. Installer 1Password CLI ' +
+      '(https://developer.1password.com/docs/cli/get-started/), poser OP_BIN sur son chemin.'
+    expect(épurerChemins(message)).toBe(message)
+    expect(épurerChemins('le schéma desktop://hote reste entier')).toBe(
+      'le schéma desktop://hote reste entier',
+    )
+  })
+
+  /**
+   * Les passes d'`épurerChemins` se suivent, et une passe ajoutée peut défaire le
+   * travail des autres. Les trois formes dans la même chaîne fixent leur ordre.
+   */
+  it('cohabite avec l’épuration des chemins et le caviardage des clés', () => {
+    expect(
+      épurerChemins(
+        'échec /home/julien/dev/x.mp4 sur https://x/v1?key=AQ.secret-42 avec op://Coffre/Fiche/Champ',
+      ),
+    ).toBe('échec …/x.mp4 sur https://x/v1?key=[caviardé] avec op://…')
+  })
+
+  it('ne caviarde pas deux fois une référence déjà caviardée', () => {
+    const une = épurerChemins('lecture de op://Coffre/Fiche/Champ')
+    expect(épurerChemins(une)).toBe(une)
   })
 })
 

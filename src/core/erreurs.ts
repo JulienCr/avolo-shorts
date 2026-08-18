@@ -50,6 +50,51 @@ const POSIX_NU = /(?<![\w:.~…/\\-])\/[^\s"'\\]+(?:\/[^\s"'\\]*)*/g
 /** `C:\Users\…` et ses variantes à barre oblique. */
 const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 
+/** Le préfixe d'une adresse de secret 1Password, `estRéférence` en est la source. */
+const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
+
+/**
+ * Une référence de secret — `op://<coffre>/<fiche>/<champ>`.
+ *
+ * **Ce n'est pas un secret** : une adresse n'est pas une valeur, et la lire ne
+ * donne accès à rien sans le coffre déverrouillé. Mais elle nomme le coffre, la
+ * fiche et le champ, et un message servi par l'API se lit dans un navigateur, un
+ * journal partagé ou une capture d'écran : c'est de la structure interne qui n'a
+ * aucune raison d'en sortir.
+ *
+ * **Ce qui reste lisible est le préfixe, et lui seul.** Un chemin garde son nom
+ * de fichier parce que l'appelant l'a nommé lui-même ; une référence n'a pas
+ * d'équivalent à garder. Ce qui dit quoi réparer est le **nom de la variable** —
+ * il vit dans `.env.example`, donc au grand jour, et il accompagne déjà la
+ * référence dans les messages qui la citent. Le champ, lui, recopie ce nom quand
+ * la convention du `.env` est suivie, et nomme le coffre quand elle ne l'est
+ * pas : redondant ou fuitant, jamais utile. Reste `op://`, qui dit ce qu'un
+ * `[caviardé]` tairait — que la variable porte une **adresse** et non une valeur
+ * littérale, seule question qu'on se pose devant un secret qui n'a pas marché.
+ *
+ * Le préfixe est celui d'`estRéférence` (`src/server/secrets.ts`), qui définit
+ * seul ce que ce projet appelle une référence, et qui n'en accepte aujourd'hui
+ * pas d'autre forme. Le module est pur et ne peut pas l'importer : si le projet
+ * gagnait une seconde forme, les deux se suivraient à la main.
+ *
+ * Deux détails de la forme, qui décident de ce que le message vaut encore :
+ *
+ * - **le dernier caractère n'est jamais une ponctuation** : une référence finit
+ *   souvent une phrase, et emporter le point ferait passer le message pour
+ *   tronqué ;
+ * - **un `op://` nu ne nomme rien**, donc il ressort tel quel — y compris quand
+ *   un message cite la forme au lieu d'une référence, comme le fait
+ *   `exigerSecret`.
+ *
+ * Hors guillemets, la référence s'arrête au premier espace, comme un chemin nu
+ * et pour la même raison : rien ne dit où elle finit. Un nom de coffre espacé y
+ * laisserait donc sa queue — d'où la passe entre guillemets ci-dessous.
+ */
+const RÉFÉRENCE_DE_SECRET = /(?<![\w-])op:\/\/[^\s"'\\]*[^\s"'\\.,;:!?)\]]/g
+
+/** Ce qu'il en reste. */
+const RÉFÉRENCE_ÉPURÉE = `${PRÉFIXE_DE_RÉFÉRENCE}…`
+
 /**
  * Une clé d'API dans une URL de requête.
  *
@@ -106,8 +151,13 @@ export function épurerChemins(message: string, racines: readonly string[] = [])
   return caviarderClés(sortie)
     .replace(ENTRE_GUILLEMETS, (brut) => {
       const dedans = brut.slice(1, -1)
+      // Une référence entre guillemets part entière, espaces compris : les noms
+      // de coffre et de fiche en portent couramment, et c'est la seule forme qui
+      // dise où la référence se termine.
+      if (dedans.startsWith(PRÉFIXE_DE_RÉFÉRENCE)) return `"${RÉFÉRENCE_ÉPURÉE}"`
       return estAbsolu(dedans) ? `"${abréger(dedans)}"` : brut
     })
+    .replace(RÉFÉRENCE_DE_SECRET, RÉFÉRENCE_ÉPURÉE)
     .replace(POSIX_NU, abréger)
     .replace(WINDOWS_NU, abréger)
 }

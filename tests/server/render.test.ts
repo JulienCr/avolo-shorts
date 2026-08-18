@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
+import { épurerChemins } from '@/core/erreurs'
 import type { Word } from '@/core/transcript'
 import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
@@ -15,6 +16,7 @@ import {
   motsDièse,
   planifierMarques,
   refaireLesSorties,
+  refuserFauteDeMarque,
   renderClip,
   sauterLeRendu,
   sousTitresDuClip,
@@ -435,6 +437,166 @@ describe('collecterMarques', () => {
     const vide = path.join(racine, 'brand')
     fs.mkdirSync(vide)
     await expect(collecterMarques(vide)).resolves.toEqual([])
+  })
+})
+
+/**
+ * La porte des marques, ouverte par #37 : `collecterMarques` rend une liste vide
+ * sur un dossier vide, et le rendu partait alors sans un mot. Ce qui suit fige la
+ * règle qui remplace ce silence — **le clip demande, le dossier répond, et
+ * l'export refuse quand la réponse est vide**.
+ *
+ * `refuserFauteDeMarque` est pur, et c'est ce qui rend testable le cas limite qui
+ * compte : une marque sur deux. Il ne s'atteint pas par `collecterMarques`, qui a
+ * besoin de ffprobe sur un vrai PNG — ni la CI ni ce fichier n'en ont.
+ */
+describe('refuserFauteDeMarque', () => {
+  const marque = (fichier: string): MarqueNative => ({
+    path: `/marques/${fichier}`,
+    nativeW: 1000,
+    nativeH: 250,
+    largeurRatio: 0.22,
+    bord: 'gauche',
+  })
+
+  it("refuse quand le clip demande des marques et qu'il n'y en a aucune", () => {
+    expect(refuserFauteDeMarque(true, [])).toBe(true)
+  })
+
+  it("laisse passer le clip qui n'en demande pas, dossier vide compris", () => {
+    expect(refuserFauteDeMarque(false, [])).toBe(false)
+  })
+
+  it("laisse passer quand une seule des deux marques est là", () => {
+    // Le cas limite, et le seul qui ne se déduit pas de l'intitulé de l'issue.
+    // `assets/brand/README.md` tient qu'un logo sans mention, ou l'inverse, sont
+    // deux installations légitimes : rien ne distingue « l'opérateur n'a qu'un
+    // logo » de « twitch.png a disparu ». Refuser là interdirait une
+    // configuration soutenue pour rattraper une dégradation indécidable. Zéro,
+    // lui, est sans ambiguïté : la marque a été demandée, aucune n'est posée.
+    expect(refuserFauteDeMarque(true, [marque('logo.png')])).toBe(false)
+    expect(refuserFauteDeMarque(true, [marque('twitch.png')])).toBe(false)
+  })
+
+  it('laisse passer quand les deux sont là', () => {
+    expect(refuserFauteDeMarque(true, [marque('logo.png'), marque('twitch.png')])).toBe(false)
+  })
+})
+
+/**
+ * La même règle vue depuis l'export, c'est-à-dire depuis l'endroit où elle coûte
+ * quelque chose : `POST /api/clips/:id/export` est synchrone et dure de dix
+ * secondes à une minute. Le refus doit tomber **avant** l'encodage, et sans
+ * publier l'arborescence de la machine.
+ */
+describe('renderClip, la porte des marques', () => {
+  function préparer(surcharges: Partial<Clip> = {}): {
+    db: ReturnType<typeof openDb>
+    c: Clip
+    brandDir: string
+  } {
+    const db = openDb(':memory:')
+    upsertProject(db, {
+      id: ID,
+      sourcePath: path.join(replay, SOURCE),
+      stagedPath: path.join(stage, SOURCE),
+      durationSec: 5936,
+      sizeBytes: 1,
+      mtimeMs: 1,
+      createdAt: 1,
+    })
+    // **La copie de travail est là, exprès.** Sans elle, le refus tomberait sur
+    // elle et ces tests ne prouveraient rien des marques.
+    fs.writeFileSync(path.join(stage, SOURCE), 'pas vraiment une vidéo')
+    const c = clip(surcharges)
+    putClip(db, c)
+    // Jetable et vide, comme un `assets/brand/` fraîchement cloné : le dépôt
+    // n'en porte que le README, et la CI encore moins.
+    const brandDir = path.join(racine, 'brand-vide')
+    fs.mkdirSync(brandDir, { recursive: true })
+    return { db, c, brandDir }
+  }
+
+  /** Le message du refus, et l'assurance qu'il y en a bien eu un. */
+  async function refus(promesse: Promise<unknown>): Promise<string> {
+    try {
+      await promesse
+    } catch (erreur) {
+      return erreur instanceof Error ? erreur.message : String(erreur)
+    }
+    throw new Error("l'export n'a pas refusé")
+  }
+
+  it("refuse un clip qui demande des marques quand le dossier n'en porte aucune", async () => {
+    const { db, c, brandDir } = préparer()
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/logo\.png/)
+  })
+
+  it("refuse pareillement quand le dossier des marques n'existe pas", async () => {
+    // `collecterMarques` ne distingue pas les deux, et il n'y a rien à
+    // distinguer : la marque a été demandée, aucune n'est posée. La piste 3 de
+    // l'issue butait là — `assets/brand/` est de toute façon toujours présent,
+    // son README étant versionné.
+    const { db, c } = préparer()
+    await expect(
+      renderClip(c.id, { db, brandDir: path.join(racine, 'nulle-part') }),
+    ).rejects.toThrow(/logo\.png/)
+  })
+
+  it('nomme les deux issues : déposer une marque, ou couper le branding', async () => {
+    const { db, c, brandDir } = préparer()
+    const message = await refus(renderClip(c.id, { db, brandDir }))
+    expect(message).toMatch(/assets\/brand\//)
+    expect(message).toMatch(/branding/)
+  })
+
+  it("refuse avant d'encoder : aucune sortie n'est posée sur le disque", async () => {
+    // Ce que l'issue demande noir sur blanc : pas de MP4 muet. Le `.ass` absent
+    // dit en plus que le refus précède la lecture du transcript, qui vit sur le
+    // Drive en 9p et coûte un aller-retour.
+    const { db, c, brandDir } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    await expect(renderClip(c.id, { db, brandDir })).rejects.toThrow(/marques/)
+    for (const chemin of [
+      attendus.mp4,
+      attendus.variant9x16 as string,
+      attendus.texts,
+      attendus.ass,
+    ]) {
+      expect(fs.existsSync(chemin)).toBe(false)
+    }
+  })
+
+  it('ne publie aucun chemin absolu dans son refus', async () => {
+    // Le message part dans le corps d'une réponse HTTP. La mesure est celle du
+    // dépôt : épuré, il doit être identique à lui-même.
+    const { db, c, brandDir } = préparer()
+    const message = await refus(renderClip(c.id, { db, brandDir }))
+    expect(message).toMatch(/logo\.png/)
+    expect(épurerChemins(message)).toBe(message)
+  })
+
+  it("laisse passer un clip qui ne demande pas de marques", async () => {
+    // Il ne va pas jusqu'au bout — ni transcript ni ffmpeg ici — et c'est ce qui
+    // rend l'assertion nette : il échoue plus loin, sur autre chose.
+    const { db, c, brandDir } = préparer({ branding: false })
+    const message = await refus(renderClip(c.id, { db, brandDir }))
+    expect(message).not.toMatch(/marque/i)
+  })
+
+  it('ne refuse pas un clip déjà rendu, qui ne produit rien de neuf', async () => {
+    // Le saut n'encode pas : refuser là ferait échouer une relance qui se
+    // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés. La
+    // contrepartie est connue — un clip exporté sans marque avant ce correctif
+    // saute pour toujours — et son remède est `force`.
+    const { db, c, brandDir } = préparer()
+    const attendus = cheminsRendu(ID, c.id, '1:1')
+    for (const chemin of [attendus.mp4, attendus.variant9x16 as string, attendus.texts]) {
+      fs.mkdirSync(path.dirname(chemin), { recursive: true })
+      fs.writeFileSync(chemin, '')
+    }
+    const résultat = await renderClip(c.id, { db, brandDir })
+    expect(résultat.skipped).toBe(true)
   })
 })
 

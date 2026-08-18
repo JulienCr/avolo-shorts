@@ -430,12 +430,21 @@ les deux sont résolues **depuis le dossier de travail du processus**, comme
 | Dossier | Ce qu'il porte | S'il manque |
 |---|---|---|
 | `fonts/` | `Anton-Regular.ttf`, la police du preset de sous-titres | le rendu prévient et laisse libass prendre ce que fontconfig lui donne |
-| `assets/brand/` | `logo.png` et `twitch.png` | le clip se rend sans marque |
+| `assets/brand/` | `logo.png` et `twitch.png` | l'export d'un clip qui demande des marques **échoue, en le disant** |
 
 Aucun des deux n'a de variable d'environnement : lancer depuis la racine du dépôt
 suffit, c'est ce que fait Next comme `pnpm tsx`. Le second est ignoré par git —
 les marques appartiennent à l'opérateur, et `assets/brand/README.md` dit quoi y
 déposer.
+
+**Les deux lignes ne se répondent pas par hasard.** Une police manquante se
+remplace par une autre et le clip reste publiable ; une marque manquante ne se
+remplace par rien, et le rendu est la dernière étape avant qu'un fichier parte
+sur Instagram — un MP4 sans logo livré sans un mot ne se rattrape qu'en
+dépubliant (#37). Le refus se fonde sur `branding`, qui vaut `true` sur tout clip
+repéré : un dépôt fraîchement cloné voit donc ses exports échouer tant qu'il n'a
+pas de marque, et `branding: false` sur le clip est la façon de rendre
+volontairement sans. L'une des deux images suffit à faire passer l'export.
 
 Un clip produit **deux fichiers dès que son ratio n'est pas 9:16** : le format
 natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur fond

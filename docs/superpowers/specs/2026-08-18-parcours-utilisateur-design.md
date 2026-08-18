@@ -604,10 +604,10 @@ le dire fait douter de ce qu'on vient de déclencher.
 | **D'où viennent les états** | de la liste elle-même, enrichie de ce qui est gratuit à calculer. C'était une demande au serveur, et elle est satisfaite. Voir juste après. |
 | **Validation** | aucune saisie, donc aucune validation. La seule erreur possible vient du serveur. |
 
-**Ce que la bibliothèque demande au serveur, et ce qu'elle ne doit pas demander.**
-Montrer plusieurs analyses à la fois suppose un état par projet, que
-`GET /api/projects` ne porte pas (relevé par Copilot). Deux formes possibles, et
-elles ne se valent pas :
+**Ce que la bibliothèque a demandé au serveur, et ce qu'elle ne devait pas
+demander.** Montrer plusieurs analyses à la fois suppose un état par projet, que
+`GET /api/projects` ne portait pas (relevé par Copilot). Deux formes étaient
+possibles, et elles ne se valaient pas :
 
 - **une requête par projet** (`GET /api/projects/:id` pour chacun) : à écarter.
   Elle multiplie par vingt et un un appel qui exécute `relevéPrésence`, lequel
@@ -655,7 +655,7 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 
 | | |
 |---|---|
-| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, les images arrivent avec le proxy », « 12 à trier », « tout est trié ». À côté du compte, **ce que le repérage n'a pas jugé** quand c'est le cas : « 4 lots de fenêtres sur 11 n'ont pas été notés ». Voir 7.2. |
+| **Repérage** | fil d'Ariane `avolo·shorts / <émission>`, et sous le titre la phase en toutes lettres : « analyse en cours », « prêt à trier, les images arrivent avec le proxy », « 12 à trier », « tout est trié ». À côté du compte, **la part de l'émission que le repérage a effectivement jugée** quand elle n'est pas entière, et sous elle le compte des lots refusés qui l'explique. Voir 7.2. |
 | **Navigation** | vers le haut, la bibliothèque. Vers le bas, un clip. Aucune navigation latérale. |
 | **Persistance aller** | rien à transmettre : l'identifiant du projet est dans l'URL. |
 | **Persistance retour** | trois choses à retrouver en revenant d'un clip : la position de défilement, la vue active (à trier / gardés / écartés) et le focus sur la carte d'où l'on est parti. La vue dans l'URL (`?vue=gardes`), les deux autres dans l'état de session. L'URL pour la vue parce qu'un rechargement doit rendre le même écran ; la session pour le reste, parce qu'une position de défilement dans une URL est une URL qu'on ne peut plus partager. |
@@ -940,9 +940,9 @@ automatique en essayant de le regarder. Un mode se prend, il ne se déclenche pa
 est écartée : elle effacerait le cadrage des plans qui étaient bons pour réparer
 celui qui ne l'était pas.
 
-Le `cropX` unique d'un clip n'exprime plus cela. `computeFraming` prend depuis le
-mode et la table de dérogations ; ce que le clip enregistre, lui, n'a pas bougé,
-et c'est le préalable du lot 7. Voir 9.4.
+Le `cropX` unique d'un clip n'exprime plus cela. `computeFraming` prend désormais
+le mode et la table de dérogations ; ce que le clip enregistre, lui, n'a pas
+bougé, et c'est le préalable du lot 7. Voir 9.4.
 
 #### La clé d'un plan désigne la source, jamais le clip
 
@@ -960,21 +960,34 @@ seule convention de temps dans tout le modèle.
 
 Restait le cas qui avait fait proposer autre chose : une redétection déplace une
 frontière de 10,0 s à 10,3 s, et la clé 10,0 s tombe dans le plan précédent, qui
-la contient bel et bien. Il est réglé par un appariement **au plus proche, dans
-une tolérance**. Assez large pour absorber les quelques images dont une frontière
-bouge d'une passe à l'autre, trop étroite pour atteindre le plan d'à côté, dont la
-durée se compte en secondes.
+la contient bel et bien. Il est réglé par un appariement **au plus proche début de
+plan, dans une tolérance**, calibrée sur les quelques images dont une frontière
+bouge d'une passe à l'autre. Deux clés qui tombent sur le même plan ne s'écrasent
+pas : la plus proche gagne, l'autre est rejetée.
+
+**La tolérance est un réglage, pas une preuve.** Rien dans le format des plans
+n'interdit deux frontières séparées de moins qu'elle : `SCHÉMA_PLAN` demande
+seulement qu'un plan finisse après son début, et un montage nerveux en produirait.
+Sur ce corpus les plans durent des secondes, donc le cas ne se pose pas ; le jour
+où il se posera, la clé devra porter l'intervalle plutôt que l'instant, et c'est
+alors le modèle qu'il faut changer, pas la tolérance qu'il faut resserrer.
 
 **Une dérogation qui n'apparie aucun plan n'est jamais reportée sur une voisine.**
-Elle est rendue à l'appelant (`rejectedOverrides`) et le plan concerné repasse en
-automatique. C'est le mode de défaillance qui comptait : un cadrage humain posé
-sur le mauvais plan produit un clip qui se rend, faux, et que rien ne signale.
+Elle est rendue à l'appelant, dans `rejectedOverrides`, et son plan d'origine, s'il
+existe encore, garde son cadrage calculé. C'est le mode de défaillance qui
+comptait : un cadrage humain posé sur le mauvais plan produit un clip qui se rend,
+faux, et que rien ne signale.
 
-Ce qu'il en reste pour l'écran tient en une phrase : **une dérogation tombée se
-voit**. La bande montre le plan repassé en automatique, sans notification et sans
-qu'il faille comparer deux cadrages pour s'en apercevoir. Reposer un cadrage coûte
-un geste ; s'apercevoir trois semaines plus tard qu'il n'a jamais été appliqué
-coûte une relecture de tout ce qui est sorti depuis.
+Ce qu'il en reste pour l'écran tient en une exigence : **une dérogation tombée se
+voit, et la bande ne suffit pas à la montrer.** Un plan « automatique » y est
+indistinguable d'un plan qui n'a jamais été dérogé ; pire, une clé rejetée parce
+qu'une autre visait le même plan laisse ce plan en `manual`, donc aucun état de la
+bande ne change, et une clé qui n'apparie rien du tout n'a même pas de plan à
+marquer. L'écran lit donc `rejectedOverrides` et l'énonce à part, en clair et de
+façon permanente : « une dérogation de cadrage n'a pas retrouvé son plan », avec
+son compte. Reposer un cadrage coûte un geste ; s'apercevoir trois semaines plus
+tard qu'il n'a jamais été appliqué coûte une relecture de tout ce qui est sorti
+depuis.
 
 Une version précédente de ce document demandait de porter l'**intervalle** source
 du plan et de résoudre par recouvrement maximal, avec ses règles de division et de
@@ -1184,10 +1197,13 @@ toutes les deux secondes : une région live sur le pourcentage produirait une
 annonce toutes les deux secondes pendant neuf minutes. Le `role="progressbar"`
 met à jour `aria-valuenow` en silence, et une région `aria-live="polite"`
 distincte n'annonce que **les changements d'étape** et la fin. Une annonce par
-étape traversée, plus celle de fin : le compte se lit dans `ÉTAPES` et ne
-s'écrit pas ici. L'itération 2 en ajoutera, l'itération 4 aussi, et un total figé
-dans une phrase ne deviendrait faux que ce jour-là, trop tard pour que quiconque
-s'en aperçoive.
+changement d'étape observé, plus celle de fin. Observé, parce que la région rend
+l'étape que le dernier sondage a rapportée : une étape plus courte que les deux
+secondes de l'intervalle peut passer entre deux relevés sans jamais être annoncée,
+et promettre l'exhaustivité surévaluerait ce qu'un lecteur d'écran reçoit. Le
+compte, lui, se lit dans `ÉTAPES` et ne s'écrit pas ici : l'itération 2 en
+ajoutera, l'itération 4 aussi, et un total figé dans une phrase ne deviendrait
+faux que ce jour-là, trop tard pour que quiconque s'en aperçoive.
 
 **Trois régions live, et pas une de plus** : l'avancement (changements d'étape),
 les erreurs (`role="alert"`, donc `assertive`) et le résultat d'un export. Le
@@ -1457,9 +1473,12 @@ tranche de temps. Sept lots sur onze ne font donc pas 64 % de quoi que ce soit.
 
 Deux grandeurs, et elles ne répondent pas à la même question :
 
-- **le compte de lots**, « 4 lots de fenêtres sur 11 n'ont pas été notés », est
-  vrai et opaque pour qui ne connaît pas le découpage. Il dit ce qui s'est passé,
-  pas ce qu'on a perdu ;
+- **le compte de lots refusés**, « 4 lots de fenêtres sur 11 ont été refusés par
+  le filtre de sécurité du modèle », dit ce qui s'est passé et rien de plus. Le
+  confondre avec de la matière perdue serait faux depuis que le repérage recoupe
+  les lots refusés et les resoumet : sur `2025-06-15-cqlp`, 83 fenêtres sur 83
+  finissent notées après quatre refus. La perte, quand il y en a une, se lit
+  ailleurs ;
 - **la couverture temporelle**, l'union des fenêtres effectivement notées
   rapportée à l'étendue du transcript, répond à la question que Julien se pose.
   Ce document la demandait au serveur ; elle existe (`BilanRepérage.couverture`),
@@ -1596,8 +1615,12 @@ spontanée : *le parcours est un objet qui traverse des phases, pas un tunnel à
 **La spec §5 et le nom des artefacts.** §5 définit `shots.json` (les frontières de
 plans) et `people.json` (les boîtes de personnes). Le code en a écrit un seul,
 `analysis.json`, qui porte les deux, et ce n'est plus une annonce : le fichier
-existe, l'étape qui le produit s'appelle `analysis`, et `computeFraming` lit son
-contenu. Ce n'est pas une question d'interface et je ne la tranche pas. Mais deux
+existe, l'étape qui le produit s'appelle `analysis`, et `lireAnalyse` le relit et
+le valide. Le raccord entre ce fichier et le cadrage reste à écrire :
+`computeFraming` est une fonction pure qui reçoit des plans et des boîtes déjà
+lus, la frontière de `src/core` lui interdisant de toucher au disque, et rien en
+production ne l'appelle encore. Ce n'est pas une question d'interface et je ne la
+tranche pas. Mais deux
 noms pour un fichier, dont un seul existe, est exactement ce qui envoie le suivant
 chercher un artefact absent. La fusion demande à être écrite en §5. (relevé par
 Aristarque)

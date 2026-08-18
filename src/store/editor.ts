@@ -23,7 +23,15 @@ import {
   restoreWord,
   type ClipWord,
 } from '@/lib/editing'
-import { canUndo, pushHistory, startHistory, undoHistory, type History } from '@/lib/history'
+import {
+  canRedo,
+  canUndo,
+  pushHistory,
+  redoHistory,
+  startHistory,
+  undoHistory,
+  type History,
+} from '@/lib/history'
 
 /**
  * Une sélection : deux index de mots, dans l'ordre où on les a désignés.
@@ -55,6 +63,12 @@ type EtatEditeur = {
   remonterMot: (mots: ClipWord[], index: number) => void
   poserBorne: (mots: ClipWord[], index: number, bord: 'start' | 'end') => void
   annuler: () => void
+  /**
+   * Refait le geste annulé. **Le pendant d'`annuler`, et il n'est pas
+   * optionnel** : annuler sans pouvoir rétablir transforme le geste de sécurité
+   * en pari. La touche, elle, appartient à l'écran.
+   */
+  retablir: () => void
   commencerSelection: (index: number, etendre: boolean) => void
   etendreSelection: (index: number) => void
   terminerSelection: () => void
@@ -149,6 +163,10 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
     set((etat) => (canUndo(etat.historique) ? { historique: undoHistory(etat.historique) } : etat))
   },
 
+  retablir() {
+    set((etat) => (canRedo(etat.historique) ? { historique: redoHistory(etat.historique) } : etat))
+  },
+
   commencerSelection(index, etendre) {
     set((etat) => ({
       selection:
@@ -191,4 +209,8 @@ export function useSegments(): Segment[] {
 
 export function usePeutAnnuler(): boolean {
   return useEditeur((etat) => etat.historique.past.length > 0)
+}
+
+export function usePeutRetablir(): boolean {
+  return useEditeur((etat) => etat.historique.future.length > 0)
 }

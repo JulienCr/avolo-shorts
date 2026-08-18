@@ -255,3 +255,43 @@ describe('réconcilier après un PATCH refusé', () => {
     expect(etat.cropX).toBe(0.5)
   })
 })
+
+describe('rétablir', () => {
+  it('refait le geste qu’on vient d’annuler', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    const monte = useEditeur.getState().historique.present
+
+    useEditeur.getState().annuler()
+    expect(useEditeur.getState().historique.present).toEqual([{ start: 10, end: 14.8 }])
+
+    useEditeur.getState().retablir()
+    expect(useEditeur.getState().historique.present).toEqual(monte)
+  })
+
+  it('un Ctrl+Shift+Z de trop ne fait rien', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.retablir()
+    expect(useEditeur.getState().historique.present).toEqual([{ start: 10, end: 14.8 }])
+  })
+
+  it('un nouveau geste efface ce qu’il y avait à refaire', () => {
+    const editeur = useEditeur.getState()
+    editeur.charger(clip())
+    editeur.commencerSelection(2, false)
+    editeur.retirerSelection(mots())
+    useEditeur.getState().annuler()
+
+    useEditeur.getState().commencerSelection(4, false)
+    useEditeur.getState().retirerSelection(mots())
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+
+  it('n’a rien à refaire sur un clip qu’on vient d’ouvrir', () => {
+    useEditeur.getState().charger(clip())
+    expect(useEditeur.getState().historique.future).toEqual([])
+  })
+})

@@ -69,19 +69,27 @@ describe('SourceCard', () => {
     expect(screen.getByText('Analysée')).toBeTruthy()
   })
 
-  it('se désactive le temps que la création réponde', async () => {
+  it('se désactive le temps que la création réponde, sans perdre le focus', async () => {
     // Sans cet état, on clique deux fois : la réponse arrive en quelques
     // centaines de millisecondes, mais elle traverse un `lstat` sur un montage
     // 9p qui peut mettre plusieurs secondes.
+    //
+    // `aria-disabled` et non `disabled` : `disabled` sort du parcours de
+    // tabulation, donc il **prend** le focus à celui qui vient d'appuyer sur
+    // Entrée. Sur un échec, il faudrait retraverser la page pour revenir à la
+    // carte. La raison, elle, est écrite sur la carte même.
     const c = creation({ enCours: NEUVE.name })
     render(<SourceCard source={NEUVE} creation={c} />)
 
     const carte = screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ })
-    expect(carte).toHaveProperty('disabled', true)
+    expect(carte.getAttribute('aria-disabled')).toBe('true')
+    expect(carte).toHaveProperty('disabled', false)
     expect(screen.getByText('Création…')).toBeTruthy()
 
-    await userEvent.click(carte)
+    carte.focus()
+    await userEvent.keyboard('{Enter}')
     expect(c.lancer).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(carte)
   })
 
   it('se désactive aussi pendant la création d’une autre source', async () => {
@@ -90,6 +98,9 @@ describe('SourceCard', () => {
     const c = creation({ enCours: 'une-autre.mp4' })
     render(<SourceCard source={NEUVE} creation={c} />)
 
+    // Celle-ci sort du parcours de tabulation, et c'est le bon choix : personne
+    // n'a le focus dessus, et sa raison — « une création tourne ailleurs » — ne
+    // vaut pas d'être lue au clavier. C'est le partage de la conception §4.4.
     const carte = screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ })
     expect(carte).toHaveProperty('disabled', true)
     // Mais c'est bien l'autre carte qui affiche l'attente, pas celle-ci.

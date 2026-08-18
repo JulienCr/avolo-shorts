@@ -111,12 +111,22 @@ export function SourceCard({ source, creation }: { source: Source; creation: Cre
   return (
     <button
       type="button"
-      // `disabled`, et non `aria-disabled` : la raison ne vaut pas d'être lue.
-      // La règle de §4.4 vise les blocages qu'il faut comprendre avant
-      // d'essayer — « le montage attend le proxy ». Ici l'attente dure quelques
-      // centaines de millisecondes et se voit sur la carte elle-même.
-      disabled={bloquee}
-      onClick={() => creation.lancer(source)}
+      // **Deux mécanismes, et le partage est celui de la conception §4.4.**
+      //
+      // La carte qu'on vient de cliquer garde son `aria-disabled` : `disabled`
+      // sort du parcours de tabulation, donc il prendrait le focus à celui qui
+      // vient d'appuyer sur Entrée, et il faudrait retraverser la page pour
+      // revenir à la carte en cas d'échec. Sa raison est écrite dessus —
+      // « Création… » —, jamais dans une bulle d'aide.
+      //
+      // Les autres, elles, sortent bel et bien : personne n'a le focus dessus, et
+      // « une création tourne ailleurs » ne vaut pas d'être découvert au clavier.
+      disabled={bloquee && !enCreation}
+      aria-disabled={enCreation || undefined}
+      onClick={() => {
+        if (bloquee) return
+        creation.lancer(source)
+      }}
       className={cn(
         carte,
         'hover:bg-muted disabled:pointer-events-none',

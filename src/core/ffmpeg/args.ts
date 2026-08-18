@@ -261,6 +261,51 @@ export type RenderOptions = {
   encoder: EncoderName
 }
 
+/** Une étape linéaire du graphe : une étiquette entre, une étiquette sort. */
+type Étape = (entrée: string, sortie: string) => string
+
+/**
+ * Écrit une suite d'étapes dans le graphe et rend l'étiquette qui en sort.
+ *
+ * Les étapes sont **comptées avant d'être écrites**, parce que c'est la
+ * dernière — quelle qu'elle soit — qui doit porter l'étiquette terminale.
+ * Sans cela il faudrait un filtre de rattrapage, ou un `-map` dont le nom
+ * change avec les options.
+ *
+ * Aucune étape : rien n'est écrit et l'entrée ressort telle quelle. C'est le
+ * cas d'un rendu natif sans sous-titres ni marque, où le découpage écrit
+ * directement dans l'étiquette terminale.
+ */
+function enchaîner(
+  graphe: string[],
+  entrée: string,
+  étapes: readonly Étape[],
+  terminal: string,
+): string {
+  let courant = entrée
+  étapes.forEach((étape, i) => {
+    const sortie = i === étapes.length - 1 ? terminal : `vf${i}`
+    graphe.push(étape(courant, sortie))
+    courant = sortie
+  })
+  return courant
+}
+
+/**
+ * L'écart-type du flou de fond, **et il ne monte pas**.
+ *
+ * C'était la première piste de #22, et elle est mauvaise : monter le sigma
+ * floute toute l'image davantage — le fond n'a pas à être une purée — sans
+ * garantir d'effacer quoi que ce soit. Mesuré à l'image sur un 1:1 : à 12, un
+ * carton de 40 px cerclé d'un contour de 8, agrandi 1,78x par la mise à
+ * l'échelle du fond, reste **pleinement lisible**, le jaune du mot actif
+ * compris. Un flou gaussien étale un trait à fort contraste, il ne le détruit
+ * pas ; il faudrait un sigma tel que le fond cesserait d'être une image.
+ *
+ * La bonne réponse est en amont : ne jamais mettre de texte dans le fond.
+ */
+const SIGMA_DU_FOND = 12
+
 /**
  * Le rendu d'un clip, **depuis l'original** et jamais depuis le proxy.
  *
@@ -289,6 +334,54 @@ export type RenderOptions = {
  * copie de flux. Ne pas le construire maintenant.
  */
 export function renderArgs(o: RenderOptions): string[] {
+  return construireLeRendu(o, null)
+}
+
+/**
+ * La variante 9:16 sur fond flouté, pour TikTok et Shorts.
+ *
+ * **Le contenu est déjà cropé**, donc il se pose **pleine largeur** et centré —
+ * et non au ratio 0,42 d'OpenShorts, qui partait de 16:9 brut et rognait les
+ * côtés pour gagner en présence. Un 1:1 occupe alors 56 % de la hauteur et un
+ * 4:5 en occupe 70 %, contre 32 % pour un 16:9 en letterbox : c'est exactement
+ * le bénéfice que la spec §2 reproche à OpenShorts de ne pas prendre.
+ *
+ * **Elle se rend depuis la source, avec les mêmes arguments que le rendu
+ * natif, et c'est le correctif de #22.** Elle partait auparavant du MP4 natif
+ * déjà terminé : son fond était donc un agrandissement du clip fini, cartons de
+ * sous-titres compris, et le flou ne les effaçait pas — constaté à l'image, le
+ * carton restait lisible à la même taille dans la bande du bas, sous le vrai.
+ * Monter le sigma ne répare pas ça (voir `SIGMA_DU_FOND`) ; tirer le fond d'un
+ * contenu qui n'a jamais porté de texte, si. Le `split` est donc **avant**
+ * l'incrustation, et le fond ne peut plus contenir de texte par construction.
+ *
+ * Ce que ça coûte : le décodage des segments une seconde fois, soit une
+ * fraction de l'encodage — mesuré, le décodage seul tourne à 16x contre 4,6x
+ * pour l'export. Ce que ça rapporte en plus : l'avant-plan ne traverse plus
+ * deux encodages successifs, puisqu'il ne recycle plus un MP4 déjà encodé.
+ *
+ * Le son est normalisé depuis la source comme celui du natif, et non plus
+ * recopié : c'est le même `loudnorm` sur le même PCM d'origine, donc toujours
+ * une seule compression.
+ */
+export function blurredVariantArgs(o: RenderOptions): string[] {
+  // La variante est toujours en 9:16 : c'est sa raison d'être.
+  return construireLeRendu(o, outputSize('9:16'))
+}
+
+/**
+ * Le constructeur commun aux deux sorties d'un clip.
+ *
+ * `canevas` porte toute la différence : `null` rend le format natif, une taille
+ * rend la variante posée sur son fond flouté. Le reste — les segments, le
+ * rectangle de crop, les sous-titres, les marques, la sonie — est **le même**,
+ * et c'est le point : les deux fichiers doivent montrer le même cadre. Deux
+ * constructeurs séparés l'ont laissé diverger une fois déjà (#22).
+ */
+function construireLeRendu(
+  o: RenderOptions,
+  canevas: { w: number; h: number } | null,
+): string[] {
   // Valider les bornes **avant** de normaliser, et c'est l'ordre qui compte :
   // `normalizeSegments` garde un segment si `end > start`, comparaison qui est
   // fausse dès qu'une borne vaut `NaN` — le segment disparaît donc en silence,
@@ -303,33 +396,44 @@ export function renderArgs(o: RenderOptions): string[] {
   // décodeur, et un segment vide ou inversé en vaut zéro.
   const segments = normalizeSegments(o.segments)
   if (segments.length === 0) {
-    throw new Error('renderArgs : aucun segment à rendre.')
+    throw new Error(
+      "Aucun segment à rendre : un clip est une liste de segments, et une liste vide n'a pas de durée.",
+    )
   }
 
   const logos = o.logos ?? []
   const multi = segments.length > 1
 
-  // Les étapes vidéo qui suivent le découpage. On les compte **avant** de les
-  // écrire, parce que c'est la dernière — quelle qu'elle soit — qui sort en
-  // `[v]` : sans cela il faudrait un filtre de rattrapage, ou un `-map` dont le
-  // nom change avec les options.
-  const suite: ((entrée: string, sortie: string) => string)[] = []
+  // Les étapes qui suivent le découpage. Sur la variante, elles ne s'appliquent
+  // qu'à l'avant-plan : le fond est tiré du même contenu **avant** elles.
+  const étapes: Étape[] = []
   if (o.assPath !== undefined) {
     const options = [option('filename', o.assPath)]
     // `filename=` nommé et non positionnel : un chemin en position portant un
     // `:` serait lu comme le début de l'option suivante.
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
-    suite.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+    étapes.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
   // Les logos passent **après** l'incrustation des sous-titres : une marque
   // posée dessous serait recouverte par le premier carton qui monte assez haut.
   logos.forEach((logo, i) => {
     const x = nombre(logo.x, `logos[${i}].x`)
     const y = nombre(logo.y, `logos[${i}].y`)
-    suite.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
+    étapes.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
   })
+  // La mise à la largeur du canevas ferme la chaîne de l'avant-plan. Elle ne
+  // change rien à un 1:1 ou à un 4:5, déjà larges de 1080, et ramène un 16:9 de
+  // 1920 à 1080.
+  if (canevas !== null) {
+    étapes.push((e, s) => `[${e}]scale=${canevas.w}:-2[${s}]`)
+  }
 
-  const sortieDécoupage = suite.length === 0 ? 'v' : multi ? 'vc' : 'vd'
+  // Où finit la chaîne : `[v]` pour le rendu natif, `[fg]` pour l'avant-plan de
+  // la variante, que la superposition consomme ensuite.
+  const terminal = canevas === null ? 'v' : 'fg'
+  // Et où sort le découpage. Sur un rendu natif sans sous-titre ni marque, rien
+  // ne suit : c'est le découpage lui-même qui écrit `[v]`.
+  const contenu = étapes.length === 0 ? terminal : multi ? 'vc' : 'vd'
 
   const graphe: string[] = []
   const c = o.crop
@@ -341,18 +445,17 @@ export function renderArgs(o: RenderOptions): string[] {
   ].join(',')
 
   segments.forEach((_, i) => {
-    graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : sortieDécoupage}]`)
+    graphe.push(`[${i}:v]${filtreImage}[${multi ? `v${i}` : contenu}]`)
   })
 
-  // Pas de `?` sur les entrées audio, contrairement à `blurredVariantArgs`, et
-  // c'est délibéré : une étiquette de graphe ne s'annote pas, et `concat` avec
-  // `a=1` exige de toute façon une piste son sur **chaque** entrée. Un replay
-  // muet est un replay raté ; mieux vaut que le rendu échoue franchement que
-  // de livrer un clip silencieux.
+  // Pas de `?` sur les entrées audio, et c'est délibéré : une étiquette de
+  // graphe ne s'annote pas, et `concat` avec `a=1` exige de toute façon une
+  // piste son sur **chaque** entrée. Un replay muet est un replay raté ; mieux
+  // vaut que le rendu échoue franchement que de livrer un clip silencieux.
   let audio: string
   if (multi) {
     const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
-    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${sortieDécoupage}][ac]`)
+    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${contenu}][ac]`)
     audio = 'ac'
   } else {
     audio = '0:a'
@@ -361,8 +464,7 @@ export function renderArgs(o: RenderOptions): string[] {
   // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce
   // taux. ffmpeg insère alors tout seul un rééchantillonnage vers le plus haut
   // taux que l'AAC accepte — mesuré, une source à 44,1 kHz ressortait en
-  // **96 kHz**, et la variante floutée en héritait par `-c:a copy`. Personne ne
-  // livre du 96 kHz.
+  // **96 kHz**. Personne ne livre du 96 kHz.
   graphe.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
 
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
@@ -373,12 +475,21 @@ export function renderArgs(o: RenderOptions): string[] {
     graphe.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
-  let vidéo = sortieDécoupage
-  suite.forEach((étape, i) => {
-    const sortie = i === suite.length - 1 ? 'v' : `vf${i}`
-    graphe.push(étape(vidéo, sortie))
-    vidéo = sortie
-  })
+  if (canevas === null) {
+    enchaîner(graphe, contenu, étapes, terminal)
+  } else {
+    // **Le fond sort du `split`, donc d'avant l'incrustation.** C'est toute la
+    // correction de #22 : le fond ne peut pas porter de sous-titre puisqu'il
+    // n'en a jamais vu passer. `force_original_aspect_ratio=increase` puis
+    // `crop` couvrent le canevas sans déformer.
+    graphe.push(`[${contenu}]split=2[bga][fga]`)
+    graphe.push(
+      `[bga]scale=${canevas.w}:${canevas.h}:force_original_aspect_ratio=increase,` +
+        `crop=${canevas.w}:${canevas.h},gblur=sigma=${SIGMA_DU_FOND}[bg]`,
+    )
+    const avantPlan = enchaîner(graphe, 'fga', étapes, terminal)
+    graphe.push(`[bg][${avantPlan}]overlay=x=0:y=(H-h)/2,setsar=1[v]`)
+  }
 
   return [
     ...GLOBALES,
@@ -398,49 +509,6 @@ export function renderArgs(o: RenderOptions): string[] {
     '-map', '[a]',
     ...videoEncodeArgs(o.encoder, 'quality'),
     '-c:a', 'aac', '-b:a', '192k',
-    ...METADATA_SCRUB,
-    '-movflags', '+faststart',
-    ...destination(o.dst),
-  ]
-}
-
-/**
- * La variante 9:16 sur fond flouté, pour TikTok et Shorts, à partir du rendu
- * natif déjà produit.
- *
- * **Le contenu est déjà cropé**, donc il se pose **pleine largeur** et centré —
- * et non au ratio 0,42 d'OpenShorts, qui partait de 16:9 brut et rognait les
- * côtés pour gagner en présence. Un 1:1 occupe alors 56 % de la hauteur et un
- * 4:5 en occupe 70 %, contre 32 % pour un 16:9 en letterbox : c'est exactement
- * le bénéfice que la spec §2 reproche à OpenShorts de ne pas prendre.
- *
- * Le son est **recopié** : le rendu natif l'a déjà passé au `loudnorm`, et le
- * repasser le comprimerait deux fois.
- */
-export function blurredVariantArgs(o: {
-  src: string
-  dst: string
-  encoder: EncoderName
-}): string[] {
-  // La variante est toujours en 9:16 : c'est sa raison d'être.
-  const { w, h } = outputSize('9:16')
-  const graphe = [
-    '[0:v]split=2[bga][fga]',
-    `[bga]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},gblur=sigma=12[bg]`,
-    `[fga]scale=${w}:-2[fg]`,
-    '[bg][fg]overlay=x=0:y=(H-h)/2,setsar=1[v]',
-  ].join(';')
-
-  return [
-    ...GLOBALES,
-    ...accélération(o.encoder),
-    '-i', o.src,
-    '-filter_complex', graphe,
-    '-map', '[v]',
-    // Le `?` compte : une source muette doit quand même se rendre.
-    '-map', '0:a:0?',
-    '-c:a', 'copy',
-    ...videoEncodeArgs(o.encoder, 'quality'),
     ...METADATA_SCRUB,
     '-movflags', '+faststart',
     ...destination(o.dst),

@@ -524,11 +524,20 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // variante en dépend : voir plus bas.
   let natifEncodé = false
 
-  // **On ne prépare que ce que le rendu va vraiment consommer.** Un passage
-  // interrompu juste après l'encodage laisse le MP4 sans son `.txt` : cette
+  // **Les deux sorties se rendent depuis la source, avec les mêmes arguments.**
+  // La variante partait du MP4 natif ; elle en héritait alors les sous-titres
+  // dans son fond flouté (#22). Elle a donc besoin de tout ce que le natif
+  // consomme : le transcript, le rectangle de crop, les marques.
+  const besoinNatif = options.force === true || !fs.existsSync(chemins.mp4)
+  const besoinVariante =
+    chemins.variant9x16 !== null &&
+    (options.force === true || !fs.existsSync(chemins.variant9x16))
+
+  // **On ne prépare que ce qu'un encodage va vraiment consommer.** Un passage
+  // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des trois sondages ffprobe.
-  if (options.force === true || !fs.existsSync(chemins.mp4)) {
+  if (besoinNatif || besoinVariante) {
     // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
     // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
     // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
@@ -564,26 +573,59 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
         : []
 
-      const natif = await produireArtefact({
-        dst: chemins.mp4,
-        force: options.force,
-        durationSec: durée,
-        onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-        quoi: `rendu ${ratio} du clip ${clipId}`,
-        args: (destination) =>
-          renderArgs({
-            src,
-            dst: destination,
-            segments: clip.segments,
-            crop,
-            out,
-            assPath: assProvisoire,
-            fontsDir,
-            logos,
-            encoder: encodeur(),
-          }),
-      })
-      natifEncodé = !natif.skipped
+      // Ce que les deux sorties ont en commun, c'est-à-dire tout sauf la mise
+      // en page : mêmes segments, même rectangle, mêmes sous-titres, mêmes
+      // marques. Les partager dans un seul objet est ce qui garantit que les
+      // deux fichiers montrent le même cadre.
+      const commun = {
+        src,
+        segments: clip.segments,
+        crop,
+        out,
+        assPath: assProvisoire,
+        fontsDir,
+        logos,
+      }
+
+      if (besoinNatif) {
+        const natif = await produireArtefact({
+          dst: chemins.mp4,
+          force: options.force,
+          durationSec: durée,
+          onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
+          quoi: `rendu ${ratio} du clip ${clipId}`,
+          args: (destination) =>
+            renderArgs({ ...commun, dst: destination, encoder: encodeur() }),
+        })
+        natifEncodé = !natif.skipped
+      }
+
+      // **La variante est refaite dès que le natif l'a été**, `force` ou pas.
+      // Elle ne dérive plus de son fichier, mais elle décrit le même montage :
+      // un natif réencodé alors que la variante est restée en place laisserait
+      // deux fichiers qui ne racontent plus la même chose, et l'appel suivant —
+      // les trouvant tous les deux — sauterait sans un mot.
+      // (relevé par Aristarque)
+      //
+      // **Et la périmée est effacée AVANT le nouvel encodage**, pas seulement
+      // refaite. Rien de tout cela ne survit à l'appel : si l'encodage de la
+      // variante échoue, la fonction lève, et la relance suivante — sans
+      // `force` — retrouve les deux sorties présentes et saute une paire
+      // incohérente. L'effacer d'abord fait qu'un échec laisse une sortie
+      // manquante, donc réessayable. (relevé par Copilot)
+      if (chemins.variant9x16 !== null) {
+        const refaireLaVariante = besoinVariante || natifEncodé
+        if (refaireLaVariante) fs.rmSync(chemins.variant9x16, { force: true })
+        await produireArtefact({
+          dst: chemins.variant9x16,
+          force: refaireLaVariante,
+          durationSec: durée,
+          onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
+          quoi: `variante 9:16 du clip ${clipId}`,
+          args: (destination) =>
+            blurredVariantArgs({ ...commun, dst: destination, encoder: encodeur() }),
+        })
+      }
     } finally {
       // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté ou
       // sauté laisse en place celui qui décrit la vidéo réellement sur le disque.
@@ -596,41 +638,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     }
   }
 
-  // La variante part du rendu natif et non de la source : le contenu y est déjà
-  // cropé, sous-titré et marqué, et son son est déjà passé au `loudnorm` — d'où
-  // le `-c:a copy` de `blurredVariantArgs`, qui évite de le comprimer deux fois.
-  //
-  // **Elle est refaite dès que le natif l'a été**, `force` ou pas. Un rendu forcé
-  // qui réussit le natif puis échoue sur la variante — disque plein, GPU qui
-  // décroche — laisse l'ancienne variante en place : `produireArtefact` nettoie
-  // son temporaire mais ne touche jamais le fichier déjà là. L'appel suivant,
-  // sans `force`, trouverait les trois sorties présentes, sauterait tout, et
-  // livrerait une variante qui ne correspond plus au natif, sans un mot.
-  // (relevé par Aristarque)
-  //
-  // **Et la périmée est effacée AVANT le nouvel encodage**, pas seulement refaite.
-  // `natifEncodé` ne survit pas à l'appel : si l'encodage de la variante échoue,
-  // la fonction lève, et la relance suivante — sans `force` — retrouve les trois
-  // sorties présentes et saute une paire incohérente. L'effacer d'abord fait
-  // qu'un échec laisse une sortie manquante, donc réessayable.
-  // (relevé par Copilot)
-  if (chemins.variant9x16 !== null) {
-    const refaireLaVariante = options.force === true || natifEncodé
-    if (refaireLaVariante) fs.rmSync(chemins.variant9x16, { force: true })
-    await produireArtefact({
-      dst: chemins.variant9x16,
-      force: refaireLaVariante,
-      durationSec: durée,
-      onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
-      quoi: `variante 9:16 du clip ${clipId}`,
-      args: (destination) =>
-        blurredVariantArgs({ src: chemins.mp4, dst: destination, encoder: encodeur() }),
-    })
-  } else {
-    // Un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et
-    // l'ancienne resterait à côté du nouveau MP4 en ressemblant à une livraison à
-    // jour — alors que `RenderResult` annonce qu'il n'y en a pas.
-    // (relevé par Copilot)
+  // Un clip repassé de 1:1 à 9:16 n'a plus de variante à produire, et l'ancienne
+  // resterait à côté du nouveau MP4 en ressemblant à une livraison à jour — alors
+  // que `RenderResult` annonce qu'il n'y en a pas. (relevé par Copilot)
+  if (chemins.variant9x16 === null) {
     fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
   }
 

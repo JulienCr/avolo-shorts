@@ -200,11 +200,14 @@ describe('le tableau des étapes', () => {
     expect(ordre.indexOf('proxy')).toBeLessThan(ordre.indexOf('analysis'))
   })
 
-  it('laisse le coût à null là où personne n’a mesuré', () => {
-    // On affiche le coût d'une étape, jamais le temps qu'il reste — et jamais
-    // une estimation à la place d'une mesure.
-    expect(ÉTAPES.find((e) => e.nom === 'analysis')?.coûtSec).toBeNull()
-    expect(ÉTAPES.find((e) => e.nom === 'proxy')?.coûtSec).toBe(360)
+  it('ne porte plus de coût : il dépend de l’émission, pas de l’étape', () => {
+    // Les cinq `coûtSec` étaient mesurés une seule fois, sur une émission
+    // d'1 h 40, et s'affichaient à l'identique pour une capsule de vingt
+    // minutes. `fourchetteDÉtape` les remplace, et deux tables sur la même
+    // question auraient fini par diverger.
+    for (const étape of ÉTAPES) {
+      expect(Object.keys(étape).toSorted()).toEqual(['libelle', 'nom'])
+    }
   })
 })
 
@@ -307,10 +310,11 @@ describe('fourchetteDÉtape', () => {
   })
 
   it('n’annonce rien pour une étape jamais chronométrée', () => {
-    // `analysis` est absente de la table des débits pour la même raison qu'elle
-    // porte `coûtSec: null` dans `ÉTAPES` : personne ne l'a mesurée.
+    // `analysis` est absente de la table des débits parce que personne ne l'a
+    // mesurée sur une émission entière — elle reste dans `ÉTAPES`, qui décrit
+    // l'ordre du plan et non son prix.
     expect(fourchetteDÉtape('analysis', CQLP)).toBeNull()
-    expect(ÉTAPES.find((é) => é.nom === 'analysis')?.coûtSec).toBeNull()
+    expect(ÉTAPES.some((é) => é.nom === 'analysis')).toBe(true)
   })
 
   it('n’annonce rien pour les rendus, qui ne passent pas par le graphe', () => {

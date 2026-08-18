@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
 
 import type { StepName } from '@/core/graph'
-import { compter, phaseProjet } from '@/core/parcours'
+import { compter, phaseProjet, type TailleÉmission } from '@/core/parcours'
 import { CIBLES_DE_REPRISE } from '@/lib/api'
 import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
@@ -80,6 +80,19 @@ export function EcranDeProjet({ id }: { id: string }) {
   // périmées, elles, restent affichées — la phase ne retire jamais ce qui
   // existe. (relevé par Copilot)
   const listeInconnue = candidats.isError && candidats.data === undefined
+
+  // **Ce qui dimensionne les durées annoncées, et ce qui manque.** La durée
+  // vient de l'ingestion et le compte de fenêtres du bilan de repérage ; la
+  // taille du fichier, elle, n'est pas publiée par `GET /api/projects/:id` —
+  // elle vit sur `Source`, que seule la bibliothèque interroge. Le panneau
+  // n'annonce donc rien pendant les quelques dizaines de secondes qui précèdent
+  // la fin de l'ingestion, ce qui est la règle qu'il tient déjà : une absence se
+  // lit mieux qu'un chiffre inventé.
+  const taille: TailleÉmission = {
+    durationSec: projet.data?.project.durationSec ?? null,
+    sizeBytes: null,
+    fenêtres: projet.data?.repérage?.fenêtres ?? null,
+  }
 
   const prêt = !projet.isPending && !candidats.isPending
   const disposition =
@@ -162,6 +175,7 @@ export function EcranDeProjet({ id }: { id: string }) {
               steps={steps}
               running={running}
               erreur={erreur}
+              taille={taille}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
             />
           ) : !prêt ? (

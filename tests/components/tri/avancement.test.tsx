@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
-import { phaseProjet } from '@/core/parcours'
+import { phaseProjet, type TailleÉmission } from '@/core/parcours'
 import { dispositionAvancement } from '@/components/tri/modele'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 
@@ -66,18 +66,24 @@ describe('dispositionAvancement', () => {
   })
 })
 
+/** L'émission de référence, 1 h 39, celle de toutes les mesures du dépôt. */
+const CQLP: TailleÉmission = { durationSec: 5_940, sizeBytes: null, fenêtres: 83 }
+
 describe('PanneauAvancement', () => {
   function monter(
     faites: StepName[],
     running: { step: StepName; progress: number } | null = enCours,
     erreur: string | null = null,
+    taille = CQLP,
   ) {
     return render(
       <PanneauAvancement
         steps={releve(faites)}
         running={running}
         erreur={erreur}
+        taille={taille}
         reprise={<button type="button">Reprendre l’analyse</button>}
+        arret={<button type="button">Arrêter l’analyse</button>}
       />,
     )
   }
@@ -117,10 +123,41 @@ describe('PanneauAvancement', () => {
     expect(screen.queryByTestId('etape-renders')).toBeNull()
   })
 
-  it('donne le coût mesuré d’une étape, et rien pour celle qu’on n’a pas mesurée', () => {
+  it('donne une fourchette, jamais une seconde près, et rien sans mesure', () => {
+    // Le proxy coûte 6 min sur cette émission-ci : la fourchette l'encadre à
+    // 25 %, soit 5 à 8 min. `analysis` n'a jamais été chronométrée sur une
+    // émission entière — une absence se lit mieux qu'un chiffre inventé.
     monter(['audio'])
-    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/6 min/)
-    expect(screen.getByTestId('etape-analysis').textContent).not.toMatch(/min|\bs\b/)
+    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/environ 5–8 min/)
+    expect(screen.getByTestId('etape-analysis').textContent).not.toMatch(/environ/)
+  })
+
+  it('n’annonce pas la même durée à une capsule qu’à une émission entière', () => {
+    // C'est tout l'objet du changement : les cinq coûts étaient mesurés une
+    // seule fois, sur 1 h 39, et s'affichaient à l'identique pour vingt minutes.
+    monter(['audio'])
+    const longue = screen.getByTestId('etape-proxy').textContent
+    cleanup()
+
+    monter(['audio'], enCours, null, { durationSec: 20 * 60, sizeBytes: null, fenêtres: 17 })
+    expect(screen.getByTestId('etape-proxy').textContent).not.toBe(longue)
+  })
+
+  it('n’annonce rien tant que l’ingestion n’a pas sondé la durée', () => {
+    // C'est l'état d'un projet créé il y a trois secondes, c'est-à-dire le
+    // moment exact où ce panneau apparaît.
+    monter(['audio'], enCours, null, { durationSec: null, sizeBytes: null, fenêtres: null })
+    expect(screen.getByTestId('etape-proxy').textContent).not.toMatch(/environ/)
+  })
+
+  it('porte l’arrêt tant qu’une exécution tourne, et jamais avec la reprise', () => {
+    // « Arrêter » et non « pause » : rien ne reprend exactement un processus là
+    // où il s'est interrompu. Et les deux boutons ne s'adressent pas au même
+    // état — les poser côte à côte demanderait de choisir alors que le projet a
+    // déjà choisi.
+    monter(['audio'])
+    expect(screen.getByRole('button', { name: /arrêter/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /reprendre/i })).toBeNull()
   })
 
   it('met la progression dans un « progressbar », pas dans une région live', () => {

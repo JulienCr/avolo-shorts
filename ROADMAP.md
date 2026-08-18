@@ -348,14 +348,22 @@ sur cinq a passé les trois tests.
 Des clips `clip_verif_*` restent en base ; les rendus de `clip_verif_auto` ont
 été effacés par une vérification du 18 août.
 
-**`assets/brand/` est vide dans le checkout principal** — `logo.png` et
-`twitch.png` ont disparu entre les rendus du matin, qui les portent incrustés, et
-l'après-midi. Le dossier est ignoré par git : les marques appartiennent à
-l'opérateur et personne ne peut les rendre. Deux substituts fabriqués pour les
-tests subsistent dans le worktree `fond-floute`. **Le vrai risque est ailleurs** :
-`collecterMarques` traite un dossier vide comme « rendre sans marque », en
-silence — donc une série entière peut sortir sans logo sans que rien ne le
-signale.
+**Les marques sont retrouvées, et l'endroit vaut d'être noté.** `logo.png` et
+`twitch.png` avaient disparu d'`assets/brand/` entre les rendus du 18 août au
+matin, qui les portent incrustés, et l'après-midi. Elles ont été récupérées dans
+**`~/dev/openshorts/assets/brand/`** — le projet que celui-ci remplace, où elles
+sont ignorées par git pour la même raison — et vérifiées par `collecterMarques` :
+`logo.png` 1000x996, `twitch.png` 996x224, toutes deux en RGBA, au-delà du
+plancher que documente `assets/brand/README.md`.
+
+**Elles ne sont versionnées nulle part, et c'est délibéré** : elles appartiennent
+à l'opérateur et ce dépôt est public. Elles n'ont donc survécu que par un
+checkout voisin, ce qui n'est pas une sauvegarde. Un worktree neuf naît sans
+elles ; `avolo-apercu` les y recopie comme il recopie le `.env`.
+
+**Le vrai risque, lui, est intact** : `collecterMarques` traite un dossier vide
+comme « rendre sans marque », en silence — donc une série entière peut sortir
+sans logo sans que rien ne le signale. C'est l'issue #37, en cours.
 
 **Les worktrees d'agents pèsent 13 Go** sous `.claude/worktrees/`. Avant d'en
 supprimer un, `git status --short --ignored` : un worktree ne contient pas que du

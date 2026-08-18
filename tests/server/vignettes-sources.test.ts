@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GET as vignetteRoute } from '@/app/api/sources/thumb/route'
+import { messageSûr } from '@/server/erreurs'
 import { sourceThumbArgs } from '@/core/ffmpeg/args'
 import {
   dossierVignettesSources,
@@ -452,6 +453,33 @@ describe('GET /api/sources/thumb', () => {
 
   it('rend 404 sur une source qui n’existe pas', async () => {
     expect((await vignetteRoute(requête('?file=jamais-vue.mp4'))).status).toBe(404)
+  })
+
+  /**
+   * **Le cas où le caviardage se casse le nez**, et le seul qui compte
+   * vraiment ici : `REPLAY_DIR` vaut littéralement `/mnt/j/Drive partagés/…`, et
+   * un chemin nu se coupe au premier espace. `statAvecDélai` écrit le chemin
+   * complet dans son message — il est destiné à un journal de serveur — et c'est
+   * `messageSûr`, qui connaît les racines de la machine, qui l'en retire avant
+   * la réponse. Ce dépôt est public.
+   */
+  it('ne publie pas le point de montage quand le partage ne répond pas', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const avecEspaces = path.join(racine, 'Drive partagés', 'Replay')
+    fs.mkdirSync(avecEspaces, { recursive: true })
+    fs.writeFileSync(path.join(avecEspaces, 'e.mp4'), Buffer.alloc(4_096))
+    process.env.REPLAY_DIR = avecEspaces
+    const lstat = vi.spyOn(fs.promises, 'lstat').mockImplementation(() => new Promise(() => {}))
+
+    // Le délai de garde par défaut est de vingt secondes ; on passe par le
+    // module plutôt que par la route pour ne pas faire attendre la suite, et on
+    // vérifie le message que la route rendrait.
+    const erreur = await vignetteSource('e.mp4', { timeoutMs: 20 }).catch((c: unknown) => c)
+    lstat.mockRestore()
+
+    expect(messageSûr(erreur)).not.toContain(avecEspaces)
+    expect(messageSûr(erreur)).not.toContain(racine)
+    expect(messageSûr(erreur)).toContain('REPLAY_DIR')
   })
 
   /**

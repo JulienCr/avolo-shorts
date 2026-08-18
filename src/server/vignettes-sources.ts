@@ -224,7 +224,12 @@ function résoudre(nom: string): string {
     return resolveSource(vérifierNomDeSource(nom))
   } catch (cause) {
     if (cause instanceof SourceInvalideError) throw cause
-    throw new SourceInvalideError((cause as Error).message, { cause })
+    // `resolveSource` ne lève que des `Error`, mais le lire depuis un `as`
+    // rendrait `undefined` le jour où ce ne serait plus vrai — et un 400 au
+    // message vide est un cul-de-sac.
+    throw new SourceInvalideError(cause instanceof Error ? cause.message : String(cause), {
+      cause,
+    })
   }
 }
 

@@ -9,3 +9,9 @@ allowBuilds:
   protobufjs: false
   sharp: false
   unrs-resolver: false
+  # Arrivé avec `tsx`, qui porte les scripts de développement (`scripts/dev-*.ts`).
+  # `false` : le binaire d'esbuild est livré par le paquet de plateforme
+  # `@esbuild/linux-x64`, que pnpm installe en dépendance optionnelle. Le script
+  # `postinstall` ne fait que le recopier à côté du paquet principal, ce dont
+  # `tsx` n'a pas besoin — vérifié en exécutant un script sans lui.
+  esbuild: false

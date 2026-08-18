@@ -638,6 +638,8 @@ dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
 ## 12. L'API
 
 ```
+GET    /api/sources                            les replays disponibles
+GET    /api/sources/thumb?file=<nom>           la vignette d'un replay
 POST   /api/projects              { source } -> 202 + projectId
 GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
@@ -687,15 +689,20 @@ chaque champ a été payé une fois :
 }
 ```
 
-- **Des chemins relatifs, jamais absolus.** Le résolveur les rejoint de toute façon
-  sur la racine ; exposer l'arborescence du serveur n'apporterait rien à l'appelant.
-- **Le même confinement `realpath` que l'ingestion.** Le sélecteur ne peut donc
-  jamais proposer un fichier que le POST suivant refuserait.
-- **`followlinks=false`** : un répertoire lié ferait sortir de l'arbre, ou boucler.
-  Les fichiers liés restent vérifiés un par un.
-- **Les arbres cachés et ceux commençant par `$` sont ignorés.** Un dossier adossé à
-  un Drive porte des répertoires de téléchargement partiel, qui apparaîtraient
-  comme des vidéos cassées.
+- **Un parcours plat, les enfants directs de `REPLAY_DIR` et rien d'autre**, et
+  **aucun lien symbolique**. Ce n'est pas une simplification : c'est le contrat que
+  `resolveSource` applique déjà (`path.dirname(résolu) === replayDir()`) et que
+  l'ingestion double d'un `lstat`. Un sélecteur qui descendrait dans les
+  sous-dossiers proposerait des cartes que le `POST` refuse par 400. Et la raison
+  du contrat vaut pour le sélecteur aussi : `projectIdFromSource` ne garde que le
+  nom du fichier, donc `2025/show.mp4` et `2026/show.mp4` se partageraient un seul
+  projet, silencieusement.
+- **Des noms de fichier, jamais des chemins absolus.** Le résolveur les rejoint de
+  toute façon sur la racine ; exposer l'arborescence du serveur n'apporterait rien
+  à l'appelant.
+- **Les entrées cachées et celles commençant par `$` sont ignorées.** Un dossier
+  adossé à un Drive porte des fichiers de téléchargement partiel, qui
+  apparaîtraient comme des vidéos cassées.
 - **`truncated` est remonté, pas absorbé.** Un sélecteur qui s'arrête silencieusement
   à N donne à croire que les fichiers manquants n'existent pas.
 - **`sources[]` porte `fstype` et `entries`.** Un montage cassé est indiscernable
@@ -707,6 +714,19 @@ chaque champ a été payé une fois :
   n'a pas eu lieu.
 
 Tri par date de modification décroissante : le dernier live est en haut.
+
+`GET /api/sources/thumb?file=<nom>` rend la vignette d'une source, en `image/jpeg`,
+et `404` si le fichier n'existe pas.
+
+**Ce `file` vient du client, et c'est un changement de frontière de confiance.** La
+vignette d'un candidat part d'un `projectId` que le serveur contrôle ; celle-ci part
+d'un nom que l'appelant écrit. Sans confinement, `?file=../../etc/passwd` ferait
+ouvrir un fichier arbitraire par ffmpeg. La route passe donc par le **même
+`resolveSource`** que `POST /api/projects`, qui rejette l'octet nul, résout et exige
+que le parent soit exactement `REPLAY_DIR`, puis par le même `lstat` que
+l'ingestion pour refuser les liens. Aucune validation maison : réutiliser le
+résolveur est ce qui garantit que le sélecteur, la vignette et l'ingestion ne
+peuvent pas diverger.
 
 ## 13. L'interface
 
@@ -766,12 +786,25 @@ Trois règles rendent la chose tenable :
 
 - **`-ss` avant `-i`**, qui fait chercher dans le conteneur au lieu de décoder depuis
   le début. C'est la mesure qui vaut déjà pour la découpe.
-- **Cache sur disque local, clé = chemin + taille + date de modification.** Une
-  vignette n'est calculée qu'une fois par fichier, jamais à chaque visite de l'écran.
-  La clé reprend l'empreinte de source du graphe, donc un fichier remplacé invalide
-  sa vignette sans qu'on ait à y penser.
+- **Cache sur disque local, clé = nom + taille + date de modification.** Une
+  vignette n'est calculée qu'une fois par fichier, jamais à chaque visite de l'écran,
+  et un fichier remplacé invalide la sienne.
+  Cette clé n'est **pas** l'empreinte de source du graphe (§5), qui ajoute la durée
+  ffprobe : l'y mettre imposerait un `ffprobe` distant avant même de savoir s'il faut
+  calculer la vignette, ce qui annulerait tout le bénéfice. Taille et date suffisent
+  à détecter un remplacement de fichier.
 - **À la demande, au défilement.** On ne pré-calcule pas les vingt et une au
   chargement : on demande celle d'une carte quand elle entre dans le champ.
+
+**La durée arrive avec la vignette, pas avec la liste.** L'instant de capture étant
+une fraction de la durée, il faut la connaître, donc un `ffprobe` sur l'original.
+C'est le même aller distant que la vignette : on le fait une fois, au moment de
+calculer celle-ci, et on écrit la durée dans le cache à côté d'elle. La carte affiche
+le nom, la taille et la date dès la liste, puis la durée quand sa vignette arrive.
+
+`GET /api/sources` ne porte donc **aucun champ de durée** : l'y mettre exigerait
+vingt et un `ffprobe` distants au chargement de la grille, exactement ce que le
+chargement au défilement cherche à éviter.
 
 **Ne jamais prendre l'image à zéro seconde.** Les lives ouvrent sur un carton
 « ON ARRIVE VITE » avec compte à rebours, présent sur les trois émissions mesurées :

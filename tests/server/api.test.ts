@@ -131,6 +131,39 @@ describe('GET /api/projects/:id', () => {
     expect(état.running).toBeNull()
   })
 
+  /**
+   * Le seul chemin de retour d'un échec de tâche de fond : `lancer` a répondu 202
+   * quarante minutes plus tôt, et son rejet part dans une promesse que personne
+   * n'attend. (relevé par Copilot)
+   */
+  it('rend l’échec de la dernière exécution terminée', async () => {
+    fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
+    fs.writeFileSync(
+      path.join(racine, 'projects', PROJET, 'status.json'),
+      JSON.stringify({
+        pid: 1,
+        updatedAt: 0,
+        cibles: ['candidates'],
+        plan: ['candidates'],
+        running: null,
+        error: 'Gemini a bloqué le contenu de cette vidéo (PROHIBITED_CONTENT).',
+        finishedAt: 1,
+      }),
+    )
+
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.error).toContain('PROHIBITED_CONTENT')
+  })
+
+  it('ne rend pas d’échec quand rien n’a jamais tourné', async () => {
+    const état = (await (
+      await getProjet(new Request('http://x'), contexte(PROJET))
+    ).json()) as ProjectStatus
+    expect(état.error).toBeNull()
+  })
+
   it('rend 404 sur un projet inconnu', async () => {
     const réponse = await getProjet(new Request('http://x'), contexte('jamais-vu'))
     expect(réponse.status).toBe(404)

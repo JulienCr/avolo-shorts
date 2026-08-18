@@ -1,6 +1,6 @@
 import { getDb, getProject } from '@/server/db'
 import { introuvable, json, route } from '@/server/http'
-import { progression, relevéPrésence } from '@/server/run'
+import { lireStatut, progression, relevéPrésence } from '@/server/run'
 import { résuméProjet } from '@/server/vues'
 
 /**
@@ -18,10 +18,19 @@ export const GET = route(
     const projet = getProject(getDb(), id)
     if (projet === undefined) throw introuvable(`Projet inconnu : ${id}`)
 
+    const running = progression(id)
     return json({
       project: résuméProjet(projet),
       steps: await relevéPrésence(projet),
-      running: progression(id),
+      running,
+      // **Le seul chemin de retour d'un échec de tâche de fond.** `lancer` a
+      // répondu 202 quarante minutes plus tôt, et son rejet part dans une
+      // promesse que personne n'attend : sans ce champ, une analyse qui échoue
+      // est indiscernable d'une analyse qui n'a rien trouvé. On le lit dans
+      // `status.json`, le seul à en garder trace, et seulement au repos —
+      // pendant qu'une exécution tourne, l'échec affiché serait celui d'avant.
+      // (relevé par Copilot)
+      error: running === null ? (lireStatut(id)?.error ?? null) : null,
     })
   },
 )

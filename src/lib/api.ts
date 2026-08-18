@@ -64,6 +64,20 @@ export type ProjectStatus = {
   project: ProjectSummary
   steps: Record<StepName, boolean>
   running: { step: StepName; progress: number } | null
+  /**
+   * L'échec de la **dernière exécution terminée**, ou `null` si elle s'est bien
+   * passée — et `null` aussi tant que rien n'a jamais tourné.
+   *
+   * Sans lui, une analyse de quarante minutes qui échoue est indiscernable
+   * d'une analyse qui n'a rien trouvé : `running` retombe à `null`, la liste
+   * reste vide, et l'écran de tri annonce « aucun candidat ». Le lanceur rend
+   * la main bien après la réponse 202, donc c'est le seul chemin par lequel un
+   * échec de tâche de fond peut revenir jusqu'à l'écran.
+   *
+   * Le message est déjà épuré de ses chemins absolus, comme celui d'une réponse
+   * d'erreur.
+   */
+  error: string | null
 }
 
 /**

@@ -75,8 +75,12 @@ describe('cropRect', () => {
     expect(cropRect('9:16', 4, 1920, 1080).x).toBe(1920 - 608)
   })
 
-  it('retombe sur le centre quand cropX n’est pas un nombre utilisable', () => {
-    expect(cropRect('9:16', Number.NaN, 1920, 1080)).toEqual(cropRect('9:16', 0.5, 1920, 1080))
+  it.each([
+    ['NaN', Number.NaN],
+    ['+Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+  ])('retombe sur le centre quand cropX vaut %s', (_nom, cx) => {
+    expect(cropRect('9:16', cx, 1920, 1080)).toEqual(cropRect('9:16', 0.5, 1920, 1080))
   })
 
   it('les dimensions sont paires, sinon libx264 refuse', () => {

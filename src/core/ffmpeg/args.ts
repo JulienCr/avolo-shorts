@@ -135,7 +135,11 @@ function échapper(valeur: string): string {
  */
 function nombre(n: number, quoi: string): string {
   if (!Number.isFinite(n)) {
-    throw new Error(`${quoi} doit être un nombre fini, reçu ${JSON.stringify(n)}.`)
+    // `String` et non `JSON.stringify` : ce dernier rend `null` pour `NaN`
+    // comme pour les deux infinis, donc le message désignerait une valeur que
+    // l'appelant n'a pas passée. Un diagnostic qui ment coûte plus qu'il ne
+    // rapporte.
+    throw new Error(`${quoi} doit être un nombre fini, reçu ${String(n)}.`)
   }
   return String(n)
 }
@@ -248,7 +252,17 @@ export type RenderOptions = {
  * copie de flux. Ne pas le construire maintenant.
  */
 export function renderArgs(o: RenderOptions): string[] {
-  // Normaliser d'abord : deux segments qui se touchent ne valent qu'un
+  // Valider les bornes **avant** de normaliser, et c'est l'ordre qui compte :
+  // `normalizeSegments` garde un segment si `end > start`, comparaison qui est
+  // fausse dès qu'une borne vaut `NaN` — le segment disparaît donc en silence,
+  // et un clip de trois segments en rendrait deux sans un mot. Une borne
+  // infinie, elle, traverse la normalisation et ressort en `-t Infinity`.
+  o.segments.forEach((s, i) => {
+    nombre(s.start, `segments[${i}].start`)
+    nombre(s.end, `segments[${i}].end`)
+  })
+
+  // Normaliser ensuite : deux segments qui se touchent ne valent qu'un
   // décodeur, et un segment vide ou inversé en vaut zéro.
   const segments = normalizeSegments(o.segments)
   if (segments.length === 0) {

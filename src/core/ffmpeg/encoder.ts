@@ -22,14 +22,23 @@ export type EncoderName = 'x264' | 'nvenc'
  */
 export type QualityTier = 'quality' | 'fast'
 
+// `-pix_fmt yuv420p` sur **les deux** encodeurs, pour deux raisons distinctes.
+//
+// Sur NVENC il est indispensable : sans lui, l'encodeur émet du H.264 en gbrp
+// que la moitié des lecteurs refuse.
+//
+// Sur x264 il est défensif. libx264 conserve le format de la source, et les
+// replays d'aujourd'hui sont tous en yuv420p — mais une source en 10 bits ou en
+// 4:2:2 produirait un fichier que les plateformes rejettent, sans le moindre
+// avertissement en chemin. Deux jetons ferment ce cas.
+//
+// Ni l'un ni l'autre ne va **jamais** avec `-hwaccel_output_format cuda` —
+// voir `args.ts`.
 const X264: Record<QualityTier, readonly string[]> = {
-  quality: ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18'],
-  fast: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'],
+  quality: ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p'],
+  fast: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'],
 }
 
-// `-pix_fmt yuv420p` est **obligatoire** : sans lui, NVENC émet du H.264 en
-// gbrp que la moitié des lecteurs refuse. Et il ne va **jamais** avec
-// `-hwaccel_output_format cuda` — voir `args.ts`.
 const NVENC: Record<QualityTier, readonly string[]> = {
   quality: [
     '-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr',

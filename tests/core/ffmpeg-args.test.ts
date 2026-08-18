@@ -7,11 +7,23 @@ const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton
 describe('videoEncodeArgs', () => {
   it('porte les réglages x264 mesurés, par palier', () => {
     expect(videoEncodeArgs('x264', 'quality')).toEqual([
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p',
     ])
     expect(videoEncodeArgs('x264', 'fast')).toEqual([
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
     ])
+  })
+
+  // libx264 conserve le format de la source : une source en 10 bits ou en
+  // 4:2:2 sortirait dans un format que les plateformes rejettent, sans
+  // avertissement. Les deux encodeurs le posent donc, à tous les paliers.
+  it('force yuv420p sur les deux encodeurs, à tous les paliers', () => {
+    for (const encodeur of ['x264', 'nvenc'] as const) {
+      for (const palier of ['quality', 'fast'] as const) {
+        const a = videoEncodeArgs(encodeur, palier)
+        expect(a[a.indexOf('-pix_fmt') + 1]).toBe('yuv420p')
+      }
+    }
   })
 
   it('porte les réglages NVENC, avec -pix_fmt yuv420p', () => {
@@ -236,8 +248,19 @@ describe('renderArgs', () => {
   // plus haut taux que l'AAC accepte : mesuré, une source à 44,1 kHz ressortait
   // en 96 kHz. Le rééchantillonnage doit suivre la normalisation, pas la
   // précéder.
-  it('fixe le taux de sortie derrière loudnorm', () => {
-    const a = renderArgs({ ...base, segments: [{ start: 0, end: 10 }] })
+  // Les deux cas, parce que la chaîne audio n'a pas la même entrée : `0:a`
+  // pour un segment seul, la sortie `ac` du concat pour plusieurs.
+  it.each([
+    ['un segment', [{ start: 0, end: 10 }]],
+    [
+      'plusieurs segments',
+      [
+        { start: 0, end: 10 },
+        { start: 20, end: 30 },
+      ],
+    ],
+  ])('fixe le taux de sortie derrière loudnorm — %s', (_nom, segments) => {
+    const a = renderArgs({ ...base, segments })
     const graphe = a[a.indexOf('-filter_complex') + 1]
     expect(graphe).toContain(`${LOUDNORM},${RESAMPLE}`)
     expect(RESAMPLE).toContain('48000')
@@ -371,6 +394,32 @@ describe('renderArgs', () => {
 
   it('refuse de construire un rendu sans un seul segment', () => {
     expect(() => renderArgs({ ...base, segments: [] })).toThrow()
+  })
+
+  // Le pire des deux : `normalizeSegments` garde un segment si `end > start`,
+  // comparaison fausse dès qu'une borne vaut NaN — le segment disparaissait
+  // donc sans un mot, et un clip de trois segments en rendait deux. Une borne
+  // infinie, elle, ressortait en `-t Infinity`.
+  it.each([
+    ['NaN au début', { start: Number.NaN, end: 20 }],
+    ['NaN à la fin', { start: 10, end: Number.NaN }],
+    ['fin infinie', { start: 10, end: Number.POSITIVE_INFINITY }],
+  ])('refuse une borne non finie (%s) au lieu de perdre le segment', (_nom, mauvais) => {
+    expect(() =>
+      renderArgs({ ...base, segments: [{ start: 0, end: 10 }, mauvais, { start: 30, end: 40 }] }),
+    ).toThrow(/segments\[1\]/)
+  })
+
+  // Le message doit nommer la valeur reçue : `JSON.stringify` rend `null` pour
+  // NaN comme pour les infinis, et désignerait donc une valeur que l'appelant
+  // n'a jamais passée.
+  it('nomme la valeur fautive dans le message', () => {
+    expect(() =>
+      renderArgs({ ...base, segments: [{ start: Number.NaN, end: 10 }] }),
+    ).toThrow(/NaN/)
+    expect(() =>
+      renderArgs({ ...base, segments: [{ start: 0, end: Number.POSITIVE_INFINITY }] }),
+    ).toThrow(/Infinity/)
   })
 })
 

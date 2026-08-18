@@ -2,12 +2,13 @@
 #
 # **Un second venv, et c'est délibéré.** `WHISPER_PYTHON` pointe le venv du
 # diariseur de `~/dev/rythmo-impro/diarizer`, qui appartient à un autre dépôt et
-# porte un correctif porteur (`LD_LIBRARY_PATH` vers son `nvidia/cudnn/lib`, sans
-# quoi CTranslate2 ne charge rien). Y installer ultralytics reviendrait à faire
-# résoudre à pip les contraintes de WhisperX et celles d'ultralytics dans le même
-# arbre : la première montée de version qui déplace `torch` casserait la
-# transcription, et le dépôt qui la porte n'est pas celui-ci. Les quelques
-# gigaoctets de `torch` en double sont le prix de cette isolation.
+# porte son propre correctif cuDNN (`LD_LIBRARY_PATH` vers son
+# `nvidia/cudnn/lib`, sans quoi CTranslate2 ne charge rien). Y installer
+# ultralytics reviendrait à faire résoudre à pip les contraintes de WhisperX et
+# celles d'ultralytics dans le même arbre : la première montée de version qui
+# déplace `torch` casserait la transcription, et le dépôt qui la porte n'est pas
+# celui-ci. Les quelques gigaoctets de `torch` en double sont le prix de cette
+# isolation.
 #
 # `setup.sh` monte ce venv dans `worker/venv` et vérifie que CUDA y répond
 # vraiment. Pour le faire à la main :

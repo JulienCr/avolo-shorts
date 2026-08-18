@@ -332,8 +332,18 @@ torchvision.ops.nms(
 # exactement les mêmes opérateurs.
 from ultralytics import YOLO  # noqa: E402
 
+# `quantize=16` n'est pas décoratif ici : c'est l'argument que `detect.py` passe
+# à chaque lot, et il n'existe que depuis ultralytics 8.4 (il remplace `half`).
+# Comme cette sonde décide aussi de **sauter** l'installation des versions
+# épinglées quand un venv est déjà là, ne pas l'exercer laisserait un venv plus
+# ancien être déclaré conforme, puis échouer au premier lot du worker.
+# (relevé par Copilot)
 YOLO("yolo11n.yaml").predict(
-    np.zeros((64, 64, 3), dtype=np.uint8), device="cuda", classes=[0], verbose=False
+    np.zeros((64, 64, 3), dtype=np.uint8),
+    device="cuda",
+    classes=[0],
+    quantize=16,
+    verbose=False,
 )
 PY
 }
@@ -439,4 +449,10 @@ fi
 say "Prêt. FFMPEG_BIN=$FFMPEG"
 if [ "$SKIP_DETECT" -eq 0 ]; then
   say "       DETECT_PYTHON=$VENV_PY"
+  # **`YOLO_MODEL` ne configure que le téléchargement.** Le serveur, lui, lit
+  # `DETECT_MODEL` et retombe sur `worker/models/yolo11m.pt` : demander un autre
+  # modèle sans reporter cette ligne dans `.env` téléchargerait `yolo11x.pt` pour
+  # faire tourner l'analyse sur autre chose, ou échouer. On affiche donc le
+  # chemin réellement installé. (relevé par Copilot)
+  say "       DETECT_MODEL=$poids"
 fi

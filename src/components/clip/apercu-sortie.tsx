@@ -106,35 +106,46 @@ export function ApercuSortie({
   // fixe et un seul navigateur, mais la garde évite un échec silencieux et le
   // repli sur `timeupdate` tient l'aperçu à quatre images par seconde plutôt
   // qu'à zéro.
+  // La fonction de peinture change à chaque déplacement du cadre. Passée en
+  // dépendance de l'effet ci-dessous, elle ferait défaire et refaire
+  // l'abonnement aux trames soixante fois par seconde pendant un glissé — donc
+  // annuler la trame en vol à chaque frappe. Une référence la tient à jour sans
+  // toucher à l'abonnement.
+  const peindreRef = useRef(peindre)
+  useEffect(() => {
+    peindreRef.current = peindre
+  }, [peindre])
+
   useEffect(() => {
     if (video === null) return
+    const peindreMaintenant = () => peindreRef.current()
 
     // `loadeddata` et `seeked` valent pour les deux chemins : la première image
     // arrive après le montage, et un déplacement de la tête de lecture en pause
     // ne produit ni `timeupdate` utile ni trame.
-    video.addEventListener('loadeddata', peindre)
-    video.addEventListener('seeked', peindre)
+    video.addEventListener('loadeddata', peindreMaintenant)
+    video.addEventListener('seeked', peindreMaintenant)
 
     if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
       const source = video as VideoÀTrames
       let demande = source.requestVideoFrameCallback(function suivante() {
-        peindre()
+        peindreMaintenant()
         demande = source.requestVideoFrameCallback(suivante)
       })
       return () => {
         source.cancelVideoFrameCallback(demande)
-        video.removeEventListener('loadeddata', peindre)
-        video.removeEventListener('seeked', peindre)
+        video.removeEventListener('loadeddata', peindreMaintenant)
+        video.removeEventListener('seeked', peindreMaintenant)
       }
     }
 
-    video.addEventListener('timeupdate', peindre)
+    video.addEventListener('timeupdate', peindreMaintenant)
     return () => {
-      video.removeEventListener('timeupdate', peindre)
-      video.removeEventListener('loadeddata', peindre)
-      video.removeEventListener('seeked', peindre)
+      video.removeEventListener('timeupdate', peindreMaintenant)
+      video.removeEventListener('loadeddata', peindreMaintenant)
+      video.removeEventListener('seeked', peindreMaintenant)
     }
-  }, [video, peindre])
+  }, [video])
 
   return (
     <figure className="flex flex-col gap-1.5">

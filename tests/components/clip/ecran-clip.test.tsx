@@ -9,7 +9,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -37,12 +37,12 @@ vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
 )
 
 /** Le transcript servi avec le clip : le clip va de 100 à 120, le contexte de 0 à 200. */
-function detail(id = 'c2'): ClipDetail {
+function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
   return {
     clip: {
       id,
       projectId: 'p1',
-      segments: [{ start: 100, end: 120 }],
+      segments,
       ratio: '1:1',
       cropX: 0.5,
       captions: true,
@@ -91,14 +91,14 @@ function stubFetch() {
   return fetch
 }
 
-async function monter(id = 'c2') {
+async function monter(id = 'c2', donnees?: ClipDetail) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const enveloppe = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  render(<EcranDeClip detail={detail(id)} />, { wrapper: enveloppe })
+  render(<EcranDeClip detail={donnees ?? detail(id)} />, { wrapper: enveloppe })
   await screen.findByRole('link', { name: 'La scène du 15 juin' })
 }
 
@@ -166,5 +166,63 @@ describe('les raccourcis', () => {
     await monter('c2')
     fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
     expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+})
+
+describe('les valeurs limites', () => {
+  it('désactive « clip précédent » sur le premier', async () => {
+    await monter('c1')
+    const bouton = await screen.findByRole('button', { name: /clip précédent/i })
+    expect(bouton.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('dit par où sortir d’un clip dont tous les mots ont été retirés', async () => {
+    // Le cas est prévu côté serveur — `étendueOrigine` retombe sur
+    // `candidates.json` — et n'avait pas de rendu propre : durée nulle,
+    // transcript entièrement barré, et rien qui dise que le transcript reste la
+    // façon d'en sortir.
+    await monter('c2', detail('c2', []))
+    expect(screen.getByText(/il ne reste rien du clip/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /exporter/i }).getAttribute('aria-disabled')).toBe(
+      'true',
+    )
+  })
+})
+
+describe('l’enregistrement en échec', () => {
+  it('offre de réessayer, plutôt que d’attendre un nouveau geste', async () => {
+    // L'écriture différée retient la signature de la tentative ratée et ne la
+    // rejoue pas telle quelle — sans quoi elle boucle. Sans ce bouton, il faut
+    // deviner qu'un autre geste débloquera la situation.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+        if (options?.method === 'PATCH') throw new Error('réseau coupé')
+        if (String(url).includes('/candidates')) return reponse(candidats)
+        return reponse(detail('c2'))
+      })
+      vi.stubGlobal('fetch', fetch)
+      await monter('c2')
+
+      // Un geste : remonter un mot barré hors de l'étendue déplace la borne.
+      const mot = screen.getByText(/m1-0/)
+      fireEvent.pointerDown(mot)
+      fireEvent.pointerUp(mot)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+
+      expect(screen.getByText(/échec de l’enregistrement/i)).toBeTruthy()
+      const patchsAvant = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
+      fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(
+        patchsAvant + 1,
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

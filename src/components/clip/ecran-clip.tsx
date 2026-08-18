@@ -387,7 +387,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
               // tout a été retiré, et le transcript reste la façon d'en sortir.
               <p className="text-[0.75rem] text-muted-foreground">
-                Tous les mots ont été retirés. Cliquer un mot barré recommence le clip là.
+                Il ne reste rien du clip. Cliquer un mot barré le fait recommencer là.
               </p>
             ) : (
               <p className="text-[0.75rem] text-muted-foreground">

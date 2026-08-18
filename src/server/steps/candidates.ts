@@ -10,6 +10,7 @@ import {
 } from '@google/genai'
 import { z } from 'zod'
 import { mergeCandidates } from '@/core/candidates'
+import { caviarderClés } from '@/core/erreurs'
 import type { Clip } from '@/core/edl'
 import {
   parseDetailResponse,
@@ -338,16 +339,13 @@ export function estPassagère(erreur: unknown): boolean {
 /**
  * Retire une clé d'API d'un message avant de le journaliser.
  *
- * Vérifié sur `@google/genai@2.17.1` : `generateContent` passe la clé dans
- * l'en-tête `x-goog-api-key`, jamais dans l'URL — le seul `?key=` du paquet sert
- * au WebSocket de génération musicale, que rien ici n'appelle. Le caviardage est
- * donc une ceinture par-dessus des bretelles, et il coûte une ligne : ce dépôt
- * est public, ses journaux se recopient dans des rapports, et la version du SDK
- * bougera. (relevé par Aristarque)
+ * **Le motif vit dans `@/core/erreurs`** depuis qu'il sert aussi à la frontière
+ * HTTP : le message d'une erreur de repérage traverse `status.json` puis le
+ * champ `error` de `GET /api/projects/:id`, et ne passait par aucun caviardage
+ * sur ce chemin-là. Deux copies du même motif auraient vieilli séparément.
+ * (relevé par Aristarque)
  */
-export function caviarder(message: string): string {
-  return message.replace(/([?&](?:key|api_?key)=)[^&\s"']+/gi, '$1[caviardé]')
-}
+export const caviarder = caviarderClés
 
 const attendre = (ms: number): Promise<void> =>
   new Promise((résoudre) => {
@@ -528,24 +526,66 @@ export async function runCandidates(
   const taille = tailleDeLot()
   const notées: ScoredWindow[] = []
   const nonNotées: string[] = []
+  let lotsRefusés = 0
+  let lotsRépondus = 0
   for (let i = 0; i < fenêtres.length; i += taille) {
     const lot = fenêtres.slice(i, i + taille)
-    const réponse = await appelerGemini(
-      appel,
-      scorePrompt({
-        language: transcript.language,
-        videoDuration: durée,
-        windowsJson: scoreWindowsJson(lot),
-      }),
-      'score',
-      { sleep },
-    )
+    let réponse: unknown
+    try {
+      réponse = await appelerGemini(
+        appel,
+        scorePrompt({
+          language: transcript.language,
+          videoDuration: durée,
+          windowsJson: scoreWindowsJson(lot),
+        }),
+        'score',
+        { sleep },
+      )
+    } catch (erreur) {
+      if (!(erreur instanceof GeminiBlockedError)) throw erreur
+      // **Un lot refusé n'est pas une vidéo refusée.** Mesuré sur
+      // `2025-06-15-cqlp` le 18 août 2026 : sur 83 fenêtres, un seul lot de 8
+      // revient `PROHIBITED_CONTENT`, de façon reproductible, et les autres
+      // passent. Faire remonter ce refus rendait l'émission entière
+      // inanalysable — quarante minutes de transcription pour rien, et un
+      // message qui accuse la vidéo là où huit fenêtres sur quatre-vingt-trois
+      // sont en cause.
+      //
+      // Les fenêtres du lot sont donc classées dernières, exactement comme
+      // celles qu'une réponse omet. La conséquence porte sur `SCORE_BATCH` : un
+      // lot large perd plus de matière quand il tombe, un lot étroit multiplie
+      // les appels. Le refus, lui, reste déterministe et n'est jamais réessayé.
+      lotsRefusés += 1
+      for (const fenêtre of lot) {
+        notées.push({ id: fenêtre.id, score: 0, reason: 'lot refusé par le filtre', notée: false })
+        nonNotées.push(fenêtre.id)
+      }
+      continue
+    }
+    lotsRépondus += 1
     const { scored, missing } = parseScoreResponse(réponse, lot)
     notées.push(...scored)
     nonNotées.push(...missing)
   }
   if (nonNotées.length > 0) {
     console.warn(`${nonNotées.length} fenêtre(s) sont revenues sans note ; classées dernières.`)
+  }
+  // Tous les lots refusés : là, c'est bien la vidéo. On le dit avec l'erreur
+  // qui ne se réessaie pas, plutôt que de détailler un panier vide.
+  //
+  // **Le compte des lots, pas celui des notes.** Un lot qui répond en omettant
+  // toutes ses fenêtres est une réponse dégradée mais utilisable — c'est le sens
+  // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
+  // refus transformait ce repli en échec définitif dès qu'un seul lot était
+  // bloqué. (relevé par Codex)
+  if (lotsRefusés > 0 && lotsRépondus === 0) {
+    throw new GeminiBlockedError(
+      `Gemini a refusé les ${lotsRefusés} lot(s) de notation de cette vidéo. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+    )
+  }
+  if (lotsRefusés > 0) {
+    console.warn(`${lotsRefusés} lot(s) refusés par le filtre de contenu ; classés derniers.`)
   }
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.

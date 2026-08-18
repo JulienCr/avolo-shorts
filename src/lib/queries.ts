@@ -4,12 +4,14 @@
  * Les accès aux données, vus par les composants.
  *
  * Rien ici ne sait d'où viennent les données : tout passe par `@/lib/api`. Le
- * jour où ses corps deviennent des `fetch` (tâche 10), ce fichier ne bouge pas
- * non plus.
+ * passage des fixtures au `fetch` n'a d'ailleurs rien changé à ce fichier — ce
+ * qu'il porte, ce sont les règles de fraîcheur, pas la provenance : quand
+ * redemander l'état, quand invalider les candidats, et comment une écriture
+ * optimiste se défait.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
   getClip,
@@ -35,7 +37,9 @@ export function useProjets() {
 }
 
 export function useProjet(projectId: string) {
-  return useQuery({
+  const client = useQueryClient()
+
+  const requête = useQuery({
     queryKey: cles.projet(projectId),
     queryFn: () => getProject(projectId),
     // L'analyse dure 30 à 45 minutes : tant qu'une exécution est en cours, on
@@ -44,6 +48,24 @@ export function useProjet(projectId: string) {
     // personne.
     refetchInterval: (query) => (query.state.data?.running ? 2_000 : false),
   })
+
+  // **La fin d'une exécution invalide les candidats.** Ouvrir l'écran de tri
+  // avant que le repérage n'ait rendu quoi que ce soit met une liste vide en
+  // cache, et rien ne la remplace : `useCandidats` n'interroge pas en boucle, et
+  // seule cette requête-ci suit l'avancement. La grille restait donc vide
+  // jusqu'à un rechargement complet — sur une analyse de quarante minutes, c'est
+  // le moment exact où l'on regarde. Le proxy arrivant après les candidats, la
+  // même invalidation fait apparaître les vignettes. (relevé par Codex)
+  const enCours = requête.data?.running != null
+  const tournait = useRef(false)
+  useEffect(() => {
+    if (tournait.current && !enCours) {
+      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+    }
+    tournait.current = enCours
+  }, [enCours, client, projectId])
+
+  return requête
 }
 
 export function useCandidats(projectId: string) {

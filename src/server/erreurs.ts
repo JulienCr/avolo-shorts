@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import { messageÉpuré } from '@/core/erreurs'
 import { projectsDir, replayDir, stageDir } from '@/server/paths'
+import { corpsDeRéférence } from '@/server/secrets'
 
 /**
  * L'épuration des messages, avec les racines de **cette** machine sous les yeux.
@@ -55,6 +56,33 @@ function racines(): string[] {
     if (valeur === undefined || !path.isAbsolute(valeur)) continue
     const dossier = path.dirname(valeur)
     if (dossier !== '/' && dossier !== '.') trouvées.push(dossier)
+  }
+
+  // **Une référence de secret est une racine littérale comme une autre.**
+  // `épurerChemins` sait caviarder `op://coffre/fiche/champ` par sa seule forme,
+  // mais hors citation elle s'arrête au premier espace : la grammaire qui les
+  // traversait avalait la prose derrière une référence incomplète — diagnostic
+  // et remède compris — et elle a été retirée pour ça. Un coffre au nom espacé y
+  // laissait donc sa queue.
+  //
+  // Ici, on ne devine pas où la référence finit : on la tient en entier. Son
+  // **corps** part en racine, son préfixe reste lisible, et le résultat est la
+  // forme que le caviardage produit partout ailleurs. (issue #49)
+  //
+  // Deux propriétés à ne pas perdre de vue :
+  //
+  // - **aucune valeur de secret n'entre là-dedans.** Seule une valeur qui *est*
+  //   une référence est retenue, et une référence n'est pas une valeur — elle
+  //   nomme le coffre, la fiche et le champ ;
+  // - **le cas utile est celui de l'échec.** `résoudreSecrets` réécrit
+  //   l'environnement une fois toutes ses lectures abouties : il lève donc en
+  //   laissant les adresses en place, et c'est exactement là que les messages
+  //   qui les citent sont produits.
+  for (const valeur of Object.values(process.env)) {
+    const corps = corpsDeRéférence(valeur)
+    // Le préfixe nu ne nomme rien, donc il n'y a rien à en retirer — et une
+    // racine vide découperait le message entre chacun de ses caractères.
+    if (corps !== undefined && corps !== '') trouvées.push(corps)
   }
 
   return trouvées

@@ -50,7 +50,11 @@ const POSIX_NU = /(?<![\w:.~…/\\-])\/[^\s"'\\]+(?:\/[^\s"'\\]*)*/g
 /** `C:\Users\…` et ses variantes à barre oblique. */
 const WINDOWS_NU = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 
-/** Le préfixe d'une adresse de secret 1Password, `estRéférence` en est la source. */
+/**
+ * Le préfixe d'une adresse de secret 1Password. `PRÉFIXES_DE_RÉFÉRENCE`
+ * (`src/server/secrets.ts`) en est la source, et `tests/core/erreurs.test.ts`
+ * le vérifie forme par forme.
+ */
 const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
 
 /**
@@ -74,13 +78,20 @@ const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
  *
  * Le préfixe est celui d'`estRéférence` (`src/server/secrets.ts`), qui définit
  * seul ce que ce projet appelle une référence, et qui n'en accepte aujourd'hui
- * pas d'autre forme. Le module est pur et ne peut pas l'importer : si le projet
- * gagnait une seconde forme, les deux se suivraient à la main.
+ * pas d'autre forme. Le module est pur et ne peut pas l'importer, donc les deux
+ * se suivent à la main — mais plus en silence : `tests/core/erreurs.test.ts` lit
+ * `PRÉFIXES_DE_RÉFÉRENCE` et exige que chacune de ses formes ressorte caviardée
+ * ici. Un préfixe ajouté là-bas sans passe correspondante ici fait échouer la
+ * suite, au lieu de traverser le caviardage comme `op://` le faisait avant
+ * qu'on s'en occupe. (issue #49)
  *
  * **Elle s'arrête au premier espace, comme un chemin nu et pour la même
  * raison** : rien ne dit où elle finit. Un coffre ou une fiche au nom espacé y
- * laisse donc sa queue — c'est la limite, elle est démontrée en test, et son
- * remède est de citer la référence.
+ * laisse donc sa queue — c'est la limite, elle est démontrée en test, et elle a
+ * deux remèdes, tous deux hors de cette grammaire : citer la référence, ou la
+ * passer en **racine**. `racines()` (`src/server/erreurs.ts`) le fait pour toute
+ * référence lue dans l'environnement, qu'on tient alors en entier plutôt que
+ * d'avoir à deviner où elle finit. (issue #49)
  *
  * Une grammaire qui traversait les espaces a été écrite puis retirée : elle
  * autorisait un segment à s'étendre jusqu'à la barre oblique suivante, si bien
@@ -175,6 +186,11 @@ export function caviarderClés(message: string): string {
  * ce qui reste derrière est le chemin *relatif* à cette racine — un nom de
  * fichier de replay, ou `<projet>/renders/<clip>.mp4`. C'est-à-dire ce que
  * l'appelant a lui-même nommé, et rien de l'arborescence de la machine.
+ *
+ * **Une racine n'est pas forcément un chemin.** `racines()` y passe aussi le
+ * corps des références de secret lues dans l'environnement, et pour la même
+ * raison exactement : un nom de coffre porte volontiers des espaces, la
+ * grammaire ne sait pas où la référence finit, l'environnement le sait.
  *
  * Ce qui n'est pas un chemin absolu passe intact : les messages du projet sont
  * écrits pour être lus, et ce sont eux qui disent quoi faire.

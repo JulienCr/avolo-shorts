@@ -28,7 +28,14 @@
 
 import fs from 'node:fs'
 
-import { RATIOS, computeFraming, isForeground, ratioCoverage, requiredWidths } from '@/core/framing'
+import {
+  FRAMING_DEFAULTS,
+  RATIOS,
+  computeFraming,
+  isForeground,
+  ratioCoverage,
+  requiredWidths,
+} from '@/core/framing'
 import type { FramingOptions } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
 import type { PersonBox } from '@/core/shots'
@@ -273,7 +280,7 @@ async function main(): Promise<number> {
   )
 
   console.log('\n=== 1. Les deux populations ===')
-  populations(analyse.boxes, 0.97)
+  populations(analyse.boxes, FRAMING_DEFAULTS.bottomEdge)
 
   console.log('\n=== 2. L’empan par image ===')
   empans(analyse.boxes, analyse)

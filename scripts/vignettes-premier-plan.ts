@@ -18,7 +18,9 @@
  * - `--frontiere N` prend N images au voisinage du seuil de hauteur, là où le
  *   filtre hésite. C'est le tirage qui vaut le plus : au milieu d'un mode, tout
  *   le monde a raison.
- * - `--large N` prend N images parmi les plus larges *après* filtrage. Elles
+ * - `--large N` prend les N moments les plus larges *après* filtrage, **un par
+ *   plan au plus** : les images les plus larges d'une émission sont contiguës, et
+ *   les six premières du classement montrent six fois la même seconde. Elles
  *   disent ce qui fait encore monter le ratio — et sur `2025-06-15-cqlp`, la
  *   réponse a été « les comédiens, vraiment aux deux bords », pas un résidu.
  *
@@ -32,7 +34,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { FRAMING_DEFAULTS, isForeground, requiredWidths } from '@/core/framing'
-import type { PersonBox } from '@/core/shots'
+import { shotStartMs } from '@/core/shots'
+import type { PersonBox, Shot } from '@/core/shots'
 import { analysisPath, proxyPath } from '@/server/paths'
 import { lireAnalyse } from '@/server/steps/analysis'
 import { chargerEnv, quitter } from './dev-commun'
@@ -112,22 +115,75 @@ function empanFiltré(boîtes: PersonBox[]): number | null {
   return requiredWidths(boîtes)[0] ?? null
 }
 
-/** N valeurs réparties régulièrement dans une liste, extrémités comprises. */
+/**
+ * N valeurs réparties régulièrement dans une liste, extrémités comprises.
+ *
+ * **Le cas `n === 1` a son embranchement**, et pas par prudence : `(len - 1) / 0`
+ * vaut `Infinity`, `0 * Infinity` vaut `NaN`, et `liste[NaN]` rend `undefined`.
+ * Le tableau avait alors la bonne longueur et le mauvais contenu, ce qu'aucun
+ * type ne dit — `T[]` promet des `T`. `--frontiere 1` plantait plus loin, sur un
+ * `toFixed` d'`undefined`, à un endroit qui ne nommait pas la cause.
+ * (relevé par Codex et Copilot)
+ */
 function étalé<T>(liste: T[], n: number): T[] {
+  if (n <= 0 || liste.length === 0) return []
   if (liste.length <= n) return liste
+  if (n === 1) return [liste[0]]
   const pas = (liste.length - 1) / (n - 1)
   return Array.from({ length: n }, (_, i) => liste[Math.round(i * pas)])
+}
+
+/**
+ * Les N moments les plus larges, **un par plan au plus**.
+ *
+ * Prendre la tête du classement tout court ne marche pas : les images les plus
+ * larges d'une émission sont contiguës — sur `2025-06-15-cqlp`, les dix premières
+ * tiennent en quatre secondes du même plan et montrent dix fois la même chose. Un
+ * plan par entrée est la bonne granularité parce que **le crop est fixe à
+ * l'intérieur d'un plan** : deux images du même plan ont le même cadrage à
+ * expliquer. (relevé par Codex et Copilot)
+ */
+function lesPlusLarges(
+  classées: { t: number; empan: number }[],
+  shots: Shot[],
+  n: number,
+): { t: number; empan: number }[] {
+  const vus = new Set<number>()
+  const out: { t: number; empan: number }[] = []
+  for (const e of classées) {
+    if (out.length >= n) break
+    const plan = shots.find((p) => e.t >= p.start && e.t < p.end)
+    // Une image qui ne tombe dans aucun plan garde sa propre clé : elle ne peut
+    // faire doublon avec personne, et l'écarter cacherait un trou dans les plans.
+    const clé = plan === undefined ? -Math.round(e.t * 1000) - 1 : shotStartMs(plan)
+    if (vus.has(clé)) continue
+    vus.add(clé)
+    out.push(e)
+  }
+  return out
 }
 
 async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
+  // Un compte illisible est **refusé**, pas remplacé par le défaut : `--large 0`
+  // qui produit six vignettes est le genre de silence qui fait chercher le défaut
+  // ailleurs. Même doctrine que `--scene-threshold` du détecteur, qui refuse une
+  // valeur sous son plancher au lieu de l'ignorer.
+  const mauvaisCompte: string[] = []
   const nombreAprès = (drapeau: string, défaut: number): number | null => {
     const i = arguments_.indexOf(drapeau)
     if (i < 0) return null
-    const v = Number(arguments_[i + 1])
-    return Number.isFinite(v) && v > 0 ? Math.floor(v) : défaut
+    const brut = arguments_[i + 1]
+    // Rien derrière le drapeau, ou le positionnel suivant : c'est le défaut.
+    if (brut === undefined || brut.startsWith('--')) return défaut
+    const v = Number(brut)
+    if (!Number.isInteger(v) || v <= 0) {
+      mauvaisCompte.push(`${drapeau} ${brut}`)
+      return défaut
+    }
+    return v
   }
   const iOut = arguments_.indexOf('--out')
   // Résolu tard : créer le dossier temporaire avant le contrôle d'usage laisserait
@@ -153,6 +209,17 @@ async function main(): Promise<number> {
     return 1
   }
 
+  // Les deux comptes se lisent avant tout travail : refuser après avoir imprimé
+  // « 272 images au voisinage du seuil » ferait croire que le tirage a eu lieu.
+  const nFrontière = nombreAprès('--frontiere', 6)
+  const nLarge = nombreAprès('--large', 6)
+  if (mauvaisCompte.length > 0) {
+    console.error(
+      `Compte de vignettes invalide : ${mauvaisCompte.join(', ')}. Attendu un entier ≥ 1.`,
+    )
+    return 1
+  }
+
   const analyse = lireAnalyse(analysisPath(projectId))
   const proxy = proxyPath(projectId)
   if (!fs.existsSync(proxy)) {
@@ -164,7 +231,6 @@ async function main(): Promise<number> {
 
   const instants = positionnels.slice(1).map(Number).filter(Number.isFinite)
 
-  const nFrontière = nombreAprès('--frontiere', 6)
   if (nFrontière !== null) {
     // Les images qui portent une boîte dont la hauteur est près du seuil : ni
     // franchement du public, ni franchement un comédien. Les seuils viennent du
@@ -181,7 +247,6 @@ async function main(): Promise<number> {
     instants.push(...étalé(près, nFrontière))
   }
 
-  const nLarge = nombreAprès('--large', 6)
   if (nLarge !== null) {
     const larges = [...images.entries()]
       .map(([clé, bs]) => ({ t: clé / 1000, empan: empanFiltré(bs) }))
@@ -191,7 +256,7 @@ async function main(): Promise<number> {
       `empan résiduel : max ${larges[0]?.empan.toFixed(2) ?? '—'}, ` +
         `médian ${larges[larges.length >> 1]?.empan.toFixed(2) ?? '—'}`,
     )
-    instants.push(...étalé(larges, nLarge).map((e) => e.t))
+    instants.push(...lesPlusLarges(larges, analyse.shots, nLarge).map((e) => e.t))
   }
 
   if (instants.length === 0) {

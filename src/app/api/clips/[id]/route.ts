@@ -69,11 +69,18 @@ export const PATCH = route(
   'PATCH /api/clips/:id',
   async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
     const { id } = await contexte.params
+    // **Le corps d'abord, la base ensuite.** Lire le clip avant d'attendre le
+    // corps ouvre une fenêtre entre la lecture et l'écriture, et l'interface
+    // lance délibérément des écritures qui se chevauchent (`usePatchClip`) : deux
+    // gestionnaires lisaient alors la même ligne, puis chacun réécrivait sa
+    // fusion, et la modification du premier disparaissait sans un mot. Lecture,
+    // fusion et écriture se suivent maintenant sans point d'attente, ce qui suffit
+    // sur le fil unique de Node. (relevé par Copilot)
+    const édition = await corps(requête, ÉDITION)
+
     const db = getDb()
     const clip = getClip(db, id)
     if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
-
-    const édition = await corps(requête, ÉDITION)
 
     const suivant: Clip = {
       ...clip,

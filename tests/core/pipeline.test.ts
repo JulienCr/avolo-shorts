@@ -16,6 +16,17 @@ describe('titreProjet', () => {
     expect(titreProjet('essai-du-soir')).toBe('essai-du-soir')
     expect(titreProjet('2026-13-08-x')).toBe('2026-13-08-x')
   })
+
+  // Une date impossible affirmée en toutes lettres est pire qu'un nom brut : elle
+  // se lit comme une information. (relevé par Copilot)
+  it('refuse un jour qui n’existe pas dans son mois', () => {
+    expect(titreProjet('2026-02-31-x')).toBe('2026-02-31-x')
+    expect(titreProjet('2026-06-00-x')).toBe('2026-06-00-x')
+    expect(titreProjet('2026-06-31-x')).toBe('2026-06-31-x')
+    // 2024 est bissextile, 2026 ne l'est pas.
+    expect(titreProjet('2024-02-29-x')).toBe('x — 29 février 2024')
+    expect(titreProjet('2026-02-29-x')).toBe('2026-02-29-x')
+  })
 })
 
 describe('avancementWorker', () => {

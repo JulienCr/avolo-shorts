@@ -37,10 +37,21 @@ export function titreProjet(id: string): string {
   if (m === null) return id
 
   const [, année, mois, jour, reste] = m
-  const iMois = Number(mois) - 1
-  if (iMois < 0 || iMois > 11) return id
+  // **La date entière est vérifiée, pas seulement le mois.** Un `2026-02-31`
+  // ressortait en « 31 février 2026 », c'est-à-dire en date affirmée sur un jour
+  // qui n'existe pas — alors que la règle annoncée juste au-dessus est de rendre
+  // tel quel un nom qui ne suit pas la convention. Le passage par `Date` traite
+  // les mois courts et les années bissextiles sans table à tenir : une date
+  // impossible se recale sur le mois suivant, donc ne se relit pas identique.
+  // (relevé par Copilot)
+  const d = new Date(Date.UTC(Number(année), Number(mois) - 1, Number(jour)))
+  const valide =
+    d.getUTCFullYear() === Number(année) &&
+    d.getUTCMonth() === Number(mois) - 1 &&
+    d.getUTCDate() === Number(jour)
+  if (!valide) return id
 
-  const date = `${Number(jour)} ${MOIS[iMois]} ${année}`
+  const date = `${Number(jour)} ${MOIS[Number(mois) - 1]} ${année}`
   const sujet = reste.replace(/[-_]+/g, ' ').trim()
   return sujet === '' ? date : `${sujet} — ${date}`
 }

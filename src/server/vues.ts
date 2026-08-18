@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 
-import type { Clip } from '@/core/edl'
+import type { Clip, Segment } from '@/core/edl'
 import { titreProjet } from '@/core/pipeline'
 import type { CandidateClip, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
@@ -107,10 +107,17 @@ export function lignesDuTranscript(transcript: TranscriptLu): TranscriptLine[] {
  *
  * Les calculer dans le navigateur obligerait l'écran de tri à charger tout le
  * transcript pour afficher vingt-cinq cartes (note de `CandidateClip`).
+ *
+ * **Le recouvrement se teste segment par segment, jamais sur les bornes
+ * extérieures.** Un clip est une liste : raccourcir par le milieu — ce que fait
+ * tout ce produit — laisse un trou, et une carte qui montrerait le texte de ce
+ * trou annoncerait ce qu'on vient précisément d'enlever. Sur `[60,65]+[85,90]`,
+ * les trois premières phrases pouvaient même être entièrement hors du clip.
+ * (relevé par Copilot)
  */
-export function aperçu(transcript: TranscriptLu, début: number, fin: number): string {
+export function aperçu(transcript: TranscriptLu, segments: readonly Segment[]): string {
   return transcript.segments
-    .filter((s) => s.end > début && s.start < fin)
+    .filter((s) => segments.some((seg) => s.end > seg.start && s.start < seg.end))
     .slice(0, 3)
     .map((s) => s.text.trim())
     .filter((t) => t !== '')
@@ -211,31 +218,24 @@ export function lignesAutourDuClip(transcript: TranscriptLu, clip: Clip): Transc
 }
 
 /**
- * Les bornes extérieures d'un clip : ce qu'il couvre **aujourd'hui**.
- *
- * `null` sur un clip vidé de ses segments — c'est un état que l'écran de clip
- * produit, et le seul dont il faut se relever.
- */
-export function bornesCourantes(clip: Clip): Étendue | null {
-  if (clip.segments.length === 0) return null
-  return { start: clip.segments[0].start, end: clip.segments[clip.segments.length - 1].end }
-}
-
-/**
  * Un candidat, tel que l'écran de tri l'affiche.
  *
- * L'aperçu suit les bornes **courantes**, contrairement à la fenêtre de
+ * L'aperçu suit les segments **courants**, contrairement à la fenêtre de
  * transcript de l'écran de clip : on trie sur ce que le clip contient
- * maintenant, on monte avec ce qu'il y avait autour au départ. Un clip vidé
- * retombe sur son étendue d'origine, faute de quoi sa carte n'aurait plus de
- * texte du tout.
+ * maintenant, on monte avec ce qu'il y avait autour au départ.
  */
 export function candidat(clip: Clip, transcript: TranscriptLu | null): CandidateClip {
-  const bornes = bornesCourantes(clip) ?? étendueOrigine(clip)
+  // Un clip vidé de ses segments n'a plus rien à recouper : on retombe sur son
+  // étendue d'origine, faute de quoi sa carte n'aurait plus de texte du tout.
+  const morceaux: readonly Segment[] =
+    clip.segments.length > 0 ? clip.segments : intervalle(étendueOrigine(clip))
   return {
     ...clip,
-    preview:
-      transcript === null || bornes === null ? '' : aperçu(transcript, bornes.start, bornes.end),
+    preview: transcript === null ? '' : aperçu(transcript, morceaux),
     thumbnailUrl: urlVignette(clip),
   }
+}
+
+function intervalle(étendue: Étendue | null): Segment[] {
+  return étendue === null ? [] : [{ start: étendue.start, end: étendue.end }]
 }

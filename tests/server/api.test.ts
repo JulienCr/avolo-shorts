@@ -150,6 +150,30 @@ describe('GET /api/projects/:id/candidates', () => {
     expect(candidats[0].thumbnailUrl).toBeNull()
   })
 
+  /**
+   * Un clip est une liste : raccourcir par le milieu laisse un trou, et une carte
+   * qui montrerait le texte de ce trou annoncerait ce qu'on vient d'enlever.
+   * (relevé par Copilot)
+   */
+  it('n’aperçoit pas le texte retiré par une coupe au milieu', async () => {
+    poserTranscript()
+    // Deux morceaux, et vingt secondes retirées entre eux : les phrases 6 et 7
+    // sont dans le clip, les phrases 8 et 9 dans le trou.
+    putClip(getDb(), {
+      ...clipDeBase(),
+      segments: [
+        { start: 60, end: 75 },
+        { start: 100, end: 115 },
+      ],
+    })
+
+    const candidats = (await (
+      await getCandidats(new Request('http://x'), contexte(PROJET))
+    ).json()) as CandidateClip[]
+    expect(candidats[0].preview).toBe('phrase 6 phrase 7 phrase 10')
+    expect(candidats[0].preview).not.toContain('phrase 8')
+  })
+
   it('propose la vignette dès que le proxy existe', async () => {
     poserTranscript()
     fs.writeFileSync(path.join(racine, 'projects', PROJET, 'proxy.mp4'), '')

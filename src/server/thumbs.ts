@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
 import { thumbArgs } from '@/core/ffmpeg/args'
+import { getClip, getDb } from '@/server/db'
 import { cheminTemporaire, runFfmpeg } from '@/server/ffmpeg'
 import { projectDir, proxyPath } from '@/server/paths'
 
@@ -67,6 +68,13 @@ export function instantVignette(clip: Clip): number {
  * Comme partout ailleurs dans ce dépôt, l'écriture passe par un nom temporaire
  * renommé une fois seulement : un ffmpeg interrompu laisserait sinon un JPEG
  * tronqué que la visite suivante servirait sans le refaire.
+ *
+ * **Et le clip est relu juste avant le renommage.** L'extraction dure quelques
+ * centaines de millisecondes, largement de quoi qu'un `PATCH` déplace la borne
+ * de début entre-temps : son éviction ne trouvait alors rien à effacer, et
+ * l'image d'avant prenait le nom définitif juste après — périmée pour de bon,
+ * puisque plus rien ne viendrait l'invalider. On jette plutôt que de publier.
+ * (relevé par Copilot)
  */
 export async function vignette(clip: Clip): Promise<string | null> {
   const proxy = proxyPath(clip.projectId)
@@ -77,10 +85,16 @@ export async function vignette(clip: Clip): Promise<string | null> {
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const temporaire = cheminTemporaire(destination)
+  const instant = instantVignette(clip)
   try {
-    await runFfmpeg(thumbArgs({ src: proxy, dst: temporaire, at: instantVignette(clip) }), {
+    await runFfmpeg(thumbArgs({ src: proxy, dst: temporaire, at: instant }), {
       quoi: `vignette de ${clip.id}`,
     })
+    const àJour = getClip(getDb(), clip.id)
+    if (àJour !== undefined && instantVignette(àJour) !== instant) {
+      await fsp.rm(temporaire, { force: true }).catch(() => {})
+      return null
+    }
     await fsp.rename(temporaire, destination)
   } catch (cause) {
     await fsp.rm(temporaire, { force: true }).catch(() => {})

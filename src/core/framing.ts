@@ -168,10 +168,33 @@ export type FramingOptions = {
    * silhouette, et un crop posé pile dessus met un coude sur le bord de l'image.
    */
   margin?: number
+  /**
+   * À partir de quelle fraction de hauteur une boîte est réputée **tronquée par
+   * le bord bas** de l'image. Voir `isForeground`.
+   */
+  bottomEdge?: number
+  /**
+   * En deçà de quelle **hauteur visible** une boîte tronquée par le bord bas est
+   * du premier plan, donc écartée. Voir `isForeground`.
+   *
+   * `0` désactive le filtre entièrement — aucune boîte ne peut être plus courte
+   * que zéro. C'est la façon de mesurer l'effet du filtre sans toucher au code.
+   */
+  foregroundMaxHeight?: number
 }
 
-const SCORE_MINIMAL = 0.5
-const MARGE = 0.02
+/**
+ * Les valeurs par défaut des quatre réglages, **exportées parce que les scripts
+ * de mesure ont besoin de les nommer**. Un tirage « au voisinage du seuil » qui
+ * recopierait `0.35` mesurerait un autre filtre que celui qui décide, et le jour
+ * où le seuil bouge, il continuerait de viser l'ancien sans rien signaler.
+ */
+export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freeze({
+  minScore: 0.5,
+  margin: 0.02,
+  bottomEdge: 0.97,
+  foregroundMaxHeight: 0.35,
+})
 
 /**
  * La fraction de la largeur source qu'un crop pleine hauteur de ce ratio couvre.
@@ -203,6 +226,61 @@ export function ratioCoverage(ratio: Ratio, srcW: number, srcH: number): number 
  */
 function réglage(valeur: number | undefined, défaut: number): number {
   return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : défaut
+}
+
+/**
+ * Une boîte du **premier plan** : quelqu'un entre la caméra et le plateau, dont
+ * le bord bas de l'image coupe le corps, et dont il ne reste qu'une tranche.
+ *
+ * **Sur `2025-06-15-cqlp`, ce sont 33,8 % des boîtes**, et elles ruinaient le
+ * cadrage automatique : des têtes de spectateurs au premier rang, collées au bas
+ * de l'image, à gauche et à droite du cadre. Leur empan va d'un bord à l'autre
+ * pendant que les comédiens tiennent dans le tiers central, donc tous les clips
+ * sortaient en 16:9 — c'est-à-dire au ratio le plus large, c'est-à-dire à rien.
+ *
+ * **Le critère est double, et aucune de ses deux moitiés ne suffit.** Les trois
+ * points ci-dessous ont tous été trouvés en regardant les images, aucun en lisant
+ * un histogramme :
+ *
+ * - *Le bord bas seul jette les comédiens.* 76 % des boîtes de comédiens
+ *   touchent le bas de l'image : ils jouent debout et leurs pieds y sont. Couper
+ *   à `y1 ≥ 0,97` ne laisse survivre que 16 % des boîtes.
+ * - *La hauteur seule jette les plans lointains.* À 419 s, deux comédiens assis
+ *   dans le noir donnent des boîtes de 0,27 de haut qui flottent au milieu du
+ *   cadre, loin du bord bas. Une hauteur minimale sans condition de bord les
+ *   écarte, et ce plan-là n'a plus personne.
+ * - *Le rapport largeur/hauteur ne tranche pas.* Une tête de spectateur vue de
+ *   profil descend à 0,33, exactement comme un corps debout. La séparation par
+ *   ce seul rapport laisse 11 % des boîtes dans la zone d'incertitude, contre
+ *   0,8 % pour la hauteur.
+ *
+ * **Les deux seuils tombent dans un creux, ils ne sont pas choisis.** Sur les
+ * boîtes collées au bas, la hauteur est franchement bimodale : le mode du public
+ * tient entre 0,08 et 0,25, celui des comédiens repart à partir de 0,40, et
+ * entre les deux il ne reste que **29 boîtes sur 26 436**. 0,35 est le fond
+ * de ce creux. Déplacer le seuil de ±0,03 ne change donc presque rien — c'est ce
+ * qui en fait un réglage tenable et non un nombre magique.
+ *
+ * **Ce filtre est un réglage et vit ici, pas dans le détecteur.** La sortie de
+ * `worker/detect.py` est une donnée : un filtre posé dedans est irréversible
+ * sans relancer le GPU, alors que relire un `analysis.json` est instantané. Et
+ * le phénomène n'est **pas général** — `2026-03-08-caro-mdlm` n'a que 832 boîtes
+ * de premier plan sur 45 362, soit 1,8 % contre 33,8 % —, donc ce qui se règle
+ * doit rester réglable (spec §5). Le détail est dans `docs/premier-plan.md`.
+ *
+ * Une boîte dont la hauteur ne se mesure pas est **gardée** : un filtre qui ne
+ * peut pas juger ne rejette pas.
+ */
+export function isForeground(box: PersonBox, options: FramingOptions = {}): boolean {
+  const bord = réglage(options.bottomEdge, FRAMING_DEFAULTS.bottomEdge)
+  const hauteurMax = Math.max(
+    0,
+    réglage(options.foregroundMaxHeight, FRAMING_DEFAULTS.foregroundMaxHeight),
+  )
+  // Une seule garde suffit : `y1 - y0` n'est fini que si les deux bornes le sont.
+  const hauteur = box.y1 - box.y0
+  if (!Number.isFinite(hauteur)) return false
+  return box.y1 >= bord && hauteur < hauteurMax
 }
 
 /**
@@ -247,8 +325,8 @@ function dansIntervalle(t: number, début: number, fin: number): boolean {
  * images-là font de 5 à 30 % du total.
  */
 function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
-  const seuil = réglage(options.minScore, SCORE_MINIMAL)
-  const marge = Math.max(0, réglage(options.margin, MARGE))
+  const seuil = réglage(options.minScore, FRAMING_DEFAULTS.minScore)
+  const marge = Math.max(0, réglage(options.margin, FRAMING_DEFAULTS.margin))
 
   const parImage = new Map<number, Empan>()
   for (const b of boxes) {
@@ -259,6 +337,9 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
     if (b.x1 <= b.x0) continue
     // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit sortir.
     if (!(b.score >= seuil)) continue
+    // Le public au premier plan, écarté avant de compter l'empan : c'est lui qui
+    // faisait sortir tous les clips de `2025-06-15-cqlp` en 16:9.
+    if (isForeground(b, options)) continue
 
     const clé = Math.round(b.t * 1000)
     const déjà = parImage.get(clé)
@@ -395,11 +476,9 @@ function choisirRatio(mesuresParPlan: Empan[][], srcW: number, srcH: number): Ra
  * d'ailleurs jamais, puisqu'un tel plan ne cadre que la moitié de ses images et
  * fait donc monter le ratio ; il faut un ratio épinglé à la main pour l'atteindre.
  *
- * Il n'y a **pas de zone interdite** ici, malgré ce que la spec §10 réclame
- * encore —
+ * Il n'y a **pas de zone interdite** ici, et la spec §10 ne le réclame plus :
  * constaté à l'image, le panneau de chat n'existe que sur `2025-06-15-cqlp` et
- * le bloc « SOMMAIRE » reste une préférence, pas une interdiction. Ce passage
- * de la spec est en cours de correction ailleurs.
+ * le bloc « SOMMAIRE » reste une préférence, pas une interdiction.
  *
  * `cropX` vaut `null` quand le plan n'a **aucune** image mesurée : l'appelant
  * décide, et il n'y a rien à moyenner. `cadrées` compte les images que la
@@ -553,7 +632,15 @@ const TOLÉRANCE_DÉROGATION_MS = 250
  */
 export function computeFraming(req: FramingRequest): ClipFraming {
   const segments = normalizeSegments(req.segments)
-  const options: FramingOptions = { minScore: req.minScore, margin: req.margin }
+  // Recopiés un par un, et non par étalement de `req` : `FramingRequest` porte
+  // aussi des segments, des plans et un mode, et les laisser passer ferait de
+  // `empans` un consommateur de tout, dont plus rien ne dirait ce qu'il lit.
+  const options: FramingOptions = {
+    minScore: req.minScore,
+    margin: req.margin,
+    bottomEdge: req.bottomEdge,
+    foregroundMaxHeight: req.foregroundMaxHeight,
+  }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne
   // montre rien d'autre, et une image coupée au montage n'a pas voix au

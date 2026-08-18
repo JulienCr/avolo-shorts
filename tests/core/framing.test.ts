@@ -4,6 +4,7 @@ import {
   chooseRatio,
   computeFraming,
   cropRect,
+  isForeground,
   outputSize,
   ratioCoverage,
   requiredWidths,
@@ -690,5 +691,217 @@ describe('computeFraming', () => {
       })
       expect(cadrage.shots[1]).toMatchObject({ cropX: 0.83, source: 'manual' })
     })
+  })
+})
+
+/**
+ * Le filtre du premier plan.
+ *
+ * Les nombres viennent de `docs/premier-plan.md`, qui les a comptés sur
+ * `2025-06-15-cqlp` et `2026-03-08-caro-mdlm`. Ce qui est fixé ici, c'est la
+ * **règle**, pas les seuils : les seuils sont des réglages et tombent dans un
+ * creux de la distribution, donc les déplacer de quelques centièmes ne doit
+ * casser aucun de ces tests.
+ */
+describe('isForeground', () => {
+  /** Une boîte avec ses quatre bords, puisque c'est de hauteur qu'il s'agit. */
+  const cadre = (x0: number, x1: number, y0: number, y1: number, score = 0.9): PersonBox => ({
+    t: 1,
+    x0,
+    x1,
+    y0,
+    y1,
+    score,
+  })
+
+  /** Une tête de spectateur au premier rang : le bas de l'image la coupe. */
+  const spectateur = cadre(0, 0.18, 0.86, 0.998)
+  /** Un comédien debout : ses pieds touchent le bas du cadre, et il est haut. */
+  const comédienDebout = cadre(0.3, 0.45, 0.16, 0.99)
+  /** Deux comédiens assis dans le noir, à 419 s : courts, mais loin du bord bas. */
+  const comédienLointain = cadre(0.41, 0.52, 0.2, 0.47)
+
+  it('écarte une tête tronquée par le bord bas', () => {
+    expect(isForeground(spectateur)).toBe(true)
+  })
+
+  // 76 % des boîtes de comédiens de `cqlp` touchent le bas de l'image. Un filtre
+  // qui ne regarde que le bord bas ne laisse survivre que 16 % des boîtes.
+  it('garde un comédien debout dont les pieds touchent le bas', () => {
+    expect(isForeground(comédienDebout)).toBe(false)
+  })
+
+  // Le contre-exemple trouvé à l'image : une hauteur minimale sans condition de
+  // bord vide ce plan-là de ses deux comédiens. Sur `caro-mdlm`, 3 075 boîtes.
+  it('garde une boîte courte mais détachée du bord bas', () => {
+    expect(isForeground(comédienLointain)).toBe(false)
+  })
+
+  it('les deux conditions sont nécessaires, et aucune ne suffit', () => {
+    // Courte et collée : écartée. Courte et détachée, haute et collée : gardées.
+    expect(isForeground(cadre(0, 0.2, 0.8, 1))).toBe(true)
+    expect(isForeground(cadre(0, 0.2, 0.6, 0.8))).toBe(false)
+    expect(isForeground(cadre(0, 0.2, 0.1, 1))).toBe(false)
+  })
+
+  it('les seuils sont des réglages, pas des constantes gravées', () => {
+    expect(isForeground(spectateur, { foregroundMaxHeight: 0.1 })).toBe(false)
+    expect(isForeground(comédienDebout, { foregroundMaxHeight: 0.9 })).toBe(true)
+    expect(isForeground(spectateur, { bottomEdge: 0.999 })).toBe(false)
+  })
+
+  // C'est ce qui rend l'avant/après mesurable sans deux versions du code.
+  it('une hauteur maximale nulle éteint le filtre : rien n’est plus court que zéro', () => {
+    expect(isForeground(spectateur, { foregroundMaxHeight: 0 })).toBe(false)
+    // Une valeur négative ne peut pas retourner le sens du filtre.
+    expect(isForeground(spectateur, { foregroundMaxHeight: -1 })).toBe(false)
+  })
+
+  // Le bord est inclusif et la hauteur exclusive, comme les seuils de `empans` :
+  // une boîte pile au seuil de hauteur est un comédien, pas du public.
+  it('tranche les cas pile sur les seuils', () => {
+    // Le bord est inclusif : une boîte qui l'atteint est tronquée.
+    expect(isForeground(cadre(0, 0.2, 0.7, 0.97), { bottomEdge: 0.97 })).toBe(true)
+    expect(isForeground(cadre(0, 0.2, 0.7, 0.9699), { bottomEdge: 0.97 })).toBe(false)
+    // La hauteur est exclusive : pile au seuil, c'est un comédien. Les bornes
+    // partent de zéro pour que la soustraction soit exacte — `1 - 0.65` ne vaut
+    // pas 0,35 en flottant, et un test de borne ne doit pas dépendre de ça.
+    const bordPartout = { bottomEdge: 0 }
+    expect(isForeground(cadre(0, 0.2, 0, 0.35), { ...bordPartout, foregroundMaxHeight: 0.35 })).toBe(
+      false,
+    )
+    expect(isForeground(cadre(0, 0.2, 0, 0.34), { ...bordPartout, foregroundMaxHeight: 0.35 })).toBe(
+      true,
+    )
+  })
+
+  // Même motif que `margin` et `minScore` : `??` laisserait passer un `NaN`, qui
+  // rendrait toute comparaison fausse et éteindrait le filtre en silence.
+  it('retombe sur les défauts quand un réglage n’est pas fini', () => {
+    expect(isForeground(spectateur, { foregroundMaxHeight: Number.NaN })).toBe(true)
+    expect(isForeground(spectateur, { bottomEdge: Number.NaN })).toBe(true)
+  })
+
+  // Un filtre qui ne peut pas juger ne rejette pas : la boîte survit et c'est
+  // `empans` qui décidera si elle est exploitable.
+  it('garde une boîte dont la hauteur ne se mesure pas', () => {
+    expect(isForeground(cadre(0, 0.2, Number.NaN, 0.99))).toBe(false)
+    expect(isForeground(cadre(0, 0.2, 0.8, Number.NaN))).toBe(false)
+  })
+})
+
+describe('le premier plan écarté du cadrage', () => {
+  /** Un plan de 10 s où deux comédiens tiennent le tiers central du cadre. */
+  const comédiens = (t: number): PersonBox[] => [
+    { t, x0: 0.37, x1: 0.46, y0: 0.15, y1: 0.99, score: 0.9 },
+    { t, x0: 0.54, x1: 0.63, y0: 0.15, y1: 0.99, score: 0.9 },
+  ]
+  /** Deux têtes de spectateurs, une à chaque bord, qui étalent l'empan à tout. */
+  const public_ = (t: number): PersonBox[] => [
+    { t, x0: 0, x1: 0.16, y0: 0.85, y1: 0.998, score: 0.7 },
+    { t, x0: 0.84, x1: 1, y0: 0.85, y1: 0.998, score: 0.7 },
+  ]
+  const surDix = (avec: boolean): PersonBox[] => {
+    const out: PersonBox[] = []
+    for (let t = 0; t < 10 - 1e-9; t += 0.5) {
+      out.push(...comédiens(Number(t.toFixed(3))))
+      if (avec) out.push(...public_(Number(t.toFixed(3))))
+    }
+    return out
+  }
+
+  it('resserre l’empan sur les comédiens au lieu de l’étaler d’un bord à l’autre', () => {
+    const boîtes = surDix(true)
+    expect(requiredWidths(boîtes, { margin: 0, foregroundMaxHeight: 0 })[0]).toBeCloseTo(1, 10)
+    expect(requiredWidths(boîtes, { margin: 0 })[0]).toBeCloseTo(0.26, 10)
+  })
+
+  // Le constat qui a motivé la tâche : sans le filtre, tout sort au ratio le
+  // plus large, c'est-à-dire à rien.
+  it('fait descendre le ratio du 16:9 au 9:16', () => {
+    const boîtes = surDix(true)
+    expect(chooseRatio([boîtes], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
+    expect(chooseRatio([boîtes], SRC_W, SRC_H)).toBe('9:16')
+  })
+
+  it('ne change rien à une émission sans public au cadre', () => {
+    const boîtes = surDix(false)
+    expect(chooseRatio([boîtes], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe(
+      chooseRatio([boîtes], SRC_W, SRC_H),
+    )
+  })
+
+  /**
+   * **Le filtre peut faire monter un ratio, et c'est voulu.**
+   *
+   * Une image dont toutes les boîtes sont du premier plan ne rend plus rien —
+   * elle ne dit pas que le cadre peut être serré, elle ne dit rien. Un clip
+   * entier dans ce cas prend le ratio le plus large, comme n'importe quel clip
+   * sans mesure.
+   *
+   * Le cas est réel et il a été vu : à 9 071 s de `2026-03-08-caro-mdlm`, la
+   * seule détection de trente secondes est un **poisson rouge** du générique de
+   * fin, à 0,57 de confiance. Sans le filtre, la fenêtre se cadrait en 9:16 sur
+   * le poisson ; avec, elle sort en 16:9. Entre une faute silencieuse et une
+   * faute voyante, on prend la voyante (voir `chooseRatio`).
+   */
+  it('rend le ratio le plus large quand il ne reste plus rien à mesurer', () => {
+    const poisson: PersonBox[] = [{ t: 1, x0: 0, x1: 0.29, y0: 0.74, y1: 0.998, score: 0.57 }]
+    expect(chooseRatio([poisson], SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('9:16')
+    expect(chooseRatio([poisson], SRC_W, SRC_H)).toBe('16:9')
+  })
+
+  it('traverse computeFraming : le réglage passe de la requête aux empans', () => {
+    const commun = {
+      segments: [seg(0, 10)],
+      shots: [plan(0, 10)],
+      people: surDix(true),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: 'auto' as const,
+      cropMode: 'auto' as const,
+    }
+    expect(computeFraming({ ...commun, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
+    const cadré = computeFraming(commun)
+    expect(cadré.ratio).toBe('9:16')
+    expect(cadré.shots[0]).toMatchObject({ source: 'auto' })
+  })
+
+  /**
+   * **Le crop se déplace aussi, et ce test-là doit être capable de le voir.**
+   *
+   * Sa première version comparait `cropX` à 0,5 sur un public symétrique : les
+   * deux populations avaient le même centre, donc une régression qui aurait
+   * continué de cadrer sur le public serait passée. Il faut un public **d'un seul
+   * côté**, et une comparaison **à ratio égal** — en `'auto'` la version sans
+   * filtre monte au 16:9, dont le crop couvre toute la largeur et vaut donc 0,5
+   * quoi qu'il arrive. (relevé par Copilot)
+   */
+  it('déplace le crop, et pas seulement le ratio', () => {
+    const àGauche = (t: number): PersonBox[] => [
+      { t, x0: 0, x1: 0.16, y0: 0.85, y1: 0.998, score: 0.7 },
+      { t, x0: 0.1, x1: 0.26, y0: 0.85, y1: 0.998, score: 0.7 },
+    ]
+    const gens: PersonBox[] = []
+    for (let t = 0; t < 10 - 1e-9; t += 0.5) {
+      const clé = Number(t.toFixed(3))
+      gens.push(...comédiens(clé), ...àGauche(clé))
+    }
+    const commun = {
+      segments: [seg(0, 10)],
+      shots: [plan(0, 10)],
+      people: gens,
+      srcW: SRC_W,
+      srcH: SRC_H,
+      // Épinglé : c'est la seule façon de comparer deux positions comparables.
+      ratio: '1:1' as const,
+      cropMode: 'auto' as const,
+    }
+    const sansFiltre = computeFraming({ ...commun, foregroundMaxHeight: 0 }).shots[0].cropX
+    const avecFiltre = computeFraming(commun).shots[0].cropX
+    // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
+    // le milieu de l'action, qu'ils occupent symétriquement.
+    expect(sansFiltre).toBeCloseTo(0.325, 3)
+    expect(avecFiltre).toBeCloseTo(0.5, 3)
   })
 })

@@ -15,9 +15,10 @@
  * périmé**.
  */
 
+import { useEffect, useRef, useState } from 'react'
+
 import type { Clip, Ratio, Segment } from '@/core/edl'
 import type { ClipPatch, PatchClipResult } from '@/lib/api'
-import { useEffect, useRef, useState } from 'react'
 
 /** L'état affiché dans la barre : trois valeurs, dont l'échec. */
 export type EtatEnregistrement = 'enregistre' | 'en-attente' | 'echec'

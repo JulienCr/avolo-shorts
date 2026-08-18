@@ -25,12 +25,14 @@ export function AppBar({
   /** Où l'on est. Le fil d'Ariane s'en déduit. */
   lieu: Lieu
   /**
-   * L'emplacement de l'indicateur d'exécution, à droite de la barre.
+   * Ce que l'écran pose à droite de la barre, **l'indicateur d'exécution
+   * compris**.
    *
    * La barre laisse la place et ne dessine rien : ce qui tourne est un fait du
-   * projet, et seul l'écran qui l'interroge sait quoi en dire. C'est aussi ce
-   * qui évite que trois écrans écrits séparément placent chacun le leur
-   * ailleurs.
+   * projet, et seul l'écran qui l'interroge sait quoi en dire. Un emplacement
+   * unique et convenu évite surtout que trois écrans écrits séparément placent
+   * chacun le leur ailleurs — l'écran de projet y met son avancement, celui de
+   * clip son état d'enregistrement.
    */
   children?: ReactNode
   className?: string

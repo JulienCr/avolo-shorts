@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { messageSûr } from '@/server/erreurs'
 import {
+  commandeLisible,
   environnementDétection,
   formatTaille,
   lireAnalyse,
@@ -306,12 +307,34 @@ describe('runAnalysis', () => {
   it('n’expose pas la ligne de commande du worker en échec', () => {
     const commande =
       "L'analyse a échoué (code de sortie 3).\n" +
-      'Commande : /home/quelquun/dev/avolo-shorts/worker/venv/bin/python -u ' +
-      '/home/quelquun/dev/avolo-shorts/worker/detect.py --model ' +
-      '/home/quelquun/dev/avolo-shorts/worker/models/yolo11m.pt'
+      `Commande : ${commandeLisible('/home/quelquun/dev/avolo-shorts/worker/venv/bin/python', [
+        '-u',
+        '/home/quelquun/dev/avolo-shorts/worker/detect.py',
+        '--model',
+        '/home/quelquun/dev/avolo-shorts/worker/models/yolo11m.pt',
+      ])}`
     const publié = messageSûr(new Error(commande))
     expect(publié).not.toContain('quelquun')
     expect(publié).toContain('…/detect.py')
     expect(publié).toContain('…/yolo11m.pt')
+  })
+
+  /**
+   * **Le cas qui reste quand le dépôt est cloné sous un dossier à espace.** La
+   * passe sur les chemins nus d'`épurerChemins` s'arrête à la première espace,
+   * faute de savoir où le chemin finit : sans guillemets, la queue de
+   * l'arborescence part dans `status.json`. C'est pour ce cas-là que les
+   * arguments à espace sont cités, et c'est aussi pour lui que `racines()`
+   * connaît maintenant les trois `DETECT_*`. (relevé par Copilot)
+   */
+  it('n’expose pas un chemin qui contient une espace', () => {
+    const python = '/home/jean/Mon dossier/avolo-shorts/worker/venv/bin/python'
+    const commande = `Commande : ${commandeLisible(python, ['-u', '--model', '/x/y.pt'])}`
+    expect(messageSûr(new Error(commande))).not.toContain('Mon dossier')
+
+    // Et la forme que Node écrit tout seul, sans guillemets, sur un spawn en
+    // échec : celle-là ne se cite pas, c'est `racines()` qui la couvre.
+    process.env.DETECT_PYTHON = python
+    expect(messageSûr(new Error(`spawn ${python} ENOENT`))).not.toContain('Mon dossier')
   })
 })

@@ -355,6 +355,24 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
 }
 
 /**
+ * La commande, citée là où il le faut.
+ *
+ * **Un argument qui contient une espace se met entre guillemets**, et ce n'est
+ * pas de la cosmétique de journal : c'est ce qui permet à `épurerChemins` de le
+ * traiter d'un seul tenant. Sa passe sur les chemins nus s'arrête à la première
+ * espace, faute de savoir où le chemin finit — donc un dépôt cloné sous
+ * `/home/jean/Mon dossier` verrait la queue de son arborescence partir dans
+ * `status.json`, puis dans la réponse de `GET /api/projects/:id`. Entre
+ * guillemets, la passe `ENTRE_GUILLEMETS` prend le tout.
+ *
+ * Seuls les arguments à espace sont cités : une ligne de commande où chaque
+ * jeton porte des guillemets ne se relit pas. (relevé par Copilot)
+ */
+export function commandeLisible(python: string, args: readonly string[]): string {
+  return [python, ...args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')
+}
+
+/**
  * Lance le worker et **attend sa sortie**.
  *
  * `close` et non `exit` : `exit` part dès que le processus meurt, `close` attend
@@ -412,7 +430,7 @@ function lancerWorker(
     proc.on('error', (cause) => {
       reject(
         new Error(
-          `Le worker de détection n'a pas pu démarrer (${python}) : ${cause.message}. ` +
+          `Le worker de détection n'a pas pu démarrer (${JSON.stringify(python)}) : ${cause.message}. ` +
             'Voir DETECT_PYTHON dans .env, et setup.sh.',
           { cause },
         ),
@@ -429,7 +447,7 @@ function lancerWorker(
         new Error(
           [
             `L'analyse a échoué (${cause}).`,
-            `Commande : ${python} ${args.join(' ')}`,
+            `Commande : ${commandeLisible(python, args)}`,
             'Dernières lignes :',
             journal.texte() || '(stderr vide)',
           ].join('\n'),

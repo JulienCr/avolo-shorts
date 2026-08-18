@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
@@ -233,6 +234,52 @@ describe('cheminTranscript', () => {
    * muet à chaque fois — et le sondage y consomme un fil du vivier de libuv, qui
    * n'en compte que quatre.
    */
+  /**
+   * Renoncer n'est pas annuler : le `fsp.stat` abandonné occupe un fil du vivier
+   * de libuv jusqu'à ce que le noyau rende la main, ce qu'un montage 9p au
+   * transport mort ne fait jamais. Une seconde sonde en occuperait un de plus
+   * sans rien apprendre, et quatre suffiraient à figer tout ce qui touche au
+   * disque. (relevé par Copilot)
+   */
+  it('ne lance qu’une sonde à la fois sur un montage muet', async () => {
+    poserProjet()
+    // Un chemin qui ne répondra pas : on remplace le `stat` par un appel qui ne
+    // se règle jamais, comme le fait un transport 9p mort.
+    const vraiStat = fsp.stat
+    let sondes = 0
+    // @ts-expect-error — remplacement de sonde, restauré juste après.
+    fsp.stat = () => {
+      sondes += 1
+      return new Promise(() => {})
+    }
+
+    const muet: Project = {
+      id: PROJET,
+      sourcePath: path.join(racine, 'replays', 'absent.mp4'),
+      stagedPath: null,
+      durationSec: null,
+      sizeBytes: null,
+      mtimeMs: null,
+      createdAt: 0,
+    }
+
+    try {
+      // Trois interrogations rapprochées, comme l'écran de tri en fait une
+      // toutes les deux secondes. Une seule sonde doit partir.
+      const premières = Promise.all([cheminTranscript(muet), cheminTranscript(muet)])
+      await new Promise((r) => setTimeout(r, 10))
+      expect(sondes).toBe(1)
+      oublierSidecar(muet)
+      // Même après oubli de l'emplacement, la sonde précédente est toujours en
+      // vol : on ne doit pas en lancer une seconde.
+      expect(await cheminTranscript(muet)).toBeNull()
+      expect(sondes).toBe(1)
+      void premières
+    } finally {
+      fsp.stat = vraiStat
+    }
+  }, 30_000)
+
   it('retient une absence, et l’oublie quand on le lui demande', async () => {
     poserProjet()
     expect(await cheminTranscript(projet())).toBeNull()

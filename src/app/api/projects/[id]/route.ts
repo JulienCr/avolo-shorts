@@ -18,10 +18,16 @@ export const GET = route(
     const projet = getProject(getDb(), id)
     if (projet === undefined) throw introuvable(`Projet inconnu : ${id}`)
 
+    // **Le relevé d'abord, l'avancement ensuite.** `relevéPrésence` attend une
+    // sonde de montage, et une exécution lancée pendant cette attente serait
+    // manquée : la réponse annoncerait `running: null`, `useProjet` couperait
+    // son interrogation, et l'écran raterait l'analyse entière — sa progression,
+    // son échec, et l'invalidation des candidats qui la suit. (relevé par Copilot)
+    const steps = await relevéPrésence(projet)
     const running = progression(id)
     return json({
       project: résuméProjet(projet),
-      steps: await relevéPrésence(projet),
+      steps,
       running,
       // **Le seul chemin de retour d'un échec de tâche de fond.** `lancer` a
       // répondu 202 quarante minutes plus tôt, et son rejet part dans une

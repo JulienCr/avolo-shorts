@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
@@ -19,7 +20,7 @@ import {
 } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
 import { runCandidates } from '@/server/steps/candidates'
-import { ingest, montageRépond } from '@/server/steps/ingest'
+import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -131,17 +132,58 @@ export async function attendre(projectId: string): Promise<void> {
  * compris l'analyse en cours. Le mode de panne visé par la garde était devenu
  * une façon de la déclencher.
  *
- * D'où deux durées de vie, et l'asymétrie est le cœur du garde-fou : une réponse
- * obtenue se périme vite, un silence se retient longtemps. La sonde en vol est
- * partagée, donc deux requêtes simultanées n'en lancent jamais deux.
+ * La sonde en vol est partagée, donc deux requêtes simultanées n'en lancent
+ * jamais deux — et `montageVivant`, juste en dessous, ferme le cas où la sonde
+ * ne revient pas du tout.
  */
 type EntréeSidecar = { valeur: string | null; expire: number; enVol?: Promise<string | null> }
 const sidecars = new Map<string, EntréeSidecar>()
 
 /** Assez court pour qu'un transcript qui vient d'être écrit apparaisse presque tout de suite. */
 const TTL_SIDECAR_MS = 4_000
-/** Assez long pour qu'un montage muet ne soit pas resondé à chaque interrogation. */
-const TTL_MONTAGE_MUET_MS = 60_000
+
+/**
+ * Les sondes de montage **encore en vol**, par chemin sondé.
+ *
+ * **Renoncer n'est pas annuler.** `attendreOuRenoncer` rend la main au bout du
+ * délai, mais le `fsp.stat` qu'il attendait continue d'occuper un fil du vivier
+ * de libuv — le vivier en compte quatre, et sur un montage 9p au transport mort
+ * cet appel ne revient jamais. Une temporisation, si longue soit-elle, ne fait
+ * donc que ralentir l'épuisement : quatre expirations et tout ce qui touche au
+ * disque s'arrête, analyse en cours comprise. (relevé par Copilot)
+ *
+ * D'où cette table : tant que la sonde précédente n'est pas revenue, on n'en
+ * lance pas une seconde et on répond « muet » sans attendre. Un montage mort
+ * coûte **un** fil, une fois, et les interrogations suivantes ne coûtent rien.
+ * L'entrée disparaît quand la sonde se règle enfin — le montage remonte, ou le
+ * noyau rend la main —, et la sonde suivante repart normalement.
+ */
+const sondes = new Map<string, Promise<boolean>>()
+
+/**
+ * Le montage répond-il ? Comme `montageRépond`, mais sans jamais laisser deux
+ * sondes en vol sur le même chemin.
+ */
+async function montageVivant(chemin: string): Promise<boolean> {
+  // Une sonde est déjà partie et n'est pas revenue : elle occupe déjà un fil, et
+  // en lancer une seconde en occuperait un de plus sans rien apprendre de neuf.
+  if (sondes.has(chemin)) return false
+
+  const sonde = fsp.stat(chemin).then(
+    () => true,
+    // Une erreur *est* une réponse : un `ENOENT` immédiat prouve que le système
+    // de fichiers est vivant. Ce qu'on mesure ici est le silence, pas l'absence.
+    () => true,
+  )
+  sondes.set(chemin, sonde)
+  void sonde.finally(() => sondes.delete(chemin))
+
+  try {
+    return await attendreOuRenoncer(sonde, DÉLAI_STAT_MS, 'muet')
+  } catch {
+    return false
+  }
+}
 
 /**
  * Le `transcript.json` du sidecar, **sans rien créer**.
@@ -196,7 +238,7 @@ async function chercherSidecar(projet: Project, clé: string): Promise<string | 
   // **Sonder avant de toucher au Drive.** Monté avec son transport mort dessous,
   // il ne répond pas, et un `existsSync` synchrone gèle la boucle d'événements —
   // donc le serveur entier, pas seulement cette requête.
-  if (!(await montageRépond(projet.sourcePath))) return retenir(null, TTL_MONTAGE_MUET_MS)
+  if (!(await montageVivant(projet.sourcePath))) return retenir(null, TTL_SIDECAR_MS)
   const voulu = path.join(sidecarDir(projet.sourcePath), 'transcript.json')
   return retenir(fs.existsSync(voulu) ? voulu : null, TTL_SIDECAR_MS)
 }

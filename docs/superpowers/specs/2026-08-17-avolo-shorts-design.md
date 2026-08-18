@@ -120,7 +120,7 @@ donnent 0,61 sans qu'aucune caméra ne bouge. Un seuil calé sur le seul score
 prendra des changements d'éclairage pour des coupes.
 
 Portée de tout ce qui précède : deux émissions, dont une seule en entier. C'est
-plus solide que la mosaïque, ce n'est pas les vingt du fonds.
+plus solide que la mosaïque, ce ne sont pas les vingt du fonds.
 
 ### Contraintes de production
 
@@ -235,7 +235,7 @@ la moitié du bénéfice visuel mesuré à la section 2.
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 25 à 30 min sur GPU, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
+| Analyse | une fois par live | 25 à 30 min sur cette machine, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 

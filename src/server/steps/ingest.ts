@@ -317,6 +317,127 @@ async function copyOnce(
 }
 
 /**
+ * La copie de travail du projet, **reconstituée si elle manque**.
+ *
+ * **C'est la propriété que le cache doit tenir et que le code ne tenait pas** :
+ * « le cache n'est jamais une source de vérité et peut être supprimé sans
+ * conséquence fonctionnelle » (retour d'usage §5). Le rendu constatait l'absence
+ * et levait, en prescrivant une réingestion que rien dans l'application ne
+ * savait déclencher — `CIBLES_LANÇABLES` n'expose pas l'ingestion, et
+ * `ingestionNécessaire` ne recopie que si le proxy ou l'audio sont au plan, donc
+ * un projet dont tous les artefacts existent planifie `[]` et ne recopie rien.
+ * Le seul remède était `scripts/dev-ingest.ts` dans un terminal, ce qui
+ * contredit le critère de réussite de la conception : *sans avoir tapé un chemin
+ * ni ouvert un terminal*. (issue #76)
+ *
+ * **Et le TTL de huit heures transformait cet accident en impasse
+ * systématique** : passé ce délai, toute émission y tombait, par construction.
+ * Un TTL sans réparation est exactement la panne qui n'échoue pas au bon
+ * endroit.
+ *
+ * Trois choses qu'elle ne fait pas, et chacune ferme un mode d'échec :
+ *
+ * - **elle ne promet rien avant d'avoir sondé le montage.** `REPLAY_DIR` est en
+ *   9p et décroche de deux façons que `/proc/mounts` ne distingue pas ; sans ce
+ *   sondage sous délai de garde, l'appelant attendrait indéfiniment au lieu de
+ *   recevoir un message qui dit quoi faire ;
+ * - **elle ne recopie pas deux fois.** Elle passe par `ingest`, donc par
+ *   `copyOnce` : deux exports lancés coup sur coup sur des clips de la même
+ *   émission attendent la même copie de 12 Go au lieu d'en lancer deux ;
+ * - **elle ne se tait pas.** Une recopie va de 45 secondes à plus de deux
+ *   minutes selon la taille, et `POST /api/clips/:id/export` est synchrone :
+ *   l'écran est muet pendant tout ce temps. On n'invente pas de canal de
+ *   progression — ce serait une autre livraison — mais le journal du serveur dit
+ *   ce qui se passe et à quelle vitesse.
+ */
+export async function ensureLocalCopy(
+  project: { id: string; sourcePath: string; stagedPath: string | null },
+  options: { db?: Database | null; signal?: AbortSignal } = {},
+): Promise<string> {
+  const destination = project.stagedPath ?? stagedPath(project.sourcePath)
+  // Le cas courant, et il ne coûte qu'un appel local : `stage/` est sur le
+  // disque de la machine, jamais sur le montage.
+  if (fs.existsSync(destination)) return destination
+
+  if (!(await montageRépond(project.sourcePath))) {
+    throw new Error(
+      `La copie de travail de ${project.id} est absente et le dossier des replays ne répond pas : ` +
+        'impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté avec son ' +
+        "transport mort dessous — /proc/mounts ne le distingue pas. Rouvrir le lecteur côté " +
+        'Windows, ou remonter le partage.',
+    )
+  }
+
+  console.log(`[${project.id}] copie de travail absente, reconstitution depuis le Drive…`)
+  const début = Date.now()
+  let palier = 0
+  let dernièreLigne = début
+  const ingestion = await ingérerOuExpliquer(project, {
+    db: options.db,
+    signal: options.signal,
+    onProgress: (a: AvancementCopie) => {
+      if (a.fraction === null) return
+      // **Deux conditions, et il faut les deux.** Un palier tous les dix pour
+      // cent suffirait sur une copie de deux minutes ; sur un fichier local
+      // recopié en une seconde — ce que font les tests et un `stage/` déjà
+      // chaud — il produit dix lignes qui n'apprennent rien. La seconde borne
+      // les espace d'au moins deux secondes, donc le journal ne parle que
+      // quand l'attente est réelle.
+      const atteint = Math.floor(a.fraction * 10)
+      const maintenant = Date.now()
+      if (atteint <= palier || maintenant - dernièreLigne < 2_000) return
+      palier = atteint
+      dernièreLigne = maintenant
+      console.log(
+        `[${project.id}] copie ${atteint * 10} % (${enOctets(a.done)} sur ${enOctets(a.total)})`,
+      )
+    },
+  })
+  const secondes = (Date.now() - début) / 1000
+  console.log(
+    `[${project.id}] copie de travail reconstituée en ${secondes.toFixed(0)} s ` +
+      `(${(ingestion.sizeBytes / 1e6 / Math.max(secondes, 0.001)).toFixed(0)} Mo/s).`,
+  )
+  return ingestion.stagedPath
+}
+
+/**
+ * Une taille lisible : des gigaoctets au-delà du gigaoctet, des mégaoctets en
+ * dessous. Un replay pèse 4 à 13 Go et un fichier de test quelques mégaoctets ;
+ * une seule unité rendait l'un des deux illisible — « 0.0 Go sur 0.0 ».
+ */
+function enOctets(octets: number): string {
+  return octets >= 1e9 ? `${(octets / 1e9).toFixed(1)} Go` : `${Math.round(octets / 1e6)} Mo`
+}
+
+/**
+ * `ingest`, avec un message qui dit quoi faire quand elle échoue.
+ *
+ * **Le dernier recours reste**, et c'est tout ce qu'il devait être. Les messages
+ * de l'ingestion nomment le fichier qui manque et non ce qu'on essayait de
+ * faire : à ce point du rendu, ce qu'on veut lire est « la copie n'a pas pu être
+ * reconstituée », pas un `ENOENT` nu. L'erreur d'origine reste attachée en
+ * `cause` pour le journal du serveur, et seul le nom de base traverse — le
+ * chemin complet porte l'arborescence du Drive.
+ */
+async function ingérerOuExpliquer(
+  project: { id: string; sourcePath: string },
+  options: OptionsIngestion,
+): Promise<Ingestion> {
+  try {
+    return await ingest(project.sourcePath, options)
+  } catch (cause) {
+    if (cause instanceof StopRequestedError) throw cause
+    throw new Error(
+      `La copie de travail de ${project.id} est absente et n'a pas pu être reconstituée depuis ` +
+        `${JSON.stringify(path.basename(project.sourcePath))}. L'original est-il toujours dans le ` +
+        'dossier des replays ?',
+      { cause },
+    )
+  }
+}
+
+/**
  * Combien de temps une copie de travail reste valable : **huit heures**.
  *
  * C'est le TTL demandé par le §5 du retour d'usage, et il faut le lire avec la

@@ -23,8 +23,9 @@ import {
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { estUneAbsence } from '@/server/octets'
-import { placeSidecar, rendersDir, stagedPath } from '@/server/paths'
+import { placeSidecar, rendersDir } from '@/server/paths'
 import { lireTranscript } from '@/server/steps/candidates'
+import { ensureLocalCopy } from '@/server/steps/ingest'
 
 /**
  * L'export : d'une EDL en base au MP4 que Julien publie.
@@ -1274,16 +1275,21 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des sondages ffprobe.
   if (refaireLesSorties(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
-    // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
-    // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
-    // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
-    const src = projet.stagedPath ?? stagedPath(projet.sourcePath)
-    if (!fs.existsSync(src)) {
-      throw new Error(
-        `La copie de travail du projet ${clip.projectId} est absente. Le rendu part de l'original, ` +
-          "jamais du proxy : relancer l'ingestion pour la reconstituer.",
-      )
-    }
+    // **La copie de travail, pas le Drive — et son absence se répare ici.** Ce
+    // commentaire disait déjà « son absence se répare en réingérant » et le code
+    // se contentait de lever en le prescrivant : or rien dans l'application ne
+    // savait déclencher une réingestion, `CIBLES_LANÇABLES` ne l'expose pas, et
+    // un projet dont tous les artefacts existent planifie un plan vide. Le seul
+    // remède était un script dans un terminal, ce que le critère de réussite de
+    // la conception exclut. Et le TTL de huit heures posé par cette même
+    // livraison en aurait fait le cas normal plutôt que l'accident. (issue #76)
+    //
+    // `ensureLocalCopy` sonde le montage sous délai de garde avant de promettre
+    // quoi que ce soit, passe par le verrou des copies — deux exports lancés
+    // coup sur coup sur la même émission attendent la même copie —, et laisse le
+    // message qui dit quoi faire en dernier recours, pour le montage muet ou
+    // l'original disparu.
+    const src = await ensureLocalCopy(projet, { db })
 
     // **La porte des marques, et elle est ici pour deux raisons.** Avant tout ce
     // qui coûte : la lecture du transcript traverse le Drive en 9p, l'encodage

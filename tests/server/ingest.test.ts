@@ -4,11 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   attendreOuRenoncer,
+  cleanStage,
   décisionCopie,
   empreinteSource,
+  ensureLocalCopy,
   ingest,
   montageRépond,
-  cleanStage,
   statAvecDélai,
   STAGE_TTL_MS,
   vérifierTailleCopiée,
@@ -460,5 +461,96 @@ describe('ingest', () => {
     await ingest(NOM, { db: null })
     const seconde = await ingest(NOM, { db: null })
     expect(seconde.copied).toBe(false)
+  })
+})
+
+/**
+ * La copie de travail, **reconstituée là où elle manque**.
+ *
+ * C'est la propriété que le §5 du retour d'usage exige du cache — « peut être
+ * supprimé sans conséquence fonctionnelle » — et que le code ne tenait pas : le
+ * rendu levait en prescrivant une réingestion que rien dans l'application ne
+ * savait déclencher. Le TTL de huit heures en aurait fait le cas normal.
+ * (issue #76)
+ */
+describe('ensureLocalCopy', () => {
+  let root: string
+  const before = { replay: process.env.REPLAY_DIR, stage: process.env.STAGE_DIR }
+  const NAME = '2025-06-15-cqlp.mp4'
+  const ID = '2025-06-15-cqlp'
+  let source: string
+  let destination: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-repare-'))
+    process.env.REPLAY_DIR = path.join(root, 'replays')
+    process.env.STAGE_DIR = path.join(root, 'stage')
+    fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
+    fs.mkdirSync(process.env.STAGE_DIR, { recursive: true })
+    source = path.join(process.env.REPLAY_DIR, NAME)
+    destination = path.join(process.env.STAGE_DIR, NAME)
+    fs.writeFileSync(source, Buffer.alloc(4 * 1024 * 1024, 3))
+  })
+
+  afterEach(() => {
+    for (const [clé, valeur] of [
+      ['REPLAY_DIR', before.replay],
+      ['STAGE_DIR', before.stage],
+    ] as const) {
+      if (valeur === undefined) delete process.env[clé]
+      else process.env[clé] = valeur
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  const projet = () => ({ id: ID, sourcePath: source, stagedPath: destination })
+
+  it('rend la copie telle quelle quand elle est là', async () => {
+    fs.writeFileSync(destination, 'déjà copiée')
+    expect(await ensureLocalCopy(projet(), { db: null })).toBe(destination)
+    // Rien n'a été récrit : c'est le cas courant, il ne doit rien coûter.
+    expect(fs.readFileSync(destination, 'utf8')).toBe('déjà copiée')
+  })
+
+  it('la reconstitue quand elle manque', async () => {
+    expect(fs.existsSync(destination)).toBe(false)
+    expect(await ensureLocalCopy(projet(), { db: null })).toBe(destination)
+    expect(fs.statSync(destination).size).toBe(4 * 1024 * 1024)
+  })
+
+  /**
+   * **Deux exports lancés coup sur coup sur la même émission n'en font qu'une.**
+   * Sans le verrou, ce sont deux copies de 12 Go qui se disputent la bande
+   * passante d'un montage à 97 Mo/s.
+   */
+  it('ne déclenche pas deux copies pour deux appels simultanés', async () => {
+    const [a, b] = await Promise.all([
+      ensureLocalCopy(projet(), { db: null }),
+      ensureLocalCopy(projet(), { db: null }),
+    ])
+    expect(a).toBe(destination)
+    expect(b).toBe(destination)
+    expect(fs.statSync(destination).size).toBe(4 * 1024 * 1024)
+    // **L'invariant observable : une seule écriture est allée au bout.** Le
+    // verrou lui-même est celui de `copyOnce`, éprouvé plus haut sur `ingest` ;
+    // ce qui se vérifie ici est que ce chemin-ci y passe bien — sans lui, deux
+    // temporaires cohabiteraient et le second renommage écraserait le premier.
+    expect(fs.readdirSync(path.dirname(destination))).toEqual([NAME])
+  })
+
+  /**
+   * Le dernier recours reste : l'original disparu du dossier des replays n'est
+   * pas un cache à reconstituer, et le message le dit sans rendre un `ENOENT` nu
+   * ni l'arborescence du Drive.
+   */
+  it('dit quoi faire quand l’original a disparu', async () => {
+    fs.rmSync(source, { force: true })
+    const message = await ensureLocalCopy(projet(), { db: null }).then(
+      () => '',
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    )
+    expect(message).toMatch(/copie de travail/)
+    expect(message).toMatch(/original/)
+    expect(message).not.toContain(root)
   })
 })

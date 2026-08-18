@@ -1,10 +1,22 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+
+import { GET as servirProxy } from '@/app/api/projects/[id]/proxy/route'
 import { encodeurProxy } from '@/server/steps/proxy'
 
 /**
  * Le proxy est le seul étage où le GPU **fait perdre du temps**, et c'est
  * mesuré : 13,8x en x264 contre 12,8x en NVENC. Le réflexe — « on a une 4090,
  * on encode dessus » — est faux ici, donc il vaut un test.
+ *
+ * Le reste du fichier couvre le **gestionnaire de route**, que rien ne touchait :
+ * `tests/core/range.test.ts` éprouve l'analyse de l'en-tête, et s'arrête là. Or
+ * ce qui casse la barre de lecture d'un `<video>` n'est pas seulement le calcul
+ * des bornes — c'est aussi un `Accept-Ranges` oublié, un `Content-Length` qui
+ * décrit le fichier entier sous un 206, ou un 416 sans la taille réelle. Aucun de
+ * ces trois-là n'a de bornes fausses, et aucun ne se voit sans appeler la route.
  */
 
 const envDépart = { ...process.env }
@@ -33,5 +45,116 @@ describe('encodeurProxy', () => {
   it('refuse une valeur inconnue', () => {
     process.env.FFMPEG_ENCODER = 'cuda'
     expect(() => encodeurProxy()).toThrow(/FFMPEG_ENCODER/)
+  })
+})
+
+describe('GET /api/projects/:id/proxy', () => {
+  const PROJET = '2026-01-11-méchante'
+  /** Cent octets reconnaissables : chaque tranche dit d'où elle vient. */
+  const CONTENU = Buffer.from(
+    Array.from({ length: 100 }, (_, i) => 48 + (i % 10)),
+  )
+
+  let racine: string
+
+  function contexte(id: string): { params: Promise<{ id: string }> } {
+    return { params: Promise.resolve({ id }) }
+  }
+
+  function demander(id: string, range?: string): Promise<Response> {
+    const entêtes = range === undefined ? undefined : { range }
+    return servirProxy(new Request('http://x', { headers: entêtes }), contexte(id))
+  }
+
+  function poserProxy(contenu: Buffer = CONTENU): void {
+    fs.mkdirSync(path.join(racine, PROJET), { recursive: true })
+    fs.writeFileSync(path.join(racine, PROJET, 'proxy.mp4'), contenu)
+  }
+
+  beforeEach(() => {
+    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-proxy-'))
+    process.env.PROJECTS_DIR = racine
+  })
+
+  afterEach(() => {
+    fs.rmSync(racine, { recursive: true, force: true })
+  })
+
+  it('sert le fichier entier, et annonce qu’il accepte les plages', async () => {
+    poserProxy()
+    const réponse = await demander(PROJET)
+
+    expect(réponse.status).toBe(200)
+    expect(réponse.headers.get('content-type')).toBe('video/mp4')
+    expect(réponse.headers.get('content-length')).toBe('100')
+    // Sans cet en-tête le navigateur ne redemandera jamais de plage, et la barre
+    // de lecture reste inerte quelles que soient les bornes qu'on sait calculer.
+    expect(réponse.headers.get('accept-ranges')).toBe('bytes')
+    expect(Buffer.from(await réponse.arrayBuffer()).equals(CONTENU)).toBe(true)
+  })
+
+  it('sert la plage demandée, bornes incluses', async () => {
+    poserProxy()
+    const réponse = await demander(PROJET, 'bytes=10-19')
+
+    expect(réponse.status).toBe(206)
+    expect(réponse.headers.get('content-range')).toBe('bytes 10-19/100')
+    // Dix octets, pas neuf : les deux bornes sont inclusives.
+    expect(réponse.headers.get('content-length')).toBe('10')
+    const reçu = Buffer.from(await réponse.arrayBuffer())
+    expect(reçu.equals(CONTENU.subarray(10, 20))).toBe(true)
+  })
+
+  it('sert les derniers octets, la forme dont un lecteur MP4 se sert pour l’index', async () => {
+    poserProxy()
+    const réponse = await demander(PROJET, 'bytes=-16')
+
+    expect(réponse.status).toBe(206)
+    expect(réponse.headers.get('content-range')).toBe('bytes 84-99/100')
+    expect(Buffer.from(await réponse.arrayBuffer()).equals(CONTENU.subarray(84))).toBe(true)
+  })
+
+  it('borne une plage ouverte sur la taille réelle', async () => {
+    poserProxy()
+    const réponse = await demander(PROJET, 'bytes=90-')
+
+    expect(réponse.status).toBe(206)
+    expect(réponse.headers.get('content-range')).toBe('bytes 90-99/100')
+  })
+
+  it('rend 416 avec la taille réelle sur une plage insatisfiable', async () => {
+    poserProxy()
+    const réponse = await demander(PROJET, 'bytes=500-600')
+
+    expect(réponse.status).toBe(416)
+    // La taille est la seule information qui permette au client de reformuler.
+    expect(réponse.headers.get('content-range')).toBe('bytes */100')
+  })
+
+  it('rend 404 tant que l’encodage n’a rien produit', async () => {
+    expect((await demander(PROJET)).status).toBe(404)
+  })
+
+  it('rend 404 sur un identifiant qui tente de sortir du dossier', async () => {
+    // `vérifierId` garde la traversée : un identifiant qui ne peut nommer aucun
+    // chemin ne désigne aucun proxy.
+    expect((await demander('../../etc/passwd')).status).toBe(404)
+    expect((await demander('..')).status).toBe(404)
+    expect((await demander('')).status).toBe(404)
+  })
+
+  it('rend 404 quand `proxy.mp4` est un dossier', async () => {
+    // Linux accepte de l'ouvrir : sans le contrôle `isFile()`, la lecture
+    // échouerait au milieu d'une réponse déjà commencée.
+    fs.mkdirSync(path.join(racine, PROJET, 'proxy.mp4'), { recursive: true })
+    expect((await demander(PROJET)).status).toBe(404)
+  })
+
+  it('rend 200 sur un fichier vide plutôt que d’inventer une plage', async () => {
+    // Un proxy dont l'encodage vient d'être interrompu : aucune plage n'y est
+    // satisfiable, mais la requête sans en-tête reste légitime.
+    poserProxy(Buffer.alloc(0))
+    expect((await demander(PROJET)).status).toBe(200)
+    expect((await demander(PROJET, 'bytes=0-9')).status).toBe(416)
   })
 })

@@ -145,6 +145,32 @@ describe('suite', () => {
     })
   })
 
+  it('ne cache pas le tri déjà possible pendant un repérage forcé', () => {
+    // `effacerArtefact` retire `candidates.json` avant de toucher à la base :
+    // pendant un repérage forcé, les clips de la passe précédente sont toujours
+    // là. Faire attendre ici cacherait à Julien le travail qu'il vient de
+    // faire — c'est l'invariant, la phase ne retire jamais ce qui existe.
+    expect(suite({ analyse: 'attente', travail: 'atrier' }, projet)).toEqual({
+      kind: 'action',
+      libelle: expect.any(String),
+      cible: '/projects/p1',
+    })
+  })
+
+  it('ne cache pas le montage déjà possible pendant un repérage forcé', () => {
+    // La conception le dit mot pour mot : pendant un repérage forcé, « les clips
+    // gardés sont toujours là et toujours montables ».
+    expect(suite({ analyse: 'attente', travail: 'trie' }, projet).kind).toBe('action')
+  })
+
+  it('ne cache pas un projet déjà livré pendant un repérage forcé', () => {
+    expect(suite({ analyse: 'attente', travail: 'livre' }, projet)).toEqual({
+      kind: 'action',
+      libelle: expect.any(String),
+      cible: '/',
+    })
+  })
+
   it('attend le proxy quand tout est trié et que le montage ne peut pas s’ouvrir', () => {
     // `{ triable, trie }` est un état réel : Julien a fini de trier avant que le
     // proxy ne soit encodé, et **il n'a aucune action qui fasse avancer le

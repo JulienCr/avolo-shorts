@@ -116,10 +116,17 @@ export function suite(phase: Phase, projet: { id: string }): Suite {
     return { kind: 'action', libelle: 'Reprendre l’analyse', cible: ici }
   }
 
-  // Rien sur quoi décider, et la machine y travaille : on nomme la cause, jamais
-  // une durée restante. Le repérage produit l'artefact qui ouvre le tri — ce
-  // n'est pas le transcript, même s'il le précède.
-  if (phase.analyse === 'attente') {
+  // **L'attente ne vaut que quand il n'y a rien d'autre à faire**, et la nuance
+  // est celle de l'invariant : la phase choisit ce qu'on met en avant, elle ne
+  // retire jamais ce qui existe. `effacerArtefact` retire `candidates.json`
+  // avant de toucher à la base, donc pendant un repérage forcé
+  // `analyse === 'attente'` coexiste avec les clips de la passe précédente,
+  // toujours là et toujours montables. Faire attendre là cacherait à Julien le
+  // travail qu'il vient de faire. (relevé par Codex)
+  //
+  // On nomme la cause, jamais une durée restante. Le repérage produit l'artefact
+  // qui ouvre le tri — ce n'est pas le transcript, même s'il le précède.
+  if (phase.analyse === 'attente' && phase.travail === 'rien') {
     return {
       kind: 'attente',
       raison: 'Le repérage n’a pas encore rendu ses propositions.',
@@ -127,8 +134,13 @@ export function suite(phase: Phase, projet: { id: string }): Suite {
     }
   }
 
-  // À partir d'ici les candidats sont là : `triable` ou `complet`.
   switch (phase.travail) {
+    // **`suite` nomme la direction, l'écran décide de l'activation.** Une
+    // exécution peut très bien tourner ici — l'encodage du proxy pendant qu'on
+    // trie — et `lancer` lève alors `ExécutionEnCoursError`, dont la route fait
+    // un 409. C'est `running` qui le dit, et `running` n'est pas dans la phase :
+    // l'écran de projet l'a sous la main et désactive le contrôle avec sa raison
+    // écrite à côté, jamais dans une bulle d'aide.
     case 'rien':
       return { kind: 'action', libelle: 'Relancer le repérage', cible: ici }
     case 'atrier':
@@ -138,6 +150,14 @@ export function suite(phase: Phase, projet: { id: string }): Suite {
       // MP4 sont sur le disque.
       return { kind: 'action', libelle: 'Choisir une autre émission', cible: '/' }
     case 'trie':
+      // **Le libellé ne promet aucun clip.** `trie` recouvre deux situations que
+      // les deux axes ne distinguent pas : des clips gardés qui attendent leur
+      // montage, et une liste dont **tout** a été écarté — non vide, donc pas
+      // `rien`, sans gardé, donc pas `livre`. Les séparer demanderait une
+      // cinquième valeur de `Travail` ou la liste des clips en argument, et les
+      // deux sont gelés par la conception. La cible, elle, est bonne dans les
+      // deux cas : l'écran de projet porte la liste, et c'est lui qui dit « 4
+      // gardés » ou « rien de gardé, relancer le repérage ». (relevé par Codex)
       return phase.analyse === 'triable'
         ? {
             kind: 'attente',
@@ -145,7 +165,7 @@ export function suite(phase: Phase, projet: { id: string }): Suite {
               'Le montage s’ouvrira avec le proxy, en cours d’encodage. Les titres et les descriptions s’écrivent déjà.',
             debloquePar: 'proxy',
           }
-        : { kind: 'action', libelle: 'Monter les clips gardés', cible: ici }
+        : { kind: 'action', libelle: 'Passer au montage', cible: ici }
   }
 }
 

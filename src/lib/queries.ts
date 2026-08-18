@@ -76,7 +76,18 @@ export function useClip(clipId: string) {
   return useQuery({ queryKey: cles.clip(clipId), queryFn: () => getClip(clipId) })
 }
 
-type Variables = { clipId: string; projectId: string; patch: ClipPatch }
+type Variables = {
+  clipId: string
+  projectId: string
+  patch: ClipPatch
+  /**
+   * **Posé par `onMutate`, jamais par l'appelant.** C'est le seul canal qui aille
+   * de `onMutate` à `mutationFn` : le contexte que `onMutate` rend part vers
+   * `onSuccess` et `onError`, pas vers la fonction qui lance la requête, et les
+   * deux reçoivent en revanche le même objet de variables.
+   */
+  seq?: number
+}
 
 /**
  * Le dernier jeton d'ordre distribué. Au module, donc partagé par tous les
@@ -101,6 +112,9 @@ let dernierJeton = 0
  * `Date.now()` ne les distinguerait pas, et le serveur accepte les jetons égaux
  * — deux écritures se retrouveraient départagées par leur ordre d'arrivée,
  * c'est-à-dire par ce dont on se méfie.
+ *
+ * **À appeler dans la pile du geste lui-même**, c'est-à-dire avant le premier
+ * point d'attente de `onMutate`. Voir la note qui accompagne son appel.
  */
 function jetonDuGeste(): number {
   const maintenant = Date.now()
@@ -129,14 +143,26 @@ export function usePatchClip() {
   const derniere = useRef(new Map<string, number>())
 
   return useMutation({
-    // **Le jeton se prend ici, pas dans `onMutate`.** C'est le seul endroit qui
-    // soit à la fois synchrone et immédiatement suivi du départ de la requête :
-    // `onMutate` attend deux annulations de requêtes avant de rendre la main, et
-    // deux écritures lancées coup sur coup y entrelacent leurs points d'attente.
-    // Un jeton posé là et relu ici pourrait ne plus être le sien.
-    mutationFn: ({ clipId, patch }: Variables) => patchClip(clipId, patch, jetonDuGeste()),
+    // Le jeton a été posé sur ces variables par `onMutate`, qui s'exécute avant.
+    mutationFn: ({ clipId, patch, seq }: Variables) => patchClip(clipId, patch, seq),
 
-    async onMutate({ clipId, projectId, patch }: Variables) {
+    async onMutate(variables: Variables) {
+      const { clipId, projectId, patch } = variables
+
+      // **Le jeton se prend ici, avant le premier `await`.**
+      //
+      // Ces quelques lignes s'exécutent dans la pile du geste lui-même —
+      // TanStack appelle `onMutate` sans rien attendre avant —, donc deux clics
+      // successifs prennent leurs jetons dans l'ordre où ils ont eu lieu. Le
+      // prendre dans `mutationFn` serait plus tard mais **pas plus tard dans le
+      // même ordre** : `mutationFn` ne part qu'une fois `onMutate` terminé, et
+      // `cancelQueries` ne dure pas le même temps pour tout le monde — le second
+      // geste, qui n'a plus rien à annuler puisque le premier vient de le faire,
+      // peut finir avant lui et prendre le plus petit numéro. Le vieux geste
+      // passerait alors pour le plus récent, ce qui est exactement le défaut que
+      // ce jeton existe pour fermer. (relevé par Codex)
+      variables.seq = jetonDuGeste()
+
       // Annuler les requêtes en vol : une réponse partie avant la modification
       // arriverait après elle et l'écraserait.
       await client.cancelQueries({ queryKey: cles.candidats(projectId) })

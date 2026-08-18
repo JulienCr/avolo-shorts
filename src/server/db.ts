@@ -82,13 +82,22 @@ CREATE TABLE IF NOT EXISTS clips (
   description TEXT NOT NULL,
   status      TEXT NOT NULL,
   pass        INTEGER NOT NULL,
-  -- Le numéro d'ordre du **geste** qui a écrit ce clip pour la dernière fois.
+  -- Le numéro d'ordre du dernier geste appliqué, **par champ**, en JSON.
+  --
   -- L'interface envoie délibérément des écritures qui se chevauchent, et l'ordre
   -- de traitement est celui de l'arrivée : sans ce repère, deux clics rapides
-  -- peuvent laisser la valeur la plus ancienne en base. Voir
-  -- \`putClipSiPlusRécent\`. Zéro par défaut : tout jeton le dépasse, donc une
+  -- peuvent laisser la valeur la plus ancienne en base (issue #21).
+  --
+  -- **Par champ et non par ligne**, parce que les patches sont partiels. Un
+  -- repère unique par ligne ferait écarter une écriture entière au motif qu'une
+  -- plus récente l'a doublée sur un *autre* champ : un changement de ratio et un
+  -- déplacement de segment qui se croisent perdraient l'un des deux, alors
+  -- qu'aucun des deux gestes ne contredit l'autre. Voir \`putClipOrdonné\`.
+  -- (relevé par Codex)
+  --
+  -- Un objet vide par défaut : tout jeton dépasse un champ absent, donc une
   -- ligne écrite avant cette colonne ne bloque personne.
-  seq         INTEGER NOT NULL DEFAULT 0
+  seqs        TEXT NOT NULL DEFAULT '{}'
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -118,9 +127,17 @@ export function defaultDbPath(): string {
  * comptent, ce sera le moment d'en tenir la liste — pas avant.
  */
 function migrer(db: Database.Database): void {
-  const colonnes = db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]
-  if (!colonnes.some((colonne) => colonne.name === 'seq')) {
-    db.exec('ALTER TABLE clips ADD COLUMN seq INTEGER NOT NULL DEFAULT 0')
+  const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+    (colonne) => colonne.name,
+  )
+  if (!colonnes.includes('seqs')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN seqs TEXT NOT NULL DEFAULT '{}'`)
+  }
+  // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
+  // laisser derrière nous ferait une colonne morte au nom presque identique à
+  // celle qui compte, ce qui est le pire des deux mondes.
+  if (colonnes.includes('seq')) {
+    db.exec('ALTER TABLE clips DROP COLUMN seq')
   }
 }
 
@@ -317,68 +334,119 @@ export function putClip(db: Database.Database, clip: Clip): void {
   db.prepare(INSÉRER_CLIP).run(ligne)
 }
 
-/**
- * `UPDATE` et non `INSERT … ON CONFLICT` : la garde d'ordre est dans le `WHERE`.
- *
- * C'est ce qui rend la comparaison et l'écriture indissociables. Lire `seq`, le
- * comparer en JavaScript puis écrire laisserait entre les deux la fenêtre même
- * qu'on cherche à fermer.
- *
- * **`seq <= @seq`, donc seul un jeton strictement inférieur est refusé.** Deux
- * gestes portant le même numéro sont simultanés pour qui les regarde ; les
- * départager par leur ordre d'arrivée reviendrait à trancher au hasard, et à
- * refuser une écriture qui n'a rien de périmé.
- */
-const ÉCRIRE_SI_PLUS_RÉCENT = `
-  UPDATE clips SET
-    segments    = @segments,
-    ratio       = @ratio,
-    cropX       = @cropX,
-    captions    = @captions,
-    branding    = @branding,
-    title       = @title,
-    description = @description,
-    status      = @status,
-    pass        = @pass,
-    seq         = @seq
-  WHERE id = @id AND seq <= @seq`
+/** Le numéro d'ordre du dernier geste appliqué, par champ de `Clip`. */
+export type JetonsClip = Partial<Record<keyof Clip, number>>
+
+function lireJetons(db: Database.Database, id: string): JetonsClip {
+  const ligne = db.prepare('SELECT seqs FROM clips WHERE id = ?').get(id) as
+    | { seqs: string }
+    | undefined
+  if (ligne === undefined) return {}
+  try {
+    const lus: unknown = JSON.parse(ligne.seqs)
+    // Un objet, et des nombres dedans. Une colonne abîmée ne doit pas faire
+    // écarter des écritures parfaitement fraîches en comparant à `undefined`
+    // devenu `NaN` : on repart de zéro, ce qui rend simplement l'ordre au
+    // hasard de l'arrivée — l'état d'avant cette colonne.
+    if (typeof lus !== 'object' || lus === null || Array.isArray(lus)) return {}
+    const jetons: JetonsClip = {}
+    for (const [champ, valeur] of Object.entries(lus)) {
+      if (typeof valeur === 'number' && Number.isFinite(valeur)) {
+        jetons[champ as keyof Clip] = valeur
+      }
+    }
+    return jetons
+  } catch (cause) {
+    console.warn(`Jetons illisibles pour le clip ${id} :`, cause)
+    return {}
+  }
+}
+
+/** Le résultat d'une écriture ordonnée. */
+export type ÉcritureOrdonnée = {
+  /** Le clip tel que la base le porte **après** l'écriture. */
+  clip: Clip
+  /**
+   * Faux dès qu'un champ a été écarté parce qu'une écriture plus récente
+   * l'avait déjà touché. Les autres champs du même patch, eux, sont écrits.
+   */
+  applied: boolean
+}
 
 /**
- * Écrit un clip **seulement si le geste qui le porte n'est pas plus ancien que
- * le dernier appliqué**. Rend faux quand une écriture plus récente a déjà gagné.
+ * Écrit un clip **champ par champ**, en écartant ceux qu'un geste plus récent a
+ * déjà touchés.
  *
  * L'interface envoie délibérément des écritures qui se chevauchent, et rien ne
- * garantit que la première partie arrive la première : sans ce jeton, la base
- * finit sur la valeur la plus ancienne pendant que l'écran, lui, affiche la
- * bonne — et l'écart ne se voit qu'au rechargement (issue #21). Sérialiser les
- * écritures côté serveur ne réglerait rien : cela alignerait l'ordre de
- * traitement sur l'ordre d'arrivée, qui est précisément ce dont on se méfie.
+ * garantit que la première partie arrive la première : sans jeton, la base finit
+ * sur la valeur la plus ancienne pendant que l'écran, lui, affiche la bonne — et
+ * l'écart ne se voit qu'au rechargement (issue #21). Sérialiser les écritures
+ * côté serveur ne réglerait rien : cela alignerait l'ordre de traitement sur
+ * l'ordre d'arrivée, qui est précisément ce dont on se méfie.
  *
- * **Faux ne veut pas dire « échec ».** L'appelant relit le clip et le rend tel
- * quel : c'est un résultat, pas une erreur d'enregistrement.
+ * **La comparaison porte sur les champs, jamais sur la ligne entière.** Les
+ * patches sont partiels : un `{ status }` et un `{ segments }` qui se croisent ne
+ * se contredisent sur rien, et écarter le second parce que le premier est plus
+ * récent perdrait un montage que l'ancien code, lui, gardait. C'est le défaut
+ * inverse de celui qu'on corrige, et il coûte plus cher — une écriture perdue
+ * plutôt qu'une écriture désordonnée. (relevé par Codex)
+ *
+ * `champs` est ce que le client a **envoyé**, pas ce qui a changé : un patch qui
+ * réécrit une valeur identique reste une prise de position sur ce champ, et doit
+ * dater le jeton comme une autre.
+ *
+ * **Faux ne veut pas dire « échec ».** L'appelant rend le clip tel quel : c'est
+ * un résultat, pas une erreur d'enregistrement.
  */
-export function putClipSiPlusRécent(db: Database.Database, clip: Clip, seq: number): boolean {
-  const ligne = ligneDepuisClip(clip)
-  // Le `WHERE` ne porte que sur `id`, et l'`UPDATE` ne réécrit pas `projectId` :
-  // sans ce contrôle, un identifiant appartenant à un autre projet se ferait
-  // écraser en silence, ce que `putClip` refuse déjà.
-  vérifierPropriété(db, ligne)
-  // Les paramètres nommés, un par un : `better-sqlite3` refuse un objet qui
-  // porte une clé dont la requête ne se sert pas, et `projectId` en est une.
-  const résultat = db.prepare(ÉCRIRE_SI_PLUS_RÉCENT).run({
-    id: ligne.id,
-    segments: ligne.segments,
-    ratio: ligne.ratio,
-    cropX: ligne.cropX,
-    captions: ligne.captions,
-    branding: ligne.branding,
-    title: ligne.title,
-    description: ligne.description,
-    status: ligne.status,
-    pass: ligne.pass,
-    seq,
+export function putClipOrdonné(
+  db: Database.Database,
+  clip: Clip,
+  champs: readonly (keyof Clip)[],
+  seq: number,
+): ÉcritureOrdonnée | undefined {
+  // La transaction tient ensemble la lecture des jetons, la comparaison et les
+  // deux écritures. Sans elle, la fenêtre qu'on ferme se rouvrirait entre la
+  // comparaison et la ligne.
+  const écrire = db.transaction((): ÉcritureOrdonnée | undefined => {
+    const courant = getClip(db, clip.id)
+    if (courant === undefined) return undefined
+
+    const jetons = lireJetons(db, clip.id)
+    const écartés = champs.filter((champ) => (jetons[champ] ?? 0) > seq)
+
+    // On part du clip fusionné et on **rétablit** les champs écartés : les
+    // champs que le client n'a pas envoyés gardent ainsi le traitement que
+    // l'appelant leur a fait subir — la normalisation des segments, notamment,
+    // qui s'applique à chaque écriture et pas seulement quand ils changent.
+    const suivant = rétablir(clip, courant, écartés)
+    putClip(db, suivant)
+
+    const retenus = champs.filter((champ) => !écartés.includes(champ))
+    if (retenus.length > 0) {
+      const àJour: JetonsClip = { ...jetons }
+      for (const champ of retenus) àJour[champ] = seq
+      db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id').run({
+        id: clip.id,
+        seqs: JSON.stringify(àJour),
+      })
+    }
+
+    return { clip: suivant, applied: écartés.length === 0 }
   })
-  return résultat.changes > 0
+  return écrire()
+}
+
+/**
+ * `cible` avec les champs nommés repris de `source`.
+ *
+ * L'`Object.assign` sur une clé calculée n'est pas un détour : TypeScript refuse
+ * `copie[champ] = source[champ]` quand `champ` est une union de clés, alors que
+ * l'affectation est correcte pour chacune prise séparément.
+ */
+function rétablir(cible: Clip, source: Clip, champs: readonly (keyof Clip)[]): Clip {
+  const copie: Clip = { ...cible }
+  for (const champ of champs) Object.assign(copie, { [champ]: source[champ] })
+  return copie
 }
 
 /**

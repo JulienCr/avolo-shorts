@@ -224,10 +224,16 @@ export type ClipPatch = Partial<
  * le mieux enregistré de la session, et réessaierait une écriture dont on vient
  * d'établir qu'elle est périmée. Le vrai échec, lui, lève une `ApiError`.
  *
- * `clip` porte toujours l'état de la base — celui qu'on vient d'écrire, ou celui
- * du gagnant. Il n'y a donc jamais de relecture à faire derrière.
+ * `clip` porte toujours l'état de la base. Il n'y a donc jamais de relecture à
+ * faire derrière, et l'adopter est le bon geste dans les deux cas.
  */
 export type PatchClipResult = {
+  /**
+   * Faux dès qu'**un** champ de ce patch a été écarté parce qu'un geste plus
+   * récent l'avait déjà touché. Les autres champs du même patch, eux, sont
+   * écrits : l'ordre se compare champ par champ, parce que deux patches
+   * partiels qui ne se recouvrent pas ne se contredisent sur rien.
+   */
   applied: boolean
   clip: Clip
 }

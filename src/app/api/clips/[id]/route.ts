@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
-import { getClip, getDb, getProject, putClip, putClipSiPlusRécent } from '@/server/db'
+import { getClip, getDb, getProject, putClip, putClipOrdonné } from '@/server/db'
 import { corps, introuvable, json, route } from '@/server/http'
 import { sortiesDuClip } from '@/server/rendus'
 import { vignettePath } from '@/server/thumbs'
@@ -114,29 +114,17 @@ export const PATCH = route(
       segments: normalizeSegments(édition.segments ?? clip.segments),
     }
 
-    // Le jeton, quand il y en a un : la comparaison et l'écriture sont dans la
-    // même requête SQL, sans quoi la fenêtre qu'on ferme se rouvrirait entre les
-    // deux.
+    // Le jeton, quand il y en a un. Les champs comparés sont ceux que le client
+    // a **envoyés** — les clés du corps, pas celles qui ont changé de valeur.
+    let écrit = suivant
     let appliqué = true
     if (seq === undefined) {
       putClip(db, suivant)
     } else {
-      appliqué = putClipSiPlusRécent(db, suivant, seq)
-    }
-
-    if (!appliqué) {
-      // **200, et pas 409.** Une écriture plus récente a gagné : c'est un
-      // résultat, pas un échec d'enregistrement. Un code d'erreur ferait
-      // afficher « la sauvegarde a échoué » sur le clip le mieux enregistré de
-      // la session, et pousserait l'interface à réessayer une écriture dont on
-      // vient précisément d'établir qu'elle est périmée.
-      //
-      // Le clip rendu est le **gagnant**, relu en base : c'est ce qui permet à
-      // l'appelant de se remettre d'accord sans une requête de plus. Rien
-      // n'ayant été écrit, la vignette n'a pas non plus à être effacée.
-      const gagnant = getClip(db, id)
-      if (gagnant === undefined) throw introuvable(`Clip inconnu : ${id}`)
-      return json({ applied: false, clip: gagnant })
+      const résultat = putClipOrdonné(db, suivant, Object.keys(édition) as (keyof Clip)[], seq)
+      if (résultat === undefined) throw introuvable(`Clip inconnu : ${id}`)
+      écrit = résultat.clip
+      appliqué = résultat.applied
     }
 
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en
@@ -149,7 +137,12 @@ export const PATCH = route(
     // l'écran alors que la base porte la nouvelle. Une vignette périmée est un
     // défaut d'affichage, une divergence client/serveur en est un autre.
     // (relevé par Codex)
-    if (suivant.segments[0]?.start !== clip.segments[0]?.start) {
+    //
+    // **Sur ce qui a été écrit, pas sur ce qui a été demandé.** Un `segments`
+    // écarté parce qu'un geste plus récent l'avait déjà déplacé laisse la
+    // vignette juste : l'effacer ferait payer une régénération à une écriture
+    // qui n'a pas eu lieu.
+    if (écrit.segments[0]?.start !== clip.segments[0]?.start) {
       try {
         fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
       } catch (cause) {
@@ -157,6 +150,13 @@ export const PATCH = route(
       }
     }
 
-    return json({ applied: true, clip: suivant })
+    // **200 même quand un champ a été écarté**, et pas 409. Une écriture plus
+    // récente a gagné : c'est un résultat, pas un échec d'enregistrement. Un
+    // code d'erreur ferait afficher « la sauvegarde a échoué » sur le clip le
+    // mieux enregistré de la session, et pousserait l'interface à réessayer une
+    // écriture dont on vient précisément d'établir qu'elle est périmée. Le clip
+    // rendu est celui que la base porte, donc l'appelant se remet d'accord avec
+    // elle sans une requête de plus.
+    return json({ applied: appliqué, clip: écrit })
   },
 )

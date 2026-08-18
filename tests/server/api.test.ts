@@ -552,6 +552,48 @@ describe('PATCH /api/clips/:id', () => {
       expect(await titreEnBase()).toBe('récent')
     })
 
+    /**
+     * Le défaut inverse de #21, et il coûte plus cher : une écriture perdue
+     * plutôt qu'une écriture désordonnée.
+     *
+     * Les patches sont partiels — l'écran de clip n'envoie que ce qui a changé,
+     * l'écran de tri n'envoie que `status`. Deux gestes qui se croisent sur des
+     * champs différents ne se contredisent sur rien, et un jeton par ligne
+     * ferait écarter le second en entier. (relevé par Codex)
+     */
+    it('garde une écriture ancienne qui touche un autre champ', async () => {
+      await patcher({ status: 'kept', seq: 11 })
+      const résultat = await corpsDe(await patcher({ title: 'un titre plus ancien', seq: 10 }))
+
+      expect(résultat.applied).toBe(true)
+      expect(résultat.clip.title).toBe('un titre plus ancien')
+      // Et le statut, plus récent, n'a pas été défait au passage.
+      expect(résultat.clip.status).toBe('kept')
+      expect(await titreEnBase()).toBe('un titre plus ancien')
+    })
+
+    it('n’écarte que les champs contestés, et écrit les autres', async () => {
+      await patcher({ title: 'gagnant', seq: 20 })
+      const résultat = await corpsDe(
+        await patcher({ title: 'perdant', status: 'discarded', seq: 15 }),
+      )
+
+      // Un champ écarté suffit à faire tomber `applied`…
+      expect(résultat.applied).toBe(false)
+      expect(résultat.clip.title).toBe('gagnant')
+      // …mais l'autre est bien écrit : rien de ce geste n'est perdu sans raison.
+      expect(résultat.clip.status).toBe('discarded')
+    })
+
+    it('date le jeton d’un champ réécrit à l’identique', async () => {
+      // Une valeur identique reste une prise de position sur ce champ : sans
+      // cela, un second geste plus ancien passerait derrière sans être vu.
+      await patcher({ title: 'même', seq: 30 })
+      await patcher({ title: 'même', seq: 40 })
+      expect((await corpsDe(await patcher({ title: 'ancien', seq: 35 }))).applied).toBe(false)
+      expect(await titreEnBase()).toBe('même')
+    })
+
     it('accepte un jeton égal au dernier appliqué', async () => {
       await patcher({ title: 'un', seq: 7 })
       const résultat = await corpsDe(await patcher({ title: 'deux', seq: 7 }))
@@ -562,13 +604,13 @@ describe('PATCH /api/clips/:id', () => {
     })
 
     it('écrit sans jeton, comme le fait un appel en `curl`', async () => {
-      await patcher({ title: 'depuis l’interface', seq: 30 })
+      await patcher({ title: 'depuis l’interface', seq: 300 })
       const résultat = await corpsDe(await patcher({ title: 'depuis curl' }))
       // Un appelant qui n'ordonne pas ses écritures n'a rien à faire dans cette
-      // course : il écrit, et le jeton en base ne bouge pas.
+      // course : il écrit, et les jetons en base ne bougent pas.
       expect(résultat.applied).toBe(true)
       expect(await titreEnBase()).toBe('depuis curl')
-      expect((await corpsDe(await patcher({ title: 'encore périmé', seq: 20 }))).applied).toBe(
+      expect((await corpsDe(await patcher({ title: 'encore périmé', seq: 200 }))).applied).toBe(
         false,
       )
     })

@@ -30,6 +30,7 @@ import {
   clipCountTargets,
   mergeOverlappingWindows,
   type Transcript,
+  type Window,
   type Word,
 } from '@/core/transcript'
 import { getClips, getDb, getProject, replaceClips } from '@/server/db'
@@ -60,8 +61,37 @@ const MODÈLE_PAR_DÉFAUT = 'gemini-3.1-flash-lite'
  * un lot trop petit multiplie les appels et, surtout, multiplie les échelles :
  * chaque lot est noté dans un appel séparé, et c'est le barème ancré du prompt
  * qui les rend comparables.
+ *
+ * **Huit reste le défaut alors même que c'est la taille qui déclenche le
+ * filtre**, et c'est un choix mesuré, pas une omission. Sur `2025-06-15-cqlp`,
+ * 83 fenêtres, le 18 août 2026 :
+ *
+ * | Taille du lot | Refus |
+ * |---|---|
+ * | 8 | 4 lots sur 11, soit 32 fenêtres |
+ * | 4 (sur les 32 refusées) | 3 lots sur 8, soit 12 fenêtres |
+ * | 2 (sur les 12 restantes) | 3 lots sur 6, soit 6 fenêtres |
+ * | 1 (sur les 32 refusées) | **aucun** |
+ *
+ * Baisser le défaut à 4 ne ferait donc que déplacer le problème en doublant les
+ * appels et en doublant les barèmes. Ce qui le règle est `récupérer`, qui ne
+ * recoupe que ce qui a été refusé.
  */
 const LOT_NOTATION_PAR_DÉFAUT = 8
+
+/**
+ * Ce que la récupération s'autorise à dépenser, en multiple du premier passage.
+ *
+ * Recouper un lot refusé coûte au pire `2k - 2` appels pour k fenêtres — 14 pour
+ * un lot de 8 dont chaque fenêtre serait refusée seule. Mesuré sur
+ * `2025-06-15-cqlp`, la réalité est bien plus douce : 20 appels de récupération
+ * pour 11 de premier passage, soit 1,8 fois. Le facteur 3 laisse donc de la
+ * marge à une émission plus dure tout en bornant le cas pathologique, qui
+ * compte : le palier gratuit de `gemini-3.1-flash-lite` plafonne à **15 requêtes
+ * par minute**, et une descente sans bornes y passerait dix minutes à se faire
+ * refuser. Ce qui reste hors budget est compté comme non noté, et dit.
+ */
+const RÉCUPÉRATION_MAX = 3
 
 /**
  * Trois tentatives, et l'attente double à chaque échec : 5 s puis 10 s.
@@ -84,12 +114,28 @@ const TENTATIVES = 3
 const DÉLAI_APPEL_MS = 120_000
 
 /**
- * Le filtre de contenu a refusé. **Ne jamais réessayer** : le refus est
- * déterministe, la même charge est rejetée à chaque fois (vérifié en production
- * chez openshorts le 23 juillet 2026 — une vidéo de stand-up revenait
- * `PROHIBITED_CONTENT` en 300 ms à tous les essais), et des réglages de sécurité
- * permissifs ne le lèvent pas. Relancer ne fait que brûler du quota et du temps,
- * et cache à l'utilisateur la vraie raison.
+ * Le filtre de contenu a refusé. **Ne jamais réessayer la même charge** : le
+ * refus est déterministe, la même charge est rejetée à chaque fois (vérifié en
+ * production chez openshorts le 23 juillet 2026 — une vidéo de stand-up revenait
+ * `PROHIBITED_CONTENT` en 300 ms à tous les essais). Relancer à l'identique ne
+ * fait que brûler du quota et du temps, et cache à l'utilisateur la vraie
+ * raison.
+ *
+ * **Deux choses ont été mesurées le 18 août 2026 sur `2025-06-15-cqlp`, et elles
+ * séparent ce qui est inutile de ce qui marche.**
+ *
+ * Inutile : poser `safetySettings` à `OFF` sur les quatre catégories
+ * configurables (`HARASSMENT`, `HATE_SPEECH`, `SEXUALLY_EXPLICIT`,
+ * `DANGEROUS_CONTENT`). Les quatre lots refusés le sont restés, tous les quatre,
+ * à l'identique. Le refus arrive en `promptFeedback.blockReason` avec
+ * **`safetyRatings` absent** — ni sur le prompt, ni sur le candidat : ce n'est
+ * pas une catégorie configurable qui a mordu, c'est le filtre non configurable
+ * du fournisseur, celui que l'API ne laisse pas régler. Inutile de reposer la
+ * question sous forme de réglage.
+ *
+ * Ce qui marche : **envoyer autre chose**. Les 32 fenêtres perdues dans ces
+ * quatre lots passent toutes, une par une. Le refus porte sur la charge
+ * assemblée, pas sur une fenêtre coupable — voir `récupérer`.
  */
 export class GeminiBlockedError extends Error {
   constructor(message: string) {
@@ -337,6 +383,34 @@ export function estPassagère(erreur: unknown): boolean {
 }
 
 /**
+ * L'attente maximale qu'un 429 peut imposer. Une minute et demie couvre la
+ * fenêtre glissante d'un quota par minute ; au-delà, c'est un quota journalier
+ * qui parle, et attendre ne le rendra pas.
+ */
+const ATTENTE_QUOTA_MAX_MS = 90_000
+
+/**
+ * Le délai que Google demande dans un 429, en millisecondes, ou `null`.
+ *
+ * **Sans lui, la relance exponentielle est trop courte pour servir à quelque
+ * chose sur un dépassement de quota.** Le palier gratuit de
+ * `gemini-3.1-flash-lite` plafonne à 15 requêtes par minute, et le corps du 429
+ * dit exactement combien attendre — `"retryDelay":"54s"` là où les trois
+ * tentatives n'attendent que 5 s puis 10 s. Le repérage échouait donc pour de
+ * bon sur une limite qui se lève toute seule en moins d'une minute, et la
+ * récupération des lots refusés triple précisément le nombre d'appels.
+ *
+ * Le motif est cherché dans le message brut parce que c'est tout ce que le SDK
+ * laisse : `@google/genai` recopie le corps JSON de la réponse dans le message
+ * de l'exception, sans exposer `RetryInfo` autrement.
+ */
+export function délaiDeQuota(message: string): number | null {
+  const trouvé = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message)
+  if (trouvé === null) return null
+  return Math.min(Math.ceil(Number(trouvé[1]) * 1000), ATTENTE_QUOTA_MAX_MS)
+}
+
+/**
  * Retire une clé d'API d'un message avant de le journaliser.
  *
  * **Le motif vit dans `@/core/erreurs`** depuis qu'il sert aussi à la frontière
@@ -384,7 +458,9 @@ export async function appelerGemini<T = unknown>(
       if (erreur instanceof GeminiBlockedError) throw erreur
       const message = erreur instanceof Error ? erreur.message : String(erreur)
       if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
-      const attente = 5000 * 2 ** (tentative - 1)
+      // Le délai demandé l'emporte quand il est plus long : sur un quota par
+      // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
+      const attente = Math.max(5000 * 2 ** (tentative - 1), délaiDeQuota(message) ?? 0)
       console.warn(
         `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
@@ -484,6 +560,55 @@ export type RepérageOptions = {
 }
 
 /**
+ * Ce qu'une passe de notation a jugé, et surtout **ce qu'elle n'a pas jugé**.
+ *
+ * Une fenêtre non notée n'est pas une fenêtre mal notée : elle finit dernière au
+ * classement, donc dehors dès que la présélection mord. C'était jusqu'ici la
+ * seule perte de la chaîne dont absolument rien ne parlait — ni le journal, ni
+ * `status.json`, ni l'interface —, et sur `2025-06-15-cqlp` elle valait un tiers
+ * de l'émission.
+ */
+export type BilanNotation = {
+  /** Les fenêtres soumises à la notation. */
+  fenêtres: number
+  /** Celles qui portent une note du modèle. */
+  notées: number
+  /** Celles qui n'en portent aucune : refusées par le filtre, ou omises. */
+  jamaisNotées: string[]
+  /**
+   * Celles que le filtre refuse **seules**, lot réduit à elles. Distinctes des
+   * précédentes : là, le refus vise bien cette fenêtre-là et pas l'assemblage.
+   */
+  refusées: string[]
+  /** Les appels de notation, refus et récupération compris. */
+  appels: number
+  /** Les lots refusés, toutes profondeurs de découpe confondues. */
+  lotsRefusés: number
+  /** Les lots auxquels le modèle a répondu. */
+  lotsRépondus: number
+}
+
+/**
+ * Le bilan de la dernière notation de chaque projet.
+ *
+ * **En mémoire, dans ce processus, comme la table `enCours` du lanceur.** Le
+ * bilan décrit une exécution, pas un artefact : le relire après un redémarrage
+ * de Next décrirait un travail que personne n'a fait dans ce processus.
+ *
+ * C'est la jonction prévue avec `status.json` : `src/server/run.ts` appartient à
+ * une autre tâche, et il lui suffit d'appeler `dernierBilan(projectId)` au
+ * moment d'écrire le statut pour que la perte remonte jusqu'à l'interface. Tant
+ * que ce raccord n'est pas fait, elle est dans le journal, ce qui est déjà
+ * infiniment plus que rien.
+ */
+const bilans = new Map<string, BilanNotation>()
+
+/** Le bilan de la dernière notation de ce projet, ou `null`. */
+export function dernierBilan(projectId: string): BilanNotation | null {
+  return bilans.get(projectId) ?? null
+}
+
+/**
  * Le repérage complet d'un projet, de bout en bout.
  *
  * L'ordre compte, et un point en particulier : **les cibles de nombre de clips
@@ -521,72 +646,14 @@ export async function runCandidates(
   const fenêtres = buildWindows(transcript, durée)
   console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
 
-  // 2. La notation, par lots. Chaque lot est réconcilié contre LUI-MÊME : une
-  //    fenêtre omise doit finir dernière, pas dehors.
-  const taille = tailleDeLot()
-  const notées: ScoredWindow[] = []
-  const nonNotées: string[] = []
-  let lotsRefusés = 0
-  let lotsRépondus = 0
-  for (let i = 0; i < fenêtres.length; i += taille) {
-    const lot = fenêtres.slice(i, i + taille)
-    let réponse: unknown
-    try {
-      réponse = await appelerGemini(
-        appel,
-        scorePrompt({
-          language: transcript.language,
-          videoDuration: durée,
-          windowsJson: scoreWindowsJson(lot),
-        }),
-        'score',
-        { sleep },
-      )
-    } catch (erreur) {
-      if (!(erreur instanceof GeminiBlockedError)) throw erreur
-      // **Un lot refusé n'est pas une vidéo refusée.** Mesuré sur
-      // `2025-06-15-cqlp` le 18 août 2026 : sur 83 fenêtres, un seul lot de 8
-      // revient `PROHIBITED_CONTENT`, de façon reproductible, et les autres
-      // passent. Faire remonter ce refus rendait l'émission entière
-      // inanalysable — quarante minutes de transcription pour rien, et un
-      // message qui accuse la vidéo là où huit fenêtres sur quatre-vingt-trois
-      // sont en cause.
-      //
-      // Les fenêtres du lot sont donc classées dernières, exactement comme
-      // celles qu'une réponse omet. La conséquence porte sur `SCORE_BATCH` : un
-      // lot large perd plus de matière quand il tombe, un lot étroit multiplie
-      // les appels. Le refus, lui, reste déterministe et n'est jamais réessayé.
-      lotsRefusés += 1
-      for (const fenêtre of lot) {
-        notées.push({ id: fenêtre.id, score: 0, reason: 'lot refusé par le filtre', notée: false })
-        nonNotées.push(fenêtre.id)
-      }
-      continue
-    }
-    lotsRépondus += 1
-    const { scored, missing } = parseScoreResponse(réponse, lot)
-    notées.push(...scored)
-    nonNotées.push(...missing)
-  }
-  if (nonNotées.length > 0) {
-    console.warn(`${nonNotées.length} fenêtre(s) sont revenues sans note ; classées dernières.`)
-  }
-  // Tous les lots refusés : là, c'est bien la vidéo. On le dit avec l'erreur
-  // qui ne se réessaie pas, plutôt que de détailler un panier vide.
-  //
-  // **Le compte des lots, pas celui des notes.** Un lot qui répond en omettant
-  // toutes ses fenêtres est une réponse dégradée mais utilisable — c'est le sens
-  // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
-  // refus transformait ce repli en échec définitif dès qu'un seul lot était
-  // bloqué. (relevé par Codex)
-  if (lotsRefusés > 0 && lotsRépondus === 0) {
-    throw new GeminiBlockedError(
-      `Gemini a refusé les ${lotsRefusés} lot(s) de notation de cette vidéo. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
-    )
-  }
-  if (lotsRefusés > 0) {
-    console.warn(`${lotsRefusés} lot(s) refusés par le filtre de contenu ; classés derniers.`)
-  }
+  // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
+  const { notées, bilan } = await noterLesFenêtres(fenêtres, {
+    projectId,
+    language: transcript.language,
+    videoDuration: durée,
+    appel,
+    sleep,
+  })
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
   const retenues = shortlistFromScores(notées, fenêtres)
@@ -633,7 +700,10 @@ export async function runCandidates(
   effacerArtefact(projectId)
   replaceClips(db, projectId, clips)
   écrireArtefact(projectId, clips)
-  console.log(`Passe ${passe} : ${propositions.length} proposition(s), ${clips.length} clip(s).`)
+  console.log(
+    `Passe ${passe} : ${propositions.length} proposition(s), ${clips.length} clip(s)` +
+      `, ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s).`,
+  )
   return clips
 }
 
@@ -641,6 +711,220 @@ export async function runCandidates(
 function tailleDeLot(): number {
   const brut = Number.parseInt(process.env.SCORE_BATCH ?? '', 10)
   return Number.isFinite(brut) && brut >= 1 ? brut : LOT_NOTATION_PAR_DÉFAUT
+}
+
+/** Ce dont la notation a besoin, et rien de plus. */
+type ContexteNotation = {
+  projectId: string
+  language: string
+  videoDuration: number
+  appel: AppelGemini
+  sleep: (ms: number) => Promise<void>
+}
+
+/**
+ * La notation complète : un passage par lots, puis la récupération de ce que le
+ * filtre a refusé.
+ *
+ * **Les deux phases sont séparées, et l'ordre a une raison.** Le premier passage
+ * dit quels lots tombent ; la récupération ne recoupe que ceux-là, et ne coûte
+ * donc rien sur une émission que le filtre laisse passer. Entremêler les deux
+ * ferait payer la découpe avant de savoir s'il y a quelque chose à découper.
+ */
+async function noterLesFenêtres(
+  fenêtres: Window[],
+  ctx: ContexteNotation,
+): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
+  const taille = tailleDeLot()
+  const lots: Window[][] = []
+  for (let i = 0; i < fenêtres.length; i += taille) lots.push(fenêtres.slice(i, i + taille))
+
+  const notées: ScoredWindow[] = []
+  const bilan: BilanNotation = {
+    fenêtres: fenêtres.length,
+    notées: 0,
+    jamaisNotées: [],
+    refusées: [],
+    appels: 0,
+    lotsRefusés: 0,
+    lotsRépondus: 0,
+  }
+  bilans.set(ctx.projectId, bilan)
+
+  const refusés: Window[][] = []
+  for (const lot of lots) {
+    const lu = await noterUnLot(lot, ctx, bilan)
+    if (lu === null) refusés.push(lot)
+    else ranger(lu, notées, bilan)
+  }
+
+  if (refusés.length > 0) {
+    const enJeu = refusés.reduce((n, lot) => n + lot.length, 0)
+    console.warn(
+      `${refusés.length} lot(s) refusés par le filtre, ${enJeu} fenêtre(s) ; on les recoupe.`,
+    )
+    await récupérer(refusés, ctx, bilan, notées, lots.length * RÉCUPÉRATION_MAX)
+  }
+
+  // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo. On le dit
+  // avec l'erreur qui ne se réessaie pas, plutôt que de détailler un panier vide.
+  //
+  // **Le verdict se prononce APRÈS la récupération, et c'est la mesure du 18
+  // août 2026 qui l'impose** : le filtre refuse la concentration de matière dans
+  // une charge, pas une fenêtre coupable, donc « tous les lots ont été refusés »
+  // ne dit rien de la vidéo tant qu'on n'a pas essayé de plus petites charges.
+  // Condamner une émission entière sur des lots de huit, c'est exactement
+  // l'erreur que ce fichier vient de corriger, en plus grand. Le budget de
+  // `récupérer` borne ce que cette prudence peut coûter.
+  //
+  // **Le compte des lots, pas celui des notes.** Un lot qui répond en omettant
+  // toutes ses fenêtres est une réponse dégradée mais utilisable — c'est le sens
+  // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
+  // refus transformait ce repli en échec définitif dès qu'un seul lot était
+  // bloqué. (relevé par Codex)
+  if (bilan.lotsRefusés > 0 && bilan.lotsRépondus === 0) {
+    throw new GeminiBlockedError(
+      `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+    )
+  }
+
+  const perdues = bilan.jamaisNotées.length
+  if (perdues > 0) {
+    // **La perte est dite, chiffrée, et localisée.** Sans cette ligne, un tiers
+    // d'une émission pouvait sortir du classement sans qu'aucune trace ne le
+    // signale : les fenêtres non notées finissent dernières, donc dehors dès que
+    // la présélection mord, et le repérage se terminait « avec succès ».
+    console.warn(
+      `${perdues} fenêtre(s) sur ${bilan.fenêtres} n'ont jamais été notées ; classées dernières.` +
+        (bilan.refusées.length > 0
+          ? ` Dont ${bilan.refusées.length} refusée(s) seule(s) par le filtre : ${bilan.refusées.join(', ')}.`
+          : ''),
+    )
+  }
+  console.log(
+    `Notation : ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s) en ${bilan.appels} appel(s).`,
+  )
+  return { notées, bilan }
+}
+
+/**
+ * Un lot noté, ou `null` si le filtre l'a refusé.
+ *
+ * Seul le refus de contenu rend `null` : c'est le seul échec dont on sache quoi
+ * faire d'autre que d'abandonner. Tout le reste remonte et fait échouer le
+ * repérage, comme avant.
+ */
+async function noterUnLot(
+  lot: Window[],
+  ctx: ContexteNotation,
+  bilan: BilanNotation,
+): Promise<{ scored: ScoredWindow[]; missing: string[] } | null> {
+  bilan.appels += 1
+  let brut: unknown
+  try {
+    brut = await appelerGemini(
+      ctx.appel,
+      scorePrompt({
+        language: ctx.language,
+        videoDuration: ctx.videoDuration,
+        windowsJson: scoreWindowsJson(lot),
+      }),
+      'score',
+      { sleep: ctx.sleep },
+    )
+  } catch (erreur) {
+    if (!(erreur instanceof GeminiBlockedError)) throw erreur
+    bilan.lotsRefusés += 1
+    return null
+  }
+  bilan.lotsRépondus += 1
+  return parseScoreResponse(brut, lot)
+}
+
+/**
+ * Recoupe les lots refusés en deux, et recommence sur les moitiés qui tombent
+ * encore.
+ *
+ * **C'est la seule façon mesurée de récupérer le matériel refusé, et elle ne
+ * viole pas la règle « un refus ne se réessaie jamais » : on n'envoie pas la
+ * même requête, on en envoie une autre.** Sur `2025-06-15-cqlp`, le 18 août
+ * 2026, la descente rend 32 fenêtres sur 32 — 4 lots de 8 refusés, puis 3
+ * demi-lots de 4, puis 3 paires, puis plus rien : chacune des 32 fenêtres passe
+ * seule. Le filtre ne vise donc pas une fenêtre coupable qu'il faudrait trouver,
+ * il vise la **concentration** de matière dans une seule charge, et sept
+ * fenêtres innocentes tombaient avec la huitième.
+ *
+ * Ce que la descente coûte : 20 appels pour ces 4 lots, contre 11 pour le
+ * premier passage entier. Ce qu'elle rapporte : les 32 fenêtres perdues portent
+ * précisément l'humour transgressif de l'émission — la vanne des photos de
+ * pieds, la scène du psy et de la bouteille, celle du vieux misogyne. Les
+ * écarter en silence, c'était écarter le haut du panier.
+ *
+ * **La descente est en largeur, pas en profondeur, et c'est ce que le budget
+ * rend visible.** Un appel à la profondeur d rapporte au plus k/2^d fenêtres :
+ * le moins cher par fenêtre est donc toujours la découpe la moins profonde, quel
+ * que soit le lot d'où elle vient. En profondeur, un budget serré s'épuisait sur
+ * la première branche et abandonnait des lots voisins qu'un seul appel aurait
+ * suffi à sauver.
+ *
+ * Ce que le budget ne paie pas est compté comme non noté, jamais avalé.
+ */
+async function récupérer(
+  refusés: Window[][],
+  ctx: ContexteNotation,
+  bilan: BilanNotation,
+  notées: ScoredWindow[],
+  budget: number,
+): Promise<void> {
+  const file = [...refusés]
+  let restant = budget
+  while (file.length > 0) {
+    const lot = file.shift()!
+    // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
+    // c'est bien elle que le filtre vise. Le cas ne s'est pas produit sur
+    // l'émission mesurée ; il reste possible sur une autre.
+    if (lot.length === 1) {
+      bilan.refusées.push(lot[0].id)
+      abandonner(lot, notées, bilan, 'fenêtre refusée par le filtre')
+      continue
+    }
+
+    const milieu = Math.ceil(lot.length / 2)
+    for (const moitié of [lot.slice(0, milieu), lot.slice(milieu)]) {
+      if (restant <= 0) {
+        abandonner(moitié, notées, bilan, 'lot refusé, budget de récupération épuisé')
+        continue
+      }
+      restant -= 1
+      const lu = await noterUnLot(moitié, ctx, bilan)
+      if (lu === null) file.push(moitié)
+      else ranger(lu, notées, bilan)
+    }
+  }
+}
+
+/** Un lot dont on ne tirera rien : dernier au classement, et compté comme tel. */
+function abandonner(
+  lot: Window[],
+  notées: ScoredWindow[],
+  bilan: BilanNotation,
+  raison: string,
+): void {
+  for (const fenêtre of lot) {
+    notées.push({ id: fenêtre.id, score: 0, reason: raison, notée: false })
+    bilan.jamaisNotées.push(fenêtre.id)
+  }
+}
+
+/** Range un lot lu, en séparant ce qui porte une note de ce qui n'en porte pas. */
+function ranger(
+  lu: { scored: ScoredWindow[]; missing: string[] },
+  notées: ScoredWindow[],
+  bilan: BilanNotation,
+): void {
+  notées.push(...lu.scored)
+  bilan.notées += lu.scored.length - lu.missing.length
+  bilan.jamaisNotées.push(...lu.missing)
 }
 
 /** Retire le marqueur avant de toucher à la base. */

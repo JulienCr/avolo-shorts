@@ -620,6 +620,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // y refuser ferait échouer une relance qui se contente de réécrire un
     // `.txt`. Un clip exporté sans marque avant #37 saute donc pour toujours, et
     // c'est `force` qui le rattrape.
+    //
     // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a pas à
     // payer deux `existsSync` et deux sondages.
     const marques = clip.branding ? await collecterMarques(options.brandDir) : []
@@ -631,8 +632,8 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // est là.
       throw new Error(
         `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
-          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absente, ou illisible et ` +
-          `alors signalée au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
+          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absentes, ou illisibles et ` +
+          `alors signalées au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
           `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
           `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
       )

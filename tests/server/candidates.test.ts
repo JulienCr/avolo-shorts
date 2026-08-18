@@ -174,6 +174,69 @@ describe('appelerGemini', () => {
     expect(attentes).toEqual([])
   })
 
+  /**
+   * **Un arrêt demandé ne se réessaie pas.** L'abandon d'une requête ressort en
+   * `AbortError`, que `NOMS_PASSAGERS` classe — à raison — parmi les erreurs à
+   * réessayer : sans ce contrôle, un arrêt relançait trois fois en dormant cinq
+   * puis dix secondes entre deux, c'est-à-dire l'exact contraire de ce qu'on
+   * venait de demander.
+   */
+  it('refuse de réessayer quand l’arrêt est demandé', async () => {
+    const contrôleur = new AbortController()
+    let essais = 0
+    const appel: AppelGemini = async () => {
+      essais += 1
+      contrôleur.abort()
+      const erreur = new Error('This operation was aborted')
+      erreur.name = 'AbortError'
+      throw erreur
+    }
+    await expect(
+      appelerGemini(appel, 'p', 'score', { sleep, signal: contrôleur.signal }),
+    ).rejects.toThrow(/Arrêt demandé/)
+    expect(essais).toBe(1)
+    expect(attentes).toEqual([])
+  })
+
+  it('ne part même pas quand l’arrêt est déjà demandé', async () => {
+    const contrôleur = new AbortController()
+    contrôleur.abort()
+    const appel: AppelGemini = async () => {
+      throw new Error("l'appel ne devait pas partir")
+    }
+    await expect(
+      appelerGemini(appel, 'p', 'score', { sleep, signal: contrôleur.signal }),
+    ).rejects.toThrow(/Arrêt demandé/)
+  })
+
+  /**
+   * **L'attente entre deux tentatives se laisse couper.** Contrôler le signal aux
+   * deux bouts de la boucle ne suffisait pas : entre les deux il y a un `sleep`
+   * qui monte à dix secondes, et jusqu'à quatre-vingt-dix quand le fournisseur
+   * réclame un délai. Pendant tout ce temps l'exécution restait dans `enCours` et
+   * l'écran annonçait une analyse en cours après le clic sur « Arrêter ».
+   * (relevé par Copilot)
+   */
+  it('coupe l’attente entre deux tentatives au lieu de la subir', async () => {
+    const contrôleur = new AbortController()
+    // Un `sleep` qui ne se règle jamais : c'est le pire cas, et il reproduit
+    // exactement une attente de quatre-vingt-dix secondes.
+    const jamais = () => new Promise<void>(() => {})
+    const appel: AppelGemini = async () => {
+      throw new Error('503 UNAVAILABLE: model overloaded')
+    }
+
+    const promesse = appelerGemini(appel, 'p', 'score', {
+      sleep: jamais,
+      signal: contrôleur.signal,
+    })
+    // Laisser la première tentative échouer et entrer dans l'attente.
+    await new Promise((r) => setTimeout(r, 5))
+    contrôleur.abort()
+
+    await expect(promesse).rejects.toThrow(/Arrêt demandé/)
+  })
+
   it('réessaie une erreur passagère et rend le succès suivant', async () => {
     let essais = 0
     const appel: AppelGemini = async () => {

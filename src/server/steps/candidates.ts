@@ -518,6 +518,45 @@ export async function appelerGemini<T = unknown>(
   // restriction du premier contrôle jusqu'au second — qu'il déclarait alors
   // impossible.
   const isAborted = (): boolean => options.signal?.aborted === true
+
+  /**
+   * L'attente entre deux tentatives, **qui se laisse couper**.
+   *
+   * Contrôler le signal aux deux bouts de la boucle ne suffisait pas : entre
+   * les deux il y a un `sleep`, et il est long. L'escalier monte à dix secondes,
+   * et un délai réclamé par le fournisseur peut porter l'attente jusqu'aux
+   * quatre-vingt-dix secondes d'`ATTENTE_QUOTA_MAX_MS`. Pendant tout ce
+   * temps l'exécution restait dans `enCours` et `running` restait non nul :
+   * l'écran continuait d'annoncer une analyse en cours après qu'on a cliqué
+   * « Arrêter ». (relevé par Copilot)
+   *
+   * La minuterie abandonnée continue de courir — `sleep` est injecté et ne
+   * connaît pas le signal, on ne peut donc pas l'annuler, seulement cesser de
+   * l'attendre. C'est le compromis habituel du dépôt, et il est sans
+   * conséquence ici : le serveur ne s'arrête pas pour autant, et les scripts de
+   * `scripts/` sortent par `quitter()`.
+   */
+  const waitOrStop = async (ms: number): Promise<void> => {
+    const signal = options.signal
+    if (signal === undefined) {
+      await sleep(ms)
+      return
+    }
+    let onAbort: (() => void) | undefined
+    try {
+      await Promise.race([
+        sleep(ms),
+        new Promise<void>((resolve) => {
+          onAbort = () => resolve()
+          signal.addEventListener('abort', onAbort, { once: true })
+        }),
+      ])
+    } finally {
+      // Sans ce retrait, chaque tentative laisse un écouteur de plus sur le
+      // signal de l'exécution, qui vit aussi longtemps qu'elle.
+      if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+    }
+  }
   for (let tentative = 1; ; tentative += 1) {
     if (isAborted()) throw new StopRequestedError('le repérage')
     try {
@@ -556,7 +595,7 @@ export async function appelerGemini<T = unknown>(
       console.warn(
         `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
-      await sleep(attente)
+      await waitOrStop(attente)
     }
   }
 }

@@ -116,11 +116,17 @@ const RÉFÉRENCE_NUE = /(?<!\w)op:\/\/[^\s"'\\]+/g
  * entre apostrophes (`could not read secret 'op://c/f/CLÉ'`, que le message de
  * `résoudreSecrets` recopie) et `JSON.stringify` entre guillemets doubles.
  *
+ * **Seul le délimiteur qui a ouvert ferme**, d'où la référence arrière plutôt
+ * qu'une classe qui exclurait les deux : un nom de coffre porte volontiers
+ * l'autre guillemet — « Coffre d'équipe » —, et l'exclure faisait échouer la
+ * passe, puis la passe nue s'arrêtait sur cette apostrophe en laissant le reste
+ * lisible. (relevé par Copilot)
+ *
  * Le contenu doit être non vide, sans quoi `"op://"` — qui ne nomme rien — se
  * ferait caviarder ici après avoir été épargné par la passe nue.
  * (relevé par Copilot)
  */
-const RÉFÉRENCE_CITÉE = /(["'])op:\/\/[^"'\n]+\1/g
+const RÉFÉRENCE_CITÉE = /(["'])op:\/\/(?:(?!\1)[^\n])+\1/g
 
 /** Ce qui termine une phrase, et que la référence a pu emporter en la fermant. */
 const PONCTUATION_FINALE = /[.,;:!?)\]]+$/

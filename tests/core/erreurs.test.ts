@@ -146,6 +146,11 @@ describe('le caviardage des références de secret', () => {
     expect(épurerChemins(`could not read secret '${dedans}'`)).toBe(
       "could not read secret 'op://…'",
     )
+    // Le nom d'un coffre peut porter l'autre guillemet — « Coffre d'équipe » —,
+    // et seul le délimiteur qui ouvre ferme. (relevé par Copilot)
+    expect(épurerChemins(`valeur "op://Coffre d'équipe/Fiche/Clé" refusée`)).toBe(
+      'valeur "op://…" refusée',
+    )
     // Sans espace, la citation ne sert à rien : la passe nue suffit, quels que
     // soient les chevrons autour.
     expect(épurerChemins('« op://Coffre/Fiche/Clé » est vide')).toBe('« op://… » est vide')

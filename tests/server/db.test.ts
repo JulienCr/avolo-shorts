@@ -63,10 +63,15 @@ afterEach(() => {
 
 describe('le schéma', () => {
   it('s’applique à l’ouverture, sur une base vierge', () => {
-    const tables = openDb(':memory:')
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
-      .all() as { name: string }[]
-    expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['clips', 'projects']))
+    const vierge = openDb(':memory:')
+    try {
+      const tables = vierge
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .all() as { name: string }[]
+      expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['clips', 'projects']))
+    } finally {
+      vierge.close()
+    }
   })
 
   // L'empreinte de la source est taille, date de modification et durée ffprobe.

@@ -391,9 +391,18 @@ export async function lancer(
     exécution.plan = planPourCibles(cibles, présence, force)
     exécution.courante = { step: exécution.plan[0] ?? cibles[0] ?? 'candidates', progress: 0 }
 
+    // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
+    // artefacts sont déjà sur le disque mais dont la ligne en base est neuve —
+    // une base effacée, un projet réinscrit — a un plan vide *et* une durée
+    // inconnue. Sortir tout de suite le laissait à `0:00` pour toujours, et le
+    // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
+    // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
+    // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
+    const doitIngérer = ingestionNécessaire(projet, exécution.plan)
+
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
     // suivre et rien à verrouiller.
-    if (exécution.plan.length === 0) {
+    if (exécution.plan.length === 0 && !doitIngérer) {
       enCours.delete(projectId)
       écrireStatut(projectId, {
         pid: process.pid,
@@ -408,7 +417,7 @@ export async function lancer(
     }
 
     publier(exécution, true)
-    exécution.terminée = exécuter(exécution, projet, db, options).finally(() => {
+    exécution.terminée = exécuter(exécution, projet, db, options, doitIngérer).finally(() => {
       enCours.delete(projectId)
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
@@ -446,6 +455,7 @@ async function exécuter(
   projetInitial: Project,
   db: Database.Database,
   options: OptionsLancement,
+  doitIngérer: boolean,
 ): Promise<void> {
   const étapes = { ...ÉTAPES, ...options.étapes }
   const { projectId } = exécution
@@ -458,7 +468,7 @@ async function exécuter(
   }
 
   try {
-    if (ingestionNécessaire(projet, exécution.plan)) {
+    if (doitIngérer) {
       // L'ingestion n'est pas une étape du graphe — la source est là ou le
       // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
       // celui de la première étape à faire, dont la progression est bien à zéro

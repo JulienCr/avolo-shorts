@@ -286,6 +286,41 @@ describe('lancer', () => {
     expect(progression('jamais-vu')).toBeNull()
   })
 
+  /**
+   * Un projet dont les artefacts sont là mais dont la ligne en base est neuve —
+   * base effacée, projet réinscrit — a un plan vide *et* une durée inconnue.
+   * Sortir tout de suite le laissait à `0:00` pour toujours, et le premier
+   * `run --force` échouait bien plus tard sur « le projet n'a pas de durée ».
+   */
+  it('ingère quand même si la durée manque, plan vide ou non', async () => {
+    poserProjet({ durationSec: null })
+    poserTranscript()
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+
+    let ingéré = false
+    const { plan } = await lancer(PROJET, ['candidates'], {
+      db,
+      étapes: {
+        ...étapesFactices(),
+        ingest: async (source) => {
+          ingéré = true
+          return {
+            projectId: PROJET,
+            sourcePath: String(source),
+            stagedPath: path.join(racine, 'stage', `${PROJET}.mp4`),
+            copied: false,
+            sizeBytes: 0,
+            mtimeMs: 0,
+            durationSec: 5936,
+          }
+        },
+      },
+    })
+    expect(plan).toEqual([])
+    await attendreLaFin()
+    expect(ingéré).toBe(true)
+  })
+
   it('un plan vide ne prend pas le verrou', async () => {
     poserProjet()
     poserTranscript()

@@ -149,6 +149,13 @@ export function FilDeTri({
   function defaire() {
     const dernière = pile.at(-1)
     if (dernière === undefined) return
+    // **Rien ne se défait hors de vue.** Reprendre une décision sur une carte
+    // que la vue courante n'affiche pas changerait l'état sans que rien ne bouge
+    // à l'écran — c'est la pire des corrections, celle qu'on ne voit pas, et
+    // c'est exactement ce que `U` existe pour éviter puisqu'il ramène sur la
+    // carte. La pile n'est pas vidée pour autant : revenir là où la carte est
+    // rend le geste, et sa cible.
+    if (élément(dernière.clipId) === null) return
     setPile((p) => p.slice(0, -1))
     // **`exported` ne se réécrit pas.** Le serveur refuse ce statut en `PATCH` —
     // un clip devient exporté parce qu'un MP4 a été produit, jamais parce que

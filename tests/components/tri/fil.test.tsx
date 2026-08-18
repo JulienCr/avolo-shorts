@@ -204,6 +204,32 @@ describe('la boucle de tri, au clavier', () => {
     expect(document.activeElement).toBe(carte('Extrait 1'))
   })
 
+  it('ne défait rien hors de vue', async () => {
+    // Une décision reprise sur une carte que la vue courante n'affiche pas
+    // changerait l'état sans que rien ne bouge à l'écran : c'est la pire des
+    // corrections, celle qu'on ne voit pas. Elle redevient possible en revenant
+    // là où la carte est.
+    render(<Harnais depart={[candidat(1), candidat(2)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+    await utilisateur.keyboard('e')
+
+    await utilisateur.click(screen.getByRole('tab', { name: /gardés/i }))
+    // **Le focus quitte l'onglet**, sinon la garde des raccourcis avale la
+    // touche et le test passerait sans rien prouver.
+    await utilisateur.click(document.body)
+    expect(document.activeElement).toBe(document.body)
+    await utilisateur.keyboard('u')
+
+    await utilisateur.click(screen.getByRole('tab', { name: /écartés/i }))
+    expect(ordreAffiché()).toEqual(['Extrait 1'])
+
+    // De retour là où la carte est, la correction redevient possible — et se
+    // voit.
+    await utilisateur.click(carte('Extrait 1'))
+    await utilisateur.keyboard('u')
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /^écarter$/i })).toBeTruthy()
+  })
+
   it('ne reboucle pas aux deux bouts', async () => {
     // Reboucler ferait repasser indéfiniment sur des cartes déjà vues sans que
     // rien ne dise qu'on a fait le tour.

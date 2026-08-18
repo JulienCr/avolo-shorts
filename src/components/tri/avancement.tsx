@@ -162,7 +162,9 @@ export function PanneauAvancement({
           exécution qui tourne, l'autre à une exécution qui ne tourne plus. Les
           poser côte à côte demanderait de choisir, alors que l'état du projet a
           déjà choisi. */}
-      <div className="mt-5">{àReprendre ? reprise : arret}</div>
+      {(àReprendre || arret != null) && (
+        <div className="mt-5">{àReprendre ? reprise : arret}</div>
+      )}
     </section>
   )
 }

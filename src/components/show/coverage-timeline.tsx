@@ -72,6 +72,13 @@ export function CoverageTimeline({
         // rien n'a encore été extrait : elle reste une barre de position sur
         // toute la durée. Les blocs sont des liens posés dessus, donc leur clic
         // ne descend pas jusqu'ici.
+        //
+        // **Et ce clic n'a pas d'équivalent clavier, délibérément.** Il ne
+        // donne accès à rien d'unique : la barre de lecture du navigateur, juste
+        // au-dessus, déplace la même tête et se pilote entièrement au clavier.
+        // Lui ajouter un `role="button"` et un `tabIndex` mettrait un arrêt de
+        // tabulation de plus devant les blocs — les seules cibles de cette bande
+        // qui mènent quelque part — pour une commande déjà atteignable.
         onClick={(e) => {
           if (onSeek === null) return
           const rect = e.currentTarget.getBoundingClientRect()

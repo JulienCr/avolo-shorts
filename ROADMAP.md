@@ -235,6 +235,28 @@ bénéfice visuel mesuré. Le réglage manuel livré en itération 0 n'est pas j
 il reste comme réglage de dernier recours, et l'automatique ne fera que le
 préremplir.
 
+### La publication, qui s'ajoute et dont l'horloge tourne déjà
+
+Un spike du 18 août 2026 a sorti la publication du hors-périmètre. Sa conception
+est dans `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` ; trois
+choses en ressortent pour qui orchestre.
+
+**Deux audits sont à déposer, et ils ne tiennent pas dans une itération** : deux à
+six semaines chez YouTube comme chez TikTok, avec un refus possible. Ils se
+déposent donc **avant** le code qui en dépend, en parallèle du reste — c'est le
+« lot 0 » de la spec, qui ne contient pas une ligne de code.
+
+**Instagram et Facebook n'attendent rien** et se branchent quand on veut : une app
+Meta en mode développement publie réellement, gratuitement, sans revue, sur les
+comptes qui ont un rôle sur elle.
+
+**Le connecteur YouTube ne doit pas être écrit avant que son audit soit passé.**
+Sans audit, une vidéo envoyée par l'API est verrouillée en privé et ne peut plus
+être libérée, même à la main dans Studio : le connecteur produirait une vidéo morte
+et un ré-envoi manuel. C'est le contre-sens le plus coûteux du sujet, et il est
+d'autant plus facile à commettre que l'intuition désigne TikTok comme la
+plateforme difficile.
+
 ## Reprendre l'orchestration
 
 Le travail se fait en sous-agents, un par tâche, chacun dans son worktree, chacun

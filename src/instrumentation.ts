@@ -1,15 +1,18 @@
 /**
  * Ce qui s'exécute une fois par processus serveur, avant tout le reste.
  *
- * Deux choses, et **les deux ont leur corps ailleurs, à dessein.** Next compile
- * ce fichier pour ses deux exécutions, y compris `edge`, qui n'a ni `process.on`
- * ni de quoi charger `better-sqlite3` ou lancer un sous-processus : un import
- * statique y ferait un avertissement à chaque compilation, sur un code que
- * l'exécution edge n'atteindra jamais. La garde et les imports dynamiques sont
- * la forme que Next documente pour ce cas.
+ * Trois choses, et **les trois ont leur corps ailleurs, à dessein.** Next
+ * compile ce fichier pour ses deux exécutions, y compris `edge`, qui n'a ni
+ * `process.on` ni de quoi charger `better-sqlite3` ou lancer un sous-processus :
+ * un import statique y ferait un avertissement à chaque compilation, sur un code
+ * que l'exécution edge n'atteindra jamais. La garde et les imports dynamiques
+ * sont la forme que Next documente pour ce cas.
  *
- * L'ordre compte : les secrets d'abord, parce qu'ils décident si le processus a
- * de quoi travailler.
+ * L'ordre compte, et les deux premières sont attendues quand la troisième ne
+ * l'est pas : les secrets d'abord, parce qu'ils décident si le processus a de
+ * quoi travailler ; la fermeture de la base ensuite, parce qu'elle doit être
+ * accrochée avant qu'un signal puisse arriver ; le nettoyage du cache de travail
+ * en dernier et sans attente, parce que rien n'en dépend.
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return

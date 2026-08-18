@@ -477,13 +477,33 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
 
   const lignes = clips.map((clip) => ligneDepuisClip({ ...clip, projectId }))
   const écrire = db.transaction(() => {
+    // **Les jetons d'ordre des survivants, relevés avant le DELETE.**
+    //
+    // `INSÉRER_CLIP` ne porte pas `seqs`, donc chaque survivant repartirait de
+    // `{}` : une écriture ancienne encore en vol arriverait alors devant un
+    // champ sans mémoire, passerait pour fraîche, et écraserait un geste plus
+    // récent — #21 rouvert par une passe de repérage. La fenêtre est étroite,
+    // mais c'est exactement celle que ce jeton existe pour fermer, et la
+    // relever coûte une requête. (relevé par Copilot)
+    const jetons = new Map(
+      (
+        db.prepare('SELECT id, seqs FROM clips WHERE projectId = ?').all(projectId) as {
+          id: string
+          seqs: string
+        }[]
+      ).map((ligne) => [ligne.id, ligne.seqs]),
+    )
+
     db.prepare('DELETE FROM clips WHERE projectId = ?').run(projectId)
     const insérer = db.prepare(INSÉRER_CLIP)
+    const rétablirJetons = db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id')
     for (const ligne of lignes) {
       // Après le DELETE : ce qui reste sous cet identifiant appartient
       // forcément à un autre projet. La transaction annule tout le lot.
       vérifierPropriété(db, ligne)
       insérer.run(ligne)
+      const seqs = jetons.get(ligne.id)
+      if (seqs !== undefined) rétablirJetons.run({ id: ligne.id, seqs })
     }
   })
   écrire()

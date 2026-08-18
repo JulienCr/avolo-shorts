@@ -240,6 +240,29 @@ describe('sur un vrai fichier', () => {
 })
 
 /**
+ * Une passe de repérage réécrit tout le jeu de clips d'un projet. Sans
+ * précaution, les survivants y perdraient leur ordre d'écriture : une écriture
+ * ancienne encore en vol arriverait devant un champ sans mémoire, passerait pour
+ * fraîche, et écraserait un geste plus récent. (relevé par Copilot)
+ */
+describe('replaceClips et les jetons d’ordre', () => {
+  it('garde les jetons des clips qui survivent à la passe', () => {
+    putClip(db, clip('survivant'))
+    expect(putClipOrdonné(db, clip('survivant', { title: 'Récent' }), ['title'], 100)?.applied).toBe(
+      true,
+    )
+
+    replaceClips(db, PROJET.id, [clip('survivant'), clip('nouveau')])
+
+    // Le jeton a survécu : une écriture plus ancienne se fait toujours écarter.
+    const périmée = putClipOrdonné(db, clip('survivant', { title: 'Ancien' }), ['title'], 50)
+    expect(périmée?.applied).toBe(false)
+    // Et un clip que la passe vient de créer n'a rien à opposer à personne.
+    expect(putClipOrdonné(db, clip('nouveau', { title: 'Neuf' }), ['title'], 1)?.applied).toBe(true)
+  })
+})
+
+/**
  * La migration, éprouvée depuis une base **d'avant**.
  *
  * Une base ouverte par le code courant a `seqs` par son `CREATE TABLE` : la

@@ -22,7 +22,7 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
-import { lancer, progression } from '@/server/run'
+import { lancer, lireStatut, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
 
@@ -341,6 +341,10 @@ describe('GET /api/projects/:id', () => {
    * matériau écarté sans être jugé, et rien à l'écran ne le disait. Sans ce
    * champ, on trie vingt-cinq cartes en croyant regarder ce que l'émission a de
    * mieux, alors qu'on regarde ce qu'elle a de mieux dans les deux tiers notés.
+   *
+   * **Le `status.json` est posé à la main, sans qu'aucun bilan ne vive en
+   * mémoire** : c'est aussi ce qui fige la persistance. Le décompte survit au
+   * processus qui l'a produit, comme les propositions qu'il qualifie.
    */
   it('publie ce que le repérage n’a pas jugé', async () => {
     poserStatut({
@@ -1115,6 +1119,24 @@ describe('POST /api/projects/:id/run', () => {
    */
   it('refuse une liste de cibles vide', async () => {
     expect((await lancerRoute({ target: [] })).status).toBe(400)
+  })
+
+  /**
+   * **Une cible répétée n'est pas refusée, elle est réduite.** Le plan, lui, ne
+   * changeait pas — `planPourCibles` ne planifie jamais deux fois la même étape
+   * — mais `lancer` garde la liste reçue dans `cibles`, et `status.json` la
+   * réécrit à chaque mise à jour, jusqu'à une fois par seconde pendant les six
+   * minutes d'un proxy. Une liste qui répète mille fois `candidates` rendait donc
+   * chaque écriture arbitrairement volumineuse, pour un plan identique.
+   * (relevé par Copilot)
+   */
+  it('réduit une cible répétée au lieu de la recopier dans le statut', async () => {
+    poserTranscript()
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+
+    const réponse = await lancerRoute({ target: ['candidates', 'candidates', 'candidates'] })
+    expect(réponse.status).toBe(202)
+    expect(lireStatut(PROJET)?.cibles).toEqual(['candidates'])
   })
 
   it('refuse une cible interdite au milieu d’une liste', async () => {

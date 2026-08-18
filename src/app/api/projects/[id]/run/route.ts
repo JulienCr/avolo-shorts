@@ -61,10 +61,20 @@ export const POST = route(
   async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
     const { id } = await contexte.params
     const { target, force } = await corps(requête, DEMANDE)
-    // Les doublons ne sont pas filtrés : `planPourCibles` ne planifie jamais
-    // deux fois la même étape, et refuser une liste qui se répète ferait un 400
-    // sur une demande dont le résultat est parfaitement défini.
-    const lancement = await lancer(id, Array.isArray(target) ? target : [target], { force })
+    // **Une répétition se réduit, elle ne se refuse pas.** Le résultat d'une
+    // liste qui se répète est parfaitement défini — `planPourCibles` ne planifie
+    // jamais deux fois la même étape —, donc un 400 serait de la pédanterie.
+    //
+    // Mais la transmettre telle quelle ne l'était pas : `lancer` garde la liste
+    // reçue dans `cibles`, et `status.json` la réécrit à chaque mise à jour,
+    // jusqu'à une fois par seconde pendant les six minutes d'un proxy. Mille
+    // `candidates` rendaient chaque écriture arbitrairement volumineuse pour un
+    // plan identique. Dédupliquée, la liste est bornée par `CIBLES_LANÇABLES`.
+    // (relevé par Copilot)
+    const cibles = [...new Set(Array.isArray(target) ? target : [target])]
+    const lancement = await lancer(id, cibles, {
+      force: Array.isArray(force) ? [...new Set(force)] : force,
+    })
     // 202 : accepté et lancé. Un plan vide est une réponse valide et fréquente —
     // tout est déjà là, il n'y avait rien à faire.
     return json(lancement, { status: 202 })

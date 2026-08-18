@@ -112,8 +112,16 @@ export type ProjectSummary = {
 /**
  * Ce que le repérage n'a pas jugé.
  *
- * `null` quand aucune notation n'est décrite : rien n'a tourné dans ce
- * processus, ou le bilan ne concerne pas la dernière exécution.
+ * `null` quand la dernière exécution connue ne décrit aucune notation : elle ne
+ * visait pas le repérage, ou elle s'est arrêtée avant de l'atteindre.
+ *
+ * **Il survit à un redémarrage du serveur**, contrairement à `running`. Le bilan
+ * est calculé en mémoire mais écrit dans `status.json`, et rien ne le réécrit
+ * tant qu'une nouvelle exécution ne tourne pas : ce qu'on lit après un
+ * redémarrage décrit donc la dernière passe de repérage **écrite pour ce
+ * projet**, et non une passe de ce processus-ci. C'est le comportement voulu —
+ * le décompte qualifie les propositions qu'on a sous les yeux, qui sont elles
+ * aussi d'hier. (relevé par Copilot)
  *
  * **Ce n'est pas cosmétique.** Sur `2025-06-15-cqlp`, quatre lots de fenêtres
  * sur onze reviennent `PROHIBITED_CONTENT` de façon reproductible : un tiers du

@@ -333,7 +333,14 @@ export type Statut = {
    * Ce que le repérage de **cette** exécution n'a pas jugé, ou `null`.
    *
    * Le bilan lui-même vit en mémoire dans le processus qui l'a produit
-   * (`dernierBilan`) ; c'est ici qu'il devient lisible depuis une requête HTTP.
+   * (`dernierBilan`) ; c'est ici qu'il devient lisible depuis une requête HTTP —
+   * **et qu'il survit au processus**. Rien ne réécrit ce fichier tant qu'une
+   * nouvelle exécution ne tourne pas, donc après un redémarrage de Next il
+   * décrit encore la dernière passe de repérage du projet. C'est voulu, et c'est
+   * l'inverse de `running`, que le redémarrage doit précisément faire oublier :
+   * un décompte de perte qualifie des propositions qui sont, elles aussi,
+   * toujours là. (relevé par Copilot)
+   *
    * Déduit par `bilanDeRepérage`, jamais recopié tel quel — voir pourquoi là-bas.
    */
   repérage: BilanRepérage | null

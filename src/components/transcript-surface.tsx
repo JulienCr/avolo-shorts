@@ -79,9 +79,17 @@ export function TranscriptSurface({
 
   // Le transcript montre du contexte de part et d'autre du clip : ouvert en
   // haut, on regarderait des phrases qui n'en font pas partie.
+  //
+  // **Sur une image, pas dans l'effet.** `scrollToIndex` déclenche un
+  // `flushSync` à l'intérieur du virtualiseur ; appelé depuis un effet, React
+  // avertit qu'il ne peut pas vider sa file pendant qu'il rend, et le
+  // positionnement se fait alors sur des hauteurs pas encore mesurées. Une
+  // image plus tard, les lignes sont mesurées et le défilement tombe juste.
   const deplacer = virtualiseur.scrollToIndex
   useEffect(() => {
-    if (ligneInitiale > 0) deplacer(ligneInitiale, { align: 'start' })
+    if (ligneInitiale <= 0) return
+    const image = requestAnimationFrame(() => deplacer(ligneInitiale, { align: 'start' }))
+    return () => cancelAnimationFrame(image)
   }, [deplacer, ligneInitiale])
 
   const bornes = selection
@@ -159,6 +167,15 @@ function Mot({
   const glisse = useRef(false)
 
   return (
+    // `role="button"` et non un `<button>` : un bouton est un bloc en ligne, et
+    // un mot doit pouvoir se **couper en fin de ligne** comme le texte qui
+    // l'entoure. Un `<span>` coule, un `<button>` saute à la ligne entière.
+    //
+    // Chaque mot est atteignable au clavier, ce qui fait beaucoup d'arrêts de
+    // tabulation — mais seuls les mots rendus existent dans le DOM (le
+    // virtualiseur borne le compte), et un mot *est* la commande ici : le
+    // rendre inatteignable au clavier retirerait les trois gestes du produit à
+    // qui n'a pas de souris.
     <span
       role="button"
       tabIndex={0}

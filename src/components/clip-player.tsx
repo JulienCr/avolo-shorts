@@ -61,7 +61,13 @@ export function ClipPlayer({
     const v = video.current
     if (!v) return
     if (v.paused) {
-      if (playbackAction(segments, v.currentTime).kind !== 'play') v.currentTime = debut
+      // Une coupe faite pendant la pause peut avoir retiré le passage sous la
+      // tête de lecture. On reprend alors au segment suivant, pas au début du
+      // clip : revenir au début à chaque reprise obligerait à réécouter tout ce
+      // qu'on vient de valider.
+      const action = playbackAction(segments, v.currentTime)
+      if (action.kind === 'seek') v.currentTime = action.to
+      else if (action.kind === 'end') v.currentTime = debut
       void v.play()
     } else {
       v.pause()

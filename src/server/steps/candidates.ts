@@ -93,6 +93,14 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
  *
  * Le budget se compte en **requêtes**, relances comprises : c'est l'unité que le
  * quota facture, et la seule qui rende le plafond vrai quand le service tangue.
+ *
+ * **Le compte est passé en Tier 1 le 18 août 2026, soit environ 300 requêtes par
+ * minute au lieu de 15. Cette borne reste, et ce paragraphe est là pour qu'on ne
+ * la retire pas en constatant que le quota a reculé.** Un plafond plus haut n'est
+ * pas un plafond absent, et le quota n'a jamais été la seule raison : une
+ * descente sans bornes dépense aussi du temps et de l'argent sur une émission
+ * que le fournisseur refuse en bloc. Ce qu'un palier payant change, c'est la
+ * fréquence des attentes de `délaiDeQuota`, pas leur utilité.
  */
 const RÉCUPÉRATION_MAX = 3
 

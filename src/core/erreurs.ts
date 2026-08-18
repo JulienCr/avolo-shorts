@@ -89,9 +89,10 @@ const PRÉFIXE_DE_RÉFÉRENCE = 'op://'
  * raison** : rien ne dit où elle finit. Un coffre ou une fiche au nom espacé y
  * laisse donc sa queue — c'est la limite, elle est démontrée en test, et elle a
  * deux remèdes, tous deux hors de cette grammaire : citer la référence, ou la
- * passer en **racine**. `racines()` (`src/server/erreurs.ts`) le fait pour toute
- * référence lue dans l'environnement, qu'on tient alors en entier plutôt que
- * d'avoir à deviner où elle finit. (issue #49)
+ * retirer **par sa forme complète** avant d'en arriver là. `messageSûr`
+ * (`src/server/erreurs.ts`) le fait pour toute référence lue dans
+ * l'environnement, qu'on tient alors en entier plutôt que d'avoir à deviner où
+ * elle finit. (issue #49)
  *
  * Une grammaire qui traversait les espaces a été écrite puis retirée : elle
  * autorisait un segment à s'étendre jusqu'à la barre oblique suivante, si bien
@@ -186,11 +187,6 @@ export function caviarderClés(message: string): string {
  * ce qui reste derrière est le chemin *relatif* à cette racine — un nom de
  * fichier de replay, ou `<projet>/renders/<clip>.mp4`. C'est-à-dire ce que
  * l'appelant a lui-même nommé, et rien de l'arborescence de la machine.
- *
- * **Une racine n'est pas forcément un chemin.** `racines()` y passe aussi le
- * corps des références de secret lues dans l'environnement, et pour la même
- * raison exactement : un nom de coffre porte volontiers des espaces, la
- * grammaire ne sait pas où la référence finit, l'environnement le sait.
  *
  * Ce qui n'est pas un chemin absolu passe intact : les messages du projet sont
  * écrits pour être lus, et ce sont eux qui disent quoi faire.

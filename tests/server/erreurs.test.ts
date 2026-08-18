@@ -13,14 +13,15 @@ import { messageSûr } from '@/server/erreurs'
  * caviardage qui rend l'erreur inutile finit par sauter.
  *
  * La fermeture est donc ici. Une référence lue dans l'environnement **est** une
- * chaîne littérale, au même titre que `REPLAY_DIR` : on sait où elle finit
- * parce qu'on la tient en entier, espaces compris. `racines()` la passe en
- * racine, `épurerChemins` la retire littéralement, et la queue du coffre ne
- * sort plus.
+ * chaîne littérale : on sait où elle finit parce qu'on la tient en entier,
+ * espaces compris. `messageSûr` la retire par sa **forme complète**, préfixe
+ * compris, et remet le préfixe derrière — c'est la forme que le caviardage
+ * laisse partout ailleurs, et la queue du coffre ne sort plus.
  *
  * **Aucune valeur de secret n'entre là-dedans** : seule une valeur qui *est*
- * une référence est retenue, et une référence n'est pas une valeur — elle nomme
- * le coffre, la fiche et le champ. Le contrôle négatif du bas le fige.
+ * une référence est retenue, par sa forme, et une référence n'est pas une
+ * valeur — elle nomme le coffre, la fiche et le champ. Le contrôle négatif du
+ * bas le fige.
  */
 
 const envDépart = { ...process.env }
@@ -60,8 +61,8 @@ describe('messageSûr, sur les références de secret', () => {
   /**
    * Deux variables peuvent pointer le même coffre, l'une nommant le champ et
    * l'autre s'arrêtant à la fiche : la plus courte est alors un préfixe de la
-   * plus longue. `épurerChemins` traite les racines de la plus longue à la plus
-   * courte, sans quoi la plus courte laisserait la queue de l'autre.
+   * plus longue. Les références se retirent de la plus longue à la plus courte,
+   * sans quoi la plus courte laisserait la queue de l'autre.
    */
   it('caviarde deux références dont l’une est le préfixe de l’autre', () => {
     process.env.AVOLO_TEST_FICHE = 'op://Coffre de démonstration/Fiche imaginaire'
@@ -75,33 +76,40 @@ describe('messageSûr, sur les références de secret', () => {
   })
 
   /**
-   * **Les deux corps qui ne font pas une racine**, et qui échouent l'un comme
-   * l'autre de la façon la plus bruyante qu'un caviardage puisse avoir.
-   *
-   * Le préfixe nu ne nomme rien : sa racine serait vide, et une racine vide
-   * découpe le message entre chacun de ses caractères. Un corps d'un seul
-   * segment ne nomme qu'un coffre — `op read` n'en lit rien —, et c'est un mot
-   * que le remplacement littéral retirerait de partout dans le message. Ni
-   * l'une ni l'autre de ces formes n'a d'ailleurs besoin d'une racine : faute
-   * d'espace où buter, la passe nue les attrape déjà.
+   * **Le corps seul n'est pas la référence, et le chercher seul serait une
+   * faute.** Une variable qui vaut `op://team/project/status` transformerait
+   * tout message contenant `team/project/status` — un chemin relatif, une
+   * phrase — en `…`, et détruirait le diagnostic pour rien. C'est la forme
+   * complète qui est cherchée, préfixe compris. (relevé par Codex)
    */
-  it.each([
-    ['le préfixe nu', 'op://', 'une adresse commence par op:// et rien de plus'],
-    ['un corps d’un seul segment', 'op://a', 'un cas rare a été rencontré'],
-  ])('ne prend pas %s pour une racine', (_nom, valeur, message) => {
-    process.env.AVOLO_TEST_SECRET = valeur
+  it('ne retire pas le corps d’une référence quand le préfixe n’y est pas', () => {
+    process.env.AVOLO_TEST_SECRET = RÉFÉRENCE
 
+    const message = 'le dossier Coffre de démonstration/Fiche imaginaire/CHAMP est vide'
+    expect(messageSûr(new Error(message))).toBe(message)
+  })
+
+  /**
+   * **Le préfixe nu ne nomme rien**, donc il n'y a rien à en retirer — et un
+   * message qui le cite en toutes lettres, ce que fait `exigerSecret`, doit
+   * ressortir intact plutôt qu'orné d'une ellipse qui laisserait croire à un
+   * caviardage.
+   */
+  it('ne fait rien d’une variable qui ne porte que le préfixe', () => {
+    process.env.AVOLO_TEST_SECRET = 'op://'
+
+    const message = 'une adresse commence par op:// et rien de plus'
     expect(messageSûr(new Error(message))).toBe(message)
     expect(messageSûr(new Error('boum'))).toBe('boum')
   })
 
   /**
    * Le contrôle négatif, et le seul qui dise quelque chose sur les secrets :
-   * une valeur littérale n'est pas une racine. Si elle l'était, tout message
-   * qui la contient sortirait haché — et le balayage de l'environnement se
-   * mettrait à dépendre de ce qu'il y a dedans plutôt que de sa forme.
+   * une valeur littérale n'est pas caviardée. Si elle l'était, tout message qui
+   * la contient sortirait haché — et le balayage de l'environnement se mettrait
+   * à dépendre de ce qu'il y a dedans plutôt que de sa forme.
    */
-  it('ne prend pas une valeur littérale pour une racine', () => {
+  it('ne caviarde pas une valeur littérale de l’environnement', () => {
     process.env.AVOLO_TEST_MODELE = 'un-modele-litteral'
 
     expect(messageSûr(new Error('le modèle un-modele-litteral a refusé la requête'))).toBe(

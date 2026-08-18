@@ -152,3 +152,15 @@ export function motDuRepérage(bilan: BilanRepérage | null): MotDuRepérage | n
     detail,
   }
 }
+
+/**
+ * Un compte et son nom, accordés.
+ *
+ * Le français accorde au singulier jusqu'à un exclu compris : « 0 clip gardé »,
+ * « 1 clip gardé », « 2 clips gardés ». La règle est écrite ici parce que
+ * l'écran de tri l'applique à quatre comptes qui bougent à chaque décision, et
+ * qu'un `n > 1 ? 's' : ''` recopié quatre fois finit par en oublier un.
+ */
+export function accord(n: number, singulier: string, pluriel: string): string {
+  return `${n} ${n <= 1 ? singulier : pluriel}`
+}

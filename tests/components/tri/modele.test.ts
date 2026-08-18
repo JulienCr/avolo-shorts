@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { BilanRepérage } from '@/lib/api'
-import { idsPourVue, motDuRepérage, vueDepuisUrl } from '@/components/tri/modele'
+import { accord, idsPourVue, motDuRepérage, vueDepuisUrl } from '@/components/tri/modele'
 
 const clips = [
   { id: 'a', status: 'candidate' as const },
@@ -134,5 +134,15 @@ describe('motDuRepérage', () => {
     )
     const une = motDuRepérage(bilan({ notées: 82, lotsRefusés: 1, lotsRépondus: 10, couverture: 0.9 }))
     expect(une?.detail).toContain('1 lot de fenêtres sur 11 a été refusé')
+  })
+})
+
+describe('accord', () => {
+  it('met le singulier à zéro et à un', () => {
+    // Le français accorde au singulier jusqu'à un exclu compris : « 0 clip
+    // gardé », « 1 clip gardé », « 2 clips gardés ».
+    expect(accord(0, 'clip gardé', 'clips gardés')).toBe('0 clip gardé')
+    expect(accord(1, 'clip gardé', 'clips gardés')).toBe('1 clip gardé')
+    expect(accord(2, 'clip gardé', 'clips gardés')).toBe('2 clips gardés')
   })
 })

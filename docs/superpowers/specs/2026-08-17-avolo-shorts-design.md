@@ -53,6 +53,23 @@ Sur un canevas 9:16 de 1080x1920, un 16:9 en letterbox occupe 32 % de la hauteur
 un 1:1 en occupe 56 %, un 4:5 en occupe 70 %. La moitié du bénéfice visuel du
 projet se gagne là.
 
+**Ces mesures comptent toute personne détectée, spectateurs compris.** La méthode
+prend l'empan de tout ce que le détecteur trouve, sans distinguer un comédien sur
+le plateau d'une tête de spectateur collée au bord bas de l'image. La détection au
+corps du 18 août 2026 dit ce que ça coûte, sur `2025-06-15-cqlp` qui n'est pas
+dans le tableau ci-dessus : 34 % des boîtes de personnes y sont du public au
+premier plan ; écarté, l'empan médian tombe de 0,68 à 0,50 et la part du temps qui
+tient dans un 1:1 passe de 33 % à 64 %.
+
+Le tableau n'est pas réécrit : il reste ce que la méthode du 17 août a mesuré. Et
+ce qu'on peut en conclure s'arrête là où s'arrêtent les mesures : la méthode
+**peut** sous-estimer la couverture, largement, partout où du public entre dans le
+cadre. Pas que son 48 % la sous-estime en fait. L'écart de 33 % à 64 % a été
+mesuré sur `2025-06-15-cqlp`, qui n'est pas dans le tableau ;
+`2026-03-08-caro-mdlm`, elle, n'a que 26 boîtes de public sur 3 083. Le public au
+cadre appartient à une émission, pas au fonds. Trancher demanderait de repasser les
+trois émissions du tableau à la détection au corps, premier plan écarté.
+
 ### Taille des sujets
 
 | Taille du plus gros visage | Duo | Groupe | Trio |
@@ -82,11 +99,41 @@ artificiellement la colonne « aucun visage » : il faut détecter des corps. Et
 coupe interne ne pourra pas se cacher derrière un changement d'axe, puisqu'il n'y
 en a pas pendant la scène.
 
+**La seconde conséquence est démentie : les émissions sont multicaméra.** Détection
+de plans exécutée le 18 août 2026 sur deux émissions. 131 plans sur
+`2025-06-15-cqlp`, 1 h 39, médiane 27 s. 67 plans sur un extrait de 10 minutes de
+`2026-03-08-caro-mdlm`, médiane 5,3 s. Vérifié image par image sur 32 candidates :
+8 vraies coupes sur 10 dans la bande 0,40 à 0,50 du score de scène sur `cqlp`,
+10 sur 10 au-dessus de 0,40 sur `caro-mdlm`.
+
+La mosaïque n'était pas mal lue, elle était non représentative : vingt minutes
+d'une scène à deux, prélevées dans une émission qui compte 131 plans.
+
+**Une coupe interne peut donc se cacher derrière un changement d'axe.** Poser les
+coupes sur les frontières de plans cesse d'être un raffinement pour devenir utile,
+et le crop fixe par plan a de vraies frontières où se déplacer au lieu d'une seule
+par scène.
+
+**Le piège du détecteur, relevé au passage : ce n'est pas le mouvement qui fait
+monter le score de scène, c'est la lumière.** Des barres de LED qui basculent
+donnent 0,61 sans qu'aucune caméra ne bouge. Un seuil calé sur le seul score
+prendra des changements d'éclairage pour des coupes.
+
+Portée de tout ce qui précède : deux émissions, dont une seule en entier. C'est
+plus solide que la mosaïque, ce ne sont pas les vingt du fonds.
+
 ### Contraintes de production
 
 - Pas d'audio multipiste. Le mix se fait en amont sur une table qui n'exporte pas
   en multipiste. Aucune conception ne peut supposer une piste par micro.
-- Pas de rires : l'émission n'est pas jouée devant un public.
+- Les rires, signal **non mesuré**. La spec a longtemps écrit « pas de rires :
+  l'émission n'est pas jouée devant un public », et la seconde moitié est démentie
+  depuis le 18 août 2026 : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
+  des têtes de spectateurs au bord bas de l'image, contre 26 sur 3 083 pour
+  `2026-03-08-caro-mdlm`. Il y a donc du public sur certaines émissions. Personne
+  n'a écouté si ce public s'entend. L'absence de piste séparée rend un rire plus
+  dur à isoler, pas absent du mix : ni fonder ni écarter quoi que ce soit là-dessus
+  avant d'avoir mesuré.
 - Musique de fond fréquente, effets sonores quasi absents.
 - Habillage incrusté sur les vingt émissions existantes : bloc « SOMMAIRE » sur
   environ 20 % à gauche, listes de défis à droite, cartouches de jeu en bas
@@ -94,6 +141,16 @@ en a pas pendant la scène.
   pourront être enregistrés sans habillage, mais l'existant reste tel quel.
 - Aucune métadonnée de régie sur les émissions passées. Toute conception doit
   fonctionner sur le seul fichier mixé.
+
+**L'habillage de cette liste est observé, pas relevé.** Dix images prélevées le
+18 août 2026 sur quatre émissions (`2025-06-15-cqlp`, `2025-11-09-realisateur`,
+`2026-03-08-caro-mdlm`, `2026-02-01-faq`) ne montrent ni le bloc de gauche ni la
+liste de droite : un seul cartouche en bas à droite, et le logo en haut à droite
+partout. Dix images ne prouvent pas une absence, et ces éléments apparaissent sans
+doute par séquence plutôt qu'en permanence. Avant que le cadrage s'appuie sur
+cette liste pour poser des préférences de crop, il faut un relevé comparable à
+celui du 17 août sur les personnes : un échantillonnage régulier sur des émissions
+entières, et non quelques images choisies.
 
 ### Matériel
 
@@ -144,13 +201,17 @@ Ce qui doit fonctionner de bout en bout :
 - export MP4 et textes ;
 - API : créer un projet, lister les candidats, éditer un clip, exporter.
 
-Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0
-parce qu'elles conditionnent la vitesse d'itération :
+Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0 quand
+même, chacune pour sa raison :
 
-- **le sidecar du transcript**, sans lequel chaque essai recoûte 25 minutes de
-  transcription ;
+- **le sidecar du transcript**, qui évite de repayer la transcription à chaque
+  essai. La mesure de la section 6 a ramené ce coût de 25 minutes à 2 : le sidecar
+  reste, mais il tient maintenant sur les raisons de la section 5 et non plus sur
+  la vitesse d'itération ;
 - **le saut d'étape si l'artefact existe**, version simplifiée du graphe (une
-  présence de fichier, pas encore une clé de validité).
+  présence de fichier, pas encore une clé de validité). C'est lui qui porte la
+  vitesse d'itération, puisqu'il épargne le proxy et l'analyse, pas les deux
+  minutes du transcript.
 
 Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme
 réglage de dernier recours, et l'automatique ne fera que le préremplir.
@@ -174,7 +235,7 @@ la moitié du bénéfice visuel mesuré à la section 2.
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 30 à 45 min sur GPU | des artefacts réutilisables |
+| Analyse | une fois par live | 25 à 32 min sur cette machine, somme du tableau de la section 6 hors locuteurs | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 
@@ -390,14 +451,38 @@ La parenté s'arrête au diariseur.
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 8 à 10 min |
-| Extraction audio | ffmpeg | 1 min |
-| Transcript, alignement, locuteurs | WhisperX large-v3 | 15 à 25 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 7 à 9 min selon la cadence de la source |
+| Extraction audio | ffmpeg | 10 s |
+| Transcript et alignement au mot | WhisperX large-v3 | 2 min |
+| Locuteurs | pyannote, hors itération 0 | non mesuré |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
 | Frontières de plans | détection sur le proxy | 2 min |
 | Personnes | YOLO classe *person*, 2 images par seconde | 5 min |
 | Analyse audio | voir plus bas | 5 min |
 | Repérage des candidats | Gemini | 1 min |
+
+**Quatre lignes sur neuf sont mesurées, quatre restent des estimations et les
+locuteurs n'ont ni l'une ni l'autre.** Relevé le 18 août 2026 sur
+`2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 : proxy en 6 min, soit 16,4x
+le temps réel et 7 min pour 2 h ; extraction audio en 6 s ; transcription et
+alignement en 1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre estimations qui
+subsistent (correction du transcript, frontières de plans, personnes, analyse
+audio) n'ont encore rien derrière elles.
+
+**La cadence de la source décide du proxy, d'où la fourchette.** Les 16,4x
+viennent de `2025-06-15-cqlp`, seule source du corpus déjà en 30 fps. La section 11
+en mesure 13,8x sur `2026-03-08-caro-mdlm`, qui est en 1080p60, soit près de 9 min
+pour 2 h : une source en 60 fps donne deux fois plus d'images à décoder avant que
+`fps=30` n'en jette la moitié, et ça se paie. Les deux cadences sont donc
+chronométrées, une émission chacune.
+
+**La transcription était l'estimation la plus fausse, et dans le bon sens** :
+15 à 25 minutes annoncées contre 1 min 41 s mesurées, neuf à quinze fois moins
+selon la borne qu'on retient. Le chiffre change ce qu'on peut se permettre, puisque retranscrire une
+émission cesse d'être une décision qu'on pèse. La mesure ne couvre pas les
+locuteurs, d'où leur ligne à part : `worker/transcribe.py` transcrit et aligne, il
+n'instancie jamais le pipeline de diarisation, que l'itération 0 n'utilise pas
+(§17).
 
 La musique de fond gêne Whisper. La suppression de voix MDX23C du diariseur
 existant corrige cela mais coûte cher, donc elle ne se déclenche que sur les
@@ -406,7 +491,12 @@ passages détectés comme musicaux.
 ## 7. Le repérage des candidats
 
 Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
-improvisation sans public. La réponse n'est donc pas un meilleur juge mais
+improvisation. Cette phrase disait « sans public », ce que la détection au corps du
+18 août 2026 a démenti : sur `2025-06-15-cqlp`, 34 % des boîtes de personnes sont
+des spectateurs au premier plan. Le choix de conception ne bouge pas pour autant,
+parce qu'il ne reposait pas sur l'absence de public : aucune des sources ci-dessous
+ne consomme de rires, et personne n'a mesuré si ceux-là s'entendent dans le mix.
+La réponse n'est donc pas un meilleur juge mais
 **plusieurs sources indépendantes fusionnées**. Une source aveugle sur un type de
 moment est rattrapée par une autre. Julien trie ensuite, et l'objectif de
 l'étage est le rappel, pas la précision.
@@ -561,35 +651,53 @@ sortir partiellement du cadre.
 couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une
 coupe existe déjà, donc où le saut est invisible.
 
-Le mouvement de caméra perçu est nul. Sur des plans continus de plusieurs minutes
-avec des comédiens qui se déplacent, toute caméra qui suit finit par tanguer :
-c'est la cause du défaut reproché à OpenShorts, et elle est structurelle, pas
-dans un réglage d'amortissement.
+Le mouvement de caméra perçu est nul. Dès qu'un plan dure et que les comédiens se
+déplacent, toute caméra qui suit finit par tanguer : c'est la cause du défaut
+reproché à OpenShorts, et elle est structurelle, pas dans un réglage
+d'amortissement.
 
-Le prix est assumé : un plan de trois minutes où les comédiens traversent le
-plateau impose un crop large, donc un ratio qui monte, parfois jusqu'au 16:9. Un
-cadre large et stable vaut mieux qu'un cadre serré qui vacille.
+Le prix est assumé : un plan long où les comédiens traversent le plateau impose un
+crop large, donc un ratio qui monte, parfois jusqu'au 16:9. Un cadre large et
+stable vaut mieux qu'un cadre serré qui vacille. La détection de plans du 18 août
+2026 rend ce prix plus rare que ne le supposait ce paragraphe, qui parlait de
+plans continus de plusieurs minutes : la médiane est de 27 s sur
+`2025-06-15-cqlp` et de 5,3 s sur `2026-03-08-caro-mdlm`, donc le crop se
+recalcule souvent au lieu de tenir une scène entière.
 
 **Zones d'habillage.** Sur les vingt émissions existantes, le crop évite le bloc
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
-tout crop pris à droite : on l'accepte.
+tout crop pris à droite : on l'accepte. La préférence tient tant qu'elle reste une
+préférence ; la coder demande le relevé réclamé en section 2, puisque dix images
+ne disent ni où ce bloc commence ni sur quelles séquences il est à l'écran.
 
-**Le panneau de chat mange le bord droit sur toute la hauteur.** Constaté à
-l'image le 18 août 2026 sur `2025-06-15-cqlp`, en regardant un rendu et non le
-filtergraph : le chat Twitch occupe environ 20 % de la largeur, du haut jusqu'en
-bas. Ce n'est pas le logo, qu'on accepte parce qu'il est petit et coincé ; c'est
-une bande entière, et un 1:1 centré l'attrape.
+**Le panneau de chat de `2025-06-15-cqlp` est un cas unique.** Constaté à l'image
+le 18 août 2026, en regardant un rendu et non le filtergraph : le chat Twitch
+occupe environ 20 % de la largeur, du haut jusqu'en bas. Ce n'est pas le logo,
+qu'on accepte parce qu'il est petit et coincé ; c'est une bande entière, et un 1:1
+centré l'attrape. Une première version de ce paragraphe en tirait une contrainte
+permanente et demandait de traiter cette bande comme interdite.
 
-La contrainte est donc plus dure que ne le laissait croire la liste ci-dessus :
-avec le bloc de gauche, entre un cinquième et un tiers de la largeur est dépensé
-avant même de cadrer, alors que 24 à 33 % du temps seulement tient déjà dans un
-9:16. Le cadrage automatique de l'itération 1 doit traiter ces deux bandes comme
-interdites, et non comme un décor qu'on préfère éviter.
+Le prélèvement d'images sur trois autres émissions, le même jour, dément la
+généralisation. `2025-11-09-realisateur`, `2026-03-08-caro-mdlm` et
+`2026-02-01-faq` n'incrustent aucun chat : l'image est pleine et seul le petit
+logo en haut à droite revient à chaque fois. Sur `2025-06-15-cqlp` elle-même, le
+panneau va et vient, présent à 15 minutes et absent à 40, 60 et 90. Julien a
+tranché : le chat ne sera pas réincrusté, cette émission restera la seule à le
+porter.
 
-Le remède le moins cher n'est pas ici. Il est en amont, dans OBS : enregistrer un
-programme propre sans chat ni habillage, ou une seconde sortie d'archive, rend
-ces bandes au cadrage sans une ligne de code. À poser quand la mise en scène de
-l'émission se retravaille.
+**Le cadrage automatique de l'itération 1 n'a donc pas de zone interdite à
+gérer.** Le bloc de gauche reste ce que le paragraphe précédent en dit, une
+préférence. Et le calcul qui suivait ici, entre un cinquième et un tiers de la
+largeur dépensé avant même de cadrer alors que 24 à 33 % du temps seulement tient
+déjà dans un 9:16, ne vaut que pour cette émission et pour ses passages avec
+chat. Qui cadrera `cqlp` verra ses ratios monter sans que l'algorithme ait un
+défaut : c'est un cas de test, pas un gabarit.
+
+Le remède le moins cher reste en amont, dans OBS : enregistrer un programme
+propre, ou une seconde sortie d'archive, rend au cadrage ce qu'une incrustation
+lui prend, sans une ligne de code. Il n'y a plus de bande permanente à récupérer,
+donc plus de chantier ; la réponse est notée pour le jour où un habillage revient
+dans le programme.
 
 ## 11. Le rendu
 
@@ -769,7 +877,7 @@ La durée s'affiche et bouge en direct, comme information et non comme contraint
 |---|---|
 | Next.js | même socle que `obs-tools` et `obs-suite`, et un serveur est de toute façon nécessaire pour l'API, ffmpeg et le proxy servi en requêtes partielles |
 | shadcn/ui sur Base UI | les composants deviennent du code du projet, modifiables sans lutter contre une API ; rendu d'application de bureau plutôt que de site web |
-| TanStack Query | l'analyse dure 30 à 45 minutes : suivi d'avancement, invalidation, reprise d'étape |
+| TanStack Query | l'analyse dure une demi-heure : suivi d'avancement, invalidation, reprise d'étape |
 | TanStack Virtual | le **transcript**, environ 20 000 mots pour deux heures, affiché sélectionnable |
 | Zustand | état local de l'éditeur ; l'EDL étant une structure simple, l'annulation est une pile d'instantanés |
 
@@ -902,3 +1010,7 @@ confirmer sur du plan très large.
 - Le diariseur appelé comme service ou copié depuis `rythmo-impro`. Se tranche
   mieux au moment d'écrire le code, et l'itération 0 n'en dépend pas : elle
   n'utilise que la transcription, pas les locuteurs.
+- **Les rires s'entendent-ils dans le mix ?** Question ouverte depuis que le public
+  a été trouvé au premier plan de `2025-06-15-cqlp`, le 18 août 2026. Écouter
+  quelques minutes suffirait à trancher. Une réponse positive ouvrirait une source
+  de repérage que la section 7 s'était interdite d'envisager.

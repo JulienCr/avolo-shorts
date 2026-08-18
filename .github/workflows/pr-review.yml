@@ -105,11 +105,16 @@ jobs:
       - uses: JulienCr/gh-actions/pr-review@v2
         with:
           pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-          # Éteint : le quota Ollama restant est gardé pour la prochaine version
-          # de l'action. Tant que cette ligne est là, une PR sans commentaire
-          # d'Aristarque n'a pas été jugée irréprochable, elle n'a pas été relue.
-          # Remettre `true` quand la nouvelle version sera prête.
-          enable: false
+          # L'interrupteur vit dans Settings → Variables, pas ici : couper la
+          # review pour garder du quota ne doit pas demander un commit, ni
+          # attendre qu'une branche reparte de `main`. La variable vaut pour
+          # toutes les branches qui portent cette ligne, d'un coup.
+          #
+          # `false`, `0`, `no` ou `off` éteignent. ⚠️ Une variable SUPPRIMÉE rend
+          # une chaîne vide, que l'action lit comme allumé : le sens de la panne
+          # va vers la review qui tourne, jamais vers une PR qu'on croirait
+          # relue. Pour éteindre, poser la valeur — ne pas retirer la variable.
+          enable: ${{ vars.ENABLE_ARISTARQUE }}
           ollama-api-key: ${{ secrets.OLLAMA_API_KEY }}
           # CLAUDE.md porte les sept décisions à ne pas défaire ; la spec porte
           # les mesures qui les fondent. Un relecteur qui n'a que la première

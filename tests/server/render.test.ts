@@ -7,6 +7,7 @@ import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
   cheminsRendu,
   collecterMarques,
+  marquerExporté,
   motsDièse,
   planifierMarques,
   renderClip,
@@ -348,6 +349,29 @@ describe('renderClip, chemin du saut', () => {
     expect(résultat.skipped).toBe(false)
     expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
     expect(getClip(db, c.id)?.status).toBe('exported')
+  })
+
+  it("n'écrase pas un montage fait pendant l'export", () => {
+    // Le défaut relevé par Codex : `renderClip` tient un clip lu avant son
+    // premier `await`, et un export dure des minutes. Réécrire cet instantané
+    // pour changer une colonne rendrait au clip son EDL d'avant.
+    const { db, c } = préparer()
+    const pendantLExport: Clip = { ...c, segments: [{ start: 0, end: 5 }], title: 'Retitré' }
+    putClip(db, pendantLExport)
+
+    marquerExporté(db, c.id)
+
+    const relu = getClip(db, c.id)
+    expect(relu?.status).toBe('exported')
+    expect(relu?.segments).toEqual([{ start: 0, end: 5 }])
+    expect(relu?.title).toBe('Retitré')
+  })
+
+  it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
+    const { db, c } = préparer()
+    db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
+    marquerExporté(db, c.id)
+    expect(getClip(db, c.id)).toBeUndefined()
   })
 
   it('refuse un clip inconnu', async () => {

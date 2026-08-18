@@ -517,11 +517,9 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
 
   await écrireFichier(chemins.texts, texteDePublication(clip))
 
-  // **Le statut ne bouge qu'une fois les fichiers sur le disque.** `exported` est
-  // un statut humain au sens de `mergeCandidates` : il fait survivre le clip à
-  // une nouvelle passe de repérage. Le poser avant l'encodage protégerait un clip
-  // qui n'existe pas.
-  if (clip.status !== 'exported') putClip(db, { ...clip, status: 'exported' })
+  // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
+  // l'encodage protégerait un clip qui n'existe pas.
+  marquerExporté(db, clipId)
 
   return {
     mp4: chemins.mp4,
@@ -529,6 +527,31 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     texts: chemins.texts,
     skipped: false,
   }
+}
+
+/**
+ * Passe le clip en `exported`, **par son identifiant et jamais par un
+ * instantané**.
+ *
+ * `exported` est un statut humain au sens de `mergeCandidates` : il fait survivre
+ * le clip à une nouvelle passe de repérage.
+ *
+ * La signature est le correctif, et elle mérite d'être lue comme tel. Un export
+ * dure des minutes, l'interface écrit dans la même base pendant ce temps, et
+ * `renderClip` tient un clip lu avant son premier `await`. Réécrire cet
+ * instantané pour changer une seule colonne rendrait au clip ses segments, son
+ * ratio, son cadrage et son titre d'avant l'export — un montage effacé sans un
+ * mot. Prendre un `clipId` rend le défaut impossible à réintroduire par
+ * distraction. (relevé par Codex)
+ *
+ * `better-sqlite3` est synchrone : rien de ce processus ne s'intercale entre la
+ * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
+ * ressuscité, puisqu'on n'écrit que ce qu'on vient de lire.
+ */
+export function marquerExporté(db: Database.Database, clipId: string): void {
+  const àJour = getClip(db, clipId)
+  if (àJour === undefined || àJour.status === 'exported') return
+  putClip(db, { ...àJour, status: 'exported' })
 }
 
 /**

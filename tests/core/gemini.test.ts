@@ -388,6 +388,31 @@ describe('parseDetailResponse', () => {
     expect(détaille({ shorts: [] })).toEqual([])
   })
 
+  it('un lot non vide dont rien n’est lisible lève, lui aussi', () => {
+    // Six propositions toutes illisibles ne veulent pas dire « aucun moment
+    // trouvé », elles veulent dire que la réponse est cassée — et elles
+    // ressortaient en liste vide comme un `shorts: []` légitime.
+    // (relevé par Copilot)
+    expect(() => détaille({ shorts: [{ start: 'plus tard' }, { fin: 3 }] })).toThrow(
+      /any readable entry/,
+    )
+  })
+
+  it('un lot mixte garde ce qui est lisible', () => {
+    const clips = détaille({
+      shorts: [{ start: 'plus tard' }, { start: 12.0, end: 41.4 }],
+    })
+    expect(clips).toHaveLength(1)
+  })
+
+  it('un lot lisible dont tout est écarté reste une réponse', () => {
+    // Écarté pour être hors bloc n'est pas « illisible » : l'entrée a bien été
+    // lue, et la refuser est un jugement, pas une panne.
+    expect(détaille({ shorts: [{ start: 12.0, end: 41.4 }] }, { blocks: [fen('w', 200, 300)] })).toEqual(
+      [],
+    )
+  })
+
   it('rend des candidats prêts pour la fusion des passes', () => {
     const clips = détaille(détail)
     for (const c of clips) {

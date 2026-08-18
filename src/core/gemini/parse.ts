@@ -232,7 +232,16 @@ function clipId(projectId: string, start: number, end: number): string {
  * est reconnu comme passager par la relance de l'étape, donc l'appel est
  * réessayé avant que quoi que ce soit ne s'écrive. (relevé par Copilot)
  *
- * @throws si `raw` ne porte pas de tableau `shorts`.
+ * **Un lot non vide dont aucune entrée ne passe le schéma lève pour la même
+ * raison.** Six propositions toutes illisibles ne veulent pas dire « aucun
+ * moment trouvé », elles veulent dire que la réponse est cassée, et sans ce
+ * contrôle elles ressortaient en liste vide comme un `shorts: []` légitime. Le
+ * compte porte sur les entrées **structurellement** exploitables, pas sur les
+ * clips retenus : un clip écarté pour être hors média ou hors bloc a bel et bien
+ * été lu, et c'est un jugement, pas une panne. (relevé par Copilot)
+ *
+ * @throws si `raw` ne porte pas de tableau `shorts`, ou si aucune entrée d'un
+ * lot non vide n'est lisible.
  */
 export function parseDetailResponse(
   raw: unknown,
@@ -251,10 +260,12 @@ export function parseDetailResponse(
     throw new Error('Gemini response did not contain a "shorts" array.')
   }
   const clips: Clip[] = []
+  let lisibles = 0
 
   for (const entrée of proposées) {
     const lu = SCHÉMA_CLIP.safeParse(entrée)
     if (!lu.success) continue
+    lisibles += 1
     const { start, end } = lu.data
     const [début, fin] = snapToWords(start, end, words, videoDuration)
     if (début < 0 || fin > videoDuration || fin <= début) continue
@@ -286,6 +297,9 @@ export function parseDetailResponse(
     })
   }
 
+  if (proposées.length > 0 && lisibles === 0) {
+    throw new Error('Gemini response did not contain a "shorts" array with any readable entry.')
+  }
   return clips
 }
 

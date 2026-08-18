@@ -128,6 +128,30 @@ const FINS_SANS_REFUS = new Set([
 ])
 
 /**
+ * Les fins qui sont un refus de contenu **nommé**, et qui méritent donc de le
+ * dire à l'utilisateur.
+ *
+ * Cette liste-ci peut vieillir sans conséquence, et c'est ce qui la distingue de
+ * celle qu'elle a remplacée : **elle ne décide pas du comportement, seulement du
+ * message**. Une fin anormale absente d'ici échoue quand même, tout aussi vite,
+ * avec un texte qui dit simplement que la génération s'est arrêtée. `OTHER` est
+ * précisément ce cas : c'est une catégorie fourre-tout, pas un signal de
+ * politique, et annoncer « le fournisseur refuse ce matériel » y serait faux.
+ * (relevé par Copilot)
+ */
+const REFUS_DE_CONTENU = new Set([
+  'SAFETY',
+  'PROHIBITED_CONTENT',
+  'BLOCKLIST',
+  'SPII',
+  'RECITATION',
+  'IMAGE_SAFETY',
+  'IMAGE_PROHIBITED_CONTENT',
+  'IMAGE_RECITATION',
+  'MODEL_ARMOR',
+])
+
+/**
  * Ce qui vaut la peine d'être réessayé : les pannes et les surcharges du
  * service, les coupures réseau, et les corps de réponse inexploitables.
  *
@@ -274,11 +298,18 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
       // les marqueurs passagers, donc l'appel repart.
       throw new Error('Gemini response was truncated (MAX_TOKENS): the answer is incomplete.')
     }
-    if (!FINS_SANS_REFUS.has(fin)) {
+    if (FINS_SANS_REFUS.has(fin)) continue
+    if (REFUS_DE_CONTENU.has(fin)) {
       throw new GeminiBlockedError(
-        `Gemini a interrompu sa réponse pour cette vidéo (${fin}) : la génération s'est arrêtée sur autre chose qu'une fin normale. C'est déterministe, la relance ne servirait à rien.`,
+        `Gemini a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
       )
     }
+    // Anormale mais pas nommée. Elle échoue tout de suite — le message n'est pas
+    // dans les marqueurs passagers — sans se faire passer pour un refus de
+    // contenu, qui accuserait la vidéo à tort. (relevé par Copilot)
+    throw new Error(
+      `Gemini a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
+    )
   }
 }
 
@@ -534,8 +565,15 @@ export async function runCandidates(
 
   // 5. La fusion des passes, puis l'écriture.
   const existants = getClips(db, projectId)
-  const passe = 1 + Math.max(0, ...existants.map((c) => c.pass))
+  // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
+  // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
+  const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)
   const clips = mergeCandidates(existants, propositions, passe)
+  // **Le marqueur tombe avant la mutation et ne réapparaît qu'après.** Le graphe
+  // ne regarde que la présence du fichier : laisser l'ancien en place pendant
+  // qu'on change la base ferait passer une exécution interrompue pour terminée,
+  // avec un artefact qui décrit l'état d'avant. (relevé par Copilot)
+  effacerArtefact(projectId)
   replaceClips(db, projectId, clips)
   écrireArtefact(projectId, clips)
   console.log(`Passe ${passe} : ${propositions.length} proposition(s), ${clips.length} clip(s).`)
@@ -548,13 +586,25 @@ function tailleDeLot(): number {
   return Number.isFinite(brut) && brut >= 1 ? brut : LOT_NOTATION_PAR_DÉFAUT
 }
 
+/** Retire le marqueur avant de toucher à la base. */
+function effacerArtefact(projectId: string): void {
+  fs.rmSync(candidatesPath(projectId), { force: true })
+}
+
 /**
  * `candidates.json` : l'artefact dont la présence fait sauter l'étape
  * (`planSteps`). La base fait autorité sur le contenu ; ce fichier est ce que le
  * graphe regarde, et il se relit à l'œil quand quelque chose cloche.
+ *
+ * **Écrit à côté puis renommé.** Un `writeFileSync` interrompu laisse un fichier
+ * tronqué, que le graphe compte pourtant comme une étape faite ; le renommage
+ * est atomique sur le même système de fichiers, donc le marqueur n'existe qu'une
+ * fois complet. (relevé par Copilot)
  */
 function écrireArtefact(projectId: string, clips: Clip[]): void {
   const fichier = candidatesPath(projectId)
   fs.mkdirSync(path.dirname(fichier), { recursive: true })
-  fs.writeFileSync(fichier, `${JSON.stringify(clips, null, 2)}\n`, 'utf8')
+  const provisoire = `${fichier}.${process.pid}.tmp`
+  fs.writeFileSync(provisoire, `${JSON.stringify(clips, null, 2)}\n`, 'utf8')
+  fs.renameSync(provisoire, fichier)
 }

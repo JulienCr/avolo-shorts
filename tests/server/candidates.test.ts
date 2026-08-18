@@ -43,6 +43,10 @@ describe('leverSiBloquée', () => {
     ).toThrow(GeminiBlockedError)
   })
 
+  // Les refus nommés : ceux dont on peut dire à l'utilisateur que le
+  // fournisseur a refusé son matériel. La liste d'openshorts s'arrêtait aux cinq
+  // premiers et manquait déjà `MODEL_ARMOR` et les trois variantes image.
+  // (relevé par Aristarque)
   it.each([
     'SAFETY',
     'PROHIBITED_CONTENT',
@@ -53,16 +57,7 @@ describe('leverSiBloquée', () => {
     'IMAGE_PROHIBITED_CONTENT',
     'IMAGE_RECITATION',
     'MODEL_ARMOR',
-    'LANGUAGE',
-    'OTHER',
-    // Deux raisons que l'API n'expose pas aujourd'hui. Elles sont là parce que
-    // la liste est écrite à l'envers : ce qui n'est pas une fin normale est un
-    // refus, y compris ce que la prochaine version de l'API ajoutera. Une liste
-    // noire tenue à la main manquait déjà `MODEL_ARMOR` et les variantes image.
-    // (relevé par Aristarque)
-    'MALICIOUS',
-    'UNE_RAISON_QUI_NEXISTE_PAS_ENCORE',
-  ])('lève quand la génération s’est arrêtée en « %s »', (raison) => {
+  ])('annonce un refus de contenu sur « %s »', (raison) => {
     expect(() =>
       leverSiBloquée(réponse('', { candidates: [{ finishReason: raison }] } as never)),
     ).toThrow(GeminiBlockedError)
@@ -73,6 +68,19 @@ describe('leverSiBloquée', () => {
       leverSiBloquée(réponse('{}', { candidates: [{ finishReason: raison }] } as never)),
     ).not.toThrow()
   })
+
+  // `OTHER` est un fourre-tout, pas un signal de politique : annoncer « le
+  // fournisseur refuse ce matériel » y serait faux. La fin est quand même
+  // anormale, donc elle échoue — mais sans accuser la vidéo. (relevé par Copilot)
+  it.each(['OTHER', 'LANGUAGE', 'UNE_RAISON_QUI_NEXISTE_PAS_ENCORE'])(
+    '« %s » échoue sans se faire passer pour un refus de contenu',
+    (raison) => {
+      const anormale = () =>
+        leverSiBloquée(réponse('', { candidates: [{ finishReason: raison }] } as never))
+      expect(anormale).toThrow(new RegExp(raison))
+      expect(anormale).not.toThrow(GeminiBlockedError)
+    },
+  )
 
   it('une troncature est une panne, pas un refus — donc elle se réessaie', () => {
     // Une sortie structurée coupée en plein tableau ne parse en général pas,
@@ -436,6 +444,36 @@ describe("l'étape de repérage", () => {
     expect(getClips(db, ID)).toHaveLength(2)
     const écrit: Clip[] = JSON.parse(fs.readFileSync(candidatesPath(ID), 'utf8'))
     expect(écrit).toHaveLength(2)
+  })
+
+  it('une écriture d’artefact impossible ne laisse pas de marqueur de succès', async () => {
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
+    expect(fs.existsSync(candidatesPath(ID))).toBe(true)
+
+    // On fait échouer l'écriture du provisoire — un dossier occupe son nom —
+    // pour atteindre l'état que Copilot décrit : la base a changé, le fichier
+    // n'a pas pu être écrit. Le marqueur ne doit pas survivre à ça, sinon le
+    // graphe compte l'exécution comme terminée et l'artefact décrit l'état
+    // d'avant. Le nom du provisoire est un détail interne, et c'est le prix à
+    // payer pour éprouver l'ordre des trois gestes.
+    const provisoire = `${candidatesPath(ID)}.${process.pid}.tmp`
+    fs.mkdirSync(provisoire, { recursive: true })
+    try {
+      await expect(
+        runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} }),
+      ).rejects.toThrow()
+      expect(fs.existsSync(candidatesPath(ID))).toBe(false)
+    } finally {
+      fs.rmSync(provisoire, { recursive: true, force: true })
+    }
+  })
+
+  it('ne laisse pas de fichier provisoire derrière elle', async () => {
+    const prompts: { mode: ModeGemini; prompt: string }[] = []
+    await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
+    const restes = fs.readdirSync(path.join(projets, ID)).filter((f) => f.endsWith('.tmp'))
+    expect(restes).toEqual([])
   })
 
   it('refuse de repérer un projet dont la durée n’est pas connue', async () => {

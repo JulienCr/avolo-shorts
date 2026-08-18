@@ -215,10 +215,18 @@ pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --large 6
 ```
 
 Le premier imprime les trois lectures comparées ci-dessus. Les deux autres
-écrivent des vignettes dans un dossier temporaire, vert pour ce que le cadrage
-garde, rouge pour ce que le filtre écarte. `--frontiere` tire les images au
-voisinage du seuil, là où le filtre hésite : c'est le tirage qui vaut le plus, et
-c'est celui qui a produit les trois contre-exemples de cette page.
+écrivent des vignettes dans un dossier temporaire : **vert** ce que le cadrage
+garde, **rouge** ce que le filtre écarte, **gris** ce que le seuil de confiance
+écarte avant lui — le détecteur écrit dès 0,25 et le cadrage ne lit qu'à partir de
+0,5, et peindre ces boîtes-là en vert ferait mentir la vérification sur ce qu'elle
+montre.
+
+`--frontiere` tire les images au voisinage du seuil, là où le filtre hésite :
+c'est le tirage qui vaut le plus, et c'est celui qui a produit les trois
+contre-exemples de cette page. `--large` prend les moments les plus larges après
+filtrage, un par plan au plus — les images les plus larges d'une émission sont
+contiguës, et les six premières du classement brut montrent six fois la même
+seconde.
 
 Pour une émission dont l'`analysis.json` n'existe plus, la détection se relance
 en quelques minutes et son résultat se lit directement :

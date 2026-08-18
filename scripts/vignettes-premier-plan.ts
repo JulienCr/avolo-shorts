@@ -1,6 +1,8 @@
 /**
- * Les boîtes dessinées sur le proxy, vert pour ce que le cadrage garde, rouge
- * pour ce que le filtre du premier plan écarte.
+ * Les boîtes dessinées sur le proxy : **vert** ce que le cadrage garde, **rouge**
+ * ce que le filtre du premier plan écarte, **gris** ce que le seuil de confiance
+ * écarte avant lui — le détecteur écrit dès 0,25 et le cadrage ne lit qu'à partir
+ * de 0,5.
  *
  *     pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp 419 470.5 1924
  *     pnpm tsx scripts/vignettes-premier-plan.ts 2025-06-15-cqlp --large 6
@@ -70,6 +72,31 @@ function parImage(boxes: PersonBox[]): Map<number, PersonBox[]> {
 }
 
 /**
+ * Le sort d'une boîte dans le cadrage, en trois états et pas deux.
+ *
+ * **Le détecteur écrit dès 0,25 de confiance** (`worker/detect.py`, `--conf`),
+ * et `empans` jette tout ce qui est sous `minScore`, à 0,5, *avant* de regarder
+ * la forme. Une vignette à deux couleurs peignait donc en vert des boîtes qui ne
+ * participent à aucun cadrage, c'est-à-dire qu'elle mentait exactement sur ce
+ * qu'elle est là pour montrer. (relevé par Codex et Copilot)
+ */
+type Sort = 'gardée' | 'premier-plan' | 'sous-le-seuil'
+
+function sort(b: PersonBox): Sort {
+  // `!(score >= seuil)` et non `score < seuil`, comme dans `empans` : un score
+  // `NaN` doit tomber du côté écarté.
+  if (!(b.score >= FRAMING_DEFAULTS.minScore)) return 'sous-le-seuil'
+  return isForeground(b) ? 'premier-plan' : 'gardée'
+}
+
+/** Vert ce que le cadrage garde, rouge ce que le filtre écarte, gris ce qu'il ne voit pas. */
+const COULEURS: Readonly<Record<Sort, string>> = {
+  gardée: 'lime',
+  'premier-plan': 'red',
+  'sous-le-seuil': 'gray',
+}
+
+/**
  * Une vignette. Le rectangle est tracé par `drawbox`, en pixels du proxy.
  *
  * L'épaisseur est de 2 px : à 1 px, un trait rouge sur une tête sombre au bas
@@ -77,7 +104,7 @@ function parImage(boxes: PersonBox[]): Map<number, PersonBox[]> {
  */
 function vignette(proxy: string, t: number, boîtes: PersonBox[], W: number, H: number, out: string): void {
   const filtres = boîtes.map((b) => {
-    const couleur = isForeground(b) ? 'red' : 'lime'
+    const couleur = COULEURS[sort(b)]
     const x = Math.round(b.x0 * W)
     const y = Math.round(b.y0 * H)
     const w = Math.max(1, Math.round((b.x1 - b.x0) * W))
@@ -113,6 +140,18 @@ function vignette(proxy: string, t: number, boîtes: PersonBox[], W: number, H: 
  */
 function empanFiltré(boîtes: PersonBox[]): number | null {
   return requiredWidths(boîtes)[0] ?? null
+}
+
+/**
+ * La médiane, au sens strict : sur un nombre pair de valeurs, le milieu des deux
+ * centrales. La même que `src/core/framing.ts` et que l'autre script — un
+ * diagnostic qui explique une mesure doit calculer comme elle. (relevé par Copilot)
+ */
+function médiane(valeurs: number[]): number | null {
+  if (valeurs.length === 0) return null
+  const triées = [...valeurs].sort((a, b) => a - b)
+  const m = triées.length >> 1
+  return triées.length % 2 === 1 ? triées[m] : (triées[m - 1] + triées[m]) / 2
 }
 
 /**
@@ -189,6 +228,10 @@ async function main(): Promise<number> {
   // Résolu tard : créer le dossier temporaire avant le contrôle d'usage laisserait
   // un dossier vide derrière chaque appel mal formé.
   const demandé = iOut >= 0 ? arguments_[iOut + 1] : undefined
+  // `--out` exige un chemin. En fin de ligne il retombait sur le dossier
+  // temporaire sans le dire, et `--out --large 6` créait un dossier nommé
+  // `--large`. (relevé par Copilot)
+  const outSansChemin = iOut >= 0 && (demandé === undefined || demandé.startsWith('--'))
 
   // Les valeurs des drapeaux ne sont pas des instants : les retirer avant de
   // lire les positionnels, sinon `--large 6` demande la seconde 6.
@@ -206,6 +249,11 @@ async function main(): Promise<number> {
       'Usage : pnpm tsx scripts/vignettes-premier-plan.ts <projectId> [instants…] ' +
         '[--frontiere N] [--large N] [--out <dossier>]',
     )
+    return 1
+  }
+
+  if (outSansChemin) {
+    console.error('--out attend un chemin de dossier.')
     return 1
   }
 
@@ -236,7 +284,11 @@ async function main(): Promise<number> {
     // franchement du public, ni franchement un comédien. Les seuils viennent du
     // module, pas d'une copie — sinon le tirage viserait l'ancien seuil le jour
     // où celui qui décide bouge.
+    // Le seuil de confiance d'abord : une boîte que `empans` ne lit jamais ne peut
+    // pas faire hésiter le filtre, et dépenser une vignette dessus est une
+    // vignette perdue sur une frontière que la production n'évalue pas.
     const hésite = (b: PersonBox): boolean =>
+      b.score >= FRAMING_DEFAULTS.minScore &&
       b.y1 >= FRAMING_DEFAULTS.bottomEdge &&
       Math.abs(b.y1 - b.y0 - FRAMING_DEFAULTS.foregroundMaxHeight) <= VOISINAGE
     const près = [...images.entries()]
@@ -254,7 +306,7 @@ async function main(): Promise<number> {
       .sort((a, b) => b.empan - a.empan)
     console.log(
       `empan résiduel : max ${larges[0]?.empan.toFixed(2) ?? '—'}, ` +
-        `médian ${larges[larges.length >> 1]?.empan.toFixed(2) ?? '—'}`,
+        `médian ${médiane(larges.map((e) => e.empan))?.toFixed(2) ?? '—'}`,
     )
     instants.push(...lesPlusLarges(larges, analyse.shots, nLarge).map((e) => e.t))
   }
@@ -269,7 +321,11 @@ async function main(): Promise<number> {
   let échecs = 0
   for (const t of [...new Set(instants)].sort((a, b) => a - b)) {
     const boîtes = images.get(Math.round(t * 1000)) ?? []
-    const fichier = path.join(dossier, `t${t.toFixed(1).replace('.', '_')}.png`)
+    // La milliseconde, pas le dixième : les instants se donnent à la main et les
+    // clés de détection sont au millième. `419.01` et `419.04` écrivaient le même
+    // fichier, et la seconde vignette écrasait la première sans rien dire.
+    // (relevé par Copilot)
+    const fichier = path.join(dossier, `t${t.toFixed(3).replace('.', '_')}.png`)
     // Une extraction ratée — un instant au-delà de la fin du proxy, un fichier
     // tronqué — ne doit pas emporter les vignettes suivantes : c'est un outil de
     // mesure, et perdre neuf images sur dix pour une seule serait une punition
@@ -278,12 +334,13 @@ async function main(): Promise<number> {
       vignette(proxy, t, boîtes, W, H, fichier)
     } catch (e) {
       échecs += 1
-      console.error(`${t.toFixed(1)} s : ${e instanceof Error ? e.message : String(e)}`)
+      console.error(`${t.toFixed(3)} s : ${e instanceof Error ? e.message : String(e)}`)
       continue
     }
-    const écartées = boîtes.filter((b) => isForeground(b)).length
+    const compte = (état: Sort): number => boîtes.filter((b) => sort(b) === état).length
     console.log(
-      `${fichier}  ${t.toFixed(1)} s — ${boîtes.length} boîtes, ${écartées} écartée(s) (rouge)`,
+      `${fichier}  ${t.toFixed(3)} s — ${compte('gardée')} gardée(s) vert, ` +
+        `${compte('premier-plan')} écartée(s) rouge, ${compte('sous-le-seuil')} hors seuil gris`,
     )
   }
   return échecs > 0 ? 1 : 0

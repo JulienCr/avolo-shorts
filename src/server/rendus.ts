@@ -124,16 +124,16 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  * l'écran propose alors l'export — qui refera ce qu'il faut plutôt que de sauter
  * dessus.
  *
- * **Sans sonder le dossier des marques ni connaître le preset de sous-titres** :
- * un `GET` se sert à chaque affichage de carte et ne lance pas deux ffprobe pour
- * cela. C'est la même fonction que celle du rendu, avec deux critères de moins —
- * voir `CeQuOnIncrusterait`.
+ * **Sans sonder le dossier des marques ni le look des sous-titres** : un `GET` se
+ * sert à chaque affichage de carte et ne lance pas deux ffprobe pour cela. C'est
+ * la même fonction que celle du rendu, avec deux critères de moins — voir
+ * `CeQuOnIncrusterait`.
  */
 export function livraisonÀJour(clip: Clip): boolean {
   if (clip.status !== 'exported') return false
   return empreinteÀJour(lireEmpreinte(sorties(clip).empreinte), clip, {
     marques: null,
-    style: null,
+    look: null,
   })
 }
 

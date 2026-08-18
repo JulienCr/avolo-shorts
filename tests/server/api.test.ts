@@ -125,7 +125,7 @@ function poserEmpreinte(clip: Clip, marques: string[] = []): void {
           bord: 'gauche' as const,
           contenu: `contenu-de-${nom}`,
         })),
-        { incrustés: clip.captions, style: DEFAULT_CAPTION_STYLE },
+        { incrustés: clip.captions, look: { style: DEFAULT_CAPTION_STYLE, policeDisponible: true } },
       ),
     ),
   )

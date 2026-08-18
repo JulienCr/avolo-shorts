@@ -260,6 +260,19 @@ export type EmpreinteRendu = FormeRendue & {
 export type MarqueIncrustée = { nom: string; contenu: string }
 
 /**
+ * Ce qui décide de l'allure des sous-titres à l'image — **le preset et la police
+ * réellement disponible**, et pas seulement le premier.
+ *
+ * `fontsDir` est une entrée du rendu : quand `fonts/` manque, libass se rabat sur
+ * fontconfig, ne trouve pas Anton et incruste dans une autre police, sans un mot
+ * (voir `dossierDesPolicesUtilisable`). Un condensat qui ne porterait que le
+ * preset serait identique avant et après le retour d'Anton, et l'export
+ * sauterait indéfiniment sur la vidéo rendue dans la mauvaise police.
+ * (relevé par Copilot)
+ */
+export type LookDesSousTitres = { style: CaptionStyle; policeDisponible: boolean }
+
+/**
  * Le schéma de lecture. **Non strict, et volontairement** : une version
  * ultérieure ajoutera des champs, et c'est `version` qui doit trancher, pas un
  * refus d'analyse qui dirait « illisible » d'un fichier parfaitement formé.
@@ -290,16 +303,18 @@ function contenuDeLaMarque(chemin: string): string {
 }
 
 /**
- * Le condensat d'un preset de sous-titres.
+ * Le condensat du look des sous-titres.
  *
  * **Clés triées avant sérialisation.** `JSON.stringify` suit l'ordre
  * d'insertion : sans ce tri, réordonner le littéral de `DEFAULT_CAPTION_STYLE`
  * — un geste qui ne change pas une image — périmerait tous les rendus du
  * disque.
  */
-function condensatDuStyle(style: CaptionStyle): string {
-  const stable = Object.entries(style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return createHash('sha256').update(JSON.stringify(stable)).digest('hex')
+function condensatDuLook(look: LookDesSousTitres): string {
+  const stable = Object.entries(look.style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return createHash('sha256')
+    .update(JSON.stringify([stable, look.policeDisponible]))
+    .digest('hex')
 }
 
 /** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
@@ -322,7 +337,7 @@ function identitésDeMarques(marques: readonly MarqueNative[]): MarqueIncrustée
 export function empreinteDuRendu(
   clip: FormeRendue,
   marques: readonly MarqueNative[],
-  sousTitres: { incrustés: boolean; style: CaptionStyle },
+  sousTitres: { incrustés: boolean; look: LookDesSousTitres },
 ): EmpreinteRendu {
   return {
     version: VERSION_EMPREINTE,
@@ -335,7 +350,7 @@ export function empreinteDuRendu(
     captions: clip.captions,
     branding: clip.branding,
     marques: identitésDeMarques(marques),
-    sousTitres: sousTitres.incrustés ? condensatDuStyle(sousTitres.style) : null,
+    sousTitres: sousTitres.incrustés ? condensatDuLook(sousTitres.look) : null,
   }
 }
 
@@ -390,6 +405,13 @@ async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Prom
  * entre le matin et l'après-midi du 18 août. Le rendu déjà produit reste alors
  * le meilleur qu'on ait.
  *
+ * **Mais cette tolérance ne vaut que pour cette question-là.** Décider si une
+ * livraison déjà faite est périmée et décider si on peut certifier une livraison
+ * qu'on vient de faire ne se répondent pas pareil : dans le premier cas, ne pas
+ * savoir n'est pas une raison de détruire ; dans le second, ne pas savoir n'est
+ * pas une raison d'affirmer. D'où `dossierVideToléré`, que la certification
+ * d'après-rendu passe à faux. (relevé par Codex)
+ *
  * **La comparaison porte sur le contenu autant que sur le nom** : remplacer
  * `logo.png` par une autre image sous le même nom est la façon normale de
  * changer de marque. (relevé par Codex)
@@ -397,10 +419,10 @@ async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Prom
 export function lesMarquesOntBougé(
   empreinte: EmpreinteRendu,
   disponibles: readonly MarqueNative[],
-  branding: boolean,
+  dossierVideToléré: boolean,
 ): boolean {
   const aujourdhui = identitésDeMarques(disponibles)
-  if (branding && aujourdhui.length === 0) return false
+  if (dossierVideToléré && aujourdhui.length === 0) return false
   // Retriées à la lecture : le fichier a pu être écrit à la main.
   const incrustées = triéesParNom(empreinte.marques)
   return (
@@ -424,7 +446,7 @@ export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 's
  */
 export type CeQuOnIncrusterait = {
   marques: readonly MarqueNative[] | null
-  style: CaptionStyle | null
+  look: LookDesSousTitres | null
 }
 
 /**
@@ -446,6 +468,8 @@ export function écartDeLEmpreinte(
   if (empreinte === null) return 'absente'
   if (empreinte.version !== VERSION_EMPREINTE) return 'recette'
   if (leRenduEstPérimé(empreinte, clip)) return 'montage'
+  // `clip.branding` en guise de tolérance : un clip qui ne demande pas de marque
+  // n'a rien à excuser, son empreinte en porte zéro et la comparaison passe.
   if (observé.marques !== null && lesMarquesOntBougé(empreinte, observé.marques, clip.branding)) {
     return 'marques'
   }
@@ -453,9 +477,9 @@ export function écartDeLEmpreinte(
   // qu'il n'y en a pas eu, et le preset n'a alors rien décrit de l'image : le
   // comparer périmerait au premier réglage de police un clip qui n'en porte pas.
   if (
-    observé.style !== null &&
+    observé.look !== null &&
     empreinte.sousTitres !== null &&
-    empreinte.sousTitres !== condensatDuStyle(observé.style)
+    empreinte.sousTitres !== condensatDuLook(observé.look)
   ) {
     return 'style'
   }
@@ -477,7 +501,7 @@ const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
   recette: 'ils ont été produits par une recette de rendu antérieure',
   montage: 'le montage a changé depuis',
   marques: "les marques incrustées ne sont plus celles du dossier",
-  style: "les sous-titres ont été incrustés avec un autre preset",
+  style: "les sous-titres ont été incrustés avec un autre look",
 }
 
 /**
@@ -973,12 +997,17 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // comparer, et `branding` passé à faux se voit déjà dans les cinq champs.
   const marques = clip.branding ? await collecterMarques(options.brandDir) : []
 
-  // Le preset entre dans l'empreinte, donc il se résout avant la décision de
-  // saut et non plus au moment d'écrire le `.ass`.
-  const style = options.style ?? DEFAULT_CAPTION_STYLE
+  // Le look entre dans l'empreinte, donc il se résout avant la décision de saut
+  // et non plus au moment d'écrire le `.ass`. La disponibilité de la police se
+  // constate ici **sans rien dire** : l'avertissement appartient au chemin qui
+  // encode, et le poser ici le ferait sonner à chaque export sauté.
+  const look: LookDesSousTitres = {
+    style: options.style ?? DEFAULT_CAPTION_STYLE,
+    policeDisponible: fs.existsSync(dossierDesPolices(options.fontsDir)),
+  }
 
   // Ce que les fichiers présents décrivent, s'il y en a.
-  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), clip, { marques, style })
+  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), clip, { marques, look })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
   // périmé était repris pour bon sans un mot, et l'interface présente
@@ -1112,10 +1141,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
     // en place. (relevé par Copilot)
     const assProvisoire = clip.captions
-      ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, style)
+      ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, look.style)
       : undefined
-    // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : le
-    // chercher sans cela ferait avertir sur un clip qui n'a pas de sous-titres.
+    // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
+    // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Sa
+    // *présence*, elle, a déjà été constatée plus haut pour l'empreinte : c'est
+    // le même fait, lu une seule fois.
     const fontsDir =
       assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
 
@@ -1150,6 +1181,16 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // manquante, donc réessayable. (relevé par Copilot)
       const variante = chemins.variant9x16
       if (variante !== null) fs.rmSync(variante, { force: true })
+
+      // **L'empreinte d'avant part avec elle, et pour la même raison poussée
+      // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la
+      // laisser en place le temps des deux encodages laisse `livraisonÀJour`
+      // répondre vrai sur une paire à moitié réécrite, et rien ne le signale
+      // puisqu'un `GET` ne sonde pas le dossier des marques. N'importe quelle
+      // sortie de ce bloc — interruption, refus de certifier plus bas — laisse
+      // alors des fichiers que rien ne certifie, donc à refaire.
+      // (relevé par Copilot)
+      fs.rmSync(chemins.empreinte, { force: true })
 
       await produireArtefact({
         dst: chemins.mp4,
@@ -1204,17 +1245,24 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // qu'on a pu vérifier ; sans empreinte, l'export suivant les refait.
       // (relevé par Copilot)
       //
-      // Un dossier vidé pendant l'export ne déclenche rien, par la même
-      // exception que `lesMarquesOntBougé` : ce qui a été incrusté l'a été, que
-      // les fichiers survivent ou non.
+      // Un dossier vidé pendant l'export déclenche donc, lui aussi : ce qui a
+      // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
+      // une empreinte qui affirme sans avoir vérifié est exactement ce que
+      // cette PR ferme.
       const empreinte = empreinteDuRendu(clip, marques, {
         incrustés: assProvisoire !== undefined,
-        style,
+        look,
       })
       const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
-      if (lesMarquesOntBougé(empreinte, marquesAprès, clip.branding)) {
+      // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
+      // une livraison déjà faite quand on ne sait plus ce qu'elle porte ; ici on
+      // décide de *certifier* celle qu'on vient de faire, et ne pas savoir n'est
+      // pas une raison d'affirmer. Un logo remplacé entre les deux encodages
+      // puis retiré avant ce contrôle passait sinon inaperçu.
+      // (relevé par Codex)
+      if (lesMarquesOntBougé(empreinte, marquesAprès, false)) {
         throw new Error(
-          `Les marques du clip ${clipId} ont changé pendant son export : les deux sorties peuvent ne pas porter la même, et rien ne les certifie. L'export suivant les refera. Relancer l'export.`,
+          `Les marques du clip ${clipId} ne sont plus celles qui ont servi à son export : les deux sorties peuvent ne pas porter la même, et rien ne permet de le vérifier. Aucune empreinte n'est posée, l'export suivant les refera. Relancer l'export.`,
         )
       }
       await écrireEmpreinte(chemins.empreinte, empreinte)

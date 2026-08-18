@@ -231,7 +231,7 @@ describe("un PATCH pendant l'encodage", () => {
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(/modifié pendant/)
-    for (const chemin of [chemins.mp4, chemins.variant9x16, chemins.texts]) {
+    for (const chemin of [chemins.mp4, chemins.variant9x16, chemins.texts, chemins.empreinte]) {
       if (chemin !== null) expect(fs.existsSync(chemin)).toBe(false)
     }
   })
@@ -559,6 +559,31 @@ describe('le preset de sous-titres', () => {
     expect(encodages).toEqual([])
   })
 
+  /**
+   * **La police disponible entre dans le look.** Quand `fonts/` manque, libass se
+   * rabat sur fontconfig, ne trouve pas Anton et incruste dans une autre police,
+   * sans un mot. Un condensat qui ne porterait que le preset serait identique
+   * avant et après le retour d'Anton, et l'export sauterait indéfiniment sur la
+   * vidéo rendue dans la mauvaise police. (relevé par Copilot)
+   */
+  it("ne laisse pas sauter un rendu incrusté sans la police du preset", async () => {
+    poserTranscript()
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const polices = path.join(racine, 'fonts')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    const sansPolice = lireEmpreinte(chemins.empreinte)?.sousTitres
+
+    // Anton revient.
+    fs.mkdirSync(polices, { recursive: true })
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).not.toBe(sansPolice)
+  })
+
   it("ne note aucun preset quand aucun mot ne tombe dans les segments", async () => {
     // Le clip demande des sous-titres, le transcript n'en fournit aucun sur ses
     // segments : le rendu part sans, et l'empreinte le consigne plutôt que de
@@ -590,16 +615,22 @@ describe("une marque remplacée pendant l'export", () => {
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(
-      /marques du clip .* ont changé pendant son export/,
+      /ne sont plus celles qui ont servi/,
     )
     // Aucune empreinte : l'export suivant refera les deux sorties.
     expect(fs.existsSync(chemins.empreinte)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 
-  it("ne bronche pas quand le dossier est simplement vidé pendant l'export", async () => {
-    // Ce qui a été incrusté l'a été, que les fichiers survivent ou non : c'est la
-    // même exception que dans `lesMarquesOntBougé`.
+  /**
+   * **La tolérance du dossier vide ne s'applique pas ici.** Elle existe pour ne
+   * pas détruire une livraison déjà faite quand on ne sait plus ce qu'elle
+   * porte ; certifier celle qu'on vient de faire est l'autre question, et ne pas
+   * savoir n'y est pas une raison d'affirmer — un logo remplacé entre les deux
+   * encodages puis retiré avant le contrôle passerait sinon inaperçu.
+   * (relevé par Codex)
+   */
+  it("refuse aussi quand le dossier est vidé pendant l'export", async () => {
     putClip(getDb(), clip())
     const chemins = cheminsRendu(ID, CLIP, '1:1')
 
@@ -607,9 +638,35 @@ describe("une marque remplacée pendant l'export", () => {
       for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
     }
 
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(
+      /ne sont plus celles qui ont servi/,
+    )
+    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+  })
 
-    expect(résultat.skipped).toBe(false)
-    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
+  /**
+   * **L'empreinte d'avant part avant le premier encodage.** Elle certifie les
+   * MP4 qu'on remplace : la laisser le temps des deux ffmpeg laisse
+   * `livraisonÀJour` répondre vrai sur une paire à moitié réécrite, et rien ne
+   * le signale puisqu'un `GET` ne sonde pas le dossier des marques.
+   * (relevé par Copilot)
+   */
+  it("n'attend pas la fin du rendu pour retirer l'empreinte d'avant", async () => {
+    putClip(getDb(), clip())
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(chemins.empreinte)).toBe(true)
+
+    // Le dossier change, donc le rendu se refait ; il échoue en cours de route.
+    fs.writeFileSync(path.join(brandDir, 'logo.png'), 'un logo tout neuf')
+    pendantLEncodage = () => {
+      throw new Error('ffmpeg a rendu l’âme')
+    }
+
+    await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(/l’âme/)
+    // Plus rien ne certifie ce qui reste sur le disque.
+    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    const àJour = getClip(getDb(), CLIP) as Clip
+    expect(sortiesDuClip(àJour).mp4Url).toBeNull()
   })
 })

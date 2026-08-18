@@ -13,6 +13,7 @@ import {
   écarterRenduPérimé,
   écartDeLEmpreinte,
   type CeQuOnIncrusterait,
+  type LookDesSousTitres,
   empreinteDuRendu,
   leRenduEstPérimé,
   lesMarquesOntBougé,
@@ -124,12 +125,15 @@ function empreinteAvec(
   marques: readonly MarqueNative[],
   incrustés = true,
 ): ReturnType<typeof empreinteDuRendu> {
-  return empreinteDuRendu(c, marques, { incrustés, style: DEFAULT_CAPTION_STYLE })
+  return empreinteDuRendu(c, marques, { incrustés, look: LOOK })
 }
+
+/** Le look de référence : le preset par défaut, avec Anton sous la main. */
+const LOOK: LookDesSousTitres = { style: DEFAULT_CAPTION_STYLE, policeDisponible: true }
 
 /** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
 function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncrusterait {
-  return { marques: null, style: null, ...surcharges }
+  return { marques: null, look: null, ...surcharges }
 }
 
 /**
@@ -399,9 +403,9 @@ describe("l'empreinte de rendu", () => {
      */
     it('dit « style » quand le preset des sous-titres a changé', () => {
       const incrusté = empreinteAvec(clip(), marques)
-      const autre = { ...DEFAULT_CAPTION_STYLE, fontSize: DEFAULT_CAPTION_STYLE.fontSize + 8 }
-      expect(écartDeLEmpreinte(incrusté, clip(), observé({ style: autre }))).toBe('style')
-      expect(écartDeLEmpreinte(incrusté, clip(), observé({ style: DEFAULT_CAPTION_STYLE }))).toBeNull()
+      const autre = { ...LOOK, style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
+      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: autre }))).toBe('style')
+      expect(écartDeLEmpreinte(incrusté, clip(), observé({ look: LOOK }))).toBeNull()
     })
 
     it("ignore l'ordre des clés du preset, qui ne change pas une image", () => {
@@ -410,16 +414,22 @@ describe("l'empreinte de rendu", () => {
       const réordonné = Object.fromEntries(
         Object.entries(DEFAULT_CAPTION_STYLE).reverse(),
       ) as typeof DEFAULT_CAPTION_STYLE
-      expect(écartDeLEmpreinte(empreinteAvec(clip(), marques), clip(), observé({ style: réordonné }))).toBeNull()
+      expect(
+        écartDeLEmpreinte(
+          empreinteAvec(clip(), marques),
+          clip(),
+          observé({ look: { ...LOOK, style: réordonné } }),
+        ),
+      ).toBeNull()
     })
 
     it("ne juge pas du preset quand aucun sous-titre n'a été incrusté", () => {
       // Le preset n'a alors rien décrit de l'image : le comparer périmerait au
       // premier réglage de police un clip qui n'en porte pas.
       const sansSousTitres = empreinteAvec(clip({ captions: false }), marques, false)
-      const autre = { ...DEFAULT_CAPTION_STYLE, fontSize: 12 }
+      const autre = { ...LOOK, style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
       expect(
-        écartDeLEmpreinte(sansSousTitres, clip({ captions: false }), observé({ style: autre })),
+        écartDeLEmpreinte(sansSousTitres, clip({ captions: false }), observé({ look: autre })),
       ).toBeNull()
     })
 

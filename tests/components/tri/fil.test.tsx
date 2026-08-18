@@ -86,6 +86,29 @@ function Harnais({
   )
 }
 
+/**
+ * Le même harnais, mais dont la **liste** vient des propriétés et les **statuts**
+ * de l'état : c'est ce qui permet de rejouer l'arrivée de nouveaux candidats
+ * après une décision, sans perdre celle-ci.
+ */
+function Vivant({ liste }: { liste: CandidateClip[] }) {
+  const [statuts, setStatuts] = useState<Record<string, ClipStatus>>({})
+  const clips = liste.map((c) => ({ ...c, status: statuts[c.id] ?? c.status }))
+  const étapes = { candidates: true, proxy: true } as Record<StepName, boolean>
+  return (
+    <FilDeTri
+      projectId="p1"
+      clips={clips}
+      vue="atrier"
+      onVue={() => {}}
+      proxyPret
+      bilan={null}
+      suite={suite(phaseProjet(étapes, null, null, clips), { id: 'p1' })}
+      onStatut={(clipId, status) => setStatuts((s) => ({ ...s, [clipId]: status }))}
+    />
+  )
+}
+
 function carte(titre: string): HTMLElement {
   return screen.getByRole('article', { name: titre })
 }
@@ -268,6 +291,33 @@ describe('la boucle de tri, au clavier', () => {
   })
 })
 
+describe('la souris et le clavier se relaient', () => {
+  it('rend le clavier après une décision prise au bouton', async () => {
+    // Cliquer « Garder » laisse le focus sur le bouton, et la garde des
+    // raccourcis écarte tout `button` : plus une seule touche ne répondait,
+    // sans message et sans retour visible — la carte gardait son anneau de
+    // sélection, donc l'écran affirmait le contraire. On en sortait en cliquant
+    // le corps d'une carte, ce que personne ne devine.
+    render(<Harnais depart={[candidat(1), candidat(2), candidat(3)]} />)
+    const utilisateur = userEvent.setup()
+
+    await utilisateur.click(within(carte('Extrait 1')).getByRole('button', { name: /^garder$/i }))
+    await utilisateur.keyboard('j')
+
+    expect(document.activeElement).toBe(carte('Extrait 2'))
+  })
+
+  it('rend le clavier après un écart pris au bouton', async () => {
+    render(<Harnais depart={[candidat(1), candidat(2)]} />)
+    const utilisateur = userEvent.setup()
+
+    await utilisateur.click(within(carte('Extrait 1')).getByRole('button', { name: /^écarter$/i }))
+    await utilisateur.keyboard('u')
+
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /^écarter$/i })).toBeTruthy()
+  })
+})
+
 describe('rien ne bouge sous la main', () => {
   it('laisse une carte écartée à sa place, marquée', async () => {
     // Aujourd'hui, écarter fait disparaître la carte et refluer toute la
@@ -298,24 +348,24 @@ describe('rien ne bouge sous la main', () => {
     // La liste figée l'est pour les décisions, pas pour les données : une passe
     // de repérage qui se termine pendant qu'on trie ajoute des cartes, et les
     // cacher jusqu'au prochain changement de vue serait un vide inexplicable.
-    function Nu({ liste }: { liste: CandidateClip[] }) {
-      return (
-        <FilDeTri
-          projectId="p1"
-          clips={liste}
-          vue="atrier"
-          onVue={() => {}}
-          proxyPret
-          bilan={null}
-          suite={suite(phaseProjet({} as Record<StepName, boolean>, null, null, liste), { id: 'p1' })}
-          onStatut={() => {}}
-        />
-      )
-    }
-    const { rerender } = render(<Nu liste={[candidat(1)]} />)
-    rerender(<Nu liste={[candidat(1), candidat(2)]} />)
+    const { rerender } = render(<Vivant liste={[candidat(1)]} />)
+    rerender(<Vivant liste={[candidat(1), candidat(2)]} />)
 
     expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2'])
+  })
+
+  it('ne compacte pas les cartes décidées quand de nouveaux candidats arrivent', async () => {
+    // Le bouton de relance est posé dans l'en-tête juste au-dessus : un repérage
+    // forcé conserve les décisions humaines **et** ajoute des candidats. Le jeu
+    // d'identifiants change donc, et refiger depuis zéro escamotait les cartes
+    // qu'on venait de décider — sous la main, et hors de portée de `U`.
+    const { rerender } = render(<Vivant liste={[candidat(1), candidat(2)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+    await utilisateur.keyboard('e')
+
+    rerender(<Vivant liste={[candidat(1), candidat(2), candidat(3)]} />)
+
+    expect(ordreAffiché()).toEqual(['Extrait 1', 'Extrait 2', 'Extrait 3'])
   })
 })
 

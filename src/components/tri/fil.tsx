@@ -11,7 +11,14 @@ import { formatDuration } from '@/lib/format'
 import type { Suite } from '@/lib/parcours'
 import { CandidateCard } from '@/components/tri/candidate-card'
 import { FinDeBoucle } from '@/components/tri/fin-de-boucle'
-import { accord, idsPourVue, motDuRepérage, VUES, type Vue } from '@/components/tri/modele'
+import {
+  accord,
+  appartient,
+  idsPourVue,
+  motDuRepérage,
+  VUES,
+  type Vue,
+} from '@/components/tri/modele'
 import { useRaccourcisTri } from '@/components/tri/raccourcis'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 import { Badge } from '@/components/ui/badge'
@@ -298,13 +305,23 @@ export function FilDeTri({
               proxyPret={proxyPret}
               selectionne={clip.id === courant}
               onSelection={() => setSelection(clip.id)}
+              // **Le focus revient à la carte après un clic.** Il resterait
+              // sinon sur le bouton, que la garde des raccourcis écarte comme
+              // tout `button` : plus une seule touche ne répondrait, sans
+              // message et sans retour visible — la carte garderait son anneau
+              // de sélection, donc l'écran affirmerait le contraire. Or la
+              // souris pour décider puis le clavier pour enchaîner est le mode
+              // d'usage attendu, pas un cas tordu. Un focus posé par programme
+              // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
               onGarder={() => {
                 empiler(clip)
                 onStatut(clip.id, basculerStatut(clip.status, 'kept'))
+                focaliser(clip.id)
               }}
               onEcarter={() => {
                 empiler(clip)
                 onStatut(clip.id, basculerStatut(clip.status, 'discarded'))
+                focaliser(clip.id)
               }}
             />
           ))}
@@ -352,7 +369,11 @@ function Vide({ titre, detail }: { titre: string; detail: string }) {
  * pas la liste qui se réordonne.
  */
 function useVueFigée(clips: readonly CandidateClip[], vue: Vue): CandidateClip[] {
-  const identités = clips.map((c) => c.id).join(' ')
+  // Le séparateur est un octet nul, et non une espace : les identifiants de clip
+  // héritent du nom de fichier d'origine, espaces comprises, et deux listes
+  // différentes pourraient sinon produire la même chaîne — auquel cas la vue ne
+  // se rafraîchirait pas.
+  const identités = clips.map((c) => c.id).join('\u0000')
   const [figé, setFigé] = useState(() => ({ vue, identités, ids: idsPourVue(clips, vue) }))
 
   // Un ajustement d'état pendant le rendu, et non un effet : React rejoue le
@@ -360,7 +381,22 @@ function useVueFigée(clips: readonly CandidateClip[], vue: Vue): CandidateClip[
   // d'avant. Un `useEffect` produirait une image intermédiaire à chaque
   // changement de vue.
   if (figé.vue !== vue || figé.identités !== identités) {
-    setFigé({ vue, identités, ids: idsPourVue(clips, vue) })
+    setFigé({
+      vue,
+      identités,
+      // **Un changement de vue recalcule ; une arrivée de clips complète.**
+      // Refiger depuis zéro sur un simple changement d'identifiants escamotait
+      // les cartes décidées — et le déclencheur est le bouton posé dans
+      // l'en-tête juste au-dessus : un repérage forcé conserve les décisions
+      // humaines **et** ajoute des candidats, donc le jeu d'identifiants change
+      // au moment précis où l'on vient de trier.
+      ids:
+        figé.vue !== vue
+          ? idsPourVue(clips, vue)
+          : clips
+              .filter((c) => figé.ids.includes(c.id) || appartient(c.status, vue))
+              .map((c) => c.id),
+    })
   }
 
   const parId = new Map(clips.map((c) => [c.id, c]))

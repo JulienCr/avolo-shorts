@@ -43,6 +43,17 @@ describe('traiteDéjàLaTouche', () => {
     expect(traiteDéjàLaTouche(éditable.firstElementChild)).toBe(true)
   })
 
+  it('écarte le contenu d’une boîte de dialogue', () => {
+    // Le popup de Base UI porte `role="dialog"` et `tabIndex={-1}` : cliquer son
+    // texte en fait l'élément actif. Sans lui dans la garde, `G` déciderait une
+    // carte qu'on ne voit pas — et l'écran invite précisément à ce geste, en
+    // affichant « G — garder » dans une boîte qu'on vient d'ouvrir.
+    const popup = monter('<div role="dialog"><p>G — garder</p></div>')
+    expect(traiteDéjàLaTouche(popup)).toBe(true)
+    expect(traiteDéjàLaTouche(popup.firstElementChild)).toBe(true)
+    expect(traiteDéjàLaTouche(monter('<div role="alertdialog"></div>'))).toBe(true)
+  })
+
   it('écarte tout élément qui traite déjà la touche', () => {
     // Pas seulement les champs : `Espace` sur un bouton l'active, les flèches
     // sur un onglet changent d'onglet.
@@ -112,14 +123,26 @@ describe('useRaccourcisTri', () => {
     expect(actions.aide).toHaveBeenCalledTimes(1)
   })
 
-  it('rend la main dès qu’un modificateur est enfoncé', () => {
+  it('rend la main dès qu’un modificateur est enfoncé', async () => {
     // `Ctrl+E` ouvre la barre d'adresse, `Cmd+G` cherche à nouveau : voler ces
     // touches-là ferait perdre un geste du navigateur pour rien.
+    //
+    // **La frappe part d'une carte, pas de `document`.** Dispatché sur
+    // `document`, l'événement était déjà écarté par la garde des cibles — qui
+    // rend `true` sur tout ce qui n'est pas un `HTMLElement` —, donc le test
+    // restait vert même en retirant la garde des modificateurs.
     const actions = actionsMuettes()
     render(<Harnais actions={actions} />)
+    const utilisateur = userEvent.setup()
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true }))
+    await utilisateur.click(screen.getByTestId('carte'))
+    await utilisateur.keyboard('{Control>}e{/Control}')
     expect(actions.ecarter).not.toHaveBeenCalled()
+
+    // Et la même touche sans modificateur passe : c'est ce qui prouve que la
+    // frappe atteignait bien le gestionnaire.
+    await utilisateur.keyboard('e')
+    expect(actions.ecarter).toHaveBeenCalledTimes(1)
   })
 
   it('ne vole aucune frappe à un bouton qui a le focus', async () => {

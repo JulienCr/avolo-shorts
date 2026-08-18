@@ -157,8 +157,10 @@ Ce qui doit fonctionner de bout en bout :
 Deux choses qui ressemblent à du raffinement et qui sont dans l'itération 0
 parce qu'elles conditionnent la vitesse d'itération :
 
-- **le sidecar du transcript**, sans lequel chaque essai recoûte 25 minutes de
-  transcription ;
+- **le sidecar du transcript**, qui évite de repayer la transcription à chaque
+  essai. La mesure de la section 6 a ramené ce coût de 25 minutes à 2 : le sidecar
+  reste, mais il tient maintenant sur les raisons de la section 5 et non plus sur
+  la vitesse d'itération ;
 - **le saut d'étape si l'artefact existe**, version simplifiée du graphe (une
   présence de fichier, pas encore une clé de validité).
 
@@ -184,7 +186,7 @@ la moitié du bénéfice visuel mesuré à la section 2.
 
 | | Quand | Ordre de grandeur | Produit |
 |---|---|---|---|
-| Analyse | une fois par live | 30 à 45 min sur GPU | des artefacts réutilisables |
+| Analyse | une fois par live | 25 à 30 min sur GPU, somme du tableau de la section 6 | des artefacts réutilisables |
 | Montage | à volonté | instantané | des EDL |
 | Export | par clip validé | 1 à 2 min | un MP4 |
 
@@ -400,7 +402,7 @@ La parenté s'arrête au diariseur.
 
 | Étape | Outil | Ordre de grandeur pour 2 h |
 |---|---|---|
-| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 8 à 10 min |
+| Proxy 960x540 à 30 fps, keyframe 1 s | ffmpeg, CPU — NVENC est plus lent | 7 min |
 | Extraction audio | ffmpeg | 10 s |
 | Transcript et alignement au mot | WhisperX large-v3 | 2 min |
 | Locuteurs | pyannote, hors itération 0 | non mesuré |
@@ -413,11 +415,16 @@ La parenté s'arrête au diariseur.
 **Quatre lignes sur neuf sont mesurées, quatre restent des estimations et les
 locuteurs n'ont ni l'une ni l'autre.** Relevé le 18 août 2026 sur
 `2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 : proxy en 6 min, soit 16,4x
-le temps réel et 7 min pour 2 h, ce qui tient dans la fourchette annoncée ;
-extraction audio en 6 s ; transcription et alignement en 1 min 41 s, soit 59x le
-temps réel ; repérage Gemini en 30 s. Les quatre estimations qui subsistent
-(correction du transcript, frontières de plans, personnes, analyse audio) n'ont
-encore rien derrière elles.
+le temps réel et 7 min pour 2 h, un peu sous les 8 à 10 min qu'annonçait le
+tableau ; extraction audio en 6 s ; transcription et alignement en 1 min 41 s,
+soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre estimations qui
+subsistent (correction du transcript, frontières de plans, personnes, analyse
+audio) n'ont encore rien derrière elles.
+
+Une réserve sur le proxy : la mesure vient de `2025-06-15-cqlp`, seule source du
+corpus déjà en 30 fps. Les émissions en 60 fps donnent deux fois plus d'images à
+décoder avant que `fps=30` n'en jette la moitié, et personne n'a chronométré
+celles-là.
 
 **La transcription était l'estimation la plus fausse, et dans le bon sens** :
 15 à 25 minutes annoncées contre 1 min 41 s mesurées, neuf à quinze fois moins
@@ -811,7 +818,7 @@ La durée s'affiche et bouge en direct, comme information et non comme contraint
 |---|---|
 | Next.js | même socle que `obs-tools` et `obs-suite`, et un serveur est de toute façon nécessaire pour l'API, ffmpeg et le proxy servi en requêtes partielles |
 | shadcn/ui sur Base UI | les composants deviennent du code du projet, modifiables sans lutter contre une API ; rendu d'application de bureau plutôt que de site web |
-| TanStack Query | l'analyse dure 30 à 45 minutes : suivi d'avancement, invalidation, reprise d'étape |
+| TanStack Query | l'analyse dure une demi-heure : suivi d'avancement, invalidation, reprise d'étape |
 | TanStack Virtual | le **transcript**, environ 20 000 mots pour deux heures, affiché sélectionnable |
 | Zustand | état local de l'éditeur ; l'EDL étant une structure simple, l'annulation est une pile d'instantanés |
 

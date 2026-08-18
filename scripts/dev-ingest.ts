@@ -17,7 +17,7 @@ import { buildProxy, encodeurProxy } from '@/server/steps/proxy'
 import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter, taille } from './dev-commun'
 
 async function main(): Promise<number> {
-  chargerEnv()
+  await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
   const force = arguments_.includes('--force')

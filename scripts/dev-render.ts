@@ -23,7 +23,7 @@ import { renderClip, type SortieRendu } from '@/server/steps/render'
 import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter } from './dev-commun'
 
 async function main(): Promise<number> {
-  chargerEnv()
+  await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
   const force = arguments_.includes('--force')

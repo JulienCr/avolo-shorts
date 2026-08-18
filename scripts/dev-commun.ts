@@ -8,20 +8,34 @@
  * l'API.
  */
 
+import { résoudreSecrets } from '@/server/secrets'
+
 /**
- * Charge `.env` dans `process.env`.
+ * Charge `.env` dans `process.env`, puis résout ce qui n'y est qu'en adresse.
  *
- * Next le fait tout seul ; un script lancé par `tsx`, non. `process.loadEnvFile`
- * est natif depuis Node 20.12, et le `package.json` exige Node 22.
+ * Next fait le chargement tout seul ; un script lancé par `tsx`, non.
+ * `process.loadEnvFile` est natif depuis Node 20.12, et le `package.json` exige
+ * Node 22.
  *
  * Les variables déjà posées dans l'environnement l'emportent : c'est ce qui
  * permet un `FFMPEG_ENCODER=x264 pnpm tsx scripts/dev-ingest.ts …` sans toucher
- * au fichier.
+ * au fichier. **Mesuré, `process.loadEnvFile` s'en charge déjà** — il ignore la
+ * ligne du fichier quand la variable existe. Le `Object.assign` final reste
+ * quand même : ce comportement n'est écrit nulle part dans la documentation de
+ * Node, et une version qui le changerait casserait cette ligne de commande sans
+ * rien dire.
+ *
+ * La résolution des secrets vient ensuite parce qu'elle a besoin du fichier :
+ * c'est lui qui porte les `op://…`. Elle coûte 2,5 s la première fois, ce qui
+ * est du bruit devant les douze minutes de proxy de `dev-ingest`, et rien du
+ * tout quand le `.env` ne contient que des valeurs littérales — auquel cas `op`
+ * n'est même pas appelé.
  */
-export function chargerEnv(fichier = '.env'): void {
+export async function chargerEnv(fichier = '.env'): Promise<void> {
   const avant = { ...process.env }
   try {
     process.loadEnvFile(fichier)
+    Object.assign(process.env, avant)
   } catch (cause) {
     // **Seule l'absence est tolérée.** Les valeurs par défaut de `paths.ts`
     // suffisent alors pour `STAGE_DIR` et `PROJECTS_DIR`, et `REPLAY_DIR`
@@ -32,9 +46,13 @@ export function chargerEnv(fichier = '.env'): void {
     // ferait échouer le script trois appels plus loin sur « REPLAY_DIR n'est pas
     // définie », qui est un diagnostic faux. (relevé par Copilot)
     if ((cause as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw cause
-    return
+    // Et on continue : un `.env` absent n'empêche pas l'environnement d'hériter
+    // d'une référence posée à la main sur la ligne de commande.
   }
-  Object.assign(process.env, avant)
+
+  const résolus = await résoudreSecrets()
+  // Les **noms**, jamais les valeurs.
+  if (résolus.length > 0) console.log(`1Password : ${résolus.join(', ')} résolue(s).`)
 }
 
 /** Une durée en secondes, telle qu'on la lit : `1 h 38 min 57 s`. */

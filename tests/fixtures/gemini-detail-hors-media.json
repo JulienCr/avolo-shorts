@@ -1,0 +1,24 @@
+{
+  "shorts": [
+    {
+      "start": 3400.0,
+      "end": 3462.5,
+      "source_window_id": "window_038",
+      "predicted_score": 79,
+      "video_description_for_tiktok": "Bornes très au-delà de la vidéo. #impro",
+      "video_description_for_instagram": "Bornes très au-delà de la vidéo. #impro",
+      "video_title_for_youtube_short": "Un moment qui n'existe pas",
+      "viral_hook_text": "Hors média, franchement"
+    },
+    {
+      "start": 240.0,
+      "end": 268.2,
+      "source_window_id": "window_004",
+      "predicted_score": 66,
+      "video_description_for_tiktok": "Bornes juste au-delà de la vidéo. #impro",
+      "video_description_for_instagram": "Bornes juste au-delà de la vidéo. #impro",
+      "video_title_for_youtube_short": "Un moment qui déborde",
+      "viral_hook_text": "Hors média, de peu"
+    }
+  ]
+}

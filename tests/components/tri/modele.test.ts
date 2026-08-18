@@ -120,6 +120,25 @@ describe('motDuRepérage', () => {
     expect(mot?.detail).toBeNull()
   })
 
+  it('n’annonce pas de perte quand la récupération a tout rattrapé', () => {
+    // **Le cas mesuré sur `2025-06-15-cqlp`**, et le défaut de l'issue #57.
+    // Depuis que le repérage recoupe les lots refusés par le filtre de sécurité
+    // de Gemini et les resoumet un à un — le cas *normal*, livré par la PR #30 —,
+    // on arrive régulièrement à `notées === fenêtres` avec `lotsRefusés > 0` :
+    // 51 fenêtres notées sur 83 au premier passage, 83 sur 83 après la descente.
+    //
+    // Le prédicat qui vaut est `notées < fenêtres`, seul. Un lot refusé et jamais
+    // rattrapé y tombe déjà, puisqu'il laisse des fenêtres non notées. Compter
+    // les lots en plus faisait dire à l'écran « Le repérage n'a jugé que 100 %
+    // de ce qui se dit dans l'émission : 83 fenêtres sur 83 », une phrase qui se
+    // contredit elle-même — et le détail aggravait en affirmant qu'une nouvelle
+    // passe obtiendrait le même refus, ce que la descente venait de démentir.
+    const mot = motDuRepérage(bilan({ notées: 83, lotsRefusés: 4, lotsRépondus: 11 }))
+    expect(mot?.perte).toBe(false)
+    expect(mot?.phrase).toContain('83 fenêtres')
+    expect(mot?.detail).toBeNull()
+  })
+
   it('tient les deux bornes de la couverture', () => {
     // Zéro : tous les lots refusés, rien n'a été jugé.
     const rien = motDuRepérage(bilan({ notées: 0, lotsRefusés: 11, lotsRépondus: 0, couverture: 0 }))

@@ -1586,11 +1586,15 @@ fenêtre du milieu peut manquer sans laisser le moindre trou dans le temps, donc
 une couverture sincèrement totale peut cacher une fenêtre que personne n'a jugée.
 Le déclencheur est `notées < fenêtres`, et lui seul.
 
-`motDuRepérage` tient la première moitié de cette règle et pas la seconde : son
-prédicat ajoute `|| lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`, où
-la descente finit par tout noter, lui fait écrire « le repérage n'a jugé que
-100 % de ce qui se dit dans l'émission », une phrase qui se réfute toute seule.
-(relevé par Codex et Copilot)
+`motDuRepérage` a longtemps tenu la première moitié de cette règle et pas la
+seconde : son prédicat ajoutait `|| lotsRefusés > 0`, donc le cas mesuré de
+`2025-06-15-cqlp`, où la descente finit par tout noter, lui faisait écrire « le
+repérage n'a jugé que 100 % de ce qui se dit dans l'émission » — une phrase qui se
+réfute toute seule, aggravée d'un détail affirmant qu'une nouvelle passe
+obtiendrait le même refus, ce que la descente venait de démentir. **Le terme est
+retiré** (issue #57) : le prédicat est `notées < fenêtres`, seul, et un lot refusé
+jamais rattrapé y tombe déjà puisqu'il laisse des fenêtres non notées. (relevé par
+Codex et Copilot)
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
@@ -1624,8 +1628,9 @@ défauts que chacun ferme par rapport à son coût.
 2. **Le tri comme boucle.** Clavier, pas de compactage sous la main, fin de boucle
    marquée, `tabs` pour les trois vues et la couverture du repérage. C'est
    l'écran que la spec demande de soigner en premier, et le seul dont le coût se
-   paie trente fois par émission. Livré avec un défaut connu, décrit en 7.2 : la
-   phrase de couverture s'allume sur un refus au lieu de s'allumer sur une perte.
+   paie trente fois par émission. Livré avec un défaut connu — la phrase de
+   couverture s'allumait sur un refus au lieu de s'allumer sur une perte —, fermé
+   depuis (issue #57, voir 7.2).
 3. **Les textes et l'export.** Titre, description, panneau d'export sur
    `exportClip`, lecture des rendus. Ferme la sortie du tunnel, donc rend le
    parcours entier vérifiable pour la première fois.

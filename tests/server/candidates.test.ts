@@ -1144,6 +1144,179 @@ describe("l'étape de repérage", () => {
     await expect(runCandidates(ID, { db, appel: modèle([]) })).rejects.toThrow(/durée/)
   })
 
+  /**
+   * La passe de détail était un appel unique sans recours : un refus du filtre y
+   * faisait échouer toute l'étape. C'était tenable tant que la présélection
+   * plafonnait à 24 fenêtres ; le dimensionnement sur la durée de parole
+   * l'ouvre, et le refus mesuré porte sur la **concentration** de matière dans
+   * une charge. Élargir sans donner de recours reviendrait à troquer six clips
+   * contre une étape qui tombe.
+   */
+  describe('le garde-fou de la passe de détail', () => {
+    /**
+     * Huit grappes de parole séparées par dix minutes de silence.
+     *
+     * Le transcript ordinaire de ces tests tient en un seul bloc — ses fenêtres
+     * se chevauchent toutes —, or c'est précisément la découpe en plusieurs
+     * blocs qu'il faut exercer ici. Les trous font que `mergeOverlappingWindows`
+     * n'a rien à recoller : 15 fenêtres, 8 blocs.
+     */
+    const GRAPPES = 8
+    const ÉCLATÉ = {
+      language: 'fr',
+      segments: Array.from({ length: GRAPPES * 4 }, (_, i) => {
+        const start = Math.floor(i / 4) * 600 + (i % 4) * 20
+        return {
+          start,
+          end: start + 12,
+          text: `grappe ${Math.floor(i / 4)} phrase ${i % 4}`,
+          words: [{ word: `mot${i}`, start, end: start + 12 }],
+        }
+      }),
+    }
+
+    beforeEach(() => {
+      fs.writeFileSync(
+        path.join(sidecarDir(SOURCE), 'transcript.json'),
+        JSON.stringify(ÉCLATÉ),
+      )
+      upsertProject(db, {
+        id: ID,
+        sourcePath: path.join(replay, SOURCE),
+        stagedPath: null,
+        durationSec: 4800,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+    })
+
+    /**
+     * Un modèle qui note tout, et qui rend un clip par bloc — sauf quand la
+     * charge qu'on lui soumet remplit `refuse`, auquel cas il la bloque.
+     */
+    function détailleur(
+      refuse: (blocs: string[]) => boolean,
+      charges: string[][] = [],
+    ): AppelGemini {
+      return async (prompt, mode) => {
+        if (mode === 'score') {
+          const ids = [...prompt.matchAll(/"id":"(window_\d+)"/g)].map((m) => m[1])
+          return réponse(
+            JSON.stringify({
+              windows: ids.map((id, i) => ({
+                id,
+                start: 0,
+                end: 90,
+                score: 90 - i,
+                reason: 'ok',
+              })),
+            }),
+          )
+        }
+        const blocs = [...prompt.matchAll(/"id":"(window_\d+)","start":([\d.]+)/g)].map((m) => ({
+          id: m[1],
+          start: Number(m[2]),
+        }))
+        charges.push(blocs.map((b) => b.id))
+        if (refuse(blocs.map((b) => b.id))) {
+          return réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+        }
+        return réponse(
+          JSON.stringify({
+            shorts: blocs.map((b) => ({
+              start: b.start,
+              end: b.start + 32,
+              source_window_id: b.id,
+              predicted_score: 80,
+              video_description_for_tiktok: 'une vanne #impro',
+              video_description_for_instagram: 'une vanne #impro',
+              video_title_for_youtube_short: `Le moment ${b.id}`,
+              viral_hook_text: 'Et là',
+            })),
+          }),
+        )
+      }
+    }
+
+    it('recoupe la charge au lieu de laisser tomber l’étape', async () => {
+      const charges: string[][] = []
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 2, charges),
+        sleep: async () => {},
+      })
+
+      // Les huit blocs finissent tous détaillés, par charges de deux.
+      expect(clips).toHaveLength(GRAPPES)
+      const détails = charges.filter((c) => c.length > 0)
+      expect(détails[0]).toHaveLength(GRAPPES)
+      expect(détails.filter((c) => c.length === 2)).toHaveLength(4)
+    })
+
+    /**
+     * La descente va jusqu'au bloc seul, et pas à un seul niveau : la mesure du
+     * 18 août sur `cqlp` a demandé des lots de 8 aux demi-lots, puis aux paires,
+     * puis aux unités. Un seul niveau laisserait la moitié des refus dehors.
+     */
+    it('descend jusqu’au bloc seul quand il le faut', async () => {
+      const charges: string[][] = []
+      await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.length > 1, charges),
+        sleep: async () => {},
+      })
+
+      expect(charges.filter((c) => c.length === 1)).toHaveLength(GRAPPES)
+    })
+
+    /**
+     * Perdre une région sur huit vaut infiniment mieux que perdre l'émission.
+     * C'est la leçon déjà écrite dans `noterLesFenêtres` : « tous les lots ont
+     * été refusés » ne dit rien de la vidéo tant qu'on n'a pas essayé de plus
+     * petites charges — et « un bloc a été refusé » n'en dit rien du tout.
+     */
+    it('abandonne un bloc refusé seul sans perdre les sept autres', async () => {
+      const clips = await runCandidates(ID, {
+        db,
+        appel: détailleur((blocs) => blocs.includes('window_001')),
+        sleep: async () => {},
+      })
+
+      expect(clips).toHaveLength(GRAPPES - 1)
+      expect(clips.some((c) => c.title.includes('window_001'))).toBe(false)
+    })
+
+    it('mais un refus jusqu’au bloc seul reste un refus de la vidéo', async () => {
+      await expect(
+        runCandidates(ID, { db, appel: détailleur(() => true), sleep: async () => {} }),
+      ).rejects.toThrow(/jusqu'au bloc seul/)
+    })
+
+    /**
+     * La cible de clips suit la découpe. Demander le plancher entier à chaque
+     * moitié en rendrait deux fois trop — et le plancher est ce que le modèle
+     * rend, pas une borne basse.
+     */
+    it('met la cible de clips au prorata des blocs soumis', async () => {
+      const prompts: string[] = []
+      const espion: AppelGemini = async (prompt, mode) => {
+        if (mode === 'detail') prompts.push(prompt)
+        return détailleur((blocs) => blocs.length > 2)(prompt, mode)
+      }
+      await runCandidates(ID, { db, appel: espion, sleep: async () => {} })
+
+      const cible = (prompt: string) => {
+        const [, bas] = /return (\d+) to (\d+) clips/.exec(prompt)!
+        return Number(bas)
+      }
+      const entier = cible(prompts[0])
+      const quart = prompts.filter((p) => (p.match(/"id":"window_\d+"/g) ?? []).length === 2)
+      expect(entier).toBeGreaterThan(cible(quart[0]))
+      expect(cible(quart[0])).toBeGreaterThanOrEqual(1)
+    })
+  })
+
   describe('lireTranscript', () => {
     it('écarte un mot sans horodatage plutôt que de jeter le transcript', () => {
       const fichier = path.join(racine, 'partiel.json')

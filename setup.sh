@@ -57,7 +57,12 @@ YOLO_MODEL="${YOLO_MODEL:-yolo11m.pt}"
 YOLO_URL="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/$YOLO_MODEL"
 # La somme du fichier réellement installé le 18 août 2026. ultralytics/assets ne
 # publie pas de `checksums.sha256`, donc elle est écrite ici plutôt que lue.
-# Vide, ou un autre modèle demandé, et le contrôle est sauté avec un mot.
+#
+# **Elle vaut pour `yolo11m.pt` et pour lui seul.** Demander un autre `YOLO_MODEL`
+# sans rien dire de plus fait donc échouer l'installation sur une somme qui n'est
+# pas la sienne — ce qui est le bon défaut, mais mérite d'être écrit : il faut
+# alors fournir `YOLO_SHA256` du modèle voulu, ou la vider pour ne pas vérifier.
+# (relevé par Copilot)
 #
 # `${VAR-défaut}` et non `${VAR:-défaut}` : la seconde forme remplace aussi une
 # valeur **vide**, donc `YOLO_SHA256= ./setup.sh` — la façon documentée de ne pas

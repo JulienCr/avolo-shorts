@@ -106,6 +106,54 @@ describe('SCHÉMA_ANALYSE', () => {
     expect(SCHÉMA_ANALYSE.safeParse(avantLeDébut).success).toBe(false)
   })
 
+  /**
+   * **L'invariant porte sur la liste, pas sur le plan**, et c'est ce qui le rend
+   * facile à manquer : chacun de ces plans est irréprochable pris seul. Deux
+   * plans qui se recouvrent font compter deux fois les boîtes de leur zone
+   * commune, donc gonflent le total sur lequel `chooseRatio` cherche son seuil
+   * de 90 % — le clip sortirait dans un cadre plus large que nécessaire, sans
+   * erreur. `detect.py` ne peut pas les produire aujourd'hui ; l'itération 1 va
+   * itérer sur le détecteur. (relevé par Aristarque sur la PR du cadrage)
+   */
+  it('refuse des plans qui se chevauchent ou qui remontent le temps', () => {
+    const chevauchement = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 0, end: 15 },
+        { start: 10, end: 20 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(chevauchement).success).toBe(false)
+
+    const désordre = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 30, end: 40 },
+        { start: 0, end: 10 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(désordre).success).toBe(false)
+
+    // Le message nomme la conséquence, pas la règle : « plans non triés »
+    // laisserait chercher pourquoi ça compte.
+    const échec = SCHÉMA_ANALYSE.safeParse(chevauchement)
+    expect(échec.success ? '' : échec.error.issues[0]?.message).toMatch(/deux fois/)
+  })
+
+  it('accepte des plans qui se touchent, ce que detect.py produit', () => {
+    // `plans()` découpe `[0, durée]` à des frontières successives : la fin de
+    // l'un **est** le début du suivant. Interdire ça condamnerait toute analyse.
+    const collés = {
+      ...ANALYSE_VALIDE,
+      shots: [
+        { start: 0, end: 12.4 },
+        { start: 12.4, end: 30 },
+        { start: 30, end: 91.2 },
+      ],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(collés).success).toBe(true)
+  })
+
   it('refuse une version inconnue', () => {
     expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 2 }).success).toBe(false)
   })

@@ -80,13 +80,52 @@ const SCHÉMA_BOÎTE = z
     message: "les bornes d'une boîte doivent croître : x1 > x0 et y1 > y0",
   })
 
+/**
+ * Les plans se suivent sans se chevaucher.
+ *
+ * **Un invariant de la collection, pas de l'élément**, et c'est ce qui le rend
+ * facile à oublier : chaque plan pris isolément peut être irréprochable pendant
+ * que la liste ment. Deux plans qui se recouvrent font compter **deux fois** les
+ * boîtes de leur zone commune, donc gonflent le total sur lequel `chooseRatio`
+ * cherche son seuil de 90 % — et le clip sort dans un cadre plus large que
+ * nécessaire, sans erreur et sans avertissement.
+ *
+ * Se toucher est normal, se chevaucher ne l'est pas : `plans()` découpe
+ * `[0, durée]` à des frontières successives, donc la fin de l'un est le début du
+ * suivant. Le test est `start < end du précédent`, ce qui attrape d'un coup le
+ * recouvrement et le désordre — un plan qui remonte le temps commence forcément
+ * avant la fin de celui qui le précède.
+ *
+ * Aujourd'hui `detect.py` ne peut pas produire autre chose. C'est précisément
+ * pour ça que le schéma le vérifie : l'itération 1 va itérer sur le détecteur,
+ * et cet invariant-là ne casse pas bruyamment. (relevé par Aristarque sur la PR
+ * du cadrage)
+ */
+function plansSuccessifs(plans: readonly { start: number; end: number }[]): boolean {
+  for (let i = 1; i < plans.length; i += 1) {
+    const précédent = plans[i - 1]
+    const courant = plans[i]
+    if (précédent === undefined || courant === undefined) return false
+    if (courant.start < précédent.end) return false
+  }
+  return true
+}
+
 export const SCHÉMA_ANALYSE = z.object({
   version: z.literal(1),
   /** Images analysées par seconde — 2, spec §6. */
   fps: z.number().positive(),
   source: SCHÉMA_TAILLE,
   proxy: SCHÉMA_TAILLE,
-  shots: z.array(SCHÉMA_PLAN).min(1),
+  shots: z
+    .array(SCHÉMA_PLAN)
+    .min(1)
+    .refine(plansSuccessifs, {
+      message:
+        'les plans doivent se suivre sans se chevaucher : deux plans qui se recouvrent font ' +
+        'compter deux fois les boîtes de leur zone commune, ce qui gonfle le total du choix de ' +
+        'ratio et élargit le cadre sans que rien ne le signale',
+    }),
   boxes: z.array(SCHÉMA_BOÎTE),
 })
 

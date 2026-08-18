@@ -80,8 +80,8 @@ export type OptionsRendu = {
 /**
  * Les quatre chemins d'un clip. `variant9x16` vaut `null` quand le clip est déjà
  * en 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un 1:1
- * sur TikTok et Shorts, et la produire depuis un 9:16 rendrait le même cadre
- * réencodé une seconde fois (spec §11).
+ * sur TikTok et Shorts : sur un clip déjà en 9:16, elle serait le même cadre
+ * rendu une seconde fois (spec §11).
  *
  * Le `.ass` est un **intermédiaire** : il est réécrit à chaque passage et ne
  * compte pas dans la décision de saut. Il reste sur le disque exprès — c'est le
@@ -521,7 +521,8 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   const encodeur = (): EncoderName => options.encoder ?? encoderName()
 
   // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage. La
-  // variante en dépend : voir plus bas.
+  // variante ne dérive plus de son fichier, mais elle décrit le même montage :
+  // c'est ce drapeau qui la refait quand le natif vient de l'être.
   let natifEncodé = false
 
   // **Les deux sorties se rendent depuis la source, avec les mêmes arguments.**

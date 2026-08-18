@@ -48,9 +48,22 @@ export function projectsDir(): string {
 /**
  * Le chemin de l'original, qu'on l'ait désigné par son nom de fichier (ce que
  * fait `POST /api/projects`) ou par un chemin complet.
+ *
+ * Un nom relatif est résolu contre `REPLAY_DIR` **et doit y rester** : il arrive
+ * du réseau, et `../../etc/passwd` désigne autre chose qu'un replay. Les
+ * sous-dossiers, eux, passent — le dossier de replays peut être rangé par année.
+ * Un chemin absolu est pris tel quel : c'est un geste explicite de l'opérateur,
+ * pas une valeur de formulaire.
  */
 export function resolveSource(source: string): string {
-  return path.isAbsolute(source) ? path.normalize(source) : path.join(replayDir(), source)
+  if (path.isAbsolute(source)) return path.normalize(source)
+
+  const replays = replayDir()
+  const résolu = path.resolve(replays, source)
+  if (résolu !== replays && !résolu.startsWith(replays + path.sep)) {
+    throw new Error(`Source hors de REPLAY_DIR : ${JSON.stringify(source)}`)
+  }
+  return résolu
 }
 
 /**

@@ -67,8 +67,18 @@ describe('les chemins du projet', () => {
 
   it('résout un nom nu contre REPLAY_DIR, et laisse un chemin absolu tel quel', () => {
     expect(resolveSource(SOURCE)).toBe(path.join(replay, SOURCE))
+    expect(resolveSource(`2026/${SOURCE}`)).toBe(path.join(replay, '2026', SOURCE))
     expect(resolveSource('/ailleurs/x.mp4')).toBe('/ailleurs/x.mp4')
   })
+
+  // `source` arrive du réseau (`POST /api/projects`). Sans ce contrôle, il
+  // désigne n'importe quel fichier de la machine.
+  it.each(['../evasion.mp4', '../../etc/passwd', 'a/../../evasion.mp4'])(
+    'refuse la source %j, qui sort de REPLAY_DIR',
+    (mauvaise) => {
+      expect(() => resolveSource(mauvaise)).toThrow()
+    },
+  )
 
   it('range proxy, audio, candidats et rendus dans le projet', () => {
     expect(proxyPath(ID)).toBe(path.join(projets, ID, 'proxy.mp4'))

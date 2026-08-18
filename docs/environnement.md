@@ -101,13 +101,11 @@ sur le processeur dans les deux cas, et la descente des images depuis la mémoir
 du GPU coûte plus qu'elle ne rapporte. Une mesure antérieure sur le fichier
 entier donnait 14,2x contre 15,7x, soit la même conclusion : le gain est nul.
 
-**Divergence à arbitrer, pas encore tranchée.** La section 6 de la spec porte
-encore `ffmpeg NVDEC/NVENC` pour l'étape de proxy. Cette page mesure l'inverse,
-et le plan d'itération 0 relevait déjà « gain nul » sur ce point. La spec fait
-autorité et la corriger sort du périmètre de cette PR, donc les deux textes se
-contredisent tant que personne n'a tranché. En attendant, `proxyArgs` reçoit son
-encodeur en argument (tâche 5) : le choix se fait à l'appel, sans toucher au
-code. Ce que dit la mesure, c'est qu'il n'y a rien à gagner à y mettre le GPU.
+**Tranché.** La section 6 de la spec porte maintenant `ffmpeg, CPU — NVENC est
+plus lent`, et la section 12 les chiffres ci-dessus. `proxyArgs` reçoit tout de
+même son encodeur en argument (tâche 5) : le choix se fait à l'appel, sans
+toucher au code. Ce que dit la mesure, c'est qu'il n'y a rien à gagner à y
+mettre le GPU.
 
 ### L'export gagne beaucoup
 
@@ -122,14 +120,15 @@ Rendu 1080x1920, `crop=608:1080:656:0,scale=1080:1920:flags=lanczos`.
 Le facteur 2,3 entre le CPU et NVENC en qualité est la raison d'être de cette
 page.
 
-Le chiffre de 4,58x demande une note, parce qu'il ne correspond pas à celui
-inscrit dans la conception. La spec annonce 5,76x pour l'export NVENC. La mesure
-du 18 août 2026, sur le build BtbN de la veille, donne 4,58x de façon
-reproductible. Le CPU, lui, retombe pile sur sa valeur d'origine (1,97x contre
-2,02x annoncés), donc ce n'est pas la machine qui a changé de rythme : c'est le
-préréglage NVENC qui rend un débit différent d'un build à l'autre. Le classement
-et la décision ne bougent pas. **Le repère à retenir pour cette machine est
-4,6x.**
+Le chiffre de 4,58x demande une note, parce qu'il ne correspondait pas à celui
+inscrit d'abord dans la conception : 5,76x. **Ce 5,76x avait été relevé avec le
+ffmpeg de Windows**, appelé depuis WSL, qui parle au pilote sans traverser la
+passerelle CUDA de WSL. Le binaire Linux, celui que ce projet appelle, la
+traverse, et donne 4,58x de façon reproductible. Le CPU, lui, retombe pile sur
+sa valeur d'origine (1,97x contre 2,02x annoncés), donc ce n'est pas la machine
+qui a changé de rythme — c'est le binaire mesuré qui n'était pas le bon. Le
+classement et la décision ne bougent pas, et la spec porte désormais le bon
+chiffre. **Le repère à retenir pour cette machine est 4,6x.**
 
 ### Ce qui n'est pas le goulot
 
@@ -181,9 +180,69 @@ Les images redescendent en mémoire système, ce qu'exige de toute façon libass
 pour incruster les sous-titres. Le coût est celui du transfert, et il est déjà
 compris dans les 4,58x ci-dessus.
 
-La tâche 5 verrouillera cette règle par un test sur `renderArgs` : les arguments
-produits ne devront jamais contenir `-hwaccel_output_format`. Ce test n'existe
-pas encore.
+La tâche 5 verrouille cette règle par un test sur `renderArgs` : les arguments
+produits ne contiennent jamais `-hwaccel_output_format`. Voir
+`tests/core/ffmpeg-args.test.ts`.
+
+**Le corollaire, mesuré lui aussi** : `-hwaccel` est une option **d'entrée**, sa
+portée s'arrête au `-i` qui suit. Un rendu à N segments porte donc N
+`-hwaccel cuda`, un devant chaque couple `-ss`/`-i`. Posée une seule fois en
+tête, seul le premier segment décoderait sur le GPU et les suivants
+retomberaient sur le chemin logiciel — sans erreur, juste plus lentement.
+
+## L'autre piège : échapper un chemin dans un filtre
+
+Le chemin du `.ass` et celui du dossier de polices entrent dans le
+`-filter_complex`. Les replays s'appellent `2026-03-08-caro-mdlm.mp4`, mais rien
+n'empêche un dossier de porter une apostrophe, et le premier réflexe est faux.
+
+**Une valeur de filtre traverse `av_get_token` deux fois** : une fois quand le
+graphe est découpé en filtres, une fois quand les options du filtre sont
+séparées. Et les règles diffèrent des deux côtés d'une apostrophe.
+
+| | contre-oblique | apostrophe | deux-points |
+|---|---|---|---|
+| **entre apostrophes** | littérale, n'échappe rien | ferme la chaîne | littéral |
+| **hors apostrophes** | `\X` rend `X` | ouvre une chaîne | sépare les options |
+
+La conséquence qui coûte : écrire `\'` **à l'intérieur** des apostrophes
+n'échappe rien. Mesuré, `filename='/l\'été\:2026/c.ass'` échoue à l'analyse sur
+« No option name near '2026' ». Et la forme documentée `'\''`, elle, passe
+l'analyse mais **perd l'apostrophe en silence** — libass reçoit `/lété:2026/`,
+qui n'existe pas. C'est le pire des deux, parce qu'il ressemble à un fichier
+manquant.
+
+Ce qui marche, vérifié par aller-retour sur des fichiers réellement posés sur le
+disque (`l'été:2026`, `a'b'c`, `[x],y;z=w`, `dos\slash`, `';exit[v];a='`) :
+
+| dans le chemin | émis |
+|---|---|
+| `\` | `\\` |
+| `:` | `\:` |
+| `'` | `'\\\''` |
+
+La dernière ligne ferme la chaîne, écrit `\'` **lui-même doublement échappé** —
+pour que le premier niveau livre `\'` au second —, puis la rouvre. C'est
+`échapper()` dans `src/core/ffmpeg/args.ts`, et `tests/core/ffmpeg-args.test.ts`
+en fige les trois formes.
+
+## `loudnorm` change le taux d'échantillonnage
+
+En passe unique, le filtre `loudnorm` travaille à **192 kHz** pour mesurer les
+crêtes, et il sort à ce taux. Sans consigne, ffmpeg redescend alors au plus haut
+taux que l'encodeur accepte. Mesuré : une source à 44,1 kHz ressort en **96 kHz**,
+et la variante floutée en hérite par `-c:a copy`.
+
+Rien ne le signale — le fichier se lit, il est seulement plus lourd et dans un
+format que personne ne livre. La parade est un `aresample=48000` **derrière**
+`loudnorm`, dans le graphe. Vérifié : 44,1 kHz en entrée, 48 kHz en sortie.
+
+## La sortie est positionnelle
+
+`ffmpeg … /chemin/-sortie.mp4` écrit le fichier ; `ffmpeg … -sortie.mp4` échoue
+sur « Unrecognized option 'sortie.mp4' ». ffmpeg accepte `--`, qui met fin aux
+options, et cela ne change rien sur un chemin absolu. Les quatre constructeurs
+d'argv le posent donc systématiquement.
 
 ## Deux pièges de la détection, dans setup.sh
 

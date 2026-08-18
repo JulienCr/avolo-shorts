@@ -1,0 +1,92 @@
+import { describe, it, expect } from 'vitest'
+import { planSteps, type StepName } from '@/core/graph'
+
+/**
+ * Le graphe de l'itération 0 : la **présence d'un fichier**, pas encore une clé
+ * de validité (spec §4). Les clés — version d'outil, paramètres, empreinte des
+ * entrées — viennent en itération 4 ; ici, un artefact présent est un artefact
+ * bon.
+ */
+
+const none: Record<StepName, boolean> = {
+  proxy: false,
+  audio: false,
+  transcript: false,
+  candidates: false,
+  renders: false,
+}
+
+const all: Record<StepName, boolean> = {
+  proxy: true,
+  audio: true,
+  transcript: true,
+  candidates: true,
+  renders: true,
+}
+
+describe('planSteps', () => {
+  it('remonte les dépendances manquantes, dans l’ordre', () => {
+    expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
+  })
+
+  it('ne relance que le repérage si le transcript existe déjà', () => {
+    expect(planSteps('candidates', { ...none, audio: true, transcript: true })).toEqual([
+      'candidates',
+    ])
+  })
+
+  it('ne calcule rien si la cible est là', () => {
+    expect(planSteps('transcript', { ...none, audio: true, transcript: true })).toEqual([])
+  })
+
+  it('ne construit pas le proxy pour atteindre le transcript', () => {
+    expect(planSteps('transcript', none)).not.toContain('proxy')
+  })
+
+  it('force recalcule l’étape visée et tout ce qui en dépend', () => {
+    expect(planSteps('renders', all, ['transcript'])).toEqual([
+      'transcript',
+      'candidates',
+      'renders',
+    ])
+  })
+
+  // Le cas courant, et pas un cas limite : le transcript vit dans un sidecar à
+  // côté de la vidéo et survit à la suppression du projet, `audio.wav` non.
+  // Recréer le projet donne exactement cet état. Remonter la présence rendrait
+  // le WAV puis retranscrirait deux heures cinquante pour réécrire à
+  // l'identique ce qui était déjà là. (relevé par Copilot)
+  it('ne refait pas l’audio disparu sous un transcript toujours là', () => {
+    expect(planSteps('candidates', { ...none, transcript: true })).toEqual(['candidates'])
+  })
+
+  it('refait quand même l’audio si le transcript manque aussi', () => {
+    expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
+  })
+
+  it('force la cible elle-même, artefact présent ou non', () => {
+    expect(planSteps('transcript', all, ['transcript'])).toEqual(['transcript'])
+  })
+
+  // Le cas « changer de logo » de la spec §5 : le style n'entre que dans le
+  // rendu, donc reforcer les rendus ne doit pas retranscrire deux heures
+  // d'audio. C'est la propriété du graphe qui rend ce changement bon marché,
+  // et elle mérite d'être prouvée plutôt que supposée. (relevé par Aristarque)
+  it('ne remonte pas au-dessus de l’étape forcée', () => {
+    expect(planSteps('renders', all, ['renders'])).toEqual(['renders'])
+    expect(planSteps('candidates', all, ['candidates'])).toEqual(['candidates'])
+  })
+
+  // `force` dit *comment* atteindre la cible, il n'ajoute pas de cible.
+  it('ignore une étape forcée qui ne mène pas à la cible', () => {
+    expect(planSteps('transcript', all, ['proxy'])).toEqual([])
+  })
+
+  it('remonte jusqu’à l’étape forcée, sans dépasser', () => {
+    expect(planSteps('candidates', all, ['audio'])).toEqual([
+      'audio',
+      'transcript',
+      'candidates',
+    ])
+  })
+})

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { messageÉpuré, épurerChemins } from '@/core/erreurs'
+import { PRÉFIXES_DE_RÉFÉRENCE } from '@/server/secrets'
 
 describe('épurerChemins', () => {
   it('épure la commande complète que runFfmpeg met dans son message', () => {
@@ -170,8 +171,12 @@ describe('le caviardage des références de secret', () => {
     expect(épurerChemins('op://Coffre/Fiche est invalide, voir https://docs.test/a')).toBe(
       'op://… est invalide, voir https://docs.test/a',
     )
-    // La contrepartie, laissée démontrée pour qu'on ne la croie pas couverte :
-    // la queue d'un coffre à espace survit si personne ne cite la référence.
+    // La contrepartie, laissée démontrée pour qu'on ne la croie pas couverte
+    // *par la grammaire* : la queue d'un coffre à espace survit si personne ne
+    // cite la référence. Ce qui la referme est ailleurs — `messageSûr` retire
+    // toute référence lue dans l'environnement par sa forme complète, avant
+    // d'en arriver ici, et `tests/server/erreurs.test.ts` fige ce chemin-là.
+    // (issue #49)
     expect(épurerChemins('lecture de op://Coffre partagé/Fiche/Clé refusée')).toBe(
       'lecture de op://… partagé…/Clé refusée',
     )
@@ -234,6 +239,50 @@ describe('le caviardage des références de secret', () => {
     const une = épurerChemins('lecture de op://Coffre/Fiche/Champ')
     expect(épurerChemins(une)).toBe(une)
   })
+
+  /**
+   * Le compteur, sans lequel le test qui suit se viderait de sa substance : une
+   * liste vide ne fait échouer aucune itération, et `it.each([])` n'exercerait
+   * plus rien.
+   */
+  it('a au moins une forme de référence à exercer', () => {
+    expect(PRÉFIXES_DE_RÉFÉRENCE.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * **Le lien entre les deux moitiés d'une même vérité.**
+   *
+   * `estRéférence` (`src/server/secrets.ts`) décide seul des formes qu'une
+   * variable d'environnement peut prendre ; `src/core/erreurs.ts` décide de ce
+   * qui est caviardé. Le second ne peut pas importer le premier — la frontière
+   * de pureté l'interdit, et `tests/core/purete.test.ts` la vérifie —, donc la
+   * liste des préfixes y est recopiée à la main. Elle l'était déjà, et la
+   * dépendance était consignée **en commentaire des deux côtés** : ce qui ne la
+   * fait échouer nulle part. Une seconde forme acceptée traversait le
+   * caviardage exactement comme `op://` le faisait avant qu'on s'en occupe.
+   *
+   * Ce test **lit** la liste plutôt que de citer `op://`, et exerce chacun de
+   * ses éléments. Un préfixe ajouté à `estRéférence` sans passe correspondante
+   * ici fait donc rougir la suite, au lieu de sortir en silence sur un dépôt
+   * public. C'est le motif de l'issue #39, appliqué ici (issue #49).
+   *
+   * Ce qu'il exige de chaque forme est ce que la forme `op://` tient déjà : le
+   * coffre, la fiche et le champ partent, le **préfixe reste** — il dit que la
+   * variable portait une adresse et non une valeur littérale, seule question
+   * qu'on se pose devant un secret qui n'a pas marché —, et la prose autour ne
+   * bouge pas.
+   */
+  it.each([...PRÉFIXES_DE_RÉFÉRENCE])(
+    'caviarde tout ce qu’accepte estRéférence : %s',
+    (préfixe) => {
+      const nu = épurerChemins(`lecture de ${préfixe}Coffre/Fiche/Champ refusée`)
+      expect(nu).toBe(`lecture de ${préfixe}… refusée`)
+
+      // Et sous sa forme citée, la seule qui sache porter des espaces.
+      const cité = épurerChemins(`valeur "${préfixe}Coffre partagé/Fiche/Champ" refusée`)
+      expect(cité).toBe(`valeur "${préfixe}…" refusée`)
+    },
+  )
 })
 
 describe('messageÉpuré', () => {

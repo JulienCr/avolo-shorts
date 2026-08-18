@@ -240,6 +240,15 @@ describe('le caviardage des références de secret', () => {
   })
 
   /**
+   * Le compteur, sans lequel le test qui suit se viderait de sa substance : une
+   * liste vide ne fait échouer aucune itération, et `it.each([])` n'exercerait
+   * plus rien.
+   */
+  it('a au moins une forme de référence à exercer', () => {
+    expect(PRÉFIXES_DE_RÉFÉRENCE.length).toBeGreaterThan(0)
+  })
+
+  /**
    * **Le lien entre les deux moitiés d'une même vérité.**
    *
    * `estRéférence` (`src/server/secrets.ts`) décide seul des formes qu'une
@@ -262,15 +271,6 @@ describe('le caviardage des références de secret', () => {
    * qu'on se pose devant un secret qui n'a pas marché —, et la prose autour ne
    * bouge pas.
    */
-  /**
-   * Le compteur, sans lequel le test qui suit se viderait de sa substance : une
-   * liste vide ne fait échouer aucune itération, et `it.each([])` n'exercerait
-   * plus rien.
-   */
-  it('a au moins une forme de référence à exercer', () => {
-    expect(PRÉFIXES_DE_RÉFÉRENCE.length).toBeGreaterThan(0)
-  })
-
   it.each([...PRÉFIXES_DE_RÉFÉRENCE])(
     'caviarde tout ce qu’accepte estRéférence : %s',
     (préfixe) => {

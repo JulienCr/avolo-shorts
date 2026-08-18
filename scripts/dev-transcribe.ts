@@ -19,6 +19,7 @@ import { planSteps, type StepName } from '@/core/graph'
 import { closeDb, getDb, getProject } from '@/server/db'
 import { audioPath, placeSidecar, proxyPath } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
+import { montageRépond } from '@/server/steps/ingest'
 import { transcribe } from '@/server/steps/transcript'
 import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter } from './dev-commun'
 
@@ -43,6 +44,19 @@ async function main(): Promise<number> {
   }
 
   const audio = audioPath(projectId)
+
+  // La même garde que dans `transcribe`, et **avant** `placeSidecar` : c'est
+  // ici que le premier accès synchrone au Drive a lieu, donc ici que le script
+  // se figerait si le transport 9p était mort — la garde de `transcribe`, plus
+  // bas, ne serait jamais atteinte. (relevé par Copilot)
+  if (!(await montageRépond(projet.sourcePath))) {
+    console.error(
+      'Le dossier des replays ne répond pas. REPLAY_DIR est monté en 9p et peut être monté ' +
+        'avec son transport mort dessous. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+    return 1
+  }
+
   // **Par `placeSidecar`, jamais par `transcriptPath`.** Le second rend le
   // chemin voulu et ignore le repli dans le projet : un transcript rangé là par
   // une passe précédente passerait pour absent, et l'émission entière serait
@@ -81,6 +95,12 @@ async function main(): Promise<number> {
     console.log(`Audio      : ${audio} — extrait en ${durée(t())}`)
   }
 
+  // Le chemin effectivement écrit, qui n'est pas forcément celui calculé plus
+  // haut : si l'état d'écriture du Drive change entre les deux, `transcribe`
+  // pose le sidecar dans le repli et le dit. Relire l'ancien chemin échouerait
+  // sur un transcript pourtant bien produit. (relevé par Copilot)
+  let transcript = placement.transcript
+
   if (plan.includes('transcript')) {
     const t = chrono()
     const résultat = await transcribe({
@@ -90,13 +110,17 @@ async function main(): Promise<number> {
       force: true,
       onLog: (ligne) => console.log(`  worker | ${ligne}`),
     })
-    console.log(`Transcript : ${résultat.path} — écrit en ${durée(t())}`)
+    transcript = résultat.path
+    console.log(
+      `Transcript : ${résultat.path}${résultat.fallback ? ' (repli dans le projet)' : ''}` +
+        ` — écrit en ${durée(t())}`,
+    )
   }
 
   // Le contrôle attendu par la tâche 8 : plusieurs milliers de segments,
   // plusieurs dizaines de milliers de mots, et des horodatages mot à mot non
   // nuls.
-  const contenu: unknown = JSON.parse(fs.readFileSync(placement.transcript, 'utf8'))
+  const contenu: unknown = JSON.parse(fs.readFileSync(transcript, 'utf8'))
   const segments = (contenu as { segments?: { words?: { start?: number }[] }[] }).segments ?? []
   const mots = segments.reduce((n, s) => n + (s.words?.length ?? 0), 0)
   const sansHorodatage = segments

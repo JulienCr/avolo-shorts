@@ -10,7 +10,11 @@
 #     python3.10 -m venv venv
 #     ./venv/bin/pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
 #         -r worker/requirements.txt
-#     WHISPER_PYTHON=$PWD/venv/bin/python
+#
+# puis, dans le `.env` du dépôt — pas dans le shell, où une simple affectation ne
+# franchirait pas le `pnpm tsx` qui suit :
+#
+#     WHISPER_PYTHON=/chemin/absolu/vers/venv/bin/python
 #
 # **Les versions sont épinglées en `==`** (spec §5 : « la parade est un
 # `setup.sh` et un `requirements.txt` épinglé »). Ce sont celles sur lesquelles

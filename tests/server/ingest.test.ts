@@ -8,6 +8,7 @@ import {
   empreinteSource,
   montageRépond,
   statAvecDélai,
+  vérifierTailleCopiée,
 } from '@/server/steps/ingest'
 
 /**
@@ -112,6 +113,23 @@ describe('statAvecDélai', () => {
     await expect(statAvecDélai(path.join(dossier, 'absent.mp4'), 5_000)).rejects.toThrow(/ENOENT/)
   })
 
+})
+
+describe('vérifierTailleCopiée', () => {
+  it('laisse passer une copie de la taille annoncée', () => {
+    expect(() => vérifierTailleCopiée(4_577_070_123, 4_577_070_123, '/s.mp4')).not.toThrow()
+  })
+
+  it('refuse une copie plus courte que la source', () => {
+    // Une fin de fichier propre n'est pas une preuve de complétude : si la
+    // source rétrécit pendant la copie, `pipeline` s'achève sans erreur et le
+    // renommage rendrait le fichier tronqué définitif. (relevé par Copilot)
+    expect(() => vérifierTailleCopiée(1_000, 4_577_070_123, '/s.mp4')).toThrow(/au lieu de/)
+  })
+
+  it('refuse aussi une copie plus longue : la source a bougé dans les deux cas', () => {
+    expect(() => vérifierTailleCopiée(5_000, 4_000, '/s.mp4')).toThrow(/a changé de taille/)
+  })
 })
 
 describe('montageRépond', () => {

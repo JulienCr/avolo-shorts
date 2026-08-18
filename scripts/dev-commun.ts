@@ -22,10 +22,16 @@ export function chargerEnv(fichier = '.env'): void {
   const avant = { ...process.env }
   try {
     process.loadEnvFile(fichier)
-  } catch {
-    // Pas de `.env` : les valeurs par défaut de `paths.ts` suffisent pour
-    // `STAGE_DIR` et `PROJECTS_DIR`, et `REPLAY_DIR` échouera avec un message
-    // qui nomme la variable.
+  } catch (cause) {
+    // **Seule l'absence est tolérée.** Les valeurs par défaut de `paths.ts`
+    // suffisent alors pour `STAGE_DIR` et `PROJECTS_DIR`, et `REPLAY_DIR`
+    // échouera avec un message qui nomme la variable.
+    //
+    // Un `.env` présent mais illisible (`EACCES`) ou qui est un dossier
+    // (`EISDIR`) est un défaut de configuration, pas une absence : l'avaler
+    // ferait échouer le script trois appels plus loin sur « REPLAY_DIR n'est pas
+    // définie », qui est un diagnostic faux. (relevé par Copilot)
+    if ((cause as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw cause
     return
   }
   Object.assign(process.env, avant)
@@ -88,12 +94,18 @@ export function chrono(): () => number {
  * planté, ce qui est exactement ce que le délai de garde était censé éviter.
  * (relevé par Copilot)
  *
- * Le `write` vide avant de sortir : `process.exit` tronque une sortie standard
- * branchée sur un tube, et son rappel n'est appelé qu'une fois le flux écoulé.
+ * Les deux flux sont vidés avant de sortir : `process.exit` tronque une sortie
+ * branchée sur un tube, et le rappel de `write` n'est appelé qu'une fois le flux
+ * écoulé. **Les deux, pas seulement `stdout`** — les messages d'usage et
+ * d'échec partent sur `stderr`, donc précisément sur le chemin qui compte.
+ * (relevé par Copilot)
  */
 export function quitter(code: number): void {
   process.exitCode = code
-  process.stdout.write('', () => {
-    process.exit(code)
-  })
+  let restants = 2
+  const fini = (): void => {
+    if (--restants === 0) process.exit(code)
+  }
+  process.stdout.write('', fini)
+  process.stderr.write('', fini)
 }

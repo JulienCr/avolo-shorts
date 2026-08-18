@@ -226,6 +226,7 @@ async function copier(
 
   try {
     await pipeline(fs.createReadStream(src), compteur, fs.createWriteStream(temporaire))
+    vérifierTailleCopiée(fait, total, src)
     await fsp.rename(temporaire, dst)
   } catch (cause) {
     // Ne pas laisser un moignon derrière soi : il ne serait ramassé par
@@ -233,6 +234,29 @@ async function copier(
     await fsp.rm(temporaire, { force: true }).catch(() => {})
     throw cause
   }
+}
+
+/**
+ * La copie fait-elle bien la taille annoncée ?
+ *
+ * **Une fin de fichier propre n'est pas une preuve de complétude.** Si la source
+ * rétrécit pendant la copie — le Drive resynchronise, quelqu'un remplace le
+ * fichier —, `pipeline` s'achève sans erreur sur un fichier plus court, et le
+ * renommage le rend définitif. `décisionCopie` ne s'en rendrait pas compte tout
+ * de suite, mais tout ce qui suit — le proxy, l'audio, le transcript — serait
+ * construit sur une émission tronquée, sans un mot. L'invariant que le
+ * temporaire est censé garantir est « ce nom désigne une copie entière » : il
+ * faut donc le vérifier, pas seulement l'espérer. (relevé par Copilot)
+ *
+ * Pure, et séparée pour être testée sans copier quatre gigaoctets.
+ */
+export function vérifierTailleCopiée(copié: number, attendu: number, source: string): void {
+  if (copié === attendu) return
+  throw new Error(
+    `La copie de ${JSON.stringify(source)} fait ${copié} octets au lieu de ${attendu} : ` +
+      'la source a changé de taille pendant la copie. Le fichier temporaire est effacé, ' +
+      'rien de tronqué ne prend le nom définitif. Relancer.',
+  )
 }
 
 /** L'avancement d'une copie, en octets. */

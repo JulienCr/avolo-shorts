@@ -66,8 +66,9 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  * - `LD_LIBRARY_PATH` : CTranslate2 charge cuDNN par le chargeur dynamique, qui
  *   ne connaît rien aux paquets pip. Sans ce chemin, le modèle ne se charge pas.
  *
- * **Les secrets ne franchissent pas la frontière de processus** — voir `SECRET`
- * plus bas.
+ * **Le reste de l'environnement est reconstruit depuis une liste blanche** —
+ * voir `TRANSMISES` plus bas. Le worker de transcription n'a besoin d'aucun
+ * secret.
  *
  * **Le chemin hérité est redécoupé avant d'être filtré**, et ce n'est pas de la
  * propreté : un segment vide dans `LD_LIBRARY_PATH` désigne le **dossier
@@ -87,13 +88,14 @@ export function environnementWorker(o: {
   const chemins = [...o.cudnn, ...hérité].filter((c) => c !== '')
 
   // `as NodeJS.ProcessEnv` sur l'accumulateur, et c'est la seule assertion du
-  // fichier : Next déclare `NODE_ENV` **obligatoire** sur ce type, or une copie
-  // filtrée ne peut pas prouver structurellement qu'elle l'a gardée. Elle la
-  // garde — `NODE_ENV` ne ressemble pas à un secret — mais cela se voit à
+  // fichier : Next déclare `NODE_ENV` **obligatoire** sur ce type, or un
+  // environnement reconstruit ne peut pas prouver structurellement qu'il le
+  // porte. Il le porte — la liste blanche le nomme — mais cela se voit à
   // l'exécution, pas à la compilation.
   const transmis = {} as NodeJS.ProcessEnv
-  for (const [nom, valeur] of Object.entries(o.base)) {
-    if (!SECRET.test(nom)) transmis[nom] = valeur
+  for (const nom of TRANSMISES) {
+    const valeur = o.base[nom]
+    if (valeur !== undefined) transmis[nom] = valeur
   }
   transmis.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = '1'
   transmis.LD_LIBRARY_PATH = chemins.join(':')
@@ -101,20 +103,58 @@ export function environnementWorker(o: {
 }
 
 /**
- * Les noms de variables qui ne franchissent pas la frontière de processus.
+ * Les seules variables qui franchissent la frontière de processus. **Une liste
+ * blanche, et c'est le point.**
  *
  * Le worker héritait de tout `process.env`, donc de `GEMINI_API_KEY` — une clé
  * qui n'a rien à faire dans un processus de transcription. Le chemin de fuite
  * n'est pas théorique : le stderr du worker est capturé et remonté par `onLog`,
  * que `dev-transcribe` écrit sur la sortie standard et que la tâche 10 exposera
  * à un client HTTP. Il suffit qu'une bibliothèque Python vide son environnement
- * dans une trace pour que la clé parte avec. Le principe est le moindre
- * privilège : ce processus n'a besoin d'aucun secret.
+ * dans une trace pour que la clé parte avec. (relevé par Aristarque)
  *
- * `HF_TOKEN` tombe par la même règle, et c'est cohérent : sans pyannote en
- * diarisation, il n'est jamais demandé. (relevé par Aristarque)
+ * La première version filtrait par motif — `KEY`, `TOKEN`, `SECRET`… — et une
+ * liste noire de secrets ne peut pas être complète : `DATABASE_URL` et
+ * `REDIS_URL` portent couramment un mot de passe dans leur autorité et ne
+ * ressemblent à aucun de ces mots. C'est la même leçon que la frontière de
+ * pureté d'ESLint, énoncée à l'envers après cinq passes de review : on nomme ce
+ * qui passe, pas ce qui ne passe pas. Le coût est qu'il faut ajouter une ligne
+ * ici le jour où le worker a besoin d'autre chose — et c'est très bien, cela
+ * doit être une décision. (relevé par Copilot)
+ *
+ * `HF_TOKEN` n'y est pas, et c'est cohérent : sans diarisation, il n'est jamais
+ * demandé.
  */
-const SECRET = /(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i
+const TRANSMISES: readonly string[] = [
+  // Le strict nécessaire pour qu'un processus tourne.
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'TMPDIR',
+  'LANG',
+  'LC_ALL',
+  'NODE_ENV',
+  // Où Hugging Face, Torch et XDG rangent leurs poids. Les omettre ferait
+  // retélécharger huit gigaoctets de modèles dans un dossier par défaut.
+  'HF_HOME',
+  'HF_HUB_CACHE',
+  'HUGGINGFACE_HUB_CACHE',
+  'TRANSFORMERS_CACHE',
+  'TORCH_HOME',
+  'XDG_CACHE_HOME',
+  // Le GPU.
+  'CUDA_VISIBLE_DEVICES',
+  'CUDA_HOME',
+  'NVIDIA_VISIBLE_DEVICES',
+  // Le réseau, si le premier lancement doit aller chercher un modèle.
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+]
 
 /** Le contenu de `<venv>/lib`, ou rien si le dossier n'existe pas. */
 function dossiersLib(venvRoot: string): string[] {
@@ -197,8 +237,13 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
   // repli existe pour le second cas, où le montage répond — un `EACCES` est une
   // réponse, et `placeSidecar` le traite très bien. (relevé par Copilot et
   // Aristarque)
-  const dossierSource = path.dirname(resolveSource(o.source))
-  if (!(await montageRépond(dossierSource))) {
+  //
+  // Le sondage porte sur **le fichier source**, pas sur son dossier : le mode de
+  // panne visé laisse justement le dossier répondre — son entrée est en cache —
+  // pendant que l'accès au contenu se bloque. Sonder le dossier rendrait `true`
+  // et la garde ne servirait à rien. C'est le chemin que sonde l'ingestion.
+  // (relevé par Copilot)
+  if (!(await montageRépond(resolveSource(o.source)))) {
     throw new Error(
       'Le dossier des replays ne répond pas : impossible de décider où va le sidecar. ' +
         'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +

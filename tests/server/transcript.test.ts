@@ -73,7 +73,7 @@ describe('environnementWorker', () => {
     expect((env.LD_LIBRARY_PATH ?? '').split(':').filter((s) => s === '')).toEqual([])
   })
 
-  it('conserve le reste de l environnement', () => {
+  it("conserve ce sans quoi un processus ne tourne pas", () => {
     const env = environnementWorker({ cudnn: [], base: { PATH: '/usr/bin', HOME: '/home/julien' } })
     expect(env.PATH).toBe('/usr/bin')
     expect(env.HOME).toBe('/home/julien')
@@ -85,7 +85,7 @@ describe('environnementWorker', () => {
     expect(Object.keys(env).sort()).toEqual(['LD_LIBRARY_PATH', 'TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD'])
   })
 
-  it('retire les secrets hérités : le worker de transcription n en a aucun besoin', () => {
+  it('ne transmet que la liste blanche : le worker n a besoin d aucun secret', () => {
     // Le chemin de fuite n'est pas théorique : le stderr du worker est remonté
     // par `onLog`, que la tâche 10 exposera à un client HTTP. Il suffit qu'une
     // bibliothèque Python vide son environnement dans une trace.
@@ -97,16 +97,49 @@ describe('environnementWorker', () => {
         HF_TOKEN: 'secret',
         AWS_SECRET_ACCESS_KEY: 'secret',
         DB_PASSWORD: 'secret',
+        // Les deux qui ont enterré la liste noire : un mot de passe dans
+        // l'autorité d'une URL ne ressemble ni à KEY, ni à TOKEN, ni à SECRET.
+        // (relevé par Copilot)
+        DATABASE_URL: 'postgres://user:motdepasse@hôte/base',
+        REDIS_URL: 'redis://:motdepasse@hôte:6379',
+        // Et n'importe quel nom qu'on n'a pas prévu.
+        DEPLOIEMENT_JETON_INTERNE: 'secret',
         PATH: '/usr/bin',
         HOME: '/home/julien',
       },
     })
-    expect(env.GEMINI_API_KEY).toBeUndefined()
-    expect(env.HF_TOKEN).toBeUndefined()
-    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
-    expect(env.DB_PASSWORD).toBeUndefined()
+    for (const nom of [
+      'GEMINI_API_KEY',
+      'HF_TOKEN',
+      'AWS_SECRET_ACCESS_KEY',
+      'DB_PASSWORD',
+      'DATABASE_URL',
+      'REDIS_URL',
+      'DEPLOIEMENT_JETON_INTERNE',
+    ]) {
+      expect(env[nom]).toBeUndefined()
+    }
+    expect(JSON.stringify(env)).not.toContain('motdepasse')
     // Et rien d'utile n'est parti avec.
     expect(env.PATH).toBe('/usr/bin')
     expect(env.HOME).toBe('/home/julien')
+  })
+
+  it('laisse passer les caches de modèles, sans quoi huit gigaoctets repartent', () => {
+    const env = environnementWorker({
+      cudnn: [],
+      base: {
+        HF_HOME: '/cache/hf',
+        TORCH_HOME: '/cache/torch',
+        XDG_CACHE_HOME: '/cache/xdg',
+        CUDA_VISIBLE_DEVICES: '0',
+        HTTPS_PROXY: 'http://mandataire:3128',
+      },
+    })
+    expect(env.HF_HOME).toBe('/cache/hf')
+    expect(env.TORCH_HOME).toBe('/cache/torch')
+    expect(env.XDG_CACHE_HOME).toBe('/cache/xdg')
+    expect(env.CUDA_VISIBLE_DEVICES).toBe('0')
+    expect(env.HTTPS_PROXY).toBe('http://mandataire:3128')
   })
 })

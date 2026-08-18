@@ -244,12 +244,16 @@ export type Analyse =
   | 'triable'      // candidats présents, proxy absent : on trie, on ne monte pas
   | 'complet'      // candidats et proxy présents
 
-/** Ce que l'humain a décidé. */
+/**
+ * Ce que l'humain a décidé. **Les quatre valeurs se testent dans cet ordre**, et
+ * la première qui répond gagne : les conditions ne sont pas disjointes prises
+ * séparément, l'ordre est ce qui les rend exclusives.
+ */
 export type Travail =
-  | 'rien'         // aucune proposition dans la liste
-  | 'atrier'       // il reste des propositions en attente de décision
-  | 'trie'         // plus aucune proposition en attente
-  | 'livre'        // au moins un clip gardé, et tous ont un rendu à jour
+  | 'rien'         // la liste est vide
+  | 'atrier'       // sinon, au moins une proposition reste indécise
+  | 'livre'        // sinon, au moins un clip gardé, et tous ont un rendu à jour
+  | 'trie'         // sinon : tout est décidé, il reste à monter ou à exporter
 
 export function phaseProjet(
   steps: Record<StepName, boolean>,
@@ -315,6 +319,14 @@ qui ne contient rien donne donc `{ triable, rien }`, et c'est l'axe `Travail` qu
 porte le vide. Cette séparation est la raison d'être des deux axes : sans elle, il
 faudrait une valeur `triable-mais-vide` sur l'axe des artefacts. (relevé par
 Aristarque)
+
+**L'ordre des tests fait partie du contrat.** Écrites comme quatre prédicats
+indépendants, les conditions se recouvrent : une liste vide satisfait aussi « plus
+aucune proposition en attente », et `livre` mordrait sur `atrier` dès le premier
+clip gardé rendu alors que d'autres propositions restent indécises. Selon l'ordre
+choisi par l'implémenteur, l'écran annoncerait « tout est trié » sur un vide, ou
+« livré » avant la fin du tri. Une cascade ordonnée coûte un commentaire et
+supprime la question. (relevé par Copilot)
 
 **`livre` exige au moins un clip gardé.** « Tous les clips gardés sont exportés »
 est vrai d'une liste vide : après avoir tout écarté, la phase terminale annonçait
@@ -560,7 +572,27 @@ le dire fait douter de ce qu'on vient de déclencher.
 | **Navigation** | sortante seulement. Un projet mène à son écran, une source neuve crée un projet puis y mène. |
 | **Persistance aller** | aucune. Il n'y a rien à saisir. |
 | **Persistance retour** | la position de défilement de la grille des sources, gardée pendant la session. Vingt et une cartes chargées à la demande : revenir en haut à chaque retour ferait redemander les vignettes déjà vues. |
+| **D'où viennent les états** | `GET /api/projects` ne rend que des `ProjectSummary` et `useProjets` ne sonde rien : l'exigence de suivi multi-projets n'est pas implémentable telle quelle. Voir juste après. |
 | **Validation** | aucune saisie, donc aucune validation. La seule erreur possible vient du serveur. |
+
+**Ce que la bibliothèque demande au serveur, et ce qu'elle ne doit pas demander.**
+Montrer plusieurs analyses à la fois suppose un état par projet, que
+`GET /api/projects` ne porte pas (relevé par Copilot). Deux formes possibles, et
+elles ne se valent pas :
+
+- **une requête par projet** (`GET /api/projects/:id` pour chacun) : à écarter.
+  Elle multiplie par vingt et un un appel qui exécute `relevéPrésence`, lequel
+  sonde le montage 9p avec un délai de garde. `run.ts` documente déjà ce que coûte
+  ce sondage, et pourquoi il a fallu le mettre en cache : quatre fils du vivier de
+  libuv suffisent à bloquer le serveur ;
+- **enrichir la liste**, mais seulement de ce qui est **gratuit** : y a-t-il une
+  exécution en cours (`progression(id)`, une lecture de `Map` dans le processus)
+  et la dernière a-t-elle échoué (`lireStatut(id)?.error`, un petit fichier
+  local). Ni l'un ni l'autre ne touche au Drive.
+
+C'est la seconde, et elle suffit exactement à ce que la bibliothèque doit dire :
+« trois analyses en cours, une en échec ». La présence des artefacts, elle, se
+résout quand on ouvre le projet, là où le sondage se paie de toute façon.
 
 **Les cinq états**
 
@@ -716,11 +748,27 @@ second »). Le jeton du serveur répond à la même question un étage plus bas,
 deux doivent rester distincts : celui du client ordonne les réponses, celui du
 serveur ordonne les écritures.
 
-**Un refus déclenche quand même une relecture du clip.** Sans elle, l'écran garde
-son état local et affiche « enregistré » ; au rechargement, ce qu'il montrait
-disparaît. Le cas est théorique avec un seul onglet, et deux onglets sur le
-même clip ne sont pas un usage prévu ; une requête de plus est un prix ridicule
-pour ne pas avoir à en dépendre. (relevé par Aristarque)
+**Et un refus ne déclenche rien du tout.** Une version précédente de ce document
+ajoutait une relecture du clip « pour réconcilier », en réponse à une question sur
+le multi-onglet. C'était doublement faux, et il vaut mieux l'écrire que de laisser
+la trace d'une bonne idée.
+
+D'abord, il n'y a rien à réconcilier. Dans un seul onglet, un jeton périmé veut
+dire que deux de vos propres écritures se sont croisées et que la plus récente a
+gagné. Cette écriture-là part du même état local que celui qui est à l'écran :
+l'écran affiche donc déjà la version gagnante.
+
+Ensuite, la relecture ne marcherait pas. `useEditeur.charger` sort immédiatement
+quand l'identifiant du clip n'a pas changé, et cette garde est là pour une bonne
+raison : elle empêche un refetch d'écraser le montage en cours et sa pile
+d'annulation. Le cache serait donc rafraîchi et le montage local resterait tel
+quel. (relevé par Copilot)
+
+Une vraie réconciliation demanderait un `recharger` qui contourne la garde, donc
+qui **jette le montage en cours**. Ce n'est pas une opération à déclencher toute
+seule sur un refus qui, dans le seul mode d'emploi prévu, n'est pas une anomalie.
+Si le multi-onglet devenait un usage, c'est ce chemin-là qu'il faudrait écrire, et
+il devrait demander avant de jeter.
 
 **Le cadrage change de nature en itération 1**, et c'est traité en 3.5.
 
@@ -1514,8 +1562,11 @@ depuis une exception.** C'est aussi ce qui garantit qu'une région `role="alert"
 ne lise pas une trace à voix haute.
 
 **Le multi-onglet est-il un cas d'usage ?** Non : un utilisateur, une machine, un
-onglet. Le refus d'un `PATCH` périmé déclenche quand même une relecture du clip
-(3.3), ce qui referme la question sans avoir à en dépendre.
+onglet. Et le refus d'un `PATCH` périmé n'y change rien : dans un seul onglet il
+signifie que la plus récente de vos deux écritures a gagné, et c'est déjà ce que
+l'écran affiche (3.3). J'avais d'abord proposé une relecture pour réconcilier ;
+elle est inutile, et la garde de `charger` l'aurait de toute façon rendue sans
+effet.
 
 **La mesure de transcription contredit-elle la spec §6 ?** Oui, et c'est la §9.1
 ci-dessus. Deux documents de `docs/superpowers/specs/` se contredisent sur un fait

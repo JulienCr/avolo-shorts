@@ -36,7 +36,7 @@ import {
   type Word,
 } from '@/core/transcript'
 import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
-import { ArrêtDemandéError } from '@/server/ffmpeg'
+import { StopRequestedError } from '@/server/ffmpeg'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 import { exigerSecret } from '@/server/secrets'
 
@@ -517,9 +517,9 @@ export async function appelerGemini<T = unknown>(
   // valeur pendant la boucle, et TypeScript, qui l'ignore, retenait la
   // restriction du premier contrôle jusqu'au second — qu'il déclarait alors
   // impossible.
-  const arrêté = (): boolean => options.signal?.aborted === true
+  const isAborted = (): boolean => options.signal?.aborted === true
   for (let tentative = 1; ; tentative += 1) {
-    if (arrêté()) throw new ArrêtDemandéError('le repérage')
+    if (isAborted()) throw new StopRequestedError('le repérage')
     try {
       const réponse = await appel(prompt, mode)
       leverSiBloquée(réponse)
@@ -529,7 +529,7 @@ export async function appelerGemini<T = unknown>(
       if (erreur instanceof GeminiBlockedError) throw erreur
       // Un arrêt demandé non plus. Le contrôle est **avant** `estPassagère`, qui
       // le classerait passager par son nom d'`AbortError`.
-      if (arrêté()) throw new ArrêtDemandéError('le repérage')
+      if (isAborted()) throw new StopRequestedError('le repérage')
       const message = erreur instanceof Error ? erreur.message : String(erreur)
       if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
       // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus

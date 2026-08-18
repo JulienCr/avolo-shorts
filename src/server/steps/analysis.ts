@@ -4,11 +4,11 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
 import {
-  ArrêtDemandéError,
+  StopRequestedError,
   cheminTemporaire,
   créerJournal,
   ffmpegBin,
-  propagerArrêt,
+  forwardAbort,
   type Artefact,
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
@@ -470,11 +470,11 @@ function lancerWorker(
   return new Promise<void>((resolve, reject) => {
     // L'arrêt peut être arrivé pendant les deux `ffprobe` qui précèdent.
     if (signal?.aborted === true) {
-      reject(new ArrêtDemandéError("l'analyse d'image"))
+      reject(new StopRequestedError("l'analyse d'image"))
       return
     }
     const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
-    const débrancher = propagerArrêt(proc, signal)
+    const detach = forwardAbort(proc, signal)
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
@@ -504,7 +504,7 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
-      débrancher()
+      detach()
       // **Le code d'erreur, pas `cause.message`.** Node y écrit
       // `spawn <chemin> ENOENT`, avec le chemin **nu** : rien ne peut le citer
       // après coup, et l'épuration d'un chemin nu s'arrête à la première espace.
@@ -523,18 +523,18 @@ function lancerWorker(
       )
     })
 
-    proc.on('close', (code, signalUnix) => {
-      débrancher()
+    proc.on('close', (code, exitSignal) => {
+      detach()
       if (code === 0) {
         resolve()
         return
       }
       // Un arrêt demandé n'est pas un échec de l'analyse. Voir `runFfmpeg`.
       if (signal?.aborted === true) {
-        reject(new ArrêtDemandéError("l'analyse d'image"))
+        reject(new StopRequestedError("l'analyse d'image"))
         return
       }
-      const cause = signalUnix !== null ? `tué par ${signalUnix}` : `code de sortie ${code}`
+      const cause = exitSignal !== null ? `tué par ${exitSignal}` : `code de sortie ${code}`
       reject(
         new Error(
           [

@@ -46,8 +46,8 @@ export async function register(): Promise<void> {
   // dossier absent, lui, ne doit pas empêcher le serveur de servir. Et
   // l'attendre ferait payer au premier chargement de page un balayage de disque
   // dont personne n'attend le résultat.
-  const { nettoyerStage } = await import('@/server/steps/ingest')
-  void nettoyerStage().catch((cause: unknown) => {
+  const { cleanStage } = await import('@/server/steps/ingest')
+  void cleanStage().catch((cause: unknown) => {
     console.warn('Nettoyage de stage/ au démarrage :', cause)
   })
 }

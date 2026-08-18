@@ -14,24 +14,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import {
-  arrêterAnalyse,
   createProject,
   exportClip,
+  fetchSettings,
   getClip,
   getProject,
   listCandidates,
   listProjects,
-  lireRéglages,
   patchClip,
   runProject,
-  écrireRéglages,
+  saveSettings,
+  stopAnalysis,
   type CandidateClip,
   type ClipDetail,
   type ClipPatch,
   type PatchClipResult,
-  type PatchRéglages,
-  type Réglages,
   type RunTarget,
+  type Settings,
+  type SettingsPatch,
 } from '@/lib/api'
 
 export const cles = {
@@ -55,7 +55,7 @@ export const cles = {
    * à l'écran d'afficher les valeurs *effectives* après une écriture partielle —
    * et deux entrées pour un même corps se périmeraient l'une sans l'autre.
    */
-  reglages: ['reglages'] as const,
+  settings: ['settings'] as const,
 }
 
 export function useProjets() {
@@ -493,8 +493,8 @@ export function useRelancer() {
  * Les redemander périodiquement coûterait une requête pour un état qui ne change
  * que quand on le change.
  */
-export function useRéglages() {
-  return useQuery({ queryKey: cles.reglages, queryFn: lireRéglages })
+export function useSettings() {
+  return useQuery({ queryKey: cles.settings, queryFn: fetchSettings })
 }
 
 /**
@@ -514,26 +514,16 @@ export function useRéglages() {
  * réglage ne recalcule aucune émission (retour d'usage §6.1). Invalider les
  * projets ou les candidats laisserait croire le contraire.
  */
-/*
- * **`eslint-disable` sur les deux lignes qui suivent, et pas un cran plus
- * large.** `react-hooks/rules-of-hooks` reconnaît un crochet personnalisé au
- * motif `^use[A-Z0-9]`, qui ne connaît que l'alphabet ASCII : `useÉcrireRéglages`
- * en est un, `useRéglages` et `useArrêter` passent, et celui-ci ne passe pas
- * pour la seule raison que sa quatrième lettre est un « É ». Renommer aurait
- * cassé le contrat convenu avec l'écran de réglages, qui s'écrit en parallèle.
- */
-/* eslint-disable react-hooks/rules-of-hooks */
-export function useÉcrireRéglages() {
+export function useSaveSettings() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: (patch: PatchRéglages) => écrireRéglages(patch),
-    onSuccess(réglages: Réglages) {
-      client.setQueryData(cles.reglages, réglages)
+    mutationFn: (patch: SettingsPatch) => saveSettings(patch),
+    onSuccess(settings: Settings) {
+      client.setQueryData(cles.settings, settings)
     },
   })
 }
-/* eslint-enable react-hooks/rules-of-hooks */
 
 /**
  * Arrêter l'analyse en cours d'un projet.
@@ -549,18 +539,18 @@ export function useÉcrireRéglages() {
  * autre onglet garderait l'analyse arrêtée pour vivante, et son sondage
  * s'arrêterait sur cet état-là.
  *
- * **`arrêtée: false` n'est pas un échec.** Rien ne tournait — l'analyse venait
+ * **`stopped: false` n'est pas un échec.** Rien ne tournait — l'analyse venait
  * de finir, ou un redémarrage du serveur a emporté l'exécution. L'écran n'a rien
  * à dire de plus que ce que l'état rafraîchi montre déjà.
  *
  * **Les candidats ne s'invalident pas.** Un arrêt ne produit rien : les
  * propositions à l'écran sont exactement celles d'avant.
  */
-export function useArrêter() {
+export function useStopAnalysis() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: (projectId: string) => arrêterAnalyse(projectId),
+    mutationFn: (projectId: string) => stopAnalysis(projectId),
     onSettled(_resultat, _erreur, projectId) {
       void client.invalidateQueries({ queryKey: cles.projet(projectId) })
       void client.invalidateQueries({ queryKey: cles.projets })

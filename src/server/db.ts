@@ -3,7 +3,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
-import type { Réglages } from '@/lib/api'
+import type { Settings } from '@/lib/api'
 import { projectsDir } from '@/server/paths'
 
 /**
@@ -219,18 +219,23 @@ export function closeDb(): void {
  * une *référence* au secret, jamais sa valeur — cette table se relit en clair
  * avec `sqlite3`, et le dépôt est public. Un test tient la règle en refusant
  * qu'un champ du registre porte un nom de secret.
+ *
+ * **Les noms des cinq champs de repérage restent français**, seule entorse à la
+ * règle de langue de `CLAUDE.md` : ils sont persistés en clés `selection.<champ>`
+ * dans la table, donc les traduire demande une migration. Ils partiront avec le
+ * reste de la dette, issue #73. Tout le reste de ce bloc est neuf, donc anglais.
  */
 
 /** Ce qu'un réglage sait être. Une famille nouvelle en ajoute au besoin. */
-export type TypeDeRéglage = 'entier' | 'texte' | 'booléen'
+export type SettingFieldType = 'integer' | 'text' | 'boolean'
 
 /** Un réglage, décrit une fois : sa forme, ses bornes et ce qu'il veut dire. */
-export type ChampDeRéglage = {
+export type SettingField = {
   /** La famille, qui est aussi le préfixe de la clé stockée. */
-  famille: keyof Réglages
-  nom: string
-  type: TypeDeRéglage
-  défaut: number | string | boolean
+  family: keyof Settings
+  name: string
+  type: SettingFieldType
+  defaultValue: number | string | boolean
   /**
    * Le plus petit entier acceptable. **Entiers seulement**, et absent ailleurs.
    *
@@ -239,11 +244,11 @@ export type ChampDeRéglage = {
    * une saisie ratée — une durée nulle par clip diviserait par zéro, un ratio
    * nul viderait la présélection.
    */
-  plancher?: number
+  min?: number
   /** Ce que l'écran affiche à la place du nom technique (retour d'usage §6.2). */
-  libellé: string
+  label: string
   /** La phrase qui dit ce que le réglage change. */
-  explication: string
+  description: string
 }
 
 /**
@@ -254,32 +259,32 @@ export type ChampDeRéglage = {
  * existe pour la même raison : un réglage sans libellé s'afficherait sous son
  * nom technique, ou pas du tout.
  */
-const LIBELLÉS_SELECTION: Record<
+const SELECTION_LABELS: Record<
   keyof DimensionsRepérage,
-  { libellé: string; explication: string }
+  { label: string; description: string }
 > = {
   minutesParClip: {
-    libellé: 'Minutes de parole par clip',
-    explication:
+    label: 'Minutes de parole par clip',
+    description:
       'Une proposition attendue par tranche de tant de minutes de parole. Plus petit, plus de propositions.',
   },
   fenetresParClip: {
-    libellé: 'Fenêtres examinées par clip',
-    explication:
+    label: 'Fenêtres examinées par clip',
+    description:
       'Combien de fenêtres de 90 s sont présélectionnées pour chaque clip demandé. Plus grand, plus de matière soumise au détail — et plus d’appels au modèle.',
   },
   clipsMinimum: {
-    libellé: 'Minimum de clips',
-    explication:
+    label: 'Minimum de clips',
+    description:
       'Plancher absolu, pour qu’une émission courte sorte de la zone morte plutôt que de rendre une ou deux propositions.',
   },
   fenetresMinimum: {
-    libellé: 'Minimum de fenêtres',
-    explication: 'Plancher absolu de fenêtres présélectionnées, quel que soit le nombre de clips.',
+    label: 'Minimum de fenêtres',
+    description: 'Plancher absolu de fenêtres présélectionnées, quel que soit le nombre de clips.',
   },
   clipsMaximum: {
-    libellé: 'Maximum de clips',
-    explication: 'Plafond absolu. 0 veut dire « aucun plafond ».',
+    label: 'Maximum de clips',
+    description: 'Plafond absolu. 0 veut dire « aucun plafond ».',
   },
 }
 
@@ -288,23 +293,23 @@ const LIBELLÉS_SELECTION: Record<
  * réénumérés : une seconde liste tenue à la main diverge du type au premier
  * ajout, et le réglage qui manquerait ne serait jamais relu.
  */
-const CHAMPS_SELECTION: readonly ChampDeRéglage[] = (
+const SELECTION_FIELDS: readonly SettingField[] = (
   Object.keys(DIMENSIONS_PAR_DÉFAUT) as (keyof DimensionsRepérage)[]
-).map((nom) => ({
-  famille: 'selection' as const,
-  nom,
-  type: 'entier' as const,
-  défaut: DIMENSIONS_PAR_DÉFAUT[nom],
-  plancher: nom === 'clipsMaximum' ? 0 : 1,
-  ...LIBELLÉS_SELECTION[nom],
+).map((name) => ({
+  family: 'selection' as const,
+  name,
+  type: 'integer' as const,
+  defaultValue: DIMENSIONS_PAR_DÉFAUT[name],
+  min: name === 'clipsMaximum' ? 0 : 1,
+  ...SELECTION_LABELS[name],
 }))
 
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
-export const REGISTRE_RÉGLAGES: readonly ChampDeRéglage[] = CHAMPS_SELECTION
+export const SETTING_FIELDS: readonly SettingField[] = SELECTION_FIELDS
 
 /** Le champ décrit par une famille et un nom, ou `undefined` s'il n'existe pas. */
-export function champDeRéglage(famille: string, nom: string): ChampDeRéglage | undefined {
-  return REGISTRE_RÉGLAGES.find((c) => c.famille === famille && c.nom === nom)
+export function settingField(family: string, name: string): SettingField | undefined {
+  return SETTING_FIELDS.find((f) => f.family === family && f.name === name)
 }
 
 /**
@@ -317,11 +322,11 @@ export function champDeRéglage(famille: string, nom: string): ChampDeRéglage |
  * refus des clés inconnues existe pour fermer, une couche plus haut.
  * (relevé par Codex)
  */
-const FAMILLES = new Set<string>(REGISTRE_RÉGLAGES.map((c) => c.famille))
+const FAMILIES = new Set<string>(SETTING_FIELDS.map((f) => f.family))
 
 /** La clé telle qu'elle est stockée. Préfixée par la famille. */
-function cléStockée(champ: ChampDeRéglage): string {
-  return `${champ.famille}.${champ.nom}`
+function storedKey(field: SettingField): string {
+  return `${field.family}.${field.name}`
 }
 
 /**
@@ -331,18 +336,18 @@ function cléStockée(champ: ChampDeRéglage): string {
  * sans lire son message, sinon le refus d'une saisie ressortirait en 500 et
  * enverrait chercher un défaut du serveur là où il n'y en a pas.
  */
-export class RéglageInvalideError extends Error {
+export class InvalidSettingError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'RéglageInvalideError'
+    this.name = 'InvalidSettingError'
   }
 }
 
 /**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
- * **Exportée avec `validerRéglage` parce que les familles qui exerceront les
- * types `texte` et `booléen` n'existent pas encore.** Ces deux branches sont la
+ * **Exportée avec `validateSetting` parce que les familles qui exerceront les
+ * types `text` et `boolean` n'existent pas encore.** Ces deux branches sont la
  * généralisation elle-même — ce qui fait qu'une famille nouvelle décrit ses
  * champs au lieu de réécrire sa validation —, et sans elles le registre ne
  * serait qu'une table d'entiers déguisée. Les laisser sans test jusqu'à ce
@@ -352,7 +357,7 @@ export class RéglageInvalideError extends Error {
  * **Une suite de chiffres, ou rien** — ni `parseInt`, ni `Number` seul, qui ont
  * chacun leurs largesses. `parseInt` lit ce qu'il peut et jette le reste :
  * `"4.5"` devenait 4 et `"7abc"` devenait 7, si bien qu'une valeur corrompue
- * *modifiait* le repérage au lieu d'être ignorée comme `réglagesEffectifs`
+ * *modifiait* le repérage au lieu d'être ignorée comme `effectiveSettings`
  * l'annonce. Une saisie à moitié comprise est le pire des trois cas — pire que
  * refusée, pire qu'acceptée telle quelle, parce que personne ne peut deviner le
  * nombre qui a fini par s'appliquer. (relevé par Copilot)
@@ -360,72 +365,75 @@ export class RéglageInvalideError extends Error {
  * `Number` seul ne suffit pas non plus : la chaîne vide et les blancs valent
  * zéro, `"0x10"` vaut seize.
  */
-export function relireRéglage(
-  champ: ChampDeRéglage,
-  brut: string,
+export function parseSetting(
+  field: SettingField,
+  raw: string,
 ): number | string | boolean | undefined {
-  switch (champ.type) {
-    case 'entier': {
-      if (!/^\d+$/.test(brut.trim())) return undefined
-      const valeur = Number(brut.trim())
-      if (!Number.isSafeInteger(valeur) || valeur < (champ.plancher ?? 0)) return undefined
-      return valeur
+  switch (field.type) {
+    case 'integer': {
+      if (!/^\d+$/.test(raw.trim())) return undefined
+      const value = Number(raw.trim())
+      if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return undefined
+      return value
     }
-    case 'booléen':
-      return brut === 'true' ? true : brut === 'false' ? false : undefined
-    case 'texte':
-      return brut
+    case 'boolean':
+      return raw === 'true' ? true : raw === 'false' ? false : undefined
+    case 'text':
+      return raw
   }
 }
 
 /** La forme stockée d'une valeur déjà validée. */
-function écrire(valeur: number | string | boolean): string {
-  return typeof valeur === 'string' ? valeur : String(valeur)
+function serialize(value: number | string | boolean): string {
+  return typeof value === 'string' ? value : String(value)
 }
 
 /** De combien de caractères un réglage de texte a besoin, et pas un de plus. */
-const TEXTE_MAX = 2_048
+const TEXT_MAX = 2_048
 
 /**
  * Valide une valeur reçue, ou lève.
  *
- * **L'inverse exact de `relireRéglage`, et c'est délibéré** : là, une valeur illisible
- * est ignorée parce que le repérage tourne derrière une transcription qui a
- * coûté quarante minutes ; ici quelqu'un attend une réponse, et lui dire non
- * tout de suite vaut mieux que de l'ignorer plus tard.
+ * **L'inverse exact de `parseSetting`, et c'est délibéré** : là, une valeur
+ * illisible est ignorée parce que le repérage tourne derrière une transcription
+ * qui a coûté quarante minutes ; ici quelqu'un attend une réponse, et lui dire
+ * non tout de suite vaut mieux que de l'ignorer plus tard.
  */
-export function validerRéglage(champ: ChampDeRéglage, valeur: unknown): number | string | boolean {
-  const clé = cléStockée(champ)
-  switch (champ.type) {
-    case 'entier': {
-      const plancher = champ.plancher ?? 0
+export function validateSetting(
+  field: SettingField,
+  value: unknown,
+): number | string | boolean {
+  const key = storedKey(field)
+  switch (field.type) {
+    case 'integer': {
+      const min = field.min ?? 0
       // `isSafeInteger` et non `isInteger`, **la même règle que le lecteur** :
       // `isInteger(1e100)` est vrai, `String(1e100)` donne `"1e+100"`, et
-      // `relireRéglage` refuse cette écriture. Une écriture réussie se relisait donc en
-      // défaut, ce qui est le pire des retours — l'écran de réglages aurait juré
-      // avoir enregistré. (relevé par Copilot)
-      if (typeof valeur !== 'number' || !Number.isSafeInteger(valeur) || valeur < plancher) {
-        throw new RéglageInvalideError(
-          `Réglage ${clé} : un entier supérieur ou égal à ${plancher} est attendu, reçu ${JSON.stringify(valeur)}.`,
+      // `parseSetting` refuse cette écriture. Une écriture réussie se relisait
+      // donc en défaut, ce qui est le pire des retours — l'écran de réglages
+      // aurait juré avoir enregistré. (relevé par Copilot)
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : un entier supérieur ou égal à ${min} est attendu, reçu ${JSON.stringify(value)}.`,
         )
       }
-      return valeur
+      return value
     }
-    case 'booléen': {
-      if (typeof valeur !== 'boolean') {
-        throw new RéglageInvalideError(
-          `Réglage ${clé} : un booléen est attendu, reçu ${JSON.stringify(valeur)}.`,
+    case 'boolean': {
+      if (typeof value !== 'boolean') {
+        throw new InvalidSettingError(
+          `Réglage ${key} : un booléen est attendu, reçu ${JSON.stringify(value)}.`,
         )
       }
-      return valeur
+      return value
     }
-    case 'texte': {
-      if (typeof valeur !== 'string' || valeur.trim() === '' || valeur.length > TEXTE_MAX) {
-        throw new RéglageInvalideError(
-          `Réglage ${clé} : un texte non vide d'au plus ${TEXTE_MAX} caractères est attendu.`,
+    case 'text': {
+      if (typeof value !== 'string' || value.trim() === '' || value.length > TEXT_MAX) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : un texte non vide d'au plus ${TEXT_MAX} caractères est attendu.`,
         )
       }
-      return valeur
+      return value
     }
   }
 }
@@ -440,35 +448,35 @@ export function validerRéglage(champ: ChampDeRéglage, valeur: unknown): number
  * absente** — exactement ce que `tailleDeLot` réserve à `SCORE_BATCH`
  * (`src/server/steps/candidates.ts`).
  */
-export function réglagesEffectifs(db: Database.Database): Réglages {
-  const lignes = db.prepare('SELECT key, value FROM settings').all() as {
+export function effectiveSettings(db: Database.Database): Settings {
+  const rows = db.prepare('SELECT key, value FROM settings').all() as {
     key: string
     value: string
   }[]
-  const enBase = new Map(lignes.map((ligne) => [ligne.key, ligne.value]))
+  const stored = new Map(rows.map((row) => [row.key, row.value]))
 
-  const familles = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
-  for (const champ of REGISTRE_RÉGLAGES) {
-    const brut = enBase.get(cléStockée(champ))
-    if (brut === undefined) continue
-    const valeur = relireRéglage(champ, brut)
-    if (valeur === undefined) continue
+  const families = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
+  for (const field of SETTING_FIELDS) {
+    const raw = stored.get(storedKey(field))
+    if (raw === undefined) continue
+    const value = parseSetting(field, raw)
+    if (value === undefined) continue
     // L'assertion vaut ce que vaut le registre : le seul chemin qui écrive une
-    // valeur ici passe par `validerRéglage`, qui la contraint au type du champ.
-    ;(familles[champ.famille] as Record<string, unknown>)[champ.nom] = valeur
+    // valeur ici passe par `validateSetting`, qui la contraint au type du champ.
+    ;(families[field.family] as Record<string, unknown>)[field.name] = value
   }
-  return familles
+  return families
 }
 
 /**
  * Ce qui dimensionne le repérage. La vue que `runCandidates` consomme.
  *
- * Une projection de `réglagesEffectifs`, et non un second lecteur : deux façons
+ * Une projection d'`effectiveSettings`, et non un second lecteur : deux façons
  * de lire la même table finiraient par ne plus s'accorder sur ce qu'une valeur
  * corrompue vaut.
  */
 export function getRéglages(db: Database.Database): DimensionsRepérage {
-  return réglagesEffectifs(db).selection
+  return effectiveSettings(db).selection
 }
 
 /**
@@ -487,58 +495,57 @@ export function getRéglages(db: Database.Database): DimensionsRepérage {
  * émissions déjà analysées gardent leurs propositions, un recalcul reste une
  * action explicite. Rien ici ne touche à la table `clips` ni à un artefact.
  */
-export function appliquerRéglages(db: Database.Database, patch: unknown): Réglages {
+export function applySettings(db: Database.Database, patch: unknown): Settings {
   if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
-    throw new RéglageInvalideError('Le corps attendu est un objet de familles de réglages.')
+    throw new InvalidSettingError('Le corps attendu est un objet de familles de réglages.')
   }
 
-  const àécrire: { clé: string; valeur: string }[] = []
-  for (const [famille, champs] of Object.entries(patch as Record<string, unknown>)) {
-    if (champs === undefined) continue
-    if (!FAMILLES.has(famille)) {
-      throw new RéglageInvalideError(`Famille de réglages inconnue : ${famille}`)
+  const toWrite: { key: string; value: string }[] = []
+  for (const [family, fields] of Object.entries(patch as Record<string, unknown>)) {
+    if (fields === undefined) continue
+    if (!FAMILIES.has(family)) {
+      throw new InvalidSettingError(`Famille de réglages inconnue : ${family}`)
     }
-    if (typeof champs !== 'object' || champs === null || Array.isArray(champs)) {
-      throw new RéglageInvalideError(
-        `Famille de réglages ${JSON.stringify(famille)} : un objet est attendu.`,
+    if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) {
+      throw new InvalidSettingError(
+        `Famille de réglages ${JSON.stringify(family)} : un objet est attendu.`,
       )
     }
-    for (const [nom, valeur] of Object.entries(champs as Record<string, unknown>)) {
-      if (valeur === undefined) continue
-      const champ = champDeRéglage(famille, nom)
-      if (champ === undefined) {
-        throw new RéglageInvalideError(`Réglage inconnu : ${famille}.${nom}`)
+    for (const [name, value] of Object.entries(fields as Record<string, unknown>)) {
+      if (value === undefined) continue
+      const field = settingField(family, name)
+      if (field === undefined) {
+        throw new InvalidSettingError(`Réglage inconnu : ${family}.${name}`)
       }
-      àécrire.push({ clé: cléStockée(champ), valeur: écrire(validerRéglage(champ, valeur)) })
+      toWrite.push({ key: storedKey(field), value: serialize(validateSetting(field, value)) })
     }
   }
 
-  const insérer = db.prepare(
+  const insert = db.prepare(
     `INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
   )
-  const maintenant = Date.now()
+  const now = Date.now()
   db.transaction(() => {
-    for (const { clé, valeur } of àécrire) insérer.run(clé, valeur, maintenant)
+    for (const { key, value } of toWrite) insert.run(key, value, now)
   })()
 
-  return réglagesEffectifs(db)
+  return effectiveSettings(db)
 }
 
 /**
  * Écrit un réglage de repérage. Le raccourci des tests et des scripts.
  *
- * `appliquerRéglages` est la porte de la route, celle-ci est la porte du code :
- * elle nomme un champ typé plutôt qu'une paire famille/clé, donc une faute de
- * frappe y est une erreur de compilation. Les deux passent par la même
- * validation.
+ * `applySettings` est la porte de la route, celle-ci est la porte du code : elle
+ * nomme un champ typé plutôt qu'une paire famille/clé, donc une faute de frappe
+ * y est une erreur de compilation. Les deux passent par la même validation.
  */
 export function setRéglage(
   db: Database.Database,
   champ: keyof DimensionsRepérage,
   valeur: number,
 ): void {
-  appliquerRéglages(db, { selection: { [champ]: valeur } })
+  applySettings(db, { selection: { [champ]: valeur } })
 }
 
 export function upsertProject(db: Database.Database, project: Project): void {

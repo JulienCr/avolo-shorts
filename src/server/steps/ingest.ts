@@ -5,7 +5,7 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
 import { getDb, getProject, upsertProject } from '@/server/db'
-import { ArrêtDemandéError, cheminTemporaire } from '@/server/ffmpeg'
+import { cheminTemporaire, StopRequestedError } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
 import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
 
@@ -239,7 +239,7 @@ async function copier(
     await fsp.rm(temporaire, { force: true }).catch(() => {})
     // Un arrêt demandé n'est pas un échec de la copie : `pipeline` rejette avec
     // une `AbortError` dont le message ne dit rien à personne.
-    if (signal?.aborted === true) throw new ArrêtDemandéError(`copie de ${path.basename(src)}`)
+    if (signal?.aborted === true) throw new StopRequestedError(`copie de ${path.basename(src)}`)
     throw cause
   }
 }
@@ -267,7 +267,7 @@ async function copier(
  * La clé est la **destination**, pas la source : c'est elle qui est écrite, et
  * elle dérive de toute façon du nom du fichier d'origine.
  */
-const copiesEnVol = new Map<string, Promise<void>>()
+const copiesInFlight = new Map<string, Promise<void>>()
 
 /**
  * Copie, ou attend celle qui est déjà partie vers la même destination. Rend
@@ -280,13 +280,13 @@ const copiesEnVol = new Map<string, Promise<void>>()
  * **Mais l'échec du premier n'est pas l'échec du second, et surtout pas son
  * arrêt.** Une version antérieure laissait remonter tel quel le rejet de la
  * copie voisine : quand celle-ci était coupée par l'arrêt d'un *autre* projet,
- * le second recevait `ArrêtDemandéError` alors que son propre signal n'avait
+ * le second recevait `StopRequestedError` alors que son propre signal n'avait
  * rien reçu, et `exécuter` — qui décide sur son signal à lui, à raison —
  * l'écrivait dans `status.json` comme une panne. L'écran affichait donc « Arrêt
  * demandé — copie de … » en bandeau d'échec à quelqu'un qui n'avait rien
  * demandé. On tente donc la sienne. (relevé par Aristarque)
  */
-async function copieUnique(
+async function copyOnce(
   src: string,
   dst: string,
   total: number,
@@ -296,23 +296,23 @@ async function copieUnique(
   // **Deux tours au plus.** Le premier attend la copie déjà partie ; le second
   // couvre le cas où une troisième est repartie pendant cette attente. Sans
   // borne, deux appelants qui échouent l'un après l'autre boucleraient.
-  for (let tour = 0; tour < 2; tour += 1) {
-    const enVol = copiesEnVol.get(dst)
-    if (enVol === undefined) break
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const inFlight = copiesInFlight.get(dst)
+    if (inFlight === undefined) break
     // Le sort de la copie voisine, jamais son erreur : ce qui nous intéresse est
     // « y a-t-il une copie exploitable au bout », pas pourquoi la sienne a raté.
-    if (await enVol.then(() => true, () => false)) return false
+    if (await inFlight.then(() => true, () => false)) return false
     // Notre arrêt à nous, en revanche, se dit tel quel.
-    if (signal?.aborted === true) throw new ArrêtDemandéError(`copie de ${path.basename(src)}`)
+    if (signal?.aborted === true) throw new StopRequestedError(`copie de ${path.basename(src)}`)
   }
 
-  const travail = copier(src, dst, total, onProgress, signal)
-  copiesEnVol.set(dst, travail)
+  const work = copier(src, dst, total, onProgress, signal)
+  copiesInFlight.set(dst, work)
   try {
-    await travail
+    await work
     return true
   } finally {
-    copiesEnVol.delete(dst)
+    copiesInFlight.delete(dst)
   }
 }
 
@@ -325,7 +325,7 @@ async function copieUnique(
  * — 45 secondes pour 4,3 Go —, jamais un artefact ni une décision. `stage/` porte
  * plusieurs gigaoctets par émission ; sans borne, il grossit jusqu'au disque.
  */
-export const TTL_STAGE_MS = 8 * 60 * 60 * 1000
+export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
 
 /**
  * Retire de `stage/` les copies plus vieilles que le TTL. **Best effort.**
@@ -336,65 +336,65 @@ export const TTL_STAGE_MS = 8 * 60 * 60 * 1000
  *
  * Trois protections, et chacune ferme un cas réel :
  *
- * - **les copies en vol sont épargnées** par `copiesEnVol`, et leur temporaire
+ * - **les copies en vol sont épargnées** par `copiesInFlight`, et leur temporaire
  *   l'est par sa date de modification, qui avance à chaque bloc écrit ;
- * - **`garder` épargne ce qu'une exécution est en train de lire.** Effacer sous
+ * - **`keep` épargne ce qu'une exécution est en train de lire.** Effacer sous
  *   un ffmpeg ne le casse pas — le descripteur ouvert survit à l'`unlink` sous
  *   Linux — mais l'étape suivante repaierait la copie ;
  * - **rien hors de `stage/`.** Les noms viennent d'un `readdir` du dossier et
  *   sont rejoints dessus, les sous-dossiers et les liens sont ignorés.
  *
- * **`garder` est une fonction, et pas une liste, parce que le balayage dure.**
+ * **`keep` est une fonction, et pas une liste, parce que le balayage dure.**
  * Prise en instantané au départ, elle ignorait une exécution démarrée pendant la
  * boucle : ce projet-là ne recopie rien — `ingestionNécessaire` vient de
- * constater que sa copie est là —, `copiesEnVol` ne le connaît donc pas, et le
+ * constater que sa copie est là —, `copiesInFlight` ne le connaît donc pas, et le
  * balayage l'effaçait sous ses pieds. L'étape suivante échouait sur une entrée
  * manquante. Réévaluée à chaque fichier, la liste voit les exécutions arrivées
  * entre-temps. Elle rend `null` quand on n'a pas pu savoir : on épargne alors
  * plutôt que d'effacer à l'aveugle. (relevé par Codex)
  */
-export async function nettoyerStage(
+export async function cleanStage(
   options: {
     ttlMs?: number
-    maintenant?: number
-    garder?: () => Iterable<string> | null
+    now?: number
+    keep?: () => Iterable<string> | null
   } = {},
 ): Promise<string[]> {
-  const dossier = stageDir()
-  const limite = (options.maintenant ?? Date.now()) - (options.ttlMs ?? TTL_STAGE_MS)
+  const dir = stageDir()
+  const cutoff = (options.now ?? Date.now()) - (options.ttlMs ?? STAGE_TTL_MS)
 
-  let noms: string[]
+  let names: string[]
   try {
-    noms = await fsp.readdir(dossier)
+    names = await fsp.readdir(dir)
   } catch {
     // Pas encore de dossier de travail : il n'y a rien à nettoyer.
     return []
   }
 
-  const retirés: string[] = []
-  for (const nom of noms) {
-    const chemin = path.join(dossier, nom)
-    if (copiesEnVol.has(chemin)) continue
-    const épargnés = options.garder?.()
-    if (épargnés === null) continue
-    if (épargnés !== undefined && new Set(épargnés).has(chemin)) continue
+  const removed: string[] = []
+  for (const name of names) {
+    const filePath = path.join(dir, name)
+    if (copiesInFlight.has(filePath)) continue
+    const kept = options.keep?.()
+    if (kept === null) continue
+    if (kept !== undefined && new Set(kept).has(filePath)) continue
     try {
       // `lstat` : un lien symbolique n'est pas une copie de travail, et le
       // suivre ferait effacer ce qu'il désigne.
-      const stat = await fsp.lstat(chemin)
-      if (!stat.isFile() || stat.mtimeMs > limite) continue
-      await fsp.rm(chemin, { force: true })
-      retirés.push(nom)
+      const stat = await fsp.lstat(filePath)
+      if (!stat.isFile() || stat.mtimeMs > cutoff) continue
+      await fsp.rm(filePath, { force: true })
+      removed.push(name)
     } catch {
       // Un fichier disparu entre le `readdir` et le `lstat`, une permission
       // refusée : on passe au suivant. Le nettoyage est une hygiène, pas une
       // étape du pipeline.
     }
   }
-  if (retirés.length > 0) {
-    console.log(`stage/ : ${retirés.length} copie(s) périmée(s) retirée(s) — ${retirés.join(', ')}`)
+  if (removed.length > 0) {
+    console.log(`stage/ : ${removed.length} copie(s) périmée(s) retirée(s) — ${removed.join(', ')}`)
   }
-  return retirés
+  return removed
 }
 
 /**
@@ -454,7 +454,7 @@ export type Ingestion = {
    *
    * Faux dans deux cas, et ils veulent dire la même chose pour l'appelant — il
    * n'a rien payé : la copie était déjà là à la bonne taille, ou un autre appel
-   * la faisait déjà et celui-ci l'a attendue (voir `copieUnique`).
+   * la faisait déjà et celui-ci l'a attendue (voir `copyOnce`).
    */
   copied: boolean
 } & Empreinte
@@ -499,9 +499,9 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     force: options.force,
   })
 
-  const copié =
+  const copied =
     décision === 'copier' &&
-    (await copieUnique(sourcePath, destination, stat.size, options.onProgress, options.signal))
+    (await copyOnce(sourcePath, destination, stat.size, options.onProgress, options.signal))
 
   // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
   // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
@@ -511,7 +511,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     projectId,
     sourcePath,
     stagedPath: destination,
-    copied: copié,
+    copied,
     ...empreinte,
   }
 

@@ -15,14 +15,14 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ExportResult, RunPlan, Réglages } from '@/lib/api'
+import type { ExportResult, RunPlan, Settings } from '@/lib/api'
 import {
   cles,
-  useArrêter,
+  useStopAnalysis,
   useCreerProjet,
   useExporter,
-  useRéglages,
-  useÉcrireRéglages,
+  useSettings,
+  useSaveSettings,
 } from '@/lib/queries'
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
@@ -203,8 +203,8 @@ describe('useCreerProjet', () => {
   })
 })
 
-describe('les réglages', () => {
-  const réglages: Réglages = {
+describe('les settings', () => {
+  const settings: Settings = {
     selection: {
       minutesParClip: 6,
       fenetresParClip: 2,
@@ -215,32 +215,32 @@ describe('les réglages', () => {
   }
 
   it('se lisent sans interrogation en boucle', async () => {
-    const appel = vi.fn(async () => reponse(réglages))
+    const appel = vi.fn(async () => reponse(settings))
     vi.stubGlobal('fetch', appel)
     const { enveloppe } = harnais()
-    const { result } = renderHook(() => useRéglages(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useSettings(), { wrapper: enveloppe })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data).toEqual(réglages)
+    expect(result.current.data).toEqual(settings)
     expect(appel).toHaveBeenCalledWith('/api/settings', expect.anything())
   })
 
   /**
    * **La réponse remplace le cache, elle ne l'invalide pas.** La route rend les
-   * réglages *résultants*, champs non touchés compris : invalider ferait une
+   * settings *résultants*, champs non touchés compris : invalider ferait une
    * seconde requête pour obtenir exactement le corps qu'on vient de recevoir.
    */
   it('remplacent le cache avec la réponse plutôt que de la redemander', async () => {
-    const après: Réglages = { selection: { ...réglages.selection, minutesParClip: 4 } }
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(après)))
+    const after: Settings = { selection: { ...settings.selection, minutesParClip: 4 } }
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(after)))
     const { client, invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate({ selection: { minutesParClip: 4 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(client.getQueryData(cles.reglages)).toEqual(après)
+    expect(client.getQueryData(cles.settings)).toEqual(after)
     expect(invalide).not.toHaveBeenCalled()
   })
 
@@ -251,9 +251,9 @@ describe('les réglages', () => {
    * effet qui n'existe pas.
    */
   it('n’invalident ni les projets ni les candidats', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(réglages)))
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(settings)))
     const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate({ selection: { clipsMaximum: 12 } })
@@ -270,7 +270,7 @@ describe('les réglages', () => {
       ),
     )
     const { enveloppe } = harnais()
-    const { result } = renderHook(() => useÉcrireRéglages(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate({ selection: { minutesParClip: 0 } })
@@ -280,7 +280,7 @@ describe('les réglages', () => {
   })
 })
 
-describe('useArrêter', () => {
+describe('useStopAnalysis', () => {
   /**
    * **L'état du projet et la bibliothèque s'invalident quoi qu'il arrive.** Les
    * deux n'interrogent en boucle que tant que quelque chose tourne : sans cette
@@ -288,9 +288,9 @@ describe('useArrêter', () => {
    * arrêtée pour vivante, et son sondage s'arrêterait sur cet état-là.
    */
   it('invalide le projet et la bibliothèque', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: true })))
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: true })))
     const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate('p1')
@@ -303,26 +303,26 @@ describe('useArrêter', () => {
   })
 
   /**
-   * `arrêtée: false` n'est pas un échec : rien ne tournait. L'écran n'a rien à
+   * `stopped: false` n'est pas un échec : rien ne tournait. L'écran n'a rien à
    * dire de plus que ce que l'état rafraîchi montre déjà.
    */
   it('traite « rien ne tournait » comme un succès', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: false })))
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: false })))
     const { enveloppe } = harnais()
-    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data).toEqual({ arrêtée: false })
+    expect(result.current.data).toEqual({ stopped: false })
   })
 
   /** Et même en échec, l'état du projet se recharge : c'est là qu'on saura. */
   it('invalide aussi quand la requête échoue', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'Projet inconnu' }, 404)))
     const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useArrêter(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
 
     await act(async () => {
       result.current.mutate('p1')

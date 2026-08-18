@@ -4,11 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import Database, { type Database as BaseSqlite } from 'better-sqlite3'
 import {
-  appliquerRéglages,
-  champDeRéglage,
-  relireRéglage,
-  validerRéglage,
-  type ChampDeRéglage,
+  applySettings,
+  settingField,
+  parseSetting,
+  validateSetting,
+  type SettingField,
   getClip,
   getClips,
   getProject,
@@ -17,10 +17,10 @@ import {
   openDb,
   putClip,
   putClipOrdonné,
-  REGISTRE_RÉGLAGES,
+  SETTING_FIELDS,
   replaceClips,
-  RéglageInvalideError,
-  réglagesEffectifs,
+  InvalidSettingError,
+  effectiveSettings,
   setRéglage,
   upsertProject,
   type Project,
@@ -199,16 +199,16 @@ describe('les réglages', () => {
 })
 
 describe('le registre des réglages', () => {
-  it('décrit chaque champ de DimensionsRepérage, libellé compris', () => {
+  it('décrit chaque field de DimensionsRepérage, libellé compris', () => {
     // Le contrat du §6.2 du retour d'usage : « éviter de présenter uniquement
-    // les noms techniques des clés ». Un champ ajouté sans libellé casse le
-    // type-check ; celui-ci vérifie qu'aucun ne reste vide.
-    for (const nom of Object.keys(DIMENSIONS_PAR_DÉFAUT)) {
-      const champ = champDeRéglage('selection', nom)
-      expect(champ, nom).toBeDefined()
-      expect(champ!.libellé.length).toBeGreaterThan(0)
-      expect(champ!.explication.length).toBeGreaterThan(0)
-      expect(champ!.défaut).toBe(DIMENSIONS_PAR_DÉFAUT[nom as keyof typeof DIMENSIONS_PAR_DÉFAUT])
+    // les noms techniques des clés ». Un field ajouté sans libellé casse le
+    // type-check ; celui-ci vérifie qu'aucun ne rest vide.
+    for (const name of Object.keys(DIMENSIONS_PAR_DÉFAUT)) {
+      const field = settingField('selection', name)
+      expect(field, name).toBeDefined()
+      expect(field!.label.length).toBeGreaterThan(0)
+      expect(field!.description.length).toBeGreaterThan(0)
+      expect(field!.defaultValue).toBe(DIMENSIONS_PAR_DÉFAUT[name as keyof typeof DIMENSIONS_PAR_DÉFAUT])
     }
   })
 
@@ -217,19 +217,19 @@ describe('le registre des réglages', () => {
    * clair avec `sqlite3`, et le dépôt est public : les secrets passent par
    * `@/server/secrets`, qui les résout depuis 1Password. Une famille
    * « intelligence artificielle » stockera un modèle et une *référence*, jamais
-   * une valeur — ce test tombe le jour où quelqu'un ajoute `apiKey` au registre.
+   * une value — ce test tombe le jour où quelqu'un ajoute `apiKey` au registre.
    */
-  it('ne porte aucun champ dont le nom annonce un secret', () => {
-    for (const champ of REGISTRE_RÉGLAGES) {
-      expect(`${champ.famille}.${champ.nom}`).not.toMatch(
+  it('ne porte aucun field dont le name annonce un secret', () => {
+    for (const field of SETTING_FIELDS) {
+      expect(`${field.family}.${field.name}`).not.toMatch(
         /(cle|clé|key|token|secret|password|passwd|motdepasse)/i,
       )
     }
   })
 
   it('ne connaît pas une famille qui n’existe pas', () => {
-    expect(champDeRéglage('hook', 'duree')).toBeUndefined()
-    expect(champDeRéglage('selection', 'minutesParClipe')).toBeUndefined()
+    expect(settingField('hook', 'duree')).toBeUndefined()
+    expect(settingField('selection', 'minutesParClipe')).toBeUndefined()
   })
 
   it('préfixe chaque clé stockée par sa famille', () => {
@@ -250,141 +250,141 @@ describe('le registre des réglages', () => {
  * où quelqu'un s'en sert.
  */
 describe('la grammaire du registre', () => {
-  const champ = (
-    type: ChampDeRéglage['type'],
-    reste: Partial<ChampDeRéglage> = {},
-  ): ChampDeRéglage => ({
-    famille: 'selection',
-    nom: 'témoin',
+  const field = (
+    type: SettingField['type'],
+    rest: Partial<SettingField> = {},
+  ): SettingField => ({
+    family: 'selection',
+    name: 'temoin',
     type,
-    défaut: type === 'entier' ? 1 : type === 'texte' ? 'a' : false,
-    libellé: 'Témoin',
-    explication: 'Un champ qui n’existe que pour ce test.',
-    ...reste,
+    defaultValue: type === 'integer' ? 1 : type === 'text' ? 'a' : false,
+    label: 'Témoin',
+    description: 'Un field qui n’existe que pour ce test.',
+    ...rest,
   })
 
   it('relit un entier, et rien qui lui ressemble', () => {
-    const c = champ('entier', { plancher: 1 })
-    expect(relireRéglage(c, ' 4 ')).toBe(4)
+    const f = field('integer', { min: 1 })
+    expect(parseSetting(f, ' 4 ')).toBe(4)
     // `parseInt` lirait 4 dans « 4.5 » et 7 dans « 7abc » : une saisie à moitié
     // comprise est pire que refusée, personne ne peut deviner ce qui s'applique.
-    for (const brut of ['', 'sept', '4.5', '7abc', '0x10', '-3', '0']) {
-      expect(relireRéglage(c, brut), brut).toBeUndefined()
+    for (const raw of ['', 'sept', '4.5', '7abc', '0x10', '-3', '0']) {
+      expect(parseSetting(f, raw), raw).toBeUndefined()
     }
   })
 
   it('relit un booléen écrit en toutes lettres, et rien d’autre', () => {
-    const c = champ('booléen')
-    expect(relireRéglage(c, 'true')).toBe(true)
-    expect(relireRéglage(c, 'false')).toBe(false)
-    for (const brut of ['1', '0', 'oui', 'TRUE', '']) {
-      expect(relireRéglage(c, brut), brut).toBeUndefined()
+    const f = field('boolean')
+    expect(parseSetting(f, 'true')).toBe(true)
+    expect(parseSetting(f, 'false')).toBe(false)
+    for (const raw of ['1', '0', 'oui', 'TRUE', '']) {
+      expect(parseSetting(f, raw), raw).toBeUndefined()
     }
   })
 
   it('relit un texte tel quel', () => {
-    expect(relireRéglage(champ('texte'), 'http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434')
+    expect(parseSetting(field('text'), 'http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434')
   })
 
   it('valide chaque type sans convertir d’un type à l’autre', () => {
-    expect(validerRéglage(champ('entier', { plancher: 0 }), 0)).toBe(0)
-    expect(validerRéglage(champ('booléen'), true)).toBe(true)
-    expect(validerRéglage(champ('texte'), 'gemma4:26b')).toBe('gemma4:26b')
+    expect(validateSetting(field('integer', { min: 0 }), 0)).toBe(0)
+    expect(validateSetting(field('boolean'), true)).toBe(true)
+    expect(validateSetting(field('text'), 'gemma4:26b')).toBe('gemma4:26b')
 
-    expect(() => validerRéglage(champ('entier', { plancher: 1 }), '4')).toThrow()
-    expect(() => validerRéglage(champ('booléen'), 'true')).toThrow()
-    expect(() => validerRéglage(champ('booléen'), 1)).toThrow()
-    expect(() => validerRéglage(champ('texte'), 42)).toThrow()
-    // Un texte vide ou fait de blancs n'est pas un réglage, c'est un champ oublié.
-    expect(() => validerRéglage(champ('texte'), '   ')).toThrow()
-    expect(() => validerRéglage(champ('texte'), 'x'.repeat(4_096))).toThrow()
+    expect(() => validateSetting(field('integer', { min: 1 }), '4')).toThrow()
+    expect(() => validateSetting(field('boolean'), 'true')).toThrow()
+    expect(() => validateSetting(field('boolean'), 1)).toThrow()
+    expect(() => validateSetting(field('text'), 42)).toThrow()
+    // Un texte vide ou fait de blancs n'est pas un réglage, f'est un field oublié.
+    expect(() => validateSetting(field('text'), '   ')).toThrow()
+    expect(() => validateSetting(field('text'), 'x'.repeat(4_096))).toThrow()
   })
 
   /** Écriture et lecture appliquent la même règle, sinon l'aller-retour ment. */
   it('fait l’aller-retour sur les trois types', () => {
-    for (const [c, valeur] of [
-      [champ('entier', { plancher: 0 }), 12],
-      [champ('booléen'), false],
-      [champ('texte'), 'llama3'],
+    for (const [f, value] of [
+      [field('integer', { min: 0 }), 12],
+      [field('boolean'), false],
+      [field('text'), 'llama3'],
     ] as const) {
-      const stocké = String(validerRéglage(c, valeur))
-      expect(relireRéglage(c, stocké)).toBe(valeur)
+      const stored = String(validateSetting(f, value))
+      expect(parseSetting(f, stored)).toBe(value)
     }
   })
 })
 
-describe('appliquerRéglages', () => {
+describe('applySettings', () => {
   it('écrit plusieurs champs d’un coup et rend les réglages résultants', () => {
-    const résultat = appliquerRéglages(db, {
+    const result = applySettings(db, {
       selection: { minutesParClip: 4, clipsMaximum: 12 },
     })
-    expect(résultat.selection.minutesParClip).toBe(4)
-    expect(résultat.selection.clipsMaximum).toBe(12)
-    // Les champs non touchés ressortent à leur valeur effective, pas absents :
+    expect(result.selection.minutesParClip).toBe(4)
+    expect(result.selection.clipsMaximum).toBe(12)
+    // Les champs non touchés ressortent à leur value effective, pas absents :
     // l'écran affiche ce qui s'applique.
-    expect(résultat.selection.fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
+    expect(result.selection.fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
   })
 
   it('refuse une clé inconnue', () => {
-    expect(() => appliquerRéglages(db, { selection: { minutesParClipe: 4 } })).toThrow(
-      RéglageInvalideError,
+    expect(() => applySettings(db, { selection: { minutesParClipe: 4 } })).toThrow(
+      InvalidSettingError,
     )
   })
 
   it('refuse une famille inconnue', () => {
-    expect(() => appliquerRéglages(db, { hook: { duree: 2 } })).toThrow(/inconnu/i)
+    expect(() => applySettings(db, { hook: { duree: 2 } })).toThrow(/inconnu/i)
   })
 
   /**
-   * **Y compris vide.** Contrôler le champ suffisait tant que le patch en
+   * **Y compris vide.** Contrôler le field suffisait tant que le patch en
    * portait un : `{ hook: {} }` ne déclenchait aucun tour de boucle, donc aucun
    * contrôle, et la route répondait 200 sur une famille qui n'existe pas.
    * (relevé par Codex)
    */
-  it('refuse une famille inconnue même sans aucun champ', () => {
-    expect(() => appliquerRéglages(db, { hook: {} })).toThrow(RéglageInvalideError)
-    // Et une famille connue vide reste acceptée : elle ne demande rien.
-    expect(appliquerRéglages(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+  it('refuse une famille inconnue même sans aucun field', () => {
+    expect(() => applySettings(db, { hook: {} })).toThrow(InvalidSettingError)
+    // Et une famille connue vide rest acceptée : elle ne demande rien.
+    expect(applySettings(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
   })
 
-  it('refuse une valeur hors bornes', () => {
-    expect(() => appliquerRéglages(db, { selection: { minutesParClip: 0 } })).toThrow(
-      RéglageInvalideError,
+  it('refuse une value hors bornes', () => {
+    expect(() => applySettings(db, { selection: { minutesParClip: 0 } })).toThrow(
+      InvalidSettingError,
     )
-    expect(() => appliquerRéglages(db, { selection: { fenetresParClip: -1 } })).toThrow()
-    expect(() => appliquerRéglages(db, { selection: { clipsMinimum: 2.5 } })).toThrow()
+    expect(() => applySettings(db, { selection: { fenetresParClip: -1 } })).toThrow()
+    expect(() => applySettings(db, { selection: { clipsMinimum: 2.5 } })).toThrow()
   })
 
-  it('refuse une valeur du mauvais type sans la convertir', () => {
+  it('refuse une value du mauvais type sans la convertir', () => {
     // `"4"` n'est pas 4 : accepter la chaîne ferait passer `"4abc"` par le même
     // chemin le jour où quelqu'un remplacerait le contrôle par un `Number()`.
-    expect(() => appliquerRéglages(db, { selection: { minutesParClip: '4' } })).toThrow()
-    expect(() => appliquerRéglages(db, { selection: { minutesParClip: null } })).toThrow()
-    expect(() => appliquerRéglages(db, { selection: { minutesParClip: true } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesParClip: '4' } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesParClip: null } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesParClip: true } })).toThrow()
   })
 
-  it('refuse un corps qui n’est pas un objet de familles', () => {
-    for (const corps of [null, 42, 'selection', [], { selection: 4 }, { selection: [] }]) {
-      expect(() => appliquerRéglages(db, corps)).toThrow(RéglageInvalideError)
+  it('refuse un body qui n’est pas un objet de familles', () => {
+    for (const body of [null, 42, 'selection', [], { selection: 4 }, { selection: [] }]) {
+      expect(() => applySettings(db, body)).toThrow(InvalidSettingError)
     }
   })
 
   /**
    * **Rien n'est écrit tant que tout n'est pas validé.** Un patch dont le second
-   * champ est hors bornes ne doit pas laisser le premier en base : l'appelant
+   * field est hors bornes ne doit pas laisser le premier en base : l'appelant
    * reçoit un refus et affiche l'état d'avant, alors que la moitié de sa saisie
    * serait passée.
    */
-  it('n’écrit rien quand un seul champ du patch est refusé', () => {
+  it('n’écrit rien quand un seul field du patch est refusé', () => {
     expect(() =>
-      appliquerRéglages(db, { selection: { minutesParClip: 4, fenetresParClip: 0 } }),
+      applySettings(db, { selection: { minutesParClip: 4, fenetresParClip: 0 } }),
     ).toThrow()
     expect(getRéglages(db)).toEqual(DIMENSIONS_PAR_DÉFAUT)
   })
 
   it('accepte un patch vide sans rien changer', () => {
-    expect(appliquerRéglages(db, {}).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
-    expect(appliquerRéglages(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(applySettings(db, {}).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(applySettings(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
@@ -394,13 +394,13 @@ describe('appliquerRéglages', () => {
     // recalculer des émissions existantes ».
     upsertProject(db, PROJET)
     putClip(db, clip('clip_01', { status: 'kept' }))
-    appliquerRéglages(db, { selection: { minutesParClip: 4 } })
-    expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
+    applySettings(db, { selection: { minutesParClip: 4 } })
+    expect(getClips(db, PROJET.id).map((f) => f.status)).toEqual(['kept'])
   })
 
-  it('rend la même chose que réglagesEffectifs', () => {
-    appliquerRéglages(db, { selection: { clipsMinimum: 9 } })
-    expect(réglagesEffectifs(db)).toEqual({ selection: getRéglages(db) })
+  it('rend la même chose que effectiveSettings', () => {
+    applySettings(db, { selection: { clipsMinimum: 9 } })
+    expect(effectiveSettings(db)).toEqual({ selection: getRéglages(db) })
   })
 })
 

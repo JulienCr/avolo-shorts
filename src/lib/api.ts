@@ -14,13 +14,13 @@
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
- * POST  /api/projects/:id/stop              -> { arrêtée }
+ * POST  /api/projects/:id/stop              -> { stopped }
  * GET   /api/projects/:id/candidates        -> CandidateClip[]
  * GET   /api/clips/:id                      -> ClipDetail
  * PATCH /api/clips/:id       { ClipPatch }  -> PatchClipResult
  * POST  /api/clips/:id/export  { force? }   -> ExportResult
- * GET   /api/settings                       -> Réglages
- * PUT   /api/settings        { PatchRéglages } -> Réglages
+ * GET   /api/settings                       -> Settings
+ * PUT   /api/settings        { SettingsPatch } -> Settings
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -710,11 +710,17 @@ export function exportClip(clipId: string, force?: boolean): Promise<ExportResul
  * promesse d'API, celui-là est l'argument d'un calcul pur, et ils ne peuvent pas
  * diverger sans qu'un réglage cesse d'être lu.
  *
- * **Les défauts ne sont pas recopiés ici.** `lireRéglages` rend les réglages
+ * **Les noms de champs restent français, et c'est la seule entorse à la règle de
+ * langue de `CLAUDE.md`.** Ils sont **persistés** — la table `settings` en fait
+ * des clés `selection.<champ>` —, donc les traduire demande une migration, qui
+ * n'est pas le sujet de cette livraison. Ils partiront avec le reste de la dette,
+ * issue #73.
+ *
+ * **Les défauts ne sont pas recopiés ici.** `fetchSettings` rend les réglages
  * *effectifs* — la base complétée par les défauts —, donc l'écran affiche ce qui
  * s'applique vraiment plutôt qu'une copie de constantes qui vieillirait à part.
  */
-export type ChampsRepérage = {
+export type SelectionSettings = {
   /** Une proposition attendue par tranche de tant de minutes de parole. */
   minutesParClip: number
   /** Combien de fenêtres sont examinées pour chaque clip demandé. */
@@ -736,10 +742,10 @@ export type ChampsRepérage = {
  * hook (retour d'usage §6.1 et §6.3). Aplatir maintenant ferait renommer chaque
  * clé le jour où la deuxième arrive.
  */
-export type Réglages = { selection: ChampsRepérage }
+export type Settings = { selection: SelectionSettings }
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
-export type PatchRéglages = { selection?: Partial<ChampsRepérage> }
+export type SettingsPatch = { selection?: Partial<SelectionSettings> }
 
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.
@@ -748,8 +754,8 @@ export type PatchRéglages = { selection?: Partial<ChampsRepérage> }
  * dans un composant ferait afficher le défaut du code là où la base porte autre
  * chose, et personne ne verrait la différence avant le premier repérage.
  */
-export function lireRéglages(): Promise<Réglages> {
-  return lire<Réglages>('/api/settings')
+export function fetchSettings(): Promise<Settings> {
+  return lire<Settings>('/api/settings')
 }
 
 /**
@@ -768,20 +774,20 @@ export function lireRéglages(): Promise<Réglages> {
  * **Changer un réglage ne recalcule rien** (retour d'usage §6.1) : un recalcul
  * reste une action explicite, `runProject`.
  */
-export async function écrireRéglages(patch: PatchRéglages): Promise<Réglages> {
-  const réponse = await fetch('/api/settings', {
+export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
+  const response = await fetch('/api/settings', {
     method: 'PUT',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(patch),
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as Réglages
+  if (!response.ok) throw await échec(response)
+  return (await response.json()) as Settings
 }
 
 /**
  * Arrête l'analyse en cours sur un projet. **Idempotent.**
  *
- * `arrêtée: false` n'est pas un échec : c'est ce qu'on obtient quand rien ne
+ * `stopped: false` n'est pas un échec : c'est ce qu'on obtient quand rien ne
  * tournait — parce que l'analyse venait de finir, ou parce qu'un redémarrage du
  * serveur a emporté l'exécution avec lui. Le bouton peut donc se cliquer deux
  * fois sans que l'écran ait à décider lequel des deux clics comptait.
@@ -791,6 +797,6 @@ export async function écrireRéglages(patch: PatchRéglages): Promise<Réglages
  * manquante. Un `status.json` d'arrêt ne porte pas d'erreur : un arrêt demandé
  * n'est pas une panne, et l'écran ne doit pas l'afficher comme telle.
  */
-export function arrêterAnalyse(projectId: string): Promise<{ arrêtée: boolean }> {
-  return poster<{ arrêtée: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
+  return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
 }

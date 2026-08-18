@@ -244,10 +244,10 @@ export function encoderName(): EncoderName {
  * l'utilisent, et `run.ts` les importe tous les trois. La poser là-bas ferait un
  * cycle d'imports pour un type de trois lignes.
  */
-export class ArrêtDemandéError extends Error {
-  constructor(quoi?: string) {
-    super(`Arrêt demandé${quoi === undefined ? '' : ` — ${quoi}`}.`)
-    this.name = 'ArrêtDemandéError'
+export class StopRequestedError extends Error {
+  constructor(what?: string) {
+    super(`Arrêt demandé${what === undefined ? '' : ` — ${what}`}.`)
+    this.name = 'StopRequestedError'
   }
 }
 
@@ -261,7 +261,7 @@ export class ArrêtDemandéError extends Error {
  * suivante démarrerait dans cet état-là. Dix secondes couvrent le cas mesuré et
  * ne coûtent rien quand le processus part tout de suite.
  */
-export const DÉLAI_SIGKILL_MS = 10_000
+export const SIGKILL_DELAY_MS = 10_000
 
 /**
  * Branche un signal d'annulation sur un processus fils : `SIGTERM`, puis
@@ -276,15 +276,15 @@ export const DÉLAI_SIGKILL_MS = 10_000
  * toute façon inoffensif. On l'attrape quand même, parce qu'une exception jetée
  * depuis une minuterie n'a personne pour la rattraper et couperait le serveur.
  */
-export function propagerArrêt(
+export function forwardAbort(
   proc: ChildProcess,
   signal: AbortSignal | undefined,
-  délaiMs: number = DÉLAI_SIGKILL_MS,
+  delayMs: number = SIGKILL_DELAY_MS,
 ): () => void {
   if (signal === undefined) return () => {}
 
-  let couperet: NodeJS.Timeout | undefined
-  const tuer = (sig: NodeJS.Signals): void => {
+  let killTimer: NodeJS.Timeout | undefined
+  const send = (sig: NodeJS.Signals): void => {
     try {
       proc.kill(sig)
     } catch {
@@ -292,20 +292,20 @@ export function propagerArrêt(
     }
   }
 
-  const arrêter = (): void => {
-    tuer('SIGTERM')
-    couperet = setTimeout(() => tuer('SIGKILL'), délaiMs)
+  const onAbort = (): void => {
+    send('SIGTERM')
+    killTimer = setTimeout(() => send('SIGKILL'), delayMs)
   }
 
   // **Le signal peut déjà avoir été levé.** Un arrêt demandé pendant qu'une
   // étape démarrait laisserait sinon tourner le processus qu'elle vient de
   // lancer, seul, jusqu'au bout de ses six minutes.
-  if (signal.aborted) arrêter()
-  else signal.addEventListener('abort', arrêter, { once: true })
+  if (signal.aborted) onAbort()
+  else signal.addEventListener('abort', onAbort, { once: true })
 
   return () => {
-    clearTimeout(couperet)
-    signal.removeEventListener('abort', arrêter)
+    clearTimeout(killTimer)
+    signal.removeEventListener('abort', onAbort)
   }
 }
 
@@ -369,12 +369,12 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     // se prépare — le `mkdir` de `produireArtefact`, par exemple — laisserait
     // sinon partir un encodage de six minutes que plus personne n'attend.
     if (options.signal?.aborted === true) {
-      reject(new ArrêtDemandéError(options.quoi))
+      reject(new StopRequestedError(options.quoi))
       return
     }
 
     const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
-    const débrancher = propagerArrêt(proc, options.signal)
+    const detach = forwardAbort(proc, options.signal)
 
     // **On rejette *et* on tue, dans cet ordre.** Sur un montage 9p mort, le
     // processus part en sommeil non interruptible : `SIGKILL` est enregistré
@@ -398,7 +398,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
           }, options.timeoutMs)
     const finir = () => {
       clearTimeout(renoncer)
-      débrancher()
+      detach()
     }
 
     proc.stderr.setEncoding('utf8')
@@ -447,7 +447,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
       // passé. Le contrôle est sur le signal d'annulation et non sur le nom du
       // signal Unix reçu : un `SIGTERM` venu d'ailleurs reste un incident.
       if (options.signal?.aborted === true) {
-        reject(new ArrêtDemandéError(options.quoi))
+        reject(new StopRequestedError(options.quoi))
         return
       }
       // Un signal donne `code === null` : le dire, sinon le message annonce

@@ -5,12 +5,12 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import {
   analyserMarqueTemps,
-  ArrêtDemandéError,
+  StopRequestedError,
   cheminTemporaire,
   choisirEncodeur,
   créerJournal,
   produireArtefact,
-  propagerArrêt,
+  forwardAbort,
   runFfmpeg,
 } from '@/server/ffmpeg'
 
@@ -304,30 +304,30 @@ describe('runFfmpeg, le délai de garde', () => {
  * Comme le délai de garde plus haut, ces tests n'ont pas besoin de ffmpeg — ils
  * s'exercent sur `sleep` et sur `sh`, qui sont des processus comme les autres.
  */
-describe('propagerArrêt', () => {
-  let dossier: string
+describe('forwardAbort', () => {
+  let dir: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  /** La fin du processus, avec le signal qui l'a emporté. */
-  function finDe(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
+  /** La ended du processus, avec le signal qui l'a emporté. */
+  function endOf(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
     return new Promise((résoudre) => proc.on('close', (_code, signal) => résoudre(signal)))
   }
 
   it('envoie un SIGTERM, qui suffit à un processus ordinaire', async () => {
     const proc = spawn('sleep', ['30'])
-    const contrôleur = new AbortController()
-    const débrancher = propagerArrêt(proc, contrôleur.signal)
-    const fin = finDe(proc)
-    contrôleur.abort()
-    expect(await fin).toBe('SIGTERM')
-    débrancher()
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal)
+    const ended = endOf(proc)
+    controller.abort()
+    expect(await ended).toBe('SIGTERM')
+    detach()
   })
 
   /**
@@ -338,22 +338,22 @@ describe('propagerArrêt', () => {
    * franchement le SIGTERM, ce qu'un worker occupé fait de fait.
    */
   it('tue pour de bon celui qui ignore le SIGTERM', async () => {
-    // **On attend que le fils annonce qu'il est prêt.** Un `abort()` posé dans
+    // **On attend que le fils annonce qu'il est ready.** Un `abort()` posé dans
     // la foulée du `spawn` arrive avant que le processus n'ait installé son
     // gestionnaire, et le signal l'emporte alors par son comportement par
     // défaut : le test passerait en n'éprouvant rien du tout.
     const proc = spawn(process.execPath, [
       '-e',
-      "process.on('SIGTERM', () => {}); console.log('prêt'); setTimeout(() => {}, 5000)",
+      "process.on('SIGTERM', () => {}); console.log('ready'); setTimeout(() => {}, 5000)",
     ])
-    await new Promise((prêt) => proc.stdout?.once('data', prêt))
+    await new Promise((ready) => proc.stdout?.once('data', ready))
 
-    const contrôleur = new AbortController()
-    const débrancher = propagerArrêt(proc, contrôleur.signal, 80)
-    const fin = finDe(proc)
-    contrôleur.abort()
-    expect(await fin).toBe('SIGKILL')
-    débrancher()
+    const controller = new AbortController()
+    const detach = forwardAbort(proc, controller.signal, 80)
+    const ended = endOf(proc)
+    controller.abort()
+    expect(await ended).toBe('SIGKILL')
+    detach()
   })
 
   /**
@@ -363,21 +363,21 @@ describe('propagerArrêt', () => {
    * n'attend, seul, jusqu'au bout.
    */
   it('tue un processus lancé après coup sur un signal déjà levé', async () => {
-    const contrôleur = new AbortController()
-    contrôleur.abort()
+    const controller = new AbortController()
+    controller.abort()
     const proc = spawn('sleep', ['30'])
-    const fin = finDe(proc)
-    propagerArrêt(proc, contrôleur.signal)()
-    expect(await fin).toBe('SIGTERM')
+    const ended = endOf(proc)
+    forwardAbort(proc, controller.signal)()
+    expect(await ended).toBe('SIGTERM')
   })
 
   it('ne fait rien du tout sans signal, et son débranchement est sûr', async () => {
     const proc = spawn('sleep', ['0.05'])
-    const débrancher = propagerArrêt(proc, undefined)
-    expect(await finDe(proc)).toBeNull()
+    const detach = forwardAbort(proc, undefined)
+    expect(await endOf(proc)).toBeNull()
     expect(() => {
-      débrancher()
-      débrancher()
+      detach()
+      detach()
     }).not.toThrow()
   })
 
@@ -388,26 +388,26 @@ describe('propagerArrêt', () => {
    * visait.
    */
   it('ne laisse pas d’écouteur derrière lui', async () => {
-    const contrôleur = new AbortController()
+    const controller = new AbortController()
     const proc = spawn('sleep', ['0.05'])
-    const débrancher = propagerArrêt(proc, contrôleur.signal)
-    await finDe(proc)
-    débrancher()
+    const detach = forwardAbort(proc, controller.signal)
+    await endOf(proc)
+    detach()
     // `abort()` après coup ne doit plus rien déclencher : le second `kill` sur
     // un processus mort est de toute façon attrapé, et rien ne doit lever.
-    expect(() => contrôleur.abort()).not.toThrow()
+    expect(() => controller.abort()).not.toThrow()
   })
 })
 
 describe('runFfmpeg, l’arrêt demandé', () => {
-  let dossier: string
+  let dir: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-ff-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-ff-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
   /**
@@ -418,26 +418,26 @@ describe('runFfmpeg, l’arrêt demandé', () => {
    * c'est-à-dire sur la seule surface qui dise à quelqu'un ce qui s'est passé.
    */
   it('rejette un arrêt, pas un échec', async () => {
-    const contrôleur = new AbortController()
-    const promesse = runFfmpeg(['30'], {
+    const controller = new AbortController()
+    const promise = runFfmpeg(['30'], {
       bin: 'sleep',
-      signal: contrôleur.signal,
+      signal: controller.signal,
       quoi: 'proxy de cqlp',
     })
-    contrôleur.abort()
-    await expect(promesse).rejects.toThrow(ArrêtDemandéError)
-    await expect(promesse).rejects.toThrow(/Arrêt demandé — proxy de cqlp/)
+    controller.abort()
+    await expect(promise).rejects.toThrow(StopRequestedError)
+    await expect(promise).rejects.toThrow(/Arrêt demandé — proxy de cqlp/)
   })
 
   it('ne lance même pas le processus quand l’arrêt est déjà demandé', async () => {
-    const témoin = path.join(dossier, 'lance.txt')
-    const contrôleur = new AbortController()
-    contrôleur.abort()
+    const witness = path.join(dir, 'lance.txt')
+    const controller = new AbortController()
+    controller.abort()
     await expect(
-      runFfmpeg(['-c', `echo parti > ${témoin}`], { bin: 'sh', signal: contrôleur.signal }),
-    ).rejects.toThrow(ArrêtDemandéError)
+      runFfmpeg(['-c', `echo parti > ${witness}`], { bin: 'sh', signal: controller.signal }),
+    ).rejects.toThrow(StopRequestedError)
     await new Promise((r) => setTimeout(r, 100))
-    expect(fs.existsSync(témoin)).toBe(false)
+    expect(fs.existsSync(witness)).toBe(false)
   })
 
   /**
@@ -448,31 +448,31 @@ describe('runFfmpeg, l’arrêt demandé', () => {
    * projet porterait un proxy amputé que personne ne verrait.
    */
   it('ne laisse ni artefact ni moignon derrière un encodage tué', async () => {
-    const dst = path.join(dossier, 'proxy.mp4')
-    const contrôleur = new AbortController()
+    const dst = path.join(dir, 'proxy.mp4')
+    const controller = new AbortController()
     process.env.FFMPEG_BIN = 'sh'
     try {
-      const promesse = produireArtefact({
+      const promise = produireArtefact({
         dst,
-        signal: contrôleur.signal,
+        signal: controller.signal,
         quoi: 'proxy de cqlp',
         args: (temporaire) => ['-c', `sleep 5; echo tronqué > ${temporaire}`],
       })
-      contrôleur.abort()
-      await expect(promesse).rejects.toThrow(ArrêtDemandéError)
+      controller.abort()
+      await expect(promise).rejects.toThrow(StopRequestedError)
     } finally {
       delete process.env.FFMPEG_BIN
     }
     expect(fs.existsSync(dst)).toBe(false)
-    expect(fs.readdirSync(dossier)).toEqual([])
+    expect(fs.readdirSync(dir)).toEqual([])
   })
 
   it('laisse passer un processus qui finit avant l’arrêt', async () => {
-    const contrôleur = new AbortController()
+    const controller = new AbortController()
     await expect(
-      runFfmpeg(['0.05'], { bin: 'sleep', signal: contrôleur.signal }),
+      runFfmpeg(['0.05'], { bin: 'sleep', signal: controller.signal }),
     ).resolves.toBeUndefined()
     // Et un arrêt demandé après coup n'a plus rien à couper.
-    expect(() => contrôleur.abort()).not.toThrow()
+    expect(() => controller.abort()).not.toThrow()
   })
 })

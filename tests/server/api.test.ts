@@ -9,7 +9,7 @@ import { GET as getCandidats } from '@/app/api/projects/[id]/candidates/route'
 import { GET as getProjet } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { POST as postStop } from '@/app/api/projects/[id]/stop/route'
-import { GET as getRéglagesRoute, PUT as putRéglages } from '@/app/api/settings/route'
+import { GET as getSettingsRoute, PUT as putSettingsRoute } from '@/app/api/settings/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
@@ -76,7 +76,7 @@ function poserStatut(champs: Record<string, unknown>): void {
       running: null,
       error: null,
       finishedAt: 1,
-      arrêtée: false,
+      stopped: false,
       repérage: null,
       ...champs,
     }),
@@ -1196,82 +1196,82 @@ describe('POST /api/projects/:id/run', () => {
 })
 
 describe('POST /api/projects/:id/stop', () => {
-  const stopper = (id = PROJET): Promise<Response> =>
+  const stop = (id = PROJET): Promise<Response> =>
     postStop(new Request('http://x', { method: 'POST' }), contexte(id))
 
   /**
-   * **`arrêtée: false` n'est pas un échec.** Rien ne tournait : l'analyse venait
+   * **`stopped: false` n'est pas un échec.** Rien ne tournait : l'analyse venait
    * de finir, ou un redémarrage du serveur a emporté l'exécution — la table des
    * exécutions est celle du processus. Un 409 ferait afficher une erreur à
    * quelqu'un dont le souhait est déjà réalisé, et le bouton ne pourrait pas se
    * cliquer deux fois.
    */
-  it('rend 200 et `arrêtée: false` quand rien ne tourne', async () => {
-    const réponse = await stopper()
-    expect(réponse.status).toBe(200)
-    expect(await réponse.json()).toEqual({ arrêtée: false })
+  it('rend 200 et `stopped: false` quand rien ne tourne', async () => {
+    const response = await stop()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ stopped: false })
   })
 
-  it('rend 200 et `arrêtée: true` quand une exécution tourne', async () => {
+  it('rend 200 et `stopped: true` quand une exécution tourne', async () => {
     poserTranscript()
     // Une étape qui ne finit pas d'elle-même : c'est l'arrêt qui doit la clore.
-    let relâcher: (() => void) | undefined
-    const bloquée = new Promise<Clip[]>((résoudre) => {
-      relâcher = () => résoudre([])
+    let release: (() => void) | undefined
+    const blocked = new Promise<Clip[]>((resolve) => {
+      release = () => resolve([])
     })
-    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => bloquée } })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => blocked } })
     for (let i = 0; i < 200 && progression(PROJET) === null; i += 1) {
       await new Promise((r) => setTimeout(r, 5))
     }
 
-    const réponse = await stopper()
-    expect(réponse.status).toBe(200)
-    expect(await réponse.json()).toEqual({ arrêtée: true })
+    const response = await stop()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ stopped: true })
 
-    // Idempotente : tant que l'exécution descend, la réponse reste la même.
-    expect(await (await stopper()).json()).toEqual({ arrêtée: true })
+    // Idempotente : tant que l'exécution descend, la response reste la même.
+    expect(await (await stop()).json()).toEqual({ stopped: true })
 
-    relâcher?.()
+    release?.()
     await laisserFinir()
     // Et le statut ne ressemble pas à une panne.
     expect(lireStatut(PROJET)?.error).toBeNull()
-    expect(lireStatut(PROJET)?.arrêtée).toBe(true)
+    expect(lireStatut(PROJET)?.stopped).toBe(true)
   })
 
   /**
-   * 404 et `arrêtée: false` disent deux choses différentes : « ce projet
+   * 404 et `stopped: false` disent deux choses différentes : « ce projet
    * n'existe pas » et « rien à arrêter ». Les confondre ferait passer une faute
    * de frappe dans l'identifiant pour un arrêt réussi.
    */
   it('rend 404 sur un projet inconnu', async () => {
-    expect((await stopper('jamais-vu')).status).toBe(404)
+    expect((await stop('jamais-vu')).status).toBe(404)
   })
 })
 
 describe('/api/settings', () => {
-  const écrire = (corps: unknown): Promise<Response> =>
-    putRéglages(
+  const put = (body: unknown): Promise<Response> =>
+    putSettingsRoute(
       new Request('http://x', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(corps),
+        body: JSON.stringify(body),
       }),
     )
 
   it('rend les réglages effectifs, défauts compris', async () => {
-    const réponse = await getRéglagesRoute(new Request('http://x'))
-    expect(réponse.status).toBe(200)
-    expect(await réponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+    const response = await getSettingsRoute(new Request('http://x'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
   })
 
   it('applique un patch partiel et rend les réglages résultants', async () => {
-    const réponse = await écrire({ selection: { minutesParClip: 4 } })
-    expect(réponse.status).toBe(200)
-    expect(await réponse.json()).toEqual({
+    const response = await put({ selection: { minutesParClip: 4 } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
     })
     // Et ça persiste : la lecture suivante le voit.
-    expect(await (await getRéglagesRoute(new Request('http://x'))).json()).toEqual({
+    expect(await (await getSettingsRoute(new Request('http://x'))).json()).toEqual({
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
     })
   })
@@ -1282,28 +1282,28 @@ describe('/api/settings', () => {
    * jurant avoir enregistré.
    */
   it('refuse une clé inconnue et une valeur hors bornes', async () => {
-    expect((await écrire({ selection: { minutesParClipe: 4 } })).status).toBe(400)
-    expect((await écrire({ hook: { duree: 2 } })).status).toBe(400)
-    // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
+    expect((await put({ selection: { minutesParClipe: 4 } })).status).toBe(400)
+    expect((await put({ hook: { duree: 2 } })).status).toBe(400)
+    // Y compris empty : sans champ, aucune boucle ne s'exécutait et le `PUT`
     // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
-    expect((await écrire({ hook: {} })).status).toBe(400)
-    expect((await écrire({ selection: { minutesParClip: 0 } })).status).toBe(400)
-    expect((await écrire({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
-    expect((await écrire({ selection: { minutesParClip: '4' } })).status).toBe(400)
+    expect((await put({ hook: {} })).status).toBe(400)
+    expect((await put({ selection: { minutesParClip: 0 } })).status).toBe(400)
+    expect((await put({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
+    expect((await put({ selection: { minutesParClip: '4' } })).status).toBe(400)
     // Et rien n'a été écrit : la lecture rend toujours les défauts.
-    expect(await (await getRéglagesRoute(new Request('http://x'))).json()).toEqual({
+    expect(await (await getSettingsRoute(new Request('http://x'))).json()).toEqual({
       selection: DIMENSIONS_PAR_DÉFAUT,
     })
   })
 
-  it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
-    const illisible = await putRéglages(
+  it('refuse un body unreadable, et accepte un body empty sans rien changer', async () => {
+    const unreadable = await putSettingsRoute(
       new Request('http://x', { method: 'PUT', body: '{pas du json' }),
     )
-    expect(illisible.status).toBe(400)
-    const vide = await putRéglages(new Request('http://x', { method: 'PUT' }))
-    expect(vide.status).toBe(200)
-    expect(await vide.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+    expect(unreadable.status).toBe(400)
+    const empty = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
+    expect(empty.status).toBe(200)
+    expect(await empty.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
   })
 
   /**
@@ -1317,7 +1317,7 @@ describe('/api/settings', () => {
     fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
     fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
 
-    await écrire({ selection: { minutesParClip: 4 } })
+    await put({ selection: { minutesParClip: 4 } })
 
     expect(progression(PROJET)).toBeNull()
     expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'candidates.json'))).toBe(true)

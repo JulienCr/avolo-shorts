@@ -9,7 +9,7 @@ import type { StepName } from '@/core/graph'
 import type { BilanNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
-  arrêter,
+  stopRun,
   attendre,
   bilanDeRepérage,
   cheminTranscript,
@@ -25,7 +25,7 @@ import {
   relevéPrésence,
   type Étapes,
 } from '@/server/run'
-import { ArrêtDemandéError } from '@/server/ffmpeg'
+import { StopRequestedError } from '@/server/ffmpeg'
 
 /**
  * Le lanceur, sans GPU, sans ffmpeg et sans vidéo : les étapes sont injectées.
@@ -141,7 +141,7 @@ afterEach(async () => {
   // ferait échouer le test suivant sur `ExécutionEnCoursError`, à un endroit qui
   // ne dit rien du vrai défaut. Et la base se referme après, pas avant : une
   // exécution encore vivante s'en servirait.
-  arrêter(PROJET)
+  stopRun(PROJET)
   await attendreLaFin()
   db.close()
   fs.rmSync(racine, { recursive: true, force: true })
@@ -643,60 +643,60 @@ describe("l'arrêt d'une exécution", () => {
   /**
    * Des étapes qui n'en finissent pas, jusqu'à ce qu'on les arrête.
    *
-   * `bloquante` est celle qui pend ; les autres écrivent leur artefact
+   * `blocking` est celle qui pend ; les autres écrivent leur artefact
    * normalement. C'est ce qui permet de tuer l'exécution au milieu de son plan
    * et de vérifier que ce qui la précédait a bien survécu.
    */
-  function étapesQuiPendent(bloquante: StepName): Partial<Étapes> {
-    const factices = étapesFactices()
-    const pendre = (signal: AbortSignal | undefined): Promise<never> =>
-      new Promise((_, rejeter) => {
-        signal?.addEventListener('abort', () => rejeter(new ArrêtDemandéError(bloquante)), {
+  function hangingSteps(blocking: StepName): Partial<Étapes> {
+    const fakes = étapesFactices()
+    const hang = (signal: AbortSignal | undefined): Promise<never> =>
+      new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new StopRequestedError(blocking)), {
           once: true,
         })
       })
 
     return {
-      ...factices,
+      ...fakes,
       buildProxy: async (o) => {
         appels.push('proxy')
-        if (bloquante === 'proxy') return pendre(o.signal)
-        return factices.buildProxy!(o)
+        if (blocking === 'proxy') return hang(o.signal)
+        return fakes.buildProxy!(o)
       },
       extractAudio: async (o) => {
-        if (bloquante === 'audio') {
+        if (blocking === 'audio') {
           appels.push('audio')
-          return pendre(o.signal)
+          return hang(o.signal)
         }
-        return factices.extractAudio!(o)
+        return fakes.extractAudio!(o)
       },
       runCandidates: async (id, o) => {
-        if (bloquante === 'candidates') {
+        if (blocking === 'candidates') {
           appels.push('candidates')
-          return pendre(o?.signal)
+          return hang(o?.signal)
         }
-        return factices.runCandidates!(id, o)
+        return fakes.runCandidates!(id, o)
       },
     }
   }
 
   it('rend faux quand rien ne tourne — deux clics ne sont pas une erreur', () => {
-    expect(arrêter(PROJET)).toBe(false)
-    expect(arrêter('projet-qui-n-existe-pas')).toBe(false)
+    expect(stopRun(PROJET)).toBe(false)
+    expect(stopRun('projet-qui-n-existe-pas')).toBe(false)
   })
 
   it('coupe le travail en cours et rend vrai, deux fois de suite', async () => {
     poserProjet()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: étapesQuiPendent('proxy') })
+    await lancer(PROJET, ['proxy'], { db, étapes: hangingSteps('proxy') })
     // L'étape a bien démarré : sans cela, l'arrêt éprouverait le refus d'entrée
     // et non la coupure d'un travail en cours.
-    await attendreÉtape('proxy')
+    await waitForStep('proxy')
 
-    expect(arrêter(PROJET)).toBe(true)
+    expect(stopRun(PROJET)).toBe(true)
     // Idempotent : un second appel pendant que l'exécution finit de descendre
     // dit toujours vrai, et n'a pas d'effet supplémentaire.
-    expect(arrêter(PROJET)).toBe(true)
+    expect(stopRun(PROJET)).toBe(true)
 
     await attendreLaFin()
     expect(progression(PROJET)).toBeNull()
@@ -711,13 +711,13 @@ describe("l'arrêt d'une exécution", () => {
   it('écrit un statut d’arrêt, sans erreur et sans running', async () => {
     poserProjet()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: étapesQuiPendent('proxy') })
-    await attendreÉtape('proxy')
-    arrêter(PROJET)
+    await lancer(PROJET, ['proxy'], { db, étapes: hangingSteps('proxy') })
+    await waitForStep('proxy')
+    stopRun(PROJET)
     await attendreLaFin()
 
     const statut = lireStatut(PROJET)
-    expect(statut?.arrêtée).toBe(true)
+    expect(statut?.stopped).toBe(true)
     expect(statut?.error).toBeNull()
     expect(statut?.running).toBeNull()
     expect(statut?.finishedAt).not.toBeNull()
@@ -725,15 +725,15 @@ describe("l'arrêt d'une exécution", () => {
 
   /**
    * L'étape suivante ne doit pas partir. Sans le contrôle à l'entrée de chaque
-   * étape, arrêter pendant la transcription laisserait démarrer les six minutes
+   * étape, stopRun pendant la transcription laisserait démarrer les six minutes
    * de proxy qui la suivent — le processus tué serait bien mort, et le travail
    * continuerait quand même.
    */
   it('n’enchaîne pas sur l’étape suivante', async () => {
     poserProjet()
-    await lancer(PROJET, ['candidates'], { db, étapes: étapesQuiPendent('audio') })
-    await attendreÉtape('audio')
-    arrêter(PROJET)
+    await lancer(PROJET, ['candidates'], { db, étapes: hangingSteps('audio') })
+    await waitForStep('audio')
+    stopRun(PROJET)
     await attendreLaFin()
 
     expect(appels).toEqual(['audio'])
@@ -748,16 +748,16 @@ describe("l'arrêt d'une exécution", () => {
    */
   it('laisse les artefacts déjà terminés, et la reprise finit le travail', async () => {
     poserProjet()
-    await lancer(PROJET, ['candidates'], { db, étapes: étapesQuiPendent('candidates') })
-    await attendreÉtape('candidates')
-    arrêter(PROJET)
+    await lancer(PROJET, ['candidates'], { db, étapes: hangingSteps('candidates') })
+    await waitForStep('candidates')
+    stopRun(PROJET)
     await attendreLaFin()
 
     // L'audio et le transcript sont passés avant l'arrêt : ils restent.
-    const présence = await relevéPrésence(getProject(db, PROJET) as Project)
-    expect(présence.audio).toBe(true)
-    expect(présence.transcript).toBe(true)
-    expect(présence.candidates).toBe(false)
+    const presence = await relevéPrésence(getProject(db, PROJET) as Project)
+    expect(presence.audio).toBe(true)
+    expect(presence.transcript).toBe(true)
+    expect(presence.candidates).toBe(false)
 
     appels = []
     const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
@@ -765,17 +765,17 @@ describe("l'arrêt d'une exécution", () => {
     expect(plan).toEqual(['candidates'])
     await attendreLaFin()
     expect(appels).toEqual(['candidates'])
-    expect(lireStatut(PROJET)?.arrêtée).toBe(false)
+    expect(lireStatut(PROJET)?.stopped).toBe(false)
     expect(lireStatut(PROJET)?.error).toBeNull()
   })
 
   /** Une exécution arrêtée s'est terminée comme on le voulait : rien ne rejette. */
-  it('ne fait pas rejeter l’attente de l’exécution', async () => {
+  it('ne fait pas reject l’attente de l’exécution', async () => {
     poserProjet()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: étapesQuiPendent('proxy') })
-    await attendreÉtape('proxy')
-    arrêter(PROJET)
+    await lancer(PROJET, ['proxy'], { db, étapes: hangingSteps('proxy') })
+    await waitForStep('proxy')
+    stopRun(PROJET)
     await expect(attendre(PROJET)).resolves.toBeUndefined()
   })
 
@@ -785,7 +785,7 @@ describe("l'arrêt d'une exécution", () => {
     poserTranscript()
     await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices('candidates') })
     await attendreLaFin()
-    expect(lireStatut(PROJET)?.arrêtée).toBe(false)
+    expect(lireStatut(PROJET)?.stopped).toBe(false)
     expect(lireStatut(PROJET)?.error).toContain('ffmpeg a échoué')
   })
 })
@@ -804,16 +804,16 @@ async function attendreLaFin(): Promise<void> {
 }
 
 /**
- * Attend que le lanceur en soit à une étape donnée.
+ * Attend que le lanceur en soit à une step donnée.
  *
  * `lancer` rend la main **avant** que l'exécution ne commence — c'est ce qui
  * permet à `POST /run` de répondre 202 en disant ce qu'il va faire. Arrêter dans
- * la foulée éprouverait donc le refus d'entrée d'une étape, pas la coupure d'un
+ * la foulée éprouverait donc le refus d'entrée d'une step, pas la coupure d'un
  * travail en cours, et le test passerait sans rien démontrer.
  */
-async function attendreÉtape(étape: StepName): Promise<void> {
-  for (let i = 0; i < 200 && progression(PROJET)?.step !== étape; i += 1) {
+async function waitForStep(step: StepName): Promise<void> {
+  for (let i = 0; i < 200 && progression(PROJET)?.step !== step; i += 1) {
     await new Promise((résoudre) => setTimeout(résoudre, 5))
   }
-  expect(progression(PROJET)?.step).toBe(étape)
+  expect(progression(PROJET)?.step).toBe(step)
 }

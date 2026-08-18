@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import {
-  ArrêtDemandéError,
+  StopRequestedError,
   cheminTemporaire,
   créerJournal,
-  propagerArrêt,
+  forwardAbort,
   type Artefact,
 } from '@/server/ffmpeg'
 import { placeSidecar, resolveSource } from '@/server/paths'
@@ -267,7 +267,7 @@ export type OptionsTranscript = {
    *
    * **C'est l'étape où il compte le plus, et celle où il coûte le plus cher à
    * rater.** WhisperX tient le GPU, et un processus laissé derrière soi garde la
-   * VRAM : la reprise démarrerait à côté de lui. `propagerArrêt` lui laisse dix
+   * VRAM : la reprise démarrerait à côté de lui. `forwardAbort` lui laisse dix
    * secondes après le `SIGTERM` — CTranslate2 ne rend pas la main tout de suite.
    */
   signal?: AbortSignal
@@ -394,11 +394,11 @@ function lancerWorker(
     // L'arrêt peut être arrivé pendant le sondage du montage, qui attend
     // jusqu'à vingt secondes juste au-dessus.
     if (signal?.aborted === true) {
-      reject(new ArrêtDemandéError('la transcription'))
+      reject(new StopRequestedError('la transcription'))
       return
     }
     const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
-    const débrancher = propagerArrêt(proc, signal)
+    const detach = forwardAbort(proc, signal)
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
@@ -435,7 +435,7 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
-      débrancher()
+      detach()
       reject(
         new Error(
           `Le worker de transcription n'a pas pu démarrer (${python}) : ${cause.message}. ` +
@@ -445,18 +445,18 @@ function lancerWorker(
       )
     })
 
-    proc.on('close', (code, signalUnix) => {
-      débrancher()
+    proc.on('close', (code, exitSignal) => {
+      detach()
       if (code === 0) {
         resolve()
         return
       }
       // Un arrêt demandé n'est pas un échec de la transcription. Voir `runFfmpeg`.
       if (signal?.aborted === true) {
-        reject(new ArrêtDemandéError('la transcription'))
+        reject(new StopRequestedError('la transcription'))
         return
       }
-      const cause = signalUnix !== null ? `tué par ${signalUnix}` : `code de sortie ${code}`
+      const cause = exitSignal !== null ? `tué par ${exitSignal}` : `code de sortie ${code}`
       reject(
         new Error(
           [

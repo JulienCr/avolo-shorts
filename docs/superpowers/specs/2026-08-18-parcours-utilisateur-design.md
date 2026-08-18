@@ -477,7 +477,7 @@ Aristarque)
 règle ci-dessus n'a pas bougé, sa formulation si : elle disait « le proxy coûte
 environ 6 min sur 1 h 40 d'émission », c'est-à-dire le coût mesuré sur l'émission
 de référence, affiché tel quel à une capsule de vingt minutes comme à un live de
-deux heures et demie. Depuis le 19 août 2026, `fourchetteDÉtape`
+deux heures et demie. Depuis le 19 août 2026, `stepDurationRange`
 (`src/core/parcours.ts`) transforme ces mesures en débits et rend deux bornes —
 « environ 2–3 min ». Deux bornes et non un point, parce que chaque étape n'a été
 chronométrée qu'**une fois**, sur une machine dont `CLAUDE.md` documente 40 à
@@ -698,9 +698,9 @@ durée, et une phrase qui dit ce qui devient possible ensuite. Le temps restant
 **n'est pas affiché** : les seules mesures dont on dispose sont un point par
 étape sur une seule émission, et une estimation fausse coûte plus cher qu'une
 absence d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de
-grandeur **rapporté à l'émission qu'on regarde** : `fourchetteDÉtape` en tire
+grandeur **rapporté à l'émission qu'on regarde** : `stepDurationRange` en tire
 deux bornes de la durée du fichier — de sa taille tant que l'ingestion ne l'a pas
-sondé —, et `formatFourchette` les écrit « environ 5–8 min ». Une étape qu'on n'a
+sondé —, et `formatDurationRange` les écrit « environ 5–8 min ». Une étape qu'on n'a
 jamais chronométrée n'annonce rien du tout.
 
 **La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**

@@ -145,10 +145,23 @@ Cliquer un mot barré loin devant le clip crée un segment isolé de quelques
 dixièmes à cet endroit. C'est ce que le plan demandait, `Ctrl+Z` le défait, mais
 c'est un piège possible.
 
-Et quatre lots de notation sur onze reviennent `PROHIBITED_CONTENT` de façon
-reproductible sur `2025-06-15-cqlp`. Le repérage les classe derniers plutôt que
-d'échouer, mais la cause n'est pas élucidée. Sur une émission d'improvisation,
-ça mérite un œil.
+**Le filtre de sécurité de Gemini se déclenche sur du transcript d'improvisation.**
+Quatre lots de notation sur onze reviennent `PROHIBITED_CONTENT` sur
+`2025-06-15-cqlp`, de façon reproductible et diagnostiquée lot par lot. Ce n'est
+donc ni un hasard ni un incident réseau : c'est un taux, et sur cette émission il
+vaut 36 %.
+
+Ce que ça coûte aujourd'hui : le repérage classe les lots refusés derniers plutôt
+que d'échouer, donc leurs fenêtres ne sont jamais notées et ne peuvent pas
+remonter dans la présélection. Un tiers du matériau est écarté sans être jugé, en
+silence. Le contournement empêche la panne, pas la perte.
+
+Ce que ça engage pour la suite : l'itération 2 ajoute quatre pourvoyeurs et un
+reclassement en vision, tous chez le même fournisseur. Si le filtre mord déjà sur
+du texte, il mordra sur des images de scène. La cause mérite d'être élucidée
+avant d'y investir : quelles catégories se déclenchent, si les réglages de
+sécurité de l'API les couvrent, et si le découpage en lots de huit concentre le
+risque au lieu de le diluer.
 
 ### Les quatre itérations suivantes
 

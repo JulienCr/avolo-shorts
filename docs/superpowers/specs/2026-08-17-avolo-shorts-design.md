@@ -574,6 +574,23 @@ cadre large et stable vaut mieux qu'un cadre serré qui vacille.
 de gauche quand il le peut. Le logo en haut à droite est permanent et tombe dans
 tout crop pris à droite : on l'accepte.
 
+**Le panneau de chat mange le bord droit sur toute la hauteur.** Constaté à
+l'image le 18 août 2026 sur `2025-06-15-cqlp`, en regardant un rendu et non le
+filtergraph : le chat Twitch occupe environ 20 % de la largeur, du haut jusqu'en
+bas. Ce n'est pas le logo, qu'on accepte parce qu'il est petit et coincé ; c'est
+une bande entière, et un 1:1 centré l'attrape.
+
+La contrainte est donc plus dure que ne le laissait croire la liste ci-dessus :
+avec le bloc de gauche, entre un cinquième et un tiers de la largeur est dépensé
+avant même de cadrer, alors que 24 à 33 % du temps seulement tient déjà dans un
+9:16. Le cadrage automatique de l'itération 1 doit traiter ces deux bandes comme
+interdites, et non comme un décor qu'on préfère éviter.
+
+Le remède le moins cher n'est pas ici. Il est en amont, dans OBS : enregistrer un
+programme propre sans chat ni habillage, ou une seconde sortie d'archive, rend
+ces bandes au cadrage sans une ligne de code. À poser quand la mise en scène de
+l'émission se retravaille.
+
 ## 11. Le rendu
 
 Depuis l'original, jamais depuis le proxy.

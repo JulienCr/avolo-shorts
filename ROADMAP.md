@@ -172,20 +172,34 @@ comme des erreurs :
   dans `status.json` (une ligne dans `écrireStatut`, `src/server/run.ts`), en
   croisant avec `error`/`finishedAt` — le bilan décrit une notation *tentée*.
 
-### Trois points laissés ouverts par la vague
+### Ce que la vague a laissé, et où c'est suivi
 
-- **`épurerChemins` ne caviarde pas les références `op://…`** (`src/core/erreurs.ts`).
-  Une référence n'est pas une valeur, mais elle nomme le coffre. Contourné en ne
-  la citant pas dans le message servi ; le trou reste pour tout autre message.
-- **`sauterLeRendu` tient des fichiers périmés pour complets**, et les écritures
-  du `.txt` ne sont pas ordonnées entre `PATCH` et `renderClip`. Les deux se
-  referment ensemble avec une empreinte de rendu persistée, dans `render.ts`.
-- **Trois trouvailles consignées sur la PR #31 et non traitées** : `round(score, 3)`
-  fait franchir le seuil inclusif de 0,5 à une confiance de 0,4996 ; un
-  `--scene-threshold` sous le plancher de collecte de 0,05 ne s'applique pas ; et
-  **la validation avant renommage n'est exercée par aucun test** — la plus
-  sérieuse, la propriété est annoncée en tête de fichier et inverser les deux
-  lignes laisserait la suite verte.
+Les trois points ouverts au sortir de la première vague sont traités ou
+transformés en tickets. Le tracker prend le relais ; cette section ne le double
+pas, elle dit seulement où regarder.
+
+- **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
+  dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien
+  ne lie les préfixes qu'`estRéférence` accepte au motif de `src/core/erreurs.ts`.
+- **`sauterLeRendu` et l'ordre d'écriture du `.txt`** sont dans l'**issue #48**,
+  avec deux cas de plus découverts depuis : un clip peut rester `exported` sur un
+  rendu périmé quand un `PATCH` arrive pendant l'encodage, et les rendus déjà sur
+  le disque sans marque ne repasseront jamais par la porte de #37. Les quatre se
+  referment par une empreinte de rendu persistée.
+- **Les trois trouvailles de la PR #31** sont traitées (#40) : la validation avant
+  renommage est exercée par trois tests — vérifiés par mutation, dans les deux
+  sens —, `round(score, 3)` est devenu une troncature vers le bas pour que le
+  seuil inclusif dise ce qu'il dit, et un `--scene-threshold` sous le plancher est
+  désormais refusé plutôt qu'ignoré.
+
+**Un résidu de mesure, laissé exprès et sans ticket.** La collecte de scène
+utilise `select='gt(scene,plancher)'`, strict, alors que `plans()` retient de
+façon inclusive. L'asymétrie est fermée par le refus de l'égalité, pas supprimée ;
+`gte` existe dans le binaire de `setup.sh` (N-126188) et est bien inclusif —
+vérifié, `gte(0.5,0.5)` retient 20 images sur 20 là où `gt` n'en retient aucune.
+Ce n'est pas fait parce que ça touche la passe de scène dont le seuil de 0,4 a été
+mesuré image par image, et qu'**aucun test du CI ne peut la couvrir**, faute de
+ffmpeg sur le runner. À traiter par qui reprendra le détecteur, avec sa mesure.
 
 ### L'environnement et l'outillage
 
@@ -302,7 +316,34 @@ correctifs restent hors de `main`. C'est arrivé deux fois le 18 août.
 
 **Aristarque est coupé depuis le 18 août au soir**, faute de jetons. Il reste
 Codex et Copilot. Son silence n'est pas une passe en attente : un agent qui
-l'attendrait ne fusionnerait jamais. Le critère d'arrêt ne change pas — trois
+l'attendrait ne fusionnerait jamais.
+
+**L'interrupteur est la variable de dépôt `ENABLE_ARISTARQUE`**, à `false`, lue
+par `.github/workflows/pr-review.yml`. Elle vit dans *Settings → Variables* et
+non dans le fichier, pour que couper la review ne demande ni un commit ni qu'une
+branche reparte de `main`. Deux pièges que le workflow documente au point d'appel
+et qui valent d'être relus avant d'y toucher : `false`, `0`, `no` et `off`
+éteignent, mais une variable **supprimée** rend une chaîne vide que l'action lit
+comme *allumé* — le sens de la panne va vers la review qui tourne, jamais vers
+une PR qu'on croirait relue. Pour éteindre, on pose la valeur.
+
+**Un mot pour deux choses, et il faut les séparer.** Le workflow appelle « trois
+passes » les trois *axes* d'une même review — régression fonctionnelle, doctrine,
+données et accès — lancés en parallèle puis fusionnés. Le critère d'arrêt plus
+bas appelle « passes » les *relances* successives sur une PR. Un agent qui
+confondrait les deux fusionnerait après un seul tour de review. La mesure qui
+fonde le critère porte sans ambiguïté sur les relances : elle compte douze passes
+sur une PR, et attribue 47 % des trouvailles à des correctifs écrits *entre* deux
+d'entre elles — ce que trois axes simultanés ne peuvent pas produire.
+
+**L'axe « données et accès » ne se débranche jamais**, à aucun cran d'effort, sur
+aucun type de PR. Un `.md` publie une clé aussi bien qu'un `.ts` : un exemple de
+configuration avec un vrai jeton, un endpoint interne, un chemin de montage, une
+mesure copiée d'une sortie de commande — et ce dépôt est public. Le seul chemin
+qui retirerait cet axe est une liste explicite dans l'input `passes`, qui
+court-circuite **toutes** les règles, garde-fou compris. Ne pas s'en servir pour
+économiser sur une PR de documentation : c'est l'axe qui ne pouvait rien y
+trouver qu'on croit couper, et c'est l'autre qu'on coupe. Le critère d'arrêt ne change pas — trois
 passes —, il porte sur deux relecteurs au lieu de trois, et le bloc replié de
 Copilot devient d'autant plus le seul endroit où le gros des trouvailles se
 trouve. Ce qui suit décrit les trois surfaces, Aristarque compris, pour le jour

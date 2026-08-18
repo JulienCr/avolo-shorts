@@ -98,6 +98,17 @@ function urlSiProduit(clip: Clip, fichier: SortieClip): string | null {
  */
 export function sortiesDuClip(clip: Clip): ClipOutputs {
   const { mp4, variant9x16, texts } = sorties(clip)
+  // **Seul un clip exporté a des sorties**, et c'est un invariant, pas une
+  // précaution : `status` ne devient `exported` que dans `renderClip`, une fois
+  // les fichiers écrits — la route d'édition refuse ce statut au client. Des
+  // fichiers présents sous un clip qui ne le porte pas décrivent donc autre
+  // chose que sa livraison : un rendu qu'une édition vient de périmer et dont
+  // l'effacement a échoué, ou les restes d'un montage abandonné. Les publier
+  // ferait servir la vidéo d'avant sans que rien ne le signale.
+  // (relevé par Copilot)
+  if (clip.status !== 'exported') {
+    return { mp4Url: null, variant9x16Url: null, variant9x16Due: variant9x16 !== null, textsUrl: null }
+  }
   return {
     mp4Url: urlSiProduit(clip, mp4),
     variant9x16Url: variant9x16 === null ? null : urlSiProduit(clip, variant9x16),

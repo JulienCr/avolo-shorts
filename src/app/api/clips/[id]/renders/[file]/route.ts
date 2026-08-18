@@ -33,6 +33,18 @@ export const GET = route(
     const clip = getClip(getDb(), id)
     if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
 
+    // **Un clip non exporté ne sert rien**, même si le fichier est là.
+    //
+    // `status` ne vaut `exported` que si `renderClip` a fini d'écrire ; une
+    // édition qui périme le rendu le repose à `kept`. Des fichiers qui survivent
+    // sous un clip `kept` — un effacement qui a échoué, les restes d'un montage
+    // abandonné — décrivent la version d'avant. `sortiesDuClip` a cessé de les
+    // publier ; les servir quand même à qui a gardé l'URL laisserait exactement
+    // le même mensonge sortir par l'autre porte. (relevé par Copilot)
+    if (clip.status !== 'exported') {
+      throw introuvable(`Le clip ${id} n'a pas de rendu à jour : son montage a changé depuis.`)
+    }
+
     const sortie = sortieNommée(clip, file)
     if (sortie === null) {
       throw introuvable(`Le clip ${id} ne produit aucun fichier nommé ${JSON.stringify(file)}.`)

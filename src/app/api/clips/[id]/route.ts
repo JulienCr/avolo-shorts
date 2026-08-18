@@ -192,10 +192,26 @@ export const PATCH = route(
       // annoncer une sortie qui n'en est pas une. (relevé par Copilot)
       const texte = texteDePublication(écrit)
       if (texte !== texteDePublication(clip) && fs.existsSync(chemins.texts)) {
-        fs.writeFileSync(chemins.texts, texte)
+        // Écrit à côté puis renommé : `renderClip` peut réécrire ce même fichier
+        // au même moment, et un `writeFileSync` direct laisserait un texte mêlé
+        // des deux. Le renommage est atomique, donc le lecteur voit l'une ou
+        // l'autre version, jamais un mélange. (relevé par Copilot)
+        const provisoire = `${chemins.texts}.${process.pid}.tmp`
+        fs.writeFileSync(provisoire, texte)
+        fs.renameSync(provisoire, chemins.texts)
       }
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${clip.id} :`, cause)
+      // **Le statut sort d'`exported` même quand l'effacement a échoué.**
+      // `écarterRenduPérimé` le repose en dernier, après ses trois `rmSync` : une
+      // erreur au milieu laissait un clip qui se dit exporté sur des fichiers
+      // qui ne le décrivent plus. Avec le statut remis, `sortiesDuClip` cesse de
+      // les publier — ce qui reste sur le disque n'est plus offert comme la
+      // livraison du jour. (relevé par Copilot)
+      const àJour = getClip(db, id)
+      if (àJour !== undefined && àJour.status === 'exported') {
+        putClip(db, { ...àJour, status: 'kept' })
+      }
     }
 
     // La vignette est tirée du premier segment : si celui-ci a bougé, l'image en

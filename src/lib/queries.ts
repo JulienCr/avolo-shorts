@@ -97,6 +97,22 @@ type Variables = {
 let dernierJeton = 0
 
 /**
+ * Le dernier jeton parti par clip, et les clips dont deux écritures se sont
+ * chevauchées. **Au module, comme le jeton lui-même.**
+ *
+ * Portés par des `useRef`, ils vivaient une fois par instance du hook — or
+ * l'écran de tri et l'écran de clip l'instancient chacun de leur côté. Une
+ * écriture qui survit à la navigation (elle part en `keepalive`) croisait alors
+ * celle du nouvel écran sans qu'aucune des deux instances ne voie l'autre : la
+ * garde de réponse et la relecture de réconciliation raisonnaient chacune sur la
+ * moitié des faits. La base restait juste — le jeton, lui, était déjà commun —
+ * mais le cache pouvait s'arrêter sur le clip le plus ancien. (relevé par
+ * Copilot)
+ */
+const derniereÉcriture = new Map<string, number>()
+const clipsChevauchés = new Set<string>()
+
+/**
  * Le numéro d'ordre du **geste**, à envoyer au serveur.
  *
  * Il part de l'horloge et non de zéro, et c'est ce qui le distingue du compteur
@@ -147,7 +163,6 @@ export function usePatchClip() {
   // alors sur laquelle des deux réponses était la dernière — le même défaut que
   // côté serveur, un étage plus haut. Un seul numéro, pris une seule fois, ne
   // peut pas donner deux ordres différents. (relevé par Copilot)
-  const derniere = useRef(new Map<string, number>())
 
   // **Les clips dont deux écritures se sont réellement chevauchées.**
   //
@@ -162,7 +177,6 @@ export function usePatchClip() {
   // modifie aussi des champs que personne n'a demandés — remonter un clip
   // exporté le repasse en `kept` et efface ses sorties. Seule une relecture dit
   // la vérité, et on ne la paie que dans le cas qui la rend nécessaire.
-  const chevauchés = useRef(new Set<string>())
 
   /**
    * Les écritures en vol sur ce clip, **celle qui appelle comprise** :
@@ -195,9 +209,9 @@ export function usePatchClip() {
       // ce jeton existe pour fermer. (relevé par Codex)
       const jeton = jetonDuGeste()
       variables.seq = jeton
-      derniere.current.set(clipId, jeton)
+      derniereÉcriture.set(clipId, jeton)
       // Deux, parce que celle-ci y est déjà.
-      if (enVol(clipId) > 1) chevauchés.current.add(clipId)
+      if (enVol(clipId) > 1) clipsChevauchés.add(clipId)
 
       // Annuler les requêtes en vol : une réponse partie avant la modification
       // arriverait après elle et l'écraserait.
@@ -227,7 +241,7 @@ export function usePatchClip() {
 
     onError(_erreur, { clipId, projectId }, contexte) {
       // Une écriture dépassée ne défait pas celle qui l'a suivie.
-      if (contexte?.jeton !== derniere.current.get(clipId)) return
+      if (contexte?.jeton !== derniereÉcriture.get(clipId)) return
 
       // Remettre ce clip-là comme il était, **dans le cache tel qu'il est
       // maintenant** — pas invalider : invalider laisserait l'écran dans son
@@ -249,7 +263,7 @@ export function usePatchClip() {
     onSuccess({ clip, outputs }: PatchClipResult, { clipId, projectId }, contexte) {
       // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
       // récente remettrait l'ancien état, sans erreur et sans trace.
-      if (contexte?.jeton !== derniere.current.get(clipId)) return
+      if (contexte?.jeton !== derniereÉcriture.get(clipId)) return
 
       // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
       // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
@@ -283,10 +297,10 @@ export function usePatchClip() {
      * l'écran dans son état optimiste, donc faux, le temps du rechargement.
      */
     onSettled(_données, _erreur, { clipId, projectId }: Variables) {
-      if (!chevauchés.current.has(clipId)) return
+      if (!clipsChevauchés.has(clipId)) return
       // Une, parce que celle-ci y est encore.
       if (enVol(clipId) > 1) return
-      chevauchés.current.delete(clipId)
+      clipsChevauchés.delete(clipId)
       void client.invalidateQueries({ queryKey: cles.clip(clipId) })
       void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
     },

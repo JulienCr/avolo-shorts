@@ -295,7 +295,7 @@ describe('GET /api/clips/:id', () => {
   })
 
   it('publie les sorties en URL, jamais en chemin du serveur', async () => {
-    putClip(getDb(), clipDeBase())
+    putClip(getDb(), { ...clipDeBase(), status: 'exported' })
     poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
 
     const réponse = await getClipRoute(new Request('http://x'), contexte(CLIP))
@@ -328,6 +328,22 @@ describe('GET /api/clips/:id', () => {
   })
 
   /**
+   * `status` ne devient `exported` que dans `renderClip`, une fois les fichiers
+   * écrits. Des fichiers présents sous un clip qui ne le porte pas décrivent
+   * donc autre chose que sa livraison. (relevé par Copilot)
+   */
+  it('ne publie rien tant que le clip n’est pas exporté', async () => {
+    putClip(getDb(), { ...clipDeBase(), status: 'kept' })
+    poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+
+    const détail = (await (
+      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    ).json()) as ClipDetail
+    expect(détail.outputs.mp4Url).toBeNull()
+    expect(détail.outputs.textsUrl).toBeNull()
+  })
+
+  /**
    * Les deux côtés du contrat doivent dire la même chose : `servirFichier`
    * contrôle `isFile()` avant de pousser des octets, donc publier une entrée qui
    * n'est pas un fichier ordinaire annoncerait une sortie que la route des
@@ -350,7 +366,7 @@ describe('GET /api/clips/:id', () => {
   })
 
   it('attend la variante 9:16 dès que le ratio résolu ne l’est pas', async () => {
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1' })
+    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
 
     const avant = (await (
       await getClipRoute(new Request('http://x'), contexte(CLIP))
@@ -375,7 +391,15 @@ describe('GET /api/clips/:id/renders/:file', () => {
     )
 
   beforeEach(() => {
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1' })
+    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
+  })
+
+  it('ne sert rien pour un clip que l’édition a fait sortir d’`exported`', async () => {
+    poserRendus(`${CLIP}.mp4`)
+    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'kept' })
+    // Le fichier est là, et c'est justement le cas qui compte : ne plus publier
+    // l'URL ne suffit pas si celui qui l'a gardée peut encore la suivre.
+    expect((await demander(`${CLIP}.mp4`)).status).toBe(404)
   })
 
   it('sert le rendu natif en entier', async () => {
@@ -428,7 +452,9 @@ describe('GET /api/clips/:id/renders/:file', () => {
 
   it('refuse le rendu d’un autre clip, même bien nommé', async () => {
     const autre = `${PROJET}_000200000-000230000`
-    putClip(getDb(), { ...clipDeBase(), id: autre })
+    // Exporté lui aussi : ce test porte sur le cloisonnement entre clips, pas
+    // sur la règle de statut éprouvée juste au-dessus.
+    putClip(getDb(), { ...clipDeBase(), id: autre, status: 'exported' })
     poserRendus(`${autre}.mp4`)
     expect((await demander(`${autre}.mp4`)).status).toBe(404)
     expect((await demander(`${autre}.mp4`, undefined, autre)).status).toBe(200)
@@ -753,8 +779,12 @@ describe('PATCH /api/clips/:id', () => {
         expect(
           fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`)),
         ).toBe(true)
-        // Et la réponse décrit le disque tel qu'il est, pas tel qu'on l'a voulu.
-        expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
+        // **Et il n'est plus publié.** Le statut est sorti d'`exported` malgré
+        // l'échec, donc ce qui survit sur le disque n'est plus offert comme la
+        // livraison du jour : c'est la seule chose qui empêche de publier la
+        // vidéo d'avant sans le savoir.
+        expect(résultat.clip.status).toBe('kept')
+        expect(résultat.outputs.mp4Url).toBeNull()
       } finally {
         fs.chmodSync(dossier, 0o700)
       }

@@ -95,6 +95,37 @@ export type CheminsRendu = {
 }
 
 /**
+ * Le garde-fou de traversée de répertoire sur l'identifiant de clip.
+ *
+ * `projectId` en a déjà un — `vérifierId`, privé à `paths.ts` — et `clipId` n'en
+ * avait aucun : il entrait tel quel dans quatre `path.join`. Or il arrive du
+ * réseau, `POST /api/clips/:id/export` le prend dans l'URL, et `putClip` ne
+ * valide ni son format ni son contenu. Un `../` y suffisait à faire écrire le
+ * MP4, l'ASS et le TXT hors du dossier du projet — `écrireFichier` créant au
+ * passage les dossiers intermédiaires. (relevé par Aristarque)
+ *
+ * **C'est délibérément une copie de `vérifierId` et non son partage.** Ce dernier
+ * est privé à `paths.ts`, qui appartient à une autre tâche en cours d'écriture ;
+ * l'exporter depuis ici ferait toucher deux agents au même fichier pour une
+ * fonction de six lignes. La règle, elle, est la même, et elle est volontairement
+ * permissive sur les caractères — les noms de replays portent accents et
+ * espaces — et stricte sur la seule chose qui compte.
+ */
+function vérifierClipId(clipId: string): string {
+  const refusé =
+    clipId === '' ||
+    clipId === '.' ||
+    clipId === '..' ||
+    clipId.includes('/') ||
+    clipId.includes('\\') ||
+    clipId.includes('\0')
+  if (refusé) {
+    throw new Error(`Identifiant de clip invalide : ${JSON.stringify(clipId)}`)
+  }
+  return clipId
+}
+
+/**
  * Le nom de la variante, **due ou non**.
  *
  * Séparé de `cheminsRendu` parce qu'il sert aussi à effacer celle d'un ratio
@@ -103,16 +134,17 @@ export type CheminsRendu = {
  * (relevé par Copilot)
  */
 function cheminVariante(projectId: string, clipId: string): string {
-  return path.join(rendersDir(projectId), `${clipId}-9x16.mp4`)
+  return path.join(rendersDir(projectId), `${vérifierClipId(clipId)}-9x16.mp4`)
 }
 
 export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): CheminsRendu {
   const dossier = rendersDir(projectId)
+  const nom = vérifierClipId(clipId)
   return {
-    mp4: path.join(dossier, `${clipId}.mp4`),
-    variant9x16: ratio === '9:16' ? null : cheminVariante(projectId, clipId),
-    texts: path.join(dossier, `${clipId}.txt`),
-    ass: path.join(dossier, `${clipId}.ass`),
+    mp4: path.join(dossier, `${nom}.mp4`),
+    variant9x16: ratio === '9:16' ? null : cheminVariante(projectId, nom),
+    texts: path.join(dossier, `${nom}.txt`),
+    ass: path.join(dossier, `${nom}.ass`),
   }
 }
 
@@ -443,6 +475,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // ne doit pas payer un aller-retour dessus pour s'entendre dire qu'il n'y a
   // rien à faire.
   if (sauterLeRendu(chemins, (c) => fs.existsSync(c), options.force)) {
+    // **Le statut se répare ici aussi.** Un processus arrêté entre l'écriture du
+    // `.txt` et la mise à jour du statut laisse toutes les sorties en place : la
+    // relance sauterait, et le clip resterait en « kept » pour toujours sans que
+    // rien ne puisse le rattraper. La présence des fichiers fait foi en itération
+    // 0 (spec §4), donc elle vaut aussi pour le statut. (relevé par Copilot)
+    marquerExporté(db, clipId, clip)
     return {
       mp4: chemins.mp4,
       variant9x16: chemins.variant9x16,
@@ -464,6 +502,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // là. C'est la leçon relevée sur `buildProxy` : un artefact présent doit revenir
   // tout de suite, quoi que porte l'environnement.
   const encodeur = (): EncoderName => options.encoder ?? encoderName()
+
+  // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage. La
+  // variante en dépend : voir plus bas.
+  let natifEncodé = false
 
   // **On ne prépare que ce que le rendu va vraiment consommer.** Un passage
   // interrompu juste après l'encodage laisse le MP4 sans son `.txt` : cette
@@ -502,7 +544,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       ? planifierMarques(out.w, out.h, await collecterMarques(options.brandDir))
       : []
 
-    await produireArtefact({
+    const natif = await produireArtefact({
       dst: chemins.mp4,
       force: options.force,
       durationSec: durée,
@@ -521,15 +563,24 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
           encoder: encodeur(),
         }),
     })
+    natifEncodé = !natif.skipped
   }
 
   // La variante part du rendu natif et non de la source : le contenu y est déjà
   // cropé, sous-titré et marqué, et son son est déjà passé au `loudnorm` — d'où
   // le `-c:a copy` de `blurredVariantArgs`, qui évite de le comprimer deux fois.
+  //
+  // **Elle est refaite dès que le natif l'a été**, `force` ou pas. Un rendu forcé
+  // qui réussit le natif puis échoue sur la variante — disque plein, GPU qui
+  // décroche — laisse l'ancienne variante en place : `produireArtefact` nettoie
+  // son temporaire mais ne touche jamais le fichier déjà là. L'appel suivant,
+  // sans `force`, trouverait les trois sorties présentes, sauterait tout, et
+  // livrerait une variante qui ne correspond plus au natif, sans un mot.
+  // (relevé par Aristarque)
   if (chemins.variant9x16 !== null) {
     await produireArtefact({
       dst: chemins.variant9x16,
-      force: options.force,
+      force: options.force === true || natifEncodé,
       durationSec: durée,
       onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
       quoi: `variante 9:16 du clip ${clipId}`,

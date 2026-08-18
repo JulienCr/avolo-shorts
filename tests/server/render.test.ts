@@ -96,6 +96,18 @@ describe('cheminsRendu', () => {
       expect(cheminsRendu(ID, 'clip_0001', ratio).variant9x16).not.toBeNull()
     }
   })
+
+  it("refuse un identifiant de clip qui sortirait du dossier du projet", () => {
+    // `clipId` arrive du réseau : `POST /api/clips/:id/export` le prend dans
+    // l'URL, et `putClip` ne valide ni son format ni son contenu.
+    for (const mauvais of ['../evade', 'a/b', 'a\\b', '', '.', '..', 'a\0b']) {
+      expect(() => cheminsRendu(ID, mauvais, '1:1')).toThrow(/Identifiant de clip invalide/)
+    }
+  })
+
+  it('accepte les accents et les espaces, comme les noms de replays', () => {
+    expect(() => cheminsRendu(ID, 'clip été 01', '1:1')).not.toThrow()
+  })
 })
 
 describe('sauterLeRendu', () => {
@@ -424,13 +436,16 @@ describe('renderClip, chemin du saut', () => {
     expect(résultat.variant9x16).toBeNull()
   })
 
-  it("ne touche pas au statut du clip quand il saute", async () => {
+  it("répare le statut même quand il saute", async () => {
+    // Un processus arrêté entre l'écriture du .txt et la mise à jour du statut
+    // laisse toutes les sorties en place : sans cette réparation, chaque relance
+    // sauterait et le clip resterait en « kept » pour toujours.
     const { db, c } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
 
     await renderClip(c.id, { db })
-    expect(getClip(db, c.id)?.status).toBe('kept')
+    expect(getClip(db, c.id)?.status).toBe('exported')
   })
 
   it("écrit le .txt manquant sans relire le transcript ni rappeler ffmpeg", async () => {

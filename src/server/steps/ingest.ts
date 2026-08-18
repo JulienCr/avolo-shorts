@@ -249,9 +249,15 @@ async function copier(
  *
  * Deux traitements du même processus qui demandent la même source ne la copient
  * pas deux fois. Le cas n'est pas théorique : `enCours` (`src/server/run.ts`)
- * interdit deux exécutions du même projet, mais deux projets distincts peuvent
- * viser le même fichier — un identifiant se dérive du nom sans son extension,
- * donc `show.mp4` et `show.mov` désignent la même destination.
+ * interdit deux exécutions du même projet, mais rien n'interdit deux **exports**
+ * simultanés sur des clips de la même émission, et chacun réclame la copie par
+ * `ensureLocalCopy`. Sur une source de 12 Go, c'est la différence entre attendre
+ * une copie et en lancer deux.
+ *
+ * L'exemple que ce commentaire donnait — `show.mp4` et `show.mov` visant la même
+ * destination — était faux : `stagedPath` conserve l'extension, donc les deux
+ * destinations diffèrent, et `créerProjet` refuse de toute façon de leur donner
+ * le même identifiant. (relevé par Copilot)
  *
  * **La portée est celle d'une `Map` de module, et il faut la lire comme telle.**
  * Un `dev-ingest` lancé à côté du serveur a la sienne : les deux copies
@@ -299,9 +305,22 @@ async function copyOnce(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const inFlight = copiesInFlight.get(dst)
     if (inFlight === undefined) break
+    // **L'attente court contre notre propre signal.** Sans cela, un projet
+    // arrêté pendant qu'un autre copie la même source restait dans `enCours`
+    // jusqu'à la fin de cette copie — plusieurs minutes sur 12 Go — avant de
+    // seulement constater son arrêt. C'est le même défaut que l'attente entre
+    // deux tentatives de Gemini, sur un autre chemin. (relevé par Copilot)
+    //
     // Le sort de la copie voisine, jamais son erreur : ce qui nous intéresse est
     // « y a-t-il une copie exploitable au bout », pas pourquoi la sienne a raté.
-    if (await inFlight.then(() => true, () => false)) return false
+    const done = await raceAgainstAbort(
+      inFlight.then(
+        () => true,
+        () => false,
+      ),
+      signal,
+    )
+    if (done === true) return false
     // Notre arrêt à nous, en revanche, se dit tel quel.
     if (signal?.aborted === true) throw new StopRequestedError(`copie de ${path.basename(src)}`)
   }
@@ -369,9 +388,9 @@ export async function ensureLocalCopy(
   }
 
   console.log(`[${project.id}] copie de travail absente, reconstitution depuis le Drive…`)
-  const début = Date.now()
-  let palier = 0
-  let dernièreLigne = début
+  const start = Date.now()
+  let milestone = 0
+  let lastLog = start
   const ingestion = await ingérerOuExpliquer(project, {
     db: options.db,
     signal: options.signal,
@@ -383,20 +402,20 @@ export async function ensureLocalCopy(
       // chaud — il produit dix lignes qui n'apprennent rien. La seconde borne
       // les espace d'au moins deux secondes, donc le journal ne parle que
       // quand l'attente est réelle.
-      const atteint = Math.floor(a.fraction * 10)
-      const maintenant = Date.now()
-      if (atteint <= palier || maintenant - dernièreLigne < 2_000) return
-      palier = atteint
-      dernièreLigne = maintenant
+      const reached = Math.floor(a.fraction * 10)
+      const now = Date.now()
+      if (reached <= milestone || now - lastLog < 2_000) return
+      milestone = reached
+      lastLog = now
       console.log(
-        `[${project.id}] copie ${atteint * 10} % (${enOctets(a.done)} sur ${enOctets(a.total)})`,
+        `[${project.id}] copie ${reached * 10} % (${enOctets(a.done)} sur ${enOctets(a.total)})`,
       )
     },
   })
-  const secondes = (Date.now() - début) / 1000
+  const seconds = (Date.now() - start) / 1000
   console.log(
-    `[${project.id}] copie de travail reconstituée en ${secondes.toFixed(0)} s ` +
-      `(${(ingestion.sizeBytes / 1e6 / Math.max(secondes, 0.001)).toFixed(0)} Mo/s).`,
+    `[${project.id}] copie de travail reconstituée en ${seconds.toFixed(0)} s ` +
+      `(${(ingestion.sizeBytes / 1e6 / Math.max(seconds, 0.001)).toFixed(0)} Mo/s).`,
   )
   return ingestion.stagedPath
 }
@@ -406,8 +425,8 @@ export async function ensureLocalCopy(
  * dessous. Un replay pèse 4 à 13 Go et un fichier de test quelques mégaoctets ;
  * une seule unité rendait l'un des deux illisible — « 0.0 Go sur 0.0 ».
  */
-function enOctets(octets: number): string {
-  return octets >= 1e9 ? `${(octets / 1e9).toFixed(1)} Go` : `${Math.round(octets / 1e6)} Mo`
+function enOctets(bytes: number): string {
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} Go` : `${Math.round(bytes / 1e6)} Mo`
 }
 
 /**
@@ -438,6 +457,66 @@ async function ingérerOuExpliquer(
 }
 
 /**
+ * Les copies de travail qu'un traitement **tient ouvertes**, et le nombre de
+ * traitements qui les tiennent.
+ *
+ * `copiesInFlight` ne protège qu'une copie **en train de s'écrire**. Un export
+ * qui vient de la faire reconstituer, lui, la lit pendant l'encodage — de dix
+ * secondes à une minute — sans plus rien qui la signale : le balayage de
+ * démarrage ou celui d'une autre exécution pouvait donc l'effacer entre le
+ * retour d'`ensureLocalCopy` et l'ouverture du fichier par ffmpeg. `copiesInUse`
+ * (`src/server/run.ts`) ne connaît que les analyses, pas les exports.
+ *
+ * Un compteur et non un ensemble : deux exports simultanés sur des clips de la
+ * même émission tiennent la même copie, et le premier à finir ne doit pas la
+ * libérer sous le second. (relevé par Copilot)
+ */
+const leases = new Map<string, number>()
+
+/**
+ * Tient une copie de travail le temps d'un traitement. Rend la fonction qui la
+ * relâche, **à appeler dans un `finally`**.
+ *
+ * Le relâchement est idempotent : appelé deux fois, il ne décompte qu'une.
+ */
+export function holdStagedCopy(filePath: string): () => void {
+  leases.set(filePath, (leases.get(filePath) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const remaining = (leases.get(filePath) ?? 1) - 1
+    if (remaining <= 0) leases.delete(filePath)
+    else leases.set(filePath, remaining)
+  }
+}
+
+/**
+ * Attend un travail, ou l'abandon du signal — le premier des deux.
+ *
+ * Rend `undefined` quand c'est l'arrêt qui a gagné. **L'écouteur est retiré dans
+ * tous les cas** : sans ce retrait, chaque appelant qui attend une copie voisine
+ * laisse un écouteur de plus sur le signal de son exécution, qui vit aussi
+ * longtemps qu'elle.
+ */
+async function raceAgainstAbort<T>(travail: Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+  if (signal === undefined) return travail
+  if (signal.aborted) return undefined
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      travail,
+      new Promise<undefined>((resolve) => {
+        onAbort = () => resolve(undefined)
+        signal.addEventListener('abort', onAbort, { once: true })
+      }),
+    ])
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
  * Combien de temps une copie de travail reste valable : **huit heures**.
  *
  * C'est le TTL demandé par le §5 du retour d'usage, et il faut le lire avec la
@@ -459,6 +538,8 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  *
  * - **les copies en vol sont épargnées** par `copiesInFlight`, et leur temporaire
  *   l'est par sa date de modification, qui avance à chaque bloc écrit ;
+ * - **celles qu'un traitement tient ouvertes** le sont par `leases` : un export
+ *   lit sa copie pendant tout l'encodage sans rien qui l'écrive ;
  * - **`keep` épargne ce qu'une exécution est en train de lire.** Effacer sous
  *   un ffmpeg ne le casse pas — le descripteur ouvert survit à l'`unlink` sous
  *   Linux — mais l'étape suivante repaierait la copie ;
@@ -511,7 +592,7 @@ export async function cleanStage(
    * cas d'une base refermée par l'arrêt du serveur pendant le balayage.
    */
   const isSpared = (candidate: string): boolean => {
-    if (copiesInFlight.has(candidate)) return true
+    if (copiesInFlight.has(candidate) || leases.has(candidate)) return true
     const kept = options.keep?.()
     if (kept === null) return true
     return kept !== undefined && new Set(kept).has(candidate)

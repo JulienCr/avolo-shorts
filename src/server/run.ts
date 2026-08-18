@@ -390,16 +390,19 @@ export type Statut = {
    * artefacts. Sans lui, les deux cas sont indiscernables sur le disque.
    *
    * **Un `status.json` écrit avant cette PR ne le porte pas**, et `lireStatut`
-   * ne valide rien : il y vaut `undefined`, pas `false`. Rien ne le lit
-   * aujourd'hui ; qui le lira devra donc tester `=== true`, jamais `=== false`,
-   * qui prendrait un vieux fichier pour une exécution menée à son terme.
-   * (relevé par Aristarque)
+   * ne valide rien : il y vaut `undefined`, pas `false`. Ses deux lecteurs
+   * — `élémentDeListe` et `GET /api/projects/:id` — écrivent donc `?? false`, et
+   * personne ne doit tester `=== false`, qui prendrait un vieux fichier pour une
+   * exécution menée à son terme. (relevé par Aristarque)
    *
-   * **Il ne traverse pas la frontière HTTP, et il n'a pas à la traverser.**
-   * `phaseProjet` (`src/core/parcours.ts`) déduit déjà l'état juste : plus rien
-   * ne tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
-   * propose de reprendre. Publier un second champ qui dit la même chose ferait
-   * deux vérités sur une question déjà tranchée.
+   * **Il traverse la frontière HTTP, et il a fallu qu'il la traverse.** Ce
+   * commentaire a d'abord dit l'inverse, en s'appuyant sur `phaseProjet`
+   * (`src/core/parcours.ts`) qui déduit l'état juste — plus rien ne tourne,
+   * aucune erreur, une étape manque, donc `interrompu`. L'argument vaut pour
+   * l'écran de projet et **pas pour la bibliothèque, qui n'a pas `steps`** : la
+   * liste ne porte que deux lectures gratuites, par une décision de coût qui ne
+   * bouge pas (spec §3.1). Sans ce champ, une analyse arrêtée après l'ingestion
+   * y est indiscernable d'une analyse finie. (relevé par Copilot)
    */
   stopped: boolean
   /**

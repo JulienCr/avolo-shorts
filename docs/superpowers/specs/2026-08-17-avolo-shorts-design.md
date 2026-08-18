@@ -1053,7 +1053,7 @@ POST   /api/projects/:id/rerender { style? }           re-rend les clips export�
 ```
 
 `stop` est **idempotente**, et ses deux réponses sont des succès :
-`{ arrêtée: false }` dit que rien ne tournait — l'analyse venait de finir, ou un
+`{ stopped: false }` dit que rien ne tournait — l'analyse venait de finir, ou un
 redémarrage du serveur a emporté l'exécution. L'arrêt est propagé aux processus,
 pas simulé : `SIGTERM` puis `SIGKILL` sur ffmpeg et sur les deux workers Python,
 fermeture des flux pour la copie d'ingestion, `abortSignal` pour l'appel Gemini.

@@ -8,6 +8,7 @@ import {
   décisionCopie,
   empreinteSource,
   ensureLocalCopy,
+  holdStagedCopy,
   ingest,
   montageRépond,
   statAvecDélai,
@@ -320,6 +321,43 @@ describe('nettoyerStage', () => {
     expect(appels).toBeGreaterThanOrEqual(2)
     expect(retirés).toEqual([])
     expect(fs.existsSync(cible)).toBe(true)
+  })
+
+  /**
+   * **Une copie qu'un traitement tient ouverte est épargnée.** `copiesInFlight`
+   * ne couvre qu'une copie en train de s'écrire ; un export, lui, lit la sienne
+   * pendant tout l'encodage sans plus rien qui la signale, et le TTL s'applique
+   * à elle comme aux autres. (relevé par Copilot)
+   */
+  it('épargne une copie qu’un traitement tient ouverte', async () => {
+    const tenue = poser('tenue.mp4', STAGE_TTL_MS * 2)
+    const release = holdStagedCopy(tenue)
+
+    expect(await cleanStage()).toEqual([])
+    expect(fs.existsSync(tenue)).toBe(true)
+
+    release()
+    expect(await cleanStage()).toEqual(['tenue.mp4'])
+  })
+
+  /**
+   * **Un compteur, pas un ensemble.** Deux exports simultanés sur des clips de
+   * la même émission tiennent la même copie, et le premier à finir ne doit pas
+   * la libérer sous le second.
+   */
+  it('ne relâche qu’au dernier des tenants, et une seule fois par tenant', async () => {
+    const tenue = poser('tenue.mp4', STAGE_TTL_MS * 2)
+    const premier = holdStagedCopy(tenue)
+    const second = holdStagedCopy(tenue)
+
+    premier()
+    // Un relâchement idempotent : appelé deux fois, il ne décompte qu'une.
+    premier()
+    expect(await cleanStage()).toEqual([])
+    expect(fs.existsSync(tenue)).toBe(true)
+
+    second()
+    expect(await cleanStage()).toEqual(['tenue.mp4'])
   })
 
   /** Même chose quand elle lève : le nettoyage ne s'arrête pas, il s'abstient. */

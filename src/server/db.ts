@@ -343,6 +343,9 @@ export class InvalidSettingError extends Error {
   }
 }
 
+/** De combien de caractères un réglage de texte a besoin, et pas un de plus. */
+const TEXT_MAX = 2_048
+
 /**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
@@ -379,7 +382,14 @@ export function parseSetting(
     case 'boolean':
       return raw === 'true' ? true : raw === 'false' ? false : undefined
     case 'text':
-      return raw
+      // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
+      // valeur stockée vide, blanche ou trop longue passait ici alors que
+      // l'écriture la refuse : le lecteur annonce qu'une valeur invalide est
+      // ignorée au profit du défaut, et il en laissait passer trois formes.
+      // Une table éditée à la main avec `sqlite3` est le seul chemin qui y mène,
+      // et c'est précisément le chemin qu'on ne contrôle pas.
+      // (relevé par Copilot)
+      return raw.trim() === '' || raw.length > TEXT_MAX ? undefined : raw
   }
 }
 
@@ -387,9 +397,6 @@ export function parseSetting(
 function serialize(value: number | string | boolean): string {
   return typeof value === 'string' ? value : String(value)
 }
-
-/** De combien de caractères un réglage de texte a besoin, et pas un de plus. */
-const TEXT_MAX = 2_048
 
 /**
  * Valide une valeur reçue, ou lève.

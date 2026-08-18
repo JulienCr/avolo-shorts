@@ -6,19 +6,11 @@ import { CandidateCard } from '@/components/candidate-card'
 import { AppBar } from '@/components/app-bar'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { clipDuration } from '@/core/edl'
+import { compter, LIBELLES_ETAPES } from '@/core/parcours'
 import type { CandidateClip, StepName } from '@/lib/api'
-import { basculerStatut, estEcarte, estGarde, type Decision } from '@/lib/clip-status'
+import { basculerStatut, estEcarte, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
-
-const LIBELLES_ETAPES: Record<StepName, string> = {
-  proxy: 'Proxy',
-  audio: 'Audio',
-  transcript: 'Transcription',
-  candidates: 'Repérage',
-  renders: 'Rendus',
-}
 
 /**
  * L'écran de tri.
@@ -143,16 +135,6 @@ export default function PageDeTri({ params }: { params: Promise<{ id: string }> 
       </main>
     </div>
   )
-}
-
-function compter(liste: CandidateClip[]) {
-  const gardes = liste.filter((c) => estGarde(c.status))
-  return {
-    aTrier: liste.filter((c) => c.status === 'candidate').length,
-    gardes: gardes.length,
-    ecartes: liste.filter((c) => estEcarte(c.status)).length,
-    dureeGardee: gardes.reduce((total, c) => total + clipDuration(c.segments), 0),
-  }
 }
 
 /** L'étape en cours et son avancement, pendant que le pipeline tourne. */

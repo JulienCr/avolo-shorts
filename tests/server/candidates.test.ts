@@ -573,11 +573,45 @@ describe("l'étape de repérage", () => {
   })
 
   it('mais un refus sur **tous** les lots reste un refus de la vidéo', async () => {
+    // Un lot par fenêtre : chacune est donc bel et bien soumise seule, et le
+    // verdict porte sur un essai réellement fait.
+    process.env.SCORE_BATCH = '1'
     const toutRefusé: AppelGemini = async () =>
       réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
     await expect(
       runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} }),
-    ).rejects.toThrow(GeminiBlockedError)
+    ).rejects.toThrow(/jusqu'à la fenêtre seule/)
+  })
+
+  /**
+   * Le message ne doit affirmer que ce qui a été essayé.
+   *
+   * Le budget peut s'épuiser avant qu'une seule fenêtre ait été soumise seule —
+   * 11 lots de 8 tous refusés dépensent 22 appels sur les demi-lots et 11 sur
+   * les quarts, et la descente s'arrête là. Dire alors « jusqu'à la fenêtre
+   * seule » serait affirmer un essai qu'on n'a pas fait, c'est-à-dire commettre
+   * d'un étage plus haut la faute que cette PR corrige. Le test précédent ne
+   * contrôlait pas le libellé, donc l'inexactitude passait.
+   * (relevé par Copilot, Codex et Aristarque)
+   */
+  it('n’affirme pas la fenêtre seule quand le budget s’est épuisé avant', async () => {
+    process.env.SCORE_BATCH = '4'
+    const toutRefusé: AppelGemini = async () =>
+      réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
+    const échec = runCandidates(ID, { db, appel: toutRefusé, sleep: async () => {} })
+
+    const erreur = await échec.then(
+      () => null,
+      (cause: unknown) => cause as Error,
+    )
+    expect(erreur).toBeInstanceOf(GeminiBlockedError)
+    expect(erreur!.message).toMatch(/budget de récupération \(3 appel\(s\)\)/)
+    expect(erreur!.message).toMatch(/1 sur 4 l'ont été/)
+    expect(erreur!.message).not.toMatch(/jusqu'à la fenêtre seule/)
+    // Ce qui reste vrai malgré tout : la perte est chiffrée, pas avalée.
+    const bilan = dernierBilan(ID)!
+    expect(bilan.notées).toBe(0)
+    expect(bilan.jamaisNotées).toHaveLength(bilan.fenêtres)
   })
 
   /**

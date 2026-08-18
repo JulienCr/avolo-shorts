@@ -603,7 +603,20 @@ export type BilanNotation = {
  */
 const bilans = new Map<string, BilanNotation>()
 
-/** Le bilan de la dernière notation de ce projet, ou `null`. */
+/**
+ * Le bilan de la dernière notation de ce projet, ou `null`.
+ *
+ * **Il décrit une notation tentée, pas une notation réussie**, et l'appelant ne
+ * peut pas déduire l'un de l'autre. Le bilan est posé avant le premier appel et
+ * se remplit au fil de l'eau : une exécution qui échoue en cours de route — le
+ * réseau, le quota, un refus de toute la vidéo — en laisse un partiel, qui dit
+ * exactement ce qui avait été jugé au moment de la panne. C'est ce qu'on veut
+ * d'un décompte de perte, et ce serait un contresens dans un rapport de succès.
+ *
+ * Ce qui dit si la passe a abouti vit ailleurs et le dit déjà : `status.json`
+ * porte `error` et `finishedAt`. Le raccord à venir dans `écrireStatut` doit
+ * donc lire les deux, jamais ce bilan seul. (relevé par Aristarque)
+ */
 export function dernierBilan(projectId: string): BilanNotation | null {
   return bilans.get(projectId) ?? null
 }
@@ -758,12 +771,13 @@ async function noterLesFenêtres(
     else ranger(lu, notées, bilan)
   }
 
+  const budget = lots.length * RÉCUPÉRATION_MAX
   if (refusés.length > 0) {
     const enJeu = refusés.reduce((n, lot) => n + lot.length, 0)
     console.warn(
       `${refusés.length} lot(s) refusés par le filtre, ${enJeu} fenêtre(s) ; on les recoupe.`,
     )
-    await récupérer(refusés, ctx, bilan, notées, lots.length * RÉCUPÉRATION_MAX)
+    await récupérer(refusés, ctx, bilan, notées, budget)
   }
 
   // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo. On le dit
@@ -777,14 +791,28 @@ async function noterLesFenêtres(
   // l'erreur que ce fichier vient de corriger, en plus grand. Le budget de
   // `récupérer` borne ce que cette prudence peut coûter.
   //
+  // **Et le message dit lequel des deux cas s'est produit, parce qu'ils ne
+  // s'affirment pas au même prix.** Le budget peut s'épuiser avant qu'une seule
+  // fenêtre ait été soumise seule : 11 lots de 8 tous refusés dépensent 22
+  // appels sur les demi-lots et 11 sur les quarts, et la descente s'arrête là.
+  // Prétendre alors que le refus va « jusqu'à la fenêtre seule » serait affirmer
+  // un essai qu'on n'a pas fait — la faute même que cette PR corrige, d'un étage
+  // plus haut. Le second message ne conclut donc rien sur le matériel : il dit
+  // ce qui a été tenté, ce qui reste inconnu, et le levier qui reste
+  // (`SCORE_BATCH`, qui fait entrer moins de matière par charge dès le premier
+  // passage). (relevé par Copilot, Codex et Aristarque)
+  //
   // **Le compte des lots, pas celui des notes.** Un lot qui répond en omettant
   // toutes ses fenêtres est une réponse dégradée mais utilisable — c'est le sens
   // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
   // refus transformait ce repli en échec définitif dès qu'un seul lot était
   // bloqué. (relevé par Codex)
   if (bilan.lotsRefusés > 0 && bilan.lotsRépondus === 0) {
+    const jusquÀLaFenêtreSeule = bilan.refusées.length === bilan.fenêtres
     throw new GeminiBlockedError(
-      `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+      jusquÀLaFenêtreSeule
+        ? `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
+        : `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} l'ont été. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
     )
   }
 

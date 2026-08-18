@@ -36,7 +36,16 @@ export function LigneMontage({
   const { titre, detail, icone, grave } = diagnostic(montage)
 
   return (
-    <Alert variant={grave ? 'destructive' : 'default'} className="px-4 py-3">
+    <Alert
+      variant={grave ? 'destructive' : 'default'}
+      // **`role="alert"` est assertif, et deux de ces trois états ne sont pas des
+      // pannes.** La primitive le pose en dur ; un dossier vide interromprait
+      // donc la lecture en cours comme le ferait un montage tombé. La conception
+      // §4.3 n'admet que trois régions live, et les erreurs sont la seule
+      // assertive — le reste est poli. (relevé par Copilot)
+      role={grave ? 'alert' : 'status'}
+      className="px-4 py-3"
+    >
       {icone}
       <AlertTitle className="text-sm">{titre}</AlertTitle>
       <AlertDescription className="text-xs">{detail}</AlertDescription>

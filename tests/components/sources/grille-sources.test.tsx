@@ -105,6 +105,22 @@ describe('GrilleSources, les deux vides', () => {
     expect(screen.getByText(/9p/)).toBeTruthy()
   })
 
+  it('n’annonce pas un dossier vide comme une erreur', () => {
+    // La primitive `Alert` pose `role="alert"` en dur, donc assertif : un dossier
+    // vide interromprait la lecture en cours comme le ferait une panne. La
+    // conception §4.3 n'admet que trois régions live, et les erreurs sont la
+    // seule assertive. (relevé par Copilot)
+    grille({ listing: { sources: [], montage: { disponible: true, fstype: '9p', entrées: 0 } } })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('Le dossier des replays est vide.')
+  })
+
+  it('annonce le montage absent comme une erreur, lui', () => {
+    grille({ listing: { sources: [], montage: { disponible: false, fstype: null, entrées: 0 } } })
+    expect(screen.getByRole('alert').textContent).toContain('n’est pas monté')
+  })
+
   it('distingue un dossier plein d’autre chose', () => {
     // `entrées` compte tout, vidéos ou non. Trois fichiers dont aucune vidéo est
     // un diagnostic, pas un vide.

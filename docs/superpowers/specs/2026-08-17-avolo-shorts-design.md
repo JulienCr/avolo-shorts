@@ -655,6 +655,8 @@ dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
 ## 12. L'API
 
 ```
+GET    /api/sources                            les replays disponibles
+GET    /api/sources/thumb?file=<nom>           la vignette d'un replay
 POST   /api/projects              { source } -> 202 + projectId
 GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
@@ -690,6 +692,58 @@ OpenShorts :
   la source une dizaine de fois. Copier en local d'abord, en **gardant le nom de
   fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
   toute la bibliothèque en charabia.
+
+### Lister les sources
+
+`GET /api/sources` alimente le sélecteur. La forme est reprise d'OpenShorts, où
+chaque champ a été payé une fois :
+
+```json
+{
+  "files":     [{ "name": "2026-03-08-caro-mdlm.mp4", "size_mb": 12174, "mtime": 1772... }],
+  "truncated": false,
+  "sources":   [{ "name": "Replay", "fstype": "9p", "entries": 21 }]
+}
+```
+
+- **Un parcours plat, les enfants directs de `REPLAY_DIR` et rien d'autre**, et
+  **aucun lien symbolique**. Ce n'est pas une simplification : c'est le contrat que
+  `resolveSource` applique déjà (`path.dirname(résolu) === replayDir()`) et que
+  l'ingestion double d'un `lstat`. Un sélecteur qui descendrait dans les
+  sous-dossiers proposerait des cartes que le `POST` refuse par 400. Et la raison
+  du contrat vaut pour le sélecteur aussi : `projectIdFromSource` ne garde que le
+  nom du fichier, donc `2025/show.mp4` et `2026/show.mp4` se partageraient un seul
+  projet, silencieusement.
+- **Des noms de fichier, jamais des chemins absolus.** Le résolveur les rejoint de
+  toute façon sur la racine ; exposer l'arborescence du serveur n'apporterait rien
+  à l'appelant.
+- **Les entrées cachées et celles commençant par `$` sont ignorées.** Un dossier
+  adossé à un Drive porte des fichiers de téléchargement partiel, qui
+  apparaîtraient comme des vidéos cassées.
+- **`truncated` est remonté, pas absorbé.** Un sélecteur qui s'arrête silencieusement
+  à N donne à croire que les fichiers manquants n'existent pas.
+- **`sources[]` porte `fstype` et `entries`.** Un montage cassé est indiscernable
+  d'un dossier vide dans une liste à plat, et ce n'est pas théorique : sur
+  OpenShorts, un Drive non monté au démarrage du conteneur a fait disparaître une
+  source du sélecteur pendant des jours, avec l'apparence exacte de « il n'y a rien
+  dedans ». `entries` compte **toutes** les entrées du répertoire, pas seulement les
+  vidéos, parce qu'une source littéralement vide est presque toujours un montage qui
+  n'a pas eu lieu.
+
+Tri par date de modification décroissante : le dernier live est en haut.
+
+`GET /api/sources/thumb?file=<nom>` rend la vignette d'une source, en `image/jpeg`,
+et `404` si le fichier n'existe pas.
+
+**Ce `file` vient du client, et c'est un changement de frontière de confiance.** La
+vignette d'un candidat part d'un `projectId` que le serveur contrôle ; celle-ci part
+d'un nom que l'appelant écrit. Sans confinement, `?file=../../etc/passwd` ferait
+ouvrir un fichier arbitraire par ffmpeg. La route passe donc par le **même
+`resolveSource`** que `POST /api/projects`, qui rejette l'octet nul, résout et exige
+que le parent soit exactement `REPLAY_DIR`, puis par le même `lstat` que
+l'ingestion pour refuser les liens. Aucune validation maison : réutiliser le
+résolveur est ce qui garantit que le sélecteur, la vignette et l'ingestion ne
+peuvent pas diverger.
 
 ## 13. L'interface
 
@@ -731,6 +785,48 @@ ne s'en sert pas.
 
 La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
 l'installation.
+
+
+### Le choix d'une source, et ses vignettes
+
+Créer un projet commence par choisir un fichier dans `REPLAY_DIR`. Une liste de noms
+ne suffit pas : `2026-03-08-caro-mdlm.mp4` ne dit ni le plateau, ni le nombre
+d'invités, ni si l'habillage est incrusté. Les cartes portent donc une vignette.
+
+**Et c'est là que ça coûte.** La vignette d'un candidat se tire du proxy, qui est
+local, en 960x540, avec une image-clé par seconde. Une vignette de source n'a pas ce
+luxe : au moment de choisir, aucun proxy n'existe encore. Il faut donc aller chercher
+l'image dans l'original, sur un Drive monté en 9p, pour des fichiers de 4,5 à
+12,7 Go. Vingt et une cartes, ce sont vingt et une ouvertures distantes.
+
+Trois règles rendent la chose tenable :
+
+- **`-ss` avant `-i`**, qui fait chercher dans le conteneur au lieu de décoder depuis
+  le début. C'est la mesure qui vaut déjà pour la découpe.
+- **Cache sur disque local, clé = nom + taille + date de modification.** Une
+  vignette n'est calculée qu'une fois par fichier, jamais à chaque visite de l'écran,
+  et un fichier remplacé invalide la sienne.
+  Cette clé n'est **pas** l'empreinte de source du graphe (§5), qui ajoute la durée
+  ffprobe : l'y mettre imposerait un `ffprobe` distant avant même de savoir s'il faut
+  calculer la vignette, ce qui annulerait tout le bénéfice. Taille et date suffisent
+  à détecter un remplacement de fichier.
+- **À la demande, au défilement.** On ne pré-calcule pas les vingt et une au
+  chargement : on demande celle d'une carte quand elle entre dans le champ.
+
+**La durée arrive avec la vignette, pas avec la liste.** L'instant de capture étant
+une fraction de la durée, il faut la connaître, donc un `ffprobe` sur l'original.
+C'est le même aller distant que la vignette : on le fait une fois, au moment de
+calculer celle-ci, et on écrit la durée dans le cache à côté d'elle. La carte affiche
+le nom, la taille et la date dès la liste, puis la durée quand sa vignette arrive.
+
+`GET /api/sources` ne porte donc **aucun champ de durée** : l'y mettre exigerait
+vingt et un `ffprobe` distants au chargement de la grille, exactement ce que le
+chargement au défilement cherche à éviter.
+
+**Ne jamais prendre l'image à zéro seconde.** Les lives ouvrent sur un carton
+« ON ARRIVE VITE » avec compte à rebours, présent sur les trois émissions mesurées :
+on obtiendrait une grille de vignettes toutes identiques et toutes inutiles. Prendre
+l'image à une fraction de la durée place au cœur de l'émission.
 
 ## 14. Vérification
 

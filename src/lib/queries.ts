@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 
 import {
   getClip,
@@ -66,6 +67,15 @@ type Variables = { clipId: string; projectId: string; patch: ClipPatch }
 export function usePatchClip() {
   const client = useQueryClient()
 
+  // **Le numéro de la dernière écriture partie, par clip.**
+  //
+  // Deux clics rapides sur la même carte se chevauchent : si le second réussit
+  // avant que le premier n'échoue, le rollback du premier écraserait une
+  // décision pourtant confirmée. Et une réponse tardive du premier écraserait
+  // de même celle du second. On ne tient donc compte d'une réponse que si elle
+  // est encore la dernière écriture lancée sur ce clip.
+  const derniere = useRef(new Map<string, number>())
+
   return useMutation({
     mutationFn: ({ clipId, patch }: Variables) => patchClip(clipId, patch),
 
@@ -93,10 +103,16 @@ export function usePatchClip() {
         detail ? { ...detail, clip: { ...detail.clip, ...patch } } : detail,
       )
 
-      return { precedentCandidat, precedentClip }
+      const jeton = (derniere.current.get(clipId) ?? 0) + 1
+      derniere.current.set(clipId, jeton)
+
+      return { precedentCandidat, precedentClip, jeton }
     },
 
     onError(_erreur, { clipId, projectId }, contexte) {
+      // Une écriture dépassée ne défait pas celle qui l'a suivie.
+      if (contexte?.jeton !== derniere.current.get(clipId)) return
+
       // Remettre ce clip-là comme il était, **dans le cache tel qu'il est
       // maintenant** — pas invalider : invalider laisserait l'écran dans son
       // état optimiste, donc faux, le temps du rechargement.
@@ -114,7 +130,11 @@ export function usePatchClip() {
       }
     },
 
-    onSuccess(clip: Clip, { clipId, projectId }) {
+    onSuccess(clip: Clip, { clipId, projectId }, contexte) {
+      // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
+      // récente remettrait l'ancien état, sans erreur et sans trace.
+      if (contexte?.jeton !== derniere.current.get(clipId)) return
+
       // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
       // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
       // l'entrée concernée.

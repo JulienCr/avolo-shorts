@@ -168,6 +168,14 @@ export async function getClip(clipId: string): Promise<ClipDetail> {
   return fixtureClipDetail(clipId)
 }
 
+/**
+ * **Exigence pour la tâche 10 :** l'écran de clip vide son enregistrement
+ * différé sur `pagehide`, c'est-à-dire au moment où le navigateur s'apprête à
+ * abandonner la page. Une requête ordinaire lancée là est tuée avec elle : le
+ * `fetch` qui remplacera ce corps devra porter `keepalive: true`, sinon la
+ * dernière modification avant une fermeture d'onglet se perd — le défaut même
+ * que ce vidage existe pour éviter.
+ */
 export async function patchClip(clipId: string, patch: ClipPatch): Promise<Clip> {
   await attendre(LATENCE_ECRITURE_MS)
   return patchFixtureClip(clipId, patch)

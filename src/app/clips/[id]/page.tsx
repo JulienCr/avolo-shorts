@@ -101,6 +101,13 @@ function Editeur({ detail }: { detail: ClipDetail }) {
   }, [lines, clip.segments])
 
   const enregistrement = useEnregistrementAuto({
+    // **Tant que le store n'a pas chargé ce clip, on n'enregistre rien.** Au
+    // premier rendu, `segments` vaut `[]` et le cadrage ses valeurs par défaut :
+    // comparés au clip du serveur, ils forment une modification — celle qui
+    // viderait le clip. `charger` ne s'exécute qu'après ce rendu, donc sans
+    // cette garde l'écriture différée part d'un état qui n'est pas le montage,
+    // et le Strict Mode de développement la déclenche immédiatement.
+    pret: editeur.clipId === clip.id,
     reference: clip,
     segments,
     ratio: editeur.ratio,
@@ -381,12 +388,15 @@ function differences(
  *   un échec. D'où cet état à trois valeurs.
  */
 function useEnregistrementAuto({
+  pret,
   reference,
   segments,
   ratio,
   cropX,
   ecrire,
 }: {
+  /** Faux tant que le store n'a pas chargé ce clip : il n'y a alors rien de vrai à comparer. */
+  pret: boolean
   /** Le clip tel que le serveur le connaît : la référence de comparaison. */
   reference: ClipDetail['clip']
   segments: Segment[]
@@ -402,12 +412,12 @@ function useEnregistrementAuto({
   // à écrire » est exactement « la comparaison n'est pas vide ». Seul l'échec
   // est un fait extérieur, donc lui seul est un état, et il n'est posé que
   // depuis une réponse — jamais dans le corps d'un effet.
-  const modif = differences(reference, segments, ratio, cropX)
+  const modif = pret ? differences(reference, segments, ratio, cropX) : null
   const signature = modif ? JSON.stringify(modif) : null
   const [echec, setEchec] = useState<string | null>(null)
   const bloque = signature !== null && echec === signature
 
-  /** Ce qui est promis mais pas encore parti. Vidé au démontage. */
+  /** Ce qui est promis mais pas encore parti. Vidé au départ de la page. */
   const enAttente = useRef<Variables | null>(null)
   const ecrireRef = useRef(ecrire)
 
@@ -439,15 +449,28 @@ function useEnregistrementAuto({
     return () => clearTimeout(minuteur)
   }, [signature, bloque, reference, segments, ratio, cropX])
 
-  // Le démontage, et lui seul : dépendances vides, et rien d'autre que des refs
-  // à l'intérieur. Une dépendance ici rejouerait le vidage à chaque rendu.
-  useEffect(
-    () => () => {
+  // Le départ : démontage du composant **et** fermeture de l'onglet.
+  //
+  // Les deux, parce qu'aucun des deux ne couvre l'autre. React n'exécute pas
+  // toujours son nettoyage quand la page se ferme ; et `pagehide` ne se
+  // déclenche pas quand on passe simplement d'un clip à l'autre. Le drapeau
+  // `enAttente` est remis à `null` par celui qui vide en premier, donc le second
+  // ne double pas l'écriture.
+  //
+  // Dépendances vides, rien d'autre que des refs à l'intérieur : une dépendance
+  // ici rejouerait le vidage à chaque rendu, ce qui annulerait la temporisation.
+  useEffect(() => {
+    const vider = () => {
       const variables = enAttente.current
+      enAttente.current = null
       if (variables) ecrireRef.current(variables)
-    },
-    [],
-  )
+    }
+    window.addEventListener('pagehide', vider)
+    return () => {
+      window.removeEventListener('pagehide', vider)
+      vider()
+    }
+  }, [])
 
   if (bloque) return 'echec'
   return signature === null ? 'enregistre' : 'en-attente'

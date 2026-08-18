@@ -143,6 +143,29 @@ describe('la bibliothèque', () => {
     expect(appels).toContain('POST /api/projects')
   })
 
+  it('marque la source analysée dans le cache, sans redemander le dossier', async () => {
+    // **Le `staleTime` de 30 s est un piège ici** : revenir du projet dans la
+    // demi-minute qui suit rejouait la liste des sources telle qu'elle était
+    // avant la création — `projectId: null` —, donc la carte reproposait « Créer
+    // le projet ». Un second clic pendant l'analyse rend alors un 409.
+    //
+    // On corrige le cache plutôt que de l'invalider : `GET /api/sources` sonde
+    // le montage 9p sous délai de garde, et on connaît déjà la réponse.
+    // (relevé par Copilot et Codex)
+    const appels = serveur()
+    await monter()
+
+    await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /2025-06-15-cqlp\.mp4/ })).toHaveProperty(
+        'pathname',
+        '/projects/2025-06-15-cqlp',
+      ),
+    )
+    expect(appels.filter((a) => a === 'GET /api/sources')).toHaveLength(1)
+  })
+
   it('affiche le message du serveur quand la création échoue, et ne va nulle part', async () => {
     const duServeur = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
     serveur({ creation: () => reponse({ error: duServeur }, 503) })

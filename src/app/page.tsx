@@ -1,5 +1,6 @@
 'use client'
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 
 import { AppBar } from '@/components/parcours/app-bar'
@@ -7,7 +8,7 @@ import { GrilleSources } from '@/components/sources/grille-sources'
 import { ListeProjets } from '@/components/sources/liste-projets'
 import type { Creation } from '@/components/sources/source-card'
 import { messageServeur } from '@/components/sources/textes'
-import { useSources } from '@/components/sources/use-sources'
+import { marquerSourceAnalysée, useSources } from '@/components/sources/use-sources'
 import type { Source } from '@/lib/api'
 import { lienProjet } from '@/lib/parcours'
 import { useCreerProjet, useProjets } from '@/lib/queries'
@@ -36,6 +37,7 @@ import { useCreerProjet, useProjets } from '@/lib/queries'
  */
 export default function Bibliotheque() {
   const router = useRouter()
+  const client = useQueryClient()
   const projets = useProjets()
   const sources = useSources()
   const creer = useCreerProjet()
@@ -52,7 +54,13 @@ export default function Bibliotheque() {
         // est acceptée et lancée, pas faite —, et l'écran de projet est
         // exactement celui qui sait montrer une analyse qui commence. Une
         // notification en plus dirait deux fois la même chose.
-        onSuccess: ({ projectId }) => router.push(lienProjet(projectId)),
+        onSuccess: ({ projectId }) => {
+          // **Avant de naviguer**, pour que le retour trouve la carte à jour :
+          // le `staleTime` de 30 s couvre précisément le temps qu'on passe sur
+          // l'écran de projet avant de revenir.
+          marquerSourceAnalysée(client, source.name, projectId)
+          router.push(lienProjet(projectId))
+        },
       })
     },
   }

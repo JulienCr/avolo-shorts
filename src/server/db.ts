@@ -307,6 +307,18 @@ export function champDeRéglage(famille: string, nom: string): ChampDeRéglage |
   return REGISTRE_RÉGLAGES.find((c) => c.famille === famille && c.nom === nom)
 }
 
+/**
+ * Les familles que le registre connaît.
+ *
+ * **Elle existe pour qu'une famille inconnue *vide* soit refusée elle aussi.**
+ * Contrôler le champ suffisait tant que le patch en portait un : `{"hook": {}}`
+ * ne déclenchait aucun tour de boucle, donc aucun contrôle, et le `PUT`
+ * répondait 200 sur une famille qui n'existe pas — exactement le silence que le
+ * refus des clés inconnues existe pour fermer, une couche plus haut.
+ * (relevé par Codex)
+ */
+const FAMILLES = new Set<string>(REGISTRE_RÉGLAGES.map((c) => c.famille))
+
 /** La clé telle qu'elle est stockée. Préfixée par la famille. */
 function cléStockée(champ: ChampDeRéglage): string {
   return `${champ.famille}.${champ.nom}`
@@ -483,6 +495,9 @@ export function appliquerRéglages(db: Database.Database, patch: unknown): Régl
   const àécrire: { clé: string; valeur: string }[] = []
   for (const [famille, champs] of Object.entries(patch as Record<string, unknown>)) {
     if (champs === undefined) continue
+    if (!FAMILLES.has(famille)) {
+      throw new RéglageInvalideError(`Famille de réglages inconnue : ${famille}`)
+    }
     if (typeof champs !== 'object' || champs === null || Array.isArray(champs)) {
       throw new RéglageInvalideError(
         `Famille de réglages ${JSON.stringify(famille)} : un objet est attendu.`,

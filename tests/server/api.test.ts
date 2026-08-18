@@ -76,6 +76,7 @@ function poserStatut(champs: Record<string, unknown>): void {
       running: null,
       error: null,
       finishedAt: 1,
+      arrêtée: false,
       repérage: null,
       ...champs,
     }),
@@ -1283,6 +1284,9 @@ describe('/api/settings', () => {
   it('refuse une clé inconnue et une valeur hors bornes', async () => {
     expect((await écrire({ selection: { minutesParClipe: 4 } })).status).toBe(400)
     expect((await écrire({ hook: { duree: 2 } })).status).toBe(400)
+    // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
+    // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
+    expect((await écrire({ hook: {} })).status).toBe(400)
     expect((await écrire({ selection: { minutesParClip: 0 } })).status).toBe(400)
     expect((await écrire({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
     expect((await écrire({ selection: { minutesParClip: '4' } })).status).toBe(400)

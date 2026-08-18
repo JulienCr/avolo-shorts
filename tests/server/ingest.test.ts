@@ -262,8 +262,40 @@ describe('nettoyerStage', () => {
   it('épargne les copies qu’une exécution utilise', async () => {
     const enUsage = poser('en-usage.mp4', TTL_STAGE_MS * 2)
     poser('autre.mp4', TTL_STAGE_MS * 2)
-    expect(await nettoyerStage({ garder: [enUsage] })).toEqual(['autre.mp4'])
+    expect(await nettoyerStage({ garder: () => [enUsage] })).toEqual(['autre.mp4'])
     expect(fs.existsSync(enUsage)).toBe(true)
+  })
+
+  /**
+   * **La liste est relue à chaque fichier, pas prise en instantané au départ.**
+   * Une exécution démarrée pendant le balayage ne recopie rien — sa copie est
+   * là, `ingestionNécessaire` l'a constaté — donc rien d'autre ne la
+   * signalerait, et le balayage l'effaçait sous ses pieds. (relevé par Codex)
+   */
+  it('voit une exécution démarrée pendant le balayage', async () => {
+    const tardive = poser('tardive.mp4', TTL_STAGE_MS * 2)
+    poser('a.mp4', TTL_STAGE_MS * 2)
+    poser('b.mp4', TTL_STAGE_MS * 2)
+
+    // Rien à épargner au départ ; `tardive` entre en usage au premier fichier vu.
+    let enUsage: string[] = []
+    let vus = 0
+    const retirés = await nettoyerStage({
+      garder: () => {
+        vus += 1
+        if (vus === 1) enUsage = [tardive]
+        return enUsage
+      },
+    })
+
+    expect(retirés).not.toContain('tardive.mp4')
+    expect(fs.existsSync(tardive)).toBe(true)
+  })
+
+  /** On n'a pas pu savoir : on épargne, plutôt que d'effacer à l'aveugle. */
+  it('n’efface rien quand la liste des copies en usage est indisponible', async () => {
+    poser('a.mp4', TTL_STAGE_MS * 2)
+    expect(await nettoyerStage({ garder: () => null })).toEqual([])
   })
 
   it('ne touche ni aux sous-dossiers ni aux liens', async () => {

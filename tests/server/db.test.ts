@@ -335,6 +335,18 @@ describe('appliquerRéglages', () => {
     expect(() => appliquerRéglages(db, { hook: { duree: 2 } })).toThrow(/inconnu/i)
   })
 
+  /**
+   * **Y compris vide.** Contrôler le champ suffisait tant que le patch en
+   * portait un : `{ hook: {} }` ne déclenchait aucun tour de boucle, donc aucun
+   * contrôle, et la route répondait 200 sur une famille qui n'existe pas.
+   * (relevé par Codex)
+   */
+  it('refuse une famille inconnue même sans aucun champ', () => {
+    expect(() => appliquerRéglages(db, { hook: {} })).toThrow(RéglageInvalideError)
+    // Et une famille connue vide reste acceptée : elle ne demande rien.
+    expect(appliquerRéglages(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+  })
+
   it('refuse une valeur hors bornes', () => {
     expect(() => appliquerRéglages(db, { selection: { minutesParClip: 0 } })).toThrow(
       RéglageInvalideError,

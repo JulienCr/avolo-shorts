@@ -245,15 +245,24 @@ async function copier(
 }
 
 /**
- * Les copies en cours, par destination.
+ * Les copies en cours, par destination. **Dans ce processus, et pas au-delà.**
  *
- * **Deux traitements qui demandent la même source ne la copient pas deux
- * fois.** Le cas n'est pas théorique : `enCours` (`src/server/run.ts`) interdit
- * deux exécutions du même projet mais rien n'interdit à un script — `dev-ingest`
- * — de tourner à côté du serveur. Sans ce verrou, les deux `pipeline` écrivent
- * chacun leur temporaire, se disputent la bande passante d'un montage à
- * 97 Mo/s, et le second renommage écrase le premier fichier pendant qu'une étape
- * le lit peut-être déjà.
+ * Deux traitements du même processus qui demandent la même source ne la copient
+ * pas deux fois. Le cas n'est pas théorique : `enCours` (`src/server/run.ts`)
+ * interdit deux exécutions du même projet, mais deux projets distincts peuvent
+ * viser le même fichier — un identifiant se dérive du nom sans son extension,
+ * donc `show.mp4` et `show.mov` désignent la même destination.
+ *
+ * **La portée est celle d'une `Map` de module, et il faut la lire comme telle.**
+ * Un `dev-ingest` lancé à côté du serveur a la sienne : les deux copies
+ * repartent, et elles se disputent la bande passante d'un montage à 97 Mo/s.
+ * Ce qui les empêche de se corrompre l'une l'autre n'est pas ce verrou mais
+ * `cheminTemporaire`, dont le jeton porte le `pid` : chaque processus écrit son
+ * propre fichier, et le renommage final est atomique — le dernier arrivé gagne,
+ * les deux candidats sont entiers. Un verrou inter-processus achèterait la bande
+ * passante et coûterait la gestion d'un verrou périmé qu'un processus tué laisse
+ * derrière lui ; sur un cache qui peut disparaître sans conséquence, l'échange
+ * n'est pas bon. (relevé par Codex)
  *
  * La clé est la **destination**, pas la source : c'est elle qui est écrite, et
  * elle dérive de toute façon du nom du fichier d'origine.
@@ -264,11 +273,18 @@ const copiesEnVol = new Map<string, Promise<void>>()
  * Copie, ou attend celle qui est déjà partie vers la même destination. Rend
  * `true` quand c'est **cet appel** qui a écrit.
  *
- * **Le second appelant ne recopie pas derrière le premier.** Les deux visent le
- * même contenu — la destination dérive du nom de la source —, donc attendre
- * suffit. La contrepartie est qu'un arrêt demandé par le premier fait échouer le
- * second : c'est le bon comportement, il n'y a plus de copie sur laquelle
- * travailler, et le message qu'il reçoit dit un arrêt et non une panne.
+ * **Le second appelant ne recopie pas derrière le premier** quand celui-ci
+ * réussit : les deux visent le même contenu — la destination dérive du nom de la
+ * source —, donc attendre suffit.
+ *
+ * **Mais l'échec du premier n'est pas l'échec du second, et surtout pas son
+ * arrêt.** Une version antérieure laissait remonter tel quel le rejet de la
+ * copie voisine : quand celle-ci était coupée par l'arrêt d'un *autre* projet,
+ * le second recevait `ArrêtDemandéError` alors que son propre signal n'avait
+ * rien reçu, et `exécuter` — qui décide sur son signal à lui, à raison —
+ * l'écrivait dans `status.json` comme une panne. L'écran affichait donc « Arrêt
+ * demandé — copie de … » en bandeau d'échec à quelqu'un qui n'avait rien
+ * demandé. On tente donc la sienne. (relevé par Aristarque)
  */
 async function copieUnique(
   src: string,
@@ -277,10 +293,17 @@ async function copieUnique(
   onProgress?: (a: AvancementCopie) => void,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const enVol = copiesEnVol.get(dst)
-  if (enVol !== undefined) {
-    await enVol
-    return false
+  // **Deux tours au plus.** Le premier attend la copie déjà partie ; le second
+  // couvre le cas où une troisième est repartie pendant cette attente. Sans
+  // borne, deux appelants qui échouent l'un après l'autre boucleraient.
+  for (let tour = 0; tour < 2; tour += 1) {
+    const enVol = copiesEnVol.get(dst)
+    if (enVol === undefined) break
+    // Le sort de la copie voisine, jamais son erreur : ce qui nous intéresse est
+    // « y a-t-il une copie exploitable au bout », pas pourquoi la sienne a raté.
+    if (await enVol.then(() => true, () => false)) return false
+    // Notre arrêt à nous, en revanche, se dit tel quel.
+    if (signal?.aborted === true) throw new ArrêtDemandéError(`copie de ${path.basename(src)}`)
   }
 
   const travail = copier(src, dst, total, onProgress, signal)
@@ -320,13 +343,25 @@ export const TTL_STAGE_MS = 8 * 60 * 60 * 1000
  *   Linux — mais l'étape suivante repaierait la copie ;
  * - **rien hors de `stage/`.** Les noms viennent d'un `readdir` du dossier et
  *   sont rejoints dessus, les sous-dossiers et les liens sont ignorés.
+ *
+ * **`garder` est une fonction, et pas une liste, parce que le balayage dure.**
+ * Prise en instantané au départ, elle ignorait une exécution démarrée pendant la
+ * boucle : ce projet-là ne recopie rien — `ingestionNécessaire` vient de
+ * constater que sa copie est là —, `copiesEnVol` ne le connaît donc pas, et le
+ * balayage l'effaçait sous ses pieds. L'étape suivante échouait sur une entrée
+ * manquante. Réévaluée à chaque fichier, la liste voit les exécutions arrivées
+ * entre-temps. Elle rend `null` quand on n'a pas pu savoir : on épargne alors
+ * plutôt que d'effacer à l'aveugle. (relevé par Codex)
  */
 export async function nettoyerStage(
-  options: { ttlMs?: number; maintenant?: number; garder?: Iterable<string> } = {},
+  options: {
+    ttlMs?: number
+    maintenant?: number
+    garder?: () => Iterable<string> | null
+  } = {},
 ): Promise<string[]> {
   const dossier = stageDir()
   const limite = (options.maintenant ?? Date.now()) - (options.ttlMs ?? TTL_STAGE_MS)
-  const épargnés = new Set(options.garder ?? [])
 
   let noms: string[]
   try {
@@ -339,7 +374,10 @@ export async function nettoyerStage(
   const retirés: string[] = []
   for (const nom of noms) {
     const chemin = path.join(dossier, nom)
-    if (copiesEnVol.has(chemin) || épargnés.has(chemin)) continue
+    if (copiesEnVol.has(chemin)) continue
+    const épargnés = options.garder?.()
+    if (épargnés === null) continue
+    if (épargnés !== undefined && new Set(épargnés).has(chemin)) continue
     try {
       // `lstat` : un lien symbolique n'est pas une copie de travail, et le
       // suivre ferait effacer ce qu'il désigne.

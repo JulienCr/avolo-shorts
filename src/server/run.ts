@@ -389,6 +389,12 @@ export type Statut = {
    * exactement comme une exécution qui a fini son plan, alors qu'il manque des
    * artefacts. Sans lui, les deux cas sont indiscernables sur le disque.
    *
+   * **Un `status.json` écrit avant cette PR ne le porte pas**, et `lireStatut`
+   * ne valide rien : il y vaut `undefined`, pas `false`. Rien ne le lit
+   * aujourd'hui ; qui le lira devra donc tester `=== true`, jamais `=== false`,
+   * qui prendrait un vieux fichier pour une exécution menée à son terme.
+   * (relevé par Aristarque)
+   *
    * **Il ne traverse pas la frontière HTTP, et il n'a pas à la traverser.**
    * `phaseProjet` (`src/core/parcours.ts`) déduit déjà l'état juste : plus rien
    * ne tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
@@ -686,8 +692,10 @@ export async function lancer(
       // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
       // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
       // c'est voulu, le TTL vaut pour elle comme pour les autres.
-      const garder = copiesEnUsage(db)
-      if (garder !== null) void nettoyerStage({ garder }).catch(() => {})
+      // **La liste est passée en fonction, pas en instantané.** Le balayage
+      // dure, et une exécution démarrée pendant ce temps ne recopie rien — sa
+      // copie est là — donc rien d'autre ne la signalerait. Voir `nettoyerStage`.
+      void nettoyerStage({ garder: () => copiesEnUsage(db) }).catch(() => {})
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
@@ -710,12 +718,12 @@ export async function lancer(
  * tourner en même temps : `enCours` est une table par projet, pas un verrou
  * global.
  *
- * **`null` veut dire « ne nettoie pas », pas « n'épargne rien ».** Cette
- * fonction est appelée depuis le `finally` d'une exécution, et `closeDb`
- * s'accroche à l'arrêt du serveur : la base peut s'être refermée entre les deux.
- * Rendre une liste vide ferait alors effacer à l'aveugle exactement les copies
- * qu'on cherchait à épargner, et laisser lever ferait rejeter une exécution qui,
- * elle, s'est bien passée. Ne rien nettoyer coûte au pire un passage sauté.
+ * **`null` veut dire « épargne tout », pas « n'épargne rien ».** Cette fonction
+ * est rappelée à chaque fichier par `nettoyerStage`, et `closeDb` s'accroche à
+ * l'arrêt du serveur : la base peut s'être refermée entre-temps. Rendre une
+ * liste vide ferait alors effacer à l'aveugle exactement les copies qu'on
+ * cherchait à épargner, et laisser lever ferait rejeter une exécution qui, elle,
+ * s'est bien passée. Ne rien effacer coûte au pire un passage sauté.
  */
 function copiesEnUsage(db: Database.Database): string[] | null {
   const chemins: string[] = []

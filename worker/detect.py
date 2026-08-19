@@ -250,12 +250,33 @@ def scene_boundaries(
 
     Anciennement la première moitié de ``plans()``, dont la signature change :
     cette fonction-ci ne rend que les frontières, ``shots_from_boundaries``
-    fait le découpage. La séparation existe pour que les bascules de
-    composition — un second détecteur de frontière, orthogonal — puissent
-    s'ajouter à la liste avant le découpage, sans dupliquer la logique
-    d'espacement.
+    fait le découpage.
+
+    **Ne sert pas au croisement avec les bascules de composition** —
+    l'espacement qu'elle applique n'est pas associatif, voir la docstring de
+    ``_scene_candidates``. Ses seuls appelants sont les tests et quiconque
+    veut les frontières de scène seules, sans bascules.
     """
-    return _spaced_boundaries([t for t, score in events if score >= threshold], duration, min_shot)
+    return _spaced_boundaries(_scene_candidates(events, threshold), duration, min_shot)
+
+
+def _scene_candidates(events: list[tuple[float, float]], threshold: float) -> list[float]:
+    """Les instants où le score de scène franchit ``threshold``, **non
+    espacés**.
+
+    Distincte de ``scene_boundaries``, qui espace déjà son résultat :
+    l'espacement n'est pas associatif, donc espacer les frontières de scène
+    seules puis réespacer leur union avec les bascules de composition peut
+    perdre une frontière valide que l'union brute, espacée une seule fois à
+    la fin, aurait gardée. Exemple mesuré : des scores de scène à 5,0 et
+    5,5 s, une bascule à 4,5 s, ``min_shot=1``. Espacer d'abord les seules
+    frontières de scène élimine 5,5 (à 0,5 s de 5,0) : il ne reste que 5,0.
+    Unir ce reste à la bascule et réespacer élimine ensuite 5,0 (à 0,5 s de
+    4,5) : il ne reste que 4,5, et la frontière à 5,5 s a disparu — alors que
+    l'union brute ``[4.5, 5.0, 5.5]`` espacée une seule fois retient 4,5 et
+    5,5. (relevé par Copilot sur la PR #101)
+    """
+    return [t for t, score in events if score >= threshold]
 
 
 def shots_from_boundaries(boundaries: list[float], duration: float) -> list[dict[str, float]]:
@@ -553,8 +574,12 @@ def collective_shift(
     a: list[float], b: list[float], tolerance: float
 ) -> tuple[float | None, int]:
     """Le déplacement collectif entre deux images d'ancrages, en abscisse —
-    ``(médiane des différences appariées, nombre de personnes appariées)``, ou
-    ``(None, 0)`` si l'une des deux images n'a personne, ou si aucune
+    ``(médiane de toutes les différences de rang, nombre de personnes
+    appariées)`` quand ``len(a) == len(b)`` — le second terme compte les
+    différences retenues, le premier reste la médiane de l'ensemble, pas
+    seulement des retenues, voir plus bas —, ou ``(médiane des paires
+    appariées, nombre de personnes appariées)`` sinon. ``(None, 0)`` si l'une
+    des deux images n'a personne, ou si aucune
     différence ne fait consensus.
 
     **Deux méthodes d'appariement, selon que l'effectif est stable ou non.**
@@ -855,7 +880,9 @@ def refus_du_seuil_de_scène(
     au score de scène, une différence d'ancrages n'est pas bornée à 1 — les
     points de pose qui la fondent ne le sont pas non plus, et pour la même
     raison (voir ``person_anchor``). ``--switch-point-score`` vit dans le même
-    domaine que le score de scène, ``]0, 1]`` : à zéro, un point neutralisé par
+    domaine que le score de scène, ``]0, 1]``, mais avec sa propre vérification
+    plus bas — un domaine hors limites n'y a pas le même effet, voir cette
+    seconde vérification pour la raison : à zéro, un point neutralisé par
     ``flatten_keypoints`` — confiance nulle, position non fiable — passerait le
     seuil et fausserait l'ancrage qu'il est censé exclure. ``--switch-share``
     s'exprime en **dixièmes**, en entier, pour que la condition de rétention
@@ -868,7 +895,6 @@ def refus_du_seuil_de_scène(
     for nom, valeur in (
         ("--scene-threshold", seuil),
         ("--scene-floor", plancher),
-        ("--switch-point-score", switch_point_score),
     ):
         # `math.isfinite` et non `!= valeur` : il attrape `nan` et les deux
         # infinis d'un seul contrôle, et il se lit.
@@ -876,19 +902,42 @@ def refus_du_seuil_de_scène(
             return (
                 f"{nom} vaut {valeur}, qui n'est pas un nombre fini : toute comparaison avec "
                 "NaN est fausse, toute comparaison avec un infini est constante. Ni l'une ni "
-                "l'autre ne trie quoi que ce soit, et aucune ne le dit. Un score, de scène ou "
-                "de point de pose, vit dans [0, 1]."
+                "l'autre ne trie quoi que ce soit, et aucune ne le dit. Le score de scène de "
+                "ffmpeg vit dans [0, 1]."
             )
         if not 0 < valeur <= 1:
             return (
-                f"{nom} vaut {valeur}, hors du domaine d'un score, qui vit dans [0, 1]. Une "
-                "valeur nulle ou négative déclare une coupe (ou un point confiant) à chaque "
-                "candidate collectée ; un plancher nul en fait collecter à peu près chaque "
-                "image d'une émission de deux heures, ramassée en mémoire d'un seul tenant ; "
-                "et au-dessus de 1 — la faute de décimale sur 0,4 — plus rien ne coupe, "
-                "l'analyse sort en un plan unique sans que rien n'échoue. 0,4 sur un plancher "
-                "de 0,05 sont les valeurs mesurées."
+                f"{nom} vaut {valeur}, hors du domaine du score de scène de ffmpeg, qui vit "
+                "dans [0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
+                "plancher nul en fait collecter à peu près chaque image d'une émission de deux "
+                "heures, ramassée en mémoire d'un seul tenant ; et au-dessus de 1 — la faute de "
+                "décimale sur 0,4 — plus rien ne coupe, l'analyse sort en un plan unique sans "
+                "que rien n'échoue. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
             )
+    # **Vérification séparée de celle ci-dessus** : `--switch-point-score` vit
+    # dans le même domaine ``]0, 1]`` qu'un score de scène, mais un seuil hors
+    # domaine n'y produit pas le même effet. Un seuil ou un plancher hors
+    # domaine change ce que `scene_boundaries` retient ou collecte ; un
+    # `--switch-point-score` hors domaine ne fait rien « sortir en un plan
+    # unique » — `person_anchor` replie sur le centre de boîte et les coupes de
+    # scène restent actives, seule la précision de l'ancrage change. Le
+    # message générique le laissait entendre à tort. (relevé par Copilot sur
+    # la PR #101)
+    if not math.isfinite(switch_point_score):
+        return (
+            f"--switch-point-score vaut {switch_point_score}, qui n'est pas un nombre fini : "
+            "toute comparaison avec NaN est fausse, toute comparaison avec un infini est "
+            "constante. Un score de point de pose vit dans [0, 1]."
+        )
+    if not 0 < switch_point_score <= 1:
+        return (
+            f"--switch-point-score vaut {switch_point_score}, hors du domaine d'un score de "
+            "point de pose, qui vit dans [0, 1]. À zéro, un point neutralisé par "
+            "flatten_keypoints (confiance nulle, position non fiable) passerait le seuil et "
+            "fausserait l'ancrage qu'il est censé exclure ; au-dessus de 1, aucun point ne "
+            "l'atteint jamais et person_anchor replie systématiquement sur le centre de "
+            "boîte — les coupes de scène restent actives, ce n'est pas un plan unique."
+        )
     if seuil <= plancher:
         return (
             f"--scene-threshold ({seuil}) n'est pas strictement au-dessus de --scene-floor "
@@ -960,8 +1009,16 @@ def run_replay(a: argparse.Namespace) -> int:
     if not os.path.isfile(a.scene_scores):
         journal(f"Capture de scores de scène introuvable : {a.scene_scores}")
         return 2
+    # **``--out`` ne doit jamais désigner ``--replay``.** Le rejeu lit
+    # l'intégralité de l'analyse d'origine avant de la réécrire ; si les deux
+    # chemins coïncident (faute de frappe dans une commande de calibrage), le
+    # premier `open(..., "w")` écrase l'analyse qu'on est en train de rejouer,
+    # silencieusement — un `analysis.json` de production peut être de ceux-là.
+    if os.path.abspath(a.out) == os.path.abspath(a.replay):
+        journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
+        return 2
 
-    refus = refus_du_seuil_de_scène(
+    validation_error = refus_du_seuil_de_scène(
         a.scene_threshold,
         a.scene_floor,
         a.min_shot,
@@ -970,8 +1027,8 @@ def run_replay(a: argparse.Namespace) -> int:
         a.switch_share,
         a.switch_point_score,
     )
-    if refus is not None:
-        journal(refus)
+    if validation_error is not None:
+        journal(validation_error)
         return 2
 
     with open(a.replay, "r", encoding="utf-8") as f:
@@ -991,7 +1048,7 @@ def run_replay(a: argparse.Namespace) -> int:
     with open(a.scene_scores, "r", encoding="utf-8") as f:
         events = parse_scene_scores(f.read())
 
-    scene_boundary_times = scene_boundaries(events, duration, a.scene_threshold, a.min_shot)
+    scene_boundary_times = _scene_candidates(events, a.scene_threshold)
     switch_candidates = composition_switches(
         boxes, fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
@@ -1017,9 +1074,9 @@ def run_replay(a: argparse.Namespace) -> int:
         f"{rejected_count} rejetées faute de score de scène ({100 * rejected_rate:.0f} %))."
     )
 
-    dossier = os.path.dirname(a.out)
-    if dossier:
-        os.makedirs(dossier, exist_ok=True)
+    output_dir = os.path.dirname(a.out)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(analysis, f, ensure_ascii=False, allow_nan=False)
     journal(f"Écrit {a.out}.")
@@ -1293,7 +1350,7 @@ def main() -> int:
     # `_spaced_boundaries`.
     journal(f"[4/5] Frontières (scène ≥ {a.scene_threshold}, bascules)…")
     t0 = time.monotonic()
-    scene_boundary_times = scene_boundaries(évènements, a.duration, a.scene_threshold, a.min_shot)
+    scene_boundary_times = _scene_candidates(évènements, a.scene_threshold)
 
     switch_candidates = composition_switches(
         boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
@@ -1317,7 +1374,7 @@ def main() -> int:
         f"      {len(découpe)} plans, {len(boundaries)} frontières ({len(scene_boundary_times)} "
         f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(switch_boundary_times)} "
         f"bascules retenues sur {len(switch_candidates)} candidates, {rejected_count} rejetées "
-        f"faute de score de scène ({100 * rejected_rate:.0f} %), en "
+        f"faute de score de scène ({100 * rejected_rate:.0f} %)), en "
         f"{time.monotonic() - t0:.0f} s"
     )
 

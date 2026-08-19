@@ -175,18 +175,18 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
   })
 
   /**
-   * **L'égalité perd la frontière posée pile sur le plancher**, et la première
-   * version de ce refus l'acceptait en affirmant le contraire. La collecte est
-   * stricte — `select='gt(scene, plancher)'` —, la rétention est inclusive —
-   * `plans()` n'écarte que `score < seuil`. À valeurs égales, une image dont le
-   * score vaut exactement le plancher serait gardée par la seconde et n'est
-   * jamais rapportée par la première : elle disparaît sans un mot, ce qui est
-   * le défaut même que ce refus ferme.
+   * **L'égalité reste refusée, sur une raison qui a changé.** La collecte est
+   * désormais inclusive elle aussi — `select='gte(scene, plancher)'` —, comme
+   * la rétention l'était déjà : `scene_boundaries` n'écarte que
+   * `score < seuil`. À `seuil == plancher`, l'asymétrie qui motivait le refus
+   * n'existe plus, mais une autre subsiste : toute candidate collectée —
+   * chaque image dont le score atteint le plancher — atteint aussi le seuil,
+   * et le plancher de collecte déciderait des coupes à la place du seuil.
    *
-   * Strictement au-dessus, l'inclusion est vraie : `score ≥ seuil > plancher`
-   * implique `score > plancher`. (relevé par Copilot et par Codex)
+   * Strictement au-dessus, les deux gardent leur rôle : `score ≥ seuil >
+   * plancher` implique `score > plancher`. (relevé par Copilot et par Codex)
    */
-  it('refuse un seuil posé pile sur le plancher, que la collecte stricte perdrait', () => {
+  it('refuse un seuil posé pile sur le plancher, qui laisserait le plancher décider des coupes', () => {
     const message = refus('0.05', '0.05')
     expect(typeof message).toBe('string')
     expect(message).toContain('--scene-floor')
@@ -255,8 +255,10 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
  * sans quoi le refus se retournerait contre le worker lui-même.
  */
 describe('detect.py — le refus, étendu à --min-shot et aux bascules de composition', () => {
-  // Les valeurs mesurées, reprises telles quelles : seul le paramètre sous
-  // test s'écarte du défaut.
+  // Des valeurs valides quelconques, dans le domaine de chaque paramètre —
+  // ni les défauts du code (0.08, 8, 0.3), ni celles retenues par le
+  // balayage (docs/ratios-par-clip.md) : seule leur validité compte ici,
+  // seul le paramètre sous test s'écarte de cette base.
   const extended = (name: string, expression: string): unknown =>
     évaluer(
       [
@@ -272,7 +274,7 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
       ].join('\n'),
     )
 
-  it('laisse passer les cinq valeurs mesurées, sans rien à leur reprocher', () => {
+  it('laisse passer les cinq valeurs valides, sans rien à leur reprocher', () => {
     expect(extended('plan_min', '1.0')).toBeNull()
   })
 
@@ -441,6 +443,53 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
       { start: 10, end: 25 },
       { start: 25, end: 40 },
     ])
+  })
+})
+
+/**
+ * **`scene_boundaries` espace déjà son résultat — l'espacer une seconde fois
+ * après union avec les bascules de composition n'est pas associatif.**
+ * `_scene_candidates` existe pour que le croisement des deux détecteurs
+ * n'espace qu'une seule fois, sur l'union brute. (relevé par Copilot sur la
+ * PR #101)
+ */
+describe('detect.py — _scene_candidates, non espacée', () => {
+  const candidatesFrom = (events: [number, number][], threshold: number): number[] =>
+    évaluer(
+      `print(json.dumps(detect._scene_candidates(${JSON.stringify(events)}, ${threshold})))`,
+    ) as number[]
+
+  it("rend toute candidate au-dessus du seuil, sans appliquer d'espacement", () => {
+    expect(candidatesFrom([[5.0, 0.9], [5.5, 0.9], [8.0, 0.2]], 0.4)).toEqual([5.0, 5.5])
+  })
+
+  it('espacer les frontières de scène seules puis réespacer leur union perdrait une frontière que l’union brute garde', () => {
+    // Scores de scène à 5,0 et 5,5 s, bascule à 4,5 s, min_shot = 1 s.
+    const scene = [
+      [5.0, 0.9],
+      [5.5, 0.9],
+    ] as [number, number][]
+    const switchTime = 4.5
+
+    // L'ancien chemin, fautif : espacer les frontières de scène seules —
+    // `scene_boundaries` — élimine 5,5 avant même que la bascule n'entre en
+    // jeu.
+    const sceneOnlySpaced = évaluer(
+      `print(json.dumps(detect.scene_boundaries(${JSON.stringify(scene)}, 10, 0.4, 1.0)))`,
+    ) as number[]
+    expect(sceneOnlySpaced).toEqual([5.0])
+    const doubleSpaced = évaluer(
+      `print(json.dumps(detect._spaced_boundaries(${JSON.stringify([...sceneOnlySpaced, switchTime])}, 10, 1.0)))`,
+    ) as number[]
+    expect(doubleSpaced).toEqual([4.5]) // 5,5 a disparu.
+
+    // Le chemin retenu : `_scene_candidates`, non espacée, unie à la bascule
+    // et espacée une seule fois — garde les deux.
+    const rawCandidates = candidatesFrom(scene, 0.4)
+    const spacedOnce = évaluer(
+      `print(json.dumps(detect._spaced_boundaries(${JSON.stringify([...rawCandidates, switchTime])}, 10, 1.0)))`,
+    ) as number[]
+    expect(spacedOnce).toEqual([4.5, 5.5])
   })
 })
 
@@ -630,14 +679,13 @@ describe('detect.py — composition_switches', () => {
   })
 
   it('refuse un déplacement sous le seuil de la part appariée — entrée ou sortie de cadre', () => {
-    // Cinq personnes dans chaque image ; seules deux s'apparient dans la
-    // tolérance (0,1→0,31 et 0,4→0,59), les trois autres n'ayant aucune
-    // correspondance plausible d'une image à l'autre (arrivée ou départ) —
-    // donc 2 appariés sur un effectif de 5, en dessous des 60 % (`part = 6`)
-    // exigés. Les trois positions de remplissage sont choisies pour ne
-    // former, ni entre elles ni avec le déplacement réel, aucun cluster
-    // fortuit : ce ne sont pas des coordonnées plausibles d'écran, seulement
-    // des valeurs qui ne se recroisent nulle part à 0,03 près.
+    // Cinq personnes dans chaque image : `len(a) == len(b) == 5` emprunte
+    // l'appariement par rang, pas le vote sur toutes les paires. Les trois
+    // positions de remplissage sont choisies pour qu'aucune différence de
+    // rang ne retombe dans la tolérance de la médiane — donc `matched`
+    // rend 0, en dessous du minimum de deux personnes appariées, quel que
+    // soit `part`. Ce ne sont pas des coordonnées plausibles d'écran,
+    // seulement des valeurs qui ne se recroisent nulle part à 0,03 près.
     const entryExit = [
       { t: 0.0, x0: 0.05, x1: 0.15 },
       { t: 0.0, x0: 0.35, x1: 0.45 },
@@ -738,8 +786,9 @@ describe('detect.py — --replay', () => {
   })
 
   // Deux personnes qui glissent de +0,2 entre t = 0 et t = 0,5 (fps = 2) :
-  // une bascule franche, sans le moindre score de scène pour la confirmer —
-  // le repli sur le milieu de fenêtre doit donc jouer.
+  // une bascule franche, mais sans le moindre score de scène pour la
+  // confirmer — un seul signal sur les deux exigés, donc rejetée plutôt que
+  // posée au milieu de la fenêtre (voir le test juste en dessous).
   const ANALYSIS: Record<string, unknown> = {
     version: 2,
     fps: 2.0,

@@ -1144,6 +1144,15 @@ peuvent pas diverger.
 
 ## 13. L'interface
 
+**Écran de bibliothèque.** Une carte par replay, portant l'état de son analyse.
+Un projet n'est que l'état de traitement d'un replay : deux listes séparées
+faisaient apparaître une émission analysée deux fois, sans rien qui dise que
+c'était la même.
+
+**Écran d'émission.** Le tri des candidats, et au-dessus le replay lui-même : le
+proxy en lecture, et une bande de couverture qui montre où sont, dans l'heure
+quarante, les clips qu'on en a tirés. Voir l'arbitrage sur la timeline, plus bas.
+
 **Écran de tri.** La liste des candidats : vignette, durée, titre proposé, trois
 premières phrases. Garder ou écarter d'un clic. Trier 25 candidats occupe plus de
 temps que monter les trois qui survivent, donc cet écran se soigne en premier.
@@ -1209,6 +1218,31 @@ donc **caché, muet, en `preload="metadata"`**, et il ne cherche qu'**une positi
 `2025-06-15-cqlp` (proxy de 900 Mo) : un glissé d'un bout à l'autre de la bande
 coûte **0 à 5 requêtes partielles**, et la vignette suit chaque position
 échantillonnée.
+
+**Deux bandes horizontales existent dans le produit, et il faut les distinguer ici
+sous peine de faire lire une contradiction.** L'exception ci-dessus ne parle que de
+la première :
+
+- **la bande des plans**, sur l'écran de clip, qui a gagné ses deux oreilles le
+  19 août — c'est l'exception, avec ses trois gestes et ses trois interdits ;
+- **la bande de couverture**, sur la vue Émission, qui n'a rien gagné du tout :
+  un bloc par clip gardé sur toute la durée du replay, les chevauchements
+  répartis en voies, survol pour le résumé, clic pour ouvrir le clip. Rien ne s'y
+  déplace, rien ne s'y coupe, rien ne s'y étire, et ce qu'on y clique **navigue au
+  lieu d'éditer**.
+
+Elles ne décrivent d'ailleurs pas le même objet : l'une montre un clip vu de
+l'intérieur — ses plans, ses bornes —, l'autre montre une émission vue de
+l'extérieur, et ce qu'on en a tiré. Une phrase écrite pour l'une ne vaut pas pour
+l'autre, et c'est précisément ce que cette liste existe pour empêcher.
+
+Ce que le refus vise est le **coût** — un NLE est le morceau le plus difficile du
+métier — et la **place** : une timeline éditable prendrait le rôle que le
+transcript tient. La bande de couverture ne paie ni l'un ni l'autre, et elle rend
+visible une propriété de l'émission que trois écrans ne savaient pas dire : ce qui
+en a été extrait, et ce qui reste inexploité. Le placement en voies vit dans
+`src/core/coverage.ts`, pur, ce qui est la mesure de ce qu'il coûte : une fonction
+et son test, pas un banc de montage.
 
 La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
 l'installation.

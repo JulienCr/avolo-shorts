@@ -581,16 +581,26 @@ Trois critères secondaires, mesurables :
 ### 3.0 La carte, et la règle de navigation
 
 ```
-/                    bibliothèque : les projets en cours, puis la grille des sources
-   │  clic sur une source neuve  -> POST /api/projects -> redirection
-   │  clic sur un projet         -> navigation simple
+/                    bibliothèque : une carte par émission, avec son état
+   │  clic sur une émission neuve -> POST /api/projects -> redirection
+   │  clic sur toute autre        -> navigation simple
    v
-/projects/:id        le projet : avancement, puis tri des candidats
+/projects/:id        l'émission : lecteur, couverture, avancement, tri
    │  clic sur un candidat gardé -> navigation simple
+   │  clic sur un bloc de la bande de couverture -> idem
    v
 /clips/:id           le clip : transcript, cadrage, export
    ^__ retour au tri, ou clip suivant à monter
+
+/parametres          les réglages, frère de la racine et non quatrième étage
 ```
+
+**`/parametres` n'est pas un quatrième niveau**, c'est un second point d'entrée
+au même rang que la bibliothèque. Il ne décrit aucune émission — changer un
+réglage ne recalcule rien, un recalcul reste une action explicite —, et le ranger
+sous une émission aurait suggéré le contraire. Il se rejoint depuis la barre
+d'application, qui est le seul élément que les trois écrans partagent, et se
+quitte par la marque du produit.
 
 **Une seule règle : la profondeur ne dépasse jamais trois, et chaque niveau se
 quitte par le haut.** Le fil d'Ariane de `app-bar.tsx` porte déjà cette forme ; ce
@@ -605,16 +615,88 @@ impossible, sur l'écran précisément où l'on passe le plus de temps.
 
 **Objectif unique** : reprendre un travail en cours, ou en commencer un.
 
-**Un écran, deux sections, les projets d'abord.** La grille des 21 sources est
-l'entrée du tunnel (tâche 15), mais ce n'est pas le geste quotidien : une émission
-par semaine arrive, et chacune se travaille en plusieurs séances. Ce qu'on ouvre
-le plus souvent est un projet déjà lancé. Les deux sections sur le même écran
-évitent par ailleurs un choix arbitraire d'écran d'atterrissage.
+**Un écran, une seule liste, une carte par émission.** Ce document a tranché
+l'inverse — « deux sections, les projets d'abord » —, et l'usage l'a démenti :
+une émission analysée apparaissait **deux fois**, une fois dans « Projets » et
+une fois dans « Replays », sans que rien ne dise que c'était la même. Le
+raisonnement d'origine reste juste sur son point (ce qu'on ouvre le plus souvent
+est un travail déjà lancé) et faux sur sa conclusion, parce qu'il traitait le
+projet et le replay comme deux objets : **un projet n'est que l'état de
+traitement d'un replay**, donc les deux listes décrivaient le même objet à deux
+moments de sa vie.
 
-**Une source déjà analysée porte la marque de son projet et mène à lui**, au lieu
-de relancer une création. Techniquement `POST /api/projects` est idempotent sur ce
-cas (le plan revient vide), mais proposer deux chemins vers le même endroit sans
-le dire fait douter de ce qu'on vient de déclencher.
+La carte porte donc cet état, et l'état commande le geste : neuve → lance
+l'analyse ; en cours, interrompue ou en erreur → ouvre son suivi ; analysée →
+ouvre la vue Émission. `POST /api/projects` reste idempotent sur une source déjà
+analysée, mais proposer deux chemins vers le même endroit sans le dire fait
+douter de ce qu'on vient de déclencher.
+
+**Cinq états, et les cinq se lisent sur ce que la liste porte.** Quatre allaient
+de soi ; le cinquième, `interrompue`, a demandé un champ. Un arrêt demandé ne
+laisse ni `running`, ni `error` — `publierLArrêt` écrit délibérément `error: null`,
+parce qu'un arrêt n'est pas une panne —, ni artefact particulier, et une exécution
+qu'un redémarrage du serveur a emportée n'en laisse pas davantage.
+
+Une première version le déduisait de `durationSec`, nul tant que l'ingestion n'a
+pas sondé la source. Vrai quand ça répondait, **faux au-delà** : une analyse
+arrêtée après l'ingestion s'affichait « Analysée », c'est-à-dire dans le cas exact
+que quelqu'un venait de provoquer d'un clic, sur la seule carte qu'il regardait.
+C'était le seul des cinq états qui pouvait mentir.
+
+`ProjectListItem.stopped` l'a remplacé, et il ne coûte rien : `élémentDeListe` lit
+déjà `status.json` pour son champ `error`, et `stopped` y était déjà écrit. Le
+champ se tait pendant qu'une exécution tourne, comme `error`, pour la même raison
+— deux écrans qui se contredisent sur le même projet valent moins que pas d'écran.
+L'argument qui l'avait d'abord retenu (« `phaseProjet` déduit `interrompu` de
+`steps` ») ne valait que pour l'écran de projet : **la bibliothèque n'a pas
+`steps`**, c'est justement le sondage qu'elle refuse de payer.
+
+**Un projet dont la source a disparu du Drive garde une carte**, marquée comme
+telle et rangée après les replays. Sans elle il n'a plus de replay, donc plus de
+rangée, et tout le travail fait dessus — clips gardés, montages, rendus déjà sur
+le disque — devient inatteignable sans qu'aucun écran ne le signale. Le cas n'est
+pas théorique : le dossier des replays est un partage 9p qui décroche de deux
+façons, et un fichier renommé côté Windows suffit.
+
+**La carte porte un titre d'émission, pas un nom de fichier.** `2025-06-15-cqlp.mp4`
+s'affiche « cqlp — 15 juin 2025 » : la date en tête sert à trier un dossier, elle
+ne se lit pas, et `titreProjet` la remet en français puis la passe derrière. Le
+nom du fichier reste en métadonnée, à côté de la taille et de la date, parce que
+c'est par lui qu'on fait le lien avec ce qui est posé sur le Drive.
+
+**Ce titre ne bouge pas au moment de l'analyse**, et c'est la propriété qui
+l'autorise : `titreProjet` est une fonction pure de l'identifiant, et
+l'identifiant est le nom de fichier sans son extension (`projectIdFromSource`).
+La même chaîne entre, la même sort, avant comme après — un titre qui basculerait
+au lancement de l'analyse aurait été une raison de garder le nom de fichier.
+`src/core/library.ts` dérive d'ailleurs toujours depuis `source.name`, jamais
+depuis `project.id` quand le projet est là : lire l'identifiant tout fait ferait
+dépendre l'affichage de l'accord entre deux dérivations, et le jour où elles
+divergeraient le titre changerait sous les yeux au pire moment.
+
+Ce qu'un nom hors convention devient est déjà tranché par la spec §12 : il
+**ressort tel quel** plutôt que d'être deviné — `randrom.mp4` reste `randrom`, et
+une date impossible comme `2026-02-31` ne s'affiche pas en « 31 février ».
+
+**Filtres et recherche.** Cinq filtres — Tous, À analyser, En cours, Analysés,
+Erreurs —, chacun portant son compte. « Erreurs » recouvre l'échec **et**
+l'interruption : les deux appellent le même geste, reprendre l'analyse. Les
+comptes se calculent avant la recherche, jamais après : ils servent à choisir un
+filtre, et les faire fondre au fil de la frappe ferait dire « Erreurs 0 » là où
+quelque chose a échoué.
+
+**La recherche mord sur les deux textes que la carte écrit**, son titre et son
+nom de fichier. Sur le seul titre, « 2025-06 » ne trouverait rien alors que la
+carte l'affiche ; sur le seul nom de fichier, « juin » ne trouverait rien alors
+que c'est ce qui est en gros. La règle est la même dans les deux sens : on
+cherche dans ce qui est écrit.
+
+**Ni le filtre ni la recherche ne vont dans l'URL**, contrairement à la vue du
+tri. La raison qui met la vue du tri dans l'URL est qu'on la quitte pour un clip
+et qu'un rechargement doit rendre le même écran ; ici la racine est l'endroit d'où
+l'on part et où l'on revient, et une recherche à demi tapée dans une URL est une
+URL qu'on ne peut plus partager. Ce qui doit survivre à l'aller-retour est la
+position de défilement, et elle est en session.
 
 | | |
 |---|---|
@@ -627,8 +709,11 @@ le dire fait douter de ce qu'on vient de déclencher.
 
 **Ce que la bibliothèque a demandé au serveur, et ce qu'elle ne devait pas
 demander.** Montrer plusieurs analyses à la fois suppose un état par projet, que
-`GET /api/projects` ne portait pas (relevé par Copilot). Deux formes étaient
-possibles, et elles ne se valaient pas :
+`GET /api/projects` ne portait pas (relevé par Copilot). Cette moitié-là de
+l'arbitrage n'a pas bougé d'un octet quand les deux sections ont fusionné : la
+jointure entre `Source.projectId` et `ProjectListItem.id` se fait **côté
+client**, dans `src/core/bibliotheque.ts`, sur deux requêtes qui existaient déjà.
+Deux formes étaient possibles, et elles ne se valaient pas :
 
 - **une requête par projet** (`GET /api/projects/:id` pour chacun) : à écarter.
   Elle multiplie par vingt et un un appel qui exécute `relevéPrésence`, lequel
@@ -651,8 +736,8 @@ tourne : ce qui la rend gratuite est ce qu'elle ne demande pas.
 | État | Ce qui s'affiche |
 |---|---|
 | Chargement | squelettes aux dimensions finales, pour que la grille ne saute pas quand les cartes arrivent. Les vignettes ont leur propre chargement, plus lent, indépendant. |
-| Vide | deux vides distincts, et les confondre serait un défaut de diagnostic. **Aucun projet** : la section disparaît, la grille prend toute la place. **Aucune source** : la ligne de montage de `GET /api/sources` porte `fstype`, `entrées` et une `cause` nommée, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). **La cause vient du serveur, l'écran ne la devine pas** : c'est lui qui a essayé de lire, donc lui seul sait si le chemin était absent, refusé, muet ou illisible. Un écran qui énumère trois hypothèses fait relire trois choses là où une seule a échoué. |
-| Erreur | `GET /api/sources` en échec affiche le message du serveur et un bouton « réessayer ». Le 503 de `POST /api/projects` sur un Drive muet a son propre texte, déjà écrit côté serveur : le reprendre tel quel plutôt que le réécrire. |
+| Vide | trois vides distincts, et les confondre serait un défaut de diagnostic. **Rien du tout** — ni replay ni projet : la ligne de montage de `GET /api/sources` porte `fstype`, `entrées` et une `cause` nommée, donc l'écran distingue « ce dossier est vide » de « ce montage n'a pas eu lieu » (spec §12, incident réel d'OpenShorts). **La cause vient du serveur, l'écran ne la devine pas** : c'est lui qui a essayé de lire, donc lui seul sait si le chemin était absent, refusé, muet ou illisible. **Un filtre qui ne rend rien** : sa propre phrase — « aucune analyse n'a échoué » est une bonne nouvelle, « le dossier n'est pas monté » en est une mauvaise. **Une recherche qui ne rend rien** : elle porte son geste, effacer. |
+| Erreur | trois origines, et aucune n'efface les autres. `GET /api/sources` en échec affiche le message du serveur et un bouton « réessayer ». **`GET /api/projects` en échec a le sien**, et il compte plus qu'il n'en a l'air : sans lui, une liste de projets en panne rend exactement la même page qu'une bibliothèque où rien n'est analysé — dix-huit cartes « À analyser » sur des émissions déjà traitées, ce qui invite à relancer neuf minutes pour rien. Le 503 de `POST /api/projects` sur un Drive muet a son propre texte, déjà écrit côté serveur : le reprendre tel quel plutôt que le réécrire. |
 | Désactivé | la carte sur laquelle on vient de cliquer, le temps que `POST /api/projects` réponde. La réponse arrive en quelques centaines de millisecondes, mais elle traverse un `lstat` sur un montage 9p qui peut mettre plusieurs secondes : sans cet état, on clique deux fois. Un second cas viendra plus tard, la source dont le fichier grossit encore parce que le live vient de finir, que rien ne surveille en itération 0. |
 | Succès | la création répond 202 et redirige. La redirection **est** la confirmation : une notification en plus dirait deux fois la même chose. |
 
@@ -666,13 +751,59 @@ Windows.
 
 **Clavier** : la grille est une liste de liens, donc tabulable telle quelle. Les
 flèches ne naviguent pas dans la grille : vingt et une cartes ne justifient pas un
-gestionnaire de focus bidimensionnel, et `Tab` y suffit.
+gestionnaire de focus bidimensionnel, et `Tab` y suffit. Les filtres sont des
+onglets, donc les flèches y naviguent — c'est la primitive qui le donne.
 
-### 3.2 Projet (`/projects/:id`)
+**La carte tient la même hauteur dans les cinq états**, barre d'avancement
+comprise. Ce n'est pas une règle de style : une carte qui grandit au tour de
+sondage suivant déplace tout ce qui la suit, sous les yeux et sous le curseur —
+c'était le point 2 de l'issue #56, sur la section « Projets » d'alors. La
+conséquence est assumée : **le message d'échec ne tient pas sur la carte**. Elle
+dit qu'il y a eu un échec, la vue Émission en donne le texte entier avec le bouton
+qui le répare. Un message tronqué aurait été le pire des trois — il aurait promis
+une cause en la cachant.
+
+### 3.2 Émission (`/projects/:id`)
 
 **Objectif unique** : décider quelles propositions valent d'être montées.
 L'avancement de l'analyse est sur le même écran non pas comme second objectif,
 mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
+
+**Et c'est la vue centrale d'une émission, pas seulement un écran de tri.** Ce
+document l'appelait « Projet » et le décrivait comme une grille de cartes ; une
+fois l'analyse passée, c'est aussi l'endroit depuis lequel on comprend **ce qui a
+été produit à partir de l'émission**. Deux surfaces s'ajoutent donc au-dessus de
+la grille, et elles ne changent pas l'objectif unique — elles répondent à la
+question qu'on se pose avant de trier : qu'est-ce que cette émission a déjà
+donné ?
+
+- **Le proxy en lecture.** `GET /api/projects/:id/proxy` répond déjà aux requêtes
+  partielles (`src/core/range.ts`), donc un `<video>` scrube sans rien ajouter au
+  serveur, et les contrôles du navigateur donnent lecture, pause, barre,
+  raccourcis et étiquettes traduites. **Ce n'est pas `ClipPlayer`** : celui-là
+  saute les passages retirés (`playbackAction`), ce qui est juste pour
+  prévisualiser un clip et faux ici — on regarde l'émission entière, et l'intérêt
+  de l'écran est précisément de voir ce qui n'en a **pas** été extrait.
+- **La bande de couverture**, sous le lecteur : un bloc par clip gardé sur toute
+  la durée de l'émission, survol pour la vignette, le titre, les bornes, la durée
+  et l'état, clic pour ouvrir le clip, clic ailleurs pour déplacer la lecture. Les
+  chevauchements — le repérage propose des fenêtres qui se recouvrent d'une
+  trentaine de secondes — se répartissent en voies, par un glouton sur les débuts
+  qui rend le nombre minimal (`src/core/couverture.ts`, pur).
+
+**La bande est en lecture seule, et l'arbitrage est en spec de conception §13.**
+Ce que cette §13 écarte est « toute la famille timeline multi-pistes, waveforms et
+playhead », au motif que la surface d'édition est le transcript. Une bande qui ne
+modifie rien n'en fait pas partie : elle ne prend la place d'aucun geste
+d'édition, elle rend visible une propriété de l'émission — sa couverture — que
+trois écrans ne savaient pas dire.
+
+**Et ce n'est pas la bande de l'écran de clip.** Celle-là montre un clip vu de
+l'intérieur — ses plans, ses bornes — et a gagné deux oreilles qu'on tire le
+19 août ; celle-ci montre une émission vue de l'extérieur et ce qu'on en a tiré,
+et n'a rien gagné du tout. La §13 porte les deux arbitrages côte à côte, et dit
+laquelle des deux chaque phrase décrit : c'est le seul endroit où une phrase
+écrite pour l'une pouvait se lire comme valant pour l'autre.
 
 | | |
 |---|---|
@@ -703,6 +834,19 @@ deux bornes de la durée du fichier — de sa taille tant que l'ingestion ne l'a
 sondé —, et `formatDurationRange` les écrit « environ 5–8 min ». Une étape qu'on n'a
 jamais chronométrée n'annonce rien du tout.
 
+**La suppléance par la taille sert pour de bon**, et c'est le seul moment où elle
+compte : `ProjectStatus` publie `sizeBytes` depuis le 19 août, donc le panneau
+annonce une fourchette dès la première seconde au lieu de se taire jusqu'à la fin
+de l'ingestion. Sur un fichier de 12 Go, c'est l'étape la plus longue du plan qui
+cesse d'être muette. La fourchette y est deux fois plus large, parce que la durée
+est déduite d'un débit d'encodage relevé sur un seul fichier — et l'annoncer large
+est exactement ce que ce document demande.
+
+**Et `ÉtapeDécrite` ne porte plus de `coûtSec`** : la table décrit l'ordre du plan
+et les libellés, le prix se demande à `stepDurationRange`. Deux tables sur la même
+question auraient fini par diverger, et la première annonçait les mêmes secondes à
+une capsule de vingt minutes qu'à un live de deux heures et demie.
+
 **La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**
 Ce document réclamait le temps écoulé depuis le lancement. `ProjectStatus` ne le
 publie pas : `status.json` porte un `updatedAt` et un `finishedAt`, jamais un
@@ -712,6 +856,26 @@ coûteux qu'un chiffre faux à côté d'une attente de neuf minutes. Le panneau
 compte le temps qu'il a passé à regarder tourner l'analyse, et l'annonce ainsi :
 « analyse suivie depuis cet écran ». Le jour où le serveur publiera l'instant du
 lancement, c'est le libellé qui change, pas la place.
+
+**Arrêter l'analyse.** Le geste manquait, et son absence était réelle : lancer la
+mauvaise émission coûtait neuf minutes de proxy qu'on ne pouvait que subir.
+**« Arrêter » et non « pause »**, tant qu'aucun mécanisme ne reprend exactement un
+processus : ffmpeg est tué, WhisperX aussi, et ce qui repart repart du début de
+son étape. Ce qui est déjà sur le disque reste, et la reprise repart de la
+première étape manquante — le graphe le fait déjà, l'écran n'énumère rien.
+
+Il vit à deux endroits parce que l'analyse en occupe deux : **dans le panneau**,
+exclusif de la reprise — l'un s'adresse à une exécution qui tourne, l'autre à une
+exécution qui ne tourne plus —, et **dans la barre d'application** quand le
+panneau s'est replié en bande. Sans le second, arrêter demanderait d'attendre que
+l'analyse redevienne la seule chose à l'écran, ce qui n'arrive jamais pendant les
+six minutes de proxy pendant lesquelles on trie déjà.
+
+**Aucune confirmation** : l'arrêt ne détruit ni artefact ni décision humaine, il
+rend du temps de calcul, et le geste inverse est à un clic. Et `stopped: false` —
+ce que rend la route quand rien ne tournait — **est un succès** : le dire comme un
+échec ferait chercher un défaut là où il n'y a qu'une course perdue de quelques
+secondes.
 
 **Actions destructrices**
 
@@ -1576,21 +1740,38 @@ qui est déjà installé.
 ```
 src/core/
   parcours.ts         phaseProjet, la liste des étapes, les comptes de tri   (pur)
+  bibliotheque.ts     la jointure replay/projet, les états, filtres, recherche (pur)
+  couverture.ts       les étendues de clips placées en voies                 (pur)
 src/lib/
-  parcours.ts         chemin, suite, clipSuivant                             (client)
+  parcours.ts         chemin, lienParametres, suite, clipSuivant             (client)
   enregistrement.ts   le protocole d'écriture différée
 src/components/
   parcours/           app-bar, fil d'Ariane, indicateur d'exécution
-  sources/            source-card, grille, ligne de montage
-  tri/                candidate-card, grille, panneau d'avancement
+  sources/            carte-emission, grille filtrée, ligne de montage, annonce
+  emission/           lecteur du proxy, bande de couverture
+  tri/                candidate-card, grille, panneau d'avancement, relance et arrêt
   clip/               transcript-surface, clip-player, crop-picker, apercu-sortie,
                       panneau-export, champs de textes
+  parametres/         les réglages du repérage, les défauts du hook
   ui/                 les primitives shadcn
 ```
 
 Un dossier par étape du parcours, plus `parcours/` pour ce qui les traverse. Le
 critère qui décide où va un composant : **si le retirer casse une seule étape, il
 appartient à cette étape**. `app-bar` en casse trois, donc il est dans `parcours/`.
+
+**`emission/` est un dossier et non un fichier de plus dans `tri/`**, alors que
+son seul appelant est l'écran de projet. Le critère y répond : retirer le lecteur
+et la bande ne casse pas le tri, qui continue de fonctionner sans eux — ils
+décrivent l'émission, pas la boucle de décision. Et le mélange aurait fini par
+coûter cher d'une autre façon : `tri/` porte le clavier de la boucle, dont la
+garde doit écarter tout élément qui traite déjà la touche.
+
+**Chaque écran vit dans son dossier, jamais dans son fichier de route**, y compris
+là où il n'y a pas de `params` à résoudre. La règle vient d'une contrainte —
+`use(params)` ne se résout pas sous jsdom, une limite de Suspense ne se relève
+jamais — mais une règle qui souffre une exception n'en est plus une, et
+l'extraction avait révélé trois défauts au premier montage de l'écran de projet.
 
 ## 6. Les primitives à ajouter, et celles à refuser
 
@@ -1614,7 +1795,8 @@ contrôler à l'installation.
 | `input`, `textarea`, `label` | le titre et la description du clip | il n'existe aucun champ de saisie dans le dépôt, alors que ces deux textes sont un livrable du produit |
 | `tabs` | les trois vues du tri : à trier, gardés, écartés | remplace un bouton fantôme qui bascule un booléen, donne la navigation aux flèches et rend exprimable la règle de 2.5 : les écartés ne disparaissent qu'au changement de vue |
 | `sheet` | le tiroir de montage : le transcript, à la demande (3.3) | le piège de focus, `Échap`, et surtout **le retour du focus au déclencheur**. Bâtie sur `dialog` et non sur le `Drawer` de Base UI, dont la zone de balayage et le `Viewport` gèrent leur propre défilement — ce tiroir-ci héberge une surface virtualisée, et un second conteneur de défilement interposé ferait retomber `scrollToIndex` à côté (même raison qu'en 6.2). Le tiroir lui-même ne défile donc pas |
-| `tooltip` | l'information d'appoint : le raccourci d'un bouton, la définition d'un terme | **jamais pour porter la raison d'un contrôle désactivé** : une bulle qui n'apparaît qu'au survol est invisible au clavier, et la raison d'un blocage doit être lue avant d'essayer |
+| `tooltip` | l'information d'appoint : le raccourci d'un bouton, la définition d'un terme, le résumé d'un clip au survol d'un bloc de la bande de couverture | **jamais pour porter la raison d'un contrôle désactivé** : une bulle qui n'apparaît qu'au survol est invisible au clavier, et la raison d'un blocage doit être lue avant d'essayer. Sur la bande de couverture, elle est un appoint au sens strict — le bloc est un lien, il porte déjà son libellé accessible, et la bulle ne fait qu'y ajouter la vignette |
+| `checkbox`, `select` | les défauts du hook : activé, police, position, alignement, les deux effets | deux formes qu'aucune primitive du dépôt ne rendait, et qu'on aurait sinon réécrites à la main avec leur ARIA — exactement ce que la §13 voulait éviter en prenant shadcn. Elles servent d'abord une section en lecture seule, ce qui est le bon moment pour les poser : la livraison qui branchera le stockage n'aura pas à choisir en même temps la primitive et le contrat |
 
 ### 6.2 À refuser, et pourquoi
 
@@ -1721,11 +1903,15 @@ fenêtre du milieu peut manquer sans laisser le moindre trou dans le temps, donc
 une couverture sincèrement totale peut cacher une fenêtre que personne n'a jugée.
 Le déclencheur est `notées < fenêtres`, et lui seul.
 
-`motDuRepérage` tient la première moitié de cette règle et pas la seconde : son
-prédicat ajoute `|| lotsRefusés > 0`, donc le cas mesuré de `2025-06-15-cqlp`, où
-la descente finit par tout noter, lui fait écrire « le repérage n'a jugé que
-100 % de ce qui se dit dans l'émission », une phrase qui se réfute toute seule.
-(relevé par Codex et Copilot)
+`motDuRepérage` a longtemps tenu la première moitié de cette règle et pas la
+seconde : son prédicat ajoutait `|| lotsRefusés > 0`, donc le cas mesuré de
+`2025-06-15-cqlp`, où la descente finit par tout noter, lui faisait écrire « le
+repérage n'a jugé que 100 % de ce qui se dit dans l'émission » — une phrase qui se
+réfute toute seule, aggravée d'un détail affirmant qu'une nouvelle passe
+obtiendrait le même refus, ce que la descente venait de démentir. **Le terme est
+retiré** (issue #57) : le prédicat est `notées < fenêtres`, seul, et un lot refusé
+jamais rattrapé y tombe déjà puisqu'il laisse des fenêtres non notées. (relevé par
+Codex et Copilot)
 
 **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : c'est une
 propriété permanente de cette liste-là, au même titre que son nombre d'éléments,
@@ -1759,16 +1945,18 @@ défauts que chacun ferme par rapport à son coût.
 2. **Le tri comme boucle.** Clavier, pas de compactage sous la main, fin de boucle
    marquée, `tabs` pour les trois vues et la couverture du repérage. C'est
    l'écran que la spec demande de soigner en premier, et le seul dont le coût se
-   paie trente fois par émission. Livré avec un défaut connu, décrit en 7.2 : la
-   phrase de couverture s'allume sur un refus au lieu de s'allumer sur une perte.
+   paie trente fois par émission. Livré avec un défaut connu — la phrase de
+   couverture s'allumait sur un refus au lieu de s'allumer sur une perte —, fermé
+   depuis (issue #57, voir 7.2).
 3. **Les textes et l'export.** Titre, description, panneau d'export sur
    `exportClip`, lecture des rendus. Ferme la sortie du tunnel, donc rend le
    parcours entier vérifiable pour la première fois.
 4. **L'aperçu de sortie.** Le canevas au ratio choisi à côté de la source, et
    l'annonce des fichiers produits. C'est le lot qui rend visible la mesure qui
    fonde le projet.
-5. **La bibliothèque.** Deux sections, `createProject` sur une carte de source,
-   états d'analyse par projet, ligne de montage. Ferme l'entrée du tunnel.
+5. **La bibliothèque.** `createProject` sur une carte, états d'analyse par projet,
+   ligne de montage. Ferme l'entrée du tunnel. Livrée en deux sections, refondue
+   depuis en une seule liste : voir 3.1, et le lot 8 ci-dessous.
 6. **Le transcript comme organe de navigation.** Clic pour se placer, surlignage
    du mot en cours, `tabindex` glissant, rétablissement.
 7. **Le cadrage automatique** (section 3.5), avec l'itération 1 et pas avant. Trois
@@ -1777,10 +1965,29 @@ défauts que chacun ferme par rapport à son coût.
    dérogation par plan. Les deux premières ne dépendent pas des plans et peuvent
    se poser dès que le modèle serveur existe.
 
-**Les six premiers sont livrés**, et les trois dépendances serveur qu'ils
-attendaient sont satisfaites : les fonctions clientes d'action, le jeton de
-séquence sur `PATCH`, et la liste de cibles pour `POST /run` sans laquelle le
-bouton de reprise n'aurait reconstruit que les candidats.
+Un huitième lot s'est ajouté après coup, et il ne vient pas de ce document mais
+d'une séance d'usage réelle (`docs/retour-ui-and-next-steps.md`) :
+
+8. **La hiérarchie des écrans.** La bibliothèque unifiée (3.1), la vue Émission —
+   lecteur et bande de couverture (3.2) —, l'arrêt d'une analyse, les durées en
+   fourchettes, et l'écran des paramètres. Il corrige des choses que ce document
+   avait tranchées à l'envers, ce qui est le seul cas où un lot mérite d'exister
+   après les sept autres : chacune de ses pièces répond à un usage constaté, pas
+   à une revue de code.
+
+**Les sept premiers lots ne sont pas dans l'ordre où ils ont été livrés, et le
+huitième non plus** : les six premiers l'ont été, le septième attend l'itération 1,
+et le huitième est passé devant lui. Les dépendances serveur qu'ils attendaient
+sont toutes satisfaites : les fonctions clientes d'action, le jeton de séquence
+sur `PATCH`, la liste de cibles pour `POST /run` — sans laquelle le bouton de
+reprise n'aurait reconstruit que les candidats —, l'arrêt d'exécution, et les
+réglages du repérage.
+
+Les deux dernières sont arrivées avec la même livraison, et elles ferment chacune
+un mensonge d'écran : **`stopped` sur `ProjectListItem`**, sans lequel la
+bibliothèque affichait « Analysée » sur une analyse qu'on venait d'arrêter (3.1),
+et **`sizeBytes` sur `ProjectStatus`**, sans lequel le panneau d'avancement se
+taisait pendant toute la copie — l'étape la plus longue d'un fichier de 12 Go.
 
 **Le septième ne l'est pas, et ce n'est pas l'interface qui le retient.** Il lit
 le résultat du cadrage automatique, qui est en ligne et ne produit rien
@@ -1791,10 +1998,12 @@ que de ne rien offrir : on croirait corriger la machine alors qu'on la
 remplacerait à chaque plan. `ROADMAP.md` tient la liste des morceaux d'itération 1
 qui viennent avant, et leur ordre.
 
-L'ordre a changé une fois, à la lecture de ce que livre la session serveur : les
+L'ordre a changé deux fois. À la lecture de ce que livre la session serveur : les
 trois lots qui ferment un parcours orphelin (1, 3 et 5) sont remontés devant ceux
-qui améliorent un parcours qui marche. Une porte fermée coûte plus qu'un confort
-absent.
+qui améliorent un parcours qui marche — une porte fermée coûte plus qu'un confort
+absent. Puis à l'usage : le lot 8 est passé devant le 7, parce qu'une hiérarchie
+d'écrans fausse se paie à chaque séance, alors que le cadrage automatique attend
+de toute façon une mesure d'itération 1.
 
 ## 9. Ce que ce document ne tranche pas
 

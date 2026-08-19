@@ -4,8 +4,8 @@ import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
-import { ÉTAPES, LIBELLES_ETAPES } from '@/core/parcours'
-import { formatDuration } from '@/lib/format'
+import { stepDurationRange, ÉTAPES, LIBELLES_ETAPES, type ShowSize } from '@/core/parcours'
+import { formatDuration, formatDurationRange } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
@@ -17,10 +17,13 @@ import { Progress } from '@/components/ui/progress'
  * cours et sa progression, la liste ordonnée des étapes avec celles déjà faites,
  * le temps écoulé, et une phrase qui dit ce qui devient possible ensuite.
  *
- * **Le temps restant n'est jamais affiché.** Le coût d'une étape est une mesure
- * — « le proxy coûte environ 6 min sur 1 h 40 d'émission » — ; le restant est une
- * extrapolation à partir de deux points sur une seule émission, et une
- * estimation fausse coûte plus cher qu'une absence d'estimation.
+ * **Le temps restant n'est jamais affiché, et le coût annoncé est celui de
+ * cette émission-ci.** Le panneau donnait cinq durées mesurées une seule fois
+ * sur une émission d'1 h 40, à l'identique pour une capsule de vingt minutes :
+ * `stepDurationRange` les rapporte à la taille de l'émission, et les rend en
+ * fourchettes — « environ 2–3 min », jamais « 2 min 17 s restantes ». La
+ * précision d'une seconde affirmerait ce qu'une mesure unique, sur une machine à
+ * 40-80 % de variance, ne porte pas.
  *
  * **Il n'énumère aucun nom d'étape** : il itère `ÉTAPES`, qui vit à côté de
  * `phaseProjet`. Ajouter une étape au graphe est alors une ligne de données, et
@@ -31,7 +34,9 @@ export function PanneauAvancement({
   steps,
   running,
   erreur,
+  size,
   reprise,
+  arret,
 }: {
   // Pas de `phase` : elle serait redondante. `interrompu` et `echec` ne se
   // distinguent que par la présence d'`erreur`, et `attente` que par celle de
@@ -41,8 +46,24 @@ export function PanneauAvancement({
   running: { step: StepName; progress: number } | null
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   erreur: string | null
+  /**
+   * Ce qu'on sait de la taille de l'émission, pour dimensionner les durées.
+   *
+   * Les trois champs peuvent manquer et le panneau n'annonce alors rien — c'est
+   * la règle qu'il tenait déjà : une absence se lit mieux qu'un chiffre inventé.
+   */
+  size: ShowSize
   /** Le bouton de reprise. La page le fournit : c'est elle qui porte la mutation. */
   reprise: ReactNode
+  /**
+   * Le bouton d'arrêt, quand une exécution tourne.
+   *
+   * **« Arrêter » et non « pause »** : rien ne reprend exactement un processus
+   * là où il s'est interrompu. Ce qui est gardé, ce sont les artefacts déjà
+   * terminés, et la reprise repart de la première étape manquante — ce que le
+   * graphe fait déjà.
+   */
+  arret?: ReactNode
 }) {
   const suivi = useTempsSuivi(running !== null)
   // Une exécution morte ou échouée est la seule impasse réelle de l'interface :
@@ -71,8 +92,12 @@ export function PanneauAvancement({
       )}
 
       <ol className="mt-6 flex flex-col gap-1.5">
-        {ÉTAPES.map(({ nom, libelle, coûtSec }) => {
+        {ÉTAPES.map(({ nom, libelle }) => {
           const état = étatDÉtape(nom, steps, running)
+          // La fourchette de **cette** émission, jamais une constante. Chaîne
+          // vide quand l'étape n'a jamais été chronométrée, ou que l'émission
+          // n'a pas encore livré sa durée.
+          const range = formatDurationRange(stepDurationRange(nom, size))
           return (
             <li
               key={nom}
@@ -96,12 +121,13 @@ export function PanneauAvancement({
                   {pourcent(running.progress)} %
                 </span>
               )}
-              {/* Le coût **mesuré**, jamais une estimation du restant. Rien
-                  quand personne ne l'a chronométré : une absence se lit mieux
-                  qu'un chiffre inventé. */}
-              {coûtSec !== null && (
+              {/* Le coût de cette émission-ci, jamais une estimation du
+                  restant. Rien quand personne ne l'a chronométré, ni quand
+                  l'ingestion n'a pas encore sondé la durée : une absence se lit
+                  mieux qu'un chiffre inventé. */}
+              {range !== '' && (
                 <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                  environ {formatCoût(coûtSec)}
+                  {range}
                 </span>
               )}
             </li>
@@ -109,8 +135,9 @@ export function PanneauAvancement({
         })}
       </ol>
       <p className="mt-2 text-xs text-muted-foreground">
-        Les coûts sont mesurés sur une émission d’1 h 40. Ils décrivent le prix
-        d’une étape, jamais une durée d’attente.
+        Les durées sont proportionnées à cette émission, à partir d’une mesure
+        prise sur une autre. Elles disent ce que coûte une étape, pas dans
+        combien de temps elle finira.
       </p>
 
       <p data-testid="ensuite" className="mt-6 text-sm">
@@ -131,7 +158,13 @@ export function PanneauAvancement({
         </Alert>
       )}
 
-      {àReprendre && <div className="mt-5">{reprise}</div>}
+      {/* **L'arrêt et la reprise ne coexistent jamais** : l'un s'adresse à une
+          exécution qui tourne, l'autre à une exécution qui ne tourne plus. Les
+          poser côte à côte demanderait de choisir, alors que l'état du projet a
+          déjà choisi. */}
+      {(àReprendre || arret != null) && (
+        <div className="mt-5">{àReprendre ? reprise : arret}</div>
+      )}
     </section>
   )
 }
@@ -250,12 +283,6 @@ function Marque({ état }: { état: ÉtatDÉtape }) {
 function pourcent(progress: number): number {
   if (!Number.isFinite(progress)) return 0
   return Math.round(Math.min(1, Math.max(0, progress)) * 100)
-}
-
-/** Un coût mesuré, en ordre de grandeur : la seconde près ne renseigne personne. */
-function formatCoût(secondes: number): string {
-  if (secondes < 90) return `${Math.round(secondes)} s`
-  return `${Math.round(secondes / 60)} min`
 }
 
 /**

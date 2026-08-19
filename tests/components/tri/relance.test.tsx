@@ -15,7 +15,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CIBLES_DE_REPRISE } from '@/lib/api'
-import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { BoutonRelance, BoutonReprise, StopButton } from '@/components/tri/relance'
 
 function reponse(corps: unknown, status = 202): Response {
   return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => corps } as Response
@@ -37,6 +37,58 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+})
+
+describe('StopButton', () => {
+  it('demande l’arrêt au serveur, sans confirmation', async () => {
+    // L'arrêt ne détruit aucun artefact ni aucune décision humaine : il rend du
+    // temps de calcul, et le geste inverse est à un clic. Une boîte de dialogue
+    // ne protégerait rien et retarderait le seul geste que quelqu'un qui vient
+    // de lancer la mauvaise émission veut faire vite.
+    const call = vi.fn(async () => reponse({ stopped: true }, 200))
+    vi.stubGlobal('fetch', call)
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
+
+    await waitFor(() => expect(call).toHaveBeenCalledTimes(1))
+    const [url] = call.mock.calls[0] as unknown as [string]
+    expect(url).toBe('/api/projects/p1/stop')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('dit « arrêter » et jamais « pause »', async () => {
+    // Rien ne reprend un processus exactement là où il s'est interrompu : ffmpeg
+    // est tué, WhisperX aussi, et ce qui repart repart du début de son étape.
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: true }, 200)))
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
+
+    expect(document.body.textContent).not.toMatch(/pause|suspendre/i)
+  })
+
+  it('ne présente pas « rien ne tournait » comme un échec', async () => {
+    // `stopped: false` est un succès : l'analyse venait de finir, ou un
+    // redémarrage du serveur a emporté l'exécution. Le dire comme un échec
+    // ferait chercher un défaut là où il n'y a qu'une course perdue.
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: false }, 200)))
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('dit l’échec quand la demande elle-même ne part pas', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => reponse({ error: 'Le serveur ne répond pas.' }, 500)),
+    )
+    render(<StopButton projectId="p1" />, { wrapper: enveloppe })
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/n’est pas parti/))
+  })
 })
 
 describe('BoutonReprise', () => {

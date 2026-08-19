@@ -4,15 +4,16 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
 
 import type { StepName } from '@/core/graph'
-import { compter, phaseProjet } from '@/core/parcours'
+import { compter, phaseProjet, type ShowSize } from '@/core/parcours'
 import { CIBLES_DE_REPRISE } from '@/lib/api'
 import { lienProjet, suite } from '@/lib/parcours'
 import { useCandidats, usePatchClip, useProjet } from '@/lib/queries'
+import { ShowView } from '@/components/show/show-view'
 import { AppBar } from '@/components/parcours/app-bar'
 import { AnnonceDÉtape, BandeAvancement, PanneauAvancement } from '@/components/tri/avancement'
 import { FilDeTri } from '@/components/tri/fil'
 import { dispositionAvancement, vueDepuisUrl, type Vue } from '@/components/tri/modele'
-import { BoutonRelance, BoutonReprise } from '@/components/tri/relance'
+import { BoutonRelance, BoutonReprise, StopButton } from '@/components/tri/relance'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -80,6 +81,20 @@ export function EcranDeProjet({ id }: { id: string }) {
   // existe. (relevé par Copilot)
   const listeInconnue = candidats.isError && candidats.data === undefined
 
+  // **Ce qui dimensionne les durées annoncées.** Les trois champs viennent de
+  // trois moments : la taille du fichier est connue avant même que la copie
+  // commence, la durée arrive avec l'ingestion, le compte de fenêtres avec le
+  // bilan de repérage. C'est `sizeBytes` qui compte le plus ici, et c'est le
+  // dernier arrivé : sans lui, le panneau se taisait pendant toute la copie —
+  // l'étape la plus longue sur un fichier de 12 Go, et la seule qu'on regarde
+  // vraiment. Ce qui manque encore rend `null`, et une absence se lit toujours
+  // mieux qu'un chiffre inventé.
+  const size: ShowSize = {
+    durationSec: projet.data?.project.durationSec ?? null,
+    sizeBytes: projet.data?.sizeBytes ?? null,
+    windows: projet.data?.repérage?.fenêtres ?? null,
+  }
+
   const prêt = !projet.isPending && !candidats.isPending
   const disposition =
     projet.isSuccess && !candidats.isPending
@@ -89,7 +104,17 @@ export function EcranDeProjet({ id }: { id: string }) {
   return (
     <div className="flex min-h-full flex-col">
       <AppBar lieu={{ kind: 'projet', projet: { id, titre: projet.data?.project.title ?? id } }}>
-        {disposition === 'bande' && running !== null && <BandeAvancement running={running} />}
+        {/* **L'arrêt suit l'avancement quand il se replie.** Le panneau cède la
+            place à la grille dès qu'il y a quelque chose à trier, et il reste
+            alors six minutes d'encodage : sans ce bouton, arrêter demanderait
+            d'attendre que l'analyse redevienne la seule chose à l'écran, ce qui
+            n'arrive jamais. */}
+        {disposition === 'bande' && running !== null && (
+          <>
+            <BandeAvancement running={running} />
+            <StopButton projectId={id} compact />
+          </>
+        )}
       </AppBar>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
@@ -161,37 +186,86 @@ export function EcranDeProjet({ id }: { id: string }) {
               steps={steps}
               running={running}
               erreur={erreur}
+              size={size}
               reprise={<BoutonReprise projectId={id} enCours={running !== null} />}
+              arret={running !== null ? <StopButton projectId={id} /> : null}
             />
           ) : !prêt ? (
             <GrilleEnAttente />
-          ) : listeInconnue ? null : (
-            <FilDeTri
-              projectId={id}
-              clips={clips}
-              vue={vue}
-              onVue={allerÀLaVue}
-              proxyPret={steps.proxy === true}
-              bilan={projet.data?.repérage ?? null}
-              suite={suite(phase, { id })}
-              onStatut={(clipId, status) =>
-                patch.mutate({ clipId, projectId: id, patch: { status } })
-              }
-              entete={
-                <>
-                  {/* **La reprise vit aussi devant la grille.** Un redémarrage
-                      du serveur après le repérage et avant le proxy laisse
-                      `running` à nul et la liste pleine : la grille passe devant
-                      — c'est l'invariant —, mais « relancer le repérage » ne
-                      vise que `candidates` et ne reconstruit jamais le proxy. Le
-                      montage restait alors désactivé sans aucun moyen d'avancer,
-                      c'est-à-dire la même impasse que le panneau ferme, avec une
-                      grille par-dessus. (relevé par Codex) */}
-                  {àReprendre && <BoutonReprise projectId={id} enCours={false} />}
-                  <BoutonRelance projectId={id} compte={compter(clips)} enCours={running !== null} />
-                </>
-              }
-            />
+          ) : (
+            <>
+              {/* **La vue de l'émission, au-dessus du tri.** L'écran n'est plus
+                  seulement un écran de tri : une fois l'analyse passée, c'est
+                  aussi l'endroit depuis lequel on comprend ce qui a été produit
+                  à partir de l'émission. Le lecteur montre le replay entier —
+                  trous compris, contrairement à celui d'un clip — et la bande
+                  dit où sont les clips gardés.
+
+                  Elle ne s'affiche pas sous le panneau d'avancement : celui-ci
+                  ne prend la page que lorsqu'il n'y a rien d'autre à montrer, et
+                  poser un lecteur sans proxy sous une analyse qui commence
+                  n'apprendrait rien.
+
+                  **Elle ne dépend pas non plus de la liste des candidats.** Elle
+                  vivait derrière la même garde que le fil de tri, si bien qu'un
+                  `GET /candidates` en échec emportait le lecteur alors que le
+                  proxy et l'état du projet étaient parfaitement disponibles. La
+                  liste ne commande que la bande, qui le dit quand elle ne sait
+                  pas. (relevé par Copilot) */}
+              <ShowView
+                projectId={id}
+                durationSec={projet.data?.project.durationSec ?? 0}
+                proxyReady={steps.proxy === true}
+                clips={clips}
+                clipsKnown={!listeInconnue}
+                // **Le départ vers un clip pose la marque de retour**, comme
+                // celui qui part d'une carte : sans elle, revenir d'un clip
+                // ouvert depuis la bande retombait sur la vue par défaut, alors
+                // que le même clip ouvert d'une carte rendait la vue d'où l'on
+                // venait. La bande, elle, ne connaît pas le stockage de session.
+                onOpenClip={(clipId) =>
+                  écrireSessionTri(id, { retour: true, carte: clipId })
+                }
+              />
+
+              {/* **La liste, elle, ne se rend pas sans elle-même.** Une liste
+                  qui n'a pas pu se charger n'est pas une liste vide : le fil de
+                  tri afficherait « aucune proposition » juste sous le bandeau
+                  qui dit ne pas avoir pu les charger. */}
+              {!listeInconnue && (
+              <FilDeTri
+                projectId={id}
+                clips={clips}
+                vue={vue}
+                onVue={allerÀLaVue}
+                proxyPret={steps.proxy === true}
+                bilan={projet.data?.repérage ?? null}
+                suite={suite(phase, { id })}
+                onStatut={(clipId, status) =>
+                  patch.mutate({ clipId, projectId: id, patch: { status } })
+                }
+                entete={
+                  <>
+                    {/* **La reprise vit aussi devant la grille.** Un redémarrage
+                        du serveur après le repérage et avant le proxy laisse
+                        `running` à nul et la liste pleine : la grille passe
+                        devant — c'est l'invariant —, mais « relancer le repérage »
+                        ne vise que `candidates` et ne reconstruit jamais le
+                        proxy. Le montage restait alors désactivé sans aucun
+                        moyen d'avancer, c'est-à-dire la même impasse que le
+                        panneau ferme, avec une grille par-dessus.
+                        (relevé par Codex) */}
+                    {àReprendre && <BoutonReprise projectId={id} enCours={false} />}
+                    <BoutonRelance
+                      projectId={id}
+                      compte={compter(clips)}
+                      enCours={running !== null}
+                    />
+                  </>
+                }
+              />
+              )}
+            </>
           )}
 
           {/* Une écriture optimiste qui échoue remet la carte comme elle était.

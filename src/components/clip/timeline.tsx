@@ -205,12 +205,30 @@ export function Timeline({
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
 
+  /**
+   * Une frappe de flèche sur la tête de lecture.
+   *
+   * **Le geste que la bande apporte n'a pas d'équivalent dans le transcript.**
+   * Celui-ci place la lecture *sur un mot* ; se poser dans un silence, ou dans
+   * un passage retiré pour aller voir ce qu'il contient, ne s'y exprime pas. Un
+   * contrôle qui ne répondrait qu'au pointeur retirerait donc au clavier une
+   * capacité neuve, et pas un doublon. (relevé par Copilot)
+   *
+   * La position part de `useLecture` plutôt que d'un état local : c'est la même
+   * horloge que le lecteur, et deux sources divergeraient dès la première
+   * lecture.
+   */
+  const stepPlayhead = (step: number) => {
+    const from = useLecture.getState().position
+    onScrub(clampToSource(from + step, limit))
+  }
+
   /** Une frappe de flèche : depuis la borne courante, pas depuis celle du rendu. */
   const stepBoundary = (edge: 'start' | 'end', step: number) => {
-    const courantes = boundsRef.current
-    if (courantes === null) return
-    const depuis = edge === 'start' ? courantes.start : courantes.end
-    onBoundary(clampEdge(clampToSource(depuis + step, limit), edge), edge)
+    const current = boundsRef.current
+    if (current === null) return
+    const from = edge === 'start' ? current.start : current.end
+    onBoundary(clampEdge(clampToSource(from + step, limit), edge), edge)
   }
   const inTime = drag !== null && drag.edge === 'start' ? drag.time : bounds.start
   const outTime = drag !== null && drag.edge === 'end' ? drag.time : bounds.end
@@ -291,7 +309,11 @@ export function Timeline({
           />
         ))}
 
-        <Playhead view={view} ghost={ghost} />
+        <Playhead
+          view={view}
+          ghost={ghost}
+          onStep={(step) => stepPlayhead(step)}
+        />
 
         <Handle
           edge="start"
@@ -405,19 +427,42 @@ function viewport(
 function Playhead({
   view,
   ghost,
+  onStep,
 }: {
   view: { start: number; end: number }
   /** La position promenée par un glissé, tant qu'elle n'est pas confiée au lecteur. */
   ghost: number | null
+  /** Une flèche : un déplacement relatif, en secondes. */
+  onStep: (step: number) => void
 }) {
   const position = useLecture((etat) => etat.position)
   const time = ghost ?? position
   const left = Math.min(Math.max((time - view.start) / (view.end - view.start), 0), 1)
   return (
+    // **Un `slider`, et pas un trait décoratif.** Promener la lecture est le
+    // geste que la bande apporte, et le transcript ne sait le faire que de mot en
+    // mot : un contrôle réservé au pointeur retirerait au clavier une capacité
+    // neuve. `role="slider"` a aussi la bonne conséquence sur la garde des
+    // raccourcis, qui laisse déjà les flèches à un curseur focalisé.
     <span
-      aria-hidden
+      role="slider"
+      tabIndex={0}
+      aria-label="Tête de lecture"
+      aria-valuemin={Math.round(view.start)}
+      aria-valuemax={Math.round(view.end)}
+      aria-valuenow={Math.round(time * 1000) / 1000}
+      aria-valuetext={`${formatTimecode(time)}, image ${frameWithinSecond(time)}`}
+      data-playhead
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? COARSE_STEP : FRAME_STEP
+        if (e.key === 'ArrowLeft') onStep(-step)
+        else if (e.key === 'ArrowRight') onStep(step)
+        else return
+        e.preventDefault()
+      }}
       className={cn(
-        'absolute inset-y-0 w-0.5 rounded-full',
+        'absolute inset-y-0 z-10 w-1 -translate-x-1/2 rounded-full outline-none',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         ghost === null ? 'bg-foreground/70' : 'bg-foreground',
       )}
       style={{ left: `${left * 100}%` }}

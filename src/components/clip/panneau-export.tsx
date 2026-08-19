@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import { nomsDeSortie, texteDePublication } from '@/components/clip/textes'
+import { motsDièse, nomsDeSortie, texteDePublication } from '@/components/clip/textes'
 import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
 import type { EtatEnregistrement } from '@/lib/enregistrement'
 import { useExporter } from '@/lib/queries'
@@ -103,13 +103,27 @@ export function PanneauExport({
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
   const déjàLivré = outputs.mp4Url !== null
-  // Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
-  // s'ils existent. Le reste — leurs noms, le compte des plans — est du détail
-  // qu'on va chercher le jour où quelque chose cloche.
-  const nombreDeSorties = noms.variant9x16 === null ? 1 : 2
-  const resume = déjàLivré
-    ? `${nombreDeSorties} fichier${nombreDeSorties > 1 ? 's' : ''} livré${nombreDeSorties > 1 ? 's' : ''} · natif ${native}`
-    : `${nombreDeSorties} fichier${nombreDeSorties > 1 ? 's' : ''} à produire · natif ${native}`
+  /**
+   * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
+   * combien sont là. Le reste — leurs noms, le compte des plans — est du détail
+   * qu'on va chercher le jour où quelque chose cloche.
+   *
+   * **Il compte les fichiers réellement présents, pas la seule vidéo native.**
+   * Déduire « livré » de `mp4Url` faisait annoncer « 2 fichiers livrés » sur une
+   * livraison où la variante manque encore — le pli disait le contraire de son
+   * détail, ce qui est pire que de ne rien dire. (relevé par Copilot)
+   */
+  const attendus = [noms.mp4, noms.variant9x16, noms.texts].filter((n) => n !== null).length
+  const livres = [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter(
+    (u) => u !== null,
+  ).length
+  const pluriel = attendus > 1 ? 's' : ''
+  const resume =
+    livres === 0
+      ? `${attendus} fichier${pluriel} à produire · natif ${native}`
+      : livres === attendus
+        ? `${attendus} fichier${pluriel} livré${pluriel} · natif ${native}`
+        : `${livres} fichier${livres > 1 ? 's' : ''} sur ${attendus} livré${livres > 1 ? 's' : ''} · natif ${native}`
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
   // Rendre un état non enregistré produirait un fichier qui ne correspond à rien
@@ -194,7 +208,7 @@ export function PanneauExport({
 
         {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
             parcours qui mérite d'être vu, donc il reste hors du pli. */}
-        <LecteursLivres clip={clip} outputs={outputs} native={native} />
+        <DeliveredPlayers clip={clip} outputs={outputs} native={native} />
 
         {clip.title.trim() === '' && (
           // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
@@ -319,7 +333,7 @@ export function PanneauExport({
  * elles ne montrent pas le même cadre — le natif garde un seul ratio pour tout
  * le clip, la variante pose chaque plan au sien.
  *
- * **La lecture sur place a déménagé dans `LecteursLivres`**, et la séparation
+ * **La lecture sur place a déménagé dans `DeliveredPlayers`**, et la séparation
  * porte une décision : ces noms-ci sont du détail qu'on replie, un fichier livré
  * est un résultat qu'on regarde. Les tenir dans une seule liste obligeait à
  * choisir entre replier le résultat et déplier le détail.
@@ -378,7 +392,7 @@ function ListeDesSorties({
  * « jamais exporté » (voir le contrat de `ClipOutputs`) ; ce qui se dit ici est
  * seulement ce qui est disponible maintenant.
  */
-function LecteursLivres({
+function DeliveredPlayers({
   clip,
   outputs,
   native,
@@ -387,20 +401,20 @@ function LecteursLivres({
   outputs: ClipOutputs
   native: Ratio
 }) {
-  const livres = [
-    { url: outputs.mp4Url, étiquette: `Le rendu ${native} de ${clip.title || 'ce clip'}` },
-    { url: outputs.variant9x16Url, étiquette: 'La variante 9:16 sur fond flouté' },
-  ].filter((s): s is { url: string; étiquette: string } => s.url !== null)
+  const delivered = [
+    { url: outputs.mp4Url, label: `Le rendu ${native} de ${clip.title || 'ce clip'}` },
+    { url: outputs.variant9x16Url, label: 'La variante 9:16 sur fond flouté' },
+  ].filter((sortie): sortie is { url: string; label: string } => sortie.url !== null)
 
-  if (livres.length === 0) return null
+  if (delivered.length === 0) return null
 
   return (
     <ul className="flex flex-wrap gap-3">
-      {livres.map(({ url, étiquette }) => (
+      {delivered.map(({ url, label }) => (
         <li key={url}>
           <video
             src={url}
-            aria-label={étiquette}
+            aria-label={label}
             controls
             preload="metadata"
             className="w-full max-w-64 rounded bg-zinc-950"
@@ -412,21 +426,108 @@ function LecteursLivres({
 }
 
 /**
- * Les textes à coller, et le bouton qui les copie.
+ * Les textes à coller — **trois champs, trois boutons, et un pour tout**.
  *
  * Le `.txt` existe sur le disque du serveur : ce qu'il faut ici est le
- * presse-papiers, pas un chemin. La zone reste un `textarea` en lecture seule
- * plutôt qu'un bloc de texte, parce qu'un presse-papiers refusé — contexte non
- * sécurisé, permission coupée — laisse alors la sélection à la main comme
- * recours, au lieu d'un bouton mort.
+ * presse-papiers, pas un chemin. Il a d'abord vécu en un seul bloc, celui du
+ * fichier ; mais on ne colle jamais le fichier — on colle un titre dans un
+ * champ, une description dans un autre, des mots-dièse dans un troisième, et
+ * chaque formulaire les demande séparément. Un bloc unique obligeait à
+ * sélectionner à la main les trois morceaux, ce qui est exactement le geste que
+ * le bouton existait pour supprimer.
+ *
+ * **Le bouton « tout » reste**, parce qu'il sert le cas où l'on garde le texte
+ * de côté plutôt qu'on ne le publie tout de suite, et parce qu'il produit le
+ * même contenu que le `.txt` — la seule chose qui garantisse que les deux ne
+ * divergent pas.
+ *
+ * Les champs restent en lecture seule plutôt qu'en blocs de texte : un
+ * presse-papiers refusé — contexte non sécurisé, permission coupée — laisse
+ * alors la sélection à la main comme recours, au lieu d'un bouton mort.
  */
 function ZoneDeTextes({ clip }: { clip: Clip }) {
-  // **Le texte copié, pas un booléen.** « Copié » doit redevenir « Copier » dès
-  // que les textes changent, sinon le bouton affirme que le presse-papiers porte
-  // quelque chose qu'il ne porte plus.
+  const titre = clip.title.trim()
+  const description = clip.description.trim()
+  const dièses = motsDièse(`${titre}\n${description}`).join(' ')
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-medium">Textes de publication</h3>
+        <BoutonCopier texte={texteDePublication(clip)} libellé="Copier tout" />
+      </div>
+
+      <ChampCopiable étiquette="Titre" valeur={titre} />
+      <ChampCopiable étiquette="Description" valeur={description} lignes={6} />
+      <ChampCopiable étiquette="Mots-dièse" valeur={dièses} />
+    </div>
+  )
+}
+
+/**
+ * Un des trois textes, avec son bouton.
+ *
+ * Vide, le champ le dit plutôt que de rester blanc — et son bouton se désactive
+ * : copier le vide efface le presse-papiers, ce qui est le contraire du service
+ * rendu, et se remarque au moment de coller.
+ */
+function ChampCopiable({
+  étiquette,
+  valeur,
+  lignes = 1,
+}: {
+  étiquette: string
+  valeur: string
+  /** Une ligne pour un titre ou des mots-dièse, plusieurs pour une description. */
+  lignes?: number
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-2">
+        {/* **Le nom accessible dit « de publication », l'étiquette visible non.**
+            L'écran porte déjà un champ « Titre » et un champ « Description »,
+            ceux qu'on écrit ; ces trois-ci sont ce qu'on en copie. Deux contrôles
+            du même nom sur le même écran, c'est un lecteur d'écran qui ne sait
+            plus lequel il annonce — et à l'œil, la colonne dit déjà lequel est
+            lequel. */}
+        <span aria-hidden className="text-[0.75rem] text-muted-foreground">
+          {étiquette}
+        </span>
+        <BoutonCopier texte={valeur} libellé={`Copier ${étiquette.toLowerCase()}`} taille="xs" />
+      </div>
+      <textarea
+        aria-label={`${étiquette} de publication`}
+        readOnly
+        rows={lignes}
+        value={valeur}
+        placeholder={`(sans ${étiquette.toLowerCase()})`}
+        className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-[0.8rem] leading-relaxed"
+      />
+    </div>
+  )
+}
+
+/**
+ * Le bouton qui copie, et qui dit qu'il a copié.
+ *
+ * **Le texte copié, pas un booléen.** « Copié » doit redevenir « Copier » dès
+ * que le texte change, sinon le bouton affirme que le presse-papiers porte
+ * quelque chose qu'il ne porte plus.
+ */
+function BoutonCopier({
+  texte,
+  libellé,
+  taille = 'sm',
+}: {
+  texte: string
+  libellé: string
+  taille?: 'xs' | 'sm'
+}) {
   const [copié, setCopié] = useState<string | null>(null)
-  const texte = texteDePublication(clip)
-  const àJour = copié === texte
+  const àJour = copié === texte && texte !== ''
+  // Ce que le bouton montre : « Copier », ou « Copier tout » quand il les prend
+  // tous. Son nom accessible, lui, reste complet.
+  const court = libellé.startsWith('Copier tout') ? 'Copier tout' : 'Copier'
 
   async function copier() {
     try {
@@ -438,26 +539,22 @@ function ZoneDeTextes({ clip }: { clip: Clip }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">Textes de publication</h3>
-        <Button size="sm" variant="outline" onClick={() => void copier()}>
-          {àJour ? <Check aria-hidden /> : <Copy aria-hidden />}
-          {àJour ? 'Copié' : 'Copier'}
-        </Button>
-      </div>
-      {/* **De la place, et le titre au-dessus plutôt qu'à côté.** C'est ce qu'on
-          vient chercher au moment de publier : le coller demande de le relire, et
-          une zone de sept lignes dans une colonne étroite faisait défiler une
-          description de trois lignes. Douze lignes, redimensionnable, et la
-          colonne fait la moitié du bandeau. */}
-      <textarea
-        readOnly
-        value={texte}
-        aria-label="Textes de publication"
-        rows={12}
-        className="w-full flex-1 resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-[0.8rem] leading-relaxed"
-      />
-    </div>
+    <Button
+      size={taille}
+      variant="outline"
+      onClick={() => void copier()}
+      // Copier le vide efface le presse-papiers : le contraire du service rendu,
+      // et cela ne se remarque qu'au moment de coller.
+      disabled={texte === ''}
+      // **Le nom complet à la voix, court à l'œil.** Quatre boutons « Copier »
+      // sur le même écran ne se distinguent qu'à leur place ; un lecteur d'écran
+      // n'a pas cette place. Et le nom porte l'état : sans lui, « Copié » ne
+      // serait qu'un mot à l'écran, invisible à la voix — un `aria-label` fixe
+      // masque le contenu du bouton.
+      aria-label={àJour ? `${libellé} — copié` : libellé}
+    >
+      {àJour ? <Check aria-hidden /> : <Copy aria-hidden />}
+      <span aria-hidden>{àJour ? 'Copié' : court}</span>
+    </Button>
   )
 }

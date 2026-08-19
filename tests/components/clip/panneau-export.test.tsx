@@ -375,10 +375,40 @@ describe('les textes et les marques', () => {
     })
     monter()
 
-    fireEvent.click(screen.getByRole('button', { name: /copier/i }))
+    fireEvent.click(screen.getByRole('button', { name: /copier tout/i }))
     await waitFor(() => expect(écrire).toHaveBeenCalledTimes(1))
     expect(écrire.mock.calls[0][0]).toContain('Titre : La chute')
     expect(écrire.mock.calls[0][0]).toContain('Mots-dièse : #impro')
+  })
+
+  it('copie chacun des trois séparément', async () => {
+    // **On ne colle jamais le fichier.** On colle un titre dans un champ, une
+    // description dans un autre, des mots-dièse dans un troisième : un bloc
+    // unique obligeait à sélectionner les trois morceaux à la main, ce qui est
+    // exactement le geste que le bouton supprimait.
+    const écrire = vi.fn(async (texte: string) => {
+      void texte
+    })
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: écrire },
+      configurable: true,
+    })
+    monter()
+
+    fireEvent.click(screen.getByRole('button', { name: /copier titre/i }))
+    await waitFor(() => expect(écrire).toHaveBeenLastCalledWith('La chute'))
+
+    fireEvent.click(screen.getByRole('button', { name: /copier mots-dièse/i }))
+    await waitFor(() => expect(écrire).toHaveBeenLastCalledWith('#impro'))
+  })
+
+  it('refuse de copier un texte vide', () => {
+    // Copier le vide efface le presse-papiers : le contraire du service rendu,
+    // et cela ne se remarque qu'au moment de coller.
+    monter({ clip: clip({ description: '' }) })
+    expect(
+      screen.getByRole('button', { name: /copier description/i }).hasAttribute('disabled'),
+    ).toBe(true)
   })
 
   it('repasse à « Copier » dès que les textes changent', async () => {
@@ -389,11 +419,11 @@ describe('les textes et les marques', () => {
       configurable: true,
     })
     const { rerender, props } = monter()
-    fireEvent.click(screen.getByRole('button', { name: /copier/i }))
-    await screen.findByRole('button', { name: /copié/i })
+    fireEvent.click(screen.getByRole('button', { name: /^copier tout$/i }))
+    await screen.findByRole('button', { name: /copier tout — copié/i })
 
     rerender(<PanneauExport {...props} clip={clip({ title: 'Un autre titre' })} />)
-    expect(screen.getByRole('button', { name: /copier/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^copier tout$/i })).toBeTruthy()
   })
 
   // **L'échappatoire des marques a déménagé dans la zone Image**, avec le ratio

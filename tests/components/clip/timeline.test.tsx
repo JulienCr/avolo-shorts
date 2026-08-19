@@ -11,7 +11,7 @@
  * trois secondes de contexte.
  */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Timeline } from '@/components/clip/timeline'
@@ -220,9 +220,9 @@ describe('la vignette de scrub', () => {
    */
   it('peint la position demandée, même montée après le premier rendu', () => {
     measureTrack()
-    const dessiner = vi.fn()
+    const drawImage = vi.fn()
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: dessiner,
+      drawImage,
     } as unknown as CanvasRenderingContext2D)
 
     const { rerender } = render(
@@ -254,9 +254,9 @@ describe('la vignette de scrub', () => {
     Object.defineProperty(source, 'videoHeight', { value: 540, configurable: true })
 
     pointerAt(handle('start'), 'pointerdown', 400)
-    dessiner.mockClear()
+    drawImage.mockClear()
     fireEvent(source, new Event('seeked'))
-    expect(dessiner).toHaveBeenCalledTimes(1)
+    expect(drawImage).toHaveBeenCalledTimes(1)
   })
 
   it('ne cherche pas sans proxy', () => {
@@ -264,6 +264,33 @@ describe('la vignette de scrub', () => {
     // n'y a simplement pas d'image à montrer.
     mount({ proxyUrl: null })
     expect(document.querySelector('video')).toBeNull()
+  })
+})
+
+describe('la tête de lecture', () => {
+  it('se promène au clavier, pas seulement au pointeur', () => {
+    // **Le geste que la bande apporte n'existe pas dans le transcript.** Celui-ci
+    // place la lecture sur un *mot* ; se poser dans un silence, ou dans un
+    // passage retiré pour aller voir ce qu'il contient, ne s'y exprime pas. Un
+    // contrôle réservé au pointeur retirerait donc au clavier une capacité neuve.
+    // (relevé par Copilot)
+    const { onScrub } = mount()
+    act(() => useLecture.getState().definirPosition(110))
+    const tete = document.querySelector('[data-playhead]')
+    if (tete === null) throw new Error('la tête de lecture n’est pas rendue')
+
+    fireEvent.keyDown(tete, { key: 'ArrowRight' })
+    expect(onScrub.mock.calls[0][0]).toBeCloseTo(110 + 1 / 30, 5)
+
+    fireEvent.keyDown(tete, { key: 'ArrowLeft', shiftKey: true })
+    expect(onScrub.mock.calls[1][0]).toBeCloseTo(109.5, 5)
+  })
+
+  it('annonce sa position en timecode', () => {
+    mount()
+    act(() => useLecture.getState().definirPosition(110.4))
+    const tete = document.querySelector('[data-playhead]')
+    expect(tete?.getAttribute('aria-valuetext')).toBe('0:01:50, image 12')
   })
 })
 

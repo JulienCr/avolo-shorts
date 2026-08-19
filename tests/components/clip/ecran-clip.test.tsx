@@ -118,9 +118,9 @@ async function openEditing() {
 }
 
 /** Une oreille de la bande de temps : la borne d'entrée, ou celle de sortie. */
-function handle(edge: 'in' | 'out') {
+function handle(edge: 'start' | 'end') {
   return screen.getByRole('slider', {
-    name: edge === 'in' ? /borne d’entrée/i : /borne de sortie/i,
+    name: edge === 'start' ? /borne d’entrée/i : /borne de sortie/i,
   })
 }
 
@@ -387,7 +387,7 @@ describe('l’enregistrement en échec', () => {
       // Elle passe par le même montage et la même écriture différée que le
       // transcript — c'est ce qui garantit qu'aucun second chemin d'écriture n'a
       // été ouvert.
-      fireEvent.keyDown(handle('in'), { key: 'ArrowLeft' })
+      fireEvent.keyDown(handle('start'), { key: 'ArrowLeft' })
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })

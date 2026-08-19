@@ -89,7 +89,7 @@ describe('les cinq états', () => {
   })
 
   it('dit « en cours » sur une source dont le projet n’est pas encore dans la liste', () => {
-    // Les deux requêtes ne se rafraîchissent pas ensemble : `marquerSourceAnalysée`
+    // Les deux requêtes ne se rafraîchissent pas ensemble : `markSourceAnalyzed`
     // inscrit le `projectId` dès la réponse de création, la liste des projets
     // arrive au tour suivant. Reproposer « Lancer l'analyse » pendant cette
     // fenêtre vaudrait un 409 au second clic.
@@ -139,7 +139,7 @@ describe('le titre', () => {
   })
 
   it('ne bouge pas quand l’analyse démarre', () => {
-    // `titreProjet` est une fonction pure de l'identifiant, et l'identifiant est
+    // `titleProject` est une fonction pure de l'identifiant, et l'identifiant est
     // le nom de fichier sans son extension : le titre est le même avant et après.
     renderCard(entry({}))
     const before = screen.getByRole('button').querySelector('[data-title]')?.textContent

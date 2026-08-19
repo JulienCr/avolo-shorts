@@ -30,7 +30,7 @@ function player(current: number, inPause = true) {
   return { currentTime: current, paused: inPause, play: vi.fn(async () => {}), pause: vi.fn() }
 }
 
-describe('basculerLecture', () => {
+describe('togglePlayback', () => {
   it('reprend au segment suivant quand la tête est dans un passage retiré', () => {
     // Revenir au début à chaque reprise obligerait à réécouter tout ce qu'on
     // vient de valider.
@@ -60,7 +60,7 @@ describe('basculerLecture', () => {
   })
 })
 
-describe('placerLecture', () => {
+describe('placePlayback', () => {
   it('place la tête sur le mot', () => {
     const v = player(0)
     placePlayback(v, segments, 44.5)

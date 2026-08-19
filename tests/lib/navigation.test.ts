@@ -55,11 +55,11 @@ describe('chemin', () => {
 /**
  * Le test énumère des **entrées**, pas des sorties.
  *
- * Plusieurs couples sont inatteignables — `attente` ne coexiste avec aucun
+ * Plusieurs couples sont inatteignables — `wait` ne coexiste avec aucun
  * travail décidé sur un projet neuf, faute de candidats — et forcer une action
  * sur un état impossible oblige à en inventer une. On part donc de relevés de
  * présence, d'exécutions en cours et de statuts de clips, on les passe à
- * `phaseProjet`, et on regarde ce que `suite` en fait.
+ * `phaseProject`, et on regarde ce que `next` en fait.
  */
 function readings(): Record<StepName, boolean>[] {
   const steps: StepName[] = ['proxy', 'audio', 'transcript', 'analysis', 'candidates', 'renders']
@@ -233,7 +233,7 @@ describe('suite', () => {
   })
 })
 
-describe('clipSuivant', () => {
+describe('clipNext', () => {
   function list(...clips: [string, ClipStatus][]) {
     return clips.map(([id, status]) => ({ id, status }))
   }

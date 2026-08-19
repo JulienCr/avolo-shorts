@@ -587,7 +587,7 @@ describe('computeFraming', () => {
     expect(framing.shots.every((s) => Number.isFinite(s.cropX))).toBe(true)
   })
 
-  // Le repli de `cropDuPlan` : un ratio épinglé trop étroit pour l'action, donc
+  // Le repli de `shotCrop` : un ratio épinglé trop étroit pour l'action, donc
   // aucune position ne cadre une image entière. On se pose alors sur le centre
   // **médian** de l'action — 0,325, où sont les 12 premières images — et non sur
   // le milieu de son étendue, qui serait 0,5 et ne montrerait ni l'un ni l'autre.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { toggleStatus, isDiscarded, isGuard } from '@/lib/clip-status'
 
-describe('estGarde', () => {
+describe('isGuard', () => {
   it('compte exported comme gardé : c’est une décision humaine, pas une proposition', () => {
     expect(isGuard('kept')).toBe(true)
     expect(isGuard('exported')).toBe(true)
@@ -11,14 +11,14 @@ describe('estGarde', () => {
   })
 })
 
-describe('estEcarte', () => {
+describe('isDiscarded', () => {
   it('ne reconnaît que discarded', () => {
     expect(isDiscarded('discarded')).toBe(true)
     expect(isDiscarded('candidate')).toBe(false)
   })
 })
 
-describe('basculerStatut', () => {
+describe('toggleStatus', () => {
   it('garde une proposition', () => {
     expect(toggleStatus('candidate', 'kept')).toBe('kept')
   })

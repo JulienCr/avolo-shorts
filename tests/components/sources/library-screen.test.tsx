@@ -308,7 +308,7 @@ describe('les pannes', () => {
   })
 })
 
-describe('useProjets, le sondage', () => {
+describe('useProjects, le sondage', () => {
   it('redemande la liste tant qu’une analyse tourne', async () => {
     // C'est ce qui rend supportable de lancer une analyse puis d'aller trier une
     // autre émission : l'état arrive tout seul.

@@ -7,7 +7,7 @@ describe('OpenAI : la traduction des raisons de fin', () => {
     expect(toFinishReason('length')).toBe('MAX_TOKENS')
   })
 
-  it('traduit content_filter en CONTENT_FILTER, reconnu par REFUS_DE_CONTENU', () => {
+  it('traduit content_filter en CONTENT_FILTER, reconnu par CONTENT_REJECTION', () => {
     expect(toFinishReason('content_filter')).toBe('CONTENT_FILTER')
   })
 

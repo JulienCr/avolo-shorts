@@ -121,7 +121,7 @@ function openDescriptors(): number {
 describe('servir des octets', () => {
   // L'accent est **volontaire** et repris de `tests/server/proxy.test.ts` : une
   // émission s'appelle comme elle s'appelle, et le nom du projet traverse
-  // `proxyPath` puis `vérifierId` avant de nommer un chemin. Un identifiant ASCII
+  // `proxyPath` puis `verifyId` avant de nommer un chemin. Un identifiant ASCII
   // ici ne dirait rien de ce cas-là. (relevé par Aristarque)
   const PROJECT = '2026-01-11-méchante'
   let root: string

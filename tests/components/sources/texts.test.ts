@@ -82,7 +82,7 @@ describe('pluriel', () => {
   })
 })
 
-describe('messageServeur', () => {
+describe('messageServer', () => {
   it('reprend le message du serveur tel quel', () => {
     // Le 503 du Drive muet a son propre texte, écrit côté serveur et déjà épuré
     // de ses chemins absolus. Le réécrire ici en produirait une seconde version,

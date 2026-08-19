@@ -15,7 +15,7 @@ const REAL = JSON.stringify({
   format: { duration: '5936.995333' },
 })
 
-describe('analyserSondage', () => {
+describe('analyzeProbe', () => {
   it('lit une sortie réelle', () => {
     expect(analyzeProbe(REAL)).toEqual({
       durationSec: 5936.995333,

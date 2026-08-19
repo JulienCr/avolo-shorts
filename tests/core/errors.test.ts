@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { messageCleaned, cleanPaths } from '@/core/errors'
 import { REFERENCE_PREFIXES } from '@/server/secrets'
 
-describe('épurerChemins', () => {
+describe('cleanPaths', () => {
   it('épure la commande complète que runFfmpeg met dans son message', () => {
     const raw = [
       'ffmpeg a échoué (code de sortie 1) — proxy de 2025-06-15-cqlp.',
@@ -49,7 +49,7 @@ describe('épurerChemins', () => {
   })
 
   /**
-   * Le cas qui a motivé le paramètre `racines` : `REPLAY_DIR` vaut littéralement
+   * Le cas qui a motivé le paramètre `roots` : `REPLAY_DIR` vaut littéralement
    * `/mnt/j/Drive partagés/…`, et `runFfmpeg` joint son argv par des espaces. La
    * passe générique s'arrête au premier espace, donc elle laissait sortir la
    * queue du chemin — l'organisation interne du Drive partagé, un cran plus
@@ -224,7 +224,7 @@ describe('le caviardage des références de secret', () => {
   })
 
   /**
-   * Les passes d'`épurerChemins` se suivent, et une passe ajoutée peut défaire le
+   * Les passes d'`cleanPaths` se suivent, et une passe ajoutée peut défaire le
    * travail des autres. Les trois formes dans la même chaîne fixent leur ordre.
    */
   it('cohabite avec l’épuration des chemins et le caviardage des clés', () => {
@@ -252,7 +252,7 @@ describe('le caviardage des références de secret', () => {
   /**
    * **Le lien entre les deux moitiés d'une même vérité.**
    *
-   * `estRéférence` (`src/server/secrets.ts`) décide seul des formes qu'une
+   * `isReference` (`src/server/secrets.ts`) décide seul des formes qu'une
    * variable d'environnement peut prendre ; `src/core/erreurs.ts` décide de ce
    * qui est caviardé. Le second ne peut pas importer le premier — la frontière
    * de pureté l'interdit, et `tests/core/purete.test.ts` la vérifie —, donc la
@@ -262,7 +262,7 @@ describe('le caviardage des références de secret', () => {
    * caviardage exactement comme `op://` le faisait avant qu'on s'en occupe.
    *
    * Ce test **lit** la liste plutôt que de citer `op://`, et exerce chacun de
-   * ses éléments. Un préfixe ajouté à `estRéférence` sans passe correspondante
+   * ses éléments. Un préfixe ajouté à `isReference` sans passe correspondante
    * ici fait donc rougir la suite, au lieu de sortir en silence sur un dépôt
    * public. C'est le motif de l'issue #39, appliqué ici (issue #49).
    *

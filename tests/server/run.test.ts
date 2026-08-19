@@ -164,7 +164,7 @@ afterEach(async () => {
  * le proxy, et **définitivement** si une étape ultérieure tombait.
  * (relevé par Codex et Copilot)
  */
-describe('bilanDeRepérage', () => {
+describe('detectionSummary', () => {
   const summary: SummaryNotation = {
     windows: 83,
     noted: 51,
@@ -221,7 +221,7 @@ describe('bilanDeRepérage', () => {
   })
 })
 
-describe('planPourCibles', () => {
+describe('planForTargets', () => {
   const nothing: Record<StepName, boolean> = {
     proxy: false,
     audio: false,
@@ -349,7 +349,7 @@ describe('analysis', () => {
   })
 })
 
-describe('créerProjet', () => {
+describe('createProject', () => {
   /**
    * **Ce que `POST /api/projects` vise, et le seul endroit qui le dise.**
    * `CIBLES_INITIALES` porte `analysis` parce que personne ne clique « détecte
@@ -388,7 +388,7 @@ describe('créerProjet', () => {
   })
 })
 
-describe('cheminTranscript', () => {
+describe('pathTranscript', () => {
   const project = (): Project => ({
     id: PROJECT,
     sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`),

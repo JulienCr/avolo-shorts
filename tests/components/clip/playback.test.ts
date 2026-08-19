@@ -46,7 +46,7 @@ describe('motÀ', () => {
   })
 })
 
-describe('useLecture', () => {
+describe('usePlayback', () => {
   beforeEach(() => {
     usePlayback.getState().reset()
   })

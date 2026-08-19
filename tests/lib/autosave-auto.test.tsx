@@ -59,10 +59,10 @@ type Props = {
   cropX: number
 }
 
-/** Ce que le protocole passe à `ecrire`, réduit à ce qu'on en lit ici. */
+/** Ce que le protocole passe à `write`, réduit à ce qu'on en lit ici. */
 type Variables = { clipId: string; projectId: string; patch: ClipPatch }
 
-/** Les appels à `ecrire`, avec la main sur le sort de leur promesse. */
+/** Les appels à `write`, avec la main sur le sort de leur promesse. */
 type Call = {
   patch: ClipPatch
   resolve: (result: PatchClipResult) => void
@@ -103,7 +103,7 @@ function promiseWatched<T>() {
 /**
  * Un geste, puis le temps que les promesses se dénouent.
  *
- * Un `act` synchrone ne suffit plus depuis que `ecrire` rend une promesse : la
+ * Un `act` synchrone ne suffit plus depuis que `write` rend une promesse : la
  * réponse traverse plusieurs micro-tâches avant d'atteindre le protocole. Les
  * minuteurs sont faux, donc c'est `advanceTimersByTimeAsync` — et non un
  * `setTimeout` qui ne s'écoulerait jamais — qui rend la main au moteur.
@@ -180,7 +180,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('useEnregistrementAuto', () => {
+describe('useAutosave', () => {
   it('n’écrit rien quand l’état local est celui du serveur', () => {
     const { result, calls } = mount(rest)
     act(() => void vi.advanceTimersByTime(5_000))
@@ -290,7 +290,7 @@ describe('useEnregistrementAuto', () => {
       await actWrapped(() => calls[1].reject(new Error('réseau coupé')))
       expect(result.current).toBe('echec')
 
-      // Puis le dépassé aboutit, en retard. Son `setEchec(null)` rouvrirait la
+      // Puis le dépassé aboutit, en retard. Son `setFailure(null)` rouvrirait la
       // porte, et l'écriture ratée repartirait toute seule 600 ms plus tard :
       // le garde-fou anti-boucle contourné par le chemin qu'il surveille.
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.8 }), true)))
@@ -470,7 +470,7 @@ describe('useEnregistrementAuto', () => {
  *
  * C'est ce partage qui fait l'issue #55 : `MutationObserver.mutate` garde les
  * rappels qu'on lui passe dans un champ unique et détache la mutation
- * précédente, donc le second appel emporte le sort du premier. Un faux `ecrire`
+ * précédente, donc le second appel emporte le sort du premier. Un faux `write`
  * qui se contente d'enregistrer ses rappels ne peut pas le voir.
  */
 function mountOnObserverShared(start: Props) {
@@ -516,7 +516,7 @@ function mountOnObserverShared(start: Props) {
   }
 }
 
-describe('useEnregistrementAuto sur l’observateur partagé de l’écran', () => {
+describe('useAutosave sur l’observateur partagé de l’écran', () => {
   it('réconcilie un refus alors qu’une écriture de titre est partie entre-temps', async () => {
     const { send, reconciled, writeATitle } = mountOnObserverShared({
       ...rest,

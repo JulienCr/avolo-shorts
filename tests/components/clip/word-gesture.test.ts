@@ -14,7 +14,7 @@ import { gestureOnWordBar } from '@/components/clip/word-gesture'
 
 const extent = { start: 100, end: 200 }
 
-describe('gesteSurMotBarré', () => {
+describe('gestureOnWordBar', () => {
   it('comble le trou quand le mot est dans l’étendue', () => {
     expect(gestureOnWordBar(extent, { start: 140, end: 140.4 })).toEqual({ kind: 'remonter' })
   })

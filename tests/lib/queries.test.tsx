@@ -250,7 +250,7 @@ describe('usePatchClip', () => {
   })
 })
 
-describe('useCreerProjet', () => {
+describe('useCreateProject', () => {
   const plan: RunPlan = { projectId: 'p1', shot: ['audio', 'transcript'] }
 
   it('invalide la liste des projets', async () => {

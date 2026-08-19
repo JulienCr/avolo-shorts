@@ -26,7 +26,7 @@ function reading(made: StepName[]): Record<StepName, boolean> {
 
 const inCurrent = { step: 'transcript' as StepName, progress: 0.42 }
 
-describe('dispositionAvancement', () => {
+describe('layoutProgress', () => {
   it('remplace la grille seulement quand la grille serait vide', () => {
     const phase = phaseProject(reading([]), inCurrent, null, [])
     expect(layoutProgress(phase, inCurrent, true)).toBe('panneau')
@@ -42,7 +42,7 @@ describe('dispositionAvancement', () => {
   })
 
   it('ne cache pas un tri déjà fait derrière une reprise', () => {
-    // `effacerArtefact` retire `candidates.json` **avant** de toucher à la base :
+    // `eraseArtifact` retire `candidates.json` **avant** de toucher à la base :
     // pendant un repérage forcé, les clips gardés sont toujours là. Un
     // redémarrage du serveur au milieu donne `{ interrompu, trie }`, et le
     // panneau ne doit pas manger la liste.
@@ -69,7 +69,7 @@ describe('dispositionAvancement', () => {
 /** L'émission de référence, 1 h 39, celle de toutes les mesures du dépôt. */
 const CQLP: ShowSize = { durationSec: 5_940, sizeBytes: 4_300_000_000, windows: 83 }
 
-describe('PanneauAvancement', () => {
+describe('PanelProgress', () => {
   function mount(
     made: StepName[],
     running: { step: StepName; progress: number } | null = inCurrent,
@@ -214,7 +214,7 @@ describe('PanneauAvancement', () => {
   })
 })
 
-describe('AnnonceDÉtape', () => {
+describe('AnnouncementDStep', () => {
   it('n’annonce que l’étape, dans une région polie, sans la progression', () => {
     render(<AnnouncementDStep running={inCurrent} steps={reading(['audio'])} connu />)
     const region = screen.getByTestId('annonce')
@@ -250,7 +250,7 @@ describe('AnnonceDÉtape', () => {
   })
 })
 
-describe('BandeAvancement', () => {
+describe('StripProgress', () => {
   it('tient l’étape et sa progression, sans région live', () => {
     render(<StripProgress running={inCurrent} />)
     expect(screen.getByText('Transcription')).toBeTruthy()

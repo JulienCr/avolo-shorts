@@ -39,7 +39,7 @@ describe("le vocabulaire d'étapes", () => {
   })
 
   /**
-   * `RunTarget` et `CIBLES_LANÇABLES` décrivent la même chose de deux côtés :
+   * `RunTarget` et `TARGETS_LAUNCHABLE` décrivent la même chose de deux côtés :
    * un type pour le client, une liste de valeurs pour le lanceur et pour le
    * schéma de la route. Les deux affectations sont le contrôle — la première
    * attrape une cible que le client ignore, la seconde une étape du graphe que
@@ -54,7 +54,7 @@ describe("le vocabulaire d'étapes", () => {
 
 describe('les cibles de reprise', () => {
   /**
-   * `CIBLES_DE_REPRISE` est une recopie délibérée de `CIBLES_INITIALES` :
+   * `RESUME_TARGETS` est une recopie délibérée de `TARGETS_INITIAL` :
    * `src/server/run.ts` ne peut pas entrer dans le paquet du navigateur. Ce
    * test est ce qui rend la duplication tenable — sans lui, la reprise
    * viserait un jour autre chose que la création, et le projet resterait dans

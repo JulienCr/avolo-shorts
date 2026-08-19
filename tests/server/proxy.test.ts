@@ -24,7 +24,7 @@ afterEach(() => {
   process.env = { ...envStart }
 })
 
-describe('encodeurProxy', () => {
+describe('encoderProxy', () => {
   it("vaut x264 sur auto, contre le réflexe", () => {
     process.env.FFMPEG_ENCODER = 'auto'
     expect(encoderProxy()).toBe('x264')
@@ -141,7 +141,7 @@ describe('GET /api/projects/:id/proxy', () => {
   })
 
   it('rend 404 sur un identifiant qui tente de sortir du dossier', async () => {
-    // `vérifierId` garde la traversée : un identifiant qui ne peut nommer aucun
+    // `verifyId` garde la traversée : un identifiant qui ne peut nommer aucun
     // chemin ne désigne aucun proxy.
     expect((await request('../../etc/passwd')).status).toBe(404)
     expect((await request('..')).status).toBe(404)
@@ -184,12 +184,12 @@ describe('GET /api/projects/:id/proxy', () => {
 
     it('pose Cache-Control: no-store sur les deux 404 d’absence', async () => {
       // Un identifiant qui ne peut nommer aucun chemin — décidé dans la route,
-      // avant `servirFichier`.
+      // avant `serveFile`.
       const invalidId = await request('../../etc/passwd')
       expect(invalidId.status).toBe(404)
       expect(invalidId.headers.get('cache-control')).toBe('no-store')
 
-      // Un fichier pas encore là — décidé par `servirFichier`, qui rend `null`.
+      // Un fichier pas encore là — décidé par `serveFile`, qui rend `null`.
       // Le proxy arrive environ douze minutes après la création du projet :
       // mettre ce cas nominal en cache serait une panne durable.
       const notYetThere = await request(PROJECT)

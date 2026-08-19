@@ -309,7 +309,7 @@ describe('playbackAction', () => {
   })
 })
 
-describe('ligneInitiale', () => {
+describe('lineInitial', () => {
   const lines: TranscriptLine[] = [
     { id: 'l0', start: 0, end: 5, words: [] },
     { id: 'l1', start: 5, end: 10, words: [] },

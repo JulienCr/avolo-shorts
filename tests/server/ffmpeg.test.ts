@@ -21,7 +21,7 @@ import {
  * `src/core/`, où ils sont vérifiés au caractère près.
  */
 
-describe('analyserMarqueTemps', () => {
+describe('analyzeMarkerTime', () => {
   it('lit une marque de temps ordinaire', () => {
     expect(analyzeMarkerTime('frame= 240 fps=120 q=28.0 size=1kB time=00:00:08.00 speed=13.8x')).toBe(8)
   })
@@ -63,7 +63,7 @@ describe('analyserMarqueTemps', () => {
   })
 })
 
-describe('créerJournal', () => {
+describe('createLog', () => {
   it('recolle une ligne coupée entre deux morceaux', () => {
     const j = createLog()
     j.add('[libx264] mauvaise ')
@@ -123,7 +123,7 @@ describe('créerJournal', () => {
   })
 })
 
-describe('choisirEncodeur', () => {
+describe('chooseEncoder', () => {
   const never = () => {
     throw new Error('la sonde ne doit pas tourner quand la valeur est explicite')
   }
@@ -151,7 +151,7 @@ describe('choisirEncodeur', () => {
   })
 })
 
-describe('cheminTemporaire', () => {
+describe('pathTemporary', () => {
   it("garde l'extension, dont ffmpeg déduit son muxeur", () => {
     expect(pathTemporary('/projects/x/proxy.mp4', 42)).toBe('/projects/x/proxy.partiel-42.mp4')
   })
@@ -176,7 +176,7 @@ describe('cheminTemporaire', () => {
   })
 })
 
-describe('produireArtefact — la décision de sauter', () => {
+describe('produceArtifact — la décision de sauter', () => {
   const roots: string[] = []
   const tmp = (): string => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ffmpeg-'))

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { progressWorker, titleProject } from '@/core/pipeline'
 
-describe('titreProjet', () => {
+describe('titleProject', () => {
   it('passe la date derrière et garde ce qui distingue l’émission', () => {
     expect(titleProject('2025-06-15-cqlp')).toBe('cqlp — 15 juin 2025')
     expect(titleProject('2026-03-08-caro-mdlm')).toBe('caro mdlm — 8 mars 2026')
@@ -29,7 +29,7 @@ describe('titreProjet', () => {
   })
 })
 
-describe('avancementWorker', () => {
+describe('progressWorker', () => {
   it('rend la fraction des étapes terminées', () => {
     expect(progressWorker('[1/4] Chargement du modèle large-v3 sur cuda…')).toBe(0)
     expect(progressWorker('[3/4] Transcription (batch 16, langue fr)…')).toBe(0.5)

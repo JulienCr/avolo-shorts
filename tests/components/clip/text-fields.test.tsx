@@ -41,7 +41,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('ChampsTextes', () => {
+describe('FieldsTexts', () => {
   it('montre ce que le clip porte', () => {
     render(<FieldsTexts clip={clip()} onWrite={vi.fn()} />)
     expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('La chute')

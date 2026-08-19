@@ -3,14 +3,14 @@
 /**
  * L'écran de projet, monté pour de vrai.
  *
- * `dispositionAvancement` est testée seule ailleurs, et c'est le bon endroit
+ * `layoutProgress` est testée seule ailleurs, et c'est le bon endroit
  * pour l'invariant lui-même. **Mais les trois violations que les relectures ont
  * trouvées étaient dans le raccordement**, pas dans la règle : un panneau qui
  * mange la grille, un squelette qui passe pour une attente de neuf minutes, une
  * erreur qui en efface une autre. Ce fichier monte donc l'écran entier, avec ses
  * requêtes, pour regarder ce qui s'affiche en même temps que quoi.
  *
- * **C'est `EcranDeProjet` qu'on monte, pas la route.** La route lit ses `params`
+ * **C'est `ProjectScreen` qu'on monte, pas la route.** La route lit ses `params`
  * par `use()`, et sous `jsdom` une limite de Suspense ainsi tenue ne se relève
  * jamais : la promesse se tient, React ne rejoue pas, et le repli reste seul à
  * l'écran. Mesuré sur un composant de trois lignes avant de conclure.

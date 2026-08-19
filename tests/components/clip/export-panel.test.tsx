@@ -158,7 +158,7 @@ describe('les raisons de ne pas pouvoir exporter', () => {
   })
 
   it('refuse d’exporter pendant qu’une écriture est en vol', () => {
-    // `enregistrement` ne suit que les segments, le ratio et le cadrage. Une
+    // `autosave` ne suit que les segments, le ratio et le cadrage. Une
     // bascule des marques, un titre, une description partent par la même
     // mutation sans y figurer : exporter dans la foulée fait lire au rendu la
     // valeur d'avant, et produit un fichier qui contredit l'écran.

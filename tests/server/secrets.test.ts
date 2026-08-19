@@ -43,7 +43,7 @@ async function messageDFailure(promise: Promise<unknown>): Promise<string> {
   )
 }
 
-describe('estRéférence', () => {
+describe('isReference', () => {
   it('reconnaît une adresse de secret', () => {
     expect(isReference('op://Personal/Avolo-Shorts/GEMINI_API_KEY')).toBe(true)
   })
@@ -58,7 +58,7 @@ describe('estRéférence', () => {
   })
 })
 
-describe('résoudreSecrets', () => {
+describe('resolveSecrets', () => {
   it("n'appelle jamais op quand aucune valeur n'est une référence", async () => {
     const { lire, calls } = playerFake({})
     const env = { GEMINI_API_KEY: 'une-clé-littérale', REPLAY_DIR: '/mnt/j/Replay' }
@@ -176,7 +176,7 @@ describe('résoudreSecrets', () => {
 
   it('refuse une valeur vide plutôt que de la laisser passer', async () => {
     // Un champ vidé dans 1Password rendrait une chaîne vide, que
-    // `clientParDéfaut` prendrait pour une variable absente — donc un message
+    // `clientByDefault` prendrait pour une variable absente — donc un message
     // qui accuse le `.env` alors que le `.env` est juste.
     const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
@@ -254,7 +254,7 @@ describe('résoudreSecrets', () => {
   })
 })
 
-describe('exigerSecret', () => {
+describe('requireSecret', () => {
   it('rend la valeur quand elle est là', () => {
     expect(requireSecret('GEMINI_API_KEY', { GEMINI_API_KEY: 'la-vraie-clé' })).toBe('la-vraie-clé')
   })
@@ -276,7 +276,7 @@ describe('exigerSecret', () => {
   it("ne cite pas la référence, qui remonterait jusqu'au client HTTP", () => {
     // Cette erreur-là est levée en servant : elle traverse `runCandidates`,
     // `status.json` et le champ `error` de `GET /api/projects/:id`. Et
-    // `épurerChemins` ne la nettoie pas — `POSIX_NU` exclut un `/` précédé de
+    // `cleanPaths` ne la nettoie pas — `POSIX_BARE` exclut un `/` précédé de
     // `:` ou d'un autre `/`, donc `op://Coffre/Fiche/…` passe intact. Le nom du
     // coffre et de la fiche sortiraient sur un dépôt public, pour n'apprendre
     // rien à un opérateur qui a son `.env` sous les yeux.

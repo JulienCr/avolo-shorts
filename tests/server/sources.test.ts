@@ -21,7 +21,7 @@ import { editingFstype, listSources } from '@/server/sources'
  * lieu ». Les deux rendaient la même page dans OpenShorts (spec §12).
  */
 
-describe('fstypeDeMontage', () => {
+describe('editingFstype', () => {
   const EDITS = [
     '/dev/sdd / ext4 rw,relatime 0 0',
     'none /mnt/wsl tmpfs rw,relatime 0 0',
@@ -78,7 +78,7 @@ describe('fstypeDeMontage', () => {
   })
 })
 
-describe('listerSources', () => {
+describe('listSources', () => {
   let root: string
   let replays: string
   let db: Database.Database
@@ -143,7 +143,7 @@ describe('listerSources', () => {
    * **Un dossier adossé à un Drive porte des téléchargements partiels**, et ils
    * ont l'extension de leur destination : proposés, ils apparaîtraient comme des
    * vidéos cassées. La spec les écarte nommément (§ « Lister les sources »).
-   * Ils restent comptés dans `entrées` — un dossier plein de moignons n'est pas
+   * Ils restent comptés dans `entries` — un dossier plein de moignons n'est pas
    * un dossier vide, et c'est justement cette distinction qui porte le
    * diagnostic.
    */
@@ -164,7 +164,7 @@ describe('listerSources', () => {
   })
 
   /**
-   * `statAvecDélai` fait un `lstat` pour la même raison : un lien qui pointe hors
+   * `statWithDelay` fait un `lstat` pour la même raison : un lien qui pointe hors
    * de `REPLAY_DIR` ferait ingérer autre chose qu'un replay, et l'ingestion le
    * refuse. Le proposer ici mènerait droit à ce refus.
    */
@@ -188,7 +188,7 @@ describe('listerSources', () => {
 
   /**
    * Une source déjà analysée mène à son projet au lieu de relancer une création.
-   * `créerProjet` est idempotent sur ce cas, mais proposer deux chemins vers le
+   * `createProject` est idempotent sur ce cas, mais proposer deux chemins vers le
    * même endroit sans le dire fait douter de ce qu'on vient de déclencher.
    */
   it('rattache une source au projet qu’elle a produit', async () => {
@@ -214,8 +214,8 @@ describe('listerSources', () => {
    * **Un identifiant n'est pas une source.** `projectIdFromSource` retire
    * l'extension : `show.mp4` et `show.mov` donnent tous deux `show`. Rattacher
    * sur l'identifiant seul ferait mener la carte du MOV au projet du MP4 — une
-   * autre vidéo —, alors que `créerProjet` refuse précisément cette paire par un
-   * `CollisionDeProjetError`. La carte doit rester « à créer » : la création
+   * autre vidéo —, alors que `createProject` refuse précisément cette paire par un
+   * `ProjectErrorCollision`. La carte doit rester « à créer » : la création
    * répondra 409 avec le message qui nomme les deux fichiers, ce qui est un
    * cul-de-sac qui s'explique, là où un lien vers la mauvaise vidéo n'en est pas
    * un. (relevé par Codex et Copilot)
@@ -281,7 +281,7 @@ describe('listerSources', () => {
 
   /**
    * **Quatre causes, quatre noms** (issue #56, point 5). Tant que
-   * `releverAvecGarde` les collapsait, l'écran devait énumérer les trois gestes
+   * `captureWithGuard` les collapsait, l'écran devait énumérer les trois gestes
    * possibles — vérifier le chemin, vérifier les droits, remonter le partage —
    * là où le serveur en connaissait un seul.
    *
@@ -317,7 +317,7 @@ describe('listerSources', () => {
 
   /**
    * **Le cas que l'issue #56 appelle « le diagnostic le plus trompeur
-   * possible ».** `fstypeDeMontage` remonte au montage le plus profond qui
+   * possible ».** `editingFstype` remonte au montage le plus profond qui
    * *contienne* le chemin : un `REPLAY_DIR` mal orthographié sous un partage 9p
    * parfaitement sain rend donc `disponible: false` **avec** `fstype: '9p'`. Sans
    * la cause, l'écran conclut au transport mort et envoie remonter un partage
@@ -332,10 +332,10 @@ describe('listerSources', () => {
   })
 
   /**
-   * Dans `releverLeDossier`, un `lstat` refusé sur **un seul fichier** fait
+   * Dans `captureFolder`, un `lstat` refusé sur **un seul fichier** fait
    * basculer tout le dossier. La bascule est voulue — un catalogue amputé
    * présenté comme complet est pire —, mais elle était muette : elle porte
-   * maintenant `refusé`, ce qui envoie regarder les droits plutôt que le
+   * maintenant `rejected`, ce qui envoie regarder les droits plutôt que le
    * partage. (second cas mesuré de l'issue #56)
    */
   it('nomme un droit refusé sur un seul fichier comme un refus, pas un silence', async () => {

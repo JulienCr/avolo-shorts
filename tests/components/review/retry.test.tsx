@@ -91,7 +91,7 @@ describe('StopButton', () => {
   })
 })
 
-describe('BoutonReprise', () => {
+describe('ButtonResume', () => {
   it('vise les mêmes cibles que la création', async () => {
     // **Recopier la liste à la main est la maladie que l'issue #39 vient de
     // fermer.** Une cible nomme un résultat à atteindre : viser `candidates`
@@ -124,7 +124,7 @@ describe('BoutonReprise', () => {
   })
 
   it('dit qu’une exécution a démarré entre-temps plutôt que « échec »', async () => {
-    // `lancer` lève `ExécutionEnCoursError`, et la route en fait un 409. C'est
+    // `launch` lève `ExecutionInCurrentError`, et la route en fait un 409. C'est
     // une course perdue, pas une panne.
     vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'déjà en cours' }, 409)))
     render(<ButtonResume projectId="p1" inCurrent={false} />, { wrapper: envelope })
@@ -137,7 +137,7 @@ describe('BoutonReprise', () => {
   })
 })
 
-describe('BoutonRelance', () => {
+describe('ButtonRetry', () => {
   function mount(count: { guards: number; discarded: number; aSort: number }, inCurrent = false) {
     return render(<ButtonRetry projectId="p1" count={count} inCurrent={inCurrent} />, {
       wrapper: envelope,

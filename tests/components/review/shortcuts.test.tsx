@@ -26,7 +26,7 @@ function mount(html: string): HTMLElement {
   return host.firstElementChild as HTMLElement
 }
 
-describe('traiteDéjàLaTouche', () => {
+describe('processAlreadyKey', () => {
   it('écarte ce qui n’est pas un élément', () => {
     // `window` est une cible d'événement clavier parfaitement ordinaire, et
     // `closest` n'existe pas dessus : sans ce contrôle, le gestionnaire lève une
@@ -113,7 +113,7 @@ function actionsMute() {
   }
 }
 
-describe('useRaccourcisTri', () => {
+describe('useShortcutsReview', () => {
   it('lie les sept touches du tri', async () => {
     const actions = actionsMute()
     render(<Harness actions={actions} />)

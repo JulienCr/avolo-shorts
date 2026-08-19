@@ -37,7 +37,7 @@ describe('showState', () => {
 
   it('dit « analyse » quand la source annonce un projet que la liste ne porte pas encore', () => {
     // Les deux requêtes ne se rafraîchissent pas ensemble :
-    // `marquerSourceAnalysée` inscrit le `projectId` dès la réponse de création,
+    // `markSourceAnalyzed` inscrit le `projectId` dès la réponse de création,
     // la liste des projets arrive au tour suivant. Retomber sur « neuve »
     // pendant cette fenêtre reproposerait de lancer l'analyse, et le second clic
     // rend un 409.
@@ -120,7 +120,7 @@ describe('buildLibrary', () => {
     expect(orphan.source).toBeNull()
     expect(orphan.key).toBe('perdu')
     // Le titre vient du serveur : sans fichier, l'identifiant est tout ce qui
-    // reste, et c'est de lui que `titreProjet` le tire déjà là-bas.
+    // reste, et c'est de lui que `titleProject` le tire déjà là-bas.
     expect(orphan.title).toBe('perdu')
     expect(orphan.fileName).toBeNull()
     expect(orphan.state).toBe('analyzed')
@@ -168,7 +168,7 @@ describe('le titre affiché', () => {
   })
 
   it('ne change pas au moment où l’émission est analysée', () => {
-    // **C'est la propriété qui autorise ce titre.** `titreProjet` est une
+    // **C'est la propriété qui autorise ce titre.** `titleProject` est une
     // fonction pure de l'identifiant, et l'identifiant est le nom de fichier
     // sans son extension : la même chaîne entre, la même sort. Un titre qui
     // basculerait au lancement de l'analyse aurait été une raison de garder le

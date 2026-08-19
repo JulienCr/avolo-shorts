@@ -15,7 +15,7 @@ import {
  * message ne nomme ni Python, ni le venv, ni pip.
  */
 
-describe('racineVenv', () => {
+describe('rootVenv', () => {
   it('remonte de l interpréteur au venv', () => {
     expect(rootVenv('/home/julien/dev/rythmo-impro/diarizer/venv/bin/python')).toBe(
       '/home/julien/dev/rythmo-impro/diarizer/venv',
@@ -23,7 +23,7 @@ describe('racineVenv', () => {
   })
 })
 
-describe('cheminsCudnn', () => {
+describe('pathsCudnn', () => {
   it('lit la version de Python dans le venv au lieu de la coder en dur', () => {
     // `run-wsl.sh` écrit `3.10` parce que c'est celle de sa machine. Un venv
     // reconstruit en 3.11 ferait échouer le chargement du modèle.
@@ -48,7 +48,7 @@ describe('cheminsCudnn', () => {
   })
 })
 
-describe('environnementWorker', () => {
+describe('environmentWorker', () => {
   it('pose les deux variables sans lesquelles rien ne démarre', () => {
     const env = environmentWorker({ cudnn: ['/venv/cudnn'], base: {} })
     expect(env.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD).toBe('1')
@@ -167,7 +167,7 @@ describe('environnementWorker', () => {
   })
 })
 
-describe('épurerMandataire', () => {
+describe('cleanProxy', () => {
   it('laisse intacte une URL sans identifiants', () => {
     expect(cleanProxy('http://mandataire:3128')).toBe('http://mandataire:3128')
   })

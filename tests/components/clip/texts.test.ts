@@ -4,7 +4,7 @@
  * Le panneau d'export propose de **copier** ce que l'export écrit dans le
  * `.txt`. Les deux doivent dire exactement la même chose, sans quoi Julien colle
  * dans Instagram autre chose que ce qu'il a sur le disque — et rien ne le lui
- * dirait. `texteDePublication` vit dans `src/server/steps/render.ts`, qui ouvre
+ * dirait. `publicationText` vit dans `src/server/steps/render.ts`, qui ouvre
  * des fichiers et une base : il ne peut pas entrer dans un composant client.
  *
  * Ces tests sont donc le seul lien entre les deux copies. Ils comparent le
@@ -39,7 +39,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
   }
 }
 
-describe('texteDePublication', () => {
+describe('publicationText', () => {
   it.each([
     ['un clip complet', clip()],
     ['un titre vide', clip({ title: '' })],
@@ -54,13 +54,13 @@ describe('texteDePublication', () => {
   })
 })
 
-describe('motsDièse', () => {
+describe('wordsHash', () => {
   it('garde la première graphie et écarte les doublons de casse', () => {
     expect(wordsHash('#Impro et #impro, puis #Avolo')).toEqual(['#Impro', '#Avolo'])
   })
 })
 
-describe('nomsDeSortie', () => {
+describe('outputNames', () => {
   it.each<Ratio>(['9:16', '4:5', '1:1', '16:9'])(
     'nomme les fichiers comme l’export les écrit — %s',
     (ratio) => {

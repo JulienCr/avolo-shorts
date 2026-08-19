@@ -67,10 +67,10 @@ function extractOk(log?: { src: string; dst: string; at: number }[]) {
 
 const PROBE_MUTE = async () => null
 
-describe('vérifierNomDeSource', () => {
+describe('sourceVerifyName', () => {
   /**
    * **Refuser ce qui permet de sortir du dossier, pas ce qui est exotique.**
-   * C'est la forme que `vérifierIdClip` donne au contrôle, et elle n'est pas
+   * C'est la forme que `verifyIdClip` donne au contrôle, et elle n'est pas
    * négociable ici : les replays portent accents et espaces, et les refuser
    * viderait la bibliothèque.
    */
@@ -143,7 +143,7 @@ describe('vignetteSourcePath', () => {
    * **`NAME_MAX` vaut 255 octets, et un replay peut les atteindre** : c'est un
    * nom de fichier parfaitement lisible. Recopié tel quel dans le nom de cache,
    * puis rallongé de la taille, de la date, de l'extension et — le temps de
-   * l'écriture — du suffixe de `cheminTemporaire`, il faisait échouer la
+   * l'écriture — du suffixe de `pathTemporary`, il faisait échouer la
    * vignette en `ENAMETOOLONG` sur une source que rien n'empêchait de lire.
    * (relevé par Copilot)
    *
@@ -178,7 +178,7 @@ describe('vignetteSourcePath', () => {
   })
 })
 
-describe('instantVignetteSource', () => {
+describe('momentVignetteSource', () => {
   /**
    * **Jamais zéro.** Les lives ouvrent tous sur le même carton « ON ARRIVE
    * VITE », présent sur les trois émissions mesurées (spec §12) : une image
@@ -653,9 +653,9 @@ describe('GET /api/sources/thumb', () => {
   /**
    * **Le cas où le caviardage se casse le nez**, et le seul qui compte
    * vraiment ici : `REPLAY_DIR` vaut littéralement `/mnt/j/Drive partagés/…`, et
-   * un chemin nu se coupe au premier espace. `statAvecDélai` écrit le chemin
+   * un chemin nu se coupe au premier espace. `statWithDelay` écrit le chemin
    * complet dans son message — il est destiné à un journal de serveur — et c'est
-   * `messageSûr`, qui connaît les racines de la machine, qui l'en retire avant
+   * `messageSafe`, qui connaît les racines de la machine, qui l'en retire avant
    * la réponse. Ce dépôt est public.
    */
   it('ne publie pas le point de montage quand le partage ne répond pas', async () => {

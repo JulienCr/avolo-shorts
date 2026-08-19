@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { messageSafe } from '@/server/errors'
 
 /**
- * **Ce que `messageSûr` sait et que la grammaire d'`épurerChemins` ne peut pas
+ * **Ce que `messageSafe` sait et que la grammaire d'`cleanPaths` ne peut pas
  * savoir : où une référence finit.**
  *
  * Hors citation, `src/core/erreurs.ts` arrête une référence au premier espace,
@@ -14,7 +14,7 @@ import { messageSafe } from '@/server/errors'
  *
  * La fermeture est donc ici. Une référence lue dans l'environnement **est** une
  * chaîne littérale : on sait où elle finit parce qu'on la tient en entier,
- * espaces compris. `messageSûr` la retire par sa **forme complète**, préfixe
+ * espaces compris. `messageSafe` la retire par sa **forme complète**, préfixe
  * compris, et remet le préfixe derrière — c'est la forme que le caviardage
  * laisse partout ailleurs, et la queue du coffre ne sort plus.
  *
@@ -33,7 +33,7 @@ afterEach(() => {
 /** Un coffre et une fiche à espaces, et rien qui ressemble à une vraie fiche. */
 const REFERENCE = 'op://Coffre de démonstration/Fiche imaginaire/CHAMP'
 
-describe('messageSûr, sur les références de secret', () => {
+describe('messageSafe, sur les références de secret', () => {
   it('caviarde une référence à espaces, hors citation comme entre guillemets', () => {
     process.env.AVOLO_TEST_SECRET = REFERENCE
 
@@ -84,7 +84,7 @@ describe('messageSûr, sur les références de secret', () => {
    * (relevé par Copilot)
    *
    * Le coffre porte un espace, sans quoi le test ne prouverait rien : la passe
-   * nue d'`épurerChemins` couvre déjà tout ce qui n'en a pas.
+   * nue d'`cleanPaths` couvre déjà tout ce qui n'en a pas.
    */
   it('caviarde une référence qui ne nomme qu’un coffre', () => {
     process.env.AVOLO_TEST_SECRET = 'op://Coffre de démonstration'
@@ -110,7 +110,7 @@ describe('messageSûr, sur les références de secret', () => {
 
   /**
    * **Le préfixe nu ne nomme rien**, donc il n'y a rien à en retirer — et un
-   * message qui le cite en toutes lettres, ce que fait `exigerSecret`, doit
+   * message qui le cite en toutes lettres, ce que fait `requireSecret`, doit
    * ressortir intact plutôt qu'orné d'une ellipse qui laisserait croire à un
    * caviardage.
    */

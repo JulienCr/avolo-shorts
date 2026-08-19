@@ -13,7 +13,7 @@ import {
 
 const count = (argv: string[], token: string) => argv.filter((x) => x === token).length
 
-describe('videoEncodeArgs', () => {
+describe('videoEncodedArgs', () => {
   it('porte les réglages x264 mesurés, par palier', () => {
     expect(videoEncodedArgs('x264', 'quality')).toEqual([
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p',

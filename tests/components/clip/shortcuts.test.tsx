@@ -49,7 +49,7 @@ function Harness(props: ReturnType<typeof actions>) {
   )
 }
 
-describe('useRaccourcis', () => {
+describe('useShortcuts', () => {
   it('lance la lecture sur `Espace` depuis le corps du document', () => {
     const a = actions()
     render(<Harness {...a} />)

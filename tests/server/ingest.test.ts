@@ -23,7 +23,7 @@ import { StopRequestedError } from '@/server/ffmpeg'
  * elle prend deux minutes pour 4,3 Gio.
  */
 
-describe('décisionCopie', () => {
+describe('decisionCopy', () => {
   const source = { sizeBytes: 4_577_070_123 }
 
   it('copie quand rien n est là', () => {
@@ -49,7 +49,7 @@ describe('décisionCopie', () => {
   })
 })
 
-describe('empreinteSource', () => {
+describe('fingerprintSource', () => {
   it('relève taille, date de modification et durée — pas de hash', () => {
     // Digérer 12 Go à chaque lancement coûterait plus cher que l'étape qu'on
     // cherche à éviter (spec §5).
@@ -69,7 +69,7 @@ describe('empreinteSource', () => {
   })
 })
 
-describe('statAvecDélai', () => {
+describe('statWithDelay', () => {
   const roots: string[] = []
   const tmp = (): string => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ingest-'))
@@ -121,7 +121,7 @@ describe('statAvecDélai', () => {
 
 })
 
-describe('vérifierTailleCopiée', () => {
+describe('verifySizeCopied', () => {
   it('laisse passer une copie de la taille annoncée', () => {
     expect(() => verifySizeCopied(4_577_070_123, 4_577_070_123, '/s.mp4')).not.toThrow()
   })
@@ -138,7 +138,7 @@ describe('vérifierTailleCopiée', () => {
   })
 })
 
-describe('montageRépond', () => {
+describe('editingResponds', () => {
   const roots: string[] = []
   const tmp = (): string => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-montage-'))
@@ -178,7 +178,7 @@ describe('montageRépond', () => {
   })
 })
 
-describe('attendreOuRenoncer', () => {
+describe('waitOrAbandon', () => {
   it('rend le résultat quand le travail arrive à temps', async () => {
     await expect(waitOrAbandon(Promise.resolve(42), 5_000, 'jamais')).resolves.toBe(42)
   })
@@ -271,7 +271,7 @@ describe('nettoyerStage', () => {
   /**
    * **La liste est relue à chaque fichier, pas prise en instantané au départ.**
    * Une exécution démarrée pendant le balayage ne recopie rien — sa copie est
-   * là, `ingestionNécessaire` l'a constaté — donc rien d'autre ne la
+   * là, `ingestionNecessary` l'a constaté — donc rien d'autre ne la
    * signalerait, et le balayage l'effaçait sous ses pieds. (relevé par Codex)
    */
   it('voit une exécution démarrée pendant le balayage', async () => {
@@ -279,7 +279,7 @@ describe('nettoyerStage', () => {
     poser('a.mp4', STAGE_TTL_MS * 2)
     poser('b.mp4', STAGE_TTL_MS * 2)
 
-    // Rien à épargner au départ ; `tardive` entre en usage au premier fichier vu.
+    // Rien à épargner au départ ; `late` entre en usage au premier fichier vu.
     let inUsage: string[] = []
     let seen = 0
     const removed = await cleanStage({
@@ -449,7 +449,7 @@ describe('ingest', () => {
 
   /**
    * **Deux traitements ne copient pas la même source deux fois.** Le cas n'est
-   * pas théorique : `enCours` interdit deux exécutions du même projet, mais rien
+   * pas théorique : `inCurrent` interdit deux exécutions du même projet, mais rien
    * n'interdit à `dev-ingest` de tourner à côté du serveur. Sans verrou, les
    * deux `pipeline` se disputent la bande passante d'un montage à 97 Mo/s et le
    * second renommage écrase le premier fichier pendant qu'une étape le lit.

@@ -15,7 +15,7 @@ import { DialogueShortcuts } from '@/components/clip/shortcuts'
 
 afterEach(cleanup)
 
-describe('DialogueRaccourcis', () => {
+describe('DialogueShortcuts', () => {
   it('énumère les douze touches quand il est ouvert', () => {
     render(<DialogueShortcuts open onOpen={() => {}} />)
 

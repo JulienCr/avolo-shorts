@@ -3,7 +3,7 @@
 /**
  * La relance, et ses deux règles de fraîcheur.
  *
- * Fichier séparé de `queries.test.tsx` à dessein : le corps de `useProjets` est
+ * Fichier séparé de `queries.test.tsx` à dessein : le corps de `useProjects` est
  * édité en parallèle dans la même vague, et deux ajouts propres dans un fichier
  * commun font un conflit pour rien.
  */
@@ -49,7 +49,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('useRelancer', () => {
+describe('useRetry', () => {
   it('vise les cibles qu’on lui donne, en une seule requête', async () => {
     // Une cible nomme un résultat à atteindre, pas une étape à refaire : viser
     // `candidates` seul ne construirait jamais le proxy, et l'écran resterait
@@ -71,7 +71,7 @@ describe('useRelancer', () => {
   })
 
   it('invalide l’état du projet, sans quoi rien ne reprend l’interrogation', async () => {
-    // `useProjet` n'interroge en boucle que tant que `running` est non nul :
+    // `useProject` n'interroge en boucle que tant que `running` est non nul :
     // après un 202, le cache porte encore `running: null` et l'écran resterait
     // immobile devant une analyse qui tourne.
     vi.stubGlobal('fetch', vi.fn(async () => response(plan)))
@@ -104,7 +104,7 @@ describe('useRelancer', () => {
   })
 
   it('remonte un 409 avec son code, pas seulement son message', async () => {
-    // `lancer` lève `ExécutionEnCoursError` et la route en fait un 409 : l'écran
+    // `launch` lève `ExecutionInCurrentError` et la route en fait un 409 : l'écran
     // doit pouvoir dire « une exécution tourne déjà » plutôt que « échec ».
     vi.stubGlobal(
       'fetch',
@@ -125,7 +125,7 @@ describe('useRelancer', () => {
   it('invalide l’état du projet même quand la relance échoue', async () => {
     // **Un 409 dit qu'une exécution tourne**, et c'est exactement le moment où
     // l'écran doit aller la chercher. Invalider seulement au succès laissait le
-    // cache sur `running: null` — donc `useProjet` sans interrogation en boucle —
+    // cache sur `running: null` — donc `useProject` sans interrogation en boucle —
     // et le message « l'écran la suivra dès qu'elle se signalera » était faux.
     // (relevé par Copilot)
     vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'déjà en cours' }, 409)))

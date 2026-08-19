@@ -43,7 +43,7 @@ import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
  * doctrine de placement des marques, et le texte de publication.
  *
  * **Le recalage après une coupe interne s'y teste**, et c'est le point le plus
- * important du fichier : `sousTitresDuClip` plus bas vérifie sur deux segments
+ * important du fichier : `clipUnderTitles` plus bas vérifie sur deux segments
  * distants que le premier mot du second tombe à la durée du premier, et pas à son
  * heure dans l'émission.
  *
@@ -113,9 +113,9 @@ function clip(overrides: Partial<Clip> = {}): Clip {
 }
 
 /**
- * Des marques, dans la forme que `collecterMarques` rendrait.
+ * Des marques, dans la forme que `collectMarkers` rendrait.
  *
- * `contenu` dérive du nom par défaut : deux appels avec les mêmes noms rendent
+ * `content` dérive du nom par défaut : deux appels avec les mêmes noms rendent
  * les mêmes marques, et il suffit de passer un contenu explicite pour simuler
  * un fichier remplacé sous le même nom.
  */
@@ -219,7 +219,7 @@ function poserFingerprint(
   )
 }
 
-describe('cheminsRendu', () => {
+describe('pathsRender', () => {
   it('nomme les sorties depuis le dossier de rendus du projet', () => {
     const c = pathsRender(ID, 'clip_0001', '1:1')
     expect(c.mp4).toBe(path.join(projects, ID, 'renders', 'clip_0001.mp4'))
@@ -251,7 +251,7 @@ describe('cheminsRendu', () => {
   })
 })
 
-describe('sauterLeRendu', () => {
+describe('sauterRender', () => {
   const paths = pathsRender.bind(null, ID, 'clip_0001')
 
   it('saute quand les trois sorties sont là et que l’empreinte les décrit', () => {
@@ -305,7 +305,7 @@ describe('sauterLeRendu', () => {
  * isoler en fonction pure est ce qui les rend vérifiables.
  * (relevé par Codex et Copilot)
  */
-describe('refaireLesSorties', () => {
+describe('redoOutputs', () => {
   const paths = pathsRender.bind(null, ID, 'clip_0001')
 
   it('ne rallume pas ffmpeg quand les deux MP4 sont là', () => {
@@ -405,7 +405,7 @@ describe("l'empreinte de rendu", () => {
     expect(e.captionsLook).toBeNull()
   })
 
-  describe('écartDeLEmpreinte', () => {
+  describe('lFingerprintGap', () => {
     const markers = markersNamed(['logo.png'])
     const toSide = (overrides: Partial<Clip> = {}): ReturnType<typeof renderFingerprint> =>
       fingerprintWith(clip(overrides), markers)
@@ -561,7 +561,7 @@ describe("l'empreinte de rendu", () => {
     })
   })
 
-  describe('lesMarquesOntBougé', () => {
+  describe('markersHaveMoved', () => {
     it("ne périme rien quand le dossier est vide et que le clip en demandait", () => {
       // Les deux PNG ont vraiment disparu d'`assets/brand/` le 18 août. Un clip
       // qui demande des marques dont aucune n'est exploitable ne peut pas se
@@ -610,7 +610,7 @@ describe("l'empreinte de rendu", () => {
    * incrusté avec Anton d'un rendu incrusté avec le repli de fontconfig, et deux
    * versions d'Anton l'une de l'autre. (relevé par Copilot et par Codex)
    */
-  describe('condensatDesPolices', () => {
+  describe('fontsDigest', () => {
     const poser = (name: string, content: string): void => {
       fs.writeFileSync(path.join(fonts, name), content)
     }
@@ -651,14 +651,14 @@ describe("l'empreinte de rendu", () => {
     })
   })
 
-  describe('lireEmpreinte', () => {
+  describe('lireFingerprint', () => {
     const fingerprintPath = (): string => pathsRender(ID, 'clip_0001', '1:1').fingerprint
 
     it("rend null sur un fichier absent, et c'est le cas normal", () => {
       expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
-    it('relit ce que `empreinteDuRendu` a écrit', () => {
+    it('relit ce que `renderFingerprint` a écrit', () => {
       const c = clip()
       poserFingerprint(c, '1:1', ['logo.png'])
       // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
@@ -794,7 +794,7 @@ describe("l'empreinte de rendu", () => {
  * La doctrine de `branding.py:63-70`, reprise comme raisonnement (spec §15).
  * Chacun de ces tests fige une décision qui a coûté une mesure là-bas.
  */
-describe('planifierMarques', () => {
+describe('scheduleMarkers', () => {
   const logo = (nativeW: number, nativeH: number): MarkerNative => ({
     path: '/marques/logo.png',
     nativeW,
@@ -895,7 +895,7 @@ describe('planifierMarques', () => {
  * pour lui-même ailleurs ; ce qui se teste ici, c'est qu'il soit bien appelé, et
  * que le preset traverse jusqu'au découpage.
  */
-describe('sousTitresDuClip', () => {
+describe('clipUnderTitles', () => {
   const words: Word[] = [
     { word: 'un', start: 10.0, end: 10.4 },
     { word: 'deux', start: 10.5, end: 11.0 },
@@ -949,7 +949,7 @@ describe('sousTitresDuClip', () => {
   })
 })
 
-describe('leRenduEstPérimé', () => {
+describe('renderIsStale', () => {
   it('est faux quand rien de ce qui va à l’image n’a bougé', () => {
     expect(renderIsStale(shape(), shape())).toBe(false)
   })
@@ -1010,7 +1010,7 @@ describe('leRenduEstPérimé', () => {
   })
 })
 
-describe('motsDièse', () => {
+describe('wordsHash', () => {
   it('les extrait dans leur ordre, sans doublon de casse', () => {
     expect(wordsHash('#Impro et #impro, puis #avolo')).toEqual(['#Impro', '#avolo'])
   })
@@ -1024,7 +1024,7 @@ describe('motsDièse', () => {
   })
 })
 
-describe('texteDePublication', () => {
+describe('publicationText', () => {
   it('porte les trois sections, dans l’ordre où on les colle', () => {
     const text = publicationText(clip())
     expect(text).toContain('Titre : Une vanne qui tient')
@@ -1045,7 +1045,7 @@ describe('texteDePublication', () => {
   })
 })
 
-describe('collecterMarques', () => {
+describe('collectMarkers', () => {
   it("rend une liste vide sur un dossier absent — on rend sans marque", async () => {
     await expect(collectMarkers(path.join(root, 'nulle-part'))).resolves.toEqual([])
   })
@@ -1067,7 +1067,7 @@ describe('collecterMarques', () => {
  * compte : une marque sur deux. Il ne s'atteint pas par `collecterMarques`, qui a
  * besoin de ffprobe sur un vrai PNG — ni la CI ni ce fichier n'en ont.
  */
-describe('refuserFauteDeMarque', () => {
+describe('markerRejectFault', () => {
   const marker = (file: string): MarkerNative => ({
     path: `/marques/${file}`,
     nativeW: 1000,

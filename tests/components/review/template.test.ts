@@ -18,10 +18,10 @@ const clips = [
   { id: 'd', status: 'exported' as const },
 ]
 
-describe('idsPourVue', () => {
+describe('idsForView', () => {
   it('range un clip exporté avec les gardés', () => {
     // C'est une décision humaine qui a déjà produit un fichier, pas une
-    // proposition en attente. `estGarde` porte cette définition, une seule fois.
+    // proposition en attente. `isGuard` porte cette définition, une seule fois.
     expect(idsForView(clips, 'gardes')).toEqual(['b', 'd'])
   })
 
@@ -37,7 +37,7 @@ describe('idsPourVue', () => {
   })
 })
 
-describe('vueDepuisUrl', () => {
+describe('viewSinceUrl', () => {
   it('retombe sur « à trier » pour tout ce qu’elle ne connaît pas', () => {
     // Une URL se recopie et se bricole : `?vue=n-importe-quoi` doit rendre un
     // écran, pas une page vide.
@@ -65,7 +65,7 @@ function summary(fields: Partial<SelectionReport> = {}): SelectionReport {
   }
 }
 
-describe('motDuRepérage', () => {
+describe('detectionWord', () => {
   it('ne dit rien quand rien n’a été mesuré', () => {
     // Pas de bilan : la dernière exécution connue ne visait pas le repérage, ou
     // s'est arrêtée avant de l'atteindre. Inventer un compte serait pire que

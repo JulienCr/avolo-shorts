@@ -31,7 +31,7 @@ function clips(...statuses: ClipStatus[]): { status: ClipStatus }[] {
   return statuses.map((status) => ({ status }))
 }
 
-describe('phaseProjet, l’axe des artefacts', () => {
+describe('phaseProject, l’axe des artefacts', () => {
   it('attend tant que les candidats manquent et qu’une exécution tourne', () => {
     expect(phaseProject(reading('audio'), inCurrent, null, []).analysis).toBe('attente')
   })
@@ -44,7 +44,7 @@ describe('phaseProjet, l’axe des artefacts', () => {
   })
 
   it('n’a pas de valeur « neuf » : rien sur le disque et rien qui tourne est interrompu', () => {
-    // `créerProjet` appelle `lancer` avant de répondre, et `lancer` pose sa
+    // `createProject` appelle `launch` avant de répondre, et `launch` pose sa
     // réservation avant son premier `await` : un projet que le client peut voir
     // a toujours quelque chose qui tourne ou quelque chose sur le disque. La
     // forme « aucun artefact, aucune exécution » décrit une exécution morte.
@@ -75,7 +75,7 @@ describe('phaseProjet, l’axe des artefacts', () => {
   })
 
   it('reste « triable » quand une exécution s’est interrompue après le repérage', () => {
-    // La précondition qui compte : `interrompu` et `echec` ne s'appliquent que
+    // La précondition qui compte : `interrompu` et `failure` ne s'appliquent que
     // tant que `candidates` est absent. Sans elle, une exécution morte pendant
     // l'encodage du proxy cacherait la grille de tri au moment précis où elle
     // doit remplacer le panneau.
@@ -108,7 +108,7 @@ describe('phaseProjet, l’axe des artefacts', () => {
   })
 })
 
-describe('phaseProjet, l’axe du travail humain', () => {
+describe('phaseProject, l’axe du travail humain', () => {
   const complete = reading('candidates', 'proxy')
 
   it('dit « rien » sur une liste vide', () => {
@@ -155,7 +155,7 @@ describe('phaseProjet, l’axe du travail humain', () => {
   })
 
   it('atteint { attente, trie } pendant un repérage forcé', () => {
-    // `effacerArtefact` retire `candidates.json` **avant** de toucher à la
+    // `eraseArtifact` retire `candidates.json` **avant** de toucher à la
     // base : pendant un repérage forcé, les clips gardés sont toujours là et
     // toujours montables. La phase choisit ce que l'écran met en avant, elle ne
     // retire jamais ce qui existe.
@@ -168,7 +168,7 @@ describe('phaseProjet, l’axe du travail humain', () => {
 
 describe('le tableau des étapes', () => {
   it('donne un libellé à chaque étape du graphe', () => {
-    // `LIBELLES_ETAPES` est un `Record<StepName, string>` exhaustif : c'est le
+    // `LABELS_STEPS` est un `Record<StepName, string>` exhaustif : c'est le
     // type-check qui refuse l'oubli. Ce test-ci n'attrape que la chaîne vide.
     for (const label of Object.values(LABELS_STEPS)) {
       expect(label).not.toBe('')
@@ -191,7 +191,7 @@ describe('le tableau des étapes', () => {
   })
 
   it('place le proxy après le repérage, comme le lanceur l’exécute', () => {
-    // `CIBLES_INITIALES = ['candidates', 'proxy']` : les candidats arrivent
+    // `TARGETS_INITIAL = ['candidates', 'proxy']` : les candidats arrivent
     // avant les images, et c'est ce qui rend le régime « triable » possible.
     const order = STEPS.map((e) => e.name)
     expect(order.indexOf('candidates')).toBeLessThan(order.indexOf('proxy'))
@@ -221,7 +221,7 @@ describe('compter', () => {
   })
 
   it('compte un clip exporté comme gardé', () => {
-    // `estGarde` porte la définition unique : `exported` est une décision
+    // `isGuard` porte la définition unique : `exported` est une décision
     // humaine qui a déjà produit un fichier, pas une proposition en attente.
     expect(count([candidate('exported', 30)]).guards).toBe(1)
   })
@@ -260,11 +260,11 @@ describe('stepDurationRange', () => {
   /**
    * **Les quatre mesures de `ROADMAP.md`, retrouvées sur l'émission dont elles
    * sortent.** Ce test croisait les deux tables tant qu'elles coexistaient —
-   * `ÉTAPES` portait un `coûtSec` constant, celle-ci le rapporte à l'émission
+   * `STEPS` portait un `coûtSec` constant, celle-ci le rapporte à l'émission
    * qu'on regarde, et elles devaient s'accorder sur la référence. `coûtSec` est
    * retiré depuis : il ne reste qu'un côté, et ce sont les valeurs elles-mêmes
    * qui l'ancrent. C'est d'ailleurs ce que la boucle d'alors ne garantissait
-   * pas seule — son propre commentaire le disait, un `ÉTAPES` vidé l'aurait
+   * pas seule — son propre commentaire le disait, un `STEPS` vidé l'aurait
    * fait passer sans rien vérifier. (relevé par Aristarque)
    */
   it('retrouve, sur l’émission de référence, les quatre coûts mesurés', () => {
@@ -321,7 +321,7 @@ describe('stepDurationRange', () => {
 
   it('n’annonce rien pour une étape jamais chronométrée', () => {
     // `analysis` est absente de la table des débits parce que personne ne l'a
-    // chronométrée sur une émission entière — elle reste dans `ÉTAPES`, qui
+    // chronométrée sur une émission entière — elle reste dans `STEPS`, qui
     // décrit l'ordre du plan et non son prix.
     expect(stepDurationRange('analysis', CQLP)).toBeNull()
     expect(STEPS.some((step) => step.name === 'analysis')).toBe(true)

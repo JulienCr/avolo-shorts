@@ -65,7 +65,7 @@ describe('providerAvailability', () => {
     const result = providerAvailability('gemini')
     expect(result.available).toBe(false)
     // Le message ne doit jamais recopier l'adresse en clair (c'est ce que
-    // `exigerSecret` garantit) : seul son sens — « relancer le serveur » — sort.
+    // `requireSecret` garantit) : seul son sens — « relancer le serveur » — sort.
     expect(result.reason?.toLowerCase()).toContain('relancer')
   })
 })

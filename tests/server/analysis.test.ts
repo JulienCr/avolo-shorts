@@ -34,7 +34,7 @@ const ANALYSIS_VALID = {
   boxes: [{ t: 0.5, x0: 0.12, x1: 0.31, y0: 0.08, y1: 0.97, score: 0.91 }],
 }
 
-describe('SCHÉMA_ANALYSE', () => {
+describe('SCHEMA_ANALYSIS', () => {
   it('accepte la forme du contrat de l’itération 1', () => {
     expect(SCHEMA_ANALYSIS.safeParse(ANALYSIS_VALID).success).toBe(true)
   })
@@ -193,7 +193,7 @@ describe('SCHÉMA_ANALYSE', () => {
   })
 
   it('accepte des plans qui se touchent, ce que detect.py produit', () => {
-    // `plans()` découpe `[0, durée]` à des frontières successives : la fin de
+    // `shots()` découpe `[0, durée]` à des frontières successives : la fin de
     // l'un **est** le début du suivant. Interdire ça condamnerait toute analyse.
     const attached = {
       ...ANALYSIS_VALID,
@@ -299,7 +299,7 @@ describe('SCHÉMA_ANALYSE', () => {
   })
 })
 
-describe('formatTaille', () => {
+describe('formatSize', () => {
   it('écrit ce que detect.py analyse', () => {
     expect(formatSize(960, 540)).toBe('960x540')
   })
@@ -312,7 +312,7 @@ describe('formatTaille', () => {
  * portent un mot de passe dans leur autorité, et le stderr du worker est capturé
  * puis remonté par `onLog`.
  */
-describe('environnementDétection', () => {
+describe('environmentDetection', () => {
   it('ne laisse passer aucun secret, même nommé innocemment', () => {
     const env = environmentDetection({
       PATH: '/usr/bin',
@@ -343,7 +343,7 @@ describe('environnementDétection', () => {
   })
 })
 
-describe('lireAnalyse', () => {
+describe('lireAnalysis', () => {
   let root: string
 
   beforeEach(() => {
@@ -380,7 +380,7 @@ describe('lireAnalyse', () => {
 /**
  * Monte de quoi faire tourner `runAnalysis` jusqu'au bout sans GPU, sans torch
  * et sans vidéo : un proxy vide, un `ffprobe` qui répond, et un worker qui écrit
- * `charge` là où `--out` le lui dit avant de sortir par 0.
+ * `load` là où `--out` le lui dit avant de sortir par 0.
  *
  * **Des faux binaires plutôt que des doublures de modules**, comme le reste de
  * ce fichier : `FFPROBE_BIN` et `DETECT_PYTHON` sont les coutures que le dépôt
@@ -403,7 +403,7 @@ function mountFakeWorker(root: string, load: string): void {
   fs.writeFileSync(loadFile, load)
   const python = path.join(root, 'faux-detect')
   // `--out` se relit dans `$@` : le worker ne connaît pas le nom du temporaire,
-  // que `cheminTemporaire` tire du PID et d'un compteur.
+  // que `pathTemporary` tire du PID et d'un compteur.
   fs.writeFileSync(
     python,
     [

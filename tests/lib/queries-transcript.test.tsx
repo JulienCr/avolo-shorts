@@ -148,7 +148,7 @@ describe('useCorrectTranscript', () => {
   })
 
   it('retire du cache une phrase vidée de tous ses mots — pas de ligne fantôme', async () => {
-    // `lignesDuTranscript` (src/server/vues.ts) écarte une phrase sans mot
+    // `transcriptLines` (src/server/vues.ts) écarte une phrase sans mot
     // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.
     // Le cache doit dire la même chose, sans attendre un rechargement complet.
     const correctionResult: TranscriptCorrectionResult = {
@@ -182,7 +182,7 @@ const runningStatus: ProjectStatus = {
   sizeBytes: null,
 }
 
-describe('useProjet', () => {
+describe('useProject', () => {
   it('invalide le transcript quand une exécution se termine, comme les candidats', async () => {
     // Le panneau de transcript reste monté et sa requête reste fraîche trente
     // secondes (`src/app/providers.tsx`) : sans cette invalidation, la fin

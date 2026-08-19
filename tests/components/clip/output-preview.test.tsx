@@ -47,7 +47,7 @@ function context() {
   return ctx
 }
 
-describe('partDeLEcran', () => {
+describe('lScreenPart', () => {
   it('donne la part de la hauteur du téléphone que chaque ratio occupe', () => {
     // C'est le chiffre que l'écran doit montrer et que le sélecteur de ratio
     // demandait d'imaginer.
@@ -58,7 +58,7 @@ describe('partDeLEcran', () => {
   })
 })
 
-describe('peindreSortie', () => {
+describe('paintOutput', () => {
   it('découpe pleine hauteur, au ratio choisi, autour de `cropX`', () => {
     const ctx = { drawImage: vi.fn() }
     paintOutput(ctx as unknown as CanvasRenderingContext2D, video(), {
@@ -100,7 +100,7 @@ describe('peindreSortie', () => {
   })
 })
 
-describe('ApercuSortie', () => {
+describe('PreviewOutput', () => {
   it('repeint quand le cadre bouge alors que la vidéo est en pause', () => {
     // **Le déclencheur qui compte.** Le geste réel est « on met en pause, on
     // regarde, on ajuste », et une vidéo en pause ne produit aucune image, donc

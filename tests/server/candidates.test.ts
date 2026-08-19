@@ -26,7 +26,7 @@ import type { Clip } from '@/core/edl'
 import { clipDuration } from '@/core/edl'
 
 /**
- * L'étape de repérage, **sans jamais appeler Gemini** : la couture `appel` reçoit
+ * L'étape de repérage, **sans jamais appeler Gemini** : la couture `call` reçoit
  * des réponses figées. Ce qui se vérifie ici est ce que le réseau apporte de
  * risque — la politique de relance, le refus de contenu qu'on ne réessaie
  * jamais, la lecture d'un transcript venu du disque — et l'enchaînement complet
@@ -41,7 +41,7 @@ function response(text: string, remaining: Partial<GenerateContentResponse> = {}
   return { text, ...remaining } as unknown as GenerateContentResponse
 }
 
-describe('leverSiBloquée', () => {
+describe('leverIfBlocked', () => {
   it('lève quand le prompt lui-même a été bloqué', () => {
     expect(() =>
       leverIfBlocked(response('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)),
@@ -113,7 +113,7 @@ describe('leverSiBloquée', () => {
   })
 })
 
-describe('délaiDeQuota', () => {
+describe('quotaDelay', () => {
   it('lit le délai que Google demande dans un 429', () => {
     expect(
       quotaDelay('{"error":{"details":[{"@type":"…RetryInfo","retryDelay":"54s"}]}}'),
@@ -125,7 +125,7 @@ describe('délaiDeQuota', () => {
   })
 
   // Le délai demandé est un fait, pas une décision : la fonction le rend tel
-  // quel, et `appelerGemini` décide ce qu'on accepte d'attendre. Les mêler
+  // quel, et `callGemini` décide ce qu'on accepte d'attendre. Les mêler
   // faisait rendre un délai raccourci qu'on relançait ensuite comme s'il
   // suffisait. (relevé par Copilot)
   it('rend le délai demandé sans le plafonner', () => {
@@ -157,7 +157,7 @@ describe('caviarder', () => {
   })
 })
 
-describe('appelerGemini', () => {
+describe('callGemini', () => {
   /** Les attentes réellement demandées, pour vérifier l'échelle sans dormir. */
   let waits: number[]
   const sleep = async (ms: number) => {
@@ -176,7 +176,7 @@ describe('appelerGemini', () => {
 
   /**
    * **Un arrêt demandé ne se réessaie pas.** L'abandon d'une requête ressort en
-   * `AbortError`, que `NOMS_PASSAGERS` classe — à raison — parmi les erreurs à
+   * `AbortError`, que `NAMES_TRANSIENT` classe — à raison — parmi les erreurs à
    * réessayer : sans ce contrôle, un arrêt relançait trois fois en dormant cinq
    * puis dix secondes entre deux, c'est-à-dire l'exact contraire de ce qu'on
    * venait de demander.
@@ -213,7 +213,7 @@ describe('appelerGemini', () => {
    * **L'attente entre deux tentatives se laisse couper.** Contrôler le signal aux
    * deux bouts de la boucle ne suffisait pas : entre les deux il y a un `sleep`
    * qui monte à dix secondes, et jusqu'à quatre-vingt-dix quand le fournisseur
-   * réclame un délai. Pendant tout ce temps l'exécution restait dans `enCours` et
+   * réclame un délai. Pendant tout ce temps l'exécution restait dans `inCurrent` et
    * l'écran annonçait une analyse en cours après le clic sur « Arrêter ».
    * (relevé par Copilot)
    */
@@ -368,7 +368,7 @@ describe('appelerGemini', () => {
       attempts += 1
       return attempts === 1 ? response('{"clips": []}') : response('{"shorts": []}')
     }
-    // L'analyse passe par `analyser`, donc **dans** la boucle : analysée après
+    // L'analyse passe par `analyze`, donc **dans** la boucle : analysée après
     // coup, l'enveloppe cassée ressortirait en « zéro clip ».
     const clips = await callGemini(call, 'p', 'detail', {
       sleep,
@@ -978,7 +978,7 @@ describe("l'étape de repérage", () => {
      * la plus accidentée, est ce qui empêche un décompte de perte de mentir sur
      * l'ampleur de la perte.
      */
-    it('garde notées + jamaisNotées = fenêtres, panne comprise', async () => {
+    it('garde notées + neverNoted = fenêtres, panne comprise', async () => {
       process.env.SCORE_BATCH = '2'
       await runCandidates(ID, { db, call: rejecting(['window_002'], []), sleep: async () => {} })
 
@@ -1725,7 +1725,7 @@ describe("l'étape de repérage", () => {
  * dans une passe complète : un transcript sans mot aligné, une fenêtre qui
  * déborde de l'étendue, une liste vide.
  */
-describe('partCouverte', () => {
+describe('partCovered', () => {
   it('additionne des intervalles disjoints', () => {
     expect(partCovered([{ start: 0, end: 10 }, { start: 20, end: 30 }], { start: 0, end: 40 })).toBe(
       0.5,

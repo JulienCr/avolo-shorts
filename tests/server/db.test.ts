@@ -179,7 +179,7 @@ describe('les réglages', () => {
 
   /**
    * L'écrivain et le lecteur doivent appliquer la **même** règle. `isInteger`
-   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getRéglages` refuse :
+   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getSettings` refuse :
    * l'écriture réussissait donc, et la relecture rendait le défaut sans qu'un
    * mot le signale. (relevé par Copilot)
    */

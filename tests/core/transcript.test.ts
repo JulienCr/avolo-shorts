@@ -278,7 +278,7 @@ const CQLP = { parole: 4635.3, fenêtres: 83 }
 const BETWEEN_US = { parole: 5244.5, fenêtres: 95 }
 const min = (m: number) => m * 60
 
-describe('secondesDeParole', () => {
+describe('speechSeconds', () => {
   // La raison d'être de cette fonction : l'écart du premier au dernier mot
   // compte le silence du milieu, et sur les deux émissions du dépôt cela
   // surestime de 21 %. (relevé par Codex)

@@ -127,7 +127,7 @@ describe('detect.py — le score écrit dans analysis.json', () => {
  */
 describe('detect.py — le filtre de collecte des scores de scène', () => {
   it('construit un filtre inclusif, jamais strict', () => {
-    expect(évaluer('print(json.dumps(detect.scene_filter(0.05)))')).toBe(
+    expect(evaluate('print(json.dumps(detect.scene_filter(0.05)))')).toBe(
       "select='gte(scene,0.05)',metadata=print:file=-",
     )
   })
@@ -260,7 +260,7 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
   // balayage (docs/ratios-par-clip.md) : seule leur validité compte ici,
   // seul le paramètre sous test s'écarte de cette base.
   const extended = (name: string, expression: string): unknown =>
-    évaluer(
+    evaluate(
       [
         `result = detect.refus_du_seuil_de_scène(`,
         '    0.4, 0.05,',
@@ -343,7 +343,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
     threshold: number,
     minShot: number,
   ): number[] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(detect.scene_boundaries(${JSON.stringify(events)}, ${duration}, ${threshold}, ${minShot})))`,
     ) as number[]
 
@@ -351,7 +351,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
     boundaries: number[],
     duration: number,
   ): { start: number; end: number }[] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(detect.shots_from_boundaries(${JSON.stringify(boundaries)}, ${duration})))`,
     ) as { start: number; end: number }[]
 
@@ -455,7 +455,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
  */
 describe('detect.py — _scene_candidates, non espacée', () => {
   const candidatesFrom = (events: [number, number][], threshold: number): number[] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(detect._scene_candidates(${JSON.stringify(events)}, ${threshold})))`,
     ) as number[]
 
@@ -474,11 +474,11 @@ describe('detect.py — _scene_candidates, non espacée', () => {
     // L'ancien chemin, fautif : espacer les frontières de scène seules —
     // `scene_boundaries` — élimine 5,5 avant même que la bascule n'entre en
     // jeu.
-    const sceneOnlySpaced = évaluer(
+    const sceneOnlySpaced = evaluate(
       `print(json.dumps(detect.scene_boundaries(${JSON.stringify(scene)}, 10, 0.4, 1.0)))`,
     ) as number[]
     expect(sceneOnlySpaced).toEqual([5.0])
-    const doubleSpaced = évaluer(
+    const doubleSpaced = evaluate(
       `print(json.dumps(detect._spaced_boundaries(${JSON.stringify([...sceneOnlySpaced, switchTime])}, 10, 1.0)))`,
     ) as number[]
     expect(doubleSpaced).toEqual([4.5]) // 5,5 a disparu.
@@ -486,7 +486,7 @@ describe('detect.py — _scene_candidates, non espacée', () => {
     // Le chemin retenu : `_scene_candidates`, non espacée, unie à la bascule
     // et espacée une seule fois — garde les deux.
     const rawCandidates = candidatesFrom(scene, 0.4)
-    const spacedOnce = évaluer(
+    const spacedOnce = evaluate(
       `print(json.dumps(detect._spaced_boundaries(${JSON.stringify([...rawCandidates, switchTime])}, 10, 1.0)))`,
     ) as number[]
     expect(spacedOnce).toEqual([4.5, 5.5])
@@ -502,7 +502,7 @@ describe('detect.py — _scene_candidates, non espacée', () => {
  */
 describe('detect.py — person_anchor', () => {
   const anchor = (box: Record<string, unknown>, minScore: number): number =>
-    évaluer(`print(json.dumps(detect.person_anchor(${JSON.stringify(box)}, ${minScore})))`) as number
+    evaluate(`print(json.dumps(detect.person_anchor(${JSON.stringify(box)}, ${minScore})))`) as number
 
   it('repli sur le centre de la boîte quand elle ne porte pas de points', () => {
     expect(anchor({ x0: 0.2, x1: 0.6 }, 0.5)).toBe(0.4)
@@ -533,7 +533,7 @@ describe('detect.py — person_anchor', () => {
 
 describe('detect.py — collective_shift', () => {
   const shift = (a: number[], b: number[], tol: number): [number | null, number] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(list(detect.collective_shift(${JSON.stringify(a)}, ${JSON.stringify(b)}, ${tol}))))`,
     ) as [number | null, number]
 
@@ -637,7 +637,7 @@ describe('detect.py — composition_switches', () => {
     part: number,
     minShift: number,
   ): [number, number][] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(detect.composition_switches(${JSON.stringify(boxes)}, ${fps}, ${minPointScore}, ${tolerance}, ${part}, ${minShift})))`,
     ) as [number, number][]
 
@@ -718,7 +718,7 @@ describe('detect.py — refine_switch', () => {
     events: [number, number][],
     fps: number,
   ): [number, boolean] =>
-    évaluer(
+    evaluate(
       `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(events)}, ${fps}))))`,
     ) as [number, boolean]
 
@@ -745,7 +745,7 @@ describe('detect.py — refine_switch', () => {
  */
 describe('detect.py — parse_scene_scores', () => {
   const parse = (text: string): [number, number][] =>
-    évaluer(`print(json.dumps(detect.parse_scene_scores(${JSON.stringify(text)})))`) as [
+    evaluate(`print(json.dumps(detect.parse_scene_scores(${JSON.stringify(text)})))`) as [
       number,
       number,
     ][]
@@ -771,7 +771,7 @@ describe('detect.py — parse_scene_scores', () => {
 /**
  * **Le rejeu, tel que le calibrage l'utilise : par le CLI, sur des fichiers
  * réels.** `run_replay` n'est pas pure — elle lit deux fichiers et en écrit
- * un — donc éprouvée ici plutôt que par `évaluer()`, avec le même patron que
+ * un — donc éprouvée ici plutôt que par `evaluate()`, avec le même patron que
  * la suite du refus en ligne de commande ci-dessous.
  */
 describe('detect.py — --replay', () => {
@@ -816,7 +816,7 @@ describe('detect.py — --replay', () => {
     const r = spawnSync(
       'python3',
       [
-        path.join(RACINE, 'worker', 'detect.py'),
+        path.join(ROOT, 'worker', 'detect.py'),
         '--replay', analysisPath,
         '--scene-scores', scoresPath,
         '--out', outPath,
@@ -828,7 +828,7 @@ describe('detect.py — --replay', () => {
         '--switch-share', '6',
         '--switch-point-score', '0.5',
       ],
-      { encoding: 'utf8', env: SANS_BYTECODE },
+      { encoding: 'utf8', env: WITHOUT_BYTECODE },
     )
     return {
       status: r.status,
@@ -875,11 +875,11 @@ describe('detect.py — --replay', () => {
     const r = spawnSync(
       'python3',
       [
-        path.join(RACINE, 'worker', 'detect.py'),
+        path.join(ROOT, 'worker', 'detect.py'),
         '--replay', analysisPath,
         '--out', path.join(root, 'out.json'),
       ],
-      { encoding: 'utf8', env: SANS_BYTECODE },
+      { encoding: 'utf8', env: WITHOUT_BYTECODE },
     )
     expect(r.status).toBe(2)
     expect(r.stderr).toContain('--scene-scores')

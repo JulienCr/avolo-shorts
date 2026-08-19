@@ -86,7 +86,7 @@ function fen(id: string, start = 0, end = 90): Window {
  */
 const BLOCS_LARGES = [fen('window_001', 0, 300)]
 
-function détaille(
+function propose(
   brut: unknown,
   options: { words?: Word[]; videoDuration?: number; projectId?: string; blocks?: Window[] } = {},
 ) {
@@ -96,6 +96,17 @@ function détaille(
     projectId: options.projectId ?? PROJET,
     blocks: options.blocks ?? BLOCS_LARGES,
   })
+}
+
+/**
+ * Les seuls clips, sans les notes : ce que la plupart de ces tests regardent.
+ * La note se juge dans son propre bloc, plus bas.
+ */
+function détaille(
+  brut: unknown,
+  options: { words?: Word[]; videoDuration?: number; projectId?: string; blocks?: Window[] } = {},
+) {
+  return propose(brut, options).map((p) => p.clip)
 }
 
 const ENTRÉES_DÉTAIL = {
@@ -470,6 +481,55 @@ describe('parseDetailResponse', () => {
     // l'identifiant doit encore séparer deux propositions voisines.
     const clips = détaille(brut, { words: [] })
     expect(new Set(clips.map((c) => c.id)).size).toBe(2)
+  })
+})
+
+/**
+ * La note que le modèle donne à chacun de ses clips.
+ *
+ * Le prompt la demande depuis toujours ; elle était lue et jetée. Elle ressort
+ * parce que l'ordre du tableau `shorts` n'est un classement qu'à l'intérieur
+ * d'une réponse : deux sous-requêtes concaténées ne se comparent plus, et c'est
+ * la note qui les reclasse avant le plafond. (relevé par Codex)
+ */
+describe('la note prédite d’un clip', () => {
+  it('ressort avec le clip, sans entrer dedans', () => {
+    const proposées = propose(détail)
+    expect(proposées.map((p) => p.predictedScore)).toEqual([88, 74, 61])
+    expect(proposées.every((p) => p.scored)).toBe(true)
+    // `Clip` est ce que la base porte et ce que l'interface édite : une
+    // estimation de viralité n'y a pas sa place, et elle ressortirait dans
+    // `candidates.json` comme si elle décrivait le clip monté.
+    for (const { clip } of proposées) {
+      expect(clip).not.toHaveProperty('predictedScore')
+      expect(clip).not.toHaveProperty('predicted_score')
+    }
+  })
+
+  it('ramène une note hors barème dans le barème, au lieu de la jeter', () => {
+    // Un 130 dit que le modèle tient ce clip pour excellent : le jeter perdrait
+    // précisément le clip qu'il classait premier.
+    const proposées = propose({
+      shorts: [
+        { start: 12.0, end: 41.4, predicted_score: 130 },
+        { start: 96.0, end: 187.2, predicted_score: -5 },
+        { start: 240.0, end: 268.2, predicted_score: 61.6 },
+      ],
+    })
+    expect(proposées.map((p) => p.predictedScore)).toEqual([100, 0, 62])
+  })
+
+  it('une note absente n’est pas une note nulle', () => {
+    // `predicted_score` est facultatif dans la réponse. Sans ce drapeau, un clip
+    // non noté partagerait le zéro d'un clip que le modèle a jugé sans intérêt,
+    // et le classement mêlerait les deux — c'est la leçon déjà tirée sur les
+    // fenêtres avec `notée`.
+    const [sans] = propose({ shorts: [{ start: 12.0, end: 41.4 }] })
+    expect(sans.scored).toBe(false)
+    expect(sans.predictedScore).toBe(0)
+    const [avec] = propose({ shorts: [{ start: 12.0, end: 41.4, predicted_score: 0 }] })
+    expect(avec.scored).toBe(true)
+    expect(avec.predictedScore).toBe(0)
   })
 })
 

@@ -43,10 +43,35 @@ const SCHÉMA_NOTE = z.object({
 const SCHÉMA_CLIP = z.object({
   start: z.number(),
   end: z.number(),
+  // Le prompt la demande depuis toujours ; elle était lue et jetée. C'est elle
+  // qui reclasse deux réponses concaténées — voir `DetailClip`.
+  predicted_score: z.number().optional(),
   video_description_for_tiktok: z.string().optional(),
   video_description_for_instagram: z.string().optional(),
   video_title_for_youtube_short: z.string().optional(),
 })
+
+/**
+ * Un clip proposé, et la note que le modèle lui a donnée.
+ *
+ * **La note vit à côté du clip, jamais dedans.** `Clip` est ce que la base
+ * porte et ce que l'interface édite ; une estimation de viralité rendue par un
+ * appel n'y a pas sa place, et elle ressortirait dans `candidates.json` comme si
+ * elle décrivait le clip monté. Elle ne sert qu'une fois, à départager des
+ * propositions — voir le plafond de `détailler`.
+ *
+ * `scored` sépare une note absente d'une note nulle, exactement comme `notée` le
+ * fait pour les fenêtres : `predicted_score` est facultatif dans la réponse, et
+ * un clip que le modèle n'a pas noté ne doit pas passer devant un clip qu'il a
+ * noté zéro.
+ */
+export type DetailClip = {
+  clip: Clip
+  /** Entier de 0 à 100. Une note hors barème y est ramenée, pas jetée. */
+  predictedScore: number
+  /** Faux quand la réponse ne portait pas de `predicted_score` lisible. */
+  scored: boolean
+}
 
 /** La liste sous une clé, ou `null` si la réponse n'en porte pas. */
 function liste(brut: unknown, clé: string): unknown[] | null {
@@ -248,6 +273,13 @@ function clipId(projectId: string, start: number, end: number): string {
  * clips retenus : un clip écarté pour être hors média ou hors bloc a bel et bien
  * été lu, et c'est un jugement, pas une panne. (relevé par Copilot)
  *
+ * **L'ordre du tableau `shorts` n'est pas un classement, et la note en est
+ * un.** Le prompt demande au modèle de rendre ses clips du meilleur au moins
+ * bon, mais cet ordre n'est vrai qu'à l'intérieur d'une réponse : quand le
+ * filtre force la passe de détail à se découper, deux réponses se concatènent et
+ * leurs ordres ne se comparent plus. `predicted_score` ressort donc ici, pour
+ * que `détailler` puisse reclasser avant de plafonner. (relevé par Codex)
+ *
  * @throws si `raw` ne porte pas de tableau `shorts`, ou si aucune entrée d'un
  * lot non vide n'est lisible.
  */
@@ -261,47 +293,53 @@ export function parseDetailResponse(
     /** Les blocs soumis à la passe de détail, après fusion des fenêtres. */
     blocks: Window[]
   },
-): Clip[] {
+): DetailClip[] {
   const { words, videoDuration, projectId, blocks } = contexte
   const proposées = liste(raw, 'shorts')
   if (proposées === null) {
     throw new Error('Gemini response did not contain a "shorts" array.')
   }
-  const clips: Clip[] = []
+  const clips: DetailClip[] = []
   let lisibles = 0
 
   for (const entrée of proposées) {
     const lu = SCHÉMA_CLIP.safeParse(entrée)
     if (!lu.success) continue
     lisibles += 1
-    const { start, end } = lu.data
+    const { start, end, predicted_score: note } = lu.data
     const [début, fin] = snapToWords(start, end, words, videoDuration)
     if (début < 0 || fin > videoDuration || fin <= début) continue
     if (!blocks.some((b) => début < b.end && fin > b.start)) continue
 
     clips.push({
-      id: clipId(projectId, début, fin),
-      projectId,
-      segments: [{ start: début, end: fin }],
-      // `auto` laisse le cadrage décider : le ratio se choisit par clip, et le
-      // modèle n'a rien vu de l'image pour en juger.
-      ratio: 'auto',
-      cropX: 0.5,
-      captions: true,
-      branding: true,
-      title: lu.data.video_title_for_youtube_short ?? '',
-      // Une seule description ici, là où le prompt en demande deux. Elles ont la
-      // même nature — une accroche puis des mots-dièse — et `Clip` n'a qu'un
-      // champ ; le repli sur celle de TikTok évite de rendre un clip muet
-      // lorsque le modèle n'en a rempli qu'une.
-      description:
-        lu.data.video_description_for_instagram ||
-        lu.data.video_description_for_tiktok ||
-        '',
-      status: 'candidate',
-      // Le numéro de passe appartient au lot, pas au clip : `mergeCandidates`
-      // le pose.
-      pass: 0,
+      // Ramenée dans le barème plutôt que jetée, comme la note d'une fenêtre :
+      // un 130 dit que le modèle tient ce clip pour excellent.
+      predictedScore: note === undefined ? 0 : Math.min(100, Math.max(0, Math.round(note))),
+      scored: note !== undefined,
+      clip: {
+        id: clipId(projectId, début, fin),
+        projectId,
+        segments: [{ start: début, end: fin }],
+        // `auto` laisse le cadrage décider : le ratio se choisit par clip, et le
+        // modèle n'a rien vu de l'image pour en juger.
+        ratio: 'auto',
+        cropX: 0.5,
+        captions: true,
+        branding: true,
+        title: lu.data.video_title_for_youtube_short ?? '',
+        // Une seule description ici, là où le prompt en demande deux. Elles ont
+        // la même nature — une accroche puis des mots-dièse — et `Clip` n'a
+        // qu'un champ ; le repli sur celle de TikTok évite de rendre un clip
+        // muet lorsque le modèle n'en a rempli qu'une.
+        description:
+          lu.data.video_description_for_instagram ||
+          lu.data.video_description_for_tiktok ||
+          '',
+        status: 'candidate',
+        // Le numéro de passe appartient au lot, pas au clip : `mergeCandidates`
+        // le pose.
+        pass: 0,
+      },
     })
   }
 

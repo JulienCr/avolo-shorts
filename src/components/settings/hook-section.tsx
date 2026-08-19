@@ -106,6 +106,15 @@ export function HookSection() {
         </AlertDescription>
       </Alert>
 
+      {/* **Le `fieldset` ne suffit pas, et c'est mesuré.** `fieldset[disabled]`
+          ne désactive que les contrôles de formulaire natifs. Le déclencheur de
+          `Select` rend un `<button role="combobox">` et tombe donc bien sous la
+          règle — vérifié : le clic n'ouvre pas la liste. La case, elle, rend un
+          `<span role="checkbox">`, que le `fieldset` ignore complètement. Chaque
+          contrôle porte donc aussi son propre `disabled` : c'est ce qui rend
+          l'inertie indépendante du tag que la primitive choisit de rendre, et un
+          changement de version ne la défera pas en silence.
+          (relevé par Aristarque) */}
       <fieldset
         disabled
         aria-describedby="hook-inerte"
@@ -181,7 +190,7 @@ function CheckboxField({ label, checked }: { label: string; checked: boolean }) 
   const id = useId()
   return (
     <div className="flex items-center gap-2">
-      <Checkbox id={id} checked={checked} />
+      <Checkbox id={id} checked={checked} disabled />
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
@@ -236,7 +245,7 @@ function SelectField({
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
-      <Select value={value}>
+      <Select value={value} disabled>
         <SelectTrigger id={id} className="w-52">
           {/* Le libellé, pas la valeur : sans lui la boîte affiche `fade` là où
               l'écran dit « Fondu » partout ailleurs. */}

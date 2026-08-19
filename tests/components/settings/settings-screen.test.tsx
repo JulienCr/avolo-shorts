@@ -289,4 +289,30 @@ describe('la section du hook', () => {
     expect(fieldset?.hasAttribute('disabled')).toBe(true)
     expect(fieldset?.textContent).toContain('Hook activé par défaut')
   })
+
+  it('désactive chaque contrôle lui-même, sans compter sur le fieldset', async () => {
+    // **`fieldset[disabled]` ne désactive que les contrôles de formulaire
+    // natifs.** Mesuré : le déclencheur de `Select` rend un
+    // `<button role="combobox">` et tombe sous la règle, la case rend un
+    // `<span role="checkbox">` que le `fieldset` ignore complètement. Sans un
+    // `disabled` par contrôle, l'inertie de la section dépendait du tag que la
+    // primitive choisit de rendre — et un changement de version l'aurait défaite
+    // en silence. (relevé par Aristarque)
+    server()
+    await mountScreen()
+
+    expect(screen.getByLabelText('Effet d’apparition')).toHaveProperty('disabled', true)
+    const box = screen.getAllByLabelText('Hook activé par défaut')[0]
+    expect(box.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('n’ouvre pas la liste d’un choix inerte', async () => {
+    // La preuve par le geste plutôt que par l'attribut : c'est ce qu'un
+    // utilisateur peut faire qui compte.
+    server()
+    await mountScreen()
+
+    await userEvent.click(screen.getByLabelText('Effet d’apparition'))
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
 })

@@ -68,6 +68,18 @@ const SCHÉMA_PLAN = z
   .object({ start: z.number().min(0), end: z.number().min(0) })
   .refine((p) => p.end > p.start, { message: 'end doit être strictement après start' })
 
+/**
+ * Le nombre de points d'un squelette COCO, et la longueur du tableau plat qui
+ * les porte : dix-sept triplets `x, y, confiance`.
+ *
+ * **La longueur est vérifiée, pas supposée.** Un tableau plus court se lit sans
+ * erreur — `k[3 * i]` rend `undefined`, qui devient `NaN` à la première
+ * soustraction — et le tronc qui en sort est vide, donc le cadrage retombe
+ * silencieusement sur la boîte corps entier. C'est-à-dire exactement le
+ * comportement d'avant, sous une étiquette qui affirme le contraire.
+ */
+const POINTS_COCO = 17
+
 const SCHÉMA_BOÎTE = z
   .object({
     /** Instant dans la source, en secondes. Jamais négatif : la source commence à 0. */
@@ -80,6 +92,19 @@ const SCHÉMA_BOÎTE = z
     y0: z.number().min(0).max(1),
     y1: z.number().min(0).max(1),
     score: z.number().min(0).max(1),
+    /**
+     * Les dix-sept points COCO, en fractions, `x, y, confiance` mis bout à bout.
+     * Absents d'une analyse produite par un modèle de détection.
+     *
+     * **Les coordonnées ne sont pas bornées à [0, 1]**, contrairement à celles
+     * de la boîte : un point hors cadre est une information — une épaule que le
+     * bord de l'image coupe —, alors qu'une boîte hors cadre ne désigne plus
+     * rien. Seule la confiance l'est, puisqu'elle sert de seuil.
+     */
+    k: z
+      .array(z.number().finite())
+      .length(POINTS_COCO * 3)
+      .optional(),
   })
   // Le domaine ne suffit pas : deux fractions parfaitement valides peuvent
   // décrire une boîte d'aire nulle ou négative. Elle a la forme d'une détection
@@ -138,10 +163,45 @@ function plansEnPartition(plans: readonly { start: number; end: number }[]): boo
   return true
 }
 
+/**
+ * Les versions d'`analysis.json` que ce dépôt sait lire.
+ *
+ * - **1** — les boîtes seules, ce que le détecteur écrivait jusqu'au 19 août 2026.
+ * - **2** — les boîtes, plus les points de pose quand le modèle en rend, plus le
+ *   nom des poids qui ont produit le fichier.
+ *
+ * **Une version inconnue est refusée, elle n'est pas lue à moitié.** C'est le
+ * point que la montée de version existe pour tenir : un fichier de version 3
+ * dont on garderait les champs reconnus donnerait un cadrage plausible calculé
+ * sur une donnée qu'on ne comprend plus. `lireAnalyse` nomme alors la version
+ * trouvée et celles qu'il accepte, parce que « invalid literal » sur un champ
+ * `version` n'apprend rien à qui vient de relancer une détection.
+ */
+export const VERSIONS_ANALYSE = [1, 2] as const
+
 export const SCHÉMA_ANALYSE = z.object({
-  version: z.literal(1),
+  version: z.literal(VERSIONS_ANALYSE),
   /** Images analysées par seconde — 2, spec §6. */
   fps: z.number().positive(),
+  /**
+   * Le fichier de poids qui a produit ce résultat, sans son dossier. Absent des
+   * fichiers de version 1, et de ceux qu'un autre outil écrirait.
+   *
+   * Il ne sert à aucun calcul. Il sert à répondre à « d'où vient ce cadrage »
+   * sans relancer trois minutes de GPU pour comparer — deux familles de poids
+   * écrivent désormais ce fichier, et rien d'autre ne les distingue une fois le
+   * JSON sur le disque.
+   */
+  model: z.string().min(1).optional(),
+  /**
+   * Le jeu de points que les boîtes portent, quand elles en portent un.
+   *
+   * **Un champ à part plutôt qu'un parcours des boîtes** : la question « ce
+   * fichier porte-t-il des points » se pose avant tout calcul, et y répondre en
+   * parcourant trente mille boîtes est à la fois lent et faux — une seule boîte
+   * sans points ne dit pas que le fichier n'en a pas.
+   */
+  keypoints: z.literal('coco17').optional(),
   source: SCHÉMA_TAILLE,
   proxy: SCHÉMA_TAILLE,
   shots: z
@@ -169,6 +229,21 @@ export function lireAnalyse(fichier: string): Analyse {
   const brut: unknown = JSON.parse(fs.readFileSync(fichier, 'utf8'))
   const analysé = SCHÉMA_ANALYSE.safeParse(brut)
   if (!analysé.success) {
+    // **La version d'abord, et à part.** Une version inconnue fait échouer le
+    // schéma sur un « invalid literal » qui n'apprend rien, au milieu de la
+    // demi-douzaine d'autres reproches qu'une forme nouvelle entraîne. Or c'est
+    // la seule cause qui se règle en relançant l'analyse, et le message doit le
+    // dire au lieu de laisser chercher dans les boîtes.
+    const version: unknown =
+      typeof brut === 'object' && brut !== null ? (brut as { version?: unknown }).version : undefined
+    if (!VERSIONS_ANALYSE.some((v) => v === version)) {
+      throw new Error(
+        `${path.basename(fichier)} est en version ${JSON.stringify(version)}, et ce dépôt lit ` +
+          `${VERSIONS_ANALYSE.join(' et ')}. Une version inconnue n'est pas lue à moitié : les ` +
+          'champs reconnus donneraient un cadrage plausible calculé sur une donnée dont le sens a ' +
+          "changé. Relancer l'analyse (run --force sur analysis) réécrit le fichier au format du jour.",
+      )
+    }
     throw new Error(
       `${path.basename(fichier)} ne suit pas le contrat de l'itération 1 : ${analysé.error.issues
         .slice(0, 5)

@@ -34,7 +34,55 @@ export type PersonBox = {
   y1: number
   /** Confiance du détecteur, 0 à 1. */
   score: number
+  /**
+   * Les dix-sept points COCO de cette personne, `x, y, confiance` mis bout à
+   * bout — nez, yeux, oreilles, épaules, coudes, poignets, hanches, genoux,
+   * chevilles, dans cet ordre. Absents quand la détection a tourné sur un
+   * modèle de détection et non de pose.
+   *
+   * **Ils ne remplacent pas la boîte, ils s'ajoutent à elle.** Le filtre du
+   * public au premier plan lit la géométrie de la boîte — bord bas et hauteur —
+   * et un squelette ne dit pas si le bas de l'image a tronqué quelqu'un.
+   *
+   * Les coordonnées **ne sont pas bornées à [0, 1]** : un point hors cadre est
+   * une information, là où une boîte hors cadre ne désigne plus rien.
+   */
+  k?: number[]
 }
+
+/**
+ * Les points COCO qui nous intéressent, par leur rang dans `PersonBox.k`.
+ *
+ * L'ordre est celui du jeu COCO, sur lequel tous les modèles `-pose` de la
+ * famille YOLO sont entraînés : 0 nez, 1-2 yeux, 3-4 oreilles, 5-6 épaules,
+ * 7-8 coudes, 9-10 poignets, 11-12 hanches, 13-14 genoux, 15-16 chevilles.
+ *
+ * Nommés parce qu'un `k[10]` dans une expression de cadrage ne se relit pas, et
+ * qu'une erreur d'un rang y désigne un poignet là où on voulait une hanche —
+ * sans rien casser, juste en élargissant.
+ */
+export const POINT = Object.freeze({
+  NOSE: 0,
+  LEFT_EYE: 1,
+  RIGHT_EYE: 2,
+  LEFT_EAR: 3,
+  RIGHT_EAR: 4,
+  LEFT_SHOULDER: 5,
+  RIGHT_SHOULDER: 6,
+  LEFT_ELBOW: 7,
+  RIGHT_ELBOW: 8,
+  LEFT_WRIST: 9,
+  RIGHT_WRIST: 10,
+  LEFT_HIP: 11,
+  RIGHT_HIP: 12,
+  LEFT_KNEE: 13,
+  RIGHT_KNEE: 14,
+  LEFT_ANKLE: 15,
+  RIGHT_ANKLE: 16,
+})
+
+/** Le nombre de points d'un squelette COCO. `k` fait trois fois cette longueur. */
+export const POINT_COUNT = 17
 
 /** Un plan : un intervalle continu de la source, sans changement d'axe. */
 export type Shot = { start: number; end: number }

@@ -10,6 +10,7 @@ import {
   lireAnalyse,
   runAnalysis,
   SCHÉMA_ANALYSE,
+  VERSIONS_ANALYSE,
 } from '@/server/steps/analysis'
 
 /**
@@ -204,8 +205,53 @@ describe('SCHÉMA_ANALYSE', () => {
     expect(SCHÉMA_ANALYSE.safeParse(collés).success).toBe(true)
   })
 
+  it('accepte les deux versions écrites par ce dépôt', () => {
+    // La 2 porte les points de pose et le nom des poids ; la 1 est ce que le
+    // détecteur écrivait avant le 19 août 2026, et les fichiers déjà sur le
+    // disque doivent continuer de se relire sans qu'on relance le GPU.
+    for (const version of VERSIONS_ANALYSE) {
+      expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version }).success).toBe(true)
+    }
+  })
+
   it('refuse une version inconnue', () => {
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 2 }).success).toBe(false)
+    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 3 }).success).toBe(false)
+    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 0 }).success).toBe(false)
+  })
+
+  it('accepte dix-sept points de pose, et refuse un squelette tronqué', () => {
+    // **La longueur est la seule chose qui distingue un squelette d'un tableau
+    // de nombres.** Trop court, il se lit sans erreur : `k[3 * i]` rend
+    // `undefined`, le tronc en sort vide, et le cadrage retombe sur la boîte
+    // corps entier — c'est-à-dire sur le comportement d'avant, sous une
+    // étiquette qui affirme le contraire.
+    const complet = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : 0.5))
+    const avecPoints = {
+      ...ANALYSE_VALIDE,
+      version: 2 as const,
+      keypoints: 'coco17' as const,
+      boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complet }],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(avecPoints).success).toBe(true)
+    expect(
+      SCHÉMA_ANALYSE.safeParse({
+        ...avecPoints,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complet.slice(0, 48) }],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('laisse un point de pose sortir du cadre, contrairement à une boîte', () => {
+    // Une épaule que le bord de l'image coupe est une information ; une boîte
+    // hors cadre ne désigne plus rien. Seule la confiance est bornée.
+    const dehors = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : -0.2))
+    expect(
+      SCHÉMA_ANALYSE.safeParse({
+        ...ANALYSE_VALIDE,
+        version: 2 as const,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: dehors }],
+      }).success,
+    ).toBe(true)
   })
 
   it('refuse des dimensions de proxy nulles', () => {

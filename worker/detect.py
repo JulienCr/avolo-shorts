@@ -295,6 +295,17 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
 
     Quatre décimales suffisent : au 1/10000 d'une largeur de 1920, l'erreur vaut
     un cinquième de pixel sur l'original.
+
+    **Les points de pose partent avec la boîte quand le modèle en rend**, dans
+    ``k`` : dix-sept triplets ``x, y, confiance`` mis bout à bout, dans l'ordre
+    COCO. Un tableau plat plutôt que dix-sept objets nommés — les noms
+    coûteraient six fois la place des nombres qu'ils désignent, sur le champ le
+    plus volumineux du fichier.
+
+    **Les dix-sept sont écrits, pas le tronc.** Le tronc est une *définition*, et
+    `src/core/framing.ts` doit pouvoir en changer sans relancer le GPU : c'est le
+    même arbitrage que pour le filtre du premier plan et pour le seuil de
+    confiance, tous deux laissés au lecteur pour la même raison.
     """
     sorties = []
     for décalage, résultat in enumerate(résultats):
@@ -306,7 +317,12 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
         # lecture d'un tenseur CUDA est une synchronisation avec le GPU.
         coordonnées = boîtes.xyxy.tolist()
         confiances = boîtes.conf.tolist()
-        for (x0, y0, x1, y1), score in zip(coordonnées, confiances):
+        # `None` sur un modèle de détection ; un tenseur (n, 17, 3) sur un modèle
+        # de pose. Les deux restent lisibles par le même script, et c'est ce qui
+        # permet de comparer les deux familles sans deux chemins de code.
+        points = getattr(résultat, "keypoints", None)
+        poses = None if points is None else points.data.tolist()
+        for indice, ((x0, y0, x1, y1), score) in enumerate(zip(coordonnées, confiances)):
             # Les coordonnées sont bornées à l'image : YOLO rend volontiers une
             # boîte qui déborde de quelques pixels quand le sujet est coupé par
             # le bord, et une fraction hors de [0, 1] ferait sortir le crop du
@@ -323,19 +339,47 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
             # personne de largeur nulle et refermerait le crop d'autant.
             if fx1 <= fx0 or fy1 <= fy0:
                 continue
-            sorties.append(
-                {
-                    "t": instant,
-                    "x0": fx0,
-                    "x1": fx1,
-                    "y0": fy0,
-                    "y1": fy1,
-                    # Vers le bas et non au plus proche : le seuil de
-                    # `framing.ts` est inclusif, et 0,4996 y devenait 0,5.
-                    "score": arrondi_vers_le_bas(score, 3),
-                }
-            )
+            sortie = {
+                "t": instant,
+                "x0": fx0,
+                "x1": fx1,
+                "y0": fy0,
+                "y1": fy1,
+                # Vers le bas et non au plus proche : le seuil de
+                # `framing.ts` est inclusif, et 0,4996 y devenait 0,5.
+                "score": arrondi_vers_le_bas(score, 3),
+            }
+            # `poses[indice]` et non un `zip` de plus : une boîte d'aire nulle
+            # sort de la boucle par le `continue` ci-dessus, et un itérateur
+            # parallèle décalerait alors tous les squelettes suivants d'un cran
+            # — chaque personne héritant des points de sa voisine, sans que rien
+            # ne le signale.
+            if poses is not None and indice < len(poses):
+                sortie["k"] = points_aplatis(poses[indice], largeur, hauteur)
+            sorties.append(sortie)
     return sorties
+
+
+def points_aplatis(points, largeur: int, hauteur: int) -> list[float]:
+    """Dix-sept triplets ``x, y, confiance`` mis bout à bout, en fractions.
+
+    **Les coordonnées ne sont pas bornées à [0, 1] comme celles des boîtes**, et
+    c'est délibéré : un point hors cadre est une information — une épaule que le
+    bord de l'image coupe — alors qu'une boîte hors cadre est un rectangle qui ne
+    désigne plus rien. Ce qui lit ces points borne lui-même son résultat, comme
+    `cropRect` le fait déjà pour la position du crop.
+
+    La confiance à deux décimales : elle ne sert qu'à écarter un point que le
+    réseau n'a pas vu, et le seuil qui la lira vit dans `FramingOptions`. Trois
+    décimales ajouteraient un dixième au poids du fichier pour un chiffre que
+    personne ne compare.
+    """
+    plat: list[float] = []
+    for x, y, confiance in points:
+        plat.append(round(x / largeur, 4))
+        plat.append(round(y / hauteur, 4))
+        plat.append(round(confiance, 2))
+    return plat
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +572,11 @@ def main() -> int:
     boîtes: list[dict[str, float]] = []
     images_vues = 0
     images_sans_personne = 0
+    # **Constaté sur les résultats, pas déduit du nom du fichier de poids.** Un
+    # `yolo11m-pose.pt` recopié sous un autre nom, ou l'inverse, ferait mentir le
+    # champ `keypoints` du résultat — et un consommateur qui s'y fie chercherait
+    # des points qui ne sont pas là.
+    pose = False
     lot: list = []
     dernier_rapport = t0
 
@@ -539,7 +588,7 @@ def main() -> int:
     quantification = 16 if a.device.startswith("cuda") else None
 
     def vider(lot: list, indice_départ: int) -> int:
-        nonlocal images_sans_personne
+        nonlocal images_sans_personne, pose
         if not lot:
             return 0
         résultats = modèle.predict(
@@ -554,6 +603,8 @@ def main() -> int:
         for résultat in résultats:
             if résultat.boxes is None or len(résultat.boxes) == 0:
                 images_sans_personne += 1
+            if getattr(résultat, "keypoints", None) is not None:
+                pose = True
         boîtes.extend(boîtes_du_lot(résultats, indice_départ, a.fps, largeur, hauteur))
         return len(lot)
 
@@ -579,7 +630,8 @@ def main() -> int:
     part_vides = images_sans_personne / images_vues if images_vues else 0.0
     journal(
         f"      {images_vues} images en {secondes:.0f} s "
-        f"({images_vues / max(secondes, 1e-9):.0f} im/s), {len(boîtes)} boîtes, "
+        f"({images_vues / max(secondes, 1e-9):.0f} im/s), {len(boîtes)} boîtes"
+        f"{' avec points de pose' if pose else ''}, "
         f"{100 * part_vides:.1f} % d'images sans personne"
     )
 
@@ -601,19 +653,26 @@ def main() -> int:
     dossier = os.path.dirname(a.out)
     if dossier:
         os.makedirs(dossier, exist_ok=True)
+    # **La version monte parce que la forme change**, et le lecteur refuse ce
+    # qu'il ne connaît pas plutôt que d'analyser à moitié. Un fichier de version 2
+    # peut porter des points de pose ; `keypoints` dit s'il en porte, et il le dit
+    # au lieu de laisser chaque lecteur parcourir trente mille boîtes pour le
+    # découvrir. Le modèle est écrit à côté : deux familles de poids produisent
+    # désormais ce fichier, et savoir laquelle l'a écrit se paie sinon en
+    # relançant le GPU pour comparer.
+    résultat = {
+        "version": 2,
+        "fps": a.fps,
+        "model": os.path.basename(a.model),
+        "source": {"w": source_l, "h": source_h},
+        "proxy": {"w": largeur, "h": hauteur},
+        "shots": découpe,
+        "boxes": boîtes,
+    }
+    if pose:
+        résultat["keypoints"] = "coco17"
     with open(a.out, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "version": 1,
-                "fps": a.fps,
-                "source": {"w": source_l, "h": source_h},
-                "proxy": {"w": largeur, "h": hauteur},
-                "shots": découpe,
-                "boxes": boîtes,
-            },
-            f,
-            ensure_ascii=False,
-        )
+        json.dump(résultat, f, ensure_ascii=False)
 
     journal(
         f"Écrit {a.out} : {len(découpe)} plans, {len(boîtes)} boîtes sur {images_vues} images, "

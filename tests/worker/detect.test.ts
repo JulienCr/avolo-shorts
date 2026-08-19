@@ -327,6 +327,313 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
 })
 
 /**
+ * **`plans()` scindée en deux, sans changer ce qu'elle rendait.** Cette suite
+ * rejoue les garanties que son ancienne docstring énonçait, réparties entre les
+ * deux fonctions qui la remplacent : `scene_boundaries` décide *où* couper,
+ * `shots_from_boundaries` découpe. La scission existe pour que le croisement
+ * avec les bascules de composition s'insère entre les deux, sans dupliquer la
+ * logique d'espacement (`--min-shot` reste un seul réglage, partagé).
+ */
+describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
+  const bornes = (
+    évènements: [number, number][],
+    durée: number,
+    seuil: number,
+    planMin: number,
+  ): number[] =>
+    évaluer(
+      `print(json.dumps(detect.scene_boundaries(${JSON.stringify(évènements)}, ${durée}, ${seuil}, ${planMin})))`,
+    ) as number[]
+
+  const plans = (frontières: number[], durée: number): { start: number; end: number }[] =>
+    évaluer(
+      `print(json.dumps(detect.shots_from_boundaries(${JSON.stringify(frontières)}, ${durée})))`,
+    ) as { start: number; end: number }[]
+
+  it('ignore une frontière hors de [0, durée], le score de la première image se comparant à rien', () => {
+    expect(
+      bornes(
+        [
+          [0, 0.9],
+          [5, 0.9],
+          [12, 0.9],
+        ],
+        10,
+        0.4,
+        1.0,
+      ),
+    ).toEqual([5])
+  })
+
+  it('fusionne deux frontières trop rapprochées en une seule', () => {
+    // Un éclair de lumière à une image d'intervalle (0,5 s à 2 im/s) : la
+    // seconde ne fait pas un plan de 0,5 s.
+    expect(
+      bornes(
+        [
+          [5, 0.9],
+          [5.5, 0.9],
+        ],
+        20,
+        0.4,
+        1.0,
+      ),
+    ).toEqual([5])
+  })
+
+  it('mesure plan_min depuis 0 et jusqu’à durée, pas seulement entre deux frontières', () => {
+    // À 0,4 s du début et 0,3 s de la fin, sous plan_min = 1 : les deux tombent.
+    expect(
+      bornes(
+        [
+          [0.4, 0.9],
+          [10, 0.9],
+          [19.7, 0.9],
+        ],
+        20,
+        0.4,
+        1.0,
+      ),
+    ).toEqual([10])
+  })
+
+  it('écarte un score sous le seuil', () => {
+    expect(
+      bornes(
+        [
+          [5, 0.39],
+          [10, 0.4],
+        ],
+        20,
+        0.4,
+        1.0,
+      ),
+    ).toEqual([10])
+  })
+
+  it('shots_from_boundaries rend toujours au moins un plan, même sans frontière', () => {
+    expect(plans([], 42.5)).toEqual([{ start: 0, end: 42.5 }])
+  })
+
+  it('shots_from_boundaries découpe aux frontières données, plans qui se touchent', () => {
+    expect(plans([12.4, 30], 91.2)).toEqual([
+      { start: 0, end: 12.4 },
+      { start: 12.4, end: 30 },
+      { start: 30, end: 91.2 },
+    ])
+  })
+
+  it('composées, reproduisent le comportement de l’ancienne plans()', () => {
+    const évènements: [number, number][] = [
+      [0.4, 0.9],
+      [5.0, 0.35],
+      [10.0, 0.9],
+      [10.4, 0.9],
+      [25.0, 0.9],
+      [39.8, 0.9],
+    ]
+    const frontières = bornes(évènements, 40, 0.4, 1.0)
+    expect(plans(frontières, 40)).toEqual([
+      { start: 0, end: 10 },
+      { start: 10, end: 25 },
+      { start: 25, end: 40 },
+    ])
+  })
+})
+
+/**
+ * **Le second détecteur de frontière.** Les boîtes disent qu'une bascule a
+ * lieu (`person_anchor`, `collective_shift`, `composition_switches`), les
+ * scores de scène donnent l'image exacte (`refine_switch`). Quatre fonctions
+ * pures, éprouvées séparément : la lecture d'un défaut sur l'une ne doit pas
+ * se chercher dans les trois autres.
+ */
+describe('detect.py — person_anchor', () => {
+  const ancre = (box: Record<string, unknown>, minScore: number): number =>
+    évaluer(`print(json.dumps(detect.person_anchor(${JSON.stringify(box)}, ${minScore})))`) as number
+
+  it('repli sur le centre de la boîte quand elle ne porte pas de points', () => {
+    expect(ancre({ x0: 0.2, x1: 0.6 }, 0.5)).toBe(0.4)
+  })
+
+  it('repli sur le centre de la boîte quand aucun point n’atteint le seuil', () => {
+    expect(ancre({ x0: 0.2, x1: 0.6, k: [0.5, 0, 0.2] }, 0.5)).toBe(0.4)
+  })
+
+  it('ignore un point sous le seuil, en garde un autre au-dessus', () => {
+    // Point à x = 0.9, confiance 0.4 (sous le seuil) ; point à x = 0.1,
+    // confiance 0.9 (au-dessus). Seul le second doit compter.
+    expect(ancre({ x0: 0, x1: 1, k: [0.9, 0, 0.4, 0.1, 0, 0.9] }, 0.5)).toBe(0.1)
+  })
+
+  it('prend la médiane des points confiants, pas leur moyenne', () => {
+    const k = [0.1, 0, 0.9, 0.5, 0, 0.9, 0.9, 0, 0.9]
+    expect(ancre({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
+  })
+
+  it('un point isolé loin du groupe ne tire pas la médiane vers lui', () => {
+    // Quatre points confiants groupés autour de 0,5, un cinquième à 10 : la
+    // moyenne serait tirée vers 10, la médiane reste au groupe.
+    const k = [0.48, 0, 0.9, 0.5, 0, 0.9, 0.5, 0, 0.9, 0.52, 0, 0.9, 10.0, 0, 0.9]
+    expect(ancre({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
+  })
+})
+
+describe('detect.py — collective_shift', () => {
+  const shift = (a: number[], b: number[], tol: number): [number | null, number] =>
+    évaluer(
+      `print(json.dumps(list(detect.collective_shift(${JSON.stringify(a)}, ${JSON.stringify(b)}, ${tol}))))`,
+    ) as [number | null, number]
+
+  it('rend (None, 0) sur une image vide, de part ou d’autre', () => {
+    expect(shift([], [0.1], 0.03)).toEqual([null, 0])
+    expect(shift([0.1], [], 0.03)).toEqual([null, 0])
+  })
+
+  it('trouve le déplacement commun de trois personnes qui glissent ensemble', () => {
+    // Trois ancrages qui glissent tous de +0,2, à ±0,01 de bruit. Les votes
+    // désignent le triplet (0,19 ; 0,2 ; 0,21) — ceux d'autres appariements
+    // fortuits n'ont qu'une ou deux voix.
+    const a = [0.1, 0.4, 0.7]
+    const b = [0.31, 0.59, 0.9]
+    const [d, n] = shift(a, b, 0.03)
+    expect(d).toBeCloseTo(0.2, 9)
+    expect(n).toBe(3)
+  })
+
+  /**
+   * **Départage à égalité par le plus petit `|d|`.** Une seule personne dans
+   * chaque image, deux hypothèses de déplacement possibles à une voix
+   * chacune (aucune autre paire pour départager par le vote) : celle de plus
+   * petite amplitude l'emporte.
+   */
+  it('départage une égalité de votes par le plus petit déplacement', () => {
+    expect(shift([0], [0.05, -0.2], 0.03)).toEqual([0.05, 1])
+  })
+
+  it('un appariement glouton, chaque ancrage ne sert qu’une fois', () => {
+    // Deux personnes qui glissent de +0,2 (0,1→0,3 et 0,4→0,6), une
+    // troisième sans correspondance dans la seconde image (elle est sortie
+    // du cadre) : le vote désigne +0,2 sans ambiguïté, et seules les deux
+    // personnes qui ont bougé ensemble sont comptées.
+    const [d, n] = shift([0.1, 0.4, 0.9], [0.3, 0.6], 0.03)
+    expect(d).toBeCloseTo(0.2, 9)
+    expect(n).toBe(2)
+  })
+})
+
+describe('detect.py — composition_switches', () => {
+  const switches = (
+    boxes: { t: number; x0: number; x1: number }[],
+    fps: number,
+    minPointScore: number,
+    tolerance: number,
+    part: number,
+    minShift: number,
+  ): [number, number][] =>
+    évaluer(
+      `print(json.dumps(detect.composition_switches(${JSON.stringify(boxes)}, ${fps}, ${minPointScore}, ${tolerance}, ${part}, ${minShift})))`,
+    ) as [number, number][]
+
+  // Trois personnes qui glissent toutes de +0,2 entre deux images
+  // consécutives (fps = 2, donc un pas de 0,5 s).
+  const TROIS_QUI_GLISSENT = [
+    { t: 0.0, x0: 0.05, x1: 0.15 },
+    { t: 0.0, x0: 0.35, x1: 0.45 },
+    { t: 0.0, x0: 0.65, x1: 0.75 },
+    { t: 0.5, x0: 0.26, x1: 0.36 },
+    { t: 0.5, x0: 0.54, x1: 0.64 },
+    { t: 0.5, x0: 0.85, x1: 0.95 },
+  ]
+
+  it('déclare une bascule quand trois personnes glissent ensemble au-dessus du seuil', () => {
+    expect(switches(TROIS_QUI_GLISSENT, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([[0.0, 0.5]])
+  })
+
+  it('ne compare jamais par-dessus un trou de détection', () => {
+    // Même glissement, mais entre deux images séparées d'un pas double :
+    // aucune détection à mi-chemin. La condition 1 doit refuser la paire.
+    const avecTrou = [
+      { t: 0.0, x0: 0.05, x1: 0.15 },
+      { t: 0.0, x0: 0.35, x1: 0.45 },
+      { t: 0.0, x0: 0.65, x1: 0.75 },
+      { t: 1.0, x0: 0.26, x1: 0.36 },
+      { t: 1.0, x0: 0.54, x1: 0.64 },
+      { t: 1.0, x0: 0.85, x1: 0.95 },
+    ]
+    expect(switches(avecTrou, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+  })
+
+  it('refuse un seul comédien apparié, qui ne prouve rien', () => {
+    const uneSeulePersonne = [
+      { t: 0.0, x0: 0.05, x1: 0.15 },
+      { t: 0.5, x0: 0.26, x1: 0.36 },
+    ]
+    expect(switches(uneSeulePersonne, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+  })
+
+  it('refuse un déplacement sous le seuil de la part appariée — entrée ou sortie de cadre', () => {
+    // Cinq personnes dans chaque image ; seules deux s'apparient dans la
+    // tolérance (0,1→0,31 et 0,4→0,59), les trois autres n'ayant aucune
+    // correspondance plausible d'une image à l'autre (arrivée ou départ) —
+    // donc 2 appariés sur un effectif de 5, en dessous des 60 % (`part = 6`)
+    // exigés. Les trois positions de remplissage sont choisies pour ne
+    // former, ni entre elles ni avec le déplacement réel, aucun cluster
+    // fortuit : ce ne sont pas des coordonnées plausibles d'écran, seulement
+    // des valeurs qui ne se recroisent nulle part à 0,03 près.
+    const entréeSortie = [
+      { t: 0.0, x0: 0.05, x1: 0.15 },
+      { t: 0.0, x0: 0.35, x1: 0.45 },
+      { t: 0.0, x0: 6.0654, x1: 6.1654 },
+      { t: 0.0, x0: 1.1501, x1: 1.2501 },
+      { t: 0.0, x0: 3.1502, x1: 3.2502 },
+      { t: 0.5, x0: 0.26, x1: 0.36 },
+      { t: 0.5, x0: 0.54, x1: 0.64 },
+      { t: 0.5, x0: -7.2643, x1: -7.1643 },
+      { t: 0.5, x0: -3.1582, x1: -3.0582 },
+      { t: 0.5, x0: -3.6364, x1: -3.5364 },
+    ]
+    expect(switches(entréeSortie, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+  })
+
+  it('refuse un déplacement collectif réel mais trop petit', () => {
+    const petit = TROIS_QUI_GLISSENT.map((b) => ({ ...b }))
+    // Même trio, glissement ramené à 0,02 (sous min_shift = 0,1).
+    petit[3] = { t: 0.5, x0: 0.07, x1: 0.17 }
+    petit[4] = { t: 0.5, x0: 0.37, x1: 0.47 }
+    petit[5] = { t: 0.5, x0: 0.67, x1: 0.77 }
+    expect(switches(petit, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+  })
+})
+
+describe('detect.py — refine_switch', () => {
+  const raffiner = (
+    t1: number,
+    t2: number,
+    évènements: [number, number][],
+    fps: number,
+  ): [number, boolean] =>
+    évaluer(
+      `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(évènements)}, ${fps}))))`,
+    ) as [number, boolean]
+
+  it('trouve le score maximal dans (t1, t2 + 1/(2·fps)]', () => {
+    const évènements: [number, number][] = [
+      [10.0, 0.9], // == t1, exclu : la fenêtre est ouverte à gauche
+      [10.2, 0.5],
+      [10.6, 0.7],
+      [10.75, 0.95], // == borne haute, inclus : la fenêtre est fermée à droite
+      [10.76, 0.99], // juste après la borne, exclu
+    ]
+    expect(raffiner(10.0, 10.5, évènements, 2.0)).toEqual([10.75, true])
+  })
+
+  it('replie sur le milieu de l’intervalle de contenu, sans évènement dans la fenêtre', () => {
+    expect(raffiner(10.0, 10.5, [], 2.0)).toEqual([10.375, false])
+  })
+})
+
+/**
  * Le refus, tel que Node le rencontre : par un code de sortie et une ligne de
  * stderr, pas par une valeur de retour. Une fonction juste et jamais appelée
  * n'aurait rien fermé — c'est exactement le défaut que ce ticket ferme un cran

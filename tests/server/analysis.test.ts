@@ -193,8 +193,9 @@ describe('SCHÉMA_ANALYSE', () => {
   })
 
   it('accepte des plans qui se touchent, ce que detect.py produit', () => {
-    // `plans()` découpe `[0, durée]` à des frontières successives : la fin de
-    // l'un **est** le début du suivant. Interdire ça condamnerait toute analyse.
+    // `shots_from_boundaries()` découpe `[0, durée]` à des frontières successives :
+    // la fin de l'un **est** le début du suivant. Interdire ça condamnerait toute
+    // analyse.
     const collés = {
       ...ANALYSE_VALIDE,
       shots: [

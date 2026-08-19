@@ -33,10 +33,22 @@ pendant lequel la VRAM est occupée.
 **Les frontières viennent du score de scène de ffmpeg**, pas d'une bibliothèque
 de plus : le binaire est déjà installé et éprouvé par ``setup.sh``.
 
+**Et depuis le chantier des bascules de composition, d'un second détecteur,
+croisé avec le premier.** Le score de scène compare des histogrammes, qu'une
+composition qui translate la scène en bloc à l'intérieur d'un même plan
+préserve — mesuré à 41 % du temps monté sur une émission. Les boîtes de
+personnes, déjà collectées pour le cadrage, disent qu'une bascule a lieu et la
+situent à ±1/fps près ; les scores de scène, déjà collectés à l'étape 1 et
+jusqu'ici jetés une fois le seuil appliqué, donnent l'image exacte dans cette
+fenêtre. Ni passe ffmpeg de plus, ni passage GPU de plus — voir la section
+« Les bascules de composition » plus bas. **Le crop reste fixe à l'intérieur
+d'un plan** : ce détecteur ajoute des frontières là où une coupe réelle
+existait sans être vue, il n'introduit ni lissage ni suivi de caméra.
+
 Le patron est celui de ``worker/transcribe.py``, et il est suivi de près :
 
 - un script en ligne de commande, pas un service ;
-- l'avancement sur **stderr**, en ``[n/4]``, lu par ``avancementWorker()``
+- l'avancement sur **stderr**, en ``[n/5]``, lu par ``avancementWorker()``
   (``src/core/pipeline.ts``) ;
 - les imports lourds **dans** ``main()``, pour qu'un ``--help`` réponde tout de
   suite au lieu de payer dix secondes de torch ;
@@ -175,10 +187,16 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
     return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(terminé.stdout)]
 
 
-def plans(
-    évènements: list[tuple[float, float]], durée: float, seuil: float, plan_min: float
-) -> list[dict[str, float]]:
-    """Découpe ``[0, durée]`` aux instants dont le score dépasse ``seuil``.
+def _frontières_espacées(candidats: list[float], durée: float, plan_min: float) -> list[float]:
+    """Aligne une liste de temps candidats, gardés à ``plan_min`` les uns des
+    autres — les deux bouts de ``[0, durée]`` comptant comme des frontières.
+
+    **Partagée entre deux sources.** ``scene_boundaries`` l'appelle avec les
+    seuls candidats qui franchissent le seuil de scène ; le croisement avec les
+    bascules de composition l'appelle sur l'union des deux — scène et bascules
+    raffinées — parce que le plancher d'un plan est un seul réglage
+    (``--min-shot``), pas un par détecteur. Une bascule qui tomberait à moins
+    d'une seconde d'une coupe de scène déjà retenue n'ajoute donc rien.
 
     Deux garde-fous, et le second est le seul qui ait coûté quelque chose :
 
@@ -193,13 +211,10 @@ def plans(
     une coupe à une demi-seconde du début, ou de la fin, produit un plan plus
     court que le minimum annoncé — le cas exact que le garde-fou est censé
     fermer, à l'endroit où il ne regardait pas.
-
-    Rend toujours au moins un plan : une émission sans aucune coupe est un plan
-    unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
     """
     frontières: list[float] = []
-    for t, score in sorted(évènements):
-        if score < seuil or t <= 0 or t >= durée:
+    for t in sorted(candidats):
+        if t <= 0 or t >= durée:
             continue
         # 0 quand la liste est vide : le début de la vidéo est une frontière
         # comme une autre du point de vue de la durée d'un plan.
@@ -213,7 +228,32 @@ def plans(
     # fin.
     if frontières and durée - frontières[-1] < plan_min:
         frontières.pop()
+    return frontières
 
+
+def scene_boundaries(
+    évènements: list[tuple[float, float]], durée: float, seuil: float, plan_min: float
+) -> list[float]:
+    """Les instants où le score de scène franchit ``seuil``, espacés d'au moins
+    ``plan_min``.
+
+    Anciennement la première moitié de ``plans()``, dont la signature change :
+    cette fonction-ci ne rend que les frontières, ``shots_from_boundaries``
+    fait le découpage. La séparation existe pour que les bascules de
+    composition — un second détecteur de frontière, orthogonal — puissent
+    s'ajouter à la liste avant le découpage, sans dupliquer la logique
+    d'espacement.
+    """
+    return _frontières_espacées([t for t, score in évènements if score >= seuil], durée, plan_min)
+
+
+def shots_from_boundaries(frontières: list[float], durée: float) -> list[dict[str, float]]:
+    """Découpe ``[0, durée]`` aux ``frontières`` données, déjà triées et
+    espacées — la seconde moitié de l'ancienne ``plans()``.
+
+    Rend toujours au moins un plan : une liste de frontières vide est un plan
+    unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
+    """
     bornes = [0.0, *frontières, durée]
     return [
         {"start": round(a, 3), "end": round(b, 3)} for a, b in zip(bornes, bornes[1:])
@@ -425,6 +465,221 @@ def flatten_keypoints(keypoints, width: int, height: int) -> list[float]:
         # ainsi.
         flat.append(min(max(arrondi_vers_le_bas(confidence, 2), 0.0), 1.0))
     return flat
+
+
+# ---------------------------------------------------------------------------
+# Les bascules de composition
+# ---------------------------------------------------------------------------
+#
+# Mesuré le 19 août 2026 sur `2026-22-02-entre-nous` : à l'intérieur d'un plan
+# détecté par le score de scène, la composition OBS translate parfois la scène
+# entière en bloc — mêmes comédiens, mêmes largeurs de boîte, mêmes points de
+# pose, glissés horizontalement de 0,14 à 0,285 de la largeur source, en une
+# seule image, et rebascule 7 à 14 fois par plan. Le filtre `scene` de ffmpeg
+# compare des histogrammes, qu'une translation préserve : la coupe la mieux
+# mesurée du corpus est notée 0,366 pour un seuil de rétention à 0,40.
+#
+# **Un second détecteur de frontière, orthogonal au premier.** Les boîtes
+# disent qu'une bascule a lieu et la situent à ±1/fps près (`composition_switches`) ;
+# les scores de scène — déjà collectés à l'étape 1, jusqu'ici jetés — donnent
+# l'image exacte, dans la fenêtre que la bascule désigne (`refine_switch`).
+# Aucune passe ffmpeg de plus, aucun passage GPU en plus.
+#
+# **« Le crop est fixe à l'intérieur d'un plan » ne bouge pas.** Rien ici ne
+# lisse, n'interpole ni ne suit une caméra : une bascule détectée devient une
+# frontière de plus, au même titre qu'une coupe de scène — un plan qui portait
+# trois cadrages devient trois plans d'un cadrage chacun.
+
+
+def person_anchor(box: dict, min_point_score: float) -> float:
+    """L'abscisse qui représente une personne, pour mesurer un déplacement
+    collectif — pas une définition de tronc, `framing.ts` reste seul à en
+    donner une.
+
+    **Médiane des points de pose dont la confiance atteint ``min_point_score``**,
+    pas leur moyenne : un bras tendu vers l'avant a une confiance aussi haute
+    que l'épaule qui le porte, et sa position pèserait deux fois dans une
+    moyenne alors qu'il ne bouge pas au même rythme que le buste. **Repli sur le
+    centre de la boîte**, ``(x0 + x1) / 2``, quand aucun point n'atteint le
+    seuil — une analyse de version 1 n'a pas de points, un ``DETECT_MODEL``
+    sans ``-pose`` non plus, une personne de dos n'a pas de torsion lisible.
+    Même repli que ``personBounds`` côté cadrage, même raison.
+
+    **Volontairement non bornée à [0, 1].** Les points de pose eux-mêmes ne le
+    sont pas (voir ``flatten_keypoints``) : un point hors cadre est une
+    information — une épaule que le bord de l'image coupe —, et borner
+    l'ancrage d'un seul côté fabriquerait un déplacement qui n'existe pas,
+    des deux côtés effacerait celui d'une personne qui sort réellement du
+    cadre. C'est le bornage à sens unique qui a déjà coûté une largeur
+    négative en trois exemplaires ailleurs dans ce dépôt ; ici la décision est
+    l'inverse, et elle est délibérée.
+    """
+    points = box.get("k")
+    if points:
+        xs = sorted(
+            points[i] for i in range(0, len(points), 3) if points[i + 2] >= min_point_score
+        )
+        if xs:
+            n = len(xs)
+            milieu = n // 2
+            return xs[milieu] if n % 2 == 1 else (xs[milieu - 1] + xs[milieu]) / 2
+    return (box["x0"] + box["x1"]) / 2
+
+
+def collective_shift(
+    a: list[float], b: list[float], tolerance: float
+) -> tuple[float | None, int]:
+    """Le déplacement collectif entre deux images d'ancrages, en abscisse —
+    ``(médiane des différences appariées, nombre de personnes appariées)``, ou
+    ``(None, 0)`` si l'une des deux images n'a personne.
+
+    **Vote sur toutes les différences d'ancrages.** Chaque paire ``(a[i], b[j])``
+    propose un déplacement ``b[j] - a[i]``. Celui qui rassemble le plus de
+    différences proches — à ``tolerance`` près — est la meilleure hypothèse
+    d'un déplacement collectif plutôt que du hasard des positions
+    individuelles. **Départage à égalité par le plus petit ``|d|``** : à
+    information égale, « rien n'a bougé » est l'hypothèse la plus sûre, et
+    c'est aussi celle qui coûte le moins cher à se tromper — un plan qui
+    reste en un seul morceau n'a rien perdu.
+
+    **Appariement glouton un-à-un**, dans l'ordre de proximité avec cette
+    hypothèse : chaque ancrage ne sert qu'une fois, sans quoi une même
+    personne compterait dans plusieurs paires et gonflerait artificiellement
+    le vote et la médiane.
+
+    **La médiane, pas la moyenne**, des différences appariées : un seul
+    comédien qui bouge plus que les autres dans le même sens ne doit pas tirer
+    le déplacement collectif au-delà de ce que le groupe fait vraiment.
+    """
+    candidats = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
+    if not candidats:
+        return None, 0
+
+    def votes(d: float) -> int:
+        return sum(1 for d2, _, _ in candidats if abs(d2 - d) <= tolerance)
+
+    meilleur_vote = -1
+    meilleur_d = 0.0
+    for d, _, _ in candidats:
+        v = votes(d)
+        if v > meilleur_vote or (v == meilleur_vote and abs(d) < abs(meilleur_d)):
+            meilleur_vote = v
+            meilleur_d = d
+
+    utilisés_a: set[int] = set()
+    utilisés_b: set[int] = set()
+    appariées: list[float] = []
+    for d, i, j in sorted(candidats, key=lambda c: abs(c[0] - meilleur_d)):
+        if abs(d - meilleur_d) > tolerance:
+            # Trié par proximité avec `meilleur_d` : personne au-delà ne peut
+            # plus qualifier.
+            break
+        if i in utilisés_a or j in utilisés_b:
+            continue
+        utilisés_a.add(i)
+        utilisés_b.add(j)
+        appariées.append(d)
+
+    if not appariées:
+        return None, 0
+    appariées.sort()
+    n = len(appariées)
+    milieu = n // 2
+    médiane = appariées[milieu] if n % 2 == 1 else (appariées[milieu - 1] + appariées[milieu]) / 2
+    return médiane, len(appariées)
+
+
+def composition_switches(
+    boxes: list[dict],
+    fps: float,
+    min_point_score: float,
+    tolerance: float,
+    part: int,
+    min_shift: float,
+) -> list[tuple[float, float]]:
+    """Les fenêtres ``(t1, t2)`` — deux images consécutives de la détection —
+    où les boîtes disent qu'une bascule de composition a lieu.
+
+    Rend des **fenêtres**, pas des instants : c'est ``refine_switch`` qui
+    cherche l'image exacte à l'intérieur de chacune, dans les scores de scène.
+
+    Une bascule est déclarée si les quatre tiennent, dans l'ordre où elles
+    coûtent le moins cher à vérifier :
+
+    1. ``t2 - t1`` vaut ``1/fps`` à 1 ms près — **jamais comparer par-dessus un
+       trou de détection**. Une image sans détection casserait sinon
+       silencieusement l'hypothèse d'un déplacement continu.
+    2. Au moins deux personnes appariées — **un seul comédien qui traverse le
+       cadre ne prouve rien** sur la composition.
+    3. La part de personnes appariées, rapportée au plus petit effectif des
+       deux images, atteint ``part`` dixièmes — **en arithmétique entière**
+       (``matched * 10 >= min(n1, n2) * part``) : ``0.6 * 5`` vaut
+       ``3.0000000000000004`` en flottant, et ce dépôt a déjà payé ce défaut
+       dans ``choisirRatio``. Protège contre une entrée ou une sortie de cadre,
+       que la composition n'a pas bougé.
+    4. Le déplacement collectif, tronqué vers le bas à quatre décimales,
+       atteint ``min_shift`` — **tronqué et non arrondi**, la même règle que
+       pour un score comparé à un seuil inclusif (``arrondi_vers_le_bas``),
+       parce que la comparaison qui suit l'est aussi.
+    """
+    par_instant: dict[float, list[dict]] = {}
+    for boîte in boxes:
+        par_instant.setdefault(boîte["t"], []).append(boîte)
+    instants = sorted(par_instant)
+
+    pas = 1.0 / fps
+    candidats: list[tuple[float, float]] = []
+    for t1, t2 in zip(instants, instants[1:]):
+        if abs((t2 - t1) - pas) > 1e-3:
+            continue
+        ancrages_1 = [person_anchor(b, min_point_score) for b in par_instant[t1]]
+        ancrages_2 = [person_anchor(b, min_point_score) for b in par_instant[t2]]
+        décalage, appariés = collective_shift(ancrages_1, ancrages_2, tolerance)
+        if décalage is None or appariés < 2:
+            continue
+        effectif = min(len(ancrages_1), len(ancrages_2))
+        if appariés * 10 < effectif * part:
+            continue
+        if arrondi_vers_le_bas(abs(décalage), 4) < min_shift:
+            continue
+        candidats.append((t1, t2))
+    return candidats
+
+
+def refine_switch(
+    t1: float, t2: float, évènements: list[tuple[float, float]], fps: float
+) -> tuple[float, bool]:
+    """L'image exacte d'une bascule détectée entre ``t1`` et ``t2`` — et si le
+    raffinement a réussi, pour que l'appelant compte le taux de repli.
+
+    **Les deux passes ne partagent pas la même horloge.** ``-vf fps={fps}``
+    affecte chaque image d'entrée à l'emplacement de sortie le plus proche,
+    et ``boîtes_du_lot`` étiquette ensuite chaque image par ``indice / fps`` :
+    le contenu de l'image étiquetée ``t`` vient donc en réalité d'un instant
+    légèrement postérieur, jusqu'à ``1 / (2 · fps)`` plus tard dans le pire
+    cas — mesuré à +0,233 s sur un proxy à 30 im/s. Une fenêtre naïve
+    ``(t1, t2]`` en tenant pas compte de ce décalage ratait 22 bascules sur 58 ;
+    la fenêtre étendue ci-dessous en retrouve 98 à 100 %.
+
+    **Le décalage est absorbé ici, dans la fenêtre, pas corrigé à la source.**
+    Corriger l'étiquette ``t`` de chaque boîte imposerait une version 3 du
+    schéma de l'analyse et une ré-analyse GPU des quatre projets du corpus —
+    un autre chantier. Ce n'est pas un ajustement empirique posé pour faire
+    coller un cas : c'est la mesure du décalage entre les deux horloges,
+    documentée pour ce qu'elle est.
+
+    **À défaut d'évènement dans la fenêtre, le milieu de l'intervalle de
+    contenu — choix minimax.** Sans score de scène pour trancher, aucune
+    position dans la fenêtre n'est mieux fondée qu'une autre ; le milieu
+    minimise l'écart maximal possible avec la vraie coupe, où qu'elle soit
+    tombée dans l'intervalle.
+    """
+    borne_haute = t2 + 1.0 / (2.0 * fps)
+    fenêtre = [(t, s) for t, s in évènements if t1 < t <= borne_haute]
+    if fenêtre:
+        t_max, _ = max(fenêtre, key=lambda paire: paire[1])
+        return t_max, True
+    return (t1 + borne_haute) / 2, False
 
 
 # ---------------------------------------------------------------------------
@@ -685,17 +940,19 @@ def main() -> int:
     source_l, source_h = a.source_size
     départ = time.monotonic()
 
-    # --- [1/4] les plans, sans toucher au GPU --------------------------------
-    journal(f"[1/4] Frontières de plans (score de scène ≥ {a.scene_threshold})…")
+    # --- [1/5] les scores de scène, sans toucher au GPU ----------------------
+    # **Collecte, pas décision.** Avant le chantier des bascules de composition,
+    # cette passe décidait aussi des frontières : les deux tenaient dans une
+    # seule étape parce que rien d'autre ne consommait le score de scène. Les
+    # bascules le consomment une seconde fois, à l'étape 4, une fois les boîtes
+    # de personnes disponibles — d'où la scission : `évènements` reste vivant
+    # jusque-là au lieu d'être jeté ici.
+    journal(f"[1/5] Scores de scène (collecte, plancher {a.scene_floor})…")
     t0 = time.monotonic()
     évènements = scores_de_scène(a.ffmpeg, a.proxy, a.scene_floor)
-    découpe = plans(évènements, a.duration, a.scene_threshold, a.min_shot)
-    journal(
-        f"      {len(découpe)} plans, {len(découpe) - 1} frontières retenues sur "
-        f"{len(évènements)} candidates ≥ {a.scene_floor}, en {time.monotonic() - t0:.0f} s"
-    )
+    journal(f"      {len(évènements)} candidates, en {time.monotonic() - t0:.0f} s")
 
-    # --- [2/4] le modèle -----------------------------------------------------
+    # --- [2/5] le modèle -------------------------------------------------------
     # Importé ici et non en tête de fichier : ultralytics tire torch et pèse une
     # dizaine de secondes. Un `--help`, un proxy absent ou des poids manquants
     # doivent répondre tout de suite. Et la passe ffmpeg ci-dessus n'a aucune
@@ -711,13 +968,13 @@ def main() -> int:
         )
         return 3
 
-    journal(f"[2/4] Chargement de {os.path.basename(a.model)} sur {a.device}…")
+    journal(f"[2/5] Chargement de {os.path.basename(a.model)} sur {a.device}…")
     modèle = YOLO(a.model)
 
-    # --- [3/4] les corps -----------------------------------------------------
+    # --- [3/5] les corps -------------------------------------------------------
     attendues = max(1, int(math.ceil(a.duration * a.fps)))
     journal(
-        f"[3/4] Détection des corps ({attendues} images à {a.fps} im/s, "
+        f"[3/5] Détection des corps ({attendues} images à {a.fps} im/s, "
         f"entrée {a.imgsz}, seuil {a.conf})…"
     )
     t0 = time.monotonic()
@@ -800,8 +1057,41 @@ def main() -> int:
     except Exception:  # noqa: BLE001 — libérer est une optimisation, pas un contrat
         pass
 
-    # --- [4/4] l'écriture ----------------------------------------------------
-    journal(f"[4/4] Écriture de {a.out}…")
+    # --- [4/5] les frontières (scène + bascules) --------------------------------
+    # Calcul pur, sans GPU : la VRAM est déjà rendue ci-dessus. Deux détecteurs
+    # orthogonaux, croisés sur la même liste de frontières et le même
+    # `--min-shot` — pas de plancher séparé pour les bascules, voir
+    # `_frontières_espacées`.
+    journal(f"[4/5] Frontières (scène ≥ {a.scene_threshold}, bascules)…")
+    t0 = time.monotonic()
+    frontières_scène = scene_boundaries(évènements, a.duration, a.scene_threshold, a.min_shot)
+
+    candidats_bascule = composition_switches(
+        boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
+    )
+    frontières_bascule: list[float] = []
+    repli = 0
+    for t1, t2 in candidats_bascule:
+        t_raffiné, raffiné = refine_switch(t1, t2, évènements, a.fps)
+        frontières_bascule.append(t_raffiné)
+        if not raffiné:
+            repli += 1
+
+    frontières = _frontières_espacées(
+        [*frontières_scène, *frontières_bascule], a.duration, a.min_shot
+    )
+    découpe = shots_from_boundaries(frontières, a.duration)
+
+    part_repli = repli / len(candidats_bascule) if candidats_bascule else 0.0
+    journal(
+        f"      {len(découpe)} plans, {len(frontières)} frontières ({len(frontières_scène)} "
+        f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(frontières_bascule)} "
+        f"bascules dont {repli} en repli, {100 * part_repli:.0f} %), en "
+        f"{time.monotonic() - t0:.0f} s"
+    )
+
+    # --- [5/5] l'écriture --------------------------------------------------------
+    journal(f"[5/5] Écriture de {a.out}…")
     dossier = os.path.dirname(a.out)
     if dossier:
         os.makedirs(dossier, exist_ok=True)

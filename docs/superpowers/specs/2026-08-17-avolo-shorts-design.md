@@ -762,6 +762,25 @@ Une correction remonte dans le sidecar. Corriger « Avolo » une fois le corrige
 dans tous les clips de cette émission, définitivement. Un terme corrigé alimente
 aussi le glossaire de l'étage 0, donc les émissions suivantes en profitent.
 
+**Précision du 19 août 2026, la vue Émission (PR « le transcript de
+l'émission ») : la correction manuelle prend la même forme que le contrat du
+modèle ci-dessus, un empan de mots indexé plutôt que du texte libre, mais
+bornée à une phrase — pas à tout le transcript — et sans les gardes que le
+modèle exige, l'humain n'ayant pas besoin d'être contraint par le format.
+`WordCorrection` (`src/lib/editing.ts`) en porte les règles : les timings hors
+de l'empan ne bougent pas, ceux du remplacement se redistribuent sur l'empan
+retiré au prorata de la longueur des mots.
+
+**Deux conséquences restent partielles.** Le glossaire de l'étage 0 n'est pas
+alimenté — cette PR pose la correction, pas la boucle de rétroaction vers
+`initial_prompt`, qui reste à faire. Et le mécanisme d'empreinte de rendu
+(`src/server/steps/render.ts`, §11 ci-dessous) ne compare pas encore le texte
+pour décider qu'un rendu déjà exporté est périmé : une correction touchant un
+clip déjà monté est signalée à l'écran — les clips concernés sont nommés dans
+la réponse de la route —, mais rien ne force encore le réexport par le graphe
+comme le fait déjà l'empreinte pour le montage, les marques ou le style des
+sous-titres.
+
 ### Ce qui est constaté sur la machine
 
 Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec

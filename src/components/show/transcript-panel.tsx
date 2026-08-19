@@ -232,7 +232,9 @@ export function TranscriptPanel({
   const container = useRef<HTMLDivElement>(null)
   // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
   // `useVirtualizer` rend des fonctions dont le résultat change à chaque
-  // défilement. C'est le comportement voulu, comme dans `TranscriptSurface`.
+  // défilement. C'est le comportement voulu, comme dans `TranscriptSurface`,
+  // dont le commentaire porte la raison de le rendre muet ici aussi.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => container.current,

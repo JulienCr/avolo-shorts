@@ -26,7 +26,7 @@ import type {
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { statutPour } from '@/server/http'
-import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
+import { clipFraming } from '@/server/clip-framing'
 import {
   renderedFraming,
   cheminsRendu,

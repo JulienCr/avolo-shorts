@@ -104,23 +104,23 @@ type Cadre = { x: number; y: number; w: number; h: number }
  * Les cinq points COCO de la tête, et non le seul nez : un profil ne montre
  * qu'un œil et qu'une oreille.
  */
-function têteDe(b: PersonBox): { x0: number; y0: number; x1: number; y1: number } | null {
+function headBounds(b: PersonBox): { x0: number; y0: number; x1: number; y1: number } | null {
   const k = b.k
   if (k === undefined) return null
   let x0 = Number.POSITIVE_INFINITY
   let y0 = Number.POSITIVE_INFINITY
   let x1 = Number.NEGATIVE_INFINITY
   let y1 = Number.NEGATIVE_INFINITY
-  let vus = 0
-  for (const rang of TORSOS.head) {
-    if (!(k[rang * 3 + 2] >= FRAMING_DEFAULTS.torsoMinScore)) continue
-    vus += 1
-    x0 = Math.min(x0, k[rang * 3])
-    x1 = Math.max(x1, k[rang * 3])
-    y0 = Math.min(y0, k[rang * 3 + 1])
-    y1 = Math.max(y1, k[rang * 3 + 1])
+  let seen = 0
+  for (const rank of TORSOS.head) {
+    if (!(k[rank * 3 + 2] >= FRAMING_DEFAULTS.torsoMinScore)) continue
+    seen += 1
+    x0 = Math.min(x0, k[rank * 3])
+    x1 = Math.max(x1, k[rank * 3])
+    y0 = Math.min(y0, k[rank * 3 + 1])
+    y1 = Math.max(y1, k[rank * 3 + 1])
   }
-  return vus === 0 ? null : { x0, y0, x1, y1 }
+  return seen === 0 ? null : { x0, y0, x1, y1 }
 }
 
 /**
@@ -145,7 +145,7 @@ function vignette(
   H: number,
   out: string,
   trim: number,
-  tronc: TorsoName | 'off',
+  torso: TorsoName | 'off',
 ): void {
   const filtres = boîtes.map((b) => {
     const x = Math.round(b.x0 * W)
@@ -160,7 +160,7 @@ function vignette(
   // qui tombe est une épaule ou une joue.
   for (const b of boîtes) {
     if (couleur(b) !== 'lime') continue
-    const { x0, x1 } = personBounds(b, { sideTrim: trim, torso: tronc })
+    const { x0, x1 } = personBounds(b, { sideTrim: trim, torso })
     const y = Math.round(b.y0 * H)
     const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
     filtres.push(
@@ -169,12 +169,12 @@ function vignette(
     // La tête, quand elle est connue. Un carré et non un point : un pixel se
     // perd sur une image de 960 de large, et ce qu'on cherche à voir est de
     // quel côté du trait jaune il tombe.
-    const tête = têteDe(b)
-    if (tête === null) continue
+    const head = headBounds(b)
+    if (head === null) continue
     filtres.push(
-      `drawbox=x=${Math.round(tête.x0 * W)}:y=${Math.round(tête.y0 * H)}` +
-        `:w=${Math.max(3, Math.round((tête.x1 - tête.x0) * W))}` +
-        `:h=${Math.max(3, Math.round((tête.y1 - tête.y0) * H))}:color=magenta:t=2`,
+      `drawbox=x=${Math.round(head.x0 * W)}:y=${Math.round(head.y0 * H)}` +
+        `:w=${Math.max(3, Math.round((head.x1 - head.x0) * W))}` +
+        `:h=${Math.max(3, Math.round((head.y1 - head.y0) * H))}:color=magenta:t=2`,
     )
   }
   filtres.push(
@@ -218,14 +218,14 @@ function étendue(
   boîtes: PersonBox[],
   marge: number,
   trim: number,
-  tronc: TorsoName | 'off',
+  torso: TorsoName | 'off',
 ): { g: number | undefined; d: number | undefined; haut: number; bas: number } {
   const gardées = boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
   if (gardées.length === 0) return { g: undefined, d: undefined, haut: 0, bas: 1 }
-  const rognées = gardées.map((b) => personBounds(b, { sideTrim: trim, torso: tronc }))
+  const required = gardées.map((b) => personBounds(b, { sideTrim: trim, torso }))
   return {
-    g: Math.max(0, Math.min(...rognées.map((b) => b.x0)) - marge),
-    d: Math.min(1, Math.max(...rognées.map((b) => b.x1)) + marge),
+    g: Math.max(0, Math.min(...required.map((b) => b.x0)) - marge),
+    d: Math.min(1, Math.max(...required.map((b) => b.x1)) + marge),
     haut: Math.min(...gardées.map((b) => b.y0)),
     bas: Math.max(...gardées.map((b) => b.y1)),
   }
@@ -283,31 +283,31 @@ async function main(): Promise<number> {
     console.error(`--marge attend un nombre ≥ 0, reçu « ${String(brutMarge)} ».`)
     return 1
   }
-  const brutTrim = valeurDe('--trim')
-  const trim = brutTrim === undefined ? FRAMING_DEFAULTS.sideTrim : Number(brutTrim)
+  const rawTrim = valeurDe('--trim')
+  const trim = rawTrim === undefined ? FRAMING_DEFAULTS.sideTrim : Number(rawTrim)
   // Refusé et non corrigé, pour la même raison que la marge : une vignette qui
   // montre un autre rognage que celui de sa légende est l'image dont on tire une
   // conclusion fausse.
   if (!Number.isFinite(trim) || trim < 0 || trim > 0.5) {
-    console.error(`--trim attend un nombre entre 0 et 0,5, reçu « ${String(brutTrim)} ».`)
+    console.error(`--trim attend un nombre entre 0 et 0,5, reçu « ${String(rawTrim)} ».`)
     return 1
   }
-  const brutImages = valeurDe('--images')
-  const nImages = brutImages === undefined ? 1 : Number(brutImages)
-  if (!Number.isInteger(nImages) || nImages <= 0) {
-    console.error(`--images attend un entier \u2265 1, re\u00e7u \u00ab ${String(brutImages)} \u00bb.`)
+  const rawImages = valeurDe('--images')
+  const imageCount = rawImages === undefined ? 1 : Number(rawImages)
+  if (!Number.isInteger(imageCount) || imageCount <= 0) {
+    console.error(`--images attend un entier \u2265 1, re\u00e7u \u00ab ${String(rawImages)} \u00bb.`)
     return 1
   }
   // Refusé et non corrigé, pour la même raison que la marge : une vignette qui
   // montre un autre tronc que celui de sa légende est l'image dont on tire une
   // conclusion fausse.
-  const brutTronc = valeurDe('--tronc')
-  const troncsConnus = ['off', ...Object.keys(TORSOS)]
-  if (brutTronc !== undefined && !troncsConnus.includes(brutTronc)) {
-    console.error(`--tronc attend l'un de ${troncsConnus.join(', ')}, reçu « ${brutTronc} ».`)
+  const rawTorso = valeurDe('--tronc')
+  const knownTorsos = ['off', ...Object.keys(TORSOS)]
+  if (rawTorso !== undefined && !knownTorsos.includes(rawTorso)) {
+    console.error(`--tronc attend l'un de ${knownTorsos.join(', ')}, reçu « ${rawTorso} ».`)
     return 1
   }
-  const tronc = (brutTronc ?? FRAMING_DEFAULTS.torso) as TorsoName | 'off'
+  const torso = (rawTorso ?? FRAMING_DEFAULTS.torso) as TorsoName | 'off'
 
   const brutRatio = valeurDe('--ratio')
   if (brutRatio !== undefined && !estRatio(brutRatio)) {
@@ -333,7 +333,7 @@ async function main(): Promise<number> {
   const cadrage = computeFraming({
     margin: marge,
     sideTrim: trim,
-    torso: tronc,
+    torso,
     segments: clip.segments,
     shots: analyse.shots,
     people: analyse.boxes,
@@ -349,7 +349,7 @@ async function main(): Promise<number> {
   const segments = normalizeSegments(clip.segments)
   const { w: W, h: H } = analyse.proxy
   console.log(
-    `${clipId} — natif ${cadrage.ratio}, marge ${marge}, rognage ${trim}, tronc ${tronc}, ` +
+    `${clipId} — natif ${cadrage.ratio}, marge ${marge}, rognage ${trim}, tronc ${torso}, ` +
       `${cadrage.shots.length} plan(s)` +
       ` — largeur du crop natif ${((RATIOS[cadrage.ratio] * analyse.source.h) / analyse.source.w).toFixed(3)}`,
   )
@@ -396,8 +396,8 @@ async function main(): Promise<number> {
     // dès que `cropRect` recentre verticalement.
     const classées = [...parImage.entries()]
       .map(([clé, boîtes]) => {
-        const empan = requiredWidths(boîtes, { margin: marge, sideTrim: trim, torso: tronc })[0]
-        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge, trim, tronc) }
+        const empan = requiredWidths(boîtes, { margin: marge, sideTrim: trim, torso })[0]
+        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge, trim, torso) }
       })
       .filter(
         (e): e is Mesurée => e.empan !== undefined && e.g !== undefined && e.d !== undefined,
@@ -419,29 +419,29 @@ async function main(): Promise<number> {
     // ne disent rien du cadrage courant. Un pas régulier de la pire à la
     // meilleure montre l'accident *et* le cas normal, qui est la seule
     // comparaison qui tranche.
-    const rangs =
-      nImages === 1
+    const ranks =
+      imageCount === 1
         ? [0]
         : [...new Set(
-            Array.from({ length: nImages }, (_, i) =>
-              Math.round((i * (classées.length - 1)) / (nImages - 1)),
+            Array.from({ length: imageCount }, (_, i) =>
+              Math.round((i * (classées.length - 1)) / (imageCount - 1)),
             ),
           )]
 
-    for (const rang of rangs) {
-      const vue = classées[rang]
+    for (const rank of ranks) {
+      const picked = classées[rank]
       const fichier = path.join(
         dossier,
-        `plan${shotStartMs(plan.shot)}_r${rang}_t${vue.t.toFixed(1)}.png`,
+        `plan${shotStartMs(plan.shot)}_r${rank}_t${picked.t.toFixed(1)}.png`,
       )
-      vignette(proxy, vue.t, vue.boîtes, crop, W, H, fichier, trim, tronc)
+      vignette(proxy, picked.t, picked.boîtes, crop, W, H, fichier, trim, torso)
 
       console.log(
-        `  ${fichier}  plan ${shotStartMs(plan.shot)} ms ${plan.ratio}, image ${vue.t.toFixed(1)} s` +
-          ` (rang ${rang + 1}/${classées.length})` +
-          ` — empan [${vue.g.toFixed(3)} ; ${vue.d.toFixed(3)}] (${vue.empan.toFixed(3)})` +
+        `  ${fichier}  plan ${shotStartMs(plan.shot)} ms ${plan.ratio}, image ${picked.t.toFixed(1)} s` +
+          ` (rang ${rank + 1}/${classées.length})` +
+          ` — empan [${picked.g.toFixed(3)} ; ${picked.d.toFixed(3)}] (${picked.empan.toFixed(3)})` +
           `, crop [${crop.x.toFixed(3)} ; ${(crop.x + crop.w).toFixed(3)}]` +
-          ` — ${vue.sortie > 1e-9 ? `DÉBORDE de ${vue.sortie.toFixed(3)}` : 'cadrée'}` +
+          ` — ${picked.sortie > 1e-9 ? `DÉBORDE de ${picked.sortie.toFixed(3)}` : 'cadrée'}` +
           ` — ${débordantes} image(s) sur ${classées.length} débordent` +
           ` (${((100 * débordantes) / classées.length).toFixed(0)} %)`,
       )

@@ -803,7 +803,7 @@ sortir partiellement du cadre.
 abandonne, de chaque côté, `min(0,30 × sa largeur ; 0,12 de l'image)` avant
 d'entrer dans l'empan. Le cas qui l'a ouverte : sur
 `2025-06-15-cqlp_002107357-002143228`, deux comédiens occupent `[0,106 ; 0,490]`
-et `[0,523 ; 0,778]`, leur union fait 0,669 quand un 1:1 en couvre 0,5625, et
+et `[0,523 ; 0,778]`, leur union fait 0,672 quand un 1:1 en couvre 0,5625, et
 **aucune** des 61 images du plan ne tient — aucun réglage de percentile ne pouvait
 donc rendre autre chose qu'un 16:9. Vérifié à l'image, le 1:1 garde pourtant les
 deux visages et les deux bustes, et ne perd que l'épaule extérieure de chacun.

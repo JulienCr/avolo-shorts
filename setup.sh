@@ -409,9 +409,9 @@ fi
 # `$1` le fichier, `$2` la somme attendue — vide pour ne pas vérifier. Une
 # fonction et non deux copies du bloc : deux copies divergent, et celle qui
 # divergerait ici est celle qui vérifie une somme.
-installer_poids() {
-  poids="$MODELS_DIR/$1"
-  attendue="$2"
+install_weights() {
+  weights="$MODELS_DIR/$1"
+  expected="$2"
   # **La présence ne vaut pas conformité**, exactement comme pour ffmpeg et pour
   # le venv plus haut : ce script vérifie par un contrôle réel, jamais par un
   # fichier qui existe. Sauter le téléchargement sur la seule présence garderait
@@ -419,17 +419,17 @@ installer_poids() {
   # — donc un `YOLO_RELEASE=… ./setup.sh` qui n'installe pas la release demandée.
   # Quarante mégaoctets à hacher, c'est instantané ; s'en priver coûte une
   # détection qui tourne sur des poids que personne n'a demandés.
-  poids_conformes=0
-  if [ -s "$poids" ]; then
-    if [ -z "$attendue" ]; then
-      poids_conformes=1
-    elif [ "$(sha256sum "$poids" | cut -d' ' -f1)" = "$attendue" ]; then
-      poids_conformes=1
+  weights_ok=0
+  if [ -s "$weights" ]; then
+    if [ -z "$expected" ]; then
+      weights_ok=1
+    elif [ "$(sha256sum "$weights" | cut -d' ' -f1)" = "$expected" ]; then
+      weights_ok=1
     else
       say "Poids $1 présents mais de somme inattendue : ils sont remplacés."
     fi
   fi
-  if [ "$FORCE" -eq 0 ] && [ "$poids_conformes" -eq 1 ]; then
+  if [ "$FORCE" -eq 0 ] && [ "$weights_ok" -eq 1 ]; then
     say "Poids $1 déjà en place."
     return 0
   fi
@@ -439,33 +439,33 @@ installer_poids() {
   # Dans un fichier temporaire : un téléchargement coupé ne doit pas laisser
   # des poids tronqués sous le nom définitif, que la relance prendrait pour un
   # fichier valable — la même règle que `produireArtefact` côté Node.
-  tmp_poids="$poids.partiel.$$"
+  tmp_weights="$weights.partiel.$$"
   url="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/$1"
-  if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_poids" "$url"; then
-    rm -f "$tmp_poids"
+  if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_weights" "$url"; then
+    rm -f "$tmp_weights"
     bad "téléchargement de $url en échec"
     exit 1
   fi
-  if [ -n "$attendue" ]; then
-    somme="$(sha256sum "$tmp_poids" | cut -d' ' -f1)"
-    if [ "$somme" != "$attendue" ]; then
-      rm -f "$tmp_poids"
-      bad "somme SHA-256 inattendue pour $1 : $somme"
-      bad "attendue : $attendue (ajuster la somme pour un autre modèle)"
+  if [ -n "$expected" ]; then
+    checksum="$(sha256sum "$tmp_weights" | cut -d' ' -f1)"
+    if [ "$checksum" != "$expected" ]; then
+      rm -f "$tmp_weights"
+      bad "somme SHA-256 inattendue pour $1 : $checksum"
+      bad "attendue : $expected (ajuster la somme pour un autre modèle)"
       exit 1
     fi
     ok "somme conforme"
   else
     say "somme vide : elle n'est pas vérifiée pour $1"
   fi
-  mv "$tmp_poids" "$poids"
-  ok "poids installés dans $poids"
+  mv "$tmp_weights" "$weights"
+  ok "poids installés dans $weights"
 }
 
 if [ "$SKIP_DETECT" -eq 0 ]; then
-  installer_poids "$YOLO_MODEL" "$YOLO_SHA256"
-  installer_poids "$YOLO_POSE_MODEL" "$YOLO_POSE_SHA256"
-  poids_pose="$MODELS_DIR/$YOLO_POSE_MODEL"
+  install_weights "$YOLO_MODEL" "$YOLO_SHA256"
+  install_weights "$YOLO_POSE_MODEL" "$YOLO_POSE_SHA256"
+  pose_weights="$MODELS_DIR/$YOLO_POSE_MODEL"
 fi
 
 # --- rappeler la configuration ------------------------------------------------
@@ -487,5 +487,5 @@ if [ "$SKIP_DETECT" -eq 0 ]; then
   # C'est le modèle **de pose** qu'on nomme : sans lui, l'analyse sort en
   # version 2 sans points, le cadrage retombe sur la boîte corps entier et sur
   # le rognage latéral, et rien ne le dit sinon le champ `keypoints` du fichier.
-  say "       DETECT_MODEL=$poids_pose"
+  say "       DETECT_MODEL=$pose_weights"
 fi

@@ -167,8 +167,23 @@ Deux choses à ne pas défaire, et les deux ont été payées par une image :
   pendant les 28 secondes de son plan sans que le compteur de pertes le signale ;
 - **le rognage ne remplace pas de meilleures boîtes.** Là où le détecteur ne rend
   rien d'exploitable — un gros plan dont les boîtes sautent de ±0,15 d'une image à
-  l'autre —, aucun critère lisant ces boîtes ne cadrera juste. C'est l'issue #69,
-  et elle reste entière.
+  l'autre —, aucun critère lisant ces boîtes ne cadrera juste.
+
+**Et le soir même, le cadre a cessé de lire des boîtes.** `worker/detect.py`
+tourne sur `yolo11m-pose.pt`, qui rend dix-sept points COCO par personne ;
+l'empan se lit désormais sur le **tronc** — la tête et les épaules, rognées de
+30 % et rembourrées de 15 %, la tête servant de plancher —, et la boîte rognée
+n'est plus que le repli des analyses de version 1 et des personnes de dos.
+Ce que ça change tient moins au ratio qu'au coût : ce que le cadre coupe d'un
+tronc tombe de 0,309 à 0,016 au p99 sur `cqlp`, et les têtes posées à moins d'un
+centième du bord sont divisées par cinq.
+
+**L'issue #69 est donc à moitié fermée**, et il faut lire lequel des deux
+moitiés : sa cause des jambes tendues est résolue — l'union des troncs vaut 0,454
+là où celle des boîtes valait 0,819 —, ses faux positifs sur du mobilier vide ne
+le sont pas, un modèle de pose posant un squelette sur un fauteuil. Le gros plan
+de `cqlp` à 2 138 s s'améliore sans se résoudre : la gigue tombe de 0,380 à
+0,178, mais ce n'est plus la largeur qui décide, c'est la position.
 
 Le détail, les seuils, le coût en secondes et les images sont dans
 `docs/ratios-par-clip.md`.

@@ -676,7 +676,7 @@ l'habiller — c'est à peu près l'épaisseur d'un bras rapportée à la largeu
 épaules, et c'est la valeur au-delà de laquelle le tronc cesse d'être coupé sur
 deux émissions sur trois.
 
-### Les quatre définitions de tronc comparées
+### Les cinq définitions de tronc comparées
 
 Le balayage retient `bust` — la tête et les épaules. Sur les fenêtres
 d'`entre-nous`, part en 16:9 et têtes hors cadre : `head` 47 % / 71, `bust`

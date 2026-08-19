@@ -23,7 +23,7 @@ import { type AiSettings, type LlmAvailability, type LlmProvider, LLM_PROVIDERS 
  *
  * **Seul le repérage agit.** La correction du transcript et le hook n'existent
  * pas encore : leurs réglages se posent et se persistent, comme le contrat le
- * demande, mais rien ne les lit. Chacun des deux porte donc son trimmed banner
+ * demande, mais rien ne les lit. Chacun des deux porte donc son propre bandeau
  * — la forme retenue par `HookSection` pour le même problème, mais **pas la
  * même solution** : là-bas, rien ne s'écrit, parce qu'aucun stockage n'existe
  * encore pour ces valeurs. Ici, le stockage existe — c'est tout l'objet de
@@ -234,7 +234,7 @@ function UsageRow({
               // que la personne vient peut-être de faire exprès. L'indice
               // sous la boîte de modèle dit ce qui marche chez ce
               // fournisseur, sans se substituer au choix.
-              void onChange({ [usage.providerField]: next })
+              void Promise.resolve(onChange({ [usage.providerField]: next })).catch(() => {})
             }}
           >
             <SelectTrigger id={providerId} className="w-40">
@@ -256,7 +256,7 @@ function UsageRow({
               variant="ghost"
               size="sm"
               disabled={disabled}
-              onClick={() => void onChange({ [usage.providerField]: DEFAULT_PROVIDER })}
+              onClick={() => void Promise.resolve(onChange({ [usage.providerField]: DEFAULT_PROVIDER })).catch(() => {})}
               className="h-auto justify-start px-0 text-xs text-muted-foreground"
             >
               <RotateCcw aria-hidden />
@@ -281,8 +281,10 @@ function UsageRow({
           <CircleAlert aria-hidden />
           <AlertTitle>{PROVIDER_LABELS[provider]} n’a pas de clé configurée.</AlertTitle>
           <AlertDescription>
-            {availabilityState.reason ?? 'La clé de ce fournisseur est absente.'} Un repérage avec ce
-            fournisseur échouera avant le premier appel.
+            {availabilityState.reason ?? 'La clé de ce fournisseur est absente.'}{' '}
+            {usage.key === 'selection'
+              ? 'Un repérage avec ce fournisseur échouera avant le premier appel.'
+              : 'La clé sera nécessaire une fois cet usage branché.'}
           </AlertDescription>
         </Alert>
       )}
@@ -356,7 +358,7 @@ function ModelField({
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => void onCommit(defaultValue)}
+            onClick={() => void Promise.resolve(onCommit(defaultValue)).catch(() => {})}
             className="h-auto px-1.5 py-1 text-xs text-muted-foreground"
           >
             <RotateCcw aria-hidden />
@@ -425,7 +427,7 @@ function OllamaUrlField({
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => void onChange({ ollamaBaseUrl: '' })}
+            onClick={() => void Promise.resolve(onChange({ ollamaBaseUrl: '' })).catch(() => {})}
             className="ml-auto text-xs"
           >
             <RotateCcw aria-hidden />

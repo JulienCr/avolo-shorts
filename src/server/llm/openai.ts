@@ -17,7 +17,7 @@ import type { JsonSchema, LlmCall, LlmClientOptions, LlmResponse } from '@/serve
  * `null`) — une contrainte qui ne colle pas à `SCHÉMA_DÉTAIL`, où
  * `predicted_score` peut manquer. Le mode permissif accepte le même schéma que
  * Gemini sans le retoucher, au prix d'un contrat plus faible : `parseDetailResponse`
- * et `parseScoreResponse` restent seuls responsables de refuser une response qui
+ * et `parseScoreResponse` restent seuls responsables de refuser une réponse qui
  * ne le respecte pas, exactement comme pour Gemini aujourd'hui.
  */
 
@@ -58,12 +58,12 @@ type OpenAiChoice = {
 type OpenAiResponse = { choices?: OpenAiChoice[] }
 
 /**
- * Traduit la response REST vers la forme commune que `appelerGemini` consomme.
+ * Traduit la réponse REST vers la forme commune que `appelerGemini` consomme.
  *
  * **Un refus structuré (`message.refusal`) l'emporte sur `finish_reason`.**
  * OpenAI peut renvoyer `finish_reason: "stop"` avec un refus dans
  * `message.refusal` plutôt que dans `content` — un modèle qui explique en
- * langage naturel pourquoi il n'a rien produit. Sans ce contrôle, la response
+ * langage naturel pourquoi il n'a rien produit. Sans ce contrôle, la réponse
  * passerait pour réussie et `parseJsonResponse` échouerait sur du texte libre,
  * classé passager par erreur plutôt que reconnu comme un refus définitif.
  */

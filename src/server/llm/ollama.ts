@@ -19,7 +19,19 @@ const execFileP = promisify(execFile)
  * **jamais codée en dur, elle change au redémarrage** (`CLAUDE.md`).
  */
 async function resolveGateway(): Promise<string> {
-  const { stdout } = await execFileP('ip', ['route', 'show', 'default'])
+  let stdout: string
+  try {
+    ;({ stdout } = await execFileP('ip', ['route', 'show', 'default']))
+  } catch {
+    // `execFileP` peut casser avant même de lancer `ip` (absent du `PATH`,
+    // par exemple) : le message brut de Node ne dit rien d'actionnable, donc
+    // on retombe sur le même message que « ip a répondu, mais rien
+    // d'exploitable » plutôt que de le laisser remonter tel quel.
+    throw new Error(
+      "Impossible de résoudre la passerelle WSL vers Ollama : « ip route show default » " +
+        "n'a rien rendu d'exploitable. Régler l'URL du serveur Ollama à la main dans les réglages.",
+    )
+  }
   const found = /default via (\S+)/.exec(stdout)
   if (found === null) {
     throw new Error(

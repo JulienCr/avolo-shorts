@@ -637,6 +637,143 @@ describe('detect.py — refine_switch', () => {
 })
 
 /**
+ * **La lecture, extraite pour que `--replay` la partage sans lancer ffmpeg.**
+ * `scores_de_scène` l'applique à la sortie d'un sous-processus ; `--replay`
+ * l'applique au contenu d'un fichier capturé une fois. Même fonction, pure.
+ */
+describe('detect.py — parse_scene_scores', () => {
+  const parse = (text: string): [number, number][] =>
+    évaluer(`print(json.dumps(detect.parse_scene_scores(${JSON.stringify(text)})))`) as [
+      number,
+      number,
+    ][]
+
+  it('lit les couples (instant, score) écrits par metadata=print', () => {
+    const text = [
+      'frame:0    pts:1224192 pts_time:79.7',
+      'lavfi.scene_score=0.529416',
+      'frame:1    pts:1234192 pts_time:80.1',
+      'lavfi.scene_score=0.048000',
+    ].join('\n')
+    expect(parse(text)).toEqual([
+      [79.7, 0.529416],
+      [80.1, 0.048],
+    ])
+  })
+
+  it('rend une liste vide sur un texte sans couple', () => {
+    expect(parse('rien à voir ici\n')).toEqual([])
+  })
+})
+
+/**
+ * **Le rejeu, tel que le calibrage l'utilise : par le CLI, sur des fichiers
+ * réels.** `run_replay` n'est pas pure — elle lit deux fichiers et en écrit
+ * un — donc éprouvée ici plutôt que par `évaluer()`, avec le même patron que
+ * la suite du refus en ligne de commande ci-dessous.
+ */
+describe('detect.py — --replay', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-replay-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  // Deux personnes qui glissent de +0,2 entre t = 0 et t = 0,5 (fps = 2) :
+  // une bascule franche, sans le moindre score de scène pour la confirmer —
+  // le repli sur le milieu de fenêtre doit donc jouer.
+  const ANALYSIS: Record<string, unknown> = {
+    version: 2,
+    fps: 2.0,
+    model: 'yolo11m-pose.pt',
+    source: { w: 1920, h: 1080 },
+    proxy: { w: 960, h: 540 },
+    shots: [{ start: 0, end: 20 }],
+    boxes: [
+      { t: 0.0, x0: 0.05, x1: 0.15, y0: 0, y1: 1, score: 0.9 },
+      { t: 0.0, x0: 0.35, x1: 0.45, y0: 0, y1: 1, score: 0.9 },
+      { t: 0.5, x0: 0.26, x1: 0.36, y0: 0, y1: 1, score: 0.9 },
+      { t: 0.5, x0: 0.54, x1: 0.64, y0: 0, y1: 1, score: 0.9 },
+    ],
+  }
+
+  const runReplay = (
+    analysis: Record<string, unknown>,
+    sceneScores: string,
+  ): { status: number | null; stderr: string; out: string } => {
+    const analysisPath = path.join(root, 'analysis.json')
+    const scoresPath = path.join(root, 'scene.txt')
+    const outPath = path.join(root, 'out.json')
+    fs.writeFileSync(analysisPath, JSON.stringify(analysis))
+    fs.writeFileSync(scoresPath, sceneScores)
+    const r = spawnSync(
+      'python3',
+      [
+        path.join(RACINE, 'worker', 'detect.py'),
+        '--replay', analysisPath,
+        '--scene-scores', scoresPath,
+        '--out', outPath,
+        // `--min-shot` abaissé : la bascule tombe à 0,375 s du début, sous le
+        // défaut de 1 s, ce qui n'est pas ce que ce test éprouve.
+        '--min-shot', '0.1',
+        '--switch-shift', '0.1',
+        '--switch-tolerance', '0.03',
+        '--switch-share', '6',
+        '--switch-point-score', '0.5',
+      ],
+      { encoding: 'utf8', env: SANS_BYTECODE },
+    )
+    return {
+      status: r.status,
+      stderr: r.stderr,
+      out: fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : '',
+    }
+  }
+
+  it('recalcule les plans et recopie le reste tel quel', () => {
+    const { status, out } = runReplay(ANALYSIS, '')
+    expect(status).toBe(0)
+    const result = JSON.parse(out)
+    expect(result.version).toBe(2)
+    expect(result.model).toBe('yolo11m-pose.pt')
+    expect(result.boxes).toEqual(ANALYSIS.boxes)
+    // La bascule à 0,2 de déplacement collectif est détectée ; sans score de
+    // scène dans la fenêtre (0, 0,5 + 1/(2·2)] = (0, 0,75], `refine_switch`
+    // replie sur son milieu — (0 + 0,75) / 2 = 0,375.
+    expect(result.shots).toEqual([
+      { start: 0, end: 0.375 },
+      { start: 0.375, end: 20 },
+    ])
+  })
+
+  it('sort par 2 sans --scene-scores', () => {
+    const analysisPath = path.join(root, 'analysis.json')
+    fs.writeFileSync(analysisPath, JSON.stringify(ANALYSIS))
+    const r = spawnSync(
+      'python3',
+      [
+        path.join(RACINE, 'worker', 'detect.py'),
+        '--replay', analysisPath,
+        '--out', path.join(root, 'out.json'),
+      ],
+      { encoding: 'utf8', env: SANS_BYTECODE },
+    )
+    expect(r.status).toBe(2)
+    expect(r.stderr).toContain('--scene-scores')
+  })
+
+  it('sort par 2 sur une analyse sans plan', () => {
+    const { status, stderr } = runReplay({ ...ANALYSIS, shots: [] }, '')
+    expect(status).toBe(2)
+    expect(stderr).toContain('rien à rejouer')
+  })
+})
+
+/**
  * Le refus, tel que Node le rencontre : par un code de sortie et une ligne de
  * stderr, pas par une valeur de retour. Une fonction juste et jamais appelée
  * n'aurait rien fermé — c'est exactement le défaut que ce ticket ferme un cran

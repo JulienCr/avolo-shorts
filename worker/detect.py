@@ -134,6 +134,17 @@ def arrondi_vers_le_bas(valeur: float, décimales: int) -> float:
 COUPLE_SCÈNE = re.compile(r"pts_time:([0-9.]+)\s*\nlavfi\.scene_score=([0-9.]+)")
 
 
+def parse_scene_scores(text: str) -> list[tuple[float, float]]:
+    """Les couples ``(instant, score)`` que ``metadata=print`` a écrits.
+
+    Pure — ni ffmpeg ni disque — pour que ``scores_de_scène`` (la sortie d'un
+    sous-processus) et le mode ``--replay`` (le contenu d'un fichier capturé
+    une fois, voir ``--scene-scores``) partagent la même lecture sans que l'un
+    des deux devienne le cas particulier de l'autre.
+    """
+    return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(text)]
+
+
 def scene_filter(floor: float) -> str:
     """Le filtre ``-vf`` qui collecte les candidates de coupe, pur pour être testé
     sans lancer ffmpeg.
@@ -184,7 +195,7 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
             f"Commande : {' '.join(args)}\n"
             f"Dernières lignes :\n{queue or '(stderr vide)'}"
         )
-    return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(terminé.stdout)]
+    return parse_scene_scores(terminé.stdout)
 
 
 def _spaced_boundaries(candidates: list[float], duration: float, min_shot: float) -> list[float]:
@@ -826,29 +837,134 @@ def refus_du_seuil_de_scène(
 
 
 # ---------------------------------------------------------------------------
+# Le rejeu, pour étalonner sans GPU ni ffmpeg
+# ---------------------------------------------------------------------------
+
+
+def run_replay(a: argparse.Namespace) -> int:
+    """Recalcule les frontières d'un ``analysis.json`` existant, à partir
+    d'une capture de scores de scène déjà faite — sans GPU, sans ffmpeg.
+
+    **Le pivot de l'étalonnage.** Les quatre projets du corpus portent déjà
+    toutes leurs boîtes ; il ne manque que les scores de scène, qui se
+    capturent une fois (voir docs/ratios-par-clip.md pour la commande) parce
+    qu'ils ne dépendent d'aucun des seuils qu'on étalonne. Balayer une grille
+    de seuils devient alors une affaire de secondes, pas de minutes de GPU
+    répétées.
+
+    **Tout est recopié depuis l'analyse d'origine, sauf ``shots``** : version,
+    fps, modèle, dimensions, boîtes, marqueur ``keypoints``. C'est aussi ce qui
+    fait marcher le rejeu sur une analyse de version 1 — sans points de pose,
+    donc sans ``keypoints`` et sans ``k`` sur ses boîtes — puisque
+    ``person_anchor`` replie déjà sur le centre de boîte dans ce cas : rien
+    ici n'a besoin de le savoir.
+
+    ``fps`` vient du fichier rejoué, pas de ``--fps`` : les fenêtres de
+    ``composition_switches`` et de ``refine_switch`` doivent utiliser la
+    cadence qui a réellement produit les boîtes, sans quoi la condition sur
+    l'écart entre deux images consécutives ne validerait plus rien.
+    """
+    if a.scene_scores is None:
+        journal("--replay exige --scene-scores : la capture des scores de scène de cette émission.")
+        return 2
+    if not os.path.isfile(a.replay):
+        journal(f"Analyse introuvable : {a.replay}")
+        return 2
+    if not os.path.isfile(a.scene_scores):
+        journal(f"Capture de scores de scène introuvable : {a.scene_scores}")
+        return 2
+
+    refus = refus_du_seuil_de_scène(
+        a.scene_threshold,
+        a.scene_floor,
+        a.min_shot,
+        a.switch_shift,
+        a.switch_tolerance,
+        a.switch_share,
+        a.switch_point_score,
+    )
+    if refus is not None:
+        journal(refus)
+        return 2
+
+    with open(a.replay, "r", encoding="utf-8") as f:
+        analysis = json.load(f)
+
+    shots = analysis.get("shots")
+    if not shots:
+        journal(f"{a.replay} ne porte aucun plan : rien à rejouer.")
+        return 2
+    # La durée n'est écrite nulle part dans le fichier ; le dernier plan la
+    # porte, puisque `shots_from_boundaries` partitionne toujours [0, durée]
+    # sans reste.
+    duration = shots[-1]["end"]
+    boxes = analysis.get("boxes", [])
+    fps = analysis.get("fps", a.fps)
+
+    with open(a.scene_scores, "r", encoding="utf-8") as f:
+        events = parse_scene_scores(f.read())
+
+    scene_boundary_times = scene_boundaries(events, duration, a.scene_threshold, a.min_shot)
+    switch_candidates = composition_switches(
+        boxes, fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
+    )
+    switch_boundary_times: list[float] = []
+    fallback_count = 0
+    for t1, t2 in switch_candidates:
+        refined_t, refined = refine_switch(t1, t2, events, fps)
+        switch_boundary_times.append(refined_t)
+        if not refined:
+            fallback_count += 1
+
+    boundaries = _spaced_boundaries(
+        [*scene_boundary_times, *switch_boundary_times], duration, a.min_shot
+    )
+    analysis["shots"] = shots_from_boundaries(boundaries, duration)
+
+    fallback_rate = fallback_count / len(switch_candidates) if switch_candidates else 0.0
+    journal(
+        f"Rejeu : {len(analysis['shots'])} plans, {len(boundaries)} frontières "
+        f"({len(scene_boundary_times)} scène sur {len(events)} candidates, "
+        f"{len(switch_boundary_times)} bascules dont {fallback_count} en repli, "
+        f"{100 * fallback_rate:.0f} %)."
+    )
+
+    dossier = os.path.dirname(a.out)
+    if dossier:
+        os.makedirs(dossier, exist_ok=True)
+    with open(a.out, "w", encoding="utf-8") as f:
+        json.dump(analysis, f, ensure_ascii=False, allow_nan=False)
+    journal(f"Écrit {a.out}.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Détecte les corps et les frontières de plans sur un proxy."
     )
-    p.add_argument("--proxy", required=True, help="le proxy 960x540 à 30 im/s")
+    # **Non requis quand --replay est donné.** Le rejeu ne décode ni ne détecte
+    # rien : il relit un `analysis.json` déjà produit et une capture de scores
+    # de scène, voir plus bas. La validation qui les rend obligatoires sinon
+    # est faite à la main juste après `parse_args()`, parce qu'`argparse` ne
+    # sait pas conditionner un `required` sur la valeur d'un autre argument.
+    p.add_argument("--proxy", help="le proxy 960x540 à 30 im/s")
     p.add_argument("--out", required=True, help="le JSON à écrire")
-    p.add_argument("--ffmpeg", required=True, help="le binaire de setup.sh (FFMPEG_BIN)")
-    p.add_argument("--model", required=True, help="les poids YOLO, posés par setup.sh")
+    p.add_argument("--ffmpeg", help="le binaire de setup.sh (FFMPEG_BIN)")
+    p.add_argument("--model", help="les poids YOLO, posés par setup.sh")
     p.add_argument(
         "--proxy-size",
-        required=True,
         type=taille,
         help="LARGEURxHAUTEUR du proxy, relevé par Node avec ffprobe",
     )
     p.add_argument(
         "--source-size",
-        required=True,
         type=taille,
         help="LARGEURxHAUTEUR de l'original — recopié tel quel dans le résultat",
     )
-    p.add_argument("--duration", required=True, type=float, help="la durée du proxy, en secondes")
+    p.add_argument("--duration", type=float, help="la durée du proxy, en secondes")
     p.add_argument("--fps", type=float, default=2.0, help="images analysées par seconde (spec §6)")
     p.add_argument("--imgsz", type=int, default=960, help="la taille d'entrée du réseau")
     # **Volontairement plus bas que le seuil du consommateur.** `src/core/framing.ts`
@@ -903,8 +1019,34 @@ def main() -> int:
         default=0.5,
         help="confiance minimale d'un point de pose pour entrer dans l'ancrage d'une personne",
     )
+    # **L'étalonnage sans GPU ni ffmpeg.** Les boîtes sont déjà dans un
+    # `analysis.json` existant ; il ne manque que les scores de scène, une
+    # passe ffmpeg qui ne touche pas au GPU (voir `scores_de_scène`) et se
+    # capture une fois. `--replay` recalcule alors les frontières pour
+    # n'importe quel jeu de seuils, en quelques secondes au lieu de quelques
+    # minutes de détection. Voir docs/ratios-par-clip.md pour la commande
+    # exacte de capture.
+    p.add_argument(
+        "--replay",
+        metavar="ANALYSIS_JSON",
+        help="rejoue le calcul des frontières depuis un analysis.json existant, sans GPU ni ffmpeg",
+    )
+    p.add_argument(
+        "--scene-scores",
+        metavar="FICHIER",
+        help="la sortie brute de la passe ffmpeg de collecte, capturée une fois (requis avec --replay)",
+    )
     a = p.parse_args()
 
+    if a.replay is not None:
+        return run_replay(a)
+
+    if a.proxy is None or a.ffmpeg is None or a.model is None:
+        journal("--proxy, --ffmpeg et --model sont requis hors de --replay.")
+        return 2
+    if a.proxy_size is None or a.source_size is None or a.duration is None:
+        journal("--proxy-size, --source-size et --duration sont requis hors de --replay.")
+        return 2
     if not os.path.isfile(a.proxy):
         journal(f"Proxy introuvable : {a.proxy}")
         return 2

@@ -14,7 +14,7 @@
 
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
-import { estGuard, type Phase } from '@/core/phase'
+import { isGuard, type Phase } from '@/core/phase'
 
 /** De quoi nommer un projet dans un fil d'Ariane et y revenir. */
 type Landmarks = { id: string; title: string }
@@ -217,5 +217,5 @@ export function clipNext<T extends { id: string; status: ClipStatus }>(
   if (current < 0) return null
   // `estGarde`, et non `status === 'kept'` : rouvrir un clip exporté pour en
   // retoucher le montage est un parcours normal.
-  return clips.slice(current + 1).find((c) => estGuard(c.status)) ?? null
+  return clips.slice(current + 1).find((c) => isGuard(c.status)) ?? null
 }

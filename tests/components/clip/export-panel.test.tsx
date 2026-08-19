@@ -42,7 +42,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
   }
 }
 
-const nothingEstProduced: ClipOutputs = {
+const nothingIsProduced: ClipOutputs = {
   mp4Url: null,
   variant9x16Url: null,
   variant9x16Due: true,
@@ -62,7 +62,7 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
   )
   const complete = {
     clip: clip(),
-    outputs: nothingEstProduced,
+    outputs: nothingIsProduced,
     framing: framing(),
     duration: 20,
     autosave: 'enregistre' as const,
@@ -433,7 +433,7 @@ describe('les textes et les marques', () => {
 
 describe('le bouton « Publier »', () => {
   it('se refuse avec sa raison quand le clip n’a pas de rendu disponible', () => {
-    mount({ outputs: nothingEstProduced })
+    mount({ outputs: nothingIsProduced })
     const button = screen.getByRole('button', { name: /^publier$/i })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText(/Exporter avant de publier/)).toBeTruthy()
@@ -441,7 +441,7 @@ describe('le bouton « Publier »', () => {
 
   it('ouvre la modale de publication une fois le clip exporté', () => {
     mount({
-      outputs: { ...nothingEstProduced, mp4Url: 'https://example.test/c1.mp4' },
+      outputs: { ...nothingIsProduced, mp4Url: 'https://example.test/c1.mp4' },
     })
     const button = screen.getByRole('button', { name: /^publier$/i })
     expect(button.hasAttribute('aria-disabled')).toBe(false)

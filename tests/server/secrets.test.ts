@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estReference, requireSecret, resolveSecrets, type Environment } from '@/server/secrets'
+import { isReference, requireSecret, resolveSecrets, type Environment } from '@/server/secrets'
 
 /**
  * Ce que ces tests figent tient en trois points, et le premier est le seul qui
@@ -45,16 +45,16 @@ async function messageDFailure(promise: Promise<unknown>): Promise<string> {
 
 describe('estRéférence', () => {
   it('reconnaît une adresse de secret', () => {
-    expect(estReference('op://Personal/Avolo-Shorts/GEMINI_API_KEY')).toBe(true)
+    expect(isReference('op://Personal/Avolo-Shorts/GEMINI_API_KEY')).toBe(true)
   })
 
   it("laisse passer ce qui n'en est pas une", () => {
     // Une valeur littérale reste une valeur littérale : `op://` est une
     // possibilité, pas une obligation.
     for (const value of ['une-clé-littérale', '', 'https://exemple/op://', 'OP://MAJUSCULES']) {
-      expect(estReference(value)).toBe(false)
+      expect(isReference(value)).toBe(false)
     }
-    expect(estReference(undefined)).toBe(false)
+    expect(isReference(undefined)).toBe(false)
   })
 })
 

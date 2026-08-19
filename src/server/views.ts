@@ -2,7 +2,7 @@ import fs from 'node:fs'
 
 import type { Clip, Segment } from '@/core/edl'
 import { titleProject } from '@/core/pipeline'
-import { estGuard } from '@/core/phase'
+import { isGuard } from '@/core/phase'
 import type { CandidateClip, ProjectListItem, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Project } from '@/server/db'
@@ -336,7 +336,7 @@ export function clipsTouchedBySpan(
   return clips
     .filter(
       (c) =>
-        estGuard(c.status) &&
+        isGuard(c.status) &&
         c.captions &&
         c.segments.some((s) => s.end > span.start && s.start < span.end),
     )

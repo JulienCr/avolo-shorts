@@ -28,7 +28,7 @@ function shorten(path: string): string {
   return name === undefined ? '…' : `…/${name}`
 }
 
-function estAbsolute(value: string): boolean {
+function isAbsolute(value: string): boolean {
   return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)
 }
 
@@ -205,7 +205,7 @@ export function cleanPaths(message: string, roots: readonly string[] = []): stri
   return redactKeys(output)
     .replace(BETWEEN_QUOTES, (raw) => {
       const inside = raw.slice(1, -1)
-      return estAbsolute(inside) ? `"${shorten(inside)}"` : raw
+      return isAbsolute(inside) ? `"${shorten(inside)}"` : raw
     })
     // La citée d'abord : elle seule sait où finit une référence à espaces, et
     // la passe nue la couperait au premier.

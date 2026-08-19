@@ -11,7 +11,7 @@ import { toggleStatus, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import type { Next } from '@/lib/navigation'
 import { CandidateCard } from '@/components/review/candidate-card'
-import { BoucleFin } from '@/components/review/loop-end'
+import { LoopEnd } from '@/components/review/loop-end'
 import {
   agreement,
   belongs,
@@ -390,7 +390,7 @@ export function ReviewFeed({
               défaite, n'aurait plus de carte où revenir. Les cartes restent donc en
               place, marquées, jusqu'au changement de vue qui les compacte. */}
           {done && (
-            <BoucleFin
+            <LoopEnd
               projectId={projectId}
               clips={clips}
               durationKept={counts.durationKept}

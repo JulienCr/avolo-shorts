@@ -22,7 +22,7 @@ import {
   type Progress,
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
-import { estAAbsence } from '@/server/bytes'
+import { isAAbsence } from '@/server/bytes'
 import { rendersDir, resolveSource } from '@/server/paths'
 import { ensureLocalCopy, holdStagedCopy, editingResponds } from '@/server/steps/ingest'
 import { projectTranscript } from '@/server/views'
@@ -583,7 +583,7 @@ export function lireFingerprint(filePath: string): FingerprintRender | null {
   try {
     content = fs.readFileSync(filePath, 'utf8')
   } catch (error) {
-    if (!estAAbsence(error)) {
+    if (!isAAbsence(error)) {
       console.warn(
         `Empreinte de rendu inaccessible (${path.basename(filePath)}) : ` +
           `${error instanceof Error ? error.name : 'erreur inconnue'}. Le rendu sera refait.`,
@@ -706,7 +706,7 @@ export function lFingerprintGap(
   // jour.
   if (fingerprint === null) return 'absente'
   if (fingerprint.version !== VERSION_FINGERPRINT) return 'recette'
-  if (renderEstStale(fingerprint, clip)) return 'montage'
+  if (renderIsStale(fingerprint, clip)) return 'montage'
   // `clip.branding` en guise de tolérance : un clip qui ne demande pas de marque
   // n'a rien à excuser, son empreinte en porte zéro et la comparaison passe.
   if (observed.markers !== null && markersHaveMoved(fingerprint, observed.markers, clip.branding)) {
@@ -1050,7 +1050,7 @@ export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]>
  * rien : la marque a été demandée, aucune n'est posée, et le fichier partirait
  * sur Instagram sans elle.
  */
-export function markerRejectFaute(
+export function markerRejectFault(
   branding: boolean,
   markers: readonly MarkerNative[],
 ): boolean {
@@ -1420,7 +1420,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
       // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de
       // travail manquante se dit toujours avant la marque manquante.
-      if (markerRejectFaute(clip.branding, markers)) {
+      if (markerRejectFault(clip.branding, markers)) {
         // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
         // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
         // et `collecterMarques` écarte la marque en le journalisant. Dire que le
@@ -1739,7 +1739,7 @@ export function markExported(
   // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
   // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
   // dépendante de l'ordre des appels, et cette fonction est exportée.
-  if (renderEstStale(renderedShape(render, framing), renderedShape(toDay, renderedFraming(clipFraming(toDay))))) {
+  if (renderIsStale(renderedShape(render, framing), renderedShape(toDay, renderedFraming(clipFraming(toDay))))) {
     console.warn(
       `Clip ${clipId} : le montage a changé pendant l'export. Les fichiers produits décrivent le montage d'avant, le statut n'est pas posé.`,
     )
@@ -1792,7 +1792,7 @@ export function discardRenderStale(
   // traverse le plateau peut faire retomber un 16:9 en 1:1 sans qu'aucun champ
   // du clip ne dise « cadrage », et les fichiers montreraient alors un cadre que
   // plus personne ne veut.
-  if (!renderEstStale(renderedShape(render, framing), renderedShape(toDay, rereadFraming(toDay))))
+  if (!renderIsStale(renderedShape(render, framing), renderedShape(toDay, rereadFraming(toDay))))
     return false
 
   // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
@@ -1824,7 +1824,7 @@ export function discardRenderStale(
  *
  * Pure, donc testable sans base ni ffmpeg.
  */
-export function renderEstStale(render: ShapeRendered, toDay: ShapeRendered): boolean {
+export function renderIsStale(render: ShapeRendered, toDay: ShapeRendered): boolean {
   const sameSegments =
     render.segments.length === toDay.segments.length &&
     render.segments.every(

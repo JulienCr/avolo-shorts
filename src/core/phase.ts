@@ -26,11 +26,11 @@ import type { StepName } from '@/core/graph'
  * d'importer `src/lib`, et la recopier ici aurait rendu deux endroits à un
  * module qui existe précisément parce qu'ils divergeaient.
  */
-export function estGuard(status: ClipStatus): boolean {
+export function isGuard(status: ClipStatus): boolean {
   return status === 'kept' || status === 'exported'
 }
 
-export function estDiscarded(status: ClipStatus): boolean {
+export function isDiscarded(status: ClipStatus): boolean {
   return status === 'discarded'
 }
 
@@ -145,7 +145,7 @@ function workProject(clips: readonly { status: ClipStatus }[]): Work {
   // fichiers réussi ou non. La conception a tenu `livre` pour indisponible faute
   // d'un champ de fraîcheur ; la vague de l'export avait déjà satisfait la
   // demande, et ses §2.3 et §9.4 sont amendées depuis.
-  const guards = clips.filter((c) => estGuard(c.status))
+  const guards = clips.filter((c) => isGuard(c.status))
   if (guards.length > 0 && guards.every((c) => c.status === 'exported')) return 'livre'
 
   return 'trie'
@@ -229,11 +229,11 @@ export function count(clips: readonly { status: ClipStatus; segments: Segment[] 
   discarded: number
   durationKept: number
 } {
-  const guards = clips.filter((c) => estGuard(c.status))
+  const guards = clips.filter((c) => isGuard(c.status))
   return {
     aSort: clips.filter((c) => c.status === 'candidate').length,
     guards: guards.length,
-    discarded: clips.filter((c) => estDiscarded(c.status)).length,
+    discarded: clips.filter((c) => isDiscarded(c.status)).length,
     durationKept: guards.reduce((total, c) => total + clipDuration(c.segments), 0),
   }
 }

@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3'
 
 import type { CauseUnavailable, Source, SourcesListing } from '@/lib/api'
 import { getDb, listProjects } from '@/server/db'
-import { estAAbsence } from '@/server/bytes'
+import { isAAbsence } from '@/server/bytes'
 import { replayDir, resolveSource } from '@/server/paths'
 import { waitOrAbandon, DELAY_STAT_MS } from '@/server/steps/ingest'
 import { urlVignetteSource } from '@/server/source-thumbnails'
@@ -116,7 +116,7 @@ async function captureFolder(dir: string): Promise<ReadingFolder> {
   const entries = await fsp.readdir(dir)
   const videos: ReadingFolder['videos'] = []
   for (const name of entries) {
-    if (estAStub(name)) continue
+    if (isAStub(name)) continue
     if (!EXTENSIONS_VIDEO.has(path.extname(name).toLowerCase())) continue
     let info: fs.Stats
     try {
@@ -134,7 +134,7 @@ async function captureFolder(dir: string): Promise<ReadingFolder> {
       // refusé sur un fichier ressemblait trait pour trait à un partage tombé.
       // La cause remonte maintenant avec l'échec : `refusé` envoie regarder les
       // droits, pas remonter le partage.
-      if (estAAbsence(cause)) continue
+      if (isAAbsence(cause)) continue
       throw cause
     }
     if (!info.isFile()) continue
@@ -155,7 +155,7 @@ async function captureFolder(dir: string): Promise<ReadingFolder> {
  * **Elles restent comptées dans `entrées`.** Un dossier plein de moignons n'est
  * pas un dossier vide, et c'est cette distinction-là qui porte le diagnostic.
  */
-function estAStub(name: string): boolean {
+function isAStub(name: string): boolean {
   return name.startsWith('.') || name.startsWith('$')
 }
 
@@ -190,7 +190,7 @@ type Reading = { reading: ReadingFolder; cause: null } | { reading: null; cause:
  */
 function cause(error: unknown): CauseUnavailable {
   if (error instanceof Error && error.message === GIVE_UP) return 'silent'
-  if (estAAbsence(error)) return 'absent'
+  if (isAAbsence(error)) return 'absent'
   const code = (error as NodeJS.ErrnoException | null)?.code
   if (code === 'EACCES' || code === 'EPERM') return 'denied'
   return 'unreadable'

@@ -438,7 +438,7 @@ export function leverIfBlocked(response: LlmResponse): void {
   }
 }
 
-export function estTransient(error: unknown): boolean {
+export function isTransient(error: unknown): boolean {
   if (error instanceof Error && NAMES_TRANSIENT.has(error.name)) return true
   const bottom = (error instanceof Error ? error.message : String(error)).toLowerCase()
   return MARKERS_TRANSIENT.some((marker) => bottom.includes(marker))
@@ -599,7 +599,7 @@ export async function callGemini<T = unknown>(
       // le classerait passager par son nom d'`AbortError`.
       if (isAborted()) throw new StopRequestedError('le repérage')
       const message = error instanceof Error ? error.message : String(error)
-      if (attempt >= ATTEMPTS || !estTransient(error)) throw error
+      if (attempt >= ATTEMPTS || !isTransient(error)) throw error
       // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus
       // une pointe passagère : on rend la main tout de suite plutôt que de
       // relancer avant l'heure et de brûler les essais restants.

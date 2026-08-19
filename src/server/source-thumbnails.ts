@@ -6,7 +6,7 @@ import path from 'node:path'
 import { sourceThumbArgs } from '@/core/ffmpeg/args'
 import { pathTemporary, runFfmpeg } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
-import { estAAbsence } from '@/server/bytes'
+import { isAAbsence } from '@/server/bytes'
 import { resolveSource, stageDir } from '@/server/paths'
 import { waitOrAbandon, DELAY_STAT_MS } from '@/server/steps/ingest'
 
@@ -417,7 +417,7 @@ async function capture(source: string, timeoutMs: number): Promise<fs.Stats | nu
   try {
     return await underGuard(() => fsp.lstat(source), timeoutMs)
   } catch (cause) {
-    if (estAAbsence(cause)) return null
+    if (isAAbsence(cause)) return null
     throw cause
   }
 }

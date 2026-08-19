@@ -4,7 +4,7 @@ import type { Clip } from '@/core/edl'
 import { computeFraming, resolveRatio } from '@/core/framing'
 import type { ClipFraming } from '@/core/framing'
 import type { PersonBox, Shot } from '@/core/shots'
-import { estAAbsence } from '@/server/bytes'
+import { isAAbsence } from '@/server/bytes'
 import { analysisPath } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import type { PublishedFraming, FramingOrigin } from '@/lib/api'
@@ -160,7 +160,7 @@ export function projectAnalysis(projectId: string): FramingSource {
     // annoncer un projet sans plans à un serveur en panne, et enverrait chercher
     // le défaut à l'exact opposé de là où il est. C'est la même distinction que
     // `sortiesDuClip` fait sur les mêmes codes.
-    if (estAAbsence(error)) return { analysis: null, origin: 'no-analysis' }
+    if (isAAbsence(error)) return { analysis: null, origin: 'no-analysis' }
     throw error
   }
 

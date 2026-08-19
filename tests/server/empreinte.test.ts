@@ -771,7 +771,7 @@ describe('le texte des sous-titres (#87)', () => {
     ],
   }
   /** Loin des deux segments du clip (`[100, 115.7]` et `[130, 140]`). */
-  const CLIP_SEGMENT_HORS: TranscriptSegment = {
+  const CLIP_SEGMENT_OUTSIDE: TranscriptSegment = {
     start: 500,
     end: 510,
     text: 'un aparté sans rapport',
@@ -838,7 +838,7 @@ describe('le texte des sous-titres (#87)', () => {
    * `[500, 510]`, loin des deux segments du clip par défaut.
    */
   it("ne périme rien quand un mot change ailleurs dans l'émission, hors des segments du clip", async () => {
-    writeTranscript([SEGMENT_IN_CLIP, CLIP_SEGMENT_HORS])
+    writeTranscript([SEGMENT_IN_CLIP, CLIP_SEGMENT_OUTSIDE])
     putClip(getDb(), clip({ captions: true }))
     const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
@@ -853,8 +853,8 @@ describe('le texte des sous-titres (#87)', () => {
     writeTranscript([
       SEGMENT_IN_CLIP,
       {
-        ...CLIP_SEGMENT_HORS,
-        words: CLIP_SEGMENT_HORS.words.map((m) =>
+        ...CLIP_SEGMENT_OUTSIDE,
+        words: CLIP_SEGMENT_OUTSIDE.words.map((m) =>
           m.word === 'aparté' ? { ...m, word: 'aparté-corrigé' } : m,
         ),
       },
@@ -907,7 +907,7 @@ describe('le texte des sous-titres (#87)', () => {
   it("ne boucle pas sur un clip sous-titré dont aucun mot ne tombe dans les segments", async () => {
     // Le transcript existe, mais loin des segments du clip par défaut
     // (`[100, 115.7]` et `[130, 140]`).
-    writeTranscript([CLIP_SEGMENT_HORS])
+    writeTranscript([CLIP_SEGMENT_OUTSIDE])
     putClip(getDb(), clip({ captions: true }))
     const paths = pathsRender(ID, CLIP, '1:1')
 
@@ -941,7 +941,7 @@ describe('le texte des sous-titres (#87)', () => {
 
     // Plus aucun mot ne tombe dans les segments du clip : le document passe à
     // `null`, et ce n'est plus le même `null` qu'un clip sans sous-titres.
-    writeTranscript([CLIP_SEGMENT_HORS])
+    writeTranscript([CLIP_SEGMENT_OUTSIDE])
     encodings = []
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 

@@ -116,7 +116,7 @@ avancer	advance	2	src/server/run.ts:855
 avant	before	19	scripts/dev-commun.ts:35	
 avantLeDébut	beforeStart	2	tests/server/analysis.test.ts:81	
 avec	included	3	tests/core/framing.test.ts:866	
-avecEspace	withEspace	1	tests/server/sources.test.ts:58	
+avecEspace	withSpace	1	tests/server/sources.test.ts:58	
 avecEspaces	withSpaces	1	tests/server/vignettes-sources.test.ts:663	
 avecFiltre	withFilter	2	scripts/mesure-premier-plan.ts:236	
 avecTrou	withGap	1	tests/core/transcript.test.ts:503	
@@ -581,15 +581,15 @@ erreurs	errors	3	tests/core/etapes.test.ts:42
 erreursDePureté	purityErrors	1	tests/core/purete.test.ts:38	
 espion	spy	7	tests/components/tri/fil.test.tsx:196	
 essais	attempts	12	tests/server/candidates.test.ts:186	
-estAbsolu	estAbsolute	1	src/core/erreurs.ts:31	
-estCible	estTarget	1	scripts/dev-run.ts:22	
-estEcarte	estDiscarded	1	src/core/parcours.ts:33	
-estGarde	estGuard	1	src/core/parcours.ts:29	
-estLaDerniere	estLast	1	src/lib/enregistrement.ts:309	
-estPassagère	estTransient	1	src/server/steps/candidates.ts:441	
-estRéférence	estReference	1	src/server/secrets.ts:128	
-estUneAbsence	estAAbsence	1	src/server/octets.ts:40	
-estUnMoignon	estAStub	1	src/server/sources.ts:158	
+estAbsolu	isAbsolute	1	src/core/erreurs.ts:31	
+estCible	isTarget	1	scripts/dev-run.ts:22	
+estEcarte	isDiscarded	1	src/core/parcours.ts:33	
+estGarde	isGuard	1	src/core/parcours.ts:29	
+estLaDerniere	isLast	1	src/lib/enregistrement.ts:309	
+estPassagère	isTransient	1	src/server/steps/candidates.ts:441	
+estRéférence	isReference	1	src/server/secrets.ts:128	
+estUneAbsence	isAAbsence	1	src/server/octets.ts:40	
+estUnMoignon	isAStub	1	src/server/sources.ts:158	
 étalé	spread	1	scripts/vignettes-premier-plan.ts:167	
 etape	step	1	src/components/parcours/app-bar.tsx:62	
 étape	step	6	src/core/ffmpeg/args.ts:370	
@@ -660,7 +660,7 @@ finBarre	finBar	1	scripts/dev-commun.ts:95
 finBrut	finRaw	1	src/core/range.ts:72	
 finDAnalyse	finDAnalysis	1	src/components/sources/announce.ts:67	
 finDe	waitForExit	1	tests/server/ffmpeg.test.ts:319	
-FinDeBoucle	BoucleFin	1	src/components/tri/fin-de-boucle.tsx:31	
+FinDeBoucle	LoopEnd	1	src/components/tri/fin-de-boucle.tsx:31	
 fini	done	2	scripts/dev-commun.ts:124	
 finir	finish	1	src/server/ffmpeg.ts:399	
 FINS_SANS_REFUS	ENDS_WITHOUT_REJECTION	1	src/server/steps/candidates.ts:201	
@@ -795,7 +795,7 @@ lecteurFactice	playerFake	1	tests/server/secrets.test.ts:20
 lectureOuPause	playbackOrPause	2	src/components/clip/raccourcis.tsx:89	
 lectures	reads	1	src/server/secrets.ts:301	
 légal	legal	1	src/core/framing.ts:909	
-leRenduEstPérimé	renderEstStale	1	src/server/steps/render.ts:1827	
+leRenduEstPérimé	renderIsStale	1	src/server/steps/render.ts:1827	
 lesMarquesOntBougé	markersHaveMoved	1	src/server/steps/render.ts:646	
 lesPlusLarges	moreWide	1	scripts/vignettes-premier-plan.ts:185	
 leverSiBloquée	leverIfBlocked	1	src/server/steps/candidates.ts:412	
@@ -915,7 +915,7 @@ montageRépond	editingResponds	1	src/server/steps/ingest.ts:151
 montageRéponds	editingRespond	1	tests/server/empreinte.test.ts:86	
 montages	edits	1	src/server/sources.ts:243	
 MONTAGES	EDITS	1	tests/server/sources.test.ts:25	
-montageVivant	editingVivant	1	src/server/run.ts:229	
+montageVivant	editingAlive	1	src/server/run.ts:229	
 monte	mount	3	tests/lib/enregistrement-auto.test.tsx:130	
 montée	totalDuration	1	src/core/framing.ts:1168	
 montées	peopleInSegments	1	src/core/framing.ts:1129	
@@ -1155,7 +1155,7 @@ programme	program	1	tests/core/etapes.test.ts:53
 projet	project	35	scripts/dev-ingest.ts:34	
 PROJET	PROJECT	5	tests/core/gemini.test.ts:31	
 projetDe	project	1	src/server/sources.ts:358	
-ProjetInconnuError	ProjectInconnuError	1	src/server/run.ts:107	
+ProjetInconnuError	UnknownProjectError	1	src/server/run.ts:107	
 projetInitial	projectInitial	1	src/server/run.ts:846	
 projets	projects	17	src/server/sources.ts:319	
 promesse	promise	10	tests/lib/enregistrement-auto.test.tsx:90	
@@ -1213,7 +1213,7 @@ refusant	rejecting	1	tests/server/candidates.test.ts:928
 refuse	rejected	3	src/lib/enregistrement.ts:119	
 refusé	rejected	6	src/components/clip/ecran-clip.tsx:305	
 refusées	rejected	1	src/server/steps/candidates.ts:794	
-refuserFauteDeMarque	markerRejectFaute	1	src/server/steps/render.ts:1053	
+refuserFauteDeMarque	markerRejectFault	1	src/server/steps/render.ts:1053	
 refusés	rejected	3	src/server/steps/candidates.ts:1212	
 région	region	1	tests/components/tri/avancement.test.tsx:220	
 réglage	setting	1	src/core/framing.ts:428	
@@ -1303,7 +1303,7 @@ réussi	succeeded	1	src/server/paths.ts:236
 réussis	succeeded	1	src/server/steps/candidates.ts:1640	
 revenu	returned	1	tests/server/candidates.test.ts:622	
 rien	nothing	2	tests/components/tri/modele.test.ts:144	
-riennEstProduit	nothingEstProduced	1	tests/components/clip/panneau-export.test.tsx:45	
+riennEstProduit	nothingIsProduced	1	tests/components/clip/panneau-export.test.tsx:45	
 rognée	cropped	1	scripts/mesure-ratios.ts:882	
 RunPlan	RunPlan	1	src/lib/api.ts:141	
 saisir	input	1	src/components/clip/champs-textes.tsx:212	
@@ -1339,7 +1339,7 @@ secondes	seconds	6	scripts/dev-commun.ts:59
 SECONDES_PAR_CRÉNEAU	SECONDS_BY_SLOT	1	src/core/transcript.ts:343	
 secondesDeParole	speechSeconds	1	src/core/transcript.ts:278	
 SEGMENT_DANS_LE_CLIP	SEGMENT_IN_CLIP	1	tests/server/empreinte.test.ts:762	
-SEGMENT_HORS_DU_CLIP	CLIP_SEGMENT_HORS	1	tests/server/empreinte.test.ts:774	
+SEGMENT_HORS_DU_CLIP	CLIP_SEGMENT_OUTSIDE	1	tests/server/empreinte.test.ts:774	
 SegmentDeTranscript	TranscriptSegment	1	tests/server/empreinte.test.ts:170	
 segmentsIdentiques	segmentsIdentical	1	src/lib/enregistrement.ts:50	
 selectionne	selected	4	src/components/clip/transcript-surface.tsx:438	

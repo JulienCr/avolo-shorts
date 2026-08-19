@@ -55,8 +55,8 @@ describe('fstypeDeMontage', () => {
 
   /** `/proc/mounts` échappe les espaces en octal. Un dossier de replays en porte. */
   it('déséchappe les espaces du point de montage', () => {
-    const withEspace = 'drvfs /mnt/mon\\040drive 9p rw 0 0'
-    expect(editingFstype(withEspace, '/mnt/mon drive/Replay')).toBe('9p')
+    const withSpace = 'drvfs /mnt/mon\\040drive 9p rw 0 0'
+    expect(editingFstype(withSpace, '/mnt/mon drive/Replay')).toBe('9p')
   })
 
   /**

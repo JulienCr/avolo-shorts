@@ -306,14 +306,14 @@ export function useAutosave({
     const timer = setTimeout(() => {
       inWait.current = null
       const attempt = ++lastAttempt.current
-      const estLast = () => attempt === lastAttempt.current
+      const isLast = () => attempt === lastAttempt.current
       // Un `then` à deux arguments, et non un `catch` en aval : celui-ci
       // rattraperait aussi ce que lève la branche de succès — une réconciliation
       // en défaut deviendrait un « échec réseau » affiché à l'utilisateur, avec
       // le blocage qui va avec.
       writeRef.current(variables).then(
         (result) => {
-          if (!estLast()) return
+          if (!isLast()) return
           setFailure(null)
           // **Le refus n'est pas un échec, mais il n'est pas rien non plus.**
           if (result.applied) return
@@ -331,7 +331,7 @@ export function useAutosave({
           if (toAdopt) reconcileRef.current(result.clip.id, toAdopt)
         },
         () => {
-          if (estLast()) setFailure(signature)
+          if (isLast()) setFailure(signature)
         },
       )
     }, DEBOUNCE_MS)

@@ -17,9 +17,9 @@
  */
 
 import type { ClipStatus } from '@/core/edl'
-import { estDiscarded, estGuard } from '@/core/phase'
+import { isDiscarded, isGuard } from '@/core/phase'
 
-export { estDiscarded, estGuard }
+export { isDiscarded, isGuard }
 
 export const LABELS_STATUS: Record<ClipStatus, string> = {
   candidate: 'proposition',
@@ -43,6 +43,6 @@ export function toggleStatus(
   current: ClipStatus,
   decision: Decision,
 ): Exclude<ClipStatus, 'exported'> {
-  const active = decision === 'kept' ? estGuard(current) : estDiscarded(current)
+  const active = decision === 'kept' ? isGuard(current) : isDiscarded(current)
   return active ? 'candidate' : decision
 }

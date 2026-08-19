@@ -274,7 +274,7 @@
   {
     "id": 71,
     "oldName": "estCible",
-    "newName": "estTarget",
+    "newName": "isTarget",
     "kind": "function",
     "file": "scripts/dev-run.ts",
     "line": 22
@@ -7730,7 +7730,7 @@
   {
     "id": 2968,
     "oldName": "FinDeBoucle",
-    "newName": "BoucleFin",
+    "newName": "LoopEnd",
     "kind": "function",
     "file": "src/components/tri/fin-de-boucle.tsx",
     "line": 31
@@ -8946,7 +8946,7 @@
   {
     "id": 3597,
     "oldName": "estAbsolu",
-    "newName": "estAbsolute",
+    "newName": "isAbsolute",
     "kind": "function",
     "file": "src/core/erreurs.ts",
     "line": 31
@@ -10162,7 +10162,7 @@
   {
     "id": 4215,
     "oldName": "estGarde",
-    "newName": "estGuard",
+    "newName": "isGuard",
     "kind": "function",
     "file": "src/core/parcours.ts",
     "line": 29
@@ -10170,7 +10170,7 @@
   {
     "id": 4217,
     "oldName": "estEcarte",
-    "newName": "estDiscarded",
+    "newName": "isDiscarded",
     "kind": "function",
     "file": "src/core/parcours.ts",
     "line": 33
@@ -11202,7 +11202,7 @@
   {
     "id": 5038,
     "oldName": "estLaDerniere",
-    "newName": "estLast",
+    "newName": "isLast",
     "kind": "variable",
     "file": "src/lib/enregistrement.ts",
     "line": 309
@@ -13066,7 +13066,7 @@
   {
     "id": 5876,
     "oldName": "estUneAbsence",
-    "newName": "estAAbsence",
+    "newName": "isAAbsence",
     "kind": "function",
     "file": "src/server/octets.ts",
     "line": 40
@@ -13498,7 +13498,7 @@
   {
     "id": 6048,
     "oldName": "ProjetInconnuError",
-    "newName": "ProjectInconnuError",
+    "newName": "UnknownProjectError",
     "kind": "class",
     "file": "src/server/run.ts",
     "line": 107
@@ -13586,7 +13586,7 @@
   {
     "id": 6069,
     "oldName": "montageVivant",
-    "newName": "editingVivant",
+    "newName": "editingAlive",
     "kind": "function",
     "file": "src/server/run.ts",
     "line": 229
@@ -14402,7 +14402,7 @@
   {
     "id": 6244,
     "oldName": "estRéférence",
-    "newName": "estReference",
+    "newName": "isReference",
     "kind": "function",
     "file": "src/server/secrets.ts",
     "line": 128
@@ -14722,7 +14722,7 @@
   {
     "id": 6310,
     "oldName": "estUnMoignon",
-    "newName": "estAStub",
+    "newName": "isAStub",
     "kind": "function",
     "file": "src/server/sources.ts",
     "line": 158
@@ -15514,7 +15514,7 @@
   {
     "id": 6498,
     "oldName": "estPassagère",
-    "newName": "estTransient",
+    "newName": "isTransient",
     "kind": "function",
     "file": "src/server/steps/candidates.ts",
     "line": 441
@@ -17970,7 +17970,7 @@
   {
     "id": 7143,
     "oldName": "refuserFauteDeMarque",
-    "newName": "markerRejectFaute",
+    "newName": "markerRejectFault",
     "kind": "function",
     "file": "src/server/steps/render.ts",
     "line": 1053
@@ -18306,7 +18306,7 @@
   {
     "id": 7234,
     "oldName": "leRenduEstPérimé",
-    "newName": "renderEstStale",
+    "newName": "renderIsStale",
     "kind": "function",
     "file": "src/server/steps/render.ts",
     "line": 1827
@@ -20202,7 +20202,7 @@
   {
     "id": 7845,
     "oldName": "riennEstProduit",
-    "newName": "nothingEstProduced",
+    "newName": "nothingIsProduced",
     "kind": "variable",
     "file": "tests/components/clip/panneau-export.test.tsx",
     "line": 45
@@ -29626,7 +29626,7 @@
   {
     "id": 10775,
     "oldName": "SEGMENT_HORS_DU_CLIP",
-    "newName": "CLIP_SEGMENT_HORS",
+    "newName": "CLIP_SEGMENT_OUTSIDE",
     "kind": "variable",
     "file": "tests/server/empreinte.test.ts",
     "line": 774
@@ -32298,7 +32298,7 @@
   {
     "id": 11634,
     "oldName": "avecEspace",
-    "newName": "withEspace",
+    "newName": "withSpace",
     "kind": "variable",
     "file": "tests/server/sources.test.ts",
     "line": 58

@@ -11,7 +11,7 @@
 
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
-import { estDiscarded, estGuard, type Phase } from '@/core/phase'
+import { isDiscarded, isGuard, type Phase } from '@/core/phase'
 import type { SelectionReport } from '@/lib/api'
 
 /**
@@ -59,8 +59,8 @@ export function viewSinceUrl(value: string | null): View {
 
 /** Le clip appartient-il à cette vue ? */
 export function belongs(status: ClipStatus, view: View): boolean {
-  if (view === 'gardes') return estGuard(status)
-  if (view === 'ecartes') return estDiscarded(status)
+  if (view === 'gardes') return isGuard(status)
+  if (view === 'ecartes') return isDiscarded(status)
   return status === 'candidate'
 }
 

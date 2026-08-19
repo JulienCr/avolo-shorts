@@ -21,7 +21,7 @@ import {
   lireStatus,
   planForTargets,
   forgetSidecar,
-  ProjectInconnuError,
+  UnknownProjectError,
   progression,
   readingPresence,
   type Steps,
@@ -547,7 +547,7 @@ describe('lancer', () => {
 
   it('refuse un projet inconnu', async () => {
     await expect(launch('jamais-vu', ['candidates'], { db })).rejects.toBeInstanceOf(
-      ProjectInconnuError,
+      UnknownProjectError,
     )
     // La réservation est relâchée : un projet inconnu ne doit pas rester verrouillé.
     expect(progression('jamais-vu')).toBeNull()

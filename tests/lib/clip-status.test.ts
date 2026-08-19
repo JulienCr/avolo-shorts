@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import { toggleStatus, estDiscarded, estGuard } from '@/lib/clip-status'
+import { toggleStatus, isDiscarded, isGuard } from '@/lib/clip-status'
 
 describe('estGarde', () => {
   it('compte exported comme gardé : c’est une décision humaine, pas une proposition', () => {
-    expect(estGuard('kept')).toBe(true)
-    expect(estGuard('exported')).toBe(true)
-    expect(estGuard('candidate')).toBe(false)
-    expect(estGuard('discarded')).toBe(false)
+    expect(isGuard('kept')).toBe(true)
+    expect(isGuard('exported')).toBe(true)
+    expect(isGuard('candidate')).toBe(false)
+    expect(isGuard('discarded')).toBe(false)
   })
 })
 
 describe('estEcarte', () => {
   it('ne reconnaît que discarded', () => {
-    expect(estDiscarded('discarded')).toBe(true)
-    expect(estDiscarded('candidate')).toBe(false)
+    expect(isDiscarded('discarded')).toBe(true)
+    expect(isDiscarded('candidate')).toBe(false)
   })
 })
 

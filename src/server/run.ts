@@ -104,10 +104,10 @@ export class ExecutionInCurrentError extends Error {
 }
 
 /** Levée quand le projet demandé n'est pas en base. La route en fait un 404. */
-export class ProjectInconnuError extends Error {
+export class UnknownProjectError extends Error {
   constructor(readonly projectId: string) {
     super(`Projet inconnu : ${projectId}`)
-    this.name = 'ProjectInconnuError'
+    this.name = 'UnknownProjectError'
   }
 }
 
@@ -226,7 +226,7 @@ const probes = new Map<string, Promise<boolean>>()
  * Le montage répond-il ? Comme `montageRépond`, mais sans jamais laisser deux
  * sondes en vol sur le même chemin.
  */
-async function editingVivant(path: string): Promise<boolean> {
+async function editingAlive(path: string): Promise<boolean> {
   // Une sonde est déjà partie et n'est pas revenue : elle occupe déjà un fil, et
   // en lancer une seconde en occuperait un de plus sans rien apprendre de neuf.
   if (probes.has(path)) return false
@@ -300,7 +300,7 @@ async function findSidecar(project: Project, key: string): Promise<string | null
   // **Sonder avant de toucher au Drive.** Monté avec son transport mort dessous,
   // il ne répond pas, et un `existsSync` synchrone gèle la boucle d'événements —
   // donc le serveur entier, pas seulement cette requête.
-  if (!(await editingVivant(project.sourcePath))) return keep(null, TTL_SIDECAR_MS)
+  if (!(await editingAlive(project.sourcePath))) return keep(null, TTL_SIDECAR_MS)
   const desired = path.join(sidecarDir(project.sourcePath), 'transcript.json')
   return keep(fs.existsSync(desired) ? desired : null, TTL_SIDECAR_MS)
 }
@@ -695,7 +695,7 @@ export async function launch(
   try {
     const db = options.db ?? getDb()
     const project = getProject(db, projectId)
-    if (project === undefined) throw new ProjectInconnuError(projectId)
+    if (project === undefined) throw new UnknownProjectError(projectId)
 
     const force =
       options.force === true

@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { clipDuration } from '@/core/edl'
-import { estGuard } from '@/core/phase'
+import { isGuard } from '@/core/phase'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
@@ -249,7 +249,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     aSelection: selection !== null,
   })
 
-  const guards = (candidates.data ?? []).filter((c) => estGuard(c.status))
+  const guards = (candidates.data ?? []).filter((c) => isGuard(c.status))
   const rank = guards.findIndex((c) => c.id === clip.id)
   const previous = rank > 0 ? guards[rank - 1] : null
   const next = clipNext(candidates.data ?? [], clip.id)

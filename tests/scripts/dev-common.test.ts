@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { chargerEnv } from '../../scripts/dev-common'
-import { estReference } from '@/server/secrets'
+import { isReference } from '@/server/secrets'
 
 /**
  * Le piège que ce fichier fige.
@@ -30,7 +30,7 @@ beforeEach(() => {
   // secret, faute de quoi un shell qui en exporterait une ferait sortir la
   // suite de tests sur le réseau — et sur une approbation biométrique.
   for (const name of Object.keys(process.env)) {
-    if (estReference(process.env[name])) delete process.env[name]
+    if (isReference(process.env[name])) delete process.env[name]
   }
 })
 

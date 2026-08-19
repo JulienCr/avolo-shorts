@@ -3,7 +3,7 @@
 import Link from 'next/link'
 
 import type { CandidateClip } from '@/lib/api'
-import { estGuard } from '@/lib/clip-status'
+import { isGuard } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import { linkClip, linkProject, type Next } from '@/lib/navigation'
 import { agreement } from '@/components/review/template'
@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
  * des clips en argument. C'est donc l'écran qui le dit, puisque c'est lui qui
  * tient la liste.
  */
-export function BoucleFin({
+export function LoopEnd({
   projectId,
   clips,
   durationKept,
@@ -40,7 +40,7 @@ export function BoucleFin({
   /** L'issue de la phase. Voir `Issue` pour ce que l'écran en fait. */
   next: Next
 }) {
-  const guards = clips.filter((c) => estGuard(c.status))
+  const guards = clips.filter((c) => isGuard(c.status))
 
   if (guards.length === 0) {
     return (

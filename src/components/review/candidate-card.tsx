@@ -6,7 +6,7 @@ import { useId } from 'react'
 
 import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
-import { LABELS_STATUS, estDiscarded, estGuard } from '@/lib/clip-status'
+import { LABELS_STATUS, isDiscarded, isGuard } from '@/lib/clip-status'
 import { formatDuration, formatTimecode } from '@/lib/format'
 import { linkClip } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
@@ -78,8 +78,8 @@ export function CandidateCard({
   // La même définition que celle du gestionnaire de clic (`basculerStatut`) :
   // les deux divergeaient, et le bouton « Gardé » d'un clip exporté produisait
   // alors un changement d'état invisible.
-  const guard = estGuard(clip.status)
-  const discarded = estDiscarded(clip.status)
+  const guard = isGuard(clip.status)
+  const discarded = isDiscarded(clip.status)
 
   return (
     <article

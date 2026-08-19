@@ -125,7 +125,7 @@ export function referenceBody(value: string | undefined): string | undefined {
 }
 
 /** Une valeur est-elle une adresse plutôt qu'un secret ? */
-export function estReference(value: string | undefined): boolean {
+export function isReference(value: string | undefined): boolean {
   return referenceBody(value) !== undefined
 }
 
@@ -254,7 +254,7 @@ export function requireSecret(name: string, env: Environment = process.env): str
   if (value === undefined || value === '') {
     throw new Error(`${name} n'est pas définie. Voir .env.example.`)
   }
-  if (estReference(value)) {
+  if (isReference(value)) {
     throw new Error(
       `${name} vaut encore une adresse 1Password (op://…), donc la résolution du ` +
         'démarrage a été défaite — typiquement un .env modifié pendant que le serveur ' +
@@ -292,7 +292,7 @@ export async function resolveSecrets(
   // l'ordre suit celui d'énumération de `process.env` se compare mal d'un
   // lancement à l'autre.
   const names = Object.keys(env)
-    .filter((name) => name !== 'OP_BIN' && estReference(env[name]))
+    .filter((name) => name !== 'OP_BIN' && isReference(env[name]))
     .sort()
   if (names.length === 0) return []
 

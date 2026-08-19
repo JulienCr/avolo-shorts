@@ -2,8 +2,8 @@ import type { z } from 'zod'
 
 import { InvalidSettingError } from '@/server/db'
 import { messageSafe } from '@/server/errors'
-import { ProjectErrorCollision, ExecutionInCurrentError, ProjectInconnuError } from '@/server/run'
-import { estTransient, GeminiBlockedError } from '@/server/steps/candidates'
+import { ProjectErrorCollision, ExecutionInCurrentError, UnknownProjectError } from '@/server/run'
+import { isTransient, GeminiBlockedError } from '@/server/steps/candidates'
 
 /**
  * La frontière HTTP : ce qui traverse, et sous quel code.
@@ -51,7 +51,7 @@ export function json(data: unknown, init: ResponseInit = {}): Response {
 /** Le code que mérite une erreur. Séparé de la réponse pour être testable. */
 export function statusFor(error: unknown): number {
   if (error instanceof ErrorHttp) return error.status
-  if (error instanceof ProjectInconnuError) return 404
+  if (error instanceof UnknownProjectError) return 404
   // Une saisie refusée par le registre des réglages : clé inconnue ou valeur
   // hors bornes. La demande est mal formée, c'est un 400 — un 500 enverrait
   // chercher un défaut du serveur là où il n'y en a pas.
@@ -66,7 +66,7 @@ export function statusFor(error: unknown): number {
   if (error instanceof GeminiBlockedError) return 422
   // Pannes et surcharges du fournisseur, coupures réseau : la même liste de
   // marqueurs que celle qui décide d'une relance côté Gemini (tâche 9).
-  if (estTransient(error)) return 503
+  if (isTransient(error)) return 503
   return 500
 }
 

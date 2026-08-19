@@ -16,14 +16,14 @@ import {
   type ObservedBurnIn,
   type CaptionsLook,
   renderFingerprint,
-  renderEstStale,
+  renderIsStale,
   markersHaveMoved,
   lireFingerprint,
   markExported,
   wordsHash,
   scheduleMarkers,
   redoOutputs,
-  markerRejectFaute,
+  markerRejectFault,
   renderClip,
   sauterRender,
   clipUnderTitles,
@@ -951,17 +951,17 @@ describe('sousTitresDuClip', () => {
 
 describe('leRenduEstPérimé', () => {
   it('est faux quand rien de ce qui va à l’image n’a bougé', () => {
-    expect(renderEstStale(shape(), shape())).toBe(false)
+    expect(renderIsStale(shape(), shape())).toBe(false)
   })
 
   it("ignore le titre et la description, qui ne vont que dans le .txt", () => {
-    expect(renderEstStale(shape(), shape(clip({ title: 'Autre', description: 'Autre' })))).toBe(
+    expect(renderIsStale(shape(), shape(clip({ title: 'Autre', description: 'Autre' })))).toBe(
       false,
     )
   })
 
   it("ignore le statut et le numéro de passe", () => {
-    expect(renderEstStale(shape(), shape(clip({ status: 'exported', pass: 9 })))).toBe(false)
+    expect(renderIsStale(shape(), shape(clip({ status: 'exported', pass: 9 })))).toBe(false)
   })
 
   // `ratio` et `cropX` du clip sont sortis de la comparaison quand le cadrage
@@ -969,7 +969,7 @@ describe('leRenduEstPérimé', () => {
   // ferait réencoder pour rien un clip qu'on épingle sur le ratio que le calcul
   // avait déjà choisi.
   it("ignore le ratio demandé et le cropX du clip, que l'encodage ne lit plus", () => {
-    expect(renderEstStale(shape(), shape(clip({ ratio: '4:5', cropX: 0.2 })))).toBe(false)
+    expect(renderIsStale(shape(), shape(clip({ ratio: '4:5', cropX: 0.2 })))).toBe(false)
   })
 
   it('voit chacun des champs du clip qui vont à l’image', () => {
@@ -979,7 +979,7 @@ describe('leRenduEstPérimé', () => {
       { branding: false },
     ]
     for (const override of scenarios) {
-      expect(renderEstStale(shape(), shape(clip(override)))).toBe(true)
+      expect(renderIsStale(shape(), shape(clip(override)))).toBe(true)
     }
   })
 
@@ -987,7 +987,7 @@ describe('leRenduEstPérimé', () => {
   // tableaux de crops identiques ne sont jamais le même objet, et un `!==` par
   // référence périmerait le rendu à chaque appel.
   it('compare le cadrage en profondeur, pas par référence', () => {
-    expect(renderEstStale(shape(clip(), framing()), shape(clip(), framing()))).toBe(false)
+    expect(renderIsStale(shape(clip(), framing()), shape(clip(), framing()))).toBe(false)
   })
 
   it('voit chacune des composantes du cadrage résolu', () => {
@@ -1000,13 +1000,13 @@ describe('leRenduEstPérimé', () => {
       { shots: [] },
     ]
     for (const override of scenarios) {
-      expect(renderEstStale(shape(), shape(clip(), framing(override)))).toBe(true)
+      expect(renderIsStale(shape(), shape(clip(), framing(override)))).toBe(true)
     }
   })
 
   it('voit un segment déplacé, à nombre de segments égal', () => {
     const moved = clip().segments.map((s, i) => (i === 1 ? { start: s.start, end: s.end + 1 } : s))
-    expect(renderEstStale(shape(), shape(clip({ segments: moved })))).toBe(true)
+    expect(renderIsStale(shape(), shape(clip({ segments: moved })))).toBe(true)
   })
 })
 
@@ -1078,11 +1078,11 @@ describe('refuserFauteDeMarque', () => {
   })
 
   it("refuse quand le clip demande des marques et qu'il n'y en a aucune", () => {
-    expect(markerRejectFaute(true, [])).toBe(true)
+    expect(markerRejectFault(true, [])).toBe(true)
   })
 
   it("laisse passer le clip qui n'en demande pas, dossier vide compris", () => {
-    expect(markerRejectFaute(false, [])).toBe(false)
+    expect(markerRejectFault(false, [])).toBe(false)
   })
 
   it("laisse passer quand une seule des deux marques est là", () => {
@@ -1092,12 +1092,12 @@ describe('refuserFauteDeMarque', () => {
     // logo » de « twitch.png a disparu ». Refuser là interdirait une
     // configuration soutenue pour rattraper une dégradation indécidable. Zéro,
     // lui, est sans ambiguïté : la marque a été demandée, aucune n'est posée.
-    expect(markerRejectFaute(true, [marker('logo.png')])).toBe(false)
-    expect(markerRejectFaute(true, [marker('twitch.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('logo.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('twitch.png')])).toBe(false)
   })
 
   it('laisse passer quand les deux sont là', () => {
-    expect(markerRejectFaute(true, [marker('logo.png'), marker('twitch.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('logo.png'), marker('twitch.png')])).toBe(false)
   })
 })
 

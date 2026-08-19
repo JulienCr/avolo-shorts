@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import type { PublishedFraming, ClipOutputs } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
-import { estAAbsence } from '@/server/bytes'
+import { isAAbsence } from '@/server/bytes'
 import {
   renderedFraming,
   pathsRender,
@@ -102,7 +102,7 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
     // opposé de là où il est. `servirFichier` fait la même distinction sur les
     // mêmes codes — les deux bouts du contrat doivent tomber d'accord.
     // (relevé par Copilot)
-    if (estAAbsence(error)) return null
+    if (isAAbsence(error)) return null
     throw error
   }
   if (!info.isFile()) return null

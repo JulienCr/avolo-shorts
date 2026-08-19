@@ -37,7 +37,7 @@ import { parseRange, type ByteRange } from '@/core/range'
  */
 export const ABSENCE = new Set(['ENOENT', 'ENOTDIR', 'ENAMETOOLONG', 'EISDIR'])
 
-export function estAAbsence(error: unknown): boolean {
+export function isAAbsence(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException).code
   return code !== undefined && ABSENCE.has(code)
 }
@@ -227,7 +227,7 @@ export async function serveFile(
   try {
     file = await open(path, 'r')
   } catch (error) {
-    if (estAAbsence(error)) return null
+    if (isAAbsence(error)) return null
     throw error
   }
 

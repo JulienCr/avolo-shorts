@@ -12,7 +12,7 @@ import {
   redact,
   quotaDelay,
   lastSummary,
-  estTransient,
+  isTransient,
   GeminiBlockedError,
   leverIfBlocked,
   lireTranscript,
@@ -396,10 +396,10 @@ describe('appelerGemini', () => {
       return e
     }
     for (const name of ['AbortError', 'TimeoutError']) {
-      expect(estTransient(abandonment(name))).toBe(true)
+      expect(isTransient(abandonment(name))).toBe(true)
     }
     // Et par le message seul, si un jour le nom se perd en route.
-    expect(estTransient(new Error('The operation was aborted due to timeout'))).toBe(true)
+    expect(isTransient(new Error('The operation was aborted due to timeout'))).toBe(true)
   })
 
   it('réessaie une réponse tronquée', async () => {

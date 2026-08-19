@@ -19,7 +19,7 @@ import { TARGETS_LAUNCHABLE, wait, launch, lireStatus, type TargetLaunchable } f
 import { closeDb } from '@/server/db'
 import { chargerEnv, timer, duration, quit } from './dev-common'
 
-function estTarget(a: string): a is TargetLaunchable {
+function isTarget(a: string): a is TargetLaunchable {
   return (TARGETS_LAUNCHABLE as readonly string[]).includes(a)
 }
 
@@ -39,7 +39,7 @@ async function main(): Promise<number> {
     )
     return 1
   }
-  const unknown = targets.filter((c) => !estTarget(c))
+  const unknown = targets.filter((c) => !isTarget(c))
   if (unknown.length > 0) {
     console.error(
       `Cible inconnue : ${unknown.join(', ')}. Attendu : ${TARGETS_LAUNCHABLE.join(', ')}`,
@@ -48,7 +48,7 @@ async function main(): Promise<number> {
   }
 
   const t = timer()
-  const { plan } = await launch(projectId, targets.filter(estTarget), { force })
+  const { plan } = await launch(projectId, targets.filter(isTarget), { force })
   console.log(`Projet  : ${projectId}`)
   console.log(`Cibles  : ${targets.join(', ')}${force ? ' (forcées)' : ''}`)
   console.log(`Plan    : ${plan.length === 0 ? 'rien, tout est là' : plan.join(' → ')}`)

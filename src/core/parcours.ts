@@ -151,20 +151,20 @@ function travailProjet(clips: readonly { status: ClipStatus }[]): Travail {
   return 'trie'
 }
 
-/** Une étape, telle que le panneau d'avancement la montre. */
+/**
+ * Une étape, telle que le panneau d'avancement la montre.
+ *
+ * **Il n'y a plus de coût ici, et c'est le point.** Une version précédente
+ * portait un `coûtSec` par étape : les cinq secondes mesurées une seule fois sur
+ * `2025-06-15-cqlp.mp4`, une émission d'1 h 40. Le panneau les affichait à
+ * l'identique pour une capsule de vingt minutes et pour un live de deux heures
+ * et demie, avec la même mention « environ ». Ce qu'une étape coûte dépend de
+ * l'émission ; `stepDurationRange` le calcule, et deux tables sur la même
+ * question auraient fini par diverger.
+ */
 export type ÉtapeDécrite = {
   nom: StepName
   libelle: string
-  /**
-   * Le coût **mesuré**, en secondes, sur une émission d'1 h 40. `null` quand
-   * personne ne l'a mesuré : on n'affiche alors rien plutôt qu'une estimation.
-   *
-   * **On affiche le coût d'une étape, jamais le temps qu'il reste.** Le coût est
-   * une mesure ; le restant est une extrapolation à partir de deux points sur
-   * une seule émission, et une estimation fausse coûte plus cher qu'une absence
-   * d'estimation.
-   */
-  coûtSec: number | null
 }
 
 /**
@@ -201,16 +201,18 @@ export const LIBELLES_ETAPES: Record<StepName, string> = {
  * `renders` comme cible, et `RunTarget` l'exclut pour la même raison. L'annoncer
  * dans un panneau d'avancement décrirait une étape qui n'y passera jamais.
  *
- * Les coûts viennent de `ROADMAP.md`, mesurés le 18 août 2026 sur
- * `2025-06-15-cqlp.mp4` (4,3 Go, 1 h 39).
+ * Ce que chaque étape coûte **sur une émission donnée** se demande à
+ * `stepDurationRange`, plus bas. Cette table ne porte que l'ordre et les
+ * libellés.
  */
 export const ÉTAPES: readonly ÉtapeDécrite[] = [
-  { nom: 'audio', libelle: LIBELLES_ETAPES.audio, coûtSec: 6 },
-  { nom: 'transcript', libelle: LIBELLES_ETAPES.transcript, coûtSec: 101 },
-  { nom: 'candidates', libelle: LIBELLES_ETAPES.candidates, coûtSec: 30 },
-  { nom: 'proxy', libelle: LIBELLES_ETAPES.proxy, coûtSec: 360 },
-  // Livrée par la PR #31 et jamais chronométrée sur une émission entière.
-  { nom: 'analysis', libelle: LIBELLES_ETAPES.analysis, coûtSec: null },
+  { nom: 'audio', libelle: LIBELLES_ETAPES.audio },
+  { nom: 'transcript', libelle: LIBELLES_ETAPES.transcript },
+  { nom: 'candidates', libelle: LIBELLES_ETAPES.candidates },
+  { nom: 'proxy', libelle: LIBELLES_ETAPES.proxy },
+  // Livrée par la PR #31 et jamais chronométrée sur une émission entière :
+  // `stepDurationRange` n'annonce donc rien pour elle.
+  { nom: 'analysis', libelle: LIBELLES_ETAPES.analysis },
 ]
 
 /**
@@ -277,8 +279,8 @@ export type ShowSize = {
  *
  * Toutes les constantes qui suivent sont des **rapports** tirés de cette unique
  * mesure. Les écrire ainsi plutôt qu'en secondes est tout l'objet de ce bloc :
- * les cinq `coûtSec` d'`ÉTAPES` annonçaient les mêmes chiffres à une capsule de
- * vingt minutes et à un live de deux heures et demie.
+ * les cinq coûts que portait `ÉTAPES` annonçaient les mêmes chiffres à une
+ * capsule de vingt minutes et à un live de deux heures et demie.
  */
 const REFERENCE = {
   durationSec: 5940,
@@ -296,8 +298,8 @@ const REFERENCE = {
  * pour trait à une étape délibérément non chronométrée.
  *
  * `null` dit précisément cela : **on ne sait pas, donc on n'annonce rien.**
- * C'est la même abstention que le `coûtSec` d'`ÉTAPES`, et elle vaut mieux
- * qu'une estimation qui n'est adossée à rien.
+ * C'est l'abstention que portait le `coûtSec` d'`ÉTAPES` avant qu'il ne soit
+ * retiré, et elle vaut mieux qu'une estimation qui n'est adossée à rien.
  */
 const RATES: Record<StepName, number | null> = {
   // 6 s. La seule étape dont le résultat tienne toujours sous la minute.
@@ -373,16 +375,11 @@ function toRange(sec: number, margin: number): DurationRange {
  * Ce qu'une étape va coûter sur cette émission-ci, ou `null` si on n'en sait
  * rien.
  *
- * **Additive : `ÉTAPES` et ses `coûtSec` restent** le temps que l'écran bascule.
- * Les deux tables ne divergeront pas longtemps — celle-ci les remplace — mais
- * les retirer d'un même mouvement casserait le panneau d'avancement, qui vit
- * dans une autre livraison.
- *
  * `null` a trois causes, et elles se valent toutes les trois pour l'appelant :
  * l'étape n'a jamais été chronométrée (`analysis`), elle ne passe pas par le
  * graphe (`renders`), ou l'émission n'a encore livré ni durée ni taille. Dans
- * les trois cas on n'affiche rien, ce qui est la règle déjà posée par
- * `ÉtapeDécrite.coûtSec`.
+ * les trois cas on n'affiche rien, et c'est `formatDurationRange` qui rend
+ * alors la chaîne vide.
  */
 export function stepDurationRange(step: StepName, size: ShowSize): DurationRange | null {
   const duration = estimatedDuration(size)

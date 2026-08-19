@@ -72,6 +72,17 @@ Les mesures qui les fondent sont dans la section 2 de la spec. En résumé : sur
 trois émissions, seuls 24 à 33 % du temps tiennent dans un 9:16, mais 48 %
 tiennent dans un 1:1 ou plus serré, et ce chiffre est stable sur les trois.
 
+**Une précision sur la sixième ligne, parce qu'elle se lit mal depuis le 19 août
+2026.** Le transcript reste la surface d'édition, et l'écran de clip porte
+désormais **une bande de temps** sous l'aperçu source. Les deux ne se
+contredisent pas : la bande n'a ni pistes, ni forme d'onde, ni montage des mots.
+Elle sert trois choses que le texte ne sait pas exprimer — promener la lecture,
+tirer les deux bornes à l'image près, voir où le cadre change de plan — et elle
+monte du temps là où le transcript monte des mots. Le transcript, lui, a cessé
+d'être *visible en permanence* : il s'ouvre dans un tiroir, avec ses six gestes
+intacts. Ce qui reste interdit est ce qui l'a toujours été : remplacer le texte
+par une timeline comme surface de montage.
+
 ## L'environnement
 
 - **GPU** : RTX 4090, 24 Go, accessible depuis WSL.

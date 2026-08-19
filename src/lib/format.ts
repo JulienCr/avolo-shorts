@@ -67,7 +67,7 @@ export function formatTimecode(seconds: number): string {
  * chronométrée qu'une fois, sur une machine à 40-80 % de variance.
  *
  * `null` rend la **chaîne vide**, et pas un texte d'excuse : c'est la règle déjà
- * posée par `ÉtapeDécrite.coûtSec`, on n'affiche rien plutôt qu'une estimation
+ * tenue depuis toujours par ce panneau : on n'affiche rien plutôt qu'une estimation
  * qui n'est adossée à rien. L'appelant teste la chaîne et n'affiche pas la ligne.
  *
  * Sous la minute on ne chiffre pas non plus. L'extraction audio coûte six

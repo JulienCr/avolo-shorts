@@ -200,11 +200,14 @@ describe('le tableau des étapes', () => {
     expect(ordre.indexOf('proxy')).toBeLessThan(ordre.indexOf('analysis'))
   })
 
-  it('laisse le coût à null là où personne n’a mesuré', () => {
-    // On affiche le coût d'une étape, jamais le temps qu'il reste — et jamais
-    // une estimation à la place d'une mesure.
-    expect(ÉTAPES.find((e) => e.nom === 'analysis')?.coûtSec).toBeNull()
-    expect(ÉTAPES.find((e) => e.nom === 'proxy')?.coûtSec).toBe(360)
+  it('ne porte plus de coût : il dépend de l’émission, pas de l’étape', () => {
+    // Les cinq `coûtSec` étaient mesurés une seule fois, sur une émission
+    // d'1 h 40, et s'affichaient à l'identique pour une capsule de vingt
+    // minutes. `stepDurationRange` les remplace, et deux tables sur la même
+    // question auraient fini par diverger.
+    for (const step of ÉTAPES) {
+      expect(Object.keys(step).toSorted()).toEqual(['libelle', 'nom'])
+    }
   })
 })
 
@@ -253,27 +256,18 @@ function midpoint(f: { lowSec: number; highSec: number } | null): number {
   return Math.round((f.lowSec + f.highSec) / 2)
 }
 
-describe('fourchetteDÉtape', () => {
+describe('stepDurationRange', () => {
   /**
-   * **Le contrat entre les deux tables, tant qu'elles coexistent.** `ÉTAPES`
-   * porte les coûts constants que le panneau d'avancement lit encore ; celle-ci
-   * les rapporte à l'émission qu'on regarde. Sur l'émission de référence — celle
-   * dont les deux sortent — elles doivent rendre le même chiffre, sinon deux
-   * écrans annonceraient deux durées pour la même étape. Et une étape que
-   * personne n'a chronométrée n'annonce rien des deux côtés. (relevé par
-   * Aristarque)
+   * **Les quatre mesures de `ROADMAP.md`, retrouvées sur l'émission dont elles
+   * sortent.** Ce test croisait les deux tables tant qu'elles coexistaient —
+   * `ÉTAPES` portait un `coûtSec` constant, celle-ci le rapporte à l'émission
+   * qu'on regarde, et elles devaient s'accorder sur la référence. `coûtSec` est
+   * retiré depuis : il ne reste qu'un côté, et ce sont les valeurs elles-mêmes
+   * qui l'ancrent. C'est d'ailleurs ce que la boucle d'alors ne garantissait
+   * pas seule — son propre commentaire le disait, un `ÉTAPES` vidé l'aurait
+   * fait passer sans rien vérifier. (relevé par Aristarque)
    */
-  it('retrouve, sur l’émission de référence, exactement les coûts d’ÉTAPES', () => {
-    for (const described of ÉTAPES) {
-      const range = stepDurationRange(described.nom, CQLP)
-      if (described.coûtSec === null) {
-        expect(range, described.nom).toBeNull()
-        continue
-      }
-      expect(midpoint(range), described.nom).toBe(described.coûtSec)
-    }
-    // Et les quatre valeurs elles-mêmes, écrites en clair : un `ÉTAPES` vidé
-    // ferait passer la boucle ci-dessus sans rien vérifier.
+  it('retrouve, sur l’émission de référence, les quatre coûts mesurés', () => {
     expect(midpoint(stepDurationRange('audio', CQLP))).toBe(6)
     expect(midpoint(stepDurationRange('transcript', CQLP))).toBe(101)
     expect(midpoint(stepDurationRange('proxy', CQLP))).toBe(360)
@@ -326,10 +320,11 @@ describe('fourchetteDÉtape', () => {
   })
 
   it('n’annonce rien pour une étape jamais chronométrée', () => {
-    // `analysis` est absente de la table des débits pour la même raison qu'elle
-    // porte `coûtSec: null` dans `ÉTAPES` : personne ne l'a mesurée.
+    // `analysis` est absente de la table des débits parce que personne ne l'a
+    // chronométrée sur une émission entière — elle reste dans `ÉTAPES`, qui
+    // décrit l'ordre du plan et non son prix.
     expect(stepDurationRange('analysis', CQLP)).toBeNull()
-    expect(ÉTAPES.find((é) => é.nom === 'analysis')?.coûtSec).toBeNull()
+    expect(ÉTAPES.some((é) => é.nom === 'analysis')).toBe(true)
   })
 
   it('n’annonce rien pour les rendus, qui ne passent pas par le graphe', () => {

@@ -17,6 +17,7 @@ import {
   parseJsonResponse,
   parseScoreResponse,
   shortlistFromScores,
+  type DetailClip,
   type ScoredWindow,
 } from '@/core/gemini/parse'
 import {
@@ -997,14 +998,25 @@ export async function runCandidates(
       `(un clip toutes les ${réglages.minutesParClip} min).`,
   )
 
+  // **La relecture des clips, faite une seule fois et jamais avant l'attente
+  // réseau.** `PATCH /api/clips/:id` reste ouverte pendant qu'une exécution de
+  // fond tourne : une décision prise pendant les appels de détail — garder,
+  // écarter, éditer — ne figure pas dans un instantané pris avant eux.
+  //
+  // Deux endroits en ont besoin, et **c'est la même lecture qui doit les
+  // servir** : le plafond du détail, qui ne veut compter que des propositions
+  // qui survivront, et la fusion des passes, qui décide ce que la base gardera.
+  // Deux lectures distinctes rouvriraient entre elles la fenêtre que celle-ci
+  // ferme. Elle est différée parce que le plafond, quand il est réglé, est le
+  // premier à la demander — c'est-à-dire juste après les appels.
+  // (relevé par Codex)
+  let freshClips: Clip[] | null = null
+  const readFreshClips = (): Clip[] => (freshClips ??= getClips(db, projectId))
+
   // 4. Le détail, sur la liste fusionnée et ancrée. Le calage sur les mots se
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
   //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
   //    traitées et écrirait l'artefact. (relevé par Copilot)
-  // Un instantané **pour le seul plafond**, pris avant l'appel réseau parce que
-  // c'est là que la cible se décide. Il ne sert à rien d'autre : voir la
-  // relecture juste après le détail, et pourquoi elle n'est pas facultative.
-  const avantDétail = getClips(db, projectId)
   const propositions = await détailler(retenues, {
     projectId,
     transcript,
@@ -1013,7 +1025,8 @@ export async function runCandidates(
     minClips,
     maxClips,
     plafondAbsolu: réglages.clipsMaximum,
-    idsPris: new Set(avantDétail.filter((c) => c.status !== 'candidate').map((c) => c.id)),
+    idsPris: () =>
+      new Set(readFreshClips().filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
     sleep,
     signal: options.signal,
@@ -1021,15 +1034,13 @@ export async function runCandidates(
 
   // 5. La fusion des passes, puis l'écriture.
   //
-  // **Relu ici, après l'attente réseau, et jamais avant.** `PATCH
-  // /api/clips/:id` reste ouverte pendant qu'une exécution de fond tourne : une
-  // décision prise pendant les appels de détail — garder, écarter, éditer — ne
-  // figure pas dans un instantané pris avant eux. Fusionner sur cet instantané
-  // reviendrait à traiter le clip décidé comme un candidat, et `replaceClips`
-  // effacerait ensuite la décision. C'est très exactement la garantie « une
-  // nouvelle passe n'écrase jamais un travail humain » (spec §5), qu'une lecture
-  // hissée trop haut suffisait à défaire. (relevé par Codex et Copilot)
-  const existants = getClips(db, projectId)
+  // **Lus après l'attente réseau, et jamais avant.** Fusionner sur un
+  // instantané pris avant les appels reviendrait à traiter comme un candidat un
+  // clip dont quelqu'un vient de décider, et `replaceClips` effacerait ensuite
+  // la décision. C'est très exactement la garantie « une nouvelle passe n'écrase
+  // jamais un travail humain » (spec §5), qu'une lecture hissée trop haut
+  // suffisait à défaire. (relevé par Codex et Copilot)
+  const existants = readFreshClips()
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
   const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)
@@ -1406,8 +1417,16 @@ type ContexteDétail = {
    * Les `id` que `mergeCandidates` écartera de toute façon : ceux des clips
    * portant une décision humaine. Ne sert qu'au plafond, qui doit compter des
    * propositions qui survivront.
+   *
+   * **Une fonction, appelée après les appels réseau et jamais avant.** Quelqu'un
+   * peut écarter un candidat pendant que la requête de détail est en vol ; un
+   * instantané pris avant elle traite encore cet identifiant comme disponible.
+   * La proposition consommait alors un créneau du plafond, `mergeCandidates` la
+   * jetait juste après sur la relecture fraîche, et la passe rendait moins de
+   * clips que le maximum réglé. C'est la relecture de `runCandidates` qui répond
+   * ici, la même que celle de la fusion. (relevé par Codex)
    */
-  idsPris: ReadonlySet<string>
+  idsPris: () => ReadonlySet<string>
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
   signal?: AbortSignal
@@ -1454,7 +1473,7 @@ type ContexteDétail = {
  */
 async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Clip[]> {
   const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
-  const clips = await descendre(
+  const propositions = await descendre(
     retenues,
     { min: ctx.minClips, max: ctx.maxClips },
     ctx,
@@ -1472,7 +1491,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // **Le compte des réponses, jamais celui des clips.** `parseDetailResponse`
   // tient `shorts: []` pour une réponse valide — « aucun moment exploitable
   // ici » —, donc une moitié qui répond vide pendant que l'autre est refusée
-  // laisse `clips` vide sans qu'aucun refus global n'ait eu lieu. Compter les
+  // laisse la liste vide sans qu'aucun refus global n'ait eu lieu. Compter les
   // clips faisait alors échouer toute l'étape en accusant la vidéo d'un refus
   // qu'elle n'a pas subi. (relevé par Codex et Copilot)
   if (ardoise.réussis === 0 && ardoise.refusés.length > 0) {
@@ -1486,6 +1505,12 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
     )
   }
 
+  // **Classer d'abord, dédoublonner ensuite, plafonner en dernier.** Les trois
+  // gestes se suivent dans cet ordre parce que chacun a besoin du précédent : le
+  // classement décide qui mérite un créneau, le dédoublonnage décide qui en
+  // consomme un, la coupe compte.
+  const clips = rankProposals(propositions)
+
   // **Le plafond absolu se tient ici, à la fin, et pas seulement dans la
   // consigne.** Une découpe éclate la cible entre les branches, et une part qui
   // s'arrondit à zéro est relevée à un pour ne pas abandonner de région : la
@@ -1494,9 +1519,6 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // `parseDetailResponse` ne l'imposent. Ce qui rend `clipsMaximum` vrai est
   // cette coupe-ci. (relevé par Copilot)
   //
-  // **Et elle se dit.** Une troncature silencieuse est exactement le défaut que
-  // ce dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
-  // écarte, et ne survient que si quelqu'un a réglé un plafond.
   // Le plafond **réglé**, jamais la cible proportionnelle : sans réglage, rendre
   // plus que la cible est une bonne nouvelle — le repérage vise le rappel
   // (spec §7) — et couper là abandonnerait du matériau que personne n'a demandé
@@ -1510,7 +1532,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // condamnés consommer le quota : `[A, A, B]` à deux devenait `[A, A]`, puis un
   // seul candidat, et B disparaissait alors que le plafond l'autorisait.
   // (relevé par Codex)
-  const vus = new Set(ctx.idsPris)
+  const vus = new Set(ctx.idsPris())
   const uniques = clips.filter((clip) => !vus.has(clip.id) && vus.add(clip.id))
 
   if (uniques.length <= ctx.plafondAbsolu) return uniques
@@ -1523,6 +1545,54 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
       `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
   )
   return uniques.slice(0, ctx.plafondAbsolu)
+}
+
+/**
+ * Les propositions remises dans l'ordre de la performance prédite, la meilleure
+ * d'abord.
+ *
+ * **Chaque réponse est ordonnée, mais pour elle seule.** Le prompt demande au
+ * modèle de rendre ses clips du meilleur au moins bon ; quand le filtre force la
+ * descente à découper, `descendre` concatène la branche gauche avant la droite
+ * et cet ordre-là ne veut plus rien dire. Un clip faible d'une charge passait
+ * devant un clip bien meilleur rendu par une charge suivante, et c'est lui que
+ * le plafond gardait. (relevé par Codex)
+ *
+ * **Ce que la coupe gardait exactement**, puisque le fil d'origine dit « les
+ * régions les plus précoces du transcript » et que ce n'est pas tout à fait
+ * cela : la descente découpe `retenues`, que `shortlistFromScores` ordonne par
+ * note de fenêtre et non par position. La branche gauche est donc le haut du
+ * panier de la **notation**, et la coupe rendait ce classement-là définitif sans
+ * jamais consulter ce que la passe de détail venait de dire de chaque clip. Le
+ * défaut est le même, sa cause est un cran plus haut.
+ *
+ * **La note du détail n'a pas le barème ancré de la notation** (voir
+ * `scorePrompt`) : deux sous-requêtes ne s'étalonnent pas l'une sur l'autre, et
+ * les comparer reste une approximation. C'en est une bien meilleure que l'ordre
+ * d'arrivée, qui ne dit rien d'autre que « la notation avait mis cette fenêtre
+ * plus haut », c'est-à-dire un jugement rendu sur 90 secondes de prose avant que
+ * le moindre clip n'ait été délimité. (relevé par Copilot)
+ *
+ * Le classement s'applique **même sans plafond**, où il ne coûte rien : la base
+ * fait autorité et `getClips` trie par passe puis par identifiant, donc seul
+ * l'ordre de `candidates.json` s'en trouve changé. Le conditionner au réglage
+ * ferait dépendre l'ordre du lot de la présence d'un plafond, pour rien.
+ *
+ * À égalité, l'ordre d'arrivée tranche — par un comparateur explicite plutôt que
+ * par la stabilité du tri, comme dans `shortlistFromScores` et pour la même
+ * raison. Une proposition non notée passe derrière une proposition notée zéro :
+ * `predicted_score` est facultatif, et l'absence n'est pas une note.
+ */
+function rankProposals(proposals: readonly DetailClip[]): Clip[] {
+  return proposals
+    .map((proposal, arrival) => ({ proposal, arrival }))
+    .sort(
+      (a, b) =>
+        Number(b.proposal.scored) - Number(a.proposal.scored) ||
+        b.proposal.predictedScore - a.proposal.predictedScore ||
+        a.arrival - b.arrival,
+    )
+    .map(({ proposal }) => proposal.clip)
 }
 
 /**
@@ -1560,7 +1630,7 @@ async function descendre(
   cible: { min: number; max: number },
   ctx: ContexteDétail,
   ardoise: ArdoiseDétail,
-): Promise<Clip[]> {
+): Promise<DetailClip[]> {
   if (lot.length === 0) return []
 
   const max = Math.max(1, cible.max)

@@ -217,8 +217,17 @@ de segment en amont et atterrit sur le mauvais plan, sans erreur ni signal.
 
 ### L'interface est livrée, sauf son dernier lot
 
-Les trois écrans sont en ligne (PR #50, #51, #52). Ce qui suit dit ce qu'il faut
-savoir avant d'y toucher, et ce qui reste.
+Les trois écrans sont en ligne (PR #50, #51, #52), et une refonte de leur
+hiérarchie est passée depuis, sur retour d'usage
+(`docs/retour-ui-and-next-steps.md`) : **une seule bibliothèque d'émissions** au
+lieu de deux sections qui montraient la même émission deux fois, **une vue
+Émission** qui porte le proxy en lecture et une bande de couverture des clips
+gardés, **l'arrêt d'une analyse**, **des durées annoncées en fourchettes**
+proportionnées à l'émission, et **un écran `/settings`**. La spec de parcours
+porte le détail — §3.1, §3.2, §8 — et le vocabulaire d'écran dit « Émission » là
+où le domaine dit toujours `project`.
+
+Ce qui suit dit ce qu'il faut savoir avant d'y toucher, et ce qui reste.
 
 **Ce que le serveur impose, et qu'une interface écrite sans le savoir
 présenterait comme des erreurs.** Ces contraintes ne disparaissent pas parce que
@@ -259,16 +268,30 @@ trouvés en review et documentés au point d'appel : la garde des raccourcis doi
 écarter **tout élément qui traite déjà la touche** (`button`, `a[href]`,
 `[role="button"]`, `[role="tab"]`, `[role="slider"]`, `summary`), faute de quoi
 le clavier meurt dès qu'on décide à la souris — le focus reste sur le bouton et
-plus rien ne répond, pendant que la carte garde son anneau de sélection. Et le
+plus rien ne répond, pendant que la carte garde son anneau de sélection. Elle
+écarte aussi les modaux, **sauf celui qui se déclare hôte** : depuis le 19 août
+2026 le transcript vit dans un tiroir, et un tiroir rangé avec les boîtes de
+confirmation tuerait `Suppr`, `I`, `O` et `Ctrl+Z` au moment précis où on les
+presse. L'exception est portée par un attribut du conteneur, jamais par un
+sélecteur qui reconnaîtrait le tiroir à sa classe. Et le
 compteur de temps du panneau d'avancement **ne compte pas des battements** : un
 onglet en arrière-plan les étrangle, et l'écran affirmerait trois minutes là où
 neuf se sont écoulées, sur la seule surface censée dire l'attente.
 
-**`use(params)` ne se résout pas sous jsdom.** Les trois écrans vivent donc dans
-`src/components/<étape>/ecran-*.tsx` et leur fichier de route tombe à quelques
-dizaines de lignes. Ce n'est pas une préférence de style : c'est la seule façon
-de monter un écran en test, et l'extraction a révélé trois défauts au premier
-montage sur l'écran de projet.
+**`use(params)` ne se résout pas sous jsdom.** Les écrans vivent donc dans
+`src/components/<étape>/` et leur fichier de route tombe à quelques dizaines de
+lignes. Ce n'est pas une préférence de style : c'est la seule façon de monter un
+écran en test, et l'extraction a révélé trois défauts au premier montage sur
+l'écran de projet. La règle vaut même là où la route n'a pas de `params` —
+`/settings` n'en a aucun et son écran est sorti quand même : une règle qui souffre
+une exception n'en est plus une.
+
+**Le nom de ces fichiers a glissé.** La convention était `ecran-*.tsx` ; depuis la
+règle de langue de `CLAUDE.md` (« le code est en anglais »), les fichiers neufs
+s'appellent `*-screen.tsx` — `library-screen.tsx`, `settings-screen.tsx`. Les
+anciens gardent leur nom jusqu'au balayage de l'**issue #73**, qui soldera d'un
+coup les 333 identifiants accentués du dépôt : les renommer un par un au fil des
+PR garantirait le conflit partout.
 
 ### Ce que les vagues ont laissé, et où c'est suivi
 

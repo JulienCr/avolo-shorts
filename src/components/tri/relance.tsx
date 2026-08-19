@@ -1,10 +1,10 @@
 'use client'
 
-import { RefreshCw, RotateCcw } from 'lucide-react'
+import { RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { useState } from 'react'
 
 import { ApiError, CIBLES_DE_REPRISE } from '@/lib/api'
-import { useRelancer } from '@/lib/queries'
+import { useRelancer, useStopAnalysis } from '@/lib/queries'
 import { accord } from '@/components/tri/modele'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,8 @@ import {
  * différence commande tout le reste : la reprise **répare** — elle ne détruit
  * rien, donc elle ne se confirme pas —, la relance forcée **remplace** les
  * propositions en attente, donc elle énonce le partage avant.
+ *
+ * Et son inverse, `StopButton`, qui rend le travail au serveur.
  */
 
 const RAISON_EN_COURS = 'Une exécution est déjà en cours ; la relance sera possible à sa fin.'
@@ -63,6 +65,99 @@ export function BoutonReprise({ projectId, enCours }: { projectId: string; enCou
       </Button>
       <Raison bloqué={bloqué} enCours={enCours} />
       <ÉchecDeRelance erreur={relance.error} />
+    </div>
+  )
+}
+
+/**
+ * Arrêter l'analyse en cours.
+ *
+ * **« Arrêter » et non « pause », et le mot n'est pas cosmétique.** Rien ne
+ * reprend un processus exactement là où il s'est interrompu : ffmpeg est tué,
+ * WhisperX aussi, et ce qui repart repart du début de son étape. Un bouton
+ * « pause » promettrait une reprise au milieu du proxy, et personne ne le
+ * découvrirait avant d'avoir attendu six minutes de plus.
+ *
+ * **Ce qui est déjà sur le disque reste**, et la reprise repart de la première
+ * étape manquante — c'est le graphe qui le fait, sans que cet écran ait à
+ * énumérer quoi que ce soit.
+ *
+ * **Aucune confirmation.** L'arrêt ne détruit aucun artefact ni aucune décision
+ * humaine : il rend du temps de calcul, et le geste inverse est à un clic. Une
+ * boîte de dialogue ne protégerait rien et retarderait le seul geste que
+ * quelqu'un qui vient de lancer la mauvaise émission veut faire vite.
+ *
+ * **`stopped: false` est un succès.** C'est ce que rend la route quand rien ne
+ * tournait — l'analyse venait de finir, ou un redémarrage du serveur a emporté
+ * l'exécution. Le dire comme un échec ferait chercher un défaut là où il n'y a
+ * qu'une course perdue de quelques secondes ; l'écran ne montre donc rien de
+ * particulier, et le sondage suivant dit la vérité.
+ */
+export function StopButton({
+  projectId,
+  compact = false,
+}: {
+  projectId: string
+  /**
+   * La forme que porte la barre d'application quand le panneau s'est replié.
+   *
+   * Même geste, même mutation, moins de place — et l'échec en une ligne plutôt
+   * qu'en bandeau, parce qu'une alerte dans une barre de douze unités de haut
+   * la ferait grandir sous le contenu.
+   */
+  compact?: boolean
+}) {
+  const stop = useStopAnalysis()
+
+  const button = (
+    <Button
+      variant="outline"
+      size={compact ? 'sm' : 'default'}
+      aria-disabled={stop.isPending}
+      onClick={() => {
+        if (stop.isPending) return
+        stop.mutate(projectId)
+      }}
+    >
+      <Square aria-hidden />
+      Arrêter l’analyse
+    </Button>
+  )
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        {button}
+        {stop.isError && (
+          // **Le message du serveur est dans le DOM, `truncate` ne borne que la
+          // largeur.** La forme compacte est le seul contrôle d'arrêt tant que
+          // la grille est visible — c'est-à-dire pendant les six minutes de
+          // proxy —, et y perdre la cause laissait « l'arrêt n'est pas parti »
+          // sans rien pour savoir pourquoi. Le `title` la rend au survol, le
+          // lecteur d'écran la lit en entier. (relevé par Copilot)
+          <span
+            role="alert"
+            title={stop.error.message}
+            className="max-w-48 truncate text-xs text-destructive"
+          >
+            L’arrêt n’est pas parti : {stop.error.message}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {button}
+      {stop.isPending && (
+        <p className="max-w-xs text-xs text-muted-foreground">Demande en cours d’envoi.</p>
+      )}
+      {stop.isError && (
+        <Alert variant="destructive" className="max-w-sm">
+          <AlertDescription>L’arrêt n’est pas parti : {stop.error.message}</AlertDescription>
+        </Alert>
+      )}
     </div>
   )
 }

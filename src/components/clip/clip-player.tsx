@@ -7,6 +7,7 @@ import type { Segment } from '@/core/edl'
 import { useLecture } from '@/components/clip/lecture'
 import { playbackAction } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -91,11 +92,22 @@ export function ClipPlayer({
   segments,
   overlay,
   onVideo,
+  frame,
 }: {
   proxyUrl: string | null
   segments: Segment[]
   /** Superposé à l'image, en coordonnées de l'image. Le rectangle de cadrage. */
   overlay?: ReactNode
+  /**
+   * La boîte de l'image, dimensionnée par l'appelant.
+   *
+   * **Elle existe pour que les deux aperçus aient exactement la même hauteur** :
+   * la source prenait la largeur restante pendant que la sortie était bridée à
+   * `max-w-40`, et la différence de ratio devenait une différence de poids
+   * visuel entre deux vues qui doivent se valoir. La hauteur se donne au même
+   * endroit pour les deux, chacun en déduit sa largeur.
+   */
+  frame?: string
   /**
    * L'élément décodant, rendu à la page.
    *
@@ -143,8 +155,17 @@ export function ClipPlayer({
   }, [onVideo, proxyUrl])
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-zinc-950">
+    <div className="flex min-w-0 flex-col gap-2">
+      {/* `self-start` pour la même raison que la boîte de l'aperçu de sortie :
+          étirée par le conteneur `flex-col`, sa largeur l'emporterait sur
+          `aspect-video`, qui en déduirait la hauteur — et les deux aperçus
+          n'auraient plus la même. */}
+      <div
+        className={cn(
+          'relative aspect-video shrink-0 self-start overflow-hidden rounded-lg bg-zinc-950',
+          frame ?? 'w-full',
+        )}
+      >
         {proxyUrl ? (
           <video
             ref={video}

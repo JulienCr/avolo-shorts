@@ -1,5 +1,5 @@
 import { open, type FileHandle } from 'node:fs/promises'
-import { Readable } from 'node:stream'
+import { ByteLengthQueuingStrategy, ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { parseRange, type ByteRange } from '@/core/range'
 
@@ -47,21 +47,68 @@ export function estUneAbsence(erreur: unknown): boolean {
  *
  * Le pont n'est pas décoratif : un `ReadStream` de Node n'est pas un
  * `ReadableStream`, et la `Response` que Next attend ne connaît que le second.
- * `Readable.toWeb` fait la conversion **en gardant les deux propriétés qui
- * comptent** : la contre-pression, sans laquelle un fichier d'un gigaoctet
- * serait tiré en mémoire aussi vite que le disque le rend, et l'annulation — un
- * spectateur qui saute abandonne la requête en cours, et le flux de fichier doit
- * se fermer avec elle plutôt que de continuer à lire dans le vide.
+ * Il doit garder les deux propriétés qui comptent : la contre-pression, sans
+ * laquelle un fichier d'un gigaoctet serait tiré en mémoire aussi vite que le
+ * disque le rend, et l'annulation — un spectateur qui saute abandonne la requête
+ * en cours, et le flux doit se fermer avec elle plutôt que de continuer à lire
+ * dans le vide. Le flux part du `FileHandle` déjà ouvert et le referme en se
+ * terminant.
  *
- * Le flux part du `FileHandle` déjà ouvert et le referme en se terminant.
+ * **Surtout pas `Readable.toWeb`**, qui tenait ce rôle jusqu'à l'issue #75. La
+ * cause a été relevée dans une pile, pas déduite : `toWeb` pose un écouteur
+ * `'data'` sur le flux Node et **ne le retire jamais**. Son annulation se
+ * contente de détruire le flux ; la reprise déjà programmée avant l'abandon
+ * s'exécute quand même, vide le tampon accumulé dans un contrôleur désormais
+ * fermé, et le premier `enqueue` lève `ERR_INVALID_STATE: Controller is already
+ * closed`. La levée sort d'un `emit('data')`, c'est-à-dire d'un endroit qui n'a
+ * plus de requête où remonter : c'est une `uncaughtException`.
  *
- * Le `as` est un raccommodage de types, pas un changement de valeur : Node type
- * son `ReadableStream` dans `node:stream/web` et le `lib: ["dom"]` du projet en
- * déclare un autre, alors que c'est le même objet au runtime.
+ * La condition n'a rien d'exotique, c'est celle d'un lecteur vidéo : il faut que
+ * le consommateur ait cessé de tirer assez longtemps pour que le flux se mette
+ * en pause avec des octets en réserve — ce qui arrive dès que la socket ne draine
+ * plus — puis qu'il abandonne. Un abandon dès les en-têtes ou en pleine lecture
+ * ne la remplit pas, et c'est pourquoi le défaut se voyait à chaque chargement de
+ * l'écran de clip sans jamais se voir sous un `curl`.
+ *
+ * Le pont passe donc par **l'itérateur asynchrone** du flux, qui ne rend un
+ * morceau que quand on lui en demande un : rien ne pousse, donc rien ne peut
+ * pousser trop tard. L'annulation appelle `return()` sur l'itérateur, ce qui
+ * détruit le flux **et referme le descripteur**. Et si l'annulation tombe
+ * pendant un `next()`, l'`enqueue` qui suit lève dans la promesse de `pull`, où
+ * la mécanique du `ReadableStream` la recueille — pas dans un `emit`.
+ *
+ * `ReadableStream.from` ferait presque cela, en une ligne, mais impose une
+ * réserve nulle : voir la stratégie plus bas, qui est la raison de l'écrire à la
+ * main.
+ *
+ * L'import vient de `node:stream/web` et non du global : le `lib: ["dom"]` du
+ * projet déclare un `ReadableStream` dont le constructeur n'accepte pas ce que
+ * Node accepte. Le `as` qui suit est un raccommodage de types, pas un changement
+ * de valeur — c'est le même objet au runtime.
  */
 function fluxWeb(fichier: FileHandle, plage?: ByteRange): ReadableStream<Uint8Array> {
   const flux = fichier.createReadStream(plage && { start: plage.start, end: plage.end })
-  return Readable.toWeb(flux) as unknown as ReadableStream<Uint8Array>
+  const source = flux[Symbol.asyncIterator]()
+  return new NodeReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        const { done, value } = await source.next()
+        if (done === true) controller.close()
+        else controller.enqueue(value)
+      },
+      async cancel() {
+        await source.return?.()
+      },
+    },
+    // La même réserve que le flux Node, et pas zéro : c'est ce que `toWeb`
+    // faisait, et ça décide d'une chose qui ne se voit pas ici. Une réserve non
+    // nulle fait tirer un premier morceau dès la construction, donc **un fichier
+    // plus petit que le tampon se lit et se referme même si personne ne lit le
+    // corps** — le cas d'un `.txt` de publication qu'une route interroge pour
+    // son seul statut. À zéro, rien ne se passe tant qu'on ne tire pas, et le
+    // descripteur attend le ramasse-miettes.
+    new ByteLengthQueuingStrategy({ highWaterMark: flux.readableHighWaterMark }),
+  ) as unknown as ReadableStream<Uint8Array>
 }
 
 /**

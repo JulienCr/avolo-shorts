@@ -117,7 +117,16 @@ export function motDuRepérage(bilan: BilanRepérage | null): MotDuRepérage | n
     return { perte: false, provisoire, phrase: 'Le repérage n’avait aucune fenêtre à noter.', detail: null }
   }
 
-  const perte = bilan.notées < bilan.fenêtres || bilan.lotsRefusés > 0
+  // **Sur les fenêtres, jamais sur les lots refusés.** Le second terme a vécu
+  // ici et c'était un défaut (issue #57) : depuis que le repérage recoupe les
+  // lots refusés par le filtre de sécurité et les resoumet un à un — le cas
+  // *normal*, livré par la PR #30 —, `notées === fenêtres` avec `lotsRefusés > 0`
+  // est la situation courante. L'écran annonçait alors une perte qui n'existe
+  // pas, dans une phrase qui se contredit : « n'a jugé que 100 % … 83 fenêtres
+  // sur 83 ». Un lot refusé et jamais rattrapé tombe déjà dans ce prédicat,
+  // puisqu'il laisse des fenêtres non notées ; les lots ne viennent qu'en
+  // explication, comme le dit le docblock plus haut.
+  const perte = bilan.notées < bilan.fenêtres
   if (!perte) {
     return {
       perte: false,

@@ -9,7 +9,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -104,6 +104,26 @@ async function monter(id = 'c2', donnees?: ClipDetail) {
   await screen.findByRole('link', { name: 'La scène du 15 juin' })
 }
 
+/**
+ * Ouvre le tiroir de montage.
+ *
+ * **Le transcript n'est plus visible en permanence** : le geste courant de cet
+ * écran — vérifier, ajuster deux textes, exporter — se fait sans lui, et
+ * l'édition fine passe par un tiroir. Tout test qui touche aux mots commence
+ * donc par ce geste, qui est aussi celui de l'utilisateur.
+ */
+async function ouvrirMontage() {
+  fireEvent.click(screen.getByRole('button', { name: /modifier le montage/i }))
+  return screen.findByRole('dialog')
+}
+
+/** Une oreille de la bande de temps : la borne d'entrée, ou celle de sortie. */
+function oreille(bord: 'entrée' | 'sortie') {
+  return screen.getByRole('slider', {
+    name: bord === 'entrée' ? /borne d’entrée/i : /borne de sortie/i,
+  })
+}
+
 beforeEach(() => {
   stubFetch()
   useEditeur.setState({ clipId: null })
@@ -146,12 +166,94 @@ describe('la boucle de montage', () => {
   })
 })
 
+describe('le geste courant', () => {
+  beforeEach(async () => {
+    await monter('c2')
+  })
+
+  it('se fait sans ouvrir le transcript', () => {
+    // Le fond du changement : vérifier le clip, ajuster deux textes, exporter.
+    // Le transcript occupait la moitié de l'écran pour une édition ponctuelle.
+    expect(screen.queryByText(/m0-0/)).toBeNull()
+    expect(screen.getByLabelText('Titre')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /modifier le montage/i })).toBeTruthy()
+  })
+
+  it('garde toutes les capacités du transcript derrière une action', async () => {
+    // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
+    // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir.
+    await ouvrirMontage()
+    expect(screen.getByText(/m0-0/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
+  })
+
+  it('rend le focus au bouton qui a ouvert le tiroir', async () => {
+    // §4.4 : une boîte de dialogue piège le focus et le rend à son déclencheur.
+    // C'est `SheetTrigger` qui le garantit — un bouton qui basculerait un booléen
+    // à côté laisserait le focus au corps du document à la fermeture.
+    const bouton = screen.getByRole('button', { name: /modifier le montage/i })
+    await ouvrirMontage()
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(bouton)
+  })
+
+  it('laisse les raccourcis vivre dans le tiroir', async () => {
+    // **La garde des raccourcis écarte tout modal — sauf celui-ci, qui le
+    // déclare.** Sans l'exception, `I`, `O`, `Suppr` et `Ctrl+Z` meurent au
+    // moment précis où on les presse : le focus est dans le tiroir, et plus rien
+    // ne répond. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte le
+    // fait commencer au début du transcript.
+    await ouvrirMontage()
+    const mot = screen.getByText(/m0-0/)
+    fireEvent.pointerDown(mot)
+    fireEvent.pointerUp(mot)
+    fireEvent.keyDown(mot, { key: 'i' })
+    expect(useEditeur.getState().historique.present[0].start).toBeCloseTo(0, 5)
+  })
+
+  it('ouvre le tiroir avec la recherche sur Ctrl+F', async () => {
+    // Le transcript n'est plus visible en permanence : une barre de recherche
+    // ouverte sur une surface fermée ne chercherait nulle part.
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
+    await screen.findByRole('dialog')
+    expect(screen.getByLabelText('Chercher dans le transcript')).toBeTruthy()
+  })
+})
+
+describe('la fresque des clips', () => {
+  // La bande vit de la liste des candidats, qui arrive après le premier rendu :
+  // c'est celle-là qu'on attend, pas le fil d'Ariane.
+  const bande = () => screen.findByRole('navigation', { name: /clips gardés/i })
+
+  it('montre les gardés et marque celui qu’on monte', async () => {
+    // « J'édite le clip 2 sur les 3 gardés de cette émission », d'un regard.
+    await monter('c2')
+    const fresque = await bande()
+    expect(within(fresque).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(fresque).getByText(/clip 2 sur 3/)).toBeTruthy()
+    expect(within(fresque).getByText('exporté')).toBeTruthy()
+  })
+
+  it('change de clip d’un clic, et ne mène pas à celui qu’on monte', async () => {
+    // Un lien vers l'écran où l'on est n'est pas une navigation : le clip
+    // courant est marqué, pas cliquable.
+    await monter('c2')
+    const fresque = await bande()
+    const liens = within(fresque).getAllByRole('link')
+    expect(liens.map((l) => l.getAttribute('href'))).toEqual(['/clips/c1', '/clips/c4'])
+  })
+})
+
 describe('le mot barré cliqué loin devant', () => {
   it('déplace la borne plutôt que d’ajouter une île', async () => {
     // Spec §7.1 : un mot barré à l'extérieur de l'étendue est une borne, pas un
     // trou. Le remonter veut dire « le clip commence là », pas « ajoute trois
     // dixièmes de seconde à quatre-vingt-dix secondes d'ici ».
     await monter('c2')
+    await ouvrirMontage()
     const mot = screen.getByText(/m1-0/)
     fireEvent.pointerDown(mot)
     fireEvent.pointerUp(mot)
@@ -206,10 +308,11 @@ describe('l’enregistrement en échec', () => {
       vi.stubGlobal('fetch', fetch)
       await monter('c2')
 
-      // Un geste : remonter un mot barré hors de l'étendue déplace la borne.
-      const mot = screen.getByText(/m1-0/)
-      fireEvent.pointerDown(mot)
-      fireEvent.pointerUp(mot)
+      // Un geste : une image de plus à l'entrée, prise sur la bande de temps.
+      // Elle passe par le même montage et la même écriture différée que le
+      // transcript — c'est ce qui garantit qu'aucun second chemin d'écriture n'a
+      // été ouvert.
+      fireEvent.keyDown(oreille('entrée'), { key: 'ArrowLeft' })
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
@@ -238,8 +341,10 @@ describe('le surlignage, dès l’ouverture', () => {
     // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
     // l'ordre des deux effets décide seul de ce qui reste publié.
     await monter('c2')
+    await ouvrirMontage()
     cleanup()
     await monter('c2')
+    await ouvrirMontage()
     act(() => useLecture.getState().definirPosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
   })
@@ -251,6 +356,7 @@ describe('le curseur du clavier et les bornes', () => {
     // sélection : `I` posait donc la borne sur un mot cliqué trois gestes plus
     // tôt, sans que rien ne le dise. (relevé par Copilot)
     await monter('c2')
+    await ouvrirMontage()
     const mot = screen.getByText(/m0-0/)
     fireEvent.pointerDown(mot)
     fireEvent.pointerUp(mot)

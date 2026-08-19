@@ -163,6 +163,27 @@ describe('volerait', () => {
     expect(volerait(window, ' ')).toBe(false)
   })
 
+  it('rend les touches au modal qui héberge les gestes de l’écran', () => {
+    // **Le tiroir de montage est l'exception, et il la déclare.** La règle du
+    // dessus vise les boîtes qui interrompent le travail — la liste des
+    // raccourcis, la confirmation d'écrasement. Le tiroir, lui, *est* le
+    // travail : `Suppr` y retire, `I` et `O` y posent les bornes, `Ctrl+Z` y
+    // annule. Le ranger avec les autres tuerait les quatre gestes du produit au
+    // moment précis où on les presse.
+    const tiroir = document.createElement('div')
+    tiroir.setAttribute('role', 'dialog')
+    tiroir.setAttribute('data-clip-shortcuts', '')
+    const mot = document.createElement('span')
+    mot.setAttribute('role', 'button')
+    tiroir.append(mot)
+    for (const touche of ['Escape', 'Delete', 'i', 'o', '?']) {
+      expect(volerait(mot, touche)).toBe(false)
+    }
+    // L'exception ne lève pas les autres règles : `Espace` appartient toujours à
+    // l'élément qui s'active avec.
+    expect(volerait(mot, ' ')).toBe(true)
+  })
+
   it('écarte les flèches d’un curseur de cadrage', () => {
     const curseur = document.createElement('div')
     curseur.setAttribute('role', 'slider')

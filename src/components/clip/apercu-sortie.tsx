@@ -6,6 +6,7 @@ import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/
 import type { Ratio } from '@/core/edl'
 import { RATIOS, cropRect, outputSize } from '@/core/framing'
 import type { PublishedFraming } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 /**
  * Le canevas de sortie : **ce qu'on aura**, à côté de ce qu'on garde.
@@ -76,6 +77,7 @@ export function ApercuSortie({
   framing,
   ratio,
   cropX,
+  frame,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
   video: HTMLVideoElement | null
@@ -85,6 +87,17 @@ export function ApercuSortie({
   ratio: Ratio | 'auto'
   /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
+  /**
+   * La boîte du téléphone, dimensionnée par l'appelant.
+   *
+   * **Elle existe pour que les deux aperçus aient exactement la même hauteur.**
+   * Cet aperçu était bridé à `max-w-40` pendant que la source prenait la largeur
+   * restante : la différence de ratio devenait une différence de poids visuel,
+   * et la sortie — la seule des deux qui montre le résultat — passait pour
+   * l'illustration de l'autre. La hauteur se donne donc au même endroit pour les
+   * deux, et chacun en déduit sa largeur.
+   */
+  frame?: string
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   // Le plan sous la lecture : le cadre saute à ses frontières, ici comme dans le
@@ -161,11 +174,42 @@ export function ApercuSortie({
   }, [video])
 
   return (
-    <figure className="flex flex-col gap-1.5">
+    <figure className="flex min-w-0 flex-col gap-1.5">
+      {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
+          doivent avoir la même hauteur visuelle : une légende sous l'un et
+          au-dessus de l'autre décalerait leurs cadres d'une ligne, ce qui est
+          exactement la différence de poids qu'on cherche à supprimer.
+
+          **Et elle nomme la sortie qu'elle montre.** C'est la variante 9:16,
+          celle dont le cadre change de plan en plan et que personne ne règle ; le
+          fichier natif, lui, garde un ratio unique et se choisit au sélecteur.
+          Sans ce mot, l'aperçu qui bouge donne à croire que c'est lui qu'on
+          pilote — et le sélecteur de ratio l'énonce en toutes lettres.
+
+          Elle reste **plus courte que la boîte n'est large**, et ce n'est pas de
+          la coquetterie : la figure prend la largeur du plus large de ses
+          enfants, donc une légende bavarde élargit la colonne et décolle
+          l'aperçu de la source d'à côté. */}
+      <figcaption className="text-center text-[0.75rem] text-muted-foreground">
+        variante 9:16 · <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> ·
+        cadre <span className="font-mono">{effectif}</span>
+      </figcaption>
+
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit. */}
+      {/* **`self-center`, et ce n'est pas un réglage d'esthétique.** Cette boîte
+          est l'enfant d'un conteneur `flex-col`, donc étirée en largeur par
+          défaut : la largeur imposée l'emportait sur `aspect-ratio`, qui en
+          déduisait la hauteur, et le « 9:16 » n'était plus un 9:16 — l'aperçu
+          mentait sur la seule chose qu'il existe pour montrer. Désétirée, sa largeur
+          redevient automatique et se déduit de la hauteur et du rapport — et les
+          deux aperçus s'alignent par le haut, comme deux vues qui se valent. */}
       <div
-        className="relative mx-auto flex w-full max-w-40 items-center justify-center overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border"
+        className={cn(
+          'relative flex shrink-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
+          'items-center justify-center',
+          frame ?? 'w-40',
+        )}
         style={{ aspectRatio: String(RATIOS['9:16']) }}
       >
         <canvas
@@ -177,11 +221,6 @@ export function ApercuSortie({
           style={{ height: `${part * 100}%` }}
         />
       </div>
-
-      <figcaption className="text-center text-[0.75rem] text-muted-foreground">
-        <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> de la hauteur de
-        l’écran <span className="font-mono">({effectif})</span>
-      </figcaption>
     </figure>
   )
 }

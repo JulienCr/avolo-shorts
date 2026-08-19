@@ -736,10 +736,112 @@ moitié.
 | | |
 |---|---|
 | **Repérage** | fil d'Ariane `avolo·shorts / <émission> / <titre du clip>`, et le rang dans les gardés : « clip 2 sur 4 gardés ». C'est ce rang qui dit qu'on est dans une boucle et pas au bout du monde. |
-| **Navigation** | retour au tri par le fil d'Ariane. « Clip suivant à monter » et « précédent », calculés sur la liste des candidats du projet. **La page interroge cette liste elle-même**, elle ne suppose pas qu'elle est en cache : arriver ici par une URL partagée, un signet ou un rechargement est un parcours que 2.2 promet de rendre repreneur, et le cache est alors vide. Venant de l'écran de tri, la requête est un succès de cache et ne coûte rien. (relevé par Codex et Copilot) |
+| **Navigation** | retour au tri par le fil d'Ariane, et **une fresque de vignettes en haut de l'écran** : tous les clips gardés de l'émission, le courant marqué, un clic pour changer. « Clip suivant à monter » et « précédent » restent à côté d'elle, parce qu'ils portent une règle qu'elle n'exprime pas — `clipSuivant` saute les écartés, donc « le suivant à monter » n'est pas toujours « celui d'à côté ». Le tout est calculé sur la liste des candidats du projet. **La page interroge cette liste elle-même**, elle ne suppose pas qu'elle est en cache : arriver ici par une URL partagée, un signet ou un rechargement est un parcours que 2.2 promet de rendre repreneur, et le cache est alors vide. Venant de l'écran de tri, la requête est un succès de cache et ne coûte rien. (relevé par Codex et Copilot) |
 | **Persistance aller** | rien. Le clip vient de l'API, le montage en cours vient du store. |
 | **Persistance retour** | l'enregistrement différé écrit avant de quitter (`pagehide` et démontage, `keepalive: true`). Ce qui **ne** survit pas est la pile d'annulation, remise à zéro au changement de clip par la garde de `charger`. C'est acceptable et il faut le dire : `Ctrl+Z` défait le montage de cette séance, pas celui d'hier. |
 | **Validation** | le titre et la description sont libres, et rien ne s'y valide pendant la frappe. Une seule règle, dite au moment de l'export : un titre vide n'empêche pas le rendu mais produit un `.txt` dont la première ligne porte `Titre : (sans titre)`, donc rien à coller au moment de publier. (Ce document annonçait une première ligne **vide** ; `texteDePublication` écrit un substitut depuis le début, et c'est mieux ainsi — une ligne vide dans un fichier fait à être collé ne se distingue pas d'un fichier tronqué. Corrigé le 18 août 2026, l'avertissement de l'écran disant désormais ce que le fichier porte vraiment.) L'avertissement se pose sur le bouton d'export, pas sur le champ. |
+
+**Quatre zones, et le transcript n'occupe plus la moitié de l'écran en
+permanence** (19 août 2026, PR « l'écran Clip »). Ce document décrivait le
+transcript comme la surface visuelle principale de cet écran. L'usage a montré
+que le geste courant est *vérifier le clip, vérifier le cadrage, ajuster deux
+informations, exporter*, et que l'édition fine du montage est ponctuelle — alors
+que le transcript prenait 60 % de la largeur d'un bout à l'autre de la séance, et
+que le reste s'entassait dans les 40 % restants, tous niveaux visuels confondus :
+l'état d'enregistrement, la navigation, le titre, des timecodes, le cadrage et
+l'export.
+
+| Zone | Ce qu'elle porte |
+|---|---|
+| **Contenu** | le titre, la description, et le hook quand il arrivera |
+| **Image** | les deux aperçus, la bande de temps, le ratio, le cadrage, les marques |
+| **Montage** | l'accès au transcript, la durée, les bornes, le nombre de segments |
+| **Livraison** | l'export, en bandeau sous les deux colonnes ; « Publier » viendra ici |
+
+**Le transcript reste la surface d'édition, et ce n'est pas une nuance de
+vocabulaire.** Il cesse d'être *visible en permanence* ; il ne cesse pas d'être
+l'endroit où l'on monte les mots. Ce qui l'ouvre est une action explicite —
+« Modifier le montage » — et le tiroir garde ses six gestes : chercher, placer la
+lecture, retirer un passage, poser les bornes, restaurer un mot, annuler et
+rétablir. **L'objectif n'est pas de retirer des capacités, mais de ne les
+afficher que lorsqu'on en a besoin.** Un implémenteur qui lirait « le transcript
+n'est plus la surface principale » comme « une timeline le remplace » défairait
+une décision payée (spec §13, `CLAUDE.md`).
+
+Trois contraintes tiennent le tiroir, et chacune a déjà été payée ailleurs :
+
+1. **un élément de défilement réel** à l'intérieur — `useVirtualizer` mesure la
+   hauteur de son conteneur, ce qui est la raison même du refus de `scroll-area`
+   en 6.2, et elle vaut autant pour le contenant que pour le contenu ;
+2. **le `tabindex` glissant (4.2) et le retour de focus (4.4) survivent** à
+   l'ouverture comme à la fermeture. Le bouton d'ouverture est un déclencheur de
+   la primitive, pas un bouton qui bascule un booléen à côté : c'est ce qui rend
+   le focus au bon endroit sans code ;
+3. **la garde des raccourcis reconnaît ce modal-ci comme hôte.** La règle
+   générale — un modal possède toutes les touches — vise les boîtes qui
+   interrompent le travail : la liste des raccourcis, la confirmation
+   d'écrasement. Le tiroir de montage *est* le travail, et `Suppr`, `I`, `O` et
+   `Ctrl+Z` doivent y répondre. L'exception est **déclarée par le modal** (un
+   attribut sur le conteneur), jamais devinée par un sélecteur qui le nommerait
+   par sa classe — celui-là se romprait en silence à la première refonte.
+
+**Les deux aperçus se valent, et cela se mesure en pixels.** La source 16:9
+prenait la largeur restante pendant que la sortie était bridée à `max-w-40` : la
+différence de ratio devenait une différence de poids visuel entre deux vues qui
+doivent être perçues comme équivalentes — l'une pour comprendre le cadrage,
+l'autre pour comprendre le résultat. La **hauteur** est donc donnée une fois, au
+même endroit, et chacune en déduit sa largeur. Piège vérifié à l'implémentation :
+une boîte à `aspect-ratio` placée dans un conteneur `flex-col` est étirée en
+largeur par défaut, et la largeur imposée l'emporte alors sur le rapport — le
+« 9:16 » n'en est plus un. Il faut la désétirer explicitement.
+
+**Et le sélecteur de ratio est ambigu si on ne l'énonce pas.** Depuis que la
+spec §11 a tranché les deux fichiers, il porte deux conséquences qui ne se
+ressemblent pas : il fixe le ratio du **fichier natif**, un seul pour tout le
+clip, pendant que la **variante 9:16** pose *chaque plan* au cadre le plus serré
+qui tienne, sans que personne ne le règle. Les deux aperçus montrent le cadre de
+la variante — celui qui bouge —, donc rien dans la géométrie de l'écran
+n'empêche de croire qu'on pilote sa sortie TikTok plan par plan avec ces six
+pastilles. La ligne qui **nomme les deux fichiers** sous le sélecteur est la
+seule chose qui ferme ce piège ; la raccourcir en supprimant l'un des deux noms
+le rouvre, et c'est la refonte suivante qui le paierait.
+
+**Une bande de temps sous l'aperçu source** (19 août 2026). Elle ajoute le geste
+que le texte ne sait pas exprimer : gagner la demi-seconde de silence avant une
+réplique, se caler sur une réaction muette. **Ce n'est pas la timeline
+multi-pistes que la spec §13 écarte** — ni pistes, ni forme d'onde, ni montage
+des mots —, et elle ne remplace pas le transcript ; elle monte du temps là où le
+transcript monte des mots.
+
+- **le temps est celui de la source, coupes visibles** : la bande couvre de
+  l'entrée à la sortie *dans l'émission*, et les passages retirés y creusent des
+  trous à leur vraie place. C'est la première décision du projet — le clip est
+  une liste de segments — et c'est ce qui permet aux frontières de plan de se
+  lire là où elles tombent ;
+- **deux oreilles, libres à l'image près** : pas d'aimantation aux mots, pas
+  d'aimantation aux plans. Julien a tranché en connaissant la contrepartie —
+  une borne peut tomber au milieu d'un mot. Le transcript, lui, garde son
+  aimantation : les deux chemins répondent à deux intentions différentes ;
+- **trois secondes de contexte de chaque côté**, pour qu'on puisse élargir autant
+  que resserrer, et une fenêtre qui se recale après chaque geste plutôt que
+  d'enfermer dans ces trois secondes-là ;
+- **les frontières de plans se lisent, elles ne se calculent pas** :
+  `ClipDetail.framing` porte déjà un cadrage par plan traversé, précisément pour
+  que le navigateur n'ait pas à charger les deux à trois méga-octets
+  d'`analysis.json` ;
+- **une seule écriture par geste.** Poser la borne à chaque `pointermove`
+  empilerait soixante instantanés dans la pile d'annulation pour un seul glissé.
+  La position vit en état local le temps du geste ; le store reçoit une valeur au
+  relâchement, et elle repart par l'écriture différée existante. **Aucun second
+  chemin d'écriture** : celui-là casserait la réconciliation par jeton, payée par
+  deux issues ;
+- **l'image de la position se prend sur un second `<video>` caché**, jamais sur
+  le lecteur principal — le faire chercher pendant qu'on tire tuerait la lecture
+  et ferait sauter l'aperçu de sortie, qui s'accroche à ses trames. **Au plus une
+  recherche en vol** : on garde la dernière position demandée et on ne relance
+  qu'au `seeked` précédent. Ce n'est pas une optimisation, c'est ce qui rend le
+  geste tenable — le proxy est servi en requêtes partielles, et une requête
+  `Range` abandonnée est un chemin fragile côté serveur (issue #75).
 
 **Trois changements de fond**, par ordre de valeur.
 
@@ -869,8 +971,12 @@ dure de dix secondes à une minute (mesuré : 10 s pour un clip à trois segment
 et son résultat se juge à côté de ce qui l'a produit. Un écran séparé ferait
 sortir du sous-parcours pour y revenir aussitôt.
 
-Le panneau vit au bas de la colonne de gauche de l'écran de clip et porte quatre
-choses.
+Le panneau vit **en bandeau sous les deux colonnes** de l'écran de clip et porte
+quatre choses. (Il a vécu au bas de la colonne de gauche jusqu'au 19 août 2026 ;
+en colonne, il héritait de la largeur d'un panneau de réglages — les noms de
+fichiers s'y coupaient, les lecteurs vidéo tombaient à la taille d'une vignette
+et la zone de textes devenait une meurtrière. En pleine largeur, il pose côte à
+côte ce qui sort et ce qui se colle, et c'est là que « Publier » viendra.)
 
 **Avant** : le ratio résolu, les fichiers qui seront produits et le bouton. Deux
 fichiers quand le ratio n'est pas 9:16 (le natif pour le feed, la variante
@@ -1485,6 +1591,7 @@ contrôler à l'installation.
 | `alert` | quatre surfaces d'erreur : analyse échouée, liste non chargée, enregistrement en échec, export en échec | le bandeau actuel est écrit à la main, et son `role="alert"` a été ajouté en revue. Quatre occurrences valent une primitive |
 | `input`, `textarea`, `label` | le titre et la description du clip | il n'existe aucun champ de saisie dans le dépôt, alors que ces deux textes sont un livrable du produit |
 | `tabs` | les trois vues du tri : à trier, gardés, écartés | remplace un bouton fantôme qui bascule un booléen, donne la navigation aux flèches et rend exprimable la règle de 2.5 : les écartés ne disparaissent qu'au changement de vue |
+| `sheet` | le tiroir de montage : le transcript, à la demande (3.3) | le piège de focus, `Échap`, et surtout **le retour du focus au déclencheur**. Bâtie sur `dialog` et non sur le `Drawer` de Base UI, dont la zone de balayage et le `Viewport` gèrent leur propre défilement — ce tiroir-ci héberge une surface virtualisée, et un second conteneur de défilement interposé ferait retomber `scrollToIndex` à côté (même raison qu'en 6.2). Le tiroir lui-même ne défile donc pas |
 | `tooltip` | l'information d'appoint : le raccourci d'un bouton, la définition d'un terme | **jamais pour porter la raison d'un contrôle désactivé** : une bulle qui n'apparaît qu'au survol est invisible au clavier, et la raison d'un blocage doit être lue avant d'essayer |
 
 ### 6.2 À refuser, et pourquoi
@@ -1492,6 +1599,10 @@ contrôler à l'installation.
 - **`scroll-area`** : le virtualiseur a besoin d'un élément de défilement réel dont
   il mesure la hauteur. Une zone de défilement stylée interposerait son propre
   conteneur, et le `scrollToIndex` du positionnement initial retomberait à côté.
+  **La règle vaut pour tout ce qui contient la surface**, pas seulement pour elle :
+  le tiroir de montage (3.3) lui donne une boîte à hauteur définie et ne défile
+  pas lui-même, faute de quoi le suivi de lecture et la navigation de recherche
+  visent la mauvaise barre.
 - **`slider`** : le curseur de cadrage n'est pas un curseur générique. Sa plage
   dépend du ratio (le centre d'un 9:16 ne va que de 15,8 à 84,2 %), il garde
   l'écart entre le point saisi et le centre pour ne pas sauter au premier appui,

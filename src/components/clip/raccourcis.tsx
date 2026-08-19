@@ -42,6 +42,22 @@ const FLECHES = '[role="slider"], [role="tab"], [role="radio"], [role="option"]'
 const MODAUX = '[role="dialog"], [role="alertdialog"]'
 
 /**
+ * Le modal qui **héberge** les gestes de l'écran au lieu de les suspendre.
+ *
+ * La règle du dessus vise les boîtes qui interrompent le travail : on lit une
+ * confirmation d'écrasement, on consulte la liste des raccourcis, et rien
+ * derrière ne doit répondre. Le tiroir de montage est l'inverse — c'est *là* que
+ * `Suppr` retire, que `I` et `O` posent les bornes, que `Ctrl+Z` annule. Le
+ * ranger avec les autres tuerait les quatre gestes du produit au moment précis
+ * où on les presse, et sans rien afficher.
+ *
+ * L'exception est **déclarée par le modal**, pas devinée ici : un sélecteur qui
+ * nommerait le tiroir par sa classe ou son rôle se romprait à la première
+ * refonte, en silence.
+ */
+const SHORTCUT_HOST = '[data-clip-shortcuts]'
+
+/**
  * Cette touche appartient-elle déjà à la cible ?
  *
  * **La garde est par touche, et c'est le seul énoncé qui tienne.** Écarter tout
@@ -61,7 +77,8 @@ const MODAUX = '[role="dialog"], [role="alertdialog"]'
 export function volerait(cible: EventTarget | null, touche: string): boolean {
   if (!(cible instanceof HTMLElement)) return false
   if (cible.isContentEditable || cible.closest(CHAMPS)) return true
-  if (cible.closest(MODAUX)) return true
+  const modal = cible.closest(MODAUX)
+  if (modal !== null && !modal.matches(SHORTCUT_HOST)) return true
   if ((touche === ' ' || touche === 'Enter') && cible.closest(ACTIVABLES)) return true
   if (touche.startsWith('Arrow') && cible.closest(FLECHES)) return true
   return false

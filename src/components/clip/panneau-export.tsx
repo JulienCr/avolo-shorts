@@ -127,127 +127,144 @@ export function PanneauExport({
   }
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="titre-export">
-      <div className="flex items-baseline gap-2">
-        <h2 id="titre-export" className="text-sm font-medium">
-          Export
-        </h2>
-        <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
-      </div>
+    // **Deux colonnes, parce que le panneau est devenu un bandeau.** Il vivait au
+    // bas d'une colonne de réglages, où l'empilement était la seule mise en page
+    // possible ; sous les quatre zones, en pleine largeur, l'empiler ferait
+    // descendre les textes à coller sous un pli. Ce qui sort à gauche, ce qui se
+    // colle à droite — et c'est à gauche, sous le bouton, que « Publier » viendra.
+    <section
+      className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:gap-8"
+      aria-labelledby="titre-export"
+    >
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex items-baseline gap-2">
+          {/* `h3` et non `h2` : l'écran de clip nomme désormais quatre zones, et
+              « Livraison » est le titre de celle-ci. Deux `h2` empilés diraient
+              deux sections là où il n'y en a qu'une — et c'est ici que le bouton
+              « Publier » viendra se poser à côté de l'export. */}
+          <h3 id="titre-export" className="text-sm font-medium">
+            Export
+          </h3>
+          <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
+        </div>
 
-      {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
-          livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
-          jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
-          passerait en fraude. */}
-      <p className="text-[0.75rem] text-muted-foreground">
-        {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
-        <span className="font-mono">{frames.join(', ') || '—'}</span>
-        {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
-        {unmeasured > 0 && (
-          <>
-            {' · '}
-            <span className="text-amber-500 dark:text-amber-400">
-              {unmeasured === 1
-                ? '1 plan sans mesure, centré par défaut'
-                : `${unmeasured} plans sans mesure, centrés par défaut`}
-            </span>
-          </>
-        )}
-      </p>
-
-      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} native={native} />
-
-      {clip.title.trim() === '' && (
-        // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
-        // titre est libre pendant la frappe, et un titre vide n'empêche pas le
-        // rendu — il produit un `.txt` dont la première ligne est vide, donc
-        // rien à coller au moment de publier.
-        <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
-          coller au moment de publier.
-        </p>
-      )}
-
-      <label className="flex items-start gap-2 text-[0.75rem]">
-        <input
-          type="checkbox"
-          className="mt-0.5 size-3.5 accent-stage"
-          checked={clip.branding}
-          onChange={(e) => onBranding(e.target.checked)}
-        />
-        <span>
-          Incruster les marques
-          <span className="block text-muted-foreground">
-            Un clip qui les incruste refuse de se rendre quand aucune marque n’est exploitable.
-            Décocher est l’échappatoire.
-          </span>
-        </span>
-      </label>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          onClick={() => {
-            // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
-            // la boîte de confirmation s'ouvrait quand même : on confirmait, et
-            // rien ne partait, sans qu'une ligne le dise.
-            if (empêchement !== null || exporter.isPending) return
-            if (déjàLivré) setConfirmation(true)
-            else lancer(false)
-          }}
-          aria-disabled={empêchement !== null || undefined}
-          aria-busy={exporter.isPending || undefined}
-        >
-          {exporter.isPending ? (
-            <LoaderCircle className="animate-spin" aria-hidden />
-          ) : (
-            <FileText aria-hidden />
+        {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
+            livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
+            jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
+            passerait en fraude. */}
+        <p className="text-[0.75rem] text-muted-foreground">
+          {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
+          <span className="font-mono">{frames.join(', ') || '—'}</span>
+          {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
+          {unmeasured > 0 && (
+            <>
+              {' · '}
+              <span className="text-amber-500 dark:text-amber-400">
+                {unmeasured === 1
+                  ? '1 plan sans mesure, centré par défaut'
+                  : `${unmeasured} plans sans mesure, centrés par défaut`}
+              </span>
+            </>
           )}
-          {déjàLivré ? 'Ré-exporter' : 'Exporter'}
-        </Button>
+        </p>
 
-        {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
-            en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
-            mentirait sur ce qui se passe. */}
-        {exporter.isPending && (
-          <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
-            Rendu en cours — de dix secondes à une minute.
+        <ListeDesSorties clip={clip} outputs={outputs} noms={noms} native={native} />
+
+        {clip.title.trim() === '' && (
+          // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
+          // titre est libre pendant la frappe, et un titre vide n'empêche pas le
+          // rendu — il produit un `.txt` dont la première ligne est vide, donc
+          // rien à coller au moment de publier.
+          <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
+            coller au moment de publier.
+          </p>
+        )}
+
+        <label className="flex items-start gap-2 text-[0.75rem]">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-3.5 accent-stage"
+            checked={clip.branding}
+            onChange={(e) => onBranding(e.target.checked)}
+          />
+          <span>
+            Incruster les marques
+            <span className="block text-muted-foreground">
+              Un clip qui les incruste refuse de se rendre quand aucune marque n’est exploitable.
+              Décocher est l’échappatoire.
+            </span>
           </span>
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => {
+              // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
+              // la boîte de confirmation s'ouvrait quand même : on confirmait, et
+              // rien ne partait, sans qu'une ligne le dise.
+              if (empêchement !== null || exporter.isPending) return
+              if (déjàLivré) setConfirmation(true)
+              else lancer(false)
+            }}
+            aria-disabled={empêchement !== null || undefined}
+            aria-busy={exporter.isPending || undefined}
+          >
+            {exporter.isPending ? (
+              <LoaderCircle className="animate-spin" aria-hidden />
+            ) : (
+              <FileText aria-hidden />
+            )}
+            {déjàLivré ? 'Ré-exporter' : 'Exporter'}
+          </Button>
+
+          {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
+              en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
+              mentirait sur ce qui se passe. */}
+          {exporter.isPending && (
+            <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
+              Rendu en cours — de dix secondes à une minute.
+            </span>
+          )}
+        </div>
+
+        {empêchement !== null && (
+          // Écrite ici, jamais dans une bulle d'aide : une bulle qui n'apparaît
+          // qu'au survol est invisible au clavier, et la raison d'un blocage doit
+          // se lire avant d'essayer.
+          <p className="text-[0.75rem] text-muted-foreground">{empêchement}</p>
+        )}
+
+        {exporter.isError && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>
+              L’export a échoué
+              {exporter.error instanceof ApiError ? ` (${exporter.error.status})` : ''}
+            </AlertTitle>
+            <AlertDescription>{exporter.error.message}</AlertDescription>
+          </Alert>
+        )}
+
+        {exporter.isSuccess && !exporter.isPending && signatureRendue === signature && (
+          // **`skipped: true` est un cas nominal**, et le plus fréquent quand on
+          // rouvre un clip déjà exporté : rien n'a été refait, tout est en place.
+          <p className="flex items-center gap-1.5 text-[0.75rem]" aria-live="polite">
+            <Check className="size-3.5 text-stage" aria-hidden />
+            {exporter.data.skipped
+              ? 'Rien n’a été refait : les fichiers étaient déjà à jour.'
+              : 'Rendu terminé.'}
+          </p>
         )}
       </div>
 
-      {empêchement !== null && (
-        // Écrite ici, jamais dans une bulle d'aide : une bulle qui n'apparaît
-        // qu'au survol est invisible au clavier, et la raison d'un blocage doit
-        // se lire avant d'essayer.
-        <p className="text-[0.75rem] text-muted-foreground">{empêchement}</p>
-      )}
-
-      {exporter.isError && (
-        <Alert variant="destructive">
-          <TriangleAlert aria-hidden />
-          <AlertTitle>
-            L’export a échoué
-            {exporter.error instanceof ApiError ? ` (${exporter.error.status})` : ''}
-          </AlertTitle>
-          <AlertDescription>{exporter.error.message}</AlertDescription>
-        </Alert>
-      )}
-
-      {exporter.isSuccess && !exporter.isPending && signatureRendue === signature && (
-        // **`skipped: true` est un cas nominal**, et le plus fréquent quand on
-        // rouvre un clip déjà exporté : rien n'a été refait, tout est en place.
-        <p className="flex items-center gap-1.5 text-[0.75rem]" aria-live="polite">
-          <Check className="size-3.5 text-stage" aria-hidden />
-          {exporter.data.skipped
-            ? 'Rien n’a été refait : les fichiers étaient déjà à jour.'
-            : 'Rendu terminé.'}
-        </p>
-      )}
-
-      <Separator />
-
-      <ZoneDeTextes clip={clip} />
+      <div className="flex min-w-0 flex-col gap-3">
+        {/* Le filet ne sépare qu'en colonnes : empilées, c'est le trait
+            horizontal qui fait le même travail. */}
+        <Separator className="lg:hidden" />
+        <ZoneDeTextes clip={clip} />
+      </div>
 
       <Dialog open={confirmation} onOpenChange={setConfirmation}>
         <DialogContent role="alertdialog">

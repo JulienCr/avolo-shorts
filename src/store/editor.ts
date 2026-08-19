@@ -15,7 +15,7 @@
 
 import { create } from 'zustand'
 
-import type { Clip, Ratio, Segment } from '@/core/edl'
+import { moveBoundary, type Clip, type Ratio, type Segment } from '@/core/edl'
 import type { ChampsSuivis } from '@/lib/enregistrement'
 import {
   moveBoundaryToWord,
@@ -62,6 +62,23 @@ type EtatEditeur = {
   retirerSelection: (mots: ClipWord[]) => void
   remonterMot: (mots: ClipWord[], index: number) => void
   poserBorne: (mots: ClipWord[], index: number, bord: 'start' | 'end') => void
+  /**
+   * Pose une borne extérieure **à un temps**, et non sur un mot.
+   *
+   * Le pendant de `poserBorne` pour la bande de temps : les oreilles y sont
+   * libres à l'image près, sans aimantation aux mots ni aux plans, et le contrôle
+   * est celui d'un banc de montage. `moveBoundaryToWord` reste le chemin du
+   * transcript ; celui-ci vise `moveBoundary`, un étage plus bas, qui prend déjà
+   * un temps.
+   *
+   * **Elle passe par `pushHistory` comme sa voisine**, donc annulation et
+   * rétablissement marchent sans rien ajouter — et l'écriture part par
+   * l'enregistrement différé, qui suit `segments`. Aucun second chemin d'écriture.
+   *
+   * Nommée en anglais parce qu'elle est neuve (`CLAUDE.md`, « La langue ») ; ses
+   * voisines françaises sont la dette de l'issue #73, qu'un balayage soldera.
+   */
+  setBoundaryAt: (time: number, edge: 'start' | 'end') => void
   annuler: () => void
   /**
    * Refait le geste annulé. **Le pendant d'`annuler`, et il n'est pas
@@ -164,6 +181,15 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
     const { historique } = get()
     const suivant = moveBoundaryToWord(historique.present, mots, index, bord)
     set({ historique: pushHistory(historique, suivant), selection: null })
+  },
+
+  setBoundaryAt(time, edge) {
+    const { historique } = get()
+    // **La sélection reste**, contrairement à `poserBorne`. Celle-ci vide parce
+    // que le geste part d'un mot qu'on vient de désigner ; ici aucun mot n'est
+    // en cause, et jeter une sélection faite dans le tiroir parce qu'on a tiré
+    // une oreille serait un effet que personne n'a demandé.
+    set({ historique: pushHistory(historique, moveBoundary(historique.present, edge, time)) })
   },
 
   annuler() {

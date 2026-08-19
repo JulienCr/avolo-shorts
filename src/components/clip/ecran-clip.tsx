@@ -1,46 +1,46 @@
 'use client'
 
-import {
-  ArrowLeftToLine,
-  ArrowRightToLine,
-  ChevronLeft,
-  ChevronRight,
-  Keyboard,
-  RotateCw,
-  Scissors,
-  Redo2,
-  Undo2,
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Keyboard, RotateCw, Redo2, Undo2 } from 'lucide-react'
 import { useIsMutating } from '@tanstack/react-query'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { AppBar } from '@/components/parcours/app-bar'
 import { ApercuSortie } from '@/components/clip/apercu-sortie'
 import { ChampsTextes } from '@/components/clip/champs-textes'
 import { ClipPlayer, basculerLecture, placerLecture } from '@/components/clip/clip-player'
+import { ClipStrip } from '@/components/clip/clip-strip'
 import { CropOverlay, RatioPicker } from '@/components/clip/crop-picker'
-import { gesteSurMotBarré } from '@/components/clip/geste-mot'
 import { useLecture } from '@/components/clip/lecture'
 import { PanneauExport } from '@/components/clip/panneau-export'
 import { DialogueRaccourcis, useRaccourcis } from '@/components/clip/raccourcis'
-import { TranscriptSurface } from '@/components/clip/transcript-surface'
+import { Timeline } from '@/components/clip/timeline'
+import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { clipDuration } from '@/core/edl'
 import { estGarde } from '@/core/parcours'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
 import { LIBELLES_STATUT } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
-import { clipBounds, indexTranscript, ligneInitiale, selectionBounds } from '@/lib/editing'
+import { clipBounds, indexTranscript, ligneInitiale } from '@/lib/editing'
 import { differences, useEnregistrementAuto } from '@/lib/enregistrement'
-import { formatDuration, formatSpan, formatTimecode } from '@/lib/format'
+import { formatDuration, formatTimecode } from '@/lib/format'
 import { clipSuivant, lienClip } from '@/lib/parcours'
 import { usePatchClip, useCandidats } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { useEditeur, usePeutAnnuler, usePeutRetablir, useSegments } from '@/store/editor'
+
+/**
+ * La hauteur commune des deux aperçus.
+ *
+ * **Le nombre importe moins que l'unicité de sa source.** Les deux vues doivent
+ * avoir exactement la même hauteur visuelle : la donner ici, une fois, et laisser
+ * chacune en déduire sa largeur est ce qui empêche la prochaine retouche de
+ * réintroduire un `max-w-40` d'un côté et une largeur libre de l'autre.
+ */
+const PREVIEW_HEIGHT = 'h-[clamp(10rem,28vh,17rem)]'
 
 /**
  * L'écran de clip, **hors de la page**.
@@ -92,6 +92,12 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     )
   }, [])
   const [aide, setAide] = useState(false)
+  /** Le tiroir de montage. Le transcript n'occupe plus la moitié de l'écran. */
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  // La phrase qui dit pourquoi le rectangle de cadrage ne bouge pas : rendue par
+  // le sélecteur de ratio, désignée par le rectangle. Un seul identifiant pour
+  // les deux, sans quoi l'un décrirait un paragraphe que l'autre ne rend pas.
+  const cropReasonId = useId()
 
   // Le store se charge du clip une fois, et pas à chaque passage de la requête :
   // la garde est dans `charger`.
@@ -145,9 +151,6 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     clip.description,
   ])
   const selection = editeur.selection
-  const etendueSelection = selection
-    ? selectionBounds(words, selection.ancre, selection.tete)
-    : null
 
   // Calculée sur le clip **enregistré**, et la règle est dans `@/lib/editing`.
   // La surface, elle, ne s'en sert qu'une fois par clip (voir `cle`).
@@ -215,18 +218,6 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     [patch, clip.id, clip.projectId],
   )
 
-  /** Le clip barré cliqué : un trou à combler, ou une borne à déplacer (§7.1). */
-  const remonter = useCallback(
-    (index: number) => {
-      const mot = words[index]
-      if (!mot) return
-      const geste = gesteSurMotBarré(clipBounds(segments), mot)
-      if (geste.kind === 'remonter') editeur.remonterMot(words, index)
-      else editeur.poserBorne(words, index, geste.bord)
-    },
-    [words, segments, editeur],
-  )
-
   useRaccourcis({
     lectureOuPause: () => basculerLecture(video, segments),
     annuler: editeur.annuler,
@@ -240,7 +231,14 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
     poserBorne: (bord) => {
       if (selection) editeur.poserBorne(words, selection.tete, bord)
     },
-    chercher: () => setRecherche(true),
+    // **`Ctrl+F` ouvre le tiroir en même temps que la recherche.** Le transcript
+    // n'est plus visible en permanence : ouvrir une barre de recherche sur une
+    // surface fermée ne chercherait nulle part, et le raccourci passerait pour
+    // mort sur l'écran qui l'a inventé.
+    chercher: () => {
+      setRecherche(true)
+      setDrawerOpen(true)
+    },
     aide: () => setAide(true),
     aSelection: selection !== null,
   })
@@ -337,192 +335,231 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
         </Button>
       </AppBar>
 
-      <main className="grid min-h-0 flex-1 lg:grid-cols-[minmax(24rem,40%)_1fr]">
-        <section className="flex flex-col gap-4 overflow-y-auto border-b p-4 lg:border-r lg:border-b-0">
-          {/* **Deux images, deux outils.** À gauche la source avec le rectangle :
-              on cadre en regardant ce qu'on laisse dehors. À droite le canvas de
-              sortie, à l'échelle du téléphone : c'est là qu'un 16:9 se voit
-              occuper le tiers de la hauteur et un 4:5 les sept dixièmes. */}
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <ClipPlayer
-              proxyUrl={proxyUrl}
-              segments={segments}
-              onVideo={setVideo}
-              overlay={
-                <CropOverlay
-                  framing={framing}
-                  ratio={editeur.ratio}
-                  cropX={editeur.cropX}
-                  onCropX={editeur.deplacerCrop}
+      {/* **La boucle, en haut et d'un seul tenant** : la fresque des clips gardés
+          à gauche, et à droite ce qu'elle n'exprime pas — l'état de celui qu'on
+          monte, son rang, et les deux sauts qui sautent les écartés. */}
+      <div className="flex shrink-0 items-center gap-3 border-b pr-4">
+        <ClipStrip clips={gardes} currentId={clip.id} />
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="shrink-0 text-[0.75rem]">
+            {LIBELLES_STATUT[clip.status]}
+          </Badge>
+          {rang >= 0 && (
+            // Le rang dit qu'on est dans une boucle, pas au bout du monde.
+            <span className="text-[0.75rem] text-muted-foreground">
+              clip {rang + 1} sur {gardes.length} gardés
+            </span>
+          )}
+          {precedent ? (
+            <Button size="sm" variant="ghost" render={<Link href={lienClip(precedent.id)} />}>
+              <ChevronLeft aria-hidden />
+              Clip précédent
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" disabled>
+              <ChevronLeft aria-hidden />
+              Clip précédent
+            </Button>
+          )}
+          {suivant ? (
+            <Button size="sm" variant="outline" render={<Link href={lienClip(suivant.id)} />}>
+              Clip suivant
+              <ChevronRight aria-hidden />
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" disabled>
+              Clip suivant
+              <ChevronRight aria-hidden />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* **Quatre zones nommées, et c'est le fond du changement** (retour d'usage
+          §3.4). L'écran mélangeait dans le même niveau visuel l'état
+          d'enregistrement, la navigation, le titre, des timecodes et l'export ;
+          on ne savait plus lequel des sept répondait au geste qu'on venait de
+          faire. Image d'un côté, Contenu · Montage · Livraison de l'autre. */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* **Une largeur plafonnée, et une seule.** Sur un écran large, deux
+            colonnes qui prennent tout étirent des champs de texte à quatre-vingts
+            caractères et laissent l'aperçu flotter au milieu d'un vide. Le plafond
+            est ici, sur le conteneur, plutôt qu'en dix `max-w` répartis. */}
+        <div className="mx-auto grid w-full max-w-[104rem] lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
+          <section
+            aria-labelledby="zone-image"
+            className="flex min-w-0 flex-col gap-4 border-b p-4 lg:border-r lg:border-b-0"
+          >
+            <h2 id="zone-image" className="text-sm font-medium">
+              Image
+            </h2>
+
+            {/* **Deux images, deux outils, et la même hauteur.** À gauche la source
+                avec le rectangle : on cadre en regardant ce qu'on laisse dehors. À
+                droite le canevas de sortie, à l'échelle du téléphone : c'est là
+                qu'un 16:9 se voit occuper le tiers de la hauteur et un 4:5 les sept
+                dixièmes. La sortie était bridée à `max-w-40` pendant que la source
+                prenait la largeur restante — deux vues qui doivent se valoir, dont
+                une passait pour l'illustration de l'autre. */}
+            <div className="flex flex-wrap items-start gap-4">
+              <figure className="flex min-w-0 flex-col gap-1.5">
+                <figcaption className="text-[0.75rem] text-muted-foreground">
+                  la source — le rectangle est le cadre pris pour ce plan
+                </figcaption>
+                <ClipPlayer
+                  proxyUrl={proxyUrl}
+                  segments={segments}
+                  onVideo={setVideo}
+                  frame={cn(PREVIEW_HEIGHT, 'w-auto max-w-full')}
+                  overlay={
+                    <CropOverlay
+                      framing={framing}
+                      ratio={editeur.ratio}
+                      cropX={editeur.cropX}
+                      onCropX={editeur.deplacerCrop}
+                      describedBy={cropReasonId}
+                    />
+                  }
                 />
-              }
+              </figure>
+              <ApercuSortie
+                video={video}
+                framing={framing}
+                ratio={editeur.ratio}
+                cropX={editeur.cropX}
+                frame={cn(PREVIEW_HEIGHT, 'w-auto')}
+              />
+            </div>
+
+            <Timeline
+              segments={segments}
+              framing={framing}
+              proxyUrl={proxyUrl}
+              sourceDuration={project.durationSec}
+              onScrub={(temps) => {
+                // **La bande est en temps source, la lecture ne l'est pas.** Une
+                // position tombée dans un passage retiré est légitime à regarder —
+                // c'est tout l'intérêt d'une bande à coupes visibles — mais la
+                // lecture, elle, saute les retraits (`playbackAction`). On confie
+                // donc la position à `placerLecture`, qui la ramène dans le
+                // montage : l'image montrait ce qu'il y a là, la lecture reprend
+                // au segment suivant.
+                placerLecture(video, segments, temps)
+              }}
+              onBoundary={editeur.setBoundaryAt}
             />
-            <ApercuSortie
-              video={video}
+
+            <RatioPicker
               framing={framing}
               ratio={editeur.ratio}
-              cropX={editeur.cropX}
+              onRatio={editeur.choisirRatio}
+              cropReasonId={cropReasonId}
             />
-          </div>
 
-          <RatioPicker framing={framing} ratio={editeur.ratio} onRatio={editeur.choisirRatio} />
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
+              <dt className="text-muted-foreground">Cadre</dt>
+              {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
+                  saute aux frontières, donc une seule valeur pour tout le clip ne
+                  voudrait rien dire. La valeur est ramenée dans l'image, comme le
+                  rectangle la dessine — pas la valeur brute du store, qui garde
+                  l'intention quand on passe par un ratio où elle ne tient pas. */}
+              <ShotFrameLine framing={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
+            </dl>
+          </section>
 
-          <Separator />
+          <div className="flex min-w-0 flex-col divide-y">
+            <section aria-labelledby="zone-contenu" className="flex flex-col gap-3 p-4">
+              <h2 id="zone-contenu" className="text-sm font-medium">
+                Contenu
+              </h2>
+              {/* Le titre et la description, et rien d'autre : ce sont des
+                  livrables du produit, pas des étiquettes de la page. Le hook,
+                  quand il arrivera, vient ici. */}
+              <ChampsTextes clip={clip} onEcrire={ecrire} onEchec={signalerEchecTexte} />
+            </section>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="shrink-0 text-[0.75rem]">
-              {LIBELLES_STATUT[clip.status]}
-            </Badge>
-            {rang >= 0 && (
-              // Le rang dit qu'on est dans une boucle, pas au bout du monde.
-              <span className="text-[0.75rem] text-muted-foreground">
-                clip {rang + 1} sur {gardes.length} gardés
-              </span>
-            )}
-            <span className="ml-auto flex items-center gap-1">
-              {precedent ? (
-                <Button size="sm" variant="ghost" render={<Link href={lienClip(precedent.id)} />}>
-                  <ChevronLeft aria-hidden />
-                  Clip précédent
-                </Button>
-              ) : (
-                <Button size="sm" variant="ghost" disabled>
-                  <ChevronLeft aria-hidden />
-                  Clip précédent
-                </Button>
+            <section aria-labelledby="zone-montage" className="flex flex-col gap-3 p-4">
+              <h2 id="zone-montage" className="text-sm font-medium">
+                Montage
+              </h2>
+
+              {/* **Le transcript reste la surface d'édition, il cesse d'être
+                  toujours visible.** Il occupait la moitié de l'écran pour un geste
+                  ponctuel, pendant que le geste courant — vérifier, ajuster deux
+                  textes, exporter — se faisait sur l'autre moitié. Ce n'est pas une
+                  timeline qui le remplace : la bande de la zone Image ajoute le
+                  geste que le texte ne sait pas exprimer, elle ne monte pas les
+                  mots. */}
+              <TranscriptDrawer
+                open={drawerOpen}
+                onOpenChange={setDrawerOpen}
+                clipId={clip.id}
+                lines={lignesIndexees}
+                words={words}
+                firstLine={premiereLigne}
+                duration={duree}
+                search={recherche}
+                onSearch={setRecherche}
+                onPlay={(index) => placerLecture(video, segments, words[index].start)}
+              />
+
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
+                <dt className="text-muted-foreground">Durée</dt>
+                <dd className="font-mono tabular-nums">{formatDuration(duree)}</dd>
+
+                <dt className="text-muted-foreground">Bornes</dt>
+                {/* Relues dans la liste rendue, jamais la valeur demandée :
+                    `moveBoundary` pose la borne sur le segment voisin quand la
+                    demande tombe dans un trou. */}
+                <dd className="font-mono tabular-nums">
+                  {bornes ? `${formatTimecode(bornes.start)} → ${formatTimecode(bornes.end)}` : '—'}
+                </dd>
+
+                <dt className="text-muted-foreground">Segments</dt>
+                <dd className="font-mono tabular-nums">{segments.length}</dd>
+              </dl>
+
+              {duree === 0 && (
+                // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
+                // tout a été retiré. **Il se dit hors du tiroir**, sinon il faudrait
+                // ouvrir le montage pour apprendre qu'il n'y a plus de montage.
+                <p className="text-[0.75rem] text-muted-foreground">
+                  Il ne reste rien du clip. Ouvrir le montage pour le reconstruire : cliquer un mot
+                  barré le fait recommencer là.
+                </p>
               )}
-              {suivant ? (
-                <Button size="sm" variant="outline" render={<Link href={lienClip(suivant.id)} />}>
-                  Clip suivant
-                  <ChevronRight aria-hidden />
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" disabled>
-                  Clip suivant
-                  <ChevronRight aria-hidden />
-                </Button>
-              )}
-            </span>
+            </section>
           </div>
+        </div>
 
-          <ChampsTextes clip={clip} onEcrire={ecrire} onEchec={signalerEchecTexte} />
-
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[0.75rem]">
-            <dt className="text-muted-foreground">Bornes</dt>
-            {/* Relues dans la liste rendue, jamais la valeur demandée :
-                `moveBoundary` pose la borne sur le segment voisin quand la
-                demande tombe dans un trou. */}
-            <dd className="font-mono tabular-nums">
-              {bornes ? `${formatTimecode(bornes.start)} → ${formatTimecode(bornes.end)}` : '—'}
-            </dd>
-
-            <dt className="text-muted-foreground">Segments</dt>
-            <dd className="font-mono tabular-nums">{segments.length}</dd>
-
-            <dt className="text-muted-foreground">Cadre</dt>
-            {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
-                saute aux frontières, donc une seule valeur pour tout le clip ne
-                voudrait rien dire. La valeur est ramenée dans l'image, comme le
-                rectangle la dessine — pas la valeur brute du store, qui garde
-                l'intention quand on passe par un ratio où elle ne tient pas. */}
-            <ShotFrameLine framing={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
-          </dl>
-
-          <Separator />
-
-          <PanneauExport
-            clip={clip}
-            outputs={outputs}
-            framing={framing}
-            duree={duree}
-            enregistrement={enregistrement}
-            empreinte={empreinteDuRendu}
-            // `enregistrement` ne suit que le montage : le titre, la description
-            // et les marques passent par la même mutation sans y figurer.
-            ecritureEnCours={ecrituresEnVol > 0}
-            ecritureEnEchec={patch.isError || textesEnEchec.length > 0}
-            // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se lit
-            // dans la barre d'application et dans le garde-fou du panneau.
-            onBranding={(branding) => void ecrire({ branding }).catch(() => {})}
-          />
-        </section>
-
-        <section className="flex min-h-0 flex-col">
-          <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
-            {selection && etendueSelection ? (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  <span className="font-mono tabular-nums">
-                    {Math.abs(selection.tete - selection.ancre) + 1}
-                  </span>{' '}
-                  mots ·{' '}
-                  <span className="font-mono tabular-nums">
-                    {formatSpan(etendueSelection.to - etendueSelection.from)}
-                  </span>
-                </span>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => editeur.retirerSelection(words)}
-                  title="Suppr"
-                >
-                  <Scissors aria-hidden />
-                  Retirer
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => editeur.poserBorne(words, selection.tete, 'start')}
-                  title="I"
-                >
-                  <ArrowLeftToLine aria-hidden />
-                  Commencer ici
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => editeur.poserBorne(words, selection.tete, 'end')}
-                  title="O"
-                >
-                  <ArrowRightToLine aria-hidden />
-                  Terminer ici
-                </Button>
-              </>
-            ) : duree === 0 ? (
-              // Le cas prévu côté serveur et qui n'avait pas de rendu propre :
-              // tout a été retiré, et le transcript reste la façon d'en sortir.
-              <p className="text-[0.75rem] text-muted-foreground">
-                Il ne reste rien du clip. Cliquer un mot barré le fait recommencer là.
-              </p>
-            ) : (
-              <p className="text-[0.75rem] text-muted-foreground">
-                Glisser sur des mots pour les sélectionner · cliquer un mot pour y placer la
-                lecture · cliquer un mot barré pour le remonter
-              </p>
-            )}
-
-            <span className="ml-auto flex items-baseline gap-1.5">
-              <span className="text-[0.75rem] text-muted-foreground">durée</span>
-              <span className="font-mono text-sm font-medium tabular-nums">
-                {formatDuration(duree)}
-              </span>
-            </span>
-          </div>
-
-          <div className="min-h-0 flex-1">
-            <TranscriptSurface
-              cle={clip.id}
-              lines={lignesIndexees}
-              words={words}
-              selection={selection}
-              ligneInitiale={premiereLigne}
-              onSelectionner={editeur.commencerSelection}
-              onEtendre={editeur.etendreSelection}
-              onTerminer={editeur.terminerSelection}
-              onRemonter={remonter}
-              onPlacer={(index) => placerLecture(video, segments, words[index].start)}
-              recherche={recherche}
-              onRecherche={setRecherche}
+        {/* **La livraison est un bandeau, pas une colonne.** En colonne, l'export
+            héritait de la largeur d'un panneau de réglages : les noms de fichiers
+            s'y coupaient, les lecteurs vidéo tombaient à la taille d'une vignette
+            et la zone de textes devenait une meurtrière. En bas et sur toute la
+            largeur, elle peut poser côte à côte ce qui sort et ce qui se colle —
+            et c'est là que le bouton « Publier » viendra. */}
+        <section
+          aria-labelledby="zone-livraison"
+          className="flex flex-col gap-3 border-t p-4"
+        >
+          <h2 id="zone-livraison" className="text-sm font-medium">
+            Livraison
+          </h2>
+          <div className="mx-auto w-full max-w-[104rem]">
+            <PanneauExport
+              clip={clip}
+              outputs={outputs}
+              framing={framing}
+              duree={duree}
+              enregistrement={enregistrement}
+              empreinte={empreinteDuRendu}
+              // `enregistrement` ne suit que le montage : le titre, la description
+              // et les marques passent par la même mutation sans y figurer.
+              ecritureEnCours={ecrituresEnVol > 0}
+              ecritureEnEchec={patch.isError || textesEnEchec.length > 0}
+              // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se lit
+              // dans la barre d'application et dans le garde-fou du panneau.
+              onBranding={(branding) => void ecrire({ branding }).catch(() => {})}
             />
           </div>
         </section>

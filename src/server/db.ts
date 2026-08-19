@@ -262,48 +262,19 @@ export type SettingField = {
    * texte contraint, pas une forme nouvelle.
    */
   enum?: readonly string[]
-  /** Ce que l'écran affiche à la place du nom technique (retour d'usage §6.2). */
-  label: string
-  /** La phrase qui dit ce que le réglage change. */
-  description: string
 }
 
 /**
- * Les libellés de la famille `selection`, **exhaustifs par le type**.
- *
- * Ajouter un champ à `DimensionsRepérage` sans venir ici casse le type-check.
- * C'est la même garde que `LIBELLES_ETAPES` (`src/core/parcours.ts`), et elle
- * existe pour la même raison : un réglage sans libellé s'afficherait sous son
- * nom technique, ou pas du tout.
+ * Ce registre décrit la **forme** d'un réglage — type, défaut, bornes,
+ * énumération — jamais sa prose. Le libellé et la description affichés à
+ * l'écran vivent dans `src/components/settings/`, qui les reformule pour son
+ * propre découpage (par exemple trois usages `ai.*` × fournisseur/modèle,
+ * plutôt que sept champs plats). Un `label`/`description` ici serait une
+ * seconde source sur la même question, et l'issue #78 a mesuré que les deux
+ * avaient déjà divergé sans que personne ne le remarque : aucun code de
+ * production ne les lisait, seuls deux tests vérifiaient qu'ils n'étaient pas
+ * vides.
  */
-const SELECTION_LABELS: Record<
-  keyof DimensionsRepérage,
-  { label: string; description: string }
-> = {
-  minutesParClip: {
-    label: 'Minutes de parole par clip',
-    description:
-      'Une proposition attendue par tranche de tant de minutes de parole. Plus petit, plus de propositions.',
-  },
-  fenetresParClip: {
-    label: 'Fenêtres examinées par clip',
-    description:
-      'Combien de fenêtres de 90 s sont présélectionnées pour chaque clip demandé. Plus grand, plus de matière soumise au détail — et plus d’appels au modèle.',
-  },
-  clipsMinimum: {
-    label: 'Minimum de clips',
-    description:
-      'Plancher absolu, pour qu’une émission courte sorte de la zone morte plutôt que de rendre une ou deux propositions.',
-  },
-  fenetresMinimum: {
-    label: 'Minimum de fenêtres',
-    description: 'Plancher absolu de fenêtres présélectionnées, quel que soit le nombre de clips.',
-  },
-  clipsMaximum: {
-    label: 'Maximum de clips',
-    description: 'Plafond absolu. 0 veut dire « aucun plafond ».',
-  },
-}
 
 /**
  * Les champs de la famille `selection`, **dérivés des défauts** plutôt que
@@ -318,53 +289,7 @@ const SELECTION_FIELDS: readonly SettingField[] = (
   type: 'integer' as const,
   defaultValue: DIMENSIONS_PAR_DÉFAUT[name],
   min: name === 'clipsMaximum' ? 0 : 1,
-  ...SELECTION_LABELS[name],
 }))
-
-/**
- * Les libellés de la famille `ai`, **exhaustifs par le type** — même garde que
- * `SELECTION_LABELS`, et pour la même raison.
- *
- * **Seuls les trois champs `selection*` sont branchés.** `correction*` et
- * `hook*` se règlent et se persistent — le retour d'usage §6.1 les annonce
- * tous les trois —, mais rien ne les lit encore : la correction du transcript
- * et la génération du hook n'existent pas. Le libellé le dit, pour que l'écran
- * n'ait pas à mentir par omission.
- */
-const AI_LABELS: Record<keyof AiSettings, { label: string; description: string }> = {
-  selectionProvider: {
-    label: 'Fournisseur du repérage',
-    description:
-      'Le modèle qui note les fenêtres et détaille les propositions. Câblé : change le résultat du prochain repérage.',
-  },
-  selectionModel: {
-    label: 'Modèle du repérage',
-    description: 'Le nom du modèle chez ce fournisseur.',
-  },
-  correctionProvider: {
-    label: 'Fournisseur de la correction du transcript',
-    description:
-      'Pas encore câblé : la correction du transcript n’existe pas encore. Ce réglage se persiste, mais rien ne le lit.',
-  },
-  correctionModel: {
-    label: 'Modèle de la correction du transcript',
-    description: 'Pas encore câblé, pour la même raison que le fournisseur ci-dessus.',
-  },
-  hookProvider: {
-    label: 'Fournisseur du hook',
-    description:
-      'Pas encore câblé : la génération automatique du hook n’existe pas encore. Ce réglage se persiste, mais rien ne le lit.',
-  },
-  hookModel: {
-    label: 'Modèle du hook',
-    description: 'Pas encore câblé, pour la même raison que le fournisseur ci-dessus.',
-  },
-  ollamaBaseUrl: {
-    label: 'Adresse du serveur Ollama',
-    description:
-      'Laisser vide pour résoudre automatiquement la passerelle WSL au démarrage de chaque repérage. À ne renseigner que si Ollama tourne ailleurs qu’à cette adresse, ou si la résolution automatique échoue.',
-  },
-}
 
 /**
  * Les champs de la famille `ai`.
@@ -374,62 +299,57 @@ const AI_LABELS: Record<keyof AiSettings, { label: string; description: string }
  * l'autre. Les trois usages partent tous sur Gemini par défaut, avec le même
  * modèle que l'ancien `MODÈLE_PAR_DÉFAUT` en dur de `candidates.ts` — le
  * repérage se comporte à l'identique tant que personne n'a touché ce réglage.
+ *
+ * **Seuls les trois champs `selection*` sont branchés.** `correction*` et
+ * `hook*` se règlent et se persistent — le retour d'usage §6.1 les annonce
+ * tous les trois —, mais rien ne les lit encore : la correction du transcript
+ * et la génération du hook n'existent pas.
+ *
+ * **Exhaustif par le type, sans prose** : la clé est `keyof AiSettings` et
+ * `satisfies` fait échouer le type-check si un champ manque ou si un nom en
+ * trop s'ajoute — la même garde que portait `AI_LABELS` avant que #78 ne
+ * retire le `label`/`description` qu'il transportait avec elle. `AI_FIELDS`
+ * en est dérivé, jamais réénuméré : un champ de `AiSettings` oublié ici ne
+ * compile pas.
  */
-const AI_FIELDS: readonly SettingField[] = [
-  {
-    family: 'ai',
-    name: 'selectionProvider',
+const AI_FIELD_SHAPES = {
+  selectionProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
-    ...AI_LABELS.selectionProvider,
   },
-  {
-    family: 'ai',
-    name: 'selectionModel',
+  selectionModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
-    ...AI_LABELS.selectionModel,
   },
-  {
-    family: 'ai',
-    name: 'correctionProvider',
+  correctionProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
-    ...AI_LABELS.correctionProvider,
   },
-  {
-    family: 'ai',
-    name: 'correctionModel',
+  correctionModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
-    ...AI_LABELS.correctionModel,
   },
-  {
-    family: 'ai',
-    name: 'hookProvider',
+  hookProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
-    ...AI_LABELS.hookProvider,
   },
-  {
-    family: 'ai',
-    name: 'hookModel',
+  hookModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
-    ...AI_LABELS.hookModel,
   },
-  {
-    family: 'ai',
-    name: 'ollamaBaseUrl',
+  ollamaBaseUrl: {
     type: 'text',
     defaultValue: '',
     allowEmpty: true,
-    ...AI_LABELS.ollamaBaseUrl,
   },
-]
+} satisfies Record<keyof AiSettings, Omit<SettingField, 'family' | 'name'>>
+
+const AI_FIELDS: readonly SettingField[] = (
+  Object.keys(AI_FIELD_SHAPES) as (keyof AiSettings)[]
+).map((name) => ({ family: 'ai' as const, name, ...AI_FIELD_SHAPES[name] }))
 
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
 export const SETTING_FIELDS: readonly SettingField[] = [...SELECTION_FIELDS, ...AI_FIELDS]

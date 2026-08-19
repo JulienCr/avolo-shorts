@@ -14,7 +14,7 @@ import { corps, json, route } from '@/server/http'
  * frappe dans un libellé.
  *
  * **La validation vit dans le registre, pas ici.** `src/server/db.ts` décrit
- * chaque champ — famille, type, plancher, défaut, libellé — et `applySettings`
+ * chaque champ — famille, type, plancher, défaut — et `applySettings`
  * en déduit ce qu'il accepte. Écrire un schéma Zod par famille aurait recréé
  * exactement la seconde source de vérité que le registre existe pour éviter :
  * les familles à venir — le fournisseur d'IA par usage, les défauts du hook —

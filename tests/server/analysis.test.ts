@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { POINT } from '@/core/shots'
 import { messageSûr } from '@/server/erreurs'
 import {
   commandeLisible,
@@ -10,6 +11,7 @@ import {
   lireAnalyse,
   runAnalysis,
   SCHÉMA_ANALYSE,
+  ANALYSIS_VERSIONS,
 } from '@/server/steps/analysis'
 
 /**
@@ -204,8 +206,89 @@ describe('SCHÉMA_ANALYSE', () => {
     expect(SCHÉMA_ANALYSE.safeParse(collés).success).toBe(true)
   })
 
+  it('accepte les deux versions écrites par ce dépôt', () => {
+    // La 2 porte les points de pose et le nom des poids ; la 1 est ce que le
+    // détecteur écrivait avant le 19 août 2026, et les fichiers déjà sur le
+    // disque doivent continuer de se relire sans qu'on relance le GPU.
+    for (const version of ANALYSIS_VERSIONS) {
+      expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version }).success).toBe(true)
+    }
+  })
+
   it('refuse une version inconnue', () => {
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 2 }).success).toBe(false)
+    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 3 }).success).toBe(false)
+    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 0 }).success).toBe(false)
+  })
+
+  it('accepte dix-sept points de pose, et refuse un squelette tronqué', () => {
+    // **La longueur est la seule chose qui distingue un squelette d'un tableau
+    // de nombres.** Trop court, il se lit sans erreur : `k[3 * i]` rend
+    // `undefined`, le tronc en sort vide, et le cadrage retombe sur la boîte
+    // corps entier — c'est-à-dire sur le comportement d'avant, sous une
+    // étiquette qui affirme le contraire.
+    const complete = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : 0.5))
+    const withKeypoints = {
+      ...ANALYSE_VALIDE,
+      version: 2 as const,
+      keypoints: 'coco17' as const,
+      boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete }],
+    }
+    expect(SCHÉMA_ANALYSE.safeParse(withKeypoints).success).toBe(true)
+    expect(
+      SCHÉMA_ANALYSE.safeParse({
+        ...withKeypoints,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete.slice(0, 48) }],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('laisse un point de pose sortir du cadre, contrairement à une boîte', () => {
+    // Une épaule que le bord de l'image coupe est une information ; une boîte
+    // hors cadre ne désigne plus rien. Seule la confiance est bornée.
+    const outside = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : -0.2))
+    expect(
+      SCHÉMA_ANALYSE.safeParse({
+        ...ANALYSE_VALIDE,
+        version: 2 as const,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: outside }],
+      }).success,
+    ).toBe(true)
+  })
+
+  /**
+   * **Et la confiance, elle, est bornée** — l'autre moitié de la phrase
+   * ci-dessus, qui n'était pas tenue.
+   *
+   * Le tableau est plat : `z.number()` ne distingue pas une abscisse d'une
+   * confiance, donc `-1` et `2` passaient au même titre qu'une coordonnée hors
+   * cadre. Ni l'un ni l'autre n'échoue bruyamment ensuite — ils franchissent
+   * `torsoMinScore` dans le mauvais sens, un point invisible entre dans le tronc
+   * ou un point vu en sort, et le crop se déplace sans que rien ne le dise.
+   * (relevé par Copilot)
+   */
+  it('refuse une confiance de point hors de [0, 1], au rang près', () => {
+    const k = (confidence: number): number[] =>
+      Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? confidence : 0.5))
+    const accepts = (points: number[]): boolean =>
+      SCHÉMA_ANALYSE.safeParse({
+        ...ANALYSE_VALIDE,
+        version: 2 as const,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: points }],
+      }).success
+
+    expect(accepts(k(0))).toBe(true)
+    expect(accepts(k(1))).toBe(true)
+    expect(accepts(k(-1))).toBe(false)
+    expect(accepts(k(2))).toBe(false)
+
+    // Un seul rang de confiance fautif suffit, et c'est bien le rang qui décide :
+    // la même valeur posée sur une abscisse reste acceptée.
+    const oneBad = k(0.9)
+    oneBad[POINT.LEFT_HIP * 3 + 2] = 1.4
+    expect(accepts(oneBad)).toBe(false)
+    const onAnX = k(0.9)
+    onAnX[POINT.LEFT_HIP * 3] = 1.4
+    expect(accepts(onAnX)).toBe(true)
   })
 
   it('refuse des dimensions de proxy nulles', () => {

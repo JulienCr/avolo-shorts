@@ -9,9 +9,14 @@
  * caméra ne suit personne.
  *
  * **Le ratio est choisi par plan**, et c'est ce que la mesure impose : la part
- * du temps qui descend sous le 16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur
- * `2026-22-02-entre-nous` et 1 % sur `2026-03-08-caro-mdlm`. Un ratio unique
- * écrase ces 8 à 25 % sous le plan le plus large.
+ * du temps qui descend sous le 16:9 vaut 50 % sur `2025-06-15-cqlp`, 32 % sur
+ * `2026-22-02-entre-nous` et 7 % sur `2026-03-08-caro-mdlm`. Un ratio unique
+ * écrase cette part sous le plan le plus large.
+ *
+ * **Et le cadre n'a pas à contenir les gens en entier** : chaque boîte abandonne
+ * ses extrémités avant d'entrer dans l'empan, voir `trimmedBounds`. C'est ce qui
+ * a fait passer ces trois parts de 20 %, 5 % et moins de 1 % à ce qu'elles valent
+ * ci-dessus, sur des fenêtres de 30 s qui couvrent l'émission entière.
  *
  * **Les deux sorties n'en font pas le même usage** (spec §11), et c'est un
  * arbitrage, pas une inconséquence :
@@ -35,7 +40,7 @@
 
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
-import { shotStartMs, shotsForSegments } from '@/core/shots'
+import { POINT, POINT_COUNT, shotStartMs, shotsForSegments } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
 
 /**
@@ -226,7 +231,134 @@ export type FramingOptions = {
    * que zéro. C'est la façon de mesurer l'effet du filtre sans toucher au code.
    */
   foregroundMaxHeight?: number
+  /**
+   * La part de **sa propre largeur** qu'une boîte abandonne de chaque côté avant
+   * d'entrer dans l'empan. Voir `trimmedBounds` et `FRAMING_DEFAULTS`.
+   *
+   * `0` reproduit exactement le comportement d'avant le 19 août 2026 : l'empan
+   * exige alors que les boîtes tiennent en entier dans le cadre.
+   */
+  sideTrim?: number
+  /**
+   * Le plafond de ce rognage, en fraction de la **largeur de l'image** et non de
+   * la boîte. Voir `trimmedBounds` : c'est lui qui empêche une boîte très large
+   * d'abandonner une tête.
+   */
+  sideTrimMax?: number
+  /**
+   * Quels points de pose définissent le **tronc**, c'est-à-dire ce que le cadre
+   * doit vraiment contenir d'une personne. Voir `TORSOS` et `torsoBounds`.
+   *
+   * `'off'` ignore les points et rend le comportement d'avant le 19 août 2026 :
+   * la boîte corps entier, moins ses extrémités. C'est aussi ce qui se passe,
+   * quel que soit ce réglage, sur une analyse qui ne porte pas de points.
+   */
+  torso?: TorsoName | 'off'
+  /**
+   * La confiance minimale d'un point pour qu'il compte dans le tronc.
+   *
+   * Un point que le réseau n'a pas vu — une épaule cachée, une hanche hors cadre
+   * — sort avec une confiance basse **et une position quand même**, souvent au
+   * milieu du corps. Le compter ne rate pas bruyamment : il resserre le tronc
+   * d'un côté, ce qui déplace le crop sans rien signaler.
+   */
+  torsoMinScore?: number
+  /**
+   * Ce que le tronc s'ajoute de chaque côté, en fraction de **sa propre
+   * largeur**.
+   *
+   * Les points d'épaule sont les **centres des articulations**, pas le bord de
+   * la silhouette : un tronc pris à la lettre coupe la moitié de chaque épaule.
+   * Voir `FRAMING_DEFAULTS` pour ce que la mesure a retenu.
+   */
+  torsoPad?: number
+  /**
+   * La part du tronc qu'on s'autorise à abandonner de chaque côté, **la tête
+   * exceptée**. Voir `torsoBounds`.
+   *
+   * C'est `sideTrim` posé sur la bonne primitive : le rognage de la boîte
+   * abandonne des extrémités dont il ignore le contenu — d'où son plafond,
+   * installé le 19 août parce que sans lui un visage tombait dehors —, alors que
+   * celui-ci sait ce qu'il abandonne et refuse de toucher à la tête.
+   */
+  torsoTrim?: number
 }
+
+/**
+ * Les définitions de tronc que la mesure a comparées, chacune par les rangs
+ * COCO qu'elle retient.
+ *
+ * **Elles sont nommées et exportées parce que c'est la mesure qui a tranché**,
+ * pas une intuition : le balayage de `scripts/mesure-ratios.ts` les passe toutes
+ * sur la même émission et met en regard ce que chacune gagne en ratio et ce
+ * qu'elle coupe des gens. Un nom recopié dans le script mesurerait un autre
+ * tronc que celui qui décide, le jour où l'un des deux bouge.
+ *
+ * Ce qui les sépare :
+ *
+ * - `'head'` — la tête seule, nez, yeux et oreilles. Le minimum absolu, et la
+ *   borne basse du balayage : il dit ce qu'on gagnerait à ne garantir que les
+ *   visages. Ce n'est pas un cadrage défendable en soi — un buste coupé aux
+ *   oreilles est une faute que la mesure ne voit pas —, c'est l'extrémité de la
+ *   courbe.
+ * - `'bust'` — la tête et les épaules. Le plus serré défendable, et celui qui décrit le
+ *   mieux « ce qu'on regarde » : sur le plan de référence du rognage latéral,
+ *   un 1:1 garde les deux visages et les deux bustes et ne perd que l'épaule
+ *   extérieure de chacun. C'est donc déjà le cadre que l'œil accepte.
+ * - `'bust-hips'` — plus les hanches. Elles ne dépassent presque jamais les
+ *   épaules chez quelqu'un d'assis de face, et elles rattrapent les dos tournés,
+ *   où la tête n'a pas de point fiable.
+ * - `'shoulders-hips'` — le tronc anatomique, sans la tête. Écarté d'avance sur
+ *   le papier — perdre la tête est exactement la faute qu'on répare — mais
+ *   mesuré quand même, parce que le papier s'est déjà trompé sur ce sujet.
+ * - `'upper-body'` — plus les coudes. Un bras tendu compte alors, un bras levé
+ *   aussi : c'est la définition qui se rapproche le plus de la boîte, et elle
+ *   sert de borne haute au balayage.
+ */
+export const TORSOS = Object.freeze({
+  head: [POINT.NOSE, POINT.LEFT_EYE, POINT.RIGHT_EYE, POINT.LEFT_EAR, POINT.RIGHT_EAR],
+  bust: [
+    POINT.NOSE,
+    POINT.LEFT_EYE,
+    POINT.RIGHT_EYE,
+    POINT.LEFT_EAR,
+    POINT.RIGHT_EAR,
+    POINT.LEFT_SHOULDER,
+    POINT.RIGHT_SHOULDER,
+  ],
+  'bust-hips': [
+    POINT.NOSE,
+    POINT.LEFT_EYE,
+    POINT.RIGHT_EYE,
+    POINT.LEFT_EAR,
+    POINT.RIGHT_EAR,
+    POINT.LEFT_SHOULDER,
+    POINT.RIGHT_SHOULDER,
+    POINT.LEFT_HIP,
+    POINT.RIGHT_HIP,
+  ],
+  'shoulders-hips': [
+    POINT.LEFT_SHOULDER,
+    POINT.RIGHT_SHOULDER,
+    POINT.LEFT_HIP,
+    POINT.RIGHT_HIP,
+  ],
+  'upper-body': [
+    POINT.NOSE,
+    POINT.LEFT_EYE,
+    POINT.RIGHT_EYE,
+    POINT.LEFT_EAR,
+    POINT.RIGHT_EAR,
+    POINT.LEFT_SHOULDER,
+    POINT.RIGHT_SHOULDER,
+    POINT.LEFT_ELBOW,
+    POINT.RIGHT_ELBOW,
+    POINT.LEFT_HIP,
+    POINT.RIGHT_HIP,
+  ],
+} as const satisfies Record<string, readonly number[]>)
+
+export type TorsoName = keyof typeof TORSOS
 
 /**
  * Les valeurs par défaut des quatre réglages, **exportées parce que les scripts
@@ -257,6 +389,12 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   margin: 0.01,
   bottomEdge: 0.97,
   foregroundMaxHeight: 0.35,
+  sideTrim: 0.3,
+  sideTrimMax: 0.12,
+  torso: 'bust',
+  torsoMinScore: 0.5,
+  torsoPad: 0.15,
+  torsoTrim: 0.3,
 })
 
 /**
@@ -347,6 +485,183 @@ export function isForeground(box: PersonBox, options: FramingOptions = {}): bool
 }
 
 /**
+ * Les bords horizontaux d'une boîte **une fois ses extrémités abandonnées**.
+ *
+ * **Le cadrage n'a pas à contenir les gens en entier, et c'est le constat du
+ * 19 août 2026.** Sur `2025-06-15-cqlp` à 2120 s, deux comédiens occupent
+ * `[0,106 ; 0,490]` et `[0,523 ; 0,778]` : leur union fait 0,672 quand un 1:1 en
+ * couvre 0,5625, donc **aucune** des 61 images du plan ne tient, à aucun
+ * percentile. Vérifié à l'image, le 1:1 centré garde pourtant les deux visages et
+ * les deux bustes — il ne perd que l'épaule extérieure de chacun. Le critère
+ * d'avant refusait ce cadre-là parce qu'il exigeait l'union des boîtes
+ * **entières**, bras traînant compris.
+ *
+ * Le rognage est donc une **permission**, pas une coupe : il ne décide que du
+ * ratio. Le crop, lui, occupe toute la fenêtre du ratio retenu et rend
+ * l'essentiel de ce qui a été abandonné — sur ce plan, la fenêtre 1:1 fait 0,5625
+ * pour un empan rogné de 0,501.
+ *
+ * **Deux bornes, et chacune rattrape ce que l'autre laisse passer** :
+ *
+ * - *La part* (`sideTrim`) borne la perte **relative**. Elle protège les sujets
+ *   lointains : à plafond seul, une boîte de 0,10 de large en abandonnerait la
+ *   totalité. Elle rogne aussi là où il y a de quoi rogner — une boîte est large
+ *   précisément quand un membre est tendu —, alors qu'une valeur absolue
+ *   uniforme rabote autant les empans déjà étroits et les pousse vers des ratios
+ *   trop serrés : mesuré, elle bascule des fenêtres en 9:16 là où la part les
+ *   amène en 1:1.
+ * - *Le plafond* (`sideTrimMax`) borne la perte **absolue**, et il a été payé par
+ *   une image. Sans lui, sur `2026-03-08-caro-mdlm` à 7250 s, un comédien assis
+ *   jambes tendues donne une boîte de 0,536 de large dont la tête occupe
+ *   l'extrémité droite ; en abandonner 30 % de chaque côté, c'est 0,161 de
+ *   l'image, et **son visage tombe dehors pendant les 28 secondes du plan**. Le
+ *   plafond ramène cette perte à un liseré et le plan reste en 16:9. C'est le cas
+ *   documenté par l'issue #69, vu ici par l'autre bout.
+ *
+ * **Ce que les valeurs valent, et pourquoi elles ne sont pas sur une falaise.**
+ * Le plan de référence bascule en 1:1 à partir d'une part de 0,30 et d'un plafond
+ * de 0,09 ; le visage de `caro-mdlm` tombe à partir d'un plafond de 0,15. Le
+ * plafond retenu, 0,12, est au milieu de cet intervalle — le plus loin possible
+ * des deux bords. Au-delà de 0,40 de part, le coût explose : sur les fenêtres de
+ * `cqlp`, le temps où quelqu'un perd plus d'un tiers de sa largeur passe de 152 s
+ * à 463 s.
+ *
+ * Le détail, les tableaux et les images sont dans `docs/ratios-par-clip.md`.
+ */
+export function trimmedBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; x1: number } {
+  const share = borner(réglage(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
+  const cap = Math.max(0, réglage(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
+  const width = box.x1 - box.x0
+  // La demi-largeur borne le tout : au-delà, la boîte se retournerait, et une
+  // borne gauche passée à droite de la borne droite est un empan négatif que
+  // rien en aval ne saurait lire.
+  const trimmed = Math.min(width * share, cap, width / 2)
+  return { x0: box.x0 + trimmed, x1: box.x1 - trimmed }
+}
+
+/**
+ * Le tronc, ou `null` quand cette personne n'en a pas de lisible.
+ *
+ * **C'est la primitive que l'issue #69 réclamait, et elle a demandé de changer
+ * de modèle.** Une `PersonBox` est un rectangle : sa largeur est la même à
+ * toutes les hauteurs, donc rien à l'intérieur ne distingue une tête d'une
+ * cheville. Le rognage latéral du 19 août contourne ce mur en abandonnant une
+ * part fixe de chaque côté, sans savoir ce qu'il abandonne — d'où son plafond,
+ * posé pour qu'il ne puisse pas jeter un visage. Les variantes `-pose` de la
+ * même famille rendent dix-sept points par personne : le tronc s'en déduit, et
+ * on sait où est la tête.
+ *
+ * **Le tronc remplace la boîte pour le seul choix du cadre, pas ailleurs.** Le
+ * filtre du public au premier plan continue de lire la boîte — bord bas et
+ * hauteur —, et il le doit : un squelette ne dit pas si le bas de l'image a
+ * tronqué quelqu'un, et la géométrie de ce filtre est mesurée sur 26 436 boîtes.
+ *
+ * **Deux points au minimum, sinon on rend `null`.** Un seul point donne un
+ * intervalle de largeur nulle : ce n'est pas un tronc serré, c'est une personne
+ * réduite à un pixel, et le crop qui en découlerait serait posé sur un nez. À
+ * `null`, l'appelant retombe sur la boîte, c'est-à-dire sur le comportement
+ * mesuré du 19 août — dégrader vers ce qui marchait vaut mieux que dégrader vers
+ * un point.
+ *
+ * **Et compter deux points ne suffit pas à garantir cette largeur**, ce qui a
+ * été relevé en review : deux points peuvent partager la même abscisse — le
+ * fichier arrondit à quatre décimales, et un profil pose l'œil sur l'oreille —,
+ * et un `torsoTrim` de 0,5 rabat sur son milieu un tronc que la tête ne rattrape
+ * pas. C'est donc la **largeur finale** qui décide, pas le compte des points :
+ * le repli sur la boîte doit valoir dans les trois cas, sans quoi la promesse du
+ * paragraphe précédent est fausse là où elle sert.
+ *
+ * `torsoPad` élargit le résultat parce que **les points d'épaule sont les
+ * centres des articulations** : pris à la lettre, le tronc passe au milieu de
+ * chaque épaule. L'élargissement est proportionnel à la largeur du tronc, donc
+ * il suit la distance du sujet, comme `sideTrim` le fait pour la boîte.
+ */
+export function torsoBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; x1: number } | null {
+  const name = options.torso ?? FRAMING_DEFAULTS.torso
+  if (name === 'off') return null
+  const indices: readonly number[] | undefined = TORSOS[name as TorsoName]
+  if (indices === undefined) return null
+
+  const k = box.k
+  // La longueur est revérifiée ici et pas seulement au schéma : `PersonBox` est
+  // un type de `core`, et rien n'oblige un appelant — un test, un script — à
+  // passer par la validation d'I/O.
+  if (k === undefined || k.length !== POINT_COUNT * 3) return null
+
+  const threshold = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  const extentOf = (
+    which: readonly number[],
+  ): { x0: number; x1: number; seen: number } => {
+    let x0 = Number.POSITIVE_INFINITY
+    let x1 = Number.NEGATIVE_INFINITY
+    let seen = 0
+    for (const index of which) {
+      const x = k[index * 3]
+      const confidence = k[index * 3 + 2]
+      // `!(c >= seuil)` et non `c < seuil`, comme partout ailleurs ici : un `NaN`
+      // doit tomber du côté écarté.
+      if (!Number.isFinite(x) || !(confidence >= threshold)) continue
+      seen += 1
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+    }
+    return { x0, x1, seen }
+  }
+
+  const torso = extentOf(indices)
+  if (torso.seen < 2) return null
+
+  // **Le rognage du tronc, et la tête qui lui sert de plancher.** C'est toute la
+  // différence avec `sideTrim` : celui-là abandonne des extrémités sans savoir
+  // ce qu'elles contiennent, et son plafond n'est qu'un pari sur la position de
+  // la tête. Ici la tête est connue, donc elle est simplement remise dedans, et
+  // ce qui est abandonné ne peut être qu'une épaule.
+  const share = borner(réglage(options.torsoTrim, FRAMING_DEFAULTS.torsoTrim), 0, 0.5)
+  const trimmed = (torso.x1 - torso.x0) * share
+  let x0 = torso.x0 + trimmed
+  let x1 = torso.x1 - trimmed
+  const head = extentOf(TORSOS.head)
+  if (head.seen > 0) {
+    x0 = Math.min(x0, head.x0)
+    x1 = Math.max(x1, head.x1)
+  }
+
+  // La largeur finale, et non le compte des points : voir la note du bloc de
+  // documentation. Un tronc réduit à un point retombe sur la boîte.
+  if (!(x1 > x0)) return null
+
+  const pad = Math.max(0, réglage(options.torsoPad, FRAMING_DEFAULTS.torsoPad)) * (x1 - x0)
+  return { x0: x0 - pad, x1: x1 + pad }
+}
+
+/**
+ * Ce que le cadre doit contenir d'une personne : son tronc si les points le
+ * disent, sa boîte moins ses extrémités sinon.
+ *
+ * **Le rognage latéral ne s'applique pas au tronc**, et ce n'est pas un oubli :
+ * les deux répondent à la même question. `sideTrim` abandonne une part de la
+ * boîte parce qu'on ne sait pas ce qu'elle contient ; le tronc *sait*. Les
+ * cumuler rognerait deux fois, et la seconde fois sur ce qu'on avait
+ * précisément décidé de garder.
+ *
+ * Le rognage reste donc le **repli**, et il garde tout son sens là où il n'y a
+ * pas de points : une analyse de version 1, un modèle de détection, une personne
+ * de dos dont le réseau ne voit ni tête ni épaules.
+ */
+export function personBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; x1: number } {
+  return torsoBounds(box, options) ?? trimmedBounds(box, options)
+}
+
+/**
  * La médiane, au sens strict : sur un nombre **pair** de valeurs, le milieu des
  * deux centrales et non la plus basse des deux.
  *
@@ -404,20 +719,29 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
     // faisait sortir tous les clips de `2025-06-15-cqlp` en 16:9.
     if (isForeground(b, options)) continue
 
+    const { x0, x1 } = personBounds(b, options)
     const clé = Math.round(b.t * 1000)
     const déjà = parImage.get(clé)
     if (déjà) {
-      déjà.g = Math.min(déjà.g, b.x0)
-      déjà.d = Math.max(déjà.d, b.x1)
+      déjà.g = Math.min(déjà.g, x0)
+      déjà.d = Math.max(déjà.d, x1)
     } else {
-      parImage.set(clé, { t: b.t, g: b.x0, d: b.x1 })
+      parImage.set(clé, { t: b.t, g: x0, d: x1 })
     }
   }
 
+  // **Les deux bornes sont ramenées dans [0, 1] des deux côtés**, et pas
+  // seulement chacune du sien. Depuis que l'empan se lit sur des points de pose,
+  // il peut sortir de l'image en entier : un point hors cadre est une
+  // information que `detect.py` écrit exprès sans la borner. Un tronc
+  // entièrement à gauche donnait alors `g = 0` et `d < 0`, donc une largeur
+  // **négative** qui traversait le choix du ratio et la position sans rien
+  // signaler. Borner des deux côtés rend au pire une largeur nulle, que le
+  // percentile lit comme « cette image n'exige rien ». (relevé par Copilot)
   return [...parImage.values()].map((e) => ({
     t: e.t,
-    g: Math.max(0, e.g - marge),
-    d: Math.min(1, e.d + marge),
+    g: borner(e.g - marge, 0, 1),
+    d: borner(e.d + marge, 0, 1),
   }))
 }
 
@@ -776,11 +1100,25 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // Recopiés un par un, et non par étalement de `req` : `FramingRequest` porte
   // aussi des segments, des plans et un mode, et les laisser passer ferait de
   // `empans` un consommateur de tout, dont plus rien ne dirait ce qu'il lit.
-  const options: FramingOptions = {
+  //
+  // **Le type oblige à les nommer tous**, et ce n'est pas de la ceinture : un
+  // réglage oublié ici ne casse rien, il retombe sur son défaut — donc un
+  // balayage qui le fait varier mesure la même chose à chaque ligne, avec des
+  // colonnes voisines qui bougent, elles, parce qu'elles ne passent pas par
+  // cette fonction. C'est arrivé le 19 août 2026 sur `torsoTrim`, et le tableau
+  // était crédible. Le `-?` rend chaque clé obligatoire : en oublier une ne
+  // compile plus.
+  const options: { [K in keyof Required<FramingOptions>]: FramingOptions[K] } = {
     minScore: req.minScore,
     margin: req.margin,
     bottomEdge: req.bottomEdge,
     foregroundMaxHeight: req.foregroundMaxHeight,
+    sideTrim: req.sideTrim,
+    sideTrimMax: req.sideTrimMax,
+    torso: req.torso,
+    torsoMinScore: req.torsoMinScore,
+    torsoPad: req.torsoPad,
+    torsoTrim: req.torsoTrim,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

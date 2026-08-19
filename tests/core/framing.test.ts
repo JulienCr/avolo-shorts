@@ -12,8 +12,12 @@ import {
   requiredWidths,
   resolveRatio,
   sizeInCanvas,
+  personBounds,
+  torsoBounds,
+  trimmedBounds,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
+import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
 
 const TOUS: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
@@ -174,6 +178,19 @@ describe('cropRect', () => {
 const SRC_W = 1920
 const SRC_H = 1080
 
+/**
+ * Le rognage latéral éteint.
+ *
+ * Les tests qui le passent décrivent la **géométrie** du choix — ce qu'un empan
+ * vaut, quel ratio le couvre, où la position se pose —, et ils posent leurs
+ * boîtes à la main pour ça. Le rognage y ajouterait un second réglage à défaire
+ * de tête à chaque lecture, pour ne rien éprouver de plus.
+ *
+ * Ce qu'il fait, lui, est éprouvé dans son propre bloc plus bas, et sur les
+ * valeurs par défaut : sans quoi personne ne verrait qu'elles ont bougé.
+ */
+const NO_TRIM = { sideTrim: 0, sideTrimMax: 0 } as const
+
 /** Une boîte de personne. La hauteur ne sert à rien ici : le crop est pleine hauteur. */
 const boîte = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
   t,
@@ -232,6 +249,9 @@ const base = {
   srcH: SRC_H,
   ratio: 'auto' as const,
   cropMode: 'auto' as const,
+  // Rognage éteint, voir `NO_TRIM` : ce jeu de plans sert à éprouver le
+  // découpage, les positions et les dérogations, pas la valeur d'un réglage.
+  ...NO_TRIM,
 }
 
 describe('ratioCoverage', () => {
@@ -260,15 +280,18 @@ describe('ratioCoverage', () => {
 describe('requiredWidths', () => {
   it('mesure une largeur par image, pas une par personne', () => {
     const boîtes = [boîte(1, 0.2, 0.3), boîte(1, 0.6, 0.7), boîte(1.5, 0.4, 0.5)]
-    expect(requiredWidths(boîtes, { margin: 0 })).toEqual([
+    expect(requiredWidths(boîtes, { margin: 0, ...NO_TRIM })).toEqual([
       expect.closeTo(0.5, 10),
       expect.closeTo(0.1, 10),
     ])
   })
 
   it("ajoute une marge de chaque côté, et l'air par défaut n'est pas nul", () => {
-    expect(requiredWidths([boîte(1, 0.4, 0.6)], { margin: 0.05 })[0]).toBeCloseTo(0.3, 10)
-    expect(requiredWidths([boîte(1, 0.4, 0.6)])[0]).toBeGreaterThan(0.2)
+    expect(requiredWidths([boîte(1, 0.4, 0.6)], { margin: 0.05, ...NO_TRIM })[0]).toBeCloseTo(
+      0.3,
+      10,
+    )
+    expect(requiredWidths([boîte(1, 0.4, 0.6)], NO_TRIM)[0]).toBeGreaterThan(0.2)
   })
 
   // **La marge compte deux fois**, une fois de chaque côté, et c'est ce qui rend
@@ -282,7 +305,7 @@ describe('requiredWidths', () => {
     expect(FRAMING_DEFAULTS.margin).toBe(0.01)
 
     const empan = (marge: number): number =>
-      requiredWidths([boîte(1, 0.235, 0.765)], { margin: marge })[0]
+      requiredWidths([boîte(1, 0.235, 0.765)], { margin: marge, ...NO_TRIM })[0]
     expect(empan(0)).toBeCloseTo(0.53, 10)
     expect(empan(0.01)).toBeCloseTo(0.55, 10)
     expect(empan(0.02)).toBeCloseTo(0.57, 10)
@@ -293,13 +316,13 @@ describe('requiredWidths', () => {
   })
 
   it('borne la largeur à 1 : rien ne dépasse la source', () => {
-    expect(requiredWidths([boîte(1, 0, 1)], { margin: 0.1 })).toEqual([1])
+    expect(requiredWidths([boîte(1, 0, 1)], { margin: 0.1, ...NO_TRIM })).toEqual([1])
   })
 
   // Une détection douteuse au bord du cadre suffirait à imposer un 16:9.
   it('écarte les boîtes sous le seuil de confiance', () => {
     const boîtes = [boîte(1, 0.4, 0.6, 0.9), boîte(1, 0.95, 0.99, 0.2)]
-    expect(requiredWidths(boîtes, { margin: 0, minScore: 0.5 })).toEqual([
+    expect(requiredWidths(boîtes, { margin: 0, minScore: 0.5, ...NO_TRIM })).toEqual([
       expect.closeTo(0.2, 10),
     ])
   })
@@ -347,7 +370,8 @@ describe('requiredWidths', () => {
 describe('chooseRatio', () => {
   /** Un plan de 20 images où l'action ne bouge pas. */
   const fixe = (x0: number, x1: number): PersonBox[] => échantillon(0, 10, [[x0, x1]])
-  const sansMarge = { margin: 0 }
+  /** Ni marge ni rognage : ces tests décrivent le choix, pas les réglages. */
+  const sansMarge = { margin: 0, ...NO_TRIM }
 
   it('retient le plus petit ratio qui couvre', () => {
     expect(chooseRatio(fixe(0.35, 0.65), SRC_W, SRC_H, sansMarge)).toBe('9:16')
@@ -850,8 +874,10 @@ describe('le premier plan écarté du cadrage', () => {
 
   it('resserre l’empan sur les comédiens au lieu de l’étaler d’un bord à l’autre', () => {
     const boîtes = surDix(true)
-    expect(requiredWidths(boîtes, { margin: 0, foregroundMaxHeight: 0 })[0]).toBeCloseTo(1, 10)
-    expect(requiredWidths(boîtes, { margin: 0 })[0]).toBeCloseTo(0.26, 10)
+    expect(
+      requiredWidths(boîtes, { margin: 0, foregroundMaxHeight: 0, ...NO_TRIM })[0],
+    ).toBeCloseTo(1, 10)
+    expect(requiredWidths(boîtes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
   })
 
   // Le constat qui a motivé la tâche : sans le filtre, tout sort au ratio le
@@ -935,8 +961,9 @@ describe('le premier plan écarté du cadrage', () => {
       ratio: '1:1' as const,
       cropMode: 'auto' as const,
       // Et la marge posée, pour que le déplacement mesuré soit celui du filtre
-      // et non celui d'un réglage qui bouge à côté.
+      // et non celui d'un réglage qui bouge à côté. Même raison pour le rognage.
       margin: 0,
+      ...NO_TRIM,
     }
     const sansFiltre = computeFraming({ ...commun, foregroundMaxHeight: 0 }).shots[0].cropX
     const avecFiltre = computeFraming(commun).shots[0].cropX
@@ -1099,5 +1126,457 @@ describe('le ratio par plan', () => {
     const cadrage = computeFraming({ ...twoShots, cropMode: 'manual', crops: { 0: 0.42 } })
     expect(cadrage.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNative: 0.42 })
     expect(cadrage.shots[1].source).toBe('auto')
+  })
+})
+
+describe('le rognage latéral', () => {
+  /** Les deux comédiens de `2025-06-15-cqlp` à 2120 s, relevés dans `analysis.json`. */
+  const leftPerson = { x0: 0.106, x1: 0.49 }
+  const rightPerson = { x0: 0.523, x1: 0.778 }
+  /** Le plan de référence : 61 images, les deux comédiens immobiles. */
+  const referenceShot = échantillon(0, 30.5, [
+    [leftPerson.x0, leftPerson.x1],
+    [rightPerson.x0, rightPerson.x1],
+  ])
+
+  it('abandonne une part de la largeur de chaque boîte, de chaque côté', () => {
+    const b = boîte(0, 0.2, 0.6)
+    expect(trimmedBounds(b, { sideTrim: 0.25, sideTrimMax: 1 })).toEqual({
+      x0: expect.closeTo(0.3, 10),
+      x1: expect.closeTo(0.5, 10),
+    })
+    expect(trimmedBounds(b, NO_TRIM)).toEqual({ x0: 0.2, x1: 0.6 })
+  })
+
+  /**
+   * **Le plafond est ce qui empêche une boîte très large d'abandonner une tête.**
+   *
+   * Le cas est mesuré : sur `2026-03-08-caro-mdlm` à 7250 s, un comédien assis
+   * jambes tendues donne une boîte de 0,536 de large dont la tête occupe
+   * l'extrémité droite. Sans plafond, 30 % de chaque côté font 0,161 de l'image
+   * et son visage tombe hors du cadre pendant les 28 secondes du plan.
+   */
+  it('plafonne ce qu’une boîte large peut abandonner', () => {
+    const wideBox = boîte(0, 0.345, 0.881)
+    const withoutCap = trimmedBounds(wideBox, { sideTrim: 0.3, sideTrimMax: 1 })
+    expect(wideBox.x1 - withoutCap.x1).toBeCloseTo(0.161, 3)
+
+    const withCap = trimmedBounds(wideBox, FRAMING_DEFAULTS)
+    expect(wideBox.x1 - withCap.x1).toBeCloseTo(FRAMING_DEFAULTS.sideTrimMax, 10)
+    expect(withCap.x0 - wideBox.x0).toBeCloseTo(FRAMING_DEFAULTS.sideTrimMax, 10)
+  })
+
+  // Une boîte étroite est gouvernée par la part, jamais par le plafond : c'est
+  // ce qui protège un comédien lointain, qu'un rognage absolu effacerait.
+  it('ne prend jamais plus que la part sur une boîte étroite', () => {
+    const distantBox = boîte(0, 0.45, 0.55)
+    const { x0, x1 } = trimmedBounds(distantBox, FRAMING_DEFAULTS)
+    expect(x0 - distantBox.x0).toBeCloseTo(0.1 * FRAMING_DEFAULTS.sideTrim, 10)
+    expect(x1 - x0).toBeGreaterThan(0)
+  })
+
+  // Une boîte ne se retourne pas : au pire elle se réduit à son centre. Un empan
+  // dont la borne gauche passerait à droite de la droite ne se lit nulle part en
+  // aval, et se propagerait en crop absurde.
+  it('ne retourne jamais une boîte, quels que soient les réglages', () => {
+    const b = boîte(0, 0.4, 0.44)
+    const { x0, x1 } = trimmedBounds(b, { sideTrim: 5, sideTrimMax: 10 })
+    expect(x1 - x0).toBeGreaterThanOrEqual(0)
+    expect(x0).toBeCloseTo(0.42, 10)
+    expect(x1).toBeCloseTo(0.42, 10)
+  })
+
+  it('retombe sur les défauts quand un réglage n’est pas fini', () => {
+    const b = boîte(0, 0.2, 0.6)
+    expect(trimmedBounds(b, { sideTrim: Number.NaN })).toEqual(trimmedBounds(b))
+    expect(trimmedBounds(b, { sideTrimMax: Number.NaN })).toEqual(trimmedBounds(b))
+  })
+
+  /**
+   * **Le cas qui a motivé le réglage, réduit à ses nombres.**
+   *
+   * Sur `2025-06-15-cqlp` à 2120 s, l'union des deux boîtes fait 0,672 quand un
+   * 1:1 en couvre 0,5625 : **aucune** des 61 images ne tient, à aucun
+   * percentile, donc aucun seuil n'aurait pu produire un 1:1. Vérifié à l'image,
+   * le 1:1 garde pourtant les deux visages et les deux bustes.
+   */
+  it('fait basculer en 1:1 le plan que l’union des boîtes entières condamnait', () => {
+    const union = rightPerson.x1 - leftPerson.x0
+    expect(union).toBeGreaterThan(ratioCoverage('1:1', SRC_W, SRC_H))
+    expect(chooseRatio(referenceShot, SRC_W, SRC_H, NO_TRIM)).toBe('16:9')
+    expect(chooseRatio(referenceShot, SRC_W, SRC_H)).toBe('1:1')
+  })
+
+  /**
+   * **Le rognage est une permission, pas une coupe.** Il ne décide que du
+   * ratio ; la fenêtre retenue est plus large que l'empan rogné et rend
+   * l'essentiel de ce qui avait été abandonné. Sur ce plan, chacun perd moins du
+   * quart de sa largeur là où le réglage l'autorisait à en perdre 30 %.
+   */
+  it('rend au cadre ce que le rognage avait abandonné', () => {
+    const framing = computeFraming({
+      segments: [seg(0, 30.5)],
+      shots: [plan(0, 30.5)],
+      people: referenceShot,
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: 'auto',
+      cropMode: 'auto',
+    })
+    const width = ratioCoverage('1:1', SRC_W, SRC_H)
+    const x = framing.shots[0].cropX - width / 2
+    const loss = (b: { x0: number; x1: number }): number =>
+      1 - (Math.min(b.x1, x + width) - Math.max(b.x0, x)) / (b.x1 - b.x0)
+    expect(loss(leftPerson)).toBeLessThan(0.25)
+    expect(loss(rightPerson)).toBeLessThan(0.25)
+  })
+
+  /**
+   * **Le rognage ne peut pas élargir un ratio**, et c'est ce que la campagne du
+   * 19 août 2026 a vérifié sur les trois émissions : de 0 à 0,40, aucun clip ni
+   * aucune fenêtre ne s'élargit. La propriété se démontre — rogner ne peut que
+   * réduire un empan, donc que rendre un ratio candidat plus atteignable — mais
+   * une démonstration ne survit pas à une réécriture, et ce test si.
+   */
+  it('ne fait jamais monter un ratio', () => {
+    const layouts: PersonBox[][] = [
+      referenceShot,
+      échantillon(0, 10, [[0.35, 0.65]]),
+      échantillon(0, 10, [[0.02, 0.98]]),
+      [...échantillon(0, 5, [[0.05, 0.25]]), ...échantillon(5, 10, [[0.75, 0.95]])],
+      échantillon(0, 10, [
+        [0.05, 0.3],
+        [0.4, 0.5],
+        [0.7, 0.98],
+      ]),
+    ]
+    for (const people of layouts) {
+      const withoutTrim = chooseRatio(people, SRC_W, SRC_H, NO_TRIM)
+      for (const sideTrim of [0.1, 0.2, 0.3, 0.4]) {
+        const withTrim = chooseRatio(people, SRC_W, SRC_H, { sideTrim })
+        expect(RATIOS[withTrim]).toBeLessThanOrEqual(RATIOS[withoutTrim])
+      }
+    }
+  })
+
+  /**
+   * Les deux valeurs, épinglées — même rôle que le test de la marge : elles ont
+   * été choisies par une campagne, et les déplacer doit se voir.
+   *
+   * **Les seuils vérifiés ici sont ceux du plan reconstitué, pas ceux de la
+   * campagne**, et l'écart mérite d'être dit plutôt que maquillé : les boîtes
+   * posées ici sont immobiles, alors que les vraies bougent d'une image à
+   * l'autre. Sur les 61 vraies images, le plan bascule à partir d'une part de
+   * 0,30 et d'un plafond de 0,09 ; ici, où rien ne remue, 0,21 et 0,07
+   * suffisent. Un test qui recopierait les seuils de la campagne mesurerait donc
+   * autre chose qu'eux, et échouerait pour une raison qui n'est pas la bonne.
+   *
+   * Ce que la campagne a établi, et que `docs/ratios-par-clip.md` détaille : le
+   * visage de `caro-mdlm` tombe à partir d'un plafond de 0,15, le plan de
+   * référence exige 0,09, et le plafond retenu est au milieu de cet intervalle.
+   */
+  it('porte les valeurs de la campagne du 19 août 2026', () => {
+    expect(FRAMING_DEFAULTS.sideTrim).toBe(0.3)
+    expect(FRAMING_DEFAULTS.sideTrimMax).toBe(0.12)
+
+    const ratio = (sideTrim: number, sideTrimMax: number): Ratio =>
+      chooseRatio(referenceShot, SRC_W, SRC_H, { sideTrim, sideTrimMax })
+    // Les deux bornes mordent : abaisser l'une ou l'autre sous son seuil rend
+    // le 16:9. Aucune des deux n'est décorative.
+    expect(ratio(0.2, FRAMING_DEFAULTS.sideTrimMax)).toBe('16:9')
+    expect(ratio(FRAMING_DEFAULTS.sideTrim, 0.06)).toBe('16:9')
+    expect(ratio(FRAMING_DEFAULTS.sideTrim, FRAMING_DEFAULTS.sideTrimMax)).toBe('1:1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Un squelette COCO à plat, à partir des seules abscisses qui nous intéressent.
+ *
+ * Les points non nommés sortent à confiance nulle : c'est ce que le détecteur
+ * fait d'un membre qu'il ne voit pas, et c'est le cas qu'il faut éprouver — un
+ * point invisible arrive avec une position quand même, souvent au milieu du
+ * corps, et le compter resserre le tronc sans rien signaler.
+ */
+function skeleton(xByPoint: Partial<Record<keyof typeof POINT, number>>): number[] {
+  const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+  for (const [name, x] of Object.entries(xByPoint)) {
+    const index = POINT[name as keyof typeof POINT]
+    k[index * 3] = x as number
+    k[index * 3 + 1] = 0.4
+    k[index * 3 + 2] = 0.9
+  }
+  return k
+}
+
+/** Une boîte de personne qui porte un squelette. */
+function withPose(
+  t: number,
+  x0: number,
+  x1: number,
+  xByPoint: Partial<Record<keyof typeof POINT, number>>,
+  score = 0.9,
+): PersonBox {
+  return { ...boîte(t, x0, x1, score), k: skeleton(xByPoint) }
+}
+
+describe('le tronc déduit des points de pose', () => {
+  /**
+   * **Le cas de l'issue #69, relevé dans l'analyse du 19 août 2026.**
+   *
+   * Sur `2026-22-02-entre-nous` à 2 973 s, deux comédiennes assises. La boîte de
+   * l'une va de 0,304 à 0,827 : ses jambes sont tendues vers la droite et sa
+   * cheville est à 0,757, alors que sa tête tient entre 0,417 et 0,482. La
+   * seconde va de 0,008 à 0,410 pour une tête entre 0,181 et 0,305.
+   *
+   * L'union des boîtes fait 0,819 quand un 1:1 en couvre 0,5625 ; celle des
+   * troncs fait 0,454. Le ratio était décidé par des jambes que personne ne
+   * regarde.
+   */
+  const extendedLegs = [
+    withPose(0, 0.304, 0.827, {
+      NOSE: 0.482,
+      RIGHT_EYE: 0.469,
+      RIGHT_EAR: 0.417,
+      LEFT_SHOULDER: 0.409,
+      RIGHT_SHOULDER: 0.379,
+      LEFT_KNEE: 0.663,
+      LEFT_ANKLE: 0.743,
+      RIGHT_ANKLE: 0.757,
+    }),
+    withPose(0, 0.008, 0.41, {
+      NOSE: 0.305,
+      LEFT_EYE: 0.298,
+      RIGHT_EYE: 0.271,
+      RIGHT_EAR: 0.181,
+      LEFT_SHOULDER: 0.309,
+      RIGHT_SHOULDER: 0.078,
+    }),
+  ]
+
+  it('ignore les jambes, que le cadre n’a aucune raison de contenir', () => {
+    const torso = torsoBounds(extendedLegs[0], { torsoPad: 0, torsoTrim: 0 })
+    expect(torso).not.toBeNull()
+    // Les épaules et le nez, pas la cheville à 0,757.
+    expect(torso?.x0).toBeCloseTo(0.379, 10)
+    expect(torso?.x1).toBeCloseTo(0.482, 10)
+  })
+
+  it('fait tomber sous le 16:9 le plan que les jambes y maintenaient', () => {
+    const plan = []
+    for (let t = 0; t < 10; t += 0.5) {
+      for (const p of extendedLegs) plan.push({ ...p, t })
+    }
+    expect(chooseRatio(plan, SRC_W, SRC_H, { torso: 'off' })).toBe('16:9')
+    // 4:5 et non 1:1 : aux réglages retenus, les troncs rognés font une union de
+    // 0,370 quand un 4:5 en couvre 0,450. L'issue #69 comptait les têtes seules
+    // et annonçait 0,45 — les épaules et le rembourrage ajoutent le reste.
+    expect(chooseRatio(plan, SRC_W, SRC_H)).toBe('4:5')
+  })
+
+  /**
+   * **Le contre-exemple qui a posé le plafond du rognage latéral, et que le
+   * tronc rend sans objet.**
+   *
+   * Sur `2026-03-08-caro-mdlm` à 7 250 s, un comédien assis jambes tendues vers
+   * la gauche : boîte de 0,332 à 0,873, tête entre 0,704 et 0,813 — à
+   * l'extrémité **droite** de sa boîte. Le rognage latéral, qui abandonne une
+   * part de chaque côté sans savoir ce qu'elle contient, s'arrête à 0,711 sans
+   * plafond : son visage tombe dehors pendant les 28 secondes du plan. Le tronc
+   * n'a pas besoin du plafond, parce qu'il ne devine pas où est la tête.
+   */
+  it('garde la tête d’une boîte large dont la tête est à un bout', () => {
+    const seated = withPose(0, 0.332, 0.873, {
+      NOSE: 0.722,
+      LEFT_EYE: 0.751,
+      RIGHT_EYE: 0.727,
+      LEFT_EAR: 0.801,
+      LEFT_SHOULDER: 0.813,
+      RIGHT_SHOULDER: 0.704,
+      LEFT_ANKLE: 0.36,
+    })
+    // Ce que le rognage latéral faisait, plafond retiré : le visage dehors.
+    const withoutCap = trimmedBounds(seated, { sideTrim: 0.3, sideTrimMax: 1 })
+    expect(withoutCap.x1).toBeLessThan(0.722)
+
+    const torso = torsoBounds(seated, { torsoPad: 0, torsoTrim: 0 })
+    expect(torso?.x0).toBeCloseTo(0.704, 10)
+    expect(torso?.x1).toBeCloseTo(0.813, 10)
+    // Et le tronc y arrive **sans plafond** : le réglage qui protégeait la tête
+    // par un pari ne sert plus à rien là où les points la nomment.
+    expect(personBounds(seated, { sideTrimMax: 1 })).toEqual(personBounds(seated))
+  })
+
+  it('n’écoute pas un point que le réseau n’a pas vu', () => {
+    // Une hanche à confiance nulle posée loin sur la gauche : elle ne doit pas
+    // entrer dans un tronc qui l'inclut, sinon un membre invisible décide du
+    // cadre — le défaut qu'on répare, retourné.
+    const k = skeleton({ LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.5 })
+    k[POINT.LEFT_HIP * 3] = 0.05
+    k[POINT.LEFT_HIP * 3 + 2] = 0.01
+    const b: PersonBox = { ...boîte(0, 0.02, 0.6), k }
+    const torso = torsoBounds(b, { torso: 'bust-hips', torsoPad: 0, torsoTrim: 0 })
+    expect(torso?.x0).toBeCloseTo(0.4, 10)
+  })
+
+  /**
+   * **Un seul point n'est pas un tronc.** L'intervalle serait de largeur nulle :
+   * ce n'est pas un cadrage serré, c'est une personne réduite à un nez. On rend
+   * `null`, et l'appelant retombe sur la boîte — c'est-à-dire sur le
+   * comportement mesuré du 19 août, qui marchait.
+   */
+  it('retombe sur la boîte rognée quand le tronc n’est pas lisible', () => {
+    const noseOnly = withPose(0, 0.2, 0.6, { NOSE: 0.4 })
+    expect(torsoBounds(noseOnly)).toBeNull()
+    expect(personBounds(noseOnly)).toEqual(trimmedBounds(noseOnly))
+
+    const withoutKeypoints = boîte(0, 0.2, 0.6)
+    expect(torsoBounds(withoutKeypoints)).toBeNull()
+    expect(personBounds(withoutKeypoints)).toEqual(trimmedBounds(withoutKeypoints))
+  })
+
+  it('refuse un squelette de la mauvaise longueur plutôt que de le lire à moitié', () => {
+    const truncated: PersonBox = { ...boîte(0, 0.2, 0.6), k: skeleton({ NOSE: 0.4 }).slice(0, 30) }
+    expect(torsoBounds(truncated)).toBeNull()
+  })
+
+  it('éteint le tronc sur demande, et rend alors exactement la boîte rognée', () => {
+    const b = extendedLegs[0]
+    expect(torsoBounds(b, { torso: 'off' })).toBeNull()
+    expect(personBounds(b, { torso: 'off' })).toEqual(trimmedBounds(b))
+  })
+
+  /**
+   * **Le rembourrage existe parce qu'un point d'épaule est le centre d'une
+   * articulation**, pas le bord de la silhouette. Sans lui, le cadre passe au
+   * milieu de chaque épaule.
+   */
+  it('élargit le tronc à proportion de sa largeur', () => {
+    const b = withPose(0, 0.2, 0.8, { LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.6, NOSE: 0.5 })
+    const { x0, x1 } = torsoBounds(b, { torsoPad: 0.15, torsoTrim: 0 }) ?? { x0: 0, x1: 0 }
+    expect(x0).toBeCloseTo(0.4 - 0.03, 10)
+    expect(x1).toBeCloseTo(0.6 + 0.03, 10)
+  })
+
+  /**
+   * **Le rognage du tronc ne touche pas à la tête, et c'est ce qui le sépare de
+   * `sideTrim`.** Celui-là abandonne des extrémités sans savoir ce qu'elles
+   * contiennent, d'où son plafond ; celui-ci sait, donc il remet la tête dedans.
+   */
+  it('rogne les épaules, jamais la tête', () => {
+    const profileView = withPose(0, 0.2, 0.8, {
+      NOSE: 0.3,
+      RIGHT_EAR: 0.28,
+      LEFT_SHOULDER: 0.7,
+      RIGHT_SHOULDER: 0.5,
+    })
+    const { x0, x1 } = torsoBounds(profileView, { torsoPad: 0, torsoTrim: 0.5 }) ?? { x0: 0, x1: 0 }
+    // Le tronc brut va de 0,28 à 0,70 ; rogné de moitié il se réduirait à son
+    // milieu, 0,49. La tête le tire jusqu'à 0,28 et pas plus loin.
+    expect(x0).toBeCloseTo(0.28, 10)
+    expect(x1).toBeCloseTo(0.49, 10)
+  })
+
+  it('retombe sur les défauts quand un réglage n’est pas fini', () => {
+    const b = extendedLegs[0]
+    expect(torsoBounds(b, { torsoPad: Number.NaN })).toEqual(torsoBounds(b))
+    expect(torsoBounds(b, { torsoTrim: Number.NaN })).toEqual(torsoBounds(b))
+    expect(torsoBounds(b, { torsoMinScore: Number.NaN })).toEqual(torsoBounds(b))
+  })
+
+  /**
+   * Les valeurs, épinglées — même rôle que pour la marge et le rognage latéral :
+   * elles sortent d'une campagne, et les déplacer doit se voir.
+   *
+   * Ce que la campagne du 19 août 2026 a établi sur trois émissions, points de
+   * pose compris (`docs/ratios-par-clip.md`) : le rognage du tronc a son coude à
+   * 0,30 — de 0,20 à 0,30 il gagne cinq à six points de temps de montage sous le
+   * 16:9, de 0,30 à 0,40 il n'en gagne que deux et commence à couper le tronc.
+   * Le rembourrage, lui, ferme le rognage du tronc par lui-même dès 0,10 ; 0,15
+   * est le point où le tronc n'est plus jamais coupé sur deux émissions sur
+   * trois.
+   */
+  it('porte les valeurs de la campagne du 19 août 2026', () => {
+    expect(FRAMING_DEFAULTS.torso).toBe('bust')
+    expect(FRAMING_DEFAULTS.torsoMinScore).toBe(0.5)
+    expect(FRAMING_DEFAULTS.torsoPad).toBe(0.15)
+    expect(FRAMING_DEFAULTS.torsoTrim).toBe(0.3)
+  })
+
+  /**
+   * **Le tronc ne remplace pas la boîte, et le filtre du premier plan le
+   * prouve.** Sa géométrie — bord bas à 0,97, hauteur sous 0,35 — décrit une
+   * troncature par le bas de l'image, ce qu'aucun squelette ne dit. Sur
+   * `2025-06-15-cqlp`, c'est 30 % des boîtes.
+   */
+  it('laisse le filtre du premier plan lire la boîte, pas le tronc', () => {
+    const spectator: PersonBox = {
+      ...withPose(0, 0.02, 0.2, { NOSE: 0.1, LEFT_EAR: 0.05, RIGHT_EAR: 0.15 }),
+      y0: 0.8,
+      y1: 0.999,
+    }
+    expect(isForeground(spectator)).toBe(true)
+    // Même avec un tronc parfaitement lisible, il ne compte pas dans l'empan.
+    expect(torsoBounds(spectator)).not.toBeNull()
+    expect(requiredWidths([spectator, ...extendedLegs])).toEqual(
+      requiredWidths(extendedLegs),
+    )
+  })
+
+  /**
+   * **Deux points vus ne font pas une largeur**, et le compte ne suffit donc pas
+   * à décider du repli.
+   *
+   * Deux façons d'arriver à un tronc plat, toutes deux atteignables : le fichier
+   * arrondit les abscisses au dix-millième, donc un profil pose l'œil sur
+   * l'oreille ; et un `torsoTrim` de 0,5 rabat sur son milieu un tronc dont la
+   * tête ne rattrape rien, faute de tête. Sans la garde, `torsoBounds` rendait
+   * un intervalle de largeur nulle — exactement la « personne réduite à un
+   * pixel » que sa documentation dit refuser —, et le crop se posait dessus.
+   * (relevé par Copilot)
+   */
+  it('retombe sur la boîte quand le tronc n’a aucune largeur', () => {
+    const coincident = withPose(0, 0.2, 0.6, { LEFT_EAR: 0.37, LEFT_EYE: 0.37 })
+    expect(torsoBounds(coincident)).toBeNull()
+    expect(personBounds(coincident)).toEqual(trimmedBounds(coincident))
+
+    // L'autre chemin : pas de tête pour servir de plancher, et tout le tronc
+    // abandonné.
+    const backView = withPose(0, 0.2, 0.8, {
+      LEFT_SHOULDER: 0.4,
+      RIGHT_SHOULDER: 0.6,
+      LEFT_HIP: 0.42,
+      RIGHT_HIP: 0.58,
+    })
+    expect(torsoBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toBeNull()
+    expect(personBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toEqual(
+      trimmedBounds(backView),
+    )
+    // Et le même tronc, non rogné, reste bien lisible : c'est la largeur qui
+    // décide, pas la définition.
+    expect(torsoBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0 })).not.toBeNull()
+  })
+
+  /**
+   * **Un empan lu sur des points peut sortir de l'image en entier**, ce qu'un
+   * empan lu sur des boîtes ne pouvait pas : `detect.py` borne les boîtes à
+   * [0, 1] et laisse exprès les points en dehors, parce qu'une épaule que le
+   * bord coupe est une information.
+   *
+   * Le bornage final ne ramenait alors qu'une extrémité de son côté — `g` à 0,
+   * `d` laissé négatif — et rendait une largeur **négative**, qui traversait le
+   * choix du ratio et la position sans rien signaler. (relevé par Copilot, dans
+   * son bloc replié)
+   */
+  it('ne rend jamais une largeur négative, même pour un tronc hors cadre', () => {
+    const offLeft = withPose(0, 0.001, 0.02, { NOSE: -0.6, LEFT_EAR: -0.7, LEFT_EYE: -0.65 })
+    const offRight = withPose(1, 0.98, 0.999, { NOSE: 1.6, LEFT_EAR: 1.7, LEFT_EYE: 1.65 })
+    for (const width of requiredWidths([offLeft, offRight])) {
+      expect(width).toBeGreaterThanOrEqual(0)
+    }
+    // Et le ratio qui en sort reste le plus étroit, pas un 16:9 tiré d'un empan
+    // aberrant.
+    expect(chooseRatio([offLeft], SRC_W, SRC_H)).toBe('9:16')
   })
 })

@@ -53,6 +53,28 @@ agent francise les identifiants par mimétisme sans que personne ne l'ait demand
 Une consigne « le français est la langue du dépôt » doit donc **énumérer ce qu'elle
 couvre** et exclure le code, faute de quoi elle est lue comme couvrant tout.
 
+## Un correctif compris comme local revient au champ suivant
+
+**Un arrondi comparé à un seuil inclusif s'est réintroduit deux fois, à un an
+d'écart de code.** L'issue #40 avait remplacé `round(score, 3)` par une
+troncature vers le bas, pour que le seuil de confiance dise ce qu'il dit —
+sinon `0,4996` passe un seuil de `0,5`. La PR #83 a ajouté la confiance des
+points de pose, arrondie au plus proche, comparée au même genre de seuil : le
+même défaut, un champ plus loin, retrouvé en review.
+
+La leçon n'est pas « faire attention aux arrondis ». C'est que **la correction
+précédente avait été comprise comme locale à son champ**, alors qu'elle énonçait
+une règle : *une valeur notée qu'on compare à un seuil inclusif se tronque vers
+le bas, jamais ne s'arrondit*. Un correctif qui n'énonce pas sa règle se
+réapplique à la main, donc s'oublie.
+
+Le motif dépasse l'arrondi, et c'est pour ça qu'il est ici plutôt qu'en
+commentaire : quand une review trouve un défaut de forme dans un champ, demander
+**« quels autres champs ont cette forme »** coûte une minute. Dans la même PR
+#83, un bornage qui ne couvrait qu'une extrémité existait en **trois
+exemplaires** — et les deux derniers ont été trouvés dans du code que les
+correctifs du premier venaient de toucher.
+
 ## Les décisions à ne pas défaire par réflexe
 
 Chacune a coûté une mesure ou un aller-retour, et chacune contredit l'approche

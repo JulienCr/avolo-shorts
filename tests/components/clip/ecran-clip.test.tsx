@@ -9,7 +9,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -104,6 +104,26 @@ async function monter(id = 'c2', donnees?: ClipDetail) {
   await screen.findByRole('link', { name: 'La scène du 15 juin' })
 }
 
+/**
+ * Ouvre le tiroir de montage.
+ *
+ * **Le transcript n'est plus visible en permanence** : le geste courant de cet
+ * écran — vérifier, ajuster deux textes, exporter — se fait sans lui, et
+ * l'édition fine passe par un tiroir. Tout test qui touche aux mots commence
+ * donc par ce geste, qui est aussi celui de l'utilisateur.
+ */
+async function openEditing() {
+  fireEvent.click(screen.getByRole('button', { name: /modifier le montage/i }))
+  return screen.findByRole('dialog')
+}
+
+/** Une oreille de la bande de temps : la borne d'entrée, ou celle de sortie. */
+function handle(edge: 'start' | 'end') {
+  return screen.getByRole('slider', {
+    name: edge === 'start' ? /borne d’entrée/i : /borne de sortie/i,
+  })
+}
+
 beforeEach(() => {
   stubFetch()
   useEditeur.setState({ clipId: null })
@@ -146,12 +166,169 @@ describe('la boucle de montage', () => {
   })
 })
 
+describe('le geste courant', () => {
+  beforeEach(async () => {
+    await monter('c2')
+  })
+
+  it('se fait sans ouvrir le transcript', () => {
+    // Le fond du changement : vérifier le clip, ajuster deux textes, exporter.
+    // Le transcript occupait la moitié de l'écran pour une édition ponctuelle.
+    expect(screen.queryByText(/m0-0/)).toBeNull()
+    expect(screen.getByLabelText('Titre')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /exporter/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /modifier le montage/i })).toBeTruthy()
+  })
+
+  it('garde toutes les capacités du transcript derrière une action', async () => {
+    // **Ne pas retirer des capacités, ne les afficher que lorsqu'on en a
+    // besoin.** Chercher, retirer, poser les bornes, annuler, rétablir.
+    await openEditing()
+    expect(screen.getByText(/m0-0/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /annuler/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /rétablir/i })).toBeTruthy()
+  })
+
+  it('rend le focus au bouton qui a ouvert le tiroir', async () => {
+    // §4.4 : une boîte de dialogue piège le focus et le rend à son déclencheur.
+    // C'est `SheetTrigger` qui le garantit — un bouton qui basculerait un booléen
+    // à côté laisserait le focus au corps du document à la fermeture.
+    const trigger = screen.getByRole('button', { name: /modifier le montage/i })
+    await openEditing()
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('laisse les raccourcis vivre dans le tiroir', async () => {
+    // **La garde des raccourcis écarte tout modal — sauf celui-ci, qui le
+    // déclare.** Sans l'exception, `I`, `O`, `Suppr` et `Ctrl+Z` meurent au
+    // moment précis où on les presse : le focus est dans le tiroir, et plus rien
+    // ne répond. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte le
+    // fait commencer au début du transcript.
+    await openEditing()
+    const word = screen.getByText(/m0-0/)
+    fireEvent.pointerDown(word)
+    fireEvent.pointerUp(word)
+    fireEvent.keyDown(word, { key: 'i' })
+    expect(useEditeur.getState().historique.present[0].start).toBeCloseTo(0, 5)
+  })
+
+  it('dépile Échap : la recherche d’abord, le tiroir ensuite', async () => {
+    // **Ce que Base UI fait de `Échap` décide du sort du montage en cours.** Sa
+    // boîte de dialogue referme sur cette touche ; si elle referme *avant* que
+    // la barre de recherche ait pu se fermer, un geste destiné à quitter la
+    // recherche emporte le tiroir. Le refus se pose donc dans `onOpenChange`, sur
+    // le motif de l'événement — et ce test est la seule chose qui le tienne, la
+    // question ne se tranchant pas à la lecture du source de la primitive.
+    // (à vérifier, relevé par Aristarque)
+    await openEditing()
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
+    await screen.findByLabelText('Chercher dans le transcript')
+
+    fireEvent.keyDown(screen.getByLabelText('Chercher dans le transcript'), { key: 'Escape' })
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Chercher dans le transcript')).toBeNull(),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+
+    // La recherche fermée, le second Échap ferme le tiroir.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('donne le focus au champ de recherche, pas à la surface', async () => {
+    // `initialFocus` du tiroir vise la surface du transcript ; la barre de
+    // recherche se focalise à son montage. Sur `Ctrl+F` les deux partent au même
+    // instant, et l'ordre décide de qui garde le focus — donc de savoir si la
+    // frappe suivante cherche ou déplace le curseur. (à vérifier, relevé par
+    // Aristarque)
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
+    const field = await screen.findByLabelText('Chercher dans le transcript')
+    await waitFor(() => expect(document.activeElement).toBe(field))
+  })
+
+  it('ne laisse pas une sélection agissante derrière la porte', async () => {
+    // La sélection vit dans le transcript. Le tiroir fermé, elle n'est visible
+    // nulle part — et `Suppr` retirerait pourtant un passage. (relevé par
+    // Aristarque)
+    await openEditing()
+    // L'appui suffit à sélectionner : le relâchement sur un mot barré le
+    // remonterait, ce qui vide la sélection par un autre chemin.
+    fireEvent.pointerDown(screen.getByText(/m0-0/))
+    expect(useEditeur.getState().selection).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^fermer$/i }))
+    await waitFor(() => expect(useEditeur.getState().selection).toBeNull())
+  })
+
+  it('ouvre le tiroir avec la recherche sur Ctrl+F', async () => {
+    // Le transcript n'est plus visible en permanence : une barre de recherche
+    // ouverte sur une surface fermée ne chercherait nulle part.
+    fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
+    await screen.findByRole('dialog')
+    expect(screen.getByLabelText('Chercher dans le transcript')).toBeTruthy()
+  })
+})
+
+describe('la fresco des clips', () => {
+  // La bande vit de la liste des candidats, qui arrive après le premier rendu :
+  // c'est celle-là qu'on attend, pas le fil d'Ariane.
+  const strip = () => screen.findByRole('navigation', { name: /clips gardés/i })
+
+  it('montre les gardés et marque celui qu’on monte', async () => {
+    // « J'édite le clip 2 sur les 3 gardés de cette émission », d'un regard.
+    await monter('c2')
+    const fresco = await strip()
+    expect(within(fresco).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(fresco).getByText(/clip 2 sur 3/)).toBeTruthy()
+    expect(within(fresco).getByText('exporté')).toBeTruthy()
+  })
+
+  it('change de clip d’un clic, et ne mène pas à celui qu’on monte', async () => {
+    // Un lien vers l'écran où l'on est n'est pas une navigation : le clip
+    // courant est marqué, pas cliquable.
+    await monter('c2')
+    const fresco = await strip()
+    const links = within(fresco).getAllByRole('link')
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/clips/c1', '/clips/c4'])
+  })
+})
+
+describe('les marques', () => {
+  it('exposent leur échappatoire dans la zone Image', async () => {
+    // Depuis l'issue #37, un clip dont `branding` vaut `true` refuse de se rendre
+    // quand aucune marque n'est exploitable, et le message recommande de le
+    // passer à `false`. Le contrôle vit avec le ratio et le cadrage : ce qu'il
+    // décide est ce que l'image porte. (relevé par Copilot)
+    const patchs: string[] = []
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        patchs.push(String(options.body))
+        return reponse({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
+      }
+      if (String(url).includes('/candidates')) return reponse(candidats)
+      return reponse(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await monter('c2')
+
+    const zone = screen.getByRole('region', { name: 'Image' })
+    const marques = within(zone).getByRole<HTMLInputElement>('checkbox', { name: /marques/i })
+    expect(marques.checked).toBe(true)
+
+    fireEvent.click(marques)
+    await waitFor(() => expect(patchs.some((corps) => corps.includes('"branding":false'))).toBe(true))
+  })
+})
+
 describe('le mot barré cliqué loin devant', () => {
   it('déplace la borne plutôt que d’ajouter une île', async () => {
     // Spec §7.1 : un mot barré à l'extérieur de l'étendue est une borne, pas un
     // trou. Le remonter veut dire « le clip commence là », pas « ajoute trois
     // dixièmes de seconde à quatre-vingt-dix secondes d'ici ».
     await monter('c2')
+    await openEditing()
     const mot = screen.getByText(/m1-0/)
     fireEvent.pointerDown(mot)
     fireEvent.pointerUp(mot)
@@ -206,10 +383,11 @@ describe('l’enregistrement en échec', () => {
       vi.stubGlobal('fetch', fetch)
       await monter('c2')
 
-      // Un geste : remonter un mot barré hors de l'étendue déplace la borne.
-      const mot = screen.getByText(/m1-0/)
-      fireEvent.pointerDown(mot)
-      fireEvent.pointerUp(mot)
+      // Un geste : une image de plus à l'entrée, prise sur la bande de temps.
+      // Elle passe par le même montage et la même écriture différée que le
+      // transcript — c'est ce qui garantit qu'aucun second chemin d'écriture n'a
+      // été ouvert.
+      fireEvent.keyDown(handle('start'), { key: 'ArrowLeft' })
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
@@ -238,8 +416,10 @@ describe('le surlignage, dès l’ouverture', () => {
     // Rouvert : `charger` n'a rien à faire, donc l'écran ne rend qu'une fois et
     // l'ordre des deux effets décide seul de ce qui reste publié.
     await monter('c2')
+    await openEditing()
     cleanup()
     await monter('c2')
+    await openEditing()
     act(() => useLecture.getState().definirPosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
   })
@@ -251,6 +431,7 @@ describe('le curseur du clavier et les bornes', () => {
     // sélection : `I` posait donc la borne sur un mot cliqué trois gestes plus
     // tôt, sans que rien ne le dise. (relevé par Copilot)
     await monter('c2')
+    await openEditing()
     const mot = screen.getByText(/m0-0/)
     fireEvent.pointerDown(mot)
     fireEvent.pointerUp(mot)

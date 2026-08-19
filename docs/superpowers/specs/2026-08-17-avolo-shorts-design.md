@@ -1156,7 +1156,10 @@ timeline.
 - Sélectionner une phrase et la supprimer retire le segment vidéo correspondant.
 - Les bornes de début et de fin se déplacent au mot.
 - Le proxy se lit à côté, en sautant les parties retirées.
-- Une bande secondaire montre les plans et le ratio retenu, en lecture seule.
+- Une bande secondaire montre les plans, le ratio retenu et **les bornes du
+  clip**. Elle a été écrite en lecture seule ; le 19 août 2026 elle a gagné deux
+  oreilles qu'on tire, et c'est une exception assumée à la ligne suivante — voir
+  « la bande des plans est en lecture seule », plus bas, où la raison est écrite.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 
@@ -1176,9 +1179,36 @@ un tableau de données), `react-resizable-panels` (un seul séparateur au dépar
 et toute la famille timeline multi-pistes, waveforms et playhead. Ce dernier
 point mérite d'être dit explicitement, parce que c'est le réflexe naturel quand
 on décrit « une interface de montage » : **la surface d'édition ici est le
-transcript**, et la bande des plans est en lecture seule. Construire un NLE
-reviendrait à bâtir le morceau le plus difficile du métier pour un produit qui
-ne s'en sert pas.
+transcript**. Construire un NLE reviendrait à bâtir le morceau le plus difficile
+du métier pour un produit qui ne s'en sert pas.
+
+**Une exception, tranchée le 19 août 2026, et bornée exprès.** La bande des plans
+était en lecture seule ; elle porte désormais **deux oreilles**, l'entrée et la
+sortie, libres à l'image près. Ce qui la sépare encore d'un NLE, et qui est la
+frontière à tenir : elle n'a **ni pistes, ni forme d'onde, ni montage des mots**,
+et elle ne sait faire que trois choses — promener la lecture, déplacer les deux
+bornes extérieures, montrer où le cadre change de plan. Les coupes internes
+continuent de se faire dans le texte.
+
+La raison de l'exception est que le transcript ne sait pas exprimer le geste :
+gagner la demi-seconde de silence avant une réplique, se caler sur une réaction
+muette, rattraper une borne posée au mot alors que le souffle d'avant en faisait
+partie. `moveBoundary` prend déjà un temps ; c'est `moveBoundaryToWord`, un étage
+au-dessus, qui aimante au mot. Les deux chemins coexistent parce qu'ils répondent
+à deux intentions, et la contrepartie est assumée : **une borne libre peut tomber
+au milieu d'un mot** (ce que le générateur de sous-titres traite en rognant le
+mot à la borne, `retimeWords`).
+
+**Et un second `<video>` décode, en plus du lecteur.** La règle « un seul
+`<video>` décode » vaut pour l'aperçu de sortie, qui se peint par `drawImage` sur
+les trames du lecteur. Elle ne peut pas valoir pour la vignette de scrub : faire
+chercher le lecteur principal pendant qu'on tire une oreille tuerait la lecture
+et ferait sauter cet aperçu-là, qui s'accroche à ses trames. Le second élément est
+donc **caché, muet, en `preload="metadata"`**, et il ne cherche qu'**une position
+à la fois** — la dernière demandée, relancée au `seeked` précédent. Mesuré sur
+`2025-06-15-cqlp` (proxy de 900 Mo) : un glissé d'un bout à l'autre de la bande
+coûte **0 à 5 requêtes partielles**, et la vignette suit chaque position
+échantillonnée.
 
 La version de shadcn qui repose sur Base UI plutôt que Radix est à vérifier à
 l'installation.

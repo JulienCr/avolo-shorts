@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import { nomsDeSortie, texteDePublication } from '@/components/clip/textes'
+import { motsDièse, nomsDeSortie, texteDePublication } from '@/components/clip/textes'
 import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
 import type { EtatEnregistrement } from '@/lib/enregistrement'
 import { useExporter } from '@/lib/queries'
@@ -40,7 +40,6 @@ export function PanneauExport({
   enregistrement,
   ecritureEnCours,
   ecritureEnEchec,
-  onBranding,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
@@ -80,7 +79,6 @@ export function PanneauExport({
   ecritureEnCours: boolean
   /** La dernière écriture de clip a échoué — le rendu lirait un état qu'on n'a pas voulu. */
   ecritureEnEchec: boolean
-  onBranding: (branding: boolean) => void
 }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
@@ -105,6 +103,27 @@ export function PanneauExport({
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
   const déjàLivré = outputs.mp4Url !== null
+  /**
+   * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
+   * combien sont là. Le reste — leurs noms, le compte des plans — est du détail
+   * qu'on va chercher le jour où quelque chose cloche.
+   *
+   * **Il compte les fichiers réellement présents, pas la seule vidéo native.**
+   * Déduire « livré » de `mp4Url` faisait annoncer « 2 fichiers livrés » sur une
+   * livraison où la variante manque encore — le pli disait le contraire de son
+   * détail, ce qui est pire que de ne rien dire. (relevé par Copilot)
+   */
+  const attendus = [noms.mp4, noms.variant9x16, noms.texts].filter((n) => n !== null).length
+  const livres = [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter(
+    (u) => u !== null,
+  ).length
+  const pluriel = attendus > 1 ? 's' : ''
+  const resume =
+    livres === 0
+      ? `${attendus} fichier${pluriel} à produire · natif ${native}`
+      : livres === attendus
+        ? `${attendus} fichier${pluriel} livré${pluriel} · natif ${native}`
+        : `${livres} fichier${livres > 1 ? 's' : ''} sur ${attendus} livré${livres > 1 ? 's' : ''} · natif ${native}`
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
   // Rendre un état non enregistré produirait un fichier qui ne correspond à rien
@@ -127,127 +146,149 @@ export function PanneauExport({
   }
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="titre-export">
-      <div className="flex items-baseline gap-2">
-        <h2 id="titre-export" className="text-sm font-medium">
-          Export
-        </h2>
-        <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
-      </div>
+    // **Deux colonnes, parce que le panneau est devenu un bandeau.** Il vivait au
+    // bas d'une colonne de réglages, où l'empilement était la seule mise en page
+    // possible ; sous les quatre zones, en pleine largeur, l'empiler ferait
+    // descendre les textes à coller sous un pli. Ce qui sort à gauche, ce qui se
+    // colle à droite — et c'est à gauche, sous le bouton, que « Publier » viendra.
+    <section
+      className="grid items-start gap-4 lg:grid-cols-2 lg:gap-10"
+      aria-labelledby="titre-export"
+    >
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex items-baseline gap-2">
+          {/* `h3` et non `h2` : l'écran de clip nomme désormais quatre zones, et
+              « Livraison » est le titre de celle-ci. Deux `h2` empilés diraient
+              deux sections là où il n'y en a qu'une — et c'est ici que le bouton
+              « Publier » viendra se poser à côté de l'export. */}
+          <h3 id="titre-export" className="text-sm font-medium">
+            Export
+          </h3>
+          <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
+        </div>
 
-      {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
-          livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
-          jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
-          passerait en fraude. */}
-      <p className="text-[0.75rem] text-muted-foreground">
-        {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
-        <span className="font-mono">{frames.join(', ') || '—'}</span>
-        {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
-        {unmeasured > 0 && (
-          <>
-            {' · '}
-            <span className="text-amber-500 dark:text-amber-400">
-              {unmeasured === 1
-                ? '1 plan sans mesure, centré par défaut'
-                : `${unmeasured} plans sans mesure, centrés par défaut`}
+        {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
+            livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
+            jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
+            passerait en fraude. */}
+        {/* **Ce qui est livré se regarde ; ce qui s'appelle comment se replie.**
+            Le nom des fichiers, le compte des plans et « due, pas encore
+            produite » sont vrais et utiles le jour où quelque chose cloche —
+            pas les trente autres fois. Ils prenaient le tiers du panneau au
+            détriment des textes qu'on vient y chercher. Ils restent à un clic,
+            ce qui est la même règle que le transcript dans son tiroir. */}
+        <details className="group/sorties">
+          <summary className="cursor-pointer list-none text-[0.75rem] text-muted-foreground marker:content-none hover:text-foreground">
+            <span className="mr-1 inline-block transition-transform group-open/sorties:rotate-90">
+              ›
             </span>
-          </>
+            {resume}
+          </summary>
+
+          <p className="mt-2 text-[0.75rem] text-muted-foreground">
+            {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
+            <span className="font-mono">{frames.join(', ') || '—'}</span>
+            {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
+          </p>
+
+          <ListeDesSorties noms={noms} native={native} outputs={outputs} />
+        </details>
+
+        {/* **L'avertissement, lui, ne se replie pas.** Un plan que le détecteur
+            n'a pas mesuré est posé au centre par défaut : c'est la dernière
+            surface avant la livraison où cela peut encore se dire (§3.5), et le
+            cacher derrière un pli reviendrait à le taire. */}
+        {unmeasured > 0 && (
+          <p className="text-[0.75rem] text-amber-500 dark:text-amber-400">
+            {unmeasured === 1
+              ? '1 plan sans mesure, centré par défaut'
+              : `${unmeasured} plans sans mesure, centrés par défaut`}
+          </p>
         )}
-      </p>
 
-      <ListeDesSorties clip={clip} outputs={outputs} noms={noms} native={native} />
+        {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
+            parcours qui mérite d'être vu, donc il reste hors du pli. */}
+        <DeliveredPlayers clip={clip} outputs={outputs} native={native} />
 
-      {clip.title.trim() === '' && (
-        // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
-        // titre est libre pendant la frappe, et un titre vide n'empêche pas le
-        // rendu — il produit un `.txt` dont la première ligne est vide, donc
-        // rien à coller au moment de publier.
-        <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
-          coller au moment de publier.
-        </p>
-      )}
+        {clip.title.trim() === '' && (
+          // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
+          // titre est libre pendant la frappe, et un titre vide n'empêche pas le
+          // rendu — il produit un `.txt` dont la première ligne est vide, donc
+          // rien à coller au moment de publier.
+          <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
+            coller au moment de publier.
+          </p>
+        )}
 
-      <label className="flex items-start gap-2 text-[0.75rem]">
-        <input
-          type="checkbox"
-          className="mt-0.5 size-3.5 accent-stage"
-          checked={clip.branding}
-          onChange={(e) => onBranding(e.target.checked)}
-        />
-        <span>
-          Incruster les marques
-          <span className="block text-muted-foreground">
-            Un clip qui les incruste refuse de se rendre quand aucune marque n’est exploitable.
-            Décocher est l’échappatoire.
-          </span>
-        </span>
-      </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => {
+              // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
+              // la boîte de confirmation s'ouvrait quand même : on confirmait, et
+              // rien ne partait, sans qu'une ligne le dise.
+              if (empêchement !== null || exporter.isPending) return
+              if (déjàLivré) setConfirmation(true)
+              else lancer(false)
+            }}
+            aria-disabled={empêchement !== null || undefined}
+            aria-busy={exporter.isPending || undefined}
+          >
+            {exporter.isPending ? (
+              <LoaderCircle className="animate-spin" aria-hidden />
+            ) : (
+              <FileText aria-hidden />
+            )}
+            {déjàLivré ? 'Ré-exporter' : 'Exporter'}
+          </Button>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          onClick={() => {
-            // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
-            // la boîte de confirmation s'ouvrait quand même : on confirmait, et
-            // rien ne partait, sans qu'une ligne le dise.
-            if (empêchement !== null || exporter.isPending) return
-            if (déjàLivré) setConfirmation(true)
-            else lancer(false)
-          }}
-          aria-disabled={empêchement !== null || undefined}
-          aria-busy={exporter.isPending || undefined}
-        >
-          {exporter.isPending ? (
-            <LoaderCircle className="animate-spin" aria-hidden />
-          ) : (
-            <FileText aria-hidden />
+          {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
+              en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
+              mentirait sur ce qui se passe. */}
+          {exporter.isPending && (
+            <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
+              Rendu en cours — de dix secondes à une minute.
+            </span>
           )}
-          {déjàLivré ? 'Ré-exporter' : 'Exporter'}
-        </Button>
+        </div>
 
-        {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
-            en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
-            mentirait sur ce qui se passe. */}
-        {exporter.isPending && (
-          <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
-            Rendu en cours — de dix secondes à une minute.
-          </span>
+        {empêchement !== null && (
+          // Écrite ici, jamais dans une bulle d'aide : une bulle qui n'apparaît
+          // qu'au survol est invisible au clavier, et la raison d'un blocage doit
+          // se lire avant d'essayer.
+          <p className="text-[0.75rem] text-muted-foreground">{empêchement}</p>
+        )}
+
+        {exporter.isError && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>
+              L’export a échoué
+              {exporter.error instanceof ApiError ? ` (${exporter.error.status})` : ''}
+            </AlertTitle>
+            <AlertDescription>{exporter.error.message}</AlertDescription>
+          </Alert>
+        )}
+
+        {exporter.isSuccess && !exporter.isPending && signatureRendue === signature && (
+          // **`skipped: true` est un cas nominal**, et le plus fréquent quand on
+          // rouvre un clip déjà exporté : rien n'a été refait, tout est en place.
+          <p className="flex items-center gap-1.5 text-[0.75rem]" aria-live="polite">
+            <Check className="size-3.5 text-stage" aria-hidden />
+            {exporter.data.skipped
+              ? 'Rien n’a été refait : les fichiers étaient déjà à jour.'
+              : 'Rendu terminé.'}
+          </p>
         )}
       </div>
 
-      {empêchement !== null && (
-        // Écrite ici, jamais dans une bulle d'aide : une bulle qui n'apparaît
-        // qu'au survol est invisible au clavier, et la raison d'un blocage doit
-        // se lire avant d'essayer.
-        <p className="text-[0.75rem] text-muted-foreground">{empêchement}</p>
-      )}
-
-      {exporter.isError && (
-        <Alert variant="destructive">
-          <TriangleAlert aria-hidden />
-          <AlertTitle>
-            L’export a échoué
-            {exporter.error instanceof ApiError ? ` (${exporter.error.status})` : ''}
-          </AlertTitle>
-          <AlertDescription>{exporter.error.message}</AlertDescription>
-        </Alert>
-      )}
-
-      {exporter.isSuccess && !exporter.isPending && signatureRendue === signature && (
-        // **`skipped: true` est un cas nominal**, et le plus fréquent quand on
-        // rouvre un clip déjà exporté : rien n'a été refait, tout est en place.
-        <p className="flex items-center gap-1.5 text-[0.75rem]" aria-live="polite">
-          <Check className="size-3.5 text-stage" aria-hidden />
-          {exporter.data.skipped
-            ? 'Rien n’a été refait : les fichiers étaient déjà à jour.'
-            : 'Rendu terminé.'}
-        </p>
-      )}
-
-      <Separator />
-
-      <ZoneDeTextes clip={clip} />
+      <div className="flex min-w-0 flex-col gap-3">
+        {/* Le filet ne sépare qu'en colonnes : empilées, c'est le trait
+            horizontal qui fait le même travail. */}
+        <Separator className="lg:hidden" />
+        <ZoneDeTextes clip={clip} />
+      </div>
 
       <Dialog open={confirmation} onOpenChange={setConfirmation}>
         <DialogContent role="alertdialog">
@@ -285,34 +326,33 @@ export function PanneauExport({
 }
 
 /**
- * Ce que l'export produira, et ce qu'il a produit — **une seule liste**.
+ * Ce que l'export produira : **les noms, et rien d'autre**.
  *
  * Deux vidéos quand le ratio natif n'est pas 9:16 : le natif pour le feed
  * d'Instagram et de Facebook, la variante floutée pour TikTok et Shorts. Et
  * elles ne montrent pas le même cadre — le natif garde un seul ratio pour tout
- * le clip, la variante pose chaque plan au sien. C'est la conséquence du choix
- * de ratio qui ne se voyait nulle part, alors qu'elle change ce qu'on aura à
- * publier.
+ * le clip, la variante pose chaque plan au sien.
+ *
+ * **La lecture sur place a déménagé dans `DeliveredPlayers`**, et la séparation
+ * porte une décision : ces noms-ci sont du détail qu'on replie, un fichier livré
+ * est un résultat qu'on regarde. Les tenir dans une seule liste obligeait à
+ * choisir entre replier le résultat et déplier le détail.
  */
 function ListeDesSorties({
-  clip,
-  outputs,
   noms,
   native,
+  outputs,
 }: {
-  clip: Clip
-  outputs: ClipOutputs
   noms: ReturnType<typeof nomsDeSortie>
   native: Ratio
+  outputs: ClipOutputs
 }) {
   return (
-    <ul className="flex flex-col gap-2">
-      <Sortie
-        nom={noms.mp4}
-        libellé={`le rendu ${native}, pour le feed`}
-        url={outputs.mp4Url}
-        étiquette={`Le rendu ${native} de ${clip.title || 'ce clip'}`}
-      />
+    <ul className="mt-2 flex flex-col gap-1">
+      <li className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-[0.75rem]">{noms.mp4}</span>
+        <span className="text-[0.75rem] text-muted-foreground">le rendu {native}, pour le feed</span>
+      </li>
 
       {noms.variant9x16 === null ? (
         // **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même
@@ -323,73 +363,171 @@ function ListeDesSorties({
           Le ratio natif est déjà 9:16 : pas de variante à produire.
         </li>
       ) : (
-        <Sortie
-          nom={noms.variant9x16}
-          libellé="la variante sur fond flouté, pour TikTok et Shorts"
-          url={outputs.variant9x16Url}
-          étiquette="La variante 9:16 sur fond flouté"
-          absence="due, pas encore produite"
-        />
+        <li className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-mono text-[0.75rem]">{noms.variant9x16}</span>
+          <span className="text-[0.75rem] text-muted-foreground">
+            la variante sur fond flouté, pour TikTok et Shorts
+            {outputs.variant9x16Url === null && outputs.variant9x16Due && ' — due, pas encore produite'}
+          </span>
+        </li>
       )}
 
-      <Sortie nom={noms.texts} libellé="titre, description, mots-dièse" url={null} />
+      <li className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-[0.75rem]">{noms.texts}</span>
+        <span className="text-[0.75rem] text-muted-foreground">titre, description, mots-dièse</span>
+      </li>
     </ul>
   )
 }
 
-function Sortie({
-  nom,
-  libellé,
-  url,
-  étiquette,
-  absence,
+/**
+ * Ce qui est **sur le disque**, lisible sur place.
+ *
+ * « L'export produit un ou deux fichiers et le panneau les montre : lecture sur
+ * place […] C'est le seul succès du parcours qui mérite d'être vu » (parcours
+ * §3.3). Il reste donc hors du pli qui range les noms : c'est le résultat, pas
+ * la nomenclature.
+ *
+ * Rien ne s'affiche tant que rien n'existe — et `mp4Url: null` ne veut pas dire
+ * « jamais exporté » (voir le contrat de `ClipOutputs`) ; ce qui se dit ici est
+ * seulement ce qui est disponible maintenant.
+ */
+function DeliveredPlayers({
+  clip,
+  outputs,
+  native,
 }: {
-  nom: string
-  libellé: string
-  url: string | null
-  /** Le nom que lit un lecteur d'écran sur la vidéo. Absent : pas de lecture sur place. */
-  étiquette?: string
-  /** Ce qu'on dit quand le fichier est **dû** et pas encore là. */
-  absence?: string
+  clip: Clip
+  outputs: ClipOutputs
+  native: Ratio
 }) {
+  const delivered = [
+    { url: outputs.mp4Url, label: `Le rendu ${native} de ${clip.title || 'ce clip'}` },
+    { url: outputs.variant9x16Url, label: 'La variante 9:16 sur fond flouté' },
+  ].filter((sortie): sortie is { url: string; label: string } => sortie.url !== null)
+
+  if (delivered.length === 0) return null
+
   return (
-    <li className="flex flex-col gap-1">
-      <span className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-[0.75rem]">{nom}</span>
-        <span className="text-[0.75rem] text-muted-foreground">{libellé}</span>
-      </span>
-      {url !== null && étiquette !== undefined && (
-        <video
-          src={url}
-          aria-label={étiquette}
-          controls
-          preload="metadata"
-          className="w-full max-w-64 rounded bg-zinc-950"
-        />
-      )}
-      {url === null && absence !== undefined && (
-        <span className="text-[0.75rem] text-muted-foreground">{absence}</span>
-      )}
-    </li>
+    <ul className="flex flex-wrap gap-3">
+      {delivered.map(({ url, label }) => (
+        <li key={url}>
+          <video
+            src={url}
+            aria-label={label}
+            controls
+            preload="metadata"
+            className="w-full max-w-64 rounded bg-zinc-950"
+          />
+        </li>
+      ))}
+    </ul>
   )
 }
 
 /**
- * Les textes à coller, et le bouton qui les copie.
+ * Les textes à coller — **trois champs, trois boutons, et un pour tout**.
  *
  * Le `.txt` existe sur le disque du serveur : ce qu'il faut ici est le
- * presse-papiers, pas un chemin. La zone reste un `textarea` en lecture seule
- * plutôt qu'un bloc de texte, parce qu'un presse-papiers refusé — contexte non
- * sécurisé, permission coupée — laisse alors la sélection à la main comme
- * recours, au lieu d'un bouton mort.
+ * presse-papiers, pas un chemin. Il a d'abord vécu en un seul bloc, celui du
+ * fichier ; mais on ne colle jamais le fichier — on colle un titre dans un
+ * champ, une description dans un autre, des mots-dièse dans un troisième, et
+ * chaque formulaire les demande séparément. Un bloc unique obligeait à
+ * sélectionner à la main les trois morceaux, ce qui est exactement le geste que
+ * le bouton existait pour supprimer.
+ *
+ * **Le bouton « tout » reste**, parce qu'il sert le cas où l'on garde le texte
+ * de côté plutôt qu'on ne le publie tout de suite, et parce qu'il produit le
+ * même contenu que le `.txt` — la seule chose qui garantisse que les deux ne
+ * divergent pas.
+ *
+ * Les champs restent en lecture seule plutôt qu'en blocs de texte : un
+ * presse-papiers refusé — contexte non sécurisé, permission coupée — laisse
+ * alors la sélection à la main comme recours, au lieu d'un bouton mort.
  */
 function ZoneDeTextes({ clip }: { clip: Clip }) {
-  // **Le texte copié, pas un booléen.** « Copié » doit redevenir « Copier » dès
-  // que les textes changent, sinon le bouton affirme que le presse-papiers porte
-  // quelque chose qu'il ne porte plus.
+  const titre = clip.title.trim()
+  const description = clip.description.trim()
+  const dièses = motsDièse(`${titre}\n${description}`).join(' ')
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-medium">Textes de publication</h3>
+        <BoutonCopier texte={texteDePublication(clip)} libellé="Copier tout" />
+      </div>
+
+      <ChampCopiable étiquette="Titre" valeur={titre} />
+      <ChampCopiable étiquette="Description" valeur={description} lignes={6} />
+      <ChampCopiable étiquette="Mots-dièse" valeur={dièses} />
+    </div>
+  )
+}
+
+/**
+ * Un des trois textes, avec son bouton.
+ *
+ * Vide, le champ le dit plutôt que de rester blanc — et son bouton se désactive
+ * : copier le vide efface le presse-papiers, ce qui est le contraire du service
+ * rendu, et se remarque au moment de coller.
+ */
+function ChampCopiable({
+  étiquette,
+  valeur,
+  lignes = 1,
+}: {
+  étiquette: string
+  valeur: string
+  /** Une ligne pour un titre ou des mots-dièse, plusieurs pour une description. */
+  lignes?: number
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-2">
+        {/* **Le nom accessible dit « de publication », l'étiquette visible non.**
+            L'écran porte déjà un champ « Titre » et un champ « Description »,
+            ceux qu'on écrit ; ces trois-ci sont ce qu'on en copie. Deux contrôles
+            du même nom sur le même écran, c'est un lecteur d'écran qui ne sait
+            plus lequel il annonce — et à l'œil, la colonne dit déjà lequel est
+            lequel. */}
+        <span aria-hidden className="text-[0.75rem] text-muted-foreground">
+          {étiquette}
+        </span>
+        <BoutonCopier texte={valeur} libellé={`Copier ${étiquette.toLowerCase()}`} taille="xs" />
+      </div>
+      <textarea
+        aria-label={`${étiquette} de publication`}
+        readOnly
+        rows={lignes}
+        value={valeur}
+        placeholder={`(sans ${étiquette.toLowerCase()})`}
+        className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-[0.8rem] leading-relaxed"
+      />
+    </div>
+  )
+}
+
+/**
+ * Le bouton qui copie, et qui dit qu'il a copié.
+ *
+ * **Le texte copié, pas un booléen.** « Copié » doit redevenir « Copier » dès
+ * que le texte change, sinon le bouton affirme que le presse-papiers porte
+ * quelque chose qu'il ne porte plus.
+ */
+function BoutonCopier({
+  texte,
+  libellé,
+  taille = 'sm',
+}: {
+  texte: string
+  libellé: string
+  taille?: 'xs' | 'sm'
+}) {
   const [copié, setCopié] = useState<string | null>(null)
-  const texte = texteDePublication(clip)
-  const àJour = copié === texte
+  const àJour = copié === texte && texte !== ''
+  // Ce que le bouton montre : « Copier », ou « Copier tout » quand il les prend
+  // tous. Son nom accessible, lui, reste complet.
+  const court = libellé.startsWith('Copier tout') ? 'Copier tout' : 'Copier'
 
   async function copier() {
     try {
@@ -401,21 +539,22 @@ function ZoneDeTextes({ clip }: { clip: Clip }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">Textes de publication</h3>
-        <Button size="sm" variant="outline" onClick={() => void copier()}>
-          {àJour ? <Check aria-hidden /> : <Copy aria-hidden />}
-          {àJour ? 'Copié' : 'Copier'}
-        </Button>
-      </div>
-      <textarea
-        readOnly
-        value={texte}
-        aria-label="Textes de publication"
-        rows={7}
-        className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-[0.75rem] leading-relaxed"
-      />
-    </div>
+    <Button
+      size={taille}
+      variant="outline"
+      onClick={() => void copier()}
+      // Copier le vide efface le presse-papiers : le contraire du service rendu,
+      // et cela ne se remarque qu'au moment de coller.
+      disabled={texte === ''}
+      // **Le nom complet à la voix, court à l'œil.** Quatre boutons « Copier »
+      // sur le même écran ne se distinguent qu'à leur place ; un lecteur d'écran
+      // n'a pas cette place. Et le nom porte l'état : sans lui, « Copié » ne
+      // serait qu'un mot à l'écran, invisible à la voix — un `aria-label` fixe
+      // masque le contenu du bouton.
+      aria-label={àJour ? `${libellé} — copié` : libellé}
+    >
+      {àJour ? <Check aria-hidden /> : <Copy aria-hidden />}
+      <span aria-hidden>{àJour ? 'Copié' : court}</span>
+    </Button>
   )
 }

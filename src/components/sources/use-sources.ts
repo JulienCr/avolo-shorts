@@ -20,10 +20,10 @@ import { listSources, type SourcesListing } from '@/lib/api'
  * toutes les deux secondes prendrait les fils du vivier de libuv que l'analyse en
  * cours utilise.
  */
-export const cleSources = ['sources'] as const
+export const keySources = ['sources'] as const
 
 export function useSources() {
-  return useQuery({ queryKey: cleSources, queryFn: listSources })
+  return useQuery({ queryKey: keySources, queryFn: listSources })
 }
 
 /**
@@ -44,18 +44,18 @@ export function useSources() {
  * apprendre ce que la réponse de création vient de dire. Rien d'autre ne change
  * dans le dossier du fait d'une création.
  */
-export function marquerSourceAnalysée(
+export function markSourceAnalyzed(
   client: QueryClient,
-  nomSource: string,
+  nameSource: string,
   projectId: string,
 ) {
-  client.setQueryData<SourcesListing>(cleSources, (listing) =>
+  client.setQueryData<SourcesListing>(keySources, (listing) =>
     listing === undefined
       ? listing
       : {
           ...listing,
           sources: listing.sources.map((source) =>
-            source.name === nomSource ? { ...source, projectId } : source,
+            source.name === nameSource ? { ...source, projectId } : source,
           ),
         },
   )

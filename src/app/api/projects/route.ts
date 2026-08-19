@@ -2,24 +2,24 @@ import type fs from 'node:fs'
 import { z } from 'zod'
 
 import { getDb, listProjects } from '@/server/db'
-import { corps, ErreurHttp, introuvable, json, requêteInvalide, route } from '@/server/http'
+import { body, ErrorHttp, notFound, json, requestInvalid, route } from '@/server/http'
 import { replayDir, resolveSource } from '@/server/paths'
-import { créerProjet } from '@/server/run'
-import { DÉLAI_STAT_MS, statAvecDélai } from '@/server/steps/ingest'
-import { élémentDeListe } from '@/server/vues'
+import { createProject } from '@/server/run'
+import { DELAY_STAT_MS, statWithDelay } from '@/server/steps/ingest'
+import { listElement } from '@/server/views'
 
 /**
  * `GET /api/projects` — la bibliothèque.
  * `POST /api/projects` — ingérer un replay et lancer son analyse.
  */
 
-const CRÉATION = z.strictObject({
+const CREATION = z.strictObject({
   /** Le nom du fichier dans `REPLAY_DIR`, ou son chemin complet. */
   source: z.string().min(1),
 })
 
 export const GET = route('GET /api/projects', async () => {
-  return json(listProjects(getDb()).map(élémentDeListe))
+  return json(listProjects(getDb()).map(listElement))
 })
 
 /**
@@ -28,8 +28,8 @@ export const GET = route('GET /api/projects', async () => {
  * dit ce qui va tourner — sur un projet déjà transcrit, il ne contient pas
  * `transcript`, et c'est là que ça se lit.
  */
-export const POST = route('POST /api/projects', async (requête: Request) => {
-  const { source } = await corps(requête, CRÉATION)
+export const POST = route('POST /api/projects', async (request: Request) => {
+  const { source } = await body(request, CREATION)
 
   // **Appelé pour lui-même, et hors du `try` qui suit** : `replayDir()` lève si
   // `REPLAY_DIR` manque ou est vide, et `resolveSource` l'appelle. Sous le
@@ -45,7 +45,7 @@ export const POST = route('POST /api/projects', async (requête: Request) => {
   try {
     sourcePath = resolveSource(source)
   } catch (cause) {
-    throw requêteInvalide(cause instanceof Error ? cause.message : String(cause))
+    throw requestInvalid(cause instanceof Error ? cause.message : String(cause))
   }
 
   // Puis l'existence. **Ce contrôle-ci évite un projet fantôme** : sans lui, une
@@ -54,26 +54,26 @@ export const POST = route('POST /api/projects', async (requête: Request) => {
   // regarde. Le `lstat` est celui que l'ingestion ferait de toute façon.
   let stat: fs.Stats
   try {
-    stat = await statAvecDélai(sourcePath, DÉLAI_STAT_MS)
+    stat = await statWithDelay(sourcePath, DELAY_STAT_MS)
   } catch (cause) {
     const code = (cause as NodeJS.ErrnoException).code
     if (code === 'ENOENT' || code === 'ENOTDIR') {
-      throw introuvable(`Aucun replay nommé ${JSON.stringify(source)} dans REPLAY_DIR.`)
+      throw notFound(`Aucun replay nommé ${JSON.stringify(source)} dans REPLAY_DIR.`)
     }
     // Ni absent ni lisible : le montage 9p ne répond pas, ou refuse. C'est une
     // panne d'infrastructure qui se répare et se réessaie — 503, pas 500.
-    throw new ErreurHttp(
+    throw new ErrorHttp(
       503,
       'Le dossier des replays ne répond pas. REPLAY_DIR est monté en 9p : il peut être absent, ' +
         "ou monté avec son transport mort dessous. Rouvrir le lecteur côté Windows, ou remonter le partage.",
     )
   }
   if (!stat.isFile()) {
-    throw requêteInvalide(
+    throw requestInvalid(
       `${JSON.stringify(source)} n'est pas un fichier ordinaire — ni un dossier, ni un lien symbolique.`,
     )
   }
 
-  const { projectId, plan } = await créerProjet(source)
-  return json({ projectId, plan }, { status: 202 })
+  const { projectId, shot } = await createProject(source)
+  return json({ projectId, shot }, { status: 202 })
 })

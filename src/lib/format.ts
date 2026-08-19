@@ -1,4 +1,4 @@
-import type { DurationRange } from '@/core/parcours'
+import type { DurationRange } from '@/core/phase'
 
 /**
  * Les nombres tels qu'on les lit à l'écran.

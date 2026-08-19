@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useRef } from 'react'
 
-import { gesteSurMotBarré } from '@/components/clip/geste-mot'
+import { gestureOnWordBar } from '@/components/clip/word-gesture'
 import { TranscriptSurface } from '@/components/clip/transcript-surface'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/sheet'
 import { clipBounds, selectionBounds, type ClipWord, type IndexedLine } from '@/lib/editing'
 import { formatDuration, formatSpan } from '@/lib/format'
-import { useEditeur, usePeutAnnuler, usePeutRetablir, useSegments } from '@/store/editor'
+import { useEditor, useCanCancel, useCanRestore, useSegments } from '@/store/editor'
 
 /**
  * Le transcript, **à la demande**.
@@ -82,14 +82,14 @@ export function TranscriptDrawer({
   onPlay: (index: number) => void
 }) {
   const popup = useRef<HTMLDivElement>(null)
-  const editor = useEditeur()
+  const editor = useEditor()
   const segments = useSegments()
-  const canUndo = usePeutAnnuler()
-  const canRedo = usePeutRetablir()
+  const canUndo = useCanCancel()
+  const canRedo = useCanRestore()
 
   const selection = editor.selection
   const selectionSpan = selection
-    ? selectionBounds(words, selection.ancre, selection.tete)
+    ? selectionBounds(words, selection.anchor, selection.head)
     : null
 
   /** Le mot barré cliqué : un trou à combler, ou une borne à déplacer (§7.1). */
@@ -97,9 +97,9 @@ export function TranscriptDrawer({
     (index: number) => {
       const word = words[index]
       if (!word) return
-      const gesture = gesteSurMotBarré(clipBounds(segments), word)
-      if (gesture.kind === 'remonter') editor.remonterMot(words, index)
-      else editor.poserBorne(words, index, gesture.bord)
+      const gesture = gestureOnWordBar(clipBounds(segments), word)
+      if (gesture.kind === 'remonter') editor.surfaceWord(words, index)
+      else editor.poserBound(words, index, gesture.edge)
     },
     [words, segments, editor],
   )
@@ -124,7 +124,7 @@ export function TranscriptDrawer({
         // fermé, la touche retire un passage sans que rien ne l'ait montré. La
         // recherche part avec, pour la même raison. (relevé par Aristarque)
         if (!next) {
-          editor.viderSelection()
+          editor.clearSelection()
           onSearch(false)
         }
         onOpenChange(next)
@@ -172,7 +172,7 @@ export function TranscriptDrawer({
             <>
               <span className="text-xs text-muted-foreground">
                 <span className="font-mono tabular-nums">
-                  {Math.abs(selection.tete - selection.ancre) + 1}
+                  {Math.abs(selection.head - selection.anchor) + 1}
                 </span>{' '}
                 mots ·{' '}
                 <span className="font-mono tabular-nums">
@@ -182,7 +182,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={() => editor.retirerSelection(words)}
+                onClick={() => editor.removeSelection(words)}
                 title="Suppr"
               >
                 <Scissors aria-hidden />
@@ -191,7 +191,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => editor.poserBorne(words, selection.tete, 'start')}
+                onClick={() => editor.poserBound(words, selection.head, 'start')}
                 title="I"
               >
                 <ArrowLeftToLine aria-hidden />
@@ -200,7 +200,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => editor.poserBorne(words, selection.tete, 'end')}
+                onClick={() => editor.poserBound(words, selection.head, 'end')}
                 title="O"
               >
                 <ArrowRightToLine aria-hidden />
@@ -231,7 +231,7 @@ export function TranscriptDrawer({
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={editor.annuler}
+              onClick={editor.cancel}
               disabled={!canUndo}
               title="Ctrl+Z"
               aria-label="Annuler"
@@ -241,7 +241,7 @@ export function TranscriptDrawer({
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={editor.retablir}
+              onClick={editor.restore}
               disabled={!canRedo}
               title="Ctrl+Shift+Z"
               aria-label="Rétablir"
@@ -276,18 +276,18 @@ export function TranscriptDrawer({
             montrer. Le silence ne vaut pas ce prix-là. */}
         <div className="min-h-0 flex-1">
           <TranscriptSurface
-            cle={clipId}
+            key={clipId}
             lines={lines}
             words={words}
             selection={selection}
-            ligneInitiale={firstLine}
-            onSelectionner={editor.commencerSelection}
-            onEtendre={editor.etendreSelection}
-            onTerminer={editor.terminerSelection}
-            onRemonter={restore}
-            onPlacer={onPlay}
-            recherche={search}
-            onRecherche={onSearch}
+            lineInitial={firstLine}
+            onSelect={editor.commencerSelection}
+            onExtend={editor.extendSelection}
+            onFinish={editor.finishSelection}
+            onSurface={restore}
+            onPlace={onPlay}
+            search={search}
+            onSearch={onSearch}
           />
         </div>
       </SheetContent>

@@ -1,5 +1,5 @@
 import { getDb, getProject } from '@/server/db'
-import { introuvable, json, route } from '@/server/http'
+import { notFound, json, route } from '@/server/http'
 import { stopRun } from '@/server/run'
 
 /**
@@ -31,7 +31,7 @@ export const POST = route(
   'POST /api/projects/:id/stop',
   async (_request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
-    if (getProject(getDb(), id) === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    if (getProject(getDb(), id) === undefined) throw notFound(`Projet inconnu : ${id}`)
     return json({ stopped: stopRun(id) })
   },
 )

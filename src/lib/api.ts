@@ -138,7 +138,7 @@ export type RunTarget = Exclude<StepName, 'renders'>
  * L'avancement se lit ensuite dans `ProjectStatus.running`, et l'échec éventuel
  * dans `ProjectStatus.error`.
  */
-export type RunPlan = {
+export type RunShot = {
   projectId: string
   /**
    * Les étapes qui vont tourner, dépendances remontées. **Un plan vide est une
@@ -146,7 +146,7 @@ export type RunPlan = {
    * faire. C'est là que se lit le saut d'étape — demander `candidates` sur un
    * projet déjà transcrit ne rend que `['candidates']`.
    */
-  plan: StepName[]
+  shot: StepName[]
 }
 
 /**
@@ -347,7 +347,7 @@ export type Source = {
  *   `ENOTCONN` : les ranger de force dans une des trois autres cases ferait dire
  *   quelque chose de faux plutôt que quelque chose de vague.
  */
-export type CauseIndisponible = 'absent' | 'denied' | 'silent' | 'unreadable'
+export type CauseUnavailable = 'absent' | 'denied' | 'silent' | 'unreadable'
 
 /**
  * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
@@ -360,11 +360,11 @@ export type SourcesListing = {
    * vide » de « ce montage n'a pas eu lieu » — l'incident réel d'OpenShorts
    * (spec §12) : les deux rendaient la même page.
    */
-  montage: {
+  editing: {
     /** Faux quand le dossier des replays est absent, ou que son transport est mort. */
-    disponible: boolean
+    available: boolean
     /** Pourquoi la lecture a échoué, ou `null` quand elle a réussi. */
-    cause: CauseIndisponible | null
+    cause: CauseUnavailable | null
     /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
     fstype: string | null
     /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */
@@ -654,22 +654,22 @@ export class ApiError extends Error {
  * pour ce cas — sans lui, l'échec serait avalé par une exception d'analyse
  * dans le gestionnaire d'erreur lui-même.
  */
-async function échec(réponse: Response): Promise<ApiError> {
-  let message = `${réponse.status} ${réponse.statusText}`.trim()
+async function failure(response: Response): Promise<ApiError> {
+  let message = `${response.status} ${response.statusText}`.trim()
   try {
-    const corps: unknown = await réponse.json()
-    const texte = (corps as { error?: unknown } | null)?.error
-    if (typeof texte === 'string' && texte !== '') message = texte
+    const body: unknown = await response.json()
+    const text = (body as { error?: unknown } | null)?.error
+    if (typeof text === 'string' && text !== '') message = text
   } catch {
     // Corps vide ou non JSON : le code suffit.
   }
-  return new ApiError(réponse.status, message)
+  return new ApiError(response.status, message)
 }
 
-async function lire<T>(chemin: string): Promise<T> {
-  const réponse = await fetch(chemin, { headers: { accept: 'application/json' } })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as T
+async function lire<T>(path: string): Promise<T> {
+  const response = await fetch(path, { headers: { accept: 'application/json' } })
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as T
 }
 
 /**
@@ -677,14 +677,14 @@ async function lire<T>(chemin: string): Promise<T> {
  * `patchClip` : ces trois-là se déclenchent sur un geste explicite dont on
  * attend la réponse à l'écran, pas dans le dos d'une page qui se ferme.
  */
-async function poster<T>(chemin: string, corps: unknown): Promise<T> {
-  const réponse = await fetch(chemin, {
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(corps),
+    body: JSON.stringify(body),
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as T
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as T
 }
 
 export function listProjects(): Promise<ProjectListItem[]> {
@@ -718,8 +718,8 @@ export function listSources(): Promise<SourcesListing> {
  * Rend la main tout de suite, sur un 202 : c'est le `plan` qui dit ce qui va
  * tourner, et `getProject` qui suit l'avancement.
  */
-export function createProject(source: string): Promise<RunPlan> {
-  return poster<RunPlan>('/api/projects', { source })
+export function createProject(source: string): Promise<RunShot> {
+  return post<RunShot>('/api/projects', { source })
 }
 
 /**
@@ -743,11 +743,11 @@ export function createProject(source: string): Promise<RunPlan> {
 export function runProject(
   projectId: string,
   targets: RunTarget | readonly RunTarget[],
-  force?: boolean | readonly RunTarget[],
-): Promise<RunPlan> {
-  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
+  forced?: boolean | readonly RunTarget[],
+): Promise<RunShot> {
+  return post<RunShot>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
     target: targets,
-    force,
+    forced,
   })
 }
 
@@ -758,7 +758,7 @@ export function runProject(
  * `src/server/run.ts`, et l'importer ferait entrer du code serveur dans le
  * paquet du navigateur. La duplication est délibérée et un test la garde.
  */
-export const CIBLES_DE_REPRISE: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
+export const RESUME_TARGETS: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
 
 export function listCandidates(projectId: string): Promise<CandidateClip[]> {
   return lire<CandidateClip[]>(`/api/projects/${encodeURIComponent(projectId)}/candidates`)
@@ -791,7 +791,7 @@ export async function patchClip(
   patch: ClipPatch,
   seq?: number,
 ): Promise<PatchClipResult> {
-  const réponse = await fetch(`/api/clips/${encodeURIComponent(clipId)}`, {
+  const response = await fetch(`/api/clips/${encodeURIComponent(clipId)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     // `undefined` ne survit pas à `JSON.stringify` : sans jeton, le corps est
@@ -799,8 +799,8 @@ export async function patchClip(
     body: JSON.stringify({ ...patch, seq }),
     keepalive: true,
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as PatchClipResult
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as PatchClipResult
 }
 
 /**
@@ -818,8 +818,8 @@ export async function patchClip(
  * réponse la plus fréquente dès qu'on rouvre un clip exporté, et elle veut dire
  * « tout est en place » — pas « ça n'a pas marché ».
  */
-export function exportClip(clipId: string, force?: boolean): Promise<ExportResult> {
-  return poster<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
+export function exportClip(clipId: string, forced?: boolean): Promise<ExportResult> {
+  return post<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { forced })
 }
 
 // ---------------------------------------------------------------------------
@@ -943,7 +943,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(patch),
   })
-  if (!response.ok) throw await échec(response)
+  if (!response.ok) throw await failure(response)
   return (await response.json()) as Settings
 }
 
@@ -961,7 +961,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
  * n'est pas une panne, et l'écran ne doit pas l'afficher comme telle.
  */
 export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
-  return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+  return post<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1014,7 @@ export function correctTranscript(
   projectId: string,
   correction: TranscriptCorrectionRequest,
 ): Promise<TranscriptCorrectionResult> {
-  return poster<TranscriptCorrectionResult>(
+  return post<TranscriptCorrectionResult>(
     `/api/projects/${encodeURIComponent(projectId)}/transcript`,
     correction,
   )

@@ -25,7 +25,7 @@
  */
 
 import type { StepName } from '@/core/graph'
-import { titreProjet } from '@/core/pipeline'
+import { titleProject } from '@/core/pipeline'
 
 /**
  * L'état d'une émission dans la bibliothèque.
@@ -212,7 +212,7 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
     if (project !== null) claimed.add(project.id)
     return {
       key: source.name,
-      title: titreProjet(withoutExtension(source.name)),
+      title: titleProject(withoutExtension(source.name)),
       fileName: source.name,
       source,
       project,

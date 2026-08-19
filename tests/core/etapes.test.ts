@@ -23,8 +23,8 @@ import { describe, expect, it } from 'vitest'
  * une garantie portée par un type se défait sans bruit.
  */
 
-const racine = path.resolve(import.meta.dirname, '../..')
-const sonde = path.join(racine, 'src/core/__sonde-etapes.ts')
+const root = path.resolve(import.meta.dirname, '../..')
+const probe = path.join(root, 'src/core/__sonde-etapes.ts')
 
 const OPTIONS: ts.CompilerOptions = {
   strict: true,
@@ -33,33 +33,33 @@ const OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2017,
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler,
-  baseUrl: racine,
+  baseUrl: root,
   paths: { '@/*': ['./src/*'] },
   types: [],
 }
 
 /** Compile un fichier virtuel posé dans `src/core/`, et rend ses erreurs. */
-function erreurs(code: string): string[] {
-  const hôte = ts.createCompilerHost(OPTIONS, true)
-  const lireVrai = hôte.getSourceFile.bind(hôte)
-  const existeVrai = hôte.fileExists.bind(hôte)
+function errors(code: string): string[] {
+  const host = ts.createCompilerHost(OPTIONS, true)
+  const lireTrue = host.getSourceFile.bind(host)
+  const existsTrue = host.fileExists.bind(host)
 
-  hôte.getSourceFile = (nom, version, ...reste) =>
-    path.resolve(nom) === sonde
-      ? ts.createSourceFile(nom, code, version, true, ts.ScriptKind.TS)
-      : lireVrai(nom, version, ...reste)
-  hôte.fileExists = (nom) => path.resolve(nom) === sonde || existeVrai(nom)
+  host.getSourceFile = (name, version, ...remaining) =>
+    path.resolve(name) === probe
+      ? ts.createSourceFile(name, code, version, true, ts.ScriptKind.TS)
+      : lireTrue(name, version, ...remaining)
+  host.fileExists = (name) => path.resolve(name) === probe || existsTrue(name)
 
-  const programme = ts.createProgram([sonde], OPTIONS, hôte)
+  const program = ts.createProgram([probe], OPTIONS, host)
   return ts
-    .getPreEmitDiagnostics(programme)
-    .filter((d) => d.file !== undefined && path.resolve(d.file.fileName) === sonde)
+    .getPreEmitDiagnostics(program)
+    .filter((d) => d.file !== undefined && path.resolve(d.file.fileName) === probe)
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '))
 }
 
 describe('le vocabulaire des étapes', () => {
   it('refuse une union d’étapes plus large que la table', () => {
-    const messages = erreurs(
+    const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
         "import { LIBELLES_ETAPES } from '@/core/parcours'",
@@ -73,7 +73,7 @@ describe('le vocabulaire des étapes', () => {
   it('accepte l’union telle que le graphe la déclare', () => {
     // Le contrôle négatif, sans lequel le premier test passerait aussi bien sur
     // une sonde qui ne compile pas du tout.
-    const messages = erreurs(
+    const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
         "import { LIBELLES_ETAPES } from '@/core/parcours'",

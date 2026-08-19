@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 
-import { GET as servirProxy } from '@/app/api/projects/[id]/proxy/route'
-import { encodeurProxy } from '@/server/steps/proxy'
+import { GET as serveProxy } from '@/app/api/projects/[id]/proxy/route'
+import { encoderProxy } from '@/server/steps/proxy'
 
 /**
  * Le proxy est le seul étage où le GPU **fait perdre du temps**, et c'est
@@ -19,157 +19,157 @@ import { encodeurProxy } from '@/server/steps/proxy'
  * ces trois-là n'a de bornes fausses, et aucun ne se voit sans appeler la route.
  */
 
-const envDépart = { ...process.env }
+const envStart = { ...process.env }
 afterEach(() => {
-  process.env = { ...envDépart }
+  process.env = { ...envStart }
 })
 
 describe('encodeurProxy', () => {
   it("vaut x264 sur auto, contre le réflexe", () => {
     process.env.FFMPEG_ENCODER = 'auto'
-    expect(encodeurProxy()).toBe('x264')
+    expect(encoderProxy()).toBe('x264')
   })
 
   it('vaut x264 quand la variable est absente', () => {
     delete process.env.FFMPEG_ENCODER
-    expect(encodeurProxy()).toBe('x264')
+    expect(encoderProxy()).toBe('x264')
   })
 
   it('respecte un choix explicite, même celui qui coûte une minute sur douze', () => {
     process.env.FFMPEG_ENCODER = 'nvenc'
-    expect(encodeurProxy()).toBe('nvenc')
+    expect(encoderProxy()).toBe('nvenc')
     process.env.FFMPEG_ENCODER = 'x264'
-    expect(encodeurProxy()).toBe('x264')
+    expect(encoderProxy()).toBe('x264')
   })
 
   it('refuse une valeur inconnue', () => {
     process.env.FFMPEG_ENCODER = 'cuda'
-    expect(() => encodeurProxy()).toThrow(/FFMPEG_ENCODER/)
+    expect(() => encoderProxy()).toThrow(/FFMPEG_ENCODER/)
   })
 })
 
 describe('GET /api/projects/:id/proxy', () => {
-  const PROJET = '2026-01-11-méchante'
+  const PROJECT = '2026-01-11-méchante'
   /** Cent octets reconnaissables : chaque tranche dit d'où elle vient. */
-  const CONTENU = Buffer.from(
+  const CONTENT = Buffer.from(
     Array.from({ length: 100 }, (_, i) => 48 + (i % 10)),
   )
 
-  let racine: string
+  let root: string
 
-  function contexte(id: string): { params: Promise<{ id: string }> } {
+  function context(id: string): { params: Promise<{ id: string }> } {
     return { params: Promise.resolve({ id }) }
   }
 
-  function demander(id: string, rangeOrHeaders?: string | Record<string, string>): Promise<Response> {
-    const entêtes =
+  function request(id: string, rangeOrHeaders?: string | Record<string, string>): Promise<Response> {
+    const headers =
       rangeOrHeaders === undefined
         ? undefined
         : typeof rangeOrHeaders === 'string'
           ? { range: rangeOrHeaders }
           : rangeOrHeaders
-    return servirProxy(new Request('http://x', { headers: entêtes }), contexte(id))
+    return serveProxy(new Request('http://x', { headers: headers }), context(id))
   }
 
-  function poserProxy(contenu: Buffer = CONTENU): void {
-    fs.mkdirSync(path.join(racine, PROJET), { recursive: true })
-    fs.writeFileSync(path.join(racine, PROJET, 'proxy.mp4'), contenu)
+  function poserProxy(content: Buffer = CONTENT): void {
+    fs.mkdirSync(path.join(root, PROJECT), { recursive: true })
+    fs.writeFileSync(path.join(root, PROJECT, 'proxy.mp4'), content)
   }
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-proxy-'))
-    process.env.PROJECTS_DIR = racine
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-proxy-'))
+    process.env.PROJECTS_DIR = root
   })
 
   afterEach(() => {
-    fs.rmSync(racine, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
   it('sert le fichier entier, et annonce qu’il accepte les plages', async () => {
     poserProxy()
-    const réponse = await demander(PROJET)
+    const response = await request(PROJECT)
 
-    expect(réponse.status).toBe(200)
-    expect(réponse.headers.get('content-type')).toBe('video/mp4')
-    expect(réponse.headers.get('content-length')).toBe('100')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('video/mp4')
+    expect(response.headers.get('content-length')).toBe('100')
     // Sans cet en-tête le navigateur ne redemandera jamais de plage, et la barre
     // de lecture reste inerte quelles que soient les bornes qu'on sait calculer.
-    expect(réponse.headers.get('accept-ranges')).toBe('bytes')
-    expect(Buffer.from(await réponse.arrayBuffer()).equals(CONTENU)).toBe(true)
+    expect(response.headers.get('accept-ranges')).toBe('bytes')
+    expect(Buffer.from(await response.arrayBuffer()).equals(CONTENT)).toBe(true)
   })
 
   it('sert la plage demandée, bornes incluses', async () => {
     poserProxy()
-    const réponse = await demander(PROJET, 'bytes=10-19')
+    const response = await request(PROJECT, 'bytes=10-19')
 
-    expect(réponse.status).toBe(206)
-    expect(réponse.headers.get('content-range')).toBe('bytes 10-19/100')
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 10-19/100')
     // Dix octets, pas neuf : les deux bornes sont inclusives.
-    expect(réponse.headers.get('content-length')).toBe('10')
-    const reçu = Buffer.from(await réponse.arrayBuffer())
-    expect(reçu.equals(CONTENU.subarray(10, 20))).toBe(true)
+    expect(response.headers.get('content-length')).toBe('10')
+    const received = Buffer.from(await response.arrayBuffer())
+    expect(received.equals(CONTENT.subarray(10, 20))).toBe(true)
   })
 
   it('sert les derniers octets, la forme dont un lecteur MP4 se sert pour l’index', async () => {
     poserProxy()
-    const réponse = await demander(PROJET, 'bytes=-16')
+    const response = await request(PROJECT, 'bytes=-16')
 
-    expect(réponse.status).toBe(206)
-    expect(réponse.headers.get('content-range')).toBe('bytes 84-99/100')
-    expect(Buffer.from(await réponse.arrayBuffer()).equals(CONTENU.subarray(84))).toBe(true)
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 84-99/100')
+    expect(Buffer.from(await response.arrayBuffer()).equals(CONTENT.subarray(84))).toBe(true)
   })
 
   it('borne une plage ouverte sur la taille réelle', async () => {
     poserProxy()
-    const réponse = await demander(PROJET, 'bytes=90-')
+    const response = await request(PROJECT, 'bytes=90-')
 
-    expect(réponse.status).toBe(206)
-    expect(réponse.headers.get('content-range')).toBe('bytes 90-99/100')
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 90-99/100')
   })
 
   it('rend 416 avec la taille réelle sur une plage insatisfiable', async () => {
     poserProxy()
-    const réponse = await demander(PROJET, 'bytes=500-600')
+    const response = await request(PROJECT, 'bytes=500-600')
 
-    expect(réponse.status).toBe(416)
+    expect(response.status).toBe(416)
     // La taille est la seule information qui permette au client de reformuler.
-    expect(réponse.headers.get('content-range')).toBe('bytes */100')
+    expect(response.headers.get('content-range')).toBe('bytes */100')
   })
 
   it('rend 404 tant que l’encodage n’a rien produit', async () => {
-    expect((await demander(PROJET)).status).toBe(404)
+    expect((await request(PROJECT)).status).toBe(404)
   })
 
   it('rend 404 sur un identifiant qui tente de sortir du dossier', async () => {
     // `vérifierId` garde la traversée : un identifiant qui ne peut nommer aucun
     // chemin ne désigne aucun proxy.
-    expect((await demander('../../etc/passwd')).status).toBe(404)
-    expect((await demander('..')).status).toBe(404)
-    expect((await demander('')).status).toBe(404)
+    expect((await request('../../etc/passwd')).status).toBe(404)
+    expect((await request('..')).status).toBe(404)
+    expect((await request('')).status).toBe(404)
   })
 
   it('rend 404 quand `proxy.mp4` est un dossier', async () => {
     // Linux accepte de l'ouvrir : sans le contrôle `isFile()`, la lecture
     // échouerait au milieu d'une réponse déjà commencée.
-    fs.mkdirSync(path.join(racine, PROJET, 'proxy.mp4'), { recursive: true })
-    expect((await demander(PROJET)).status).toBe(404)
+    fs.mkdirSync(path.join(root, PROJECT, 'proxy.mp4'), { recursive: true })
+    expect((await request(PROJECT)).status).toBe(404)
   })
 
   it('rend 200 sur un fichier vide plutôt que d’inventer une plage', async () => {
     // Un proxy dont l'encodage vient d'être interrompu : aucune plage n'y est
     // satisfiable, mais la requête sans en-tête reste légitime.
     poserProxy(Buffer.alloc(0))
-    expect((await demander(PROJET)).status).toBe(200)
-    expect((await demander(PROJET, 'bytes=0-9')).status).toBe(416)
+    expect((await request(PROJECT)).status).toBe(200)
+    expect((await request(PROJECT, 'bytes=0-9')).status).toBe(416)
   })
 
   describe('cache', () => {
     it('pose ETag et Last-Modified sur un 200, un 206 et un 416', async () => {
       poserProxy()
       for (const response of [
-        await demander(PROJET),
-        await demander(PROJET, 'bytes=10-19'),
-        await demander(PROJET, 'bytes=500-600'),
+        await request(PROJECT),
+        await request(PROJECT, 'bytes=10-19'),
+        await request(PROJECT, 'bytes=500-600'),
       ]) {
         expect(response.headers.get('etag')).toMatch(/^"[0-9a-f]+-[0-9a-f]+"$/)
         expect(response.headers.get('last-modified')).not.toBeNull()
@@ -178,30 +178,30 @@ describe('GET /api/projects/:id/proxy', () => {
 
     it('pose Cache-Control: private, no-cache sur les réponses qui servent le fichier', async () => {
       poserProxy()
-      const response = await demander(PROJET)
+      const response = await request(PROJECT)
       expect(response.headers.get('cache-control')).toBe('private, no-cache')
     })
 
     it('pose Cache-Control: no-store sur les deux 404 d’absence', async () => {
       // Un identifiant qui ne peut nommer aucun chemin — décidé dans la route,
       // avant `servirFichier`.
-      const invalidId = await demander('../../etc/passwd')
+      const invalidId = await request('../../etc/passwd')
       expect(invalidId.status).toBe(404)
       expect(invalidId.headers.get('cache-control')).toBe('no-store')
 
       // Un fichier pas encore là — décidé par `servirFichier`, qui rend `null`.
       // Le proxy arrive environ douze minutes après la création du projet :
       // mettre ce cas nominal en cache serait une panne durable.
-      const notYetThere = await demander(PROJET)
+      const notYetThere = await request(PROJECT)
       expect(notYetThere.status).toBe(404)
       expect(notYetThere.headers.get('cache-control')).toBe('no-store')
     })
 
     it('rend 304 sans corps ni Content-Range quand If-None-Match correspond', async () => {
       poserProxy()
-      const etagHeader = (await demander(PROJET)).headers.get('etag')!
+      const etagHeader = (await request(PROJECT)).headers.get('etag')!
 
-      const response = await demander(PROJET, { 'if-none-match': etagHeader })
+      const response = await request(PROJECT, { 'if-none-match': etagHeader })
       expect(response.status).toBe(304)
       expect(response.headers.get('content-range')).toBeNull()
       // Aucun corps : donc pas de Content-Length qui en décrirait un.
@@ -213,22 +213,22 @@ describe('GET /api/projects/:id/proxy', () => {
 
     it('rend 200 entier quand If-None-Match ne correspond plus', async () => {
       poserProxy()
-      const response = await demander(PROJET, { 'if-none-match': '"une-autre-étiquette"' })
+      const response = await request(PROJECT, { 'if-none-match': '"une-autre-étiquette"' })
       expect(response.status).toBe(200)
-      expect((await response.arrayBuffer()).byteLength).toBe(CONTENU.length)
+      expect((await response.arrayBuffer()).byteLength).toBe(CONTENT.length)
     })
 
     it('rend 304 quand If-Modified-Since est postérieur ou égal à Last-Modified', async () => {
       poserProxy()
-      const lastModified = (await demander(PROJET)).headers.get('last-modified')!
+      const lastModified = (await request(PROJECT)).headers.get('last-modified')!
 
-      const response = await demander(PROJET, { 'if-modified-since': lastModified })
+      const response = await request(PROJECT, { 'if-modified-since': lastModified })
       expect(response.status).toBe(304)
     })
 
     it('rend 200 entier quand If-Modified-Since est antérieur à Last-Modified', async () => {
       poserProxy()
-      const response = await demander(PROJET, { 'if-modified-since': 'Tue, 01 Jan 2000 00:00:00 GMT' })
+      const response = await request(PROJECT, { 'if-modified-since': 'Tue, 01 Jan 2000 00:00:00 GMT' })
       expect(response.status).toBe(200)
     })
 
@@ -236,8 +236,8 @@ describe('GET /api/projects/:id/proxy', () => {
       poserProxy()
       // Une date qui dirait « non modifié », contredite par une étiquette qui
       // dit le contraire : c'est l'étiquette qui doit trancher (RFC 7232 §3.3).
-      const lastModified = (await demander(PROJET)).headers.get('last-modified')!
-      const response = await demander(PROJET, {
+      const lastModified = (await request(PROJECT)).headers.get('last-modified')!
+      const response = await request(PROJECT, {
         'if-none-match': '"une-autre-étiquette"',
         'if-modified-since': lastModified,
       })
@@ -246,8 +246,8 @@ describe('GET /api/projects/:id/proxy', () => {
 
     it('sert la plage entière demandée quand If-Range correspond', async () => {
       poserProxy()
-      const etagHeader = (await demander(PROJET)).headers.get('etag')!
-      const response = await demander(PROJET, { range: 'bytes=10-19', 'if-range': etagHeader })
+      const etagHeader = (await request(PROJECT)).headers.get('etag')!
+      const response = await request(PROJECT, { range: 'bytes=10-19', 'if-range': etagHeader })
       expect(response.status).toBe(206)
       expect(response.headers.get('content-range')).toBe('bytes 10-19/100')
     })
@@ -258,13 +258,13 @@ describe('GET /api/projects/:id/proxy', () => {
       // a changé, et sans ce contrôle il recoudrait deux moitiés de vidéos
       // différentes.
       poserProxy()
-      const response = await demander(PROJET, {
+      const response = await request(PROJECT, {
         range: 'bytes=10-19',
         'if-range': '"une-étiquette-périmée"',
       })
       expect(response.status).toBe(200)
       expect(response.headers.get('content-range')).toBeNull()
-      expect((await response.arrayBuffer()).byteLength).toBe(CONTENU.length)
+      expect((await response.arrayBuffer()).byteLength).toBe(CONTENT.length)
     })
   })
 })

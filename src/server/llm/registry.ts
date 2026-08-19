@@ -6,7 +6,7 @@ import { createGeminiCall } from '@/server/llm/gemini'
 import { createOllamaCall } from '@/server/llm/ollama'
 import { createOpenAiCall } from '@/server/llm/openai'
 import type { LlmCall, LlmCallConfig, LlmClientOptions, LlmMode } from '@/server/llm/types'
-import { exigerSecret } from '@/server/secrets'
+import { requireSecret } from '@/server/secrets'
 
 /**
  * Choisit l'implémentation d'un `LlmCall` d'après les réglages, au lieu de la
@@ -66,17 +66,17 @@ export function providerAvailability(provider: LlmProvider): LlmProviderAvailabi
   const variable = apiKeyVariableFor(provider)
   if (variable === undefined) return { available: true, reason: null }
   try {
-    exigerSecret(variable)
+    requireSecret(variable)
     return { available: true, reason: null }
-  } catch (erreur) {
-    return { available: false, reason: erreur instanceof Error ? erreur.message : String(erreur) }
+  } catch (error) {
+    return { available: false, reason: error instanceof Error ? error.message : String(error) }
   }
 }
 
 /** La clé d'un fournisseur, ou `undefined` pour Ollama. Lève si elle manque. */
 function apiKeyFor(provider: LlmProvider): string | undefined {
   const variable = apiKeyVariableFor(provider)
-  return variable === undefined ? undefined : exigerSecret(variable)
+  return variable === undefined ? undefined : requireSecret(variable)
 }
 
 /**

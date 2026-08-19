@@ -7,7 +7,7 @@ import {
   clipCountTargets,
   DEFAULT_SELECTION_DIMENSIONS,
   mergeOverlappingWindows,
-  secondesDeParole,
+  speechSeconds,
   shortlistSize,
   snapToWords,
   windowTextWithAnchors,
@@ -91,14 +91,14 @@ describe('windowTextWithAnchors', () => {
     const marker = parseFloat(windowTextWithAnchors(w, tx).match(/\[([\d.]+)\]/)![1])
     const words = [word('last', 28.0, 29.0), word('next', 30.56, 31.2)]
 
-    const [, tronque] = snapToWords(10.0, marker, words, 100)
-    expect(tronque).toBeLessThan(30.56)
+    const [, truncated] = snapToWords(10.0, marker, words, 100)
+    expect(truncated).toBeLessThan(30.56)
 
     // Le contrôle négatif : 30,56 arrondi au dixième donne 30,6, qui tombe
     // APRÈS le début du mot. La borne se lit alors comme de la parole et le clip
     // garde le mot qu'il voulait exclure.
-    const [, arrondi] = snapToWords(10.0, 30.6, words, 100)
-    expect(arrondi).toBeGreaterThan(31.2)
+    const [, rounded] = snapToWords(10.0, 30.6, words, 100)
+    expect(rounded).toBeGreaterThan(31.2)
   })
 
   it("la fenêtre de repli, sans segments, reçoit quand même un marqueur légal", () => {
@@ -142,10 +142,10 @@ describe('buildWindows', () => {
     const tx4: Transcript = {
       segments: [seg(0, 40, 'a'), seg(40, 80, 'b'), seg(80, 100, 'c'), seg(100, 150, 'd')],
     }
-    const bornes = new Set([0, 40, 80, 100, 150])
+    const bounds = new Set([0, 40, 80, 100, 150])
     for (const w of buildWindows(tx4, 150)) {
-      expect(bornes.has(w.start)).toBe(true)
-      expect(bornes.has(w.end)).toBe(true)
+      expect(bounds.has(w.start)).toBe(true)
+      expect(bounds.has(w.end)).toBe(true)
     }
   })
 
@@ -175,8 +175,8 @@ describe('buildWindows', () => {
   it("porte le texte des segments qu'elle couvre, et son étendue", () => {
     const ws = buildWindows(tx, 400)
     for (const w of ws) {
-      const attendu = tx.segments.slice(w.segFrom, w.segTo + 1).map((s) => s.text).join(' ')
-      expect(w.text).toBe(attendu)
+      const expected = tx.segments.slice(w.segFrom, w.segTo + 1).map((s) => s.text).join(' ')
+      expect(w.text).toBe(expected)
     }
     expect(ws[0].id).toBe('window_001')
   })
@@ -241,10 +241,10 @@ describe('mergeOverlappingWindows', () => {
   })
 
   it('ne modifie ni les fenêtres reçues ni leur tableau', () => {
-    const entrée = [w('window_001', 0, 15, 0, 1), w('window_002', 10, 25, 1, 2)]
-    const copie = structuredClone(entrée)
-    mergeOverlappingWindows(entrée, tx)
-    expect(entrée).toEqual(copie)
+    const entry = [w('window_001', 0, 15, 0, 1), w('window_002', 10, 25, 1, 2)]
+    const copy = structuredClone(entry)
+    mergeOverlappingWindows(entry, tx)
+    expect(entry).toEqual(copy)
   })
 
   it('une entrée vide rend une liste vide', () => {
@@ -252,16 +252,16 @@ describe('mergeOverlappingWindows', () => {
   })
 
   it('la fenêtre de repli du transcript vide traverse sans casser', () => {
-    const repli = buildWindows({ segments: [] }, 120)
-    const out = mergeOverlappingWindows(repli, { segments: [] })
+    const fallback = buildWindows({ segments: [] }, 120)
+    const out = mergeOverlappingWindows(fallback, { segments: [] })
     expect(out).toHaveLength(1)
     expect(out[0].segTo).toBeLessThan(out[0].segFrom)
     expect(out[0].end).toBe(120)
   })
 
   it('une fenêtre sans étendue ne fait pas perdre la prose de sa voisine', () => {
-    const sansÉtendue: Window = { id: 'vide', start: 5, end: 20, text: '', segFrom: 0, segTo: -1 }
-    const out = mergeOverlappingWindows([w('a', 0, 15, 0, 1), sansÉtendue], tx)
+    const withoutExtent: Window = { id: 'vide', start: 5, end: 20, text: '', segFrom: 0, segTo: -1 }
+    const out = mergeOverlappingWindows([w('a', 0, 15, 0, 1), withoutExtent], tx)
     expect(out).toHaveLength(1)
     expect(out[0].text).toBe('A B')
     expect(out[0].end).toBe(20)
@@ -275,7 +275,7 @@ describe('mergeOverlappingWindows', () => {
 // Ces durées ne sont **pas** l'écart du premier mot au dernier, qui vaut 5755,5 s
 // et 6642,3 s : voir `secondesDeParole`, l'écart surestime de 21 %.
 const CQLP = { parole: 4635.3, fenêtres: 83 }
-const ENTRE_NOUS = { parole: 5244.5, fenêtres: 95 }
+const BETWEEN_US = { parole: 5244.5, fenêtres: 95 }
 const min = (m: number) => m * 60
 
 describe('secondesDeParole', () => {
@@ -286,24 +286,24 @@ describe('secondesDeParole', () => {
     const tx = {
       segments: [seg(0, 30, 'avant'), seg(3630, 3660, 'après')],
     }
-    expect(secondesDeParole(tx)).toBe(60)
+    expect(speechSeconds(tx)).toBe(60)
     // L'écart, lui, en compterait 3660.
   })
 
   it('fusionne deux segments qui se chevauchent au lieu de les additionner', () => {
     const tx = { segments: [seg(0, 40, 'un'), seg(30, 60, 'deux')] }
-    expect(secondesDeParole(tx)).toBe(60)
+    expect(speechSeconds(tx)).toBe(60)
   })
 
   // `buildWindows` écarte déjà les segments sans prose — WhisperX en émet sur
   // les silences —, et cette fonction doit voir la même matière que lui.
   it('ignore les segments sans prose, comme le fenêtrage', () => {
     const tx = { segments: [seg(0, 30, 'un'), seg(30, 90, '   '), seg(90, 120, 'deux')] }
-    expect(secondesDeParole(tx)).toBe(60)
+    expect(speechSeconds(tx)).toBe(60)
   })
 
   it('rend zéro sur un transcript vide', () => {
-    expect(secondesDeParole({ segments: [] })).toBe(0)
+    expect(speechSeconds({ segments: [] })).toBe(0)
   })
 })
 
@@ -313,7 +313,7 @@ describe('clipCountTargets', () => {
   // revenaient 0,4 % du temps contre 16 % pour ceux qui en recevaient 4 à 9.
   it('suit la durée de parole, un clip toutes les six minutes par défaut', () => {
     expect(clipCountTargets(CQLP.parole, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(13)
-    expect(clipCountTargets(ENTRE_NOUS.parole, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(15)
+    expect(clipCountTargets(BETWEEN_US.parole, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(15)
     expect(clipCountTargets(min(180), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(30)
   })
 
@@ -347,71 +347,71 @@ describe('clipCountTargets', () => {
   // clips. Le tuple entier est vérifié, pas seulement sa première borne.
   // (relevé par Codex et Copilot)
   it('maximumClips borne les deux bornes, et zéro veut dire aucune', () => {
-    const borné = { ...DEFAULT_SELECTION_DIMENSIONS, maximumClips: 10 }
-    expect(clipCountTargets(ENTRE_NOUS.parole, borné)).toEqual([10, 10])
-    expect(clipCountTargets(ENTRE_NOUS.parole, DEFAULT_SELECTION_DIMENSIONS)).toEqual([15, 23])
+    const bound = { ...DEFAULT_SELECTION_DIMENSIONS, maximumClips: 10 }
+    expect(clipCountTargets(BETWEEN_US.parole, bound)).toEqual([10, 10])
+    expect(clipCountTargets(BETWEEN_US.parole, DEFAULT_SELECTION_DIMENSIONS)).toEqual([15, 23])
     // Le plafond ne descend jamais sous le plancher, quel que soit le maximum.
     for (let max = 1; max <= 40; max++) {
-      const [bas, haut] = clipCountTargets(ENTRE_NOUS.parole, {
+      const [bottom, top] = clipCountTargets(BETWEEN_US.parole, {
         ...DEFAULT_SELECTION_DIMENSIONS,
         maximumClips: max,
       })
-      expect(bas).toBeLessThanOrEqual(haut)
-      expect(haut).toBeLessThanOrEqual(max)
+      expect(bottom).toBeLessThanOrEqual(top)
+      expect(top).toBeLessThanOrEqual(max)
     }
   })
 
   it('le rendement se règle', () => {
     const dense = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 }
-    const sobre = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 12 }
-    expect(clipCountTargets(ENTRE_NOUS.parole, dense)[0]).toBe(22)
-    expect(clipCountTargets(ENTRE_NOUS.parole, sobre)[0]).toBe(7)
+    const sober = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 12 }
+    expect(clipCountTargets(BETWEEN_US.parole, dense)[0]).toBe(22)
+    expect(clipCountTargets(BETWEEN_US.parole, sober)[0]).toBe(7)
   })
 
   it('le plancher ne dépasse jamais le plafond', () => {
     for (let m = 0; m <= 240; m += 3) {
-      const [bas, haut] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
-      expect(bas).toBeLessThanOrEqual(haut)
+      const [bottom, top] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
+      expect(bottom).toBeLessThanOrEqual(top)
     }
   })
 
   it('une entrée dégénérée ne casse rien', () => {
-    for (const parole of [0, -5, NaN, Infinity]) {
-      const [bas, haut] = clipCountTargets(parole, DEFAULT_SELECTION_DIMENSIONS)
-      expect(bas).toBeGreaterThanOrEqual(1)
-      expect(haut).toBeGreaterThanOrEqual(bas)
+    for (const speech of [0, -5, NaN, Infinity]) {
+      const [bottom, top] = clipCountTargets(speech, DEFAULT_SELECTION_DIMENSIONS)
+      expect(bottom).toBeGreaterThanOrEqual(1)
+      expect(top).toBeGreaterThanOrEqual(bottom)
     }
   })
 
   it('un réglage absurde ne divise pas par zéro', () => {
-    const cassé = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 0 }
-    const [bas, haut] = clipCountTargets(ENTRE_NOUS.parole, cassé)
-    expect(Number.isFinite(bas)).toBe(true)
-    expect(haut).toBeGreaterThanOrEqual(bas)
+    const broken = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 0 }
+    const [bottom, top] = clipCountTargets(BETWEEN_US.parole, broken)
+    expect(Number.isFinite(bottom)).toBe(true)
+    expect(top).toBeGreaterThanOrEqual(bottom)
   })
 })
 
 describe('shortlistSize', () => {
   it('suit le plancher de clips, à raison de deux fenêtres par clip', () => {
     expect(shortlistSize(CQLP.parole, CQLP.fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBe(26)
-    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBe(30)
+    expect(shortlistSize(BETWEEN_US.parole, BETWEEN_US.fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBe(30)
   })
 
   // Le plafond plat de 24 est retiré : c'est lui qui faisait examiner un quart
   // de la matière d'un 1 h 51 et la même chose d'un trois heures.
   it('ne sature plus au-delà de deux heures', () => {
-    const troisHeures = shortlistSize(min(180), 154, DEFAULT_SELECTION_DIMENSIONS)
-    expect(troisHeures).toBe(60)
-    expect(troisHeures).toBeGreaterThan(
-      shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DEFAULT_SELECTION_DIMENSIONS),
+    const threeHours = shortlistSize(min(180), 154, DEFAULT_SELECTION_DIMENSIONS)
+    expect(threeHours).toBe(60)
+    expect(threeHours).toBeGreaterThan(
+      shortlistSize(BETWEEN_US.parole, BETWEEN_US.fenêtres, DEFAULT_SELECTION_DIMENSIONS),
     )
   })
 
   it('ne retient jamais plus de fenêtres qu il n en existe', () => {
     for (let m = 0; m <= 240; m += 3) {
       // Une fenêtre tous les ~70 s, mesuré sur les deux émissions.
-      const fenêtres = Math.max(1, Math.round(min(m) / 70))
-      expect(shortlistSize(min(m), fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBeLessThanOrEqual(fenêtres)
+      const windows = Math.max(1, Math.round(min(m) / 70))
+      expect(shortlistSize(min(m), windows, DEFAULT_SELECTION_DIMENSIONS)).toBeLessThanOrEqual(windows)
     }
   })
 
@@ -425,14 +425,14 @@ describe('shortlistSize', () => {
   })
 
   it('minimumWindows reprend la main quand le produit descend sous lui', () => {
-    const étroit = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 1 }
+    const narrow = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 1 }
     // Six clips à une fenêtre chacun ne feraient que six fenêtres examinées.
-    expect(shortlistSize(min(15), 13, étroit)).toBe(10)
+    expect(shortlistSize(min(15), 13, narrow)).toBe(10)
   })
 
   it('windowsPerClip règle la largeur de l examen', () => {
-    const large = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 4 }
-    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, large)).toBe(60)
+    const wide = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 4 }
+    expect(shortlistSize(BETWEEN_US.parole, BETWEEN_US.fenêtres, wide)).toBe(60)
   })
 
   it('une entrée dégénérée ne casse rien', () => {
@@ -446,10 +446,10 @@ describe('shortlistSize', () => {
   // la cible serait irréalisable par construction.
   it('offre toujours au moins autant de fenêtres que de clips demandés', () => {
     for (let m = 3; m <= 240; m += 3) {
-      const fenêtres = Math.max(1, Math.round(min(m) / 70))
-      const retenues = shortlistSize(min(m), fenêtres, DEFAULT_SELECTION_DIMENSIONS)
-      const [plancher] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
-      expect(retenues).toBeGreaterThanOrEqual(Math.min(plancher, fenêtres))
+      const windows = Math.max(1, Math.round(min(m) / 70))
+      const kept = shortlistSize(min(m), windows, DEFAULT_SELECTION_DIMENSIONS)
+      const [floor] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
+      expect(kept).toBeGreaterThanOrEqual(Math.min(floor, windows))
     }
   })
 })
@@ -476,8 +476,8 @@ describe('snapToWords', () => {
   // résultat ; openshorts étirait cette paire jusqu'à 15 s en allant chercher
   // une fin de mot dix secondes plus loin.
   it('ne rallonge plus jusqu à 15 secondes non plus', () => {
-    const contigus = Array.from({ length: 40 }, (_, i) => word(`w${i}`, i, i + 1))
-    const [s, e] = snapToWords(0, 5, contigus, 100)
+    const contiguous = Array.from({ length: 40 }, (_, i) => word(`w${i}`, i, i + 1))
+    const [s, e] = snapToWords(0, 5, contiguous, 100)
     expect(e - s).toBeCloseTo(5, 3)
     // Et le rembourrage ne mord pas sur la parole contiguë : aucune place.
     expect(e).toBe(5)
@@ -491,29 +491,29 @@ describe('snapToWords', () => {
     expect(snapToWords(10, 40, [word('loin', 200, 201)], 300)).toEqual([10, 40])
   })
 
-  const chaque2s = () => Array.from({ length: 40 }, (_, i) => word(`w${i}`, i * 2, i * 2 + 1.6))
+  const each2S = () => Array.from({ length: 40 }, (_, i) => word(`w${i}`, i * 2, i * 2 + 1.6))
 
   it('recule dans le silence qui précède le mot, de la moitié du trou', () => {
     // Trou de 0,4 s avant le mot à 10,0 : le rembourrage vaut 0,2, pas 0,35.
-    const [s, e] = snapToWords(10.3, 30.1, chaque2s(), 80)
+    const [s, e] = snapToWords(10.3, 30.1, each2S(), 80)
     expect(s).toBe(9.8)
     expect(e).toBe(29.8)
   })
 
-  const avecTrou = (from: number, to: number, until = 80) =>
+  const withGap = (from: number, to: number, until = 80) =>
     Array.from({ length: until }, (_, i) => i)
       .filter((i) => !(from <= i && i < to))
       .map((i) => word(`w${i}`, i, i + 0.8))
 
   it('une borne de début tombée dans un silence avance vers la parole', () => {
     // Le trou est plus large que 2 × maxLead : le rembourrage prend son plafond.
-    const [s, e] = snapToWords(15, 45, avecTrou(10, 20, 60), 80)
+    const [s, e] = snapToWords(15, 45, withGap(10, 20, 60), 80)
     expect(s).toBe(19.65)
     expect(e).toBe(44.9)
   })
 
   it('une borne de fin tombée dans un silence recule vers la parole', () => {
-    const [s, e] = snapToWords(10, 35, avecTrou(30, 40), 80)
+    const [s, e] = snapToWords(10, 35, withGap(30, 40), 80)
     expect(s).toBe(9.9)
     expect(e).toBe(30.25)
   })
@@ -521,7 +521,7 @@ describe('snapToWords', () => {
   it('au-delà du saut de silence maximal, la borne brute est conservée', () => {
     // 45 s de silence : l'horodatage n'est pas « un peu dans une pause », il est
     // faux, et déplacer la borne jusque-là changerait ce que contient le clip.
-    expect(snapToWords(15, 35, avecTrou(10, 60), 80)).toEqual([15, 35])
+    expect(snapToWords(15, 35, withGap(10, 60), 80)).toEqual([15, 35])
   })
 
   it('une borne de début dans une courte pause ne recule pas sur la phrase d avant', () => {
@@ -541,20 +541,20 @@ describe('snapToWords', () => {
 
   // Les trois cas des mots imbriqués. Consulter le seul dernier mot commençant
   // avant la borne appelle « silence » un instant où l'on parle encore.
-  const imbriques = () => [word('looong', 10, 20), word('in', 15, 16), word('after', 40, 41)]
+  const nested = () => [word('looong', 10, 20), word('in', 15, 16), word('after', 40, 41)]
 
   it('une borne masquée par un mot court reste de la parole', () => {
-    const [, e] = snapToWords(0.5, 19, imbriques(), 100)
+    const [, e] = snapToWords(0.5, 19, nested(), 100)
     expect(e).toBeGreaterThan(20)
   })
 
   it('la fin ne tombe jamais sur une frontière enterrée dans un autre mot', () => {
-    const [, e] = snapToWords(0.5, 17, imbriques(), 100)
+    const [, e] = snapToWords(0.5, 17, nested(), 100)
     expect(e).toBeGreaterThan(20)
   })
 
   it('le début non plus', () => {
-    const [s] = snapToWords(17, 40.5, imbriques(), 100)
+    const [s] = snapToWords(17, 40.5, nested(), 100)
     expect(s).toBeLessThanOrEqual(10)
   })
 
@@ -582,10 +582,10 @@ describe('snapToWords', () => {
   // hors média sur une durée fractionnaire. ffprobe rend six décimales, donc la
   // durée fractionnaire n'a rien d'un cas de laboratoire.
   it('une durée fractionnaire ne sort pas du média par l arrondi', () => {
-    const duree = 99.9995
-    const w = [word('fin', 98, duree)]
-    const [, e] = snapToWords(90, duree, w, duree)
-    expect(e).toBeLessThanOrEqual(duree)
+    const duration = 99.9995
+    const w = [word('fin', 98, duration)]
+    const [, e] = snapToWords(90, duration, w, duration)
+    expect(e).toBeLessThanOrEqual(duration)
   })
 
   // Le pendant dégénéré : deux bornes distantes de moins d'une demi-milliseconde

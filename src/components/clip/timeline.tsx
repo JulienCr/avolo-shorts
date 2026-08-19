@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import type { Segment } from '@/core/edl'
 import type { PublishedFraming } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
@@ -219,7 +219,7 @@ export function Timeline({
    * lecture.
    */
   const stepPlayhead = (step: number) => {
-    const from = useLecture.getState().position
+    const from = usePlayback.getState().position
     onScrub(clampToSource(from + step, limit))
   }
 
@@ -300,12 +300,12 @@ export function Timeline({
         {/* **Les frontières de plans, lues et non calculées.** `analysis.json`
             pèse deux à trois méga-octets ; le serveur publie déjà le cadrage plan
             par plan, et c'est tout ce qu'il faut pour savoir où le cadre saute. */}
-        {framing.shots.slice(1).map((plan) => (
+        {framing.shots.slice(1).map((shot) => (
           <span
-            key={plan.key}
+            key={shot.key}
             aria-hidden
             className="absolute inset-y-2 w-px bg-foreground/25"
-            style={{ left: `${toFraction(plan.shot.start) * 100}%` }}
+            style={{ left: `${toFraction(shot.shot.start) * 100}%` }}
           />
         ))}
 
@@ -440,7 +440,7 @@ function Playhead({
   /** Une flèche : un déplacement relatif, en secondes. */
   onStep: (step: number) => void
 }) {
-  const position = useLecture((etat) => etat.position)
+  const position = usePlayback((state) => state.position)
   const time = ghost ?? position
   const left = Math.min(Math.max((time - view.start) / (view.end - view.start), 0), 1)
   return (

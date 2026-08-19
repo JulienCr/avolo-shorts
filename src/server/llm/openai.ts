@@ -52,7 +52,7 @@ export function toFinishReason(raw: string | null | undefined): string {
 
 type OpenAiChoice = {
   finish_reason?: string | null
-  message?: { content?: string | null; refusal?: string | null }
+  message?: { content?: string | null; rejection?: string | null }
 }
 
 type OpenAiResponse = { choices?: OpenAiChoice[] }
@@ -69,7 +69,7 @@ type OpenAiResponse = { choices?: OpenAiChoice[] }
  */
 export function toLlmResponse(data: OpenAiResponse): LlmResponse {
   const choice = data.choices?.[0]
-  if (choice?.message?.refusal != null && choice.message.refusal !== '') {
+  if (choice?.message?.rejection != null && choice.message.rejection !== '') {
     return { candidates: [{ finishReason: 'CONTENT_FILTER' }] }
   }
   return {

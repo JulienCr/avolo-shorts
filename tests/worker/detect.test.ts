@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
  * `worker/venv` — 7,8 Go, absent d'un checkout frais — n'est pas nécessaire.
  */
 
-const RACINE = path.resolve(import.meta.dirname, '..', '..')
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
 
 /**
  * L'environnement des deux lancements Python, `.pyc` en moins : sans cela,
@@ -29,7 +29,7 @@ const RACINE = path.resolve(import.meta.dirname, '..', '..')
  * ignoré par git, donc il ne salirait qu'un `ls` — mais un artefact de build
  * qu'aucune commande de build n'a produit se fait chercher longtemps.
  */
-const SANS_BYTECODE = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
+const WITHOUT_BYTECODE = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
 
 /**
  * Évalue `code` avec `detect` importé, et rend ce que le code imprime en JSON.
@@ -38,23 +38,23 @@ const SANS_BYTECODE = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' }
  * dépend que de la bibliothèque standard, et exiger le venv rendrait la suite
  * intestable sur une machine qui n'a pas encore lancé `setup.sh`.
  */
-function évaluer(code: string): unknown {
-  const préambule = [
+function evaluate(code: string): unknown {
+  const preamble = [
     'import json, sys',
-    `sys.path.insert(0, ${JSON.stringify(path.join(RACINE, 'worker'))})`,
+    `sys.path.insert(0, ${JSON.stringify(path.join(ROOT, 'worker'))})`,
     'import detect',
   ].join('\n')
-  let sortie: string
+  let output: string
   try {
-    sortie = execFileSync('python3', ['-c', `${préambule}\n${code}`], {
+    output = execFileSync('python3', ['-c', `${preamble}\n${code}`], {
       encoding: 'utf8',
-      env: SANS_BYTECODE,
+      env: WITHOUT_BYTECODE,
     })
   } catch (cause) {
-    const détail = cause instanceof Error ? cause.message : String(cause)
-    throw new Error(`python3 n'a pas pu évaluer worker/detect.py : ${détail}`, { cause })
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(`python3 n'a pas pu évaluer worker/detect.py : ${detail}`, { cause })
   }
-  return JSON.parse(sortie)
+  return JSON.parse(output)
 }
 
 /**
@@ -74,23 +74,23 @@ function évaluer(code: string): unknown {
  */
 describe('detect.py — le score écrit dans analysis.json', () => {
   it('n’arrondit pas une détection sous le seuil jusqu’au seuil', () => {
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(0.4996, 3)))')).toBe(0.499)
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(0.4999, 3)))')).toBe(0.499)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(0.4996, 3)))')).toBe(0.499)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(0.4999, 3)))')).toBe(0.499)
   })
 
   it('laisse intact un score qui atteint vraiment le seuil', () => {
     // Le cas symétrique, et celui qui interdit de « régler le problème » en
     // déplaçant le seuil du consommateur : une détection à 0,5 est au-dessus du
     // seuil, et doit le rester.
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(0.5, 3)))')).toBe(0.5)
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(0.5004, 3)))')).toBe(0.5)
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(1.0, 3)))')).toBe(1)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(0.5, 3)))')).toBe(0.5)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(0.5004, 3)))')).toBe(0.5)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(1.0, 3)))')).toBe(1)
   })
 
   it('garde trois décimales, ce pour quoi l’arrondi existe', () => {
     // Sans arrondi du tout, `json.dump` écrirait les dix-sept chiffres du
     // flottant : la taille du fichier est l'autre moitié de la décision.
-    expect(évaluer('print(json.dumps(detect.arrondi_vers_le_bas(0.876543, 3)))')).toBe(0.876)
+    expect(evaluate('print(json.dumps(detect.arrondi_vers_le_bas(0.876543, 3)))')).toBe(0.876)
   })
 
   /**
@@ -98,7 +98,7 @@ describe('detect.py — le score écrit dans analysis.json', () => {
    * n'aurait rien fermé.
    */
   it('écrit ce score-là dans les boîtes, pas un autre', () => {
-    const boîtes = évaluer(
+    const boxes = evaluate(
       [
         'class Tenseur:',
         '    def __init__(self, v): self.v = v',
@@ -113,8 +113,8 @@ describe('detect.py — le score écrit dans analysis.json', () => {
         'print(json.dumps(detect.boîtes_du_lot([r], 0, 2.0, 960, 540)))',
       ].join('\n'),
     ) as { score: number }[]
-    expect(boîtes).toHaveLength(1)
-    expect(boîtes[0].score).toBe(0.499)
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].score).toBe(0.499)
   })
 })
 
@@ -140,17 +140,17 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
   // Le paramètre est une **expression Python**, pas un nombre : `NaN` et
   // `Infinity` n'ont pas de littéral en Python, et les écrire tels quels
   // lèverait un `NameError` au lieu d'éprouver quoi que ce soit.
-  const refus = (seuil: string, plancher: string): unknown =>
-    évaluer(`print(json.dumps(detect.refus_du_seuil_de_scène(${seuil}, ${plancher})))`)
+  const rejection = (threshold: string, floor: string): unknown =>
+    evaluate(`print(json.dumps(detect.refus_du_seuil_de_scène(${threshold}, ${floor})))`)
 
   it('ne dit rien du couple mesuré', () => {
-    expect(refus('0.4', '0.05')).toBeNull()
+    expect(rejection('0.4', '0.05')).toBeNull()
     // Juste au-dessus du plancher : c'est le cas limite accepté.
-    expect(refus('0.051', '0.05')).toBeNull()
+    expect(rejection('0.051', '0.05')).toBeNull()
   })
 
   it('refuse un seuil sous le plancher, en nommant les deux valeurs', () => {
-    const message = refus('0.02', '0.05')
+    const message = rejection('0.02', '0.05')
     expect(typeof message).toBe('string')
     expect(message).toContain('0.02')
     expect(message).toContain('0.05')
@@ -172,7 +172,7 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
    * implique `score > plancher`. (relevé par Copilot et par Codex)
    */
   it('refuse un seuil posé pile sur le plancher, que la collecte stricte perdrait', () => {
-    const message = refus('0.05', '0.05')
+    const message = rejection('0.05', '0.05')
     expect(typeof message).toBe('string')
     expect(message).toContain('--scene-floor')
   })
@@ -180,8 +180,8 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
   it('refuse un seuil nul ou négatif', () => {
     // Un seuil nul ne dit pas « ne coupe pas » : `plans()` n'écarte que
     // `score < seuil`, donc il déclare une coupe à chaque candidate collectée.
-    expect(typeof refus('0', '0')).toBe('string')
-    expect(typeof refus('-1', '0.05')).toBe('string')
+    expect(typeof rejection('0', '0')).toBe('string')
+    expect(typeof rejection('-1', '0.05')).toBe('string')
   })
 
   /**
@@ -197,10 +197,10 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
    * bout-là. (relevé par Copilot)
    */
   it('refuse un seuil ou un plancher au-dessus de 1, où rien ne coupe plus', () => {
-    expect(typeof refus('4', '0.05')).toBe('string')
-    expect(typeof refus('0.4', '1.5')).toBe('string')
+    expect(typeof rejection('4', '0.05')).toBe('string')
+    expect(typeof rejection('0.4', '1.5')).toBe('string')
     // 1 reste dans le domaine : exigeant à l'excès, mais pas hors sujet.
-    expect(refus('1', '0.05')).toBeNull()
+    expect(rejection('1', '0.05')).toBeNull()
   })
 
   /**
@@ -211,8 +211,8 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
    * accessible par la porte d'à côté. (relevé par Copilot)
    */
   it('refuse un plancher nul ou négatif', () => {
-    expect(typeof refus('0.4', '0')).toBe('string')
-    expect(typeof refus('0.4', '-0.1')).toBe('string')
+    expect(typeof rejection('0.4', '0')).toBe('string')
+    expect(typeof rejection('0.4', '-0.1')).toBe('string')
   })
 
   /**
@@ -224,10 +224,10 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
    * (relevé par Copilot)
    */
   it('refuse un seuil ou un plancher non fini', () => {
-    expect(typeof refus("float('nan')", '0.05')).toBe('string')
-    expect(typeof refus("float('inf')", '0.05')).toBe('string')
-    expect(typeof refus('0.4', "float('nan')")).toBe('string')
-    expect(typeof refus('0.4', "float('inf')")).toBe('string')
+    expect(typeof rejection("float('nan')", '0.05')).toBe('string')
+    expect(typeof rejection("float('inf')", '0.05')).toBe('string')
+    expect(typeof rejection('0.4', "float('nan')")).toBe('string')
+    expect(typeof rejection('0.4', "float('inf')")).toBe('string')
   })
 })
 
@@ -241,50 +241,50 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
  * ces essais ne coûtent ni l'un ni l'autre.
  */
 describe('detect.py — le refus, en ligne de commande', () => {
-  let racine: string
+  let root: string
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-detect-'))
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-detect-'))
   })
 
   afterEach(() => {
-    fs.rmSync(racine, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
-  const lancer = (seuil: string): { status: number | null; stderr: string } => {
-    for (const nom of ['proxy.mp4', 'yolo11m.pt']) fs.writeFileSync(path.join(racine, nom), '')
+  const launch = (threshold: string): { status: number | null; stderr: string } => {
+    for (const name of ['proxy.mp4', 'yolo11m.pt']) fs.writeFileSync(path.join(root, name), '')
     // `--ffmpeg /bin/false` : si le refus ne partait pas, la passe de scène
     // échouerait — ce qui est précisément le témoin du second essai.
     const r = spawnSync(
       'python3',
       [
-        path.join(RACINE, 'worker', 'detect.py'),
-        '--proxy', path.join(racine, 'proxy.mp4'),
-        '--out', path.join(racine, 'analysis.json'),
+        path.join(ROOT, 'worker', 'detect.py'),
+        '--proxy', path.join(root, 'proxy.mp4'),
+        '--out', path.join(root, 'analysis.json'),
         '--ffmpeg', '/bin/false',
-        '--model', path.join(racine, 'yolo11m.pt'),
+        '--model', path.join(root, 'yolo11m.pt'),
         '--proxy-size', '960x540',
         '--source-size', '1920x1080',
         '--duration', '10',
-        '--scene-threshold', seuil,
+        '--scene-threshold', threshold,
       ],
-      { encoding: 'utf8', env: SANS_BYTECODE },
+      { encoding: 'utf8', env: WITHOUT_BYTECODE },
     )
     return { status: r.status, stderr: r.stderr }
   }
 
   it('sort par 2 quand le seuil demandé est sous le plancher', () => {
-    const { status, stderr } = lancer('0.02')
+    const { status, stderr } = launch('0.02')
     expect(status).toBe(2)
     expect(stderr).toContain('--scene-floor')
     // Rien n'a été écrit : on refuse avant de faire quoi que ce soit.
-    expect(fs.existsSync(path.join(racine, 'analysis.json'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'analysis.json'))).toBe(false)
   })
 
   it('sort par 2 sur un seuil que seul argparse aurait accepté', () => {
     // `--scene-threshold nan` : `type=float` le prend, et sans le contrôle de
     // finitude il ferait de chaque candidate une frontière.
-    const { status, stderr } = lancer('nan')
+    const { status, stderr } = launch('nan')
     expect(status).toBe(2)
     expect(stderr).toContain('--scene-threshold')
   })
@@ -292,7 +292,7 @@ describe('detect.py — le refus, en ligne de commande', () => {
   it('laisse passer le seuil mesuré, et va jusqu’à la passe de scène', () => {
     // Le témoin : sans lui, un refus posé sur tous les seuils passerait le test
     // ci-dessus sans rien dire.
-    const { status, stderr } = lancer('0.4')
+    const { status, stderr } = launch('0.4')
     expect(status).not.toBe(2)
     expect(stderr).not.toContain('--scene-floor')
     expect(stderr).toContain('ffmpeg a échoué')
@@ -336,7 +336,7 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
   ].join('\n')
 
   it('aplatit dix-sept triplets en fractions de l’image', () => {
-    const k = évaluer(
+    const k = evaluate(
       'print(json.dumps(detect.flatten_keypoints([[480.0, 270.0, 0.9]] * 17, 960, 540)))',
     ) as number[]
     expect(k).toHaveLength(51)
@@ -350,14 +350,14 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
    * le défaut déjà fermé pour `score` (ticket #40), reparu un champ plus loin.
    */
   it('ne remonte jamais une confiance jusqu’au seuil qui la lit', () => {
-    const k = évaluer(
+    const k = evaluate(
       'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 0.496]] * 17, 960, 540)))',
     ) as number[]
     expect(k[2]).toBe(0.49)
-    const juste = évaluer(
+    const just = evaluate(
       'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 0.5]] * 17, 960, 540)))',
     ) as number[]
-    expect(juste[2]).toBe(0.5)
+    expect(just[2]).toBe(0.5)
   })
 
   /**
@@ -367,7 +367,7 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
    * n'ait échoué au moment de l'écrire. (relevé par Aristarque)
    */
   it('neutralise un point non fini au lieu d’écrire un JSON illisible', () => {
-    const k = évaluer(
+    const k = evaluate(
       "print(json.dumps(detect.flatten_keypoints([[float('nan'), 0.0, 0.9], " +
         "[0.0, float('inf'), 0.9], [480.0, 270.0, float('nan')]] + [[480.0, 270.0, 0.9]] * 14, 960, 540)))",
     ) as number[]
@@ -377,7 +377,7 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
   })
 
   it('borne la confiance dans [0, 1], ce que le schéma exige', () => {
-    const k = évaluer(
+    const k = evaluate(
       'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 1.4]] * 17, 960, 540)))',
     ) as number[]
     expect(k[2]).toBe(1)
@@ -390,7 +390,7 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
    * des points de sa voisine. Le fichier resterait parfaitement valide.
    */
   it('n’attribue pas le squelette d’une personne à sa voisine', () => {
-    const boîtes = évaluer(
+    const boxes = evaluate(
       [
         FIXTURE,
         // La première boîte est d'aire nulle une fois bornée : elle disparaît.
@@ -399,20 +399,20 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
         'print(json.dumps(detect.boîtes_du_lot([Result(b, k)], 0, 2.0, 960, 540)))',
       ].join('\n'),
     ) as { x0: number; k: number[] }[]
-    expect(boîtes).toHaveLength(1)
+    expect(boxes).toHaveLength(1)
     // Celui de la seconde personne, à 0,5 — pas celui de la première, à 0.
-    expect(boîtes[0].k.slice(0, 3)).toEqual([0.5, 0.5, 0.9])
+    expect(boxes[0].k.slice(0, 3)).toEqual([0.5, 0.5, 0.9])
   })
 
   it('n’écrit aucun `k` quand le modèle ne rend pas de points', () => {
-    const boîtes = évaluer(
+    const boxes = evaluate(
       [
         FIXTURE,
         'b = Boxes([[96.0, 54.0, 288.0, 486.0]], [0.9])',
         'print(json.dumps(detect.boîtes_du_lot([Result(b)], 0, 2.0, 960, 540)))',
       ].join('\n'),
     ) as Record<string, unknown>[]
-    expect(boîtes).toHaveLength(1)
-    expect('k' in boîtes[0]).toBe(false)
+    expect(boxes).toHaveLength(1)
+    expect('k' in boxes[0]).toBe(false)
   })
 })

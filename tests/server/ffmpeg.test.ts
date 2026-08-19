@@ -4,12 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import {
-  analyserMarqueTemps,
+  analyzeMarkerTime,
   StopRequestedError,
-  cheminTemporaire,
-  choisirEncodeur,
-  créerJournal,
-  produireArtefact,
+  pathTemporary,
+  chooseEncoder,
+  createLog,
+  produceArtifact,
   forwardAbort,
   runFfmpeg,
 } from '@/server/ffmpeg'
@@ -23,201 +23,201 @@ import {
 
 describe('analyserMarqueTemps', () => {
   it('lit une marque de temps ordinaire', () => {
-    expect(analyserMarqueTemps('frame= 240 fps=120 q=28.0 size=1kB time=00:00:08.00 speed=13.8x')).toBe(8)
+    expect(analyzeMarkerTime('frame= 240 fps=120 q=28.0 size=1kB time=00:00:08.00 speed=13.8x')).toBe(8)
   })
 
   it('rend la dernière marque du morceau, pas la première', () => {
     // Un morceau de flux contient plusieurs réécritures : la plus récente fait foi.
-    expect(analyserMarqueTemps('time=00:00:01.00\rtime=00:01:00.50\rtime=00:02:03.25')).toBe(123.25)
+    expect(analyzeMarkerTime('time=00:00:01.00\rtime=00:01:00.50\rtime=00:02:03.25')).toBe(123.25)
   })
 
   it('compose heures, minutes et secondes', () => {
-    expect(analyserMarqueTemps('time=01:38:57.00')).toBe(3600 + 38 * 60 + 57)
+    expect(analyzeMarkerTime('time=01:38:57.00')).toBe(3600 + 38 * 60 + 57)
   })
 
   it('accepte plus de deux chiffres d heures', () => {
-    expect(analyserMarqueTemps('time=100:00:00.00')).toBe(360_000)
+    expect(analyzeMarkerTime('time=100:00:00.00')).toBe(360_000)
   })
 
   it("rend null sur une marque négative — c'est ce que ffmpeg annonce avant sa première image", () => {
     // `-577014:32:22.77`, soit INT64_MIN divisé par un million. Prise au mot,
     // elle donnerait une barre d'avancement qui commence à moins l'infini.
-    expect(analyserMarqueTemps('frame=0 time=-577014:32:22.77 bitrate=N/A')).toBeNull()
+    expect(analyzeMarkerTime('frame=0 time=-577014:32:22.77 bitrate=N/A')).toBeNull()
   })
 
   it('une marque négative n annule pas une marque valide qui la suit', () => {
-    expect(analyserMarqueTemps('time=-577014:32:22.77\rtime=00:00:04.00')).toBe(4)
+    expect(analyzeMarkerTime('time=-577014:32:22.77\rtime=00:00:04.00')).toBe(4)
   })
 
   it('rend null sur time=N/A et sur un morceau sans marque', () => {
-    expect(analyserMarqueTemps('frame=0 time=N/A bitrate=N/A')).toBeNull()
-    expect(analyserMarqueTemps('[libx264 @ 0x55] using cpu capabilities: MMX2 SSE2Fast')).toBeNull()
+    expect(analyzeMarkerTime('frame=0 time=N/A bitrate=N/A')).toBeNull()
+    expect(analyzeMarkerTime('[libx264 @ 0x55] using cpu capabilities: MMX2 SSE2Fast')).toBeNull()
   })
 
   it("ne conserve pas d'état entre deux appels", () => {
     // La regex porte le drapeau `g` : un `exec` en boucle sur une constante de
     // module reprendrait à `lastIndex` et raterait la marque du morceau suivant.
-    const morceau = 'time=00:00:05.00'
-    expect(analyserMarqueTemps(morceau)).toBe(5)
-    expect(analyserMarqueTemps(morceau)).toBe(5)
+    const piece = 'time=00:00:05.00'
+    expect(analyzeMarkerTime(piece)).toBe(5)
+    expect(analyzeMarkerTime(piece)).toBe(5)
   })
 })
 
 describe('créerJournal', () => {
   it('recolle une ligne coupée entre deux morceaux', () => {
-    const j = créerJournal()
-    j.ajouter('[libx264] mauvaise ')
-    j.ajouter('nouvelle\n')
-    expect(j.lignes()).toEqual(['[libx264] mauvaise nouvelle'])
+    const j = createLog()
+    j.add('[libx264] mauvaise ')
+    j.add('nouvelle\n')
+    expect(j.lines()).toEqual(['[libx264] mauvaise nouvelle'])
   })
 
   it('rend la queue non terminée, celle qui porte souvent le message final', () => {
-    const j = créerJournal()
-    j.ajouter('Conversion failed!')
-    expect(j.lignes()).toEqual(['Conversion failed!'])
+    const j = createLog()
+    j.add('Conversion failed!')
+    expect(j.lines()).toEqual(['Conversion failed!'])
   })
 
   it('replie les lignes de statistiques les unes sur les autres', () => {
     // Sans ce repli, deux heures d'encodage noieraient les avertissements sous
     // des milliers de réécritures de la même ligne.
-    const j = créerJournal(5)
-    j.ajouter('[warn] mux overhead\n')
-    for (let i = 0; i < 500; i++) j.ajouter(`frame=${i} time=00:00:0${i % 10}.00\r`)
-    expect(j.lignes()).toEqual(['[warn] mux overhead', 'frame=499 time=00:00:09.00'])
+    const j = createLog(5)
+    j.add('[warn] mux overhead\n')
+    for (let i = 0; i < 500; i++) j.add(`frame=${i} time=00:00:0${i % 10}.00\r`)
+    expect(j.lines()).toEqual(['[warn] mux overhead', 'frame=499 time=00:00:09.00'])
   })
 
   it("ne replie pas deux lignes de statistiques séparées par un avertissement", () => {
-    const j = créerJournal()
-    j.ajouter('frame=1 time=00:00:01.00\r[warn] ici\nframe=2 time=00:00:02.00\r')
-    expect(j.lignes()).toEqual(['frame=1 time=00:00:01.00', '[warn] ici', 'frame=2 time=00:00:02.00'])
+    const j = createLog()
+    j.add('frame=1 time=00:00:01.00\r[warn] ici\nframe=2 time=00:00:02.00\r')
+    expect(j.lines()).toEqual(['frame=1 time=00:00:01.00', '[warn] ici', 'frame=2 time=00:00:02.00'])
   })
 
   it('garde les dernières lignes et jette les plus anciennes', () => {
-    const j = créerJournal(3)
-    for (let i = 1; i <= 10; i++) j.ajouter(`[warn] ligne ${i}\n`)
-    expect(j.lignes()).toEqual(['[warn] ligne 8', '[warn] ligne 9', '[warn] ligne 10'])
+    const j = createLog(3)
+    for (let i = 1; i <= 10; i++) j.add(`[warn] ligne ${i}\n`)
+    expect(j.lines()).toEqual(['[warn] ligne 8', '[warn] ligne 9', '[warn] ligne 10'])
   })
 
   it('ignore les lignes vides et rend un texte prêt pour un message d erreur', () => {
-    const j = créerJournal()
-    j.ajouter('a\n\n\r\nb\n')
-    expect(j.texte()).toBe('a\nb')
+    const j = createLog()
+    j.add('a\n\n\r\nb\n')
+    expect(j.text()).toBe('a\nb')
   })
 
   it('rend les enregistrements complets, et eux seuls', () => {
     // C'est ce que `runFfmpeg` analyse pour la progression : une marque de temps
     // coupée par la frontière d'un morceau serait perdue des deux côtés si l'on
     // lisait le morceau brut. (relevé par Copilot)
-    const j = créerJournal()
-    expect(j.ajouter('frame=1 time=00:0')).toEqual([])
-    expect(j.ajouter('0:05.00\rframe=2 time=00:00:06.00')).toEqual(['frame=1 time=00:00:05.00'])
-    expect(analyserMarqueTemps(j.ajouter('\r').join('\n'))).toBe(6)
+    const j = createLog()
+    expect(j.add('frame=1 time=00:0')).toEqual([])
+    expect(j.add('0:05.00\rframe=2 time=00:00:06.00')).toEqual(['frame=1 time=00:00:05.00'])
+    expect(analyzeMarkerTime(j.add('\r').join('\n'))).toBe(6)
   })
 
   it('borne la queue : un flux sans fin de ligne ne fait pas gonfler le carnet', () => {
     // Le carnet existe pour ne *pas* tout garder ; il suffirait d'un flux sans
     // séparateur pour qu'il garde tout. C'est la fin qui intéresse.
-    const j = créerJournal()
-    for (let i = 0; i < 100; i++) j.ajouter('x'.repeat(1000))
-    expect(j.texte().length).toBeLessThanOrEqual(8192)
+    const j = createLog()
+    for (let i = 0; i < 100; i++) j.add('x'.repeat(1000))
+    expect(j.text().length).toBeLessThanOrEqual(8192)
   })
 })
 
 describe('choisirEncodeur', () => {
-  const jamais = () => {
+  const never = () => {
     throw new Error('la sonde ne doit pas tourner quand la valeur est explicite')
   }
 
   it('respecte une valeur explicite sans sonder', () => {
-    expect(choisirEncodeur('x264', jamais)).toBe('x264')
-    expect(choisirEncodeur('nvenc', jamais)).toBe('nvenc')
+    expect(chooseEncoder('x264', never)).toBe('x264')
+    expect(chooseEncoder('nvenc', never)).toBe('nvenc')
   })
 
   it('tolère la casse et les espaces', () => {
-    expect(choisirEncodeur('  NVENC \n', jamais)).toBe('nvenc')
+    expect(chooseEncoder('  NVENC \n', never)).toBe('nvenc')
   })
 
   it('sonde sur auto, et sur une variable absente ou vide', () => {
-    expect(choisirEncodeur('auto', () => true)).toBe('nvenc')
-    expect(choisirEncodeur('auto', () => false)).toBe('x264')
-    expect(choisirEncodeur(undefined, () => true)).toBe('nvenc')
-    expect(choisirEncodeur('   ', () => false)).toBe('x264')
+    expect(chooseEncoder('auto', () => true)).toBe('nvenc')
+    expect(chooseEncoder('auto', () => false)).toBe('x264')
+    expect(chooseEncoder(undefined, () => true)).toBe('nvenc')
+    expect(chooseEncoder('   ', () => false)).toBe('x264')
   })
 
   it('refuse une valeur inconnue au lieu de se rabattre en silence', () => {
     // Un repli discret diviserait la vitesse d'export par 2,3 (4,58x contre
     // 1,97x mesurés) sans que rien ne le signale.
-    expect(() => choisirEncodeur('nvidia', jamais)).toThrow(/FFMPEG_ENCODER/)
+    expect(() => chooseEncoder('nvidia', never)).toThrow(/FFMPEG_ENCODER/)
   })
 })
 
 describe('cheminTemporaire', () => {
   it("garde l'extension, dont ffmpeg déduit son muxeur", () => {
-    expect(cheminTemporaire('/projects/x/proxy.mp4', 42)).toBe('/projects/x/proxy.partiel-42.mp4')
+    expect(pathTemporary('/projects/x/proxy.mp4', 42)).toBe('/projects/x/proxy.partiel-42.mp4')
   })
 
   it('reste dans le dossier de destination, pour que le renommage soit atomique', () => {
-    expect(cheminTemporaire('/a/b/audio.wav', 7)).toBe('/a/b/audio.partiel-7.wav')
+    expect(pathTemporary('/a/b/audio.wav', 7)).toBe('/a/b/audio.partiel-7.wav')
   })
 
   it('accepte un fichier sans extension', () => {
-    expect(cheminTemporaire('/a/b/sortie', 7)).toBe('/a/b/sortie.partiel-7')
+    expect(pathTemporary('/a/b/sortie', 7)).toBe('/a/b/sortie.partiel-7')
   })
 
   it('donne deux noms distincts à deux écritures du même processus', () => {
     // Rien n'interdit un `Promise.all([buildProxy(x), buildProxy(x)])` : sans
     // ce compteur, les deux ffmpeg écriraient dans le même fichier et le
     // renommage rendrait définitif un MP4 entrelacé.
-    expect(cheminTemporaire('/p/proxy.mp4')).not.toBe(cheminTemporaire('/p/proxy.mp4'))
+    expect(pathTemporary('/p/proxy.mp4')).not.toBe(pathTemporary('/p/proxy.mp4'))
   })
 
   it('reste dans le dossier de destination même sans jeton', () => {
-    expect(cheminTemporaire('/p/proxy.mp4')).toMatch(/^\/p\/proxy\.partiel-\d+-\d+\.mp4$/)
+    expect(pathTemporary('/p/proxy.mp4')).toMatch(/^\/p\/proxy\.partiel-\d+-\d+\.mp4$/)
   })
 })
 
 describe('produireArtefact — la décision de sauter', () => {
-  const racines: string[] = []
+  const roots: string[] = []
   const tmp = (): string => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-ffmpeg-'))
-    racines.push(d)
+    roots.push(d)
     return d
   }
 
   afterEach(() => {
-    for (const d of racines.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+    for (const d of roots.splice(0)) fs.rmSync(d, { recursive: true, force: true })
   })
 
   // Le drapeau : `args` n'est appelé que si l'étape doit vraiment tourner. Il
   // lève, donc le seul fait qu'il soit appelé se voit — et aucun test ici
   // n'atteint ffmpeg.
-  const jamais = () => {
+  const never = () => {
     throw new Error("l'étape ne devait pas tourner")
   }
 
   it("ne lance rien quand l'artefact est déjà là", async () => {
-    const dossier = tmp()
-    const dst = path.join(dossier, 'proxy.mp4')
+    const folder = tmp()
+    const dst = path.join(folder, 'proxy.mp4')
     fs.writeFileSync(dst, 'un proxy')
-    await expect(produireArtefact({ dst, args: jamais })).resolves.toEqual({
+    await expect(produceArtifact({ dst, args: never })).resolves.toEqual({
       path: dst,
       skipped: true,
     })
   })
 
   it('force court-circuite la présence', async () => {
-    const dossier = tmp()
-    const dst = path.join(dossier, 'proxy.mp4')
+    const folder = tmp()
+    const dst = path.join(folder, 'proxy.mp4')
     fs.writeFileSync(dst, 'un proxy')
-    await expect(produireArtefact({ dst, force: true, args: jamais })).rejects.toThrow(
+    await expect(produceArtifact({ dst, forced: true, args: never })).rejects.toThrow(
       /ne devait pas tourner/,
     )
   })
 
   it("lance l'étape quand l'artefact manque, et ne laisse pas de moignon", async () => {
-    const dossier = tmp()
-    const dst = path.join(dossier, 'sous-dossier', 'proxy.mp4')
-    await expect(produireArtefact({ dst, args: jamais })).rejects.toThrow(/ne devait pas tourner/)
+    const folder = tmp()
+    const dst = path.join(folder, 'sous-dossier', 'proxy.mp4')
+    await expect(produceArtifact({ dst, args: never })).rejects.toThrow(/ne devait pas tourner/)
     // Le dossier a bien été créé, et rien de partiel n'y traîne.
     expect(fs.readdirSync(path.dirname(dst))).toEqual([])
   })
@@ -235,25 +235,25 @@ describe('produireArtefact — la décision de sauter', () => {
  * processus par vignette demandée pendant que le partage est tombé.
  */
 describe('runFfmpeg, le délai de garde', () => {
-  let dossier: string
+  let folder: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-garde-'))
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-garde-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(folder, { recursive: true, force: true })
   })
 
   it('rend la main sans attendre, et le dit', async () => {
-    const début = Date.now()
+    const start = Date.now()
     await expect(
-      runFfmpeg(['30'], { bin: 'sleep', timeoutMs: 60, quoi: 'vignette de source e.mp4' }),
+      runFfmpeg(['30'], { bin: 'sleep', timeoutMs: 60, what: 'vignette de source e.mp4' }),
     ).rejects.toThrow(/n'a pas répondu en 60 ms — vignette de source e\.mp4/)
     // Il rend la main tout de suite, sans attendre que le processus veuille bien
     // mourir : sur un montage mort, il part en sommeil non interruptible et
     // `close` peut n'arriver que bien plus tard.
-    expect(Date.now() - début).toBeLessThan(5_000)
+    expect(Date.now() - start).toBeLessThan(5_000)
   })
 
   /**
@@ -266,14 +266,14 @@ describe('runFfmpeg, le délai de garde', () => {
    * délai ne l'écrit jamais.
    */
   it('tue vraiment le processus, il ne le laisse pas finir dans son coin', async () => {
-    const témoin = path.join(dossier, 'survivant.txt')
+    const witness = path.join(folder, 'survivant.txt')
 
     await expect(
-      runFfmpeg(['-c', `sleep 0.4; echo vivant > ${témoin}`], { bin: 'sh', timeoutMs: 60 }),
+      runFfmpeg(['-c', `sleep 0.4; echo vivant > ${witness}`], { bin: 'sh', timeoutMs: 60 }),
     ).rejects.toThrow(/n'a pas répondu/)
 
     await new Promise((r) => setTimeout(r, 500))
-    expect(fs.existsSync(témoin)).toBe(false)
+    expect(fs.existsSync(witness)).toBe(false)
   })
 
   /**
@@ -305,26 +305,26 @@ describe('runFfmpeg, le délai de garde', () => {
  * s'exercent sur `sleep` et sur `sh`, qui sont des processus comme les autres.
  */
 describe('propagerArrêt', () => {
-  let dossier: string
+  let folder: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-'))
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(folder, { recursive: true, force: true })
   })
 
   /** La fin du processus, avec le signal qui l'a emporté. */
-  function finDe(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
-    return new Promise((résoudre) => proc.on('close', (_code, signal) => résoudre(signal)))
+  function fin(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
+    return new Promise((resolve) => proc.on('close', (_code, signal) => resolve(signal)))
   }
 
   it('envoie un SIGTERM, qui suffit à un processus ordinaire', async () => {
     const proc = spawn('sleep', ['30'])
     const controller = new AbortController()
     const detach = forwardAbort(proc, controller.signal)
-    const fin = finDe(proc)
+    const fin = fin(proc)
     controller.abort()
     expect(await fin).toBe('SIGTERM')
     detach()
@@ -346,11 +346,11 @@ describe('propagerArrêt', () => {
       '-e',
       "process.on('SIGTERM', () => {}); console.log('prêt'); setTimeout(() => {}, 5000)",
     ])
-    await new Promise((prêt) => proc.stdout?.once('data', prêt))
+    await new Promise((ready) => proc.stdout?.once('data', ready))
 
     const controller = new AbortController()
     const detach = forwardAbort(proc, controller.signal, 80)
-    const fin = finDe(proc)
+    const fin = fin(proc)
     controller.abort()
     expect(await fin).toBe('SIGKILL')
     detach()
@@ -366,7 +366,7 @@ describe('propagerArrêt', () => {
     const controller = new AbortController()
     controller.abort()
     const proc = spawn('sleep', ['30'])
-    const fin = finDe(proc)
+    const fin = fin(proc)
     forwardAbort(proc, controller.signal)()
     expect(await fin).toBe('SIGTERM')
   })
@@ -374,7 +374,7 @@ describe('propagerArrêt', () => {
   it('ne fait rien du tout sans signal, et son débranchement est sûr', async () => {
     const proc = spawn('sleep', ['0.05'])
     const detach = forwardAbort(proc, undefined)
-    expect(await finDe(proc)).toBeNull()
+    expect(await fin(proc)).toBeNull()
     expect(() => {
       detach()
       detach()
@@ -391,7 +391,7 @@ describe('propagerArrêt', () => {
     const controller = new AbortController()
     const proc = spawn('sleep', ['0.05'])
     const detach = forwardAbort(proc, controller.signal)
-    await finDe(proc)
+    await fin(proc)
     detach()
     // `abort()` après coup ne doit plus rien déclencher : le second `kill` sur
     // un processus mort est de toute façon attrapé, et rien ne doit lever.
@@ -400,14 +400,14 @@ describe('propagerArrêt', () => {
 })
 
 describe('runFfmpeg, l’arrêt demandé', () => {
-  let dossier: string
+  let folder: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-ff-'))
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-arret-ff-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(folder, { recursive: true, force: true })
   })
 
   /**
@@ -419,25 +419,25 @@ describe('runFfmpeg, l’arrêt demandé', () => {
    */
   it('rejette un arrêt, pas un échec', async () => {
     const controller = new AbortController()
-    const promesse = runFfmpeg(['30'], {
+    const promise = runFfmpeg(['30'], {
       bin: 'sleep',
       signal: controller.signal,
-      quoi: 'proxy de cqlp',
+      what: 'proxy de cqlp',
     })
     controller.abort()
-    await expect(promesse).rejects.toThrow(StopRequestedError)
-    await expect(promesse).rejects.toThrow(/Arrêt demandé — proxy de cqlp/)
+    await expect(promise).rejects.toThrow(StopRequestedError)
+    await expect(promise).rejects.toThrow(/Arrêt demandé — proxy de cqlp/)
   })
 
   it('ne lance même pas le processus quand l’arrêt est déjà demandé', async () => {
-    const temoin = path.join(dossier, 'lance.txt')
+    const witness = path.join(folder, 'lance.txt')
     const controller = new AbortController()
     controller.abort()
     await expect(
-      runFfmpeg(['-c', `echo parti > ${temoin}`], { bin: 'sh', signal: controller.signal }),
+      runFfmpeg(['-c', `echo parti > ${witness}`], { bin: 'sh', signal: controller.signal }),
     ).rejects.toThrow(StopRequestedError)
     await new Promise((r) => setTimeout(r, 100))
-    expect(fs.existsSync(temoin)).toBe(false)
+    expect(fs.existsSync(witness)).toBe(false)
   })
 
   /**
@@ -448,23 +448,23 @@ describe('runFfmpeg, l’arrêt demandé', () => {
    * projet porterait un proxy amputé que personne ne verrait.
    */
   it('ne laisse ni artefact ni moignon derrière un encodage tué', async () => {
-    const dst = path.join(dossier, 'proxy.mp4')
+    const dst = path.join(folder, 'proxy.mp4')
     const controller = new AbortController()
     process.env.FFMPEG_BIN = 'sh'
     try {
-      const promesse = produireArtefact({
+      const promise = produceArtifact({
         dst,
         signal: controller.signal,
-        quoi: 'proxy de cqlp',
-        args: (temporaire) => ['-c', `sleep 5; echo tronqué > ${temporaire}`],
+        what: 'proxy de cqlp',
+        args: (temporary) => ['-c', `sleep 5; echo tronqué > ${temporary}`],
       })
       controller.abort()
-      await expect(promesse).rejects.toThrow(StopRequestedError)
+      await expect(promise).rejects.toThrow(StopRequestedError)
     } finally {
       delete process.env.FFMPEG_BIN
     }
     expect(fs.existsSync(dst)).toBe(false)
-    expect(fs.readdirSync(dossier)).toEqual([])
+    expect(fs.readdirSync(folder)).toEqual([])
   })
 
   it('laisse passer un processus qui finit avant l’arrêt', async () => {

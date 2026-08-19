@@ -170,36 +170,36 @@ export function mergeOverlappingWindows(windows: Window[], tx: Transcript): Wind
   if (windows.length === 0) return []
   const segments = usableSegments(tx)
 
-  const ordonnées = [...windows].sort((a, b) => a.start - b.start || a.end - b.end)
-  const fusionnées: Window[] = []
-  for (const source of ordonnées) {
+  const ordered = [...windows].sort((a, b) => a.start - b.start || a.end - b.end)
+  const merged: Window[] = []
+  for (const source of ordered) {
     // Une copie : la fenêtre de l'appelant n'est jamais modifiée en place.
-    const fenêtre = { ...source }
-    const précédente = fusionnées.at(-1)
-    if (précédente === undefined || fenêtre.start > précédente.end) {
-      fusionnées.push(fenêtre)
+    const window = { ...source }
+    const previous = merged.at(-1)
+    if (previous === undefined || window.start > previous.end) {
+      merged.push(window)
       continue
     }
 
     // `max` et non `fenêtre.end` : une fenêtre entièrement contenue dans la
     // précédente raccourcirait le bloc au lieu de s'y fondre.
-    précédente.end = round3(Math.max(précédente.end, fenêtre.end))
-    const étendues = [précédente, fenêtre].filter((w) => w.segTo >= w.segFrom)
-    if (étendues.length === 2) {
-      précédente.segFrom = Math.min(...étendues.map((w) => w.segFrom))
-      précédente.segTo = Math.max(...étendues.map((w) => w.segTo))
-      précédente.text = segments
-        .slice(précédente.segFrom, précédente.segTo + 1)
+    previous.end = round3(Math.max(previous.end, window.end))
+    const extents = [previous, window].filter((w) => w.segTo >= w.segFrom)
+    if (extents.length === 2) {
+      previous.segFrom = Math.min(...extents.map((w) => w.segFrom))
+      previous.segTo = Math.max(...extents.map((w) => w.segTo))
+      previous.text = segments
+        .slice(previous.segFrom, previous.segTo + 1)
         .map((s) => s.text)
         .join(' ')
     } else {
       // Une fenêtre sans étendue : la fenêtre de repli du transcript vide.
       // Concaténer est la meilleure réponse disponible et ne peut rien
       // dupliquer, parce que ce repli n'est jamais que la fenêtre unique.
-      précédente.text = [précédente.text, fenêtre.text].filter((t) => t !== '').join(' ')
+      previous.text = [previous.text, window.text].filter((t) => t !== '').join(' ')
     }
   }
-  return fusionnées
+  return merged
 }
 
 /**
@@ -275,23 +275,23 @@ function atLeastOneWindow(nWindows: number): number {
  * L'union et non la somme : rien n'interdit à deux segments de se chevaucher, et
  * les additionner compterait deux fois le temps commun.
  */
-export function secondesDeParole(tx: Transcript): number {
-  const intervalles = usableSegments(tx)
+export function speechSeconds(tx: Transcript): number {
+  const intervals = usableSegments(tx)
     .map((s) => ({ start: s.start, end: s.end }))
     .filter((i) => i.end > i.start)
     .sort((a, b) => a.start - b.start)
 
   let total = 0
-  let courant: { start: number; end: number } | null = null
-  for (const i of intervalles) {
-    if (courant === null || i.start > courant.end) {
-      if (courant !== null) total += courant.end - courant.start
-      courant = { ...i }
-    } else if (i.end > courant.end) {
-      courant.end = i.end
+  let current: { start: number; end: number } | null = null
+  for (const i of intervals) {
+    if (current === null || i.start > current.end) {
+      if (current !== null) total += current.end - current.start
+      current = { ...i }
+    } else if (i.end > current.end) {
+      current.end = i.end
     }
   }
-  if (courant !== null) total += courant.end - courant.start
+  if (current !== null) total += current.end - current.start
   return total
 }
 
@@ -340,7 +340,7 @@ export const DEFAULT_SELECTION_DIMENSIONS: SelectionDimensions = {
 }
 
 /** La fenêtre de 90 secondes, atome de la conception (spec §7 et `buildWindows`). */
-const SECONDES_PAR_CRÉNEAU = 90
+const SECONDS_BY_SLOT = 90
 
 /**
  * L'étendue de parole ramenée à un nombre exploitable.
@@ -351,7 +351,7 @@ const SECONDES_PAR_CRÉNEAU = 90
  * `NaN`, que le prompt interpolerait telle quelle dans « return NaN to NaN
  * clips ». Un test dégénéré l'a attrapée, ce qui vaut mieux que la production.
  */
-function paroleUtile(speechSeconds: number): number {
+function speechUseful(speechSeconds: number): number {
   return Number.isFinite(speechSeconds) ? Math.max(0, speechSeconds) : 0
 }
 
@@ -362,8 +362,8 @@ function paroleUtile(speechSeconds: number): number {
  * qu'il n'y a de créneaux à examiner. Sans cette borne, un plancher absolu de 6
  * réclamerait six clips à une vidéo de 90 secondes.
  */
-function créneaux(speechSeconds: number): number {
-  return Math.round(paroleUtile(speechSeconds) / SECONDES_PAR_CRÉNEAU)
+function slots(speechSeconds: number): number {
+  return Math.round(speechUseful(speechSeconds) / SECONDS_BY_SLOT)
 }
 
 /**
@@ -406,17 +406,17 @@ export function clipCountTargets(
   speechSeconds: number,
   dimensions: SelectionDimensions,
 ): [number, number] {
-  const parole = paroleUtile(speechSeconds)
-  const parMinutes = Math.round(parole / (60 * Math.max(1, dimensions.minutesPerClip)))
+  const speech = speechUseful(speechSeconds)
+  const byMinutes = Math.round(speech / (60 * Math.max(1, dimensions.minutesPerClip)))
   // Le plancher absolu tient les sources courtes hors de la zone morte ; les
   // créneaux tiennent les très courtes, où six clips n'auraient pas de support.
-  let plancher = Math.max(
+  let floor = Math.max(
     1,
-    Math.min(créneaux(parole), Math.max(dimensions.minimumClips, parMinutes)),
+    Math.min(slots(speech), Math.max(dimensions.minimumClips, byMinutes)),
   )
   // Le plafond laisse une fenêtre riche en rendre plus d'un, sans inviter au
   // remplissage. Il est surtout décoratif : voir le premier paragraphe.
-  let plafond = Math.max(plancher + 2, Math.round(plancher * 1.5))
+  let cap = Math.max(floor + 2, Math.round(floor * 1.5))
   // **`maximumClips` borne les DEUX bornes.** Ne plafonner que le plancher
   // laissait le plafond repartir au-dessus — un maximum de 10 rendait `[10, 15]`
   // et le prompt autorisait toujours quinze clips, ce qui vidait de son sens un
@@ -424,10 +424,10 @@ export function clipCountTargets(
   // descend sous lui, pour que l'intervalle reste valide. (relevé par Codex et
   // Copilot)
   if (dimensions.maximumClips > 0) {
-    plafond = Math.min(plafond, dimensions.maximumClips)
-    plancher = Math.min(plancher, plafond)
+    cap = Math.min(cap, dimensions.maximumClips)
+    floor = Math.min(floor, cap)
   }
-  return [plancher, plafond]
+  return [floor, cap]
 }
 
 /**
@@ -456,9 +456,9 @@ export function shortlistSize(
   dimensions: SelectionDimensions,
 ): number {
   const n = atLeastOneWindow(nWindows)
-  const [plancherClips] = clipCountTargets(speechSeconds, dimensions)
-  const voulu = plancherClips * Math.max(1, dimensions.windowsPerClip)
-  return Math.max(Math.min(dimensions.minimumWindows, n), Math.min(n, voulu))
+  const [floorClips] = clipCountTargets(speechSeconds, dimensions)
+  const desired = floorClips * Math.max(1, dimensions.windowsPerClip)
+  return Math.max(Math.min(dimensions.minimumWindows, n), Math.min(n, desired))
 }
 
 /**

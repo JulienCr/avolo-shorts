@@ -106,9 +106,9 @@ describe('les réglages du repérage', () => {
     server()
     await mountScreen()
     const field = screen.getByLabelText(/tranche de/i)
-    const aide = field.getAttribute('aria-describedby')
-    expect(aide).toBeTruthy()
-    expect(document.getElementById(aide!)?.textContent).toMatch(/parole/i)
+    const help = field.getAttribute('aria-describedby')
+    expect(help).toBeTruthy()
+    expect(document.getElementById(help!)?.textContent).toMatch(/parole/i)
   })
 
   it('affiche les valeurs du serveur, pas les constantes du code', async () => {
@@ -169,12 +169,12 @@ describe('les réglages du repérage', () => {
     // Le gestionnaire du bouton appelait `onChange` sans rien faire de la
     // promesse : un refus produisait un rejet non géré en plus du bandeau.
     // (relevé par Copilot)
-    const rejets: unknown[] = []
-    const surRejet = (e: PromiseRejectionEvent) => {
+    const rejections: unknown[] = []
+    const onRejection = (e: PromiseRejectionEvent) => {
       e.preventDefault()
-      rejets.push(e.reason)
+      rejections.push(e.reason)
     }
-    window.addEventListener('unhandledrejection', surRejet)
+    window.addEventListener('unhandledrejection', onRejection)
     try {
       server({
         read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS }),
@@ -185,9 +185,9 @@ describe('les réglages du repérage', () => {
       await userEvent.click(screen.getByRole('button', { name: /Revenir à/ }))
       await waitFor(() => expect(screen.getByText('refusé')).toBeTruthy())
       await new Promise((r) => setTimeout(r, 0))
-      expect(rejets).toEqual([])
+      expect(rejections).toEqual([])
     } finally {
-      window.removeEventListener('unhandledrejection', surRejet)
+      window.removeEventListener('unhandledrejection', onRejection)
     }
   })
 

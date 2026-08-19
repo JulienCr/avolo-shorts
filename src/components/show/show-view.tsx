@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 import { CoverageTimeline } from '@/components/show/coverage-timeline'
 import { ShowPlayer } from '@/components/show/player'
 import { TranscriptTrigger } from '@/components/show/transcript-panel'
-import { estGarde } from '@/lib/clip-status'
+import { estGuard } from '@/lib/clip-status'
 import type { CandidateClip } from '@/lib/api'
 
 /**
@@ -59,7 +59,7 @@ export function ShowView({
   // `estGarde` et non `status === 'kept'` : un clip exporté est une décision
   // humaine qui a déjà produit un fichier, et c'est justement celui qu'on veut
   // voir sur la bande.
-  const kept = clips.filter((c) => estGarde(c.status))
+  const kept = clips.filter((c) => estGuard(c.status))
 
   /**
    * Déplacer la lecture.

@@ -34,10 +34,10 @@ describe('mergeCandidates', () => {
   // plus `candidate`. Seul `discarded` était couvert. (relevé par Aristarque)
   it.each(['kept', 'exported', 'discarded'] as const)(
     'une proposition ne recouvre pas un clip « %s » du même id',
-    (statut) => {
-      const out = mergeCandidates([c('x', statut)], [c('x', 'candidate', 2)], 2)
+    (status) => {
+      const out = mergeCandidates([c('x', status)], [c('x', 'candidate', 2)], 2)
       expect(out).toHaveLength(1)
-      expect(out[0].status).toBe(statut)
+      expect(out[0].status).toBe(status)
       expect(out[0].pass).toBe(1)
     },
   )
@@ -48,13 +48,13 @@ describe('mergeCandidates', () => {
   it('ne modifie ni existing ni incoming', () => {
     const existing = [c('gardé', 'kept'), c('périmé', 'candidate')]
     const incoming = [c('neuf', 'candidate', 0)]
-    const copieExisting = structuredClone(existing)
-    const copieIncoming = structuredClone(incoming)
+    const copyExisting = structuredClone(existing)
+    const copyIncoming = structuredClone(incoming)
 
     mergeCandidates(existing, incoming, 7)
 
-    expect(existing).toEqual(copieExisting)
-    expect(incoming).toEqual(copieIncoming)
+    expect(existing).toEqual(copyExisting)
+    expect(incoming).toEqual(copyIncoming)
   })
 
   it('chaque lot porte son numéro de passe', () => {
@@ -75,7 +75,7 @@ describe('mergeCandidates', () => {
   // reste en production sans faire échouer un seul test ci-dessus. (relevé par
   // Aristarque)
   it('ne perd aucun champ de la proposition, seul le numéro de passe change', () => {
-    const entrant: Clip = {
+    const incoming: Clip = {
       id: 'clip_2841',
       projectId: '2026-03-08-caro-mdlm',
       segments: [{ start: 2841.2, end: 2856.9 }],
@@ -88,13 +88,13 @@ describe('mergeCandidates', () => {
       status: 'candidate',
       pass: 0,
     }
-    expect(mergeCandidates([], [entrant], 4)).toEqual([{ ...entrant, pass: 4 }])
+    expect(mergeCandidates([], [incoming], 4)).toEqual([{ ...incoming, pass: 4 }])
   })
 
   it.each(['kept', 'discarded', 'exported'] as const)(
     'refuse une proposition qui entre déjà en « %s »',
-    (statut) => {
-      expect(() => mergeCandidates([], [c('x', statut)], 2)).toThrow()
+    (status) => {
+      expect(() => mergeCandidates([], [c('x', status)], 2)).toThrow()
     },
   )
 })

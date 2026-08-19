@@ -4,7 +4,7 @@ import { Pause, Play, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { Segment } from '@/core/edl'
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import { playbackAction } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
  * ci-dessous portent les règles du montage, et se testent alors sans monter un
  * élément que jsdom n'implémente qu'à moitié — `play()` y lève.
  */
-export type Lecteur = {
+export type Player = {
   currentTime: number
   paused: boolean
   play: () => Promise<void> | void
@@ -35,16 +35,16 @@ export type Lecteur = {
  * **Exportée parce que `Espace` la déclenche depuis l'écran**, et qu'un
  * raccourci qui appellerait `play()` directement perdrait cette règle.
  */
-export function basculerLecture(lecteur: Lecteur | null, segments: Segment[]): void {
-  if (lecteur === null || segments.length === 0) return
-  if (!lecteur.paused) {
-    lecteur.pause()
+export function togglePlayback(player: Player | null, segments: Segment[]): void {
+  if (player === null || segments.length === 0) return
+  if (!player.paused) {
+    player.pause()
     return
   }
-  const action = playbackAction(segments, lecteur.currentTime)
-  if (action.kind === 'seek') lecteur.currentTime = action.to
-  else if (action.kind === 'end') lecteur.currentTime = segments[0].start
-  void lecteur.play()
+  const action = playbackAction(segments, player.currentTime)
+  if (action.kind === 'seek') player.currentTime = action.to
+  else if (action.kind === 'end') player.currentTime = segments[0].start
+  void player.play()
 }
 
 /**
@@ -55,17 +55,17 @@ export function basculerLecture(lecteur: Lecteur | null, segments: Segment[]): v
  * repartir la lecture d'un endroit qu'elle quitterait aussitôt, donc un à-coup
  * que personne n'a demandé.
  */
-export function placerLecture(
-  lecteur: Lecteur | null,
+export function placePlayback(
+  player: Player | null,
   segments: Segment[],
   position: number,
 ): void {
-  if (lecteur === null) return
-  lecteur.currentTime = position
+  if (player === null) return
+  player.currentTime = position
   if (segments.length === 0) return
   const action = playbackAction(segments, position)
-  if (action.kind === 'seek') lecteur.currentTime = action.to
-  else if (action.kind === 'end') lecteur.currentTime = segments[0].start
+  if (action.kind === 'seek') player.currentTime = action.to
+  else if (action.kind === 'end') player.currentTime = segments[0].start
 }
 
 /**
@@ -118,14 +118,14 @@ export function ClipPlayer({
   onVideo?: (video: HTMLVideoElement | null) => void
 }) {
   const video = useRef<HTMLVideoElement>(null)
-  const [enLecture, setEnLecture] = useState(false)
+  const [inPlayback, setInPlayback] = useState(false)
 
-  const coupes = Math.max(0, segments.length - 1)
+  const cuts = Math.max(0, segments.length - 1)
 
   // La position courante peut se retrouver hors du montage après une coupe :
   // on la ramène au début du clip plutôt que de laisser le lecteur sur un
   // passage qui n'existe plus.
-  const surTemps = useCallback(() => {
+  const onTime = useCallback(() => {
     const v = video.current
     if (!v) return
     const action = playbackAction(segments, v.currentTime)
@@ -134,7 +134,7 @@ export function ClipPlayer({
       v.pause()
       if (segments.length > 0) v.currentTime = segments[0].start
     }
-    useLecture.getState().definirPosition(v.currentTime)
+    usePlayback.getState().definePosition(v.currentTime)
   }, [segments])
 
   // Une coupe doit se voir tout de suite — **même en pause**. Sans cette
@@ -142,8 +142,8 @@ export function ClipPlayer({
   // passage qu'on venait de retirer jusqu'à la reprise : le lecteur se recalait
   // bien, mais le nombre affiché mentait entre-temps.
   useEffect(() => {
-    surTemps()
-  }, [surTemps])
+    onTime()
+  }, [onTime])
 
   // **Rendu à la page par un effet, pas par la fonction de référence.** Sans
   // proxy il n'y a pas d'élément du tout, et une référence qui n'est jamais
@@ -171,15 +171,15 @@ export function ClipPlayer({
             ref={video}
             src={proxyUrl}
             className="size-full object-contain"
-            onTimeUpdate={surTemps}
-            onSeeked={surTemps}
+            onTimeUpdate={onTime}
+            onSeeked={onTime}
             onPlay={() => {
-              setEnLecture(true)
-              useLecture.getState().definirLecture(true)
+              setInPlayback(true)
+              usePlayback.getState().definePlayback(true)
             }}
             onPause={() => {
-              setEnLecture(false)
-              useLecture.getState().definirLecture(false)
+              setInPlayback(false)
+              usePlayback.getState().definePlayback(false)
             }}
             playsInline
           />
@@ -200,11 +200,11 @@ export function ClipPlayer({
             <Button
               size="icon-sm"
               variant="outline"
-              onClick={() => basculerLecture(video.current, segments)}
+              onClick={() => togglePlayback(video.current, segments)}
               disabled={segments.length === 0}
-              aria-label={enLecture ? 'Mettre en pause' : 'Lire'}
+              aria-label={inPlayback ? 'Mettre en pause' : 'Lire'}
             >
-              {enLecture ? <Pause aria-hidden /> : <Play aria-hidden />}
+              {inPlayback ? <Pause aria-hidden /> : <Play aria-hidden />}
             </Button>
 
             <Position />
@@ -213,11 +213,11 @@ export function ClipPlayer({
           {/* La durée n'est pas répétée ici : elle vit au-dessus du transcript,
               là où les coupes se font. Deux fois le même nombre, c'est un de
               trop. */}
-          {coupes > 0 && (
+          {cuts > 0 && (
             <p className="text-[0.75rem] text-muted-foreground">
-              {coupes === 1
+              {cuts === 1
                 ? 'La lecture saute le passage retiré'
-                : `La lecture saute les ${coupes} passages retirés`}{' '}
+                : `La lecture saute les ${cuts} passages retirés`}{' '}
               — l’à-coup est normal ici, il n’existe pas au rendu.
             </p>
           )}
@@ -240,7 +240,7 @@ export function ClipPlayer({
  * qui les entoure.
  */
 function Position() {
-  const position = useLecture((etat) => etat.position)
+  const position = usePlayback((state) => state.position)
   return (
     <span className="font-mono text-[0.75rem] text-muted-foreground tabular-nums">
       {formatTimecode(position)}

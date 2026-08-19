@@ -1,9 +1,9 @@
 import type { z } from 'zod'
 
 import { InvalidSettingError } from '@/server/db'
-import { messageSûr } from '@/server/erreurs'
-import { CollisionDeProjetError, ExécutionEnCoursError, ProjetInconnuError } from '@/server/run'
-import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
+import { messageSafe } from '@/server/errors'
+import { ProjectErrorCollision, ExecutionInCurrentError, ProjectInconnuError } from '@/server/run'
+import { estTransient, GeminiBlockedError } from '@/server/steps/candidates'
 
 /**
  * La frontière HTTP : ce qui traverse, et sous quel code.
@@ -24,9 +24,9 @@ import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
  */
 
 /** Une erreur dont le code est décidé au point d'appel. */
-export class ErreurHttp extends Error {
+export class ErrorHttp extends Error {
   constructor(
-    readonly statut: number,
+    readonly status: number,
     message: string,
   ) {
     super(message)
@@ -35,38 +35,38 @@ export class ErreurHttp extends Error {
 }
 
 /** Ce qui n'existe pas : projet, clip, artefact. */
-export function introuvable(quoi: string): ErreurHttp {
-  return new ErreurHttp(404, quoi)
+export function notFound(what: string): ErrorHttp {
+  return new ErrorHttp(404, what)
 }
 
 /** Ce que l'appelant a mal formulé. */
-export function requêteInvalide(pourquoi: string): ErreurHttp {
-  return new ErreurHttp(400, pourquoi)
+export function requestInvalid(why: string): ErrorHttp {
+  return new ErrorHttp(400, why)
 }
 
-export function json(données: unknown, init: ResponseInit = {}): Response {
-  return Response.json(données, init)
+export function json(data: unknown, init: ResponseInit = {}): Response {
+  return Response.json(data, init)
 }
 
 /** Le code que mérite une erreur. Séparé de la réponse pour être testable. */
-export function statutPour(erreur: unknown): number {
-  if (erreur instanceof ErreurHttp) return erreur.statut
-  if (erreur instanceof ProjetInconnuError) return 404
+export function statusFor(error: unknown): number {
+  if (error instanceof ErrorHttp) return error.status
+  if (error instanceof ProjectInconnuError) return 404
   // Une saisie refusée par le registre des réglages : clé inconnue ou valeur
   // hors bornes. La demande est mal formée, c'est un 400 — un 500 enverrait
   // chercher un défaut du serveur là où il n'y en a pas.
-  if (erreur instanceof InvalidSettingError) return 400
-  if (erreur instanceof ExécutionEnCoursError) return 409
+  if (error instanceof InvalidSettingError) return 400
+  if (error instanceof ExecutionInCurrentError) return 409
   // Deux sources différentes pour un même identifiant : la demande est bien
   // formée, elle entre en conflit avec ce qui existe déjà.
-  if (erreur instanceof CollisionDeProjetError) return 409
+  if (error instanceof ProjectErrorCollision) return 409
   // Le filtre de contenu a refusé : ni la faute de l'appelant, ni un défaut du
   // serveur. 422 — la demande est bien formée, elle ne peut simplement pas être
   // traitée.
-  if (erreur instanceof GeminiBlockedError) return 422
+  if (error instanceof GeminiBlockedError) return 422
   // Pannes et surcharges du fournisseur, coupures réseau : la même liste de
   // marqueurs que celle qui décide d'une relance côté Gemini (tâche 9).
-  if (estPassagère(erreur)) return 503
+  if (estTransient(error)) return 503
   return 500
 }
 
@@ -74,10 +74,10 @@ export function statutPour(erreur: unknown): number {
  * La réponse d'échec. **Le journal reçoit l'erreur entière**, cause comprise ;
  * le client reçoit un message sans arborescence.
  */
-export function réponseErreur(erreur: unknown, contexte?: string): Response {
-  const statut = statutPour(erreur)
-  console.error(`[api${contexte === undefined ? '' : ` ${contexte}`}] ${statut} —`, erreur)
-  return json({ error: messageSûr(erreur) }, { status: statut })
+export function responseError(error: unknown, context?: string): Response {
+  const status = statusFor(error)
+  console.error(`[api${context === undefined ? '' : ` ${context}`}] ${status} —`, error)
+  return json({ error: messageSafe(error) }, { status: status })
 }
 
 /**
@@ -88,14 +88,14 @@ export function réponseErreur(erreur: unknown, contexte?: string): Response {
  * développement, la trace complète avec les chemins dedans.
  */
 export function route<A extends unknown[]>(
-  contexte: string,
-  gestionnaire: (...args: A) => Promise<Response>,
+  context: string,
+  handler: (...args: A) => Promise<Response>,
 ): (...args: A) => Promise<Response> {
   return async (...args: A) => {
     try {
-      return await gestionnaire(...args)
-    } catch (erreur) {
-      return réponseErreur(erreur, contexte)
+      return await handler(...args)
+    } catch (error) {
+      return responseError(error, context)
     }
   }
 }
@@ -107,22 +107,22 @@ export function route<A extends unknown[]>(
  * l'appelant est responsable, et lui répondre 500 lui ferait chercher la panne
  * en face.
  */
-export async function corps<T>(requête: Request, schéma: z.ZodType<T>): Promise<T> {
-  let brut: unknown
+export async function body<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
+  let raw: unknown
   try {
     // **Un corps vide vaut `{}`.** Une route dont tous les champs sont
     // facultatifs — `POST /api/clips/:id/export` — se demande naturellement par
     // un `curl -X POST` nu, et lui répondre « corps JSON illisible » serait
     // exact et inutile. Une route qui exige un champ échoue de toute façon à la
     // validation, avec un message qui nomme le champ manquant.
-    const texte = await requête.text()
-    brut = texte.trim() === '' ? {} : JSON.parse(texte)
+    const text = await request.text()
+    raw = text.trim() === '' ? {} : JSON.parse(text)
   } catch {
-    throw requêteInvalide('Corps JSON illisible.')
+    throw requestInvalid('Corps JSON illisible.')
   }
-  const lu = schéma.safeParse(brut)
+  const lu = schema.safeParse(raw)
   if (!lu.success) {
-    throw requêteInvalide(
+    throw requestInvalid(
       `Corps invalide : ${lu.error.issues.map((i) => `${i.path.join('.') || '(racine)'} — ${i.message}`).join(' ; ')}`,
     )
   }

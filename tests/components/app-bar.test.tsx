@@ -13,7 +13,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { AppBar } from '@/components/parcours/app-bar'
+import { AppBar } from '@/components/navigation/app-bar'
 
 afterEach(cleanup)
 
@@ -25,8 +25,8 @@ describe('AppBar', () => {
       <AppBar
         lieu={{
           kind: 'clip',
-          projet: { id: '2025-06-15-cqlp', titre: 'La scène du 15 juin' },
-          clip: { titre: 'La chute' },
+          project: { id: '2025-06-15-cqlp', title: 'La scène du 15 juin' },
+          clip: { title: 'La chute' },
         }}
       />,
     )
@@ -68,7 +68,7 @@ describe('AppBar', () => {
     // La barre laisse la place, elle ne dessine pas l'indicateur : c'est
     // l'écran de projet qui sait ce qui tourne.
     render(
-      <AppBar lieu={{ kind: 'projet', projet: { id: 'p1', titre: 'Une émission' } }}>
+      <AppBar lieu={{ kind: 'projet', project: { id: 'p1', title: 'Une émission' } }}>
         <span>proxy, 40 %</span>
       </AppBar>,
     )

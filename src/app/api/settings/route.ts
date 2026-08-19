@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { applySettings, effectiveSettings, getDb } from '@/server/db'
-import { corps, json, route } from '@/server/http'
+import { body, json, route } from '@/server/http'
 
 /**
  * `GET` et `PUT /api/settings` — les réglages effectifs, et leur modification.
@@ -35,7 +35,7 @@ export const PUT = route('PUT /api/settings', async (request: Request) => {
   // **Un corps vide vaut `{}`**, donc un `PUT` nu ne change rien et rend l'état
   // courant. C'est le comportement qu'on veut d'un formulaire qui se soumet
   // sans qu'aucun champ n'ait bougé, et `corps` le porte déjà pour l'export.
-  const patch = await corps(request, z.unknown())
+  const patch = await body(request, z.unknown())
   // Les réglages **résultants**, pas le patch : l'écran affiche ce qui
   // s'applique vraiment, y compris les champs que le patch n'a pas touchés.
   return json(applySettings(getDb(), patch))

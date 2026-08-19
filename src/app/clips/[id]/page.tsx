@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { use } from 'react'
 
-import { AppBar } from '@/components/parcours/app-bar'
-import { EcranDeClip } from '@/components/clip/ecran-clip'
+import { AppBar } from '@/components/navigation/app-bar'
+import { ClipScreen } from '@/components/clip/clip-screen'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useClip } from '@/lib/queries'
@@ -17,17 +17,17 @@ import { useClip } from '@/lib/queries'
  * `@/components/clip/ecran-clip`, ce qui le rend montable en test sans passer
  * par `use(params)`.
  */
-export default function PageDeClip({ params }: { params: Promise<{ id: string }> }) {
+export default function ClipPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const detail = useClip(id)
 
   return (
     <div className="flex h-dvh flex-col">
       {detail.data ? (
-        <EcranDeClip detail={detail.data} />
+        <ClipScreen detail={detail.data} />
       ) : (
         <>
-          <AppBar lieu={{ kind: 'inconnu', libelle: detail.isError ? 'Clip introuvable' : '…' }} />
+          <AppBar lieu={{ kind: 'inconnu', label: detail.isError ? 'Clip introuvable' : '…' }} />
           <main className="mx-auto w-full max-w-5xl flex-1 p-6">
             {detail.isError ? (
               // Pas d'impasse : le fil d'Ariane reste atteignable, et la

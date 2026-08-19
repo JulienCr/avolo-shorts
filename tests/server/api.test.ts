@@ -3,15 +3,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { GET as servirRendu } from '@/app/api/clips/[id]/renders/[file]/route'
+import { GET as serveRender } from '@/app/api/clips/[id]/renders/[file]/route'
 import { GET as getClipRoute, PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
-import { GET as getCandidats } from '@/app/api/projects/[id]/candidates/route'
-import { GET as getProjet } from '@/app/api/projects/[id]/route'
+import { GET as getCandidates } from '@/app/api/projects/[id]/candidates/route'
+import { GET as getProject } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { POST as postStop } from '@/app/api/projects/[id]/stop/route'
 import { GET as getSettingsRoute, PUT as putSettingsRoute } from '@/app/api/settings/route'
-import { GET as listerProjets } from '@/app/api/projects/route'
-import { GET as listerSources } from '@/app/api/sources/route'
+import { GET as listProjects } from '@/app/api/projects/route'
+import { GET as listSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
@@ -25,15 +25,15 @@ import type {
   SourcesListing,
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
-import { statutPour } from '@/server/http'
+import { statusFor } from '@/server/http'
 import { clipFraming } from '@/server/clip-framing'
 import {
   renderedFraming,
-  cheminsRendu,
-  empreinteDuRendu,
+  pathsRender,
+  renderFingerprint,
   renderedShape,
 } from '@/server/steps/render'
-import { lancer, lireStatut, progression } from '@/server/run'
+import { launch, lireStatus, progression } from '@/server/run'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import { vignettePath } from '@/server/thumbs'
 
@@ -47,32 +47,32 @@ import { vignettePath } from '@/server/thumbs'
  * quelque chose.
  */
 
-const PROJET = '2026-01-11-méchante'
-const CLIP = `${PROJET}_000060000-000090000`
+const PROJECT = '2026-01-11-méchante'
+const CLIP = `${PROJECT}_000060000-000090000`
 
-let racine: string
+let root: string
 
 /** Le contexte que Next passe : des paramètres déjà décodés, dans une promesse. */
-function contexte(id: string): { params: Promise<{ id: string }> } {
+function context(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) }
 }
 
 /** Idem, pour la route qui sert un fichier de rendu nommé. */
-function contexteRendu(id: string, file: string): { params: Promise<{ id: string; file: string }> } {
+function contextRender(id: string, file: string): { params: Promise<{ id: string; file: string }> } {
   return { params: Promise.resolve({ id, file }) }
 }
 
 /** Rend une liste de clips vide : `runCandidates` en rend une, l'étape témoin aussi. */
-function resolveVide(résoudre: (clips: Clip[]) => void): void {
-  résoudre([])
+function resolveEmpty(resolve: (clips: Clip[]) => void): void {
+  resolve([])
 }
 
 /** Un `status.json` posé à la main, comme une exécution terminée l'aurait écrit. */
-function poserStatut(champs: Record<string, unknown>): void {
-  const dossier = path.join(racine, 'projects', PROJET)
-  fs.mkdirSync(dossier, { recursive: true })
+function poserStatus(fields: Record<string, unknown>): void {
+  const folder = path.join(root, 'projects', PROJECT)
+  fs.mkdirSync(folder, { recursive: true })
   fs.writeFileSync(
-    path.join(dossier, 'status.json'),
+    path.join(folder, 'status.json'),
     JSON.stringify({
       pid: 1,
       updatedAt: 0,
@@ -83,7 +83,7 @@ function poserStatut(champs: Record<string, unknown>): void {
       finishedAt: 1,
       stopped: false,
       selectionReport: null,
-      ...champs,
+      ...fields,
     }),
   )
 }
@@ -95,9 +95,9 @@ function poserStatut(champs: Record<string, unknown>): void {
  * attente, elle se règlerait pendant le test suivant — dont le `beforeEach` a
  * déjà effacé le dossier sous ses pieds.
  */
-async function laisserFinir(): Promise<void> {
-  for (let i = 0; i < 400 && progression(PROJET) !== null; i += 1) {
-    await new Promise((résoudre) => setTimeout(résoudre, 5))
+async function leaveFinish(): Promise<void> {
+  for (let i = 0; i < 400 && progression(PROJECT) !== null; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
 
@@ -105,10 +105,10 @@ async function laisserFinir(): Promise<void> {
 const OCTETS = Buffer.from(Array.from({ length: 100 }, (_, i) => 48 + (i % 10)))
 
 /** Pose des fichiers dans `projects/<projet>/renders/`, comme le ferait un export. */
-function poserRendus(...noms: string[]): void {
-  const dossier = path.join(racine, 'projects', PROJET, 'renders')
-  fs.mkdirSync(dossier, { recursive: true })
-  for (const nom of noms) fs.writeFileSync(path.join(dossier, nom), OCTETS)
+function poserRenders(...names: string[]): void {
+  const folder = path.join(root, 'projects', PROJECT, 'renders')
+  fs.mkdirSync(folder, { recursive: true })
+  for (const name of names) fs.writeFileSync(path.join(folder, name), OCTETS)
 }
 
 /**
@@ -118,31 +118,31 @@ function poserRendus(...noms: string[]): void {
  * n'en publie rien — ce qui est le correctif lui-même, et pas ce que les tests
  * qui l'appellent cherchent à éprouver.
  */
-function poserEmpreinte(clip: Clip, marques: string[] = []): void {
+function poserFingerprint(clip: Clip, markers: string[] = []): void {
   // **Le cadrage résolu**, comme `renderClip` l'écrit et comme `sortiesDuClip`
   // le relit : ces tests ne posent pas d'`analysis.json`, donc c'est le repli sur
   // le réglage manuel du clip. Le recalculer plutôt que de l'écrire à la main est
   // ce qui fait que l'empreinte posée ici décrit bien le clip qu'on lui donne.
   const framing = clipFraming(clip)
-  const chemin = cheminsRendu(clip.projectId, clip.id, framing.ratio).empreinte
-  fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  const path = pathsRender(clip.projectId, clip.id, framing.ratio).fingerprint
+  fs.mkdirSync(path.dirname(path), { recursive: true })
   fs.writeFileSync(
-    chemin,
+    path,
     JSON.stringify(
-      empreinteDuRendu(
+      renderFingerprint(
         renderedShape(clip, renderedFraming(framing)),
-        marques.map((nom) => ({
-          path: nom,
+        markers.map((name) => ({
+          path: name,
           nativeW: 1000,
           nativeH: 996,
           largeurRatio: 0.22,
           bord: 'gauche' as const,
-          contenu: `contenu-de-${nom}`,
+          contenu: `contenu-de-${name}`,
         })),
         {
-          incrustés: clip.captions,
-          look: { style: DEFAULT_CAPTION_STYLE, polices: 'peu importe : ces tests-ci ne rendent pas' },
-          texte: null,
+          burnedIn: clip.captions,
+          look: { style: DEFAULT_CAPTION_STYLE, fonts: 'peu importe : ces tests-ci ne rendent pas' },
+          text: null,
         },
       ),
     ),
@@ -150,14 +150,14 @@ function poserEmpreinte(clip: Clip, marques: string[] = []): void {
 }
 
 /** L'URL que `GET /api/clips/:id` doit publier pour un fichier de rendu. */
-function urlAttendue(nom: string): string {
-  return `/api/clips/${encodeURIComponent(CLIP)}/renders/${encodeURIComponent(nom)}`
+function urlExpected(name: string): string {
+  return `/api/clips/${encodeURIComponent(CLIP)}/renders/${encodeURIComponent(name)}`
 }
 
-function clipDeBase(): Clip {
+function baseClip(): Clip {
   return {
     id: CLIP,
-    projectId: PROJET,
+    projectId: PROJECT,
     segments: [{ start: 60, end: 90 }],
     ratio: 'auto',
     cropX: 0.5,
@@ -172,8 +172,8 @@ function clipDeBase(): Clip {
 
 /** Un transcript minuscule, à la forme de WhisperX. */
 function poserTranscript(): void {
-  const dossier = path.join(racine, 'projects', PROJET, `${PROJET}.avolo`)
-  fs.mkdirSync(dossier, { recursive: true })
+  const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
   const segments = Array.from({ length: 40 }, (_, i) => ({
     start: i * 10,
     end: i * 10 + 8,
@@ -184,23 +184,23 @@ function poserTranscript(): void {
     ],
   }))
   fs.writeFileSync(
-    path.join(dossier, 'transcript.json'),
+    path.join(folder, 'transcript.json'),
     JSON.stringify({ language: 'fr', segments }),
   )
 }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-api-'))
-  process.env.REPLAY_DIR = path.join(racine, 'replays')
-  process.env.STAGE_DIR = path.join(racine, 'stage')
-  process.env.PROJECTS_DIR = path.join(racine, 'projects')
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-api-'))
+  process.env.REPLAY_DIR = path.join(root, 'replays')
+  process.env.STAGE_DIR = path.join(root, 'stage')
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
   fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
-  fs.writeFileSync(path.join(process.env.REPLAY_DIR, `${PROJET}.mp4`), '')
+  fs.writeFileSync(path.join(process.env.REPLAY_DIR, `${PROJECT}.mp4`), '')
 
   upsertProject(getDb(), {
-    id: PROJET,
-    sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`),
-    stagedPath: path.join(racine, 'stage', `${PROJET}.mp4`),
+    id: PROJECT,
+    sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`),
+    stagedPath: path.join(root, 'stage', `${PROJECT}.mp4`),
     durationSec: 400,
     sizeBytes: 12,
     mtimeMs: 0,
@@ -210,17 +210,17 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDb()
-  fs.rmSync(racine, { recursive: true, force: true })
+  fs.rmSync(root, { recursive: true, force: true })
 })
 
 describe('GET /api/projects', () => {
   it('ne publie ni sourcePath ni stagedPath', async () => {
-    const réponse = await listerProjets()
-    expect(réponse.status).toBe(200)
-    const projets = (await réponse.json()) as ProjectListItem[]
+    const response = await listProjects()
+    expect(response.status).toBe(200)
+    const projects = (await response.json()) as ProjectListItem[]
 
-    expect(projets).toHaveLength(1)
-    expect(Object.keys(projets[0]).sort()).toEqual([
+    expect(projects).toHaveLength(1)
+    expect(Object.keys(projects[0]).sort()).toEqual([
       'createdAt',
       'durationSec',
       'error',
@@ -231,7 +231,7 @@ describe('GET /api/projects', () => {
     ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.
-    expect(JSON.stringify(projets)).not.toContain(racine)
+    expect(JSON.stringify(projects)).not.toContain(root)
   })
 
   /**
@@ -241,40 +241,40 @@ describe('GET /api/projects', () => {
    * l'écran l'annonce « Analysée ».
    */
   it('publie l’arrêt de la dernière exécution', async () => {
-    poserStatut({ stopped: true })
-    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-    expect(projets[0].stopped).toBe(true)
+    poserStatus({ stopped: true })
+    const projects = (await (await listProjects()).json()) as ProjectListItem[]
+    expect(projects[0].stopped).toBe(true)
   })
 
   /** Comme `error` : ce qu'on afficherait serait l'arrêt d'avant. */
   it('tait l’arrêt pendant qu’une exécution tourne', async () => {
-    poserStatut({ stopped: true })
+    poserStatus({ stopped: true })
     poserTranscript()
-    let relacher: (() => void) | undefined
+    let release: (() => void) | undefined
     const blocked = new Promise<Clip[]>((resolve) => {
-      relacher = () => resolve([])
+      release = () => resolve([])
     })
-    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => blocked } })
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => blocked } })
     try {
-      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-      expect(projets[0].running).not.toBeNull()
-      expect(projets[0].stopped).toBe(false)
+      const projects = (await (await listProjects()).json()) as ProjectListItem[]
+      expect(projects[0].running).not.toBeNull()
+      expect(projects[0].stopped).toBe(false)
     } finally {
-      relacher?.()
-      await laisserFinir()
+      release?.()
+      await leaveFinish()
     }
   })
 
   /** Un `status.json` d'avant cette PR ne porte pas le champ : « pas arrêtée ». */
   it('lit un statut sans le champ comme une exécution non arrêtée', async () => {
-    poserStatut({})
-    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-    expect(projets[0].stopped).toBe(false)
+    poserStatus({})
+    const projects = (await (await listProjects()).json()) as ProjectListItem[]
+    expect(projects[0].stopped).toBe(false)
   })
 
   it('dérive le titre du nom de fichier', async () => {
-    const projets = (await (await listerProjets()).json()) as ProjectSummary[]
-    expect(projets[0].title).toBe('méchante — 11 janvier 2026')
+    const projects = (await (await listProjects()).json()) as ProjectSummary[]
+    expect(projects[0].title).toBe('méchante — 11 janvier 2026')
   })
 
   /**
@@ -288,30 +288,30 @@ describe('GET /api/projects', () => {
     // Le transcript déjà là : le plan se réduit au repérage, seule étape qu'on
     // remplace ici par un témoin qu'on tient en main.
     poserTranscript()
-    let relâcher = (): void => {}
-    const enCours = new Promise<Clip[]>((résoudre) => {
-      relâcher = () => resolveVide(résoudre)
+    let release = (): void => {}
+    const inCurrent = new Promise<Clip[]>((resolve) => {
+      release = () => resolveEmpty(resolve)
     })
-    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => inCurrent } })
 
-    const sonde = vi.spyOn(fs, 'existsSync')
+    const probe = vi.spyOn(fs, 'existsSync')
     try {
-      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-      expect(projets[0].running).toEqual({ step: 'candidates', progress: 0 })
+      const projects = (await (await listProjects()).json()) as ProjectListItem[]
+      expect(projects[0].running).toEqual({ step: 'candidates', progress: 0 })
       // **Le contrôle qui porte la décision.** `relevéPrésence` est fait de
       // `existsSync` : s'il revenait dans cette route, ce compteur le dirait.
-      expect(sonde).not.toHaveBeenCalled()
+      expect(probe).not.toHaveBeenCalled()
     } finally {
-      sonde.mockRestore()
-      relâcher()
-      await laisserFinir()
+      probe.mockRestore()
+      release()
+      await leaveFinish()
     }
   })
 
   it('rend null quand rien ne tourne et que rien n’a échoué', async () => {
-    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-    expect(projets[0].running).toBeNull()
-    expect(projets[0].error).toBeNull()
+    const projects = (await (await listProjects()).json()) as ProjectListItem[]
+    expect(projects[0].running).toBeNull()
+    expect(projects[0].error).toBeNull()
   })
 
   /**
@@ -320,10 +320,10 @@ describe('GET /api/projects', () => {
    * délai de garde.
    */
   it('remonte l’échec de la dernière exécution terminée', async () => {
-    poserStatut({ error: 'Gemini a refusé le contenu de cette vidéo.' })
+    poserStatus({ error: 'Gemini a refusé le contenu de cette vidéo.' })
 
-    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-    expect(projets[0].error).toContain('Gemini')
+    const projects = (await (await listProjects()).json()) as ProjectListItem[]
+    expect(projects[0].error).toContain('Gemini')
   })
 
   /**
@@ -333,35 +333,35 @@ describe('GET /api/projects', () => {
    * contrediraient sur le même projet.
    */
   it('n’affiche pas l’échec d’avant pendant qu’une exécution tourne', async () => {
-    poserStatut({ error: 'un échec d’avant' })
+    poserStatus({ error: 'un échec d’avant' })
     poserTranscript()
-    let relâcher = (): void => {}
-    const enCours = new Promise<Clip[]>((résoudre) => {
-      relâcher = () => resolveVide(résoudre)
+    let release = (): void => {}
+    const inCurrent = new Promise<Clip[]>((resolve) => {
+      release = () => resolveEmpty(resolve)
     })
-    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => enCours } })
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => inCurrent } })
 
     try {
-      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
-      expect(projets[0].error).toBeNull()
+      const projects = (await (await listProjects()).json()) as ProjectListItem[]
+      expect(projects[0].error).toBeNull()
     } finally {
-      relâcher()
-      await laisserFinir()
+      release()
+      await leaveFinish()
     }
   })
 })
 
 describe('GET /api/sources', () => {
   it('rend les replays et la ligne de montage', async () => {
-    const réponse = await listerSources()
-    expect(réponse.status).toBe(200)
-    const listing = (await réponse.json()) as SourcesListing
+    const response = await listSources()
+    expect(response.status).toBe(200)
+    const listing = (await response.json()) as SourcesListing
 
-    expect(listing.sources.map((s) => s.name)).toEqual([`${PROJET}.mp4`])
+    expect(listing.sources.map((s) => s.name)).toEqual([`${PROJECT}.mp4`])
     // La source a déjà son projet : la carte y mène au lieu d'en recréer un.
-    expect(listing.sources[0].projectId).toBe(PROJET)
-    expect(listing.montage.disponible).toBe(true)
-    expect(JSON.stringify(listing.sources)).not.toContain(racine)
+    expect(listing.sources[0].projectId).toBe(PROJECT)
+    expect(listing.editing.available).toBe(true)
+    expect(JSON.stringify(listing.sources)).not.toContain(root)
   })
 
   /**
@@ -372,22 +372,22 @@ describe('GET /api/sources', () => {
    */
   it('rend 500 quand REPLAY_DIR n’est pas configurée', async () => {
     delete process.env.REPLAY_DIR
-    const réponse = await listerSources()
-    expect(réponse.status).toBe(500)
-    expect(((await réponse.json()) as { error: string }).error).toContain('REPLAY_DIR')
+    const response = await listSources()
+    expect(response.status).toBe(500)
+    expect(((await response.json()) as { error: string }).error).toContain('REPLAY_DIR')
   })
 })
 
 describe('GET /api/projects/:id', () => {
   it('rend les étapes présentes et ce qui tourne', async () => {
-    fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'proxy.mp4'), '')
+    fs.mkdirSync(path.join(root, 'projects', PROJECT), { recursive: true })
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'proxy.mp4'), '')
     poserTranscript()
 
-    const réponse = await getProjet(new Request('http://x'), contexte(PROJET))
-    expect(réponse.status).toBe(200)
-    const état = (await réponse.json()) as ProjectStatus
-    expect(état.steps).toEqual({
+    const response = await getProject(new Request('http://x'), context(PROJECT))
+    expect(response.status).toBe(200)
+    const state = (await response.json()) as ProjectStatus
+    expect(state.steps).toEqual({
       proxy: true,
       audio: false,
       transcript: true,
@@ -395,7 +395,7 @@ describe('GET /api/projects/:id', () => {
       candidates: false,
       renders: false,
     })
-    expect(état.running).toBeNull()
+    expect(state.running).toBeNull()
   })
 
   /**
@@ -404,9 +404,9 @@ describe('GET /api/projects/:id', () => {
    * n'attend. (relevé par Copilot)
    */
   it('rend l’échec de la dernière exécution terminée', async () => {
-    fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
+    fs.mkdirSync(path.join(root, 'projects', PROJECT), { recursive: true })
     fs.writeFileSync(
-      path.join(racine, 'projects', PROJET, 'status.json'),
+      path.join(root, 'projects', PROJECT, 'status.json'),
       JSON.stringify({
         pid: 1,
         updatedAt: 0,
@@ -418,10 +418,10 @@ describe('GET /api/projects/:id', () => {
       }),
     )
 
-    const état = (await (
-      await getProjet(new Request('http://x'), contexte(PROJET))
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
     ).json()) as ProjectStatus
-    expect(état.error).toContain('PROHIBITED_CONTENT')
+    expect(state.error).toContain('PROHIBITED_CONTENT')
   })
 
   /**
@@ -436,7 +436,7 @@ describe('GET /api/projects/:id', () => {
    * processus qui l'a produit, comme les propositions qu'il qualifie.
    */
   it('publie ce que le repérage n’a pas jugé', async () => {
-    poserStatut({
+    poserStatus({
       selectionReport: {
         windows: 83,
         scored: 51,
@@ -447,10 +447,10 @@ describe('GET /api/projects/:id', () => {
       },
     })
 
-    const état = (await (
-      await getProjet(new Request('http://x'), contexte(PROJET))
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
     ).json()) as ProjectStatus
-    expect(état.selectionReport).toEqual({
+    expect(state.selectionReport).toEqual({
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
@@ -467,19 +467,19 @@ describe('GET /api/projects/:id', () => {
    * processus.
    */
   it('rend null quand aucune notation n’est décrite', async () => {
-    poserStatut({})
+    poserStatus({})
 
-    const état = (await (
-      await getProjet(new Request('http://x'), contexte(PROJET))
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
     ).json()) as ProjectStatus
-    expect(état.selectionReport).toBeNull()
+    expect(state.selectionReport).toBeNull()
   })
 
   it('ne rend pas d’échec quand rien n’a jamais tourné', async () => {
-    const état = (await (
-      await getProjet(new Request('http://x'), contexte(PROJET))
+    const state = (await (
+      await getProject(new Request('http://x'), context(PROJECT))
     ).json()) as ProjectStatus
-    expect(état.error).toBeNull()
+    expect(state.error).toBeNull()
   })
 
   /**
@@ -489,30 +489,30 @@ describe('GET /api/projects/:id', () => {
    * n'ait relevé la vraie.
    */
   it('publie l’arrêt et la taille de la source', async () => {
-    poserStatut({ stopped: true })
-    const réponse = await getProjet(new Request('http://x'), contexte(PROJET))
-    const état = (await réponse.json()) as ProjectStatus
-    expect(état.stopped).toBe(true)
-    expect(état.sizeBytes).toBe(12)
+    poserStatus({ stopped: true })
+    const response = await getProject(new Request('http://x'), context(PROJECT))
+    const state = (await response.json()) as ProjectStatus
+    expect(state.stopped).toBe(true)
+    expect(state.sizeBytes).toBe(12)
   })
 
   it('rend 404 sur un projet inconnu', async () => {
-    const réponse = await getProjet(new Request('http://x'), contexte('jamais-vu'))
-    expect(réponse.status).toBe(404)
+    const response = await getProject(new Request('http://x'), context('jamais-vu'))
+    expect(response.status).toBe(404)
   })
 })
 
 describe('GET /api/projects/:id/candidates', () => {
   it('prépare l’aperçu côté serveur et laisse la vignette nulle sans proxy', async () => {
     poserTranscript()
-    putClip(getDb(), clipDeBase())
+    putClip(getDb(), baseClip())
 
-    const réponse = await getCandidats(new Request('http://x'), contexte(PROJET))
-    const candidats = (await réponse.json()) as CandidateClip[]
-    expect(candidats).toHaveLength(1)
-    expect(candidats[0].preview).toBe('phrase 6 phrase 7 phrase 8')
+    const response = await getCandidates(new Request('http://x'), context(PROJECT))
+    const candidates = (await response.json()) as CandidateClip[]
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].preview).toBe('phrase 6 phrase 7 phrase 8')
     // Pas de proxy encore encodé : `null`, jamais une URL morte.
-    expect(candidats[0].thumbnailUrl).toBeNull()
+    expect(candidates[0].thumbnailUrl).toBeNull()
   })
 
   /**
@@ -525,30 +525,30 @@ describe('GET /api/projects/:id/candidates', () => {
     // Deux morceaux, et vingt secondes retirées entre eux : les phrases 6 et 7
     // sont dans le clip, les phrases 8 et 9 dans le trou.
     putClip(getDb(), {
-      ...clipDeBase(),
+      ...baseClip(),
       segments: [
         { start: 60, end: 75 },
         { start: 100, end: 115 },
       ],
     })
 
-    const candidats = (await (
-      await getCandidats(new Request('http://x'), contexte(PROJET))
+    const candidates = (await (
+      await getCandidates(new Request('http://x'), context(PROJECT))
     ).json()) as CandidateClip[]
-    expect(candidats[0].preview).toBe('phrase 6 phrase 7 phrase 10')
-    expect(candidats[0].preview).not.toContain('phrase 8')
+    expect(candidates[0].preview).toBe('phrase 6 phrase 7 phrase 10')
+    expect(candidates[0].preview).not.toContain('phrase 8')
   })
 
   it('propose la vignette dès que le proxy existe', async () => {
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'proxy.mp4'), '')
-    putClip(getDb(), clipDeBase())
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'proxy.mp4'), '')
+    putClip(getDb(), baseClip())
 
-    const candidats = (await (
-      await getCandidats(new Request('http://x'), contexte(PROJET))
+    const candidates = (await (
+      await getCandidates(new Request('http://x'), context(PROJECT))
     ).json()) as CandidateClip[]
     // L'identifiant porte un accent : sans encodage, l'URL serait cassée.
-    expect(candidats[0].thumbnailUrl).toBe(
+    expect(candidates[0].thumbnailUrl).toBe(
       `/api/clips/${encodeURIComponent(CLIP)}/thumb`,
     )
   })
@@ -559,27 +559,27 @@ describe('GET /api/clips/:id', () => {
     poserTranscript()
     // L'artefact du repérage garde les bornes proposées ; l'édition n'y touche pas.
     fs.writeFileSync(
-      path.join(racine, 'projects', PROJET, 'candidates.json'),
-      JSON.stringify([{ ...clipDeBase(), segments: [{ start: 60, end: 90 }] }]),
+      path.join(root, 'projects', PROJECT, 'candidates.json'),
+      JSON.stringify([{ ...baseClip(), segments: [{ start: 60, end: 90 }] }]),
     )
     // Le clip en base a été vidé de tous ses mots : c'est un état que l'écran de
     // clip produit, et celui où l'on a le plus besoin de relire le transcript.
-    putClip(getDb(), { ...clipDeBase(), segments: [] })
+    putClip(getDb(), { ...baseClip(), segments: [] })
 
-    const réponse = await getClipRoute(new Request('http://x'), contexte(CLIP))
-    expect(réponse.status).toBe(200)
-    const détail = (await réponse.json()) as ClipDetail
-    expect(détail.clip.segments).toEqual([])
-    expect(détail.lines.length).toBeGreaterThan(0)
+    const response = await getClipRoute(new Request('http://x'), context(CLIP))
+    expect(response.status).toBe(200)
+    const detail = (await response.json()) as ClipDetail
+    expect(detail.clip.segments).toEqual([])
+    expect(detail.lines.length).toBeGreaterThan(0)
     // Deux minutes de contexte de part et d'autre de [60, 90].
-    expect(détail.lines[0].start).toBe(0)
-    expect(détail.lines[détail.lines.length - 1].end).toBeLessThanOrEqual(218)
-    expect(détail.proxyUrl).toBeNull()
+    expect(detail.lines[0].start).toBe(0)
+    expect(detail.lines[detail.lines.length - 1].end).toBeLessThanOrEqual(218)
+    expect(detail.proxyUrl).toBeNull()
   })
 
   it('rend 404 sur un clip inconnu', async () => {
-    const réponse = await getClipRoute(new Request('http://x'), contexte('jamais-vu'))
-    expect(réponse.status).toBe(404)
+    const response = await getClipRoute(new Request('http://x'), context('jamais-vu'))
+    expect(response.status).toBe(404)
   })
 
   /**
@@ -591,18 +591,18 @@ describe('GET /api/clips/:id', () => {
    * en rendant 9:16 en dur.
    */
   it('publie le cadrage résolu à côté du clip', async () => {
-    putClip(getDb(), clipDeBase())
+    putClip(getDb(), baseClip())
 
-    const détail = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const detail = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
 
     // Aucune analyse sur ce projet : le repli, et il se nomme.
-    expect(détail.framing.origin).toBe('no-analysis')
-    expect(détail.framing.ratio).toBe('9:16')
-    expect(détail.framing.shots).toHaveLength(1)
-    expect(détail.framing.shots[0]).toMatchObject({ ratio: '9:16', cropX: 0.5 })
-    expect(détail.framing.rejectedOverrides).toEqual([])
+    expect(detail.framing.origin).toBe('no-analysis')
+    expect(detail.framing.ratio).toBe('9:16')
+    expect(detail.framing.shots).toHaveLength(1)
+    expect(detail.framing.shots[0]).toMatchObject({ ratio: '9:16', cropX: 0.5 })
+    expect(detail.framing.rejectedOverrides).toEqual([])
   })
 
   /**
@@ -611,28 +611,28 @@ describe('GET /api/clips/:id', () => {
    * n'a aucun moyen de savoir ce qui a été produit ni où le lire.
    */
   it('ne promet aucune sortie tant que rien n’a été exporté', async () => {
-    putClip(getDb(), clipDeBase())
+    putClip(getDb(), baseClip())
 
-    const détail = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const detail = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(détail.outputs.mp4Url).toBeNull()
-    expect(détail.outputs.textsUrl).toBeNull()
-    expect(détail.outputs.variant9x16Url).toBeNull()
+    expect(detail.outputs.mp4Url).toBeNull()
+    expect(detail.outputs.textsUrl).toBeNull()
+    expect(detail.outputs.variant9x16Url).toBeNull()
   })
 
   it('publie les sorties en URL, jamais en chemin du serveur', async () => {
-    putClip(getDb(), { ...clipDeBase(), status: 'exported' })
-    poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
-    poserEmpreinte({ ...clipDeBase(), status: 'exported' })
+    putClip(getDb(), { ...baseClip(), status: 'exported' })
+    poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
+    poserFingerprint({ ...baseClip(), status: 'exported' })
 
-    const réponse = await getClipRoute(new Request('http://x'), contexte(CLIP))
-    const détail = (await réponse.json()) as ClipDetail
-    expect(détail.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
-    expect(détail.outputs.textsUrl).toBe(urlAttendue(`${CLIP}.txt`))
+    const response = await getClipRoute(new Request('http://x'), context(CLIP))
+    const detail = (await response.json()) as ClipDetail
+    expect(detail.outputs.mp4Url).toBe(urlExpected(`${CLIP}.mp4`))
+    expect(detail.outputs.textsUrl).toBe(urlExpected(`${CLIP}.txt`))
     // Le corps entier : un chemin absolu qui se glisserait dans une valeur ne se
     // verrait pas autrement, et c'est l'arborescence de la machine qu'il publie.
-    expect(JSON.stringify(détail)).not.toContain(racine)
+    expect(JSON.stringify(detail)).not.toContain(root)
   })
 
   /**
@@ -643,16 +643,16 @@ describe('GET /api/clips/:id', () => {
   it('n’attend pas de variante 9:16 quand le ratio résolu l’est déjà', async () => {
     // `auto` se rabat sur 9:16 en itération 0 : la variante serait le même cadre
     // réencodé une seconde fois.
-    putClip(getDb(), clipDeBase())
-    poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`, `${CLIP}-9x16.mp4`)
+    putClip(getDb(), baseClip())
+    poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`, `${CLIP}-9x16.mp4`)
 
-    const détail = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const detail = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(détail.outputs.variant9x16Due).toBe(false)
+    expect(detail.outputs.variant9x16Due).toBe(false)
     // Le fichier est là — abandonné par un ratio précédent — et n'est pourtant
     // pas une livraison de ce clip : le publier le ferait passer pour à jour.
-    expect(détail.outputs.variant9x16Url).toBeNull()
+    expect(detail.outputs.variant9x16Url).toBeNull()
   })
 
   /**
@@ -661,14 +661,14 @@ describe('GET /api/clips/:id', () => {
    * donc autre chose que sa livraison. (relevé par Copilot)
    */
   it('ne publie rien tant que le clip n’est pas exporté', async () => {
-    putClip(getDb(), { ...clipDeBase(), status: 'kept' })
-    poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
+    putClip(getDb(), { ...baseClip(), status: 'kept' })
+    poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
 
-    const détail = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const detail = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(détail.outputs.mp4Url).toBeNull()
-    expect(détail.outputs.textsUrl).toBeNull()
+    expect(detail.outputs.mp4Url).toBeNull()
+    expect(detail.outputs.textsUrl).toBeNull()
   })
 
   /**
@@ -681,104 +681,104 @@ describe('GET /api/clips/:id', () => {
     // **Exporté**, sans quoi le test passerait pour la mauvaise raison : la garde
     // de statut couperait avant le contrôle `isFile()`, et retirer ce dernier ne
     // ferait échouer personne. (relevé par Copilot)
-    putClip(getDb(), { ...clipDeBase(), status: 'exported' })
-    poserEmpreinte({ ...clipDeBase(), status: 'exported' })
-    fs.mkdirSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`), {
+    putClip(getDb(), { ...baseClip(), status: 'exported' })
+    poserFingerprint({ ...baseClip(), status: 'exported' })
+    fs.mkdirSync(path.join(root, 'projects', PROJECT, 'renders', `${CLIP}.mp4`), {
       recursive: true,
     })
 
-    const détail = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const detail = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(détail.outputs.mp4Url).toBeNull()
+    expect(detail.outputs.mp4Url).toBeNull()
     // Et la route des rendus dit la même chose.
     expect(
-      (await servirRendu(new Request('http://x'), contexteRendu(CLIP, `${CLIP}.mp4`))).status,
+      (await serveRender(new Request('http://x'), contextRender(CLIP, `${CLIP}.mp4`))).status,
     ).toBe(404)
   })
 
   it('attend la variante 9:16 dès que le ratio résolu ne l’est pas', async () => {
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
-    poserEmpreinte({ ...clipDeBase(), ratio: '1:1', status: 'exported' })
+    putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
+    poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
 
-    const avant = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const before = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(avant.outputs.variant9x16Due).toBe(true)
+    expect(before.outputs.variant9x16Due).toBe(true)
     // Due mais pas encore produite : là, `null` est bien une sortie manquante.
-    expect(avant.outputs.variant9x16Url).toBeNull()
+    expect(before.outputs.variant9x16Url).toBeNull()
 
-    poserRendus(`${CLIP}-9x16.mp4`)
-    const après = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    poserRenders(`${CLIP}-9x16.mp4`)
+    const after = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(après.outputs.variant9x16Url).toBe(urlAttendue(`${CLIP}-9x16.mp4`))
+    expect(after.outputs.variant9x16Url).toBe(urlExpected(`${CLIP}-9x16.mp4`))
   })
 })
 
 describe('GET /api/clips/:id/renders/:file', () => {
-  const demander = (nom: string, range?: string, id = CLIP): Promise<Response> =>
-    servirRendu(
+  const request = (name: string, range?: string, id = CLIP): Promise<Response> =>
+    serveRender(
       new Request('http://x', { headers: range === undefined ? undefined : { range } }),
-      contexteRendu(id, nom),
+      contextRender(id, name),
     )
 
   beforeEach(() => {
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'exported' })
+    putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
     // Sans elle, la route refuse : un rendu que rien ne certifie n'est pas une
     // livraison à jour, et la porte des octets dit la même chose que celle des
     // URL. Ce que ces tests-ci éprouvent est ce qui vient après.
-    poserEmpreinte({ ...clipDeBase(), ratio: '1:1', status: 'exported' })
+    poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
   })
 
   it('ne sert rien pour un clip que l’édition a fait sortir d’`exported`', async () => {
-    poserRendus(`${CLIP}.mp4`)
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', status: 'kept' })
+    poserRenders(`${CLIP}.mp4`)
+    putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'kept' })
     // Le fichier est là, et c'est justement le cas qui compte : ne plus publier
     // l'URL ne suffit pas si celui qui l'a gardée peut encore la suivre.
-    expect((await demander(`${CLIP}.mp4`)).status).toBe(404)
+    expect((await request(`${CLIP}.mp4`)).status).toBe(404)
   })
 
   it('sert le rendu natif en entier', async () => {
-    poserRendus(`${CLIP}.mp4`)
-    const réponse = await demander(`${CLIP}.mp4`)
+    poserRenders(`${CLIP}.mp4`)
+    const response = await request(`${CLIP}.mp4`)
 
-    expect(réponse.status).toBe(200)
-    expect(réponse.headers.get('content-type')).toBe('video/mp4')
-    expect(réponse.headers.get('content-length')).toBe('100')
-    expect(réponse.headers.get('accept-ranges')).toBe('bytes')
-    expect(Buffer.from(await réponse.arrayBuffer()).equals(OCTETS)).toBe(true)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('video/mp4')
+    expect(response.headers.get('content-length')).toBe('100')
+    expect(response.headers.get('accept-ranges')).toBe('bytes')
+    expect(Buffer.from(await response.arrayBuffer()).equals(OCTETS)).toBe(true)
   })
 
   it('répond aux requêtes partielles, comme le proxy', async () => {
-    poserRendus(`${CLIP}.mp4`)
-    const réponse = await demander(`${CLIP}.mp4`, 'bytes=20-29')
+    poserRenders(`${CLIP}.mp4`)
+    const response = await request(`${CLIP}.mp4`, 'bytes=20-29')
 
-    expect(réponse.status).toBe(206)
-    expect(réponse.headers.get('content-range')).toBe('bytes 20-29/100')
-    expect(réponse.headers.get('content-length')).toBe('10')
-    expect(Buffer.from(await réponse.arrayBuffer()).equals(OCTETS.subarray(20, 30))).toBe(true)
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 20-29/100')
+    expect(response.headers.get('content-length')).toBe('10')
+    expect(Buffer.from(await response.arrayBuffer()).equals(OCTETS.subarray(20, 30))).toBe(true)
   })
 
   it('rend 416 avec la taille réelle, en gardant le `Cache-Control` de la route', async () => {
-    poserRendus(`${CLIP}.mp4`)
-    const réponse = await demander(`${CLIP}.mp4`, 'bytes=500-600')
+    poserRenders(`${CLIP}.mp4`)
+    const response = await request(`${CLIP}.mp4`, 'bytes=500-600')
 
-    expect(réponse.status).toBe(416)
-    expect(réponse.headers.get('content-range')).toBe('bytes */100')
+    expect(response.status).toBe(416)
+    expect(response.headers.get('content-range')).toBe('bytes */100')
     // Un 416 est cacheable par heuristique : sans cet en-tête, un refus calculé
     // sur l'ancienne taille survit à un ré-export et bloque une demande devenue
     // légitime. (relevé par Copilot)
-    expect(réponse.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('cache-control')).toBe('no-cache')
   })
 
   it('sert la variante 9:16 et le texte de publication', async () => {
-    poserRendus(`${CLIP}-9x16.mp4`, `${CLIP}.txt`)
-    expect((await demander(`${CLIP}-9x16.mp4`)).status).toBe(200)
+    poserRenders(`${CLIP}-9x16.mp4`, `${CLIP}.txt`)
+    expect((await request(`${CLIP}-9x16.mp4`)).status).toBe(200)
 
-    const texte = await demander(`${CLIP}.txt`)
-    expect(texte.status).toBe(200)
-    expect(texte.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    const text = await request(`${CLIP}.txt`)
+    expect(text.status).toBe(200)
+    expect(text.headers.get('content-type')).toBe('text/plain; charset=utf-8')
   })
 
   /**
@@ -787,40 +787,40 @@ describe('GET /api/clips/:id/renders/:file', () => {
    * désigner aucun fichier, quelle que soit sa forme.
    */
   it('refuse un nom que ce clip ne produit pas', async () => {
-    poserRendus(`${CLIP}.mp4`)
-    expect((await demander('autre.mp4')).status).toBe(404)
-    expect((await demander('../../../etc/passwd')).status).toBe(404)
-    expect((await demander(`../renders/${CLIP}.mp4`)).status).toBe(404)
-    expect((await demander('')).status).toBe(404)
+    poserRenders(`${CLIP}.mp4`)
+    expect((await request('autre.mp4')).status).toBe(404)
+    expect((await request('../../../etc/passwd')).status).toBe(404)
+    expect((await request(`../renders/${CLIP}.mp4`)).status).toBe(404)
+    expect((await request('')).status).toBe(404)
   })
 
   it('ne sert pas le `.ass`, qui est un intermédiaire et non une sortie', async () => {
-    poserRendus(`${CLIP}.ass`)
-    expect((await demander(`${CLIP}.ass`)).status).toBe(404)
+    poserRenders(`${CLIP}.ass`)
+    expect((await request(`${CLIP}.ass`)).status).toBe(404)
   })
 
   it('refuse le rendu d’un autre clip, même bien nommé', async () => {
-    const autre = `${PROJET}_000200000-000230000`
+    const other = `${PROJECT}_000200000-000230000`
     // Exporté et certifié lui aussi : ce test porte sur le cloisonnement entre
     // clips, pas sur les règles de livraison éprouvées juste au-dessus.
-    putClip(getDb(), { ...clipDeBase(), id: autre, status: 'exported' })
-    poserEmpreinte({ ...clipDeBase(), id: autre, status: 'exported' })
-    poserRendus(`${autre}.mp4`)
-    expect((await demander(`${autre}.mp4`)).status).toBe(404)
-    expect((await demander(`${autre}.mp4`, undefined, autre)).status).toBe(200)
+    putClip(getDb(), { ...baseClip(), id: other, status: 'exported' })
+    poserFingerprint({ ...baseClip(), id: other, status: 'exported' })
+    poserRenders(`${other}.mp4`)
+    expect((await request(`${other}.mp4`)).status).toBe(404)
+    expect((await request(`${other}.mp4`, undefined, other)).status).toBe(200)
   })
 
   it('rend 404 tant que l’export n’a rien produit', async () => {
-    expect((await demander(`${CLIP}.mp4`)).status).toBe(404)
+    expect((await request(`${CLIP}.mp4`)).status).toBe(404)
   })
 
   it('rend 404 sur un clip inconnu', async () => {
-    expect((await demander(`${CLIP}.mp4`, undefined, 'jamais-vu')).status).toBe(404)
+    expect((await request(`${CLIP}.mp4`, undefined, 'jamais-vu')).status).toBe(404)
   })
 
   it('n’écrit aucun chemin du serveur dans son message d’erreur', async () => {
-    const réponse = await demander(`${CLIP}.mp4`)
-    expect(JSON.stringify(await réponse.json())).not.toContain(racine)
+    const response = await request(`${CLIP}.mp4`)
+    expect(JSON.stringify(await response.json())).not.toContain(root)
   })
 })
 
@@ -833,87 +833,87 @@ describe('PATCH /api/clips/:id', () => {
    * prochaine navigation, et le montage mentirait sur ce que l'export produira.
    */
   it('renvoie le cadrage recalculé sur les segments écrits', async () => {
-    putClip(getDb(), { ...clipDeBase(), ratio: '1:1', cropX: 0.5 })
+    putClip(getDb(), { ...baseClip(), ratio: '1:1', cropX: 0.5 })
 
-    const réponse = await patchClipRoute(
+    const response = await patchClipRoute(
       new Request('http://x', {
         method: 'PATCH',
         body: JSON.stringify({ segments: [{ start: 70, end: 80 }], cropX: 0.25 }),
       }),
-      contexte(CLIP),
+      context(CLIP),
     )
-    const résultat = (await réponse.json()) as PatchClipResult
+    const result = (await response.json()) as PatchClipResult
 
     // Le cadrage suit l'écriture, pas l'état d'avant : les bornes du plan de
     // repli sont celles des segments qu'on vient d'écrire, et la position celle
     // qu'on vient de poser.
-    expect(résultat.framing.shots[0].shot).toEqual({ start: 70, end: 80 })
-    expect(résultat.framing.shots[0].cropX).toBe(0.25)
-    expect(résultat.framing.ratio).toBe('1:1')
+    expect(result.framing.shots[0].shot).toEqual({ start: 70, end: 80 })
+    expect(result.framing.shots[0].cropX).toBe(0.25)
+    expect(result.framing.ratio).toBe('1:1')
   })
 
   it('renvoie le cadrage même quand l’écriture a été écartée', async () => {
-    putClip(getDb(), clipDeBase())
-    const commun = { method: 'PATCH' as const }
+    putClip(getDb(), baseClip())
+    const common = { method: 'PATCH' as const }
 
     await patchClipRoute(
-      new Request('http://x', { ...commun, body: JSON.stringify({ cropX: 0.8, seq: 20 }) }),
-      contexte(CLIP),
+      new Request('http://x', { ...common, body: JSON.stringify({ cropX: 0.8, seq: 20 }) }),
+      context(CLIP),
     )
-    const réponse = await patchClipRoute(
-      new Request('http://x', { ...commun, body: JSON.stringify({ cropX: 0.1, seq: 10 }) }),
-      contexte(CLIP),
+    const response = await patchClipRoute(
+      new Request('http://x', { ...common, body: JSON.stringify({ cropX: 0.1, seq: 10 }) }),
+      context(CLIP),
     )
-    const résultat = (await réponse.json()) as PatchClipResult
+    const result = (await response.json()) as PatchClipResult
 
-    expect(résultat.applied).toBe(false)
+    expect(result.applied).toBe(false)
     // Le cadrage décrit la base, pas l'intention refusée : c'est le seul qui
     // permette à l'écran de se remettre d'accord.
-    expect(résultat.framing.shots[0].cropX).toBe(0.8)
+    expect(result.framing.shots[0].cropX).toBe(0.8)
   })
 
-  const patcher = (corps: unknown, id = CLIP): Promise<Response> =>
+  const patch = (body: unknown, id = CLIP): Promise<Response> =>
     patchClipRoute(
       new Request('http://x', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(corps),
+        body: JSON.stringify(body),
       }),
-      contexte(id),
+      context(id),
     )
 
   beforeEach(() => {
-    putClip(getDb(), clipDeBase())
+    putClip(getDb(), baseClip())
   })
 
   it('refuse `status: exported` venant du client', async () => {
-    const réponse = await patcher({ status: 'exported' })
+    const response = await patch({ status: 'exported' })
     // Un clip devient exporté parce qu'un MP4 a été produit, jamais parce que
     // quelqu'un l'a écrit — et `mergeCandidates` le ferait survivre à toutes les
     // passes suivantes.
-    expect(réponse.status).toBe(400)
+    expect(response.status).toBe(400)
   })
 
   it('refuse les champs d’identité', async () => {
-    for (const corps of [{ id: 'autre' }, { projectId: 'autre' }, { pass: 9 }]) {
-      expect((await patcher(corps)).status).toBe(400)
+    for (const body of [{ id: 'autre' }, { projectId: 'autre' }, { pass: 9 }]) {
+      expect((await patch(body)).status).toBe(400)
     }
   })
 
   it('refuse un cropX hors de l’image', async () => {
-    expect((await patcher({ cropX: 1.5 })).status).toBe(400)
+    expect((await patch({ cropX: 1.5 })).status).toBe(400)
   })
 
   it('normalise les segments avant écriture', async () => {
-    const réponse = await patcher({
+    const response = await patch({
       segments: [
         { start: 80, end: 95 },
         { start: 60, end: 82 },
         { start: 120, end: 120 },
       ],
     })
-    expect(réponse.status).toBe(200)
-    const { clip } = (await réponse.json()) as PatchClipResult
+    expect(response.status).toBe(200)
+    const { clip } = (await response.json()) as PatchClipResult
     // Triés, fusionnés puisqu'ils se chevauchent, et le segment vide écarté.
     expect(clip.segments).toEqual([{ start: 60, end: 95 }])
   })
@@ -927,30 +927,30 @@ describe('PATCH /api/clips/:id', () => {
    * (relevé par Aristarque)
    */
   it('accepte une liste de segments vide', async () => {
-    const réponse = await patcher({ segments: [] })
-    expect(réponse.status).toBe(200)
-    expect(((await réponse.json()) as PatchClipResult).clip.segments).toEqual([])
+    const response = await patch({ segments: [] })
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as PatchClipResult).clip.segments).toEqual([])
 
     // Et une seconde fois : les deux côtés sont vides, rien ne doit lever.
-    expect((await patcher({ segments: [] })).status).toBe(200)
+    expect((await patch({ segments: [] })).status).toBe(200)
   })
 
   it('accepte les trois statuts humains et les enregistre', async () => {
-    const réponse = await patcher({ status: 'kept' })
-    expect(réponse.status).toBe(200)
-    expect(((await réponse.json()) as PatchClipResult).clip.status).toBe('kept')
-    const relu = (await (
-      await getClipRoute(new Request('http://x'), contexte(CLIP))
+    const response = await patch({ status: 'kept' })
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as PatchClipResult).clip.status).toBe('kept')
+    const reread = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
     ).json()) as ClipDetail
-    expect(relu.clip.status).toBe('kept')
+    expect(reread.clip.status).toBe('kept')
   })
 
   it('rejette un corps illisible', async () => {
-    const réponse = await patchClipRoute(
+    const response = await patchClipRoute(
       new Request('http://x', { method: 'PATCH', body: 'pas du json' }),
-      contexte(CLIP),
+      context(CLIP),
     )
-    expect(réponse.status).toBe(400)
+    expect(response.status).toBe(400)
   })
 
   /**
@@ -962,20 +962,20 @@ describe('PATCH /api/clips/:id', () => {
    * l'écran affichant, lui, la bonne.
    */
   describe('le jeton d’ordre', () => {
-    const corpsDe = async (réponse: Response): Promise<PatchClipResult> =>
-      (await réponse.json()) as PatchClipResult
+    const body = async (response: Response): Promise<PatchClipResult> =>
+      (await response.json()) as PatchClipResult
 
-    const titreEnBase = async (): Promise<string> =>
+    const titleInBase = async (): Promise<string> =>
       (
-        (await (await getClipRoute(new Request('http://x'), contexte(CLIP))).json()) as ClipDetail
+        (await (await getClipRoute(new Request('http://x'), context(CLIP))).json()) as ClipDetail
       ).clip.title
 
     it('applique une écriture plus récente que la dernière', async () => {
-      expect((await corpsDe(await patcher({ title: 'un', seq: 10 }))).applied).toBe(true)
-      const résultat = await corpsDe(await patcher({ title: 'deux', seq: 11 }))
-      expect(résultat.applied).toBe(true)
-      expect(résultat.clip.title).toBe('deux')
-      expect(await titreEnBase()).toBe('deux')
+      expect((await body(await patch({ title: 'un', seq: 10 }))).applied).toBe(true)
+      const result = await body(await patch({ title: 'deux', seq: 11 }))
+      expect(result.applied).toBe(true)
+      expect(result.clip.title).toBe('deux')
+      expect(await titleInBase()).toBe('deux')
     })
 
     /**
@@ -985,16 +985,16 @@ describe('PATCH /api/clips/:id', () => {
      * session.
      */
     it('refuse une écriture périmée sans en faire un échec', async () => {
-      await patcher({ title: 'récent', seq: 20 })
-      const réponse = await patcher({ title: 'périmé', seq: 10 })
+      await patch({ title: 'récent', seq: 20 })
+      const response = await patch({ title: 'périmé', seq: 10 })
 
-      expect(réponse.status).toBe(200)
-      const résultat = await corpsDe(réponse)
-      expect(résultat.applied).toBe(false)
+      expect(response.status).toBe(200)
+      const result = await body(response)
+      expect(result.applied).toBe(false)
       // Le clip **gagnant**, pas celui qu'on vient de refuser : c'est ce qui
       // permet à l'appelant de se remettre d'accord avec la base sans relire.
-      expect(résultat.clip.title).toBe('récent')
-      expect(await titreEnBase()).toBe('récent')
+      expect(result.clip.title).toBe('récent')
+      expect(await titleInBase()).toBe('récent')
     })
 
     /**
@@ -1007,84 +1007,84 @@ describe('PATCH /api/clips/:id', () => {
      * ferait écarter le second en entier. (relevé par Codex)
      */
     it('garde une écriture ancienne qui touche un autre champ', async () => {
-      await patcher({ status: 'kept', seq: 11 })
-      const résultat = await corpsDe(await patcher({ title: 'un titre plus ancien', seq: 10 }))
+      await patch({ status: 'kept', seq: 11 })
+      const result = await body(await patch({ title: 'un titre plus ancien', seq: 10 }))
 
-      expect(résultat.applied).toBe(true)
-      expect(résultat.clip.title).toBe('un titre plus ancien')
+      expect(result.applied).toBe(true)
+      expect(result.clip.title).toBe('un titre plus ancien')
       // Et le statut, plus récent, n'a pas été défait au passage.
-      expect(résultat.clip.status).toBe('kept')
-      expect(await titreEnBase()).toBe('un titre plus ancien')
+      expect(result.clip.status).toBe('kept')
+      expect(await titleInBase()).toBe('un titre plus ancien')
     })
 
     it('n’écarte que les champs contestés, et écrit les autres', async () => {
-      await patcher({ title: 'gagnant', seq: 20 })
-      const résultat = await corpsDe(
-        await patcher({ title: 'perdant', status: 'discarded', seq: 15 }),
+      await patch({ title: 'gagnant', seq: 20 })
+      const result = await body(
+        await patch({ title: 'perdant', status: 'discarded', seq: 15 }),
       )
 
       // Un champ écarté suffit à faire tomber `applied`…
-      expect(résultat.applied).toBe(false)
-      expect(résultat.clip.title).toBe('gagnant')
+      expect(result.applied).toBe(false)
+      expect(result.clip.title).toBe('gagnant')
       // …mais l'autre est bien écrit : rien de ce geste n'est perdu sans raison.
-      expect(résultat.clip.status).toBe('discarded')
+      expect(result.clip.status).toBe('discarded')
     })
 
     it('date le jeton d’un champ réécrit à l’identique', async () => {
       // Une valeur identique reste une prise de position sur ce champ : sans
       // cela, un second geste plus ancien passerait derrière sans être vu.
-      await patcher({ title: 'même', seq: 30 })
-      await patcher({ title: 'même', seq: 40 })
-      expect((await corpsDe(await patcher({ title: 'ancien', seq: 35 }))).applied).toBe(false)
-      expect(await titreEnBase()).toBe('même')
+      await patch({ title: 'même', seq: 30 })
+      await patch({ title: 'même', seq: 40 })
+      expect((await body(await patch({ title: 'ancien', seq: 35 }))).applied).toBe(false)
+      expect(await titleInBase()).toBe('même')
     })
 
     it('rend le plancher d’ordre, de quoi se recaler après un retour d’horloge', async () => {
-      await patcher({ title: 'venu du futur', seq: 4_000_000_000_000 })
+      await patch({ title: 'venu du futur', seq: 4_000_000_000_000 })
       // Le client dont l'horloge vient d'être corrigée envoie plus petit.
-      const refusé = await corpsDe(await patcher({ title: 'après correction', seq: 100 }))
-      expect(refusé.applied).toBe(false)
+      const rejected = await body(await patch({ title: 'après correction', seq: 100 }))
+      expect(rejected.applied).toBe(false)
       // La réponse porte le plancher : une seule requête suffit à l'apprendre.
-      expect(refusé.seq).toBe(4_000_000_000_000)
+      expect(rejected.seq).toBe(4_000_000_000_000)
 
-      const repris = await corpsDe(await patcher({ title: 'recalé', seq: 4_000_000_000_001 }))
-      expect(repris.applied).toBe(true)
-      expect(await titreEnBase()).toBe('recalé')
+      const resumed = await body(await patch({ title: 'recalé', seq: 4_000_000_000_001 }))
+      expect(resumed.applied).toBe(true)
+      expect(await titleInBase()).toBe('recalé')
     })
 
     it('accepte un jeton égal au dernier appliqué', async () => {
-      await patcher({ title: 'un', seq: 7 })
-      const résultat = await corpsDe(await patcher({ title: 'deux', seq: 7 }))
+      await patch({ title: 'un', seq: 7 })
+      const result = await body(await patch({ title: 'deux', seq: 7 }))
       // Deux gestes dans la même milliseconde : l'ordre est indécidable, et
       // seul le jeton **inférieur** se refuse.
-      expect(résultat.applied).toBe(true)
-      expect(await titreEnBase()).toBe('deux')
+      expect(result.applied).toBe(true)
+      expect(await titleInBase()).toBe('deux')
     })
 
     it('annonce le plancher retenu même sans jeton', async () => {
-      await patcher({ title: 'ordonné', seq: 300 })
-      const sansJeton = await corpsDe(await patcher({ title: 'depuis curl' }))
+      await patch({ title: 'ordonné', seq: 300 })
+      const withoutToken = await body(await patch({ title: 'depuis curl' }))
       // La base garde 300 : annoncer 0 recalerait l'appelant vers le bas, donc
       // vers des jetons que le serveur refuserait aussitôt.
-      expect(sansJeton.seq).toBe(300)
+      expect(withoutToken.seq).toBe(300)
     })
 
     it('écrit sans jeton, comme le fait un appel en `curl`', async () => {
-      await patcher({ title: 'depuis l’interface', seq: 300 })
-      const résultat = await corpsDe(await patcher({ title: 'depuis curl' }))
+      await patch({ title: 'depuis l’interface', seq: 300 })
+      const result = await body(await patch({ title: 'depuis curl' }))
       // Un appelant qui n'ordonne pas ses écritures n'a rien à faire dans cette
       // course : il écrit, et les jetons en base ne bougent pas.
-      expect(résultat.applied).toBe(true)
-      expect(await titreEnBase()).toBe('depuis curl')
-      expect((await corpsDe(await patcher({ title: 'encore périmé', seq: 200 }))).applied).toBe(
+      expect(result.applied).toBe(true)
+      expect(await titleInBase()).toBe('depuis curl')
+      expect((await body(await patch({ title: 'encore périmé', seq: 200 }))).applied).toBe(
         false,
       )
     })
 
     it('refuse un jeton qui n’est pas un entier', async () => {
-      expect((await patcher({ title: 'x', seq: 'récent' })).status).toBe(400)
-      expect((await patcher({ title: 'x', seq: 1.5 })).status).toBe(400)
-      expect((await patcher({ title: 'x', seq: -1 })).status).toBe(400)
+      expect((await patch({ title: 'x', seq: 'récent' })).status).toBe(400)
+      expect((await patch({ title: 'x', seq: 1.5 })).status).toBe(400)
+      expect((await patch({ title: 'x', seq: -1 })).status).toBe(400)
     })
 
     /**
@@ -1094,19 +1094,19 @@ describe('PATCH /api/clips/:id', () => {
      * sauterait. (relevé par Copilot)
      */
     it('écarte un rendu que l’édition vient de périmer', async () => {
-      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
-      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
+      poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...baseClip(), status: 'exported' })
 
-      const résultat = await corpsDe(await patcher({ segments: [{ start: 61, end: 91 }], seq: 50 }))
+      const result = await body(await patch({ segments: [{ start: 61, end: 91 }], seq: 50 }))
 
-      expect(résultat.applied).toBe(true)
+      expect(result.applied).toBe(true)
       // Les fichiers décrivaient un montage que personne ne veut plus.
-      expect(résultat.outputs.mp4Url).toBeNull()
-      expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`))).toBe(
+      expect(result.outputs.mp4Url).toBeNull()
+      expect(fs.existsSync(path.join(root, 'projects', PROJECT, 'renders', `${CLIP}.mp4`))).toBe(
         false,
       )
       // Et le clip redevient ce qu'il est : gardé, pas exporté.
-      expect(résultat.clip.status).toBe('kept')
+      expect(result.clip.status).toBe('kept')
     })
 
     /**
@@ -1116,32 +1116,32 @@ describe('PATCH /api/clips/:id', () => {
      * la livraison du jour. (relevé par Copilot)
      */
     it('efface la variante abandonnée quand le ratio change de 9:16 vers 1:1', async () => {
-      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`, `${CLIP}-9x16.mp4`)
-      putClip(getDb(), { ...clipDeBase(), ratio: '9:16', status: 'exported' })
+      poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`, `${CLIP}-9x16.mp4`)
+      putClip(getDb(), { ...baseClip(), ratio: '9:16', status: 'exported' })
 
-      const résultat = await corpsDe(await patcher({ ratio: '1:1', seq: 70 }))
+      const result = await body(await patch({ ratio: '1:1', seq: 70 }))
 
-      expect(résultat.applied).toBe(true)
+      expect(result.applied).toBe(true)
       // Due par le nouveau ratio, et pourtant absente : le fichier qui traînait
       // ne décrivait pas ce clip.
-      expect(résultat.outputs.variant9x16Due).toBe(true)
-      expect(résultat.outputs.variant9x16Url).toBeNull()
+      expect(result.outputs.variant9x16Due).toBe(true)
+      expect(result.outputs.variant9x16Url).toBeNull()
       expect(
-        fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}-9x16.mp4`)),
+        fs.existsSync(path.join(root, 'projects', PROJECT, 'renders', `${CLIP}-9x16.mp4`)),
       ).toBe(false)
     })
 
     it('laisse le rendu en place quand l’édition ne le périme pas', async () => {
-      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
-      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
-      poserEmpreinte({ ...clipDeBase(), status: 'exported' })
+      poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...baseClip(), status: 'exported' })
+      poserFingerprint({ ...baseClip(), status: 'exported' })
 
       // Le titre et la description ne vont que dans le `.txt`, que l'export
       // réécrit sans réencoder : le MP4 les ignore.
-      const résultat = await corpsDe(await patcher({ title: 'Un autre titre', seq: 50 }))
+      const result = await body(await patch({ title: 'Un autre titre', seq: 50 }))
 
-      expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
-      expect(résultat.clip.status).toBe('exported')
+      expect(result.outputs.mp4Url).toBe(urlExpected(`${CLIP}.mp4`))
+      expect(result.clip.status).toBe('exported')
     })
 
     /**
@@ -1150,29 +1150,29 @@ describe('PATCH /api/clips/:id', () => {
      * qu'aucun statut ne le signale. (relevé par Copilot)
      */
     it('rafraîchit le texte de publication quand le titre change', async () => {
-      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
-      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
-      poserEmpreinte({ ...clipDeBase(), status: 'exported' })
+      poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...baseClip(), status: 'exported' })
+      poserFingerprint({ ...baseClip(), status: 'exported' })
 
-      const résultat = await corpsDe(await patcher({ title: 'Un titre corrigé', seq: 60 }))
+      const result = await body(await patch({ title: 'Un titre corrigé', seq: 60 }))
 
-      const texte = fs.readFileSync(
-        path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.txt`),
+      const text = fs.readFileSync(
+        path.join(root, 'projects', PROJECT, 'renders', `${CLIP}.txt`),
         'utf8',
       )
-      expect(texte).toContain('Un titre corrigé')
+      expect(text).toContain('Un titre corrigé')
       // Les MP4 ne bougent pas : un titre ne change aucune image, et les
       // réencoder coûterait quarante secondes pour une faute de frappe.
-      expect(résultat.outputs.mp4Url).toBe(urlAttendue(`${CLIP}.mp4`))
-      expect(résultat.clip.status).toBe('exported')
+      expect(result.outputs.mp4Url).toBe(urlExpected(`${CLIP}.mp4`))
+      expect(result.clip.status).toBe('exported')
     })
 
     it('ne fabrique pas de texte pour un clip que rien n’a rendu', async () => {
-      const résultat = await corpsDe(await patcher({ title: 'Un titre', seq: 60 }))
+      const result = await body(await patch({ title: 'Un titre', seq: 60 }))
       // Sinon `textsUrl` annoncerait une sortie qui n'en est pas une.
-      expect(résultat.outputs.textsUrl).toBeNull()
+      expect(result.outputs.textsUrl).toBeNull()
       expect(
-        fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.txt`)),
+        fs.existsSync(path.join(root, 'projects', PROJECT, 'renders', `${CLIP}.txt`)),
       ).toBe(false)
     })
 
@@ -1182,39 +1182,39 @@ describe('PATCH /api/clips/:id', () => {
      * pourtant enregistré. (relevé par Copilot)
      */
     it('n’échoue pas quand le dossier des rendus est illisible', async () => {
-      poserRendus(`${CLIP}.mp4`, `${CLIP}.txt`)
-      putClip(getDb(), { ...clipDeBase(), status: 'exported' })
-      const dossier = path.join(racine, 'projects', PROJET, 'renders')
-      fs.chmodSync(dossier, 0o500)
+      poserRenders(`${CLIP}.mp4`, `${CLIP}.txt`)
+      putClip(getDb(), { ...baseClip(), status: 'exported' })
+      const folder = path.join(root, 'projects', PROJECT, 'renders')
+      fs.chmodSync(folder, 0o500)
 
       try {
-        const réponse = await patcher({ segments: [{ start: 61, end: 91 }], seq: 60 })
-        expect(réponse.status).toBe(200)
-        const résultat = (await réponse.json()) as PatchClipResult
+        const response = await patch({ segments: [{ start: 61, end: 91 }], seq: 60 })
+        expect(response.status).toBe(200)
+        const result = (await response.json()) as PatchClipResult
         // Le montage est enregistré, et c'est ce que la réponse porte.
-        expect(résultat.applied).toBe(true)
-        expect(résultat.clip.segments).toEqual([{ start: 61, end: 91 }])
+        expect(result.applied).toBe(true)
+        expect(result.clip.segments).toEqual([{ start: 61, end: 91 }])
         // Le fichier est toujours là : l'effacement a bien échoué, donc le test
         // éprouve le rattrapage et non un chemin où il n'y avait rien à faire.
         expect(
-          fs.existsSync(path.join(racine, 'projects', PROJET, 'renders', `${CLIP}.mp4`)),
+          fs.existsSync(path.join(root, 'projects', PROJECT, 'renders', `${CLIP}.mp4`)),
         ).toBe(true)
         // **Et il n'est plus publié.** Le statut est sorti d'`exported` malgré
         // l'échec, donc ce qui survit sur le disque n'est plus offert comme la
         // livraison du jour : c'est la seule chose qui empêche de publier la
         // vidéo d'avant sans le savoir.
-        expect(résultat.clip.status).toBe('kept')
-        expect(résultat.outputs.mp4Url).toBeNull()
+        expect(result.clip.status).toBe('kept')
+        expect(result.outputs.mp4Url).toBeNull()
       } finally {
-        fs.chmodSync(dossier, 0o700)
+        fs.chmodSync(folder, 0o700)
       }
     })
 
     it('rend les sorties d’un clip que rien n’a exporté', async () => {
-      const résultat = await corpsDe(await patcher({ title: 'Peu importe', seq: 50 }))
+      const result = await body(await patch({ title: 'Peu importe', seq: 50 }))
       // Le champ est là même quand il n'y a rien à publier : l'appelant tient
       // son cache dessus, et une absence de champ le laisserait sur l'ancien.
-      expect(résultat.outputs).toEqual({
+      expect(result.outputs).toEqual({
         mp4Url: null,
         variant9x16Url: null,
         variant9x16Due: false,
@@ -1228,46 +1228,46 @@ describe('PATCH /api/clips/:id', () => {
      * régénération à une écriture qui n'a pas eu lieu.
      */
     it('n’efface pas la vignette sur une écriture refusée', async () => {
-      const vignette = vignettePath(PROJET, CLIP)
+      const vignette = vignettePath(PROJECT, CLIP)
       fs.mkdirSync(path.dirname(vignette), { recursive: true })
       fs.writeFileSync(vignette, 'jpeg')
 
-      await patcher({ segments: [{ start: 60, end: 90 }], seq: 40 })
+      await patch({ segments: [{ start: 60, end: 90 }], seq: 40 })
       expect(fs.existsSync(vignette)).toBe(true)
 
-      await patcher({ segments: [{ start: 10, end: 20 }], seq: 5 })
+      await patch({ segments: [{ start: 10, end: 20 }], seq: 5 })
       expect(fs.existsSync(vignette)).toBe(true)
 
-      await patcher({ segments: [{ start: 10, end: 20 }], seq: 41 })
+      await patch({ segments: [{ start: 10, end: 20 }], seq: 41 })
       expect(fs.existsSync(vignette)).toBe(false)
     })
   })
 })
 
 describe('POST /api/projects/:id/run', () => {
-  const lancerRoute = (corps: unknown, id = PROJET): Promise<Response> =>
+  const launchRoute = (body: unknown, id = PROJECT): Promise<Response> =>
     postRun(
       new Request('http://x', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(corps),
+        body: JSON.stringify(body),
       }),
-      contexte(id),
+      context(id),
     )
 
   it('rend le plan, et un plan vide quand tout est là', async () => {
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const réponse = await lancerRoute({ target: 'candidates' })
-    expect(réponse.status).toBe(202)
-    expect(await réponse.json()).toEqual({ projectId: PROJET, plan: [] })
+    const response = await launchRoute({ target: 'candidates' })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ projectId: PROJECT, plan: [] })
   })
 
   it('refuse `renders` : un rendu se demande par clip', async () => {
-    expect((await lancerRoute({ target: 'renders' })).status).toBe(400)
-    expect((await lancerRoute({ target: 'nimporte' })).status).toBe(400)
-    expect((await lancerRoute({ target: 'candidates', inconnu: 1 })).status).toBe(400)
+    expect((await launchRoute({ target: 'renders' })).status).toBe(400)
+    expect((await launchRoute({ target: 'nimporte' })).status).toBe(400)
+    expect((await launchRoute({ target: 'candidates', inconnu: 1 })).status).toBe(400)
   })
 
   /**
@@ -1285,13 +1285,13 @@ describe('POST /api/projects/:id/run', () => {
    */
   it('accepte une liste de cibles et les planifie toutes', async () => {
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
-    fs.rmSync(path.join(racine, 'replays', `${PROJET}.mp4`), { force: true })
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
+    fs.rmSync(path.join(root, 'replays', `${PROJECT}.mp4`), { force: true })
 
-    const réponse = await lancerRoute({ target: ['candidates', 'proxy'] })
-    expect(réponse.status).toBe(202)
-    expect(await réponse.json()).toEqual({ projectId: PROJET, plan: ['proxy'] })
-    await laisserFinir()
+    const response = await launchRoute({ target: ['candidates', 'proxy'] })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ projectId: PROJECT, plan: ['proxy'] })
+    await leaveFinish()
   })
 
   /**
@@ -1301,7 +1301,7 @@ describe('POST /api/projects/:id/run', () => {
    * « c'est fait » à une demande qui ne visait rien.
    */
   it('refuse une liste de cibles vide', async () => {
-    expect((await lancerRoute({ target: [] })).status).toBe(400)
+    expect((await launchRoute({ target: [] })).status).toBe(400)
   })
 
   /**
@@ -1315,26 +1315,26 @@ describe('POST /api/projects/:id/run', () => {
    */
   it('réduit une cible répétée au lieu de la recopier dans le statut', async () => {
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const réponse = await lancerRoute({ target: ['candidates', 'candidates', 'candidates'] })
-    expect(réponse.status).toBe(202)
-    expect(lireStatut(PROJET)?.targets).toEqual(['candidates'])
+    const response = await launchRoute({ target: ['candidates', 'candidates', 'candidates'] })
+    expect(response.status).toBe(202)
+    expect(lireStatus(PROJECT)?.targets).toEqual(['candidates'])
   })
 
   it('refuse une cible interdite au milieu d’une liste', async () => {
-    expect((await lancerRoute({ target: ['candidates', 'renders'] })).status).toBe(400)
-    expect((await lancerRoute({ target: ['candidates', 'nimporte'] })).status).toBe(400)
+    expect((await launchRoute({ target: ['candidates', 'renders'] })).status).toBe(400)
+    expect((await launchRoute({ target: ['candidates', 'nimporte'] })).status).toBe(400)
   })
 
   it('rend 404 sur un projet inconnu', async () => {
-    expect((await lancerRoute({ target: 'candidates' }, 'jamais-vu')).status).toBe(404)
+    expect((await launchRoute({ target: 'candidates' }, 'jamais-vu')).status).toBe(404)
   })
 })
 
 describe('POST /api/projects/:id/stop', () => {
-  const stopper = (id = PROJET): Promise<Response> =>
-    postStop(new Request('http://x', { method: 'POST' }), contexte(id))
+  const stop = (id = PROJECT): Promise<Response> =>
+    postStop(new Request('http://x', { method: 'POST' }), context(id))
 
   /**
    * **`arrêtée: false` n'est pas un échec.** Rien ne tournait : l'analyse venait
@@ -1344,35 +1344,35 @@ describe('POST /api/projects/:id/stop', () => {
    * cliquer deux fois.
    */
   it('rend 200 et `arrêtée: false` quand rien ne tourne', async () => {
-    const reponse = await stopper()
-    expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({ stopped: false })
+    const response = await stop()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ stopped: false })
   })
 
   it('rend 200 et `arrêtée: true` quand une exécution tourne', async () => {
     poserTranscript()
     // Une étape qui ne finit pas d'elle-même : c'est l'arrêt qui doit la clore.
-    let relacher: (() => void) | undefined
-    const bloquee = new Promise<Clip[]>((resoudre) => {
-      relacher = () => resoudre([])
+    let release: (() => void) | undefined
+    const blocked = new Promise<Clip[]>((resolve) => {
+      release = () => resolve([])
     })
-    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => bloquee } })
-    for (let i = 0; i < 200 && progression(PROJET) === null; i += 1) {
+    await launch(PROJECT, ['candidates'], { steps: { runCandidates: () => blocked } })
+    for (let i = 0; i < 200 && progression(PROJECT) === null; i += 1) {
       await new Promise((r) => setTimeout(r, 5))
     }
 
-    const reponse = await stopper()
-    expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({ stopped: true })
+    const response = await stop()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ stopped: true })
 
     // Idempotente : tant que l'exécution descend, la réponse reste la même.
-    expect(await (await stopper()).json()).toEqual({ stopped: true })
+    expect(await (await stop()).json()).toEqual({ stopped: true })
 
-    relacher?.()
-    await laisserFinir()
+    release?.()
+    await leaveFinish()
     // Et le statut ne ressemble pas à une panne.
-    expect(lireStatut(PROJET)?.error).toBeNull()
-    expect(lireStatut(PROJET)?.stopped).toBe(true)
+    expect(lireStatus(PROJECT)?.error).toBeNull()
+    expect(lireStatus(PROJECT)?.stopped).toBe(true)
   })
 
   /**
@@ -1381,7 +1381,7 @@ describe('POST /api/projects/:id/stop', () => {
    * de frappe dans l'identifiant pour un arrêt réussi.
    */
   it('rend 404 sur un projet inconnu', async () => {
-    expect((await stopper('jamais-vu')).status).toBe(404)
+    expect((await stop('jamais-vu')).status).toBe(404)
   })
 })
 
@@ -1397,25 +1397,25 @@ describe('/api/settings', () => {
     ollamaBaseUrl: '',
   }
 
-  const ecrire = (corps: unknown): Promise<Response> =>
+  const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(corps),
+        body: JSON.stringify(body),
       }),
     )
 
   it('rend les réglages effectifs, défauts compris', async () => {
-    const reponse = await getSettingsRoute()
-    expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
+    const response = await getSettingsRoute()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
   })
 
   it('applique un patch partiel et rend les réglages résultants', async () => {
-    const reponse = await ecrire({ selection: { minutesPerClip: 4 } })
-    expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({
+    const response = await write({ selection: { minutesPerClip: 4 } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
       selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
     })
@@ -1432,14 +1432,14 @@ describe('/api/settings', () => {
    * jurant avoir enregistré.
    */
   it('refuse une clé inconnue et une valeur hors bornes', async () => {
-    expect((await ecrire({ selection: { minutesParClipe: 4 } })).status).toBe(400)
-    expect((await ecrire({ hook: { duree: 2 } })).status).toBe(400)
+    expect((await write({ selection: { minutesParClipe: 4 } })).status).toBe(400)
+    expect((await write({ hook: { duree: 2 } })).status).toBe(400)
     // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
     // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
-    expect((await ecrire({ hook: {} })).status).toBe(400)
-    expect((await ecrire({ selection: { minutesPerClip: 0 } })).status).toBe(400)
-    expect((await ecrire({ selection: { minimumClips: 2.5 } })).status).toBe(400)
-    expect((await ecrire({ selection: { minutesPerClip: '4' } })).status).toBe(400)
+    expect((await write({ hook: {} })).status).toBe(400)
+    expect((await write({ selection: { minutesPerClip: 0 } })).status).toBe(400)
+    expect((await write({ selection: { minimumClips: 2.5 } })).status).toBe(400)
+    expect((await write({ selection: { minutesPerClip: '4' } })).status).toBe(400)
     // Et rien n'a été écrit : la lecture rend toujours les défauts.
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: DEFAULT_SELECTION_DIMENSIONS,
@@ -1448,13 +1448,13 @@ describe('/api/settings', () => {
   })
 
   it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
-    const illisible = await putSettingsRoute(
+    const unreadable = await putSettingsRoute(
       new Request('http://x', { method: 'PUT', body: '{pas du json' }),
     )
-    expect(illisible.status).toBe(400)
-    const vide = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
-    expect(vide.status).toBe(200)
-    expect(await vide.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
+    expect(unreadable.status).toBe(400)
+    const empty = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
+    expect(empty.status).toBe(200)
+    expect(await empty.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
   })
 
   /**
@@ -1464,15 +1464,15 @@ describe('/api/settings', () => {
    * artefact, ni lancer quoi que ce soit.
    */
   it('ne recalcule aucune émission', async () => {
-    putClip(getDb(), clipDeBase())
-    fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    putClip(getDb(), baseClip())
+    fs.mkdirSync(path.join(root, 'projects', PROJECT), { recursive: true })
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    await ecrire({ selection: { minutesPerClip: 4 } })
+    await write({ selection: { minutesPerClip: 4 } })
 
-    expect(progression(PROJET)).toBeNull()
-    expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'candidates.json'))).toBe(true)
-    const clip = await getClipRoute(new Request('http://x'), contexte(CLIP))
+    expect(progression(PROJECT)).toBeNull()
+    expect(fs.existsSync(path.join(root, 'projects', PROJECT, 'candidates.json'))).toBe(true)
+    const clip = await getClipRoute(new Request('http://x'), context(CLIP))
     expect(((await clip.json()) as ClipDetail).clip.status).toBe('candidate')
   })
 })
@@ -1480,11 +1480,11 @@ describe('/api/settings', () => {
 describe('les codes d’erreur', () => {
   it('distinguent les trois natures d’échec de la tâche 9', () => {
     // Ni la faute de l'appelant, ni un défaut du serveur : rien à réessayer.
-    expect(statutPour(new GeminiBlockedError('refusé'))).toBe(422)
+    expect(statusFor(new GeminiBlockedError('refusé'))).toBe(422)
     // Une panne de service ou de réseau : tout à réessayer.
-    expect(statutPour(new Error('503 Service Unavailable'))).toBe(503)
-    expect(statutPour(new Error('fetch failed'))).toBe(503)
+    expect(statusFor(new Error('503 Service Unavailable'))).toBe(503)
+    expect(statusFor(new Error('fetch failed'))).toBe(503)
     // Le reste est un défaut de ce programme.
-    expect(statutPour(new Error('Transcript illisible dans le sidecar'))).toBe(500)
+    expect(statusFor(new Error('Transcript illisible dans le sidecar'))).toBe(500)
   })
 })

@@ -17,11 +17,11 @@
  */
 
 import type { ClipStatus } from '@/core/edl'
-import { estEcarte, estGarde } from '@/core/parcours'
+import { estDiscarded, estGuard } from '@/core/phase'
 
-export { estEcarte, estGarde }
+export { estDiscarded, estGuard }
 
-export const LIBELLES_STATUT: Record<ClipStatus, string> = {
+export const LABELS_STATUS: Record<ClipStatus, string> = {
   candidate: 'proposition',
   kept: 'gardé',
   discarded: 'écarté',
@@ -39,10 +39,10 @@ export type Decision = 'kept' | 'discarded'
  * exiger un troisième bouton pour défaire coûterait une colonne de plus sur
  * vingt-cinq cartes.
  */
-export function basculerStatut(
-  courant: ClipStatus,
+export function toggleStatus(
+  current: ClipStatus,
   decision: Decision,
 ): Exclude<ClipStatus, 'exported'> {
-  const actif = decision === 'kept' ? estGarde(courant) : estEcarte(courant)
-  return actif ? 'candidate' : decision
+  const active = decision === 'kept' ? estGuard(current) : estDiscarded(current)
+  return active ? 'candidate' : decision
 }

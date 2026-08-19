@@ -14,15 +14,15 @@ function dialogues(ass: string): string[] {
  * Le champ `Text` d'un événement : le dixième, et le seul qui puisse contenir
  * des virgules — les balises de l'effet `pop` en portent deux.
  */
-function texteDe(dialogue: string): string {
+function textOf(dialogue: string): string {
   return dialogue.split(',').slice(9).join(',')
 }
 
 /** La ligne `Style: Default,…` du bloc `[V4+ Styles]`. */
-function ligneDeStyle(ass: string): string {
-  const ligne = ass.split('\n').find((l) => l.startsWith('Style: '))
-  if (ligne === undefined) throw new Error("le fichier ASS n'a pas de ligne Style")
-  return ligne
+function styleLine(ass: string): string {
+  const line = ass.split('\n').find((l) => l.startsWith('Style: '))
+  if (line === undefined) throw new Error("le fichier ASS n'a pas de ligne Style")
+  return line
 }
 
 describe('retimeWords', () => {
@@ -70,13 +70,13 @@ describe('retimeWords', () => {
   // recule d'une seconde en plein clip. Le défaut ne lève aucune erreur et ne se
   // voit qu'à l'œil, sur un rendu.
   it("range les mots dans l'ordre des segments, jamais dans celui de la source", () => {
-    const desordre = [
+    const outOfOrder = [
       { word: 'd', start: 209, end: 210 },
       { word: 'a', start: 100, end: 101 },
       { word: 'c', start: 200, end: 201 },
       { word: 'b', start: 109, end: 110 },
     ]
-    expect(retimeWords(desordre, segments).map((w) => w.word)).toEqual(['a', 'b', 'c', 'd'])
+    expect(retimeWords(outOfOrder, segments).map((w) => w.word)).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('trie les segments avant de cumuler leurs durées', () => {
@@ -234,33 +234,33 @@ describe('renderAss', () => {
       ...DEFAULT_CAPTION_STYLE,
       uppercase: false,
     })
-    const texte = texteDe(dialogues(ass)[0])
-    expect(texte).toContain('(piégé)/N')
-    expect(texte).not.toContain('{piégé')
+    const text = text(dialogues(ass)[0])
+    expect(text).toContain('(piégé)/N')
+    expect(text).not.toContain('{piégé')
   })
 
   it('met la police à l’échelle de PlayResY 288 : 44 devient 37', () => {
     const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
     expect(ass).toContain('PlayResY: 288')
-    expect(ligneDeStyle(ass).split(',')[2]).toBe('37')
+    expect(styleLine(ass).split(',')[2]).toBe('37')
   })
 
   // 43 unités de PlayResY, soit ~15 % de la hauteur. Les 25 d'avant passaient
   // sous l'interface de TikTok : c'est une mesure, pas un goût.
   it('pose la marge basse à 43 et cale les sous-titres en bas', () => {
-    const champs = ligneDeStyle(renderAss(cards, DEFAULT_CAPTION_STYLE)).split(',')
-    expect(champs[18]).toBe('2') // Alignment : bas centré
-    expect(champs[21]).toBe('43') // MarginV
+    const fields = styleLine(renderAss(cards, DEFAULT_CAPTION_STYLE)).split(',')
+    expect(fields[18]).toBe('2') // Alignment : bas centré
+    expect(fields[21]).toBe('43') // MarginV
   })
 
   // Deux formats de couleur, et les confondre inverse les couleurs sans erreur.
   // #FFE500 n'est pas un palindrome : le contrôle mord.
   it('écrit les couleurs du bloc Style en &HAABBGGRR', () => {
     const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontColor: '#FFE500' })
-    const champs = ligneDeStyle(ass).split(',')
-    expect(champs[3]).toBe('&H0000E5FF') // opaque, BGR
-    expect(champs[5]).toBe('&H00000000') // contour noir opaque
-    expect(champs[6]).toBe('&HFF000000') // fond entièrement transparent
+    const fields = styleLine(ass).split(',')
+    expect(fields[3]).toBe('&H0000E5FF') // opaque, BGR
+    expect(fields[5]).toBe('&H00000000') // contour noir opaque
+    expect(fields[6]).toBe('&HFF000000') // fond entièrement transparent
   })
 
   it('borne chaque événement sur le début du mot suivant, le dernier sur la fin du carton', () => {
@@ -271,9 +271,9 @@ describe('renderAss', () => {
 
   it("n'enveloppe que le mot actif, et le mot actif avance d'un événement à l'autre", () => {
     const events = dialogues(renderAss(cards, DEFAULT_CAPTION_STYLE))
-    const actif = /\{\\c&H00E5FF&\\fscx90\\fscy90\\t\(0,110,\\fscx108\\fscy108\)\}(\w+)\{\\r\}/
-    expect(events[0].match(actif)?.[1]).toBe('SALUT')
-    expect(events[1].match(actif)?.[1]).toBe('TOI')
+    const active = /\{\\c&H00E5FF&\\fscx90\\fscy90\\t\(0,110,\\fscx108\\fscy108\)\}(\w+)\{\\r\}/
+    expect(events[0].match(active)?.[1]).toBe('SALUT')
+    expect(events[1].match(active)?.[1]).toBe('TOI')
   })
 
   // Le fichier ne connaît que le centième : un événement dont les deux bornes
@@ -341,12 +341,12 @@ describe('renderAss', () => {
       uppercase: false,
       marginV: 60,
     })
-    const champs = ligneDeStyle(ass).split(',')
-    expect(champs[1]).toBe('Impact')
-    expect(champs[2]).toBe('85')
-    expect(champs[5]).toBe('&H00332211')
-    expect(champs[16]).toBe('7')
-    expect(champs[21]).toBe('60')
+    const fields = styleLine(ass).split(',')
+    expect(fields[1]).toBe('Impact')
+    expect(fields[2]).toBe('85')
+    expect(fields[5]).toBe('&H00332211')
+    expect(fields[16]).toBe('7')
+    expect(fields[21]).toBe('60')
     expect(ass).toContain('&HFF0000&')
     expect(dialogues(ass)[0]).toContain('salut')
   })
@@ -355,7 +355,7 @@ describe('renderAss', () => {
   // style, donc réécrirait la taille, les couleurs et la marge.
   it("ne laisse pas un nom de police injecter des champs dans la ligne de style", () => {
     const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontName: 'Anton,72,&HFF0000' })
-    expect(ligneDeStyle(ass).slice('Style: '.length).split(',').length).toBe(23)
+    expect(styleLine(ass).slice('Style: '.length).split(',').length).toBe(23)
   })
 
   // Un saut de ligne littéral couperait la ligne `Dialogue:` en deux et
@@ -364,14 +364,14 @@ describe('renderAss', () => {
   it('aplatit un saut de ligne, qui couperait la ligne Dialogue en deux', () => {
     const ass = renderAss([[{ word: 'deux\nlignes\r', start: 0, end: 1 }]], DEFAULT_CAPTION_STYLE)
     expect(dialogues(ass).length).toBe(1)
-    expect(texteDe(dialogues(ass)[0])).toContain('DEUX LIGNES')
+    expect(textOf(dialogues(ass)[0])).toContain('DEUX LIGNES')
   })
 
   // `borner(…, 0, …)` puis `Math.max(1, …)` se contredisaient : un preset à 0
   // remontait à 1 sans rien dire (Aristarque). Une seule garde, qui l'énonce.
   it('remonte un contour nul au minimum lisible', () => {
     const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, borderWidth: 0 })
-    expect(ligneDeStyle(ass).split(',')[16]).toBe('1')
+    expect(styleLine(ass).split(',')[16]).toBe('1')
   })
 
   it('retombe sur des couleurs valides plutôt que de rendre un fichier illisible', () => {
@@ -381,9 +381,9 @@ describe('renderAss', () => {
       highlightColor: '#GGGGGG',
       borderColor: '',
     })
-    const champs = ligneDeStyle(ass).split(',')
-    expect(champs[3]).toBe('&H00FFFFFF')
-    expect(champs[5]).toBe('&H00000000')
+    const fields = styleLine(ass).split(',')
+    expect(fields[3]).toBe('&H00FFFFFF')
+    expect(fields[5]).toBe('&H00000000')
     expect(ass).toContain('&H00D7FF&') // le jaune de repli, #FFD700
   })
 })

@@ -6,25 +6,25 @@ import type Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { StepName } from '@/core/graph'
-import type { BilanNotation } from '@/server/steps/candidates'
+import type { SummaryNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
   cleanWorkCache,
   stopRun,
-  attendre,
-  bilanDeRepérage,
-  cheminTranscript,
-  CollisionDeProjetError,
-  créerProjet,
-  ExécutionEnCoursError,
-  lancer,
-  lireStatut,
-  planPourCibles,
-  oublierSidecar,
-  ProjetInconnuError,
+  wait,
+  detectionSummary,
+  pathTranscript,
+  ProjectErrorCollision,
+  createProject,
+  ExecutionInCurrentError,
+  launch,
+  lireStatus,
+  shotForTargets,
+  forgetSidecar,
+  ProjectInconnuError,
   progression,
-  relevéPrésence,
-  type Étapes,
+  readingPresence,
+  type Steps,
 } from '@/server/run'
 import { StopRequestedError } from '@/server/ffmpeg'
 
@@ -39,71 +39,71 @@ import { StopRequestedError } from '@/server/ffmpeg'
  * heures cinquante d'audio pour reformuler des propositions.
  */
 
-const PROJET = '2025-06-15-cqlp'
+const PROJECT = '2025-06-15-cqlp'
 
-let racine: string
+let root: string
 let db: Database.Database
-let appels: StepName[]
+let calls: StepName[]
 /** La vidéo que le lanceur donne à l'analyse pour en relever les dimensions. */
-let sourcesAnalyse: string[]
+let sourcesAnalysis: string[]
 
 /** Les étapes, remplacées par des témoins qui ne font qu'écrire leur artefact. */
-function étapesFactices(échouer?: StepName): Partial<Étapes> {
-  const noter = async (étape: StepName, artefact?: string): Promise<void> => {
-    appels.push(étape)
-    if (échouer === étape) {
-      throw new Error(`ffmpeg a échoué — Commande : /usr/bin/ffmpeg -i ${racine}/stage/x.mp4`)
+function stepsFake(fail?: StepName): Partial<Steps> {
+  const note = async (step: StepName, artifact?: string): Promise<void> => {
+    calls.push(step)
+    if (fail === step) {
+      throw new Error(`ffmpeg a échoué — Commande : /usr/bin/ffmpeg -i ${root}/stage/x.mp4`)
     }
-    if (artefact !== undefined) {
-      fs.mkdirSync(path.dirname(artefact), { recursive: true })
-      fs.writeFileSync(artefact, '')
+    if (artifact !== undefined) {
+      fs.mkdirSync(path.dirname(artifact), { recursive: true })
+      fs.writeFileSync(artifact, '')
     }
   }
 
   return {
     ingest: async () => {
-      appels.push('proxy' as StepName)
+      calls.push('proxy' as StepName)
       throw new Error("l'ingestion ne devait pas être appelée")
     },
     buildProxy: async (o) => {
-      await noter('proxy', path.join(racine, 'projects', o.projectId, 'proxy.mp4'))
+      await note('proxy', path.join(root, 'projects', o.projectId, 'proxy.mp4'))
       return { path: 'proxy.mp4', skipped: false }
     },
     extractAudio: async (o) => {
-      await noter('audio', path.join(racine, 'projects', o.projectId, 'audio.wav'))
+      await note('audio', path.join(root, 'projects', o.projectId, 'audio.wav'))
       return { path: 'audio.wav', skipped: false }
     },
     transcribe: async (o) => {
-      const fichier = path.join(racine, 'projects', o.projectId, `${PROJET}.avolo`, 'transcript.json')
-      await noter('transcript', fichier)
-      return { path: fichier, skipped: false, fallback: true }
+      const file = path.join(root, 'projects', o.projectId, `${PROJECT}.avolo`, 'transcript.json')
+      await note('transcript', file)
+      return { path: file, skipped: false, fallback: true }
     },
     runAnalysis: async (o) => {
-      const fichier = path.join(racine, 'projects', o.projectId, 'analysis.json')
-      await noter('analysis', fichier)
-      sourcesAnalyse.push(o.source)
-      return { path: fichier, skipped: false }
+      const file = path.join(root, 'projects', o.projectId, 'analysis.json')
+      await note('analysis', file)
+      sourcesAnalysis.push(o.source)
+      return { path: file, skipped: false }
     },
     runCandidates: async (id) => {
-      await noter('candidates', path.join(racine, 'projects', id, 'candidates.json'))
+      await note('candidates', path.join(root, 'projects', id, 'candidates.json'))
       return []
     },
   }
 }
 
-function poserProjet(o: { durationSec?: number | null; copie?: boolean } = {}): void {
-  const source = path.join(racine, 'replays', `${PROJET}.mp4`)
-  const copie = path.join(racine, 'stage', `${PROJET}.mp4`)
+function poserProject(o: { durationSec?: number | null; copy?: boolean } = {}): void {
+  const source = path.join(root, 'replays', `${PROJECT}.mp4`)
+  const copy = path.join(root, 'stage', `${PROJECT}.mp4`)
   fs.mkdirSync(path.dirname(source), { recursive: true })
   fs.writeFileSync(source, '')
-  if (o.copie !== false) {
-    fs.mkdirSync(path.dirname(copie), { recursive: true })
-    fs.writeFileSync(copie, '')
+  if (o.copy !== false) {
+    fs.mkdirSync(path.dirname(copy), { recursive: true })
+    fs.writeFileSync(copy, '')
   }
   upsertProject(db, {
-    id: PROJET,
+    id: PROJECT,
     sourcePath: source,
-    stagedPath: copie,
+    stagedPath: copy,
     durationSec: o.durationSec === undefined ? 5936 : o.durationSec,
     sizeBytes: 0,
     mtimeMs: 0,
@@ -113,27 +113,27 @@ function poserProjet(o: { durationSec?: number | null; copie?: boolean } = {}): 
 
 /** Le proxy déjà là : l'analyse en dépend, et le poser évite de le refaire. */
 function poserProxy(): void {
-  const dossier = path.join(racine, 'projects', PROJET)
-  fs.mkdirSync(dossier, { recursive: true })
-  fs.writeFileSync(path.join(dossier, 'proxy.mp4'), '')
+  const folder = path.join(root, 'projects', PROJECT)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'proxy.mp4'), '')
 }
 
 /** Le transcript déjà là, dans le repli du projet — le cas de la vérification. */
 function poserTranscript(): void {
-  const dossier = path.join(racine, 'projects', PROJET, `${PROJET}.avolo`)
-  fs.mkdirSync(dossier, { recursive: true })
-  fs.writeFileSync(path.join(dossier, 'transcript.json'), '{"segments":[]}')
+  const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'transcript.json'), '{"segments":[]}')
 }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-run-'))
-  process.env.REPLAY_DIR = path.join(racine, 'replays')
-  process.env.STAGE_DIR = path.join(racine, 'stage')
-  process.env.PROJECTS_DIR = path.join(racine, 'projects')
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-run-'))
+  process.env.REPLAY_DIR = path.join(root, 'replays')
+  process.env.STAGE_DIR = path.join(root, 'stage')
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
   fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
   db = openDb(':memory:')
-  appels = []
-  sourcesAnalyse = []
+  calls = []
+  sourcesAnalysis = []
 })
 
 afterEach(async () => {
@@ -142,10 +142,10 @@ afterEach(async () => {
   // ferait échouer le test suivant sur `ExécutionEnCoursError`, à un endroit qui
   // ne dit rien du vrai défaut. Et la base se referme après, pas avant : une
   // exécution encore vivante s'en servirait.
-  stopRun(PROJET)
-  await attendreLaFin()
+  stopRun(PROJECT)
+  await waitFin()
   db.close()
-  fs.rmSync(racine, { recursive: true, force: true })
+  fs.rmSync(root, { recursive: true, force: true })
 })
 
 /**
@@ -165,19 +165,19 @@ afterEach(async () => {
  * (relevé par Codex et Copilot)
  */
 describe('bilanDeRepérage', () => {
-  const bilan: BilanNotation = {
-    fenêtres: 83,
-    notées: 51,
-    jamaisNotées: Array.from({ length: 32 }, (_, i) => `window_${i}`),
-    refusées: [],
-    appels: 14,
-    lotsRefusés: 4,
-    lotsRépondus: 7,
-    couverture: 0.6412,
+  const summary: SummaryNotation = {
+    windows: 83,
+    noted: 51,
+    neverNoted: Array.from({ length: 32 }, (_, i) => `window_${i}`),
+    rejected: [],
+    calls: 14,
+    batchesRejected: 4,
+    batchesResponded: 7,
+    coverage: 0.6412,
   }
 
   it('rend null quand aucune notation n’est décrite', () => {
-    expect(bilanDeRepérage(null, 'fait')).toBeNull()
+    expect(detectionSummary(null, 'fait')).toBeNull()
   })
 
   /**
@@ -186,11 +186,11 @@ describe('bilanDeRepérage', () => {
    * repérage qu'elle n'a pas fait.
    */
   it('rend null quand le repérage n’a pas tourné dans cette exécution', () => {
-    expect(bilanDeRepérage(bilan, 'absent')).toBeNull()
+    expect(detectionSummary(summary, 'absent')).toBeNull()
   })
 
   it('publie les décomptes, jamais la liste des identifiants', () => {
-    expect(bilanDeRepérage(bilan, 'fait')).toEqual({
+    expect(detectionSummary(summary, 'fait')).toEqual({
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
@@ -201,7 +201,7 @@ describe('bilanDeRepérage', () => {
   })
 
   it('marque partiel un repérage qui a échoué', () => {
-    expect(bilanDeRepérage(bilan, 'échoué')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'échoué')?.partial).toBe(true)
   })
 
   /**
@@ -209,7 +209,7 @@ describe('bilanDeRepérage', () => {
    * provisoire, et le dire est précisément le rôle de ce drapeau.
    */
   it('marque partiel un repérage en cours', () => {
-    expect(bilanDeRepérage(bilan, 'en cours')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'en cours')?.partial).toBe(true)
   })
 
   /**
@@ -217,12 +217,12 @@ describe('bilanDeRepérage', () => {
    * l'exécution ne l'est pas encore.
    */
   it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
-    expect(bilanDeRepérage(bilan, 'fait')?.partial).toBe(false)
+    expect(detectionSummary(summary, 'fait')?.partial).toBe(false)
   })
 })
 
 describe('planPourCibles', () => {
-  const rien: Record<StepName, boolean> = {
+  const nothing: Record<StepName, boolean> = {
     proxy: false,
     audio: false,
     transcript: false,
@@ -234,7 +234,7 @@ describe('planPourCibles', () => {
   it('enchaîne deux cibles sans répéter ce qui est déjà planifié', () => {
     // C'est ce que fait `POST /api/projects` : rien ne dépend du proxy dans le
     // graphe, donc viser les candidats ne le construirait jamais.
-    expect(planPourCibles(['candidates', 'proxy'], rien, [])).toEqual([
+    expect(shotForTargets(['candidates', 'proxy'], nothing, [])).toEqual([
       'audio',
       'transcript',
       'candidates',
@@ -243,27 +243,27 @@ describe('planPourCibles', () => {
   })
 
   it('ne planifie rien quand tout est là', () => {
-    const tout = { ...rien, proxy: true, audio: true, transcript: true, candidates: true }
-    expect(planPourCibles(['candidates', 'proxy'], tout, [])).toEqual([])
+    const all = { ...nothing, proxy: true, audio: true, transcript: true, candidates: true }
+    expect(shotForTargets(['candidates', 'proxy'], all, [])).toEqual([])
   })
 })
 
 describe('relevéPrésence', () => {
   it('lit les artefacts sur le disque, y compris le sidecar rabattu dans le projet', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'proxy.mp4'), '')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'proxy.mp4'), '')
 
-    const projet = { id: PROJET, sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`) }
-    const présence = await relevéPrésence({
-      ...projet,
+    const project = { id: PROJECT, sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`) }
+    const presence = await readingPresence({
+      ...project,
       stagedPath: null,
       durationSec: null,
       sizeBytes: null,
       mtimeMs: null,
       createdAt: 0,
     })
-    expect(présence).toEqual({
+    expect(presence).toEqual({
       proxy: true,
       audio: false,
       transcript: true,
@@ -279,25 +279,25 @@ describe('relevéPrésence', () => {
    * le dossier des rendus. (relevé par Copilot)
    */
   it('ne compte pas un rendu encore en cours d’écriture', async () => {
-    poserProjet()
-    const rendus = path.join(racine, 'projects', PROJET, 'renders')
-    fs.mkdirSync(rendus, { recursive: true })
-    fs.writeFileSync(path.join(rendus, 'clip.partiel-1234-1.mp4'), '')
+    poserProject()
+    const renders = path.join(root, 'projects', PROJECT, 'renders')
+    fs.mkdirSync(renders, { recursive: true })
+    fs.writeFileSync(path.join(renders, 'clip.partiel-1234-1.mp4'), '')
 
-    const projet: Project = {
-      id: PROJET,
-      sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`),
+    const project: Project = {
+      id: PROJECT,
+      sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`),
       stagedPath: null,
       durationSec: null,
       sizeBytes: null,
       mtimeMs: null,
       createdAt: 0,
     }
-    expect((await relevéPrésence(projet)).renders).toBe(false)
+    expect((await readingPresence(project)).renders).toBe(false)
 
-    fs.writeFileSync(path.join(rendus, 'clip.mp4'), '')
-    oublierSidecar(projet)
-    expect((await relevéPrésence(projet)).renders).toBe(true)
+    fs.writeFileSync(path.join(renders, 'clip.mp4'), '')
+    forgetSidecar(project)
+    expect((await readingPresence(project)).renders).toBe(true)
   })
 })
 
@@ -308,11 +308,11 @@ describe('relevéPrésence', () => {
  */
 describe('analysis', () => {
   it('ne construit que le proxy pour atteindre l’analyse', async () => {
-    poserProjet()
-    const { plan } = await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
-    expect(plan).toEqual(['proxy', 'analysis'])
-    await attendre(PROJET)
-    expect(appels).toEqual(['proxy', 'analysis'])
+    poserProject()
+    const { shot } = await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+    expect(shot).toEqual(['proxy', 'analysis'])
+    await wait(PROJECT)
+    expect(calls).toEqual(['proxy', 'analysis'])
   })
 
   /**
@@ -323,29 +323,29 @@ describe('analysis', () => {
    * lent pour relancer une analyse dont le proxy est déjà sur le disque.
    */
   it('se rabat sur l’original quand la copie de travail n’est plus là', async () => {
-    poserProjet({ copie: false })
+    poserProject({ copy: false })
     poserProxy()
 
-    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
-    await attendre(PROJET)
-    expect(sourcesAnalyse).toEqual([path.join(racine, 'replays', `${PROJET}.mp4`)])
+    await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+    await wait(PROJECT)
+    expect(sourcesAnalysis).toEqual([path.join(root, 'replays', `${PROJECT}.mp4`)])
   })
 
   it('préfère la copie de travail quand elle est là', async () => {
-    poserProjet()
+    poserProject()
     poserProxy()
 
-    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
-    await attendre(PROJET)
-    expect(sourcesAnalyse).toEqual([path.join(racine, 'stage', `${PROJET}.mp4`)])
+    await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+    await wait(PROJECT)
+    expect(sourcesAnalysis).toEqual([path.join(root, 'stage', `${PROJECT}.mp4`)])
   })
 
   it('ne relance pas la transcription pour une analyse', async () => {
-    poserProjet()
-    await lancer(PROJET, ['analysis'], { db, étapes: étapesFactices() })
-    await attendre(PROJET)
-    expect(appels).not.toContain('transcript')
-    expect(appels).not.toContain('audio')
+    poserProject()
+    await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+    await wait(PROJECT)
+    expect(calls).not.toContain('transcript')
+    expect(calls).not.toContain('audio')
   })
 })
 
@@ -359,14 +359,14 @@ describe('créerProjet', () => {
    * n'aurait plus jamais d'analyse. (relevé par Copilot)
    */
   it('vise l’analyse à la création, après le proxy dont elle dépend', async () => {
-    poserProjet()
-    const { plan } = await créerProjet(`${PROJET}.mp4`, { db, étapes: étapesFactices() })
-    expect(plan).toContain('analysis')
-    expect(plan.indexOf('proxy')).toBeLessThan(plan.indexOf('analysis'))
+    poserProject()
+    const { shot } = await createProject(`${PROJECT}.mp4`, { db, steps: stepsFake() })
+    expect(shot).toContain('analysis')
+    expect(shot.indexOf('proxy')).toBeLessThan(shot.indexOf('analysis'))
 
-    await attendre(PROJET)
-    expect(appels).toContain('analysis')
-    expect(appels.indexOf('proxy')).toBeLessThan(appels.indexOf('analysis'))
+    await wait(PROJECT)
+    expect(calls).toContain('analysis')
+    expect(calls.indexOf('proxy')).toBeLessThan(calls.indexOf('analysis'))
   })
 
   /**
@@ -376,22 +376,22 @@ describe('créerProjet', () => {
    * servir l'autre vidéo sans un mot. (relevé par Copilot)
    */
   it('refuse deux sources qui se partageraient un identifiant', async () => {
-    poserProjet()
-    fs.writeFileSync(path.join(racine, 'replays', `${PROJET}.mov`), '')
+    poserProject()
+    fs.writeFileSync(path.join(root, 'replays', `${PROJECT}.mov`), '')
 
     await expect(
-      créerProjet(`${PROJET}.mov`, { db, étapes: étapesFactices() }),
-    ).rejects.toBeInstanceOf(CollisionDeProjetError)
+      createProject(`${PROJECT}.mov`, { db, steps: stepsFake() }),
+    ).rejects.toBeInstanceOf(ProjectErrorCollision)
 
     // Et le projet d'origine n'a pas bougé.
-    expect(getProject(db, PROJET)?.sourcePath).toBe(path.join(racine, 'replays', `${PROJET}.mp4`))
+    expect(getProject(db, PROJECT)?.sourcePath).toBe(path.join(root, 'replays', `${PROJECT}.mp4`))
   })
 })
 
 describe('cheminTranscript', () => {
-  const projet = (): Project => ({
-    id: PROJET,
-    sourcePath: path.join(racine, 'replays', `${PROJET}.mp4`),
+  const project = (): Project => ({
+    id: PROJECT,
+    sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`),
     stagedPath: null,
     durationSec: null,
     sizeBytes: null,
@@ -413,20 +413,20 @@ describe('cheminTranscript', () => {
    * disque. (relevé par Copilot)
    */
   it('ne lance qu’une sonde à la fois sur un montage muet', async () => {
-    poserProjet()
+    poserProject()
     // Un chemin qui ne répondra pas : on remplace le `stat` par un appel qui ne
     // se règle jamais, comme le fait un transport 9p mort.
-    const vraiStat = fsp.stat
-    let sondes = 0
+    const trueStat = fsp.stat
+    let probes = 0
     // @ts-expect-error — remplacement de sonde, restauré juste après.
     fsp.stat = () => {
-      sondes += 1
+      probes += 1
       return new Promise(() => {})
     }
 
-    const muet: Project = {
-      id: PROJET,
-      sourcePath: path.join(racine, 'replays', 'absent.mp4'),
+    const mute: Project = {
+      id: PROJECT,
+      sourcePath: path.join(root, 'replays', 'absent.mp4'),
       stagedPath: null,
       durationSec: null,
       sizeBytes: null,
@@ -437,117 +437,117 @@ describe('cheminTranscript', () => {
     try {
       // Trois interrogations rapprochées, comme l'écran de tri en fait une
       // toutes les deux secondes. Une seule sonde doit partir.
-      const premières = Promise.all([cheminTranscript(muet), cheminTranscript(muet)])
+      const first = Promise.all([pathTranscript(mute), pathTranscript(mute)])
       await new Promise((r) => setTimeout(r, 10))
-      expect(sondes).toBe(1)
-      oublierSidecar(muet)
+      expect(probes).toBe(1)
+      forgetSidecar(mute)
       // Même après oubli de l'emplacement, la sonde précédente est toujours en
       // vol : on ne doit pas en lancer une seconde.
-      expect(await cheminTranscript(muet)).toBeNull()
-      expect(sondes).toBe(1)
-      void premières
+      expect(await pathTranscript(mute)).toBeNull()
+      expect(probes).toBe(1)
+      void first
     } finally {
-      fsp.stat = vraiStat
+      fsp.stat = trueStat
     }
   }, 30_000)
 
   it('retient une absence, et l’oublie quand on le lui demande', async () => {
-    poserProjet()
-    expect(await cheminTranscript(projet())).toBeNull()
+    poserProject()
+    expect(await pathTranscript(project())).toBeNull()
 
     poserTranscript()
-    expect(await cheminTranscript(projet())).toBeNull()
+    expect(await pathTranscript(project())).toBeNull()
 
-    oublierSidecar(projet())
-    expect(await cheminTranscript(projet())).toContain('transcript.json')
+    forgetSidecar(project())
+    expect(await pathTranscript(project())).toContain('transcript.json')
   })
 })
 
 describe('lancer', () => {
   it('sur un projet transcrit, viser les candidats ne relance que le repérage', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
 
-    const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
-    expect(plan).toEqual(['candidates'])
+    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(shot).toEqual(['candidates'])
 
-    await attendreLaFin()
+    await waitFin()
     // Ni transcription, ni audio, ni ingestion : c'est tout l'objet du graphe.
-    expect(appels).toEqual(['candidates'])
+    expect(calls).toEqual(['candidates'])
   })
 
   it('sur un projet neuf, remonte les dépendances jusqu’à la source', async () => {
-    poserProjet()
+    poserProject()
 
-    const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
-    expect(plan).toEqual(['audio', 'transcript', 'candidates'])
-    await attendreLaFin()
-    expect(appels).toEqual(['audio', 'transcript', 'candidates'])
+    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(shot).toEqual(['audio', 'transcript', 'candidates'])
+    await waitFin()
+    expect(calls).toEqual(['audio', 'transcript', 'candidates'])
   })
 
   it('force entraîne l’aval avec lui', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'audio.wav'), '')
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'audio.wav'), '')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { plan } = await lancer(PROJET, ['candidates'], {
+    const { shot } = await launch(PROJECT, ['candidates'], {
       db,
-      force: ['transcript'],
-      étapes: étapesFactices(),
+      forced: ['transcript'],
+      steps: stepsFake(),
     })
     // Refaire le transcript sans reprendre le repérage laisserait des candidats
     // calculés sur un texte qui n'existe plus.
-    expect(plan).toEqual(['transcript', 'candidates'])
-    await attendreLaFin()
+    expect(shot).toEqual(['transcript', 'candidates'])
+    await waitFin()
   })
 
   it('`force: true` vise la cible', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { plan } = await lancer(PROJET, ['candidates'], {
+    const { shot } = await launch(PROJECT, ['candidates'], {
       db,
-      force: true,
-      étapes: étapesFactices(),
+      forced: true,
+      steps: stepsFake(),
     })
-    expect(plan).toEqual(['candidates'])
-    await attendreLaFin()
+    expect(shot).toEqual(['candidates'])
+    await waitFin()
   })
 
   it('refuse une seconde exécution sur le même projet', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
 
-    let débloquer = (): void => {}
-    const bloquée = new Promise<void>((résoudre) => {
-      débloquer = résoudre
+    let unblock = (): void => {}
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve
     })
-    await lancer(PROJET, ['candidates'], {
+    await launch(PROJECT, ['candidates'], {
       db,
-      étapes: {
-        ...étapesFactices(),
+      steps: {
+        ...stepsFake(),
         runCandidates: async () => {
-          await bloquée
+          await blocked
           return []
         },
       },
     })
 
-    await expect(lancer(PROJET, ['candidates'], { db })).rejects.toBeInstanceOf(
-      ExécutionEnCoursError,
+    await expect(launch(PROJECT, ['candidates'], { db })).rejects.toBeInstanceOf(
+      ExecutionInCurrentError,
     )
-    expect(progression(PROJET)).toEqual({ step: 'candidates', progress: 0 })
+    expect(progression(PROJECT)).toEqual({ step: 'candidates', progress: 0 })
 
-    débloquer()
-    await attendreLaFin()
-    expect(progression(PROJET)).toBeNull()
+    unblock()
+    await waitFin()
+    expect(progression(PROJECT)).toBeNull()
   })
 
   it('refuse un projet inconnu', async () => {
-    await expect(lancer('jamais-vu', ['candidates'], { db })).rejects.toBeInstanceOf(
-      ProjetInconnuError,
+    await expect(launch('jamais-vu', ['candidates'], { db })).rejects.toBeInstanceOf(
+      ProjectInconnuError,
     )
     // La réservation est relâchée : un projet inconnu ne doit pas rester verrouillé.
     expect(progression('jamais-vu')).toBeNull()
@@ -560,21 +560,21 @@ describe('lancer', () => {
    * `run --force` échouait bien plus tard sur « le projet n'a pas de durée ».
    */
   it('ingère quand même si la durée manque, plan vide ou non', async () => {
-    poserProjet({ durationSec: null })
+    poserProject({ durationSec: null })
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    let ingéré = false
-    const { plan } = await lancer(PROJET, ['candidates'], {
+    let ingested = false
+    const { shot } = await launch(PROJECT, ['candidates'], {
       db,
-      étapes: {
-        ...étapesFactices(),
+      steps: {
+        ...stepsFake(),
         ingest: async (source) => {
-          ingéré = true
+          ingested = true
           return {
-            projectId: PROJET,
+            projectId: PROJECT,
             sourcePath: String(source),
-            stagedPath: path.join(racine, 'stage', `${PROJET}.mp4`),
+            stagedPath: path.join(root, 'stage', `${PROJECT}.mp4`),
             copied: false,
             sizeBytes: 0,
             mtimeMs: 0,
@@ -583,51 +583,51 @@ describe('lancer', () => {
         },
       },
     })
-    expect(plan).toEqual([])
-    await attendreLaFin()
-    expect(ingéré).toBe(true)
+    expect(shot).toEqual([])
+    await waitFin()
+    expect(ingested).toBe(true)
   })
 
   it('un plan vide ne prend pas le verrou', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
-    expect(plan).toEqual([])
-    expect(progression(PROJET)).toBeNull()
-    expect(appels).toEqual([])
+    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(shot).toEqual([])
+    expect(progression(PROJECT)).toBeNull()
+    expect(calls).toEqual([])
   })
 })
 
 describe('status.json', () => {
   it('rend la main sur `running: null` quand tout est fini', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
 
-    await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
-    await attendreLaFin()
+    await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    await waitFin()
 
-    const statut = lireStatut(PROJET)
-    expect(statut?.running).toBeNull()
-    expect(statut?.error).toBeNull()
-    expect(statut?.plan).toEqual(['candidates'])
-    expect(statut?.finishedAt).toBeTypeOf('number')
+    const status = lireStatus(PROJECT)
+    expect(status?.running).toBeNull()
+    expect(status?.error).toBeNull()
+    expect(status?.shot).toEqual(['candidates'])
+    expect(status?.finishedAt).toBeTypeOf('number')
   })
 
   it('écrit un échec **épuré de ses chemins absolus**', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
 
-    await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices('candidates') })
-    await attendreLaFin()
+    await launch(PROJECT, ['candidates'], { db, steps: stepsFake('candidates') })
+    await waitFin()
 
-    const statut = lireStatut(PROJET)
-    expect(statut?.error).toContain('ffmpeg a échoué')
+    const status = lireStatus(PROJECT)
+    expect(status?.error).toContain('ffmpeg a échoué')
     // Ce fichier se recopie dans un rapport : l'arborescence de la machine n'a
     // rien à y faire, même quand elle vient d'un message de ffmpeg.
-    expect(statut?.error).not.toContain(racine)
-    expect(statut?.error).toContain('…/x.mp4')
+    expect(status?.error).not.toContain(root)
+    expect(status?.error).toContain('…/x.mp4')
   })
 
   /**
@@ -641,8 +641,8 @@ describe('status.json', () => {
    * serveur ne les efface silencieusement de l'écran de projet.
    */
   it('relit un `status.json` écrit avant la traduction des clés, bilan compris', () => {
-    poserProjet()
-    const dir = path.join(racine, 'projects', PROJET)
+    poserProject()
+    const dir = path.join(root, 'projects', PROJECT)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, 'status.json'),
@@ -666,7 +666,7 @@ describe('status.json', () => {
       }),
     )
 
-    const status = lireStatut(PROJET)
+    const status = lireStatus(PROJECT)
     expect(status?.targets).toEqual(['candidates', 'proxy'])
     expect(status?.selectionReport).toEqual({
       windows: 83,
@@ -679,8 +679,8 @@ describe('status.json', () => {
   })
 
   it('relit un `status.json` écrit avant la traduction quand le repérage n’a rien à dire', () => {
-    poserProjet()
-    const dir = path.join(racine, 'projects', PROJET)
+    poserProject()
+    const dir = path.join(root, 'projects', PROJECT)
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(
       path.join(dir, 'status.json'),
@@ -697,7 +697,7 @@ describe('status.json', () => {
       }),
     )
 
-    const status = lireStatut(PROJET)
+    const status = lireStatus(PROJECT)
     expect(status?.targets).toEqual(['candidates'])
     expect(status?.selectionReport).toBeNull()
   })
@@ -720,59 +720,59 @@ describe("l'arrêt d'une exécution", () => {
    * normalement. C'est ce qui permet de tuer l'exécution au milieu de son plan
    * et de vérifier que ce qui la précédait a bien survécu.
    */
-  function etapesQuiPendent(bloquante: StepName): Partial<Étapes> {
-    const factices = étapesFactices()
-    const pendre = (signal: AbortSignal | undefined): Promise<never> =>
-      new Promise((_, rejeter) => {
-        signal?.addEventListener('abort', () => rejeter(new StopRequestedError(bloquante)), {
+  function stepsWhichPending(blocking: StepName): Partial<Steps> {
+    const fake = stepsFake()
+    const pend = (signal: AbortSignal | undefined): Promise<never> =>
+      new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new StopRequestedError(blocking)), {
           once: true,
         })
       })
 
     return {
-      ...factices,
+      ...fake,
       buildProxy: async (o) => {
-        appels.push('proxy')
-        if (bloquante === 'proxy') return pendre(o.signal)
-        return factices.buildProxy!(o)
+        calls.push('proxy')
+        if (blocking === 'proxy') return pend(o.signal)
+        return fake.buildProxy!(o)
       },
       extractAudio: async (o) => {
-        if (bloquante === 'audio') {
-          appels.push('audio')
-          return pendre(o.signal)
+        if (blocking === 'audio') {
+          calls.push('audio')
+          return pend(o.signal)
         }
-        return factices.extractAudio!(o)
+        return fake.extractAudio!(o)
       },
       runCandidates: async (id, o) => {
-        if (bloquante === 'candidates') {
-          appels.push('candidates')
-          return pendre(o?.signal)
+        if (blocking === 'candidates') {
+          calls.push('candidates')
+          return pend(o?.signal)
         }
-        return factices.runCandidates!(id, o)
+        return fake.runCandidates!(id, o)
       },
     }
   }
 
   it('rend faux quand rien ne tourne — deux clics ne sont pas une erreur', () => {
-    expect(stopRun(PROJET)).toBe(false)
+    expect(stopRun(PROJECT)).toBe(false)
     expect(stopRun('projet-qui-n-existe-pas')).toBe(false)
   })
 
   it('coupe le travail en cours et rend vrai, deux fois de suite', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    await launch(PROJECT, ['proxy'], { db, steps: stepsWhichPending('proxy') })
     // L'étape a bien démarré : sans cela, l'arrêt éprouverait le refus d'entrée
     // et non la coupure d'un travail en cours.
-    await attendreEtape('proxy')
+    await waitStep('proxy')
 
-    expect(stopRun(PROJET)).toBe(true)
+    expect(stopRun(PROJECT)).toBe(true)
     // Idempotent : un second appel pendant que l'exécution finit de descendre
     // dit toujours vrai, et n'a pas d'effet supplémentaire.
-    expect(stopRun(PROJET)).toBe(true)
+    expect(stopRun(PROJECT)).toBe(true)
 
-    await attendreLaFin()
-    expect(progression(PROJET)).toBeNull()
+    await waitFin()
+    expect(progression(PROJECT)).toBeNull()
   })
 
   /**
@@ -782,18 +782,18 @@ describe("l'arrêt d'une exécution", () => {
    * projet en `echec` au lieu d'`interrompu`.
    */
   it('écrit un statut d’arrêt, sans erreur et sans running', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
-    await attendreEtape('proxy')
-    stopRun(PROJET)
-    await attendreLaFin()
+    await launch(PROJECT, ['proxy'], { db, steps: stepsWhichPending('proxy') })
+    await waitStep('proxy')
+    stopRun(PROJECT)
+    await waitFin()
 
-    const statut = lireStatut(PROJET)
-    expect(statut?.stopped).toBe(true)
-    expect(statut?.error).toBeNull()
-    expect(statut?.running).toBeNull()
-    expect(statut?.finishedAt).not.toBeNull()
+    const status = lireStatus(PROJECT)
+    expect(status?.stopped).toBe(true)
+    expect(status?.error).toBeNull()
+    expect(status?.running).toBeNull()
+    expect(status?.finishedAt).not.toBeNull()
   })
 
   /**
@@ -803,14 +803,14 @@ describe("l'arrêt d'une exécution", () => {
    * continuerait quand même.
    */
   it('n’enchaîne pas sur l’étape suivante', async () => {
-    poserProjet()
-    await lancer(PROJET, ['candidates'], { db, étapes: etapesQuiPendent('audio') })
-    await attendreEtape('audio')
-    stopRun(PROJET)
-    await attendreLaFin()
+    poserProject()
+    await launch(PROJECT, ['candidates'], { db, steps: stepsWhichPending('audio') })
+    await waitStep('audio')
+    stopRun(PROJECT)
+    await waitFin()
 
-    expect(appels).toEqual(['audio'])
-    expect(fs.existsSync(path.join(racine, 'projects', PROJET, `${PROJET}.avolo`))).toBe(false)
+    expect(calls).toEqual(['audio'])
+    expect(fs.existsSync(path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`))).toBe(false)
   })
 
   /**
@@ -820,36 +820,36 @@ describe("l'arrêt d'une exécution", () => {
    * tuée n'ait rien laissé qui la ferait passer pour faite.
    */
   it('laisse les artefacts déjà terminés, et la reprise finit le travail', async () => {
-    poserProjet()
-    await lancer(PROJET, ['candidates'], { db, étapes: etapesQuiPendent('candidates') })
-    await attendreEtape('candidates')
-    stopRun(PROJET)
-    await attendreLaFin()
+    poserProject()
+    await launch(PROJECT, ['candidates'], { db, steps: stepsWhichPending('candidates') })
+    await waitStep('candidates')
+    stopRun(PROJECT)
+    await waitFin()
 
     // L'audio et le transcript sont passés avant l'arrêt : ils restent.
-    const presence = await relevéPrésence(getProject(db, PROJET) as Project)
+    const presence = await readingPresence(getProject(db, PROJECT) as Project)
     expect(presence.audio).toBe(true)
     expect(presence.transcript).toBe(true)
     expect(presence.candidates).toBe(false)
 
-    appels = []
-    const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
+    calls = []
+    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
     // La reprise ne refait ni l'audio ni le transcript.
-    expect(plan).toEqual(['candidates'])
-    await attendreLaFin()
-    expect(appels).toEqual(['candidates'])
-    expect(lireStatut(PROJET)?.stopped).toBe(false)
-    expect(lireStatut(PROJET)?.error).toBeNull()
+    expect(shot).toEqual(['candidates'])
+    await waitFin()
+    expect(calls).toEqual(['candidates'])
+    expect(lireStatus(PROJECT)?.stopped).toBe(false)
+    expect(lireStatus(PROJECT)?.error).toBeNull()
   })
 
   /** Une exécution arrêtée s'est terminée comme on le voulait : rien ne rejette. */
   it('ne fait pas rejeter l’attente de l’exécution', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
-    await attendreEtape('proxy')
-    stopRun(PROJET)
-    await expect(attendre(PROJET)).resolves.toBeUndefined()
+    await launch(PROJECT, ['proxy'], { db, steps: stepsWhichPending('proxy') })
+    await waitStep('proxy')
+    stopRun(PROJECT)
+    await expect(wait(PROJECT)).resolves.toBeUndefined()
   })
 
   /**
@@ -860,36 +860,36 @@ describe("l'arrêt d'une exécution", () => {
    * un `cleanStage` nu la lui retirait. (relevé par Copilot)
    */
   it('n’efface pas la copie de travail d’une exécution en cours', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    const copie = path.join(racine, 'stage', `${PROJET}.mp4`)
+    const copy = path.join(root, 'stage', `${PROJECT}.mp4`)
     // Vieille de deux TTL : sans la garde, elle part.
-    const vieux = new Date(Date.now() - 9 * 60 * 60 * 1000)
-    fs.utimesSync(copie, vieux, vieux)
+    const old = new Date(Date.now() - 9 * 60 * 60 * 1000)
+    fs.utimesSync(copy, old, old)
 
-    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
-    await attendreEtape('proxy')
+    await launch(PROJECT, ['proxy'], { db, steps: stepsWhichPending('proxy') })
+    await waitStep('proxy')
     expect(await cleanWorkCache(db)).toEqual([])
-    expect(fs.existsSync(copie)).toBe(true)
+    expect(fs.existsSync(copy)).toBe(true)
 
-    stopRun(PROJET)
-    await attendreLaFin()
+    stopRun(PROJECT)
+    await waitFin()
     // Une fois l'exécution finie, plus rien ne l'épargne et le TTL s'applique.
     // On ne compare pas la liste rendue : le nettoyage qui suit chaque exécution
     // a pu passer avant celui-ci, auquel cas il ne reste rien à retirer. Ce qui
     // se vérifie est l'effet, pas lequel des deux l'a produit.
     await cleanWorkCache(db)
-    expect(fs.existsSync(copie)).toBe(false)
+    expect(fs.existsSync(copy)).toBe(false)
   })
 
   /** Un échec ordinaire garde son message : l'arrêt ne l'avale pas. */
   it('n’écrase pas un vrai échec quand personne n’a rien demandé', async () => {
-    poserProjet()
+    poserProject()
     poserTranscript()
-    await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices('candidates') })
-    await attendreLaFin()
-    expect(lireStatut(PROJET)?.stopped).toBe(false)
-    expect(lireStatut(PROJET)?.error).toContain('ffmpeg a échoué')
+    await launch(PROJECT, ['candidates'], { db, steps: stepsFake('candidates') })
+    await waitFin()
+    expect(lireStatus(PROJECT)?.stopped).toBe(false)
+    expect(lireStatus(PROJECT)?.error).toContain('ffmpeg a échoué')
   })
 })
 
@@ -900,9 +900,9 @@ describe("l'arrêt d'une exécution", () => {
  * retirée de la table ; on boucle donc sur l'absence de progression, ce qui est
  * l'observation que fait l'interface.
  */
-async function attendreLaFin(): Promise<void> {
-  for (let i = 0; i < 200 && progression(PROJET) !== null; i += 1) {
-    await new Promise((résoudre) => setTimeout(résoudre, 5))
+async function waitFin(): Promise<void> {
+  for (let i = 0; i < 200 && progression(PROJECT) !== null; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
 
@@ -914,9 +914,9 @@ async function attendreLaFin(): Promise<void> {
  * la foulée éprouverait donc le refus d'entrée d'une étape, pas la coupure d'un
  * travail en cours, et le test passerait sans rien démontrer.
  */
-async function attendreEtape(step: StepName): Promise<void> {
-  for (let i = 0; i < 200 && progression(PROJET)?.step !== step; i += 1) {
-    await new Promise((résoudre) => setTimeout(résoudre, 5))
+async function waitStep(step: StepName): Promise<void> {
+  for (let i = 0; i < 200 && progression(PROJECT)?.step !== step; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
-  expect(progression(PROJET)?.step).toBe(step)
+  expect(progression(PROJECT)?.step).toBe(step)
 }

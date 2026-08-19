@@ -3,14 +3,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { POINT } from '@/core/shots'
-import { messageSûr } from '@/server/erreurs'
+import { messageSafe } from '@/server/errors'
 import {
-  commandeLisible,
-  environnementDétection,
-  formatTaille,
-  lireAnalyse,
+  commandReadable,
+  environmentDetection,
+  formatSize,
+  lireAnalysis,
   runAnalysis,
-  SCHÉMA_ANALYSE,
+  SCHEMA_ANALYSIS,
   ANALYSIS_VERSIONS,
 } from '@/server/steps/analysis'
 
@@ -25,7 +25,7 @@ import {
  * cadre, trois étapes plus loin, sans un mot.
  */
 
-const ANALYSE_VALIDE = {
+const ANALYSIS_VALID = {
   version: 1,
   fps: 2,
   source: { w: 1920, h: 1080 },
@@ -36,7 +36,7 @@ const ANALYSE_VALIDE = {
 
 describe('SCHÉMA_ANALYSE', () => {
   it('accepte la forme du contrat de l’itération 1', () => {
-    expect(SCHÉMA_ANALYSE.safeParse(ANALYSE_VALIDE).success).toBe(true)
+    expect(SCHEMA_ANALYSIS.safeParse(ANALYSIS_VALID).success).toBe(true)
   })
 
   /**
@@ -47,23 +47,23 @@ describe('SCHÉMA_ANALYSE', () => {
    * mêmes types —, et seul le domaine la distingue.
    */
   it('refuse une boîte en pixels, qui a la bonne forme et le mauvais domaine', () => {
-    const enPixels = {
-      ...ANALYSE_VALIDE,
+    const inPixels = {
+      ...ANALYSIS_VALID,
       boxes: [{ t: 0.5, x0: 115, x1: 298, y0: 43, y1: 524, score: 0.91 }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(enPixels).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(inPixels).success).toBe(false)
   })
 
   it('refuse une liste de plans vide', () => {
     // Une émission sans coupe est **un** plan, pas zéro. Zéro laisserait le
     // cadrage sans intervalle où calculer quoi que ce soit.
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, shots: [] }).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse({ ...ANALYSIS_VALID, shots: [] }).success).toBe(false)
   })
 
   it('accepte une analyse sans aucune boîte', () => {
     // Le cas inverse est légitime : un projet dont personne n'apparaît jamais à
     // l'image est une analyse valide qui ne trouve rien.
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, boxes: [] }).success).toBe(true)
+    expect(SCHEMA_ANALYSIS.safeParse({ ...ANALYSIS_VALID, boxes: [] }).success).toBe(true)
   })
 
   /**
@@ -72,14 +72,14 @@ describe('SCHÉMA_ANALYSE', () => {
    * calculer, et son crop sauterait au plan suivant sans un mot.
    */
   it('refuse un plan retourné ou négatif', () => {
-    const retourné = { ...ANALYSE_VALIDE, shots: [{ start: 10, end: 5 }] }
-    expect(SCHÉMA_ANALYSE.safeParse(retourné).success).toBe(false)
+    const returned = { ...ANALYSIS_VALID, shots: [{ start: 10, end: 5 }] }
+    expect(SCHEMA_ANALYSIS.safeParse(returned).success).toBe(false)
 
-    const vide = { ...ANALYSE_VALIDE, shots: [{ start: 4, end: 4 }] }
-    expect(SCHÉMA_ANALYSE.safeParse(vide).success).toBe(false)
+    const empty = { ...ANALYSIS_VALID, shots: [{ start: 4, end: 4 }] }
+    expect(SCHEMA_ANALYSIS.safeParse(empty).success).toBe(false)
 
-    const avantLeDébut = { ...ANALYSE_VALIDE, shots: [{ start: -1, end: 5 }] }
-    expect(SCHÉMA_ANALYSE.safeParse(avantLeDébut).success).toBe(false)
+    const beforeStart = { ...ANALYSIS_VALID, shots: [{ start: -1, end: 5 }] }
+    expect(SCHEMA_ANALYSIS.safeParse(beforeStart).success).toBe(false)
   })
 
   /**
@@ -89,23 +89,23 @@ describe('SCHÉMA_ANALYSE', () => {
    * d'autant.
    */
   it('refuse une boîte d’aire nulle ou retournée', () => {
-    const plate = {
-      ...ANALYSE_VALIDE,
+    const flat = {
+      ...ANALYSIS_VALID,
       boxes: [{ t: 1, x0: 0.4, x1: 0.4, y0: 0.1, y1: 0.9, score: 0.9 }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(plate).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(flat).success).toBe(false)
 
-    const retournée = {
-      ...ANALYSE_VALIDE,
+    const returned = {
+      ...ANALYSIS_VALID,
       boxes: [{ t: 1, x0: 0.6, x1: 0.2, y0: 0.1, y1: 0.9, score: 0.9 }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(retournée).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(returned).success).toBe(false)
 
-    const avantLeDébut = {
-      ...ANALYSE_VALIDE,
+    const beforeStart = {
+      ...ANALYSIS_VALID,
       boxes: [{ t: -0.5, x0: 0.2, x1: 0.6, y0: 0.1, y1: 0.9, score: 0.9 }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(avantLeDébut).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(beforeStart).success).toBe(false)
   })
 
   /**
@@ -118,28 +118,28 @@ describe('SCHÉMA_ANALYSE', () => {
    * itérer sur le détecteur. (relevé par Aristarque sur la PR du cadrage)
    */
   it('refuse des plans qui se chevauchent ou qui remontent le temps', () => {
-    const chevauchement = {
-      ...ANALYSE_VALIDE,
+    const overlap = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 0, end: 15 },
         { start: 10, end: 20 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(chevauchement).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(overlap).success).toBe(false)
 
-    const désordre = {
-      ...ANALYSE_VALIDE,
+    const outOfOrder = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 30, end: 40 },
         { start: 0, end: 10 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(désordre).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(outOfOrder).success).toBe(false)
 
     // Le message nomme la conséquence, pas la règle : « plans non triés »
     // laisserait chercher pourquoi ça compte.
-    const échec = SCHÉMA_ANALYSE.safeParse(chevauchement)
-    expect(échec.success ? '' : échec.error.issues[0]?.message).toMatch(/deux fois/)
+    const failure = SCHEMA_ANALYSIS.safeParse(overlap)
+    expect(failure.success ? '' : failure.error.issues[0]?.message).toMatch(/deux fois/)
   })
 
   /**
@@ -151,20 +151,20 @@ describe('SCHÉMA_ANALYSE', () => {
    * (relevé par Copilot)
    */
   it('refuse un trou entre deux plans, ou un début après zéro', () => {
-    const trou = {
-      ...ANALYSE_VALIDE,
+    const gap = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 0, end: 10 },
         { start: 25, end: 40 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(trou).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(gap).success).toBe(false)
 
-    const départTardif = { ...ANALYSE_VALIDE, shots: [{ start: 4, end: 40 }] }
-    expect(SCHÉMA_ANALYSE.safeParse(départTardif).success).toBe(false)
+    const startLate = { ...ANALYSIS_VALID, shots: [{ start: 4, end: 40 }] }
+    expect(SCHEMA_ANALYSIS.safeParse(startLate).success).toBe(false)
 
-    const échec = SCHÉMA_ANALYSE.safeParse(trou)
-    expect(échec.success ? '' : échec.error.issues[0]?.message).toMatch(/disparaître/)
+    const failure = SCHEMA_ANALYSIS.safeParse(gap)
+    expect(failure.success ? '' : failure.error.issues[0]?.message).toMatch(/disparaître/)
   })
 
   /**
@@ -173,37 +173,37 @@ describe('SCHÉMA_ANALYSE', () => {
    * trou. Un vrai trou se compte en secondes.
    */
   it('tolère l’arrondi à la milliseconde, pas plus', () => {
-    const arrondi = {
-      ...ANALYSE_VALIDE,
+    const rounded = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 0, end: 12.4 },
         { start: 12.401, end: 30 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(arrondi).success).toBe(true)
+    expect(SCHEMA_ANALYSIS.safeParse(rounded).success).toBe(true)
 
-    const centième = {
-      ...ANALYSE_VALIDE,
+    const hundredth = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 0, end: 12.4 },
         { start: 12.41, end: 30 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(centième).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse(hundredth).success).toBe(false)
   })
 
   it('accepte des plans qui se touchent, ce que detect.py produit', () => {
     // `plans()` découpe `[0, durée]` à des frontières successives : la fin de
     // l'un **est** le début du suivant. Interdire ça condamnerait toute analyse.
-    const collés = {
-      ...ANALYSE_VALIDE,
+    const attached = {
+      ...ANALYSIS_VALID,
       shots: [
         { start: 0, end: 12.4 },
         { start: 12.4, end: 30 },
         { start: 30, end: 91.2 },
       ],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(collés).success).toBe(true)
+    expect(SCHEMA_ANALYSIS.safeParse(attached).success).toBe(true)
   })
 
   it('accepte les deux versions écrites par ce dépôt', () => {
@@ -211,13 +211,13 @@ describe('SCHÉMA_ANALYSE', () => {
     // détecteur écrivait avant le 19 août 2026, et les fichiers déjà sur le
     // disque doivent continuer de se relire sans qu'on relance le GPU.
     for (const version of ANALYSIS_VERSIONS) {
-      expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version }).success).toBe(true)
+      expect(SCHEMA_ANALYSIS.safeParse({ ...ANALYSIS_VALID, version }).success).toBe(true)
     }
   })
 
   it('refuse une version inconnue', () => {
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 3 }).success).toBe(false)
-    expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version: 0 }).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse({ ...ANALYSIS_VALID, version: 3 }).success).toBe(false)
+    expect(SCHEMA_ANALYSIS.safeParse({ ...ANALYSIS_VALID, version: 0 }).success).toBe(false)
   })
 
   it('accepte dix-sept points de pose, et refuse un squelette tronqué', () => {
@@ -228,16 +228,16 @@ describe('SCHÉMA_ANALYSE', () => {
     // étiquette qui affirme le contraire.
     const complete = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : 0.5))
     const withKeypoints = {
-      ...ANALYSE_VALIDE,
+      ...ANALYSIS_VALID,
       version: 2 as const,
       keypoints: 'coco17' as const,
-      boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete }],
+      boxes: [{ ...ANALYSIS_VALID.boxes[0], k: complete }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(withKeypoints).success).toBe(true)
+    expect(SCHEMA_ANALYSIS.safeParse(withKeypoints).success).toBe(true)
     expect(
-      SCHÉMA_ANALYSE.safeParse({
+      SCHEMA_ANALYSIS.safeParse({
         ...withKeypoints,
-        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete.slice(0, 48) }],
+        boxes: [{ ...ANALYSIS_VALID.boxes[0], k: complete.slice(0, 48) }],
       }).success,
     ).toBe(false)
   })
@@ -247,10 +247,10 @@ describe('SCHÉMA_ANALYSE', () => {
     // hors cadre ne désigne plus rien. Seule la confiance est bornée.
     const outside = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : -0.2))
     expect(
-      SCHÉMA_ANALYSE.safeParse({
-        ...ANALYSE_VALIDE,
+      SCHEMA_ANALYSIS.safeParse({
+        ...ANALYSIS_VALID,
         version: 2 as const,
-        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: outside }],
+        boxes: [{ ...ANALYSIS_VALID.boxes[0], k: outside }],
       }).success,
     ).toBe(true)
   })
@@ -270,10 +270,10 @@ describe('SCHÉMA_ANALYSE', () => {
     const k = (confidence: number): number[] =>
       Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? confidence : 0.5))
     const accepts = (points: number[]): boolean =>
-      SCHÉMA_ANALYSE.safeParse({
-        ...ANALYSE_VALIDE,
+      SCHEMA_ANALYSIS.safeParse({
+        ...ANALYSIS_VALID,
         version: 2 as const,
-        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: points }],
+        boxes: [{ ...ANALYSIS_VALID.boxes[0], k: points }],
       }).success
 
     expect(accepts(k(0))).toBe(true)
@@ -294,14 +294,14 @@ describe('SCHÉMA_ANALYSE', () => {
   it('refuse des dimensions de proxy nulles', () => {
     // Elles servent à convertir les fractions en pixels : un zéro donnerait un
     // crop de largeur nulle, que ffmpeg refuse bien plus tard.
-    const nul = { ...ANALYSE_VALIDE, proxy: { w: 0, h: 540 } }
-    expect(SCHÉMA_ANALYSE.safeParse(nul).success).toBe(false)
+    const nullDimensions = { ...ANALYSIS_VALID, proxy: { w: 0, h: 540 } }
+    expect(SCHEMA_ANALYSIS.safeParse(nullDimensions).success).toBe(false)
   })
 })
 
 describe('formatTaille', () => {
   it('écrit ce que detect.py analyse', () => {
-    expect(formatTaille(960, 540)).toBe('960x540')
+    expect(formatSize(960, 540)).toBe('960x540')
   })
 })
 
@@ -314,7 +314,7 @@ describe('formatTaille', () => {
  */
 describe('environnementDétection', () => {
   it('ne laisse passer aucun secret, même nommé innocemment', () => {
-    const env = environnementDétection({
+    const env = environmentDetection({
       PATH: '/usr/bin',
       GEMINI_API_KEY: 'secret',
       DATABASE_URL: 'postgres://u:mdp@hôte/db',
@@ -333,31 +333,31 @@ describe('environnementDétection', () => {
    * dans le dossier de travail du processus, donc à la racine du dépôt.
    */
   it('transmet HOME et les variables du GPU', () => {
-    const env = environnementDétection({ HOME: '/home/julien', CUDA_VISIBLE_DEVICES: '0' })
+    const env = environmentDetection({ HOME: '/home/julien', CUDA_VISIBLE_DEVICES: '0' })
     expect(env.HOME).toBe('/home/julien')
     expect(env.CUDA_VISIBLE_DEVICES).toBe('0')
   })
 
   it('n’invente pas une variable absente', () => {
-    expect('TMPDIR' in environnementDétection({ PATH: '/usr/bin' })).toBe(false)
+    expect('TMPDIR' in environmentDetection({ PATH: '/usr/bin' })).toBe(false)
   })
 })
 
 describe('lireAnalyse', () => {
-  let racine: string
+  let root: string
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-'))
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-'))
   })
 
   afterEach(() => {
-    fs.rmSync(racine, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
   it('rend l’analyse validée', () => {
-    const fichier = path.join(racine, 'analysis.json')
-    fs.writeFileSync(fichier, JSON.stringify(ANALYSE_VALIDE))
-    expect(lireAnalyse(fichier).shots).toEqual([{ start: 0, end: 12.4 }])
+    const file = path.join(root, 'analysis.json')
+    fs.writeFileSync(file, JSON.stringify(ANALYSIS_VALID))
+    expect(lireAnalysis(file).shots).toEqual([{ start: 0, end: 12.4 }])
   })
 
   /**
@@ -365,15 +365,15 @@ describe('lireAnalyse', () => {
    * le contrat » envoie ouvrir un fichier d'un mégaoctet à la main.
    */
   it('nomme ce qui cloche plutôt que d’échouer en bloc', () => {
-    const fichier = path.join(racine, 'analysis.json')
-    fs.writeFileSync(fichier, JSON.stringify({ ...ANALYSE_VALIDE, fps: 0 }))
-    expect(() => lireAnalyse(fichier)).toThrow(/fps/)
+    const file = path.join(root, 'analysis.json')
+    fs.writeFileSync(file, JSON.stringify({ ...ANALYSIS_VALID, fps: 0 }))
+    expect(() => lireAnalysis(file)).toThrow(/fps/)
   })
 
   it('lève sur un JSON tronqué', () => {
-    const fichier = path.join(racine, 'analysis.json')
-    fs.writeFileSync(fichier, '{"version": 1, "shots": [')
-    expect(() => lireAnalyse(fichier)).toThrow()
+    const file = path.join(root, 'analysis.json')
+    fs.writeFileSync(file, '{"version": 1, "shots": [')
+    expect(() => lireAnalysis(file)).toThrow()
   })
 })
 
@@ -388,10 +388,10 @@ describe('lireAnalyse', () => {
  * par 0 : c'est le seul cas où la validation d'avant renommage a quelque chose à
  * faire — un worker qui échoue est arrêté bien avant.
  */
-function monterFauxWorker(racine: string, charge: string): void {
-  fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+function mountFakeWorker(root: string, load: string): void {
+  fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
 
-  const ffprobe = path.join(racine, 'ffprobe-ok')
+  const ffprobe = path.join(root, 'ffprobe-ok')
   fs.writeFileSync(
     ffprobe,
     '#!/bin/sh\necho \'{"streams":[{"width":960,"height":540,"r_frame_rate":"30/1"}],' +
@@ -399,9 +399,9 @@ function monterFauxWorker(racine: string, charge: string): void {
     { mode: 0o755 },
   )
 
-  const chargeFichier = path.join(racine, 'charge-du-worker')
-  fs.writeFileSync(chargeFichier, charge)
-  const python = path.join(racine, 'faux-detect')
+  const loadFile = path.join(root, 'charge-du-worker')
+  fs.writeFileSync(loadFile, load)
+  const python = path.join(root, 'faux-detect')
   // `--out` se relit dans `$@` : le worker ne connaît pas le nom du temporaire,
   // que `cheminTemporaire` tire du PID et d'un compteur.
   fs.writeFileSync(
@@ -413,7 +413,7 @@ function monterFauxWorker(racine: string, charge: string): void {
       '  if [ "$1" = "--out" ]; then out="$2"; fi',
       '  shift',
       'done',
-      `cat ${JSON.stringify(chargeFichier)} > "$out"`,
+      `cat ${JSON.stringify(loadFile)} > "$out"`,
       '',
     ].join('\n'),
     { mode: 0o755 },
@@ -421,41 +421,41 @@ function monterFauxWorker(racine: string, charge: string): void {
 
   // Le script et les poids ne sont pas ouverts par ce faux worker : seul leur
   // existence est contrôlée, en amont, par `runAnalysis`.
-  for (const [nom, variable] of [
+  for (const [name, variable] of [
     ['detect.py', 'DETECT_WORKER'],
     ['yolo11m.pt', 'DETECT_MODEL'],
   ] as const) {
-    const chemin = path.join(racine, nom)
-    fs.writeFileSync(chemin, '')
-    process.env[variable] = chemin
+    const filePath = filePath.join(root, name)
+    fs.writeFileSync(filePath, '')
+    process.env[variable] = filePath
   }
   process.env.FFPROBE_BIN = ffprobe
   process.env.DETECT_PYTHON = python
 }
 
 describe('runAnalysis', () => {
-  let racine: string
-  const envDépart = { ...process.env }
+  let root: string
+  const envStart = { ...process.env }
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-run-'))
-    process.env.PROJECTS_DIR = path.join(racine, 'projects')
-    fs.mkdirSync(path.join(racine, 'projects', 'projet'), { recursive: true })
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-analysis-run-'))
+    process.env.PROJECTS_DIR = path.join(root, 'projects')
+    fs.mkdirSync(path.join(root, 'projects', 'projet'), { recursive: true })
   })
 
   afterEach(() => {
-    fs.rmSync(racine, { recursive: true, force: true })
-    process.env = { ...envDépart }
+    fs.rmSync(root, { recursive: true, force: true })
+    process.env = { ...envStart }
   })
 
   it('ne refait rien si analysis.json est déjà là', async () => {
-    const attendu = path.join(racine, 'projects', 'projet', 'analysis.json')
-    fs.writeFileSync(attendu, JSON.stringify(ANALYSE_VALIDE))
+    const expected = path.join(root, 'projects', 'projet', 'analysis.json')
+    fs.writeFileSync(expected, JSON.stringify(ANALYSIS_VALID))
 
     // Ni proxy ni venv sur le disque : si l'étape allait plus loin que le
     // saut, elle échouerait avant d'atteindre le premier sous-processus.
-    const artefact = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' })
-    expect(artefact).toEqual({ path: attendu, skipped: true })
+    const artifact = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' })
+    expect(artifact).toEqual({ path: expected, skipped: true })
   })
 
   /**
@@ -470,8 +470,8 @@ describe('runAnalysis', () => {
   })
 
   it('refuse un interpréteur de détection absent, en renvoyant à setup.sh', async () => {
-    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
-    process.env.DETECT_PYTHON = path.join(racine, 'pas-de-venv', 'bin', 'python')
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
+    process.env.DETECT_PYTHON = path.join(root, 'pas-de-venv', 'bin', 'python')
 
     await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
       /setup\.sh/,
@@ -490,17 +490,17 @@ describe('runAnalysis', () => {
    * ligne de commande pour l'échec du worker. (relevé par Aristarque)
    */
   it('n’expose pas l’arborescence de la machine quand un chemin manque', async () => {
-    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
     process.env.DETECT_PYTHON = '/home/quelquun/dev/avolo-shorts/worker/venv/bin/python'
 
-    const erreur = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
+    const error = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
       (cause: unknown) => cause,
     )
-    const publié = messageSûr(erreur)
-    expect(publié).not.toContain('quelquun')
-    expect(publié).toContain('…/python')
+    const published = messageSafe(error)
+    expect(published).not.toContain('quelquun')
+    expect(published).toContain('…/python')
     // Le remède survit à l'épuration : c'est lui qui dit quoi faire.
-    expect(publié).toContain('setup.sh')
+    expect(published).toContain('setup.sh')
   })
 
   /**
@@ -515,25 +515,25 @@ describe('runAnalysis', () => {
    * doublure de module.
    */
   it('refuse une dimension nulle, qui ferait tourner le worker sans fin', async () => {
-    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
-    const faux = path.join(racine, 'ffprobe-largeur-nulle')
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
+    const fake = path.join(root, 'ffprobe-largeur-nulle')
     fs.writeFileSync(
-      faux,
+      fake,
       '#!/bin/sh\necho \'{"streams":[{"width":0,"height":540,"r_frame_rate":"30/1"}],' +
         '"format":{"duration":"10"}}\'\n',
       { mode: 0o755 },
     )
-    process.env.FFPROBE_BIN = faux
+    process.env.FFPROBE_BIN = fake
     // Le venv et les poids doivent exister pour que l'étape aille jusqu'au
     // sondage : ce sont les contrôles d'avant.
-    for (const nom of ['python', 'detect.py', 'yolo11m.pt']) {
-      const chemin = path.join(racine, nom)
-      fs.writeFileSync(chemin, '')
+    for (const name of ['python', 'detect.py', 'yolo11m.pt']) {
+      const filePath = filePath.join(root, name)
+      fs.writeFileSync(filePath, '')
       process.env[
         { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[
-          nom
+          name
         ] as string
-      ] = chemin
+      ] = filePath
     }
 
     await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
@@ -552,21 +552,21 @@ describe('runAnalysis', () => {
    * réencoder six minutes de vidéo parfaitement valide. (relevé par Copilot)
    */
   it('rend un arrêt demandé pendant les sondages, pas un proxy illisible', async () => {
-    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
     // Un `ffprobe` qui ne rend jamais la main : c'est le montage 9p au transport
     // mort, en pire — ici même le délai de garde de deux minutes ne sauve pas
     // l'appelant, seul le signal le fait.
-    const faux = path.join(racine, 'ffprobe-qui-pend')
-    fs.writeFileSync(faux, '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
-    process.env.FFPROBE_BIN = faux
-    for (const nom of ['python', 'detect.py', 'yolo11m.pt']) {
-      const chemin = path.join(racine, nom)
-      fs.writeFileSync(chemin, '')
+    const fake = path.join(root, 'ffprobe-qui-pend')
+    fs.writeFileSync(fake, '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
+    process.env.FFPROBE_BIN = fake
+    for (const name of ['python', 'detect.py', 'yolo11m.pt']) {
+      const filePath = filePath.join(root, name)
+      fs.writeFileSync(filePath, '')
       process.env[
         { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[
-          nom
+          name
         ] as string
-      ] = chemin
+      ] = filePath
     }
 
     const controller = new AbortController()
@@ -583,18 +583,18 @@ describe('runAnalysis', () => {
   })
 
   it('n’expose pas la ligne de commande du worker en échec', () => {
-    const commande =
+    const command =
       "L'analyse a échoué (code de sortie 3).\n" +
-      `Commande : ${commandeLisible('/home/quelquun/dev/avolo-shorts/worker/venv/bin/python', [
+      `Commande : ${commandReadable('/home/quelquun/dev/avolo-shorts/worker/venv/bin/python', [
         '-u',
         '/home/quelquun/dev/avolo-shorts/worker/detect.py',
         '--model',
         '/home/quelquun/dev/avolo-shorts/worker/models/yolo11m.pt',
       ])}`
-    const publié = messageSûr(new Error(commande))
-    expect(publié).not.toContain('quelquun')
-    expect(publié).toContain('…/detect.py')
-    expect(publié).toContain('…/yolo11m.pt')
+    const published = messageSafe(new Error(command))
+    expect(published).not.toContain('quelquun')
+    expect(published).toContain('…/detect.py')
+    expect(published).toContain('…/yolo11m.pt')
   })
 
   /**
@@ -607,14 +607,14 @@ describe('runAnalysis', () => {
    */
   it('n’expose pas un chemin qui contient une espace', () => {
     const python = '/home/jean/Mon dossier/avolo-shorts/worker/venv/bin/python'
-    const commande = `Commande : ${commandeLisible(python, ['-u', '--model', '/x/y.pt'])}`
-    expect(messageSûr(new Error(commande))).not.toContain('Mon dossier')
+    const command = `Commande : ${commandReadable(python, ['-u', '--model', '/x/y.pt'])}`
+    expect(messageSafe(new Error(command))).not.toContain('Mon dossier')
 
     // Et la forme que Node écrit tout seul, sans guillemets, sur un spawn en
     // échec : celle-là ne se cite pas. `racines()` la couvre quand
     // `DETECT_PYTHON` est posée…
     process.env.DETECT_PYTHON = python
-    expect(messageSûr(new Error(`spawn ${python} ENOENT`))).not.toContain('Mon dossier')
+    expect(messageSafe(new Error(`spawn ${python} ENOENT`))).not.toContain('Mon dossier')
   })
 
   /**
@@ -624,36 +624,36 @@ describe('runAnalysis', () => {
    * entre guillemets, donc épurable. (relevé par Copilot)
    */
   it('ne remonte que le code d’erreur quand le worker ne démarre pas', async () => {
-    const dossier = path.join(racine, 'Mon dossier')
-    fs.mkdirSync(dossier, { recursive: true })
-    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    const folder = path.join(root, 'Mon dossier')
+    fs.mkdirSync(folder, { recursive: true })
+    fs.writeFileSync(path.join(root, 'projects', 'projet', 'proxy.mp4'), '')
 
     // Un interpréteur qui existe mais n'est pas exécutable : `spawn` échoue à
     // l'exécution, pas au contrôle de présence de l'étape.
-    const python = path.join(dossier, 'python')
+    const python = path.join(folder, 'python')
     fs.writeFileSync(python, '', { mode: 0o644 })
-    const script = path.join(dossier, 'detect.py')
+    const script = path.join(folder, 'detect.py')
     fs.writeFileSync(script, '')
-    const modèle = path.join(dossier, 'yolo11m.pt')
-    fs.writeFileSync(modèle, '')
-    const faux = path.join(racine, 'ffprobe-ok')
+    const template = path.join(folder, 'yolo11m.pt')
+    fs.writeFileSync(template, '')
+    const fake = path.join(root, 'ffprobe-ok')
     fs.writeFileSync(
-      faux,
+      fake,
       '#!/bin/sh\necho \'{"streams":[{"width":960,"height":540,"r_frame_rate":"30/1"}],' +
         '"format":{"duration":"10"}}\'\n',
       { mode: 0o755 },
     )
-    process.env.FFPROBE_BIN = faux
+    process.env.FFPROBE_BIN = fake
     process.env.DETECT_PYTHON = python
     process.env.DETECT_WORKER = script
-    process.env.DETECT_MODEL = modèle
-    const erreur = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
+    process.env.DETECT_MODEL = template
+    const error = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' }).catch(
       (cause: unknown) => cause,
     )
-    expect(erreur).toBeInstanceOf(Error)
-    expect((erreur as Error).message).toMatch(/EACCES|ENOENT/)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(/EACCES|ENOENT/)
     // Le message composé ne reprend pas la phrase de Node, donc pas son chemin nu.
-    expect((erreur as Error).message).not.toContain(`spawn ${python}`)
+    expect((error as Error).message).not.toContain(`spawn ${python}`)
   })
 
   /**
@@ -681,17 +681,17 @@ describe('runAnalysis', () => {
     // Un JSON qui *parse* et qui ment : zéro plan. Un fichier tronqué serait le
     // cas facile — celui-ci a la bonne forme et pas le bon contenu, donc il
     // franchit `JSON.parse` et ne s'arrête qu'au schéma.
-    monterFauxWorker(racine, JSON.stringify({ ...ANALYSE_VALIDE, shots: [] }))
+    mountFakeWorker(root, JSON.stringify({ ...ANALYSIS_VALID, shots: [] }))
 
     await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow(
       /contrat de l'itération 1/,
     )
 
-    const projet = path.join(racine, 'projects', 'projet')
-    expect(fs.existsSync(path.join(projet, 'analysis.json'))).toBe(false)
+    const project = path.join(root, 'projects', 'projet')
+    expect(fs.existsSync(path.join(project, 'analysis.json'))).toBe(false)
     // Et le temporaire ne survit pas non plus : un `.partiel-…` oublié à chaque
     // échec finirait par remplir le dossier du projet.
-    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
+    expect(fs.readdirSync(project).filter((n) => n.includes('.partiel-'))).toEqual([])
   })
 
   /**
@@ -702,13 +702,13 @@ describe('runAnalysis', () => {
    * `try`.
    */
   it('ne range pas non plus un JSON tronqué', async () => {
-    monterFauxWorker(racine, '{"version": 1, "shots": [')
+    mountFakeWorker(root, '{"version": 1, "shots": [')
 
     await expect(runAnalysis({ projectId: 'projet', source: '/absent.mp4' })).rejects.toThrow()
 
-    const projet = path.join(racine, 'projects', 'projet')
-    expect(fs.existsSync(path.join(projet, 'analysis.json'))).toBe(false)
-    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
+    const project = path.join(root, 'projects', 'projet')
+    expect(fs.existsSync(path.join(project, 'analysis.json'))).toBe(false)
+    expect(fs.readdirSync(project).filter((n) => n.includes('.partiel-'))).toEqual([])
   })
 
   /**
@@ -716,13 +716,13 @@ describe('runAnalysis', () => {
    * rangerait **jamais** rien passerait le test ci-dessus les yeux fermés.
    */
   it('range analysis.json une fois seulement, quand il est valide', async () => {
-    monterFauxWorker(racine, JSON.stringify(ANALYSE_VALIDE))
+    mountFakeWorker(root, JSON.stringify(ANALYSIS_VALID))
 
-    const projet = path.join(racine, 'projects', 'projet')
-    const artefact = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' })
+    const project = path.join(root, 'projects', 'projet')
+    const artifact = await runAnalysis({ projectId: 'projet', source: '/absent.mp4' })
 
-    expect(artefact).toEqual({ path: path.join(projet, 'analysis.json'), skipped: false })
-    expect(lireAnalyse(artefact.path).shots).toEqual([{ start: 0, end: 12.4 }])
-    expect(fs.readdirSync(projet).filter((n) => n.includes('.partiel-'))).toEqual([])
+    expect(artifact).toEqual({ path: path.join(project, 'analysis.json'), skipped: false })
+    expect(lireAnalysis(artifact.path).shots).toEqual([{ start: 0, end: 12.4 }])
+    expect(fs.readdirSync(project).filter((n) => n.includes('.partiel-'))).toEqual([])
   })
 })

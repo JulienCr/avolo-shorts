@@ -147,9 +147,9 @@ describe('la bande de couverture', () => {
     // — invisible et inatteignable, le contraire de ce que `min-w` promet.
     // (relevé par Copilot)
     renderView({ clips: [clip('a', [{ start: 9_000, end: 9_100 }])] })
-    const bloc = blocks()[0]
-    expect(bloc.style.right).toBe('0px')
-    expect(bloc.style.left).toBe('')
+    const block = blocks()[0]
+    expect(block.style.right).toBe('0px')
+    expect(block.style.left).toBe('')
   })
 
   it('compte ce qui a été gardé, en toutes lettres', () => {

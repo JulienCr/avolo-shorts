@@ -1,4 +1,4 @@
-import { servirFichier } from '@/server/octets'
+import { serveFile } from '@/server/bytes'
 import { projectsDir, proxyPath } from '@/server/paths'
 
 /**
@@ -47,9 +47,9 @@ export async function GET(
   // chercher le bug à l'exact opposé de là où il est. (relevé par Copilot)
   projectsDir()
 
-  let chemin: string
+  let path: string
   try {
-    chemin = proxyPath(id)
+    path = proxyPath(id)
   } catch {
     // Reste donc le seul refus possible ici : celui de `vérifierId`, dans
     // `src/server/paths.ts`. C'est lui qui garde la traversée de répertoire, et
@@ -63,7 +63,7 @@ export async function GET(
   // Pas de fichier : tant que l'étape d'encodage n'a pas tourné, il n'y a rien à
   // servir. Ce n'est pas une panne, et tout le reste — droits refusés, montage
   // mort — remonte en 500 par `servirFichier`, qui ne déguise que l'absence.
-  const response = await servirFichier(request, chemin, {
+  const response = await serveFile(request, path, {
     'Content-Type': TYPE,
     // `servirFichier` possède les validateurs et le traitement conditionnel ;
     // cette route possède son `Cache-Control`, qui lui est propre — voir le

@@ -3,7 +3,7 @@ import path from 'node:path'
 import type Database from 'better-sqlite3'
 import { z } from 'zod'
 import { mergeCandidates } from '@/core/candidates'
-import { caviarderClés } from '@/core/erreurs'
+import { redactKeys } from '@/core/errors'
 import type { Clip } from '@/core/edl'
 import {
   parseDetailResponse,
@@ -23,13 +23,13 @@ import {
   buildWindows,
   clipCountTargets,
   mergeOverlappingWindows,
-  secondesDeParole,
+  speechSeconds,
   shortlistSize,
   type Transcript,
   type Window,
   type Word,
 } from '@/core/transcript'
-import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
+import { getClips, getDb, getProject, getSettings, replaceClips } from '@/server/db'
 import { StopRequestedError } from '@/server/ffmpeg'
 import { createCallFromSettings } from '@/server/llm/registry'
 import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode, LlmResponse } from '@/server/llm/types'
@@ -82,7 +82,7 @@ import { candidatesPath, placeSidecar } from '@/server/paths'
  * appels et en doublant les barèmes. Ce qui le règle est `récupérer`, qui ne
  * recoupe que ce qui a été refusé.
  */
-const LOT_NOTATION_PAR_DÉFAUT = 8
+const BATCH_NOTATION_BY_DEFAULT = 8
 
 /**
  * Ce que la récupération s'autorise à dépenser, en multiple du premier passage.
@@ -107,7 +107,7 @@ const LOT_NOTATION_PAR_DÉFAUT = 8
  * que le fournisseur refuse en bloc. Ce qu'un palier payant change, c'est la
  * fréquence des attentes de `délaiDeQuota`, pas leur utilité.
  */
-const RÉCUPÉRATION_MAX = 3
+const RECOVERY_MAX = 3
 
 /**
  * Le plafond de sortie, posé **explicitement** plutôt que laissé au modèle.
@@ -124,7 +124,7 @@ const RÉCUPÉRATION_MAX = 3
  * réseau. Seize mille laisse de la marge à une source de six heures sans jamais
  * approcher ce que le modèle sait produire.
  */
-const PLAFOND_DE_SORTIE = 16_384
+const OUTPUT_CAP = 16_384
 
 /**
  * Trois tentatives, et l'attente double à chaque échec : 5 s puis 10 s.
@@ -134,7 +134,7 @@ const PLAFOND_DE_SORTIE = 16_384
  * essais, un service qui ne répond pas ne répondra pas dans la minute, et
  * l'appelant a une chaîne de quarante minutes derrière lui à ne pas bloquer.
  */
-const TENTATIVES = 3
+const ATTEMPTS = 3
 
 /**
  * Le délai au-delà duquel un appel est abandonné, en millisecondes.
@@ -144,7 +144,7 @@ const TENTATIVES = 3
  * sert donc pas à serrer la performance, seulement à garantir qu'un appel
  * rendra la main.
  */
-const DÉLAI_APPEL_MS = 120_000
+const DELAY_CALL_MS = 120_000
 
 /**
  * Le filtre de contenu a refusé. **Ne jamais réessayer la même charge** : le
@@ -198,7 +198,7 @@ export class GeminiBlockedError extends Error {
  *
  * **`MAX_TOKENS` n'est pas ici** : voir `leverSiBloquée`.
  */
-const FINS_SANS_REFUS = new Set([
+const ENDS_WITHOUT_REJECTION = new Set([
   '',
   'FINISH_REASON_UNSPECIFIED',
   'STOP',
@@ -226,7 +226,7 @@ const FINS_SANS_REFUS = new Set([
  * réessayé tel quel, et recoupé par `récupérer`. Ollama, lui, n'a pas de
  * filtre fournisseur — rien ici ne le concerne.
  */
-const REFUS_DE_CONTENU = new Set([
+const CONTENT_REJECTION = new Set([
   'SAFETY',
   'PROHIBITED_CONTENT',
   'BLOCKLIST',
@@ -259,7 +259,7 @@ const REFUS_DE_CONTENU = new Set([
  * même incident écrit par deux couches différentes, et se souvenir de quelle
  * couche parle n'est pas un service à rendre au lecteur.
  */
-const MARQUEURS_PASSAGERS = [
+const MARKERS_TRANSIENT = [
   '429',
   '500',
   '502',
@@ -294,7 +294,7 @@ const MARQUEURS_PASSAGERS = [
  * signal d'annulation à l'appelant, donc un abandon ne peut venir que du délai.
  * (relevé par Copilot)
  */
-const NOMS_PASSAGERS = new Set(['AbortError', 'TimeoutError'])
+const NAMES_TRANSIENT = new Set(['AbortError', 'TimeoutError'])
 
 /**
  * Le mode d'appel : les deux passes n'ont ni le même schéma ni la même
@@ -315,7 +315,7 @@ export type ModeGemini = LlmMode
  * pour un gain nul, puisque `GenerateContentResponse` s'assigne déjà
  * structurellement à `LlmResponse`.
  */
-export type AppelGemini = LlmCall
+export type CallGemini = LlmCall
 
 /**
  * Les deux schémas du repérage, dans le vocabulaire commun aux trois
@@ -327,7 +327,7 @@ export type AppelGemini = LlmCall
  * l'énumération `Type`, OpenAI et Ollama les exercent tels quels puisque
  * `JsonSchema` est déjà écrit dans leur vocabulaire.
  */
-const SCHÉMA_NOTATION: JsonSchema = {
+const SCHEMA_NOTATION: JsonSchema = {
   type: 'object',
   properties: {
     windows: {
@@ -348,7 +348,7 @@ const SCHÉMA_NOTATION: JsonSchema = {
   required: ['windows'],
 }
 
-const SCHÉMA_DÉTAIL: JsonSchema = {
+const SCHEMA_DETAIL: JsonSchema = {
   type: 'object',
   properties: {
     shorts: {
@@ -391,9 +391,9 @@ const SCHÉMA_DÉTAIL: JsonSchema = {
  */
 function configuration(mode: ModeGemini): LlmCallConfig {
   return {
-    schema: mode === 'detail' ? SCHÉMA_DÉTAIL : SCHÉMA_NOTATION,
+    schema: mode === 'detail' ? SCHEMA_DETAIL : SCHEMA_NOTATION,
     temperature: mode === 'detail' ? 0.9 : 0.2,
-    maxOutputTokens: PLAFOND_DE_SORTIE,
+    maxOutputTokens: OUTPUT_CAP,
   }
 }
 
@@ -409,22 +409,22 @@ function configuration(mode: ModeGemini): LlmCallConfig {
  * même, un lot partiel était accepté et `replaceClips` remplaçait la passe
  * précédente par ce fragment, sans un mot. (relevé par Copilot)
  */
-export function leverSiBloquée(réponse: LlmResponse): void {
-  const raison = réponse.promptFeedback?.blockReason
-  if (raison) {
+export function leverIfBlocked(response: LlmResponse): void {
+  const reason = response.promptFeedback?.blockReason
+  if (reason) {
     throw new GeminiBlockedError(
-      `Le fournisseur a bloqué le contenu de cette vidéo (${String(raison)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+      `Le fournisseur a bloqué le contenu de cette vidéo (${String(reason)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
     )
   }
-  for (const candidat of réponse.candidates ?? []) {
-    const fin = String(candidat.finishReason ?? '').toUpperCase()
+  for (const candidate of response.candidates ?? []) {
+    const fin = String(candidate.finishReason ?? '').toUpperCase()
     if (fin === 'MAX_TOKENS') {
       // Une erreur ordinaire, pas un `GeminiBlockedError` : le message est dans
       // les marqueurs passagers, donc l'appel repart.
       throw new Error('Provider response was truncated (MAX_TOKENS): the answer is incomplete.')
     }
-    if (FINS_SANS_REFUS.has(fin)) continue
-    if (REFUS_DE_CONTENU.has(fin)) {
+    if (ENDS_WITHOUT_REJECTION.has(fin)) continue
+    if (CONTENT_REJECTION.has(fin)) {
       throw new GeminiBlockedError(
         `Le fournisseur a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
       )
@@ -438,10 +438,10 @@ export function leverSiBloquée(réponse: LlmResponse): void {
   }
 }
 
-export function estPassagère(erreur: unknown): boolean {
-  if (erreur instanceof Error && NOMS_PASSAGERS.has(erreur.name)) return true
-  const bas = (erreur instanceof Error ? erreur.message : String(erreur)).toLowerCase()
-  return MARQUEURS_PASSAGERS.some((marqueur) => bas.includes(marqueur))
+export function estTransient(error: unknown): boolean {
+  if (error instanceof Error && NAMES_TRANSIENT.has(error.name)) return true
+  const bottom = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  return MARKERS_TRANSIENT.some((marker) => bottom.includes(marker))
 }
 
 /**
@@ -459,7 +459,7 @@ export function estPassagère(erreur: unknown): boolean {
  * minutes pour arriver au même endroit. Raccourcir une attente qu'on sait
  * insuffisante ne rend service à personne. (relevé par Copilot)
  */
-const ATTENTE_QUOTA_MAX_MS = 90_000
+const WAIT_QUOTA_MAX_MS = 90_000
 
 /**
  * Le délai que Google demande dans un 429, en millisecondes, ou `null`.
@@ -476,9 +476,9 @@ const ATTENTE_QUOTA_MAX_MS = 90_000
  * laisse : `@google/genai` recopie le corps JSON de la réponse dans le message
  * de l'exception, sans exposer `RetryInfo` autrement.
  */
-export function délaiDeQuota(message: string): number | null {
-  const trouvé = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message)
-  if (trouvé === null) return null
+export function quotaDelay(message: string): number | null {
+  const found = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message)
+  if (found === null) return null
   // `ceil` et non `round` : la seule erreur qui coûte quelque chose ici est
   // d'attendre **moins** que demandé, ce qui rejoue la requête dans la fenêtre
   // encore fermée et brûle un essai sur trois. Arrondir au-dessus ne peut donc
@@ -489,7 +489,7 @@ export function délaiDeQuota(message: string): number | null {
   // ce qu'on accepte d'attendre est une décision, et elle se prend dans
   // `appelerGemini` avec `ATTENTE_QUOTA_MAX_MS`. Les mêler ici faisait rendre un
   // délai raccourci qu'on relançait ensuite comme s'il suffisait.
-  return Math.ceil(Number(trouvé[1]) * 1000)
+  return Math.ceil(Number(found[1]) * 1000)
 }
 
 /**
@@ -501,11 +501,11 @@ export function délaiDeQuota(message: string): number | null {
  * sur ce chemin-là. Deux copies du même motif auraient vieilli séparément.
  * (relevé par Aristarque)
  */
-export const caviarder = caviarderClés
+export const redact = redactKeys
 
-const attendre = (ms: number): Promise<void> =>
-  new Promise((résoudre) => {
-    setTimeout(résoudre, ms)
+const wait = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
   })
 
 /**
@@ -519,13 +519,13 @@ const attendre = (ms: number): Promise<void> =>
  * ressortirait en « zéro clip », c'est-à-dire en passe réussie qui efface les
  * propositions non traitées. (relevé par Copilot)
  */
-export async function appelerGemini<T = unknown>(
-  appel: AppelGemini,
+export async function callGemini<T = unknown>(
+  call: CallGemini,
   prompt: string,
   mode: ModeGemini,
   options: {
     sleep?: (ms: number) => Promise<void>
-    analyser?: (brut: unknown) => T
+    analyze?: (raw: unknown) => T
     /**
      * L'arrêt demandé (`POST /api/projects/:id/stop`).
      *
@@ -540,8 +540,8 @@ export async function appelerGemini<T = unknown>(
     signal?: AbortSignal
   } = {},
 ): Promise<T> {
-  const sleep = options.sleep ?? attendre
-  const analyser = options.analyser ?? ((brut: unknown) => brut as T)
+  const sleep = options.sleep ?? wait
+  const analyze = options.analyze ?? ((raw: unknown) => raw as T)
   // Une fonction et non l'expression écrite deux fois : `aborted` change de
   // valeur pendant la boucle, et TypeScript, qui l'ignore, retenait la
   // restriction du premier contrôle jusqu'au second — qu'il déclarait alors
@@ -586,25 +586,25 @@ export async function appelerGemini<T = unknown>(
       if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
     }
   }
-  for (let tentative = 1; ; tentative += 1) {
+  for (let attempt = 1; ; attempt += 1) {
     if (isAborted()) throw new StopRequestedError('le repérage')
     try {
-      const réponse = await appel(prompt, mode)
-      leverSiBloquée(réponse)
-      return analyser(parseJsonResponse(réponse.text ?? ''))
-    } catch (erreur) {
+      const response = await call(prompt, mode)
+      leverIfBlocked(response)
+      return analyze(parseJsonResponse(response.text ?? ''))
+    } catch (error) {
       // Un refus de contenu ne se réessaie jamais : voir `GeminiBlockedError`.
-      if (erreur instanceof GeminiBlockedError) throw erreur
+      if (error instanceof GeminiBlockedError) throw error
       // Un arrêt demandé non plus. Le contrôle est **avant** `estPassagère`, qui
       // le classerait passager par son nom d'`AbortError`.
       if (isAborted()) throw new StopRequestedError('le repérage')
-      const message = erreur instanceof Error ? erreur.message : String(erreur)
-      if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
+      const message = error instanceof Error ? error.message : String(error)
+      if (attempt >= ATTEMPTS || !estTransient(error)) throw error
       // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus
       // une pointe passagère : on rend la main tout de suite plutôt que de
       // relancer avant l'heure et de brûler les essais restants.
-      const quota = délaiDeQuota(message)
-      if (quota !== null && quota > ATTENTE_QUOTA_MAX_MS) {
+      const quota = quotaDelay(message)
+      if (quota !== null && quota > WAIT_QUOTA_MAX_MS) {
         // Le message dit ce qu'on sait — le délai demandé — et ce qu'on décide —
         // ne pas l'attendre. **Il ne diagnostique pas la limite** : `retryDelay`
         // donne un délai minimal recommandé, dont on ne peut pas déduire s'il
@@ -614,17 +614,17 @@ export async function appelerGemini<T = unknown>(
         // (relevé par Copilot)
         throw new Error(
           `Le fournisseur refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
-            `soit plus que les ${ATTENTE_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
+            `soit plus que les ${WAIT_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
             `Le repérage s'arrête plutôt que de relancer avant le délai demandé.`,
         )
       }
       // Le délai demandé l'emporte quand il est plus long : sur un quota par
       // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
-      const attente = Math.max(5000 * 2 ** (tentative - 1), quota ?? 0)
+      const wait = Math.max(5000 * 2 ** (attempt - 1), quota ?? 0)
       console.warn(
-        `Fournisseur, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
+        `Fournisseur, erreur passagère (essai ${attempt}/${ATTEMPTS}), nouvelle tentative dans ${wait / 1000} s : ${redact(message).slice(0, 150)}`,
       )
-      await waitOrStop(attente)
+      await waitOrStop(wait)
     }
   }
 }
@@ -650,17 +650,17 @@ export async function appelerGemini<T = unknown>(
  * (`promptFeedback.blockReason`, `candidates[].finishReason`) pour que cette
  * politique n'ait pas à se réécrire par fournisseur.
  */
-function clientParDéfaut(db: Database.Database, signal?: AbortSignal): AppelGemini {
+function clientByDefault(db: Database.Database, signal?: AbortSignal): CallGemini {
   return createCallFromSettings(db, 'selection', {
     signal,
-    timeoutMs: DÉLAI_APPEL_MS,
+    timeoutMs: DELAY_CALL_MS,
     config: configuration,
   })
 }
 
-const SCHÉMA_MOT = z.object({ word: z.string(), start: z.number(), end: z.number() })
+const SCHEMA_WORD = z.object({ word: z.string(), start: z.number(), end: z.number() })
 
-const SCHÉMA_TRANSCRIPT = z.object({
+const SCHEMA_TRANSCRIPT = z.object({
   /** WhisperX pose la langue détectée à la racine. */
   language: z.string().optional(),
   segments: z.array(
@@ -685,7 +685,7 @@ export type TranscriptLu = Transcript & { language: string }
  * GPU. Ces mots ne servent qu'à `snapToWords`, qui cherche des frontières : un
  * mot sans frontière n'en est pas une.
  */
-export function lireTranscript(fichier: string): TranscriptLu {
+export function lireTranscript(file: string): TranscriptLu {
   // **Le chemin va au journal, jamais dans l'erreur levée.** Il porte
   // l'arborescence du montage Google Drive, et cette erreur peut finir dans le
   // corps d'une réponse HTTP — `resolveSource` a posé la règle et la commente
@@ -697,38 +697,38 @@ export function lireTranscript(fichier: string): TranscriptLu {
   // (relevé par Copilot)
   let cause: string
   try {
-    const lu = SCHÉMA_TRANSCRIPT.safeParse(JSON.parse(fs.readFileSync(fichier, 'utf8')))
-    if (lu.success) return depuisSchéma(lu.data)
+    const lu = SCHEMA_TRANSCRIPT.safeParse(JSON.parse(fs.readFileSync(file, 'utf8')))
+    if (lu.success) return sinceSchema(lu.data)
     cause = lu.error.message
-  } catch (erreur) {
+  } catch (error) {
     // Le NOM de l'erreur, pas son message : un `ENOENT` de `readFileSync` écrit
     // le chemin absolu dans son message, et c'est précisément ce qui ne doit pas
     // sortir d'ici.
-    cause = erreur instanceof Error ? erreur.name : 'erreur inconnue'
+    cause = error instanceof Error ? error.name : 'erreur inconnue'
   }
-  console.error(`Transcript illisible : ${fichier}`)
+  console.error(`Transcript illisible : ${file}`)
   throw new Error(`Transcript illisible dans le sidecar : ${cause}`)
 }
 
-function depuisSchéma(données: z.infer<typeof SCHÉMA_TRANSCRIPT>): TranscriptLu {
+function sinceSchema(data: z.infer<typeof SCHEMA_TRANSCRIPT>): TranscriptLu {
   return {
-    language: données.language ?? 'unknown',
-    segments: données.segments.map((s) => ({
+    language: data.language ?? 'unknown',
+    segments: data.segments.map((s) => ({
       start: s.start,
       end: s.end,
       text: s.text,
       words: (s.words ?? []).flatMap((m): Word[] => {
-        const mot = SCHÉMA_MOT.safeParse(m)
-        return mot.success ? [mot.data] : []
+        const word = SCHEMA_WORD.safeParse(m)
+        return word.success ? [word.data] : []
       }),
     })),
   }
 }
 
-export type RepérageOptions = {
+export type DetectionOptions = {
   db?: Database.Database
   /** La couture réseau. Les tests en passent une qui rend des réponses figées. */
-  appel?: AppelGemini
+  call?: CallGemini
   sleep?: (ms: number) => Promise<void>
   /**
    * Appelé chaque fois qu'un lot a été traité, avec le bilan à jour.
@@ -743,7 +743,7 @@ export type RepérageOptions = {
    * Le bilan passé est **celui qui vit**, muté au fil de l'eau : le lire tout de
    * suite, ne pas le garder.
    */
-  onBilan?: (bilan: BilanNotation) => void
+  onSummary?: (summary: SummaryNotation) => void
   /**
    * L'arrêt demandé (`POST /api/projects/:id/stop`).
    *
@@ -764,16 +764,16 @@ export type RepérageOptions = {
  * `status.json`, ni l'interface —, et sur `2025-06-15-cqlp` elle valait un tiers
  * de l'émission.
  */
-export type BilanNotation = {
+export type SummaryNotation = {
   /**
    * Les fenêtres que la passe avait à noter — le total prévu, pas le nombre de
    * fenêtres effectivement soumises. La nuance porte l'invariant : une passe
    * interrompue en a soumis moins, et ce sont justement les non soumises que
    * `jamaisNotées` doit continuer de nommer. (relevé par Copilot)
    */
-  fenêtres: number
+  windows: number
   /** Celles qui portent une note du modèle. */
-  notées: number
+  noted: number
   /**
    * Celles qui n'en portent aucune : refusées par le filtre, omises par une
    * réponse, ou **pas encore soumises quand la passe s'est interrompue**.
@@ -786,12 +786,12 @@ export type BilanNotation = {
    * pas la perte. La liste part donc pleine et se vide de ce qui est noté.
    * (relevé par Copilot)
    */
-  jamaisNotées: string[]
+  neverNoted: string[]
   /**
    * Celles que le filtre refuse **seules**, lot réduit à elles. Distinctes des
    * précédentes : là, le refus vise bien cette fenêtre-là et pas l'assemblage.
    */
-  refusées: string[]
+  rejected: string[]
   /**
    * Les **requêtes** de notation, refus, relances et récupération comprises.
    *
@@ -800,11 +800,11 @@ export type BilanNotation = {
    * minute sur le palier gratuit. Compter les lots sous-estimait exactement le
    * nombre dont on se sert pour raisonner sur ce plafond. (relevé par Copilot)
    */
-  appels: number
+  calls: number
   /** Les lots refusés, toutes profondeurs de découpe confondues. */
-  lotsRefusés: number
+  batchesRejected: number
   /** Les lots auxquels le modèle a répondu. */
-  lotsRépondus: number
+  batchesResponded: number
   /**
    * La part de l'étendue du transcript couverte par les fenêtres notées, entre
    * 0 et 1.
@@ -821,11 +821,11 @@ export type BilanNotation = {
    * explicitement, « la seule mesure qui réponde à la question que Julien se
    * pose ».
    */
-  couverture: number
+  coverage: number
 }
 
 /** Un intervalle de temps, en secondes. */
-export type Étendue = { start: number; end: number }
+export type Extent = { start: number; end: number }
 
 /**
  * La part de `étendue` que couvrent `intervalles`, entre 0 et 1.
@@ -847,31 +847,31 @@ export type Étendue = { start: number; end: number }
  * Pure, et exportée pour être testée sur ses cas limites : ils ne se rencontrent
  * pas dans une passe complète.
  */
-export function partCouverte(intervalles: readonly Étendue[], étendue: Étendue): number {
-  const total = étendue.end - étendue.start
+export function partCovered(intervals: readonly Extent[], extent: Extent): number {
+  const total = extent.end - extent.start
   if (!(total > 0)) return 0
 
-  const écrêtés = intervalles
+  const clipped = intervals
     .map((i) => ({
-      start: Math.max(i.start, étendue.start),
-      end: Math.min(i.end, étendue.end),
+      start: Math.max(i.start, extent.start),
+      end: Math.min(i.end, extent.end),
     }))
     .filter((i) => i.end > i.start)
     .sort((a, b) => a.start - b.start)
 
-  let couvert = 0
-  let courant: Étendue | null = null
-  for (const i of écrêtés) {
-    if (courant === null || i.start > courant.end) {
-      if (courant !== null) couvert += courant.end - courant.start
-      courant = { ...i }
-    } else if (i.end > courant.end) {
-      courant.end = i.end
+  let covered = 0
+  let current: Extent | null = null
+  for (const i of clipped) {
+    if (current === null || i.start > current.end) {
+      if (current !== null) covered += current.end - current.start
+      current = { ...i }
+    } else if (i.end > current.end) {
+      current.end = i.end
     }
   }
-  if (courant !== null) couvert += courant.end - courant.start
+  if (current !== null) covered += current.end - current.start
 
-  return Math.round((couvert / total) * 10_000) / 10_000
+  return Math.round((covered / total) * 10_000) / 10_000
 }
 
 /**
@@ -882,13 +882,13 @@ export function partCouverte(intervalles: readonly Étendue[], étendue: Étendu
  * cinq minutes de matière non jugée. Les mots arrivent en général ordonnés, mais
  * on ne le suppose pas — un transcript vient du disque.
  */
-export function étendueDuTranscript(mots: readonly Word[]): Étendue {
-  if (mots.length === 0) return { start: 0, end: 0 }
+export function transcriptExtent(words: readonly Word[]): Extent {
+  if (words.length === 0) return { start: 0, end: 0 }
   let start = Number.POSITIVE_INFINITY
   let end = Number.NEGATIVE_INFINITY
-  for (const mot of mots) {
-    if (mot.start < start) start = mot.start
-    if (mot.end > end) end = mot.end
+  for (const word of words) {
+    if (word.start < start) start = word.start
+    if (word.end > end) end = word.end
   }
   return end > start ? { start, end } : { start: 0, end: 0 }
 }
@@ -906,7 +906,7 @@ export function étendueDuTranscript(mots: readonly Word[]): Étendue {
  * que ce raccord n'est pas fait, elle est dans le journal, ce qui est déjà
  * infiniment plus que rien.
  */
-const bilans = new Map<string, BilanNotation>()
+const summaries = new Map<string, SummaryNotation>()
 
 /**
  * Le bilan de la dernière notation de ce projet, ou `null`.
@@ -922,8 +922,8 @@ const bilans = new Map<string, BilanNotation>()
  * porte `error` et `finishedAt`. Le raccord à venir dans `écrireStatut` doit
  * donc lire les deux, jamais ce bilan seul. (relevé par Aristarque)
  */
-export function dernierBilan(projectId: string): BilanNotation | null {
-  return bilans.get(projectId) ?? null
+export function lastSummary(projectId: string): SummaryNotation | null {
+  return summaries.get(projectId) ?? null
 }
 
 /**
@@ -936,8 +936,8 @@ export function dernierBilan(projectId: string): BilanNotation | null {
  * publierait le décompte de la passe précédente comme s'il décrivait celle-ci.
  * Le lanceur appelle donc ceci dès qu'il retient un plan qui contient l'étape.
  */
-export function oublierBilan(projectId: string): void {
-  bilans.delete(projectId)
+export function forgetSummary(projectId: string): void {
+  summaries.delete(projectId)
 }
 
 /**
@@ -955,7 +955,7 @@ export function oublierBilan(projectId: string): void {
  */
 export async function runCandidates(
   projectId: string,
-  options: RepérageOptions = {},
+  options: DetectionOptions = {},
 ): Promise<Clip[]> {
   // **Le bilan de la passe précédente tombe à la toute première ligne**, avant
   // même la base et le client. Il n'est posé qu'une fois le transcript lu et les
@@ -969,28 +969,28 @@ export async function runCandidates(
   // *après* `clientParDéfaut()`, qui lève quand `GEMINI_API_KEY` manque : elle
   // ratait précisément l'échec le plus banal. Un nettoyage conditionné à ce que
   // rien n'ait échoué avant lui ne nettoie rien. (relevé par Copilot)
-  bilans.delete(projectId)
+  summaries.delete(projectId)
 
   const db = options.db ?? getDb()
-  const appel = options.appel ?? clientParDéfaut(db, options.signal)
-  const sleep = options.sleep ?? attendre
+  const call = options.call ?? clientByDefault(db, options.signal)
+  const sleep = options.sleep ?? wait
 
-  const projet = getProject(db, projectId)
-  if (!projet) throw new Error(`Projet inconnu : ${projectId}`)
-  if (projet.durationSec === null) {
+  const project = getProject(db, projectId)
+  if (!project) throw new Error(`Projet inconnu : ${projectId}`)
+  if (project.durationSec === null) {
     throw new Error(
       `Le projet ${projectId} n'a pas de durée : l'ingestion (ffprobe) doit passer avant le repérage.`,
     )
   }
-  const durée = projet.durationSec
+  const duration = project.durationSec
 
-  const placement = placeSidecar(projet.sourcePath, projectId)
+  const placement = placeSidecar(project.sourcePath, projectId)
   const transcript = lireTranscript(placement.transcript)
-  const mots: Word[] = transcript.segments.flatMap((s) => s.words)
+  const words: Word[] = transcript.segments.flatMap((s) => s.words)
 
   // 1. Le fenêtrage : 90 secondes, chevauchées de 30, calées sur les phrases.
-  const fenêtres = buildWindows(transcript, durée)
-  console.log(`Repérage ${projectId} : ${fenêtres.length} fenêtre(s) à noter.`)
+  const windows = buildWindows(transcript, duration)
+  console.log(`Repérage ${projectId} : ${windows.length} fenêtre(s) à noter.`)
 
   // **Deux mesures voisines, et elles ne sont pas interchangeables.**
   // `étendue` va du premier mot aligné au dernier : c'est le dénominateur de la
@@ -998,37 +998,37 @@ export async function runCandidates(
   // `paroleSec` est l'union des segments qui portent de la prose : c'est la
   // matière, celle qui dit combien de clips l'émission peut donner. Sur les deux
   // émissions du dépôt, la seconde vaut 79 à 80 % de la première.
-  const étendue = étendueDuTranscript(mots)
-  const paroleSec = secondesDeParole(transcript)
-  const réglages = getRéglages(db)
+  const extent = transcriptExtent(words)
+  const speechSec = speechSeconds(transcript)
+  const settings = getSettings(db)
 
   // 2. La notation, par lots, puis la récupération de ce que le filtre refuse.
-  const { notées, bilan } = await noterLesFenêtres(
-    fenêtres,
+  const { noted, summary } = await noteWindows(
+    windows,
     {
       projectId,
       language: transcript.language,
-      videoDuration: durée,
-      étendue,
-      appel,
+      videoDuration: duration,
+      extent,
+      call,
       sleep,
       signal: options.signal,
     },
-    options.onBilan,
+    options.onSummary,
   )
 
   // 3. La présélection, puis la fusion — et les cibles AVANT la fusion.
-  const retenues = shortlistFromScores(
-    notées,
-    fenêtres,
-    shortlistSize(paroleSec, fenêtres.length, réglages),
+  const kept = shortlistFromScores(
+    noted,
+    windows,
+    shortlistSize(speechSec, windows.length, settings),
   )
-  const [minClips, maxClips] = clipCountTargets(paroleSec, réglages)
-  const blocs = mergeOverlappingWindows(retenues, transcript)
+  const [minClips, maxClips] = clipCountTargets(speechSec, settings)
+  const blocks = mergeOverlappingWindows(kept, transcript)
   console.log(
-    `Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail, ` +
-      `cible ${minClips}-${maxClips} clip(s) pour ${(paroleSec / 60).toFixed(1)} min de parole ` +
-      `(un clip toutes les ${réglages.minutesPerClip} min).`,
+    `Présélection : ${kept.length} fenêtre(s) → ${blocks.length} bloc(s) de détail, ` +
+      `cible ${minClips}-${maxClips} clip(s) pour ${(speechSec / 60).toFixed(1)} min de parole ` +
+      `(un clip toutes les ${settings.minutesPerClip} min).`,
   )
 
   // **La relecture des clips, faite une seule fois et jamais avant l'attente
@@ -1050,17 +1050,17 @@ export async function runCandidates(
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
   //    de ressortir en « zéro clip » — ce qui effacerait les propositions non
   //    traitées et écrirait l'artefact. (relevé par Copilot)
-  const propositions = await détailler(retenues, {
+  const propositions = await detail(kept, {
     projectId,
     transcript,
-    mots,
-    durée,
+    words,
+    duration,
     minClips,
     maxClips,
-    plafondAbsolu: réglages.maximumClips,
-    idsPris: () =>
+    capAbsolute: settings.maximumClips,
+    idsTaken: () =>
       new Set(readFreshClips().filter((c) => c.status !== 'candidate').map((c) => c.id)),
-    appel,
+    call,
     sleep,
     signal: options.signal,
   })
@@ -1073,29 +1073,29 @@ export async function runCandidates(
   // la décision. C'est très exactement la garantie « une nouvelle passe n'écrase
   // jamais un travail humain » (spec §5), qu'une lecture hissée trop haut
   // suffisait à défaire. (relevé par Codex et Copilot)
-  const existants = readFreshClips()
+  const existing = readFreshClips()
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
-  const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)
-  const clips = mergeCandidates(existants, propositions, passe)
+  const past = 1 + existing.reduce((top, c) => Math.max(top, c.pass), 0)
+  const clips = mergeCandidates(existing, propositions, past)
   // **Le marqueur tombe avant la mutation et ne réapparaît qu'après.** Le graphe
   // ne regarde que la présence du fichier : laisser l'ancien en place pendant
   // qu'on change la base ferait passer une exécution interrompue pour terminée,
   // avec un artefact qui décrit l'état d'avant. (relevé par Copilot)
-  effacerArtefact(projectId)
+  eraseArtifact(projectId)
   replaceClips(db, projectId, clips)
-  écrireArtefact(projectId, clips)
+  writeArtifact(projectId, clips)
   console.log(
-    `Passe ${passe} : ${propositions.length} proposition(s), ${clips.length} clip(s)` +
-      `, ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s).`,
+    `Passe ${past} : ${propositions.length} proposition(s), ${clips.length} clip(s)` +
+      `, ${summary.noted}/${summary.windows} fenêtre(s) jugée(s).`,
   )
   return clips
 }
 
 /** `SCORE_BATCH`, jamais moins de 1 : une valeur illisible ne fait pas échouer le travail. */
-function tailleDeLot(): number {
-  const brut = Number.parseInt(process.env.SCORE_BATCH ?? '', 10)
-  return Number.isFinite(brut) && brut >= 1 ? brut : LOT_NOTATION_PAR_DÉFAUT
+function batchSize(): number {
+  const raw = Number.parseInt(process.env.SCORE_BATCH ?? '', 10)
+  return Number.isFinite(raw) && raw >= 1 ? raw : BATCH_NOTATION_BY_DEFAULT
 }
 
 /**
@@ -1106,21 +1106,21 @@ function tailleDeLot(): number {
  * sérialisable, réécrit à chaque changement. Deux listes tenues séparément
  * finiraient par diverger, et c'est le décompte de perte qui mentirait.
  */
-type Ardoise = {
-  bilan: BilanNotation
+type Slate = {
+  summary: SummaryNotation
   /** Les fenêtres sans note. Pleine au départ, elle se vide de ce qui est noté. */
-  nonNotées: Set<string>
+  notNoted: Set<string>
   /** Les notes rassemblées, réconciliation comprise. */
-  notées: ScoredWindow[]
+  noted: ScoredWindow[]
   /**
    * L'étendue de chaque fenêtre, par identifiant. `nonNotées` ne porte que des
    * identifiants ; la couverture, elle, se calcule sur des intervalles.
    */
-  étendues: Map<string, Étendue>
+  extents: Map<string, Extent>
   /** L'étendue du transcript, dénominateur de la couverture. */
-  transcript: Étendue
+  transcript: Extent
   /** Prévenu après chaque lot traité. Voir `RepérageOptions.onBilan`. */
-  publier?: (bilan: BilanNotation) => void
+  publish?: (summary: SummaryNotation) => void
 }
 
 /**
@@ -1132,16 +1132,16 @@ type Ardoise = {
  * sous-lot, le plafond annoncé valait trois fois plus en 429 — c'est-à-dire
  * exactement dans la situation qu'il est censé borner. (relevé par Copilot et Codex)
  */
-type Budget = { restant: number }
+type Budget = { remaining: number }
 
 /** Ce dont la notation a besoin, et rien de plus. */
-type ContexteNotation = {
+type ContextNotation = {
   projectId: string
   language: string
   videoDuration: number
   /** L'étendue du transcript : le dénominateur de `couverture`. */
-  étendue: Étendue
-  appel: AppelGemini
+  extent: Extent
+  call: CallGemini
   sleep: (ms: number) => Promise<void>
   signal?: AbortSignal
 }
@@ -1155,78 +1155,78 @@ type ContexteNotation = {
  * donc rien sur une émission que le filtre laisse passer. Entremêler les deux
  * ferait payer la découpe avant de savoir s'il y a quelque chose à découper.
  */
-async function noterLesFenêtres(
-  fenêtres: Window[],
-  ctx: ContexteNotation,
-  onBilan?: (bilan: BilanNotation) => void,
-): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
-  const taille = tailleDeLot()
-  const lots: Window[][] = []
-  for (let i = 0; i < fenêtres.length; i += taille) lots.push(fenêtres.slice(i, i + taille))
+async function noteWindows(
+  windows: Window[],
+  ctx: ContextNotation,
+  onSummary?: (summary: SummaryNotation) => void,
+): Promise<{ noted: ScoredWindow[]; summary: SummaryNotation }> {
+  const size = batchSize()
+  const batches: Window[][] = []
+  for (let i = 0; i < windows.length; i += size) batches.push(windows.slice(i, i + size))
 
   // **La liste des non notées part pleine.** Toute fenêtre est non jugée tant
   // qu'une réponse ne la juge pas, y compris celles qu'une panne empêchera même
   // de soumettre : c'est ce qui rend le bilan honnête à l'instant où il est lu,
   // et pas seulement à la fin. (relevé par Copilot)
-  const ardoise: Ardoise = {
-    notées: [],
-    nonNotées: new Set(fenêtres.map((f) => f.id)),
-    étendues: new Map(fenêtres.map((f) => [f.id, { start: f.start, end: f.end }])),
-    transcript: ctx.étendue,
-    publier: onBilan,
-    bilan: {
-      fenêtres: fenêtres.length,
-      notées: 0,
-      jamaisNotées: fenêtres.map((f) => f.id),
-      refusées: [],
-      appels: 0,
-      lotsRefusés: 0,
-      lotsRépondus: 0,
+  const slate: Slate = {
+    noted: [],
+    notNoted: new Set(windows.map((f) => f.id)),
+    extents: new Map(windows.map((f) => [f.id, { start: f.start, end: f.end }])),
+    transcript: ctx.extent,
+    publish: onSummary,
+    summary: {
+      windows: windows.length,
+      noted: 0,
+      neverNoted: windows.map((f) => f.id),
+      rejected: [],
+      calls: 0,
+      batchesRejected: 0,
+      batchesResponded: 0,
       // Rien n'est noté avant le premier appel : la couverture part de zéro et
       // grandit avec les réponses, comme le reste du bilan.
-      couverture: 0,
+      coverage: 0,
     },
   }
-  const { bilan } = ardoise
-  bilans.set(ctx.projectId, bilan)
+  const { summary } = slate
+  summaries.set(ctx.projectId, summary)
 
   try {
-    return await noterEtRécupérer(lots, ctx, ardoise)
+    return await noteAndRecover(batches, ctx, slate)
   } finally {
     // **Dans un `finally`, et c'est tout l'intérêt.** Le bilan promis « au
     // journal à chaque passe » ne sortait que par le chemin heureux : un refus
     // total lève, une panne réseau se propage, et la perte redevenait
     // silencieuse exactement quand elle est la plus grande. Un décompte qui
     // n'apparaît que lorsque tout va bien ne sert à rien. (relevé par Copilot)
-    journaliserBilan(bilan)
+    logSummary(summary)
   }
 }
 
 /** Le corps de la notation, sorti pour que son appelant tienne le `finally`. */
-async function noterEtRécupérer(
-  lots: Window[][],
-  ctx: ContexteNotation,
-  ardoise: Ardoise,
-): Promise<{ notées: ScoredWindow[]; bilan: BilanNotation }> {
-  const { bilan, notées } = ardoise
-  const refusés: Window[][] = []
-  for (const lot of lots) {
-    const lu = await noterUnLot(lot, ctx, ardoise)
-    if (lu === null) refusés.push(lot)
-    else ranger(lu, ardoise)
+async function noteAndRecover(
+  batches: Window[][],
+  ctx: ContextNotation,
+  slate: Slate,
+): Promise<{ noted: ScoredWindow[]; summary: SummaryNotation }> {
+  const { summary, noted } = slate
+  const rejected: Window[][] = []
+  for (const batch of batches) {
+    const lu = await noteABatch(batch, ctx, slate)
+    if (lu === null) rejected.push(batch)
+    else sort(lu, slate)
     // **Après le lot entier, pas dans `ranger`.** Un lot refusé ne range rien et
     // change pourtant le bilan — `lotsRefusés`, `appels` —, et c'est justement le
     // chiffre qu'on veut voir monter en direct.
-    ardoise.publier?.(bilan)
+    slate.publish?.(summary)
   }
 
-  const budget = lots.length * RÉCUPÉRATION_MAX
-  if (refusés.length > 0) {
-    const enJeu = refusés.reduce((n, lot) => n + lot.length, 0)
+  const budget = batches.length * RECOVERY_MAX
+  if (rejected.length > 0) {
+    const inSet = rejected.reduce((n, batch) => n + batch.length, 0)
     console.warn(
-      `${refusés.length} lot(s) refusés par le filtre, ${enJeu} fenêtre(s) ; on les recoupe.`,
+      `${rejected.length} lot(s) refusés par le filtre, ${inSet} fenêtre(s) ; on les recoupe.`,
     )
-    await récupérer(refusés, ctx, ardoise, budget)
+    await recover(rejected, ctx, slate, budget)
   }
 
   // Rien n'a répondu, découpe comprise : là seulement, c'est la vidéo. On le dit
@@ -1256,16 +1256,16 @@ async function noterEtRécupérer(
   // de la réconciliation de `parseScoreResponse` —, et la confondre avec un
   // refus transformait ce repli en échec définitif dès qu'un seul lot était
   // bloqué. (relevé par Codex)
-  if (bilan.lotsRefusés > 0 && bilan.lotsRépondus === 0) {
-    const jusquÀLaFenêtreSeule = bilan.refusées.length === bilan.fenêtres
+  if (summary.batchesRejected > 0 && summary.batchesResponded === 0) {
+    const untilToWindowOnly = summary.rejected.length === summary.windows
     throw new GeminiBlockedError(
-      jusquÀLaFenêtreSeule
-        ? `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
-        : `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
+      untilToWindowOnly
+        ? `Le fournisseur a refusé les ${summary.batchesRejected} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
+        : `Le fournisseur a refusé les ${summary.batchesRejected} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${summary.rejected.length} sur ${summary.windows} ${summary.rejected.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
     )
   }
 
-  return { notées, bilan }
+  return { noted, summary }
 }
 
 /**
@@ -1278,16 +1278,16 @@ async function noterEtRécupérer(
  * comptés — c'est ce qui permet d'aller regarder le transcript à l'endroit exact
  * de ce qui n'a pas été jugé.
  */
-function journaliserBilan(bilan: BilanNotation): void {
+function logSummary(summary: SummaryNotation): void {
   console.log(
-    `Notation : ${bilan.notées}/${bilan.fenêtres} fenêtre(s) jugée(s) en ${bilan.appels} requête(s).`,
+    `Notation : ${summary.noted}/${summary.windows} fenêtre(s) jugée(s) en ${summary.calls} requête(s).`,
   )
-  if (bilan.jamaisNotées.length === 0) return
+  if (summary.neverNoted.length === 0) return
   console.warn(
-    `${bilan.jamaisNotées.length} fenêtre(s) sur ${bilan.fenêtres} n'ont jamais été notées ; ` +
-      `classées dernières : ${bilan.jamaisNotées.join(', ')}.` +
-      (bilan.refusées.length > 0
-        ? ` Dont ${bilan.refusées.length} refusée(s) seule(s) par le filtre : ${bilan.refusées.join(', ')}.`
+    `${summary.neverNoted.length} fenêtre(s) sur ${summary.windows} n'ont jamais été notées ; ` +
+      `classées dernières : ${summary.neverNoted.join(', ')}.` +
+      (summary.rejected.length > 0
+        ? ` Dont ${summary.rejected.length} refusée(s) seule(s) par le filtre : ${summary.rejected.join(', ')}.`
         : ''),
   )
 }
@@ -1299,39 +1299,39 @@ function journaliserBilan(bilan: BilanNotation): void {
  * faire d'autre que d'abandonner. Tout le reste remonte et fait échouer le
  * repérage, comme avant.
  */
-async function noterUnLot(
-  lot: Window[],
-  ctx: ContexteNotation,
-  { bilan }: Ardoise,
+async function noteABatch(
+  batch: Window[],
+  ctx: ContextNotation,
+  { summary }: Slate,
   budget?: Budget,
 ): Promise<{ scored: ScoredWindow[]; missing: string[] } | null> {
   // Compté **dans** la couture réseau, pas avant l'appel : `appelerGemini`
   // réessaie jusqu'à trois fois, et c'est chaque requête qui coûte du quota —
   // donc chaque requête, et non chaque sous-lot, qui débite le budget.
-  const compter: AppelGemini = (prompt, mode) => {
-    bilan.appels += 1
-    if (budget !== undefined) budget.restant -= 1
-    return ctx.appel(prompt, mode)
+  const count: CallGemini = (prompt, mode) => {
+    summary.calls += 1
+    if (budget !== undefined) budget.remaining -= 1
+    return ctx.call(prompt, mode)
   }
-  let brut: unknown
+  let raw: unknown
   try {
-    brut = await appelerGemini(
-      compter,
+    raw = await callGemini(
+      count,
       scorePrompt({
         language: ctx.language,
         videoDuration: ctx.videoDuration,
-        windowsJson: scoreWindowsJson(lot),
+        windowsJson: scoreWindowsJson(batch),
       }),
       'score',
       { sleep: ctx.sleep, signal: ctx.signal },
     )
-  } catch (erreur) {
-    if (!(erreur instanceof GeminiBlockedError)) throw erreur
-    bilan.lotsRefusés += 1
+  } catch (error) {
+    if (!(error instanceof GeminiBlockedError)) throw error
+    summary.batchesRejected += 1
     return null
   }
-  bilan.lotsRépondus += 1
-  return parseScoreResponse(brut, lot)
+  summary.batchesResponded += 1
+  return parseScoreResponse(raw, batch)
 }
 
 /**
@@ -1362,41 +1362,41 @@ async function noterUnLot(
  *
  * Ce que le budget ne paie pas est compté comme non noté, jamais avalé.
  */
-async function récupérer(
-  refusés: Window[][],
-  ctx: ContexteNotation,
-  ardoise: Ardoise,
-  plafond: number,
+async function recover(
+  rejected: Window[][],
+  ctx: ContextNotation,
+  slate: Slate,
+  cap: number,
 ): Promise<void> {
-  const file = [...refusés]
-  const budget: Budget = { restant: plafond }
+  const file = [...rejected]
+  const budget: Budget = { remaining: cap }
   while (file.length > 0) {
-    const lot = file.shift()!
+    const batch = file.shift()!
     // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
     // c'est bien elle que le filtre vise. Le cas ne s'est pas produit sur
     // l'émission mesurée ; il reste possible sur une autre.
-    if (lot.length === 1) {
-      ardoise.bilan.refusées.push(lot[0].id)
-      abandonner(lot, ardoise, 'fenêtre refusée par le filtre')
-      ardoise.publier?.(ardoise.bilan)
+    if (batch.length === 1) {
+      slate.summary.rejected.push(batch[0].id)
+      abandon(batch, slate, 'fenêtre refusée par le filtre')
+      slate.publish?.(slate.summary)
       continue
     }
 
-    const milieu = Math.ceil(lot.length / 2)
-    for (const moitié of [lot.slice(0, milieu), lot.slice(milieu)]) {
+    const middle = Math.ceil(batch.length / 2)
+    for (const half of [batch.slice(0, middle), batch.slice(middle)]) {
       // Le budget se lit avant chaque sous-lot et se débite dans la couture, à
       // chaque requête. Il peut donc finir légèrement négatif — les relances
       // d'un sous-lot déjà engagé ne s'interrompent pas au milieu —, d'au plus
       // `TENTATIVES - 1` requêtes. C'est borné et connu, là où un débit par
       // sous-lot laissait le dépassement croître avec le nombre de branches.
-      if (budget.restant <= 0) {
-        abandonner(moitié, ardoise, 'lot refusé, budget de récupération épuisé')
+      if (budget.remaining <= 0) {
+        abandon(half, slate, 'lot refusé, budget de récupération épuisé')
         continue
       }
-      const lu = await noterUnLot(moitié, ctx, ardoise, budget)
-      if (lu === null) file.push(moitié)
-      else ranger(lu, ardoise)
-      ardoise.publier?.(ardoise.bilan)
+      const lu = await noteABatch(half, ctx, slate, budget)
+      if (lu === null) file.push(half)
+      else sort(lu, slate)
+      slate.publish?.(slate.summary)
     }
   }
 }
@@ -1408,44 +1408,44 @@ async function récupérer(
  * remettre. Ce qui s'ajoute ici est seulement l'entrée de classement qui le fait
  * finir dernier plutôt que dehors.
  */
-function abandonner(lot: Window[], ardoise: Ardoise, raison: string): void {
-  for (const fenêtre of lot) {
-    ardoise.notées.push({ id: fenêtre.id, score: 0, reason: raison, notée: false })
+function abandon(batch: Window[], slate: Slate, reason: string): void {
+  for (const window of batch) {
+    slate.noted.push({ id: window.id, score: 0, reason: reason, noted: false })
   }
 }
 
 /** Range un lot lu, en séparant ce qui porte une note de ce qui n'en porte pas. */
-function ranger(lu: { scored: ScoredWindow[]; missing: string[] }, ardoise: Ardoise): void {
-  const { bilan, nonNotées } = ardoise
-  ardoise.notées.push(...lu.scored)
-  const omises = new Set(lu.missing)
+function sort(lu: { scored: ScoredWindow[]; missing: string[] }, slate: Slate): void {
+  const { summary, notNoted } = slate
+  slate.noted.push(...lu.scored)
+  const omitted = new Set(lu.missing)
   for (const note of lu.scored) {
-    if (omises.has(note.id)) continue
+    if (omitted.has(note.id)) continue
     // `delete` rend faux sur une fenêtre déjà notée : le compte suit le retrait
     // effectif, jamais la longueur du lot, pour qu'un identifiant vu deux fois
     // ne compte pas deux jugements.
-    if (nonNotées.delete(note.id)) bilan.notées += 1
+    if (notNoted.delete(note.id)) summary.noted += 1
   }
-  bilan.jamaisNotées = [...nonNotées]
+  summary.neverNoted = [...notNoted]
   // Recalculée **ici et nulle part ailleurs** : c'est le seul endroit où
   // `nonNotées` rétrécit, donc le seul où la couverture change. La déduire
   // ailleurs ferait une seconde autorité sur le même chiffre.
-  bilan.couverture = partCouverte(
-    [...ardoise.étendues].filter(([id]) => !nonNotées.has(id)).map(([, étendue]) => étendue),
-    ardoise.transcript,
+  summary.coverage = partCovered(
+    [...slate.extents].filter(([id]) => !notNoted.has(id)).map(([, extent]) => extent),
+    slate.transcript,
   )
 }
 
 /** Ce dont la passe de détail a besoin, une fois les blocs choisis. */
-type ContexteDétail = {
+type ContextDetail = {
   projectId: string
   transcript: TranscriptLu
-  mots: Word[]
-  durée: number
+  words: Word[]
+  duration: number
   minClips: number
   maxClips: number
   /** `maximumClips` tel qu'il est réglé — `0` quand il ne l'est pas. */
-  plafondAbsolu: number
+  capAbsolute: number
   /**
    * Les `id` que `mergeCandidates` écartera de toute façon : ceux des clips
    * portant une décision humaine. Ne sert qu'au plafond, qui doit compter des
@@ -1459,8 +1459,8 @@ type ContexteDétail = {
    * clips que le maximum réglé. C'est la relecture de `runCandidates` qui répond
    * ici, la même que celle de la fusion. (relevé par Codex)
    */
-  idsPris: () => ReadonlySet<string>
-  appel: AppelGemini
+  idsTaken: () => ReadonlySet<string>
+  call: CallGemini
   sleep: (ms: number) => Promise<void>
   signal?: AbortSignal
 }
@@ -1504,19 +1504,19 @@ type ContexteDétail = {
  * Cela ne se produit qu'en cas de refus, et `mergeCandidates` dédoublonne
  * ensuite sur les bornes.
  */
-async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Clip[]> {
-  const ardoise: ArdoiseDétail = { refusés: [], réussis: 0 }
-  const propositions = await descendre(
-    retenues,
+async function detail(kept: Window[], ctx: ContextDetail): Promise<Clip[]> {
+  const slate: SlateDetail = { rejected: [], succeeded: 0 }
+  const propositions = await descend(
+    kept,
     { min: ctx.minClips, max: ctx.maxClips },
     ctx,
-    ardoise,
+    slate,
   )
 
-  if (ardoise.refusés.length > 0) {
+  if (slate.rejected.length > 0) {
     console.warn(
-      `Détail : ${ardoise.refusés.length} fenêtre(s) refusée(s) seule(s) par le filtre ` +
-        `et abandonnée(s) : ${ardoise.refusés.join(', ')}.`,
+      `Détail : ${slate.rejected.length} fenêtre(s) refusée(s) seule(s) par le filtre ` +
+        `et abandonnée(s) : ${slate.rejected.join(', ')}.`,
     )
   }
   // Rien n'a **répondu**, découpe comprise : là seulement, c'est la vidéo.
@@ -1527,13 +1527,13 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // laisse la liste vide sans qu'aucun refus global n'ait eu lieu. Compter les
   // clips faisait alors échouer toute l'étape en accusant la vidéo d'un refus
   // qu'elle n'a pas subi. (relevé par Codex et Copilot)
-  if (ardoise.réussis === 0 && ardoise.refusés.length > 0) {
+  if (slate.succeeded === 0 && slate.rejected.length > 0) {
     // **Le message n'affirme ici que ce qui a bel et bien été essayé**, parce
     // que la descente va toujours jusqu'au bout — voir le paragraphe sur son
     // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
     // formule prudente que ce dernier a dû se donner après coup.
     throw new GeminiBlockedError(
-      `Le fournisseur a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
+      `Le fournisseur a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${slate.rejected.length} fenêtre(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
     )
   }
@@ -1556,7 +1556,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // plus que la cible est une bonne nouvelle — le repérage vise le rappel
   // (spec §7) — et couper là abandonnerait du matériau que personne n'a demandé
   // d'abandonner.
-  if (ctx.plafondAbsolu <= 0) return clips
+  if (ctx.capAbsolute <= 0) return clips
 
   // **Dédoublonner avant de plafonner, jamais l'inverse.** Deux horodatages
   // bruts différents peuvent se caler sur le même clip — c'est le métier de
@@ -1565,19 +1565,19 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // condamnés consommer le quota : `[A, A, B]` à deux devenait `[A, A]`, puis un
   // seul candidat, et B disparaissait alors que le plafond l'autorisait.
   // (relevé par Codex)
-  const vus = new Set(ctx.idsPris())
-  const uniques = clips.filter((clip) => !vus.has(clip.id) && vus.add(clip.id))
+  const seen = new Set(ctx.idsTaken())
+  const unique = clips.filter((clip) => !seen.has(clip.id) && seen.add(clip.id))
 
-  if (uniques.length <= ctx.plafondAbsolu) return uniques
+  if (unique.length <= ctx.capAbsolute) return unique
   // **Et la coupe se dit.** Une troncature silencieuse est le défaut que ce
   // dépôt passe son temps à corriger ailleurs ; celle-ci nomme ce qu'elle
   // écarte, et ne survient que si quelqu'un a réglé un plafond.
-  const écartés = uniques.slice(ctx.plafondAbsolu)
+  const discarded = unique.slice(ctx.capAbsolute)
   console.warn(
-    `Détail : ${écartés.length} proposition(s) au-delà du plafond réglé de ${ctx.plafondAbsolu} clip(s), ` +
-      `écartée(s) : ${écartés.map((c) => c.id).join(', ')}.`,
+    `Détail : ${discarded.length} proposition(s) au-delà du plafond réglé de ${ctx.capAbsolute} clip(s), ` +
+      `écartée(s) : ${discarded.map((c) => c.id).join(', ')}.`,
   )
-  return uniques.slice(0, ctx.plafondAbsolu)
+  return unique.slice(0, ctx.capAbsolute)
 }
 
 /**
@@ -1637,7 +1637,7 @@ function rankProposals(proposals: readonly DetailClip[]): Clip[] {
  * `refusés` ne porte que des blocs soumis **seuls** et refusés : la descente
  * n'abandonne rien d'autre, donc tout ce qui y figure a bel et bien été essayé.
  */
-type ArdoiseDétail = { refusés: string[]; réussis: number }
+type SlateDetail = { rejected: string[]; succeeded: number }
 
 /**
  * Un lot de blocs, recoupé en deux tant que le filtre refuse.
@@ -1658,16 +1658,16 @@ type ArdoiseDétail = { refusés: string[]; réussis: number }
  * n'imposent. Un premier essai le faisait, et perdait deux blocs sur huit dès le
  * cas de test le plus banal.
  */
-async function descendre(
-  lot: Window[],
-  cible: { min: number; max: number },
-  ctx: ContexteDétail,
-  ardoise: ArdoiseDétail,
+async function descend(
+  batch: Window[],
+  target: { min: number; max: number },
+  ctx: ContextDetail,
+  slate: SlateDetail,
 ): Promise<DetailClip[]> {
-  if (lot.length === 0) return []
+  if (batch.length === 0) return []
 
-  const max = Math.max(1, cible.max)
-  const min = Math.min(Math.max(1, cible.min), max)
+  const max = Math.max(1, target.max)
+  const min = Math.min(Math.max(1, target.min), max)
   // **La fusion se refait à chaque étage, sur le lot courant.** C'est ce qui
   // permet à la descente de porter sur des fenêtres et non sur des blocs déjà
   // fusionnés : un bloc réunit tous les voisins qui se chevauchent, donc sur de
@@ -1676,15 +1676,15 @@ async function descendre(
   // ainsi une région entière au premier refus, sans jamais réduire la charge —
   // c'est-à-dire sans traiter la concentration de matière que ce garde-fou
   // existe précisément pour traiter. (relevé par Codex)
-  const blocs = mergeOverlappingWindows(lot, ctx.transcript)
+  const blocks = mergeOverlappingWindows(batch, ctx.transcript)
 
   try {
-    const clips = await appelerGemini(
-      ctx.appel,
+    const clips = await callGemini(
+      ctx.call,
       detailPrompt({
         language: ctx.transcript.language,
-        videoDuration: ctx.durée,
-        windowsJson: detailWindowsJson(blocs, ctx.transcript),
+        videoDuration: ctx.duration,
+        windowsJson: detailWindowsJson(blocks, ctx.transcript),
         minClips: min,
         maxClips: max,
       }),
@@ -1692,51 +1692,51 @@ async function descendre(
       {
         sleep: ctx.sleep,
         signal: ctx.signal,
-        analyser: (brut) =>
-          parseDetailResponse(brut, {
-            words: ctx.mots,
-            videoDuration: ctx.durée,
+        analyze: (raw) =>
+          parseDetailResponse(raw, {
+            words: ctx.words,
+            videoDuration: ctx.duration,
             projectId: ctx.projectId,
-            blocks: blocs,
+            blocks: blocks,
           }),
       },
     )
     // Compté ici, sur la réponse, et non sur `clips.length` plus haut : une
     // réponse vide reste une réponse.
-    ardoise.réussis += 1
+    slate.succeeded += 1
     return clips
-  } catch (erreur) {
-    if (!(erreur instanceof GeminiBlockedError)) throw erreur
+  } catch (error) {
+    if (!(error instanceof GeminiBlockedError)) throw error
     // Une fenêtre seule et toujours refusée : il n'y a plus rien à recouper, et
     // c'est bien elle que le filtre vise. La fenêtre est l'unité minimale du
     // repérage — la couper plus fin sortirait du contrat de `buildWindows`.
-    if (lot.length === 1) {
-      ardoise.refusés.push(lot[0].id)
+    if (batch.length === 1) {
+      slate.rejected.push(batch[0].id)
       return []
     }
-    const milieu = Math.ceil(lot.length / 2)
+    const middle = Math.ceil(batch.length / 2)
     // Le partage se fait par soustraction, jamais par deux arrondis : la somme
     // rend alors exactement ce que le parent avait, au relèvement à un près
     // documenté ci-dessus.
-    const partager = (total: number): [number, number] => {
-      const àGauche = Math.round((total * milieu) / lot.length)
-      return [àGauche, total - àGauche]
+    const share = (total: number): [number, number] => {
+      const toLeft = Math.round((total * middle) / batch.length)
+      return [toLeft, total - toLeft]
     }
-    const [maxG, maxD] = partager(max)
-    const [minG, minD] = partager(min)
-    const gauche = await descendre(
-      lot.slice(0, milieu),
+    const [maxG, maxD] = share(max)
+    const [minG, minD] = share(min)
+    const left = await descend(
+      batch.slice(0, middle),
       { min: minG, max: maxG },
       ctx,
-      ardoise,
+      slate,
     )
-    const droite = await descendre(lot.slice(milieu), { min: minD, max: maxD }, ctx, ardoise)
-    return [...gauche, ...droite]
+    const right = await descend(batch.slice(middle), { min: minD, max: maxD }, ctx, slate)
+    return [...left, ...right]
   }
 }
 
 /** Retire le marqueur avant de toucher à la base. */
-function effacerArtefact(projectId: string): void {
+function eraseArtifact(projectId: string): void {
   fs.rmSync(candidatesPath(projectId), { force: true })
 }
 
@@ -1750,10 +1750,10 @@ function effacerArtefact(projectId: string): void {
  * est atomique sur le même système de fichiers, donc le marqueur n'existe qu'une
  * fois complet. (relevé par Copilot)
  */
-function écrireArtefact(projectId: string, clips: Clip[]): void {
-  const fichier = candidatesPath(projectId)
-  fs.mkdirSync(path.dirname(fichier), { recursive: true })
-  const provisoire = `${fichier}.${process.pid}.tmp`
-  fs.writeFileSync(provisoire, `${JSON.stringify(clips, null, 2)}\n`, 'utf8')
-  fs.renameSync(provisoire, fichier)
+function writeArtifact(projectId: string, clips: Clip[]): void {
+  const file = candidatesPath(projectId)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const provisional = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(provisional, `${JSON.stringify(clips, null, 2)}\n`, 'utf8')
+  fs.renameSync(provisional, file)
 }

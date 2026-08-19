@@ -33,7 +33,7 @@ describe('OpenAI : la traduction de la response', () => {
 
   it('un refus structuré (message.refusal) l’emporte sur finish_reason: stop', () => {
     const response = toLlmResponse({
-      choices: [{ finish_reason: 'stop', message: { refusal: 'Je ne peux pas.' } }],
+      choices: [{ finish_reason: 'stop', message: { rejection: 'Je ne peux pas.' } }],
     })
     expect(response.candidates?.[0]?.finishReason).toBe('CONTENT_FILTER')
     // Aucun texte n'est rendu : le refus n'est pas une réponse à parser.
@@ -42,7 +42,7 @@ describe('OpenAI : la traduction de la response', () => {
 
   it('un refusal vide n’est pas un refus', () => {
     const response = toLlmResponse({
-      choices: [{ finish_reason: 'stop', message: { content: 'ok', refusal: '' } }],
+      choices: [{ finish_reason: 'stop', message: { content: 'ok', rejection: '' } }],
     })
     expect(response.candidates?.[0]?.finishReason).toBe('STOP')
     expect(response.text).toBe('ok')

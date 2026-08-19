@@ -13,14 +13,14 @@ import { closeDb, getDb } from '@/server/db'
 import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
 import { ingest } from '@/server/steps/ingest'
-import { buildProxy, encodeurProxy } from '@/server/steps/proxy'
-import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter, taille } from './dev-commun'
+import { buildProxy, encoderProxy } from '@/server/steps/proxy'
+import { chargerEnv, timer, createBar, duration, finBar, quit, size } from './dev-common'
 
 async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const force = arguments_.includes('--force')
+  const forced = arguments_.includes('--force')
   const source = arguments_.find((a) => !a.startsWith('--'))
   if (source === undefined) {
     console.error('Usage : pnpm tsx scripts/dev-ingest.ts "<fichier du dossier de replays>" [--force]')
@@ -29,33 +29,33 @@ async function main(): Promise<number> {
 
   const db = getDb()
 
-  const barreCopie = créerBarre('  copie ')
-  const tCopie = chrono()
-  const projet = await ingest(source, {
-    force,
+  const barCopy = createBar('  copie ')
+  const tCopy = timer()
+  const project = await ingest(source, {
+    forced,
     db,
-    onProgress: (a) => barreCopie(a.fraction),
+    onProgress: (a) => barCopy(a.fraction),
   })
-  finBarre()
+  finBar()
 
-  console.log(`Projet   : ${projet.projectId}`)
-  console.log(`Source   : ${projet.sourcePath}`)
-  console.log(`           ${taille(projet.sizeBytes)}, ${durée(projet.durationSec)}`)
+  console.log(`Projet   : ${project.projectId}`)
+  console.log(`Source   : ${project.sourcePath}`)
+  console.log(`           ${size(project.sizeBytes)}, ${duration(project.durationSec)}`)
   console.log(
-    `Copie    : ${projet.stagedPath} — ${
-      projet.copied ? `copiée en ${durée(tCopie())}` : 'déjà présente, rien à faire'
+    `Copie    : ${project.stagedPath} — ${
+      project.copied ? `copiée en ${duration(tCopy())}` : 'déjà présente, rien à faire'
     }`,
   )
-  const barreProxy = créerBarre('  proxy ')
-  const tProxy = chrono()
+  const barProxy = createBar('  proxy ')
+  const tProxy = timer()
   const proxy = await buildProxy({
-    projectId: projet.projectId,
-    input: projet.stagedPath,
-    durationSec: projet.durationSec,
-    force,
-    onProgress: (a) => barreProxy(a.fraction),
+    projectId: project.projectId,
+    input: project.stagedPath,
+    durationSec: project.durationSec,
+    forced,
+    onProgress: (a) => barProxy(a.fraction),
   })
-  finBarre()
+  finBar()
   // L'encodeur ne s'affiche **que si un encodage a eu lieu**, et pas au-dessus :
   // `encodeurProxy()` lève sur un `FFMPEG_ENCODER` inconnu, or `buildProxy` rend
   // justement ce choix paresseux pour qu'un proxy déjà là revienne tout de suite,
@@ -65,29 +65,29 @@ async function main(): Promise<number> {
   // commande d'ingestion qui promet de ne rien recalculer. (relevé par Copilot)
   console.log(
     `Proxy    : ${proxy.path} — ${
-      proxy.skipped ? 'déjà là, rien à faire' : `encodé en ${durée(tProxy())} (${encodeurProxy()})`
+      proxy.skipped ? 'déjà là, rien à faire' : `encodé en ${duration(tProxy())} (${encoderProxy()})`
     }`,
   )
 
-  const barreAudio = créerBarre('  audio ')
-  const tAudio = chrono()
+  const barAudio = createBar('  audio ')
+  const tAudio = timer()
   const audio = await extractAudio({
-    projectId: projet.projectId,
-    input: projet.stagedPath,
-    durationSec: projet.durationSec,
-    force,
-    onProgress: (a) => barreAudio(a.fraction),
+    projectId: project.projectId,
+    input: project.stagedPath,
+    durationSec: project.durationSec,
+    forced,
+    onProgress: (a) => barAudio(a.fraction),
   })
-  finBarre()
+  finBar()
   console.log(
-    `Audio    : ${audio.path} — ${audio.skipped ? 'déjà là, rien à faire' : `extrait en ${durée(tAudio())}`}`,
+    `Audio    : ${audio.path} — ${audio.skipped ? 'déjà là, rien à faire' : `extrait en ${duration(tAudio())}`}`,
   )
 
   // Le contrôle attendu par la tâche 7 : 960x540, 30 fps, et la durée de la
   // source à une seconde près.
-  const sondage = await probe(proxy.path)
+  const probe = await probe(proxy.path)
   console.log(
-    `Contrôle : ${sondage.width}x${sondage.height}, ${sondage.fps} fps, ${durée(sondage.durationSec)}`,
+    `Contrôle : ${probe.width}x${probe.height}, ${probe.fps} fps, ${duration(probe.durationSec)}`,
   )
   return 0
 }
@@ -95,10 +95,10 @@ async function main(): Promise<number> {
 main()
   .then((code) => {
     closeDb()
-    quitter(code)
+    quit(code)
   })
-  .catch((erreur: unknown) => {
+  .catch((error: unknown) => {
     closeDb()
-    console.error(erreur instanceof Error ? erreur.message : erreur)
-    quitter(1)
+    console.error(error instanceof Error ? error.message : error)
+    quit(1)
   })

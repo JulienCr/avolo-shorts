@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { cropRect, resolveRatio } from '@/core/framing'
 import {
-  ORDRE_RATIOS,
+  ORDER_RATIOS,
   clampCropX,
   cropLeftFraction,
   cropWidthFraction,
@@ -25,7 +25,7 @@ describe('cropWidthFraction', () => {
   })
 
   it('ne dépasse jamais la source, même sur une source plus étroite', () => {
-    for (const r of ORDRE_RATIOS) {
+    for (const r of ORDER_RATIOS) {
       expect(cropWidthFraction(r, 1)).toBeLessThanOrEqual(1)
     }
   })
@@ -33,20 +33,20 @@ describe('cropWidthFraction', () => {
 
 describe('clampCropX', () => {
   it('ne sort jamais du cadre, quel que soit cropX', () => {
-    for (const r of ORDRE_RATIOS) {
-      const largeur = cropWidthFraction(r)
+    for (const r of ORDER_RATIOS) {
+      const width = cropWidthFraction(r)
       for (const cx of [-2, 0, 0.01, 0.5, 0.99, 1, 3]) {
-        const gauche = cropLeftFraction(cx, largeur)
-        expect(gauche).toBeGreaterThanOrEqual(-1e-9)
-        expect(gauche + largeur).toBeLessThanOrEqual(1 + 1e-9)
+        const left = cropLeftFraction(cx, width)
+        expect(left).toBeGreaterThanOrEqual(-1e-9)
+        expect(left + width).toBeLessThanOrEqual(1 + 1e-9)
       }
     }
   })
 
   it('0 veut dire collé au bord gauche de l’image, pas au bord du monde', () => {
-    const largeur = cropWidthFraction('9:16')
-    expect(clampCropX(0, largeur)).toBeCloseTo(largeur / 2, 6)
-    expect(cropLeftFraction(0, largeur)).toBeCloseTo(0, 6)
+    const width = cropWidthFraction('9:16')
+    expect(clampCropX(0, width)).toBeCloseTo(width / 2, 6)
+    expect(cropLeftFraction(0, width)).toBeCloseTo(0, 6)
   })
 
   it('un 16:9 n’a plus qu’une position possible', () => {
@@ -66,12 +66,12 @@ describe("l'aperçu et le rendu", () => {
     // l'œil sur une image fausse, et on ne s'en aperçoit qu'au rendu.
     // `cropRect` arrondit chaque composante au pair (libx264 refuse une
     // dimension impaire), d'où la tolérance de deux pixels.
-    for (const ratio of ORDRE_RATIOS) {
+    for (const ratio of ORDER_RATIOS) {
       for (const cx of [0, 0.2, 0.5, 0.9, 1]) {
         const rect = cropRect(ratio, cx, 1920, 1080)
-        const largeur = cropWidthFraction(ratio)
-        expect(Math.abs(largeur * 1920 - rect.w)).toBeLessThanOrEqual(2)
-        expect(Math.abs(cropLeftFraction(cx, largeur) * 1920 - rect.x)).toBeLessThanOrEqual(2)
+        const width = cropWidthFraction(ratio)
+        expect(Math.abs(width * 1920 - rect.w)).toBeLessThanOrEqual(2)
+        expect(Math.abs(cropLeftFraction(cx, width) * 1920 - rect.x)).toBeLessThanOrEqual(2)
       }
     }
   })

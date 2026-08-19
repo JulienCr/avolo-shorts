@@ -4,15 +4,15 @@ import { ChevronRight, Film, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplu
 import Link from 'next/link'
 import { useState } from 'react'
 
-import { formatDateSource, formatOctets } from '@/components/sources/textes'
+import { formatDateSource, formatOctets } from '@/components/sources/texts'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { LibraryEntry, ShowState } from '@/core/library'
-import { LIBELLES_ETAPES } from '@/core/parcours'
+import { LABELS_STEPS } from '@/core/phase'
 import type { ProjectListItem, Source } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
-import { lienProjet } from '@/lib/parcours'
+import { linkProject } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /** Une entrée de bibliothèque telle que les écrans la manipulent. */
@@ -137,7 +137,7 @@ export function ShowCard({ entry, creation }: { entry: Entry; creation: Creation
   if (projectId !== null) {
     return (
       <Link
-        href={lienProjet(projectId)}
+        href={linkProject(projectId)}
         data-state={state}
         className={cn(cardClass, state === 'analyzed' ? 'hover:brightness-98' : 'hover:bg-muted')}
       >
@@ -205,10 +205,10 @@ function Subtitle({ entry }: { entry: Entry }) {
   // constat — le dossier a été lu, le fichier n'y est plus ; le second dit qu'on
   // n'a pas pu regarder. Les confondre accuserait le Drive d'une perte qui n'a
   // pas eu lieu. (relevé par Copilot)
-  const état = entry.replay === 'missing' ? 'Replay introuvable' : 'Replay inconnu'
+  const state = entry.replay === 'missing' ? 'Replay introuvable' : 'Replay inconnu'
   return (
     <>
-      {état}
+      {state}
       {durationSec > 0 && <> · {formatDuration(durationSec)}</>}
     </>
   )
@@ -230,7 +230,7 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
     // c'est ce qu'on vient regarder. Le pourcentage se voit, il ne s'annonce pas
     // — la région live de la grille parle aux changements d'étape seulement.
     const percent = Math.round(Math.min(1, Math.max(0, project.running.progress)) * 100)
-    const label = LIBELLES_ETAPES[project.running.step]
+    const label = LABELS_STEPS[project.running.step]
     return (
       <Progress
         value={percent}

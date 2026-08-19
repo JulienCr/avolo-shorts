@@ -31,7 +31,7 @@ export type ByteRange = {
  * Le `\s*` est plus permissif que la grammaire, qui n'admet pas d'espace autour
  * du tiret. Refuser un en-tête sur un espace ne protège de rien.
  */
-const PLAGE = /^bytes\s*=\s*(\d*)\s*-\s*(\d*)$/i
+const RANGE = /^bytes\s*=\s*(\d*)\s*-\s*(\d*)$/i
 
 /**
  * Lit l'en-tête `Range` et rend la plage d'octets à servir, ou `null`.
@@ -66,28 +66,28 @@ export function parseRange(header: string | null, size: number): ByteRange | nul
   // vient d'être interrompu.
   if (!Number.isSafeInteger(size) || size <= 0) return null
 
-  const trouvé = PLAGE.exec(header.trim())
-  if (trouvé === null) return null
+  const found = RANGE.exec(header.trim())
+  if (found === null) return null
 
-  const [, débutBrut, finBrut] = trouvé
-  const dernier = size - 1
+  const [, startRaw, finRaw] = found
+  const last = size - 1
 
   // `bytes=-500` : les 500 derniers octets. C'est la forme que prend « la fin du
   // fichier » quand le client ne connaît pas encore sa taille — un lecteur MP4
   // s'en sert pour aller chercher l'index rangé en queue.
-  if (débutBrut === '') {
-    if (finBrut === '') return null
-    const longueur = Number(finBrut)
-    if (longueur === 0) return null
-    return { start: Math.max(0, size - longueur), end: dernier }
+  if (startRaw === '') {
+    if (finRaw === '') return null
+    const length = Number(finRaw)
+    if (length === 0) return null
+    return { start: Math.max(0, size - length), end: last }
   }
 
-  const start = Number(débutBrut)
-  if (start > dernier) return null
+  const start = Number(startRaw)
+  if (start > last) return null
 
   // Une plage ouverte (`bytes=1024-`) va jusqu'au bout ; une plage fermée est
   // bornée à la taille réelle, ce qui n'est pas une erreur mais la règle.
-  const end = finBrut === '' ? dernier : Math.min(Number(finBrut), dernier)
+  const end = finRaw === '' ? last : Math.min(Number(finRaw), last)
   if (end < start) return null
 
   return { start, end }

@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 
-import { introuvable, requêteInvalide, route } from '@/server/http'
+import { notFound, requestInvalid, route } from '@/server/http'
 import { replayDir } from '@/server/paths'
-import { SourceInvalideError, vignetteSource } from '@/server/vignettes-sources'
+import { SourceInvalidError, vignetteSource } from '@/server/source-thumbnails'
 
 /**
  * `GET /api/sources/thumb?file=<nom>` — la vignette d'un replay (spec §12).
@@ -20,31 +20,31 @@ import { SourceInvalideError, vignetteSource } from '@/server/vignettes-sources'
  * de configuration du serveur, pas une vignette manquante, et la déguiser en 404
  * enverrait chercher un fichier là où il manque une ligne de `.env`.
  */
-export const GET = route('GET /api/sources/thumb', async (requête: Request) => {
+export const GET = route('GET /api/sources/thumb', async (request: Request) => {
   replayDir()
-  const nom = new URL(requête.url).searchParams.get('file')
-  if (nom === null || nom === '') {
-    throw requêteInvalide('Paramètre `file` manquant : le nom du replay dans REPLAY_DIR.')
+  const name = new URL(request.url).searchParams.get('file')
+  if (name === null || name === '') {
+    throw requestInvalid('Paramètre `file` manquant : le nom du replay dans REPLAY_DIR.')
   }
 
   // **Un nom mal formé est un 400, pas un 500.** C'est la règle de `http.ts`, et
   // elle vaut d'autant plus ici que ce paramètre est la surface que quelqu'un
   // ira sonder en premier : répondre 500 à `?file=../../etc/passwd` accuserait
   // le serveur et inscrirait une trace complète au journal à chaque tentative.
-  const fichier = await vignetteSource(nom).catch((cause: unknown) => {
-    if (cause instanceof SourceInvalideError) throw requêteInvalide(cause.message)
+  const file = await vignetteSource(name).catch((cause: unknown) => {
+    if (cause instanceof SourceInvalidError) throw requestInvalid(cause.message)
     throw cause
   })
   // Pas d'image à en tirer : le fichier a disparu depuis la liste, ce n'est pas
   // un fichier ordinaire, ou il pèse zéro octet — un enregistrement qui vient de
   // commencer. Aucun des trois n'est une panne, et la carte a son repli.
-  if (fichier === null) throw introuvable('Pas de vignette pour cette source.')
+  if (file === null) throw notFound('Pas de vignette pour cette source.')
 
-  const données = await readFile(fichier)
-  return new Response(new Uint8Array(données), {
+  const data = await readFile(file)
+  return new Response(new Uint8Array(data), {
     headers: {
       'Content-Type': 'image/jpeg',
-      'Content-Length': String(données.byteLength),
+      'Content-Length': String(data.byteLength),
       // Cinq minutes, et pas « immuable ». L'URL porte pourtant la version
       // depuis que `urlVignetteSource` y met la taille et la date, donc un
       // replay réenregistré ne réutilise plus la même : `immutable` serait

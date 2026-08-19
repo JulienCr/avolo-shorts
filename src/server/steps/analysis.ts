@@ -5,11 +5,11 @@ import path from 'node:path'
 import { z } from 'zod'
 import {
   StopRequestedError,
-  cheminTemporaire,
-  créerJournal,
+  pathTemporary,
+  createLog,
   ffmpegBin,
   forwardAbort,
-  type Artefact,
+  type Artifact,
 } from '@/server/ffmpeg'
 import { POINT_COUNT } from '@/core/shots'
 import { probe } from '@/server/ffprobe'
@@ -59,18 +59,18 @@ import { analysisPath, proxyPath } from '@/server/paths'
  * image ils viennent, et la première conversion oubliée passerait une boîte à la
  * moitié de sa taille sans que rien ne le signale.
  */
-const SCHÉMA_TAILLE = z.object({ w: z.number().int().positive(), h: z.number().int().positive() })
+const SCHEMA_SIZE = z.object({ w: z.number().int().positive(), h: z.number().int().positive() })
 
 // L'ordre des bornes est vérifié, pas seulement leur domaine : un intervalle
 // retourné (`start: 10, end: 5`) a la forme d'un plan et n'en est pas un. Le
 // cadrage le trierait sans rien y trouver, et son crop sauterait au plan
 // suivant sans que personne ne sache pourquoi.
-const SCHÉMA_PLAN = z
+const SCHEMA_SHOT = z
   .object({ start: z.number().min(0), end: z.number().min(0) })
   .refine((p) => p.end > p.start, { message: 'end doit être strictement après start' })
 
 
-const SCHÉMA_BOÎTE = z
+const SCHEMA_BOX = z
   .object({
     /** Instant dans la source, en secondes. Jamais négatif : la source commence à 0. */
     t: z.number().min(0),
@@ -124,7 +124,7 @@ const SCHÉMA_BOÎTE = z
  * séparément : un écart d'une milliseconde serait alors un artefact d'arrondi,
  * pas un trou. Un vrai trou se compte en secondes.
  */
-const TOLÉRANCE_PLAN = 0.001
+const TOLERANCE_SHOT = 0.001
 
 /**
  * Les plans partitionnent `[0, durée]` : ils partent de zéro, se suivent bout à
@@ -151,14 +151,14 @@ const TOLÉRANCE_PLAN = 0.001
  * l'itération 1 va itérer sur le détecteur, et cet invariant-là ne casse pas
  * bruyamment. (relevé par Aristarque sur la PR du cadrage, précisé par Copilot)
  */
-function plansEnPartition(plans: readonly { start: number; end: number }[]): boolean {
-  const premier = plans[0]
-  if (premier === undefined || Math.abs(premier.start) > TOLÉRANCE_PLAN) return false
-  for (let i = 1; i < plans.length; i += 1) {
-    const précédent = plans[i - 1]
-    const courant = plans[i]
-    if (précédent === undefined || courant === undefined) return false
-    if (Math.abs(courant.start - précédent.end) > TOLÉRANCE_PLAN) return false
+function shotsInPartition(shots: readonly { start: number; end: number }[]): boolean {
+  const first = shots[0]
+  if (first === undefined || Math.abs(first.start) > TOLERANCE_SHOT) return false
+  for (let i = 1; i < shots.length; i += 1) {
+    const previous = shots[i - 1]
+    const current = shots[i]
+    if (previous === undefined || current === undefined) return false
+    if (Math.abs(current.start - previous.end) > TOLERANCE_SHOT) return false
   }
   return true
 }
@@ -179,7 +179,7 @@ function plansEnPartition(plans: readonly { start: number; end: number }[]): boo
  */
 export const ANALYSIS_VERSIONS = [1, 2] as const
 
-export const SCHÉMA_ANALYSE = z.object({
+export const SCHEMA_ANALYSIS = z.object({
   version: z.literal(ANALYSIS_VERSIONS),
   /** Images analysées par seconde — 2, spec §6. */
   fps: z.number().positive(),
@@ -202,22 +202,22 @@ export const SCHÉMA_ANALYSE = z.object({
    * sans points ne dit pas que le fichier n'en a pas.
    */
   keypoints: z.literal('coco17').optional(),
-  source: SCHÉMA_TAILLE,
-  proxy: SCHÉMA_TAILLE,
+  source: SCHEMA_SIZE,
+  proxy: SCHEMA_SIZE,
   shots: z
-    .array(SCHÉMA_PLAN)
+    .array(SCHEMA_SHOT)
     .min(1)
-    .refine(plansEnPartition, {
+    .refine(shotsInPartition, {
       message:
         'les plans doivent partitionner [0, durée] : partir de zéro et se suivre bout à bout. ' +
         'Deux plans qui se recouvrent font compter deux fois les boîtes de leur zone commune et ' +
         'élargissent le cadre ; un trou entre deux plans fait disparaître celles qui y tombent, ' +
         'et l’intervalle est cadré par défaut. Ni l’une ni l’autre ne lève d’erreur',
     }),
-  boxes: z.array(SCHÉMA_BOÎTE),
+  boxes: z.array(SCHEMA_BOX),
 })
 
-export type Analyse = z.infer<typeof SCHÉMA_ANALYSE>
+export type Analysis = z.infer<typeof SCHEMA_ANALYSIS>
 
 /**
  * Relit `analysis.json` et le valide.
@@ -225,33 +225,33 @@ export type Analyse = z.infer<typeof SCHÉMA_ANALYSE>
  * Levée plutôt que `null` sur un fichier invalide : l'appelant a constaté sa
  * présence, donc le trouver illisible est une panne, pas une absence.
  */
-export function lireAnalyse(fichier: string): Analyse {
-  const brut: unknown = JSON.parse(fs.readFileSync(fichier, 'utf8'))
-  const analysé = SCHÉMA_ANALYSE.safeParse(brut)
-  if (!analysé.success) {
+export function lireAnalysis(file: string): Analysis {
+  const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const analysis = SCHEMA_ANALYSIS.safeParse(raw)
+  if (!analysis.success) {
     // **La version d'abord, et à part.** Une version inconnue fait échouer le
     // schéma sur un « invalid literal » qui n'apprend rien, au milieu de la
     // demi-douzaine d'autres reproches qu'une forme nouvelle entraîne. Or c'est
     // la seule cause qui se règle en relançant l'analyse, et le message doit le
     // dire au lieu de laisser chercher dans les boîtes.
     const version: unknown =
-      typeof brut === 'object' && brut !== null ? (brut as { version?: unknown }).version : undefined
+      typeof raw === 'object' && raw !== null ? (raw as { version?: unknown }).version : undefined
     if (!ANALYSIS_VERSIONS.some((v) => v === version)) {
       throw new Error(
-        `${path.basename(fichier)} est en version ${JSON.stringify(version)}, et ce dépôt lit ` +
+        `${path.basename(file)} est en version ${JSON.stringify(version)}, et ce dépôt lit ` +
           `${ANALYSIS_VERSIONS.join(' et ')}. Une version inconnue n'est pas lue à moitié : les ` +
           'champs reconnus donneraient un cadrage plausible calculé sur une donnée dont le sens a ' +
           "changé. Relancer l'analyse (run --force sur analysis) réécrit le fichier au format du jour.",
       )
     }
     throw new Error(
-      `${path.basename(fichier)} ne suit pas le contrat de l'itération 1 : ${analysé.error.issues
+      `${path.basename(file)} ne suit pas le contrat de l'itération 1 : ${analysis.error.issues
         .slice(0, 5)
         .map((i) => `${i.path.join('.') || '(racine)'} — ${i.message}`)
         .join(' ; ')}`,
     )
   }
-  return analysé.data
+  return analysis.data
 }
 
 /**
@@ -270,7 +270,7 @@ export function lireAnalyse(fichier: string): Analyse {
  * qu'un `.env` produit facilement — désactiverait le défaut et ferait échouer
  * l'étape sur un chemin vide.
  */
-function pythonDétection(): string {
+function pythonDetection(): string {
   return process.env.DETECT_PYTHON || path.join(process.cwd(), 'worker', 'venv', 'bin', 'python')
 }
 
@@ -296,14 +296,14 @@ function pythonDétection(): string {
  * `DETECT_MODEL` reste là pour repasser sur `yolo11m.pt` et refaire une mesure
  * de comparaison sans toucher au code.
  */
-function modèleDétection(): string {
+function templateDetection(): string {
   return (
     process.env.DETECT_MODEL || path.join(process.cwd(), 'worker', 'models', 'yolo11m-pose.pt')
   )
 }
 
 /** Le script Python. Même convention que `WHISPER_WORKER`. */
-function scriptDétection(): string {
+function scriptDetection(): string {
   return process.env.DETECT_WORKER || path.join(process.cwd(), 'worker', 'detect.py')
 }
 
@@ -321,7 +321,7 @@ function scriptDétection(): string {
  * On nomme ce qui passe, jamais ce qui ne passe pas : une liste noire de secrets
  * ne peut pas être complète.
  */
-const TRANSMISES: readonly string[] = [
+const FORWARDED: readonly string[] = [
   // Le strict nécessaire pour qu'un processus tourne.
   'PATH',
   // `HOME` n'est pas décoratif : ultralytics écrit ses réglages dans
@@ -346,26 +346,26 @@ const TRANSMISES: readonly string[] = [
  * Pure : l'environnement de départ est un argument, donc la liste se teste sans
  * toucher à `process.env`.
  */
-export function environnementDétection(
+export function environmentDetection(
   base: Record<string, string | undefined>,
 ): NodeJS.ProcessEnv {
   // `as NodeJS.ProcessEnv` sur l'accumulateur, comme dans `transcript.ts` : Next
   // déclare `NODE_ENV` obligatoire sur ce type, et un environnement reconstruit
   // ne peut pas le prouver structurellement.
-  const transmis = {} as NodeJS.ProcessEnv
-  for (const nom of TRANSMISES) {
-    const valeur = base[nom]
-    if (valeur !== undefined) transmis[nom] = valeur
+  const forwarded = {} as NodeJS.ProcessEnv
+  for (const name of FORWARDED) {
+    const value = base[name]
+    if (value !== undefined) forwarded[name] = value
   }
-  return transmis
+  return forwarded
 }
 
 /** `960x540`, la forme que `detect.py` attend. */
-export function formatTaille(largeur: number, hauteur: number): string {
-  return `${largeur}x${hauteur}`
+export function formatSize(width: number, hauteur: number): string {
+  return `${width}x${hauteur}`
 }
 
-export type OptionsAnalyse = {
+export type OptionsAnalysis = {
   projectId: string
   /**
    * La vidéo dont on relève les dimensions pour le champ `source`. La copie de
@@ -373,13 +373,13 @@ export type OptionsAnalyse = {
    * touche pas au Drive.
    */
   source: string
-  force?: boolean
+  forced?: boolean
   /** Le modèle, si on ne veut pas celui que l'environnement désigne. */
   model?: string
   /** Le seuil de score de scène. Voir la constante plus bas. */
   sceneThreshold?: number
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
-  onLog?: (ligne: string) => void
+  onLog?: (line: string) => void
   /** L'arrêt demandé (`POST /api/projects/:id/stop`). Voir `OptionsFfmpeg.signal`. */
   signal?: AbortSignal
 }
@@ -406,7 +406,7 @@ export type OptionsAnalyse = {
  * coupes et des basculements d'éclairage francs. En dessous de 0,3, ce sont des
  * mouvements de comédien.
  */
-const SEUIL_SCÈNE = 0.4
+const THRESHOLD_SCENE = 0.4
 
 /**
  * Analyse le proxy, ou ne fait rien si `analysis.json` est déjà là.
@@ -416,9 +416,9 @@ const SEUIL_SCÈNE = 0.4
  * tronqué sous le nom définitif, que la relance suivante prendrait pour une
  * analyse valide.
  */
-export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
+export async function runAnalysis(o: OptionsAnalysis): Promise<Artifact> {
   const destination = analysisPath(o.projectId)
-  if (o.force !== true && fs.existsSync(destination)) {
+  if (o.forced !== true && fs.existsSync(destination)) {
     return { path: destination, skipped: true }
   }
 
@@ -429,16 +429,16 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
     )
   }
 
-  const python = pythonDétection()
-  const script = scriptDétection()
-  const modèle = o.model ?? modèleDétection()
-  for (const [quoi, chemin, remède] of [
+  const python = pythonDetection()
+  const script = scriptDetection()
+  const template = o.model ?? templateDetection()
+  for (const [what, path, fix] of [
     ["L'interpréteur de détection", python, 'Lancer ./setup.sh, qui monte worker/venv.'],
     ['Le worker de détection', script, 'Lancer depuis la racine du dépôt, ou pointer DETECT_WORKER dessus.'],
-    ['Les poids YOLO', modèle, 'Lancer ./setup.sh, qui les télécharge dans worker/models/.'],
+    ['Les poids YOLO', template, 'Lancer ./setup.sh, qui les télécharge dans worker/models/.'],
   ] as const) {
-    if (!fs.existsSync(chemin)) {
-      throw new Error(`${quoi} est introuvable : ${JSON.stringify(chemin)}. ${remède}`)
+    if (!fs.existsSync(path)) {
+      throw new Error(`${what} est introuvable : ${JSON.stringify(path)}. ${fix}`)
     }
   }
 
@@ -458,7 +458,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // restriction du premier contrôle jusqu'au second.
   const isAborted = (): boolean => o.signal?.aborted === true
 
-  const sondageProxy = await probe(proxy, undefined, o.signal)
+  const probeProxy = await probe(proxy, undefined, o.signal)
   // **Le contrôle vient avant l'interprétation du sondage.** Un sondage
   // abandonné rend un sondage vide, comme un fichier illisible : sans cette
   // ligne, un arrêt demandé ressortait en « ffprobe n'a rien su dire du
@@ -466,12 +466,12 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // de vidéo parfaitement valide. (relevé par Copilot)
   if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
-    sondageProxy.width === null ||
-    sondageProxy.height === null ||
-    sondageProxy.width <= 0 ||
-    sondageProxy.height <= 0 ||
-    sondageProxy.durationSec === null ||
-    sondageProxy.durationSec <= 0
+    probeProxy.width === null ||
+    probeProxy.height === null ||
+    probeProxy.width <= 0 ||
+    probeProxy.height <= 0 ||
+    probeProxy.durationSec === null ||
+    probeProxy.durationSec <= 0
   ) {
     throw new Error(
       `ffprobe n'a rien su dire du proxy ${JSON.stringify(proxy)} : dimensions ou durée manquantes ou nulles. ` +
@@ -483,13 +483,13 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // recopiées telles quelles dans `analysis.json`, où `SCHÉMA_TAILLE` les exige
   // positives. Un zéro qui passerait ici ferait échouer la validation **après**
   // les trois minutes de détection.
-  const sondageSource = await probe(o.source, undefined, o.signal)
+  const probeSource = await probe(o.source, undefined, o.signal)
   if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
-    sondageSource.width === null ||
-    sondageSource.height === null ||
-    sondageSource.width <= 0 ||
-    sondageSource.height <= 0
+    probeSource.width === null ||
+    probeSource.height === null ||
+    probeSource.width <= 0 ||
+    probeSource.height <= 0
   ) {
     throw new Error(
       `ffprobe n'a rien su dire des dimensions de ${JSON.stringify(o.source)}. ` +
@@ -498,7 +498,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   }
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
-  const temporaire = cheminTemporaire(destination)
+  const temporary = pathTemporary(destination)
 
   const args = [
     // `-u` : sans lui, Python tamponne stderr et les quatre étapes du worker
@@ -506,27 +506,27 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
     '-u',
     script,
     '--proxy', proxy,
-    '--out', temporaire,
+    '--out', temporary,
     // `ffmpegBin()` et non `process.env.FFMPEG_BIN` relu ici : le binaire de
     // `setup.sh` se désigne d'un seul endroit, sinon un jour l'un des deux
     // apprend un repli que l'autre ignore.
     '--ffmpeg', ffmpegBin(),
-    '--model', modèle,
-    '--proxy-size', formatTaille(sondageProxy.width, sondageProxy.height),
-    '--source-size', formatTaille(sondageSource.width, sondageSource.height),
-    '--duration', String(sondageProxy.durationSec),
-    '--scene-threshold', String(o.sceneThreshold ?? SEUIL_SCÈNE),
+    '--model', template,
+    '--proxy-size', formatSize(probeProxy.width, probeProxy.height),
+    '--source-size', formatSize(probeSource.width, probeSource.height),
+    '--duration', String(probeProxy.durationSec),
+    '--scene-threshold', String(o.sceneThreshold ?? THRESHOLD_SCENE),
   ]
 
   try {
-    await lancerWorker(python, args, environnementDétection(process.env), o.onLog, o.signal)
+    await launchWorker(python, args, environmentDetection(process.env), o.onLog, o.signal)
     // Valider **avant** le renommage : un JSON hors contrat ne doit jamais
     // porter le nom définitif, sans quoi le graphe par présence le sert comme
     // une analyse valide à toutes les relances suivantes.
-    lireAnalyse(temporaire)
-    await fsp.rename(temporaire, destination)
+    lireAnalysis(temporary)
+    await fsp.rename(temporary, destination)
   } catch (cause) {
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
   }
 
@@ -547,7 +547,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
  * Seuls les arguments à espace sont cités : une ligne de commande où chaque
  * jeton porte des guillemets ne se relit pas. (relevé par Copilot)
  */
-export function commandeLisible(python: string, args: readonly string[]): string {
+export function commandReadable(python: string, args: readonly string[]): string {
   return [python, ...args].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')
 }
 
@@ -568,14 +568,14 @@ export function commandeLisible(python: string, args: readonly string[]): string
  * destiné à un journal de serveur, pas à une réponse HTTP — `messageSûr` épure
  * ce qui part dans `status.json`.
  */
-function lancerWorker(
+function launchWorker(
   python: string,
   args: string[],
   env: NodeJS.ProcessEnv,
-  onLog?: (ligne: string) => void,
+  onLog?: (line: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const journal = créerJournal(40)
+  const log = createLog(40)
 
   return new Promise<void>((resolve, reject) => {
     // L'arrêt peut être arrivé pendant les deux `ffprobe` qui précèdent.
@@ -589,24 +589,24 @@ function lancerWorker(
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
     // l'autre.
-    const relayer = (flux: NodeJS.ReadableStream, journaliser: boolean): void => {
-      flux.setEncoding('utf8')
-      let reste = ''
-      const émettre = (ligne: string): void => {
-        if (onLog !== undefined && ligne.trim() !== '') onLog(ligne)
+    const relayer = (stream: NodeJS.ReadableStream, log: boolean): void => {
+      stream.setEncoding('utf8')
+      let remaining = ''
+      const emit = (line: string): void => {
+        if (onLog !== undefined && line.trim() !== '') onLog(line)
       }
-      flux.on('data', (morceau: string) => {
-        if (journaliser) journal.ajouter(morceau)
+      stream.on('data', (piece: string) => {
+        if (log) log.add(piece)
         if (onLog === undefined) return
         // Découpage sur **CR comme LF** : les barres d'avancement d'ultralytics
         // se réécrivent derrière un `\r`, sans jamais de saut de ligne.
-        const lignes = (reste + morceau).split(/\r\n|[\r\n]/)
-        reste = lignes.pop() ?? ''
-        for (const ligne of lignes) émettre(ligne)
+        const lines = (remaining + piece).split(/\r\n|[\r\n]/)
+        remaining = lines.pop() ?? ''
+        for (const line of lines) emit(line)
       })
-      flux.on('end', () => {
-        émettre(reste)
-        reste = ''
+      stream.on('end', () => {
+        emit(remaining)
+        remaining = ''
       })
     }
 
@@ -649,9 +649,9 @@ function lancerWorker(
         new Error(
           [
             `L'analyse a échoué (${cause}).`,
-            `Commande : ${commandeLisible(python, args)}`,
+            `Commande : ${commandReadable(python, args)}`,
             'Dernières lignes :',
-            journal.texte() || '(stderr vide)',
+            log.text() || '(stderr vide)',
           ].join('\n'),
         ),
       )

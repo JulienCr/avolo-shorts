@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { corps, json, route } from '@/server/http'
-import { CIBLES_LANÇABLES, lancer } from '@/server/run'
+import { body, json, route } from '@/server/http'
+import { TARGETS_LAUNCHABLE, launch } from '@/server/run'
 
 /**
  * `POST /api/projects/:id/run` — recalculer jusqu'à une ou plusieurs cibles.
@@ -16,9 +16,9 @@ import { CIBLES_LANÇABLES, lancer } from '@/server/run'
  * `POST /api/clips/:id/export`.
  */
 
-const CIBLE = z.enum(CIBLES_LANÇABLES)
+const TARGET = z.enum(TARGETS_LAUNCHABLE)
 
-const DEMANDE = z.strictObject({
+const REQUEST = z.strictObject({
   /**
    * Une cible, ou plusieurs.
    *
@@ -39,7 +39,7 @@ const DEMANDE = z.strictObject({
    * succès. Une liste vide acceptée répondrait donc « c'est fait » à une demande
    * qui ne visait rien.
    */
-  target: z.union([CIBLE, z.array(CIBLE).min(1)]),
+  target: z.union([TARGET, z.array(TARGET).min(1)]),
   /**
    * Les étapes à refaire même si leur artefact est là. `true` vaut « la cible »,
    * ce qui couvre le cas courant — relancer le repérage pour obtenir d'autres
@@ -53,14 +53,14 @@ const DEMANDE = z.strictObject({
    * l'ignore, et le client recevait un 202 dont le plan ne parlait pas de ce
    * qu'il venait de demander. (relevé par Aristarque)
    */
-  force: z.union([z.boolean(), z.array(CIBLE)]).optional(),
+  forced: z.union([z.boolean(), z.array(TARGET)]).optional(),
 })
 
 export const POST = route(
   'POST /api/projects/:id/run',
-  async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
-    const { target, force } = await corps(requête, DEMANDE)
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
+    const { target, forced } = await body(request, REQUEST)
     // **Une répétition se réduit, elle ne se refuse pas.** Le résultat d'une
     // liste qui se répète est parfaitement défini — `planPourCibles` ne planifie
     // jamais deux fois la même étape —, donc un 400 serait de la pédanterie.
@@ -71,12 +71,12 @@ export const POST = route(
     // `candidates` rendaient chaque écriture arbitrairement volumineuse pour un
     // plan identique. Dédupliquée, la liste est bornée par `CIBLES_LANÇABLES`.
     // (relevé par Copilot)
-    const cibles = [...new Set(Array.isArray(target) ? target : [target])]
-    const lancement = await lancer(id, cibles, {
-      force: Array.isArray(force) ? [...new Set(force)] : force,
+    const targets = [...new Set(Array.isArray(target) ? target : [target])]
+    const launch = await launch(id, targets, {
+      forced: Array.isArray(forced) ? [...new Set(forced)] : forced,
     })
     // 202 : accepté et lancé. Un plan vide est une réponse valide et fréquente —
     // tout est déjà là, il n'y avait rien à faire.
-    return json(lancement, { status: 202 })
+    return json(launch, { status: 202 })
   },
 )

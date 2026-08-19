@@ -68,12 +68,12 @@ const DEPS: Record<StepName, readonly StepName[]> = {
  * L'ordre rendu est celui de l'exécution : toute étape y apparaît après ses
  * dépendances.
  */
-export function planSteps(
+export function shotSteps(
   target: StepName,
   exists: Record<StepName, boolean>,
-  force: readonly StepName[] = [],
+  forced: readonly StepName[] = [],
 ): StepName[] {
-  const forcées = new Set(force)
+  const forced = new Set(forced)
 
   // Deux questions distinctes, et les confondre est le piège de cet étage.
   //
@@ -84,8 +84,8 @@ export function planSteps(
   //
   // Les mélanger fait remonter la *présence* comme le fait un `make`, et
   // reconstruit alors une dépendance absente sous un artefact déjà là.
-  const forcéEnAmont = (step: StepName): boolean =>
-    forcées.has(step) || DEPS[step].some(forcéEnAmont)
+  const forcedInUpstream = (step: StepName): boolean =>
+    forced.has(step) || DEPS[step].some(forcedInUpstream)
 
   /**
    * Une étape présente est une étape bonne — c'est la définition même du graphe
@@ -97,21 +97,21 @@ export function planSteps(
    * la présence rendrait le WAV puis retranscrirait deux heures cinquante — pour
    * réécrire à l'identique le fichier qu'on avait déjà.
    */
-  const àRefaire = (step: StepName): boolean => forcéEnAmont(step) || !exists[step]
+  const toRedo = (step: StepName): boolean => forcedInUpstream(step) || !exists[step]
 
-  const plan: StepName[] = []
-  const inscrites = new Set<StepName>()
+  const shot: StepName[] = []
+  const registered = new Set<StepName>()
 
-  const planifier = (step: StepName): void => {
-    if (inscrites.has(step)) return
-    inscrites.add(step)
+  const schedule = (step: StepName): void => {
+    if (registered.has(step)) return
+    registered.add(step)
     // Les dépendances d'abord : c'est ce qui les place avant dans le plan.
     for (const dep of DEPS[step]) {
-      if (àRefaire(dep)) planifier(dep)
+      if (toRedo(dep)) schedule(dep)
     }
-    plan.push(step)
+    shot.push(step)
   }
 
-  if (àRefaire(target)) planifier(target)
-  return plan
+  if (toRedo(target)) schedule(target)
+  return shot
 }

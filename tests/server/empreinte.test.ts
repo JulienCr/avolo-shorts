@@ -7,14 +7,14 @@ import { PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
-import type { Artefact, OptionsArtefact } from '@/server/ffmpeg'
-import type { Sondage } from '@/server/ffprobe'
-import { sortieNommée, sortiesDuClip } from '@/server/rendus'
+import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
+import type { Probe } from '@/server/ffprobe'
+import { outputNamed, clipOutputs } from '@/server/renders'
 import {
-  cheminsRendu,
-  lireEmpreinte,
+  pathsRender,
+  lireFingerprint,
   renderClip,
-  VERSION_EMPREINTE,
+  VERSION_FINGERPRINT,
 } from '@/server/steps/render'
 
 /**
@@ -36,10 +36,10 @@ import {
  */
 
 /** Ce que la simulation d'encodage exécute au milieu, quand un test en pose un. */
-let pendantLEncodage: (() => void | Promise<void>) | null = null
+let duringLEncoding: (() => void | Promise<void>) | null = null
 
 /** Les encodages demandés, dans l'ordre, par chemin de destination. */
-let encodages: string[] = []
+let encodings: string[] = []
 
 vi.mock('@/server/ffmpeg', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/ffmpeg')>()
@@ -52,12 +52,12 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
      * `o.args(...)` est appelé pour de vrai — c'est gratuit, et cela garde sous
      * test le fait que la construction des arguments n'explose pas.
      */
-    produireArtefact: async (o: OptionsArtefact): Promise<Artefact> => {
-      encodages.push(o.dst)
+    produireArtefact: async (o: OptionsArtifact): Promise<Artifact> => {
+      encodings.push(o.dst)
       o.args(`${o.dst}.partiel`)
-      if (pendantLEncodage !== null) {
-        const hook = pendantLEncodage
-        pendantLEncodage = null
+      if (duringLEncoding !== null) {
+        const hook = duringLEncoding
+        duringLEncoding = null
         await hook()
       }
       fs.mkdirSync(path.dirname(o.dst), { recursive: true })
@@ -72,8 +72,8 @@ vi.mock('@/server/ffprobe', async (importOriginal) => {
   return {
     ...original,
     /** 1000x996 pour les PNG de marque, 1920x1080 pour le reste : les vraies tailles. */
-    probe: async (fichier: string): Promise<Sondage> =>
-      fichier.endsWith('.png')
+    probe: async (file: string): Promise<Probe> =>
+      file.endsWith('.png')
         ? { durationSec: null, width: 1000, height: 996, fps: null }
         : { durationSec: 5936, width: 1920, height: 1080, fps: 30 },
   }
@@ -83,13 +83,13 @@ vi.mock('@/server/ffprobe', async (importOriginal) => {
  * `true` par défaut pour tous les tests de ce fichier — seul celui qui vérifie
  * l'ordre du repli local dans `currentCaptionsDocument` le bascule à `false`.
  */
-let montageRéponds = true
+let editingRespond = true
 
 vi.mock('@/server/steps/ingest', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/steps/ingest')>()
   return {
     ...original,
-    montageRépond: async (): Promise<boolean> => montageRéponds,
+    montageRépond: async (): Promise<boolean> => editingRespond,
   }
 })
 
@@ -97,20 +97,20 @@ const SOURCE = '2025-06-15-cqlp.mp4'
 const ID = '2025-06-15-cqlp'
 const CLIP = 'clip_0001'
 
-let racine: string
+let root: string
 let replay: string
 let stage: string
-let projets: string
+let projects: string
 let brandDir: string
-const envDépart = { ...process.env }
+const envStart = { ...process.env }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-empreinte-'))
-  replay = path.join(racine, 'Replay')
-  stage = path.join(racine, 'stage')
-  projets = path.join(racine, 'projects')
-  brandDir = path.join(racine, 'brand')
-  for (const d of [replay, stage, projets, brandDir]) fs.mkdirSync(d, { recursive: true })
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-empreinte-'))
+  replay = path.join(root, 'Replay')
+  stage = path.join(root, 'stage')
+  projects = path.join(root, 'projects')
+  brandDir = path.join(root, 'brand')
+  for (const d of [replay, stage, projects, brandDir]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
   fs.writeFileSync(path.join(stage, SOURCE), 'pas vraiment une vidéo')
   // Les deux marques, présentes : sans elles la porte de #37 refuserait avant
@@ -120,13 +120,13 @@ beforeEach(() => {
 
   process.env.REPLAY_DIR = replay
   process.env.STAGE_DIR = stage
-  process.env.PROJECTS_DIR = projets
+  process.env.PROJECTS_DIR = projects
   // L'encodeur est nommé : `encoderName()` sonderait NVENC en lançant ffmpeg.
   process.env.FFMPEG_ENCODER = 'x264'
 
-  encodages = []
-  pendantLEncodage = null
-  montageRéponds = true
+  encodings = []
+  duringLEncoding = null
+  editingRespond = true
 
   upsertProject(getDb(), {
     id: ID,
@@ -141,11 +141,11 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDb()
-  fs.rmSync(racine, { recursive: true, force: true })
-  process.env = { ...envDépart }
+  fs.rmSync(root, { recursive: true, force: true })
+  process.env = { ...envStart }
 })
 
-function clip(surcharges: Partial<Clip> = {}): Clip {
+function clip(overrides: Partial<Clip> = {}): Clip {
   return {
     id: CLIP,
     projectId: ID,
@@ -163,11 +163,11 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
     description: 'La chute arrive au bon moment. #impro',
     status: 'kept',
     pass: 1,
-    ...surcharges,
+    ...overrides,
   }
 }
 
-type SegmentDeTranscript = {
+type TranscriptSegment = {
   start: number
   end: number
   text: string
@@ -175,10 +175,10 @@ type SegmentDeTranscript = {
 }
 
 /** Écrit le transcript à côté de l'original, avec les segments donnés. */
-function écrireTranscript(segments: SegmentDeTranscript[]): void {
-  const dossier = path.join(replay, `${ID}.avolo`)
-  fs.mkdirSync(dossier, { recursive: true })
-  fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
+function writeTranscript(segments: TranscriptSegment[]): void {
+  const folder = path.join(replay, `${ID}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
 }
 
 /**
@@ -186,10 +186,10 @@ function écrireTranscript(segments: SegmentDeTranscript[]): void {
  * l'original qu'écrit `écrireTranscript`. C'est celui que `chercherSidecar`
  * consulte en premier, avant tout sondage du montage.
  */
-function écrireTranscriptRepli(segments: SegmentDeTranscript[]): void {
-  const dossier = path.join(projets, ID, `${ID}.avolo`)
-  fs.mkdirSync(dossier, { recursive: true })
-  fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
+function writeTranscriptFallback(segments: TranscriptSegment[]): void {
+  const folder = path.join(projects, ID, `${ID}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
 }
 
 /**
@@ -197,7 +197,7 @@ function écrireTranscriptRepli(segments: SegmentDeTranscript[]): void {
  * vraiment des sous-titres. Les autres tournent avec `captions: false`.
  */
 function poserTranscript(): void {
-  écrireTranscript([
+  writeTranscript([
     {
       start: 100,
       end: 110,
@@ -213,24 +213,24 @@ function poserTranscript(): void {
 }
 
 /** Les noms des marques que l'empreinte dit incrustées, triés. */
-function marquesIncrustées(chemin: string): string[] {
-  return (lireEmpreinte(chemin)?.marks ?? []).map((m) => m.name)
+function markersBurnedIn(path: string): string[] {
+  return (lireFingerprint(path)?.marks ?? []).map((m) => m.name)
 }
 
 /** Le `PATCH` réel, tel que Next l'appelle. */
-async function patcher(champs: Record<string, unknown>): Promise<void> {
-  const réponse = await patchClipRoute(
-    new Request('http://x', { method: 'PATCH', body: JSON.stringify(champs) }),
+async function patch(fields: Record<string, unknown>): Promise<void> {
+  const response = await patchClipRoute(
+    new Request('http://x', { method: 'PATCH', body: JSON.stringify(fields) }),
     { params: Promise.resolve({ id: CLIP }) },
   )
-  expect(réponse.status).toBe(200)
+  expect(response.status).toBe(200)
 }
 
-function poser(chemins: (string | null)[]): void {
-  for (const chemin of chemins) {
-    if (chemin === null) continue
-    fs.mkdirSync(path.dirname(chemin), { recursive: true })
-    fs.writeFileSync(chemin, 'un rendu d’avant')
+function poser(paths: (string | null)[]): void {
+  for (const path of paths) {
+    if (path === null) continue
+    fs.mkdirSync(path.dirname(path), { recursive: true })
+    fs.writeFileSync(path, 'un rendu d’avant')
   }
 }
 
@@ -245,8 +245,8 @@ describe("un PATCH pendant l'encodage", () => {
     const c = clip()
     putClip(getDb(), c)
 
-    pendantLEncodage = async () => {
-      await patcher({ segments: [{ start: 100, end: 104 }] })
+    duringLEncoding = async () => {
+      await patch({ segments: [{ start: 100, end: 104 }] })
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(/modifié pendant/)
@@ -256,15 +256,15 @@ describe("un PATCH pendant l'encodage", () => {
   it("ne laisse derrière lui aucune sortie qui décrive le montage d'avant", async () => {
     const c = clip()
     putClip(getDb(), c)
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    pendantLEncodage = async () => {
-      await patcher({ cropX: 0.2 })
+    duringLEncoding = async () => {
+      await patch({ cropX: 0.2 })
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(/modifié pendant/)
-    for (const chemin of [chemins.mp4, chemins.variant9x16, chemins.texts, chemins.empreinte]) {
-      if (chemin !== null) expect(fs.existsSync(chemin)).toBe(false)
+    for (const path of [paths.mp4, paths.variant9x16, paths.texts, paths.fingerprint]) {
+      if (path !== null) expect(fs.existsSync(path)).toBe(false)
     }
   })
 })
@@ -278,27 +278,27 @@ describe('des sorties complètes sous un montage qui a changé', () => {
   it("ne fait pas sauter l'export", async () => {
     const c = clip()
     putClip(getDb(), c)
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+    const paths = pathsRender(ID, CLIP, '1:1')
+    poser([paths.mp4, paths.variant9x16, paths.texts])
 
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
   })
 
   it('saute quand le rendu décrit bien le clip — le cas nominal reste vrai', async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    const premier = await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(premier.skipped).toBe(false)
-    expect(fs.existsSync(chemins.mp4)).toBe(true)
+    const first = await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(first.skipped).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(true)
 
-    encodages = []
+    encodings = []
     const second = await renderClip(CLIP, { db: getDb(), brandDir })
     expect(second.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(encodings).toEqual([])
     expect(getClip(getDb(), CLIP)?.status).toBe('exported')
   })
 })
@@ -310,27 +310,27 @@ describe('des sorties complètes sous un montage qui a changé', () => {
 describe("l'ordre d'écriture du .txt", () => {
   it("laisse gagner l'état de la base, pas l'instantané du début de l'export", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    pendantLEncodage = async () => {
-      await patcher({ description: 'Corrigée pendant l’export. #impro' })
+    duringLEncoding = async () => {
+      await patch({ description: 'Corrigée pendant l’export. #impro' })
     }
 
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(fs.readFileSync(chemins.texts, 'utf8')).toContain('Corrigée pendant l’export.')
+    expect(fs.readFileSync(paths.texts, 'utf8')).toContain('Corrigée pendant l’export.')
   })
 
   it("laisse gagner la base aussi quand c'est le PATCH qui écrit en dernier", async () => {
     // L'autre sens, et c'est la même règle : le `.txt` porte l'état de la base
     // au moment de son écriture, quel que soit le chemin qui l'écrit.
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    await patcher({ title: 'Retitré après coup' })
+    await patch({ title: 'Retitré après coup' })
 
-    expect(fs.readFileSync(chemins.texts, 'utf8')).toContain('Retitré après coup')
+    expect(fs.readFileSync(paths.texts, 'utf8')).toContain('Retitré après coup')
   })
 })
 
@@ -343,29 +343,29 @@ describe("l'ordre d'écriture du .txt", () => {
 describe('un rendu sans empreinte, déjà sur le disque', () => {
   it('est refait plutôt que sauté, sans avoir à connaître --force', async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+    const paths = pathsRender(ID, CLIP, '1:1')
+    poser([paths.mp4, paths.variant9x16, paths.texts])
 
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toEqual([chemins.mp4, chemins.variant9x16])
+    expect(result.skipped).toBe(false)
+    expect(encodings).toEqual([paths.mp4, paths.variant9x16])
     // Et il en laisse une, donc le cas ne se reproduit qu'une fois par clip.
-    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
+    expect(markersBurnedIn(paths.fingerprint)).toEqual(['logo.png', 'twitch.png'])
   })
 
   it('le dit au journal, plutôt que de refaire en silence', async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+    const paths = pathsRender(ID, CLIP, '1:1')
+    poser([paths.mp4, paths.variant9x16, paths.texts])
 
     const messages: string[] = []
-    const avant = console.warn
+    const before = console.warn
     console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
     try {
       await renderClip(CLIP, { db: getDb(), brandDir })
     } finally {
-      console.warn = avant
+      console.warn = before
     }
 
     expect(messages.some((m) => m.includes('aucune empreinte'))).toBe(true)
@@ -373,16 +373,16 @@ describe('un rendu sans empreinte, déjà sur le disque', () => {
 
   it("se tait sous `force`, où la décision ne vient pas de l'empreinte", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+    const paths = pathsRender(ID, CLIP, '1:1')
+    poser([paths.mp4, paths.variant9x16, paths.texts])
 
     const messages: string[] = []
-    const avant = console.warn
+    const before = console.warn
     console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
     try {
-      await renderClip(CLIP, { db: getDb(), brandDir, force: true })
+      await renderClip(CLIP, { db: getDb(), brandDir, forced: true })
     } finally {
-      console.warn = avant
+      console.warn = before
     }
 
     expect(messages.some((m) => m.includes('empreinte'))).toBe(false)
@@ -399,14 +399,14 @@ describe('les marques incrustées', () => {
     fs.rmSync(path.join(brandDir, 'twitch.png'))
     putClip(getDb(), clip())
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual(['logo.png'])
+    expect(markersBurnedIn(pathsRender(ID, CLIP, '1:1').fingerprint)).toEqual(['logo.png'])
 
     fs.writeFileSync(path.join(brandDir, 'twitch.png'), 'pas vraiment un PNG')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual([
+    expect(result.skipped).toBe(false)
+    expect(markersBurnedIn(pathsRender(ID, CLIP, '1:1').fingerprint)).toEqual([
       'logo.png',
       'twitch.png',
     ])
@@ -417,11 +417,11 @@ describe('les marques incrustées', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
 
     fs.rmSync(path.join(brandDir, 'twitch.png'))
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(marquesIncrustées(cheminsRendu(ID, CLIP, '1:1').empreinte)).toEqual(['logo.png'])
+    expect(result.skipped).toBe(false)
+    expect(markersBurnedIn(pathsRender(ID, CLIP, '1:1').fingerprint)).toEqual(['logo.png'])
   })
 
   /**
@@ -434,12 +434,12 @@ describe('les marques incrustées', () => {
     putClip(getDb(), clip())
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    for (const name of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, name))
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
   })
   /**
    * **Le nom ne suffit pas**, et c'est la façon normale de changer de marque :
@@ -449,19 +449,19 @@ describe('les marques incrustées', () => {
    */
   it('périme le rendu quand un logo est remplacé sous le même nom', async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const avant = lireEmpreinte(chemins.empreinte)?.marks
+    const before = lireFingerprint(paths.fingerprint)?.marks
 
     fs.writeFileSync(path.join(brandDir, 'logo.png'), 'une tout autre image')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
     // Le nom n'a pas bougé, le contenu si.
-    expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
-    expect(lireEmpreinte(chemins.empreinte)?.marks).not.toEqual(avant)
+    expect(markersBurnedIn(paths.fingerprint)).toEqual(['logo.png', 'twitch.png'])
+    expect(lireFingerprint(paths.fingerprint)?.marks).not.toEqual(before)
   })
 
   it('ne périme rien quand le fichier est réécrit à l’identique', async () => {
@@ -471,11 +471,11 @@ describe('les marques incrustées', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
 
     fs.writeFileSync(path.join(brandDir, 'logo.png'), 'pas vraiment un PNG')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
   })
 })
 
@@ -487,51 +487,51 @@ describe('les sorties publiées', () => {
   it("ne publie rien sous un rendu que rien ne certifie", () => {
     const c = { ...clip(), status: 'exported' as const }
     putClip(getDb(), c)
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    poser([chemins.mp4, chemins.variant9x16, chemins.texts])
+    const paths = pathsRender(ID, CLIP, '1:1')
+    poser([paths.mp4, paths.variant9x16, paths.texts])
 
-    const sorties = sortiesDuClip(c)
+    const outputs = clipOutputs(c)
 
-    expect(sorties.mp4Url).toBeNull()
-    expect(sorties.textsUrl).toBeNull()
-    expect(sorties.variant9x16Url).toBeNull()
+    expect(outputs.mp4Url).toBeNull()
+    expect(outputs.textsUrl).toBeNull()
+    expect(outputs.variant9x16Url).toBeNull()
     // **Mais la variante reste due**, et le `null` ci-dessus ne veut pas dire
     // « n'existera jamais » : les deux `null` ne se confondent pas.
-    expect(sorties.variant9x16Due).toBe(true)
+    expect(outputs.variant9x16Due).toBe(true)
   })
 
   it('les publie dès que l’export a laissé son empreinte', async () => {
     putClip(getDb(), clip())
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    const àJour = getClip(getDb(), CLIP)
-    expect(àJour?.status).toBe('exported')
-    const sorties = sortiesDuClip(àJour as Clip)
-    expect(sorties.mp4Url).not.toBeNull()
-    expect(sorties.variant9x16Url).not.toBeNull()
-    expect(sorties.textsUrl).not.toBeNull()
+    const toDay = getClip(getDb(), CLIP)
+    expect(toDay?.status).toBe('exported')
+    const outputs = clipOutputs(toDay as Clip)
+    expect(outputs.mp4Url).not.toBeNull()
+    expect(outputs.variant9x16Url).not.toBeNull()
+    expect(outputs.textsUrl).not.toBeNull()
   })
 
   it("ne sert pas l'empreinte comme si elle était une sortie", async () => {
     putClip(getDb(), clip())
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const àJour = getClip(getDb(), CLIP) as Clip
+    const toDay = getClip(getDb(), CLIP) as Clip
 
-    expect(sortieNommée(àJour, `${CLIP}.rendu.json`)).toBeNull()
+    expect(outputNamed(toDay, `${CLIP}.rendu.json`)).toBeNull()
     // Le contrôle vaut quelque chose : le vrai nom, lui, se sert.
-    expect(sortieNommée(àJour, `${CLIP}.mp4`)).not.toBeNull()
+    expect(outputNamed(toDay, `${CLIP}.mp4`)).not.toBeNull()
   })
 
   it("cesse de les publier quand un PATCH périme le rendu, empreinte comprise", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(fs.existsSync(chemins.empreinte)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
 
-    await patcher({ cropX: 0.1 })
+    await patch({ cropX: 0.1 })
 
-    expect(fs.existsSync(chemins.empreinte)).toBe(false)
-    expect(fs.existsSync(chemins.mp4)).toBe(false)
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 })
@@ -540,21 +540,21 @@ describe('les sorties publiées', () => {
 describe('la version de recette', () => {
   it('périme un rendu produit sous une version antérieure', async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    const empreinte = lireEmpreinte(chemins.empreinte)
-    expect(empreinte?.version).toBe(VERSION_EMPREINTE)
+    const fingerprint = lireFingerprint(paths.fingerprint)
+    expect(fingerprint?.version).toBe(VERSION_FINGERPRINT)
     fs.writeFileSync(
-      chemins.empreinte,
-      JSON.stringify({ ...empreinte, version: VERSION_EMPREINTE - 1 }),
+      paths.fingerprint,
+      JSON.stringify({ ...fingerprint, version: VERSION_FINGERPRINT - 1 }),
     )
 
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
   })
 })
 
@@ -563,32 +563,32 @@ describe('la version de recette', () => {
  * (relevé par Copilot)
  */
 describe('le preset de sous-titres', () => {
-  const AUTRE = { ...DEFAULT_CAPTION_STYLE, fontSize: DEFAULT_CAPTION_STYLE.fontSize + 8 }
+  const OTHER = { ...DEFAULT_CAPTION_STYLE, fontSize: DEFAULT_CAPTION_STYLE.fontSize + 8 }
 
   it("ne laisse pas sauter un rendu produit avec un autre preset", async () => {
     poserTranscript()
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
-    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).toBeTypeOf('string')
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir, style: OTHER })
+    expect(lireFingerprint(paths.fingerprint)?.captionsLook).toBeTypeOf('string')
 
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
   })
 
   it('saute quand le preset est le même — le cas nominal reste vrai', async () => {
     poserTranscript()
     putClip(getDb(), clip({ captions: true }))
-    await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
+    await renderClip(CLIP, { db: getDb(), brandDir, style: OTHER })
 
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir, style: OTHER })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
   })
 
   /**
@@ -601,20 +601,20 @@ describe('le preset de sous-titres', () => {
   it("ne laisse pas sauter un rendu incrusté sans la police du preset", async () => {
     poserTranscript()
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    const polices = path.join(racine, 'fonts')
-    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
-    const sansPolice = lireEmpreinte(chemins.empreinte)?.captionsLook
+    const paths = pathsRender(ID, CLIP, '1:1')
+    const fonts = path.join(root, 'fonts')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
+    const withoutFont = lireFingerprint(paths.fingerprint)?.captionsLook
 
     // Anton arrive.
-    fs.mkdirSync(polices, { recursive: true })
-    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'pas vraiment une police')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    fs.mkdirSync(fonts, { recursive: true })
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'pas vraiment une police')
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
-    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).not.toBe(sansPolice)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
+    expect(lireFingerprint(paths.fingerprint)?.captionsLook).not.toBe(withoutFont)
   })
 
   /**
@@ -626,19 +626,19 @@ describe('le preset de sous-titres', () => {
   it('ne laisse pas sauter un rendu incrusté avec une autre version de la police', async () => {
     poserTranscript()
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
-    const polices = path.join(racine, 'fonts')
-    fs.mkdirSync(polices, { recursive: true })
-    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’hier')
-    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
-    const avant = lireEmpreinte(chemins.empreinte)?.captionsLook
+    const paths = pathsRender(ID, CLIP, '1:1')
+    const fonts = path.join(root, 'fonts')
+    fs.mkdirSync(fonts, { recursive: true })
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'la version d’hier')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
+    const before = lireFingerprint(paths.fingerprint)?.captionsLook
 
-    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’aujourd’hui')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'la version d’aujourd’hui')
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
-    expect(résultat.skipped).toBe(false)
-    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).not.toBe(avant)
+    expect(result.skipped).toBe(false)
+    expect(lireFingerprint(paths.fingerprint)?.captionsLook).not.toBe(before)
   })
 
   it("ignore un fichier du dossier qui n'est pas une police", async () => {
@@ -646,17 +646,17 @@ describe('le preset de sous-titres', () => {
     // libass ne le chargera pas.
     poserTranscript()
     putClip(getDb(), clip({ captions: true }))
-    const polices = path.join(racine, 'fonts')
-    fs.mkdirSync(polices, { recursive: true })
-    fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'pas vraiment une police')
-    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    const fonts = path.join(root, 'fonts')
+    fs.mkdirSync(fonts, { recursive: true })
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'pas vraiment une police')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
-    fs.writeFileSync(path.join(polices, 'README.md'), 'où trouver Anton')
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
+    fs.writeFileSync(path.join(fonts, 'README.md'), 'où trouver Anton')
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
   })
 
   it("ne note aucun preset quand aucun mot ne tombe dans les segments", async () => {
@@ -665,13 +665,13 @@ describe('le preset de sous-titres', () => {
     // certifier un preset qui n'a rien décrit.
     poserTranscript()
     putClip(getDb(), clip({ captions: true, segments: [{ start: 800, end: 820 }] }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
     await renderClip(CLIP, { db: getDb(), brandDir })
 
-    const empreinte = lireEmpreinte(chemins.empreinte)
-    expect(empreinte?.captions).toBe(true)
-    expect(empreinte?.captionsLook).toBeNull()
+    const fingerprint = lireFingerprint(paths.fingerprint)
+    expect(fingerprint?.captions).toBe(true)
+    expect(fingerprint?.captionsLook).toBeNull()
   })
 })
 
@@ -683,9 +683,9 @@ describe('le preset de sous-titres', () => {
 describe("une marque remplacée pendant l'export", () => {
   it("refuse de certifier ce qu'elle n'a pas pu vérifier", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    pendantLEncodage = () => {
+    duringLEncoding = () => {
       fs.writeFileSync(path.join(brandDir, 'logo.png'), 'un logo tout neuf')
     }
 
@@ -693,7 +693,7 @@ describe("une marque remplacée pendant l'export", () => {
       /ne sont plus celles qui ont servi/,
     )
     // Aucune empreinte : l'export suivant refera les deux sorties.
-    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 
@@ -707,16 +707,16 @@ describe("une marque remplacée pendant l'export", () => {
    */
   it("refuse aussi quand le dossier est vidé pendant l'export", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    pendantLEncodage = () => {
-      for (const nom of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, nom))
+    duringLEncoding = () => {
+      for (const name of ['logo.png', 'twitch.png']) fs.rmSync(path.join(brandDir, name))
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(
       /ne sont plus celles qui ont servi/,
     )
-    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
   })
 
   /**
@@ -728,21 +728,21 @@ describe("une marque remplacée pendant l'export", () => {
    */
   it("n'attend pas la fin du rendu pour retirer l'empreinte d'avant", async () => {
     putClip(getDb(), clip())
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(fs.existsSync(chemins.empreinte)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
 
     // Le dossier change, donc le rendu se refait ; il échoue en cours de route.
     fs.writeFileSync(path.join(brandDir, 'logo.png'), 'un logo tout neuf')
-    pendantLEncodage = () => {
+    duringLEncoding = () => {
       throw new Error('ffmpeg a rendu l’âme')
     }
 
     await expect(renderClip(CLIP, { db: getDb(), brandDir })).rejects.toThrow(/l’âme/)
     // Plus rien ne certifie ce qui reste sur le disque.
-    expect(fs.existsSync(chemins.empreinte)).toBe(false)
-    const àJour = getClip(getDb(), CLIP) as Clip
-    expect(sortiesDuClip(àJour).mp4Url).toBeNull()
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    const toDay = getClip(getDb(), CLIP) as Clip
+    expect(clipOutputs(toDay).mp4Url).toBeNull()
   })
 })
 
@@ -759,7 +759,7 @@ describe("une marque remplacée pendant l'export", () => {
  */
 describe('le texte des sous-titres (#87)', () => {
   /** Les deux segments par défaut du clip de ce fichier, en transcript. */
-  const SEGMENT_DANS_LE_CLIP: SegmentDeTranscript = {
+  const SEGMENT_IN_CLIP: TranscriptSegment = {
     start: 100,
     end: 110,
     text: 'une vanne qui tient',
@@ -771,7 +771,7 @@ describe('le texte des sous-titres (#87)', () => {
     ],
   }
   /** Loin des deux segments du clip (`[100, 115.7]` et `[130, 140]`). */
-  const SEGMENT_HORS_DU_CLIP: SegmentDeTranscript = {
+  const CLIP_SEGMENT_HORS: TranscriptSegment = {
     start: 500,
     end: 510,
     text: 'un aparté sans rapport',
@@ -792,44 +792,44 @@ describe('le texte des sous-titres (#87)', () => {
    * annulable.
    */
   it('ne périme rien quand rien de textuel ne change — le cas nominal reste vrai', async () => {
-    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    writeTranscript([SEGMENT_IN_CLIP])
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
-    expect(avant).toBeTypeOf('string')
+    const before = lireFingerprint(paths.fingerprint)?.captionsContent
+    expect(before).toBeTypeOf('string')
 
     // Le transcript est réécrit à l'identique — une resynchronisation de
     // dossier, par exemple — avant le second passage.
-    écrireTranscript([SEGMENT_DANS_LE_CLIP])
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    writeTranscript([SEGMENT_IN_CLIP])
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBe(avant)
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBe(before)
   })
 
   /** Le point 2 : un mot dans un segment du clip. */
   it("périme le rendu quand un mot d'un segment du clip change", async () => {
-    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    writeTranscript([SEGMENT_IN_CLIP])
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+    const before = lireFingerprint(paths.fingerprint)?.captionsContent
 
-    écrireTranscript([
+    writeTranscript([
       {
-        ...SEGMENT_DANS_LE_CLIP,
-        words: SEGMENT_DANS_LE_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
+        ...SEGMENT_IN_CLIP,
+        words: SEGMENT_IN_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
       },
     ])
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).not.toBe(avant)
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).not.toBe(before)
   })
 
   /**
@@ -838,33 +838,33 @@ describe('le texte des sous-titres (#87)', () => {
    * `[500, 510]`, loin des deux segments du clip par défaut.
    */
   it("ne périme rien quand un mot change ailleurs dans l'émission, hors des segments du clip", async () => {
-    écrireTranscript([SEGMENT_DANS_LE_CLIP, SEGMENT_HORS_DU_CLIP])
+    writeTranscript([SEGMENT_IN_CLIP, CLIP_SEGMENT_HORS])
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+    const before = lireFingerprint(paths.fingerprint)?.captionsContent
     // **Sans elle, ce test passe à vide sous ablation.** `avant` et la relecture
     // valent tous deux `undefined` si `captionsContent` n'existe pas : l'égalité
     // ne prouve alors rien. C'est le seul des quatre à devoir le dire
     // explicitement, puisque c'est le seul dont l'assertion finale est une
     // non-égalité entre deux lectures plutôt qu'un type ou un changement.
-    expect(avant).toBeTypeOf('string')
+    expect(before).toBeTypeOf('string')
 
-    écrireTranscript([
-      SEGMENT_DANS_LE_CLIP,
+    writeTranscript([
+      SEGMENT_IN_CLIP,
       {
-        ...SEGMENT_HORS_DU_CLIP,
-        words: SEGMENT_HORS_DU_CLIP.words.map((m) =>
+        ...CLIP_SEGMENT_HORS,
+        words: CLIP_SEGMENT_HORS.words.map((m) =>
           m.word === 'aparté' ? { ...m, word: 'aparté-corrigé' } : m,
         ),
       },
     ])
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBe(avant)
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBe(before)
   })
 
   /**
@@ -873,24 +873,24 @@ describe('le texte des sous-titres (#87)', () => {
    * clip, qui périmerait un clip sous-titré.
    */
   it("garde une empreinte stable pour un clip sans sous-titres, quoi qu'il arrive au transcript", async () => {
-    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    writeTranscript([SEGMENT_IN_CLIP])
     putClip(getDb(), clip({ captions: false }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeNull()
 
-    écrireTranscript([
+    writeTranscript([
       {
-        ...SEGMENT_DANS_LE_CLIP,
-        words: SEGMENT_DANS_LE_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
+        ...SEGMENT_IN_CLIP,
+        words: SEGMENT_IN_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
       },
     ])
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeNull()
   })
 
   /**
@@ -907,21 +907,21 @@ describe('le texte des sous-titres (#87)', () => {
   it("ne boucle pas sur un clip sous-titré dont aucun mot ne tombe dans les segments", async () => {
     // Le transcript existe, mais loin des segments du clip par défaut
     // (`[100, 115.7]` et `[130, 140]`).
-    écrireTranscript([SEGMENT_HORS_DU_CLIP])
+    writeTranscript([CLIP_SEGMENT_HORS])
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const empreinte = lireEmpreinte(chemins.empreinte)
-    expect(empreinte?.captions).toBe(true)
-    expect(empreinte?.captionsLook).toBeNull()
-    expect(empreinte?.captionsContent).toBeNull()
+    const fingerprint = lireFingerprint(paths.fingerprint)
+    expect(fingerprint?.captions).toBe(true)
+    expect(fingerprint?.captionsLook).toBeNull()
+    expect(fingerprint?.captionsContent).toBeNull()
 
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(true)
-    expect(encodages).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
   })
 
   /**
@@ -933,21 +933,21 @@ describe('le texte des sous-titres (#87)', () => {
    * (relevé par Copilot)
    */
   it('périme le rendu quand le document passe de du texte à rien à incruster', async () => {
-    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    writeTranscript([SEGMENT_IN_CLIP])
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeTypeOf('string')
 
     // Plus aucun mot ne tombe dans les segments du clip : le document passe à
     // `null`, et ce n'est plus le même `null` qu'un clip sans sous-titres.
-    écrireTranscript([SEGMENT_HORS_DU_CLIP])
-    encodages = []
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    writeTranscript([CLIP_SEGMENT_HORS])
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(encodages).toContain(chemins.mp4)
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeNull()
   })
 
   /**
@@ -960,14 +960,14 @@ describe('le texte des sous-titres (#87)', () => {
    * pas » avant d'avoir seulement essayé.
    */
   it("utilise le repli du projet sans sonder le montage quand il y répond", async () => {
-    écrireTranscriptRepli([SEGMENT_DANS_LE_CLIP])
-    montageRéponds = false
+    writeTranscriptFallback([SEGMENT_IN_CLIP])
+    editingRespond = false
     putClip(getDb(), clip({ captions: true }))
-    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    const paths = pathsRender(ID, CLIP, '1:1')
 
-    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
-    expect(résultat.skipped).toBe(false)
-    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
+    expect(result.skipped).toBe(false)
+    expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeTypeOf('string')
   })
 })

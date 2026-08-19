@@ -3,7 +3,7 @@
  * texte, et qui n'ont donc rien à faire dans du code qui touche au disque.
  */
 
-const MOIS = [
+const MONTH = [
   'janvier',
   'février',
   'mars',
@@ -19,7 +19,7 @@ const MOIS = [
 ]
 
 /** `2025-06-15-cqlp` → `{ date: …, reste: 'cqlp' }`, ou `null` si pas de date. */
-const PRÉFIXE_DATE = /^(\d{4})-(\d{2})-(\d{2})[-_ ]?(.*)$/
+const PREFIX_DATE = /^(\d{4})-(\d{2})-(\d{2})[-_ ]?(.*)$/
 
 /**
  * Le titre affiché d'un projet, **dérivé du nom de fichier** (spec §12).
@@ -32,11 +32,11 @@ const PRÉFIXE_DATE = /^(\d{4})-(\d{2})-(\d{2})[-_ ]?(.*)$/
  * convention ressort tel quel plutôt que d'être deviné. Le renommage d'une
  * bibliothèque entière en charabia est précisément ce que la spec interdit ici.
  */
-export function titreProjet(id: string): string {
-  const m = PRÉFIXE_DATE.exec(id)
+export function titleProject(id: string): string {
+  const m = PREFIX_DATE.exec(id)
   if (m === null) return id
 
-  const [, année, mois, jour, reste] = m
+  const [, year, month, day, remaining] = m
   // **La date entière est vérifiée, pas seulement le mois.** Un `2026-02-31`
   // ressortait en « 31 février 2026 », c'est-à-dire en date affirmée sur un jour
   // qui n'existe pas — alors que la règle annoncée juste au-dessus est de rendre
@@ -44,16 +44,16 @@ export function titreProjet(id: string): string {
   // les mois courts et les années bissextiles sans table à tenir : une date
   // impossible se recale sur le mois suivant, donc ne se relit pas identique.
   // (relevé par Copilot)
-  const d = new Date(Date.UTC(Number(année), Number(mois) - 1, Number(jour)))
-  const valide =
-    d.getUTCFullYear() === Number(année) &&
-    d.getUTCMonth() === Number(mois) - 1 &&
-    d.getUTCDate() === Number(jour)
-  if (!valide) return id
+  const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  const valid =
+    d.getUTCFullYear() === Number(year) &&
+    d.getUTCMonth() === Number(month) - 1 &&
+    d.getUTCDate() === Number(day)
+  if (!valid) return id
 
-  const date = `${Number(jour)} ${MOIS[Number(mois) - 1]} ${année}`
-  const sujet = reste.replace(/[-_]+/g, ' ').trim()
-  return sujet === '' ? date : `${sujet} — ${date}`
+  const date = `${Number(day)} ${MONTH[Number(month) - 1]} ${year}`
+  const subject = remaining.replace(/[-_]+/g, ' ').trim()
+  return subject === '' ? date : `${subject} — ${date}`
 }
 
 /**
@@ -69,11 +69,11 @@ export function titreProjet(id: string): string {
  * La fraction rendue est celle des étapes **terminées** : entrer dans l'étape 2
  * prouve que la 1 est finie, pas que la 2 avance.
  */
-export function avancementWorker(ligne: string): number | null {
-  const m = /\[(\d+)\/(\d+)\]/.exec(ligne)
+export function progressWorker(line: string): number | null {
+  const m = /\[(\d+)\/(\d+)\]/.exec(line)
   if (m === null) return null
-  const fait = Number(m[1]) - 1
+  const done = Number(m[1]) - 1
   const total = Number(m[2])
-  if (!Number.isFinite(fait) || !Number.isFinite(total) || total <= 0) return null
-  return Math.min(1, Math.max(0, fait / total))
+  if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return null
+  return Math.min(1, Math.max(0, done / total))
 }

@@ -10,8 +10,8 @@ import {
   type Creation,
   type Entry,
 } from '@/components/sources/show-card'
-import { LigneMontage } from '@/components/sources/ligne-montage'
-import { pluriel } from '@/components/sources/textes'
+import { EditingLine } from '@/components/sources/editing-line'
+import { plural } from '@/components/sources/texts'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,7 +99,7 @@ export function LibraryGrid({
    */
   projects: readonly ProjectListItem[] | undefined
   /** L'état du montage qui porte les replays, ou `undefined` tant qu'on ne sait pas. */
-  mount: SourcesListing['montage'] | undefined
+  mount: SourcesListing['editing'] | undefined
   loading: boolean
   /** Le message **du serveur** pour `GET /api/sources`, ou `null`. */
   error: string | null
@@ -125,8 +125,8 @@ export function LibraryGrid({
     entries.length === 0
       ? null
       : [
-          pluriel(entries.length, 'émission', 'émissions'),
-          ...(counts.analyzed > 0 ? [pluriel(counts.analyzed, 'analysée', 'analysées')] : []),
+          plural(entries.length, 'émission', 'émissions'),
+          ...(counts.analyzed > 0 ? [plural(counts.analyzed, 'analysée', 'analysées')] : []),
         ].join(' · ')
 
   return (
@@ -218,8 +218,8 @@ export function LibraryGrid({
           existait : le partage pouvait être tombé, la bibliothèque montrait des
           cartes et se taisait sur la cause. Le vide du dossier, lui, reste un
           cas de grille — c'est là qu'il se lit. (relevé par Copilot) */}
-      {mount !== undefined && !mount.disponible && (
-        <LigneMontage montage={mount} onReessayer={onRetry} />
+      {mount !== undefined && !mount.available && (
+        <EditingLine editing={mount} onRetry={onRetry} />
       )}
 
       {!entriesKnown ? null : loading ? (
@@ -230,12 +230,12 @@ export function LibraryGrid({
             </li>
           ))}
         </ul>
-      ) : entries.length === 0 && mount !== undefined && mount.disponible ? (
+      ) : entries.length === 0 && mount !== undefined && mount.available ? (
         // Le vide de la bibliothèque **est** celui du dossier des replays : sans
         // fichier et sans projet, il n'y a rien à montrer et une seule question
         // à poser — le dossier a-t-il quelque chose dedans ? La cause vient du
         // serveur, qui seul sait ce qu'il a lu.
-        <LigneMontage montage={mount} onReessayer={onRetry} />
+        <EditingLine editing={mount} onRetry={onRetry} />
       ) : entries.length === 0 ? null : (
         <Tabs value={filter} onValueChange={(value) => setFilter(value as LibraryFilter)}>
           <div className="flex flex-wrap items-center justify-between gap-3">

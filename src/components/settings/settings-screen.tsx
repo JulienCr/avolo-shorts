@@ -2,7 +2,7 @@
 
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 
-import { AppBar } from '@/components/parcours/app-bar'
+import { AppBar } from '@/components/navigation/app-bar'
 import { AiSection } from '@/components/settings/ai-section'
 import { HookSection } from '@/components/settings/hook-section'
 import { SelectionSection } from '@/components/settings/selection-section'

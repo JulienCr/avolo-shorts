@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from 'react'
 
 import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
-import { LIBELLES_STATUT } from '@/lib/clip-status'
+import { LABELS_STATUS } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
-import { lienClip } from '@/lib/parcours'
+import { linkClip } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /**
@@ -70,7 +70,7 @@ export function ClipStrip({
                 </span>
               ) : (
                 <Link
-                  href={lienClip(clip.id)}
+                  href={linkClip(clip.id)}
                   className="block rounded-lg ring-1 ring-border transition-colors outline-none hover:ring-foreground/30 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {card}
@@ -158,7 +158,7 @@ function Thumbnail({
           clip.status === 'exported' ? 'text-stage' : 'text-muted-foreground',
         )}
       >
-        {LIBELLES_STATUT[clip.status]}
+        {LABELS_STATUS[clip.status]}
       </span>
     </span>
   )

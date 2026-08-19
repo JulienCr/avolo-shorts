@@ -40,7 +40,7 @@ import {
 import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
-export const cles = {
+export const keys = {
   projets: ['projets'] as const,
   projet: (projectId: string) => ['projet', projectId] as const,
   candidats: (projectId: string) => ['candidats', projectId] as const,
@@ -68,9 +68,9 @@ export const cles = {
   llmAvailability: ['llm-availability'] as const,
 }
 
-export function useProjets() {
+export function useProjects() {
   return useQuery({
-    queryKey: cles.projets,
+    queryKey: keys.projets,
     queryFn: listProjects,
     // **Le sondage de la bibliothèque**, et il ne coûte que ce qu'il rapporte :
     // tant qu'au moins une analyse tourne, on redemande la liste toutes les deux
@@ -88,11 +88,11 @@ export function useProjets() {
   })
 }
 
-export function useProjet(projectId: string, options: { enabled?: boolean } = {}) {
+export function useProject(projectId: string, options: { enabled?: boolean } = {}) {
   const client = useQueryClient()
 
-  const requête = useQuery({
-    queryKey: cles.projet(projectId),
+  const request = useQuery({
+    queryKey: keys.projet(projectId),
     queryFn: () => getProject(projectId),
     enabled: options.enabled ?? true,
     // L'analyse dure 30 à 45 minutes : tant qu'une exécution est en cours, on
@@ -117,25 +117,25 @@ export function useProjet(projectId: string, options: { enabled?: boolean } = {}
   // d'afficher l'ancien texte après la fin de WhisperX, et une correction
   // dessus échouerait en 409 sur une ancre déjà périmée. (relevé par Copilot
   // et par Aristarque)
-  const enCours = requête.data?.running != null
-  const tournait = useRef(false)
+  const inCurrent = request.data?.running != null
+  const wasRunning = useRef(false)
   useEffect(() => {
-    if (tournait.current && !enCours) {
-      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
-      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
+    if (wasRunning.current && !inCurrent) {
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
+      void client.invalidateQueries({ queryKey: keys.transcript(projectId) })
     }
-    tournait.current = enCours
-  }, [enCours, client, projectId])
+    wasRunning.current = inCurrent
+  }, [inCurrent, client, projectId])
 
-  return requête
+  return request
 }
 
-export function useCandidats(projectId: string) {
-  return useQuery({ queryKey: cles.candidats(projectId), queryFn: () => listCandidates(projectId) })
+export function useCandidates(projectId: string) {
+  return useQuery({ queryKey: keys.candidats(projectId), queryFn: () => listCandidates(projectId) })
 }
 
 export function useClip(clipId: string) {
-  return useQuery({ queryKey: cles.clip(clipId), queryFn: () => getClip(clipId) })
+  return useQuery({ queryKey: keys.clip(clipId), queryFn: () => getClip(clipId) })
 }
 
 type Variables = {
@@ -156,7 +156,7 @@ type Variables = {
  * écrans et tous les clips — la comparaison, elle, se fait par clip côté
  * serveur, et une horloge commune ne coûte rien.
  */
-let dernierJeton = 0
+let lastToken = 0
 
 /**
  * Le dernier jeton parti par clip, et les clips dont deux écritures se sont
@@ -171,8 +171,8 @@ let dernierJeton = 0
  * mais le cache pouvait s'arrêter sur le clip le plus ancien. (relevé par
  * Copilot)
  */
-const derniereÉcriture = new Map<string, number>()
-const clipsChevauchés = new Set<string>()
+const lastWrite = new Map<string, number>()
+const clipsOverlapping = new Set<string>()
 
 /**
  * Le numéro d'ordre du **geste**, à envoyer au serveur.
@@ -194,10 +194,10 @@ const clipsChevauchés = new Set<string>()
  * **À appeler dans la pile du geste lui-même**, c'est-à-dire avant le premier
  * point d'attente de `onMutate`. Voir la note qui accompagne son appel.
  */
-function jetonDuGeste(): number {
-  const maintenant = Date.now()
-  dernierJeton = maintenant > dernierJeton ? maintenant : dernierJeton + 1
-  return dernierJeton
+function gestureToken(): number {
+  const now = Date.now()
+  lastToken = now > lastToken ? now : lastToken + 1
+  return lastToken
 }
 
 /**
@@ -245,7 +245,7 @@ export function usePatchClip() {
    * `onMutate` et `onSettled` s'exécutent tous deux avant que TanStack ne sorte
    * la mutation de l'état `pending`.
    */
-  const enVol = (clipId: string): number =>
+  const inFlight = (clipId: string): number =>
     client.isMutating({
       predicate: (mutation) => (mutation.state.variables as Variables | undefined)?.clipId === clipId,
     })
@@ -269,16 +269,16 @@ export function usePatchClip() {
       // peut finir avant lui et prendre le plus petit numéro. Le vieux geste
       // passerait alors pour le plus récent, ce qui est exactement le défaut que
       // ce jeton existe pour fermer. (relevé par Codex)
-      const jeton = jetonDuGeste()
-      variables.seq = jeton
-      derniereÉcriture.set(clipId, jeton)
+      const token = gestureToken()
+      variables.seq = token
+      lastWrite.set(clipId, token)
       // Deux, parce que celle-ci y est déjà.
-      if (enVol(clipId) > 1) clipsChevauchés.add(clipId)
+      if (inFlight(clipId) > 1) clipsOverlapping.add(clipId)
 
       // Annuler les requêtes en vol : une réponse partie avant la modification
       // arriverait après elle et l'écraserait.
-      await client.cancelQueries({ queryKey: cles.candidats(projectId) })
-      await client.cancelQueries({ queryKey: cles.clip(clipId) })
+      await client.cancelQueries({ queryKey: keys.candidats(projectId) })
+      await client.cancelQueries({ queryKey: keys.clip(clipId) })
 
       // **L'instantané ne porte que le clip touché, pas la liste entière.**
       // Sur vingt-cinq cartes on en trie plusieurs par seconde, donc plusieurs
@@ -286,54 +286,54 @@ export function usePatchClip() {
       // restaurée telle quelle en cas d'échec, annulerait au passage les
       // décisions prises entre-temps sur les *autres* cartes — et qui, elles,
       // ont réussi.
-      const precedentCandidat = client
-        .getQueryData<CandidateClip[]>(cles.candidats(projectId))
+      const previousCandidate = client
+        .getQueryData<CandidateClip[]>(keys.candidats(projectId))
         ?.find((c) => c.id === clipId)
-      const precedentClip = client.getQueryData<ClipDetail>(cles.clip(clipId))?.clip
+      const previousClip = client.getQueryData<ClipDetail>(keys.clip(clipId))?.clip
 
-      client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
-        liste?.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
+      client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
+        list?.map((c) => (c.id === clipId ? { ...c, ...patch } : c)),
       )
-      client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
+      client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
         detail ? { ...detail, clip: { ...detail.clip, ...patch } } : detail,
       )
 
-      return { precedentCandidat, precedentClip, jeton: variables.seq }
+      return { previousCandidate, previousClip, jeton: variables.seq }
     },
 
-    onError(_erreur, { clipId, projectId }, contexte) {
+    onError(_error, { clipId, projectId }, context) {
       // Une écriture dépassée ne défait pas celle qui l'a suivie.
-      if (contexte?.jeton !== derniereÉcriture.get(clipId)) return
+      if (context?.jeton !== lastWrite.get(clipId)) return
 
       // Remettre ce clip-là comme il était, **dans le cache tel qu'il est
       // maintenant** — pas invalider : invalider laisserait l'écran dans son
       // état optimiste, donc faux, le temps du rechargement.
-      const precedentCandidat = contexte?.precedentCandidat
-      if (precedentCandidat) {
-        client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
-          liste?.map((c) => (c.id === clipId ? precedentCandidat : c)),
+      const previousCandidate = context?.precedentCandidat
+      if (previousCandidate) {
+        client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
+          list?.map((c) => (c.id === clipId ? previousCandidate : c)),
         )
       }
-      const precedentClip = contexte?.precedentClip
-      if (precedentClip) {
-        client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
-          detail ? { ...detail, clip: precedentClip } : detail,
+      const previousClip = context?.precedentClip
+      if (previousClip) {
+        client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
+          detail ? { ...detail, clip: previousClip } : detail,
         )
       }
     },
 
-    onSuccess({ clip, outputs, framing, seq }: PatchClipResult, { clipId, projectId }, contexte) {
+    onSuccess({ clip, outputs, framing, seq }: PatchClipResult, { clipId, projectId }, context) {
       // **Le plancher du serveur, avant tout le reste.** Nos jetons viennent de
       // l'horloge ; une horloge remise en arrière nous ferait produire des
       // numéros que le serveur a déjà dépassés, donc des écritures refusées
       // jusqu'à ce qu'elle rattrape. Une réponse suffit à se recaler, et ce
       // recalage vaut même pour une réponse qu'on s'apprête à ignorer.
       // (relevé par Copilot)
-      if (seq > dernierJeton) dernierJeton = seq
+      if (seq > lastToken) lastToken = seq
 
       // Idem à l'endroit : une réponse arrivée après celle d'une écriture plus
       // récente remettrait l'ancien état, sans erreur et sans trace.
-      if (contexte?.jeton !== derniereÉcriture.get(clipId)) return
+      if (context?.jeton !== lastWrite.get(clipId)) return
 
       // Le serveur normalise les segments (tâche 10, étape 2) : c'est sa version
       // qui fait foi, pas celle qu'on lui a envoyée. Là encore, on ne touche que
@@ -343,8 +343,8 @@ export function usePatchClip() {
       // rend le clip *gagnant* : l'adopter est exactement ce qu'il faut faire —
       // c'est l'état de la base, et c'est le seul chemin par lequel une écriture
       // venue d'un autre onglet revient à l'écran sans rechargement.
-      client.setQueryData<CandidateClip[]>(cles.candidats(projectId), (liste) =>
-        liste?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
+      client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
+        list?.map((c) => (c.id === clipId ? { ...c, ...clip } : c)),
       )
       // Les sorties viennent du serveur elles aussi : une écriture qui remonte
       // un clip exporté écarte ses MP4, et le cache ne doit pas garder l'URL
@@ -359,7 +359,7 @@ export function usePatchClip() {
       // nouveau. C'est exactement le mensonge que le champ existe pour fermer, et
       // le publier sans l'adopter le déplace d'un cran au lieu de le refermer.
       // (relevé par Codex)
-      client.setQueryData<ClipDetail>(cles.clip(clipId), (detail) =>
+      client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
         detail ? { ...detail, clip, outputs, framing } : detail,
       )
     },
@@ -376,13 +376,13 @@ export function usePatchClip() {
      * Le rollback de `onError`, lui, reste immédiat : une invalidation laisserait
      * l'écran dans son état optimiste, donc faux, le temps du rechargement.
      */
-    onSettled(_données, _erreur, { clipId, projectId }: Variables) {
-      if (!clipsChevauchés.has(clipId)) return
+    onSettled(_data, _error, { clipId, projectId }: Variables) {
+      if (!clipsOverlapping.has(clipId)) return
       // Une, parce que celle-ci y est encore.
-      if (enVol(clipId) > 1) return
-      clipsChevauchés.delete(clipId)
-      void client.invalidateQueries({ queryKey: cles.clip(clipId) })
-      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+      if (inFlight(clipId) > 1) return
+      clipsOverlapping.delete(clipId)
+      void client.invalidateQueries({ queryKey: keys.clip(clipId) })
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
     },
   })
 }
@@ -422,11 +422,11 @@ export function useExporter() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ clipId, force }: { clipId: string; force?: boolean }) =>
-      exportClip(clipId, force),
-    onSuccess(_resultat, { clipId }) {
-      void client.invalidateQueries({ queryKey: cles.clip(clipId) })
-      void client.invalidateQueries({ queryKey: cles.tousCandidats })
+    mutationFn: ({ clipId, forced }: { clipId: string; forced?: boolean }) =>
+      exportClip(clipId, forced),
+    onSuccess(_result, { clipId }) {
+      void client.invalidateQueries({ queryKey: keys.clip(clipId) })
+      void client.invalidateQueries({ queryKey: keys.tousCandidats })
     },
   })
 }
@@ -443,13 +443,13 @@ export function useExporter() {
  * sur la grille — est une décision de parcours, et un hook qui naviguerait
  * empêcherait d'en changer sans le réécrire.
  */
-export function useCreerProjet() {
+export function useCreateProject() {
   const client = useQueryClient()
 
   return useMutation({
     mutationFn: (source: string) => createProject(source),
     onSuccess() {
-      void client.invalidateQueries({ queryKey: cles.projets })
+      void client.invalidateQueries({ queryKey: keys.projets })
     },
   })
 }
@@ -484,33 +484,33 @@ export function useCreerProjet() {
  * un 409 : `ApiError` porte le code, et l'écran a de quoi dire « une exécution
  * tourne déjà » plutôt que « la relance a échoué ».
  */
-export function useRelancer() {
+export function useRetry() {
   const client = useQueryClient()
 
   return useMutation({
     mutationFn: ({
       projectId,
       targets,
-      force,
+      forced,
     }: {
       projectId: string
       targets: RunTarget | readonly RunTarget[]
-      force?: boolean | readonly RunTarget[]
-    }) => runProject(projectId, targets, force),
-    onSuccess(_plan, { projectId }) {
+      forced?: boolean | readonly RunTarget[]
+    }) => runProject(projectId, targets, forced),
+    onSuccess(_shot, { projectId }) {
       // **Les candidats, seulement au succès.** Une relance refusée n'a rien
       // lancé : la liste décrit toujours la même passe, et la recharger ferait
       // payer une requête pour un état identique.
-      void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+      void client.invalidateQueries({ queryKey: keys.candidats(projectId) })
     },
-    onSettled(_plan, _erreur, { projectId }) {
+    onSettled(_shot, _error, { projectId }) {
       // **L'état du projet, quoi qu'il arrive — et surtout quand ça échoue.**
       // Un 409 dit qu'une exécution tourne déjà : c'est exactement le moment où
       // l'écran doit aller la chercher. Invalider au seul succès laissait le
       // cache sur `running: null`, donc `useProjet` sans interrogation en boucle
       // — et l'écran promettait de suivre une exécution qu'il ne verrait jamais.
       // (relevé par Copilot)
-      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
+      void client.invalidateQueries({ queryKey: keys.projet(projectId) })
     },
   })
 }
@@ -524,7 +524,7 @@ export function useRelancer() {
  * que quand on le change.
  */
 export function useSettings() {
-  return useQuery({ queryKey: cles.settings, queryFn: fetchSettings })
+  return useQuery({ queryKey: keys.settings, queryFn: fetchSettings })
 }
 
 /**
@@ -550,7 +550,7 @@ export function useSaveSettings() {
   return useMutation({
     mutationFn: (patch: SettingsPatch) => saveSettings(patch),
     onSuccess(settings: Settings) {
-      client.setQueryData(cles.settings, settings)
+      client.setQueryData(keys.settings, settings)
     },
   })
 }
@@ -581,9 +581,9 @@ export function useStopAnalysis() {
 
   return useMutation({
     mutationFn: (projectId: string) => stopAnalysis(projectId),
-    onSettled(_resultat, _erreur, projectId) {
-      void client.invalidateQueries({ queryKey: cles.projet(projectId) })
-      void client.invalidateQueries({ queryKey: cles.projets })
+    onSettled(_result, _error, projectId) {
+      void client.invalidateQueries({ queryKey: keys.projet(projectId) })
+      void client.invalidateQueries({ queryKey: keys.projets })
     },
   })
 }
@@ -608,7 +608,7 @@ export function useStopAnalysis() {
  */
 export function useTranscript(projectId: string, options: { enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: cles.transcript(projectId),
+    queryKey: keys.transcript(projectId),
     queryFn: () => getTranscript(projectId),
     enabled: options.enabled ?? true,
   })
@@ -647,7 +647,7 @@ export function useCorrectTranscript() {
       correction: TranscriptCorrectionRequest
     }) => correctTranscript(projectId, correction),
     onSuccess({ line }, { projectId }) {
-      client.setQueryData(cles.transcript(projectId), (lines: TranscriptLine[] | undefined) =>
+      client.setQueryData(keys.transcript(projectId), (lines: TranscriptLine[] | undefined) =>
         lines
           ?.map((l) => (l.id === line.id ? line : l))
           .filter((l) => l.words.length > 0),
@@ -660,7 +660,7 @@ export function useCorrectTranscript() {
     // garantit pas un `GET`. Invalider force la relecture du texte
     // réellement sur le disque. (relevé par Copilot)
     onError(_error, { projectId }) {
-      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
+      void client.invalidateQueries({ queryKey: keys.transcript(projectId) })
     },
   })
 }
@@ -674,5 +674,5 @@ export function useCorrectTranscript() {
  * coûterait une requête pour un état qui ne change qu'à un redémarrage.
  */
 export function useLlmAvailability() {
-  return useQuery({ queryKey: cles.llmAvailability, queryFn: fetchLlmAvailability })
+  return useQuery({ queryKey: keys.llmAvailability, queryFn: fetchLlmAvailability })
 }

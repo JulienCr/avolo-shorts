@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estRéférence, exigerSecret, résoudreSecrets, type Environnement } from '@/server/secrets'
+import { estReference, requireSecret, resolveSecrets, type Environment } from '@/server/secrets'
 
 /**
  * Ce que ces tests figent tient en trois points, et le premier est le seul qui
@@ -17,88 +17,88 @@ import { estRéférence, exigerSecret, résoudreSecrets, type Environnement } fr
  */
 
 /** Un lecteur de secrets qui compte ses appels, et ne lance rien. */
-function lecteurFactice(table: Record<string, string>): {
-  lire: (référence: string) => Promise<string>
-  appels: string[]
+function playerFake(table: Record<string, string>): {
+  lire: (reference: string) => Promise<string>
+  calls: string[]
 } {
-  const appels: string[] = []
+  const calls: string[] = []
   return {
-    appels,
-    lire: (référence) => {
-      appels.push(référence)
-      const valeur = table[référence]
-      if (valeur === undefined) {
-        return Promise.reject(new Error(`could not read secret '${référence}': pas dans la table`))
+    calls,
+    lire: (reference) => {
+      calls.push(reference)
+      const value = table[reference]
+      if (value === undefined) {
+        return Promise.reject(new Error(`could not read secret '${reference}': pas dans la table`))
       }
-      return Promise.resolve(valeur)
+      return Promise.resolve(value)
     },
   }
 }
 
 /** Le message d'un rejet. Échoue franchement si la promesse aboutit. */
-async function messageDÉchec(promesse: Promise<unknown>): Promise<string> {
-  return promesse.then(
+async function messageDFailure(promise: Promise<unknown>): Promise<string> {
+  return promise.then(
     () => expect.unreachable('la résolution devait échouer'),
-    (erreur: unknown) => (erreur instanceof Error ? erreur.message : String(erreur)),
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
   )
 }
 
 describe('estRéférence', () => {
   it('reconnaît une adresse de secret', () => {
-    expect(estRéférence('op://Personal/Avolo-Shorts/GEMINI_API_KEY')).toBe(true)
+    expect(estReference('op://Personal/Avolo-Shorts/GEMINI_API_KEY')).toBe(true)
   })
 
   it("laisse passer ce qui n'en est pas une", () => {
     // Une valeur littérale reste une valeur littérale : `op://` est une
     // possibilité, pas une obligation.
-    for (const valeur of ['une-clé-littérale', '', 'https://exemple/op://', 'OP://MAJUSCULES']) {
-      expect(estRéférence(valeur)).toBe(false)
+    for (const value of ['une-clé-littérale', '', 'https://exemple/op://', 'OP://MAJUSCULES']) {
+      expect(estReference(value)).toBe(false)
     }
-    expect(estRéférence(undefined)).toBe(false)
+    expect(estReference(undefined)).toBe(false)
   })
 })
 
 describe('résoudreSecrets', () => {
   it("n'appelle jamais op quand aucune valeur n'est une référence", async () => {
-    const { lire, appels } = lecteurFactice({})
+    const { lire, calls } = playerFake({})
     const env = { GEMINI_API_KEY: 'une-clé-littérale', REPLAY_DIR: '/mnt/j/Replay' }
 
-    expect(await résoudreSecrets(env, lire)).toEqual([])
-    expect(appels).toEqual([])
+    expect(await resolveSecrets(env, lire)).toEqual([])
+    expect(calls).toEqual([])
     expect(env.GEMINI_API_KEY).toBe('une-clé-littérale')
     expect(env.REPLAY_DIR).toBe('/mnt/j/Replay')
   })
 
   it('remplace une référence par sa valeur, et rend le nom de la variable', async () => {
-    const { lire } = lecteurFactice({ 'op://Personal/Avolo-Shorts/GEMINI_API_KEY': 'la-vraie-clé' })
-    const env: Environnement = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
+    const { lire } = playerFake({ 'op://Personal/Avolo-Shorts/GEMINI_API_KEY': 'la-vraie-clé' })
+    const env: Environment = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
 
     // Ce que la fonction rend est une liste de **noms**. Les valeurs ne
     // ressortent que par `env`, jamais par un retour qu'on serait tenté de
     // journaliser.
-    expect(await résoudreSecrets(env, lire)).toEqual(['GEMINI_API_KEY'])
+    expect(await resolveSecrets(env, lire)).toEqual(['GEMINI_API_KEY'])
     expect(env.GEMINI_API_KEY).toBe('la-vraie-clé')
   })
 
   it('laisse intactes les variables voisines', async () => {
-    const { lire } = lecteurFactice({ 'op://c/f/GEMINI_API_KEY': 'la-vraie-clé' })
-    const env: Environnement = {
+    const { lire } = playerFake({ 'op://c/f/GEMINI_API_KEY': 'la-vraie-clé' })
+    const env: Environment = {
       GEMINI_API_KEY: 'op://c/f/GEMINI_API_KEY',
       GEMINI_MODEL: 'gemini-3.1-flash-lite',
       FFMPEG_ENCODER: 'auto',
     }
 
-    await résoudreSecrets(env, lire)
+    await resolveSecrets(env, lire)
     expect(env.GEMINI_MODEL).toBe('gemini-3.1-flash-lite')
     expect(env.FFMPEG_ENCODER).toBe('auto')
   })
 
   it('résout plusieurs variables, dans un ordre stable', async () => {
-    const { lire } = lecteurFactice({
+    const { lire } = playerFake({
       'op://c/f/GEMINI_API_KEY': 'clé-gemini',
       'op://c/f/OPENAI_API_KEY': 'clé-openai',
     })
-    const env: Environnement = {
+    const env: Environment = {
       OPENAI_API_KEY: 'op://c/f/OPENAI_API_KEY',
       GEMINI_API_KEY: 'op://c/f/GEMINI_API_KEY',
     }
@@ -106,7 +106,7 @@ describe('résoudreSecrets', () => {
     // Trié : c'est ce qui est journalisé au démarrage, et un journal dont
     // l'ordre dépend de l'ordre d'énumération de `process.env` se compare mal
     // d'un lancement à l'autre.
-    expect(await résoudreSecrets(env, lire)).toEqual(['GEMINI_API_KEY', 'OPENAI_API_KEY'])
+    expect(await resolveSecrets(env, lire)).toEqual(['GEMINI_API_KEY', 'OPENAI_API_KEY'])
     expect(env.GEMINI_API_KEY).toBe('clé-gemini')
     expect(env.OPENAI_API_KEY).toBe('clé-openai')
   })
@@ -115,20 +115,20 @@ describe('résoudreSecrets', () => {
     // Chaque `op read` est un aller-retour de 2,5 s, et potentiellement une
     // approbation biométrique. Deux variables qui pointent le même champ n'en
     // valent qu'une.
-    const { lire, appels } = lecteurFactice({ 'op://c/f/CLÉ': 'la-vraie-clé' })
-    const env: Environnement = { A_KEY: 'op://c/f/CLÉ', B_KEY: 'op://c/f/CLÉ' }
+    const { lire, calls } = playerFake({ 'op://c/f/CLÉ': 'la-vraie-clé' })
+    const env: Environment = { A_KEY: 'op://c/f/CLÉ', B_KEY: 'op://c/f/CLÉ' }
 
-    await résoudreSecrets(env, lire)
-    expect(appels).toEqual(['op://c/f/CLÉ'])
+    await resolveSecrets(env, lire)
+    expect(calls).toEqual(['op://c/f/CLÉ'])
     expect(env.A_KEY).toBe('la-vraie-clé')
     expect(env.B_KEY).toBe('la-vraie-clé')
   })
 
   it("échoue en nommant la variable et la référence", async () => {
-    const { lire } = lecteurFactice({})
-    const env: Environnement = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
+    const { lire } = playerFake({})
+    const env: Environment = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, lire))
+    const message = await messageDFailure(resolveSecrets(env, lire))
     expect(message).toContain('GEMINI_API_KEY')
     expect(message).toContain('op://Personal/Avolo-Shorts/GEMINI_API_KEY')
   })
@@ -140,37 +140,37 @@ describe('résoudreSecrets', () => {
           "Command failed: op read --no-newline op://c/f/CLÉ\n[ERROR] 2026/08/18 15:07:28 could not read secret 'op://c/f/CLÉ': item 'c/f' does not have a field 'CLÉ'\n",
         ),
       )
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
     // Le message de `op` dit exactement ce qui manque : on le garde. Son
     // préfixe `[ERROR] <date> <heure>`, lui, ne dit rien à personne, et son
     // `Command failed:` répète une commande qu'on cite déjà.
-    const message = await messageDÉchec(résoudreSecrets(env, lire))
+    const message = await messageDFailure(resolveSecrets(env, lire))
     expect(message).toContain('does not have a field')
     expect(message).not.toContain('[ERROR]')
     expect(message).not.toContain('Command failed')
   })
 
   it("nomme l'installation quand la commande op est introuvable", async () => {
-    const absent = Object.assign(new Error('spawn op ENOENT'), { code: 'ENOENT' })
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+    const missing = Object.assign(new Error('spawn op ENOENT'), { code: 'ENOENT' })
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(absent)))
+    const message = await messageDFailure(resolveSecrets(env, () => Promise.reject(missing)))
     expect(message).toContain('1Password CLI')
     // Et le second remède, celui qui n'a besoin de rien : une valeur littérale.
     expect(message).toMatch(/littérale/)
   })
 
   it('nomme le déverrouillage quand 1Password refuse la session', async () => {
-    const refus = new Error(
+    const rejection = new Error(
       'Command failed: op read op://c/f/CLÉ\n[ERROR] 2026/08/18 15:03:15 account is not signed in\n',
     )
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
     // Le remède n'est pas le même que pour une fiche renommée, et c'est tout
     // l'intérêt de distinguer les deux : ici il faut déverrouiller, là il faut
     // corriger le `.env`.
-    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(refus)))
+    const message = await messageDFailure(resolveSecrets(env, () => Promise.reject(rejection)))
     expect(message).toMatch(/déverrouill/i)
   })
 
@@ -178,9 +178,9 @@ describe('résoudreSecrets', () => {
     // Un champ vidé dans 1Password rendrait une chaîne vide, que
     // `clientParDéfaut` prendrait pour une variable absente — donc un message
     // qui accuse le `.env` alors que le `.env` est juste.
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.resolve('')))
+    const message = await messageDFailure(resolveSecrets(env, () => Promise.resolve('')))
     expect(message).toContain('GEMINI_API_KEY')
     expect(message).toMatch(/vide/)
   })
@@ -190,14 +190,14 @@ describe('résoudreSecrets', () => {
     // de 60 s, `stderr` est vide et le `message` se réduit au `Command failed:`
     // qu'on retire. Sans branche dédiée, le remède commençait par un point
     // isolé et n'accusait rien. (relevé par Copilot et par Aristarque)
-    const tué = Object.assign(new Error('Command failed: op read op://c/f/CLÉ'), {
+    const killed = Object.assign(new Error('Command failed: op read op://c/f/CLÉ'), {
       killed: true,
       signal: 'SIGTERM',
       stderr: '',
     })
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/CLÉ' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(tué)))
+    const message = await messageDFailure(resolveSecrets(env, () => Promise.reject(killed)))
     expect(message).toMatch(/60 s/)
     expect(message).toMatch(/approbation/)
     expect(message).not.toMatch(/\.\s+\./)
@@ -208,12 +208,12 @@ describe('résoudreSecrets', () => {
     // champ absent nommé `signin`, `unlock` ou `authorization` faisait répondre
     // « déverrouiller 1Password » à un `.env` qui nomme mal son champ.
     // (relevé par Copilot et par Aristarque)
-    const piège = new Error(
+    const trap = new Error(
       "[ERROR] 2026/08/18 15:07:28 could not read secret 'op://c/f/signin': item 'c/f' does not have a field 'signin'",
     )
-    const env: Environnement = { GEMINI_API_KEY: 'op://c/f/signin' }
+    const env: Environment = { GEMINI_API_KEY: 'op://c/f/signin' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, () => Promise.reject(piège)))
+    const message = await messageDFailure(resolveSecrets(env, () => Promise.reject(trap)))
     expect(message).not.toMatch(/déverrouill/i)
     expect(message).toContain('does not have a field')
   })
@@ -222,10 +222,10 @@ describe('résoudreSecrets', () => {
     // La propriété « tout ou rien » : un environnement à moitié résolu ferait
     // partir la variable suivante chez le fournisseur d'API alors que le
     // démarrage a déjà échoué. (relevé par Aristarque)
-    const { lire } = lecteurFactice({ 'op://c/f/BONNE': 'la-vraie-clé' })
-    const env: Environnement = { A_KEY: 'op://c/f/BONNE', B_KEY: 'op://c/f/ABSENTE' }
+    const { lire } = playerFake({ 'op://c/f/BONNE': 'la-vraie-clé' })
+    const env: Environment = { A_KEY: 'op://c/f/BONNE', B_KEY: 'op://c/f/ABSENTE' }
 
-    await messageDÉchec(résoudreSecrets(env, lire))
+    await messageDFailure(resolveSecrets(env, lire))
     expect(env.A_KEY).toBe('op://c/f/BONNE')
     expect(env.B_KEY).toBe('op://c/f/ABSENTE')
   })
@@ -234,11 +234,11 @@ describe('résoudreSecrets', () => {
     // Une `OP_BIN=op://…` demanderait à `op` de se lire lui-même : `execFile`
     // échouerait en ENOENT sur un binaire nommé `op://…`, donc sur « installer
     // 1Password CLI », qui accuse la mauvaise chose. (relevé par Aristarque)
-    const { lire, appels } = lecteurFactice({})
-    const env: Environnement = { OP_BIN: 'op://c/f/CHEMIN' }
+    const { lire, calls } = playerFake({})
+    const env: Environment = { OP_BIN: 'op://c/f/CHEMIN' }
 
-    expect(await résoudreSecrets(env, lire)).toEqual([])
-    expect(appels).toEqual([])
+    expect(await resolveSecrets(env, lire)).toEqual([])
+    expect(calls).toEqual([])
     expect(env.OP_BIN).toBe('op://c/f/CHEMIN')
   })
 
@@ -246,22 +246,22 @@ describe('résoudreSecrets', () => {
     // Deux variables, une qui résout et une qui échoue : le message ne doit
     // rien porter de la première. Les journaux de ce dépôt se recopient dans
     // des rapports.
-    const { lire } = lecteurFactice({ 'op://c/f/BONNE': 'valeur-très-secrète' })
-    const env: Environnement = { A_KEY: 'op://c/f/BONNE', B_KEY: 'op://c/f/ABSENTE' }
+    const { lire } = playerFake({ 'op://c/f/BONNE': 'valeur-très-secrète' })
+    const env: Environment = { A_KEY: 'op://c/f/BONNE', B_KEY: 'op://c/f/ABSENTE' }
 
-    const message = await messageDÉchec(résoudreSecrets(env, lire))
+    const message = await messageDFailure(resolveSecrets(env, lire))
     expect(message).not.toContain('valeur-très-secrète')
   })
 })
 
 describe('exigerSecret', () => {
   it('rend la valeur quand elle est là', () => {
-    expect(exigerSecret('GEMINI_API_KEY', { GEMINI_API_KEY: 'la-vraie-clé' })).toBe('la-vraie-clé')
+    expect(requireSecret('GEMINI_API_KEY', { GEMINI_API_KEY: 'la-vraie-clé' })).toBe('la-vraie-clé')
   })
 
   it('refuse une variable absente ou vide, en la nommant', () => {
-    expect(() => exigerSecret('GEMINI_API_KEY', {})).toThrow(/GEMINI_API_KEY/)
-    expect(() => exigerSecret('GEMINI_API_KEY', { GEMINI_API_KEY: '' })).toThrow(/GEMINI_API_KEY/)
+    expect(() => requireSecret('GEMINI_API_KEY', {})).toThrow(/GEMINI_API_KEY/)
+    expect(() => requireSecret('GEMINI_API_KEY', { GEMINI_API_KEY: '' })).toThrow(/GEMINI_API_KEY/)
   })
 
   it("refuse une adresse restée non résolue, plutôt que de l'envoyer comme clé", () => {
@@ -269,8 +269,8 @@ describe('exigerSecret', () => {
     // `register()` quand le `.env` change, et la variable repasse à `op://…`.
     // Sans ce contrôle, l'adresse partait chez le fournisseur d'API.
     // (relevé par Copilot)
-    const env: Environnement = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
-    expect(() => exigerSecret('GEMINI_API_KEY', env)).toThrow(/Relancer le serveur/)
+    const env: Environment = { GEMINI_API_KEY: 'op://Personal/Avolo-Shorts/GEMINI_API_KEY' }
+    expect(() => requireSecret('GEMINI_API_KEY', env)).toThrow(/Relancer le serveur/)
   })
 
   it("ne cite pas la référence, qui remonterait jusqu'au client HTTP", () => {
@@ -281,12 +281,12 @@ describe('exigerSecret', () => {
     // coffre et de la fiche sortiraient sur un dépôt public, pour n'apprendre
     // rien à un opérateur qui a son `.env` sous les yeux.
     // (relevé par Aristarque)
-    const env: Environnement = { GEMINI_API_KEY: 'op://CoffreSecret/FicheSecrète/CHAMP' }
+    const env: Environment = { GEMINI_API_KEY: 'op://CoffreSecret/FicheSecrète/CHAMP' }
     try {
-      exigerSecret('GEMINI_API_KEY', env)
+      requireSecret('GEMINI_API_KEY', env)
       expect.unreachable('exigerSecret devait lever')
-    } catch (erreur: unknown) {
-      const message = erreur instanceof Error ? erreur.message : String(erreur)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
       expect(message).not.toContain('CoffreSecret')
       expect(message).not.toContain('FicheSecrète')
       expect(message).not.toContain('CHAMP')

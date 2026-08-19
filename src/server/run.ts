@@ -3,11 +3,11 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import { planSteps, type StepName } from '@/core/graph'
+import { shotSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
-import { avancementWorker } from '@/core/pipeline'
+import { progressWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
-import { messageSûr } from '@/server/erreurs'
+import { messageSafe } from '@/server/errors'
 import {
   analysisPath,
   audioPath,
@@ -23,12 +23,12 @@ import {
 import { runAnalysis } from '@/server/steps/analysis'
 import { extractAudio } from '@/server/steps/audio'
 import {
-  dernierBilan,
-  oublierBilan,
+  lastSummary,
+  forgetSummary,
   runCandidates,
-  type BilanNotation,
+  type SummaryNotation,
 } from '@/server/steps/candidates'
-import { attendreOuRenoncer, cleanStage, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
+import { waitOrAbandon, cleanStage, DELAY_STAT_MS, ingest } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -66,16 +66,16 @@ import { transcribe } from '@/server/steps/transcript'
 export type Progression = { step: StepName; progress: number }
 
 /** Une exécution vivante, dans **ce** processus. */
-type Exécution = {
+type Execution = {
   projectId: string
-  cibles: StepName[]
-  plan: StepName[]
-  courante: Progression
+  targets: StepName[]
+  shot: StepName[]
+  current: Progression
   /** Où en est l'étape `candidates` **dans cette exécution**. Voir `bilanDeRepérage`. */
-  repérage: ÉtatRepérage
+  detection: StateDetection
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
-  dernièreÉcriture: number
-  terminée: Promise<void>
+  lastWrite: number
+  finished: Promise<void>
   /**
    * De quoi arrêter le travail en cours, **jusque dans les processus**.
    *
@@ -93,10 +93,10 @@ type Exécution = {
   controller: AbortController
 }
 
-const enCours = new Map<string, Exécution>()
+const inCurrent = new Map<string, Execution>()
 
 /** Levée quand une exécution tourne déjà sur ce projet. La route en fait un 409. */
-export class ExécutionEnCoursError extends Error {
+export class ExecutionInCurrentError extends Error {
   constructor(readonly projectId: string) {
     super(`Une exécution est déjà en cours sur ${projectId}.`)
     this.name = 'ExécutionEnCoursError'
@@ -104,7 +104,7 @@ export class ExécutionEnCoursError extends Error {
 }
 
 /** Levée quand le projet demandé n'est pas en base. La route en fait un 404. */
-export class ProjetInconnuError extends Error {
+export class ProjectInconnuError extends Error {
   constructor(readonly projectId: string) {
     super(`Projet inconnu : ${projectId}`)
     this.name = 'ProjetInconnuError'
@@ -122,15 +122,15 @@ export class ProjetInconnuError extends Error {
  * parce qu'un fichier porte un nom voisin serait pire que de le dire.
  * (relevé par Copilot)
  */
-export class CollisionDeProjetError extends Error {
+export class ProjectErrorCollision extends Error {
   constructor(
     readonly projectId: string,
-    readonly attendu: string,
-    readonly reçu: string,
+    readonly expected: string,
+    readonly received: string,
   ) {
     super(
-      `L'identifiant ${projectId} désigne déjà ${JSON.stringify(path.basename(attendu))}. ` +
-        `${JSON.stringify(path.basename(reçu))} lui donnerait le même projet : renommer l'un des deux fichiers.`,
+      `L'identifiant ${projectId} désigne déjà ${JSON.stringify(path.basename(expected))}. ` +
+        `${JSON.stringify(path.basename(received))} lui donnerait le même projet : renommer l'un des deux fichiers.`,
     )
     this.name = 'CollisionDeProjetError'
   }
@@ -138,8 +138,8 @@ export class CollisionDeProjetError extends Error {
 
 /** L'avancement en cours, ou `null` si rien ne tourne. */
 export function progression(projectId: string): Progression | null {
-  const exécution = enCours.get(projectId)
-  return exécution === undefined ? null : { ...exécution.courante }
+  const execution = inCurrent.get(projectId)
+  return execution === undefined ? null : { ...execution.current }
 }
 
 /**
@@ -162,18 +162,18 @@ export function progression(projectId: string): Progression | null {
  * première étape manquante — c'est le graphe, rien de plus.
  */
 export function stopRun(projectId: string): boolean {
-  const exécution = enCours.get(projectId)
-  if (exécution === undefined) return false
+  const execution = inCurrent.get(projectId)
+  if (execution === undefined) return false
   // Un second appel pendant que le premier finit de descendre : l'exécution est
   // toujours là, la demande est toujours vraie, et `abort()` deux fois n'a pas
   // d'effet supplémentaire.
-  if (!exécution.controller.signal.aborted) exécution.controller.abort()
+  if (!execution.controller.signal.aborted) execution.controller.abort()
   return true
 }
 
 /** Attend la fin de l'exécution d'un projet. Pour les scripts et les tests. */
-export async function attendre(projectId: string): Promise<void> {
-  await enCours.get(projectId)?.terminée
+export async function wait(projectId: string): Promise<void> {
+  await inCurrent.get(projectId)?.finished
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +198,8 @@ export async function attendre(projectId: string): Promise<void> {
  * jamais deux — et `montageVivant`, juste en dessous, ferme le cas où la sonde
  * ne revient pas du tout.
  */
-type EntréeSidecar = { valeur: string | null; expire: number; enVol?: Promise<string | null> }
-const sidecars = new Map<string, EntréeSidecar>()
+type EntrySidecar = { value: string | null; expire: number; inFlight?: Promise<string | null> }
+const sidecars = new Map<string, EntrySidecar>()
 
 /** Assez court pour qu'un transcript qui vient d'être écrit apparaisse presque tout de suite. */
 const TTL_SIDECAR_MS = 4_000
@@ -220,28 +220,28 @@ const TTL_SIDECAR_MS = 4_000
  * L'entrée disparaît quand la sonde se règle enfin — le montage remonte, ou le
  * noyau rend la main —, et la sonde suivante repart normalement.
  */
-const sondes = new Map<string, Promise<boolean>>()
+const probes = new Map<string, Promise<boolean>>()
 
 /**
  * Le montage répond-il ? Comme `montageRépond`, mais sans jamais laisser deux
  * sondes en vol sur le même chemin.
  */
-async function montageVivant(chemin: string): Promise<boolean> {
+async function editingVivant(path: string): Promise<boolean> {
   // Une sonde est déjà partie et n'est pas revenue : elle occupe déjà un fil, et
   // en lancer une seconde en occuperait un de plus sans rien apprendre de neuf.
-  if (sondes.has(chemin)) return false
+  if (probes.has(path)) return false
 
-  const sonde = fsp.stat(chemin).then(
+  const probe = fsp.stat(path).then(
     () => true,
     // Une erreur *est* une réponse : un `ENOENT` immédiat prouve que le système
     // de fichiers est vivant. Ce qu'on mesure ici est le silence, pas l'absence.
     () => true,
   )
-  sondes.set(chemin, sonde)
-  void sonde.finally(() => sondes.delete(chemin))
+  probes.set(path, probe)
+  void probe.finally(() => probes.delete(path))
 
   try {
-    return await attendreOuRenoncer(sonde, DÉLAI_STAT_MS, 'muet')
+    return await waitOrAbandon(probe, DELAY_STAT_MS, 'muet')
   } catch {
     return false
   }
@@ -263,17 +263,17 @@ async function montageVivant(chemin: string): Promise<boolean> {
  * Rend `null` quand il n'y a pas de transcript, ou quand le Drive ne répond pas
  * et qu'il n'y en a pas de copie locale.
  */
-export async function cheminTranscript(projet: Project): Promise<string | null> {
-  const clé = cléSidecar(projet)
-  const entrée = sidecars.get(clé)
-  if (entrée !== undefined) {
-    if (entrée.enVol !== undefined) return entrée.enVol
-    if (entrée.expire > Date.now()) return entrée.valeur
+export async function pathTranscript(project: Project): Promise<string | null> {
+  const key = keySidecar(project)
+  const entry = sidecars.get(key)
+  if (entry !== undefined) {
+    if (entry.inFlight !== undefined) return entry.inFlight
+    if (entry.expire > Date.now()) return entry.value
   }
 
-  const travail = chercherSidecar(projet, clé)
-  sidecars.set(clé, { valeur: null, expire: 0, enVol: travail })
-  return travail
+  const work = findSidecar(project, key)
+  sidecars.set(key, { value: null, expire: 0, inFlight: work })
+  return work
 }
 
 /**
@@ -283,34 +283,34 @@ export async function cheminTranscript(projet: Project): Promise<string | null> 
  * après un changement de l'un ou de l'autre. Le calcul est de la manipulation de
  * chemins, il ne touche pas au disque.
  */
-function cléSidecar(projet: Project): string {
-  return `${projectDir(projet.id)}\0${projet.sourcePath}`
+function keySidecar(project: Project): string {
+  return `${projectDir(project.id)}\0${project.sourcePath}`
 }
 
-async function chercherSidecar(projet: Project, clé: string): Promise<string | null> {
-  const retenir = (valeur: string | null, ttl: number): string | null => {
-    sidecars.set(clé, { valeur, expire: Date.now() + ttl })
-    return valeur
+async function findSidecar(project: Project, key: string): Promise<string | null> {
+  const keep = (value: string | null, ttl: number): string | null => {
+    sidecars.set(key, { value, expire: Date.now() + ttl })
+    return value
   }
 
-  const nomSidecar = path.basename(sidecarDir(projet.sourcePath))
-  const repli = path.join(projectDir(projet.id), nomSidecar, 'transcript.json')
-  if (fs.existsSync(repli)) return retenir(repli, TTL_SIDECAR_MS)
+  const nameSidecar = path.basename(sidecarDir(project.sourcePath))
+  const fallback = path.join(projectDir(project.id), nameSidecar, 'transcript.json')
+  if (fs.existsSync(fallback)) return keep(fallback, TTL_SIDECAR_MS)
 
   // **Sonder avant de toucher au Drive.** Monté avec son transport mort dessous,
   // il ne répond pas, et un `existsSync` synchrone gèle la boucle d'événements —
   // donc le serveur entier, pas seulement cette requête.
-  if (!(await montageVivant(projet.sourcePath))) return retenir(null, TTL_SIDECAR_MS)
-  const voulu = path.join(sidecarDir(projet.sourcePath), 'transcript.json')
-  return retenir(fs.existsSync(voulu) ? voulu : null, TTL_SIDECAR_MS)
+  if (!(await editingVivant(project.sourcePath))) return keep(null, TTL_SIDECAR_MS)
+  const desired = path.join(sidecarDir(project.sourcePath), 'transcript.json')
+  return keep(fs.existsSync(desired) ? desired : null, TTL_SIDECAR_MS)
 }
 
 /**
  * Oublie l'emplacement retenu. Appelé après la transcription : l'étape vient
  * précisément de créer le fichier dont on avait constaté l'absence.
  */
-export function oublierSidecar(projet: Project): void {
-  sidecars.delete(cléSidecar(projet))
+export function forgetSidecar(project: Project): void {
+  sidecars.delete(keySidecar(project))
 }
 
 /**
@@ -322,13 +322,13 @@ export function oublierSidecar(projet: Project): void {
  * dossier. Un `endsWith('.mp4')` nu annonçait donc `renders: true` pendant que
  * ffmpeg tournait encore, et après un processus tué. (relevé par Copilot)
  */
-const TEMPORAIRE = '.partiel-'
+const TEMPORARY = '.partiel-'
 
-function rendusPrésents(projectId: string): boolean {
+function rendersPresent(projectId: string): boolean {
   try {
     return fs
       .readdirSync(rendersDir(projectId))
-      .some((nom) => nom.endsWith('.mp4') && !nom.includes(TEMPORAIRE))
+      .some((name) => name.endsWith('.mp4') && !name.includes(TEMPORARY))
   } catch {
     return false
   }
@@ -340,14 +340,14 @@ function rendusPrésents(projectId: string): boolean {
  * **La présence du fichier, pas une clé de validité** (spec §4) : les versions
  * d'outil, les paramètres et l'empreinte des entrées sont l'itération 4.
  */
-export async function relevéPrésence(projet: Project): Promise<Record<StepName, boolean>> {
+export async function readingPresence(project: Project): Promise<Record<StepName, boolean>> {
   return {
-    proxy: fs.existsSync(proxyPath(projet.id)),
-    audio: fs.existsSync(audioPath(projet.id)),
-    transcript: (await cheminTranscript(projet)) !== null,
-    analysis: fs.existsSync(analysisPath(projet.id)),
-    candidates: fs.existsSync(candidatesPath(projet.id)),
-    renders: rendusPrésents(projet.id),
+    proxy: fs.existsSync(proxyPath(project.id)),
+    audio: fs.existsSync(audioPath(project.id)),
+    transcript: (await pathTranscript(project)) !== null,
+    analysis: fs.existsSync(analysisPath(project.id)),
+    candidates: fs.existsSync(candidatesPath(project.id)),
+    renders: rendersPresent(project.id),
   }
 }
 
@@ -372,11 +372,11 @@ export async function relevéPrésence(projet: Project): Promise<Record<StepName
  * ces lignes, donc si le `running` qu'elles portent a encore un sens. `error` est
  * la seule chose que ce fichier soit seul à savoir, une fois l'exécution finie.
  */
-export type Statut = {
+export type Status = {
   pid: number
   updatedAt: number
   targets: StepName[]
-  plan: StepName[]
+  shot: StepName[]
   running: Progression | null
   /** Le message d'échec, **déjà épuré** : ce fichier se recopie dans un rapport. */
   error: string | null
@@ -434,7 +434,7 @@ export type Statut = {
  * et **définitivement** si une étape ultérieure tombait, puisque l'échec reste
  * écrit. (relevé par Codex et Copilot)
  */
-export type ÉtatRepérage = 'absent' | 'en cours' | 'fait' | 'échoué'
+export type StateDetection = 'absent' | 'en cours' | 'fait' | 'échoué'
 
 /**
  * Ce qu'on publie d'une notation, à partir du bilan que le repérage a laissé
@@ -457,22 +457,22 @@ export type ÉtatRepérage = 'absent' | 'en cours' | 'fait' | 'échoué'
  *    identifiants ; l'écran compte, il ne localise pas. Les identifiants restent
  *    au journal, qui est l'endroit d'où l'on va relire le transcript.
  */
-export function bilanDeRepérage(
-  bilan: BilanNotation | null,
-  état: ÉtatRepérage,
+export function detectionSummary(
+  summary: SummaryNotation | null,
+  state: StateDetection,
 ): SelectionReport | null {
-  if (bilan === null || état === 'absent') return null
+  if (summary === null || state === 'absent') return null
   return {
-    windows: bilan.fenêtres,
-    scored: bilan.notées,
-    rejectedBatches: bilan.lotsRefusés,
-    answeredBatches: bilan.lotsRépondus,
-    coverage: bilan.couverture,
-    partial: état !== 'fait',
+    windows: summary.windows,
+    scored: summary.noted,
+    rejectedBatches: summary.batchesRejected,
+    answeredBatches: summary.batchesResponded,
+    coverage: summary.coverage,
+    partial: state !== 'fait',
   }
 }
 
-function cheminStatut(projectId: string): string {
+function pathStatus(projectId: string): string {
   return path.join(projectDir(projectId), 'status.json')
 }
 
@@ -484,27 +484,27 @@ function cheminStatut(projectId: string): string {
  * L'écriture ne fait jamais échouer une étape : perdre le suivi d'avancement est
  * ennuyeux, perdre une transcription de quarante minutes ne l'est pas.
  */
-function écrireStatut(
+function writeStatus(
   projectId: string,
-  statut: Omit<Statut, 'selectionReport'>,
-  repérage: ÉtatRepérage,
+  status: Omit<Status, 'selectionReport'>,
+  detection: StateDetection,
 ): void {
   try {
     // **Le bilan se déduit ici, pas au point d'appel.** Il y a cinq endroits qui
     // écrivent ce fichier — début d'étape, marque de temps, plan vide, succès,
     // échec — et un raccord posé dans quatre d'entre eux manquerait au cinquième
     // sans que rien ne le signale.
-    const complet: Statut = {
-      ...statut,
-      selectionReport: bilanDeRepérage(dernierBilan(projectId), repérage),
+    const complete: Status = {
+      ...status,
+      selectionReport: detectionSummary(lastSummary(projectId), detection),
     }
-    const fichier = cheminStatut(projectId)
-    fs.mkdirSync(path.dirname(fichier), { recursive: true })
-    const provisoire = `${fichier}.${process.pid}.tmp`
-    fs.writeFileSync(provisoire, `${JSON.stringify(complet, null, 2)}\n`, 'utf8')
-    fs.renameSync(provisoire, fichier)
+    const file = pathStatus(projectId)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const provisional = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(provisional, `${JSON.stringify(complete, null, 2)}\n`, 'utf8')
+    fs.renameSync(provisional, file)
   } catch (cause) {
-    console.warn(`status.json non écrit pour ${projectId} : ${messageSûr(cause)}`)
+    console.warn(`status.json non écrit pour ${projectId} : ${messageSafe(cause)}`)
   }
 }
 
@@ -552,14 +552,14 @@ function selectionReportFromJSON(raw: unknown): SelectionReport | null {
  * pourra partir** le jour où plus aucun `status.json` d'avant cette PR ne
  * traîne sur le disque — pas avant.
  */
-function statusFromJSON(raw: unknown): Statut {
+function statusFromJSON(raw: unknown): Status {
   const obj = { ...(raw as Record<string, unknown>) }
   const targets = ('targets' in obj ? obj.targets : obj.cibles) as StepName[]
   const rawSelectionReport = 'selectionReport' in obj ? obj.selectionReport : obj.repérage
   delete obj.cibles
   delete obj.repérage
   return {
-    ...(obj as unknown as Statut),
+    ...(obj as unknown as Status),
     targets,
     selectionReport: selectionReportFromJSON(rawSelectionReport),
   }
@@ -570,9 +570,9 @@ function statusFromJSON(raw: unknown): Statut {
  *
  * Lu par `GET /api/projects/:id` pour le seul champ `error` — voir `Statut`.
  */
-export function lireStatut(projectId: string): Statut | null {
+export function lireStatus(projectId: string): Status | null {
   try {
-    const raw: unknown = JSON.parse(fs.readFileSync(cheminStatut(projectId), 'utf8'))
+    const raw: unknown = JSON.parse(fs.readFileSync(pathStatus(projectId), 'utf8'))
     return statusFromJSON(raw)
   } catch {
     return null
@@ -580,25 +580,25 @@ export function lireStatut(projectId: string): Statut | null {
 }
 
 /** À chaque marque de temps de ffmpeg, mais pas plus d'une fois par seconde. */
-const PÉRIODE_ÉCRITURE_MS = 1_000
+const PERIOD_WRITE_MS = 1_000
 
-function publier(exécution: Exécution, changementDÉtape: boolean): void {
-  const maintenant = Date.now()
-  if (!changementDÉtape && maintenant - exécution.dernièreÉcriture < PÉRIODE_ÉCRITURE_MS) return
-  exécution.dernièreÉcriture = maintenant
-  écrireStatut(
-    exécution.projectId,
+function publish(execution: Execution, changeDStep: boolean): void {
+  const now = Date.now()
+  if (!changeDStep && now - execution.lastWrite < PERIOD_WRITE_MS) return
+  execution.lastWrite = now
+  writeStatus(
+    execution.projectId,
     {
       pid: process.pid,
-      updatedAt: maintenant,
-      targets: exécution.cibles,
-      plan: exécution.plan,
-      running: { ...exécution.courante },
+      updatedAt: now,
+      targets: execution.targets,
+      shot: execution.shot,
+      running: { ...execution.current },
       error: null,
       finishedAt: null,
       stopped: false,
     },
-    exécution.repérage,
+    execution.detection,
   )
 }
 
@@ -607,7 +607,7 @@ function publier(exécution: Exécution, changementDÉtape: boolean): void {
 // ---------------------------------------------------------------------------
 
 /** Les étapes, injectables : c'est par là que les tests entrent. */
-export type Étapes = {
+export type Steps = {
   ingest: typeof ingest
   buildProxy: typeof buildProxy
   extractAudio: typeof extractAudio
@@ -616,13 +616,13 @@ export type Étapes = {
   runCandidates: typeof runCandidates
 }
 
-const ÉTAPES: Étapes = { ingest, buildProxy, extractAudio, transcribe, runAnalysis, runCandidates }
+const STEPS: Steps = { ingest, buildProxy, extractAudio, transcribe, runAnalysis, runCandidates }
 
-export type OptionsLancement = {
+export type OptionsLaunch = {
   /** Les étapes à refaire même si leur artefact est là. `true` vaut « la cible ». */
-  force?: readonly StepName[] | boolean
+  forced?: readonly StepName[] | boolean
   db?: Database.Database
-  étapes?: Partial<Étapes>
+  steps?: Partial<Steps>
 }
 
 /**
@@ -633,8 +633,8 @@ export type OptionsLancement = {
  * fabriquer, et prétendre le contraire ferait une exécution qui s'arrête sans
  * rien produire.
  */
-export const CIBLES_LANÇABLES = ['proxy', 'audio', 'transcript', 'analysis', 'candidates'] as const
-export type CibleLançable = (typeof CIBLES_LANÇABLES)[number]
+export const TARGETS_LAUNCHABLE = ['proxy', 'audio', 'transcript', 'analysis', 'candidates'] as const
+export type TargetLaunchable = (typeof TARGETS_LAUNCHABLE)[number]
 
 /**
  * Le plan de plusieurs cibles, dans l'ordre d'exécution et sans doublon.
@@ -648,18 +648,18 @@ export type CibleLançable = (typeof CIBLES_LANÇABLES)[number]
  * Ce n'est pas une réécriture du graphe : chaque cible passe par `planSteps`, et
  * on ne fait que concaténer sans répéter ce qui est déjà planifié.
  */
-export function planPourCibles(
-  cibles: readonly StepName[],
-  présence: Record<StepName, boolean>,
-  force: readonly StepName[],
+export function shotForTargets(
+  targets: readonly StepName[],
+  presence: Record<StepName, boolean>,
+  forced: readonly StepName[],
 ): StepName[] {
-  const plan: StepName[] = []
-  for (const cible of cibles) {
-    for (const étape of planSteps(cible, présence, force)) {
-      if (!plan.includes(étape)) plan.push(étape)
+  const shot: StepName[] = []
+  for (const target of targets) {
+    for (const step of shotSteps(target, presence, forced)) {
+      if (!shot.includes(step)) shot.push(step)
     }
   }
-  return plan
+  return shot
 }
 
 /**
@@ -671,49 +671,49 @@ export function planPourCibles(
  * démontre le graphe : demander `candidates` sur un projet transcrit doit rendre
  * `["candidates"]`, et rien de plus.
  */
-export async function lancer(
+export async function launch(
   projectId: string,
-  cibles: readonly StepName[],
-  options: OptionsLancement = {},
-): Promise<{ projectId: string; plan: StepName[] }> {
+  targets: readonly StepName[],
+  options: OptionsLaunch = {},
+): Promise<{ projectId: string; shot: StepName[] }> {
   // **Rien d'asynchrone au-dessus de cette ligne.** La réservation ferme la
   // course entre deux requêtes simultanées, et elle ne la ferme que si aucun
   // point d'attente ne s'intercale entre le contrôle et la pose.
-  if (enCours.has(projectId)) throw new ExécutionEnCoursError(projectId)
-  const exécution: Exécution = {
+  if (inCurrent.has(projectId)) throw new ExecutionInCurrentError(projectId)
+  const execution: Execution = {
     projectId,
-    cibles: [...cibles],
-    plan: [],
-    courante: { step: cibles[0] ?? 'candidates', progress: 0 },
-    repérage: 'absent',
-    dernièreÉcriture: 0,
-    terminée: Promise.resolve(),
+    targets: [...targets],
+    shot: [],
+    current: { step: targets[0] ?? 'candidates', progress: 0 },
+    detection: 'absent',
+    lastWrite: 0,
+    finished: Promise.resolve(),
     controller: new AbortController(),
   }
-  enCours.set(projectId, exécution)
+  inCurrent.set(projectId, execution)
 
   try {
     const db = options.db ?? getDb()
-    const projet = getProject(db, projectId)
-    if (projet === undefined) throw new ProjetInconnuError(projectId)
+    const project = getProject(db, projectId)
+    if (project === undefined) throw new ProjectInconnuError(projectId)
 
-    const force =
-      options.force === true
-        ? [...cibles]
-        : options.force === false || options.force === undefined
+    const forced =
+      options.forced === true
+        ? [...targets]
+        : options.forced === false || options.forced === undefined
           ? []
-          : [...options.force]
+          : [...options.forced]
 
-    const présence = await relevéPrésence(projet)
-    exécution.plan = planPourCibles(cibles, présence, force)
+    const presence = await readingPresence(project)
+    execution.shot = shotForTargets(targets, presence, forced)
     // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
     // exécution qui vise `candidates` peut passer une demi-heure dans la
     // transcription avant d'y arriver, et `status.json` publierait pendant tout
     // ce temps le décompte de la passe précédente comme s'il décrivait celle-ci.
     // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
     // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
-    if (exécution.plan.includes('candidates')) oublierBilan(projectId)
-    exécution.courante = { step: exécution.plan[0] ?? cibles[0] ?? 'candidates', progress: 0 }
+    if (execution.shot.includes('candidates')) forgetSummary(projectId)
+    execution.current = { step: execution.shot[0] ?? targets[0] ?? 'candidates', progress: 0 }
 
     // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
     // artefacts sont déjà sur le disque mais dont la ligne en base est neuve —
@@ -722,19 +722,19 @@ export async function lancer(
     // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
     // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
     // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    const doitIngérer = ingestionNécessaire(projet, exécution.plan)
+    const doitIngest = ingestionNecessary(project, execution.shot)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
     // suivre et rien à verrouiller.
-    if (exécution.plan.length === 0 && !doitIngérer) {
-      enCours.delete(projectId)
-      écrireStatut(
+    if (execution.shot.length === 0 && !doitIngest) {
+      inCurrent.delete(projectId)
+      writeStatus(
         projectId,
         {
           pid: process.pid,
           updatedAt: Date.now(),
-          targets: [...cibles],
-          plan: [],
+          targets: [...targets],
+          shot: [],
           running: null,
           error: null,
           finishedAt: Date.now(),
@@ -742,12 +742,12 @@ export async function lancer(
         },
         'absent',
       )
-      return { projectId, plan: [] }
+      return { projectId, shot: [] }
     }
 
-    publier(exécution, true)
-    exécution.terminée = exécuter(exécution, projet, db, options, doitIngérer).finally(() => {
-      enCours.delete(projectId)
+    publish(execution, true)
+    execution.finished = execute(execution, project, db, options, doitIngest).finally(() => {
+      inCurrent.delete(projectId)
       // **Le nettoyage du cache de travail, après traitement** (retour d'usage
       // §5). Best effort et sans attente : il ne fait pas partie de
       // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
@@ -757,11 +757,11 @@ export async function lancer(
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
-    exécution.terminée.catch(() => {})
+    execution.finished.catch(() => {})
 
-    return { projectId, plan: [...exécution.plan] }
+    return { projectId, shot: [...execution.shot] }
   } catch (cause) {
-    enCours.delete(projectId)
+    inCurrent.delete(projectId)
     throw cause
   }
 }
@@ -808,13 +808,13 @@ function copiesInUse(db?: Database.Database): string[] | null {
   // le cas du nettoyage de démarrage, et il vaut mieux qu'une optimisation :
   // sans lui, `getDb()` ouvrirait SQLite pendant l'amorçage du serveur, pour
   // une liste dont on sait déjà qu'elle est vide.
-  if (enCours.size === 0) return []
+  if (inCurrent.size === 0) return []
   const paths: string[] = []
   try {
     const base = db ?? getDb()
-    for (const id of enCours.keys()) {
-      const copie = getProject(base, id)?.stagedPath
-      if (copie != null) paths.push(copie)
+    for (const id of inCurrent.keys()) {
+      const copy = getProject(base, id)?.stagedPath
+      if (copy != null) paths.push(copy)
     }
   } catch {
     return null
@@ -835,27 +835,27 @@ function copiesInUse(db?: Database.Database): string[] | null {
  * pas au Drive du tout**, ce qui est exactement ce qu'on veut d'un montage lent
  * qui décroche.
  */
-function ingestionNécessaire(projet: Project, plan: readonly StepName[]): boolean {
-  const besoinDeLaCopie = plan.includes('proxy') || plan.includes('audio')
-  const copieLà = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
-  return (besoinDeLaCopie && !copieLà) || projet.durationSec === null
+function ingestionNecessary(project: Project, shot: readonly StepName[]): boolean {
+  const copyNeed = shot.includes('proxy') || shot.includes('audio')
+  const copy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
+  return (copyNeed && !copy) || project.durationSec === null
 }
 
-async function exécuter(
-  exécution: Exécution,
-  projetInitial: Project,
+async function execute(
+  execution: Execution,
+  projectInitial: Project,
   db: Database.Database,
-  options: OptionsLancement,
-  doitIngérer: boolean,
+  options: OptionsLaunch,
+  doitIngest: boolean,
 ): Promise<void> {
-  const étapes = { ...ÉTAPES, ...options.étapes }
-  const { projectId } = exécution
-  let projet = projetInitial
+  const steps = { ...STEPS, ...options.steps }
+  const { projectId } = execution
+  let project = projectInitial
 
-  const avancer = (fraction: number | null): void => {
+  const advance = (fraction: number | null): void => {
     if (fraction === null) return
-    exécution.courante.progress = Math.min(1, Math.max(0, fraction))
-    publier(exécution, false)
+    execution.current.progress = Math.min(1, Math.max(0, fraction))
+    publish(execution, false)
   }
 
   /**
@@ -868,11 +868,11 @@ async function exécuter(
    * d'état, il y en a une trentaine sur une passe entière, et l'écran qui
    * interroge toutes les deux secondes doit pouvoir le voir monter.
    */
-  const signalerLeBilan = (): void => {
-    publier(exécution, true)
+  const flagSummary = (): void => {
+    publish(execution, true)
   }
 
-  const signal = exécution.controller.signal
+  const signal = execution.controller.signal
 
   /**
    * Le `status.json` d'une exécution qu'on a arrêtée.
@@ -885,61 +885,61 @@ async function exécuter(
    * propose de reprendre.
    */
   const writeStoppedStatus = (): void => {
-    écrireStatut(
+    writeStatus(
       projectId,
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        targets: exécution.cibles,
-        plan: exécution.plan,
+        targets: execution.targets,
+        shot: execution.shot,
         running: null,
         error: null,
         finishedAt: Date.now(),
         stopped: true,
       },
-      exécution.repérage,
+      execution.detection,
     )
-    console.log(`[${projectId}] arrêté sur ${exécution.courante.step}.`)
+    console.log(`[${projectId}] arrêté sur ${execution.current.step}.`)
   }
 
   try {
-    if (doitIngérer) {
+    if (doitIngest) {
       // L'ingestion n'est pas une étape du graphe — la source est là ou le
       // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
       // celui de la première étape à faire, dont la progression est bien à zéro
       // tant que la copie n'est pas finie.
-      const ingestion = await étapes.ingest(projet.sourcePath, {
+      const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
-        onProgress: (a) => avancer(a.fraction),
+        onProgress: (a) => advance(a.fraction),
       })
-      const relu = getProject(db, projectId)
-      if (relu !== undefined) projet = relu
-      else projet = { ...projet, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
+      const reread = getProject(db, projectId)
+      if (reread !== undefined) project = reread
+      else project = { ...project, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
     }
 
-    for (const étape of exécution.plan) {
+    for (const step of execution.shot) {
       // **Le contrôle est à l'entrée de chaque étape, pas seulement dans les
       // processus.** Un arrêt demandé pendant la transcription doit couper le
       // worker *et* empêcher les six minutes de proxy qui la suivent de partir.
       if (signal.aborted) break
-      exécution.courante = { step: étape, progress: 0 }
+      execution.current = { step: step, progress: 0 }
       // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
       // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
       // `ÉtatRepérage`.
-      if (étape === 'candidates') exécution.repérage = 'en cours'
-      publier(exécution, true)
-      console.log(`[${projectId}] ${étape}…`)
+      if (step === 'candidates') execution.detection = 'en cours'
+      publish(execution, true)
+      console.log(`[${projectId}] ${step}…`)
       try {
-        await exécuterÉtape(étape, projet, db, étapes, avancer, signalerLeBilan, signal)
+        await executeStep(step, project, db, steps, advance, flagSummary, signal)
       } catch (cause) {
         // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
         // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
         // l'autre une décision, et le code se relit.
-        if (étape === 'candidates') exécution.repérage = signal.aborted ? 'en cours' : 'échoué'
+        if (step === 'candidates') execution.detection = signal.aborted ? 'en cours' : 'échoué'
         throw cause
       }
-      if (étape === 'candidates') exécution.repérage = 'fait'
+      if (step === 'candidates') execution.detection = 'fait'
     }
 
     // L'arrêt tombé entre deux étapes, ou pendant la dernière : la boucle est
@@ -949,21 +949,21 @@ async function exécuter(
       return
     }
 
-    écrireStatut(
+    writeStatus(
       projectId,
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        targets: exécution.cibles,
-        plan: exécution.plan,
+        targets: execution.targets,
+        shot: execution.shot,
         running: null,
         error: null,
         finishedAt: Date.now(),
         stopped: false,
       },
-      exécution.repérage,
+      execution.detection,
     )
-    console.log(`[${projectId}] terminé : ${exécution.plan.join(' → ')}`)
+    console.log(`[${projectId}] terminé : ${execution.shot.join(' → ')}`)
   } catch (cause) {
     // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
     // l'étape, elle vaut `StopRequestedError`, une `AbortError` de `pipeline` ou
@@ -980,20 +980,20 @@ async function exécuter(
     // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
     // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
     // qu'on recopie dans un rapport ou qu'une route finirait par servir.
-    console.error(`[${projectId}] échec sur ${exécution.courante.step} :`, cause)
-    écrireStatut(
+    console.error(`[${projectId}] échec sur ${execution.current.step} :`, cause)
+    writeStatus(
       projectId,
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        targets: exécution.cibles,
-        plan: exécution.plan,
+        targets: execution.targets,
+        shot: execution.shot,
         running: null,
-        error: messageSûr(cause),
+        error: messageSafe(cause),
         finishedAt: Date.now(),
         stopped: false,
       },
-      exécution.repérage,
+      execution.detection,
     )
     throw cause
   }
@@ -1008,51 +1008,51 @@ async function exécuter(
  * ferait deux autorités sur la même question, et la seule façon de les
  * départager serait de relire le disque entre les deux.
  */
-async function exécuterÉtape(
-  étape: StepName,
-  projet: Project,
+async function executeStep(
+  step: StepName,
+  project: Project,
   db: Database.Database,
-  étapes: Étapes,
-  avancer: (fraction: number | null) => void,
-  signalerLeBilan: () => void,
+  steps: Steps,
+  advance: (fraction: number | null) => void,
+  flagSummary: () => void,
   signal: AbortSignal,
 ): Promise<void> {
-  switch (étape) {
+  switch (step) {
     case 'proxy':
     case 'audio': {
-      if (projet.stagedPath === null) {
+      if (project.stagedPath === null) {
         throw new Error(
-          `Le projet ${projet.id} n'a pas de copie de travail : l'ingestion doit passer avant ${étape}.`,
+          `Le projet ${project.id} n'a pas de copie de travail : l'ingestion doit passer avant ${step}.`,
         )
       }
-      const commun = {
-        projectId: projet.id,
-        input: projet.stagedPath,
-        durationSec: projet.durationSec,
+      const common = {
+        projectId: project.id,
+        input: project.stagedPath,
+        durationSec: project.durationSec,
         force: true,
         signal,
-        onProgress: (a: { fraction: number | null }) => avancer(a.fraction),
+        onProgress: (a: { fraction: number | null }) => advance(a.fraction),
       }
-      await (étape === 'proxy' ? étapes.buildProxy(commun) : étapes.extractAudio(commun))
+      await (step === 'proxy' ? steps.buildProxy(common) : steps.extractAudio(common))
       return
     }
 
     case 'transcript': {
-      await étapes.transcribe({
-        source: projet.sourcePath,
-        projectId: projet.id,
-        audio: audioPath(projet.id),
-        force: true,
+      await steps.transcribe({
+        source: project.sourcePath,
+        projectId: project.id,
+        audio: audioPath(project.id),
+        forced: true,
         signal,
-        onLog: (ligne) => {
-          console.log(`[${projet.id}] worker | ${ligne}`)
-          avancer(avancementWorker(ligne))
+        onLog: (line) => {
+          console.log(`[${project.id}] worker | ${line}`)
+          advance(progressWorker(line))
         },
       })
       // L'emplacement retenu disait « pas de transcript », et c'était vrai il y
       // a quarante minutes. Sans cet oubli, l'étape suivante consulterait une
       // absence que l'étape qui vient de finir a précisément levée.
-      oublierSidecar(projet)
+      forgetSidecar(project)
       return
     }
 
@@ -1070,25 +1070,25 @@ async function exécuterÉtape(
       // elle reste bornée — on lit un en-tête, pas la vidéo —, ce qui justifie
       // de ne pas repayer cinq minutes de recopie ; ce qui ne se justifie pas,
       // c'est de le taire.
-      const hasLocalCopy = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
+      const hasLocalCopy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
       if (!hasLocalCopy) {
         console.warn(
-          `[${projet.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
+          `[${project.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
             'relevées sur l’original — c’est-à-dire sur le montage 9p. Un ffprobe d’en-tête le ' +
             'supporte ; une étape qui lirait la vidéo entière, non. Viser proxy ou audio ' +
             'reconstitue la copie.',
         )
       }
       const source =
-        hasLocalCopy && projet.stagedPath !== null ? projet.stagedPath : projet.sourcePath
-      await étapes.runAnalysis({
-        projectId: projet.id,
+        hasLocalCopy && project.stagedPath !== null ? project.stagedPath : project.sourcePath
+      await steps.runAnalysis({
+        projectId: project.id,
         source,
-        force: true,
+        forced: true,
         signal,
-        onLog: (ligne) => {
-          console.log(`[${projet.id}] detect | ${ligne}`)
-          avancer(avancementWorker(ligne))
+        onLog: (line) => {
+          console.log(`[${project.id}] detect | ${line}`)
+          advance(progressWorker(line))
         },
       })
       return
@@ -1099,7 +1099,7 @@ async function exécuterÉtape(
       // Sans lui, `status.json` ne le porte qu'une fois l'étape finie, et l'écran
       // affiche « rien à signaler » pendant les trente secondes où la perte se
       // constitue. (relevé par Codex et Copilot)
-      await étapes.runCandidates(projet.id, { db, signal, onBilan: signalerLeBilan })
+      await steps.runCandidates(project.id, { db, signal, onSummary: flagSummary })
       return
     }
 
@@ -1126,7 +1126,7 @@ async function exécuterÉtape(
  * calculer. Elle coûte trois minutes sur une chaîne qui en dure quarante, et son
  * unique dépendance — le proxy — est déjà visée.
  */
-export const CIBLES_INITIALES: StepName[] = ['candidates', 'proxy', 'analysis']
+export const TARGETS_INITIAL: StepName[] = ['candidates', 'proxy', 'analysis']
 
 /**
  * Inscrit un projet et lance son analyse.
@@ -1137,10 +1137,10 @@ export const CIBLES_INITIALES: StepName[] = ['candidates', 'proxy', 'analysis']
  * rien à interroger. Les champs que l'ingestion relève — durée, taille, date —
  * arrivent ensuite ; `upsertProject` les met à jour sans toucher à `createdAt`.
  */
-export async function créerProjet(
+export async function createProject(
   source: string,
-  options: OptionsLancement = {},
-): Promise<{ projectId: string; plan: StepName[] }> {
+  options: OptionsLaunch = {},
+): Promise<{ projectId: string; shot: StepName[] }> {
   const sourcePath = resolveSource(source)
   const projectId = projectIdFromSource(source)
   const db = options.db ?? getDb()
@@ -1148,7 +1148,7 @@ export async function créerProjet(
   const existant = getProject(db, projectId)
   // Un identifiant, une source. Voir `CollisionDeProjetError`.
   if (existant !== undefined && existant.sourcePath !== sourcePath) {
-    throw new CollisionDeProjetError(projectId, existant.sourcePath, sourcePath)
+    throw new ProjectErrorCollision(projectId, existant.sourcePath, sourcePath)
   }
   upsertProject(db, {
     id: projectId,
@@ -1160,5 +1160,5 @@ export async function créerProjet(
     createdAt: existant?.createdAt ?? Date.now(),
   })
 
-  return lancer(projectId, CIBLES_INITIALES, options)
+  return launch(projectId, TARGETS_INITIAL, options)
 }

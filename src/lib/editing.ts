@@ -129,7 +129,7 @@ export function removeSelection(segments: Segment[], words: Word[], a: number, b
  * plus une liaison : c'est une scène qui se termine, et personne n'a demandé à
  * la remonter en cliquant un mot.
  */
-export const PONT_MAX = 1
+export const BRIDGE_MAX = 1
 
 /**
  * Les bornes à réinsérer pour rendre un mot barré.
@@ -161,8 +161,8 @@ export function restoreBounds(words: Word[], index: number): { from: number; to:
   const prev = words[index - 1]
   const next = words[index + 1]
 
-  const from = prev && word.start - prev.end <= PONT_MAX ? Math.min(prev.end, word.start) : word.start
-  const to = next && next.start - word.end <= PONT_MAX ? Math.max(next.start, word.end) : word.end
+  const from = prev && word.start - prev.end <= BRIDGE_MAX ? Math.min(prev.end, word.start) : word.start
+  const to = next && next.start - word.end <= BRIDGE_MAX ? Math.max(next.start, word.end) : word.end
   if (!(to > from)) return null
   return { from, to }
 }
@@ -269,10 +269,10 @@ export function playbackAction(
  * postérieur à la dernière phrase : la fenêtre de transcript existe toujours, et
  * c'est précisément là qu'il faut la relire pour reconstruire le clip.
  */
-export function ligneInitiale(lines: TranscriptLine[], segments: Segment[]): number {
-  const debut = segments[0]?.start
-  if (debut === undefined) return 0
-  const i = lines.findIndex((l) => l.end > debut)
+export function lineInitial(lines: TranscriptLine[], segments: Segment[]): number {
+  const start = segments[0]?.start
+  if (start === undefined) return 0
+  const i = lines.findIndex((l) => l.end > start)
   return i < 0 ? 0 : i
 }
 
@@ -308,9 +308,9 @@ export type WordCorrection = {
 }
 
 /** Pourquoi une correction a été refusée plutôt qu'appliquée. */
-export type CorrectionRefusal = 'out-of-range' | 'anchor-mismatch'
+export type CorrectionRejection = 'out-of-range' | 'anchor-mismatch'
 
-export type CorrectionOutcome = { ok: true; words: Word[] } | { ok: false; reason: CorrectionRefusal }
+export type CorrectionOutcome = { ok: true; words: Word[] } | { ok: false; reason: CorrectionRejection }
 
 /**
  * Les horodatages du remplacement, répartis sur l'empan qu'occupaient les

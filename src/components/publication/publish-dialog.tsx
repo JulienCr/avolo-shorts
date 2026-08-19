@@ -100,7 +100,7 @@ export function PublishDialog({
   const resolvedAvailability = availability ?? defaultPlatformAvailability()
   const [step, setStep] = useState<Step>('platforms')
   const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
-  const [force, setForce] = useState(false)
+  const [forced, setForced] = useState(false)
 
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
   // un clip après l'autre : rouvrir sur la sélection du clip précédent
@@ -114,7 +114,7 @@ export function PublishDialog({
     if (open) {
       setStep('platforms')
       setSelected(new Set())
-      setForce(false)
+      setForced(false)
     }
   }
 
@@ -137,7 +137,7 @@ export function PublishDialog({
   const selectedAndAvailable = PLATFORMS.filter((p) => selected.has(p) && selectable.includes(p))
   const targets = eligible.flatMap((clip) =>
     selectedAndAvailable.flatMap((platform) =>
-      canTargetPlatform(clip.records?.[platform], force) ? [{ clipId: clip.clipId, platform }] : [],
+      canTargetPlatform(clip.records?.[platform], forced) ? [{ clipId: clip.clipId, platform }] : [],
     ),
   )
 
@@ -237,8 +237,8 @@ export function PublishDialog({
             availability={resolvedAvailability}
             selected={selected}
             onToggle={togglePlatform}
-            force={force}
-            onForce={setForce}
+            forced={forced}
+            onForced={setForced}
             alreadyPublished={alreadyPublished}
           />
         ) : (
@@ -280,19 +280,19 @@ function PlatformsStep({
   availability,
   selected,
   onToggle,
-  force,
-  onForce,
+  forced,
+  onForced,
   alreadyPublished,
 }: {
   eligible: readonly PublishClipTarget[]
   availability: Readonly<Record<Platform, PlatformAvailability>>
   selected: ReadonlySet<Platform>
   onToggle: (platform: Platform) => void
-  force: boolean
-  onForce: (force: boolean) => void
+  forced: boolean
+  onForced: (forced: boolean) => void
   alreadyPublished: boolean
 }) {
-  const forceId = useId()
+  const forcedId = useId()
   return (
     <div className="flex flex-col gap-3">
       {PLATFORMS.map((platform) => (
@@ -313,11 +313,11 @@ function PlatformsStep({
       {alreadyPublished && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
           <Checkbox
-            id={forceId}
-            checked={force}
-            onCheckedChange={(checked) => onForce(checked === true)}
+            id={forcedId}
+            checked={forced}
+            onCheckedChange={(checked) => onForced(checked === true)}
           />
-          <Label htmlFor={forceId} className="flex flex-col gap-0.5 text-sm font-normal">
+          <Label htmlFor={forcedId} className="flex flex-col gap-0.5 text-sm font-normal">
             Republier explicitement
             <span className="text-xs text-muted-foreground">
               Au moins un clip sélectionné est déjà publié sur une plateforme cochée. Sans cette

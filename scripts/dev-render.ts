@@ -19,14 +19,14 @@
 import { clipDuration } from '@/core/edl'
 import { closeDb, getClip, getDb } from '@/server/db'
 import { probe } from '@/server/ffprobe'
-import { renderClip, type SortieRendu } from '@/server/steps/render'
-import { chargerEnv, chrono, créerBarre, durée, finBarre, quitter } from './dev-commun'
+import { renderClip, type OutputRender } from '@/server/steps/render'
+import { chargerEnv, timer, createBar, duration, finBar, quit } from './dev-common'
 
 async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const force = arguments_.includes('--force')
+  const forced = arguments_.includes('--force')
   const clipId = arguments_.find((a) => !a.startsWith('--'))
   if (clipId === undefined) {
     console.error('Usage : pnpm tsx scripts/dev-render.ts <identifiant de clip> [--force]')
@@ -40,54 +40,54 @@ async function main(): Promise<number> {
     return 1
   }
 
-  const attendue = clipDuration(clip.segments)
+  const expected = clipDuration(clip.segments)
   console.log(`Clip       : ${clipId} (projet ${clip.projectId})`)
-  console.log(`Segments   : ${clip.segments.length} → ${attendue.toFixed(2)} s attendues`)
+  console.log(`Segments   : ${clip.segments.length} → ${expected.toFixed(2)} s attendues`)
   console.log(`Ratio      : ${clip.ratio}${clip.ratio === 'auto' ? ' → 9:16 en itération 0' : ''}`)
 
-  const barres = new Map<SortieRendu, (fraction: number | null) => void>()
-  const t = chrono()
-  const résultat = await renderClip(clipId, {
+  const bars = new Map<OutputRender, (fraction: number | null) => void>()
+  const t = timer()
+  const result = await renderClip(clipId, {
     db,
-    force,
+    forced,
     onProgress: (a) => {
-      let barre = barres.get(a.sortie)
-      if (barre === undefined) {
+      let bar = bars.get(a.output)
+      if (bar === undefined) {
         // La barre précédente est refermée avant d'en ouvrir une autre : les deux
         // sorties s'encodent l'une après l'autre, et deux barres sur la même
         // ligne se réécriraient l'une sur l'autre.
-        if (barres.size > 0) finBarre()
-        barre = créerBarre(`  ${a.sortie.padEnd(6)}`)
-        barres.set(a.sortie, barre)
+        if (bars.size > 0) finBar()
+        bar = createBar(`  ${a.output.padEnd(6)}`)
+        bars.set(a.output, bar)
       }
-      barre(a.fraction)
+      bar(a.fraction)
     },
   })
-  if (barres.size > 0) finBarre()
+  if (bars.size > 0) finBar()
 
-  if (résultat.skipped) {
+  if (result.skipped) {
     console.log('Rendu      : déjà là, rien à refaire (--force pour repasser dessus)')
   } else {
-    console.log(`Rendu      : produit en ${durée(t())}`)
+    console.log(`Rendu      : produit en ${duration(t())}`)
   }
-  console.log(`MP4        : ${résultat.mp4}`)
-  console.log(`Variante   : ${résultat.variant9x16 ?? '(aucune, le clip est déjà en 9:16)'}`)
-  console.log(`Textes     : ${résultat.texts}`)
+  console.log(`MP4        : ${result.mp4}`)
+  console.log(`Variante   : ${result.variant9x16 ?? '(aucune, le clip est déjà en 9:16)'}`)
+  console.log(`Textes     : ${result.texts}`)
 
   // Le contrôle de la tâche 14 : la durée du MP4 égale la somme des segments, à
   // 0,1 s près. Les dimensions sont imprimées avec, parce qu'un ratio mal résolu
   // se voit là et nulle part ailleurs dans une sortie texte.
-  for (const [nom, fichier] of [
-    ['natif', résultat.mp4],
-    ['9:16', résultat.variant9x16],
+  for (const [name, file] of [
+    ['natif', result.mp4],
+    ['9:16', result.variant9x16],
   ] as const) {
-    if (fichier === null) continue
-    const { durationSec, width, height } = await probe(fichier)
-    const écart = durationSec === null ? null : Math.abs(durationSec - attendue)
+    if (file === null) continue
+    const { durationSec, width, height } = await probe(file)
+    const gap = durationSec === null ? null : Math.abs(durationSec - expected)
     console.log(
-      `Contrôle ${nom.padEnd(6)}: ${width ?? '?'}x${height ?? '?'}, ` +
+      `Contrôle ${name.padEnd(6)}: ${width ?? '?'}x${height ?? '?'}, ` +
         `${durationSec?.toFixed(3) ?? '?'} s ` +
-        `(écart ${écart === null ? '?' : `${écart.toFixed(3)} s`}${écart !== null && écart <= 0.1 ? ' ✓' : ''})`,
+        `(écart ${gap === null ? '?' : `${gap.toFixed(3)} s`}${gap !== null && gap <= 0.1 ? ' ✓' : ''})`,
     )
   }
   return 0
@@ -96,10 +96,10 @@ async function main(): Promise<number> {
 main()
   .then((code) => {
     closeDb()
-    quitter(code)
+    quit(code)
   })
-  .catch((erreur: unknown) => {
+  .catch((error: unknown) => {
     closeDb()
-    console.error(erreur instanceof Error ? erreur.message : erreur)
-    quitter(1)
+    console.error(error instanceof Error ? error.message : error)
+    quit(1)
   })

@@ -52,27 +52,27 @@ import type { Clip } from '@/core/edl'
 export function mergeCandidates(existing: Clip[], incoming: Clip[], pass: number): Clip[] {
   // Les décisions humaines, dans leur ordre d'origine. Ce qui reste de
   // `existing` — les `candidate` — est ce que ce lot vient remplacer.
-  const humains = existing.filter((clip) => clip.status !== 'candidate')
+  const humans = existing.filter((clip) => clip.status !== 'candidate')
 
   // Les `id` déjà pris. L'ensemble grandit au fil des propositions retenues : il
   // écarte du même geste les collisions avec un clip humain et les doublons
   // internes au lot, qui feraient sinon échouer l'écriture en base sur la clé
   // primaire.
-  const pris = new Set(humains.map((clip) => clip.id))
+  const taken = new Set(humans.map((clip) => clip.id))
 
-  const nouveaux: Clip[] = []
+  const freshClips: Clip[] = []
   for (const clip of incoming) {
     if (clip.status !== 'candidate') {
       throw new Error(
         `Le clip ${clip.id} entre avec le statut « ${clip.status} » : un lot de repérage ne propose que des candidats.`,
       )
     }
-    if (pris.has(clip.id)) continue
-    pris.add(clip.id)
+    if (taken.has(clip.id)) continue
+    taken.add(clip.id)
     // Le numéro de passe vient du lot, pas du clip : le producteur n'a pas à le
     // connaître, et un lot ne peut pas se tromper de passe à moitié.
-    nouveaux.push({ ...clip, pass })
+    freshClips.push({ ...clip, pass })
   }
 
-  return [...humains, ...nouveaux]
+  return [...humans, ...freshClips]
 }

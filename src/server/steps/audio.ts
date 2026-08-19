@@ -1,5 +1,5 @@
 import { audioArgs } from '@/core/ffmpeg/args'
-import { produireArtefact, type Artefact, type Avancement } from '@/server/ffmpeg'
+import { produceArtifact, type Artifact, type Progress } from '@/server/ffmpeg'
 import { audioPath } from '@/server/paths'
 
 /**
@@ -19,21 +19,21 @@ export type OptionsAudio = {
   projectId: string
   /** La copie de travail dans `stage/`. */
   input: string
-  force?: boolean
+  forced?: boolean
   durationSec?: number | null
-  onProgress?: (avancement: Avancement) => void
+  onProgress?: (progress: Progress) => void
   /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
   signal?: AbortSignal
 }
 
-export function extractAudio(o: OptionsAudio): Promise<Artefact> {
-  return produireArtefact({
+export function extractAudio(o: OptionsAudio): Promise<Artifact> {
+  return produceArtifact({
     dst: audioPath(o.projectId),
-    force: o.force,
+    forced: o.forced,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
     signal: o.signal,
-    quoi: `audio de ${o.projectId}`,
+    what: `audio de ${o.projectId}`,
     args: (destination) => audioArgs({ src: o.input, dst: destination }),
   })
 }

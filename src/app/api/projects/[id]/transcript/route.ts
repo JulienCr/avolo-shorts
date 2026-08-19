@@ -2,10 +2,10 @@ import { z } from 'zod'
 
 import type { WordCorrection } from '@/lib/editing'
 import { getClips, getDb, getProject } from '@/server/db'
-import { ErreurHttp, corps, introuvable, json, route } from '@/server/http'
+import { ErrorHttp, body, notFound, json, route } from '@/server/http'
 import { progression } from '@/server/run'
-import { correctTranscript, type TranscriptCorrectionRefusal } from '@/server/steps/transcript'
-import { clipsTouchedBySpan, lignesDuTranscript, transcriptDuProjet } from '@/server/vues'
+import { correctTranscript, type TranscriptCorrectionRejection } from '@/server/steps/transcript'
+import { clipsTouchedBySpan, transcriptLines, projectTranscript } from '@/server/views'
 
 /**
  * `GET  /api/projects/:id/transcript` — le transcript entier de l'émission.
@@ -24,13 +24,13 @@ export const GET = route(
     const { id } = await context.params
     const db = getDb()
     const project = getProject(db, id)
-    if (project === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
     // Un transcript absent ne fait pas échouer la route : c'est l'état normal
     // d'un projet dont seule l'ingestion a eu lieu, et la surface l'affiche
     // comme telle plutôt que par une page d'erreur.
-    const transcript = await transcriptDuProjet(project)
-    return json(transcript === null ? [] : lignesDuTranscript(transcript))
+    const transcript = await projectTranscript(project)
+    return json(transcript === null ? [] : transcriptLines(transcript))
   },
 )
 
@@ -67,7 +67,7 @@ const CORRECTION = z.strictObject({
 })
 
 /** Le statut que mérite un refus, selon ce qu'il dit du monde. */
-const REFUSAL_STATUS: Record<TranscriptCorrectionRefusal, number> = {
+const REJECTION_STATUS: Record<TranscriptCorrectionRejection, number> = {
   'no-transcript': 404,
   'unknown-line': 404,
   'out-of-range': 400,
@@ -79,12 +79,12 @@ export const POST = route(
   'POST /api/projects/:id/transcript',
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
-    const { lineId, ...span } = await corps(request, CORRECTION)
+    const { lineId, ...span } = await body(request, CORRECTION)
     const correction: WordCorrection = span
 
     const db = getDb()
     const project = getProject(db, id)
-    if (project === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
     // **Une retranscription en cours écrase le sidecar derrière une
     // correction qui vient de s'annoncer réussie.** `progression` lit une
@@ -92,7 +92,7 @@ export const POST = route(
     // lecture du transcript, pas après une course perdue. (relevé par
     // Copilot)
     if (progression(id) !== null) {
-      throw new ErreurHttp(
+      throw new ErrorHttp(
         409,
         'Une retranscription est en cours pour ce projet : attendre qu’elle se termine avant de corriger le transcript.',
       )
@@ -102,7 +102,7 @@ export const POST = route(
     // — voir son commentaire pour ce que cette seconde sonde referme.
     const result = await correctTranscript(project, lineId, correction, (projectId) => progression(projectId) !== null)
     if (!result.ok) {
-      throw new ErreurHttp(REFUSAL_STATUS[result.reason], refusalMessage(result.reason))
+      throw new ErrorHttp(REJECTION_STATUS[result.reason], rejectionMessage(result.reason))
     }
 
     // **Explicite, pas une invalidation silencieuse.** Le repérage se relance
@@ -118,7 +118,7 @@ export const POST = route(
   },
 )
 
-function refusalMessage(reason: TranscriptCorrectionRefusal): string {
+function rejectionMessage(reason: TranscriptCorrectionRejection): string {
   switch (reason) {
     case 'no-transcript':
       return "Ce projet n'a pas encore de transcript."

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planSteps, type StepName } from '@/core/graph'
+import { shotSteps, type StepName } from '@/core/graph'
 
 /**
  * Le graphe de l'itération 0 : la **présence d'un fichier**, pas encore une clé
@@ -28,25 +28,25 @@ const all: Record<StepName, boolean> = {
 
 describe('planSteps', () => {
   it('remonte les dépendances manquantes, dans l’ordre', () => {
-    expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
+    expect(shotSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
   })
 
   it('ne relance que le repérage si le transcript existe déjà', () => {
-    expect(planSteps('candidates', { ...none, audio: true, transcript: true })).toEqual([
+    expect(shotSteps('candidates', { ...none, audio: true, transcript: true })).toEqual([
       'candidates',
     ])
   })
 
   it('ne calcule rien si la cible est là', () => {
-    expect(planSteps('transcript', { ...none, audio: true, transcript: true })).toEqual([])
+    expect(shotSteps('transcript', { ...none, audio: true, transcript: true })).toEqual([])
   })
 
   it('ne construit pas le proxy pour atteindre le transcript', () => {
-    expect(planSteps('transcript', none)).not.toContain('proxy')
+    expect(shotSteps('transcript', none)).not.toContain('proxy')
   })
 
   it('force recalcule l’étape visée et tout ce qui en dépend', () => {
-    expect(planSteps('renders', all, ['transcript'])).toEqual([
+    expect(shotSteps('renders', all, ['transcript'])).toEqual([
       'transcript',
       'candidates',
       'renders',
@@ -59,15 +59,15 @@ describe('planSteps', () => {
   // le WAV puis retranscrirait deux heures cinquante pour réécrire à
   // l'identique ce qui était déjà là. (relevé par Copilot)
   it('ne refait pas l’audio disparu sous un transcript toujours là', () => {
-    expect(planSteps('candidates', { ...none, transcript: true })).toEqual(['candidates'])
+    expect(shotSteps('candidates', { ...none, transcript: true })).toEqual(['candidates'])
   })
 
   it('refait quand même l’audio si le transcript manque aussi', () => {
-    expect(planSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
+    expect(shotSteps('candidates', none)).toEqual(['audio', 'transcript', 'candidates'])
   })
 
   it('force la cible elle-même, artefact présent ou non', () => {
-    expect(planSteps('transcript', all, ['transcript'])).toEqual(['transcript'])
+    expect(shotSteps('transcript', all, ['transcript'])).toEqual(['transcript'])
   })
 
   // Le cas « changer de logo » de la spec §5 : le style n'entre que dans le
@@ -75,17 +75,17 @@ describe('planSteps', () => {
   // d'audio. C'est la propriété du graphe qui rend ce changement bon marché,
   // et elle mérite d'être prouvée plutôt que supposée. (relevé par Aristarque)
   it('ne remonte pas au-dessus de l’étape forcée', () => {
-    expect(planSteps('renders', all, ['renders'])).toEqual(['renders'])
-    expect(planSteps('candidates', all, ['candidates'])).toEqual(['candidates'])
+    expect(shotSteps('renders', all, ['renders'])).toEqual(['renders'])
+    expect(shotSteps('candidates', all, ['candidates'])).toEqual(['candidates'])
   })
 
   // `force` dit *comment* atteindre la cible, il n'ajoute pas de cible.
   it('ignore une étape forcée qui ne mène pas à la cible', () => {
-    expect(planSteps('transcript', all, ['proxy'])).toEqual([])
+    expect(shotSteps('transcript', all, ['proxy'])).toEqual([])
   })
 
   it('remonte jusqu’à l’étape forcée, sans dépasser', () => {
-    expect(planSteps('candidates', all, ['audio'])).toEqual([
+    expect(shotSteps('candidates', all, ['audio'])).toEqual([
       'audio',
       'transcript',
       'candidates',
@@ -101,28 +101,28 @@ describe('planSteps', () => {
  */
 describe('planSteps — analysis', () => {
   it('construit le proxy, et lui seul, pour atteindre l’analyse', () => {
-    expect(planSteps('analysis', none)).toEqual(['proxy', 'analysis'])
+    expect(shotSteps('analysis', none)).toEqual(['proxy', 'analysis'])
   })
 
   it('ne touche ni à l’audio ni au transcript', () => {
-    const plan = planSteps('analysis', none)
-    expect(plan).not.toContain('audio')
-    expect(plan).not.toContain('transcript')
+    const shot = shotSteps('analysis', none)
+    expect(shot).not.toContain('audio')
+    expect(shot).not.toContain('transcript')
   })
 
   it('ne refait rien quand le proxy et l’analyse sont là', () => {
-    expect(planSteps('analysis', { ...none, proxy: true, analysis: true })).toEqual([])
+    expect(shotSteps('analysis', { ...none, proxy: true, analysis: true })).toEqual([])
   })
 
   // Un proxy refait est un proxy dont les images ont pu changer — cadence,
   // dimensions, encodeur. Les boîtes qui en viennent ne valent plus rien.
   it('reprend l’analyse quand le proxy est forcé', () => {
-    expect(planSteps('analysis', all, ['proxy'])).toEqual(['proxy', 'analysis'])
+    expect(shotSteps('analysis', all, ['proxy'])).toEqual(['proxy', 'analysis'])
   })
 
   // La réciproque n'est pas vraie : l'analyse ne porte rien en aval du graphe,
   // et le rendu se lance par clip, jamais par le graphe.
   it('ne fait pas repartir le repérage des candidats', () => {
-    expect(planSteps('candidates', all, ['analysis'])).toEqual([])
+    expect(shotSteps('candidates', all, ['analysis'])).toEqual([])
   })
 })

@@ -224,13 +224,13 @@ describe('withoutExtension', () => {
 })
 
 describe('les filtres', () => {
-  const exclusifs = [
+  const exclusive = [
     ['new', 'toAnalyze'],
     ['analyzing', 'running'],
     ['analyzed', 'analyzed'],
   ] as const
 
-  for (const [state, filter] of exclusifs) {
+  for (const [state, filter] of exclusive) {
     it(`« ${filter} » retient exactement « ${state} »`, () => {
       expect(matchesFilter(state, filter)).toBe(true)
       expect(matchesFilter('failed', filter)).toBe(false)

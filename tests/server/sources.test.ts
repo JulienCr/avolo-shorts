@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SourcesListing } from '@/lib/api'
 import { openDb, upsertProject } from '@/server/db'
-import { fstypeDeMontage, listerSources } from '@/server/sources'
+import { editingFstype, listSources } from '@/server/sources'
 
 /**
  * Le catalogue des replays, c'est-à-dire **l'entrée du parcours**.
@@ -22,7 +22,7 @@ import { fstypeDeMontage, listerSources } from '@/server/sources'
  */
 
 describe('fstypeDeMontage', () => {
-  const MONTAGES = [
+  const EDITS = [
     '/dev/sdd / ext4 rw,relatime 0 0',
     'none /mnt/wsl tmpfs rw,relatime 0 0',
     'drvfs /mnt/j 9p rw,noatime,trans=fd 0 0',
@@ -30,11 +30,11 @@ describe('fstypeDeMontage', () => {
   ].join('\n')
 
   it('rend le type du montage qui porte le chemin', () => {
-    expect(fstypeDeMontage(MONTAGES, '/mnt/j/Replay')).toBe('9p')
+    expect(editingFstype(EDITS, '/mnt/j/Replay')).toBe('9p')
   })
 
   it('rend le type du montage lui-même', () => {
-    expect(fstypeDeMontage(MONTAGES, '/mnt/j')).toBe('9p')
+    expect(editingFstype(EDITS, '/mnt/j')).toBe('9p')
   })
 
   /**
@@ -42,7 +42,7 @@ describe('fstypeDeMontage', () => {
    * le relevé dirait `ext4` sur un Drive monté en 9p.
    */
   it('retient le montage le plus profond, pas le premier venu', () => {
-    expect(fstypeDeMontage(MONTAGES, '/home/julien')).toBe('ext4')
+    expect(editingFstype(EDITS, '/home/julien')).toBe('ext4')
   })
 
   /**
@@ -50,13 +50,13 @@ describe('fstypeDeMontage', () => {
    * frontière de segment ferait répondre `9p` pour un dossier qui n'y est pas.
    */
   it('ne confond pas deux montages dont l’un préfixe le nom de l’autre', () => {
-    expect(fstypeDeMontage(MONTAGES, '/mnt/jazz/Replay')).toBe('drvfs')
+    expect(editingFstype(EDITS, '/mnt/jazz/Replay')).toBe('drvfs')
   })
 
   /** `/proc/mounts` échappe les espaces en octal. Un dossier de replays en porte. */
   it('déséchappe les espaces du point de montage', () => {
-    const avecEspace = 'drvfs /mnt/mon\\040drive 9p rw 0 0'
-    expect(fstypeDeMontage(avecEspace, '/mnt/mon drive/Replay')).toBe('9p')
+    const withEspace = 'drvfs /mnt/mon\\040drive 9p rw 0 0'
+    expect(editingFstype(withEspace, '/mnt/mon drive/Replay')).toBe('9p')
   })
 
   /**
@@ -65,49 +65,49 @@ describe('fstypeDeMontage', () => {
    * premier ferait annoncer le type du montage recouvert.
    */
   it('retient le dernier montage d’un même point, celui qui recouvre', () => {
-    const empilés = ['none /mnt/wsl tmpfs rw 0 0', 'drvfs /mnt/wsl 9p rw 0 0'].join('\n')
-    expect(fstypeDeMontage(empilés, '/mnt/wsl/x')).toBe('9p')
+    const stacked = ['none /mnt/wsl tmpfs rw 0 0', 'drvfs /mnt/wsl 9p rw 0 0'].join('\n')
+    expect(editingFstype(stacked, '/mnt/wsl/x')).toBe('9p')
   })
 
   it('rend null quand aucun montage ne porte le chemin', () => {
-    expect(fstypeDeMontage('drvfs /mnt/j 9p rw 0 0', '/ailleurs')).toBeNull()
+    expect(editingFstype('drvfs /mnt/j 9p rw 0 0', '/ailleurs')).toBeNull()
   })
 
   it('ignore une ligne qui n’a pas la forme attendue', () => {
-    expect(fstypeDeMontage('bidon\n/dev/sdd / ext4 rw 0 0', '/x')).toBe('ext4')
+    expect(editingFstype('bidon\n/dev/sdd / ext4 rw 0 0', '/x')).toBe('ext4')
   })
 })
 
 describe('listerSources', () => {
-  let racine: string
+  let root: string
   let replays: string
   let db: Database.Database
-  const envDépart = { ...process.env }
+  const envStart = { ...process.env }
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-sources-'))
-    replays = path.join(racine, 'Replay')
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-sources-'))
+    replays = path.join(root, 'Replay')
     fs.mkdirSync(replays, { recursive: true })
     process.env.REPLAY_DIR = replays
-    process.env.STAGE_DIR = path.join(racine, 'stage')
-    process.env.PROJECTS_DIR = path.join(racine, 'projects')
+    process.env.STAGE_DIR = path.join(root, 'stage')
+    process.env.PROJECTS_DIR = path.join(root, 'projects')
     db = openDb(':memory:')
   })
 
   afterEach(() => {
     db.close()
-    fs.rmSync(racine, { recursive: true, force: true })
-    process.env = { ...envDépart }
+    fs.rmSync(root, { recursive: true, force: true })
+    process.env = { ...envStart }
   })
 
-  function poserVidéo(nom: string, octets = 1_024): void {
-    fs.writeFileSync(path.join(replays, nom), Buffer.alloc(octets))
+  function poserVideo(name: string, octets = 1_024): void {
+    fs.writeFileSync(path.join(replays, name), Buffer.alloc(octets))
   }
 
   it('rend le nom, la taille et la date de chaque replay', async () => {
-    poserVidéo('2025-06-15-cqlp.mp4', 4_096)
+    poserVideo('2025-06-15-cqlp.mp4', 4_096)
 
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     expect(listing.sources).toHaveLength(1)
     expect(listing.sources[0].name).toBe('2025-06-15-cqlp.mp4')
     expect(listing.sources[0].sizeBytes).toBe(4_096)
@@ -121,22 +121,22 @@ describe('listerSources', () => {
    * du Drive partagé.
    */
   it('ne publie aucun chemin du serveur', async () => {
-    poserVidéo('2025-06-15-cqlp.mp4')
+    poserVideo('2025-06-15-cqlp.mp4')
 
-    const listing = await listerSources({ db })
-    expect(JSON.stringify(listing.sources)).not.toContain(racine)
+    const listing = await listSources({ db })
+    expect(JSON.stringify(listing.sources)).not.toContain(root)
   })
 
   it('écarte ce qui n’est pas une vidéo, et les compte quand même', async () => {
-    poserVidéo('2025-06-15-cqlp.mp4')
+    poserVideo('2025-06-15-cqlp.mp4')
     fs.writeFileSync(path.join(replays, 'notes.txt'), 'rien à voir')
     fs.mkdirSync(path.join(replays, '2025-06-15-cqlp.avolo'))
 
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     expect(listing.sources.map((s) => s.name)).toEqual(['2025-06-15-cqlp.mp4'])
     // Trois entrées dans le dossier : le relevé de montage les compte toutes,
     // parce qu'un dossier plein de fichiers illisibles n'est pas un dossier vide.
-    expect(listing.montage.entries).toBe(3)
+    expect(listing.editing.entries).toBe(3)
   })
 
   /**
@@ -148,19 +148,19 @@ describe('listerSources', () => {
    * diagnostic.
    */
   it('écarte les entrées cachées et celles en `$`, sans cesser de les compter', async () => {
-    poserVidéo('vraie.mp4')
-    poserVidéo('.com.google.Chrome.partiel.mp4')
-    poserVidéo('$RECYCLE.mp4')
+    poserVideo('vraie.mp4')
+    poserVideo('.com.google.Chrome.partiel.mp4')
+    poserVideo('$RECYCLE.mp4')
 
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     expect(listing.sources.map((s) => s.name)).toEqual(['vraie.mp4'])
-    expect(listing.montage.entries).toBe(3)
+    expect(listing.editing.entries).toBe(3)
   })
 
   it('reconnaît une vidéo quelle que soit la casse de son extension', async () => {
-    poserVidéo('EMISSION.MP4')
+    poserVideo('EMISSION.MP4')
 
-    expect((await listerSources({ db })).sources.map((s) => s.name)).toEqual(['EMISSION.MP4'])
+    expect((await listSources({ db })).sources.map((s) => s.name)).toEqual(['EMISSION.MP4'])
   })
 
   /**
@@ -169,18 +169,18 @@ describe('listerSources', () => {
    * refuse. Le proposer ici mènerait droit à ce refus.
    */
   it('ignore un lien symbolique, que l’ingestion refuse de toute façon', async () => {
-    poserVidéo('vraie.mp4')
+    poserVideo('vraie.mp4')
     fs.symlinkSync(path.join(replays, 'vraie.mp4'), path.join(replays, 'copie.mp4'))
 
-    expect((await listerSources({ db })).sources.map((s) => s.name)).toEqual(['vraie.mp4'])
+    expect((await listSources({ db })).sources.map((s) => s.name)).toEqual(['vraie.mp4'])
   })
 
   it('trie les replays du plus récent au plus ancien', async () => {
-    poserVidéo('vieille.mp4')
-    poserVidéo('récente.mp4')
+    poserVideo('vieille.mp4')
+    poserVideo('récente.mp4')
     fs.utimesSync(path.join(replays, 'vieille.mp4'), new Date(1_700_000_000_000), new Date(1_700_000_000_000))
 
-    expect((await listerSources({ db })).sources.map((s) => s.name)).toEqual([
+    expect((await listSources({ db })).sources.map((s) => s.name)).toEqual([
       'récente.mp4',
       'vieille.mp4',
     ])
@@ -192,8 +192,8 @@ describe('listerSources', () => {
    * même endroit sans le dire fait douter de ce qu'on vient de déclencher.
    */
   it('rattache une source au projet qu’elle a produit', async () => {
-    poserVidéo('2025-06-15-cqlp.mp4')
-    poserVidéo('2026-03-08-caro-mdlm.mp4')
+    poserVideo('2025-06-15-cqlp.mp4')
+    poserVideo('2026-03-08-caro-mdlm.mp4')
     upsertProject(db, {
       id: '2025-06-15-cqlp',
       sourcePath: path.join(replays, '2025-06-15-cqlp.mp4'),
@@ -204,10 +204,10 @@ describe('listerSources', () => {
       createdAt: 0,
     })
 
-    const listing = await listerSources({ db })
-    const parNom = new Map(listing.sources.map((s) => [s.name, s.projectId]))
-    expect(parNom.get('2025-06-15-cqlp.mp4')).toBe('2025-06-15-cqlp')
-    expect(parNom.get('2026-03-08-caro-mdlm.mp4')).toBeNull()
+    const listing = await listSources({ db })
+    const byName = new Map(listing.sources.map((s) => [s.name, s.projectId]))
+    expect(byName.get('2025-06-15-cqlp.mp4')).toBe('2025-06-15-cqlp')
+    expect(byName.get('2026-03-08-caro-mdlm.mp4')).toBeNull()
   })
 
   /**
@@ -221,8 +221,8 @@ describe('listerSources', () => {
    * un. (relevé par Codex et Copilot)
    */
   it('ne rattache pas une source à un projet né d’un autre fichier', async () => {
-    poserVidéo('show.mp4')
-    poserVidéo('show.mov')
+    poserVideo('show.mp4')
+    poserVideo('show.mov')
     upsertProject(db, {
       id: 'show',
       sourcePath: path.join(replays, 'show.mp4'),
@@ -233,9 +233,9 @@ describe('listerSources', () => {
       createdAt: 0,
     })
 
-    const parNom = new Map((await listerSources({ db })).sources.map((s) => [s.name, s.projectId]))
-    expect(parNom.get('show.mp4')).toBe('show')
-    expect(parNom.get('show.mov')).toBeNull()
+    const byName = new Map((await listSources({ db })).sources.map((s) => [s.name, s.projectId]))
+    expect(byName.get('show.mp4')).toBe('show')
+    expect(byName.get('show.mov')).toBeNull()
   })
 
   /**
@@ -244,21 +244,21 @@ describe('listerSources', () => {
    * rouvrant le lecteur côté Windows.
    */
   it('distingue un dossier vide d’un montage absent — le dossier vide', async () => {
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     expect(listing.sources).toEqual([])
-    expect(listing.montage.disponible).toBe(true)
-    expect(listing.montage.cause).toBeNull()
-    expect(listing.montage.entries).toBe(0)
+    expect(listing.editing.available).toBe(true)
+    expect(listing.editing.cause).toBeNull()
+    expect(listing.editing.entries).toBe(0)
   })
 
   it('distingue un dossier vide d’un montage absent — le montage absent', async () => {
     fs.rmSync(replays, { recursive: true, force: true })
 
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     expect(listing.sources).toEqual([])
-    expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('absent')
-    expect(listing.montage.entries).toBe(0)
+    expect(listing.editing.available).toBe(false)
+    expect(listing.editing.cause).toBe('absent')
+    expect(listing.editing.entries).toBe(0)
   })
 
   /**
@@ -269,13 +269,13 @@ describe('listerSources', () => {
    * tranche.
    */
   it('renonce sur un montage muet au lieu d’attendre indéfiniment', async () => {
-    const listing = await listerSources({
+    const listing = await listSources({
       db,
       timeoutMs: 20,
-      relever: () => new Promise(() => {}),
+      capture: () => new Promise(() => {}),
     })
-    expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('silent')
+    expect(listing.editing.available).toBe(false)
+    expect(listing.editing.cause).toBe('silent')
     expect(listing.sources).toEqual([])
   })
 
@@ -296,23 +296,23 @@ describe('listerSources', () => {
     ['EPERM', 'denied'],
     ['EIO', 'unreadable'],
     ['ESTALE', 'unreadable'],
-  ])('nomme la cause : %s donne « %s »', async (code, attendue) => {
-    const listing = await listerSources({
+  ])('nomme la cause : %s donne « %s »', async (code, expected) => {
+    const listing = await listSources({
       db,
-      relever: () => {
-        const erreur: NodeJS.ErrnoException = new Error('le message du système')
-        erreur.code = code
-        return Promise.reject(erreur)
+      capture: () => {
+        const error: NodeJS.ErrnoException = new Error('le message du système')
+        error.code = code
+        return Promise.reject(error)
       },
     })
 
-    expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe(attendue)
+    expect(listing.editing.available).toBe(false)
+    expect(listing.editing.cause).toBe(expected)
   })
 
   it('range sous « unreadable » une erreur sans code plutôt que de deviner', async () => {
-    const listing = await listerSources({ db, relever: () => Promise.reject(new Error('boum')) })
-    expect(listing.montage.cause).toBe('unreadable')
+    const listing = await listSources({ db, capture: () => Promise.reject(new Error('boum')) })
+    expect(listing.editing.cause).toBe('unreadable')
   })
 
   /**
@@ -326,9 +326,9 @@ describe('listerSources', () => {
   it('dit « absent », pas « muet », sur un REPLAY_DIR mal orthographié', async () => {
     process.env.REPLAY_DIR = path.join(replays, 'Repaly')
 
-    const listing = await listerSources({ db })
-    expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('absent')
+    const listing = await listSources({ db })
+    expect(listing.editing.available).toBe(false)
+    expect(listing.editing.cause).toBe('absent')
   })
 
   /**
@@ -339,18 +339,18 @@ describe('listerSources', () => {
    * partage. (second cas mesuré de l'issue #56)
    */
   it('nomme un droit refusé sur un seul fichier comme un refus, pas un silence', async () => {
-    poserVidéo('lisible.mp4')
+    poserVideo('lisible.mp4')
     const lstat = vi.spyOn(fsp, 'lstat').mockImplementation(() => {
-      const erreur: NodeJS.ErrnoException = new Error('permission denied')
-      erreur.code = 'EACCES'
-      return Promise.reject(erreur)
+      const error: NodeJS.ErrnoException = new Error('permission denied')
+      error.code = 'EACCES'
+      return Promise.reject(error)
     })
 
-    const listing = await listerSources({ db })
+    const listing = await listSources({ db })
     lstat.mockRestore()
 
-    expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('denied')
+    expect(listing.editing.available).toBe(false)
+    expect(listing.editing.cause).toBe('denied')
   })
 
   /**
@@ -358,9 +358,9 @@ describe('listerSources', () => {
    * existe, on vient de la mesurer. Ce qui peut manquer est l'image au bout.
    */
   it('donne à chaque source l’URL de sa vignette, encodée', async () => {
-    poserVidéo('2026-01-11-méchante.mp4')
+    poserVideo('2026-01-11-méchante.mp4')
 
-    const [source] = (await listerSources({ db })).sources
+    const [source] = (await listSources({ db })).sources
     expect(source.thumbnailUrl).toContain('file=2026-01-11-m%C3%A9chante.mp4')
     // La version fait changer l'URL quand le fichier change : sans elle, la
     // carte ne redemanderait jamais l'image d'un replay réenregistré.
@@ -375,7 +375,7 @@ describe('listerSources', () => {
   it('relève le type du système de fichiers même sans accès', async () => {
     fs.rmSync(replays, { recursive: true, force: true })
 
-    const listing: SourcesListing = await listerSources({ db })
-    expect(listing.montage.fstype === null || typeof listing.montage.fstype === 'string').toBe(true)
+    const listing: SourcesListing = await listSources({ db })
+    expect(listing.editing.fstype === null || typeof listing.editing.fstype === 'string').toBe(true)
   })
 })

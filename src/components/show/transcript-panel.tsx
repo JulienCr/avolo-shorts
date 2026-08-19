@@ -5,14 +5,14 @@ import { FileText, RotateCcw } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { compter } from '@/core/parcours'
+import { count } from '@/core/phase'
 import { ApiError, type CandidateClip } from '@/lib/api'
 import { indexTranscript, type IndexedLine, type TranscriptLine } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
-import { lienProjet } from '@/lib/parcours'
-import { useCandidats, useCorrectTranscript, useProjet, useRelancer, useTranscript } from '@/lib/queries'
-import { accord } from '@/components/tri/modele'
-import { BoutonRelance } from '@/components/tri/relance'
+import { linkProject } from '@/lib/navigation'
+import { useCandidates, useCorrectTranscript, useProject, useRetry, useTranscript } from '@/lib/queries'
+import { agreement } from '@/components/review/template'
+import { ButtonRetry } from '@/components/review/retry'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -101,7 +101,7 @@ export function useTranscriptPanelUrl(projectId: string): [boolean, (open: boole
     if (next) params.set('transcript', '1')
     else params.delete('transcript')
     const query = params.toString()
-    router.replace(`${lienProjet(projectId)}${query === '' ? '' : `?${query}`}`, { scroll: false })
+    router.replace(`${linkProject(projectId)}${query === '' ? '' : `?${query}`}`, { scroll: false })
   }
 
   return [open, setOpen]
@@ -167,7 +167,7 @@ export function TranscriptPanel({
   // ait effectivement ouvert le transcript.
   const transcript = useTranscript(projectId, { enabled: open })
   const correction = useCorrectTranscript()
-  const project = useProjet(projectId, { enabled: open })
+  const project = useProject(projectId, { enabled: open })
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
   // juste en dessous, qui recalculerait indexTranscript à chaque frappe.
@@ -402,7 +402,7 @@ export function TranscriptPanel({
             <Alert>
               <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {accord(correctionsApplied, 'correction appliquée', 'corrections appliquées')} dans
+                  {agreement(correctionsApplied, 'correction appliquée', 'corrections appliquées')} dans
                   cette séance. Le repérage lit encore l’ancien texte tant qu’il n’a pas repris.
                 </span>
                 <RerunDetectionBanner projectId={projectId} />
@@ -410,7 +410,7 @@ export function TranscriptPanel({
             </Alert>
             {touchedClipsList.length > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                {accord(touchedClipsList.length, 'Clip concerné', 'Clips concernés')} :{' '}
+                {agreement(touchedClipsList.length, 'Clip concerné', 'Clips concernés')} :{' '}
                 {touchedClipsList.join(', ')}. Leurs sous-titres incrustés ne reflètent la
                 correction qu’après un nouvel export.
               </p>
@@ -445,7 +445,7 @@ export function TranscriptPanel({
             </Button>
             {correction.isError && (
               <span role="alert" className="text-xs text-destructive">
-                {refusalMessage(correction.error)}
+                {rejectionMessage(correction.error)}
               </span>
             )}
           </div>
@@ -533,7 +533,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'cause inconnue'
 }
 
-function refusalMessage(error: Error): string {
+function rejectionMessage(error: Error): string {
   // **Le message du serveur, pas un texte générique par code HTTP.** Un 409
   // porte deux causes distinctes — l'ancre a changé, ou une retranscription
   // est en cours (`src/app/api/projects/[id]/transcript/route.ts`) — et
@@ -554,14 +554,14 @@ function refusalMessage(error: Error): string {
  * candidats, chargée ici pour cette seule raison.
  */
 function RerunDetectionBanner({ projectId }: { projectId: string }) {
-  const candidates = useCandidats(projectId)
-  const project = useProjet(projectId)
+  const candidates = useCandidates(projectId)
+  const project = useProject(projectId)
   const clips: CandidateClip[] = candidates.data ?? []
   return (
-    <BoutonRelance
+    <ButtonRetry
       projectId={projectId}
-      compte={compter(clips)}
-      enCours={(project.data?.running ?? null) !== null}
+      count={count(clips)}
+      inCurrent={(project.data?.running ?? null) !== null}
     />
   )
 }
@@ -594,7 +594,7 @@ export function RetranscribeButton({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const rerun = useRelancer()
+  const rerun = useRetry()
   const blocked = rerun.isPending
 
   return (

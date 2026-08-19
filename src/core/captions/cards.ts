@@ -13,10 +13,10 @@ import type { Word } from '@/core/transcript'
  * Seize caractères par carton — **espaces compris**, voir `splitIntoCards` pour
  * ce que « compris » veut dire exactement.
  */
-export const MAX_CHARS_DEFAUT = 16
+export const MAX_CHARS_DEFAULT = 16
 
 /** Une seconde quatre par carton, mesurée depuis son premier mot. */
-export const MAX_DURATION_DEFAUT = 1.4
+export const MAX_DURATION_DEFAULT = 1.4
 
 /**
  * Groupe les mots en cartons courts, lisibles sur un format vertical.
@@ -52,33 +52,33 @@ export const MAX_DURATION_DEFAUT = 1.4
  */
 export function splitIntoCards(
   words: Word[],
-  maxChars = MAX_CHARS_DEFAUT,
-  maxDuration = MAX_DURATION_DEFAUT,
+  maxChars = MAX_CHARS_DEFAULT,
+  maxDuration = MAX_DURATION_DEFAULT,
 ): Word[][] {
   const cards: Word[][] = []
   let current: Word[] = []
   let cardStart = 0
 
-  for (const brut of words) {
-    const texte = brut.word.trim().replace(/\s+/g, ' ')
-    if (texte === '') continue
-    const mot: Word = { word: texte, start: brut.start, end: brut.end }
+  for (const raw of words) {
+    const text = raw.word.trim().replace(/\s+/g, ' ')
+    if (text === '') continue
+    const word: Word = { word: text, start: raw.start, end: raw.end }
 
     if (current.length === 0) {
-      current = [mot]
-      cardStart = mot.start
+      current = [word]
+      cardStart = word.start
       continue
     }
 
     const chars = current.reduce((n, w) => n + w.word.length + 1, 0)
-    const duration = mot.end - cardStart
+    const duration = word.end - cardStart
 
-    if (chars + mot.word.length > maxChars || duration > maxDuration) {
+    if (chars + word.word.length > maxChars || duration > maxDuration) {
       cards.push(current)
-      current = [mot]
-      cardStart = mot.start
+      current = [word]
+      cardStart = word.start
     } else {
-      current.push(mot)
+      current.push(word)
     }
   }
 

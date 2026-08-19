@@ -9,7 +9,7 @@
  * l'aperçu au rendu, trois minutes d'export plus tard.
  */
 
-import { act, renderHook } from '@testing-library/react'
+import { actAsync, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
@@ -21,43 +21,43 @@ import {
   shotRatios,
   useCurrentShot,
 } from '@/components/clip/framing'
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import { framing, manualFraming, shot } from '../../fixtures/framing'
 
-afterEach(() => useLecture.getState().reinitialiser())
+afterEach(() => usePlayback.getState().reset())
 
 /** Deux plans qui couvrent [10, 30] : hors de cet intervalle, aucun plan. */
-const DEUX = framing({
+const TWO = framing({
   ratio: '16:9',
   shots: [shot(10, 20, '1:1', 0.3), shot(20, 30, '16:9', 0.5)],
 })
 
 describe('shotIndexAt', () => {
   it('rend le plan qui contient la position', () => {
-    expect(shotIndexAt(DEUX.shots, 15)).toBe(0)
-    expect(shotIndexAt(DEUX.shots, 25)).toBe(1)
+    expect(shotIndexAt(TWO.shots, 15)).toBe(0)
+    expect(shotIndexAt(TWO.shots, 25)).toBe(1)
   })
 
   // Les plans se suivent bout à bout : une frontière appartient au plan qui
   // commence, jamais aux deux.
   it('donne une frontière au plan qui commence', () => {
-    expect(shotIndexAt(DEUX.shots, 20)).toBe(1)
+    expect(shotIndexAt(TWO.shots, 20)).toBe(1)
   })
 
   it('rend -1 hors de tout plan', () => {
-    expect(shotIndexAt(DEUX.shots, 5)).toBe(-1)
-    expect(shotIndexAt(DEUX.shots, 40)).toBe(-1)
+    expect(shotIndexAt(TWO.shots, 5)).toBe(-1)
+    expect(shotIndexAt(TWO.shots, 40)).toBe(-1)
     expect(shotIndexAt([], 15)).toBe(-1)
   })
 })
 
 describe('useCurrentShot', () => {
-  const lire = (c = DEUX) => renderHook(() => useCurrentShot(c)).result
+  const lire = (c = TWO) => renderHook(() => useCurrentShot(c)).result
 
   it('suit la lecture de plan en plan', () => {
-    act(() => useLecture.getState().definirPosition(15))
+    actAsync(() => usePlayback.getState().definePosition(15))
     expect(lire().current?.ratio).toBe('1:1')
-    act(() => useLecture.getState().definirPosition(25))
+    actAsync(() => usePlayback.getState().definePosition(25))
     expect(lire().current?.ratio).toBe('16:9')
   })
 
@@ -79,7 +79,7 @@ describe('useCurrentShot', () => {
    * chose que ce que le fichier contiendra. (relevé par Codex)
    */
   it('ne montre aucun plan sur un intervalle qu’aucun ne couvre', () => {
-    act(() => useLecture.getState().definirPosition(40))
+    actAsync(() => usePlayback.getState().definePosition(40))
     expect(lire().current).toBeNull()
     // Et le repli des appelants est bien celui du rendu.
     expect(effectiveRatio(null, 'auto')).toBe('16:9')

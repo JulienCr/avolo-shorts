@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodeArgs } from '@/core/ffmpeg/encoder'
+import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodedArgs } from '@/core/ffmpeg/encoder'
 import type { Ratio } from '@/core/edl'
 import {
   audioArgs,
@@ -11,14 +11,14 @@ import {
   type FramedSegment,
 } from '@/core/ffmpeg/args'
 
-const compte = (argv: string[], jeton: string) => argv.filter((x) => x === jeton).length
+const count = (argv: string[], token: string) => argv.filter((x) => x === token).length
 
 describe('videoEncodeArgs', () => {
   it('porte les réglages x264 mesurés, par palier', () => {
-    expect(videoEncodeArgs('x264', 'quality')).toEqual([
+    expect(videoEncodedArgs('x264', 'quality')).toEqual([
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p',
     ])
-    expect(videoEncodeArgs('x264', 'fast')).toEqual([
+    expect(videoEncodedArgs('x264', 'fast')).toEqual([
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
     ])
   })
@@ -27,21 +27,21 @@ describe('videoEncodeArgs', () => {
   // 4:2:2 sortirait dans un format que les plateformes rejettent, sans
   // avertissement. Les deux encodeurs le posent donc, à tous les paliers.
   it('force yuv420p sur les deux encodeurs, à tous les paliers', () => {
-    for (const encodeur of ['x264', 'nvenc'] as const) {
-      for (const palier of ['quality', 'fast'] as const) {
-        const a = videoEncodeArgs(encodeur, palier)
+    for (const encoder of ['x264', 'nvenc'] as const) {
+      for (const tier of ['quality', 'fast'] as const) {
+        const a = videoEncodedArgs(encoder, tier)
         expect(a[a.indexOf('-pix_fmt') + 1]).toBe('yuv420p')
       }
     }
   })
 
   it('porte les réglages NVENC, avec -pix_fmt yuv420p', () => {
-    expect(videoEncodeArgs('nvenc', 'quality')).toEqual([
+    expect(videoEncodedArgs('nvenc', 'quality')).toEqual([
       '-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr',
       '-cq', '25', '-b:v', '0', '-spatial-aq', '1', '-temporal-aq', '1',
       '-pix_fmt', 'yuv420p',
     ])
-    expect(videoEncodeArgs('nvenc', 'fast')).toEqual([
+    expect(videoEncodedArgs('nvenc', 'fast')).toEqual([
       '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr',
       '-cq', '25', '-b:v', '0', '-spatial-aq', '1', '-pix_fmt', 'yuv420p',
     ])
@@ -50,9 +50,9 @@ describe('videoEncodeArgs', () => {
   // La table est une constante du module : la rendre telle quelle laisserait
   // n'importe quel appelant la modifier pour tous les suivants.
   it('rend une copie, pas la table elle-même', () => {
-    const a = videoEncodeArgs('nvenc', 'quality')
+    const a = videoEncodedArgs('nvenc', 'quality')
     a.push('-sabotage')
-    expect(videoEncodeArgs('nvenc', 'quality')).not.toContain('-sabotage')
+    expect(videoEncodedArgs('nvenc', 'quality')).not.toContain('-sabotage')
   })
 })
 
@@ -73,14 +73,14 @@ describe('proxyArgs', () => {
   it('finit par la destination, et jamais avant', () => {
     const a = proxyArgs({ ...base, encoder: 'x264' })
     expect(a[a.length - 1]).toBe('/p.mp4')
-    expect(compte(a, '/p.mp4')).toBe(1)
+    expect(count(a, '/p.mp4')).toBe(1)
   })
 
   // Le proxy est servi au navigateur (tâche 11) : le titre de l'émission, la
   // date d'enregistrement et le logiciel de capture n'ont rien à y faire.
   it('efface les métadonnées de la source', () => {
     const a = proxyArgs({ ...base, encoder: 'x264' })
-    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+    for (const token of METADATA_SCRUB) expect(a).toContain(token)
   })
 
   it('garde le son : le montage se fait à l’oreille sur le proxy', () => {
@@ -199,14 +199,14 @@ describe('sourceThumbArgs', () => {
  * graphe distingue — un cadre qui remplit son canevas, et un cadre qui doit être
  * posé sur un fond flouté.
  */
-const CADRE_9X16 = { w: 608, h: 1080, x: 656, y: 0 }
-const CADRE_1X1 = { w: 1080, h: 1080, x: 420, y: 0 }
+const FRAME_9_X_16 = { w: 608, h: 1080, x: 656, y: 0 }
+const FRAME_1_X_1 = { w: 1080, h: 1080, x: 420, y: 0 }
 
 /** Une entrée à décoder : des bornes, un rectangle, un ratio. */
-function entrée(
+function entry(
   start: number,
   end: number,
-  crop = CADRE_9X16,
+  crop = FRAME_9_X_16,
   ratio: Ratio = '9:16',
 ): FramedSegment {
   return { start, end, crop, ratio }
@@ -221,8 +221,8 @@ describe('renderArgs', () => {
   }
 
   it('un -ss par entrée, avant le -i correspondant', () => {
-    const a = renderArgs({ ...base, segments: [entrée(100, 110), entrée(200, 215)] })
-    expect(compte(a, '-i')).toBe(2)
+    const a = renderArgs({ ...base, segments: [entry(100, 110), entry(200, 215)] })
+    expect(count(a, '-i')).toBe(2)
     expect(a.indexOf('-ss')).toBeLessThan(a.indexOf('-i'))
     expect(a).toContain('100')
     expect(a.join(' ')).toContain('concat=n=2:v=1:a=1')
@@ -235,9 +235,9 @@ describe('renderArgs', () => {
   it('répète -hwaccel cuda devant chaque couple -ss/-i', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(100, 110), entrée(200, 215), entrée(300, 302.5)],
+      segments: [entry(100, 110), entry(200, 215), entry(300, 302.5)],
     })
-    expect(compte(a, '-hwaccel')).toBe(3)
+    expect(count(a, '-hwaccel')).toBe(3)
     expect(a.join(' ')).toContain(
       '-hwaccel cuda -ss 100 -t 10 -i /s.mp4' +
         ' -hwaccel cuda -ss 200 -t 15 -i /s.mp4' +
@@ -246,13 +246,13 @@ describe('renderArgs', () => {
   })
 
   it("n'accélère rien au GPU quand l'encodeur est x264", () => {
-    const a = renderArgs({ ...base, encoder: 'x264', segments: [entrée(0, 10)] })
+    const a = renderArgs({ ...base, encoder: 'x264', segments: [entry(0, 10)] })
     expect(a).not.toContain('-hwaccel')
     expect(a).toContain('libx264')
   })
 
   it('une seule entrée ne passe pas par concat', () => {
-    const a = renderArgs({ ...base, segments: [entrée(100, 110)] })
+    const a = renderArgs({ ...base, segments: [entry(100, 110)] })
     expect(a.join(' ')).not.toContain('concat=')
   })
 
@@ -260,10 +260,10 @@ describe('renderArgs', () => {
   // aucune étape ne suit. Le graphe entier tient alors en quatre clauses, et
   // les vérifier toutes exclut une étiquette orpheline ou écrite deux fois.
   it('assemble un graphe complet et sans étape morte, sans ASS ni logo', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10), entrée(20, 30)] })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
+    const a = renderArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
+    const graph = a[a.indexOf('-filter_complex') + 1]
     const crop = 'crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1'
-    expect(graphe).toBe(
+    expect(graph).toBe(
       `[0:v]${crop}[v0];[1:v]${crop}[v1];` +
         '[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][ac];' +
         `[ac]${LOUDNORM},${RESAMPLE}[a]`,
@@ -278,22 +278,22 @@ describe('renderArgs', () => {
     const a = renderArgs({
       ...base,
       segments: [
-        entrée(100, 110, { w: 608, h: 1080, x: 0, y: 0 }),
-        entrée(110, 120, { w: 608, h: 1080, x: 1312, y: 0 }),
+        entry(100, 110, { w: 608, h: 1080, x: 0, y: 0 }),
+        entry(110, 120, { w: 608, h: 1080, x: 1312, y: 0 }),
       ],
     })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
-    expect(graphe).toContain('[0:v]crop=608:1080:0:0,scale=1080:1920:flags=lanczos,setsar=1[v0]')
-    expect(graphe).toContain('[1:v]crop=608:1080:1312:0,scale=1080:1920:flags=lanczos,setsar=1[v1]')
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain('[0:v]crop=608:1080:0:0,scale=1080:1920:flags=lanczos,setsar=1[v0]')
+    expect(graph).toContain('[1:v]crop=608:1080:1312:0,scale=1080:1920:flags=lanczos,setsar=1[v1]')
     // Deux décodeurs, et surtout deux entrées qui se touchent sans fusionner.
-    expect(compte(a, '-i')).toBe(2)
+    expect(count(a, '-i')).toBe(2)
     expect(a.join(' ')).toContain('-ss 100 -t 10 -i /s.mp4 -hwaccel cuda -ss 110 -t 10 -i /s.mp4')
   })
 
   it('incruste l’ASS avec fontsdir, filename nommé et non positionnel', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       assPath: '/c.ass',
       fontsDir: '/fonts',
     })
@@ -301,7 +301,7 @@ describe('renderArgs', () => {
   })
 
   it('n’incruste rien quand aucun fichier ASS n’est fourni', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)] })
+    const a = renderArgs({ ...base, segments: [entry(0, 10)] })
     expect(a.join(' ')).not.toContain('ass=')
   })
 
@@ -309,7 +309,7 @@ describe('renderArgs', () => {
   // doit alors pas apparaître du tout : `fontsdir=''` le ferait chercher dans
   // un dossier vide et retomber sur une police de secours, en silence.
   it('omet fontsdir quand il n’est pas fourni, au lieu de l’émettre vide', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)], assPath: '/c.ass' })
+    const a = renderArgs({ ...base, segments: [entry(0, 10)], assPath: '/c.ass' })
     expect(a.join(' ')).toContain("ass=filename='/c.ass'")
     expect(a.join(' ')).not.toContain('fontsdir')
   })
@@ -326,7 +326,7 @@ describe('renderArgs', () => {
   it('échappe les deux-points et les contre-obliques du chemin', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       assPath: '/2026\\:03/c.ass',
     })
     expect(a.join(' ')).toContain(String.raw`ass=filename='/2026\\\:03/c.ass'`)
@@ -337,7 +337,7 @@ describe('renderArgs', () => {
   it("ferme et rouvre la chaîne autour d'une apostrophe, au lieu de la préfixer", () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       assPath: "/l'été:2026/c.ass",
     })
     expect(a.join(' ')).toContain(String.raw`ass=filename='/l'\\\''été\:2026/c.ass'`)
@@ -352,20 +352,20 @@ describe('renderArgs', () => {
   it('un chemin ne peut pas rouvrir le graphe de filtres', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       assPath: "/zz/'];exit[v];a='/c.ass",
     })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
-    expect(graphe).toContain(String.raw`ass=filename='/zz/'\\\''];exit[v];a='\\\''/c.ass'`)
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain(String.raw`ass=filename='/zz/'\\\''];exit[v];a='\\\''/c.ass'`)
     // Le graphe reste celui qu'on a écrit : une seule incrustation, une seule
     // normalisation, et c'est toujours notre dernière étape qui rend [v].
-    expect(graphe.match(/ass=filename=/g)).toHaveLength(1)
-    expect(graphe.match(/loudnorm=/g)).toHaveLength(1)
-    expect(graphe.endsWith('[v]')).toBe(true)
+    expect(graph.match(/ass=filename=/g)).toHaveLength(1)
+    expect(graph.match(/loudnorm=/g)).toHaveLength(1)
+    expect(graph.endsWith('[v]')).toBe(true)
   })
 
   it('NVENC ne reçoit jamais -hwaccel_output_format cuda', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)] })
+    const a = renderArgs({ ...base, segments: [entry(0, 10)] })
     expect(a).not.toContain('-hwaccel_output_format')
     expect(a).toContain('h264_nvenc')
   })
@@ -374,7 +374,7 @@ describe('renderArgs', () => {
   // « Simple and complex filtering cannot be used together for the same
   // stream ». La normalisation appartient donc au graphe.
   it('normalise le son dans le graphe, jamais par -af', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)] })
+    const a = renderArgs({ ...base, segments: [entry(0, 10)] })
     expect(a).not.toContain('-af')
     expect(a).not.toContain('-filter:a')
     expect(a.join(' ')).toContain(LOUDNORM)
@@ -387,17 +387,17 @@ describe('renderArgs', () => {
   // Les deux cas, parce que la chaîne audio n'a pas la même entrée : `0:a`
   // pour une entrée seule, la sortie `ac` du concat pour plusieurs.
   it.each([
-    ['une entrée', [entrée(0, 10)]],
-    ['plusieurs entrées', [entrée(0, 10), entrée(20, 30)]],
-  ])('fixe le taux de sortie derrière loudnorm — %s', (_nom, segments) => {
+    ['une entrée', [entry(0, 10)]],
+    ['plusieurs entrées', [entry(0, 10), entry(20, 30)]],
+  ])('fixe le taux de sortie derrière loudnorm — %s', (_name, segments) => {
     const a = renderArgs({ ...base, segments })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
-    expect(graphe).toContain(`${LOUDNORM},${RESAMPLE}`)
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain(`${LOUDNORM},${RESAMPLE}`)
     expect(RESAMPLE).toContain('48000')
   })
 
   it('cadre au rectangle demandé puis met à l’échelle de sortie', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)] })
+    const a = renderArgs({ ...base, segments: [entry(0, 10)] })
     expect(a.join(' ')).toContain('crop=608:1080:656:0')
     expect(a.join(' ')).toContain('scale=1080:1920:flags=lanczos')
     expect(a.join(' ')).toContain('setsar=1')
@@ -408,10 +408,10 @@ describe('renderArgs', () => {
   // plus large des plans —, donc le cadre le remplit. Un fond visible dans le
   // fichier du feed serait le défaut que ce choix existe pour éviter.
   it('ne fabrique aucun fond flouté quand le cadre remplit le canevas', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10), entrée(20, 30)] })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
-    expect(graphe).not.toContain('gblur')
-    expect(graphe).not.toContain('split=2')
+    const a = renderArgs({ ...base, segments: [entry(0, 10), entry(20, 30)] })
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).not.toContain('gblur')
+    expect(graph).not.toContain('split=2')
   })
 
   it('mappe toujours [v] et [a], quelles que soient les options', () => {
@@ -428,11 +428,11 @@ describe('renderArgs', () => {
         ],
       },
     ]) {
-      for (const segments of [[entrée(0, 10)], [entrée(0, 10), entrée(20, 30)]]) {
+      for (const segments of [[entry(0, 10)], [entry(0, 10), entry(20, 30)]]) {
         const a = renderArgs({ ...base, ...options, segments })
-        const graphe = a[a.indexOf('-filter_complex') + 1]
-        expect(graphe).toContain('[v]')
-        expect(graphe).toContain('[a]')
+        const graph = a[a.indexOf('-filter_complex') + 1]
+        expect(graph).toContain('[v]')
+        expect(graph).toContain('[a]')
         expect(a.join(' ')).toContain('-map [v] -map [a]')
       }
     }
@@ -444,28 +444,28 @@ describe('renderArgs', () => {
   it('pose les logos par-dessus les sous-titres, et non dessous', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       assPath: '/c.ass',
       logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
     })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
+    const graph = a[a.indexOf('-filter_complex') + 1]
     // L'incrustation rend l'étiquette que la superposition consomme.
-    expect(graphe).toContain("[v0]ass=filename='/c.ass'[vf0]")
-    expect(graphe).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
+    expect(graph).toContain("[v0]ass=filename='/c.ass'[vf0]")
+    expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
   })
 
   it('enchaîne les logos dans l’ordre reçu', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       logos: [
         { path: '/a.png', x: 10, y: 20, w: 100, h: 50 },
         { path: '/b.png', x: 30, y: 40, w: 200, h: 60 },
       ],
     })
-    const graphe = a[a.indexOf('-filter_complex') + 1]
-    expect(graphe).toContain('[v0][lg0]overlay=x=10:y=20[vf0]')
-    expect(graphe).toContain('[vf0][lg1]overlay=x=30:y=40[v]')
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain('[v0][lg0]overlay=x=10:y=20[vf0]')
+    expect(graph).toContain('[vf0][lg1]overlay=x=30:y=40[v]')
   })
 
   // TypeScript garantit `number` à la compilation et rien à l'exécution. Ces
@@ -474,51 +474,51 @@ describe('renderArgs', () => {
   it.each([
     [
       'segments[0].crop.x',
-      { segments: [entrée(0, 10, { w: 608, h: 1080, x: Number.NaN, y: 0 })] },
+      { segments: [entry(0, 10, { w: 608, h: 1080, x: Number.NaN, y: 0 })] },
     ],
-    ['out.w', { segments: [entrée(0, 10)], out: { w: Number.POSITIVE_INFINITY, h: 1920 } }],
+    ['out.w', { segments: [entry(0, 10)], out: { w: Number.POSITIVE_INFINITY, h: 1920 } }],
     [
       'logos[0].x',
       {
-        segments: [entrée(0, 10)],
+        segments: [entry(0, 10)],
         logos: [{ path: '/l.png', x: Number.NaN, y: 0, w: 10, h: 10 }],
       },
     ],
     [
       'logos[0].w',
       {
-        segments: [entrée(0, 10)],
+        segments: [entry(0, 10)],
         logos: [{ path: '/l.png', x: 0, y: 0, w: Number.NaN, h: 10 }],
       },
     ],
-  ])('refuse %s non fini plutôt que de l’écrire dans le graphe', (quoi, surcharge) => {
-    expect(() => renderArgs({ ...base, ...surcharge })).toThrow(
-      new RegExp(quoi.replace(/[[\]./]/g, '\\$&')),
+  ])('refuse %s non fini plutôt que de l’écrire dans le graphe', (what, override) => {
+    expect(() => renderArgs({ ...base, ...override })).toThrow(
+      new RegExp(what.replace(/[[\]./]/g, '\\$&')),
     )
   })
 
   it('ajoute une entrée par logo, sans -hwaccel — une image ne se décode pas au GPU', () => {
     const a = renderArgs({
       ...base,
-      segments: [entrée(0, 10)],
+      segments: [entry(0, 10)],
       logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
     })
-    expect(compte(a, '-i')).toBe(2)
-    expect(compte(a, '-hwaccel')).toBe(1)
+    expect(count(a, '-i')).toBe(2)
+    expect(count(a, '-hwaccel')).toBe(1)
     expect(a).toContain('/logo.png')
     expect(a.join(' ')).toContain('scale=300:90')
     expect(a.join(' ')).toContain('overlay=x=40:y=250')
   })
 
   it('efface les métadonnées et place l’index en tête du fichier', () => {
-    const a = renderArgs({ ...base, segments: [entrée(0, 10)] })
-    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+    const a = renderArgs({ ...base, segments: [entry(0, 10)] })
+    for (const token of METADATA_SCRUB) expect(a).toContain(token)
     expect(a.join(' ')).toContain('-movflags +faststart')
     expect(a[a.length - 1]).toBe('/o.mp4')
   })
 
   it('durée = fin - début, et jamais la fin brute', () => {
-    const a = renderArgs({ ...base, segments: [entrée(2841.2, 2856.9)] })
+    const a = renderArgs({ ...base, segments: [entry(2841.2, 2856.9)] })
     expect(a.join(' ')).toContain('-ss 2841.2 -t 15.7')
     expect(a).not.toContain('2856.9')
   })
@@ -529,10 +529,10 @@ describe('renderArgs', () => {
   // deux entrées adjacentes portent deux cadres différents, donc ce qui arrive
   // ici est déjà canonique et une anomalie est une erreur de l'appelant.
   it.each([
-    ['vide', entrée(200, 200)],
-    ['inversée', entrée(300, 290)],
-  ])('refuse une entrée %s au lieu de la jeter en silence', (_nom, mauvaise) => {
-    expect(() => renderArgs({ ...base, segments: [entrée(100, 110), mauvaise] })).toThrow(
+    ['vide', entry(200, 200)],
+    ['inversée', entry(300, 290)],
+  ])('refuse une entrée %s au lieu de la jeter en silence', (_name, bad) => {
+    expect(() => renderArgs({ ...base, segments: [entry(100, 110), bad] })).toThrow(
       /segments\[1\]/,
     )
   })
@@ -545,11 +545,11 @@ describe('renderArgs', () => {
     const a = renderArgs({
       ...base,
       segments: [
-        entrée(100, 110, { w: 608, h: 1080, x: 0, y: 0 }),
-        entrée(110, 120, { w: 608, h: 1080, x: 1312, y: 0 }),
+        entry(100, 110, { w: 608, h: 1080, x: 0, y: 0 }),
+        entry(110, 120, { w: 608, h: 1080, x: 1312, y: 0 }),
       ],
     })
-    expect(compte(a, '-i')).toBe(2)
+    expect(count(a, '-i')).toBe(2)
     expect(a.join(' ')).toContain('-ss 100 -t 10')
     expect(a.join(' ')).toContain('-ss 110 -t 10')
   })
@@ -560,7 +560,7 @@ describe('renderArgs', () => {
   // puisque la somme, elle, ne change pas.
   it('refuse deux entrées qui se chevauchent', () => {
     expect(() =>
-      renderArgs({ ...base, segments: [entrée(100, 120), entrée(110, 130)] }),
+      renderArgs({ ...base, segments: [entry(100, 120), entry(110, 130)] }),
     ).toThrow(/segments\[1\]/)
   })
 
@@ -573,12 +573,12 @@ describe('renderArgs', () => {
   // un clip de trois en rendrait deux. Une borne infinie, elle, ressortirait en
   // `-t Infinity`.
   it.each([
-    ['NaN au début', entrée(Number.NaN, 20)],
-    ['NaN à la fin', entrée(10, Number.NaN)],
-    ['fin infinie', entrée(10, Number.POSITIVE_INFINITY)],
-  ])('refuse une borne non finie (%s) au lieu de perdre l’entrée', (_nom, mauvais) => {
+    ['NaN au début', entry(Number.NaN, 20)],
+    ['NaN à la fin', entry(10, Number.NaN)],
+    ['fin infinie', entry(10, Number.POSITIVE_INFINITY)],
+  ])('refuse une borne non finie (%s) au lieu de perdre l’entrée', (_name, bad) => {
     expect(() =>
-      renderArgs({ ...base, segments: [entrée(0, 10), mauvais, entrée(30, 40)] }),
+      renderArgs({ ...base, segments: [entry(0, 10), bad, entry(30, 40)] }),
     ).toThrow(/segments\[1\]/)
   })
 
@@ -586,9 +586,9 @@ describe('renderArgs', () => {
   // NaN comme pour les infinis, et désignerait donc une valeur que l'appelant
   // n'a jamais passée.
   it('nomme la valeur fautive dans le message', () => {
-    expect(() => renderArgs({ ...base, segments: [entrée(Number.NaN, 10)] })).toThrow(/NaN/)
+    expect(() => renderArgs({ ...base, segments: [entry(Number.NaN, 10)] })).toThrow(/NaN/)
     expect(() =>
-      renderArgs({ ...base, segments: [entrée(0, Number.POSITIVE_INFINITY)] }),
+      renderArgs({ ...base, segments: [entry(0, Number.POSITIVE_INFINITY)] }),
     ).toThrow(/Infinity/)
   })
 })
@@ -600,12 +600,12 @@ describe('blurredVariantArgs', () => {
   const base = {
     src: '/s.mp4',
     dst: '/o-9x16.mp4',
-    segments: [entrée(0, 10, CADRE_1X1, '1:1' as Ratio)],
+    segments: [entry(0, 10, FRAME_1_X_1, '1:1' as Ratio)],
     out: { w: 1080, h: 1080 },
     encoder: 'nvenc' as const,
   }
 
-  const graphe = (a: string[]) => a[a.indexOf('-filter_complex') + 1]
+  const graph = (a: string[]) => a[a.indexOf('-filter_complex') + 1]
 
   it('sort en 1080x1920', () => {
     const a = blurredVariantArgs(base)
@@ -635,10 +635,10 @@ describe('blurredVariantArgs', () => {
   // de fond flouté en haut et en bas d'un cadre qui devait remplir.
   it.each([
     ['4:5', { w: 864, h: 1080, x: 528, y: 0 }, 1350],
-    ['1:1', CADRE_1X1, 1080],
+    ['1:1', FRAME_1_X_1, 1080],
     ['16:9', { w: 1920, h: 1080, x: 0, y: 0 }, 608],
   ])('pose un plan %s sur %s pixels de haut', (ratio, crop, hauteur) => {
-    const g = graphe(blurredVariantArgs({ ...base, segments: [entrée(0, 10, crop, ratio as Ratio)] }))
+    const g = graph(blurredVariantArgs({ ...base, segments: [entry(0, 10, crop, ratio as Ratio)] }))
     expect(g).toContain(`scale=1080:${hauteur}:flags=lanczos`)
   })
 
@@ -646,7 +646,7 @@ describe('blurredVariantArgs', () => {
   // déjà en 9:16 remplit le canevas, et le composer quand même ferait payer un
   // `gblur` sur une image que rien ne montre.
   it('ne fabrique pas de fond pour un plan déjà en 9:16', () => {
-    const g = graphe(blurredVariantArgs({ ...base, segments: [entrée(0, 10)] }))
+    const g = graph(blurredVariantArgs({ ...base, segments: [entry(0, 10)] }))
     expect(g).toBe(
       '[0:v]crop=608:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[v];' +
         `[0:a]${LOUDNORM},${RESAMPLE}[a]`,
@@ -658,12 +658,12 @@ describe('blurredVariantArgs', () => {
   // coupe, donc il ne se voit pas. Un ratio unique pour tout le clip écraserait
   // le plan serré sous le plus large.
   it('compose chaque plan à son propre ratio, avant la concaténation', () => {
-    const g = graphe(
+    const g = graph(
       blurredVariantArgs({
         ...base,
         segments: [
-          entrée(0, 10),
-          entrée(10, 20, { w: 1920, h: 1080, x: 0, y: 0 }, '16:9'),
+          entry(0, 10),
+          entry(10, 20, { w: 1920, h: 1080, x: 0, y: 0 }, '16:9'),
         ],
       }),
     )
@@ -689,7 +689,7 @@ describe('blurredVariantArgs', () => {
   // qui n'a jamais porté de texte : le `split` est **avant** l'incrustation, et
   // celle-ci a lieu sur le canevas composé, donc après.
   it("ne laisse ni sous-titre ni marque atteindre le fond flouté", () => {
-    const g = graphe(
+    const g = graph(
       blurredVariantArgs({
         ...base,
         assPath: '/c.ass',
@@ -715,7 +715,7 @@ describe('blurredVariantArgs', () => {
   // dans un 9:16 s'y retrouvait à 31,6 % de sa taille, illisible — et avec un
   // ratio qui varie par plan, il aurait changé de taille à chaque coupe.
   it('incruste les sous-titres après la composition, pas avant', () => {
-    const g = graphe(blurredVariantArgs({ ...base, assPath: '/c.ass' }))
+    const g = graph(blurredVariantArgs({ ...base, assPath: '/c.ass' }))
     expect(g.indexOf('overlay=x=0:y=(H-h)/2')).toBeLessThan(g.indexOf('ass=filename='))
     // Et surtout : plus aucune mise à l'échelle ne suit l'incrustation.
     expect(g.slice(g.indexOf('ass=filename='))).not.toContain('scale=')
@@ -728,11 +728,11 @@ describe('blurredVariantArgs', () => {
     const a = blurredVariantArgs({
       ...base,
       segments: [
-        entrée(100, 110, CADRE_1X1, '1:1'),
-        entrée(200, 215, CADRE_1X1, '1:1'),
+        entry(100, 110, FRAME_1_X_1, '1:1'),
+        entry(200, 215, FRAME_1_X_1, '1:1'),
       ],
     })
-    expect(compte(a, '-i')).toBe(2)
+    expect(count(a, '-i')).toBe(2)
     expect(a.join(' ')).toContain(
       '-hwaccel cuda -ss 100 -t 10 -i /s.mp4 -hwaccel cuda -ss 200 -t 15 -i /s.mp4',
     )
@@ -742,7 +742,7 @@ describe('blurredVariantArgs', () => {
   // Le graphe entier, sur le cas le plus simple : une entrée, pas de marque.
   // Le vérifier en entier exclut une étiquette orpheline ou écrite deux fois.
   it('assemble un graphe complet et sans étape morte', () => {
-    expect(graphe(blurredVariantArgs({ ...base, assPath: '/c.ass' }))).toBe(
+    expect(graph(blurredVariantArgs({ ...base, assPath: '/c.ass' }))).toBe(
       '[0:v]crop=1080:1080:420:0,setsar=1[c0];' +
         '[c0]split=2[bga0][fga0];' +
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
@@ -761,12 +761,12 @@ describe('blurredVariantArgs', () => {
   // interdit une étiquette orpheline entre les deux. (relevé par Aristarque)
   it('assemble le graphe de la variante sur un clip à deux entrées', () => {
     expect(
-      graphe(
+      graph(
         blurredVariantArgs({
           ...base,
           segments: [
-            entrée(100, 110, CADRE_1X1, '1:1'),
-            entrée(200, 215, CADRE_1X1, '1:1'),
+            entry(100, 110, FRAME_1_X_1, '1:1'),
+            entry(200, 215, FRAME_1_X_1, '1:1'),
           ],
           assPath: '/c.ass',
         }),
@@ -794,7 +794,7 @@ describe('blurredVariantArgs', () => {
   // personne ne lirait. Un clip sans sous-titres est un réglage de l'interface,
   // pas une curiosité. (relevé par Aristarque)
   it("assemble le graphe de la variante d'un clip sans sous-titres", () => {
-    expect(graphe(blurredVariantArgs(base))).toBe(
+    expect(graph(blurredVariantArgs(base))).toBe(
       '[0:v]crop=1080:1080:420:0,setsar=1[c0];' +
         '[c0]split=2[bga0][fga0];' +
         '[bga0]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=12[bg0];' +
@@ -811,7 +811,7 @@ describe('blurredVariantArgs', () => {
   it('normalise le son depuis la source, une seule fois', () => {
     const a = blurredVariantArgs(base)
     expect(a.join(' ')).not.toContain('-c:a copy')
-    expect(graphe(a).match(/loudnorm=/g)).toHaveLength(1)
+    expect(graph(a).match(/loudnorm=/g)).toHaveLength(1)
     expect(a.join(' ')).toContain(`${LOUDNORM},${RESAMPLE}`)
     expect(a.join(' ')).toContain('-c:a aac')
   })
@@ -829,14 +829,14 @@ describe('blurredVariantArgs', () => {
   // moins traîner les métadonnées de la source.
   it('efface les métadonnées de la source', () => {
     const a = blurredVariantArgs(base)
-    for (const jeton of METADATA_SCRUB) expect(a).toContain(jeton)
+    for (const token of METADATA_SCRUB) expect(a).toContain(token)
   })
 
   // Les gardes de `renderArgs` valent pour la variante : c'est le même
   // constructeur, et une borne perdue y coûterait le même segment muet.
   it('refuse une borne non finie, comme le rendu natif', () => {
     expect(() =>
-      blurredVariantArgs({ ...base, segments: [entrée(Number.NaN, 10, CADRE_1X1, '1:1')] }),
+      blurredVariantArgs({ ...base, segments: [entry(Number.NaN, 10, FRAME_1_X_1, '1:1')] }),
     ).toThrow(/segments\[0\]/)
     expect(() => blurredVariantArgs({ ...base, segments: [] })).toThrow()
   })
@@ -855,7 +855,7 @@ describe('la garde `--` devant la destination', () => {
       renderArgs({
         src: '/s.mp4',
         dst: '/-o.mp4',
-        segments: [entrée(0, 10)],
+        segments: [entry(0, 10)],
         out: { w: 1080, h: 1920 },
         encoder: 'nvenc',
       }),
@@ -865,13 +865,13 @@ describe('la garde `--` devant la destination', () => {
       blurredVariantArgs({
         src: '/s.mp4',
         dst: '/-o-9x16.mp4',
-        segments: [entrée(0, 10, CADRE_1X1, '1:1')],
+        segments: [entry(0, 10, FRAME_1_X_1, '1:1')],
         out: { w: 1080, h: 1080 },
         encoder: 'nvenc',
       }),
     ],
-  ])('%s la pose', (_nom, a) => {
+  ])('%s la pose', (_name, a) => {
     expect(a[a.length - 2]).toBe('--')
-    expect(compte(a, '--')).toBe(1)
+    expect(count(a, '--')).toBe(1)
   })
 })

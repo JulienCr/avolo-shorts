@@ -1,6 +1,6 @@
 import { json, route } from '@/server/http'
 import { replayDir } from '@/server/paths'
-import { listerSources } from '@/server/sources'
+import { listSources } from '@/server/sources'
 
 /**
  * `GET /api/sources` — les replays disponibles, et l'état du montage qui les
@@ -21,5 +21,5 @@ import { listerSources } from '@/server/sources'
  */
 export const GET = route('GET /api/sources', async () => {
   replayDir()
-  return json(await listerSources())
+  return json(await listSources())
 })

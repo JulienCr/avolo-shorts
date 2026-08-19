@@ -154,7 +154,7 @@ describe('la hauteur', () => {
   it('est la même dans les cinq états', () => {
     // C'est ce qui ferme le point 2 de l'issue #56 : plus rien ne grandit après
     // coup, donc la position de défilement reste juste au retour d'un clip.
-    const cases: Entry[] = [
+    const cells: Entry[] = [
       entry({}),
       entry({ projectId: PROJECT.id }, { running: { step: 'proxy', progress: 0.1 } }),
       entry({ projectId: PROJECT.id }, { stopped: true }),
@@ -162,7 +162,7 @@ describe('la hauteur', () => {
       entry({ projectId: PROJECT.id }, {}),
     ]
 
-    for (const item of cases) {
+    for (const item of cells) {
       const { unmount } = renderCard(item)
       expect(card().className).toContain(CARD_HEIGHT)
       unmount()

@@ -11,11 +11,11 @@
  * trois secondes de contexte.
  */
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { actAsync, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Timeline } from '@/components/clip/timeline'
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import { framing, shot } from '../../fixtures/framing'
 
 // jsdom n'implémente pas la capture de pointeur : sans ces bouchons, le premier
@@ -44,7 +44,7 @@ function pointerAt(target: Element | Window, type: string, clientX: number) {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
-  useLecture.getState().reinitialiser()
+  usePlayback.getState().reset()
 })
 
 /** La bande occupe 1000 px : une fraction lue vaut donc un millième de la fenêtre. */
@@ -275,14 +275,14 @@ describe('la tête de lecture', () => {
     // contrôle réservé au pointeur retirerait donc au clavier une capacité neuve.
     // (relevé par Copilot)
     const { onScrub } = mount()
-    act(() => useLecture.getState().definirPosition(110))
-    const tete = document.querySelector('[data-playhead]')
-    if (tete === null) throw new Error('la tête de lecture n’est pas rendue')
+    actAsync(() => usePlayback.getState().definePosition(110))
+    const head = document.querySelector('[data-playhead]')
+    if (head === null) throw new Error('la tête de lecture n’est pas rendue')
 
-    fireEvent.keyDown(tete, { key: 'ArrowRight' })
+    fireEvent.keyDown(head, { key: 'ArrowRight' })
     expect(onScrub.mock.calls[0][0]).toBeCloseTo(110 + 1 / 30, 5)
 
-    fireEvent.keyDown(tete, { key: 'ArrowLeft', shiftKey: true })
+    fireEvent.keyDown(head, { key: 'ArrowLeft', shiftKey: true })
     expect(onScrub.mock.calls[1][0]).toBeCloseTo(109.5, 5)
   })
 
@@ -297,9 +297,9 @@ describe('la tête de lecture', () => {
 
   it('annonce sa position en timecode', () => {
     mount()
-    act(() => useLecture.getState().definirPosition(110.4))
-    const tete = document.querySelector('[data-playhead]')
-    expect(tete?.getAttribute('aria-valuetext')).toBe('0:01:50, image 12')
+    actAsync(() => usePlayback.getState().definePosition(110.4))
+    const head = document.querySelector('[data-playhead]')
+    expect(head?.getAttribute('aria-valuetext')).toBe('0:01:50, image 12')
   })
 })
 

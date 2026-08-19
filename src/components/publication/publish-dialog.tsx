@@ -11,6 +11,7 @@ import {
   PLATFORMS,
   PUBLICATION_STATUS_LABELS,
   defaultPlatformAvailability,
+  selectablePlatforms,
   type ClipEligibility,
   type Platform,
   type PlatformAvailability,
@@ -119,19 +120,29 @@ export function PublishDialog({
 
   const eligible = clips.filter((c) => c.eligibility.eligible)
   const ineligible = clips.filter((c) => !c.eligibility.eligible)
-  const selectable = PLATFORMS.filter((p) => resolvedAvailability[p].available)
+  const selectable = selectablePlatforms(resolvedAvailability)
 
   // **Chaque plateforme réussit ou échoue seule** (spec publication §6.4) :
   // la cible se calcule couple par couple, jamais en bloc, pour que la suite
   // — un connecteur qui échoue sur l'un — n'ait rien à changer ici.
+  //
+  // **Toujours recoupé avec `selectable`, jamais avec `selected` seul.**
+  // Rien ne peut cocher une plateforme indisponible aujourd'hui — les cases
+  // désactivées ne déclenchent pas `onCheckedChange` — mais `availability`
+  // est une prop injectable, explicitement destinée à devenir dynamique le
+  // jour d'un connecteur : une plateforme qui bascule `available` →
+  // `unavailable` pendant que la boîte reste ouverte ne doit jamais partir
+  // dans `onLaunch` sous prétexte qu'elle était cochée avant. (relevé par
+  // Copilot)
+  const selectedAndAvailable = PLATFORMS.filter((p) => selected.has(p) && selectable.includes(p))
   const targets = eligible.flatMap((clip) =>
-    PLATFORMS.filter((p) => selected.has(p)).flatMap((platform) =>
+    selectedAndAvailable.flatMap((platform) =>
       canTargetPlatform(clip.records?.[platform], force) ? [{ clipId: clip.clipId, platform }] : [],
     ),
   )
 
   const alreadyPublished = eligible.some((clip) =>
-    PLATFORMS.some((p) => selected.has(p) && clip.records?.[p]?.status === 'published'),
+    selectedAndAvailable.some((p) => clip.records?.[p]?.status === 'published'),
   )
 
   const peutContinuer = selectable.length === 0 || selected.size > 0
@@ -164,15 +175,25 @@ export function PublishDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Alert>
-          <Info aria-hidden />
-          <AlertTitle>Aucun connecteur n’est encore branché.</AlertTitle>
-          <AlertDescription>
-            Les quatre plateformes ci-dessous sont donc « non configuré » : c’est l’état honnête
-            aujourd’hui, pas une panne. Le parcours reste utilisable jusqu’à la confirmation, qui
-            est le geste qu’on veut fixer avant d’écrire le premier connecteur.
-          </AlertDescription>
-        </Alert>
+        {/* **Conditionné à l'état réel, pas affiché en dur.** `availability` est
+            injectable — pour les tests, et pour le connecteur du jour où il
+            existera — et un appelant qui passe des plateformes déjà
+            disponibles ne doit pas lire un message qui affirme le contraire.
+            (relevé par Copilot) */}
+        {PLATFORMS.some((p) => {
+          const a = resolvedAvailability[p]
+          return !a.available && a.reason === 'not_configured'
+        }) && (
+          <Alert>
+            <Info aria-hidden />
+            <AlertTitle>Aucun connecteur n’est encore branché.</AlertTitle>
+            <AlertDescription>
+              Les plateformes marquées « non configuré » ci-dessous le sont donc : c’est l’état
+              honnête aujourd’hui, pas une panne. Le parcours reste utilisable jusqu’à la
+              confirmation, qui est le geste qu’on veut fixer avant d’écrire le premier connecteur.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {ineligible.length > 0 && (
           <Alert variant="destructive">
@@ -207,7 +228,7 @@ export function PublishDialog({
             alreadyPublished={alreadyPublished}
           />
         ) : (
-          <ConfirmStep clips={eligible} selected={selected} targets={targets} />
+          <ConfirmStep targets={targets} />
         )}
 
         <DialogFooter>
@@ -367,7 +388,13 @@ function PlatformRecords({
           <li key={clip.clipId} className="flex items-center gap-1.5 text-xs">
             <StatusBadge status={record.status} />
             <span className="truncate">{clip.title || clip.clipId}</span>
-            {record.remoteUrl !== null && (
+            {/* **`http`/`https` seulement.** `remoteUrl` vient d'une future
+                réponse de plateforme, jamais vérifiée à la frontière de
+                l'API : aucun appelant ne le fournit encore, mais poser un
+                `href` sur une chaîne quelconque laisserait passer un
+                `javascript:` ou un `data:` le jour où l'un le fera. (relevé
+                par Copilot) */}
+            {record.remoteUrl !== null && /^https?:\/\//.test(record.remoteUrl) && (
               <a
                 href={record.remoteUrl}
                 target="_blank"
@@ -408,12 +435,8 @@ function StatusBadge({ status }: { status: PublicationStatus }) {
  * seule question.
  */
 function ConfirmStep({
-  clips,
-  selected,
   targets,
 }: {
-  clips: readonly PublishClipTarget[]
-  selected: ReadonlySet<Platform>
   targets: readonly { clipId: string; platform: Platform }[]
 }) {
   if (targets.length === 0) {
@@ -429,12 +452,18 @@ function ConfirmStep({
     )
   }
 
-  const platformsChoisies = PLATFORMS.filter((p) => selected.has(p))
+  // **Les plateformes réellement ciblées, pas celles cochées.** `selected`
+  // inclut une case cochée que `targets` a déjà retirée — clip déjà `published`
+  // sans confirmation explicite, plateforme redevenue indisponible pendant que
+  // la boîte était ouverte. Compter sur `selected` ici annoncerait un envoi qui
+  // n'a pas lieu. (relevé par Copilot)
+  const platformsChoisies = PLATFORMS.filter((p) => targets.some((t) => t.platform === p))
+  const clipsCiblés = new Set(targets.map((t) => t.clipId)).size
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p>
-        {clips.length === 1 ? 'Ce clip part vers' : `Ces ${clips.length} clips partent vers`}{' '}
+        {clipsCiblés === 1 ? 'Ce clip part vers' : `Ces ${clipsCiblés} clips partent vers`}{' '}
         <span className="font-medium">
           {platformsChoisies.map((p) => PLATFORM_LABELS[p]).join(', ')}
         </span>

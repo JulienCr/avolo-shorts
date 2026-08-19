@@ -68,9 +68,12 @@ export const PLATFORM_UNAVAILABLE_REASON_LABELS: Record<PlatformUnavailableReaso
   // avant l'audit, une vidéo envoyée par l'API YouTube est verrouillée en
   // privé et ne peut plus être libérée, même à la main dans Studio. Le
   // connecteur ne s'écrit donc pas avant que l'audit soit passé, deux à six
-  // semaines et refus possible. TikTok se dépose en brouillon en attendant.
+  // semaines et refus possible. TikTok, lui, se dépose en brouillon en
+  // attendant — le message reste donc générique aux deux plutôt que
+  // d'affirmer un verrouillage qui n'est vrai que d'une des deux. (relevé
+  // par Copilot)
   audit_required:
-    'Cette plateforme exige un audit de deux à six semaines avant de publier, avec refus possible. Avant l’audit, envoyer par l’API verrouillerait la vidéo sans recours — le connecteur n’existe donc pas encore.',
+    'Cette plateforme exige un audit de deux à six semaines avant de publier, avec refus possible. Le connecteur n’existe donc pas encore.',
 }
 
 export type PlatformAvailability =

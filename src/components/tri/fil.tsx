@@ -113,11 +113,11 @@ export function FilDeTri({
    * curseur : cocher trois cartes puis naviguer aux flèches ne doit rien
    * décocher.
    */
-  const [publierSelection, setPublierSelection] = useState<ReadonlySet<string>>(new Set())
-  const [publierOuvert, setPublierOuvert] = useState(false)
+  const [selectedForPublish, setSelectedForPublish] = useState<ReadonlySet<string>>(new Set())
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
 
-  function basculerPublierSelection(clipId: string) {
-    setPublierSelection((courante) => {
+  function togglePublishSelection(clipId: string) {
+    setSelectedForPublish((courante) => {
       const suivante = new Set(courante)
       if (suivante.has(clipId)) suivante.delete(clipId)
       else suivante.add(clipId)
@@ -127,18 +127,30 @@ export function FilDeTri({
 
   // **La même logique que la publication d'un clip seul** (retour d'usage
   // §11) : `PublishClipTarget` et `clipEligibilityFromStatus` viennent tous
-  // deux de `@/core/publication`, sans rien de propre à la vue Émission. Seule
-  // l'éligibilité diffère dans sa source — le statut du clip ici, `outputs`
-  // sur l'écran de clip — parce que cette liste n'a jamais chargé les sorties
-  // de chaque clip ; les deux lisent la même règle (un clip qui n'est pas
-  // `exported` ne se publie pas).
+  // deux de `@/core/publication`, sans rien de propre à la vue Émission.
+  // L'éligibilité diffère dans sa source — le statut du clip ici, `outputs`
+  // sur l'écran de clip, parce que cette liste n'a jamais chargé les sorties
+  // de chaque clip — et donc dans sa précision : `outputs.mp4Url` peut
+  // devenir `null` (rendu périmé par une édition, fichier disparu) alors que
+  // `status` reste `exported`, ce que cette vue ne peut pas voir. La sélection
+  // en masse peut donc, dans ce cas rare, juger publiable un clip que l'écran
+  // de clip refuserait — signalé par Aristarque, non corrigé ici : le
+  // corriger demanderait de charger `outputs` pour chaque candidat, un appel
+  // réseau que cette PR ne fait pas (hors périmètre, voir issue de suivi).
+  //
+  // **Réconciliée avec `clips`, jamais lue sur `selectedForPublish` seul.**
+  // `selectedForPublish` peut porter un identifiant qu'un repérage forcé a fait
+  // disparaître de `clips` ; filtrer ici est ce qui évite d'annoncer « 1 clip
+  // sélectionné » puis d'ouvrir une modale « Publier 0 clip ». (relevé par
+  // Copilot)
   const clipsToPublish: PublishClipTarget[] = clips
-    .filter((c) => publierSelection.has(c.id))
+    .filter((c) => selectedForPublish.has(c.id))
     .map((c) => ({
       clipId: c.id,
       title: c.title,
       eligibility: clipEligibilityFromStatus(c.status),
     }))
+  const selectedForPublishCount = clipsToPublish.length
 
   // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
   // se stocke : une sélection gardée dans l'état survivrait à la disparition de
@@ -301,18 +313,18 @@ export function FilDeTri({
           d'usage §2.4). Elle ouvre la même modale que le bouton « Publier »
           de l'écran de clip — `PublishDialog`, `@/components/publication` —
           sans rien réécrire de sa logique. */}
-      {publierSelection.size > 0 && (
+      {selectedForPublishCount > 0 && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2">
           <p className="text-sm">
-            {publierSelection.size === 1 ? '1 clip sélectionné' : `${publierSelection.size} clips sélectionnés`}
+            {selectedForPublishCount === 1 ? '1 clip sélectionné' : `${selectedForPublishCount} clips sélectionnés`}
           </p>
           <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setPublierSelection(new Set())}>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedForPublish(new Set())}>
               Annuler la sélection
             </Button>
-            <Button size="sm" onClick={() => setPublierOuvert(true)}>
+            <Button size="sm" onClick={() => setPublishDialogOpen(true)}>
               <Send aria-hidden />
-              Publier {publierSelection.size === 1 ? '1 clip' : `${publierSelection.size} clips`}
+              Publier {selectedForPublishCount === 1 ? '1 clip' : `${selectedForPublishCount} clips`}
             </Button>
           </div>
         </div>
@@ -410,7 +422,7 @@ export function FilDeTri({
                       `a[href^="/clips/"]`, donc rien à arrêter ici. */}
                   <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-black/55 p-1 backdrop-blur-sm">
                     <Checkbox
-                      checked={publierSelection.has(clip.id)}
+                      checked={selectedForPublish.has(clip.id)}
                       // **Le focus revient à la carte, comme après « Garder »
                       // ou « Écarter ».** La case, un `[role="checkbox"]`,
                       // est désormais dans la garde des raccourcis
@@ -418,10 +430,10 @@ export function FilDeTri({
                       // le clavier muet sans que rien à l'écran ne le
                       // signale, la carte gardant son anneau de sélection.
                       onCheckedChange={() => {
-                        basculerPublierSelection(clip.id)
+                        togglePublishSelection(clip.id)
                         focaliser(clip.id)
                       }}
-                      aria-label={`Sélectionner « ${clip.title} » pour publication`}
+                      aria-label={`Sélectionner « ${clip.title || clip.id} » pour publication`}
                     />
                   </div>
                   <CandidateCard
@@ -458,7 +470,7 @@ export function FilDeTri({
 
       <AideClavier ouvert={aide} onOuvert={setAide} />
 
-      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={clipsToPublish} />
+      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={clipsToPublish} />
     </div>
   )
 }

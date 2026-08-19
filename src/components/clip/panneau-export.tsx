@@ -147,7 +147,7 @@ export function PanneauExport({
     exporter.mutate({ clipId: clip.id, force })
   }
 
-  const [publierOuvert, setPublierOuvert] = useState(false)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   /**
    * L'éligibilité à la publication, **lue sur `outputs.mp4Url`, jamais
    * déduite du statut.** `mp4Url` vaut `null` dans les trois situations que
@@ -270,11 +270,16 @@ export function PanneauExport({
           {/* **Le bouton principal de la publication** (retour d'usage §3.6),
               à côté de l'export dans la zone Livraison. Il ouvre la même
               modale que la sélection en masse de la vue Émission — voir
-              `PublishDialog`, qui porte la logique, jamais recopiée ici. */}
+              `PublishDialog`, qui porte la logique, jamais recopiée ici.
+              **Le même garde-fou que « Exporter ».** Une écriture en vol ou
+              un dernier enregistrement en échec rendent « Exporter » inactif
+              (lignes plus haut) ; « Publier » doit se refuser dans les mêmes
+              conditions, sinon il enverrait le fichier livré alors qu'une
+              édition non enregistrée le périme déjà. (relevé par Aristarque) */}
           <Button
             variant="outline"
-            onClick={() => publicationEligibility.eligible && setPublierOuvert(true)}
-            aria-disabled={!publicationEligibility.eligible || undefined}
+            onClick={() => empêchement === null && publicationEligibility.eligible && setPublishDialogOpen(true)}
+            aria-disabled={empêchement !== null || !publicationEligibility.eligible || undefined}
           >
             <Send aria-hidden />
             Publier
@@ -366,7 +371,7 @@ export function PanneauExport({
         </DialogContent>
       </Dialog>
 
-      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={[publishTarget]} />
+      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={[publishTarget]} />
     </section>
   )
 }

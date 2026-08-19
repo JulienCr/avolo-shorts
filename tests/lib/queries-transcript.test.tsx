@@ -126,6 +126,27 @@ describe('useCorrectTranscript', () => {
     expect((result.current.error as ApiError).status).toBe(409)
   })
 
+  it('invalide le cache du transcript sur un 409 — la version qu’il tient a causé le refus', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response({ error: 'Le texte a changé sous vos yeux.' }, 409)),
+    )
+    const { client, wrapper } = harness()
+    client.setQueryData(cles.transcript('p1'), lines)
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
+    await act(async () => {
+      result.current.mutate({
+        projectId: 'p1',
+        correction: { lineId: 'l0', from: 0, to: 0, expected: ['pas-le-bon-mot'], replacement: ['x'] },
+      })
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
+  })
+
   it('retire du cache une phrase vidée de tous ses mots — pas de ligne fantôme', async () => {
     // `lignesDuTranscript` (src/server/vues.ts) écarte une phrase sans mot
     // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.

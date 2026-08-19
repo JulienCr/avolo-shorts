@@ -237,6 +237,41 @@ describe('correctTranscript', () => {
     expect(file.segments[1].speaker).toBe('SPEAKER_01')
   })
 
+  it('garde un champ additionnel de la phrase corrigée elle-même — pas seulement de ses voisines', async () => {
+    const placement = placeSidecar(SOURCE, ID)
+    fs.writeFileSync(
+      placement.transcript,
+      JSON.stringify({
+        language: 'fr',
+        segments: [
+          {
+            start: 10,
+            end: 12,
+            text: 'Bonjour à tous',
+            speaker: 'SPEAKER_00',
+            words: [
+              { word: 'Bonjour', start: 10, end: 10.6 },
+              { word: 'à', start: 10.7, end: 10.8 },
+              { word: 'tous', start: 10.9, end: 12 },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const result = await correctTranscript(project, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: ['Salut'],
+    })
+    expect(result.ok).toBe(true)
+
+    const file = readFile() as { segments: Record<string, unknown>[] }
+    expect(file.segments[0].speaker).toBe('SPEAKER_00')
+    expect(file.segments[0].text).toBe('Salut à tous')
+  })
+
   it('deux corrections lancées ensemble sur des phrases différentes tiennent toutes les deux', async () => {
     const [first, second] = await Promise.all([
       correctTranscript(project, 'l0', { from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
@@ -248,5 +283,19 @@ describe('correctTranscript', () => {
     const file = readFile()
     expect(file.segments[0].text).toBe('Salut à tous')
     expect(file.segments[1].text).toBe('Seconde phrase')
+  })
+
+  it('refuse la correction si une exécution démarre entre le premier refus et l’écriture', async () => {
+    // La route revérifie déjà `progression()` avant d'appeler cette fonction ;
+    // ce test couvre la seconde sonde, juste avant l'écriture, qui referme la
+    // fenêtre ouverte par `montageRépond` et la lecture du sidecar.
+    const result = await correctTranscript(
+      project,
+      'l0',
+      { from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] },
+      () => true,
+    )
+    expect(result).toEqual({ ok: false, reason: 'run-in-progress' })
+    expect(readFile().segments[0].words[0]).toEqual({ word: 'Bonjour', start: 10, end: 10.6 })
   })
 })

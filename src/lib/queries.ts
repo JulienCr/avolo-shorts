@@ -88,12 +88,13 @@ export function useProjets() {
   })
 }
 
-export function useProjet(projectId: string) {
+export function useProjet(projectId: string, options: { enabled?: boolean } = {}) {
   const client = useQueryClient()
 
   const requête = useQuery({
     queryKey: cles.projet(projectId),
     queryFn: () => getProject(projectId),
+    enabled: options.enabled ?? true,
     // L'analyse dure 30 à 45 minutes : tant qu'une exécution est en cours, on
     // redemande l'état toutes les deux secondes, et on s'arrête dès qu'elle est
     // finie. Interroger en permanence un projet au repos ne renseignerait
@@ -651,6 +652,15 @@ export function useCorrectTranscript() {
           ?.map((l) => (l.id === line.id ? line : l))
           .filter((l) => l.words.length > 0),
       )
+    },
+    // **Un 409 laisse le cache sur la version périmée qui a causé le refus.**
+    // `expected` ne correspondait plus à l'ancre : ce que le cache tient est
+    // donc déjà faux, et la requête reste fraîche trente secondes
+    // (`src/app/providers.tsx`) — fermer puis rouvrir le tiroir ne
+    // garantit pas un `GET`. Invalider force la relecture du texte
+    // réellement sur le disque. (relevé par Copilot)
+    onError(_error, { projectId }) {
+      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
     },
   })
 }

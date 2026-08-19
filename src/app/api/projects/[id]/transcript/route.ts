@@ -50,7 +50,7 @@ export const GET = route(
  * casse l'indexation par position que `lineIndex` et le tableau de mots
  * supposent partout ailleurs. (relevé par Copilot)
  */
-const MOT = z
+const WORD = z
   .string()
   .min(1, 'un mot ne peut pas être vide')
   .regex(/^\S+$/, 'un mot ne peut pas contenir d’espace')
@@ -61,9 +61,9 @@ const CORRECTION = z.strictObject({
   from: z.number().int().min(0),
   to: z.number().int().min(0),
   /** Le texte actuellement attendu à `[from, to]` — l'ancre, vérifiée avant d'écrire. */
-  expected: z.array(MOT),
+  expected: z.array(WORD),
   /** Le remplacement. Vide efface l'empan. */
-  replacement: z.array(MOT),
+  replacement: z.array(WORD),
 })
 
 /** Le statut que mérite un refus, selon ce qu'il dit du monde. */
@@ -72,6 +72,7 @@ const REFUSAL_STATUS: Record<TranscriptCorrectionRefusal, number> = {
   'unknown-line': 404,
   'out-of-range': 400,
   'anchor-mismatch': 409,
+  'run-in-progress': 409,
 }
 
 export const POST = route(
@@ -97,7 +98,9 @@ export const POST = route(
       )
     }
 
-    const result = await correctTranscript(project, lineId, correction)
+    // **Revérifiée juste avant l'écriture**, par `correctTranscript` lui-même
+    // — voir son commentaire pour ce que cette seconde sonde referme.
+    const result = await correctTranscript(project, lineId, correction, (projectId) => progression(projectId) !== null)
     if (!result.ok) {
       throw new ErreurHttp(REFUSAL_STATUS[result.reason], refusalMessage(result.reason))
     }
@@ -125,5 +128,7 @@ function refusalMessage(reason: TranscriptCorrectionRefusal): string {
       return "L'empan corrigé déborde de la phrase."
     case 'anchor-mismatch':
       return 'Le texte a changé sous vos yeux. Recharger le transcript avant de corriger à nouveau.'
+    case 'run-in-progress':
+      return 'Une retranscription est en cours pour ce projet : attendre qu’elle se termine avant de corriger le transcript.'
   }
 }

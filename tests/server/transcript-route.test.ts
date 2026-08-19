@@ -183,6 +183,31 @@ describe('POST /api/projects/:id/transcript', () => {
     }
   })
 
+  it('409 quand une exécution démarre entre le premier refus et l’écriture', async () => {
+    // Le premier appel (dans la route) rend `null` : la requête passe la
+    // première garde. Le second (dans `correctTranscript`, juste avant
+    // l'écriture) rend un état en cours : c'est la seconde sonde qui doit
+    // refuser, pas la première.
+    poserTranscript()
+    const spy = vi
+      .spyOn(run, 'progression')
+      .mockReturnValueOnce(null)
+      .mockReturnValue({ step: 'transcript', progress: 0.1 })
+    try {
+      const response = await postCorrection(
+        postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
+        context(PROJECT),
+      )
+      expect(response.status).toBe(409)
+
+      const relu = await getTranscript(new Request('http://test'), context(PROJECT))
+      const lines = (await relu.json()) as TranscriptLine[]
+      expect(lines[0].words[0].word).toBe('Bonjour')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('nomme les clips touchés par la phrase corrigée', async () => {
     poserTranscript()
     const db = getDb()

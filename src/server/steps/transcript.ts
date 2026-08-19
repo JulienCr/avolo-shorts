@@ -485,7 +485,7 @@ function lancerWorker(
 // ---------------------------------------------------------------------------
 
 /** Pourquoi une correction n'a pas été écrite. */
-export type TranscriptCorrectionRefusal = 'no-transcript' | 'unknown-line' | CorrectionRefusal
+export type TranscriptCorrectionRefusal = 'no-transcript' | 'unknown-line' | 'run-in-progress' | CorrectionRefusal
 
 export type TranscriptCorrectionOutcome =
   | {
@@ -570,25 +570,38 @@ export async function correctTranscript(
   project: Project,
   lineId: string,
   correction: WordCorrection,
+  // **Revérifié juste avant l'écriture, pas seulement à l'entrée.** La route
+  // (`src/app/api/projects/[id]/transcript/route.ts`) a déjà refusé la
+  // correction si une exécution tournait au moment de la requête, mais
+  // `montageRépond` et la lecture du sidecar cèdent la main entre-temps : une
+  // retranscription lancée dans cette fenêtre réserverait le projet sans que
+  // ce premier refus l'ait vue. Cette fonction ne connaît pas `enCours`
+  // (`src/server/run.ts`) directement — l'importer créerait un cycle, `run.ts`
+  // important déjà `transcribe` d'ici —, donc l'appelant lui passe la sonde.
+  // Cela referme la fenêtre jusqu'au dernier point de reprise avant l'écriture,
+  // sans l'éliminer : un verrou partagé avec `lancer` serait la seule garantie
+  // complète, et reste une décision d'architecture à part. (relevé par Copilot)
+  isRunning: (projectId: string) => boolean = () => false,
 ): Promise<TranscriptCorrectionOutcome> {
-  const précédente = corrections.get(project.id) ?? Promise.resolve()
-  const suivante = précédente
+  const previous = corrections.get(project.id) ?? Promise.resolve()
+  const next = previous
     .catch(() => undefined)
-    .then(() => correctTranscriptSansFile(project, lineId, correction))
+    .then(() => correctTranscriptQueued(project, lineId, correction, isRunning))
   // Le prochain appelant chaîne sur cette promesse — y compris si elle rejette,
   // via le `.catch` ci-dessus qui n'agit que sur le maillon suivant, pas sur
   // celui-ci : l'appelant courant voit toujours la vraie erreur.
   corrections.set(
     project.id,
-    suivante.catch(() => undefined),
+    next.catch(() => undefined),
   )
-  return suivante
+  return next
 }
 
-async function correctTranscriptSansFile(
+async function correctTranscriptQueued(
   project: Project,
   lineId: string,
   correction: WordCorrection,
+  isRunning: (projectId: string) => boolean,
 ): Promise<TranscriptCorrectionOutcome> {
   // Même garde que `transcribe()`, et pour la même raison : `placeSidecar`
   // fait des appels *synchrones* sur le Drive, qui gèlent la boucle
@@ -625,11 +638,29 @@ async function correctTranscriptSansFile(
     end: segment.words[correction.to].end,
   }
 
-  const nextSegment = { ...segment, words: outcome.words, text: wordsToText(outcome.words) }
+  // **Le segment brut, pas le segment nettoyé, sert de base.** `segment` vient
+  // de `lireTranscript` : au-delà de `start`/`end`/`text`/`words`, tout champ
+  // que son schéma ignore — `speaker`, par exemple — en a déjà disparu avant
+  // même d'atteindre cette fonction. Repartir du segment brut du fichier
+  // préserve ces champs sur la phrase corrigée elle-même, pas seulement sur
+  // ses voisines. (relevé par Copilot)
+  const rawSegment = rawSegments[index]
+  const nextSegment = {
+    ...(typeof rawSegment === 'object' && rawSegment !== null ? rawSegment : {}),
+    start: segment.start,
+    end: segment.end,
+    words: outcome.words,
+    text: wordsToText(outcome.words),
+  }
   const nextTranscript = {
     language: rawTranscript.language ?? transcript.language,
     segments: rawSegments.map((s, i) => (i === index ? nextSegment : s)),
   }
+
+  // Le dernier point de reprise avant d'écrire : voir le commentaire de
+  // `correctTranscript` sur ce que cette sonde referme et ce qu'elle ne
+  // referme pas.
+  if (isRunning(project.id)) return { ok: false, reason: 'run-in-progress' }
 
   const temporaryPath = cheminTemporaire(placement.transcript)
   await fsp.writeFile(temporaryPath, `${JSON.stringify(nextTranscript, null, 2)}\n`, 'utf8')

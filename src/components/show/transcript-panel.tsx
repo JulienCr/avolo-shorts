@@ -168,6 +168,7 @@ export function TranscriptPanel({
   // ait effectivement ouvert le transcript.
   const transcript = useTranscript(projectId, { enabled: open })
   const correction = useCorrectTranscript()
+  const project = useProjet(projectId, { enabled: open })
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
   // juste en dessous, qui recalculerait indexTranscript à chaque frappe.
@@ -192,6 +193,28 @@ export function TranscriptPanel({
   // conséquence reste visible sans qu'il faille la retenir soi-même.
   const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
   const [correctionsApplied, setCorrectionsApplied] = useState(0)
+
+  // **La retranscription efface les corrections manuelles, sur le sidecar
+  // comme sur cet écran.** WhisperX remplace le fichier entier : le bandeau
+  // « corrections appliquées » et les clips « concernés » qu'il affiche ne
+  // correspondraient plus à rien une fois le nouveau texte chargé. On ne se
+  // fie ni à `lines` ni à la réponse de correction pour le détecter — les deux
+  // changent aussi après une correction manuelle, dont ce bandeau doit au
+  // contraire survivre — mais à la transition `running → null` de ce projet,
+  // le même signal que `useProjet` utilise pour invalider le cache du
+  // transcript. Une sélection ouverte est également abandonnée : son ancre
+  // porterait l'ancien texte. (relevé par Copilot)
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    const running = project.data?.running != null
+    if (wasRunning.current && !running) {
+      setTouchedClips(new Map())
+      setCorrectionsApplied(0)
+      setSelection(null)
+      setDraft('')
+    }
+    wasRunning.current = running
+  }, [project.data?.running])
 
   const container = useRef<HTMLDivElement>(null)
   // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
@@ -446,22 +469,29 @@ export function TranscriptPanel({
                       {formatTimecode(line.start)}
                     </span>
                     <p className="flex-1 text-[0.97rem] leading-[1.95] text-pretty">
-                      {lineWords.map((word) => (
-                        <button
-                          key={word.index}
-                          type="button"
-                          data-word={word.index}
-                          tabIndex={word.index === cursor ? 0 : -1}
-                          onClick={(e) => selectWord(word.index, e.shiftKey)}
-                          className={`-mx-0.5 cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
-                            bounds !== null && word.index >= bounds.from && word.index <= bounds.to
-                              ? 'bg-stage/35 text-foreground'
-                              : ''
-                          }`}
-                        >
-                          {word.word}{' '}
-                        </button>
-                      ))}
+                      {lineWords.map((word) => {
+                        // `aria-pressed` reprend le contrat déjà posé par
+                        // `TranscriptSurface` (`src/components/clip/transcript-surface.tsx`) :
+                        // la sélection n'était portée que par la couleur, donc
+                        // invisible à un lecteur d'écran. (relevé par Copilot)
+                        const isSelected =
+                          bounds !== null && word.index >= bounds.from && word.index <= bounds.to
+                        return (
+                          <button
+                            key={word.index}
+                            type="button"
+                            data-word={word.index}
+                            tabIndex={word.index === cursor ? 0 : -1}
+                            aria-pressed={isSelected}
+                            onClick={(e) => selectWord(word.index, e.shiftKey)}
+                            className={`-mx-0.5 cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
+                              isSelected ? 'bg-stage/35 text-foreground' : ''
+                            }`}
+                          >
+                            {word.word}{' '}
+                          </button>
+                        )
+                      })}
                     </p>
                   </div>
                 </div>
@@ -479,9 +509,12 @@ function errorMessage(error: unknown): string {
 }
 
 function refusalMessage(error: Error): string {
-  if (error instanceof ApiError && error.status === 409) {
-    return 'Le texte a changé sous vos yeux. Fermez et rouvrez le transcript avant de corriger à nouveau.'
-  }
+  // **Le message du serveur, pas un texte générique par code HTTP.** Un 409
+  // porte deux causes distinctes — l'ancre a changé, ou une retranscription
+  // est en cours (`src/app/api/projects/[id]/transcript/route.ts`) — et
+  // chacune a déjà son propre message côté serveur. Un texte fixe pour tout
+  // 409 écrasait le second sous le premier. (relevé par Copilot)
+  if (error instanceof ApiError) return error.message
   return `La correction n’est pas passée : ${error.message}`
 }
 

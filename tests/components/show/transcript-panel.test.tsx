@@ -160,6 +160,18 @@ describe('TranscriptPanel — correction', () => {
     expect(champ.value).toBe('Bonjour')
   })
 
+  it('porte la sélection au clavier, pas seulement à la couleur (aria-pressed)', async () => {
+    stubFetch([lireTranscript()])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
+    expect(bonjour.getAttribute('aria-pressed')).toBe('false')
+
+    await userEvent.setup().click(bonjour)
+
+    expect(bonjour.getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('majuscule-clique étend la sélection à plusieurs mots, dans la même phrase', async () => {
     stubFetch([lireTranscript()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
@@ -265,6 +277,43 @@ describe('TranscriptPanel — correction', () => {
 
     expect(await screen.findByText(/Le canapé/)).toBeTruthy()
     expect(screen.getByText(/reflètent la correction qu’après un nouvel export/)).toBeTruthy()
+  })
+
+  it('efface le bandeau et la sélection ouverte quand une retranscription se termine', async () => {
+    // `useProjet` doit d'abord voir `running` non nul, puis `null`, pour que
+    // la transition se déclenche — comme la fin réelle d'une retranscription.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const localWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const runningStatus = {
+      project: { id: 'cqlp', title: 'cqlp', durationSec: 100, createdAt: '2026-01-01' },
+      steps: { proxy: true, audio: true, transcript: true, analysis: true, candidates: true, renders: false },
+      running: { step: 'transcript', progress: 0.4 },
+      error: null,
+      stopped: false,
+      repérage: null,
+      sizeBytes: null,
+    }
+    stubFetch([
+      lireTranscript(),
+      poserCorrection({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
+      { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
+    await user.click(screen.getByRole('button', { name: 'Corriger' }))
+    expect(await screen.findByText(/Le canapé/)).toBeTruthy()
+
+    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+
+    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+
+    await waitFor(() => expect(screen.queryByText(/Le canapé/)).toBeNull())
   })
 })
 

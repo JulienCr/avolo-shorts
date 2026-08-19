@@ -61,8 +61,13 @@ describe('GET /api/projects/:id/proxy', () => {
     return { params: Promise.resolve({ id }) }
   }
 
-  function demander(id: string, range?: string): Promise<Response> {
-    const entêtes = range === undefined ? undefined : { range }
+  function demander(id: string, rangeOrHeaders?: string | Record<string, string>): Promise<Response> {
+    const entêtes =
+      rangeOrHeaders === undefined
+        ? undefined
+        : typeof rangeOrHeaders === 'string'
+          ? { range: rangeOrHeaders }
+          : rangeOrHeaders
     return servirProxy(new Request('http://x', { headers: entêtes }), contexte(id))
   }
 
@@ -156,5 +161,110 @@ describe('GET /api/projects/:id/proxy', () => {
     poserProxy(Buffer.alloc(0))
     expect((await demander(PROJET)).status).toBe(200)
     expect((await demander(PROJET, 'bytes=0-9')).status).toBe(416)
+  })
+
+  describe('cache', () => {
+    it('pose ETag et Last-Modified sur un 200, un 206 et un 416', async () => {
+      poserProxy()
+      for (const response of [
+        await demander(PROJET),
+        await demander(PROJET, 'bytes=10-19'),
+        await demander(PROJET, 'bytes=500-600'),
+      ]) {
+        expect(response.headers.get('etag')).toMatch(/^"[0-9a-f]+-[0-9a-f]+"$/)
+        expect(response.headers.get('last-modified')).not.toBeNull()
+      }
+    })
+
+    it('pose Cache-Control: private, no-cache sur les réponses qui servent le fichier', async () => {
+      poserProxy()
+      const response = await demander(PROJET)
+      expect(response.headers.get('cache-control')).toBe('private, no-cache')
+    })
+
+    it('pose Cache-Control: no-store sur les deux 404 d’absence', async () => {
+      // Un identifiant qui ne peut nommer aucun chemin — décidé dans la route,
+      // avant `servirFichier`.
+      const invalidId = await demander('../../etc/passwd')
+      expect(invalidId.status).toBe(404)
+      expect(invalidId.headers.get('cache-control')).toBe('no-store')
+
+      // Un fichier pas encore là — décidé par `servirFichier`, qui rend `null`.
+      // Le proxy arrive environ douze minutes après la création du projet :
+      // mettre ce cas nominal en cache serait une panne durable.
+      const notYetThere = await demander(PROJET)
+      expect(notYetThere.status).toBe(404)
+      expect(notYetThere.headers.get('cache-control')).toBe('no-store')
+    })
+
+    it('rend 304 sans corps ni Content-Range quand If-None-Match correspond', async () => {
+      poserProxy()
+      const etagHeader = (await demander(PROJET)).headers.get('etag')!
+
+      const response = await demander(PROJET, { 'if-none-match': etagHeader })
+      expect(response.status).toBe(304)
+      expect(response.headers.get('content-range')).toBeNull()
+      // Aucun corps : donc pas de Content-Length qui en décrirait un.
+      expect(response.headers.get('content-length')).toBeNull()
+      expect((await response.arrayBuffer()).byteLength).toBe(0)
+      expect(response.headers.get('etag')).toBe(etagHeader)
+      expect(response.headers.get('last-modified')).not.toBeNull()
+    })
+
+    it('rend 200 entier quand If-None-Match ne correspond plus', async () => {
+      poserProxy()
+      const response = await demander(PROJET, { 'if-none-match': '"une-autre-étiquette"' })
+      expect(response.status).toBe(200)
+      expect((await response.arrayBuffer()).byteLength).toBe(CONTENU.length)
+    })
+
+    it('rend 304 quand If-Modified-Since est postérieur ou égal à Last-Modified', async () => {
+      poserProxy()
+      const lastModified = (await demander(PROJET)).headers.get('last-modified')!
+
+      const response = await demander(PROJET, { 'if-modified-since': lastModified })
+      expect(response.status).toBe(304)
+    })
+
+    it('rend 200 entier quand If-Modified-Since est antérieur à Last-Modified', async () => {
+      poserProxy()
+      const response = await demander(PROJET, { 'if-modified-since': 'Tue, 01 Jan 2000 00:00:00 GMT' })
+      expect(response.status).toBe(200)
+    })
+
+    it('If-None-Match prime sur If-Modified-Since quand les deux sont présents', async () => {
+      poserProxy()
+      // Une date qui dirait « non modifié », contredite par une étiquette qui
+      // dit le contraire : c'est l'étiquette qui doit trancher (RFC 7232 §3.3).
+      const lastModified = (await demander(PROJET)).headers.get('last-modified')!
+      const response = await demander(PROJET, {
+        'if-none-match': '"une-autre-étiquette"',
+        'if-modified-since': lastModified,
+      })
+      expect(response.status).toBe(200)
+    })
+
+    it('sert la plage entière demandée quand If-Range correspond', async () => {
+      poserProxy()
+      const etagHeader = (await demander(PROJET)).headers.get('etag')!
+      const response = await demander(PROJET, { range: 'bytes=10-19', 'if-range': etagHeader })
+      expect(response.status).toBe(206)
+      expect(response.headers.get('content-range')).toBe('bytes 10-19/100')
+    })
+
+    it('rend le fichier entier en 200 quand If-Range ne correspond plus', async () => {
+      // C'est le cas qui protège un scrub en cours d'une reconstruction du
+      // proxy sous les doigts : le client redemande une plage d'un fichier qui
+      // a changé, et sans ce contrôle il recoudrait deux moitiés de vidéos
+      // différentes.
+      poserProxy()
+      const response = await demander(PROJET, {
+        range: 'bytes=10-19',
+        'if-range': '"une-étiquette-périmée"',
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-range')).toBeNull()
+      expect((await response.arrayBuffer()).byteLength).toBe(CONTENU.length)
+    })
   })
 })

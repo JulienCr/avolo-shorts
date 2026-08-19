@@ -3,17 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { clipDuration, type Segment } from '@/core/edl'
 import type { Word } from '@/core/transcript'
 import {
+  applyWordCorrection,
   clipBounds,
   indexTranscript,
   isWordKept,
   ligneInitiale,
   moveBoundaryToWord,
   playbackAction,
+  redistributeTiming,
   removeSelection,
   restoreBounds,
   restoreWord,
   segmentAt,
   selectionBounds,
+  wordsToText,
   type TranscriptLine,
 } from '@/lib/editing'
 
@@ -329,5 +332,127 @@ describe('ligneInitiale', () => {
 
   it('ouvre en haut quand aucune phrase ne va jusque-là', () => {
     expect(ligneInitiale(lignes, [{ start: 99, end: 100 }])).toBe(0)
+  })
+})
+
+describe('redistributeTiming', () => {
+  it('un seul mot de remplacement prend tout l’empan', () => {
+    expect(redistributeTiming({ start: 10, end: 12 }, ['fusionné'])).toEqual([
+      { word: 'fusionné', start: 10, end: 12 },
+    ])
+  })
+
+  it('aucun mot rend une liste vide — c’est la suppression', () => {
+    expect(redistributeTiming({ start: 10, end: 12 }, [])).toEqual([])
+  })
+
+  it('plusieurs mots se partagent l’empan au prorata de leur longueur', () => {
+    // « a » (1) et « bcd » (3) : un quart / trois quarts de la seconde.
+    const mots = redistributeTiming({ start: 10, end: 11 }, ['a', 'bcd'])
+    expect(mots[0]).toEqual({ word: 'a', start: 10, end: 10.25 })
+    expect(mots[1]).toEqual({ word: 'bcd', start: 10.25, end: 11 })
+  })
+
+  it('le premier mot commence à span.start, le dernier finit à span.end', () => {
+    const mots = redistributeTiming({ start: 5, end: 5.7 }, ['un', 'deux', 'trois'])
+    expect(mots[0].start).toBe(5)
+    expect(mots[mots.length - 1].end).toBe(5.7)
+  })
+
+  it('reste stable sur un empan de durée nulle', () => {
+    const mots = redistributeTiming({ start: 5, end: 5 }, ['un', 'deux'])
+    expect(mots.every((m) => m.start === 5 && m.end === 5)).toBe(true)
+  })
+})
+
+describe('applyWordCorrection', () => {
+  it('remplace un mot par un autre, sans toucher aux voisins', () => {
+    const résultat = applyWordCorrection(mots, {
+      from: 2,
+      to: 2,
+      expected: ['trois'],
+      replacement: ['3'],
+    })
+    expect(résultat).toEqual({
+      ok: true,
+      words: [mots[0], mots[1], { word: '3', start: 12, end: 12.8 }, mots[3], mots[4]],
+    })
+  })
+
+  it('fusionne deux mots en un, qui prend leur empan réuni', () => {
+    const résultat = applyWordCorrection(mots, {
+      from: 0,
+      to: 1,
+      expected: ['un', 'deux'],
+      replacement: ['un-deux'],
+    })
+    expect(résultat.ok).toBe(true)
+    if (!résultat.ok) throw new Error('inattendu')
+    expect(résultat.words[0]).toEqual({ word: 'un-deux', start: 10, end: 11.8 })
+    expect(résultat.words.slice(1)).toEqual([mots[2], mots[3], mots[4]])
+  })
+
+  it('scinde un mot en deux, qui se partagent son empan', () => {
+    const résultat = applyWordCorrection(mots, {
+      from: 3,
+      to: 3,
+      expected: ['quatre'],
+      replacement: ['quat', 're'],
+    })
+    expect(résultat.ok).toBe(true)
+    if (!résultat.ok) throw new Error('inattendu')
+    expect(résultat.words[3].start).toBe(13)
+    expect(résultat.words[4].end).toBe(13.8)
+    expect(résultat.words.map((w) => w.word)).toEqual(['un', 'deux', 'trois', 'quat', 're', 'cinq'])
+  })
+
+  it('supprime un mot — un remplacement vide', () => {
+    const résultat = applyWordCorrection(mots, {
+      from: 1,
+      to: 1,
+      expected: ['deux'],
+      replacement: [],
+    })
+    expect(résultat).toEqual({ ok: true, words: [mots[0], mots[2], mots[3], mots[4]] })
+  })
+
+  it('refuse une ancre qui ne correspond plus — le transcript a changé sous les yeux', () => {
+    const résultat = applyWordCorrection(mots, {
+      from: 1,
+      to: 1,
+      expected: ['pas-le-bon-mot'],
+      replacement: ['x'],
+    })
+    expect(résultat).toEqual({ ok: false, reason: 'anchor-mismatch' })
+  })
+
+  it('refuse un empan qui déborde de la phrase', () => {
+    expect(
+      applyWordCorrection(mots, { from: 0, to: 10, expected: [], replacement: ['x'] }),
+    ).toEqual({ ok: false, reason: 'out-of-range' })
+  })
+
+  it('refuse des bornes inversées', () => {
+    expect(
+      applyWordCorrection(mots, { from: 3, to: 1, expected: [], replacement: ['x'] }),
+    ).toEqual({ ok: false, reason: 'out-of-range' })
+  })
+
+  it('ne modifie pas le tableau reçu', () => {
+    const copie = mots.map((m) => ({ ...m }))
+    applyWordCorrection(mots, { from: 0, to: 0, expected: ['un'], replacement: ['1'] })
+    expect(mots).toEqual(copie)
+  })
+})
+
+describe('wordsToText', () => {
+  it('joint les mots par un espace, comme WhisperX', () => {
+    // Vérifié sur un transcript réel (2025-06-15-cqlp) : la ponctuation reste
+    // collée au mot, aucun espace n'est inséré avant elle.
+    expect(wordsToText([{ word: 'Je', start: 0, end: 1 }, { word: 'ne', start: 1, end: 2 }, { word: 'savais', start: 2, end: 3 }, { word: 'pas.', start: 3, end: 4 }])).toBe('Je ne savais pas.')
+  })
+
+  it('rend une chaîne vide pour une phrase sans mot', () => {
+    expect(wordsToText([])).toBe('')
   })
 })

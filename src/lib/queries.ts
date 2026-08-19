@@ -33,6 +33,11 @@ import {
   type Settings,
   type SettingsPatch,
 } from '@/lib/api'
+// Import à part du bloc au-dessus : ce fichier est partagé avec une autre PR
+// en cours, et la règle est d'ajouter en fin de fichier sans réordonner
+// l'existant — y compris ses imports.
+import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } from '@/lib/api'
+import type { TranscriptLine } from '@/lib/editing'
 
 export const cles = {
   projets: ['projets'] as const,
@@ -56,6 +61,8 @@ export const cles = {
    * et deux entrées pour un même corps se périmeraient l'une sans l'autre.
    */
   settings: ['settings'] as const,
+  /** Le transcript entier d'une émission — pas la fenêtre autour d'un clip. */
+  transcript: (projectId: string) => ['transcript', projectId] as const,
 }
 
 export function useProjets() {
@@ -564,6 +571,65 @@ export function useStopAnalysis() {
     onSettled(_resultat, _erreur, projectId) {
       void client.invalidateQueries({ queryKey: cles.projet(projectId) })
       void client.invalidateQueries({ queryKey: cles.projets })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Le transcript de l'émission (vue Émission, §2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le transcript entier d'une émission.
+ *
+ * **`enabled` par défaut à `true`, mais la surface qui l'appelle le pose à
+ * `false` tant qu'elle n'est pas ouverte.** Une émission fait ~20 000 mots :
+ * les tirer à chaque montage de la vue Émission, qu'on ouvre le transcript ou
+ * non, paierait une requête inutile la plupart du temps — la vue Émission se
+ * monte à chaque visite du projet, le transcript s'ouvre rarement.
+ *
+ * Pas d'interrogation en boucle : contrairement à `useProjet`, rien ici ne
+ * suit une exécution en cours. Une retranscription se voit ailleurs — l'état
+ * du projet, que `useRelancer` invalide déjà — et cette liste se rafraîchit
+ * en revenant sur l'écran, comme `useCandidats`.
+ */
+export function useTranscript(projectId: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: cles.transcript(projectId),
+    queryFn: () => getTranscript(projectId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/**
+ * Écrit une correction manuelle sur le sidecar, une phrase à la fois.
+ *
+ * **Pas d'écriture optimiste.** Contrairement au tri, une correction refusée
+ * — l'ancre ne correspond plus (409), l'empan déborde (400) — doit montrer le
+ * texte tel qu'il est vraiment sur le disque, jamais celui qu'on vient de
+ * taper : afficher la frappe par avance ferait croire à une correction
+ * acceptée qui ne l'était pas.
+ *
+ * **Le cache se remplace par la réponse, il ne s'invalide pas.** La route
+ * rend la phrase telle qu'elle vient d'être écrite et relue ; redemander tout
+ * le transcript pour une correction d'un mot coûterait un aller-retour de
+ * vingt mille mots pour obtenir exactement ce qu'on tient déjà.
+ */
+export function useCorrectTranscript() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      correction,
+    }: {
+      projectId: string
+      correction: TranscriptCorrectionRequest
+    }) => correctTranscript(projectId, correction),
+    onSuccess({ line }, { projectId }) {
+      client.setQueryData(cles.transcript(projectId), (lignes: TranscriptLine[] | undefined) =>
+        lignes?.map((l) => (l.id === line.id ? line : l)),
+      )
     },
   })
 }

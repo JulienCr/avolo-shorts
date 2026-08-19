@@ -275,3 +275,121 @@ export function ligneInitiale(lines: TranscriptLine[], segments: Segment[]): num
   const i = lines.findIndex((l) => l.end > debut)
   return i < 0 ? 0 : i
 }
+
+// ---------------------------------------------------------------------------
+// La correction manuelle du transcript (vue Émission)
+// ---------------------------------------------------------------------------
+
+/**
+ * Une correction manuelle du texte : un empan de mots d'une phrase, remplacé
+ * par une autre liste de mots.
+ *
+ * **`from`/`to` indexent les mots *de la phrase*, pas la liste plate de
+ * l'émission entière.** C'est un choix différent de celui du contrat modèle
+ * (spec §9, `{ i, w }`), qui indexe l'empan soumis au modèle — une fenêtre
+ * bien plus courte que vingt mille mots. La phrase est déjà l'unité que
+ * `TranscriptLine.id` nomme et que la virtualisation rend : la reprendre
+ * évite de réconcilier deux découpages du même texte, et surtout évite la
+ * question qui ne se pose alors jamais — que devient un empan qui traverse
+ * une frontière de phrase. La forme reste la même que celle du modèle : un
+ * index, jamais du texte libre à faire réécrire.
+ *
+ * `expected` est l'ancre : le texte que l'appelant croit voir à `[from, to]`.
+ * Sans elle, une correction posée sur un transcript qui a changé sous les
+ * yeux — une retranscription, une autre correction déjà appliquée —
+ * s'appliquerait aux mauvais mots, en silence. `applyWordCorrection` la
+ * vérifie avant d'écrire quoi que ce soit.
+ */
+export type WordCorrection = {
+  from: number
+  to: number
+  expected: readonly string[]
+  replacement: readonly string[]
+}
+
+/** Pourquoi une correction a été refusée plutôt qu'appliquée. */
+export type CorrectionRefusal = 'out-of-range' | 'anchor-mismatch'
+
+export type CorrectionOutcome = { ok: true; words: Word[] } | { ok: false; reason: CorrectionRefusal }
+
+/**
+ * Les horodatages du remplacement, répartis sur l'empan qu'occupaient les
+ * mots retirés.
+ *
+ * **Un seul mot de remplacement prend tout l'empan** : c'est le cas de la
+ * simple correction et de la fusion — deux mots ou plus deviennent un —, et
+ * c'est la même règle que le contrat du modèle pose pour `merge` (spec §9) :
+ * le résultat prend leur empan temporel.
+ *
+ * **Plusieurs mots se partagent l'empan au prorata de leur longueur.** Sans
+ * mesure de la parole réelle — on ne réanalyse pas l'audio pour une
+ * correction de texte —, la longueur du mot est le seul signal disponible.
+ * C'est une approximation, pour un cas rare : un mot que WhisperX a mal
+ * scindé ou mal fusionné.
+ *
+ * Le premier mot commence exactement à `span.start`, le dernier finit
+ * exactement à `span.end` : rien n'est ajouté ni retranché à la durée totale
+ * de l'empan, seulement redistribué à l'intérieur.
+ */
+export function redistributeTiming(
+  span: { start: number; end: number },
+  tokens: readonly string[],
+): Word[] {
+  if (tokens.length === 0) return []
+  if (tokens.length === 1) return [{ word: tokens[0], start: span.start, end: span.end }]
+
+  const weights = tokens.map((t) => Math.max(t.length, 1))
+  const total = weights.reduce((a, b) => a + b, 0)
+  const duration = Math.max(span.end - span.start, 0)
+
+  let cursor = span.start
+  let cumulative = 0
+  return tokens.map((token, i) => {
+    cumulative += weights[i]
+    const end = i === tokens.length - 1 ? span.end : span.start + (duration * cumulative) / total
+    const word: Word = { word: token, start: cursor, end }
+    cursor = end
+    return word
+  })
+}
+
+/**
+ * Applique une correction aux mots d'une phrase. Pure : ni lecture ni
+ * écriture, l'appelant s'en charge — c'est `src/server/steps/transcript.ts`
+ * qui lit le sidecar, appelle cette fonction, puis écrit et se relit.
+ *
+ * **L'ancre se vérifie ici, jamais après coup.** `CLAUDE.md` documente le
+ * piège : un remplacement qui ne trouve pas son motif réussit en silence.
+ * `expected` porte le texte que l'appelant croit voir ; s'il ne correspond
+ * plus, la correction est refusée plutôt qu'appliquée aux mauvais mots.
+ *
+ * `replacement` vide efface l'empan — c'est la suppression d'un ou plusieurs
+ * mots, exprimée dans la même forme que le reste : un empan, un remplacement.
+ */
+export function applyWordCorrection(
+  words: readonly Word[],
+  correction: WordCorrection,
+): CorrectionOutcome {
+  const { from, to, expected, replacement } = correction
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= words.length) {
+    return { ok: false, reason: 'out-of-range' }
+  }
+  const actual = words.slice(from, to + 1).map((w) => w.word)
+  if (actual.length !== expected.length || actual.some((w, i) => w !== expected[i])) {
+    return { ok: false, reason: 'anchor-mismatch' }
+  }
+  const span = { start: words[from].start, end: words[to].end }
+  const inserted = redistributeTiming(span, replacement)
+  return { ok: true, words: [...words.slice(0, from), ...inserted, ...words.slice(to + 1)] }
+}
+
+/**
+ * Le texte d'une phrase, recomposé depuis ses mots.
+ *
+ * **La même convention que WhisperX** : un espace entre chaque mot, la
+ * ponctuation restant collée au mot qui la porte (« Avolo. », pas « Avolo
+ * . »). Vérifié sur un transcript réel plutôt que supposé.
+ */
+export function wordsToText(words: readonly Word[]): string {
+  return words.map((w) => w.word).join(' ')
+}

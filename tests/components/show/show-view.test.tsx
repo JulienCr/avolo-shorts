@@ -14,13 +14,32 @@
  * dehors de lui.
  */
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ShowView } from '@/components/show/show-view'
 import type { Segment } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
+
+// `ShowView` porte désormais `TranscriptTrigger`, qui a besoin des deux :
+// `next/navigation` pour `?transcript=1`, un `QueryClient` pour `useTranscript`.
+// On ne teste pas ces deux-là ici — ils ont leurs propres fichiers — mais la
+// vue ne se monte pas sans eux.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}))
+
+const { ShowView } = await import('@/components/show/show-view')
+
+function enveloppe({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
 
 afterEach(() => {
   cleanup()
@@ -61,6 +80,7 @@ function renderView(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
       clips={[clip('a', [{ start: 600, end: 660 }])]}
       {...partial}
     />,
+    { wrapper: enveloppe },
   )
 }
 

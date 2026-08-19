@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 
 import { CoverageTimeline } from '@/components/show/coverage-timeline'
 import { ShowPlayer } from '@/components/show/player'
+import { TranscriptTrigger } from '@/components/show/transcript-panel'
 import { estGarde } from '@/lib/clip-status'
 import type { CandidateClip } from '@/lib/api'
 
@@ -12,14 +13,22 @@ import type { CandidateClip } from '@/lib/api'
  *
  * L'écran de projet n'était qu'un écran de tri. Une fois l'analyse terminée,
  * c'est aussi l'endroit depuis lequel on comprend tout ce qui a été produit à
- * partir de l'émission — d'où ces deux surfaces, posées au-dessus de la grille :
- * le replay lui-même, et la bande qui dit où sont les clips gardés.
+ * partir de l'émission — d'où ces surfaces, posées au-dessus de la grille : le
+ * replay lui-même, la bande qui dit où sont les clips gardés, et l'accès au
+ * transcript entier.
  *
- * **Les deux ne partagent qu'un nombre**, l'instant courant. Le lecteur le
- * publie, la bande le dessine et peut le déplacer. Rien d'autre ne circule : ni
- * état de lecture, ni file de commandes, ni horloge. C'est ce qui fait que la
- * bande se monte seule dans un test, sans `<video>` — jsdom n'en implémente ni
- * `play()` ni le décodage.
+ * **Le lecteur et la bande ne partagent qu'un nombre**, l'instant courant. Le
+ * lecteur le publie, la bande le dessine et peut le déplacer. Rien d'autre ne
+ * circule : ni état de lecture, ni file de commandes, ni horloge. C'est ce qui
+ * fait que la bande se monte seule dans un test, sans `<video>` — jsdom n'en
+ * implémente ni `play()` ni le décodage.
+ *
+ * **Le transcript est administré depuis cette vue** (§2.3) : le voir en entier,
+ * le corriger à la main, relancer la transcription. `TranscriptTrigger`
+ * (`src/components/show/transcript-panel.tsx`) porte tout ça — bouton, surface
+ * virtualisée et dialogues de confirmation — dans son propre module, piloté par
+ * `?transcript=1` dans l'URL plutôt que par un état local de cette vue : c'est
+ * ce qui le rend rechargeable et partageable, comme l'exige le parcours §3.0.
  *
  * **Elle se replie quand il n'y a rien à montrer.** Pendant les trois premières
  * minutes, le panneau d'avancement occupe la page et cette vue n'existe pas ;
@@ -77,6 +86,9 @@ export function ShowView({
         L’émission
       </h2>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+        <div className="flex justify-end">
+          <TranscriptTrigger projectId={projectId} />
+        </div>
         <ShowPlayer
           projectId={projectId}
           proxyReady={proxyReady}

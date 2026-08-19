@@ -1,0 +1,187 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import type { Project } from '@/server/db'
+import { placeSidecar } from '@/server/paths'
+import { correctTranscript } from '@/server/steps/transcript'
+
+/**
+ * La correction manuelle, écrite sur un vrai sidecar.
+ *
+ * **Ces tests touchent au disque**, comme ceux de `paths.test.ts` : le repli du
+ * sidecar et la relecture après écriture sont des questions d'écriture réelle,
+ * pas de bits de permission ni de mock. `correctTranscript` promet de se
+ * relire avant de rendre la main — un test qui simulerait `fs` ne prouverait
+ * rien de cette promesse-là.
+ */
+
+const SOURCE = '2026-03-08-caro-mdlm.mp4'
+const ID = '2026-03-08-caro-mdlm'
+
+let racine: string
+let replay: string
+let projet: Project
+const envDépart = { ...process.env }
+
+function écrireTranscript(segments: unknown[]): void {
+  const placement = placeSidecar(SOURCE, ID)
+  fs.writeFileSync(placement.transcript, JSON.stringify({ language: 'fr', segments }, null, 2))
+}
+
+function lireFichier(): { language: string; segments: { start: number; end: number; text: string; words: unknown[] }[] } {
+  const placement = placeSidecar(SOURCE, ID)
+  return JSON.parse(fs.readFileSync(placement.transcript, 'utf8'))
+}
+
+beforeEach(() => {
+  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-correction-'))
+  replay = path.join(racine, 'Replay')
+  const stage = path.join(racine, 'stage')
+  const projets = path.join(racine, 'projects')
+  for (const d of [replay, stage, projets]) fs.mkdirSync(d, { recursive: true })
+  fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
+
+  process.env.REPLAY_DIR = replay
+  process.env.STAGE_DIR = stage
+  process.env.PROJECTS_DIR = projets
+
+  projet = {
+    id: ID,
+    sourcePath: SOURCE,
+    stagedPath: path.join(stage, SOURCE),
+    durationSec: 100,
+    sizeBytes: 1,
+    mtimeMs: 0,
+    createdAt: 0,
+  } as Project
+
+  écrireTranscript([
+    {
+      start: 10,
+      end: 12,
+      text: 'Bonjour à tous',
+      words: [
+        { word: 'Bonjour', start: 10, end: 10.6 },
+        { word: 'à', start: 10.7, end: 10.8 },
+        { word: 'tous', start: 10.9, end: 12 },
+      ],
+    },
+    {
+      start: 20,
+      end: 21,
+      text: 'Deuxième phrase',
+      words: [
+        { word: 'Deuxième', start: 20, end: 20.5 },
+        { word: 'phrase', start: 20.6, end: 21 },
+      ],
+    },
+  ])
+})
+
+afterEach(() => {
+  fs.rmSync(racine, { recursive: true, force: true })
+  process.env = { ...envDépart }
+})
+
+describe('correctTranscript', () => {
+  it('corrige un mot, sans toucher aux timings de la phrase', async () => {
+    const résultat = await correctTranscript(projet, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: ['Salut'],
+    })
+    expect(résultat).toEqual({
+      ok: true,
+      line: {
+        id: 'l0',
+        start: 10,
+        end: 12,
+        words: [
+          { word: 'Salut', start: 10, end: 10.6 },
+          { word: 'à', start: 10.7, end: 10.8 },
+          { word: 'tous', start: 10.9, end: 12 },
+        ],
+      },
+    })
+  })
+
+  it('écrit la correction sur le disque, et le texte suit les mots', async () => {
+    await correctTranscript(projet, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: ['Salut'],
+    })
+    const fichier = lireFichier()
+    expect(fichier.segments[0].text).toBe('Salut à tous')
+    expect(fichier.segments[0].words).toEqual([
+      { word: 'Salut', start: 10, end: 10.6 },
+      { word: 'à', start: 10.7, end: 10.8 },
+      { word: 'tous', start: 10.9, end: 12 },
+    ])
+    // La phrase voisine n'a pas bougé.
+    expect(fichier.segments[1].text).toBe('Deuxième phrase')
+  })
+
+  it('ne touche pas au start/end du segment, même quand le premier mot change', async () => {
+    await correctTranscript(projet, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: [],
+    })
+    const fichier = lireFichier()
+    expect(fichier.segments[0].start).toBe(10)
+    expect(fichier.segments[0].end).toBe(12)
+  })
+
+  it('refuse une ancre qui ne correspond plus, sans rien écrire', async () => {
+    const résultat = await correctTranscript(projet, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['pas-le-bon-mot'],
+      replacement: ['x'],
+    })
+    expect(résultat).toEqual({ ok: false, reason: 'anchor-mismatch' })
+    expect(lireFichier().segments[0].words[0]).toEqual({ word: 'Bonjour', start: 10, end: 10.6 })
+  })
+
+  it("refuse un identifiant de phrase qui n'existe pas", async () => {
+    const résultat = await correctTranscript(projet, 'l99', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: ['x'],
+    })
+    expect(résultat).toEqual({ ok: false, reason: 'unknown-line' })
+  })
+
+  it("rend 'no-transcript' quand le sidecar n'existe pas encore", async () => {
+    const placement = placeSidecar(SOURCE, ID)
+    fs.rmSync(placement.transcript, { force: true })
+    const résultat = await correctTranscript(projet, 'l0', {
+      from: 0,
+      to: 0,
+      expected: ['Bonjour'],
+      replacement: ['x'],
+    })
+    expect(résultat).toEqual({ ok: false, reason: 'no-transcript' })
+  })
+
+  it('scinde un mot en deux mots qui se partagent son empan', async () => {
+    const résultat = await correctTranscript(projet, 'l1', {
+      from: 0,
+      to: 0,
+      expected: ['Deuxième'],
+      replacement: ['Deux', 'ième'],
+    })
+    expect(résultat.ok).toBe(true)
+    if (!résultat.ok) throw new Error('inattendu')
+    expect(résultat.line.words[0].start).toBe(20)
+    expect(résultat.line.words[1].end).toBe(20.5)
+    expect(résultat.line.words.map((w) => w.word)).toEqual(['Deux', 'ième', 'phrase'])
+  })
+})

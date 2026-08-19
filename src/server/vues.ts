@@ -296,3 +296,33 @@ export function candidat(clip: Clip, transcript: TranscriptLu | null): Candidate
 function intervalle(étendue: Étendue | null): Segment[] {
   return étendue === null ? [] : [{ start: étendue.start, end: étendue.end }]
 }
+
+// ---------------------------------------------------------------------------
+// La correction manuelle du transcript
+// ---------------------------------------------------------------------------
+
+/**
+ * Les clips dont les segments recouvrent l'empan `[start, end]`, par titre.
+ *
+ * **Pour rendre explicite une conséquence que le graphe ne porte pas
+ * encore.** Corriger un mot dans une phrase déjà montée dans un clip ne
+ * change ni ses bornes ni son cadrage — rien que `leRenduEstPérimé`
+ * (`src/server/steps/render.ts`) compare aujourd'hui — donc un clip déjà
+ * exporté ne se marque pas périmé tout seul : ses sous-titres incrustés
+ * viennent de ce texte-là, au moment du rendu, et resteront ceux d'avant la
+ * correction tant que personne ne réexporte. Nommer ces clips à l'écran est
+ * ce qui rend la conséquence visible sans lui inventer une seconde
+ * mécanique d'invalidation à côté du graphe.
+ *
+ * Le recouvrement se teste sur les segments courants du clip, comme pour
+ * `candidat` — c'est ce que le clip contient *maintenant*, indépendamment de
+ * l'étendue qui a servi à le proposer.
+ */
+export function clipsTouchedBySpan(
+  clips: readonly Clip[],
+  span: { start: number; end: number },
+): { id: string; title: string }[] {
+  return clips
+    .filter((c) => c.segments.some((s) => s.end > span.start && s.start < span.end))
+    .map((c) => ({ id: c.id, title: c.title }))
+}

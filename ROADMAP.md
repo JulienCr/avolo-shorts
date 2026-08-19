@@ -246,7 +246,12 @@ trouvés en review et documentés au point d'appel : la garde des raccourcis doi
 écarter **tout élément qui traite déjà la touche** (`button`, `a[href]`,
 `[role="button"]`, `[role="tab"]`, `[role="slider"]`, `summary`), faute de quoi
 le clavier meurt dès qu'on décide à la souris — le focus reste sur le bouton et
-plus rien ne répond, pendant que la carte garde son anneau de sélection. Et le
+plus rien ne répond, pendant que la carte garde son anneau de sélection. Elle
+écarte aussi les modaux, **sauf celui qui se déclare hôte** : depuis le 19 août
+2026 le transcript vit dans un tiroir, et un tiroir rangé avec les boîtes de
+confirmation tuerait `Suppr`, `I`, `O` et `Ctrl+Z` au moment précis où on les
+presse. L'exception est portée par un attribut du conteneur, jamais par un
+sélecteur qui reconnaîtrait le tiroir à sa classe. Et le
 compteur de temps du panneau d'avancement **ne compte pas des battements** : un
 onglet en arrière-plan les étrangle, et l'écran affirmerait trois minutes là où
 neuf se sont écoulées, sur la seule surface censée dire l'attente.

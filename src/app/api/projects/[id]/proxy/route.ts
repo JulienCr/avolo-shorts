@@ -14,7 +14,7 @@ import { projectsDir, proxyPath } from '@/server/paths'
  * pouvoir demander un morceau au milieu, le navigateur ne peut pas sauter, et
  * l'éditeur de clip (tâche 13) scrube en permanence.
  *
- * **Tout ce qui touche aux octets est dans `@/server/octets`**, avec la route des
+ * **Tout ce qui touche aux octets est dans `@/server/bytes`**, avec la route des
  * rendus. Cette route-ci en portait une copie, écrite avant que le module
  * n'existe, et la copie a vieilli séparément : la correction de l'issue #75 y
  * aurait été à faire deux fois, sur un défaut que le commentaire local déclarait

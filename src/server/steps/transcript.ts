@@ -506,7 +506,7 @@ export type TranscriptCorrectionOutcome =
 /**
  * L'index de segment qu'un `lineId` porte, ou `null` s'il n'a pas cette forme.
  *
- * **`lignesDuTranscript` (`src/server/vues.ts`) écrit `l${i}`, `i` étant
+ * **`lignesDuTranscript` (`src/server/views.ts`) écrit `l${i}`, `i` étant
  * l'index dans `transcript.segments`** — y compris pour les segments qu'elle
  * filtre ensuite parce qu'ils n'ont aucun mot aligné. C'est ce qui rend
  * l'identifiant stable : il désigne une position dans le fichier, pas une

@@ -12,7 +12,7 @@ import { SourceInvalidError, vignetteSource } from '@/server/source-thumbnails'
  * d'un `projectId` que le serveur contrôle en base, celle-ci part d'un nom que
  * l'appelant écrit. Deux contrôles s'en chargent, et ils ne font pas le même
  * travail — `resolveSource` décide du fichier qu'on **lit**, `sourceVerifyName`
- * du fichier qu'on **écrit** dans le cache. `src/server/vignettes-sources.ts`
+ * du fichier qu'on **écrit** dans le cache. `src/server/source-thumbnails.ts`
  * explique pourquoi l'un ne dispense pas de l'autre.
  *
  * `replayDir()` est appelé pour lui-même et hors du corps, comme dans

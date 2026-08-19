@@ -289,7 +289,7 @@ export type FramingOptions = {
  * COCO qu'elle retient.
  *
  * **Elles sont nommées et exportées parce que c'est la mesure qui a tranché**,
- * pas une intuition : le balayage de `scripts/mesure-ratios.ts` les passe toutes
+ * pas une intuition : le balayage de `scripts/measure-ratios.ts` les passe toutes
  * sur la même émission et met en regard ce que chacune gagne en ratio et ce
  * qu'elle coupe des gens. Un nom recopié dans le script mesurerait un autre
  * tronc que celui qui décide, le jour où l'un des deux bouge.
@@ -367,7 +367,7 @@ export type TorsoName = keyof typeof TORSOS
  * où le seuil bouge, il continuerait de viser l'ancien sans rien signaler.
  *
  * **`margin` valait 0,02 et n'avait jamais été mesuré.** Le balayage du 18 août
- * 2026 (`scripts/mesure-ratios.ts`, `docs/ratios-par-clip.md`) le fait tomber à
+ * 2026 (`scripts/measure-ratios.ts`, `docs/ratios-par-clip.md`) le fait tomber à
  * 0,01, et la baisse ne coûte rien de mesurable : sur trois émissions, aucun clip
  * ni aucune fenêtre ne s'**élargit** entre 0,02 et 0,01, deux clips de
  * `2025-06-15-cqlp` passent du 16:9 au 1:1 et quinze fenêtres sur 197 se

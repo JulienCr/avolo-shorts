@@ -176,7 +176,7 @@ export function projectAnalysis(projectId: string): FramingSource {
     // « illisible ».**
     //
     // `statSync` a réussi juste au-dessus, et ça ne veut pas dire que le fichier
-    // s'ouvre : `src/server/octets.ts` documente le cas d'un `chmod 000`, où
+    // s'ouvre : `src/server/bytes.ts` documente le cas d'un `chmod 000`, où
     // `stat` répond et `open` refuse. `lireAnalyse` lit puis analyse, donc son
     // `readFileSync` peut lever `EACCES` ou `EIO` — et les avaler ici ferait
     // cadrer tout un projet à la main sur une panne de montage, avec un journal

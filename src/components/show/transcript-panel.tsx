@@ -547,7 +547,7 @@ function rejectionMessage(error: Error): string {
  * Relancer le repérage, après une ou plusieurs corrections.
  *
  * **Le même bouton que celui de l'écran de tri**, importé plutôt que
- * réécrit : `BoutonRelance` (`src/components/tri/relance.tsx`) force déjà
+ * réécrit : `BoutonRelance` (`src/components/review/retry.tsx`) force déjà
  * `candidates` avec la confirmation qui énonce le partage — exactement le
  * geste qui fait relire le texte corrigé par le repérage. Il a besoin des
  * comptes de la grille (gardés, écartés, en attente), donc de la liste des

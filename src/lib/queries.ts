@@ -629,7 +629,7 @@ export function useTranscript(projectId: string, options: { enabled?: boolean } 
  * vingt mille mots pour obtenir exactement ce qu'on tient déjà.
  *
  * **Une phrase vidée de tous ses mots est retirée du cache, pas seulement
- * remplacée.** `transcriptLines` (`src/server/vues.ts`) écarte déjà une
+ * remplacée.** `transcriptLines` (`src/server/views.ts`) écarte déjà une
  * phrase sans mot aligné — c'est ce qu'un `GET` frais rendrait après une
  * suppression totale. Remplacer sans filtrer laissait une ligne fantôme, sans
  * mot, à son horodatage d'avant : le sidecar était correct, seul le cache

@@ -30,7 +30,7 @@ const NOT_FAST = 0.05
  * **Un contrôle inerte sans raison écrite fait douter de l'outil**, et c'est la
  * forme que le dépôt a déjà retenue ailleurs : le bouton « Monter » d'une carte
  * de candidat reste atteignable, porte `aria-disabled` et pointe vers sa raison,
- * écrite à côté (`src/components/tri/candidate-card.tsx`). Une bulle d'aide ne
+ * écrite à côté (`src/components/review/candidate-card.tsx`). Une bulle d'aide ne
  * conviendrait pas — elle serait invisible au clavier, et la raison d'un blocage
  * se lit avant d'essayer.
  *

@@ -52,7 +52,7 @@ const WINDOWS_BARE = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 
 /**
  * Le préfixe d'une adresse de secret 1Password. `REFERENCE_PREFIXES`
- * (`src/server/secrets.ts`) en est la source, et `tests/core/erreurs.test.ts`
+ * (`src/server/secrets.ts`) en est la source, et `tests/core/errors.test.ts`
  * le vérifie forme par forme.
  */
 const REFERENCE_PREFIX = 'op://'
@@ -79,7 +79,7 @@ const REFERENCE_PREFIX = 'op://'
  * Le préfixe est celui d'`isReference` (`src/server/secrets.ts`), qui définit
  * seul ce que ce projet appelle une référence, et qui n'en accepte aujourd'hui
  * pas d'autre forme. Le module est pur et ne peut pas l'importer, donc les deux
- * se suivent à la main — mais plus en silence : `tests/core/erreurs.test.ts` lit
+ * se suivent à la main — mais plus en silence : `tests/core/errors.test.ts` lit
  * `REFERENCE_PREFIXES` et exige que chacune de ses formes ressorte caviardée
  * ici. Un préfixe ajouté là-bas sans passe correspondante ici fait échouer la
  * suite, au lieu de traverser le caviardage comme `op://` le faisait avant
@@ -90,7 +90,7 @@ const REFERENCE_PREFIX = 'op://'
  * laisse donc sa queue — c'est la limite, elle est démontrée en test, et elle a
  * deux remèdes, tous deux hors de cette grammaire : citer la référence, ou la
  * retirer **par sa forme complète** avant d'en arriver là. `messageSafe`
- * (`src/server/erreurs.ts`) le fait pour toute référence lue dans
+ * (`src/server/errors.ts`) le fait pour toute référence lue dans
  * l'environnement, qu'on tient alors en entier plutôt que d'avoir à deviner où
  * elle finit. (issue #49)
  *

@@ -148,7 +148,7 @@ describe('useCorrectTranscript', () => {
   })
 
   it('retire du cache une phrase vidée de tous ses mots — pas de ligne fantôme', async () => {
-    // `transcriptLines` (src/server/vues.ts) écarte une phrase sans mot
+    // `transcriptLines` (src/server/views.ts) écarte une phrase sans mot
     // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.
     // Le cache doit dire la même chose, sans attendre un rechargement complet.
     const correctionResult: TranscriptCorrectionResult = {

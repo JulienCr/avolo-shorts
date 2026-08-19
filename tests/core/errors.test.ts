@@ -175,7 +175,7 @@ describe('le caviardage des références de secret', () => {
     // *par la grammaire* : la queue d'un coffre à espace survit si personne ne
     // cite la référence. Ce qui la referme est ailleurs — `messageSûr` retire
     // toute référence lue dans l'environnement par sa forme complète, avant
-    // d'en arriver ici, et `tests/server/erreurs.test.ts` fige ce chemin-là.
+    // d'en arriver ici, et `tests/server/errors.test.ts` fige ce chemin-là.
     // (issue #49)
     expect(cleanPaths('lecture de op://Coffre partagé/Fiche/Clé refusée')).toBe(
       'lecture de op://… partagé…/Clé refusée',
@@ -253,7 +253,7 @@ describe('le caviardage des références de secret', () => {
    * **Le lien entre les deux moitiés d'une même vérité.**
    *
    * `isReference` (`src/server/secrets.ts`) décide seul des formes qu'une
-   * variable d'environnement peut prendre ; `src/core/erreurs.ts` décide de ce
+   * variable d'environnement peut prendre ; `src/core/errors.ts` décide de ce
    * qui est caviardé. Le second ne peut pas importer le premier — la frontière
    * de pureté l'interdit, et `tests/core/purete.test.ts` la vérifie —, donc la
    * liste des préfixes y est recopiée à la main. Elle l'était déjà, et la

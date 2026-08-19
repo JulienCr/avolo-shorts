@@ -204,7 +204,7 @@ describe('annuler', () => {
 describe('réconcilier après un PATCH refusé', () => {
   // `applied: false` veut dire « une écriture plus récente a gagné ». Le cache
   // adopte le clip rendu ; le store, lui, resterait sur l'intention refusée et
-  // la renverrait avec un jeton neuf — donc gagnant. Voir `@/lib/enregistrement`
+  // la renverrait avec un jeton neuf — donc gagnant. Voir `@/lib/autosave`
   // pour la forme retenue et pourquoi c'est celle-là.
   it('adopte les valeurs du gagnant', () => {
     useEditor.getState().charger(clip())

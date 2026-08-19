@@ -495,7 +495,7 @@ export function quotaDelay(message: string): number | null {
 /**
  * Retire une clé d'API d'un message avant de le journaliser.
  *
- * **Le motif vit dans `@/core/erreurs`** depuis qu'il sert aussi à la frontière
+ * **Le motif vit dans `@/core/errors`** depuis qu'il sert aussi à la frontière
  * HTTP : le message d'une erreur de repérage traverse `status.json` puis le
  * champ `error` de `GET /api/projects/:id`, et ne passait par aucun caviardage
  * sur ce chemin-là. Deux copies du même motif auraient vieilli séparément.

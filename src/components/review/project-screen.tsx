@@ -26,8 +26,8 @@ import { Skeleton } from '@/components/ui/skeleton'
  * L'avancement de l'analyse est sur le même écran non pas comme second objectif,
  * mais parce que c'est le même objet à un autre moment de sa vie (spec §2.4).
  *
- * Il ne calcule rien lui-même. La phase vient de `@/core/parcours`, la
- * disposition et le vocabulaire des vues de `@/components/tri/modele`, la boucle
+ * Il ne calcule rien lui-même. La phase vient de `@/core/phase`, la
+ * disposition et le vocabulaire des vues de `@/components/review/template`, la boucle
  * de tri de `ReviewFeed` : il interroge, distribue et dispose. C'est la même
  * frontière que `src/core` contre `src/server`, appliquée un cran plus haut.
  *

@@ -66,12 +66,12 @@ const execFileP = promisify(execFile)
  * de 1Password.
  *
  * **La liste est exportée parce qu'elle en contraint une autre.**
- * `src/core/erreurs.ts` caviarde les références dans les messages servis par
+ * `src/core/errors.ts` caviarde les références dans les messages servis par
  * l'API, et la frontière de pureté lui interdit d'importer ce fichier : il en
  * recopie donc le préfixe à la main. Deux exemplaires d'une même vérité ne se
  * contraignent pas tout seuls, et la dépendance a vécu un temps en commentaire
  * des deux côtés — ce qui ne la faisait échouer nulle part.
- * `tests/core/erreurs.test.ts` lit désormais cette liste et exige que chacune
+ * `tests/core/errors.test.ts` lit désormais cette liste et exige que chacune
  * de ses formes ressorte caviardée : un préfixe ajouté ici sans passe
  * correspondante là-bas fait rougir la suite au lieu de sortir en silence sur
  * un dépôt public. (issue #49)
@@ -109,7 +109,7 @@ export type Environment = Record<string, string | undefined>
  * ou `undefined` quand la valeur n'est pas une référence.
  *
  * Le préfixe se sépare ici plutôt que chez l'appelant parce que c'est ici qu'on
- * sait lequel a mordu. `redactReferencesKnown` (`src/server/erreurs.ts`)
+ * sait lequel a mordu. `redactReferencesKnown` (`src/server/errors.ts`)
  * s'en sert pour retirer d'un message d'erreur la référence entière **en
  * remettant son préfixe derrière** : c'est lui qui dit que la variable portait
  * une adresse et non une valeur littérale.

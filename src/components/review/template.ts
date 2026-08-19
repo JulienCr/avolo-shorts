@@ -5,7 +5,7 @@
  * Il vit à côté des composants qui s'en servent, pas dans `src/core/` : il
  * connaît `@/lib/api` — donc une forme de réponse HTTP — et il compose des
  * phrases d'interface. Ce qui est en revanche vrai partout — la définition de
- * « gardé », les comptes du fil de tri, la phase — est dans `@/core/parcours`
+ * « gardé », les comptes du fil de tri, la phase — est dans `@/core/phase`
  * et n'est pas recopié ici.
  */
 
@@ -26,7 +26,7 @@ import type { SelectionReport } from '@/lib/api'
  * les clés persistées).** `atrier`, `guards` et `discarded` sont françaises sans
  * accent, mais ce sont des valeurs du paramètre d'URL `?vue=`, pas des
  * identifiants — voir le commentaire sur `linkProject` dans
- * `src/components/tri/ecran-projet.tsx`, qui qualifie ce contrat de gelé. Une
+ * `src/components/review/project-screen.tsx`, qui qualifie ce contrat de gelé. Une
  * URL en signet porte l'ancienne valeur pour toujours, et `viewSinceUrl`
  * retombe **silencieusement** sur `atrier` devant une valeur qu'elle ne
  * reconnaît pas : traduire ces trois mots casserait un signet sans qu'aucun

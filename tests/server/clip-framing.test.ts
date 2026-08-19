@@ -173,7 +173,7 @@ describe('clipFraming', () => {
    * « illisible ».**
    *
    * `statSync` réussit sur un fichier qu'on ne peut pas ouvrir — le dépôt
-   * documente le cas d'un `chmod 000` dans `src/server/octets.ts` —, et
+   * documente le cas d'un `chmod 000` dans `src/server/bytes.ts` —, et
    * `lireAnalysis` lit avant d'analyser. Avaler son `EACCES` ferait cadrer tout un
    * projet à la main sur une panne de montage, avec un journal qui dit
    * « illisible » d'un fichier parfaitement valide : le sens de la panne irait

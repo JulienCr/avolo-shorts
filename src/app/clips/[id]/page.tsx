@@ -14,7 +14,7 @@ import { useClip } from '@/lib/queries'
  *
  * Elle ne compose rien : elle résout son paramètre, demande le clip, et rend
  * l'un des trois états. Le montage lui-même est dans
- * `@/components/clip/ecran-clip`, ce qui le rend montable en test sans passer
+ * `@/components/clip/clip-screen`, ce qui le rend montable en test sans passer
  * par `use(params)`.
  */
 export default function ClipPage({ params }: { params: Promise<{ id: string }> }) {

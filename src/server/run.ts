@@ -397,7 +397,7 @@ export type Status = {
    *
    * **Il traverse la frontière HTTP, et il a fallu qu'il la traverse.** Ce
    * commentaire a d'abord dit l'inverse, en s'appuyant sur `phaseProjet`
-   * (`src/core/parcours.ts`) qui déduit l'état juste — plus rien ne tourne,
+   * (`src/core/phase.ts`) qui déduit l'état juste — plus rien ne tourne,
    * aucune erreur, une étape manque, donc `interrompu`. L'argument vaut pour
    * l'écran de projet et **pas pour la bibliothèque, qui n'a pas `steps`** : la
    * liste ne porte que deux lectures gratuites, par une décision de coût qui ne

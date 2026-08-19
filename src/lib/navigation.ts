@@ -8,7 +8,7 @@
  * recopié trois fois.
  *
  * Ce module n'est pas dans `src/core/` : il compose des URL, ce qui est une
- * affaire d'interface. Il dépend de `@/core/parcours` pour la phase, jamais
+ * affaire d'interface. Il dépend de `@/core/phase` pour la phase, jamais
  * l'inverse.
  */
 

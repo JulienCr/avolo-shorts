@@ -6,7 +6,7 @@ import { messageSafe } from '@/server/errors'
  * **Ce que `messageSafe` sait et que la grammaire d'`cleanPaths` ne peut pas
  * savoir : où une référence finit.**
  *
- * Hors citation, `src/core/erreurs.ts` arrête une référence au premier espace,
+ * Hors citation, `src/core/errors.ts` arrête une référence au premier espace,
  * exactement comme un chemin nu — et pour la même raison. La grammaire qui
  * traversait les espaces a été écrite puis retirée : elle avalait la prose
  * derrière une référence incomplète, diagnostic et remède compris, et un

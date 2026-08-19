@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
  * **Elle reçoit un lieu, pas un fil d'Ariane.** Les trois écrans construisaient
  * chacun le leur à la main, sous forme d'un tableau positionnel : le modèle de
  * navigation était donc recopié trois fois, et une quatrième page l'aurait
- * recopié. `chemin` (`@/lib/parcours`) le décrit une fois pour toutes, la
+ * recopié. `chemin` (`@/lib/navigation`) le décrit une fois pour toutes, la
  * profondeur maximale comprise.
  */
 export function AppBar({

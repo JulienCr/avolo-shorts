@@ -274,7 +274,7 @@ export type ProjectStatus = {
    * l'a pas relevée.
    *
    * **Elle est là pour la seule chose qui en dépende** : `stepDurationRange`
-   * (`src/core/parcours.ts`) s'en sert pour suppléer la durée, qui manque
+   * (`src/core/phase.ts`) s'en sert pour suppléer la durée, qui manque
    * précisément au moment où le panneau d'avancement apparaît — un projet créé
    * il y a trois secondes n'a pas encore été sondé par ffprobe. Sans elle, la
    * branche existe et ne sert jamais, et le panneau se tait pendant la copie,

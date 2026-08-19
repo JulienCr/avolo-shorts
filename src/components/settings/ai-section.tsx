@@ -23,12 +23,12 @@ import { type AiSettings, type LlmAvailability, type LlmProvider, LLM_PROVIDERS 
  *
  * **Seul le repérage agit.** La correction du transcript et le hook n'existent
  * pas encore : leurs réglages se posent et se persistent, comme le contrat le
- * demande, mais rien ne les lit. Chacun des deux porte donc son propre bandeau
+ * demande, mais rien ne les lit. Chacun des deux porte donc son trimmed banner
  * — la forme retenue par `HookSection` pour le même problème, mais **pas la
  * même solution** : là-bas, rien ne s'écrit, parce qu'aucun stockage n'existe
  * encore pour ces valeurs. Ici, le stockage existe — c'est tout l'objet de
  * cette PR — donc les champs restent actifs, réglables et persistés ; seul le
- * bandeau change, pour ne jamais laisser croire qu'un réglage agit alors
+ * banner change, pour ne jamais laisser croire qu'un réglage agit alors
  * qu'aucun code ne le lit.
  *
  * **Changer un réglage ne recalcule rien** (retour d'usage §6.1 et §11), comme
@@ -85,7 +85,7 @@ type Usage = {
   title: string
   help: string
   /** `null` : l'usage est branché, rien à dire de plus. */
-  bandeau: { titre: string; description: string } | null
+  banner: { title: string; description: string } | null
 }
 
 /**
@@ -97,7 +97,7 @@ type Usage = {
  * **La forme reprend celle de `HookSection`** (`Alert` + `Info` + un titre et
  * une description), sans le verrou : là-bas rien ne s'écrit parce qu'aucun
  * stockage n'existe ; ici le stockage existe, donc le champ reste actif, et
- * seul le bandeau change de sens.
+ * seul le banner change de sens.
  */
 const USAGES: readonly Usage[] = [
   {
@@ -106,7 +106,7 @@ const USAGES: readonly Usage[] = [
     modelField: 'selectionModel',
     title: 'Repérage',
     help: 'Le modèle qui note les fenêtres du transcript et détaille les propositions de clips.',
-    bandeau: null,
+    banner: null,
   },
   {
     key: 'correction',
@@ -114,8 +114,8 @@ const USAGES: readonly Usage[] = [
     modelField: 'correctionModel',
     title: 'Correction du transcript',
     help: 'Le modèle qui corrigerait les fautes de reconnaissance vocale du transcript.',
-    bandeau: {
-      titre: 'Pas encore branché.',
+    banner: {
+      title: 'Pas encore branché.',
       description:
         'Ce réglage se persiste, mais rien ne le lit : la correction du transcript n’existe pas encore.',
     },
@@ -126,8 +126,8 @@ const USAGES: readonly Usage[] = [
     modelField: 'hookModel',
     title: 'Hook',
     help: 'Le modèle qui écrirait le texte d’accroche affiché en début de clip.',
-    bandeau: {
-      titre: 'Pas encore branché.',
+    banner: {
+      title: 'Pas encore branché.',
       description:
         'Ce réglage se persiste, mais rien ne le lit : la génération automatique du hook n’existe pas encore.',
     },
@@ -147,9 +147,9 @@ export function AiSection({
   onChange: (patch: Partial<AiSettings>) => void | Promise<unknown>
 }) {
   return (
-    <section aria-labelledby="titre-ai" className="flex flex-col gap-5">
+    <section aria-labelledby="ai-title" className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h2 id="titre-ai" className="text-base font-semibold tracking-tight">
+        <h2 id="ai-title" className="text-base font-semibold tracking-tight">
           Intelligence artificielle
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -195,7 +195,7 @@ function UsageRow({
 }) {
   const providerId = useId()
   const modelId = useId()
-  const état = availability?.[provider]
+  const availabilityState = availability?.[provider]
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border px-4 py-3">
@@ -210,11 +210,11 @@ function UsageRow({
         <p className="text-xs text-muted-foreground">{usage.help}</p>
       </div>
 
-      {usage.bandeau !== null && (
+      {usage.banner !== null && (
         <Alert>
           <Info aria-hidden />
-          <AlertTitle>{usage.bandeau.titre}</AlertTitle>
-          <AlertDescription>{usage.bandeau.description}</AlertDescription>
+          <AlertTitle>{usage.banner.title}</AlertTitle>
+          <AlertDescription>{usage.banner.description}</AlertDescription>
         </Alert>
       )}
 
@@ -226,15 +226,15 @@ function UsageRow({
           <Select
             value={provider}
             disabled={disabled}
-            onValueChange={(valeur) => {
-              const suivant = valeur as LlmProvider
+            onValueChange={(value) => {
+              const next = value as LlmProvider
               // **Le fournisseur seul change, jamais le modèle à sa place.**
               // Un modèle valable chez l'un part en 404 chez l'autre
               // (`CLAUDE.md`) ; forcer une valeur ici écraserait une saisie
               // que la personne vient peut-être de faire exprès. L'indice
               // sous la boîte de modèle dit ce qui marche chez ce
               // fournisseur, sans se substituer au choix.
-              void onChange({ [usage.providerField]: suivant })
+              void onChange({ [usage.providerField]: next })
             }}
           >
             <SelectTrigger id={providerId} className="w-40">
@@ -272,16 +272,16 @@ function UsageRow({
           hint={MODEL_HINT[provider]}
           defaultValue={DEFAULT_MODEL}
           disabled={disabled}
-          onCommit={(valeur) => onChange({ [usage.modelField]: valeur })}
+          onCommit={(value) => onChange({ [usage.modelField]: value })}
         />
       </div>
 
-      {état !== undefined && !état.available && (
+      {availabilityState !== undefined && !availabilityState.available && (
         <Alert variant="destructive">
           <CircleAlert aria-hidden />
           <AlertTitle>{PROVIDER_LABELS[provider]} n’a pas de clé configurée.</AlertTitle>
           <AlertDescription>
-            {état.reason ?? 'La clé de ce fournisseur est absente.'} Un repérage avec ce
+            {availabilityState.reason ?? 'La clé de ce fournisseur est absente.'} Un repérage avec ce
             fournisseur échouera avant le premier appel.
           </AlertDescription>
         </Alert>
@@ -324,10 +324,10 @@ function ModelField({
   }
 
   function commit() {
-    const propre = draft.trim()
-    if (propre === '') return setDraft(value)
-    if (propre === value) return
-    void Promise.resolve(onCommit(propre)).catch(() => setDraft(value))
+    const trimmed = draft.trim()
+    if (trimmed === '') return setDraft(value)
+    if (trimmed === value) return
+    void Promise.resolve(onCommit(trimmed)).catch(() => setDraft(value))
   }
 
   return (
@@ -393,9 +393,9 @@ function OllamaUrlField({
   }
 
   function commit() {
-    const propre = draft.trim()
-    if (propre === value) return
-    void Promise.resolve(onChange({ ollamaBaseUrl: propre })).catch(() => setDraft(value))
+    const trimmed = draft.trim()
+    if (trimmed === value) return
+    void Promise.resolve(onChange({ ollamaBaseUrl: trimmed })).catch(() => setDraft(value))
   }
 
   return (
@@ -434,10 +434,10 @@ function OllamaUrlField({
         )}
       </div>
       <p id={helpId} className="text-xs text-muted-foreground">
-        Laisser vide résout la passerelle WSL vers l’hôte Windows à chaque
-        appel — l’adresse change au redémarrage, elle ne se code pas en dur. Ne
-        renseigner que si Ollama tourne ailleurs, ou si cette résolution
-        échoue.
+        Laisser vide résout la passerelle WSL vers l’hôte Windows au démarrage
+        de chaque repérage — l’adresse change au redémarrage, elle ne se code
+        pas en dur. Ne renseigner que si Ollama tourne ailleurs, ou si cette
+        résolution échoue.
       </p>
     </div>
   )

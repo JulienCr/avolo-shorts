@@ -412,7 +412,7 @@ export function leverSiBloquée(réponse: LlmResponse): void {
   const raison = réponse.promptFeedback?.blockReason
   if (raison) {
     throw new GeminiBlockedError(
-      `Gemini a bloqué le contenu de cette vidéo (${String(raison)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+      `Le fournisseur a bloqué le contenu de cette vidéo (${String(raison)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
     )
   }
   for (const candidat of réponse.candidates ?? []) {
@@ -420,19 +420,19 @@ export function leverSiBloquée(réponse: LlmResponse): void {
     if (fin === 'MAX_TOKENS') {
       // Une erreur ordinaire, pas un `GeminiBlockedError` : le message est dans
       // les marqueurs passagers, donc l'appel repart.
-      throw new Error('Gemini response was truncated (MAX_TOKENS): the answer is incomplete.')
+      throw new Error('Provider response was truncated (MAX_TOKENS): the answer is incomplete.')
     }
     if (FINS_SANS_REFUS.has(fin)) continue
     if (REFUS_DE_CONTENU.has(fin)) {
       throw new GeminiBlockedError(
-        `Gemini a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+        `Le fournisseur a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
       )
     }
     // Anormale mais pas nommée. Elle échoue tout de suite — le message n'est pas
     // dans les marqueurs passagers — sans se faire passer pour un refus de
     // contenu, qui accuserait la vidéo à tort. (relevé par Copilot)
     throw new Error(
-      `Gemini a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
+      `Le fournisseur a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
     )
   }
 }
@@ -612,7 +612,7 @@ export async function appelerGemini<T = unknown>(
         // faisait le verdict de `noterLesFenêtres` avant sa correction.
         // (relevé par Copilot)
         throw new Error(
-          `Gemini refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
+          `Le fournisseur refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
             `soit plus que les ${ATTENTE_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
             `Le repérage s'arrête plutôt que de relancer avant le délai demandé.`,
         )
@@ -621,7 +621,7 @@ export async function appelerGemini<T = unknown>(
       // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
       const attente = Math.max(5000 * 2 ** (tentative - 1), quota ?? 0)
       console.warn(
-        `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
+        `Fournisseur, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
       await waitOrStop(attente)
     }
@@ -1259,8 +1259,8 @@ async function noterEtRécupérer(
     const jusquÀLaFenêtreSeule = bilan.refusées.length === bilan.fenêtres
     throw new GeminiBlockedError(
       jusquÀLaFenêtreSeule
-        ? `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
-        : `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
+        ? `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
+        : `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
     )
   }
 
@@ -1532,7 +1532,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
     // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
     // formule prudente que ce dernier a dû se donner après coup.
     throw new GeminiBlockedError(
-      `Gemini a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
+      `Le fournisseur a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
     )
   }

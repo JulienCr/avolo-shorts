@@ -45,19 +45,19 @@ describe('Ollama : la traduction des raisons de fin', () => {
   })
 })
 
-describe('Ollama : la traduction de la réponse', () => {
+describe('Ollama : la traduction de la response', () => {
   it('porte le texte du message et la raison de fin normalisée', () => {
-    const réponse = toLlmResponse({
+    const response = toLlmResponse({
       message: { content: '{"shorts": []}' },
       done_reason: 'stop',
     })
-    expect(réponse.text).toBe('{"shorts": []}')
-    expect(réponse.candidates?.[0]?.finishReason).toBe('STOP')
+    expect(response.text).toBe('{"shorts": []}')
+    expect(response.candidates?.[0]?.finishReason).toBe('STOP')
   })
 
   it('ne porte jamais promptFeedback : Ollama ne bloque pas pour du contenu', () => {
-    const réponse = toLlmResponse({ message: { content: 'x' }, done_reason: 'stop' })
-    expect(réponse.promptFeedback).toBeUndefined()
+    const response = toLlmResponse({ message: { content: 'x' }, done_reason: 'stop' })
+    expect(response.promptFeedback).toBeUndefined()
   })
 })
 
@@ -85,8 +85,8 @@ describe('createOllamaCall : la résolution de la passerelle WSL', () => {
     const fetchMock = fetchOk()
     vi.stubGlobal('fetch', fetchMock)
 
-    const appel = createOllamaCall({ model: 'llama3.1', timeoutMs: 5_000, config })
-    await appel('prompt', 'score')
+    const call = createOllamaCall({ model: 'llama3.1', timeoutMs: 5_000, config })
+    await call('prompt', 'score')
 
     expect(execFileMock).toHaveBeenCalledWith('ip', ['route', 'show', 'default'])
     const [url] = fetchMock.mock.calls[0] as unknown as [string]
@@ -97,9 +97,9 @@ describe('createOllamaCall : la résolution de la passerelle WSL', () => {
     execFileMock.mockResolvedValue({ stdout: 'default via 172.20.16.1 dev eth0\n', stderr: '' })
     vi.stubGlobal('fetch', fetchOk())
 
-    const appel = createOllamaCall({ model: 'llama3.1', timeoutMs: 5_000, config })
-    await appel('un', 'score')
-    await appel('deux', 'detail')
+    const call = createOllamaCall({ model: 'llama3.1', timeoutMs: 5_000, config })
+    await call('un', 'score')
+    await call('deux', 'detail')
 
     // Un repérage fait des dizaines d'appels : résoudre la passerelle à
     // chacun d'eux referait le sous-processus `ip` autant de fois pour rien.
@@ -109,40 +109,40 @@ describe('createOllamaCall : la résolution de la passerelle WSL', () => {
   it('n’appelle jamais « ip route » quand l’adresse est réglée', async () => {
     vi.stubGlobal('fetch', fetchOk())
 
-    const appel = createOllamaCall({
+    const call = createOllamaCall({
       model: 'llama3.1',
       baseUrl: 'http://mon-serveur:11434',
       timeoutMs: 5_000,
       config,
     })
-    await appel('prompt', 'score')
+    await call('prompt', 'score')
 
     expect(execFileMock).not.toHaveBeenCalled()
   })
 
   it('coupe la requête quand le signal externe s’annule, sans attendre le délai', async () => {
     execFileMock.mockResolvedValue({ stdout: 'default via 172.20.16.1 dev eth0\n', stderr: '' })
-    let signalCapturé: AbortSignal | undefined
+    let capturedSignal: AbortSignal | undefined
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init: RequestInit) => {
-        signalCapturé = init.signal as AbortSignal
+        capturedSignal = init.signal as AbortSignal
         return new Promise<Response>(() => {})
       }),
     )
 
-    const controleur = new AbortController()
-    const appel = createOllamaCall({
+    const controller = new AbortController()
+    const call = createOllamaCall({
       model: 'llama3.1',
-      signal: controleur.signal,
+      signal: controller.signal,
       timeoutMs: 60_000,
       config,
     })
-    void appel('prompt', 'score')
+    void call('prompt', 'score')
 
-    await vi.waitFor(() => expect(signalCapturé).toBeDefined())
-    expect(signalCapturé?.aborted).toBe(false)
-    controleur.abort()
-    expect(signalCapturé?.aborted).toBe(true)
+    await vi.waitFor(() => expect(capturedSignal).toBeDefined())
+    expect(capturedSignal?.aborted).toBe(false)
+    controller.abort()
+    expect(capturedSignal?.aborted).toBe(true)
   })
 })

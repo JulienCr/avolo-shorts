@@ -246,7 +246,7 @@ describe('le registre des réglages', () => {
  */
 describe('la famille `ai`', () => {
   it('décrit ses sept champs, libellé compris', () => {
-    for (const nom of [
+    for (const name of [
       'selectionProvider',
       'selectionModel',
       'correctionProvider',
@@ -255,10 +255,10 @@ describe('la famille `ai`', () => {
       'hookModel',
       'ollamaBaseUrl',
     ]) {
-      const champ = settingField('ai', nom)
-      expect(champ, nom).toBeDefined()
-      expect(champ!.label.length).toBeGreaterThan(0)
-      expect(champ!.description.length).toBeGreaterThan(0)
+      const field = settingField('ai', name)
+      expect(field, name).toBeDefined()
+      expect(field!.label.length).toBeGreaterThan(0)
+      expect(field!.description.length).toBeGreaterThan(0)
     }
   })
 

@@ -58,8 +58,8 @@ it('affiche le modèle réglé de chaque usage, pas un nom technique', () => {
       onChange={() => {}}
     />,
   )
-  const modeles = screen.getAllByDisplayValue('gemini-3.1-flash-lite')
-  expect(modeles).toHaveLength(2) // repérage et hook
+  const models = screen.getAllByDisplayValue('gemini-3.1-flash-lite')
+  expect(models).toHaveLength(2) // repérage et hook
   expect(screen.getByDisplayValue('gpt-4.1-mini')).toBeTruthy()
 })
 
@@ -82,15 +82,15 @@ it('ne signale rien tant que la disponibilité n’a pas fini de se charger', ()
 
 it('écrit le modèle saisi en quittant le champ, jamais à la frappe', async () => {
   const onChange = vi.fn()
-  const utilisateur = userEvent.setup()
+  const user = userEvent.setup()
   render(<AiSection values={VALUES} availability={AVAILABLE} onChange={onChange} />)
 
-  const [champRepérage] = screen.getAllByDisplayValue('gemini-3.1-flash-lite')
-  await utilisateur.clear(champRepérage)
-  await utilisateur.type(champRepérage, 'gemini-2.5-flash')
+  const [selectionField] = screen.getAllByDisplayValue('gemini-3.1-flash-lite')
+  await user.clear(selectionField)
+  await user.type(selectionField, 'gemini-2.5-flash')
   expect(onChange).not.toHaveBeenCalled()
 
-  await utilisateur.tab()
+  await user.tab()
   await waitFor(() =>
     expect(onChange).toHaveBeenCalledWith({ selectionModel: 'gemini-2.5-flash' }),
   )
@@ -98,13 +98,13 @@ it('écrit le modèle saisi en quittant le champ, jamais à la frappe', async ()
 
 it('choisit un fournisseur sans toucher au modèle', async () => {
   const onChange = vi.fn()
-  const utilisateur = userEvent.setup()
+  const user = userEvent.setup()
   render(<AiSection values={VALUES} availability={AVAILABLE} onChange={onChange} />)
 
-  const [triggerRepérage] = screen.getAllByRole('combobox')
-  await utilisateur.click(triggerRepérage)
+  const [selectionTrigger] = screen.getAllByRole('combobox')
+  await user.click(selectionTrigger)
   const options = await screen.findAllByRole('option', { name: 'OpenAI' })
-  await utilisateur.click(options[0])
+  await user.click(options[0])
 
   await waitFor(() =>
     expect(onChange).toHaveBeenCalledWith({ selectionProvider: 'openai' }),
@@ -122,7 +122,7 @@ it('résout la passerelle par défaut : vide, et sans bouton de retour au défau
 
 it('propose de revenir à la résolution automatique une fois une adresse réglée', async () => {
   const onChange = vi.fn()
-  const utilisateur = userEvent.setup()
+  const user = userEvent.setup()
   render(
     <AiSection
       values={{ ...VALUES, ollamaBaseUrl: 'http://172.20.16.1:11434' }}
@@ -130,8 +130,8 @@ it('propose de revenir à la résolution automatique une fois une adresse régl�
       onChange={onChange}
     />,
   )
-  const bouton = screen.getByText(/Revenir à la résolution automatique/)
-  await utilisateur.click(bouton)
+  const button = screen.getByText(/Revenir à la résolution automatique/)
+  await user.click(button)
   expect(onChange).toHaveBeenCalledWith({ ollamaBaseUrl: '' })
 })
 
@@ -150,7 +150,7 @@ it('ne montre aucun bouton de retour au défaut quand tout est déjà au défaut
 
 it('propose de revenir au fournisseur par défaut, et écrit le bon champ', async () => {
   const onChange = vi.fn()
-  const utilisateur = userEvent.setup()
+  const user = userEvent.setup()
   render(
     <AiSection
       values={{ ...VALUES, correctionProvider: 'openai' }}
@@ -159,14 +159,14 @@ it('propose de revenir au fournisseur par défaut, et écrit le bon champ', asyn
     />,
   )
 
-  const bouton = screen.getByText(/Revenir à Gemini/)
-  await utilisateur.click(bouton)
+  const button = screen.getByText(/Revenir à Gemini/)
+  await user.click(button)
   expect(onChange).toHaveBeenCalledWith({ correctionProvider: 'gemini' })
 })
 
 it('propose de revenir au modèle par défaut, et écrit le bon champ', async () => {
   const onChange = vi.fn()
-  const utilisateur = userEvent.setup()
+  const user = userEvent.setup()
   render(
     <AiSection
       values={{ ...VALUES, hookModel: 'gemini-2.5-flash' }}
@@ -175,7 +175,7 @@ it('propose de revenir au modèle par défaut, et écrit le bon champ', async ()
     />,
   )
 
-  const bouton = screen.getByText('Revenir à gemini-3.1-flash-lite')
-  await utilisateur.click(bouton)
+  const button = screen.getByText('Revenir à gemini-3.1-flash-lite')
+  await user.click(button)
   expect(onChange).toHaveBeenCalledWith({ hookModel: 'gemini-3.1-flash-lite' })
 })

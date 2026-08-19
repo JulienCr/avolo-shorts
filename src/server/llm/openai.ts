@@ -17,7 +17,7 @@ import type { JsonSchema, LlmCall, LlmClientOptions, LlmResponse } from '@/serve
  * `null`) — une contrainte qui ne colle pas à `SCHÉMA_DÉTAIL`, où
  * `predicted_score` peut manquer. Le mode permissif accepte le même schéma que
  * Gemini sans le retoucher, au prix d'un contrat plus faible : `parseDetailResponse`
- * et `parseScoreResponse` restent seuls responsables de refuser une réponse qui
+ * et `parseScoreResponse` restent seuls responsables de refuser une response qui
  * ne le respecte pas, exactement comme pour Gemini aujourd'hui.
  */
 
@@ -44,10 +44,10 @@ const ENDPOINT = 'https://api.openai.com/v1/chat/completions'
  * `leverSiBloquée` les traiterait comme une fin anormale non nommée — un
  * défaut de ce côté, pas un refus de contenu, exactement le traitement voulu.
  */
-export function toFinishReason(brut: string | null | undefined): string {
-  if (brut === 'length') return 'MAX_TOKENS'
-  if (brut === 'content_filter') return 'CONTENT_FILTER'
-  return (brut ?? '').toUpperCase()
+export function toFinishReason(raw: string | null | undefined): string {
+  if (raw === 'length') return 'MAX_TOKENS'
+  if (raw === 'content_filter') return 'CONTENT_FILTER'
+  return (raw ?? '').toUpperCase()
 }
 
 type OpenAiChoice = {
@@ -58,23 +58,23 @@ type OpenAiChoice = {
 type OpenAiResponse = { choices?: OpenAiChoice[] }
 
 /**
- * Traduit la réponse REST vers la forme commune que `appelerGemini` consomme.
+ * Traduit la response REST vers la forme commune que `appelerGemini` consomme.
  *
  * **Un refus structuré (`message.refusal`) l'emporte sur `finish_reason`.**
  * OpenAI peut renvoyer `finish_reason: "stop"` avec un refus dans
  * `message.refusal` plutôt que dans `content` — un modèle qui explique en
- * langage naturel pourquoi il n'a rien produit. Sans ce contrôle, la réponse
+ * langage naturel pourquoi il n'a rien produit. Sans ce contrôle, la response
  * passerait pour réussie et `parseJsonResponse` échouerait sur du texte libre,
  * classé passager par erreur plutôt que reconnu comme un refus définitif.
  */
-export function toLlmResponse(données: OpenAiResponse): LlmResponse {
-  const choix = données.choices?.[0]
-  if (choix?.message?.refusal != null && choix.message.refusal !== '') {
+export function toLlmResponse(data: OpenAiResponse): LlmResponse {
+  const choice = data.choices?.[0]
+  if (choice?.message?.refusal != null && choice.message.refusal !== '') {
     return { candidates: [{ finishReason: 'CONTENT_FILTER' }] }
   }
   return {
-    text: choix?.message?.content ?? undefined,
-    candidates: [{ finishReason: toFinishReason(choix?.finish_reason) }],
+    text: choice?.message?.content ?? undefined,
+    candidates: [{ finishReason: toFinishReason(choice?.finish_reason) }],
   }
 }
 
@@ -83,7 +83,7 @@ function requestBody(model: string, prompt: string, schema: JsonSchema, temperat
     model,
     messages: [{ role: 'user', content: prompt }],
     temperature,
-    max_tokens: maxOutputTokens,
+    max_completion_tokens: maxOutputTokens,
     response_format: {
       type: 'json_schema',
       json_schema: { name: 'result', schema, strict: false },
@@ -97,29 +97,29 @@ export function createOpenAiCall(options: LlmClientOptions): LlmCall {
     // **Le délai est fini, comme pour Gemini** (voir `DÉLAI_APPEL_MS` dans
     // `candidates.ts`) : sans lui, un appel qui n'aboutit ni ne casse
     // n'atteindrait jamais la politique de relance.
-    const signaux = [AbortSignal.timeout(options.timeoutMs)]
-    if (options.signal !== undefined) signaux.push(options.signal)
+    const signals = [AbortSignal.timeout(options.timeoutMs)]
+    if (options.signal !== undefined) signals.push(options.signal)
 
-    const réponse = await fetch(ENDPOINT, {
+    const response = await fetch(ENDPOINT, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${options.apiKey ?? ''}`,
       },
       body: JSON.stringify(requestBody(options.model, prompt, schema, temperature, maxOutputTokens)),
-      signal: AbortSignal.any(signaux),
+      signal: AbortSignal.any(signals),
     })
 
-    if (!réponse.ok) {
+    if (!response.ok) {
       // Le code HTTP entre dans le message : c'est ce qu'`estPassagère`
       // (`candidates.ts`) reconnaît pour décider une relance — même
       // convention que le SDK Gemini, qui écrit le code dans son message
       // d'exception plutôt que de l'exposer autrement.
-      const corps = await réponse.text().catch(() => '')
-      throw new Error(`OpenAI a répondu ${réponse.status} ${réponse.statusText} : ${corps.slice(0, 500)}`)
+      const body = await response.text().catch(() => '')
+      throw new Error(`OpenAI a répondu ${response.status} ${response.statusText} : ${body.slice(0, 500)}`)
     }
 
-    const données = (await réponse.json()) as OpenAiResponse
-    return toLlmResponse(données)
+    const data = (await response.json()) as OpenAiResponse
+    return toLlmResponse(data)
   }
 }

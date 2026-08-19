@@ -13,18 +13,18 @@ import type { JsonSchema, LlmCall, LlmClientOptions } from '@/server/llm/types'
  */
 
 /** Convertit le schéma générique vers la forme que l'API Gemini attend. */
-export function toGeminiSchema(schéma: JsonSchema): Schema {
-  switch (schéma.type) {
+export function toGeminiSchema(schema: JsonSchema): Schema {
+  switch (schema.type) {
     case 'object':
       return {
         type: Type.OBJECT,
         properties: Object.fromEntries(
-          Object.entries(schéma.properties).map(([clé, valeur]) => [clé, toGeminiSchema(valeur)]),
+          Object.entries(schema.properties).map(([key, value]) => [key, toGeminiSchema(value)]),
         ),
-        required: schéma.required ? [...schéma.required] : undefined,
+        required: schema.required ? [...schema.required] : undefined,
       }
     case 'array':
-      return { type: Type.ARRAY, items: toGeminiSchema(schéma.items) }
+      return { type: Type.ARRAY, items: toGeminiSchema(schema.items) }
     case 'string':
       return { type: Type.STRING }
     case 'integer':

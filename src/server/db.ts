@@ -362,7 +362,7 @@ const AI_LABELS: Record<keyof AiSettings, { label: string; description: string }
   ollamaBaseUrl: {
     label: 'Adresse du serveur Ollama',
     description:
-      'Laisser vide pour résoudre automatiquement la passerelle WSL à chaque appel. À ne renseigner que si Ollama tourne ailleurs qu’à cette adresse, ou si la résolution automatique échoue.',
+      'Laisser vide pour résoudre automatiquement la passerelle WSL au démarrage de chaque repérage. À ne renseigner que si Ollama tourne ailleurs qu’à cette adresse, ou si la résolution automatique échoue.',
   },
 }
 
@@ -570,12 +570,12 @@ export function validateSetting(
       return value
     }
     case 'text': {
-      const vide = value === ''
+      const isEmpty = value === ''
       if (
         typeof value !== 'string' ||
         value.length > TEXT_MAX ||
-        (vide && !field.allowEmpty) ||
-        (!vide && value.trim() === '')
+        (isEmpty && !field.allowEmpty) ||
+        (!isEmpty && value.trim() === '')
       ) {
         throw new InvalidSettingError(
           field.allowEmpty

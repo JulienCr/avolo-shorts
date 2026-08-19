@@ -20,14 +20,14 @@ const execFileP = promisify(execFile)
  */
 async function resolveGateway(): Promise<string> {
   const { stdout } = await execFileP('ip', ['route', 'show', 'default'])
-  const trouvée = /default via (\S+)/.exec(stdout)
-  if (trouvée === null) {
+  const found = /default via (\S+)/.exec(stdout)
+  if (found === null) {
     throw new Error(
       "Impossible de résoudre la passerelle WSL vers Ollama : « ip route show default » " +
         "n'a rien rendu d'exploitable. Régler l'URL du serveur Ollama à la main dans les réglages.",
     )
   }
-  return trouvée[1]
+  return found[1]
 }
 
 /**
@@ -35,13 +35,13 @@ async function resolveGateway(): Promise<string> {
  * `LlmCall` qui la referme — pas à chaque appel : un repérage en fait des
  * dizaines, et la passerelle ne change pas en cours de route.
  */
-function baseUrlResolver(configurée: string | undefined): () => Promise<string> {
-  let mémo: Promise<string> | null = null
+function baseUrlResolver(configured: string | undefined): () => Promise<string> {
+  let memo: Promise<string> | null = null
   return () => {
-    const propre = configurée?.trim()
-    if (propre !== undefined && propre !== '') return Promise.resolve(propre.replace(/\/+$/, ''))
-    mémo ??= resolveGateway().then((ip) => `http://${ip}:11434`)
-    return mémo
+    const trimmed = configured?.trim()
+    if (trimmed !== undefined && trimmed !== '') return Promise.resolve(trimmed.replace(/\/+$/, ''))
+    memo ??= resolveGateway().then((ip) => `http://${ip}:11434`)
+    return memo
   }
 }
 
@@ -50,31 +50,31 @@ function baseUrlResolver(configurée: string | undefined): () => Promise<string>
  * vocabulaire que `leverSiBloquée` reconnaît. Un modèle local n'a pas de
  * filtre de contenu fournisseur : rien ici ne produit `CONTENT_FILTER`.
  */
-export function toFinishReason(brut: string | null | undefined): string {
-  if (brut === 'length') return 'MAX_TOKENS'
-  return (brut ?? '').toUpperCase()
+export function toFinishReason(raw: string | null | undefined): string {
+  if (raw === 'length') return 'MAX_TOKENS'
+  return (raw ?? '').toUpperCase()
 }
 
 type OllamaResponse = { message?: { content?: string }; done_reason?: string | null }
 
-export function toLlmResponse(données: OllamaResponse): LlmResponse {
+export function toLlmResponse(data: OllamaResponse): LlmResponse {
   return {
-    text: données.message?.content,
-    candidates: [{ finishReason: toFinishReason(données.done_reason) }],
+    text: data.message?.content,
+    candidates: [{ finishReason: toFinishReason(data.done_reason) }],
   }
 }
 
 export function createOllamaCall(options: LlmClientOptions): LlmCall {
-  const résoudreAdresse = baseUrlResolver(options.baseUrl)
+  const resolveAddress = baseUrlResolver(options.baseUrl)
 
   return async (prompt, mode) => {
     const { schema, temperature, maxOutputTokens } = options.config(mode)
-    const base = await résoudreAdresse()
+    const base = await resolveAddress()
 
-    const signaux = [AbortSignal.timeout(options.timeoutMs)]
-    if (options.signal !== undefined) signaux.push(options.signal)
+    const signals = [AbortSignal.timeout(options.timeoutMs)]
+    if (options.signal !== undefined) signals.push(options.signal)
 
-    const réponse = await fetch(`${base}/api/chat`, {
+    const response = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -84,15 +84,15 @@ export function createOllamaCall(options: LlmClientOptions): LlmCall {
         stream: false,
         options: { temperature, num_predict: maxOutputTokens },
       }),
-      signal: AbortSignal.any(signaux),
+      signal: AbortSignal.any(signals),
     })
 
-    if (!réponse.ok) {
-      const corps = await réponse.text().catch(() => '')
-      throw new Error(`Ollama a répondu ${réponse.status} ${réponse.statusText} : ${corps.slice(0, 500)}`)
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      throw new Error(`Ollama a répondu ${response.status} ${response.statusText} : ${body.slice(0, 500)}`)
     }
 
-    const données = (await réponse.json()) as OllamaResponse
-    return toLlmResponse(données)
+    const data = (await response.json()) as OllamaResponse
+    return toLlmResponse(data)
   }
 }

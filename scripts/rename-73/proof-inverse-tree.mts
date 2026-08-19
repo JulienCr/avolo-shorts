@@ -124,7 +124,7 @@ function listFiles(dir: string): string[] {
  * autres symboles qui partagent le même texte ailleurs. Le JSON, lui, donne
  * les 4145 déclarations individuellement — un régime symétrique à celui que
  * `apply.mts` a suivi dans le sens direct. */
-interface SymbolEntry {
+export interface SymbolEntry {
   oldName: string;
   newName: string;
   kind: string;
@@ -132,12 +132,12 @@ interface SymbolEntry {
   line: number; // 1-based
 }
 
-function loadSymbolEntries(): SymbolEntry[] {
+export function loadSymbolEntries(): SymbolEntry[] {
   const p = path.join(ROOT, "scripts/rename-73/renames-identifiers.json");
   return JSON.parse(fs.readFileSync(p, "utf8")) as SymbolEntry[];
 }
 
-function loadPairTsv(name: string): Array<{ from: string; to: string }> {
+export function loadPairTsv(name: string): Array<{ from: string; to: string }> {
   const p = path.join(ROOT, "scripts/rename-73", name);
   const lines = fs.readFileSync(p, "utf8").split("\n").slice(1).filter(Boolean);
   return lines.map((line) => {
@@ -148,7 +148,7 @@ function loadPairTsv(name: string): Array<{ from: string; to: string }> {
 
 /** Chemin actuel (après renommage de fichier/dossier) pour un chemin
  * d'origine donné — le sens direct, celui que `apply.mts` a suivi. */
-function toCurrentPath(originalPath: string, fileRenames: Array<{ from: string; to: string }>, folderRenames: Array<{ from: string; to: string }>): string {
+export function toCurrentPath(originalPath: string, fileRenames: Array<{ from: string; to: string }>, folderRenames: Array<{ from: string; to: string }>): string {
   const explicit = fileRenames.find((r) => r.from === originalPath);
   if (explicit) return explicit.to;
   for (const folder of folderRenames) {
@@ -173,7 +173,7 @@ function toOriginalPath(currentPath: string, fileRenames: Array<{ from: string; 
 }
 
 /** Un identifiant TypeScript complet — lettres Unicode, chiffres, `_`, `$`. */
-function wordBoundaryRegex(word: string): RegExp {
+export function wordBoundaryRegex(word: string): RegExp {
   const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(?<![\\p{L}\\p{N}_$])${escaped}(?![\\p{L}\\p{N}_$])`, "gu");
 }
@@ -182,7 +182,7 @@ const stripExt = (p: string) => p.replace(/\.(ts|tsx|mts)$/, "");
 
 /** Le nœud le plus profond de `root` qui couvre `pos` — pour un identifiant,
  * c'est l'identifiant lui-même, puisqu'il n'a pas d'enfant. */
-function findNodeAt(root: ts.Node, pos: number, source: ts.SourceFile): ts.Node | undefined {
+export function findNodeAt(root: ts.Node, pos: number, source: ts.SourceFile): ts.Node | undefined {
   let found: ts.Node | undefined;
   const visit = (node: ts.Node) => {
     if (pos >= node.getStart(source) && pos < node.getEnd()) {
@@ -208,7 +208,7 @@ function findNodeAt(root: ts.Node, pos: number, source: ts.SourceFile): ts.Node 
  * purement syntaxique — « ce nœud est-il le champ `name` d'un nœud
  * déclaratif » — n'a pas ce problème : il ne suit aucune résolution de
  * type, il lit l'arbre tel qu'écrit. */
-function isDeclarationNameNode(node: ts.Node): boolean {
+export function isDeclarationNameNode(node: ts.Node): boolean {
   if (!ts.isIdentifier(node)) return false;
   const parent = node.parent;
   if (!parent) return false;
@@ -269,7 +269,7 @@ interface TextEdit {
  * locale `probed`, et le plan d'édition renomme l'import par erreur. Avec la
  * validation, cette entrée échoue proprement (`notFound`) au lieu de
  * corrompre le fichier. */
-function buildIdentifierEditPlan(
+export function buildIdentifierEditPlan(
   entries: SymbolEntry[],
   fileRenames: Array<{ from: string; to: string }>,
   folderRenames: Array<{ from: string; to: string }>
@@ -591,6 +591,26 @@ function main() {
     set.add(e.oldName);
     newToOld.set(e.newName, set);
   }
+  // Un spécificateur de module *incrusté dans une chaîne littérale* (une
+  // sonde compilée à la volée, comme `tests/core/etapes.test.ts` — déjà une
+  // exception connue de la preuve A) porte le nom de fichier, pas le nom
+  // d'un symbole : `parcours` → `phase` n'est nulle part dans
+  // `renames-identifiers.*`, seulement dans `renames-files.tsv`. Sans ce
+  // qui suit, un résidu parfaitement légitime se classerait à tort en
+  // anomalie. N'ajoute que les paires à un seul mot (sans tiret ni
+  // underscore) — un nom de fichier composé (`apercu-sortie` →
+  // `output-preview`) demanderait de recomposer mot à mot, ce que ce
+  // script ne tente pas ; un résidu qui s'appuierait sur un tel renommage
+  // resterait signalé, pas masqué.
+  const singleWord = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
+  for (const pair of [...fileRenames, ...folderRenames]) {
+    const oldBase = path.basename(pair.from, path.extname(pair.from));
+    const newBase = path.basename(pair.to, path.extname(pair.to));
+    if (!singleWord.test(oldBase) || !singleWord.test(newBase)) continue;
+    const set = newToOld.get(newBase) ?? new Set<string>();
+    set.add(oldBase);
+    newToOld.set(newBase, set);
+  }
 
   const differingFiles = diffOutput
     .split("\n")
@@ -636,4 +656,7 @@ function main() {
   process.exit(1);
 }
 
-main();
+// Ne s'exécute que si ce fichier est le point d'entrée — `repair-tables-from-applied.mts`
+// importe `buildIdentifierEditPlan` d'ici et ne doit pas relancer toute la preuve inverse
+// (archivage, diff contre origin/main) au chargement du module.
+if (import.meta.url === `file://${process.argv[1]}`) main();

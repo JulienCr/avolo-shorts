@@ -138,7 +138,7 @@
   {
     "id": 30,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "variable",
     "file": "scripts/dev-ingest.ts",
     "line": 23
@@ -186,7 +186,7 @@
   {
     "id": 46,
     "oldName": "sondage",
-    "newName": "probe",
+    "newName": "probed",
     "kind": "variable",
     "file": "scripts/dev-ingest.ts",
     "line": 88
@@ -202,7 +202,7 @@
   {
     "id": 51,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "variable",
     "file": "scripts/dev-render.ts",
     "line": 29
@@ -282,7 +282,7 @@
   {
     "id": 75,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "variable",
     "file": "scripts/dev-run.ts",
     "line": 30
@@ -314,7 +314,7 @@
   {
     "id": 83,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "scripts/dev-run.ts",
     "line": 51
@@ -370,7 +370,7 @@
   {
     "id": 95,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "variable",
     "file": "scripts/dev-transcribe.ts",
     "line": 30
@@ -394,7 +394,7 @@
   {
     "id": 103,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "variable",
     "file": "scripts/dev-transcribe.ts",
     "line": 78
@@ -1266,7 +1266,7 @@
   {
     "id": 389,
     "oldName": "empans",
-    "newName": "spans",
+    "newName": "measurements",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 555
@@ -1386,7 +1386,7 @@
   {
     "id": 428,
     "oldName": "empans",
-    "newName": "spans",
+    "newName": "measurements",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 636
@@ -1562,7 +1562,7 @@
   {
     "id": 510,
     "oldName": "empans",
-    "newName": "spans",
+    "newName": "measurements",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 838
@@ -1666,7 +1666,7 @@
   {
     "id": 557,
     "oldName": "empans",
-    "newName": "spans",
+    "newName": "measurements",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 945
@@ -2706,7 +2706,7 @@
   {
     "id": 938,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/app/api/clips/[id]/export/route.ts",
     "line": 38
@@ -3026,7 +3026,7 @@
   {
     "id": 1042,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/app/api/projects/[id]/run/route.ts",
     "line": 63
@@ -3042,7 +3042,7 @@
   {
     "id": 1044,
     "oldName": "lancement",
-    "newName": "launch",
+    "newName": "launched",
     "kind": "variable",
     "file": "src/app/api/projects/[id]/run/route.ts",
     "line": 75
@@ -3082,7 +3082,7 @@
   {
     "id": 1091,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "src/app/api/projects/route.ts",
     "line": 77
@@ -4602,7 +4602,7 @@
   {
     "id": 1549,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/components/clip/panneau-export.tsx",
     "line": 144
@@ -4818,7 +4818,7 @@
   {
     "id": 1600,
     "oldName": "copier",
-    "newName": "copy",
+    "newName": "copyToClipboard",
     "kind": "function",
     "file": "src/components/clip/panneau-export.tsx",
     "line": 593
@@ -6162,7 +6162,7 @@
   {
     "id": 2031,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/components/publication/publish-dialog.tsx",
     "line": 103
@@ -6178,7 +6178,7 @@
   {
     "id": 2063,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/components/publication/publish-dialog.tsx",
     "line": 283
@@ -6194,7 +6194,7 @@
   {
     "id": 2071,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/components/publication/publish-dialog.tsx",
     "line": 291
@@ -6210,7 +6210,7 @@
   {
     "id": 2073,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/components/publication/publish-dialog.tsx",
     "line": 292
@@ -7226,7 +7226,7 @@
   {
     "id": 2865,
     "oldName": "compte",
-    "newName": "count",
+    "newName": "counts",
     "kind": "variable",
     "file": "src/components/tri/fil.tsx",
     "line": 95
@@ -7378,7 +7378,7 @@
   {
     "id": 2903,
     "oldName": "empiler",
-    "newName": "stack",
+    "newName": "pushUndo",
     "kind": "function",
     "file": "src/components/tri/fil.tsx",
     "line": 199
@@ -7570,7 +7570,7 @@
   {
     "id": 2944,
     "oldName": "useSessionDeTri",
-    "newName": "reviewUseSession",
+    "newName": "useReviewSession",
     "kind": "function",
     "file": "src/components/tri/fil.tsx",
     "line": 566
@@ -8898,7 +8898,7 @@
   {
     "id": 3487,
     "oldName": "mots",
-    "newName": "words",
+    "newName": "sorted",
     "kind": "variable",
     "file": "src/core/captions/retime.ts",
     "line": 49
@@ -9538,7 +9538,7 @@
   {
     "id": 3901,
     "oldName": "choisirRatio",
-    "newName": "chooseRatio",
+    "newName": "chooseRatioFromSpans",
     "kind": "function",
     "file": "src/core/framing.ts",
     "line": 854
@@ -9650,7 +9650,7 @@
   {
     "id": 3959,
     "oldName": "montées",
-    "newName": "raised",
+    "newName": "peopleInSegments",
     "kind": "variable",
     "file": "src/core/framing.ts",
     "line": 1129
@@ -9690,7 +9690,7 @@
   {
     "id": 3968,
     "oldName": "montée",
-    "newName": "raised",
+    "newName": "totalDuration",
     "kind": "variable",
     "file": "src/core/framing.ts",
     "line": 1168
@@ -10034,7 +10034,7 @@
   {
     "id": 4089,
     "oldName": "début",
-    "newName": "start",
+    "newName": "snappedStart",
     "kind": "bindingElement",
     "file": "src/core/gemini/parse.ts",
     "line": 318
@@ -10098,7 +10098,7 @@
   {
     "id": 4132,
     "oldName": "planSteps",
-    "newName": "shotSteps",
+    "newName": "planSteps",
     "kind": "function",
     "file": "src/core/graph.ts",
     "line": 71
@@ -10114,7 +10114,7 @@
   {
     "id": 4136,
     "oldName": "forcées",
-    "newName": "forced",
+    "newName": "forcedSet",
     "kind": "variable",
     "file": "src/core/graph.ts",
     "line": 76
@@ -10138,7 +10138,7 @@
   {
     "id": 4141,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "variable",
     "file": "src/core/graph.ts",
     "line": 102
@@ -10442,7 +10442,7 @@
   {
     "id": 4341,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/core/publication.ts",
     "line": 175
@@ -10746,7 +10746,7 @@
   {
     "id": 4662,
     "oldName": "RunPlan",
-    "newName": "RunShot",
+    "newName": "RunPlan",
     "kind": "typeAlias",
     "file": "src/lib/api.ts",
     "line": 141
@@ -10866,7 +10866,7 @@
   {
     "id": 4763,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/lib/api.ts",
     "line": 746
@@ -10890,7 +10890,7 @@
   {
     "id": 4776,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/lib/api.ts",
     "line": 821
@@ -11610,7 +11610,7 @@
   {
     "id": 5213,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/lib/queries.ts",
     "line": 425
@@ -11618,7 +11618,7 @@
   {
     "id": 5215,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/lib/queries.ts",
     "line": 425
@@ -11650,7 +11650,7 @@
   {
     "id": 5227,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "bindingElement",
     "file": "src/lib/queries.ts",
     "line": 494
@@ -11658,7 +11658,7 @@
   {
     "id": 5230,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/lib/queries.ts",
     "line": 498
@@ -12610,7 +12610,7 @@
   {
     "id": 5606,
     "oldName": "sondeNvenc",
-    "newName": "probeNvenc",
+    "newName": "nvencProbed",
     "kind": "variable",
     "file": "src/server/ffmpeg.ts",
     "line": 192
@@ -12714,7 +12714,7 @@
   {
     "id": 5653,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/ffmpeg.ts",
     "line": 481
@@ -13346,7 +13346,7 @@
   {
     "id": 6001,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/rendus.ts",
     "line": 50
@@ -13442,7 +13442,7 @@
   {
     "id": 6039,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "interfaceProperty",
     "file": "src/server/run.ts",
     "line": 72
@@ -13794,7 +13794,7 @@
   {
     "id": 6100,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "interfaceProperty",
     "file": "src/server/run.ts",
     "line": 379
@@ -13962,7 +13962,7 @@
   {
     "id": 6149,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/run.ts",
     "line": 623
@@ -13994,7 +13994,7 @@
   {
     "id": 6154,
     "oldName": "planPourCibles",
-    "newName": "shotForTargets",
+    "newName": "planForTargets",
     "kind": "function",
     "file": "src/server/run.ts",
     "line": 651
@@ -14018,7 +14018,7 @@
   {
     "id": 6157,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/server/run.ts",
     "line": 654
@@ -14026,7 +14026,7 @@
   {
     "id": 6158,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "variable",
     "file": "src/server/run.ts",
     "line": 656
@@ -14066,7 +14066,7 @@
   {
     "id": 6166,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "interfaceProperty",
     "file": "src/server/run.ts",
     "line": 678
@@ -14090,7 +14090,7 @@
   {
     "id": 6170,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "variable",
     "file": "src/server/run.ts",
     "line": 700
@@ -14138,7 +14138,7 @@
   {
     "id": 6184,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "parameter",
     "file": "src/server/run.ts",
     "line": 838
@@ -14330,7 +14330,7 @@
   {
     "id": 6228,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "interfaceProperty",
     "file": "src/server/run.ts",
     "line": 1143
@@ -15194,7 +15194,7 @@
   {
     "id": 6409,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/analysis.ts",
     "line": 376
@@ -15314,7 +15314,7 @@
   {
     "id": 6450,
     "oldName": "journaliser",
-    "newName": "log",
+    "newName": "shouldLog",
     "kind": "parameter",
     "file": "src/server/steps/analysis.ts",
     "line": 592
@@ -15370,7 +15370,7 @@
   {
     "id": 6465,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/audio.ts",
     "line": 22
@@ -16842,7 +16842,7 @@
   {
     "id": 6801,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/ingest.ts",
     "line": 83
@@ -17034,7 +17034,7 @@
   {
     "id": 6906,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/ingest.ts",
     "line": 659
@@ -17074,7 +17074,7 @@
   {
     "id": 6933,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/proxy.ts",
     "line": 17
@@ -17130,7 +17130,7 @@
   {
     "id": 6958,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/render.ts",
     "line": 80
@@ -17266,7 +17266,7 @@
   {
     "id": 7013,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 456
@@ -17418,7 +17418,7 @@
   {
     "id": 7045,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 581
@@ -17458,7 +17458,7 @@
   {
     "id": 7053,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 620
@@ -17650,7 +17650,7 @@
   {
     "id": 7082,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 779
@@ -17706,7 +17706,7 @@
   {
     "id": 7089,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 816
@@ -17946,7 +17946,7 @@
   {
     "id": 7138,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "src/server/steps/render.ts",
     "line": 1003
@@ -18066,7 +18066,7 @@
   {
     "id": 7158,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 1115
@@ -18106,7 +18106,7 @@
   {
     "id": 7166,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "parameter",
     "file": "src/server/steps/render.ts",
     "line": 1156
@@ -18546,7 +18546,7 @@
   {
     "id": 7300,
     "oldName": "force",
-    "newName": "forced",
+    "newName": "force",
     "kind": "interfaceProperty",
     "file": "src/server/steps/transcript.ts",
     "line": 269
@@ -18602,7 +18602,7 @@
   {
     "id": 7332,
     "oldName": "journaliser",
-    "newName": "log",
+    "newName": "shouldLog",
     "kind": "parameter",
     "file": "src/server/steps/transcript.ts",
     "line": 415
@@ -20250,7 +20250,7 @@
   {
     "id": 7856,
     "oldName": "rendu",
-    "newName": "render",
+    "newName": "view",
     "kind": "variable",
     "file": "tests/components/clip/panneau-export.test.tsx",
     "line": 74
@@ -20514,7 +20514,7 @@
   {
     "id": 7956,
     "oldName": "lignes",
-    "newName": "lines",
+    "newName": "raw",
     "kind": "variable",
     "file": "tests/components/clip/transcript-surface.test.tsx",
     "line": 54
@@ -20530,7 +20530,7 @@
   {
     "id": 7960,
     "oldName": "rendu",
-    "newName": "render",
+    "newName": "view",
     "kind": "variable",
     "file": "tests/components/clip/transcript-surface.test.tsx",
     "line": 70
@@ -20930,7 +20930,7 @@
   {
     "id": 8246,
     "oldName": "duServeur",
-    "newName": "server",
+    "newName": "serverMessage",
     "kind": "variable",
     "file": "tests/components/sources/library-screen.test.tsx",
     "line": 233
@@ -22210,7 +22210,7 @@
   {
     "id": 8540,
     "oldName": "texteDe",
-    "newName": "text",
+    "newName": "textOf",
     "kind": "function",
     "file": "tests/core/captions.test.ts",
     "line": 17
@@ -23714,7 +23714,7 @@
   {
     "id": 9157,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "variable",
     "file": "tests/core/graph.test.ts",
     "line": 108
@@ -23866,7 +23866,7 @@
   {
     "id": 9228,
     "oldName": "compte",
-    "newName": "count",
+    "newName": "result",
     "kind": "variable",
     "file": "tests/core/parcours.test.ts",
     "line": 230
@@ -24714,7 +24714,7 @@
   {
     "id": 9608,
     "oldName": "agir",
-    "newName": "act",
+    "newName": "actWrapped",
     "kind": "function",
     "file": "tests/lib/enregistrement-auto.test.tsx",
     "line": 111
@@ -25794,7 +25794,7 @@
   {
     "id": 9870,
     "oldName": "réponse",
-    "newName": "response",
+    "newName": "patchResult",
     "kind": "variable",
     "file": "tests/lib/queries.test.tsx",
     "line": 197
@@ -26234,7 +26234,7 @@
   {
     "id": 9969,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 428
@@ -26306,7 +26306,7 @@
   {
     "id": 9979,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 530
@@ -26330,7 +26330,7 @@
   {
     "id": 9982,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 563
@@ -26602,7 +26602,7 @@
   {
     "id": 10051,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/api.test.ts",
     "line": 127
@@ -29194,7 +29194,7 @@
   {
     "id": 10710,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/empreinte.test.ts",
     "line": 230
@@ -29882,7 +29882,7 @@
   {
     "id": 10833,
     "oldName": "finDe",
-    "newName": "fin",
+    "newName": "waitForExit",
     "kind": "function",
     "file": "tests/server/ffmpeg.test.ts",
     "line": 319
@@ -30074,7 +30074,7 @@
   {
     "id": 10902,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/ingest.test.ts",
     "line": 239
@@ -30370,7 +30370,7 @@
   {
     "id": 11129,
     "oldName": "repli",
-    "newName": "fallback",
+    "newName": "existingFolder",
     "kind": "variable",
     "file": "tests/server/paths.test.ts",
     "line": 205
@@ -30586,7 +30586,7 @@
   {
     "id": 11193,
     "oldName": "cadrageDe",
-    "newName": "framing",
+    "newName": "framingFor",
     "kind": "function",
     "file": "tests/server/render.test.ts",
     "line": 145
@@ -30682,7 +30682,7 @@
   {
     "id": 11213,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 211
@@ -31034,7 +31034,7 @@
   {
     "id": 11273,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "fingerprintPath",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 655
@@ -31386,7 +31386,7 @@
   {
     "id": 11373,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 1213
@@ -31410,7 +31410,7 @@
   {
     "id": 11379,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 1231
@@ -31442,7 +31442,7 @@
   {
     "id": 11390,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 1279
@@ -31890,7 +31890,7 @@
   {
     "id": 11524,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 312
@@ -31898,7 +31898,7 @@
   {
     "id": 11525,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 363
@@ -31946,7 +31946,7 @@
   {
     "id": 11532,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 471
@@ -31954,7 +31954,7 @@
   {
     "id": 11533,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 482
@@ -31962,7 +31962,7 @@
   {
     "id": 11534,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 494
@@ -31970,7 +31970,7 @@
   {
     "id": 11535,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 510
@@ -32010,7 +32010,7 @@
   {
     "id": 11540,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 568
@@ -32018,7 +32018,7 @@
   {
     "id": 11542,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 596
@@ -32090,7 +32090,7 @@
   {
     "id": 11562,
     "oldName": "plan",
-    "newName": "shot",
+    "newName": "plan",
     "kind": "bindingElement",
     "file": "tests/server/run.test.ts",
     "line": 836
@@ -32426,7 +32426,7 @@
   {
     "id": 11806,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "filePath",
     "kind": "variable",
     "file": "tests/server/vignettes-sources.test.ts",
     "line": 55
@@ -32506,7 +32506,7 @@
   {
     "id": 11833,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "thumbPath",
     "kind": "variable",
     "file": "tests/server/vignettes-sources.test.ts",
     "line": 226
@@ -32642,7 +32642,7 @@
   {
     "id": 11866,
     "oldName": "chemin",
-    "newName": "path",
+    "newName": "resultPath",
     "kind": "variable",
     "file": "tests/server/vignettes-sources.test.ts",
     "line": 456

@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LibraryGrid } from '@/components/sources/library'
 import type { Creation } from '@/components/sources/show-card'
 import { buildLibrary } from '@/core/library'
-import type { CauseIndisponible, ProjectListItem, Source, SourcesListing } from '@/lib/api'
+import type { CauseUnavailable, ProjectListItem, Source, SourcesListing } from '@/lib/api'
 
 afterEach(() => {
   cleanup()
@@ -25,8 +25,8 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-const MOUNTED: SourcesListing['montage'] = {
-  disponible: true,
+const MOUNTED: SourcesListing['editing'] = {
+  available: true,
   cause: null,
   fstype: '9p',
   entries: 3,
@@ -198,12 +198,12 @@ describe('la recherche', () => {
 
 describe('ce qui se dit à voix haute', () => {
   /** Deux relevés successifs, comme le sondage les rend. */
-  function annoncer(avant: ProjectListItem[], après: ProjectListItem[]): string {
-    const { rerender } = renderGrid({ entries: buildLibrary([], avant), projects: avant })
+  function announce(before: ProjectListItem[], after: ProjectListItem[]): string {
+    const { rerender } = renderGrid({ entries: buildLibrary([], before), projects: before })
     rerender(
       <LibraryGrid
-        entries={buildLibrary([], après)}
-        projects={après}
+        entries={buildLibrary([], after)}
+        projects={after}
         mount={MOUNTED}
         loading={false}
         error={null}
@@ -221,18 +221,18 @@ describe('ce qui se dit à voix haute', () => {
     // où la carte affichait « Analyse interrompue ». Deux surfaces qui décrivent
     // le même projet ne peuvent pas se contredire, et c'est celle qu'on n'entend
     // qu'une fois qui aurait menti. (relevé par Copilot)
-    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
-    expect(annoncer([enCours], [project('a', { stopped: true })])).toContain('arrêtée')
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(announce([inCurrent], [project('a', { stopped: true })])).toContain('arrêtée')
   })
 
   it('dit « terminée » sur une fin ordinaire', () => {
-    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
-    expect(annoncer([enCours], [project('a')])).toContain('terminée')
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(announce([inCurrent], [project('a')])).toContain('terminée')
   })
 
   it('dit « en échec » sur un échec', () => {
-    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
-    expect(annoncer([enCours], [project('a', { error: 'tombé' })])).toContain('échec')
+    const inCurrent = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(announce([inCurrent], [project('a', { error: 'tombé' })])).toContain('échec')
   })
 })
 
@@ -263,7 +263,7 @@ describe('les états d’écran', () => {
     // montrait des cartes et se taisait sur la cause. (relevé par Copilot)
     renderGrid({
       entries: buildLibrary([], [project('a')], false),
-      mount: { disponible: false, cause: 'silent', fstype: '9p', entries: 0 },
+      mount: { available: false, cause: 'silent', fstype: '9p', entries: 0 },
     })
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByText(/Replay inconnu/)).toBeTruthy()
@@ -280,11 +280,11 @@ describe('les états d’écran', () => {
   })
 
   it('distingue un dossier vide d’un montage qui n’a pas eu lieu', () => {
-    const cause: CauseIndisponible = 'absent'
+    const cause: CauseUnavailable = 'absent'
     renderGrid({
       entries: [],
       projects: [],
-      mount: { disponible: false, cause, fstype: null, entries: 0 },
+      mount: { available: false, cause, fstype: null, entries: 0 },
     })
     expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy()
     expect(screen.queryByRole('tab')).toBeNull()
@@ -294,7 +294,7 @@ describe('les états d’écran', () => {
     // La carte peut avoir disparu sous un filtre au rendu suivant, et le
     // message serait parti avec elle.
     renderGrid({ creation: creation({ error: 'Le dossier des replays ne répond pas.' }) })
-    const alerte = screen.getByRole('alert')
-    expect(within(alerte).getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
+    const alert = screen.getByRole('alert')
+    expect(within(alert).getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
   })
 })

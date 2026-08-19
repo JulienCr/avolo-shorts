@@ -397,34 +397,82 @@ l'ordre où ils se tiennent :
    publication), et **le connecteur YouTube ne s'écrit pas avant que le sien
    soit passé** : sans audit, une vidéo envoyée par l'API est verrouillée en
    privé et ne peut plus être libérée, même à la main.
-4. **Le balayage de l'issue #73** — les identifiants français. Il conflit avec
-   tout, donc il ne peut passer que lorsque rien n'est en vol. Et il est **plus
-   urgent qu'il n'en a l'air** : sur les six PR de la nuit du 19, **quatre agents
-   sur quatre** ont introduit des identifiants accentués dans du code neuf,
-   malgré une consigne explicite en tête de contrat. Le code environnant est
-   français, le mimétisme gagne, et chaque vague ajoute une dette qu'il faut
-   rattraper en review. Tant que le dépôt n'est pas anglais, cette taxe se
-   repaie à chaque PR.
+4. **Le balayage de l'issue #73 est livré** — PR #102 (`cf72967`) pour les
+   surfaces persistées, PR #103 (`c151759`) pour le balayage. Le code du dépôt
+   est en anglais. Ce qui reste tient en une dizaine d'identifiants, listés dans
+   le ticket, qui reste ouvert pour eux.
 
-   **La fenêtre s'est refermée le 19 août au matin**, et la condition n'est plus
-   « rien en vol » mais « après le cadrage ». Une session travaille dans le
-   checkout principal sur la détection des plans, avec `src/server/steps/analysis.ts`
-   et `scripts/mesure-ratios.ts` en recouvrement ; une autre tient une
-   modification non commitée sur `scripts/vignettes-cadrage.ts`. Les deux
-   préviennent à la fusion. Le gros de leur correctif vit dans `worker/detect.py`,
-   donc en Python, hors du champ d'un renommage TypeScript — le recouvrement est
-   plus faible qu'il n'y paraissait.
+   **Ce que la mesure a corrigé au ticket, et qui vaut pour la suite.** Il
+   annonçait 333 identifiants accentués et supposait « au moins autant » sans
+   accent. Le compte réel, par un vrai programme TypeScript : **1 477 à
+   renommer, dont 462 accentués et 1 015 français sans accent**. La moitié
+   invisible était **2,2 fois** plus grosse que la visible, pas équivalente.
 
-   **Trois choses mesurées le 19 août que le ticket ne disait pas**, et qui sont
-   consignées dans l'issue plutôt qu'ici. Le compte est de **372 identifiants
-   accentués dans 84 fichiers** sous `src`, et non 333 dans 72 ; il n'existe
-   **aucun mécanisme de migration** en base, donc traduire les cinq clés
-   `selection.*` demande de le construire ; et le garde-fou `id-match` ASCII
-   n'attrape que **40 %** du problème — sur les quinze identifiants français
-   qu'une vague de trois agents a produits le même jour, neuf n'avaient pas
-   d'accent. Ce qui tient la ligne est la porte de review interne, pas l'outil,
-   et la conclusion « le linter s'en occupe désormais » sera fausse aux trois
-   cinquièmes.
+   **Conséquence directe, et c'est elle qu'il faut retenir : le garde-fou
+   `id-match` posé dans `eslint.config.mjs` n'attrape que 29,7 % du problème.**
+   Un motif ASCII ne voit pas `enregistrement`, `parcours`, `montage`. La phrase
+   est écrite à son point d'appel avec son chiffre, précisément pour que la
+   conclusion du suivant ne soit pas « le linter s'en occupe désormais ». Ce qui
+   a tenu la ligne pendant cette passe est la porte de review interne : sur trois
+   implémenteurs, **deux ont introduit des identifiants français dans du code
+   neuf** malgré la règle recopiée verbatim en tête de leur contrat.
+
+   **Un compteur d'identifiants ne se construit pas au scanner brut.** Sur un
+   `.tsx`, `ts.createScanner` rend le texte JSX comme des identifiants —
+   `<p>Réessayer</p>` compte pour un. Un compteur bâti ainsi gonfle le résultat
+   et mesure comme de la dette des libellés d'interface qui sont conformes.
+   Passer par `ts.createProgram`, ou ne rien mesurer.
+
+### Remplacer une review que personne ne peut faire
+
+Ce que la PR #103 a établi vaut au-delà d'elle : **à 200 fichiers, aucun
+relecteur automatique ne lit le diff.** Mesuré ici, le relecteur maison consomme
+345 000 tokens pour 32 fichiers, perd deux de ses trois axes et tronque son
+contexte sur les plus gros. Julien a donc écarté la review externe, et elle a été
+remplacée par trois preuves mécaniques, commitées sous `scripts/rename-73/` :
+
+- **preuve inverse** — la table de renommage appliquée à l'envers reconstruit
+  `origin/main` : *rien d'autre que la table n'a bougé*. C'est la plus forte, et
+  la seule qui réponde à « ça ne sera pas relu » ;
+- **preuve A** — commentaires et chaînes littérales ne changent que par une
+  substitution de la table : *rien qui ne devait pas bouger n'a bougé* ;
+- **preuve B** — aucun ancien identifiant ne subsiste dans une chaîne littérale :
+  *rien qui devait bouger n'est resté*.
+
+**Les trois ne sont pas redondantes**, et chacune a attrapé ce qu'aucune autre ne
+voyait : B les six `this.name = '<ancien nom>'` sur des classes renommées,
+l'inverse trois renommages que la table ne contenait pas, A les commentaires
+abîmés.
+
+**Et quatre tours de review interne ont trouvé trois défauts dans les preuves
+elles-mêmes**, chacun démontré en cassant volontairement quelque chose pour voir
+la preuve refuser :
+
+1. la preuve A était **aveugle sur 113 fichiers sur 206** — son extraction de
+   commentaires passait par un scanner brut, qui n'a aucune notion de
+   continuation de template literal et avale tout ce qui suit un `` `${…}` `` ;
+2. la preuve B ratait les composés accentués, sa frontière de casse étant
+   `[a-z][A-Z]` — **et le correctif `\p{L}` existait déjà dans un fichier voisin,
+   documenté, jamais reporté** ;
+3. le classificateur de résidu ne reconnaissait pas les basenames composés.
+
+Les trois sont **la même forme** : une classe de caractères ou une frontière de
+mot qui ne reconnaît pas un composé. C'est « un correctif compris comme local
+revient au champ suivant », appliqué à un vérificateur.
+
+**La leçon qui coûte le plus cher à redécouvrir : une preuve qu'on n'a jamais vue
+échouer ne prouve rien.** Les deux premières démonstrations portaient sur des
+fichiers sans template et des noms ASCII — elles ne disaient rien des deux trous.
+Une preuve dont le domaine s'élargit doit être remontrée capable d'échouer sur le
+nouveau domaine.
+
+**Un quatrième mécanisme, découvert après coup.** Aucune des trois preuves ne
+couvre le code fusionné *après* le balayage qui appelle un identifiant renommé
+sous son ancien nom — le classificateur ne voit que les déclarations, A et B ne
+voient que chaînes et commentaires. C'est **`tsc --noEmit`** qui les a sorties,
+vingt d'un coup, au rebase. Un nom introuvable est une erreur de compilation par
+construction : **après un rebase, le compilateur fait foi pour les références
+mortes.**
 
 ### Ce que les vagues ont laissé, et où c'est suivi
 
@@ -447,7 +495,8 @@ perte quand la récupération a tout rattrapé, P1 quick-win), #65 (le minuteur 
 l'écriture différée renvoie un `PATCH` après restauration depuis le bfcache).
 
 Ce qui a été fermé en route : #37, #38, #39, #40, #41, #48, #49, #54, #55, #57,
-#70, #75, #76, #78, #82, #87.
+#70, #75, #76, #78, #82, #87. **#73 est livré à l'essentiel** (PR #102 et #103) et
+reste ouvert pour une dizaine d'identifiants listés dans le ticket.
 
 **Ce que la vague du 19 août a ouvert**, et qui n'était dans aucun plan :
 
@@ -529,10 +578,20 @@ Quatre faits payés par la vague du 18 août, et qui coûtent cher à redécouvr
   4006`), et **`STAGE_DIR` et `PROJECTS_DIR` sont relatifs dans `.env`** — copié
   tel quel, un worktree part sur un `./projects` vide et l'interface se charge
   sans rien montrer, ce qui ressemble trait pour trait à une régression.
-- **`eslint` lancé depuis la racine lit les worktrees** et échoue sur les types
-  générés par Next qui s'y trouvent. Ce n'est pas un défaut du dépôt : la CI part
-  d'un clone frais et ne les voit pas. Restreindre à `src scripts tests` pour un
-  contrôle local honnête.
+- **`eslint` lancé depuis la racine lit les worktrees** et échoue sur ce qu'ils
+  contiennent — les types générés par Next, **et un `.next/` entier laissé par un
+  worktree mort**. Ce n'est pas un défaut du dépôt : la CI part d'un clone frais
+  et ne les voit pas. Restreindre à **`src scripts tests`** — la portée, pas
+  seulement le principe : « restreindre » sans dire à quoi laisse chaque agent
+  choisir la sienne, et l'un d'eux a choisi ses propres fichiers, de bonne foi,
+  produisant un contrôle qui ne contrôlait plus rien.
+
+  **Et l'effet de bord a changé de nature depuis que `pnpm lint` est muet**
+  (PR #100). Avant, un lint bruyant noyait le symptôme ; maintenant, un lint
+  rouge pour une raison étrangère détruit un signal qui venait d'être rendu
+  fiable. Le coût n'est pas les minutes perdues, c'est que l'agent **apprend à
+  contourner la commande**, et qu'un avertissement réel passera la fois
+  suivante. Retirer un worktree fusionné dès la fusion, pas plus tard.
 - **Le venv de détection pèse 7,0 Go** et `setup.sh` le construit dans
   `worker/venv` **du checkout principal**, avec les poids YOLO dans `worker/models` (149 Mo, release
   épinglée, somme SHA-256 vérifiée). Les deux sont ignorés par git — vérifié :

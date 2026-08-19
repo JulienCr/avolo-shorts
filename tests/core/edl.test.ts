@@ -43,13 +43,13 @@ describe('normalizeSegments', () => {
   // plutôt qu'une copie, l'EDL affichée à l'écran changerait sous les pieds de
   // l'utilisateur pendant un simple calcul de durée.
   it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
-    const entree = [
+    const entry = [
       { start: 30, end: 40 },
       { start: 10, end: 20 },
       { start: 15, end: 25 },
     ]
-    normalizeSegments(entree)
-    expect(entree).toEqual([
+    normalizeSegments(entry)
+    expect(entry).toEqual([
       { start: 30, end: 40 },
       { start: 10, end: 20 },
       { start: 15, end: 25 },
@@ -190,12 +190,12 @@ describe('removeRange', () => {
   // autres non. L'invariant vaut pour les trois — c'est lui qui autorise
   // l'interface à garder une référence sur l'EDL affichée pendant un calcul.
   it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
-    const entree = [
+    const entry = [
       { start: 0, end: 100 },
       { start: 200, end: 300 },
     ]
-    removeRange(entree, 40, 250)
-    expect(entree).toEqual([
+    removeRange(entry, 40, 250)
+    expect(entry).toEqual([
       { start: 0, end: 100 },
       { start: 200, end: 300 },
     ])
@@ -239,15 +239,15 @@ describe('moveBoundary', () => {
   // normalisation d'entrée, une liste arrivée désordonnée — d'un JSON, de la
   // base — verrait la borne d'un segment du milieu bouger sans erreur ni trace.
   it("choisit la borne dans l'ordre du temps, pas dans celui du tableau", () => {
-    const desordre = [
+    const outOfOrder = [
       { start: 30, end: 40 },
       { start: 10, end: 20 },
     ]
-    expect(moveBoundary(desordre, 'start', 5)).toEqual([
+    expect(moveBoundary(outOfOrder, 'start', 5)).toEqual([
       { start: 5, end: 20 },
       { start: 30, end: 40 },
     ])
-    expect(moveBoundary(desordre, 'end', 45)).toEqual([
+    expect(moveBoundary(outOfOrder, 'end', 45)).toEqual([
       { start: 10, end: 20 },
       { start: 30, end: 45 },
     ])
@@ -308,14 +308,14 @@ describe('moveBoundary', () => {
   // Le chemin « étendre » écrit `premier.start` / `dernier.end` : c'est celui
   // qui muterait l'entrée si `normalizeSegments` cessait un jour de recopier.
   it("ne modifie ni le tableau ni les segments qu'on lui passe", () => {
-    const entree = [
+    const entry = [
       { start: 10, end: 20 },
       { start: 30, end: 40 },
     ]
-    moveBoundary(entree, 'start', 5)
-    moveBoundary(entree, 'end', 55)
-    moveBoundary(entree, 'start', 35)
-    expect(entree).toEqual([
+    moveBoundary(entry, 'start', 5)
+    moveBoundary(entry, 'end', 55)
+    moveBoundary(entry, 'start', 35)
+    expect(entry).toEqual([
       { start: 10, end: 20 },
       { start: 30, end: 40 },
     ])

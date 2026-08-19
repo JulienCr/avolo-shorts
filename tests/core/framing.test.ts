@@ -21,7 +21,7 @@ import type { Ratio, Segment } from '@/core/edl'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
 
-const TOUS: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
+const ALL: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
 
 describe('RATIOS', () => {
   it('donne la largeur pour une hauteur de 1', () => {
@@ -32,7 +32,7 @@ describe('RATIOS', () => {
   })
 
   it('couvre les quatre ratios et rien de plus', () => {
-    expect(Object.keys(RATIOS).sort()).toEqual([...TOUS].sort())
+    expect(Object.keys(RATIOS).sort()).toEqual([...ALL].sort())
   })
 })
 
@@ -43,7 +43,7 @@ describe('resolveRatio', () => {
 
   it('un ratio explicite passe tel quel', () => {
     expect(resolveRatio('1:1')).toBe('1:1')
-    for (const r of TOUS) expect(resolveRatio(r)).toBe(r)
+    for (const r of ALL) expect(resolveRatio(r)).toBe(r)
   })
 })
 
@@ -56,7 +56,7 @@ describe('outputSize', () => {
   })
 
   it('respecte le ratio demandé et reste en dimensions paires', () => {
-    for (const r of TOUS) {
+    for (const r of ALL) {
       const { w, h } = outputSize(r)
       expect(w / h).toBeCloseTo(RATIOS[r], 3)
       expect(w % 2).toBe(0)
@@ -98,7 +98,7 @@ describe('cropRect', () => {
     ['NaN', Number.NaN],
     ['+Infinity', Number.POSITIVE_INFINITY],
     ['-Infinity', Number.NEGATIVE_INFINITY],
-  ])('retombe sur le centre quand cropX vaut %s', (_nom, cx) => {
+  ])('retombe sur le centre quand cropX vaut %s', (_name, cx) => {
     expect(cropRect('9:16', cx, 1920, 1080)).toEqual(cropRect('9:16', 0.5, 1920, 1080))
   })
 
@@ -109,12 +109,12 @@ describe('cropRect', () => {
     ['largeur NaN', Number.NaN, 1080],
     ['hauteur NaN', 1920, Number.NaN],
     ['hauteur infinie', 1920, Number.POSITIVE_INFINITY],
-  ])('refuse une source aux dimensions non finies (%s)', (_nom, sw, sh) => {
+  ])('refuse une source aux dimensions non finies (%s)', (_name, sw, sh) => {
     expect(() => cropRect('9:16', 0.5, sw, sh)).toThrow(/source/)
   })
 
   it('les dimensions sont paires, sinon libx264 refuse', () => {
-    for (const ratio of TOUS) {
+    for (const ratio of ALL) {
       const r = cropRect(ratio, 0.5, 1920, 1080)
       expect(r.w % 2).toBe(0)
       expect(r.h % 2).toBe(0)
@@ -132,10 +132,10 @@ describe('cropRect', () => {
   })
 
   it('suit cropX : plus il monte, plus le rectangle va vers la droite', () => {
-    const gauche = cropRect('1:1', 0.25, 1920, 1080)
-    const centre = cropRect('1:1', 0.5, 1920, 1080)
-    expect(gauche.x).toBeLessThan(centre.x)
-    expect(centre.x).toBe(Math.trunc((1920 - centre.w) / 2 / 2) * 2)
+    const left = cropRect('1:1', 0.25, 1920, 1080)
+    const center = cropRect('1:1', 0.5, 1920, 1080)
+    expect(left.x).toBeLessThan(center.x)
+    expect(center.x).toBe(Math.trunc((1920 - center.w) / 2 / 2) * 2)
   })
 
   // Le crop est pleine hauteur *dans une image 16:9*. Sur une source plus
@@ -151,7 +151,7 @@ describe('cropRect', () => {
   })
 
   it('reste dans le cadre sur toutes les combinaisons ratio × source', () => {
-    for (const ratio of TOUS) {
+    for (const ratio of ALL) {
       for (const [sw, sh] of [
         [1920, 1080],
         [1440, 1080],
@@ -193,7 +193,7 @@ const SRC_H = 1080
 const NO_TRIM = { sideTrim: 0, sideTrimMax: 0 } as const
 
 /** Une boîte de personne. La hauteur ne sert à rien ici : le crop est pleine hauteur. */
-const boîte = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
+const box = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
   t,
   x0,
   x1,
@@ -206,20 +206,20 @@ const boîte = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
  * Les boîtes d'un intervalle, échantillonnées à 2 images par seconde comme le
  * fait le worker (spec §6), avec les mêmes personnes sur toutes les images.
  */
-function échantillon(
-  de: number,
-  à: number,
-  personnes: [number, number][],
+function sample(
+  from: number,
+  to: number,
+  people: [number, number][],
   score = 0.9,
 ): PersonBox[] {
   const out: PersonBox[] = []
-  for (let t = de; t < à - 1e-9; t += 0.5) {
-    for (const [x0, x1] of personnes) out.push(boîte(Number(t.toFixed(3)), x0, x1, score))
+  for (let t = from; t < to - 1e-9; t += 0.5) {
+    for (const [x0, x1] of people) out.push(box(Number(t.toFixed(3)), x0, x1, score))
   }
   return out
 }
 
-const plan = (start: number, end: number): Shot => ({ start, end })
+const shot = (start: number, end: number): Shot => ({ start, end })
 const seg = (start: number, end: number): Segment => ({ start, end })
 
 // Deux plans, deux positions d'action. Les nombres sont posés pour que les
@@ -227,16 +227,16 @@ const seg = (start: number, end: number): Segment => ({ start, end })
 //   plan A : personnes sur 0,20 à 0,60 → empan 0,44 avec la marge de 2 %
 //   plan B : personnes sur 0,55 à 0,90 → empan 0,39
 // Le percentile 90 de {20 × 0,39 ; 20 × 0,44} vaut 0,44, que seul le 4:5 couvre.
-const PLAN_A = plan(0, 10)
-const PLAN_B = plan(10, 20)
-const PLANS = [PLAN_A, PLAN_B]
+const SHOT_A = shot(0, 10)
+const SHOT_B = shot(10, 20)
+const SHOTS = [SHOT_A, SHOT_B]
 const SEGMENTS = [seg(0, 20)]
-const GENS = [
-  ...échantillon(0, 10, [
+const PEOPLE = [
+  ...sample(0, 10, [
     [0.2, 0.35],
     [0.45, 0.6],
   ]),
-  ...échantillon(10, 20, [
+  ...sample(10, 20, [
     [0.55, 0.7],
     [0.8, 0.9],
   ]),
@@ -244,8 +244,8 @@ const GENS = [
 
 const base = {
   segments: SEGMENTS,
-  shots: PLANS,
-  people: GENS,
+  shots: SHOTS,
+  people: PEOPLE,
   srcW: SRC_W,
   srcH: SRC_H,
   ratio: 'auto' as const,
@@ -265,7 +265,7 @@ describe('ratioCoverage', () => {
   })
 
   it('ne dépasse jamais 1, même sur une source plus étroite que le ratio', () => {
-    for (const r of TOUS) {
+    for (const r of ALL) {
       expect(ratioCoverage(r, 1080, 1920)).toBeLessThanOrEqual(1)
       expect(ratioCoverage(r, 1080, 1920)).toBeGreaterThan(0)
     }
@@ -280,19 +280,19 @@ describe('ratioCoverage', () => {
 
 describe('requiredWidths', () => {
   it('mesure une largeur par image, pas une par personne', () => {
-    const boîtes = [boîte(1, 0.2, 0.3), boîte(1, 0.6, 0.7), boîte(1.5, 0.4, 0.5)]
-    expect(requiredWidths(boîtes, { margin: 0, ...NO_TRIM })).toEqual([
+    const boxes = [box(1, 0.2, 0.3), box(1, 0.6, 0.7), box(1.5, 0.4, 0.5)]
+    expect(requiredWidths(boxes, { margin: 0, ...NO_TRIM })).toEqual([
       expect.closeTo(0.5, 10),
       expect.closeTo(0.1, 10),
     ])
   })
 
   it("ajoute une marge de chaque côté, et l'air par défaut n'est pas nul", () => {
-    expect(requiredWidths([boîte(1, 0.4, 0.6)], { margin: 0.05, ...NO_TRIM })[0]).toBeCloseTo(
+    expect(requiredWidths([box(1, 0.4, 0.6)], { margin: 0.05, ...NO_TRIM })[0]).toBeCloseTo(
       0.3,
       10,
     )
-    expect(requiredWidths([boîte(1, 0.4, 0.6)], NO_TRIM)[0]).toBeGreaterThan(0.2)
+    expect(requiredWidths([box(1, 0.4, 0.6)], NO_TRIM)[0]).toBeGreaterThan(0.2)
   })
 
   // **La marge compte deux fois**, une fois de chaque côté, et c'est ce qui rend
@@ -305,25 +305,25 @@ describe('requiredWidths', () => {
   it('coûte deux fois sa valeur, et le défaut arbitre le seuil du 1:1', () => {
     expect(FRAMING_DEFAULTS.margin).toBe(0.01)
 
-    const empan = (marge: number): number =>
-      requiredWidths([boîte(1, 0.235, 0.765)], { margin: marge, ...NO_TRIM })[0]
-    expect(empan(0)).toBeCloseTo(0.53, 10)
-    expect(empan(0.01)).toBeCloseTo(0.55, 10)
-    expect(empan(0.02)).toBeCloseTo(0.57, 10)
+    const span = (margin: number): number =>
+      requiredWidths([box(1, 0.235, 0.765)], { margin: margin, ...NO_TRIM })[0]
+    expect(span(0)).toBeCloseTo(0.53, 10)
+    expect(span(0.01)).toBeCloseTo(0.55, 10)
+    expect(span(0.02)).toBeCloseTo(0.57, 10)
 
-    const un1x1 = ratioCoverage('1:1', SRC_W, SRC_H)
-    expect(empan(FRAMING_DEFAULTS.margin)).toBeLessThanOrEqual(un1x1)
-    expect(empan(0.02)).toBeGreaterThan(un1x1)
+    const a1X1 = ratioCoverage('1:1', SRC_W, SRC_H)
+    expect(span(FRAMING_DEFAULTS.margin)).toBeLessThanOrEqual(a1X1)
+    expect(span(0.02)).toBeGreaterThan(a1X1)
   })
 
   it('borne la largeur à 1 : rien ne dépasse la source', () => {
-    expect(requiredWidths([boîte(1, 0, 1)], { margin: 0.1, ...NO_TRIM })).toEqual([1])
+    expect(requiredWidths([box(1, 0, 1)], { margin: 0.1, ...NO_TRIM })).toEqual([1])
   })
 
   // Une détection douteuse au bord du cadre suffirait à imposer un 16:9.
   it('écarte les boîtes sous le seuil de confiance', () => {
-    const boîtes = [boîte(1, 0.4, 0.6, 0.9), boîte(1, 0.95, 0.99, 0.2)]
-    expect(requiredWidths(boîtes, { margin: 0, minScore: 0.5, ...NO_TRIM })).toEqual([
+    const boxes = [box(1, 0.4, 0.6, 0.9), box(1, 0.95, 0.99, 0.2)]
+    expect(requiredWidths(boxes, { margin: 0, minScore: 0.5, ...NO_TRIM })).toEqual([
       expect.closeTo(0.2, 10),
     ])
   })
@@ -342,66 +342,66 @@ describe('requiredWidths', () => {
    * le producteur. (ticket #40)
    */
   it('garde une boîte pile au seuil, écarte celle qui est juste dessous', () => {
-    expect(requiredWidths([boîte(1, 0.4, 0.6, 0.5)], { margin: 0 })).toHaveLength(1)
-    expect(requiredWidths([boîte(1, 0.4, 0.6, 0.4999)], { margin: 0 })).toHaveLength(0)
+    expect(requiredWidths([box(1, 0.4, 0.6, 0.5)], { margin: 0 })).toHaveLength(1)
+    expect(requiredWidths([box(1, 0.4, 0.6, 0.4999)], { margin: 0 })).toHaveLength(0)
   })
 
   // Une image sans personne ne vaut pas une largeur de zéro : elle ne dit rien,
   // et la compter tirerait le percentile vers un ratio trop étroit pour les
   // images où il y a quelqu'un.
   it("ne rend rien pour une image dont aucune boîte n'est retenue", () => {
-    const boîtes = [boîte(1, 0.4, 0.6, 0.9), boîte(2, 0.1, 0.2, 0.1)]
-    expect(requiredWidths(boîtes, { margin: 0 })).toHaveLength(1)
+    const boxes = [box(1, 0.4, 0.6, 0.9), box(2, 0.1, 0.2, 0.1)]
+    expect(requiredWidths(boxes, { margin: 0 })).toHaveLength(1)
   })
 
   // `??` ne remplace que `undefined` : un `NaN` se propageait jusqu'à un `cropX`
   // à `NaN` étiqueté `'auto'`, invisible à l'image mais faux dans l'interface.
   it('retombe sur les réglages par défaut quand ils ne sont pas finis', () => {
-    const boîtes = [boîte(1, 0.4, 0.6, 0.9), boîte(1, 0.95, 0.99, 0.2)]
-    expect(requiredWidths(boîtes, { margin: Number.NaN })).toEqual(requiredWidths(boîtes))
-    expect(requiredWidths(boîtes, { minScore: Number.NaN })).toEqual(requiredWidths(boîtes))
+    const boxes = [box(1, 0.4, 0.6, 0.9), box(1, 0.95, 0.99, 0.2)]
+    expect(requiredWidths(boxes, { margin: Number.NaN })).toEqual(requiredWidths(boxes))
+    expect(requiredWidths(boxes, { minScore: Number.NaN })).toEqual(requiredWidths(boxes))
   })
 
   it('ignore une boîte inversée ou aux bornes non finies', () => {
-    expect(requiredWidths([boîte(1, 0.6, 0.4)], { margin: 0 })).toEqual([])
-    expect(requiredWidths([boîte(1, Number.NaN, 0.4)], { margin: 0 })).toEqual([])
+    expect(requiredWidths([box(1, 0.6, 0.4)], { margin: 0 })).toEqual([])
+    expect(requiredWidths([box(1, Number.NaN, 0.4)], { margin: 0 })).toEqual([])
   })
 })
 
 describe('chooseRatio', () => {
   /** Un plan de 20 images où l'action ne bouge pas. */
-  const fixe = (x0: number, x1: number): PersonBox[] => échantillon(0, 10, [[x0, x1]])
+  const fixed = (x0: number, x1: number): PersonBox[] => sample(0, 10, [[x0, x1]])
   /** Ni marge ni rognage : ces tests décrivent le choix, pas les réglages. */
-  const sansMarge = { margin: 0, ...NO_TRIM }
+  const withoutMargin = { margin: 0, ...NO_TRIM }
 
   it('retient le plus petit ratio qui couvre', () => {
-    expect(chooseRatio(fixe(0.35, 0.65), SRC_W, SRC_H, sansMarge)).toBe('9:16')
-    expect(chooseRatio(fixe(0.3, 0.7), SRC_W, SRC_H, sansMarge)).toBe('4:5')
-    expect(chooseRatio(fixe(0.25, 0.75), SRC_W, SRC_H, sansMarge)).toBe('1:1')
-    expect(chooseRatio(fixe(0.1, 0.9), SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    expect(chooseRatio(fixed(0.35, 0.65), SRC_W, SRC_H, withoutMargin)).toBe('9:16')
+    expect(chooseRatio(fixed(0.3, 0.7), SRC_W, SRC_H, withoutMargin)).toBe('4:5')
+    expect(chooseRatio(fixed(0.25, 0.75), SRC_W, SRC_H, withoutMargin)).toBe('1:1')
+    expect(chooseRatio(fixed(0.1, 0.9), SRC_W, SRC_H, withoutMargin)).toBe('16:9')
   })
 
   it('couvre pile la largeur mesurée, sans marge supplémentaire', () => {
     const w = ratioCoverage('9:16', SRC_W, SRC_H)
-    expect(chooseRatio(fixe(0.5 - w / 2, 0.5 + w / 2), SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    expect(chooseRatio(fixed(0.5 - w / 2, 0.5 + w / 2), SRC_W, SRC_H, withoutMargin)).toBe('9:16')
     expect(
-      chooseRatio(fixe(0.5 - w / 2 - 1e-4, 0.5 + w / 2 + 1e-4), SRC_W, SRC_H, sansMarge),
+      chooseRatio(fixed(0.5 - w / 2 - 1e-4, 0.5 + w / 2 + 1e-4), SRC_W, SRC_H, withoutMargin),
     ).toBe('4:5')
   })
 
   // Le cœur de la décision : le seuil est à 90 %, pas au maximum. Deux images
   // sur vingt où quelqu'un traverse ne condamnent pas le clip au 16:9.
   it('absorbe une traversée que le maximum aurait payée en 16:9', () => {
-    const plan = [...échantillon(0, 9, [[0.35, 0.65]]), ...échantillon(9, 10, [[0.02, 0.98]])]
-    expect(chooseRatio(plan, SRC_W, SRC_H, sansMarge)).toBe('9:16')
-    expect(Math.max(...requiredWidths(plan, sansMarge))).toBeGreaterThan(
+    const shot = [...sample(0, 9, [[0.35, 0.65]]), ...sample(9, 10, [[0.02, 0.98]])]
+    expect(chooseRatio(shot, SRC_W, SRC_H, withoutMargin)).toBe('9:16')
+    expect(Math.max(...requiredWidths(shot, withoutMargin))).toBeGreaterThan(
       ratioCoverage('1:1', SRC_W, SRC_H),
     )
   })
 
   it('cède quand plus de 10 % des images débordent', () => {
-    const plan = [...échantillon(0, 7.5, [[0.35, 0.65]]), ...échantillon(7.5, 10, [[0.02, 0.98]])]
-    expect(chooseRatio(plan, SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    const shot = [...sample(0, 7.5, [[0.35, 0.65]]), ...sample(7.5, 10, [[0.02, 0.98]])]
+    expect(chooseRatio(shot, SRC_W, SRC_H, withoutMargin)).toBe('16:9')
   })
 
   // Ce qu'une largeur par image ne peut pas voir, et que la première version de
@@ -412,15 +412,15 @@ describe('chooseRatio', () => {
   // trois minutes où les comédiens traversent le plateau impose un crop large,
   // donc un ratio qui monte, parfois jusqu'au 16:9 ».
   it('fait monter le ratio quand l’action se déplace à l’intérieur d’un plan', () => {
-    const traversée = [
-      ...échantillon(0, 5, [[0.05, 0.25]]),
-      ...échantillon(5, 10, [[0.75, 0.95]]),
+    const traversal = [
+      ...sample(0, 5, [[0.05, 0.25]]),
+      ...sample(5, 10, [[0.75, 0.95]]),
     ]
     // Toutes les images tiendraient individuellement dans un 9:16.
-    expect(Math.max(...requiredWidths(traversée, sansMarge))).toBeLessThan(
+    expect(Math.max(...requiredWidths(traversal, withoutMargin))).toBeLessThan(
       ratioCoverage('9:16', SRC_W, SRC_H),
     )
-    expect(chooseRatio(traversée, SRC_W, SRC_H, sansMarge)).toBe('16:9')
+    expect(chooseRatio(traversal, SRC_W, SRC_H, withoutMargin)).toBe('16:9')
   })
 
   // Le pendant, sans lequel le précédent inviterait à sur-corriger : entre deux
@@ -429,10 +429,10 @@ describe('chooseRatio', () => {
   // traversée sortent chacune en 9:16 au lieu de se tirer l'une l'autre vers le
   // haut.
   it('ne fait pas monter le ratio quand le déplacement est entre deux plans', () => {
-    const gauche = échantillon(0, 5, [[0.05, 0.25]])
-    const droite = échantillon(5, 10, [[0.75, 0.95]])
-    expect(chooseRatio(gauche, SRC_W, SRC_H, sansMarge)).toBe('9:16')
-    expect(chooseRatio(droite, SRC_W, SRC_H, sansMarge)).toBe('9:16')
+    const left = sample(0, 5, [[0.05, 0.25]])
+    const right = sample(5, 10, [[0.75, 0.95]])
+    expect(chooseRatio(left, SRC_W, SRC_H, withoutMargin)).toBe('9:16')
+    expect(chooseRatio(right, SRC_W, SRC_H, withoutMargin)).toBe('9:16')
   })
 
   // Aucune mesure : on ne sait rien de l'endroit où sont les gens. Le 16:9 est
@@ -446,33 +446,33 @@ describe('chooseRatio', () => {
 
 describe('computeFraming', () => {
   it('choisit un ratio pour le clip et un crop par plan', () => {
-    const cadrage = computeFraming(base)
-    expect(cadrage.ratio).toBe('4:5')
-    expect(cadrage.shots).toHaveLength(2)
-    expect(cadrage.shots[0]).toMatchObject({ key: 0, source: 'auto' })
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.4, 6)
-    expect(cadrage.shots[1]).toMatchObject({ key: 10000, source: 'auto' })
-    expect(cadrage.shots[1].cropX).toBeCloseTo(0.725, 6)
-    expect(cadrage.rejectedOverrides).toEqual([])
+    const framing = computeFraming(base)
+    expect(framing.ratio).toBe('4:5')
+    expect(framing.shots).toHaveLength(2)
+    expect(framing.shots[0]).toMatchObject({ key: 0, source: 'auto' })
+    expect(framing.shots[0].cropX).toBeCloseTo(0.4, 6)
+    expect(framing.shots[1]).toMatchObject({ key: 10000, source: 'auto' })
+    expect(framing.shots[1].cropX).toBeCloseTo(0.725, 6)
+    expect(framing.rejectedOverrides).toEqual([])
   })
 
   it('rend les plans dans l’ordre de la source, avec leurs bornes de source', () => {
-    const cadrage = computeFraming(base)
-    expect(cadrage.shots.map((s) => s.shot)).toEqual([PLAN_A, PLAN_B])
+    const framing = computeFraming(base)
+    expect(framing.shots.map((s) => s.shot)).toEqual([SHOT_A, SHOT_B])
   })
 
   it('ignore les plans qu’aucun segment ne traverse', () => {
-    const cadrage = computeFraming({ ...base, segments: [seg(0, 5)] })
-    expect(cadrage.shots.map((s) => s.key)).toEqual([0])
+    const framing = computeFraming({ ...base, segments: [seg(0, 5)] })
+    expect(framing.shots.map((s) => s.key)).toEqual([0])
   })
 
   // Un comédien qui traverse le plateau sur deux images ne doit ni faire monter
   // le ratio, ni tirer le crop du plan derrière lui.
   it('absorbe une traversée de quelques images', () => {
-    const traversée = [boîte(4, 0.9, 0.98), boîte(4.5, 0.9, 0.98)]
-    const cadrage = computeFraming({ ...base, people: [...GENS, ...traversée] })
-    expect(cadrage.ratio).toBe('4:5')
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.4, 6)
+    const traversal = [box(4, 0.9, 0.98), box(4.5, 0.9, 0.98)]
+    const framing = computeFraming({ ...base, people: [...PEOPLE, ...traversal] })
+    expect(framing.ratio).toBe('4:5')
+    expect(framing.shots[0].cropX).toBeCloseTo(0.4, 6)
   })
 
   // Le crop couvre l'action, il ne la moyenne pas. Ici les comédiens dérivent
@@ -480,19 +480,19 @@ describe('computeFraming', () => {
   // 16 images sur 20, là où la position la plus peuplée — 0,20, où se trouvent
   // la moitié des images — n'en cadrerait que 10.
   it('cadre le plus d’images possible, et non la position moyenne de l’action', () => {
-    const dérive = [
-      ...échantillon(0, 5, [[0.1, 0.3]]),
-      ...échantillon(5, 8, [[0.3, 0.5]]),
-      ...échantillon(8, 10, [[0.5, 0.7]]),
+    const drift = [
+      ...sample(0, 5, [[0.1, 0.3]]),
+      ...sample(5, 8, [[0.3, 0.5]]),
+      ...sample(8, 10, [[0.5, 0.7]]),
     ]
-    const cadrage = computeFraming({
+    const framing = computeFraming({
       ...base,
-      shots: [PLAN_A],
+      shots: [SHOT_A],
       segments: [seg(0, 10)],
-      people: dérive,
+      people: drift,
       ratio: '4:5',
     })
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.3, 6)
+    expect(framing.shots[0].cropX).toBeCloseTo(0.3, 6)
   })
 
   // Dans le plateau, on se pose sur le centre médian de l'action et non au
@@ -501,17 +501,17 @@ describe('computeFraming', () => {
   // centre de l'action se voit. Ici, 0,35 où sont les douze images contre 0,42
   // au milieu du plateau — 134 px sur 1920.
   it('se pose sur le centre de l’action dans le plateau, pas au milieu du plateau', () => {
-    const cadrage = computeFraming({
+    const framing = computeFraming({
       ...base,
-      shots: [PLAN_A],
+      shots: [SHOT_A],
       segments: [seg(0, 10)],
       people: [
-        ...échantillon(0, 6, [[0.3, 0.4]]),
-        ...échantillon(6, 10, [[0.44, 0.54]]),
+        ...sample(0, 6, [[0.3, 0.4]]),
+        ...sample(6, 10, [[0.44, 0.54]]),
       ],
       ratio: '1:1',
     })
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.35, 6)
+    expect(framing.shots[0].cropX).toBeCloseTo(0.35, 6)
   })
 
   // Un plan partagé en deux moitiés symétriques n'a pas de bonne réponse. Ce qui
@@ -522,13 +522,13 @@ describe('computeFraming', () => {
   // Le cadrage automatique n'atteint jamais ce cas : un tel plan ne cadre que la
   // moitié de ses images, donc le ratio monte jusqu'à les prendre toutes.
   it('ne penche pas à gauche sur un plan symétrique, et le dit quand il faut trancher', () => {
-    const symétrique = {
+    const symmetric = {
       ...base,
-      shots: [PLAN_A],
+      shots: [SHOT_A],
       segments: [seg(0, 10)],
       people: [
-        ...échantillon(0, 5, [[0.1, 0.3]]),
-        ...échantillon(5, 10, [[0.7, 0.9]]),
+        ...sample(0, 5, [[0.1, 0.3]]),
+        ...sample(5, 10, [[0.7, 0.9]]),
       ],
       // **La marge est posée ici, et à zéro.** Ce test porte sur le départage
       // entre deux positions à égalité, pas sur l'air laissé autour des gens :
@@ -538,42 +538,42 @@ describe('computeFraming', () => {
       // et trois assertions ont cassé sans qu'aucun comportement ne change.
       margin: 0,
     }
-    expect(computeFraming(symétrique).ratio).toBe('16:9')
-    expect(computeFraming(symétrique).shots[0].cropX).toBeCloseTo(0.5, 6)
+    expect(computeFraming(symmetric).ratio).toBe('16:9')
+    expect(computeFraming(symmetric).shots[0].cropX).toBeCloseTo(0.5, 6)
 
     // Ratio épinglé trop étroit : les deux moitiés s'excluent, aucune ne cadre
     // plus d'images que l'autre, et le départage tombe à gauche.
-    const épinglé = computeFraming({ ...symétrique, ratio: '4:5' })
-    expect(épinglé.shots[0].cropX).toBeCloseTo(0.325, 6)
+    const pinned = computeFraming({ ...symmetric, ratio: '4:5' })
+    expect(pinned.shots[0].cropX).toBeCloseTo(0.325, 6)
 
     // Et « à gauche » veut bien dire à gauche dans l'image, pas en premier dans
     // le tableau : l'ordre des boîtes dans un JSON n'est pas une décision.
-    const àLenvers = computeFraming({
-      ...symétrique,
+    const toReversed = computeFraming({
+      ...symmetric,
       ratio: '4:5',
-      people: [...symétrique.people].reverse(),
+      people: [...symmetric.people].reverse(),
     })
-    expect(àLenvers.shots[0].cropX).toBeCloseTo(0.325, 6)
+    expect(toReversed.shots[0].cropX).toBeCloseTo(0.325, 6)
 
     // Le seuil sous lequel deux positions sont réputées à égalité. La moitié
     // droite est ici mathématiquement plus proche du centre de l'action, mais de
     // 5e-10 — soit un millionième de pixel sur 1920. Sans ce seuil, c'est le
     // dernier bit d'un flottant qui cadrerait le plan.
-    const presqueÉgal = computeFraming({
-      ...symétrique,
+    const almostEqual = computeFraming({
+      ...symmetric,
       ratio: '4:5',
       people: [
-        ...échantillon(0, 5, [[0.1, 0.3]]),
-        ...échantillon(5, 10, [[0.7, 0.9 - 5e-10]]),
+        ...sample(0, 5, [[0.1, 0.3]]),
+        ...sample(5, 10, [[0.7, 0.9 - 5e-10]]),
       ],
     })
-    expect(presqueÉgal.shots[0].cropX).toBeCloseTo(0.325, 6)
+    expect(almostEqual.shots[0].cropX).toBeCloseTo(0.325, 6)
   })
 
   it('ne rend jamais un crop qui sortirait du cadre', () => {
-    const collé = échantillon(0, 10, [[0.86, 0.99]])
-    const cadrage = computeFraming({ ...base, shots: [PLAN_A], segments: [seg(0, 10)], people: collé })
-    const r = cropRect(cadrage.ratio, cadrage.shots[0].cropX, SRC_W, SRC_H)
+    const stuck = sample(0, 10, [[0.86, 0.99]])
+    const framing = computeFraming({ ...base, shots: [SHOT_A], segments: [seg(0, 10)], people: stuck })
+    const r = cropRect(framing.ratio, framing.shots[0].cropX, SRC_W, SRC_H)
     expect(r.x).toBeGreaterThanOrEqual(0)
     expect(r.x + r.w).toBeLessThanOrEqual(SRC_W)
   })
@@ -583,37 +583,37 @@ describe('computeFraming', () => {
   })
 
   it('ne laisse pas un réglage non fini produire un crop « calculé » qui ne l’est pas', () => {
-    const cadrage = computeFraming({ ...base, margin: Number.NaN })
-    expect(cadrage).toEqual(computeFraming(base))
-    expect(cadrage.shots.every((s) => Number.isFinite(s.cropX))).toBe(true)
+    const framing = computeFraming({ ...base, margin: Number.NaN })
+    expect(framing).toEqual(computeFraming(base))
+    expect(framing.shots.every((s) => Number.isFinite(s.cropX))).toBe(true)
   })
 
-  // Le repli de `cropDuPlan` : un ratio épinglé trop étroit pour l'action, donc
+  // Le repli de `shotCrop` : un ratio épinglé trop étroit pour l'action, donc
   // aucune position ne cadre une image entière. On se pose alors sur le centre
   // **médian** de l'action — 0,325, où sont les 12 premières images — et non sur
   // le milieu de son étendue, qui serait 0,5 et ne montrerait ni l'un ni l'autre.
   it('se pose sur la médiane de l’action quand aucune image ne tient dans la fenêtre', () => {
-    const cadrage = computeFraming({
+    const framing = computeFraming({
       ...base,
-      shots: [PLAN_A],
+      shots: [SHOT_A],
       segments: [seg(0, 10)],
       people: [
-        ...échantillon(0, 6, [[0.1, 0.55]]),
-        ...échantillon(6, 10, [[0.45, 0.9]]),
+        ...sample(0, 6, [[0.1, 0.55]]),
+        ...sample(6, 10, [[0.45, 0.9]]),
       ],
       ratio: '9:16',
     })
-    expect(cadrage.shots[0].source).toBe('auto')
-    expect(cadrage.shots[0].cropX).toBeCloseTo(0.325, 6)
+    expect(framing.shots[0].source).toBe('auto')
+    expect(framing.shots[0].cropX).toBeCloseTo(0.325, 6)
   })
 
   describe('quand le ratio est épinglé', () => {
     // L'action est à droite et déborde du 4:5 : l'automatique prendrait un 1:1.
-    const àDroite = {
+    const toRight = {
       ...base,
-      shots: [PLAN_A],
+      shots: [SHOT_A],
       segments: [seg(0, 10)],
-      people: échantillon(0, 10, [
+      people: sample(0, 10, [
         [0.55, 0.7],
         [0.85, 0.99],
       ]),
@@ -624,39 +624,39 @@ describe('computeFraming', () => {
     }
 
     it('saute le choix du ratio mais pas le calcul des crops', () => {
-      const auto = computeFraming(àDroite)
+      const auto = computeFraming(toRight)
       expect(auto.ratio).toBe('1:1')
       expect(auto.shots[0].cropX).toBeCloseTo(0.71875, 6)
 
       // Le même plan, cadré pour un 9:16 : la fenêtre est plus étroite, donc
       // elle peut se poser plus à droite sans sortir de l'image. Un crop calculé
       // pour le 1:1 et posé dans un canevas 9:16 raterait le bord droit.
-      const épinglé = computeFraming({ ...àDroite, ratio: '9:16' })
-      expect(épinglé.ratio).toBe('9:16')
-      expect(épinglé.shots[0].cropX).toBeCloseTo(0.765, 6)
+      const pinned = computeFraming({ ...toRight, ratio: '9:16' })
+      expect(pinned.ratio).toBe('9:16')
+      expect(pinned.shots[0].cropX).toBeCloseTo(0.765, 6)
     })
   })
 
   describe('les dérogations humaines', () => {
     it('ignore la table en mode auto — un curseur ne bascule pas le mode à lui seul', () => {
-      const cadrage = computeFraming({ ...base, crops: { 10000: 0.05 } })
-      expect(cadrage.shots[1].cropX).toBeCloseTo(0.725, 6)
-      expect(cadrage.shots[1].source).toBe('auto')
-      expect(cadrage.rejectedOverrides).toEqual([])
+      const framing = computeFraming({ ...base, crops: { 10000: 0.05 } })
+      expect(framing.shots[1].cropX).toBeCloseTo(0.725, 6)
+      expect(framing.shots[1].source).toBe('auto')
+      expect(framing.rejectedOverrides).toEqual([])
     })
 
     it('pose la dérogation par-dessus le crop calculé, plan par plan', () => {
-      const cadrage = computeFraming({ ...base, cropMode: 'manual', crops: { 10000: 0.05 } })
+      const framing = computeFraming({ ...base, cropMode: 'manual', crops: { 10000: 0.05 } })
       // Le plan non dérogé garde son crop calculé.
-      expect(cadrage.shots[0]).toMatchObject({ key: 0, source: 'auto' })
-      expect(cadrage.shots[0].cropX).toBeCloseTo(0.4, 6)
-      expect(cadrage.shots[1]).toMatchObject({ key: 10000, cropX: 0.05, source: 'manual' })
+      expect(framing.shots[0]).toMatchObject({ key: 0, source: 'auto' })
+      expect(framing.shots[0].cropX).toBeCloseTo(0.4, 6)
+      expect(framing.shots[1]).toMatchObject({ key: 10000, cropX: 0.05, source: 'manual' })
     })
 
     it('apparie une clé décalée de quelques images', () => {
-      const cadrage = computeFraming({ ...base, cropMode: 'manual', crops: { 10120: 0.05 } })
-      expect(cadrage.shots[1]).toMatchObject({ key: 10000, cropX: 0.05, source: 'manual' })
-      expect(cadrage.rejectedOverrides).toEqual([])
+      const framing = computeFraming({ ...base, cropMode: 'manual', crops: { 10120: 0.05 } })
+      expect(framing.shots[1]).toMatchObject({ key: 10000, cropX: 0.05, source: 'manual' })
+      expect(framing.rejectedOverrides).toEqual([])
     })
 
     // Le cas qui se produira le jour où l'analyse sera relancée avec un
@@ -664,66 +664,66 @@ describe('computeFraming', () => {
     // reportée sur la frontière voisine : un cadrage humain posé sur un autre
     // plan est un cadrage faux que rien ne signale.
     it('rejette une dérogation orpheline plutôt que de la reporter sur une voisine', () => {
-      const déplacé = [PLAN_A, plan(10.4, 20)]
-      const cadrage = computeFraming({
+      const moved = [SHOT_A, shot(10.4, 20)]
+      const framing = computeFraming({
         ...base,
-        shots: déplacé,
+        shots: moved,
         cropMode: 'manual',
         crops: { 10000: 0.05 },
       })
-      expect(cadrage.rejectedOverrides).toEqual([10000])
-      expect(cadrage.shots.map((s) => s.source)).toEqual(['auto', 'auto'])
-      expect(cadrage.shots[0].cropX).toBeCloseTo(0.4, 6)
+      expect(framing.rejectedOverrides).toEqual([10000])
+      expect(framing.shots.map((s) => s.source)).toEqual(['auto', 'auto'])
+      expect(framing.shots[0].cropX).toBeCloseTo(0.4, 6)
     })
 
     it('rejette une clé qui ne désigne aucun plan du clip', () => {
-      const cadrage = computeFraming({ ...base, cropMode: 'manual', crops: { 42000: 0.05 } })
-      expect(cadrage.rejectedOverrides).toEqual([42000])
-      expect(cadrage.shots.every((s) => s.source === 'auto')).toBe(true)
+      const framing = computeFraming({ ...base, cropMode: 'manual', crops: { 42000: 0.05 } })
+      expect(framing.rejectedOverrides).toEqual([42000])
+      expect(framing.shots.every((s) => s.source === 'auto')).toBe(true)
     })
 
     // La plus proche gagne, et pas la dernière lue : l'ordre des clés dans un
     // objet JSON n'est pas une décision humaine, la distance en est une.
     it('garde la plus proche quand deux dérogations visent le même plan', () => {
-      const tardive = computeFraming({
+      const late = computeFraming({
         ...base,
         cropMode: 'manual',
         crops: { 9950: 0.2, 10200: 0.8 },
       })
-      expect(tardive.shots[1]).toMatchObject({ key: 10000, cropX: 0.2, source: 'manual' })
-      expect(tardive.rejectedOverrides).toEqual([10200])
+      expect(late.shots[1]).toMatchObject({ key: 10000, cropX: 0.2, source: 'manual' })
+      expect(late.rejectedOverrides).toEqual([10200])
 
-      const précoce = computeFraming({
+      const early = computeFraming({
         ...base,
         cropMode: 'manual',
         crops: { 9800: 0.2, 10050: 0.8 },
       })
-      expect(précoce.shots[1]).toMatchObject({ key: 10000, cropX: 0.8, source: 'manual' })
-      expect(précoce.rejectedOverrides).toEqual([9800])
+      expect(early.shots[1]).toMatchObject({ key: 10000, cropX: 0.8, source: 'manual' })
+      expect(early.rejectedOverrides).toEqual([9800])
     })
 
     it('borne une valeur hors de [0, 1] au lieu de la rejeter — c’est une intention', () => {
-      const cadrage = computeFraming({ ...base, cropMode: 'manual', crops: { 0: 1.4 } })
-      expect(cadrage.shots[0]).toMatchObject({ key: 0, cropX: 1, source: 'manual' })
+      const framing = computeFraming({ ...base, cropMode: 'manual', crops: { 0: 1.4 } })
+      expect(framing.shots[0]).toMatchObject({ key: 0, cropX: 1, source: 'manual' })
     })
 
     it('rejette une valeur non finie', () => {
-      const cadrage = computeFraming({
+      const framing = computeFraming({
         ...base,
         cropMode: 'manual',
         crops: { 0: Number.NaN },
       })
-      expect(cadrage.rejectedOverrides).toEqual([0])
-      expect(cadrage.shots[0].source).toBe('auto')
+      expect(framing.rejectedOverrides).toEqual([0])
+      expect(framing.shots[0].source).toBe('auto')
     })
 
     it('rend les rejets triés, sans doublon', () => {
-      const cadrage = computeFraming({
+      const framing = computeFraming({
         ...base,
         cropMode: 'manual',
         crops: { 42000: 0.5, 5000: 0.5 },
       })
-      expect(cadrage.rejectedOverrides).toEqual([5000, 42000])
+      expect(framing.rejectedOverrides).toEqual([5000, 42000])
     })
   })
 
@@ -731,28 +731,28 @@ describe('computeFraming', () => {
     // Aucune mesure sur tout le clip : le 16:9 ne perd rien et se voit, là où un
     // 9:16 aveugle couperait les comédiens en silence.
     it('sur tout le clip, prend le ratio le plus large et centre les crops', () => {
-      const cadrage = computeFraming({ ...base, people: [] })
-      expect(cadrage.ratio).toBe('16:9')
-      expect(cadrage.shots.map((s) => s.source)).toEqual(['default', 'default'])
-      expect(cadrage.shots.map((s) => s.cropX)).toEqual([0.5, 0.5])
+      const framing = computeFraming({ ...base, people: [] })
+      expect(framing.ratio).toBe('16:9')
+      expect(framing.shots.map((s) => s.source)).toEqual(['default', 'default'])
+      expect(framing.shots.map((s) => s.cropX)).toEqual([0.5, 0.5])
     })
 
     // Un plan aveugle n'emprunte pas le crop de son voisin : une frontière de
     // plan est précisément l'endroit où l'axe change.
     it('sur un plan seulement, centre ce plan et laisse les autres tranquilles', () => {
-      const cadrage = computeFraming({ ...base, people: échantillon(0, 10, [[0.2, 0.6]]) })
-      expect(cadrage.shots[0].source).toBe('auto')
-      expect(cadrage.shots[1]).toMatchObject({ key: 10000, cropX: 0.5, source: 'default' })
+      const framing = computeFraming({ ...base, people: sample(0, 10, [[0.2, 0.6]]) })
+      expect(framing.shots[0].source).toBe('auto')
+      expect(framing.shots[1]).toMatchObject({ key: 10000, cropX: 0.5, source: 'default' })
     })
 
     it('reste dérogeable : un plan aveugle accepte une dérogation humaine', () => {
-      const cadrage = computeFraming({
+      const framing = computeFraming({
         ...base,
-        people: échantillon(0, 10, [[0.2, 0.6]]),
+        people: sample(0, 10, [[0.2, 0.6]]),
         cropMode: 'manual',
         crops: { 10000: 0.83 },
       })
-      expect(cadrage.shots[1]).toMatchObject({ cropX: 0.83, source: 'manual' })
+      expect(framing.shots[1]).toMatchObject({ cropX: 0.83, source: 'manual' })
     })
   })
 })
@@ -768,7 +768,7 @@ describe('computeFraming', () => {
  */
 describe('isForeground', () => {
   /** Une boîte avec ses quatre bords, puisque c'est de hauteur qu'il s'agit. */
-  const cadre = (x0: number, x1: number, y0: number, y1: number, score = 0.9): PersonBox => ({
+  const frame = (x0: number, x1: number, y0: number, y1: number, score = 0.9): PersonBox => ({
     t: 1,
     x0,
     x1,
@@ -778,62 +778,62 @@ describe('isForeground', () => {
   })
 
   /** Une tête de spectateur au premier rang : le bas de l'image la coupe. */
-  const spectateur = cadre(0, 0.18, 0.86, 0.998)
+  const spectator = frame(0, 0.18, 0.86, 0.998)
   /** Un comédien debout : ses pieds touchent le bas du cadre, et il est haut. */
-  const comédienDebout = cadre(0.3, 0.45, 0.16, 0.99)
+  const performerStanding = frame(0.3, 0.45, 0.16, 0.99)
   /** Deux comédiens assis dans le noir, à 419 s : courts, mais loin du bord bas. */
-  const comédienLointain = cadre(0.41, 0.52, 0.2, 0.47)
+  const performerDistant = frame(0.41, 0.52, 0.2, 0.47)
 
   it('écarte une tête tronquée par le bord bas', () => {
-    expect(isForeground(spectateur)).toBe(true)
+    expect(isForeground(spectator)).toBe(true)
   })
 
   // 76 % des boîtes de comédiens de `cqlp` touchent le bas de l'image. Un filtre
   // qui ne regarde que le bord bas ne laisse survivre que 16 % des boîtes.
   it('garde un comédien debout dont les pieds touchent le bas', () => {
-    expect(isForeground(comédienDebout)).toBe(false)
+    expect(isForeground(performerStanding)).toBe(false)
   })
 
   // Le contre-exemple trouvé à l'image : une hauteur minimale sans condition de
   // bord vide ce plan-là de ses deux comédiens. Sur `caro-mdlm`, 3 075 boîtes.
   it('garde une boîte courte mais détachée du bord bas', () => {
-    expect(isForeground(comédienLointain)).toBe(false)
+    expect(isForeground(performerDistant)).toBe(false)
   })
 
   it('les deux conditions sont nécessaires, et aucune ne suffit', () => {
     // Courte et collée : écartée. Courte et détachée, haute et collée : gardées.
-    expect(isForeground(cadre(0, 0.2, 0.8, 1))).toBe(true)
-    expect(isForeground(cadre(0, 0.2, 0.6, 0.8))).toBe(false)
-    expect(isForeground(cadre(0, 0.2, 0.1, 1))).toBe(false)
+    expect(isForeground(frame(0, 0.2, 0.8, 1))).toBe(true)
+    expect(isForeground(frame(0, 0.2, 0.6, 0.8))).toBe(false)
+    expect(isForeground(frame(0, 0.2, 0.1, 1))).toBe(false)
   })
 
   it('les seuils sont des réglages, pas des constantes gravées', () => {
-    expect(isForeground(spectateur, { foregroundMaxHeight: 0.1 })).toBe(false)
-    expect(isForeground(comédienDebout, { foregroundMaxHeight: 0.9 })).toBe(true)
-    expect(isForeground(spectateur, { bottomEdge: 0.999 })).toBe(false)
+    expect(isForeground(spectator, { foregroundMaxHeight: 0.1 })).toBe(false)
+    expect(isForeground(performerStanding, { foregroundMaxHeight: 0.9 })).toBe(true)
+    expect(isForeground(spectator, { bottomEdge: 0.999 })).toBe(false)
   })
 
   // C'est ce qui rend l'avant/après mesurable sans deux versions du code.
   it('une hauteur maximale nulle éteint le filtre : rien n’est plus court que zéro', () => {
-    expect(isForeground(spectateur, { foregroundMaxHeight: 0 })).toBe(false)
+    expect(isForeground(spectator, { foregroundMaxHeight: 0 })).toBe(false)
     // Une valeur négative ne peut pas retourner le sens du filtre.
-    expect(isForeground(spectateur, { foregroundMaxHeight: -1 })).toBe(false)
+    expect(isForeground(spectator, { foregroundMaxHeight: -1 })).toBe(false)
   })
 
   // Le bord est inclusif et la hauteur exclusive, comme les seuils de `empans` :
   // une boîte pile au seuil de hauteur est un comédien, pas du public.
   it('tranche les cas pile sur les seuils', () => {
     // Le bord est inclusif : une boîte qui l'atteint est tronquée.
-    expect(isForeground(cadre(0, 0.2, 0.7, 0.97), { bottomEdge: 0.97 })).toBe(true)
-    expect(isForeground(cadre(0, 0.2, 0.7, 0.9699), { bottomEdge: 0.97 })).toBe(false)
+    expect(isForeground(frame(0, 0.2, 0.7, 0.97), { bottomEdge: 0.97 })).toBe(true)
+    expect(isForeground(frame(0, 0.2, 0.7, 0.9699), { bottomEdge: 0.97 })).toBe(false)
     // La hauteur est exclusive : pile au seuil, c'est un comédien. Les bornes
     // partent de zéro pour que la soustraction soit exacte — `1 - 0.65` ne vaut
     // pas 0,35 en flottant, et un test de borne ne doit pas dépendre de ça.
-    const bordPartout = { bottomEdge: 0 }
-    expect(isForeground(cadre(0, 0.2, 0, 0.35), { ...bordPartout, foregroundMaxHeight: 0.35 })).toBe(
+    const edgeEverywhere = { bottomEdge: 0 }
+    expect(isForeground(frame(0, 0.2, 0, 0.35), { ...edgeEverywhere, foregroundMaxHeight: 0.35 })).toBe(
       false,
     )
-    expect(isForeground(cadre(0, 0.2, 0, 0.34), { ...bordPartout, foregroundMaxHeight: 0.35 })).toBe(
+    expect(isForeground(frame(0, 0.2, 0, 0.34), { ...edgeEverywhere, foregroundMaxHeight: 0.35 })).toBe(
       true,
     )
   })
@@ -841,21 +841,21 @@ describe('isForeground', () => {
   // Même motif que `margin` et `minScore` : `??` laisserait passer un `NaN`, qui
   // rendrait toute comparaison fausse et éteindrait le filtre en silence.
   it('retombe sur les défauts quand un réglage n’est pas fini', () => {
-    expect(isForeground(spectateur, { foregroundMaxHeight: Number.NaN })).toBe(true)
-    expect(isForeground(spectateur, { bottomEdge: Number.NaN })).toBe(true)
+    expect(isForeground(spectator, { foregroundMaxHeight: Number.NaN })).toBe(true)
+    expect(isForeground(spectator, { bottomEdge: Number.NaN })).toBe(true)
   })
 
   // Un filtre qui ne peut pas juger ne rejette pas : la boîte survit et c'est
   // `empans` qui décidera si elle est exploitable.
   it('garde une boîte dont la hauteur ne se mesure pas', () => {
-    expect(isForeground(cadre(0, 0.2, Number.NaN, 0.99))).toBe(false)
-    expect(isForeground(cadre(0, 0.2, 0.8, Number.NaN))).toBe(false)
+    expect(isForeground(frame(0, 0.2, Number.NaN, 0.99))).toBe(false)
+    expect(isForeground(frame(0, 0.2, 0.8, Number.NaN))).toBe(false)
   })
 })
 
 describe('le premier plan écarté du cadrage', () => {
   /** Un plan de 10 s où deux comédiens tiennent le tiers central du cadre. */
-  const comédiens = (t: number): PersonBox[] => [
+  const performers = (t: number): PersonBox[] => [
     { t, x0: 0.37, x1: 0.46, y0: 0.15, y1: 0.99, score: 0.9 },
     { t, x0: 0.54, x1: 0.63, y0: 0.15, y1: 0.99, score: 0.9 },
   ]
@@ -864,35 +864,35 @@ describe('le premier plan écarté du cadrage', () => {
     { t, x0: 0, x1: 0.16, y0: 0.85, y1: 0.998, score: 0.7 },
     { t, x0: 0.84, x1: 1, y0: 0.85, y1: 0.998, score: 0.7 },
   ]
-  const surDix = (avec: boolean): PersonBox[] => {
+  const onTen = (included: boolean): PersonBox[] => {
     const out: PersonBox[] = []
     for (let t = 0; t < 10 - 1e-9; t += 0.5) {
-      out.push(...comédiens(Number(t.toFixed(3))))
-      if (avec) out.push(...public_(Number(t.toFixed(3))))
+      out.push(...performers(Number(t.toFixed(3))))
+      if (included) out.push(...public_(Number(t.toFixed(3))))
     }
     return out
   }
 
   it('resserre l’empan sur les comédiens au lieu de l’étaler d’un bord à l’autre', () => {
-    const boîtes = surDix(true)
+    const boxes = onTen(true)
     expect(
-      requiredWidths(boîtes, { margin: 0, foregroundMaxHeight: 0, ...NO_TRIM })[0],
+      requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, ...NO_TRIM })[0],
     ).toBeCloseTo(1, 10)
-    expect(requiredWidths(boîtes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
+    expect(requiredWidths(boxes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
   })
 
   // Le constat qui a motivé la tâche : sans le filtre, tout sort au ratio le
   // plus large, c'est-à-dire à rien.
   it('fait descendre le ratio du 16:9 au 9:16', () => {
-    const boîtes = surDix(true)
-    expect(chooseRatio(boîtes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
-    expect(chooseRatio(boîtes, SRC_W, SRC_H)).toBe('9:16')
+    const boxes = onTen(true)
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
+    expect(chooseRatio(boxes, SRC_W, SRC_H)).toBe('9:16')
   })
 
   it('ne change rien à une émission sans public au cadre', () => {
-    const boîtes = surDix(false)
-    expect(chooseRatio(boîtes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe(
-      chooseRatio(boîtes, SRC_W, SRC_H),
+    const boxes = onTen(false)
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe(
+      chooseRatio(boxes, SRC_W, SRC_H),
     )
   })
 
@@ -911,25 +911,25 @@ describe('le premier plan écarté du cadrage', () => {
    * faute voyante, on prend la voyante (voir `chooseRatio`).
    */
   it('rend le ratio le plus large quand il ne reste plus rien à mesurer', () => {
-    const poisson: PersonBox[] = [{ t: 1, x0: 0, x1: 0.29, y0: 0.74, y1: 0.998, score: 0.57 }]
-    expect(chooseRatio(poisson, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('9:16')
-    expect(chooseRatio(poisson, SRC_W, SRC_H)).toBe('16:9')
+    const fish: PersonBox[] = [{ t: 1, x0: 0, x1: 0.29, y0: 0.74, y1: 0.998, score: 0.57 }]
+    expect(chooseRatio(fish, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('9:16')
+    expect(chooseRatio(fish, SRC_W, SRC_H)).toBe('16:9')
   })
 
   it('traverse computeFraming : le réglage passe de la requête aux empans', () => {
-    const commun = {
+    const common = {
       segments: [seg(0, 10)],
-      shots: [plan(0, 10)],
-      people: surDix(true),
+      shots: [shot(0, 10)],
+      people: onTen(true),
       srcW: SRC_W,
       srcH: SRC_H,
       ratio: 'auto' as const,
       cropMode: 'auto' as const,
     }
-    expect(computeFraming({ ...commun, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
-    const cadré = computeFraming(commun)
-    expect(cadré.ratio).toBe('9:16')
-    expect(cadré.shots[0]).toMatchObject({ source: 'auto' })
+    expect(computeFraming({ ...common, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
+    const frame = computeFraming(common)
+    expect(frame.ratio).toBe('9:16')
+    expect(frame.shots[0]).toMatchObject({ source: 'auto' })
   })
 
   /**
@@ -943,19 +943,19 @@ describe('le premier plan écarté du cadrage', () => {
    * quoi qu'il arrive. (relevé par Copilot)
    */
   it('déplace le crop, et pas seulement le ratio', () => {
-    const àGauche = (t: number): PersonBox[] => [
+    const toLeft = (t: number): PersonBox[] => [
       { t, x0: 0, x1: 0.16, y0: 0.85, y1: 0.998, score: 0.7 },
       { t, x0: 0.1, x1: 0.26, y0: 0.85, y1: 0.998, score: 0.7 },
     ]
-    const gens: PersonBox[] = []
+    const people: PersonBox[] = []
     for (let t = 0; t < 10 - 1e-9; t += 0.5) {
-      const clé = Number(t.toFixed(3))
-      gens.push(...comédiens(clé), ...àGauche(clé))
+      const key = Number(t.toFixed(3))
+      people.push(...performers(key), ...toLeft(key))
     }
-    const commun = {
+    const common = {
       segments: [seg(0, 10)],
-      shots: [plan(0, 10)],
-      people: gens,
+      shots: [shot(0, 10)],
+      people: people,
       srcW: SRC_W,
       srcH: SRC_H,
       // Épinglé : c'est la seule façon de comparer deux positions comparables.
@@ -966,12 +966,12 @@ describe('le premier plan écarté du cadrage', () => {
       margin: 0,
       ...NO_TRIM,
     }
-    const sansFiltre = computeFraming({ ...commun, foregroundMaxHeight: 0 }).shots[0].cropX
-    const avecFiltre = computeFraming(commun).shots[0].cropX
+    const withoutFilter = computeFraming({ ...common, foregroundMaxHeight: 0 }).shots[0].cropX
+    const withFilter = computeFraming(common).shots[0].cropX
     // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
     // le milieu de l'action, qu'ils occupent symétriquement.
-    expect(sansFiltre).toBeCloseTo(0.315, 3)
-    expect(avecFiltre).toBeCloseTo(0.5, 3)
+    expect(withoutFilter).toBeCloseTo(0.315, 3)
+    expect(withFilter).toBeCloseTo(0.5, 3)
   })
 })
 
@@ -991,7 +991,7 @@ describe('sizeInCanvas', () => {
   // sur 1920 font 31,67 % et non 31,6 %, parce que la hauteur est arrondie au
   // pair — ce que libx264 exige. L'écart est de deux dixièmes de pixel.
   it('retrouve les parts de hauteur de la conception', () => {
-    for (const r of TOUS) {
+    for (const r of ALL) {
       expect(sizeInCanvas(r, VERTICAL).h / VERTICAL.h).toBeCloseTo(
         RATIOS['9:16'] / RATIOS[r],
         3,
@@ -1002,16 +1002,16 @@ describe('sizeInCanvas', () => {
   // libx264 refuse une dimension impaire en yuv420p. 1080 / (16/9) vaut 607,5,
   // et c'est le seul des quatre qui ne tombe pas juste.
   it('rend toujours une hauteur paire', () => {
-    for (const r of TOUS) expect(sizeInCanvas(r, VERTICAL).h % 2).toBe(0)
+    for (const r of ALL) expect(sizeInCanvas(r, VERTICAL).h % 2).toBe(0)
   })
 
   // Dans son propre canevas, un cadre remplit — c'est ce qui fait que le rendu
   // natif ne compose jamais de fond flouté, et que la même fonction sert des
   // deux côtés.
   it('remplit le canevas qui a son propre ratio', () => {
-    for (const r of TOUS) {
-      const canevas = outputSize(r)
-      expect(sizeInCanvas(r, canevas).h).toBe(canevas.h)
+    for (const r of ALL) {
+      const canvas = outputSize(r)
+      expect(sizeInCanvas(r, canvas).h).toBe(canvas.h)
     }
   })
 })
@@ -1020,8 +1020,8 @@ describe('le ratio par plan', () => {
   // Deux plans très différents : l'un serré à gauche, l'autre large au centre.
   // Un ratio unique pour le clip écraserait le premier sous le second — c'est
   // exactement ce que le modèle par plan évite.
-  const TIGHT = échantillon(0, 10, [[0.05, 0.2]])
-  const WIDE = échantillon(10, 20, [[0.3, 0.8]])
+  const TIGHT = sample(0, 10, [[0.05, 0.2]])
+  const WIDE = sample(10, 20, [[0.3, 0.8]])
   const twoShots = {
     ...base,
     people: [...TIGHT, ...WIDE],
@@ -1032,8 +1032,8 @@ describe('le ratio par plan', () => {
   }
 
   it('donne à chaque plan le cadre le plus serré qui tienne chez lui', () => {
-    const cadrage = computeFraming(twoShots)
-    expect(cadrage.shots.map((p) => p.ratio)).toEqual(['9:16', '1:1'])
+    const framing = computeFraming(twoShots)
+    expect(framing.shots.map((p) => p.ratio)).toEqual(['9:16', '1:1'])
   })
 
   // Le natif, celui du feed, garde **un seul** ratio : une vidéo dont les bandes
@@ -1061,9 +1061,9 @@ describe('le ratio par plan', () => {
   // Un ratio épinglé est une contrainte sur le **cadre**, pas sur le format du
   // fichier : il vaut pour tous les plans, et les deux positions coïncident.
   it('épinglé, le ratio vaut pour tous les plans et les deux positions se rejoignent', () => {
-    const cadrage = computeFraming({ ...twoShots, ratio: '4:5' })
-    expect(cadrage.ratio).toBe('4:5')
-    for (const p of cadrage.shots) {
+    const framing = computeFraming({ ...twoShots, ratio: '4:5' })
+    expect(framing.ratio).toBe('4:5')
+    for (const p of framing.shots) {
       expect(p.ratio).toBe('4:5')
       expect(p.cropXNative).toBeCloseTo(p.cropX, 10)
     }
@@ -1081,42 +1081,42 @@ describe('le ratio par plan', () => {
    * (relevé par Codex et Copilot)
    */
   it('élargit le ratio natif quand le montage déborde des plans analysés', () => {
-    const étroit = { ...base, margin: 0, people: échantillon(8, 10, [[0.45, 0.55]]) }
+    const narrow = { ...base, margin: 0, people: sample(8, 10, [[0.45, 0.55]]) }
     // Le plan couvre [8, 10], le montage va jusqu'à 14 : quatre secondes que
     // personne n'a mesurées.
-    const débordant = computeFraming({
-      ...étroit,
-      shots: [plan(8, 10)],
+    const overflowing = computeFraming({
+      ...narrow,
+      shots: [shot(8, 10)],
       segments: [seg(8, 14)],
     })
-    expect(débordant.shots[0].ratio).toBe('9:16')
-    expect(débordant.ratio).toBe('16:9')
+    expect(overflowing.shots[0].ratio).toBe('9:16')
+    expect(overflowing.ratio).toBe('16:9')
 
     // Le même montage entièrement couvert garde le ratio de son plan.
-    const couvert = computeFraming({ ...étroit, shots: [plan(8, 14)], segments: [seg(8, 14)] })
-    expect(couvert.ratio).toBe('9:16')
+    const covered = computeFraming({ ...narrow, shots: [shot(8, 14)], segments: [seg(8, 14)] })
+    expect(covered.ratio).toBe('9:16')
   })
 
   // Sous une image, l'intervalle est absorbé par son voisin dans le découpage et
   // ne porte aucun cadre à lui : l'élargir serait une faute dans l'autre sens.
   it('ignore un débordement plus court qu’une image', () => {
-    const cadrage = computeFraming({
+    const framing = computeFraming({
       ...base,
       margin: 0,
-      people: échantillon(8, 10, [[0.45, 0.55]]),
-      shots: [plan(8, 10)],
+      people: sample(8, 10, [[0.45, 0.55]]),
+      shots: [shot(8, 10)],
       segments: [seg(8, 10 + MIN_PIECE_SEC / 2)],
     })
-    expect(cadrage.ratio).toBe('9:16')
+    expect(framing.ratio).toBe('9:16')
   })
 
   // Sans plan du tout, le ratio natif est le plus large — la même réponse que
   // `chooseRatio` quand il ne mesure rien : une sortie visiblement large se
   // rattrape d'un clic, un 9:16 aveugle coupe les comédiens sans un mot.
   it('sans aucun plan, prend le ratio le plus large pour le natif', () => {
-    const cadrage = computeFraming({ ...base, shots: [], segments: [seg(0, 20)] })
-    expect(cadrage.shots).toHaveLength(0)
-    expect(cadrage.ratio).toBe('16:9')
+    const framing = computeFraming({ ...base, shots: [], segments: [seg(0, 20)] })
+    expect(framing.shots).toHaveLength(0)
+    expect(framing.ratio).toBe('16:9')
   })
 
   // Une dérogation est une intention humaine sur *où regarder*, pas sur une
@@ -1124,9 +1124,9 @@ describe('le ratio par plan', () => {
   // sur un plan que quelqu'un a cadré exprès, et l'écart ne se verrait qu'en
   // comparant deux fichiers.
   it('une dérogation écrit les deux positions', () => {
-    const cadrage = computeFraming({ ...twoShots, cropMode: 'manual', crops: { 0: 0.42 } })
-    expect(cadrage.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNative: 0.42 })
-    expect(cadrage.shots[1].source).toBe('auto')
+    const framing = computeFraming({ ...twoShots, cropMode: 'manual', crops: { 0: 0.42 } })
+    expect(framing.shots[0]).toMatchObject({ source: 'manual', cropX: 0.42, cropXNative: 0.42 })
+    expect(framing.shots[1].source).toBe('auto')
   })
 })
 
@@ -1135,13 +1135,13 @@ describe('le rognage latéral', () => {
   const leftPerson = { x0: 0.106, x1: 0.49 }
   const rightPerson = { x0: 0.523, x1: 0.778 }
   /** Le plan de référence : 61 images, les deux comédiens immobiles. */
-  const referenceShot = échantillon(0, 30.5, [
+  const referenceShot = sample(0, 30.5, [
     [leftPerson.x0, leftPerson.x1],
     [rightPerson.x0, rightPerson.x1],
   ])
 
   it('abandonne une part de la largeur de chaque boîte, de chaque côté', () => {
-    const b = boîte(0, 0.2, 0.6)
+    const b = box(0, 0.2, 0.6)
     expect(trimmedBounds(b, { sideTrim: 0.25, sideTrimMax: 1 })).toEqual({
       x0: expect.closeTo(0.3, 10),
       x1: expect.closeTo(0.5, 10),
@@ -1158,7 +1158,7 @@ describe('le rognage latéral', () => {
    * et son visage tombe hors du cadre pendant les 28 secondes du plan.
    */
   it('plafonne ce qu’une boîte large peut abandonner', () => {
-    const wideBox = boîte(0, 0.345, 0.881)
+    const wideBox = box(0, 0.345, 0.881)
     const withoutCap = trimmedBounds(wideBox, { sideTrim: 0.3, sideTrimMax: 1 })
     expect(wideBox.x1 - withoutCap.x1).toBeCloseTo(0.161, 3)
 
@@ -1170,7 +1170,7 @@ describe('le rognage latéral', () => {
   // Une boîte étroite est gouvernée par la part, jamais par le plafond : c'est
   // ce qui protège un comédien lointain, qu'un rognage absolu effacerait.
   it('ne prend jamais plus que la part sur une boîte étroite', () => {
-    const distantBox = boîte(0, 0.45, 0.55)
+    const distantBox = box(0, 0.45, 0.55)
     const { x0, x1 } = trimmedBounds(distantBox, FRAMING_DEFAULTS)
     expect(x0 - distantBox.x0).toBeCloseTo(0.1 * FRAMING_DEFAULTS.sideTrim, 10)
     expect(x1 - x0).toBeGreaterThan(0)
@@ -1180,7 +1180,7 @@ describe('le rognage latéral', () => {
   // dont la borne gauche passerait à droite de la droite ne se lit nulle part en
   // aval, et se propagerait en crop absurde.
   it('ne retourne jamais une boîte, quels que soient les réglages', () => {
-    const b = boîte(0, 0.4, 0.44)
+    const b = box(0, 0.4, 0.44)
     const { x0, x1 } = trimmedBounds(b, { sideTrim: 5, sideTrimMax: 10 })
     expect(x1 - x0).toBeGreaterThanOrEqual(0)
     expect(x0).toBeCloseTo(0.42, 10)
@@ -1188,7 +1188,7 @@ describe('le rognage latéral', () => {
   })
 
   it('retombe sur les défauts quand un réglage n’est pas fini', () => {
-    const b = boîte(0, 0.2, 0.6)
+    const b = box(0, 0.2, 0.6)
     expect(trimmedBounds(b, { sideTrim: Number.NaN })).toEqual(trimmedBounds(b))
     expect(trimmedBounds(b, { sideTrimMax: Number.NaN })).toEqual(trimmedBounds(b))
   })
@@ -1217,7 +1217,7 @@ describe('le rognage latéral', () => {
   it('rend au cadre ce que le rognage avait abandonné', () => {
     const framing = computeFraming({
       segments: [seg(0, 30.5)],
-      shots: [plan(0, 30.5)],
+      shots: [shot(0, 30.5)],
       people: referenceShot,
       srcW: SRC_W,
       srcH: SRC_H,
@@ -1242,10 +1242,10 @@ describe('le rognage latéral', () => {
   it('ne fait jamais monter un ratio', () => {
     const layouts: PersonBox[][] = [
       referenceShot,
-      échantillon(0, 10, [[0.35, 0.65]]),
-      échantillon(0, 10, [[0.02, 0.98]]),
-      [...échantillon(0, 5, [[0.05, 0.25]]), ...échantillon(5, 10, [[0.75, 0.95]])],
-      échantillon(0, 10, [
+      sample(0, 10, [[0.35, 0.65]]),
+      sample(0, 10, [[0.02, 0.98]]),
+      [...sample(0, 5, [[0.05, 0.25]]), ...sample(5, 10, [[0.75, 0.95]])],
+      sample(0, 10, [
         [0.05, 0.3],
         [0.4, 0.5],
         [0.7, 0.98],
@@ -1312,14 +1312,14 @@ function skeleton(xByPoint: Partial<Record<keyof typeof POINT, number>>): number
 }
 
 /** Une boîte de personne qui porte un squelette. */
-function withPose(
+function withPosed(
   t: number,
   x0: number,
   x1: number,
   xByPoint: Partial<Record<keyof typeof POINT, number>>,
   score = 0.9,
 ): PersonBox {
-  return { ...boîte(t, x0, x1, score), k: skeleton(xByPoint) }
+  return { ...box(t, x0, x1, score), k: skeleton(xByPoint) }
 }
 
 describe('le tronc déduit des points de pose', () => {
@@ -1336,7 +1336,7 @@ describe('le tronc déduit des points de pose', () => {
    * regarde.
    */
   const extendedLegs = [
-    withPose(0, 0.304, 0.827, {
+    withPosed(0, 0.304, 0.827, {
       NOSE: 0.482,
       RIGHT_EYE: 0.469,
       RIGHT_EAR: 0.417,
@@ -1346,7 +1346,7 @@ describe('le tronc déduit des points de pose', () => {
       LEFT_ANKLE: 0.743,
       RIGHT_ANKLE: 0.757,
     }),
-    withPose(0, 0.008, 0.41, {
+    withPosed(0, 0.008, 0.41, {
       NOSE: 0.305,
       LEFT_EYE: 0.298,
       RIGHT_EYE: 0.271,
@@ -1365,15 +1365,15 @@ describe('le tronc déduit des points de pose', () => {
   })
 
   it('fait tomber sous le 16:9 le plan que les jambes y maintenaient', () => {
-    const plan = []
+    const shot = []
     for (let t = 0; t < 10; t += 0.5) {
-      for (const p of extendedLegs) plan.push({ ...p, t })
+      for (const p of extendedLegs) shot.push({ ...p, t })
     }
-    expect(chooseRatio(plan, SRC_W, SRC_H, { torso: 'off' })).toBe('16:9')
+    expect(chooseRatio(shot, SRC_W, SRC_H, { torso: 'off' })).toBe('16:9')
     // 4:5 et non 1:1 : aux réglages retenus, les troncs rognés font une union de
     // 0,370 quand un 4:5 en couvre 0,450. L'issue #69 comptait les têtes seules
     // et annonçait 0,45 — les épaules et le rembourrage ajoutent le reste.
-    expect(chooseRatio(plan, SRC_W, SRC_H)).toBe('4:5')
+    expect(chooseRatio(shot, SRC_W, SRC_H)).toBe('4:5')
   })
 
   /**
@@ -1388,7 +1388,7 @@ describe('le tronc déduit des points de pose', () => {
    * n'a pas besoin du plafond, parce qu'il ne devine pas où est la tête.
    */
   it('garde la tête d’une boîte large dont la tête est à un bout', () => {
-    const seated = withPose(0, 0.332, 0.873, {
+    const seated = withPosed(0, 0.332, 0.873, {
       NOSE: 0.722,
       LEFT_EYE: 0.751,
       RIGHT_EYE: 0.727,
@@ -1416,7 +1416,7 @@ describe('le tronc déduit des points de pose', () => {
     const k = skeleton({ LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.5 })
     k[POINT.LEFT_HIP * 3] = 0.05
     k[POINT.LEFT_HIP * 3 + 2] = 0.01
-    const b: PersonBox = { ...boîte(0, 0.02, 0.6), k }
+    const b: PersonBox = { ...box(0, 0.02, 0.6), k }
     const torso = torsoBounds(b, { torso: 'bust-hips', torsoPad: 0, torsoTrim: 0 })
     expect(torso?.x0).toBeCloseTo(0.4, 10)
   })
@@ -1428,17 +1428,17 @@ describe('le tronc déduit des points de pose', () => {
    * comportement mesuré du 19 août, qui marchait.
    */
   it('retombe sur la boîte rognée quand le tronc n’est pas lisible', () => {
-    const noseOnly = withPose(0, 0.2, 0.6, { NOSE: 0.4 })
+    const noseOnly = withPosed(0, 0.2, 0.6, { NOSE: 0.4 })
     expect(torsoBounds(noseOnly)).toBeNull()
     expect(personBounds(noseOnly)).toEqual(trimmedBounds(noseOnly))
 
-    const withoutKeypoints = boîte(0, 0.2, 0.6)
+    const withoutKeypoints = box(0, 0.2, 0.6)
     expect(torsoBounds(withoutKeypoints)).toBeNull()
     expect(personBounds(withoutKeypoints)).toEqual(trimmedBounds(withoutKeypoints))
   })
 
   it('refuse un squelette de la mauvaise longueur plutôt que de le lire à moitié', () => {
-    const truncated: PersonBox = { ...boîte(0, 0.2, 0.6), k: skeleton({ NOSE: 0.4 }).slice(0, 30) }
+    const truncated: PersonBox = { ...box(0, 0.2, 0.6), k: skeleton({ NOSE: 0.4 }).slice(0, 30) }
     expect(torsoBounds(truncated)).toBeNull()
   })
 
@@ -1454,7 +1454,7 @@ describe('le tronc déduit des points de pose', () => {
    * milieu de chaque épaule.
    */
   it('élargit le tronc à proportion de sa largeur', () => {
-    const b = withPose(0, 0.2, 0.8, { LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.6, NOSE: 0.5 })
+    const b = withPosed(0, 0.2, 0.8, { LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.6, NOSE: 0.5 })
     const { x0, x1 } = torsoBounds(b, { torsoPad: 0.15, torsoTrim: 0 }) ?? { x0: 0, x1: 0 }
     expect(x0).toBeCloseTo(0.4 - 0.03, 10)
     expect(x1).toBeCloseTo(0.6 + 0.03, 10)
@@ -1466,7 +1466,7 @@ describe('le tronc déduit des points de pose', () => {
    * contiennent, d'où son plafond ; celui-ci sait, donc il remet la tête dedans.
    */
   it('rogne les épaules, jamais la tête', () => {
-    const profileView = withPose(0, 0.2, 0.8, {
+    const profileView = withPosed(0, 0.2, 0.8, {
       NOSE: 0.3,
       RIGHT_EAR: 0.28,
       LEFT_SHOULDER: 0.7,
@@ -1513,7 +1513,7 @@ describe('le tronc déduit des points de pose', () => {
    */
   it('laisse le filtre du premier plan lire la boîte, pas le tronc', () => {
     const spectator: PersonBox = {
-      ...withPose(0, 0.02, 0.2, { NOSE: 0.1, LEFT_EAR: 0.05, RIGHT_EAR: 0.15 }),
+      ...withPosed(0, 0.02, 0.2, { NOSE: 0.1, LEFT_EAR: 0.05, RIGHT_EAR: 0.15 }),
       y0: 0.8,
       y1: 0.999,
     }
@@ -1538,13 +1538,13 @@ describe('le tronc déduit des points de pose', () => {
    * (relevé par Copilot)
    */
   it('retombe sur la boîte quand le tronc n’a aucune largeur', () => {
-    const coincident = withPose(0, 0.2, 0.6, { LEFT_EAR: 0.37, LEFT_EYE: 0.37 })
+    const coincident = withPosed(0, 0.2, 0.6, { LEFT_EAR: 0.37, LEFT_EYE: 0.37 })
     expect(torsoBounds(coincident)).toBeNull()
     expect(personBounds(coincident)).toEqual(trimmedBounds(coincident))
 
     // L'autre chemin : pas de tête pour servir de plancher, et tout le tronc
     // abandonné.
-    const backView = withPose(0, 0.2, 0.8, {
+    const backView = withPosed(0, 0.2, 0.8, {
       LEFT_SHOULDER: 0.4,
       RIGHT_SHOULDER: 0.6,
       LEFT_HIP: 0.42,
@@ -1571,8 +1571,8 @@ describe('le tronc déduit des points de pose', () => {
    * son bloc replié)
    */
   it('ne rend jamais une largeur négative, même pour un tronc hors cadre', () => {
-    const offLeft = withPose(0, 0.001, 0.02, { NOSE: -0.6, LEFT_EAR: -0.7, LEFT_EYE: -0.65 })
-    const offRight = withPose(1, 0.98, 0.999, { NOSE: 1.6, LEFT_EAR: 1.7, LEFT_EYE: 1.65 })
+    const offLeft = withPosed(0, 0.001, 0.02, { NOSE: -0.6, LEFT_EAR: -0.7, LEFT_EYE: -0.65 })
+    const offRight = withPosed(1, 0.98, 0.999, { NOSE: 1.6, LEFT_EAR: 1.7, LEFT_EYE: 1.65 })
     for (const width of requiredWidths([offLeft, offRight])) {
       expect(width).toBeGreaterThanOrEqual(0)
     }

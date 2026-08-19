@@ -4,15 +4,15 @@ import { ChevronRight, Film, LoaderCircle, Play, RotateCcw, TriangleAlert, Unplu
 import Link from 'next/link'
 import { useState } from 'react'
 
-import { formatDateSource, formatOctets } from '@/components/sources/textes'
+import { formatDateSource, formatOctets } from '@/components/sources/texts'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { LibraryEntry, ShowState } from '@/core/library'
-import { LIBELLES_ETAPES } from '@/core/parcours'
+import { LABELS_STEPS } from '@/core/phase'
 import type { ProjectListItem, Source } from '@/lib/api'
 import { formatDuration } from '@/lib/format'
-import { lienProjet } from '@/lib/parcours'
+import { linkProject } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /** Une entrée de bibliothèque telle que les écrans la manipulent. */
@@ -23,7 +23,7 @@ export type Entry = LibraryEntry<Source, ProjectListItem>
  *
  * Le hook vit dans l'écran — c'est lui qui redirige, parce que ce qu'on fait
  * d'un 202 est une décision de parcours. Ce que les cartes ont besoin de savoir
- * tient en trois choses, et `enCours` porte le **nom** de la source plutôt qu'un
+ * tient en trois choses, et `inCurrent` porte le **nom** de la source plutôt qu'un
  * booléen : c'est ce qui permet à la carte cliquée d'afficher l'attente et aux
  * autres de se contenter de se taire.
  */
@@ -127,17 +127,17 @@ export function ShowCard({ entry, creation }: { entry: Entry; creation: Creation
 
   // **L'identifiant du projet vient des deux côtés de la jointure.** Celui du
   // projet quand la liste le porte, celui de la source sinon : entre la réponse
-  // de création et le tour de sondage suivant, `marquerSourceAnalysée` a déjà
+  // de création et le tour de sondage suivant, `markSourceAnalyzed` a déjà
   // inscrit le `projectId` dans le cache des sources alors que la liste des
-  // projets ne connaît encore rien. Ne lire que `projet` laissait alors un
+  // projets ne connaît encore rien. Ne lire que `project` laissait alors un
   // bouton de création sur une émission dont l'analyse venait de partir, et le
-  // second clic rend un 409 (`ExécutionEnCoursError`).
+  // second clic rend un 409 (`ExecutionInCurrentError`).
   const projectId = project?.id ?? source?.projectId ?? null
 
   if (projectId !== null) {
     return (
       <Link
-        href={lienProjet(projectId)}
+        href={linkProject(projectId)}
         data-state={state}
         className={cn(cardClass, state === 'analyzed' ? 'hover:brightness-98' : 'hover:bg-muted')}
       >
@@ -205,10 +205,10 @@ function Subtitle({ entry }: { entry: Entry }) {
   // constat — le dossier a été lu, le fichier n'y est plus ; le second dit qu'on
   // n'a pas pu regarder. Les confondre accuserait le Drive d'une perte qui n'a
   // pas eu lieu. (relevé par Copilot)
-  const état = entry.replay === 'missing' ? 'Replay introuvable' : 'Replay inconnu'
+  const state = entry.replay === 'missing' ? 'Replay introuvable' : 'Replay inconnu'
   return (
     <>
-      {état}
+      {state}
       {durationSec > 0 && <> · {formatDuration(durationSec)}</>}
     </>
   )
@@ -230,7 +230,7 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
     // c'est ce qu'on vient regarder. Le pourcentage se voit, il ne s'annonce pas
     // — la région live de la grille parle aux changements d'étape seulement.
     const percent = Math.round(Math.min(1, Math.max(0, project.running.progress)) * 100)
-    const label = LIBELLES_ETAPES[project.running.step]
+    const label = LABELS_STEPS[project.running.step]
     return (
       <Progress
         value={percent}

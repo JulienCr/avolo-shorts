@@ -46,13 +46,13 @@ import type { Word } from '@/core/transcript'
  */
 export function retimeWords(words: Word[], segments: Segment[]): Word[] {
   const segs = normalizeSegments(segments)
-  const mots = [...words].sort((a, b) => a.start - b.start)
+  const sorted = [...words].sort((a, b) => a.start - b.start)
 
   const out: Word[] = []
   let elapsed = 0
 
   for (const seg of segs) {
-    for (const w of mots) {
+    for (const w of sorted) {
       // Bornes ouvertes des deux côtés : un mot qui finit pile au début du
       // segment, ou commence pile à sa fin, n'y est pas.
       if (w.end <= seg.start || w.start >= seg.end) continue

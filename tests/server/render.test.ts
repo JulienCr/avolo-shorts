@@ -4,36 +4,36 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip, Ratio } from '@/core/edl'
-import { épurerChemins } from '@/core/erreurs'
+import { cleanPaths } from '@/core/errors'
 import type { Word } from '@/core/transcript'
 import { openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
-  cheminsRendu,
-  collecterMarques,
-  écarterRenduPérimé,
-  condensatDesPolices,
-  écartDeLEmpreinte,
-  type CeQuOnIncrusterait,
-  type LookDesSousTitres,
-  empreinteDuRendu,
-  leRenduEstPérimé,
-  lesMarquesOntBougé,
-  lireEmpreinte,
-  marquerExporté,
-  motsDièse,
-  planifierMarques,
-  refaireLesSorties,
-  refuserFauteDeMarque,
+  pathsRender,
+  collectMarkers,
+  discardRenderStale,
+  fontsDigest,
+  lFingerprintGap,
+  type ObservedBurnIn,
+  type CaptionsLook,
+  renderFingerprint,
+  renderIsStale,
+  markersHaveMoved,
+  lireFingerprint,
+  markExported,
+  wordsHash,
+  scheduleMarkers,
+  redoOutputs,
+  markerRejectFault,
   renderClip,
-  sauterLeRendu,
-  sousTitresDuClip,
-  texteDePublication,
-  VERSION_EMPREINTE,
+  sauterRender,
+  clipUnderTitles,
+  publicationText,
+  VERSION_FINGERPRINT,
   renderedFraming,
   renderedShape,
   type RenderedFraming,
-  type FormeRendue,
-  type MarqueNative,
+  type ShapeRendered,
+  type MarkerNative,
 } from '@/server/steps/render'
 import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 
@@ -43,7 +43,7 @@ import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
  * doctrine de placement des marques, et le texte de publication.
  *
  * **Le recalage après une coupe interne s'y teste**, et c'est le point le plus
- * important du fichier : `sousTitresDuClip` plus bas vérifie sur deux segments
+ * important du fichier : `clipUnderTitles` plus bas vérifie sur deux segments
  * distants que le premier mot du second tombe à la durée du premier, et pas à son
  * heure dans l'émission.
  *
@@ -55,35 +55,35 @@ import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
 const SOURCE = '2025-06-15-cqlp.mp4'
 const ID = '2025-06-15-cqlp'
 
-let racine: string
+let root: string
 let replay: string
 let stage: string
-let projets: string
+let projects: string
 /**
  * Le dossier de polices de ces tests, **jetable et vide**. Sans lui, le condensat
  * du look dépendrait du `fonts/` du dépôt — peuplé sur la machine de l'opérateur,
  * réduit en CI —, et le verdict de l'empreinte varierait avec la machine.
  */
-let polices: string
-const envDépart = { ...process.env }
+let fonts: string
+const envStart = { ...process.env }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-render-'))
-  replay = path.join(racine, 'Replay')
-  stage = path.join(racine, 'stage')
-  projets = path.join(racine, 'projects')
-  polices = path.join(racine, 'polices-vides')
-  for (const d of [replay, stage, projets, polices]) fs.mkdirSync(d, { recursive: true })
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-render-'))
+  replay = path.join(root, 'Replay')
+  stage = path.join(root, 'stage')
+  projects = path.join(root, 'projects')
+  fonts = path.join(root, 'polices-vides')
+  for (const d of [replay, stage, projects, fonts]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
 
   process.env.REPLAY_DIR = replay
   process.env.STAGE_DIR = stage
-  process.env.PROJECTS_DIR = projets
+  process.env.PROJECTS_DIR = projects
 })
 
 afterEach(() => {
-  fs.rmSync(racine, { recursive: true, force: true })
-  process.env = { ...envDépart }
+  fs.rmSync(root, { recursive: true, force: true })
+  process.env = { ...envStart }
   // **Le cache d'analyses se vide entre deux tests.** Il est indexé sur le
   // chemin, la taille et la date du fichier ; chaque test refabrique son
   // `PROJECTS_DIR` sous un nom neuf, mais un test qui poserait deux
@@ -91,7 +91,7 @@ afterEach(() => {
   forgetAnalyses()
 })
 
-function clip(surcharges: Partial<Clip> = {}): Clip {
+function clip(overrides: Partial<Clip> = {}): Clip {
   return {
     id: 'clip_0001',
     projectId: ID,
@@ -108,28 +108,28 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
     description: 'La chute arrive au bon moment. #impro #avolo',
     status: 'kept',
     pass: 1,
-    ...surcharges,
+    ...overrides,
   }
 }
 
 /**
- * Des marques, dans la forme que `collecterMarques` rendrait.
+ * Des marques, dans la forme que `collectMarkers` rendrait.
  *
- * `contenu` dérive du nom par défaut : deux appels avec les mêmes noms rendent
+ * `content` dérive du nom par défaut : deux appels avec les mêmes noms rendent
  * les mêmes marques, et il suffit de passer un contenu explicite pour simuler
  * un fichier remplacé sous le même nom.
  */
-function marquesNommées(
-  noms: readonly string[],
-  contenu: (nom: string) => string = (nom) => `contenu-de-${nom}`,
-): MarqueNative[] {
-  return noms.map((nom) => ({
-    path: path.join('/nulle-part', nom),
+function markersNamed(
+  names: readonly string[],
+  content: (name: string) => string = (name) => `contenu-de-${name}`,
+): MarkerNative[] {
+  return names.map((name) => ({
+    path: path.join('/nulle-part', name),
     nativeW: 1000,
     nativeH: 996,
-    largeurRatio: 0.22,
-    bord: 'gauche' as const,
-    contenu: contenu(nom),
+    widthRatio: 0.22,
+    edge: 'gauche' as const,
+    content: content(name),
   }))
 }
 
@@ -142,7 +142,7 @@ function marquesNommées(
  * est ce qui fait que les tests de `marquerExporté` et d'`écarterRenduPérimé`
  * comparent bien ce que la production compare.
  */
-function cadrageDe(c: Clip): RenderedFraming {
+function framingFor(c: Clip): RenderedFraming {
   return renderedFraming(clipFraming(c))
 }
 
@@ -152,11 +152,11 @@ function cadrageDe(c: Clip): RenderedFraming {
  * Un plan unique qui couvre le clip de référence, en 1:1 centré. C'est le cas
  * le plus simple, et celui qui laisse chaque test surcharger ce qu'il mesure.
  */
-function cadrage(surcharges: Partial<RenderedFraming> = {}): RenderedFraming {
+function framing(overrides: Partial<RenderedFraming> = {}): RenderedFraming {
   return {
     ratio: '1:1',
     shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }],
-    ...surcharges,
+    ...overrides,
   }
 }
 
@@ -167,7 +167,7 @@ function cadrage(surcharges: Partial<RenderedFraming> = {}): RenderedFraming {
  * c'est justement pour cela qu'il entre dans l'empreinte — une redétection des
  * plans peut déplacer tous les crops sans qu'aucun champ du clip ne bouge.
  */
-function forme(c: Clip = clip(), cad: RenderedFraming = cadrage()): FormeRendue {
+function shape(c: Clip = clip(), cad: RenderedFraming = framing()): ShapeRendered {
   return renderedShape(c, cad)
 }
 
@@ -176,23 +176,23 @@ function forme(c: Clip = clip(), cad: RenderedFraming = cadrage()): FormeRendue 
  * Le condensat du preset n'entre dans l'empreinte que si un document a été
  * incrusté — d'où le troisième paramètre.
  */
-function empreinteAvec(
+function fingerprintWith(
   c: Clip,
-  marques: readonly MarqueNative[],
-  incrustés = true,
-  cad: RenderedFraming = cadrage(),
-): ReturnType<typeof empreinteDuRendu> {
-  return empreinteDuRendu(forme(c, cad), marques, { incrustés, look: look(), texte: null })
+  markers: readonly MarkerNative[],
+  burnedIn = true,
+  cad: RenderedFraming = framing(),
+): ReturnType<typeof renderFingerprint> {
+  return renderFingerprint(shape(c, cad), markers, { burnedIn, look: look(), text: null })
 }
 
 /** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
-function look(): LookDesSousTitres {
-  return { style: DEFAULT_CAPTION_STYLE, polices: condensatDesPolices(polices) }
+function look(): CaptionsLook {
+  return { style: DEFAULT_CAPTION_STYLE, fonts: fontsDigest(fonts) }
 }
 
 /** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
-function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncrusterait {
-  return { marques: null, look: null, texte: undefined, ...surcharges }
+function observed(overrides: Partial<ObservedBurnIn> = {}): ObservedBurnIn {
+  return { markers: null, look: null, text: undefined, ...overrides }
 }
 
 /**
@@ -202,86 +202,86 @@ function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncruster
  * au format doit casser ces tests, pas les laisser poser un fichier que la
  * lecture refuserait en silence.
  */
-function poserEmpreinte(
+function poserFingerprint(
   c: Clip,
   ratio: Ratio,
-  marques: readonly string[] = [],
-  sousTitres = c.captions,
+  markers: readonly string[] = [],
+  underTitles = c.captions,
 ): void {
-  const chemin = cheminsRendu(ID, c.id, ratio).empreinte
-  fs.mkdirSync(path.dirname(chemin), { recursive: true })
+  const filePath = pathsRender(ID, c.id, ratio).fingerprint
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
   // **Le cadrage résolu, et non un littéral** : c'est celui que `renderClip`
   // recalcule à chaque passage, donc le seul qui puisse faire dire à l'empreinte
   // qu'elle décrit encore le clip.
   fs.writeFileSync(
-    chemin,
-    JSON.stringify(empreinteAvec(c, marquesNommées(marques), sousTitres, cadrageDe(c))),
+    filePath,
+    JSON.stringify(fingerprintWith(c, markersNamed(markers), underTitles, framingFor(c))),
   )
 }
 
-describe('cheminsRendu', () => {
+describe('pathsRender', () => {
   it('nomme les sorties depuis le dossier de rendus du projet', () => {
-    const c = cheminsRendu(ID, 'clip_0001', '1:1')
-    expect(c.mp4).toBe(path.join(projets, ID, 'renders', 'clip_0001.mp4'))
-    expect(c.variant9x16).toBe(path.join(projets, ID, 'renders', 'clip_0001-9x16.mp4'))
-    expect(c.texts).toBe(path.join(projets, ID, 'renders', 'clip_0001.txt'))
-    expect(c.ass).toBe(path.join(projets, ID, 'renders', 'clip_0001.ass'))
+    const c = pathsRender(ID, 'clip_0001', '1:1')
+    expect(c.mp4).toBe(path.join(projects, ID, 'renders', 'clip_0001.mp4'))
+    expect(c.variant9x16).toBe(path.join(projects, ID, 'renders', 'clip_0001-9x16.mp4'))
+    expect(c.texts).toBe(path.join(projects, ID, 'renders', 'clip_0001.txt'))
+    expect(c.ass).toBe(path.join(projects, ID, 'renders', 'clip_0001.ass'))
   })
 
   it("ne demande pas de variante quand le clip est déjà en 9:16", () => {
-    expect(cheminsRendu(ID, 'clip_0001', '9:16').variant9x16).toBeNull()
+    expect(pathsRender(ID, 'clip_0001', '9:16').variant9x16).toBeNull()
   })
 
   it('en demande une pour chacun des trois autres ratios (spec §11)', () => {
     for (const ratio of ['4:5', '1:1', '16:9'] as const) {
-      expect(cheminsRendu(ID, 'clip_0001', ratio).variant9x16).not.toBeNull()
+      expect(pathsRender(ID, 'clip_0001', ratio).variant9x16).not.toBeNull()
     }
   })
 
   it("refuse un identifiant de clip qui sortirait du dossier du projet", () => {
     // `clipId` arrive du réseau : `POST /api/clips/:id/export` le prend dans
     // l'URL, et `putClip` ne valide ni son format ni son contenu.
-    for (const mauvais of ['../evade', 'a/b', 'a\\b', '', '.', '..', 'a\0b']) {
-      expect(() => cheminsRendu(ID, mauvais, '1:1')).toThrow(/Identifiant de clip invalide/)
+    for (const bad of ['../evade', 'a/b', 'a\\b', '', '.', '..', 'a\0b']) {
+      expect(() => pathsRender(ID, bad, '1:1')).toThrow(/Identifiant de clip invalide/)
     }
   })
 
   it('accepte les accents et les espaces, comme les noms de replays', () => {
-    expect(() => cheminsRendu(ID, 'clip été 01', '1:1')).not.toThrow()
+    expect(() => pathsRender(ID, 'clip été 01', '1:1')).not.toThrow()
   })
 })
 
-describe('sauterLeRendu', () => {
-  const chemins = cheminsRendu.bind(null, ID, 'clip_0001')
+describe('sauterRender', () => {
+  const paths = pathsRender.bind(null, ID, 'clip_0001')
 
   it('saute quand les trois sorties sont là et que l’empreinte les décrit', () => {
-    const c = chemins('1:1')
-    expect(sauterLeRendu(c, () => true, true)).toBe(true)
+    const c = paths('1:1')
+    expect(sauterRender(c, () => true, true)).toBe(true)
   })
 
   it("ne saute pas quand il manque le .txt, même si le MP4 est là", () => {
-    const c = chemins('1:1')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.texts, true)).toBe(false)
+    const c = paths('1:1')
+    expect(sauterRender(c, (path) => path !== c.texts, true)).toBe(false)
   })
 
   it('ne saute pas quand il manque la variante', () => {
-    const c = chemins('1:1')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.variant9x16, true)).toBe(false)
+    const c = paths('1:1')
+    expect(sauterRender(c, (path) => path !== c.variant9x16, true)).toBe(false)
   })
 
   it("n'attend pas de variante en 9:16", () => {
-    const c = chemins('9:16')
+    const c = paths('9:16')
     // Rien d'autre que le MP4 et le texte n'existe : la variante n'est pas due.
-    expect(sauterLeRendu(c, (chemin) => chemin === c.mp4 || chemin === c.texts, true)).toBe(true)
+    expect(sauterRender(c, (path) => path === c.mp4 || path === c.texts, true)).toBe(true)
   })
 
   it('ne saute jamais sous `force`', () => {
-    expect(sauterLeRendu(chemins('1:1'), () => true, true, true)).toBe(false)
+    expect(sauterRender(paths('1:1'), () => true, true, true)).toBe(false)
   })
 
   it("ignore le .ass, qui est un intermédiaire et non une sortie", () => {
-    const c = chemins('9:16')
-    expect(sauterLeRendu(c, (chemin) => chemin !== c.ass, true)).toBe(true)
+    const c = paths('9:16')
+    expect(sauterRender(c, (path) => path !== c.ass, true)).toBe(true)
   })
 
   /**
@@ -290,7 +290,7 @@ describe('sauterLeRendu', () => {
    * sous une recette antérieure, les satisfaisait aussi bien qu'une livraison.
    */
   it("ne saute pas quand l'empreinte ne décrit pas le clip, fichiers complets", () => {
-    expect(sauterLeRendu(chemins('1:1'), () => true, false)).toBe(false)
+    expect(sauterRender(paths('1:1'), () => true, false)).toBe(false)
   })
 })
 
@@ -305,43 +305,43 @@ describe('sauterLeRendu', () => {
  * isoler en fonction pure est ce qui les rend vérifiables.
  * (relevé par Codex et Copilot)
  */
-describe('refaireLesSorties', () => {
-  const chemins = cheminsRendu.bind(null, ID, 'clip_0001')
+describe('redoOutputs', () => {
+  const paths = pathsRender.bind(null, ID, 'clip_0001')
 
   it('ne rallume pas ffmpeg quand les deux MP4 sont là', () => {
-    expect(refaireLesSorties(chemins('1:1'), () => true, true)).toBe(false)
+    expect(redoOutputs(paths('1:1'), () => true, true)).toBe(false)
   })
 
   it("laisse le .txt seul se réécrire, sans réencoder une image", () => {
-    const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.texts, true)).toBe(false)
+    const c = paths('1:1')
+    expect(redoOutputs(c, (path) => path !== c.texts, true)).toBe(false)
   })
 
   it('refait le natif quand seule la variante manque', () => {
     // Le cas qui compte : le natif est là, mais il porte peut-être le montage
     // d'un passage précédent. Le garder pendant qu'on rend la variante depuis
     // l'instantané d'aujourd'hui livrerait deux fichiers montrant deux cadres.
-    const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.variant9x16, true)).toBe(true)
+    const c = paths('1:1')
+    expect(redoOutputs(c, (path) => path !== c.variant9x16, true)).toBe(true)
   })
 
   it('refait la variante quand seul le natif manque', () => {
-    const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.mp4, true)).toBe(true)
+    const c = paths('1:1')
+    expect(redoOutputs(c, (path) => path !== c.mp4, true)).toBe(true)
   })
 
   it("n'attend pas de variante en 9:16", () => {
-    const c = chemins('9:16')
-    expect(refaireLesSorties(c, (chemin) => chemin === c.mp4, true)).toBe(false)
+    const c = paths('9:16')
+    expect(redoOutputs(c, (path) => path === c.mp4, true)).toBe(false)
   })
 
   it('réencode toujours sous `force`', () => {
-    expect(refaireLesSorties(chemins('1:1'), () => true, true, true)).toBe(true)
+    expect(redoOutputs(paths('1:1'), () => true, true, true)).toBe(true)
   })
 
   it("ignore le .ass, qui se réécrit à chaque passage", () => {
-    const c = chemins('1:1')
-    expect(refaireLesSorties(c, (chemin) => chemin !== c.ass, true)).toBe(false)
+    const c = paths('1:1')
+    expect(redoOutputs(c, (path) => path !== c.ass, true)).toBe(false)
   })
 
   /**
@@ -350,7 +350,7 @@ describe('refaireLesSorties', () => {
    * réécrire que le `.txt`, et repartirait `exported`.
    */
   it("rallume ffmpeg quand l'empreinte ne décrit pas le clip, fichiers complets", () => {
-    expect(refaireLesSorties(chemins('1:1'), () => true, false)).toBe(true)
+    expect(redoOutputs(paths('1:1'), () => true, false)).toBe(true)
   })
 })
 
@@ -364,16 +364,16 @@ describe("l'empreinte de rendu", () => {
   it("se range à côté des sorties, sous un nom qui ne dépend pas du ratio", () => {
     // Un clip repassé de 1:1 à 9:16 doit retrouver — pour l'écarter — celle
     // qu'il a écrite avant, ce que le nom de la variante ne permet pas.
-    const attendu = path.join(projets, ID, 'renders', 'clip_0001.rendu.json')
+    const expected = path.join(projects, ID, 'renders', 'clip_0001.rendu.json')
     for (const ratio of ['9:16', '4:5', '1:1', '16:9'] as const) {
-      expect(cheminsRendu(ID, 'clip_0001', ratio).empreinte).toBe(attendu)
+      expect(pathsRender(ID, 'clip_0001', ratio).fingerprint).toBe(expected)
     }
   })
 
   it('porte les champs du clip, le cadrage résolu, la version et ce qui a été incrusté', () => {
-    const e = empreinteAvec(clip(), marquesNommées(['twitch.png', 'logo.png']))
+    const e = fingerprintWith(clip(), markersNamed(['twitch.png', 'logo.png']))
     expect(e).toEqual({
-      version: VERSION_EMPREINTE,
+      version: VERSION_FINGERPRINT,
       segments: clip().segments,
       captions: true,
       branding: true,
@@ -381,7 +381,7 @@ describe("l'empreinte de rendu", () => {
       // décrivent plus l'image : le ratio effectif est celui que le calcul
       // choisit — par plan pour la variante, le plus large pour le natif — et
       // le crop se calcule par plan.
-      framing: cadrage(),
+      framing: framing(),
       // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
       marks: [
         { name: 'logo.png', content: 'contenu-de-logo.png' },
@@ -400,37 +400,37 @@ describe("l'empreinte de rendu", () => {
     // Un clip dont aucun mot ne tombe dans les segments se rend sans, en le
     // journalisant. L'empreinte dit ce qui a été incrusté, pas ce qui était
     // demandé — les deux champs sont là et ils divergent.
-    const e = empreinteAvec(clip({ captions: true }), [], false)
+    const e = fingerprintWith(clip({ captions: true }), [], false)
     expect(e.captions).toBe(true)
     expect(e.captionsLook).toBeNull()
   })
 
-  describe('écartDeLEmpreinte', () => {
-    const marques = marquesNommées(['logo.png'])
-    const àCôté = (surcharges: Partial<Clip> = {}): ReturnType<typeof empreinteDuRendu> =>
-      empreinteAvec(clip(surcharges), marques)
+  describe('lFingerprintGap', () => {
+    const markers = markersNamed(['logo.png'])
+    const toSide = (overrides: Partial<Clip> = {}): ReturnType<typeof renderFingerprint> =>
+      fingerprintWith(clip(overrides), markers)
 
     it('ne trouve rien à redire quand tout concorde', () => {
-      expect(écartDeLEmpreinte(àCôté(), forme(), observé({ marques }))).toBeNull()
+      expect(lFingerprintGap(toSide(), shape(), observed({ markers }))).toBeNull()
     })
 
     it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
-      expect(écartDeLEmpreinte(null, forme(), observé({ marques }))).toBe('absente')
+      expect(lFingerprintGap(null, shape(), observed({ markers }))).toBe('absente')
     })
 
     it('dit « recette » sur une version qui n’est plus la nôtre', () => {
-      const vieille = { ...àCôté(), version: VERSION_EMPREINTE - 1 }
-      expect(écartDeLEmpreinte(vieille, forme(), observé({ marques }))).toBe('recette')
+      const old = { ...toSide(), version: VERSION_FINGERPRINT - 1 }
+      expect(lFingerprintGap(old, shape(), observed({ markers }))).toBe('recette')
     })
 
     it('dit « montage » sur chacun des champs qui vont à l’image', () => {
-      const cas: Partial<Clip>[] = [
+      const scenarios: Partial<Clip>[] = [
         { segments: [{ start: 0, end: 5 }] },
         { captions: false },
         { branding: false },
       ]
-      for (const surcharge of cas) {
-        expect(écartDeLEmpreinte(àCôté(), forme(clip(surcharge)), observé({ marques }))).toBe(
+      for (const override of scenarios) {
+        expect(lFingerprintGap(toSide(), shape(clip(override)), observed({ markers }))).toBe(
           'montage',
         )
       }
@@ -442,7 +442,7 @@ describe("l'empreinte de rendu", () => {
     // clip ne bouge, et sans ce champ l'empreinte déclarerait à jour un rendu
     // qui ne montre plus ce que la chaîne montrerait.
     it('dit « montage » quand le cadrage résolu a bougé', () => {
-      const cas: Partial<RenderedFraming>[] = [
+      const scenarios: Partial<RenderedFraming>[] = [
         { ratio: '4:5' },
         { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.2, cropXNative: 0.5 }] },
         { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.2 }] },
@@ -455,9 +455,9 @@ describe("l'empreinte de rendu", () => {
           ],
         },
       ]
-      for (const surcharge of cas) {
+      for (const override of scenarios) {
         expect(
-          écartDeLEmpreinte(àCôté(), forme(clip(), cadrage(surcharge)), observé({ marques })),
+          lFingerprintGap(toSide(), shape(clip(), framing(override)), observed({ markers })),
         ).toBe('montage')
       }
     })
@@ -467,12 +467,12 @@ describe("l'empreinte de rendu", () => {
     // réencoderait à chaque passage, et `skipped` ne serait plus jamais vrai.
     it('ne périme rien sur un cadrage identique mais reconstruit', () => {
       expect(
-        écartDeLEmpreinte(àCôté(), forme(clip(), cadrage()), observé({ marques })),
+        lFingerprintGap(toSide(), shape(clip(), framing()), observed({ markers })),
       ).toBeNull()
     })
 
     it("ignore le titre, la description et le statut, qui ne vont pas à l'image", () => {
-      const indifférents: Partial<Clip>[] = [
+      const indifferent: Partial<Clip>[] = [
         { title: 'Autre chose' },
         { description: 'Autre chose' },
         { status: 'exported' },
@@ -483,19 +483,19 @@ describe("l'empreinte de rendu", () => {
         { ratio: '9:16' },
         { cropX: 0.2 },
       ]
-      for (const surcharge of indifférents) {
-        expect(écartDeLEmpreinte(àCôté(), forme(clip(surcharge)), observé({ marques }))).toBeNull()
+      for (const override of indifferent) {
+        expect(lFingerprintGap(toSide(), shape(clip(override)), observed({ markers }))).toBeNull()
       }
     })
 
     it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
-      const deux = marquesNommées(['logo.png', 'twitch.png'])
-      expect(écartDeLEmpreinte(àCôté(), forme(), observé({ marques: deux }))).toBe('marques')
+      const two = markersNamed(['logo.png', 'twitch.png'])
+      expect(lFingerprintGap(toSide(), shape(), observed({ markers: two }))).toBe('marques')
     })
 
     it('dit « marques » quand une marque a été retirée du dossier', () => {
-      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
-      expect(écartDeLEmpreinte(empreinte, forme(), observé({ marques }))).toBe('marques')
+      const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png', 'twitch.png']))
+      expect(lFingerprintGap(fingerprint, shape(), observed({ markers }))).toBe('marques')
     })
 
     /**
@@ -511,23 +511,23 @@ describe("l'empreinte de rendu", () => {
      * style. (relevé par Copilot)
      */
     it('dit « style » quand le preset des sous-titres a changé', () => {
-      const incrusté = empreinteAvec(clip(), marques)
-      const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
-      expect(écartDeLEmpreinte(incrusté, forme(), observé({ look: autre }))).toBe('style')
-      expect(écartDeLEmpreinte(incrusté, forme(), observé({ look: look() }))).toBeNull()
+      const burnedIn = fingerprintWith(clip(), markers)
+      const other = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 52 } }
+      expect(lFingerprintGap(burnedIn, shape(), observed({ look: other }))).toBe('style')
+      expect(lFingerprintGap(burnedIn, shape(), observed({ look: look() }))).toBeNull()
     })
 
     it("ignore l'ordre des clés du preset, qui ne change pas une image", () => {
       // `JSON.stringify` suit l'ordre d'insertion : sans tri, réordonner le
       // littéral de `DEFAULT_CAPTION_STYLE` périmerait tous les rendus du disque.
-      const réordonné = Object.fromEntries(
+      const reordered = Object.fromEntries(
         Object.entries(DEFAULT_CAPTION_STYLE).reverse(),
       ) as typeof DEFAULT_CAPTION_STYLE
       expect(
-        écartDeLEmpreinte(
-          empreinteAvec(clip(), marques),
-          forme(),
-          observé({ look: { ...look(), style: réordonné } }),
+        lFingerprintGap(
+          fingerprintWith(clip(), markers),
+          shape(),
+          observed({ look: { ...look(), style: reordered } }),
         ),
       ).toBeNull()
     })
@@ -535,58 +535,58 @@ describe("l'empreinte de rendu", () => {
     it("ne juge pas du preset quand aucun sous-titre n'a été incrusté", () => {
       // Le preset n'a alors rien décrit de l'image : le comparer périmerait au
       // premier réglage de police un clip qui n'en porte pas.
-      const sansSousTitres = empreinteAvec(clip({ captions: false }), marques, false)
-      const autre = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
+      const withoutUnderTitles = fingerprintWith(clip({ captions: false }), markers, false)
+      const other = { ...look(), style: { ...DEFAULT_CAPTION_STYLE, fontSize: 12 } }
       expect(
-        écartDeLEmpreinte(
-          sansSousTitres,
-          forme(clip({ captions: false })),
-          observé({ look: autre }),
+        lFingerprintGap(
+          withoutUnderTitles,
+          shape(clip({ captions: false })),
+          observed({ look: other }),
         ),
       ).toBeNull()
     })
 
     it('ne juge pas du preset quand on ne le lui donne pas', () => {
-      const incrusté = empreinteAvec(clip(), marques)
-      expect(écartDeLEmpreinte(incrusté, forme(), observé())).toBeNull()
+      const burnedIn = fingerprintWith(clip(), markers)
+      expect(lFingerprintGap(burnedIn, shape(), observed())).toBeNull()
     })
 
     it('ne juge pas des marques quand on ne les lui donne pas', () => {
-      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png', 'twitch.png']))
-      expect(écartDeLEmpreinte(empreinte, forme(), observé())).toBeNull()
+      const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png', 'twitch.png']))
+      expect(lFingerprintGap(fingerprint, shape(), observed())).toBeNull()
       // Le reste continue de compter.
       expect(
-        écartDeLEmpreinte(empreinte, forme(clip(), cadrage({ ratio: '4:5' })), observé()),
+        lFingerprintGap(fingerprint, shape(clip(), framing({ ratio: '4:5' })), observed()),
       ).toBe('montage')
     })
   })
 
-  describe('lesMarquesOntBougé', () => {
+  describe('markersHaveMoved', () => {
     it("ne périme rien quand le dossier est vide et que le clip en demandait", () => {
       // Les deux PNG ont vraiment disparu d'`assets/brand/` le 18 août. Un clip
       // qui demande des marques dont aucune n'est exploitable ne peut pas se
       // rendre (#37) : périmer son rendu changerait une livraison correcte en
       // export qui refuse.
-      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png']))
-      expect(lesMarquesOntBougé(empreinte, [], true)).toBe(false)
+      const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png']))
+      expect(markersHaveMoved(fingerprint, [], true)).toBe(false)
     })
 
     it('périme quand le clip ne demandait pas de marque et qu’il en reste une', () => {
       // Le dossier vide n'excuse que le clip qui en demande. Ici l'empreinte
       // porte une marque incrustée alors que plus rien ne devrait l'être.
-      const empreinte = empreinteAvec(clip({ branding: false }), marquesNommées(['logo.png']))
-      expect(lesMarquesOntBougé(empreinte, [], false)).toBe(true)
+      const fingerprint = fingerprintWith(clip({ branding: false }), markersNamed(['logo.png']))
+      expect(markersHaveMoved(fingerprint, [], false)).toBe(true)
     })
 
     it("compare sans tenir compte de l'ordre", () => {
-      const empreinte = {
-        ...empreinteAvec(clip(), []),
+      const fingerprint = {
+        ...fingerprintWith(clip(), []),
         marks: [
           { name: 'twitch.png', content: 'contenu-de-twitch.png' },
           { name: 'logo.png', content: 'contenu-de-logo.png' },
         ],
       }
-      expect(lesMarquesOntBougé(empreinte, marquesNommées(['logo.png', 'twitch.png']), true)).toBe(
+      expect(markersHaveMoved(fingerprint, markersNamed(['logo.png', 'twitch.png']), true)).toBe(
         false,
       )
     })
@@ -599,9 +599,9 @@ describe("l'empreinte de rendu", () => {
      * (relevé par Codex)
      */
     it('périme un logo remplacé sous le même nom', () => {
-      const empreinte = empreinteAvec(clip(), marquesNommées(['logo.png']))
-      const remplacé = marquesNommées(['logo.png'], () => 'une tout autre image')
-      expect(lesMarquesOntBougé(empreinte, remplacé, true)).toBe(true)
+      const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png']))
+      const replaced = markersNamed(['logo.png'], () => 'une tout autre image')
+      expect(markersHaveMoved(fingerprint, replaced, true)).toBe(true)
     })
   })
 
@@ -610,74 +610,74 @@ describe("l'empreinte de rendu", () => {
    * incrusté avec Anton d'un rendu incrusté avec le repli de fontconfig, et deux
    * versions d'Anton l'une de l'autre. (relevé par Copilot et par Codex)
    */
-  describe('condensatDesPolices', () => {
-    const poser = (nom: string, contenu: string): void => {
-      fs.writeFileSync(path.join(polices, nom), contenu)
+  describe('fontsDigest', () => {
+    const poser = (name: string, content: string): void => {
+      fs.writeFileSync(path.join(fonts, name), content)
     }
 
     it("confond un dossier vide et un dossier absent, qui rendent la même image", () => {
       // Les deux mènent au même repli fontconfig. Les distinguer périmerait un
       // rendu sur la seule création d'un dossier vide.
-      expect(condensatDesPolices(polices)).toBe(condensatDesPolices(path.join(racine, 'jamais')))
+      expect(fontsDigest(fonts)).toBe(fontsDigest(path.join(root, 'jamais')))
     })
 
     it('change quand une police arrive', () => {
-      const vide = condensatDesPolices(polices)
+      const empty = fontsDigest(fonts)
       poser('Anton-Regular.ttf', 'pas vraiment une police')
-      expect(condensatDesPolices(polices)).not.toBe(vide)
+      expect(fontsDigest(fonts)).not.toBe(empty)
     })
 
     it("change quand une police est remplacée sous le même nom", () => {
       poser('Anton-Regular.ttf', 'la version d’hier')
-      const avant = condensatDesPolices(polices)
+      const before = fontsDigest(fonts)
       poser('Anton-Regular.ttf', 'la version d’aujourd’hui')
-      expect(condensatDesPolices(polices)).not.toBe(avant)
+      expect(fontsDigest(fonts)).not.toBe(before)
     })
 
     it("ne bouge pas pour un fichier que libass ne chargera pas", () => {
       poser('Anton-Regular.ttf', 'pas vraiment une police')
-      const avant = condensatDesPolices(polices)
+      const before = fontsDigest(fonts)
       poser('README.md', 'où trouver Anton')
-      expect(condensatDesPolices(polices)).toBe(avant)
+      expect(fontsDigest(fonts)).toBe(before)
     })
 
     it("ne dépend pas de l'ordre de lecture du dossier", () => {
       poser('a.ttf', 'une')
       poser('b.otf', 'deux')
-      const attendu = condensatDesPolices(polices)
-      fs.rmSync(path.join(polices, 'a.ttf'))
+      const expected = fontsDigest(fonts)
+      fs.rmSync(path.join(fonts, 'a.ttf'))
       poser('a.ttf', 'une')
-      expect(condensatDesPolices(polices)).toBe(attendu)
+      expect(fontsDigest(fonts)).toBe(expected)
     })
   })
 
-  describe('lireEmpreinte', () => {
-    const chemin = (): string => cheminsRendu(ID, 'clip_0001', '1:1').empreinte
+  describe('lireFingerprint', () => {
+    const fingerprintPath = (): string => pathsRender(ID, 'clip_0001', '1:1').fingerprint
 
     it("rend null sur un fichier absent, et c'est le cas normal", () => {
-      expect(lireEmpreinte(chemin())).toBeNull()
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
-    it('relit ce que `empreinteDuRendu` a écrit', () => {
+    it('relit ce que `renderFingerprint` a écrit', () => {
       const c = clip()
-      poserEmpreinte(c, '1:1', ['logo.png'])
+      poserFingerprint(c, '1:1', ['logo.png'])
       // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
       // recalculer de la même façon, sinon on compare deux cadrages différents.
-      expect(lireEmpreinte(chemin())).toEqual(
-        empreinteAvec(c, marquesNommées(['logo.png']), c.captions, cadrageDe(c)),
+      expect(lireFingerprint(fingerprintPath())).toEqual(
+        fingerprintWith(c, markersNamed(['logo.png']), c.captions, framingFor(c)),
       )
     })
 
     it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
-      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
-      fs.writeFileSync(chemin(), '{"version": 1, "segm')
-      expect(lireEmpreinte(chemin())).toBeNull()
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), '{"version": 1, "segm')
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
     it('rend null sur un fichier bien formé mais qui n’est pas une empreinte', () => {
-      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
-      fs.writeFileSync(chemin(), JSON.stringify({ version: VERSION_EMPREINTE }))
-      expect(lireEmpreinte(chemin())).toBeNull()
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), JSON.stringify({ version: VERSION_FINGERPRINT }))
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
     /**
@@ -690,15 +690,15 @@ describe("l'empreinte de rendu", () => {
      * corruption qui n'existe pas. C'est `version` qui tranche, avant le schéma.
      */
     it('rend null sur une empreinte de la version d’avant, sans crier à la corruption', () => {
-      const avertissements: unknown[][] = []
-      const espion = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
-        avertissements.push(a)
+      const warnings: unknown[][] = []
+      const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+        warnings.push(a)
       })
-      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
       fs.writeFileSync(
-        chemin(),
+        fingerprintPath(),
         JSON.stringify({
-          version: VERSION_EMPREINTE - 1,
+          version: VERSION_FINGERPRINT - 1,
           segments: clip().segments,
           ratio: '1:1',
           cropX: 0.5,
@@ -708,12 +708,12 @@ describe("l'empreinte de rendu", () => {
           sousTitres: null,
         }),
       )
-      expect(lireEmpreinte(chemin())).toBeNull()
-      expect(String(avertissements[0]?.[0])).toMatch(
-        new RegExp(`version ${VERSION_EMPREINTE - 1}`),
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
+      expect(String(warnings[0]?.[0])).toMatch(
+        new RegExp(`version ${VERSION_FINGERPRINT - 1}`),
       )
-      expect(String(avertissements[0]?.[0])).not.toMatch(/illisible/)
-      espion.mockRestore()
+      expect(String(warnings[0]?.[0])).not.toMatch(/illisible/)
+      spy.mockRestore()
     })
 
     /**
@@ -732,22 +732,22 @@ describe("l'empreinte de rendu", () => {
       const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
         warnings.push(a)
       })
-      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
       fs.writeFileSync(
-        chemin(),
+        fingerprintPath(),
         JSON.stringify({
           version: 3,
           segments: clip().segments,
           captions: true,
           branding: true,
-          framing: cadrage(),
+          framing: framing(),
           marques: [{ nom: 'logo.png', contenu: 'contenu-de-logo.png' }],
           sousTitres: 'un-condensat',
           captionsContent: 'un-autre-condensat',
         }),
       )
-      expect(() => lireEmpreinte(chemin())).not.toThrow()
-      expect(lireEmpreinte(chemin())).toBeNull()
+      expect(() => lireFingerprint(fingerprintPath())).not.toThrow()
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
       // **La distinction qui compte** (voir le commentaire de `lireEmpreinte`) :
       // une recette antérieure n'est pas un fichier illisible. Si
       // `VERSION_EMPREINTE` n'avait pas été montée à 4 avec cette traduction, la
@@ -764,28 +764,28 @@ describe("l'empreinte de rendu", () => {
       // « illisible » d'un fichier parfaitement formé, alors que le seul verdict
       // qui vaille est celui de `version`.
       const c = clip()
-      const brut = { ...empreinteAvec(c, []), venuDuFutur: 42 }
-      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
-      fs.writeFileSync(chemin(), JSON.stringify(brut))
-      expect(lireEmpreinte(chemin())?.version).toBe(VERSION_EMPREINTE)
+      const raw = { ...fingerprintWith(c, []), venuDuFutur: 42 }
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), JSON.stringify(raw))
+      expect(lireFingerprint(fingerprintPath())?.version).toBe(VERSION_FINGERPRINT)
     })
 
     it("ne publie aucun chemin absolu dans ce qu'il journalise", () => {
       // Le journal d'un `GET` finit sous les yeux de qui lit les traces, et le
       // chemin porte l'arborescence de la machine.
       const messages: string[] = []
-      const avant = console.warn
+      const before = console.warn
       console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
       try {
-        fs.mkdirSync(path.dirname(chemin()), { recursive: true })
-        fs.writeFileSync(chemin(), 'pas du json')
-        lireEmpreinte(chemin())
+        fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+        fs.writeFileSync(fingerprintPath(), 'pas du json')
+        lireFingerprint(fingerprintPath())
       } finally {
-        console.warn = avant
+        console.warn = before
       }
       expect(messages.length).toBe(1)
       expect(messages[0]).toContain('clip_0001.rendu.json')
-      expect(messages[0]).not.toContain(projets)
+      expect(messages[0]).not.toContain(projects)
     })
   })
 })
@@ -794,61 +794,61 @@ describe("l'empreinte de rendu", () => {
  * La doctrine de `branding.py:63-70`, reprise comme raisonnement (spec §15).
  * Chacun de ces tests fige une décision qui a coûté une mesure là-bas.
  */
-describe('planifierMarques', () => {
-  const logo = (nativeW: number, nativeH: number): MarqueNative => ({
+describe('scheduleMarkers', () => {
+  const logo = (nativeW: number, nativeH: number): MarkerNative => ({
     path: '/marques/logo.png',
     nativeW,
     nativeH,
-    largeurRatio: 0.22,
-    bord: 'gauche',
-    contenu: 'peu importe : le placement ne lit pas le contenu',
+    widthRatio: 0.22,
+    edge: 'gauche',
+    content: 'peu importe : le placement ne lit pas le contenu',
   })
-  const mention = (nativeW: number, nativeH: number): MarqueNative => ({
+  const mention = (nativeW: number, nativeH: number): MarkerNative => ({
     path: '/marques/twitch.png',
     nativeW,
     nativeH,
-    largeurRatio: 0.16,
-    bord: 'droite',
-    contenu: 'peu importe : le placement ne lit pas le contenu',
+    widthRatio: 0.16,
+    edge: 'droite',
+    content: 'peu importe : le placement ne lit pas le contenu',
   })
 
   it('ne pose rien quand le dossier des marques est vide', () => {
-    expect(planifierMarques(1080, 1920, [])).toEqual([])
+    expect(scheduleMarkers(1080, 1920, [])).toEqual([])
   })
 
   it("épingle le bord SUPÉRIEUR de la bande à 13 %, pas son centre", () => {
     // Le cas mesuré chez openshorts : un logo 3:1 ancré par son centre à 0,13
     // remettait son bord supérieur à 0,109, soit sous la barre d'onglets de
     // TikTok. Épinglé par le haut, il reste à 0,13 quel que soit son format.
-    for (const forme of [logo(3, 1), logo(1, 1), logo(1, 2)]) {
-      const [placé] = planifierMarques(1080, 1920, [forme])
-      expect(placé.y).toBe(Math.round(1920 * 0.13))
+    for (const shape of [logo(3, 1), logo(1, 1), logo(1, 2)]) {
+      const [place] = scheduleMarkers(1080, 1920, [shape])
+      expect(place.y).toBe(Math.round(1920 * 0.13))
     }
   })
 
   it('plafonne la hauteur à 6 % par marque, et non par bande', () => {
     // Un logo carré à 22 % de largeur ferait 22 % de la hauteur d'un 1:1. La
     // mention, elle, tient déjà : elle ne doit pas rétrécir avec lui.
-    const placés = planifierMarques(1080, 1080, [logo(1, 1), mention(4, 1)])
-    const [carré, large] = placés
-    expect(carré.h).toBeLessThanOrEqual(1080 * 0.06)
+    const placed = scheduleMarkers(1080, 1080, [logo(1, 1), mention(4, 1)])
+    const [square, wide] = placed
+    expect(square.h).toBeLessThanOrEqual(1080 * 0.06)
     // La mention garde sa largeur nominale : 16 % de 1080, arrondi au pair.
-    expect(large.w).toBe(172)
+    expect(wide.w).toBe(172)
   })
 
   it('centre les marques les unes sur les autres sous ce bord supérieur', () => {
-    const [carré, large] = planifierMarques(1080, 1920, [logo(1, 1), mention(4, 1)])
-    const centre = (m: { y: number; h: number }): number => m.y + m.h / 2
-    expect(Math.abs(centre(carré) - centre(large))).toBeLessThanOrEqual(1)
-    const plusHaute = carré.h >= large.h ? carré : large
-    expect(plusHaute.y).toBe(Math.round(1920 * 0.13))
+    const [square, wide] = scheduleMarkers(1080, 1920, [logo(1, 1), mention(4, 1)])
+    const center = (m: { y: number; h: number }): number => m.y + m.h / 2
+    expect(Math.abs(center(square) - center(wide))).toBeLessThanOrEqual(1)
+    const moreHigh = square.h >= wide.h ? square : wide
+    expect(moreHigh.y).toBe(Math.round(1920 * 0.13))
   })
 
   it('respecte la marge de 5 % des deux côtés', () => {
-    const [gauche, droite] = planifierMarques(1080, 1920, [logo(3, 1), mention(4, 1)])
-    const marge = Math.round(1080 * 0.05)
-    expect(gauche.x).toBe(marge)
-    expect(droite.x + droite.w).toBe(1080 - marge)
+    const [left, right] = scheduleMarkers(1080, 1920, [logo(3, 1), mention(4, 1)])
+    const margin = Math.round(1080 * 0.05)
+    expect(left.x).toBe(margin)
+    expect(right.x + right.w).toBe(1080 - margin)
   })
 
   it("ne mord ni sur le haut de l'écran ni sur les sous-titres", () => {
@@ -863,29 +863,29 @@ describe('planifierMarques', () => {
       { w: 1920, h: 1080 },
     ]
     for (const { w, h } of formats) {
-      for (const marques of [[logo(3, 1), mention(4, 1)], [logo(1, 1)], [mention(1, 3)]]) {
-        for (const placé of planifierMarques(w, h, marques)) {
-          expect(placé.y).toBeGreaterThanOrEqual(h * 0.12)
-          expect(placé.y + placé.h).toBeLessThan(h * 0.59)
-          expect(placé.x).toBeGreaterThanOrEqual(0)
-          expect(placé.x + placé.w).toBeLessThanOrEqual(w)
+      for (const markers of [[logo(3, 1), mention(4, 1)], [logo(1, 1)], [mention(1, 3)]]) {
+        for (const place of scheduleMarkers(w, h, markers)) {
+          expect(place.y).toBeGreaterThanOrEqual(h * 0.12)
+          expect(place.y + place.h).toBeLessThan(h * 0.59)
+          expect(place.x).toBeGreaterThanOrEqual(0)
+          expect(place.x + place.w).toBeLessThanOrEqual(w)
         }
       }
     }
   })
 
   it('rend des dimensions paires', () => {
-    for (const placé of planifierMarques(1080, 1920, [logo(7, 3), mention(13, 5)])) {
-      expect(placé.w % 2).toBe(0)
-      expect(placé.h % 2).toBe(0)
+    for (const place of scheduleMarkers(1080, 1920, [logo(7, 3), mention(13, 5)])) {
+      expect(place.w % 2).toBe(0)
+      expect(place.h % 2).toBe(0)
     }
   })
 
   it('remonte une très petite marque au plancher de lisibilité', () => {
     // 22 % de 200 pixels font 44, illisible sur un téléphone. Le plancher est à
     // 80 — sous réserve de tenir entre les marges.
-    const [placé] = planifierMarques(200, 356, [logo(4, 1)])
-    expect(placé.w).toBe(80)
+    const [place] = scheduleMarkers(200, 356, [logo(4, 1)])
+    expect(place.w).toBe(80)
   })
 })
 
@@ -895,8 +895,8 @@ describe('planifierMarques', () => {
  * pour lui-même ailleurs ; ce qui se teste ici, c'est qu'il soit bien appelé, et
  * que le preset traverse jusqu'au découpage.
  */
-describe('sousTitresDuClip', () => {
-  const mots: Word[] = [
+describe('clipUnderTitles', () => {
+  const words: Word[] = [
     { word: 'un', start: 10.0, end: 10.4 },
     { word: 'deux', start: 10.5, end: 11.0 },
     // Dans la coupe interne : ce mot ne doit apparaître nulle part.
@@ -910,7 +910,7 @@ describe('sousTitresDuClip', () => {
   ]
 
   it('recale les mots sur la timeline du clip, pas sur celle de la source', () => {
-    const ass = sousTitresDuClip(mots, segments, DEFAULT_CAPTION_STYLE)
+    const ass = clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE)
     expect(ass).not.toBeNull()
     // Le premier segment dure 5 s, donc le premier mot du second segment tombe à
     // 5,00 s dans le clip — et surtout pas à 1:40, son heure dans l'émission.
@@ -921,47 +921,47 @@ describe('sousTitresDuClip', () => {
   })
 
   it('laisse tomber les mots pris dans une coupe interne', () => {
-    expect(sousTitresDuClip(mots, segments, DEFAULT_CAPTION_STYLE)).not.toContain('COUPÉ')
+    expect(clipUnderTitles(words, segments, DEFAULT_CAPTION_STYLE)).not.toContain('COUPÉ')
   })
 
   it('passe maxChars et maxDuration du preset au découpage', () => {
     // `renderAss` ne lit pas ces deux réglages : si l'enchaînement ne les
     // transmet pas lui-même à `splitIntoCards`, un preset personnalisé garde le
     // découpage par défaut, en silence.
-    const serré = { ...DEFAULT_CAPTION_STYLE, maxChars: 3 }
-    const large = { ...DEFAULT_CAPTION_STYLE, maxChars: 200, maxDuration: 60 }
+    const tight = { ...DEFAULT_CAPTION_STYLE, maxChars: 3 }
+    const wide = { ...DEFAULT_CAPTION_STYLE, maxChars: 200, maxDuration: 60 }
     // Un carton donne un événement par mot, tous porteurs du même texte à la
     // surbrillance près : compter les textes distincts compte les cartons.
-    const cartons = (ass: string | null): number =>
+    const cards = (ass: string | null): number =>
       new Set(
         (ass ?? '')
           .split('\n')
           .filter((l) => l.startsWith('Dialogue:'))
           .map((l) => l.slice(l.lastIndexOf(',,') + 2).replace(/\{[^}]*\}/g, '')),
       ).size
-    expect(cartons(sousTitresDuClip(mots, segments, serré))).toBeGreaterThan(
-      cartons(sousTitresDuClip(mots, segments, large)),
+    expect(cards(clipUnderTitles(words, segments, tight))).toBeGreaterThan(
+      cards(clipUnderTitles(words, segments, wide)),
     )
   })
 
   it("rend null quand aucun mot ne tombe dans les segments", () => {
-    expect(sousTitresDuClip(mots, [{ start: 500, end: 510 }], DEFAULT_CAPTION_STYLE)).toBeNull()
+    expect(clipUnderTitles(words, [{ start: 500, end: 510 }], DEFAULT_CAPTION_STYLE)).toBeNull()
   })
 })
 
-describe('leRenduEstPérimé', () => {
+describe('renderIsStale', () => {
   it('est faux quand rien de ce qui va à l’image n’a bougé', () => {
-    expect(leRenduEstPérimé(forme(), forme())).toBe(false)
+    expect(renderIsStale(shape(), shape())).toBe(false)
   })
 
   it("ignore le titre et la description, qui ne vont que dans le .txt", () => {
-    expect(leRenduEstPérimé(forme(), forme(clip({ title: 'Autre', description: 'Autre' })))).toBe(
+    expect(renderIsStale(shape(), shape(clip({ title: 'Autre', description: 'Autre' })))).toBe(
       false,
     )
   })
 
   it("ignore le statut et le numéro de passe", () => {
-    expect(leRenduEstPérimé(forme(), forme(clip({ status: 'exported', pass: 9 })))).toBe(false)
+    expect(renderIsStale(shape(), shape(clip({ status: 'exported', pass: 9 })))).toBe(false)
   })
 
   // `ratio` et `cropX` du clip sont sortis de la comparaison quand le cadrage
@@ -969,17 +969,17 @@ describe('leRenduEstPérimé', () => {
   // ferait réencoder pour rien un clip qu'on épingle sur le ratio que le calcul
   // avait déjà choisi.
   it("ignore le ratio demandé et le cropX du clip, que l'encodage ne lit plus", () => {
-    expect(leRenduEstPérimé(forme(), forme(clip({ ratio: '4:5', cropX: 0.2 })))).toBe(false)
+    expect(renderIsStale(shape(), shape(clip({ ratio: '4:5', cropX: 0.2 })))).toBe(false)
   })
 
   it('voit chacun des champs du clip qui vont à l’image', () => {
-    const cas: Partial<Clip>[] = [
+    const scenarios: Partial<Clip>[] = [
       { segments: [{ start: 0, end: 5 }] },
       { captions: false },
       { branding: false },
     ]
-    for (const surcharge of cas) {
-      expect(leRenduEstPérimé(forme(), forme(clip(surcharge)))).toBe(true)
+    for (const override of scenarios) {
+      expect(renderIsStale(shape(), shape(clip(override)))).toBe(true)
     }
   })
 
@@ -987,11 +987,11 @@ describe('leRenduEstPérimé', () => {
   // tableaux de crops identiques ne sont jamais le même objet, et un `!==` par
   // référence périmerait le rendu à chaque appel.
   it('compare le cadrage en profondeur, pas par référence', () => {
-    expect(leRenduEstPérimé(forme(clip(), cadrage()), forme(clip(), cadrage()))).toBe(false)
+    expect(renderIsStale(shape(clip(), framing()), shape(clip(), framing()))).toBe(false)
   })
 
   it('voit chacune des composantes du cadrage résolu', () => {
-    const cas: Partial<RenderedFraming>[] = [
+    const scenarios: Partial<RenderedFraming>[] = [
       { ratio: '4:5' },
       { shots: [{ start: 0, end: 20, ratio: '4:5', cropX: 0.5, cropXNative: 0.5 }] },
       { shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.3, cropXNative: 0.5 }] },
@@ -999,61 +999,61 @@ describe('leRenduEstPérimé', () => {
       { shots: [{ start: 1, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5 }] },
       { shots: [] },
     ]
-    for (const surcharge of cas) {
-      expect(leRenduEstPérimé(forme(), forme(clip(), cadrage(surcharge)))).toBe(true)
+    for (const override of scenarios) {
+      expect(renderIsStale(shape(), shape(clip(), framing(override)))).toBe(true)
     }
   })
 
   it('voit un segment déplacé, à nombre de segments égal', () => {
-    const bougé = clip().segments.map((s, i) => (i === 1 ? { start: s.start, end: s.end + 1 } : s))
-    expect(leRenduEstPérimé(forme(), forme(clip({ segments: bougé })))).toBe(true)
+    const moved = clip().segments.map((s, i) => (i === 1 ? { start: s.start, end: s.end + 1 } : s))
+    expect(renderIsStale(shape(), shape(clip({ segments: moved })))).toBe(true)
   })
 })
 
-describe('motsDièse', () => {
+describe('wordsHash', () => {
   it('les extrait dans leur ordre, sans doublon de casse', () => {
-    expect(motsDièse('#Impro et #impro, puis #avolo')).toEqual(['#Impro', '#avolo'])
+    expect(wordsHash('#Impro et #impro, puis #avolo')).toEqual(['#Impro', '#avolo'])
   })
 
   it('accepte les accents et les chiffres', () => {
-    expect(motsDièse('#théâtre #scene2026 #a_b')).toEqual(['#théâtre', '#scene2026', '#a_b'])
+    expect(wordsHash('#théâtre #scene2026 #a_b')).toEqual(['#théâtre', '#scene2026', '#a_b'])
   })
 
   it('rend une liste vide quand il n’y en a pas', () => {
-    expect(motsDièse('rien à signaler')).toEqual([])
+    expect(wordsHash('rien à signaler')).toEqual([])
   })
 })
 
-describe('texteDePublication', () => {
+describe('publicationText', () => {
   it('porte les trois sections, dans l’ordre où on les colle', () => {
-    const texte = texteDePublication(clip())
-    expect(texte).toContain('Titre : Une vanne qui tient')
-    expect(texte).toContain('La chute arrive au bon moment. #impro #avolo')
-    expect(texte).toContain('Mots-dièse : #impro #avolo')
+    const text = publicationText(clip())
+    expect(text).toContain('Titre : Une vanne qui tient')
+    expect(text).toContain('La chute arrive au bon moment. #impro #avolo')
+    expect(text).toContain('Mots-dièse : #impro #avolo')
   })
 
   it('laisse les mots-dièse dans la description, qui se colle telle quelle', () => {
-    const lignes = texteDePublication(clip()).split('\n')
-    expect(lignes[lignes.indexOf('Description :') + 1]).toContain('#impro')
+    const lines = publicationText(clip()).split('\n')
+    expect(lines[lines.indexOf('Description :') + 1]).toContain('#impro')
   })
 
   it('reste lisible sur un clip sans titre ni description', () => {
-    const texte = texteDePublication(clip({ title: '  ', description: '' }))
-    expect(texte).toContain('Titre : (sans titre)')
-    expect(texte).toContain('(sans description)')
-    expect(texte).toContain('Mots-dièse : (aucun)')
+    const text = publicationText(clip({ title: '  ', description: '' }))
+    expect(text).toContain('Titre : (sans titre)')
+    expect(text).toContain('(sans description)')
+    expect(text).toContain('Mots-dièse : (aucun)')
   })
 })
 
-describe('collecterMarques', () => {
+describe('collectMarkers', () => {
   it("rend une liste vide sur un dossier absent — on rend sans marque", async () => {
-    await expect(collecterMarques(path.join(racine, 'nulle-part'))).resolves.toEqual([])
+    await expect(collectMarkers(path.join(root, 'nulle-part'))).resolves.toEqual([])
   })
 
   it('rend une liste vide sur un dossier vide', async () => {
-    const vide = path.join(racine, 'brand')
-    fs.mkdirSync(vide)
-    await expect(collecterMarques(vide)).resolves.toEqual([])
+    const empty = path.join(root, 'brand')
+    fs.mkdirSync(empty)
+    await expect(collectMarkers(empty)).resolves.toEqual([])
   })
 })
 
@@ -1067,22 +1067,22 @@ describe('collecterMarques', () => {
  * compte : une marque sur deux. Il ne s'atteint pas par `collecterMarques`, qui a
  * besoin de ffprobe sur un vrai PNG — ni la CI ni ce fichier n'en ont.
  */
-describe('refuserFauteDeMarque', () => {
-  const marque = (fichier: string): MarqueNative => ({
-    path: `/marques/${fichier}`,
+describe('markerRejectFault', () => {
+  const marker = (file: string): MarkerNative => ({
+    path: `/marques/${file}`,
     nativeW: 1000,
     nativeH: 250,
-    largeurRatio: 0.22,
-    bord: 'gauche',
-    contenu: 'peu importe : la porte ne lit pas le contenu',
+    widthRatio: 0.22,
+    edge: 'gauche',
+    content: 'peu importe : la porte ne lit pas le contenu',
   })
 
   it("refuse quand le clip demande des marques et qu'il n'y en a aucune", () => {
-    expect(refuserFauteDeMarque(true, [])).toBe(true)
+    expect(markerRejectFault(true, [])).toBe(true)
   })
 
   it("laisse passer le clip qui n'en demande pas, dossier vide compris", () => {
-    expect(refuserFauteDeMarque(false, [])).toBe(false)
+    expect(markerRejectFault(false, [])).toBe(false)
   })
 
   it("laisse passer quand une seule des deux marques est là", () => {
@@ -1092,12 +1092,12 @@ describe('refuserFauteDeMarque', () => {
     // logo » de « twitch.png a disparu ». Refuser là interdirait une
     // configuration soutenue pour rattraper une dégradation indécidable. Zéro,
     // lui, est sans ambiguïté : la marque a été demandée, aucune n'est posée.
-    expect(refuserFauteDeMarque(true, [marque('logo.png')])).toBe(false)
-    expect(refuserFauteDeMarque(true, [marque('twitch.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('logo.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('twitch.png')])).toBe(false)
   })
 
   it('laisse passer quand les deux sont là', () => {
-    expect(refuserFauteDeMarque(true, [marque('logo.png'), marque('twitch.png')])).toBe(false)
+    expect(markerRejectFault(true, [marker('logo.png'), marker('twitch.png')])).toBe(false)
   })
 })
 
@@ -1108,7 +1108,7 @@ describe('refuserFauteDeMarque', () => {
  * publier l'arborescence de la machine.
  */
 describe('renderClip, la porte des marques', () => {
-  function préparer(surcharges: Partial<Clip> = {}): {
+  function prepare(overrides: Partial<Clip> = {}): {
     db: ReturnType<typeof openDb>
     c: Clip
     brandDir: string
@@ -1129,28 +1129,28 @@ describe('renderClip, la porte des marques', () => {
     // **Sans sous-titres**, pour la même raison qu'au describe du saut : un clip
     // qui en demande ferait lire le transcript avant la porte des marques (#87),
     // et aucun n'existe dans ce dossier de replays jetable.
-    const c = clip({ captions: false, ...surcharges })
+    const c = clip({ captions: false, ...overrides })
     putClip(db, c)
     // Jetable et vide, comme un `assets/brand/` fraîchement cloné : le dépôt
     // n'en porte que le README, et la CI encore moins.
-    const brandDir = path.join(racine, 'brand-vide')
+    const brandDir = path.join(root, 'brand-vide')
     fs.mkdirSync(brandDir, { recursive: true })
     return { db, c, brandDir }
   }
 
   /** Le message du refus, et l'assurance qu'il y en a bien eu un. */
-  async function refus(promesse: Promise<unknown>): Promise<string> {
+  async function rejection(promise: Promise<unknown>): Promise<string> {
     try {
-      await promesse
-    } catch (erreur) {
-      return erreur instanceof Error ? erreur.message : String(erreur)
+      await promise
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
     }
     throw new Error("l'export n'a pas refusé")
   }
 
   it("refuse un clip qui demande des marques quand le dossier n'en porte aucune", async () => {
-    const { db, c, brandDir } = préparer()
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/logo\.png/)
+    const { db, c, brandDir } = prepare()
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/logo\.png/)
   })
 
   it("refuse pareillement quand le dossier des marques n'existe pas", async () => {
@@ -1158,15 +1158,15 @@ describe('renderClip, la porte des marques', () => {
     // distinguer : la marque a été demandée, aucune n'est posée. La piste 3 de
     // l'issue butait là — `assets/brand/` est de toute façon toujours présent,
     // son README étant versionné.
-    const { db, c } = préparer()
+    const { db, c } = prepare()
     await expect(
-      renderClip(c.id, { db, brandDir: path.join(racine, 'nulle-part'), fontsDir: polices }),
+      renderClip(c.id, { db, brandDir: path.join(root, 'nulle-part'), fontsDir: fonts }),
     ).rejects.toThrow(/logo\.png/)
   })
 
   it('nomme les deux issues : déposer une marque, ou couper le branding', async () => {
-    const { db, c, brandDir } = préparer()
-    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const { db, c, brandDir } = prepare()
+    const message = await rejection(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).toMatch(/assets\/brand\//)
     expect(message).toMatch(/branding/)
   })
@@ -1175,48 +1175,48 @@ describe('renderClip, la porte des marques', () => {
     // Ce que l'issue demande noir sur blanc : pas de MP4 muet. Le `.ass` absent
     // dit en plus que le refus précède la lecture du transcript, qui vit sur le
     // Drive en 9p et coûte un aller-retour.
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/marques/)
-    for (const chemin of [
-      attendus.mp4,
-      attendus.variant9x16 as string,
-      attendus.texts,
-      attendus.ass,
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/marques/)
+    for (const path of [
+      expected.mp4,
+      expected.variant9x16 as string,
+      expected.texts,
+      expected.ass,
     ]) {
-      expect(fs.existsSync(chemin)).toBe(false)
+      expect(fs.existsSync(path)).toBe(false)
     }
   })
 
   it('ne publie aucun chemin absolu dans son refus', async () => {
     // Le message part dans le corps d'une réponse HTTP. La mesure est celle du
     // dépôt : épuré, il doit être identique à lui-même.
-    const { db, c, brandDir } = préparer()
-    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const { db, c, brandDir } = prepare()
+    const message = await rejection(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).toMatch(/logo\.png/)
-    expect(épurerChemins(message)).toBe(message)
+    expect(cleanPaths(message)).toBe(message)
   })
 
   it("laisse passer un clip qui ne demande pas de marques", async () => {
     // Il ne va pas jusqu'au bout — ni transcript ni ffmpeg ici — et c'est ce qui
     // rend l'assertion nette : il échoue plus loin, sur autre chose.
-    const { db, c, brandDir } = préparer({ branding: false })
-    const message = await refus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const { db, c, brandDir } = prepare({ branding: false })
+    const message = await rejection(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).not.toMatch(/marque/i)
   })
 
   it('ne refuse pas un clip déjà rendu, qui ne produit rien de neuf', async () => {
     // Le saut n'encode pas : refuser là ferait échouer une relance qui se
     // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés.
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    for (const chemin of [attendus.mp4, attendus.variant9x16 as string, attendus.texts]) {
-      fs.mkdirSync(path.dirname(chemin), { recursive: true })
-      fs.writeFileSync(chemin, '')
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
-    poserEmpreinte(c, '1:1')
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
-    expect(résultat.skipped).toBe(true)
+    poserFingerprint(c, '1:1')
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+    expect(result.skipped).toBe(true)
   })
 
   /**
@@ -1226,14 +1226,14 @@ describe('renderClip, la porte des marques', () => {
    * remède était un `force` qu'il fallait avoir lu un commentaire pour connaître.
    */
   it("refuse un rendu sans empreinte quand le dossier n'a plus de marque", async () => {
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    for (const chemin of [attendus.mp4, attendus.variant9x16 as string, attendus.texts]) {
-      fs.mkdirSync(path.dirname(chemin), { recursive: true })
-      fs.writeFileSync(chemin, '')
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
 
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/logo\.png/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/logo\.png/)
   })
 })
 
@@ -1243,7 +1243,7 @@ describe('renderClip, la porte des marques', () => {
  * clip et du projet, résolution du ratio, nom des fichiers, décision de saut.
  */
 describe('renderClip, chemin du saut', () => {
-  function préparer(surcharges: Partial<Clip> = {}): {
+  function prepare(overrides: Partial<Clip> = {}): {
     db: ReturnType<typeof openDb>
     c: Clip
     brandDir: string
@@ -1263,92 +1263,92 @@ describe('renderClip, chemin du saut', () => {
     // transcript avant la décision de saut (#87), et aucun n'existe dans ce
     // dossier de replays jetable. Les tests qui portent sur les sous-titres
     // vivent dans `tests/server/empreinte.test.ts`, qui pose un vrai transcript.
-    const c = clip({ captions: false, ...surcharges })
+    const c = clip({ captions: false, ...overrides })
     putClip(db, c)
     // **Jetable et vide, jamais celui du dépôt.** `renderClip` sonde le dossier
     // des marques avant même la décision de saut, pour comparer l'empreinte :
     // sans ce chemin explicite il lirait `assets/brand/`, qui porte les deux PNG
     // sur la machine de l'opérateur et rien du tout en CI. Le verdict de
     // l'empreinte dépendrait alors de la machine.
-    const brandDir = path.join(racine, 'brand-saut')
+    const brandDir = path.join(root, 'brand-saut')
     fs.mkdirSync(brandDir, { recursive: true })
     return { db, c, brandDir }
   }
 
-  function poser(chemins: string[]): void {
-    for (const chemin of chemins) {
-      fs.mkdirSync(path.dirname(chemin), { recursive: true })
-      fs.writeFileSync(chemin, '')
+  function poser(paths: string[]): void {
+    for (const filePath of paths) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
   }
 
   it('rend les trois chemins et saute quand tout est là', async () => {
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
-    poserEmpreinte(c, '1:1')
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poserFingerprint(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
-    expect(résultat).toEqual({
-      mp4: attendus.mp4,
-      variant9x16: attendus.variant9x16,
-      texts: attendus.texts,
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+    expect(result).toEqual({
+      mp4: expected.mp4,
+      variant9x16: expected.variant9x16,
+      texts: expected.texts,
       skipped: true,
     })
   })
 
   it("rabat 'auto' sur 9:16, donc sans variante (itération 0)", async () => {
-    const { db, c, brandDir } = préparer({ ratio: 'auto' })
-    const attendus = cheminsRendu(ID, c.id, '9:16')
-    poser([attendus.mp4, attendus.texts])
-    poserEmpreinte(c, '9:16')
+    const { db, c, brandDir } = prepare({ ratio: 'auto' })
+    const expected = pathsRender(ID, c.id, '9:16')
+    poser([expected.mp4, expected.texts])
+    poserFingerprint(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
-    expect(résultat.skipped).toBe(true)
-    expect(résultat.variant9x16).toBeNull()
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+    expect(result.skipped).toBe(true)
+    expect(result.variant9x16).toBeNull()
   })
 
   it("réécrit le .txt même quand il saute, sans réencoder", async () => {
     // Corriger une faute dans la description puis relancer l'export ne doit pas
     // exiger un --force qui réencoderait trois minutes de vidéo pour rien.
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
-    poserEmpreinte(c, '1:1')
-    const avant = fs.statSync(attendus.variant9x16 as string).mtimeMs
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poserFingerprint(c, '1:1')
+    const before = fs.statSync(expected.variant9x16 as string).mtimeMs
     putClip(db, { ...c, description: 'Corrigée après coup. #impro' })
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
 
-    expect(résultat.skipped).toBe(true)
-    expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Corrigée après coup.')
+    expect(result.skipped).toBe(true)
+    expect(fs.readFileSync(expected.texts, 'utf8')).toContain('Corrigée après coup.')
     // Rien n'a été réencodé : la variante n'a pas été touchée.
-    expect(fs.statSync(attendus.variant9x16 as string).mtimeMs).toBe(avant)
+    expect(fs.statSync(expected.variant9x16 as string).mtimeMs).toBe(before)
   })
 
   it("efface la variante d'un ratio abandonné même quand il saute", async () => {
-    const { db, c, brandDir } = préparer({ ratio: '9:16' })
-    const attendus = cheminsRendu(ID, c.id, '9:16')
-    const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
-    poser([attendus.mp4, attendus.texts, périmée])
-    poserEmpreinte(c, '9:16')
+    const { db, c, brandDir } = prepare({ ratio: '9:16' })
+    const expected = pathsRender(ID, c.id, '9:16')
+    const stale = path.join(projects, ID, 'renders', `${c.id}-9x16.mp4`)
+    poser([expected.mp4, expected.texts, stale])
+    poserFingerprint(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
 
-    expect(résultat.skipped).toBe(true)
-    expect(fs.existsSync(périmée)).toBe(false)
+    expect(result.skipped).toBe(true)
+    expect(fs.existsSync(stale)).toBe(false)
   })
 
   it("répare le statut même quand il saute", async () => {
     // Un processus arrêté entre l'écriture du .txt et la mise à jour du statut
     // laisse toutes les sorties en place : sans cette réparation, chaque relance
     // sauterait et le clip resterait en « kept » pour toujours.
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
-    poserEmpreinte(c, '1:1')
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poserFingerprint(c, '1:1')
 
-    await renderClip(c.id, { db, brandDir, fontsDir: polices })
+    await renderClip(c.id, { db, brandDir, fontsDir: fonts })
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
 
@@ -1362,49 +1362,49 @@ describe('renderClip, chemin du saut', () => {
     // chemin : #87 ne peut pas savoir si le texte a changé sans ça, et c'est
     // `tests/server/empreinte.test.ts` qui couvre cette lecture-là, transcript
     // posé pour de vrai.
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.variant9x16 as string])
-    poserEmpreinte(c, '1:1')
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.variant9x16 as string])
+    poserFingerprint(c, '1:1')
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
-    expect(résultat.skipped).toBe(false)
-    expect(fs.readFileSync(attendus.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+    expect(result.skipped).toBe(false)
+    expect(fs.readFileSync(expected.texts, 'utf8')).toContain('Titre : Une vanne qui tient')
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
 
   it("efface la variante d'un ratio abandonné", async () => {
     // Le clip est repassé en 9:16, donc plus de variante due — mais celle du 1:1
     // d'avant est encore là, à ressembler à une livraison à jour.
-    const { db, c, brandDir } = préparer({ ratio: '9:16' })
-    const attendus = cheminsRendu(ID, c.id, '9:16')
-    const périmée = path.join(projets, ID, 'renders', `${c.id}-9x16.mp4`)
-    poser([attendus.mp4, périmée])
-    poserEmpreinte(c, '9:16')
+    const { db, c, brandDir } = prepare({ ratio: '9:16' })
+    const expected = pathsRender(ID, c.id, '9:16')
+    const stale = path.join(projects, ID, 'renders', `${c.id}-9x16.mp4`)
+    poser([expected.mp4, stale])
+    poserFingerprint(c, '9:16')
 
-    const résultat = await renderClip(c.id, { db, brandDir, fontsDir: polices })
-    expect(résultat.variant9x16).toBeNull()
-    expect(fs.existsSync(périmée)).toBe(false)
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+    expect(result.variant9x16).toBeNull()
+    expect(fs.existsSync(stale)).toBe(false)
   })
 
   it("n'écrase pas un texte corrigé pendant l'export", () => {
     // Le défaut relevé par Codex : `renderClip` tient un clip lu avant son
     // premier `await`, et un export dure des minutes. Réécrire cet instantané
     // pour changer une colonne rendrait au clip son titre d'avant.
-    const { db, c } = préparer()
+    const { db, c } = prepare()
     putClip(db, { ...c, title: 'Retitré' })
 
-    marquerExporté(db, c.id, c, cadrageDe(c))
+    markExported(db, c.id, c, framingFor(c))
 
-    const relu = getClip(db, c.id)
-    expect(relu?.status).toBe('exported')
-    expect(relu?.title).toBe('Retitré')
+    const reread = getClip(db, c.id)
+    expect(reread?.status).toBe('exported')
+    expect(reread?.title).toBe('Retitré')
   })
 
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
-    const { db, c } = préparer()
+    const { db, c } = prepare()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    marquerExporté(db, c.id, c, cadrageDe(c))
+    markExported(db, c.id, c, framingFor(c))
     expect(getClip(db, c.id)).toBeUndefined()
   })
 
@@ -1412,13 +1412,13 @@ describe('renderClip, chemin du saut', () => {
     // `discarded` n'est pas le seul cas : rappuyer sur « Gardé » ramène le clip
     // à `candidate` (`src/lib/clip-status.ts`). C'est l'écart de statut qui
     // compte, pas sa valeur. (relevé par Copilot)
-    for (const décidé of ['discarded', 'candidate'] as const) {
-      const { db, c } = préparer()
-      putClip(db, { ...c, status: décidé })
+    for (const decided of ['discarded', 'candidate'] as const) {
+      const { db, c } = prepare()
+      putClip(db, { ...c, status: decided })
 
-      marquerExporté(db, c.id, c, cadrageDe(c))
+      markExported(db, c.id, c, framingFor(c))
 
-      expect(getClip(db, c.id)?.status).toBe(décidé)
+      expect(getClip(db, c.id)?.status).toBe(decided)
       db.close()
     }
   })
@@ -1436,10 +1436,10 @@ describe('renderClip, chemin du saut', () => {
    * de ses appels.
    */
   it("refuse « exported » quand le montage a bougé pendant l'export", () => {
-    const { db, c } = préparer()
+    const { db, c } = prepare()
     putClip(db, { ...c, segments: [{ start: 100, end: 104 }] })
 
-    marquerExporté(db, c.id, c, cadrageDe(c))
+    markExported(db, c.id, c, framingFor(c))
 
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
@@ -1449,22 +1449,22 @@ describe('renderClip, chemin du saut', () => {
   // cadrage résolu tant qu'aucune analyse n'a tourné — c'est le repli de
   // `clipFraming`, et c'est le cas de tous ces tests.
   it('refuse pareillement sur chacun des champs qui vont à l’image', () => {
-    const cas: Partial<Clip>[] = [
+    const scenarios: Partial<Clip>[] = [
       { segments: [{ start: 0, end: 5 }] },
       { ratio: '9:16' },
       { cropX: 0.2 },
       { captions: false },
       { branding: false },
     ]
-    for (const surcharge of cas) {
+    for (const override of scenarios) {
       // **`captions: true` en base ici**, pour que le cas `{ captions: false }`
       // représente un vrai changement — le défaut de `préparer` est `false`
       // depuis #87, et partir de là rendrait ce cas-ci un no-op qui ne prouve
       // plus rien.
-      const { db, c } = préparer({ captions: true })
-      putClip(db, { ...c, ...surcharge })
+      const { db, c } = prepare({ captions: true })
+      putClip(db, { ...c, ...override })
 
-      marquerExporté(db, c.id, c, cadrageDe(c))
+      markExported(db, c.id, c, framingFor(c))
 
       expect(getClip(db, c.id)?.status).toBe('kept')
       db.close()
@@ -1473,10 +1473,10 @@ describe('renderClip, chemin du saut', () => {
 
   it("pose « exported » quand rien de ce qui va à l'image n'a bougé", () => {
     // Le cas nominal reste nominal : seul le texte a changé.
-    const { db, c } = préparer()
+    const { db, c } = prepare()
     putClip(db, { ...c, description: 'Corrigée.' })
 
-    marquerExporté(db, c.id, c, cadrageDe(c))
+    markExported(db, c.id, c, framingFor(c))
 
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
@@ -1485,34 +1485,34 @@ describe('renderClip, chemin du saut', () => {
     // Refuser le statut ne suffisait pas : les MP4 restaient là, donc l'export
     // suivant sautait et annonçait « exporté » sur le montage d'avant. On retire
     // ce qu'on sait faux. (relevé par Copilot)
-    const { db, c } = préparer({ status: 'exported' })
-    const chemins = cheminsRendu(ID, c.id, '1:1')
-    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
-    poserEmpreinte(c, '1:1')
+    const { db, c } = prepare({ status: 'exported' })
+    const paths = pathsRender(ID, c.id, '1:1')
+    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poserFingerprint(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
-    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c))).toBe(true)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(true)
 
-    expect(fs.existsSync(chemins.mp4)).toBe(false)
-    expect(fs.existsSync(chemins.variant9x16 as string)).toBe(false)
-    expect(fs.existsSync(chemins.texts)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(fs.existsSync(paths.variant9x16 as string)).toBe(false)
+    expect(fs.existsSync(paths.texts)).toBe(false)
     // **L'empreinte part avec eux**, et elle part la première : la laisser
     // certifierait des fichiers absents, et un effacement à moitié réussi
     // ferait sauter l'export suivant sur une livraison amputée.
-    expect(fs.existsSync(chemins.empreinte)).toBe(false)
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
     // Plus rien sur le disque ne justifie « exporté ».
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   it("ne touche à rien quand le montage n'a pas bougé", () => {
-    const { db, c } = préparer()
-    const chemins = cheminsRendu(ID, c.id, '1:1')
-    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
-    poserEmpreinte(c, '1:1')
+    const { db, c } = prepare()
+    const paths = pathsRender(ID, c.id, '1:1')
+    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poserFingerprint(c, '1:1')
 
-    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c))).toBe(false)
-    expect(fs.existsSync(chemins.mp4)).toBe(true)
-    expect(fs.existsSync(chemins.empreinte)).toBe(true)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
   })
 
   /**
@@ -1527,54 +1527,54 @@ describe('renderClip, chemin du saut', () => {
    * (relevé par Codex)
    */
   it('utilise le résolveur qu’on lui donne plutôt que de relire l’analyse', () => {
-    const { db, c } = préparer()
-    const chemins = cheminsRendu(ID, c.id, '1:1')
-    poser([chemins.mp4, chemins.variant9x16 as string, chemins.texts])
-    poserEmpreinte(c, '1:1')
+    const { db, c } = prepare()
+    const paths = pathsRender(ID, c.id, '1:1')
+    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poserFingerprint(c, '1:1')
 
-    let appels = 0
-    const résolveur = (clip: Clip): RenderedFraming => {
-      appels += 1
-      return cadrageDe(clip)
+    let calls = 0
+    const resolver = (clip: Clip): RenderedFraming => {
+      calls += 1
+      return framingFor(clip)
     }
-    expect(écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), résolveur)).toBe(false)
-    expect(appels).toBe(1)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), resolver)).toBe(false)
+    expect(calls).toBe(1)
 
     // Et un résolveur qui rend un autre cadrage périme, sans qu'aucun champ du
     // clip n'ait bougé : c'est bien lui qui décide, pas une relecture cachée.
     expect(
-      écarterRenduPérimé(db, c.id, chemins, c, cadrageDe(c), () => cadrage({ ratio: '4:5' })),
+      discardRenderStale(db, c.id, paths, c, framingFor(c), () => framing({ ratio: '4:5' })),
     ).toBe(true)
-    expect(fs.existsSync(chemins.mp4)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
   })
 
   it('refuse un clip inconnu', async () => {
-    const { db, brandDir } = préparer()
-    await expect(renderClip('clip_inexistant', { db, brandDir, fontsDir: polices })).rejects.toThrow(/Clip inconnu/)
+    const { db, brandDir } = prepare()
+    await expect(renderClip('clip_inexistant', { db, brandDir, fontsDir: fonts })).rejects.toThrow(/Clip inconnu/)
   })
 
   it("refuse un clip sans segment, plutôt que de rendre un fichier vide", async () => {
-    const { db, c, brandDir } = préparer({ segments: [] })
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/aucun segment/)
+    const { db, c, brandDir } = prepare({ segments: [] })
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/aucun segment/)
   })
 
   it("refuse un clip vidé après un premier export, au lieu de sauter dessus", async () => {
     // L'édition autorise de vider un clip, et ses anciens fichiers sont encore
     // là : sans validation avant la décision de saut, il ressortirait
     // `skipped: true` et marqué exporté. (relevé par Copilot)
-    const { db, c, brandDir } = préparer({ segments: [] })
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.variant9x16 as string, attendus.texts])
+    const { db, c, brandDir } = prepare({ segments: [] })
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
 
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/aucun segment/)
+    await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/aucun segment/)
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
   /** Le message d'un refus, ou la chaîne vide si l'appel a réussi. */
-  async function messageDeRefus(promesse: Promise<unknown>): Promise<string> {
-    return promesse.then(
+  async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
+    return promise.then(
       () => '',
-      (erreur: unknown) => (erreur instanceof Error ? erreur.message : String(erreur)),
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
     )
   }
 
@@ -1588,16 +1588,16 @@ describe('renderClip, chemin du saut', () => {
    * (issue #76)
    */
   it('reconstitue la copie de travail quand elle a disparu', async () => {
-    const { db, c, brandDir } = préparer()
-    const copie = path.join(stage, SOURCE)
-    expect(fs.existsSync(copie)).toBe(false)
+    const { db, c, brandDir } = prepare()
+    const copy = path.join(stage, SOURCE)
+    expect(fs.existsSync(copy)).toBe(false)
 
     // Le rendu échoue plus loin — ce dossier de marques est vide, exprès — mais
     // il ne doit plus échouer *ici*, et la copie doit être revenue.
-    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const message = await rejectionMessage(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).not.toMatch(/copie de travail/)
-    expect(fs.existsSync(copie)).toBe(true)
-    expect(fs.readFileSync(copie, 'utf8')).toBe('pas vraiment une vidéo')
+    expect(fs.existsSync(copy)).toBe(true)
+    expect(fs.readFileSync(copy, 'utf8')).toBe('pas vraiment une vidéo')
   })
 
   /**
@@ -1606,14 +1606,14 @@ describe('renderClip, chemin du saut', () => {
    * disparue, et le message doit le dire plutôt que de rendre un `ENOENT` nu.
    */
   it('dit quoi faire quand l’original a disparu du dossier des replays', async () => {
-    const { db, c, brandDir } = préparer()
+    const { db, c, brandDir } = prepare()
     fs.rmSync(path.join(replay, SOURCE), { force: true })
 
-    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const message = await rejectionMessage(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).toMatch(/copie de travail/)
     expect(message).toMatch(/original/)
     // Le chemin complet porte l'arborescence du Drive : seul le nom traverse.
-    expect(message).not.toContain(racine)
+    expect(message).not.toContain(root)
   })
 
   // **La variante réclame la source, même quand le natif est déjà là**, et c'est
@@ -1622,17 +1622,17 @@ describe('renderClip, chemin du saut', () => {
   // sautait la préparation et lançait ffmpeg sur le natif ; il exige maintenant
   // la copie de travail — et va la chercher si elle n'est pas là (issue #76).
   it('réclame la source quand seule la variante manque, et la reconstitue', async () => {
-    const { db, c, brandDir } = préparer()
-    const attendus = cheminsRendu(ID, c.id, '1:1')
-    poser([attendus.mp4, attendus.texts])
-    poserEmpreinte(c, '1:1')
-    const copie = path.join(stage, SOURCE)
-    expect(fs.existsSync(copie)).toBe(false)
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    poser([expected.mp4, expected.texts])
+    poserFingerprint(c, '1:1')
+    const copy = path.join(stage, SOURCE)
+    expect(fs.existsSync(copy)).toBe(false)
 
     // Le rendu ne saute pas : il lui manque la variante. Il va donc chercher la
     // source, et c'est ce qu'on vérifie — l'échec qui suit vient des marques.
-    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    const message = await rejectionMessage(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).not.toMatch(/copie de travail/)
-    expect(fs.existsSync(copie)).toBe(true)
+    expect(fs.existsSync(copy)).toBe(true)
   })
 })

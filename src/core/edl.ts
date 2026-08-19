@@ -167,18 +167,18 @@ export function moveBoundary(segments: Segment[], edge: 'start' | 'end', to: num
   // pas rogné : demander 35 sur `[{10,20},{30,40}]` rendait 30. La valeur
   // demandée disparaissait sans erreur — le pire des deux mondes.
   if (edge === 'start') {
-    const premier = segs[0]
-    if (to <= premier.start) {
-      premier.start = to
+    const first = segs[0]
+    if (to <= first.start) {
+      first.start = to
       return normalizeSegments(segs)
     }
-    return removeRange(segs, premier.start, to)
+    return removeRange(segs, first.start, to)
   }
 
-  const dernier = segs[segs.length - 1]
-  if (to >= dernier.end) {
-    dernier.end = to
+  const last = segs[segs.length - 1]
+  if (to >= last.end) {
+    last.end = to
     return normalizeSegments(segs)
   }
-  return removeRange(segs, to, dernier.end)
+  return removeRange(segs, to, last.end)
 }

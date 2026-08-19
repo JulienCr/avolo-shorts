@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { getClip, getDb } from '@/server/db'
-import { introuvable, route } from '@/server/http'
+import { notFound, route } from '@/server/http'
 import { vignette } from '@/server/thumbs'
 
 /**
@@ -17,22 +17,22 @@ import { vignette } from '@/server/thumbs'
  */
 export const GET = route(
   'GET /api/clips/:id/thumb',
-  async (_requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
+  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
     const clip = getClip(getDb(), id)
-    if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
+    if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
-    const fichier = await vignette(clip)
+    const file = await vignette(clip)
     // Pas de proxy, donc pas d'image à en tirer. Ce n'est pas une panne : c'est
     // l'état d'un projet dont l'encodage n'a pas fini, et l'interface a un repli
     // pour `thumbnailUrl: null` comme pour un 404.
-    if (fichier === null) throw introuvable(`Pas encore de proxy pour ${clip.projectId}.`)
+    if (file === null) throw notFound(`Pas encore de proxy pour ${clip.projectId}.`)
 
-    const données = await readFile(fichier)
-    return new Response(new Uint8Array(données), {
+    const data = await readFile(file)
+    return new Response(new Uint8Array(data), {
       headers: {
         'Content-Type': 'image/jpeg',
-        'Content-Length': String(données.byteLength),
+        'Content-Length': String(data.byteLength),
         // Courte, et non « immuable » : la vignette suit le premier segment du
         // clip, que l'écran de clip déplace. `PATCH` efface le fichier quand ce
         // segment bouge, mais il ne peut rien contre une copie déjà dans le

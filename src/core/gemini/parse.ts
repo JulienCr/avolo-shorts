@@ -29,18 +29,18 @@ export type ScoredWindow = {
    * jamais évaluée pouvait prendre la place, à la coupure, d'une fenêtre
    * évaluée. Ce drapeau les sépare. (relevé par Copilot)
    */
-  notée: boolean
+  noted: boolean
 }
 
 // `z.number()` refuse `NaN` et l'infini, et `JSON.parse` ne sait de toute façon
 // pas les produire : les deux passes plus bas n'ont donc pas à s'en garder.
-const SCHÉMA_NOTE = z.object({
+const SCHEMA_NOTE = z.object({
   id: z.string(),
   score: z.number(),
   reason: z.string().optional(),
 })
 
-const SCHÉMA_CLIP = z.object({
+const SCHEMA_CLIP = z.object({
   start: z.number(),
   end: z.number(),
   // Le prompt la demande depuis toujours ; elle était lue et jetée. C'est elle
@@ -66,9 +66,9 @@ const SCHÉMA_CLIP = z.object({
  * porte et ce que l'interface édite ; une estimation de viralité rendue par un
  * appel n'y a pas sa place, et elle ressortirait dans `candidates.json` comme si
  * elle décrivait le clip monté. Elle ne sert qu'une fois, à départager des
- * propositions — voir le plafond de `détailler`.
+ * propositions — voir le plafond de `detail`.
  *
- * `scored` sépare une note absente d'une note nulle, exactement comme `notée` le
+ * `scored` sépare une note absente d'une note nulle, exactement comme `noted` le
  * fait pour les fenêtres : `predicted_score` est facultatif dans la réponse, et
  * un clip que le modèle n'a pas noté ne doit pas passer devant un clip qu'il a
  * noté zéro.
@@ -82,10 +82,10 @@ export type DetailClip = {
 }
 
 /** La liste sous une clé, ou `null` si la réponse n'en porte pas. */
-function liste(brut: unknown, clé: string): unknown[] | null {
-  if (typeof brut !== 'object' || brut === null) return null
-  const valeur = (brut as Record<string, unknown>)[clé]
-  return Array.isArray(valeur) ? valeur : null
+function list(raw: unknown, key: string): unknown[] | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const value = (raw as Record<string, unknown>)[key]
+  return Array.isArray(value) ? value : null
 }
 
 /**
@@ -111,22 +111,22 @@ export function parseScoreResponse(
   raw: unknown,
   windows: Window[],
 ): { scored: ScoredWindow[]; missing: string[] } {
-  const soumises = new Set(windows.map((w) => w.id))
-  const vues = new Set<string>()
+  const submitted = new Set(windows.map((w) => w.id))
+  const views = new Set<string>()
   const scored: ScoredWindow[] = []
 
   // La passe de notation est **tolérante par construction**, et c'est ce qui la
   // distingue de la passe de détail : une réponse inexploitable laisse toutes
   // les fenêtres non notées, elles finissent dernières, et `shortlistFromScores`
   // se rabat sur les premières. Le résultat est dégradé, jamais destructeur.
-  for (const entrée of liste(raw, 'windows') ?? []) {
-    const lu = SCHÉMA_NOTE.safeParse(entrée)
+  for (const entry of list(raw, 'windows') ?? []) {
+    const lu = SCHEMA_NOTE.safeParse(entry)
     if (!lu.success) continue
     const { id, score, reason } = lu.data
     // Inconnue : une hallucination, pas une omission. Déjà vue : le premier avis
     // fait foi — le second n'apporte rien qu'un doublon dans le classement.
-    if (!soumises.has(id) || vues.has(id)) continue
-    vues.add(id)
+    if (!submitted.has(id) || views.has(id)) continue
+    views.add(id)
     // Ramenée dans le barème plutôt que jetée : une note à 130 dit que le modèle
     // a trouvé la fenêtre excellente, et la jeter perdrait précisément la
     // fenêtre qu'il classait première.
@@ -134,20 +134,20 @@ export function parseScoreResponse(
       id,
       score: Math.min(100, Math.max(0, Math.round(score))),
       reason: reason ?? '',
-      notée: true,
+      noted: true,
     })
   }
 
-  const missing = windows.map((w) => w.id).filter((id) => !vues.has(id))
+  const missing = windows.map((w) => w.id).filter((id) => !views.has(id))
   for (const id of missing) {
-    scored.push({ id, score: 0, reason: 'non notée', notée: false })
+    scored.push({ id, score: 0, reason: 'non notée', noted: false })
   }
   return { scored, missing }
 }
 
 /**
  * Les fenêtres qui atteignent la passe de détail : le haut du panier, à hauteur
- * de `cible`.
+ * de `target`.
  *
  * **La cible arrive en argument plutôt que d'être calculée ici.** Elle se déduit
  * de la durée de parole et des réglages (`shortlistSize`), deux choses que cette
@@ -175,35 +175,35 @@ export function parseScoreResponse(
 export function shortlistFromScores(
   scored: ScoredWindow[],
   windows: Window[],
-  cible: number,
+  target: number,
 ): Window[] {
-  const parId = new Map(windows.map((w) => [w.id, w]))
+  const byId = new Map(windows.map((w) => [w.id, w]))
   // La position dans le lot. Une note dont l'identifiant est inconnu prend le
   // rang de queue — elle est écartée deux lignes plus bas de toute façon, et un
   // `Infinity` ferait un `NaN` dans la soustraction, ce qui casse le tri.
-  const rang = new Map(windows.map((w, i) => [w.id, i]))
-  const positionDe = (id: string): number => rang.get(id) ?? windows.length
-  const retenues: Window[] = []
-  const vues = new Set<string>()
+  const rank = new Map(windows.map((w, i) => [w.id, i]))
+  const position = (id: string): number => rank.get(id) ?? windows.length
+  const kept: Window[] = []
+  const views = new Set<string>()
 
   // Une fenêtre notée passe **toujours** devant une fenêtre non notée, même
   // quand la note vaut 0 : « classée dernière » n'était vrai que tant qu'aucune
   // fenêtre n'était réellement notée 0. (relevé par Copilot)
-  const triées = [...scored].sort(
+  const sorted = [...scored].sort(
     (a, b) =>
-      Number(b.notée) - Number(a.notée) ||
+      Number(b.noted) - Number(a.noted) ||
       b.score - a.score ||
-      positionDe(a.id) - positionDe(b.id),
+      position(a.id) - position(b.id),
   )
-  for (const note of triées) {
-    if (retenues.length >= cible) break
-    const fenêtre = parId.get(note.id)
-    if (fenêtre === undefined || vues.has(note.id)) continue
-    vues.add(note.id)
-    retenues.push(fenêtre)
+  for (const note of sorted) {
+    if (kept.length >= target) break
+    const window = byId.get(note.id)
+    if (window === undefined || views.has(note.id)) continue
+    views.add(note.id)
+    kept.push(window)
   }
 
-  return retenues.length > 0 ? retenues : windows.slice(0, cible)
+  return kept.length > 0 ? kept : windows.slice(0, target)
 }
 
 /**
@@ -293,7 +293,7 @@ function clipId(projectId: string, start: number, end: number): string {
  */
 export function parseDetailResponse(
   raw: unknown,
-  contexte: {
+  context: {
     /** Les mots du transcript, vérité terrain du calage. */
     words: Word[]
     videoDuration: number
@@ -302,22 +302,22 @@ export function parseDetailResponse(
     blocks: Window[]
   },
 ): DetailClip[] {
-  const { words, videoDuration, projectId, blocks } = contexte
-  const proposées = liste(raw, 'shorts')
-  if (proposées === null) {
+  const { words, videoDuration, projectId, blocks } = context
+  const proposed = list(raw, 'shorts')
+  if (proposed === null) {
     throw new Error('Gemini response did not contain a "shorts" array.')
   }
   const clips: DetailClip[] = []
-  let lisibles = 0
+  let readable = 0
 
-  for (const entrée of proposées) {
-    const lu = SCHÉMA_CLIP.safeParse(entrée)
+  for (const entry of proposed) {
+    const lu = SCHEMA_CLIP.safeParse(entry)
     if (!lu.success) continue
-    lisibles += 1
+    readable += 1
     const { start, end, predicted_score: score } = lu.data
-    const [début, fin] = snapToWords(start, end, words, videoDuration)
-    if (début < 0 || fin > videoDuration || fin <= début) continue
-    if (!blocks.some((b) => début < b.end && fin > b.start)) continue
+    const [snappedStart, fin] = snapToWords(start, end, words, videoDuration)
+    if (snappedStart < 0 || fin > videoDuration || fin <= snappedStart) continue
+    if (!blocks.some((b) => snappedStart < b.end && fin > b.start)) continue
 
     clips.push({
       // Ramenée dans le barème plutôt que jetée, comme la note d'une fenêtre :
@@ -325,9 +325,9 @@ export function parseDetailResponse(
       predictedScore: score === undefined ? 0 : Math.min(100, Math.max(0, Math.round(score))),
       scored: score !== undefined,
       clip: {
-        id: clipId(projectId, début, fin),
+        id: clipId(projectId, snappedStart, fin),
         projectId,
-        segments: [{ start: début, end: fin }],
+        segments: [{ start: snappedStart, end: fin }],
         // `auto` laisse le cadrage décider : le ratio se choisit par clip, et le
         // modèle n'a rien vu de l'image pour en juger.
         ratio: 'auto',
@@ -351,7 +351,7 @@ export function parseDetailResponse(
     })
   }
 
-  if (proposées.length > 0 && lisibles === 0) {
+  if (proposed.length > 0 && readable === 0) {
     throw new Error('Gemini response did not contain a "shorts" array with any readable entry.')
   }
   return clips
@@ -371,26 +371,26 @@ export function parseDetailResponse(
  * l'essai suivant.
  */
 export function parseJsonResponse(text: string): unknown {
-  const nettoyé = retirerClôtures(text ?? '')
-  if (nettoyé === '') throw new Error('Gemini returned an empty response body.')
+  const cleaned = removeClosures(text ?? '')
+  if (cleaned === '') throw new Error('Gemini returned an empty response body.')
 
-  const début = nettoyé.indexOf('{')
-  const fin = nettoyé.lastIndexOf('}')
-  const objet = début !== -1 && fin > début ? nettoyé.slice(début, fin + 1) : ''
-  if (objet === '') throw new Error('Gemini response did not contain a JSON object.')
+  const start = cleaned.indexOf('{')
+  const fin = cleaned.lastIndexOf('}')
+  const object = start !== -1 && fin > start ? cleaned.slice(start, fin + 1) : ''
+  if (object === '') throw new Error('Gemini response did not contain a JSON object.')
 
   try {
-    return JSON.parse(objet)
-  } catch (erreur) {
-    throw new Error(`Failed to parse Gemini JSON response: ${String(erreur)}`)
+    return JSON.parse(object)
+  } catch (error) {
+    throw new Error(`Failed to parse Gemini JSON response: ${String(error)}`)
   }
 }
 
 /** Retire les ``` que le modèle ajoute parfois malgré le mime type demandé. */
-function retirerClôtures(text: string): string {
-  const nettoyé = text.trim()
-  if (!nettoyé.startsWith('```')) return nettoyé
-  const lignes = nettoyé.split('\n').slice(1)
-  if (lignes.at(-1)?.trim() === '```') lignes.pop()
-  return lignes.join('\n').trim()
+function removeClosures(text: string): string {
+  const cleaned = text.trim()
+  if (!cleaned.startsWith('```')) return cleaned
+  const lines = cleaned.split('\n').slice(1)
+  if (lines.at(-1)?.trim() === '```') lines.pop()
+  return lines.join('\n').trim()
 }

@@ -4,21 +4,21 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import {
   StopRequestedError,
-  cheminTemporaire,
-  créerJournal,
+  pathTemporary,
+  createLog,
   forwardAbort,
-  type Artefact,
+  type Artifact,
 } from '@/server/ffmpeg'
 import {
   applyWordCorrection,
   wordsToText,
-  type CorrectionRefusal,
+  type CorrectionRejection,
   type TranscriptLine,
   type WordCorrection,
 } from '@/lib/editing'
 import type { Project } from '@/server/db'
 import { placeSidecar, resolveSource } from '@/server/paths'
-import { montageRépond } from '@/server/steps/ingest'
+import { editingResponds } from '@/server/steps/ingest'
 import { lireTranscript } from '@/server/steps/candidates'
 
 /**
@@ -46,7 +46,7 @@ import { lireTranscript } from '@/server/steps/candidates'
  */
 
 /** Le venv, déduit du chemin de son interpréteur : `<venv>/bin/python`. */
-export function racineVenv(python: string): string {
+export function rootVenv(python: string): string {
   return path.dirname(path.dirname(python))
 }
 
@@ -63,13 +63,13 @@ export function racineVenv(python: string): string {
  * plusieurs versions cohabitent — `LD_LIBRARY_PATH` en accepte autant qu'on veut,
  * et deviner laquelle est la bonne coûterait plus que les toutes lister.
  */
-export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): string[] {
-  const versions = dossiersLib.filter((d) => /^python\d+\.\d+$/.test(d)).sort()
+export function pathsCudnn(venvRoot: string, foldersLib: readonly string[]): string[] {
+  const versions = foldersLib.filter((d) => /^python\d+\.\d+$/.test(d)).sort()
   // Aucun dossier lisible : on retombe sur ce qu'écrit `run-wsl.sh`. Un chemin
   // qui n'existe pas dans `LD_LIBRARY_PATH` est ignoré par l'éditeur de liens,
   // donc c'est une supposition sans risque — et si elle est bonne, elle sauve.
-  const noms = versions.length > 0 ? versions : ['python3.10']
-  return noms.map((v) => path.join(venvRoot, 'lib', v, 'site-packages', 'nvidia', 'cudnn', 'lib'))
+  const names = versions.length > 0 ? versions : ['python3.10']
+  return names.map((v) => path.join(venvRoot, 'lib', v, 'site-packages', 'nvidia', 'cudnn', 'lib'))
 }
 
 /**
@@ -82,7 +82,7 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  *   ne connaît rien aux paquets pip. Sans ce chemin, le modèle ne se charge pas.
  *
  * **Le reste de l'environnement est reconstruit depuis une liste blanche** —
- * voir `TRANSMISES` plus bas. Le worker de transcription n'a besoin d'aucun
+ * voir `FORWARDED` plus bas. Le worker de transcription n'a besoin d'aucun
  * secret.
  *
  * **Le chemin hérité est redécoupé avant d'être filtré**, et ce n'est pas de la
@@ -95,27 +95,27 @@ export function cheminsCudnn(venvRoot: string, dossiersLib: readonly string[]): 
  *
  * Pure : l'environnement de départ est un argument.
  */
-export function environnementWorker(o: {
+export function environmentWorker(o: {
   cudnn: readonly string[]
   base: Record<string, string | undefined>
 }): NodeJS.ProcessEnv {
-  const hérité = (o.base.LD_LIBRARY_PATH ?? '').split(':')
-  const chemins = [...o.cudnn, ...hérité].filter((c) => c !== '')
+  const inherited = (o.base.LD_LIBRARY_PATH ?? '').split(':')
+  const paths = [...o.cudnn, ...inherited].filter((c) => c !== '')
 
   // `as NodeJS.ProcessEnv` sur l'accumulateur, et c'est la seule assertion du
   // fichier : Next déclare `NODE_ENV` **obligatoire** sur ce type, or un
   // environnement reconstruit ne peut pas prouver structurellement qu'il le
   // porte. Il le porte — la liste blanche le nomme — mais cela se voit à
   // l'exécution, pas à la compilation.
-  const transmis = {} as NodeJS.ProcessEnv
-  for (const nom of TRANSMISES) {
-    const valeur = o.base[nom]
-    if (valeur === undefined) continue
-    transmis[nom] = MANDATAIRES.has(nom) ? épurerMandataire(valeur) : valeur
+  const forwarded = {} as NodeJS.ProcessEnv
+  for (const name of FORWARDED) {
+    const value = o.base[name]
+    if (value === undefined) continue
+    forwarded[name] = PROXIES.has(name) ? cleanProxy(value) : value
   }
-  transmis.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = '1'
-  transmis.LD_LIBRARY_PATH = chemins.join(':')
-  return transmis
+  forwarded.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = '1'
+  forwarded.LD_LIBRARY_PATH = paths.join(':')
+  return forwarded
 }
 
 /**
@@ -141,7 +141,7 @@ export function environnementWorker(o: {
  * `HF_TOKEN` n'y est pas, et c'est cohérent : sans diarisation, il n'est jamais
  * demandé.
  */
-const TRANSMISES: readonly string[] = [
+const FORWARDED: readonly string[] = [
   // Le strict nécessaire pour qu'un processus tourne.
   'PATH',
   'HOME',
@@ -164,7 +164,7 @@ const TRANSMISES: readonly string[] = [
   'CUDA_HOME',
   'NVIDIA_VISIBLE_DEVICES',
   // Le réseau, si le premier lancement doit aller chercher un modèle. Les URLs
-  // de mandataire passent par `épurerMandataire` — voir juste en dessous.
+  // de mandataire passent par `cleanProxy` — voir juste en dessous.
   'HTTP_PROXY',
   'HTTPS_PROXY',
   'NO_PROXY',
@@ -173,8 +173,8 @@ const TRANSMISES: readonly string[] = [
   'no_proxy',
 ]
 
-/** Celles de `TRANSMISES` dont la valeur est une URL, donc peut porter un secret. */
-const MANDATAIRES = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'])
+/** Celles de `FORWARDED` dont la valeur est une URL, donc peut porter un secret. */
+const PROXIES = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'])
 
 /**
  * Retire les identifiants d'une URL de mandataire.
@@ -189,9 +189,9 @@ const MANDATAIRES = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_p
  * `NO_PROXY` n'y passe pas : c'est une liste d'hôtes, pas une URL, et elle ne
  * porte pas d'autorité.
  */
-export function épurerMandataire(valeur: string): string {
+export function cleanProxy(value: string): string {
   try {
-    const url = new URL(valeur)
+    const url = new URL(value)
     if (url.username !== '' || url.password !== '') {
       url.username = ''
       url.password = ''
@@ -205,18 +205,18 @@ export function épurerMandataire(valeur: string): string {
     // schéma et le reste comme un chemin opaque, si bien que `username` et
     // `password` sont vides et que les identifiants passeraient intacts. Un
     // `host` vide signale exactement ce cas, et renvoie au découpage brut.
-    if (url.host !== '') return valeur
+    if (url.host !== '') return value
   } catch {
     // Pas une URL du tout — `NO_PROXY` et ses listes d'hôtes tombent ici.
   }
   // La forme sans schéma porte le même secret. Tout ce qui précède l'arobase
   // tombe ; en son absence il n'y a rien à retirer.
-  const arobase = valeur.lastIndexOf('@')
-  return arobase === -1 ? valeur : valeur.slice(arobase + 1)
+  const atSign = value.lastIndexOf('@')
+  return atSign === -1 ? value : value.slice(atSign + 1)
 }
 
 /** Le contenu de `<venv>/lib`, ou rien si le dossier n'existe pas. */
-function dossiersLib(venvRoot: string): string[] {
+function foldersLib(venvRoot: string): string[] {
   try {
     return fs.readdirSync(path.join(venvRoot, 'lib'))
   } catch {
@@ -270,7 +270,7 @@ export type OptionsTranscript = {
   model?: string
   language?: string
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
-  onLog?: (ligne: string) => void
+  onLog?: (line: string) => void
   /**
    * L'arrêt demandé (`POST /api/projects/:id/stop`).
    *
@@ -282,7 +282,7 @@ export type OptionsTranscript = {
   signal?: AbortSignal
 }
 
-export type Transcription = Artefact & {
+export type Transcription = Artifact & {
   /**
    * Vrai quand le sidecar a dû se rabattre dans le projet, le Drive n'étant pas
    * inscriptible. Pas une erreur : seulement moins de réutilisation (spec §5).
@@ -315,7 +315,7 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
   // pendant que l'accès au contenu se bloque. Sonder le dossier rendrait `true`
   // et la garde ne servirait à rien. C'est le chemin que sonde l'ingestion.
   // (relevé par Copilot)
-  if (!(await montageRépond(resolveSource(o.source)))) {
+  if (!(await editingResponds(resolveSource(o.source)))) {
     throw new Error(
       'Le dossier des replays ne répond pas : impossible de décider où va le sidecar. ' +
         'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
@@ -344,9 +344,9 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
     )
   }
 
-  const venv = racineVenv(python)
-  const env = environnementWorker({ cudnn: cheminsCudnn(venv, dossiersLib(venv)), base: process.env })
-  const temporaire = cheminTemporaire(placement.transcript)
+  const venv = rootVenv(python)
+  const env = environmentWorker({ cudnn: pathsCudnn(venv, foldersLib(venv)), base: process.env })
+  const temporary = pathTemporary(placement.transcript)
 
   const args = [
     // `-u` : sans lui, Python tamponne stderr et les quatre étapes du worker
@@ -354,7 +354,7 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
     '-u',
     script,
     '--audio', o.audio,
-    '--out', temporaire,
+    '--out', temporary,
     // `||` et non `??` : une variable posée mais vide — ce qu'un `.env` produit
     // facilement — donnerait `--model ''`, que WhisperX chercherait sur le Hub.
     '--model', o.model ?? (process.env.WHISPER_MODEL || 'large-v3'),
@@ -362,10 +362,10 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
   ]
 
   try {
-    await lancerWorker(python, args, env, o.onLog, o.signal)
-    await fsp.rename(temporaire, placement.transcript)
+    await launchWorker(python, args, env, o.onLog, o.signal)
+    await fsp.rename(temporary, placement.transcript)
   } catch (cause) {
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
   }
 
@@ -390,14 +390,14 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
  * branchera cette étape derrière l'API. Capturé, tout passe par `onLog`, qui
  * décide. (relevé par Aristarque)
  */
-function lancerWorker(
+function launchWorker(
   python: string,
   args: string[],
   env: NodeJS.ProcessEnv,
-  onLog?: (ligne: string) => void,
+  onLog?: (line: string) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const journal = créerJournal(40)
+  const log = createLog(40)
 
   return new Promise<void>((resolve, reject) => {
     // L'arrêt peut être arrivé pendant le sondage du montage, qui attend
@@ -412,29 +412,29 @@ function lancerWorker(
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
     // l'autre.
-    const relayer = (flux: NodeJS.ReadableStream, journaliser: boolean): void => {
-      flux.setEncoding('utf8')
-      let reste = ''
-      const émettre = (ligne: string): void => {
-        if (onLog !== undefined && ligne.trim() !== '') onLog(ligne)
+    const relayer = (stream: NodeJS.ReadableStream, shouldLog: boolean): void => {
+      stream.setEncoding('utf8')
+      let remaining = ''
+      const emit = (line: string): void => {
+        if (onLog !== undefined && line.trim() !== '') onLog(line)
       }
-      flux.on('data', (morceau: string) => {
-        if (journaliser) journal.ajouter(morceau)
+      stream.on('data', (piece: string) => {
+        if (shouldLog) log.add(piece)
         if (onLog === undefined) return
         // Découpage sur **CR comme LF** : les barres d'avancement de `tqdm` et
         // consorts se réécrivent derrière un `\r`, sans jamais de saut de ligne.
         // Avec un découpage sur `\n` seul, elles s'accumulaient dans `reste`
         // pendant tout le traitement sans qu'une ligne ne sorte. (relevé par
         // Copilot)
-        const lignes = (reste + morceau).split(/\r\n|[\r\n]/)
-        reste = lignes.pop() ?? ''
-        for (const ligne of lignes) émettre(ligne)
+        const lines = (remaining + piece).split(/\r\n|[\r\n]/)
+        remaining = lines.pop() ?? ''
+        for (const line of lines) emit(line)
       })
       // La dernière ligne d'un flux qui se ferme sans séparateur — souvent le
       // message qui explique l'échec.
-      flux.on('end', () => {
-        émettre(reste)
-        reste = ''
+      stream.on('end', () => {
+        emit(remaining)
+        remaining = ''
       })
     }
 
@@ -472,7 +472,7 @@ function lancerWorker(
             `La transcription a échoué (${cause}).`,
             `Commande : ${python} ${args.join(' ')}`,
             'Dernières lignes :',
-            journal.texte() || '(stderr vide)',
+            log.text() || '(stderr vide)',
           ].join('\n'),
         ),
       )
@@ -485,7 +485,7 @@ function lancerWorker(
 // ---------------------------------------------------------------------------
 
 /** Pourquoi une correction n'a pas été écrite. */
-export type TranscriptCorrectionRefusal = 'no-transcript' | 'unknown-line' | 'run-in-progress' | CorrectionRefusal
+export type TranscriptCorrectionRejection = 'no-transcript' | 'unknown-line' | 'run-in-progress' | CorrectionRejection
 
 export type TranscriptCorrectionOutcome =
   | {
@@ -501,12 +501,12 @@ export type TranscriptCorrectionOutcome =
        */
       correctedSpan: { start: number; end: number }
     }
-  | { ok: false; reason: TranscriptCorrectionRefusal }
+  | { ok: false; reason: TranscriptCorrectionRejection }
 
 /**
  * L'index de segment qu'un `lineId` porte, ou `null` s'il n'a pas cette forme.
  *
- * **`lignesDuTranscript` (`src/server/vues.ts`) écrit `l${i}`, `i` étant
+ * **`lignesDuTranscript` (`src/server/views.ts`) écrit `l${i}`, `i` étant
  * l'index dans `transcript.segments`** — y compris pour les segments qu'elle
  * filtre ensuite parce qu'ils n'ont aucun mot aligné. C'est ce qui rend
  * l'identifiant stable : il désigne une position dans le fichier, pas une
@@ -606,7 +606,7 @@ async function correctTranscriptQueued(
   // Même garde que `transcribe()`, et pour la même raison : `placeSidecar`
   // fait des appels *synchrones* sur le Drive, qui gèlent la boucle
   // d'événements entière — donc tout le serveur — si son transport est mort.
-  if (!(await montageRépond(resolveSource(project.sourcePath)))) {
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
     throw new Error(
       'Le dossier des replays ne répond pas : impossible de lire ni écrire le sidecar. ' +
         'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
@@ -662,7 +662,7 @@ async function correctTranscriptQueued(
   // referme pas.
   if (isRunning(project.id)) return { ok: false, reason: 'run-in-progress' }
 
-  const temporaryPath = cheminTemporaire(placement.transcript)
+  const temporaryPath = pathTemporary(placement.transcript)
   await fsp.writeFile(temporaryPath, `${JSON.stringify(nextTranscript, null, 2)}\n`, 'utf8')
   await fsp.rename(temporaryPath, placement.transcript)
 

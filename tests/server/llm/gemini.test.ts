@@ -37,7 +37,7 @@ describe('la conversion du schema générique vers celui de Gemini', () => {
   })
 
   it('reproduit les deux schémas réels du repérage sans perte', () => {
-    // Les schémas de `candidates.ts` (`SCHÉMA_NOTATION`) après la
+    // Les schémas de `candidates.ts` (`SCHEMA_NOTATION`) après la
     // généralisation : la même forme que celle qui tournait en dur avant
     // cette PR, vérifiée ici plutôt que déduite.
     const notation: JsonSchema = {

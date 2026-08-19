@@ -8,9 +8,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { clipDuration } from '@/core/edl'
 import { blockGeometry, fractionOf, placeInLanes, spanOf, timeAtClick } from '@/core/coverage'
 import type { CandidateClip } from '@/lib/api'
-import { LIBELLES_STATUT } from '@/lib/clip-status'
+import { LABELS_STATUS } from '@/lib/clip-status'
 import { formatDuration, formatTimecode } from '@/lib/format'
-import { lienClip } from '@/lib/parcours'
+import { linkClip } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /**
@@ -119,7 +119,7 @@ export function CoverageTimeline({
               <TooltipTrigger
                 render={
                   <Link
-                    href={lienClip(item.id)}
+                    href={linkClip(item.id)}
                     data-clip={item.id}
                     // Le même repli que le résumé : un titre vide est permis, et
                     // le nom accessible commencerait sinon par des timecodes.
@@ -230,7 +230,7 @@ function ClipSummary({ clip, start, end }: { clip: CandidateClip; start: number;
         </p>
         <div>
           <Badge variant="secondary" className="text-xs">
-            {LIBELLES_STATUT[clip.status]}
+            {LABELS_STATUS[clip.status]}
           </Badge>
         </div>
       </div>

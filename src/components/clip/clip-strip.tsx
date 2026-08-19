@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from 'react'
 
 import { clipDuration } from '@/core/edl'
 import type { CandidateClip } from '@/lib/api'
-import { LIBELLES_STATUT } from '@/lib/clip-status'
+import { LABELS_STATUS } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
-import { lienClip } from '@/lib/parcours'
+import { linkClip } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 /**
@@ -20,10 +20,10 @@ import { cn } from '@/lib/utils'
  * qu'aucune surface ne le montre. Un rang écrit en toutes lettres — « clip 4 sur
  * 12 » — le dit, une bande de vignettes le fait voir, et les deux boutons
  * restent parce qu'ils portent une règle que la bande n'exprime pas :
- * `clipSuivant` saute les écartés, donc « le clip suivant à monter » n'est pas
+ * `clipNext` saute les écartés, donc « le clip suivant à monter » n'est pas
  * toujours « celui d'à côté ».
  *
- * **Aucune requête de plus.** L'écran de clip interroge déjà `useCandidats` pour
+ * **Aucune requête de plus.** L'écran de clip interroge déjà `useCandidates` pour
  * son rang, et la liste porte `thumbnailUrl` : la bande se sert de ce qui est
  * déjà là.
  *
@@ -70,7 +70,7 @@ export function ClipStrip({
                 </span>
               ) : (
                 <Link
-                  href={lienClip(clip.id)}
+                  href={linkClip(clip.id)}
                   className="block rounded-lg ring-1 ring-border transition-colors outline-none hover:ring-foreground/30 focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {card}
@@ -158,7 +158,7 @@ function Thumbnail({
           clip.status === 'exported' ? 'text-stage' : 'text-muted-foreground',
         )}
       >
-        {LIBELLES_STATUT[clip.status]}
+        {LABELS_STATUS[clip.status]}
       </span>
     </span>
   )

@@ -86,11 +86,11 @@ describe('RatioPicker', () => {
     ['no-analysis', /n’a pas tourné/i],
     ['unreadable-analysis', /ne se lit pas/i],
     ['no-shots', /aucun plan/i],
-  ] as const)('dit qu’aucun calcul n’a eu lieu — %s', (origin, motif) => {
+  ] as const)('dit qu’aucun calcul n’a eu lieu — %s', (origin, pattern) => {
     render(
       <RatioPicker framing={manualFraming('9:16', 0.5, origin)} ratio="auto" onRatio={vi.fn()} />,
     )
-    expect(screen.getByText(motif)).toBeTruthy()
+    expect(screen.getByText(pattern)).toBeTruthy()
   })
 
   it('ne dit rien de tel quand le cadrage a été calculé', () => {

@@ -29,23 +29,23 @@ import {
 const SOURCE = '2026-03-08-caro-mdlm.mp4'
 const ID = '2026-03-08-caro-mdlm'
 
-let racine: string
+let root: string
 let replay: string
 let stage: string
-let projets: string
-const envDépart = { ...process.env }
+let projects: string
+const envStart = { ...process.env }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-paths-'))
-  replay = path.join(racine, 'Replay')
-  stage = path.join(racine, 'stage')
-  projets = path.join(racine, 'projects')
-  for (const d of [replay, stage, projets]) fs.mkdirSync(d, { recursive: true })
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-paths-'))
+  replay = path.join(root, 'Replay')
+  stage = path.join(root, 'stage')
+  projects = path.join(root, 'projects')
+  for (const d of [replay, stage, projects]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
 
   process.env.REPLAY_DIR = replay
   process.env.STAGE_DIR = stage
-  process.env.PROJECTS_DIR = projets
+  process.env.PROJECTS_DIR = projects
 })
 
 afterEach(() => {
@@ -56,8 +56,8 @@ afterEach(() => {
   } catch {
     // Le dossier peut déjà avoir disparu.
   }
-  fs.rmSync(racine, { recursive: true, force: true })
-  process.env = { ...envDépart }
+  fs.rmSync(root, { recursive: true, force: true })
+  process.env = { ...envStart }
 })
 
 describe('les chemins du projet', () => {
@@ -85,16 +85,16 @@ describe('les chemins du projet', () => {
     'a/../../evasion.mp4',
     '/etc/passwd',
     '2026/emission.mp4',
-  ])('refuse la source %j, qui n’est pas un fichier de REPLAY_DIR', (mauvaise) => {
-    expect(() => resolveSource(mauvaise)).toThrow()
+  ])('refuse la source %j, qui n’est pas un fichier de REPLAY_DIR', (bad) => {
+    expect(() => resolveSource(bad)).toThrow()
   })
 
   it('range proxy, audio, analyse, candidats et rendus dans le projet', () => {
-    expect(proxyPath(ID)).toBe(path.join(projets, ID, 'proxy.mp4'))
-    expect(audioPath(ID)).toBe(path.join(projets, ID, 'audio.wav'))
-    expect(analysisPath(ID)).toBe(path.join(projets, ID, 'analysis.json'))
-    expect(candidatesPath(ID)).toBe(path.join(projets, ID, 'candidates.json'))
-    expect(rendersDir(ID)).toBe(path.join(projets, ID, 'renders'))
+    expect(proxyPath(ID)).toBe(path.join(projects, ID, 'proxy.mp4'))
+    expect(audioPath(ID)).toBe(path.join(projects, ID, 'audio.wav'))
+    expect(analysisPath(ID)).toBe(path.join(projects, ID, 'analysis.json'))
+    expect(candidatesPath(ID)).toBe(path.join(projects, ID, 'candidates.json'))
+    expect(rendersDir(ID)).toBe(path.join(projects, ID, 'renders'))
   })
 
   /**
@@ -105,7 +105,7 @@ describe('les chemins du projet', () => {
    * aucune raison de bouger quand le modèle change.
    */
   it('ne pose pas l’analyse à côté de l’original', () => {
-    expect(analysisPath(ID).startsWith(projets)).toBe(true)
+    expect(analysisPath(ID).startsWith(projects)).toBe(true)
     expect(analysisPath(ID)).not.toContain('.avolo')
   })
 
@@ -117,8 +117,8 @@ describe('les chemins du projet', () => {
   // construire un chemin. Sans garde-fou, il sort de PROJECTS_DIR.
   it.each(['../etc', 'a/b', '..', '', '.'])(
     'refuse l’identifiant %j, qui sortirait du dossier des projets',
-    (mauvais) => {
-      expect(() => projectDir(mauvais)).toThrow()
+    (bad) => {
+      expect(() => projectDir(bad)).toThrow()
     },
   )
 })
@@ -151,7 +151,7 @@ describe('le sidecar', () => {
     fs.chmodSync(replay, 0o500)
     const { dir, transcript, fallback } = placeSidecar(SOURCE, ID)
     expect(fallback).toBe(true)
-    expect(dir).toBe(path.join(projets, ID, `${ID}.avolo`))
+    expect(dir).toBe(path.join(projects, ID, `${ID}.avolo`))
     expect(transcript).toBe(path.join(dir, 'transcript.json'))
     expect(fs.statSync(dir).isDirectory()).toBe(true)
   })
@@ -162,19 +162,19 @@ describe('le sidecar', () => {
     fs.writeFileSync(path.join(replay, `${ID}.avolo`), 'pas un dossier')
     const { dir, fallback } = placeSidecar(SOURCE, ID)
     expect(fallback).toBe(true)
-    expect(dir).toBe(path.join(projets, ID, `${ID}.avolo`))
+    expect(dir).toBe(path.join(projects, ID, `${ID}.avolo`))
   })
 
   // Lire n'exige pas d'écrire. Se rabattre ici retranscrirait deux heures
   // cinquante d'audio pour un transcript déjà posé à côté de la vidéo.
   it.skipIf(process.getuid?.() === 0)('garde un transcript déjà calculé même en lecture seule', () => {
-    const voulu = path.join(replay, `${ID}.avolo`)
-    fs.mkdirSync(voulu)
-    fs.writeFileSync(path.join(voulu, 'transcript.json'), '{"segments":[]}')
+    const desired = path.join(replay, `${ID}.avolo`)
+    fs.mkdirSync(desired)
+    fs.writeFileSync(path.join(desired, 'transcript.json'), '{"segments":[]}')
     fs.chmodSync(replay, 0o500)
 
     const { dir, fallback } = placeSidecar(SOURCE, ID)
-    expect(dir).toBe(voulu)
+    expect(dir).toBe(desired)
     expect(fallback).toBe(false)
   })
 
@@ -186,28 +186,28 @@ describe('le sidecar', () => {
     () => {
       // Un sidecar non vide mais sans transcript : la sonde d'écriture s'exécute
       // vraiment, et échoue. Le ménage qui suit ne doit emporter que du vide.
-      const voulu = path.join(replay, `${ID}.avolo`)
-      fs.mkdirSync(voulu)
-      fs.writeFileSync(path.join(voulu, 'meta.json'), '{"version":1}')
-      fs.chmodSync(voulu, 0o500)
+      const desired = path.join(replay, `${ID}.avolo`)
+      fs.mkdirSync(desired)
+      fs.writeFileSync(path.join(desired, 'meta.json'), '{"version":1}')
+      fs.chmodSync(desired, 0o500)
 
       try {
         const { fallback } = placeSidecar(SOURCE, ID)
         expect(fallback).toBe(true)
-        expect(fs.existsSync(path.join(voulu, 'meta.json'))).toBe(true)
+        expect(fs.existsSync(path.join(desired, 'meta.json'))).toBe(true)
       } finally {
-        fs.chmodSync(voulu, 0o755)
+        fs.chmodSync(desired, 0o755)
       }
     },
   )
 
   it('retrouve un transcript déjà posé dans le projet par une passe précédente', () => {
-    const repli = path.join(projets, ID, `${ID}.avolo`)
-    fs.mkdirSync(repli, { recursive: true })
-    fs.writeFileSync(path.join(repli, 'transcript.json'), '{"segments":[]}')
+    const existingFolder = path.join(projects, ID, `${ID}.avolo`)
+    fs.mkdirSync(existingFolder, { recursive: true })
+    fs.writeFileSync(path.join(existingFolder, 'transcript.json'), '{"segments":[]}')
 
     const { dir, fallback } = placeSidecar(SOURCE, ID)
-    expect(dir).toBe(repli)
+    expect(dir).toBe(existingFolder)
     expect(fallback).toBe(true)
   })
 })

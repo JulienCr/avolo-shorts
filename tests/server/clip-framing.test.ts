@@ -20,25 +20,25 @@ import { analysisPath } from '@/server/paths'
  */
 
 const ID = 'projet-de-test'
-let racine: string
-let projets: string
-const envDépart = { ...process.env }
+let root: string
+let projects: string
+const envStart = { ...process.env }
 
 beforeEach(() => {
-  racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-cadrage-'))
-  projets = path.join(racine, 'projects')
-  fs.mkdirSync(path.join(projets, ID), { recursive: true })
-  process.env.PROJECTS_DIR = projets
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-cadrage-'))
+  projects = path.join(root, 'projects')
+  fs.mkdirSync(path.join(projects, ID), { recursive: true })
+  process.env.PROJECTS_DIR = projects
   forgetAnalyses()
 })
 
 afterEach(() => {
-  fs.rmSync(racine, { recursive: true, force: true })
-  process.env = { ...envDépart }
+  fs.rmSync(root, { recursive: true, force: true })
+  process.env = { ...envStart }
   forgetAnalyses()
 })
 
-function clip(surcharges: Partial<Clip> = {}): Clip {
+function clip(overrides: Partial<Clip> = {}): Clip {
   return {
     id: 'clip_0001',
     projectId: ID,
@@ -51,19 +51,19 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
     description: '',
     status: 'kept',
     pass: 1,
-    ...surcharges,
+    ...overrides,
   }
 }
 
 /** Une analyse valide : deux plans, des comédiens serrés à gauche puis au centre. */
-function écrireAnalyse(contenu?: unknown): void {
-  const boîtes: unknown[] = []
+function writeAnalysis(content?: unknown): void {
+  const boxes: unknown[] = []
   for (let t = 0; t < 20; t += 0.5) {
-    const gauche = t < 10
-    boîtes.push({
+    const left = t < 10
+    boxes.push({
       t,
-      x0: gauche ? 0.1 : 0.4,
-      x1: gauche ? 0.25 : 0.55,
+      x0: left ? 0.1 : 0.4,
+      x1: left ? 0.25 : 0.55,
       y0: 0.2,
       y1: 0.95,
       score: 0.9,
@@ -72,7 +72,7 @@ function écrireAnalyse(contenu?: unknown): void {
   fs.writeFileSync(
     analysisPath(ID),
     JSON.stringify(
-      contenu ?? {
+      content ?? {
         version: 1,
         fps: 2,
         source: { w: 1920, h: 1080 },
@@ -81,7 +81,7 @@ function écrireAnalyse(contenu?: unknown): void {
           { start: 0, end: 10 },
           { start: 10, end: 20 },
         ],
-        boxes: boîtes,
+        boxes: boxes,
       },
     ),
   )
@@ -89,7 +89,7 @@ function écrireAnalyse(contenu?: unknown): void {
 
 describe('clipFraming', () => {
   it('calcule un cadre par plan quand l’analyse est là', () => {
-    écrireAnalyse()
+    writeAnalysis()
     const framing = clipFraming(clip())
     expect(framing.origin).toBe('computed')
     expect(framing.shots).toHaveLength(2)
@@ -103,7 +103,7 @@ describe('clipFraming', () => {
   })
 
   it('ne retient que les plans que les segments traversent', () => {
-    écrireAnalyse()
+    writeAnalysis()
     const framing = clipFraming(clip({ segments: [{ start: 1, end: 5 }] }))
     expect(framing.shots.map((p) => p.key)).toEqual([0])
   })
@@ -158,14 +158,14 @@ describe('clipFraming', () => {
     ['un JSON tronqué', '{"version": 1, "sho'],
     ['un JSON qui ne suit pas le contrat', '{"version": 1}'],
     ['une version inconnue', '{"version": 2, "fps": 2}'],
-  ])('dit « analyse-illisible » sur %s', (_nom, contenu) => {
-    const espion = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    fs.writeFileSync(analysisPath(ID), contenu)
+  ])('dit « analyse-illisible » sur %s', (_name, content) => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    fs.writeFileSync(analysisPath(ID), content)
     const framing = clipFraming(clip({ ratio: '4:5', cropX: 0.2 }))
     expect(framing.origin).toBe('unreadable-analysis')
     expect(framing.ratio).toBe('4:5')
     expect(framing.shots[0].cropX).toBe(0.2)
-    espion.mockRestore()
+    spy.mockRestore()
   })
 
   /**
@@ -173,25 +173,25 @@ describe('clipFraming', () => {
    * « illisible ».**
    *
    * `statSync` réussit sur un fichier qu'on ne peut pas ouvrir — le dépôt
-   * documente le cas d'un `chmod 000` dans `src/server/octets.ts` —, et
-   * `lireAnalyse` lit avant d'analyser. Avaler son `EACCES` ferait cadrer tout un
+   * documente le cas d'un `chmod 000` dans `src/server/bytes.ts` —, et
+   * `lireAnalysis` lit avant d'analyser. Avaler son `EACCES` ferait cadrer tout un
    * projet à la main sur une panne de montage, avec un journal qui dit
    * « illisible » d'un fichier parfaitement valide : le sens de la panne irait
    * vers le silence. (relevé par Copilot)
    */
   it('relaie un refus de droits au lieu de le prendre pour un contrat non respecté', () => {
-    écrireAnalyse()
+    writeAnalysis()
     fs.chmodSync(analysisPath(ID), 0o000)
     try {
       // Le contrôle qui rend le test honnête : sous root, `chmod 000` n'empêche
       // rien, et l'assertion passerait pour la mauvaise raison.
-      let lisible = true
+      let readable = true
       try {
         fs.readFileSync(analysisPath(ID))
       } catch {
-        lisible = false
+        readable = false
       }
-      if (lisible) return
+      if (readable) return
 
       expect(() => clipFraming(clip())).toThrow()
     } finally {
@@ -200,10 +200,10 @@ describe('clipFraming', () => {
   })
 
   it('garde le repli pour un JSON qui ne suit pas son contrat', () => {
-    const espion = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     fs.writeFileSync(analysisPath(ID), '{"version": 1}')
     expect(clipFraming(clip()).origin).toBe('unreadable-analysis')
-    espion.mockRestore()
+    spy.mockRestore()
   })
 
   /**
@@ -212,7 +212,7 @@ describe('clipFraming', () => {
    * un repli silencieux ne se verrait qu'à l'image.
    */
   it('dit « sans-plans » quand aucun plan ne recouvre le montage', () => {
-    écrireAnalyse()
+    writeAnalysis()
     const framing = clipFraming(clip({ segments: [{ start: 100, end: 110 }] }))
     expect(framing.origin).toBe('no-shots')
     expect(framing.shots).toHaveLength(1)
@@ -222,7 +222,7 @@ describe('clipFraming', () => {
   // Le mode est `'auto'` tant que le clip ne porte pas de table de dérogations :
   // `computeFraming` l'ignore alors entièrement, y compris pour le rapport.
   it('ne rejette aucune dérogation, faute d’en poser', () => {
-    écrireAnalyse()
+    writeAnalysis()
     expect(clipFraming(clip()).rejectedOverrides).toEqual([])
   })
 
@@ -233,10 +233,10 @@ describe('clipFraming', () => {
    * faux, que rien ne signalerait.
    */
   it('relit l’analyse quand le fichier a été réécrit', () => {
-    écrireAnalyse()
+    writeAnalysis()
     expect(clipFraming(clip()).shots).toHaveLength(2)
 
-    écrireAnalyse({
+    writeAnalysis({
       version: 1,
       fps: 2,
       source: { w: 1920, h: 1080 },
@@ -246,14 +246,14 @@ describe('clipFraming', () => {
     })
     // La date à la seconde près ne suffirait pas : on la déplace franchement,
     // comme une relance d'analyse le ferait.
-    const futur = new Date(Date.now() + 5000)
-    fs.utimesSync(analysisPath(ID), futur, futur)
+    const future = new Date(Date.now() + 5000)
+    fs.utimesSync(analysisPath(ID), future, future)
 
-    const après = clipFraming(clip())
-    expect(après.shots).toHaveLength(1)
+    const after = clipFraming(clip())
+    expect(after.shots).toHaveLength(1)
     // Plus aucune boîte : le plan est centré par défaut, et ça se voit.
-    expect(après.shots[0].source).toBe('default')
-    expect(après.ratio).toBe('16:9')
+    expect(after.shots[0].source).toBe('default')
+    expect(after.ratio).toBe('16:9')
   })
 })
 
@@ -270,12 +270,12 @@ describe('clipFraming', () => {
  */
 describe('framingWith', () => {
   it('calcule sans toucher au disque', () => {
-    écrireAnalyse()
+    writeAnalysis()
     const source = projectAnalysis(ID)
 
     // `PROJECTS_DIR` mis hors d'atteinte : si le calcul lisait quoi que ce soit,
     // il lèverait ou se rabattrait sur `sans-analyse`. Il fait ni l'un ni l'autre.
-    process.env.PROJECTS_DIR = path.join(racine, 'nulle-part')
+    process.env.PROJECTS_DIR = path.join(root, 'nulle-part')
     forgetAnalyses()
 
     const framing = framingWith(clip(), source)
@@ -288,7 +288,7 @@ describe('framingWith', () => {
   })
 
   it('rend le même cadrage que le chemin complet', () => {
-    écrireAnalyse()
+    writeAnalysis()
     expect(framingWith(clip(), projectAnalysis(ID))).toEqual(clipFraming(clip()))
   })
 })

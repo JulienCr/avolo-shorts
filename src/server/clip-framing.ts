@@ -4,9 +4,9 @@ import type { Clip } from '@/core/edl'
 import { computeFraming, resolveRatio } from '@/core/framing'
 import type { ClipFraming } from '@/core/framing'
 import type { PersonBox, Shot } from '@/core/shots'
-import { estUneAbsence } from '@/server/octets'
+import { isAAbsence } from '@/server/bytes'
 import { analysisPath } from '@/server/paths'
-import { lireAnalyse, type Analyse } from '@/server/steps/analysis'
+import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
 import type { PublishedFraming, FramingOrigin } from '@/lib/api'
 
 /**
@@ -119,7 +119,7 @@ function fallback(clip: Clip, origin: Exclude<FramingOrigin, 'computed'>): Resol
  * l'opérateur ingère à la main. Un cache borné coûterait une politique
  * d'éviction à régler pour une table qui ne dépassera pas la dizaine.
  */
-type CacheEntry = { key: string; analyse: Analyse | null; origin: FramingOrigin }
+type CacheEntry = { key: string; analysis: Analysis | null; origin: FramingOrigin }
 const cache = new Map<string, CacheEntry>()
 
 /** Vidé par les tests, qui réécrivent des `analysis.json` en boucle sous le même nom. */
@@ -139,13 +139,13 @@ export function forgetAnalyses(): void {
  * route lit donc l'analyse **avant** d'écrire, et n'appelle après que le calcul,
  * qui ne touche à rien. (relevé par Copilot)
  */
-export type FramingSource = { analyse: Analyse | null; origin: FramingOrigin }
+export type FramingSource = { analysis: Analysis | null; origin: FramingOrigin }
 
 /**
  * Lit l'analyse d'un projet. **C'est la seule fonction faillible du module** :
  * elle touche au disque, et relaie une panne au lieu de la maquiller en absence.
  *
- * Nommée `projectAnalysis` et non `lireAnalyse`, qui existe déjà dans
+ * Nommée `projectAnalysis` et non `lireAnalysis`, qui existe déjà dans
  * `steps/analysis.ts` et fait le travail d'un cran plus bas — celle-ci ajoute le
  * cache, la distinction absence/panne, et l'origine.
  */
@@ -154,29 +154,29 @@ export function projectAnalysis(projectId: string): FramingSource {
   let info: fs.Stats
   try {
     info = fs.statSync(file)
-  } catch (erreur) {
+  } catch (error) {
     // **Seule une absence vaut « pas d'analyse ».** Un refus de droits ou un
     // montage mort n'est pas « l'analyse n'a pas tourné » : les confondre ferait
     // annoncer un projet sans plans à un serveur en panne, et enverrait chercher
     // le défaut à l'exact opposé de là où il est. C'est la même distinction que
-    // `sortiesDuClip` fait sur les mêmes codes.
-    if (estUneAbsence(erreur)) return { analyse: null, origin: 'no-analysis' }
-    throw erreur
+    // `clipOutputs` fait sur les mêmes codes.
+    if (isAAbsence(error)) return { analysis: null, origin: 'no-analysis' }
+    throw error
   }
 
   const key = `${info.size}:${info.mtimeMs}`
   const cached = cache.get(file)
-  if (cached?.key === key) return { analyse: cached.analyse, origin: cached.origin }
+  if (cached?.key === key) return { analysis: cached.analysis, origin: cached.origin }
 
   let entry: CacheEntry
   try {
-    entry = { key, analyse: lireAnalyse(file), origin: 'computed' }
+    entry = { key, analysis: lireAnalysis(file), origin: 'computed' }
   } catch (cause) {
     // **Une panne du système de fichiers traverse, elle ne devient pas un
     // « illisible ».**
     //
     // `statSync` a réussi juste au-dessus, et ça ne veut pas dire que le fichier
-    // s'ouvre : `src/server/octets.ts` documente le cas d'un `chmod 000`, où
+    // s'ouvre : `src/server/bytes.ts` documente le cas d'un `chmod 000`, où
     // `stat` répond et `open` refuse. `lireAnalyse` lit puis analyse, donc son
     // `readFileSync` peut lever `EACCES` ou `EIO` — et les avaler ici ferait
     // cadrer tout un projet à la main sur une panne de montage, avec un journal
@@ -195,10 +195,10 @@ export function projectAnalysis(projectId: string): FramingSource {
       `Analyse illisible pour le projet ${projectId} : ${cause instanceof Error ? cause.message : String(cause)} ` +
         `Le cadrage automatique se rabat sur le réglage manuel du clip.`,
     )
-    entry = { key, analyse: null, origin: 'unreadable-analysis' }
+    entry = { key, analysis: null, origin: 'unreadable-analysis' }
   }
   cache.set(file, entry)
-  return { analyse: entry.analyse, origin: entry.origin }
+  return { analysis: entry.analysis, origin: entry.origin }
 }
 
 /**
@@ -220,17 +220,17 @@ export function clipFraming(clip: Clip): ResolvedFraming {
  * voir `FramingSource` pour ce que la séparation protège.
  */
 export function framingWith(clip: Clip, source: FramingSource): ResolvedFraming {
-  const { analyse, origin } = source
-  if (analyse === null) return fallback(clip, origin === 'computed' ? 'no-analysis' : origin)
+  const { analysis, origin } = source
+  if (analysis === null) return fallback(clip, origin === 'computed' ? 'no-analysis' : origin)
 
-  const shots: Shot[] = analyse.shots
-  const people: PersonBox[] = analyse.boxes
+  const shots: Shot[] = analysis.shots
+  const people: PersonBox[] = analysis.boxes
   const framing: ClipFraming = computeFraming({
     segments: clip.segments,
     shots,
     people,
-    srcW: analyse.source.w,
-    srcH: analyse.source.h,
+    srcW: analysis.source.w,
+    srcH: analysis.source.h,
     ratio: clip.ratio,
     cropMode: CROP_MODE,
   })

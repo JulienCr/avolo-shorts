@@ -68,7 +68,7 @@ export type PublishClipTarget = {
   /** Ce qu'une publication précédente a laissé, par plateforme. Vide tant que rien n'écrit ici. */
   records?: Partial<Record<Platform, PublicationRecord>>
   /**
-   * L'empreinte de rendu courante (`empreinteDuRendu`), pour la nuance du
+   * L'empreinte de rendu courante (`renderFingerprint`), pour la nuance du
    * retour d'usage §9 : « Instagram — publié » contre « Instagram — publié,
    * mais le clip local a été modifié depuis ». Absente tant qu'aucun appelant
    * ne la calcule pour ce contexte — la vue Émission, par exemple, n'a que le
@@ -100,12 +100,12 @@ export function PublishDialog({
   const resolvedAvailability = availability ?? defaultPlatformAvailability()
   const [step, setStep] = useState<Step>('platforms')
   const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
-  const [force, setForce] = useState(false)
+  const [force, setForced] = useState(false)
 
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
   // un clip après l'autre : rouvrir sur la sélection du clip précédent
   // publierait sur une plateforme qu'on n'a jamais choisie pour celui-ci. Un
-  // ajustement d'état pendant le rendu — le motif que `useVueFigée` (fil.tsx)
+  // ajustement d'état pendant le rendu — le motif que `useViewFrozen` (fil.tsx)
   // emploie déjà pour la même raison — évite l'image intermédiaire qu'un
   // `useEffect` produirait entre l'ouverture et la remise à zéro.
   const [wasOpen, setWasOpen] = useState(open)
@@ -114,7 +114,7 @@ export function PublishDialog({
     if (open) {
       setStep('platforms')
       setSelected(new Set())
-      setForce(false)
+      setForced(false)
     }
   }
 
@@ -238,7 +238,7 @@ export function PublishDialog({
             selected={selected}
             onToggle={togglePlatform}
             force={force}
-            onForce={setForce}
+            onForced={setForced}
             alreadyPublished={alreadyPublished}
           />
         ) : (
@@ -281,7 +281,7 @@ function PlatformsStep({
   selected,
   onToggle,
   force,
-  onForce,
+  onForced,
   alreadyPublished,
 }: {
   eligible: readonly PublishClipTarget[]
@@ -289,10 +289,10 @@ function PlatformsStep({
   selected: ReadonlySet<Platform>
   onToggle: (platform: Platform) => void
   force: boolean
-  onForce: (force: boolean) => void
+  onForced: (force: boolean) => void
   alreadyPublished: boolean
 }) {
-  const forceId = useId()
+  const forcedId = useId()
   return (
     <div className="flex flex-col gap-3">
       {PLATFORMS.map((platform) => (
@@ -313,11 +313,11 @@ function PlatformsStep({
       {alreadyPublished && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
           <Checkbox
-            id={forceId}
+            id={forcedId}
             checked={force}
-            onCheckedChange={(checked) => onForce(checked === true)}
+            onCheckedChange={(checked) => onForced(checked === true)}
           />
-          <Label htmlFor={forceId} className="flex flex-col gap-0.5 text-sm font-normal">
+          <Label htmlFor={forcedId} className="flex flex-col gap-0.5 text-sm font-normal">
             Republier explicitement
             <span className="text-xs text-muted-foreground">
               Au moins un clip sélectionné est déjà publié sur une plateforme cochée. Sans cette

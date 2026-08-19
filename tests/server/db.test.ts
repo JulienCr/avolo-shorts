@@ -12,16 +12,16 @@ import {
   getClip,
   getClips,
   getProject,
-  getRéglages,
+  getSettings,
   listProjects,
   openDb,
   putClip,
-  putClipOrdonné,
+  putClipOrdered,
   SETTING_FIELDS,
   replaceClips,
   InvalidSettingError,
   effectiveSettings,
-  setRéglage,
+  setSetting,
   upsertProject,
   type Project,
 } from '@/server/db'
@@ -34,7 +34,7 @@ import type { Clip } from '@/core/edl'
  * WAV, transcript, rendus — restent des fichiers sur disque (spec §5).
  */
 
-const PROJET: Project = {
+const PROJECT: Project = {
   id: '2026-03-08-caro-mdlm',
   sourcePath: '/replay/2026-03-08-caro-mdlm.mp4',
   stagedPath: '/stage/2026-03-08-caro-mdlm.mp4',
@@ -44,9 +44,9 @@ const PROJET: Project = {
   createdAt: 1_772_100_000_000,
 }
 
-const clip = (id: string, reste: Partial<Clip> = {}): Clip => ({
+const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   id,
-  projectId: PROJET.id,
+  projectId: PROJECT.id,
   segments: [
     { start: 2841.2, end: 2856.9 },
     { start: 2874.1, end: 2931.4 },
@@ -59,14 +59,14 @@ const clip = (id: string, reste: Partial<Clip> = {}): Clip => ({
   description: '',
   status: 'candidate',
   pass: 1,
-  ...reste,
+  ...remaining,
 })
 
 let db: BaseSqlite
 
 beforeEach(() => {
   db = openDb(':memory:')
-  upsertProject(db, PROJET)
+  upsertProject(db, PROJECT)
 })
 
 afterEach(() => {
@@ -75,16 +75,16 @@ afterEach(() => {
 
 describe('le schéma', () => {
   it('s’applique à l’ouverture, sur une base vierge', () => {
-    const vierge = openDb(':memory:')
+    const blank = openDb(':memory:')
     try {
-      const tables = vierge
+      const tables = blank
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         .all() as { name: string }[]
       expect(tables.map((t) => t.name)).toEqual(
         expect.arrayContaining(['clips', 'projects', 'settings']),
       )
     } finally {
-      vierge.close()
+      blank.close()
     }
   })
 
@@ -92,108 +92,108 @@ describe('le schéma', () => {
   // Pas de hash : digérer 12 Go à chaque lancement coûterait plus cher que
   // l'étape qu'on cherche à éviter (spec §5).
   it('empreinte la source par taille, mtime et durée, sans hash', () => {
-    const colonnes = (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map(
+    const columns = (db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map(
       (c) => c.name,
     )
-    expect(colonnes).toEqual(expect.arrayContaining(['sizeBytes', 'mtimeMs', 'durationSec']))
-    expect(colonnes.some((c) => /hash|sha|md5|digest/i.test(c))).toBe(false)
+    expect(columns).toEqual(expect.arrayContaining(['sizeBytes', 'mtimeMs', 'durationSec']))
+    expect(columns.some((c) => /hash|sha|md5|digest/i.test(c))).toBe(false)
   })
 
   it('relit un projet tel qu’il a été écrit', () => {
-    expect(getProject(db, PROJET.id)).toEqual(PROJET)
-    expect(listProjects(db)).toEqual([PROJET])
+    expect(getProject(db, PROJECT.id)).toEqual(PROJECT)
+    expect(listProjects(db)).toEqual([PROJECT])
   })
 
   it('réécrit un projet existant sans le dupliquer', () => {
-    upsertProject(db, { ...PROJET, durationSec: 9999 })
+    upsertProject(db, { ...PROJECT, durationSec: 9999 })
     expect(listProjects(db)).toHaveLength(1)
-    expect(getProject(db, PROJET.id)?.durationSec).toBe(9999)
+    expect(getProject(db, PROJECT.id)?.durationSec).toBe(9999)
   })
 
   // La date de création est celle de la création, pas celle de la dernière
   // écriture. Réécrire avec la même valeur ne distinguait pas « préservé » de
   // « écrasé à l'identique ». (relevé par Aristarque)
   it('garde la date de création d’origine à la réécriture', () => {
-    upsertProject(db, { ...PROJET, createdAt: 9_999_999_999_999, durationSec: 1 })
-    expect(getProject(db, PROJET.id)?.createdAt).toBe(PROJET.createdAt)
-    expect(getProject(db, PROJET.id)?.durationSec).toBe(1)
+    upsertProject(db, { ...PROJECT, createdAt: 9_999_999_999_999, durationSec: 1 })
+    expect(getProject(db, PROJECT.id)?.createdAt).toBe(PROJECT.createdAt)
+    expect(getProject(db, PROJECT.id)?.durationSec).toBe(1)
   })
 })
 
 describe('les réglages', () => {
   it('rendent les défauts sur une base vierge', () => {
-    expect(getRéglages(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
+    expect(getSettings(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   it('font l’aller-retour', () => {
-    setRéglage(db, 'minutesPerClip', 4)
-    expect(getRéglages(db).minutesPerClip).toBe(4)
+    setSetting(db, 'minutesPerClip', 4)
+    expect(getSettings(db).minutesPerClip).toBe(4)
     // Les autres ne bougent pas : un réglage écrit n'en efface aucun.
-    expect(getRéglages(db).windowsPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.windowsPerClip)
+    expect(getSettings(db).windowsPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.windowsPerClip)
   })
 
   it('réécrivent sans dupliquer', () => {
-    setRéglage(db, 'minutesPerClip', 4)
-    setRéglage(db, 'minutesPerClip', 9)
-    expect(getRéglages(db).minutesPerClip).toBe(9)
+    setSetting(db, 'minutesPerClip', 4)
+    setSetting(db, 'minutesPerClip', 9)
+    expect(getSettings(db).minutesPerClip).toBe(9)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
   })
 
   // La lecture ne lève jamais : le repérage tourne derrière une transcription
   // qui a coûté quarante minutes, et une valeur mal saisie ne doit pas la jeter.
   it('ignorent une valeur illisible comme si elle était absente', () => {
-    const poser = (valeur: string) =>
+    const poser = (value: string) =>
       db
         .prepare('INSERT OR REPLACE INTO settings (key, value, updatedAt) VALUES (?, ?, ?)')
-        .run('selection.minutesPerClip', valeur, 0)
-    for (const valeur of ['', 'sept', '-3', '0']) {
-      poser(valeur)
-      expect(getRéglages(db).minutesPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip)
+        .run('selection.minutesPerClip', value, 0)
+    for (const value of ['', 'sept', '-3', '0']) {
+      poser(value)
+      expect(getSettings(db).minutesPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip)
     }
   })
 
   // Zéro est la valeur signifiante de ce champ-là — « aucun plafond » — et lui
   // appliquer le refus des autres le rendrait impossible à remettre à zéro.
   it('acceptent zéro pour maximumClips, et lui seul', () => {
-    setRéglage(db, 'maximumClips', 30)
-    expect(getRéglages(db).maximumClips).toBe(30)
-    setRéglage(db, 'maximumClips', 0)
-    expect(getRéglages(db).maximumClips).toBe(0)
-    expect(() => setRéglage(db, 'windowsPerClip', 0)).toThrow()
+    setSetting(db, 'maximumClips', 30)
+    expect(getSettings(db).maximumClips).toBe(30)
+    setSetting(db, 'maximumClips', 0)
+    expect(getSettings(db).maximumClips).toBe(0)
+    expect(() => setSetting(db, 'windowsPerClip', 0)).toThrow()
   })
 
   // Une clé mal orthographiée s'écrirait sans bruit, ne serait jamais relue, et
   // l'écran de réglages afficherait le défaut en jurant avoir enregistré.
   it('refusent une clé inconnue', () => {
     expect(() =>
-      setRéglage(db, 'minutesParClipe' as keyof typeof DEFAULT_SELECTION_DIMENSIONS, 4),
+      setSetting(db, 'minutesParClipe' as keyof typeof DEFAULT_SELECTION_DIMENSIONS, 4),
     ).toThrow(/inconnu/i)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
   it('refusent une valeur qui n’est pas un entier positif', () => {
-    expect(() => setRéglage(db, 'minutesPerClip', 0)).toThrow()
-    expect(() => setRéglage(db, 'minutesPerClip', -1)).toThrow()
-    expect(() => setRéglage(db, 'minutesPerClip', 4.5)).toThrow()
+    expect(() => setSetting(db, 'minutesPerClip', 0)).toThrow()
+    expect(() => setSetting(db, 'minutesPerClip', -1)).toThrow()
+    expect(() => setSetting(db, 'minutesPerClip', 4.5)).toThrow()
   })
 
   /**
    * L'écrivain et le lecteur doivent appliquer la **même** règle. `isInteger`
-   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getRéglages` refuse :
+   * accepte `1e100`, que `String` écrit `"1e+100"` et que `getSettings` refuse :
    * l'écriture réussissait donc, et la relecture rendait le défaut sans qu'un
    * mot le signale. (relevé par Copilot)
    */
   it('refusent un entier non sûr, comme le lecteur', () => {
-    expect(() => setRéglage(db, 'minutesPerClip', 1e100)).toThrow()
+    expect(() => setSetting(db, 'minutesPerClip', 1e100)).toThrow()
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
   // Le contrat qui relie la table au type : une clé ajoutée à `SelectionDimensions`
   // sans être relue ici passerait inaperçue jusqu'à ce qu'on la règle en vain.
   it('savent lire et écrire chacun des champs de SelectionDimensions', () => {
-    for (const champ of Object.keys(DEFAULT_SELECTION_DIMENSIONS) as (keyof typeof DEFAULT_SELECTION_DIMENSIONS)[]) {
-      setRéglage(db, champ, 3)
-      expect(getRéglages(db)[champ]).toBe(3)
+    for (const field of Object.keys(DEFAULT_SELECTION_DIMENSIONS) as (keyof typeof DEFAULT_SELECTION_DIMENSIONS)[]) {
+      setSetting(db, field, 3)
+      expect(getSettings(db)[field]).toBe(3)
     }
   })
 })
@@ -202,10 +202,10 @@ describe('le registre des réglages', () => {
   it('décrit chaque champ de SelectionDimensions', () => {
     // L'exhaustivité par le type : un champ ajouté à `SelectionDimensions` sans
     // venir dans `SELECTION_FIELDS` casse le type-check.
-    for (const nom of Object.keys(DEFAULT_SELECTION_DIMENSIONS)) {
-      const champ = settingField('selection', nom)
-      expect(champ, nom).toBeDefined()
-      expect(champ!.defaultValue).toBe(DEFAULT_SELECTION_DIMENSIONS[nom as keyof typeof DEFAULT_SELECTION_DIMENSIONS])
+    for (const name of Object.keys(DEFAULT_SELECTION_DIMENSIONS)) {
+      const field = settingField('selection', name)
+      expect(field, name).toBeDefined()
+      expect(field!.defaultValue).toBe(DEFAULT_SELECTION_DIMENSIONS[name as keyof typeof DEFAULT_SELECTION_DIMENSIONS])
     }
   })
 
@@ -217,8 +217,8 @@ describe('le registre des réglages', () => {
    * une valeur — ce test tombe le jour où quelqu'un ajoute `apiKey` au registre.
    */
   it('ne porte aucun champ dont le nom annonce un secret', () => {
-    for (const champ of SETTING_FIELDS) {
-      expect(`${champ.family}.${champ.name}`).not.toMatch(
+    for (const field of SETTING_FIELDS) {
+      expect(`${field.family}.${field.name}`).not.toMatch(
         /(cle|clé|key|token|secret|password|passwd|motdepasse)/i,
       )
     }
@@ -230,7 +230,7 @@ describe('le registre des réglages', () => {
   })
 
   it('préfixe chaque clé stockée par sa famille', () => {
-    setRéglage(db, 'minutesPerClip', 4)
+    setSetting(db, 'minutesPerClip', 4)
     expect(db.prepare('SELECT key FROM settings').all()).toEqual([
       { key: 'selection.minutesPerClip' },
     ])
@@ -282,10 +282,10 @@ describe('la famille `ai`', () => {
   })
 
   it('ne recalcule rien : les usages non branchés se règlent sans effet', () => {
-    upsertProject(db, PROJET)
+    upsertProject(db, PROJECT)
     putClip(db, {
       id: 'clip_01',
-      projectId: PROJET.id,
+      projectId: PROJECT.id,
       segments: [{ start: 0, end: 1 }],
       ratio: '9:16',
       cropX: 0,
@@ -297,7 +297,7 @@ describe('la famille `ai`', () => {
       pass: 1,
     })
     applySettings(db, { ai: { correctionProvider: 'openai', hookProvider: 'ollama' } })
-    expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
+    expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
   })
 })
 
@@ -312,63 +312,63 @@ describe('la famille `ai`', () => {
  * s'en sert.
  */
 describe('la grammaire du registre', () => {
-  const champ = (
+  const field = (
     type: SettingField['type'],
-    reste: Partial<SettingField> = {},
+    remaining: Partial<SettingField> = {},
   ): SettingField => ({
     family: 'selection',
     name: 'temoin',
     type,
     defaultValue: type === 'integer' ? 1 : type === 'text' ? 'a' : false,
-    ...reste,
+    ...remaining,
   })
 
   it('relit un entier, et rien qui lui ressemble', () => {
-    const c = champ('integer', { min: 1 })
+    const c = field('integer', { min: 1 })
     expect(parseSetting(c, ' 4 ')).toBe(4)
     // `parseInt` lirait 4 dans « 4.5 » et 7 dans « 7abc » : une saisie à moitié
     // comprise est pire que refusée, personne ne peut deviner ce qui s'applique.
-    for (const brut of ['', 'sept', '4.5', '7abc', '0x10', '-3', '0']) {
-      expect(parseSetting(c, brut), brut).toBeUndefined()
+    for (const raw of ['', 'sept', '4.5', '7abc', '0x10', '-3', '0']) {
+      expect(parseSetting(c, raw), raw).toBeUndefined()
     }
   })
 
   it('relit un booléen écrit en toutes lettres, et rien d’autre', () => {
-    const c = champ('boolean')
+    const c = field('boolean')
     expect(parseSetting(c, 'true')).toBe(true)
     expect(parseSetting(c, 'false')).toBe(false)
-    for (const brut of ['1', '0', 'oui', 'TRUE', '']) {
-      expect(parseSetting(c, brut), brut).toBeUndefined()
+    for (const raw of ['1', '0', 'oui', 'TRUE', '']) {
+      expect(parseSetting(c, raw), raw).toBeUndefined()
     }
   })
 
   it('relit un texte tel quel', () => {
-    expect(parseSetting(champ('text'), 'http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434')
+    expect(parseSetting(field('text'), 'http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434')
   })
 
   it('valide chaque type sans convertir d’un type à l’autre', () => {
-    expect(validateSetting(champ('integer', { min: 0 }), 0)).toBe(0)
-    expect(validateSetting(champ('boolean'), true)).toBe(true)
-    expect(validateSetting(champ('text'), 'gemma4:26b')).toBe('gemma4:26b')
+    expect(validateSetting(field('integer', { min: 0 }), 0)).toBe(0)
+    expect(validateSetting(field('boolean'), true)).toBe(true)
+    expect(validateSetting(field('text'), 'gemma4:26b')).toBe('gemma4:26b')
 
-    expect(() => validateSetting(champ('integer', { min: 1 }), '4')).toThrow()
-    expect(() => validateSetting(champ('boolean'), 'true')).toThrow()
-    expect(() => validateSetting(champ('boolean'), 1)).toThrow()
-    expect(() => validateSetting(champ('text'), 42)).toThrow()
+    expect(() => validateSetting(field('integer', { min: 1 }), '4')).toThrow()
+    expect(() => validateSetting(field('boolean'), 'true')).toThrow()
+    expect(() => validateSetting(field('boolean'), 1)).toThrow()
+    expect(() => validateSetting(field('text'), 42)).toThrow()
     // Un texte vide ou fait de blancs n'est pas un réglage, c'est un champ oublié.
-    expect(() => validateSetting(champ('text'), '   ')).toThrow()
-    expect(() => validateSetting(champ('text'), 'x'.repeat(4_096))).toThrow()
+    expect(() => validateSetting(field('text'), '   ')).toThrow()
+    expect(() => validateSetting(field('text'), 'x'.repeat(4_096))).toThrow()
   })
 
   /** Écriture et lecture appliquent la même règle, sinon l'aller-retour ment. */
   it('fait l’aller-retour sur les trois types', () => {
-    for (const [c, valeur] of [
-      [champ('integer', { min: 0 }), 12],
-      [champ('boolean'), false],
-      [champ('text'), 'llama3'],
+    for (const [c, value] of [
+      [field('integer', { min: 0 }), 12],
+      [field('boolean'), false],
+      [field('text'), 'llama3'],
     ] as const) {
-      const stocké = String(validateSetting(c, valeur))
-      expect(parseSetting(c, stocké)).toBe(valeur)
+      const stored = String(validateSetting(c, value))
+      expect(parseSetting(c, stored)).toBe(value)
     }
   })
 })
@@ -424,8 +424,8 @@ describe('appliquerRéglages', () => {
   })
 
   it('refuse un corps qui n’est pas un objet de familles', () => {
-    for (const corps of [null, 42, 'selection', [], { selection: 4 }, { selection: [] }]) {
-      expect(() => applySettings(db, corps)).toThrow(InvalidSettingError)
+    for (const body of [null, 42, 'selection', [], { selection: 4 }, { selection: [] }]) {
+      expect(() => applySettings(db, body)).toThrow(InvalidSettingError)
     }
   })
 
@@ -439,7 +439,7 @@ describe('appliquerRéglages', () => {
     expect(() =>
       applySettings(db, { selection: { minutesPerClip: 4, windowsPerClip: 0 } }),
     ).toThrow()
-    expect(getRéglages(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
+    expect(getSettings(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   it('accepte un patch vide sans rien changer', () => {
@@ -452,10 +452,10 @@ describe('appliquerRéglages', () => {
     // Le §11 du retour d'usage, tenu par un test plutôt que par une intention :
     // « toute modification d'un paramètre global ne doit pas silencieusement
     // recalculer des émissions existantes ».
-    upsertProject(db, PROJET)
+    upsertProject(db, PROJECT)
     putClip(db, clip('clip_01', { status: 'kept' }))
     applySettings(db, { selection: { minutesPerClip: 4 } })
-    expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
+    expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
   })
 
   it('rend la même chose que réglagesEffectifs', () => {
@@ -465,7 +465,7 @@ describe('appliquerRéglages', () => {
     // comparé aux défauts de la famille — inchangée par ce patch, qui ne
     // touche que `selection` — plutôt qu'à lui-même, ce qui ne testerait rien.
     expect(effectiveSettings(db)).toEqual({
-      selection: getRéglages(db),
+      selection: getSettings(db),
       ai: {
         selectionProvider: 'gemini',
         selectionModel: 'gemini-3.1-flash-lite',
@@ -490,9 +490,9 @@ describe('les clips', () => {
   // un `JSON.stringify`, qui l'expose tel quel à l'interface.
   it('rendent des booléens, pas des 0 et des 1', () => {
     putClip(db, clip('clip_07', { captions: false, branding: true }))
-    const relu = getClip(db, 'clip_07')
-    expect(relu?.captions).toBe(false)
-    expect(relu?.branding).toBe(true)
+    const reread = getClip(db, 'clip_07')
+    expect(reread?.captions).toBe(false)
+    expect(reread?.branding).toBe(true)
   })
 
   // Le clip est une liste de segments (spec §5). Une colonne `start` et une
@@ -515,35 +515,35 @@ describe('les clips', () => {
 
   it('disparaissent avec leur projet', () => {
     putClip(db, clip('clip_07'))
-    db.prepare('DELETE FROM projects WHERE id = ?').run(PROJET.id)
-    expect(getClips(db, PROJET.id)).toEqual([])
+    db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT.id)
+    expect(getClips(db, PROJECT.id)).toEqual([])
   })
 })
 
 describe('replaceClips', () => {
   it('remplace le jeu entier, et non seulement ce qu’on lui donne', () => {
-    replaceClips(db, PROJET.id, [clip('a'), clip('b')])
-    replaceClips(db, PROJET.id, [clip('c')])
-    expect(getClips(db, PROJET.id).map((c) => c.id)).toEqual(['c'])
+    replaceClips(db, PROJECT.id, [clip('a'), clip('b')])
+    replaceClips(db, PROJECT.id, [clip('c')])
+    expect(getClips(db, PROJECT.id).map((c) => c.id)).toEqual(['c'])
   })
 
   // Le cas qu'un appelant atteint par accident : `mergeCandidates` sur un lot
   // vide et un projet sans décision humaine rend une liste vide. (relevé par
   // Aristarque)
   it('vide le projet quand on ne lui donne rien', () => {
-    replaceClips(db, PROJET.id, [clip('a'), clip('b')])
-    replaceClips(db, PROJET.id, [])
-    expect(getClips(db, PROJET.id)).toEqual([])
+    replaceClips(db, PROJECT.id, [clip('a'), clip('b')])
+    replaceClips(db, PROJECT.id, [])
+    expect(getClips(db, PROJECT.id)).toEqual([])
   })
 
   it('refuse un clip d’un autre projet', () => {
-    expect(() => replaceClips(db, PROJET.id, [clip('a', { projectId: 'autre' })])).toThrow()
+    expect(() => replaceClips(db, PROJECT.id, [clip('a', { projectId: 'autre' })])).toThrow()
   })
 
   // Sans ce contrôle, l'`ON CONFLICT` écrase le premier par le second et
   // l'appelant croit avoir écrit deux clips. (relevé par Aristarque)
   it('refuse deux fois le même id dans un seul lot', () => {
-    expect(() => replaceClips(db, PROJET.id, [clip('a'), clip('a')])).toThrow(/deux fois/)
+    expect(() => replaceClips(db, PROJECT.id, [clip('a'), clip('a')])).toThrow(/deux fois/)
   })
 
   // Un identifiant de clip est unique pour toute la base — la spec §12 expose
@@ -551,7 +551,7 @@ describe('replaceClips', () => {
   // collision en déplaçant le clip d'un projet à l'autre, ce qui détruisait le
   // travail du premier. (relevé par Codex, Copilot et Aristarque)
   it('refuse de déménager un identifiant déjà pris par un autre projet', () => {
-    upsertProject(db, { ...PROJET, id: 'autre-emission' })
+    upsertProject(db, { ...PROJECT, id: 'autre-emission' })
     putClip(db, clip('clip_07'))
 
     expect(() =>
@@ -559,55 +559,55 @@ describe('replaceClips', () => {
     ).toThrow(/appartient au projet/)
 
     // Et le clip d'origine est intact : la transaction a tout annulé.
-    expect(getClip(db, 'clip_07')?.projectId).toBe(PROJET.id)
-    expect(getClips(db, PROJET.id)).toHaveLength(1)
+    expect(getClip(db, 'clip_07')?.projectId).toBe(PROJECT.id)
+    expect(getClips(db, PROJECT.id)).toHaveLength(1)
   })
 
   // L'enchaînement réel de la tâche 9 : la fusion décide, la base enregistre.
   // Une passe de repérage ne doit pas ressusciter ce qu'un humain vient
   // d'écarter (spec §5).
   it('enregistre une passe de repérage sans ressusciter un clip écarté', () => {
-    replaceClips(db, PROJET.id, [
+    replaceClips(db, PROJECT.id, [
       clip('gardé', { status: 'kept' }),
       clip('écarté', { status: 'discarded' }),
       clip('périmé', { status: 'candidate' }),
     ])
 
-    const fusion = mergeCandidates(
-      getClips(db, PROJET.id),
+    const merge = mergeCandidates(
+      getClips(db, PROJECT.id),
       [clip('écarté'), clip('neuf')],
       2,
     )
-    replaceClips(db, PROJET.id, fusion)
+    replaceClips(db, PROJECT.id, merge)
 
-    const relus = getClips(db, PROJET.id)
-    expect(relus.map((c) => c.id).sort()).toEqual(['gardé', 'neuf', 'écarté'].sort())
-    expect(relus.find((c) => c.id === 'écarté')?.status).toBe('discarded')
-    expect(relus.find((c) => c.id === 'neuf')?.pass).toBe(2)
+    const reread = getClips(db, PROJECT.id)
+    expect(reread.map((c) => c.id).sort()).toEqual(['gardé', 'neuf', 'écarté'].sort())
+    expect(reread.find((c) => c.id === 'écarté')?.status).toBe('discarded')
+    expect(reread.find((c) => c.id === 'neuf')?.pass).toBe(2)
   })
 })
 
 describe('sur un vrai fichier', () => {
-  let dossier: string
+  let folder: string
 
   beforeEach(() => {
-    dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-db-'))
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-db-'))
   })
 
   afterEach(() => {
-    fs.rmSync(dossier, { recursive: true, force: true })
+    fs.rmSync(folder, { recursive: true, force: true })
   })
 
   it('crée le dossier manquant et retrouve les données à la réouverture', () => {
-    const fichier = path.join(dossier, 'profond', 'avolo.db')
-    const première = openDb(fichier)
-    upsertProject(première, PROJET)
-    putClip(première, clip('clip_07'))
-    première.close()
+    const file = path.join(folder, 'profond', 'avolo.db')
+    const first = openDb(file)
+    upsertProject(first, PROJECT)
+    putClip(first, clip('clip_07'))
+    first.close()
 
-    const seconde = openDb(fichier)
-    expect(getClip(seconde, 'clip_07')?.title).toBe('La vanne du chapeau')
-    seconde.close()
+    const second = openDb(file)
+    expect(getClip(second, 'clip_07')?.title).toBe('La vanne du chapeau')
+    second.close()
   })
 })
 
@@ -620,17 +620,17 @@ describe('sur un vrai fichier', () => {
 describe('replaceClips et les jetons d’ordre', () => {
   it('garde les jetons des clips qui survivent à la passe', () => {
     putClip(db, clip('survivant'))
-    expect(putClipOrdonné(db, clip('survivant', { title: 'Récent' }), ['title'], 100)?.applied).toBe(
+    expect(putClipOrdered(db, clip('survivant', { title: 'Récent' }), ['title'], 100)?.applied).toBe(
       true,
     )
 
-    replaceClips(db, PROJET.id, [clip('survivant'), clip('nouveau')])
+    replaceClips(db, PROJECT.id, [clip('survivant'), clip('nouveau')])
 
     // Le jeton a survécu : une écriture plus ancienne se fait toujours écarter.
-    const périmée = putClipOrdonné(db, clip('survivant', { title: 'Ancien' }), ['title'], 50)
-    expect(périmée?.applied).toBe(false)
+    const stale = putClipOrdered(db, clip('survivant', { title: 'Ancien' }), ['title'], 50)
+    expect(stale?.applied).toBe(false)
     // Et un clip que la passe vient de créer n'a rien à opposer à personne.
-    expect(putClipOrdonné(db, clip('nouveau', { title: 'Neuf' }), ['title'], 1)?.applied).toBe(true)
+    expect(putClipOrdered(db, clip('nouveau', { title: 'Neuf' }), ['title'], 1)?.applied).toBe(true)
   })
 })
 
@@ -644,11 +644,11 @@ describe('replaceClips et les jetons d’ordre', () => {
  * (relevé par Copilot)
  */
 describe('migrer', () => {
-  let fichier: string
-  let racine: string
+  let file: string
+  let root: string
 
   /** Le schéma d'avant : ni `seqs`, ni son prédécesseur `seq`. */
-  const SCHÉMA_ANCIEN = `
+  const SCHEMA_OLD = `
     CREATE TABLE projects (
       id TEXT PRIMARY KEY, sourcePath TEXT NOT NULL, stagedPath TEXT,
       durationSec REAL, sizeBytes INTEGER, mtimeMs INTEGER, createdAt INTEGER NOT NULL
@@ -663,66 +663,66 @@ describe('migrer', () => {
     );`
 
   beforeEach(() => {
-    racine = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-'))
-    fichier = path.join(racine, 'avolo.db')
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-'))
+    file = path.join(root, 'avolo.db')
   })
 
   afterEach(() => {
-    fs.rmSync(racine, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
-  function poserBaseAncienne(colonneSeq: boolean): void {
-    const ancienne = new Database(fichier)
-    ancienne.exec(SCHÉMA_ANCIEN)
-    if (colonneSeq) ancienne.exec('ALTER TABLE clips ADD COLUMN seq INTEGER NOT NULL DEFAULT 0')
-    ancienne
+  function poserBaseOld(columnSeq: boolean): void {
+    const old = new Database(file)
+    old.exec(SCHEMA_OLD)
+    if (columnSeq) old.exec('ALTER TABLE clips ADD COLUMN seq INTEGER NOT NULL DEFAULT 0')
+    old
       .prepare(
         `INSERT INTO projects (id, sourcePath, stagedPath, durationSec, sizeBytes, mtimeMs, createdAt)
          VALUES (@id, @sourcePath, @stagedPath, @durationSec, @sizeBytes, @mtimeMs, @createdAt)`,
       )
-      .run(PROJET)
-    ancienne
+      .run(PROJECT)
+    old
       .prepare(
         `INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
                             title, description, status, pass)
          VALUES ('vieux', @p, '[{"start":10,"end":20}]', '1:1', 0.5, 1, 1,
                  'Un titre d''avant', 'Une description', 'kept', 1)`,
       )
-      .run({ p: PROJET.id })
-    ancienne.close()
+      .run({ p: PROJECT.id })
+    old.close()
   }
 
   it('ajoute `seqs` sans toucher aux clips déjà écrits', () => {
-    poserBaseAncienne(false)
+    poserBaseOld(false)
 
-    const db = openDb(fichier)
-    const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
       (c) => c.name,
     )
-    expect(colonnes).toContain('seqs')
+    expect(columns).toContain('seqs')
     // Le défaut compte autant que la colonne : sans lui, la première comparaison
     // porterait sur `null` et écarterait des écritures parfaitement fraîches.
     expect(db.prepare('SELECT seqs FROM clips WHERE id = ?').get('vieux')).toEqual({ seqs: '{}' })
 
-    const vieux = getClip(db, 'vieux')
-    expect(vieux?.title).toBe("Un titre d'avant")
-    expect(vieux?.segments).toEqual([{ start: 10, end: 20 }])
+    const old = getClip(db, 'vieux')
+    expect(old?.title).toBe("Un titre d'avant")
+    expect(old?.segments).toEqual([{ start: 10, end: 20 }])
     db.close()
   })
 
   it('accepte une écriture ordonnée sur un clip d’avant la colonne', () => {
-    poserBaseAncienne(false)
+    poserBaseOld(false)
 
-    const db = openDb(fichier)
-    const vieux = getClip(db, 'vieux')
-    expect(vieux).toBeDefined()
+    const db = openDb(file)
+    const old = getClip(db, 'vieux')
+    expect(old).toBeDefined()
     // Aucun jeton en base : tout geste dépasse un champ absent, donc rien de ce
     // qui préexiste ne bloque la première écriture.
-    const résultat = putClipOrdonné(db, { ...vieux!, title: 'Après' }, ['title'], 5)
-    expect(résultat?.applied).toBe(true)
+    const result = putClipOrdered(db, { ...old!, title: 'Après' }, ['title'], 5)
+    expect(result?.applied).toBe(true)
     expect(getClip(db, 'vieux')?.title).toBe('Après')
     // Et le suivant, plus ancien, se fait écarter.
-    expect(putClipOrdonné(db, { ...vieux!, title: 'Encore avant' }, ['title'], 4)?.applied).toBe(
+    expect(putClipOrdered(db, { ...old!, title: 'Encore avant' }, ['title'], 4)?.applied).toBe(
       false,
     )
     expect(getClip(db, 'vieux')?.title).toBe('Après')
@@ -730,24 +730,24 @@ describe('migrer', () => {
   })
 
   it('laisse tomber `seq`, le prédécesseur par ligne', () => {
-    poserBaseAncienne(true)
+    poserBaseOld(true)
 
-    const db = openDb(fichier)
-    const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
       (c) => c.name,
     )
-    expect(colonnes).toContain('seqs')
+    expect(columns).toContain('seqs')
     // Une colonne morte au nom presque identique à celle qui compte est le pire
     // des deux mondes.
-    expect(colonnes).not.toContain('seq')
+    expect(columns).not.toContain('seq')
     expect(getClip(db, 'vieux')?.title).toBe("Un titre d'avant")
     db.close()
   })
 
   it('est idempotente : deux ouvertures de suite ne se marchent pas dessus', () => {
-    poserBaseAncienne(true)
-    openDb(fichier).close()
-    const db = openDb(fichier)
+    poserBaseOld(true)
+    openDb(file).close()
+    const db = openDb(file)
     expect(getClip(db, 'vieux')?.status).toBe('kept')
     db.close()
   })
@@ -802,7 +802,7 @@ describe('migrateSelectionSettingKeys', () => {
     })
 
     const db = openDb(file)
-    expect(getRéglages(db)).toEqual({
+    expect(getSettings(db)).toEqual({
       minutesPerClip: 9,
       windowsPerClip: 3,
       minimumClips: 4,
@@ -827,17 +827,17 @@ describe('migrateSelectionSettingKeys', () => {
 
   it('ne touche à rien sur une base qui ne porte déjà que les nouveaux noms', () => {
     const first = openDb(file)
-    setRéglage(first, 'minutesPerClip', 7)
+    setSetting(first, 'minutesPerClip', 7)
     first.close()
 
     const db = openDb(file)
-    expect(getRéglages(db).minutesPerClip).toBe(7)
+    expect(getSettings(db).minutesPerClip).toBe(7)
     db.close()
   })
 
   it('laisse la nouvelle clé faire autorité si les deux noms coexistent', () => {
     const first = openDb(file)
-    setRéglage(first, 'minutesPerClip', 5)
+    setSetting(first, 'minutesPerClip', 5)
     first.close()
     const raw = new Database(file)
     raw
@@ -848,7 +848,7 @@ describe('migrateSelectionSettingKeys', () => {
     const db = openDb(file)
     // La valeur écrite sous le nouveau nom l'emporte : celle sous l'ancien
     // n'écrase rien, elle est simplement effacée.
-    expect(getRéglages(db).minutesPerClip).toBe(5)
+    expect(getSettings(db).minutesPerClip).toBe(5)
     expect(
       db.prepare("SELECT key FROM settings WHERE key = 'selection.minutesParClip'").all(),
     ).toHaveLength(0)
@@ -859,7 +859,7 @@ describe('migrateSelectionSettingKeys', () => {
     seedLegacySelectionSettings({ minutesParClip: '9' })
     openDb(file).close()
     const db = openDb(file)
-    expect(getRéglages(db).minutesPerClip).toBe(9)
+    expect(getSettings(db).minutesPerClip).toBe(9)
     db.close()
   })
 })

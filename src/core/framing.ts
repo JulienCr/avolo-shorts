@@ -82,7 +82,7 @@ export function resolveRatio(r: Ratio | 'auto'): Ratio {
  * que les plateformes verticales servent, et monter plus haut ne fait grossir le
  * fichier que pour être redescendu chez elles.
  */
-const TAILLES: Readonly<Record<Ratio, { w: number; h: number }>> = {
+const SIZES: Readonly<Record<Ratio, { w: number; h: number }>> = {
   '9:16': { w: 1080, h: 1920 },
   '4:5': { w: 1080, h: 1350 },
   '1:1': { w: 1080, h: 1080 },
@@ -92,7 +92,7 @@ const TAILLES: Readonly<Record<Ratio, { w: number; h: number }>> = {
 export function outputSize(ratio: Ratio): { w: number; h: number } {
   // Une copie : la table est une constante du module, et l'appelant passe le
   // résultat à `renderArgs`, qui n'a aucune raison de pouvoir la modifier.
-  return { ...TAILLES[ratio] }
+  return { ...SIZES[ratio] }
 }
 
 /**
@@ -116,20 +116,20 @@ export function sizeInCanvas(
   ratio: Ratio,
   canvas: { w: number; h: number },
 ): { w: number; h: number } {
-  return { w: canvas.w, h: Math.min(canvas.h, pairProche(canvas.w / RATIOS[ratio])) }
+  return { w: canvas.w, h: Math.min(canvas.h, pairNear(canvas.w / RATIOS[ratio])) }
 }
 
 /** Le pair immédiatement inférieur ou égal, jamais négatif. */
-function pairInférieur(n: number): number {
+function pairLower(n: number): number {
   return Math.max(0, Math.floor(n / 2) * 2)
 }
 
 /** Le pair le plus proche. 607,5 → 608. */
-function pairProche(n: number): number {
+function pairNear(n: number): number {
   return Math.max(0, Math.round(n / 2) * 2)
 }
 
-function borner(n: number, min: number, max: number): number {
+function bound(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), Math.max(min, max))
 }
 
@@ -170,27 +170,27 @@ export function cropRect(
     )
   }
 
-  const cible = RATIOS[ratio]
-  const maxW = pairInférieur(srcW)
-  const maxH = pairInférieur(srcH)
+  const target = RATIOS[ratio]
+  const maxW = pairLower(srcW)
+  const maxH = pairLower(srcH)
 
   let h = maxH
-  let w = pairProche(h * cible)
+  let w = pairNear(h * target)
   if (w > maxW) {
     w = maxW
-    h = Math.min(pairProche(w / cible), maxH)
+    h = Math.min(pairNear(w / target), maxH)
   }
 
   // `Number.isFinite` : `cropX` vient de la base et de l'interface. Un `NaN`
   // traverserait tout le calcul sans erreur et sortirait en `crop=608:1080:NaN:0`,
   // que ffmpeg refuse avec un message qui ne nomme pas la cause.
-  const centre = Number.isFinite(cropX) ? borner(cropX, 0, 1) : 0.5
+  const center = Number.isFinite(cropX) ? bound(cropX, 0, 1) : 0.5
 
   return {
     w,
     h,
-    x: pairInférieur(borner(Math.round(centre * srcW - w / 2), 0, srcW - w)),
-    y: pairInférieur(borner(Math.round((srcH - h) / 2), 0, srcH - h)),
+    x: pairLower(bound(Math.round(center * srcW - w / 2), 0, srcW - w)),
+    y: pairLower(bound(Math.round((srcH - h) / 2), 0, srcH - h)),
   }
 }
 
@@ -289,7 +289,7 @@ export type FramingOptions = {
  * COCO qu'elle retient.
  *
  * **Elles sont nommées et exportées parce que c'est la mesure qui a tranché**,
- * pas une intuition : le balayage de `scripts/mesure-ratios.ts` les passe toutes
+ * pas une intuition : le balayage de `scripts/measure-ratios.ts` les passe toutes
  * sur la même émission et met en regard ce que chacune gagne en ratio et ce
  * qu'elle coupe des gens. Un nom recopié dans le script mesurerait un autre
  * tronc que celui qui décide, le jour où l'un des deux bouge.
@@ -367,7 +367,7 @@ export type TorsoName = keyof typeof TORSOS
  * où le seuil bouge, il continuerait de viser l'ancien sans rien signaler.
  *
  * **`margin` valait 0,02 et n'avait jamais été mesuré.** Le balayage du 18 août
- * 2026 (`scripts/mesure-ratios.ts`, `docs/ratios-par-clip.md`) le fait tomber à
+ * 2026 (`scripts/measure-ratios.ts`, `docs/ratios-par-clip.md`) le fait tomber à
  * 0,01, et la baisse ne coûte rien de mesurable : sur trois émissions, aucun clip
  * ni aucune fenêtre ne s'**élargit** entre 0,02 et 0,01, deux clips de
  * `2025-06-15-cqlp` passent du 16:9 au 1:1 et quinze fenêtres sur 197 se
@@ -425,8 +425,8 @@ export function ratioCoverage(ratio: Ratio, srcW: number, srcH: number): number 
  * que l'interface affiche — « calculé » pour un plan qu'aucun calcul n'avait
  * cadré. C'est exactement pour ça qu'elle aurait survécu. (relevé par Aristarque)
  */
-function réglage(valeur: number | undefined, défaut: number): number {
-  return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : défaut
+function setting(value: number | undefined, defaultValue: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : defaultValue
 }
 
 /**
@@ -473,15 +473,15 @@ function réglage(valeur: number | undefined, défaut: number): number {
  * peut pas juger ne rejette pas.
  */
 export function isForeground(box: PersonBox, options: FramingOptions = {}): boolean {
-  const bord = réglage(options.bottomEdge, FRAMING_DEFAULTS.bottomEdge)
+  const edge = setting(options.bottomEdge, FRAMING_DEFAULTS.bottomEdge)
   const hauteurMax = Math.max(
     0,
-    réglage(options.foregroundMaxHeight, FRAMING_DEFAULTS.foregroundMaxHeight),
+    setting(options.foregroundMaxHeight, FRAMING_DEFAULTS.foregroundMaxHeight),
   )
   // Une seule garde suffit : `y1 - y0` n'est fini que si les deux bornes le sont.
   const hauteur = box.y1 - box.y0
   if (!Number.isFinite(hauteur)) return false
-  return box.y1 >= bord && hauteur < hauteurMax
+  return box.y1 >= edge && hauteur < hauteurMax
 }
 
 /**
@@ -532,8 +532,8 @@ export function trimmedBounds(
   box: PersonBox,
   options: FramingOptions = {},
 ): { x0: number; x1: number } {
-  const share = borner(réglage(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
-  const cap = Math.max(0, réglage(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
+  const share = bound(setting(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
+  const cap = Math.max(0, setting(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
   const width = box.x1 - box.x0
   // La demi-largeur borne le tout : au-delà, la boîte se retournerait, et une
   // borne gauche passée à droite de la borne droite est un empan négatif que
@@ -594,7 +594,7 @@ export function torsoBounds(
   // passer par la validation d'I/O.
   if (k === undefined || k.length !== POINT_COUNT * 3) return null
 
-  const threshold = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  const threshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
   const extentOf = (
     which: readonly number[],
   ): { x0: number; x1: number; seen: number } => {
@@ -622,7 +622,7 @@ export function torsoBounds(
   // ce qu'elles contiennent, et son plafond n'est qu'un pari sur la position de
   // la tête. Ici la tête est connue, donc elle est simplement remise dedans, et
   // ce qui est abandonné ne peut être qu'une épaule.
-  const share = borner(réglage(options.torsoTrim, FRAMING_DEFAULTS.torsoTrim), 0, 0.5)
+  const share = bound(setting(options.torsoTrim, FRAMING_DEFAULTS.torsoTrim), 0, 0.5)
   const trimmed = (torso.x1 - torso.x0) * share
   let x0 = torso.x0 + trimmed
   let x1 = torso.x1 - trimmed
@@ -636,7 +636,7 @@ export function torsoBounds(
   // documentation. Un tronc réduit à un point retombe sur la boîte.
   if (!(x1 > x0)) return null
 
-  const pad = Math.max(0, réglage(options.torsoPad, FRAMING_DEFAULTS.torsoPad)) * (x1 - x0)
+  const pad = Math.max(0, setting(options.torsoPad, FRAMING_DEFAULTS.torsoPad)) * (x1 - x0)
   return { x0: x0 - pad, x1: x1 + pad }
 }
 
@@ -702,13 +702,13 @@ export function personBounds(
  * c'est exactement le cas où prendre la plus basse fait pencher à gauche un
  * départage qui n'a aucune raison de pencher. (relevé par Copilot)
  */
-function médiane(triées: number[]): number {
-  const m = triées.length >> 1
-  return triées.length % 2 === 1 ? triées[m] : (triées[m - 1] + triées[m]) / 2
+function median(sorted: number[]): number {
+  const m = sorted.length >> 1
+  return sorted.length % 2 === 1 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2
 }
 
 /** L'empan des personnes d'une image, marge comprise, en fractions de largeur. */
-type Empan = { t: number; g: number; d: number }
+type Span = { t: number; g: number; d: number }
 
 /**
  * `t` tombe-t-il dans l'intervalle ? **Fin exclue** : une image posée pile sur
@@ -716,8 +716,8 @@ type Empan = { t: number; g: number; d: number }
  * frontière de plan compterait dans les deux plans, et celle d'une borne de
  * segment dans un segment qui ne la montre pas.
  */
-function dansIntervalle(t: number, début: number, fin: number): boolean {
-  return t >= début && t < fin
+function inInterval(t: number, start: number, fin: number): boolean {
+  return t >= start && t < fin
 }
 
 /**
@@ -735,11 +735,11 @@ function dansIntervalle(t: number, début: number, fin: number): boolean {
  * pour les images où il y a quelqu'un — et sur les émissions mesurées, ces
  * images-là font de 5 à 30 % du total.
  */
-function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
-  const seuil = réglage(options.minScore, FRAMING_DEFAULTS.minScore)
-  const marge = Math.max(0, réglage(options.margin, FRAMING_DEFAULTS.margin))
+function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
+  const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
+  const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
 
-  const parImage = new Map<number, Empan>()
+  const byImage = new Map<number, Span>()
   for (const b of boxes) {
     // Les boîtes viennent d'un JSON produit par un autre processus. Une borne
     // non finie ou inversée traverserait tout le calcul en `NaN` et ne se
@@ -747,19 +747,19 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
     if (!Number.isFinite(b.t) || !Number.isFinite(b.x0) || !Number.isFinite(b.x1)) continue
     if (b.x1 <= b.x0) continue
     // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit sortir.
-    if (!(b.score >= seuil)) continue
+    if (!(b.score >= threshold)) continue
     // Le public au premier plan, écarté avant de compter l'empan : c'est lui qui
     // faisait sortir tous les clips de `2025-06-15-cqlp` en 16:9.
     if (isForeground(b, options)) continue
 
     const { x0, x1 } = personBounds(b, options)
-    const clé = Math.round(b.t * 1000)
-    const déjà = parImage.get(clé)
-    if (déjà) {
-      déjà.g = Math.min(déjà.g, x0)
-      déjà.d = Math.max(déjà.d, x1)
+    const key = Math.round(b.t * 1000)
+    const already = byImage.get(key)
+    if (already) {
+      already.g = Math.min(already.g, x0)
+      already.d = Math.max(already.d, x1)
     } else {
-      parImage.set(clé, { t: b.t, g: x0, d: x1 })
+      byImage.set(key, { t: b.t, g: x0, d: x1 })
     }
   }
 
@@ -771,10 +771,10 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
   // **négative** qui traversait le choix du ratio et la position sans rien
   // signaler. Borner des deux côtés rend au pire une largeur nulle, que le
   // percentile lit comme « cette image n'exige rien ». (relevé par Copilot)
-  return [...parImage.values()].map((e) => ({
+  return [...byImage.values()].map((e) => ({
     t: e.t,
-    g: borner(e.g - marge, 0, 1),
-    d: borner(e.d + marge, 0, 1),
+    g: bound(e.g - margin, 0, 1),
+    d: bound(e.d + margin, 0, 1),
   }))
 }
 
@@ -788,15 +788,15 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
  * Voir `chooseRatio`, qui juge ce qu'une position fixe cadre vraiment.
  */
 export function requiredWidths(boxes: PersonBox[], options: FramingOptions = {}): number[] {
-  return empans(boxes, options).map((e) => e.d - e.g)
+  return spans(boxes, options).map((e) => e.d - e.g)
 }
 
 /** Les quatre ratios du plus étroit au plus large, déduits de `RATIOS`. */
-const DU_PLUS_ÉTROIT_AU_PLUS_LARGE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).sort(
+const MORE_NARROW_MORE_WIDE: Ratio[] = (Object.keys(RATIOS) as Ratio[]).sort(
   (a, b) => RATIOS[a] - RATIOS[b],
 )
 
-const NARROWEST = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
+const NARROWEST = MORE_NARROW_MORE_WIDE[0]
 
 /**
  * La durée minimale d'un morceau à décoder, en secondes.
@@ -820,7 +820,7 @@ const NARROWEST = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[0]
  * comptent en secondes, médiane 5,3 s sur la plus découpée des trois.
  */
 export const MIN_PIECE_SEC = 0.04
-const LE_PLUS_LARGE = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
+const WIDEST = MORE_NARROW_MORE_WIDE[MORE_NARROW_MORE_WIDE.length - 1]
 
 /**
  * Le plus petit ratio dont **un crop fixe cadre 90 % des images de ce plan**.
@@ -880,25 +880,25 @@ export function chooseRatio(
   srcH: number,
   options: FramingOptions = {},
 ): Ratio {
-  return choisirRatio(empans(boxes, options), srcW, srcH)
+  return chooseRatioFromSpans(spans(boxes, options), srcW, srcH)
 }
 
 /** Le même choix, sur des empans déjà calculés — ce que `computeFraming` a en main. */
-function choisirRatio(mesures: Empan[], srcW: number, srcH: number): Ratio {
-  if (mesures.length === 0) return LE_PLUS_LARGE
+function chooseRatioFromSpans(measurements: Span[], srcW: number, srcH: number): Ratio {
+  if (measurements.length === 0) return WIDEST
 
-  for (const r of DU_PLUS_ÉTROIT_AU_PLUS_LARGE) {
-    const { cadrées } = cropDuPlan(mesures, ratioCoverage(r, srcW, srcH))
+  for (const r of MORE_NARROW_MORE_WIDE) {
+    const { framed } = shotCrop(measurements, ratioCoverage(r, srcW, srcH))
     // `× 10 ≥ × 9` plutôt que `≥ 0,9 ×` : `0.9 * 40` vaut 36,000000000000004, et
     // 36 images sur 40 rateraient de justesse le seuil qu'elles atteignent pile.
-    if (cadrées * 10 >= mesures.length * 9) return r
+    if (framed * 10 >= measurements.length * 9) return r
   }
 
   // Inatteignable en pratique : le ratio le plus large couvre toute la largeur
   // de la source, donc une position unique y cadre toutes les images. Le filet
   // reste, parce qu'une fonction qui rend `undefined` sur un cas qu'on croyait
   // impossible est pire que celle qui rend le pire ratio.
-  return LE_PLUS_LARGE
+  return WIDEST
 }
 
 /**
@@ -933,34 +933,34 @@ function choisirRatio(mesures: Empan[], srcW: number, srcH: number): Ratio {
  * position rendue cadre entièrement — c'est ce dont `chooseRatio` a besoin pour
  * juger un ratio sur ce qu'il permet vraiment, et non sur une largeur.
  */
-function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; cadrées: number } {
-  if (mesures.length === 0) return { cropX: null, cadrées: 0 }
+function shotCrop(measurements: Span[], width: number): { cropX: number | null; framed: number } {
+  if (measurements.length === 0) return { cropX: null, framed: 0 }
 
-  const demi = largeur / 2
+  const demi = width / 2
   // Le crop reste dans l'image : `cropRect` borne déjà, mais rendre une valeur
   // qu'il faudra borner plus loin, c'est rendre une donnée fausse.
-  const légal = (c: number): number => borner(c, demi, 1 - demi)
+  const legal = (c: number): number => bound(c, demi, 1 - demi)
 
-  const cible = médiane(mesures.map((e) => (e.g + e.d) / 2).sort((a, b) => a - b))
+  const target = median(measurements.map((e) => (e.g + e.d) / 2).sort((a, b) => a - b))
 
   // L'intervalle des centres qui cadrent entièrement cette image. Triés par
   // `lo` : à recouvrement et à distance égaux, c'est le premier essayé qui
   // l'emporte, et « le premier » doit vouloir dire le plus à gauche plutôt que
   // le premier dans l'ordre des images, qui ne veut rien dire.
-  const intervalles = mesures
-    .filter((e) => e.d - e.g <= largeur + 1e-9)
+  const intervals = measurements
+    .filter((e) => e.d - e.g <= width + 1e-9)
     .map((e) => ({ lo: e.d - demi, hi: e.g + demi }))
     .sort((a, b) => a.lo - b.lo)
-  if (intervalles.length === 0) return { cropX: légal(cible), cadrées: 0 }
+  if (intervals.length === 0) return { cropX: legal(target), framed: 0 }
 
   // Le recouvrement maximal est atteint sur au moins un `lo` : au-dessous, une
   // image de plus sortirait du cadre. On les essaie donc tous, et pour chacun on
   // regarde jusqu'où les mêmes images restent cadrées — ce plateau.
-  let meilleur = { images: -1, centre: cible }
-  for (const { lo } of intervalles) {
+  let best = { images: -1, center: target }
+  for (const { lo } of intervals) {
     let images = 0
     let hi = Number.POSITIVE_INFINITY
-    for (const i of intervalles) {
+    for (const i of intervals) {
       if (i.lo <= lo && lo <= i.hi) {
         images++
         if (i.hi < hi) hi = i.hi
@@ -971,25 +971,25 @@ function cropDuPlan(mesures: Empan[], largeur: number): { cropX: number | null; 
     // donnerait le milieu ne protège de rien : rien ne bouge à l'intérieur d'un
     // plan, et les images sont toutes déjà connues. Se rapprocher du centre de
     // l'action, en revanche, se voit. (relevé par Copilot et Codex)
-    const centre = borner(cible, lo, hi)
+    const center = bound(target, lo, hi)
     // Le `1e-9` fait tenir la règle annoncée. Sans lui, deux positions
     // symétriques ne sont jamais à égalité *exacte* — `0.92 - 0.225` et
     // `0.08 + 0.225` ne tombent pas à la même distance de 0,5 à 4e-17 près — et
     // c'est ce bruit-là qui tranchait, pas le tri. Un départage qui dépend du
     // dernier bit d'un flottant n'est pas déterministe, il est seulement stable
     // tant que personne ne touche à l'arithmétique.
-    const mieux =
-      images > meilleur.images ||
-      (images === meilleur.images &&
-        Math.abs(centre - cible) < Math.abs(meilleur.centre - cible) - 1e-9)
-    if (mieux) meilleur = { images, centre }
+    const better =
+      images > best.images ||
+      (images === best.images &&
+        Math.abs(center - target) < Math.abs(best.center - target) - 1e-9)
+    if (better) best = { images, center }
   }
 
-  const cropX = légal(meilleur.centre)
+  const cropX = legal(best.center)
   // Recompté sur la position finalement rendue. Le bornage dans l'image ne peut
   // pas sortir du plateau — ça se démontre — mais compter ce qu'on rend vraiment
   // survit à une démonstration qui se périme.
-  return { cropX, cadrées: intervalles.filter((i) => i.lo <= cropX && cropX <= i.hi).length }
+  return { cropX, framed: intervals.filter((i) => i.lo <= cropX && cropX <= i.hi).length }
 }
 
 /** Le cadrage d'un plan du clip : un ratio, et une position. */
@@ -1109,7 +1109,7 @@ export type FramingRequest = FramingOptions & {
  * pour ne pas pouvoir sauter sur le plan d'à côté : les plans de cette émission
  * durent des secondes, pas des fractions de seconde.
  */
-const TOLÉRANCE_DÉROGATION_MS = 250
+const TOLERANCE_EXCEPTION_MS = 250
 
 /**
  * Le cadrage complet d'un clip : **par plan**, un ratio et un crop, puis les
@@ -1159,26 +1159,26 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // chapitre. C'est aussi ce qui fait que les crops se recalculent quand le
   // montage change — et pourquoi les dérogations ne peuvent pas s'indexer sur
   // autre chose que la source.
-  const montées = req.people.filter((b) =>
-    segments.some((s) => dansIntervalle(b.t, s.start, s.end)),
+  const peopleInSegments = req.people.filter((b) =>
+    segments.some((s) => inInterval(b.t, s.start, s.end)),
   )
 
   // Groupées par plan dès maintenant : c'est la granularité du crop, donc celle
   // à laquelle le ratio doit être jugé. Une image qui ne tombe dans aucun plan
   // ne compte pas — sans plan, elle n'a pas de crop, et on ne peut donc pas dire
   // si elle serait cadrée.
-  const plans = shotsForSegments(req.shots, segments)
-  const mesuresParPlan = plans.map((plan) =>
-    empans(
-      montées.filter((b) => dansIntervalle(b.t, plan.start, plan.end)),
+  const shots = shotsForSegments(req.shots, segments)
+  const measurementsByShot = shots.map((shot) =>
+    spans(
+      peopleInSegments.filter((b) => inInterval(b.t, shot.start, shot.end)),
       options,
     ),
   )
 
   // **Un ratio par plan.** Épinglé, il vaut pour tous ; sinon, chacun prend le
   // plus serré qui tienne chez lui.
-  const shotRatios = mesuresParPlan.map((mesures) =>
-    req.ratio === 'auto' ? choisirRatio(mesures, req.srcW, req.srcH) : req.ratio,
+  const shotRatios = measurementsByShot.map((measurements) =>
+    req.ratio === 'auto' ? chooseRatioFromSpans(measurements, req.srcW, req.srcH) : req.ratio,
   )
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
@@ -1198,8 +1198,8 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   //
   // Le seuil est celui du découpage : sous une image, l'intervalle est absorbé
   // par son voisin et ne porte aucun cadre à lui.
-  const montée = segments.reduce((n, s) => n + (s.end - s.start), 0)
-  const couverte = plans.reduce(
+  const totalDuration = segments.reduce((n, s) => n + (s.end - s.start), 0)
+  const covered = shots.reduce(
     (n, p) =>
       n +
       segments.reduce(
@@ -1208,47 +1208,47 @@ export function computeFraming(req: FramingRequest): ClipFraming {
       ),
     0,
   )
-  const découvert = montée - couverte >= MIN_PIECE_SEC
+  const discovered = totalDuration - covered >= MIN_PIECE_SEC
 
   // **Sans aucun plan, le plus large**, et pas le plus étroit qu'un accumulateur
   // partant du bas rendrait : on ne sait rien de l'endroit où sont les gens, et
   // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
   // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
   // comédiens sans que rien ne le signale.
-  const candidats: Ratio[] = découvert ? [...shotRatios, LE_PLUS_LARGE] : shotRatios
+  const candidates: Ratio[] = discovered ? [...shotRatios, WIDEST] : shotRatios
   const nativeRatio =
     req.ratio !== 'auto'
       ? req.ratio
-      : candidats.length === 0
-        ? LE_PLUS_LARGE
-        : candidats.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
+      : candidates.length === 0
+        ? WIDEST
+        : candidates.reduce<Ratio>((a, b) => (RATIOS[b] > RATIOS[a] ? b : a), NARROWEST)
   const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
-  const shots: ShotFraming[] = plans.map((plan, i) => {
-    const mesures = mesuresParPlan[i]
+  const framedShots: ShotFraming[] = shots.map((shot, i) => {
+    const measurements = measurementsByShot[i]
     const ratio = shotRatios[i]
     // Le crop se calcule **pour ce ratio-là et jamais pour un autre** — sans
     // quoi un cadre mesuré en 1:1 se retrouverait posé dans un 4:5, décalé de la
     // différence de largeur. Deux ratios, donc deux positions : celle du plan
     // pour la variante 9:16, celle du natif pour le fichier du feed.
-    const { cropX: calculé } = cropDuPlan(mesures, ratioCoverage(ratio, req.srcW, req.srcH))
-    const { cropX: natif } = cropDuPlan(mesures, nativeWidth)
+    const { cropX: computed } = shotCrop(measurements, ratioCoverage(ratio, req.srcW, req.srcH))
+    const { cropX: native } = shotCrop(measurements, nativeWidth)
     return {
-      shot: plan,
-      key: shotStartMs(plan),
+      shot: shot,
+      key: shotStartMs(shot),
       ratio,
       // Un plan sans mesure est **centré**, et n'emprunte pas le crop de son
       // voisin : une frontière de plan est précisément l'endroit où l'axe
       // change, donc le seul endroit où la continuité n'est pas une hypothèse
       // défendable. 0,5 est aussi ce que `cropRect` prend quand `cropX` ne veut
       // rien dire, et deux défauts qui divergent finissent par se contredire.
-      cropX: calculé ?? 0.5,
-      cropXNative: natif ?? 0.5,
-      source: calculé === null ? 'default' : 'auto',
+      cropX: computed ?? 0.5,
+      cropXNative: native ?? 0.5,
+      source: computed === null ? 'default' : 'auto',
     }
   })
 
-  return { ratio: nativeRatio, shots, rejectedOverrides: appliquerDérogations(shots, req) }
+  return { ratio: nativeRatio, shots: framedShots, rejectedOverrides: applyExceptions(framedShots, req) }
 }
 
 /**
@@ -1256,66 +1256,66 @@ export function computeFraming(req: FramingRequest): ClipFraming {
  * rejetées. **En mode `'auto'`, la table est ignorée** — entièrement, y compris
  * pour le rapport : ce qu'elle contient est en sommeil, pas en erreur.
  */
-function appliquerDérogations(shots: ShotFraming[], req: FramingRequest): number[] {
+function applyExceptions(shots: ShotFraming[], req: FramingRequest): number[] {
   if (req.cropMode !== 'manual' || !req.crops) return []
 
-  const rejetées: number[] = []
+  const rejected: number[] = []
   // Une dérogation retenue par plan : `{ clé d'origine, distance, valeur }`.
-  const retenues = new Map<number, { clé: number; distance: number; valeur: number }>()
+  const kept = new Map<number, { key: number; distance: number; value: number }>()
 
-  const entrées = Object.entries(req.crops)
-    .map(([clé, valeur]) => ({ clé: Number(clé), valeur }))
+  const entries = Object.entries(req.crops)
+    .map(([key, value]) => ({ key: Number(key), value }))
     // L'ordre de parcours d'un objet JSON ne se promet pas pour toutes les
     // formes de clés. Trier rend le résultat identique d'une lecture à l'autre.
-    .sort((a, b) => a.clé - b.clé)
+    .sort((a, b) => a.key - b.key)
 
-  for (const { clé, valeur } of entrées) {
+  for (const { key, value } of entries) {
     // Une clé illisible ne peut pas être signalée dans une liste de nombres, et
     // n'a jamais pu désigner un plan : elle disparaît.
-    if (!Number.isFinite(clé)) continue
-    if (!Number.isFinite(valeur)) {
-      rejetées.push(clé)
+    if (!Number.isFinite(key)) continue
+    if (!Number.isFinite(value)) {
+      rejected.push(key)
       continue
     }
 
-    let cible: ShotFraming | null = null
+    let target: ShotFraming | null = null
     let distance = Number.POSITIVE_INFINITY
     for (const s of shots) {
-      const d = Math.abs(s.key - clé)
-      if (d <= TOLÉRANCE_DÉROGATION_MS && d < distance) {
-        cible = s
+      const d = Math.abs(s.key - key)
+      if (d <= TOLERANCE_EXCEPTION_MS && d < distance) {
+        target = s
         distance = d
       }
     }
-    if (cible === null) {
-      rejetées.push(clé)
+    if (target === null) {
+      rejected.push(key)
       continue
     }
 
     // Deux dérogations sur le même plan : la plus proche gagne, l'autre est
     // rejetée. Aucune ne s'applique en silence à la place de l'autre.
-    const tenante = retenues.get(cible.key)
-    if (tenante && tenante.distance <= distance) {
-      rejetées.push(clé)
+    const holding = kept.get(target.key)
+    if (holding && holding.distance <= distance) {
+      rejected.push(key)
       continue
     }
-    if (tenante) rejetées.push(tenante.clé)
+    if (holding) rejected.push(holding.key)
     // Une valeur hors de [0, 1] est **bornée, pas rejetée** : elle vient d'un
     // curseur, c'est une intention maladroite et non une donnée corrompue.
-    retenues.set(cible.key, { clé, distance, valeur: borner(valeur, 0, 1) })
+    kept.set(target.key, { key, distance, value: bound(value, 0, 1) })
   }
 
   for (const s of shots) {
-    const dérogation = retenues.get(s.key)
-    if (!dérogation) continue
+    const exception = kept.get(s.key)
+    if (!exception) continue
     // **Les deux positions, et la même.** Une dérogation est une intention
     // humaine sur *où regarder*, pas sur une fenêtre : la poser d'un seul côté
     // ferait diverger le natif et la variante sur un plan que quelqu'un a cadré
     // exprès, et l'écart ne se verrait qu'en comparant deux fichiers.
-    s.cropX = dérogation.valeur
-    s.cropXNative = dérogation.valeur
+    s.cropX = exception.value
+    s.cropXNative = exception.value
     s.source = 'manual'
   }
 
-  return [...new Set(rejetées)].sort((a, b) => a - b)
+  return [...new Set(rejected)].sort((a, b) => a - b)
 }

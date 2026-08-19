@@ -27,7 +27,7 @@ import {
   LOUDNORM,
   METADATA_SCRUB,
   RESAMPLE,
-  videoEncodeArgs,
+  videoEncodedArgs,
   type EncoderName,
 } from '@/core/ffmpeg/encoder'
 
@@ -39,7 +39,7 @@ import {
  * inutilisable a souvent averti avant. `-stats` garde la ligne `time=` dont la
  * barre de progression se nourrit.
  */
-const GLOBALES: readonly string[] = [
+const GLOBAL: readonly string[] = [
   '-hide_banner',
   '-nostdin',
   '-y',
@@ -70,7 +70,7 @@ function destination(dst: string): string[] {
  * `15.699999999999818`. On tronque à la microseconde et on retire les zéros de
  * queue — largement en deçà d'une image, même à 60 fps.
  */
-function secondes(n: number): string {
+function seconds(n: number): string {
   return n.toFixed(6).replace(/\.?0+$/, '')
 }
 
@@ -113,8 +113,8 @@ function secondes(n: number): string {
  * L'ordre des trois remplacements compte : `\` d'abord, sinon on doublerait les
  * contre-obliques qu'on vient d'écrire.
  */
-function échapper(valeur: string): string {
-  return valeur
+function escape(value: string): string {
+  return value
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
     .replace(/'/g, "'\\\\\\''")
@@ -133,13 +133,13 @@ function échapper(valeur: string): string {
  * applique déjà à `cropX` : une fonction pure ne peut rien supposer de son
  * appelant.
  */
-function nombre(n: number, quoi: string): string {
+function number(n: number, what: string): string {
   if (!Number.isFinite(n)) {
     // `String` et non `JSON.stringify` : ce dernier rend `null` pour `NaN`
     // comme pour les deux infinis, donc le message désignerait une valeur que
     // l'appelant n'a pas passée. Un diagnostic qui ment coûte plus qu'il ne
     // rapporte.
-    throw new Error(`${quoi} doit être un nombre fini, reçu ${String(n)}.`)
+    throw new Error(`${what} doit être un nombre fini, reçu ${String(n)}.`)
   }
   return String(n)
 }
@@ -151,8 +151,8 @@ function nombre(n: number, quoi: string): string {
  * littéraux pour le découpage du graphe, donc un chemin ne peut pas en sortir
  * même si la table d'échappement venait à être rognée.
  */
-function option(nom: string, valeur: string): string {
-  return `${nom}='${échapper(valeur)}'`
+function option(name: string, value: string): string {
+  return `${name}='${escape(value)}'`
 }
 
 /**
@@ -175,8 +175,8 @@ function option(nom: string, valeur: string): string {
  */
 export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName }): string[] {
   return [
-    ...GLOBALES,
-    ...accélération(o.encoder),
+    ...GLOBAL,
+    ...acceleration(o.encoder),
     '-i', o.src,
     // `-map` explicite, et `0:v:0` plutôt que `0:v` : une source peut porter
     // une pochette, que ffmpeg expose comme un second flux vidéo et
@@ -186,7 +186,7 @@ export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName })
     '-map', '0:a:0?',
     '-vf', 'fps=30,scale=960:540',
     '-g', '30',
-    ...videoEncodeArgs(o.encoder, 'fast'),
+    ...videoEncodedArgs(o.encoder, 'fast'),
     // Le son sert au montage : le repérage des coupes se fait à l'oreille.
     '-c:a', 'aac', '-b:a', '128k',
     ...METADATA_SCRUB,
@@ -203,7 +203,7 @@ export function proxyArgs(o: { src: string; dst: string; encoder: EncoderName })
  */
 export function audioArgs(o: { src: string; dst: string }): string[] {
   return [
-    ...GLOBALES,
+    ...GLOBAL,
     '-i', o.src,
     '-vn',
     '-ac', '1',
@@ -232,8 +232,8 @@ export function audioArgs(o: { src: string; dst: string }): string[] {
  */
 export function thumbArgs(o: { src: string; dst: string; at: number }): string[] {
   return [
-    ...GLOBALES,
-    '-ss', secondes(Math.max(0, o.at)),
+    ...GLOBAL,
+    '-ss', seconds(Math.max(0, o.at)),
     '-i', o.src,
     '-map', '0:v:0',
     '-an',
@@ -272,8 +272,8 @@ export function thumbArgs(o: { src: string; dst: string; at: number }): string[]
  */
 export function sourceThumbArgs(o: { src: string; dst: string; at: number }): string[] {
   return [
-    ...GLOBALES,
-    '-ss', secondes(Math.max(0, o.at)),
+    ...GLOBAL,
+    '-ss', seconds(Math.max(0, o.at)),
     '-i', o.src,
     '-map', '0:v:0',
     '-an',
@@ -286,7 +286,7 @@ export function sourceThumbArgs(o: { src: string; dst: string; at: number }): st
 }
 
 /** `-hwaccel cuda` seul, et seulement quand on encodera sur le GPU. */
-function accélération(encoder: EncoderName): string[] {
+function acceleration(encoder: EncoderName): string[] {
   return encoder === 'nvenc' ? ['-hwaccel', 'cuda'] : []
 }
 
@@ -347,7 +347,7 @@ export type RenderOptions = {
 }
 
 /** Une étape linéaire du graphe : une étiquette entre, une étiquette sort. */
-type Étape = (entrée: string, sortie: string) => string
+type Step = (entry: string, output: string) => string
 
 /**
  * Écrit une suite d'étapes dans le graphe et rend l'étiquette qui en sort.
@@ -360,19 +360,19 @@ type Étape = (entrée: string, sortie: string) => string
  * Aucune étape : rien n'est écrit et l'entrée ressort telle quelle. L'appelant
  * a alors fait écrire l'étiquette terminale par ce qui précède.
  */
-function enchaîner(
-  graphe: string[],
-  entrée: string,
-  étapes: readonly Étape[],
+function chain(
+  graph: string[],
+  entry: string,
+  steps: readonly Step[],
   terminal: string,
 ): string {
-  let courant = entrée
-  étapes.forEach((étape, i) => {
-    const sortie = i === étapes.length - 1 ? terminal : `vf${i}`
-    graphe.push(étape(courant, sortie))
-    courant = sortie
+  let current = entry
+  steps.forEach((step, i) => {
+    const output = i === steps.length - 1 ? terminal : `vf${i}`
+    graph.push(step(current, output))
+    current = output
   })
-  return courant
+  return current
 }
 
 /**
@@ -389,7 +389,7 @@ function enchaîner(
  * La bonne réponse est en amont : ne jamais mettre de texte dans le fond. C'est
  * ce que garantit le `split`, qui prend sa branche **avant** toute incrustation.
  */
-const SIGMA_DU_FOND = 12
+const BACKGROUND_SIGMA = 12
 
 /**
  * Le rendu **natif** d'un clip, celui du feed d'Instagram et de Facebook, depuis
@@ -434,7 +434,7 @@ const SIGMA_DU_FOND = 12
  * maintenant.
  */
 export function renderArgs(o: RenderOptions): string[] {
-  return construireLeRendu(o, o.out)
+  return buildRender(o, o.out)
 }
 
 /**
@@ -468,7 +468,7 @@ export function renderArgs(o: RenderOptions): string[] {
  * une seule compression.
  */
 export function blurredVariantArgs(o: RenderOptions): string[] {
-  return construireLeRendu(o, outputSize('9:16'))
+  return buildRender(o, outputSize('9:16'))
 }
 
 /**
@@ -484,7 +484,7 @@ export function blurredVariantArgs(o: RenderOptions): string[] {
  * pose dessus. Le natif n'y passe jamais — son cadre a le ratio du canevas — et
  * le graphe s'y réduit à `crop,scale,setsar`.
  */
-function construireLeRendu(
+function buildRender(
   o: RenderOptions,
   requestedCanvas: { w: number; h: number },
 ): string[] {
@@ -496,8 +496,8 @@ function construireLeRendu(
   // ce détour avait fait disparaître.
   // Appelées pour leur refus et non pour leur valeur : elles lèvent sur un
   // nombre non fini, et c'est tout ce qu'on leur demande ici.
-  nombre(requestedCanvas.w, 'out.w')
-  nombre(requestedCanvas.h, 'out.h')
+  number(requestedCanvas.w, 'out.w')
+  number(requestedCanvas.h, 'out.h')
   const canvas = requestedCanvas
   // **Contrôlées, pas normalisées.** Une borne `NaN` traverserait
   // `normalizeSegments` sans bruit — `end > start` est faux, donc le segment
@@ -512,11 +512,11 @@ function construireLeRendu(
     )
   }
   segments.forEach((s, i) => {
-    nombre(s.start, `segments[${i}].start`)
-    nombre(s.end, `segments[${i}].end`)
+    number(s.start, `segments[${i}].start`)
+    number(s.end, `segments[${i}].end`)
     if (s.end <= s.start) {
       throw new Error(
-        `segments[${i}] ne dure pas : ${secondes(s.start)} → ${secondes(s.end)}. ` +
+        `segments[${i}] ne dure pas : ${seconds(s.start)} → ${seconds(s.end)}. ` +
           "Un morceau vide ouvre un décodeur qui ne rend aucune image, et décale d'autant les " +
           'sous-titres, qui sont calés sur la somme des durées demandées.',
       )
@@ -525,11 +525,11 @@ function construireLeRendu(
     // sous-titres additionne les durées des entrées dans leur ordre : deux
     // entrées qui se chevauchent feraient afficher les bons mots au mauvais
     // moment sur tout ce qui suit, et aucun test de durée ne le verrait.
-    const précédent = i === 0 ? null : segments[i - 1]
-    if (précédent !== null && s.start < précédent.end) {
+    const previous = i === 0 ? null : segments[i - 1]
+    if (previous !== null && s.start < previous.end) {
       throw new Error(
         `segments[${i}] commence avant la fin de segments[${i - 1}] ` +
-          `(${secondes(s.start)} < ${secondes(précédent.end)}). Les entrées se concatènent dans ` +
+          `(${seconds(s.start)} < ${seconds(previous.end)}). Les entrées se concatènent dans ` +
           "l'ordre où elles arrivent, et les sous-titres sont recalés sur cette somme.",
       )
     }
@@ -539,20 +539,20 @@ function construireLeRendu(
   const multi = segments.length > 1
 
   // Ce qui s'incruste **sur le canevas composé**, une seule fois, à sa taille.
-  const étapes: Étape[] = []
+  const steps: Step[] = []
   if (o.assPath !== undefined) {
     const options = [option('filename', o.assPath)]
     // `filename=` nommé et non positionnel : un chemin en position portant un
     // `:` serait lu comme le début de l'option suivante.
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
-    étapes.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+    steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
   // Les logos passent **après** l'incrustation des sous-titres : une marque
   // posée dessous serait recouverte par le premier carton qui monte assez haut.
   logos.forEach((logo, i) => {
-    const x = nombre(logo.x, `logos[${i}].x`)
-    const y = nombre(logo.y, `logos[${i}].y`)
-    étapes.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
+    const x = number(logo.x, `logos[${i}].x`)
+    const y = number(logo.y, `logos[${i}].y`)
+    steps.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
   })
 
   // Où finit tout le graphe. Quand rien ne s'incruste, c'est la composition —
@@ -560,24 +560,24 @@ function construireLeRendu(
   // porte pas de filtre de rattrapage, et un `-map` dont le nom changerait avec
   // les options se paierait un jour.
   const terminal = 'v'
-  const concatLabel = étapes.length === 0 ? terminal : 'vc'
+  const concatLabel = steps.length === 0 ? terminal : 'vc'
   const entryLabel = (i: number): string =>
-    multi ? `v${i}` : étapes.length === 0 ? terminal : 'v0'
+    multi ? `v${i}` : steps.length === 0 ? terminal : 'v0'
 
-  const graphe: string[] = []
+  const graph: string[] = []
   segments.forEach((s, i) => {
     const c = s.crop
     const crop =
-      `crop=${nombre(c.w, `segments[${i}].crop.w`)}:${nombre(c.h, `segments[${i}].crop.h`)}` +
-      `:${nombre(c.x, `segments[${i}].crop.x`)}:${nombre(c.y, `segments[${i}].crop.y`)}`
+      `crop=${number(c.w, `segments[${i}].crop.w`)}:${number(c.h, `segments[${i}].crop.h`)}` +
+      `:${number(c.x, `segments[${i}].crop.x`)}:${number(c.y, `segments[${i}].crop.y`)}`
     const inCanvas = sizeInCanvas(s.ratio, canvas)
-    const sortie = entryLabel(i)
+    const output = entryLabel(i)
 
     if (inCanvas.h >= canvas.h) {
       // Le cadre remplit le canevas : pas de fond à fabriquer, et le composer
       // quand même ferait payer un `gblur` sur une image que rien ne montre.
-      graphe.push(
-        `[${i}:v]${crop},scale=${canvas.w}:${canvas.h}:flags=lanczos,setsar=1[${sortie}]`,
+      graph.push(
+        `[${i}:v]${crop},scale=${canvas.w}:${canvas.h}:flags=lanczos,setsar=1[${output}]`,
       )
       return
     }
@@ -587,14 +587,14 @@ function construireLeRendu(
     // #22, et il est structurel : le fond ne peut pas porter de texte puisqu'il
     // n'en a jamais vu passer. `force_original_aspect_ratio=increase` puis
     // `crop` couvrent le canevas sans déformer.
-    graphe.push(`[${i}:v]${crop},setsar=1[c${i}]`)
-    graphe.push(`[c${i}]split=2[bga${i}][fga${i}]`)
-    graphe.push(
+    graph.push(`[${i}:v]${crop},setsar=1[c${i}]`)
+    graph.push(`[c${i}]split=2[bga${i}][fga${i}]`)
+    graph.push(
       `[bga${i}]scale=${canvas.w}:${canvas.h}:force_original_aspect_ratio=increase,` +
-        `crop=${canvas.w}:${canvas.h},gblur=sigma=${SIGMA_DU_FOND}[bg${i}]`,
+        `crop=${canvas.w}:${canvas.h},gblur=sigma=${BACKGROUND_SIGMA}[bg${i}]`,
     )
-    graphe.push(`[fga${i}]scale=${inCanvas.w}:${inCanvas.h}:flags=lanczos[fg${i}]`)
-    graphe.push(`[bg${i}][fg${i}]overlay=x=0:y=(H-h)/2,setsar=1[${sortie}]`)
+    graph.push(`[fga${i}]scale=${inCanvas.w}:${inCanvas.h}:flags=lanczos[fg${i}]`)
+    graph.push(`[bg${i}][fg${i}]overlay=x=0:y=(H-h)/2,setsar=1[${output}]`)
   })
 
   // Pas de `?` sur les entrées audio, et c'est délibéré : une étiquette de
@@ -602,50 +602,50 @@ function construireLeRendu(
   // piste son sur **chaque** entrée. Un replay muet est un replay raté ; mieux
   // vaut que le rendu échoue franchement que de livrer un clip silencieux.
   let audio: string
-  let contenu: string
+  let content: string
   if (multi) {
-    const entrées = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
-    graphe.push(`${entrées}concat=n=${segments.length}:v=1:a=1[${concatLabel}][ac]`)
+    const entries = segments.map((_, i) => `[v${i}][${i}:a]`).join('')
+    graph.push(`${entries}concat=n=${segments.length}:v=1:a=1[${concatLabel}][ac]`)
     audio = 'ac'
-    contenu = concatLabel
+    content = concatLabel
   } else {
     audio = '0:a'
-    contenu = entryLabel(0)
+    content = entryLabel(0)
   }
   // `aresample` derrière `loudnorm`, et ce n'est pas décoratif : en passe
   // unique, `loudnorm` travaille à 192 kHz pour mesurer les crêtes et sort à ce
   // taux. ffmpeg insère alors tout seul un rééchantillonnage vers le plus haut
   // taux que l'AAC accepte — mesuré, une source à 44,1 kHz ressortait en
   // **96 kHz**. Personne ne livre du 96 kHz.
-  graphe.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
+  graph.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
 
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
   // les superpose. La position donnée est le coin supérieur gauche.
   logos.forEach((logo, i) => {
-    const w = nombre(logo.w, `logos[${i}].w`)
-    const h = nombre(logo.h, `logos[${i}].h`)
-    graphe.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
+    const w = number(logo.w, `logos[${i}].w`)
+    const h = number(logo.h, `logos[${i}].h`)
+    graph.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
-  enchaîner(graphe, contenu, étapes, terminal)
+  chain(graph, content, steps, terminal)
 
   return [
-    ...GLOBALES,
+    ...GLOBAL,
     // Un `-hwaccel` **par entrée**, et non un seul en tête : c'est une option
     // d'entrée, sa portée s'arrête au `-i` qui suit.
     ...segments.flatMap((s) => [
-      ...accélération(o.encoder),
-      '-ss', secondes(s.start),
-      '-t', secondes(s.end - s.start),
+      ...acceleration(o.encoder),
+      '-ss', seconds(s.start),
+      '-t', seconds(s.end - s.start),
       '-i', o.src,
     ]),
     // Les logos n'ont pas de `-hwaccel` : décoder un PNG sur le GPU ne rapporte
     // rien et le ferait remonter en mémoire vidéo pour redescendre aussitôt.
     ...logos.flatMap((logo) => ['-i', logo.path]),
-    '-filter_complex', graphe.join(';'),
+    '-filter_complex', graph.join(';'),
     '-map', '[v]',
     '-map', '[a]',
-    ...videoEncodeArgs(o.encoder, 'quality'),
+    ...videoEncodedArgs(o.encoder, 'quality'),
     '-c:a', 'aac', '-b:a', '192k',
     ...METADATA_SCRUB,
     '-movflags', '+faststart',

@@ -5,7 +5,7 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
 import { getDb, getProject, upsertProject } from '@/server/db'
-import { cheminTemporaire, StopRequestedError } from '@/server/ffmpeg'
+import { pathTemporary, StopRequestedError } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
 import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
 
@@ -34,7 +34,7 @@ import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/serv
  * la présence du fichier (spec §4), et la comparaison des clés de validité vient
  * en itération 4. `durationSec` sert déjà, lui — `buildWindows` en a besoin.
  */
-export type Empreinte = {
+export type Fingerprint = {
   sizeBytes: number
   /** Millisecondes depuis l'époque, comme `fs.Stats.mtimeMs` — voir `db.ts`. */
   mtimeMs: number
@@ -50,10 +50,10 @@ export type Empreinte = {
  * écrite. Les systèmes de fichiers ne s'accordent déjà pas sur la granularité —
  * 9p rend souvent la seconde entière —, on ne va pas y ajouter du flottant.
  */
-export function empreinteSource(
+export function fingerprintSource(
   stat: Pick<fs.Stats, 'size' | 'mtimeMs'>,
   durationSec: number | null,
-): Empreinte {
+): Fingerprint {
   return {
     sizeBytes: stat.size,
     mtimeMs: Math.trunc(stat.mtimeMs),
@@ -62,7 +62,7 @@ export function empreinteSource(
 }
 
 /** Ce qu'on décide devant une copie déjà présente. */
-export type DécisionCopie = 'copier' | 'garder'
+export type DecisionCopy = 'copier' | 'garder'
 
 /**
  * Faut-il recopier la source ?
@@ -77,14 +77,14 @@ export type DécisionCopie = 'copier' | 'garder'
  * temporaire et n'est renommée qu'une fois complète, donc une taille égale veut
  * bien dire une copie entière.
  */
-export function décisionCopie(o: {
+export function decisionCopy(o: {
   source: { sizeBytes: number }
-  copie: { sizeBytes: number } | null
+  copy: { sizeBytes: number } | null
   force?: boolean
-}): DécisionCopie {
+}): DecisionCopy {
   if (o.force === true) return 'copier'
-  if (o.copie === null) return 'copier'
-  return o.copie.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
+  if (o.copy === null) return 'copier'
+  return o.copy.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
 }
 
 /**
@@ -101,15 +101,15 @@ export function décisionCopie(o: {
  * message dit quoi faire ; le jour où un veilleur balaiera le dossier de replays
  * (itération 4), il faudra un sondage qui ne consomme pas de fil. La requête
  * abandonnée maintient par ailleurs la boucle d'événements en vie : les scripts
- * de `scripts/` sortent donc par `quitter()`, qui ne s'en remet pas au seul
+ * de `scripts/` sortent donc par `quit()`, qui ne s'en remet pas au seul
  * `process.exitCode`. (relevé par Copilot)
  *
  * **Le message porte le chemin complet.** Comme ceux de `runFfmpeg`, il est
  * destiné à un journal de serveur : une route qui le renverrait tel quel
  * exposerait l'arborescence de la machine. (relevé par Aristarque)
  */
-export async function statAvecDélai(chemin: string, timeoutMs: number): Promise<fs.Stats> {
-  return attendreOuRenoncer(
+export async function statWithDelay(path: string, timeoutMs: number): Promise<fs.Stats> {
+  return waitOrAbandon(
     // `lstat` et non `stat`, et c'est ce qui ferme la porte des liens
     // symboliques. `resolveSource` valide la **forme** du chemin avec
     // `path.resolve`, qui ne suit pas les liens : un `REPLAY_DIR/emission.mp4`
@@ -119,9 +119,9 @@ export async function statAvecDélai(chemin: string, timeoutMs: number): Promise
     // `lstat` décrit le lien lui-même, donc `isFile()` est faux et l'ingestion
     // s'arrête. Le montage 9p du Drive ne porte de toute façon pas de liens.
     // (relevé par Aristarque)
-    fsp.lstat(chemin),
+    fsp.lstat(path),
     timeoutMs,
-    `Le dossier des replays ne répond pas (${timeoutMs} ms sur ${JSON.stringify(chemin)}). ` +
+    `Le dossier des replays ne répond pas (${timeoutMs} ms sur ${JSON.stringify(path)}). ` +
       'REPLAY_DIR est monté en 9p : il peut être absent, ou monté avec son transport mort ' +
       "dessous — /proc/mounts ne les distingue pas. Rouvrir l'explorateur Windows sur le " +
       'lecteur, ou remonter le partage.',
@@ -129,7 +129,7 @@ export async function statAvecDélai(chemin: string, timeoutMs: number): Promise
 }
 
 /** Délai par défaut des gardes sur le Drive. Généreux : il est lent, pas mort. */
-export const DÉLAI_STAT_MS = 20_000
+export const DELAY_STAT_MS = 20_000
 
 /**
  * Le montage **répond-il** ? Pas « le fichier existe-t-il » : `false` veut dire
@@ -148,10 +148,10 @@ export const DÉLAI_STAT_MS = 20_000
  * fait plusieurs, et c'est ce qui rend ce sondage nécessaire côté transcription.
  * (relevé par Copilot et Aristarque)
  */
-export async function montageRépond(chemin: string, timeoutMs = DÉLAI_STAT_MS): Promise<boolean> {
+export async function editingResponds(path: string, timeoutMs = DELAY_STAT_MS): Promise<boolean> {
   try {
-    await attendreOuRenoncer(
-      fsp.stat(chemin).then(
+    await waitOrAbandon(
+      fsp.stat(path).then(
         () => true,
         () => true,
       ),
@@ -175,25 +175,25 @@ export async function montageRépond(chemin: string, timeoutMs = DÉLAI_STAT_MS)
  * **Renoncer n'est pas annuler.** Le travail continue derrière — c'est le prix
  * d'un appel système non interruptible —, mais l'appelant, lui, repart.
  */
-export async function attendreOuRenoncer<T>(
-  travail: Promise<T>,
+export async function waitOrAbandon<T>(
+  work: Promise<T>,
   timeoutMs: number,
   message: string,
 ): Promise<T> {
-  let minuterie: NodeJS.Timeout | undefined
-  const garde = new Promise<never>((_, reject) => {
-    minuterie = setTimeout(() => reject(new Error(message)), timeoutMs)
+  let timer: NodeJS.Timeout | undefined
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs)
   })
 
   // Le perdant de la course garde une promesse en vol : sans ce `catch`, un
   // `stat` qui échoue *après* le délai remonterait en rejet non traité et
   // couperait le processus.
-  travail.catch(() => {})
+  work.catch(() => {})
 
   try {
-    return await Promise.race([travail, garde])
+    return await Promise.race([work, guard])
   } finally {
-    clearTimeout(minuterie)
+    clearTimeout(timer)
   }
 }
 
@@ -206,22 +206,22 @@ export async function attendreOuRenoncer<T>(
  * Le renommage est atomique à l'intérieur d'un même système de fichiers, et
  * `stage/` en est un.
  */
-async function copier(
+async function copy(
   src: string,
   dst: string,
   total: number,
-  onProgress?: (a: AvancementCopie) => void,
+  onProgress?: (a: ProgressCopy) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   await fsp.mkdir(path.dirname(dst), { recursive: true })
-  const temporaire = cheminTemporaire(dst)
+  const temporary = pathTemporary(dst)
 
-  let fait = 0
-  const compteur = new Transform({
-    transform(morceau: Buffer, _codage, suite) {
-      fait += morceau.length
-      onProgress?.({ done: fait, total, fraction: total > 0 ? Math.min(1, fait / total) : null })
-      suite(null, morceau)
+  let done = 0
+  const counter = new Transform({
+    transform(piece: Buffer, _encoding, next) {
+      done += piece.length
+      onProgress?.({ done: done, total, fraction: total > 0 ? Math.min(1, done / total) : null })
+      next(null, piece)
     },
   })
 
@@ -230,13 +230,13 @@ async function copier(
     // d'attendre un appel système qui continue derrière ; ici `pipeline` ferme
     // les deux flux et rend la main pour de bon. C'est ce qui permet d'arrêter
     // une analyse pendant les cinq minutes de copie depuis le Drive.
-    await pipeline(fs.createReadStream(src), compteur, fs.createWriteStream(temporaire), { signal })
-    vérifierTailleCopiée(fait, total, src)
-    await fsp.rename(temporaire, dst)
+    await pipeline(fs.createReadStream(src), counter, fs.createWriteStream(temporary), { signal })
+    verifySizeCopied(done, total, src)
+    await fsp.rename(temporary, dst)
   } catch (cause) {
     // Ne pas laisser un moignon derrière soi : il ne serait ramassé par
     // personne, et `stage/` porte des fichiers de plusieurs gigaoctets.
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     // Un arrêt demandé n'est pas un échec de la copie : `pipeline` rejette avec
     // une `AbortError` dont le message ne dit rien à personne.
     if (signal?.aborted === true) throw new StopRequestedError(`copie de ${path.basename(src)}`)
@@ -296,7 +296,7 @@ async function copyOnce(
   src: string,
   dst: string,
   total: number,
-  onProgress?: (a: AvancementCopie) => void,
+  onProgress?: (a: ProgressCopy) => void,
   signal?: AbortSignal,
 ): Promise<boolean> {
   // **Deux tours au plus.** Le premier attend la copie déjà partie ; le second
@@ -325,7 +325,7 @@ async function copyOnce(
     if (signal?.aborted === true) throw new StopRequestedError(`copie de ${path.basename(src)}`)
   }
 
-  const work = copier(src, dst, total, onProgress, signal)
+  const work = copy(src, dst, total, onProgress, signal)
   copiesInFlight.set(dst, work)
   try {
     await work
@@ -378,7 +378,7 @@ export async function ensureLocalCopy(
   // disque de la machine, jamais sur le montage.
   if (fs.existsSync(destination)) return destination
 
-  if (!(await montageRépond(project.sourcePath))) {
+  if (!(await editingResponds(project.sourcePath))) {
     throw new Error(
       `La copie de travail de ${project.id} est absente et le dossier des replays ne répond pas : ` +
         'impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté avec son ' +
@@ -391,10 +391,10 @@ export async function ensureLocalCopy(
   const start = Date.now()
   let milestone = 0
   let lastLog = start
-  const ingestion = await ingérerOuExpliquer(project, {
+  const ingestion = await ingestOrExplain(project, {
     db: options.db,
     signal: options.signal,
-    onProgress: (a: AvancementCopie) => {
+    onProgress: (a: ProgressCopy) => {
       if (a.fraction === null) return
       // **Deux conditions, et il faut les deux.** Un palier tous les dix pour
       // cent suffirait sur une copie de deux minutes ; sur un fichier local
@@ -408,7 +408,7 @@ export async function ensureLocalCopy(
       milestone = reached
       lastLog = now
       console.log(
-        `[${project.id}] copie ${reached * 10} % (${enOctets(a.done)} sur ${enOctets(a.total)})`,
+        `[${project.id}] copie ${reached * 10} % (${inOctets(a.done)} sur ${inOctets(a.total)})`,
       )
     },
   })
@@ -425,7 +425,7 @@ export async function ensureLocalCopy(
  * dessous. Un replay pèse 4 à 13 Go et un fichier de test quelques mégaoctets ;
  * une seule unité rendait l'un des deux illisible — « 0.0 Go sur 0.0 ».
  */
-function enOctets(bytes: number): string {
+function inOctets(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} Go` : `${Math.round(bytes / 1e6)} Mo`
 }
 
@@ -439,7 +439,7 @@ function enOctets(bytes: number): string {
  * `cause` pour le journal du serveur, et seul le nom de base traverse — le
  * chemin complet porte l'arborescence du Drive.
  */
-async function ingérerOuExpliquer(
+async function ingestOrExplain(
   project: { id: string; sourcePath: string },
   options: OptionsIngestion,
 ): Promise<Ingestion> {
@@ -499,13 +499,13 @@ export function holdStagedCopy(filePath: string): () => void {
  * laisse un écouteur de plus sur le signal de son exécution, qui vit aussi
  * longtemps qu'elle.
  */
-async function raceAgainstAbort<T>(travail: Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
-  if (signal === undefined) return travail
+async function raceAgainstAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+  if (signal === undefined) return work
   if (signal.aborted) return undefined
   let onAbort: (() => void) | undefined
   try {
     return await Promise.race([
-      travail,
+      work,
       new Promise<undefined>((resolve) => {
         onAbort = () => resolve(undefined)
         signal.addEventListener('abort', onAbort, { once: true })
@@ -548,7 +548,7 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  *
  * **`keep` est une fonction, et pas une liste, parce que le balayage dure.**
  * Prise en instantané au départ, elle ignorait une exécution démarrée pendant la
- * boucle : ce projet-là ne recopie rien — `ingestionNécessaire` vient de
+ * boucle : ce projet-là ne recopie rien — `ingestionNecessary` vient de
  * constater que sa copie est là —, `copiesInFlight` ne le connaît donc pas, et le
  * balayage l'effaçait sous ses pieds. L'étape suivante échouait sur une entrée
  * manquante. Réévaluée à chaque fichier, la liste voit les exécutions arrivées
@@ -560,8 +560,8 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  * les sépare rend la main, et une exécution démarrée là constatait sa copie
  * présente puis la perdait avant d'ouvrir le fichier. Le contrôle final et le
  * `rmSync` sont synchrones et consécutifs — le fil unique de Node interdit alors
- * qu'un `lancer` s'intercale, exactement comme il tient la réservation
- * d'`enCours`. C'est aussi pourquoi l'effacement est synchrone : ce n'est qu'un
+ * qu'un `launch` s'intercale, exactement comme il tient la réservation
+ * d'`inCurrent`. C'est aussi pourquoi l'effacement est synchrone : ce n'est qu'un
  * `unlink`, une opération de métadonnées, et rien n'y est copié.
  * (relevé par Copilot)
  */
@@ -586,7 +586,7 @@ export async function cleanStage(
   /**
    * Ce fichier est-il à épargner ? **Synchrone**, et c'est ce qui compte :
    * appelée juste avant le `rmSync`, elle ne laisse aucun point d'attente où un
-   * `lancer` pourrait s'intercaler.
+   * `launch` pourrait s'intercaler.
    *
    * `null` veut dire « on n'a pas pu savoir », donc « on épargne » : c'est le
    * cas d'une base refermée par l'arrêt du serveur pendant le balayage.
@@ -642,24 +642,24 @@ export async function cleanStage(
  *
  * Pure, et séparée pour être testée sans copier quatre gigaoctets.
  */
-export function vérifierTailleCopiée(copié: number, attendu: number, source: string): void {
-  if (copié === attendu) return
+export function verifySizeCopied(copy: number, expected: number, source: string): void {
+  if (copy === expected) return
   throw new Error(
-    `La copie de ${JSON.stringify(source)} fait ${copié} octets au lieu de ${attendu} : ` +
+    `La copie de ${JSON.stringify(source)} fait ${copy} octets au lieu de ${expected} : ` +
       'la source a changé de taille pendant la copie. Le fichier temporaire est effacé, ' +
       'rien de tronqué ne prend le nom définitif. Relancer.',
   )
 }
 
 /** L'avancement d'une copie, en octets. */
-export type AvancementCopie = { done: number; total: number; fraction: number | null }
+export type ProgressCopy = { done: number; total: number; fraction: number | null }
 
 export type OptionsIngestion = {
   /** Recopier même si une copie de la bonne taille est déjà là. */
   force?: boolean
   /** Délai de garde du `stat` sur le Drive. */
   statTimeoutMs?: number
-  onProgress?: (avancement: AvancementCopie) => void
+  onProgress?: (progress: ProgressCopy) => void
   /** La base à renseigner. `null` pour n'en renseigner aucune (tests). */
   db?: Database | null
   /**
@@ -688,7 +688,7 @@ export type Ingestion = {
    * la faisait déjà et celui-ci l'a attendue (voir `copyOnce`).
    */
   copied: boolean
-} & Empreinte
+} & Fingerprint
 
 /**
  * Ingère un replay : contrôle le montage, copie en local, relève l'empreinte,
@@ -705,7 +705,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   const projectId = projectIdFromSource(source)
   const destination = stagedPath(source)
 
-  const stat = await statAvecDélai(sourcePath, options.statTimeoutMs ?? DÉLAI_STAT_MS)
+  const stat = await statWithDelay(sourcePath, options.statTimeoutMs ?? DELAY_STAT_MS)
   // `statAvecDélai` fait un `lstat` : un lien symbolique n'est donc pas un
   // fichier, et il est refusé ici même s'il pointe sur une vraie vidéo. C'est
   // volontaire — voir le commentaire de `statAvecDélai`.
@@ -717,39 +717,39 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   }
 
   // La copie, si elle existe : son absence est le cas courant, pas une erreur.
-  let copieStat: fs.Stats | null = null
+  let copyStat: fs.Stats | null = null
   try {
-    copieStat = await fsp.stat(destination)
+    copyStat = await fsp.stat(destination)
   } catch {
-    copieStat = null
+    copyStat = null
   }
 
-  const décision = décisionCopie({
+  const decision = decisionCopy({
     source: { sizeBytes: stat.size },
-    copie: copieStat === null ? null : { sizeBytes: copieStat.size },
+    copy: copyStat === null ? null : { sizeBytes: copyStat.size },
     force: options.force,
   })
 
   const copied =
-    décision === 'copier' &&
+    decision === 'copier' &&
     (await copyOnce(sourcePath, destination, stat.size, options.onProgress, options.signal))
 
   // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
   // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
-  const empreinte = empreinteSource(stat, await probeDuration(destination, undefined, options.signal))
+  const fingerprint = fingerprintSource(stat, await probeDuration(destination, undefined, options.signal))
 
   const ingestion: Ingestion = {
     projectId,
     sourcePath,
     stagedPath: destination,
     copied,
-    ...empreinte,
+    ...fingerprint,
   }
 
   const db = options.db === undefined ? getDb() : options.db
   if (db !== null) {
     upsertProject(db, {
-      ...empreinte,
+      ...fingerprint,
       id: projectId,
       sourcePath,
       stagedPath: destination,

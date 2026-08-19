@@ -3,7 +3,7 @@ import { GoogleGenAI, Type, type Schema } from '@google/genai'
 import type { JsonSchema, LlmCall, LlmClientOptions } from '@/server/llm/types'
 
 /**
- * Le client Gemini : ce que `clientParDéfaut` faisait seul dans
+ * Le client Gemini : ce que `clientByDefault` faisait seul dans
  * `candidates.ts` avant que la couture se généralise.
  *
  * **Le signal va au SDK**, qui le passe à `fetch` : la requête en vol est

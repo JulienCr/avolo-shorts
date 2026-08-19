@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { LIBELLES_ETAPES } from '@/core/parcours'
+import { LABELS_STEPS } from '@/core/phase'
 import type { ProjectListItem, StepName } from '@/lib/api'
 
 /**
@@ -10,7 +10,7 @@ import type { ProjectListItem, StepName } from '@/lib/api'
  * d'étape, et la fin**.
  *
  * **Une annonce par changement d'étape, plus une à la fin** — donc autant que le
- * graphe a d'étapes observables, et pas un compte figé : `ÉTAPES` en porte cinq
+ * graphe a d'étapes observables, et pas un compte figé : `STEPS` en porte cinq
  * depuis que la PR #31 y a ajouté `analysis`, et la prochaine itération en
  * ajoutera. Ce qui compte est l'ordre de grandeur : une poignée sur toute
  * l'analyse, contre une toutes les deux secondes pendant neuf minutes si le
@@ -64,9 +64,9 @@ export function useAnalysisAnnouncement(
 }
 
 /** Comment une analyse s'est terminée, en toutes lettres. */
-function finDAnalyse(projet: ProjectListItem): string {
-  if (projet.error !== null) return 'analyse en échec'
-  return projet.stopped ? 'analyse arrêtée' : 'analyse terminée'
+function finDAnalysis(project: ProjectListItem): string {
+  if (project.error !== null) return 'analyse en échec'
+  return project.stopped ? 'analyse arrêtée' : 'analyse terminée'
 }
 
 /**
@@ -97,7 +97,7 @@ function announce(
     const before = memory.steps.get(p.id)
     const now = steps.get(p.id)
     if (now !== undefined && now !== before) {
-      messages.push(`${p.title} : ${LIBELLES_ETAPES[now]}.`)
+      messages.push(`${p.title} : ${LABELS_STEPS[now]}.`)
     } else if (now === undefined && before !== undefined) {
       // **Trois fins, pas deux.** Un arrêt demandé laisse `error` à `null` — ce
       // n'est pas une panne —, si bien que la région live annonçait « analyse
@@ -105,7 +105,7 @@ function announce(
       // Deux surfaces qui décrivent le même projet ne peuvent pas se
       // contredire, et c'est celle qu'on n'entend qu'une fois qui aurait menti.
       // (relevé par Copilot)
-      messages.push(`${p.title} : ${finDAnalyse(p)}.`)
+      messages.push(`${p.title} : ${finDAnalysis(p)}.`)
     }
   }
 

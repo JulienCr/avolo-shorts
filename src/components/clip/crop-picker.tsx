@@ -12,7 +12,7 @@ import {
 import type { Ratio } from '@/core/edl'
 import type { PublishedFraming } from '@/lib/api'
 import {
-  ORDRE_RATIOS,
+  ORDER_RATIOS,
   clampCropX,
   cropLeftFraction,
   cropWidthFraction,
@@ -21,8 +21,8 @@ import { cn } from '@/lib/utils'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 /** Le pas du clavier, en fraction de la largeur de l'image. */
-const PAS = 0.01
-const PAS_RAPIDE = 0.05
+const NOT = 0.01
+const NOT_FAST = 0.05
 
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
@@ -30,7 +30,7 @@ const PAS_RAPIDE = 0.05
  * **Un contrôle inerte sans raison écrite fait douter de l'outil**, et c'est la
  * forme que le dépôt a déjà retenue ailleurs : le bouton « Monter » d'une carte
  * de candidat reste atteignable, porte `aria-disabled` et pointe vers sa raison,
- * écrite à côté (`src/components/tri/candidate-card.tsx`). Une bulle d'aide ne
+ * écrite à côté (`src/components/review/candidate-card.tsx`). Une bulle d'aide ne
  * conviendrait pas — elle serait invisible au clavier, et la raison d'un blocage
  * se lit avant d'essayer.
  *
@@ -44,7 +44,7 @@ const PAS_RAPIDE = 0.05
  *
  * **La seconde moitié de cette fonction est datée et doit partir avec le lot qui
  * rebranche le curseur.** Elle tient en une branche, exprès : le jour où la
- * dérogation s'enregistre, c'est la condition `automatique` qui disparaît, pas
+ * dérogation s'enregistre, c'est la condition `automatic` qui disparaît, pas
  * une phrase à retrouver dans trois paragraphes.
  *
  * Exportée parce que **deux composants en ont besoin et doivent s'accorder** :
@@ -110,7 +110,7 @@ export function CropOverlay({
   /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
   /** Une valeur, ou une fonction de la précédente — indispensable pour les flèches répétées. */
-  onCropX: (cropX: number | ((precedent: number) => number)) => void
+  onCropX: (cropX: number | ((previous: number) => number)) => void
   /**
    * L'élément qui porte la raison de l'inertie, rendu par `RatioPicker`.
    *
@@ -122,7 +122,7 @@ export function CropOverlay({
    */
   describedBy?: string
 }) {
-  const cadre = useRef<HTMLDivElement>(null)
+  const frame = useRef<HTMLDivElement>(null)
   // L'écart entre le point saisi et le centre du rectangle, en fraction. Sans
   // lui, le rectangle sauterait pour se centrer sous le pointeur au premier
   // appui — un déplacement que personne n'a demandé.
@@ -130,53 +130,53 @@ export function CropOverlay({
 
   // Le plan sous la lecture. Le `hook` s'appelle sans condition, et son résultat
   // n'est consulté que si le cadrage est calculé.
-  const plan = useCurrentShot(framing)
-  const automatique = isComputedFraming(framing)
+  const shot = useCurrentShot(framing)
+  const automatic = isComputedFraming(framing)
 
-  const effectif = effectiveRatio(plan, ratio)
-  const position = automatique ? (plan?.cropX ?? 0.5) : cropX
-  const largeur = cropWidthFraction(effectif)
-  const gauche = cropLeftFraction(position, largeur)
-  const centre = clampCropX(position, largeur)
+  const effective = effectiveRatio(shot, ratio)
+  const position = automatic ? (shot?.cropX ?? 0.5) : cropX
+  const width = cropWidthFraction(effective)
+  const left = cropLeftFraction(position, width)
+  const center = clampCropX(position, width)
   // Figé quand le cadre couvre toute la source — il n'y a rien à déplacer — ou
   // quand c'est le calcul qui décide de sa position.
-  const fige = largeur >= 1 || automatique
+  const frozen = width >= 1 || automatic
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effectif)
+  const reason = frozenCropReason(framing, effective)
 
-  function fractionDuPointeur(clientX: number): number | null {
-    const rect = cadre.current?.getBoundingClientRect()
+  function pointerFraction(clientX: number): number | null {
+    const rect = frame.current?.getBoundingClientRect()
     if (!rect || rect.width === 0) return null
     return (clientX - rect.left) / rect.width
   }
 
-  function surClavier(e: React.KeyboardEvent) {
-    const pas = e.shiftKey ? PAS_RAPIDE : PAS
-    // Depuis la valeur précédente et non depuis `centre` : une flèche maintenue
+  function onKeyboard(e: React.KeyboardEvent) {
+    const not = e.shiftKey ? NOT_FAST : NOT
+    // Depuis la valeur précédente et non depuis `center` : une flèche maintenue
     // envoie plusieurs frappes avant le prochain rendu, et toutes liraient sinon
     // la même valeur — le cadre n'avancerait que d'un cran.
-    if (e.key === 'ArrowLeft') onCropX((p) => clampCropX(p - pas, largeur))
-    else if (e.key === 'ArrowRight') onCropX((p) => clampCropX(p + pas, largeur))
-    else if (e.key === 'Home') onCropX(clampCropX(0, largeur))
-    else if (e.key === 'End') onCropX(clampCropX(1, largeur))
+    if (e.key === 'ArrowLeft') onCropX((p) => clampCropX(p - not, width))
+    else if (e.key === 'ArrowRight') onCropX((p) => clampCropX(p + not, width))
+    else if (e.key === 'Home') onCropX(clampCropX(0, width))
+    else if (e.key === 'End') onCropX(clampCropX(1, width))
     else return
     e.preventDefault()
   }
 
   return (
-    <div ref={cadre} className="pointer-events-none absolute inset-0">
+    <div ref={frame} className="pointer-events-none absolute inset-0">
       {/* Ce qui tombe hors du cadre est assombri, pas masqué : on cadre en
           regardant ce qu'on laisse dehors. */}
       <div
         className="absolute inset-y-0 left-0 bg-black/55"
-        style={{ width: `${gauche * 100}%` }}
+        style={{ width: `${left * 100}%` }}
         aria-hidden
       />
       <div
         className="absolute inset-y-0 right-0 bg-black/55"
-        style={{ width: `${(1 - gauche - largeur) * 100}%` }}
+        style={{ width: `${(1 - left - width) * 100}%` }}
         aria-hidden
       />
 
@@ -187,48 +187,48 @@ export function CropOverlay({
         // ni la raison pour laquelle il ne répond pas (§4.4). Le rectangle reste
         // donc atteignable tant qu'il a quelque chose à dire, et ne se retire
         // que s'il n'a plus rien à expliquer.
-        tabIndex={fige && reason === null ? -1 : 0}
+        tabIndex={frozen && reason === null ? -1 : 0}
         aria-label={
-          automatique ? 'Position horizontale du cadre, calculée' : 'Position horizontale du cadre'
+          automatic ? 'Position horizontale du cadre, calculée' : 'Position horizontale du cadre'
         }
-        aria-describedby={fige && reason !== null ? describedBy : undefined}
+        aria-describedby={frozen && reason !== null ? describedBy : undefined}
         // La plage réelle, pas 0-100 : le centre d'un 9:16 ne peut aller que de
         // 15,8 à 84,2 % puisque le rectangle ne sort jamais du cadre. Annoncer
         // « 16 sur 100 » à la butée gauche laisserait croire qu'il reste de la
         // marge.
-        aria-valuemin={Math.round((largeur / 2) * 100)}
-        aria-valuemax={Math.round((1 - largeur / 2) * 100)}
-        aria-valuenow={Math.round(centre * 100)}
-        aria-valuetext={`${Math.round(centre * 100)} % de la largeur`}
-        aria-disabled={fige || undefined}
-        onKeyDown={fige ? undefined : surClavier}
+        aria-valuemin={Math.round((width / 2) * 100)}
+        aria-valuemax={Math.round((1 - width / 2) * 100)}
+        aria-valuenow={Math.round(center * 100)}
+        aria-valuetext={`${Math.round(center * 100)} % de la largeur`}
+        aria-disabled={frozen || undefined}
+        onKeyDown={frozen ? undefined : onKeyboard}
         onPointerDown={(e) => {
-          if (fige) return
-          const f = fractionDuPointeur(e.clientX)
+          if (frozen) return
+          const f = pointerFraction(e.clientX)
           if (f === null) return
-          prise.current = f - centre
+          prise.current = f - center
           e.currentTarget.setPointerCapture(e.pointerId)
         }}
         onPointerMove={(e) => {
-          if (fige || !e.currentTarget.hasPointerCapture(e.pointerId)) return
-          const f = fractionDuPointeur(e.clientX)
+          if (frozen || !e.currentTarget.hasPointerCapture(e.pointerId)) return
+          const f = pointerFraction(e.clientX)
           if (f === null) return
-          onCropX(clampCropX(f - prise.current, largeur))
+          onCropX(clampCropX(f - prise.current, width))
         }}
         onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
         className={cn(
           'pointer-events-auto absolute inset-y-0 outline-none',
           'border-2 border-stage/90 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]',
           'focus-visible:ring-2 focus-visible:ring-stage focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950',
-          fige ? 'cursor-default' : 'cursor-ew-resize',
+          frozen ? 'cursor-default' : 'cursor-ew-resize',
         )}
-        style={{ left: `${gauche * 100}%`, width: `${largeur * 100}%` }}
+        style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
       >
         <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.75rem] font-semibold text-stage-foreground">
-          {effectif}
+          {effective}
         </span>
 
-        {!fige && (
+        {!frozen && (
           <>
             <span
               aria-hidden
@@ -288,9 +288,9 @@ export function RatioPicker({
    */
   cropReasonId?: string
 }) {
-  const valeurs: (Ratio | 'auto')[] = ['auto', ...ORDRE_RATIOS]
-  const plan = useCurrentShot(framing)
-  const effectif = effectiveRatio(plan, ratio)
+  const values: (Ratio | 'auto')[] = ['auto', ...ORDER_RATIOS]
+  const shot = useCurrentShot(framing)
+  const effective = effectiveRatio(shot, ratio)
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
@@ -307,17 +307,17 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effectif)
+  const cropReason = frozenCropReason(framing, effective)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <ToggleGroup
         value={[ratio]}
-        onValueChange={(choisi: string[]) => {
+        onValueChange={(chosen: string[]) => {
           // En sélection unique, recliquer l'élément actif rend une liste vide.
           // Un clip a toujours un ratio : on garde alors le précédent.
-          const suivant = choisi[0] as Ratio | 'auto' | undefined
-          if (suivant) onRatio(suivant)
+          const next = chosen[0] as Ratio | 'auto' | undefined
+          if (next) onRatio(next)
         }}
         variant="outline"
         size="sm"
@@ -326,7 +326,7 @@ export function RatioPicker({
         // sélecteur n'en règle qu'une directement.
         aria-label="Ratio du cadre pris dans la source"
       >
-        {valeurs.map((v) => (
+        {values.map((v) => (
           <ToggleGroupItem key={v} value={v} className="font-mono text-xs">
             {v}
           </ToggleGroupItem>
@@ -337,7 +337,7 @@ export function RatioPicker({
           sélecteur ne peut pas dire seul : ce que « auto » a choisi *pour le
           plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
       <p className="font-mono text-[0.75rem] text-muted-foreground">
-        {ratio === 'auto' ? `auto → ${effectif}` : `${effectif} · épinglé partout`}
+        {ratio === 'auto' ? `auto → ${effective}` : `${effective} · épinglé partout`}
         {' · natif '}
         {nativeRatio}
       </p>

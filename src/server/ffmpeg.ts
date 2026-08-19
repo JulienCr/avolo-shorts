@@ -39,7 +39,7 @@ export function ffprobeBin(): string {
  * `\r`. Le premier mot vaut `frame=` sur une sortie vidéo et `size=` sur une
  * sortie sans image.
  */
-const LIGNE_STATS = /^(?:frame|size)=/
+const LINE_STATS = /^(?:frame|size)=/
 
 /**
  * Toutes les marques `time=` d'un morceau de stderr.
@@ -51,7 +51,7 @@ const LIGNE_STATS = /^(?:frame|size)=/
  * Le nombre d'heures n'est pas borné à deux chiffres — un `-t` très long, ou une
  * source mal étiquetée, en produit davantage.
  */
-const MARQUE_TEMPS = /time=\s*(-?)(\d+):([0-5]\d):([0-5]\d(?:\.\d+)?)/g
+const MARKER_TIME = /time=\s*(-?)(\d+):([0-5]\d):([0-5]\d(?:\.\d+)?)/g
 
 /**
  * La position courante de ffmpeg, en secondes, ou `null` s'il n'en annonce pas.
@@ -64,23 +64,23 @@ const MARQUE_TEMPS = /time=\s*(-?)(\d+):([0-5]\d):([0-5]\d(?:\.\d+)?)/g
  *
  * `time=N/A` ne correspond à rien non plus, et tombe par le même chemin.
  */
-export function analyserMarqueTemps(morceau: string): number | null {
-  let secondes: number | null = null
+export function analyzeMarkerTime(piece: string): number | null {
+  let seconds: number | null = null
   // `matchAll` plutôt que `exec` en boucle : la regex porte le drapeau `g`, donc
   // `lastIndex` est un état partagé entre appels — un `exec` sur une constante
   // de module reprendrait là où le morceau précédent s'est arrêté.
-  for (const m of morceau.matchAll(MARQUE_TEMPS)) {
+  for (const m of piece.matchAll(MARKER_TIME)) {
     if (m[1] === '-') {
-      secondes = null
+      seconds = null
       continue
     }
-    secondes = Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4])
+    seconds = Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4])
   }
-  return secondes
+  return seconds
 }
 
 /** Ce que `runFfmpeg` remonte à chaque marque de temps. */
-export type Avancement = {
+export type Progress = {
   /** La position dans la sortie, en secondes. */
   seconds: number
   /** La fraction faite, entre 0 et 1, ou `null` si la durée attendue est inconnue. */
@@ -88,7 +88,7 @@ export type Avancement = {
 }
 
 /** Le carnet des dernières lignes de stderr. */
-export type Journal = {
+export type Log = {
   /**
    * Absorbe un morceau de flux, coupé n'importe où, et rend **les
    * enregistrements complets** qu'il vient d'en tirer.
@@ -98,11 +98,11 @@ export type Journal = {
    * deux par la frontière du morceau — le carnet, lui, reporte déjà la queue.
    * (relevé par Copilot)
    */
-  ajouter(morceau: string): string[]
+  add(piece: string): string[]
   /** Les lignes retenues, la plus ancienne d'abord. */
-  lignes(): string[]
+  lines(): string[]
   /** Les mêmes, prêtes pour un message d'erreur. */
-  texte(): string
+  text(): string
 }
 
 /**
@@ -121,52 +121,52 @@ export type Journal = {
  *   un `\r`. On garde ainsi la dernière position atteinte *et* les
  *   avertissements qui l'entourent.
  */
-export function créerJournal(max = 20): Journal {
-  const gardées: string[] = []
-  let reste = ''
+export function createLog(max = 20): Log {
+  const kept: string[] = []
+  let remaining = ''
 
-  const pousser = (brute: string): void => {
-    const ligne = brute.trimEnd()
-    if (ligne === '') return
-    const dernière = gardées[gardées.length - 1]
-    if (LIGNE_STATS.test(ligne) && dernière !== undefined && LIGNE_STATS.test(dernière)) {
-      gardées[gardées.length - 1] = ligne
+  const push = (raw: string): void => {
+    const line = raw.trimEnd()
+    if (line === '') return
+    const last = kept[kept.length - 1]
+    if (LINE_STATS.test(line) && last !== undefined && LINE_STATS.test(last)) {
+      kept[kept.length - 1] = line
       return
     }
-    gardées.push(ligne)
-    if (gardées.length > max) gardées.shift()
+    kept.push(line)
+    if (kept.length > max) kept.shift()
   }
 
-  const lignes = (): string[] => {
+  const lines = (): string[] => {
     // La queue n'est pas terminée par un séparateur, et c'est justement le cas
     // qui compte : quand ffmpeg meurt sur un message, ce message est souvent la
     // dernière chose écrite, sans `\n` derrière.
-    const queue = reste.trim()
-    return queue === '' ? [...gardées] : [...gardées, queue]
+    const queue = remaining.trim()
+    return queue === '' ? [...kept] : [...kept, queue]
   }
 
   return {
-    ajouter(morceau: string): string[] {
-      const texte = reste + morceau
-      const parts = texte.split(/\r\n|[\r\n]/)
-      reste = parts.pop() ?? ''
+    add(piece: string): string[] {
+      const text = remaining + piece
+      const parts = text.split(/\r\n|[\r\n]/)
+      remaining = parts.pop() ?? ''
       // Une queue sans fin de ligne ne peut pas grandir indéfiniment : un
       // encodage dure des heures, et il suffirait d'un flux sans séparateur pour
       // que ce carnet — dont le but est justement de ne *pas* tout garder —
       // finisse par tout garder. C'est la fin qui intéresse, on coupe le début.
-      if (reste.length > TAILLE_QUEUE_MAX) reste = reste.slice(-TAILLE_QUEUE_MAX)
-      for (const p of parts) pousser(p)
-      // Les enregistrements bruts, avant le filtrage de `pousser` : l'appelant
+      if (remaining.length > SIZE_QUEUE_MAX) remaining = remaining.slice(-SIZE_QUEUE_MAX)
+      for (const p of parts) push(p)
+      // Les enregistrements bruts, avant le filtrage de `push` : l'appelant
       // y cherche une marque de temps, pas une ligne à afficher.
       return parts
     },
-    lignes,
-    texte: () => lignes().join('\n'),
+    lines,
+    text: () => lines().join('\n'),
   }
 }
 
 /** De quoi tenir la plus longue ligne que ffmpeg écrive, et pas un flux entier. */
-const TAILLE_QUEUE_MAX = 8_192
+const SIZE_QUEUE_MAX = 8_192
 
 /**
  * L'encodeur demandé, une fois la sonde consultée si besoin.
@@ -178,18 +178,18 @@ const TAILLE_QUEUE_MAX = 8_192
  * (4,58x contre 1,97x mesurés) sans que rien ne le signale — et personne ne
  * relit une variable d'environnement qui « marche ».
  */
-export function choisirEncodeur(demandé: string | undefined, sonde: () => boolean): EncoderName {
-  const valeur = (demandé ?? '').trim().toLowerCase()
-  if (valeur === 'x264') return 'x264'
-  if (valeur === 'nvenc') return 'nvenc'
-  if (valeur === '' || valeur === 'auto') return sonde() ? 'nvenc' : 'x264'
+export function chooseEncoder(request: string | undefined, probe: () => boolean): EncoderName {
+  const value = (request ?? '').trim().toLowerCase()
+  if (value === 'x264') return 'x264'
+  if (value === 'nvenc') return 'nvenc'
+  if (value === '' || value === 'auto') return probe() ? 'nvenc' : 'x264'
   throw new Error(
-    `FFMPEG_ENCODER inconnu : ${JSON.stringify(demandé)}. Attendu : auto, nvenc ou x264.`,
+    `FFMPEG_ENCODER inconnu : ${JSON.stringify(request)}. Attendu : auto, nvenc ou x264.`,
   )
 }
 
 /** `null` tant que la sonde n'a pas tourné. Un seul essai par processus. */
-let sondeNvenc: boolean | null = null
+let nvencProbed: boolean | null = null
 
 /**
  * Encode 256x256 d'image de synthèse en `h264_nvenc`, vers nulle part.
@@ -203,8 +203,8 @@ let sondeNvenc: boolean | null = null
  * un binaire dont le pilote ne suit pas, et l'échec tomberait alors au milieu
  * d'un export d'une heure.
  */
-function sonderNvenc(): boolean {
-  if (sondeNvenc !== null) return sondeNvenc
+function probeNvenc(): boolean {
+  if (nvencProbed !== null) return nvencProbed
   const r = spawnSync(
     ffmpegBin(),
     [
@@ -215,8 +215,8 @@ function sonderNvenc(): boolean {
     ],
     { stdio: ['ignore', 'ignore', 'pipe'], timeout: 30_000, encoding: 'utf8' },
   )
-  sondeNvenc = r.error === undefined && r.status === 0
-  return sondeNvenc
+  nvencProbed = r.error === undefined && r.status === 0
+  return nvencProbed
 }
 
 /**
@@ -228,7 +228,7 @@ function sonderNvenc(): boolean {
  * sur le processeur dans les deux cas, si bien que NVENC y est plus lent.
  */
 export function encoderName(): EncoderName {
-  return choisirEncodeur(process.env.FFMPEG_ENCODER, sonderNvenc)
+  return chooseEncoder(process.env.FFMPEG_ENCODER, probeNvenc)
 }
 
 /**
@@ -313,9 +313,9 @@ export type OptionsFfmpeg = {
   /** La durée attendue de la sortie, pour convertir `time=` en fraction. */
   durationSec?: number | null
   /** Appelé à chaque marque de temps. */
-  onProgress?: (avancement: Avancement) => void
+  onProgress?: (progress: Progress) => void
   /** Ce qu'on est en train de faire, pour le message d'échec. */
-  quoi?: string
+  what?: string
   /** Le binaire, si ce n'est pas `ffmpegBin()`. */
   bin?: string
   /**
@@ -361,15 +361,15 @@ export type OptionsFfmpeg = {
  */
 export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<void> {
   const bin = options.bin ?? ffmpegBin()
-  const durée = options.durationSec ?? null
-  const journal = créerJournal()
+  const duration = options.durationSec ?? null
+  const log = createLog()
 
   return new Promise<void>((resolve, reject) => {
     // **Le refus vient avant le `spawn`.** Un arrêt demandé pendant qu'une étape
-    // se prépare — le `mkdir` de `produireArtefact`, par exemple — laisserait
+    // se prépare — le `mkdir` de `produceArtifact`, par exemple — laisserait
     // sinon partir un encodage de six minutes que plus personne n'attend.
     if (options.signal?.aborted === true) {
-      reject(new StopRequestedError(options.quoi))
+      reject(new StopRequestedError(options.what))
       return
     }
 
@@ -382,7 +382,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     // fin du processus pour rendre la main reproduirait exactement le blocage
     // qu'on ferme. Un `reject` après règlement est sans effet, donc le `close`
     // qui finira peut-être par venir ne dit rien de plus.
-    const renoncer =
+    const abandon =
       options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
@@ -390,32 +390,32 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
             reject(
               new Error(
                 `ffmpeg n'a pas répondu en ${options.timeoutMs} ms` +
-                  `${options.quoi === undefined ? '' : ` — ${options.quoi}`}, il a été tué. ` +
+                  `${options.what === undefined ? '' : ` — ${options.what}`}, il a été tué. ` +
                   'Sur un chemin du montage 9p, cela veut dire que le partage a perdu son ' +
                   "transport : /proc/mounts ne le distingue pas d'un partage sain.",
               ),
             )
           }, options.timeoutMs)
-    const finir = () => {
-      clearTimeout(renoncer)
+    const finish = () => {
+      clearTimeout(abandon)
       detach()
     }
 
     proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', (morceau: string) => {
+    proc.stderr.on('data', (piece: string) => {
       // On analyse ce que le carnet vient de **terminer**, pas le morceau brut :
       // stderr est un flux, et une marque `time=00:0` / `0:05.00` coupée en deux
       // par la frontière d'un morceau serait perdue des deux côtés. Le carnet
       // reporte déjà la queue, il n'y a rien à rebâtir ici. (relevé par Copilot)
-      const complètes = journal.ajouter(morceau)
+      const complete = log.add(piece)
       if (options.onProgress === undefined) return
-      const secondes = analyserMarqueTemps(complètes.join('\n'))
-      if (secondes === null) return
+      const seconds = analyzeMarkerTime(complete.join('\n'))
+      if (seconds === null) return
       options.onProgress({
-        seconds: secondes,
+        seconds: seconds,
         // `durée <= 0` viendrait d'un ffprobe qui n'a rien su dire : mieux vaut
         // pas de fraction du tout qu'une division par zéro rendue en `Infinity`.
-        fraction: durée !== null && durée > 0 ? Math.min(1, secondes / durée) : null,
+        fraction: duration !== null && duration > 0 ? Math.min(1, seconds / duration) : null,
       })
     })
 
@@ -423,7 +423,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     // sur une machine où `setup.sh` n'a pas tourné. Sans ce gestionnaire, la
     // promesse ne se réglerait jamais.
     proc.on('error', (cause) => {
-      finir()
+      finish()
       reject(
         new Error(
           `ffmpeg n'a pas pu démarrer (${bin}) : ${cause.message}. ` +
@@ -434,7 +434,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
     })
 
     proc.on('close', (code, signal) => {
-      finir()
+      finish()
       if (code === 0) {
         resolve()
         return
@@ -447,7 +447,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
       // passé. Le contrôle est sur le signal d'annulation et non sur le nom du
       // signal Unix reçu : un `SIGTERM` venu d'ailleurs reste un incident.
       if (options.signal?.aborted === true) {
-        reject(new StopRequestedError(options.quoi))
+        reject(new StopRequestedError(options.what))
         return
       }
       // Un signal donne `code === null` : le dire, sinon le message annonce
@@ -456,10 +456,10 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
       reject(
         new Error(
           [
-            `ffmpeg a échoué (${cause})${options.quoi ? ` — ${options.quoi}` : ''}.`,
+            `ffmpeg a échoué (${cause})${options.what ? ` — ${options.what}` : ''}.`,
             `Commande : ${bin} ${args.join(' ')}`,
             'Dernières lignes de stderr :',
-            journal.texte() || '(stderr vide)',
+            log.text() || '(stderr vide)',
           ].join('\n'),
         ),
       )
@@ -468,13 +468,13 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
 }
 
 /** Ce que rend une étape adossée à un artefact : le chemin, et si on l'a refait. */
-export type Artefact = {
+export type Artifact = {
   path: string
   /** Vrai si l'artefact était déjà là et que `force` ne le visait pas. */
   skipped: boolean
 }
 
-export type OptionsArtefact = {
+export type OptionsArtifact = {
   /** Le chemin définitif de l'artefact. Sa présence vaut « étape faite ». */
   dst: string
   /** Refaire même si l'artefact est là. */
@@ -482,8 +482,8 @@ export type OptionsArtefact = {
   /** L'argv, construit autour de la destination **temporaire** qu'on lui passe. */
   args: (destination: string) => string[]
   durationSec?: number | null
-  onProgress?: (avancement: Avancement) => void
-  quoi?: string
+  onProgress?: (progress: Progress) => void
+  what?: string
   /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
   signal?: AbortSignal
 }
@@ -513,22 +513,22 @@ export type OptionsArtefact = {
  * tient pour les deux workers Python, qui écrivent par `cheminTemporaire` et ne
  * renomment qu'après validation.
  */
-export async function produireArtefact(o: OptionsArtefact): Promise<Artefact> {
+export async function produceArtifact(o: OptionsArtifact): Promise<Artifact> {
   if (o.force !== true && fs.existsSync(o.dst)) return { path: o.dst, skipped: true }
 
   await fsp.mkdir(path.dirname(o.dst), { recursive: true })
-  const temporaire = cheminTemporaire(o.dst)
+  const temporary = pathTemporary(o.dst)
 
   try {
-    await runFfmpeg(o.args(temporaire), {
+    await runFfmpeg(o.args(temporary), {
       durationSec: o.durationSec,
       onProgress: o.onProgress,
-      quoi: o.quoi,
+      what: o.what,
       signal: o.signal,
     })
-    await fsp.rename(temporaire, o.dst)
+    await fsp.rename(temporary, o.dst)
   } catch (cause) {
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
   }
 
@@ -536,7 +536,7 @@ export async function produireArtefact(o: OptionsArtefact): Promise<Artefact> {
 }
 
 /** Distingue deux écritures simultanées **dans le même processus**. */
-let numéroÉcriture = 0
+let numberWrite = 0
 
 /**
  * Le nom sous lequel on écrit avant de renommer.
@@ -555,8 +555,8 @@ let numéroÉcriture = 0
  * Le renommage final, lui, est atomique : le dernier arrivé gagne, et les deux
  * candidats sont corrects.
  */
-export function cheminTemporaire(dst: string, jeton?: string | number): string {
-  const marque = jeton ?? `${process.pid}-${++numéroÉcriture}`
+export function pathTemporary(dst: string, token?: string | number): string {
+  const marker = token ?? `${process.pid}-${++numberWrite}`
   const ext = path.extname(dst)
-  return path.join(path.dirname(dst), `${path.basename(dst, ext)}.partiel-${marque}${ext}`)
+  return path.join(path.dirname(dst), `${path.basename(dst, ext)}.partiel-${marker}${ext}`)
 }

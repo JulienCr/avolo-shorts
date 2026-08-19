@@ -63,7 +63,7 @@ const ALIGNMENTS = [
  * seul endroit à déplacer, et pour que ces valeurs ne se retrouvent pas
  * dispersées dans le JSX.
  *
- * `police` ne propose qu'Anton : c'est la seule police embarquée dans `fonts/`,
+ * `font` ne propose qu'Anton : c'est la seule police embarquée dans `fonts/`,
  * celle que les sous-titres utilisent déjà, et la seule que le rendu sache
  * résoudre. En proposer d'autres inviterait à choisir une police que ffmpeg ne
  * trouverait pas — un rendu correct à l'écran et faux dans le fichier.

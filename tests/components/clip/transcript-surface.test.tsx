@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { indexTranscript, type TranscriptLine } from '@/lib/editing'
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import { TranscriptSurface } from '@/components/clip/transcript-surface'
 
 // Le virtualiseur mesure l'élément de défilement par `offsetHeight`, et chaque
@@ -50,71 +50,71 @@ function transcript(): TranscriptLine[] {
   }))
 }
 
-function monter(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
-  const lignes = transcript()
-  const { words, lines } = indexTranscript(lignes, [{ start: 0, end: 200 }])
-  const complet = {
-    cle: 'c1',
+function mount(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
+  const raw = transcript()
+  const { words, lines } = indexTranscript(raw, [{ start: 0, end: 200 }])
+  const complete = {
+    key: 'c1',
     lines,
     words,
     selection: null,
-    onSelectionner: vi.fn(),
-    onEtendre: vi.fn(),
-    onTerminer: vi.fn(),
-    onRemonter: vi.fn(),
-    onPlacer: vi.fn(),
-    recherche: false,
-    onRecherche: vi.fn(),
+    onSelect: vi.fn(),
+    onExtend: vi.fn(),
+    onFinish: vi.fn(),
+    onSurface: vi.fn(),
+    onPlace: vi.fn(),
+    search: false,
+    onSearch: vi.fn(),
     ...props,
   }
-  const rendu = render(<TranscriptSurface {...complet} />)
-  const surface = rendu.container.querySelector('[data-surface-transcript]') as HTMLElement
-  return { ...complet, ...rendu, surface }
+  const view = render(<TranscriptSurface {...complete} />)
+  const surface = view.container.querySelector('[data-surface-transcript]') as HTMLElement
+  return { ...complete, ...view, surface }
 }
 
 /** Vide la file d'images : c'est là que le défilement automatique rend la main. */
-async function imageSuivante() {
+async function imageNext() {
   await act(async () => {
-    await new Promise((résoudre) => requestAnimationFrame(() => résoudre(null)))
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
   })
 }
 
 /** Les arrêts de tabulation de la surface elle-même, le conteneur compris. */
-function arrêts(surface: HTMLElement): Element[] {
+function stops(surface: HTMLElement): Element[] {
   return [surface, ...surface.querySelectorAll('*')].filter(
     (element) => element.getAttribute('tabindex') === '0',
   )
 }
 
 beforeEach(() => {
-  act(() => useLecture.getState().reinitialiser())
+  act(() => usePlayback.getState().reset())
 })
 afterEach(cleanup)
 
 describe('la lecture et le texte', () => {
   it('place la lecture sur le mot cliqué', () => {
-    const { onPlacer } = monter()
-    const mot = screen.getByText(/m0-2/)
-    fireEvent.pointerDown(mot)
-    fireEvent.pointerUp(mot)
-    expect(onPlacer).toHaveBeenCalledWith(2)
+    const { onPlace } = mount()
+    const word = screen.getByText(/m0-2/)
+    fireEvent.pointerDown(word)
+    fireEvent.pointerUp(word)
+    expect(onPlace).toHaveBeenCalledWith(2)
   })
 
   it('ne place pas la lecture au bout d’un glissé de sélection', () => {
     // Le glissé sert à sélectionner : déplacer la lecture au relâchement
     // ferait sauter le lecteur à chaque retrait.
-    const { onPlacer } = monter()
+    const { onPlace } = mount()
     fireEvent.pointerDown(screen.getByText(/m0-0/))
     fireEvent.pointerEnter(screen.getByText(/m0-2/))
     fireEvent.pointerUp(screen.getByText(/m0-2/))
-    expect(onPlacer).not.toHaveBeenCalled()
+    expect(onPlace).not.toHaveBeenCalled()
   })
 
   it('surligne le mot en cours de lecture', () => {
-    const { words } = monter()
+    const { words } = mount()
     act(() => {
-      useLecture.getState().definirMots(words)
-      useLecture.getState().definirPosition(3.2)
+      usePlayback.getState().defineWords(words)
+      usePlayback.getState().definePosition(3.2)
     })
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
     expect(screen.getByText(/m0-2/).getAttribute('aria-current')).toBeNull()
@@ -123,51 +123,51 @@ describe('la lecture et le texte', () => {
 
 describe('le défilement automatique', () => {
   it('suit la lecture, puis se coupe dès qu’on défile à la main', async () => {
-    const { words, surface } = monter()
-    act(() => useLecture.getState().definirMots(words))
+    const { words, surface } = mount()
+    act(() => usePlayback.getState().defineWords(words))
 
-    act(() => useLecture.getState().definirPosition(80))
-    const suivi = surface.scrollTop
-    expect(suivi).toBeGreaterThan(0)
-    await imageSuivante()
+    act(() => usePlayback.getState().definePosition(80))
+    const tracked = surface.scrollTop
+    expect(tracked).toBeGreaterThan(0)
+    await imageNext()
 
     // Le geste de l'utilisateur reprend la main : le texte ne doit plus fuir
     // sous les yeux pendant qu'on lit ailleurs.
     fireEvent.scroll(surface)
-    act(() => useLecture.getState().definirPosition(160))
-    expect(surface.scrollTop).toBe(suivi)
+    act(() => usePlayback.getState().definePosition(160))
+    expect(surface.scrollTop).toBe(tracked)
   })
 
   it('coupe le suivi sur une molette, même quand rien ne défile', async () => {
     // `scroll` ne part que si `scrollTop` bouge : une molette en butée n'émet
     // rien, et le suivi restait actif. (relevé par Copilot)
-    const { words, surface } = monter()
-    act(() => useLecture.getState().definirMots(words))
-    act(() => useLecture.getState().definirPosition(80))
-    await imageSuivante()
-    const gelé = surface.scrollTop
+    const { words, surface } = mount()
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
+    await imageNext()
+    const frozen = surface.scrollTop
 
     fireEvent.wheel(surface)
-    act(() => useLecture.getState().definirPosition(160))
-    expect(surface.scrollTop).toBe(gelé)
+    act(() => usePlayback.getState().definePosition(160))
+    expect(surface.scrollTop).toBe(frozen)
   })
 
   it('reprend au clic sur un mot', async () => {
-    const { words, surface } = monter()
-    act(() => useLecture.getState().definirMots(words))
-    act(() => useLecture.getState().definirPosition(80))
-    await imageSuivante()
+    const { words, surface } = mount()
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
+    await imageNext()
     fireEvent.scroll(surface)
-    const gelé = surface.scrollTop
+    const frozen = surface.scrollTop
 
     // Le clic sur un mot est le geste par lequel on redit « je regarde la
     // lecture ».
-    const mot = screen.getByText(/m8-1/)
-    fireEvent.pointerDown(mot)
-    fireEvent.pointerUp(mot)
+    const word = screen.getByText(/m8-1/)
+    fireEvent.pointerDown(word)
+    fireEvent.pointerUp(word)
 
-    act(() => useLecture.getState().definirPosition(160))
-    expect(surface.scrollTop).toBeGreaterThan(gelé)
+    act(() => usePlayback.getState().definePosition(160))
+    expect(surface.scrollTop).toBeGreaterThan(frozen)
   })
 })
 
@@ -175,93 +175,93 @@ describe('le tabindex glissant', () => {
   it('n’offre qu’un seul arrêt de tabulation', () => {
     // Traverser le transcript pour atteindre la barre d'outils demandait une
     // centaine de `Tab`, et le nombre dépendait de la position de défilement.
-    const { surface } = monter()
-    expect(arrêts(surface).length).toBe(1)
+    const { surface } = mount()
+    expect(stops(surface).length).toBe(1)
   })
 
   it('déplace le mot actif aux flèches, et le focus avec', () => {
-    monter()
-    const premier = screen.getByText(/m0-0/)
-    premier.focus()
-    fireEvent.keyDown(premier, { key: 'ArrowRight' })
+    mount()
+    const first = screen.getByText(/m0-0/)
+    first.focus()
+    fireEvent.keyDown(first, { key: 'ArrowRight' })
 
-    const suivant = screen.getByText(/m0-1/)
-    expect(suivant.getAttribute('tabindex')).toBe('0')
-    expect(document.activeElement).toBe(suivant)
-    expect(premier.getAttribute('tabindex')).toBe('-1')
+    const next = screen.getByText(/m0-1/)
+    expect(next.getAttribute('tabindex')).toBe('0')
+    expect(document.activeElement).toBe(next)
+    expect(first.getAttribute('tabindex')).toBe('-1')
   })
 
   it('referme le glissé après une activation au clavier', () => {
     // `commencerSelection` ouvre un glissé ; sans le refermer, passer la souris
     // sur un mot voisin étend la sélection alors qu'aucun bouton n'est enfoncé.
     // (relevé par Codex)
-    const { onTerminer } = monter()
+    const { onFinish } = mount()
     fireEvent.keyDown(screen.getByText(/m0-2/), { key: 'Enter' })
-    expect(onTerminer).toHaveBeenCalled()
+    expect(onFinish).toHaveBeenCalled()
   })
 
   it('sélectionne le mot atteint à la flèche', () => {
     // Le curseur du clavier et la sélection doivent coïncider, sinon `I` et `O`
     // posent la borne sur un mot cliqué il y a trois gestes — silencieusement.
     // (relevé par Copilot)
-    const { onSelectionner, onTerminer } = monter()
-    const premier = screen.getByText(/m0-0/)
-    premier.focus()
-    fireEvent.keyDown(premier, { key: 'ArrowRight' })
+    const { onSelect, onFinish } = mount()
+    const first = screen.getByText(/m0-0/)
+    first.focus()
+    fireEvent.keyDown(first, { key: 'ArrowRight' })
 
-    expect(onSelectionner).toHaveBeenLastCalledWith(1, false)
+    expect(onSelect).toHaveBeenLastCalledWith(1, false)
     // Et le glissé se referme : sans cela, un survol à la souris étendrait
     // ensuite la sélection sans qu'on ait rien pressé.
-    expect(onTerminer).toHaveBeenCalled()
+    expect(onFinish).toHaveBeenCalled()
   })
 
   it('reste franchissable quand le mot actif est sorti du champ rendu', () => {
     // Le virtualiseur ne rend qu'une trentaine de phrases : l'index du mot actif
     // se garde dans l'état, pas dans le DOM, et la surface doit garder un arrêt
     // de tabulation même quand ce mot n'existe plus dans la page.
-    const { surface } = monter({ recherche: true })
+    const { surface } = mount({ search: true })
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'm19-0' } })
     fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Enter' })
-    expect(arrêts(surface).length).toBe(1)
+    expect(stops(surface).length).toBe(1)
   })
 })
 
 describe('la recherche', () => {
   it('compte les occurrences et se déplace de l’une à l’autre', () => {
-    const { surface } = monter({ recherche: true })
-    const champ = screen.getByRole('searchbox')
-    fireEvent.change(champ, { target: { value: 'm0-' } })
+    const { surface } = mount({ search: true })
+    const field = screen.getByRole('searchbox')
+    fireEvent.change(field, { target: { value: 'm0-' } })
 
     expect(within(surface.parentElement as HTMLElement).getByText('1 sur 5')).toBeTruthy()
-    fireEvent.keyDown(champ, { key: 'Enter' })
+    fireEvent.keyDown(field, { key: 'Enter' })
     expect(within(surface.parentElement as HTMLElement).getByText('2 sur 5')).toBeTruthy()
   })
 
   it('coupe le suivi de lecture, comme tout geste de navigation', async () => {
     // Chercher, c'est aller voir ailleurs. Laisser le défilement suivre la
     // lecture ramènerait le texte sous les yeux au moment où on lit l'occurrence.
-    const { words, surface } = monter({ recherche: true })
-    act(() => useLecture.getState().definirMots(words))
-    act(() => useLecture.getState().definirPosition(80))
-    await imageSuivante()
+    const { words, surface } = mount({ search: true })
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
+    await imageNext()
 
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'm2-0' } })
-    await imageSuivante()
-    const arrêté = surface.scrollTop
+    await imageNext()
+    const stopped = surface.scrollTop
 
-    act(() => useLecture.getState().definirPosition(160))
-    expect(surface.scrollTop).toBe(arrêté)
+    act(() => usePlayback.getState().definePosition(160))
+    expect(surface.scrollTop).toBe(stopped)
   })
 
   it('dit quand rien ne correspond', () => {
-    monter({ recherche: true })
+    mount({ search: true })
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'incendie' } })
     expect(screen.getByText(/aucune/i)).toBeTruthy()
   })
 
   it('se ferme sur Échap', () => {
-    const { onRecherche } = monter({ recherche: true })
+    const { onSearch } = mount({ search: true })
     fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'Escape' })
-    expect(onRecherche).toHaveBeenCalledWith(false)
+    expect(onSearch).toHaveBeenCalledWith(false)
   })
 })

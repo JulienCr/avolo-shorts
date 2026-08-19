@@ -16,16 +16,16 @@ import type { Word } from '@/core/transcript'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
 import { getClip, getDb, getProject, putClip, type Project } from '@/server/db'
 import {
-  cheminTemporaire,
+  pathTemporary,
   encoderName,
-  produireArtefact,
-  type Avancement,
+  produceArtifact,
+  type Progress,
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
-import { estUneAbsence } from '@/server/octets'
+import { isAAbsence } from '@/server/bytes'
 import { rendersDir, resolveSource } from '@/server/paths'
-import { ensureLocalCopy, holdStagedCopy, montageRépond } from '@/server/steps/ingest'
-import { transcriptDuProjet } from '@/server/vues'
+import { ensureLocalCopy, holdStagedCopy, editingResponds } from '@/server/steps/ingest'
+import { projectTranscript } from '@/server/views'
 
 /**
  * L'export : d'une EDL en base au MP4 que Julien publie.
@@ -55,9 +55,9 @@ import { transcriptDuProjet } from '@/server/vues'
 const PIECE_COUNT_WARN = 12
 
 /** Les deux sorties possibles, pour distinguer l'avancement de l'une et de l'autre. */
-export type SortieRendu = 'natif' | '9x16'
+export type OutputRender = 'natif' | '9x16'
 
-export type AvancementRendu = Avancement & { sortie: SortieRendu }
+export type ProgressRender = Progress & { output: OutputRender }
 
 /** Ce que `renderClip` rend à son appelant — la route d'export. */
 export type RenderResult = {
@@ -74,7 +74,7 @@ export type RenderResult = {
   skipped: boolean
 }
 
-export type OptionsRendu = {
+export type OptionsRender = {
   db?: Database.Database
   /** Refaire même si les sorties sont là. */
   force?: boolean
@@ -86,7 +86,7 @@ export type OptionsRendu = {
   style?: CaptionStyle
   /** L'encodeur, si on ne veut pas celui que l'environnement désigne. */
   encoder?: EncoderName
-  onProgress?: (avancement: AvancementRendu) => void
+  onProgress?: (progress: ProgressRender) => void
   /** Le dossier des marques. Les tests en passent un jetable. */
   brandDir?: string
   /** Le dossier des polices embarquées. Idem. */
@@ -103,7 +103,7 @@ export type OptionsRendu = {
  * compte pas dans la décision de saut. Il reste sur le disque exprès — c'est le
  * seul moyen de relire ce que libass a incrusté quand un sous-titre surprend.
  */
-export type CheminsRendu = {
+export type PathsRender = {
   mp4: string
   variant9x16: string | null
   texts: string
@@ -111,39 +111,39 @@ export type CheminsRendu = {
   /**
    * L'empreinte du rendu — ce que les fichiers ci-dessus décrivent (#48).
    *
-   * **Elle n'est pas une sortie** : `sortiesDuClip` ne la publie pas et
-   * `sortieNommée` ne la sert pas. C'est une pièce interne, rangée à côté des
+   * **Elle n'est pas une sortie** : `clipOutputs` ne la publie pas et
+   * `outputNamed` ne la sert pas. C'est une pièce interne, rangée à côté des
    * fichiers qu'elle décrit précisément pour disparaître avec eux.
    */
-  empreinte: string
+  fingerprint: string
 }
 
 /**
  * Le garde-fou de traversée de répertoire sur l'identifiant de clip.
  *
- * `projectId` en a déjà un — `vérifierId`, privé à `paths.ts` — et `clipId` n'en
+ * `projectId` en a déjà un — `verifyId`, privé à `paths.ts` — et `clipId` n'en
  * avait aucun : il entrait tel quel dans quatre `path.join`. Or il arrive du
  * réseau, `POST /api/clips/:id/export` le prend dans l'URL, et `putClip` ne
  * valide ni son format ni son contenu. Un `../` y suffisait à faire écrire le
- * MP4, l'ASS et le TXT hors du dossier du projet — `écrireFichier` créant au
+ * MP4, l'ASS et le TXT hors du dossier du projet — `writeFile` créant au
  * passage les dossiers intermédiaires. (relevé par Aristarque)
  *
- * **C'est délibérément une copie de `vérifierId` et non son partage.** Ce dernier
+ * **C'est délibérément une copie de `verifyId` et non son partage.** Ce dernier
  * est privé à `paths.ts`, qui appartient à une autre tâche en cours d'écriture ;
  * l'exporter depuis ici ferait toucher deux agents au même fichier pour une
  * fonction de six lignes. La règle, elle, est la même, et elle est volontairement
  * permissive sur les caractères — les noms de replays portent accents et
  * espaces — et stricte sur la seule chose qui compte.
  */
-function vérifierClipId(clipId: string): string {
-  const refusé =
+function verifyClipId(clipId: string): string {
+  const rejected =
     clipId === '' ||
     clipId === '.' ||
     clipId === '..' ||
     clipId.includes('/') ||
     clipId.includes('\\') ||
     clipId.includes('\0')
-  if (refusé) {
+  if (rejected) {
     throw new Error(`Identifiant de clip invalide : ${JSON.stringify(clipId)}`)
   }
   return clipId
@@ -157,8 +157,8 @@ function vérifierClipId(clipId: string): string {
  * produire, et l'ancienne resterait sur le disque à ressembler à une livraison à
  * jour. (relevé par Copilot)
  */
-function cheminVariante(projectId: string, clipId: string): string {
-  return path.join(rendersDir(projectId), `${vérifierClipId(clipId)}-9x16.mp4`)
+function pathVariant(projectId: string, clipId: string): string {
+  return path.join(rendersDir(projectId), `${verifyClipId(clipId)}-9x16.mp4`)
 }
 
 /**
@@ -167,19 +167,19 @@ function cheminVariante(projectId: string, clipId: string): string {
  * n'en a pas à lui, et lire le mauvais ferait chercher une variante sous un clip
  * qui n'en a pas, ou l'inverse.
  */
-export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): CheminsRendu {
-  const dossier = rendersDir(projectId)
-  const nom = vérifierClipId(clipId)
+export function pathsRender(projectId: string, clipId: string, ratio: Ratio): PathsRender {
+  const folder = rendersDir(projectId)
+  const name = verifyClipId(clipId)
   return {
-    mp4: path.join(dossier, `${nom}.mp4`),
-    variant9x16: ratio === '9:16' ? null : cheminVariante(projectId, nom),
-    texts: path.join(dossier, `${nom}.txt`),
-    ass: path.join(dossier, `${nom}.ass`),
+    mp4: path.join(folder, `${name}.mp4`),
+    variant9x16: ratio === '9:16' ? null : pathVariant(projectId, name),
+    texts: path.join(folder, `${name}.txt`),
+    ass: path.join(folder, `${name}.ass`),
     // **Le nom ne dépend pas du ratio**, contrairement à celui de la variante :
     // l'empreinte décrit le rendu quel que soit le ratio, et un clip dont le
     // ratio natif change doit retrouver — pour l'écarter — celle qu'il a écrite
     // avant.
-    empreinte: path.join(dossier, `${nom}.rendu.json`),
+    fingerprint: path.join(folder, `${name}.rendu.json`),
   }
 }
 
@@ -242,7 +242,7 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
  * sur le disque seront simplement refaits — aucun n'a de marque incrustée à
  * ce jour (voir `ROADMAP.md`), le coût est donc nul en pratique.
  */
-export const VERSION_EMPREINTE = 4
+export const VERSION_FINGERPRINT = 4
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -283,7 +283,7 @@ export type RenderedFraming = {
  * par la **même** fonction que deux clips entre eux. Deux comparaisons sur la
  * même question finiraient par ne plus dire la même chose.
  */
-export type FormeRendue = Pick<Clip, 'segments' | 'captions' | 'branding'> & {
+export type ShapeRendered = Pick<Clip, 'segments' | 'captions' | 'branding'> & {
   framing: RenderedFraming
 }
 
@@ -308,7 +308,7 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
 }
 
 /** Le clip et son cadrage, tels que `leRenduEstPérimé` les compare. */
-export function renderedShape(clip: Pick<Clip, 'segments' | 'captions' | 'branding'>, framing: RenderedFraming): FormeRendue {
+export function renderedShape(clip: Pick<Clip, 'segments' | 'captions' | 'branding'>, framing: RenderedFraming): ShapeRendered {
   return {
     segments: clip.segments,
     captions: clip.captions,
@@ -325,7 +325,7 @@ export function renderedShape(clip: Pick<Clip, 'segments' | 'captions' | 'brandi
  * aucune marque, alors que `branding` valait `true` au rendu comme aujourd'hui.
  * Une empreinte réduite aux cinq champs ne les attraperait pas.
  */
-export type EmpreinteRendu = FormeRendue & {
+export type FingerprintRender = ShapeRendered & {
   version: number
   /**
    * Les marques réellement incrustées, triées par nom — l'ordre de lecture d'un
@@ -408,14 +408,14 @@ export type EmbeddedMark = { name: string; content: string }
  * (relevé par Codex) `polices` porte donc le condensat de ce que le dossier
  * contient — voir `condensatDesPolices`.
  */
-export type LookDesSousTitres = { style: CaptionStyle; polices: string }
+export type CaptionsLook = { style: CaptionStyle; fonts: string }
 
 /**
  * Le schéma de lecture. **Non strict, et volontairement** : une version
  * ultérieure ajoutera des champs, et c'est `version` qui doit trancher, pas un
  * refus d'analyse qui dirait « illisible » d'un fichier parfaitement formé.
  */
-const SCHÉMA_EMPREINTE = z.object({
+const SCHEMA_FINGERPRINT = z.object({
   version: z.number().int(),
   segments: z.array(z.object({ start: z.number().finite(), end: z.number().finite() })),
   captions: z.boolean(),
@@ -453,8 +453,8 @@ const SCHÉMA_EMPREINTE = z.object({
  * Le coût est la lecture de quelques dizaines de kilo-octets, sur un chemin qui
  * lance déjà un ffprobe par marque.
  */
-function contenuDuFichier(chemin: string): string {
-  return createHash('sha256').update(fs.readFileSync(chemin)).digest('hex')
+function fileContent(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
 }
 
 /**
@@ -465,9 +465,9 @@ function contenuDuFichier(chemin: string): string {
  * — un geste qui ne change pas une image — périmerait tous les rendus du
  * disque.
  */
-function condensatDuLook(look: LookDesSousTitres): string {
+function lookDigest(look: CaptionsLook): string {
   const stable = Object.entries(look.style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return createHash('sha256').update(JSON.stringify([stable, look.polices])).digest('hex')
+  return createHash('sha256').update(JSON.stringify([stable, look.fonts])).digest('hex')
 }
 
 /**
@@ -480,7 +480,7 @@ function digestOfCaptionsText(document: string | null): string | null {
 }
 
 /** Ce que libass sait charger depuis un `fontsdir`. */
-const EXTENSIONS_DE_POLICE = ['.ttf', '.otf', '.ttc']
+const FONT_EXTENSIONS = ['.ttf', '.otf', '.ttc']
 
 /**
  * Le condensat du dossier de polices : ce que libass y trouvera.
@@ -499,33 +499,33 @@ const EXTENSIONS_DE_POLICE = ['.ttf', '.otf', '.ttc']
  * marqueur, plutôt que d'être ignoré : le rendu qui suivra n'aura pas la même
  * police, et l'empreinte doit le voir.
  */
-export function condensatDesPolices(dossier: string): string {
-  let noms: string[]
+export function fontsDigest(folder: string): string {
+  let names: string[]
   try {
-    noms = fs.readdirSync(dossier).filter((nom) =>
-      EXTENSIONS_DE_POLICE.includes(path.extname(nom).toLowerCase()),
+    names = fs.readdirSync(folder).filter((name) =>
+      FONT_EXTENSIONS.includes(path.extname(name).toLowerCase()),
     )
   } catch {
-    noms = []
+    names = []
   }
-  const entrées = noms.sort().map((nom): [string, string] => {
+  const entries = names.sort().map((name): [string, string] => {
     try {
-      return [nom, contenuDuFichier(path.join(dossier, nom))]
+      return [name, fileContent(path.join(folder, name))]
     } catch {
-      return [nom, 'illisible']
+      return [name, 'illisible']
     }
   })
-  return createHash('sha256').update(JSON.stringify(entrées)).digest('hex')
+  return createHash('sha256').update(JSON.stringify(entries)).digest('hex')
 }
 
 /** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
-function triéesParNom(marques: readonly EmbeddedMark[]): EmbeddedMark[] {
-  return [...marques].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+function sortedByName(markers: readonly EmbeddedMark[]): EmbeddedMark[] {
+  return [...markers].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
 /** Les marques telles que l'empreinte les note : nom et contenu, triés par nom. */
-function identitésDeMarques(marques: readonly MarqueNative[]): EmbeddedMark[] {
-  return triéesParNom(marques.map((m) => ({ name: path.basename(m.path), content: m.contenu })))
+function markersIdentities(markers: readonly MarkerNative[]): EmbeddedMark[] {
+  return sortedByName(markers.map((m) => ({ name: path.basename(m.path), content: m.content })))
 }
 
 /**
@@ -535,13 +535,13 @@ function identitésDeMarques(marques: readonly MarqueNative[]): EmbeddedMark[] {
  * sous-titres ne décrit rien de son image, et l'y noter périmerait ce clip au
  * premier réglage de police.
  */
-export function empreinteDuRendu(
-  clip: FormeRendue,
-  marques: readonly MarqueNative[],
-  sousTitres: { incrustés: boolean; look: LookDesSousTitres; texte: string | null },
-): EmpreinteRendu {
+export function renderFingerprint(
+  clip: ShapeRendered,
+  markers: readonly MarkerNative[],
+  underTitles: { burnedIn: boolean; look: CaptionsLook; text: string | null },
+): FingerprintRender {
   return {
-    version: VERSION_EMPREINTE,
+    version: VERSION_FINGERPRINT,
     // Recopiés champ par champ : `clip.segments` est le tableau que porte le
     // clip, et le sérialiser tel quel embarquerait ce qu'une évolution du type
     // y ajouterait sans qu'on l'ait décidé.
@@ -560,9 +560,9 @@ export function empreinteDuRendu(
     },
     captions: clip.captions,
     branding: clip.branding,
-    marks: identitésDeMarques(marques),
-    captionsLook: sousTitres.incrustés ? condensatDuLook(sousTitres.look) : null,
-    captionsContent: sousTitres.incrustés ? digestOfCaptionsText(sousTitres.texte) : null,
+    marks: markersIdentities(markers),
+    captionsLook: underTitles.burnedIn ? lookDigest(underTitles.look) : null,
+    captionsContent: underTitles.burnedIn ? digestOfCaptionsText(underTitles.text) : null,
   }
 }
 
@@ -578,47 +578,47 @@ export function empreinteDuRendu(
  * Le message ne porte que le nom du fichier. Le chemin absolu porte
  * l'arborescence de la machine, et cette fonction est appelée depuis un `GET`.
  */
-export function lireEmpreinte(chemin: string): EmpreinteRendu | null {
-  let contenu: string
+export function lireFingerprint(filePath: string): FingerprintRender | null {
+  let content: string
   try {
-    contenu = fs.readFileSync(chemin, 'utf8')
-  } catch (erreur) {
-    if (!estUneAbsence(erreur)) {
+    content = fs.readFileSync(filePath, 'utf8')
+  } catch (error) {
+    if (!isAAbsence(error)) {
       console.warn(
-        `Empreinte de rendu inaccessible (${path.basename(chemin)}) : ` +
-          `${erreur instanceof Error ? erreur.name : 'erreur inconnue'}. Le rendu sera refait.`,
+        `Empreinte de rendu inaccessible (${path.basename(filePath)}) : ` +
+          `${error instanceof Error ? error.name : 'erreur inconnue'}. Le rendu sera refait.`,
       )
     }
     return null
   }
   try {
-    const brut: unknown = JSON.parse(contenu)
+    const raw: unknown = JSON.parse(content)
     // **La version se lit avant le schéma, et c'est le seul ordre honnête.** Une
     // empreinte d'une recette antérieure n'a pas les champs d'aujourd'hui : la
     // passer au schéma la ferait refuser, et le journal dirait « illisible »
     // d'un fichier parfaitement formé. Le remède est le même — refaire le rendu
     // — mais le message enverrait chercher une corruption qui n'existe pas.
     // C'est `version` qui tranche, comme le dit la note du schéma.
-    const version = (brut as { version?: unknown } | null)?.version
-    if (typeof version === 'number' && version !== VERSION_EMPREINTE) {
+    const version = (raw as { version?: unknown } | null)?.version
+    if (typeof version === 'number' && version !== VERSION_FINGERPRINT) {
       console.warn(
-        `Empreinte de rendu en version ${version} (${path.basename(chemin)}), la recette est en ` +
-          `${VERSION_EMPREINTE}. Le rendu sera refait.`,
+        `Empreinte de rendu en version ${version} (${path.basename(filePath)}), la recette est en ` +
+          `${VERSION_FINGERPRINT}. Le rendu sera refait.`,
       )
       return null
     }
-    const lu = SCHÉMA_EMPREINTE.safeParse(brut)
+    const lu = SCHEMA_FINGERPRINT.safeParse(raw)
     if (lu.success) return lu.data
   } catch {
     // JSON tronqué — un processus tué en pleine écriture, malgré le renommage.
   }
-  console.warn(`Empreinte de rendu illisible (${path.basename(chemin)}). Le rendu sera refait.`)
+  console.warn(`Empreinte de rendu illisible (${path.basename(filePath)}). Le rendu sera refait.`)
   return null
 }
 
 /** Écrit l'empreinte, sous un nom temporaire puis renommée, comme les sorties. */
-async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Promise<void> {
-  await écrireFichier(chemin, `${JSON.stringify(empreinte, null, 2)}\n`)
+async function writeFingerprint(filePath: string, fingerprint: FingerprintRender): Promise<void> {
+  await writeFile(filePath, `${JSON.stringify(fingerprint, null, 2)}\n`)
 }
 
 /**
@@ -643,23 +643,23 @@ async function écrireEmpreinte(chemin: string, empreinte: EmpreinteRendu): Prom
  * `logo.png` par une autre image sous le même nom est la façon normale de
  * changer de marque. (relevé par Codex)
  */
-export function lesMarquesOntBougé(
-  empreinte: EmpreinteRendu,
-  disponibles: readonly MarqueNative[],
-  dossierVideToléré: boolean,
+export function markersHaveMoved(
+  fingerprint: FingerprintRender,
+  available: readonly MarkerNative[],
+  folderEmptyTolerated: boolean,
 ): boolean {
-  const aujourdhui = identitésDeMarques(disponibles)
-  if (dossierVideToléré && aujourdhui.length === 0) return false
+  const today = markersIdentities(available)
+  if (folderEmptyTolerated && today.length === 0) return false
   // Retriées à la lecture : le fichier a pu être écrit à la main.
-  const incrustées = triéesParNom(empreinte.marks)
+  const burnedIn = sortedByName(fingerprint.marks)
   return (
-    incrustées.length !== aujourdhui.length ||
-    incrustées.some((m, i) => m.name !== aujourdhui[i].name || m.content !== aujourdhui[i].content)
+    burnedIn.length !== today.length ||
+    burnedIn.some((m, i) => m.name !== today[i].name || m.content !== today[i].content)
   )
 }
 
 /** Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant. */
-export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte'
+export type GapFingerprint = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte'
 
 /**
  * Ce qu'on incrusterait **maintenant**, pour ce que l'appelant en sait.
@@ -671,9 +671,9 @@ export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 's
  * son preset de toute façon. C'est un arbitrage de coût, pas deux avis sur la
  * même question : la même fonction, avec des critères en moins.
  */
-export type CeQuOnIncrusterait = {
-  marques: readonly MarqueNative[] | null
-  look: LookDesSousTitres | null
+export type ObservedBurnIn = {
+  markers: readonly MarkerNative[] | null
+  look: CaptionsLook | null
   /**
    * Le document ASS qu'on incrusterait maintenant — **trois valeurs, pas
    * deux**. `undefined` dit « pas sondé », comme `null` pour les deux champs
@@ -685,18 +685,18 @@ export type CeQuOnIncrusterait = {
    * vaudrait `null` « je n'ai rien à incruster », et la comparaison
    * conclurait à tort que rien n'a changé.
    */
-  texte: string | null | undefined
+  text: string | null | undefined
 }
 
 /**
  * L'écart entre ce qui a été rendu et ce qu'on rendrait maintenant, ou `null`
  * quand il n'y en a pas. Pure : c'est l'appelant qui a lu le disque.
  */
-export function écartDeLEmpreinte(
-  empreinte: EmpreinteRendu | null,
-  clip: FormeRendue,
-  observé: CeQuOnIncrusterait,
-): ÉcartEmpreinte | null {
+export function lFingerprintGap(
+  fingerprint: FingerprintRender | null,
+  clip: ShapeRendered,
+  observed: ObservedBurnIn,
+): GapFingerprint | null {
   // **Une empreinte absente vaut « périmé », jamais « inconnu ».** C'est le seul
   // choix qui referme le quatrième cas sans intervention manuelle : les rendus
   // déjà sur le disque n'en ont pas, et « inconnu » les laisserait sauter pour
@@ -704,21 +704,21 @@ export function écartDeLEmpreinte(
   // commentaire qui le dit. Ce que ça coûte est un réencodage par clip, une
   // fois ; ce que ça évite est un MP4 sans logo publié comme la livraison du
   // jour.
-  if (empreinte === null) return 'absente'
-  if (empreinte.version !== VERSION_EMPREINTE) return 'recette'
-  if (leRenduEstPérimé(empreinte, clip)) return 'montage'
+  if (fingerprint === null) return 'absente'
+  if (fingerprint.version !== VERSION_FINGERPRINT) return 'recette'
+  if (renderIsStale(fingerprint, clip)) return 'montage'
   // `clip.branding` en guise de tolérance : un clip qui ne demande pas de marque
   // n'a rien à excuser, son empreinte en porte zéro et la comparaison passe.
-  if (observé.marques !== null && lesMarquesOntBougé(empreinte, observé.marques, clip.branding)) {
+  if (observed.markers !== null && markersHaveMoved(fingerprint, observed.markers, clip.branding)) {
     return 'marques'
   }
   // **Seulement quand un document a été incrusté.** `captionsLook` à `null` dit
   // qu'il n'y en a pas eu, et le preset n'a alors rien décrit de l'image : le
   // comparer périmerait au premier réglage de police un clip qui n'en porte pas.
   if (
-    observé.look !== null &&
-    empreinte.captionsLook !== null &&
-    empreinte.captionsLook !== condensatDuLook(observé.look)
+    observed.look !== null &&
+    fingerprint.captionsLook !== null &&
+    fingerprint.captionsLook !== lookDigest(observed.look)
   ) {
     return 'style'
   }
@@ -727,23 +727,23 @@ export function écartDeLEmpreinte(
   // l'empreinte comme n'importe quelle autre valeur — c'est exactement ce qui
   // détecte une correction ayant vidé de mots les segments d'un clip qui
   // demande des sous-titres (#87).
-  if (observé.texte !== undefined && empreinte.captionsContent !== digestOfCaptionsText(observé.texte)) {
+  if (observed.text !== undefined && fingerprint.captionsContent !== digestOfCaptionsText(observed.text)) {
     return 'texte'
   }
   return null
 }
 
 /** `écartDeLEmpreinte` en booléen, pour les appelants qui n'ont pas à dire pourquoi. */
-export function empreinteÀJour(
-  empreinte: EmpreinteRendu | null,
-  clip: FormeRendue,
-  observé: CeQuOnIncrusterait,
+export function fingerprintToDay(
+  fingerprint: FingerprintRender | null,
+  clip: ShapeRendered,
+  observed: ObservedBurnIn,
 ): boolean {
-  return écartDeLEmpreinte(empreinte, clip, observé) === null
+  return lFingerprintGap(fingerprint, clip, observed) === null
 }
 
 /** Ce que le journal dit de chaque écart, à qui n'a pas lu ce fichier. */
-const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
+const GAP_REASON: Record<GapFingerprint, string> = {
   absente: "aucune empreinte ne dit ce qu'ils décrivent",
   recette: 'ils ont été produits par une recette de rendu antérieure',
   montage: 'le montage a changé depuis',
@@ -772,16 +772,16 @@ const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
  * **`skipped: true` reste un cas nominal** : il l'est quand il est vrai, et il
  * l'est chaque fois que l'empreinte décrit le clip.
  */
-export function sauterLeRendu(
-  chemins: CheminsRendu,
-  existe: (chemin: string) => boolean,
-  décritLeClip: boolean,
+export function sauterRender(
+  paths: PathsRender,
+  exists: (path: string) => boolean,
+  describedClip: boolean,
   force = false,
 ): boolean {
   if (force) return false
-  if (!décritLeClip) return false
-  return [chemins.mp4, chemins.variant9x16, chemins.texts].every(
-    (chemin) => chemin === null || existe(chemin),
+  if (!describedClip) return false
+  return [paths.mp4, paths.variant9x16, paths.texts].every(
+    (path) => path === null || exists(path),
   )
 }
 
@@ -809,10 +809,10 @@ export function sauterLeRendu(
  * là, mesuré à 3,85 s sur un clip de 43 s (`docs/environnement.md`). Ce que ça
  * garantit : les deux fichiers d'un clip sortent toujours du même montage.
  */
-export function refaireLesSorties(
-  chemins: CheminsRendu,
-  existe: (chemin: string) => boolean,
-  décritLeClip: boolean,
+export function redoOutputs(
+  paths: PathsRender,
+  exists: (path: string) => boolean,
+  describedClip: boolean,
   force = false,
 ): boolean {
   if (force) return true
@@ -820,8 +820,8 @@ export function refaireLesSorties(
   // un fichier manquant. Sans cette ligne, un jeu de MP4 complet mais périmé
   // sauterait l'encodage pour n'y réécrire que le `.txt` : le correctif de
   // `sauterLeRendu` ne ferait alors que déplacer le mensonge d'une fonction.
-  if (!décritLeClip) return true
-  return !existe(chemins.mp4) || (chemins.variant9x16 !== null && !existe(chemins.variant9x16))
+  if (!describedClip) return true
+  return !exists(paths.mp4) || (paths.variant9x16 !== null && !exists(paths.variant9x16))
 }
 
 /**
@@ -836,10 +836,10 @@ export function refaireLesSorties(
  *
  * La contrainte est en haut, donc c'est le haut qu'on épingle.
  */
-const HAUT_DE_BANDE = 0.13
+const STRIP_TOP = 0.13
 
 /** La marge latérale, en fraction de la largeur du clip. */
-const MARGE = 0.05
+const MARGIN = 0.05
 
 /**
  * Le plafond de hauteur d'une marque, en fraction de la hauteur du clip, et
@@ -857,7 +857,7 @@ const MARGE = 0.05
  * marque, alors qu'un refus sur un export paysage ne donnerait pas de marque du
  * tout.
  */
-const PLAFOND_HAUTEUR = 0.06
+const CAP_HAUTEUR = 0.06
 
 /**
  * En dessous, une marque réduite cesse d'être lisible sur un téléphone. Un très
@@ -866,7 +866,7 @@ const PLAFOND_HAUTEUR = 0.06
  * une marque trop petite est un défaut cosmétique, une marque imprimée sous la
  * barre d'interface est un cadre raté.
  */
-const LARGEUR_MINIMALE = 80
+const WIDTH_MINIMUM = 80
 
 /**
  * Ce que le dossier des marques peut porter, et à quelle largeur.
@@ -876,30 +876,30 @@ const LARGEUR_MINIMALE = 80
  * c'est une adresse, pas une signature. Les deux sont facultatives, et chacune se
  * rend seule.
  */
-const MARQUES_ATTENDUES: readonly { fichier: string; largeurRatio: number; bord: Bord }[] = [
-  { fichier: 'logo.png', largeurRatio: 0.22, bord: 'gauche' },
-  { fichier: 'twitch.png', largeurRatio: 0.16, bord: 'droite' },
+const MARKERS_EXPECTED: readonly { file: string; widthRatio: number; edge: Edge }[] = [
+  { file: 'logo.png', widthRatio: 0.22, edge: 'gauche' },
+  { file: 'twitch.png', widthRatio: 0.16, edge: 'droite' },
 ]
 
-type Bord = 'gauche' | 'droite'
+type Edge = 'gauche' | 'droite'
 
 /** Une marque trouvée sur le disque, avec sa taille native. */
-export type MarqueNative = {
+export type MarkerNative = {
   path: string
   nativeW: number
   nativeH: number
-  largeurRatio: number
-  bord: Bord
+  widthRatio: number
+  edge: Edge
   /**
    * Le condensat du fichier. Il ne sert pas au rendu — `planifierMarques`
    * l'ignore — mais à l'empreinte, qui doit distinguer deux images portant le
    * même nom fixe. Voir `contenuDeLaMarque`.
    */
-  contenu: string
+  content: string
 }
 
 /** Une marque placée, dans la forme que `renderArgs` attend pour ses `logos`. */
-export type PlacementMarque = { path: string; x: number; y: number; w: number; h: number }
+export type PlacementMarker = { path: string; x: number; y: number; w: number; h: number }
 
 /** Le pair immédiatement inférieur, jamais sous 2. */
 function pair(n: number): number {
@@ -929,19 +929,19 @@ function pair(n: number): number {
  * impaire. C'est la même garde que `cropRect`, pour la même raison, et elle coûte
  * un pixel sur deux cent trente-sept.
  */
-export function planifierMarques(
+export function scheduleMarkers(
   clipW: number,
   clipH: number,
-  marques: readonly MarqueNative[],
-): PlacementMarque[] {
-  if (marques.length === 0) return []
+  markers: readonly MarkerNative[],
+): PlacementMarker[] {
+  if (markers.length === 0) return []
 
-  const marge = Math.round(clipW * MARGE)
-  const espace = pair(clipW - 2 * marge)
-  const plafond = clipH * PLAFOND_HAUTEUR
+  const margin = Math.round(clipW * MARGIN)
+  const espace = pair(clipW - 2 * margin)
+  const cap = clipH * CAP_HAUTEUR
 
-  const dimensionnées = marques.map((m) => {
-    let w = Math.max(LARGEUR_MINIMALE, Math.round(clipW * m.largeurRatio))
+  const sized = markers.map((m) => {
+    let w = Math.max(WIDTH_MINIMUM, Math.round(clipW * m.widthRatio))
     // Jamais plus large que l'espace entre les marges : sur un cadre très étroit,
     // le plancher de lisibilité ferait sinon déborder la marque hors de l'image.
     w = Math.min(w, espace)
@@ -952,33 +952,33 @@ export function planifierMarques(
     // carré entraîne alors la mention avec lui — relevé là-bas à 83x19 sur un
     // 1080x1920, illisible sur un téléphone. Seule la marque qui casse la bande a
     // besoin de rétrécir.
-    if (h > plafond) {
-      w = Math.max(1, Math.round((w * plafond) / h))
-      h = plafond
+    if (h > cap) {
+      w = Math.max(1, Math.round((w * cap) / h))
+      h = cap
     }
-    return { path: m.path, bord: m.bord, w: pair(w), h: pair(h) }
+    return { path: m.path, bord: m.edge, w: pair(w), h: pair(h) }
   })
 
-  const hautDeBande = Math.round(clipH * HAUT_DE_BANDE)
-  const médiane = hautDeBande + Math.max(...dimensionnées.map((d) => d.h)) / 2
+  const stripTop = Math.round(clipH * STRIP_TOP)
+  const median = stripTop + Math.max(...sized.map((d) => d.h)) / 2
 
-  return dimensionnées.map((d) => ({
+  return sized.map((d) => ({
     path: d.path,
     w: d.w,
     h: d.h,
-    x: Math.max(0, d.bord === 'gauche' ? marge : clipW - marge - d.w),
-    y: Math.max(0, Math.round(médiane - d.h / 2)),
+    x: Math.max(0, d.bord === 'gauche' ? margin : clipW - margin - d.w),
+    y: Math.max(0, Math.round(median - d.h / 2)),
   }))
 }
 
 /** `assets/brand/` à la racine du dépôt. Ignoré par git : les marques sont à l'opérateur. */
-function dossierDesMarques(donné?: string): string {
-  return donné ?? path.join(process.cwd(), 'assets', 'brand')
+function markersFolder(given?: string): string {
+  return given ?? path.join(process.cwd(), 'assets', 'brand')
 }
 
 /** `fonts/`, où vit Anton — la police du preset de sous-titres par défaut. */
-function dossierDesPolices(donné?: string): string {
-  return donné ?? path.join(process.cwd(), 'fonts')
+function fontsFolder(given?: string): string {
+  return given ?? path.join(process.cwd(), 'fonts')
 }
 
 /**
@@ -996,40 +996,40 @@ function dossierDesPolices(donné?: string): string {
  * accepte tout ce que ffmpeg saura ensuite décoder — ce qui est exactement la
  * bonne définition de « ce fichier convient ».
  */
-export async function collecterMarques(brandDir?: string): Promise<MarqueNative[]> {
-  const dossier = dossierDesMarques(brandDir)
-  const trouvées: MarqueNative[] = []
-  for (const attendue of MARQUES_ATTENDUES) {
-    const chemin = path.join(dossier, attendue.fichier)
-    if (!fs.existsSync(chemin)) continue
+export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]> {
+  const folder = markersFolder(brandDir)
+  const found: MarkerNative[] = []
+  for (const expected of MARKERS_EXPECTED) {
+    const filePath = path.join(folder, expected.file)
+    if (!fs.existsSync(filePath)) continue
     // Le contenu avant le sondage : c'est la lecture la moins chère des deux, et
     // un fichier qu'on ne sait pas lire n'a pas besoin d'un ffprobe pour être
     // écarté. Une marque illisible se journalise et s'ignore, comme une marque
     // que ffprobe ne sait pas mesurer.
-    let contenu: string
+    let content: string
     try {
-      contenu = contenuDuFichier(chemin)
-    } catch (erreur) {
+      content = fileContent(filePath)
+    } catch (error) {
       console.warn(
-        `Marque illisible, ignorée : ${chemin} (${erreur instanceof Error ? erreur.name : 'erreur inconnue'})`,
+        `Marque illisible, ignorée : ${filePath} (${error instanceof Error ? error.name : 'erreur inconnue'})`,
       )
       continue
     }
-    const { width, height } = await probe(chemin)
+    const { width, height } = await probe(filePath)
     if (width === null || height === null || width <= 0 || height <= 0) {
-      console.warn(`Marque illisible, ignorée : ${chemin}`)
+      console.warn(`Marque illisible, ignorée : ${filePath}`)
       continue
     }
-    trouvées.push({
-      path: chemin,
+    found.push({
+      path: filePath,
       nativeW: width,
       nativeH: height,
-      largeurRatio: attendue.largeurRatio,
-      bord: attendue.bord,
-      contenu,
+      widthRatio: expected.widthRatio,
+      edge: expected.edge,
+      content,
     })
   }
-  return trouvées
+  return found
 }
 
 /**
@@ -1050,24 +1050,24 @@ export async function collecterMarques(brandDir?: string): Promise<MarqueNative[
  * rien : la marque a été demandée, aucune n'est posée, et le fichier partirait
  * sur Instagram sans elle.
  */
-export function refuserFauteDeMarque(
+export function markerRejectFault(
   branding: boolean,
-  marques: readonly MarqueNative[],
+  markers: readonly MarkerNative[],
 ): boolean {
-  return branding && marques.length === 0
+  return branding && markers.length === 0
 }
 
 /** Les mots-dièse d'un texte, dédoublonnés sans tenir compte de la casse. */
-export function motsDièse(texte: string): string[] {
-  const vus = new Set<string>()
-  const sortie: string[] = []
-  for (const trouvé of texte.matchAll(/#[\p{L}\p{N}_]+/gu)) {
-    const clé = trouvé[0].toLowerCase()
-    if (vus.has(clé)) continue
-    vus.add(clé)
-    sortie.push(trouvé[0])
+export function wordsHash(text: string): string[] {
+  const seen = new Set<string>()
+  const output: string[] = []
+  for (const found of text.matchAll(/#[\p{L}\p{N}_]+/gu)) {
+    const key = found[0].toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    output.push(found[0])
   }
-  return sortie
+  return output
 }
 
 /**
@@ -1088,17 +1088,17 @@ export function motsDièse(texte: string): string[] {
  * ailleurs sans les retaper. Les amputer de la description rendrait le champ
  * principal faux pour gagner une redite.
  */
-export function texteDePublication(clip: Clip): string {
-  const titre = clip.title.trim()
+export function publicationText(clip: Clip): string {
+  const title = clip.title.trim()
   const description = clip.description.trim()
-  const dièses = motsDièse(`${titre}\n${description}`)
+  const hashes = wordsHash(`${title}\n${description}`)
   return [
-    `Titre : ${titre === '' ? '(sans titre)' : titre}`,
+    `Titre : ${title === '' ? '(sans titre)' : title}`,
     '',
     'Description :',
     description === '' ? '(sans description)' : description,
     '',
-    `Mots-dièse : ${dièses.length === 0 ? '(aucun)' : dièses.join(' ')}`,
+    `Mots-dièse : ${hashes.length === 0 ? '(aucun)' : hashes.join(' ')}`,
     '',
   ].join('\n')
 }
@@ -1112,14 +1112,14 @@ export function texteDePublication(clip: Clip): string {
  * pour les MP4, et l'étape ne serait pas plus sûre que son maillon le plus
  * faible.
  */
-async function écrireFichier(chemin: string, contenu: string): Promise<void> {
-  await fsp.mkdir(path.dirname(chemin), { recursive: true })
-  const temporaire = cheminTemporaire(chemin)
+async function writeFile(filePath: string, content: string): Promise<void> {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true })
+  const temporary = pathTemporary(filePath)
   try {
-    await fsp.writeFile(temporaire, contenu, 'utf8')
-    await fsp.rename(temporaire, chemin)
+    await fsp.writeFile(temporary, content, 'utf8')
+    await fsp.rename(temporary, filePath)
   } catch (cause) {
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
   }
 }
@@ -1149,21 +1149,21 @@ async function écrireFichier(chemin: string, contenu: string): Promise<void> {
  * `repli` ne sert qu'au clip supprimé pendant l'export, dont les fichiers
  * méritent quand même leur texte.
  */
-export function écrireTexteDePublication(
+export function publicationWriteText(
   db: Database.Database,
   clipId: string,
-  repli: Clip,
-  chemin: string,
+  fallback: Clip,
+  filePath: string,
 ): void {
-  const contenu = texteDePublication(getClip(db, clipId) ?? repli)
-  fs.mkdirSync(path.dirname(chemin), { recursive: true })
-  const temporaire = cheminTemporaire(chemin)
+  const content = publicationText(getClip(db, clipId) ?? fallback)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const temporary = pathTemporary(filePath)
   try {
-    fs.writeFileSync(temporaire, contenu, 'utf8')
-    fs.renameSync(temporaire, chemin)
+    fs.writeFileSync(temporary, content, 'utf8')
+    fs.renameSync(temporary, filePath)
   } catch (cause) {
     try {
-      fs.rmSync(temporaire, { force: true })
+      fs.rmSync(temporary, { force: true })
     } catch {
       // Le provisoire a pu ne jamais être créé ; sans conséquence.
     }
@@ -1207,13 +1207,13 @@ async function dimensionsSource(src: string): Promise<{ w: number; h: number }> 
  * 2. **Le rendu part de l'original** — la copie de travail dans `stage/` —, jamais
  *    du proxy, qui est un 960x540 fait pour scruber.
  */
-export async function renderClip(clipId: string, options: OptionsRendu = {}): Promise<RenderResult> {
+export async function renderClip(clipId: string, options: OptionsRender = {}): Promise<RenderResult> {
   const db = options.db ?? getDb()
   const clip = getClip(db, clipId)
   if (clip === undefined) throw new Error(`Clip inconnu : ${clipId}`)
 
-  const projet = getProject(db, clip.projectId)
-  if (projet === undefined) {
+  const project = getProject(db, clip.projectId)
+  if (project === undefined) {
     throw new Error(`Projet inconnu pour le clip ${clipId} : ${clip.projectId}`)
   }
 
@@ -1235,14 +1235,14 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   const framing = clipFraming(clip)
   const ratio = framing.ratio
   const framingSnapshot = renderedFraming(framing)
-  const chemins = cheminsRendu(clip.projectId, clipId, ratio)
+  const paths = pathsRender(clip.projectId, clipId, ratio)
 
   // **L'EDL se valide avant la décision de saut**, et l'ordre compte : l'édition
   // autorise de vider un clip, et un clip vidé après un premier export a encore
   // ses fichiers. Le saut le rendrait alors `skipped: true` en le marquant
   // exporté, alors qu'il ne décrit plus rien. (relevé par Copilot)
-  const durée = clipDuration(clip.segments)
-  if (durée <= 0) {
+  const duration = clipDuration(clip.segments)
+  if (duration <= 0) {
     throw new Error(
       `Le clip ${clipId} ne porte aucun segment à rendre. Un clip est une liste de segments, et une liste vide n'a pas de durée.`,
     )
@@ -1256,26 +1256,26 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   //
   // Le dossier ne se lit que si le clip en veut : un clip sans marque n'a rien à
   // comparer, et `branding` passé à faux se voit déjà dans les cinq champs.
-  const marques = clip.branding ? await collecterMarques(options.brandDir) : []
+  const markers = clip.branding ? await collectMarkers(options.brandDir) : []
 
   // Le look entre dans l'empreinte, donc il se résout avant la décision de saut
   // et non plus au moment d'écrire le `.ass`. Les polices se relèvent ici **sans
   // rien dire** : l'avertissement appartient au chemin qui encode, et le poser
   // ici le ferait sonner à chaque export sauté.
-  const look: LookDesSousTitres = {
+  const look: CaptionsLook = {
     style: options.style ?? DEFAULT_CAPTION_STYLE,
-    polices: condensatDesPolices(dossierDesPolices(options.fontsDir)),
+    fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
   // **Le document qu'on incrusterait maintenant, avant la décision de saut
   // (#87).** Sans lui, une correction du transcript qui ne touche aucun
-  // segment de ce clip laisserait `sauterLeRendu` reprendre un MP4 qui porte
+  // segment de ce clip laisserait `sauterRender` reprendre un MP4 qui porte
   // encore les anciens mots — c'est exactement le chemin que la correction
   // manuelle de la PR #86 a ouvert : elle ne touche aux segments d'aucun clip.
   //
   // **Un aller-retour sur le Drive, à la différence des marques et du look
   // juste au-dessus.** C'est nouveau : jusqu'ici la décision de saut l'évitait
-  // exprès (voir le commentaire de `EmpreinteRendu.captionsLook`), parce
+  // exprès (voir le commentaire de `FingerprintRender.captionsLook`), parce
   // qu'aucun des huit champs d'avant ne pouvait bouger sans que le graphe
   // refasse ce qui en dépend. Le texte, si — c'est tout le défaut que #87
   // ferme —, et rien d'autre ne peut le voir. Seulement quand le clip demande
@@ -1286,13 +1286,13 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // Calculé une seule fois pour tout le passage : la décision de saut s'en
   // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
   // plutôt que de relire le transcript une seconde fois.
-  const texteActuel: string | null = clip.captions ? await currentCaptionsDocument(clip, projet, look.style) : null
+  const textCurrent: string | null = clip.captions ? await currentCaptionsDocument(clip, project, look.style) : null
 
   // Ce que les fichiers présents décrivent, s'il y en a.
-  const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), renderedShape(clip, framingSnapshot), {
-    marques,
+  const gap = lFingerprintGap(lireFingerprint(paths.fingerprint), renderedShape(clip, framingSnapshot), {
+    markers,
     look,
-    texte: texteActuel,
+    text: textCurrent,
   })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
@@ -1300,9 +1300,9 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // `skipped: true` comme un succès (spec §3.4). Le réencodage se voit déjà —
   // l'export dure alors dix secondes au lieu d'aucune — mais rien ne disait
   // pourquoi. Sous `force`, la décision ne vient pas de l'empreinte : on se tait.
-  if (écart !== null && options.force !== true && fs.existsSync(chemins.mp4)) {
+  if (gap !== null && options.force !== true && fs.existsSync(paths.mp4)) {
     console.warn(
-      `Clip ${clipId} : des rendus sont là mais ${RAISON_DE_LÉCART[écart]}. Ils sont refaits.`,
+      `Clip ${clipId} : des rendus sont là mais ${GAP_REASON[gap]}. Ils sont refaits.`,
     )
   }
 
@@ -1311,19 +1311,19 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // sur le Drive partagé, monté en 9p, lent et sujet au décrochage, et la
   // décision de saut évitait cet aller-retour tant que rien ne pouvait le
   // rendre nécessaire. Un clip sans sous-titres continue de l'éviter.
-  if (sauterLeRendu(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
+  if (sauterRender(paths, (c) => fs.existsSync(c), gap === null, options.force)) {
     // **Le `.txt` se réécrit même quand le rendu saute**, et c'est le seul des
     // trois à le faire. Il ne coûte rien, et c'est celui qu'on retouche le plus :
     // corriger une faute dans la description puis relancer l'export ne doit pas
     // exiger un `--force` qui réencoderait trois minutes de vidéo pour rien.
     // (relevé par Aristarque)
-    écrireTexteDePublication(db, clipId, clip, chemins.texts)
+    publicationWriteText(db, clipId, clip, paths.texts)
     // La variante d'un ratio abandonné s'efface ici aussi. Le chemin non sauté le
     // fait déjà ; sans cela, un clip dont le ratio natif retombe à 9:16 et dont
     // les sorties sont complètes garderait son ancienne variante alors que
     // `RenderResult` annonce qu'il n'y en a pas. (relevé par Aristarque)
-    if (chemins.variant9x16 === null) {
-      fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
+    if (paths.variant9x16 === null) {
+      fs.rmSync(pathVariant(clip.projectId, clipId), { force: true })
     }
     // **Le même contrôle qu'à la fin du chemin long, et il manquait ici.** Ce
     // chemin-ci n'encode pas, mais il écrit quand même — le `.txt` — et il pose
@@ -1331,7 +1331,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // cette ligne faisait annoncer « exporté » sur des fichiers que le `PATCH`
     // venait d'effacer. Le chemin long refusait ce cas depuis toujours ; celui-ci
     // ne le voyait pas.
-    if (écarterRenduPérimé(db, clipId, chemins, clip, framingSnapshot)) {
+    if (discardRenderStale(db, clipId, paths, clip, framingSnapshot)) {
       throw new Error(
         `Le clip ${clipId} a été modifié pendant son export : les fichiers présents décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
       )
@@ -1342,11 +1342,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // relance sauterait, et le clip resterait en « kept » pour toujours sans que
     // rien ne puisse le rattraper. La présence des fichiers fait foi en itération
     // 0 (spec §4), donc elle vaut aussi pour le statut. (relevé par Copilot)
-    marquerExporté(db, clipId, clip, framingSnapshot)
+    markExported(db, clipId, clip, framingSnapshot)
     return {
-      mp4: chemins.mp4,
-      variant9x16: chemins.variant9x16,
-      texts: chemins.texts,
+      mp4: paths.mp4,
+      variant9x16: paths.variant9x16,
+      texts: paths.texts,
       skipped: true,
     }
   }
@@ -1356,11 +1356,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // — et le résoudre ici le ferait lever aussi sur un clip dont le MP4 est déjà
   // là. C'est la leçon relevée sur `buildProxy` : un artefact présent doit revenir
   // tout de suite, quoi que porte l'environnement.
-  const encodeur = (): EncoderName => options.encoder ?? encoderName()
+  const encoder = (): EncoderName => options.encoder ?? encoderName()
 
   // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage :
   // c'est lui qui décide du sort du `.ass` provisoire, dans le `finally`.
-  let natifEncodé = false
+  let nativeEncoded = false
 
   // **Les deux sorties se rendent depuis la source et se refont ensemble.** La
   // variante partait du MP4 natif ; elle en héritait alors les sous-titres dans
@@ -1372,7 +1372,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des sondages ffprobe.
-  if (refaireLesSorties(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
+  if (redoOutputs(paths, (c) => fs.existsSync(c), gap === null, options.force)) {
     // **La copie de travail, pas le Drive — et son absence se répare ici.** Ce
     // commentaire disait déjà « son absence se répare en réingérant » et le code
     // se contentait de lever en le prescrivant : or rien dans l'application ne
@@ -1387,7 +1387,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     // coup sur coup sur la même émission attendent la même copie —, et laisse le
     // message qui dit quoi faire en dernier recours, pour le montage muet ou
     // l'original disparu.
-    const src = await ensureLocalCopy(projet, { db })
+    const src = await ensureLocalCopy(project, { db })
     // **Et on la tient jusqu'à la fin du rendu.** `ensureLocalCopy` ne protège
     // la copie que pendant sa recopie ; ensuite le rendu la lit — lecture du
     // transcript, sondage des dimensions, puis dix secondes à une minute
@@ -1420,7 +1420,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
       // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de
       // travail manquante se dit toujours avant la marque manquante.
-      if (refuserFauteDeMarque(clip.branding, marques)) {
+      if (markerRejectFault(clip.branding, markers)) {
         // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
         // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
         // et `collecterMarques` écarte la marque en le journalisant. Dire que le
@@ -1428,7 +1428,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         // est là.
         throw new Error(
           `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
-            `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absentes, ou illisibles et ` +
+            `${MARKERS_EXPECTED.map((m) => m.file).join(' ni ')} — absentes, ou illisibles et ` +
             `alors signalées au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
             `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
             `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
@@ -1436,24 +1436,24 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       }
 
       // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
-      // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
+      // disque pour relire ce que libass a incrusté, et `produceArtifact` conserve
       // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
       // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
       // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
       // en place. (relevé par Copilot)
-      // Le document a déjà été calculé plus haut, en `texteActuel` — pour la
+      // Le document a déjà été calculé plus haut, en `textCurrent` — pour la
       // décision de saut autant que pour ceci, une seule lecture du transcript.
-      const assProvisoire = clip.captions
-        ? await writeCaptionsDocument(clip.id, texteActuel, cheminTemporaire(chemins.ass))
+      const assProvisional = clip.captions
+        ? await writeCaptionsDocument(clip.id, textCurrent, pathTemporary(paths.ass))
         : undefined
       // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
       // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
       // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
       const fontsDir =
-        assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
+        assProvisional === undefined ? undefined : fontsUsableFolder(options.fontsDir)
 
       try {
-        const taille = await dimensionsSource(src)
+        const size = await dimensionsSource(src)
 
         // **Le montage découpé aux frontières de plans.** C'est ici que le cadre
         // cesse d'être unique : un segment qui traverse cinq plans devient cinq
@@ -1463,7 +1463,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
         // recalage des sous-titres : `splitByShot` recopie les bornes
         // intermédiaires au lieu de les recalculer, donc chaque segment se
-        // retrouve couvert exactement. `sousTitresDuClip` continue de lire
+        // retrouve couvert exactement. `clipUnderTitles` continue de lire
         // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
         const pieces = splitByShot(
           clip.segments,
@@ -1499,23 +1499,23 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
           start: m.start,
           end: m.end,
           ratio,
-          crop: cropRect(ratio, m.cropXNative, taille.w, taille.h),
+          crop: cropRect(ratio, m.cropXNative, size.w, size.h),
         }))
         const verticalPieces: FramedSegment[] = pieces.map((m) => ({
           start: m.start,
           end: m.end,
           ratio: m.ratio,
-          crop: cropRect(m.ratio, m.cropX, taille.w, taille.h),
+          crop: cropRect(m.ratio, m.cropX, size.w, size.h),
         }))
 
         // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
         // une fois pour les deux : elles s'incrustent après la composition, à la
-        // taille du fichier produit, et `planifierMarques` raisonne en fractions
+        // taille du fichier produit, et `scheduleMarkers` raisonne en fractions
         // de ce canevas. Les planifier une seule fois poserait dans la variante
         // une bande calculée pour un autre format. C'est la même raison que pour
         // les sous-titres — voir `renderArgs`.
-        const logos = planifierMarques(out.w, out.h, marques)
-        const verticalLogos = planifierMarques(verticalCanvas.w, verticalCanvas.h, marques)
+        const logos = scheduleMarkers(out.w, out.h, markers)
+        const verticalLogos = scheduleMarkers(verticalCanvas.w, verticalCanvas.h, markers)
 
         // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
         // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
@@ -1525,67 +1525,67 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         // sorties présentes et saute définitivement sur cette paire incohérente.
         // Effacée d'abord, n'importe quelle interruption laisse une sortie
         // manquante, donc réessayable. (relevé par Copilot)
-        const variante = chemins.variant9x16
-        if (variante !== null) fs.rmSync(variante, { force: true })
+        const variant = paths.variant9x16
+        if (variant !== null) fs.rmSync(variant, { force: true })
 
         // **L'empreinte d'avant part avec elle, et pour la même raison poussée
         // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la
-        // laisser en place le temps des deux encodages laisse `livraisonÀJour`
+        // laisser en place le temps des deux encodages laisse `deliveryToDay`
         // répondre vrai sur une paire à moitié réécrite, et rien ne le signale
         // puisqu'un `GET` ne sonde pas le dossier des marques. N'importe quelle
         // sortie de ce bloc — interruption, refus de certifier plus bas — laisse
         // alors des fichiers que rien ne certifie, donc à refaire.
         // (relevé par Copilot)
-        fs.rmSync(chemins.empreinte, { force: true })
+        fs.rmSync(paths.fingerprint, { force: true })
 
-        await produireArtefact({
-          dst: chemins.mp4,
+        await produceArtifact({
+          dst: paths.mp4,
           // `true` et non `options.force` : la décision est prise au-dessus, une
           // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
           // un natif présent dont la variante manque, et la paire repartirait de
           // deux montages. (relevé par Codex et Copilot)
           force: true,
-          durationSec: durée,
-          onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-          quoi: `rendu ${ratio} du clip ${clipId}`,
+          durationSec: duration,
+          onProgress: (a) => options.onProgress?.({ ...a, output: 'natif' }),
+          what: `rendu ${ratio} du clip ${clipId}`,
           args: (destination) =>
             renderArgs({
               src,
               segments: nativePieces,
               out,
-              assPath: assProvisoire,
+              assPath: assProvisional,
               fontsDir,
               logos,
               dst: destination,
-              encoder: encodeur(),
+              encoder: encoder(),
             }),
         })
         // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
         // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
         // décrit bien la vidéo posée sur le disque.
-        natifEncodé = true
+        nativeEncoded = true
 
         // **La variante suit le natif, toujours** : ils décrivent le même montage,
         // et un natif réencodé alors que la variante est restée en place laisserait
         // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
         // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
-        if (variante !== null) {
-          await produireArtefact({
-            dst: variante,
+        if (variant !== null) {
+          await produceArtifact({
+            dst: variant,
             force: true,
-            durationSec: durée,
-            onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
-            quoi: `variante 9:16 du clip ${clipId}`,
+            durationSec: duration,
+            onProgress: (a) => options.onProgress?.({ ...a, output: '9x16' }),
+            what: `variante 9:16 du clip ${clipId}`,
             args: (destination) =>
               blurredVariantArgs({
                 src,
                 segments: verticalPieces,
                 out: verticalCanvas,
-                assPath: assProvisoire,
+                assPath: assProvisional,
                 fontsDir,
                 logos: verticalLogos,
                 dst: destination,
-                encoder: encodeur(),
+                encoder: encoder(),
               }),
           })
         }
@@ -1614,32 +1614,32 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
         // une empreinte qui affirme sans avoir vérifié est exactement ce que
         // cette PR ferme.
-        const empreinte = empreinteDuRendu(renderedShape(clip, framingSnapshot), marques, {
-          incrustés: assProvisoire !== undefined,
+        const fingerprint = renderFingerprint(renderedShape(clip, framingSnapshot), markers, {
+          burnedIn: assProvisional !== undefined,
           look,
-          texte: texteActuel,
+          text: textCurrent,
         })
-        const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
+        const markersAfter = clip.branding ? await collectMarkers(options.brandDir) : []
         // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
         // une livraison déjà faite quand on ne sait plus ce qu'elle porte ; ici on
         // décide de *certifier* celle qu'on vient de faire, et ne pas savoir n'est
         // pas une raison d'affirmer. Un logo remplacé entre les deux encodages
         // puis retiré avant ce contrôle passait sinon inaperçu.
         // (relevé par Codex)
-        if (lesMarquesOntBougé(empreinte, marquesAprès, false)) {
+        if (markersHaveMoved(fingerprint, markersAfter, false)) {
           throw new Error(
             `Les marques du clip ${clipId} ne sont plus celles qui ont servi à son export : les deux sorties peuvent ne pas porter la même, et rien ne permet de le vérifier. Aucune empreinte n'est posée, l'export suivant les refera. Relancer l'export.`,
           )
         }
-        await écrireEmpreinte(chemins.empreinte, empreinte)
+        await writeFingerprint(paths.fingerprint, fingerprint)
       } finally {
         // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
         // en place celui qui décrit la vidéo réellement posée sur le disque.
-        if (natifEncodé) {
-          if (assProvisoire === undefined) fs.rmSync(chemins.ass, { force: true })
-          else await fsp.rename(assProvisoire, chemins.ass)
-        } else if (assProvisoire !== undefined) {
-          await fsp.rm(assProvisoire, { force: true }).catch(() => {})
+        if (nativeEncoded) {
+          if (assProvisional === undefined) fs.rmSync(paths.ass, { force: true })
+          else await fsp.rename(assProvisional, paths.ass)
+        } else if (assProvisional !== undefined) {
+          await fsp.rm(assProvisional, { force: true }).catch(() => {})
         }
       }
     } finally {
@@ -1651,24 +1651,24 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // et l'ancienne resterait à côté du nouveau MP4 en ressemblant à une livraison
   // à jour — alors que `RenderResult` annonce qu'il n'y en a pas.
   // (relevé par Copilot)
-  if (chemins.variant9x16 === null) {
-    fs.rmSync(cheminVariante(clip.projectId, clipId), { force: true })
+  if (paths.variant9x16 === null) {
+    fs.rmSync(pathVariant(clip.projectId, clipId), { force: true })
   }
 
   // **Le titre et la description se relisent en base, pour la même raison que le
   // statut.** `clip` est l'instantané d'avant l'encodage, qui a duré des minutes :
   // écrire le `.txt` depuis lui livrerait la description que l'utilisateur vient
   // de corriger pendant ce temps. La relecture et l'écriture se suivent sans
-  // point d'attente — voir `écrireTexteDePublication`, qui porte l'arbitrage
+  // point d'attente — voir `publicationWriteText`, qui porte l'arbitrage
   // entre ce chemin-ci et celui du `PATCH`.
-  écrireTexteDePublication(db, clipId, clip, chemins.texts)
+  publicationWriteText(db, clipId, clip, paths.texts)
 
   // **Le montage a-t-il bougé pendant l'encodage ?** Si oui, les fichiers qu'on
   // vient de produire décrivent un cadre que personne ne veut plus : on les
   // retire et on échoue franchement, plutôt que de les laisser sur le disque où
   // l'export suivant les prendrait pour bons. C'est le prix d'un modèle où la
   // présence du fichier fait foi.
-  if (écarterRenduPérimé(db, clipId, chemins, clip, framingSnapshot)) {
+  if (discardRenderStale(db, clipId, paths, clip, framingSnapshot)) {
     throw new Error(
       `Le clip ${clipId} a été modifié pendant son export : les fichiers produits décrivaient le montage d'avant et ont été écartés. Relancer l'export.`,
     )
@@ -1676,12 +1676,12 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
 
   // Le statut ne bouge qu'une fois les fichiers sur le disque : le poser avant
   // l'encodage protégerait un clip qui n'existe pas.
-  marquerExporté(db, clipId, clip, framingSnapshot)
+  markExported(db, clipId, clip, framingSnapshot)
 
   return {
-    mp4: chemins.mp4,
-    variant9x16: chemins.variant9x16,
-    texts: chemins.texts,
+    mp4: paths.mp4,
+    variant9x16: paths.variant9x16,
+    texts: paths.texts,
     skipped: false,
   }
 }
@@ -1709,22 +1709,22 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
  * relecture et l'écriture. Et un clip supprimé pendant le rendu n'est pas
  * ressuscité, puisqu'on n'écrit que ce qu'on vient de lire.
  */
-export function marquerExporté(
+export function markExported(
   db: Database.Database,
   clipId: string,
-  rendu: Clip,
+  render: Clip,
   framing: RenderedFraming,
 ): void {
-  const àJour = getClip(db, clipId)
-  if (àJour === undefined) return
-  if (àJour.status === 'exported') return
+  const toDay = getClip(db, clipId)
+  if (toDay === undefined) return
+  if (toDay.status === 'exported') return
   // **Toute décision prise pendant l'encodage l'emporte.** L'écart de statut
   // couvre tout ce que l'interface offre comme *décision* : écarter le clip, ou
   // rappuyer sur « Gardé », qui le ramène à `candidate`
   // (`src/lib/clip-status.ts`). (relevé par Copilot)
-  if (àJour.status !== rendu.status) {
+  if (toDay.status !== render.status) {
     console.warn(
-      `Clip ${clipId} : passé de « ${rendu.status} » à « ${àJour.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
+      `Clip ${clipId} : passé de « ${render.status} » à « ${toDay.status} » pendant l'export. Les fichiers sont produits, la décision est conservée.`,
     )
     return
   }
@@ -1732,20 +1732,20 @@ export function marquerExporté(
   // point de #48.** Retirer un passage, déplacer une borne ou changer le ratio
   // ne change pas le statut : un clip `kept` reste `kept`, et cette fonction
   // posait alors `exported` sur des fichiers qui décrivent le montage d'avant.
-  // Le clip se disait livré, `sortiesDuClip` publiait ses URL, et l'interface
+  // Le clip se disait livré, `clipOutputs` publiait ses URL, et l'interface
   // les affichait comme la livraison du jour.
   //
-  // Les deux appelants de `renderClip` passent déjà par `écarterRenduPérimé`
+  // Les deux appelants de `renderClip` passent déjà par `discardRenderStale`
   // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
   // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
   // dépendante de l'ordre des appels, et cette fonction est exportée.
-  if (leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, renderedFraming(clipFraming(àJour))))) {
+  if (renderIsStale(renderedShape(render, framing), renderedShape(toDay, renderedFraming(clipFraming(toDay))))) {
     console.warn(
       `Clip ${clipId} : le montage a changé pendant l'export. Les fichiers produits décrivent le montage d'avant, le statut n'est pas posé.`,
     )
     return
   }
-  putClip(db, { ...àJour, status: 'exported' })
+  putClip(db, { ...toDay, status: 'exported' })
 }
 
 /**
@@ -1754,7 +1754,7 @@ export function marquerExporté(
  *
  * **Laisser les fichiers en place ne suffisait pas.** Refuser le statut ne fait
  * que reporter le problème d'un appel : les MP4 sont tous là, donc l'export
- * suivant passe par `sauterLeRendu`, ne compare plus rien, et annonce `exported`
+ * suivant passe par `sauterRender`, ne compare plus rien, et annonce `exported`
  * sur des fichiers qui décrivent le montage d'avant. L'utilisateur publierait
  * l'ancien cadre sans jamais voir passer d'avertissement. La seule sortie qui
  * tienne dans un modèle « la présence du fichier fait foi » (spec §4) est de
@@ -1764,11 +1764,11 @@ export function marquerExporté(
  * Un clip déjà `exported` redescend à `kept` du même geste — « décidé, reste à
  * exporter » —, puisque plus rien sur le disque ne justifie l'autre statut.
  */
-export function écarterRenduPérimé(
+export function discardRenderStale(
   db: Database.Database,
   clipId: string,
-  chemins: CheminsRendu,
-  rendu: Clip,
+  paths: PathsRender,
+  render: Clip,
   framing: RenderedFraming,
   /**
    * Comment obtenir le cadrage du clip **relu**.
@@ -1783,26 +1783,26 @@ export function écarterRenduPérimé(
    * sur l'analyse qu'elle a lue **avant** d'écrire, et rien de faillible ne
    * subsiste après le point de non-retour. (relevé par Codex)
    */
-  cadrageDuRelu: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip)),
+  rereadFraming: (clip: Clip) => RenderedFraming = (clip) => renderedFraming(clipFraming(clip)),
 ): boolean {
-  const àJour = getClip(db, clipId)
-  if (àJour === undefined) return false
+  const toDay = getClip(db, clipId)
+  if (toDay === undefined) return false
   // **Le cadrage d'après se recalcule sur le clip relu**, pas sur celui qu'on
   // avait : c'est tout l'objet du contrôle. Retirer un passage où un comédien
   // traverse le plateau peut faire retomber un 16:9 en 1:1 sans qu'aucun champ
   // du clip ne dise « cadrage », et les fichiers montreraient alors un cadre que
   // plus personne ne veut.
-  if (!leRenduEstPérimé(renderedShape(rendu, framing), renderedShape(àJour, cadrageDuRelu(àJour))))
+  if (!renderIsStale(renderedShape(render, framing), renderedShape(toDay, rereadFraming(toDay))))
     return false
 
   // **L'empreinte part la première.** Elle est ce qui certifie les autres : un
   // échec au milieu de cette boucle doit laisser des fichiers sans empreinte —
   // donc à refaire — et jamais une empreinte sans les fichiers qu'elle décrit,
   // qui ferait sauter l'export suivant sur une livraison amputée.
-  for (const chemin of [chemins.empreinte, chemins.mp4, chemins.variant9x16, chemins.texts]) {
-    if (chemin !== null) fs.rmSync(chemin, { force: true })
+  for (const path of [paths.fingerprint, paths.mp4, paths.variant9x16, paths.texts]) {
+    if (path !== null) fs.rmSync(path, { force: true })
   }
-  if (àJour.status === 'exported') putClip(db, { ...àJour, status: 'kept' })
+  if (toDay.status === 'exported') putClip(db, { ...toDay, status: 'kept' })
   return true
 }
 
@@ -1815,20 +1815,20 @@ export function écarterRenduPérimé(
  * qui est réécrit depuis l'état à jour — les compter ici ferait perdre son
  * statut à un clip dont on a seulement corrigé une faute de frappe. Et `ratio`
  * comme `cropX` n'y sont plus : c'est `framing` qui porte ce que ffmpeg a
- * réellement découpé, voir `FormeRendue`.
+ * réellement découpé, voir `ShapeRendered`.
  *
- * **Elle prend une `FormeRendue`, pas un `Clip`**, et c'est ce qui permet de lui
+ * **Elle prend une `ShapeRendered`, pas un `Clip`**, et c'est ce qui permet de lui
  * passer aussi bien deux clips qu'une empreinte et un clip : la liste des champs
  * qui comptent est écrite une fois, ici, et les deux comparaisons ne peuvent pas
  * diverger.
  *
  * Pure, donc testable sans base ni ffmpeg.
  */
-export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boolean {
-  const mêmesSegments =
-    rendu.segments.length === àJour.segments.length &&
-    rendu.segments.every(
-      (s, i) => s.start === àJour.segments[i].start && s.end === àJour.segments[i].end,
+export function renderIsStale(render: ShapeRendered, toDay: ShapeRendered): boolean {
+  const sameSegments =
+    render.segments.length === toDay.segments.length &&
+    render.segments.every(
+      (s, i) => s.start === toDay.segments[i].start && s.end === toDay.segments[i].end,
     )
   // **Le cadrage se compare en profondeur, comme les segments.** Un `!==` sur un
   // `cropX` unique suffisait quand il n'y en avait qu'un ; il y en a désormais un
@@ -1837,21 +1837,21 @@ export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boo
   // périmerait le rendu, l'export réencoderait à chaque passage, et `skipped`
   // ne serait plus jamais vrai.
   const sameFraming =
-    rendu.framing.ratio === àJour.framing.ratio &&
-    rendu.framing.shots.length === àJour.framing.shots.length &&
-    rendu.framing.shots.every(
+    render.framing.ratio === toDay.framing.ratio &&
+    render.framing.shots.length === toDay.framing.shots.length &&
+    render.framing.shots.every(
       (p, i) =>
-        p.start === àJour.framing.shots[i].start &&
-        p.end === àJour.framing.shots[i].end &&
-        p.ratio === àJour.framing.shots[i].ratio &&
-        p.cropX === àJour.framing.shots[i].cropX &&
-        p.cropXNative === àJour.framing.shots[i].cropXNative,
+        p.start === toDay.framing.shots[i].start &&
+        p.end === toDay.framing.shots[i].end &&
+        p.ratio === toDay.framing.shots[i].ratio &&
+        p.cropX === toDay.framing.shots[i].cropX &&
+        p.cropXNative === toDay.framing.shots[i].cropXNative,
     )
   return (
-    !mêmesSegments ||
+    !sameSegments ||
     !sameFraming ||
-    rendu.captions !== àJour.captions ||
-    rendu.branding !== àJour.branding
+    render.captions !== toDay.captions ||
+    render.branding !== toDay.branding
   )
 }
 
@@ -1862,11 +1862,11 @@ export function leRenduEstPérimé(rendu: FormeRendue, àJour: FormeRendue): boo
  * sur fontconfig, ne trouve pas Anton, et incruste les sous-titres dans une autre
  * police — sans un mot. On préfère l'omettre et le dire.
  */
-function dossierDesPolicesUtilisable(donné?: string): string | undefined {
-  const dossier = dossierDesPolices(donné)
-  if (fs.existsSync(dossier)) return dossier
+function fontsUsableFolder(given?: string): string | undefined {
+  const folder = fontsFolder(given)
+  if (fs.existsSync(folder)) return folder
   console.warn(
-    `Dossier de polices introuvable (${dossier}) : les sous-titres seront incrustés dans la police que libass trouvera.`,
+    `Dossier de polices introuvable (${folder}) : les sous-titres seront incrustés dans la police que libass trouvera.`,
   )
   return undefined
 }
@@ -1894,14 +1894,14 @@ function dossierDesPolicesUtilisable(donné?: string): string | undefined {
  * 3. `renderAss` — dont la sortie commence par un BOM UTF-8 et s'écrit telle
  *    quelle.
  */
-export function sousTitresDuClip(
-  mots: Word[],
+export function clipUnderTitles(
+  words: Word[],
   segments: Segment[],
   style: CaptionStyle,
 ): string | null {
-  const recalés = retimeWords(mots, segments)
-  const cartons = splitIntoCards(recalés, style.maxChars, style.maxDuration)
-  return cartons.length === 0 ? null : renderAss(cartons, style)
+  const recalibrated = retimeWords(words, segments)
+  const cards = splitIntoCards(recalibrated, style.maxChars, style.maxDuration)
+  return cards.length === 0 ? null : renderAss(cards, style)
 }
 
 /**
@@ -1943,12 +1943,12 @@ export function sousTitresDuClip(
  */
 async function currentCaptionsDocument(
   clip: Pick<Clip, 'id' | 'segments'>,
-  projet: Project,
+  project: Project,
   style: CaptionStyle,
 ): Promise<string | null> {
-  const transcript = await transcriptDuProjet(projet)
+  const transcript = await projectTranscript(project)
   if (transcript === null) {
-    if (!(await montageRépond(resolveSource(projet.sourcePath)))) {
+    if (!(await editingResponds(resolveSource(project.sourcePath)))) {
       throw new Error(
         `Le dossier des replays ne répond pas : impossible de lire le transcript du clip ${clip.id}. ` +
           'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
@@ -1961,8 +1961,8 @@ async function currentCaptionsDocument(
     )
   }
 
-  const mots: Word[] = transcript.segments.flatMap((s) => s.words)
-  return sousTitresDuClip(mots, clip.segments, style)
+  const words: Word[] = transcript.segments.flatMap((s) => s.words)
+  return clipUnderTitles(words, clip.segments, style)
 }
 
 /**
@@ -1976,13 +1976,13 @@ async function currentCaptionsDocument(
 async function writeCaptionsDocument(
   clipId: string,
   document: string | null,
-  chemin: string,
+  path: string,
 ): Promise<string | undefined> {
   if (document === null) {
     console.warn(`Clip ${clipId} : aucun mot dans les segments retenus, rendu sans sous-titres.`)
     return undefined
   }
 
-  await écrireFichier(chemin, document)
-  return chemin
+  await writeFile(path, document)
+  return path
 }

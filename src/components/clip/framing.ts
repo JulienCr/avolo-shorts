@@ -15,10 +15,10 @@
  * seconde.
  */
 
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import type { Ratio } from '@/core/edl'
 import type { PublishedFraming, ShotFraming } from '@/lib/api'
-import { ORDRE_RATIOS } from '@/lib/crop-preview'
+import { ORDER_RATIOS } from '@/lib/crop-preview'
 
 /**
  * Le ratio du cadre pris dans la source pour **ce plan**, tel que l'écran peut
@@ -38,11 +38,11 @@ import { ORDRE_RATIOS } from '@/lib/crop-preview'
  * publié jusqu'à ce que le `PATCH` en rende un neuf.
  */
 export function effectiveRatio(
-  plan: ShotFraming | null,
+  shot: ShotFraming | null,
   editedRatio: Ratio | 'auto',
 ): Ratio {
   if (editedRatio !== 'auto') return editedRatio
-  return plan?.ratio ?? '16:9'
+  return shot?.ratio ?? '16:9'
 }
 
 /**
@@ -55,7 +55,7 @@ export function effectiveRatio(
  */
 export function shotRatios(framing: PublishedFraming): Ratio[] {
   const seen = new Set(framing.shots.map((p) => p.ratio))
-  return ORDRE_RATIOS.filter((r) => seen.has(r))
+  return ORDER_RATIOS.filter((r) => seen.has(r))
 }
 
 /**
@@ -88,7 +88,7 @@ export function shotIndexAt(shots: readonly ShotFraming[], position: number): nu
 /**
  * Le plan sous la lecture, **sans réveiller le composant à chaque `timeupdate`**.
  *
- * Le sélecteur rend un index, donc un nombre : `useLecture` compare par
+ * Le sélecteur rend un index, donc un nombre : `usePlayback` compare par
  * `Object.is` et ne re-rend qu'aux frontières, soit quelques fois par clip. Un
  * sélecteur qui rendrait le plan lui-même fabriquerait un objet neuf quatre fois
  * par seconde et re-rendrait le rectangle de cadrage à cette cadence — ce que le
@@ -108,8 +108,8 @@ export function shotIndexAt(shots: readonly ShotFraming[], position: number): nu
  * (relevé par Codex)
  */
 export function useCurrentShot(framing: PublishedFraming): ShotFraming | null {
-  const index = useLecture((e) => shotIndexAt(framing.shots, e.position))
-  const beforeFirst = useLecture(
+  const index = usePlayback((e) => shotIndexAt(framing.shots, e.position))
+  const beforeFirst = usePlayback(
     (e) => framing.shots.length > 0 && e.position < framing.shots[0].shot.start,
   )
   if (index >= 0) return framing.shots[index]

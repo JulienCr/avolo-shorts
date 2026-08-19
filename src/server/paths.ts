@@ -20,29 +20,29 @@ import path from 'node:path'
  * qui pose `process.env.PROJECTS_DIR` dans un `beforeEach` doit être entendu,
  * et un module déjà importé ne relit rien.
  */
-function racine(variable: string, défaut?: string): string {
-  const valeur = process.env[variable] ?? défaut
-  if (!valeur) {
+function root(variable: string, defaultValue?: string): string {
+  const value = process.env[variable] ?? defaultValue
+  if (!value) {
     throw new Error(
       `${variable} n'est pas définie. Voir .env.example — REPLAY_DIR pointe le dossier des replays.`,
     )
   }
-  return path.resolve(valeur)
+  return path.resolve(value)
 }
 
 /** Le dossier des replays d'origine. Monté en 9p, lent, et jamais modifié. */
 export function replayDir(): string {
-  return racine('REPLAY_DIR')
+  return root('REPLAY_DIR')
 }
 
 /** La copie de travail locale. Transitoire : elle peut être effacée à tout moment. */
 export function stageDir(): string {
-  return racine('STAGE_DIR', './stage')
+  return root('STAGE_DIR', './stage')
 }
 
 /** Les projets, un par source. */
 export function projectsDir(): string {
-  return racine('PROJECTS_DIR', './projects')
+  return root('PROJECTS_DIR', './projects')
 }
 
 /**
@@ -76,16 +76,16 @@ export function resolveSource(source: string): string {
   }
 
   const replays = replayDir()
-  const résolu = path.resolve(replays, source)
+  const resolved = path.resolve(replays, source)
   // Le message nomme la variable, pas sa valeur : si l'erreur finit dans une
   // réponse HTTP, l'arborescence du serveur n'a pas à partir avec elle. L'écho
   // de `source` est légitime, il vient de l'appelant. (relevé par Aristarque)
-  if (path.dirname(résolu) !== replays) {
+  if (path.dirname(resolved) !== replays) {
     throw new Error(
       `Source hors de REPLAY_DIR : ${JSON.stringify(source)}. Attendu : un fichier posé directement dans REPLAY_DIR.`,
     )
   }
-  return résolu
+  return resolved
 }
 
 /**
@@ -97,8 +97,8 @@ export function resolveSource(source: string): string {
  * bibliothèque en charabia (spec §12).
  */
 export function projectIdFromSource(source: string): string {
-  const nom = path.basename(resolveSource(source))
-  return nom.slice(0, nom.length - path.extname(nom).length) || nom
+  const name = path.basename(resolveSource(source))
+  return name.slice(0, name.length - path.extname(name).length) || name
 }
 
 /**
@@ -110,15 +110,15 @@ export function projectIdFromSource(source: string): string {
  * replays portent accents et espaces, et les refuser casserait la bibliothèque
  * existante. Il est strict sur la seule chose qui compte, la traversée.
  */
-function vérifierId(projectId: string): string {
-  const refusé =
+function verifyId(projectId: string): string {
+  const rejected =
     projectId === '' ||
     projectId === '.' ||
     projectId === '..' ||
     projectId.includes('/') ||
     projectId.includes('\\') ||
     projectId.includes('\0')
-  if (refusé) {
+  if (rejected) {
     throw new Error(`Identifiant de projet invalide : ${JSON.stringify(projectId)}`)
   }
   return projectId
@@ -126,7 +126,7 @@ function vérifierId(projectId: string): string {
 
 /** `projects/<id>/` — tout ce qui dépend d'un réglage plutôt que de la vidéo. */
 export function projectDir(projectId: string): string {
-  return path.join(projectsDir(), vérifierId(projectId))
+  return path.join(projectsDir(), verifyId(projectId))
 }
 
 /** Le proxy 960x540 à 30 fps, sur lequel tourne tout le travail en aval. */
@@ -228,22 +228,22 @@ export type SidecarPlacement = {
  * qui est le bon comportement. La *vivacité* du montage, elle, se vérifie en
  * amont, à l'ingestion (tâche 7).
  */
-function préparerDossier(dir: string): boolean {
-  const existait = fs.existsSync(dir)
+function prepareFolder(dir: string): boolean {
+  const existed = fs.existsSync(dir)
   // Nom unique : deux processus peuvent sonder le même dossier en même temps, et
   // l'un ne doit pas effacer la sonde de l'autre.
-  const sonde = path.join(dir, `.avolo-sonde-${process.pid}-${Date.now().toString(36)}`)
-  let réussi = false
+  const probe = path.join(dir, `.avolo-sonde-${process.pid}-${Date.now().toString(36)}`)
+  let succeeded = false
   try {
     fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(sonde, '')
-    réussi = true
+    fs.writeFileSync(probe, '')
+    succeeded = true
     return true
   } catch {
     return false
   } finally {
     try {
-      fs.rmSync(sonde, { force: true })
+      fs.rmSync(probe, { force: true })
     } catch {
       // La sonde peut avoir disparu ; sans conséquence.
     }
@@ -254,7 +254,7 @@ function préparerDossier(dir: string): boolean {
     // fichier détruit serait précisément celui que tout ce module sert à
     // préserver. `rmdirSync` échoue sur un dossier non vide, ce qui est
     // exactement le garde-fou voulu. (relevé par Copilot)
-    if (!réussi && !existait) {
+    if (!succeeded && !existed) {
       try {
         fs.rmdirSync(dir)
       } catch {
@@ -281,8 +281,8 @@ function préparerDossier(dir: string): boolean {
  * inscriptible, le dossier se recopie tel quel à côté de la vidéo.
  */
 export function placeSidecar(source: string, projectId: string): SidecarPlacement {
-  const voulu = sidecarDir(source)
-  const repli = path.join(projectDir(projectId), path.basename(voulu))
+  const desired = sidecarDir(source)
+  const fallback = path.join(projectDir(projectId), path.basename(desired))
 
   const placement = (dir: string, fallback: boolean): SidecarPlacement => ({
     dir,
@@ -290,10 +290,10 @@ export function placeSidecar(source: string, projectId: string): SidecarPlacemen
     fallback,
   })
 
-  if (fs.existsSync(path.join(voulu, 'transcript.json'))) return placement(voulu, false)
-  if (fs.existsSync(path.join(repli, 'transcript.json'))) return placement(repli, true)
-  if (préparerDossier(voulu)) return placement(voulu, false)
+  if (fs.existsSync(path.join(desired, 'transcript.json'))) return placement(desired, false)
+  if (fs.existsSync(path.join(fallback, 'transcript.json'))) return placement(fallback, true)
+  if (prepareFolder(desired)) return placement(desired, false)
 
-  fs.mkdirSync(repli, { recursive: true })
-  return placement(repli, true)
+  fs.mkdirSync(fallback, { recursive: true })
+  return placement(fallback, true)
 }

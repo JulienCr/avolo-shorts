@@ -129,8 +129,8 @@ export function shotStartMs(shot: Shot): number {
 export function shotsForSegments(shots: Shot[], segments: Segment[]): Shot[] {
   const segs = normalizeSegments(segments)
   return shots
-    .filter((plan) => segs.some((s) => Math.min(plan.end, s.end) > Math.max(plan.start, s.start)))
-    .map((plan) => ({ ...plan }))
+    .filter((shot) => segs.some((s) => Math.min(shot.end, s.end) > Math.max(shot.start, s.start)))
+    .map((shot) => ({ ...shot }))
     .sort((a, b) => a.start - b.start)
 }
 
@@ -142,7 +142,7 @@ export function shotsForSegments(shots: Shot[], segments: Segment[]): Shot[] {
  * commence à mordre sur un mot, et le bénéfice — cacher la coupe derrière un
  * changement d'axe — ne vaut plus le mot perdu.
  */
-const TOLÉRANCE_PAR_DÉFAUT = 0.5
+const TOLERANCE_BY_DEFAULT = 0.5
 
 /**
  * Pose les bornes de coupe sur les frontières de plans quand elles en ont une
@@ -165,7 +165,7 @@ const TOLÉRANCE_PAR_DÉFAUT = 0.5
 export function snapToShots(
   segments: Segment[],
   shots: Shot[],
-  tolerance: number = TOLÉRANCE_PAR_DÉFAUT,
+  tolerance: number = TOLERANCE_BY_DEFAULT,
 ): Segment[] {
   const segs = normalizeSegments(segments)
   const tol = Number.isFinite(tolerance) ? Math.max(0, tolerance) : 0
@@ -173,40 +173,40 @@ export function snapToShots(
 
   // Les deux bouts de chaque plan sont des frontières : un plan commence là où
   // le précédent finit, mais rien ne garantit que la liste soit contiguë.
-  const frontières = [...new Set(shots.flatMap((p) => [p.start, p.end]))]
+  const boundaries = [...new Set(shots.flatMap((p) => [p.start, p.end]))]
     .filter((f) => Number.isFinite(f))
     .sort((a, b) => a - b)
-  if (frontières.length === 0) return segs
+  if (boundaries.length === 0) return segs
 
   // Les bornes à plat, dans l'ordre : début0, fin0, début1, fin1… La liste est
   // strictement croissante — `normalizeSegments` l'a rendue telle.
-  const bornes = segs.flatMap((s) => [s.start, s.end])
-  const décidées: number[] = []
+  const bounds = segs.flatMap((s) => [s.start, s.end])
+  const decided: number[] = []
 
-  for (let i = 0; i < bornes.length; i++) {
-    const borne = bornes[i]
-    const précédente = i === 0 ? Number.NEGATIVE_INFINITY : décidées[i - 1]
-    const suivante = i + 1 < bornes.length ? bornes[i + 1] : Number.POSITIVE_INFINITY
+  for (let i = 0; i < bounds.length; i++) {
+    const bound = bounds[i]
+    const previous = i === 0 ? Number.NEGATIVE_INFINITY : decided[i - 1]
+    const next = i + 1 < bounds.length ? bounds[i + 1] : Number.POSITIVE_INFINITY
 
-    let choisie = borne
-    let écart = Number.POSITIVE_INFINITY
-    for (const f of frontières) {
+    let chosen = bound
+    let gap = Number.POSITIVE_INFINITY
+    for (const f of boundaries) {
       // La garde qui empêche une borne de franchir sa voisine.
-      if (f <= précédente || f >= suivante) continue
-      const d = Math.abs(f - borne)
+      if (f <= previous || f >= next) continue
+      const d = Math.abs(f - bound)
       // `<` et non `<=` : à distance égale, la première frontière gagne, et
       // elles sont triées. Arbitraire, mais déterministe.
-      if (d <= tol && d < écart) {
-        choisie = f
-        écart = d
+      if (d <= tol && d < gap) {
+        chosen = f
+        gap = d
       }
     }
-    décidées.push(choisie)
+    decided.push(chosen)
   }
 
   const out: Segment[] = []
-  for (let i = 0; i < décidées.length; i += 2) {
-    out.push({ start: décidées[i], end: décidées[i + 1] })
+  for (let i = 0; i < decided.length; i += 2) {
+    out.push({ start: decided[i], end: decided[i + 1] })
   }
   return normalizeSegments(out)
 }

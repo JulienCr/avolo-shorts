@@ -43,7 +43,7 @@ export type ShotPiece = Segment & { ratio: Ratio; cropX: number; cropXNative: nu
  * `analysis.json` valide, dont les plans partitionnent la durée du *proxy* : la
  * source peut finir quelques images plus loin.
  *
- * `shots` n'a pas besoin d'être trié ni contigu.
+ * `framedShots` n'a pas besoin d'être trié ni contigu.
  */
 export function splitByShot(
   segments: readonly Segment[],

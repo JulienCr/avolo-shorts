@@ -6,7 +6,7 @@ import { createGeminiCall } from '@/server/llm/gemini'
 import { createOllamaCall } from '@/server/llm/ollama'
 import { createOpenAiCall } from '@/server/llm/openai'
 import type { LlmCall, LlmCallConfig, LlmClientOptions, LlmMode } from '@/server/llm/types'
-import { exigerSecret } from '@/server/secrets'
+import { requireSecret } from '@/server/secrets'
 
 /**
  * Choisit l'implémentation d'un `LlmCall` d'après les réglages, au lieu de la
@@ -58,7 +58,7 @@ export function apiKeyVariableFor(provider: LlmProvider): string | undefined {
 /**
  * Ce que l'écran des réglages affiche pour un fournisseur : a-t-il sa clé ?
  *
- * **Ne lit jamais la valeur du secret**, seulement sa présence — `exigerSecret`
+ * **Ne lit jamais la valeur du secret**, seulement sa présence — `requireSecret`
  * fait le travail et son message d'erreur, déjà pensé pour ne rien fuiter
  * (`op://…` non résolu, variable absente), devient directement `reason`.
  */
@@ -66,17 +66,17 @@ export function providerAvailability(provider: LlmProvider): LlmProviderAvailabi
   const variable = apiKeyVariableFor(provider)
   if (variable === undefined) return { available: true, reason: null }
   try {
-    exigerSecret(variable)
+    requireSecret(variable)
     return { available: true, reason: null }
-  } catch (erreur) {
-    return { available: false, reason: erreur instanceof Error ? erreur.message : String(erreur) }
+  } catch (error) {
+    return { available: false, reason: error instanceof Error ? error.message : String(error) }
   }
 }
 
 /** La clé d'un fournisseur, ou `undefined` pour Ollama. Lève si elle manque. */
 function apiKeyFor(provider: LlmProvider): string | undefined {
   const variable = apiKeyVariableFor(provider)
-  return variable === undefined ? undefined : exigerSecret(variable)
+  return variable === undefined ? undefined : requireSecret(variable)
 }
 
 /**
@@ -109,7 +109,7 @@ export function createCall(provider: LlmProvider, options: LlmClientOptions): Ll
  * contrat. L'écran des réglages (`providerAvailability`) le dit encore
  * plus tôt, avant même de lancer quoi que ce soit.
  *
- * `timeoutMs` et `config` restent les paramètres du domaine — `DÉLAI_APPEL_MS`
+ * `timeoutMs` et `config` restent les paramètres du domaine — `DELAY_CALL_MS`
  * et `configuration(mode)` de `candidates.ts` — cette fonction ne fait que
  * choisir *qui* les exécute.
  */

@@ -110,7 +110,7 @@ export type PublicationRecord = {
   /** Le lien public, une fois `published`. `null` avant, et pour un échec. */
   remoteUrl: string | null
   /**
-   * L'empreinte de rendu (`empreinteDuRendu`, `src/server/steps/render.ts`)
+   * L'empreinte de rendu (`renderFingerprint`, `src/server/steps/render.ts`)
    * telle qu'elle était **au moment de la publication**.
    *
    * **Personne ne l'écrit encore : il n'y a pas d'empreinte publiée puisqu'il

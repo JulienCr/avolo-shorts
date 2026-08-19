@@ -1,8 +1,8 @@
 import { getClip, getDb } from '@/server/db'
-import { introuvable, route } from '@/server/http'
-import { servirFichier } from '@/server/octets'
+import { notFound, route } from '@/server/http'
+import { serveFile } from '@/server/bytes'
 import { clipFraming } from '@/server/clip-framing'
-import { livraisonÀJour, sortieNommée } from '@/server/rendus'
+import { deliveryToDay, outputNamed } from '@/server/renders'
 
 /**
  * `GET /api/clips/:id/renders/:file` — un fichier produit par l'export.
@@ -12,9 +12,9 @@ import { livraisonÀJour, sortieNommée } from '@/server/rendus'
  * `projects/` est un dossier de données, hors de `public/`, et n'a pas à devenir
  * un dossier public — c'est donc à une route de pousser les octets.
  *
- * **Le nom demandé est comparé, jamais concaténé.** `sortieNommée` le cherche
+ * **Le nom demandé est comparé, jamais concaténé.** `outputNamed` le cherche
  * dans les sorties que ce clip-là produit, et le chemin qui en ressort vient de
- * `cheminsRendu`, pas de l'URL. Un nom absent de cette liste est un 404, quelle
+ * `pathsRender`, pas de l'URL. Un nom absent de cette liste est un 404, quelle
  * que soit sa forme : la traversée de répertoire n'a rien à traverser.
  *
  * **Elle passe par le wrapper `route()`**, contrairement à la route du proxy qui
@@ -26,13 +26,13 @@ import { livraisonÀJour, sortieNommée } from '@/server/rendus'
  */
 export const GET = route(
   'GET /api/clips/:id/renders/:file',
-  async (requête: Request, contexte: { params: Promise<{ id: string; file: string }> }) => {
-    const { id, file } = await contexte.params
+  async (request: Request, context: { params: Promise<{ id: string; file: string }> }) => {
+    const { id, file } = await context.params
 
     // Le clip d'abord : c'est lui qui dit quels fichiers existent sous quel nom,
     // et son `projectId` vient de la base, jamais d'un morceau d'URL.
     const clip = getClip(getDb(), id)
-    if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
+    if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
     // **Un clip sans livraison à jour ne sert rien**, même si le fichier est là.
     //
@@ -60,17 +60,17 @@ export const GET = route(
     // d'analyse tomberait entre les deux : la porte se déclarerait ouverte sur
     // un jeu de noms, puis chercherait le fichier dans l'autre.
     const framing = clipFraming(clip)
-    if (!livraisonÀJour(clip, framing)) {
-      throw introuvable(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
+    if (!deliveryToDay(clip, framing)) {
+      throw notFound(`Le clip ${id} n'a pas de rendu à jour à servir sous ce nom.`)
     }
 
-    const sortie = sortieNommée(clip, file, framing)
-    if (sortie === null) {
-      throw introuvable(`Le clip ${id} ne produit aucun fichier nommé ${JSON.stringify(file)}.`)
+    const output = outputNamed(clip, file, framing)
+    if (output === null) {
+      throw notFound(`Le clip ${id} ne produit aucun fichier nommé ${JSON.stringify(file)}.`)
     }
 
-    const réponse = await servirFichier(requête, sortie.chemin, {
-      'Content-Type': sortie.type,
+    const response = await serveFile(request, output.path, {
+      'Content-Type': output.type,
       // Le fichier est remplacé sous la même URL par un ré-export, et rien ici
       // ne porte de validateur : le navigateur doit redemander plutôt que de
       // rejouer le rendu précédent. `no-cache` autorise le stockage et exige la
@@ -80,9 +80,9 @@ export const GET = route(
     })
     // Pas de fichier : l'export n'a pas encore tourné, ou pas avec ce ratio-là.
     // Ce n'est pas une panne, et le message le dit sans nommer de chemin.
-    if (réponse === null) {
-      throw introuvable(`Pas encore de rendu ${sortie.nom} pour le clip ${id}.`)
+    if (response === null) {
+      throw notFound(`Pas encore de rendu ${output.name} pour le clip ${id}.`)
     }
-    return réponse
+    return response
   },
 )

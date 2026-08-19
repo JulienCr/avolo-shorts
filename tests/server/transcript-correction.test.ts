@@ -288,7 +288,7 @@ describe('correctTranscript', () => {
   it('refuse la correction si une exécution démarre entre le premier refus et l’écriture', async () => {
     // La route revérifie déjà `progression()` avant d'appeler cette fonction ;
     // ce test couvre la seconde sonde, juste avant l'écriture, qui referme la
-    // fenêtre ouverte par `montageRépond` et la lecture du sidecar.
+    // fenêtre ouverte par `editingResponds` et la lecture du sidecar.
     const result = await correctTranscript(
       project,
       'l0',

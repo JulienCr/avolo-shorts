@@ -20,13 +20,13 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LibraryScreen } from '@/components/sources/library-screen'
-import { cleSources } from '@/components/sources/use-sources'
+import { keySources } from '@/components/sources/use-sources'
 import type { ProjectListItem, SourcesListing } from '@/lib/api'
-import { useProjets } from '@/lib/queries'
+import { useProjects } from '@/lib/queries'
 
-const pousser = vi.fn()
+const push = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pousser, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({ push: push, replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
 }))
 
 afterEach(() => {
@@ -37,14 +37,14 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-beforeEach(() => pousser.mockReset())
+beforeEach(() => push.mockReset())
 
-function reponse(corps: unknown, status = 200): Response {
+function response(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: '',
-    json: async () => corps,
+    json: async () => body,
   } as Response
 }
 
@@ -68,61 +68,61 @@ const SOURCES: SourcesListing = {
       thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
     },
   ],
-  montage: { disponible: true, cause: null, fstype: '9p', entries: 1 },
+  editing: { available: true, cause: null, fstype: '9p', entries: 1 },
 }
 
 /** Un serveur réduit aux trois routes de cet écran. */
-function serveur(
-  reponses: {
-    projets?: () => Response
+function server(
+  responses: {
+    projects?: () => Response
     sources?: () => Response
     /** Une promesse ici sert à retenir la réponse le temps de démonter la page. */
     creation?: () => Response | Promise<Response>
   } = {},
 ) {
-  const appels: string[] = []
-  const faux = vi.fn(async (url: string, init?: RequestInit) => {
-    appels.push(`${init?.method ?? 'GET'} ${url}`)
-    if (url === '/api/sources') return (reponses.sources ?? (() => reponse(SOURCES)))()
+  const calls: string[] = []
+  const fake = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}`)
+    if (url === '/api/sources') return (responses.sources ?? (() => response(SOURCES)))()
     if (url === '/api/projects' && init?.method === 'POST') {
-      return (reponses.creation ?? (() => reponse({ projectId: CQLP.id, plan: [] }, 202)))()
+      return (responses.creation ?? (() => response({ projectId: CQLP.id, plan: [] }, 202)))()
     }
-    if (url === '/api/projects') return (reponses.projets ?? (() => reponse([])))()
+    if (url === '/api/projects') return (responses.projects ?? (() => response([])))()
     throw new Error(`Route inattendue : ${url}`)
   })
-  vi.stubGlobal('fetch', faux)
-  return appels
+  vi.stubGlobal('fetch', fake)
+  return calls
 }
 
 /** Le client est rendu avec l'enveloppe : il survit au démontage de l'écran. */
-function harnais() {
+function harness() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   // Nommée, et non anonyme : `react/display-name` refuse un composant sans nom,
   // et un composant sans nom est aussi une pile de rendu illisible quand un test
   // échoue.
-  function Enveloppe({ children }: { children: ReactNode }) {
+  function Envelope({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>
   }
-  return { client, Enveloppe }
+  return { client, Envelope }
 }
 
-function enveloppe() {
-  return harnais().Enveloppe
+function envelope() {
+  return harness().Envelope
 }
 
 function renderScreen() {
-  const { client, Enveloppe } = harnais()
-  const vue = render(
-    <Enveloppe>
+  const { client, Envelope } = harness()
+  const view = render(
+    <Envelope>
       <LibraryScreen />
-    </Enveloppe>,
+    </Envelope>,
   )
-  return { client, ...vue }
+  return { client, ...view }
 }
 
-async function monter() {
+async function mount() {
   const rendered = renderScreen()
   await waitFor(() => expect(screen.getByText('2025-06-15-cqlp.mp4')).toBeTruthy())
   return rendered
@@ -133,15 +133,15 @@ describe('la bibliothèque unifiée', () => {
     // C'est le défaut que cet écran ferme : « Projets » et « Replays »
     // montraient la même émission deux fois, et rien ne disait que c'était la
     // même.
-    serveur({
-      projets: () => reponse([CQLP]),
+    server({
+      projects: () => response([CQLP]),
       sources: () =>
-        reponse({
+        response({
           ...SOURCES,
           sources: [{ ...SOURCES.sources[0], projectId: CQLP.id }],
         }),
     })
-    await monter()
+    await mount()
 
     expect(screen.getAllByText('2025-06-15-cqlp.mp4')).toHaveLength(1)
     expect(screen.getByText('Analysée')).toBeTruthy()
@@ -152,17 +152,17 @@ describe('la bibliothèque unifiée', () => {
     // `GET /api/projects/:id` exécute `relevéPrésence`, qui sonde le montage 9p
     // avec un délai de garde. Vingt et un appels prendraient les quatre fils du
     // vivier de libuv et figeraient l'analyse en cours.
-    const appels = serveur({ projets: () => reponse([CQLP]) })
-    await monter()
+    const calls = server({ projects: () => response([CQLP]) })
+    await mount()
 
-    expect(appels.filter((a) => a.startsWith('GET /api/projects/'))).toEqual([])
+    expect(calls.filter((a) => a.startsWith('GET /api/projects/'))).toEqual([])
   })
 
   it('donne une carte à un projet dont le replay a disparu du Drive', async () => {
     // Sans elle, tout le travail fait dessus deviendrait inatteignable depuis
     // l'interface, sans qu'aucun écran ne le signale.
-    serveur({ projets: () => reponse([{ ...CQLP, id: 'perdu', title: 'perdu' }]) })
-    await monter()
+    server({ projects: () => response([{ ...CQLP, id: 'perdu', title: 'perdu' }]) })
+    await mount()
 
     expect(screen.getByText('perdu')).toBeTruthy()
     expect(screen.getByText('Orpheline')).toBeTruthy()
@@ -173,13 +173,13 @@ describe('la création', () => {
   it('crée le projet d’une émission neuve, puis y mène', async () => {
     // La redirection **est** la confirmation : une notification en plus dirait
     // deux fois la même chose.
-    const appels = serveur()
-    await monter()
+    const calls = server()
+    await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
 
-    await waitFor(() => expect(pousser).toHaveBeenCalledWith('/projects/2025-06-15-cqlp'))
-    expect(appels).toContain('POST /api/projects')
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/projects/2025-06-15-cqlp'))
+    expect(calls).toContain('POST /api/projects')
   })
 
   it('marque la source analysée dans le cache, sans redemander le dossier', async () => {
@@ -190,8 +190,8 @@ describe('la création', () => {
     //
     // On corrige le cache plutôt que de l'invalider : `GET /api/sources` sonde
     // le montage 9p sous délai de garde, et on connaît déjà la réponse.
-    const appels = serveur()
-    await monter()
+    const calls = server()
+    await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
 
@@ -201,7 +201,7 @@ describe('la création', () => {
         '/projects/2025-06-15-cqlp',
       ),
     )
-    expect(appels.filter((a) => a === 'GET /api/sources')).toHaveLength(1)
+    expect(calls.filter((a) => a === 'GET /api/sources')).toHaveLength(1)
   })
 
   it('marque la source même si l’on quitte la bibliothèque avant la réponse', async () => {
@@ -211,41 +211,41 @@ describe('la création', () => {
     // n'appelle alors plus les rappels passés à `mutate` — l'observateur est
     // démonté —, et la marque manquerait pendant les trente secondes du
     // `staleTime`, c'est-à-dire exactement la fenêtre du retour.
-    let repondre: (r: Response) => void = () => {}
-    const differee = new Promise<Response>((resoudre) => {
-      repondre = resoudre
+    let respond: (r: Response) => void = () => {}
+    const deferred = new Promise<Response>((resolve) => {
+      respond = resolve
     })
-    serveur({ creation: () => differee })
-    const { client, unmount } = await monter()
+    server({ creation: () => deferred })
+    const { client, unmount } = await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
     unmount()
-    repondre(reponse({ projectId: CQLP.id, plan: [] }, 202))
+    respond(response({ projectId: CQLP.id, plan: [] }, 202))
 
     await waitFor(() =>
-      expect(client.getQueryData<SourcesListing>(cleSources)?.sources[0]?.projectId).toBe(CQLP.id),
+      expect(client.getQueryData<SourcesListing>(keySources)?.sources[0]?.projectId).toBe(CQLP.id),
     )
     // Mais on ne ramène personne de force sur un écran qu'il vient de quitter.
-    expect(pousser).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('affiche le message du serveur quand la création échoue, et ne va nulle part', async () => {
-    const duServeur = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
-    serveur({ creation: () => reponse({ error: duServeur }, 503) })
-    await monter()
+    const serverMessage = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
+    server({ creation: () => response({ error: serverMessage }, 503) })
+    await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(duServeur))
-    expect(pousser).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(serverMessage))
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('efface l’échec de création quand on rafraîchit la liste', async () => {
     // Sinon le message survit à ce qui l'a causé : sur une source disparue
     // entre l'affichage et le clic, on rafraîchit, la carte s'en va, et l'alerte
     // continue de nommer un fichier qui n'est plus là.
-    serveur({ creation: () => reponse({ error: 'Aucun replay nommé "vieux.mp4".' }, 404) })
-    await monter()
+    server({ creation: () => response({ error: 'Aucun replay nommé "vieux.mp4".' }, 404) })
+    await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
@@ -257,7 +257,7 @@ describe('la création', () => {
 
 describe('les pannes', () => {
   it('affiche le message du serveur quand les émissions ne se listent pas', async () => {
-    serveur({ sources: () => reponse({ error: 'REPLAY_DIR est absent.' }, 500) })
+    server({ sources: () => response({ error: 'REPLAY_DIR est absent.' }, 500) })
     renderScreen()
 
     await waitFor(() => expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy())
@@ -269,10 +269,10 @@ describe('les pannes', () => {
     // `showState(null, true)` : les émissions déjà analysées s'affichaient
     // « Analyse en cours », un état concret déduit d'une absence d'information.
     // (relevé par Copilot)
-    serveur({
-      projets: () => reponse({ error: 'La base ne répond pas.' }, 500),
+    server({
+      projects: () => response({ error: 'La base ne répond pas.' }, 500),
       sources: () =>
-        reponse({
+        response({
           ...SOURCES,
           sources: [{ ...SOURCES.sources[0], projectId: CQLP.id }],
         }),
@@ -292,12 +292,12 @@ describe('les pannes', () => {
   it('dit le montage muet quand il n’y a ni replay ni projet', async () => {
     // Le pire cas — montage absent **et** aucun projet — n'affiche alors qu'une
     // phrase et le geste qui la répare.
-    serveur({
-      projets: () => reponse([]),
+    server({
+      projects: () => response([]),
       sources: () =>
-        reponse({
+        response({
           sources: [],
-          montage: { disponible: false, cause: 'absent', fstype: null, entries: 0 },
+          editing: { available: false, cause: 'absent', fstype: null, entries: 0 },
         }),
     })
     renderScreen()
@@ -308,37 +308,37 @@ describe('les pannes', () => {
   })
 })
 
-describe('useProjets, le sondage', () => {
+describe('useProjects, le sondage', () => {
   it('redemande la liste tant qu’une analyse tourne', async () => {
     // C'est ce qui rend supportable de lancer une analyse puis d'aller trier une
     // autre émission : l'état arrive tout seul.
     vi.useFakeTimers()
-    const faux = vi.fn(async () =>
-      reponse([{ ...CQLP, running: { step: 'transcript', progress: 0.4 } }]),
+    const fake = vi.fn(async () =>
+      response([{ ...CQLP, running: { step: 'transcript', progress: 0.4 } }]),
     )
-    vi.stubGlobal('fetch', faux)
+    vi.stubGlobal('fetch', fake)
 
-    const { result } = renderHook(() => useProjets(), { wrapper: enveloppe() })
+    const { result } = renderHook(() => useProjects(), { wrapper: envelope() })
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
     expect(result.current.data).toHaveLength(1)
-    expect(faux).toHaveBeenCalledTimes(1)
+    expect(fake).toHaveBeenCalledTimes(1)
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(2_100)))
-    expect(faux).toHaveBeenCalledTimes(2)
+    expect(fake).toHaveBeenCalledTimes(2)
   })
 
   it('se tait dès que plus rien ne tourne', async () => {
     // Interroger en permanence une bibliothèque au repos ne renseignerait
     // personne, et le ferait à travers un serveur qui a mieux à faire.
     vi.useFakeTimers()
-    const faux = vi.fn(async () => reponse([CQLP]))
-    vi.stubGlobal('fetch', faux)
+    const fake = vi.fn(async () => response([CQLP]))
+    vi.stubGlobal('fetch', fake)
 
-    renderHook(() => useProjets(), { wrapper: enveloppe() })
+    renderHook(() => useProjects(), { wrapper: envelope() })
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
-    expect(faux).toHaveBeenCalledTimes(1)
+    expect(fake).toHaveBeenCalledTimes(1)
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(30_000)))
-    expect(faux).toHaveBeenCalledTimes(1)
+    expect(fake).toHaveBeenCalledTimes(1)
   })
 })

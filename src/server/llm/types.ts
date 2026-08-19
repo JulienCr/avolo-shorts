@@ -29,7 +29,7 @@ export type LlmMode = 'score' | 'detail'
  * Un schéma JSON minimal, commun aux trois fournisseurs.
  *
  * **Un sous-ensemble volontaire** — juste assez pour décrire les deux schémas
- * du repérage (`SCHÉMA_NOTATION`, `SCHÉMA_DÉTAIL` dans `candidates.ts`) : un
+ * du repérage (`SCHEMA_NOTATION`, `SCHEMA_DETAIL` dans `candidates.ts`) : un
  * objet, un tableau, une chaîne, un entier. Chaque fournisseur le convertit
  * ensuite vers ce qu'il attend réellement — l'énumération `Type` de Gemini, le
  * JSON Schema nu qu'OpenAI et Ollama exercent tous deux nativement.
@@ -54,9 +54,9 @@ export type LlmCallConfig = {
  * fournisseurs savent remplir.
  *
  * **Volontairement la forme du SDK Gemini, élargie.** C'est celle que
- * `leverSiBloquée`, `appelerGemini` et le reste de la politique de relance de
+ * `leverIfBlocked`, `callGemini` et le reste de la politique de relance de
  * `src/server/steps/candidates.ts` consomment déjà — voir la décision au
- * point d'appel de `clientParDéfaut` (renommé `createCallFromSettings`) : les
+ * point d'appel de `clientByDefault` (renommé `createCallFromSettings`) : les
  * relances, le backoff et la détection du filtre de sécurité restent
  * **communs aux trois fournisseurs**, portés par cette forme normalisée,
  * plutôt que réécrits une fois par fournisseur.
@@ -74,7 +74,7 @@ export type LlmResponse = {
 }
 
 /**
- * Un appel au modèle. Le contrat qu'`AppelGemini`
+ * Un appel au modèle. Le contrat qu'`CallGemini`
  * (`src/server/steps/candidates.ts`) réexporte comme alias, pour ne rien
  * casser de la couture de test existante — voir `LlmMode` ci-dessus pour la
  * même raison.

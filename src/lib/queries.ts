@@ -82,7 +82,7 @@ export function useProjects() {
     // lecture de `Map` et un petit fichier local par projet. **Rien qui touche au
     // Drive**, et c'est la raison pour laquelle `ProjectListItem` ne porte que
     // ces deux champs-là (`src/lib/api.ts`) : sonder l'état complet d'un projet
-    // exécuterait `relevéPrésence` vingt et une fois, sur un montage 9p, toutes
+    // exécuterait `readingPresence` vingt et une fois, sur un montage 9p, toutes
     // les deux secondes.
     refetchInterval: (query) => (query.state.data?.some((p) => p.running !== null) ? 2_000 : false),
   })
@@ -104,7 +104,7 @@ export function useProject(projectId: string, options: { enabled?: boolean } = {
 
   // **La fin d'une exécution invalide les candidats — et le transcript.**
   // Ouvrir l'écran de tri avant que le repérage n'ait rendu quoi que ce soit
-  // met une liste vide en cache, et rien ne la remplace : `useCandidats`
+  // met une liste vide en cache, et rien ne la remplace : `useCandidates`
   // n'interroge pas en boucle, et seule cette requête-ci suit l'avancement. La
   // grille restait donc vide jusqu'à un rechargement complet — sur une analyse
   // de quarante minutes, c'est le moment exact où l'on regarde. Le proxy
@@ -458,11 +458,11 @@ export function useCreateProject() {
  * Relancer une analyse : la reprise d'une exécution morte, et le repérage forcé.
  *
  * **Les deux gestes, un seul hook.** Ils ne diffèrent que par leurs arguments —
- * `CIBLES_DE_REPRISE` sans `force` pour l'une, `'candidates'` avec `force` pour
+ * `RESUME_TARGETS` sans `force` pour l'une, `'candidates'` avec `force` pour
  * l'autre — et par ce que l'écran dit avant de les déclencher. Leur fraîcheur,
  * elle, est la même.
  *
- * **L'état du projet s'invalide, et c'est la règle qui compte.** `useProjet`
+ * **L'état du projet s'invalide, et c'est la règle qui compte.** `useProject`
  * n'interroge en boucle que tant que `running` est non nul (`refetchInterval`
  * rend `false` au repos) : après le 202, le cache porte encore `running: null`,
  * l'interrogation ne repart pas, et l'écran resterait immobile devant une
@@ -470,7 +470,7 @@ export function useCreateProject() {
  * reprise existe pour fermer.
  *
  * **Les candidats aussi.** Un repérage forcé remplace les propositions en
- * attente (`effacerArtefact` retire `candidates.json` avant de toucher à la
+ * attente (`eraseArtifact` retire `candidates.json` avant de toucher à la
  * base) : la liste en cache décrit alors la passe d'avant. Par clé complète et
  * non par préfixe, contrairement à `useExporter` : on connaît le projet ici.
  *
@@ -479,8 +479,8 @@ export function useCreateProject() {
  * n'y a rien à afficher par avance, et `isPending` ne dure que le temps de
  * l'aller-retour.
  *
- * **Un 409 est un cas nommé, pas un échec générique.** `lancer` lève
- * `ExécutionEnCoursError` quand une exécution tourne déjà, et la route en fait
+ * **Un 409 est un cas nommé, pas un échec générique.** `launch` lève
+ * `ExecutionInCurrentError` quand une exécution tourne déjà, et la route en fait
  * un 409 : `ApiError` porte le code, et l'écran a de quoi dire « une exécution
  * tourne déjà » plutôt que « la relance a échoué ».
  */
@@ -507,7 +507,7 @@ export function useRetry() {
       // **L'état du projet, quoi qu'il arrive — et surtout quand ça échoue.**
       // Un 409 dit qu'une exécution tourne déjà : c'est exactement le moment où
       // l'écran doit aller la chercher. Invalider au seul succès laissait le
-      // cache sur `running: null`, donc `useProjet` sans interrogation en boucle
+      // cache sur `running: null`, donc `useProject` sans interrogation en boucle
       // — et l'écran promettait de suivre une exécution qu'il ne verrait jamais.
       // (relevé par Copilot)
       void client.invalidateQueries({ queryKey: keys.projet(projectId) })
@@ -558,13 +558,13 @@ export function useSaveSettings() {
 /**
  * Arrêter l'analyse en cours d'un projet.
  *
- * **L'état du projet s'invalide quoi qu'il arrive**, comme pour `useRelancer` et
+ * **L'état du projet s'invalide quoi qu'il arrive**, comme pour `useRetry` et
  * pour la même raison inversée : après l'arrêt, `running` doit retomber à `null`
- * tout de suite. `useProjet` interroge en boucle tant que quelque chose tourne,
+ * tout de suite. `useProject` interroge en boucle tant que quelque chose tourne,
  * donc le prochain sondage le verrait de toute façon — mais deux secondes plus
  * tard, sur la seule surface censée dire ce qui se passe.
  *
- * **La bibliothèque aussi** : `useProjets` n'interroge en boucle que tant qu'un
+ * **La bibliothèque aussi** : `useProjects` n'interroge en boucle que tant qu'un
  * projet porte un `running`. Sans cette invalidation, une liste ouverte dans un
  * autre onglet garderait l'analyse arrêtée pour vivante, et son sondage
  * s'arrêterait sur cet état-là.
@@ -601,10 +601,10 @@ export function useStopAnalysis() {
  * non, paierait une requête inutile la plupart du temps — la vue Émission se
  * monte à chaque visite du projet, le transcript s'ouvre rarement.
  *
- * Pas d'interrogation en boucle : contrairement à `useProjet`, rien ici ne
+ * Pas d'interrogation en boucle : contrairement à `useProject`, rien ici ne
  * suit une exécution en cours. Une retranscription se voit ailleurs — l'état
- * du projet, que `useRelancer` invalide déjà — et cette liste se rafraîchit
- * en revenant sur l'écran, comme `useCandidats`.
+ * du projet, que `useRetry` invalide déjà — et cette liste se rafraîchit
+ * en revenant sur l'écran, comme `useCandidates`.
  */
 export function useTranscript(projectId: string, options: { enabled?: boolean } = {}) {
   return useQuery({
@@ -629,7 +629,7 @@ export function useTranscript(projectId: string, options: { enabled?: boolean } 
  * vingt mille mots pour obtenir exactement ce qu'on tient déjà.
  *
  * **Une phrase vidée de tous ses mots est retirée du cache, pas seulement
- * remplacée.** `lignesDuTranscript` (`src/server/vues.ts`) écarte déjà une
+ * remplacée.** `transcriptLines` (`src/server/vues.ts`) écarte déjà une
  * phrase sans mot aligné — c'est ce qu'un `GET` frais rendrait après une
  * suppression totale. Remplacer sans filtrer laissait une ligne fantôme, sans
  * mot, à son horodatage d'avant : le sidecar était correct, seul le cache

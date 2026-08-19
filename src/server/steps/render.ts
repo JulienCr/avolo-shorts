@@ -111,8 +111,8 @@ export type PathsRender = {
   /**
    * L'empreinte du rendu — ce que les fichiers ci-dessus décrivent (#48).
    *
-   * **Elle n'est pas une sortie** : `sortiesDuClip` ne la publie pas et
-   * `sortieNommée` ne la sert pas. C'est une pièce interne, rangée à côté des
+   * **Elle n'est pas une sortie** : `clipOutputs` ne la publie pas et
+   * `outputNamed` ne la sert pas. C'est une pièce interne, rangée à côté des
    * fichiers qu'elle décrit précisément pour disparaître avec eux.
    */
   fingerprint: string
@@ -121,14 +121,14 @@ export type PathsRender = {
 /**
  * Le garde-fou de traversée de répertoire sur l'identifiant de clip.
  *
- * `projectId` en a déjà un — `vérifierId`, privé à `paths.ts` — et `clipId` n'en
+ * `projectId` en a déjà un — `verifyId`, privé à `paths.ts` — et `clipId` n'en
  * avait aucun : il entrait tel quel dans quatre `path.join`. Or il arrive du
  * réseau, `POST /api/clips/:id/export` le prend dans l'URL, et `putClip` ne
  * valide ni son format ni son contenu. Un `../` y suffisait à faire écrire le
- * MP4, l'ASS et le TXT hors du dossier du projet — `écrireFichier` créant au
+ * MP4, l'ASS et le TXT hors du dossier du projet — `writeFile` créant au
  * passage les dossiers intermédiaires. (relevé par Aristarque)
  *
- * **C'est délibérément une copie de `vérifierId` et non son partage.** Ce dernier
+ * **C'est délibérément une copie de `verifyId` et non son partage.** Ce dernier
  * est privé à `paths.ts`, qui appartient à une autre tâche en cours d'écriture ;
  * l'exporter depuis ici ferait toucher deux agents au même fichier pour une
  * fonction de six lignes. La règle, elle, est la même, et elle est volontairement
@@ -1269,13 +1269,13 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
 
   // **Le document qu'on incrusterait maintenant, avant la décision de saut
   // (#87).** Sans lui, une correction du transcript qui ne touche aucun
-  // segment de ce clip laisserait `sauterLeRendu` reprendre un MP4 qui porte
+  // segment de ce clip laisserait `sauterRender` reprendre un MP4 qui porte
   // encore les anciens mots — c'est exactement le chemin que la correction
   // manuelle de la PR #86 a ouvert : elle ne touche aux segments d'aucun clip.
   //
   // **Un aller-retour sur le Drive, à la différence des marques et du look
   // juste au-dessus.** C'est nouveau : jusqu'ici la décision de saut l'évitait
-  // exprès (voir le commentaire de `EmpreinteRendu.captionsLook`), parce
+  // exprès (voir le commentaire de `FingerprintRender.captionsLook`), parce
   // qu'aucun des huit champs d'avant ne pouvait bouger sans que le graphe
   // refasse ce qui en dépend. Le texte, si — c'est tout le défaut que #87
   // ferme —, et rien d'autre ne peut le voir. Seulement quand le clip demande
@@ -1436,12 +1436,12 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       }
 
       // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
-      // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
+      // disque pour relire ce que libass a incrusté, et `produceArtifact` conserve
       // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
       // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
       // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
       // en place. (relevé par Copilot)
-      // Le document a déjà été calculé plus haut, en `texteActuel` — pour la
+      // Le document a déjà été calculé plus haut, en `textCurrent` — pour la
       // décision de saut autant que pour ceci, une seule lecture du transcript.
       const assProvisional = clip.captions
         ? await writeCaptionsDocument(clip.id, textCurrent, pathTemporary(paths.ass))
@@ -1463,7 +1463,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
         // recalage des sous-titres : `splitByShot` recopie les bornes
         // intermédiaires au lieu de les recalculer, donc chaque segment se
-        // retrouve couvert exactement. `sousTitresDuClip` continue de lire
+        // retrouve couvert exactement. `clipUnderTitles` continue de lire
         // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
         const pieces = splitByShot(
           clip.segments,
@@ -1510,7 +1510,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
 
         // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
         // une fois pour les deux : elles s'incrustent après la composition, à la
-        // taille du fichier produit, et `planifierMarques` raisonne en fractions
+        // taille du fichier produit, et `scheduleMarkers` raisonne en fractions
         // de ce canevas. Les planifier une seule fois poserait dans la variante
         // une bande calculée pour un autre format. C'est la même raison que pour
         // les sous-titres — voir `renderArgs`.
@@ -1530,7 +1530,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
 
         // **L'empreinte d'avant part avec elle, et pour la même raison poussée
         // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la
-        // laisser en place le temps des deux encodages laisse `livraisonÀJour`
+        // laisser en place le temps des deux encodages laisse `deliveryToDay`
         // répondre vrai sur une paire à moitié réécrite, et rien ne le signale
         // puisqu'un `GET` ne sonde pas le dossier des marques. N'importe quelle
         // sortie de ce bloc — interruption, refus de certifier plus bas — laisse
@@ -1659,7 +1659,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // statut.** `clip` est l'instantané d'avant l'encodage, qui a duré des minutes :
   // écrire le `.txt` depuis lui livrerait la description que l'utilisateur vient
   // de corriger pendant ce temps. La relecture et l'écriture se suivent sans
-  // point d'attente — voir `écrireTexteDePublication`, qui porte l'arbitrage
+  // point d'attente — voir `publicationWriteText`, qui porte l'arbitrage
   // entre ce chemin-ci et celui du `PATCH`.
   publicationWriteText(db, clipId, clip, paths.texts)
 
@@ -1732,10 +1732,10 @@ export function markExported(
   // point de #48.** Retirer un passage, déplacer une borne ou changer le ratio
   // ne change pas le statut : un clip `kept` reste `kept`, et cette fonction
   // posait alors `exported` sur des fichiers qui décrivent le montage d'avant.
-  // Le clip se disait livré, `sortiesDuClip` publiait ses URL, et l'interface
+  // Le clip se disait livré, `clipOutputs` publiait ses URL, et l'interface
   // les affichait comme la livraison du jour.
   //
-  // Les deux appelants de `renderClip` passent déjà par `écarterRenduPérimé`
+  // Les deux appelants de `renderClip` passent déjà par `discardRenderStale`
   // une ligne plus haut, qui lève sur ce cas. Ce contrôle-ci n'en est pas la
   // répétition : il rend la garantie **intrinsèque à la fonction** plutôt que
   // dépendante de l'ordre des appels, et cette fonction est exportée.
@@ -1754,7 +1754,7 @@ export function markExported(
  *
  * **Laisser les fichiers en place ne suffisait pas.** Refuser le statut ne fait
  * que reporter le problème d'un appel : les MP4 sont tous là, donc l'export
- * suivant passe par `sauterLeRendu`, ne compare plus rien, et annonce `exported`
+ * suivant passe par `sauterRender`, ne compare plus rien, et annonce `exported`
  * sur des fichiers qui décrivent le montage d'avant. L'utilisateur publierait
  * l'ancien cadre sans jamais voir passer d'avertissement. La seule sortie qui
  * tienne dans un modèle « la présence du fichier fait foi » (spec §4) est de
@@ -1815,9 +1815,9 @@ export function discardRenderStale(
  * qui est réécrit depuis l'état à jour — les compter ici ferait perdre son
  * statut à un clip dont on a seulement corrigé une faute de frappe. Et `ratio`
  * comme `cropX` n'y sont plus : c'est `framing` qui porte ce que ffmpeg a
- * réellement découpé, voir `FormeRendue`.
+ * réellement découpé, voir `ShapeRendered`.
  *
- * **Elle prend une `FormeRendue`, pas un `Clip`**, et c'est ce qui permet de lui
+ * **Elle prend une `ShapeRendered`, pas un `Clip`**, et c'est ce qui permet de lui
  * passer aussi bien deux clips qu'une empreinte et un clip : la liste des champs
  * qui comptent est écrite une fois, ici, et les deux comparaisons ne peuvent pas
  * diverger.

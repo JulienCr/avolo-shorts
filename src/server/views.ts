@@ -18,7 +18,7 @@ import { lireTranscript, type TranscriptLu } from '@/server/steps/candidates'
  * d'abord une liste de choses à ne pas publier. `Project` porte `sourcePath` et
  * `stagedPath`, deux chemins absolus du serveur : le point de montage du Drive
  * partagé et l'organisation interne de la bibliothèque. `ProjectSummary` ne les
- * expose pas, et `résuméProjet` est le seul endroit d'où un projet sort.
+ * expose pas, et `summaryProject` est le seul endroit d'où un projet sort.
  */
 
 /** Le projet, vu du client. Quatre champs, et pas un de plus. */
@@ -41,17 +41,17 @@ export function summaryProject(project: Project): ProjectSummary {
  * **Rien ici ne touche au Drive, et c'est la seule chose qui compte.** La
  * bibliothèque appelle cette fonction une fois par projet — vingt et une fois
  * aujourd'hui —, donc tout ce qu'elle fait est multiplié d'autant. `progression`
- * lit une `Map` du processus ; `lireStatut` lit un petit fichier local. Ni
- * `relevéPrésence`, ni `urlProxy`, ni quoi que ce soit qui sonde un montage 9p
+ * lit une `Map` du processus ; `lireStatus` lit un petit fichier local. Ni
+ * `readingPresence`, ni `urlProxy`, ni quoi que ce soit qui sonde un montage 9p
  * avec un délai de garde : quatre fils du vivier de libuv suffisent à figer tout
  * ce qui touche au disque dans le serveur (voir le cache de `run.ts`).
  *
- * **Les deux lectures sont synchrones, et c'est voulu.** `lireStatut` fait un
+ * **Les deux lectures sont synchrones, et c'est voulu.** `lireStatus` fait un
  * `readFileSync` sur un fichier de quelques centaines d'octets dans
  * `PROJECTS_DIR`, jamais sur le Drive : vingt et un se comptent en fractions de
  * milliseconde. Les rendre asynchrones n'y gagnerait rien et supprimerait la
  * seule propriété qui rende la réponse cohérente — rien ne s'intercale entre le
- * `progression` et le `lireStatut` d'un même projet, donc aucun d'eux ne décrit
+ * `progression` et le `lireStatus` d'un même projet, donc aucun d'eux ne décrit
  * un instant que l'autre ignore.
  *
  * `error` se tait pendant qu'une exécution tourne, exactement comme dans
@@ -72,7 +72,7 @@ export function listElement(project: Project): ProjectListItem {
     running,
     error: status?.error ?? null,
     // **Publié parce que la liste n'a pas `steps`.** L'écran de projet déduit
-    // « interrompue » de `phaseProjet`, qui lit le relevé de présence ; la
+    // « interrompue » de `phaseProject`, qui lit le relevé de présence ; la
     // bibliothèque ne l'a pas, et c'est délibéré — sonder vingt et un projets
     // sur un montage 9p figerait tout ce qui touche au disque. Sans ce champ,
     // une analyse arrêtée après l'ingestion est indiscernable d'une analyse

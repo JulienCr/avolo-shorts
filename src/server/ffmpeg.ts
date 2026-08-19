@@ -156,7 +156,7 @@ export function createLog(max = 20): Log {
       // finisse par tout garder. C'est la fin qui intéresse, on coupe le début.
       if (remaining.length > SIZE_QUEUE_MAX) remaining = remaining.slice(-SIZE_QUEUE_MAX)
       for (const p of parts) push(p)
-      // Les enregistrements bruts, avant le filtrage de `pousser` : l'appelant
+      // Les enregistrements bruts, avant le filtrage de `push` : l'appelant
       // y cherche une marque de temps, pas une ligne à afficher.
       return parts
     },
@@ -366,7 +366,7 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
 
   return new Promise<void>((resolve, reject) => {
     // **Le refus vient avant le `spawn`.** Un arrêt demandé pendant qu'une étape
-    // se prépare — le `mkdir` de `produireArtefact`, par exemple — laisserait
+    // se prépare — le `mkdir` de `produceArtifact`, par exemple — laisserait
     // sinon partir un encodage de six minutes que plus personne n'attend.
     if (options.signal?.aborted === true) {
       reject(new StopRequestedError(options.what))

@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
  * La route `/projects/:id`, réduite à ce qu'une route doit faire.
  *
  * Elle résout ses `params` et pose la limite de Suspense ; tout le reste est
- * dans `EcranDeProjet`. **La limite n'est pas décorative** : `useSearchParams`
+ * dans `ProjectScreen`. **La limite n'est pas décorative** : `useSearchParams`
  * fait sortir du rendu statique, et `next build` refuse un composant qui
  * l'appelle sans elle — vérifié, la route sort bien en « server-rendered on
  * demand ».

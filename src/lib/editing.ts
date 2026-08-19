@@ -145,7 +145,7 @@ export const BRIDGE_MAX = 1
  *   ce voisin sera rendu à son tour : les deux intervalles se touchent alors et
  *   fusionnent aussi.
  *
- * **`PONT_MAX` est la correction d'un défaut trouvé en review.** Sans plafond,
+ * **`BRIDGE_MAX` est la correction d'un défaut trouvé en review.** Sans plafond,
  * le premier mot d'après un silence se rejoignait au dernier mot d'avant, quel
  * que soit l'écart : sur un transcript où deux catégories sont séparées de sept
  * minutes, un seul clic ajoutait sept minutes de silence au clip. Au-delà du

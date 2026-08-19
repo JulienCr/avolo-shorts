@@ -66,9 +66,9 @@ const SCHEMA_CLIP = z.object({
  * porte et ce que l'interface édite ; une estimation de viralité rendue par un
  * appel n'y a pas sa place, et elle ressortirait dans `candidates.json` comme si
  * elle décrivait le clip monté. Elle ne sert qu'une fois, à départager des
- * propositions — voir le plafond de `détailler`.
+ * propositions — voir le plafond de `detail`.
  *
- * `scored` sépare une note absente d'une note nulle, exactement comme `notée` le
+ * `scored` sépare une note absente d'une note nulle, exactement comme `noted` le
  * fait pour les fenêtres : `predicted_score` est facultatif dans la réponse, et
  * un clip que le modèle n'a pas noté ne doit pas passer devant un clip qu'il a
  * noté zéro.
@@ -147,7 +147,7 @@ export function parseScoreResponse(
 
 /**
  * Les fenêtres qui atteignent la passe de détail : le haut du panier, à hauteur
- * de `cible`.
+ * de `target`.
  *
  * **La cible arrive en argument plutôt que d'être calculée ici.** Elle se déduit
  * de la durée de parole et des réglages (`shortlistSize`), deux choses que cette

@@ -69,7 +69,7 @@ export function folderVignettesSources(): string {
  * mais sous un code qui accuse le serveur — et qui inscrit une trace complète
  * au journal à chaque tentative.
  *
- * Le message est sûr à publier : `vérifierNomDeSource` cite le nom que
+ * Le message est sûr à publier : `sourceVerifyName` cite le nom que
  * l'appelant a écrit, et `resolveSource` nomme la variable `REPLAY_DIR`, pas sa
  * valeur.
  */
@@ -84,7 +84,7 @@ export class SourceInvalidError extends Error {
  * Un nom de source sert à nommer un fichier de cache, et **il arrive du
  * réseau** : `GET /api/sources/thumb?file=…` est écrit par l'appelant.
  *
- * Le contrôle est celui de `vérifierIdClip`, pour la même raison : les replays
+ * Le contrôle est celui de `verifyIdClip`, pour la même raison : les replays
  * portent accents et espaces — `2026-01-11-méchante.mp4` —, qu'on ne peut pas
  * refuser sans vider la bibliothèque. Ce qui est refusé est ce qui permet de
  * sortir du dossier, pas ce qui est exotique.

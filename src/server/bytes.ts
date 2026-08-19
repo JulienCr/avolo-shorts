@@ -191,14 +191,14 @@ function ifRangeSatisfied(header: string, etag: string, mtimeMs: number): boolea
 }
 
 /**
- * La réponse qui porte `chemin`, ou **`null` quand le fichier n'est pas là**.
+ * La réponse qui porte `path`, ou **`null` quand le fichier n'est pas là**.
  *
  * `null` plutôt qu'un 404 tout fait : l'absence se raconte différemment selon la
  * route — « pas encore de proxy », « ce clip n'a pas encore été exporté » — et
  * seul l'appelant sait laquelle. Il n'y a que le 416 qui soit décidé ici, parce
  * qu'il porte la taille réelle du fichier, que l'appelant n'a pas.
  *
- * `entêtes` passe le `Content-Type` et ce que la route veut y ajouter ;
+ * `headers` passe le `Content-Type` et ce que la route veut y ajouter ;
  * `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag` et `Last-Modified`
  * sont posés ici, puisqu'ils décrivent les octets et non la ressource.
  *
@@ -209,7 +209,7 @@ function ifRangeSatisfied(header: string, etag: string, mtimeMs: number): boolea
  * le commentaire « ouvrir d'abord, décrire ensuite » plus bas). La route, elle,
  * possède son `Cache-Control` — c'est une décision de politique de cache propre
  * à ce qu'elle sert, pas quelque chose que cette fonction générique pourrait
- * deviner — et le passe par `entêtes` comme le `Content-Type`.
+ * deviner — et le passe par `headers` comme le `Content-Type`.
  */
 export async function serveFile(
   request: Request,

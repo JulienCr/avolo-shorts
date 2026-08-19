@@ -15,7 +15,7 @@ import { listSources } from '@/server/sources'
  * Ce qui reste une erreur de serveur, c'est `REPLAY_DIR` absent de
  * l'environnement : le dépôt n'est pas monté, personne n'y peut rien depuis
  * l'écran. `replayDir()` est donc appelé **pour lui-même et hors du corps**,
- * comme dans `POST /api/projects` : sous la garde de `listerSources`, cette
+ * comme dans `POST /api/projects` : sous la garde de `listSources`, cette
  * erreur de configuration se déguiserait en « montage indisponible » et on
  * chercherait un lecteur Windows là où il manque une ligne de `.env`.
  */

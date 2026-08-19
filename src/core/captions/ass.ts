@@ -86,14 +86,14 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
 
 const HEX_COLOR = /^[0-9A-Fa-f]{6}$/
 
-/** Le nombre coercé et borné, ou `repli` s'il n'est pas un nombre fini. */
+/** Le nombre coercé et borné, ou `fallback` s'il n'est pas un nombre fini. */
 function bound(value: number, min: number, max: number, fallback: number): number {
   const n = Number.isFinite(value) ? value : fallback
   return Math.max(min, Math.min(max, n))
 }
 
 /**
- * Les six chiffres hexadécimaux d'une couleur, `repli` si l'entrée n'en est pas
+ * Les six chiffres hexadécimaux d'une couleur, `fallback` si l'entrée n'en est pas
  * une.
  *
  * Un repli plutôt qu'une exception : une couleur invalide vient d'un preset
@@ -111,7 +111,7 @@ function twoDigits(n: number): string {
 /**
  * `#RRGGBB` → `&HAABBGGRR`, la forme des couleurs du **bloc `[V4+ Styles]`**.
  *
- * `opacite` vaut 1 pour opaque et 0 pour transparent — l'inverse de l'alpha ASS,
+ * `opacity` vaut 1 pour opaque et 0 pour transparent — l'inverse de l'alpha ASS,
  * où 255 est transparent.
  */
 function styleColor(color: string, opacity: number, fallback = 'FFFFFF'): string {

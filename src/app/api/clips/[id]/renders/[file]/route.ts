@@ -12,9 +12,9 @@ import { deliveryToDay, outputNamed } from '@/server/renders'
  * `projects/` est un dossier de données, hors de `public/`, et n'a pas à devenir
  * un dossier public — c'est donc à une route de pousser les octets.
  *
- * **Le nom demandé est comparé, jamais concaténé.** `sortieNommée` le cherche
+ * **Le nom demandé est comparé, jamais concaténé.** `outputNamed` le cherche
  * dans les sorties que ce clip-là produit, et le chemin qui en ressort vient de
- * `cheminsRendu`, pas de l'URL. Un nom absent de cette liste est un 404, quelle
+ * `pathsRender`, pas de l'URL. Un nom absent de cette liste est un 404, quelle
  * que soit sa forme : la traversée de répertoire n'a rien à traverser.
  *
  * **Elle passe par le wrapper `route()`**, contrairement à la route du proxy qui

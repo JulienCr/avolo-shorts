@@ -50,8 +50,8 @@ import { candidatesPath, placeSidecar } from '@/server/paths'
  * resserrement du cadre, densité des tours de parole — et le reclassement en
  * vision sont l'itération 2.
  *
- * **Ce fichier garde ses identifiants français accentués — `clientParDéfaut`,
- * `SCHÉMA_NOTATION`, `SCHÉMA_DÉTAIL`, `DÉLAI_APPEL_MS`, etc.** La règle de
+ * **Ce fichier garde ses identifiants français accentués — `clientByDefault`,
+ * `SCHEMA_NOTATION`, `SCHEMA_DETAIL`, `DELAY_CALL_MS`, etc.** La règle de
  * langue de `CLAUDE.md` veut le code en anglais ; les balayer ici est le
  * travail de l'issue #73, pas celui de cette PR, qui les a touchés sans les
  * renommer pour ne pas gonfler son diff. Le module neuf qu'elle ajoute,
@@ -79,7 +79,7 @@ import { candidatesPath, placeSidecar } from '@/server/paths'
  * | 1 (sur les 32 refusées) | **aucun** |
  *
  * Baisser le défaut à 4 ne ferait donc que déplacer le problème en doublant les
- * appels et en doublant les barèmes. Ce qui le règle est `récupérer`, qui ne
+ * appels et en doublant les barèmes. Ce qui le règle est `recover`, qui ne
  * recoupe que ce qui a été refusé.
  */
 const BATCH_NOTATION_BY_DEFAULT = 8
@@ -105,7 +105,7 @@ const BATCH_NOTATION_BY_DEFAULT = 8
  * pas un plafond absent, et le quota n'a jamais été la seule raison : une
  * descente sans bornes dépense aussi du temps et de l'argent sur une émission
  * que le fournisseur refuse en bloc. Ce qu'un palier payant change, c'est la
- * fréquence des attentes de `délaiDeQuota`, pas leur utilité.
+ * fréquence des attentes de `quotaDelay`, pas leur utilité.
  */
 const RECOVERY_MAX = 3
 
@@ -118,7 +118,7 @@ const RECOVERY_MAX = 3
  * — une source de trois heures en demande 26 à 39, soit environ 5 000 jetons à
  * ~130 par clip (deux descriptions, un titre, une accroche, quatre nombres).
  *
- * **Une troncature est le pire des échecs ici** : `leverSiBloquée` classe
+ * **Une troncature est le pire des échecs ici** : `leverIfBlocked` classe
  * `MAX_TOKENS` en erreur passagère, donc la charge repart trois fois, à
  * température 0,9, pour se faire tronquer pareil — et le message final accuse le
  * réseau. Seize mille laisse de la marge à une source de six heures sans jamais
@@ -168,7 +168,7 @@ const DELAY_CALL_MS = 120_000
  *
  * Ce qui marche : **envoyer autre chose**. Les 32 fenêtres perdues dans ces
  * quatre lots passent toutes, une par une. Le refus porte sur la charge
- * assemblée, pas sur une fenêtre coupable — voir `récupérer`.
+ * assemblée, pas sur une fenêtre coupable — voir `recover`.
  */
 export class GeminiBlockedError extends Error {
   constructor(message: string) {
@@ -196,7 +196,7 @@ export class GeminiBlockedError extends Error {
  * doivent pas porter un message qui accuse la vidéo. L'absence de raison est
  * normale aussi : tous les modèles ne la renseignent pas.
  *
- * **`MAX_TOKENS` n'est pas ici** : voir `leverSiBloquée`.
+ * **`MAX_TOKENS` n'est pas ici** : voir `leverIfBlocked`.
  */
 const ENDS_WITHOUT_REJECTION = new Set([
   '',
@@ -223,7 +223,7 @@ const ENDS_WITHOUT_REJECTION = new Set([
  * `src/server/llm/openai.ts` (`toFinishReason`) depuis `finish_reason:
  * "content_filter"` ou depuis `message.refusal`. Il déclenche exactement la
  * même politique que `SAFETY` chez Gemini : `GeminiBlockedError`, jamais
- * réessayé tel quel, et recoupé par `récupérer`. Ollama, lui, n'a pas de
+ * réessayé tel quel, et recoupé par `recover`. Ollama, lui, n'a pas de
  * filtre fournisseur — rien ici ne le concerne.
  */
 const CONTENT_REJECTION = new Set([
@@ -286,7 +286,7 @@ const MARKERS_TRANSIENT = [
  * Les erreurs qui ne se reconnaissent qu'à leur **nom**, parce que leur message
  * ne porte aucun code.
  *
- * `DÉLAI_APPEL_MS` s'applique par `AbortSignal.timeout` dans
+ * `DELAY_CALL_MS` s'applique par `AbortSignal.timeout` dans
  * `@google/genai@2.17.1`, et l'exception qui en sort dit « This operation was
  * aborted » — pas un chiffre, pas un mot-clé de service. Le délai qu'on venait
  * d'ajouter pour *entrer* dans la politique de relance en sortait donc au
@@ -310,7 +310,7 @@ export type ModeGemini = LlmMode
  * **Alias de `LlmCall`** (`@/server/llm/types`), qui porte désormais le
  * contrat réel — plus typé sur `GenerateContentResponse`, mais sur `LlmResponse`,
  * une forme volontairement plus large que Gemini, OpenAI et Ollama savent
- * tous remplir. Le nom `AppelGemini` reste : le retirer aurait demandé de
+ * tous remplir. Le nom `CallGemini` reste : le retirer aurait demandé de
  * réécrire les quelque 80 réponses figées de `tests/server/candidates.test.ts`
  * pour un gain nul, puisque `GenerateContentResponse` s'assigne déjà
  * structurellement à `LlmResponse`.

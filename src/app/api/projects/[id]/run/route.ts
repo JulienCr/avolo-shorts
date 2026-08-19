@@ -23,8 +23,8 @@ const REQUEST = z.strictObject({
    * Une cible, ou plusieurs.
    *
    * **Une cible nomme un résultat à atteindre, pas une étape à refaire**, et
-   * c'est ce qui rend la liste nécessaire : `lancer` en prend une depuis
-   * toujours, `créerProjet` lui en passe trois, et le bouton de reprise a besoin
+   * c'est ce qui rend la liste nécessaire : `launch` en prend une depuis
+   * toujours, `createProject` lui en passe trois, et le bouton de reprise a besoin
    * des mêmes. Viser `candidates` seul ne construit jamais le proxy, puisque
    * rien n'en dépend dans le graphe — le transcript lit le WAV, pas la vidéo.
    * L'écran devrait alors enchaîner deux appels en attendant la fin du premier,
@@ -62,14 +62,14 @@ export const POST = route(
     const { id } = await context.params
     const { target, force } = await body(request, REQUEST)
     // **Une répétition se réduit, elle ne se refuse pas.** Le résultat d'une
-    // liste qui se répète est parfaitement défini — `planPourCibles` ne planifie
+    // liste qui se répète est parfaitement défini — `planForTargets` ne planifie
     // jamais deux fois la même étape —, donc un 400 serait de la pédanterie.
     //
-    // Mais la transmettre telle quelle ne l'était pas : `lancer` garde la liste
-    // reçue dans `cibles`, et `status.json` la réécrit à chaque mise à jour,
+    // Mais la transmettre telle quelle ne l'était pas : `launch` garde la liste
+    // reçue dans `targets`, et `status.json` la réécrit à chaque mise à jour,
     // jusqu'à une fois par seconde pendant les six minutes d'un proxy. Mille
     // `candidates` rendaient chaque écriture arbitrairement volumineuse pour un
-    // plan identique. Dédupliquée, la liste est bornée par `CIBLES_LANÇABLES`.
+    // plan identique. Dédupliquée, la liste est bornée par `TARGETS_LAUNCHABLE`.
     // (relevé par Copilot)
     const targets = [...new Set(Array.isArray(target) ? target : [target])]
     const launched = await launch(id, targets, {

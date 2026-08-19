@@ -52,12 +52,12 @@ import { transcribe } from '@/server/steps/transcript'
  *    annoncerait une transcription qui ne tourne plus. Ce qui survit à un
  *    redémarrage, ce sont les artefacts — donc `steps`. Seul le suivi
  *    d'avancement en cours est perdu, et il ne se rattrape pas.
- * 4. **Une exécution s'arrête pour de vrai.** La table `enCours` tient un
+ * 4. **Une exécution s'arrête pour de vrai.** La table `inCurrent` tient un
  *    `AbortController` par projet, et son signal descend jusque dans les
  *    processus : `SIGTERM` puis `SIGKILL` sur ffmpeg et sur les deux workers
  *    Python, fermeture des flux pour la copie d'ingestion, `abortSignal` pour
  *    l'appel Gemini. Ce qui rend l'arrêt **sûr** est ailleurs, et c'est la
- *    règle 2 de `produireArtefact` : chaque étape écrit sous un nom temporaire
+ *    règle 2 de `produceArtifact` : chaque étape écrit sous un nom temporaire
  *    et ne renomme qu'au succès, donc une étape tuée ne laisse rien que le
  *    relevé de présence prendrait pour un artefact fait.
  */
@@ -71,7 +71,7 @@ type Execution = {
   targets: StepName[]
   plan: StepName[]
   current: Progression
-  /** Où en est l'étape `candidates` **dans cette exécution**. Voir `bilanDeRepérage`. */
+  /** Où en est l'étape `candidates` **dans cette exécution**. Voir `detectionSummary`. */
   detection: StateDetection
   /** Pour ne pas réécrire `status.json` à chaque marque de temps de ffmpeg. */
   lastWrite: number
@@ -79,7 +79,7 @@ type Execution = {
   /**
    * De quoi arrêter le travail en cours, **jusque dans les processus**.
    *
-   * `enCours` tenait déjà une exécution par projet ; c'est ici que se pose le
+   * `inCurrent` tenait déjà une exécution par projet ; c'est ici que se pose le
    * contrôleur, parce que c'est la seule table qui sache ce qui tourne. Le
    * signal descend ensuite dans chaque étape : ffmpeg et les deux workers
    * Python reçoivent un `SIGTERM` puis un `SIGKILL`, la copie d'ingestion ferme
@@ -147,7 +147,7 @@ export function progression(projectId: string): Progression | null {
  *
  * Rend `false` quand rien ne tournait, et ce n'est pas un échec : l'analyse
  * venait de finir, ou un redémarrage de Next a emporté l'exécution avec lui —
- * `enCours` est une table de *ce* processus. Le bouton peut donc se cliquer deux
+ * `inCurrent` est une table de *ce* processus. Le bouton peut donc se cliquer deux
  * fois sans que l'appelant ait à décider lequel des deux clics comptait.
  *
  * **Elle ne bloque pas.** `forwardAbort` laisse dix secondes à un `SIGTERM`
@@ -157,7 +157,7 @@ export function progression(projectId: string): Progression | null {
  *
  * **Ce qui est fait reste fait.** Aucun artefact n'est effacé : les étapes
  * écrivent sous un nom temporaire et ne renomment qu'au succès (voir
- * `produireArtefact`), donc l'étape coupée n'a rien laissé qui la ferait passer
+ * `produceArtifact`), donc l'étape coupée n'a rien laissé qui la ferait passer
  * pour faite, et les précédentes gardent les leurs. La reprise repart à la
  * première étape manquante — c'est le graphe, rien de plus.
  */
@@ -187,7 +187,7 @@ export async function wait(projectId: string): Promise<void> {
  * **Ce cache n'est pas une optimisation, c'est une protection.** L'écran de tri
  * interroge `GET /api/projects/:id` toutes les deux secondes tant qu'une analyse
  * tourne, et ce relevé finit sur le Drive quand le transcript n'est pas dans le
- * projet. Or `montageRépond` s'appuie sur `fsp.stat`, qui **consomme un fil du
+ * projet. Or `editingResponds` s'appuie sur `fsp.stat`, qui **consomme un fil du
  * vivier de libuv** quand le montage ne répond pas — le vivier en compte quatre
  * par défaut. Sans cache, huit secondes de sondage suffisaient à les prendre
  * tous les quatre et à figer *tout* ce qui touche au disque dans le serveur, y
@@ -195,7 +195,7 @@ export async function wait(projectId: string): Promise<void> {
  * une façon de la déclencher.
  *
  * La sonde en vol est partagée, donc deux requêtes simultanées n'en lancent
- * jamais deux — et `montageVivant`, juste en dessous, ferme le cas où la sonde
+ * jamais deux — et `editingAlive`, juste en dessous, ferme le cas où la sonde
  * ne revient pas du tout.
  */
 type EntrySidecar = { value: string | null; expire: number; inFlight?: Promise<string | null> }
@@ -207,7 +207,7 @@ const TTL_SIDECAR_MS = 4_000
 /**
  * Les sondes de montage **encore en vol**, par chemin sondé.
  *
- * **Renoncer n'est pas annuler.** `attendreOuRenoncer` rend la main au bout du
+ * **Renoncer n'est pas annuler.** `waitOrAbandon` rend la main au bout du
  * délai, mais le `fsp.stat` qu'il attendait continue d'occuper un fil du vivier
  * de libuv — le vivier en compte quatre, et sur un montage 9p au transport mort
  * cet appel ne revient jamais. Une temporisation, si longue soit-elle, ne fait
@@ -223,7 +223,7 @@ const TTL_SIDECAR_MS = 4_000
 const probes = new Map<string, Promise<boolean>>()
 
 /**
- * Le montage répond-il ? Comme `montageRépond`, mais sans jamais laisser deux
+ * Le montage répond-il ? Comme `editingResponds`, mais sans jamais laisser deux
  * sondes en vol sur le même chemin.
  */
 async function editingAlive(path: string): Promise<boolean> {

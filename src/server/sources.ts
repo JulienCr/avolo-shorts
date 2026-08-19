@@ -21,7 +21,7 @@ import { urlVignetteSource } from '@/server/source-thumbnails'
  *
  * Trois conséquences, et aucune n'est une précaution de style.
  *
- * 1. **`disponible` s'éprouve par un accès réel**, jamais par les bits de
+ * 1. **`available` s'éprouve par un accès réel**, jamais par les bits de
  *    permission — le montage annonce `drwxrwxrwx` sans que cela prouve rien — ni
  *    par la présence d'une ligne dans `/proc/mounts`, qui reste là quand le
  *    transport est mort.
@@ -41,7 +41,7 @@ import { urlVignetteSource } from '@/server/source-thumbnails'
  *    rendaient franchement trompeur — un `REPLAY_DIR` mal orthographié **sous un
  *    partage 9p sain** annonçait `fstype: '9p'` avec la lecture en échec, et un
  *    seul fichier aux droits refusés faisait basculer tout le dossier. Ils sont
- *    désormais nommés, `absent` et `denied`, et le geste utile suit du nom.
+ *    désormais nommés, `missing` et `denied`, et le geste utile suit du nom.
  */
 
 /**
@@ -92,7 +92,7 @@ export type OptionsSources = {
 /**
  * Les sondes **encore en vol**, par dossier.
  *
- * Même raison que la table `sondes` du lanceur : sur un montage mort, l'appel
+ * Même raison que la table `probes` du lanceur : sur un montage mort, l'appel
  * système ne revient jamais et garde son fil. Tant que la précédente n'est pas
  * revenue, on lui raccroche les appelants suivants au lieu d'en lancer une
  * seconde — chacun repartira sur son propre délai de garde, sans avoir rien
@@ -132,7 +132,7 @@ async function captureFolder(dir: string): Promise<ReadingFolder> {
       // source qu'on cherche est celle qui manque. Ce que l'issue #56 reprochait
       // à ce chemin n'est pas la bascule, c'est qu'elle était muette — un droit
       // refusé sur un fichier ressemblait trait pour trait à un partage tombé.
-      // La cause remonte maintenant avec l'échec : `refusé` envoie regarder les
+      // La cause remonte maintenant avec l'échec : `rejected` envoie regarder les
       // droits, pas remonter le partage.
       if (isAAbsence(cause)) continue
       throw cause
@@ -152,7 +152,7 @@ async function captureFolder(dir: string): Promise<ReadingFolder> {
  * proposer ferait des cartes qui échouent à l'ingestion, ce qui ressemble à un
  * défaut de l'outil. La spec les écarte nommément (§ « Lister les sources »).
  *
- * **Elles restent comptées dans `entrées`.** Un dossier plein de moignons n'est
+ * **Elles restent comptées dans `entries`.** Un dossier plein de moignons n'est
  * pas un dossier vide, et c'est cette distinction-là qui porte le diagnostic.
  */
 function isAStub(name: string): boolean {
@@ -163,7 +163,7 @@ function isAStub(name: string): boolean {
  * Le message que le délai de garde donne à son rejet.
  *
  * Il ne s'affiche nulle part : il sert à **reconnaître** le renoncement parmi
- * les rejets possibles. `attendreOuRenoncer` construit lui-même son `Error`, et
+ * les rejets possibles. `waitOrAbandon` construit lui-même son `Error`, et
  * c'est la seule chose qui distingue « personne n'a répondu » d'un code d'erreur
  * du système de fichiers. Producteur et consommateur sont à vingt lignes l'un de
  * l'autre, et un test le vérifie de bout en bout.
@@ -210,7 +210,7 @@ async function captureWithGuard(
     // rejet : un `sonde.catch()` posé en parallèle laisse la promesse dérivée du
     // `finally` sans gestionnaire, et un montage absent — le cas le plus banal —
     // remonte en rejet non traité, ce qui coupe le processus. Le rejet réel, lui,
-    // est déjà traité : `releverAvecGarde` le rattrape et le nomme.
+    // est déjà traité : `captureWithGuard` le rattrape et le nomme.
     void probe.finally(() => inFlight.delete(dir)).catch(() => {})
   }
 
@@ -225,7 +225,7 @@ async function captureWithGuard(
 }
 
 /**
- * Le type de système de fichiers qui porte `chemin`, d'après le contenu de
+ * Le type de système de fichiers qui porte `path`, d'après le contenu de
  * `/proc/mounts`.
  *
  * **Il se relève même quand l'accès échoue, et c'est là qu'il sert le plus** :

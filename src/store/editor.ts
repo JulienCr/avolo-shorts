@@ -36,7 +36,7 @@ import {
 /**
  * Une sélection : deux index de mots, dans l'ordre où on les a désignés.
  *
- * `ancre` est le mot où le geste a commencé, `tete` celui où il en est. Les
+ * `anchor` est le mot où le geste a commencé, `head` celui où il en est. Les
  * garder distincts — plutôt qu'un couple trié — est ce qui permet d'étendre une
  * sélection vers la gauche : trier tout de suite perdrait de quel côté elle
  * grandit.
@@ -65,7 +65,7 @@ type StateEditor = {
   /**
    * Pose une borne extérieure **à un temps**, et non sur un mot.
    *
-   * Le pendant de `poserBorne` pour la bande de temps : les oreilles y sont
+   * Le pendant de `poserBound` pour la bande de temps : les oreilles y sont
    * libres à l'image près, sans aimantation aux mots ni aux plans, et le contrôle
    * est celui d'un banc de montage. `moveBoundaryToWord` reste le chemin du
    * transcript ; celui-ci vise `moveBoundary`, un étage plus bas, qui prend déjà
@@ -81,7 +81,7 @@ type StateEditor = {
   setBoundaryAt: (time: number, edge: 'start' | 'end') => void
   cancel: () => void
   /**
-   * Refait le geste annulé. **Le pendant d'`annuler`, et il n'est pas
+   * Refait le geste annulé. **Le pendant d'`cancel`, et il n'est pas
    * optionnel** : annuler sans pouvoir rétablir transforme le geste de sécurité
    * en pari. La touche, elle, appartient à l'écran.
    */
@@ -185,7 +185,7 @@ export const useEditor = create<StateEditor>((set, get) => ({
 
   setBoundaryAt(time, edge) {
     const { history } = get()
-    // **La sélection se vide, comme dans `poserBorne`.** On a d'abord voulu la
+    // **La sélection se vide, comme dans `poserBound`.** On a d'abord voulu la
     // garder — aucun mot n'est en cause dans ce geste-ci. Mais elle survit alors
     // à un déplacement de borne qui peut l'avoir mise dehors, et le `Suppr`
     // suivant retire un passage déjà retiré : rien ne change à l'écran, un

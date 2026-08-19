@@ -13,7 +13,7 @@ import { clipsTouchedBySpan, transcriptLines, projectTranscript } from '@/server
  * la fois.
  *
  * Une route à part de `GET /api/projects/:id/candidates`, qui ne sert que la
- * fenêtre de 120 s autour d'un clip (`CONTEXTE_S`, `src/server/vues.ts`) : la
+ * fenêtre de 120 s autour d'un clip (`CONTEXT_S`, `src/server/vues.ts`) : la
  * vue Émission a besoin des ~20 000 mots de l'émission, et les deux besoins
  * n'ont aucune raison de partager une réponse.
  */

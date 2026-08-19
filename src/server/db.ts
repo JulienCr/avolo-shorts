@@ -153,8 +153,8 @@ function migrate(db: Database.Database): void {
   if (columns.includes('seq')) {
     db.exec('ALTER TABLE clips DROP COLUMN seq')
   }
-  // L'index composite est désormais `clips_by_project` (issue #73). Le SCHÉMA
-  // ci-dessus l'a déjà créé sous ce nom au moment où `migrer` s'exécute ; sur
+  // L'index composite est désormais `clips_by_project` (issue #73). Le SCHEMA
+  // ci-dessus l'a déjà créé sous ce nom au moment où `migrate` s'exécute ; sur
   // une base qui portait encore l'ancien, `clips_par_projet`, les deux
   // coexisteraient sans qu'aucune erreur ne le signale — deux index sur les
   // mêmes colonnes, l'un mort. Aucune donnée n'est touchée, seul le schéma.
@@ -177,7 +177,7 @@ const LEGACY_SELECTION_KEYS: Readonly<Record<string, string>> = {
  * Renomme en place les clés `selection.<ancien-champ>` vers
  * `selection.<nouveau-champ>`, en conservant la valeur et l'horodatage.
  *
- * **Il n'existe pas de table de migrations ici** (voir `migrer`, qui traite
+ * **Il n'existe pas de table de migrations ici** (voir `migrate`, qui traite
  * `clips` de la même façon) : le contrôle porte sur la présence de l'ancienne
  * clé, ce qui rend l'opération idempotente — la relancer sur une base déjà
  * migrée, ou sur une base neuve qui n'a jamais connu l'ancien nom, ne fait

@@ -101,7 +101,7 @@ export function decisionCopy(o: {
  * message dit quoi faire ; le jour où un veilleur balaiera le dossier de replays
  * (itération 4), il faudra un sondage qui ne consomme pas de fil. La requête
  * abandonnée maintient par ailleurs la boucle d'événements en vie : les scripts
- * de `scripts/` sortent donc par `quitter()`, qui ne s'en remet pas au seul
+ * de `scripts/` sortent donc par `quit()`, qui ne s'en remet pas au seul
  * `process.exitCode`. (relevé par Copilot)
  *
  * **Le message porte le chemin complet.** Comme ceux de `runFfmpeg`, il est
@@ -548,7 +548,7 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  *
  * **`keep` est une fonction, et pas une liste, parce que le balayage dure.**
  * Prise en instantané au départ, elle ignorait une exécution démarrée pendant la
- * boucle : ce projet-là ne recopie rien — `ingestionNécessaire` vient de
+ * boucle : ce projet-là ne recopie rien — `ingestionNecessary` vient de
  * constater que sa copie est là —, `copiesInFlight` ne le connaît donc pas, et le
  * balayage l'effaçait sous ses pieds. L'étape suivante échouait sur une entrée
  * manquante. Réévaluée à chaque fichier, la liste voit les exécutions arrivées
@@ -560,8 +560,8 @@ export const STAGE_TTL_MS = 8 * 60 * 60 * 1000
  * les sépare rend la main, et une exécution démarrée là constatait sa copie
  * présente puis la perdait avant d'ouvrir le fichier. Le contrôle final et le
  * `rmSync` sont synchrones et consécutifs — le fil unique de Node interdit alors
- * qu'un `lancer` s'intercale, exactement comme il tient la réservation
- * d'`enCours`. C'est aussi pourquoi l'effacement est synchrone : ce n'est qu'un
+ * qu'un `launch` s'intercale, exactement comme il tient la réservation
+ * d'`inCurrent`. C'est aussi pourquoi l'effacement est synchrone : ce n'est qu'un
  * `unlink`, une opération de métadonnées, et rien n'y est copié.
  * (relevé par Copilot)
  */
@@ -586,7 +586,7 @@ export async function cleanStage(
   /**
    * Ce fichier est-il à épargner ? **Synchrone**, et c'est ce qui compte :
    * appelée juste avant le `rmSync`, elle ne laisse aucun point d'attente où un
-   * `lancer` pourrait s'intercaler.
+   * `launch` pourrait s'intercaler.
    *
    * `null` veut dire « on n'a pas pu savoir », donc « on épargne » : c'est le
    * cas d'une base refermée par l'arrêt du serveur pendant le balayage.

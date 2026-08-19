@@ -145,7 +145,7 @@ export type FramingSource = { analysis: Analysis | null; origin: FramingOrigin }
  * Lit l'analyse d'un projet. **C'est la seule fonction faillible du module** :
  * elle touche au disque, et relaie une panne au lieu de la maquiller en absence.
  *
- * Nommée `projectAnalysis` et non `lireAnalyse`, qui existe déjà dans
+ * Nommée `projectAnalysis` et non `lireAnalysis`, qui existe déjà dans
  * `steps/analysis.ts` et fait le travail d'un cran plus bas — celle-ci ajoute le
  * cache, la distinction absence/panne, et l'origine.
  */
@@ -159,7 +159,7 @@ export function projectAnalysis(projectId: string): FramingSource {
     // montage mort n'est pas « l'analyse n'a pas tourné » : les confondre ferait
     // annoncer un projet sans plans à un serveur en panne, et enverrait chercher
     // le défaut à l'exact opposé de là où il est. C'est la même distinction que
-    // `sortiesDuClip` fait sur les mêmes codes.
+    // `clipOutputs` fait sur les mêmes codes.
     if (isAAbsence(error)) return { analysis: null, origin: 'no-analysis' }
     throw error
   }

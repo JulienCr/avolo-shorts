@@ -71,7 +71,7 @@ export type { ClipFraming, ShotFraming }
  * centré de l'itération 0 produirait un cadrage plausible et faux, qui ne se
  * voit qu'à l'image, trois minutes d'export plus tard.
  *
- * - `calculé` — les plans et les boîtes ont été lus, le ratio et les crops
+ * - `computed` — les plans et les boîtes ont été lus, le ratio et les crops
  *   sortent de `computeFraming` ;
  * - `sans-analyse` — `analysis.json` n'est pas là : l'étape n'a pas tourné sur
  *   ce projet. Le cadrage vaut celui de l'itération 0, `ratio` résolu et le
@@ -281,7 +281,7 @@ export type ProjectStatus = {
    * c'est-à-dire pendant l'étape la plus longue sur un fichier de 12 Go.
    *
    * **Sur `ProjectStatus` et non sur `ProjectSummary`** : la bibliothèque n'en
-   * fait rien, et `résuméProjet` documente qu'il porte quatre champs et pas un
+   * fait rien, et `summaryProject` documente qu'il porte quatre champs et pas un
    * de plus. La colonne, elle, est déjà en base.
    */
   sizeBytes: number | null
@@ -305,7 +305,7 @@ export type Source = {
   modifiedAt: string
   /**
    * Le projet déjà créé sur cette source, ou `null`. Une source analysée mène à
-   * son projet au lieu de relancer une création : `créerProjet` est idempotent
+   * son projet au lieu de relancer une création : `createProject` est idempotent
    * sur ce cas, mais proposer deux chemins vers le même endroit sans le dire
    * fait douter de ce qu'on vient de déclencher.
    */
@@ -333,11 +333,11 @@ export type Source = {
  * Sans lui, `disponible: false` recouvrait quatre faits et la ligne de montage
  * devait énumérer les trois gestes possibles (issue #56, point 5). Deux cas le
  * rendaient franchement trompeur : un `REPLAY_DIR` mal orthographié **sous un
- * partage 9p sain** — `absent` le dit maintenant, là où `fstype: '9p'` faisait
+ * partage 9p sain** — `missing` le dit maintenant, là où `fstype: '9p'` faisait
  * conclure au transport mort — et un unique fichier aux droits refusés, qui fait
  * basculer tout le dossier et qui dit désormais `denied`.
  *
- * - `absent` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
+ * - `missing` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
  *   diagnostiqué : une faute de frappe dans `REPLAY_DIR`.
  * - `denied` — les droits refusent le dossier, ou l'un de ses fichiers.
  * - `silent` — aucune réponse dans le délai de garde. C'est la signature du
@@ -379,7 +379,7 @@ export type SourcesListing = {
  * « Trois analyses en cours, une en échec » n'est pas dérivable d'un
  * `ProjectSummary`, et la forme évidente — un `GET /api/projects/:id` par projet
  * — est à écarter : elle multiplierait par vingt et un un appel qui exécute
- * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde. Quatre
+ * `readingPresence`, lequel sonde le montage 9p avec un délai de garde. Quatre
  * fils du vivier de libuv suffisent à figer tout ce qui touche au disque dans le
  * serveur, analyse en cours comprise (spec §3.1).
  *
@@ -399,7 +399,7 @@ export type ProjectListItem = ProjectSummary & {
    * liste ne paie donc toujours que deux relevés, et la décision de §3.1 tient.
    *
    * **Il est publié parce que la bibliothèque n'a pas `steps`.** L'écran de
-   * projet déduit « interrompue » de `phaseProjet`, qui lit le relevé de
+   * projet déduit « interrompue » de `phaseProject`, qui lit le relevé de
    * présence ; la liste, elle, ne l'a pas — c'est exactement ce que le partage
    * ci-dessus lui refuse. Sans ce champ, une analyse arrêtée après l'ingestion
    * est indiscernable d'une analyse finie : elle ne tourne pas, elle n'a pas
@@ -431,7 +431,7 @@ export type CandidateClip = Clip & {
 /**
  * Un clip et de quoi le monter.
  *
- * `lines` couvre l'étendue du clip **plus une marge de contexte** de part et
+ * `indexed` couvre l'étendue du clip **plus une marge de contexte** de part et
  * d'autre : sans elle, on ne pourrait qu'enlever, jamais étendre. Les mots hors
  * segments — contexte compris — s'affichent barrés, et c'est la même règle pour
  * les deux, donc un seul cas à écrire.

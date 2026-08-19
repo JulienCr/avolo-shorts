@@ -7,7 +7,7 @@ import { referenceBody } from '@/server/secrets'
 /**
  * L'épuration des messages, avec les racines de **cette** machine sous les yeux.
  *
- * `épurerChemins` vit dans `src/core/` et ne peut donc pas lire l'environnement
+ * `cleanPaths` vit dans `src/core/` et ne peut donc pas lire l'environnement
  * — c'est ce qui la rend testable. Or elle a besoin des racines de la machine pour
  * être exacte : un chemin nu se coupe au premier espace, et `REPLAY_DIR` vaut
  * littéralement `/mnt/j/Drive partagés/…`. Ce fichier-ci est le seul endroit qui
@@ -30,13 +30,13 @@ function roots(): string[] {
 
   // Les binaires nommés par l'environnement vivent ailleurs — un ffmpeg
   // compilé à la main, le venv du diariseur, celui de la détection — et
-  // `runFfmpeg` comme `lancerWorker` les écrivent en tête de la commande qu'ils
+  // `runFfmpeg` comme `launchWorker` les écrivent en tête de la commande qu'ils
   // citent. On retient leur **dossier**, pas le binaire : c'est ce qui sort
   // l'arborescence du message tout en gardant lisible le nom de l'outil qui a
   // échoué.
   //
   // Les trois `DETECT_*` sont là depuis l'itération 1. Les passes génériques
-  // d'`épurerChemins` les attrapent déjà quand leur chemin n'a pas d'espace, ce
+  // d'`cleanPaths` les attrapent déjà quand leur chemin n'a pas d'espace, ce
   // qui est le cas courant ; mais le message d'un `spawn` en échec recopie le
   // chemin tel que **Node** l'écrit, sans guillemets, et cette forme-là se
   // couperait au premier espace. (relevé par Aristarque et Copilot)
@@ -71,7 +71,7 @@ function roots(): string[] {
  *
  * **Le préfixe nu est écarté.** Il ne nomme ni coffre, ni fiche, ni champ : il
  * n'y a rien à en retirer, et un message qui le cite en toutes lettres —
- * `exigerSecret` le fait — doit ressortir intact.
+ * `requireSecret` le fait — doit ressortir intact.
  */
 function referencesKnown(): { reference: string; prefix: string }[] {
   const found: { reference: string; prefix: string }[] = []
@@ -87,14 +87,14 @@ function referencesKnown(): { reference: string; prefix: string }[] {
  * Les références de secret de l'environnement, retirées d'un message **par leur
  * forme complète**.
  *
- * `épurerChemins` sait déjà caviarder `op://coffre/fiche/champ` par sa seule
+ * `cleanPaths` sait déjà caviarder `op://coffre/fiche/champ` par sa seule
  * forme, mais hors citation elle s'arrête au premier espace : la grammaire qui
  * les traversait avalait la prose derrière une référence incomplète —
  * diagnostic et remède compris — et elle a été retirée pour ça. Un coffre au
  * nom espacé y laissait donc sa queue.
  *
  * Ici, on ne devine pas où la référence finit : on la tient en entier. D'où le
- * remplacement littéral, et d'où sa place **avant** `épurerChemins`, dont la
+ * remplacement littéral, et d'où sa place **avant** `cleanPaths`, dont la
  * grammaire couperait la référence avant qu'on ait pu la reconnaître.
  *
  * **C'est la forme complète qui est retirée, préfixe compris, et le préfixe est
@@ -109,7 +109,7 @@ function referencesKnown(): { reference: string; prefix: string }[] {
  * **Aucune valeur de secret n'entre là-dedans** : seule une valeur qui *est*
  * une référence est retenue, et une référence n'est pas une valeur — elle nomme
  * le coffre, la fiche et le champ. Le cas utile est d'ailleurs celui de
- * l'échec : `résoudreSecrets` ne réécrit l'environnement qu'une fois toutes ses
+ * l'échec : `resolveSecrets` ne réécrit l'environnement qu'une fois toutes ses
  * lectures abouties, donc il lève en laissant les adresses en place, et c'est
  * exactement là que les messages qui les citent sont produits.
  */

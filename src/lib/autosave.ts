@@ -77,7 +77,7 @@ export function differences(
  * étaient possibles et deux sont fausses.
  *
  * 1. *Relire le clip.* C'est ce qu'une version de la conception proposait, et
- *    elle est sans effet : `useEditeur.charger` sort immédiatement quand
+ *    elle est sans effet : `useEditor.charger` sort immédiatement quand
  *    l'identifiant n'a pas changé, et cette garde est bonne — elle empêche un
  *    refetch d'écraser le montage en cours et sa pile d'annulation. Le cache
  *    serait rafraîchi, le store resterait sur l'intention refusée.
@@ -248,7 +248,7 @@ export function useAutosave({
    * retiendrait une signature que le serveur n'a jamais refusée, minant la
    * valeur correspondante jusqu'au prochain chargement.
    *
-   * Une réponse dépassée ne décide donc plus de rien — ni de `echec`, ni de la
+   * Une réponse dépassée ne décide donc plus de rien — ni de `failure`, ni de la
    * réconciliation. Cette seconde moitié n'allait pas de soi, et les deux
    * relecteurs ont d'abord conclu l'inverse : la réconciliation semble
    * s'autoprotéger, puisqu'elle n'adopte que sur un champ qui *porte encore*
@@ -344,16 +344,16 @@ export function useAutosave({
   // Les deux, parce qu'aucun des deux ne couvre l'autre. React n'exécute pas
   // toujours son nettoyage quand la page se ferme ; et `pagehide` ne se
   // déclenche pas quand on passe simplement d'un clip à l'autre. Le drapeau
-  // `enAttente` est remis à `null` par celui qui vide en premier, donc le second
+  // `inWait` est remis à `null` par celui qui vide en premier, donc le second
   // ne double pas l'écriture.
   //
   // **Ce vidage-là n'attend pas de réponse**, et c'est volontaire : il part au
   // moment où la page s'en va. Un refus qui reviendrait après n'a plus de
-  // composant pour le réconcilier, et `reconcilier` refuserait de toute façon de
+  // composant pour le réconcilier, et `reconcile` refuserait de toute façon de
   // toucher un autre clip que celui que le store porte.
   //
   // Ne pas attendre n'est pas ne pas reprendre, en revanche : depuis que
-  // `ecrire` rend une promesse, la laisser tomber ferait d'un échec de départ un
+  // `write` rend une promesse, la laisser tomber ferait d'un échec de départ un
   // **rejet non géré** — une suite de tests qui rougit ailleurs qu'à l'endroit
   // du défaut, et une console de production salie à chaque fermeture d'onglet
   // sur un réseau capricieux. D'où le `catch` vide plus bas, qui est une
@@ -390,7 +390,7 @@ export function useAutosave({
     return () => {
       window.removeEventListener('pagehide', clear)
       clear()
-      // **Inconditionnel, celui-ci** : `vider` ne prend un rang que s'il écrit,
+      // **Inconditionnel, celui-ci** : `clear` ne prend un rang que s'il écrit,
       // et l'écran qui s'en va périme ses réponses même sans rien avoir à
       // envoyer.
       lastAttempt.current += 1

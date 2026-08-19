@@ -22,7 +22,7 @@ import type { StepName } from '@/core/graph'
  *
  * **La définition vit ici et nulle part ailleurs.** Elle a longtemps vécu dans
  * `src/lib/clip-status.ts`, qui la ré-exporte, et elle en est sortie le jour où
- * `phaseProjet` en a eu besoin : la frontière de pureté interdit à `src/core`
+ * `phaseProject` en a eu besoin : la frontière de pureté interdit à `src/core`
  * d'importer `src/lib`, et la recopier ici aurait rendu deux endroits à un
  * module qui existe précisément parce qu'ils divergeaient.
  */
@@ -73,21 +73,21 @@ export type Phase = { analysis: Analysis; work: Work }
  *
  * Quatre propriétés, chacune payée par une relecture :
  *
- * - **il n'y a pas de valeur `neuf`.** `créerProjet` appelle `lancer` avant de
- *   répondre, et `lancer` pose sa réservation avant son premier `await` : un
+ * - **il n'y a pas de valeur `neuf`.** `createProject` appelle `launch` avant de
+ *   répondre, et `launch` pose sa réservation avant son premier `await` : un
  *   projet que le client peut voir a toujours quelque chose qui tourne, ou
  *   quelque chose sur le disque. « Aucun artefact, aucune exécution » ne décrit
  *   pas un projet neuf, mais une exécution morte — donc `interrompu` ;
- * - **`interrompu` et `echec` ne s'appliquent que tant que `candidates` est
+ * - **`interrompu` et `failure` ne s'appliquent que tant que `candidates` est
  *   absent.** Sans cette précondition ils recouvrent `triable` : une exécution
  *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
  *   précis où elle doit remplacer le panneau. Passé ce point, un échec ne décrit
  *   plus ce que l'écran peut faire, il décrit un incident : il s'affiche à côté ;
  * - **`triable` teste la présence de l'artefact, pas son contenu.** C'est le
  *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
- *   `candidates.json` vide donne `{ triable, rien }`, et c'est l'axe `Travail`
+ *   `candidates.json` vide donne `{ triable, rien }`, et c'est l'axe `Work`
  *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ attente, trie }` est atteignable.** `effacerArtefact`
+ * - **`{ attente, trie }` est atteignable.** `eraseArtifact`
  *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
  *   toucher à la base : pendant un repérage forcé, les clips gardés sont
  *   toujours là et toujours montables.
@@ -117,7 +117,7 @@ function analysisProject(
   // une étape que le client ne connaît pas encore y vaut `undefined`.
   if (steps.candidates === true) return steps.proxy === true ? 'complet' : 'triable'
 
-  // **Une exécution en cours l'emporte sur l'échec de la précédente.** `erreur`
+  // **Une exécution en cours l'emporte sur l'échec de la précédente.** `error`
   // décrit la dernière exécution *terminée* ; tant qu'une autre tourne, ce que
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
   if (running !== null) return 'attente'
@@ -138,9 +138,9 @@ function workProject(clips: readonly { status: ClipStatus }[]): Work {
   // terminale annonçait un livrable alors qu'aucun MP4 n'existe.
   //
   // Et il se lit sur `status === 'exported'`, sans champ de plus.
-  // `écarterRenduPérimé` (`src/server/steps/render.ts`, appelé par le `PATCH`)
+  // `discardRenderStale` (`src/server/steps/render.ts`, appelé par le `PATCH`)
   // fait sortir le clip de cet état dès qu'un champ que l'encodage consomme
-  // change — segments, ratio, cadrage, sous-titres, marque —, et `sortiesDuClip`
+  // change — segments, ratio, cadrage, sous-titres, marque —, et `clipOutputs`
   // rend quatre `null` dès que le statut n'est plus `exported`, effacement des
   // fichiers réussi ou non. La conception a tenu `livre` pour indisponible faute
   // d'un champ de fraîcheur ; la vague de l'export avait déjà satisfait la
@@ -190,8 +190,8 @@ export const LABELS_STEPS: Record<StepName, string> = {
  * Les étapes dans leur ordre d'exécution attendu.
  *
  * **L'ordre n'est pas décoratif** :
- * `CIBLES_INITIALES = ['candidates', 'proxy', 'analysis']` (`src/server/run.ts`)
- * et `planPourCibles` déroule donc audio, transcript, candidats, **puis** proxy,
+ * `TARGETS_INITIAL = ['candidates', 'proxy', 'analysis']` (`src/server/run.ts`)
+ * et `planForTargets` déroule donc audio, transcript, candidats, **puis** proxy,
  * puis l'analyse d'image qui en dépend. Les candidats arrivent avant les images,
  * et c'est ce fait-là — pas une durée — qui fait exister l'état « triable mais
  * pas montable ».
@@ -279,7 +279,7 @@ export type ShowSize = {
  *
  * Toutes les constantes qui suivent sont des **rapports** tirés de cette unique
  * mesure. Les écrire ainsi plutôt qu'en secondes est tout l'objet de ce bloc :
- * les cinq coûts que portait `ÉTAPES` annonçaient les mêmes chiffres à une
+ * les cinq coûts que portait `STEPS` annonçaient les mêmes chiffres à une
  * capsule de vingt minutes et à un live de deux heures et demie.
  */
 const REFERENCE = {
@@ -292,13 +292,13 @@ const REFERENCE = {
 /**
  * Ce qu'une seconde d'émission coûte à chaque étape, en secondes.
  *
- * **Exhaustif, comme `LIBELLES_ETAPES`** : ajouter une étape au graphe sans
+ * **Exhaustif, comme `LABELS_STEPS`** : ajouter une étape au graphe sans
  * venir ici casse le type-check. C'est le correctif de fond d'#39 appliqué à une
  * seconde table — une étape oubliée n'annoncerait rien, ce qui ressemble trait
  * pour trait à une étape délibérément non chronométrée.
  *
  * `null` dit précisément cela : **on ne sait pas, donc on n'annonce rien.**
- * C'est l'abstention que portait le `coûtSec` d'`ÉTAPES` avant qu'il ne soit
+ * C'est l'abstention que portait le `coûtSec` d'`STEPS` avant qu'il ne soit
  * retiré, et elle vaut mieux qu'une estimation qui n'est adossée à rien.
  */
 const RATES: Record<StepName, number | null> = {

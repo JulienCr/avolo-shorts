@@ -173,7 +173,7 @@ function shotsInPartition(shots: readonly { start: number; end: number }[]): boo
  * **Une version inconnue est refusée, elle n'est pas lue à moitié.** C'est le
  * point que la montée de version existe pour tenir : un fichier de version 3
  * dont on garderait les champs reconnus donnerait un cadrage plausible calculé
- * sur une donnée qu'on ne comprend plus. `lireAnalyse` nomme alors la version
+ * sur une donnée qu'on ne comprend plus. `lireAnalysis` nomme alors la version
  * trouvée et celles qu'il accepte, parce que « invalid literal » sur un champ
  * `version` n'apprend rien à qui vient de relancer une détection.
  */
@@ -480,7 +480,7 @@ export async function runAnalysis(o: OptionsAnalysis): Promise<Artifact> {
   }
 
   // Même contrôle sur la source, pour une autre raison : ses dimensions sont
-  // recopiées telles quelles dans `analysis.json`, où `SCHÉMA_TAILLE` les exige
+  // recopiées telles quelles dans `analysis.json`, où `SCHEMA_SIZE` les exige
   // positives. Un zéro qui passerait ici ferait échouer la validation **après**
   // les trois minutes de détection.
   const probeSource = await probe(o.source, undefined, o.signal)

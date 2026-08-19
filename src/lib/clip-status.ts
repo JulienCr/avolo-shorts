@@ -10,7 +10,7 @@
  * Une seule définition, lue par les deux.
  *
  * **Elle a déménagé dans `@/core/parcours` et ce module la ré-exporte.**
- * `phaseProjet` en a besoin pour l'axe du travail humain, et la frontière de
+ * `phaseProject` en a besoin pour l'axe du travail humain, et la frontière de
  * pureté interdit à `src/core` d'importer `src/lib` : la recopier là-bas aurait
  * rendu deux endroits à un module qui existe précisément parce qu'ils
  * divergeaient. Les appelants, eux, n'ont pas bougé.

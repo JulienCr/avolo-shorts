@@ -58,7 +58,7 @@ export function apiKeyVariableFor(provider: LlmProvider): string | undefined {
 /**
  * Ce que l'écran des réglages affiche pour un fournisseur : a-t-il sa clé ?
  *
- * **Ne lit jamais la valeur du secret**, seulement sa présence — `exigerSecret`
+ * **Ne lit jamais la valeur du secret**, seulement sa présence — `requireSecret`
  * fait le travail et son message d'erreur, déjà pensé pour ne rien fuiter
  * (`op://…` non résolu, variable absente), devient directement `reason`.
  */
@@ -109,7 +109,7 @@ export function createCall(provider: LlmProvider, options: LlmClientOptions): Ll
  * contrat. L'écran des réglages (`providerAvailability`) le dit encore
  * plus tôt, avant même de lancer quoi que ce soit.
  *
- * `timeoutMs` et `config` restent les paramètres du domaine — `DÉLAI_APPEL_MS`
+ * `timeoutMs` et `config` restent les paramètres du domaine — `DELAY_CALL_MS`
  * et `configuration(mode)` de `candidates.ts` — cette fonction ne fait que
  * choisir *qui* les exécute.
  */

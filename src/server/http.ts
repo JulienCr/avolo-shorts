@@ -16,8 +16,8 @@ import { isTransient, GeminiBlockedError } from '@/server/steps/candidates'
  *    service ou de réseau se réessaiera très bien dans dix minutes (503) ; tout
  *    le reste est un défaut de ce programme (500). Répondre 500 aux trois
  *    envoie chercher un bug là où il n'y en a pas.
- * 2. *Aucun chemin absolu ne sort d'ici.* `runFfmpeg`, `statAvecDélai` et
- *    `lancerWorker` écrivent la commande complète dans leurs messages — ils le
+ * 2. *Aucun chemin absolu ne sort d'ici.* `runFfmpeg`, `statWithDelay` et
+ *    `launchWorker` écrivent la commande complète dans leurs messages — ils le
  *    documentent chacun comme « destiné à un journal de serveur, pas à une
  *    réponse HTTP », et rien ne l'appliquait. C'est ici que ça s'applique :
  *    l'erreur entière part au journal, sa version épurée part au client.

@@ -47,11 +47,11 @@ const DEPS: Record<StepName, readonly StepName[]> = {
  *
  * - `exists` : le relevé de présence des artefacts, fait par l'appelant
  *   (`src/server/run.ts`), qui seul a le droit de toucher au disque.
- * - `force` : les étapes à refaire même si leur artefact est là. Le drapeau
+ * - `forced` : les étapes à refaire même si leur artefact est là. Le drapeau
  *   court-circuite la présence pour le cas où les paramètres n'ont pas changé
  *   mais où l'on veut malgré tout d'autres propositions (spec §5).
  *
- * **`force` entraîne l'aval avec lui.** Reforcer le transcript sans reprendre le
+ * **`forced` entraîne l'aval avec lui.** Reforcer le transcript sans reprendre le
  * repérage ni les rendus laisserait sur le disque des candidats calculés sur un
  * texte qui n'existe plus — la contradiction silencieuse que le graphe est censé
  * empêcher. Une étape se refait donc dès qu'une de ses dépendances est forcée.
@@ -59,10 +59,10 @@ const DEPS: Record<StepName, readonly StepName[]> = {
  * **La présence, elle, ne remonte pas.** Un artefact présent est bon, et ce qui
  * l'a produit ne le regarde plus : une dépendance absente sous un artefact
  * présent n'est pas reconstruite. C'est ce qui distingue ce graphe d'un `make`,
- * et ce que le sidecar exige — voir `àRefaire` plus bas.
+ * et ce que le sidecar exige — voir `toRedo` plus bas.
  *
- * Une étape nommée dans `force` mais qui ne mène pas à `target` est ignorée :
- * forcer le proxy en demandant le transcript ne construit pas le proxy. `force`
+ * Une étape nommée dans `forced` mais qui ne mène pas à `target` est ignorée :
+ * forcer le proxy en demandant le transcript ne construit pas le proxy. `forced`
  * dit *comment* atteindre la cible, il n'en ajoute pas d'autre.
  *
  * L'ordre rendu est celui de l'exécution : toute étape y apparaît après ses
@@ -77,7 +77,7 @@ export function planSteps(
 
   // Deux questions distinctes, et les confondre est le piège de cet étage.
   //
-  // 1. « Une étape en amont va-t-elle être refaite ? » — seul `force` la pose,
+  // 1. « Une étape en amont va-t-elle être refaite ? » — seul `forced` la pose,
   //    et elle descend le graphe.
   // 2. « Faut-il fabriquer une dépendance absente ? » — elle ne se pose que si
   //    l'étape courante doit elle-même être fabriquée.

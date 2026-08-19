@@ -14,7 +14,7 @@
  * chacun : les apparier ne coûte rien de plus. La forme qui vient d'abord — un
  * `GET /api/projects/:id` par entrée, pour connaître les artefacts présents —
  * reste écartée pour la raison qui l'avait fait écarter : elle exécute
- * `relevéPrésence`, qui sonde le montage 9p sous délai de garde, et quatre fils
+ * `readingPresence`, qui sonde le montage 9p sous délai de garde, et quatre fils
  * du vivier de libuv suffisent à figer tout ce qui touche au disque dans le
  * serveur, analyse en cours comprise.
  *
@@ -88,14 +88,14 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
    */
   key: string
   /**
-   * Le titre affiché, **dérivé du nom de fichier par `titreProjet`**.
+   * Le titre affiché, **dérivé du nom de fichier par `titleProject`**.
    *
    * Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un titre :
    * c'est un nom de fichier. La date en tête sert à trier un dossier, elle ne se
-   * lit pas — `titreProjet` la remet en français et la passe derrière, ce qui
+   * lit pas — `titleProject` la remet en français et la passe derrière, ce qui
    * laisse en tête ce qui distingue une émission d'une autre.
    *
-   * **Et il ne bouge pas au moment de l'analyse.** `titreProjet` est une fonction
+   * **Et il ne bouge pas au moment de l'analyse.** `titleProject` est une fonction
    * pure de l'identifiant, et l'identifiant est le nom de fichier sans son
    * extension (`projectIdFromSource`) : la même chaîne entre, la même sort, avant
    * comme après. Ce module dérive d'ailleurs toujours depuis `source.name`, même
@@ -145,7 +145,7 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
  * exactement dans le cas que quelqu'un vient de provoquer d'un clic, sur la
  * seule carte qu'il regarde. C'était le seul des cinq états qui pouvait mentir.
  *
- * `ProjectListItem.stopped` le remplace. Le champ ne coûte rien : `élémentDeListe`
+ * `ProjectListItem.stopped` le remplace. Le champ ne coûte rien : `listElement`
  * lit déjà `status.json` pour son champ `error`, et `stopped` y était déjà écrit.
  * Il se tait pendant qu'une exécution tourne, comme `error`, pour la même
  * raison — deux écrans qui se contredisent sur le même projet valent moins que
@@ -155,16 +155,16 @@ export function showState(project: LibraryProject | null, projectExpected: boole
   if (project === null) {
     // **Une source qui annonce un projet que la liste ne porte pas encore n'est
     // pas une source neuve.** Les deux requêtes ne se rafraîchissent pas
-    // ensemble : `marquerSourceAnalysée` inscrit le `projectId` dans le cache
+    // ensemble : `markSourceAnalyzed` inscrit le `projectId` dans le cache
     // des sources dès la réponse de création, et la liste des projets arrive au
     // tour suivant. Retomber sur `new` pendant cette fenêtre reproposerait
     // « lancer l'analyse » sur un projet qui vient d'en lancer une, et le second
-    // clic rend un 409 (`ExécutionEnCoursError`). `créerProjet` lance avant de
+    // clic rend un 409 (`ExecutionInCurrentError`). `createProject` lance avant de
     // répondre : « en cours » est donc aussi le plus probable des deux.
     return projectExpected ? 'analyzing' : 'new'
   }
   // Ce qui tourne l'emporte sur ce qui a échoué et sur ce qui a été arrêté,
-  // comme dans `analyseProjet` : les deux décrivent la dernière exécution
+  // comme dans `analysisProject` : les deux décrivent la dernière exécution
   // *terminée*, et le serveur les tait d'ailleurs tant qu'une autre tourne.
   if (project.running !== null) return 'analyzing'
   if (project.error !== null) return 'failed'

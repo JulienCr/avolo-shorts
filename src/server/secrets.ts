@@ -109,7 +109,7 @@ export type Environment = Record<string, string | undefined>
  * ou `undefined` quand la valeur n'est pas une référence.
  *
  * Le préfixe se sépare ici plutôt que chez l'appelant parce que c'est ici qu'on
- * sait lequel a mordu. `caviarderRéférencesConnues` (`src/server/erreurs.ts`)
+ * sait lequel a mordu. `redactReferencesKnown` (`src/server/erreurs.ts`)
  * s'en sert pour retirer d'un message d'erreur la référence entière **en
  * remettant son préfixe derrière** : c'est lui qui dit que la variable portait
  * une adresse et non une valeur littérale.
@@ -239,14 +239,14 @@ function fix(cause: unknown): string {
  * (relevé par Copilot)
  *
  * **Le message ne cite pas la référence**, contrairement à ceux de
- * `résoudreSecrets`, et la différence n'est pas un oubli. Cette erreur-ci est
+ * `resolveSecrets`, et la différence n'est pas un oubli. Cette erreur-ci est
  * levée *en servant* : elle remonte par `runCandidates`, `status.json` et le
  * champ `error` de `GET /api/projects/:id` jusqu'à un client HTTP. Or
- * `épurerChemins` ne la nettoie pas — vérifié : `POSIX_NU` exclut un `/`
+ * `cleanPaths` ne la nettoie pas — vérifié : `POSIX_BARE` exclut un `/`
  * précédé de `:` ou d'un autre `/`, donc `op://Personal/Avolo-Shorts/…` passe
  * intact —, et le nom du coffre et de la fiche sortiraient sur un dépôt public.
  * L'opérateur, lui, a son propre `.env` sous les yeux : la référence ne lui
- * apprend rien. Celles de `résoudreSecrets` restent complètes parce qu'elles ne
+ * apprend rien. Celles de `resolveSecrets` restent complètes parce qu'elles ne
  * quittent jamais le terminal du démarrage. (relevé par Aristarque)
  */
 export function requireSecret(name: string, env: Environment = process.env): string {

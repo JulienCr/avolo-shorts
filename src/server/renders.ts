@@ -19,7 +19,7 @@ import {
  *
  * **Un seul endroit dérive les deux.** L'URL que `GET /api/clips/:id` publie et
  * le fichier que `GET /api/clips/:id/renders/:file` ouvre sortent de la même
- * table, elle-même construite par `cheminsRendu` — celle que l'export a suivie
+ * table, elle-même construite par `pathsRender` — celle que l'export a suivie
  * pour écrire. Le nom qui arrive du réseau n'est donc jamais joint à un dossier :
  * il est **comparé** à cette liste, et un nom qui n'y figure pas ne désigne
  * aucun fichier. C'est ce qui ferme la traversée de répertoire sans un contrôle
@@ -54,7 +54,7 @@ function output(filePath: string, type: string): OutputClip {
 /**
  * Les sorties **dues** d'un clip, celles que l'export produit.
  *
- * Le `.ass` de `cheminsRendu` n'en est pas : c'est un intermédiaire, réécrit à
+ * Le `.ass` de `pathsRender` n'en est pas : c'est un intermédiaire, réécrit à
  * chaque passage, gardé sur le disque pour relire ce que libass a incrusté quand
  * un sous-titre surprend. Il n'a rien à faire dans une livraison, et une route
  * qui le servirait laisserait croire l'inverse.
@@ -88,7 +88,7 @@ function outputs(clip: Clip, framing: PublishedFraming): Outputs {
 function urlIfProduced(clip: Clip, file: OutputClip): string | null {
   // **Un fichier ordinaire, pas seulement une entrée qui existe.** `existsSync`
   // dit oui à un dossier nommé `<clip>.mp4`, et Linux accepte même de l'ouvrir —
-  // c'est pourquoi `servirFichier` contrôle `isFile()` avant de pousser des
+  // c'est pourquoi `serveFile` contrôle `isFile()` avant de pousser des
   // octets. Sans le même contrôle ici, les deux côtés du contrat se
   // contrediraient : `GET /api/clips/:id` annoncerait une sortie que la route
   // des rendus refuse aussitôt en 404. (relevé par Copilot)
@@ -99,7 +99,7 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
     // **Seule une absence vaut `null`.** Un refus de droits ou un montage mort
     // n'est pas « pas encore exporté » : l'avaler ferait annoncer un projet
     // vierge à un serveur en panne, et enverrait chercher le défaut à l'exact
-    // opposé de là où il est. `servirFichier` fait la même distinction sur les
+    // opposé de là où il est. `serveFile` fait la même distinction sur les
     // mêmes codes — les deux bouts du contrat doivent tomber d'accord.
     // (relevé par Copilot)
     if (isAAbsence(error)) return null

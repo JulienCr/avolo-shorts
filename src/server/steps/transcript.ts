@@ -82,7 +82,7 @@ export function pathsCudnn(venvRoot: string, foldersLib: readonly string[]): str
  *   ne connaît rien aux paquets pip. Sans ce chemin, le modèle ne se charge pas.
  *
  * **Le reste de l'environnement est reconstruit depuis une liste blanche** —
- * voir `TRANSMISES` plus bas. Le worker de transcription n'a besoin d'aucun
+ * voir `FORWARDED` plus bas. Le worker de transcription n'a besoin d'aucun
  * secret.
  *
  * **Le chemin hérité est redécoupé avant d'être filtré**, et ce n'est pas de la
@@ -164,7 +164,7 @@ const FORWARDED: readonly string[] = [
   'CUDA_HOME',
   'NVIDIA_VISIBLE_DEVICES',
   // Le réseau, si le premier lancement doit aller chercher un modèle. Les URLs
-  // de mandataire passent par `épurerMandataire` — voir juste en dessous.
+  // de mandataire passent par `cleanProxy` — voir juste en dessous.
   'HTTP_PROXY',
   'HTTPS_PROXY',
   'NO_PROXY',
@@ -173,7 +173,7 @@ const FORWARDED: readonly string[] = [
   'no_proxy',
 ]
 
-/** Celles de `TRANSMISES` dont la valeur est une URL, donc peut porter un secret. */
+/** Celles de `FORWARDED` dont la valeur est une URL, donc peut porter un secret. */
 const PROXIES = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'])
 
 /**

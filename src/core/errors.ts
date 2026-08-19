@@ -1,8 +1,8 @@
 /**
  * Ce qui sort d'une erreur, et ce qui n'en sort pas.
  *
- * Trois producteurs d'erreurs du serveur — `runFfmpeg`, `statAvecDélai` et
- * `lancerWorker` — écrivent **la commande complète** dans leur message, chemins
+ * Trois producteurs d'erreurs du serveur — `runFfmpeg`, `statWithDelay` et
+ * `launchWorker` — écrivent **la commande complète** dans leur message, chemins
  * absolus compris. Chacun le documente : « destiné à un journal de serveur, pas
  * à une réponse HTTP ». Rien ne l'appliquait, et un `ffmpeg a échoué` renvoyé
  * tel quel publiait le point de montage du Drive partagé, l'arborescence de la
@@ -51,7 +51,7 @@ const POSIX_BARE = /(?<![\w:.~…/\\-])\/[^\s"'\\]+(?:\/[^\s"'\\]*)*/g
 const WINDOWS_BARE = /(?<![\w:.~…/\\-])[A-Za-z]:[\\/][^\s"']*/g
 
 /**
- * Le préfixe d'une adresse de secret 1Password. `PRÉFIXES_DE_RÉFÉRENCE`
+ * Le préfixe d'une adresse de secret 1Password. `REFERENCE_PREFIXES`
  * (`src/server/secrets.ts`) en est la source, et `tests/core/erreurs.test.ts`
  * le vérifie forme par forme.
  */
@@ -76,11 +76,11 @@ const REFERENCE_PREFIX = 'op://'
  * `[caviardé]` tairait — que la variable porte une **adresse** et non une valeur
  * littérale, seule question qu'on se pose devant un secret qui n'a pas marché.
  *
- * Le préfixe est celui d'`estRéférence` (`src/server/secrets.ts`), qui définit
+ * Le préfixe est celui d'`isReference` (`src/server/secrets.ts`), qui définit
  * seul ce que ce projet appelle une référence, et qui n'en accepte aujourd'hui
  * pas d'autre forme. Le module est pur et ne peut pas l'importer, donc les deux
  * se suivent à la main — mais plus en silence : `tests/core/erreurs.test.ts` lit
- * `PRÉFIXES_DE_RÉFÉRENCE` et exige que chacune de ses formes ressorte caviardée
+ * `REFERENCE_PREFIXES` et exige que chacune de ses formes ressorte caviardée
  * ici. Un préfixe ajouté là-bas sans passe correspondante ici fait échouer la
  * suite, au lieu de traverser le caviardage comme `op://` le faisait avant
  * qu'on s'en occupe. (issue #49)
@@ -89,7 +89,7 @@ const REFERENCE_PREFIX = 'op://'
  * raison** : rien ne dit où elle finit. Un coffre ou une fiche au nom espacé y
  * laisse donc sa queue — c'est la limite, elle est démontrée en test, et elle a
  * deux remèdes, tous deux hors de cette grammaire : citer la référence, ou la
- * retirer **par sa forme complète** avant d'en arriver là. `messageSûr`
+ * retirer **par sa forme complète** avant d'en arriver là. `messageSafe`
  * (`src/server/erreurs.ts`) le fait pour toute référence lue dans
  * l'environnement, qu'on tient alors en entier plutôt que d'avoir à deviner où
  * elle finit. (issue #49)
@@ -107,7 +107,7 @@ const REFERENCE_PREFIX = 'op://'
  *
  * - **le préfixe nu ne se caviarde pas.** `op://` seul ne nomme ni coffre, ni
  *   fiche, ni champ : il n'y a rien à en retirer, et un message qui cite la
- *   forme — `exigerSecret` le fait — doit ressortir intact. (relevé par Copilot
+ *   forme — `requireSecret` le fait — doit ressortir intact. (relevé par Copilot
  *   et par Aristarque)
  * - **la ponctuation finale revient à la phrase.** Une référence finit souvent
  *   une phrase, et emporter le point ferait passer le message pour tronqué.
@@ -126,7 +126,7 @@ const REFERENCE_BARE = /(?<!\w)op:\/\/[^\s"'\\]+/g
  * la même raison qui fait traiter les chemins entre guillemets avant les chemins
  * nus. Deux formes, parce que deux existent pour de vrai — `op` cite les siennes
  * entre apostrophes (`could not read secret 'op://c/f/CLÉ'`, que le message de
- * `résoudreSecrets` recopie) et `JSON.stringify` entre guillemets doubles.
+ * `resolveSecrets` recopie) et `JSON.stringify` entre guillemets doubles.
  *
  * **Seul le délimiteur qui a ouvert ferme**, d'où la référence arrière plutôt
  * qu'une classe qui exclurait les deux : un nom de coffre porte volontiers

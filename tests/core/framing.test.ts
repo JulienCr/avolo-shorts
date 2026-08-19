@@ -1537,25 +1537,25 @@ describe('le tronc déduit des points de pose', () => {
    * (relevé par Copilot)
    */
   it('retombe sur la boîte quand le tronc n’a aucune largeur', () => {
-    const collés = withPose(0, 0.2, 0.6, { LEFT_EAR: 0.37, LEFT_EYE: 0.37 })
-    expect(torsoBounds(collés)).toBeNull()
-    expect(personBounds(collés)).toEqual(trimmedBounds(collés))
+    const coincident = withPose(0, 0.2, 0.6, { LEFT_EAR: 0.37, LEFT_EYE: 0.37 })
+    expect(torsoBounds(coincident)).toBeNull()
+    expect(personBounds(coincident)).toEqual(trimmedBounds(coincident))
 
     // L'autre chemin : pas de tête pour servir de plancher, et tout le tronc
     // abandonné.
-    const deDos = withPose(0, 0.2, 0.8, {
+    const backView = withPose(0, 0.2, 0.8, {
       LEFT_SHOULDER: 0.4,
       RIGHT_SHOULDER: 0.6,
       LEFT_HIP: 0.42,
       RIGHT_HIP: 0.58,
     })
-    expect(torsoBounds(deDos, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toBeNull()
-    expect(personBounds(deDos, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toEqual(
-      trimmedBounds(deDos),
+    expect(torsoBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toBeNull()
+    expect(personBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0.5 })).toEqual(
+      trimmedBounds(backView),
     )
     // Et le même tronc, non rogné, reste bien lisible : c'est la largeur qui
     // décide, pas la définition.
-    expect(torsoBounds(deDos, { torso: 'shoulders-hips', torsoTrim: 0 })).not.toBeNull()
+    expect(torsoBounds(backView, { torso: 'shoulders-hips', torsoTrim: 0 })).not.toBeNull()
   })
 
   /**
@@ -1570,13 +1570,13 @@ describe('le tronc déduit des points de pose', () => {
    * son bloc replié)
    */
   it('ne rend jamais une largeur négative, même pour un tronc hors cadre', () => {
-    const àGauche = withPose(0, 0.001, 0.02, { NOSE: -0.6, LEFT_EAR: -0.7, LEFT_EYE: -0.65 })
-    const àDroite = withPose(1, 0.98, 0.999, { NOSE: 1.6, LEFT_EAR: 1.7, LEFT_EYE: 1.65 })
-    for (const width of requiredWidths([àGauche, àDroite])) {
+    const offLeft = withPose(0, 0.001, 0.02, { NOSE: -0.6, LEFT_EAR: -0.7, LEFT_EYE: -0.65 })
+    const offRight = withPose(1, 0.98, 0.999, { NOSE: 1.6, LEFT_EAR: 1.7, LEFT_EYE: 1.65 })
+    for (const width of requiredWidths([offLeft, offRight])) {
       expect(width).toBeGreaterThanOrEqual(0)
     }
     // Et le ratio qui en sort reste le plus étroit, pas un 16:9 tiré d'un empan
     // aberrant.
-    expect(chooseRatio([àGauche], SRC_W, SRC_H)).toBe('9:16')
+    expect(chooseRatio([offLeft], SRC_W, SRC_H)).toBe('9:16')
   })
 })

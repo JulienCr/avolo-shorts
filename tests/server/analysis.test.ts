@@ -267,28 +267,28 @@ describe('SCHÉMA_ANALYSE', () => {
    * (relevé par Copilot)
    */
   it('refuse une confiance de point hors de [0, 1], au rang près', () => {
-    const k = (confiance: number): number[] =>
-      Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? confiance : 0.5))
-    const avec = (points: number[]): boolean =>
+    const k = (confidence: number): number[] =>
+      Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? confidence : 0.5))
+    const accepts = (points: number[]): boolean =>
       SCHÉMA_ANALYSE.safeParse({
         ...ANALYSE_VALIDE,
         version: 2 as const,
         boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: points }],
       }).success
 
-    expect(avec(k(0))).toBe(true)
-    expect(avec(k(1))).toBe(true)
-    expect(avec(k(-1))).toBe(false)
-    expect(avec(k(2))).toBe(false)
+    expect(accepts(k(0))).toBe(true)
+    expect(accepts(k(1))).toBe(true)
+    expect(accepts(k(-1))).toBe(false)
+    expect(accepts(k(2))).toBe(false)
 
     // Un seul rang de confiance fautif suffit, et c'est bien le rang qui décide :
     // la même valeur posée sur une abscisse reste acceptée.
-    const unSeul = k(0.9)
-    unSeul[POINT.LEFT_HIP * 3 + 2] = 1.4
-    expect(avec(unSeul)).toBe(false)
-    const surUneAbscisse = k(0.9)
-    surUneAbscisse[POINT.LEFT_HIP * 3] = 1.4
-    expect(avec(surUneAbscisse)).toBe(true)
+    const oneBad = k(0.9)
+    oneBad[POINT.LEFT_HIP * 3 + 2] = 1.4
+    expect(accepts(oneBad)).toBe(false)
+    const onAnX = k(0.9)
+    onAnX[POINT.LEFT_HIP * 3] = 1.4
+    expect(accepts(onAnX)).toBe(true)
   })
 
   it('refuse des dimensions de proxy nulles', () => {

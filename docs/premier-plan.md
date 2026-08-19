@@ -277,3 +277,12 @@ en quelques minutes et son résultat se lit directement :
   --duration <secondes> --proxy-size 960x540 --source-size 1920x1080
 pnpm tsx scripts/mesure-premier-plan.ts --analyse /tmp/analyse.json
 ```
+
+**`--duration` ne borne que les frontières de plans, pas le décodage des
+images** — c'est l'**issue #84**. Le fichier obtenu porte donc des `shots` qui
+s'arrêtent à la durée demandée et des `boxes` qui vont jusqu'au bout de la
+source. Le cadrage écarte les boîtes hors plan, donc **la mesure ne se plaint
+pas** : elle porte simplement sur moins de matière que ce que le journal
+annonce. Comparer deux modèles sur des `--duration` inégaux ferait passer cet
+écart pour un écart de détection. Le retirer donne une analyse entière, en
+quelques minutes.

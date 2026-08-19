@@ -277,11 +277,19 @@ function pythonDétection(): string {
 /**
  * Les poids YOLO, posés par `setup.sh` dans `worker/models/`.
  *
- * **Le modèle de pose, et pas celui de détection.** Les deux rendent les mêmes
- * boîtes de personnes ; celui-ci rend en plus dix-sept points par personne, dont
- * `src/core/framing.ts` déduit le tronc. Sans eux, le cadrage retombe sur la
- * boîte corps entier et sur le rognage latéral — c'est-à-dire sur un cadre
- * décidé par des jambes tendues (issue #69).
+ * **Le modèle de pose, et pas celui de détection.** Il rend dix-sept points par
+ * personne en plus de la boîte, dont `src/core/framing.ts` déduit le tronc. Sans
+ * eux, le cadrage retombe sur la **boîte rognée** — `personBounds` passe alors
+ * par `trimmedBounds`, pas par la boîte entière —, c'est-à-dire sur un cadre qui
+ * parie sur la position de la tête au lieu de la connaître (issue #69).
+ *
+ * **Les deux ne rendent pas la même population de boîtes**, et le dire compte :
+ * sur `2025-06-15-cqlp`, `yolo11m.pt` rend 8 325 boîtes courtes collées au bord
+ * bas contre 2 429 pour la pose — le modèle de pose ne détecte pas la plupart
+ * des têtes de spectateurs de premier rang, faute d'articulations visibles. Le
+ * nombre de boîtes gardées, lui, ne bouge presque pas (19 972 contre 20 306).
+ * Changer de `DETECT_MODEL` ne change donc pas que les points ; le détail est
+ * dans `docs/premier-plan.md`.
  *
  * Le surcoût mesuré est nul : 145 im/s contre 147, trois passes chacun sur le
  * même proxy, soit 1,4 % — sous le seuil de ce qu'une mesure prise ici établit.

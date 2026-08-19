@@ -312,26 +312,26 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
    * que `boîtes_du_lot` le lit. Même patron que le test du score plus haut —
    * Python n'est ici qu'un évaluateur, et rien de tout cela ne charge torch.
    */
-  const DÉCOR = [
-    'class Tenseur:',
+  const FIXTURE = [
+    'class Tensor:',
     '    def __init__(self, v): self.v = v',
     '    def tolist(self): return self.v',
     'class Points:',
-    '    def __init__(self, v): self.data = Tenseur(v)',
-    'class Boîtes:',
+    '    def __init__(self, v): self.data = Tensor(v)',
+    'class Boxes:',
     '    def __init__(self, xyxy, conf):',
-    '        self.xyxy = Tenseur(xyxy)',
-    '        self.conf = Tenseur(conf)',
-    'class Résultat:',
+    '        self.xyxy = Tensor(xyxy)',
+    '        self.conf = Tensor(conf)',
+    'class Result:',
     '    def __init__(self, b, k=None):',
     '        self.boxes = b',
     '        self.keypoints = k',
     // Dix-sept points identiques, sauf ceux qu'on précise : de quoi écrire un
     // squelette de la bonne longueur sans le recopier à la main.
-    'def squelette(x, y, c, **precis):',
+    'def skeleton(x, y, c, **at):',
     '    pts = [[float(x), float(y), float(c)] for _ in range(17)]',
-    '    for rang, v in precis.items():',
-    '        pts[int(rang[1:])] = [float(v[0]), float(v[1]), float(v[2])]',
+    '    for index, v in at.items():',
+    '        pts[int(index[1:])] = [float(v[0]), float(v[1]), float(v[2])]',
     '    return pts',
   ].join('\n')
 
@@ -392,11 +392,11 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
   it('n’attribue pas le squelette d’une personne à sa voisine', () => {
     const boîtes = évaluer(
       [
-        DÉCOR,
+        FIXTURE,
         // La première boîte est d'aire nulle une fois bornée : elle disparaît.
-        'b = Boîtes([[0.0, 0.0, 0.0, 0.0], [96.0, 54.0, 288.0, 486.0]], [0.9, 0.9])',
-        'k = Points([squelette(0, 0, 0.9), squelette(480, 270, 0.9)])',
-        'print(json.dumps(detect.boîtes_du_lot([Résultat(b, k)], 0, 2.0, 960, 540)))',
+        'b = Boxes([[0.0, 0.0, 0.0, 0.0], [96.0, 54.0, 288.0, 486.0]], [0.9, 0.9])',
+        'k = Points([skeleton(0, 0, 0.9), skeleton(480, 270, 0.9)])',
+        'print(json.dumps(detect.boîtes_du_lot([Result(b, k)], 0, 2.0, 960, 540)))',
       ].join('\n'),
     ) as { x0: number; k: number[] }[]
     expect(boîtes).toHaveLength(1)
@@ -407,9 +407,9 @@ describe('detect.py — les points de pose écrits à côté des boîtes', () =>
   it('n’écrit aucun `k` quand le modèle ne rend pas de points', () => {
     const boîtes = évaluer(
       [
-        DÉCOR,
-        'b = Boîtes([[96.0, 54.0, 288.0, 486.0]], [0.9])',
-        'print(json.dumps(detect.boîtes_du_lot([Résultat(b)], 0, 2.0, 960, 540)))',
+        FIXTURE,
+        'b = Boxes([[96.0, 54.0, 288.0, 486.0]], [0.9])',
+        'print(json.dumps(detect.boîtes_du_lot([Result(b)], 0, 2.0, 960, 540)))',
       ].join('\n'),
     ) as Record<string, unknown>[]
     expect(boîtes).toHaveLength(1)

@@ -32,16 +32,16 @@ if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined')
 
 afterEach(cleanup)
 
-function eligible(champs: Partial<PublishClipTarget> = {}): PublishClipTarget {
+function eligible(fields: Partial<PublishClipTarget> = {}): PublishClipTarget {
   return {
     clipId: 'c1',
     title: 'La chute',
     eligibility: { eligible: true },
-    ...champs,
+    ...fields,
   }
 }
 
-const toutDisponible: Record<Platform, PlatformAvailability> = {
+const allAvailable: Record<Platform, PlatformAvailability> = {
   instagram: { available: true },
   facebook: { available: true },
   tiktok: { available: true },
@@ -52,8 +52,8 @@ describe('PublishDialog — état honnête d’aujourd’hui', () => {
   it('affiche les quatre plateformes, désactivées, avec leur raison', () => {
     render(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} />)
 
-    for (const libelle of ['Instagram', 'Facebook', 'TikTok', 'YouTube Shorts']) {
-      const case_ = screen.getByRole('checkbox', { name: libelle })
+    for (const label of ['Instagram', 'Facebook', 'TikTok', 'YouTube Shorts']) {
+      const case_ = screen.getByRole('checkbox', { name: label })
       expect(case_.getAttribute('data-disabled')).toBe('')
     }
     // Chaque raison se lit sur place, jamais seulement au survol — une par
@@ -114,7 +114,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
         open
         onOpenChange={() => {}}
         clips={[eligible()]}
-        availability={toutDisponible}
+        availability={allAvailable}
         onLaunch={onLaunch}
       />,
     )
@@ -129,19 +129,19 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 
   it('n’avance pas tant qu’aucune plateforme disponible n’est cochée', () => {
     render(
-      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={toutDisponible} />,
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />,
     )
     expect(screen.getByRole('button', { name: 'Suivant' })).toHaveProperty('disabled', true)
   })
 
   it('affiche les quatre états d’une publication déjà lancée', () => {
-    const cible = eligible({
+    const target = eligible({
       records: {
         instagram: { status: 'published', remoteUrl: 'https://instagram.test/p/1', publishedFingerprint: null },
       },
     })
     render(
-      <PublishDialog open onOpenChange={() => {}} clips={[cible]} availability={toutDisponible} />,
+      <PublishDialog open onOpenChange={() => {}} clips={[target]} availability={allAvailable} />,
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
     expect(screen.getByText('publié')).toBeTruthy()
@@ -149,7 +149,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 
   it('refuse la republication sans un geste explicite', () => {
     const onLaunch = vi.fn()
-    const cible = eligible({
+    const target = eligible({
       records: {
         instagram: { status: 'published', remoteUrl: null, publishedFingerprint: null },
       },
@@ -158,8 +158,8 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
       <PublishDialog
         open
         onOpenChange={() => {}}
-        clips={[cible]}
-        availability={toutDisponible}
+        clips={[target]}
+        availability={allAvailable}
         onLaunch={onLaunch}
       />,
     )
@@ -176,14 +176,14 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
   })
 
   it('signale une publication périmée par une modification locale', () => {
-    const cible = eligible({
+    const target = eligible({
       currentFingerprint: 'empreinte-actuelle',
       records: {
         instagram: { status: 'published', remoteUrl: null, publishedFingerprint: 'empreinte-ancienne' },
       },
     })
     render(
-      <PublishDialog open onOpenChange={() => {}} clips={[cible]} availability={toutDisponible} />,
+      <PublishDialog open onOpenChange={() => {}} clips={[target]} availability={allAvailable} />,
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
     expect(screen.getByText('modifié depuis')).toBeTruthy()
@@ -193,12 +193,12 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 describe('PublishDialog — remise à zéro entre deux ouvertures', () => {
   it('oublie la sélection du clip précédent en se rouvrant', () => {
     const { rerender } = render(
-      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={toutDisponible} />,
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />,
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
 
-    rerender(<PublishDialog open={false} onOpenChange={() => {}} clips={[eligible()]} availability={toutDisponible} />)
-    rerender(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={toutDisponible} />)
+    rerender(<PublishDialog open={false} onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
+    rerender(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
 
     const case_ = screen.getByRole('checkbox', { name: 'Instagram' }) as HTMLElement
     expect(case_.getAttribute('aria-checked')).toBe('false')

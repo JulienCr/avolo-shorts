@@ -57,8 +57,8 @@ describe('clipEligibilityFromStatus', () => {
   })
 })
 
-function record(champs: Partial<PublicationRecord> = {}): PublicationRecord {
-  return { status: 'published', remoteUrl: 'https://example.test/p/1', publishedFingerprint: null, ...champs }
+function record(fields: Partial<PublicationRecord> = {}): PublicationRecord {
+  return { status: 'published', remoteUrl: 'https://example.test/p/1', publishedFingerprint: null, ...fields }
 }
 
 describe('isPublicationStale', () => {

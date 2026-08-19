@@ -117,11 +117,11 @@ export function FilDeTri({
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
 
   function togglePublishSelection(clipId: string) {
-    setSelectedForPublish((courante) => {
-      const suivante = new Set(courante)
-      if (suivante.has(clipId)) suivante.delete(clipId)
-      else suivante.add(clipId)
-      return suivante
+    setSelectedForPublish((current) => {
+      const next = new Set(current)
+      if (next.has(clipId)) next.delete(clipId)
+      else next.add(clipId)
+      return next
     })
   }
 

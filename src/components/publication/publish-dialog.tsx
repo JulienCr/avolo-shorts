@@ -145,7 +145,7 @@ export function PublishDialog({
     selectedAndAvailable.some((p) => clip.records?.[p]?.status === 'published'),
   )
 
-  const peutContinuer = selectable.length === 0 || selected.size > 0
+  const canContinue = selectable.length === 0 || selected.size > 0
 
   function togglePlatform(platform: Platform) {
     setSelected((courant) => {
@@ -156,19 +156,26 @@ export function PublishDialog({
     })
   }
 
-  function confirmer() {
+  function confirmLaunch() {
     if (targets.length > 0) onLaunch?.(targets)
     onOpenChange(false)
   }
 
-  const titre =
+  const dialogTitle =
     clips.length === 1 ? `Publier « ${clips[0]?.title || 'ce clip'} »` : `Publier ${clips.length} clips`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent role="alertdialog" className="sm:max-w-lg">
+      {/* **Bornée et défilable.** La sélection en masse peut passer des
+          dizaines de clips ; sans hauteur maximale, l'en-tête, le pied et les
+          actions sortaient du viewport sur une petite fenêtre. (relevé par
+          Copilot) */}
+      <DialogContent
+        role="alertdialog"
+        className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-lg"
+      >
         <DialogHeader>
-          <DialogTitle>{titre}</DialogTitle>
+          <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>
             Instagram, Facebook, TikTok et YouTube Shorts. Une publication est publique et
             potentiellement irréversible : elle se confirme avant de partir.
@@ -177,10 +184,12 @@ export function PublishDialog({
 
         {/* **Conditionné à l'état réel, pas affiché en dur.** `availability` est
             injectable — pour les tests, et pour le connecteur du jour où il
-            existera — et un appelant qui passe des plateformes déjà
-            disponibles ne doit pas lire un message qui affirme le contraire.
-            (relevé par Copilot) */}
-        {PLATFORMS.some((p) => {
+            existera. La passe précédente conditionnait sur « au moins une
+            plateforme non configurée », ce qui garderait le bandeau affiché
+            le jour où un seul connecteur existerait parmi quatre — il faut
+            les quatre pour que « aucun connecteur n'est branché » reste
+            vrai. (relevé par Copilot) */}
+        {PLATFORMS.every((p) => {
           const a = resolvedAvailability[p]
           return !a.available && a.reason === 'not_configured'
         }) && (
@@ -188,9 +197,9 @@ export function PublishDialog({
             <Info aria-hidden />
             <AlertTitle>Aucun connecteur n’est encore branché.</AlertTitle>
             <AlertDescription>
-              Les plateformes marquées « non configuré » ci-dessous le sont donc : c’est l’état
-              honnête aujourd’hui, pas une panne. Le parcours reste utilisable jusqu’à la
-              confirmation, qui est le geste qu’on veut fixer avant d’écrire le premier connecteur.
+              Les quatre plateformes ci-dessous sont donc « non configuré » : c’est l’état honnête
+              aujourd’hui, pas une panne. Le parcours reste utilisable jusqu’à la confirmation, qui
+              est le geste qu’on veut fixer avant d’écrire le premier connecteur.
             </AlertDescription>
           </Alert>
         )}
@@ -233,7 +242,7 @@ export function PublishDialog({
 
         <DialogFooter>
           {step === 'platforms' ? (
-            <Button onClick={() => setStep('confirm')} disabled={!peutContinuer}>
+            <Button onClick={() => setStep('confirm')} disabled={!canContinue}>
               Suivant
             </Button>
           ) : (
@@ -242,7 +251,7 @@ export function PublishDialog({
                 Retour
               </Button>
               {targets.length > 0 ? (
-                <Button variant="destructive" onClick={confirmer}>
+                <Button variant="destructive" onClick={confirmLaunch}>
                   Confirmer et publier
                 </Button>
               ) : (
@@ -301,7 +310,7 @@ function PlatformsStep({
           <Checkbox
             id={forceId}
             checked={force}
-            onCheckedChange={(valeur) => onForce(valeur === true)}
+            onCheckedChange={(checked) => onForce(checked === true)}
           />
           <Label htmlFor={forceId} className="flex flex-col gap-0.5 text-sm font-normal">
             Republier explicitement
@@ -374,12 +383,12 @@ function PlatformRecords({
   platform: Platform
   clips: readonly PublishClipTarget[]
 }) {
-  const avecEnregistrement = clips.filter((c) => c.records?.[platform] !== undefined)
-  if (avecEnregistrement.length === 0) return null
+  const withRecord = clips.filter((c) => c.records?.[platform] !== undefined)
+  if (withRecord.length === 0) return null
 
   return (
     <ul className="flex flex-col gap-1 pl-6">
-      {avecEnregistrement.map((clip) => {
+      {withRecord.map((clip) => {
         const record = clip.records?.[platform]
         if (record === undefined) return null
         const stale =
@@ -457,15 +466,15 @@ function ConfirmStep({
   // sans confirmation explicite, plateforme redevenue indisponible pendant que
   // la boîte était ouverte. Compter sur `selected` ici annoncerait un envoi qui
   // n'a pas lieu. (relevé par Copilot)
-  const platformsChoisies = PLATFORMS.filter((p) => targets.some((t) => t.platform === p))
-  const clipsCiblés = new Set(targets.map((t) => t.clipId)).size
+  const chosenPlatforms = PLATFORMS.filter((p) => targets.some((t) => t.platform === p))
+  const targetedClipsCount = new Set(targets.map((t) => t.clipId)).size
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p>
-        {clipsCiblés === 1 ? 'Ce clip part vers' : `Ces ${clipsCiblés} clips partent vers`}{' '}
+        {targetedClipsCount === 1 ? 'Ce clip part vers' : `Ces ${targetedClipsCount} clips partent vers`}{' '}
         <span className="font-medium">
-          {platformsChoisies.map((p) => PLATFORM_LABELS[p]).join(', ')}
+          {chosenPlatforms.map((p) => PLATFORM_LABELS[p]).join(', ')}
         </span>
         {' — '}
         {targets.length === 1 ? '1 publication au total.' : `${targets.length} publications au total.`}

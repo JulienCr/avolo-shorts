@@ -271,15 +271,25 @@ export function PanneauExport({
               à côté de l'export dans la zone Livraison. Il ouvre la même
               modale que la sélection en masse de la vue Émission — voir
               `PublishDialog`, qui porte la logique, jamais recopiée ici.
-              **Le même garde-fou que « Exporter ».** Une écriture en vol ou
-              un dernier enregistrement en échec rendent « Exporter » inactif
-              (lignes plus haut) ; « Publier » doit se refuser dans les mêmes
-              conditions, sinon il enverrait le fichier livré alors qu'une
-              édition non enregistrée le périme déjà. (relevé par Aristarque) */}
+              **Le même garde-fou que « Exporter », `exporter.isPending`
+              compris.** Sans lui, `mp4Url` restait disponible pendant un
+              ré-export en cours et « Publier » ouvrait la publication de
+              l'ancien fichier alors que le nouveau rendu tournait encore.
+              (relevé par Copilot) */}
           <Button
             variant="outline"
-            onClick={() => empêchement === null && publicationEligibility.eligible && setPublishDialogOpen(true)}
-            aria-disabled={empêchement !== null || !publicationEligibility.eligible || undefined}
+            onClick={() =>
+              empêchement === null &&
+              !exporter.isPending &&
+              publicationEligibility.eligible &&
+              setPublishDialogOpen(true)
+            }
+            aria-disabled={
+              empêchement !== null ||
+              exporter.isPending ||
+              !publicationEligibility.eligible ||
+              undefined
+            }
           >
             <Send aria-hidden />
             Publier

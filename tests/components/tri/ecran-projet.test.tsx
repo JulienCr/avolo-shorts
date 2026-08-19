@@ -257,6 +257,23 @@ describe('l’écran de projet', () => {
     expect(screen.getByText(/les propositions ne se chargent pas/i)).toBeTruthy()
   })
 
+  it('garde le lecteur quand la liste des propositions ne se charge pas', async () => {
+    // **Le lecteur ne dépend pas des candidats.** Il vivait derrière la même
+    // garde que le fil de tri, si bien qu'un `GET /candidates` en échec
+    // l'emportait alors que le proxy et l'état du projet étaient parfaitement
+    // disponibles. Le fil, lui, reste absent — une liste qui n'a pas pu se
+    // charger n'est pas une liste vide. (relevé par Copilot)
+    servir(
+      etat({ steps: { ...etat().steps, candidates: true, proxy: true }, running: null }),
+      null,
+    )
+    monter()
+
+    await waitFor(() => expect(screen.getByTestId('lecteur-emission')).toBeTruthy())
+    expect(screen.getByText(/les propositions ne se chargent pas/i)).toBeTruthy()
+    expect(screen.queryByTestId('comptes')).toBeNull()
+  })
+
   it('porte une seule région d’annonce, et polie', async () => {
     servir(etat(), [])
     monter()

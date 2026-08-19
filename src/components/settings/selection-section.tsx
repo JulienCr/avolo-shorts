@@ -112,8 +112,17 @@ export function SelectionSection({
   disabled = false,
 }: {
   values: DimensionsRepérage
-  /** Écrit un ou plusieurs champs. L'écran décide quand et comment. */
-  onChange: (patch: Partial<DimensionsRepérage>) => void
+  /**
+   * Écrit un ou plusieurs champs. L'écran décide quand et comment.
+   *
+   * **Rendre une promesse est ce qui permet au champ de se recaler sur un
+   * refus.** L'écriture n'est pas optimiste : un `PUT` en 400 ne touche pas au
+   * cache, donc `values` ne bouge pas — et un champ qui n'écoute que `values`
+   * garde éternellement le nombre que le serveur vient de rejeter, sous un
+   * bandeau qui déclare qu'il n'est pas enregistré. Un appelant qui ne rend rien
+   * garde l'ancien comportement. (relevé par Copilot)
+   */
+  onChange: (patch: Partial<DimensionsRepérage>) => void | Promise<unknown>
   /** Le temps qu'une lecture ou une écriture soit en vol. */
   disabled?: boolean
 }) {
@@ -171,7 +180,7 @@ function SettingField({
   value: number
   defaultValue: number
   disabled: boolean
-  onChange: (value: number) => void
+  onChange: (value: number) => void | Promise<unknown>
 }) {
   const id = useId()
   const helpId = `${id}-help`
@@ -182,6 +191,7 @@ function SettingField({
   // C'est le motif documenté par React pour l'état qui se recale sur ses props :
   // on compare à ce qu'on avait vu, on met à jour, React relance le rendu avant
   // de valider quoi que ce soit.
+  //
   const [seen, setSeen] = useState(value)
   if (seen !== value) {
     setSeen(value)
@@ -196,7 +206,14 @@ function SettingField({
     if (!Number.isFinite(parsed)) return setDraft(String(value))
     const bounded = Math.max(field.minimum, Math.round(parsed))
     setDraft(String(bounded))
-    if (bounded !== value) onChange(bounded)
+    if (bounded === value) return
+    // **Un refus ramène la valeur qui s'applique.** Le recalage sur `value`
+    // ci-dessus ne suffit pas : l'écriture n'est pas optimiste, donc un `PUT` en
+    // 400 laisse `value` intacte et ne déclenche rien — la boîte gardait le
+    // nombre rejeté sous un bandeau qui le déclarait non enregistré. Le rejet est
+    // consommé ici, pas relevé : le bandeau de l'écran le porte déjà.
+    // (relevé par Copilot)
+    void Promise.resolve(onChange(bounded)).catch(() => setDraft(String(value)))
   }
 
   return (

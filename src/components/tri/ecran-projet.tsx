@@ -192,7 +192,7 @@ export function EcranDeProjet({ id }: { id: string }) {
             />
           ) : !prêt ? (
             <GrilleEnAttente />
-          ) : listeInconnue ? null : (
+          ) : (
             <>
               {/* **La vue de l'émission, au-dessus du tri.** L'écran n'est plus
                   seulement un écran de tri : une fois l'analyse passée, c'est
@@ -204,14 +204,35 @@ export function EcranDeProjet({ id }: { id: string }) {
                   Elle ne s'affiche pas sous le panneau d'avancement : celui-ci
                   ne prend la page que lorsqu'il n'y a rien d'autre à montrer, et
                   poser un lecteur sans proxy sous une analyse qui commence
-                  n'apprendrait rien. */}
+                  n'apprendrait rien.
+
+                  **Elle ne dépend pas non plus de la liste des candidats.** Elle
+                  vivait derrière la même garde que le fil de tri, si bien qu'un
+                  `GET /candidates` en échec emportait le lecteur alors que le
+                  proxy et l'état du projet étaient parfaitement disponibles. La
+                  liste ne commande que la bande, qui le dit quand elle ne sait
+                  pas. (relevé par Copilot) */}
               <ShowView
                 projectId={id}
                 durationSec={projet.data?.project.durationSec ?? 0}
                 proxyReady={steps.proxy === true}
                 clips={clips}
+                clipsKnown={!listeInconnue}
+                // **Le départ vers un clip pose la marque de retour**, comme
+                // celui qui part d'une carte : sans elle, revenir d'un clip
+                // ouvert depuis la bande retombait sur la vue par défaut, alors
+                // que le même clip ouvert d'une carte rendait la vue d'où l'on
+                // venait. La bande, elle, ne connaît pas le stockage de session.
+                onOpenClip={(clipId) =>
+                  écrireSessionTri(id, { retour: true, carte: clipId })
+                }
               />
 
+              {/* **La liste, elle, ne se rend pas sans elle-même.** Une liste
+                  qui n'a pas pu se charger n'est pas une liste vide : le fil de
+                  tri afficherait « aucune proposition » juste sous le bandeau
+                  qui dit ne pas avoir pu les charger. */}
+              {!listeInconnue && (
               <FilDeTri
                 projectId={id}
                 clips={clips}
@@ -243,6 +264,7 @@ export function EcranDeProjet({ id }: { id: string }) {
                   </>
                 }
               />
+              )}
             </>
           )}
 

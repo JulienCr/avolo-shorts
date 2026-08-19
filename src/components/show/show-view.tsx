@@ -30,6 +30,8 @@ export function ShowView({
   durationSec,
   proxyReady,
   clips,
+  clipsKnown = true,
+  onOpenClip,
 }: {
   projectId: string
   /** La durée de l'émission, sondée à l'ingestion. */
@@ -37,6 +39,10 @@ export function ShowView({
   proxyReady: boolean
   /** Tous les candidats. La bande ne garde que les gardés. */
   clips: readonly CandidateClip[]
+  /** Faux quand `GET /candidates` a échoué sans rien laisser en cache. */
+  clipsKnown?: boolean
+  /** Le départ vers un clip, pour que l'écran pose sa marque de retour. */
+  onOpenClip?: (clipId: string) => void
 }) {
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
@@ -77,7 +83,14 @@ export function ShowView({
           video={video}
           onTime={setTime}
         />
-        <CoverageTimeline clips={kept} durationSec={durationSec} time={time} onSeek={seek} />
+        <CoverageTimeline
+          clips={kept}
+          clipsKnown={clipsKnown}
+          durationSec={durationSec}
+          time={time}
+          onSeek={seek}
+          onOpenClip={onOpenClip}
+        />
       </div>
     </section>
   )

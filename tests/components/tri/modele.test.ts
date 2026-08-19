@@ -133,10 +133,10 @@ describe('motDuRepérage', () => {
     // de ce qui se dit dans l'émission : 83 fenêtres sur 83 », une phrase qui se
     // contredit elle-même — et le détail aggravait en affirmant qu'une nouvelle
     // passe obtiendrait le même refus, ce que la descente venait de démentir.
-    const mot = motDuRepérage(bilan({ notées: 83, lotsRefusés: 4, lotsRépondus: 11 }))
-    expect(mot?.perte).toBe(false)
-    expect(mot?.phrase).toContain('83 fenêtres')
-    expect(mot?.detail).toBeNull()
+    const message = motDuRepérage(bilan({ notées: 83, lotsRefusés: 4, lotsRépondus: 11 }))
+    expect(message?.perte).toBe(false)
+    expect(message?.phrase).toContain('83 fenêtres')
+    expect(message?.detail).toBeNull()
   })
 
   it('tient les deux bornes de la couverture', () => {

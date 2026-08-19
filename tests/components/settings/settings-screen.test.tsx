@@ -29,69 +29,69 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function reponse(corps: unknown, status = 200): Response {
+function response(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: '',
-    json: async () => corps,
+    json: async () => body,
   } as Response
 }
 
-const PAR_DÉFAUT: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
+const DEFAULTS: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
-function serveur(options: { lecture?: () => Response; écriture?: () => Response } = {}) {
-  const écrits: unknown[] = []
+function server(options: { lecture?: () => Response; écriture?: () => Response } = {}) {
+  const writes: unknown[] = []
   const faux = vi.fn(async (url: string, init?: RequestInit) => {
     if (url !== '/api/settings') throw new Error(`Route inattendue : ${url}`)
     if (init?.method === 'PUT') {
-      écrits.push(JSON.parse(String(init.body)))
-      return (options.écriture ?? (() => reponse(PAR_DÉFAUT)))()
+      writes.push(JSON.parse(String(init.body)))
+      return (options.écriture ?? (() => response(DEFAULTS)))()
     }
-    return (options.lecture ?? (() => reponse(PAR_DÉFAUT)))()
+    return (options.lecture ?? (() => response(DEFAULTS)))()
   })
   vi.stubGlobal('fetch', faux)
-  return écrits
+  return writes
 }
 
-function enveloppe() {
+function wrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  function Enveloppe({ children }: { children: ReactNode }) {
+  function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>
   }
-  return Enveloppe
+  return Wrapper
 }
 
-async function monter() {
-  const Enveloppe = enveloppe()
-  const vue = render(
-    <Enveloppe>
+async function mountScreen() {
+  const Wrapper = wrapper()
+  const view = render(
+    <Wrapper>
       <SettingsScreen />
-    </Enveloppe>,
+    </Wrapper>,
   )
   await waitFor(() => expect(screen.getByLabelText(/tranche de/i)).toBeTruthy())
-  return vue
+  return view
 }
 
 describe('les réglages du repérage', () => {
   it('nomme les réglages en français, jamais par leur clé', async () => {
     // Un écran qui afficherait `fenetresParClip: 2` demanderait d'aller lire le
     // code pour savoir s'il faut monter ou descendre.
-    serveur()
-    await monter()
+    server()
+    await mountScreen()
 
     expect(document.body.textContent).not.toMatch(/fenetresParClip|clipsMinimum|minutesParClip/)
     expect(screen.getByLabelText(/Fenêtres examinées par proposition/)).toBeTruthy()
   })
 
   it('explique chaque réglage à côté de sa boîte', async () => {
-    serveur()
-    await monter()
-    const champ = screen.getByLabelText(/tranche de/i)
-    const aide = champ.getAttribute('aria-describedby')
+    server()
+    await mountScreen()
+    const field = screen.getByLabelText(/tranche de/i)
+    const aide = field.getAttribute('aria-describedby')
     expect(aide).toBeTruthy()
     expect(document.getElementById(aide!)?.textContent).toMatch(/parole/i)
   })
@@ -101,62 +101,62 @@ describe('les réglages du repérage', () => {
     // défauts. Afficher les constantes ferait voir le défaut du code là où la
     // base porte autre chose, et personne ne verrait la différence avant le
     // premier repérage.
-    serveur({ lecture: () => reponse({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }) })
-    await monter()
+    server({ lecture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }) })
+    await mountScreen()
     expect(screen.getByLabelText(/tranche de/i)).toHaveProperty('value', '9')
   })
 
-  it('n’écrit qu’en quittant le champ, jamais à chaque frappe', async () => {
+  it('n’écrit qu’en quittant le field, jamais à chaque frappe', async () => {
     // Un « 4 » tapé pour faire « 45 » passerait sinon par une valeur écrite,
     // envoyée et appliquée — et une boîte vidée pour être réécrite enverrait un
     // zéro.
-    const écrits = serveur()
-    await monter()
+    const writes = server()
+    await mountScreen()
 
-    const champ = screen.getByLabelText(/tranche de/i)
-    await userEvent.clear(champ)
-    await userEvent.type(champ, '12')
-    expect(écrits).toEqual([])
+    const field = screen.getByLabelText(/tranche de/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, '12')
+    expect(writes).toEqual([])
 
     await userEvent.tab()
-    await waitFor(() => expect(écrits).toEqual([{ selection: { minutesParClip: 12 } }]))
+    await waitFor(() => expect(writes).toEqual([{ selection: { minutesParClip: 12 } }]))
   })
 
   it('n’envoie que le champ touché', async () => {
-    const écrits = serveur()
-    await monter()
+    const writes = server()
+    await mountScreen()
 
-    const champ = screen.getByLabelText(/Fenêtres examinées au minimum/)
-    await userEvent.clear(champ)
-    await userEvent.type(champ, '20')
+    const field = screen.getByLabelText(/Fenêtres examinées au minimum/)
+    await userEvent.clear(field)
+    await userEvent.type(field, '20')
     await userEvent.tab()
 
-    await waitFor(() => expect(écrits).toEqual([{ selection: { fenetresMinimum: 20 } }]))
+    await waitFor(() => expect(writes).toEqual([{ selection: { fenetresMinimum: 20 } }]))
   })
 
   it('n’écrit rien quand la valeur validée est déjà celle qui s’applique', async () => {
-    const écrits = serveur()
-    await monter()
+    const writes = server()
+    await mountScreen()
 
     await userEvent.click(screen.getByLabelText(/tranche de/i))
     await userEvent.tab()
-    expect(écrits).toEqual([])
+    expect(writes).toEqual([])
   })
 
   it('propose de revenir au défaut, et seulement quand il y a de quoi', async () => {
-    const écrits = serveur({
-      lecture: () => reponse({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
+    const writes = server({
+      lecture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
     })
-    await monter()
+    await mountScreen()
 
     // Un seul réglage s'écarte du défaut, donc un seul bouton de retour.
-    const retours = screen.getAllByRole('button', { name: /Revenir à/ })
-    expect(retours).toHaveLength(1)
-    expect(retours[0].textContent).toContain(String(DIMENSIONS_PAR_DÉFAUT.minutesParClip))
+    const resets = screen.getAllByRole('button', { name: /Revenir à/ })
+    expect(resets).toHaveLength(1)
+    expect(resets[0].textContent).toContain(String(DIMENSIONS_PAR_DÉFAUT.minutesParClip))
 
-    await userEvent.click(retours[0])
+    await userEvent.click(resets[0])
     await waitFor(() =>
-      expect(écrits).toEqual([
+      expect(writes).toEqual([
         { selection: { minutesParClip: DIMENSIONS_PAR_DÉFAUT.minutesParClip } },
       ]),
     )
@@ -165,27 +165,27 @@ describe('les réglages du repérage', () => {
   it('dit ce que les cinq réglages produisent ensemble', async () => {
     // Cinq nombres qui se règlent séparément ne disent rien de ce qu'ils font
     // ensemble.
-    serveur()
-    await monter()
-    const estimation = screen.getByTestId('selection-estimate')
-    expect(estimation.textContent).toContain('90 min de parole')
-    expect(estimation.textContent).toMatch(/clips demandés/)
+    server()
+    await mountScreen()
+    const estimate = screen.getByTestId('selection-estimate')
+    expect(estimate.textContent).toContain('90 min de parole')
+    expect(estimate.textContent).toMatch(/clips demandés/)
   })
 
   it('bouge l’estimation quand un réglage bouge', async () => {
-    serveur({
-      écriture: () => reponse({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
+    server({
+      écriture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
     })
-    await monter()
-    const avant = screen.getByTestId('selection-estimate').textContent
+    await mountScreen()
+    const before = screen.getByTestId('selection-estimate').textContent
 
-    const champ = screen.getByLabelText(/tranche de/i)
-    await userEvent.clear(champ)
-    await userEvent.type(champ, '3')
+    const field = screen.getByLabelText(/tranche de/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, '3')
     await userEvent.tab()
 
     await waitFor(() =>
-      expect(screen.getByTestId('selection-estimate').textContent).not.toBe(avant),
+      expect(screen.getByTestId('selection-estimate').textContent).not.toBe(before),
     )
   })
 })
@@ -195,12 +195,12 @@ describe('les pannes', () => {
     // Une valeur hors bornes rend un 400, et l'écriture n'est pas optimiste :
     // sans ce mot, le champ reviendrait à sa valeur d'avant et on croirait à un
     // écran qui ne réagit pas.
-    serveur({ écriture: () => reponse({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
-    await monter()
+    server({ écriture: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    await mountScreen()
 
-    const champ = screen.getByLabelText(/tranche de/i)
-    await userEvent.clear(champ)
-    await userEvent.type(champ, '99')
+    const field = screen.getByLabelText(/tranche de/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, '99')
     await userEvent.tab()
 
     await waitFor(() =>
@@ -208,15 +208,50 @@ describe('les pannes', () => {
     )
   })
 
+  it('reprend la valeur qui s’applique quand le serveur refuse', async () => {
+    // **Le champ ne garde pas ce que le serveur vient de rejeter.** L'écriture
+    // n'est pas optimiste : un 400 ne touche pas au cache, donc `value` ne bouge
+    // pas et le recalage sur `value` seul ne se déclenchait jamais — le bandeau
+    // disait « pas enregistré » pendant que la boîte affichait toujours le
+    // nombre refusé. (relevé par Copilot)
+    server({ écriture: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    await mountScreen()
+
+    const field = screen.getByLabelText(/tranche de/i)
+    await userEvent.clear(field)
+    await userEvent.type(field, '99')
+    await userEvent.tab()
+
+    await waitFor(() => expect(screen.getByText(/au moins 1/)).toBeTruthy())
+    expect(field).toHaveProperty('value', String(DIMENSIONS_PAR_DÉFAUT.minutesParClip))
+  })
+
+  it('reprend la valeur à chaque refus, y compris au second d’affilée', async () => {
+    // Deux refus de suite portent le même message : c'est le compte des refus,
+    // et non le fait qu'il y en ait eu un, qui distingue le second du premier.
+    server({ écriture: () => response({ error: 'hors bornes' }, 400) })
+    await mountScreen()
+
+    const field = screen.getByLabelText(/tranche de/i)
+    for (const typed of ['99', '98']) {
+      await userEvent.clear(field)
+      await userEvent.type(field, typed)
+      await userEvent.tab()
+      await waitFor(() =>
+        expect(field).toHaveProperty('value', String(DIMENSIONS_PAR_DÉFAUT.minutesParClip)),
+      )
+    }
+  })
+
   it('n’affiche aucune valeur tant que les réglages ne se chargent pas', async () => {
     // Poser les défauts en attendant ferait voir les constantes du code, et le
     // premier geste écrirait une valeur que personne n'a choisie.
-    serveur({ lecture: () => reponse({ error: 'La base ne répond pas.' }, 500) })
-    const Enveloppe = enveloppe()
+    server({ lecture: () => response({ error: 'La base ne répond pas.' }, 500) })
+    const Wrapper = wrapper()
     render(
-      <Enveloppe>
+      <Wrapper>
         <SettingsScreen />
-      </Enveloppe>,
+      </Wrapper>,
     )
 
     await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
@@ -228,30 +263,30 @@ describe('la section du hook', () => {
   it('montre la forme retenue et dit qu’elle ne s’enregistre pas', async () => {
     // Inventer une seconde voie d'écriture aurait fait un endroit de plus où le
     // même réglage vit, donc un endroit de plus d'où il diverge.
-    serveur()
-    await monter()
+    server()
+    await mountScreen()
 
     expect(screen.getByRole('heading', { name: 'Hook' })).toBeTruthy()
     expect(screen.getByText(/ne s’enregistrent pas encore/)).toBeTruthy()
   })
 
   it('n’offre que les quatre transitions du premier lot', async () => {
-    serveur()
-    await monter()
+    server()
+    await mountScreen()
 
-    const apparition = screen.getByLabelText('Effet d’apparition')
+    const enter = screen.getByLabelText('Effet d’apparition')
     // Le libellé, pas la valeur brute : l'écran dit « Fondu », pas « fade ».
-    expect(apparition.textContent).toContain('Fondu')
+    expect(enter.textContent).toContain('Fondu')
     expect(document.body.textContent).not.toMatch(/scanline/i)
   })
 
   it('laisse ses contrôles inertes, sans les sortir de la lecture', async () => {
     // « En lecture seule » et non « absent » : la forme est visible pour la
     // livraison qui branchera le stockage, et aucune écriture n'est ouverte.
-    serveur()
-    await monter()
-    const jeu = document.querySelector('fieldset')
-    expect(jeu?.hasAttribute('disabled')).toBe(true)
-    expect(jeu?.textContent).toContain('Hook activé par défaut')
+    server()
+    await mountScreen()
+    const fieldset = document.querySelector('fieldset')
+    expect(fieldset?.hasAttribute('disabled')).toBe(true)
+    expect(fieldset?.textContent).toContain('Hook activé par défaut')
   })
 })

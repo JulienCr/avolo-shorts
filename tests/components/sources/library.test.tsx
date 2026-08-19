@@ -25,7 +25,7 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-const MONTÉ: SourcesListing['montage'] = {
+const MOUNTED: SourcesListing['montage'] = {
   disponible: true,
   cause: null,
   fstype: '9p',
@@ -67,19 +67,19 @@ const SOURCES = [
   source('d-echec.mp4', 'd'),
   source('e-analysee.mp4', 'e'),
 ]
-const PROJETS = [
+const PROJECTS = [
   project('b', { running: { step: 'proxy', progress: 0.3 } }),
   project('c', { stopped: true }),
   project('d', { error: 'ffmpeg est tombé.' }),
   project('e'),
 ]
 
-function grille(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
+function renderGrid(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
   return render(
     <LibraryGrid
-      entries={buildLibrary(SOURCES, PROJETS)}
-      projects={PROJETS}
-      mount={MONTÉ}
+      entries={buildLibrary(SOURCES, PROJECTS)}
+      projects={PROJECTS}
+      mount={MOUNTED}
       loading={false}
       error={null}
       projectsError={null}
@@ -97,7 +97,7 @@ function grille(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
  * le titre, lui, est dérivé par `titreProjet` et c'est ce qu'un test dédié
  * vérifie plus bas.
  */
-function fichiers(): string[] {
+function files(): string[] {
   return screen
     .getAllByRole('listitem')
     .map((li) => li.querySelector('[data-file]')?.textContent ?? '')
@@ -105,7 +105,7 @@ function fichiers(): string[] {
 
 describe('la grille unifiée', () => {
   it('montre chaque émission une fois et une seule', () => {
-    grille()
+    renderGrid()
     for (const s of SOURCES) {
       expect(screen.getAllByText(s.name)).toHaveLength(1)
     }
@@ -115,41 +115,41 @@ describe('la grille unifiée', () => {
     // Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un
     // titre : c'est un nom de fichier. Il reste affiché, parce que c'est par lui
     // qu'on fait le lien avec ce qui est posé sur le Drive.
-    grille({ entries: buildLibrary([source('2025-06-15-cqlp.mp4')], []) })
-    const carte = screen.getByRole('listitem')
-    expect(carte.querySelector('[data-title]')?.textContent).toBe('cqlp — 15 juin 2025')
-    expect(carte.querySelector('[data-file]')?.textContent).toBe('2025-06-15-cqlp.mp4')
+    renderGrid({ entries: buildLibrary([source('2025-06-15-cqlp.mp4')], []) })
+    const card = screen.getByRole('listitem')
+    expect(card.querySelector('[data-title]')?.textContent).toBe('cqlp — 15 juin 2025')
+    expect(card.querySelector('[data-file]')?.textContent).toBe('2025-06-15-cqlp.mp4')
   })
 
   it('résume le nombre d’émissions et celles qui sont analysées', () => {
-    grille()
+    renderGrid()
     expect(screen.getByText('5 émissions · 1 analysée')).toBeTruthy()
   })
 })
 
 describe('les filtres', () => {
   it('portent le compte de ce qu’ils retiennent', () => {
-    grille()
-    const onglets = screen.getAllByRole('tab').map((t) => t.textContent)
-    expect(onglets).toEqual(['Tous5', 'À analyser1', 'En cours1', 'Analysés1', 'Erreurs2'])
+    renderGrid()
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent)
+    expect(tabs).toEqual(['Tous5', 'À analyser1', 'En cours1', 'Analysés1', 'Erreurs2'])
   })
 
   it('range l’interrompue et l’échouée sous « Erreurs »', async () => {
     // C'est le regroupement du retour d'usage, et les deux appellent le même
     // geste : reprendre l'analyse.
-    grille()
+    renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
-    expect(fichiers()).toEqual(['c-interrompue.mp4', 'd-echec.mp4'])
+    expect(files()).toEqual(['c-interrompue.mp4', 'd-echec.mp4'])
   })
 
   it('ne retient que les neuves sous « À analyser »', async () => {
-    grille()
+    renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /À analyser/ }))
-    expect(fichiers()).toEqual(['a-neuve.mp4'])
+    expect(files()).toEqual(['a-neuve.mp4'])
   })
 
   it('dit pourquoi un filtre ne rend rien, sans le confondre avec un dossier vide', async () => {
-    grille({ entries: buildLibrary([source('a.mp4')], []) })
+    renderGrid({ entries: buildLibrary([source('a.mp4')], []) })
     await userEvent.click(screen.getByRole('tab', { name: /Analysés/ }))
     expect(screen.getByText('Aucune émission n’est encore analysée.')).toBeTruthy()
   })
@@ -157,69 +157,70 @@ describe('les filtres', () => {
 
 describe('la recherche', () => {
   it('filtre par titre, sans tenir compte de la casse', async () => {
-    grille()
+    renderGrid()
     await userEvent.type(screen.getByRole('searchbox'), 'ECHEC')
-    expect(fichiers()).toEqual(['d-echec.mp4'])
+    expect(files()).toEqual(['d-echec.mp4'])
   })
 
   it('trouve une émission par le nom de fichier qu’elle affiche', async () => {
     // Le titre d'une émission datée ne contient pas la date au format du
     // fichier : sans ce chemin, le nom qu'on a sous les yeux dans un
     // explorateur ne se taperait pas.
-    grille({ entries: buildLibrary([source('2025-06-15-cqlp.mp4'), source('autre.mp4')], []) })
+    renderGrid({ entries: buildLibrary([source('2025-06-15-cqlp.mp4'), source('autre.mp4')], []) })
     await userEvent.type(screen.getByRole('searchbox'), '2025-06')
-    expect(fichiers()).toEqual(['2025-06-15-cqlp.mp4'])
+    expect(files()).toEqual(['2025-06-15-cqlp.mp4'])
   })
 
   it('se compose avec le filtre actif', async () => {
-    grille()
+    renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
     await userEvent.type(screen.getByRole('searchbox'), 'interrompue')
-    expect(fichiers()).toEqual(['c-interrompue.mp4'])
+    expect(files()).toEqual(['c-interrompue.mp4'])
   })
 
   it('laisse les comptes des filtres intacts pendant la frappe', async () => {
     // Ces comptes servent à choisir un filtre : les faire fondre au fil de la
     // frappe ferait dire « Erreurs 0 » là où quelque chose a échoué.
-    grille()
+    renderGrid()
     await userEvent.type(screen.getByRole('searchbox'), 'zzz')
     expect(screen.getByRole('tab', { name: /Erreurs/ }).textContent).toBe('Erreurs2')
   })
 
   it('propose d’effacer une recherche qui ne rend rien', async () => {
-    grille()
+    renderGrid()
     await userEvent.type(screen.getByRole('searchbox'), 'zzz')
     expect(screen.getByText(/Aucune émission ne porte/)).toBeTruthy()
 
     await userEvent.click(screen.getByRole('button', { name: 'Effacer la recherche' }))
-    expect(fichiers()).toHaveLength(5)
+    expect(files()).toHaveLength(5)
   })
 })
 
 describe('les états d’écran', () => {
   it('pose des squelettes tant qu’une des deux listes n’a pas répondu', () => {
-    const { container } = grille({ loading: true })
+    const { container } = renderGrid({ loading: true })
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
     expect(screen.queryByRole('tab')).toBeNull()
   })
 
   it('affiche le message du serveur quand les émissions ne se listent pas', () => {
-    grille({ error: 'REPLAY_DIR est absent.' })
+    renderGrid({ error: 'REPLAY_DIR est absent.' })
     expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy()
   })
 
   it('avertit quand l’état des analyses n’a pas pu être lu', () => {
     // Sans ce mot, une API de projets en panne rendait la même page qu'une
-    // bibliothèque où rien n'est analysé : dix-huit cartes « À analyser » sur
-    // des émissions déjà traitées, ce qui invite à relancer pour rien.
-    grille({ projectsError: 'La base ne répond pas.' })
-    expect(screen.getByText(/annoncer « À analyser » à tort/)).toBeTruthy()
+    // bibliothèque où rien n'est analysé. L'écran ne fabrique plus d'entrée dans
+    // ce cas — c'est l'affaire de `library-screen` — et le bandeau dit ce qui
+    // manque plutôt que de le deviner.
+    renderGrid({ projectsError: 'La base ne répond pas.' })
+    expect(screen.getByText(/L’état des analyses n’a pas pu être lu/)).toBeTruthy()
     expect(screen.getByText('La base ne répond pas.')).toBeTruthy()
   })
 
   it('distingue un dossier vide d’un montage qui n’a pas eu lieu', () => {
     const cause: CauseIndisponible = 'absent'
-    grille({
+    renderGrid({
       entries: [],
       projects: [],
       mount: { disponible: false, cause, fstype: null, entrées: 0 },
@@ -231,7 +232,7 @@ describe('les états d’écran', () => {
   it('affiche l’échec d’une création au-dessus de la grille, pas dans la carte', () => {
     // La carte peut avoir disparu sous un filtre au rendu suivant, et le
     // message serait parti avec elle.
-    grille({ creation: creation({ error: 'Le dossier des replays ne répond pas.' }) })
+    renderGrid({ creation: creation({ error: 'Le dossier des replays ne répond pas.' }) })
     const alerte = screen.getByRole('alert')
     expect(within(alerte).getByText('Le dossier des replays ne répond pas.')).toBeTruthy()
   })

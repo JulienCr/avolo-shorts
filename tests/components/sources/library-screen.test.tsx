@@ -263,6 +263,27 @@ describe('les pannes', () => {
     await waitFor(() => expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy())
   })
 
+  it('ne fabrique aucun état quand la liste des projets ne se charge pas', async () => {
+    // **Une liste de projets en panne n'est pas une liste vide.** Le repli sur
+    // `[]` faisait passer chaque source portant un `projectId` par
+    // `showState(null, true)` : les émissions déjà analysées s'affichaient
+    // « Analyse en cours », un état concret déduit d'une absence d'information.
+    // (relevé par Copilot)
+    serveur({
+      projets: () => reponse({ error: 'La base ne répond pas.' }, 500),
+      sources: () =>
+        reponse({
+          ...SOURCES,
+          sources: [{ ...SOURCES.sources[0], projectId: CQLP.id }],
+        }),
+    })
+    poser()
+
+    await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
+    expect(screen.queryByText('Analyse en cours')).toBeNull()
+    expect(screen.queryByText('2025-06-15-cqlp.mp4')).toBeNull()
+  })
+
   it('dit le montage muet quand il n’y a ni replay ni projet', async () => {
     // Le pire cas — montage absent **et** aucun projet — n'affiche alors qu'une
     // phrase et le geste qui la répare.

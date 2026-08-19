@@ -159,14 +159,15 @@ export function LibraryGrid({
           replays est en panne, la liste des projets l'est, ou une création a
           échoué. Sans la deuxième, une API de projets en panne rendait
           exactement la même page qu'une bibliothèque où rien n'est analysé —
-          dix-huit cartes « À analyser » sur des émissions déjà traitées, ce qui
-          invite à relancer une analyse de neuf minutes pour rien. */}
+          des cartes qui annoncent un état déduit d'une absence d'information, ce
+          qui invite à relancer une analyse de neuf minutes pour rien. L'écran ne
+          fabrique donc plus d'entrée dans ce cas : le bandeau tient la place, et
+          il dit ce qui manque plutôt que de le deviner. */}
       {projectsError !== null && (
         <Alert variant="destructive" className="px-4 py-3">
           <TriangleAlert aria-hidden />
           <AlertTitle className="text-sm">
-            L’état des analyses n’a pas pu être lu. Les cartes ci-dessous peuvent
-            annoncer « À analyser » à tort.
+            L’état des analyses n’a pas pu être lu.
           </AlertTitle>
           <AlertDescription className="text-xs">{projectsError}</AlertDescription>
           <AlertAction>

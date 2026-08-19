@@ -84,7 +84,12 @@ export function SettingsScreen() {
           <SelectionSection
             values={settings.data.selection}
             disabled={save.isPending}
-            onChange={(patch) => save.mutate({ selection: patch })}
+            // **`mutateAsync` et non `mutate`** : la promesse est ce qui dit au
+            // champ que le serveur a refusé, là où `values` ne bouge pas — une
+            // écriture non optimiste ne change rien tant qu'elle n'est pas
+            // acceptée. Le rejet est consommé par le champ ; le bandeau
+            // au-dessus, lui, vient de `save.isError`. (relevé par Copilot)
+            onChange={(patch) => save.mutateAsync({ selection: patch })}
           />
         )}
 

@@ -129,8 +129,18 @@ export function StopButton({
       <div className="flex items-center gap-2">
         {button}
         {stop.isError && (
-          <span role="alert" className="max-w-48 truncate text-xs text-destructive">
-            L’arrêt n’est pas parti.
+          // **Le message du serveur est dans le DOM, `truncate` ne borne que la
+          // largeur.** La forme compacte est le seul contrôle d'arrêt tant que
+          // la grille est visible — c'est-à-dire pendant les six minutes de
+          // proxy —, et y perdre la cause laissait « l'arrêt n'est pas parti »
+          // sans rien pour savoir pourquoi. Le `title` la rend au survol, le
+          // lecteur d'écran la lit en entier. (relevé par Copilot)
+          <span
+            role="alert"
+            title={stop.error.message}
+            className="max-w-48 truncate text-xs text-destructive"
+          >
+            L’arrêt n’est pas parti : {stop.error.message}
           </span>
         )}
       </div>

@@ -205,8 +205,8 @@ describe('le tableau des étapes', () => {
     // d'1 h 40, et s'affichaient à l'identique pour une capsule de vingt
     // minutes. `stepDurationRange` les remplace, et deux tables sur la même
     // question auraient fini par diverger.
-    for (const étape of ÉTAPES) {
-      expect(Object.keys(étape).toSorted()).toEqual(['libelle', 'nom'])
+    for (const step of ÉTAPES) {
+      expect(Object.keys(step).toSorted()).toEqual(['libelle', 'nom'])
     }
   })
 })

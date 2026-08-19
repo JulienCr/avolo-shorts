@@ -84,7 +84,17 @@ export function LibraryScreen() {
     if (createdProjectId !== undefined) router.push(lienProjet(createdProjectId))
   }, [createdProjectId, router])
 
-  const entries = buildLibrary(sources.data?.sources ?? [], projects.data ?? [])
+  // **Une liste de projets qui n'a pas pu se charger n'est pas une liste vide.**
+  // Le repli sur `[]` faisait passer chaque source portant un `projectId` par
+  // `showState(null, true)` : les quatre émissions déjà analysées s'affichaient
+  // « Analyse en cours », un état concret déduit d'une absence d'information.
+  // On ne fabrique donc aucune entrée tant que cette requête a échoué sans rien
+  // laisser en cache — un cache périmé, lui, reste affiché, c'est la règle que
+  // l'écran de projet tient déjà pour ses candidats. (relevé par Copilot)
+  const projectsUnknown = projects.isError && projects.data === undefined
+  const entries = projectsUnknown
+    ? []
+    : buildLibrary(sources.data?.sources ?? [], projects.data ?? [])
 
   return (
     <div className="flex min-h-full flex-col">

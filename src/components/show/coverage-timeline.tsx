@@ -37,18 +37,40 @@ import { cn } from '@/lib/utils'
  */
 export function CoverageTimeline({
   clips,
+  clipsKnown = true,
   durationSec,
   time,
   onSeek,
+  onOpenClip,
 }: {
   /** Les clips **gardés**. Les propositions et les écartés n'ont rien extrait. */
   clips: readonly CandidateClip[]
+  /**
+   * Sait-on de quoi la liste est faite ?
+   *
+   * **Une liste qui n'a pas pu se charger n'est pas une liste vide** : sans cette
+   * distinction, la bande annonçait « aucun clip gardé » sur un échec de
+   * `GET /candidates`, c'est-à-dire une couverture nulle qu'elle n'a pas
+   * mesurée. (relevé par Copilot)
+   */
+  clipsKnown?: boolean
   /** La durée de l'émission, en secondes. */
   durationSec: number
   /** L'instant courant du lecteur, en secondes. */
   time: number
   /** Déplacer la lecture. `null` quand il n'y a pas de proxy à déplacer. */
   onSeek: ((seconds: number) => void) | null
+  /**
+   * Un clip s'ouvre depuis la bande.
+   *
+   * La bande ne connaît pas le stockage de session : c'est l'écran qui pose la
+   * marque de retour, comme il le fait déjà pour les départs depuis la grille.
+   * Sans elle, revenir d'un clip ouvert ici retombait sur la vue par défaut
+   * alors que le même clip ouvert depuis une carte rendait la vue d'où l'on
+   * venait — deux chemins vers le même endroit, deux retours différents.
+   * (relevé par Copilot)
+   */
+  onOpenClip?: (clipId: string) => void
 }) {
   const { placed, lanes } = placeInLanes(clips, (clip) => spanOf(clip.segments))
 
@@ -100,6 +122,16 @@ export function CoverageTimeline({
                     href={lienClip(item.id)}
                     data-clip={item.id}
                     aria-label={`${item.title} — ${formatTimecode(interval.start)} à ${formatTimecode(interval.end)}`}
+                    onClick={(e) => {
+                      // **La propagation s'arrête ici.** Sans cela le clic
+                      // remontait jusqu'au `onClick` de la bande et déplaçait
+                      // aussi la lecture, alors que le contrat est de ne la
+                      // déplacer que sur un clic **hors** bloc. La navigation
+                      // masquait le déplacement, ce qui ne le rendait pas moins
+                      // faux. (relevé par Copilot)
+                      e.stopPropagation()
+                      onOpenClip?.(item.id)
+                    }}
                     // `min-w` plutôt qu'une largeur élargie dans le calcul :
                     // élargir en amont ferait glisser le bord gauche de tout ce
                     // qui suit, alors qu'un bloc de trente secondes sur une
@@ -140,9 +172,11 @@ export function CoverageTimeline({
       </div>
 
       <p className="text-xs text-muted-foreground tabular-nums">
-        {clips.length === 0
-          ? 'Aucun clip gardé pour l’instant : la bande montrera ce qui aura été extrait.'
-          : `${clips.length === 1 ? '1 clip gardé' : `${clips.length} clips gardés`} sur ${formatDuration(durationSec)} d’émission.`}
+        {!clipsKnown
+          ? 'Les clips de cette émission ne se chargent pas : la bande ne montre pas ce qui en a été extrait.'
+          : clips.length === 0
+            ? 'Aucun clip gardé pour l’instant : la bande montrera ce qui aura été extrait.'
+            : `${clips.length === 1 ? '1 clip gardé' : `${clips.length} clips gardés`} sur ${formatDuration(durationSec)} d’émission.`}
       </p>
     </div>
   )

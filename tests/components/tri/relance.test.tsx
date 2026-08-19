@@ -45,14 +45,14 @@ describe('StopButton', () => {
     // temps de calcul, et le geste inverse est à un clic. Une boîte de dialogue
     // ne protégerait rien et retarderait le seul geste que quelqu'un qui vient
     // de lancer la mauvaise émission veut faire vite.
-    const appel = vi.fn(async () => reponse({ arrêtée: true }, 200))
-    vi.stubGlobal('fetch', appel)
+    const call = vi.fn(async () => reponse({ stopped: true }, 200))
+    vi.stubGlobal('fetch', call)
     render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))
 
-    await waitFor(() => expect(appel).toHaveBeenCalledTimes(1))
-    const [url] = appel.mock.calls[0] as unknown as [string]
+    await waitFor(() => expect(call).toHaveBeenCalledTimes(1))
+    const [url] = call.mock.calls[0] as unknown as [string]
     expect(url).toBe('/api/projects/p1/stop')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
@@ -60,17 +60,17 @@ describe('StopButton', () => {
   it('dit « arrêter » et jamais « pause »', async () => {
     // Rien ne reprend un processus exactement là où il s'est interrompu : ffmpeg
     // est tué, WhisperX aussi, et ce qui repart repart du début de son étape.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: true }, 200)))
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: true }, 200)))
     render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     expect(document.body.textContent).not.toMatch(/pause|suspendre/i)
   })
 
   it('ne présente pas « rien ne tournait » comme un échec', async () => {
-    // `arrêtée: false` est un succès : l'analyse venait de finir, ou un
+    // `stopped: false` est un succès : l'analyse venait de finir, ou un
     // redémarrage du serveur a emporté l'exécution. Le dire comme un échec
     // ferait chercher un défaut là où il n'y a qu'une course perdue.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ arrêtée: false }, 200)))
+    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: false }, 200)))
     render(<StopButton projectId="p1" />, { wrapper: enveloppe })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /arrêter/i }))

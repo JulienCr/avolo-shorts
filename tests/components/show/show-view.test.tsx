@@ -52,7 +52,7 @@ function clip(
   }
 }
 
-function vue(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
+function renderView(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
   return render(
     <ShowView
       projectId="cqlp"
@@ -64,8 +64,8 @@ function vue(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
   )
 }
 
-/** Les blocs de la bande, dans l'ordre du DOM. */
-function blocs(): HTMLElement[] {
+/** Les blocs de la band, dans l'ordre du DOM. */
+function blocks(): HTMLElement[] {
   return Array.from(
     screen.getByTestId('coverage-timeline').querySelectorAll<HTMLElement>('[data-clip]'),
   )
@@ -75,7 +75,7 @@ describe('la bande de couverture', () => {
   it('ne pose un bloc que pour les clips gardés', () => {
     // Une proposition ni gardée ni écartée n'a rien extrait de l'émission, et un
     // écarté encore moins.
-    vue({
+    renderView({
       clips: [
         clip('gardé', [{ start: 0, end: 60 }]),
         clip('proposé', [{ start: 600, end: 660 }], { status: 'candidate' }),
@@ -83,72 +83,115 @@ describe('la bande de couverture', () => {
         clip('exporté', [{ start: 1800, end: 1860 }], { status: 'exported' }),
       ],
     })
-    expect(blocs().map((b) => b.getAttribute('data-clip'))).toEqual(['gardé', 'exporté'])
+    expect(blocks().map((b) => b.getAttribute('data-clip'))).toEqual(['gardé', 'exporté'])
   })
 
   it('mène au clip qu’on clique', () => {
-    vue()
-    expect(blocs()[0]).toHaveProperty('pathname', '/clips/a')
+    renderView()
+    expect(blocks()[0]).toHaveProperty('pathname', '/clips/a')
   })
 
   it('place le bloc à sa position dans l’émission', () => {
     // 600 s sur 6 000 : un dixième, et un centième de large.
-    vue()
-    expect(blocs()[0].style.left).toBe('10%')
-    expect(blocs()[0].style.width).toBe('1%')
+    renderView()
+    expect(blocks()[0].style.left).toBe('10%')
+    expect(blocks()[0].style.width).toBe('1%')
   })
 
   it('couvre le trou d’un passage retiré, sans le combler', () => {
     // Un clip est une liste de segments : retirer un passage par le milieu
     // laisse un trou, mais le clip occupe toujours la même place dans
     // l'émission. La bande décrit la couverture, la durée se lit à côté.
-    vue({ clips: [clip('a', [{ start: 600, end: 660 }, { start: 1_200, end: 1_260 }])] })
-    expect(blocs()[0].style.left).toBe('10%')
-    expect(blocs()[0].style.width).toBe('11%')
+    renderView({ clips: [clip('a', [{ start: 600, end: 660 }, { start: 1_200, end: 1_260 }])] })
+    expect(blocks()[0].style.left).toBe('10%')
+    expect(blocks()[0].style.width).toBe('11%')
   })
 
   it('sépare en voies deux clips qui se chevauchent', () => {
     // L'exigence explicite du retour d'usage : empilés sur une ligne, le second
     // efface le premier et le survol n'en désigne qu'un sans dire lequel.
-    vue({
+    renderView({
       clips: [
         clip('a', [{ start: 600, end: 1_200 }]),
         clip('b', [{ start: 900, end: 1_500 }]),
       ],
     })
-    const [a, b] = blocs()
+    const [a, b] = blocks()
     expect(a.style.top).not.toBe(b.style.top)
   })
 
   it('compte ce qui a été gardé, en toutes lettres', () => {
-    vue({
+    renderView({
       clips: [clip('a', [{ start: 0, end: 60 }]), clip('b', [{ start: 600, end: 660 }])],
     })
     expect(screen.getByText('2 clips gardés sur 1:40:00 d’émission.')).toBeTruthy()
   })
 
   it('dit qu’il n’y a rien d’extrait plutôt que de rendre une bande muette', () => {
-    vue({ clips: [] })
+    renderView({ clips: [] })
     expect(screen.getByText(/Aucun clip gardé pour l’instant/)).toBeTruthy()
   })
 
   it('se tait sur la durée tant que l’ingestion ne l’a pas sondée', () => {
     // `durationSec` vaut zéro sur un projet créé il y a trois secondes : dessiner
     // une bande sans échelle placerait tous les blocs au même endroit.
-    vue({ durationSec: 0 })
+    renderView({ durationSec: 0 })
     expect(screen.queryByTestId('coverage-timeline')).toBeNull()
     expect(screen.getByText(/n’est pas encore connue/)).toBeTruthy()
   })
 })
 
+describe('le clic sur un bloc', () => {
+  it('ouvre le clip sans déplacer la lecture', async () => {
+    // Le contrat est de ne déplacer la tête que sur un clic **hors** bloc. Sans
+    // arrêt de propagation, le clic remontait jusqu'au `onClick` de la bande et
+    // faisait les deux — la navigation masquait le déplacement, ce qui ne le
+    // rendait pas moins faux. (relevé par Copilot)
+    renderView()
+    const band = screen.getByTestId('coverage-timeline')
+    vi.spyOn(band, 'getBoundingClientRect').mockReturnValue({
+      left: 0, width: 1_000, top: 0, right: 1_000, bottom: 24, height: 24, x: 0, y: 0,
+      toJSON: () => ({}),
+    })
+
+    await userEvent.click(blocks()[0])
+
+    const video = screen.getByTestId('lecteur-emission') as HTMLVideoElement
+    expect(video.currentTime).toBe(0)
+  })
+
+  it('annonce son départ, pour que l’écran pose la marque de retour', async () => {
+    // Sans elle, revenir d'un clip ouvert depuis la bande retombait sur la vue
+    // par défaut, alors que le même clip ouvert d'une carte rendait la vue d'où
+    // l'on venait : deux chemins vers le même endroit, deux retours différents.
+    const onOpenClip = vi.fn()
+    renderView({ onOpenClip })
+
+    await userEvent.click(blocks()[0])
+
+    expect(onOpenClip).toHaveBeenCalledWith('a')
+  })
+})
+
+describe('la liste des clips', () => {
+  it('dit qu’elle ne se charge pas, plutôt que d’annoncer une couverture nulle', () => {
+    // Une liste qui n'a pas pu se charger n'est pas une liste vide : « aucun
+    // clip gardé » affirmerait une couverture que la bande n'a pas mesurée.
+    // (relevé par Copilot)
+    renderView({ clips: [], clipsKnown: false })
+    expect(screen.getByText(/ne se chargent pas/)).toBeTruthy()
+    expect(screen.queryByText(/Aucun clip gardé/)).toBeNull()
+  })
+})
+
 describe('le lecteur et la bande', () => {
   it('déplace la lecture au clic hors bloc', async () => {
-    vue()
-    const bande = screen.getByTestId('coverage-timeline')
+    renderView()
+    const band = screen.getByTestId('coverage-timeline')
     // jsdom ne met rien en page : le rectangle est nul, et `instantAuClic` rend
     // alors 0 plutôt qu'un infini. Ce qui se vérifie ici est le câblage —
     // l'arithmétique est éprouvée dans `tests/core/couverture.test.ts`.
-    vi.spyOn(bande, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(band, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       width: 1_000,
       top: 0,
@@ -160,17 +203,17 @@ describe('le lecteur et la bande', () => {
       toJSON: () => ({}),
     })
 
-    await userEvent.pointer({ target: bande, coords: { clientX: 250, clientY: 5 }, keys: '[MouseLeft]' })
+    await userEvent.pointer({ target: band, coords: { clientX: 250, clientY: 5 }, keys: '[MouseLeft]' })
 
-    const vidéo = screen.getByTestId('lecteur-emission') as HTMLVideoElement
-    expect(vidéo.currentTime).toBe(1_500)
+    const video = screen.getByTestId('lecteur-emission') as HTMLVideoElement
+    expect(video.currentTime).toBe(1_500)
     expect(screen.getByTestId('playhead').style.left).toBe('25%')
   })
 
   it('ne promet aucun déplacement quand le proxy n’est pas encodé', async () => {
     // Un curseur qui change de forme sur une surface inerte est la façon la plus
     // sûre de faire cliquer trois fois.
-    vue({ proxyReady: false })
+    renderView({ proxyReady: false })
     expect(screen.queryByTestId('lecteur-emission')).toBeNull()
     expect(screen.getByTestId('proxy-absent').textContent).toContain(
       'Les images arrivent avec le proxy',
@@ -181,9 +224,9 @@ describe('le lecteur et la bande', () => {
   it('sert le proxy par la route qui répond aux requêtes partielles', () => {
     // Sans réponse aux plages d'octets, un `<video>` ne peut pas sauter et la
     // barre de lecture reste inerte.
-    vue()
-    const vidéo = screen.getByTestId('lecteur-emission')
-    expect(vidéo.getAttribute('src')).toBe('/api/projects/cqlp/proxy')
-    expect(vidéo.getAttribute('preload')).toBe('metadata')
+    renderView()
+    const video = screen.getByTestId('lecteur-emission')
+    expect(video.getAttribute('src')).toBe('/api/projects/cqlp/proxy')
+    expect(video.getAttribute('preload')).toBe('metadata')
   })
 })

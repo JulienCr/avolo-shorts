@@ -14,7 +14,7 @@ function seg(start: number, end: number): Segment {
   return { start, end }
 }
 
-function bornes(i: Interval | null): [number, number] | null {
+function span(i: Interval | null): [number, number] | null {
   return i === null ? null : [i.start, i.end]
 }
 
@@ -23,11 +23,11 @@ describe('spanOf', () => {
     // Un clip est une liste de segments, et retirer un passage par le milieu
     // laisse un trou : le clip occupe toujours la même place dans l'émission, il
     // en garde seulement moins. La bande décrit la couverture, pas la durée.
-    expect(bornes(spanOf([seg(100, 130), seg(150, 200)]))).toEqual([100, 200])
+    expect(span(spanOf([seg(100, 130), seg(150, 200)]))).toEqual([100, 200])
   })
 
   it('ne dépend pas de l’ordre des segments', () => {
-    expect(bornes(spanOf([seg(150, 200), seg(100, 130)]))).toEqual([100, 200])
+    expect(span(spanOf([seg(150, 200), seg(100, 130)]))).toEqual([100, 200])
   })
 
   it('rend null sur une liste vide', () => {

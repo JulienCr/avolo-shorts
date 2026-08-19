@@ -9,8 +9,17 @@ import {
   forwardAbort,
   type Artefact,
 } from '@/server/ffmpeg'
+import {
+  applyWordCorrection,
+  wordsToText,
+  type CorrectionRefusal,
+  type TranscriptLine,
+  type WordCorrection,
+} from '@/lib/editing'
+import type { Project } from '@/server/db'
 import { placeSidecar, resolveSource } from '@/server/paths'
 import { montageRépond } from '@/server/steps/ingest'
+import { lireTranscript } from '@/server/steps/candidates'
 
 /**
  * La transcription : WhisperX en sous-processus, et le résultat dans le sidecar.
@@ -469,4 +478,215 @@ function lancerWorker(
       )
     })
   })
+}
+
+// ---------------------------------------------------------------------------
+// La correction manuelle
+// ---------------------------------------------------------------------------
+
+/** Pourquoi une correction n'a pas été écrite. */
+export type TranscriptCorrectionRefusal = 'no-transcript' | 'unknown-line' | 'run-in-progress' | CorrectionRefusal
+
+export type TranscriptCorrectionOutcome =
+  | {
+      ok: true
+      line: TranscriptLine
+      /**
+       * L'empan réellement corrigé — `words[from].start` à `words[to].end`,
+       * calculé avant remplacement — distinct de l'enveloppe de la phrase
+       * portée par `line.start`/`line.end`, qui ne bouge jamais. Une phrase
+       * de 60 à 100 s dont on corrige le dernier mot ne doit signaler que les
+       * clips qui recouvrent ces quelques secondes, pas toute la phrase.
+       * (relevé par Copilot)
+       */
+      correctedSpan: { start: number; end: number }
+    }
+  | { ok: false; reason: TranscriptCorrectionRefusal }
+
+/**
+ * L'index de segment qu'un `lineId` porte, ou `null` s'il n'a pas cette forme.
+ *
+ * **`lignesDuTranscript` (`src/server/vues.ts`) écrit `l${i}`, `i` étant
+ * l'index dans `transcript.segments`** — y compris pour les segments qu'elle
+ * filtre ensuite parce qu'ils n'ont aucun mot aligné. C'est ce qui rend
+ * l'identifiant stable : il désigne une position dans le fichier, pas une
+ * position dans la liste affichée.
+ */
+function lineIndex(lineId: string): number | null {
+  const match = /^l(\d+)$/.exec(lineId)
+  return match === null ? null : Number(match[1])
+}
+
+/**
+ * Corrige une phrase du transcript, sur le disque.
+ *
+ * **Bornée à un segment, jamais à tout le transcript.** L'appelant nomme la
+ * phrase (`lineId`) et l'empan à l'intérieur (`from`/`to` dans
+ * `WordCorrection`) ; cette fonction ne réécrit que les mots de ce segment,
+ * jamais les autres, et ne touche jamais à `start`/`end` du segment lui-même —
+ * l'empan que le remplacement occupe est toujours un sous-ensemble de l'empan
+ * qu'occupaient les mots retirés, donc l'enveloppe temporelle de la phrase ne
+ * bouge pas. C'est ce qui garde intactes les timings de tout ce qui n'est pas
+ * corrigé : les phrases voisines, et les bornes des clips qui recouvrent
+ * celle-ci.
+ *
+ * **Seul le segment touché passe par `lireTranscript`.** Cette lecture est
+ * volontairement destructrice — elle sert d'abord le repérage, où un mot sans
+ * horodatage n'est pas une frontière utile — et son type ne modélise que
+ * `{word,start,end}` par mot. La réécrire pour tous les segments transformerait
+ * donc une correction locale en suppression silencieuse des mots non alignés
+ * (et de tout champ que ce type ignore) sur des phrases que personne n'a
+ * demandé à corriger. Les segments non touchés restent la copie brute lue sur
+ * le disque, réinjectée telle quelle. (relevé par Copilot)
+ *
+ * **Le fichier entier est réécrit**, comme `candidates.json` ou l'empreinte de
+ * rendu le sont déjà ailleurs dans ce dépôt : il n'y a pas de format qui
+ * permette une écriture partielle d'un JSON, et une correction ne porte de
+ * toute façon que sur quelques mots — le coût est le même pour l'un ou pour
+ * cent.
+ *
+ * **Elle se relit après écriture, elle ne déduit rien du succès du
+ * renommage.** `CLAUDE.md` documente le piège : un remplacement qui ne trouve
+ * pas son motif réussit en silence. Le renommage peut réussir sur un disque
+ * dont l'écriture précédente a été tronquée par un incident du montage ; se
+ * relire est la seule façon de le savoir plutôt que de le supposer.
+ */
+/**
+ * Sérialise les corrections d'un même projet entre elles.
+ *
+ * **Le cycle lecture-validation-écriture n'est pas atomique.** Deux corrections
+ * simultanées sur des phrases différentes liraient toutes deux l'ancien
+ * fichier, valideraient chacune sur cette lecture, puis la dernière écriture
+ * effacerait la première sans que rien ne le signale — les deux réponses HTTP
+ * annonceraient pourtant un succès. Chaîner chaque appel derrière le
+ * précédent, par projet, rend le cycle atomique sans verrou inter-processus :
+ * `enCours` (`src/server/run.ts`) résout déjà la même classe de problème pour
+ * les exécutions du graphe de la même façon, une table de *ce* processus,
+ * jamais partagée entre plusieurs. (relevé par Copilot)
+ */
+const corrections = new Map<string, Promise<unknown>>()
+
+export async function correctTranscript(
+  project: Project,
+  lineId: string,
+  correction: WordCorrection,
+  // **Revérifié juste avant l'écriture, pas seulement à l'entrée.** La route
+  // (`src/app/api/projects/[id]/transcript/route.ts`) a déjà refusé la
+  // correction si une exécution tournait au moment de la requête, mais
+  // `montageRépond` et la lecture du sidecar cèdent la main entre-temps : une
+  // retranscription lancée dans cette fenêtre réserverait le projet sans que
+  // ce premier refus l'ait vue. Cette fonction ne connaît pas `enCours`
+  // (`src/server/run.ts`) directement — l'importer créerait un cycle, `run.ts`
+  // important déjà `transcribe` d'ici —, donc l'appelant lui passe la sonde.
+  // Cela referme la fenêtre jusqu'au dernier point de reprise avant l'écriture,
+  // sans l'éliminer : un verrou partagé avec `lancer` serait la seule garantie
+  // complète, et reste une décision d'architecture à part. (relevé par Copilot)
+  isRunning: (projectId: string) => boolean = () => false,
+): Promise<TranscriptCorrectionOutcome> {
+  const previous = corrections.get(project.id) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(() => correctTranscriptQueued(project, lineId, correction, isRunning))
+  // Le prochain appelant chaîne sur cette promesse — y compris si elle rejette,
+  // via le `.catch` ci-dessus qui n'agit que sur le maillon suivant, pas sur
+  // celui-ci : l'appelant courant voit toujours la vraie erreur.
+  corrections.set(
+    project.id,
+    next.catch(() => undefined),
+  )
+  return next
+}
+
+async function correctTranscriptQueued(
+  project: Project,
+  lineId: string,
+  correction: WordCorrection,
+  isRunning: (projectId: string) => boolean,
+): Promise<TranscriptCorrectionOutcome> {
+  // Même garde que `transcribe()`, et pour la même raison : `placeSidecar`
+  // fait des appels *synchrones* sur le Drive, qui gèlent la boucle
+  // d'événements entière — donc tout le serveur — si son transport est mort.
+  if (!(await montageRépond(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de lire ni écrire le sidecar. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+
+  const placement = placeSidecar(project.sourcePath, project.id)
+  if (!fs.existsSync(placement.transcript)) return { ok: false, reason: 'no-transcript' }
+
+  // La copie brute, non passée par le schéma destructeur de `lireTranscript` —
+  // c'est elle qui porte les segments non touchés jusqu'à la réécriture.
+  const rawContent = await fsp.readFile(placement.transcript, 'utf8')
+  const rawTranscript = JSON.parse(rawContent) as { language?: unknown; segments?: unknown }
+  const rawSegments = Array.isArray(rawTranscript.segments) ? rawTranscript.segments : []
+
+  const transcript = lireTranscript(placement.transcript)
+  const index = lineIndex(lineId)
+  if (index === null || index < 0 || index >= transcript.segments.length) {
+    return { ok: false, reason: 'unknown-line' }
+  }
+
+  const segment = transcript.segments[index]
+  const outcome = applyWordCorrection(segment.words, correction)
+  if (!outcome.ok) return outcome
+
+  const correctedSpan = {
+    start: segment.words[correction.from].start,
+    end: segment.words[correction.to].end,
+  }
+
+  // **Le segment brut, pas le segment nettoyé, sert de base.** `segment` vient
+  // de `lireTranscript` : au-delà de `start`/`end`/`text`/`words`, tout champ
+  // que son schéma ignore — `speaker`, par exemple — en a déjà disparu avant
+  // même d'atteindre cette fonction. Repartir du segment brut du fichier
+  // préserve ces champs sur la phrase corrigée elle-même, pas seulement sur
+  // ses voisines. (relevé par Copilot)
+  const rawSegment = rawSegments[index]
+  const nextSegment = {
+    ...(typeof rawSegment === 'object' && rawSegment !== null ? rawSegment : {}),
+    start: segment.start,
+    end: segment.end,
+    words: outcome.words,
+    text: wordsToText(outcome.words),
+  }
+  const nextTranscript = {
+    language: rawTranscript.language ?? transcript.language,
+    segments: rawSegments.map((s, i) => (i === index ? nextSegment : s)),
+  }
+
+  // Le dernier point de reprise avant d'écrire : voir le commentaire de
+  // `correctTranscript` sur ce que cette sonde referme et ce qu'elle ne
+  // referme pas.
+  if (isRunning(project.id)) return { ok: false, reason: 'run-in-progress' }
+
+  const temporaryPath = cheminTemporaire(placement.transcript)
+  await fsp.writeFile(temporaryPath, `${JSON.stringify(nextTranscript, null, 2)}\n`, 'utf8')
+  await fsp.rename(temporaryPath, placement.transcript)
+
+  const reread = lireTranscript(placement.transcript)
+  const rereadSegment = reread.segments[index]
+  const rereadMatches =
+    rereadSegment !== undefined &&
+    rereadSegment.words.length === nextSegment.words.length &&
+    rereadSegment.words.every(
+      (w, i) =>
+        w.word === nextSegment.words[i].word &&
+        w.start === nextSegment.words[i].start &&
+        w.end === nextSegment.words[i].end,
+    )
+  if (!rereadMatches) {
+    throw new Error(
+      `La correction écrite dans ${JSON.stringify(path.basename(placement.transcript))} ne se relit pas ` +
+        'telle quelle : rien ne certifie que le sidecar porte le texte corrigé.',
+    )
+  }
+
+  return {
+    ok: true,
+    line: { id: lineId, start: nextSegment.start, end: nextSegment.end, words: nextSegment.words },
+    correctedSpan,
+  }
 }

@@ -34,6 +34,11 @@ import {
   type Settings,
   type SettingsPatch,
 } from '@/lib/api'
+// Import à part du bloc au-dessus : ce fichier est partagé avec une autre PR
+// en cours, et la règle est d'ajouter en fin de fichier sans réordonner
+// l'existant — y compris ses imports.
+import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } from '@/lib/api'
+import type { TranscriptLine } from '@/lib/editing'
 
 export const cles = {
   projets: ['projets'] as const,
@@ -57,6 +62,8 @@ export const cles = {
    * et deux entrées pour un même corps se périmeraient l'une sans l'autre.
    */
   settings: ['settings'] as const,
+  /** Le transcript entier d'une émission — pas la fenêtre autour d'un clip. */
+  transcript: (projectId: string) => ['transcript', projectId] as const,
   /** La disponibilité des fournisseurs de langage — voir `useLlmAvailability`. */
   llmAvailability: ['llm-availability'] as const,
 }
@@ -81,12 +88,13 @@ export function useProjets() {
   })
 }
 
-export function useProjet(projectId: string) {
+export function useProjet(projectId: string, options: { enabled?: boolean } = {}) {
   const client = useQueryClient()
 
   const requête = useQuery({
     queryKey: cles.projet(projectId),
     queryFn: () => getProject(projectId),
+    enabled: options.enabled ?? true,
     // L'analyse dure 30 à 45 minutes : tant qu'une exécution est en cours, on
     // redemande l'état toutes les deux secondes, et on s'arrête dès qu'elle est
     // finie. Interroger en permanence un projet au repos ne renseignerait
@@ -94,18 +102,27 @@ export function useProjet(projectId: string) {
     refetchInterval: (query) => (query.state.data?.running ? 2_000 : false),
   })
 
-  // **La fin d'une exécution invalide les candidats.** Ouvrir l'écran de tri
-  // avant que le repérage n'ait rendu quoi que ce soit met une liste vide en
-  // cache, et rien ne la remplace : `useCandidats` n'interroge pas en boucle, et
-  // seule cette requête-ci suit l'avancement. La grille restait donc vide
-  // jusqu'à un rechargement complet — sur une analyse de quarante minutes, c'est
-  // le moment exact où l'on regarde. Le proxy arrivant après les candidats, la
-  // même invalidation fait apparaître les vignettes. (relevé par Codex)
+  // **La fin d'une exécution invalide les candidats — et le transcript.**
+  // Ouvrir l'écran de tri avant que le repérage n'ait rendu quoi que ce soit
+  // met une liste vide en cache, et rien ne la remplace : `useCandidats`
+  // n'interroge pas en boucle, et seule cette requête-ci suit l'avancement. La
+  // grille restait donc vide jusqu'à un rechargement complet — sur une analyse
+  // de quarante minutes, c'est le moment exact où l'on regarde. Le proxy
+  // arrivant après les candidats, la même invalidation fait apparaître les
+  // vignettes. (relevé par Codex)
+  //
+  // **Le transcript pour la même raison** : une retranscription remplace le
+  // sidecar, mais le panneau reste monté et sa requête reste fraîche trente
+  // secondes (`src/app/providers.tsx`) — sans cette invalidation il continue
+  // d'afficher l'ancien texte après la fin de WhisperX, et une correction
+  // dessus échouerait en 409 sur une ancre déjà périmée. (relevé par Copilot
+  // et par Aristarque)
   const enCours = requête.data?.running != null
   const tournait = useRef(false)
   useEffect(() => {
     if (tournait.current && !enCours) {
       void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
     }
     tournait.current = enCours
   }, [enCours, client, projectId])
@@ -567,6 +584,83 @@ export function useStopAnalysis() {
     onSettled(_resultat, _erreur, projectId) {
       void client.invalidateQueries({ queryKey: cles.projet(projectId) })
       void client.invalidateQueries({ queryKey: cles.projets })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Le transcript de l'émission (vue Émission, §2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le transcript entier d'une émission.
+ *
+ * **`enabled` par défaut à `true`, mais la surface qui l'appelle le pose à
+ * `false` tant qu'elle n'est pas ouverte.** Une émission fait ~20 000 mots :
+ * les tirer à chaque montage de la vue Émission, qu'on ouvre le transcript ou
+ * non, paierait une requête inutile la plupart du temps — la vue Émission se
+ * monte à chaque visite du projet, le transcript s'ouvre rarement.
+ *
+ * Pas d'interrogation en boucle : contrairement à `useProjet`, rien ici ne
+ * suit une exécution en cours. Une retranscription se voit ailleurs — l'état
+ * du projet, que `useRelancer` invalide déjà — et cette liste se rafraîchit
+ * en revenant sur l'écran, comme `useCandidats`.
+ */
+export function useTranscript(projectId: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: cles.transcript(projectId),
+    queryFn: () => getTranscript(projectId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/**
+ * Écrit une correction manuelle sur le sidecar, une phrase à la fois.
+ *
+ * **Pas d'écriture optimiste.** Contrairement au tri, une correction refusée
+ * — l'ancre ne correspond plus (409), l'empan déborde (400) — doit montrer le
+ * texte tel qu'il est vraiment sur le disque, jamais celui qu'on vient de
+ * taper : afficher la frappe par avance ferait croire à une correction
+ * acceptée qui ne l'était pas.
+ *
+ * **Le cache se remplace par la réponse, il ne s'invalide pas.** La route
+ * rend la phrase telle qu'elle vient d'être écrite et relue ; redemander tout
+ * le transcript pour une correction d'un mot coûterait un aller-retour de
+ * vingt mille mots pour obtenir exactement ce qu'on tient déjà.
+ *
+ * **Une phrase vidée de tous ses mots est retirée du cache, pas seulement
+ * remplacée.** `lignesDuTranscript` (`src/server/vues.ts`) écarte déjà une
+ * phrase sans mot aligné — c'est ce qu'un `GET` frais rendrait après une
+ * suppression totale. Remplacer sans filtrer laissait une ligne fantôme, sans
+ * mot, à son horodatage d'avant : le sidecar était correct, seul le cache
+ * divergeait de ce que le serveur aurait rendu. (relevé en review)
+ */
+export function useCorrectTranscript() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      correction,
+    }: {
+      projectId: string
+      correction: TranscriptCorrectionRequest
+    }) => correctTranscript(projectId, correction),
+    onSuccess({ line }, { projectId }) {
+      client.setQueryData(cles.transcript(projectId), (lines: TranscriptLine[] | undefined) =>
+        lines
+          ?.map((l) => (l.id === line.id ? line : l))
+          .filter((l) => l.words.length > 0),
+      )
+    },
+    // **Un 409 laisse le cache sur la version périmée qui a causé le refus.**
+    // `expected` ne correspondait plus à l'ancre : ce que le cache tient est
+    // donc déjà faux, et la requête reste fraîche trente secondes
+    // (`src/app/providers.tsx`) — fermer puis rouvrir le tiroir ne
+    // garantit pas un `GET`. Invalider force la relecture du texte
+    // réellement sur le disque. (relevé par Copilot)
+    onError(_error, { projectId }) {
+      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
     },
   })
 }

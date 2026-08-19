@@ -611,6 +611,14 @@ navigation est décrit en 5.2.
 au-dessus de la grille rendrait son URL impartageable et son rechargement
 impossible, sur l'écran précisément où l'on passe le plus de temps.
 
+**Ce que cette règle vise est l'URL, pas la forme visuelle.** Le transcript de
+l'émission (3.2) s'ouvre dans un tiroir — visuellement une surface posée
+au-dessus du reste, comme une modale le serait — mais piloté par
+`?transcript=1`, en `replace` et non en `push` comme le fil de tri (2.2) :
+rechargeable et partageable, ce qu'un état de composant n'aurait pas donné.
+C'est cette propriété-là que la règle protège ; un tiroir qui la respecte n'est
+pas l'exception qu'il paraît être.
+
 ### 3.1 Bibliothèque (`/`)
 
 **Objectif unique** : reprendre un travail en cours, ou en commencer un.
@@ -790,6 +798,24 @@ donné ?
   chevauchements — le repérage propose des fenêtres qui se recouvrent d'une
   trentaine de secondes — se répartissent en voies, par un glouton sur les débuts
   qui rend le nombre minimal (`src/core/couverture.ts`, pur).
+- **Le transcript, administré depuis cette vue** (19 août 2026, conception §2.3) :
+  un bouton ouvre le transcript **entier** de l'émission — pas la fenêtre de
+  120 s que l'écran de clip fenêtre autour d'un extrait —, dans une surface
+  large plutôt qu'une petite modale, virtualisée par phrase comme celle du clip.
+  **`?transcript=1` dans l'URL**, jamais un état de composant : la règle de 3.0
+  vaut aussi pour cette surface-là, malgré sa forme de tiroir — rechargeable et
+  partageable, ce qu'un état local n'aurait pas donné. Deux gestes de plus :
+  corriger un mot ou un empan à la main, et retranscrire l'émission entière.
+
+**La correction manuelle renvoie un empan de mots indexé, jamais du texte
+libre** — la même forme que le contrat du modèle (conception §9), un empan plus
+petit près : ici il est borné à une phrase, là-bas à l'empan soumis au modèle.
+Les timings des mots non touchés ne bougent jamais ; l'enveloppe temporelle de
+la phrase corrigée non plus — seul ce qui est à l'intérieur de l'empan retiré
+se redistribue sur le remplacement, au prorata de la longueur des mots pour un
+mot scindé en plusieurs. Une correction dont l'ancre ne correspond plus au
+texte réel (un autre correctif entre-temps, une retranscription) est refusée
+plutôt qu'appliquée aux mauvais mots.
 
 **La bande est en lecture seule, et l'arbitrage est en spec de conception §13.**
 Ce que cette §13 écarte est « toute la famille timeline multi-pistes, waveforms et
@@ -886,6 +912,15 @@ secondes.
   dialogue, dont le texte énonce exactement le partage : « vos 4 clips gardés
   sont conservés, les 19 propositions en attente sont remplacées ». Une
   confirmation qui ne dit pas ce qui va disparaître ne fait que retarder le clic.
+- **Retranscrire l'émission** : remplace le transcript, corrections manuelles
+  comprises — confirmation par boîte de dialogue. `POST /run { target:
+  'candidates', force: ['transcript'] }` : une seule requête, le graphe refait
+  le transcript *et* le repérage derrière lui, jamais une logique
+  d'invalidation posée à côté. Ce que le dialogue dit a changé le 19 août 2026 :
+  la transcription elle-même mesure 1 min 41 pour 1 h 39 (59× le temps réel,
+  neuf à quinze fois plus vite que ce document ne l'annonçait), donc « ce n'est
+  plus une décision qu'on redoute » (ROADMAP). Ce qui coûte est le repérage qui
+  reprend derrière, pas la retranscription — le dialogue le dit dans cet ordre.
 
 **Pas d'impasse** : l'état `interrompu` est le seul qui n'ait aucune issue par
 lui-même, et le bouton de reprise est ce qui le ferme. Il appelle `POST /run` avec

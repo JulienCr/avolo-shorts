@@ -45,7 +45,7 @@
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
-import type { TranscriptLine } from '@/lib/editing'
+import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
 
@@ -962,6 +962,62 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
  */
 export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
   return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+}
+
+// ---------------------------------------------------------------------------
+// Le transcript de l'émission (vue Émission, §2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Le transcript entier, pas la fenêtre de 120 s que `ClipDetail.lines` porte
+ * autour d'un clip. Une route à part : `GET /api/projects/:id/candidates` ne
+ * sert pas ces ~20 000 mots-là, et n'a aucune raison de commencer.
+ *
+ * Rend une liste vide, jamais une erreur, quand le projet n'a pas encore de
+ * transcript — c'est l'état normal entre l'ingestion et la transcription.
+ */
+export function getTranscript(projectId: string): Promise<TranscriptLine[]> {
+  return lire<TranscriptLine[]>(`/api/projects/${encodeURIComponent(projectId)}/transcript`)
+}
+
+/** Une correction manuelle, adressée à une phrase précise du transcript. */
+export type TranscriptCorrectionRequest = WordCorrection & { lineId: string }
+
+/**
+ * Ce que rend une correction acceptée : la phrase telle qu'écrite sur le
+ * disque, et les clips que son empan recouvre.
+ *
+ * **`clipsTouched` existe pour rendre une conséquence explicite** (§2.3) :
+ * corriger un mot dans une phrase déjà montée ne périme pas son rendu — le
+ * mécanisme d'empreinte ne compare pas encore le texte —, donc rien n'avertit
+ * ailleurs qu'un export déjà fait porte encore l'ancien sous-titre. Nommer les
+ * clips ici, au moment même de la correction, est ce que cette réponse peut
+ * faire sans une seconde mécanique d'invalidation.
+ */
+export type TranscriptCorrectionResult = {
+  line: TranscriptLine
+  clipsTouched: { id: string; title: string }[]
+}
+
+/**
+ * Corrige une phrase du transcript. **La forme est un empan de mots
+ * remplacé par un autre, jamais du texte libre** — `CLAUDE.md`, tableau des
+ * décisions à ne pas défaire : « la correction renvoie des substitutions
+ * indexées, pas du texte ». Voir `WordCorrection` (`src/lib/editing.ts`) pour
+ * ce que l'empan décide des timings.
+ *
+ * **409 quand le texte a changé sous les yeux** (`expected` ne correspond
+ * plus) : ce n'est pas un échec à réessayer tel quel, c'est le transcript
+ * qu'il faut relire d'abord.
+ */
+export function correctTranscript(
+  projectId: string,
+  correction: TranscriptCorrectionRequest,
+): Promise<TranscriptCorrectionResult> {
+  return poster<TranscriptCorrectionResult>(
+    `/api/projects/${encodeURIComponent(projectId)}/transcript`,
+    correction,
+  )
 }
 
 // ---------------------------------------------------------------------------

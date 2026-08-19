@@ -2,6 +2,7 @@ import fs from 'node:fs'
 
 import type { Clip, Segment } from '@/core/edl'
 import { titreProjet } from '@/core/pipeline'
+import { estGarde } from '@/core/parcours'
 import type { CandidateClip, ProjectListItem, ProjectSummary } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 import type { Project } from '@/server/db'
@@ -295,4 +296,49 @@ export function candidat(clip: Clip, transcript: TranscriptLu | null): Candidate
 
 function intervalle(étendue: Étendue | null): Segment[] {
   return étendue === null ? [] : [{ start: étendue.start, end: étendue.end }]
+}
+
+// ---------------------------------------------------------------------------
+// La correction manuelle du transcript
+// ---------------------------------------------------------------------------
+
+/**
+ * Les clips **sous-titrés** dont les segments recouvrent l'empan `[start,
+ * end]`, par titre.
+ *
+ * **Pour rendre explicite une conséquence que le graphe ne porte pas
+ * encore.** Corriger un mot dans une phrase déjà montée dans un clip ne
+ * change ni ses bornes ni son cadrage — rien que `leRenduEstPérimé`
+ * (`src/server/steps/render.ts`) compare aujourd'hui — donc un clip déjà
+ * exporté ne se marque pas périmé tout seul : ses sous-titres incrustés
+ * viennent de ce texte-là, au moment du rendu, et resteront ceux d'avant la
+ * correction tant que personne ne réexporte. Nommer ces clips à l'écran est
+ * ce qui rend la conséquence visible sans lui inventer une seconde
+ * mécanique d'invalidation à côté du graphe.
+ *
+ * **`captions: false` exclut**, et c'est la même conséquence : un clip sans
+ * sous-titres incrustés ne porte aucun rendu que la correction périme, donc
+ * l'avertissement mentirait sur ce qu'il affecte. (relevé par Copilot)
+ *
+ * **`estGarde` exclut aussi.** `getClips` rend également les propositions en
+ * attente et les clips écartés, qui n'ont encore aucun rendu à périmer — les
+ * signaler ferait porter à l'écran une conséquence qui ne s'est pas produite.
+ * (relevé par Copilot)
+ *
+ * Le recouvrement se teste sur les segments courants du clip, comme pour
+ * `candidat` — c'est ce que le clip contient *maintenant*, indépendamment de
+ * l'étendue qui a servi à le proposer.
+ */
+export function clipsTouchedBySpan(
+  clips: readonly Clip[],
+  span: { start: number; end: number },
+): { id: string; title: string }[] {
+  return clips
+    .filter(
+      (c) =>
+        estGarde(c.status) &&
+        c.captions &&
+        c.segments.some((s) => s.end > span.start && s.start < span.end),
+    )
+    .map((c) => ({ id: c.id, title: c.title }))
 }

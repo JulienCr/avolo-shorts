@@ -1,5 +1,5 @@
 old_name	new_name	occurrences	first_seen
-_cas	_case	1	tests/components/clip/textes.test.ts:52
+_cas	_scenarios	1	tests/components/clip/textes.test.ts:52
 _codage	_encoding	1	src/server/steps/ingest.ts:221
 _données	_data	1	src/lib/queries.ts:379
 _erreur	_error	4	src/lib/queries.ts:304
@@ -115,7 +115,7 @@ avancementWorker	progressWorker	1	src/core/pipeline.ts:72
 avancer	advance	2	src/server/run.ts:855
 avant	before	19	scripts/dev-commun.ts:35
 avantLeDébut	beforeStart	2	tests/server/analysis.test.ts:81
-avec	with	3	tests/core/framing.test.ts:866
+avec	included	3	tests/core/framing.test.ts:866
 avecEspace	withEspace	1	tests/server/sources.test.ts:58
 avecEspaces	withSpaces	1	tests/server/vignettes-sources.test.ts:663
 avecFiltre	withFilter	2	scripts/mesure-premier-plan.ts:236
@@ -189,7 +189,7 @@ carte	card	7	src/components/tri/fil.tsx:172
 carte1	card1	1	tests/components/tri/fil.test.tsx:566
 cartes	cards	1	src/components/tri/fil.tsx:168
 cartons	cards	2	src/server/steps/render.ts:1903
-cas	case	5	tests/server/render.test.ts:427
+cas	scenarios	5	tests/server/render.test.ts:427
 cases	cells	2	scripts/mesure-premier-plan.ts:137
 casse	broken	2	tests/server/candidates.test.ts:1128
 cassé	broken	2	tests/core/transcript.test.ts:387
@@ -353,7 +353,7 @@ décrites	described	1	tests/core/parcours.test.ts:182
 décritLeClip	describedClip	2	src/server/steps/render.ts:778
 dedans	inside	7	scripts/mesure-ratios.ts:361
 defaire	undo	2	src/components/tri/fil.tsx:211
-défaut	default	7	scripts/mesure-ratios.ts:641
+défaut	defaultValue	7	scripts/mesure-ratios.ts:641
 defilement	scroll	3	src/components/tri/fil.tsx:588
 defiler	scroll	2	tests/components/tri/fil.test.tsx:451
 défilerRef	scrollRef	1	src/components/clip/transcript-surface.tsx:191
@@ -634,7 +634,7 @@ extraireOk	extractOk	1	tests/server/vignettes-sources.test.ts:61
 factices	fake	1	tests/server/run.test.ts:724
 fait	done	3	src/core/pipeline.ts:75
 faites	made	2	tests/components/tri/avancement.test.tsx:22
-faux	false	6	tests/components/sources/library-screen.test.tsx:84
+faux	fake	6	tests/components/sources/library-screen.test.tsx:84
 fenêtre	window	3	src/core/gemini/parse.ts:200
 fenêtres	windows	10	scripts/mesure-premier-plan.ts:258
 FENÊTRES	WINDOWS	1	tests/server/candidates.test.ts:1272
@@ -907,7 +907,7 @@ montée	raised	1	src/core/framing.ts:1168
 montées	raised	1	src/core/framing.ts:1129
 monter	mount	11	tests/components/clip/ecran-clip.test.tsx:96
 Monter	Mount	1	src/components/tri/candidate-card.tsx:215
-monterFauxWorker	mountFalseWorker	1	tests/server/analysis.test.ts:391
+monterFauxWorker	mountFakeWorker	1	tests/server/analysis.test.ts:391
 monterSurObservateurPartage	mountOnObserverShared	1	tests/lib/enregistrement-auto.test.tsx:476
 montes	mounts	2	src/components/tri/fin-de-boucle.tsx:58
 morceau	piece	8	src/server/ffmpeg.ts:67
@@ -959,9 +959,9 @@ noter	note	1	tests/server/run.test.ts:52
 noterEtRécupérer	noteAndRecover	1	src/server/steps/candidates.ts:1206
 noterLesFenêtres	noteWindows	1	src/server/steps/candidates.ts:1158
 noterUnLot	noteABatch	1	src/server/steps/candidates.ts:1302
-nouveaux	new	1	src/core/candidates.ts:63
+nouveaux	freshClips	1	src/core/candidates.ts:63
 nu	bare	1	tests/core/erreurs.test.ts:278
-nul	null	1	tests/server/analysis.test.ts:297
+nul	nullDimensions	1	tests/server/analysis.test.ts:297
 numéroÉcriture	numberWrite	1	src/server/ffmpeg.ts:539
 objet	object	1	src/core/gemini/parse.ts:379
 observé	observed	3	src/server/steps/render.ts:698
@@ -1277,7 +1277,7 @@ retirerClôtures	removeClosures	1	src/core/gemini/parse.ts:390
 retirerSelection	removeSelection	2	src/store/editor.ts:62
 retires	removed	1	tests/server/ingest.test.ts:285
 retirés	removed	1	tests/server/ingest.test.ts:313
-retour	return	4	src/components/tri/ecran-projet.tsx:330
+retour	returning	4	src/components/tri/ecran-projet.tsx:330
 retourné	returned	1	tests/server/analysis.test.ts:75
 retournée	returned	1	tests/server/analysis.test.ts:98
 réussi	succeeded	1	src/server/paths.ts:236

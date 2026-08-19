@@ -361,7 +361,8 @@ const ENTRIES: Array<[string, string]> = [
   ["parole", "speech"],
   ["titre", "title"],
   ["titres", "titles"],
-  ["faux", "false"],
+  ["faux", "fake"], // "faux" est ambigu (booléen vs contrefait/mock) — "fake" couvre l'usage dominant en code de test (fakeFetch...) et évite le mot réservé "false".
+
   ["espion", "spy"],
   ["ecart", "gap"],
   ["filtre", "filter"],
@@ -415,7 +416,10 @@ const ENTRIES: Array<[string, string]> = [
   ["produit", "produced"],
   ["environnement", "environment"],
   ["harnais", "harness"],
-  ["cas", "case"],
+  // "case" est un mot réservé — invalide comme nom de variable ("const case
+  // = ..."). Tous les usages observés ici sont des tableaux de scénarios de
+  // test ("const cas = [...]"), d'où "scenarios" plutôt qu'un singulier.
+  ["cas", "scenarios"],
   ["chrono", "timer"],
   ["etroit", "narrow"],
   ["mediane", "median"],
@@ -1098,4 +1102,14 @@ export const PHRASE_OVERRIDES: Record<string, string> = {
   // `échantillon(de: number, à: number, ...)` — bornes d'un intervalle.
   de: "from",
   é: "step", // `ÉTAPES.some((é) => é.nom === ...)` — variable de boucle sur une étape.
+
+  // Collisions avec un mot réservé JS/TS (classify.mts les remonte en résidu
+  // plutôt que d'écrire une syntaxe invalide — voir RESERVED_WORDS) :
+  // "défaut"/"cas"/"faux" isolés traduiraient vers "default"/"case"/"false",
+  // aucun des trois n'est un nom de liaison valide.
+  défaut: "defaultValue", // `function setting(value, défaut: number)`, `const défaut = process.env[x] ?? défaut` — la valeur de repli elle-même.
+  retour: "returning", // `const { ..., retour } = lireSessionTri(...)` — le drapeau "on revient d'un clip", jamais la valeur de retour d'une fonction.
+  nouveaux: "freshClips", // `const nouveaux: Clip[] = []` — les candidats du lot qui ne collisionnent avec aucun clip déjà gardé.
+  avec: "included", // `const avec = phaseProjet(...); const sans = phaseProjet(...)` et `(avec: boolean) => ...` — s'accorde avec "sans" → "without" déjà en place.
+  nul: "nullDimensions", // `const nul = { ...ANALYSE_VALIDE, proxy: { w: 0, h: 540 } }` — un fixture de test, pas le mot "nul" en général.
 };

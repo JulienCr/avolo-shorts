@@ -1410,7 +1410,7 @@
   {
     "id": 436,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 641
@@ -1458,7 +1458,7 @@
   {
     "id": 469,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 710
@@ -1570,7 +1570,7 @@
   {
     "id": 527,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 848
@@ -1674,7 +1674,7 @@
   {
     "id": 571,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 954
@@ -2506,7 +2506,7 @@
   {
     "id": 879,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "parameter",
     "file": "scripts/vignettes-premier-plan.ts",
     "line": 214
@@ -7066,7 +7066,7 @@
   {
     "id": 2837,
     "oldName": "retour",
-    "newName": "return",
+    "newName": "returning",
     "kind": "bindingElement",
     "file": "src/components/tri/ecran-projet.tsx",
     "line": 330
@@ -7626,7 +7626,7 @@
   {
     "id": 2954,
     "oldName": "retour",
-    "newName": "return",
+    "newName": "returning",
     "kind": "bindingElement",
     "file": "src/components/tri/fil.tsx",
     "line": 588
@@ -8402,7 +8402,7 @@
   {
     "id": 3092,
     "oldName": "retour",
-    "newName": "return",
+    "newName": "returning",
     "kind": "interfaceProperty",
     "file": "src/components/tri/session.ts",
     "line": 51
@@ -8482,7 +8482,7 @@
   {
     "id": 3106,
     "oldName": "retour",
-    "newName": "return",
+    "newName": "returning",
     "kind": "bindingElement",
     "file": "src/components/tri/session.ts",
     "line": 103
@@ -8530,7 +8530,7 @@
   {
     "id": 3392,
     "oldName": "nouveaux",
-    "newName": "new",
+    "newName": "freshClips",
     "kind": "variable",
     "file": "src/core/candidates.ts",
     "line": 63
@@ -9418,7 +9418,7 @@
   {
     "id": 3815,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "parameter",
     "file": "src/core/framing.ts",
     "line": 428
@@ -13202,7 +13202,7 @@
   {
     "id": 5937,
     "oldName": "défaut",
-    "newName": "default",
+    "newName": "defaultValue",
     "kind": "parameter",
     "file": "src/server/paths.ts",
     "line": 23
@@ -20466,7 +20466,7 @@
   {
     "id": 7911,
     "oldName": "_cas",
-    "newName": "_case",
+    "newName": "_scenarios",
     "kind": "parameter",
     "file": "tests/components/clip/textes.test.ts",
     "line": 52
@@ -20826,7 +20826,7 @@
   {
     "id": 8220,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/components/sources/library-screen.test.tsx",
     "line": 84
@@ -20938,7 +20938,7 @@
   {
     "id": 8247,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/components/sources/library-screen.test.tsx",
     "line": 316
@@ -20946,7 +20946,7 @@
   {
     "id": 8249,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/components/sources/library-screen.test.tsx",
     "line": 334
@@ -23266,7 +23266,7 @@
   {
     "id": 8901,
     "oldName": "avec",
-    "newName": "with",
+    "newName": "included",
     "kind": "parameter",
     "file": "tests/core/framing.test.ts",
     "line": 866
@@ -23778,7 +23778,7 @@
   {
     "id": 9212,
     "oldName": "avec",
-    "newName": "with",
+    "newName": "included",
     "kind": "variable",
     "file": "tests/core/parcours.test.ts",
     "line": 93
@@ -23898,7 +23898,7 @@
   {
     "id": 9238,
     "oldName": "avec",
-    "newName": "with",
+    "newName": "included",
     "kind": "variable",
     "file": "tests/core/parcours.test.ts",
     "line": 296
@@ -26154,7 +26154,7 @@
   {
     "id": 9954,
     "oldName": "nul",
-    "newName": "null",
+    "newName": "nullDimensions",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 297
@@ -26194,7 +26194,7 @@
   {
     "id": 9961,
     "oldName": "monterFauxWorker",
-    "newName": "mountFalseWorker",
+    "newName": "mountFakeWorker",
     "kind": "function",
     "file": "tests/server/analysis.test.ts",
     "line": 391
@@ -26290,7 +26290,7 @@
   {
     "id": 9977,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 519
@@ -26314,7 +26314,7 @@
   {
     "id": 9980,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 559
@@ -26378,7 +26378,7 @@
   {
     "id": 9994,
     "oldName": "faux",
-    "newName": "false",
+    "newName": "fake",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 639
@@ -30826,7 +30826,7 @@
   {
     "id": 11246,
     "oldName": "cas",
-    "newName": "case",
+    "newName": "scenarios",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 427
@@ -30842,7 +30842,7 @@
   {
     "id": 11248,
     "oldName": "cas",
-    "newName": "case",
+    "newName": "scenarios",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 445
@@ -31234,7 +31234,7 @@
   {
     "id": 11323,
     "oldName": "cas",
-    "newName": "case",
+    "newName": "scenarios",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 976
@@ -31250,7 +31250,7 @@
   {
     "id": 11325,
     "oldName": "cas",
-    "newName": "case",
+    "newName": "scenarios",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 994
@@ -31594,7 +31594,7 @@
   {
     "id": 11438,
     "oldName": "cas",
-    "newName": "case",
+    "newName": "scenarios",
     "kind": "variable",
     "file": "tests/server/render.test.ts",
     "line": 1452

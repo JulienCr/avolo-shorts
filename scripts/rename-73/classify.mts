@@ -121,6 +121,24 @@ function reorderAroundDeLink(verdicts: WordVerdict[]): WordVerdict[] {
   return [...after, ...before];
 }
 
+// Mots réservés JS/TS : jamais un nom de liaison valide (variable, paramètre,
+// classe, fonction...). Une propriété (`interfaceProperty`, `classProperty`,
+// méthode, membre d'enum) peut légitimement s'appeler "default" — c'est de la
+// grammaire PropertyName, pas une liaison — donc RISKY_KINDS ne les liste pas.
+const RESERVED_WORDS = new Set([
+  "break", "case", "catch", "class", "const", "continue", "debugger", "default",
+  "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for",
+  "function", "if", "import", "in", "instanceof", "new", "null", "return",
+  "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void",
+  "while", "with", "let", "static", "yield", "await", "implements", "interface",
+  "package", "private", "protected", "public",
+]);
+const RISKY_KINDS = new Set([
+  "variable", "parameter", "bindingElement", "function", "class", "typeAlias",
+  "interface", "enum", "functionExpr", "classExpr", "importDefault",
+  "importNamespace", "typeParameter",
+]);
+
 export function classify(candidate: Candidate): Classified {
   const verdicts = candidate.words.map(classifyWord);
   const unresolvedWords = verdicts.filter((v) => v.kind === "unresolved").map((v) => v.word);
@@ -132,6 +150,7 @@ export function classify(candidate: Candidate): Classified {
 
   let proposedName: string | null = null;
   let allWordsDropped = false;
+  let reservedWordCollision = false;
   if (needsRename && unresolvedWords.length === 0) {
     // Un "_"/"$" de tête (paramètre volontairement inutilisé) porte un sens
     // et doit survivre : détecter le style et recomposer sur le nom une fois
@@ -153,11 +172,24 @@ export function classify(candidate: Candidate): Classified {
       allWordsDropped = true;
     } else {
       const candidateName = prefix + joinWords(translatedWords, style);
-      proposedName = candidateName === candidate.oldName ? null : candidateName;
+      // "faux" → "false", "cas" → "case", "défaut" → "default"... un mot
+      // français traduit mot à mot peut tomber pile sur un mot réservé. Sans
+      // accent (donc jamais détecté par un compilateur avant coup), et
+      // seulement fatal en position de liaison — `const default = ...` est
+      // une erreur de syntaxe, `{ default: 5 }` ne l'est pas. Remonté en
+      // résidu plutôt que silencieusement écrit en JS invalide : table.mts
+      // échoue fort dessus, et le nom exact se choisit dans PHRASE_OVERRIDES
+      // avec son contexte sous les yeux, pas par une règle générique.
+      if (RESERVED_WORDS.has(candidateName) && RISKY_KINDS.has(candidate.kind)) {
+        reservedWordCollision = true;
+      } else {
+        proposedName = candidateName === candidate.oldName ? null : candidateName;
+      }
     }
   }
 
-  const finalUnresolvedWords = allWordsDropped ? [...candidate.words] : unresolvedWords;
+  const finalUnresolvedWords =
+    allWordsDropped || reservedWordCollision ? [...candidate.words] : unresolvedWords;
 
   return {
     ...candidate,

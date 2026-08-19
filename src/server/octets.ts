@@ -112,6 +112,80 @@ function fluxWeb(fichier: FileHandle, plage?: ByteRange): ReadableStream<Uint8Ar
 }
 
 /**
+ * Les validateurs HTTP (`ETag`, `Last-Modified`) dérivés du `stat` du handle
+ * ouvert — jamais d'un `stat` séparé : voir le commentaire sur « ouvrir
+ * d'abord, décrire ensuite » plus bas, qui vaut ici aussi et pour la même
+ * raison. `info.mtimeMs` existait déjà à cet endroit, simplement inutilisé.
+ *
+ * L'`ETag` combine la taille et l'horodatage : un ré-export qui change l'un ou
+ * l'autre change l'étiquette, ce qui est le but — un scrub en cours ne doit
+ * jamais laisser croire qu'un octet appartient encore à l'ancienne version du
+ * fichier. C'est un validateur **fort** (pas de préfixe `W/`) : les requêtes
+ * partielles ne peuvent s'appuyer que sur un validateur fort, et `If-Range`
+ * plus bas en a besoin pour décider d'honorer une plage (RFC 7233 §3.2).
+ */
+function computeValidators(size: number, mtimeMs: number): { etag: string; lastModified: string } {
+  const truncatedMtimeMs = Math.trunc(mtimeMs)
+  return {
+    etag: `"${size.toString(16)}-${truncatedMtimeMs.toString(16)}"`,
+    lastModified: new Date(truncatedMtimeMs).toUTCString(),
+  }
+}
+
+/** Une étiquette sans son préfixe `W/`, pour une comparaison faible. */
+function stripWeakPrefix(tag: string): string {
+  return tag.startsWith('W/') ? tag.slice(2) : tag
+}
+
+/** `If-None-Match` accepte `*`, une étiquette seule, ou une liste séparée par des virgules. */
+function ifNoneMatchSatisfied(header: string, etag: string): boolean {
+  if (header.trim() === '*') return true
+  return header
+    .split(',')
+    .map((tag) => tag.trim())
+    .some((tag) => stripWeakPrefix(tag) === etag)
+}
+
+/** `Last-Modified` n'a qu'une résolution à la seconde : comparer à la même échelle. */
+function ifModifiedSinceSatisfied(header: string, mtimeMs: number): boolean {
+  const since = Date.parse(header)
+  if (Number.isNaN(since)) return false
+  return Math.floor(mtimeMs / 1000) * 1000 <= since
+}
+
+/**
+ * `true` quand une requête **sans `Range`** peut se contenter d'un 304.
+ *
+ * `If-None-Match` prime sur `If-Modified-Since` quand les deux sont présents
+ * (RFC 7232 §3.3) : un client qui envoie les deux a un `ETag` en cache, plus
+ * précis qu'une date à la seconde, et c'est lui qui doit trancher.
+ */
+function notModified(request: Request, etag: string, mtimeMs: number): boolean {
+  const ifNoneMatch = request.headers.get('if-none-match')
+  if (ifNoneMatch !== null) return ifNoneMatchSatisfied(ifNoneMatch, etag)
+  const ifModifiedSince = request.headers.get('if-modified-since')
+  if (ifModifiedSince !== null) return ifModifiedSinceSatisfied(ifModifiedSince, mtimeMs)
+  return false
+}
+
+/**
+ * `true` quand `If-Range` autorise à servir la plage demandée plutôt que le
+ * fichier entier.
+ *
+ * Une étiquette faible (`W/"..."`) échoue toujours : seule une comparaison
+ * forte est valide pour une plage (RFC 7233 §3.2). Une date se compare à la
+ * seconde près, la résolution de `Last-Modified` — ni avant, ni après.
+ */
+function ifRangeSatisfied(header: string, etag: string, mtimeMs: number): boolean {
+  const trimmed = header.trim()
+  if (trimmed.startsWith('W/')) return false
+  if (trimmed.startsWith('"')) return trimmed === etag
+  const since = Date.parse(trimmed)
+  if (Number.isNaN(since)) return false
+  return Math.floor(mtimeMs / 1000) * 1000 === since
+}
+
+/**
  * La réponse qui porte `chemin`, ou **`null` quand le fichier n'est pas là**.
  *
  * `null` plutôt qu'un 404 tout fait : l'absence se raconte différemment selon la
@@ -120,8 +194,17 @@ function fluxWeb(fichier: FileHandle, plage?: ByteRange): ReadableStream<Uint8Ar
  * qu'il porte la taille réelle du fichier, que l'appelant n'a pas.
  *
  * `entêtes` passe le `Content-Type` et ce que la route veut y ajouter ;
- * `Content-Length`, `Content-Range` et `Accept-Ranges` sont posés ici, puisqu'ils
- * décrivent les octets et non la ressource.
+ * `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag` et `Last-Modified`
+ * sont posés ici, puisqu'ils décrivent les octets et non la ressource.
+ *
+ * **Le partage des rôles, et pourquoi il ne peut pas être autrement.** Cette
+ * fonction possède les validateurs et tout le traitement conditionnel
+ * (`If-None-Match`, `If-Modified-Since`, `If-Range`) : ils se calculent à
+ * partir du `stat` du handle ouvert, qui ne peut vivre qu'ici (même raison que
+ * le commentaire « ouvrir d'abord, décrire ensuite » plus bas). La route, elle,
+ * possède son `Cache-Control` — c'est une décision de politique de cache propre
+ * à ce qu'elle sert, pas quelque chose que cette fonction générique pourrait
+ * deviner — et le passe par `entêtes` comme le `Content-Type`.
  */
 export async function servirFichier(
   requête: Request,
@@ -155,18 +238,44 @@ export async function servirFichier(
     // milieu d'une réponse déjà commencée.
     if (!info.isFile()) return null
     const taille = info.size
+    const { etag, lastModified } = computeValidators(taille, info.mtimeMs)
+    const entêtesAvecValidateurs = { ...entêtes, ETag: etag, 'Last-Modified': lastModified }
 
     const enTête = requête.headers.get('range')
 
-    // Pas de `Range` : le fichier entier. `Accept-Ranges` est posé quand même,
-    // et c'est tout l'intérêt de cette branche — c'est cet en-tête qui annonce
-    // au navigateur qu'il *peut* demander des plages. Sans lui, il ne
-    // redemandera jamais rien et la barre de lecture restera inerte.
+    // Pas de `Range` : le fichier entier, sauf si un validateur dit que le
+    // client l'a déjà. **Le 304 ne se pose que dans cette branche** : une
+    // requête qui porte à la fois un validateur et `Range` attend une plage,
+    // pas une absence de corps, et c'est `If-Range` juste en dessous qui la
+    // traite.
     if (enTête === null) {
+      if (notModified(requête, etag, info.mtimeMs)) {
+        // Sans corps, donc sans `Content-Length` qui le décrirait : rien à
+        // envoyer, seulement les validateurs qui ont permis de le dire.
+        return new Response(null, { status: 304, headers: entêtesAvecValidateurs })
+      }
+      // `Accept-Ranges` est posé quand même, et c'est tout l'intérêt de cette
+      // branche — c'est cet en-tête qui annonce au navigateur qu'il *peut*
+      // demander des plages. Sans lui, il ne redemandera jamais rien et la
+      // barre de lecture restera inerte.
       confié = true
       return new Response(fluxWeb(fichier), {
         status: 200,
-        headers: { ...entêtes, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
+        headers: { ...entêtesAvecValidateurs, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
+      })
+    }
+
+    // `If-Range` protège un scrub en cours d'une reconstruction du proxy sous
+    // les doigts : le client redemande une plage d'un fichier qui a changé
+    // depuis sa dernière requête, et sans ce contrôle il recoudrait deux
+    // moitiés de vidéos différentes. Le validateur périmé retombe donc sur le
+    // fichier entier, exactement comme en l'absence de `Range`.
+    const ifRange = requête.headers.get('if-range')
+    if (ifRange !== null && !ifRangeSatisfied(ifRange, etag, info.mtimeMs)) {
+      confié = true
+      return new Response(fluxWeb(fichier), {
+        status: 200,
+        headers: { ...entêtesAvecValidateurs, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
       })
     }
 
@@ -180,10 +289,13 @@ export async function servirFichier(
       // par heuristique : sans le `Cache-Control` de la route, un refus calculé
       // sur l'ancienne taille peut survivre à un ré-export qui remplace le
       // fichier sous la même URL, et bloquer une demande devenue légitime.
-      // (relevé par Copilot et Aristarque)
+      // (relevé par Copilot et Aristarque) Avec le `no-cache` que pose la route
+      // du proxy, ce 416 cesse justement d'être cacheable par heuristique — ce
+      // que ce commentaire cherchait déjà à obtenir, désormais garanti plutôt
+      // qu'espéré.
       return new Response(null, {
         status: 416,
-        headers: { ...entêtes, 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
+        headers: { ...entêtesAvecValidateurs, 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
       })
     }
 
@@ -191,7 +303,7 @@ export async function servirFichier(
     return new Response(fluxWeb(fichier, plage), {
       status: 206,
       headers: {
-        ...entêtes,
+        ...entêtesAvecValidateurs,
         // Les deux bornes sont inclusives : `bytes=0-1023` fait 1024 octets.
         'Content-Length': String(plage.end - plage.start + 1),
         'Content-Range': `bytes ${plage.start}-${plage.end}/${taille}`,

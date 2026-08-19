@@ -25,6 +25,15 @@ import { projectsDir, proxyPath } from '@/server/paths'
 /** Le proxy est toujours du H.264 en conteneur MP4 (tâche 8). */
 const TYPE = 'video/mp4'
 
+/**
+ * Les deux 404 d'absence — id invalide ci-dessous, ou fichier pas encore là —
+ * ne se cachent **jamais**. Le proxy arrive environ douze minutes après la
+ * création du projet, et `urlProxy` rend `null` tout ce temps : c'est un cas
+ * nominal fréquent, pas une erreur passagère, et le mettre en cache serait une
+ * panne durable qui survivrait à l'arrivée du fichier.
+ */
+const ABSENCE_HEADERS = { 'Cache-Control': 'no-store' }
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -48,12 +57,28 @@ export async function GET(
     // qui ne peut nommer aucun chemin ne désigne aucun proxy : 404, comme un
     // projet inexistant. Répondre 400 dirait au demandeur que sa syntaxe était
     // presque bonne.
-    return new Response(null, { status: 404 })
+    return new Response(null, { status: 404, headers: ABSENCE_HEADERS })
   }
 
   // Pas de fichier : tant que l'étape d'encodage n'a pas tourné, il n'y a rien à
   // servir. Ce n'est pas une panne, et tout le reste — droits refusés, montage
   // mort — remonte en 500 par `servirFichier`, qui ne déguise que l'absence.
-  const response = await servirFichier(request, chemin, { 'Content-Type': TYPE })
-  return response ?? new Response(null, { status: 404 })
+  const response = await servirFichier(request, chemin, {
+    'Content-Type': TYPE,
+    // `servirFichier` possède les validateurs et le traitement conditionnel ;
+    // cette route possède son `Cache-Control`, qui lui est propre — voir le
+    // commentaire au sommet de `servirFichier` pour la raison de ce partage.
+    //
+    // Avec un `ETag` fort dérivé de la taille et de l'horodatage, la
+    // revalidation est **gratuite** : une requête conditionnelle plutôt qu'un
+    // gigaoctet retéléchargé. `no-cache` est la seule valeur qui ne peut jamais
+    // servir l'ancien proxy après un ré-encodage — une durée choisie à la main
+    // serait une invention, et la mesure de l'issue #82 dit qu'il n'y a rien à
+    // gagner à en tenter une : 0 à 5 requêtes `Range` par glissé d'oreille sur
+    // `2025-06-15-cqlp`, médiane 3, toutes en 206, aucune saccade. `private`
+    // exclut les caches partagés, ce proxy n'ayant de sens que pour un seul
+    // projet.
+    'Cache-Control': 'private, no-cache',
+  })
+  return response ?? new Response(null, { status: 404, headers: ABSENCE_HEADERS })
 }

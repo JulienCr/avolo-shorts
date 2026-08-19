@@ -49,29 +49,42 @@ interface Extracted {
 function extract(filePath: string, content: string): Extracted {
   const ext = path.extname(filePath);
   const kind: ts.ScriptKind = ext === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  // setParentNodes: true — indispensable à node.getChildren() plus bas, qui
+  // en a besoin pour redécouper un nœud en ses jetons concrets.
   const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
 
   const comments: string[] = [];
   const strings: string[] = [];
 
-  // Commentaires : via le scanner, qui les voit tous (de tête comme de
-  // traîne), plutôt que ts.getLeadingCommentRanges nœud par nœud, qui en
-  // raterait au sommet du fichier et entre deux nœuds sans relation directe.
-  const variant = ext === ".tsx" ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard;
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, variant, content);
-  scanner.setText(content);
-  let tok = scanner.scan();
-  while (tok !== ts.SyntaxKind.EndOfFileToken) {
-    if (
-      tok === ts.SyntaxKind.SingleLineCommentTrivia ||
-      tok === ts.SyntaxKind.MultiLineCommentTrivia
-    ) {
-      comments.push(content.slice(scanner.getTokenStart(), scanner.getTokenEnd()));
+  // Commentaires : un scanner indépendant du parseur n'a aucune notion de
+  // continuation de template literal. Sur `` `${x}.suffix` ``, il rend
+  // TemplateHead, scanne l'intérieur comme du code, puis prend le backtick
+  // *fermant* pour le début d'un nouveau template et avale tout le reste du
+  // fichier — commentaires compris — dans un seul token (issue #73, revue
+  // de la preuve elle-même : 113 fichiers renommés sur 206 portent un
+  // template interpolé, donc étaient aveugles sur tout ce qui suit).
+  //
+  // On descend plutôt le vrai arbre, jeton par jeton : node.getChildren()
+  // retourne les enfants *concrets* d'un nœud (accolades, parenthèses,
+  // point-virgules compris), pas seulement ses enfants sémantiques comme
+  // ts.forEachChild — c'est ce qui permet de retrouver aussi un commentaire
+  // posé juste avant l'accolade fermante d'un bloc, sans nœud suivant pour
+  // le porter en tête. Chaque position de départ (getFullStart()) n'est
+  // traitée qu'une fois : plusieurs nœuds imbriqués peuvent partager le
+  // même début, et compteraient sinon le même commentaire plusieurs fois.
+  const seenCommentStarts = new Set<number>();
+  function collectLeadingComments(node: ts.Node): void {
+    const fullStart = node.getFullStart();
+    if (seenCommentStarts.has(fullStart)) return;
+    seenCommentStarts.add(fullStart);
+    const ranges = ts.getLeadingCommentRanges(content, fullStart) ?? [];
+    for (const r of ranges) {
+      comments.push(content.slice(r.pos, r.end));
     }
-    tok = scanner.scan();
   }
 
   const visit = (node: ts.Node) => {
+    collectLeadingComments(node);
     if (
       ts.isStringLiteral(node) ||
       ts.isNoSubstitutionTemplateLiteral(node) ||
@@ -81,7 +94,9 @@ function extract(filePath: string, content: string): Extracted {
     ) {
       strings.push(node.text);
     }
-    ts.forEachChild(node, visit);
+    for (const child of node.getChildren(source)) {
+      visit(child);
+    }
   };
   visit(source);
 

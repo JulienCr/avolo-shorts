@@ -99,7 +99,7 @@ export function Timeline({
   const view = viewport(bounds, limit)
 
   const draggingHandle = drag !== null && drag.edge !== null
-  const { video: previewVideo, canvas: previewCanvas } = useFramePreview(proxyUrl, drag)
+  const { setVideo: setPreviewVideo, canvas: previewCanvas } = useFramePreview(drag)
 
   const timeAtPointer = useCallback(
     (clientX: number): number | null => {
@@ -289,7 +289,11 @@ export function Timeline({
           <span
             aria-hidden
             className="pointer-events-none absolute -top-2 z-20 -translate-x-1/2 -translate-y-full rounded border bg-popover p-1 shadow-lg"
-            style={{ left: `${toFraction(drag.time) * 100}%` }}
+            // La vignette reste dans la bande : centrée sur une position au ras
+            // du bord, sa moitié sortirait du cadre et se ferait rogner —
+            // vérifié à l'écran, sur le geste le plus courant, qui est justement
+            // de tirer une oreille jusqu'au bout.
+            style={{ left: `clamp(4rem, ${toFraction(drag.time) * 100}%, calc(100% - 4rem))` }}
           >
             <canvas
               ref={previewCanvas}
@@ -310,7 +314,7 @@ export function Timeline({
           tire. */}
       {proxyUrl !== null && (
         <video
-          ref={previewVideo}
+          ref={setPreviewVideo}
           src={proxyUrl}
           muted
           preload="metadata"
@@ -465,8 +469,31 @@ function Handle({
  * décodeur sait tenir au lieu de le noyer. Ce n'est pas une optimisation, c'est
  * ce qui rend le geste tenable.
  */
-function useFramePreview(proxyUrl: string | null, drag: Drag | null) {
-  const video = useRef<HTMLVideoElement>(null)
+function useFramePreview(drag: Drag | null) {
+  const video = useRef<HTMLVideoElement | null>(null)
+  /**
+   * **Le montage du `<video>` réveille les effets — une référence ne le fait
+   * pas, et c'est un défaut mesuré.**
+   *
+   * Ce `<video>`-ci n'existe pas au premier rendu : le store n'a pas encore
+   * chargé le clip, `clipBounds` rend `null`, la bande sort par son retour
+   * anticipé et l'élément n'est pas monté. L'effet qui branche `seeked`
+   * s'exécutait alors sur une référence vide, ne branchait rien, et ne se
+   * rejouait jamais — ses dépendances n'avaient pas bougé. Vérifié au
+   * navigateur : la vignette de scrub restait **noire**, sur le seul composant
+   * dont c'est la raison d'être, sans une erreur nulle part.
+   *
+   * Un drapeau d'état à côté de la référence règle les deux moitiés : la
+   * référence porte l'élément qu'on pilote — `currentTime` est une écriture, et
+   * un élément gardé en état serait une valeur d'état qu'on mute —, le drapeau
+   * porte le fait qu'il existe, donc la dépendance.
+   */
+  const [monte, setMonte] = useState(false)
+  const setVideo = useCallback((element: HTMLVideoElement | null) => {
+    video.current = element
+    setMonte(element !== null)
+  }, [])
+
   const canvas = useRef<HTMLCanvasElement>(null)
   /** La position demandée pendant qu'une recherche est en vol, ou `null`. */
   const queued = useRef<number | null>(null)
@@ -488,7 +515,7 @@ function useFramePreview(proxyUrl: string | null, drag: Drag | null) {
   // demandée entre-temps. C'est ici que la coalescence se referme.
   useEffect(() => {
     const source = video.current
-    if (source === null) return
+    if (!monte || source === null) return
     const onSeeked = () => {
       paint()
       const next = queued.current
@@ -501,19 +528,25 @@ function useFramePreview(proxyUrl: string | null, drag: Drag | null) {
     }
     source.addEventListener('seeked', onSeeked)
     return () => source.removeEventListener('seeked', onSeeked)
-  }, [paint, proxyUrl])
+  }, [monte, paint])
 
   const time = drag?.time ?? null
   useEffect(() => {
     const source = video.current
-    if (source === null || time === null || !Number.isFinite(time)) return
+    if (!monte || source === null || time === null || !Number.isFinite(time)) return
+    // **On peint avant de chercher.** La vignette apparaît avec le geste, et une
+    // recherche sur un proxy servi en requêtes partielles prend le temps qu'elle
+    // prend : sans ce premier trait, le début de chaque glissé montre un
+    // rectangle noir. L'image affichée est celle d'avant, ce que le timecode
+    // sous la vignette dit déjà.
+    paint()
     if (inFlight.current) {
       queued.current = time
       return
     }
     inFlight.current = true
     source.currentTime = time
-  }, [time])
+  }, [monte, time, paint])
 
   // Le geste fini, la file se vide : une recherche restée en attente ferait
   // repartir le décodeur pour une image que plus personne ne regarde.
@@ -524,5 +557,5 @@ function useFramePreview(proxyUrl: string | null, drag: Drag | null) {
     }
   }, [drag])
 
-  return { video, canvas }
+  return { setVideo, canvas }
 }

@@ -196,6 +196,67 @@ describe('les oreilles', () => {
   })
 })
 
+describe('la vignette de scrub', () => {
+  /**
+   * **Le défaut que ce test ferme ne levait rien et ne se voyait qu'à l'écran.**
+   *
+   * Le `<video>` caché n'existe pas au premier rendu : le store n'a pas encore
+   * chargé le clip, `clipBounds` rend `null`, la bande sort par son retour
+   * anticipé. Un effet qui branchait `seeked` sur une *référence* tournait alors
+   * dans le vide et ne se rejouait jamais — une référence ne réveille aucun
+   * effet. La vignette restait noire pendant tous les glissés, sur le seul
+   * composant dont c'est la raison d'être, et sans une erreur nulle part. Le
+   * montage en deux temps ci-dessous est la reproduction exacte.
+   */
+  it('peint la position demandée, même montée après le premier rendu', () => {
+    mesurerLaBande()
+    const dessiner = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: dessiner,
+    } as unknown as CanvasRenderingContext2D)
+
+    const { rerender } = render(
+      <Timeline
+        segments={[]}
+        framing={framing()}
+        proxyUrl="/api/projects/p1/proxy"
+        sourceDuration={5940}
+        onScrub={vi.fn()}
+        onBoundary={vi.fn()}
+      />,
+    )
+    rerender(
+      <Timeline
+        segments={[{ start: 100, end: 120 }]}
+        framing={framing()}
+        proxyUrl="/api/projects/p1/proxy"
+        sourceDuration={5940}
+        onScrub={vi.fn()}
+        onBoundary={vi.fn()}
+      />,
+    )
+
+    const source = document.querySelector('video')
+    if (source === null) throw new Error('le lecteur de vignettes n’est pas monté')
+    // jsdom ne décode rien : on lui donne des dimensions, faute de quoi la garde
+    // contre une source de 0x0 écarte la peinture à juste titre.
+    Object.defineProperty(source, 'videoWidth', { value: 960, configurable: true })
+    Object.defineProperty(source, 'videoHeight', { value: 540, configurable: true })
+
+    pointeur(oreille('start'), 'pointerdown', 400)
+    dessiner.mockClear()
+    fireEvent(source, new Event('seeked'))
+    expect(dessiner).toHaveBeenCalledTimes(1)
+  })
+
+  it('ne cherche pas sans proxy', () => {
+    // Un projet dont le proxy n'est pas encodé : la bande reste utilisable, il
+    // n'y a simplement pas d'image à montrer.
+    monter({ proxyUrl: null })
+    expect(document.querySelector('video')).toBeNull()
+  })
+})
+
 describe('le scrub', () => {
   it('confie la position au lecteur à la fin du geste', () => {
     // Pendant le geste, c'est la vignette qui montre l'image : faire chercher le

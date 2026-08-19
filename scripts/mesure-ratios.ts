@@ -316,6 +316,17 @@ function costOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): 
     torsoMinScore: FRAMING_DEFAULTS.torsoMinScore,
     torsoPad: FRAMING_DEFAULTS.torsoPad,
   }
+  // **Le filtre du premier plan, lui, suit le réglage testé et le doit.** Il
+  // décide *quelles* boîtes entrent dans le cadrage ; les mesurer sur une autre
+  // population que celle qui a choisi le ratio ne dirait plus ce que ce ratio
+  // coûte. C'est l'inverse du tronc juste au-dessus, qui est un mètre et pas une
+  // décision.
+  //
+  // La conséquence, et elle vaut d'être écrite avant que quelqu'un la découvre
+  // dans un tableau : le jour où un balayage fera varier `bottomEdge` ou
+  // `foregroundMaxHeight`, la colonne « têtes dehors » bougera pour deux raisons
+  // à la fois — le cadre change, et la population aussi. Aucun balayage ne les
+  // fait varier aujourd'hui. (relevé par Aristarque)
   const pointThreshold = FRAMING_DEFAULTS.torsoMinScore
   const cost: Cost = {
     box: [],

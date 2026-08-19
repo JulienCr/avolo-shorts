@@ -223,9 +223,16 @@ function étendue(
   const gardées = boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
   if (gardées.length === 0) return { g: undefined, d: undefined, haut: 0, bas: 1 }
   const required = gardées.map((b) => personBounds(b, { sideTrim: trim, torso }))
+  // **Les deux bornes dans [0, 1] des deux côtés**, comme `empans` de
+  // `framing.ts`. Depuis que `personBounds` lit des points de pose, l'étendue
+  // peut sortir de l'image en entier : borner chacune de son seul côté donnait
+  // `g = 0` avec `d < 0`, donc un empan retourné et un débordement gonflé pour
+  // une personne qui n'est plus là. Le jumeau de ce défaut a été corrigé dans
+  // `framing.ts` et celui-ci n'avait pas suivi. (relevé par Aristarque)
+  const borner = (n: number): number => Math.min(Math.max(n, 0), 1)
   return {
-    g: Math.max(0, Math.min(...required.map((b) => b.x0)) - marge),
-    d: Math.min(1, Math.max(...required.map((b) => b.x1)) + marge),
+    g: borner(Math.min(...required.map((b) => b.x0)) - marge),
+    d: borner(Math.max(...required.map((b) => b.x1)) + marge),
     haut: Math.min(...gardées.map((b) => b.y0)),
     bas: Math.max(...gardées.map((b) => b.y1)),
   }

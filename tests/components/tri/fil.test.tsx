@@ -462,11 +462,11 @@ describe('le retour, et lui seul', () => {
     // revenir au projet laisse la marque posée. La visite suivante, ordinaire
     // celle-là, ne doit pas hériter du focus et de la vue de l'aller-retour
     // qu'elle n'a jamais fait.
-    const maintenant = vi.spyOn(Date, 'now')
-    maintenant.mockReturnValue(1_000_000)
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000_000)
     écrireSessionTri('p1', { retour: true, carte: 'c2', vue: 'gardes' })
 
-    maintenant.mockReturnValue(1_000_000 + 31 * 60 * 1000)
+    now.mockReturnValue(1_000_000 + 31 * 60 * 1000)
     const liste = [candidat(1), candidat(2, 'kept')]
     render(<Piloté vue="gardes" liste={liste} />)
 

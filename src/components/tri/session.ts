@@ -101,22 +101,22 @@ export function lireSessionTri(projectId: string): ÉtatDeTri {
     // passerait tel quel jusque dans un `querySelector`, et un `defilement`
     // textuel jusque dans un `scrollTo`.
     const { carte, defilement, vue, retour, postedAt } = lu as Partial<ÉtatDeTri>
-    const posteA = typeof postedAt === 'number' && Number.isFinite(postedAt) ? postedAt : null
+    const storedPostedAt = typeof postedAt === 'number' && Number.isFinite(postedAt) ? postedAt : null
     // Un aller-retour normal vers un clip — l'ouvrir, éventuellement le monter,
     // revenir par le fil d'Ariane — se joue en quelques minutes. Passé ce
     // délai, la marque est plus probablement un départ sans retour (vers la
     // bibliothèque, ou un onglet ouvert en arrière-plan qui n'a jamais navigué)
     // qu'un aller-retour en cours : on ne la restaure plus.
     const MAX_RETURN_AGE_MS = 30 * 60 * 1000
-    const retourFrais = retour === true && posteA !== null && Date.now() - posteA <= MAX_RETURN_AGE_MS
+    const isFresh = retour === true && storedPostedAt !== null && Date.now() - storedPostedAt <= MAX_RETURN_AGE_MS
     return {
       carte: typeof carte === 'string' ? carte : null,
       defilement: typeof defilement === 'number' && Number.isFinite(defilement) ? defilement : 0,
       // Comparée à la liste des vues plutôt que crue sur parole : la clé se
       // bricole à la main, et une vue inconnue ferait rendre une grille vide.
       vue: VUES.some((v) => v.valeur === vue) ? (vue as Vue) : null,
-      retour: retourFrais,
-      postedAt: posteA,
+      retour: isFresh,
+      postedAt: storedPostedAt,
     }
   } catch {
     return NEUTRE
@@ -137,10 +137,10 @@ export function écrireSessionTri(projectId: string, état: Partial<ÉtatDeTri>)
     // L'horodatage se pose ici, pas chez l'appelant : c'est le seul endroit
     // qui sait *quand* la marque est posée, et un appelant qui l'oublierait
     // écrirait une marque qui n'expire jamais.
-    const horodatage = état.retour === true ? { postedAt: Date.now() } : {}
+    const timestamp = état.retour === true ? { postedAt: Date.now() } : {}
     mémoire.setItem(
       clé(projectId),
-      JSON.stringify({ ...lireSessionTri(projectId), ...état, ...horodatage }),
+      JSON.stringify({ ...lireSessionTri(projectId), ...état, ...timestamp }),
     )
   } catch {
     // Quota, navigation privée : rien à réparer et rien à dire.

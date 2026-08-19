@@ -120,14 +120,14 @@ describe('la marque de retour, et sa durée de vie', () => {
   // à l'écouter.
 
   it('horodate la marque au moment où elle est posée', () => {
-    const avant = Date.now()
+    const before = Date.now()
     écrireSessionTri('p1', { retour: true, carte: 'c1' })
-    const après = Date.now()
+    const after = Date.now()
 
     const { postedAt } = lireSessionTri('p1')
     expect(postedAt).not.toBeNull()
-    expect(postedAt as number).toBeGreaterThanOrEqual(avant)
-    expect(postedAt as number).toBeLessThanOrEqual(après)
+    expect(postedAt as number).toBeGreaterThanOrEqual(before)
+    expect(postedAt as number).toBeLessThanOrEqual(after)
   })
 
   it('honore une marque fraîche', () => {
@@ -139,11 +139,11 @@ describe('la marque de retour, et sa durée de vie', () => {
     // Un aller-retour normal — ouvrir le clip, le monter, revenir — se joue en
     // quelques minutes. Une marque de plus de trente minutes ne décrit plus un
     // aller-retour en cours.
-    const maintenant = vi.spyOn(Date, 'now')
-    maintenant.mockReturnValue(1_000_000)
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000_000)
     écrireSessionTri('p1', { retour: true, carte: 'c1' })
 
-    maintenant.mockReturnValue(1_000_000 + 31 * 60 * 1000)
+    now.mockReturnValue(1_000_000 + 31 * 60 * 1000)
     expect(lireSessionTri('p1').retour).toBe(false)
   })
 

@@ -148,12 +148,12 @@ it('ne montre aucun bouton de retour au défaut quand tout est déjà au défaut
   expect(screen.queryByText(/Revenir à gemini-3\.1-flash-lite/)).toBeNull()
 })
 
-it('propose de revenir au fournisseur par défaut, et écrit le bon champ', async () => {
+it('propose de revenir au fournisseur par défaut, et remet le modèle avec lui', async () => {
   const onChange = vi.fn()
   const user = userEvent.setup()
   render(
     <AiSection
-      values={{ ...VALUES, correctionProvider: 'openai' }}
+      values={{ ...VALUES, correctionProvider: 'openai', correctionModel: 'gpt-4.1-mini' }}
       availability={AVAILABLE}
       onChange={onChange}
     />,
@@ -161,7 +161,12 @@ it('propose de revenir au fournisseur par défaut, et écrit le bon champ', asyn
 
   const button = screen.getByText(/Revenir à Gemini/)
   await user.click(button)
-  expect(onChange).toHaveBeenCalledWith({ correctionProvider: 'gemini' })
+  // **Atomique** : sinon le modèle OpenAI reste en place avec Gemini réglé,
+  // une combinaison vouée au 404 dès le prochain repérage. (relevé par Copilot)
+  expect(onChange).toHaveBeenCalledWith({
+    correctionProvider: 'gemini',
+    correctionModel: 'gemini-3.1-flash-lite',
+  })
 })
 
 it('propose de revenir au modèle par défaut, et écrit le bon champ', async () => {
@@ -178,4 +183,23 @@ it('propose de revenir au modèle par défaut, et écrit le bon champ', async ()
   const button = screen.getByText('Revenir à gemini-3.1-flash-lite')
   await user.click(button)
   expect(onChange).toHaveBeenCalledWith({ hookModel: 'gemini-3.1-flash-lite' })
+})
+
+it('le défaut du champ modèle suit le fournisseur courant, pas toujours Gemini', async () => {
+  const onChange = vi.fn()
+  const user = userEvent.setup()
+  render(
+    <AiSection
+      values={{ ...VALUES, hookProvider: 'openai', hookModel: 'gemini-3.1-flash-lite' }}
+      availability={AVAILABLE}
+      onChange={onChange}
+    />,
+  )
+
+  // **Le modèle indicatif d'OpenAI, pas celui de Gemini** : sinon « revenir
+  // au défaut » remplace un modèle par un autre qui 404 chez ce fournisseur.
+  // (relevé par Copilot)
+  const button = screen.getByText('Revenir à gpt-4.1-mini')
+  await user.click(button)
+  expect(onChange).toHaveBeenCalledWith({ hookModel: 'gpt-4.1-mini' })
 })

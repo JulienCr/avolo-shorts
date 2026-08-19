@@ -250,13 +250,21 @@ function UsageRow({
           </Select>
           {/* **Même geste que `SelectionSection`** (§6.2 du retour d'usage) :
               un bouton de retour au défaut, qui ne s'affiche que s'il y a
-              quelque chose à défaire. */}
+              quelque chose à défaire.
+              **Le modèle repart avec le fournisseur, atomiquement** : le
+              revenir seul laissait le modèle d'un autre fournisseur en place,
+              une combinaison vouée au 404 dès le prochain repérage. (relevé
+              par Copilot) */}
           {provider !== DEFAULT_PROVIDER && (
             <Button
               variant="ghost"
               size="sm"
               disabled={disabled}
-              onClick={() => void Promise.resolve(onChange({ [usage.providerField]: DEFAULT_PROVIDER })).catch(() => {})}
+              onClick={() =>
+                void Promise.resolve(
+                  onChange({ [usage.providerField]: DEFAULT_PROVIDER, [usage.modelField]: DEFAULT_MODEL }),
+                ).catch(() => {})
+              }
               className="h-auto justify-start px-0 text-xs text-muted-foreground"
             >
               <RotateCcw aria-hidden />
@@ -270,7 +278,12 @@ function UsageRow({
           label="Modèle"
           value={model}
           hint={MODEL_HINT[provider]}
-          defaultValue={DEFAULT_MODEL}
+          // **Le défaut suit le fournisseur courant, pas toujours Gemini.**
+          // `DEFAULT_MODEL` n'a de sens que si `provider === DEFAULT_PROVIDER` ;
+          // sinon « revenir au défaut » remplaçait un modèle valide par le
+          // modèle Gemini sans changer de fournisseur — le même 404 que le
+          // bouton ci-dessus, par un autre chemin. (relevé par Copilot)
+          defaultValue={MODEL_HINT[provider]}
           disabled={disabled}
           onCommit={(value) => onChange({ [usage.modelField]: value })}
         />

@@ -50,7 +50,7 @@ import { candidatesPath, placeSidecar } from '@/server/paths'
  * resserrement du cadre, densité des tours de parole — et le reclassement en
  * vision sont l'itération 2.
  *
- * **Ce fichier garde ses identifiers français accentués — `clientParDéfaut`,
+ * **Ce fichier garde ses identifiants français accentués — `clientParDéfaut`,
  * `SCHÉMA_NOTATION`, `SCHÉMA_DÉTAIL`, `DÉLAI_APPEL_MS`, etc.** La règle de
  * langue de `CLAUDE.md` veut le code en anglais ; les balayer ici est le
  * travail de l'issue #73, pas celui de cette PR, qui les a touchés sans les

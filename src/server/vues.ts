@@ -302,7 +302,8 @@ function intervalle(étendue: Étendue | null): Segment[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Les clips dont les segments recouvrent l'empan `[start, end]`, par titre.
+ * Les clips **sous-titrés** dont les segments recouvrent l'empan `[start,
+ * end]`, par titre.
  *
  * **Pour rendre explicite une conséquence que le graphe ne porte pas
  * encore.** Corriger un mot dans une phrase déjà montée dans un clip ne
@@ -314,6 +315,10 @@ function intervalle(étendue: Étendue | null): Segment[] {
  * ce qui rend la conséquence visible sans lui inventer une seconde
  * mécanique d'invalidation à côté du graphe.
  *
+ * **`captions: false` exclut**, et c'est la même conséquence : un clip sans
+ * sous-titres incrustés ne porte aucun rendu que la correction périme, donc
+ * l'avertissement mentirait sur ce qu'il affecte. (relevé par Copilot)
+ *
  * Le recouvrement se teste sur les segments courants du clip, comme pour
  * `candidat` — c'est ce que le clip contient *maintenant*, indépendamment de
  * l'étendue qui a servi à le proposer.
@@ -323,6 +328,6 @@ export function clipsTouchedBySpan(
   span: { start: number; end: number },
 ): { id: string; title: string }[] {
   return clips
-    .filter((c) => c.segments.some((s) => s.end > span.start && s.start < span.end))
+    .filter((c) => c.captions && c.segments.some((s) => s.end > span.start && s.start < span.end))
     .map((c) => ({ id: c.id, title: c.title }))
 }

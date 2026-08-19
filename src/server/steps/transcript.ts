@@ -19,7 +19,7 @@ import {
 import type { Project } from '@/server/db'
 import { placeSidecar, resolveSource } from '@/server/paths'
 import { montageRépond } from '@/server/steps/ingest'
-import { lireTranscript, type TranscriptLu } from '@/server/steps/candidates'
+import { lireTranscript } from '@/server/steps/candidates'
 
 /**
  * La transcription : WhisperX en sous-processus, et le résultat dans le sidecar.
@@ -488,7 +488,19 @@ function lancerWorker(
 export type TranscriptCorrectionRefusal = 'no-transcript' | 'unknown-line' | CorrectionRefusal
 
 export type TranscriptCorrectionOutcome =
-  | { ok: true; line: TranscriptLine }
+  | {
+      ok: true
+      line: TranscriptLine
+      /**
+       * L'empan réellement corrigé — `words[from].start` à `words[to].end`,
+       * calculé avant remplacement — distinct de l'enveloppe de la phrase
+       * portée par `line.start`/`line.end`, qui ne bouge jamais. Une phrase
+       * de 60 à 100 s dont on corrige le dernier mot ne doit signaler que les
+       * clips qui recouvrent ces quelques secondes, pas toute la phrase.
+       * (relevé par Copilot)
+       */
+      correctedSpan: { start: number; end: number }
+    }
   | { ok: false; reason: TranscriptCorrectionRefusal }
 
 /**
@@ -518,6 +530,15 @@ function lineIndex(lineId: string): number | null {
  * corrigé : les phrases voisines, et les bornes des clips qui recouvrent
  * celle-ci.
  *
+ * **Seul le segment touché passe par `lireTranscript`.** Cette lecture est
+ * volontairement destructrice — elle sert d'abord le repérage, où un mot sans
+ * horodatage n'est pas une frontière utile — et son type ne modélise que
+ * `{word,start,end}` par mot. La réécrire pour tous les segments transformerait
+ * donc une correction locale en suppression silencieuse des mots non alignés
+ * (et de tout champ que ce type ignore) sur des phrases que personne n'a
+ * demandé à corriger. Les segments non touchés restent la copie brute lue sur
+ * le disque, réinjectée telle quelle. (relevé par Copilot)
+ *
  * **Le fichier entier est réécrit**, comme `candidates.json` ou l'empreinte de
  * rendu le sont déjà ailleurs dans ce dépôt : il n'y a pas de format qui
  * permette une écriture partielle d'un JSON, et une correction ne porte de
@@ -530,7 +551,41 @@ function lineIndex(lineId: string): number | null {
  * dont l'écriture précédente a été tronquée par un incident du montage ; se
  * relire est la seule façon de le savoir plutôt que de le supposer.
  */
+/**
+ * Sérialise les corrections d'un même projet entre elles.
+ *
+ * **Le cycle lecture-validation-écriture n'est pas atomique.** Deux corrections
+ * simultanées sur des phrases différentes liraient toutes deux l'ancien
+ * fichier, valideraient chacune sur cette lecture, puis la dernière écriture
+ * effacerait la première sans que rien ne le signale — les deux réponses HTTP
+ * annonceraient pourtant un succès. Chaîner chaque appel derrière le
+ * précédent, par projet, rend le cycle atomique sans verrou inter-processus :
+ * `enCours` (`src/server/run.ts`) résout déjà la même classe de problème pour
+ * les exécutions du graphe de la même façon, une table de *ce* processus,
+ * jamais partagée entre plusieurs. (relevé par Copilot)
+ */
+const corrections = new Map<string, Promise<unknown>>()
+
 export async function correctTranscript(
+  project: Project,
+  lineId: string,
+  correction: WordCorrection,
+): Promise<TranscriptCorrectionOutcome> {
+  const précédente = corrections.get(project.id) ?? Promise.resolve()
+  const suivante = précédente
+    .catch(() => undefined)
+    .then(() => correctTranscriptSansFile(project, lineId, correction))
+  // Le prochain appelant chaîne sur cette promesse — y compris si elle rejette,
+  // via le `.catch` ci-dessus qui n'agit que sur le maillon suivant, pas sur
+  // celui-ci : l'appelant courant voit toujours la vraie erreur.
+  corrections.set(
+    project.id,
+    suivante.catch(() => undefined),
+  )
+  return suivante
+}
+
+async function correctTranscriptSansFile(
   project: Project,
   lineId: string,
   correction: WordCorrection,
@@ -549,6 +604,12 @@ export async function correctTranscript(
   const placement = placeSidecar(project.sourcePath, project.id)
   if (!fs.existsSync(placement.transcript)) return { ok: false, reason: 'no-transcript' }
 
+  // La copie brute, non passée par le schéma destructeur de `lireTranscript` —
+  // c'est elle qui porte les segments non touchés jusqu'à la réécriture.
+  const rawContent = await fsp.readFile(placement.transcript, 'utf8')
+  const rawTranscript = JSON.parse(rawContent) as { language?: unknown; segments?: unknown }
+  const rawSegments = Array.isArray(rawTranscript.segments) ? rawTranscript.segments : []
+
   const transcript = lireTranscript(placement.transcript)
   const index = lineIndex(lineId)
   if (index === null || index < 0 || index >= transcript.segments.length) {
@@ -559,10 +620,15 @@ export async function correctTranscript(
   const outcome = applyWordCorrection(segment.words, correction)
   if (!outcome.ok) return outcome
 
+  const correctedSpan = {
+    start: segment.words[correction.from].start,
+    end: segment.words[correction.to].end,
+  }
+
   const nextSegment = { ...segment, words: outcome.words, text: wordsToText(outcome.words) }
-  const nextTranscript: TranscriptLu = {
-    language: transcript.language,
-    segments: transcript.segments.map((s, i) => (i === index ? nextSegment : s)),
+  const nextTranscript = {
+    language: rawTranscript.language ?? transcript.language,
+    segments: rawSegments.map((s, i) => (i === index ? nextSegment : s)),
   }
 
   const temporaryPath = cheminTemporaire(placement.transcript)
@@ -590,5 +656,6 @@ export async function correctTranscript(
   return {
     ok: true,
     line: { id: lineId, start: nextSegment.start, end: nextSegment.end, words: nextSegment.words },
+    correctedSpan,
   }
 }

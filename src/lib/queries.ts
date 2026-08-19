@@ -98,18 +98,27 @@ export function useProjet(projectId: string) {
     refetchInterval: (query) => (query.state.data?.running ? 2_000 : false),
   })
 
-  // **La fin d'une exécution invalide les candidats.** Ouvrir l'écran de tri
-  // avant que le repérage n'ait rendu quoi que ce soit met une liste vide en
-  // cache, et rien ne la remplace : `useCandidats` n'interroge pas en boucle, et
-  // seule cette requête-ci suit l'avancement. La grille restait donc vide
-  // jusqu'à un rechargement complet — sur une analyse de quarante minutes, c'est
-  // le moment exact où l'on regarde. Le proxy arrivant après les candidats, la
-  // même invalidation fait apparaître les vignettes. (relevé par Codex)
+  // **La fin d'une exécution invalide les candidats — et le transcript.**
+  // Ouvrir l'écran de tri avant que le repérage n'ait rendu quoi que ce soit
+  // met une liste vide en cache, et rien ne la remplace : `useCandidats`
+  // n'interroge pas en boucle, et seule cette requête-ci suit l'avancement. La
+  // grille restait donc vide jusqu'à un rechargement complet — sur une analyse
+  // de quarante minutes, c'est le moment exact où l'on regarde. Le proxy
+  // arrivant après les candidats, la même invalidation fait apparaître les
+  // vignettes. (relevé par Codex)
+  //
+  // **Le transcript pour la même raison** : une retranscription remplace le
+  // sidecar, mais le panneau reste monté et sa requête reste fraîche trente
+  // secondes (`src/app/providers.tsx`) — sans cette invalidation il continue
+  // d'afficher l'ancien texte après la fin de WhisperX, et une correction
+  // dessus échouerait en 409 sur une ancre déjà périmée. (relevé par Copilot
+  // et par Aristarque)
   const enCours = requête.data?.running != null
   const tournait = useRef(false)
   useEffect(() => {
     if (tournait.current && !enCours) {
       void client.invalidateQueries({ queryKey: cles.candidats(projectId) })
+      void client.invalidateQueries({ queryKey: cles.transcript(projectId) })
     }
     tournait.current = enCours
   }, [enCours, client, projectId])
@@ -634,8 +643,8 @@ export function useCorrectTranscript() {
       correction: TranscriptCorrectionRequest
     }) => correctTranscript(projectId, correction),
     onSuccess({ line }, { projectId }) {
-      client.setQueryData(cles.transcript(projectId), (lignes: TranscriptLine[] | undefined) =>
-        lignes
+      client.setQueryData(cles.transcript(projectId), (lines: TranscriptLine[] | undefined) =>
+        lines
           ?.map((l) => (l.id === line.id ? line : l))
           .filter((l) => l.words.length > 0),
       )

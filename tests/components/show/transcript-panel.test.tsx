@@ -19,11 +19,11 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranscriptLine } from '@/lib/editing'
 
-const remplacer = vi.fn()
-let requête = ''
+const replaceMock = vi.fn()
+let query = ''
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: remplacer, push: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(requête),
+  useRouter: () => ({ replace: replaceMock, push: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(query),
 }))
 
 const { TranscriptPanel, TranscriptTrigger } = await import('@/components/show/transcript-panel')
@@ -36,16 +36,16 @@ const { TranscriptPanel, TranscriptTrigger } = await import('@/components/show/t
  * nulle sur le prototype est la façon reconnue de tester une liste virtualisée
  * sous jsdom ; restaurée après coup pour ne pas fuir sur d'autres fichiers.
  */
-const offsetHeightDÉpart = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
-const offsetWidthDÉpart = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
+const initialOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+const initialOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
 Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 600 })
 Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 800 })
 
-function reponse(corps: unknown, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => corps } as Response
+function response(body: unknown, status = 200): Response {
+  return { ok: status >= 200 && status < 300, status, statusText: '', json: async () => body } as Response
 }
 
-function enveloppe({ children }: { children: ReactNode }) {
+function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -65,70 +65,70 @@ const LIGNES: TranscriptLine[] = [
   },
 ]
 
-type Règle = { quand: (url: string, méthode: string) => boolean; corps: unknown; statut?: number }
+type Rule = { when: (url: string, method: string) => boolean; body: unknown; status?: number }
 
-/** Un routeur de `fetch` minimal, par méthode et fragment d'URL. */
-function stubFetch(règles: Règle[]) {
-  const appel = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+/** Un routeur de `fetch` minimal, par method et fragment d'URL. */
+function stubFetch(rules: Rule[]) {
+  const call = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    const méthode = init?.method ?? 'GET'
-    const trouvée = règles.find((r) => r.quand(url, méthode))
-    if (trouvée === undefined) throw new Error(`Aucune réponse simulée pour ${méthode} ${url}`)
-    return reponse(trouvée.corps, trouvée.statut ?? 200)
+    const method = init?.method ?? 'GET'
+    const found = rules.find((r) => r.when(url, method))
+    if (found === undefined) throw new Error(`Aucune réponse simulée pour ${method} ${url}`)
+    return response(found.body, found.status ?? 200)
   })
-  vi.stubGlobal('fetch', appel)
-  return appel
+  vi.stubGlobal('fetch', call)
+  return call
 }
 
 /** Sert `LIGNES` sur `GET .../transcript`. */
-function lireTranscript(corps: unknown = LIGNES): Règle {
-  return { quand: (u, m) => m === 'GET' && u.endsWith('/transcript'), corps }
+function lireTranscript(body: unknown = LIGNES): Rule {
+  return { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body }
 }
 
 /** Répond à `POST .../transcript` — la correction. */
-function poserCorrection(corps: unknown, statut = 200): Règle {
-  return { quand: (u, m) => m === 'POST' && u.endsWith('/transcript'), corps, statut }
+function poserCorrection(body: unknown, status = 200): Rule {
+  return { when: (u, m) => m === 'POST' && u.endsWith('/transcript'), body, status }
 }
 
 /** Répond à `POST .../run`. */
-function poserRun(corps: unknown, statut = 202): Règle {
-  return { quand: (u, m) => m === 'POST' && u.endsWith('/run'), corps, statut }
+function poserRun(body: unknown, status = 202): Rule {
+  return { when: (u, m) => m === 'POST' && u.endsWith('/run'), body, status }
 }
 
-function corpsEnvoyé(appel: ReturnType<typeof vi.fn>, index: number): unknown {
-  const [, options] = appel.mock.calls[index] as unknown as [string, RequestInit]
+function sentBody(call: ReturnType<typeof vi.fn>, index: number): unknown {
+  const [, options] = call.mock.calls[index] as unknown as [string, RequestInit]
   return JSON.parse(String(options.body))
 }
 
 afterAll(() => {
-  if (offsetHeightDÉpart) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeightDÉpart)
-  if (offsetWidthDÉpart) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', offsetWidthDÉpart)
+  if (initialOffsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', initialOffsetHeight)
+  if (initialOffsetWidth) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', initialOffsetWidth)
 })
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
-  requête = ''
-  remplacer.mockClear()
+  query = ''
+  replaceMock.mockClear()
 })
 
 describe('TranscriptTrigger', () => {
   it('pose `?transcript=1` sans effacer les autres paramètres', async () => {
-    requête = 'vue=gardes'
+    query = 'vue=gardes'
     stubFetch([lireTranscript()])
-    render(<TranscriptTrigger projectId="cqlp" />, { wrapper: enveloppe })
+    render(<TranscriptTrigger projectId="cqlp" />, { wrapper })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /voir le transcript/i }))
 
-    expect(remplacer).toHaveBeenCalledWith('/projects/cqlp?vue=gardes&transcript=1', { scroll: false })
+    expect(replaceMock).toHaveBeenCalledWith('/projects/cqlp?vue=gardes&transcript=1', { scroll: false })
   })
 })
 
 describe('TranscriptPanel — lecture', () => {
   it('rend le transcript par phrase, avec son horodatage', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     expect(await screen.findByRole('button', { name: 'Bonjour' })).toBeTruthy()
     expect(screen.getByText('0:00:10')).toBeTruthy()
@@ -136,23 +136,23 @@ describe('TranscriptPanel — lecture', () => {
 
   it("dit qu'il n'y a pas encore de transcript plutôt que de rendre une surface vide", async () => {
     stubFetch([lireTranscript([])])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     expect(await screen.findByText(/n’a pas encore de transcript/)).toBeTruthy()
   })
 
   it("ne demande rien au serveur tant que le panneau n'est pas ouvert", () => {
-    const appel = stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open={false} onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    const call = stubFetch([lireTranscript()])
+    render(<TranscriptPanel projectId="cqlp" open={false} onOpenChange={vi.fn()} />, { wrapper })
 
-    expect(appel).not.toHaveBeenCalled()
+    expect(call).not.toHaveBeenCalled()
   })
 })
 
 describe('TranscriptPanel — correction', () => {
   it('sélectionne un mot au clic et propose son texte à corriger', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Bonjour' }))
 
@@ -162,7 +162,7 @@ describe('TranscriptPanel — correction', () => {
 
   it('majuscule-clique étend la sélection à plusieurs mots, dans la même phrase', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     fireEvent.click(await screen.findByRole('button', { name: 'Bonjour' }))
     fireEvent.click(screen.getByRole('button', { name: 'à' }), { shiftKey: true })
@@ -172,7 +172,7 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('envoie un empan de mots et son remplacement — jamais du texte libre', async () => {
-    const appel = stubFetch([
+    const call = stubFetch([
       lireTranscript(),
       poserCorrection({
         line: {
@@ -182,20 +182,20 @@ describe('TranscriptPanel — correction', () => {
         clipsTouched: [],
       }),
     ])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const utilisateur = userEvent.setup()
-    await utilisateur.click(await screen.findByRole('button', { name: 'Bonjour' }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
     const champ = screen.getByPlaceholderText('Texte corrigé…')
-    await utilisateur.clear(champ)
-    await utilisateur.type(champ, 'Salut')
-    await utilisateur.click(screen.getByRole('button', { name: 'Corriger' }))
+    await user.clear(champ)
+    await user.type(champ, 'Salut')
+    await user.click(screen.getByRole('button', { name: 'Corriger' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Salut' })).toBeTruthy())
 
-    const index = appel.mock.calls.findIndex(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+    const index = call.mock.calls.findIndex(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
     expect(index).toBeGreaterThanOrEqual(0)
-    expect(corpsEnvoyé(appel, index)).toEqual({
+    expect(sentBody(call, index)).toEqual({
       lineId: 'l0',
       from: 0,
       to: 0,
@@ -204,13 +204,49 @@ describe('TranscriptPanel — correction', () => {
     })
   })
 
+  it('ne double-envoie pas une correction pendant que la première est en vol', async () => {
+    // Le POST reste en attente jusqu'à ce que le test le débloque : sans le
+    // garde sur `correction.isPending`, un second clic pendant ce délai
+    // partirait avant la réponse du premier. (relevé par Copilot et par
+    // Aristarque)
+    let unblock: (v: Response) => void = () => {}
+    const pending = new Promise<Response>((resolve) => {
+      unblock = resolve
+    })
+    const call = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      if (method === 'GET' && url.endsWith('/transcript')) return response(LIGNES)
+      if (method === 'POST' && url.endsWith('/transcript')) return pending
+      throw new Error(`Aucune réponse simulée pour ${method} ${url}`)
+    })
+    vi.stubGlobal('fetch', call)
+
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
+    const button = screen.getByRole('button', { name: 'Corriger' })
+    await user.click(button)
+    await user.click(button)
+    await user.click(button)
+
+    const posts = call.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+    expect(posts).toHaveLength(1)
+
+    // La réponse débloquée efface la sélection (`clearSelection` au succès) :
+    // le button disparaît, plutôt que de rester visible et actionnable.
+    unblock(response({ line: LIGNES[0], clipsTouched: [] }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Corriger' })).toBeNull())
+  })
+
   it('dit que le texte a changé sous les yeux sur un 409', async () => {
     stubFetch([lireTranscript(), poserCorrection({ error: 'Le texte a changé sous vos yeux.' }, 409)])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const utilisateur = userEvent.setup()
-    await utilisateur.click(await screen.findByRole('button', { name: 'Bonjour' }))
-    await utilisateur.click(screen.getByRole('button', { name: 'Corriger' }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
+    await user.click(screen.getByRole('button', { name: 'Corriger' }))
 
     const alerte = await screen.findByRole('alert')
     expect(alerte.textContent).toMatch(/changé sous vos yeux/)
@@ -221,11 +257,11 @@ describe('TranscriptPanel — correction', () => {
       lireTranscript(),
       poserCorrection({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
     ])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const utilisateur = userEvent.setup()
-    await utilisateur.click(await screen.findByRole('button', { name: 'Bonjour' }))
-    await utilisateur.click(screen.getByRole('button', { name: 'Corriger' }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
+    await user.click(screen.getByRole('button', { name: 'Corriger' }))
 
     expect(await screen.findByText(/Le canapé/)).toBeTruthy()
     expect(screen.getByText(/reflètent la correction qu’après un nouvel export/)).toBeTruthy()
@@ -235,7 +271,7 @@ describe('TranscriptPanel — correction', () => {
 describe('RetranscribeButton', () => {
   it('demande confirmation avant de retranscrire', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     await userEvent.setup().click(await screen.findByRole('button', { name: /retranscrire l’émission/i }))
 
@@ -243,16 +279,16 @@ describe('RetranscribeButton', () => {
   })
 
   it('vise `candidates` en forçant `transcript` — le graphe refait les deux', async () => {
-    const appel = stubFetch([lireTranscript(), poserRun({ projectId: 'cqlp', plan: ['transcript', 'candidates'] })])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    const call = stubFetch([lireTranscript(), poserRun({ projectId: 'cqlp', plan: ['transcript', 'candidates'] })])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const utilisateur = userEvent.setup()
-    await utilisateur.click(await screen.findByRole('button', { name: /retranscrire l’émission/i }))
-    await utilisateur.click(await screen.findByRole('button', { name: /^retranscrire$/i }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /retranscrire l’émission/i }))
+    await user.click(await screen.findByRole('button', { name: /^retranscrire$/i }))
 
-    await waitFor(() => expect(appel.mock.calls.some(([u]) => String(u).endsWith('/run'))).toBe(true))
-    const index = appel.mock.calls.findIndex(([u]) => String(u).endsWith('/run'))
-    expect(corpsEnvoyé(appel, index)).toEqual({ target: 'candidates', force: ['transcript'] })
+    await waitFor(() => expect(call.mock.calls.some(([u]) => String(u).endsWith('/run'))).toBe(true))
+    const index = call.mock.calls.findIndex(([u]) => String(u).endsWith('/run'))
+    expect(sentBody(call, index)).toEqual({ target: 'candidates', force: ['transcript'] })
   })
 })
 
@@ -268,7 +304,7 @@ describe('la navigation au clavier', () => {
 
   it('un seul mot est un arrêt de tabulation à la fois, et les flèches le déplacent', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
     const a = screen.getByRole('button', { name: 'à' })
@@ -285,7 +321,7 @@ describe('la navigation au clavier', () => {
 
   it('Entrée sur le mot du curseur le sélectionne, comme un clic', async () => {
     stubFetch([lireTranscript()])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
     bonjour.focus()
@@ -310,7 +346,7 @@ describe('la navigation au clavier', () => {
         words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
       }))
       stubFetch([lireTranscript(soixante)])
-      render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+      render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
       const mot0 = await screen.findByRole('button', { name: 'mot0' })
       mot0.focus()
       scrollTo.mockClear()
@@ -331,10 +367,10 @@ describe('la navigation au clavier', () => {
       words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
     }))
     stubFetch([lireTranscript(soixante)])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const mot0 = await screen.findByRole('button', { name: 'mot0' })
-    const conteneur = document.querySelector('[data-surface-transcript-émission]') as HTMLDivElement
+    const conteneur = document.querySelector('[data-surface-transcript-show]') as HTMLDivElement
     // Le mot du curseur (index 0) est rendu : le conteneur n'est pas un
     // arrêt de tabulation, mot0 l'est.
     expect(conteneur.getAttribute('tabindex')).toBe('-1')

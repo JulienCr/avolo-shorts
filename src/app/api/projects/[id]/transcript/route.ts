@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { WordCorrection } from '@/lib/editing'
 import { getClips, getDb, getProject } from '@/server/db'
 import { ErreurHttp, corps, introuvable, json, route } from '@/server/http'
+import { progression } from '@/server/run'
 import { correctTranscript, type TranscriptCorrectionRefusal } from '@/server/steps/transcript'
 import { clipsTouchedBySpan, lignesDuTranscript, transcriptDuProjet } from '@/server/vues'
 
@@ -38,15 +39,31 @@ export const GET = route(
  * remplacement. Voir `WordCorrection` (`src/lib/editing.ts`) pour la forme et
  * ce qu'elle décide des timings.
  */
+/**
+ * Un mot, un seul — jamais plusieurs mots collés ni une chaîne vide.
+ *
+ * **Le contrat annonce des listes de mots** (`WordCorrection`,
+ * `src/lib/editing.ts`) : `redistributeTiming` répartit l'empan au prorata de
+ * la longueur de chaque token, et `applyWordCorrection` compare `expected`
+ * mot à mot contre `words[from..to]`. Un token `'deux mots'` ou `''` passerait
+ * le schéma large d'origine puis se persisterait comme un seul `Word` — ce qui
+ * casse l'indexation par position que `lineIndex` et le tableau de mots
+ * supposent partout ailleurs. (relevé par Copilot)
+ */
+const MOT = z
+  .string()
+  .min(1, 'un mot ne peut pas être vide')
+  .regex(/^\S+$/, 'un mot ne peut pas contenir d’espace')
+
 const CORRECTION = z.strictObject({
   /** L'identifiant de la phrase, tel que `lignesDuTranscript` le rend (`l0`, `l1`, …). */
   lineId: z.string().min(1),
   from: z.number().int().min(0),
   to: z.number().int().min(0),
   /** Le texte actuellement attendu à `[from, to]` — l'ancre, vérifiée avant d'écrire. */
-  expected: z.array(z.string()),
+  expected: z.array(MOT),
   /** Le remplacement. Vide efface l'empan. */
-  replacement: z.array(z.string()),
+  replacement: z.array(MOT),
 })
 
 /** Le statut que mérite un refus, selon ce qu'il dit du monde. */
@@ -68,6 +85,18 @@ export const POST = route(
     const project = getProject(db, id)
     if (project === undefined) throw introuvable(`Projet inconnu : ${id}`)
 
+    // **Une retranscription en cours écrase le sidecar derrière une
+    // correction qui vient de s'annoncer réussie.** `progression` lit une
+    // table en mémoire, sans toucher au disque — le refus arrive avant toute
+    // lecture du transcript, pas après une course perdue. (relevé par
+    // Copilot)
+    if (progression(id) !== null) {
+      throw new ErreurHttp(
+        409,
+        'Une retranscription est en cours pour ce projet : attendre qu’elle se termine avant de corriger le transcript.',
+      )
+    }
+
     const result = await correctTranscript(project, lineId, correction)
     if (!result.ok) {
       throw new ErreurHttp(REFUSAL_STATUS[result.reason], refusalMessage(result.reason))
@@ -80,7 +109,7 @@ export const POST = route(
     // (`src/server/steps/render.ts` ne compare pas le texte — voir le rapport
     // de cette PR). Nommer les clips touchés est ce que cette route peut faire
     // sans toucher à ce fichier.
-    const clips = clipsTouchedBySpan(getClips(db, id), { start: result.line.start, end: result.line.end })
+    const clips = clipsTouchedBySpan(getClips(db, id), result.correctedSpan)
 
     return json({ line: result.line, clipsTouched: clips })
   },

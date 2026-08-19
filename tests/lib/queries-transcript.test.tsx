@@ -12,30 +12,30 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, type TranscriptCorrectionResult } from '@/lib/api'
+import { ApiError, type ProjectStatus, type TranscriptCorrectionResult } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
-import { cles, useCorrectTranscript, useTranscript } from '@/lib/queries'
+import { cles, useCorrectTranscript, useProjet, useTranscript } from '@/lib/queries'
 
-function reponse(corps: unknown, status = 200): Response {
+function response(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: '',
-    json: async () => corps,
+    json: async () => body,
   } as Response
 }
 
-function harnais() {
+function harness() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  const enveloppe = ({ children }: { children: ReactNode }) => (
+  const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  return { client, enveloppe }
+  return { client, wrapper }
 }
 
-const lignes: TranscriptLine[] = [
+const lines: TranscriptLine[] = [
   { id: 'l0', start: 0, end: 2, words: [{ word: 'Bonjour', start: 0, end: 1 }] },
   { id: 'l1', start: 5, end: 6, words: [{ word: 'Suite', start: 5, end: 6 }] },
 ]
@@ -48,23 +48,23 @@ afterEach(() => {
 
 describe('useTranscript', () => {
   it('charge le transcript de l’émission', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(lignes)))
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useTranscript('p1'), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(lines)))
+    const { wrapper } = harness()
+    const { result } = renderHook(() => useTranscript('p1'), { wrapper })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data).toEqual(lignes)
+    expect(result.current.data).toEqual(lines)
   })
 })
 
 describe('useCorrectTranscript', () => {
   it('envoie l’empan et son remplacement, à la phrase visée', async () => {
-    const appel = vi.fn(async () =>
-      reponse({ line: { ...lignes[0], words: [{ word: 'Salut', start: 0, end: 1 }] }, clipsTouched: [] }),
+    const call = vi.fn(async () =>
+      response({ line: { ...lines[0], words: [{ word: 'Salut', start: 0, end: 1 }] }, clipsTouched: [] }),
     )
-    vi.stubGlobal('fetch', appel)
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useCorrectTranscript(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', call)
+    const { wrapper } = harness()
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
 
     await act(async () => {
       result.current.mutate({
@@ -74,8 +74,8 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    const [chemin, options] = appel.mock.calls[0] as unknown as [string, RequestInit]
-    expect(chemin).toBe('/api/projects/p1/transcript')
+    const [urlPath, options] = call.mock.calls[0] as unknown as [string, RequestInit]
+    expect(urlPath).toBe('/api/projects/p1/transcript')
     expect(JSON.parse(String(options.body))).toEqual({
       lineId: 'l0',
       from: 0,
@@ -86,15 +86,15 @@ describe('useCorrectTranscript', () => {
   })
 
   it('remplace la phrase corrigée dans le cache, sans redemander tout le transcript', async () => {
-    const résultat: TranscriptCorrectionResult = {
+    const correctionResult: TranscriptCorrectionResult = {
       line: { id: 'l1', start: 5, end: 6, words: [{ word: 'Suivant', start: 5, end: 6 }] },
       clipsTouched: [],
     }
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(résultat)))
-    const { client, enveloppe } = harnais()
-    client.setQueryData(cles.transcript('p1'), lignes)
+    vi.stubGlobal('fetch', vi.fn(async () => response(correctionResult)))
+    const { client, wrapper } = harness()
+    client.setQueryData(cles.transcript('p1'), lines)
 
-    const { result } = renderHook(() => useCorrectTranscript(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
     await act(async () => {
       result.current.mutate({
         projectId: 'p1',
@@ -103,16 +103,16 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lignes[0], résultat.line])
+    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lines[0], correctionResult.line])
   })
 
   it('remonte un 409 quand le texte a changé sous les yeux', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => reponse({ error: 'Le texte a changé sous vos yeux.' }, 409)),
+      vi.fn(async () => response({ error: 'Le texte a changé sous vos yeux.' }, 409)),
     )
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useCorrectTranscript(), { wrapper: enveloppe })
+    const { wrapper } = harness()
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
 
     await act(async () => {
       result.current.mutate({
@@ -130,15 +130,15 @@ describe('useCorrectTranscript', () => {
     // `lignesDuTranscript` (src/server/vues.ts) écarte une phrase sans mot
     // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.
     // Le cache doit dire la même chose, sans attendre un rechargement complet.
-    const résultat: TranscriptCorrectionResult = {
+    const correctionResult: TranscriptCorrectionResult = {
       line: { id: 'l0', start: 0, end: 2, words: [] },
       clipsTouched: [],
     }
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(résultat)))
-    const { client, enveloppe } = harnais()
-    client.setQueryData(cles.transcript('p1'), lignes)
+    vi.stubGlobal('fetch', vi.fn(async () => response(correctionResult)))
+    const { client, wrapper } = harness()
+    client.setQueryData(cles.transcript('p1'), lines)
 
-    const { result } = renderHook(() => useCorrectTranscript(), { wrapper: enveloppe })
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
     await act(async () => {
       result.current.mutate({
         projectId: 'p1',
@@ -147,6 +147,40 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lignes[1]])
+    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lines[1]])
+  })
+})
+
+const runningStatus: ProjectStatus = {
+  project: { id: 'p1', title: 'Un projet', durationSec: 100, createdAt: '2026-01-01' },
+  steps: { proxy: false, audio: false, transcript: false, analysis: false, candidates: false, renders: false },
+  running: { step: 'transcript', progress: 0.4 },
+  error: null,
+  stopped: false,
+  repérage: null,
+  sizeBytes: null,
+}
+
+describe('useProjet', () => {
+  it('invalide le transcript quand une exécution se termine, comme les candidats', async () => {
+    // Le panneau de transcript reste monté et sa requête reste fraîche trente
+    // secondes (`src/app/providers.tsx`) : sans cette invalidation, la fin
+    // d'une retranscription laisse le cache sur l'ancien texte. (relevé par
+    // Copilot et par Aristarque)
+    vi.stubGlobal('fetch', vi.fn(async () => response(runningStatus)))
+    const { client, wrapper } = harness()
+    client.setQueryData(cles.projet('p1'), runningStatus)
+    const invalide = vi.spyOn(client, 'invalidateQueries')
+
+    const { result } = renderHook(() => useProjet('p1'), { wrapper })
+    await waitFor(() => expect(result.current.data?.running).not.toBeNull())
+
+    await act(async () => {
+      client.setQueryData(cles.projet('p1'), { ...runningStatus, running: null })
+    })
+    await waitFor(() => expect(result.current.data?.running).toBeNull())
+
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
+    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
   })
 })

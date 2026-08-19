@@ -348,82 +348,82 @@ describe('redistributeTiming', () => {
 
   it('plusieurs mots se partagent l’empan au prorata de leur longueur', () => {
     // « a » (1) et « bcd » (3) : un quart / trois quarts de la seconde.
-    const mots = redistributeTiming({ start: 10, end: 11 }, ['a', 'bcd'])
-    expect(mots[0]).toEqual({ word: 'a', start: 10, end: 10.25 })
-    expect(mots[1]).toEqual({ word: 'bcd', start: 10.25, end: 11 })
+    const words = redistributeTiming({ start: 10, end: 11 }, ['a', 'bcd'])
+    expect(words[0]).toEqual({ word: 'a', start: 10, end: 10.25 })
+    expect(words[1]).toEqual({ word: 'bcd', start: 10.25, end: 11 })
   })
 
   it('le premier mot commence à span.start, le dernier finit à span.end', () => {
-    const mots = redistributeTiming({ start: 5, end: 5.7 }, ['un', 'deux', 'trois'])
-    expect(mots[0].start).toBe(5)
-    expect(mots[mots.length - 1].end).toBe(5.7)
+    const words = redistributeTiming({ start: 5, end: 5.7 }, ['un', 'deux', 'trois'])
+    expect(words[0].start).toBe(5)
+    expect(words[words.length - 1].end).toBe(5.7)
   })
 
   it('reste stable sur un empan de durée nulle', () => {
-    const mots = redistributeTiming({ start: 5, end: 5 }, ['un', 'deux'])
-    expect(mots.every((m) => m.start === 5 && m.end === 5)).toBe(true)
+    const words = redistributeTiming({ start: 5, end: 5 }, ['un', 'deux'])
+    expect(words.every((m) => m.start === 5 && m.end === 5)).toBe(true)
   })
 })
 
 describe('applyWordCorrection', () => {
   it('remplace un mot par un autre, sans toucher aux voisins', () => {
-    const résultat = applyWordCorrection(mots, {
+    const result = applyWordCorrection(mots, {
       from: 2,
       to: 2,
       expected: ['trois'],
       replacement: ['3'],
     })
-    expect(résultat).toEqual({
+    expect(result).toEqual({
       ok: true,
       words: [mots[0], mots[1], { word: '3', start: 12, end: 12.8 }, mots[3], mots[4]],
     })
   })
 
   it('fusionne deux mots en un, qui prend leur empan réuni', () => {
-    const résultat = applyWordCorrection(mots, {
+    const result = applyWordCorrection(mots, {
       from: 0,
       to: 1,
       expected: ['un', 'deux'],
       replacement: ['un-deux'],
     })
-    expect(résultat.ok).toBe(true)
-    if (!résultat.ok) throw new Error('inattendu')
-    expect(résultat.words[0]).toEqual({ word: 'un-deux', start: 10, end: 11.8 })
-    expect(résultat.words.slice(1)).toEqual([mots[2], mots[3], mots[4]])
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('inattendu')
+    expect(result.words[0]).toEqual({ word: 'un-deux', start: 10, end: 11.8 })
+    expect(result.words.slice(1)).toEqual([mots[2], mots[3], mots[4]])
   })
 
   it('scinde un mot en deux, qui se partagent son empan', () => {
-    const résultat = applyWordCorrection(mots, {
+    const result = applyWordCorrection(mots, {
       from: 3,
       to: 3,
       expected: ['quatre'],
       replacement: ['quat', 're'],
     })
-    expect(résultat.ok).toBe(true)
-    if (!résultat.ok) throw new Error('inattendu')
-    expect(résultat.words[3].start).toBe(13)
-    expect(résultat.words[4].end).toBe(13.8)
-    expect(résultat.words.map((w) => w.word)).toEqual(['un', 'deux', 'trois', 'quat', 're', 'cinq'])
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('inattendu')
+    expect(result.words[3].start).toBe(13)
+    expect(result.words[4].end).toBe(13.8)
+    expect(result.words.map((w) => w.word)).toEqual(['un', 'deux', 'trois', 'quat', 're', 'cinq'])
   })
 
   it('supprime un mot — un remplacement vide', () => {
-    const résultat = applyWordCorrection(mots, {
+    const result = applyWordCorrection(mots, {
       from: 1,
       to: 1,
       expected: ['deux'],
       replacement: [],
     })
-    expect(résultat).toEqual({ ok: true, words: [mots[0], mots[2], mots[3], mots[4]] })
+    expect(result).toEqual({ ok: true, words: [mots[0], mots[2], mots[3], mots[4]] })
   })
 
   it('refuse une ancre qui ne correspond plus — le transcript a changé sous les yeux', () => {
-    const résultat = applyWordCorrection(mots, {
+    const result = applyWordCorrection(mots, {
       from: 1,
       to: 1,
       expected: ['pas-le-bon-mot'],
       replacement: ['x'],
     })
-    expect(résultat).toEqual({ ok: false, reason: 'anchor-mismatch' })
+    expect(result).toEqual({ ok: false, reason: 'anchor-mismatch' })
   })
 
   it('refuse un empan qui déborde de la phrase', () => {
@@ -439,9 +439,9 @@ describe('applyWordCorrection', () => {
   })
 
   it('ne modifie pas le tableau reçu', () => {
-    const copie = mots.map((m) => ({ ...m }))
+    const copy = mots.map((m) => ({ ...m }))
     applyWordCorrection(mots, { from: 0, to: 0, expected: ['un'], replacement: ['1'] })
-    expect(mots).toEqual(copie)
+    expect(mots).toEqual(copy)
   })
 })
 

@@ -34,7 +34,7 @@ vi.mock('next/navigation', () => ({
 
 const { ShowView } = await import('@/components/show/show-view')
 
-function enveloppe({ children }: { children: ReactNode }) {
+function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -80,7 +80,7 @@ function renderView(partial: Partial<Parameters<typeof ShowView>[0]> = {}) {
       clips={[clip('a', [{ start: 600, end: 660 }])]}
       {...partial}
     />,
-    { wrapper: enveloppe },
+    { wrapper },
   )
 }
 

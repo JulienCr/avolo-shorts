@@ -289,6 +289,13 @@ export function TranscriptPanel({
   }
 
   function submitCorrection() {
+    // `aria-disabled` seul ne bloque rien : le bouton reste cliquable, et
+    // Entrée l'appelle aussi. Sans ce garde, un second appel part avant la
+    // réponse du premier et finit en 409 — voire prend part à la course
+    // d'écriture que `correctTranscript` sérialise déjà côté serveur, mais
+    // pour rien de plus qu'un double envoi réseau. (relevé par Copilot et par
+    // Aristarque)
+    if (correction.isPending) return
     if (selection === null) return
     const { from, to } = selectionBounds(selection)
     const lineIndex = lineOfWord(indexedLines, from)
@@ -412,7 +419,7 @@ export function TranscriptPanel({
 
         <div
           ref={container}
-          data-surface-transcript-émission
+          data-surface-transcript-show
           // Un seul arrêt de tabulation entre les mots et le conteneur : celui-ci
           // ne le devient que lorsque le mot du curseur n'est pas rendu, sans quoi
           // la surface aurait deux arrêts de tabulation au lieu d'un.
@@ -467,15 +474,15 @@ export function TranscriptPanel({
   )
 }
 
-function errorMessage(erreur: unknown): string {
-  return erreur instanceof Error ? erreur.message : 'cause inconnue'
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'cause inconnue'
 }
 
-function refusalMessage(erreur: Error): string {
-  if (erreur instanceof ApiError && erreur.status === 409) {
+function refusalMessage(error: Error): string {
+  if (error instanceof ApiError && error.status === 409) {
     return 'Le texte a changé sous vos yeux. Fermez et rouvrez le transcript avant de corriger à nouveau.'
   }
-  return `La correction n’est pas passée : ${erreur.message}`
+  return `La correction n’est pas passée : ${error.message}`
 }
 
 /**

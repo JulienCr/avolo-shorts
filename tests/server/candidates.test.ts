@@ -1541,14 +1541,18 @@ describe("l'étape de repérage", () => {
 
     /**
      * Après une découpe, le plafond garde les meilleurs clips de l'émission,
-     * pas les plus précoces.
+     * pas ceux de la première charge.
      *
      * Chaque réponse est bien ordonnée par performance prédite, mais **cet
      * ordre n'est local qu'à sa sous-requête** : `descendre` concatène la
-     * branche gauche avant la droite, et couper là gardait les clips des
-     * régions les plus précoces du transcript. Un clip faible de la première
-     * moitié déplaçait ainsi un clip bien meilleur rendu par une moitié
-     * suivante. (relevé par Codex)
+     * branche gauche avant la droite, et couper là gardait les clips de cette
+     * branche quoi que la seconde ait rendu. Un clip faible d'une moitié
+     * déplaçait ainsi un clip bien meilleur rendu par l'autre.
+     * (relevé par Codex)
+     *
+     * La descente porte sur `retenues`, ordonnée par note de **fenêtre** : la
+     * moitié gauche n'est donc pas la première moitié du transcript, et les
+     * identifiants attendus ici s'en déduisent plutôt que de se coder en dur.
      */
     it('reclasse les résultats d’une découpe avant de plafonner', async () => {
       setRéglage(db, 'clipsMaximum', 2)
@@ -1590,8 +1594,9 @@ describe("l'étape de repérage", () => {
       const clips = await runCandidates(ID, { db, appel, sleep: async () => {} })
 
       // Les deux blocs les mieux notés, qui sont les deux derniers de
-      // l'émission. Avant le correctif, la concaténation plaçait la branche
-      // gauche en tête et la coupe gardait ses deux premiers clips.
+      // l'émission — et qui tombent tous deux dans la seconde branche de la
+      // descente. Avant le correctif : `window_011` et `window_009`, les deux
+      // premiers clips de la branche gauche.
       const meilleurs = [...soumis.entries()]
         .sort(([, a], [, b]) => b - a)
         .slice(0, 2)

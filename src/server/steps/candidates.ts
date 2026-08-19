@@ -1553,11 +1553,17 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
  * **Chaque réponse est ordonnée, mais pour elle seule.** Le prompt demande au
  * modèle de rendre ses clips du meilleur au moins bon ; quand le filtre force la
  * descente à découper, `descendre` concatène la branche gauche avant la droite
- * et cet ordre-là ne veut plus rien dire. Un clip faible de la première charge
- * passait devant un clip bien meilleur rendu par une charge suivante, et c'est
- * lui que le plafond gardait : la coupe se faisait sur les régions les plus
- * précoces du transcript, pas sur les meilleurs moments de l'émission.
- * (relevé par Codex)
+ * et cet ordre-là ne veut plus rien dire. Un clip faible d'une charge passait
+ * devant un clip bien meilleur rendu par une charge suivante, et c'est lui que
+ * le plafond gardait. (relevé par Codex)
+ *
+ * **Ce que la coupe gardait exactement**, puisque le fil d'origine dit « les
+ * régions les plus précoces du transcript » et que ce n'est pas tout à fait
+ * cela : la descente découpe `retenues`, que `shortlistFromScores` ordonne par
+ * note de fenêtre et non par position. La branche gauche est donc le haut du
+ * panier de la **notation**, et la coupe rendait ce classement-là définitif sans
+ * jamais consulter ce que la passe de détail venait de dire de chaque clip. Le
+ * défaut est le même, sa cause est un cran plus haut.
  *
  * **La note du détail n'a pas le barème ancré de la notation** (voir
  * `scorePrompt`) : deux sous-requêtes ne s'étalonnent pas l'une sur l'autre, et

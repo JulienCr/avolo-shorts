@@ -258,4 +258,73 @@ describe('servir des octets', () => {
     await delay(50)
     expect(openDescriptors()).toBeLessThanOrEqual(before)
   })
+
+  describe('validateurs de cache', () => {
+    function serveWith(headers: Record<string, string>): Promise<Response | null> {
+      return servirFichier(new Request('http://x', { headers }), filePath, {
+        'Content-Type': 'video/mp4',
+      })
+    }
+
+    /**
+     * L'en-tête d'une réponse au fichier entier, **sans en garder le corps
+     * ouvert** : `cancel()` referme le descripteur sans tirer les deux
+     * mégaoctets, alors qu'un corps jamais lu attendrait le ramasse-miettes
+     * comme documenté plus haut sur le petit fichier.
+     */
+    async function headerOf(name: string): Promise<string> {
+      const response = (await serve())!
+      const value = response.headers.get(name)!
+      await response.body?.cancel()
+      return value
+    }
+
+    it('rend une étiquette différente quand le fichier est remplacé', async () => {
+      const première = await headerOf('etag')
+      // `writeFileSync` change la taille et l'horodatage de modification :
+      // l'étiquette, dérivée des deux, doit changer avec eux.
+      fs.writeFileSync(filePath, Buffer.alloc(SIZE + 1, 9))
+      const seconde = await headerOf('etag')
+      expect(seconde).not.toBe(première)
+    })
+
+    it('ne laisse aucun descripteur derrière une série de 304', async () => {
+      const étiquette = await headerOf('etag')
+      const before = openDescriptors()
+      for (let i = 0; i < 20; i++) {
+        const response = await serveWith({ 'if-none-match': étiquette })
+        expect(response?.status).toBe(304)
+      }
+      expect(openDescriptors()).toBeLessThanOrEqual(before)
+    })
+
+    it('referme le descripteur d’un If-Range périmé servi en entier', async () => {
+      const before = openDescriptors()
+      for (let i = 0; i < 20; i++) {
+        const response = await serveWith({
+          range: 'bytes=0-9',
+          'if-range': '"une-étiquette-périmée"',
+        })
+        expect(response?.status).toBe(200)
+        expect((await response!.arrayBuffer()).byteLength).toBe(SIZE)
+      }
+      await delay(50)
+      expect(openDescriptors()).toBeLessThanOrEqual(before)
+    })
+
+    it('rend 304 sans If-None-Match, via If-Modified-Since seul', async () => {
+      const lastModified = await headerOf('last-modified')
+      const response = await serveWith({ 'if-modified-since': lastModified })
+      expect(response?.status).toBe(304)
+    })
+
+    it('ignore If-Modified-Since quand If-None-Match ne correspond pas', async () => {
+      const lastModified = await headerOf('last-modified')
+      const response = await serveWith({
+        'if-none-match': '"pas-la-bonne-étiquette"',
+        'if-modified-since': lastModified,
+      })
+      expect(response?.status).toBe(200)
+    })
+  })
 })

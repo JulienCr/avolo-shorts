@@ -3,13 +3,14 @@
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 
 import { AppBar } from '@/components/parcours/app-bar'
+import { AiSection } from '@/components/settings/ai-section'
 import { HookSection } from '@/components/settings/hook-section'
 import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useSaveSettings, useSettings } from '@/lib/queries'
+import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
 
 /**
  * L'écran des paramètres.
@@ -37,6 +38,7 @@ import { useSaveSettings, useSettings } from '@/lib/queries'
 export function SettingsScreen() {
   const settings = useSettings()
   const save = useSaveSettings()
+  const availability = useLlmAvailability()
 
   return (
     <div className="flex min-h-full flex-col">
@@ -90,6 +92,17 @@ export function SettingsScreen() {
             // acceptée. Le rejet est consommé par le champ ; le bandeau
             // au-dessus, lui, vient de `save.isError`. (relevé par Copilot)
             onChange={(patch) => save.mutateAsync({ selection: patch })}
+          />
+        )}
+
+        <Separator />
+
+        {settings.data !== undefined && (
+          <AiSection
+            values={settings.data.ai}
+            availability={availability.data}
+            disabled={save.isPending}
+            onChange={(patch) => save.mutateAsync({ ai: patch })}
           />
         )}
 

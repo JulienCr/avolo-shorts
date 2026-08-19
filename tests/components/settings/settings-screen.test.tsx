@@ -38,7 +38,22 @@ function response(body: unknown, status = 200): Response {
   } as Response
 }
 
-const DEFAULTS: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
+/**
+ * Les défauts de la famille `ai`, recopiés de `db.ts` (`AI_FIELDS`) : ce test
+ * ne les importe pas du serveur pour rester montable sous jsdom sans charger
+ * `better-sqlite3`, comme le reste de cet écran.
+ */
+const AI_DEFAULTS: Settings['ai'] = {
+  selectionProvider: 'gemini',
+  selectionModel: 'gemini-3.1-flash-lite',
+  correctionProvider: 'gemini',
+  correctionModel: 'gemini-3.1-flash-lite',
+  hookProvider: 'gemini',
+  hookModel: 'gemini-3.1-flash-lite',
+  ollamaBaseUrl: '',
+}
+
+const DEFAULTS: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT }, ai: { ...AI_DEFAULTS } }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
 function server(options: { read?: () => Response; write?: () => Response } = {}) {
@@ -101,7 +116,7 @@ describe('les réglages du repérage', () => {
     // défauts. Afficher les constantes ferait voir le défaut du code là où la
     // base porte autre chose, et personne ne verrait la différence avant le
     // premier repérage.
-    server({ read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }) })
+    server({ read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }) })
     await mountScreen()
     expect(screen.getByLabelText(/tranche de/i)).toHaveProperty('value', '9')
   })
@@ -162,7 +177,7 @@ describe('les réglages du repérage', () => {
     window.addEventListener('unhandledrejection', surRejet)
     try {
       server({
-        read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
+        read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }),
         write: () => response({ error: 'refusé' }, 400),
       })
       await mountScreen()
@@ -187,7 +202,7 @@ describe('les réglages du repérage', () => {
 
   it('propose de revenir au défaut, et seulement quand il y a de quoi', async () => {
     const writes = server({
-      read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
+      read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }),
     })
     await mountScreen()
 
@@ -216,7 +231,7 @@ describe('les réglages du repérage', () => {
 
   it('bouge l’estimation quand un réglage bouge', async () => {
     server({
-      write: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
+      write: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 }, ai: AI_DEFAULTS }),
     })
     await mountScreen()
     const before = screen.getByTestId('selection-estimate').textContent

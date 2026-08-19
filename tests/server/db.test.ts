@@ -241,13 +241,80 @@ describe('le registre des réglages', () => {
 })
 
 /**
- * **La grammaire du registre, y compris les deux types qu'aucune famille
- * n'exerce encore.** Le repérage ne porte que des entiers ; le fournisseur d'IA
- * par usage portera des chaînes, les défauts du hook des booléens (retour
- * d'usage §6.1 et §6.3). Ces branches *sont* la généralisation — sans elles le
- * registre n'est qu'une table d'entiers déguisée —, et les laisser sans test
- * jusqu'à ce qu'une famille arrive reviendrait à les découvrir fausses le jour
- * où quelqu'un s'en sert.
+ * La famille `ai`, posée par la PR C (retour d'usage §6.1) : le fournisseur et
+ * le modèle de chaque usage de langage, plus l'adresse d'un serveur Ollama.
+ */
+describe('la famille `ai`', () => {
+  it('décrit ses sept champs, libellé compris', () => {
+    for (const nom of [
+      'selectionProvider',
+      'selectionModel',
+      'correctionProvider',
+      'correctionModel',
+      'hookProvider',
+      'hookModel',
+      'ollamaBaseUrl',
+    ]) {
+      const champ = settingField('ai', nom)
+      expect(champ, nom).toBeDefined()
+      expect(champ!.label.length).toBeGreaterThan(0)
+      expect(champ!.description.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('contraint un fournisseur à l’ensemble des trois connus', () => {
+    expect(() => applySettings(db, { ai: { selectionProvider: 'anthropic' } })).toThrow(
+      InvalidSettingError,
+    )
+    expect(applySettings(db, { ai: { selectionProvider: 'openai' } }).ai.selectionProvider).toBe(
+      'openai',
+    )
+  })
+
+  /**
+   * **Vide est une valeur, pas un champ oublié.** `CLAUDE.md`, « L'environnement » :
+   * l'adresse de la passerelle WSL change au redémarrage et se résout à
+   * l'exécution quand le réglage est vide.
+   */
+  it('accepte une adresse Ollama vide, et la refuse pour tout autre champ texte', () => {
+    expect(applySettings(db, { ai: { ollamaBaseUrl: '' } }).ai.ollamaBaseUrl).toBe('')
+    expect(() => applySettings(db, { ai: { selectionModel: '' } })).toThrow(InvalidSettingError)
+  })
+
+  it('relit une adresse Ollama réglée, aller-retour compris', () => {
+    applySettings(db, { ai: { ollamaBaseUrl: 'http://172.20.16.1:11434' } })
+    expect(effectiveSettings(db).ai.ollamaBaseUrl).toBe('http://172.20.16.1:11434')
+  })
+
+  it('ne recalcule rien : les usages non branchés se règlent sans effet', () => {
+    upsertProject(db, PROJET)
+    putClip(db, {
+      id: 'clip_01',
+      projectId: PROJET.id,
+      segments: [{ start: 0, end: 1 }],
+      ratio: '9:16',
+      cropX: 0,
+      captions: true,
+      branding: true,
+      title: 't',
+      description: 'd',
+      status: 'kept',
+      pass: 1,
+    })
+    applySettings(db, { ai: { correctionProvider: 'openai', hookProvider: 'ollama' } })
+    expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
+  })
+})
+
+/**
+ * **La grammaire du registre.** Le repérage ne porte que des entiers ; la
+ * famille `ai` porte des chaînes, dont certaines contraintes à un ensemble
+ * fermé ou tolérantes au vide (voir ci-dessus) ; les défauts du hook porteront
+ * des booléens (retour d'usage §6.3), qu'aucune famille n'exerce encore. Ces
+ * branches *sont* la généralisation — sans elles le registre n'est qu'une
+ * table d'entiers déguisée —, et les laisser sans test jusqu'à ce qu'une
+ * famille arrive reviendrait à les découvrir fausses le jour où quelqu'un
+ * s'en sert.
  */
 describe('la grammaire du registre', () => {
   const champ = (
@@ -400,7 +467,22 @@ describe('appliquerRéglages', () => {
 
   it('rend la même chose que réglagesEffectifs', () => {
     applySettings(db, { selection: { clipsMinimum: 9 } })
-    expect(effectiveSettings(db)).toEqual({ selection: getRéglages(db) })
+    // **`ai` aussi**, depuis la PR C : `effectiveSettings` rend les deux
+    // familles, `getRéglages` ne projette que `selection`. Le résultat est
+    // comparé aux défauts de la famille — inchangée par ce patch, qui ne
+    // touche que `selection` — plutôt qu'à lui-même, ce qui ne testerait rien.
+    expect(effectiveSettings(db)).toEqual({
+      selection: getRéglages(db),
+      ai: {
+        selectionProvider: 'gemini',
+        selectionModel: 'gemini-3.1-flash-lite',
+        correctionProvider: 'gemini',
+        correctionModel: 'gemini-3.1-flash-lite',
+        hookProvider: 'gemini',
+        hookModel: 'gemini-3.1-flash-lite',
+        ollamaBaseUrl: '',
+      },
+    })
   })
 })
 

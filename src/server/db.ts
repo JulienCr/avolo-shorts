@@ -3,7 +3,8 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
-import type { Settings } from '@/lib/api'
+import { LLM_PROVIDERS, type AiSettings, type Settings } from '@/lib/api'
+import { DEFAULT_MODEL } from '@/server/llm/defaults'
 import { projectsDir } from '@/server/paths'
 
 /**
@@ -245,6 +246,22 @@ export type SettingField = {
    * nul viderait la présélection.
    */
   min?: number
+  /**
+   * Pour un champ `text`, autorise la chaîne vide comme valeur valide et
+   * significative — le seul cas aujourd'hui est `ai.ollamaBaseUrl`, où vide
+   * veut dire « résoudre la passerelle WSL à l'exécution » (`CLAUDE.md`).
+   * Absent ou faux, un texte vide reste refusé comme avant : un champ oublié,
+   * pas un réglage.
+   */
+  allowEmpty?: boolean
+  /**
+   * Pour un champ `text`, l'ensemble fermé de valeurs admises — le fournisseur
+   * d'un usage d'IA, par exemple. `undefined` laisse passer tout texte dans
+   * les bornes de longueur. **C'est l'extension que le contrat de la PR C
+   * demande** plutôt qu'une validation posée à côté : un fournisseur est un
+   * texte contraint, pas une forme nouvelle.
+   */
+  enum?: readonly string[]
   /** Ce que l'écran affiche à la place du nom technique (retour d'usage §6.2). */
   label: string
   /** La phrase qui dit ce que le réglage change. */
@@ -304,8 +321,118 @@ const SELECTION_FIELDS: readonly SettingField[] = (
   ...SELECTION_LABELS[name],
 }))
 
+/**
+ * Les libellés de la famille `ai`, **exhaustifs par le type** — même garde que
+ * `SELECTION_LABELS`, et pour la même raison.
+ *
+ * **Seuls les trois champs `selection*` sont branchés.** `correction*` et
+ * `hook*` se règlent et se persistent — le retour d'usage §6.1 les annonce
+ * tous les trois —, mais rien ne les lit encore : la correction du transcript
+ * et la génération du hook n'existent pas. Le libellé le dit, pour que l'écran
+ * n'ait pas à mentir par omission.
+ */
+const AI_LABELS: Record<keyof AiSettings, { label: string; description: string }> = {
+  selectionProvider: {
+    label: 'Fournisseur du repérage',
+    description:
+      'Le modèle qui note les fenêtres et détaille les propositions. Câblé : change le résultat du prochain repérage.',
+  },
+  selectionModel: {
+    label: 'Modèle du repérage',
+    description: 'Le nom du modèle chez ce fournisseur.',
+  },
+  correctionProvider: {
+    label: 'Fournisseur de la correction du transcript',
+    description:
+      'Pas encore câblé : la correction du transcript n’existe pas encore. Ce réglage se persiste, mais rien ne le lit.',
+  },
+  correctionModel: {
+    label: 'Modèle de la correction du transcript',
+    description: 'Pas encore câblé, pour la même raison que le fournisseur ci-dessus.',
+  },
+  hookProvider: {
+    label: 'Fournisseur du hook',
+    description:
+      'Pas encore câblé : la génération automatique du hook n’existe pas encore. Ce réglage se persiste, mais rien ne le lit.',
+  },
+  hookModel: {
+    label: 'Modèle du hook',
+    description: 'Pas encore câblé, pour la même raison que le fournisseur ci-dessus.',
+  },
+  ollamaBaseUrl: {
+    label: 'Adresse du serveur Ollama',
+    description:
+      'Laisser vide pour résoudre automatiquement la passerelle WSL à chaque appel. À ne renseigner que si Ollama tourne ailleurs qu’à cette adresse, ou si la résolution automatique échoue.',
+  },
+}
+
+/**
+ * Les champs de la famille `ai`.
+ *
+ * **Un défaut par fournisseur, jamais un défaut unique** (`DEFAULT_MODEL`,
+ * `@/server/llm/defaults`) : un modèle valable chez l'un part en 404 chez
+ * l'autre. Les trois usages partent tous sur Gemini par défaut, avec le même
+ * modèle que l'ancien `MODÈLE_PAR_DÉFAUT` en dur de `candidates.ts` — le
+ * repérage se comporte à l'identique tant que personne n'a touché ce réglage.
+ */
+const AI_FIELDS: readonly SettingField[] = [
+  {
+    family: 'ai',
+    name: 'selectionProvider',
+    type: 'text',
+    defaultValue: 'gemini',
+    enum: LLM_PROVIDERS,
+    ...AI_LABELS.selectionProvider,
+  },
+  {
+    family: 'ai',
+    name: 'selectionModel',
+    type: 'text',
+    defaultValue: DEFAULT_MODEL.gemini,
+    ...AI_LABELS.selectionModel,
+  },
+  {
+    family: 'ai',
+    name: 'correctionProvider',
+    type: 'text',
+    defaultValue: 'gemini',
+    enum: LLM_PROVIDERS,
+    ...AI_LABELS.correctionProvider,
+  },
+  {
+    family: 'ai',
+    name: 'correctionModel',
+    type: 'text',
+    defaultValue: DEFAULT_MODEL.gemini,
+    ...AI_LABELS.correctionModel,
+  },
+  {
+    family: 'ai',
+    name: 'hookProvider',
+    type: 'text',
+    defaultValue: 'gemini',
+    enum: LLM_PROVIDERS,
+    ...AI_LABELS.hookProvider,
+  },
+  {
+    family: 'ai',
+    name: 'hookModel',
+    type: 'text',
+    defaultValue: DEFAULT_MODEL.gemini,
+    ...AI_LABELS.hookModel,
+  },
+  {
+    family: 'ai',
+    name: 'ollamaBaseUrl',
+    type: 'text',
+    defaultValue: '',
+    allowEmpty: true,
+    ...AI_LABELS.ollamaBaseUrl,
+  },
+]
+
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
-export const SETTING_FIELDS: readonly SettingField[] = SELECTION_FIELDS
+export const SETTING_FIELDS: readonly SettingField[] = [...SELECTION_FIELDS, ...AI_FIELDS]
 
 /** Le champ décrit par une famille et un nom, ou `undefined` s'il n'existe pas. */
 export function settingField(family: string, name: string): SettingField | undefined {
@@ -381,7 +508,7 @@ export function parseSetting(
     }
     case 'boolean':
       return raw === 'true' ? true : raw === 'false' ? false : undefined
-    case 'text':
+    case 'text': {
       // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
       // valeur stockée vide, blanche ou trop longue passait ici alors que
       // l'écriture la refuse : le lecteur annonce qu'une valeur invalide est
@@ -389,7 +516,15 @@ export function parseSetting(
       // Une table éditée à la main avec `sqlite3` est le seul chemin qui y mène,
       // et c'est précisément le chemin qu'on ne contrôle pas.
       // (relevé par Copilot)
-      return raw.trim() === '' || raw.length > TEXT_MAX ? undefined : raw
+      //
+      // **`allowEmpty` est l'exception nommée, pas un relâchement général** :
+      // `ai.ollamaBaseUrl` est le seul champ qui la porte, et vide y est une
+      // valeur à part entière plutôt qu'un champ oublié.
+      if (field.allowEmpty && raw === '') return raw
+      if (raw.trim() === '' || raw.length > TEXT_MAX) return undefined
+      if (field.enum !== undefined && !field.enum.includes(raw)) return undefined
+      return raw
+    }
   }
 }
 
@@ -435,9 +570,22 @@ export function validateSetting(
       return value
     }
     case 'text': {
-      if (typeof value !== 'string' || value.trim() === '' || value.length > TEXT_MAX) {
+      const vide = value === ''
+      if (
+        typeof value !== 'string' ||
+        value.length > TEXT_MAX ||
+        (vide && !field.allowEmpty) ||
+        (!vide && value.trim() === '')
+      ) {
         throw new InvalidSettingError(
-          `Réglage ${key} : un texte non vide d'au plus ${TEXT_MAX} caractères est attendu.`,
+          field.allowEmpty
+            ? `Réglage ${key} : un texte d'au plus ${TEXT_MAX} caractères est attendu (vide accepté).`
+            : `Réglage ${key} : un texte non vide d'au plus ${TEXT_MAX} caractères est attendu.`,
+        )
+      }
+      if (field.enum !== undefined && !field.enum.includes(value)) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : une valeur parmi ${field.enum.join(', ')} est attendue, reçu ${JSON.stringify(value)}.`,
         )
       }
       return value
@@ -462,7 +610,13 @@ export function effectiveSettings(db: Database.Database): Settings {
   }[]
   const stored = new Map(rows.map((row) => [row.key, row.value]))
 
-  const families = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
+  const families = {
+    selection: { ...DIMENSIONS_PAR_DÉFAUT },
+    // Dérivé de `AI_FIELDS`, comme `SELECTION_FIELDS` l'est de
+    // `DIMENSIONS_PAR_DÉFAUT` : une seconde liste de défauts tenue à la main
+    // diverge du registre au premier champ ajouté.
+    ai: Object.fromEntries(AI_FIELDS.map((f) => [f.name, f.defaultValue])) as unknown as AiSettings,
+  }
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))
     if (raw === undefined) continue

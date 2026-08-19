@@ -21,6 +21,7 @@
  * POST  /api/clips/:id/export  { force? }   -> ExportResult
  * GET   /api/settings                       -> Settings
  * PUT   /api/settings        { SettingsPatch } -> Settings
+ * GET   /api/llm/availability               -> LlmAvailability
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -865,10 +866,49 @@ export type SelectionSettings = {
  * hook (retour d'usage §6.1 et §6.3). Aplatir maintenant ferait renommer chaque
  * clé le jour où la deuxième arrive.
  */
-export type Settings = { selection: SelectionSettings }
+/**
+ * Les trois fournisseurs de modèles de langage que l'application sait choisir
+ * par usage (retour d'usage §6.1).
+ *
+ * **Un seul endroit les énumère**, ici : `LLM_PROVIDERS` en est la forme
+ * exécutable — pour un `<select>`, une validation — et `LlmProvider` la forme
+ * typée. Les deux se dérivent l'une de l'autre pour ne pas diverger.
+ */
+export const LLM_PROVIDERS = ['gemini', 'openai', 'ollama'] as const
+export type LlmProvider = (typeof LLM_PROVIDERS)[number]
+
+/**
+ * Le fournisseur et le modèle de chaque usage de langage, plus l'adresse d'un
+ * serveur Ollama.
+ *
+ * **Plat, comme `SelectionSettings`, et pour la même raison** : la clé stockée
+ * est `${famille}.${nom}` sur deux niveaux, donc une forme imbriquée
+ * demanderait une traduction que personne ne tiendrait à jour.
+ *
+ * `selection` désigne ici l'usage « repérage », comme le label `area:selection`
+ * du dépôt — à ne pas confondre avec `Settings.selection`, qui porte les
+ * dimensions du repérage. Les deux cohabitent déjà dans le vocabulaire du
+ * projet.
+ *
+ * **Seul `selection*` est branché.** `correction*` et `hook*` se règlent et se
+ * persistent, mais rien ne les lit encore : la correction du transcript et la
+ * génération du hook sont des livraisons ultérieures (retour d'usage §6.1).
+ */
+export type AiSettings = {
+  selectionProvider: LlmProvider
+  selectionModel: string
+  correctionProvider: LlmProvider
+  correctionModel: string
+  hookProvider: LlmProvider
+  hookModel: string
+  /** Vide = résoudre la passerelle WSL à l'exécution. */
+  ollamaBaseUrl: string
+}
+
+export type Settings = { selection: SelectionSettings; ai: AiSettings }
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
-export type SettingsPatch = { selection?: Partial<SelectionSettings> }
+export type SettingsPatch = { selection?: Partial<SelectionSettings>; ai?: Partial<AiSettings> }
 
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.
@@ -922,4 +962,35 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
  */
 export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
   return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+}
+
+// ---------------------------------------------------------------------------
+// La disponibilité des fournisseurs de langage
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce que sait dire le serveur d'un fournisseur, sans jamais renvoyer le
+ * secret lui-même.
+ *
+ * **Gemini et OpenAI portent une clé, Ollama non** — c'est un serveur local,
+ * pas un compte. `available` vaut donc toujours `true` pour Ollama : rien à
+ * vérifier ici, l'échec éventuel est celui de la passerelle ou du serveur, pas
+ * d'une clé absente, et il se découvre à l'appel comme n'importe quelle panne
+ * réseau.
+ */
+export type LlmProviderAvailability = { available: boolean; reason: string | null }
+
+export type LlmAvailability = Record<LlmProvider, LlmProviderAvailability>
+
+/**
+ * La disponibilité des trois fournisseurs, **pour la dire avant d'en avoir
+ * besoin** (retour d'usage §6.1 : « le dire dans l'écran, pas au milieu d'un
+ * repérage »).
+ *
+ * Une seule requête pour les trois : l'écran des réglages les affiche
+ * ensemble, et une clé absente ne coûte rien à vérifier — c'est justement
+ * l'inverse d'un appel réseau au fournisseur.
+ */
+export function fetchLlmAvailability(): Promise<LlmAvailability> {
+  return lire<LlmAvailability>('/api/llm/availability')
 }

@@ -481,6 +481,174 @@ pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-
 pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
 ```
 
+### Résolu depuis le 19 août 2026 au soir : les bascules de composition
+
+**Ce que le tableau ci-dessus appelait « deux axes de caméra dans un même
+plan » est une bascule de composition** : le mélangeur OBS translate la scène
+entière en bloc, plusieurs fois par plan détecté, et le score de scène de
+ffmpeg — qui compare des histogrammes — ne la voit pas. Baisser son seuil a
+déjà été mesuré et écarté ci-dessus (pas de vallée sur l'émission entière) ;
+la solution retenue croise deux signaux déjà collectés et jusque-là jetés :
+les boîtes de personnes disent qu'une bascule a lieu et la situent à ±1/fps
+près, les scores de scène donnent l'image exacte dans cette fenêtre. Le
+détail de l'algorithme est dans `worker/detect.py`, section « Les bascules de
+composition ».
+
+**Réglage arrêté par balayage** (256 combinaisons × 4 émissions du corpus,
+rejeu sans GPU ni ffmpeg via `--replay`, une passe ffmpeg de scores de scène
+capturée une fois par émission) : `min_shift=0,08`, `tolerance=0,03`,
+`part=8` (80 % des personnes appariées doivent avoir bougé), `min_point_score
+=0,3`. Le plus grand `min_shift` qui referme le gisement mesuré sur
+`entre-nous` sans régresser aucune des trois autres émissions — les critères
+de garde-fou primaient sur le gain.
+
+**Une bascule dont le raffinement échoue est rejetée, pas posée au milieu de
+sa fenêtre.** Le détecteur exige deux signaux indépendants — les boîtes, le
+score de scène — et n'en avoir qu'un ne prouve rien, précisément quand le
+second dit que rien de visible ne change. Deux faux positifs l'ont montré à
+l'image sur `cqlp` (t ≈ 1 111,9 et 1 182,4 s) : décor, cadre et panneau de
+chat identiques avant et après, seules deux personnes qui bougent de concert.
+Rejeter plutôt que replier laisse les sections 2 et 5 **identiques** sur les
+quatre émissions et redonne de la marge aux plafonds de garde-fou (de 1 à 15
+sur `cqlp`, dont la médiane de plan remonte de 20,117 à 21,7 s ; de 0 à 5 sur
+`nabla`) : un repli au milieu posait des frontières que rien ne confirmait.
+
+**Le plafond réel de cette approche est 18 %, pas les 12 % visés au départ.**
+Le critère avait été posé avant de savoir ce qui était atteignable : au-delà
+de `min_shift=0,08`, `cqlp` et `nabla` régressent. Ce n'est pas un échec du
+chantier, c'est la mesure de ce qu'un détecteur à deux signaux peut fermer
+sans rouvrir un autre gisement.
+
+**Avant / après, les quatre émissions** (`scripts/mesure-ratios.ts`, sections
+2 et 5) :
+
+| | temps borné par la position (§5) | temps de montage en 16:9, clips (§2) |
+|---|---|---|
+| `2025-06-15-cqlp` | 10 % → 9 % | 31 % → 30 % |
+| `2026-03-08-caro-mdlm` | 0 % → 0 % | 90 % → 90 % |
+| `2026-05-31-nabla` | 2 % → 2 % | 65 % → 65 % |
+| `2026-22-02-entre-nous` | **41 % → 18 %** | **49 % → 39 %** |
+
+Les deux colonnes sont le **temps de montage**, jamais le compte de clips —
+c'est la doctrine de `scripts/mesure-ratios.ts` (« le chiffre qui décide est
+le temps de montage par ratio, pas le compte de clips »), et la mélanger
+aurait fait paraître `entre-nous` bouger deux fois sur des bases différentes.
+En **compte de clips**, `entre-nous` ne bouge d'ailleurs pas : 4 clips sur 6
+restent en 16:9 avant comme après, tout le gain vit dans le temps de montage.
+
+Aucune régression sur les trois émissions témoins ; `2026-05-31-nabla` n'a
+servi à aucun diagnostic et sert de témoin muet — un réglage qui la
+bouleverserait dirait qu'on a réglé sur le bruit.
+
+**Ce qui reste manqué : la coupe de 2 953,2 s ci-dessus.** Ce n'est pas une
+translation mais un vrai changement d'axe — les largeurs de boîte changent,
+pas seulement leur position —, donc `collective_shift` ne la voit jamais :
+ce gisement n'est pas refermé par ce chantier.
+
+**Un second gisement, plus petit, attend derrière.** Le plancher de collecte
+de `scores_de_scène` (0,05) rate les fondus : à t = 1 646,375 s sur
+`entre-nous`, un passage régie → plateau ne franchit le seuil de rétention
+(0,40) qu'à la faveur d'une image isolée, plusieurs secondes après le vrai
+changement. Nommé ici pour la piste suivante, pas ouvert dans ce chantier.
+
+**Le décalage d'un demi-pas entre les deux horloges.** `-vf fps={fps}` affecte
+chaque image d'entrée à l'emplacement de sortie le plus proche ; le contenu de
+l'image étiquetée `t` vient donc d'un instant postérieur, jusqu'à
+`1 / (2 · fps)` plus tard — mesuré à +0,233 s sur un proxy à 30 im/s. Absorbé
+dans la fenêtre de recherche de `refine_switch`, documenté pour ce qu'il est
+plutôt que corrigé à la source : le corriger imposerait une version 3 du
+schéma et une ré-analyse GPU des quatre projets. Voir la skill `cadrage`
+(sixième piège) pour le détail.
+
+**Un défaut résiduel du raffinement, mesuré et borné, pas corrigé.**
+`refine_switch` confirme sur le score maximal de sa fenêtre, sans jamais
+vérifier qu'il est grand — seulement qu'il dépasse le plancher de collecte.
+Sur `2026-03-08-caro-mdlm` à t ≈ 652,5 s, le score confirmant vaut 0,131,
+traîne d'un évènement à 0,9612 situé 33 ms plus tôt, sur une troisième boîte
+fantôme que YOLO produit juste après une vraie coupe et qui disparaît à
+l'image suivante. Ce cas précis ne produit aucun artefact rendu, mais **par
+coïncidence de proximité, pas par conception** : il tombe sous `min_shot`,
+donc `_spaced_boundaries` l'absorbe dans la coupe voisine déjà retenue — rien
+ne garantit qu'un score faible tombe toujours près d'une frontière existante.
+Non corrigé : le seuil qui réglerait la question proprement exigerait de le
+mesurer, donc de rouvrir l'étalonnage validé sur les quatre émissions pour un
+seul cas connu. Voir la skill `cadrage` (septième piège) et la docstring de
+`refine_switch`.
+
+### Un biais de comptage : bascule détectée n'est pas frontière ajoutée
+
+**Compté pendant tout le chantier, le nombre de bascules « acceptées » — au
+sens où `refine_switch` a confirmé leur raffinement — surestime largement ce
+que le chantier change, et de deux façons distinctes, pas une.** La première :
+beaucoup retombent sur une coupe que le score de scène pose déjà tout seul, au
+même instant exact — `composition_switches` redétecte alors une frontière
+déjà connue plutôt que d'en ajouter une, confirmation redondante sans effet
+sur `shots`. La seconde, plus rare : une bascule acceptée peut tomber à moins
+d'une seconde (`min_shot`) d'une frontière déjà retenue **sans lui être
+identique** — une autre coupe de scène toute proche, ou une autre bascule
+acceptée juste à côté — et `_spaced_boundaries` l'absorbe pour la même raison
+que documentée plus haut : la fenêtre de `refine_switch` protège contre
+l'absence de second signal, pas contre sa proximité avec une frontière qui
+existe déjà. Trois issues, donc, pas deux :
+
+| | bascules acceptées | redondantes (coupe déjà connue) | absorbées (trop proches d'une autre frontière) | **frontières réellement neuves** |
+|---|---|---|---|---|
+| `2025-06-15-cqlp` | 43 | 23 | 0 | **20** |
+| `2026-03-08-caro-mdlm` | 126 | 90 | 3 | **33** |
+| `2026-05-31-nabla` | 67 | 51 | 0 | **16** |
+| `2026-22-02-entre-nous` | 161 | 58 | 2 | **101** |
+
+Les cinq absorptions se répartissent en deux mécanismes : une seule est le cas
+`refine_switch` déjà détaillé ci-dessus (`caro-mdlm` t ≈ 652,5, absorbée par la
+coupe de scène voisine à 652,467) ; les quatre autres (`caro-mdlm` t ≈ 8 865,1
+et 8 988,1 ; `entre-nous` t ≈ 3 285,9 et 3 385,1) sont deux bascules acceptées
+qui tombent l'une sur l'autre, sans coupe de scène dans les parages — le même
+`min_shot` qui protège contre un doublon de coupe en fusionne aussi deux
+détections distinctes quand elles se suivent de trop près.
+
+Le compte de « frontières neuves » est celui qui explique le delta de plans
+déjà mesuré (1 483 → 1 516 sur `caro-mdlm`, etc.) — pas le compte de bascules
+acceptées.
+
+**Et une frontière neuve n'est pas un saut de cadre.** `splitByShot` fusionne
+ce que `computeFraming` cadre pareil des deux côtés ; une frontière dont le
+ratio et le `cropX` ne changent pas ne produit aucun artefact visible, même
+si la coupe elle-même est réelle. Sur les quatre émissions, les frontières
+neuves qui produisent un **saut de cadre effectif** (`computeFraming` appelé
+sur le plan isolé de chaque côté, ratio différent ou `cropX` à plus de 1 %
+d'écart) :
+
+| | frontières neuves | dont un saut de cadre |
+|---|---|---|
+| `2025-06-15-cqlp` | 20 | 14 (70 %) |
+| `2026-03-08-caro-mdlm` | 33 | 13 (39 %) |
+| `2026-05-31-nabla` | 16 | 7 (44 %) |
+| `2026-22-02-entre-nous` | 101 | 80 (79 %) |
+| **total** | **170** | **114 (67 %)** |
+
+**« Inerte » veut dire que le cadre ne change pas, pas que la coupe est
+fausse.** Vérifié à l'image sur `caro-mdlm` t ≈ 8 518,6 s : une vraie coupe
+caméra spectaculaire — angle entièrement différent, une troisième personne
+apparaît — inerte au rendu parce que les deux plans restent en 16:9 centré
+des deux côtés. Le chiffre qui dit le risque d'un changement de détection
+est donc **le nombre de sauts de cadre effectifs**, pas le nombre de
+frontières ni le nombre de bascules détectées : c'est la seule mesure qui
+dit ce qu'un spectateur verrait changer.
+
+#### Reproduction
+
+```bash
+# Une fois par émission — capture les scores de scène, sans GPU :
+ffmpeg -hide_banner -nostdin -loglevel error -i projects/<id>/proxy.mp4 -an -sn \
+  -vf "select='gte(scene,0.05)',metadata=print:file=-" -f null - > /tmp/<id>-scene.txt
+
+# Autant de fois qu'on veut, sans GPU ni ffmpeg :
+python worker/detect.py --replay projects/<id>/analysis.json \
+  --scene-scores /tmp/<id>-scene.txt --out /tmp/<id>-essai.json
+
+pnpm tsx scripts/mesure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
+```
+
 ## Le tronc, mesuré le 19 août 2026 au soir
 
 Ce qui précède lit des **boîtes**. La suite lit des **points de pose**, et elle

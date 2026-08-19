@@ -619,20 +619,72 @@ function collapseShorthand(
 
 /** Découpe un contenu en tokens d'identifiant (lettres Unicode, chiffres,
  * `_`, `$`) et en tout le reste, sur la même grille des deux côtés — pour
- * comparer terme à terme plutôt que ligne à ligne. */
-function tokenizeContent(s: string): string[] {
-  return s.split(/([\p{L}\p{N}_$]+)/gu);
+ * comparer terme à terme plutôt que ligne à ligne.
+ *
+ * Un tiret interne fait partie du token, pas une frontière : un basename
+ * kebab-case renommé (`vignettes-sources` → `source-thumbnails`) est une
+ * seule entrée de `buildResidualNewToOld`, sous sa forme complète — le
+ * couper en `vignettes`/`sources` ferait chercher ces demi-mots un par un,
+ * où ils n'existent pas individuellement, et un renommage qui permute
+ * l'ordre des mots (`ecran-clip` → `clip-screen`) ne serait même plus une
+ * substitution position par position une fois les moitiés séparées. Même
+ * correctif que le tokenizer de `isPureSubstitution` dans
+ * `proof-a-strings-and-comments.mts` (issue #73, revue de la preuve
+ * elle-même), étendu ici pour la même raison. */
+export function tokenizeContent(s: string): string[] {
+  return s.split(/([\p{L}\p{N}_$]+(?:-[\p{L}\p{N}_$]+)*)/gu);
+}
+
+/** La table, dans le sens dont un résidu a besoin : new → tous les old
+ * possibles (généralement un seul, parfois plusieurs — non-injectivité).
+ * Deux sources : les identifiants (`renames-identifiers.json`) et les
+ * basenames de fichiers/dossiers renommés (`renames-files.tsv`,
+ * `renames-folders.tsv`) — un spécificateur de module *incrusté dans une
+ * chaîne littérale* (une sonde compilée à la volée, comme
+ * `tests/core/etapes.test.ts` — déjà une exception connue de la preuve A)
+ * porte le nom de fichier, pas le nom d'un symbole : `parcours` → `phase`
+ * n'est nulle part dans `renames-identifiers.*`, seulement dans
+ * `renames-files.tsv`. Sans quoi un résidu parfaitement légitime se
+ * classerait à tort en anomalie.
+ *
+ * Les basenames à plusieurs mots (`vignettes-sources` → `source-thumbnails`)
+ * sont ajoutés sous leur forme complète, pas décomposés mot à mot — c'est
+ * le tokenizer de `tokenizeContent` qui les garde entiers, donc l'entrée
+ * `newToOld` peut elle aussi rester une comparaison exacte plutôt qu'une
+ * recomposition. Ancien défaut, corrigé ici pour la troisième fois dans
+ * cette PR : un nom composé (accentué dans la preuve B, kebab-case ici)
+ * échappait à une classe de caractères ou une frontière de mot qui ne le
+ * reconnaissait pas comme une seule unité. */
+export function buildResidualNewToOld(
+  entries: SymbolEntry[],
+  fileRenames: Array<{ from: string; to: string }>,
+  folderRenames: Array<{ from: string; to: string }>
+): Map<string, Set<string>> {
+  const newToOld = new Map<string, Set<string>>();
+  for (const e of entries) {
+    const set = newToOld.get(e.newName) ?? new Set<string>();
+    set.add(e.oldName);
+    newToOld.set(e.newName, set);
+  }
+  for (const pair of [...fileRenames, ...folderRenames]) {
+    const oldBase = path.basename(pair.from, path.extname(pair.from));
+    const newBase = path.basename(pair.to, path.extname(pair.to));
+    const set = newToOld.get(newBase) ?? new Set<string>();
+    set.add(oldBase);
+    newToOld.set(newBase, set);
+  }
+  return newToOld;
 }
 
 /** Classe un résidu de diff entre deux fichiers : soit il s'explique
  * *entièrement* par des substitutions `newName → oldName` connues de la
  * table (chaque token qui diffère est exactement une entrée de
- * `renames-identifiers.json`, jamais une reformulation ni un déplacement),
+ * `buildResidualNewToOld`, jamais une reformulation ni un déplacement),
  * soit non — auquel cas c'est une vraie anomalie, pas un résidu documenté.
  * C'est la preuve inverse qui se retourne sur son propre résultat : elle ne
  * se contente pas d'un diff non vide, elle vérifie que ce diff ne contient,
  * lui non plus, rien d'autre que la table. */
-function classifyResidual(
+export function classifyResidual(
   contentA: string,
   contentB: string,
   newToOld: Map<string, Set<string>>
@@ -752,34 +804,7 @@ function main() {
 
   console.error("ÉCHEC — le diff n'est pas vide. Classification du résidu :\n");
 
-  // La table, dans le sens dont ce résidu a besoin : new → tous les old
-  // possibles (généralement un seul, parfois plusieurs — non-injectivité).
-  const newToOld = new Map<string, Set<string>>();
-  for (const e of entries) {
-    const set = newToOld.get(e.newName) ?? new Set<string>();
-    set.add(e.oldName);
-    newToOld.set(e.newName, set);
-  }
-  // Un spécificateur de module *incrusté dans une chaîne littérale* (une
-  // sonde compilée à la volée, comme `tests/core/etapes.test.ts` — déjà une
-  // exception connue de la preuve A) porte le nom de fichier, pas le nom
-  // d'un symbole : `parcours` → `phase` n'est nulle part dans
-  // `renames-identifiers.*`, seulement dans `renames-files.tsv`. Sans ce
-  // qui suit, un résidu parfaitement légitime se classerait à tort en
-  // anomalie. N'ajoute que les paires à un seul mot (sans tiret ni
-  // underscore) — un nom de fichier composé (`apercu-sortie` →
-  // `output-preview`) demanderait de recomposer mot à mot, ce que ce
-  // script ne tente pas ; un résidu qui s'appuierait sur un tel renommage
-  // resterait signalé, pas masqué.
-  const singleWord = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
-  for (const pair of [...fileRenames, ...folderRenames]) {
-    const oldBase = path.basename(pair.from, path.extname(pair.from));
-    const newBase = path.basename(pair.to, path.extname(pair.to));
-    if (!singleWord.test(oldBase) || !singleWord.test(newBase)) continue;
-    const set = newToOld.get(newBase) ?? new Set<string>();
-    set.add(oldBase);
-    newToOld.set(newBase, set);
-  }
+  const newToOld = buildResidualNewToOld(entries, fileRenames, folderRenames);
 
   const differingFiles = diffOutput
     .split("\n")

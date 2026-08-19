@@ -104,9 +104,9 @@ describe('buildLibrary', () => {
   })
 
   it('garde l’ordre des replays tel que le serveur le rend', () => {
-    const noms = ['c.mp4', 'a.mp4', 'b.mp4']
-    const entries = buildLibrary(noms.map((n) => source(n)), [])
-    expect(entries.map((e) => e.fileName)).toEqual(noms)
+    const names = ['c.mp4', 'a.mp4', 'b.mp4']
+    const entries = buildLibrary(names.map((n) => source(n)), [])
+    expect(entries.map((e) => e.fileName)).toEqual(names)
   })
 
   it('donne une carte à un projet dont la source a disparu du Drive', () => {
@@ -144,9 +144,9 @@ describe('le titre affiché', () => {
   it('est celui de l’émission, pas le nom du fichier', () => {
     // Dans une bibliothèque d'émissions, `2025-06-15-cqlp.mp4` n'est pas un
     // titre : la date en tête sert à trier un dossier, elle ne se lit pas.
-    const [entrée] = buildLibrary([source('2025-06-15-cqlp.mp4')], [])
-    expect(entrée.title).toBe('cqlp — 15 juin 2025')
-    expect(entrée.fileName).toBe('2025-06-15-cqlp.mp4')
+    const [entry] = buildLibrary([source('2025-06-15-cqlp.mp4')], [])
+    expect(entry.title).toBe('cqlp — 15 juin 2025')
+    expect(entry.fileName).toBe('2025-06-15-cqlp.mp4')
   })
 
   it('ne change pas au moment où l’émission est analysée', () => {
@@ -155,29 +155,29 @@ describe('le titre affiché', () => {
     // sans son extension : la même chaîne entre, la même sort. Un titre qui
     // basculerait au lancement de l'analyse aurait été une raison de garder le
     // nom de fichier.
-    const nom = '2025-06-15-cqlp.mp4'
-    const [avant] = buildLibrary([source(nom)], [])
-    const [pendant] = buildLibrary(
-      [source(nom, 'cqlp')],
+    const name = '2025-06-15-cqlp.mp4'
+    const [before] = buildLibrary([source(name)], [])
+    const [during] = buildLibrary(
+      [source(name, 'cqlp')],
       [project({ id: 'cqlp', running: RUNNING })],
     )
-    const [après] = buildLibrary([source(nom, 'cqlp')], [project({ id: 'cqlp' })])
-    expect(pendant.title).toBe(avant.title)
-    expect(après.title).toBe(avant.title)
+    const [after] = buildLibrary([source(name, 'cqlp')], [project({ id: 'cqlp' })])
+    expect(during.title).toBe(before.title)
+    expect(after.title).toBe(before.title)
   })
 
   it('rend lisible un nom qui ne suit aucune convention', () => {
     // La spec §12 l'exige : un nom qui ne suit pas la convention ressort tel
     // quel plutôt que d'être deviné. Le renommage d'une bibliothèque entière en
     // charabia est précisément ce qu'elle interdit.
-    for (const [nom, attendu] of [
+    for (const [name, expected] of [
       ['randrom.mp4', 'randrom'],
       ['22026-04-26-baba-jeu.mp4', '22026-04-26-baba-jeu'],
       ['2026--faq.mp4', '2026--faq'],
       ['2026-02-31-impossible.mp4', '2026-02-31-impossible'],
     ] as const) {
-      const [entrée] = buildLibrary([source(nom)], [])
-      expect(entrée.title).toBe(attendu)
+      const [entry] = buildLibrary([source(name)], [])
+      expect(entry.title).toBe(expected)
     }
   })
 })

@@ -198,22 +198,33 @@ function SettingField({
     setDraft(String(value))
   }
 
+  /**
+   * Écrit, et ramène la valeur qui s'applique si le serveur refuse.
+   *
+   * **Le rejet est consommé ici, pas relevé** : le bandeau de l'écran le porte
+   * déjà. Et il passe par cette porte-là quel que soit le geste — la saisie
+   * validée comme le retour au défaut : le bouton appelait `onChange` sans rien
+   * faire de la promesse, ce qui produisait un rejet non géré en plus du bandeau.
+   * (relevé par Copilot)
+   */
+  function submit(next: number) {
+    if (next === value) return
+    void Promise.resolve(onChange(next)).catch(() => setDraft(String(value)))
+  }
+
   function commit() {
-    const parsed = Number(draft)
-    // Une saisie qui ne décrit aucun nombre revient à la valeur en place :
-    // refuser en silence laisserait une boîte vide sur un écran qui n'a aucune
-    // autre façon de dire ce qui s'applique.
+    // **Une boîte vide n'est pas un zéro**, et c'est le piège de `Number` :
+    // `Number('')` vaut `0`, un nombre fini. Effacer un champ puis en sortir
+    // enregistrait donc son minimum en silence — et sur « Propositions demandées
+    // au maximum », dont le plancher est zéro, ça activait « illimité » sans que
+    // personne ne l'ait demandé. Le blanc se traite comme le reste de ce qui ne
+    // décrit aucun nombre : on revient à la valeur en place, parce que l'écran
+    // n'a aucune autre façon de dire ce qui s'applique. (relevé par Copilot)
+    const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
     if (!Number.isFinite(parsed)) return setDraft(String(value))
     const bounded = Math.max(field.minimum, Math.round(parsed))
     setDraft(String(bounded))
-    if (bounded === value) return
-    // **Un refus ramène la valeur qui s'applique.** Le recalage sur `value`
-    // ci-dessus ne suffit pas : l'écriture n'est pas optimiste, donc un `PUT` en
-    // 400 laisse `value` intacte et ne déclenche rien — la boîte gardait le
-    // nombre rejeté sous un bandeau qui le déclarait non enregistré. Le rejet est
-    // consommé ici, pas relevé : le bandeau de l'écran le porte déjà.
-    // (relevé par Copilot)
-    void Promise.resolve(onChange(bounded)).catch(() => setDraft(String(value)))
+    submit(bounded)
   }
 
   return (
@@ -253,7 +264,7 @@ function SettingField({
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => onChange(defaultValue)}
+            onClick={() => submit(defaultValue)}
             className="ml-auto text-xs"
           >
             <RotateCcw aria-hidden />

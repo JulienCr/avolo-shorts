@@ -109,6 +109,12 @@ export function LibraryScreen() {
 
         <LibraryGrid
           entries={entries}
+          // Sans ce mot, la grille vide qui suit un échec de `GET /api/projects`
+          // faisait rendre le diagnostic de montage : « aucune vidéo dans ce
+          // dossier », sous un bandeau qui dit tout autre chose, alors que les
+          // replays s'étaient chargés. Deux vides qui ne se ressemblent que par
+          // leur longueur. (relevé par Copilot)
+          entriesKnown={!projectsUnknown}
           projects={projects.data}
           mount={sources.data?.montage}
           // **Les deux requêtes, pas une.** Monter la grille dès que les sources

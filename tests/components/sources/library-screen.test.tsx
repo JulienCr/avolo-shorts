@@ -112,7 +112,7 @@ function enveloppe() {
   return harnais().Enveloppe
 }
 
-function poser() {
+function renderScreen() {
   const { client, Enveloppe } = harnais()
   const vue = render(
     <Enveloppe>
@@ -123,9 +123,9 @@ function poser() {
 }
 
 async function monter() {
-  const posé = poser()
+  const rendered = renderScreen()
   await waitFor(() => expect(screen.getByText('2025-06-15-cqlp.mp4')).toBeTruthy())
-  return posé
+  return rendered
 }
 
 describe('la bibliothèque unifiée', () => {
@@ -258,7 +258,7 @@ describe('la création', () => {
 describe('les pannes', () => {
   it('affiche le message du serveur quand les émissions ne se listent pas', async () => {
     serveur({ sources: () => reponse({ error: 'REPLAY_DIR est absent.' }, 500) })
-    poser()
+    renderScreen()
 
     await waitFor(() => expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy())
   })
@@ -277,11 +277,16 @@ describe('les pannes', () => {
           sources: [{ ...SOURCES.sources[0], projectId: CQLP.id }],
         }),
     })
-    poser()
+    renderScreen()
 
     await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
     expect(screen.queryByText('Analyse en cours')).toBeNull()
     expect(screen.queryByText('2025-06-15-cqlp.mp4')).toBeNull()
+    // **Et surtout pas le diagnostic de montage.** Une liste qu'on ne peut pas
+    // construire n'est pas un dossier vide : les replays, eux, se sont chargés.
+    // (relevé par Copilot)
+    expect(screen.queryByText(/dossier des replays/i)).toBeNull()
+    expect(screen.queryByText(/Aucune vidéo/i)).toBeNull()
   })
 
   it('dit le montage muet quand il n’y a ni replay ni projet', async () => {
@@ -295,7 +300,7 @@ describe('les pannes', () => {
           montage: { disponible: false, cause: 'absent', fstype: null, entrées: 0 },
         }),
     })
-    poser()
+    renderScreen()
 
     await waitFor(() =>
       expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy(),

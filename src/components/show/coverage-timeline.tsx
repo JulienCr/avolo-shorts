@@ -144,8 +144,19 @@ export function CoverageTimeline({
                         : 'border-stage/70 bg-stage/40 hover:bg-stage/60',
                     )}
                     style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
+                      // **Un bloc de largeur nulle au bord droit s'ancre par la
+                      // droite.** `min-w-[3px]` le rend cliquable, mais posé à
+                      // `left: 100%` il partait entièrement hors du conteneur,
+                      // qui est en `overflow-hidden` : invisible et
+                      // inatteignable, exactement le contraire de ce que le
+                      // repli promet. Le cas se produit sur un clip dont
+                      // l'étendue tombe au-delà de la durée sondée — la durée
+                      // vient de `ProjectSummary`, les bornes du repérage, et
+                      // les deux se sont déjà contredites en fin d'émission.
+                      // (relevé par Copilot)
+                      ...(width === 0 && left >= 100
+                        ? { right: 0 }
+                        : { left: `${left}%`, width: `${width}%` }),
                       top: `calc(var(--spacing) * 6 * ${lane} + 1px)`,
                       height: 'calc(var(--spacing) * 6 - 2px)',
                     }}

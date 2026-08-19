@@ -120,6 +120,18 @@ describe('la bande de couverture', () => {
     expect(a.style.top).not.toBe(b.style.top)
   })
 
+  it('garde dans le cadre un clip qui déborde de la durée sondée', () => {
+    // La durée vient de `ProjectSummary`, les bornes du repérage : les deux se
+    // sont déjà contredites en fin d'émission. Posé à `left: 100%`, le bloc de
+    // largeur nulle partait entièrement hors d'un conteneur en `overflow-hidden`
+    // — invisible et inatteignable, le contraire de ce que `min-w` promet.
+    // (relevé par Copilot)
+    renderView({ clips: [clip('a', [{ start: 9_000, end: 9_100 }])] })
+    const bloc = blocks()[0]
+    expect(bloc.style.right).toBe('0px')
+    expect(bloc.style.left).toBe('')
+  })
+
   it('compte ce qui a été gardé, en toutes lettres', () => {
     renderView({
       clips: [clip('a', [{ start: 0, end: 60 }]), clip('b', [{ start: 600, end: 660 }])],

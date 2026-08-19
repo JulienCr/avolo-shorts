@@ -41,17 +41,17 @@ function response(body: unknown, status = 200): Response {
 const DEFAULTS: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
-function server(options: { lecture?: () => Response; écriture?: () => Response } = {}) {
+function server(options: { read?: () => Response; write?: () => Response } = {}) {
   const writes: unknown[] = []
-  const faux = vi.fn(async (url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url !== '/api/settings') throw new Error(`Route inattendue : ${url}`)
     if (init?.method === 'PUT') {
       writes.push(JSON.parse(String(init.body)))
-      return (options.écriture ?? (() => response(DEFAULTS)))()
+      return (options.write ?? (() => response(DEFAULTS)))()
     }
-    return (options.lecture ?? (() => response(DEFAULTS)))()
+    return (options.read ?? (() => response(DEFAULTS)))()
   })
-  vi.stubGlobal('fetch', faux)
+  vi.stubGlobal('fetch', fetchMock)
   return writes
 }
 
@@ -101,7 +101,7 @@ describe('les réglages du repérage', () => {
     // défauts. Afficher les constantes ferait voir le défaut du code là où la
     // base porte autre chose, et personne ne verrait la différence avant le
     // premier repérage.
-    server({ lecture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }) })
+    server({ read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }) })
     await mountScreen()
     expect(screen.getByLabelText(/tranche de/i)).toHaveProperty('value', '9')
   })
@@ -134,6 +134,48 @@ describe('les réglages du repérage', () => {
     await waitFor(() => expect(writes).toEqual([{ selection: { fenetresMinimum: 20 } }]))
   })
 
+  it('ne prend pas une boîte vide pour un zéro', async () => {
+    // **`Number('')` vaut `0`, un nombre fini.** Effacer un champ puis en sortir
+    // enregistrait donc son minimum en silence — et sur « Propositions demandées
+    // au maximum », dont le plancher est zéro, ça activait « illimité » sans que
+    // personne ne l'ait demandé. (relevé par Copilot)
+    const writes = server()
+    await mountScreen()
+
+    const max = screen.getByLabelText(/Propositions demandées au maximum/)
+    await userEvent.clear(max)
+    await userEvent.tab()
+
+    expect(writes).toEqual([])
+    expect(max).toHaveProperty('value', String(DEFAULTS.selection.clipsMaximum))
+  })
+
+  it('ne laisse pas un refus du bouton « Revenir à » partir en rejet nu', async () => {
+    // Le gestionnaire du bouton appelait `onChange` sans rien faire de la
+    // promesse : un refus produisait un rejet non géré en plus du bandeau.
+    // (relevé par Copilot)
+    const rejets: unknown[] = []
+    const surRejet = (e: PromiseRejectionEvent) => {
+      e.preventDefault()
+      rejets.push(e.reason)
+    }
+    window.addEventListener('unhandledrejection', surRejet)
+    try {
+      server({
+        read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
+        write: () => response({ error: 'refusé' }, 400),
+      })
+      await mountScreen()
+
+      await userEvent.click(screen.getByRole('button', { name: /Revenir à/ }))
+      await waitFor(() => expect(screen.getByText('refusé')).toBeTruthy())
+      await new Promise((r) => setTimeout(r, 0))
+      expect(rejets).toEqual([])
+    } finally {
+      window.removeEventListener('unhandledrejection', surRejet)
+    }
+  })
+
   it('n’écrit rien quand la valeur validée est déjà celle qui s’applique', async () => {
     const writes = server()
     await mountScreen()
@@ -145,7 +187,7 @@ describe('les réglages du repérage', () => {
 
   it('propose de revenir au défaut, et seulement quand il y a de quoi', async () => {
     const writes = server({
-      lecture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
+      read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 } }),
     })
     await mountScreen()
 
@@ -174,7 +216,7 @@ describe('les réglages du repérage', () => {
 
   it('bouge l’estimation quand un réglage bouge', async () => {
     server({
-      écriture: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
+      write: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 } }),
     })
     await mountScreen()
     const before = screen.getByTestId('selection-estimate').textContent
@@ -195,7 +237,7 @@ describe('les pannes', () => {
     // Une valeur hors bornes rend un 400, et l'écriture n'est pas optimiste :
     // sans ce mot, le champ reviendrait à sa valeur d'avant et on croirait à un
     // écran qui ne réagit pas.
-    server({ écriture: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    server({ write: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
     await mountScreen()
 
     const field = screen.getByLabelText(/tranche de/i)
@@ -214,7 +256,7 @@ describe('les pannes', () => {
     // pas et le recalage sur `value` seul ne se déclenchait jamais — le bandeau
     // disait « pas enregistré » pendant que la boîte affichait toujours le
     // nombre refusé. (relevé par Copilot)
-    server({ écriture: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    server({ write: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
     await mountScreen()
 
     const field = screen.getByLabelText(/tranche de/i)
@@ -229,7 +271,7 @@ describe('les pannes', () => {
   it('reprend la valeur à chaque refus, y compris au second d’affilée', async () => {
     // Deux refus de suite portent le même message : c'est le compte des refus,
     // et non le fait qu'il y en ait eu un, qui distingue le second du premier.
-    server({ écriture: () => response({ error: 'hors bornes' }, 400) })
+    server({ write: () => response({ error: 'hors bornes' }, 400) })
     await mountScreen()
 
     const field = screen.getByLabelText(/tranche de/i)
@@ -246,7 +288,7 @@ describe('les pannes', () => {
   it('n’affiche aucune valeur tant que les réglages ne se chargent pas', async () => {
     // Poser les défauts en attendant ferait voir les constantes du code, et le
     // premier geste écrirait une valeur que personne n'a choisie.
-    server({ lecture: () => response({ error: 'La base ne répond pas.' }, 500) })
+    server({ read: () => response({ error: 'La base ne répond pas.' }, 500) })
     const Wrapper = wrapper()
     render(
       <Wrapper>

@@ -68,6 +68,7 @@ const GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols
  */
 export function LibraryGrid({
   entries,
+  entriesKnown = true,
   projects,
   mount,
   loading,
@@ -77,6 +78,17 @@ export function LibraryGrid({
   creation,
 }: {
   entries: readonly Entry[]
+  /**
+   * Sait-on de quoi la bibliothèque est faite ?
+   *
+   * **Une liste qu'on ne peut pas construire n'est pas une bibliothèque vide**,
+   * et les deux se ressemblaient au point de se confondre : quand la liste des
+   * projets échoue, l'écran ne fabrique aucune entrée, et une grille vide faisait
+   * alors rendre le diagnostic de montage — « aucune vidéo dans ce dossier » —
+   * sous un bandeau qui parlait d'autre chose, alors que les replays, eux,
+   * s'étaient parfaitement chargés. (relevé par Copilot)
+   */
+  entriesKnown?: boolean
   /**
    * La liste brute des projets, pour la région live seulement.
    *
@@ -192,7 +204,7 @@ export function LibraryGrid({
             </Button>
           </AlertAction>
         </Alert>
-      ) : loading ? (
+      ) : !entriesKnown ? null : loading ? (
         <ul className={GRID}>
           {Array.from({ length: SKELETONS }, (_, i) => (
             <li key={i}>

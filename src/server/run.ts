@@ -620,7 +620,7 @@ const STEPS: Steps = { ingest, buildProxy, extractAudio, transcribe, runAnalysis
 
 export type OptionsLaunch = {
   /** Les étapes à refaire même si leur artefact est là. `true` vaut « la cible ». */
-  forced?: readonly StepName[] | boolean
+  force?: readonly StepName[] | boolean
   db?: Database.Database
   steps?: Partial<Steps>
 }
@@ -651,11 +651,11 @@ export type TargetLaunchable = (typeof TARGETS_LAUNCHABLE)[number]
 export function shotForTargets(
   targets: readonly StepName[],
   presence: Record<StepName, boolean>,
-  forced: readonly StepName[],
+  force: readonly StepName[],
 ): StepName[] {
   const shot: StepName[] = []
   for (const target of targets) {
-    for (const step of shotSteps(target, presence, forced)) {
+    for (const step of shotSteps(target, presence, force)) {
       if (!shot.includes(step)) shot.push(step)
     }
   }
@@ -697,15 +697,15 @@ export async function launch(
     const project = getProject(db, projectId)
     if (project === undefined) throw new ProjectInconnuError(projectId)
 
-    const forced =
-      options.forced === true
+    const force =
+      options.force === true
         ? [...targets]
-        : options.forced === false || options.forced === undefined
+        : options.force === false || options.force === undefined
           ? []
-          : [...options.forced]
+          : [...options.force]
 
     const presence = await readingPresence(project)
-    execution.shot = shotForTargets(targets, presence, forced)
+    execution.shot = shotForTargets(targets, presence, force)
     // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
     // exécution qui vise `candidates` peut passer une demi-heure dans la
     // transcription avant d'y arriver, et `status.json` publierait pendant tout
@@ -1042,7 +1042,7 @@ async function executeStep(
         source: project.sourcePath,
         projectId: project.id,
         audio: audioPath(project.id),
-        forced: true,
+        force: true,
         signal,
         onLog: (line) => {
           console.log(`[${project.id}] worker | ${line}`)
@@ -1084,7 +1084,7 @@ async function executeStep(
       await steps.runAnalysis({
         projectId: project.id,
         source,
-        forced: true,
+        force: true,
         signal,
         onLog: (line) => {
           console.log(`[${project.id}] detect | ${line}`)

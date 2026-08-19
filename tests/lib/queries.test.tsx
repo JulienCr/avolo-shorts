@@ -194,14 +194,14 @@ describe('usePatchClip', () => {
     const after = framing({ ratio: '1:1', shots: [shot(0, 12, '1:1', 0.3)] })
     client.setQueryData<ClipDetail>(keys.clip('c1'), detail(before))
 
-    const response: PatchClipResult = {
+    const patchResult: PatchClipResult = {
       applied: true,
       clip: { ...clip!, segments: [{ start: 0, end: 12 }] },
       outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
       framing: after,
       seq: 1,
     }
-    vi.stubGlobal('fetch', vi.fn(async () => response(response)))
+    vi.stubGlobal('fetch', vi.fn(async () => response(patchResult)))
 
     const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
     await actAsync(async () => {

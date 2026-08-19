@@ -21,14 +21,14 @@ afterEach(cleanup)
 
 function actions() {
   return {
-    lectureOuPause: vi.fn(),
-    annuler: vi.fn(),
-    retablir: vi.fn(),
-    retirer: vi.fn(),
-    echapper: vi.fn(),
-    poserBorne: vi.fn(),
-    chercher: vi.fn(),
-    aide: vi.fn(),
+    playbackOrPause: vi.fn(),
+    cancel: vi.fn(),
+    restore: vi.fn(),
+    remove: vi.fn(),
+    escape: vi.fn(),
+    poserBound: vi.fn(),
+    find: vi.fn(),
+    help: vi.fn(),
     aSelection: true,
   }
 }
@@ -54,7 +54,7 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     fireEvent.keyDown(document.body, { key: ' ' })
-    expect(a.lectureOuPause).toHaveBeenCalledTimes(1)
+    expect(a.playbackOrPause).toHaveBeenCalledTimes(1)
   })
 
   it('laisse `Espace` au bouton qui a le focus', () => {
@@ -62,7 +62,7 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     fireEvent.keyDown(screen.getByRole('button', { name: 'Exporter' }), { key: ' ' })
-    expect(a.lectureOuPause).not.toHaveBeenCalled()
+    expect(a.playbackOrPause).not.toHaveBeenCalled()
   })
 
   it('retire la sélection sur `Suppr` alors qu’un mot a le focus', () => {
@@ -71,7 +71,7 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     fireEvent.keyDown(screen.getByTestId('mot'), { key: 'Delete' })
-    expect(a.retirer).toHaveBeenCalledTimes(1)
+    expect(a.remove).toHaveBeenCalledTimes(1)
   })
 
   it('pose les bornes sur `I` et `O` depuis un mot', () => {
@@ -80,8 +80,8 @@ describe('useRaccourcis', () => {
     const word = screen.getByTestId('mot')
     fireEvent.keyDown(word, { key: 'i' })
     fireEvent.keyDown(word, { key: 'o' })
-    expect(a.poserBorne).toHaveBeenNthCalledWith(1, 'start')
-    expect(a.poserBorne).toHaveBeenNthCalledWith(2, 'end')
+    expect(a.poserBound).toHaveBeenNthCalledWith(1, 'start')
+    expect(a.poserBound).toHaveBeenNthCalledWith(2, 'end')
   })
 
   it('annule sur Ctrl+Z et rétablit sur Ctrl+Shift+Z', () => {
@@ -90,12 +90,12 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })
-    expect(a.annuler).toHaveBeenCalledTimes(1)
-    expect(a.retablir).not.toHaveBeenCalled()
+    expect(a.cancel).toHaveBeenCalledTimes(1)
+    expect(a.restore).not.toHaveBeenCalled()
 
     fireEvent.keyDown(document.body, { key: 'Z', ctrlKey: true, shiftKey: true })
-    expect(a.retablir).toHaveBeenCalledTimes(1)
-    expect(a.annuler).toHaveBeenCalledTimes(1)
+    expect(a.restore).toHaveBeenCalledTimes(1)
+    expect(a.cancel).toHaveBeenCalledTimes(1)
   })
 
   it('ouvre la recherche sur Ctrl+F, à la place de celle du navigateur', () => {
@@ -104,7 +104,7 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     const prevented = !fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
-    expect(a.chercher).toHaveBeenCalledTimes(1)
+    expect(a.find).toHaveBeenCalledTimes(1)
     expect(prevented).toBe(true)
   })
 
@@ -112,7 +112,7 @@ describe('useRaccourcis', () => {
     const a = actions()
     render(<Harness {...a} />)
     fireEvent.keyDown(document.body, { key: '?', shiftKey: true })
-    expect(a.aide).toHaveBeenCalledTimes(1)
+    expect(a.help).toHaveBeenCalledTimes(1)
   })
 
   it('ne vole aucune frappe à un champ de saisie', () => {
@@ -122,17 +122,17 @@ describe('useRaccourcis', () => {
     for (const key of [' ', 'Delete', 'i', 'o', '?']) {
       fireEvent.keyDown(field, { key: key })
     }
-    expect(a.lectureOuPause).not.toHaveBeenCalled()
-    expect(a.retirer).not.toHaveBeenCalled()
-    expect(a.poserBorne).not.toHaveBeenCalled()
-    expect(a.aide).not.toHaveBeenCalled()
+    expect(a.playbackOrPause).not.toHaveBeenCalled()
+    expect(a.remove).not.toHaveBeenCalled()
+    expect(a.poserBound).not.toHaveBeenCalled()
+    expect(a.help).not.toHaveBeenCalled()
   })
 
   it('ne retire rien quand il n’y a pas de sélection', () => {
     const a = { ...actions(), aSelection: false }
     render(<Harness {...a} />)
     fireEvent.keyDown(document.body, { key: 'Delete' })
-    expect(a.retirer).not.toHaveBeenCalled()
+    expect(a.remove).not.toHaveBeenCalled()
   })
 })
 

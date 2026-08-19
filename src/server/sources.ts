@@ -308,7 +308,7 @@ export async function listSources(options: OptionsSources = {}): Promise<Sources
   )
 
   const editing = {
-    disponible: reading !== null,
+    available: reading !== null,
     cause,
     fstype: fstype(dir),
     entries: reading?.entries ?? 0,

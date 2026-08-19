@@ -54,17 +54,17 @@ function mount(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
   const raw = transcript()
   const { words, lines } = indexTranscript(raw, [{ start: 0, end: 200 }])
   const complete = {
-    cle: 'c1',
-    lines: raw,
+    key: 'c1',
+    lines,
     words,
     selection: null,
-    onSelectionner: vi.fn(),
-    onEtendre: vi.fn(),
-    onTerminer: vi.fn(),
-    onRemonter: vi.fn(),
-    onPlacer: vi.fn(),
-    recherche: false,
-    onRecherche: vi.fn(),
+    onSelect: vi.fn(),
+    onExtend: vi.fn(),
+    onFinish: vi.fn(),
+    onSurface: vi.fn(),
+    onPlace: vi.fn(),
+    search: false,
+    onSearch: vi.fn(),
     ...props,
   }
   const view = render(<TranscriptSurface {...complete} />)

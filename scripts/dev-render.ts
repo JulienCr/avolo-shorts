@@ -26,7 +26,7 @@ async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const forced = arguments_.includes('--force')
+  const force = arguments_.includes('--force')
   const clipId = arguments_.find((a) => !a.startsWith('--'))
   if (clipId === undefined) {
     console.error('Usage : pnpm tsx scripts/dev-render.ts <identifiant de clip> [--force]')
@@ -49,7 +49,7 @@ async function main(): Promise<number> {
   const t = timer()
   const result = await renderClip(clipId, {
     db,
-    forced,
+    force,
     onProgress: (a) => {
       let bar = bars.get(a.output)
       if (bar === undefined) {

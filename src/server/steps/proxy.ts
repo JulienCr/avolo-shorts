@@ -14,7 +14,7 @@ export type OptionsProxy = {
   projectId: string
   /** La copie de travail dans `stage/`, pas l'original sur le Drive. */
   input: string
-  forced?: boolean
+  force?: boolean
   /** La durée de la source, pour rendre une fraction plutôt que des secondes. */
   durationSec?: number | null
   onProgress?: (progress: Progress) => void
@@ -49,7 +49,7 @@ export function encoderProxy(): EncoderName {
 export function buildProxy(o: OptionsProxy): Promise<Artifact> {
   return produceArtifact({
     dst: proxyPath(o.projectId),
-    forced: o.forced,
+    force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
     signal: o.signal,

@@ -100,7 +100,7 @@ export function PublishDialog({
   const resolvedAvailability = availability ?? defaultPlatformAvailability()
   const [step, setStep] = useState<Step>('platforms')
   const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
-  const [forced, setForced] = useState(false)
+  const [force, setForced] = useState(false)
 
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
   // un clip après l'autre : rouvrir sur la sélection du clip précédent
@@ -137,7 +137,7 @@ export function PublishDialog({
   const selectedAndAvailable = PLATFORMS.filter((p) => selected.has(p) && selectable.includes(p))
   const targets = eligible.flatMap((clip) =>
     selectedAndAvailable.flatMap((platform) =>
-      canTargetPlatform(clip.records?.[platform], forced) ? [{ clipId: clip.clipId, platform }] : [],
+      canTargetPlatform(clip.records?.[platform], force) ? [{ clipId: clip.clipId, platform }] : [],
     ),
   )
 
@@ -237,7 +237,7 @@ export function PublishDialog({
             availability={resolvedAvailability}
             selected={selected}
             onToggle={togglePlatform}
-            forced={forced}
+            force={force}
             onForced={setForced}
             alreadyPublished={alreadyPublished}
           />
@@ -280,7 +280,7 @@ function PlatformsStep({
   availability,
   selected,
   onToggle,
-  forced,
+  force,
   onForced,
   alreadyPublished,
 }: {
@@ -288,8 +288,8 @@ function PlatformsStep({
   availability: Readonly<Record<Platform, PlatformAvailability>>
   selected: ReadonlySet<Platform>
   onToggle: (platform: Platform) => void
-  forced: boolean
-  onForced: (forced: boolean) => void
+  force: boolean
+  onForced: (force: boolean) => void
   alreadyPublished: boolean
 }) {
   const forcedId = useId()
@@ -314,7 +314,7 @@ function PlatformsStep({
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
           <Checkbox
             id={forcedId}
-            checked={forced}
+            checked={force}
             onCheckedChange={(checked) => onForced(checked === true)}
           />
           <Label htmlFor={forcedId} className="flex flex-col gap-0.5 text-sm font-normal">

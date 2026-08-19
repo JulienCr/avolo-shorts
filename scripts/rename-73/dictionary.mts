@@ -927,7 +927,6 @@ const ENTRIES: Array<[string, string]> = [
   ["deverrouille", "unlocked"],
   ["encode", "encoded"],
   ["exporte", "exported"],
-  ["force", "forced"],
   ["frontiere", "boundary"],
   ["gele", "frozen"],
   ["hesite", "hesitates"],
@@ -1057,6 +1056,14 @@ export const ACCENT_SENSITIVE_OVERRIDES: Record<string, string> = {
   // propres traductions) ; ancrée ici sur la forme accentuée, elle ne
   // touche que "résumé" lui-même.
   "résumé": "summary",
+  // "force" (sans accent) est déjà un mot anglais légitime — la convention
+  // même des flags `--force` de git/npm — et le rester est ce dépôt en fait
+  // un usage constant (32 déclarations, jamais un mot français). Seule sa
+  // forme accentuée porte le participe passé "forcé(e)".
+  "forcé": "forced",
+  "forcée": "forced",
+  "forcées": "forced",
+  "forcés": "forced",
 };
 
 function buildDictionary(entries: Array<[string, string]>): Record<string, string> {

@@ -214,7 +214,7 @@ function poserFingerprint(
   // recalcule à chaque passage, donc le seul qui puisse faire dire à l'empreinte
   // qu'elle décrit encore le clip.
   fs.writeFileSync(
-    path,
+    filePath,
     JSON.stringify(fingerprintWith(c, markersNamed(markers), underTitles, framingFor(c))),
   )
 }

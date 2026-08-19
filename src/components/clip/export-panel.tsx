@@ -141,10 +141,10 @@ export function PanelExport({
             ? 'Une modification est en cours d’écriture. Le rendu lirait la version d’avant.'
             : null
 
-  function launch(forced: boolean) {
+  function launch(force: boolean) {
     if (prevention !== null || exporter.isPending) return
     setSignatureRendered(signature)
-    exporter.mutate({ clipId: clip.id, forced })
+    exporter.mutate({ clipId: clip.id, force })
   }
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)

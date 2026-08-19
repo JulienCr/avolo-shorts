@@ -53,14 +53,14 @@ const REQUEST = z.strictObject({
    * l'ignore, et le client recevait un 202 dont le plan ne parlait pas de ce
    * qu'il venait de demander. (relevé par Aristarque)
    */
-  forced: z.union([z.boolean(), z.array(TARGET)]).optional(),
+  force: z.union([z.boolean(), z.array(TARGET)]).optional(),
 })
 
 export const POST = route(
   'POST /api/projects/:id/run',
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
-    const { target, forced } = await body(request, REQUEST)
+    const { target, force } = await body(request, REQUEST)
     // **Une répétition se réduit, elle ne se refuse pas.** Le résultat d'une
     // liste qui se répète est parfaitement défini — `planPourCibles` ne planifie
     // jamais deux fois la même étape —, donc un 400 serait de la pédanterie.
@@ -73,7 +73,7 @@ export const POST = route(
     // (relevé par Copilot)
     const targets = [...new Set(Array.isArray(target) ? target : [target])]
     const launched = await launch(id, targets, {
-      forced: Array.isArray(forced) ? [...new Set(forced)] : forced,
+      force: Array.isArray(force) ? [...new Set(force)] : force,
     })
     // 202 : accepté et lancé. Un plan vide est une réponse valide et fréquente —
     // tout est déjà là, il n'y avait rien à faire.

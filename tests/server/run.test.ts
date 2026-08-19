@@ -493,7 +493,7 @@ describe('lancer', () => {
 
     const { shot } = await launch(PROJECT, ['candidates'], {
       db,
-      forced: ['transcript'],
+      force: ['transcript'],
       steps: stepsFake(),
     })
     // Refaire le transcript sans reprendre le repérage laisserait des candidats
@@ -509,7 +509,7 @@ describe('lancer', () => {
 
     const { shot } = await launch(PROJECT, ['candidates'], {
       db,
-      forced: true,
+      force: true,
       steps: stepsFake(),
     })
     expect(shot).toEqual(['candidates'])

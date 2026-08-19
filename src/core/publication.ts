@@ -172,8 +172,8 @@ export function clipEligibilityFromStatus(status: ClipStatus): ClipEligibility {
  * autres états n'empêchent rien — relancer un échec, ou une publication en
  * cours, reste une action volontaire de l'appelant.
  */
-export function canTargetPlatform(record: PublicationRecord | undefined, forced: boolean): boolean {
+export function canTargetPlatform(record: PublicationRecord | undefined, force: boolean): boolean {
   if (record === undefined) return true
   if (record.status !== 'published') return true
-  return forced
+  return force
 }

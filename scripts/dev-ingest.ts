@@ -20,7 +20,7 @@ async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const forced = arguments_.includes('--force')
+  const force = arguments_.includes('--force')
   const source = arguments_.find((a) => !a.startsWith('--'))
   if (source === undefined) {
     console.error('Usage : pnpm tsx scripts/dev-ingest.ts "<fichier du dossier de replays>" [--force]')
@@ -32,7 +32,7 @@ async function main(): Promise<number> {
   const barCopy = createBar('  copie ')
   const tCopy = timer()
   const project = await ingest(source, {
-    forced,
+    force,
     db,
     onProgress: (a) => barCopy(a.fraction),
   })
@@ -52,7 +52,7 @@ async function main(): Promise<number> {
     projectId: project.projectId,
     input: project.stagedPath,
     durationSec: project.durationSec,
-    forced,
+    force,
     onProgress: (a) => barProxy(a.fraction),
   })
   finBar()
@@ -75,7 +75,7 @@ async function main(): Promise<number> {
     projectId: project.projectId,
     input: project.stagedPath,
     durationSec: project.durationSec,
-    forced,
+    force,
     onProgress: (a) => barAudio(a.fraction),
   })
   finBar()

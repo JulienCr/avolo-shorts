@@ -77,9 +77,9 @@ type StatePlayback = {
 
 const EMPTY = {
   position: 0,
-  enLecture: false,
-  motActif: null,
-  mots: [] as readonly Interval[],
+  inPlayback: false,
+  wordActive: null,
+  words: [] as readonly Interval[],
 }
 
 export const usePlayback = create<StatePlayback>((set, get) => ({

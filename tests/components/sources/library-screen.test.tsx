@@ -230,13 +230,13 @@ describe('la création', () => {
   })
 
   it('affiche le message du serveur quand la création échoue, et ne va nulle part', async () => {
-    const server = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
-    server({ creation: () => response({ error: server }, 503) })
+    const serverMessage = 'Le dossier des replays ne répond pas. Rouvrir le lecteur côté Windows.'
+    server({ creation: () => response({ error: serverMessage }, 503) })
     await mount()
 
     await userEvent.click(screen.getByRole('button', { name: /2025-06-15-cqlp\.mp4/ }))
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(server))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(serverMessage))
     expect(push).not.toHaveBeenCalled()
   })
 

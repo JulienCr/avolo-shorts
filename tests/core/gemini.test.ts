@@ -264,7 +264,7 @@ describe('shortlistFromScores', () => {
   const twelve = Array.from({ length: 12 }, (_, i) => fen(`window_${String(i + 1).padStart(3, '0')}`))
 
   it('retient le haut du panier', () => {
-    const notes = twelve.map((w, i) => ({ id: w.id, score: i * 5, reason: '', notée: true }))
+    const notes = twelve.map((w, i) => ({ id: w.id, score: i * 5, reason: '', noted: true }))
     const kept = shortlistFromScores(notes, twelve, 10)
     expect(kept).toHaveLength(10)
     expect(kept[0].id).toBe('window_012')
@@ -285,7 +285,7 @@ describe('shortlistFromScores', () => {
   })
 
   it('départage deux notes égales par l’ordre chronologique', () => {
-    const notes = twelve.map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
+    const notes = twelve.map((w) => ({ id: w.id, score: 50, reason: '', noted: true }))
     const kept = shortlistFromScores(notes, twelve, 10)
     expect(kept.map((w) => w.id)).toEqual(twelve.slice(0, 10).map((w) => w.id))
   })
@@ -295,7 +295,7 @@ describe('shortlistFromScores', () => {
     // Gemini choisit. Une égalité qui tombe pile sur la coupure admettait alors
     // une fenêtre tardive en écartant une fenêtre antérieure, au hasard.
     // (relevé par Codex et Copilot)
-    const notes = [...twelve].reverse().map((w) => ({ id: w.id, score: 50, reason: '', notée: true }))
+    const notes = [...twelve].reverse().map((w) => ({ id: w.id, score: 50, reason: '', noted: true }))
     const kept = shortlistFromScores(notes, twelve, 10)
     expect(kept.map((w) => w.id)).toEqual(twelve.slice(0, 10).map((w) => w.id))
   })
@@ -318,9 +318,9 @@ describe('shortlistFromScores', () => {
 
   it('une note plus haute passe toujours devant, désordre ou pas', () => {
     const notes = [
-      { id: 'window_003', score: 10, reason: '', notée: true },
-      { id: 'window_011', score: 99, reason: '', notée: true },
-      { id: 'window_001', score: 50, reason: '', notée: true },
+      { id: 'window_003', score: 10, reason: '', noted: true },
+      { id: 'window_011', score: 99, reason: '', noted: true },
+      { id: 'window_001', score: 50, reason: '', noted: true },
     ]
     const kept = shortlistFromScores(notes, twelve, 10)
     expect(kept.slice(0, 3).map((w) => w.id)).toEqual([

@@ -39,7 +39,7 @@ describe('décisionCopie', () => {
   })
 
   it('force recopie même une copie complète', () => {
-    expect(decisionCopy({ source, copy: { sizeBytes: 4_577_070_123 }, forced: true })).toBe(
+    expect(decisionCopy({ source, copy: { sizeBytes: 4_577_070_123 }, force: true })).toBe(
       'copier',
     )
   })

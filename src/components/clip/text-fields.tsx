@@ -68,9 +68,9 @@ export function FieldsTexts({
         <Label htmlFor={`${identifier}-titre`}>Titre</Label>
         <Input
           id={`${identifier}-titre`}
-          value={title.valeur}
-          onChange={(e) => title.saisir(e.target.value)}
-          onBlur={title.vider}
+          value={title.value}
+          onChange={(e) => title.input(e.target.value)}
+          onBlur={title.clear}
           placeholder="Ce qui s’affichera au-dessus du clip"
         />
         <Failure field="Le titre" state={title} />
@@ -80,9 +80,9 @@ export function FieldsTexts({
         <Label htmlFor={`${identifier}-description`}>Description</Label>
         <Textarea
           id={`${identifier}-description`}
-          value={description.valeur}
-          onChange={(e) => description.saisir(e.target.value)}
-          onBlur={description.vider}
+          value={description.value}
+          onChange={(e) => description.input(e.target.value)}
+          onBlur={description.clear}
           rows={3}
           placeholder="La description et les mots-dièse, tels qu’ils seront collés"
         />

@@ -525,7 +525,7 @@ function charger(id: string, overrides: Map<string, string>): Show | null {
   // (relevé par Copilot)
   const clips = getClips(db, id)
     .filter((c) => c.status !== 'discarded')
-    .map((c) => ({ nom: c.id, segments: c.segments }))
+    .map((c) => ({ name: c.id, segments: c.segments }))
   const duration = analysis.shots.at(-1)?.end ?? 0
   return { id, analysis, clips, windows: windows(duration, 30, 30) }
 }
@@ -576,7 +576,7 @@ function byClip(show: Show): void {
 // 2. La répartition comparée
 // ---------------------------------------------------------------------------
 
-function comparison(shows: Show[], what: 'clips' | 'fenêtres'): void {
+function comparison(shows: Show[], what: 'clips' | 'windows'): void {
   console.log(`\n${what === 'clips' ? 'Clips du repérage' : 'Fenêtres de 30 s tous les 30 s'}`)
   const header = shows.map((e) => e.id.padStart(22)).join(' ')
   console.log(`  ${''.padEnd(8)} ${header}`)
@@ -622,7 +622,7 @@ function comparison(shows: Show[], what: 'clips' | 'fenêtres'): void {
  * fois sa valeur, une fois de chaque côté — et qui rend le tableau lisible à côté
  * des seuils de couverture.
  */
-function sweep(show: Show, what: 'clips' | 'fenêtres'): void {
+function sweep(show: Show, what: 'clips' | 'windows'): void {
   const cuts = show[what]
   if (cuts.length === 0) return
   console.log(`\n  ${show.id} — ${cuts.length} ${what}`)
@@ -633,7 +633,7 @@ function sweep(show: Show, what: 'clips' | 'fenêtres'): void {
     const options = opts({ margin: margin })
     const ratios = cuts.map((d) => ratio(d, show.analysis, options))
     const count = distribution(ratios)
-    const spans = cuts.flatMap((d) => spans(d, show.analysis, options))
+    const measurements = cuts.flatMap((d) => spans(d, show.analysis, options))
     const moved = cuts
       .map((d, i) => ({ nom: d.name, avant: reference[i], après: ratios[i] }))
       .filter((e) => e.avant !== e.après)
@@ -642,7 +642,7 @@ function sweep(show: Show, what: 'clips' | 'fenêtres'): void {
     console.log(
       `  ${margin.toFixed(2)}${defaultValue}   ` +
         MORE_NARROW_MORE_WIDE.map((r) => String(count.get(r) ?? 0).padStart(6)).join(' ') +
-        `   ${number(median(spans)).padStart(9)}` +
+        `   ${number(median(measurements)).padStart(9)}` +
         `   ${tightened} resserré(s), ${moved.length - tightened} élargi(s)`,
     )
     // **Nommés sur les clips, comptés sur les fenêtres.** Un clip qui bascule est
@@ -677,7 +677,7 @@ function sweep(show: Show, what: 'clips' | 'fenêtres'): void {
  *   d'un tiers, puis de la moitié. La seconde est le seuil au-delà duquel un
  *   visage peut tomber, et c'est la ligne rouge posée par Julien.
  */
-function sweepSideTrim(show: Show, what: 'clips' | 'fenêtres'): void {
+function sweepSideTrim(show: Show, what: 'clips' | 'windows'): void {
   const cuts = show[what]
   if (cuts.length === 0) return
   console.log(`\n  ${show.id} — ${cuts.length} ${what}`)
@@ -822,7 +822,7 @@ function boundedByPosition(show: Show): void {
  * rectangle. C'est le compteur qui manquait à la campagne précédente, qui n'a vu
  * son visage tombé qu'en regardant une image.
  */
-function sweepTorso(show: Show, what: 'clips' | 'fenêtres'): void {
+function sweepTorso(show: Show, what: 'clips' | 'windows'): void {
   const cuts = show[what]
   if (cuts.length === 0) return
   console.log(`\n  ${show.id} — ${cuts.length} ${what}`)
@@ -835,7 +835,7 @@ function sweepTorso(show: Show, what: 'clips' | 'fenêtres'): void {
     const options = opts({ torso })
     const count = distribution(cuts.map((d) => ratio(d, show.analysis, options)))
     const times = timePerRatio(cuts, show.analysis, options)
-    const spans = cuts.flatMap((d) => spans(d, show.analysis, options))
+    const measurements = cuts.flatMap((d) => spans(d, show.analysis, options))
     const costs = cuts.map((d) => costOf(d, show.analysis, options))
     const box = costs.flatMap((c) => c.box)
     const torsos = costs.flatMap((c) => c.torso)
@@ -850,7 +850,7 @@ function sweepTorso(show: Show, what: 'clips' | 'fenêtres'): void {
       `  ${torso.padEnd(16)}${defaultValue}` +
         MORE_NARROW_MORE_WIDE.map((r) => String(count.get(r) ?? 0).padStart(5)).join(' ') +
         `  ${number(shareInSixteenNine(times), 0).padStart(6)} %` +
-        `  ${number(median(spans)).padStart(9)}` +
+        `  ${number(median(measurements)).padStart(9)}` +
         `  ${number(percentile(box, 0.99)).padStart(16)}` +
         `  ${number(percentile(torsos, 0.99)).padStart(16)}` +
         `  ${`${headsOut} (${(sampleStep(show.analysis) * framesOut).toFixed(1)} s)`.padStart(13)}` +
@@ -916,7 +916,7 @@ function torsoVersusBox(show: Show): void {
  */
 function sweepTorsoPadding(
   show: Show,
-  what: 'clips' | 'fenêtres',
+  what: 'clips' | 'windows',
   whatVaries: 'torsoPad' | 'torsoTrim',
 ): void {
   const cuts = show[what]
@@ -942,7 +942,7 @@ function sweepTorsoPadding(
     })
     const count = distribution(cuts.map((d) => ratio(d, show.analysis, options)))
     const times = timePerRatio(cuts, show.analysis, options)
-    const spans = cuts.flatMap((d) => spans(d, show.analysis, options))
+    const measurements = cuts.flatMap((d) => spans(d, show.analysis, options))
     const costs = cuts.map((d) => costOf(d, show.analysis, options))
     const box = costs.flatMap((c) => c.box)
     const torsos = costs.flatMap((c) => c.torso)
@@ -956,7 +956,7 @@ function sweepTorsoPadding(
       `  ${pad.toFixed(2)}${defaultValue}         ` +
         MORE_NARROW_MORE_WIDE.map((r) => String(count.get(r) ?? 0).padStart(5)).join(' ') +
         `  ${number(shareInSixteenNine(times), 0).padStart(6)} %` +
-        `  ${number(median(spans)).padStart(9)}` +
+        `  ${number(median(measurements)).padStart(9)}` +
         `  ${number(percentile(box, 0.99)).padStart(16)}` +
         `  ${number(percentile(torsos, 0.99)).padStart(16)}` +
         `  ${`${headsOut} (${(sampleStep(show.analysis) * framesOut).toFixed(1)} s)`.padStart(13)}`,
@@ -1193,18 +1193,18 @@ async function main(): Promise<number> {
 
     console.log('\n=== 2. La répartition comparée ===')
     comparison(shows, 'clips')
-    comparison(shows, 'fenêtres')
+    comparison(shows, 'windows')
 
     console.log('\n=== 3. Le balayage de la marge ===')
     console.log('  (« déplacés » se compte par rapport à la marge par défaut)')
     for (const e of shows) sweep(e, 'clips')
-    for (const e of shows) sweep(e, 'fenêtres')
+    for (const e of shows) sweep(e, 'windows')
 
     console.log('\n=== 4. Le balayage du rognage latéral ===')
     console.log('  (« coupé » se mesure sur le cadre du plan, boîtes entières, images sacrifiées comprises)')
     console.log('  (les p90/p99 portent sur les personnes ; les colonnes en secondes comptent les images, la pire perte de chacune)')
     for (const e of shows) sweepSideTrim(e, 'clips')
-    for (const e of shows) sweepSideTrim(e, 'fenêtres')
+    for (const e of shows) sweepSideTrim(e, 'windows')
 
     console.log('\n=== 5. Les plans que la position borne, et non la largeur ===')
     console.log('  (leurs images tiendraient plus serré ; aucune position fixe ne les sert)')
@@ -1216,13 +1216,13 @@ async function main(): Promise<number> {
     console.log('\n  Ce que chaque définition de tronc change')
     console.log('  (« têtes dehors » : personnes-images dont aucun point de tête n’est dans le crop ; la durée entre parenthèses compte les images, pas les personnes)')
     for (const e of shows) sweepTorso(e, 'clips')
-    for (const e of shows) sweepTorso(e, 'fenêtres')
+    for (const e of shows) sweepTorso(e, 'windows')
     console.log('\n  Le rembourrage du tronc')
     for (const e of shows) sweepTorsoPadding(e, 'clips', 'torsoPad')
-    for (const e of shows) sweepTorsoPadding(e, 'fenêtres', 'torsoPad')
+    for (const e of shows) sweepTorsoPadding(e, 'windows', 'torsoPad')
     console.log('\n  Le rognage du tronc, tête exceptée')
     for (const e of shows) sweepTorsoPadding(e, 'clips', 'torsoTrim')
-    for (const e of shows) sweepTorsoPadding(e, 'fenêtres', 'torsoTrim')
+    for (const e of shows) sweepTorsoPadding(e, 'windows', 'torsoTrim')
 
     if (nMoments !== null) {
       console.log('\n=== 7. Où regarder — les images qui font monter le ratio ===')

@@ -124,7 +124,7 @@ export function LibraryScreen() {
           // leur longueur. (relevé par Copilot)
           entriesKnown={!projectsUnknown}
           projects={projects.data}
-          mount={sources.data?.montage}
+          mount={sources.data?.editing}
           // **Les deux requêtes, pas une.** Monter la grille dès que les sources
           // répondent afficherait dix-huit cartes « À analyser » le temps que la
           // liste des projets arrive, puis les basculerait sous les yeux —

@@ -743,11 +743,11 @@ export function createProject(source: string): Promise<RunShot> {
 export function runProject(
   projectId: string,
   targets: RunTarget | readonly RunTarget[],
-  forced?: boolean | readonly RunTarget[],
+  force?: boolean | readonly RunTarget[],
 ): Promise<RunShot> {
   return post<RunShot>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
     target: targets,
-    forced,
+    force,
   })
 }
 
@@ -818,8 +818,8 @@ export async function patchClip(
  * réponse la plus fréquente dès qu'on rouvre un clip exporté, et elle veut dire
  * « tout est en place » — pas « ça n'a pas marché ».
  */
-export function exportClip(clipId: string, forced?: boolean): Promise<ExportResult> {
-  return post<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { forced })
+export function exportClip(clipId: string, force?: boolean): Promise<ExportResult> {
+  return post<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
 }
 
 // ---------------------------------------------------------------------------

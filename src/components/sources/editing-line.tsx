@@ -146,7 +146,7 @@ function diagnostic(editing: SourcesListing['editing']) {
   if (!editing.available) {
     return {
       grave: true,
-      icone: <TriangleAlert aria-hidden />,
+      icon: <TriangleAlert aria-hidden />,
       ...perCause('unreadable', editing.fstype),
     }
   }
@@ -154,8 +154,8 @@ function diagnostic(editing: SourcesListing['editing']) {
   if (editing.entries > 0) {
     return {
       grave: false,
-      icone: <FolderOpen aria-hidden />,
-      titre: 'Aucune vidéo dans le dossier des replays.',
+      icon: <FolderOpen aria-hidden />,
+      title: 'Aucune vidéo dans le dossier des replays.',
       detail: `${reading(editing.fstype)} Il contient ${plural(
         editing.entries,
         'entrée',
@@ -166,8 +166,8 @@ function diagnostic(editing: SourcesListing['editing']) {
 
   return {
     grave: false,
-    icone: <Inbox aria-hidden />,
-    titre: 'Le dossier des replays est vide.',
+    icon: <Inbox aria-hidden />,
+    title: 'Le dossier des replays est vide.',
     detail: `${reading(editing.fstype)} Il n’y a rien dedans.`,
   }
 }

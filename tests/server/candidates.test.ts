@@ -901,7 +901,7 @@ describe("l'étape de repérage", () => {
       // venir que de la précédente.
       await launch(ID, ['candidates'], {
         db,
-        forced: true,
+        force: true,
         steps: { runCandidates: async () => [] },
       })
       await wait(ID)

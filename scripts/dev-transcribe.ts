@@ -27,7 +27,7 @@ async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const forced = arguments_.includes('--force')
+  const force = arguments_.includes('--force')
   const projectId = arguments_.find((a) => !a.startsWith('--'))
   if (projectId === undefined) {
     console.error('Usage : pnpm tsx scripts/dev-transcribe.ts <identifiant de projet> [--force]')
@@ -75,7 +75,7 @@ async function main(): Promise<number> {
     renders: false,
   }
 
-  const shot = shotSteps('transcript', presence, forced ? ['transcript'] : [])
+  const shot = shotSteps('transcript', presence, force ? ['transcript'] : [])
   console.log(`Projet     : ${projectId}`)
   console.log(`Source     : ${project.sourcePath}`)
   console.log(`Sidecar    : ${placement.transcript}${placement.fallback ? ' (repli dans le projet)' : ''}`)
@@ -92,7 +92,7 @@ async function main(): Promise<number> {
       projectId,
       input: project.stagedPath,
       durationSec: project.durationSec,
-      forced: true,
+      force: true,
       onProgress: (a) => bar(a.fraction),
     })
     finBar()
@@ -111,7 +111,7 @@ async function main(): Promise<number> {
       source: project.sourcePath,
       projectId,
       audio,
-      forced: true,
+      force: true,
       onLog: (line) => console.log(`  worker | ${line}`),
     })
     transcript = result.path

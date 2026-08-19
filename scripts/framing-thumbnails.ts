@@ -407,7 +407,7 @@ async function main(): Promise<number> {
         return { t: key / 1000, boxes, span, ...extent(boxes, margin, trim, torso) }
       })
       .filter(
-        (e): e is Measured => e.empan !== undefined && e.g !== undefined && e.d !== undefined,
+        (e): e is Measured => e.span !== undefined && e.g !== undefined && e.d !== undefined,
       )
       .map((e) => ({ ...e, sortie: overflow(e, crop) }))
       // Le plus gros débordement d'abord ; à débordement égal — zéro, le cas

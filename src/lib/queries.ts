@@ -308,13 +308,13 @@ export function usePatchClip() {
       // Remettre ce clip-là comme il était, **dans le cache tel qu'il est
       // maintenant** — pas invalider : invalider laisserait l'écran dans son
       // état optimiste, donc faux, le temps du rechargement.
-      const previousCandidate = context?.precedentCandidat
+      const previousCandidate = context?.previousCandidate
       if (previousCandidate) {
         client.setQueryData<CandidateClip[]>(keys.candidats(projectId), (list) =>
           list?.map((c) => (c.id === clipId ? previousCandidate : c)),
         )
       }
-      const previousClip = context?.precedentClip
+      const previousClip = context?.previousClip
       if (previousClip) {
         client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
           detail ? { ...detail, clip: previousClip } : detail,
@@ -422,8 +422,8 @@ export function useExporter() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ clipId, forced }: { clipId: string; forced?: boolean }) =>
-      exportClip(clipId, forced),
+    mutationFn: ({ clipId, force }: { clipId: string; force?: boolean }) =>
+      exportClip(clipId, force),
     onSuccess(_result, { clipId }) {
       void client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.tousCandidats })
@@ -491,12 +491,12 @@ export function useRetry() {
     mutationFn: ({
       projectId,
       targets,
-      forced,
+      force,
     }: {
       projectId: string
       targets: RunTarget | readonly RunTarget[]
-      forced?: boolean | readonly RunTarget[]
-    }) => runProject(projectId, targets, forced),
+      force?: boolean | readonly RunTarget[]
+    }) => runProject(projectId, targets, force),
     onSuccess(_shot, { projectId }) {
       // **Les candidats, seulement au succès.** Une relance refusée n'a rien
       // lancé : la liste décrit toujours la même passe, et la recharger ferait

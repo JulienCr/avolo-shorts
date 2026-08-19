@@ -318,7 +318,7 @@ async function main(): Promise<number> {
       if (clips.length > 0) {
         distribution(
           'Les clips du projet',
-          clips.map((c) => ({ nom: c.id, segments: c.segments })),
+          clips.map((c) => ({ name: c.id, segments: c.segments })),
           analysis,
         )
       }

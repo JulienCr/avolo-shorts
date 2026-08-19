@@ -373,7 +373,7 @@ export type OptionsAnalysis = {
    * touche pas au Drive.
    */
   source: string
-  forced?: boolean
+  force?: boolean
   /** Le modèle, si on ne veut pas celui que l'environnement désigne. */
   model?: string
   /** Le seuil de score de scène. Voir la constante plus bas. */
@@ -418,7 +418,7 @@ const THRESHOLD_SCENE = 0.4
  */
 export async function runAnalysis(o: OptionsAnalysis): Promise<Artifact> {
   const destination = analysisPath(o.projectId)
-  if (o.forced !== true && fs.existsSync(destination)) {
+  if (o.force !== true && fs.existsSync(destination)) {
     return { path: destination, skipped: true }
   }
 
@@ -589,14 +589,14 @@ function launchWorker(
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
     // l'autre.
-    const relayer = (stream: NodeJS.ReadableStream, log: boolean): void => {
+    const relayer = (stream: NodeJS.ReadableStream, shouldLog: boolean): void => {
       stream.setEncoding('utf8')
       let remaining = ''
       const emit = (line: string): void => {
         if (onLog !== undefined && line.trim() !== '') onLog(line)
       }
       stream.on('data', (piece: string) => {
-        if (log) log.add(piece)
+        if (shouldLog) log.add(piece)
         if (onLog === undefined) return
         // Découpage sur **CR comme LF** : les barres d'avancement d'ultralytics
         // se réécrivent derrière un `\r`, sans jamais de saut de ligne.

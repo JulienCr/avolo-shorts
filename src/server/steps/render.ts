@@ -77,7 +77,7 @@ export type RenderResult = {
 export type OptionsRender = {
   db?: Database.Database
   /** Refaire même si les sorties sont là. */
-  forced?: boolean
+  force?: boolean
   /**
    * Le preset de sous-titres. **Un preset personnalisé doit passer entier** :
    * `renderAss` ne lit ni `maxChars` ni `maxDuration`, c'est `splitIntoCards`
@@ -776,9 +776,9 @@ export function sauterRender(
   paths: PathsRender,
   exists: (path: string) => boolean,
   describedClip: boolean,
-  forced = false,
+  force = false,
 ): boolean {
-  if (forced) return false
+  if (force) return false
   if (!describedClip) return false
   return [paths.mp4, paths.variant9x16, paths.texts].every(
     (path) => path === null || exists(path),
@@ -813,9 +813,9 @@ export function redoOutputs(
   paths: PathsRender,
   exists: (path: string) => boolean,
   describedClip: boolean,
-  forced = false,
+  force = false,
 ): boolean {
-  if (forced) return true
+  if (force) return true
   // **Une empreinte qui ne décrit pas le clip rallume ffmpeg**, et pas seulement
   // un fichier manquant. Sans cette ligne, un jeu de MP4 complet mais périmé
   // sauterait l'encodage pour n'y réécrire que le `.txt` : le correctif de
@@ -1300,7 +1300,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // `skipped: true` comme un succès (spec §3.4). Le réencodage se voit déjà —
   // l'export dure alors dix secondes au lieu d'aucune — mais rien ne disait
   // pourquoi. Sous `force`, la décision ne vient pas de l'empreinte : on se tait.
-  if (gap !== null && options.forced !== true && fs.existsSync(paths.mp4)) {
+  if (gap !== null && options.force !== true && fs.existsSync(paths.mp4)) {
     console.warn(
       `Clip ${clipId} : des rendus sont là mais ${GAP_REASON[gap]}. Ils sont refaits.`,
     )
@@ -1311,7 +1311,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // sur le Drive partagé, monté en 9p, lent et sujet au décrochage, et la
   // décision de saut évitait cet aller-retour tant que rien ne pouvait le
   // rendre nécessaire. Un clip sans sous-titres continue de l'éviter.
-  if (sauterRender(paths, (c) => fs.existsSync(c), gap === null, options.forced)) {
+  if (sauterRender(paths, (c) => fs.existsSync(c), gap === null, options.force)) {
     // **Le `.txt` se réécrit même quand le rendu saute**, et c'est le seul des
     // trois à le faire. Il ne coûte rien, et c'est celui qu'on retouche le plus :
     // corriger une faute dans la description puis relancer l'export ne doit pas
@@ -1372,7 +1372,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // interrompu juste après l'encodage laisse les MP4 sans leur `.txt` : cette
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des sondages ffprobe.
-  if (redoOutputs(paths, (c) => fs.existsSync(c), gap === null, options.forced)) {
+  if (redoOutputs(paths, (c) => fs.existsSync(c), gap === null, options.force)) {
     // **La copie de travail, pas le Drive — et son absence se répare ici.** Ce
     // commentaire disait déjà « son absence se répare en réingérant » et le code
     // se contentait de lever en le prescrivant : or rien dans l'application ne
@@ -1544,7 +1544,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
           // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
           // un natif présent dont la variante manque, et la paire repartirait de
           // deux montages. (relevé par Codex et Copilot)
-          forced: true,
+          force: true,
           durationSec: duration,
           onProgress: (a) => options.onProgress?.({ ...a, output: 'natif' }),
           what: `rendu ${ratio} du clip ${clipId}`,
@@ -1572,7 +1572,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         if (variant !== null) {
           await produceArtifact({
             dst: variant,
-            forced: true,
+            force: true,
             durationSec: duration,
             onProgress: (a) => options.onProgress?.({ ...a, output: '9x16' }),
             what: `variante 9:16 du clip ${clipId}`,

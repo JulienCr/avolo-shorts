@@ -478,7 +478,7 @@ export type OptionsArtifact = {
   /** Le chemin définitif de l'artefact. Sa présence vaut « étape faite ». */
   dst: string
   /** Refaire même si l'artefact est là. */
-  forced?: boolean
+  force?: boolean
   /** L'argv, construit autour de la destination **temporaire** qu'on lui passe. */
   args: (destination: string) => string[]
   durationSec?: number | null
@@ -514,7 +514,7 @@ export type OptionsArtifact = {
  * renomment qu'après validation.
  */
 export async function produceArtifact(o: OptionsArtifact): Promise<Artifact> {
-  if (o.forced !== true && fs.existsSync(o.dst)) return { path: o.dst, skipped: true }
+  if (o.force !== true && fs.existsSync(o.dst)) return { path: o.dst, skipped: true }
 
   await fsp.mkdir(path.dirname(o.dst), { recursive: true })
   const temporary = pathTemporary(o.dst)

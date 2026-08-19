@@ -266,7 +266,7 @@ export type OptionsTranscript = {
   projectId: string
   /** Le WAV 16 kHz mono produit par l'étape audio. */
   audio: string
-  forced?: boolean
+  force?: boolean
   model?: string
   language?: string
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
@@ -325,7 +325,7 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
 
   const placement = placeSidecar(o.source, o.projectId)
 
-  if (o.forced !== true && fs.existsSync(placement.transcript)) {
+  if (o.force !== true && fs.existsSync(placement.transcript)) {
     return { path: placement.transcript, skipped: true, fallback: placement.fallback }
   }
 
@@ -412,14 +412,14 @@ function launchWorker(
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
     // l'autre.
-    const relayer = (stream: NodeJS.ReadableStream, log: boolean): void => {
+    const relayer = (stream: NodeJS.ReadableStream, shouldLog: boolean): void => {
       stream.setEncoding('utf8')
       let remaining = ''
       const emit = (line: string): void => {
         if (onLog !== undefined && line.trim() !== '') onLog(line)
       }
       stream.on('data', (piece: string) => {
-        if (log) log.add(piece)
+        if (shouldLog) log.add(piece)
         if (onLog === undefined) return
         // Découpage sur **CR comme LF** : les barres d'avancement de `tqdm` et
         // consorts se réécrivent derrière un `\r`, sans jamais de saut de ligne.

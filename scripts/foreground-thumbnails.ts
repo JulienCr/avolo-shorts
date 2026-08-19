@@ -301,8 +301,8 @@ async function main(): Promise<number> {
 
   if (nWide !== null) {
     const wide = [...images.entries()]
-      .map(([key, bs]) => ({ t: key / 1000, empan: spanFilter(bs) }))
-      .filter((e): e is { t: number; span: number } => e.empan !== null)
+      .map(([key, bs]) => ({ t: key / 1000, span: spanFilter(bs) }))
+      .filter((e): e is { t: number; span: number } => e.span !== null)
       .sort((a, b) => b.span - a.span)
     console.log(
       `empan résiduel : max ${wide[0]?.span.toFixed(2) ?? '—'}, ` +

@@ -380,7 +380,7 @@ describe('un rendu sans empreinte, déjà sur le disque', () => {
     const before = console.warn
     console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
     try {
-      await renderClip(CLIP, { db: getDb(), brandDir, forced: true })
+      await renderClip(CLIP, { db: getDb(), brandDir, force: true })
     } finally {
       console.warn = before
     }

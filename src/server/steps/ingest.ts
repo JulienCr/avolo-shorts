@@ -80,9 +80,9 @@ export type DecisionCopy = 'copier' | 'garder'
 export function decisionCopy(o: {
   source: { sizeBytes: number }
   copy: { sizeBytes: number } | null
-  forced?: boolean
+  force?: boolean
 }): DecisionCopy {
-  if (o.forced === true) return 'copier'
+  if (o.force === true) return 'copier'
   if (o.copy === null) return 'copier'
   return o.copy.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
 }
@@ -656,7 +656,7 @@ export type ProgressCopy = { done: number; total: number; fraction: number | nul
 
 export type OptionsIngestion = {
   /** Recopier même si une copie de la bonne taille est déjà là. */
-  forced?: boolean
+  force?: boolean
   /** Délai de garde du `stat` sur le Drive. */
   statTimeoutMs?: number
   onProgress?: (progress: ProgressCopy) => void
@@ -727,7 +727,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   const decision = decisionCopy({
     source: { sizeBytes: stat.size },
     copy: copyStat === null ? null : { sizeBytes: copyStat.size },
-    forced: options.forced,
+    force: options.force,
   })
 
   const copied =

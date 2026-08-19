@@ -64,11 +64,11 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
     clip: clip(),
     outputs: nothingEstProduced,
     framing: framing(),
-    duree: 20,
-    enregistrement: 'enregistre' as const,
-    empreinte: 'empreinte-de-depart',
-    ecritureEnCours: false,
-    ecritureEnEchec: false,
+    duration: 20,
+    autosave: 'enregistre' as const,
+    fingerprint: 'empreinte-de-depart',
+    writeInCurrent: false,
+    writeInFailure: false,
     ...props,
   }
   const view = render(<PanelExport {...complete} />, { wrapper: envelope })

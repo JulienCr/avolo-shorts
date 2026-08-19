@@ -19,7 +19,7 @@ export type OptionsAudio = {
   projectId: string
   /** La copie de travail dans `stage/`. */
   input: string
-  forced?: boolean
+  force?: boolean
   durationSec?: number | null
   onProgress?: (progress: Progress) => void
   /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
@@ -29,7 +29,7 @@ export type OptionsAudio = {
 export function extractAudio(o: OptionsAudio): Promise<Artifact> {
   return produceArtifact({
     dst: audioPath(o.projectId),
-    forced: o.forced,
+    force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
     signal: o.signal,

@@ -28,19 +28,19 @@ import { renderClip } from '@/server/steps/render'
 
 const REQUEST = z.strictObject({
   /** Refaire les rendus même s'ils sont déjà là. */
-  forced: z.boolean().optional(),
+  force: z.boolean().optional(),
 })
 
 export const POST = route(
   'POST /api/clips/:id/export',
   async (request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
-    const { forced } = await body(request, REQUEST)
+    const { force } = await body(request, REQUEST)
 
     const db = getDb()
     if (getClip(db, id) === undefined) throw notFound(`Clip inconnu : ${id}`)
 
-    const result = await renderClip(id, { db, forced })
+    const result = await renderClip(id, { db, force })
 
     return json({
       // Relu après le rendu : c'est `renderClip` qui pose `exported`, et

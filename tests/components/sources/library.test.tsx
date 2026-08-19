@@ -25,7 +25,7 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-const MOUNTED: SourcesListing['montage'] = {
+const MOUNTED: SourcesListing['editing'] = {
   available: true,
   cause: null,
   fstype: '9p',

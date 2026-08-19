@@ -27,7 +27,7 @@ async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const forced = arguments_.includes('--force')
+  const force = arguments_.includes('--force')
   const positional = arguments_.filter((a) => !a.startsWith('--'))
   const projectId = positional[0]
   const targets = positional.slice(1)
@@ -48,9 +48,9 @@ async function main(): Promise<number> {
   }
 
   const t = timer()
-  const { shot } = await launch(projectId, targets.filter(estTarget), { forced })
+  const { shot } = await launch(projectId, targets.filter(estTarget), { force })
   console.log(`Projet  : ${projectId}`)
-  console.log(`Cibles  : ${targets.join(', ')}${forced ? ' (forcées)' : ''}`)
+  console.log(`Cibles  : ${targets.join(', ')}${force ? ' (forcées)' : ''}`)
   console.log(`Plan    : ${shot.length === 0 ? 'rien, tout est là' : shot.join(' → ')}`)
 
   // **Le suivi passe par `status.json`, pas par les rappels de `lancer`.** Le

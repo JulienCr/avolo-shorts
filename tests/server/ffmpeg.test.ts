@@ -209,7 +209,7 @@ describe('produireArtefact — la décision de sauter', () => {
     const folder = tmp()
     const dst = path.join(folder, 'proxy.mp4')
     fs.writeFileSync(dst, 'un proxy')
-    await expect(produceArtifact({ dst, forced: true, args: never })).rejects.toThrow(
+    await expect(produceArtifact({ dst, force: true, args: never })).rejects.toThrow(
       /ne devait pas tourner/,
     )
   })
@@ -374,7 +374,7 @@ describe('propagerArrêt', () => {
   it('ne fait rien du tout sans signal, et son débranchement est sûr', async () => {
     const proc = spawn('sleep', ['0.05'])
     const detach = forwardAbort(proc, undefined)
-    expect(await fin(proc)).toBeNull()
+    expect(await waitForExit(proc)).toBeNull()
     expect(() => {
       detach()
       detach()
@@ -391,7 +391,7 @@ describe('propagerArrêt', () => {
     const controller = new AbortController()
     const proc = spawn('sleep', ['0.05'])
     const detach = forwardAbort(proc, controller.signal)
-    await fin(proc)
+    await waitForExit(proc)
     detach()
     // `abort()` après coup ne doit plus rien déclencher : le second `kill` sur
     // un processus mort est de toute façon attrapé, et rien ne doit lever.

@@ -529,7 +529,7 @@ function useViewFrozen(clips: readonly CandidateClip[], view: View): CandidateCl
   // rendu avant de peindre, donc la grille ne s'affiche jamais dans son état
   // d'avant. Un `useEffect` produirait une image intermédiaire à chaque
   // changement de vue.
-  if (frozen.vue !== view || frozen.identités !== identities) {
+  if (frozen.view !== view || frozen.identities !== identities) {
     setFrozen({
       view,
       identities,
@@ -540,7 +540,7 @@ function useViewFrozen(clips: readonly CandidateClip[], view: View): CandidateCl
       // humaines **et** ajoute des candidats, donc le jeu d'identifiants change
       // au moment précis où l'on vient de trier.
       ids:
-        frozen.vue !== view
+        frozen.view !== view
           ? idsForView(clips, view)
           : clips
               .filter((c) => frozen.ids.includes(c.id) || belongs(c.status, view))

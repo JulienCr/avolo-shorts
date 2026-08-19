@@ -5,7 +5,7 @@ import type { StepName } from '@/core/graph'
 import { phaseProject, type Phase } from '@/core/phase'
 import { path, clipNext, settingsLink, next } from '@/lib/navigation'
 
-const project = { id: 'p1', titre: 'La scène Avolo du 15 juin' }
+const project = { id: 'p1', title: 'La scène Avolo du 15 juin' }
 
 describe('chemin', () => {
   it('ne donne pas de fil d’Ariane à la racine', () => {
@@ -15,14 +15,14 @@ describe('chemin', () => {
   })
 
   it('nomme le projet, sans lien vers l’écran où l’on est', () => {
-    expect(path({ kind: 'projet', project })).toEqual([{ libelle: project.titre }])
+    expect(path({ kind: 'projet', project })).toEqual([{ libelle: project.title }])
   })
 
   it('rend le projet cliquable depuis un clip', () => {
     // C'est la sortie du sous-parcours de montage : chaque niveau se quitte par
     // le haut, et la profondeur ne dépasse jamais trois.
     expect(path({ kind: 'clip', project, clip: { title: 'La chute' } })).toEqual([
-      { libelle: project.titre, href: '/projects/p1' },
+      { libelle: project.title, href: '/projects/p1' },
       { libelle: 'La chute' },
     ])
   })

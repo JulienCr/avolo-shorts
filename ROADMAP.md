@@ -406,6 +406,26 @@ l'ordre où ils se tiennent :
    rattraper en review. Tant que le dépôt n'est pas anglais, cette taxe se
    repaie à chaque PR.
 
+   **La fenêtre s'est refermée le 19 août au matin**, et la condition n'est plus
+   « rien en vol » mais « après le cadrage ». Une session travaille dans le
+   checkout principal sur la détection des plans, avec `src/server/steps/analysis.ts`
+   et `scripts/mesure-ratios.ts` en recouvrement ; une autre tient une
+   modification non commitée sur `scripts/vignettes-cadrage.ts`. Les deux
+   préviennent à la fusion. Le gros de leur correctif vit dans `worker/detect.py`,
+   donc en Python, hors du champ d'un renommage TypeScript — le recouvrement est
+   plus faible qu'il n'y paraissait.
+
+   **Trois choses mesurées le 19 août que le ticket ne disait pas**, et qui sont
+   consignées dans l'issue plutôt qu'ici. Le compte est de **372 identifiants
+   accentués dans 84 fichiers** sous `src`, et non 333 dans 72 ; il n'existe
+   **aucun mécanisme de migration** en base, donc traduire les cinq clés
+   `selection.*` demande de le construire ; et le garde-fou `id-match` ASCII
+   n'attrape que **40 %** du problème — sur les quinze identifiants français
+   qu'une vague de trois agents a produits le même jour, neuf n'avaient pas
+   d'accent. Ce qui tient la ligne est la porte de review interne, pas l'outil,
+   et la conclusion « le linter s'en occupe désormais » sera fausse aux trois
+   cinquièmes.
+
 ### Ce que les vagues ont laissé, et où c'est suivi
 
 Tout est en tickets. **Le tracker fait autorité ; cette section ne le double pas**,
@@ -419,14 +439,15 @@ elle dit seulement quoi lire en premier.
   alors que `branding` valait `true` aux deux instants, donc l'empreinte doit dire
   **ce qui a réellement été incrusté**, pas ce qui était demandé.
 
-**Les autres :** #56 (cinq restes d'interface — le point 5 est livré, et son pari
-selon lequel il fermerait aussi le point 2 s'est révélé faux, démontré), #57 (le
-bilan de repérage annonce une perte quand la récupération a tout rattrapé, P1
-quick-win), #65 (le minuteur de l'écriture différée renvoie un `PATCH` après
-restauration depuis le bfcache).
+**Les autres :** #56 (**il ne reste que le point 3** — le lien de titre d'un
+candidat quand le proxy manque, décision de conception différée au lot 3 ; les
+points 1, 4 et 6 sont livrés par la PR #100, et le point 2 était déjà fermé par
+la bibliothèque unifiée de la PR #72), #57 (le bilan de repérage annonce une
+perte quand la récupération a tout rattrapé, P1 quick-win), #65 (le minuteur de
+l'écriture différée renvoie un `PATCH` après restauration depuis le bfcache).
 
 Ce qui a été fermé en route : #37, #38, #39, #40, #41, #48, #49, #54, #55, #57,
-#70, #75, #76, #87.
+#70, #75, #76, #78, #82, #87.
 
 **Ce que la vague du 19 août a ouvert**, et qui n'était dans aucun plan :
 
@@ -448,10 +469,14 @@ Ce qui a été fermé en route : #37, #38, #39, #40, #41, #48, #49, #54, #55, #5
   n'a pas.
 - **#77** — l'arrêt d'une analyse signale le PID, pas le groupe : un `ffmpeg`
   lancé par `detect.py` peut survivre.
-- **#82** (P3), **#88**, **#90**, **#91**, **#97** — cache du proxy sans
-  validateur, URL Ollama non validée, la révision estampillée du transcript
-  (conception écartée mais consignée), les erreurs OpenAI mal classées, et deux
-  coutures de l'interface de publication.
+- **#88**, **#90**, **#91**, **#97** — URL Ollama non validée, la révision
+  estampillée du transcript (conception écartée mais consignée), les erreurs
+  OpenAI mal classées, et deux coutures de l'interface de publication. **#82 est
+  livré** (PR #99) : le proxy pose un `ETag` et un `Last-Modified` tirés du
+  `stat` fait sur le handle ouvert, et traite les requêtes conditionnelles. La
+  review y a trouvé que le conditionnel était évalué **après** `Range`, contre
+  RFC 9110 §13.2.2 — donc le 304 était court-circuité sur le seul chemin qui
+  compte pour un scrub.
 
 - **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
   dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien

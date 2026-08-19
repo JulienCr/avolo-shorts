@@ -33,10 +33,22 @@ pendant lequel la VRAM est occupée.
 **Les frontières viennent du score de scène de ffmpeg**, pas d'une bibliothèque
 de plus : le binaire est déjà installé et éprouvé par ``setup.sh``.
 
+**Et depuis le chantier des bascules de composition, d'un second détecteur,
+croisé avec le premier.** Le score de scène compare des histogrammes, qu'une
+composition qui translate la scène en bloc à l'intérieur d'un même plan
+préserve — mesuré à 41 % du temps monté sur une émission. Les boîtes de
+personnes, déjà collectées pour le cadrage, disent qu'une bascule a lieu et la
+situent à ±1/fps près ; les scores de scène, déjà collectés à l'étape 1 et
+jusqu'ici jetés une fois le seuil appliqué, donnent l'image exacte dans cette
+fenêtre. Ni passe ffmpeg de plus, ni passage GPU de plus — voir la section
+« Les bascules de composition » plus bas. **Le crop reste fixe à l'intérieur
+d'un plan** : ce détecteur ajoute des frontières là où une coupe réelle
+existait sans être vue, il n'introduit ni lissage ni suivi de caméra.
+
 Le patron est celui de ``worker/transcribe.py``, et il est suivi de près :
 
 - un script en ligne de commande, pas un service ;
-- l'avancement sur **stderr**, en ``[n/4]``, lu par ``avancementWorker()``
+- l'avancement sur **stderr**, en ``[n/5]``, lu par ``avancementWorker()``
   (``src/core/pipeline.ts``) ;
 - les imports lourds **dans** ``main()``, pour qu'un ``--help`` réponde tout de
   suite au lieu de payer dix secondes de torch ;
@@ -122,6 +134,35 @@ def arrondi_vers_le_bas(valeur: float, décimales: int) -> float:
 COUPLE_SCÈNE = re.compile(r"pts_time:([0-9.]+)\s*\nlavfi\.scene_score=([0-9.]+)")
 
 
+def parse_scene_scores(text: str) -> list[tuple[float, float]]:
+    """Les couples ``(instant, score)`` que ``metadata=print`` a écrits.
+
+    Pure — ni ffmpeg ni disque — pour que ``scores_de_scène`` (la sortie d'un
+    sous-processus) et le mode ``--replay`` (le contenu d'un fichier capturé
+    une fois, voir ``--scene-scores``) partagent la même lecture sans que l'un
+    des deux devienne le cas particulier de l'autre.
+    """
+    return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(text)]
+
+
+def scene_filter(floor: float) -> str:
+    """Le filtre ``-vf`` qui collecte les candidates de coupe, pur pour être testé
+    sans lancer ffmpeg.
+
+    **``gte`` et non ``gt``, depuis le chantier des bascules de composition.**
+    ``plans()`` — devenu ``scene_boundaries`` — retenait déjà les scores par
+    ``score >= seuil``, inclusif ; la collecte, elle, restait stricte. L'écart ne
+    mordait que sur l'égalité pile, refusée par ``refus_du_seuil_de_scène``
+    plutôt que corrigée : la fenêtre de collecte est désormais elle-même
+    inclusive, ce qui vide ce refus de sa première raison d'être — il en garde
+    une autre, voir cette fonction. Le binaire de ``setup.sh`` porte ``gte``
+    (N-126188), et le diff mesuré sur 600 s est nul : 128 évènements dans les
+    deux cas, aucune image dont le score tombe exactement sur un multiple du
+    millième du plancher ou du seuil sur l'échantillon mesuré.
+    """
+    return f"select='gte(scene,{floor})',metadata=print:file=-"
+
+
 def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[float, float]]:
     """Les images dont le score de scène dépasse ``plancher``, avec leur score.
 
@@ -143,7 +184,7 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
         # Ni son ni sous-titres : le muxeur null les accepterait, les décoder
         # serait du travail pour rien.
         "-an", "-sn",
-        "-vf", f"select='gt(scene,{plancher})',metadata=print:file=-",
+        "-vf", scene_filter(plancher),
         "-f", "null", "-",
     ]
     terminé = subprocess.run(args, capture_output=True, text=True, check=False)
@@ -154,13 +195,19 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
             f"Commande : {' '.join(args)}\n"
             f"Dernières lignes :\n{queue or '(stderr vide)'}"
         )
-    return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(terminé.stdout)]
+    return parse_scene_scores(terminé.stdout)
 
 
-def plans(
-    évènements: list[tuple[float, float]], durée: float, seuil: float, plan_min: float
-) -> list[dict[str, float]]:
-    """Découpe ``[0, durée]`` aux instants dont le score dépasse ``seuil``.
+def _spaced_boundaries(candidates: list[float], duration: float, min_shot: float) -> list[float]:
+    """Aligne une liste de temps candidats, gardés à ``min_shot`` les uns des
+    autres — les deux bouts de ``[0, duration]`` comptant comme des frontières.
+
+    **Partagée entre deux sources.** ``scene_boundaries`` l'appelle avec les
+    seuls candidats qui franchissent le seuil de scène ; le croisement avec les
+    bascules de composition l'appelle sur l'union des deux — scène et bascules
+    raffinées — parce que le plancher d'un plan est un seul réglage
+    (``--min-shot``), pas un par détecteur. Une bascule qui tomberait à moins
+    d'une seconde d'une coupe de scène déjà retenue n'ajoute donc rien.
 
     Deux garde-fous, et le second est le seul qui ait coûté quelque chose :
 
@@ -170,36 +217,77 @@ def plans(
       produit deux images de score élevé à une image d'intervalle, donc un
       « plan » de 33 millisecondes dans lequel le cadrage n'a rien à calculer.
 
-    **Les deux bouts comptent comme des frontières.** ``plan_min`` se mesure
-    depuis 0 pour la première et jusqu'à ``durée`` pour la dernière : sans cela
-    une coupe à une demi-seconde du début, ou de la fin, produit un plan plus
-    court que le minimum annoncé — le cas exact que le garde-fou est censé
-    fermer, à l'endroit où il ne regardait pas.
-
-    Rend toujours au moins un plan : une émission sans aucune coupe est un plan
-    unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
+    **Les deux bouts comptent comme des frontières.** ``min_shot`` se mesure
+    depuis 0 pour la première et jusqu'à ``duration`` pour la dernière : sans
+    cela une coupe à une demi-seconde du début, ou de la fin, produit un plan
+    plus court que le minimum annoncé — le cas exact que le garde-fou est
+    censé fermer, à l'endroit où il ne regardait pas.
     """
-    frontières: list[float] = []
-    for t, score in sorted(évènements):
-        if score < seuil or t <= 0 or t >= durée:
+    boundaries: list[float] = []
+    for t in sorted(candidates):
+        if t <= 0 or t >= duration:
             continue
         # 0 quand la liste est vide : le début de la vidéo est une frontière
         # comme une autre du point de vue de la durée d'un plan.
-        précédente = frontières[-1] if frontières else 0.0
-        if t - précédente < plan_min:
+        previous = boundaries[-1] if boundaries else 0.0
+        if t - previous < min_shot:
             continue
-        frontières.append(t)
+        boundaries.append(t)
 
     # Un seul retrait suffit : la frontière qui devient dernière est à au moins
-    # ``plan_min`` de celle qu'on vient d'ôter, donc à plus de ``plan_min`` de la
-    # fin.
-    if frontières and durée - frontières[-1] < plan_min:
-        frontières.pop()
+    # ``min_shot`` de celle qu'on vient d'ôter, donc à plus de ``min_shot`` de
+    # la fin.
+    if boundaries and duration - boundaries[-1] < min_shot:
+        boundaries.pop()
+    return boundaries
 
-    bornes = [0.0, *frontières, durée]
-    return [
-        {"start": round(a, 3), "end": round(b, 3)} for a, b in zip(bornes, bornes[1:])
-    ]
+
+def scene_boundaries(
+    events: list[tuple[float, float]], duration: float, threshold: float, min_shot: float
+) -> list[float]:
+    """Les instants où le score de scène franchit ``threshold``, espacés d'au
+    moins ``min_shot``.
+
+    Anciennement la première moitié de ``plans()``, dont la signature change :
+    cette fonction-ci ne rend que les frontières, ``shots_from_boundaries``
+    fait le découpage.
+
+    **Ne sert pas au croisement avec les bascules de composition** —
+    l'espacement qu'elle applique n'est pas associatif, voir la docstring de
+    ``_scene_candidates``. Ses seuls appelants sont les tests et quiconque
+    veut les frontières de scène seules, sans bascules.
+    """
+    return _spaced_boundaries(_scene_candidates(events, threshold), duration, min_shot)
+
+
+def _scene_candidates(events: list[tuple[float, float]], threshold: float) -> list[float]:
+    """Les instants où le score de scène franchit ``threshold``, **non
+    espacés**.
+
+    Distincte de ``scene_boundaries``, qui espace déjà son résultat :
+    l'espacement n'est pas associatif, donc espacer les frontières de scène
+    seules puis réespacer leur union avec les bascules de composition peut
+    perdre une frontière valide que l'union brute, espacée une seule fois à
+    la fin, aurait gardée. Exemple mesuré : des scores de scène à 5,0 et
+    5,5 s, une bascule à 4,5 s, ``min_shot=1``. Espacer d'abord les seules
+    frontières de scène élimine 5,5 (à 0,5 s de 5,0) : il ne reste que 5,0.
+    Unir ce reste à la bascule et réespacer élimine ensuite 5,0 (à 0,5 s de
+    4,5) : il ne reste que 4,5, et la frontière à 5,5 s a disparu — alors que
+    l'union brute ``[4.5, 5.0, 5.5]`` espacée une seule fois retient 4,5 et
+    5,5. (relevé par Copilot sur la PR #101)
+    """
+    return [t for t, score in events if score >= threshold]
+
+
+def shots_from_boundaries(boundaries: list[float], duration: float) -> list[dict[str, float]]:
+    """Découpe ``[0, duration]`` aux ``boundaries`` données, déjà triées et
+    espacées — la seconde moitié de l'ancienne ``plans()``.
+
+    Rend toujours au moins un plan : une liste de frontières vide est un plan
+    unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
+    """
+    edges = [0.0, *boundaries, duration]
+    return [{"start": round(a, 3), "end": round(b, 3)} for a, b in zip(edges, edges[1:])]
 
 
 # ---------------------------------------------------------------------------
@@ -410,24 +498,342 @@ def flatten_keypoints(keypoints, width: int, height: int) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
+# Les bascules de composition
+# ---------------------------------------------------------------------------
+#
+# Mesuré le 19 août 2026 sur `2026-22-02-entre-nous` : à l'intérieur d'un plan
+# détecté par le score de scène, la composition OBS translate parfois la scène
+# entière en bloc — mêmes comédiens, mêmes largeurs de boîte, mêmes points de
+# pose, glissés horizontalement de 0,14 à 0,285 de la largeur source, en une
+# seule image, et rebascule 7 à 14 fois par plan. Le filtre `scene` de ffmpeg
+# compare des histogrammes, qu'une translation préserve : la coupe la mieux
+# mesurée du corpus est notée 0,366 pour un seuil de rétention à 0,40.
+#
+# **Un second détecteur de frontière, orthogonal au premier.** Les boîtes
+# disent qu'une bascule a lieu et la situent à ±1/fps près (`composition_switches`) ;
+# les scores de scène — déjà collectés à l'étape 1, jusqu'ici jetés — donnent
+# l'image exacte, dans la fenêtre que la bascule désigne (`refine_switch`).
+# Aucune passe ffmpeg de plus, aucun passage GPU en plus.
+#
+# **« Le crop est fixe à l'intérieur d'un plan » ne bouge pas.** Rien ici ne
+# lisse, n'interpole ni ne suit une caméra : une bascule détectée devient une
+# frontière de plus, au même titre qu'une coupe de scène — un plan qui portait
+# trois cadrages devient trois plans d'un cadrage chacun.
+#
+# **Une bascule dont le raffinement échoue est rejetée, pas posée au milieu de
+# sa fenêtre.** Le détecteur exige deux signaux indépendants ; n'en avoir qu'un
+# ne prouve rien, surtout quand le second — le score de scène — dit que rien de
+# visible ne change. Voir `refine_switch` pour les deux faux positifs qui l'ont
+# montré à l'image sur `cqlp`.
+
+
+def person_anchor(box: dict, min_point_score: float) -> float:
+    """L'abscisse qui représente une personne, pour mesurer un déplacement
+    collectif — pas une définition de tronc, `framing.ts` reste seul à en
+    donner une.
+
+    **Médiane des points de pose dont la confiance atteint ``min_point_score``**,
+    pas leur moyenne : un bras tendu vers l'avant a une confiance aussi haute
+    que l'épaule qui le porte, et sa position pèserait deux fois dans une
+    moyenne alors qu'il ne bouge pas au même rythme que le buste. **Repli sur le
+    centre de la boîte**, ``(x0 + x1) / 2``, quand aucun point n'atteint le
+    seuil — une analyse de version 1 n'a pas de points, un ``DETECT_MODEL``
+    sans ``-pose`` non plus, une personne de dos n'a pas de torsion lisible.
+    Même repli que ``personBounds`` côté cadrage, même raison.
+
+    **Volontairement non bornée à [0, 1].** Les points de pose eux-mêmes ne le
+    sont pas (voir ``flatten_keypoints``) : un point hors cadre est une
+    information — une épaule que le bord de l'image coupe —, et borner
+    l'ancrage d'un seul côté fabriquerait un déplacement qui n'existe pas,
+    des deux côtés effacerait celui d'une personne qui sort réellement du
+    cadre. C'est le bornage à sens unique qui a déjà coûté une largeur
+    négative en trois exemplaires ailleurs dans ce dépôt ; ici la décision est
+    l'inverse, et elle est délibérée.
+    """
+    points = box.get("k")
+    if points:
+        xs = sorted(
+            points[i] for i in range(0, len(points), 3) if points[i + 2] >= min_point_score
+        )
+        if xs:
+            n = len(xs)
+            mid = n // 2
+            return xs[mid] if n % 2 == 1 else (xs[mid - 1] + xs[mid]) / 2
+    return (box["x0"] + box["x1"]) / 2
+
+
+def _median(values: list[float]) -> float:
+    """La médiane d'une liste non vide, sans dépendance à ``statistics``."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    return ordered[mid] if n % 2 == 1 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def collective_shift(
+    a: list[float], b: list[float], tolerance: float
+) -> tuple[float | None, int]:
+    """Le déplacement collectif entre deux images d'ancrages, en abscisse —
+    ``(médiane de toutes les différences de rang, nombre de personnes
+    appariées)`` quand ``len(a) == len(b)`` — le second terme compte les
+    différences retenues, le premier reste la médiane de l'ensemble, pas
+    seulement des retenues, voir plus bas —, ou ``(médiane des paires
+    appariées, nombre de personnes appariées)`` sinon. ``(None, 0)`` si l'une
+    des deux images n'a personne, ou si aucune
+    différence ne fait consensus.
+
+    **Deux méthodes d'appariement, selon que l'effectif est stable ou non.**
+    Une translation ne change pas l'ordre gauche-droite des personnes : quand
+    ``len(a) == len(b)``, apparier les ancres **triées, rang par rang**, est
+    structurellement immunisé contre l'appariement croisé — une paire qui
+    associerait la position d'avant d'une personne à la position d'après
+    d'une autre, sans aucune réalité physique.
+
+    **Pourquoi ce n'était pas déjà le cas.** La version précédente votait sur
+    *toutes* les paires ``(a[i], b[j])``, y compris les croisées, et
+    départageait les égalités de voix par le plus petit ``|d|`` — juste
+    quand l'égalité veut dire « rien n'a bougé », faux quand elle veut dire
+    « je n'arrive pas à apparier ». À deux personnes qui glissent chacune
+    d'environ 0,3 mais s'écartent de plus de ``tolerance`` l'une de l'autre,
+    les deux vraies paires ne se votaient pas entre elles, la croisée
+    tombait par hasard près de zéro, et le départage la choisissait — un
+    ``shift`` proche de zéro rendu avec l'aplomb d'un résultat, sur une
+    bascule réelle. (relevé le 19 août 2026, sur `2026-22-02-entre-nous`
+    autour de 3 241 s et 3 248 s : les deux vraies différences, dans les deux
+    cas, valaient à peu près 0,29 et 0,33, à 0,04 et 0,05 l'une de l'autre —
+    juste au-dessus de la tolérance mesurée pour les bascules déjà vues.)
+
+    **Une fois l'appariement sûr, la question change.** Elle n'est plus « quelles
+    paires sont réelles » — l'ordre le garantit —, mais « le groupe est-il
+    d'accord sur une valeur commune ». Chaque différence de rang est comparée
+    à la **médiane de toutes les différences de rang**, elle-même robuste à un
+    déplacement individuel isolé ; ``matched`` compte celles qui tombent à
+    ``tolerance`` de cette médiane. Une seule personne qui bouge beaucoup
+    pendant que l'autre ne bouge pas donne une médiane à mi-chemin des deux, et
+    aucune des deux ne retombe dedans : ``matched`` peut tomber à 0, ce que
+    l'ancien vote ne pouvait pas exprimer — il rendait toujours un ``shift``,
+    juste ou non.
+
+    **Limite documentée, pas résolue ici** : l'ordre n'est fiable que si
+    l'effectif est stable *et* que les personnes ne se croisent pas entre les
+    deux images. Une entrée et une sortie simultanées, qui laissent
+    ``len(a) == len(b)`` inchangé, ou deux comédiens qui échangent leurs places
+    à l'écran au même instant qu'une bascule, restent hors de portée — aucune
+    méthode sans suivi d'identité ne les distingue, et ce n'est pas l'objet de
+    ce correctif.
+
+    **Un modèle affine (``x' = a·x + b``) a été mesuré et écarté** pour ce cas :
+    à deux points, la résolution est toujours exacte, résidu nul — vérifié à la
+    machine, `(0.1,0.4)→(0.31,0.59)` et `(0.1,0.4)→(0.9,0.05)` donnent chacun un
+    système sans reste. Un modèle qui s'ajuste toujours n'a aucun pouvoir de
+    réfutation à l'effectif le plus fréquent de ce corpus (deux personnes), donc
+    ne distinguerait jamais une bascule d'un bruit de mesure.
+
+    **Quand l'effectif diffère**, une personne est entrée ou sortie du cadre :
+    l'ordre ne correspond plus à rien, et l'ancien mécanisme — vote sur toutes
+    les paires, appariement glouton un-à-un, départage par le plus petit
+    ``|d|`` — reste seul en mesure de proposer un appariement partiel.
+    """
+    if not a or not b:
+        return None, 0
+
+    if len(a) == len(b):
+        # Ordre garanti par la translation : pas de paire croisée possible.
+        diffs = [y - x for x, y in zip(sorted(a), sorted(b))]
+        pivot = _median(diffs)
+        matched = [d for d in diffs if abs(d - pivot) <= tolerance]
+        if not matched:
+            return None, 0
+        return _median(diffs), len(matched)
+
+    # Effectifs différents : quelqu'un est entré ou sorti du cadre, l'ordre ne
+    # suffit plus à apparier. Vote sur toutes les paires, comme avant.
+    candidates = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
+
+    def votes(d: float) -> int:
+        return sum(1 for d2, _, _ in candidates if abs(d2 - d) <= tolerance)
+
+    best_votes = -1
+    best_shift = 0.0
+    for d, _, _ in candidates:
+        v = votes(d)
+        if v > best_votes or (v == best_votes and abs(d) < abs(best_shift)):
+            best_votes = v
+            best_shift = d
+
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    paired: list[float] = []
+    for d, i, j in sorted(candidates, key=lambda c: abs(c[0] - best_shift)):
+        if abs(d - best_shift) > tolerance:
+            # Trié par proximité avec `best_shift` : personne au-delà ne peut
+            # plus qualifier.
+            break
+        if i in used_a or j in used_b:
+            continue
+        used_a.add(i)
+        used_b.add(j)
+        paired.append(d)
+
+    if not paired:
+        return None, 0
+    return _median(paired), len(paired)
+
+
+def composition_switches(
+    boxes: list[dict],
+    fps: float,
+    min_point_score: float,
+    tolerance: float,
+    part: int,
+    min_shift: float,
+) -> list[tuple[float, float]]:
+    """Les fenêtres ``(t1, t2)`` — deux images consécutives de la détection —
+    où les boîtes disent qu'une bascule de composition a lieu.
+
+    Rend des **fenêtres**, pas des instants : c'est ``refine_switch`` qui
+    cherche l'image exacte à l'intérieur de chacune, dans les scores de scène.
+
+    Une bascule est déclarée si les quatre tiennent, dans l'ordre où elles
+    coûtent le moins cher à vérifier :
+
+    1. ``t2 - t1`` vaut ``1/fps`` à 1 ms près — **jamais comparer par-dessus un
+       trou de détection**. Une image sans détection casserait sinon
+       silencieusement l'hypothèse d'un déplacement continu.
+    2. Au moins deux personnes appariées — **un seul comédien qui traverse le
+       cadre ne prouve rien** sur la composition.
+    3. La part de personnes appariées, rapportée au plus petit effectif des
+       deux images, atteint ``part`` dixièmes — **en arithmétique entière**
+       (``matched * 10 >= min(n1, n2) * part``) : ``0.6 * 5`` vaut
+       ``3.0000000000000004`` en flottant, et ce dépôt a déjà payé ce défaut
+       dans ``choisirRatio``. Protège contre une entrée ou une sortie de cadre,
+       que la composition n'a pas bougé.
+    4. Le déplacement collectif, tronqué vers le bas à quatre décimales,
+       atteint ``min_shift`` — **tronqué et non arrondi**, la même règle que
+       pour un score comparé à un seuil inclusif (``arrondi_vers_le_bas``),
+       parce que la comparaison qui suit l'est aussi.
+    """
+    by_time: dict[float, list[dict]] = {}
+    for entry in boxes:
+        by_time.setdefault(entry["t"], []).append(entry)
+    times = sorted(by_time)
+
+    step = 1.0 / fps
+    candidates: list[tuple[float, float]] = []
+    for t1, t2 in zip(times, times[1:]):
+        if abs((t2 - t1) - step) > 1e-3:
+            continue
+        anchors_1 = [person_anchor(b, min_point_score) for b in by_time[t1]]
+        anchors_2 = [person_anchor(b, min_point_score) for b in by_time[t2]]
+        shift, matched = collective_shift(anchors_1, anchors_2, tolerance)
+        if shift is None or matched < 2:
+            continue
+        smallest_count = min(len(anchors_1), len(anchors_2))
+        if matched * 10 < smallest_count * part:
+            continue
+        if arrondi_vers_le_bas(abs(shift), 4) < min_shift:
+            continue
+        candidates.append((t1, t2))
+    return candidates
+
+
+def refine_switch(
+    t1: float, t2: float, events: list[tuple[float, float]], fps: float
+) -> tuple[float, bool]:
+    """L'image exacte d'une bascule détectée entre ``t1`` et ``t2`` — et si le
+    raffinement a réussi, pour que l'appelant compte le taux de rejet.
+
+    **Les deux passes ne partagent pas la même horloge.** ``-vf fps={fps}``
+    affecte chaque image d'entrée à l'emplacement de sortie le plus proche,
+    et ``boîtes_du_lot`` étiquette ensuite chaque image par ``indice / fps`` :
+    le contenu de l'image étiquetée ``t`` vient donc en réalité d'un instant
+    légèrement postérieur, jusqu'à ``1 / (2 · fps)`` plus tard dans le pire
+    cas — mesuré à +0,233 s sur un proxy à 30 im/s. Une fenêtre naïve
+    ``(t1, t2]`` en tenant pas compte de ce décalage ratait 22 bascules sur 58 ;
+    la fenêtre étendue ci-dessous en retrouve 98 à 100 %.
+
+    **Le décalage est absorbé ici, dans la fenêtre, pas corrigé à la source.**
+    Corriger l'étiquette ``t`` de chaque boîte imposerait une version 3 du
+    schéma de l'analyse et une ré-analyse GPU des quatre projets du corpus —
+    un autre chantier. Ce n'est pas un ajustement empirique posé pour faire
+    coller un cas : c'est la mesure du décalage entre les deux horloges,
+    documentée pour ce qu'elle est.
+
+    **À défaut d'évènement dans la fenêtre, le second signal ne confirme
+    rien : la bascule est rejetée, pas posée au milieu.** Le milieu de
+    l'intervalle de contenu — choix minimax — est encore rendu ci-dessous,
+    mais l'appelant (``main`` et ``run_replay``) le jette dès que ``refined``
+    vaut ``False`` : le principe de ce détecteur est d'exiger **deux** signaux
+    indépendants, et poser une frontière sur un seul en accepterait un,
+    précisément quand le second dit que rien de visible ne change. Deux faux
+    positifs l'ont prouvé à l'image sur ``2025-06-15-cqlp`` (t ≈ 1 111,9 et
+    1 182,4 s) : décor, cadre et panneau de chat identiques avant et après,
+    seules deux personnes qui bougent de concert — la translation que
+    ``composition_switches`` croyait voir n'existait que dans les boîtes,
+    jamais dans l'image. Voir « Distinguer l'absence d'information de son
+    ambiguïté » dans ``CLAUDE.md`` : un défaut prudent est juste quand
+    l'information manque, faux quand elle départage deux hypothèses
+    concurrentes — ici, bascule réelle ou mouvement de comédiens.
+
+    **Un défaut résiduel, mesuré et borné, pas corrigé.** La fenêtre retient
+    le score **maximal** qu'elle y trouve, sans jamais vérifier qu'il est
+    *grand* — seulement qu'il dépasse le plancher de collecte. Un score
+    faible peut donc être la traîne décroissante d'une coupe voisine plutôt
+    que la preuve d'une coupe propre à cette fenêtre. Mesuré sur
+    ``2026-03-08-caro-mdlm`` à t ≈ 652,5 s : le score confirmant vaut
+    **0,131**, traîne d'un évènement à **0,9612** situé 33 ms plus tôt, sur
+    une troisième boîte fantôme que YOLO produit juste après une vraie coupe
+    et qui disparaît dès l'image suivante.
+
+    **Non corrigé, et ce n'est pas un oubli : ce cas tombe sous ``min_shot``,
+    donc ``_spaced_boundaries`` l'absorbe dans la coupe voisine — par
+    coïncidence de proximité, pas par conception.** Rien dans cette fonction
+    ni dans ``_spaced_boundaries`` ne garantit qu'un score faible tombera
+    toujours près d'une frontière déjà retenue ; un seuil sur la *magnitude*
+    du score confirmant réglerait la question proprement, mais l'écrire
+    exigerait de le mesurer — donc de rouvrir l'étalonnage validé sur les
+    quatre émissions du corpus pour un seul cas connu, sans impact sur le
+    rendu livré. Piste suivante, pas dette silencieuse.
+    """
+    upper_bound = t2 + 1.0 / (2.0 * fps)
+    window = [(t, s) for t, s in events if t1 < t <= upper_bound]
+    if window:
+        best_t, _ = max(window, key=lambda pair: pair[1])
+        return best_t, True
+    return (t1 + upper_bound) / 2, False
+
+
+# ---------------------------------------------------------------------------
 # Ce qu'on refuse avant de commencer
 # ---------------------------------------------------------------------------
 
 
-def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
-    """Ce qui cloche dans le couple seuil/plancher, ou ``None`` si rien.
+def refus_du_seuil_de_scène(
+    seuil: float,
+    plancher: float,
+    plan_min: float = 1.0,
+    switch_shift: float = 0.08,
+    switch_tolerance: float = 0.03,
+    switch_share: int = 8,
+    switch_point_score: float = 0.3,
+) -> str | None:
+    """Ce qui cloche dans les seuils du détecteur, ou ``None`` si rien.
 
-    Les frontières se décident en deux temps : ffmpeg ne rapporte que les images
-    au-dessus du **plancher de collecte**, et ``plans()`` applique ensuite le
-    **seuil** demandé. Un seuil sous le plancher portait donc sur des candidates
-    qui n'avaient jamais été collectées : l'argument était accepté, et il ne
-    faisait rien. Personne ne le rencontre au seuil retenu — 0,4, huit fois le
-    plancher —, et tout le monde le rencontrera le jour où l'on cherchera des
-    coupes plus discrètes, c'est-à-dire en itérant sur ce détecteur.
+    **Deux détecteurs, un seul refus.** Les frontières de plans et les bascules
+    de composition partagent ce contrôle plutôt que d'en avoir chacun un : les
+    deux lisent des seuils comparés à des grandeurs du même ordre — un score, une
+    fraction, une durée — et les mêmes pannes s'y répètent, comme les items
+    ci-dessous le montrent.
+
+    **Le couple seuil/plancher.** Les frontières de plans se décident en deux
+    temps : ffmpeg ne rapporte que les images au-dessus du **plancher de
+    collecte**, et ``scene_boundaries`` applique ensuite le **seuil** demandé. Un
+    seuil sous le plancher portait donc sur des candidates qui n'avaient jamais
+    été collectées : l'argument était accepté, et il ne faisait rien.
 
     **Un refus et non un ``min()`` qui abaisserait le plancher tout seul.** Le
     ``min()`` reproduirait le défaut un cran plus bas : à plancher nul,
-    ``gt(scene, 0)`` retient à peu près chaque image d'une émission de deux
+    ``gte(scene, 0)`` retient à peu près chaque image d'une émission de deux
     heures, et ``scores_de_scène`` ramasse cette sortie en mémoire d'un seul
     tenant. Le refus nomme les deux valeurs et laisse le choix — baisser le
     plancher aussi — à qui sait ce qu'il cherche.
@@ -438,22 +844,58 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
     collecte totale invoquée ci-dessus. Et au-dessus de 1 — la faute de décimale
     sur 0,4 — aucune image ne dépasse jamais le seuil : l'analyse sort en un plan
     unique, valide, que le graphe par présence sert ensuite à chaque relance.
-    C'est le défaut du point 1 de ce ticket, atteint par l'autre bout.
     Et ``NaN`` passe *toutes* les comparaisons, donc passait ce refus — puis
-    ``plans()``, qui n'écarte que ``score < seuil`` : chaque candidate collectée
-    serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf`` sans
-    broncher. (relevé par Copilot sur la PR #44)
+    ``scene_boundaries``, qui n'écarte que ``score < seuil`` : chaque candidate
+    collectée serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf``
+    sans broncher. (relevé par Copilot sur la PR #44)
 
-    **L'égalité est refusée, contrairement à ce que cette docstring affirmait.**
-    La collecte est stricte — ``gt(scene, plancher)`` — et la rétention est
-    inclusive — ``plans()`` garde ``score >= seuil``. À valeurs égales, une image
-    dont le score vaut exactement le plancher serait gardée par la seconde et
-    n'est jamais rapportée par la première : elle disparaît sans un mot, ce qui
-    est le défaut même qu'on ferme ici. Strictement au-dessus, l'inclusion est
-    vraie : ``score >= seuil > plancher`` implique ``score > plancher``.
-    (relevé par Copilot et par Codex sur la PR #44)
+    **L'égalité reste refusée, et ce n'est plus pour la raison qui l'a fait
+    naître.** À la version précédente de ce refus, la collecte était stricte —
+    ``gt(scene, plancher)`` — et la rétention inclusive — ``score >= seuil`` —, si
+    bien qu'une image dont le score valait exactement le plancher disparaissait
+    sans un mot : gardée par la seconde, jamais rapportée par la première. C'est
+    ce défaut-là que le refus fermait. **La collecte est désormais inclusive elle
+    aussi** (``gte``, voir ``scene_filter``), donc cette asymétrie n'existe plus.
+    Le refus reste, sur une raison différente : à ``seuil == plancher`` avec une
+    collecte inclusive, **toute** candidate collectée — chaque image dont le
+    score atteint le plancher — atteint aussi le seuil, et devient donc une
+    frontière. Le plancher de collecte, pensé pour laisser la distribution
+    mesurable, se retrouverait à décider des coupes à la place du seuil. Un seuil
+    strictement au-dessus du plancher reste nécessaire pour que les deux gardent
+    leur rôle.
+
+    **Le plancher d'un plan, ``--min-shot``, n'était validé nulle part.**
+    ``NaN`` y passe toutes les comparaisons de ``scene_boundaries`` — y compris
+    celle qui écarte les frontières trop rapprochées —, qui garde alors chaque
+    candidate collectée : des plans de durée quasi nulle que le schéma de
+    l'analyse refuse, découverts après les trois minutes de GPU de la détection
+    de corps. Jumeau exact du ``--scene-threshold nan`` fermé plus haut, un cran
+    plus loin dans le fichier.
+
+    **Les quatre seuils des bascules de composition suivent le même contrôle.**
+    ``--switch-shift`` et ``--switch-tolerance`` sont des fractions de largeur
+    d'image, positives et finies par construction — un déplacement ou une
+    tolérance nuls ou négatifs ne veulent rien dire, et ``NaN``/``Infinity`` y
+    referaient le défaut fermé plus haut. **Aucune borne haute** : contrairement
+    au score de scène, une différence d'ancrages n'est pas bornée à 1 — les
+    points de pose qui la fondent ne le sont pas non plus, et pour la même
+    raison (voir ``person_anchor``). ``--switch-point-score`` vit dans le même
+    domaine que le score de scène, ``]0, 1]``, mais avec sa propre vérification
+    plus bas — un domaine hors limites n'y a pas le même effet, voir cette
+    seconde vérification pour la raison : à zéro, un point neutralisé par
+    ``flatten_keypoints`` — confiance nulle, position non fiable — passerait le
+    seuil et fausserait l'ancrage qu'il est censé exclure. ``--switch-share``
+    s'exprime en **dixièmes**, en entier, pour que la condition de rétention
+    reste une comparaison d'entiers (``matched * 10 >= min(n1, n2) * part``) :
+    ``0.6 * 5`` vaut ``3.0000000000000004`` en flottant, et ce dépôt a déjà payé
+    ce défaut dans ``choisirRatio``. Il vit dans ``[1, 10]`` : à 0 la condition
+    est toujours vraie quel que soit l'effectif, au-dessus de 10 elle ne l'est
+    jamais.
     """
-    for nom, valeur in (("--scene-threshold", seuil), ("--scene-floor", plancher)):
+    for nom, valeur in (
+        ("--scene-threshold", seuil),
+        ("--scene-floor", plancher),
+    ):
         # `math.isfinite` et non `!= valeur` : il attrape `nan` et les deux
         # infinis d'un seul contrôle, et il se lit.
         if not math.isfinite(valeur):
@@ -472,15 +914,173 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
                 "décimale sur 0,4 — plus rien ne coupe, l'analyse sort en un plan unique sans "
                 "que rien n'échoue. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
             )
+    # **Vérification séparée de celle ci-dessus** : `--switch-point-score` vit
+    # dans le même domaine ``]0, 1]`` qu'un score de scène, mais un seuil hors
+    # domaine n'y produit pas le même effet. Un seuil ou un plancher hors
+    # domaine change ce que `scene_boundaries` retient ou collecte ; un
+    # `--switch-point-score` hors domaine ne fait rien « sortir en un plan
+    # unique » — `person_anchor` replie sur le centre de boîte et les coupes de
+    # scène restent actives, seule la précision de l'ancrage change. Le
+    # message générique le laissait entendre à tort. (relevé par Copilot sur
+    # la PR #101)
+    if not math.isfinite(switch_point_score):
+        return (
+            f"--switch-point-score vaut {switch_point_score}, qui n'est pas un nombre fini : "
+            "toute comparaison avec NaN est fausse, toute comparaison avec un infini est "
+            "constante. Un score de point de pose vit dans [0, 1]."
+        )
+    if not 0 < switch_point_score <= 1:
+        return (
+            f"--switch-point-score vaut {switch_point_score}, hors du domaine d'un score de "
+            "point de pose, qui vit dans [0, 1]. À zéro, un point neutralisé par "
+            "flatten_keypoints (confiance nulle, position non fiable) passerait le seuil et "
+            "fausserait l'ancrage qu'il est censé exclure ; au-dessus de 1, aucun point ne "
+            "l'atteint jamais et person_anchor replie systématiquement sur le centre de "
+            "boîte — les coupes de scène restent actives, ce n'est pas un plan unique."
+        )
     if seuil <= plancher:
         return (
             f"--scene-threshold ({seuil}) n'est pas strictement au-dessus de --scene-floor "
-            f"({plancher}) : la collecte est stricte, donc aucune image de score inférieur ou "
-            f"égal à {plancher} n'est rapportée, et ce seuil-là ne serait jamais appliqué "
-            "entièrement. Baisser --scene-floor si des coupes plus discrètes sont recherchées "
-            "— au prix d'une passe ffmpeg plus bavarde."
+            f"({plancher}) : la collecte est inclusive, donc à valeurs égales chaque candidate "
+            "collectée devient une frontière, et le plancher de collecte déciderait des coupes "
+            "à la place du seuil. Baisser --scene-floor si des coupes plus discrètes sont "
+            "recherchées — au prix d'une passe ffmpeg plus bavarde."
+        )
+    if not math.isfinite(plan_min) or plan_min <= 0:
+        return (
+            f"--min-shot vaut {plan_min}, qui doit être un nombre fini et strictement positif : "
+            "c'est la durée minimale d'un plan, en secondes. NaN passe toutes les comparaisons "
+            "qui l'utilisent — y compris celle qui écarte les frontières trop rapprochées —, "
+            "et produit des plans de durée quasi nulle que le schéma de l'analyse refuse, après "
+            "les trois minutes de GPU de la détection de corps."
+        )
+    for nom, valeur in (("--switch-shift", switch_shift), ("--switch-tolerance", switch_tolerance)):
+        if not math.isfinite(valeur) or valeur <= 0:
+            return (
+                f"{nom} vaut {valeur}, qui doit être un nombre fini et strictement positif : "
+                "c'est une fraction de la largeur de l'image, et une valeur nulle, négative, "
+                "NaN ou infinie ne trie aucune bascule. Volontairement sans borne haute — voir "
+                "la docstring de cette fonction."
+            )
+    if not isinstance(switch_share, int) or not 1 <= switch_share <= 10:
+        return (
+            f"--switch-share vaut {switch_share!r}, qui doit être un entier entre 1 et 10 : "
+            "la part de personnes qui doit avoir bougé s'exprime en dixièmes, pour que la "
+            "condition de rétention reste une comparaison d'entiers. À 0 elle serait toujours "
+            "vraie, au-dessus de 10 jamais."
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Le rejeu, pour étalonner sans GPU ni ffmpeg
+# ---------------------------------------------------------------------------
+
+
+def run_replay(a: argparse.Namespace) -> int:
+    """Recalcule les frontières d'un ``analysis.json`` existant, à partir
+    d'une capture de scores de scène déjà faite — sans GPU, sans ffmpeg.
+
+    **Le pivot de l'étalonnage.** Les quatre projets du corpus portent déjà
+    toutes leurs boîtes ; il ne manque que les scores de scène, qui se
+    capturent une fois (voir docs/ratios-par-clip.md pour la commande) parce
+    qu'ils ne dépendent d'aucun des seuils qu'on étalonne. Balayer une grille
+    de seuils devient alors une affaire de secondes, pas de minutes de GPU
+    répétées.
+
+    **Tout est recopié depuis l'analyse d'origine, sauf ``shots``** : version,
+    fps, modèle, dimensions, boîtes, marqueur ``keypoints``. C'est aussi ce qui
+    fait marcher le rejeu sur une analyse de version 1 — sans points de pose,
+    donc sans ``keypoints`` et sans ``k`` sur ses boîtes — puisque
+    ``person_anchor`` replie déjà sur le centre de boîte dans ce cas : rien
+    ici n'a besoin de le savoir.
+
+    ``fps`` vient du fichier rejoué, pas de ``--fps`` : les fenêtres de
+    ``composition_switches`` et de ``refine_switch`` doivent utiliser la
+    cadence qui a réellement produit les boîtes, sans quoi la condition sur
+    l'écart entre deux images consécutives ne validerait plus rien.
+    """
+    if a.scene_scores is None:
+        journal("--replay exige --scene-scores : la capture des scores de scène de cette émission.")
+        return 2
+    if not os.path.isfile(a.replay):
+        journal(f"Analyse introuvable : {a.replay}")
+        return 2
+    if not os.path.isfile(a.scene_scores):
+        journal(f"Capture de scores de scène introuvable : {a.scene_scores}")
+        return 2
+    # **``--out`` ne doit jamais désigner ``--replay``.** Le rejeu lit
+    # l'intégralité de l'analyse d'origine avant de la réécrire ; si les deux
+    # chemins coïncident (faute de frappe dans une commande de calibrage), le
+    # premier `open(..., "w")` écrase l'analyse qu'on est en train de rejouer,
+    # silencieusement — un `analysis.json` de production peut être de ceux-là.
+    if os.path.abspath(a.out) == os.path.abspath(a.replay):
+        journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
+        return 2
+
+    validation_error = refus_du_seuil_de_scène(
+        a.scene_threshold,
+        a.scene_floor,
+        a.min_shot,
+        a.switch_shift,
+        a.switch_tolerance,
+        a.switch_share,
+        a.switch_point_score,
+    )
+    if validation_error is not None:
+        journal(validation_error)
+        return 2
+
+    with open(a.replay, "r", encoding="utf-8") as f:
+        analysis = json.load(f)
+
+    shots = analysis.get("shots")
+    if not shots:
+        journal(f"{a.replay} ne porte aucun plan : rien à rejouer.")
+        return 2
+    # La durée n'est écrite nulle part dans le fichier ; le dernier plan la
+    # porte, puisque `shots_from_boundaries` partitionne toujours [0, durée]
+    # sans reste.
+    duration = shots[-1]["end"]
+    boxes = analysis.get("boxes", [])
+    fps = analysis.get("fps", a.fps)
+
+    with open(a.scene_scores, "r", encoding="utf-8") as f:
+        events = parse_scene_scores(f.read())
+
+    scene_boundary_times = _scene_candidates(events, a.scene_threshold)
+    switch_candidates = composition_switches(
+        boxes, fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
+    )
+    switch_boundary_times: list[float] = []
+    rejected_count = 0
+    for t1, t2 in switch_candidates:
+        refined_t, refined = refine_switch(t1, t2, events, fps)
+        if refined:
+            switch_boundary_times.append(refined_t)
+        else:
+            rejected_count += 1
+
+    boundaries = _spaced_boundaries(
+        [*scene_boundary_times, *switch_boundary_times], duration, a.min_shot
+    )
+    analysis["shots"] = shots_from_boundaries(boundaries, duration)
+
+    rejected_rate = rejected_count / len(switch_candidates) if switch_candidates else 0.0
+    journal(
+        f"Rejeu : {len(analysis['shots'])} plans, {len(boundaries)} frontières "
+        f"({len(scene_boundary_times)} scène sur {len(events)} candidates, "
+        f"{len(switch_boundary_times)} bascules retenues sur {len(switch_candidates)} candidates, "
+        f"{rejected_count} rejetées faute de score de scène ({100 * rejected_rate:.0f} %))."
+    )
+
+    output_dir = os.path.dirname(a.out)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    with open(a.out, "w", encoding="utf-8") as f:
+        json.dump(analysis, f, ensure_ascii=False, allow_nan=False)
+    journal(f"Écrit {a.out}.")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -490,23 +1090,26 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description="Détecte les corps et les frontières de plans sur un proxy."
     )
-    p.add_argument("--proxy", required=True, help="le proxy 960x540 à 30 im/s")
+    # **Non requis quand --replay est donné.** Le rejeu ne décode ni ne détecte
+    # rien : il relit un `analysis.json` déjà produit et une capture de scores
+    # de scène, voir plus bas. La validation qui les rend obligatoires sinon
+    # est faite à la main juste après `parse_args()`, parce qu'`argparse` ne
+    # sait pas conditionner un `required` sur la valeur d'un autre argument.
+    p.add_argument("--proxy", help="le proxy 960x540 à 30 im/s")
     p.add_argument("--out", required=True, help="le JSON à écrire")
-    p.add_argument("--ffmpeg", required=True, help="le binaire de setup.sh (FFMPEG_BIN)")
-    p.add_argument("--model", required=True, help="les poids YOLO, posés par setup.sh")
+    p.add_argument("--ffmpeg", help="le binaire de setup.sh (FFMPEG_BIN)")
+    p.add_argument("--model", help="les poids YOLO, posés par setup.sh")
     p.add_argument(
         "--proxy-size",
-        required=True,
         type=taille,
         help="LARGEURxHAUTEUR du proxy, relevé par Node avec ffprobe",
     )
     p.add_argument(
         "--source-size",
-        required=True,
         type=taille,
         help="LARGEURxHAUTEUR de l'original — recopié tel quel dans le résultat",
     )
-    p.add_argument("--duration", required=True, type=float, help="la durée du proxy, en secondes")
+    p.add_argument("--duration", type=float, help="la durée du proxy, en secondes")
     p.add_argument("--fps", type=float, default=2.0, help="images analysées par seconde (spec §6)")
     p.add_argument("--imgsz", type=int, default=960, help="la taille d'entrée du réseau")
     # **Volontairement plus bas que le seuil du consommateur.** `src/core/framing.ts`
@@ -533,8 +1136,63 @@ def main() -> int:
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"
     )
+    # Les quatre seuils des bascules de composition. **Arrêtés par balayage**
+    # (256 combinaisons × 4 émissions du corpus, rejeu sans GPU ni ffmpeg via
+    # `--replay` — voir docs/ratios-par-clip.md pour la grille et la méthode de
+    # choix). Le plus grand `--switch-shift` qui referme le gisement mesuré sur
+    # `entre-nous` sans régresser `cqlp`, `caro-mdlm` ni `nabla`.
+    p.add_argument(
+        "--switch-shift",
+        type=float,
+        default=0.08,
+        help="déplacement collectif minimal, en fraction de la largeur, pour déclarer une bascule",
+    )
+    p.add_argument(
+        "--switch-tolerance",
+        type=float,
+        default=0.03,
+        help="tolérance d'appariement entre deux ancrages, en fraction de la largeur",
+    )
+    p.add_argument(
+        "--switch-share",
+        type=int,
+        default=8,
+        help="part de personnes appariées qui doit avoir bougé, en dixièmes (8 = 80 %%)",
+    )
+    p.add_argument(
+        "--switch-point-score",
+        type=float,
+        default=0.3,
+        help="confiance minimale d'un point de pose pour entrer dans l'ancrage d'une personne",
+    )
+    # **L'étalonnage sans GPU ni ffmpeg.** Les boîtes sont déjà dans un
+    # `analysis.json` existant ; il ne manque que les scores de scène, une
+    # passe ffmpeg qui ne touche pas au GPU (voir `scores_de_scène`) et se
+    # capture une fois. `--replay` recalcule alors les frontières pour
+    # n'importe quel jeu de seuils, en quelques secondes au lieu de quelques
+    # minutes de détection. Voir docs/ratios-par-clip.md pour la commande
+    # exacte de capture.
+    p.add_argument(
+        "--replay",
+        metavar="ANALYSIS_JSON",
+        help="rejoue le calcul des frontières depuis un analysis.json existant, sans GPU ni ffmpeg",
+    )
+    p.add_argument(
+        "--scene-scores",
+        metavar="FICHIER",
+        help="la sortie brute de la passe ffmpeg de collecte, capturée une fois (requis avec --replay)",
+    )
     a = p.parse_args()
 
+    if a.replay is not None:
+        return run_replay(a)
+
+    if a.proxy is None or a.ffmpeg is None or a.model is None:
+        journal("--proxy, --ffmpeg et --model sont requis hors de --replay.")
+        return 2
+    if a.proxy_size is None or a.source_size is None or a.duration is None:
+        journal("--proxy-size, --source-size et --duration sont requis hors de --replay.")
+        return 2
     if not os.path.isfile(a.proxy):
         journal(f"Proxy introuvable : {a.proxy}")
         return 2
@@ -544,7 +1202,15 @@ def main() -> int:
     if a.duration <= 0:
         journal(f"Durée invalide : {a.duration}. Elle est relevée par ffprobe côté Node.")
         return 2
-    refus = refus_du_seuil_de_scène(a.scene_threshold, a.scene_floor)
+    refus = refus_du_seuil_de_scène(
+        a.scene_threshold,
+        a.scene_floor,
+        a.min_shot,
+        a.switch_shift,
+        a.switch_tolerance,
+        a.switch_share,
+        a.switch_point_score,
+    )
     if refus is not None:
         journal(refus)
         return 2
@@ -560,17 +1226,19 @@ def main() -> int:
     source_l, source_h = a.source_size
     départ = time.monotonic()
 
-    # --- [1/4] les plans, sans toucher au GPU --------------------------------
-    journal(f"[1/4] Frontières de plans (score de scène ≥ {a.scene_threshold})…")
+    # --- [1/5] les scores de scène, sans toucher au GPU ----------------------
+    # **Collecte, pas décision.** Avant le chantier des bascules de composition,
+    # cette passe décidait aussi des frontières : les deux tenaient dans une
+    # seule étape parce que rien d'autre ne consommait le score de scène. Les
+    # bascules le consomment une seconde fois, à l'étape 4, une fois les boîtes
+    # de personnes disponibles — d'où la scission : `évènements` reste vivant
+    # jusque-là au lieu d'être jeté ici.
+    journal(f"[1/5] Scores de scène (collecte, plancher {a.scene_floor})…")
     t0 = time.monotonic()
     évènements = scores_de_scène(a.ffmpeg, a.proxy, a.scene_floor)
-    découpe = plans(évènements, a.duration, a.scene_threshold, a.min_shot)
-    journal(
-        f"      {len(découpe)} plans, {len(découpe) - 1} frontières retenues sur "
-        f"{len(évènements)} candidates ≥ {a.scene_floor}, en {time.monotonic() - t0:.0f} s"
-    )
+    journal(f"      {len(évènements)} candidates, en {time.monotonic() - t0:.0f} s")
 
-    # --- [2/4] le modèle -----------------------------------------------------
+    # --- [2/5] le modèle -------------------------------------------------------
     # Importé ici et non en tête de fichier : ultralytics tire torch et pèse une
     # dizaine de secondes. Un `--help`, un proxy absent ou des poids manquants
     # doivent répondre tout de suite. Et la passe ffmpeg ci-dessus n'a aucune
@@ -586,13 +1254,13 @@ def main() -> int:
         )
         return 3
 
-    journal(f"[2/4] Chargement de {os.path.basename(a.model)} sur {a.device}…")
+    journal(f"[2/5] Chargement de {os.path.basename(a.model)} sur {a.device}…")
     modèle = YOLO(a.model)
 
-    # --- [3/4] les corps -----------------------------------------------------
+    # --- [3/5] les corps -------------------------------------------------------
     attendues = max(1, int(math.ceil(a.duration * a.fps)))
     journal(
-        f"[3/4] Détection des corps ({attendues} images à {a.fps} im/s, "
+        f"[3/5] Détection des corps ({attendues} images à {a.fps} im/s, "
         f"entrée {a.imgsz}, seuil {a.conf})…"
     )
     t0 = time.monotonic()
@@ -675,8 +1343,43 @@ def main() -> int:
     except Exception:  # noqa: BLE001 — libérer est une optimisation, pas un contrat
         pass
 
-    # --- [4/4] l'écriture ----------------------------------------------------
-    journal(f"[4/4] Écriture de {a.out}…")
+    # --- [4/5] les frontières (scène + bascules) --------------------------------
+    # Calcul pur, sans GPU : la VRAM est déjà rendue ci-dessus. Deux détecteurs
+    # orthogonaux, croisés sur la même liste de frontières et le même
+    # `--min-shot` — pas de plancher séparé pour les bascules, voir
+    # `_spaced_boundaries`.
+    journal(f"[4/5] Frontières (scène ≥ {a.scene_threshold}, bascules)…")
+    t0 = time.monotonic()
+    scene_boundary_times = _scene_candidates(évènements, a.scene_threshold)
+
+    switch_candidates = composition_switches(
+        boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
+    )
+    switch_boundary_times: list[float] = []
+    rejected_count = 0
+    for t1, t2 in switch_candidates:
+        refined_t, refined = refine_switch(t1, t2, évènements, a.fps)
+        if refined:
+            switch_boundary_times.append(refined_t)
+        else:
+            rejected_count += 1
+
+    boundaries = _spaced_boundaries(
+        [*scene_boundary_times, *switch_boundary_times], a.duration, a.min_shot
+    )
+    découpe = shots_from_boundaries(boundaries, a.duration)
+
+    rejected_rate = rejected_count / len(switch_candidates) if switch_candidates else 0.0
+    journal(
+        f"      {len(découpe)} plans, {len(boundaries)} frontières ({len(scene_boundary_times)} "
+        f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(switch_boundary_times)} "
+        f"bascules retenues sur {len(switch_candidates)} candidates, {rejected_count} rejetées "
+        f"faute de score de scène ({100 * rejected_rate:.0f} %)), en "
+        f"{time.monotonic() - t0:.0f} s"
+    )
+
+    # --- [5/5] l'écriture --------------------------------------------------------
+    journal(f"[5/5] Écriture de {a.out}…")
     dossier = os.path.dirname(a.out)
     if dossier:
         os.makedirs(dossier, exist_ok=True)

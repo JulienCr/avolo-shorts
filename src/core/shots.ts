@@ -84,7 +84,13 @@ export const POINT = Object.freeze({
 /** Le nombre de points d'un squelette COCO. `k` fait trois fois cette longueur. */
 export const POINT_COUNT = 17
 
-/** Un plan : un intervalle continu de la source, sans changement d'axe. */
+/**
+ * Un plan : un intervalle continu de la source, sans changement d'axe ni
+ * bascule de composition — depuis le 19 août 2026, `worker/detect.py` fusionne
+ * les deux origines de frontière avant d'écrire `shots`, et rien ici ne les
+ * distingue plus : le crop reste fixe à l'intérieur d'un plan quelle qu'en
+ * soit l'origine.
+ */
 export type Shot = { start: number; end: number }
 
 /**

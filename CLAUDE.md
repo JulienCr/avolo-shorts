@@ -75,6 +75,40 @@ commentaire : quand une review trouve un défaut de forme dans un champ, demande
 exemplaires** — et les deux derniers ont été trouvés dans du code que les
 correctifs du premier venaient de toucher.
 
+## Distinguer l'absence d'information de son ambiguïté
+
+**Un défaut choisi pour l'une devient un choix actif dans l'autre.** « À
+égalité, la valeur la plus prudente gagne » est juste quand l'information
+manque : aucune hypothèse n'est mieux fondée qu'une autre, et la plus prudente
+est un choix honnête. Appliqué à deux hypothèses concurrentes qui ne comptent
+chacune qu'une voix, ce même défaut ne se contente pas d'échouer — il
+**tranche**, et rend un faux résultat avec l'aplomb d'un vrai, puisque rien
+dans sa sortie ne dit qu'il a deviné.
+
+Le cas qui l'a révélé (chantier des bascules de composition, 19 août 2026) :
+avec deux comédiens, `collective_shift` n'avait que quatre appariements
+possibles — deux vrais, deux croisés, sans réalité physique. Quand les deux
+vrais déplacements différaient de plus que la tolérance d'appariement, les
+quatre candidats se retrouvaient à une voix chacun, et le départage « plus
+petit déplacement gagne » — juste pour dire « rien n'a bougé » face à une
+simple absence de signal — élisait une paire croisée, rendant un déplacement
+de 0,007 là où la scène avait bougé de 0,3. Le correctif n'est pas un meilleur
+départage : c'est un appariement par rang qui rend les paires croisées
+impossibles à construire quand l'effectif est stable, pour que la question
+qui reste ne soit plus « quelle paire est réelle » mais « le groupe est-il
+d'accord ». Le même principe a rouvert un second cas dans le même chantier :
+une bascule dont le second signal ne confirme pas le premier était posée au
+milieu de sa fenêtre — un défaut prudent, juste face à une fenêtre vide, faux
+face à deux hypothèses (bascule réelle ou comédiens qui bougent de concert) à
+une voix chacune. Elle est désormais rejetée, pas posée au hasard entre les
+deux.
+
+**Sur ce sujet, une lecture d'image a renversé une conclusion chiffrée cinq
+fois.** La dernière portait sur un chiffre qui allait dans le sens de
+l'équipe. Ce n'est pas le chiffre nu qui est dangereux, c'est **le chiffre
+déjà expliqué** — une explication plausible n'appelle plus de vérification, et
+c'est précisément là qu'elle en aurait le plus besoin.
+
 ## Les décisions à ne pas défaire par réflexe
 
 Chacune a coûté une mesure ou un aller-retour, et chacune contredit l'approche

@@ -492,14 +492,18 @@ Ce qui a été fermé en route : #37, #38, #39, #40, #41, #48, #49, #54, #55, #5
   seuil inclusif dise ce qu'il dit, et un `--scene-threshold` sous le plancher est
   désormais refusé plutôt qu'ignoré.
 
-**Un résidu de mesure, laissé exprès et sans ticket.** La collecte de scène
-utilise `select='gt(scene,plancher)'`, strict, alors que `plans()` retient de
-façon inclusive. L'asymétrie est fermée par le refus de l'égalité, pas supprimée ;
-`gte` existe dans le binaire de `setup.sh` (N-126188) et est bien inclusif —
-vérifié, `gte(0.5,0.5)` retient 20 images sur 20 là où `gt` n'en retient aucune.
-Ce n'est pas fait parce que ça touche la passe de scène dont le seuil de 0,4 a été
-mesuré image par image, et qu'**aucun test du CI ne peut la couvrir**, faute de
-ffmpeg sur le runner. À traiter par qui reprendra le détecteur, avec sa mesure.
+**Le résidu `gt`/`gte` est soldé, par le chantier des bascules de composition
+(19 août 2026 au soir).** La collecte de scène utilisait `select='gt(scene,
+plancher)'`, strict, alors que `scene_boundaries` (ex-`plans()`) retenait de
+façon inclusive. Le passage à `gte` a été mesuré à **diff zéro** sur 600 s (128
+évènements dans les deux cas) — l'asymétrie fermée par le refus de l'égalité
+protégeait déjà le même cas —, mais le chantier a fait le changement quand même :
+il déplace le *statut* du plancher, qui devient la limite de ce que le
+raffinement des bascules peut voir, pas seulement celle de la collecte de
+scène. La docstring de `refus_du_seuil_de_scène` a été **réécrite**, pas
+amendée, parce qu'elle justifiait le refus de `seuil == plancher` par la
+stricticité de `gt` — une raison que `gte` aurait laissée fausse tout en
+continuant de protéger.
 
 ### L'environnement et l'outillage
 

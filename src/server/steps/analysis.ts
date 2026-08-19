@@ -501,7 +501,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   const temporaire = cheminTemporaire(destination)
 
   const args = [
-    // `-u` : sans lui, Python tamponne stderr et les quatre étapes du worker
+    // `-u` : sans lui, Python tamponne stderr et les étapes du worker
     // arriveraient toutes ensemble, à la fin.
     '-u',
     script,

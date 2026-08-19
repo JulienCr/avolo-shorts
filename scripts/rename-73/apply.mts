@@ -19,7 +19,6 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
 import * as ts from "typescript";
 import { collectCandidates } from "./collect.mts";
 import { classify, type Classified } from "./classify.mts";

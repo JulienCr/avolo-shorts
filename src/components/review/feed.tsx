@@ -243,7 +243,7 @@ export function ReviewFeed({
     help: () => setHelp(true),
   })
 
-  reviewUseSession(projectId, current, view, focus)
+  useReviewSession(projectId, current, view, focus)
 
   const done = clips.length > 0 && counts.aSort === 0 && view === 'atrier'
 
@@ -563,7 +563,7 @@ function useViewFrozen(clips: readonly CandidateClip[], view: View): CandidateCl
  * émission. C'est l'écran de tri qui le porte : celui de clip n'en sait rien, il
  * ne fait que naviguer par un lien.
  */
-function reviewUseSession(
+function useReviewSession(
   projectId: string,
   current: string | null,
   view: View,

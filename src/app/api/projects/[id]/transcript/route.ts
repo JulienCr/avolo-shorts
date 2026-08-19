@@ -19,16 +19,16 @@ import { clipsTouchedBySpan, lignesDuTranscript, transcriptDuProjet } from '@/se
 
 export const GET = route(
   'GET /api/projects/:id/transcript',
-  async (_requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
+  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
     const db = getDb()
-    const projet = getProject(db, id)
-    if (projet === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    const project = getProject(db, id)
+    if (project === undefined) throw introuvable(`Projet inconnu : ${id}`)
 
     // Un transcript absent ne fait pas échouer la route : c'est l'état normal
     // d'un projet dont seule l'ingestion a eu lieu, et la surface l'affiche
     // comme telle plutôt que par une page d'erreur.
-    const transcript = await transcriptDuProjet(projet)
+    const transcript = await transcriptDuProjet(project)
     return json(transcript === null ? [] : lignesDuTranscript(transcript))
   },
 )
@@ -50,7 +50,7 @@ const CORRECTION = z.strictObject({
 })
 
 /** Le statut que mérite un refus, selon ce qu'il dit du monde. */
-const STATUT_DU_REFUS: Record<TranscriptCorrectionRefusal, number> = {
+const REFUSAL_STATUS: Record<TranscriptCorrectionRefusal, number> = {
   'no-transcript': 404,
   'unknown-line': 404,
   'out-of-range': 400,
@@ -59,18 +59,18 @@ const STATUT_DU_REFUS: Record<TranscriptCorrectionRefusal, number> = {
 
 export const POST = route(
   'POST /api/projects/:id/transcript',
-  async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
-    const { lineId, ...empan } = await corps(requête, CORRECTION)
-    const correction: WordCorrection = empan
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
+    const { lineId, ...span } = await corps(request, CORRECTION)
+    const correction: WordCorrection = span
 
     const db = getDb()
-    const projet = getProject(db, id)
-    if (projet === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    const project = getProject(db, id)
+    if (project === undefined) throw introuvable(`Projet inconnu : ${id}`)
 
-    const résultat = await correctTranscript(projet, lineId, correction)
-    if (!résultat.ok) {
-      throw new ErreurHttp(STATUT_DU_REFUS[résultat.reason], messageDuRefus(résultat.reason))
+    const result = await correctTranscript(project, lineId, correction)
+    if (!result.ok) {
+      throw new ErreurHttp(REFUSAL_STATUS[result.reason], refusalMessage(result.reason))
     }
 
     // **Explicite, pas une invalidation silencieuse.** Le repérage se relance
@@ -80,14 +80,14 @@ export const POST = route(
     // (`src/server/steps/render.ts` ne compare pas le texte — voir le rapport
     // de cette PR). Nommer les clips touchés est ce que cette route peut faire
     // sans toucher à ce fichier.
-    const clips = clipsTouchedBySpan(getClips(db, id), { start: résultat.line.start, end: résultat.line.end })
+    const clips = clipsTouchedBySpan(getClips(db, id), { start: result.line.start, end: result.line.end })
 
-    return json({ line: résultat.line, clipsTouched: clips })
+    return json({ line: result.line, clipsTouched: clips })
   },
 )
 
-function messageDuRefus(raison: TranscriptCorrectionRefusal): string {
-  switch (raison) {
+function refusalMessage(reason: TranscriptCorrectionRefusal): string {
+  switch (reason) {
     case 'no-transcript':
       return "Ce projet n'a pas encore de transcript."
     case 'unknown-line':

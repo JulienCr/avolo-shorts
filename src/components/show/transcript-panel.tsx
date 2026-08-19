@@ -128,14 +128,14 @@ export function TranscriptPanel({
 
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState('')
-  const [retranscrireOuvert, setRetranscrireOuvert] = useState(false)
+  const [retranscribeOpen, setRetranscribeOpen] = useState(false)
   // **Accumulés pour la séance, jamais persistés.** Ce n'est pas un état du
   // serveur — le mécanisme d'empreinte de rendu ne compare pas encore le
   // texte pour décider qu'un rendu est périmé (voir le rapport de cette
   // PR) —, c'est une trace de ce qu'on vient de faire, pour que la
   // conséquence reste visible sans qu'il faille la retenir soi-même.
-  const [clipsTouchés, setClipsTouchés] = useState<Map<string, string>>(new Map())
-  const [correctionsEffectuées, setCorrectionsEffectuées] = useState(0)
+  const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
+  const [correctionsApplied, setCorrectionsApplied] = useState(0)
 
   const conteneur = useRef<HTMLDivElement>(null)
   const virtualiseur = useVirtualizer({
@@ -176,9 +176,9 @@ export function TranscriptPanel({
       {
         onSuccess(résultat) {
           annulerSélection()
-          setCorrectionsEffectuées((n) => n + 1)
+          setCorrectionsApplied((n) => n + 1)
           if (résultat.clipsTouched.length > 0) {
-            setClipsTouchés((précédent) => {
+            setTouchedClips((précédent) => {
               const suivant = new Map(précédent)
               for (const c of résultat.clipsTouched) suivant.set(c.id, c.title)
               return suivant
@@ -190,7 +190,7 @@ export function TranscriptPanel({
   }
 
   const items = virtualiseur.getVirtualItems()
-  const clipsTouchésListe = Array.from(clipsTouchés.values())
+  const touchedClipsList = Array.from(touchedClips.values())
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -205,27 +205,27 @@ export function TranscriptPanel({
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
           <RetranscribeButton
-            open={retranscrireOuvert}
-            onOpenChange={setRetranscrireOuvert}
+            open={retranscribeOpen}
+            onOpenChange={setRetranscribeOpen}
             projectId={projectId}
           />
         </div>
 
-        {correctionsEffectuées > 0 && (
+        {correctionsApplied > 0 && (
           <div className="shrink-0 border-b px-4 py-2">
             <Alert>
               <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {accord(correctionsEffectuées, 'correction appliquée', 'corrections appliquées')} dans
+                  {accord(correctionsApplied, 'correction appliquée', 'corrections appliquées')} dans
                   cette séance. Le repérage lit encore l’ancien texte tant qu’il n’a pas repris.
                 </span>
-                <RelancerRepérage projectId={projectId} />
+                <RerunDetectionBanner projectId={projectId} />
               </AlertDescription>
             </Alert>
-            {clipsTouchésListe.length > 0 && (
+            {touchedClipsList.length > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                {accord(clipsTouchésListe.length, 'Clip concerné', 'Clips concernés')} :{' '}
-                {clipsTouchésListe.join(', ')}. Leurs sous-titres incrustés ne reflètent la
+                {accord(touchedClipsList.length, 'Clip concerné', 'Clips concernés')} :{' '}
+                {touchedClipsList.join(', ')}. Leurs sous-titres incrustés ne reflètent la
                 correction qu’après un nouvel export.
               </p>
             )}
@@ -259,7 +259,7 @@ export function TranscriptPanel({
             </Button>
             {correction.isError && (
               <span role="alert" className="text-xs text-destructive">
-                {messageDeRefus(correction.error)}
+                {refusalMessage(correction.error)}
               </span>
             )}
           </div>
@@ -268,7 +268,7 @@ export function TranscriptPanel({
         {transcript.isError && (
           <Alert variant="destructive" className="m-4">
             <AlertDescription>
-              Le transcript ne se charge pas : {messageDErreur(transcript.error)}
+              Le transcript ne se charge pas : {errorMessage(transcript.error)}
             </AlertDescription>
           </Alert>
         )}
@@ -329,11 +329,11 @@ export function TranscriptPanel({
   )
 }
 
-function messageDErreur(erreur: unknown): string {
+function errorMessage(erreur: unknown): string {
   return erreur instanceof Error ? erreur.message : 'cause inconnue'
 }
 
-function messageDeRefus(erreur: Error): string {
+function refusalMessage(erreur: Error): string {
   if (erreur instanceof ApiError && erreur.status === 409) {
     return 'Le texte a changé sous vos yeux. Fermez et rouvrez le transcript avant de corriger à nouveau.'
   }
@@ -350,15 +350,15 @@ function messageDeRefus(erreur: Error): string {
  * comptes de la grille (gardés, écartés, en attente), donc de la liste des
  * candidats, chargée ici pour cette seule raison.
  */
-function RelancerRepérage({ projectId }: { projectId: string }) {
-  const candidats = useCandidats(projectId)
-  const projet = useProjet(projectId)
-  const clips: CandidateClip[] = candidats.data ?? []
+function RerunDetectionBanner({ projectId }: { projectId: string }) {
+  const candidates = useCandidats(projectId)
+  const project = useProjet(projectId)
+  const clips: CandidateClip[] = candidates.data ?? []
   return (
     <BoutonRelance
       projectId={projectId}
       compte={compter(clips)}
-      enCours={(projet.data?.running ?? null) !== null}
+      enCours={(project.data?.running ?? null) !== null}
     />
   )
 }
@@ -391,26 +391,26 @@ export function RetranscribeButton({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const relance = useRelancer()
-  const bloqué = relance.isPending
+  const rerun = useRelancer()
+  const blocked = rerun.isPending
 
   return (
     <div className="flex flex-col gap-1.5">
       <Button
         variant="outline"
         size="sm"
-        aria-disabled={bloqué}
+        aria-disabled={blocked}
         onClick={() => {
-          if (bloqué) return
+          if (blocked) return
           onOpenChange(true)
         }}
       >
         <RotateCcw aria-hidden />
         Retranscrire l’émission
       </Button>
-      {relance.isError && (
+      {rerun.isError && (
         <span role="alert" className="text-xs text-destructive">
-          La retranscription n’est pas partie : {relance.error.message}
+          La retranscription n’est pas partie : {rerun.error.message}
         </span>
       )}
 
@@ -437,7 +437,7 @@ export function RetranscribeButton({
             <Button
               onClick={() => {
                 onOpenChange(false)
-                relance.mutate({ projectId, targets: 'candidates', force: ['transcript'] })
+                rerun.mutate({ projectId, targets: 'candidates', force: ['transcript'] })
               }}
             >
               Retranscrire

@@ -501,8 +501,8 @@ export type TranscriptCorrectionOutcome =
  * position dans la liste affichée.
  */
 function lineIndex(lineId: string): number | null {
-  const trouvé = /^l(\d+)$/.exec(lineId)
-  return trouvé === null ? null : Number(trouvé[1])
+  const match = /^l(\d+)$/.exec(lineId)
+  return match === null ? null : Number(match[1])
 }
 
 /**
@@ -565,22 +565,22 @@ export async function correctTranscript(
     segments: transcript.segments.map((s, i) => (i === index ? nextSegment : s)),
   }
 
-  const temporaire = cheminTemporaire(placement.transcript)
-  await fsp.writeFile(temporaire, `${JSON.stringify(nextTranscript, null, 2)}\n`, 'utf8')
-  await fsp.rename(temporaire, placement.transcript)
+  const temporaryPath = cheminTemporaire(placement.transcript)
+  await fsp.writeFile(temporaryPath, `${JSON.stringify(nextTranscript, null, 2)}\n`, 'utf8')
+  await fsp.rename(temporaryPath, placement.transcript)
 
-  const relu = lireTranscript(placement.transcript)
-  const relûSegment = relu.segments[index]
-  const relectureIdentique =
-    relûSegment !== undefined &&
-    relûSegment.words.length === nextSegment.words.length &&
-    relûSegment.words.every(
+  const reread = lireTranscript(placement.transcript)
+  const rereadSegment = reread.segments[index]
+  const rereadMatches =
+    rereadSegment !== undefined &&
+    rereadSegment.words.length === nextSegment.words.length &&
+    rereadSegment.words.every(
       (w, i) =>
         w.word === nextSegment.words[i].word &&
         w.start === nextSegment.words[i].start &&
         w.end === nextSegment.words[i].end,
     )
-  if (!relectureIdentique) {
+  if (!rereadMatches) {
     throw new Error(
       `La correction écrite dans ${JSON.stringify(path.basename(placement.transcript))} ne se relit pas ` +
         'telle quelle : rien ne certifie que le sidecar porte le texte corrigé.',

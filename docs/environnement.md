@@ -288,11 +288,18 @@ motif qui compte les caractères se casse au premier changement de build.
 | `REPLAY_DIR` | le Drive partagé qui porte les replays |
 | `STAGE_DIR` | copies de travail locales |
 | `PROJECTS_DIR` | artefacts par projet |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | repérage des candidats |
+| `GEMINI_API_KEY` | la clé Gemini, lue quand un usage d'IA (réglages, famille `ai`) choisit ce fournisseur |
+| `OPENAI_API_KEY` | la clé OpenAI, même rôle. Facultative : absente tant qu'aucun usage ne choisit OpenAI |
 | `WHISPER_PYTHON` | venv du diariseur de `rythmo-impro`, réutilisé tel quel |
 | `WHISPER_MODEL` | `large-v3` |
 | `WHISPER_WORKER` | facultative : le chemin de `worker/transcribe.py`, si le processus ne tourne pas depuis la racine du dépôt |
 | `OP_BIN` | facultative : le chemin de la commande `op`, si elle n'est pas sur le `PATH` |
+
+**Le fournisseur et le modèle de chaque usage d'IA ne se règlent plus par
+variable d'environnement.** L'écran des réglages (`ai.selectionModel`, etc.)
+en fait autorité — le `.env` ne porte plus que les clés. C'est un changement :
+avant cette section, `GEMINI_MODEL` fixait le modèle du repérage ; ce n'est
+plus le cas.
 
 ## Les secrets : le `.env` porte l'adresse, pas la valeur
 

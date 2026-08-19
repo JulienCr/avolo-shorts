@@ -1,13 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
-import {
-  GoogleGenAI,
-  Type,
-  type GenerateContentConfig,
-  type GenerateContentResponse,
-  type Schema,
-} from '@google/genai'
 import { z } from 'zod'
 import { mergeCandidates } from '@/core/candidates'
 import { caviarderClés } from '@/core/erreurs'
@@ -38,11 +31,13 @@ import {
 } from '@/core/transcript'
 import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
 import { StopRequestedError } from '@/server/ffmpeg'
+import { createCallFromSettings } from '@/server/llm/registry'
+import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode, LlmResponse } from '@/server/llm/types'
 import { candidatesPath, placeSidecar } from '@/server/paths'
-import { exigerSecret } from '@/server/secrets'
 
 /**
- * L'étape `candidates` : deux passes Gemini sur le transcript, et le lot de
+ * L'étape `candidates` : deux passes sur le transcript, auprès du fournisseur
+ * réglé pour le repérage (Gemini, OpenAI ou Ollama), et le lot de
  * propositions qui en sort.
  *
  * C'est le seul endroit du repérage qui touche au réseau. Tout ce qui décide
@@ -54,10 +49,15 @@ import { exigerSecret } from '@/server/secrets'
  * quatre autres pourvoyeurs — mouvement des corps, cartouches de jeu,
  * resserrement du cadre, densité des tours de parole — et le reclassement en
  * vision sont l'itération 2.
+ *
+ * **Ce fichier garde ses identifiants français accentués — `clientParDéfaut`,
+ * `SCHÉMA_NOTATION`, `SCHÉMA_DÉTAIL`, `DÉLAI_APPEL_MS`, etc.** La règle de
+ * langue de `CLAUDE.md` veut le code en anglais ; les balayer ici est le
+ * travail de l'issue #73, pas celui de cette PR, qui les a touchés sans les
+ * renommer pour ne pas gonfler son diff. Le module neuf qu'elle ajoute,
+ * `src/server/llm/**`, lui, est écrit en anglais dès sa première ligne : rien
+ * n'y avait de dette à hériter.
  */
-
-/** `gemini-3.1-flash-lite`, surchargeable par `GEMINI_MODEL`. */
-const MODÈLE_PAR_DÉFAUT = 'gemini-3.1-flash-lite'
 
 /**
  * La taille des lots de notation, surchargeable par `SCORE_BATCH`.
@@ -218,6 +218,13 @@ const FINS_SANS_REFUS = new Set([
  * précisément ce cas : c'est une catégorie fourre-tout, pas un signal de
  * politique, et annoncer « le fournisseur refuse ce matériel » y serait faux.
  * (relevé par Copilot)
+ *
+ * **`CONTENT_FILTER` est le refus d'OpenAI**, traduit ici par
+ * `src/server/llm/openai.ts` (`toFinishReason`) depuis `finish_reason:
+ * "content_filter"` ou depuis `message.refusal`. Il déclenche exactement la
+ * même politique que `SAFETY` chez Gemini : `GeminiBlockedError`, jamais
+ * réessayé tel quel, et recoupé par `récupérer`. Ollama, lui, n'a pas de
+ * filtre fournisseur — rien ici ne le concerne.
  */
 const REFUS_DE_CONTENU = new Set([
   'SAFETY',
@@ -229,6 +236,7 @@ const REFUS_DE_CONTENU = new Set([
   'IMAGE_PROHIBITED_CONTENT',
   'IMAGE_RECITATION',
   'MODEL_ARMOR',
+  'CONTENT_FILTER',
 ])
 
 /**
@@ -288,28 +296,50 @@ const MARQUEURS_PASSAGERS = [
  */
 const NOMS_PASSAGERS = new Set(['AbortError', 'TimeoutError'])
 
-/** Le mode d'appel : les deux passes n'ont ni le même schéma ni la même température. */
-export type ModeGemini = 'score' | 'detail'
+/**
+ * Le mode d'appel : les deux passes n'ont ni le même schéma ni la même
+ * température. Alias de `LlmMode` (`@/server/llm/types`) — voir sa doc pour la
+ * raison de garder ce nom-ci ici plutôt que de le faire disparaître.
+ */
+export type ModeGemini = LlmMode
 
 /**
  * Un appel au modèle. Injectable : c'est la seule couture entre cette étape et
  * le réseau, et c'est par elle que les tests passent des réponses figées.
+ *
+ * **Alias de `LlmCall`** (`@/server/llm/types`), qui porte désormais le
+ * contrat réel — plus typé sur `GenerateContentResponse`, mais sur `LlmResponse`,
+ * une forme volontairement plus large que Gemini, OpenAI et Ollama savent
+ * tous remplir. Le nom `AppelGemini` reste : le retirer aurait demandé de
+ * réécrire les quelque 80 réponses figées de `tests/server/candidates.test.ts`
+ * pour un gain nul, puisque `GenerateContentResponse` s'assigne déjà
+ * structurellement à `LlmResponse`.
  */
-export type AppelGemini = (prompt: string, mode: ModeGemini) => Promise<GenerateContentResponse>
+export type AppelGemini = LlmCall
 
-const SCHÉMA_NOTATION: Schema = {
-  type: Type.OBJECT,
+/**
+ * Les deux schémas du repérage, dans le vocabulaire commun aux trois
+ * fournisseurs (`JsonSchema`, `@/server/llm/types`).
+ *
+ * **Déplacés depuis leur forme Gemini (`Type.OBJECT`, …) vers cette forme
+ * générique** : c'est le geste qui généralise la couture — chaque fournisseur
+ * les convertit ensuite vers ce qu'il attend, `createGeminiCall` vers
+ * l'énumération `Type`, OpenAI et Ollama les exercent tels quels puisque
+ * `JsonSchema` est déjà écrit dans leur vocabulaire.
+ */
+const SCHÉMA_NOTATION: JsonSchema = {
+  type: 'object',
   properties: {
     windows: {
-      type: Type.ARRAY,
+      type: 'array',
       items: {
-        type: Type.OBJECT,
+        type: 'object',
         properties: {
-          id: { type: Type.STRING },
-          start: { type: Type.NUMBER },
-          end: { type: Type.NUMBER },
-          score: { type: Type.INTEGER },
-          reason: { type: Type.STRING },
+          id: { type: 'string' },
+          start: { type: 'number' },
+          end: { type: 'number' },
+          score: { type: 'integer' },
+          reason: { type: 'string' },
         },
         required: ['id', 'start', 'end', 'score', 'reason'],
       },
@@ -318,22 +348,22 @@ const SCHÉMA_NOTATION: Schema = {
   required: ['windows'],
 }
 
-const SCHÉMA_DÉTAIL: Schema = {
-  type: Type.OBJECT,
+const SCHÉMA_DÉTAIL: JsonSchema = {
+  type: 'object',
   properties: {
     shorts: {
-      type: Type.ARRAY,
+      type: 'array',
       items: {
-        type: Type.OBJECT,
+        type: 'object',
         properties: {
-          start: { type: Type.NUMBER },
-          end: { type: Type.NUMBER },
-          source_window_id: { type: Type.STRING },
-          predicted_score: { type: Type.INTEGER },
-          video_description_for_tiktok: { type: Type.STRING },
-          video_description_for_instagram: { type: Type.STRING },
-          video_title_for_youtube_short: { type: Type.STRING },
-          viral_hook_text: { type: Type.STRING },
+          start: { type: 'number' },
+          end: { type: 'number' },
+          source_window_id: { type: 'string' },
+          predicted_score: { type: 'integer' },
+          video_description_for_tiktok: { type: 'string' },
+          video_description_for_instagram: { type: 'string' },
+          video_title_for_youtube_short: { type: 'string' },
+          viral_hook_text: { type: 'string' },
         },
         required: [
           'start',
@@ -352,19 +382,17 @@ const SCHÉMA_DÉTAIL: Schema = {
 }
 
 /**
- * La configuration d'un appel.
+ * La configuration d'un appel, indépendante du fournisseur qui l'exécutera.
  *
  * **La notation est précise, le détail est créatif.** 0,2 pour noter — la tâche
  * est un jugement calibré, et la variabilité y est du bruit. 0,9 pour détailler —
  * l'étape écrit des accroches et des descriptions, et les horodatages qu'elle
  * rend sont de toute façon validés puis calés sur les mots juste après.
  */
-function configuration(mode: ModeGemini): GenerateContentConfig {
+function configuration(mode: ModeGemini): LlmCallConfig {
   return {
-    responseMimeType: 'application/json',
-    responseSchema: mode === 'detail' ? SCHÉMA_DÉTAIL : SCHÉMA_NOTATION,
+    schema: mode === 'detail' ? SCHÉMA_DÉTAIL : SCHÉMA_NOTATION,
     temperature: mode === 'detail' ? 0.9 : 0.2,
-    candidateCount: 1,
     maxOutputTokens: PLAFOND_DE_SORTIE,
   }
 }
@@ -381,11 +409,11 @@ function configuration(mode: ModeGemini): GenerateContentConfig {
  * même, un lot partiel était accepté et `replaceClips` remplaçait la passe
  * précédente par ce fragment, sans un mot. (relevé par Copilot)
  */
-export function leverSiBloquée(réponse: GenerateContentResponse): void {
+export function leverSiBloquée(réponse: LlmResponse): void {
   const raison = réponse.promptFeedback?.blockReason
   if (raison) {
     throw new GeminiBlockedError(
-      `Gemini a bloqué le contenu de cette vidéo (${String(raison)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+      `Le fournisseur a bloqué le contenu de cette vidéo (${String(raison)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
     )
   }
   for (const candidat of réponse.candidates ?? []) {
@@ -393,19 +421,19 @@ export function leverSiBloquée(réponse: GenerateContentResponse): void {
     if (fin === 'MAX_TOKENS') {
       // Une erreur ordinaire, pas un `GeminiBlockedError` : le message est dans
       // les marqueurs passagers, donc l'appel repart.
-      throw new Error('Gemini response was truncated (MAX_TOKENS): the answer is incomplete.')
+      throw new Error('Provider response was truncated (MAX_TOKENS): the answer is incomplete.')
     }
     if (FINS_SANS_REFUS.has(fin)) continue
     if (REFUS_DE_CONTENU.has(fin)) {
       throw new GeminiBlockedError(
-        `Gemini a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
+        `Le fournisseur a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
       )
     }
     // Anormale mais pas nommée. Elle échoue tout de suite — le message n'est pas
     // dans les marqueurs passagers — sans se faire passer pour un refus de
     // contenu, qui accuserait la vidéo à tort. (relevé par Copilot)
     throw new Error(
-      `Gemini a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
+      `Le fournisseur a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
     )
   }
 }
@@ -585,7 +613,7 @@ export async function appelerGemini<T = unknown>(
         // faisait le verdict de `noterLesFenêtres` avant sa correction.
         // (relevé par Copilot)
         throw new Error(
-          `Gemini refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
+          `Le fournisseur refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
             `soit plus que les ${ATTENTE_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
             `Le repérage s'arrête plutôt que de relancer avant le délai demandé.`,
         )
@@ -594,35 +622,40 @@ export async function appelerGemini<T = unknown>(
       // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
       const attente = Math.max(5000 * 2 ** (tentative - 1), quota ?? 0)
       console.warn(
-        `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
+        `Fournisseur, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
       await waitOrStop(attente)
     }
   }
 }
 
-/** Le client par défaut. Construit à l'appel : la clé se lit au moment de servir. */
-function clientParDéfaut(signal?: AbortSignal): AppelGemini {
-  // `exigerSecret` et non `process.env` : il refuse aussi une variable restée à
-  // l'état d'adresse `op://…`, que le SDK enverrait comme clé pour se faire
-  // répondre 401. Voir `@/server/secrets`.
-  const apiKey = exigerSecret('GEMINI_API_KEY')
-  const modèle = process.env.GEMINI_MODEL || MODÈLE_PAR_DÉFAUT
-  // **Un délai fini, sans quoi la politique de relance ne borne rien.** Une
-  // requête qui n'aboutit ni ne casse n'atteint jamais le `catch`, et immobilise
-  // la chaîne entière — trois tentatives ne servent à rien si la première ne
-  // rend jamais la main. (relevé par Copilot)
-  const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: DÉLAI_APPEL_MS } })
-  // **Le signal va au SDK**, qui le passe à `fetch` : la requête en vol est
-  // vraiment coupée, on ne se contente pas de cesser d'en attendre la réponse.
-  // Un appel de notation dure plusieurs secondes et il y en a une trentaine par
-  // passe ; sans cela, un arrêt demandé attendrait la fin du lot en cours.
-  return (prompt, mode) =>
-    ai.models.generateContent({
-      model: modèle,
-      contents: prompt,
-      config: { ...configuration(mode), abortSignal: signal },
-    })
+/**
+ * Le client par défaut : le fournisseur et le modèle réglés pour l'usage
+ * « repérage » (`ai.selectionProvider`, `ai.selectionModel`), construit au
+ * moment de servir — c'est là que la clé se lit, jamais avant.
+ *
+ * **Ce qui restait vrai avant cette PR le reste : un délai fini, et le signal
+ * qui coupe vraiment la requête en vol.** `DÉLAI_APPEL_MS` et `signal` sont
+ * désormais des paramètres de `createCallFromSettings`
+ * (`@/server/llm/registry`), qui les fait traverser jusqu'au client du
+ * fournisseur choisi — chacun des trois porte la même propriété (voir
+ * `src/server/llm/gemini.ts`, `openai.ts`, `ollama.ts`). Un arrêt demandé
+ * pendant un appel de notation ne doit pas attendre la fin du lot en cours,
+ * et c'est une propriété du fournisseur, pas de ce fichier.
+ *
+ * **Les relances, le backoff et le filtre de sécurité restent ici,
+ * délibérément.** Ils vivent dans `appelerGemini` et `récupérer`, communs aux
+ * trois fournisseurs — voir la doc de `LlmResponse` (`@/server/llm/types`) :
+ * la forme normalisée que chaque client rend porte assez d'information
+ * (`promptFeedback.blockReason`, `candidates[].finishReason`) pour que cette
+ * politique n'ait pas à se réécrire par fournisseur.
+ */
+function clientParDéfaut(db: Database.Database, signal?: AbortSignal): AppelGemini {
+  return createCallFromSettings(db, 'selection', {
+    signal,
+    timeoutMs: DÉLAI_APPEL_MS,
+    config: configuration,
+  })
 }
 
 const SCHÉMA_MOT = z.object({ word: z.string(), start: z.number(), end: z.number() })
@@ -939,7 +972,7 @@ export async function runCandidates(
   bilans.delete(projectId)
 
   const db = options.db ?? getDb()
-  const appel = options.appel ?? clientParDéfaut(options.signal)
+  const appel = options.appel ?? clientParDéfaut(db, options.signal)
   const sleep = options.sleep ?? attendre
 
   const projet = getProject(db, projectId)
@@ -1227,8 +1260,8 @@ async function noterEtRécupérer(
     const jusquÀLaFenêtreSeule = bilan.refusées.length === bilan.fenêtres
     throw new GeminiBlockedError(
       jusquÀLaFenêtreSeule
-        ? `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
-        : `Gemini a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
+        ? `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, jusqu'à la fenêtre seule. Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`
+        : `Le fournisseur a refusé les ${bilan.lotsRefusés} lot(s) de notation de cette vidéo, et le budget de récupération (${budget} appel(s)) s'est épuisé avant d'avoir pu soumettre chaque fenêtre seule : ${bilan.refusées.length} sur ${bilan.fenêtres} ${bilan.refusées.length > 1 ? "l'ont été" : "l'a été"}. Aucune fenêtre n'a donc été jugée, et rien ne dit encore si c'est le matériel ou la charge qui est refusé. Baisser SCORE_BATCH fait entrer moins de matière par appel dès le premier passage.`,
     )
   }
 
@@ -1500,7 +1533,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
     // coût. C'est ce qui la dispense du budget de `récupérer`, et donc de la
     // formule prudente que ce dernier a dû se donner après coup.
     throw new GeminiBlockedError(
-      `Gemini a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
+      `Le fournisseur a refusé la passe de détail de cette vidéo, jusqu'à la fenêtre seule (${ardoise.refusés.length} fenêtre(s)). ` +
         `Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être détaillé.`,
     )
   }

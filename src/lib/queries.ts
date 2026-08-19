@@ -16,6 +16,7 @@ import { useEffect, useRef } from 'react'
 import {
   createProject,
   exportClip,
+  fetchLlmAvailability,
   fetchSettings,
   getClip,
   getProject,
@@ -56,6 +57,8 @@ export const cles = {
    * et deux entrées pour un même corps se périmeraient l'une sans l'autre.
    */
   settings: ['settings'] as const,
+  /** La disponibilité des fournisseurs de langage — voir `useLlmAvailability`. */
+  llmAvailability: ['llm-availability'] as const,
 }
 
 export function useProjets() {
@@ -566,4 +569,16 @@ export function useStopAnalysis() {
       void client.invalidateQueries({ queryKey: cles.projets })
     },
   })
+}
+
+/**
+ * La disponibilité des trois fournisseurs de langage.
+ *
+ * **Comme `useSettings` : aucune interrogation en boucle.** Une clé ne
+ * s'ajoute ou ne disparaît pas pendant qu'un onglet reste ouvert — c'est une
+ * variable d'environnement du serveur —, donc la redemander périodiquement
+ * coûterait une requête pour un état qui ne change qu'à un redémarrage.
+ */
+export function useLlmAvailability() {
+  return useQuery({ queryKey: cles.llmAvailability, queryFn: fetchLlmAvailability })
 }

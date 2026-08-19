@@ -1386,6 +1386,17 @@ describe('POST /api/projects/:id/stop', () => {
 })
 
 describe('/api/settings', () => {
+  /** Les défauts de la famille `ai`, recopiés de `db.ts` (`AI_FIELDS`). */
+  const AI_DEFAULTS = {
+    selectionProvider: 'gemini',
+    selectionModel: 'gemini-3.1-flash-lite',
+    correctionProvider: 'gemini',
+    correctionModel: 'gemini-3.1-flash-lite',
+    hookProvider: 'gemini',
+    hookModel: 'gemini-3.1-flash-lite',
+    ollamaBaseUrl: '',
+  }
+
   const ecrire = (corps: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
@@ -1398,7 +1409,7 @@ describe('/api/settings', () => {
   it('rend les réglages effectifs, défauts compris', async () => {
     const reponse = await getSettingsRoute()
     expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+    expect(await reponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT, ai: AI_DEFAULTS })
   })
 
   it('applique un patch partiel et rend les réglages résultants', async () => {
@@ -1406,10 +1417,12 @@ describe('/api/settings', () => {
     expect(reponse.status).toBe(200)
     expect(await reponse.json()).toEqual({
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+      ai: AI_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+      ai: AI_DEFAULTS,
     })
   })
 
@@ -1430,6 +1443,7 @@ describe('/api/settings', () => {
     // Et rien n'a été écrit : la lecture rend toujours les défauts.
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: DIMENSIONS_PAR_DÉFAUT,
+      ai: AI_DEFAULTS,
     })
   })
 
@@ -1440,7 +1454,7 @@ describe('/api/settings', () => {
     expect(illisible.status).toBe(400)
     const vide = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
     expect(vide.status).toBe(200)
-    expect(await vide.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+    expect(await vide.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT, ai: AI_DEFAULTS })
   })
 
   /**

@@ -629,7 +629,22 @@ présélection       = plancher × fenetresParClip, borné par fenetresMinimum e
 ```
 
 Les cinq constantes sont des **réglages globaux tenus en base** (table
-`settings`), modifiables sans toucher au code. Défauts : un clip toutes les
+`settings`), modifiables sans toucher au code — et depuis le 19 août 2026, sans
+toucher à la base non plus : `GET` et `PUT /api/settings` les servent et les
+écrivent. La validation vient d'un **registre de champs décrits**
+(`src/server/db.ts`) — famille, type, plancher, défaut, libellé — et non d'un
+schéma par famille : le repérage est la première, l'IA par usage et les défauts
+du hook suivent, et chacune aurait sinon réinventé ce que « hors bornes » veut
+dire. Le préfixe `selection.` de la clé stockée a été posé en prévoyant
+exactement cela. Une clé inconnue et une valeur hors bornes sont des 400, jamais
+un enregistrement silencieux ; changer un réglage ne recalcule rien.
+
+**Jamais une clé d'API dans cette table.** Elle se relit en clair avec
+`sqlite3`, et le dépôt est public : les secrets passent par `src/server/secrets.ts`,
+qui les résout depuis 1Password. Une famille « intelligence artificielle »
+stockera un modèle et une *référence* au secret, jamais sa valeur.
+
+Défauts : un clip toutes les
 **6 minutes** de parole, **2** fenêtres examinées par clip demandé, plancher de
 **6** clips et de **10** fenêtres, aucun plafond absolu. Sur les deux émissions
 mesurées, cela donne 15 clips sur 30 fenêtres et 13 sur 26, contre 6 sur 24 pour
@@ -1025,14 +1040,27 @@ GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
 PATCH  /api/clips/:id                          édition de l'EDL
 POST   /api/clips/:id/export                   rendu
+GET    /api/settings                           les réglages effectifs
+PUT    /api/settings                           applique un patch partiel
 ```
 
 Et les routes qui portent la reprise :
 
 ```
 POST   /api/projects/:id/run      { target, force? }   recalcule jusqu'à la cible
+POST   /api/projects/:id/stop                          arrête l'analyse en cours
 POST   /api/projects/:id/rerender { style? }           re-rend les clips exportés
 ```
+
+`stop` est **idempotente**, et ses deux réponses sont des succès :
+`{ stopped: false }` dit que rien ne tournait — l'analyse venait de finir, ou un
+redémarrage du serveur a emporté l'exécution. L'arrêt est propagé aux processus,
+pas simulé : `SIGTERM` puis `SIGKILL` sur ffmpeg et sur les deux workers Python,
+fermeture des flux pour la copie d'ingestion, `abortSignal` pour l'appel Gemini.
+Ce qui le rend sûr est la règle du nom temporaire ci-dessus : une étape tuée ne
+laisse rien que le relevé de présence prendrait pour un artefact fait, donc la
+reprise repart à la première étape manquante sans qu'il y ait de reprise à
+écrire. Le rendu, lui, n'est pas annulable — il tient dans une requête.
 
 `target` nomme une étape du graphe (`transcript`, `people`, `candidates`,
 `renders`). Le système remonte les dépendances, recalcule ce qui manque ou ce qui
@@ -1054,6 +1082,13 @@ OpenShorts :
   la source une dizaine de fois. Copier en local d'abord, en **gardant le nom de
   fichier d'origine** : le titre du projet en dérive, et un nom haché renommerait
   toute la bibliothèque en charabia.
+
+`stage/` est un **cache**, jamais une source de vérité : il peut être supprimé
+sans conséquence fonctionnelle, au prix d'une recopie — 45 secondes pour 4,3 Go.
+Une copie y vit **huit heures**, et le nettoyage passe au démarrage du serveur et
+après chaque exécution. Deux traitements qui demandent la même source ne la
+copient pas deux fois : la seconde demande attend la première au lieu d'ouvrir un
+second flux sur un montage à 97 Mo/s.
 
 ### Lister les sources
 

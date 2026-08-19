@@ -205,7 +205,11 @@ casse un comportement voulu.
 
 - **L'export est synchrone et dure de dix secondes à une minute.** Le bouton est
   un indicateur de travail et n'est pas annulable — le rendu ffmpeg ne
-  s'interrompt pas proprement.
+  s'interrompt pas proprement. **L'analyse, elle, l'est depuis le 19 août 2026**
+  (`POST /api/projects/:id/run` a son pendant `POST /api/projects/:id/stop`) : le
+  signal descend jusque dans ffmpeg et les deux workers Python, et ce qui est
+  fait reste fait. Les deux ne sont pas dans le même cas — l'analyse tourne en
+  tâche de fond derrière un 202, l'export tient dans une requête.
 - **`skipped: true` au ré-export est un cas nominal**, et l'écran le dit comme un
   succès.
 - **Un clip a une ou deux sorties.** `variant9x16Due` distingue « n'existera
@@ -577,6 +581,12 @@ grand-chose du nettoyage — les liens matériels de pnpm partagent les inodes e
 installations, donc quatorze worktrees supprimés n'ont rendu que **0,9 Go**. La
 raison de les retirer est qu'ils encombrent `git worktree list` et qu'`eslint`
 lancé depuis la racine les lit, pas la place qu'ils prennent.
+
+**`stage/` se nettoie tout seul.** Une copie de travail vit huit heures ; passé
+ce délai, elle est retirée au démarrage du serveur et après chaque exécution.
+Ce n'est jamais une perte : le cache n'est pas une source de vérité, et une
+copie effacée coûte 45 secondes de recopie pour 4,3 Go. Ce qu'une exécution est
+en train de lire est épargné.
 
 `~/.local/bin/avolo-worktree <nom> <branche>` monte celui d'un agent correctement
 du premier coup : branché sur le **HEAD local**, installation réelle, `.env` copié

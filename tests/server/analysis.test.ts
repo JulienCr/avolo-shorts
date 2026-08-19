@@ -458,6 +458,47 @@ describe('runAnalysis', () => {
     )
   })
 
+  /**
+   * **L'arrêt coupe aussi les sondages, et il se dit comme un arrêt.** Les deux
+   * `ffprobe` précèdent le worker, leur délai de garde vaut deux minutes, et le
+   * second peut lire l'original sur le montage 9p : sans le signal, un arrêt
+   * demandé là laissait le processus et `running` actifs jusqu'à ce délai.
+   *
+   * Et sans le contrôle qui suit chaque sondage, il ressortait en « ffprobe n'a
+   * rien su dire du proxy — le refaire avec un run --force », qui envoie
+   * réencoder six minutes de vidéo parfaitement valide. (relevé par Copilot)
+   */
+  it('rend un arrêt demandé pendant les sondages, pas un proxy illisible', async () => {
+    fs.writeFileSync(path.join(racine, 'projects', 'projet', 'proxy.mp4'), '')
+    // Un `ffprobe` qui ne rend jamais la main : c'est le montage 9p au transport
+    // mort, en pire — ici même le délai de garde de deux minutes ne sauve pas
+    // l'appelant, seul le signal le fait.
+    const faux = path.join(racine, 'ffprobe-qui-pend')
+    fs.writeFileSync(faux, '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
+    process.env.FFPROBE_BIN = faux
+    for (const nom of ['python', 'detect.py', 'yolo11m.pt']) {
+      const chemin = path.join(racine, nom)
+      fs.writeFileSync(chemin, '')
+      process.env[
+        { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[
+          nom
+        ] as string
+      ] = chemin
+    }
+
+    const controller = new AbortController()
+    const promise = runAnalysis({
+      projectId: 'projet',
+      source: '/absent.mp4',
+      signal: controller.signal,
+    })
+    // Laisser le premier sondage partir, puis couper.
+    await new Promise((r) => setTimeout(r, 50))
+    controller.abort()
+
+    await expect(promise).rejects.toThrow(/Arrêt demandé/)
+  })
+
   it('n’expose pas la ligne de commande du worker en échec', () => {
     const commande =
       "L'analyse a échoué (code de sortie 3).\n" +

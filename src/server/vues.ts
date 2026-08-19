@@ -56,14 +56,31 @@ export function résuméProjet(projet: Project): ProjectSummary {
  * `error` se tait pendant qu'une exécution tourne, exactement comme dans
  * `GET /api/projects/:id` : l'échec affiché serait celui d'avant, et deux
  * écrans qui se contredisent sur le même projet valent moins que pas d'écran du
- * tout.
+ * tout. `stopped` se tait pour la même raison.
+ *
+ * **Une seule lecture de `status.json` pour les deux champs.** La bibliothèque
+ * appelle cette fonction une fois par projet ; en faire deux doublerait le
+ * relevé, et laisserait la porte ouverte à une réponse qui mêle deux versions du
+ * fichier.
  */
 export function élémentDeListe(projet: Project): ProjectListItem {
   const running = progression(projet.id)
+  const statut = running === null ? lireStatut(projet.id) : null
   return {
     ...résuméProjet(projet),
     running,
-    error: running === null ? (lireStatut(projet.id)?.error ?? null) : null,
+    error: statut?.error ?? null,
+    // **Publié parce que la liste n'a pas `steps`.** L'écran de projet déduit
+    // « interrompue » de `phaseProjet`, qui lit le relevé de présence ; la
+    // bibliothèque ne l'a pas, et c'est délibéré — sonder vingt et un projets
+    // sur un montage 9p figerait tout ce qui touche au disque. Sans ce champ,
+    // une analyse arrêtée après l'ingestion est indiscernable d'une analyse
+    // finie : rien ne tourne, rien n'a échoué, et la durée est connue.
+    //
+    // `?? false` couvre un `status.json` d'avant cette PR, qui ne porte pas le
+    // champ : on le lit comme « pas arrêtée », ce qui est la lecture prudente —
+    // un vieux fichier décrit une exécution qu'aucune route ne pouvait arrêter.
+    stopped: statut?.stopped ?? false,
   }
 }
 

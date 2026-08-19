@@ -9,6 +9,8 @@ import type { StepName } from '@/core/graph'
 import type { BilanNotation } from '@/server/steps/candidates'
 import { getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
+  cleanWorkCache,
+  stopRun,
   attendre,
   bilanDeRepérage,
   cheminTranscript,
@@ -24,6 +26,7 @@ import {
   relevéPrésence,
   type Étapes,
 } from '@/server/run'
+import { StopRequestedError } from '@/server/ffmpeg'
 
 /**
  * Le lanceur, sans GPU, sans ffmpeg et sans vidéo : les étapes sont injectées.
@@ -133,7 +136,14 @@ beforeEach(() => {
   sourcesAnalyse = []
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // **Rien ne doit tourner d'un test à l'autre.** `enCours` est une table de
+  // module : une exécution qu'une assertion ratée aurait laissée derrière elle
+  // ferait échouer le test suivant sur `ExécutionEnCoursError`, à un endroit qui
+  // ne dit rien du vrai défaut. Et la base se referme après, pas avant : une
+  // exécution encore vivante s'en servirait.
+  stopRun(PROJET)
+  await attendreLaFin()
   db.close()
   fs.rmSync(racine, { recursive: true, force: true })
 })
@@ -622,6 +632,196 @@ describe('status.json', () => {
 })
 
 /**
+ * L'arrêt d'une analyse, de bout en bout.
+ *
+ * **Ce qui se vérifie ici n'est pas qu'un processus meurt** — c'est éprouvé dans
+ * `tests/server/ffmpeg.test.ts`, sur de vrais processus — mais ce que le lanceur
+ * en fait : le signal descend jusqu'aux étapes, la suivante ne part pas, ce qui
+ * était fait reste fait, `status.json` ne ressemble pas à une panne, et la
+ * reprise repart à la première étape manquante (retour d'usage §4.1).
+ */
+describe("l'arrêt d'une exécution", () => {
+  /**
+   * Des étapes qui n'en finissent pas, jusqu'à ce qu'on les arrête.
+   *
+   * `bloquante` est celle qui pend ; les autres écrivent leur artefact
+   * normalement. C'est ce qui permet de tuer l'exécution au milieu de son plan
+   * et de vérifier que ce qui la précédait a bien survécu.
+   */
+  function etapesQuiPendent(bloquante: StepName): Partial<Étapes> {
+    const factices = étapesFactices()
+    const pendre = (signal: AbortSignal | undefined): Promise<never> =>
+      new Promise((_, rejeter) => {
+        signal?.addEventListener('abort', () => rejeter(new StopRequestedError(bloquante)), {
+          once: true,
+        })
+      })
+
+    return {
+      ...factices,
+      buildProxy: async (o) => {
+        appels.push('proxy')
+        if (bloquante === 'proxy') return pendre(o.signal)
+        return factices.buildProxy!(o)
+      },
+      extractAudio: async (o) => {
+        if (bloquante === 'audio') {
+          appels.push('audio')
+          return pendre(o.signal)
+        }
+        return factices.extractAudio!(o)
+      },
+      runCandidates: async (id, o) => {
+        if (bloquante === 'candidates') {
+          appels.push('candidates')
+          return pendre(o?.signal)
+        }
+        return factices.runCandidates!(id, o)
+      },
+    }
+  }
+
+  it('rend faux quand rien ne tourne — deux clics ne sont pas une erreur', () => {
+    expect(stopRun(PROJET)).toBe(false)
+    expect(stopRun('projet-qui-n-existe-pas')).toBe(false)
+  })
+
+  it('coupe le travail en cours et rend vrai, deux fois de suite', async () => {
+    poserProjet()
+    poserTranscript()
+    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    // L'étape a bien démarré : sans cela, l'arrêt éprouverait le refus d'entrée
+    // et non la coupure d'un travail en cours.
+    await attendreEtape('proxy')
+
+    expect(stopRun(PROJET)).toBe(true)
+    // Idempotent : un second appel pendant que l'exécution finit de descendre
+    // dit toujours vrai, et n'a pas d'effet supplémentaire.
+    expect(stopRun(PROJET)).toBe(true)
+
+    await attendreLaFin()
+    expect(progression(PROJET)).toBeNull()
+  })
+
+  /**
+   * **Un arrêt demandé n'est pas une panne.** Écrire le message du processus tué
+   * — « ffmpeg a échoué (tué par SIGTERM) » — ferait afficher un bandeau d'échec
+   * à quelqu'un qui vient de cliquer « Arrêter », et `phaseProjet` classerait le
+   * projet en `echec` au lieu d'`interrompu`.
+   */
+  it('écrit un statut d’arrêt, sans erreur et sans running', async () => {
+    poserProjet()
+    poserTranscript()
+    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    await attendreEtape('proxy')
+    stopRun(PROJET)
+    await attendreLaFin()
+
+    const statut = lireStatut(PROJET)
+    expect(statut?.stopped).toBe(true)
+    expect(statut?.error).toBeNull()
+    expect(statut?.running).toBeNull()
+    expect(statut?.finishedAt).not.toBeNull()
+  })
+
+  /**
+   * L'étape suivante ne doit pas partir. Sans le contrôle à l'entrée de chaque
+   * étape, arrêter pendant la transcription laisserait démarrer les six minutes
+   * de proxy qui la suivent — le processus tué serait bien mort, et le travail
+   * continuerait quand même.
+   */
+  it('n’enchaîne pas sur l’étape suivante', async () => {
+    poserProjet()
+    await lancer(PROJET, ['candidates'], { db, étapes: etapesQuiPendent('audio') })
+    await attendreEtape('audio')
+    stopRun(PROJET)
+    await attendreLaFin()
+
+    expect(appels).toEqual(['audio'])
+    expect(fs.existsSync(path.join(racine, 'projects', PROJET, `${PROJET}.avolo`))).toBe(false)
+  })
+
+  /**
+   * **Ce qui est fait reste fait, et la reprise repart à la première étape
+   * manquante.** C'est le critère du §4.1 du retour d'usage, et il ne demande
+   * aucun code de reprise : le graphe le fait déjà, à condition qu'une étape
+   * tuée n'ait rien laissé qui la ferait passer pour faite.
+   */
+  it('laisse les artefacts déjà terminés, et la reprise finit le travail', async () => {
+    poserProjet()
+    await lancer(PROJET, ['candidates'], { db, étapes: etapesQuiPendent('candidates') })
+    await attendreEtape('candidates')
+    stopRun(PROJET)
+    await attendreLaFin()
+
+    // L'audio et le transcript sont passés avant l'arrêt : ils restent.
+    const presence = await relevéPrésence(getProject(db, PROJET) as Project)
+    expect(presence.audio).toBe(true)
+    expect(presence.transcript).toBe(true)
+    expect(presence.candidates).toBe(false)
+
+    appels = []
+    const { plan } = await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices() })
+    // La reprise ne refait ni l'audio ni le transcript.
+    expect(plan).toEqual(['candidates'])
+    await attendreLaFin()
+    expect(appels).toEqual(['candidates'])
+    expect(lireStatut(PROJET)?.stopped).toBe(false)
+    expect(lireStatut(PROJET)?.error).toBeNull()
+  })
+
+  /** Une exécution arrêtée s'est terminée comme on le voulait : rien ne rejette. */
+  it('ne fait pas rejeter l’attente de l’exécution', async () => {
+    poserProjet()
+    poserTranscript()
+    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    await attendreEtape('proxy')
+    stopRun(PROJET)
+    await expect(attendre(PROJET)).resolves.toBeUndefined()
+  })
+
+  /**
+   * **Le nettoyage du cache épargne ce qu'une exécution lit.** Le balayage de
+   * démarrage continue après le retour de `register()` : le serveur accepte une
+   * analyse pendant qu'il tourne, cette analyse constate sa copie présente —
+   * elle n'a rien à recopier, donc rien ne l'inscrit dans les copies en vol — et
+   * un `cleanStage` nu la lui retirait. (relevé par Copilot)
+   */
+  it('n’efface pas la copie de travail d’une exécution en cours', async () => {
+    poserProjet()
+    poserTranscript()
+    const copie = path.join(racine, 'stage', `${PROJET}.mp4`)
+    // Vieille de deux TTL : sans la garde, elle part.
+    const vieux = new Date(Date.now() - 9 * 60 * 60 * 1000)
+    fs.utimesSync(copie, vieux, vieux)
+
+    await lancer(PROJET, ['proxy'], { db, étapes: etapesQuiPendent('proxy') })
+    await attendreEtape('proxy')
+    expect(await cleanWorkCache(db)).toEqual([])
+    expect(fs.existsSync(copie)).toBe(true)
+
+    stopRun(PROJET)
+    await attendreLaFin()
+    // Une fois l'exécution finie, plus rien ne l'épargne et le TTL s'applique.
+    // On ne compare pas la liste rendue : le nettoyage qui suit chaque exécution
+    // a pu passer avant celui-ci, auquel cas il ne reste rien à retirer. Ce qui
+    // se vérifie est l'effet, pas lequel des deux l'a produit.
+    await cleanWorkCache(db)
+    expect(fs.existsSync(copie)).toBe(false)
+  })
+
+  /** Un échec ordinaire garde son message : l'arrêt ne l'avale pas. */
+  it('n’écrase pas un vrai échec quand personne n’a rien demandé', async () => {
+    poserProjet()
+    poserTranscript()
+    await lancer(PROJET, ['candidates'], { db, étapes: étapesFactices('candidates') })
+    await attendreLaFin()
+    expect(lireStatut(PROJET)?.stopped).toBe(false)
+    expect(lireStatut(PROJET)?.error).toContain('ffmpeg a échoué')
+  })
+})
+
+/**
  * Attend que le lanceur ait fini.
  *
  * `attendre()` du module rendrait la main tout de suite une fois l'exécution
@@ -632,4 +832,19 @@ async function attendreLaFin(): Promise<void> {
   for (let i = 0; i < 200 && progression(PROJET) !== null; i += 1) {
     await new Promise((résoudre) => setTimeout(résoudre, 5))
   }
+}
+
+/**
+ * Attend que le lanceur en soit à une étape donnée.
+ *
+ * `lancer` rend la main **avant** que l'exécution ne commence — c'est ce qui
+ * permet à `POST /run` de répondre 202 en disant ce qu'il va faire. Arrêter dans
+ * la foulée éprouverait donc le refus d'entrée d'une étape, pas la coupure d'un
+ * travail en cours, et le test passerait sans rien démontrer.
+ */
+async function attendreEtape(step: StepName): Promise<void> {
+  for (let i = 0; i < 200 && progression(PROJET)?.step !== step; i += 1) {
+    await new Promise((résoudre) => setTimeout(résoudre, 5))
+  }
+  expect(progression(PROJET)?.step).toBe(step)
 }

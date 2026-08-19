@@ -356,7 +356,7 @@ export function Timeline({
               height={90}
               className="block w-32 rounded-sm bg-zinc-950"
             />
-            <span className="mt-0.5 block text-center font-mono text-[0.7rem] tabular-nums">
+            <span className="mt-0.5 block text-center font-mono text-xs tabular-nums">
               {formatTimecode(drag.time)}
             </span>
           </span>

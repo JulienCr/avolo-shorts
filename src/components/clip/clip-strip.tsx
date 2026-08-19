@@ -135,7 +135,7 @@ function Thumbnail({
             className="absolute inset-0 size-full object-cover"
           />
         )}
-        <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 font-mono text-[0.7rem] text-white tabular-nums">
+        <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 font-mono text-xs text-white tabular-nums">
           {formatDuration(duration)}
         </span>
       </span>

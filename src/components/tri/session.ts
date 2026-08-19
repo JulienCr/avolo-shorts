@@ -49,9 +49,23 @@ export type ÉtatDeTri = {
    * reste de ce module prétendait déjà être. (relevé par Codex)
    */
   retour: boolean
+  /**
+   * L'instant, en millisecondes depuis l'époque Unix, où `retour` a été posé à `true`.
+   *
+   * **Sans horodatage, la marque survit à un départ sans retour.** Elle est
+   * posée au clic vers un clip, mais rien ne la retire si l'on quitte ensuite
+   * le clip vers la bibliothèque au lieu de revenir au projet : la visite
+   * suivante, ordinaire celle-là, restaure une vue et un focus que personne
+   * n'a demandés. Un `Ctrl`/`Cmd`/`Shift` + clic pose la même marque sur un
+   * onglet qui n'a pas navigué, pour la même raison — c'est un vrai `click`.
+   * L'horodatage ferme les deux d'un coup : lu, la marque expire d'elle-même.
+   * (Le clic du milieu, lui, émet `auxclick` et ne pose jamais la marque —
+   * rien à corriger de ce côté.)
+   */
+  postedAt: number | null
 }
 
-const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0, vue: null, retour: false }
+const NEUTRE: ÉtatDeTri = { carte: null, defilement: 0, vue: null, retour: false, postedAt: null }
 
 /** Une clé par projet : le retour depuis un clip vise **sa** grille. */
 function clé(projectId: string): string {
@@ -86,14 +100,28 @@ export function lireSessionTri(projectId: string): ÉtatDeTri {
     // version précédente de l'écran, ou bricolé à la main : un `carte` numérique
     // passerait tel quel jusque dans un `querySelector`, et un `defilement`
     // textuel jusque dans un `scrollTo`.
-    const { carte, defilement, vue, retour } = lu as Partial<ÉtatDeTri>
+    const { carte, defilement, vue, retour, postedAt } = lu as Partial<ÉtatDeTri>
+    const storedPostedAt = typeof postedAt === 'number' && Number.isFinite(postedAt) ? postedAt : null
+    // Un aller-retour normal vers un clip — l'ouvrir, éventuellement le monter,
+    // revenir par le fil d'Ariane — se joue en quelques minutes. Passé ce
+    // délai, la marque est plus probablement un départ sans retour (vers la
+    // bibliothèque, ou un onglet ouvert en arrière-plan qui n'a jamais navigué)
+    // qu'un aller-retour en cours : on ne la restaure plus.
+    const MAX_RETURN_AGE_MS = 30 * 60 * 1000
+    // L'âge doit être positif : un `postedAt` dans le futur (horloge reculée,
+    // clé bricolée à la main) rendrait sinon un âge négatif, toujours
+    // inférieur à la limite, et la marque ne périmerait jamais. (relevé par
+    // Copilot)
+    const age = storedPostedAt !== null ? Date.now() - storedPostedAt : null
+    const isFresh = retour === true && age !== null && age >= 0 && age <= MAX_RETURN_AGE_MS
     return {
       carte: typeof carte === 'string' ? carte : null,
       defilement: typeof defilement === 'number' && Number.isFinite(defilement) ? defilement : 0,
       // Comparée à la liste des vues plutôt que crue sur parole : la clé se
       // bricole à la main, et une vue inconnue ferait rendre une grille vide.
       vue: VUES.some((v) => v.valeur === vue) ? (vue as Vue) : null,
-      retour: retour === true,
+      retour: isFresh,
+      postedAt: storedPostedAt,
     }
   } catch {
     return NEUTRE
@@ -111,7 +139,14 @@ export function écrireSessionTri(projectId: string, état: Partial<ÉtatDeTri>)
   const mémoire = stockage()
   if (mémoire === null) return
   try {
-    mémoire.setItem(clé(projectId), JSON.stringify({ ...lireSessionTri(projectId), ...état }))
+    // L'horodatage se pose ici, pas chez l'appelant : c'est le seul endroit
+    // qui sait *quand* la marque est posée, et un appelant qui l'oublierait
+    // écrirait une marque qui n'expire jamais.
+    const timestamp = état.retour === true ? { postedAt: Date.now() } : {}
+    mémoire.setItem(
+      clé(projectId),
+      JSON.stringify({ ...lireSessionTri(projectId), ...état, ...timestamp }),
+    )
   } catch {
     // Quota, navigation privée : rien à réparer et rien à dire.
   }

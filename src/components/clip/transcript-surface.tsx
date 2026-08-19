@@ -81,8 +81,10 @@ export function TranscriptSurface({
   // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
   // `useVirtualizer` rend des fonctions dont le résultat change à chaque
   // défilement, et les mémoïser afficherait des lignes périmées. C'est le
-  // comportement voulu, pas un défaut à corriger — l'avertissement reste visible
-  // exprès, pour que personne ne le fasse taire par un `memo` mal placé.
+  // comportement voulu, pas un défaut à corriger — mais un `eslint` bruyant sur
+  // un avertissement volontaire noie le prochain, lui accidentel : rendu muet
+  // ci-dessous, la raison reste ici plutôt que dupliquée en ligne (issue #56).
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualiseur = useVirtualizer({
     count: lines.length,
     getScrollElement: () => conteneur.current,

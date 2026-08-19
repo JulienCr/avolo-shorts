@@ -9,13 +9,13 @@ import type { Ratio } from '@/core/edl'
  * le consomment — le rectangle, l'aperçu, le sélecteur de ratio et le panneau
  * d'export — et qu'un champ ajouté au contrat doit casser un seul endroit.
  */
-export function framing(surcharges: Partial<PublishedFraming> = {}): PublishedFraming {
+export function framing(overrides: Partial<PublishedFraming> = {}): PublishedFraming {
   return {
     ratio: '1:1',
     shots: [shot(0, 100, '1:1', 0.5)],
     rejectedOverrides: [],
     origin: 'computed',
-    ...surcharges,
+    ...overrides,
   }
 }
 

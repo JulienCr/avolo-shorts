@@ -3,12 +3,12 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import type { CauseIndisponible, Source, SourcesListing } from '@/lib/api'
+import type { CauseUnavailable, Source, SourcesListing } from '@/lib/api'
 import { getDb, listProjects } from '@/server/db'
-import { estUneAbsence } from '@/server/octets'
+import { isAAbsence } from '@/server/bytes'
 import { replayDir, resolveSource } from '@/server/paths'
-import { attendreOuRenoncer, DÉLAI_STAT_MS } from '@/server/steps/ingest'
-import { urlVignetteSource } from '@/server/vignettes-sources'
+import { waitOrAbandon, DELAY_STAT_MS } from '@/server/steps/ingest'
+import { urlVignetteSource } from '@/server/source-thumbnails'
 
 /**
  * Le catalogue des replays : **l'entrée du parcours** (spec §13, tâche 15).
@@ -21,7 +21,7 @@ import { urlVignetteSource } from '@/server/vignettes-sources'
  *
  * Trois conséquences, et aucune n'est une précaution de style.
  *
- * 1. **`disponible` s'éprouve par un accès réel**, jamais par les bits de
+ * 1. **`available` s'éprouve par un accès réel**, jamais par les bits de
  *    permission — le montage annonce `drwxrwxrwx` sans que cela prouve rien — ni
  *    par la présence d'une ligne dans `/proc/mounts`, qui reste là quand le
  *    transport est mort.
@@ -41,7 +41,7 @@ import { urlVignetteSource } from '@/server/vignettes-sources'
  *    rendaient franchement trompeur — un `REPLAY_DIR` mal orthographié **sous un
  *    partage 9p sain** annonçait `fstype: '9p'` avec la lecture en échec, et un
  *    seul fichier aux droits refusés faisait basculer tout le dossier. Ils sont
- *    désormais nommés, `absent` et `denied`, et le geste utile suit du nom.
+ *    désormais nommés, `missing` et `denied`, et le geste utile suit du nom.
  */
 
 /**
@@ -58,7 +58,7 @@ import { urlVignetteSource } from '@/server/vignettes-sources'
  * Les conteneurs d'un enregistrement de diffusion, plus ceux qu'un montage
  * intermédiaire produit. Comparée en minuscules : le Drive rend des `.MP4`.
  */
-const EXTENSIONS_VIDÉO = new Set([
+const EXTENSIONS_VIDEO = new Set([
   '.mp4',
   '.mkv',
   '.mov',
@@ -70,11 +70,11 @@ const EXTENSIONS_VIDÉO = new Set([
 ])
 
 /** Ce qu'un accès réel au dossier des replays rapporte. */
-export type RelevéDossier = {
+export type ReadingFolder = {
   /** Toutes les entrées, vidéos ou non. Un dossier plein d'autre chose n'est pas vide. */
-  entrées: number
+  entries: number
   /** Les vidéos, avec ce qu'un `lstat` en dit. */
-  vidéos: { name: string; sizeBytes: number; mtimeMs: number }[]
+  videos: { name: string; sizeBytes: number; mtimeMs: number }[]
 }
 
 export type OptionsSources = {
@@ -86,19 +86,19 @@ export type OptionsSources = {
    * au transport mort sous la main — et c'est le seul mode d'échec qui compte
    * vraiment ici.
    */
-  relever?: (dir: string) => Promise<RelevéDossier>
+  capture?: (dir: string) => Promise<ReadingFolder>
 }
 
 /**
  * Les sondes **encore en vol**, par dossier.
  *
- * Même raison que la table `sondes` du lanceur : sur un montage mort, l'appel
+ * Même raison que la table `probes` du lanceur : sur un montage mort, l'appel
  * système ne revient jamais et garde son fil. Tant que la précédente n'est pas
  * revenue, on lui raccroche les appelants suivants au lieu d'en lancer une
  * seconde — chacun repartira sur son propre délai de garde, sans avoir rien
  * coûté de plus. L'entrée disparaît quand la sonde se règle enfin.
  */
-const enVol = new Map<string, Promise<RelevéDossier>>()
+const inFlight = new Map<string, Promise<ReadingFolder>>()
 
 /**
  * Le dossier des replays, listé et mesuré.
@@ -112,15 +112,15 @@ const enVol = new Map<string, Promise<RelevéDossier>>()
  * l'ingestion le refuse déjà pour la même raison — il désignerait un fichier
  * hors de `REPLAY_DIR`.
  */
-async function releverLeDossier(dir: string): Promise<RelevéDossier> {
-  const entrées = await fsp.readdir(dir)
-  const vidéos: RelevéDossier['vidéos'] = []
-  for (const nom of entrées) {
-    if (estUnMoignon(nom)) continue
-    if (!EXTENSIONS_VIDÉO.has(path.extname(nom).toLowerCase())) continue
+async function captureFolder(dir: string): Promise<ReadingFolder> {
+  const entries = await fsp.readdir(dir)
+  const videos: ReadingFolder['videos'] = []
+  for (const name of entries) {
+    if (isAStub(name)) continue
+    if (!EXTENSIONS_VIDEO.has(path.extname(name).toLowerCase())) continue
     let info: fs.Stats
     try {
-      info = await fsp.lstat(path.join(dir, nom))
+      info = await fsp.lstat(path.join(dir, name))
     } catch (cause) {
       // Un fichier disparu entre la liste et la mesure est une course banale, pas
       // une panne : on l'omet. Tout le reste — droits refusés, montage qui meurt
@@ -132,15 +132,15 @@ async function releverLeDossier(dir: string): Promise<RelevéDossier> {
       // source qu'on cherche est celle qui manque. Ce que l'issue #56 reprochait
       // à ce chemin n'est pas la bascule, c'est qu'elle était muette — un droit
       // refusé sur un fichier ressemblait trait pour trait à un partage tombé.
-      // La cause remonte maintenant avec l'échec : `refusé` envoie regarder les
+      // La cause remonte maintenant avec l'échec : `rejected` envoie regarder les
       // droits, pas remonter le partage.
-      if (estUneAbsence(cause)) continue
+      if (isAAbsence(cause)) continue
       throw cause
     }
     if (!info.isFile()) continue
-    vidéos.push({ name: nom, sizeBytes: info.size, mtimeMs: info.mtimeMs })
+    videos.push({ name: name, sizeBytes: info.size, mtimeMs: info.mtimeMs })
   }
-  return { entrées: entrées.length, vidéos }
+  return { entries: entries.length, videos }
 }
 
 /**
@@ -152,26 +152,26 @@ async function releverLeDossier(dir: string): Promise<RelevéDossier> {
  * proposer ferait des cartes qui échouent à l'ingestion, ce qui ressemble à un
  * défaut de l'outil. La spec les écarte nommément (§ « Lister les sources »).
  *
- * **Elles restent comptées dans `entrées`.** Un dossier plein de moignons n'est
+ * **Elles restent comptées dans `entries`.** Un dossier plein de moignons n'est
  * pas un dossier vide, et c'est cette distinction-là qui porte le diagnostic.
  */
-function estUnMoignon(nom: string): boolean {
-  return nom.startsWith('.') || nom.startsWith('$')
+function isAStub(name: string): boolean {
+  return name.startsWith('.') || name.startsWith('$')
 }
 
 /**
  * Le message que le délai de garde donne à son rejet.
  *
  * Il ne s'affiche nulle part : il sert à **reconnaître** le renoncement parmi
- * les rejets possibles. `attendreOuRenoncer` construit lui-même son `Error`, et
+ * les rejets possibles. `waitOrAbandon` construit lui-même son `Error`, et
  * c'est la seule chose qui distingue « personne n'a répondu » d'un code d'erreur
  * du système de fichiers. Producteur et consommateur sont à vingt lignes l'un de
  * l'autre, et un test le vérifie de bout en bout.
  */
-const RENONCEMENT = 'sources:délai-dépassé'
+const GIVE_UP = 'sources:délai-dépassé'
 
 /** Ce que le relevé a donné : les entrées, ou la raison de ne pas les avoir. */
-type Relevé = { relevé: RelevéDossier; cause: null } | { relevé: null; cause: CauseIndisponible }
+type Reading = { reading: ReadingFolder; cause: null } | { reading: null; cause: CauseUnavailable }
 
 /**
  * Le code d'échec réel, tel que l'écran pourra le nommer.
@@ -188,44 +188,44 @@ type Relevé = { relevé: RelevéDossier; cause: null } | { relevé: null; cause
  * force dans l'une des trois autres cases ferait dire à l'écran quelque chose de
  * faux plutôt que quelque chose de vague.
  */
-function causeDe(erreur: unknown): CauseIndisponible {
-  if (erreur instanceof Error && erreur.message === RENONCEMENT) return 'silent'
-  if (estUneAbsence(erreur)) return 'absent'
-  const code = (erreur as NodeJS.ErrnoException | null)?.code
+function cause(error: unknown): CauseUnavailable {
+  if (error instanceof Error && error.message === GIVE_UP) return 'silent'
+  if (isAAbsence(error)) return 'absent'
+  const code = (error as NodeJS.ErrnoException | null)?.code
   if (code === 'EACCES' || code === 'EPERM') return 'denied'
   return 'unreadable'
 }
 
 /** Le relevé, ou la cause pour laquelle il n'a pas eu lieu. */
-async function releverAvecGarde(
+async function captureWithGuard(
   dir: string,
   timeoutMs: number,
-  relever: (dir: string) => Promise<RelevéDossier>,
-): Promise<Relevé> {
-  let sonde = enVol.get(dir)
-  if (sonde === undefined) {
-    sonde = relever(dir)
-    enVol.set(dir, sonde)
+  capture: (dir: string) => Promise<ReadingFolder>,
+): Promise<Reading> {
+  let probe = inFlight.get(dir)
+  if (probe === undefined) {
+    probe = capture(dir)
+    inFlight.set(dir, probe)
     // **Le `catch` est sur la chaîne, pas à côté d'elle.** `finally` propage le
     // rejet : un `sonde.catch()` posé en parallèle laisse la promesse dérivée du
     // `finally` sans gestionnaire, et un montage absent — le cas le plus banal —
     // remonte en rejet non traité, ce qui coupe le processus. Le rejet réel, lui,
-    // est déjà traité : `releverAvecGarde` le rattrape et le nomme.
-    void sonde.finally(() => enVol.delete(dir)).catch(() => {})
+    // est déjà traité : `captureWithGuard` le rattrape et le nomme.
+    void probe.finally(() => inFlight.delete(dir)).catch(() => {})
   }
 
   try {
-    return { relevé: await attendreOuRenoncer(sonde, timeoutMs, RENONCEMENT), cause: null }
-  } catch (erreur) {
+    return { reading: await waitOrAbandon(probe, timeoutMs, GIVE_UP), cause: null }
+  } catch (error) {
     // Absence, droits, transport mort, délai dépassé : quatre faits, et l'écran
     // ne peut en nommer un que si on le lui dit. Les confondre était le reste
     // documenté de la vague d'interface (issue #56, point 5).
-    return { relevé: null, cause: causeDe(erreur) }
+    return { reading: null, cause: cause(error) }
   }
 }
 
 /**
- * Le type de système de fichiers qui porte `chemin`, d'après le contenu de
+ * Le type de système de fichiers qui porte `path`, d'après le contenu de
  * `/proc/mounts`.
  *
  * **Il se relève même quand l'accès échoue, et c'est là qu'il sert le plus** :
@@ -240,41 +240,41 @@ async function releverAvecGarde(
  * Pure, et séparée pour être testée sans dépendre du montage de la machine qui
  * exécute la suite.
  */
-export function fstypeDeMontage(montages: string, chemin: string): string | null {
-  let meilleur: { point: string; fstype: string } | null = null
-  for (const ligne of montages.split('\n')) {
-    const champs = ligne.split(' ')
-    if (champs.length < 3) continue
-    const point = déséchapper(champs[1])
-    if (point === '' || !contient(point, chemin)) continue
+export function editingFstype(edits: string, path: string): string | null {
+  let best: { point: string; fstype: string } | null = null
+  for (const line of edits.split('\n')) {
+    const fields = line.split(' ')
+    if (fields.length < 3) continue
+    const point = unescape(fields[1])
+    if (point === '' || !contains(point, path)) continue
     // `>=` et non `>` : à profondeur égale, c'est la **dernière** ligne qui
     // décrit ce qu'on atteint. Le noyau empile les montages, et un point
     // remonté par-dessus un autre apparaît après lui dans `/proc/mounts` — le
     // cas se produit sous WSL, où `/mnt/wsl` est recouvert.
-    if (meilleur === null || point.length >= meilleur.point.length) {
-      meilleur = { point, fstype: champs[2] }
+    if (best === null || point.length >= best.point.length) {
+      best = { point, fstype: fields[2] }
     }
   }
-  return meilleur?.fstype ?? null
+  return best?.fstype ?? null
 }
 
 /** `\040` et compagnie : `/proc/mounts` échappe en octal. */
-function déséchapper(champ: string): string {
-  return champ.replace(/\\([0-7]{3})/g, (_, octal: string) =>
+function unescape(field: string): string {
+  return field.replace(/\\([0-7]{3})/g, (_, octal: string) =>
     String.fromCharCode(Number.parseInt(octal, 8)),
   )
 }
 
 /** Le point de montage porte-t-il ce chemin ? Frontière de segment exigée. */
-function contient(point: string, chemin: string): boolean {
-  if (chemin === point) return true
-  const préfixe = point.endsWith('/') ? point : `${point}/`
-  return chemin.startsWith(préfixe)
+function contains(point: string, path: string): boolean {
+  if (path === point) return true
+  const prefix = point.endsWith('/') ? point : `${point}/`
+  return path.startsWith(prefix)
 }
 
-function fstypeDe(chemin: string): string | null {
+function fstype(path: string): string | null {
   try {
-    return fstypeDeMontage(fs.readFileSync('/proc/mounts', 'utf8'), chemin)
+    return editingFstype(fs.readFileSync('/proc/mounts', 'utf8'), path)
   } catch {
     // Pas de procfs, pas de relevé. Ce n'est pas une panne : c'est une machine
     // qui ne répond pas à cette question-là.
@@ -298,41 +298,41 @@ function fstypeDe(chemin: string): string | null {
  * Les replays sont rendus **du plus récent au plus ancien** : une émission
  * arrive par semaine et c'est la dernière qu'on vient traiter.
  */
-export async function listerSources(options: OptionsSources = {}): Promise<SourcesListing> {
+export async function listSources(options: OptionsSources = {}): Promise<SourcesListing> {
   const dir = replayDir()
   const db = options.db ?? getDb()
-  const { relevé, cause } = await releverAvecGarde(
+  const { reading, cause } = await captureWithGuard(
     dir,
-    options.timeoutMs ?? DÉLAI_STAT_MS,
-    options.relever ?? releverLeDossier,
+    options.timeoutMs ?? DELAY_STAT_MS,
+    options.capture ?? captureFolder,
   )
 
-  const montage = {
-    disponible: relevé !== null,
+  const editing = {
+    available: reading !== null,
     cause,
-    fstype: fstypeDe(dir),
-    entries: relevé?.entrées ?? 0,
+    fstype: fstype(dir),
+    entries: reading?.entries ?? 0,
   }
-  if (relevé === null) return { sources: [], montage }
+  if (reading === null) return { sources: [], editing }
 
   // **Indexés par leur source, pas par leur identifiant.** Voir `projetDe`.
-  const projets = new Map(listProjects(db).map((p) => [p.sourcePath, p.id]))
-  const sources: Source[] = relevé.vidéos
+  const projects = new Map(listProjects(db).map((p) => [p.sourcePath, p.id]))
+  const sources: Source[] = reading.videos
     .slice()
     .sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name))
-    .map((vidéo) => ({
-      name: vidéo.name,
-      sizeBytes: vidéo.sizeBytes,
-      modifiedAt: new Date(vidéo.mtimeMs).toISOString(),
-      projectId: projetDe(vidéo.name, projets),
+    .map((video) => ({
+      name: video.name,
+      sizeBytes: video.sizeBytes,
+      modifiedAt: new Date(video.mtimeMs).toISOString(),
+      projectId: project(video.name, projects),
       // **Une URL, pas une image.** Elle est toujours servie — contrairement à
       // celle d'un candidat, qui vaut `null` tant que le proxy n'est pas encodé
       // — parce que le fichier existe : on vient de le mesurer. Ce qui reste
       // incertain est l'extraction, et c'est la route qui répond de ça.
-      thumbnailUrl: urlVignetteSource(vidéo.name, vidéo.sizeBytes, vidéo.mtimeMs),
+      thumbnailUrl: urlVignetteSource(video.name, video.sizeBytes, video.mtimeMs),
     }))
 
-  return { sources, montage }
+  return { sources, editing }
 }
 
 /**
@@ -355,9 +355,9 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
  * fait pas partie, mais le rattraper ici plutôt que de laisser tomber la liste
  * entière coûte une ligne.
  */
-function projetDe(nom: string, projets: ReadonlyMap<string, string>): string | null {
+function project(name: string, projects: ReadonlyMap<string, string>): string | null {
   try {
-    return projets.get(resolveSource(nom)) ?? null
+    return projects.get(resolveSource(name)) ?? null
   } catch {
     return null
   }

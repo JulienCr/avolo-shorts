@@ -1,6 +1,6 @@
 import { proxyArgs } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
-import { choisirEncodeur, produireArtefact, type Artefact, type Avancement } from '@/server/ffmpeg'
+import { chooseEncoder, produceArtifact, type Artifact, type Progress } from '@/server/ffmpeg'
 import { proxyPath } from '@/server/paths'
 
 /**
@@ -17,7 +17,7 @@ export type OptionsProxy = {
   force?: boolean
   /** La durée de la source, pour rendre une fraction plutôt que des secondes. */
   durationSec?: number | null
-  onProgress?: (avancement: Avancement) => void
+  onProgress?: (progress: Progress) => void
   /** L'encodeur, si on ne veut pas celui que l'environnement désigne. */
   encoder?: EncoderName
   /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
@@ -42,18 +42,18 @@ export type OptionsProxy = {
  *
  * L'export, lui, gagne un facteur 2,3 au GPU et passe par `encoderName()`.
  */
-export function encodeurProxy(): EncoderName {
-  return choisirEncodeur(process.env.FFMPEG_ENCODER, () => false)
+export function encoderProxy(): EncoderName {
+  return chooseEncoder(process.env.FFMPEG_ENCODER, () => false)
 }
 
-export function buildProxy(o: OptionsProxy): Promise<Artefact> {
-  return produireArtefact({
+export function buildProxy(o: OptionsProxy): Promise<Artifact> {
+  return produceArtifact({
     dst: proxyPath(o.projectId),
     force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
     signal: o.signal,
-    quoi: `proxy de ${o.projectId}`,
+    what: `proxy de ${o.projectId}`,
     // Le choix de l'encodeur est **dans** la fonction paresseuse, et pas
     // au-dessus : `encodeurProxy` lève sur un `FFMPEG_ENCODER` inconnu, et
     // au-dessus il levait donc même quand le proxy était déjà là. Un artefact
@@ -61,6 +61,6 @@ export function buildProxy(o: OptionsProxy): Promise<Artefact> {
     // valeur fautive éclate au premier encodage qui en a vraiment besoin.
     // (relevé par Copilot)
     args: (destination) =>
-      proxyArgs({ src: o.input, dst: destination, encoder: o.encoder ?? encodeurProxy() }),
+      proxyArgs({ src: o.input, dst: destination, encoder: o.encoder ?? encoderProxy() }),
   })
 }

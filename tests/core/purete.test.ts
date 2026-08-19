@@ -22,25 +22,25 @@ const eslint = new ESLint()
 // regarde. Les contrôles négatifs demandent leur *absence* plutôt qu'un relevé
 // vide : sinon la première règle de style ajoutée au dépôt ferait échouer ce
 // test dans la PR de quelqu'un d'autre, pour une raison sans rapport.
-const RÈGLES_DE_PURETÉ = [
+const PURITY_RULES = [
   'no-restricted-imports',
   'no-restricted-syntax',
   'no-restricted-globals',
 ]
 
-async function erreurs(code: string, filePath: string): Promise<string[]> {
+async function errors(code: string, filePath: string): Promise<string[]> {
   const [result] = await eslint.lintText(code, { filePath })
   return result.messages
     .filter((m) => m.severity === 2)
     .map((m) => m.ruleId ?? '(inconnu)')
 }
 
-async function erreursDePureté(code: string, filePath: string): Promise<string[]> {
-  return (await erreurs(code, filePath)).filter((r) => RÈGLES_DE_PURETÉ.includes(r))
+async function purityErrors(code: string, filePath: string): Promise<string[]> {
+  return (await errors(code, filePath)).filter((r) => PURITY_RULES.includes(r))
 }
 
 // Ce que `src/core/` ne doit jamais pouvoir importer, et pourquoi chacun est là.
-const INTERDITS = [
+const FORBIDDEN = [
   ["import fs from 'node:fs'", 'le module natif préfixé'],
   ["import fsp from 'node:fs/promises'", 'un sous-chemin de module natif'],
   ["import { readFile } from 'fs'", 'la forme nue, toujours légale'],
@@ -96,13 +96,13 @@ const INTERDITS = [
 ] as const
 
 describe('la frontière de pureté de src/core', () => {
-  it.each(INTERDITS)('refuse %s', async (ligne) => {
-    const rules = await erreurs(`${ligne}\nexport const x = 1\n`, 'src/core/sonde.ts')
+  it.each(FORBIDDEN)('refuse %s', async (line) => {
+    const rules = await errors(`${line}\nexport const x = 1\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-imports')
   })
 
   it("refuse l'import dynamique, que no-restricted-imports ne voit pas", async () => {
-    const rules = await erreurs(
+    const rules = await errors(
       "export async function f() { return import('node:fs') }\n",
       'src/core/sonde.ts',
     )
@@ -120,8 +120,8 @@ describe('la frontière de pureté de src/core', () => {
     ['module.exports', 'module.exports = {}'],
     // `require` recopié avant l'appel : ni `callee.name`, ni membre (Copilot).
     ['require recopié', "const load = require\nexport const fs = load('node:fs')"],
-  ])('refuse %s', async (_nom, code) => {
-    const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
+  ])('refuse %s', async (_name, code) => {
+    const rules = await errors(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-syntax')
   })
 
@@ -132,13 +132,13 @@ describe('la frontière de pureté de src/core', () => {
   it.each([
     ['un élément', 'export const C = () => <div />'],
     ['un fragment', 'export const C = () => <>texte</>'],
-  ])('refuse le JSX (%s), que rien n’importe', async (_nom, code) => {
-    const rules = await erreurs(`${code}\n`, 'src/core/sonde.tsx')
+  ])('refuse le JSX (%s), que rien n’importe', async (_name, code) => {
+    const rules = await errors(`${code}\n`, 'src/core/sonde.tsx')
     expect(rules).toContain('no-restricted-syntax')
   })
 
   it('refuse la lecture de process.env, qui rendrait un calcul irreproductible', async () => {
-    const rules = await erreurs('export const bin = process.env.FFMPEG_BIN\n', 'src/core/sonde.ts')
+    const rules = await errors('export const bin = process.env.FFMPEG_BIN\n', 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-globals')
   })
 
@@ -175,8 +175,8 @@ describe('la frontière de pureté de src/core', () => {
     ['self.fetch', "export const f = () => self.fetch('https://exemple.fr')"],
     // La table couvre une entrée par nom de `GLOBAUX_INTERDITS` : sans quoi le
     // retrait accidentel de l'un d'eux ne ferait échouer aucun test (Copilot).
-  ])('refuse le global %s', async (_nom, code) => {
-    const rules = await erreurs(`${code}\n`, 'src/core/sonde.ts')
+  ])('refuse le global %s', async (_name, code) => {
+    const rules = await errors(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toContain('no-restricted-globals')
   })
 
@@ -186,7 +186,7 @@ describe('la frontière de pureté de src/core', () => {
   it.each(['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'])(
     "s'applique aussi aux fichiers .%s",
     async (ext) => {
-      const rules = await erreurs(
+      const rules = await errors(
         "import fs from 'node:fs'\nexport const x = fs\n",
         `src/core/sonde.${ext}`,
       )
@@ -198,7 +198,7 @@ describe('la frontière de pureté de src/core', () => {
   // des tests ci-dessus tout en rendant le projet inécrivable : sans ce qui
   // suit, ils ne prouvent rien.
   it('laisse passer du TypeScript pur', async () => {
-    const rules = await erreursDePureté(
+    const rules = await purityErrors(
       'export const somme = (a: number, b: number): number => a + b\n',
       'src/core/sonde.ts',
     )
@@ -228,13 +228,13 @@ describe('la frontière de pureté de src/core', () => {
     ['String / Boolean', 'export const f = (x: unknown) => [String(x), Boolean(x)]'],
     ['Intl', "export const f = () => new Intl.NumberFormat('fr-FR')"],
     ['console', "export const f = () => console.warn('x')"],
-  ])("laisse passer l'ECMAScript nu : %s", async (_nom, code) => {
-    const rules = await erreursDePureté(`${code}\n`, 'src/core/sonde.ts')
+  ])("laisse passer l'ECMAScript nu : %s", async (_name, code) => {
+    const rules = await purityErrors(`${code}\n`, 'src/core/sonde.ts')
     expect(rules).toEqual([])
   })
 
   it('laisse passer un voisin du même dossier', async () => {
-    const rules = await erreursDePureté(
+    const rules = await purityErrors(
       "import { splitIntoCards } from './cards'\nexport const x = splitIntoCards\n",
       'src/core/captions/retime.ts',
     )
@@ -242,7 +242,7 @@ describe('la frontière de pureté de src/core', () => {
   })
 
   it('laisse passer un sous-dossier', async () => {
-    const rules = await erreursDePureté(
+    const rules = await purityErrors(
       "import { renderAss } from './captions/ass'\nexport const x = renderAss\n",
       'src/core/index.ts',
     )
@@ -250,7 +250,7 @@ describe('la frontière de pureté de src/core', () => {
   })
 
   it('laisse passer @/core, le chemin de toute traversée interne', async () => {
-    const rules = await erreursDePureté(
+    const rules = await purityErrors(
       "import { clipDuration } from '@/core/edl'\nexport const x = clipDuration\n",
       'src/core/captions/retime.ts',
     )
@@ -261,8 +261,8 @@ describe('la frontière de pureté de src/core', () => {
   // Un `lib` dans le chemin d'un paquet n'est pas notre `src/lib`.
   it.each(["import { z } from 'zod'", "import { z } from 'zod/v4'"])(
     'laisse passer %s, la seule dépendance autorisée',
-    async (ligne) => {
-      const rules = await erreursDePureté(`${ligne}\nexport const x = z\n`, 'src/core/sonde.ts')
+    async (line) => {
+      const rules = await purityErrors(`${line}\nexport const x = z\n`, 'src/core/sonde.ts')
       expect(rules).toEqual([])
     },
   )
@@ -270,7 +270,7 @@ describe('la frontière de pureté de src/core', () => {
   // Le plus important des quatre : sans lui, une règle appliquée au dépôt entier
   // passerait tous les tests ci-dessus tout en rendant `src/server/` inécrivable.
   it("n'entrave pas src/server, dont c'est précisément le métier", async () => {
-    const rules = await erreursDePureté(
+    const rules = await purityErrors(
       [
         "import fs from 'node:fs'",
         "import Database from 'better-sqlite3'",

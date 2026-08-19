@@ -71,7 +71,7 @@ export type { ClipFraming, ShotFraming }
  * centré de l'itération 0 produirait un cadrage plausible et faux, qui ne se
  * voit qu'à l'image, trois minutes d'export plus tard.
  *
- * - `calculé` — les plans et les boîtes ont été lus, le ratio et les crops
+ * - `computed` — les plans et les boîtes ont été lus, le ratio et les crops
  *   sortent de `computeFraming` ;
  * - `sans-analyse` — `analysis.json` n'est pas là : l'étape n'a pas tourné sur
  *   ce projet. Le cadrage vaut celui de l'itération 0, `ratio` résolu et le
@@ -146,7 +146,7 @@ export type RunPlan = {
    * faire. C'est là que se lit le saut d'étape — demander `candidates` sur un
    * projet déjà transcrit ne rend que `['candidates']`.
    */
-  plan: StepName[]
+  shot: StepName[]
 }
 
 /**
@@ -274,14 +274,14 @@ export type ProjectStatus = {
    * l'a pas relevée.
    *
    * **Elle est là pour la seule chose qui en dépende** : `stepDurationRange`
-   * (`src/core/parcours.ts`) s'en sert pour suppléer la durée, qui manque
+   * (`src/core/phase.ts`) s'en sert pour suppléer la durée, qui manque
    * précisément au moment où le panneau d'avancement apparaît — un projet créé
    * il y a trois secondes n'a pas encore été sondé par ffprobe. Sans elle, la
    * branche existe et ne sert jamais, et le panneau se tait pendant la copie,
    * c'est-à-dire pendant l'étape la plus longue sur un fichier de 12 Go.
    *
    * **Sur `ProjectStatus` et non sur `ProjectSummary`** : la bibliothèque n'en
-   * fait rien, et `résuméProjet` documente qu'il porte quatre champs et pas un
+   * fait rien, et `summaryProject` documente qu'il porte quatre champs et pas un
    * de plus. La colonne, elle, est déjà en base.
    */
   sizeBytes: number | null
@@ -305,7 +305,7 @@ export type Source = {
   modifiedAt: string
   /**
    * Le projet déjà créé sur cette source, ou `null`. Une source analysée mène à
-   * son projet au lieu de relancer une création : `créerProjet` est idempotent
+   * son projet au lieu de relancer une création : `createProject` est idempotent
    * sur ce cas, mais proposer deux chemins vers le même endroit sans le dire
    * fait douter de ce qu'on vient de déclencher.
    */
@@ -333,11 +333,11 @@ export type Source = {
  * Sans lui, `disponible: false` recouvrait quatre faits et la ligne de montage
  * devait énumérer les trois gestes possibles (issue #56, point 5). Deux cas le
  * rendaient franchement trompeur : un `REPLAY_DIR` mal orthographié **sous un
- * partage 9p sain** — `absent` le dit maintenant, là où `fstype: '9p'` faisait
+ * partage 9p sain** — `missing` le dit maintenant, là où `fstype: '9p'` faisait
  * conclure au transport mort — et un unique fichier aux droits refusés, qui fait
  * basculer tout le dossier et qui dit désormais `denied`.
  *
- * - `absent` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
+ * - `missing` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
  *   diagnostiqué : une faute de frappe dans `REPLAY_DIR`.
  * - `denied` — les droits refusent le dossier, ou l'un de ses fichiers.
  * - `silent` — aucune réponse dans le délai de garde. C'est la signature du
@@ -347,7 +347,7 @@ export type Source = {
  *   `ENOTCONN` : les ranger de force dans une des trois autres cases ferait dire
  *   quelque chose de faux plutôt que quelque chose de vague.
  */
-export type CauseIndisponible = 'absent' | 'denied' | 'silent' | 'unreadable'
+export type CauseUnavailable = 'absent' | 'denied' | 'silent' | 'unreadable'
 
 /**
  * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
@@ -360,11 +360,11 @@ export type SourcesListing = {
    * vide » de « ce montage n'a pas eu lieu » — l'incident réel d'OpenShorts
    * (spec §12) : les deux rendaient la même page.
    */
-  montage: {
+  editing: {
     /** Faux quand le dossier des replays est absent, ou que son transport est mort. */
-    disponible: boolean
+    available: boolean
     /** Pourquoi la lecture a échoué, ou `null` quand elle a réussi. */
-    cause: CauseIndisponible | null
+    cause: CauseUnavailable | null
     /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
     fstype: string | null
     /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */
@@ -379,7 +379,7 @@ export type SourcesListing = {
  * « Trois analyses en cours, une en échec » n'est pas dérivable d'un
  * `ProjectSummary`, et la forme évidente — un `GET /api/projects/:id` par projet
  * — est à écarter : elle multiplierait par vingt et un un appel qui exécute
- * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde. Quatre
+ * `readingPresence`, lequel sonde le montage 9p avec un délai de garde. Quatre
  * fils du vivier de libuv suffisent à figer tout ce qui touche au disque dans le
  * serveur, analyse en cours comprise (spec §3.1).
  *
@@ -399,7 +399,7 @@ export type ProjectListItem = ProjectSummary & {
    * liste ne paie donc toujours que deux relevés, et la décision de §3.1 tient.
    *
    * **Il est publié parce que la bibliothèque n'a pas `steps`.** L'écran de
-   * projet déduit « interrompue » de `phaseProjet`, qui lit le relevé de
+   * projet déduit « interrompue » de `phaseProject`, qui lit le relevé de
    * présence ; la liste, elle, ne l'a pas — c'est exactement ce que le partage
    * ci-dessus lui refuse. Sans ce champ, une analyse arrêtée après l'ingestion
    * est indiscernable d'une analyse finie : elle ne tourne pas, elle n'a pas
@@ -431,7 +431,7 @@ export type CandidateClip = Clip & {
 /**
  * Un clip et de quoi le monter.
  *
- * `lines` couvre l'étendue du clip **plus une marge de contexte** de part et
+ * `indexed` couvre l'étendue du clip **plus une marge de contexte** de part et
  * d'autre : sans elle, on ne pourrait qu'enlever, jamais étendre. Les mots hors
  * segments — contexte compris — s'affichent barrés, et c'est la même règle pour
  * les deux, donc un seul cas à écrire.
@@ -654,22 +654,22 @@ export class ApiError extends Error {
  * pour ce cas — sans lui, l'échec serait avalé par une exception d'analyse
  * dans le gestionnaire d'erreur lui-même.
  */
-async function échec(réponse: Response): Promise<ApiError> {
-  let message = `${réponse.status} ${réponse.statusText}`.trim()
+async function failure(response: Response): Promise<ApiError> {
+  let message = `${response.status} ${response.statusText}`.trim()
   try {
-    const corps: unknown = await réponse.json()
-    const texte = (corps as { error?: unknown } | null)?.error
-    if (typeof texte === 'string' && texte !== '') message = texte
+    const body: unknown = await response.json()
+    const text = (body as { error?: unknown } | null)?.error
+    if (typeof text === 'string' && text !== '') message = text
   } catch {
     // Corps vide ou non JSON : le code suffit.
   }
-  return new ApiError(réponse.status, message)
+  return new ApiError(response.status, message)
 }
 
-async function lire<T>(chemin: string): Promise<T> {
-  const réponse = await fetch(chemin, { headers: { accept: 'application/json' } })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as T
+async function lire<T>(path: string): Promise<T> {
+  const response = await fetch(path, { headers: { accept: 'application/json' } })
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as T
 }
 
 /**
@@ -677,14 +677,14 @@ async function lire<T>(chemin: string): Promise<T> {
  * `patchClip` : ces trois-là se déclenchent sur un geste explicite dont on
  * attend la réponse à l'écran, pas dans le dos d'une page qui se ferme.
  */
-async function poster<T>(chemin: string, corps: unknown): Promise<T> {
-  const réponse = await fetch(chemin, {
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(corps),
+    body: JSON.stringify(body),
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as T
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as T
 }
 
 export function listProjects(): Promise<ProjectListItem[]> {
@@ -719,7 +719,7 @@ export function listSources(): Promise<SourcesListing> {
  * tourner, et `getProject` qui suit l'avancement.
  */
 export function createProject(source: string): Promise<RunPlan> {
-  return poster<RunPlan>('/api/projects', { source })
+  return post<RunPlan>('/api/projects', { source })
 }
 
 /**
@@ -745,7 +745,7 @@ export function runProject(
   targets: RunTarget | readonly RunTarget[],
   force?: boolean | readonly RunTarget[],
 ): Promise<RunPlan> {
-  return poster<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
+  return post<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
     target: targets,
     force,
   })
@@ -758,7 +758,7 @@ export function runProject(
  * `src/server/run.ts`, et l'importer ferait entrer du code serveur dans le
  * paquet du navigateur. La duplication est délibérée et un test la garde.
  */
-export const CIBLES_DE_REPRISE: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
+export const RESUME_TARGETS: readonly RunTarget[] = ['candidates', 'proxy', 'analysis']
 
 export function listCandidates(projectId: string): Promise<CandidateClip[]> {
   return lire<CandidateClip[]>(`/api/projects/${encodeURIComponent(projectId)}/candidates`)
@@ -791,7 +791,7 @@ export async function patchClip(
   patch: ClipPatch,
   seq?: number,
 ): Promise<PatchClipResult> {
-  const réponse = await fetch(`/api/clips/${encodeURIComponent(clipId)}`, {
+  const response = await fetch(`/api/clips/${encodeURIComponent(clipId)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     // `undefined` ne survit pas à `JSON.stringify` : sans jeton, le corps est
@@ -799,8 +799,8 @@ export async function patchClip(
     body: JSON.stringify({ ...patch, seq }),
     keepalive: true,
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as PatchClipResult
+  if (!response.ok) throw await failure(response)
+  return (await response.json()) as PatchClipResult
 }
 
 /**
@@ -819,7 +819,7 @@ export async function patchClip(
  * « tout est en place » — pas « ça n'a pas marché ».
  */
 export function exportClip(clipId: string, force?: boolean): Promise<ExportResult> {
-  return poster<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
+  return post<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
 }
 
 // ---------------------------------------------------------------------------
@@ -943,7 +943,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(patch),
   })
-  if (!response.ok) throw await échec(response)
+  if (!response.ok) throw await failure(response)
   return (await response.json()) as Settings
 }
 
@@ -961,7 +961,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
  * n'est pas une panne, et l'écran ne doit pas l'afficher comme telle.
  */
 export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
-  return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+  return post<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,7 +1014,7 @@ export function correctTranscript(
   projectId: string,
   correction: TranscriptCorrectionRequest,
 ): Promise<TranscriptCorrectionResult> {
-  return poster<TranscriptCorrectionResult>(
+  return post<TranscriptCorrectionResult>(
     `/api/projects/${encodeURIComponent(projectId)}/transcript`,
     correction,
   )

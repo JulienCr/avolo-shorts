@@ -1,4 +1,4 @@
-import { servirFichier } from '@/server/octets'
+import { serveFile } from '@/server/bytes'
 import { projectsDir, proxyPath } from '@/server/paths'
 
 /**
@@ -14,7 +14,7 @@ import { projectsDir, proxyPath } from '@/server/paths'
  * pouvoir demander un morceau au milieu, le navigateur ne peut pas sauter, et
  * l'éditeur de clip (tâche 13) scrube en permanence.
  *
- * **Tout ce qui touche aux octets est dans `@/server/octets`**, avec la route des
+ * **Tout ce qui touche aux octets est dans `@/server/bytes`**, avec la route des
  * rendus. Cette route-ci en portait une copie, écrite avant que le module
  * n'existe, et la copie a vieilli séparément : la correction de l'issue #75 y
  * aurait été à faire deux fois, sur un défaut que le commentaire local déclarait
@@ -47,11 +47,11 @@ export async function GET(
   // chercher le bug à l'exact opposé de là où il est. (relevé par Copilot)
   projectsDir()
 
-  let chemin: string
+  let path: string
   try {
-    chemin = proxyPath(id)
+    path = proxyPath(id)
   } catch {
-    // Reste donc le seul refus possible ici : celui de `vérifierId`, dans
+    // Reste donc le seul refus possible ici : celui de `verifyId`, dans
     // `src/server/paths.ts`. C'est lui qui garde la traversée de répertoire, et
     // il le fait sur la seule chose qui compte, les séparateurs. Un identifiant
     // qui ne peut nommer aucun chemin ne désigne aucun proxy : 404, comme un
@@ -62,12 +62,12 @@ export async function GET(
 
   // Pas de fichier : tant que l'étape d'encodage n'a pas tourné, il n'y a rien à
   // servir. Ce n'est pas une panne, et tout le reste — droits refusés, montage
-  // mort — remonte en 500 par `servirFichier`, qui ne déguise que l'absence.
-  const response = await servirFichier(request, chemin, {
+  // mort — remonte en 500 par `serveFile`, qui ne déguise que l'absence.
+  const response = await serveFile(request, path, {
     'Content-Type': TYPE,
-    // `servirFichier` possède les validateurs et le traitement conditionnel ;
+    // `serveFile` possède les validateurs et le traitement conditionnel ;
     // cette route possède son `Cache-Control`, qui lui est propre — voir le
-    // commentaire au sommet de `servirFichier` pour la raison de ce partage.
+    // commentaire au sommet de `serveFile` pour la raison de ce partage.
     //
     // Avec un `ETag` fort dérivé de la taille et de l'horodatage, la
     // revalidation est **gratuite** : une requête conditionnelle plutôt qu'un

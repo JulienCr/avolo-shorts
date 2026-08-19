@@ -50,7 +50,7 @@ export type Project = {
   createdAt: number
 }
 
-const SCHÉMA = `
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id          TEXT PRIMARY KEY,
   sourcePath  TEXT NOT NULL,
@@ -140,21 +140,21 @@ export function defaultDbPath(): string {
  * vérité même sur une base à l'historique inconnu. Le jour où les migrations se
  * comptent, ce sera le moment d'en tenir la liste — pas avant.
  */
-function migrer(db: Database.Database): void {
-  const colonnes = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
-    (colonne) => colonne.name,
+function migrate(db: Database.Database): void {
+  const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+    (column) => column.name,
   )
-  if (!colonnes.includes('seqs')) {
+  if (!columns.includes('seqs')) {
     db.exec(`ALTER TABLE clips ADD COLUMN seqs TEXT NOT NULL DEFAULT '{}'`)
   }
   // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
   // laisser derrière nous ferait une colonne morte au nom presque identique à
   // celle qui compte, ce qui est le pire des deux mondes.
-  if (colonnes.includes('seq')) {
+  if (columns.includes('seq')) {
     db.exec('ALTER TABLE clips DROP COLUMN seq')
   }
-  // L'index composite est désormais `clips_by_project` (issue #73). Le SCHÉMA
-  // ci-dessus l'a déjà créé sous ce nom au moment où `migrer` s'exécute ; sur
+  // L'index composite est désormais `clips_by_project` (issue #73). Le SCHEMA
+  // ci-dessus l'a déjà créé sous ce nom au moment où `migrate` s'exécute ; sur
   // une base qui portait encore l'ancien, `clips_par_projet`, les deux
   // coexisteraient sans qu'aucune erreur ne le signale — deux index sur les
   // mêmes colonnes, l'un mort. Aucune donnée n'est touchée, seul le schéma.
@@ -177,7 +177,7 @@ const LEGACY_SELECTION_KEYS: Readonly<Record<string, string>> = {
  * Renomme en place les clés `selection.<ancien-champ>` vers
  * `selection.<nouveau-champ>`, en conservant la valeur et l'horodatage.
  *
- * **Il n'existe pas de table de migrations ici** (voir `migrer`, qui traite
+ * **Il n'existe pas de table de migrations ici** (voir `migrate`, qui traite
  * `clips` de la même façon) : le contrôle porte sur la présence de l'ancienne
  * clé, ce qui rend l'opération idempotente — la relancer sur une base déjà
  * migrée, ou sur une base neuve qui n'a jamais connu l'ancien nom, ne fait
@@ -234,13 +234,13 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   // clips orphelins. À poser sur **chaque** connexion, c'est un réglage de
   // session et non de fichier.
   db.pragma('foreign_keys = ON')
-  db.exec(SCHÉMA)
-  migrer(db)
+  db.exec(SCHEMA)
+  migrate(db)
   migrateSelectionSettingKeys(db)
   return db
 }
 
-let partagée: Database.Database | null = null
+let shared: Database.Database | null = null
 
 /**
  * La connexion du processus. `better-sqlite3` est synchrone et réentrant : une
@@ -248,14 +248,14 @@ let partagée: Database.Database | null = null
  * chaque fois.
  */
 export function getDb(): Database.Database {
-  partagée ??= openDb()
-  return partagée
+  shared ??= openDb()
+  return shared
 }
 
 /** Referme la connexion partagée. Pour les tests et l'arrêt du serveur. */
 export function closeDb(): void {
-  partagée?.close()
-  partagée = null
+  shared?.close()
+  shared = null
 }
 
 /**
@@ -625,7 +625,7 @@ export function effectiveSettings(db: Database.Database): Settings {
  * de lire la même table finiraient par ne plus s'accorder sur ce qu'une valeur
  * corrompue vaut.
  */
-export function getRéglages(db: Database.Database): SelectionDimensions {
+export function getSettings(db: Database.Database): SelectionDimensions {
   return effectiveSettings(db).selection
 }
 
@@ -690,12 +690,12 @@ export function applySettings(db: Database.Database, patch: unknown): Settings {
  * nomme un champ typé plutôt qu'une paire famille/clé, donc une faute de frappe
  * y est une erreur de compilation. Les deux passent par la même validation.
  */
-export function setRéglage(
+export function setSetting(
   db: Database.Database,
-  champ: keyof SelectionDimensions,
-  valeur: number,
+  field: keyof SelectionDimensions,
+  value: number,
 ): void {
-  applySettings(db, { selection: { [champ]: valeur } })
+  applySettings(db, { selection: { [field]: value } })
 }
 
 export function upsertProject(db: Database.Database, project: Project): void {
@@ -720,7 +720,7 @@ export function listProjects(db: Database.Database): Project[] {
 }
 
 /** La forme brute d'une ligne de `clips`, avant reconversion. */
-type LigneClip = {
+type LineClip = {
   id: string
   projectId: string
   segments: string
@@ -745,24 +745,24 @@ const RATIOS: Record<Ratio | 'auto', true> = {
   '16:9': true,
   auto: true,
 }
-const STATUTS: Record<ClipStatus, true> = {
+const STATUSES: Record<ClipStatus, true> = {
   candidate: true,
   kept: true,
   discarded: true,
   exported: true,
 }
 
-function valeurAdmise<T extends string>(admises: Record<T, true>, brut: string, champ: string): T {
-  if (!Object.hasOwn(admises, brut)) {
-    throw new Error(`Valeur inattendue en base pour ${champ} : ${JSON.stringify(brut)}`)
+function valueAdmitted<T extends string>(admitted: Record<T, true>, raw: string, field: string): T {
+  if (!Object.hasOwn(admitted, raw)) {
+    throw new Error(`Valeur inattendue en base pour ${field} : ${JSON.stringify(raw)}`)
   }
-  return brut as T
+  return raw as T
 }
 
-function analyserSegments(json: string, clipId: string): Segment[] {
-  const brut: unknown = JSON.parse(json)
-  if (!Array.isArray(brut)) throw new Error(`segments n'est pas une liste (clip ${clipId})`)
-  return brut.map((s) => {
+function analyzeSegments(json: string, clipId: string): Segment[] {
+  const raw: unknown = JSON.parse(json)
+  if (!Array.isArray(raw)) throw new Error(`segments n'est pas une liste (clip ${clipId})`)
+  return raw.map((s) => {
     const seg = s as Partial<Segment>
     if (typeof seg?.start !== 'number' || typeof seg?.end !== 'number') {
       throw new Error(`segment illisible (clip ${clipId}) : ${JSON.stringify(s)}`)
@@ -771,26 +771,26 @@ function analyserSegments(json: string, clipId: string): Segment[] {
   })
 }
 
-function clipDepuisLigne(ligne: LigneClip): Clip {
+function clipSinceLine(line: LineClip): Clip {
   return {
-    id: ligne.id,
-    projectId: ligne.projectId,
-    segments: analyserSegments(ligne.segments, ligne.id),
-    ratio: valeurAdmise(RATIOS, ligne.ratio, 'ratio'),
-    cropX: ligne.cropX,
+    id: line.id,
+    projectId: line.projectId,
+    segments: analyzeSegments(line.segments, line.id),
+    ratio: valueAdmitted(RATIOS, line.ratio, 'ratio'),
+    cropX: line.cropX,
     // `Boolean(0)` et `Boolean(1)`, mais surtout pas la ligne brute : renvoyer
     // un `0` là où le reste du code attend un booléen marche partout sauf dans
     // un `JSON.stringify`, qui l'expose tel quel à l'interface.
-    captions: ligne.captions !== 0,
-    branding: ligne.branding !== 0,
-    title: ligne.title,
-    description: ligne.description,
-    status: valeurAdmise(STATUTS, ligne.status, 'status'),
-    pass: ligne.pass,
+    captions: line.captions !== 0,
+    branding: line.branding !== 0,
+    title: line.title,
+    description: line.description,
+    status: valueAdmitted(STATUSES, line.status, 'status'),
+    pass: line.pass,
   }
 }
 
-function ligneDepuisClip(clip: Clip): LigneClip {
+function lineSinceClip(clip: Clip): LineClip {
   return {
     id: clip.id,
     projectId: clip.projectId,
@@ -806,7 +806,7 @@ function ligneDepuisClip(clip: Clip): LigneClip {
   }
 }
 
-const INSÉRER_CLIP = `
+const INSERT_CLIP = `
   INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
                      title, description, status, pass)
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
@@ -833,46 +833,46 @@ const INSÉRER_CLIP = `
  * l'autre. Une collision est désormais une erreur, jamais un déménagement.
  * (relevé par Codex, Copilot et Aristarque)
  */
-function vérifierPropriété(db: Database.Database, ligne: LigneClip): void {
-  const existant = db.prepare('SELECT projectId FROM clips WHERE id = ?').get(ligne.id) as
+function verifyProperty(db: Database.Database, line: LineClip): void {
+  const existant = db.prepare('SELECT projectId FROM clips WHERE id = ?').get(line.id) as
     | { projectId: string }
     | undefined
-  if (existant && existant.projectId !== ligne.projectId) {
+  if (existant && existant.projectId !== line.projectId) {
     throw new Error(
-      `Le clip ${ligne.id} appartient au projet ${existant.projectId} : un identifiant de clip est unique pour toute la base, il ne change pas de projet.`,
+      `Le clip ${line.id} appartient au projet ${existant.projectId} : un identifiant de clip est unique pour toute la base, il ne change pas de projet.`,
     )
   }
 }
 
 /** Écrit un clip. C'est ce que fait `PATCH /api/clips/:id` après relecture. */
 export function putClip(db: Database.Database, clip: Clip): void {
-  const ligne = ligneDepuisClip(clip)
-  vérifierPropriété(db, ligne)
-  db.prepare(INSÉRER_CLIP).run(ligne)
+  const line = lineSinceClip(clip)
+  verifyProperty(db, line)
+  db.prepare(INSERT_CLIP).run(line)
 }
 
 /** Le numéro d'ordre du dernier geste appliqué, par champ de `Clip`. */
-export type JetonsClip = Partial<Record<keyof Clip, number>>
+export type TokensClip = Partial<Record<keyof Clip, number>>
 
-function lireJetons(db: Database.Database, id: string): JetonsClip {
-  const ligne = db.prepare('SELECT seqs FROM clips WHERE id = ?').get(id) as
+function lireTokens(db: Database.Database, id: string): TokensClip {
+  const line = db.prepare('SELECT seqs FROM clips WHERE id = ?').get(id) as
     | { seqs: string }
     | undefined
-  if (ligne === undefined) return {}
+  if (line === undefined) return {}
   try {
-    const lus: unknown = JSON.parse(ligne.seqs)
+    const read: unknown = JSON.parse(line.seqs)
     // Un objet, et des nombres dedans. Une colonne abîmée ne doit pas faire
     // écarter des écritures parfaitement fraîches en comparant à `undefined`
     // devenu `NaN` : on repart de zéro, ce qui rend simplement l'ordre au
     // hasard de l'arrivée — l'état d'avant cette colonne.
-    if (typeof lus !== 'object' || lus === null || Array.isArray(lus)) return {}
-    const jetons: JetonsClip = {}
-    for (const [champ, valeur] of Object.entries(lus)) {
-      if (typeof valeur === 'number' && Number.isFinite(valeur)) {
-        jetons[champ as keyof Clip] = valeur
+    if (typeof read !== 'object' || read === null || Array.isArray(read)) return {}
+    const tokens: TokensClip = {}
+    for (const [field, value] of Object.entries(read)) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        tokens[field as keyof Clip] = value
       }
     }
-    return jetons
+    return tokens
   } catch (cause) {
     console.warn(`Jetons illisibles pour le clip ${id} :`, cause)
     return {}
@@ -887,12 +887,12 @@ function lireJetons(db: Database.Database, id: string): JetonsClip {
  * base garde 300 donnerait à l'appelant un plancher faux — donc un recalage qui
  * l'enfonce au lieu de le sortir. (relevé par Copilot)
  */
-export function plancherDOrdre(db: Database.Database, id: string): number {
-  return Math.max(0, ...Object.values(lireJetons(db, id)))
+export function floorDOrder(db: Database.Database, id: string): number {
+  return Math.max(0, ...Object.values(lireTokens(db, id)))
 }
 
 /** Le résultat d'une écriture ordonnée. */
-export type ÉcritureOrdonnée = {
+export type WriteOrdered = {
   /** Le clip tel que la base le porte **après** l'écriture. */
   clip: Clip
   /**
@@ -937,43 +937,43 @@ export type ÉcritureOrdonnée = {
  * **Faux ne veut pas dire « échec ».** L'appelant rend le clip tel quel : c'est
  * un résultat, pas une erreur d'enregistrement.
  */
-export function putClipOrdonné(
+export function putClipOrdered(
   db: Database.Database,
   clip: Clip,
-  champs: readonly (keyof Clip)[],
+  fields: readonly (keyof Clip)[],
   seq: number,
-): ÉcritureOrdonnée | undefined {
+): WriteOrdered | undefined {
   // La transaction tient ensemble la lecture des jetons, la comparaison et les
   // deux écritures. Sans elle, la fenêtre qu'on ferme se rouvrirait entre la
   // comparaison et la ligne.
-  const écrire = db.transaction((): ÉcritureOrdonnée | undefined => {
-    const courant = getClip(db, clip.id)
-    if (courant === undefined) return undefined
+  const write = db.transaction((): WriteOrdered | undefined => {
+    const current = getClip(db, clip.id)
+    if (current === undefined) return undefined
 
-    const jetons = lireJetons(db, clip.id)
-    const écartés = champs.filter((champ) => (jetons[champ] ?? 0) > seq)
+    const tokens = lireTokens(db, clip.id)
+    const discarded = fields.filter((field) => (tokens[field] ?? 0) > seq)
 
     // On part du clip fusionné et on **rétablit** les champs écartés : les
     // champs que le client n'a pas envoyés gardent ainsi le traitement que
     // l'appelant leur a fait subir — la normalisation des segments, notamment,
     // qui s'applique à chaque écriture et pas seulement quand ils changent.
-    const suivant = rétablir(clip, courant, écartés)
-    putClip(db, suivant)
+    const next = restore(clip, current, discarded)
+    putClip(db, next)
 
-    const retenus = champs.filter((champ) => !écartés.includes(champ))
-    const àJourOuInchangés: JetonsClip = { ...jetons }
-    if (retenus.length > 0) {
-      for (const champ of retenus) àJourOuInchangés[champ] = seq
+    const kept = fields.filter((field) => !discarded.includes(field))
+    const toDayOrUnchanged: TokensClip = { ...tokens }
+    if (kept.length > 0) {
+      for (const field of kept) toDayOrUnchanged[field] = seq
       db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id').run({
         id: clip.id,
-        seqs: JSON.stringify(àJourOuInchangés),
+        seqs: JSON.stringify(toDayOrUnchanged),
       })
     }
 
-    const plancher = Math.max(0, ...Object.values(àJourOuInchangés))
-    return { clip: suivant, applied: écartés.length === 0, seq: plancher }
+    const floor = Math.max(0, ...Object.values(toDayOrUnchanged))
+    return { clip: next, applied: discarded.length === 0, seq: floor }
   })
-  return écrire()
+  return write()
 }
 
 /**
@@ -983,10 +983,10 @@ export function putClipOrdonné(
  * `copie[champ] = source[champ]` quand `champ` est une union de clés, alors que
  * l'affectation est correcte pour chacune prise séparément.
  */
-function rétablir(cible: Clip, source: Clip, champs: readonly (keyof Clip)[]): Clip {
-  const copie: Clip = { ...cible }
-  for (const champ of champs) Object.assign(copie, { [champ]: source[champ] })
-  return copie
+function restore(target: Clip, source: Clip, fields: readonly (keyof Clip)[]): Clip {
+  const copy: Clip = { ...target }
+  for (const field of fields) Object.assign(copy, { [field]: source[field] })
+  return copy
 }
 
 /**
@@ -998,7 +998,7 @@ function rétablir(cible: Clip, source: Clip, champs: readonly (keyof Clip)[]): 
  * ressusciterait précisément ce que la fusion venait d'écarter.
  */
 export function replaceClips(db: Database.Database, projectId: string, clips: Clip[]): void {
-  const vus = new Set<string>()
+  const seen = new Set<string>()
   for (const clip of clips) {
     if (clip.projectId && clip.projectId !== projectId) {
       throw new Error(
@@ -1009,14 +1009,14 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
     // premier par le second, et l'appelant croirait avoir écrit deux clips.
     // `mergeCandidates` dédoublonne en amont, mais un appelant direct n'a pas à
     // perdre un clip en silence pour autant. (relevé par Aristarque)
-    if (vus.has(clip.id)) {
+    if (seen.has(clip.id)) {
       throw new Error(`Le clip ${clip.id} apparaît deux fois dans le même lot.`)
     }
-    vus.add(clip.id)
+    seen.add(clip.id)
   }
 
-  const lignes = clips.map((clip) => ligneDepuisClip({ ...clip, projectId }))
-  const écrire = db.transaction(() => {
+  const lines = clips.map((clip) => lineSinceClip({ ...clip, projectId }))
+  const write = db.transaction(() => {
     // **Les jetons d'ordre des survivants, relevés avant le DELETE.**
     //
     // `INSÉRER_CLIP` ne porte pas `seqs`, donc chaque survivant repartirait de
@@ -1025,38 +1025,38 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
     // récent — #21 rouvert par une passe de repérage. La fenêtre est étroite,
     // mais c'est exactement celle que ce jeton existe pour fermer, et la
     // relever coûte une requête. (relevé par Copilot)
-    const jetons = new Map(
+    const tokens = new Map(
       (
         db.prepare('SELECT id, seqs FROM clips WHERE projectId = ?').all(projectId) as {
           id: string
           seqs: string
         }[]
-      ).map((ligne) => [ligne.id, ligne.seqs]),
+      ).map((line) => [line.id, line.seqs]),
     )
 
     db.prepare('DELETE FROM clips WHERE projectId = ?').run(projectId)
-    const insérer = db.prepare(INSÉRER_CLIP)
-    const rétablirJetons = db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id')
-    for (const ligne of lignes) {
+    const insert = db.prepare(INSERT_CLIP)
+    const restoreTokens = db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id')
+    for (const line of lines) {
       // Après le DELETE : ce qui reste sous cet identifiant appartient
       // forcément à un autre projet. La transaction annule tout le lot.
-      vérifierPropriété(db, ligne)
-      insérer.run(ligne)
-      const seqs = jetons.get(ligne.id)
-      if (seqs !== undefined) rétablirJetons.run({ id: ligne.id, seqs })
+      verifyProperty(db, line)
+      insert.run(line)
+      const seqs = tokens.get(line.id)
+      if (seqs !== undefined) restoreTokens.run({ id: line.id, seqs })
     }
   })
-  écrire()
+  write()
 }
 
 export function getClips(db: Database.Database, projectId: string): Clip[] {
-  const lignes = db
+  const lines = db
     .prepare('SELECT * FROM clips WHERE projectId = ? ORDER BY pass, id')
-    .all(projectId) as LigneClip[]
-  return lignes.map(clipDepuisLigne)
+    .all(projectId) as LineClip[]
+  return lines.map(clipSinceLine)
 }
 
 export function getClip(db: Database.Database, id: string): Clip | undefined {
-  const ligne = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as LigneClip | undefined
-  return ligne && clipDepuisLigne(ligne)
+  const line = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as LineClip | undefined
+  return line && clipSinceLine(line)
 }

@@ -4,15 +4,15 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
-import { AppBar } from '@/components/parcours/app-bar'
+import { AppBar } from '@/components/navigation/app-bar'
 import { LibraryGrid } from '@/components/sources/library'
 import type { Creation } from '@/components/sources/show-card'
-import { messageServeur } from '@/components/sources/textes'
-import { marquerSourceAnalysée, useSources } from '@/components/sources/use-sources'
+import { messageServer } from '@/components/sources/texts'
+import { markSourceAnalyzed, useSources } from '@/components/sources/use-sources'
 import { buildLibrary } from '@/core/library'
 import type { Source } from '@/lib/api'
-import { lienProjet } from '@/lib/parcours'
-import { useCreerProjet, useProjets } from '@/lib/queries'
+import { linkProject } from '@/lib/navigation'
+import { useCreateProject, useProjects } from '@/lib/queries'
 
 /**
  * La bibliothèque : **reprendre un travail en cours, ou en commencer un**.
@@ -27,7 +27,7 @@ import { useCreerProjet, useProjets } from '@/lib/queries'
  * **L'écran ne calcule rien.** Il tient les trois requêtes, décide de ce qu'on
  * fait d'un 202, et passe le reste à `buildLibrary` (pur) puis à une grille qui
  * n'a besoin d'aucun serveur pour être montée. La redirection appartient bien
- * ici : `useCreerProjet` s'arrête à l'invalidation, parce qu'aller au projet,
+ * ici : `useCreateProject` s'arrête à l'invalidation, parce qu'aller au projet,
  * l'annoncer ou rester sur la grille est une décision de parcours, et un hook
  * qui naviguerait empêcherait d'en changer sans le réécrire.
  *
@@ -39,16 +39,16 @@ import { useCreerProjet, useProjets } from '@/lib/queries'
 export function LibraryScreen() {
   const router = useRouter()
   const client = useQueryClient()
-  const projects = useProjets()
+  const projects = useProjects()
   const sources = useSources()
-  const create = useCreerProjet()
+  const create = useCreateProject()
 
   const creation: Creation = {
     // Le **nom** de la source en cours de création, pas un booléen : c'est ce
     // qui permet à la carte cliquée d'afficher l'attente et aux autres de se
     // contenter de se taire.
     pending: create.isPending ? (create.variables ?? null) : null,
-    error: create.isError ? messageServeur(create.error) : null,
+    error: create.isError ? messageServer(create.error) : null,
     start: (source: Source) => {
       // **`mutateAsync` et non `mutate`, et le rappel n'est pas passé à
       // TanStack.** Les liens vers une émission déjà analysée restent ouverts
@@ -61,7 +61,7 @@ export function LibraryScreen() {
       // le client de requêtes vit au-dessus de cet écran. (relevé par Codex)
       void create
         .mutateAsync(source.name)
-        .then(({ projectId }) => marquerSourceAnalysée(client, source.name, projectId))
+        .then(({ projectId }) => markSourceAnalyzed(client, source.name, projectId))
         .catch(() => {
           // L'échec est déjà porté par `creer.isError`, qui alimente l'alerte de
           // la grille. Rattrapé ici seulement pour ne pas laisser un rejet nu.
@@ -81,7 +81,7 @@ export function LibraryScreen() {
   // la même chose.
   const createdProjectId = create.data?.projectId
   useEffect(() => {
-    if (createdProjectId !== undefined) router.push(lienProjet(createdProjectId))
+    if (createdProjectId !== undefined) router.push(linkProject(createdProjectId))
   }, [createdProjectId, router])
 
   // **Une liste de projets qui n'a pas pu se charger n'est pas une liste vide.**
@@ -124,7 +124,7 @@ export function LibraryScreen() {
           // leur longueur. (relevé par Copilot)
           entriesKnown={!projectsUnknown}
           projects={projects.data}
-          mount={sources.data?.montage}
+          mount={sources.data?.editing}
           // **Les deux requêtes, pas une.** Monter la grille dès que les sources
           // répondent afficherait dix-huit cartes « À analyser » le temps que la
           // liste des projets arrive, puis les basculerait sous les yeux —
@@ -132,8 +132,8 @@ export function LibraryScreen() {
           loading={sources.isPending || projects.isPending}
           // Le message du serveur, jamais une phrase composée depuis
           // l'exception.
-          error={sources.isError ? messageServeur(sources.error) : null}
-          projectsError={projects.isError ? messageServeur(projects.error) : null}
+          error={sources.isError ? messageServer(sources.error) : null}
+          projectsError={projects.isError ? messageServer(projects.error) : null}
           onRetry={() => {
             // **L'échec de création s'oublie avec le rafraîchissement**, parce
             // que c'est lui qui le rend caduc : sur une source disparue entre

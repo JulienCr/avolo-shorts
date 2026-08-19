@@ -8,7 +8,7 @@ import { providerAvailability } from '@/server/llm/registry'
  * **Le critère du contrat de la PR C** : « un fournisseur sans clé se dit dans
  * l'écran, pas au milieu d'un repérage ». Cette route ne lit jamais la valeur
  * du secret — `providerAvailability` (`@/server/llm/registry`) ne
- * regarde que sa présence, par `exigerSecret`, dont le message d'erreur est
+ * regarde que sa présence, par `requireSecret`, dont le message d'erreur est
  * déjà pensé pour ne rien fuiter.
  */
 export const GET = route('GET /api/llm/availability', async () =>

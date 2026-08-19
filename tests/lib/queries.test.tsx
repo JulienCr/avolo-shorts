@@ -17,8 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
-  cles,
-  useCreerProjet,
+  keys,
+  useCreateProject,
   useExporter,
   usePatchClip,
   useSaveSettings,
@@ -28,27 +28,27 @@ import {
 import { framing, shot } from '../fixtures/framing'
 
 /** Une réponse HTTP, réduite à ce que `@/lib/api` en lit. */
-function reponse(corps: unknown, status = 200): Response {
+function response(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: '',
-    json: async () => corps,
+    json: async () => body,
   } as Response
 }
 
-function harnais() {
+function harness() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  const invalide = vi.spyOn(client, 'invalidateQueries')
-  const enveloppe = ({ children }: { children: ReactNode }) => (
+  const invalid = vi.spyOn(client, 'invalidateQueries')
+  const envelope = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  return { client, invalide, enveloppe }
+  return { client, invalid, envelope }
 }
 
-const exportComplet: ExportResult = {
+const exportComplete: ExportResult = {
   clip: {
     id: 'c1',
     projectId: 'p1',
@@ -78,15 +78,15 @@ describe('useExporter', () => {
   it('invalide le clip, parce que l’export ne rend que des noms de fichiers', async () => {
     // `ExportResult` porte des noms ; ce sont les `ClipOutputs` de
     // `GET /api/clips/:id` qui portent les URL lisibles par un `<video>`.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(exportComplet)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(exportComplete)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.clip('c1') })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.clip('c1') })
   })
 
   it('invalide aussi les listes de candidats, que le statut alimente', async () => {
@@ -95,24 +95,24 @@ describe('useExporter', () => {
     // Sans cette invalidation, la carte reste sur « gardé » tant que la liste
     // est en cache. Par préfixe, faute de connaître le projet ici — et une
     // liste inactive ne se recharge pas, elle est seulement marquée périmée.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(exportComplet)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(exportComplete)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.tousCandidats })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.tousCandidats })
   })
 
   it('traite `skipped: true` comme un succès', async () => {
     // C'est la réponse la plus fréquente dès qu'on rouvre un clip déjà exporté :
     // rien n'a été refait, tout est en place. La traiter comme une erreur ferait
     // passer un export réussi pour un échec.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ ...exportComplet, skipped: true })))
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response({ ...exportComplete, skipped: true })))
+    const { envelope } = harness()
+    const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ clipId: 'c1' })
@@ -127,31 +127,31 @@ describe('useExporter', () => {
     // du rendu réécrit le jeu de clips : `renderClip` prévoit que le clip ait
     // disparu à la relecture, et la route sérialise alors un corps sans ce
     // champ. Lire `clip.status` sans garde y planterait un export réussi.
-    const sansClip = { ...exportComplet }
-    delete sansClip.clip
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(sansClip)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+    const withoutClip = { ...exportComplete }
+    delete withoutClip.clip
+    vi.stubGlobal('fetch', vi.fn(async () => response(withoutClip)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.clip).toBeUndefined()
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.clip('c1') })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.clip('c1') })
   })
 
   it('remonte l’échec du serveur, avec son message', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'ffmpeg a rendu 1' }, 500)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useExporter(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'ffmpeg a rendu 1' }, 500)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('ffmpeg a rendu 1')
-    expect(invalide).not.toHaveBeenCalled()
+    expect(invalid).not.toHaveBeenCalled()
   })
 })
 
@@ -189,21 +189,21 @@ describe('usePatchClip', () => {
    * au lieu de le refermer. (relevé par Codex)
    */
   it('adopte le cadrage que le serveur renvoie, pas seulement le clip', async () => {
-    const { client, enveloppe } = harnais()
-    const avant = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
-    const après = framing({ ratio: '1:1', shots: [shot(0, 12, '1:1', 0.3)] })
-    client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
+    const { client, envelope } = harness()
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    const after = framing({ ratio: '1:1', shots: [shot(0, 12, '1:1', 0.3)] })
+    client.setQueryData<ClipDetail>(keys.clip('c1'), detail(before))
 
-    const réponse: PatchClipResult = {
+    const patchResult: PatchClipResult = {
       applied: true,
       clip: { ...clip!, segments: [{ start: 0, end: 12 }] },
       outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
-      framing: après,
+      framing: after,
       seq: 1,
     }
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(réponse)))
+    vi.stubGlobal('fetch', vi.fn(async () => response(patchResult)))
 
-    const { result } = renderHook(() => usePatchClip(), { wrapper: enveloppe })
+    const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
     await act(async () => {
       await result.current.mutateAsync({
         clipId: 'c1',
@@ -212,8 +212,8 @@ describe('usePatchClip', () => {
       })
     })
 
-    const cache = client.getQueryData<ClipDetail>(cles.clip('c1'))
-    expect(cache?.framing).toEqual(après)
+    const cache = client.getQueryData<ClipDetail>(keys.clip('c1'))
+    expect(cache?.framing).toEqual(after)
     expect(cache?.clip.segments).toEqual([{ start: 0, end: 12 }])
   })
 
@@ -223,55 +223,55 @@ describe('usePatchClip', () => {
    * c'est le seul par lequel l'écran peut se remettre d'accord.
    */
   it('adopte aussi le cadrage d’une écriture écartée', async () => {
-    const { client, enveloppe } = harnais()
-    const avant = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
-    const gagnant = framing({ ratio: '4:5', shots: [shot(0, 20, '4:5', 0.7)] })
-    client.setQueryData<ClipDetail>(cles.clip('c1'), detail(avant))
+    const { client, envelope } = harness()
+    const before = framing({ ratio: '16:9', shots: [shot(0, 20, '16:9', 0.5)] })
+    const winner = framing({ ratio: '4:5', shots: [shot(0, 20, '4:5', 0.7)] })
+    client.setQueryData<ClipDetail>(keys.clip('c1'), detail(before))
 
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        reponse({
+        response({
           applied: false,
           clip,
           outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
-          framing: gagnant,
+          framing: winner,
           seq: 9,
         } satisfies PatchClipResult),
       ),
     )
 
-    const { result } = renderHook(() => usePatchClip(), { wrapper: enveloppe })
+    const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
     await act(async () => {
       await result.current.mutateAsync({ clipId: 'c1', projectId: 'p1', patch: { cropX: 0.1 } })
     })
 
-    expect(client.getQueryData<ClipDetail>(cles.clip('c1'))?.framing).toEqual(gagnant)
+    expect(client.getQueryData<ClipDetail>(keys.clip('c1'))?.framing).toEqual(winner)
   })
 })
 
-describe('useCreerProjet', () => {
-  const plan: RunPlan = { projectId: 'p1', plan: ['audio', 'transcript'] }
+describe('useCreateProject', () => {
+  const plan: RunPlan = { projectId: 'p1', shot: ['audio', 'transcript'] }
 
   it('invalide la liste des projets', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(plan, 202)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useCreerProjet(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(plan, 202)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projets })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.projets })
   })
 
   it('rend le plan, et laisse la redirection à l’écran', async () => {
     // La réponse est un 202 : elle confirme que l'analyse est acceptée et
     // lancée, pas qu'elle est faite. Où l'on va ensuite est une décision
     // d'écran, pas de hook.
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(plan, 202)))
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useCreerProjet(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(plan, 202)))
+    const { envelope } = harness()
+    const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
@@ -286,17 +286,17 @@ describe('useCreerProjet', () => {
     // exception.
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => reponse({ error: 'le dossier des replays n’est pas monté' }, 503)),
+      vi.fn(async () => response({ error: 'le dossier des replays n’est pas monté' }, 503)),
     )
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useCreerProjet(), { wrapper: enveloppe })
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('le dossier des replays n’est pas monté')
-    expect(invalide).not.toHaveBeenCalled()
+    expect(invalid).not.toHaveBeenCalled()
   })
 })
 
@@ -321,14 +321,14 @@ describe('les réglages', () => {
   }
 
   it('se lisent sans interrogation en boucle', async () => {
-    const appel = vi.fn(async () => reponse(settings))
-    vi.stubGlobal('fetch', appel)
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useSettings(), { wrapper: enveloppe })
+    const call = vi.fn(async () => response(settings))
+    vi.stubGlobal('fetch', call)
+    const { envelope } = harness()
+    const { result } = renderHook(() => useSettings(), { wrapper: envelope })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data).toEqual(settings)
-    expect(appel).toHaveBeenCalledWith('/api/settings', expect.anything())
+    expect(call).toHaveBeenCalledWith('/api/settings', expect.anything())
   })
 
   /**
@@ -341,16 +341,16 @@ describe('les réglages', () => {
       selection: { ...settings.selection, minutesPerClip: 4 },
       ai: { ...settings.ai },
     }
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(after)))
-    const { client, invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(after)))
+    const { client, invalid, envelope } = harness()
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ selection: { minutesPerClip: 4 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(client.getQueryData(cles.settings)).toEqual(after)
-    expect(invalide).not.toHaveBeenCalled()
+    expect(client.getQueryData(keys.settings)).toEqual(after)
+    expect(invalid).not.toHaveBeenCalled()
   })
 
   /**
@@ -360,26 +360,26 @@ describe('les réglages', () => {
    * effet qui n'existe pas.
    */
   it('n’invalident ni les projets ni les candidats', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse(settings)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response(settings)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ selection: { maximumClips: 12 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalide).not.toHaveBeenCalled()
+    expect(invalid).not.toHaveBeenCalled()
   })
 
   it('remontent le refus du serveur sur une valeur hors bornes', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        reponse({ error: 'Réglage selection.minutesPerClip : un entier supérieur…' }, 400),
+        response({ error: 'Réglage selection.minutesPerClip : un entier supérieur…' }, 400),
       ),
     )
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
+    const { envelope } = harness()
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate({ selection: { minutesPerClip: 0 } })
@@ -397,18 +397,18 @@ describe('useArrêter', () => {
    * arrêtée pour vivante, et son sondage s'arrêterait sur cet état-là.
    */
   it('invalide le projet et la bibliothèque', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: true })))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response({ stopped: true })))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projet('p1') })
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projets })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.projet('p1') })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.projets })
     // Les candidats, non : un arrêt ne produit rien, la liste est celle d'avant.
-    expect(invalide).not.toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
+    expect(invalid).not.toHaveBeenCalledWith({ queryKey: keys.candidats('p1') })
   })
 
   /**
@@ -416,9 +416,9 @@ describe('useArrêter', () => {
    * dire de plus que ce que l'état rafraîchi montre déjà.
    */
   it('traite « rien ne tournait » comme un succès', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ stopped: false })))
-    const { enveloppe } = harnais()
-    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response({ stopped: false })))
+    const { envelope } = harness()
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('p1')
@@ -429,15 +429,15 @@ describe('useArrêter', () => {
 
   /** Et même en échec, l'état du projet se recharge : c'est là qu'on saura. */
   it('invalide aussi quand la requête échoue', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reponse({ error: 'Projet inconnu' }, 404)))
-    const { invalide, enveloppe } = harnais()
-    const { result } = renderHook(() => useStopAnalysis(), { wrapper: enveloppe })
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: 'Projet inconnu' }, 404)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
     await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.projet('p1') })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.projet('p1') })
   })
 })
 
@@ -445,8 +445,8 @@ describe('les clés', () => {
   it('range chaque liste de candidats sous le préfixe commun', () => {
     // L'invalidation par préfixe de `useExporter` n'est correcte que tant que
     // les deux ne divergent pas : c'est cette ligne qui les tient ensemble.
-    expect(cles.candidats('p1').slice(0, cles.tousCandidats.length)).toEqual([
-      ...cles.tousCandidats,
+    expect(keys.candidats('p1').slice(0, keys.tousCandidats.length)).toEqual([
+      ...keys.tousCandidats,
     ])
   })
 })

@@ -3,18 +3,18 @@ import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
-import { getClip, getDb, getProject, plancherDOrdre, putClip, putClipOrdonné } from '@/server/db'
-import { corps, introuvable, json, route } from '@/server/http'
-import { sortiesDuClip } from '@/server/rendus'
+import { getClip, getDb, getProject, floorDOrder, putClip, putClipOrdered } from '@/server/db'
+import { body, notFound, json, route } from '@/server/http'
+import { clipOutputs } from '@/server/renders'
 import {
   renderedFraming,
-  cheminsRendu,
-  texteDePublication,
-  écarterRenduPérimé,
-  écrireTexteDePublication,
+  pathsRender,
+  publicationText,
+  discardRenderStale,
+  publicationWriteText,
 } from '@/server/steps/render'
 import { vignettePath } from '@/server/thumbs'
-import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from '@/server/vues'
+import { clipLinesAround, summaryProject, projectTranscript, urlProxy } from '@/server/views'
 
 /**
  * `GET /api/clips/:id` — un clip, de quoi le monter, et ce que l'export en a
@@ -38,7 +38,7 @@ import { lignesAutourDuClip, résuméProjet, transcriptDuProjet, urlProxy } from
  * survivre à toutes les passes suivantes, puisqu'il tient tout statut non
  * `candidate` pour une décision humaine.
  */
-const ÉDITION = z.strictObject({
+const EDIT = z.strictObject({
   segments: z.array(z.strictObject({ start: z.number().finite(), end: z.number().finite() })).optional(),
   ratio: z.enum(['9:16', '4:5', '1:1', '16:9', 'auto']).optional(),
   // Le centre horizontal du crop : un nombre entre 0 et 1, le crop étant pleine
@@ -68,15 +68,15 @@ const ÉDITION = z.strictObject({
 
 export const GET = route(
   'GET /api/clips/:id',
-  async (_requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
+  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
     const db = getDb()
     const clip = getClip(db, id)
-    if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
-    const projet = getProject(db, clip.projectId)
-    if (projet === undefined) throw introuvable(`Projet inconnu : ${clip.projectId}`)
+    if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
+    const project = getProject(db, clip.projectId)
+    if (project === undefined) throw notFound(`Projet inconnu : ${clip.projectId}`)
 
-    const transcript = await transcriptDuProjet(projet)
+    const transcript = await projectTranscript(project)
     // **Le cadrage se résout ici, pas dans le navigateur.** `computeFraming` a
     // besoin des plans, des boîtes de personnes et des dimensions de la source ;
     // `analysis.json` pèse deux à trois méga-octets par projet. Six appels du
@@ -86,17 +86,17 @@ export const GET = route(
     const framing = clipFraming(clip)
     return json({
       clip,
-      project: résuméProjet(projet),
+      project: summaryProject(project),
       // La fenêtre se calcule sur l'étendue **d'origine** du candidat, jamais sur
       // ses segments courants : un clip vidé de tous ses mots n'en a plus, et sa
       // fenêtre disparaîtrait au moment précis où il faut relire le transcript
       // pour le reconstruire. Voir `étendueOrigine`.
-      lines: transcript === null ? [] : lignesAutourDuClip(transcript, clip),
+      lines: transcript === null ? [] : clipLinesAround(transcript, clip),
       proxyUrl: urlProxy(clip.projectId),
       // Ce que l'export a produit, en URL. Sans elles, un clip affiche
       // « exporté » et son MP4 reste inatteignable depuis le navigateur : la
       // chaîne s'arrête à un mètre de son but.
-      outputs: sortiesDuClip(clip, framing),
+      outputs: clipOutputs(clip, framing),
       framing: framing,
     })
   },
@@ -104,8 +104,8 @@ export const GET = route(
 
 export const PATCH = route(
   'PATCH /api/clips/:id',
-  async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
     // **Le corps d'abord, la base ensuite.** Lire le clip avant d'attendre le
     // corps ouvre une fenêtre entre la lecture et l'écriture, et l'interface
     // lance délibérément des écritures qui se chevauchent (`usePatchClip`) : deux
@@ -113,11 +113,11 @@ export const PATCH = route(
     // fusion, et la modification du premier disparaissait sans un mot. Lecture,
     // fusion et écriture se suivent maintenant sans point d'attente, ce qui suffit
     // sur le fil unique de Node. (relevé par Copilot)
-    const { seq, ...édition } = await corps(requête, ÉDITION)
+    const { seq, ...edit } = await body(request, EDIT)
 
     const db = getDb()
     const clip = getClip(db, id)
-    if (clip === undefined) throw introuvable(`Clip inconnu : ${id}`)
+    if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
     // **L'analyse se lit AVANT l'écriture, et c'est la seule raison de la lire
     // ici plutôt que là où on s'en sert.**
@@ -132,36 +132,36 @@ export const PATCH = route(
     //
     // Ce qui suit l'écriture n'est plus que `framingWith`, qui est pur.
     // (relevé par Copilot)
-    const analyse = projectAnalysis(clip.projectId)
+    const analysis = projectAnalysis(clip.projectId)
 
-    const suivant: Clip = {
+    const next: Clip = {
       ...clip,
-      ...édition,
+      ...edit,
       // **Normalisés avant écriture**, toujours : triés, sans chevauchement,
       // sans segment vide. Ce que le client envoie est une intention, pas une
       // forme canonique — un glissement de sélection produit très bien deux
       // segments qui se touchent, et les garder séparés ouvrirait un décodeur
       // ffmpeg de plus au rendu.
-      segments: normalizeSegments(édition.segments ?? clip.segments),
+      segments: normalizeSegments(edit.segments ?? clip.segments),
     }
 
     // Le jeton, quand il y en a un. Les champs comparés sont ceux que le client
     // a **envoyés** — les clés du corps, pas celles qui ont changé de valeur.
-    let écrit = suivant
-    let appliqué = true
-    let plancher = 0
+    let written = next
+    let applied = true
+    let floor = 0
     if (seq === undefined) {
-      putClip(db, suivant)
+      putClip(db, next)
       // `putClip` ne touche pas aux jetons : le plancher est celui d'avant, et
       // c'est lui qu'il faut annoncer. Rendre `0` ici contredirait le contrat de
       // `PatchClipResult.seq` et recalerait l'appelant vers le bas.
-      plancher = plancherDOrdre(db, id)
+      floor = floorDOrder(db, id)
     } else {
-      const résultat = putClipOrdonné(db, suivant, Object.keys(édition) as (keyof Clip)[], seq)
-      if (résultat === undefined) throw introuvable(`Clip inconnu : ${id}`)
-      écrit = résultat.clip
-      appliqué = résultat.applied
-      plancher = résultat.seq
+      const result = putClipOrdered(db, next, Object.keys(edit) as (keyof Clip)[], seq)
+      if (result === undefined) throw notFound(`Clip inconnu : ${id}`)
+      written = result.clip
+      applied = result.applied
+      floor = result.seq
     }
 
     // **Un rendu qui ne décrit plus le clip est écarté ici.**
@@ -195,16 +195,16 @@ export const PATCH = route(
     // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
     // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
     // fichiers à écarter ont été écrits.
-    const framingBefore = framingWith(clip, analyse)
-    const chemins = cheminsRendu(clip.projectId, clip.id, framingBefore.ratio)
+    const framingBefore = framingWith(clip, analysis)
+    const paths = pathsRender(clip.projectId, clip.id, framingBefore.ratio)
     try {
       // **Le résolveur passe l'analyse déjà lue**, sinon `écarterRenduPérimé`
       // rouvrirait `analysis.json` après l'écriture en base : une panne
       // passagère y ferait redescendre un clip `exported` à `kept` par le
       // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
       // simple correction de titre. (relevé par Codex)
-      const périmé = écarterRenduPérimé(db, id, chemins, clip, renderedFraming(framingBefore), (c) =>
-        renderedFraming(framingWith(c, analyse)),
+      const stale = discardRenderStale(db, id, paths, clip, renderedFraming(framingBefore), (c) =>
+        renderedFraming(framingWith(c, analysis)),
       )
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
@@ -217,13 +217,13 @@ export const PATCH = route(
       // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
       // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.
       // (relevé par Copilot)
-      if (périmé) {
-        const varianteAprès = cheminsRendu(
-          écrit.projectId,
-          écrit.id,
-          framingWith(écrit, analyse).ratio,
+      if (stale) {
+        const variantAfter = pathsRender(
+          written.projectId,
+          written.id,
+          framingWith(written, analysis).ratio,
         ).variant9x16
-        if (varianteAprès !== null) fs.rmSync(varianteAprès, { force: true })
+        if (variantAfter !== null) fs.rmSync(variantAfter, { force: true })
       }
 
       // **Le `.txt` ne suit pas le même sort que les MP4.** Le titre et la
@@ -245,10 +245,10 @@ export const PATCH = route(
       // du `PATCH` : ne pas fabriquer un `.txt` pour un clip que rien n'a rendu,
       // et ne pas réécrire pour rien.
       if (
-        texteDePublication(écrit) !== texteDePublication(clip) &&
-        fs.existsSync(chemins.texts)
+        publicationText(written) !== publicationText(clip) &&
+        fs.existsSync(paths.texts)
       ) {
-        écrireTexteDePublication(db, id, écrit, chemins.texts)
+        publicationWriteText(db, id, written, paths.texts)
       }
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${clip.id} :`, cause)
@@ -258,9 +258,9 @@ export const PATCH = route(
       // qui ne le décrivent plus. Avec le statut remis, `sortiesDuClip` cesse de
       // les publier — ce qui reste sur le disque n'est plus offert comme la
       // livraison du jour. (relevé par Copilot)
-      const àJour = getClip(db, id)
-      if (àJour !== undefined && àJour.status === 'exported') {
-        putClip(db, { ...àJour, status: 'kept' })
+      const toDay = getClip(db, id)
+      if (toDay !== undefined && toDay.status === 'exported') {
+        putClip(db, { ...toDay, status: 'kept' })
       }
     }
 
@@ -279,7 +279,7 @@ export const PATCH = route(
     // écarté parce qu'un geste plus récent l'avait déjà déplacé laisse la
     // vignette juste : l'effacer ferait payer une régénération à une écriture
     // qui n'a pas eu lieu.
-    if (écrit.segments[0]?.start !== clip.segments[0]?.start) {
+    if (written.segments[0]?.start !== clip.segments[0]?.start) {
       try {
         fs.rmSync(vignettePath(clip.projectId, clip.id), { force: true })
       } catch (cause) {
@@ -305,14 +305,14 @@ export const PATCH = route(
     // qu'aucun geste de cadrage n'ait été fait. Sans ce champ, l'écran garderait
     // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
     // mentirait sur ce que l'export produira.
-    const relu = getClip(db, id) ?? écrit
-    const framingAfter = framingWith(relu, analyse)
+    const reread = getClip(db, id) ?? written
+    const framingAfter = framingWith(reread, analysis)
     return json({
-      applied: appliqué,
-      clip: relu,
-      outputs: sortiesDuClip(relu, framingAfter),
+      applied: applied,
+      clip: reread,
+      outputs: clipOutputs(reread, framingAfter),
       framing: framingAfter,
-      seq: plancher,
+      seq: floor,
     })
   },
 )

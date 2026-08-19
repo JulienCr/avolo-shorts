@@ -10,9 +10,9 @@ import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import * as run from '@/server/run'
 
 /**
- * `progression` reste la vraie implémentation par défaut (`enCours` est vide
+ * `progression` reste la vraie implémentation par défaut (`inCurrent` est vide
  * en test) ; un seul test la remplace (`vi.spyOn`) pour simuler une exécution
- * en cours, sans avoir à faire tourner `lancer()` pour de vrai.
+ * en cours, sans avoir à faire tourner `launch()` pour de vrai.
  */
 vi.mock('@/server/run', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/run')>()

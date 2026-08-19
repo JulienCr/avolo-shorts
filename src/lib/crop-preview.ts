@@ -17,7 +17,7 @@ import type { Ratio } from '@/core/edl'
 import { RATIOS } from '@/core/framing'
 
 /** Dans l'ordre du plus serré au plus large — celui du sélecteur à l'écran. */
-export const ORDRE_RATIOS: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
+export const ORDER_RATIOS: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
 
 /** Le rapport d'aspect de la source : 1920x1080 sur toutes les émissions mesurées. */
 export const ASPECT_SOURCE = 16 / 9
@@ -44,8 +44,8 @@ export function cropWidthFraction(ratio: Ratio, aspectSource = ASPECT_SOURCE): n
  */
 export function clampCropX(cropX: number, widthFraction: number): number {
   const demi = widthFraction / 2
-  const valeur = Number.isFinite(cropX) ? cropX : 0.5
-  return Math.min(1 - demi, Math.max(demi, valeur))
+  const value = Number.isFinite(cropX) ? cropX : 0.5
+  return Math.min(1 - demi, Math.max(demi, value))
 }
 
 /** Le bord gauche du rectangle, en fraction de la largeur — ce que dessine le CSS. */

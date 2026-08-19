@@ -4,8 +4,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Search, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { useLecture } from '@/components/clip/lecture'
-import { chercher } from '@/components/clip/recherche'
+import { usePlayback } from '@/components/clip/playback'
+import { find } from '@/components/clip/search'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { ClipWord, IndexedLine } from '@/lib/editing'
@@ -47,36 +47,36 @@ import { cn } from '@/lib/utils'
  * retomberait à côté — sur la seule ligne qui compte, celle où le clip commence.
  */
 export function TranscriptSurface({
-  cle,
+  key,
   lines,
   words,
   selection,
-  ligneInitiale = 0,
-  onSelectionner,
-  onEtendre,
-  onTerminer,
-  onRemonter,
-  onPlacer,
-  recherche = false,
-  onRecherche,
+  lineInitial = 0,
+  onSelect,
+  onExtend,
+  onFinish,
+  onSurface,
+  onPlace,
+  search = false,
+  onSearch,
 }: {
   /** Identifie le clip ouvert. Le positionnement initial n'a lieu qu'une fois par valeur. */
-  cle: string
+  key: string
   lines: IndexedLine[]
   words: ClipWord[]
   selection: Selection | null
   /** La phrase à amener sous les yeux à l'ouverture : le début du clip, pas celui du contexte. */
-  ligneInitiale?: number
-  onSelectionner: (index: number, etendre: boolean) => void
-  onEtendre: (index: number) => void
-  onTerminer: () => void
-  onRemonter: (index: number) => void
+  lineInitial?: number
+  onSelect: (index: number, extend: boolean) => void
+  onExtend: (index: number) => void
+  onFinish: () => void
+  onSurface: (index: number) => void
   /** Place la lecture sur ce mot. Un clic net sur un mot gardé, rien d'autre. */
-  onPlacer: (index: number) => void
-  recherche?: boolean
-  onRecherche: (ouverte: boolean) => void
+  onPlace: (index: number) => void
+  search?: boolean
+  onSearch: (open: boolean) => void
 }) {
-  const conteneur = useRef<HTMLDivElement>(null)
+  const container = useRef<HTMLDivElement>(null)
 
   // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
   // `useVirtualizer` rend des fonctions dont le résultat change à chaque
@@ -85,9 +85,9 @@ export function TranscriptSurface({
   // un avertissement volontaire noie le prochain, lui accidentel : rendu muet
   // ci-dessous, la raison reste ici plutôt que dupliquée en ligne (issue #56).
   // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualiseur = useVirtualizer({
+  const virtualizer = useVirtualizer({
     count: lines.length,
-    getScrollElement: () => conteneur.current,
+    getScrollElement: () => container.current,
     // Une phrase moyenne tient sur deux lignes de texte à cette taille. La
     // mesure réelle corrige dès le premier rendu ; cette valeur ne sert qu'à
     // dimensionner la barre de défilement avant.
@@ -105,45 +105,45 @@ export function TranscriptSurface({
    * **Son index vit ici, pas dans le DOM** : le mot actif peut sortir du champ
    * rendu, et un `document.activeElement` ne survit pas à son démontage.
    */
-  const [curseur, setCurseur] = useState(0)
+  const [cursor, setCursor] = useState(0)
 
   /** Le défilement suit-il encore la lecture ? */
-  const [suivi, setSuivi] = useState(true)
+  const [tracked, setTracked] = useState(true)
 
-  const [requête, setRequête] = useState('')
-  const [rang, setRang] = useState(0)
-  const résultats = useMemo(() => chercher(words, requête), [words, requête])
+  const [request, setRequest] = useState('')
+  const [rank, setRank] = useState(0)
+  const results = useMemo(() => find(words, request), [words, request])
 
   // Vrai le temps d'un défilement que **nous** avons demandé. Le navigateur
   // émet un `scroll` dans les deux cas et rien ne les distingue autrement ; le
   // drapeau retombe à l'image suivante, que la spécification place après les
   // événements de défilement.
   const auto = useRef(false)
-  const deplacer = virtualiseur.scrollToIndex
-  const défilerVers = useCallback(
-    (ligne: number, align: 'start' | 'center' = 'center') => {
-      if (ligne < 0) return
+  const move = virtualizer.scrollToIndex
+  const scrollToward = useCallback(
+    (line: number, align: 'start' | 'center' = 'center') => {
+      if (line < 0) return
       auto.current = true
-      deplacer(ligne, { align })
+      move(line, { align })
       requestAnimationFrame(() => {
         auto.current = false
       })
     },
-    [deplacer],
+    [move],
   )
 
   // Un glissé qui se termine hors du texte — sur la marge, hors de la fenêtre —
   // doit quand même refermer la sélection. Sans cet écouteur, le survol
   // continuerait de l'étendre au retour de la souris, bouton relâché.
   useEffect(() => {
-    const relacher = () => onTerminer()
-    window.addEventListener('pointerup', relacher)
-    window.addEventListener('pointercancel', relacher)
+    const release = () => onFinish()
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
     return () => {
-      window.removeEventListener('pointerup', relacher)
-      window.removeEventListener('pointercancel', relacher)
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
     }
-  }, [onTerminer])
+  }, [onFinish])
 
   // Le transcript montre du contexte de part et d'autre du clip : ouvert en
   // haut, on regarderait des phrases qui n'en font pas partie.
@@ -154,29 +154,29 @@ export function TranscriptSurface({
   // positionnement se fait alors sur des hauteurs pas encore mesurées. Une
   // image plus tard, les lignes sont mesurées et le défilement tombe juste.
   //
-  // **Une fois par clip, et pas une de plus.** `ligneInitiale` se recalcule
+  // **Une fois par clip, et pas une de plus.** `lineInitial` se recalcule
   // quand le clip enregistré change ; repositionner à chaque fois ferait fuir
-  // le texte sous les yeux pendant qu'on monte. Le repère est donc `cle`, pas
+  // le texte sous les yeux pendant qu'on monte. Le repère est donc `key`, pas
   // la valeur.
   //
   // Le repère se pose **quand le défilement a eu lieu**, pas quand il est
-  // programmé. `deplacer` vient du virtualiseur et rien ne garantit sa
+  // programmé. `move` vient du virtualiseur et rien ne garantit sa
   // stabilité d'un rendu à l'autre : si l'effet se rejoue avant l'image, son
   // nettoyage annule la précédente, et un repère posé trop tôt court-circuiterait
   // la nouvelle. Le défilement initial n'aurait alors jamais lieu.
-  const positionne = useRef<string | null>(null)
+  const positioned = useRef<string | null>(null)
   useEffect(() => {
-    if (positionne.current === cle) return
-    if (ligneInitiale <= 0) {
-      positionne.current = cle
+    if (positioned.current === key) return
+    if (lineInitial <= 0) {
+      positioned.current = key
       return
     }
     const image = requestAnimationFrame(() => {
-      positionne.current = cle
-      défilerVers(ligneInitiale, 'start')
+      positioned.current = key
+      scrollToward(lineInitial, 'start')
     })
     return () => cancelAnimationFrame(image)
-  }, [cle, défilerVers, ligneInitiale])
+  }, [key, scrollToward, lineInitial])
 
   // **Le suivi de lecture, par abonnement et non par état de rendu.** La
   // position change quatre fois par seconde : la lire dans le rendu ferait
@@ -186,139 +186,139 @@ export function TranscriptSurface({
   // en plein rendu est un effet de bord que le compilateur React refuse, et pour
   // une bonne raison — un rendu abandonné laisserait la référence en avance sur
   // ce qui est affiché.
-  const lignesRef = useRef(lines)
-  const suiviRef = useRef(suivi)
-  const défilerRef = useRef(défilerVers)
+  const linesRef = useRef(lines)
+  const trackedRef = useRef(tracked)
+  const scrollRef = useRef(scrollToward)
   useEffect(() => {
-    lignesRef.current = lines
-    suiviRef.current = suivi
-    défilerRef.current = défilerVers
-  }, [lines, suivi, défilerVers])
+    linesRef.current = lines
+    trackedRef.current = tracked
+    scrollRef.current = scrollToward
+  }, [lines, tracked, scrollToward])
   useEffect(
     () =>
-      useLecture.subscribe((etat, precedent) => {
-        if (etat.motActif === null || etat.motActif === precedent.motActif) return
-        if (!suiviRef.current) return
-        défilerRef.current(ligneDuMot(lignesRef.current, etat.motActif))
+      usePlayback.subscribe((state, previous) => {
+        if (state.wordActive === null || state.wordActive === previous.wordActive) return
+        if (!trackedRef.current) return
+        scrollRef.current(wordLine(linesRef.current, state.wordActive))
       }),
     [],
   )
 
-  const items = virtualiseur.getVirtualItems()
-  const ligneCurseur = ligneDuMot(lines, curseur)
-  const curseurRendu = items.some((item) => item.index === ligneCurseur)
+  const items = virtualizer.getVirtualItems()
+  const lineCursor = wordLine(lines, cursor)
+  const cursorRender = items.some((item) => item.index === lineCursor)
 
   // Le focus suit le curseur, une fois le mot rendu. Quand il ne l'est pas — le
   // virtualiseur ne garde qu'une trentaine de phrases —, le conteneur le prend :
   // sans cela, un déplacement au clavier vers le bas du transcript perdrait le
   // focus sur le corps du document, et la frappe suivante ne ferait plus rien.
-  const àFocaliser = useRef(false)
+  const toFocus = useRef(false)
   useEffect(() => {
-    if (!àFocaliser.current) return
-    àFocaliser.current = false
-    const cible = conteneur.current?.querySelector<HTMLElement>(`[data-mot="${curseur}"]`)
-    if (cible) cible.focus()
-    else conteneur.current?.focus()
+    if (!toFocus.current) return
+    toFocus.current = false
+    const target = container.current?.querySelector<HTMLElement>(`[data-mot="${cursor}"]`)
+    if (target) target.focus()
+    else container.current?.focus()
   })
 
-  const allerAuMot = useCallback(
+  const goWord = useCallback(
     (index: number) => {
-      const borné = Math.min(Math.max(index, 0), Math.max(0, words.length - 1))
-      setCurseur(borné)
+      const bound = Math.min(Math.max(index, 0), Math.max(0, words.length - 1))
+      setCursor(bound)
       // **Le curseur du clavier *est* la sélection.** Sans cela, `I` et `O`
       // posent la borne sur le mot cliqué il y a trois gestes, puisque l'écran
-      // lit `selection.tete` — et rien ne le dit. `onTerminer` referme le
+      // lit `selection.tete` — et rien ne le dit. `onFinish` referme le
       // glissé que `commencerSelection` ouvre : un survol à la souris étendrait
       // sinon la sélection sans qu'on ait rien pressé. (relevé par Copilot)
-      onSelectionner(borné, false)
-      onTerminer()
-      àFocaliser.current = true
+      onSelect(bound, false)
+      onFinish()
+      toFocus.current = true
       // **Naviguer coupe le suivi**, que ce soit à la flèche ou par la
       // recherche : aller voir ailleurs pendant que la lecture continue ferait
       // ramener le texte sous les yeux au moment où on lit l'occurrence.
-      setSuivi(false)
+      setTracked(false)
       // **Sans ce défilement, la flèche paraît sans effet** : le mot suivant
       // peut être hors du champ rendu, donc absent du DOM.
-      défilerVers(ligneDuMot(lines, borné))
+      scrollToward(wordLine(lines, bound))
     },
-    [words.length, lines, défilerVers, onSelectionner, onTerminer],
+    [words.length, lines, scrollToward, onSelect, onFinish],
   )
 
-  function surClavier(e: React.KeyboardEvent) {
-    const ligne = ligneDuMot(lines, curseur)
-    if (e.key === 'ArrowRight') allerAuMot(curseur + 1)
-    else if (e.key === 'ArrowLeft') allerAuMot(curseur - 1)
-    else if (e.key === 'ArrowDown') allerAuMot(lines[ligne + 1]?.from ?? words.length - 1)
-    else if (e.key === 'ArrowUp') allerAuMot(lines[ligne - 1]?.from ?? 0)
-    else if (e.key === 'Home') allerAuMot(0)
-    else if (e.key === 'End') allerAuMot(words.length - 1)
+  function onKeyboard(e: React.KeyboardEvent) {
+    const line = wordLine(lines, cursor)
+    if (e.key === 'ArrowRight') goWord(cursor + 1)
+    else if (e.key === 'ArrowLeft') goWord(cursor - 1)
+    else if (e.key === 'ArrowDown') goWord(lines[line + 1]?.from ?? words.length - 1)
+    else if (e.key === 'ArrowUp') goWord(lines[line - 1]?.from ?? 0)
+    else if (e.key === 'Home') goWord(0)
+    else if (e.key === 'End') goWord(words.length - 1)
     else return
     e.preventDefault()
   }
 
-  function allerAuRésultat(suivant: number) {
-    if (résultats.length === 0) return
-    const cible = (suivant + résultats.length) % résultats.length
-    setRang(cible)
-    allerAuMot(résultats[cible])
+  function goResult(next: number) {
+    if (results.length === 0) return
+    const target = (next + results.length) % results.length
+    setRank(target)
+    goWord(results[target])
   }
 
-  const bornes = selection
+  const bounds = selection
     ? {
-        debut: Math.min(selection.ancre, selection.tete),
-        fin: Math.max(selection.ancre, selection.tete),
+        debut: Math.min(selection.anchor, selection.head),
+        fin: Math.max(selection.anchor, selection.head),
       }
     : null
 
   return (
     <div className="flex h-full flex-col">
-      {recherche && (
-        <BarreDeRecherche
-          requête={requête}
-          résultats={résultats.length}
-          rang={rang}
-          onRequête={(valeur) => {
-            setRequête(valeur)
-            setRang(0)
-            const trouvés = chercher(words, valeur)
-            if (trouvés.length > 0) allerAuMot(trouvés[0])
+      {search && (
+        <SearchBar
+          request={request}
+          results={results.length}
+          rank={rank}
+          onRequest={(value) => {
+            setRequest(value)
+            setRank(0)
+            const found = find(words, value)
+            if (found.length > 0) goWord(found[0])
           }}
-          onSuivant={(pas) => allerAuRésultat(rang + pas)}
-          onFermer={() => onRecherche(false)}
+          onNext={(not) => goResult(rank + not)}
+          onClose={() => onSearch(false)}
         />
       )}
 
       <div
-        ref={conteneur}
+        ref={container}
         data-surface-transcript
         // Le conteneur ne prend le focus que lorsque le mot du curseur n'est pas
         // rendu : sinon la surface aurait deux arrêts de tabulation au lieu d'un.
-        tabIndex={curseurRendu ? -1 : 0}
-        onKeyDown={surClavier}
+        tabIndex={cursorRender ? -1 : 0}
+        onKeyDown={onKeyboard}
         // **La molette, en plus du défilement.** `scroll` ne part que si
         // `scrollTop` bouge : une molette en butée haute ou basse n'émet rien,
         // et le suivi restait actif alors que l'utilisateur venait de dire le
         // contraire. (relevé par Copilot)
         onWheel={() => {
-          if (suivi) setSuivi(false)
+          if (tracked) setTracked(false)
         }}
         onScroll={() => {
           // `auto` retombe à l'image suivante, que la spécification place après
           // les événements de défilement : ce qui arrive ici avec le drapeau
           // levé vient donc de nous, pas de l'utilisateur.
           if (auto.current) return
-          if (suivi) setSuivi(false)
+          if (tracked) setTracked(false)
         }}
         className="h-full flex-1 overflow-y-auto overscroll-contain px-1 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
-        <div className="relative w-full" style={{ height: virtualiseur.getTotalSize() }}>
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {items.map((item) => {
-            const ligne = lines[item.index]
+            const line = lines[item.index]
             return (
               <div
-                key={ligne.id}
+                key={line.id}
                 data-index={item.index}
-                ref={virtualiseur.measureElement}
+                ref={virtualizer.measureElement}
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
@@ -327,7 +327,7 @@ export function TranscriptSurface({
                       une décoration : c'est le seul repère qui relie ce qu'on lit
                       à l'endroit du replay d'où ça vient. */}
                   <span className="w-14 shrink-0 pt-[0.3rem] text-right font-mono text-[0.75rem] text-muted-foreground/70 tabular-nums select-none">
-                    {formatTimecode(ligne.start)}
+                    {formatTimecode(line.start)}
                   </span>
 
                   {/* `select-none` : le glissé sert à sélectionner des *mots*, et
@@ -335,24 +335,24 @@ export function TranscriptSurface({
                       nôtre. On perd le copier-coller du transcript, ce que rien
                       dans le produit ne demande. */}
                   <p className="flex-1 text-[0.97rem] leading-[1.95] text-pretty select-none">
-                    {words.slice(ligne.from, ligne.to).map((mot) => (
-                      <Mot
-                        key={mot.index}
-                        mot={mot}
-                        selectionne={
-                          bornes !== null && mot.index >= bornes.debut && mot.index <= bornes.fin
+                    {words.slice(line.from, line.to).map((word) => (
+                      <Word
+                        key={word.index}
+                        word={word}
+                        selected={
+                          bounds !== null && word.index >= bounds.debut && word.index <= bounds.fin
                         }
-                        auCurseur={mot.index === curseur}
-                        onSelectionner={onSelectionner}
-                        onEtendre={onEtendre}
-                        onTerminer={onTerminer}
-                        onRemonter={onRemonter}
-                        onPlacer={(index) => {
+                        cursor={word.index === cursor}
+                        onSelect={onSelect}
+                        onExtend={onExtend}
+                        onFinish={onFinish}
+                        onSurface={onSurface}
+                        onPlace={(index) => {
                           // Le clic sur un mot **reprend** le suivi : c'est le
                           // geste par lequel on redit « je regarde la lecture ».
-                          setSuivi(true)
-                          setCurseur(index)
-                          onPlacer(index)
+                          setTracked(true)
+                          setCursor(index)
+                          onPlace(index)
                         }}
                       />
                     ))}
@@ -373,100 +373,100 @@ export function TranscriptSurface({
  * Dichotomique : elle s'appelle à chaque changement de mot actif, donc plusieurs
  * fois par seconde, sur les quelques centaines de phrases d'une émission.
  */
-export function ligneDuMot(lines: readonly IndexedLine[], mot: number): number {
-  let bas = 0
-  let haut = lines.length - 1
-  while (bas <= haut) {
-    const milieu = (bas + haut) >> 1
-    if (mot < lines[milieu].from) haut = milieu - 1
-    else if (mot >= lines[milieu].to) bas = milieu + 1
-    else return milieu
+export function wordLine(lines: readonly IndexedLine[], word: number): number {
+  let bottom = 0
+  let top = lines.length - 1
+  while (bottom <= top) {
+    const middle = (bottom + top) >> 1
+    if (word < lines[middle].from) top = middle - 1
+    else if (word >= lines[middle].to) bottom = middle + 1
+    else return middle
   }
   return -1
 }
 
-function BarreDeRecherche({
-  requête,
-  résultats,
-  rang,
-  onRequête,
-  onSuivant,
-  onFermer,
+function SearchBar({
+  request,
+  results,
+  rank,
+  onRequest,
+  onNext,
+  onClose,
 }: {
-  requête: string
-  résultats: number
-  rang: number
-  onRequête: (valeur: string) => void
-  onSuivant: (pas: number) => void
-  onFermer: () => void
+  request: string
+  results: number
+  rank: number
+  onRequest: (value: string) => void
+  onNext: (not: number) => void
+  onClose: () => void
 }) {
-  const champ = useRef<HTMLInputElement>(null)
-  useEffect(() => champ.current?.focus(), [])
+  const field = useRef<HTMLInputElement>(null)
+  useEffect(() => field.current?.focus(), [])
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
       <Search className="size-3.5 text-muted-foreground" aria-hidden />
       <Input
-        ref={champ}
+        ref={field}
         type="search"
         aria-label="Chercher dans le transcript"
-        value={requête}
-        onChange={(e) => onRequête(e.target.value)}
+        value={request}
+        onChange={(e) => onRequest(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
-            onSuivant(e.shiftKey ? -1 : 1)
+            onNext(e.shiftKey ? -1 : 1)
           } else if (e.key === 'Escape') {
             e.preventDefault()
-            onFermer()
+            onClose()
           }
         }}
         className="max-w-64"
       />
       <span className="text-[0.75rem] text-muted-foreground tabular-nums">
-        {requête.trim() === '' ? '' : résultats === 0 ? 'Aucune occurrence' : `${rang + 1} sur ${résultats}`}
+        {request.trim() === '' ? '' : results === 0 ? 'Aucune occurrence' : `${rank + 1} sur ${results}`}
       </span>
-      <Button size="icon-sm" variant="ghost" onClick={onFermer} aria-label="Fermer la recherche">
+      <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="Fermer la recherche">
         <X aria-hidden />
       </Button>
     </div>
   )
 }
 
-function Mot({
-  mot,
-  selectionne,
-  auCurseur,
-  onSelectionner,
-  onEtendre,
-  onTerminer,
-  onRemonter,
-  onPlacer,
+function Word({
+  word,
+  selected,
+  cursor,
+  onSelect,
+  onExtend,
+  onFinish,
+  onSurface,
+  onPlace,
 }: {
-  mot: ClipWord
-  selectionne: boolean
-  auCurseur: boolean
-  onSelectionner: (index: number, etendre: boolean) => void
-  onEtendre: (index: number) => void
-  onTerminer: () => void
-  onRemonter: (index: number) => void
-  onPlacer: (index: number) => void
+  word: ClipWord
+  selected: boolean
+  cursor: boolean
+  onSelect: (index: number, extend: boolean) => void
+  onExtend: (index: number) => void
+  onFinish: () => void
+  onSurface: (index: number) => void
+  onPlace: (index: number) => void
 }) {
   // **Chaque mot s'abonne à « suis-je le mot lu », pas à la position.** Quatre
   // `timeupdate` par seconde tombent presque tous dans le même mot : deux mots
   // se rendent quand le surlignage avance, et rien d'autre ne bouge.
-  const lu = useLecture((etat) => etat.motActif === mot.index)
+  const lu = usePlayback((state) => state.wordActive === word.index)
 
   // Un clic net sur un mot barré le remonte ; un glissé qui commence dessus le
   // sélectionne comme les autres. C'est le passage du pointeur sur un autre mot
   // entre l'appui et le relâchement qui les sépare — donc on décide au
   // relâchement, pas à l'appui.
-  const glisse = useRef(false)
+  const dragged = useRef(false)
   // Et un shift-clic **étend une sélection**, y compris sur un mot barré : sans
   // cette mémoire, l'appui étendait la sélection puis le relâchement remontait
   // le mot et vidait la sélection. L'intention exprimée par la touche était
   // perdue, alors que le chemin clavier, lui, la respectait déjà.
-  const etendait = useRef(false)
+  const extended = useRef(false)
 
   return (
     // `role="button"` et non un `<button>` : un bouton est un bloc en ligne, et
@@ -479,49 +479,49 @@ function Mot({
     // mais en faire cent arrêts de tabulation rendait la surface infranchissable.
     <span
       role="button"
-      data-mot={mot.index}
-      tabIndex={auCurseur ? 0 : -1}
-      aria-pressed={selectionne}
+      data-mot={word.index}
+      tabIndex={cursor ? 0 : -1}
+      aria-pressed={selected}
       aria-current={lu ? 'location' : undefined}
-      title={mot.kept ? undefined : 'Cliquer pour remonter ce mot'}
+      title={word.kept ? undefined : 'Cliquer pour remonter ce mot'}
       onPointerDown={(e) => {
-        glisse.current = false
-        etendait.current = e.shiftKey
-        onSelectionner(mot.index, e.shiftKey)
+        dragged.current = false
+        extended.current = e.shiftKey
+        onSelect(word.index, e.shiftKey)
       }}
       onPointerEnter={() => {
-        glisse.current = true
-        onEtendre(mot.index)
+        dragged.current = true
+        onExtend(word.index)
       }}
       onPointerUp={() => {
-        if (glisse.current || etendait.current) return
-        if (mot.kept) onPlacer(mot.index)
-        else onRemonter(mot.index)
+        if (dragged.current || extended.current) return
+        if (word.kept) onPlace(word.index)
+        else onSurface(word.index)
       }}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return
         e.preventDefault()
-        if (e.shiftKey) onSelectionner(mot.index, true)
-        else if (mot.kept) {
-          onSelectionner(mot.index, false)
+        if (e.shiftKey) onSelect(word.index, true)
+        else if (word.kept) {
+          onSelect(word.index, false)
           // **Le glissé se referme.** `commencerSelection` l'ouvre, et le
           // clavier n'a pas de relâchement de bouton pour le clore : sans cette
           // ligne, passer la souris sur un mot voisin étend la sélection alors
           // qu'aucun bouton n'est enfoncé. (relevé par Codex)
-          onTerminer()
-          onPlacer(mot.index)
-        } else onRemonter(mot.index)
+          onFinish()
+          onPlace(word.index)
+        } else onSurface(word.index)
       }}
       className={cn(
         '-mx-0.5 cursor-default rounded-[3px] px-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        mot.kept
+        word.kept
           ? 'cursor-pointer hover:bg-muted'
           : 'cursor-pointer text-muted-foreground/55 line-through decoration-muted-foreground/45 decoration-[1.5px] hover:text-foreground hover:decoration-transparent',
         lu && 'bg-stage/20 text-foreground',
-        selectionne && 'bg-stage/35 text-foreground decoration-foreground/40',
+        selected && 'bg-stage/35 text-foreground decoration-foreground/40',
       )}
     >
-      {mot.word}{' '}
+      {word.word}{' '}
     </span>
   )
 }

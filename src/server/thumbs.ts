@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import { thumbArgs } from '@/core/ffmpeg/args'
 import { getClip, getDb } from '@/server/db'
-import { cheminTemporaire, runFfmpeg } from '@/server/ffmpeg'
+import { pathTemporary, runFfmpeg } from '@/server/ffmpeg'
 import { projectDir, proxyPath } from '@/server/paths'
 
 /**
@@ -30,21 +30,21 @@ import { projectDir, proxyPath } from '@/server/paths'
  * accents et espaces, qu'on ne peut pas refuser sans casser la bibliothèque.
  * Ce qui est refusé est ce qui permet de sortir du dossier.
  */
-function vérifierIdClip(clipId: string): string {
-  const refusé =
+function verifyIdClip(clipId: string): string {
+  const rejected =
     clipId === '' ||
     clipId === '.' ||
     clipId === '..' ||
     clipId.includes('/') ||
     clipId.includes('\\') ||
     clipId.includes('\0')
-  if (refusé) throw new Error(`Identifiant de clip invalide : ${JSON.stringify(clipId)}`)
+  if (rejected) throw new Error(`Identifiant de clip invalide : ${JSON.stringify(clipId)}`)
   return clipId
 }
 
 /** `projects/<projet>/thumbs/<clip>.jpg`. */
 export function vignettePath(projectId: string, clipId: string): string {
-  return path.join(projectDir(projectId), 'thumbs', `${vérifierIdClip(clipId)}.jpg`)
+  return path.join(projectDir(projectId), 'thumbs', `${verifyIdClip(clipId)}.jpg`)
 }
 
 /**
@@ -54,7 +54,7 @@ export function vignettePath(projectId: string, clipId: string): string {
  * plutôt que rien, parce qu'une carte sans vignette dans une grille de vingt-cinq
  * se lit comme un chargement en cours.
  */
-export function instantVignette(clip: Clip): number {
+export function momentVignette(clip: Clip): number {
   return clip.segments[0]?.start ?? 0
 }
 
@@ -84,20 +84,20 @@ export async function vignette(clip: Clip): Promise<string | null> {
   if (fs.existsSync(destination)) return destination
 
   await fsp.mkdir(path.dirname(destination), { recursive: true })
-  const temporaire = cheminTemporaire(destination)
-  const instant = instantVignette(clip)
+  const temporary = pathTemporary(destination)
+  const moment = momentVignette(clip)
   try {
-    await runFfmpeg(thumbArgs({ src: proxy, dst: temporaire, at: instant }), {
-      quoi: `vignette de ${clip.id}`,
+    await runFfmpeg(thumbArgs({ src: proxy, dst: temporary, at: moment }), {
+      what: `vignette de ${clip.id}`,
     })
-    const àJour = getClip(getDb(), clip.id)
-    if (àJour !== undefined && instantVignette(àJour) !== instant) {
-      await fsp.rm(temporaire, { force: true }).catch(() => {})
+    const toDay = getClip(getDb(), clip.id)
+    if (toDay !== undefined && momentVignette(toDay) !== moment) {
+      await fsp.rm(temporary, { force: true }).catch(() => {})
       return null
     }
-    await fsp.rename(temporaire, destination)
+    await fsp.rename(temporary, destination)
   } catch (cause) {
-    await fsp.rm(temporaire, { force: true }).catch(() => {})
+    await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
   }
   return destination

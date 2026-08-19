@@ -1,6 +1,6 @@
 import { getClips, getDb, getProject } from '@/server/db'
-import { introuvable, json, route } from '@/server/http'
-import { candidat, transcriptDuProjet } from '@/server/vues'
+import { notFound, json, route } from '@/server/http'
+import { candidate, projectTranscript } from '@/server/views'
 
 /**
  * `GET /api/projects/:id/candidates` — les propositions, prêtes à trier.
@@ -16,13 +16,13 @@ import { candidat, transcriptDuProjet } from '@/server/vues'
  */
 export const GET = route(
   'GET /api/projects/:id/candidates',
-  async (_requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
+  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
     const db = getDb()
-    const projet = getProject(db, id)
-    if (projet === undefined) throw introuvable(`Projet inconnu : ${id}`)
+    const project = getProject(db, id)
+    if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
-    const transcript = await transcriptDuProjet(projet)
-    return json(getClips(db, id).map((clip) => candidat(clip, transcript)))
+    const transcript = await projectTranscript(project)
+    return json(getClips(db, id).map((clip) => candidate(clip, transcript)))
   },
 )

@@ -11,7 +11,7 @@ import { ffprobeBin } from '@/server/ffmpeg'
  */
 
 /** Le relevé, `null` partout où ffprobe n'a rien su dire. */
-export type Sondage = {
+export type Probe = {
   durationSec: number | null
   width: number | null
   height: number | null
@@ -19,7 +19,7 @@ export type Sondage = {
   fps: number | null
 }
 
-const VIDE: Sondage = { durationSec: null, width: null, height: null, fps: null }
+const EMPTY: Probe = { durationSec: null, width: null, height: null, fps: null }
 
 /**
  * La forme du JSON de ffprobe, telle qu'on la lit — pas telle qu'elle est.
@@ -29,16 +29,16 @@ const VIDE: Sondage = { durationSec: null, width: null, height: null, fps: null 
  * fichier corrompu rend un objet vide. Chaque champ est donc validé plutôt que
  * casté.
  */
-type SortieFfprobe = {
+type OutputFfprobe = {
   format?: { duration?: unknown }
   streams?: { width?: unknown; height?: unknown; r_frame_rate?: unknown }[]
 }
 
 /** Un nombre fini, ou `null`. `"N/A"`, `""` et `undefined` tombent ici. */
-function nombreOuNull(brut: unknown): number | null {
-  if (typeof brut === 'number') return Number.isFinite(brut) ? brut : null
-  if (typeof brut !== 'string' || brut.trim() === '') return null
-  const n = Number(brut)
+function numberOrNull(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+  if (typeof raw !== 'string' || raw.trim() === '') return null
+  const n = Number(raw)
   return Number.isFinite(n) ? n : null
 }
 
@@ -47,12 +47,12 @@ function nombreOuNull(brut: unknown): number | null {
  * `60000/1001` pour du 59,94. Un dénominateur nul (`0/0`) signale une cadence
  * inconnue, ce que ffprobe rend sur certaines pochettes.
  */
-function cadence(brut: unknown): number | null {
-  if (typeof brut !== 'string') return null
-  const m = /^(\d+)\/(\d+)$/.exec(brut.trim())
-  if (m === null) return nombreOuNull(brut)
-  const dénominateur = Number(m[2])
-  return dénominateur === 0 ? null : Number(m[1]) / dénominateur
+function rate(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null
+  const m = /^(\d+)\/(\d+)$/.exec(raw.trim())
+  if (m === null) return numberOrNull(raw)
+  const denominator = Number(m[2])
+  return denominator === 0 ? null : Number(m[1]) / denominator
 }
 
 /**
@@ -63,21 +63,21 @@ function cadence(brut: unknown): number | null {
  * plutôt qu'une exception — un fichier qu'on n'arrive pas à sonder reste un
  * fichier qu'on peut copier et transcrire, et la durée n'est qu'une commodité.
  */
-export function analyserSondage(json: string): Sondage {
-  let brut: SortieFfprobe
+export function analyzeProbe(json: string): Probe {
+  let raw: OutputFfprobe
   try {
-    brut = JSON.parse(json) as SortieFfprobe
+    raw = JSON.parse(json) as OutputFfprobe
   } catch {
-    return { ...VIDE }
+    return { ...EMPTY }
   }
-  if (brut === null || typeof brut !== 'object') return { ...VIDE }
+  if (raw === null || typeof raw !== 'object') return { ...EMPTY }
 
-  const flux = Array.isArray(brut.streams) ? brut.streams[0] : undefined
+  const stream = Array.isArray(raw.streams) ? raw.streams[0] : undefined
   return {
-    durationSec: nombreOuNull(brut.format?.duration),
-    width: nombreOuNull(flux?.width),
-    height: nombreOuNull(flux?.height),
-    fps: cadence(flux?.r_frame_rate),
+    durationSec: numberOrNull(raw.format?.duration),
+    width: numberOrNull(stream?.width),
+    height: numberOrNull(stream?.height),
+    fps: rate(stream?.r_frame_rate),
   }
 }
 
@@ -106,7 +106,7 @@ export function probe(
   file: string,
   timeoutMs = 120_000,
   signal?: AbortSignal,
-): Promise<Sondage> {
+): Promise<Probe> {
   const args = [
     '-v', 'error',
     '-select_streams', 'v:0',
@@ -114,15 +114,15 @@ export function probe(
     '-of', 'json',
     '--', file,
   ]
-  return new Promise<Sondage>((resolve) => {
+  return new Promise<Probe>((resolve) => {
     execFile(
       ffprobeBin(),
       args,
       // `REPLAY_DIR` est monté en 9p et décroche : sans délai de garde, un
       // sondage sur un montage mort suspend l'ingestion pour toujours.
       { timeout: timeoutMs, maxBuffer: 1 << 20, encoding: 'utf8', signal },
-      (erreur, stdout) => {
-        resolve(erreur !== null ? { ...VIDE } : analyserSondage(stdout))
+      (error, stdout) => {
+        resolve(error !== null ? { ...EMPTY } : analyzeProbe(stdout))
       },
     )
   })

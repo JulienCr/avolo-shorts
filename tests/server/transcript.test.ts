@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  cheminsCudnn,
-  environnementWorker,
-  épurerMandataire,
-  racineVenv,
+  pathsCudnn,
+  environmentWorker,
+  cleanProxy,
+  rootVenv,
 } from '@/server/steps/transcript'
 
 /**
@@ -15,25 +15,25 @@ import {
  * message ne nomme ni Python, ni le venv, ni pip.
  */
 
-describe('racineVenv', () => {
+describe('rootVenv', () => {
   it('remonte de l interpréteur au venv', () => {
-    expect(racineVenv('/home/julien/dev/rythmo-impro/diarizer/venv/bin/python')).toBe(
+    expect(rootVenv('/home/julien/dev/rythmo-impro/diarizer/venv/bin/python')).toBe(
       '/home/julien/dev/rythmo-impro/diarizer/venv',
     )
   })
 })
 
-describe('cheminsCudnn', () => {
+describe('pathsCudnn', () => {
   it('lit la version de Python dans le venv au lieu de la coder en dur', () => {
     // `run-wsl.sh` écrit `3.10` parce que c'est celle de sa machine. Un venv
     // reconstruit en 3.11 ferait échouer le chargement du modèle.
-    expect(cheminsCudnn('/venv', ['python3.11', 'pkgconfig'])).toEqual([
+    expect(pathsCudnn('/venv', ['python3.11', 'pkgconfig'])).toEqual([
       '/venv/lib/python3.11/site-packages/nvidia/cudnn/lib',
     ])
   })
 
   it('liste toutes les versions présentes plutôt que d en deviner une', () => {
-    expect(cheminsCudnn('/venv', ['python3.12', 'python3.10'])).toEqual([
+    expect(pathsCudnn('/venv', ['python3.12', 'python3.10'])).toEqual([
       '/venv/lib/python3.10/site-packages/nvidia/cudnn/lib',
       '/venv/lib/python3.12/site-packages/nvidia/cudnn/lib',
     ])
@@ -42,26 +42,26 @@ describe('cheminsCudnn', () => {
   it('retombe sur 3.10 quand le dossier lib est illisible', () => {
     // Un chemin inexistant dans `LD_LIBRARY_PATH` est ignoré par l'éditeur de
     // liens : la supposition ne coûte rien, et si elle est bonne elle sauve.
-    expect(cheminsCudnn('/venv', [])).toEqual([
+    expect(pathsCudnn('/venv', [])).toEqual([
       '/venv/lib/python3.10/site-packages/nvidia/cudnn/lib',
     ])
   })
 })
 
-describe('environnementWorker', () => {
+describe('environmentWorker', () => {
   it('pose les deux variables sans lesquelles rien ne démarre', () => {
-    const env = environnementWorker({ cudnn: ['/venv/cudnn'], base: {} })
+    const env = environmentWorker({ cudnn: ['/venv/cudnn'], base: {} })
     expect(env.TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD).toBe('1')
     expect(env.LD_LIBRARY_PATH).toBe('/venv/cudnn')
   })
 
   it('place cuDNN devant le chemin existant, qu il conserve', () => {
-    const env = environnementWorker({ cudnn: ['/venv/cudnn'], base: { LD_LIBRARY_PATH: '/usr/lib' } })
+    const env = environmentWorker({ cudnn: ['/venv/cudnn'], base: { LD_LIBRARY_PATH: '/usr/lib' } })
     expect(env.LD_LIBRARY_PATH).toBe('/venv/cudnn:/usr/lib')
   })
 
   it("ne laisse pas de segment vide — un ':' final désigne le dossier courant", () => {
-    const env = environnementWorker({ cudnn: ['/venv/cudnn'], base: { LD_LIBRARY_PATH: '' } })
+    const env = environmentWorker({ cudnn: ['/venv/cudnn'], base: { LD_LIBRARY_PATH: '' } })
     expect(env.LD_LIBRARY_PATH).toBe('/venv/cudnn')
     expect(env.LD_LIBRARY_PATH).not.toMatch(/:$/)
   })
@@ -70,7 +70,7 @@ describe('environnementWorker', () => {
     // La première version ne regardait que la valeur héritée entière, donc
     // `/usr/lib::/opt/lib:` la traversait telle quelle — avec ses deux segments
     // vides, chacun désignant le dossier courant. (relevé par Copilot)
-    const env = environnementWorker({
+    const env = environmentWorker({
       cudnn: ['/venv/cudnn'],
       base: { LD_LIBRARY_PATH: '/usr/lib::/opt/lib:' },
     })
@@ -79,13 +79,13 @@ describe('environnementWorker', () => {
   })
 
   it("conserve ce sans quoi un processus ne tourne pas", () => {
-    const env = environnementWorker({ cudnn: [], base: { PATH: '/usr/bin', HOME: '/home/julien' } })
+    const env = environmentWorker({ cudnn: [], base: { PATH: '/usr/bin', HOME: '/home/julien' } })
     expect(env.PATH).toBe('/usr/bin')
     expect(env.HOME).toBe('/home/julien')
   })
 
   it("n'ajoute pas de HF_TOKEN : sans diarisation, aucun jeton n'est exigé", () => {
-    const env = environnementWorker({ cudnn: [], base: {} })
+    const env = environmentWorker({ cudnn: [], base: {} })
     expect(env.HF_TOKEN).toBeUndefined()
     expect(Object.keys(env).sort()).toEqual(['LD_LIBRARY_PATH', 'TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD'])
   })
@@ -95,7 +95,7 @@ describe('environnementWorker', () => {
     // par `onLog`, que la tâche 10 exposera à un client HTTP. Il suffit qu'une
     // bibliothèque Python vide son environnement dans une trace.
     // (relevé par Aristarque)
-    const env = environnementWorker({
+    const env = environmentWorker({
       cudnn: [],
       base: {
         GEMINI_API_KEY: 'secret',
@@ -113,7 +113,7 @@ describe('environnementWorker', () => {
         HOME: '/home/julien',
       },
     })
-    for (const nom of [
+    for (const name of [
       'GEMINI_API_KEY',
       'HF_TOKEN',
       'AWS_SECRET_ACCESS_KEY',
@@ -122,7 +122,7 @@ describe('environnementWorker', () => {
       'REDIS_URL',
       'DEPLOIEMENT_JETON_INTERNE',
     ]) {
-      expect(env[nom]).toBeUndefined()
+      expect(env[name]).toBeUndefined()
     }
     expect(JSON.stringify(env)).not.toContain('motdepasse')
     // Et rien d'utile n'est parti avec.
@@ -131,7 +131,7 @@ describe('environnementWorker', () => {
   })
 
   it('laisse passer les caches de modèles, sans quoi huit gigaoctets repartent', () => {
-    const env = environnementWorker({
+    const env = environmentWorker({
       cudnn: [],
       base: {
         HF_HOME: '/cache/hf',
@@ -151,7 +151,7 @@ describe('environnementWorker', () => {
   it("épure l'autorité des URLs de mandataire, qui portaient le secret par la bande", () => {
     // Nommer une variable dans une liste blanche dit qu'on veut *ce réglage*,
     // pas qu'on veut le secret qui voyage avec. (relevé par Aristarque)
-    const env = environnementWorker({
+    const env = environmentWorker({
       cudnn: [],
       base: {
         HTTP_PROXY: 'http://utilisateur:motdepasse@mandataire:3128',
@@ -167,21 +167,21 @@ describe('environnementWorker', () => {
   })
 })
 
-describe('épurerMandataire', () => {
+describe('cleanProxy', () => {
   it('laisse intacte une URL sans identifiants', () => {
-    expect(épurerMandataire('http://mandataire:3128')).toBe('http://mandataire:3128')
+    expect(cleanProxy('http://mandataire:3128')).toBe('http://mandataire:3128')
   })
 
   it("retire l'utilisateur et le mot de passe", () => {
-    expect(épurerMandataire('http://u:m@h:3128')).toBe('http://h:3128/')
-    expect(épurerMandataire('http://u@h:3128')).toBe('http://h:3128/')
+    expect(cleanProxy('http://u:m@h:3128')).toBe('http://h:3128/')
+    expect(cleanProxy('http://u@h:3128')).toBe('http://h:3128/')
   })
 
   it('traite aussi la forme sans schéma, qui porte le même secret', () => {
-    expect(épurerMandataire('u:motdepasse@hôte:3128')).toBe('hôte:3128')
+    expect(cleanProxy('u:motdepasse@hôte:3128')).toBe('hôte:3128')
   })
 
   it('laisse passer ce qui ne ressemble à rien plutôt que de le jeter', () => {
-    expect(épurerMandataire('localhost,127.0.0.1')).toBe('localhost,127.0.0.1')
+    expect(cleanProxy('localhost,127.0.0.1')).toBe('localhost,127.0.0.1')
   })
 })

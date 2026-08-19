@@ -9,19 +9,19 @@
  *
  * Une seule définition, lue par les deux.
  *
- * **Elle a déménagé dans `@/core/parcours` et ce module la ré-exporte.**
- * `phaseProjet` en a besoin pour l'axe du travail humain, et la frontière de
+ * **Elle a déménagé dans `@/core/phase` et ce module la ré-exporte.**
+ * `phaseProject` en a besoin pour l'axe du travail humain, et la frontière de
  * pureté interdit à `src/core` d'importer `src/lib` : la recopier là-bas aurait
  * rendu deux endroits à un module qui existe précisément parce qu'ils
  * divergeaient. Les appelants, eux, n'ont pas bougé.
  */
 
 import type { ClipStatus } from '@/core/edl'
-import { estEcarte, estGarde } from '@/core/parcours'
+import { isDiscarded, isGuard } from '@/core/phase'
 
-export { estEcarte, estGarde }
+export { isDiscarded, isGuard }
 
-export const LIBELLES_STATUT: Record<ClipStatus, string> = {
+export const LABELS_STATUS: Record<ClipStatus, string> = {
   candidate: 'proposition',
   kept: 'gardé',
   discarded: 'écarté',
@@ -39,10 +39,10 @@ export type Decision = 'kept' | 'discarded'
  * exiger un troisième bouton pour défaire coûterait une colonne de plus sur
  * vingt-cinq cartes.
  */
-export function basculerStatut(
-  courant: ClipStatus,
+export function toggleStatus(
+  current: ClipStatus,
   decision: Decision,
 ): Exclude<ClipStatus, 'exported'> {
-  const actif = decision === 'kept' ? estGarde(courant) : estEcarte(courant)
-  return actif ? 'candidate' : decision
+  const active = decision === 'kept' ? isGuard(current) : isDiscarded(current)
+  return active ? 'candidate' : decision
 }

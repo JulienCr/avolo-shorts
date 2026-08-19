@@ -2,7 +2,7 @@ import path from 'node:path'
 import { z } from 'zod'
 
 import { getClip, getDb } from '@/server/db'
-import { corps, introuvable, json, route } from '@/server/http'
+import { body, notFound, json, route } from '@/server/http'
 import { renderClip } from '@/server/steps/render'
 
 /**
@@ -26,30 +26,30 @@ import { renderClip } from '@/server/steps/render'
  * refuse pour cette raison précise.
  */
 
-const DEMANDE = z.strictObject({
+const REQUEST = z.strictObject({
   /** Refaire les rendus même s'ils sont déjà là. */
   force: z.boolean().optional(),
 })
 
 export const POST = route(
   'POST /api/clips/:id/export',
-  async (requête: Request, contexte: { params: Promise<{ id: string }> }) => {
-    const { id } = await contexte.params
-    const { force } = await corps(requête, DEMANDE)
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+    const { id } = await context.params
+    const { force } = await body(request, REQUEST)
 
     const db = getDb()
-    if (getClip(db, id) === undefined) throw introuvable(`Clip inconnu : ${id}`)
+    if (getClip(db, id) === undefined) throw notFound(`Clip inconnu : ${id}`)
 
-    const résultat = await renderClip(id, { db, force })
+    const result = await renderClip(id, { db, force })
 
     return json({
       // Relu après le rendu : c'est `renderClip` qui pose `exported`, et
       // l'appelant a besoin du clip tel qu'il est maintenant.
       clip: getClip(db, id),
-      mp4: path.basename(résultat.mp4),
-      variant9x16: résultat.variant9x16 === null ? null : path.basename(résultat.variant9x16),
-      texts: path.basename(résultat.texts),
-      skipped: résultat.skipped,
+      mp4: path.basename(result.mp4),
+      variant9x16: result.variant9x16 === null ? null : path.basename(result.variant9x16),
+      texts: path.basename(result.texts),
+      skipped: result.skipped,
     })
   },
 )

@@ -15,7 +15,7 @@
  */
 
 import type { Word } from '@/core/transcript'
-import { MAX_CHARS_DEFAUT, MAX_DURATION_DEFAUT } from './cards'
+import { MAX_CHARS_DEFAULT, MAX_DURATION_DEFAULT } from './cards'
 
 /**
  * L'apparence des sous-titres. Spec §9 : « ces valeurs deviennent un preset
@@ -42,7 +42,7 @@ export type CaptionStyle = {
 }
 
 /** La police embarquée dans `fonts/`, et le repli d'un nom vide ou illisible. */
-const POLICE_PAR_DEFAUT = 'Anton'
+const FONT_BY_DEFAULT = 'Anton'
 
 /**
  * Le BOM UTF-8 qui ouvre le fichier : c'est à lui que les lecteurs de
@@ -62,7 +62,7 @@ const BOM = '\uFEFF'
  * légende/pseudo et le bandeau musical — où la plateforme les recouvrait en
  * partie, alors même que le fichier exporté paraissait correct.
  */
-const MARGE_BASSE = 43
+const MARGIN_LOW = 43
 
 /**
  * Le look appliqué par défaut. Choisi dans openshorts en rendant quatre
@@ -72,52 +72,52 @@ const MARGE_BASSE = 43
  * celle qui se lit instantanément sur n'importe quel fond.
  */
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
-  fontName: POLICE_PAR_DEFAUT,
+  fontName: FONT_BY_DEFAULT,
   fontSize: 44,
   fontColor: '#FFFFFF',
   highlightColor: '#FFE500',
   borderColor: '#000000',
   borderWidth: 4,
   uppercase: true,
-  maxChars: MAX_CHARS_DEFAUT,
-  maxDuration: MAX_DURATION_DEFAUT,
-  marginV: MARGE_BASSE,
+  maxChars: MAX_CHARS_DEFAULT,
+  maxDuration: MAX_DURATION_DEFAULT,
+  marginV: MARGIN_LOW,
 }
 
-const HEX_COULEUR = /^[0-9A-Fa-f]{6}$/
+const HEX_COLOR = /^[0-9A-Fa-f]{6}$/
 
-/** Le nombre coercé et borné, ou `repli` s'il n'est pas un nombre fini. */
-function borner(valeur: number, min: number, max: number, repli: number): number {
-  const n = Number.isFinite(valeur) ? valeur : repli
+/** Le nombre coercé et borné, ou `fallback` s'il n'est pas un nombre fini. */
+function bound(value: number, min: number, max: number, fallback: number): number {
+  const n = Number.isFinite(value) ? value : fallback
   return Math.max(min, Math.min(max, n))
 }
 
 /**
- * Les six chiffres hexadécimaux d'une couleur, `repli` si l'entrée n'en est pas
+ * Les six chiffres hexadécimaux d'une couleur, `fallback` si l'entrée n'en est pas
  * une.
  *
  * Un repli plutôt qu'une exception : une couleur invalide vient d'un preset
  * édité à la main, et elle ne doit pas faire échouer un export de trois minutes.
  */
-function chiffres(couleur: string, repli: string): string {
-  const digits = String(couleur ?? '').replace(/^#/, '')
-  return HEX_COULEUR.test(digits) ? digits.toUpperCase() : repli
+function digits(color: string, fallback: string): string {
+  const digits = String(color ?? '').replace(/^#/, '')
+  return HEX_COLOR.test(digits) ? digits.toUpperCase() : fallback
 }
 
-function deuxChiffres(n: number): string {
+function twoDigits(n: number): string {
   return n.toString(16).toUpperCase().padStart(2, '0')
 }
 
 /**
  * `#RRGGBB` → `&HAABBGGRR`, la forme des couleurs du **bloc `[V4+ Styles]`**.
  *
- * `opacite` vaut 1 pour opaque et 0 pour transparent — l'inverse de l'alpha ASS,
+ * `opacity` vaut 1 pour opaque et 0 pour transparent — l'inverse de l'alpha ASS,
  * où 255 est transparent.
  */
-function couleurDeStyle(couleur: string, opacite: number, repli = 'FFFFFF'): string {
-  const d = chiffres(couleur, repli)
-  const alpha = Math.round((1 - borner(opacite, 0, 1, 1)) * 255)
-  return `&H${deuxChiffres(alpha)}${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}`
+function styleColor(color: string, opacity: number, fallback = 'FFFFFF'): string {
+  const d = digits(color, fallback)
+  const alpha = Math.round((1 - bound(opacity, 0, 1, 1)) * 255)
+  return `&H${twoDigits(alpha)}${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}`
 }
 
 /**
@@ -127,8 +127,8 @@ function couleurDeStyle(couleur: string, opacite: number, repli = 'FFFFFF'): str
  * aucune erreur : juste des couleurs inversées. `#FFE500` s'écrit `&H00E5FF&`
  * ici et `&H0000E5FF` là-haut.
  */
-function couleurEnLigne(couleur: string, repli = 'FFD700'): string {
-  const d = chiffres(couleur, repli)
+function colorInLine(color: string, fallback = 'FFD700'): string {
+  const d = digits(color, fallback)
   return `&H${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}&`
 }
 
@@ -142,8 +142,8 @@ function couleurEnLigne(couleur: string, repli = 'FFD700'): string {
  * qui laissait passer un événement de quatre millisecondes — écrit avec un début
  * et une fin identiques.
  */
-function centiemes(secondes: number): number {
-  return Math.round(Math.max(0, Number.isFinite(secondes) ? secondes : 0) * 100)
+function hundredths(seconds: number): number {
+  return Math.round(Math.max(0, Number.isFinite(seconds) ? seconds : 0) * 100)
 }
 
 /**
@@ -154,12 +154,12 @@ function centiemes(secondes: number): number {
  * écrêtait à 99 pour éviter un `0:00:59.100` — ce qui écrit `59,999` en
  * `0:00:59.99` et perd jusqu'à dix millisecondes au passage de chaque seconde.
  */
-function tempsAss(centis: number): string {
-  const heures = Math.floor(centis / 360000)
-  const minutes = Math.floor((centis % 360000) / 6000)
-  const s = Math.floor((centis % 6000) / 100)
-  const c = centis % 100
-  return `${heures}:${String(minutes).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
+function timeAss(hundredths: number): string {
+  const hours = Math.floor(hundredths / 360000)
+  const minutes = Math.floor((hundredths % 360000) / 6000)
+  const s = Math.floor((hundredths % 6000) / 100)
+  const c = hundredths % 100
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
 }
 
 /**
@@ -180,8 +180,8 @@ function tempsAss(centis: number): string {
  * lequel les lecteurs s'accordent. On remplace donc par un caractère voisin —
  * c'est ce que fait la version d'origine, éprouvée en production.
  */
-function echapper(texte: string): string {
-  return texte
+function escape(text: string): string {
+  return text
     .replace(/[\r\n]+/g, ' ')
     .replace(/\\/g, '/')
     .replace(/\{/g, '(')
@@ -195,11 +195,11 @@ function echapper(texte: string): string {
  * taille, les couleurs et la marge qui la suivent ; une accolade ou un antislash
  * y ouvriraient des balises.
  */
-function nomDePolice(nom: string): string {
-  const propre = String(nom ?? '')
+function fontName(name: string): string {
+  const clean = String(name ?? '')
     .replace(/[^A-Za-z0-9 _-]/g, '')
     .trim()
-  return propre === '' ? POLICE_PAR_DEFAUT : propre
+  return clean === '' ? FONT_BY_DEFAULT : clean
 }
 
 /**
@@ -230,27 +230,27 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   // La taille est exprimée dans le repère `PlayResY: 288`, pas en pixels de
   // l'image : le facteur 0,85 est celui de la version d'origine, à laquelle le
   // rendu de référence a été réglé. 44 devient donc 37.
-  const taille = Math.max(10, Math.floor(borner(style.fontSize, 10, 200, 44) * 0.85))
-  const police = nomDePolice(style.fontName)
+  const size = Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 44) * 0.85))
+  const font = fontName(style.fontName)
   // Le contour ne descend pas sous 1 : sur de la vidéo, du texte sans contour
   // devient illisible dès que le fond s'éclaircit. Une seule garde l'énonce —
   // borner à 0 puis remonter à 1 par un `Math.max` disait deux choses opposées,
   // et un preset réglé à 0 remontait à 1 sans un mot.
-  const epaisseur = Math.floor(borner(style.borderWidth, 1, 10, 4))
-  const marge = Math.round(borner(style.marginV, 0, 200, MARGE_BASSE))
+  const thickness = Math.floor(bound(style.borderWidth, 1, 10, 4))
+  const margin = Math.round(bound(style.marginV, 0, 200, MARGIN_LOW))
 
-  const principale = couleurDeStyle(style.fontColor, 1)
-  const contour = couleurDeStyle(style.borderColor, 1, '000000')
+  const main = styleColor(style.fontColor, 1)
+  const outline = styleColor(style.borderColor, 1, '000000')
   // Le `BackColour` sert l'ombre portée, qui est à zéro : entièrement
   // transparent, il ne peut rien assombrir.
-  const fond = couleurDeStyle('#000000', 0)
-  const surlignage = couleurEnLigne(style.highlightColor)
+  const background = styleColor('#000000', 0)
+  const highlight = colorInLine(style.highlightColor)
 
   // L'effet `pop` : le mot actif change de couleur et grossit en 110 ms. La
   // plage 90 → 108 est douce à dessein — le 75 → 112 d'une version antérieure
   // partait de si bas qu'une image saisie en pleine animation se lisait comme un
   // défaut de dimensionnement plutôt que comme un temps fort.
-  const motActif = `{\\c${surlignage}\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}`
+  const wordActive = `{\\c${highlight}\\fscx90\\fscy90\\t(0,110,\\fscx108\\fscy108)}`
 
   // `PlayResX` n'est volontairement pas déclaré, comme dans la version d'origine
   // dont le rendu fait référence. En ajouter un changerait l'échelle du texte
@@ -258,7 +258,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   //
   // `Alignment: 2` — bas centré. C'est ce que `marginV` mesure : une marge
   // depuis le bas.
-  const entete =
+  const header =
     BOM + '[Script Info]\n' +
     'ScriptType: v4.00+\n' +
     'PlayResY: 288\n' +
@@ -270,8 +270,8 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
     'OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ' +
     'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, ' +
     'Alignment, MarginL, MarginR, MarginV, Encoding\n' +
-    `Style: Default,${police},${taille},${principale},${principale},` +
-    `${contour},${fond},1,0,0,0,100,100,0,0,1,${epaisseur},0,2,10,10,${marge},1\n` +
+    `Style: Default,${font},${size},${main},${main},` +
+    `${outline},${background},1,0,0,0,100,100,0,0,1,${thickness},0,2,10,10,${margin},1\n` +
     '\n' +
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
@@ -288,20 +288,20 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
       // début » veut dire quelque chose. Comparées en secondes, deux bornes
       // distantes de quatre millisecondes passaient la garde et s'écrivaient
       // identiques.
-      const debut = centiemes(card[i].start)
-      const fin = centiemes(i < card.length - 1 ? card[i + 1].start : card[i].end)
-      if (fin <= debut) continue
+      const start = hundredths(card[i].start)
+      const fin = hundredths(i < card.length - 1 ? card[i + 1].start : card[i].end)
+      if (fin <= start) continue
 
-      const parts = card.map((autre, j) => {
-        const texte = style.uppercase ? echapper(autre.word).toUpperCase() : echapper(autre.word)
-        return j === i ? `${motActif}${texte}{\\r}` : texte
+      const parts = card.map((other, j) => {
+        const text = style.uppercase ? escape(other.word).toUpperCase() : escape(other.word)
+        return j === i ? `${wordActive}${text}{\\r}` : text
       })
 
       events.push(
-        `Dialogue: 0,${tempsAss(debut)},${tempsAss(fin)},Default,,0,0,0,,${parts.join(' ')}`,
+        `Dialogue: 0,${timeAss(start)},${timeAss(fin)},Default,,0,0,0,,${parts.join(' ')}`,
       )
     }
   }
 
-  return events.length === 0 ? entete : `${entete}${events.join('\n')}\n`
+  return events.length === 0 ? header : `${header}${events.join('\n')}\n`
 }

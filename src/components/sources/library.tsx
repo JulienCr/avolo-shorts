@@ -10,8 +10,8 @@ import {
   type Creation,
   type Entry,
 } from '@/components/sources/show-card'
-import { LigneMontage } from '@/components/sources/ligne-montage'
-import { pluriel } from '@/components/sources/textes'
+import { EditingLine } from '@/components/sources/editing-line'
+import { plural } from '@/components/sources/texts'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,7 +49,7 @@ const GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols
  * **La jointure est côté client, et le coût serveur ne bouge pas.** Les deux
  * requêtes existaient déjà. Celle qui aurait été évidente — un
  * `GET /api/projects/:id` par entrée, pour connaître les artefacts présents —
- * reste écartée : elle exécute `relevéPrésence`, qui sonde le montage 9p sous
+ * reste écartée : elle exécute `readingPresence`, qui sonde le montage 9p sous
  * délai de garde, et quatre fils du vivier de libuv suffisent à figer tout ce
  * qui touche au disque dans le serveur, analyse en cours comprise. `buildLibrary`
  * (`@/core/library`) fait l'appariement, pur et testable sans DOM.
@@ -92,14 +92,14 @@ export function LibraryGrid({
   /**
    * La liste brute des projets, pour la région live seulement.
    *
-   * Elle ne sert pas au rendu — les cartes lisent `entrées` —, mais l'annonce
+   * Elle ne sert pas au rendu — les cartes lisent `entries` —, mais l'annonce
    * porte sur les changements d'étape, donc sur les projets et non sur les
    * replays : un projet orphelin qui reprend son analyse doit s'entendre comme
    * les autres.
    */
   projects: readonly ProjectListItem[] | undefined
   /** L'état du montage qui porte les replays, ou `undefined` tant qu'on ne sait pas. */
-  mount: SourcesListing['montage'] | undefined
+  mount: SourcesListing['editing'] | undefined
   loading: boolean
   /** Le message **du serveur** pour `GET /api/sources`, ou `null`. */
   error: string | null
@@ -125,8 +125,8 @@ export function LibraryGrid({
     entries.length === 0
       ? null
       : [
-          pluriel(entries.length, 'émission', 'émissions'),
-          ...(counts.analyzed > 0 ? [pluriel(counts.analyzed, 'analysée', 'analysées')] : []),
+          plural(entries.length, 'émission', 'émissions'),
+          ...(counts.analyzed > 0 ? [plural(counts.analyzed, 'analysée', 'analysées')] : []),
         ].join(' · ')
 
   return (
@@ -218,8 +218,8 @@ export function LibraryGrid({
           existait : le partage pouvait être tombé, la bibliothèque montrait des
           cartes et se taisait sur la cause. Le vide du dossier, lui, reste un
           cas de grille — c'est là qu'il se lit. (relevé par Copilot) */}
-      {mount !== undefined && !mount.disponible && (
-        <LigneMontage montage={mount} onReessayer={onRetry} />
+      {mount !== undefined && !mount.available && (
+        <EditingLine editing={mount} onRetry={onRetry} />
       )}
 
       {!entriesKnown ? null : loading ? (
@@ -230,12 +230,12 @@ export function LibraryGrid({
             </li>
           ))}
         </ul>
-      ) : entries.length === 0 && mount !== undefined && mount.disponible ? (
+      ) : entries.length === 0 && mount !== undefined && mount.available ? (
         // Le vide de la bibliothèque **est** celui du dossier des replays : sans
         // fichier et sans projet, il n'y a rien à montrer et une seule question
         // à poser — le dossier a-t-il quelque chose dedans ? La cause vient du
         // serveur, qui seul sait ce qu'il a lu.
-        <LigneMontage montage={mount} onReessayer={onRetry} />
+        <EditingLine editing={mount} onRetry={onRetry} />
       ) : entries.length === 0 ? null : (
         <Tabs value={filter} onValueChange={(value) => setFilter(value as LibraryFilter)}>
           <div className="flex flex-wrap items-center justify-between gap-3">

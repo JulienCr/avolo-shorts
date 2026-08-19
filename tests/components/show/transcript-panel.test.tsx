@@ -52,7 +52,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-const LIGNES: TranscriptLine[] = [
+const LINES: TranscriptLine[] = [
   {
     id: 'l0',
     start: 10,
@@ -81,7 +81,7 @@ function stubFetch(rules: Rule[]) {
 }
 
 /** Sert `LIGNES` sur `GET .../transcript`. */
-function transcriptResponse(body: unknown = LIGNES): Rule {
+function transcriptResponse(body: unknown = LINES): Rule {
   return { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body }
 }
 
@@ -175,12 +175,12 @@ describe('TranscriptPanel — correction', () => {
     stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
-    expect(bonjour.getAttribute('aria-pressed')).toBe('false')
+    const hello = await screen.findByRole('button', { name: 'Bonjour' })
+    expect(hello.getAttribute('aria-pressed')).toBe('false')
 
-    await userEvent.setup().click(bonjour)
+    await userEvent.setup().click(hello)
 
-    expect(bonjour.getAttribute('aria-pressed')).toBe('true')
+    expect(hello.getAttribute('aria-pressed')).toBe('true')
   })
 
   it('majuscule-clique étend la sélection à plusieurs mots, dans la même phrase', async () => {
@@ -199,8 +199,8 @@ describe('TranscriptPanel — correction', () => {
       transcriptResponse(),
       correctionResponse({
         line: {
-          ...LIGNES[0],
-          words: [{ word: 'Salut', start: 10, end: 10.6 }, LIGNES[0].words[1], LIGNES[0].words[2]],
+          ...LINES[0],
+          words: [{ word: 'Salut', start: 10, end: 10.6 }, LINES[0].words[1], LINES[0].words[2]],
         },
         clipsTouched: [],
       }),
@@ -239,7 +239,7 @@ describe('TranscriptPanel — correction', () => {
     const call = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const method = init?.method ?? 'GET'
-      if (method === 'GET' && url.endsWith('/transcript')) return response(LIGNES)
+      if (method === 'GET' && url.endsWith('/transcript')) return response(LINES)
       if (method === 'POST' && url.endsWith('/transcript')) return pending
       throw new Error(`Aucune réponse simulée pour ${method} ${url}`)
     })
@@ -259,7 +259,7 @@ describe('TranscriptPanel — correction', () => {
 
     // La réponse débloquée efface la sélection (`clearSelection` au succès) :
     // le button disparaît, plutôt que de rester visible et actionnable.
-    unblock(response({ line: LIGNES[0], clipsTouched: [] }))
+    unblock(response({ line: LINES[0], clipsTouched: [] }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Corriger' })).toBeNull())
   })
 
@@ -278,7 +278,7 @@ describe('TranscriptPanel — correction', () => {
   it('nomme les clips touchés, pour rendre la conséquence explicite', async () => {
     stubFetch([
       transcriptResponse(),
-      correctionResponse({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
+      correctionResponse({ line: LINES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
     ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
@@ -310,7 +310,7 @@ describe('TranscriptPanel — correction', () => {
     }
     stubFetch([
       transcriptResponse(),
-      correctionResponse({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
+      correctionResponse({ line: LINES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
       { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
     ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
@@ -366,16 +366,16 @@ describe('la navigation au clavier', () => {
     stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
+    const hello = await screen.findByRole('button', { name: 'Bonjour' })
     const a = screen.getByRole('button', { name: 'à' })
-    expect(bonjour.getAttribute('tabindex')).toBe('0')
+    expect(hello.getAttribute('tabindex')).toBe('0')
     expect(a.getAttribute('tabindex')).toBe('-1')
 
-    bonjour.focus()
-    fireEvent.keyDown(bonjour, { key: 'ArrowRight' })
+    hello.focus()
+    fireEvent.keyDown(hello, { key: 'ArrowRight' })
 
     expect(a.getAttribute('tabindex')).toBe('0')
-    expect(bonjour.getAttribute('tabindex')).toBe('-1')
+    expect(hello.getAttribute('tabindex')).toBe('-1')
     expect(document.activeElement).toBe(a)
   })
 
@@ -383,9 +383,9 @@ describe('la navigation au clavier', () => {
     stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
-    bonjour.focus()
-    fireEvent.keyDown(bonjour, { key: 'Enter' })
+    const hello = await screen.findByRole('button', { name: 'Bonjour' })
+    hello.focus()
+    fireEvent.keyDown(hello, { key: 'Enter' })
 
     const field = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
     expect(field.value).toBe('Bonjour')
@@ -407,11 +407,11 @@ describe('la navigation au clavier', () => {
       }))
       stubFetch([transcriptResponse(sixty)])
       render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
-      const mot0 = await screen.findByRole('button', { name: 'mot0' })
-      mot0.focus()
+      const word0 = await screen.findByRole('button', { name: 'mot0' })
+      word0.focus()
       scrollTo.mockClear()
 
-      fireEvent.keyDown(mot0, { key: 'End' })
+      fireEvent.keyDown(word0, { key: 'End' })
 
       expect(scrollTo).toHaveBeenCalled()
     } finally {
@@ -429,7 +429,7 @@ describe('la navigation au clavier', () => {
     stubFetch([transcriptResponse(sixty)])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const mot0 = await screen.findByRole('button', { name: 'mot0' })
+    const word0 = await screen.findByRole('button', { name: 'mot0' })
     const container = document.querySelector('[data-surface-transcript-show]') as HTMLDivElement
     // Le mot du curseur (index 0) est rendu : ce conteneur n'est pas un
     // arrêt de tabulation, mot0 l'est.
@@ -440,7 +440,7 @@ describe('la navigation au clavier', () => {
     Object.defineProperty(container, 'scrollTop', { configurable: true, value: 5000, writable: true })
     fireEvent.scroll(container)
 
-    await waitFor(() => expect(document.body.contains(mot0)).toBe(false))
+    await waitFor(() => expect(document.body.contains(word0)).toBe(false))
     expect(container.getAttribute('tabindex')).toBe('0')
   })
 })

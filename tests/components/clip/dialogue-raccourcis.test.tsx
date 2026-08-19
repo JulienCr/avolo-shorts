@@ -11,16 +11,16 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { DialogueRaccourcis } from '@/components/clip/raccourcis'
+import { DialogueShortcuts } from '@/components/clip/shortcuts'
 
 afterEach(cleanup)
 
-describe('DialogueRaccourcis', () => {
+describe('DialogueShortcuts', () => {
   it('énumère les douze touches quand il est ouvert', () => {
-    render(<DialogueRaccourcis ouvert onOuvert={() => {}} />)
+    render(<DialogueShortcuts open onOpen={() => {}} />)
 
-    const boîte = screen.getByRole('dialog')
-    for (const touche of [
+    const box = screen.getByRole('dialog')
+    for (const key of [
       'Espace',
       'Ctrl+Z',
       'Ctrl+Shift+Z',
@@ -31,13 +31,13 @@ describe('DialogueRaccourcis', () => {
       'Ctrl+F',
       '?',
     ]) {
-      expect(screen.getByText(touche)).toBeTruthy()
+      expect(screen.getByText(key)).toBeTruthy()
     }
-    expect(boîte.textContent).toContain('lecture')
+    expect(box.textContent).toContain('lecture')
   })
 
   it('ne montre rien tant qu’il est fermé', () => {
-    render(<DialogueRaccourcis ouvert={false} onOuvert={() => {}} />)
+    render(<DialogueShortcuts open={false} onOpen={() => {}} />)
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

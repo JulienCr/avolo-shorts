@@ -66,17 +66,17 @@ const execFileP = promisify(execFile)
  * de 1Password.
  *
  * **La liste est exportée parce qu'elle en contraint une autre.**
- * `src/core/erreurs.ts` caviarde les références dans les messages servis par
+ * `src/core/errors.ts` caviarde les références dans les messages servis par
  * l'API, et la frontière de pureté lui interdit d'importer ce fichier : il en
  * recopie donc le préfixe à la main. Deux exemplaires d'une même vérité ne se
  * contraignent pas tout seuls, et la dépendance a vécu un temps en commentaire
  * des deux côtés — ce qui ne la faisait échouer nulle part.
- * `tests/core/erreurs.test.ts` lit désormais cette liste et exige que chacune
+ * `tests/core/errors.test.ts` lit désormais cette liste et exige que chacune
  * de ses formes ressorte caviardée : un préfixe ajouté ici sans passe
  * correspondante là-bas fait rougir la suite au lieu de sortir en silence sur
  * un dépôt public. (issue #49)
  */
-export const PRÉFIXES_DE_RÉFÉRENCE: readonly string[] = ['op://']
+export const REFERENCE_PREFIXES: readonly string[] = ['op://']
 
 /**
  * Ce qu'on laisse à `op`. Une lecture coûte 2,5 s, mais l'application peut
@@ -84,7 +84,7 @@ export const PRÉFIXES_DE_RÉFÉRENCE: readonly string[] = ['op://']
  * Le délai borne la panne : sans lui, un démarrage attendrait indéfiniment une
  * fenêtre que personne ne regarde.
  */
-const DÉLAI_MS = 60_000
+const DELAY_MS = 60_000
 
 /** Le binaire, surchargeable comme `FFMPEG_BIN` l'est pour ffmpeg. */
 function opBin(): string {
@@ -92,7 +92,7 @@ function opBin(): string {
 }
 
 /** Ce qui lit un secret. Injecté par les tests, qui ne lancent jamais `op`. */
-export type LecteurDeSecret = (référence: string) => Promise<string>
+export type SecretPlayer = (reference: string) => Promise<string>
 
 /**
  * Un environnement, et non `NodeJS.ProcessEnv`.
@@ -102,14 +102,14 @@ export type LecteurDeSecret = (référence: string) => Promise<string>
  * `NODE_ENV` qui n'a rien à voir avec ce qu'il vérifie. `process.env` reste
  * assignable à ce type-ci.
  */
-export type Environnement = Record<string, string | undefined>
+export type Environment = Record<string, string | undefined>
 
 /**
  * Ce qu'une référence nomme, sans son préfixe — `<coffre>/<fiche>/<champ>` —,
  * ou `undefined` quand la valeur n'est pas une référence.
  *
  * Le préfixe se sépare ici plutôt que chez l'appelant parce que c'est ici qu'on
- * sait lequel a mordu. `caviarderRéférencesConnues` (`src/server/erreurs.ts`)
+ * sait lequel a mordu. `redactReferencesKnown` (`src/server/errors.ts`)
  * s'en sert pour retirer d'un message d'erreur la référence entière **en
  * remettant son préfixe derrière** : c'est lui qui dit que la variable portait
  * une adresse et non une valeur littérale.
@@ -118,15 +118,15 @@ export type Environnement = Record<string, string | undefined>
  * `op://` reste une référence — mal formée, mais une référence —, simplement
  * elle ne nomme rien.
  */
-export function corpsDeRéférence(valeur: string | undefined): string | undefined {
-  if (valeur === undefined) return undefined
-  const préfixe = PRÉFIXES_DE_RÉFÉRENCE.find((p) => valeur.startsWith(p))
-  return préfixe === undefined ? undefined : valeur.slice(préfixe.length)
+export function referenceBody(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const prefix = REFERENCE_PREFIXES.find((p) => value.startsWith(p))
+  return prefix === undefined ? undefined : value.slice(prefix.length)
 }
 
 /** Une valeur est-elle une adresse plutôt qu'un secret ? */
-export function estRéférence(valeur: string | undefined): boolean {
-  return corpsDeRéférence(valeur) !== undefined
+export function isReference(value: string | undefined): boolean {
+  return referenceBody(value) !== undefined
 }
 
 /**
@@ -136,10 +136,10 @@ export function estRéférence(valeur: string | undefined): boolean {
  * ligne qu'il faudrait retirer — et retirer un saut de ligne final abîmerait un
  * secret qui en porte un pour de bon (une clé privée, par exemple).
  */
-async function lireDansOnePassword(référence: string): Promise<string> {
-  const { stdout } = await execFileP(opBin(), ['read', '--no-newline', référence], {
+async function lireInOnePassword(reference: string): Promise<string> {
+  const { stdout } = await execFileP(opBin(), ['read', '--no-newline', reference], {
     encoding: 'utf8',
-    timeout: DÉLAI_MS,
+    timeout: DELAY_MS,
   })
   return stdout
 }
@@ -153,15 +153,15 @@ async function lireDansOnePassword(référence: string): Promise<string> {
  * la porterait, n'est jamais lu ici.
  */
 function diagnostic(cause: unknown): string {
-  const erreur = cause as (Error & { stderr?: unknown }) | undefined
-  const stderr = typeof erreur?.stderr === 'string' ? erreur.stderr : ''
-  const brut = stderr.trim() !== '' ? stderr : (erreur?.message ?? String(cause))
-  return brut
+  const error = cause as (Error & { stderr?: unknown }) | undefined
+  const stderr = typeof error?.stderr === 'string' ? error.stderr : ''
+  const raw = stderr.trim() !== '' ? stderr : (error?.message ?? String(cause))
+  return raw
     .split('\n')
     // `[ERROR] 2026/08/18 15:07:28 ` : un horodatage à la seconde dans un
     // message d'erreur qui sera lu des mois plus tard ne dit rien à personne.
-    .map((ligne) => ligne.replace(/^\[ERROR]\s+\S+\s+\S+\s+/, '').trim())
-    .filter((ligne) => ligne !== '' && !ligne.startsWith('Command failed:'))
+    .map((line) => line.replace(/^\[ERROR]\s+\S+\s+\S+\s+/, '').trim())
+    .filter((line) => line !== '' && !line.startsWith('Command failed:'))
     .join(' ')
 }
 
@@ -176,7 +176,7 @@ function diagnostic(cause: unknown): string {
  * générique — qui montre de toute façon le diagnostic brut. Le sens de l'erreur
  * est celui-là. (relevé par Copilot et par Aristarque)
  */
-const PAS_DÉVERROUILLÉ =
+const NOT_UNLOCKED =
   /not (?:currently )?signed in|(?:isn'?t|not) authoriz|connecting to desktop app|authorization (?:prompt|timeout)/i
 
 /**
@@ -187,7 +187,7 @@ const PAS_DÉVERROUILLÉ =
  * 1Password verrouillé, une fiche renommée ou un `op` absent. Trois causes, trois
  * gestes différents : les distinguer ici évite de les chercher là-bas.
  */
-function remède(cause: unknown): string {
+function fix(cause: unknown): string {
   if ((cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
     return (
       'La commande « op » est introuvable. Installer 1Password CLI ' +
@@ -209,21 +209,21 @@ function remède(cause: unknown): string {
   // Aristarque, qui demandait à ce que ce soit vérifié)
   if ((cause as { killed?: unknown } | undefined)?.killed === true) {
     return (
-      `1Password n'a pas répondu en ${DÉLAI_MS / 1000} s. L'application attend ` +
+      `1Password n'a pas répondu en ${DELAY_MS / 1000} s. L'application attend ` +
       "peut-être une approbation : la déverrouiller, puis relancer."
     )
   }
-  const dit = diagnostic(cause)
+  const said = diagnostic(cause)
   // Une cause sans un mot à dire. Rare, mais un message qui commence par « . »
   // fait douter de sa propre exactitude.
-  if (dit === '') {
+  if (said === '') {
     return '`op` a échoué sans rien dire. « op read <référence> » rejoue l\'appel.'
   }
-  const point = dit.endsWith('.') ? '' : '.'
-  if (PAS_DÉVERROUILLÉ.test(dit)) {
-    return `${dit}${point} Déverrouiller l'application 1Password, ou « op signin », puis relancer.`
+  const point = said.endsWith('.') ? '' : '.'
+  if (NOT_UNLOCKED.test(said)) {
+    return `${said}${point} Déverrouiller l'application 1Password, ou « op signin », puis relancer.`
   }
-  return `${dit}${point} « op read <référence> » rejoue l'appel ; vérifier le coffre, la fiche et le nom du champ.`
+  return `${said}${point} « op read <référence> » rejoue l'appel ; vérifier le coffre, la fiche et le nom du champ.`
 }
 
 /**
@@ -239,29 +239,29 @@ function remède(cause: unknown): string {
  * (relevé par Copilot)
  *
  * **Le message ne cite pas la référence**, contrairement à ceux de
- * `résoudreSecrets`, et la différence n'est pas un oubli. Cette erreur-ci est
+ * `resolveSecrets`, et la différence n'est pas un oubli. Cette erreur-ci est
  * levée *en servant* : elle remonte par `runCandidates`, `status.json` et le
  * champ `error` de `GET /api/projects/:id` jusqu'à un client HTTP. Or
- * `épurerChemins` ne la nettoie pas — vérifié : `POSIX_NU` exclut un `/`
+ * `cleanPaths` ne la nettoie pas — vérifié : `POSIX_BARE` exclut un `/`
  * précédé de `:` ou d'un autre `/`, donc `op://Personal/Avolo-Shorts/…` passe
  * intact —, et le nom du coffre et de la fiche sortiraient sur un dépôt public.
  * L'opérateur, lui, a son propre `.env` sous les yeux : la référence ne lui
- * apprend rien. Celles de `résoudreSecrets` restent complètes parce qu'elles ne
+ * apprend rien. Celles de `resolveSecrets` restent complètes parce qu'elles ne
  * quittent jamais le terminal du démarrage. (relevé par Aristarque)
  */
-export function exigerSecret(nom: string, env: Environnement = process.env): string {
-  const valeur = env[nom]
-  if (valeur === undefined || valeur === '') {
-    throw new Error(`${nom} n'est pas définie. Voir .env.example.`)
+export function requireSecret(name: string, env: Environment = process.env): string {
+  const value = env[name]
+  if (value === undefined || value === '') {
+    throw new Error(`${name} n'est pas définie. Voir .env.example.`)
   }
-  if (estRéférence(valeur)) {
+  if (isReference(value)) {
     throw new Error(
-      `${nom} vaut encore une adresse 1Password (op://…), donc la résolution du ` +
+      `${name} vaut encore une adresse 1Password (op://…), donc la résolution du ` +
         'démarrage a été défaite — typiquement un .env modifié pendant que le serveur ' +
         'tourne. Relancer le serveur.',
     )
   }
-  return valeur
+  return value
 }
 
 /**
@@ -284,50 +284,50 @@ export function exigerSecret(nom: string, env: Environnement = process.env): str
  * - **Les échecs se cumulent.** Deux références fausses valent deux lignes, pas
  *   deux démarrages ratés d'affilée.
  */
-export async function résoudreSecrets(
-  env: Environnement = process.env,
-  lire: LecteurDeSecret = lireDansOnePassword,
+export async function resolveSecrets(
+  env: Environment = process.env,
+  lire: SecretPlayer = lireInOnePassword,
 ): Promise<readonly string[]> {
   // Trié : ce que la fonction rend finit dans un journal, et un journal dont
   // l'ordre suit celui d'énumération de `process.env` se compare mal d'un
   // lancement à l'autre.
-  const noms = Object.keys(env)
-    .filter((nom) => nom !== 'OP_BIN' && estRéférence(env[nom]))
+  const names = Object.keys(env)
+    .filter((name) => name !== 'OP_BIN' && isReference(env[name]))
     .sort()
-  if (noms.length === 0) return []
+  if (names.length === 0) return []
 
   // Une lecture par référence **distincte**. Deux variables qui pointent le
   // même champ ne valent pas deux allers-retours de 2,5 s, ni deux approbations.
-  const lectures = new Map<string, Promise<string>>()
-  for (const nom of noms) {
-    const référence = env[nom] as string
-    if (!lectures.has(référence)) lectures.set(référence, lire(référence))
+  const reads = new Map<string, Promise<string>>()
+  for (const name of names) {
+    const reference = env[name] as string
+    if (!reads.has(reference)) reads.set(reference, lire(reference))
   }
 
-  const résultats = await Promise.allSettled([...lectures.values()])
-  const valeurs = new Map<string, PromiseSettledResult<string>>()
-  for (const [index, référence] of [...lectures.keys()].entries()) {
-    valeurs.set(référence, résultats[index] as PromiseSettledResult<string>)
+  const results = await Promise.allSettled([...reads.values()])
+  const values = new Map<string, PromiseSettledResult<string>>()
+  for (const [index, reference] of [...reads.keys()].entries()) {
+    values.set(reference, results[index] as PromiseSettledResult<string>)
   }
 
-  const échecs: string[] = []
-  const résolus: [string, string][] = []
-  for (const nom of noms) {
-    const référence = env[nom] as string
-    const résultat = valeurs.get(référence) as PromiseSettledResult<string>
-    if (résultat.status === 'rejected') {
-      échecs.push(`${nom} : impossible de lire ${référence}. ${remède(résultat.reason)}`)
-    } else if (résultat.value === '') {
+  const failures: string[] = []
+  const resolved: [string, string][] = []
+  for (const name of names) {
+    const reference = env[name] as string
+    const result = values.get(reference) as PromiseSettledResult<string>
+    if (result.status === 'rejected') {
+      failures.push(`${name} : impossible de lire ${reference}. ${fix(result.reason)}`)
+    } else if (result.value === '') {
       // Un champ vidé dans 1Password rendrait une chaîne vide, que le garde-fou
       // de `clientParDéfaut` prendrait pour une variable absente — donc un
       // message qui accuse le `.env` alors que le `.env` est juste.
-      échecs.push(`${nom} : 1Password rend une valeur vide pour ${référence}. Le champ est vide.`)
+      failures.push(`${name} : 1Password rend une valeur vide pour ${reference}. Le champ est vide.`)
     } else {
-      résolus.push([nom, résultat.value])
+      resolved.push([name, result.value])
     }
   }
-  if (échecs.length > 0) throw new Error(échecs.join('\n'))
+  if (failures.length > 0) throw new Error(failures.join('\n'))
 
-  for (const [nom, valeur] of résolus) env[nom] = valeur
-  return noms
+  for (const [name, value] of resolved) env[name] = value
+  return names
 }

@@ -35,7 +35,7 @@ describe('Ollama : la traduction des raisons de fin', () => {
 
   it('met les autres raisons en majuscules, sans inventer de refus de contenu', () => {
     // Un modèle local n'a pas de filtre fournisseur : rien ici ne doit
-    // produire une raison que `REFUS_DE_CONTENU` reconnaîtrait.
+    // produire une raison que `CONTENT_REJECTION` reconnaîtrait.
     expect(toFinishReason('stop')).toBe('STOP')
   })
 

@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, type ProjectStatus, type TranscriptCorrectionResult } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
-import { cles, useCorrectTranscript, useProjet, useTranscript } from '@/lib/queries'
+import { keys, useCorrectTranscript, useProject, useTranscript } from '@/lib/queries'
 
 function response(body: unknown, status = 200): Response {
   return {
@@ -92,7 +92,7 @@ describe('useCorrectTranscript', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(correctionResult)))
     const { client, wrapper } = harness()
-    client.setQueryData(cles.transcript('p1'), lines)
+    client.setQueryData(keys.transcript('p1'), lines)
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
     await act(async () => {
@@ -103,7 +103,7 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lines[0], correctionResult.line])
+    expect(client.getQueryData(keys.transcript('p1'))).toEqual([lines[0], correctionResult.line])
   })
 
   it('remonte un 409 quand le texte a changé sous les yeux', async () => {
@@ -132,7 +132,7 @@ describe('useCorrectTranscript', () => {
       vi.fn(async () => response({ error: 'Le texte a changé sous vos yeux.' }, 409)),
     )
     const { client, wrapper } = harness()
-    client.setQueryData(cles.transcript('p1'), lines)
+    client.setQueryData(keys.transcript('p1'), lines)
     const invalidate = vi.spyOn(client, 'invalidateQueries')
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
@@ -144,11 +144,11 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.transcript('p1') })
   })
 
   it('retire du cache une phrase vidée de tous ses mots — pas de ligne fantôme', async () => {
-    // `lignesDuTranscript` (src/server/vues.ts) écarte une phrase sans mot
+    // `transcriptLines` (src/server/views.ts) écarte une phrase sans mot
     // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.
     // Le cache doit dire la même chose, sans attendre un rechargement complet.
     const correctionResult: TranscriptCorrectionResult = {
@@ -157,7 +157,7 @@ describe('useCorrectTranscript', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(correctionResult)))
     const { client, wrapper } = harness()
-    client.setQueryData(cles.transcript('p1'), lines)
+    client.setQueryData(keys.transcript('p1'), lines)
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
     await act(async () => {
@@ -168,7 +168,7 @@ describe('useCorrectTranscript', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lines[1]])
+    expect(client.getQueryData(keys.transcript('p1'))).toEqual([lines[1]])
   })
 })
 
@@ -182,7 +182,7 @@ const runningStatus: ProjectStatus = {
   sizeBytes: null,
 }
 
-describe('useProjet', () => {
+describe('useProject', () => {
   it('invalide le transcript quand une exécution se termine, comme les candidats', async () => {
     // Le panneau de transcript reste monté et sa requête reste fraîche trente
     // secondes (`src/app/providers.tsx`) : sans cette invalidation, la fin
@@ -190,18 +190,18 @@ describe('useProjet', () => {
     // Copilot et par Aristarque)
     vi.stubGlobal('fetch', vi.fn(async () => response(runningStatus)))
     const { client, wrapper } = harness()
-    client.setQueryData(cles.projet('p1'), runningStatus)
+    client.setQueryData(keys.projet('p1'), runningStatus)
     const invalidate = vi.spyOn(client, 'invalidateQueries')
 
-    const { result } = renderHook(() => useProjet('p1'), { wrapper })
+    const { result } = renderHook(() => useProject('p1'), { wrapper })
     await waitFor(() => expect(result.current.data?.running).not.toBeNull())
 
     await act(async () => {
-      client.setQueryData(cles.projet('p1'), { ...runningStatus, running: null })
+      client.setQueryData(keys.projet('p1'), { ...runningStatus, running: null })
     })
     await waitFor(() => expect(result.current.data?.running).toBeNull())
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.candidats('p1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.transcript('p1') })
   })
 })

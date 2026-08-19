@@ -6,6 +6,13 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // scripts/rename-73/*.mts s'importent entre eux avec l'extension .mts
+    // explicite — nécessaire à tsx (loader ESM natif de Node, contrairement
+    // au bundler de Next) pour résoudre ces fichiers à l'exécution. `tsc`
+    // refuse ça par défaut sous moduleResolution "bundler" ; ce drapeau est
+    // la voie officielle pour l'accepter, et il exige `noEmit` — déjà vrai
+    // ici, donc sans effet sur ce que Next construit.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

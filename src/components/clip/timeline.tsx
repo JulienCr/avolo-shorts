@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { useLecture } from '@/components/clip/lecture'
+import { usePlayback } from '@/components/clip/playback'
 import type { Segment } from '@/core/edl'
 import type { PublishedFraming } from '@/lib/api'
 import { clipBounds } from '@/lib/editing'
@@ -105,7 +105,7 @@ export function Timeline({
    * lues dans la même fermeture partent toutes de la même borne et calculent
    * trois fois le même résultat — l'oreille n'avance que d'un cran et paraît
    * collée. C'est le défaut exact que le curseur de cadrage a déjà payé, où la
-   * forme fonctionnelle de `deplacerCrop` le règle ; ici la cible est absolue,
+   * forme fonctionnelle de `moveCrop` le règle ; ici la cible est absolue,
    * donc c'est une référence qui la tient à jour. (relevé par Aristarque)
    */
   const boundsRef = useRef(bounds)
@@ -214,12 +214,12 @@ export function Timeline({
    * contrôle qui ne répondrait qu'au pointeur retirerait donc au clavier une
    * capacité neuve, et pas un doublon. (relevé par Copilot)
    *
-   * La position part de `useLecture` plutôt que d'un état local : c'est la même
+   * La position part de `usePlayback` plutôt que d'un état local : c'est la même
    * horloge que le lecteur, et deux sources divergeraient dès la première
    * lecture.
    */
   const stepPlayhead = (step: number) => {
-    const from = useLecture.getState().position
+    const from = usePlayback.getState().position
     onScrub(clampToSource(from + step, limit))
   }
 
@@ -300,12 +300,12 @@ export function Timeline({
         {/* **Les frontières de plans, lues et non calculées.** `analysis.json`
             pèse deux à trois méga-octets ; le serveur publie déjà le cadrage plan
             par plan, et c'est tout ce qu'il faut pour savoir où le cadre saute. */}
-        {framing.shots.slice(1).map((plan) => (
+        {framing.shots.slice(1).map((shot) => (
           <span
-            key={plan.key}
+            key={shot.key}
             aria-hidden
             className="absolute inset-y-2 w-px bg-foreground/25"
-            style={{ left: `${toFraction(plan.shot.start) * 100}%` }}
+            style={{ left: `${toFraction(shot.shot.start) * 100}%` }}
           />
         ))}
 
@@ -440,7 +440,7 @@ function Playhead({
   /** Une flèche : un déplacement relatif, en secondes. */
   onStep: (step: number) => void
 }) {
-  const position = useLecture((etat) => etat.position)
+  const position = usePlayback((state) => state.position)
   const time = ghost ?? position
   const left = Math.min(Math.max((time - view.start) / (view.end - view.start), 0), 1)
   return (

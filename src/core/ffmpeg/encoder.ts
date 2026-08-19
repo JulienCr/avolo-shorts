@@ -55,7 +55,7 @@ const NVENC: Record<QualityTier, readonly string[]> = {
  * Les arguments d'encodage vidéo, en copie : la table est une constante du
  * module, et un appelant qui la modifierait la modifierait pour tous.
  */
-export function videoEncodeArgs(encoder: EncoderName, quality: QualityTier): string[] {
+export function videoEncodedArgs(encoder: EncoderName, quality: QualityTier): string[] {
   return [...(encoder === 'nvenc' ? NVENC : X264)[quality]]
 }
 

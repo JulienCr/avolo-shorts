@@ -114,7 +114,7 @@ export function Timeline({
   }, [bounds])
 
   const draggingHandle = drag !== null && drag.edge !== null
-  const { setVideo: setPreviewVideo, canvas: previewCanvas } = useFramePreview(drag)
+  const { setVideo: setPreviewVideo, canvas: previewCanvas } = useFramePreview(drag, proxyUrl)
 
   const timeAtPointer = useCallback(
     (clientX: number): number | null => {
@@ -390,7 +390,12 @@ export function Timeline({
  * timecode seul reste identique vingt-neuf fois de suite.
  */
 function frameWithinSecond(time: number): number {
-  return Math.min(29, Math.floor((time - Math.floor(time)) / FRAME_STEP))
+  // **La tolérance n'est pas de la prudence.** `(100 + 1/30 - 100) / (1/30)`
+  // vaut un cheveu de moins que 1 en binaire : sans elle, la première flèche
+  // depuis une seconde entière annonce encore « image 0 », c'est-à-dire
+  // exactement le silence que cette annonce existe pour rompre.
+  // (relevé par Copilot)
+  return Math.min(29, Math.floor((time - Math.floor(time)) / FRAME_STEP + 1e-6))
 }
 
 /** Ramène un temps dans la source. */
@@ -563,7 +568,7 @@ function Handle({
  * décodeur sait tenir au lieu de le noyer. Ce n'est pas une optimisation, c'est
  * ce qui rend le geste tenable.
  */
-function useFramePreview(drag: Drag | null) {
+function useFramePreview(drag: Drag | null, proxyUrl: string | null) {
   const video = useRef<HTMLVideoElement | null>(null)
   /**
    * **Le montage du `<video>` réveille les effets — une référence ne le fait
@@ -620,8 +625,19 @@ function useFramePreview(drag: Drag | null) {
       }
       source.currentTime = next
     }
+    // **`error` compte comme une fin de recherche.** Un décodage refusé n'émet
+    // pas `seeked` : sans cette seconde porte, le verrou resterait pris jusqu'au
+    // prochain changement de source, et la vignette ne repartirait plus.
+    const onError = () => {
+      queued.current = null
+      inFlight.current = false
+    }
     source.addEventListener('seeked', onSeeked)
-    return () => source.removeEventListener('seeked', onSeeked)
+    source.addEventListener('error', onError)
+    return () => {
+      source.removeEventListener('seeked', onSeeked)
+      source.removeEventListener('error', onError)
+    }
   }, [mounted, paint])
 
   const time = drag?.time ?? null
@@ -660,15 +676,20 @@ function useFramePreview(drag: Drag | null) {
   }, [drag])
 
   /**
-   * **L'élément remplacé, lui, relâche tout.** Son `seeked` n'arrivera jamais :
+   * **La source qui change relâche tout.** Son `seeked` n'arrivera jamais :
    * personne ne relâcherait le verrou, et plus aucune vignette ne se peindrait.
-   * C'est le seul cas où la fin d'une recherche ne peut pas s'observer.
-   * (relevé par Aristarque)
+   *
+   * **Et « la source » n'est pas « le nœud ».** Naviguer vers un autre clip
+   * réutilise le même `<video>` — React le garde et ne change que son `src` —,
+   * donc un montage/démontage ne suffit pas à repérer le cas : une recherche
+   * en vol au moment de la navigation restait comptée pour toujours, et les
+   * demandes du clip suivant s'empilaient dans la file sans jamais partir.
+   * (relevé par Aristarque, précisé par Copilot)
    */
   useEffect(() => {
     queued.current = null
     inFlight.current = false
-  }, [mounted])
+  }, [mounted, proxyUrl])
 
   return { setVideo, canvas }
 }

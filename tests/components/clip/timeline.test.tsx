@@ -286,6 +286,15 @@ describe('la tête de lecture', () => {
     expect(onScrub.mock.calls[1][0]).toBeCloseTo(109.5, 5)
   })
 
+  it('compte l’image dès la première flèche, malgré les flottants', () => {
+    // `(100 + 1/30 - 100) / (1/30)` vaut un cheveu de moins que 1 en binaire :
+    // sans tolérance, la première flèche depuis une seconde entière annonce
+    // encore « image 0 » — exactement le silence que cette annonce rompt.
+    // (relevé par Copilot)
+    mount({ segments: [{ start: 100 + 1 / 30, end: 120 }] })
+    expect(handle('start').getAttribute('aria-valuetext')).toBe('0:01:40, image 1')
+  })
+
   it('annonce sa position en timecode', () => {
     mount()
     act(() => useLecture.getState().definirPosition(110.4))

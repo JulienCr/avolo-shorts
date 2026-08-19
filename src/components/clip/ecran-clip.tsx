@@ -477,7 +477,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
                 bouton qui les consomme ; la table des quatre zones les range
                 dans « Image », et une architecture qui ne ressemble pas à sa
                 propre description est une architecture qu'on ne retrouve pas. */}
-            <Marques
+            <BrandingControl
               branding={clip.branding}
               // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se
               // lit dans la barre d'application et dans le garde-fou de l'export.
@@ -598,7 +598,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
  * se rendre quand aucune marque n'est exploitable, et cette case est la seule
  * échappatoire — elle n'était atteignable qu'en `curl` avant d'exister.
  */
-function Marques({
+function BrandingControl({
   branding,
   onBranding,
 }: {

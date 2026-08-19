@@ -98,12 +98,32 @@ export function SettingsScreen() {
         <Separator />
 
         {settings.data !== undefined && (
-          <AiSection
-            values={settings.data.ai}
-            availability={availability.data}
-            disabled={save.isPending}
-            onChange={(patch) => save.mutateAsync({ ai: patch })}
-          />
+          <>
+            {/* **`isError`, pas seulement `data === undefined`.** Sans ce
+                contrôle, un échec de `/api/llm/availability` se lit comme un
+                chargement encore en cours : `AiSection` masque alors toutes
+                les alertes de clé absente, et un repérage peut se lancer sans
+                que la vérification qui existe pour le dire ait pu parler.
+                (relevé par Copilot) */}
+            {availability.isError && (
+              <Alert variant="destructive">
+                <TriangleAlert aria-hidden />
+                <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
+                <AlertDescription>{availability.error.message}</AlertDescription>
+                <AlertAction>
+                  <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
+                    Réessayer
+                  </Button>
+                </AlertAction>
+              </Alert>
+            )}
+            <AiSection
+              values={settings.data.ai}
+              availability={availability.data}
+              disabled={save.isPending}
+              onChange={(patch) => save.mutateAsync({ ai: patch })}
+            />
+          </>
         )}
 
         <Separator />

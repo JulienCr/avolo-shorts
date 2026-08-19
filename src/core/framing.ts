@@ -532,14 +532,14 @@ export function trimmedBounds(
   box: PersonBox,
   options: FramingOptions = {},
 ): { x0: number; x1: number } {
-  const part = borner(réglage(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
-  const plafond = Math.max(0, réglage(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
-  const largeur = box.x1 - box.x0
+  const share = borner(réglage(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
+  const cap = Math.max(0, réglage(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
+  const width = box.x1 - box.x0
   // La demi-largeur borne le tout : au-delà, la boîte se retournerait, et une
   // borne gauche passée à droite de la borne droite est un empan négatif que
   // rien en aval ne saurait lire.
-  const rogné = Math.min(largeur * part, plafond, largeur / 2)
-  return { x0: box.x0 + rogné, x1: box.x1 - rogné }
+  const trimmed = Math.min(width * share, cap, width / 2)
+  return { x0: box.x0 + trimmed, x1: box.x1 - trimmed }
 }
 
 /**
@@ -566,6 +566,14 @@ export function trimmedBounds(
  * mesuré du 19 août — dégrader vers ce qui marchait vaut mieux que dégrader vers
  * un point.
  *
+ * **Et compter deux points ne suffit pas à garantir cette largeur**, ce qui a
+ * été relevé en review : deux points peuvent partager la même abscisse — le
+ * fichier arrondit à quatre décimales, et un profil pose l'œil sur l'oreille —,
+ * et un `torsoTrim` de 0,5 rabat sur son milieu un tronc que la tête ne rattrape
+ * pas. C'est donc la **largeur finale** qui décide, pas le compte des points :
+ * le repli sur la boîte doit valoir dans les trois cas, sans quoi la promesse du
+ * paragraphe précédent est fausse là où elle sert.
+ *
  * `torsoPad` élargit le résultat parce que **les points d'épaule sont les
  * centres des articulations** : pris à la lettre, le tronc passe au milieu de
  * chaque épaule. L'élargissement est proportionnel à la largeur du tronc, donc
@@ -575,10 +583,10 @@ export function torsoBounds(
   box: PersonBox,
   options: FramingOptions = {},
 ): { x0: number; x1: number } | null {
-  const nom = options.torso ?? FRAMING_DEFAULTS.torso
-  if (nom === 'off') return null
-  const rangs: readonly number[] | undefined = TORSOS[nom as TorsoName]
-  if (rangs === undefined) return null
+  const name = options.torso ?? FRAMING_DEFAULTS.torso
+  if (name === 'off') return null
+  const indices: readonly number[] | undefined = TORSOS[name as TorsoName]
+  if (indices === undefined) return null
 
   const k = box.k
   // La longueur est revérifiée ici et pas seulement au schéma : `PersonBox` est
@@ -586,43 +594,47 @@ export function torsoBounds(
   // passer par la validation d'I/O.
   if (k === undefined || k.length !== POINT_COUNT * 3) return null
 
-  const seuil = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
-  const étendue = (
-    lesquels: readonly number[],
-  ): { x0: number; x1: number; vus: number } => {
+  const threshold = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  const extentOf = (
+    which: readonly number[],
+  ): { x0: number; x1: number; seen: number } => {
     let x0 = Number.POSITIVE_INFINITY
     let x1 = Number.NEGATIVE_INFINITY
-    let vus = 0
-    for (const rang of lesquels) {
-      const x = k[rang * 3]
-      const confiance = k[rang * 3 + 2]
+    let seen = 0
+    for (const index of which) {
+      const x = k[index * 3]
+      const confidence = k[index * 3 + 2]
       // `!(c >= seuil)` et non `c < seuil`, comme partout ailleurs ici : un `NaN`
       // doit tomber du côté écarté.
-      if (!Number.isFinite(x) || !(confiance >= seuil)) continue
-      vus += 1
+      if (!Number.isFinite(x) || !(confidence >= threshold)) continue
+      seen += 1
       if (x < x0) x0 = x
       if (x > x1) x1 = x
     }
-    return { x0, x1, vus }
+    return { x0, x1, seen }
   }
 
-  const tronc = étendue(rangs)
-  if (tronc.vus < 2) return null
+  const torso = extentOf(indices)
+  if (torso.seen < 2) return null
 
   // **Le rognage du tronc, et la tête qui lui sert de plancher.** C'est toute la
   // différence avec `sideTrim` : celui-là abandonne des extrémités sans savoir
   // ce qu'elles contiennent, et son plafond n'est qu'un pari sur la position de
   // la tête. Ici la tête est connue, donc elle est simplement remise dedans, et
   // ce qui est abandonné ne peut être qu'une épaule.
-  const part = borner(réglage(options.torsoTrim, FRAMING_DEFAULTS.torsoTrim), 0, 0.5)
-  const rogné = (tronc.x1 - tronc.x0) * part
-  let x0 = tronc.x0 + rogné
-  let x1 = tronc.x1 - rogné
-  const tête = étendue(TORSOS.head)
-  if (tête.vus > 0) {
-    x0 = Math.min(x0, tête.x0)
-    x1 = Math.max(x1, tête.x1)
+  const share = borner(réglage(options.torsoTrim, FRAMING_DEFAULTS.torsoTrim), 0, 0.5)
+  const trimmed = (torso.x1 - torso.x0) * share
+  let x0 = torso.x0 + trimmed
+  let x1 = torso.x1 - trimmed
+  const head = extentOf(TORSOS.head)
+  if (head.seen > 0) {
+    x0 = Math.min(x0, head.x0)
+    x1 = Math.max(x1, head.x1)
   }
+
+  // La largeur finale, et non le compte des points : voir la note du bloc de
+  // documentation. Un tronc réduit à un point retombe sur la boîte.
+  if (!(x1 > x0)) return null
 
   const pad = Math.max(0, réglage(options.torsoPad, FRAMING_DEFAULTS.torsoPad)) * (x1 - x0)
   return { x0: x0 - pad, x1: x1 + pad }
@@ -718,10 +730,18 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
     }
   }
 
+  // **Les deux bornes sont ramenées dans [0, 1] des deux côtés**, et pas
+  // seulement chacune du sien. Depuis que l'empan se lit sur des points de pose,
+  // il peut sortir de l'image en entier : un point hors cadre est une
+  // information que `detect.py` écrit exprès sans la borner. Un tronc
+  // entièrement à gauche donnait alors `g = 0` et `d < 0`, donc une largeur
+  // **négative** qui traversait le choix du ratio et la position sans rien
+  // signaler. Borner des deux côtés rend au pire une largeur nulle, que le
+  // percentile lit comme « cette image n'exige rien ». (relevé par Copilot)
   return [...parImage.values()].map((e) => ({
     t: e.t,
-    g: Math.max(0, e.g - marge),
-    d: Math.min(1, e.d + marge),
+    g: borner(e.g - marge, 0, 1),
+    d: borner(e.d + marge, 0, 1),
   }))
 }
 

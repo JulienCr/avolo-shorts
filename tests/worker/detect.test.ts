@@ -298,3 +298,121 @@ describe('detect.py — le refus, en ligne de commande', () => {
     expect(stderr).toContain('ffmpeg a échoué')
   })
 })
+
+/**
+ * **Le chemin de pose, que la suite ne couvrait pas** — relevé par Copilot sur
+ * la PR #83. Deux invariants y tiennent tout le reste, et aucun n'échoue
+ * bruyamment quand il casse : un squelette attribué à la mauvaise personne
+ * ressemble à un squelette, et une confiance arrondie vers le haut ressemble à
+ * une confiance.
+ */
+describe('detect.py — les points de pose écrits à côté des boîtes', () => {
+  /**
+   * Le décor minimal : un résultat ultralytics factice, boîtes et points, tel
+   * que `boîtes_du_lot` le lit. Même patron que le test du score plus haut —
+   * Python n'est ici qu'un évaluateur, et rien de tout cela ne charge torch.
+   */
+  const DÉCOR = [
+    'class Tenseur:',
+    '    def __init__(self, v): self.v = v',
+    '    def tolist(self): return self.v',
+    'class Points:',
+    '    def __init__(self, v): self.data = Tenseur(v)',
+    'class Boîtes:',
+    '    def __init__(self, xyxy, conf):',
+    '        self.xyxy = Tenseur(xyxy)',
+    '        self.conf = Tenseur(conf)',
+    'class Résultat:',
+    '    def __init__(self, b, k=None):',
+    '        self.boxes = b',
+    '        self.keypoints = k',
+    // Dix-sept points identiques, sauf ceux qu'on précise : de quoi écrire un
+    // squelette de la bonne longueur sans le recopier à la main.
+    'def squelette(x, y, c, **precis):',
+    '    pts = [[float(x), float(y), float(c)] for _ in range(17)]',
+    '    for rang, v in precis.items():',
+    '        pts[int(rang[1:])] = [float(v[0]), float(v[1]), float(v[2])]',
+    '    return pts',
+  ].join('\n')
+
+  it('aplatit dix-sept triplets en fractions de l’image', () => {
+    const k = évaluer(
+      'print(json.dumps(detect.flatten_keypoints([[480.0, 270.0, 0.9]] * 17, 960, 540)))',
+    ) as number[]
+    expect(k).toHaveLength(51)
+    expect(k.slice(0, 3)).toEqual([0.5, 0.5, 0.9])
+  })
+
+  /**
+   * **La confiance est tronquée vers le bas, pas arrondie au plus proche.**
+   * `torsoMinScore` la lit avec un seuil inclusif : à 0,496 arrondi, un point
+   * que le réseau n'a pas vu entrait dans le tronc et déplaçait le crop. C'est
+   * le défaut déjà fermé pour `score` (ticket #40), reparu un champ plus loin.
+   */
+  it('ne remonte jamais une confiance jusqu’au seuil qui la lit', () => {
+    const k = évaluer(
+      'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 0.496]] * 17, 960, 540)))',
+    ) as number[]
+    expect(k[2]).toBe(0.49)
+    const juste = évaluer(
+      'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 0.5]] * 17, 960, 540)))',
+    ) as number[]
+    expect(juste[2]).toBe(0.5)
+  })
+
+  /**
+   * **Un point non fini sort à confiance nulle, position comprise.** Sans cette
+   * garde, `json.dump` écrit un littéral `NaN` que `JSON.parse` refuse : trois
+   * minutes de GPU produisent alors un `analysis.json` illisible, sans que rien
+   * n'ait échoué au moment de l'écrire. (relevé par Aristarque)
+   */
+  it('neutralise un point non fini au lieu d’écrire un JSON illisible', () => {
+    const k = évaluer(
+      "print(json.dumps(detect.flatten_keypoints([[float('nan'), 0.0, 0.9], " +
+        "[0.0, float('inf'), 0.9], [480.0, 270.0, float('nan')]] + [[480.0, 270.0, 0.9]] * 14, 960, 540)))",
+    ) as number[]
+    expect(k.slice(0, 9)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(k.slice(9, 12)).toEqual([0.5, 0.5, 0.9])
+    expect(k.every((v) => Number.isFinite(v))).toBe(true)
+  })
+
+  it('borne la confiance dans [0, 1], ce que le schéma exige', () => {
+    const k = évaluer(
+      'print(json.dumps(detect.flatten_keypoints([[0.0, 0.0, 1.4]] * 17, 960, 540)))',
+    ) as number[]
+    expect(k[2]).toBe(1)
+  })
+
+  /**
+   * **L'invariant qui n'échoue pas bruyamment.** Une boîte d'aire nulle sort de
+   * la boucle par un `continue` ; un itérateur parallèle sur les squelettes
+   * décalerait alors tous les suivants d'un cran, et chaque personne hériterait
+   * des points de sa voisine. Le fichier resterait parfaitement valide.
+   */
+  it('n’attribue pas le squelette d’une personne à sa voisine', () => {
+    const boîtes = évaluer(
+      [
+        DÉCOR,
+        // La première boîte est d'aire nulle une fois bornée : elle disparaît.
+        'b = Boîtes([[0.0, 0.0, 0.0, 0.0], [96.0, 54.0, 288.0, 486.0]], [0.9, 0.9])',
+        'k = Points([squelette(0, 0, 0.9), squelette(480, 270, 0.9)])',
+        'print(json.dumps(detect.boîtes_du_lot([Résultat(b, k)], 0, 2.0, 960, 540)))',
+      ].join('\n'),
+    ) as { x0: number; k: number[] }[]
+    expect(boîtes).toHaveLength(1)
+    // Celui de la seconde personne, à 0,5 — pas celui de la première, à 0.
+    expect(boîtes[0].k.slice(0, 3)).toEqual([0.5, 0.5, 0.9])
+  })
+
+  it('n’écrit aucun `k` quand le modèle ne rend pas de points', () => {
+    const boîtes = évaluer(
+      [
+        DÉCOR,
+        'b = Boîtes([[96.0, 54.0, 288.0, 486.0]], [0.9])',
+        'print(json.dumps(detect.boîtes_du_lot([Résultat(b)], 0, 2.0, 960, 540)))',
+      ].join('\n'),
+    ) as Record<string, unknown>[]
+    expect(boîtes).toHaveLength(1)
+    expect('k' in boîtes[0]).toBe(false)
+  })
+})

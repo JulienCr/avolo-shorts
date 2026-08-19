@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { POINT } from '@/core/shots'
 import { messageSûr } from '@/server/erreurs'
 import {
   commandeLisible,
@@ -10,7 +11,7 @@ import {
   lireAnalyse,
   runAnalysis,
   SCHÉMA_ANALYSE,
-  VERSIONS_ANALYSE,
+  ANALYSIS_VERSIONS,
 } from '@/server/steps/analysis'
 
 /**
@@ -209,7 +210,7 @@ describe('SCHÉMA_ANALYSE', () => {
     // La 2 porte les points de pose et le nom des poids ; la 1 est ce que le
     // détecteur écrivait avant le 19 août 2026, et les fichiers déjà sur le
     // disque doivent continuer de se relire sans qu'on relance le GPU.
-    for (const version of VERSIONS_ANALYSE) {
+    for (const version of ANALYSIS_VERSIONS) {
       expect(SCHÉMA_ANALYSE.safeParse({ ...ANALYSE_VALIDE, version }).success).toBe(true)
     }
   })
@@ -225,18 +226,18 @@ describe('SCHÉMA_ANALYSE', () => {
     // `undefined`, le tronc en sort vide, et le cadrage retombe sur la boîte
     // corps entier — c'est-à-dire sur le comportement d'avant, sous une
     // étiquette qui affirme le contraire.
-    const complet = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : 0.5))
-    const avecPoints = {
+    const complete = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : 0.5))
+    const withKeypoints = {
       ...ANALYSE_VALIDE,
       version: 2 as const,
       keypoints: 'coco17' as const,
-      boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complet }],
+      boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete }],
     }
-    expect(SCHÉMA_ANALYSE.safeParse(avecPoints).success).toBe(true)
+    expect(SCHÉMA_ANALYSE.safeParse(withKeypoints).success).toBe(true)
     expect(
       SCHÉMA_ANALYSE.safeParse({
-        ...avecPoints,
-        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complet.slice(0, 48) }],
+        ...withKeypoints,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: complete.slice(0, 48) }],
       }).success,
     ).toBe(false)
   })
@@ -244,14 +245,50 @@ describe('SCHÉMA_ANALYSE', () => {
   it('laisse un point de pose sortir du cadre, contrairement à une boîte', () => {
     // Une épaule que le bord de l'image coupe est une information ; une boîte
     // hors cadre ne désigne plus rien. Seule la confiance est bornée.
-    const dehors = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : -0.2))
+    const outside = Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? 0.9 : -0.2))
     expect(
       SCHÉMA_ANALYSE.safeParse({
         ...ANALYSE_VALIDE,
         version: 2 as const,
-        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: dehors }],
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: outside }],
       }).success,
     ).toBe(true)
+  })
+
+  /**
+   * **Et la confiance, elle, est bornée** — l'autre moitié de la phrase
+   * ci-dessus, qui n'était pas tenue.
+   *
+   * Le tableau est plat : `z.number()` ne distingue pas une abscisse d'une
+   * confiance, donc `-1` et `2` passaient au même titre qu'une coordonnée hors
+   * cadre. Ni l'un ni l'autre n'échoue bruyamment ensuite — ils franchissent
+   * `torsoMinScore` dans le mauvais sens, un point invisible entre dans le tronc
+   * ou un point vu en sort, et le crop se déplace sans que rien ne le dise.
+   * (relevé par Copilot)
+   */
+  it('refuse une confiance de point hors de [0, 1], au rang près', () => {
+    const k = (confiance: number): number[] =>
+      Array.from({ length: 51 }, (_, i) => (i % 3 === 2 ? confiance : 0.5))
+    const avec = (points: number[]): boolean =>
+      SCHÉMA_ANALYSE.safeParse({
+        ...ANALYSE_VALIDE,
+        version: 2 as const,
+        boxes: [{ ...ANALYSE_VALIDE.boxes[0], k: points }],
+      }).success
+
+    expect(avec(k(0))).toBe(true)
+    expect(avec(k(1))).toBe(true)
+    expect(avec(k(-1))).toBe(false)
+    expect(avec(k(2))).toBe(false)
+
+    // Un seul rang de confiance fautif suffit, et c'est bien le rang qui décide :
+    // la même valeur posée sur une abscisse reste acceptée.
+    const unSeul = k(0.9)
+    unSeul[POINT.LEFT_HIP * 3 + 2] = 1.4
+    expect(avec(unSeul)).toBe(false)
+    const surUneAbscisse = k(0.9)
+    surUneAbscisse[POINT.LEFT_HIP * 3] = 1.4
+    expect(avec(surUneAbscisse)).toBe(true)
   })
 
   it('refuse des dimensions de proxy nulles', () => {

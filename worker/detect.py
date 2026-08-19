@@ -331,9 +331,9 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
         # `None` sur un modèle de détection ; un tenseur (n, 17, 3) sur un modèle
         # de pose. Les deux restent lisibles par le même script, et c'est ce qui
         # permet de comparer les deux familles sans deux chemins de code.
-        points = getattr(résultat, "keypoints", None)
-        poses = None if points is None else points.data.tolist()
-        for indice, ((x0, y0, x1, y1), score) in enumerate(zip(coordonnées, confiances)):
+        keypoints = getattr(résultat, "keypoints", None)
+        poses = None if keypoints is None else keypoints.data.tolist()
+        for index, ((x0, y0, x1, y1), score) in enumerate(zip(coordonnées, confiances)):
             # Les coordonnées sont bornées à l'image : YOLO rend volontiers une
             # boîte qui déborde de quelques pixels quand le sujet est coupé par
             # le bord, et une fraction hors de [0, 1] ferait sortir le crop du
@@ -350,7 +350,7 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
             # personne de largeur nulle et refermerait le crop d'autant.
             if fx1 <= fx0 or fy1 <= fy0:
                 continue
-            sortie = {
+            out = {
                 "t": instant,
                 "x0": fx0,
                 "x1": fx1,
@@ -360,18 +360,18 @@ def boîtes_du_lot(résultats, indice_départ: int, fps: float, largeur: int, ha
                 # `framing.ts` est inclusif, et 0,4996 y devenait 0,5.
                 "score": arrondi_vers_le_bas(score, 3),
             }
-            # `poses[indice]` et non un `zip` de plus : une boîte d'aire nulle
+            # `poses[index]` et non un `zip` de plus : une boîte d'aire nulle
             # sort de la boucle par le `continue` ci-dessus, et un itérateur
             # parallèle décalerait alors tous les squelettes suivants d'un cran
             # — chaque personne héritant des points de sa voisine, sans que rien
             # ne le signale.
-            if poses is not None and indice < len(poses):
-                sortie["k"] = points_aplatis(poses[indice], largeur, hauteur)
-            sorties.append(sortie)
+            if poses is not None and index < len(poses):
+                out["k"] = flatten_keypoints(poses[index], largeur, hauteur)
+            sorties.append(out)
     return sorties
 
 
-def points_aplatis(points, largeur: int, hauteur: int) -> list[float]:
+def flatten_keypoints(keypoints, width: int, height: int) -> list[float]:
     """Dix-sept triplets ``x, y, confiance`` mis bout à bout, en fractions.
 
     **Les coordonnées ne sont pas bornées à [0, 1] comme celles des boîtes**, et
@@ -380,17 +380,33 @@ def points_aplatis(points, largeur: int, hauteur: int) -> list[float]:
     désigne plus rien. Ce qui lit ces points borne lui-même son résultat, comme
     `cropRect` le fait déjà pour la position du crop.
 
-    La confiance à deux décimales : elle ne sert qu'à écarter un point que le
-    réseau n'a pas vu, et le seuil qui la lira vit dans `FramingOptions`. Trois
-    décimales ajouteraient un dixième au poids du fichier pour un chiffre que
-    personne ne compare.
+    **La confiance est tronquée vers le bas**, pour la raison exacte du ``score``
+    d'une boîte : ``FramingOptions.torsoMinScore`` la lit avec un seuil
+    **inclusif**, donc un arrondi au plus proche remonterait 0,496 à 0,50 et
+    ferait entrer dans le tronc un point que le réseau n'a pas vu. Deux décimales
+    suffisent — le chiffre ne sert qu'à ce seuil, et trois ajouteraient un
+    dixième au poids du fichier. (relevé par Copilot)
+
+    **Un point non fini sort à confiance nulle**, position comprise. Ultralytics
+    ne promet rien sur ce point, et ce n'est pas le genre de promesse dont on
+    dépend : un seul ``NaN`` ferait écrire à ``json.dump`` un littéral que
+    ``JSON.parse`` refuse, donc une analyse entière — trois minutes de GPU —
+    illisible sans que rien n'ait échoué au moment de l'écrire. À confiance
+    nulle, le point est simplement « non vu », ce que tout ce qui le lit sait
+    déjà traiter. (relevé par Aristarque)
     """
-    plat: list[float] = []
-    for x, y, confiance in points:
-        plat.append(round(x / largeur, 4))
-        plat.append(round(y / hauteur, 4))
-        plat.append(round(confiance, 2))
-    return plat
+    flat: list[float] = []
+    for x, y, confidence in keypoints:
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(confidence)):
+            flat.extend((0.0, 0.0, 0.0))
+            continue
+        flat.append(round(x / width, 4))
+        flat.append(round(y / height, 4))
+        # Bornée en plus d'être tronquée : le schéma de `analysis.ts` exige une
+        # confiance dans [0, 1], et un modèle tiers n'est pas tenu de la rendre
+        # ainsi.
+        flat.append(min(max(arrondi_vers_le_bas(confidence, 2), 0.0), 1.0))
+    return flat
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +687,7 @@ def main() -> int:
     # découvrir. Le modèle est écrit à côté : deux familles de poids produisent
     # désormais ce fichier, et savoir laquelle l'a écrit se paie sinon en
     # relançant le GPU pour comparer.
-    résultat = {
+    analysis = {
         "version": 2,
         "fps": a.fps,
         "model": os.path.basename(a.model),
@@ -681,9 +697,13 @@ def main() -> int:
         "boxes": boîtes,
     }
     if pose:
-        résultat["keypoints"] = "coco17"
+        analysis["keypoints"] = "coco17"
+    # `allow_nan=False` : un flottant non fini écrirait un littéral `NaN` que
+    # `JSON.parse` refuse, donc une analyse illisible qu'aucune étape n'aurait
+    # signalée. `flatten_keypoints` neutralise déjà le cas connu ; ceci ferme
+    # tous les autres, et il vaut mieux échouer ici qu'à la lecture.
     with open(a.out, "w", encoding="utf-8") as f:
-        json.dump(résultat, f, ensure_ascii=False)
+        json.dump(analysis, f, ensure_ascii=False, allow_nan=False)
 
     journal(
         f"Écrit {a.out} : {len(découpe)} plans, {len(boîtes)} boîtes sur {images_vues} images, "

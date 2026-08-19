@@ -11,6 +11,7 @@ import {
   forwardAbort,
   type Artefact,
 } from '@/server/ffmpeg'
+import { POINT_COUNT } from '@/core/shots'
 import { probe } from '@/server/ffprobe'
 import { analysisPath, proxyPath } from '@/server/paths'
 
@@ -68,17 +69,6 @@ const SCHÉMA_PLAN = z
   .object({ start: z.number().min(0), end: z.number().min(0) })
   .refine((p) => p.end > p.start, { message: 'end doit être strictement après start' })
 
-/**
- * Le nombre de points d'un squelette COCO, et la longueur du tableau plat qui
- * les porte : dix-sept triplets `x, y, confiance`.
- *
- * **La longueur est vérifiée, pas supposée.** Un tableau plus court se lit sans
- * erreur — `k[3 * i]` rend `undefined`, qui devient `NaN` à la première
- * soustraction — et le tronc qui en sort est vide, donc le cadrage retombe
- * silencieusement sur la boîte corps entier. C'est-à-dire exactement le
- * comportement d'avant, sous une étiquette qui affirme le contraire.
- */
-const POINTS_COCO = 17
 
 const SCHÉMA_BOÎTE = z
   .object({
@@ -100,10 +90,20 @@ const SCHÉMA_BOÎTE = z
      * de la boîte : un point hors cadre est une information — une épaule que le
      * bord de l'image coupe —, alors qu'une boîte hors cadre ne désigne plus
      * rien. Seule la confiance l'est, puisqu'elle sert de seuil.
+     *
+     * **Et il faut le vérifier au rang, pas au type**, ce que la première
+     * version de ce schéma ne faisait pas : le tableau est plat, donc `z.number()`
+     * ne distingue pas une abscisse d'une confiance, et `-1` comme `2` passaient.
+     * Ni l'un ni l'autre n'échoue bruyamment — ils franchissent `torsoMinScore`
+     * dans le mauvais sens et font entrer ou sortir un point du tronc, ce qui
+     * déplace un crop sans rien signaler. (relevé par Copilot)
      */
     k: z
       .array(z.number().finite())
-      .length(POINTS_COCO * 3)
+      .length(POINT_COUNT * 3)
+      .refine((k) => k.every((v, i) => i % 3 !== 2 || (v >= 0 && v <= 1)), {
+        message: 'la confiance de chaque point de pose doit tenir dans [0, 1]',
+      })
       .optional(),
   })
   // Le domaine ne suffit pas : deux fractions parfaitement valides peuvent
@@ -177,10 +177,10 @@ function plansEnPartition(plans: readonly { start: number; end: number }[]): boo
  * trouvée et celles qu'il accepte, parce que « invalid literal » sur un champ
  * `version` n'apprend rien à qui vient de relancer une détection.
  */
-export const VERSIONS_ANALYSE = [1, 2] as const
+export const ANALYSIS_VERSIONS = [1, 2] as const
 
 export const SCHÉMA_ANALYSE = z.object({
-  version: z.literal(VERSIONS_ANALYSE),
+  version: z.literal(ANALYSIS_VERSIONS),
   /** Images analysées par seconde — 2, spec §6. */
   fps: z.number().positive(),
   /**
@@ -236,10 +236,10 @@ export function lireAnalyse(fichier: string): Analyse {
     // dire au lieu de laisser chercher dans les boîtes.
     const version: unknown =
       typeof brut === 'object' && brut !== null ? (brut as { version?: unknown }).version : undefined
-    if (!VERSIONS_ANALYSE.some((v) => v === version)) {
+    if (!ANALYSIS_VERSIONS.some((v) => v === version)) {
       throw new Error(
         `${path.basename(fichier)} est en version ${JSON.stringify(version)}, et ce dépôt lit ` +
-          `${VERSIONS_ANALYSE.join(' et ')}. Une version inconnue n'est pas lue à moitié : les ` +
+          `${ANALYSIS_VERSIONS.join(' et ')}. Une version inconnue n'est pas lue à moitié : les ` +
           'champs reconnus donneraient un cadrage plausible calculé sur une donnée dont le sens a ' +
           "changé. Relancer l'analyse (run --force sur analysis) réécrit le fichier au format du jour.",
       )

@@ -652,7 +652,7 @@ Les cinq constantes sont des **réglages globaux tenus en base** (table
 `settings`), modifiables sans toucher au code — et depuis le 19 août 2026, sans
 toucher à la base non plus : `GET` et `PUT /api/settings` les servent et les
 écrivent. La validation vient d'un **registre de champs décrits**
-(`src/server/db.ts`) — famille, type, plancher, défaut, libellé — et non d'un
+(`src/server/db.ts`) — famille, type, plancher, défaut — et non d'un
 schéma par famille : le repérage est la première, l'IA par usage et les défauts
 du hook suivent, et chacune aurait sinon réinventé ce que « hors bornes » veut
 dire. Le préfixe `selection.` de la clé stockée a été posé en prévoyant

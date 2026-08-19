@@ -199,15 +199,12 @@ describe('les réglages', () => {
 })
 
 describe('le registre des réglages', () => {
-  it('décrit chaque champ de DimensionsRepérage, libellé compris', () => {
-    // Le contrat du §6.2 du retour d'usage : « éviter de présenter uniquement
-    // les noms techniques des clés ». Un champ ajouté sans libellé casse le
-    // type-check ; celui-ci vérifie qu'aucun ne reste vide.
+  it('décrit chaque champ de DimensionsRepérage', () => {
+    // L'exhaustivité par le type : un champ ajouté à `DimensionsRepérage` sans
+    // venir dans `SELECTION_FIELDS` casse le type-check.
     for (const nom of Object.keys(DIMENSIONS_PAR_DÉFAUT)) {
       const champ = settingField('selection', nom)
       expect(champ, nom).toBeDefined()
-      expect(champ!.label.length).toBeGreaterThan(0)
-      expect(champ!.description.length).toBeGreaterThan(0)
       expect(champ!.defaultValue).toBe(DIMENSIONS_PAR_DÉFAUT[nom as keyof typeof DIMENSIONS_PAR_DÉFAUT])
     }
   })
@@ -245,7 +242,7 @@ describe('le registre des réglages', () => {
  * le modèle de chaque usage de langage, plus l'adresse d'un serveur Ollama.
  */
 describe('la famille `ai`', () => {
-  it('décrit ses sept champs, libellé compris', () => {
+  it('décrit ses sept champs', () => {
     for (const name of [
       'selectionProvider',
       'selectionModel',
@@ -257,8 +254,6 @@ describe('la famille `ai`', () => {
     ]) {
       const field = settingField('ai', name)
       expect(field, name).toBeDefined()
-      expect(field!.label.length).toBeGreaterThan(0)
-      expect(field!.description.length).toBeGreaterThan(0)
     }
   })
 
@@ -325,8 +320,6 @@ describe('la grammaire du registre', () => {
     name: 'temoin',
     type,
     defaultValue: type === 'integer' ? 1 : type === 'text' ? 'a' : false,
-    label: 'Témoin',
-    description: 'Un champ qui n’existe que pour ce test.',
     ...reste,
   })
 

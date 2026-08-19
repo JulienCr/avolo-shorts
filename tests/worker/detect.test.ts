@@ -788,20 +788,36 @@ describe('detect.py — --replay', () => {
     }
   }
 
-  it('recalcule les plans et recopie le reste tel quel', () => {
-    const { status, out } = runReplay(ANALYSIS, '')
+  it('rejette une bascule dont le raffinement échoue, plutôt que de la poser au milieu', () => {
+    const { status, out, stderr } = runReplay(ANALYSIS, '')
     expect(status).toBe(0)
     const result = JSON.parse(out)
     expect(result.version).toBe(2)
     expect(result.model).toBe('yolo11m-pose.pt')
     expect(result.boxes).toEqual(ANALYSIS.boxes)
-    // La bascule à 0,2 de déplacement collectif est détectée ; sans score de
-    // scène dans la fenêtre (0, 0,5 + 1/(2·2)] = (0, 0,75], `refine_switch`
-    // replie sur son milieu — (0 + 0,75) / 2 = 0,375.
+    // La bascule à 0,2 de déplacement collectif est détectée, mais sans score
+    // de scène dans la fenêtre (0, 0,5 + 1/(2·2)] = (0, 0,75] pour la
+    // confirmer : un seul signal sur les deux exigés, donc rejetée — le plan
+    // unique d'origine reste intact plutôt que de se couper à son milieu.
+    expect(result.shots).toEqual([{ start: 0, end: 20 }])
+    expect(stderr).toContain('0 bascules retenues sur 1 candidates, 1 rejetées')
+  })
+
+  it('retient une bascule dont le raffinement confirme l’image exacte', () => {
+    // Même bascule que ci-dessus, mais un score de scène tombe cette fois
+    // dans la fenêtre (0, 0,75] : le second signal confirme le premier, la
+    // frontière est posée à l'instant exact plutôt que rejetée.
+    const sceneScores = ['frame:0    pts:100 pts_time:0.6', 'lavfi.scene_score=0.500000'].join(
+      '\n',
+    )
+    const { status, out, stderr } = runReplay(ANALYSIS, sceneScores)
+    expect(status).toBe(0)
+    const result = JSON.parse(out)
     expect(result.shots).toEqual([
-      { start: 0, end: 0.375 },
-      { start: 0.375, end: 20 },
+      { start: 0, end: 0.6 },
+      { start: 0.6, end: 20 },
     ])
+    expect(stderr).toContain('1 bascules retenues sur 1 candidates, 0 rejetées')
   })
 
   it('sort par 2 sans --scene-scores', () => {

@@ -498,6 +498,12 @@ def flatten_keypoints(keypoints, width: int, height: int) -> list[float]:
 # lisse, n'interpole ni ne suit une caméra : une bascule détectée devient une
 # frontière de plus, au même titre qu'une coupe de scène — un plan qui portait
 # trois cadrages devient trois plans d'un cadrage chacun.
+#
+# **Une bascule dont le raffinement échoue est rejetée, pas posée au milieu de
+# sa fenêtre.** Le détecteur exige deux signaux indépendants ; n'en avoir qu'un
+# ne prouve rien, surtout quand le second — le score de scène — dit que rien de
+# visible ne change. Voir `refine_switch` pour les deux faux positifs qui l'ont
+# montré à l'image sur `cqlp`.
 
 
 def person_anchor(box: dict, min_point_score: float) -> float:
@@ -710,7 +716,7 @@ def refine_switch(
     t1: float, t2: float, events: list[tuple[float, float]], fps: float
 ) -> tuple[float, bool]:
     """L'image exacte d'une bascule détectée entre ``t1`` et ``t2`` — et si le
-    raffinement a réussi, pour que l'appelant compte le taux de repli.
+    raffinement a réussi, pour que l'appelant compte le taux de rejet.
 
     **Les deux passes ne partagent pas la même horloge.** ``-vf fps={fps}``
     affecte chaque image d'entrée à l'emplacement de sortie le plus proche,
@@ -728,11 +734,21 @@ def refine_switch(
     coller un cas : c'est la mesure du décalage entre les deux horloges,
     documentée pour ce qu'elle est.
 
-    **À défaut d'évènement dans la fenêtre, le milieu de l'intervalle de
-    contenu — choix minimax.** Sans score de scène pour trancher, aucune
-    position dans la fenêtre n'est mieux fondée qu'une autre ; le milieu
-    minimise l'écart maximal possible avec la vraie coupe, où qu'elle soit
-    tombée dans l'intervalle.
+    **À défaut d'évènement dans la fenêtre, le second signal ne confirme
+    rien : la bascule est rejetée, pas posée au milieu.** Le milieu de
+    l'intervalle de contenu — choix minimax — est encore rendu ci-dessous,
+    mais l'appelant (``main`` et ``run_replay``) le jette dès que ``refined``
+    vaut ``False`` : le principe de ce détecteur est d'exiger **deux** signaux
+    indépendants, et poser une frontière sur un seul en accepterait un,
+    précisément quand le second dit que rien de visible ne change. Deux faux
+    positifs l'ont prouvé à l'image sur ``2025-06-15-cqlp`` (t ≈ 1 111,9 et
+    1 182,4 s) : décor, cadre et panneau de chat identiques avant et après,
+    seules deux personnes qui bougent de concert — la translation que
+    ``composition_switches`` croyait voir n'existait que dans les boîtes,
+    jamais dans l'image. Voir « Distinguer l'absence d'information de son
+    ambiguïté » dans ``CLAUDE.md`` : un défaut prudent est juste quand
+    l'information manque, faux quand elle départage deux hypothèses
+    concurrentes — ici, bascule réelle ou mouvement de comédiens.
     """
     upper_bound = t2 + 1.0 / (2.0 * fps)
     window = [(t, s) for t, s in events if t1 < t <= upper_bound]
@@ -751,10 +767,10 @@ def refus_du_seuil_de_scène(
     seuil: float,
     plancher: float,
     plan_min: float = 1.0,
-    switch_shift: float = 0.10,
+    switch_shift: float = 0.08,
     switch_tolerance: float = 0.03,
-    switch_share: int = 6,
-    switch_point_score: float = 0.5,
+    switch_share: int = 8,
+    switch_point_score: float = 0.3,
 ) -> str | None:
     """Ce qui cloche dans les seuils du détecteur, ou ``None`` si rien.
 
@@ -960,24 +976,25 @@ def run_replay(a: argparse.Namespace) -> int:
         boxes, fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
     switch_boundary_times: list[float] = []
-    fallback_count = 0
+    rejected_count = 0
     for t1, t2 in switch_candidates:
         refined_t, refined = refine_switch(t1, t2, events, fps)
-        switch_boundary_times.append(refined_t)
-        if not refined:
-            fallback_count += 1
+        if refined:
+            switch_boundary_times.append(refined_t)
+        else:
+            rejected_count += 1
 
     boundaries = _spaced_boundaries(
         [*scene_boundary_times, *switch_boundary_times], duration, a.min_shot
     )
     analysis["shots"] = shots_from_boundaries(boundaries, duration)
 
-    fallback_rate = fallback_count / len(switch_candidates) if switch_candidates else 0.0
+    rejected_rate = rejected_count / len(switch_candidates) if switch_candidates else 0.0
     journal(
         f"Rejeu : {len(analysis['shots'])} plans, {len(boundaries)} frontières "
         f"({len(scene_boundary_times)} scène sur {len(events)} candidates, "
-        f"{len(switch_boundary_times)} bascules dont {fallback_count} en repli, "
-        f"{100 * fallback_rate:.0f} %)."
+        f"{len(switch_boundary_times)} bascules retenues sur {len(switch_candidates)} candidates, "
+        f"{rejected_count} rejetées faute de score de scène ({100 * rejected_rate:.0f} %))."
     )
 
     dossier = os.path.dirname(a.out)
@@ -1042,14 +1059,15 @@ def main() -> int:
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"
     )
-    # Les quatre seuils des bascules de composition. **Provisoires** : la valeur
-    # qui fait autorité vient de l'étalonnage (docs/ratios-par-clip.md), sur les
-    # quatre émissions du corpus. Celles-ci ne sont posées ici que pour que
-    # `composition_switches` ait un défaut sensé avant cet étalonnage.
+    # Les quatre seuils des bascules de composition. **Arrêtés par balayage**
+    # (256 combinaisons × 4 émissions du corpus, rejeu sans GPU ni ffmpeg via
+    # `--replay` — voir docs/ratios-par-clip.md pour la grille et la méthode de
+    # choix). Le plus grand `--switch-shift` qui referme le gisement mesuré sur
+    # `entre-nous` sans régresser `cqlp`, `caro-mdlm` ni `nabla`.
     p.add_argument(
         "--switch-shift",
         type=float,
-        default=0.10,
+        default=0.08,
         help="déplacement collectif minimal, en fraction de la largeur, pour déclarer une bascule",
     )
     p.add_argument(
@@ -1061,13 +1079,13 @@ def main() -> int:
     p.add_argument(
         "--switch-share",
         type=int,
-        default=6,
-        help="part de personnes appariées qui doit avoir bougé, en dixièmes (6 = 60 %%)",
+        default=8,
+        help="part de personnes appariées qui doit avoir bougé, en dixièmes (8 = 80 %%)",
     )
     p.add_argument(
         "--switch-point-score",
         type=float,
-        default=0.5,
+        default=0.3,
         help="confiance minimale d'un point de pose pour entrer dans l'ancrage d'une personne",
     )
     # **L'étalonnage sans GPU ni ffmpeg.** Les boîtes sont déjà dans un
@@ -1261,23 +1279,25 @@ def main() -> int:
         boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
     switch_boundary_times: list[float] = []
-    fallback_count = 0
+    rejected_count = 0
     for t1, t2 in switch_candidates:
         refined_t, refined = refine_switch(t1, t2, évènements, a.fps)
-        switch_boundary_times.append(refined_t)
-        if not refined:
-            fallback_count += 1
+        if refined:
+            switch_boundary_times.append(refined_t)
+        else:
+            rejected_count += 1
 
     boundaries = _spaced_boundaries(
         [*scene_boundary_times, *switch_boundary_times], a.duration, a.min_shot
     )
     découpe = shots_from_boundaries(boundaries, a.duration)
 
-    fallback_rate = fallback_count / len(switch_candidates) if switch_candidates else 0.0
+    rejected_rate = rejected_count / len(switch_candidates) if switch_candidates else 0.0
     journal(
         f"      {len(découpe)} plans, {len(boundaries)} frontières ({len(scene_boundary_times)} "
         f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(switch_boundary_times)} "
-        f"bascules dont {fallback_count} en repli, {100 * fallback_rate:.0f} %), en "
+        f"bascules retenues sur {len(switch_candidates)} candidates, {rejected_count} rejetées "
+        f"faute de score de scène ({100 * rejected_rate:.0f} %), en "
         f"{time.monotonic() - t0:.0f} s"
     )
 

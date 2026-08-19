@@ -1,9 +1,9 @@
 /**
  * **Le rectangle que le cadrage automatique découperait, dessiné sur l'image.**
  *
- *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp_004655941-004681822
- *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --marge 0.01 --ratio 1:1
- *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --trim 0 --images 3
+ *     pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp_004655941-004681822
+ *     pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp <clipId> --marge 0.01 --ratio 1:1
+ *     pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp <clipId> --trim 0 --images 3
  *
  * `<projectId>` est optionnel : `<clipId>` le contient (il se construit en
  * `${projectId}_${msDebut}-${msFin}`), donc un seul positionnel suffit quand on
@@ -272,7 +272,7 @@ async function main(): Promise<number> {
   }
   if (projectId === undefined || clipId === undefined) {
     console.error(
-      'Usage : pnpm tsx scripts/vignettes-cadrage.ts [<projectId>] <clipId> ' +
+      'Usage : pnpm tsx scripts/framing-thumbnails.ts [<projectId>] <clipId> ' +
         '[--marge M] [--trim T] [--tronc <nom|off>] [--ratio 9:16|4:5|1:1|16:9] ' +
         '[--images N] [--analyse <fichier>] [--out <dossier>]\n' +
         `<projectId> est optionnel : déduit de <clipId> quand un seul positionnel est passé.`,

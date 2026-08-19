@@ -150,6 +150,11 @@ function serveProxy(req: IncomingMessage, res: ServerResponse, filePath: string)
     }
     const stream = createReadStream(filePath)
     stream.on('error', () => res.destroy())
+    // `<video>` demande couramment le fichier entier puis l'abandonne aussitôt
+    // pour une requête `Range` — un scrub laisse alors `pipe` se détacher sans
+    // fermer le flux : le descripteur reste ouvert. Fermer le flux avec la
+    // réponse, pas seulement sur son erreur.
+    res.on('close', () => stream.destroy())
     stream.pipe(res)
     return
   }
@@ -176,6 +181,9 @@ function serveProxy(req: IncomingMessage, res: ServerResponse, filePath: string)
   }
   const stream = createReadStream(filePath, { start: range.start, end: range.end })
   stream.on('error', () => res.destroy())
+  // Même abandon à chaque saut de lecture : une requête `Range` chasse la
+  // précédente, dont le flux doit se fermer avec la réponse qu'elle servait.
+  res.on('close', () => stream.destroy())
   stream.pipe(res)
 }
 
@@ -410,9 +418,6 @@ async function loadProjects() {
 async function selectProject(id) {
   const generation = ++requestGeneration;
   video.src = \`/api/projects/\${encodeURIComponent(id)}/proxy\`;
-  boxesByTime = new Map();
-  sortedTimes = [];
-  shots = [];
   const clips = await (await fetch(\`/api/projects/\${encodeURIComponent(id)}/clips\`)).json();
   // Une sélection plus récente a déjà pris le dessus pendant l'attente : ne
   // pas peupler le sélecteur de clip avec la réponse d'un projet abandonné.
@@ -426,6 +431,15 @@ async function selectProject(id) {
 
 async function loadFraming(projectId, clipId, generation = ++requestGeneration) {
   statusEl.textContent = 'chargement...';
+  // Réinitialisé **avant** la requête, pas seulement à son retour : les
+  // sélecteurs affichent déjà la nouvelle sélection pendant l'attente, et
+  // « Copier le debug » ne doit pas attribuer les boîtes, le crop ou le proxy
+  // de l'ancien clip au nouveau pendant cet intervalle.
+  boxesByTime = new Map();
+  sortedTimes = [];
+  shots = [];
+  currentProxy = '';
+  currentNativeRatio = null;
   const url = clipId
     ? \`/api/projects/\${encodeURIComponent(projectId)}/framing/\${encodeURIComponent(clipId)}\`
     : \`/api/projects/\${encodeURIComponent(projectId)}/framing\`;
@@ -482,7 +496,12 @@ async function main(): Promise<number> {
     })
   })
 
-  await new Promise<void>((resolve) => server.listen(port, resolve))
+  // **Boucle locale explicite.** Sans hôte, `listen` s'attache à toutes les
+  // interfaces (`::`/`0.0.0.0`) : n'importe quelle machine du même réseau
+  // pourrait alors lire, sans authentification, les proxies, titres, chemins
+  // et données de détection que ce serveur sert. L'outil est annoncé comme
+  // local ; qu'il le reste vraiment.
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve))
   console.log(`Aperçu du cadrage : http://localhost:${port}/`)
   console.log('Ctrl-C pour arrêter.')
 

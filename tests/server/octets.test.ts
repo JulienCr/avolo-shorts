@@ -326,5 +326,13 @@ describe('servir des octets', () => {
       })
       expect(response?.status).toBe(200)
     })
+
+    it('rend 304 sans corps quand If-None-Match matche malgré un Range (RFC 9110 §13.2.2)', async () => {
+      const etagHeader = await headerOf('etag')
+      const response = await serveWith({ range: 'bytes=0-9', 'if-none-match': etagHeader })
+      expect(response?.status).toBe(304)
+      expect(response?.headers.get('content-range')).toBeNull()
+      expect((await response!.arrayBuffer()).byteLength).toBe(0)
+    })
   })
 })

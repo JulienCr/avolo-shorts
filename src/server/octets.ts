@@ -154,11 +154,16 @@ function ifModifiedSinceSatisfied(header: string, mtimeMs: number): boolean {
 }
 
 /**
- * `true` quand une requête **sans `Range`** peut se contenter d'un 304.
+ * `true` quand la requête peut se contenter d'un 304, `Range` ou pas.
  *
  * `If-None-Match` prime sur `If-Modified-Since` quand les deux sont présents
  * (RFC 7232 §3.3) : un client qui envoie les deux a un `ETag` en cache, plus
  * précis qu'une date à la seconde, et c'est lui qui doit trancher.
+ *
+ * **Ce contrôle passe avant toute décision sur `Range`** (RFC 9110 §13.2.2) :
+ * un GET conditionnel qui matche répond 304 même si la requête porte une
+ * plage — `If-Range` ne le remplace pas, il ne joue que quand ce contrôle-ci
+ * a déjà laissé passer.
  */
 function notModified(request: Request, etag: string, mtimeMs: number): boolean {
   const ifNoneMatch = request.headers.get('if-none-match')
@@ -243,17 +248,19 @@ export async function servirFichier(
 
     const enTête = requête.headers.get('range')
 
-    // Pas de `Range` : le fichier entier, sauf si un validateur dit que le
-    // client l'a déjà. **Le 304 ne se pose que dans cette branche** : une
-    // requête qui porte à la fois un validateur et `Range` attend une plage,
-    // pas une absence de corps, et c'est `If-Range` juste en dessous qui la
-    // traite.
+    // **Le conditionnel prime sur `Range`** (RFC 9110 §13.2.2) : une requête
+    // qui porte à la fois un validateur et `Range` reste un GET conditionnel,
+    // et un `If-None-Match`/`If-Modified-Since` qui matche répond 304 sans
+    // corps, quelle que soit la présence d'une plage. `If-Range` ne joue
+    // qu'ensuite, pour décider si la plage demandée peut être honorée.
+    if (notModified(requête, etag, info.mtimeMs)) {
+      // Sans corps, donc sans `Content-Length` qui le décrirait : rien à
+      // envoyer, seulement les validateurs qui ont permis de le dire.
+      return new Response(null, { status: 304, headers: headersWithValidators })
+    }
+
+    // Pas de `Range` : le fichier entier.
     if (enTête === null) {
-      if (notModified(requête, etag, info.mtimeMs)) {
-        // Sans corps, donc sans `Content-Length` qui le décrirait : rien à
-        // envoyer, seulement les validateurs qui ont permis de le dire.
-        return new Response(null, { status: 304, headers: headersWithValidators })
-      }
       // `Accept-Ranges` est posé quand même, et c'est tout l'intérêt de cette
       // branche — c'est cet en-tête qui annonce au navigateur qu'il *peut*
       // demander des plages. Sans lui, il ne redemandera jamais rien et la

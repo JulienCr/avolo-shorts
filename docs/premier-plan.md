@@ -155,8 +155,14 @@ faute voyante, la conception a choisi la voyante ; c'est ce qui se produit ici.
 
 ## Ce que le filtre ne fait pas, et qu'il faut dire
 
-**Les dix clips réels de `cqlp` restent tous en 16:9.** C'est le chiffre qui
-juge la tâche, et il ne bouge pas. Vérifié à l'image sur quatre d'entre eux : le
+**Cette section est du 18 août, et la réponse à sa question est arrivée le 19,
+d'un autre côté que les trois pistes qu'elle ouvre.** Le rognage latéral fait
+tomber la part des clips de `cqlp` en 16:9 de 84 à 42 % ; le détail est dans
+`docs/ratios-par-clip.md`. Le constat qui suit reste juste pour le filtre du
+premier plan, qui est son sujet.
+
+**Les dix clips réels de `cqlp` restaient tous en 16:9.** C'était le chiffre qui
+jugeait la tâche, et il ne bougeait pas. Vérifié à l'image sur quatre d'entre eux : le
 16:9 y est **honnête**. Les deux comédiens sont réellement aux deux bords du
 cadre, le filtre écarte bien les spectateurs, et l'empan résiduel est celui des
 comédiens seuls. À 1 924 s il vaut 0,61 pour un 1:1 qui en couvre 0,5625 : il

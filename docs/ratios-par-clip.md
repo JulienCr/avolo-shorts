@@ -481,6 +481,92 @@ pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-
 pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
 ```
 
+### Résolu depuis le 19 août 2026 au soir : les bascules de composition
+
+**Ce que le tableau ci-dessus appelait « deux axes de caméra dans un même
+plan » est une bascule de composition** : le mélangeur OBS translate la scène
+entière en bloc, plusieurs fois par plan détecté, et le score de scène de
+ffmpeg — qui compare des histogrammes — ne la voit pas. Baisser son seuil a
+déjà été mesuré et écarté ci-dessus (pas de vallée sur l'émission entière) ;
+la solution retenue croise deux signaux déjà collectés et jusque-là jetés :
+les boîtes de personnes disent qu'une bascule a lieu et la situent à ±1/fps
+près, les scores de scène donnent l'image exacte dans cette fenêtre. Le
+détail de l'algorithme est dans `worker/detect.py`, section « Les bascules de
+composition ».
+
+**Réglage arrêté par balayage** (256 combinaisons × 4 émissions du corpus,
+rejeu sans GPU ni ffmpeg via `--replay`, une passe ffmpeg de scores de scène
+capturée une fois par émission) : `min_shift=0,08`, `tolerance=0,03`,
+`part=8` (80 % des personnes appariées doivent avoir bougé), `min_point_score
+=0,3`. Le plus grand `min_shift` qui referme le gisement mesuré sur
+`entre-nous` sans régresser aucune des trois autres émissions — les critères
+de garde-fou primaient sur le gain.
+
+**Une bascule dont le raffinement échoue est rejetée, pas posée au milieu de
+sa fenêtre.** Le détecteur exige deux signaux indépendants — les boîtes, le
+score de scène — et n'en avoir qu'un ne prouve rien, précisément quand le
+second dit que rien de visible ne change. Deux faux positifs l'ont montré à
+l'image sur `cqlp` (t ≈ 1 111,9 et 1 182,4 s) : décor, cadre et panneau de
+chat identiques avant et après, seules deux personnes qui bougent de concert.
+Rejeter plutôt que replier laisse les sections 2 et 5 **identiques** sur les
+quatre émissions et redonne de la marge aux plafonds de garde-fou (de 1 à 15
+sur `cqlp`, dont la médiane de plan remonte de 20,117 à 21,7 s ; de 0 à 5 sur
+`nabla`) : un repli au milieu posait des frontières que rien ne confirmait.
+
+**Le plafond réel de cette approche est 18 %, pas les 12 % visés au départ.**
+Le critère avait été posé avant de savoir ce qui était atteignable : au-delà
+de `min_shift=0,08`, `cqlp` et `nabla` régressent. Ce n'est pas un échec du
+chantier, c'est la mesure de ce qu'un détecteur à deux signaux peut fermer
+sans rouvrir un autre gisement.
+
+**Avant / après, les quatre émissions** (`scripts/mesure-ratios.ts`, sections
+2 et 5) :
+
+| | temps borné par la position (§5) | part des clips en 16:9 (§2) |
+|---|---|---|
+| `2025-06-15-cqlp` | 10 % → 9 % | inchangée (47 %) |
+| `2026-03-08-caro-mdlm` | 0 % → 0 % | inchangée (83 %) |
+| `2026-05-31-nabla` | 2 % → 2 % | inchangée (100 %) |
+| `2026-22-02-entre-nous` | **41 % → 18 %** | **49 % → 39 %** |
+
+Aucune régression sur les trois émissions témoins ; `2026-05-31-nabla` n'a
+servi à aucun diagnostic et sert de témoin muet — un réglage qui la
+bouleverserait dirait qu'on a réglé sur le bruit.
+
+**Ce qui reste manqué : la coupe de 2 953,2 s ci-dessus.** Ce n'est pas une
+translation mais un vrai changement d'axe — les largeurs de boîte changent,
+pas seulement leur position —, donc `collective_shift` ne la voit jamais :
+ce gisement n'est pas refermé par ce chantier.
+
+**Un second gisement, plus petit, attend derrière.** Le plancher de collecte
+de `scores_de_scène` (0,05) rate les fondus : à t = 1 646,375 s sur
+`entre-nous`, un passage régie → plateau ne franchit le seuil de rétention
+(0,40) qu'à la faveur d'une image isolée, plusieurs secondes après le vrai
+changement. Nommé ici pour la piste suivante, pas ouvert dans ce chantier.
+
+**Le décalage d'un demi-pas entre les deux horloges.** `-vf fps={fps}` affecte
+chaque image d'entrée à l'emplacement de sortie le plus proche ; le contenu de
+l'image étiquetée `t` vient donc d'un instant postérieur, jusqu'à
+`1 / (2 · fps)` plus tard — mesuré à +0,233 s sur un proxy à 30 im/s. Absorbé
+dans la fenêtre de recherche de `refine_switch`, documenté pour ce qu'il est
+plutôt que corrigé à la source : le corriger imposerait une version 3 du
+schéma et une ré-analyse GPU des quatre projets. Voir la skill `cadrage`
+(cinquième piège) pour le détail.
+
+#### Reproduction
+
+```bash
+# Une fois par émission — capture les scores de scène, sans GPU :
+ffmpeg -hide_banner -nostdin -loglevel error -i projects/<id>/proxy.mp4 -an -sn \
+  -vf "select='gte(scene,0.05)',metadata=print:file=-" -f null - > /tmp/<id>-scene.txt
+
+# Autant de fois qu'on veut, sans GPU ni ffmpeg :
+python worker/detect.py --replay projects/<id>/analysis.json \
+  --scene-scores /tmp/<id>-scene.txt --out /tmp/<id>-essai.json
+
+pnpm tsx scripts/mesure-ratios.ts --analyse <id>=/tmp/<id>-essai.json <id>
+```
+
 ## Le tronc, mesuré le 19 août 2026 au soir
 
 Ce qui précède lit des **boîtes**. La suite lit des **points de pose**, et elle

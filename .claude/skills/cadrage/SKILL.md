@@ -82,7 +82,7 @@ quelqu'un d'assis les hanches ne dépassent pas les épaules, et quand elles le
 feraient elles sont cachées donc peu confiantes ; `upper-body` élargit de six
 points, un bras tendu rentrant dans le cadre qu'on venait d'en sortir.
 
-## Cinq pièges
+## Six pièges
 
 **1. Les points de pose sortent de `[0, 1]`.** Un bornage qui ne couvre qu'une
 extrémité produit alors une **largeur négative** qui traverse le choix du ratio en
@@ -109,6 +109,16 @@ vérifie-le avant de juger un cadrage sur une image annotée.
 0,40, il ne déplace aucun ratio — les troncs ont pris la main. Le régler pour
 changer un ratio est une perte de temps ; il n'agit que sur le centième de boîtes
 sans tronc.
+
+**6. Les boîtes et les scores de scène ne partagent pas la même horloge.**
+`-vf fps={fps}` affecte chaque image d'entrée à l'emplacement de sortie le plus
+proche : le contenu de l'image étiquetée `t` dans `analysis.json` vient en
+réalité d'un instant postérieur, jusqu'à `1 / (2 · fps)` plus tard — mesuré à
++0,233 s sur un proxy à 30 im/s. Une fenêtre de recherche naïve `(t1, t2]` sur
+les scores de scène rate 22 bascules sur 58 ; il faut l'étendre à
+`(t1, t2 + 1/(2·fps)]`. Absorbé dans la fenêtre par `refine_switch`
+(`worker/detect.py`), pas corrigé à la source — corriger l'étiquette imposerait
+une version 3 du schéma et une ré-analyse GPU du corpus.
 
 ## Mesurer
 
@@ -151,13 +161,24 @@ trois fois. Les cas de contrôle, avec leur timestamp :
   premier plan sur la population de pose.
 - **Les faux positifs sur du mobilier** (issue #69, cause restante) : un modèle de
   pose pose un squelette sur un fauteuil vide.
-- **Les plans trop mobiles.** Sur `2026-22-02-entre-nous`, 13 plans sur 54 et
-  **35 % du temps de montage** portent deux axes de caméra dans un même plan
-  détecté, parce qu'une coupe réelle est notée 0,366 pour un seuil à 0,40. Ce n'est
-  pas un problème de cadrage mais de **seuil de scène** (`worker/detect.py`), et
-  c'est le premier gisement restant sur cette émission. Piège connu : autour d'une
-  coupe les scores se séparent nettement et suggèrent un seuil évident, mais sur
-  l'émission entière il n'y a plus de creux.
+- **Les plans trop mobiles, en grande partie refermé depuis le 19 août 2026.**
+  Sur `2026-22-02-entre-nous`, le temps de montage borné par la position plutôt
+  que par la largeur tombait à 41 % : le mélangeur OBS translate la scène en
+  bloc à l'intérieur d'un même plan détecté, et le score de scène — qui compare
+  des histogrammes — ne voit pas une translation. Un second détecteur, croisant
+  les boîtes de personnes (qui disent qu'une bascule a lieu) et les scores de
+  scène déjà collectés (qui donnent l'image exacte), le ramène à 18 % — le
+  plafond mesuré de cette approche, au-delà duquel `cqlp` et `nabla`
+  régressent. Voir `docs/ratios-par-clip.md` (« Résolu depuis le 19 août 2026
+  au soir ») pour le détail et l'étalonnage. Deux résidus restent ouverts,
+  volontairement non traités par ce chantier :
+  - **Un vrai changement d'axe**, à 2 953,2 s sur `entre-nous` : les largeurs de
+    boîte changent, pas seulement leur position, donc `collective_shift` ne le
+    voit jamais.
+  - **Un fondu manqué par le plancher de collecte** (0,05), à t = 1 646,375 s
+    sur `entre-nous`, passage régie → plateau : le score ne franchit le seuil
+    de rétention (0,40) qu'à la faveur d'une image isolée, plusieurs secondes
+    après le vrai changement.
 - **Le gros plan à boîtes instables** : ce n'est plus la largeur qui décide, c'est
   la position. Aucun ratio fixe ne sert dix images sur onze.
 - **La persistance du crop.** `cropMode` et la table `crops` ne sont pas écrites,

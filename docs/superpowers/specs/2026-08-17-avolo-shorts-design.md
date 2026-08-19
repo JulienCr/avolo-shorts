@@ -593,6 +593,13 @@ La musique de fond gêne Whisper. La suppression de voix MDX23C du diariseur
 existant corrige cela mais coûte cher, donc elle ne se déclenche que sur les
 passages détectés comme musicaux.
 
+**Et depuis le chantier des bascules de composition (19 août 2026), une étape
+de plus dans ces mêmes 139 à 207 s.** Les frontières de plans se recalculent en
+croisant les boîtes de personnes déjà détectées et les scores de scène déjà
+collectés à l'étape 1 : aucune passe ffmpeg de plus, aucun passage GPU de plus.
+Le surcoût mesuré est sous 5 s sur `2026-03-08-caro-mdlm`, l'émission la plus
+longue du corpus. Voir §10 et `docs/ratios-par-clip.md`.
+
 ## 7. Le repérage des candidats
 
 Aucun signal automatique n'identifiera de façon fiable les bons moments d'une
@@ -991,6 +998,30 @@ garde de l'air des deux côtés des comédiens. Le détail est dans
 **La position du crop est fixe à l'intérieur de chaque plan**, calculée pour
 couvrir l'action de ce plan. Elle ne change qu'aux frontières de plans, où une
 coupe existe déjà, donc où le saut est invisible.
+
+**Et depuis le 19 août 2026, une frontière de plan peut aussi venir d'une
+bascule de composition, pas seulement d'une coupe de scène — ce paragraphe
+supposait les frontières justes, elles ne l'étaient pas toujours.** À
+l'intérieur d'un plan que le score de scène de ffmpeg ne sépare pas — une
+translation en bloc de la scène par le mélangeur OBS préserve l'histogramme —,
+un second détecteur croise les boîtes de personnes, qui disent qu'une bascule
+a lieu et la situent à ±1/fps près, avec les scores de scène déjà collectés et
+jusque-là jetés, qui donnent l'image exacte dans cette fenêtre. **Le crop reste
+fixe à l'intérieur d'un plan** : ce détecteur ajoute des frontières là où une
+coupe réelle existait sans être vue, il n'introduit ni lissage ni suivi de
+caméra. Mesuré sur `2026-22-02-entre-nous` : le temps de montage borné par la
+position plutôt que par la largeur (le même phénomène que le plan à boîtes
+instables décrit plus haut, où aucune position fixe ne sert plus de la moitié
+des images) tombe de 41 % à 18 %. C'est le plafond mesuré de cette approche —
+au-delà, `2025-06-15-cqlp` et `2026-05-31-nabla` régressent. La part en 16:9
+des clips tombe de 49 % à 39 %, sans régression sur les trois autres émissions
+du corpus. **Une bascule dont
+le second signal ne confirme pas le premier est rejetée, pas posée au milieu
+de sa fenêtre** : exiger un seul signal aurait pris pour des bascules réelles
+deux comédiens qui bougent de concert, vérifié à l'image sur `cqlp`
+(t ≈ 1 111,9 et 1 182,4 s). Le détail, les seuils retenus et la méthode
+d'étalonnage sont dans `worker/detect.py` (section « Les bascules de
+composition ») et `docs/ratios-par-clip.md`.
 
 Le mouvement de caméra perçu est nul. Dès qu'un plan dure et que les comédiens se
 déplacent, toute caméra qui suit finit par tanguer : c'est la cause du défaut

@@ -93,8 +93,20 @@ export function analyserSondage(json: string): Sondage {
  * L'échec du binaire n'est pas une erreur pour l'appelant : un fichier que
  * ffprobe refuse rend un sondage vide. C'est `runFfmpeg` qui échoue bruyamment,
  * parce que lui produit un artefact ; ici on ne fait que renseigner.
+ *
+ * **`signal` tue le sondage, il ne se contente pas d'en cesser l'attente.** Le
+ * délai de garde vaut deux minutes, et un sondage peut lire l'original sur le
+ * montage 9p : sans lui, un arrêt demandé pendant l'analyse d'image laissait le
+ * processus et `running` actifs jusqu'à ce délai. Un sondage abandonné rend un
+ * sondage vide, comme n'importe quel autre échec — c'est à l'appelant de
+ * regarder son signal avant d'interpréter ce vide comme un fichier illisible.
+ * (relevé par Copilot)
  */
-export function probe(file: string, timeoutMs = 120_000): Promise<Sondage> {
+export function probe(
+  file: string,
+  timeoutMs = 120_000,
+  signal?: AbortSignal,
+): Promise<Sondage> {
   const args = [
     '-v', 'error',
     '-select_streams', 'v:0',
@@ -108,7 +120,7 @@ export function probe(file: string, timeoutMs = 120_000): Promise<Sondage> {
       args,
       // `REPLAY_DIR` est monté en 9p et décroche : sans délai de garde, un
       // sondage sur un montage mort suspend l'ingestion pour toujours.
-      { timeout: timeoutMs, maxBuffer: 1 << 20, encoding: 'utf8' },
+      { timeout: timeoutMs, maxBuffer: 1 << 20, encoding: 'utf8', signal },
       (erreur, stdout) => {
         resolve(erreur !== null ? { ...VIDE } : analyserSondage(stdout))
       },
@@ -117,6 +129,10 @@ export function probe(file: string, timeoutMs = 120_000): Promise<Sondage> {
 }
 
 /** La durée seule, le seul champ dont le pipeline ne peut pas se passer. */
-export async function probeDuration(file: string, timeoutMs?: number): Promise<number | null> {
-  return (await probe(file, timeoutMs)).durationSec
+export async function probeDuration(
+  file: string,
+  timeoutMs?: number,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  return (await probe(file, timeoutMs, signal)).durationSec
 }

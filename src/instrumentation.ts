@@ -1,15 +1,18 @@
 /**
  * Ce qui s'exécute une fois par processus serveur, avant tout le reste.
  *
- * Deux choses, et **les deux ont leur corps ailleurs, à dessein.** Next compile
- * ce fichier pour ses deux exécutions, y compris `edge`, qui n'a ni `process.on`
- * ni de quoi charger `better-sqlite3` ou lancer un sous-processus : un import
- * statique y ferait un avertissement à chaque compilation, sur un code que
- * l'exécution edge n'atteindra jamais. La garde et les imports dynamiques sont
- * la forme que Next documente pour ce cas.
+ * Trois choses, et **les trois ont leur corps ailleurs, à dessein.** Next
+ * compile ce fichier pour ses deux exécutions, y compris `edge`, qui n'a ni
+ * `process.on` ni de quoi charger `better-sqlite3` ou lancer un sous-processus :
+ * un import statique y ferait un avertissement à chaque compilation, sur un code
+ * que l'exécution edge n'atteindra jamais. La garde et les imports dynamiques
+ * sont la forme que Next documente pour ce cas.
  *
- * L'ordre compte : les secrets d'abord, parce qu'ils décident si le processus a
- * de quoi travailler.
+ * L'ordre compte, et les deux premières sont attendues quand la troisième ne
+ * l'est pas : les secrets d'abord, parce qu'ils décident si le processus a de
+ * quoi travailler ; la fermeture de la base ensuite, parce qu'elle doit être
+ * accrochée avant qu'un signal puisse arriver ; le nettoyage du cache de travail
+ * en dernier et sans attente, parce que rien n'en dépend.
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return
@@ -31,6 +34,28 @@ export async function register(): Promise<void> {
 
   const { accrocherArrêt } = await import('@/server/arret')
   accrocherArrêt()
+
+  // **Le cache de travail, borné au démarrage** (retour d'usage §5). `stage/`
+  // porte plusieurs gigaoctets par émission ; sans passage régulier, il grossit
+  // jusqu'au disque. Huit heures de TTL, et une copie effacée ne coûte qu'une
+  // recopie — 45 secondes pour 4,3 Go —, jamais un artefact.
+  //
+  // **Sans `await`, et sans laisser d'échec remonter.** Le nettoyage n'est pas
+  // une condition de démarrage : `register()` lève exprès quand un secret ne se
+  // résout pas, parce que c'est une configuration fausse ; un `readdir` sur un
+  // dossier absent, lui, ne doit pas empêcher le serveur de servir. Et
+  // l'attendre ferait payer au premier chargement de page un balayage de disque
+  // dont personne n'attend le résultat.
+  // **`cleanWorkCache` et non `cleanStage` nu.** Ce balayage continue après le
+  // retour de `register()`, donc le serveur accepte une analyse pendant qu'il
+  // tourne ; cette analyse constate sa copie de travail présente — elle n'a rien
+  // à recopier, donc rien ne l'inscrit dans `copiesInFlight` — et le balayage la
+  // lui retirait. `cleanWorkCache` épargne ce que les exécutions lisent, et il
+  // relit la liste à chaque fichier. (relevé par Copilot)
+  const { cleanWorkCache } = await import('@/server/run')
+  void cleanWorkCache().catch((cause: unknown) => {
+    console.warn('Nettoyage de stage/ au démarrage :', cause)
+  })
 }
 
 /**

@@ -466,13 +466,25 @@ c'est le genre de mensonge qu'on ne remarque qu'une fois : la fois où l'analyse
 échoue en silence.
 
 **Une règle qui vaut partout : on affiche le coût d'une étape, jamais le temps
-qu'il reste.** Le coût est une mesure (« le proxy coûte environ 6 min sur 1 h 40
-d'émission ») ; le temps restant est une extrapolation à partir de deux points sur
-une seule émission, et une estimation fausse coûte plus cher qu'une absence
-d'estimation. Une première version de ce document annonçait « les images arrivent
-dans six minutes » et « le montage s'ouvre dans trois minutes » tout en interdisant
-le temps restant vingt lignes plus loin. La règle est la même sur les deux
-surfaces. (relevé par Aristarque)
+qu'il reste.** Le coût est une mesure ; le temps restant est une extrapolation, et
+une estimation fausse coûte plus cher qu'une absence d'estimation. Une première
+version de ce document annonçait « les images arrivent dans six minutes » et « le
+montage s'ouvre dans trois minutes » tout en interdisant le temps restant vingt
+lignes plus loin. La règle est la même sur les deux surfaces. (relevé par
+Aristarque)
+
+**Le coût est celui de *cette* émission, et il s'annonce en fourchette.** La
+règle ci-dessus n'a pas bougé, sa formulation si : elle disait « le proxy coûte
+environ 6 min sur 1 h 40 d'émission », c'est-à-dire le coût mesuré sur l'émission
+de référence, affiché tel quel à une capsule de vingt minutes comme à un live de
+deux heures et demie. Depuis le 19 août 2026, `stepDurationRange`
+(`src/core/parcours.ts`) transforme ces mesures en débits et rend deux bornes —
+« environ 2–3 min ». Deux bornes et non un point, parce que chaque étape n'a été
+chronométrée qu'**une fois**, sur une machine dont `CLAUDE.md` documente 40 à
+80 % de variance d'une exécution à l'autre : une seconde près serait une
+précision qu'aucune de ces mesures ne porte. Ce qu'on ne sait pas mesurer ne
+s'affiche toujours pas — l'analyse d'image n'a jamais été chronométrée sur une
+émission entière, et n'annonce donc rien.
 
 Ce découpage n'est pas une commodité d'affichage, c'est ce qui rend la
 trente-cinquième minute vivable : elle n'existe pas. Il y a trois minutes
@@ -683,10 +695,13 @@ mais parce que c'est **le même objet à un autre moment de sa vie** (voir 2.4).
 **Le panneau d'avancement** porte quatre choses, et pas une de plus : l'étape en
 cours et sa progression, la liste ordonnée des étapes avec celles déjà faites, une
 durée, et une phrase qui dit ce qui devient possible ensuite. Le temps restant
-**n'est pas affiché** : les seules mesures dont on dispose sont deux points sur
-une émission, et une estimation fausse coûte plus cher qu'une absence
-d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de grandeur
-mesuré (« proxy, environ 6 min sur 1 h 40 d'émission »).
+**n'est pas affiché** : les seules mesures dont on dispose sont un point par
+étape sur une seule émission, et une estimation fausse coûte plus cher qu'une
+absence d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de
+grandeur **rapporté à l'émission qu'on regarde** : `stepDurationRange` en tire
+deux bornes de la durée du fichier — de sa taille tant que l'ingestion ne l'a pas
+sondé —, et `formatDurationRange` les écrit « environ 5–8 min ». Une étape qu'on n'a
+jamais chronométrée n'annonce rien du tout.
 
 **La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**
 Ce document réclamait le temps écoulé depuis le lancement. `ProjectStatus` ne le

@@ -22,6 +22,8 @@ export type OptionsAudio = {
   force?: boolean
   durationSec?: number | null
   onProgress?: (avancement: Avancement) => void
+  /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
+  signal?: AbortSignal
 }
 
 export function extractAudio(o: OptionsAudio): Promise<Artefact> {
@@ -30,6 +32,7 @@ export function extractAudio(o: OptionsAudio): Promise<Artefact> {
     force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
+    signal: o.signal,
     quoi: `audio de ${o.projectId}`,
     args: (destination) => audioArgs({ src: o.input, dst: destination }),
   })

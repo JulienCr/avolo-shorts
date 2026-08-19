@@ -20,6 +20,8 @@ export type OptionsProxy = {
   onProgress?: (avancement: Avancement) => void
   /** L'encodeur, si on ne veut pas celui que l'environnement désigne. */
   encoder?: EncoderName
+  /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
+  signal?: AbortSignal
 }
 
 /**
@@ -50,6 +52,7 @@ export function buildProxy(o: OptionsProxy): Promise<Artefact> {
     force: o.force,
     durationSec: o.durationSec,
     onProgress: o.onProgress,
+    signal: o.signal,
     quoi: `proxy de ${o.projectId}`,
     // Le choix de l'encodeur est **dans** la fonction paresseuse, et pas
     // au-dessus : `encodeurProxy` lève sur un `FFMPEG_ENCODER` inconnu, et

@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { InvalidSettingError } from '@/server/db'
 import { messageSûr } from '@/server/erreurs'
 import { CollisionDeProjetError, ExécutionEnCoursError, ProjetInconnuError } from '@/server/run'
 import { estPassagère, GeminiBlockedError } from '@/server/steps/candidates'
@@ -51,6 +52,10 @@ export function json(données: unknown, init: ResponseInit = {}): Response {
 export function statutPour(erreur: unknown): number {
   if (erreur instanceof ErreurHttp) return erreur.statut
   if (erreur instanceof ProjetInconnuError) return 404
+  // Une saisie refusée par le registre des réglages : clé inconnue ou valeur
+  // hors bornes. La demande est mal formée, c'est un 400 — un 500 enverrait
+  // chercher un défaut du serveur là où il n'y en a pas.
+  if (erreur instanceof InvalidSettingError) return 400
   if (erreur instanceof ExécutionEnCoursError) return 409
   // Deux sources différentes pour un même identifiant : la demande est bien
   // formée, elle entre en conflit avec ce qui existe déjà.

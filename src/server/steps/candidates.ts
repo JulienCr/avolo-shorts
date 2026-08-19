@@ -36,6 +36,7 @@ import {
   type Word,
 } from '@/core/transcript'
 import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
+import { StopRequestedError } from '@/server/ffmpeg'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 import { exigerSecret } from '@/server/secrets'
 
@@ -496,11 +497,68 @@ export async function appelerGemini<T = unknown>(
   options: {
     sleep?: (ms: number) => Promise<void>
     analyser?: (brut: unknown) => T
+    /**
+     * L'arrêt demandé (`POST /api/projects/:id/stop`).
+     *
+     * **Il doit être vu ici, et pas seulement passé au SDK.** L'abandon d'une
+     * requête ressort en `AbortError`, que `NOMS_PASSAGERS` classe — à raison —
+     * parmi les erreurs à réessayer : le délai d'appel s'applique par le même
+     * mécanisme, et c'est pour entrer dans la politique de relance qu'il avait
+     * été ajouté. Sans ce contrôle, un arrêt demandé relançait donc trois fois
+     * en dormant cinq puis dix secondes entre deux, c'est-à-dire l'exact
+     * contraire de ce qu'on venait de demander.
+     */
+    signal?: AbortSignal
   } = {},
 ): Promise<T> {
   const sleep = options.sleep ?? attendre
   const analyser = options.analyser ?? ((brut: unknown) => brut as T)
+  // Une fonction et non l'expression écrite deux fois : `aborted` change de
+  // valeur pendant la boucle, et TypeScript, qui l'ignore, retenait la
+  // restriction du premier contrôle jusqu'au second — qu'il déclarait alors
+  // impossible.
+  const isAborted = (): boolean => options.signal?.aborted === true
+
+  /**
+   * L'attente entre deux tentatives, **qui se laisse couper**.
+   *
+   * Contrôler le signal aux deux bouts de la boucle ne suffisait pas : entre
+   * les deux il y a un `sleep`, et il est long. L'escalier monte à dix secondes,
+   * et un délai réclamé par le fournisseur peut porter l'attente jusqu'aux
+   * quatre-vingt-dix secondes d'`ATTENTE_QUOTA_MAX_MS`. Pendant tout ce
+   * temps l'exécution restait dans `enCours` et `running` restait non nul :
+   * l'écran continuait d'annoncer une analyse en cours après qu'on a cliqué
+   * « Arrêter ». (relevé par Copilot)
+   *
+   * La minuterie abandonnée continue de courir — `sleep` est injecté et ne
+   * connaît pas le signal, on ne peut donc pas l'annuler, seulement cesser de
+   * l'attendre. C'est le compromis habituel du dépôt, et il est sans
+   * conséquence ici : le serveur ne s'arrête pas pour autant, et les scripts de
+   * `scripts/` sortent par `quitter()`.
+   */
+  const waitOrStop = async (ms: number): Promise<void> => {
+    const signal = options.signal
+    if (signal === undefined) {
+      await sleep(ms)
+      return
+    }
+    let onAbort: (() => void) | undefined
+    try {
+      await Promise.race([
+        sleep(ms),
+        new Promise<void>((resolve) => {
+          onAbort = () => resolve()
+          signal.addEventListener('abort', onAbort, { once: true })
+        }),
+      ])
+    } finally {
+      // Sans ce retrait, chaque tentative laisse un écouteur de plus sur le
+      // signal de l'exécution, qui vit aussi longtemps qu'elle.
+      if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+    }
+  }
   for (let tentative = 1; ; tentative += 1) {
+    if (isAborted()) throw new StopRequestedError('le repérage')
     try {
       const réponse = await appel(prompt, mode)
       leverSiBloquée(réponse)
@@ -508,6 +566,9 @@ export async function appelerGemini<T = unknown>(
     } catch (erreur) {
       // Un refus de contenu ne se réessaie jamais : voir `GeminiBlockedError`.
       if (erreur instanceof GeminiBlockedError) throw erreur
+      // Un arrêt demandé non plus. Le contrôle est **avant** `estPassagère`, qui
+      // le classerait passager par son nom d'`AbortError`.
+      if (isAborted()) throw new StopRequestedError('le repérage')
       const message = erreur instanceof Error ? erreur.message : String(erreur)
       if (tentative >= TENTATIVES || !estPassagère(erreur)) throw erreur
       // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus
@@ -534,13 +595,13 @@ export async function appelerGemini<T = unknown>(
       console.warn(
         `Gemini, erreur passagère (essai ${tentative}/${TENTATIVES}), nouvelle tentative dans ${attente / 1000} s : ${caviarder(message).slice(0, 150)}`,
       )
-      await sleep(attente)
+      await waitOrStop(attente)
     }
   }
 }
 
 /** Le client par défaut. Construit à l'appel : la clé se lit au moment de servir. */
-function clientParDéfaut(): AppelGemini {
+function clientParDéfaut(signal?: AbortSignal): AppelGemini {
   // `exigerSecret` et non `process.env` : il refuse aussi une variable restée à
   // l'état d'adresse `op://…`, que le SDK enverrait comme clé pour se faire
   // répondre 401. Voir `@/server/secrets`.
@@ -551,8 +612,16 @@ function clientParDéfaut(): AppelGemini {
   // la chaîne entière — trois tentatives ne servent à rien si la première ne
   // rend jamais la main. (relevé par Copilot)
   const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: DÉLAI_APPEL_MS } })
+  // **Le signal va au SDK**, qui le passe à `fetch` : la requête en vol est
+  // vraiment coupée, on ne se contente pas de cesser d'en attendre la réponse.
+  // Un appel de notation dure plusieurs secondes et il y en a une trentaine par
+  // passe ; sans cela, un arrêt demandé attendrait la fin du lot en cours.
   return (prompt, mode) =>
-    ai.models.generateContent({ model: modèle, contents: prompt, config: configuration(mode) })
+    ai.models.generateContent({
+      model: modèle,
+      contents: prompt,
+      config: { ...configuration(mode), abortSignal: signal },
+    })
 }
 
 const SCHÉMA_MOT = z.object({ word: z.string(), start: z.number(), end: z.number() })
@@ -641,6 +710,15 @@ export type RepérageOptions = {
    * suite, ne pas le garder.
    */
   onBilan?: (bilan: BilanNotation) => void
+  /**
+   * L'arrêt demandé (`POST /api/projects/:id/stop`).
+   *
+   * **Ce que l'arrêt laisse derrière lui est propre.** `candidates.json` n'est
+   * écrit qu'à la toute fin de la passe, donc une passe coupée en son milieu ne
+   * laisse aucun artefact : `relevéPrésence` verra l'étape comme à faire, et la
+   * reprise la refera entièrement.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -860,7 +938,7 @@ export async function runCandidates(
   bilans.delete(projectId)
 
   const db = options.db ?? getDb()
-  const appel = options.appel ?? clientParDéfaut()
+  const appel = options.appel ?? clientParDéfaut(options.signal)
   const sleep = options.sleep ?? attendre
 
   const projet = getProject(db, projectId)
@@ -900,6 +978,7 @@ export async function runCandidates(
       étendue,
       appel,
       sleep,
+      signal: options.signal,
     },
     options.onBilan,
   )
@@ -937,6 +1016,7 @@ export async function runCandidates(
     idsPris: new Set(avantDétail.filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
     sleep,
+    signal: options.signal,
   })
 
   // 5. La fusion des passes, puis l'écriture.
@@ -1019,6 +1099,7 @@ type ContexteNotation = {
   étendue: Étendue
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
+  signal?: AbortSignal
 }
 
 /**
@@ -1198,7 +1279,7 @@ async function noterUnLot(
         windowsJson: scoreWindowsJson(lot),
       }),
       'score',
-      { sleep: ctx.sleep },
+      { sleep: ctx.sleep, signal: ctx.signal },
     )
   } catch (erreur) {
     if (!(erreur instanceof GeminiBlockedError)) throw erreur
@@ -1329,6 +1410,7 @@ type ContexteDétail = {
   idsPris: ReadonlySet<string>
   appel: AppelGemini
   sleep: (ms: number) => Promise<void>
+  signal?: AbortSignal
 }
 
 /**
@@ -1506,6 +1588,7 @@ async function descendre(
       'detail',
       {
         sleep: ctx.sleep,
+        signal: ctx.signal,
         analyser: (brut) =>
           parseDetailResponse(brut, {
             words: ctx.mots,

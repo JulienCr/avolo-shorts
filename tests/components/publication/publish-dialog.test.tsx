@@ -53,8 +53,8 @@ describe('PublishDialog — état honnête d’aujourd’hui', () => {
     render(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} />)
 
     for (const label of ['Instagram', 'Facebook', 'TikTok', 'YouTube Shorts']) {
-      const case_ = screen.getByRole('checkbox', { name: label })
-      expect(case_.getAttribute('data-disabled')).toBe('')
+      const checkbox = screen.getByRole('checkbox', { name: label })
+      expect(checkbox.getAttribute('data-disabled')).toBe('')
     }
     // Chaque raison se lit sur place, jamais seulement au survol — une par
     // plateforme, en plus du bandeau général.
@@ -121,7 +121,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
     fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
-    expect(screen.getByText(/Confirmer le lance/)).toBeTruthy()
+    expect(screen.getByText(/Confirmer déclenche l’envoi/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer et publier' }))
     expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }])
@@ -135,16 +135,29 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
   })
 
   it('affiche les quatre états d’une publication déjà lancée', () => {
+    // **Une plateforme par état**, pas les quatre sur la même — sinon une
+    // régression du libellé ou du rendu de `in_progress`, `submitted` ou
+    // `failed` resterait invisible derrière le seul `published` qu'exerçait
+    // la version précédente de ce test. (relevé par Copilot)
     const target = eligible({
       records: {
-        instagram: { status: 'published', remoteUrl: 'https://instagram.test/p/1', publishedFingerprint: null },
+        instagram: { status: 'in_progress', remoteUrl: null, publishedFingerprint: null },
+        facebook: { status: 'submitted', remoteUrl: null, publishedFingerprint: null },
+        tiktok: { status: 'published', remoteUrl: 'https://tiktok.test/p/1', publishedFingerprint: null },
+        youtube: { status: 'failed', remoteUrl: null, publishedFingerprint: null },
       },
     })
     render(
       <PublishDialog open onOpenChange={() => {}} clips={[target]} availability={allAvailable} />,
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Facebook' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'TikTok' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube Shorts' }))
+    expect(screen.getByText('en cours')).toBeTruthy()
+    expect(screen.getByText('déposé')).toBeTruthy()
     expect(screen.getByText('publié')).toBeTruthy()
+    expect(screen.getByText('échec')).toBeTruthy()
   })
 
   it('refuse la republication sans un geste explicite', () => {
@@ -200,8 +213,8 @@ describe('PublishDialog — remise à zéro entre deux ouvertures', () => {
     rerender(<PublishDialog open={false} onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
     rerender(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
 
-    const case_ = screen.getByRole('checkbox', { name: 'Instagram' }) as HTMLElement
-    expect(case_.getAttribute('aria-checked')).toBe('false')
+    const checkbox = screen.getByRole('checkbox', { name: 'Instagram' }) as HTMLElement
+    expect(checkbox.getAttribute('aria-checked')).toBe('false')
   })
 })
 

@@ -145,14 +145,19 @@ export function PublishDialog({
     selectedAndAvailable.some((p) => clip.records?.[p]?.status === 'published'),
   )
 
-  const canContinue = selectable.length === 0 || selected.size > 0
+  // **Recoupé avec `selectedAndAvailable`, pas `selected` seul.**
+  // Cocher une plateforme puis la voir devenir indisponible pendant que la
+  // boîte reste ouverte laissait « Suivant » actif alors que `targets` était
+  // déjà vide — la passe 2 avait renommé l'identifiant sans corriger le
+  // calcul. (relevé par Copilot, passe 3)
+  const canContinue = selectable.length === 0 || selectedAndAvailable.length > 0
 
   function togglePlatform(platform: Platform) {
-    setSelected((courant) => {
-      const suivant = new Set(courant)
-      if (suivant.has(platform)) suivant.delete(platform)
-      else suivant.add(platform)
-      return suivant
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(platform)) next.delete(platform)
+      else next.add(platform)
+      return next
     })
   }
 
@@ -480,7 +485,7 @@ function ConfirmStep({
         {targets.length === 1 ? '1 publication au total.' : `${targets.length} publications au total.`}
       </p>
       <p className="text-muted-foreground">
-        C’est un geste public et potentiellement irréversible. Confirmer le lance.
+        C’est un geste public et potentiellement irréversible. Confirmer déclenche l’envoi.
       </p>
     </div>
   )

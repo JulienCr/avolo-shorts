@@ -423,6 +423,13 @@ export function FilDeTri({
                   <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-black/55 p-1 backdrop-blur-sm">
                     <Checkbox
                       checked={selectedForPublish.has(clip.id)}
+                      // **Le même parcours Tab glissant que `CandidateCard`**
+                      // (`candidate-card.tsx`, `tabulable`/`selectionne`) :
+                      // sans ça, chaque carte visible ajoute un arrêt Tab
+                      // supplémentaire, y compris les cartes qui ne sont pas
+                      // sous le curseur — des dizaines d'arrêts sur une
+                      // grille chargée. (relevé par Copilot)
+                      tabIndex={clip.id === courant ? 0 : -1}
                       // **Le focus revient à la carte, comme après « Garder »
                       // ou « Écarter ».** La case, un `[role="checkbox"]`,
                       // est désormais dans la garde des raccourcis

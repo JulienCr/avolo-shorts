@@ -457,6 +457,22 @@ describe('le retour, et lui seul', () => {
     expect(defiler).not.toHaveBeenCalled()
   })
 
+  it('n’honore pas une marque orpheline — départ vers un clip sans retour au projet', async () => {
+    // Issue #56, point 1 : quitter le clip vers la bibliothèque au lieu de
+    // revenir au projet laisse la marque posée. La visite suivante, ordinaire
+    // celle-là, ne doit pas hériter du focus et de la vue de l'aller-retour
+    // qu'elle n'a jamais fait.
+    const maintenant = vi.spyOn(Date, 'now')
+    maintenant.mockReturnValue(1_000_000)
+    écrireSessionTri('p1', { retour: true, carte: 'c2', vue: 'gardes' })
+
+    maintenant.mockReturnValue(1_000_000 + 31 * 60 * 1000)
+    const liste = [candidat(1), candidat(2, 'kept')]
+    render(<Piloté vue="gardes" liste={liste} />)
+
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('marque le retour quand on part vers un clip', async () => {
     // C'est ce départ-là qui autorise la restauration au retour : sans lui, la
     // marque n'existerait jamais.

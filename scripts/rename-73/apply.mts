@@ -92,7 +92,32 @@ function main() {
   if (limit) toRename = toRename.slice(0, limit);
 
   const editsByFile = new Map<string, TextEdit[]>();
+  // Un même empan revendiqué deux fois arrive quand deux candidats
+  // distincts désignent, du point de vue du Language Service, le même
+  // symbole sous-jacent — vu ici sur `const { résoudreSecrets } = await
+  // import('@/server/secrets')` : un import dynamique déstructuré, que
+  // TypeScript relie à la déclaration d'origine pour le renommage, tout
+  // comme un `import { x }` statique (déjà exclu, mais un import
+  // *dynamique* n'est pas un `ImportSpecifier` — c'est un `BindingElement`
+  // ordinaire, indiscernable syntaxiquement d'une vraie nouvelle liaison
+  // sans revenir sur le type). Plutôt que d'énumérer toutes les formes de
+  // liaison que TypeScript sait relier, on déduplique à la source : un même
+  // (fichier, position) qui reçoit deux fois *le même* texte est bénin, deux
+  // textes différents seraient un vrai conflit et lèvent toujours.
+  const claimedByFileAndStart = new Map<string, Map<number, TextEdit>>();
   function pushEdit(file: string, edit: TextEdit) {
+    const claimed = claimedByFileAndStart.get(file) ?? new Map<number, TextEdit>();
+    claimedByFileAndStart.set(file, claimed);
+    const existing = claimed.get(edit.start);
+    if (existing) {
+      if (existing.length === edit.length && existing.newText === edit.newText) {
+        return; // même édit, deux chemins pour y arriver — bénin.
+      }
+      throw new Error(
+        `Deux renommages différents visent le même empan dans ${file} à l'offset ${edit.start} :\n  ${existing.source}\n  ${edit.source}`
+      );
+    }
+    claimed.set(edit.start, edit);
     const list = editsByFile.get(file) ?? [];
     list.push(edit);
     editsByFile.set(file, list);

@@ -118,6 +118,15 @@ export function TranscriptDrawer({
           details.cancel()
           return
         }
+        // **La sélection ne survit pas à la fermeture.** Elle vit dans le
+        // transcript, qui est derrière cette porte : laissée là, elle rend
+        // `Suppr` agissant sur des mots que plus personne ne voit — le tiroir
+        // fermé, la touche retire un passage sans que rien ne l'ait montré. La
+        // recherche part avec, pour la même raison. (relevé par Aristarque)
+        if (!next) {
+          editor.viderSelection()
+          onSearch(false)
+        }
         onOpenChange(next)
       }}
     >

@@ -248,6 +248,20 @@ describe('le geste courant', () => {
     await waitFor(() => expect(document.activeElement).toBe(champ))
   })
 
+  it('ne laisse pas une sélection agissante derrière la porte', async () => {
+    // La sélection vit dans le transcript. Le tiroir fermé, elle n'est visible
+    // nulle part — et `Suppr` retirerait pourtant un passage. (relevé par
+    // Aristarque)
+    await openEditing()
+    // L'appui suffit à sélectionner : le relâchement sur un mot barré le
+    // remonterait, ce qui vide la sélection par un autre chemin.
+    fireEvent.pointerDown(screen.getByText(/m0-0/))
+    expect(useEditeur.getState().selection).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^fermer$/i }))
+    await waitFor(() => expect(useEditeur.getState().selection).toBeNull())
+  })
+
   it('ouvre le tiroir avec la recherche sur Ctrl+F', async () => {
     // Le transcript n'est plus visible en permanence : une barre de recherche
     // ouverte sur une surface fermée ne chercherait nulle part.

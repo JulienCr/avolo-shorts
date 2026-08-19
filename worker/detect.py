@@ -932,7 +932,7 @@ def refus_du_seuil_de_scène(
     if not 0 < switch_point_score <= 1:
         return (
             f"--switch-point-score vaut {switch_point_score}, hors du domaine d'un score de "
-            "point de pose, qui vit dans [0, 1]. À zéro, un point neutralisé par "
+            "point de pose, qui vit dans ]0, 1]. À zéro, un point neutralisé par "
             "flatten_keypoints (confiance nulle, position non fiable) passerait le seuil et "
             "fausserait l'ancrage qu'il est censé exclure ; au-dessus de 1, aucun point ne "
             "l'atteint jamais et person_anchor replie systématiquement sur le centre de "
@@ -1014,7 +1014,15 @@ def run_replay(a: argparse.Namespace) -> int:
     # chemins coïncident (faute de frappe dans une commande de calibrage), le
     # premier `open(..., "w")` écrase l'analyse qu'on est en train de rejouer,
     # silencieusement — un `analysis.json` de production peut être de ceux-là.
-    if os.path.abspath(a.out) == os.path.abspath(a.replay):
+    # **La comparaison de chemins ne suffit pas.** Un lien symbolique ou
+    # physique vers ``--replay`` a un chemin différent mais désigne le même
+    # fichier ; ``os.path.samefile`` compare l'inode plutôt que la chaîne, et
+    # se rabat sur la comparaison de chemins quand ``--out`` n'existe pas
+    # encore — un fichier absent n'a pas d'inode à comparer. (relevé par
+    # Copilot sur la PR #101)
+    same_path = os.path.abspath(a.out) == os.path.abspath(a.replay)
+    same_file = os.path.exists(a.out) and os.path.samefile(a.out, a.replay)
+    if same_path or same_file:
         journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
         return 2
 
@@ -1131,7 +1139,7 @@ def main() -> int:
         "--scene-floor",
         type=float,
         default=0.05,
-        help="le plancher de collecte : ffmpeg ne rapporte rien à ce score ni en dessous",
+        help="le plancher de collecte : ffmpeg ne rapporte rien strictement en dessous de ce score",
     )
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"

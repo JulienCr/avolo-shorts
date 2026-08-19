@@ -40,7 +40,6 @@ export function PanneauExport({
   enregistrement,
   ecritureEnCours,
   ecritureEnEchec,
-  onBranding,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
@@ -80,7 +79,6 @@ export function PanneauExport({
   ecritureEnCours: boolean
   /** La dernière écriture de clip a échoué — le rendu lirait un état qu'on n'a pas voulu. */
   ecritureEnEchec: boolean
-  onBranding: (branding: boolean) => void
 }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
@@ -209,22 +207,6 @@ export function PanneauExport({
             coller au moment de publier.
           </p>
         )}
-
-        <label className="flex items-start gap-2 text-[0.75rem]">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-3.5 accent-stage"
-            checked={clip.branding}
-            onChange={(e) => onBranding(e.target.checked)}
-          />
-          <span>
-            Incruster les marques
-            <span className="block text-muted-foreground">
-              Un clip qui les incruste refuse de se rendre quand aucune marque n’est exploitable.
-              Décocher est l’échappatoire.
-            </span>
-          </span>
-        </label>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button

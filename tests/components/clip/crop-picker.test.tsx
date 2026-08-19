@@ -143,9 +143,9 @@ describe('RatioPicker', () => {
         onRatio={vi.fn()}
       />,
     )
-    const ligne = screen.getByText(/ne se règle pas ici/i)
-    expect(ligne.textContent).toContain('fichier natif')
-    expect(ligne.textContent).toContain('variante 9:16')
+    const line = screen.getByText(/ne se règle pas ici/i)
+    expect(line.textContent).toContain('fichier natif')
+    expect(line.textContent).toContain('variante 9:16')
   })
 
   it('ne promet pas de variante quand le natif est déjà vertical', () => {

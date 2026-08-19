@@ -108,6 +108,18 @@ export function ApercuSortie({
   const effectif = effectiveRatio(plan, ratio)
   const { largeur, hauteur } = tailleDuCanevas(effectif)
   const part = partDeLEcran(effectif)
+  /**
+   * Le canevas vertical **n'est pas toujours la variante**.
+   *
+   * Quand le natif vaut déjà 9:16, le serveur ne produit **aucune** variante
+   * (`src/server/steps/render.ts`) : ce canevas est alors le fichier natif
+   * lui-même. La légende annonçait « variante 9:16 » dans les deux cas, pendant
+   * que le sélecteur de ratio disait deux lignes plus bas qu'il n'y en aurait
+   * pas — deux informations contradictoires sur le même écran.
+   * (relevé par Copilot)
+   */
+  const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
+  const isVariant = nativeRatio !== '9:16'
 
   const peindre = useCallback(() => {
     const cible = canvas.current
@@ -191,8 +203,9 @@ export function ApercuSortie({
           enfants, donc une légende bavarde élargit la colonne et décolle
           l'aperçu de la source d'à côté. */}
       <figcaption className="text-[0.75rem] text-muted-foreground">
-        variante 9:16 · <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> ·
-        cadre <span className="font-mono">{effectif}</span>
+        {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
+        <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
+        <span className="font-mono">{effectif}</span>
       </figcaption>
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y

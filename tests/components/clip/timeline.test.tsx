@@ -124,8 +124,18 @@ describe('les oreilles', () => {
     // « 100 » ne se compare à rien ; « 0:01:40 » se compare à ce qu'on lit
     // partout ailleurs à l'écran.
     mount()
-    expect(handle('start').getAttribute('aria-valuetext')).toBe('0:01:40')
-    expect(handle('end').getAttribute('aria-valuetext')).toBe('0:02:00')
+    expect(handle('start').getAttribute('aria-valuetext')).toBe('0:01:40, image 0')
+    expect(handle('end').getAttribute('aria-valuetext')).toBe('0:02:00, image 0')
+  })
+
+  it('annoncent l’image, faute de quoi vingt-neuf flèches ne disent rien', () => {
+    // Le clavier déplace d'un trentième de seconde ; arrondie à la seconde, la
+    // valeur annoncée restait identique pendant vingt-neuf frappes — et
+    // l'ajustement image par image, qui est la raison d'être de ces flèches, ne
+    // se disait nulle part. (relevé par Copilot)
+    mount({ segments: [{ start: 100.4, end: 120 }] })
+    expect(handle('start').getAttribute('aria-valuetext')).toBe('0:01:40, image 12')
+    expect(Number(handle('start').getAttribute('aria-valuenow'))).toBeCloseTo(100.4, 3)
   })
 
   it('n’écrivent qu’une fois par geste, pas une fois par mouvement', () => {

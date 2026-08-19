@@ -229,10 +229,20 @@ export function Timeline({
       <div
         ref={track}
         data-timeline
+        role="group"
+        aria-label="Bande de temps du clip"
         className="relative h-12 w-full touch-none rounded-md bg-muted/60 select-none"
         onPointerDown={(e) => {
           // La bande nue promène la tête de lecture. Les oreilles arrêtent la
           // propagation : le même appui ne peut pas vouloir les deux.
+          //
+          // **Ce geste-ci n'a pas d'équivalent au clavier ici, et c'est réglé
+          // ailleurs** : l'organe de navigation temporelle est le transcript, où
+          // `Entrée` sur un mot place la lecture (parcours §3.3). Poser un
+          // troisième `slider` sur la tête de lecture doublerait ce chemin sans
+          // rien ajouter. Les deux gestes que le transcript ne sait pas
+          // exprimer — les bornes — sont, eux, des `slider` atteignables.
+          // (relevé par Copilot)
           e.currentTarget.setPointerCapture(e.pointerId)
           moveTo(e.clientX, null)
         }}
@@ -350,6 +360,17 @@ export function Timeline({
   )
 }
 
+/**
+ * Le rang de l'image dans sa seconde, à 30 images par seconde.
+ *
+ * C'est l'unité dans laquelle la flèche déplace, donc la seule qui rende
+ * l'ajustement audible : « 0:35:10, image 12 » avance à chaque frappe là où le
+ * timecode seul reste identique vingt-neuf fois de suite.
+ */
+function frameWithinSecond(time: number): number {
+  return Math.min(29, Math.floor((time - Math.floor(time)) / FRAME_STEP))
+}
+
 /** Ramène un temps dans la source. */
 function clampToSource(time: number, limit: number): number {
   return Math.min(Math.max(time, 0), limit)
@@ -440,8 +461,13 @@ function Handle({
       aria-label={edge === 'start' ? 'Borne d’entrée' : 'Borne de sortie'}
       aria-valuemin={Math.round(min)}
       aria-valuemax={Math.round(max)}
-      aria-valuenow={Math.round(time)}
-      aria-valuetext={formatTimecode(time)}
+      // **La valeur garde ses décimales, et le texte compte les images.** Le
+      // clavier déplace la borne d'un trentième de seconde : arrondie à la
+      // seconde, la valeur annoncée ne bougeait pas avant vingt-neuf frappes, et
+      // l'ajustement image par image — la raison d'être de ces flèches — ne se
+      // disait nulle part. (relevé par Copilot)
+      aria-valuenow={Math.round(time * 1000) / 1000}
+      aria-valuetext={`${formatTimecode(time)}, image ${frameWithinSecond(time)}`}
       data-edge={edge}
       onPointerDown={(e) => {
         // La bande, dessous, promène la tête de lecture : le même appui ne peut
@@ -511,10 +537,10 @@ function useFramePreview(drag: Drag | null) {
    * un élément gardé en état serait une valeur d'état qu'on mute —, le drapeau
    * porte le fait qu'il existe, donc la dépendance.
    */
-  const [monte, setMonte] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const setVideo = useCallback((element: HTMLVideoElement | null) => {
     video.current = element
-    setMonte(element !== null)
+    setMounted(element !== null)
   }, [])
 
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -538,7 +564,7 @@ function useFramePreview(drag: Drag | null) {
   // demandée entre-temps. C'est ici que la coalescence se referme.
   useEffect(() => {
     const source = video.current
-    if (!monte || source === null) return
+    if (!mounted || source === null) return
     const onSeeked = () => {
       paint()
       const next = queued.current
@@ -551,12 +577,12 @@ function useFramePreview(drag: Drag | null) {
     }
     source.addEventListener('seeked', onSeeked)
     return () => source.removeEventListener('seeked', onSeeked)
-  }, [monte, paint])
+  }, [mounted, paint])
 
   const time = drag?.time ?? null
   useEffect(() => {
     const source = video.current
-    if (!monte || source === null || time === null || !Number.isFinite(time)) return
+    if (!mounted || source === null || time === null || !Number.isFinite(time)) return
     // **On peint avant de chercher.** La vignette apparaît avec le geste, et une
     // recherche sur un proxy servi en requêtes partielles prend le temps qu'elle
     // prend : sans ce premier trait, le début de chaque glissé montre un
@@ -569,24 +595,35 @@ function useFramePreview(drag: Drag | null) {
     }
     inFlight.current = true
     source.currentTime = time
-  }, [monte, time, paint])
+  }, [mounted, time, paint])
 
-  // Le geste fini, la file se vide : une recherche restée en attente ferait
-  // repartir le décodeur pour une image que plus personne ne regarde.
-  //
-  // **Et au changement d'élément aussi.** Un `seeked` qui n'arrive jamais —
-  // l'élément remplacé sous une recherche en vol — laisserait `inFlight` levé,
-  // donc plus aucune vignette jusqu'au geste suivant. (relevé par Aristarque)
+  /**
+   * Le geste fini, **la file se vide mais le verrou reste** : une recherche
+   * restée en attente ferait repartir le décodeur pour une image que plus
+   * personne ne regarde, alors que celle qui est *réellement en vol*, elle,
+   * n'est pas terminée pour autant.
+   *
+   * **Relâcher le verrou ici casserait la garantie d'une seule recherche à la
+   * fois.** Un second glissé qui commence avant le `seeked` du premier
+   * réécrirait `currentTime` sur-le-champ et abandonnerait la requête `Range` en
+   * cours — c'est-à-dire le chemin que l'issue #75 a rendu sûr, mais qu'on n'a
+   * aucune raison d'emprunter deux fois par geste. Seul `onSeeked` relâche.
+   * (relevé par Copilot)
+   */
   useEffect(() => {
-    if (drag === null) {
-      queued.current = null
-      inFlight.current = false
-    }
+    if (drag === null) queued.current = null
   }, [drag])
+
+  /**
+   * **L'élément remplacé, lui, relâche tout.** Son `seeked` n'arrivera jamais :
+   * personne ne relâcherait le verrou, et plus aucune vignette ne se peindrait.
+   * C'est le seul cas où la fin d'une recherche ne peut pas s'observer.
+   * (relevé par Aristarque)
+   */
   useEffect(() => {
     queued.current = null
     inFlight.current = false
-  }, [monte])
+  }, [mounted])
 
   return { setVideo, canvas }
 }

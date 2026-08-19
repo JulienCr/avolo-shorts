@@ -69,7 +69,6 @@ function monter(props: Partial<Parameters<typeof PanneauExport>[0]> = {}) {
     empreinte: 'empreinte-de-depart',
     ecritureEnCours: false,
     ecritureEnEchec: false,
-    onBranding: vi.fn(),
     ...props,
   }
   const rendu = render(<PanneauExport {...complet} />, { wrapper: enveloppe })
@@ -397,16 +396,7 @@ describe('les textes et les marques', () => {
     expect(screen.getByRole('button', { name: /copier/i })).toBeTruthy()
   })
 
-  it('expose l’échappatoire des marques, qui n’était atteignable qu’en curl', () => {
-    // Depuis l'issue #37, un clip dont `branding` vaut `true` refuse de se rendre
-    // quand aucune marque n'est exploitable, et le message recommande de le
-    // passer à `false`.
-    const { onBranding } = monter()
-    const case_ = screen.getByRole('checkbox', { name: /marques/i })
-    expect(case_.getAttribute('aria-checked') ?? String((case_ as HTMLInputElement).checked)).toMatch(
-      /true/,
-    )
-    fireEvent.click(case_)
-    expect(onBranding).toHaveBeenCalledWith(false)
-  })
+  // **L'échappatoire des marques a déménagé dans la zone Image**, avec le ratio
+  // et le cadrage : ce qu'elle décide est ce que l'image porte. Son test la suit,
+  // dans `ecran-clip.test.tsx`.
 })

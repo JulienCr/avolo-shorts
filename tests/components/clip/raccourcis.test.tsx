@@ -170,18 +170,18 @@ describe('volerait', () => {
     // travail : `Suppr` y retire, `I` et `O` y posent les bornes, `Ctrl+Z` y
     // annule. Le ranger avec les autres tuerait les quatre gestes du produit au
     // moment précis où on les presse.
-    const tiroir = document.createElement('div')
-    tiroir.setAttribute('role', 'dialog')
-    tiroir.setAttribute('data-clip-shortcuts', '')
-    const mot = document.createElement('span')
-    mot.setAttribute('role', 'button')
-    tiroir.append(mot)
-    for (const touche of ['Escape', 'Delete', 'i', 'o', '?']) {
-      expect(volerait(mot, touche)).toBe(false)
+    const drawer = document.createElement('div')
+    drawer.setAttribute('role', 'dialog')
+    drawer.setAttribute('data-clip-shortcuts', '')
+    const word = document.createElement('span')
+    word.setAttribute('role', 'button')
+    drawer.append(word)
+    for (const key of ['Escape', 'Delete', 'i', 'o', '?']) {
+      expect(volerait(word, key)).toBe(false)
     }
     // L'exception ne lève pas les autres règles : `Espace` appartient toujours à
     // l'élément qui s'active avec.
-    expect(volerait(mot, ' ')).toBe(true)
+    expect(volerait(word, ' ')).toBe(true)
   })
 
   it('écarte les flèches d’un curseur de cadrage', () => {

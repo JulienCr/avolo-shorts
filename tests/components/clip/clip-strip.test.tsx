@@ -38,8 +38,8 @@ function candidate(id: string, overrides: Partial<CandidateClip> = {}): Candidat
 describe('ClipStrip', () => {
   it('mène à chaque autre clip gardé', () => {
     render(<ClipStrip clips={[candidate('a'), candidate('b'), candidate('c')]} currentId="b" />)
-    const liens = screen.getAllByRole('link')
-    expect(liens.map((l) => l.getAttribute('href'))).toEqual(['/clips/a', '/clips/c'])
+    const links = screen.getAllByRole('link')
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/clips/a', '/clips/c'])
   })
 
   it('marque le clip courant, et n’en fait pas un lien vers lui-même', () => {

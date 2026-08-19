@@ -442,7 +442,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               framing={framing}
               proxyUrl={proxyUrl}
               sourceDuration={project.durationSec}
-              onScrub={(temps) => {
+              onScrub={(time) => {
                 // **La bande est en temps source, la lecture ne l'est pas.** Une
                 // position tombée dans un passage retiré est légitime à regarder —
                 // c'est tout l'intérêt d'une bande à coupes visibles — mais la
@@ -450,7 +450,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
                 // donc la position à `placerLecture`, qui la ramène dans le
                 // montage : l'image montrait ce qu'il y a là, la lecture reprend
                 // au segment suivant.
-                placerLecture(video, segments, temps)
+                placerLecture(video, segments, time)
               }}
               onBoundary={editeur.setBoundaryAt}
             />
@@ -471,6 +471,18 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
                   l'intention quand on passe par un ratio où elle ne tient pas. */}
               <ShotFrameLine framing={framing} ratio={editeur.ratio} cropX={editeur.cropX} />
             </dl>
+
+            {/* **Les marques s'incrustent dans l'image, donc elles se règlent
+                ici.** Elles ont vécu dans le panneau d'export, à portée du
+                bouton qui les consomme ; la table des quatre zones les range
+                dans « Image », et une architecture qui ne ressemble pas à sa
+                propre description est une architecture qu'on ne retrouve pas. */}
+            <Marques
+              branding={clip.branding}
+              // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se
+              // lit dans la barre d'application et dans le garde-fou de l'export.
+              onBranding={(branding) => void ecrire({ branding }).catch(() => {})}
+            />
           </section>
 
           <div className="flex min-w-0 flex-col divide-y">
@@ -563,9 +575,6 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
               // et les marques passent par la même mutation sans y figurer.
               ecritureEnCours={ecrituresEnVol > 0}
               ecritureEnEchec={patch.isError || textesEnEchec.length > 0}
-              // `mutateAsync` rejette : la promesse se ramasse ici, l'échec se lit
-              // dans la barre d'application et dans le garde-fou du panneau.
-              onBranding={(branding) => void ecrire({ branding }).catch(() => {})}
             />
           </div>
         </section>
@@ -573,6 +582,45 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
 
       <DialogueRaccourcis ouvert={aide} onOuvert={setAide} />
     </>
+  )
+}
+
+/**
+ * Le réglage des marques.
+ *
+ * **Il vit dans la zone Image**, avec le ratio et le cadrage : ce qu'il décide
+ * est ce que l'image porte. Il a vécu dans le panneau d'export, à portée du
+ * bouton qui le consomme — mais la table des quatre zones le range ici, et le
+ * garder là-bas laissait l'écran contredire sa propre description.
+ * (relevé par Copilot)
+ *
+ * La phrase sous la case n'est pas décorative : un clip qui incruste refuse de
+ * se rendre quand aucune marque n'est exploitable, et cette case est la seule
+ * échappatoire — elle n'était atteignable qu'en `curl` avant d'exister.
+ */
+function Marques({
+  branding,
+  onBranding,
+}: {
+  branding: boolean
+  onBranding: (branding: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-2 text-[0.75rem]">
+      <input
+        type="checkbox"
+        className="mt-0.5 size-3.5 accent-stage"
+        checked={branding}
+        onChange={(e) => onBranding(e.target.checked)}
+      />
+      <span>
+        Incruster les marques
+        <span className="block text-muted-foreground">
+          Un clip qui les incruste refuse de se rendre quand aucune marque n’est exploitable.
+          Décocher est l’échappatoire.
+        </span>
+      </span>
+    </label>
   )
 }
 

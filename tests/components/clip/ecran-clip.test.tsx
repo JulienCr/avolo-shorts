@@ -118,9 +118,9 @@ async function openEditing() {
 }
 
 /** Une oreille de la bande de temps : la borne d'entrée, ou celle de sortie. */
-function handle(edge: 'entrée' | 'sortie') {
+function handle(edge: 'in' | 'out') {
   return screen.getByRole('slider', {
-    name: edge === 'entrée' ? /borne d’entrée/i : /borne de sortie/i,
+    name: edge === 'in' ? /borne d’entrée/i : /borne de sortie/i,
   })
 }
 
@@ -193,11 +193,11 @@ describe('le geste courant', () => {
     // §4.4 : une boîte de dialogue piège le focus et le rend à son déclencheur.
     // C'est `SheetTrigger` qui le garantit — un bouton qui basculerait un booléen
     // à côté laisserait le focus au corps du document à la fermeture.
-    const bouton = screen.getByRole('button', { name: /modifier le montage/i })
+    const trigger = screen.getByRole('button', { name: /modifier le montage/i })
     await openEditing()
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(document.activeElement).toBe(bouton)
+    expect(document.activeElement).toBe(trigger)
   })
 
   it('laisse les raccourcis vivre dans le tiroir', async () => {
@@ -207,10 +207,10 @@ describe('le geste courant', () => {
     // ne répond. Le clip va de 100 à 120 ; `I` sur le premier mot du contexte le
     // fait commencer au début du transcript.
     await openEditing()
-    const mot = screen.getByText(/m0-0/)
-    fireEvent.pointerDown(mot)
-    fireEvent.pointerUp(mot)
-    fireEvent.keyDown(mot, { key: 'i' })
+    const word = screen.getByText(/m0-0/)
+    fireEvent.pointerDown(word)
+    fireEvent.pointerUp(word)
+    fireEvent.keyDown(word, { key: 'i' })
     expect(useEditeur.getState().historique.present[0].start).toBeCloseTo(0, 5)
   })
 
@@ -244,8 +244,8 @@ describe('le geste courant', () => {
     // frappe suivante cherche ou déplace le curseur. (à vérifier, relevé par
     // Aristarque)
     fireEvent.keyDown(document.body, { key: 'f', ctrlKey: true })
-    const champ = await screen.findByLabelText('Chercher dans le transcript')
-    await waitFor(() => expect(document.activeElement).toBe(champ))
+    const field = await screen.findByLabelText('Chercher dans le transcript')
+    await waitFor(() => expect(document.activeElement).toBe(field))
   })
 
   it('ne laisse pas une sélection agissante derrière la porte', async () => {
@@ -290,8 +290,35 @@ describe('la fresco des clips', () => {
     // courant est marqué, pas cliquable.
     await monter('c2')
     const fresco = await strip()
-    const liens = within(fresco).getAllByRole('link')
-    expect(liens.map((l) => l.getAttribute('href'))).toEqual(['/clips/c1', '/clips/c4'])
+    const links = within(fresco).getAllByRole('link')
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/clips/c1', '/clips/c4'])
+  })
+})
+
+describe('les marques', () => {
+  it('exposent leur échappatoire dans la zone Image', async () => {
+    // Depuis l'issue #37, un clip dont `branding` vaut `true` refuse de se rendre
+    // quand aucune marque n'est exploitable, et le message recommande de le
+    // passer à `false`. Le contrôle vit avec le ratio et le cadrage : ce qu'il
+    // décide est ce que l'image porte. (relevé par Copilot)
+    const patchs: string[] = []
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        patchs.push(String(options.body))
+        return reponse({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
+      }
+      if (String(url).includes('/candidates')) return reponse(candidats)
+      return reponse(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await monter('c2')
+
+    const zone = screen.getByRole('region', { name: 'Image' })
+    const marques = within(zone).getByRole<HTMLInputElement>('checkbox', { name: /marques/i })
+    expect(marques.checked).toBe(true)
+
+    fireEvent.click(marques)
+    await waitFor(() => expect(patchs.some((corps) => corps.includes('"branding":false'))).toBe(true))
   })
 })
 
@@ -360,7 +387,7 @@ describe('l’enregistrement en échec', () => {
       // Elle passe par le même montage et la même écriture différée que le
       // transcript — c'est ce qui garantit qu'aucun second chemin d'écriture n'a
       // été ouvert.
-      fireEvent.keyDown(handle('entrée'), { key: 'ArrowLeft' })
+      fireEvent.keyDown(handle('in'), { key: 'ArrowLeft' })
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })

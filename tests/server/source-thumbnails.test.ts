@@ -223,14 +223,14 @@ describe('vignetteSource', () => {
     poserVideo('e.mp4')
     const calls: { src: string; dst: string; at: number }[] = []
 
-    const path = await vignetteSource('e.mp4', {
+    const thumbPath = await vignetteSource('e.mp4', {
       probe: async () => 5_936,
       extract: extractOk(calls),
     })
 
-    expect(path).not.toBeNull()
-    expect(path.dirname(path as string)).toBe(folderVignettesSources())
-    expect(fs.readFileSync(path as string, 'utf8')).toBe('JPEG')
+    expect(thumbPath).not.toBeNull()
+    expect(path.dirname(thumbPath as string)).toBe(folderVignettesSources())
+    expect(fs.readFileSync(thumbPath as string, 'utf8')).toBe('JPEG')
     expect(calls).toHaveLength(1)
     expect(calls[0].at).toBeCloseTo(5_936 / 3)
   })
@@ -453,8 +453,8 @@ describe('vignetteSource', () => {
     await new Promise((r) => setTimeout(r, 0))
     lstat.mockRestore()
 
-    const path = await vignetteSource('a.mp4', { probe: async () => 60, extract: extractOk() })
-    expect(path).not.toBeNull()
+    const resultPath = await vignetteSource('a.mp4', { probe: async () => 60, extract: extractOk() })
+    expect(resultPath).not.toBeNull()
   })
 
   /**

@@ -127,9 +127,9 @@ function markersNamed(
     path: path.join('/nulle-part', name),
     nativeW: 1000,
     nativeH: 996,
-    largeurRatio: 0.22,
-    bord: 'gauche' as const,
-    contenu: content(name),
+    widthRatio: 0.22,
+    edge: 'gauche' as const,
+    content: content(name),
   }))
 }
 
@@ -208,8 +208,8 @@ function poserFingerprint(
   markers: readonly string[] = [],
   underTitles = c.captions,
 ): void {
-  const path = pathsRender(ID, c.id, ratio).fingerprint
-  fs.mkdirSync(path.dirname(path), { recursive: true })
+  const filePath = pathsRender(ID, c.id, ratio).fingerprint
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
   // **Le cadrage résolu, et non un littéral** : c'est celui que `renderClip`
   // recalcule à chaque passage, donc le seul qui puisse faire dire à l'empreinte
   // qu'elle décrit encore le clip.
@@ -652,10 +652,10 @@ describe("l'empreinte de rendu", () => {
   })
 
   describe('lireEmpreinte', () => {
-    const path = (): string => pathsRender(ID, 'clip_0001', '1:1').fingerprint
+    const fingerprintPath = (): string => pathsRender(ID, 'clip_0001', '1:1').fingerprint
 
     it("rend null sur un fichier absent, et c'est le cas normal", () => {
-      expect(lireFingerprint(path())).toBeNull()
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
     it('relit ce que `empreinteDuRendu` a écrit', () => {
@@ -663,21 +663,21 @@ describe("l'empreinte de rendu", () => {
       poserFingerprint(c, '1:1', ['logo.png'])
       // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
       // recalculer de la même façon, sinon on compare deux cadrages différents.
-      expect(lireFingerprint(path())).toEqual(
+      expect(lireFingerprint(fingerprintPath())).toEqual(
         fingerprintWith(c, markersNamed(['logo.png']), c.captions, framingFor(c)),
       )
     })
 
     it("rend null sur un JSON tronqué — un processus tué en pleine écriture", () => {
-      fs.mkdirSync(path.dirname(path()), { recursive: true })
-      fs.writeFileSync(path(), '{"version": 1, "segm')
-      expect(lireFingerprint(path())).toBeNull()
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), '{"version": 1, "segm')
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
     it('rend null sur un fichier bien formé mais qui n’est pas une empreinte', () => {
-      fs.mkdirSync(path.dirname(path()), { recursive: true })
-      fs.writeFileSync(path(), JSON.stringify({ version: VERSION_FINGERPRINT }))
-      expect(lireFingerprint(path())).toBeNull()
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), JSON.stringify({ version: VERSION_FINGERPRINT }))
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
     })
 
     /**
@@ -694,9 +694,9 @@ describe("l'empreinte de rendu", () => {
       const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
         warnings.push(a)
       })
-      fs.mkdirSync(path.dirname(path()), { recursive: true })
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
       fs.writeFileSync(
-        path(),
+        fingerprintPath(),
         JSON.stringify({
           version: VERSION_FINGERPRINT - 1,
           segments: clip().segments,
@@ -708,7 +708,7 @@ describe("l'empreinte de rendu", () => {
           sousTitres: null,
         }),
       )
-      expect(lireFingerprint(path())).toBeNull()
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
       expect(String(warnings[0]?.[0])).toMatch(
         new RegExp(`version ${VERSION_FINGERPRINT - 1}`),
       )
@@ -732,9 +732,9 @@ describe("l'empreinte de rendu", () => {
       const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
         warnings.push(a)
       })
-      fs.mkdirSync(path.dirname(path()), { recursive: true })
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
       fs.writeFileSync(
-        path(),
+        fingerprintPath(),
         JSON.stringify({
           version: 3,
           segments: clip().segments,
@@ -746,8 +746,8 @@ describe("l'empreinte de rendu", () => {
           captionsContent: 'un-autre-condensat',
         }),
       )
-      expect(() => lireFingerprint(path())).not.toThrow()
-      expect(lireFingerprint(path())).toBeNull()
+      expect(() => lireFingerprint(fingerprintPath())).not.toThrow()
+      expect(lireFingerprint(fingerprintPath())).toBeNull()
       // **La distinction qui compte** (voir le commentaire de `lireEmpreinte`) :
       // une recette antérieure n'est pas un fichier illisible. Si
       // `VERSION_EMPREINTE` n'avait pas été montée à 4 avec cette traduction, la
@@ -765,9 +765,9 @@ describe("l'empreinte de rendu", () => {
       // qui vaille est celui de `version`.
       const c = clip()
       const raw = { ...fingerprintWith(c, []), venuDuFutur: 42 }
-      fs.mkdirSync(path.dirname(path()), { recursive: true })
-      fs.writeFileSync(path(), JSON.stringify(raw))
-      expect(lireFingerprint(path())?.version).toBe(VERSION_FINGERPRINT)
+      fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+      fs.writeFileSync(fingerprintPath(), JSON.stringify(raw))
+      expect(lireFingerprint(fingerprintPath())?.version).toBe(VERSION_FINGERPRINT)
     })
 
     it("ne publie aucun chemin absolu dans ce qu'il journalise", () => {
@@ -777,9 +777,9 @@ describe("l'empreinte de rendu", () => {
       const before = console.warn
       console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
       try {
-        fs.mkdirSync(path.dirname(path()), { recursive: true })
-        fs.writeFileSync(path(), 'pas du json')
-        lireFingerprint(path())
+        fs.mkdirSync(path.dirname(fingerprintPath()), { recursive: true })
+        fs.writeFileSync(fingerprintPath(), 'pas du json')
+        lireFingerprint(fingerprintPath())
       } finally {
         console.warn = before
       }
@@ -1210,9 +1210,9 @@ describe('renderClip, la porte des marques', () => {
     // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés.
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    for (const path of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
-      fs.mkdirSync(path.dirname(path), { recursive: true })
-      fs.writeFileSync(path, '')
+    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
     poserFingerprint(c, '1:1')
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1228,9 +1228,9 @@ describe('renderClip, la porte des marques', () => {
   it("refuse un rendu sans empreinte quand le dossier n'a plus de marque", async () => {
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    for (const path of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
-      fs.mkdirSync(path.dirname(path), { recursive: true })
-      fs.writeFileSync(path, '')
+    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
 
     await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/logo\.png/)
@@ -1276,9 +1276,9 @@ describe('renderClip, chemin du saut', () => {
   }
 
   function poser(paths: string[]): void {
-    for (const path of paths) {
-      fs.mkdirSync(path.dirname(path), { recursive: true })
-      fs.writeFileSync(path, '')
+    for (const filePath of paths) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, '')
     }
   }
 

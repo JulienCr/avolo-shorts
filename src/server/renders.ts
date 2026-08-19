@@ -47,8 +47,8 @@ type Outputs = {
   fingerprint: string
 }
 
-function output(path: string, type: string): OutputClip {
-  return { name: path.basename(path), path, type }
+function output(filePath: string, type: string): OutputClip {
+  return { name: path.basename(filePath), path: filePath, type }
 }
 
 /**

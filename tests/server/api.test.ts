@@ -124,10 +124,10 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
   // le réglage manuel du clip. Le recalculer plutôt que de l'écrire à la main est
   // ce qui fait que l'empreinte posée ici décrit bien le clip qu'on lui donne.
   const framing = clipFraming(clip)
-  const path = pathsRender(clip.projectId, clip.id, framing.ratio).fingerprint
-  fs.mkdirSync(path.dirname(path), { recursive: true })
+  const filePath = pathsRender(clip.projectId, clip.id, framing.ratio).fingerprint
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(
-    path,
+    filePath,
     JSON.stringify(
       renderFingerprint(
         renderedShape(clip, renderedFraming(framing)),
@@ -135,9 +135,9 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
           path: name,
           nativeW: 1000,
           nativeH: 996,
-          largeurRatio: 0.22,
-          bord: 'gauche' as const,
-          contenu: `contenu-de-${name}`,
+          widthRatio: 0.22,
+          edge: 'gauche' as const,
+          content: `contenu-de-${name}`,
         })),
         {
           burnedIn: clip.captions,

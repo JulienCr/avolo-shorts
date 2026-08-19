@@ -453,8 +453,8 @@ const SCHEMA_FINGERPRINT = z.object({
  * Le coût est la lecture de quelques dizaines de kilo-octets, sur un chemin qui
  * lance déjà un ffprobe par marque.
  */
-function fileContent(path: string): string {
-  return createHash('sha256').update(fs.readFileSync(path)).digest('hex')
+function fileContent(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
 }
 
 /**
@@ -578,14 +578,14 @@ export function renderFingerprint(
  * Le message ne porte que le nom du fichier. Le chemin absolu porte
  * l'arborescence de la machine, et cette fonction est appelée depuis un `GET`.
  */
-export function lireFingerprint(path: string): FingerprintRender | null {
+export function lireFingerprint(filePath: string): FingerprintRender | null {
   let content: string
   try {
-    content = fs.readFileSync(path, 'utf8')
+    content = fs.readFileSync(filePath, 'utf8')
   } catch (error) {
     if (!estAAbsence(error)) {
       console.warn(
-        `Empreinte de rendu inaccessible (${path.basename(path)}) : ` +
+        `Empreinte de rendu inaccessible (${path.basename(filePath)}) : ` +
           `${error instanceof Error ? error.name : 'erreur inconnue'}. Le rendu sera refait.`,
       )
     }
@@ -602,7 +602,7 @@ export function lireFingerprint(path: string): FingerprintRender | null {
     const version = (raw as { version?: unknown } | null)?.version
     if (typeof version === 'number' && version !== VERSION_FINGERPRINT) {
       console.warn(
-        `Empreinte de rendu en version ${version} (${path.basename(path)}), la recette est en ` +
+        `Empreinte de rendu en version ${version} (${path.basename(filePath)}), la recette est en ` +
           `${VERSION_FINGERPRINT}. Le rendu sera refait.`,
       )
       return null
@@ -612,13 +612,13 @@ export function lireFingerprint(path: string): FingerprintRender | null {
   } catch {
     // JSON tronqué — un processus tué en pleine écriture, malgré le renommage.
   }
-  console.warn(`Empreinte de rendu illisible (${path.basename(path)}). Le rendu sera refait.`)
+  console.warn(`Empreinte de rendu illisible (${path.basename(filePath)}). Le rendu sera refait.`)
   return null
 }
 
 /** Écrit l'empreinte, sous un nom temporaire puis renommée, comme les sorties. */
-async function writeFingerprint(path: string, fingerprint: FingerprintRender): Promise<void> {
-  await writeFile(path, `${JSON.stringify(fingerprint, null, 2)}\n`)
+async function writeFingerprint(filePath: string, fingerprint: FingerprintRender): Promise<void> {
+  await writeFile(filePath, `${JSON.stringify(fingerprint, null, 2)}\n`)
 }
 
 /**
@@ -1112,12 +1112,12 @@ export function publicationText(clip: Clip): string {
  * pour les MP4, et l'étape ne serait pas plus sûre que son maillon le plus
  * faible.
  */
-async function writeFile(path: string, content: string): Promise<void> {
-  await fsp.mkdir(path.dirname(path), { recursive: true })
-  const temporary = pathTemporary(path)
+async function writeFile(filePath: string, content: string): Promise<void> {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true })
+  const temporary = pathTemporary(filePath)
   try {
     await fsp.writeFile(temporary, content, 'utf8')
-    await fsp.rename(temporary, path)
+    await fsp.rename(temporary, filePath)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause
@@ -1153,14 +1153,14 @@ export function publicationWriteText(
   db: Database.Database,
   clipId: string,
   fallback: Clip,
-  path: string,
+  filePath: string,
 ): void {
   const content = publicationText(getClip(db, clipId) ?? fallback)
-  fs.mkdirSync(path.dirname(path), { recursive: true })
-  const temporary = pathTemporary(path)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const temporary = pathTemporary(filePath)
   try {
     fs.writeFileSync(temporary, content, 'utf8')
-    fs.renameSync(temporary, path)
+    fs.renameSync(temporary, filePath)
   } catch (cause) {
     try {
       fs.rmSync(temporary, { force: true })

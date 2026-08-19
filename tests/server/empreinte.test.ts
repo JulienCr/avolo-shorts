@@ -227,10 +227,10 @@ async function patch(fields: Record<string, unknown>): Promise<void> {
 }
 
 function poser(paths: (string | null)[]): void {
-  for (const path of paths) {
-    if (path === null) continue
-    fs.mkdirSync(path.dirname(path), { recursive: true })
-    fs.writeFileSync(path, 'un rendu d’avant')
+  for (const filePath of paths) {
+    if (filePath === null) continue
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, 'un rendu d’avant')
   }
 }
 

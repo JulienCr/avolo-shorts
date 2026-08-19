@@ -11,9 +11,14 @@ et les mesures qui la fondent.
 
 ## Où en est le projet
 
-**L'itération 0 est livrée, l'interface avec, et la moitié de l'itération 1.**
-Vingt-deux PR fusionnées le 18 août 2026, **1594 tests** sur 71 fichiers, CI
-verte à chaque PR.
+**L'itération 0 est livrée, l'interface avec, la moitié de l'itération 1, la
+refonte du parcours, et la moitié de ce que le retour d'usage demandait.**
+Trente PR fusionnées les 18 et 19 août 2026, **2201 tests**, CI verte à chaque
+PR.
+
+La nuit du 18 au 19 a fusionné six PR de plus. Elles sont décrites en
+« La vague du 19 août » plus bas ; ce paragraphe-ci et les suivants décrivent
+l'état antérieur, qu'ils continuent de décrire correctement.
 
 Ce qui tourne : ingestion depuis le Drive, proxy, extraction audio,
 transcription WhisperX, repérage des candidats par Gemini, tri et montage dans
@@ -49,6 +54,67 @@ de huit est refusé là où les mêmes fenêtres passent une à une. Le repérag
 recoupe donc les lots refusés et les renvoie. Résultat sur `2025-06-15-cqlp` :
 **51 fenêtres notées sur 83 → 83 sur 83**, et **trois des six clips retenus
 sortent de fenêtres qu'on jetait sans les juger**.
+
+## La vague du 19 août
+
+Six PR, écrites en une nuit par une flotte d'agents avec un protocole à quatre
+rôles — orchestrateur, implémenteur, relecteur interne, intégrateur. Le détail
+opérationnel est en « Reprendre l'orchestration » ; ce qui suit dit ce qui a
+changé dans le produit et ce qu'il faut savoir avant d'y toucher.
+
+**Ce que le retour d'usage demandait, et qui est livré** (`docs/retour-ui-and-next-steps.md`) :
+
+| PR | Ce qu'elle a livré |
+|---|---|
+| #72 | La bibliothèque unifiée — une carte par replay, cinq états, filtres et recherche —, le vocabulaire « Émission » à l'écran, la vue Émission avec son lecteur de proxy et sa bande de couverture, l'écran Analyse avec l'arrêt et les fourchettes, l'écran `/settings` |
+| #80 | L'écran Clip en quatre zones — Contenu, Image, Montage, Livraison —, la fresque des clips gardés, le transcript en tiroir, et **une bande de temps** sous la vidéo : scrub, oreilles libres à l'image, frontières de plans |
+| #71 | L'arrêt réel d'une analyse propagé jusqu'aux processus, la route des réglages, le staging borné, et la copie de travail **auto-réparable** |
+| #85 | Un fournisseur et un modèle **par usage** — Gemini, OpenAI, Ollama —, réglables depuis les Paramètres |
+| #86 | Le transcript de l'émission : le voir en entier, le corriger par substitutions indexées qui préservent les timings, relancer la transcription par le graphe |
+| #95 | L'interface de publication, **sans connecteur** : une modale partagée entre un clip et une sélection, six états, quatre plateformes visibles et désactivées avec leur raison |
+| #79, #89 | Deux préconditions découvertes en construisant, décrites juste en dessous |
+
+**Deux préconditions qui n'étaient dans aucun plan.** Elles valent d'être
+nommées, parce qu'elles décrivent la forme la plus fréquente du travail réel ici :
+une fonctionnalité qui, en arrivant, rend visible un défaut qui dormait.
+
+- **#79** — une requête `Range` abandonnée levait une `uncaughtException` à
+  *chaque* chargement d'écran de clip. La bande de temps, qui cherche en continu
+  dans le proxy pour afficher la frame sous le curseur, allait multiplier ce
+  chemin. La cause n'était pas celle que l'issue supposait : `Readable.toWeb`
+  pose un écouteur `'data'` qu'il ne retire jamais, et c'est la reprise **déjà
+  programmée avant l'abandon** qui vide le tampon dans un contrôleur fermé. Un
+  `response.body.cancel()` ne le reproduit pas — 0 sur 20 — il faut que le
+  consommateur ait cessé de tirer assez longtemps pour que le flux se mette en
+  pause avec des octets en réserve. D'où « à chaque écran de clip, jamais sous
+  `curl` ». Et le correctif évident, `ReadableStream.from`, **ouvrait une fuite**
+  de descripteur : réserve nulle, donc un corps que personne ne lit n'en tire
+  rien.
+- **#89** — l'empreinte de rendu ne comparait pas **le texte**. Rien ne
+  l'exigeait tant que le transcript ne pouvait pas changer sans que le graphe
+  refasse ce qui en dépend ; la correction manuelle de #86 ouvrait ce chemin, et
+  un clip déjà exporté serait resté « à jour » avec les anciens sous-titres.
+  L'empreinte porte désormais un condensat du **document ASS réellement
+  produit** — pas du transcript demandé, la leçon du quatrième chemin de #48 —
+  et `VERSION_EMPREINTE` est passée à 3, ce qui périme tous les rendus d'un
+  coup. C'est voulu : personne ne peut savoir lesquels portent un texte devenu
+  faux.
+
+**Un piège fermé au passage, et il vaut pour tout ce qui lira le sidecar.** Pour
+condenser ce qui est incrusté, il faut le calculer avant la décision de saut,
+donc lire le transcript — qui vit sur le Drive. Le chemin passait par
+`placeSidecar`, dont `src/server/steps/ingest.ts` documente qu'un `fs.existsSync`
+sur un montage mort **gèle la boucle d'événements entière, donc tout le
+serveur**. Un délai de garde n'y peut rien : le minuteur ne part pas non plus.
+Le remède n'est donc pas d'envelopper mais de **sonder d'abord, en asynchrone**,
+puis d'agir — le motif que `transcribe()` emploie déjà. Sur un montage muet, la
+réponse est un **troisième verdict**, ni « périmé » ni « à jour ».
+
+**Ce que ces PR ont défait, et qu'il ne faut pas rétablir par réflexe.**
+`coûtSec` a disparu d'`ÉTAPES` : les cinq constantes mesurées sur une émission
+d'1 h 40 sont devenues des débits, rendus en fourchette (« environ 2–3 min »).
+Le §4.2 du retour l'exigeait, contre la fausse précision d'un décompte à la
+seconde.
 
 ## Ce qui le prouve
 
@@ -271,6 +337,38 @@ anciens gardent leur nom jusqu'au balayage de l'**issue #73**, qui soldera d'un
 coup les 333 identifiants accentués du dépôt : les renommer un par un au fil des
 PR garantirait le conflit partout.
 
+### Ce que le retour d'usage demande encore
+
+`docs/retour-ui-and-next-steps.md` est soldé aux deux tiers. Restent, dans
+l'ordre où ils se tiennent :
+
+1. **Le hook de début de clip** (§7) — un texte court affiché dès la première
+   frame. Ses réglages globaux existent déjà dans l'écran Paramètres, en lecture
+   seule, et sa place est prévue dans la zone **Contenu** de l'écran Clip.
+   Trois choses le rendent moins simple qu'il n'en a l'air : il ne se génère que
+   pour les clips **réellement gardés**, il doit **entrer dans l'empreinte de
+   rendu** — sans quoi un hook changé ne périme rien, exactement le défaut que
+   #48 a coûté à fermer —, et sa preuve est visuelle, donc aucun test ne la
+   donne.
+2. **La correction du transcript par modèle** (§2.3, itération 3) — le
+   fournisseur est réglable depuis #85, la voie manuelle existe depuis #86, et
+   la forme est déjà tranchée : **des substitutions indexées, pas du texte**.
+   Attention à la VRAM : un modèle Ollama de 18 Go et WhisperX ne tiennent pas
+   ensemble sur 24 Go, la correction s'exécute **après** la transcription.
+3. **Les connecteurs de publication** — hors périmètre décidé, l'interface les
+   attend. Rien ne démarre avant le dépôt des deux audits (§lot 0 de la spec de
+   publication), et **le connecteur YouTube ne s'écrit pas avant que le sien
+   soit passé** : sans audit, une vidéo envoyée par l'API est verrouillée en
+   privé et ne peut plus être libérée, même à la main.
+4. **Le balayage de l'issue #73** — les identifiants français. Il conflit avec
+   tout, donc il ne peut passer que lorsque rien n'est en vol. Et il est **plus
+   urgent qu'il n'en a l'air** : sur les six PR de la nuit du 19, **quatre agents
+   sur quatre** ont introduit des identifiants accentués dans du code neuf,
+   malgré une consigne explicite en tête de contrat. Le code environnant est
+   français, le mimétisme gagne, et chaque vague ajoute une dette qu'il faut
+   rattraper en review. Tant que le dépôt n'est pas anglais, cette taxe se
+   repaie à chaque PR.
+
 ### Ce que les vagues ont laissé, et où c'est suivi
 
 Tout est en tickets. **Le tracker fait autorité ; cette section ne le double pas**,
@@ -290,7 +388,33 @@ bilan de repérage annonce une perte quand la récupération a tout rattrapé, P
 quick-win), #65 (le minuteur de l'écriture différée renvoie un `PATCH` après
 restauration depuis le bfcache).
 
-Ce qui a été fermé en route : #37, #38, #39, #40, #41, #49, #54, #55.
+Ce qui a été fermé en route : #37, #38, #39, #40, #41, #48, #49, #54, #55, #57,
+#70, #75, #76, #87.
+
+**Ce que la vague du 19 août a ouvert**, et qui n'était dans aucun plan :
+
+- **#93** — une correction du transcript peut encore doubler une transcription
+  qui démarre. Atténué deux fois, pas refermé : la fermeture demande de décider
+  **qui possède le droit d'écrire un transcript**, et cette question se pose en
+  même temps que la correction par modèle, qui sera un troisième écrivain.
+- **#96** — deux écrans décident de l'exportabilité d'un clip sur des données
+  différentes : la vue Émission sur `clip.status`, l'écran de clip sur
+  `outputs.mp4Url`, qui ne disent pas la même chose. Sans conséquence tant
+  qu'aucun connecteur n'existe.
+- **#94** — les jetons non alignés, chiffres et ponctuation, sont invisibles
+  donc incorrigibles. Le filtrage date de #20 et n'était pas un problème tant que
+  le transcript n'était qu'une surface de lecture.
+- **#92** — le focus peut ne pas suivre le curseur sur un grand saut dans le
+  transcript. Fondé sur la lecture de la source du virtualiseur, **non observé**,
+  et non vérifiable sous jsdom : `Element.prototype.scrollTo` n'y existe pas. Le
+  ticket pose au passage la question d'un harnais de bout en bout, que ce dépôt
+  n'a pas.
+- **#77** — l'arrêt d'une analyse signale le PID, pas le groupe : un `ffmpeg`
+  lancé par `detect.py` peut survivre.
+- **#82** (P3), **#88**, **#90**, **#91**, **#97** — cache du proxy sans
+  validateur, URL Ollama non validée, la révision estampillée du transcript
+  (conception écartée mais consignée), les erreurs OpenAI mal classées, et deux
+  coutures de l'interface de publication.
 
 - **Le caviardage des `op://…`** est livré (#38). Deux résidus restent, groupés
   dans l'**issue #49** : un nom de coffre à espaces survit hors citation, et rien
@@ -536,6 +660,47 @@ première review**, c'est-à-dire sur les correctifs eux-mêmes, que personne n'
 relus. Un correctif écrit en réaction à un commentaire, par un agent qui a déjà
 brûlé l'essentiel de son contexte, mérite le même soin qu'une implémentation —
 avec son test. C'est là qu'est le levier, pas dans un meilleur critère d'arrêt.
+
+### Ce que la flotte du 19 août a appris, et qui se repaiera sinon
+
+Six PR menées par un protocole à quatre rôles — orchestrateur, implémenteur,
+relecteur interne, intégrateur. Quatre faits mesurés qui ne se déduisent pas.
+
+**Un agent qui rend la main sur une attente ne sera jamais réveillé.** Il arme un
+guetteur de review en arrière-plan, annonce qu'il sera rappelé, et termine son
+tour. Il ne le sera pas : la notification de fin d'agent ne part **que** lorsqu'il
+n'a plus d'enfant vivant, donc la recevoir est la preuve que l'attente est déjà
+morte. Le processus continue pourtant de tourner côté système. **Six agents sur
+six l'ont fait**, dont un après un avertissement en tête de contrat et un autre
+en écrivant « inutile de faire le point ». Ce n'est pas une négligence, c'est une
+propriété du rôle : **l'orchestrateur arme son propre guet à chaque dispatch**,
+plutôt que d'essayer de l'interdire par la consigne.
+
+**Le bloc replié de Copilot porte l'essentiel, et son en-tête ment.** Mesuré sur
+la vague : une passe annonçant « generated no new comments » portait **dix
+trouvailles** dans son `<details><summary>Suppressed comments</summary>`, dont
+quatre défauts réels d'affichage et de compte. Sur une autre, le rapport était de
+**une visible pour neuf cachées**. Le nombre de fils affichés ne dit rien, ni dans
+un sens ni dans l'autre. Un intégrateur qui conclut dessus fusionne en croyant
+avoir tout traité.
+
+**Une porte de review interne qui argumente est plus crédible qu'une porte qui ne
+dit rien — et c'est ce qui la rend dangereuse.** Sur #85, le relecteur avait rendu
+un `PASS` circonstancié sur la langue : « les onze symboles **exportés** sont en
+anglais », grep à l'appui. La review externe a trouvé une **quarantaine**
+d'identifiants français neufs, internes et locaux. Il avait vérifié une
+paraphrase de la règle, pas la règle. Une porte interne doit être lue pour ce
+qu'elle a réellement contrôlé, pas pour la confiance que son argumentation
+inspire.
+
+**Le renommage par remplacement corrompt la prose sans faire échouer un test.**
+« c'est » devenu « f'est », « une » devenu « single », dans des noms de tests
+français. **Trois agents s'y sont fait prendre**, tous l'ont rattrapé au diff,
+**aucun grâce à la suite de tests**. La méthode qui tient : remplacement
+littéral par occurrence, jamais d'expression régulière large, `assert` sur le
+nombre d'occurrences avant écriture, et relecture des lignes de prose. C'est la
+même famille que les alias `-i` et les `sed` muets déjà documentés dans
+`CLAUDE.md` — l'échec qui n'échoue pas.
 
 ### Les pièges de la mécanique
 

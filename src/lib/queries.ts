@@ -614,6 +614,13 @@ export function useTranscript(projectId: string, options: { enabled?: boolean } 
  * rend la phrase telle qu'elle vient d'être écrite et relue ; redemander tout
  * le transcript pour une correction d'un mot coûterait un aller-retour de
  * vingt mille mots pour obtenir exactement ce qu'on tient déjà.
+ *
+ * **Une phrase vidée de tous ses mots est retirée du cache, pas seulement
+ * remplacée.** `lignesDuTranscript` (`src/server/vues.ts`) écarte déjà une
+ * phrase sans mot aligné — c'est ce qu'un `GET` frais rendrait après une
+ * suppression totale. Remplacer sans filtrer laissait une ligne fantôme, sans
+ * mot, à son horodatage d'avant : le sidecar était correct, seul le cache
+ * divergeait de ce que le serveur aurait rendu. (relevé en review)
  */
 export function useCorrectTranscript() {
   const client = useQueryClient()
@@ -628,7 +635,9 @@ export function useCorrectTranscript() {
     }) => correctTranscript(projectId, correction),
     onSuccess({ line }, { projectId }) {
       client.setQueryData(cles.transcript(projectId), (lignes: TranscriptLine[] | undefined) =>
-        lignes?.map((l) => (l.id === line.id ? line : l)),
+        lignes
+          ?.map((l) => (l.id === line.id ? line : l))
+          .filter((l) => l.words.length > 0),
       )
     },
   })

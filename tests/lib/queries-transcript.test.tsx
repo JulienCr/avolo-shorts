@@ -125,4 +125,28 @@ describe('useCorrectTranscript', () => {
     expect(result.current.error).toBeInstanceOf(ApiError)
     expect((result.current.error as ApiError).status).toBe(409)
   })
+
+  it('retire du cache une phrase vidée de tous ses mots — pas de ligne fantôme', async () => {
+    // `lignesDuTranscript` (src/server/vues.ts) écarte une phrase sans mot
+    // aligné : c'est ce qu'un `GET` frais rendrait après cette correction.
+    // Le cache doit dire la même chose, sans attendre un rechargement complet.
+    const résultat: TranscriptCorrectionResult = {
+      line: { id: 'l0', start: 0, end: 2, words: [] },
+      clipsTouched: [],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => reponse(résultat)))
+    const { client, enveloppe } = harnais()
+    client.setQueryData(cles.transcript('p1'), lignes)
+
+    const { result } = renderHook(() => useCorrectTranscript(), { wrapper: enveloppe })
+    await act(async () => {
+      result.current.mutate({
+        projectId: 'p1',
+        correction: { lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: [] },
+      })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(client.getQueryData(cles.transcript('p1'))).toEqual([lignes[1]])
+  })
 })

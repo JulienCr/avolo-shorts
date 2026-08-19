@@ -1013,9 +1013,13 @@ caméra. Mesuré sur `2026-22-02-entre-nous` : le temps de montage borné par la
 position plutôt que par la largeur (le même phénomène que le plan à boîtes
 instables décrit plus haut, où aucune position fixe ne sert plus de la moitié
 des images) tombe de 41 % à 18 %. C'est le plafond mesuré de cette approche —
-au-delà, `2025-06-15-cqlp` et `2026-05-31-nabla` régressent. La part en 16:9
-des clips tombe de 49 % à 39 %, sans régression sur les trois autres émissions
-du corpus. **Une bascule dont
+au-delà, `2025-06-15-cqlp` et `2026-05-31-nabla` régressent. Le temps de
+montage en 16:9 des clips tombe de 49 % à 39 %, sans régression sur les trois
+autres émissions du corpus — dont le temps de montage en 16:9 reste
+essentiellement stable (31 → 30 %, 90 → 90 %, 65 → 65 %). En **compte de
+clips**, `entre-nous` ne bouge d'ailleurs pas (4 sur 6 restent en 16:9 avant
+comme après) : tout le gain vit dans le temps de montage, jamais dans le
+compte de clips — voir `docs/ratios-par-clip.md`. **Une bascule dont
 le second signal ne confirme pas le premier est rejetée, pas posée au milieu
 de sa fenêtre** : exiger un seul signal aurait pris pour des bascules réelles
 deux comédiens qui bougent de concert, vérifié à l'image sur `cqlp`

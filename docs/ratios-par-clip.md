@@ -522,12 +522,19 @@ sans rouvrir un autre gisement.
 **Avant / après, les quatre émissions** (`scripts/mesure-ratios.ts`, sections
 2 et 5) :
 
-| | temps borné par la position (§5) | part des clips en 16:9 (§2) |
+| | temps borné par la position (§5) | temps de montage en 16:9, clips (§2) |
 |---|---|---|
-| `2025-06-15-cqlp` | 10 % → 9 % | inchangée (47 %) |
-| `2026-03-08-caro-mdlm` | 0 % → 0 % | inchangée (83 %) |
-| `2026-05-31-nabla` | 2 % → 2 % | inchangée (100 %) |
+| `2025-06-15-cqlp` | 10 % → 9 % | 31 % → 30 % |
+| `2026-03-08-caro-mdlm` | 0 % → 0 % | 90 % → 90 % |
+| `2026-05-31-nabla` | 2 % → 2 % | 65 % → 65 % |
 | `2026-22-02-entre-nous` | **41 % → 18 %** | **49 % → 39 %** |
+
+Les deux colonnes sont le **temps de montage**, jamais le compte de clips —
+c'est la doctrine de `scripts/mesure-ratios.ts` (« le chiffre qui décide est
+le temps de montage par ratio, pas le compte de clips »), et la mélanger
+aurait fait paraître `entre-nous` bouger deux fois sur des bases différentes.
+En **compte de clips**, `entre-nous` ne bouge d'ailleurs pas : 4 clips sur 6
+restent en 16:9 avant comme après, tout le gain vit dans le temps de montage.
 
 Aucune régression sur les trois émissions témoins ; `2026-05-31-nabla` n'a
 servi à aucun diagnostic et sert de témoin muet — un réglage qui la

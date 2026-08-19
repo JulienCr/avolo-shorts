@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { toLlmResponse, toFinishReason } from '@/server/llm/openai'
+import { createOpenAiCall, toFinishReason, toLlmResponse } from '@/server/llm/openai'
 
 describe('OpenAI : la traduction des raisons de fin', () => {
   it('traduit length en MAX_TOKENS, comme une troncature côté Gemini', () => {
@@ -52,5 +52,85 @@ describe('OpenAI : la traduction de la réponse', () => {
     const réponse = toLlmResponse({})
     expect(réponse.text).toBeUndefined()
     expect(réponse.candidates?.[0]?.finishReason).toBe('')
+  })
+})
+
+describe('createOpenAiCall', () => {
+  const config = () => ({
+    schema: { type: 'object' as const, properties: {}, required: [] },
+    temperature: 0.2,
+    maxOutputTokens: 512,
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('envoie la clé dans l’en-tête Authorization, jamais dans l’URL', async () => {
+    const requêtes: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        requêtes.push({ url, init })
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '{}' } }] }),
+        } as Response
+      }),
+    )
+
+    const appel = createOpenAiCall({
+      model: 'gpt-4.1-mini',
+      apiKey: 'sk-test-secret',
+      timeoutMs: 5_000,
+      config,
+    })
+    await appel('prompt', 'score')
+
+    expect(requêtes).toHaveLength(1)
+    const [{ url, init }] = requêtes
+    expect(url).toBe('https://api.openai.com/v1/chat/completions')
+    expect(url).not.toContain('sk-test-secret')
+    const headers = init.headers as Record<string, string>
+    expect(headers.authorization).toBe('Bearer sk-test-secret')
+
+    const corps = JSON.parse(String(init.body)) as { model: string; temperature: number }
+    expect(corps.model).toBe('gpt-4.1-mini')
+    expect(corps.temperature).toBe(0.2)
+  })
+
+  it('coupe la requête quand le signal externe s’annule, sans attendre le délai', async () => {
+    let signalCapturé: AbortSignal | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        signalCapturé = init.signal as AbortSignal
+        // Une promesse qui ne se résout jamais : seule l'annulation du
+        // signal doit permettre au test de conclure.
+        return new Promise<Response>(() => {})
+      }),
+    )
+
+    const controleur = new AbortController()
+    const appel = createOpenAiCall({
+      model: 'gpt-4.1-mini',
+      apiKey: 'sk-test',
+      signal: controleur.signal,
+      // Un délai large : si l'annulation qui compte est celle du timeout et
+      // non celle du signal externe, ce test resterait bloqué jusqu'à lui.
+      timeoutMs: 60_000,
+      config,
+    })
+    void appel('prompt', 'score')
+
+    await vi.waitFor(() => expect(signalCapturé).toBeDefined())
+    expect(signalCapturé?.aborted).toBe(false)
+
+    controleur.abort()
+    // `AbortSignal.any` compose les deux signaux : l'abandon de l'externe
+    // se voit sur celui remis à `fetch`, sans attendre le timeout de 60 s.
+    expect(signalCapturé?.aborted).toBe(true)
   })
 })

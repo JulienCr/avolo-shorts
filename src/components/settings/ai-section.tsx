@@ -43,12 +43,34 @@ const PROVIDER_LABELS: Record<LlmProvider, string> = {
 }
 
 /**
- * Le modèle suggéré par défaut, par fournisseur — recopié de `DEFAULT_MODEL`
- * (`@/server/llm/defaults`). **Dupliqué à dessein plutôt qu'importé** : ce
- * fichier est un composant client, et `@/server/llm/defaults` vit sous
- * `src/server/`, dont rien ne devrait traverser vers le navigateur — même une
- * simple constante, pour ne pas ouvrir un chemin d'import que Next se mettrait
- * à couper au premier module serveur qui s'y ajoute.
+ * Le fournisseur par défaut de chaque usage — celui que `db.ts` (`AI_FIELDS`)
+ * enregistre. Les trois usages partagent le même défaut, Gemini.
+ */
+const DEFAULT_PROVIDER: LlmProvider = 'gemini'
+
+/**
+ * Le modèle par défaut de chaque usage — celui que `db.ts` (`AI_FIELDS`,
+ * `DEFAULT_MODEL.gemini`) enregistre. Une seule valeur, pas une par
+ * fournisseur : le fournisseur par défaut est toujours Gemini, donc son
+ * modèle par défaut est le seul qui compte pour le bouton « Revenir au
+ * défaut ». **Dupliquée à dessein plutôt qu'importée** de
+ * `@/server/llm/defaults` : ce fichier est un composant client, et ce module
+ * vit sous `src/server/`, dont rien ne devrait traverser vers le navigateur —
+ * même une simple constante, pour ne pas ouvrir un chemin d'import que Next
+ * se mettrait à couper au premier module serveur qui s'y ajoute.
+ */
+const DEFAULT_MODEL = 'gemini-3.1-flash-lite'
+
+/**
+ * Le modèle typique de chaque fournisseur, affiché à titre indicatif à côté
+ * du champ de modèle.
+ *
+ * **Affiché en toutes lettres, pas seulement en `placeholder`.** Un
+ * `placeholder` ne s'affiche que sur un champ vide, et ce champ ne l'est
+ * jamais — les trois usages partent avec un modèle par défaut non vide, et
+ * `ModelField.commit()` refuse un champ vidé en revenant à la dernière
+ * valeur. Le laisser en simple `placeholder` le rendait donc mort en
+ * pratique : personne ne pouvait jamais le voir. (relevé en review interne)
  */
 const MODEL_HINT: Record<LlmProvider, string> = {
   gemini: 'gemini-3.1-flash-lite',
@@ -63,9 +85,20 @@ type Usage = {
   title: string
   help: string
   /** `null` : l'usage est branché, rien à dire de plus. */
-  bandeau: string | null
+  bandeau: { titre: string; description: string } | null
 }
 
+/**
+ * Le contrat le dit en toutes lettres : « ne laisse pas croire qu'un réglage
+ * agit ». `correction` et `hook` s'écrivent et se persistent — contrairement
+ * aux réglages inertes de `HookSection` — mais rien ne les lit encore, et
+ * c'est ce que chacun de ces deux bandeaux annonce.
+ *
+ * **La forme reprend celle de `HookSection`** (`Alert` + `Info` + un titre et
+ * une description), sans le verrou : là-bas rien ne s'écrit parce qu'aucun
+ * stockage n'existe ; ici le stockage existe, donc le champ reste actif, et
+ * seul le bandeau change de sens.
+ */
 const USAGES: readonly Usage[] = [
   {
     key: 'selection',
@@ -81,8 +114,11 @@ const USAGES: readonly Usage[] = [
     modelField: 'correctionModel',
     title: 'Correction du transcript',
     help: 'Le modèle qui corrigerait les fautes de reconnaissance vocale du transcript.',
-    bandeau:
-      'Ce réglage se persiste, mais rien ne le lit : la correction du transcript n’existe pas encore.',
+    bandeau: {
+      titre: 'Pas encore branché.',
+      description:
+        'Ce réglage se persiste, mais rien ne le lit : la correction du transcript n’existe pas encore.',
+    },
   },
   {
     key: 'hook',
@@ -90,8 +126,11 @@ const USAGES: readonly Usage[] = [
     modelField: 'hookModel',
     title: 'Hook',
     help: 'Le modèle qui écrirait le texte d’accroche affiché en début de clip.',
-    bandeau:
-      'Ce réglage se persiste, mais rien ne le lit : la génération automatique du hook n’existe pas encore.',
+    bandeau: {
+      titre: 'Pas encore branché.',
+      description:
+        'Ce réglage se persiste, mais rien ne le lit : la génération automatique du hook n’existe pas encore.',
+    },
   },
 ]
 
@@ -174,11 +213,12 @@ function UsageRow({
       {usage.bandeau !== null && (
         <Alert>
           <Info aria-hidden />
-          <AlertDescription>{usage.bandeau}</AlertDescription>
+          <AlertTitle>{usage.bandeau.titre}</AlertTitle>
+          <AlertDescription>{usage.bandeau.description}</AlertDescription>
         </Alert>
       )}
 
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={providerId} className="text-sm font-normal">
             Fournisseur
@@ -208,6 +248,21 @@ function UsageRow({
               ))}
             </SelectContent>
           </Select>
+          {/* **Même geste que `SelectionSection`** (§6.2 du retour d'usage) :
+              un bouton de retour au défaut, qui ne s'affiche que s'il y a
+              quelque chose à défaire. */}
+          {provider !== DEFAULT_PROVIDER && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              onClick={() => void onChange({ [usage.providerField]: DEFAULT_PROVIDER })}
+              className="h-auto justify-start px-0 text-xs text-muted-foreground"
+            >
+              <RotateCcw aria-hidden />
+              Revenir à {PROVIDER_LABELS[DEFAULT_PROVIDER]}
+            </Button>
+          )}
         </div>
 
         <ModelField
@@ -215,6 +270,7 @@ function UsageRow({
           label="Modèle"
           value={model}
           hint={MODEL_HINT[provider]}
+          defaultValue={DEFAULT_MODEL}
           disabled={disabled}
           onCommit={(valeur) => onChange({ [usage.modelField]: valeur })}
         />
@@ -245,16 +301,21 @@ function ModelField({
   label,
   value,
   hint,
+  defaultValue,
   disabled,
   onCommit,
 }: {
   id: string
   label: string
   value: string
+  /** Le modèle typique du fournisseur actuellement réglé — indicatif seulement. */
   hint: string
+  /** Le modèle qu'enregistre le registre pour ce champ. Cible du bouton de retour. */
+  defaultValue: string
   disabled: boolean
   onCommit: (value: string) => void | Promise<unknown>
 }) {
+  const helpId = `${id}-help`
   const [draft, setDraft] = useState(value)
   const [seen, setSeen] = useState(value)
   if (seen !== value) {
@@ -274,21 +335,41 @@ function ModelField({
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
-      <Input
-        id={id}
-        disabled={disabled}
-        value={draft}
-        placeholder={hint}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            commit()
-          }
-        }}
-        className="h-8 w-56 font-mono text-sm"
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          disabled={disabled}
+          aria-describedby={helpId}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          className="h-8 w-56 font-mono text-sm"
+        />
+        {value !== defaultValue && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            onClick={() => void onCommit(defaultValue)}
+            className="h-auto px-1.5 py-1 text-xs text-muted-foreground"
+          >
+            <RotateCcw aria-hidden />
+            Revenir à {defaultValue}
+          </Button>
+        )}
+      </div>
+      {/* **En toutes lettres, pas seulement en `placeholder`** — voir la doc
+          de `MODEL_HINT` : ce champ n'est jamais vide, donc un `placeholder`
+          n'aurait jamais eu l'occasion de s'afficher. */}
+      <p id={helpId} className="text-xs text-muted-foreground">
+        Typique chez ce fournisseur : {hint}
+      </p>
     </div>
   )
 }

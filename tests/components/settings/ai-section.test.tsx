@@ -134,3 +134,48 @@ it('propose de revenir à la résolution automatique une fois une adresse régl�
   await utilisateur.click(bouton)
   expect(onChange).toHaveBeenCalledWith({ ollamaBaseUrl: '' })
 })
+
+it('affiche l’indice de modèle en toutes lettres, pas seulement en placeholder', () => {
+  render(<AiSection values={VALUES} availability={AVAILABLE} onChange={() => {}} />)
+  // Le champ n'est jamais vide : un texte visible est le seul moyen de voir
+  // l'indice, un `placeholder` ne s'affiche jamais dessus.
+  expect(screen.getAllByText(/Typique chez ce fournisseur/)).toHaveLength(3)
+})
+
+it('ne montre aucun bouton de retour au défaut quand tout est déjà au défaut', () => {
+  render(<AiSection values={VALUES} availability={AVAILABLE} onChange={() => {}} />)
+  expect(screen.queryByText(/Revenir à Gemini/)).toBeNull()
+  expect(screen.queryByText(/Revenir à gemini-3\.1-flash-lite/)).toBeNull()
+})
+
+it('propose de revenir au fournisseur par défaut, et écrit le bon champ', async () => {
+  const onChange = vi.fn()
+  const utilisateur = userEvent.setup()
+  render(
+    <AiSection
+      values={{ ...VALUES, correctionProvider: 'openai' }}
+      availability={AVAILABLE}
+      onChange={onChange}
+    />,
+  )
+
+  const bouton = screen.getByText(/Revenir à Gemini/)
+  await utilisateur.click(bouton)
+  expect(onChange).toHaveBeenCalledWith({ correctionProvider: 'gemini' })
+})
+
+it('propose de revenir au modèle par défaut, et écrit le bon champ', async () => {
+  const onChange = vi.fn()
+  const utilisateur = userEvent.setup()
+  render(
+    <AiSection
+      values={{ ...VALUES, hookModel: 'gemini-2.5-flash' }}
+      availability={AVAILABLE}
+      onChange={onChange}
+    />,
+  )
+
+  const bouton = screen.getByText('Revenir à gemini-3.1-flash-lite')
+  await utilisateur.click(bouton)
+  expect(onChange).toHaveBeenCalledWith({ hookModel: 'gemini-3.1-flash-lite' })
+})

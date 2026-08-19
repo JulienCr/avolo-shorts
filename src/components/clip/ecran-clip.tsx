@@ -39,8 +39,14 @@ import { useEditeur, usePeutAnnuler, usePeutRetablir, useSegments } from '@/stor
  * avoir exactement la même hauteur visuelle : la donner ici, une fois, et laisser
  * chacune en déduire sa largeur est ce qui empêche la prochaine retouche de
  * réintroduire un `max-w-40` d'un côté et une largeur libre de l'autre.
+ *
+ * **Une hauteur fixe, et pas un `clamp()` sur la hauteur de fenêtre.** Mesuré :
+ * un `max-width` posé à côté d'un `aspect-ratio` fait *recalculer la hauteur
+ * depuis la largeur clampée* — la boîte 16:9 retombait à 202 px là où on lui en
+ * demandait 272, et l'égalité des deux aperçus tombait avec. Le rapport et la
+ * hauteur suffisent : chacune en déduit sa largeur, et rien ne vient la borner.
  */
-const PREVIEW_HEIGHT = 'h-[clamp(10rem,28vh,17rem)]'
+const PREVIEW_HEIGHT = 'h-72'
 
 /**
  * L'écran de clip, **hors de la page**.
@@ -410,7 +416,7 @@ export function EcranDeClip({ detail }: { detail: ClipDetail }) {
                   proxyUrl={proxyUrl}
                   segments={segments}
                   onVideo={setVideo}
-                  frame={cn(PREVIEW_HEIGHT, 'w-auto max-w-full')}
+                  frame={cn(PREVIEW_HEIGHT, 'w-auto')}
                   overlay={
                     <CropOverlay
                       framing={framing}

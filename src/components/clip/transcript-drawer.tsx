@@ -251,7 +251,20 @@ export function TranscriptDrawer({
         {/* **La boîte de défilement du virtualiseur.** `min-h-0` n'est pas un
             détail de mise en page : sans lui, l'élément flexible prend la hauteur
             de son contenu, le conteneur ne défile plus, et `scrollToIndex` — donc
-            le suivi de lecture et la navigation de recherche — tombe à côté. */}
+            le suivi de lecture et la navigation de recherche — tombe à côté.
+
+            **Un avertissement connu, mesuré, et laissé tel quel** : à l'ouverture,
+            React signale cinq fois « flushSync was called from inside a lifecycle
+            method ». Il vient de `measureElement` de TanStack Virtual, dont les
+            rappels de référence mesurent les phrases pendant le commit que la
+            primitive déclenche pour ouvrir le tiroir. C'est un message de
+            développement, émis par la bibliothèque, et rien n'en souffre — le
+            positionnement initial tombe juste, le défilement et la recherche
+            marchent. `useVirtualizer` accepte `useFlushSync: false`, qui le fait
+            taire ; mesuré, il décale aussi le positionnement d'ouverture de 36 px,
+            soit une demi-phrase — donc il coupe en deux la ligne où le clip
+            commence, qui est précisément ce que ce positionnement existe pour
+            montrer. Le silence ne vaut pas ce prix-là. */}
         <div className="min-h-0 flex-1">
           <TranscriptSurface
             cle={clipId}

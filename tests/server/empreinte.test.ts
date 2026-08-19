@@ -79,6 +79,20 @@ vi.mock('@/server/ffprobe', async (importOriginal) => {
   }
 })
 
+/**
+ * `true` par défaut pour tous les tests de ce fichier — seul celui qui vérifie
+ * l'ordre du repli local dans `currentCaptionsDocument` le bascule à `false`.
+ */
+let montageRéponds = true
+
+vi.mock('@/server/steps/ingest', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/server/steps/ingest')>()
+  return {
+    ...original,
+    montageRépond: async (): Promise<boolean> => montageRéponds,
+  }
+})
+
 const SOURCE = '2025-06-15-cqlp.mp4'
 const ID = '2025-06-15-cqlp'
 const CLIP = 'clip_0001'
@@ -112,6 +126,7 @@ beforeEach(() => {
 
   encodages = []
   pendantLEncodage = null
+  montageRéponds = true
 
   upsertProject(getDb(), {
     id: ID,
@@ -152,32 +167,49 @@ function clip(surcharges: Partial<Clip> = {}): Clip {
   }
 }
 
+type SegmentDeTranscript = {
+  start: number
+  end: number
+  text: string
+  words: { word: string; start: number; end: number }[]
+}
+
+/** Écrit le transcript à côté de l'original, avec les segments donnés. */
+function écrireTranscript(segments: SegmentDeTranscript[]): void {
+  const dossier = path.join(replay, `${ID}.avolo`)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
+}
+
+/**
+ * Le repli du transcript **dans le projet**, distinct de celui à côté de
+ * l'original qu'écrit `écrireTranscript`. C'est celui que `chercherSidecar`
+ * consulte en premier, avant tout sondage du montage.
+ */
+function écrireTranscriptRepli(segments: SegmentDeTranscript[]): void {
+  const dossier = path.join(projets, ID, `${ID}.avolo`)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
+}
+
 /**
  * Un transcript minuscule à côté de l'original, pour les cas qui incrustent
  * vraiment des sous-titres. Les autres tournent avec `captions: false`.
  */
 function poserTranscript(): void {
-  const dossier = path.join(replay, `${ID}.avolo`)
-  fs.mkdirSync(dossier, { recursive: true })
-  fs.writeFileSync(
-    path.join(dossier, 'transcript.json'),
-    JSON.stringify({
-      language: 'fr',
-      segments: [
-        {
-          start: 100,
-          end: 110,
-          text: 'une vanne qui tient',
-          words: [
-            { word: 'une', start: 100, end: 101 },
-            { word: 'vanne', start: 101, end: 103 },
-            { word: 'qui', start: 103, end: 104 },
-            { word: 'tient', start: 104, end: 106 },
-          ],
-        },
+  écrireTranscript([
+    {
+      start: 100,
+      end: 110,
+      text: 'une vanne qui tient',
+      words: [
+        { word: 'une', start: 100, end: 101 },
+        { word: 'vanne', start: 101, end: 103 },
+        { word: 'qui', start: 103, end: 104 },
+        { word: 'tient', start: 104, end: 106 },
       ],
-    }),
-  )
+    },
+  ])
 }
 
 /** Les noms des marques que l'empreinte dit incrustées, triés. */
@@ -711,5 +743,231 @@ describe("une marque remplacée pendant l'export", () => {
     expect(fs.existsSync(chemins.empreinte)).toBe(false)
     const àJour = getClip(getDb(), CLIP) as Clip
     expect(sortiesDuClip(àJour).mp4Url).toBeNull()
+  })
+})
+
+/**
+ * **Le texte réellement porté par les sous-titres (issue #87).** Avant ce
+ * correctif, une correction du transcript qui ne touche aucun segment d'aucun
+ * clip laissait `sauterLeRendu` reprendre un MP4 qui portait encore les
+ * anciens mots — le neuvième chemin de la famille de défauts que #48 avait
+ * coûté cher à fermer.
+ *
+ * Les segments du clip par défaut sont `[100, 115.7]` et `[130, 140]` : le
+ * premier transcript de test tombe dedans, un second segment à `[500, 510]`
+ * en est délibérément loin pour le point 3.
+ */
+describe('le texte des sous-titres (#87)', () => {
+  /** Les deux segments par défaut du clip de ce fichier, en transcript. */
+  const SEGMENT_DANS_LE_CLIP: SegmentDeTranscript = {
+    start: 100,
+    end: 110,
+    text: 'une vanne qui tient',
+    words: [
+      { word: 'une', start: 100, end: 101 },
+      { word: 'vanne', start: 101, end: 103 },
+      { word: 'qui', start: 103, end: 104 },
+      { word: 'tient', start: 104, end: 106 },
+    ],
+  }
+  /** Loin des deux segments du clip (`[100, 115.7]` et `[130, 140]`). */
+  const SEGMENT_HORS_DU_CLIP: SegmentDeTranscript = {
+    start: 500,
+    end: 510,
+    text: 'un aparté sans rapport',
+    words: [
+      { word: 'un', start: 500, end: 501 },
+      { word: 'aparté', start: 501, end: 503 },
+      { word: 'sans', start: 503, end: 504 },
+      { word: 'rapport', start: 504, end: 506 },
+    ],
+  }
+
+  /**
+   * **Le point 1 des critères de l'issue, et le plus facile à faire passer
+   * pour de mauvaises raisons.** Sans lui, un condensat qui varierait à
+   * matériau égal — sur l'ordre d'un objet, un horodatage non stabilisé —
+   * remplacerait un rendu qui ment par un rendu qui se refait à chaque appel,
+   * alors que l'export dure de dix secondes à une minute et n'est pas
+   * annulable.
+   */
+  it('ne périme rien quand rien de textuel ne change — le cas nominal reste vrai', async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+    expect(avant).toBeTypeOf('string')
+
+    // Le transcript est réécrit à l'identique — une resynchronisation de
+    // dossier, par exemple — avant le second passage.
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBe(avant)
+  })
+
+  /** Le point 2 : un mot dans un segment du clip. */
+  it("périme le rendu quand un mot d'un segment du clip change", async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+
+    écrireTranscript([
+      {
+        ...SEGMENT_DANS_LE_CLIP,
+        words: SEGMENT_DANS_LE_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
+      },
+    ])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).not.toBe(avant)
+  })
+
+  /**
+   * Le point 3 : un mot change dans l'émission, mais hors des segments
+   * retenus par ce clip. La correction porte sur `SEGMENT_HORS_DU_CLIP`, à
+   * `[500, 510]`, loin des deux segments du clip par défaut.
+   */
+  it("ne périme rien quand un mot change ailleurs dans l'émission, hors des segments du clip", async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP, SEGMENT_HORS_DU_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+    // **Sans elle, ce test passe à vide sous ablation.** `avant` et la relecture
+    // valent tous deux `undefined` si `captionsContent` n'existe pas : l'égalité
+    // ne prouve alors rien. C'est le seul des quatre à devoir le dire
+    // explicitement, puisque c'est le seul dont l'assertion finale est une
+    // non-égalité entre deux lectures plutôt qu'un type ou un changement.
+    expect(avant).toBeTypeOf('string')
+
+    écrireTranscript([
+      SEGMENT_DANS_LE_CLIP,
+      {
+        ...SEGMENT_HORS_DU_CLIP,
+        words: SEGMENT_HORS_DU_CLIP.words.map((m) =>
+          m.word === 'aparté' ? { ...m, word: 'aparté-corrigé' } : m,
+        ),
+      },
+    ])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBe(avant)
+  })
+
+  /**
+   * Le point 4 : `captions: false` garde une empreinte stable quoi qu'il
+   * arrive au transcript — y compris un changement dans les segments mêmes du
+   * clip, qui périmerait un clip sous-titré.
+   */
+  it("garde une empreinte stable pour un clip sans sous-titres, quoi qu'il arrive au transcript", async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    putClip(getDb(), clip({ captions: false }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+
+    écrireTranscript([
+      {
+        ...SEGMENT_DANS_LE_CLIP,
+        words: SEGMENT_DANS_LE_CLIP.words.map((m) => (m.word === 'vanne' ? { ...m, word: 'blague' } : m)),
+      },
+    ])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+  })
+
+  /**
+   * **La boucle que #48 avait rencontrée, et pour laquelle la comparaison du
+   * texte avait été écartée à l'époque.** Un clip qui demande des sous-titres
+   * mais dont aucun mot ne tombe dans ses segments rend un document `null` —
+   * `sousTitresDuClip` le dit, `writeCaptionsDocument` le journalise sans
+   * échouer. `captionsContent` vaut alors `null` dans l'empreinte, exactement
+   * comme un clip sans sous-titres : la seconde lecture compare `null` à
+   * `null`, ne trouve aucun écart, et l'export ne se reprend pas indéfiniment.
+   * Rien ne garantissait ça par construction avant ce test — seulement une
+   * lecture du code.
+   */
+  it("ne boucle pas sur un clip sous-titré dont aucun mot ne tombe dans les segments", async () => {
+    // Le transcript existe, mais loin des segments du clip par défaut
+    // (`[100, 115.7]` et `[130, 140]`).
+    écrireTranscript([SEGMENT_HORS_DU_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const empreinte = lireEmpreinte(chemins.empreinte)
+    expect(empreinte?.captions).toBe(true)
+    expect(empreinte?.sousTitres).toBeNull()
+    expect(empreinte?.captionsContent).toBeNull()
+
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
+  })
+
+  /**
+   * **Le passage `string → null` que le point 4 ne couvrait pas.** Le test
+   * ci-dessus prouve `null → null` ; il passerait même si `null` était traité
+   * comme « pas sondé » plutôt que comme « sondé, rien à incruster ». Celui-ci
+   * part d'un document réel, puis vide de mots les segments du clip : le
+   * rendu doit se refaire, et l'empreinte finale doit porter `null`.
+   * (relevé par Copilot)
+   */
+  it('périme le rendu quand le document passe de du texte à rien à incruster', async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
+
+    // Plus aucun mot ne tombe dans les segments du clip : le document passe à
+    // `null`, et ce n'est plus le même `null` qu'un clip sans sous-titres.
+    écrireTranscript([SEGMENT_HORS_DU_CLIP])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+  })
+
+  /**
+   * **Le repli local d'abord, le sondage du montage seulement à l'échec**
+   * (relevé par Copilot et Aristarque). `currentCaptionsDocument` sondait le
+   * montage avant même de laisser `transcriptDuProjet` essayer son repli dans
+   * le projet — cassant la garantie que son propre commentaire annonçait. Ce
+   * test pose le montage comme muet et un transcript dans le seul repli du
+   * projet : sans le correctif, il lève « le dossier des replays ne répond
+   * pas » avant d'avoir seulement essayé.
+   */
+  it("utilise le repli du projet sans sonder le montage quand il y répond", async () => {
+    écrireTranscriptRepli([SEGMENT_DANS_LE_CLIP])
+    montageRéponds = false
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
   })
 })

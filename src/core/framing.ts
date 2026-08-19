@@ -641,6 +641,48 @@ export function torsoBounds(
 }
 
 /**
+ * L'étendue des points de tête d'une personne, ou `null` si le squelette n'en
+ * porte pas — analyse sans points, ou dos tourné.
+ *
+ * Les cinq points COCO de `TORSOS.head` (nez, yeux, oreilles), et non le seul
+ * nez : un profil ne montre qu'un œil et qu'une oreille. Partagée entre
+ * `scripts/framing-thumbnails.ts` et `scripts/framing-preview.ts` — les deux
+ * répondent à la même question (le visage est-il dans le crop ?) et ne
+ * doivent pas porter chacun sa propre lecture des points.
+ *
+ * **Longueur et coordonnées revérifiées ici**, comme dans `torsoBounds` : un
+ * appelant `core` — un test, un script — n'est pas obligé de passer par la
+ * validation d'I/O, et un `k` tronqué ou une coordonnée non finie ne doivent
+ * pas produire de bornes partielles ou `NaN` que les deux outils transmettent
+ * directement à leurs primitives de dessin.
+ */
+export function headBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  const k = box.k
+  if (k === undefined || k.length !== POINT_COUNT * 3) return null
+  const threshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  let x0 = Number.POSITIVE_INFINITY
+  let y0 = Number.POSITIVE_INFINITY
+  let x1 = Number.NEGATIVE_INFINITY
+  let y1 = Number.NEGATIVE_INFINITY
+  let seen = 0
+  for (const rank of TORSOS.head) {
+    const x = k[rank * 3]
+    const y = k[rank * 3 + 1]
+    const confidence = k[rank * 3 + 2]
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !(confidence >= threshold)) continue
+    seen += 1
+    x0 = Math.min(x0, x)
+    x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y)
+    y1 = Math.max(y1, y)
+  }
+  return seen === 0 ? null : { x0, y0, x1, y1 }
+}
+
+/**
  * Ce que le cadre doit contenir d'une personne : son tronc si les points le
  * disent, sa boîte moins ses extrémités sinon.
  *

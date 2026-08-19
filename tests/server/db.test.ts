@@ -475,6 +475,7 @@ describe('appliquerRéglages', () => {
         hookModel: 'gemini-3.1-flash-lite',
         ollamaBaseUrl: '',
       },
+      ingestion: { copySourceLocally: true },
     })
   })
 })

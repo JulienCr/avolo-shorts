@@ -6,7 +6,7 @@ import type Database from 'better-sqlite3'
 import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
-import { getDb, getProject, upsertProject, type Project } from '@/server/db'
+import { copiesSourceLocally, getDb, getProject, upsertProject, type Project } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import {
   analysisPath,
@@ -28,7 +28,7 @@ import {
   runCandidates,
   type SummaryNotation,
 } from '@/server/steps/candidates'
-import { waitOrAbandon, cleanStage, DELAY_STAT_MS, ingest } from '@/server/steps/ingest'
+import { waitOrAbandon, cleanStage, DELAY_STAT_MS, ingest, workingInput } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -722,7 +722,7 @@ export async function launch(
     // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
     // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
     // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    const doitIngest = ingestionNecessary(project, execution.plan)
+    const doitIngest = ingestionNecessary(project, execution.plan, copiesSourceLocally(db))
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
     // suivre et rien à verrouiller.
@@ -835,8 +835,17 @@ function copiesInUse(db?: Database.Database): string[] | null {
  * pas au Drive du tout**, ce qui est exactement ce qu'on veut d'un montage lent
  * qui décroche.
  */
-function ingestionNecessary(project: Project, plan: readonly StepName[]): boolean {
-  const copyNeed = plan.includes('proxy') || plan.includes('audio')
+function ingestionNecessary(
+  project: Project,
+  plan: readonly StepName[],
+  copyLocally: boolean,
+): boolean {
+  // **Le besoin de copie disparaît avec le réglage, pas le besoin de durée.**
+  // Décoché, déclencher une ingestion pour une copie qu'on refuse d'écrire
+  // ferait payer le sondage du Drive pour rien. La durée, elle, reste
+  // indispensable — `runCandidates` refuse de travailler sans —, et l'ingestion
+  // sait la relever sur l'original quand elle ne copie pas.
+  const copyNeed = copyLocally && (plan.includes('proxy') || plan.includes('audio'))
   const copy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
   return (copyNeed && !copy) || project.durationSec === null
 }
@@ -1020,14 +1029,21 @@ async function executeStep(
   switch (step) {
     case 'proxy':
     case 'audio': {
-      if (project.stagedPath === null) {
+      const input = workingInput(project)
+      // **L'exigence de copie suit le réglage, et rien d'autre.** Coché, une
+      // copie absente ici est un défaut d'ordonnancement — `ingestionNecessary`
+      // vient précisément de la garantir —, et lever le dit mieux qu'un ffmpeg
+      // qui relit six gigaoctets sur un montage à 40 Mo/s sans que personne ne
+      // sache pourquoi l'étape a triplé. Décoché, lire l'original **est** le
+      // comportement demandé.
+      if (copiesSourceLocally(db) && !input.local) {
         throw new Error(
           `Le projet ${project.id} n'a pas de copie de travail : l'ingestion doit passer avant ${step}.`,
         )
       }
       const common = {
         projectId: project.id,
-        input: project.stagedPath,
+        input: input.path,
         durationSec: project.durationSec,
         force: true,
         signal,
@@ -1070,8 +1086,14 @@ async function executeStep(
       // elle reste bornée — on lit un en-tête, pas la vidéo —, ce qui justifie
       // de ne pas repayer cinq minutes de recopie ; ce qui ne se justifie pas,
       // c'est de le taire.
-      const hasLocalCopy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
-      if (!hasLocalCopy) {
+      //
+      // **Et l'avertissement ne tombe que si la copie était attendue.** Décoché,
+      // lire l'original est le réglage qui s'applique, pas un accident : le
+      // signaler à chaque analyse apprendrait à ne plus lire les avertissements,
+      // et le premier vrai — celui qui décrit une copie perdue — passerait avec
+      // les autres.
+      const input = workingInput(project)
+      if (!input.local && copiesSourceLocally(db)) {
         console.warn(
           `[${project.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
             'relevées sur l’original — c’est-à-dire sur le montage 9p. Un ffprobe d’en-tête le ' +
@@ -1079,11 +1101,9 @@ async function executeStep(
             'reconstitue la copie.',
         )
       }
-      const source =
-        hasLocalCopy && project.stagedPath !== null ? project.stagedPath : project.sourcePath
       await steps.runAnalysis({
         projectId: project.id,
-        source,
+        source: input.path,
         force: true,
         signal,
         onLog: (line) => {

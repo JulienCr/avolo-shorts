@@ -19,7 +19,7 @@ import { planSteps, type StepName } from '@/core/graph'
 import { closeDb, getDb, getProject } from '@/server/db'
 import { audioPath, placeSidecar, proxyPath } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
-import { editingResponds } from '@/server/steps/ingest'
+import { editingResponds, workingInput } from '@/server/steps/ingest'
 import { transcribe } from '@/server/steps/transcript'
 import { chargerEnv, timer, createBar, duration, finBar, quit } from './dev-common'
 
@@ -82,15 +82,18 @@ async function main(): Promise<number> {
   console.log(`À faire    : ${plan.length === 0 ? 'rien, tout est là' : plan.join(' → ')}`)
 
   if (plan.includes('audio')) {
-    if (project.stagedPath === null) {
-      console.error("Le projet n'a pas de copie de travail. Relancer dev-ingest.ts.")
-      return 1
-    }
+    // **On ne refuse plus faute de copie**, on dit ce qu'on lit. Avec
+    // `ingestion.copySourceLocally` décoché il n'y en a jamais, et exiger
+    // `dev-ingest.ts` renverrait vers une commande qui n'en fabriquera pas
+    // davantage. L'extraction sur le montage 9p est lente — c'est le prix
+    // annoncé du réglage — mais elle aboutit.
+    const input = workingInput(project)
+    console.log(`Entrée     : ${input.path}${input.local ? '' : ' (original, pas de copie locale)'}`)
     const bar = createBar('  audio ')
     const t = timer()
     await extractAudio({
       projectId,
-      input: project.stagedPath,
+      input: input.path,
       durationSec: project.durationSec,
       force: true,
       onProgress: (a) => bar(a.fraction),

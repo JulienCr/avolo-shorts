@@ -387,6 +387,15 @@ ne montre. Une image vaut une demi-seconde.
 | temps où quelqu'un perd > 1/3 | 0,5 s → 8,5 s | 0 s → 0,5 s | 0 s → 8,0 s |
 | temps où quelqu'un perd > 1/2 | 0 s → 2,5 s | 0 s → 0 s | 0 s → 7,5 s |
 
+**Les deux lignes de temps sont à relire à la baisse, et le script a été corrigé
+depuis.** Elles ont été relevées quand `mesure-ratios.ts` comptait des
+*personnes-images* et les multipliait par le pas d'échantillonnage : deux
+comédiens amputés sur la même image de 0,5 s donnaient « 1,0 s ». Le script
+agrège désormais par image — la pire perte de chacune — avant de convertir, donc
+il rendrait ici au plus ces valeurs, et jusqu'à deux fois moins. Le comptage
+d'épisodes du paragraphe suivant, lui, a été fait à la main et ne dépend pas de
+cette colonne. (relevé par Copilot en review de la #83)
+
 Sur les 31 clips, dix épisodes dépassent la moitié, **de 0,5 à 1,5 seconde
 chacun**, 7,5 s cumulées. Aucun n'est une perte installée : ce sont des images
 isolées, celles que le seuil de 90 % accepte déjà de sacrifier. Le pire est à

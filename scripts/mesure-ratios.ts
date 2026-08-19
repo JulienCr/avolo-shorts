@@ -126,15 +126,22 @@ const SIDE_TRIMS = [
 ].sort((a, b) => a - b)
 
 /**
- * L'intervalle entre deux images mesurées, en secondes : le worker échantillonne
- * à 2 images par seconde (spec §6).
+ * L'intervalle entre deux images mesurées, en secondes, **lu dans l'analyse**.
  *
  * Il sert à convertir un compte d'images en durée, et c'est la seule forme sous
  * laquelle une perte se juge : « huit boîtes sur deux mille » ne dit pas si le
  * spectateur voit quelqu'un sortir du cadre pendant quatre secondes ou pendant
  * un battement de paupières.
+ *
+ * **Pas la constante 0,5 qu'il valait**, même si les trois émissions mesurées
+ * sont toutes à 2 im/s : `detect.py` accepte `--fps`, chaque `analysis.json`
+ * porte le sien, et une analyse produite à 1 ou 4 im/s aurait fait afficher des
+ * durées fausses sans que rien ne les contredise — le compte d'images, lui,
+ * serait resté juste. (relevé par Copilot)
  */
-const SAMPLE_STEP = 0.5
+function sampleStep(analysis: Analyse): number {
+  return analysis.fps > 0 ? 1 / analysis.fps : Number.NaN
+}
 
 /**
  * Les définitions de tronc balayées, **plus le repli sans tronc**.
@@ -247,8 +254,22 @@ type Cost = {
   box: number[]
   /** Ce qui est coupé de chaque **tronc**, quand la personne en a un de lisible. */
   torso: number[]
+  /**
+   * La **pire** perte de boîte de chaque image, une valeur par image mesurée.
+   *
+   * **C'est la seule des deux qui se convertit en secondes**, et l'autre ne le
+   * peut pas : `box` porte une valeur par (personne, image), donc en compter les
+   * éléments et les multiplier par le pas d'échantillonnage rend des
+   * *personnes-secondes*. Deux comédiens amputés sur la même image de 0,5 s
+   * donnaient « 1,0 s », c'est-à-dire deux fois la durée pendant laquelle le
+   * spectateur voit quelque chose. Sur une émission à deux comédiens, l'écart
+   * va jusqu'au facteur deux. (relevé par Copilot)
+   */
+  worstPerFrame: number[]
   /** Le nombre de (personne, image) dont **aucun point de tête** n'est dans le cadre. */
   headsOutside: number
+  /** Le nombre d'**images** où au moins une tête est dehors — celui qui fait des secondes. */
+  framesWithHeadOutside: number
   /** Celles dont un point de tête est dans le cadre mais à moins de 1 % du bord. */
   headsAtEdge: number
   /** Le nombre de personnes-images examinées, pour rapporter les deux précédents. */
@@ -296,7 +317,20 @@ function costOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): 
     torsoPad: FRAMING_DEFAULTS.torsoPad,
   }
   const pointThreshold = FRAMING_DEFAULTS.torsoMinScore
-  const cost: Cost = { box: [], torso: [], headsOutside: 0, headsAtEdge: 0, people: 0 }
+  const cost: Cost = {
+    box: [],
+    torso: [],
+    worstPerFrame: [],
+    headsOutside: 0,
+    framesWithHeadOutside: 0,
+    headsAtEdge: 0,
+    people: 0,
+  }
+  // Par instant, pour les deux grandeurs qui se comptent en secondes. La clé est
+  // la milliseconde, comme partout ailleurs où ce dépôt regroupe des boîtes par
+  // image.
+  const worstAt = new Map<number, number>()
+  const headOutAt = new Set<number>()
   for (const plan of cadrage.shots) {
     const largeur = ratioCoverage(plan.ratio, analyse.source.w, analyse.source.h)
     // Le bord gauche du rectangle, borné dans l'image comme `cropRect` le fait.
@@ -311,7 +345,10 @@ function costOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): 
       // **La boîte entière, pas la boîte rognée.** Le rognage est ce qu'on
       // s'autorise à perdre ; ce qu'on perd vraiment se mesure sur la personne.
       const dedans = Math.max(0, Math.min(b.x1, x + largeur) - Math.max(b.x0, x))
-      cost.box.push(1 - dedans / boxWidth)
+      const loss = 1 - dedans / boxWidth
+      cost.box.push(loss)
+      const frameKey = Math.round(b.t * 1000)
+      worstAt.set(frameKey, Math.max(worstAt.get(frameKey) ?? 0, loss))
 
       const torso = torsoBounds(b, gauge)
       if (torso !== null && torso.x1 > torso.x0) {
@@ -321,23 +358,27 @@ function costOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): 
 
       const k = b.k
       if (k === undefined) continue
-      let vue = false
+      let seen = false
       let inFrame = false
       let atEdge = false
       for (const rang of HEAD_POINTS) {
         const px = k[rang * 3]
         if (!Number.isFinite(px) || !(k[rang * 3 + 2] >= pointThreshold)) continue
-        vue = true
+        seen = true
         if (px >= x && px <= x + largeur) {
           inFrame = true
           if (px - x < 0.01 || x + largeur - px < 0.01) atEdge = true
         }
       }
-      if (!vue) continue
-      if (!inFrame) cost.headsOutside += 1
-      else if (atEdge) cost.headsAtEdge += 1
+      if (!seen) continue
+      if (!inFrame) {
+        cost.headsOutside += 1
+        headOutAt.add(Math.round(b.t * 1000))
+      } else if (atEdge) cost.headsAtEdge += 1
     }
   }
+  cost.worstPerFrame = [...worstAt.values()]
+  cost.framesWithHeadOutside = headOutAt.size
   return cost
 }
 
@@ -382,7 +423,7 @@ function timePerRatio(
   analyse: Analyse,
   options: FramingOptions,
 ): Map<Ratio, number> {
-  const temps = new Map<Ratio, number>(DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => [r, 0]))
+  const times = new Map<Ratio, number>(DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => [r, 0]))
   for (const découpe of découpes) {
     const segments = normalizeSegments(découpe.segments)
     for (const plan of framingOf(découpe, analyse, options).shots) {
@@ -391,24 +432,24 @@ function timePerRatio(
           n + Math.max(0, Math.min(plan.shot.end, s.end) - Math.max(plan.shot.start, s.start)),
         0,
       )
-      temps.set(plan.ratio, (temps.get(plan.ratio) ?? 0) + durée)
+      times.set(plan.ratio, (times.get(plan.ratio) ?? 0) + durée)
     }
   }
-  return temps
+  return times
 }
 
 /** La part du temps de montage qui sort au ratio le plus large, en pourcentage. */
-function shareInSixteenNine(temps: Map<Ratio, number>): number {
-  const total = [...temps.values()].reduce((a, b) => a + b, 0)
-  const large = temps.get(DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]) ?? 0
+function shareInSixteenNine(times: Map<Ratio, number>): number {
+  const total = [...times.values()].reduce((a, b) => a + b, 0)
+  const large = times.get(DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]) ?? 0
   return total === 0 ? Number.NaN : (100 * large) / total
 }
 
-function timeLine(temps: Map<Ratio, number>): string {
+function timeLine(times: Map<Ratio, number>): string {
   return (
-    DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => `${(temps.get(r) ?? 0).toFixed(0).padStart(6)}`).join(
+    DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => `${(times.get(r) ?? 0).toFixed(0).padStart(6)}`).join(
       ' ',
-    ) + `   16:9 = ${nombre(shareInSixteenNine(temps), 0).padStart(3)} %`
+    ) + `   16:9 = ${nombre(shareInSixteenNine(times), 0).padStart(3)} %`
   )
 }
 
@@ -549,9 +590,9 @@ function comparaison(émissions: Émission[], quoi: 'clips' | 'fenêtres'): void
   // répondent pas à la même question — celui qui ne lirait que le premier
   // conclurait qu'un clip « en 16:9 » sort entièrement en 16:9.
   console.log(`\n  temps de montage par ratio, en secondes`)
-  const temps = émissions.map((e) => timePerRatio(e[quoi], e.analyse, opts()))
+  const times = émissions.map((e) => timePerRatio(e[quoi], e.analyse, opts()))
   for (const [i, e] of émissions.entries()) {
-    console.log(`  ${e.id.padEnd(24)} ${timeLine(temps[i])}`)
+    console.log(`  ${e.id.padEnd(24)} ${timeLine(times[i])}`)
   }
 }
 
@@ -636,24 +677,34 @@ function sweepSideTrim(émission: Émission, quoi: 'clips' | 'fenêtres'): void 
     const options = opts({ sideTrim: trim })
     const ratios = découpes.map((d) => ratioDe(d, émission.analyse, options))
     const compte = répartition(ratios)
-    const temps = timePerRatio(découpes, émission.analyse, options)
+    const times = timePerRatio(découpes, émission.analyse, options)
     const costs = découpes.map((d) => costOf(d, émission.analyse, options))
     const losses = costs.flatMap((c) => c.box)
-    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
-    const secondes = (n: number): string => `${(n * SAMPLE_STEP).toFixed(1)} s`
-    const élargis = ratios.filter((r, i) => RATIOS[r] > RATIOS[référence[i]]).length
+    // **Le pire par image pour les durées, la distribution par personne pour les
+    // percentiles.** Les deux répondent à deux questions : « quelle part
+    // quelqu'un perd-il », qui se lit sur les personnes, et « pendant combien de
+    // temps le spectateur le voit-il », qui se lit sur les images. Confondre les
+    // deux rendait des personnes-secondes sous une étiquette « s ».
+    const worst = costs.flatMap((c) => c.worstPerFrame)
+    const headsOut = costs.reduce((n, c) => n + c.headsOutside, 0)
+    // Le compte est en personnes-images — c'est ce que « têtes dehors » nomme —
+    // et la durée en images, parce qu'une seconde ne se compte pas deux fois
+    // quand deux têtes sortent ensemble.
+    const framesOut = costs.reduce((n, c) => n + c.framesWithHeadOutside, 0)
+    const asSeconds = (n: number): string => `${(n * sampleStep(émission.analyse)).toFixed(1)} s`
+    const widened = ratios.filter((r, i) => RATIOS[r] > RATIOS[référence[i]]).length
     const défaut = trim === FRAMING_DEFAULTS.sideTrim ? ' ←' : '  '
     console.log(
       `  ${trim.toFixed(3)}${défaut}` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(6)).join(' ') +
-        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
+        `  ${nombre(shareInSixteenNine(times), 0).padStart(6)} %` +
         `   ${nombre(percentile(losses, 0.9)).padStart(24)}` +
         ` ${nombre(percentile(losses, 0.99)).padStart(6)}` +
-        ` ${secondes(losses.filter((v) => v > 1 / 3).length).padStart(8)}` +
-        ` ${secondes(losses.filter((v) => v > 0.5).length).padStart(8)}` +
+        ` ${asSeconds(worst.filter((v) => v > 1 / 3).length).padStart(8)}` +
+        ` ${asSeconds(worst.filter((v) => v > 0.5).length).padStart(8)}` +
         ` ${nombre(percentile(costs.flatMap((c) => c.torso), 0.99)).padStart(19)}` +
-        ` ${`${dehors} (${secondes(dehors)})`.padStart(14)}` +
-        (élargis > 0 ? `   ${élargis} ÉLARGI(S)` : ''),
+        ` ${`${headsOut} (${asSeconds(framesOut)})`.padStart(14)}` +
+        (widened > 0 ? `   ${widened} ÉLARGI(S)` : ''),
     )
   }
 }
@@ -685,10 +736,10 @@ function sweepSideTrim(émission: Émission, quoi: 'clips' | 'fenêtres'): void 
 function boundedByPosition(émission: Émission): void {
   const { w, h } = émission.analyse.source
   let plans = 0
-  let bornés = 0
-  let secondes = 0
-  let secondesBornées = 0
-  const lignes: string[] = []
+  let bounded = 0
+  let asSeconds = 0
+  let boundedSeconds = 0
+  const lines: string[] = []
 
   for (const clip of émission.clips) {
     const cadrage = framingOf(clip, émission.analyse, opts())
@@ -717,11 +768,11 @@ function boundedByPosition(émission: Émission): void {
         0,
       )
       plans++
-      secondes += durée
+      asSeconds += durée
       if (RATIOS[plan.ratio] <= RATIOS[libre]) continue
-      bornés++
-      secondesBornées += durée
-      lignes.push(
+      bounded++
+      boundedSeconds += durée
+      lines.push(
         `    ${plan.shot.start.toFixed(1)} → ${plan.shot.end.toFixed(1)}` +
           `  ${durée.toFixed(1)} s  ${libre} possible, ${plan.ratio} retenu  ${clip.nom}`,
       )
@@ -729,12 +780,12 @@ function boundedByPosition(émission: Émission): void {
   }
 
   if (plans === 0) return
-  const part = secondes === 0 ? 0 : (100 * secondesBornées) / secondes
+  const part = asSeconds === 0 ? 0 : (100 * boundedSeconds) / asSeconds
   console.log(
-    `\n  ${émission.id} : ${bornés} plans sur ${plans}, ` +
-      `${secondesBornées.toFixed(0)} s sur ${secondes.toFixed(0)} s (${part.toFixed(0)} %)`,
+    `\n  ${émission.id} : ${bounded} plans sur ${plans}, ` +
+      `${boundedSeconds.toFixed(0)} s sur ${asSeconds.toFixed(0)} s (${part.toFixed(0)} %)`,
   )
-  for (const l of lignes) console.log(l)
+  for (const l of lines) console.log(l)
 }
 
 // ---------------------------------------------------------------------------
@@ -769,22 +820,26 @@ function sweepTorso(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
   for (const torso of TORSO_NAMES) {
     const options = opts({ torso })
     const compte = répartition(découpes.map((d) => ratioDe(d, émission.analyse, options)))
-    const temps = timePerRatio(découpes, émission.analyse, options)
+    const times = timePerRatio(découpes, émission.analyse, options)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
     const costs = découpes.map((d) => costOf(d, émission.analyse, options))
     const box = costs.flatMap((c) => c.box)
     const torsos = costs.flatMap((c) => c.torso)
-    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
+    const headsOut = costs.reduce((n, c) => n + c.headsOutside, 0)
+    // Le compte est en personnes-images — c'est ce que « têtes dehors » nomme —
+    // et la durée en images, parce qu'une seconde ne se compte pas deux fois
+    // quand deux têtes sortent ensemble.
+    const framesOut = costs.reduce((n, c) => n + c.framesWithHeadOutside, 0)
     const atEdge = costs.reduce((n, c) => n + c.headsAtEdge, 0)
     const défaut = torso === FRAMING_DEFAULTS.torso ? ' ←' : '  '
     console.log(
       `  ${torso.padEnd(16)}${défaut}` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(5)).join(' ') +
-        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
+        `  ${nombre(shareInSixteenNine(times), 0).padStart(6)} %` +
         `  ${nombre(médiane(empans)).padStart(9)}` +
         `  ${nombre(percentile(box, 0.99)).padStart(16)}` +
         `  ${nombre(percentile(torsos, 0.99)).padStart(16)}` +
-        `  ${`${dehors} (${(SAMPLE_STEP * dehors).toFixed(1)} s)`.padStart(13)}` +
+        `  ${`${headsOut} (${(sampleStep(émission.analyse) * framesOut).toFixed(1)} s)`.padStart(13)}` +
         `  ${String(atEdge).padStart(7)}`,
     )
   }
@@ -806,28 +861,28 @@ function torsoVersusBox(émission: Émission): void {
   const gardées = émission.analyse.boxes.filter((b) => b.score >= seuil && !isForeground(b, options))
   const boxWidths: number[] = []
   const trimmedWidths: number[] = []
-  const largeursTronc: number[] = []
-  let avecTronc = 0
+  const torsoWidths: number[] = []
+  let withTorso = 0
   for (const b of gardées) {
     boxWidths.push(b.x1 - b.x0)
     const rognée = trimmedBounds(b, options)
     trimmedWidths.push(rognée.x1 - rognée.x0)
     const torso = torsoBounds(b, options)
     if (torso === null) continue
-    avecTronc += 1
-    largeursTronc.push(torso.x1 - torso.x0)
+    withTorso += 1
+    torsoWidths.push(torso.x1 - torso.x0)
   }
   if (gardées.length === 0) return
   console.log(
     `\n  ${émission.id} — ${gardées.length} boîtes gardées, ` +
-      `${avecTronc} avec un tronc lisible (${((100 * avecTronc) / gardées.length).toFixed(0)} %)` +
+      `${withTorso} avec un tronc lisible (${((100 * withTorso) / gardées.length).toFixed(0)} %)` +
       `${émission.analyse.keypoints === undefined ? ' — analyse sans points de pose' : ''}`,
   )
   console.log('                     médiane      p90      p99')
   for (const [nom, valeurs] of [
     ['boîte corps entier', boxWidths],
     ['boîte rognée', trimmedWidths],
-    [`tronc « ${FRAMING_DEFAULTS.torso} »`, largeursTronc],
+    [`tronc « ${FRAMING_DEFAULTS.torso} »`, torsoWidths],
   ] as const) {
     console.log(
       `  ${nom.padEnd(18)} ${nombre(médiane(valeurs)).padStart(7)}` +
@@ -854,7 +909,7 @@ function sweepTorsoPadding(
   if (découpes.length === 0) return
   console.log(`\n  ${émission.id} — ${découpes.length} ${quoi}`)
   const valeurs = whatVaries === 'torsoPad' ? TORSO_PADS : TORSO_TRIMS
-  const défautDu = whatVaries === 'torsoPad' ? FRAMING_DEFAULTS.torsoPad : FRAMING_DEFAULTS.torsoTrim
+  const defaultOf = whatVaries === 'torsoPad' ? FRAMING_DEFAULTS.torsoPad : FRAMING_DEFAULTS.torsoTrim
   console.log(
     `  ${whatVaries === 'torsoPad' ? 'rembourrage' : 'rognage    '}  ${DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => r.padStart(5)).join(' ')}` +
       `  16:9 tps  empan méd.   coupé boîte p99   coupé tronc p99   têtes dehors`,
@@ -862,21 +917,25 @@ function sweepTorsoPadding(
   for (const pad of valeurs) {
     const options = opts(whatVaries === 'torsoPad' ? { torsoPad: pad } : { torsoTrim: pad })
     const compte = répartition(découpes.map((d) => ratioDe(d, émission.analyse, options)))
-    const temps = timePerRatio(découpes, émission.analyse, options)
+    const times = timePerRatio(découpes, émission.analyse, options)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
     const costs = découpes.map((d) => costOf(d, émission.analyse, options))
     const box = costs.flatMap((c) => c.box)
     const torsos = costs.flatMap((c) => c.torso)
-    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
-    const défaut = pad === défautDu ? ' ←' : '  '
+    const headsOut = costs.reduce((n, c) => n + c.headsOutside, 0)
+    // Le compte est en personnes-images — c'est ce que « têtes dehors » nomme —
+    // et la durée en images, parce qu'une seconde ne se compte pas deux fois
+    // quand deux têtes sortent ensemble.
+    const framesOut = costs.reduce((n, c) => n + c.framesWithHeadOutside, 0)
+    const défaut = pad === defaultOf ? ' ←' : '  '
     console.log(
       `  ${pad.toFixed(2)}${défaut}         ` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(5)).join(' ') +
-        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
+        `  ${nombre(shareInSixteenNine(times), 0).padStart(6)} %` +
         `  ${nombre(médiane(empans)).padStart(9)}` +
         `  ${nombre(percentile(box, 0.99)).padStart(16)}` +
         `  ${nombre(percentile(torsos, 0.99)).padStart(16)}` +
-        `  ${`${dehors} (${(SAMPLE_STEP * dehors).toFixed(1)} s)`.padStart(13)}`,
+        `  ${`${headsOut} (${(sampleStep(émission.analyse) * framesOut).toFixed(1)} s)`.padStart(13)}`,
     )
   }
 }
@@ -1106,7 +1165,7 @@ async function main(): Promise<number> {
     console.log("  (l'empan que chaque primitive demande, avant tout choix de ratio)")
     for (const e of émissions) torsoVersusBox(e)
     console.log('\n  Ce que chaque définition de tronc change')
-    console.log('  (« têtes dehors » : personnes-images dont aucun point de tête n’est dans le crop)')
+    console.log('  (« têtes dehors » : personnes-images dont aucun point de tête n’est dans le crop ; la durée entre parenthèses compte les images, pas les personnes)')
     for (const e of émissions) sweepTorso(e, 'clips')
     for (const e of émissions) sweepTorso(e, 'fenêtres')
     console.log('\n  Le rembourrage du tronc')

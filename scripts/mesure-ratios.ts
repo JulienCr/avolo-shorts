@@ -54,9 +54,12 @@
  *
  * - `--analyse <projet>=<fichier>` lit une autre analyse que celle de
  *   `projects/<projet>/analysis.json`. C'est ce qui permet de comparer deux
- *   détecteurs sans écraser le fichier que le serveur sert.
- * - `--tronc <nom|off>` fixe la définition de tronc des sections 1 à 5, dont le
- *   défaut est celui de `FRAMING_DEFAULTS`.
+ *   détecteurs sans écraser le fichier que le serveur sert. **Une occurrence par
+ *   projet** : deux analyses de la même émission se comparent en deux
+ *   exécutions, et un doublon est refusé plutôt qu'écrasé.
+ * - `--tronc <nom|off>` fixe la définition de tronc des sections 1 à 5 et 7. La
+ *   section 6 balaie le tronc, et les deux balayages de ses réglages le forcent
+ *   à son défaut : hérités d'un `--tronc off`, ils n'auraient rien à régler.
  *
  * Et `--instants N` imprime, par clip, les N images qui **font monter le ratio** :
  * les plus larges après filtrage, une par plan au plus, parce que le crop est
@@ -926,7 +929,17 @@ function sweepTorsoPadding(
       `  16:9 tps  empan méd.   coupé boîte p99   coupé tronc p99   têtes dehors`,
   )
   for (const pad of valeurs) {
-    const options = opts(whatVaries === 'torsoPad' ? { torsoPad: pad } : { torsoTrim: pad })
+    // **Le tronc est forcé à son défaut ici**, `--tronc` compris. Ces deux
+    // tableaux balaient des réglages *du tronc* : hérité de `BASE`, un
+    // `--tronc off` les rendrait tous inertes et imprimerait des lignes
+    // rigoureusement identiques, ce qui se lit comme « le réglage ne change
+    // rien » et non comme « il n'y avait pas de tronc à régler ». La sortie
+    // annonce les sections 1 à 5 et 7 ; celles-ci n'en font pas partie.
+    // (relevé par Copilot)
+    const options = opts({
+      torso: FRAMING_DEFAULTS.torso,
+      ...(whatVaries === 'torsoPad' ? { torsoPad: pad } : { torsoTrim: pad }),
+    })
     const compte = répartition(découpes.map((d) => ratioDe(d, émission.analyse, options)))
     const times = timePerRatio(découpes, émission.analyse, options)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
@@ -1016,8 +1029,15 @@ function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number
       )
       if (empan === undefined || gardées.length === 0) return undefined
       const required = gardées.map((b) => personBounds(b, opts()))
-      const g = Math.max(0, Math.min(...required.map((e) => e.x0)) - marge)
-      const d = Math.min(1, Math.max(...required.map((e) => e.x1)) + marge)
+      // Bornées des deux côtés, comme `empans` de `framing.ts` et `étendue` de
+      // `vignettes-cadrage.ts`. C'est le troisième exemplaire du même défaut, et
+      // le seul que les deux premiers correctifs avaient laissé : un tronc
+      // entièrement hors cadre donnait `g = 0` avec `d < 0`, donc un
+      // `sortie` inventé qui remontait l'image en tête du classement — dans la
+      // section dont le seul travail est de dire où regarder. (relevé par Copilot)
+      const dans01 = (n: number): number => Math.min(Math.max(n, 0), 1)
+      const g = dans01(Math.min(...required.map((e) => e.x0)) - marge)
+      const d = dans01(Math.max(...required.map((e) => e.x1)) + marge)
       // Le crop de *son* plan : à défaut de plan, le centre, comme `computeFraming`.
       const plan = cadrage.shots.find((p) => t >= p.shot.start && t < p.shot.end)
       const centre = plan?.cropX ?? 0.5
@@ -1083,9 +1103,9 @@ async function main(): Promise<number> {
     return 1
   }
 
-  // **Un fichier d'analyse nommé à la main, par projet.** Répétable, parce que
-  // la comparaison qui vaut est celle de deux détecteurs sur la même émission,
-  // et qu'on ne l'obtient qu'en lisant deux fichiers.
+  // **Un fichier d'analyse nommé à la main, par projet.** Répétable d'un projet
+  // à l'autre, mais **une seule fois par projet** : deux analyses de la même
+  // émission se comparent en deux exécutions, pas en deux drapeaux.
   const overrides = new Map<string, string>()
   for (const [i, a] of arguments_.entries()) {
     if (a !== '--analyse') continue
@@ -1095,7 +1115,24 @@ async function main(): Promise<number> {
       console.error(`--analyse attend <projet>=<fichier>, reçu « ${String(brut)} ».`)
       return 1
     }
-    overrides.set(brut.slice(0, séparateur), brut.slice(séparateur + 1))
+    const projet = brut.slice(0, séparateur)
+    // **Un doublon est refusé, pas écrasé.** Le commentaire ci-dessus promettait
+    // de comparer deux détecteurs sur la même émission ; la `Map` étant indexée
+    // par projet, le second `--analyse` du même projet remplaçait simplement le
+    // premier, et les deux identifiants passés en positionnel chargeaient le
+    // même fichier. Le tableau sortait donc deux lignes identiques sous deux
+    // noms, ce dont on aurait conclu que les deux détecteurs se valent. Deux
+    // fichiers se comparent en deux exécutions, ou en donnant à chacun son
+    // identifiant de projet. (relevé par Copilot)
+    if (overrides.has(projet)) {
+      console.error(
+        `--analyse est donné deux fois pour « ${projet} » : ce script lit une analyse par projet, ` +
+          'donc la seconde écraserait la première sans rien dire. Comparer deux détecteurs sur la ' +
+          'même émission demande deux exécutions.',
+      )
+      return 1
+    }
+    overrides.set(projet, brut.slice(séparateur + 1))
   }
 
   // Un tronc inconnu est **refusé**, pas remplacé par le défaut : une faute de
@@ -1165,6 +1202,7 @@ async function main(): Promise<number> {
 
     console.log('\n=== 4. Le balayage du rognage latéral ===')
     console.log('  (« coupé » se mesure sur le cadre du plan, boîtes entières, images sacrifiées comprises)')
+    console.log('  (les p90/p99 portent sur les personnes ; les colonnes en secondes comptent les images, la pire perte de chacune)')
     for (const e of émissions) sweepSideTrim(e, 'clips')
     for (const e of émissions) sweepSideTrim(e, 'fenêtres')
 

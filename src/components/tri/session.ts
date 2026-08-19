@@ -50,7 +50,7 @@ export type ÉtatDeTri = {
    */
   retour: boolean
   /**
-   * L'instant, en millisecondes epoch, où `retour` a été posé à `true`.
+   * L'instant, en millisecondes depuis l'époque Unix, où `retour` a été posé à `true`.
    *
    * **Sans horodatage, la marque survit à un départ sans retour.** Elle est
    * posée au clic vers un clip, mais rien ne la retire si l'on quitte ensuite

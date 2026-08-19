@@ -36,7 +36,8 @@ import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode, LlmResponse } from '@
 import { candidatesPath, placeSidecar } from '@/server/paths'
 
 /**
- * L'étape `candidates` : deux passes Gemini sur le transcript, et le lot de
+ * L'étape `candidates` : deux passes sur le transcript, auprès du fournisseur
+ * réglé pour le repérage (Gemini, OpenAI ou Ollama), et le lot de
  * propositions qui en sort.
  *
  * C'est le seul endroit du repérage qui touche au réseau. Tout ce qui décide

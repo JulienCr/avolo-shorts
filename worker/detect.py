@@ -903,16 +903,17 @@ def refus_du_seuil_de_scène(
                 f"{nom} vaut {valeur}, qui n'est pas un nombre fini : toute comparaison avec "
                 "NaN est fausse, toute comparaison avec un infini est constante. Ni l'une ni "
                 "l'autre ne trie quoi que ce soit, et aucune ne le dit. Le score de scène de "
-                "ffmpeg vit dans [0, 1]."
+                "ffmpeg vit dans ]0, 1]."
             )
         if not 0 < valeur <= 1:
             return (
                 f"{nom} vaut {valeur}, hors du domaine du score de scène de ffmpeg, qui vit "
-                "dans [0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
-                "plancher nul en fait collecter à peu près chaque image d'une émission de deux "
-                "heures, ramassée en mémoire d'un seul tenant ; et au-dessus de 1 — la faute de "
-                "décimale sur 0,4 — plus rien ne coupe, l'analyse sort en un plan unique sans "
-                "que rien n'échoue. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
+                "dans ]0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
+                "plancher nul en fait collecter chaque image d'une émission de deux heures "
+                "sans exception (la collecte est inclusive, gte), ramassée en mémoire d'un seul "
+                "tenant ; et au-dessus de 1 — la faute de décimale sur 0,4 — plus rien ne coupe, "
+                "l'analyse sort en un plan unique sans que rien n'échoue. 0,4 sur un plancher "
+                "de 0,05 sont les valeurs mesurées."
             )
     # **Vérification séparée de celle ci-dessus** : `--switch-point-score` vit
     # dans le même domaine ``]0, 1]`` qu'un score de scène, mais un seuil hors
@@ -927,12 +928,12 @@ def refus_du_seuil_de_scène(
         return (
             f"--switch-point-score vaut {switch_point_score}, qui n'est pas un nombre fini : "
             "toute comparaison avec NaN est fausse, toute comparaison avec un infini est "
-            "constante. Un score de point de pose vit dans [0, 1]."
+            "constante. Un score de point de pose vit dans ]0, 1]."
         )
     if not 0 < switch_point_score <= 1:
         return (
             f"--switch-point-score vaut {switch_point_score}, hors du domaine d'un score de "
-            "point de pose, qui vit dans [0, 1]. À zéro, un point neutralisé par "
+            "point de pose, qui vit dans ]0, 1]. À zéro, un point neutralisé par "
             "flatten_keypoints (confiance nulle, position non fiable) passerait le seuil et "
             "fausserait l'ancrage qu'il est censé exclure ; au-dessus de 1, aucun point ne "
             "l'atteint jamais et person_anchor replie systématiquement sur le centre de "
@@ -1014,7 +1015,15 @@ def run_replay(a: argparse.Namespace) -> int:
     # chemins coïncident (faute de frappe dans une commande de calibrage), le
     # premier `open(..., "w")` écrase l'analyse qu'on est en train de rejouer,
     # silencieusement — un `analysis.json` de production peut être de ceux-là.
-    if os.path.abspath(a.out) == os.path.abspath(a.replay):
+    # **La comparaison de chemins ne suffit pas.** Un lien symbolique ou
+    # physique vers ``--replay`` a un chemin différent mais désigne le même
+    # fichier ; ``os.path.samefile`` compare l'inode plutôt que la chaîne, et
+    # se rabat sur la comparaison de chemins quand ``--out`` n'existe pas
+    # encore — un fichier absent n'a pas d'inode à comparer. (relevé par
+    # Copilot sur la PR #101)
+    same_path = os.path.abspath(a.out) == os.path.abspath(a.replay)
+    same_file = os.path.exists(a.out) and os.path.samefile(a.out, a.replay)
+    if same_path or same_file:
         journal(f"--out ({a.out}) désigne le même fichier que --replay : rien à rejouer sur.")
         return 2
 
@@ -1131,7 +1140,7 @@ def main() -> int:
         "--scene-floor",
         type=float,
         default=0.05,
-        help="le plancher de collecte : ffmpeg ne rapporte rien à ce score ni en dessous",
+        help="le plancher de collecte : ffmpeg ne rapporte rien strictement en dessous de ce score",
     )
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"

@@ -99,7 +99,7 @@ const inCurrent = new Map<string, Execution>()
 export class ExecutionInCurrentError extends Error {
   constructor(readonly projectId: string) {
     super(`Une exécution est déjà en cours sur ${projectId}.`)
-    this.name = 'ExécutionEnCoursError'
+    this.name = 'ExecutionInCurrentError'
   }
 }
 
@@ -107,7 +107,7 @@ export class ExecutionInCurrentError extends Error {
 export class ProjectInconnuError extends Error {
   constructor(readonly projectId: string) {
     super(`Projet inconnu : ${projectId}`)
-    this.name = 'ProjetInconnuError'
+    this.name = 'ProjectInconnuError'
   }
 }
 
@@ -132,7 +132,7 @@ export class ProjectErrorCollision extends Error {
       `L'identifiant ${projectId} désigne déjà ${JSON.stringify(path.basename(expected))}. ` +
         `${JSON.stringify(path.basename(received))} lui donnerait le même projet : renommer l'un des deux fichiers.`,
     )
-    this.name = 'CollisionDeProjetError'
+    this.name = 'ProjectErrorCollision'
   }
 }
 

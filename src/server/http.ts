@@ -30,7 +30,7 @@ export class ErrorHttp extends Error {
     message: string,
   ) {
     super(message)
-    this.name = 'ErreurHttp'
+    this.name = 'ErrorHttp'
   }
 }
 

@@ -76,7 +76,7 @@ export function folderVignettesSources(): string {
 export class SourceInvalidError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options)
-    this.name = 'SourceInvalideError'
+    this.name = 'SourceInvalidError'
   }
 }
 
@@ -236,7 +236,7 @@ export class EditingMuteError extends Error {
         "son transport sans que /proc/mounts le dise. Rouvrir l'explorateur Windows sur le " +
         'lecteur, ou remonter le partage.',
     )
-    this.name = 'MontageMuetError'
+    this.name = 'EditingMuteError'
   }
 }
 

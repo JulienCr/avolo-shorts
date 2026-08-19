@@ -55,7 +55,7 @@ function mount(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
   const { words, lines } = indexTranscript(raw, [{ start: 0, end: 200 }])
   const complete = {
     cle: 'c1',
-    raw,
+    lines: raw,
     words,
     selection: null,
     onSelectionner: vi.fn(),
@@ -67,9 +67,9 @@ function mount(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
     onRecherche: vi.fn(),
     ...props,
   }
-  const render = render(<TranscriptSurface {...complete} />)
-  const surface = render.container.querySelector('[data-surface-transcript]') as HTMLElement
-  return { ...complete, ...render, surface }
+  const view = render(<TranscriptSurface {...complete} />)
+  const surface = view.container.querySelector('[data-surface-transcript]') as HTMLElement
+  return { ...complete, ...view, surface }
 }
 
 /** Vide la file d'images : c'est là que le défilement automatique rend la main. */

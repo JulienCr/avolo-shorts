@@ -71,8 +71,8 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
     ecritureEnEchec: false,
     ...props,
   }
-  const render = render(<PanelExport {...complete} />, { wrapper: envelope })
-  return { ...complete, rerender: render.rerender, props: complete }
+  const view = render(<PanelExport {...complete} />, { wrapper: envelope })
+  return { ...complete, rerender: view.rerender, props: complete }
 }
 
 const buttonExporter = () => screen.getByRole('button', { name: /exporter/i })

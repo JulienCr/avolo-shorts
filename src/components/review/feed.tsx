@@ -92,7 +92,7 @@ export function ReviewFeed({
   /** Ce que la page pose en bout de ligne d'en-tête — la relance, notamment. */
   header?: ReactNode
 }) {
-  const count = count(clips)
+  const counts = count(clips)
   const word = detectionWord(summary)
 
   const visible = useViewFrozen(clips, view)
@@ -196,14 +196,14 @@ export function ReviewFeed({
     focus(visible[toward]?.id ?? null)
   }
 
-  function stack(clip: CandidateClip) {
+  function pushUndo(clip: CandidateClip) {
     setStack((p) => [...p, { clipId: clip.id, before: clip.status }])
   }
 
   function decide(decision: Decision) {
     const clip = visible.find((c) => c.id === current)
     if (clip === undefined) return
-    stack(clip)
+    pushUndo(clip)
     onStatus(clip.id, toggleStatus(clip.status, decision))
     move(1)
   }
@@ -245,7 +245,7 @@ export function ReviewFeed({
 
   reviewUseSession(projectId, current, view, focus)
 
-  const done = clips.length > 0 && count.aSort === 0 && view === 'atrier'
+  const done = clips.length > 0 && counts.aSort === 0 && view === 'atrier'
 
   return (
     <div
@@ -281,11 +281,11 @@ export function ReviewFeed({
         <h1 className="text-lg font-semibold tracking-tight">Propositions</h1>
 
         <p data-testid="comptes" className="text-sm text-muted-foreground">
-          <span className="font-mono tabular-nums">{count.aSort}</span> à trier ·{' '}
+          <span className="font-mono tabular-nums">{counts.aSort}</span> à trier ·{' '}
           <span className="text-stage-foreground">
-            {agreement(count.guards, 'clip gardé', 'clips gardés')}
+            {agreement(counts.guards, 'clip gardé', 'clips gardés')}
           </span>{' '}
-          · <span className="font-mono tabular-nums">{formatDuration(count.durationKept)}</span> au
+          · <span className="font-mono tabular-nums">{formatDuration(counts.durationKept)}</span> au
           total
         </p>
 
@@ -366,10 +366,10 @@ export function ReviewFeed({
               {label}
               <Badge variant="outline" className="ml-1 font-mono text-xs tabular-nums">
                 {value === 'atrier'
-                  ? count.aSort
+                  ? counts.aSort
                   : value === 'gardes'
-                    ? count.guards
-                    : count.discarded}
+                    ? counts.guards
+                    : counts.discarded}
               </Badge>
             </TabsTrigger>
           ))}
@@ -393,7 +393,7 @@ export function ReviewFeed({
             <BoucleFin
               projectId={projectId}
               clips={clips}
-              durationKept={count.durationKept}
+              durationKept={counts.durationKept}
               next={next}
             />
           )}
@@ -457,12 +457,12 @@ export function ReviewFeed({
                     // d'usage attendu, pas un cas tordu. Un focus posé par programme
                     // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
                     onKeep={() => {
-                      stack(clip)
+                      pushUndo(clip)
                       onStatus(clip.id, toggleStatus(clip.status, 'kept'))
                       focus(clip.id)
                     }}
                     onDiscard={() => {
-                      stack(clip)
+                      pushUndo(clip)
                       onStatus(clip.id, toggleStatus(clip.status, 'discarded'))
                       focus(clip.id)
                     }}

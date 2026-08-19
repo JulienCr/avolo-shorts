@@ -315,9 +315,9 @@ export function parseDetailResponse(
     if (!lu.success) continue
     readable += 1
     const { start, end, predicted_score: score } = lu.data
-    const [start, fin] = snapToWords(start, end, words, videoDuration)
-    if (start < 0 || fin > videoDuration || fin <= start) continue
-    if (!blocks.some((b) => start < b.end && fin > b.start)) continue
+    const [snappedStart, fin] = snapToWords(start, end, words, videoDuration)
+    if (snappedStart < 0 || fin > videoDuration || fin <= snappedStart) continue
+    if (!blocks.some((b) => snappedStart < b.end && fin > b.start)) continue
 
     clips.push({
       // Ramenée dans le barème plutôt que jetée, comme la note d'une fenêtre :
@@ -325,9 +325,9 @@ export function parseDetailResponse(
       predictedScore: score === undefined ? 0 : Math.min(100, Math.max(0, Math.round(score))),
       scored: score !== undefined,
       clip: {
-        id: clipId(projectId, start, fin),
+        id: clipId(projectId, snappedStart, fin),
         projectId,
-        segments: [{ start: start, end: fin }],
+        segments: [{ start: snappedStart, end: fin }],
         // `auto` laisse le cadrage décider : le ratio se choisit par clip, et le
         // modèle n'a rien vu de l'image pour en juger.
         ratio: 'auto',

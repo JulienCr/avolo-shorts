@@ -316,7 +316,7 @@ describe('propagerArrêt', () => {
   })
 
   /** La fin du processus, avec le signal qui l'a emporté. */
-  function fin(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
+  function waitForExit(proc: ReturnType<typeof spawn>): Promise<NodeJS.Signals | null> {
     return new Promise((resolve) => proc.on('close', (_code, signal) => resolve(signal)))
   }
 
@@ -324,7 +324,7 @@ describe('propagerArrêt', () => {
     const proc = spawn('sleep', ['30'])
     const controller = new AbortController()
     const detach = forwardAbort(proc, controller.signal)
-    const fin = fin(proc)
+    const fin = waitForExit(proc)
     controller.abort()
     expect(await fin).toBe('SIGTERM')
     detach()
@@ -350,7 +350,7 @@ describe('propagerArrêt', () => {
 
     const controller = new AbortController()
     const detach = forwardAbort(proc, controller.signal, 80)
-    const fin = fin(proc)
+    const fin = waitForExit(proc)
     controller.abort()
     expect(await fin).toBe('SIGKILL')
     detach()
@@ -366,7 +366,7 @@ describe('propagerArrêt', () => {
     const controller = new AbortController()
     controller.abort()
     const proc = spawn('sleep', ['30'])
-    const fin = fin(proc)
+    const fin = waitForExit(proc)
     forwardAbort(proc, controller.signal)()
     expect(await fin).toBe('SIGTERM')
   })

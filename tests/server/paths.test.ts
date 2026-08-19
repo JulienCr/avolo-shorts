@@ -208,6 +208,6 @@ describe('le sidecar', () => {
 
     const { dir, fallback } = placeSidecar(SOURCE, ID)
     expect(dir).toBe(existingFolder)
-    expect(existingFolder).toBe(true)
+    expect(fallback).toBe(true)
   })
 })

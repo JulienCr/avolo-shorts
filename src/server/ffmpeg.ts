@@ -189,7 +189,7 @@ export function chooseEncoder(request: string | undefined, probe: () => boolean)
 }
 
 /** `null` tant que la sonde n'a pas tourné. Un seul essai par processus. */
-let probeNvenc: boolean | null = null
+let nvencProbed: boolean | null = null
 
 /**
  * Encode 256x256 d'image de synthèse en `h264_nvenc`, vers nulle part.
@@ -204,7 +204,7 @@ let probeNvenc: boolean | null = null
  * d'un export d'une heure.
  */
 function probeNvenc(): boolean {
-  if (probeNvenc !== null) return probeNvenc
+  if (nvencProbed !== null) return nvencProbed
   const r = spawnSync(
     ffmpegBin(),
     [
@@ -215,8 +215,8 @@ function probeNvenc(): boolean {
     ],
     { stdio: ['ignore', 'ignore', 'pipe'], timeout: 30_000, encoding: 'utf8' },
   )
-  probeNvenc = r.error === undefined && r.status === 0
-  return probeNvenc
+  nvencProbed = r.error === undefined && r.status === 0
+  return nvencProbed
 }
 
 /**

@@ -142,7 +142,7 @@ function markersNamed(
  * est ce qui fait que les tests de `marquerExporté` et d'`écarterRenduPérimé`
  * comparent bien ce que la production compare.
  */
-function framing(c: Clip): RenderedFraming {
+function framingFor(c: Clip): RenderedFraming {
   return renderedFraming(clipFraming(c))
 }
 
@@ -215,7 +215,7 @@ function poserFingerprint(
   // qu'elle décrit encore le clip.
   fs.writeFileSync(
     path,
-    JSON.stringify(fingerprintWith(c, markersNamed(markers), underTitles, framing(c))),
+    JSON.stringify(fingerprintWith(c, markersNamed(markers), underTitles, framingFor(c))),
   )
 }
 
@@ -664,7 +664,7 @@ describe("l'empreinte de rendu", () => {
       // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
       // recalculer de la même façon, sinon on compare deux cadrages différents.
       expect(lireFingerprint(path())).toEqual(
-        fingerprintWith(c, markersNamed(['logo.png']), c.captions, framing(c)),
+        fingerprintWith(c, markersNamed(['logo.png']), c.captions, framingFor(c)),
       )
     })
 
@@ -1394,7 +1394,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = prepare()
     putClip(db, { ...c, title: 'Retitré' })
 
-    markExported(db, c.id, c, framing(c))
+    markExported(db, c.id, c, framingFor(c))
 
     const reread = getClip(db, c.id)
     expect(reread?.status).toBe('exported')
@@ -1404,7 +1404,7 @@ describe('renderClip, chemin du saut', () => {
   it('ne ressuscite pas un clip supprimé pendant le rendu', () => {
     const { db, c } = prepare()
     db.prepare('DELETE FROM clips WHERE id = ?').run(c.id)
-    markExported(db, c.id, c, framing(c))
+    markExported(db, c.id, c, framingFor(c))
     expect(getClip(db, c.id)).toBeUndefined()
   })
 
@@ -1416,7 +1416,7 @@ describe('renderClip, chemin du saut', () => {
       const { db, c } = prepare()
       putClip(db, { ...c, status: decided })
 
-      markExported(db, c.id, c, framing(c))
+      markExported(db, c.id, c, framingFor(c))
 
       expect(getClip(db, c.id)?.status).toBe(decided)
       db.close()
@@ -1439,7 +1439,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = prepare()
     putClip(db, { ...c, segments: [{ start: 100, end: 104 }] })
 
-    markExported(db, c.id, c, framing(c))
+    markExported(db, c.id, c, framingFor(c))
 
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
@@ -1464,7 +1464,7 @@ describe('renderClip, chemin du saut', () => {
       const { db, c } = prepare({ captions: true })
       putClip(db, { ...c, ...override })
 
-      markExported(db, c.id, c, framing(c))
+      markExported(db, c.id, c, framingFor(c))
 
       expect(getClip(db, c.id)?.status).toBe('kept')
       db.close()
@@ -1476,7 +1476,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c } = prepare()
     putClip(db, { ...c, description: 'Corrigée.' })
 
-    markExported(db, c.id, c, framing(c))
+    markExported(db, c.id, c, framingFor(c))
 
     expect(getClip(db, c.id)?.status).toBe('exported')
   })
@@ -1491,7 +1491,7 @@ describe('renderClip, chemin du saut', () => {
     poserFingerprint(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
-    expect(discardRenderStale(db, c.id, paths, c, framing(c))).toBe(true)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(true)
 
     expect(fs.existsSync(paths.mp4)).toBe(false)
     expect(fs.existsSync(paths.variant9x16 as string)).toBe(false)
@@ -1510,7 +1510,7 @@ describe('renderClip, chemin du saut', () => {
     poser([paths.mp4, paths.variant9x16 as string, paths.texts])
     poserFingerprint(c, '1:1')
 
-    expect(discardRenderStale(db, c.id, paths, c, framing(c))).toBe(false)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(false)
     expect(fs.existsSync(paths.mp4)).toBe(true)
     expect(fs.existsSync(paths.fingerprint)).toBe(true)
   })
@@ -1535,15 +1535,15 @@ describe('renderClip, chemin du saut', () => {
     let calls = 0
     const resolver = (clip: Clip): RenderedFraming => {
       calls += 1
-      return framing(clip)
+      return framingFor(clip)
     }
-    expect(discardRenderStale(db, c.id, paths, c, framing(c), resolver)).toBe(false)
+    expect(discardRenderStale(db, c.id, paths, c, framingFor(c), resolver)).toBe(false)
     expect(calls).toBe(1)
 
     // Et un résolveur qui rend un autre cadrage périme, sans qu'aucun champ du
     // clip n'ait bougé : c'est bien lui qui décide, pas une relecture cachée.
     expect(
-      discardRenderStale(db, c.id, paths, c, framing(c), () => framing({ ratio: '4:5' })),
+      discardRenderStale(db, c.id, paths, c, framingFor(c), () => framing({ ratio: '4:5' })),
     ).toBe(true)
     expect(fs.existsSync(paths.mp4)).toBe(false)
   })

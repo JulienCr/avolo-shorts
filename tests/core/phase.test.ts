@@ -227,7 +227,7 @@ describe('compter', () => {
   })
 
   it('somme la durée des seuls gardés', () => {
-    const result = result([
+    const result = count([
       candidate('kept', 30),
       candidate('exported', 12),
       candidate('discarded', 90),

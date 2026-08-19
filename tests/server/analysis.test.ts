@@ -425,7 +425,7 @@ function mountFakeWorker(root: string, load: string): void {
     ['detect.py', 'DETECT_WORKER'],
     ['yolo11m.pt', 'DETECT_MODEL'],
   ] as const) {
-    const filePath = filePath.join(root, name)
+    const filePath = path.join(root, name)
     fs.writeFileSync(filePath, '')
     process.env[variable] = filePath
   }
@@ -527,7 +527,7 @@ describe('runAnalysis', () => {
     // Le venv et les poids doivent exister pour que l'étape aille jusqu'au
     // sondage : ce sont les contrôles d'avant.
     for (const name of ['python', 'detect.py', 'yolo11m.pt']) {
-      const filePath = filePath.join(root, name)
+      const filePath = path.join(root, name)
       fs.writeFileSync(filePath, '')
       process.env[
         { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[
@@ -560,7 +560,7 @@ describe('runAnalysis', () => {
     fs.writeFileSync(fake, '#!/bin/sh\nsleep 300\n', { mode: 0o755 })
     process.env.FFPROBE_BIN = fake
     for (const name of ['python', 'detect.py', 'yolo11m.pt']) {
-      const filePath = filePath.join(root, name)
+      const filePath = path.join(root, name)
       fs.writeFileSync(filePath, '')
       process.env[
         { python: 'DETECT_PYTHON', 'detect.py': 'DETECT_WORKER', 'yolo11m.pt': 'DETECT_MODEL' }[

@@ -72,11 +72,11 @@ export const POST = route(
     // plan identique. Dédupliquée, la liste est bornée par `CIBLES_LANÇABLES`.
     // (relevé par Copilot)
     const targets = [...new Set(Array.isArray(target) ? target : [target])]
-    const launch = await launch(id, targets, {
+    const launched = await launch(id, targets, {
       forced: Array.isArray(forced) ? [...new Set(forced)] : forced,
     })
     // 202 : accepté et lancé. Un plan vide est une réponse valide et fréquente —
     // tout est déjà là, il n'y avait rien à faire.
-    return json(launch, { status: 202 })
+    return json(launched, { status: 202 })
   },
 )

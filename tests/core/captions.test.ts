@@ -234,7 +234,7 @@ describe('renderAss', () => {
       ...DEFAULT_CAPTION_STYLE,
       uppercase: false,
     })
-    const text = text(dialogues(ass)[0])
+    const text = textOf(dialogues(ass)[0])
     expect(text).toContain('(piégé)/N')
     expect(text).not.toContain('{piégé')
   })

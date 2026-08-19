@@ -590,7 +590,7 @@ function ButtonCopy({
   // tous. Son nom accessible, lui, reste complet.
   const court = label.startsWith('Copier tout') ? 'Copier tout' : 'Copier'
 
-  async function copy() {
+  async function copyToClipboard() {
     try {
       await navigator.clipboard.writeText(text)
       setCopy(text)
@@ -603,7 +603,7 @@ function ButtonCopy({
     <Button
       size={size}
       variant="outline"
-      onClick={() => void copy()}
+      onClick={() => void copyToClipboard()}
       // Copier le vide efface le presse-papiers : le contraire du service rendu,
       // et cela ne se remarque qu'au moment de coller.
       disabled={text === ''}

@@ -552,13 +552,13 @@ function byClip(show: Show): void {
 
   console.log('\n  clip                                  ratio   empan méd.  empan p90  images  durée')
   for (const clip of show.clips) {
-    const spans = spans(clip, show.analysis, opts())
+    const measurements = spans(clip, show.analysis, opts())
     const duration = normalizeSegments(clip.segments).reduce((n, s) => n + (s.end - s.start), 0)
     console.log(
       `  ${clip.name.padEnd(36)}  ${ratio(clip, show.analysis, opts()).padEnd(6)}` +
-        `  ${number(median(spans)).padStart(9)}` +
-        `  ${number(percentile(spans, 0.9)).padStart(9)}` +
-        `  ${String(spans.length).padStart(6)}` +
+        `  ${number(median(measurements)).padStart(9)}` +
+        `  ${number(percentile(measurements, 0.9)).padStart(9)}` +
+        `  ${String(measurements.length).padStart(6)}` +
         `  ${duration.toFixed(0)} s`,
     )
   }

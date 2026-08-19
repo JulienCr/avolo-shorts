@@ -1000,7 +1000,7 @@ export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]>
   const folder = markersFolder(brandDir)
   const found: MarkerNative[] = []
   for (const expected of MARKERS_EXPECTED) {
-    const filePath = filePath.join(folder, expected.file)
+    const filePath = path.join(folder, expected.file)
     if (!fs.existsSync(filePath)) continue
     // Le contenu avant le sondage : c'est la lecture la moins chère des deux, et
     // un fichier qu'on ne sait pas lire n'a pas besoin d'un ffprobe pour être

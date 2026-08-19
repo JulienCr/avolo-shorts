@@ -73,7 +73,7 @@ export function shotSteps(
   exists: Record<StepName, boolean>,
   forced: readonly StepName[] = [],
 ): StepName[] {
-  const forced = new Set(forced)
+  const forcedSet = new Set(forced)
 
   // Deux questions distinctes, et les confondre est le piège de cet étage.
   //
@@ -85,7 +85,7 @@ export function shotSteps(
   // Les mélanger fait remonter la *présence* comme le fait un `make`, et
   // reconstruit alors une dépendance absente sous un artefact déjà là.
   const forcedInUpstream = (step: StepName): boolean =>
-    forced.has(step) || DEPS[step].some(forcedInUpstream)
+    forcedSet.has(step) || DEPS[step].some(forcedInUpstream)
 
   /**
    * Une étape présente est une étape bonne — c'est la définition même du graphe

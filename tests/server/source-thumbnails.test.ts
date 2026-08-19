@@ -52,7 +52,7 @@ afterEach(() => {
 })
 
 function poserVideo(name: string, octets = 4_096): string {
-  const filePath = filePath.join(replays, name)
+  const filePath = path.join(replays, name)
   fs.writeFileSync(filePath, Buffer.alloc(octets))
   return filePath
 }

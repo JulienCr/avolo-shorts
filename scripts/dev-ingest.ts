@@ -85,9 +85,9 @@ async function main(): Promise<number> {
 
   // Le contrôle attendu par la tâche 7 : 960x540, 30 fps, et la durée de la
   // source à une seconde près.
-  const probe = await probe(proxy.path)
+  const probed = await probe(proxy.path)
   console.log(
-    `Contrôle : ${probe.width}x${probe.height}, ${probe.fps} fps, ${duration(probe.durationSec)}`,
+    `Contrôle : ${probed.width}x${probed.height}, ${probed.fps} fps, ${duration(probed.durationSec)}`,
   )
   return 0
 }

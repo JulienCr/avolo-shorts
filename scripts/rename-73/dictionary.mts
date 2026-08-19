@@ -502,7 +502,6 @@ const ENTRIES: Array<[string, string]> = [
   ["ordonne", "ordered"],
   ["ordonnee", "ordered"],
   ["ordonnees", "ordered"],
-  ["resume", "summary"],
   ["variante", "variant"],
   ["variantes", "variants"],
   ["element", "element"],
@@ -864,7 +863,6 @@ const ENTRIES: Array<[string, string]> = [
   ["illisible", "unreadable"],
   ["anormale", "abnormal"],
   ["tronquee", "truncated"],
-  ["abandon", "abandonment"],
   ["revenu", "returned"],
   ["restes", "remaining"],
   ["interdites", "forbidden"],
@@ -890,7 +888,6 @@ const ENTRIES: Array<[string, string]> = [
   ["placés", "placed"],
   ["haute", "high"],
   ["serre", "tight"],
-  ["decide", "decided"],
   ["echouer", "fail"],
   ["debloquer", "unblock"],
   ["ingere", "ingested"],
@@ -1053,6 +1050,13 @@ const ENTRIES: Array<[string, string]> = [
 export const ACCENT_SENSITIVE_OVERRIDES: Record<string, string> = {
   "sûr": "safe",
   "où": "where",
+  // "résumé" (summary) sans accent devient "resume" — un vrai mot anglais
+  // (reprendre) déjà utilisé comme traduction de "reprise"/"reprendre" plus
+  // haut dans FR_TO_EN. Une entrée FR_TO_EN["resume"] collisionnerait donc
+  // avec ce mot anglais partout où il apparaît légitimement (y compris nos
+  // propres traductions) ; ancrée ici sur la forme accentuée, elle ne
+  // touche que "résumé" lui-même.
+  "résumé": "summary",
 };
 
 function buildDictionary(entries: Array<[string, string]>): Record<string, string> {

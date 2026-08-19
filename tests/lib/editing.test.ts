@@ -62,12 +62,12 @@ describe('indexTranscript', () => {
   })
 
   it('chaque phrase pointe la tranche de mots qui lui appartient', () => {
-    const { words, lines } = indexTranscript(lines, [])
-    expect(lines).toEqual([
+    const { words, lines: indexed } = indexTranscript(lines, [])
+    expect(indexed).toEqual([
       { id: 'a', start: 10, end: 11.8, from: 0, to: 2 },
       { id: 'b', start: 12, end: 14.8, from: 2, to: 5 },
     ])
-    expect(words.slice(lines[1].from, lines[1].to).map((w) => w.word)).toEqual([
+    expect(words.slice(indexed[1].from, indexed[1].to).map((w) => w.word)).toEqual([
       'trois',
       'quatre',
       'cinq',

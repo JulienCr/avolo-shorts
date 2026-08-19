@@ -236,7 +236,7 @@ describe('nettoyerStage', () => {
 
   /** Une copie de travail, avec l'âge qu'on veut lui donner. */
   function poser(name: string, ageMs: number): string {
-    const filePath = filePath.join(process.env.STAGE_DIR as string, name)
+    const filePath = path.join(process.env.STAGE_DIR as string, name)
     fs.writeFileSync(filePath, 'une copie')
     const when = new Date(Date.now() - ageMs)
     fs.utimesSync(filePath, when, when)

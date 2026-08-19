@@ -535,34 +535,89 @@ def person_anchor(box: dict, min_point_score: float) -> float:
     return (box["x0"] + box["x1"]) / 2
 
 
+def _median(values: list[float]) -> float:
+    """La médiane d'une liste non vide, sans dépendance à ``statistics``."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    return ordered[mid] if n % 2 == 1 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
 def collective_shift(
     a: list[float], b: list[float], tolerance: float
 ) -> tuple[float | None, int]:
     """Le déplacement collectif entre deux images d'ancrages, en abscisse —
     ``(médiane des différences appariées, nombre de personnes appariées)``, ou
-    ``(None, 0)`` si l'une des deux images n'a personne.
+    ``(None, 0)`` si l'une des deux images n'a personne, ou si aucune
+    différence ne fait consensus.
 
-    **Vote sur toutes les différences d'ancrages.** Chaque paire ``(a[i], b[j])``
-    propose un déplacement ``b[j] - a[i]``. Celui qui rassemble le plus de
-    différences proches — à ``tolerance`` près — est la meilleure hypothèse
-    d'un déplacement collectif plutôt que du hasard des positions
-    individuelles. **Départage à égalité par le plus petit ``|d|``** : à
-    information égale, « rien n'a bougé » est l'hypothèse la plus sûre, et
-    c'est aussi celle qui coûte le moins cher à se tromper — un plan qui
-    reste en un seul morceau n'a rien perdu.
+    **Deux méthodes d'appariement, selon que l'effectif est stable ou non.**
+    Une translation ne change pas l'ordre gauche-droite des personnes : quand
+    ``len(a) == len(b)``, apparier les ancres **triées, rang par rang**, est
+    structurellement immunisé contre l'appariement croisé — une paire qui
+    associerait la position d'avant d'une personne à la position d'après
+    d'une autre, sans aucune réalité physique.
 
-    **Appariement glouton un-à-un**, dans l'ordre de proximité avec cette
-    hypothèse : chaque ancrage ne sert qu'une fois, sans quoi une même
-    personne compterait dans plusieurs paires et gonflerait artificiellement
-    le vote et la médiane.
+    **Pourquoi ce n'était pas déjà le cas.** La version précédente votait sur
+    *toutes* les paires ``(a[i], b[j])``, y compris les croisées, et
+    départageait les égalités de voix par le plus petit ``|d|`` — juste
+    quand l'égalité veut dire « rien n'a bougé », faux quand elle veut dire
+    « je n'arrive pas à apparier ». À deux personnes qui glissent chacune
+    d'environ 0,3 mais s'écartent de plus de ``tolerance`` l'une de l'autre,
+    les deux vraies paires ne se votaient pas entre elles, la croisée
+    tombait par hasard près de zéro, et le départage la choisissait — un
+    ``shift`` proche de zéro rendu avec l'aplomb d'un résultat, sur une
+    bascule réelle. (relevé le 19 août 2026, sur `2026-22-02-entre-nous`
+    autour de 3 241 s et 3 248 s : les deux vraies différences, dans les deux
+    cas, valaient à peu près 0,29 et 0,33, à 0,04 et 0,05 l'une de l'autre —
+    juste au-dessus de la tolérance mesurée pour les bascules déjà vues.)
 
-    **La médiane, pas la moyenne**, des différences appariées : un seul
-    comédien qui bouge plus que les autres dans le même sens ne doit pas tirer
-    le déplacement collectif au-delà de ce que le groupe fait vraiment.
+    **Une fois l'appariement sûr, la question change.** Elle n'est plus « quelles
+    paires sont réelles » — l'ordre le garantit —, mais « le groupe est-il
+    d'accord sur une valeur commune ». Chaque différence de rang est comparée
+    à la **médiane de toutes les différences de rang**, elle-même robuste à un
+    déplacement individuel isolé ; ``matched`` compte celles qui tombent à
+    ``tolerance`` de cette médiane. Une seule personne qui bouge beaucoup
+    pendant que l'autre ne bouge pas donne une médiane à mi-chemin des deux, et
+    aucune des deux ne retombe dedans : ``matched`` peut tomber à 0, ce que
+    l'ancien vote ne pouvait pas exprimer — il rendait toujours un ``shift``,
+    juste ou non.
+
+    **Limite documentée, pas résolue ici** : l'ordre n'est fiable que si
+    l'effectif est stable *et* que les personnes ne se croisent pas entre les
+    deux images. Une entrée et une sortie simultanées, qui laissent
+    ``len(a) == len(b)`` inchangé, ou deux comédiens qui échangent leurs places
+    à l'écran au même instant qu'une bascule, restent hors de portée — aucune
+    méthode sans suivi d'identité ne les distingue, et ce n'est pas l'objet de
+    ce correctif.
+
+    **Un modèle affine (``x' = a·x + b``) a été mesuré et écarté** pour ce cas :
+    à deux points, la résolution est toujours exacte, résidu nul — vérifié à la
+    machine, `(0.1,0.4)→(0.31,0.59)` et `(0.1,0.4)→(0.9,0.05)` donnent chacun un
+    système sans reste. Un modèle qui s'ajuste toujours n'a aucun pouvoir de
+    réfutation à l'effectif le plus fréquent de ce corpus (deux personnes), donc
+    ne distinguerait jamais une bascule d'un bruit de mesure.
+
+    **Quand l'effectif diffère**, une personne est entrée ou sortie du cadre :
+    l'ordre ne correspond plus à rien, et l'ancien mécanisme — vote sur toutes
+    les paires, appariement glouton un-à-un, départage par le plus petit
+    ``|d|`` — reste seul en mesure de proposer un appariement partiel.
     """
-    candidates = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
-    if not candidates:
+    if not a or not b:
         return None, 0
+
+    if len(a) == len(b):
+        # Ordre garanti par la translation : pas de paire croisée possible.
+        diffs = [y - x for x, y in zip(sorted(a), sorted(b))]
+        pivot = _median(diffs)
+        matched = [d for d in diffs if abs(d - pivot) <= tolerance]
+        if not matched:
+            return None, 0
+        return _median(diffs), len(matched)
+
+    # Effectifs différents : quelqu'un est entré ou sorti du cadre, l'ordre ne
+    # suffit plus à apparier. Vote sur toutes les paires, comme avant.
+    candidates = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
 
     def votes(d: float) -> int:
         return sum(1 for d2, _, _ in candidates if abs(d2 - d) <= tolerance)
@@ -577,7 +632,7 @@ def collective_shift(
 
     used_a: set[int] = set()
     used_b: set[int] = set()
-    matched: list[float] = []
+    paired: list[float] = []
     for d, i, j in sorted(candidates, key=lambda c: abs(c[0] - best_shift)):
         if abs(d - best_shift) > tolerance:
             # Trié par proximité avec `best_shift` : personne au-delà ne peut
@@ -587,15 +642,11 @@ def collective_shift(
             continue
         used_a.add(i)
         used_b.add(j)
-        matched.append(d)
+        paired.append(d)
 
-    if not matched:
+    if not paired:
         return None, 0
-    matched.sort()
-    n = len(matched)
-    mid = n // 2
-    median = matched[mid] if n % 2 == 1 else (matched[mid - 1] + matched[mid]) / 2
-    return median, len(matched)
+    return _median(paired), len(paired)
 
 
 def composition_switches(

@@ -494,9 +494,10 @@ describe('detect.py — collective_shift', () => {
   })
 
   it('trouve le déplacement commun de trois personnes qui glissent ensemble', () => {
-    // Trois ancrages qui glissent tous de +0,2, à ±0,01 de bruit. Les votes
-    // désignent le triplet (0,19 ; 0,2 ; 0,21) — ceux d'autres appariements
-    // fortuits n'ont qu'une ou deux voix.
+    // Trois ancrages qui glissent tous de +0,2, à ±0,01 de bruit, effectifs
+    // égaux (3 et 3) : appariement par rang. Les trois différences de rang
+    // (0,19 ; 0,2 ; 0,21) tombent à 0,01 de leur médiane, largement sous la
+    // tolérance — les trois comptent.
     const a = [0.1, 0.4, 0.7]
     const b = [0.31, 0.59, 0.9]
     const [d, n] = shift(a, b, 0.03)
@@ -505,20 +506,73 @@ describe('detect.py — collective_shift', () => {
   })
 
   /**
-   * **Départage à égalité par le plus petit `|d|`.** Une seule personne dans
-   * chaque image, deux hypothèses de déplacement possibles à une voix
-   * chacune (aucune autre paire pour départager par le vote) : celle de plus
-   * petite amplitude l'emporte.
+   * **Effectifs égaux, appariement par rang — le correctif du 19 août 2026.**
+   * Deux personnes glissent chacune d'environ 0,3 (homme +0,277, femme
+   * +0,310, mesuré sur `2026-22-02-entre-nous` à t=3 239,5→3 240,0), mais
+   * s'écartent l'une de l'autre de 0,033 — sous la tolérance ici, donc déjà
+   * détecté par l'ancien mécanisme. Le test suivant reproduit le cas qui ne
+   * l'était pas.
    */
-  it('départage une égalité de votes par le plus petit déplacement', () => {
+  it('apparie par rang quand les effectifs sont égaux, pas par vote', () => {
+    const [d, n] = shift([0.1736, 0.5057], [0.8161, 0.4504], 0.04)
+    expect(d).toBeCloseTo(0.2936, 4)
+    expect(n).toBe(2)
+  })
+
+  /**
+   * **La bascule que l'ancien mécanisme perdait.** Mêmes deux comédiens,
+   * t=3 241,0→3 241,5 : homme +0,294, femme +0,336 — un écart de 0,042 entre
+   * les deux, **au-dessus** de `tolerance=0,04`. Votées comme avant (une
+   * paire par personne, plus les deux paires croisées, sans réalité
+   * physique), les quatre candidates se tenaient à une voix chacune, et le
+   * départage par le plus petit `|d|` choisissait la croisée — un
+   * `shift≈0,007` sans rapport avec la vraie bascule. Apparié par rang, les
+   * deux seules candidates sont les vraies, et chacune tombe à 0,021 de leur
+   * médiane commune : bien sous la tolérance, puisqu'à effectif 2 l'écart à
+   * la médiane vaut toujours la moitié de l'écart entre les deux valeurs.
+   */
+  it('retrouve une bascule que l’ancien vote perdait sur un écart de 0,042', () => {
+    const [d, n] = shift([0.8068, 0.4639], [0.1703, 0.4711], 0.04)
+    expect(d).toBeCloseTo(-0.31465, 4)
+    expect(n).toBe(2)
+  })
+
+  it('même correctif, l’autre sens (t=3 248,0→3 248,5, écart de 0,052)', () => {
+    const [d, n] = shift([0.1648, 0.4669], [0.8112, 0.4567], 0.04)
+    expect(d).toBeCloseTo(0.3181, 4)
+    expect(n).toBe(2)
+  })
+
+  /**
+   * **Un seul comédien qui bouge ne doit toujours pas compter comme une
+   * bascule.** Effectifs égaux (2 et 2), donc appariement par rang — mais un
+   * déplacement de 0,5 et un de 0,02 s'écartent tous deux de 0,24 de leur
+   * médiane (0,26), loin au-dessus de la tolérance : aucun des deux ne
+   * rejoint l'autre, `matched` tombe à 0. C'est la propriété que l'ancien
+   * vote ne pouvait pas rendre — il retournait toujours un candidat, juste ou
+   * non.
+   */
+  it('ne fait pas consensus quand une seule des deux personnes a bougé', () => {
+    expect(shift([0.1, 0.4], [0.6, 0.42], 0.04)).toEqual([null, 0])
+  })
+
+  /**
+   * **Départage à égalité par le plus petit `|d|`.** Effectifs inégaux (1 et
+   * 2) : repli sur le vote. Une seule personne dans la première image, deux
+   * hypothèses de déplacement possibles à une voix chacune (aucune autre
+   * paire pour départager par le vote) : celle de plus petite amplitude
+   * l'emporte.
+   */
+  it('départage une égalité de votes par le plus petit déplacement (effectifs inégaux)', () => {
     expect(shift([0], [0.05, -0.2], 0.03)).toEqual([0.05, 1])
   })
 
-  it('un appariement glouton, chaque ancrage ne sert qu’une fois', () => {
+  it('un appariement glouton, chaque ancrage ne sert qu’une fois (effectifs inégaux)', () => {
     // Deux personnes qui glissent de +0,2 (0,1→0,3 et 0,4→0,6), une
     // troisième sans correspondance dans la seconde image (elle est sortie
-    // du cadre) : le vote désigne +0,2 sans ambiguïté, et seules les deux
-    // personnes qui ont bougé ensemble sont comptées.
+    // du cadre) : effectifs inégaux (3 et 2), donc repli sur le vote, qui
+    // désigne +0,2 sans ambiguïté ; seules les deux personnes qui ont bougé
+    // ensemble sont comptées.
     const [d, n] = shift([0.1, 0.4, 0.9], [0.3, 0.6], 0.03)
     expect(d).toBeCloseTo(0.2, 9)
     expect(n).toBe(2)

@@ -47,6 +47,7 @@ import {
   cropRect,
   isForeground,
   requiredWidths,
+  trimmedBounds,
 } from '@/core/framing'
 import { shotStartMs } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
@@ -92,6 +93,7 @@ function vignette(
   W: number,
   H: number,
   out: string,
+  trim: number,
 ): void {
   const filtres = boîtes.map((b) => {
     const x = Math.round(b.x0 * W)
@@ -100,6 +102,21 @@ function vignette(
     const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
     return `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${couleur(b)}:t=2`
   })
+  // **Ce que le rognage abandonne**, en cyan et à l'intérieur de la boîte : la
+  // part de chaque personne dont le cadrage accepte de se passer. C'est la seule
+  // chose que le chiffre ne dit pas — un pourcentage ne montre pas si ce qui
+  // tombe est une épaule ou une joue.
+  if (trim > 0) {
+    for (const b of boîtes) {
+      if (couleur(b) !== 'lime') continue
+      const { x0, x1 } = trimmedBounds(b, { sideTrim: trim })
+      const y = Math.round(b.y0 * H)
+      const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
+      filtres.push(
+        `drawbox=x=${Math.round(x0 * W)}:y=${y}:w=${Math.max(1, Math.round((x1 - x0) * W))}:h=${h}:color=cyan:t=1`,
+      )
+    }
+  }
   filtres.push(
     `drawbox=x=${Math.round(crop.x * W)}:y=${Math.round(crop.y * H)}` +
       `:w=${Math.round(crop.w * W)}:h=${Math.round(crop.h * H)}:color=yellow:t=4`,
@@ -140,12 +157,14 @@ type Mesurée = { t: number; boîtes: PersonBox[]; empan: number; g: number; d: 
 function étendue(
   boîtes: PersonBox[],
   marge: number,
+  trim: number,
 ): { g: number | undefined; d: number | undefined; haut: number; bas: number } {
   const gardées = boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
   if (gardées.length === 0) return { g: undefined, d: undefined, haut: 0, bas: 1 }
+  const rognées = gardées.map((b) => trimmedBounds(b, { sideTrim: trim }))
   return {
-    g: Math.max(0, Math.min(...gardées.map((b) => b.x0)) - marge),
-    d: Math.min(1, Math.max(...gardées.map((b) => b.x1)) + marge),
+    g: Math.max(0, Math.min(...rognées.map((b) => b.x0)) - marge),
+    d: Math.min(1, Math.max(...rognées.map((b) => b.x1)) + marge),
     haut: Math.min(...gardées.map((b) => b.y0)),
     bas: Math.max(...gardées.map((b) => b.y1)),
   }
@@ -176,7 +195,7 @@ async function main(): Promise<number> {
     return brut === undefined || brut.startsWith('--') ? undefined : brut
   }
   const drapeauxAvecValeur = new Set<number>()
-  for (const d of ['--marge', '--out', '--ratio']) {
+  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images']) {
     const i = arguments_.indexOf(d)
     if (i >= 0) drapeauxAvecValeur.add(i + 1)
   }
@@ -187,7 +206,7 @@ async function main(): Promise<number> {
   if (projectId === undefined || clipId === undefined) {
     console.error(
       'Usage : pnpm tsx scripts/vignettes-cadrage.ts <projectId> <clipId> ' +
-        '[--marge M] [--ratio 9:16|4:5|1:1|16:9] [--out <dossier>]',
+        '[--marge M] [--trim T] [--ratio 9:16|4:5|1:1|16:9] [--images N] [--out <dossier>]',
     )
     return 1
   }
@@ -200,6 +219,21 @@ async function main(): Promise<number> {
   // on tirerait une conclusion fausse.
   if (!Number.isFinite(marge) || marge < 0) {
     console.error(`--marge attend un nombre ≥ 0, reçu « ${String(brutMarge)} ».`)
+    return 1
+  }
+  const brutTrim = valeurDe('--trim')
+  const trim = brutTrim === undefined ? FRAMING_DEFAULTS.sideTrim : Number(brutTrim)
+  // Refusé et non corrigé, pour la même raison que la marge : une vignette qui
+  // montre un autre rognage que celui de sa légende est l'image dont on tire une
+  // conclusion fausse.
+  if (!Number.isFinite(trim) || trim < 0 || trim > 0.5) {
+    console.error(`--trim attend un nombre entre 0 et 0,5, reçu « ${String(brutTrim)} ».`)
+    return 1
+  }
+  const brutImages = valeurDe('--images')
+  const nImages = brutImages === undefined ? 1 : Number(brutImages)
+  if (!Number.isInteger(nImages) || nImages <= 0) {
+    console.error(`--images attend un entier \u2265 1, re\u00e7u \u00ab ${String(brutImages)} \u00bb.`)
     return 1
   }
   const brutRatio = valeurDe('--ratio')
@@ -225,6 +259,7 @@ async function main(): Promise<number> {
 
   const cadrage = computeFraming({
     margin: marge,
+    sideTrim: trim,
     segments: clip.segments,
     shots: analyse.shots,
     people: analyse.boxes,
@@ -240,8 +275,9 @@ async function main(): Promise<number> {
   const segments = normalizeSegments(clip.segments)
   const { w: W, h: H } = analyse.proxy
   console.log(
-    `${clipId} — ratio ${cadrage.ratio}, marge ${marge}, ${cadrage.shots.length} plan(s)` +
-      ` — largeur du crop ${((RATIOS[cadrage.ratio] * analyse.source.h) / analyse.source.w).toFixed(3)}`,
+    `${clipId} — natif ${cadrage.ratio}, marge ${marge}, rognage ${trim}, ` +
+      `${cadrage.shots.length} plan(s)` +
+      ` — largeur du crop natif ${((RATIOS[cadrage.ratio] * analyse.source.h) / analyse.source.w).toFixed(3)}`,
   )
 
   for (const plan of cadrage.shots) {
@@ -261,7 +297,12 @@ async function main(): Promise<number> {
       if (déjà) déjà.push(b)
       else parImage.set(clé, [b])
     }
-    const rect = cropRect(cadrage.ratio, plan.cropX, analyse.source.w, analyse.source.h)
+    // **Le ratio du plan, pas celui du natif.** Depuis que le ratio se choisit
+    // par plan (spec §10), `plan.cropX` cadre `plan.ratio` et `plan.cropXNative`
+    // cadre `cadrage.ratio` ; croiser les deux dessinait un rectangle qui n'est
+    // celui d'aucune des deux sorties. C'est le cadre du plan qu'on regarde :
+    // c'est le plus serré des deux, donc le seul qui puisse couper quelqu'un.
+    const rect = cropRect(plan.ratio, plan.cropX, analyse.source.w, analyse.source.h)
     const crop: Cadre = {
       x: rect.x / analyse.source.w,
       y: rect.y / analyse.source.h,
@@ -281,8 +322,8 @@ async function main(): Promise<number> {
     // dès que `cropRect` recentre verticalement.
     const classées = [...parImage.entries()]
       .map(([clé, boîtes]) => {
-        const empan = requiredWidths(boîtes, { margin: marge })[0]
-        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge) }
+        const empan = requiredWidths(boîtes, { margin: marge, sideTrim: trim })[0]
+        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge, trim) }
       })
       .filter(
         (e): e is Mesurée => e.empan !== undefined && e.g !== undefined && e.d !== undefined,
@@ -292,24 +333,45 @@ async function main(): Promise<number> {
       // courant —, la plus large, qui reste la plus instructive.
       .sort((a, b) => b.sortie - a.sortie || b.empan - a.empan)
 
-    const pire = classées[0]
-    if (pire === undefined) {
+    if (classées.length === 0) {
       console.log(`  plan ${shotStartMs(plan.shot)} ms — aucune image mesurée, crop centré`)
       continue
     }
 
     const débordantes = classées.filter((e) => e.sortie > 1e-9).length
-    const fichier = path.join(dossier, `plan${shotStartMs(plan.shot)}_t${pire.t.toFixed(1)}.png`)
-    vignette(proxy, pire.t, pire.boîtes, crop, W, H, fichier)
+    // **Des rangs régulièrement espacés dans le classement, pas les N pires.**
+    // La pire image est par construction une exception — c'est celle que le
+    // seuil de 90 % accepte de sacrifier —, donc trois copies du même accident
+    // ne disent rien du cadrage courant. Un pas régulier de la pire à la
+    // meilleure montre l'accident *et* le cas normal, qui est la seule
+    // comparaison qui tranche.
+    const rangs =
+      nImages === 1
+        ? [0]
+        : [...new Set(
+            Array.from({ length: nImages }, (_, i) =>
+              Math.round((i * (classées.length - 1)) / (nImages - 1)),
+            ),
+          )]
 
-    console.log(
-      `  ${fichier}  plan ${shotStartMs(plan.shot)} ms, image ${pire.t.toFixed(1)} s` +
-        ` — empan [${pire.g.toFixed(3)} ; ${pire.d.toFixed(3)}] (${pire.empan.toFixed(3)})` +
-        `, crop [${crop.x.toFixed(3)} ; ${(crop.x + crop.w).toFixed(3)}]` +
-        ` — ${pire.sortie > 1e-9 ? `DÉBORDE de ${pire.sortie.toFixed(3)}` : 'cadrée'}` +
-        ` — ${débordantes} image(s) sur ${classées.length} débordent` +
-        ` (${((100 * débordantes) / classées.length).toFixed(0)} %)`,
-    )
+    for (const rang of rangs) {
+      const vue = classées[rang]
+      const fichier = path.join(
+        dossier,
+        `plan${shotStartMs(plan.shot)}_r${rang}_t${vue.t.toFixed(1)}.png`,
+      )
+      vignette(proxy, vue.t, vue.boîtes, crop, W, H, fichier, trim)
+
+      console.log(
+        `  ${fichier}  plan ${shotStartMs(plan.shot)} ms ${plan.ratio}, image ${vue.t.toFixed(1)} s` +
+          ` (rang ${rang + 1}/${classées.length})` +
+          ` — empan [${vue.g.toFixed(3)} ; ${vue.d.toFixed(3)}] (${vue.empan.toFixed(3)})` +
+          `, crop [${crop.x.toFixed(3)} ; ${(crop.x + crop.w).toFixed(3)}]` +
+          ` — ${vue.sortie > 1e-9 ? `DÉBORDE de ${vue.sortie.toFixed(3)}` : 'cadrée'}` +
+          ` — ${débordantes} image(s) sur ${classées.length} débordent` +
+          ` (${((100 * débordantes) / classées.length).toFixed(0)} %)`,
+      )
+    }
   }
 
   return 0

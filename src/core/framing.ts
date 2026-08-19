@@ -226,6 +226,20 @@ export type FramingOptions = {
    * que zéro. C'est la façon de mesurer l'effet du filtre sans toucher au code.
    */
   foregroundMaxHeight?: number
+  /**
+   * La part de **sa propre largeur** qu'une boîte abandonne de chaque côté avant
+   * d'entrer dans l'empan. Voir `trimmedBounds` et `FRAMING_DEFAULTS`.
+   *
+   * `0` reproduit exactement le comportement d'avant le 19 août 2026 : l'empan
+   * exige alors que les boîtes tiennent en entier dans le cadre.
+   */
+  sideTrim?: number
+  /**
+   * Le plafond de ce rognage, en fraction de la **largeur de l'image** et non de
+   * la boîte. Voir `trimmedBounds` : c'est lui qui empêche une boîte très large
+   * d'abandonner une tête.
+   */
+  sideTrimMax?: number
 }
 
 /**
@@ -257,6 +271,8 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   margin: 0.01,
   bottomEdge: 0.97,
   foregroundMaxHeight: 0.35,
+  sideTrim: 0.3,
+  sideTrimMax: 0.12,
 })
 
 /**
@@ -347,6 +363,64 @@ export function isForeground(box: PersonBox, options: FramingOptions = {}): bool
 }
 
 /**
+ * Les bords horizontaux d'une boîte **une fois ses extrémités abandonnées**.
+ *
+ * **Le cadrage n'a pas à contenir les gens en entier, et c'est le constat du
+ * 19 août 2026.** Sur `2025-06-15-cqlp` à 2120 s, deux comédiens occupent
+ * `[0,106 ; 0,490]` et `[0,523 ; 0,778]` : leur union fait 0,672 quand un 1:1 en
+ * couvre 0,5625, donc **aucune** des 61 images du plan ne tient, à aucun
+ * percentile. Vérifié à l'image, le 1:1 centré garde pourtant les deux visages et
+ * les deux bustes — il ne perd que l'épaule extérieure de chacun. Le critère
+ * d'avant refusait ce cadre-là parce qu'il exigeait l'union des boîtes
+ * **entières**, bras traînant compris.
+ *
+ * Le rognage est donc une **permission**, pas une coupe : il ne décide que du
+ * ratio. Le crop, lui, occupe toute la fenêtre du ratio retenu et rend
+ * l'essentiel de ce qui a été abandonné — sur ce plan, la fenêtre 1:1 fait 0,5625
+ * pour un empan rogné de 0,501.
+ *
+ * **Deux bornes, et chacune rattrape ce que l'autre laisse passer** :
+ *
+ * - *La part* (`sideTrim`) borne la perte **relative**. Elle protège les sujets
+ *   lointains : à plafond seul, une boîte de 0,10 de large en abandonnerait la
+ *   totalité. Elle rogne aussi là où il y a de quoi rogner — une boîte est large
+ *   précisément quand un membre est tendu —, alors qu'une valeur absolue
+ *   uniforme rabote autant les empans déjà étroits et les pousse vers des ratios
+ *   trop serrés : mesuré, elle bascule des fenêtres en 9:16 là où la part les
+ *   amène en 1:1.
+ * - *Le plafond* (`sideTrimMax`) borne la perte **absolue**, et il a été payé par
+ *   une image. Sans lui, sur `2026-03-08-caro-mdlm` à 7250 s, un comédien assis
+ *   jambes tendues donne une boîte de 0,536 de large dont la tête occupe
+ *   l'extrémité droite ; en abandonner 30 % de chaque côté, c'est 0,161 de
+ *   l'image, et **son visage tombe dehors pendant les 28 secondes du plan**. Le
+ *   plafond ramène cette perte à un liseré et le plan reste en 16:9. C'est le cas
+ *   documenté par l'issue #69, vu ici par l'autre bout.
+ *
+ * **Ce que les valeurs valent, et pourquoi elles ne sont pas sur une falaise.**
+ * Le plan de référence bascule en 1:1 à partir d'une part de 0,30 et d'un plafond
+ * de 0,09 ; le visage de `caro-mdlm` tombe à partir d'un plafond de 0,15. Le
+ * plafond retenu, 0,12, est au milieu de cet intervalle — le plus loin possible
+ * des deux bords. Au-delà de 0,40 de part, le coût explose : sur les fenêtres de
+ * `cqlp`, le temps où quelqu'un perd plus d'un tiers de sa largeur passe de 152 s
+ * à 463 s.
+ *
+ * Le détail, les tableaux et les images sont dans `docs/ratios-par-clip.md`.
+ */
+export function trimmedBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; x1: number } {
+  const part = borner(réglage(options.sideTrim, FRAMING_DEFAULTS.sideTrim), 0, 0.5)
+  const plafond = Math.max(0, réglage(options.sideTrimMax, FRAMING_DEFAULTS.sideTrimMax))
+  const largeur = box.x1 - box.x0
+  // La demi-largeur borne le tout : au-delà, la boîte se retournerait, et une
+  // borne gauche passée à droite de la borne droite est un empan négatif que
+  // rien en aval ne saurait lire.
+  const rogné = Math.min(largeur * part, plafond, largeur / 2)
+  return { x0: box.x0 + rogné, x1: box.x1 - rogné }
+}
+
+/**
  * La médiane, au sens strict : sur un nombre **pair** de valeurs, le milieu des
  * deux centrales et non la plus basse des deux.
  *
@@ -404,13 +478,14 @@ function empans(boxes: PersonBox[], options: FramingOptions = {}): Empan[] {
     // faisait sortir tous les clips de `2025-06-15-cqlp` en 16:9.
     if (isForeground(b, options)) continue
 
+    const { x0, x1 } = trimmedBounds(b, options)
     const clé = Math.round(b.t * 1000)
     const déjà = parImage.get(clé)
     if (déjà) {
-      déjà.g = Math.min(déjà.g, b.x0)
-      déjà.d = Math.max(déjà.d, b.x1)
+      déjà.g = Math.min(déjà.g, x0)
+      déjà.d = Math.max(déjà.d, x1)
     } else {
-      parImage.set(clé, { t: b.t, g: b.x0, d: b.x1 })
+      parImage.set(clé, { t: b.t, g: x0, d: x1 })
     }
   }
 
@@ -781,6 +856,8 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     margin: req.margin,
     bottomEdge: req.bottomEdge,
     foregroundMaxHeight: req.foregroundMaxHeight,
+    sideTrim: req.sideTrim,
+    sideTrimMax: req.sideTrimMax,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

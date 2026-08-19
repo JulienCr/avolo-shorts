@@ -54,6 +54,7 @@ import {
   ratioCoverage,
   requiredWidths,
 } from '@/core/framing'
+import type { ClipFraming } from '@/core/framing'
 import type { FramingOptions } from '@/core/framing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
@@ -80,6 +81,30 @@ const DU_PLUS_ÉTROIT_AU_PLUS_LARGE = (Object.keys(RATIOS) as Ratio[]).sort(
  * c'est-à-dire à la seconde où la comparaison devenait intéressante.
  */
 const MARGES = [...new Set([0, 0.01, 0.02, 0.03, FRAMING_DEFAULTS.margin])].sort((a, b) => a - b)
+
+/**
+ * Les rognages balayés, **plus le défaut en vigueur** — même règle que `MARGES`,
+ * et pour la même raison : recopier la valeur du jour la fait disparaître de la
+ * sortie le jour où elle bouge.
+ *
+ * La plage va de zéro — le comportement d'avant le 19 août 2026, qui exige que
+ * les boîtes tiennent en entier — jusqu'au delà de ce qui a été retenu, parce
+ * que c'est la pente au-delà du défaut qui dit s'il est posé sur une falaise.
+ */
+const ROGNAGES = [
+  ...new Set([0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.325, 0.35, 0.4, FRAMING_DEFAULTS.sideTrim]),
+].sort((a, b) => a - b)
+
+/**
+ * L'intervalle entre deux images mesurées, en secondes : le worker échantillonne
+ * à 2 images par seconde (spec §6).
+ *
+ * Il sert à convertir un compte d'images en durée, et c'est la seule forme sous
+ * laquelle une perte se juge : « huit boîtes sur deux mille » ne dit pas si le
+ * spectateur voit quelqu'un sortir du cadre pendant quatre secondes ou pendant
+ * un battement de paupières.
+ */
+const PAS_ÉCHANTILLON = 0.5
 
 /** Une découpe à cadrer : un nom et des segments. */
 type Découpe = { nom: string; segments: Segment[] }
@@ -113,8 +138,8 @@ function nombre(n: number, décimales = 3): string {
   return Number.isFinite(n) ? n.toFixed(décimales) : '—'
 }
 
-/** Le ratio d'une découpe, avec le filtre du premier plan à son défaut. */
-function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): Ratio {
+/** Le cadrage complet d'une découpe : le ratio natif, et un cadre par plan. */
+function cadrageDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): ClipFraming {
   return computeFraming({
     ...options,
     segments: découpe.segments,
@@ -124,7 +149,62 @@ function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions):
     srcH: analyse.source.h,
     ratio: 'auto',
     cropMode: 'auto',
-  }).ratio
+  })
+}
+
+/** Le ratio du fichier natif d'une découpe : le plus large de ses plans. */
+function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): Ratio {
+  return cadrageDe(découpe, analyse, options).ratio
+}
+
+/**
+ * Ce que le cadrage retenu **coupe de chaque personne**, une valeur par boîte
+ * gardée : la fraction de sa largeur qui tombe hors du rectangle.
+ *
+ * **C'est la mesure de sûreté du rognage, et elle ne se déduit d'aucune autre.**
+ * La répartition des ratios dit ce qu'on gagne ; celle-ci dit ce qu'on paie. Un
+ * rognage se juge sur les deux — un réglage qui fait basculer tous les clips en
+ * 1:1 en coupant un comédien sur deux n'est pas un progrès.
+ *
+ * Le cadre mesuré est **celui du plan**, pas celui du natif : c'est le plus
+ * serré des deux (le natif prend le plus large des plans), donc le seul qui
+ * puisse couper quelqu'un que l'autre garderait.
+ *
+ * Les images que le seuil de 90 % sacrifie sont **comptées comme les autres**, et
+ * c'est tout l'intérêt : rien d'autre ne les regarde. Le choix du ratio les
+ * ignore par construction, donc c'est exactement là que se cachent les pertes
+ * qu'aucun tableau de ratios ne montre.
+ */
+function pertesDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): number[] {
+  const cadrage = cadrageDe(découpe, analyse, options)
+  const segments = normalizeSegments(découpe.segments)
+  const seuil = FRAMING_DEFAULTS.minScore
+  const out: number[] = []
+  for (const plan of cadrage.shots) {
+    const largeur = ratioCoverage(plan.ratio, analyse.source.w, analyse.source.h)
+    // Le bord gauche du rectangle, borné dans l'image comme `cropRect` le fait.
+    const x = Math.min(Math.max(plan.cropX - largeur / 2, 0), Math.max(0, 1 - largeur))
+    for (const b of analyse.boxes) {
+      if (!dansIntervalle(b.t, plan.shot.start, plan.shot.end)) continue
+      if (!segments.some((s) => dansIntervalle(b.t, s.start, s.end))) continue
+      if (!(b.score >= seuil) || isForeground(b, options)) continue
+      const largeurBoîte = b.x1 - b.x0
+      if (!(largeurBoîte > 0)) continue
+      // **La boîte entière, pas la boîte rognée.** Le rognage est ce qu'on
+      // s'autorise à perdre ; ce qu'on perd vraiment se mesure sur la personne.
+      const dedans = Math.max(0, Math.min(b.x1, x + largeur) - Math.max(b.x0, x))
+      out.push(1 - dedans / largeurBoîte)
+    }
+  }
+  return out
+}
+
+/**
+ * `t` tombe-t-il dans l'intervalle ? **Fin exclue**, comme `computeFraming` :
+ * une image posée sur une frontière appartient au plan qui suit.
+ */
+function dansIntervalle(t: number, début: number, fin: number): boolean {
+  return t >= début && t < fin
 }
 
 /**
@@ -317,7 +397,60 @@ function balayage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Où regarder
+// 4. Le balayage du rognage latéral
+// ---------------------------------------------------------------------------
+
+/**
+ * Ce que le rognage change à la répartition, **et ce qu'il coupe des gens**.
+ *
+ * Les deux moitiés vont ensemble et une ligne sans l'autre ne décide rien.
+ * L'histoire du dépôt sur ce point : un filtre qui montait la part du 1:1 à
+ * 90,4 % a été écarté parce qu'il vidait 64 % des images de toute détection —
+ * une part calculée sur ce qui reste ne dit rien. Ici le piège est symétrique :
+ * un rognage assez fort fait basculer n'importe quel plan en 1:1, il suffit de
+ * couper les comédiens.
+ *
+ * Les colonnes de droite se lisent donc en premier :
+ *
+ * - `p99` et `max` : la fraction de sa propre largeur qu'une personne perd, au
+ *   centile 99 et au pire ;
+ * - `> 1/3` et `> 1/2` : combien de secondes de clip montrent quelqu'un amputé
+ *   d'un tiers, puis de la moitié. La seconde est le seuil au-delà duquel un
+ *   visage peut tomber, et c'est la ligne rouge posée par Julien.
+ */
+function balayageRognage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
+  const découpes = émission[quoi]
+  if (découpes.length === 0) return
+  console.log(`\n  ${émission.id} — ${découpes.length} ${quoi}`)
+  console.log(
+    `  rognage  ${DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => r.padStart(6)).join(' ')}` +
+      `   ce qui est coupé d'une personne : p90    p99    max   > 1/3    > 1/2`,
+  )
+
+  const référence = découpes.map((d) => ratioDe(d, émission.analyse, { sideTrim: 0 }))
+  for (const trim of ROGNAGES) {
+    const options: FramingOptions = { sideTrim: trim }
+    const ratios = découpes.map((d) => ratioDe(d, émission.analyse, options))
+    const compte = répartition(ratios)
+    const pertes = découpes.flatMap((d) => pertesDe(d, émission.analyse, options))
+    const secondes = (n: number): string => `${(n * PAS_ÉCHANTILLON).toFixed(1)} s`
+    const élargis = ratios.filter((r, i) => RATIOS[r] > RATIOS[référence[i]]).length
+    const défaut = trim === FRAMING_DEFAULTS.sideTrim ? ' ←' : '  '
+    console.log(
+      `  ${trim.toFixed(3)}${défaut}` +
+        DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(6)).join(' ') +
+        `   ${nombre(percentile(pertes, 0.9)).padStart(37)}` +
+        ` ${nombre(percentile(pertes, 0.99)).padStart(6)}` +
+        ` ${nombre(Math.max(0, ...pertes)).padStart(6)}` +
+        ` ${secondes(pertes.filter((v) => v > 1 / 3).length).padStart(8)}` +
+        ` ${secondes(pertes.filter((v) => v > 0.5).length).padStart(8)}` +
+        (élargis > 0 ? `   ${élargis} ÉLARGI(S)` : ''),
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Où regarder
 // ---------------------------------------------------------------------------
 
 /**
@@ -471,8 +604,13 @@ async function main(): Promise<number> {
     for (const e of émissions) balayage(e, 'clips')
     for (const e of émissions) balayage(e, 'fenêtres')
 
+    console.log('\n=== 4. Le balayage du rognage latéral ===')
+    console.log('  (« coupé » se mesure sur le cadre du plan, boîtes entières, images sacrifiées comprises)')
+    for (const e of émissions) balayageRognage(e, 'clips')
+    for (const e of émissions) balayageRognage(e, 'fenêtres')
+
     if (nInstants !== null) {
-      console.log('\n=== 4. Où regarder — les images qui font monter le ratio ===')
+      console.log('\n=== 5. Où regarder — les images qui font monter le ratio ===')
       for (const e of émissions) oùRegarder(e, nInstants)
     }
 

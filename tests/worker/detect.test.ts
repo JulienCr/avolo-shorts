@@ -119,6 +119,21 @@ describe('detect.py — le score écrit dans analysis.json', () => {
 })
 
 /**
+ * **`gte` et non `gt`, depuis le chantier des bascules de composition.** La
+ * collecte de scène était stricte, la rétention (`scene_boundaries`) inclusive
+ * — c'est cet écart qu'un des tests plus bas éprouvait déjà par le refus de
+ * l'égalité. Ce test-ci est direct : le filtre construit porte bien `gte`, pas
+ * `gt`.
+ */
+describe('detect.py — le filtre de collecte des scores de scène', () => {
+  it('construit un filtre inclusif, jamais strict', () => {
+    expect(évaluer('print(json.dumps(detect.scene_filter(0.05)))')).toBe(
+      "select='gte(scene,0.05)',metadata=print:file=-",
+    )
+  })
+})
+
+/**
  * **Un argument accepté qui ne fait rien est le défaut qu'on ferme, pas une
  * commodité.**
  *
@@ -228,6 +243,86 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
     expect(typeof refus("float('inf')", '0.05')).toBe('string')
     expect(typeof refus('0.4', "float('nan')")).toBe('string')
     expect(typeof refus('0.4', "float('inf')")).toBe('string')
+  })
+})
+
+/**
+ * **Le même refus couvre désormais `--min-shot` et les quatre seuils des
+ * bascules de composition** — le chantier des bascules de composition. Chacun
+ * est un jumeau d'un défaut déjà fermé plus haut sur `--scene-threshold` et
+ * `--scene-floor` : `NaN` qui passe toutes les comparaisons, une borne qui
+ * manque d'un côté ou de l'autre. Les valeurs par défaut restent acceptées —
+ * sans quoi le refus se retournerait contre le worker lui-même.
+ */
+describe('detect.py — le refus, étendu à --min-shot et aux bascules de composition', () => {
+  // Les valeurs mesurées, reprises telles quelles : seul le paramètre sous
+  // test s'écarte du défaut.
+  const étendu = (nom: string, expression: string): unknown =>
+    évaluer(
+      [
+        `résultat = detect.refus_du_seuil_de_scène(`,
+        '    0.4, 0.05,',
+        `    plan_min=${nom === 'plan_min' ? expression : '1.0'},`,
+        `    switch_shift=${nom === 'switch_shift' ? expression : '0.10'},`,
+        `    switch_tolerance=${nom === 'switch_tolerance' ? expression : '0.03'},`,
+        `    switch_share=${nom === 'switch_share' ? expression : '6'},`,
+        `    switch_point_score=${nom === 'switch_point_score' ? expression : '0.5'},`,
+        ')',
+        'print(json.dumps(résultat))',
+      ].join('\n'),
+    )
+
+  it('laisse passer les cinq valeurs mesurées, sans rien à leur reprocher', () => {
+    expect(étendu('plan_min', '1.0')).toBeNull()
+  })
+
+  /**
+   * **Jumeau exact du `--scene-threshold nan` fermé par l'issue #40.**
+   * `--min-shot nan` fait passer toutes les comparaisons de `scene_boundaries`
+   * comme fausses — y compris celle qui écarte les frontières trop
+   * rapprochées —, ce qui produit des plans de durée quasi nulle que le
+   * schéma de l'analyse refuse, après les trois minutes de GPU de la
+   * détection de corps.
+   */
+  it('refuse un --min-shot non fini, nul ou négatif', () => {
+    expect(typeof étendu('plan_min', "float('nan')")).toBe('string')
+    expect(typeof étendu('plan_min', "float('inf')")).toBe('string')
+    expect(typeof étendu('plan_min', '0')).toBe('string')
+    expect(typeof étendu('plan_min', '-1.0')).toBe('string')
+  })
+
+  it('refuse un --switch-shift ou un --switch-tolerance non fini, nul ou négatif', () => {
+    for (const nom of ['switch_shift', 'switch_tolerance']) {
+      expect(typeof étendu(nom, "float('nan')")).toBe('string')
+      expect(typeof étendu(nom, "float('inf')")).toBe('string')
+      expect(typeof étendu(nom, '0')).toBe('string')
+      expect(typeof étendu(nom, '-0.05')).toBe('string')
+    }
+  })
+
+  /**
+   * **Volontairement sans borne haute.** Une différence d'ancrages n'est pas
+   * bornée à 1 : les points de pose qui la fondent ne le sont pas non plus
+   * (voir `person_anchor`). Une grande valeur de `--switch-shift` ne fait que
+   * ne jamais déclarer de bascule — elle ne casse rien.
+   */
+  it('accepte un --switch-shift supérieur à 1', () => {
+    expect(étendu('switch_shift', '1.5')).toBeNull()
+  })
+
+  it('refuse un --switch-share hors de [1, 10] ou non entier', () => {
+    expect(typeof étendu('switch_share', '0')).toBe('string')
+    expect(typeof étendu('switch_share', '11')).toBe('string')
+    expect(typeof étendu('switch_share', '6.5')).toBe('string')
+    expect(étendu('switch_share', '1')).toBeNull()
+    expect(étendu('switch_share', '10')).toBeNull()
+  })
+
+  it('refuse un --switch-point-score hors de [0, 1] ou non fini', () => {
+    expect(typeof étendu('switch_point_score', '0')).toBe('string')
+    expect(typeof étendu('switch_point_score', '1.4')).toBe('string')
+    expect(typeof étendu('switch_point_score', "float('nan')")).toBe('string')
+    expect(étendu('switch_point_score', '1')).toBeNull()
   })
 })
 

@@ -122,6 +122,24 @@ def arrondi_vers_le_bas(valeur: float, décimales: int) -> float:
 COUPLE_SCÈNE = re.compile(r"pts_time:([0-9.]+)\s*\nlavfi\.scene_score=([0-9.]+)")
 
 
+def scene_filter(plancher: float) -> str:
+    """Le filtre ``-vf`` qui collecte les candidates de coupe, pur pour être testé
+    sans lancer ffmpeg.
+
+    **``gte`` et non ``gt``, depuis le chantier des bascules de composition.**
+    ``plans()`` — devenu ``scene_boundaries`` — retenait déjà les scores par
+    ``score >= seuil``, inclusif ; la collecte, elle, restait stricte. L'écart ne
+    mordait que sur l'égalité pile, refusée par ``refus_du_seuil_de_scène``
+    plutôt que corrigée : la fenêtre de collecte est désormais elle-même
+    inclusive, ce qui vide ce refus de sa première raison d'être — il en garde
+    une autre, voir cette fonction. Le binaire de ``setup.sh`` porte ``gte``
+    (N-126188), et le diff mesuré sur 600 s est nul : 128 évènements dans les
+    deux cas, aucune image dont le score tombe exactement sur un multiple du
+    millième du plancher ou du seuil sur l'échantillon mesuré.
+    """
+    return f"select='gte(scene,{plancher})',metadata=print:file=-"
+
+
 def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[float, float]]:
     """Les images dont le score de scène dépasse ``plancher``, avec leur score.
 
@@ -143,7 +161,7 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
         # Ni son ni sous-titres : le muxeur null les accepterait, les décoder
         # serait du travail pour rien.
         "-an", "-sn",
-        "-vf", f"select='gt(scene,{plancher})',metadata=print:file=-",
+        "-vf", scene_filter(plancher),
         "-f", "null", "-",
     ]
     terminé = subprocess.run(args, capture_output=True, text=True, check=False)
@@ -414,20 +432,32 @@ def flatten_keypoints(keypoints, width: int, height: int) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
-def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
-    """Ce qui cloche dans le couple seuil/plancher, ou ``None`` si rien.
+def refus_du_seuil_de_scène(
+    seuil: float,
+    plancher: float,
+    plan_min: float = 1.0,
+    switch_shift: float = 0.10,
+    switch_tolerance: float = 0.03,
+    switch_share: int = 6,
+    switch_point_score: float = 0.5,
+) -> str | None:
+    """Ce qui cloche dans les seuils du détecteur, ou ``None`` si rien.
 
-    Les frontières se décident en deux temps : ffmpeg ne rapporte que les images
-    au-dessus du **plancher de collecte**, et ``plans()`` applique ensuite le
-    **seuil** demandé. Un seuil sous le plancher portait donc sur des candidates
-    qui n'avaient jamais été collectées : l'argument était accepté, et il ne
-    faisait rien. Personne ne le rencontre au seuil retenu — 0,4, huit fois le
-    plancher —, et tout le monde le rencontrera le jour où l'on cherchera des
-    coupes plus discrètes, c'est-à-dire en itérant sur ce détecteur.
+    **Deux détecteurs, un seul refus.** Les frontières de plans et les bascules
+    de composition partagent ce contrôle plutôt que d'en avoir chacun un : les
+    deux lisent des seuils comparés à des grandeurs du même ordre — un score, une
+    fraction, une durée — et les mêmes pannes s'y répètent, comme les items
+    ci-dessous le montrent.
+
+    **Le couple seuil/plancher.** Les frontières de plans se décident en deux
+    temps : ffmpeg ne rapporte que les images au-dessus du **plancher de
+    collecte**, et ``scene_boundaries`` applique ensuite le **seuil** demandé. Un
+    seuil sous le plancher portait donc sur des candidates qui n'avaient jamais
+    été collectées : l'argument était accepté, et il ne faisait rien.
 
     **Un refus et non un ``min()`` qui abaisserait le plancher tout seul.** Le
     ``min()`` reproduirait le défaut un cran plus bas : à plancher nul,
-    ``gt(scene, 0)`` retient à peu près chaque image d'une émission de deux
+    ``gte(scene, 0)`` retient à peu près chaque image d'une émission de deux
     heures, et ``scores_de_scène`` ramasse cette sortie en mémoire d'un seul
     tenant. Le refus nomme les deux valeurs et laisse le choix — baisser le
     plancher aussi — à qui sait ce qu'il cherche.
@@ -438,47 +468,106 @@ def refus_du_seuil_de_scène(seuil: float, plancher: float) -> str | None:
     collecte totale invoquée ci-dessus. Et au-dessus de 1 — la faute de décimale
     sur 0,4 — aucune image ne dépasse jamais le seuil : l'analyse sort en un plan
     unique, valide, que le graphe par présence sert ensuite à chaque relance.
-    C'est le défaut du point 1 de ce ticket, atteint par l'autre bout.
     Et ``NaN`` passe *toutes* les comparaisons, donc passait ce refus — puis
-    ``plans()``, qui n'écarte que ``score < seuil`` : chaque candidate collectée
-    serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf`` sans
-    broncher. (relevé par Copilot sur la PR #44)
+    ``scene_boundaries``, qui n'écarte que ``score < seuil`` : chaque candidate
+    collectée serait devenue une frontière. ``argparse`` prend ``nan`` et ``inf``
+    sans broncher. (relevé par Copilot sur la PR #44)
 
-    **L'égalité est refusée, contrairement à ce que cette docstring affirmait.**
-    La collecte est stricte — ``gt(scene, plancher)`` — et la rétention est
-    inclusive — ``plans()`` garde ``score >= seuil``. À valeurs égales, une image
-    dont le score vaut exactement le plancher serait gardée par la seconde et
-    n'est jamais rapportée par la première : elle disparaît sans un mot, ce qui
-    est le défaut même qu'on ferme ici. Strictement au-dessus, l'inclusion est
-    vraie : ``score >= seuil > plancher`` implique ``score > plancher``.
-    (relevé par Copilot et par Codex sur la PR #44)
+    **L'égalité reste refusée, et ce n'est plus pour la raison qui l'a fait
+    naître.** À la version précédente de ce refus, la collecte était stricte —
+    ``gt(scene, plancher)`` — et la rétention inclusive — ``score >= seuil`` —, si
+    bien qu'une image dont le score valait exactement le plancher disparaissait
+    sans un mot : gardée par la seconde, jamais rapportée par la première. C'est
+    ce défaut-là que le refus fermait. **La collecte est désormais inclusive elle
+    aussi** (``gte``, voir ``scene_filter``), donc cette asymétrie n'existe plus.
+    Le refus reste, sur une raison différente : à ``seuil == plancher`` avec une
+    collecte inclusive, **toute** candidate collectée — chaque image dont le
+    score atteint le plancher — atteint aussi le seuil, et devient donc une
+    frontière. Le plancher de collecte, pensé pour laisser la distribution
+    mesurable, se retrouverait à décider des coupes à la place du seuil. Un seuil
+    strictement au-dessus du plancher reste nécessaire pour que les deux gardent
+    leur rôle.
+
+    **Le plancher d'un plan, ``--min-shot``, n'était validé nulle part.**
+    ``NaN`` y passe toutes les comparaisons de ``scene_boundaries`` — y compris
+    celle qui écarte les frontières trop rapprochées —, qui garde alors chaque
+    candidate collectée : des plans de durée quasi nulle que le schéma de
+    l'analyse refuse, découverts après les trois minutes de GPU de la détection
+    de corps. Jumeau exact du ``--scene-threshold nan`` fermé plus haut, un cran
+    plus loin dans le fichier.
+
+    **Les quatre seuils des bascules de composition suivent le même contrôle.**
+    ``--switch-shift`` et ``--switch-tolerance`` sont des fractions de largeur
+    d'image, positives et finies par construction — un déplacement ou une
+    tolérance nuls ou négatifs ne veulent rien dire, et ``NaN``/``Infinity`` y
+    referaient le défaut fermé plus haut. **Aucune borne haute** : contrairement
+    au score de scène, une différence d'ancrages n'est pas bornée à 1 — les
+    points de pose qui la fondent ne le sont pas non plus, et pour la même
+    raison (voir ``person_anchor``). ``--switch-point-score`` vit dans le même
+    domaine que le score de scène, ``]0, 1]`` : à zéro, un point neutralisé par
+    ``flatten_keypoints`` — confiance nulle, position non fiable — passerait le
+    seuil et fausserait l'ancrage qu'il est censé exclure. ``--switch-share``
+    s'exprime en **dixièmes**, en entier, pour que la condition de rétention
+    reste une comparaison d'entiers (``matched * 10 >= min(n1, n2) * part``) :
+    ``0.6 * 5`` vaut ``3.0000000000000004`` en flottant, et ce dépôt a déjà payé
+    ce défaut dans ``choisirRatio``. Il vit dans ``[1, 10]`` : à 0 la condition
+    est toujours vraie quel que soit l'effectif, au-dessus de 10 elle ne l'est
+    jamais.
     """
-    for nom, valeur in (("--scene-threshold", seuil), ("--scene-floor", plancher)):
+    for nom, valeur in (
+        ("--scene-threshold", seuil),
+        ("--scene-floor", plancher),
+        ("--switch-point-score", switch_point_score),
+    ):
         # `math.isfinite` et non `!= valeur` : il attrape `nan` et les deux
         # infinis d'un seul contrôle, et il se lit.
         if not math.isfinite(valeur):
             return (
                 f"{nom} vaut {valeur}, qui n'est pas un nombre fini : toute comparaison avec "
                 "NaN est fausse, toute comparaison avec un infini est constante. Ni l'une ni "
-                "l'autre ne trie quoi que ce soit, et aucune ne le dit. Le score de scène de "
-                "ffmpeg vit dans [0, 1]."
+                "l'autre ne trie quoi que ce soit, et aucune ne le dit. Un score, de scène ou "
+                "de point de pose, vit dans [0, 1]."
             )
         if not 0 < valeur <= 1:
             return (
-                f"{nom} vaut {valeur}, hors du domaine du score de scène de ffmpeg, qui vit "
-                "dans [0, 1]. Un seuil nul déclare une coupe à chaque candidate collectée ; un "
-                "plancher nul en fait collecter à peu près chaque image d'une émission de deux "
-                "heures, ramassée en mémoire d'un seul tenant ; et au-dessus de 1 — la faute de "
-                "décimale sur 0,4 — plus rien ne coupe, l'analyse sort en un plan unique sans "
-                "que rien n'échoue. 0,4 sur un plancher de 0,05 sont les valeurs mesurées."
+                f"{nom} vaut {valeur}, hors du domaine d'un score, qui vit dans [0, 1]. Une "
+                "valeur nulle ou négative déclare une coupe (ou un point confiant) à chaque "
+                "candidate collectée ; un plancher nul en fait collecter à peu près chaque "
+                "image d'une émission de deux heures, ramassée en mémoire d'un seul tenant ; "
+                "et au-dessus de 1 — la faute de décimale sur 0,4 — plus rien ne coupe, "
+                "l'analyse sort en un plan unique sans que rien n'échoue. 0,4 sur un plancher "
+                "de 0,05 sont les valeurs mesurées."
             )
     if seuil <= plancher:
         return (
             f"--scene-threshold ({seuil}) n'est pas strictement au-dessus de --scene-floor "
-            f"({plancher}) : la collecte est stricte, donc aucune image de score inférieur ou "
-            f"égal à {plancher} n'est rapportée, et ce seuil-là ne serait jamais appliqué "
-            "entièrement. Baisser --scene-floor si des coupes plus discrètes sont recherchées "
-            "— au prix d'une passe ffmpeg plus bavarde."
+            f"({plancher}) : la collecte est inclusive, donc à valeurs égales chaque candidate "
+            "collectée devient une frontière, et le plancher de collecte déciderait des coupes "
+            "à la place du seuil. Baisser --scene-floor si des coupes plus discrètes sont "
+            "recherchées — au prix d'une passe ffmpeg plus bavarde."
+        )
+    if not math.isfinite(plan_min) or plan_min <= 0:
+        return (
+            f"--min-shot vaut {plan_min}, qui doit être un nombre fini et strictement positif : "
+            "c'est la durée minimale d'un plan, en secondes. NaN passe toutes les comparaisons "
+            "qui l'utilisent — y compris celle qui écarte les frontières trop rapprochées —, "
+            "et produit des plans de durée quasi nulle que le schéma de l'analyse refuse, après "
+            "les trois minutes de GPU de la détection de corps."
+        )
+    for nom, valeur in (("--switch-shift", switch_shift), ("--switch-tolerance", switch_tolerance)):
+        if not math.isfinite(valeur) or valeur <= 0:
+            return (
+                f"{nom} vaut {valeur}, qui doit être un nombre fini et strictement positif : "
+                "c'est une fraction de la largeur de l'image, et une valeur nulle, négative, "
+                "NaN ou infinie ne trie aucune bascule. Volontairement sans borne haute — voir "
+                "la docstring de cette fonction."
+            )
+    if not isinstance(switch_share, int) or not 1 <= switch_share <= 10:
+        return (
+            f"--switch-share vaut {switch_share!r}, qui doit être un entier entre 1 et 10 : "
+            "la part de personnes qui doit avoir bougé s'exprime en dixièmes, pour que la "
+            "condition de rétention reste une comparaison d'entiers. À 0 elle serait toujours "
+            "vraie, au-dessus de 10 jamais."
         )
     return None
 
@@ -533,6 +622,34 @@ def main() -> int:
     p.add_argument(
         "--min-shot", type=float, default=1.0, help="durée minimale d'un plan, en secondes"
     )
+    # Les quatre seuils des bascules de composition. **Provisoires** : la valeur
+    # qui fait autorité vient de l'étalonnage (docs/ratios-par-clip.md), sur les
+    # quatre émissions du corpus. Celles-ci ne sont posées ici que pour que
+    # `composition_switches` ait un défaut sensé avant cet étalonnage.
+    p.add_argument(
+        "--switch-shift",
+        type=float,
+        default=0.10,
+        help="déplacement collectif minimal, en fraction de la largeur, pour déclarer une bascule",
+    )
+    p.add_argument(
+        "--switch-tolerance",
+        type=float,
+        default=0.03,
+        help="tolérance d'appariement entre deux ancrages, en fraction de la largeur",
+    )
+    p.add_argument(
+        "--switch-share",
+        type=int,
+        default=6,
+        help="part de personnes appariées qui doit avoir bougé, en dixièmes (6 = 60 %%)",
+    )
+    p.add_argument(
+        "--switch-point-score",
+        type=float,
+        default=0.5,
+        help="confiance minimale d'un point de pose pour entrer dans l'ancrage d'une personne",
+    )
     a = p.parse_args()
 
     if not os.path.isfile(a.proxy):
@@ -544,7 +661,15 @@ def main() -> int:
     if a.duration <= 0:
         journal(f"Durée invalide : {a.duration}. Elle est relevée par ffprobe côté Node.")
         return 2
-    refus = refus_du_seuil_de_scène(a.scene_threshold, a.scene_floor)
+    refus = refus_du_seuil_de_scène(
+        a.scene_threshold,
+        a.scene_floor,
+        a.min_shot,
+        a.switch_shift,
+        a.switch_tolerance,
+        a.switch_share,
+        a.switch_point_score,
+    )
     if refus is not None:
         journal(refus)
         return 2

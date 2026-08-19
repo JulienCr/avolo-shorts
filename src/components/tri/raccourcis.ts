@@ -35,6 +35,13 @@ const DÉJÀ_PRIS = [
   '[role="button"]',
   '[role="tab"]',
   '[role="slider"]',
+  // **La case de sélection en masse, publication §2.4.** Base UI la rend en
+  // `<span role="checkbox">`, jamais en `<button>` : sans cette ligne, un
+  // clic sur une carte pour la publier au lot laisse le focus dessus, et la
+  // garde ci-dessus — qui n'écarte que `button` — ne la reconnaît pas. Plus
+  // aucun raccourci ne répond alors, sans rien afficher d'autre que
+  // l'anneau de sélection resté sur la carte.
+  '[role="checkbox"]',
   'summary',
   // **Le contenu d'une boîte de dialogue, popup compris.** Celui de Base UI
   // porte `role="dialog"` et `tabIndex={-1}` : cliquer son texte en fait

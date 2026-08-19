@@ -67,6 +67,14 @@ describe('traiteDéjàLaTouche', () => {
     )
   })
 
+  it('écarte la case de sélection en masse (publication §2.4)', () => {
+    // Base UI rend une case à cocher en `<span role="checkbox">`, jamais en
+    // `<button>` : sans cette entrée, le focus resterait dessus après un clic
+    // et plus aucun raccourci ne répondrait, alors que la carte garderait son
+    // anneau de sélection — l'écran affirmerait le contraire de son état.
+    expect(traiteDéjàLaTouche(monter('<span role="checkbox"></span>'))).toBe(true)
+  })
+
   it('laisse passer une ancre sans cible et le corps du document', () => {
     // Une ancre sans `href` n'est pas un lien : elle ne traite aucune touche.
     expect(traiteDéjàLaTouche(monter('<a>pas un lien</a>'))).toBe(false)

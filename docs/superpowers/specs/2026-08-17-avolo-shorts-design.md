@@ -275,8 +275,10 @@ même, chacune pour sa raison :
 l'issue #48, il se saute sur une **empreinte persistée** à côté des sorties
 (`projects/<projet>/renders/<clip>.rendu.json`), et une empreinte absente vaut
 *périmé*, jamais *inconnu* — c'est ce qui fait repasser par la porte les rendus
-posés avant elle. Elle porte les cinq champs qui disent ce qui était **demandé**
-(`segments`, `ratio`, `cropX`, `captions`, `branding`) et quatre qui disent ce qui
+posés avant elle. Elle porte les quatre champs qui disent ce qui était **demandé**
+(`segments`, `framing`, `captions`, `branding` — `framing` a remplacé `ratio` et
+`cropX` séparés quand le cadrage automatique est entré en vigueur, spec §10) et
+quatre qui disent ce qui
 a été **obtenu** : le condensat de chaque marque réellement incrustée — les deux
 fichiers portent des noms fixes, donc le nom seul ne distingue pas une mise à
 jour —, un condensat du style des sous-titres qui inclut le contenu du dossier de

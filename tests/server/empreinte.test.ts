@@ -79,6 +79,20 @@ vi.mock('@/server/ffprobe', async (importOriginal) => {
   }
 })
 
+/**
+ * `true` par défaut pour tous les tests de ce fichier — seul celui qui vérifie
+ * l'ordre du repli local dans `currentCaptionsDocument` le bascule à `false`.
+ */
+let montageRéponds = true
+
+vi.mock('@/server/steps/ingest', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/server/steps/ingest')>()
+  return {
+    ...original,
+    montageRépond: async (): Promise<boolean> => montageRéponds,
+  }
+})
+
 const SOURCE = '2025-06-15-cqlp.mp4'
 const ID = '2025-06-15-cqlp'
 const CLIP = 'clip_0001'
@@ -112,6 +126,7 @@ beforeEach(() => {
 
   encodages = []
   pendantLEncodage = null
+  montageRéponds = true
 
   upsertProject(getDb(), {
     id: ID,
@@ -162,6 +177,17 @@ type SegmentDeTranscript = {
 /** Écrit le transcript à côté de l'original, avec les segments donnés. */
 function écrireTranscript(segments: SegmentDeTranscript[]): void {
   const dossier = path.join(replay, `${ID}.avolo`)
+  fs.mkdirSync(dossier, { recursive: true })
+  fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
+}
+
+/**
+ * Le repli du transcript **dans le projet**, distinct de celui à côté de
+ * l'original qu'écrit `écrireTranscript`. C'est celui que `chercherSidecar`
+ * consulte en premier, avant tout sondage du montage.
+ */
+function écrireTranscriptRepli(segments: SegmentDeTranscript[]): void {
+  const dossier = path.join(projets, ID, `${ID}.avolo`)
   fs.mkdirSync(dossier, { recursive: true })
   fs.writeFileSync(path.join(dossier, 'transcript.json'), JSON.stringify({ language: 'fr', segments }))
 }
@@ -896,5 +922,52 @@ describe('le texte des sous-titres (#87)', () => {
 
     expect(résultat.skipped).toBe(true)
     expect(encodages).toEqual([])
+  })
+
+  /**
+   * **Le passage `string → null` que le point 4 ne couvrait pas.** Le test
+   * ci-dessus prouve `null → null` ; il passerait même si `null` était traité
+   * comme « pas sondé » plutôt que comme « sondé, rien à incruster ». Celui-ci
+   * part d'un document réel, puis vide de mots les segments du clip : le
+   * rendu doit se refaire, et l'empreinte finale doit porter `null`.
+   * (relevé par Copilot)
+   */
+  it('périme le rendu quand le document passe de du texte à rien à incruster', async () => {
+    écrireTranscript([SEGMENT_DANS_LE_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
+
+    // Plus aucun mot ne tombe dans les segments du clip : le document passe à
+    // `null`, et ce n'est plus le même `null` qu'un clip sans sous-titres.
+    écrireTranscript([SEGMENT_HORS_DU_CLIP])
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(encodages).toContain(chemins.mp4)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+  })
+
+  /**
+   * **Le repli local d'abord, le sondage du montage seulement à l'échec**
+   * (relevé par Copilot et Aristarque). `currentCaptionsDocument` sondait le
+   * montage avant même de laisser `transcriptDuProjet` essayer son repli dans
+   * le projet — cassant la garantie que son propre commentaire annonçait. Ce
+   * test pose le montage comme muet et un transcript dans le seul repli du
+   * projet : sans le correctif, il lève « le dossier des replays ne répond
+   * pas » avant d'avoir seulement essayé.
+   */
+  it("utilise le repli du projet sans sonder le montage quand il y répond", async () => {
+    écrireTranscriptRepli([SEGMENT_DANS_LE_CLIP])
+    montageRéponds = false
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(false)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeTypeOf('string')
   })
 })

@@ -1904,53 +1904,48 @@ export function sousTitresDuClip(
  * réelle du `.ass` plus bas dans `renderClip`, qui réutilise le même document
  * plutôt que de relire le transcript une seconde fois.
  *
- * **Sondée avant de lire, jamais après.** `placeSidecar` — la porte qu'utilisait
- * la version précédente de cette fonction — fait plusieurs appels
- * **synchrones** au montage (`existsSync`, et au besoin `mkdirSync` +
- * `writeFileSync`), et sur un montage 9p au transport mort, un appel
- * synchrone ne bloque pas un fil du vivier comme le ferait `fsp.stat` : il
- * gèle la boucle d'événements entière, donc **tout le serveur**, pas
- * seulement cet export. `transcribe` (`steps/transcript.ts`) pose la même
- * garde avant le même genre d'appel, pour la même raison ; avant #87 ce
- * chemin n'était atteint qu'à un rendu réel, rare et déjà coûteux — désormais
- * il l'est à chaque `renderClip` sur un clip sous-titré, y compris ceux qui
- * se seraient contentés de sauter sans toucher au montage.
+ * **Par `transcriptDuProjet` (`vues.ts`) d'abord, jamais par `placeSidecar` ni
+ * `lireTranscript` directement** :
  *
- * **Le troisième verdict.** Un montage qui ne répond pas n'est ni « périmé »
- * — reboucler l'export contre un Drive illisible — ni « à jour » — servir un
- * rendu peut-être faux : c'est un refus explicite, dans le même vocabulaire
- * que `montage.cause` (#62) donne à `listerSources`. « muet » est transitoire
- * et invite à réessayer ; un transcript introuvable une fois le montage
- * confirmé vivant ne l'est pas, et se dit autrement plus bas.
- *
- * **Par `transcriptDuProjet` (`vues.ts`), jamais par `placeSidecar` ni
- * `lireTranscript` directement**, une fois le montage confirmé vivant :
- *
+ * - il sait déjà chercher le repli dans le projet **avant** le Drive
+ *   (`chercherSidecar`, `run.ts`) — un `existsSync(transcriptPath(...))` seul
+ *   raterait ce repli (`paths.ts` documente le piège), et sonder le montage
+ *   avant de le lui laisser essayer le raterait tout autant : un projet dont
+ *   le repli local existe déjà n'a jamais besoin du Drive, que le montage
+ *   réponde ou non ;
  * - il mémoïse sur `fichier:taille:mtime` — un second export de la même
  *   émission, ou un GET qui a déjà tout lu pour l'écran de clip, ne repaie pas
  *   la lecture ;
- * - il sait déjà chercher le repli dans le projet avant le Drive, ce
- *   qu'`existsSync(transcriptPath(...))` seul raterait (`paths.ts` documente le
- *   piège) ;
  * - à la différence de `placeSidecar`, il ne **crée** jamais rien : c'est une
  *   lecture, pas l'écriture du sidecar que fait `transcribe`, et elle n'a donc
  *   pas à préparer un dossier sur un montage qui vient tout juste de répondre.
+ *
+ * **Le montage n'est sondé qu'en cas d'échec**, pour distinguer les deux
+ * raisons possibles — le troisième verdict. Un montage qui ne répond pas
+ * n'est ni « périmé » — reboucler l'export contre un Drive illisible — ni « à
+ * jour » — servir un rendu peut-être faux : c'est un refus explicite, dans le
+ * même vocabulaire que `montage.cause` (#62) donne à `listerSources`. «
+ * muet » est transitoire et invite à réessayer ; un transcript introuvable
+ * une fois le montage confirmé vivant ne l'est pas. Sonder ici, à l'appel
+ * `fsp.stat` (pas `existsSync`) — `transcribe` (`steps/transcript.ts`) pose la
+ * même garde avant le même genre d'appel, pour la même raison : un montage 9p
+ * au transport mort gèle la boucle d'événements entière sur un appel
+ * synchrone, donc **tout le serveur**, pas seulement cet export.
  */
 async function currentCaptionsDocument(
   clip: Pick<Clip, 'id' | 'segments'>,
   projet: Project,
   style: CaptionStyle,
 ): Promise<string | null> {
-  if (!(await montageRépond(resolveSource(projet.sourcePath)))) {
-    throw new Error(
-      `Le dossier des replays ne répond pas : impossible de lire le transcript du clip ${clip.id}. ` +
-        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
-        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
-    )
-  }
-
   const transcript = await transcriptDuProjet(projet)
   if (transcript === null) {
+    if (!(await montageRépond(resolveSource(projet.sourcePath)))) {
+      throw new Error(
+        `Le dossier des replays ne répond pas : impossible de lire le transcript du clip ${clip.id}. ` +
+          'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+          '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+      )
+    }
     throw new Error(
       `Aucun transcript pour le clip ${clip.id} : ni à côté de l'original, ni dans le projet. Le ` +
         'clip demande des sous-titres, et il n’y a rien à en tirer.',

@@ -56,7 +56,8 @@ function extract(filePath: string, content: string): Extracted {
   // Commentaires : via le scanner, qui les voit tous (de tête comme de
   // traîne), plutôt que ts.getLeadingCommentRanges nœud par nœud, qui en
   // raterait au sommet du fichier et entre deux nœuds sans relation directe.
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, kind, content);
+  const variant = ext === ".tsx" ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, variant, content);
   scanner.setText(content);
   let tok = scanner.scan();
   while (tok !== ts.SyntaxKind.EndOfFileToken) {

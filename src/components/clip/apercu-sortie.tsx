@@ -190,7 +190,7 @@ export function ApercuSortie({
           la coquetterie : la figure prend la largeur du plus large de ses
           enfants, donc une légende bavarde élargit la colonne et décolle
           l'aperçu de la source d'à côté. */}
-      <figcaption className="text-center text-[0.75rem] text-muted-foreground">
+      <figcaption className="text-[0.75rem] text-muted-foreground">
         variante 9:16 · <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> ·
         cadre <span className="font-mono">{effectif}</span>
       </figcaption>
@@ -201,9 +201,11 @@ export function ApercuSortie({
           est l'enfant d'un conteneur `flex-col`, donc étirée en largeur par
           défaut : la largeur imposée l'emportait sur `aspect-ratio`, qui en
           déduisait la hauteur, et le « 9:16 » n'était plus un 9:16 — l'aperçu
-          mentait sur la seule chose qu'il existe pour montrer. Désétirée, sa largeur
-          redevient automatique et se déduit de la hauteur et du rapport — et les
-          deux aperçus s'alignent par le haut, comme deux vues qui se valent. */}
+          mentait sur la seule chose qu'il existe pour montrer. Désétirée par `self-start`,
+          sa largeur redevient automatique et se déduit de la hauteur et du
+          rapport — et les deux aperçus s'alignent par le haut *et* par la gauche,
+          comme deux vues qui se valent. La légende suit le même bord : centrée,
+          elle flottait au-dessus d'une boîte alignée à gauche. */}
       <div
         className={cn(
           'relative flex shrink-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',

@@ -105,6 +105,13 @@ export function PanneauExport({
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
   const déjàLivré = outputs.mp4Url !== null
+  // Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
+  // s'ils existent. Le reste — leurs noms, le compte des plans — est du détail
+  // qu'on va chercher le jour où quelque chose cloche.
+  const nombreDeSorties = noms.variant9x16 === null ? 1 : 2
+  const resume = déjàLivré
+    ? `${nombreDeSorties} fichier${nombreDeSorties > 1 ? 's' : ''} livré${nombreDeSorties > 1 ? 's' : ''} · natif ${native}`
+    : `${nombreDeSorties} fichier${nombreDeSorties > 1 ? 's' : ''} à produire · natif ${native}`
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
   // Rendre un état non enregistré produirait un fichier qui ne correspond à rien
@@ -133,7 +140,7 @@ export function PanneauExport({
     // descendre les textes à coller sous un pli. Ce qui sort à gauche, ce qui se
     // colle à droite — et c'est à gauche, sous le bouton, que « Publier » viendra.
     <section
-      className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:gap-8"
+      className="grid items-start gap-4 lg:grid-cols-2 lg:gap-10"
       aria-labelledby="titre-export"
     >
       <div className="flex min-w-0 flex-col gap-3">
@@ -152,23 +159,44 @@ export function PanneauExport({
             livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
             jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
             passerait en fraude. */}
-        <p className="text-[0.75rem] text-muted-foreground">
-          {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
-          <span className="font-mono">{frames.join(', ') || '—'}</span>
-          {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
-          {unmeasured > 0 && (
-            <>
-              {' · '}
-              <span className="text-amber-500 dark:text-amber-400">
-                {unmeasured === 1
-                  ? '1 plan sans mesure, centré par défaut'
-                  : `${unmeasured} plans sans mesure, centrés par défaut`}
-              </span>
-            </>
-          )}
-        </p>
+        {/* **Ce qui est livré se regarde ; ce qui s'appelle comment se replie.**
+            Le nom des fichiers, le compte des plans et « due, pas encore
+            produite » sont vrais et utiles le jour où quelque chose cloche —
+            pas les trente autres fois. Ils prenaient le tiers du panneau au
+            détriment des textes qu'on vient y chercher. Ils restent à un clic,
+            ce qui est la même règle que le transcript dans son tiroir. */}
+        <details className="group/sorties">
+          <summary className="cursor-pointer list-none text-[0.75rem] text-muted-foreground marker:content-none hover:text-foreground">
+            <span className="mr-1 inline-block transition-transform group-open/sorties:rotate-90">
+              ›
+            </span>
+            {resume}
+          </summary>
 
-        <ListeDesSorties clip={clip} outputs={outputs} noms={noms} native={native} />
+          <p className="mt-2 text-[0.75rem] text-muted-foreground">
+            {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
+            <span className="font-mono">{frames.join(', ') || '—'}</span>
+            {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
+          </p>
+
+          <ListeDesSorties noms={noms} native={native} outputs={outputs} />
+        </details>
+
+        {/* **L'avertissement, lui, ne se replie pas.** Un plan que le détecteur
+            n'a pas mesuré est posé au centre par défaut : c'est la dernière
+            surface avant la livraison où cela peut encore se dire (§3.5), et le
+            cacher derrière un pli reviendrait à le taire. */}
+        {unmeasured > 0 && (
+          <p className="text-[0.75rem] text-amber-500 dark:text-amber-400">
+            {unmeasured === 1
+              ? '1 plan sans mesure, centré par défaut'
+              : `${unmeasured} plans sans mesure, centrés par défaut`}
+          </p>
+        )}
+
+        {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
+            parcours qui mérite d'être vu, donc il reste hors du pli. */}
+        <LecteursLivres clip={clip} outputs={outputs} native={native} />
 
         {clip.title.trim() === '' && (
           // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
@@ -302,34 +330,33 @@ export function PanneauExport({
 }
 
 /**
- * Ce que l'export produira, et ce qu'il a produit — **une seule liste**.
+ * Ce que l'export produira : **les noms, et rien d'autre**.
  *
  * Deux vidéos quand le ratio natif n'est pas 9:16 : le natif pour le feed
  * d'Instagram et de Facebook, la variante floutée pour TikTok et Shorts. Et
  * elles ne montrent pas le même cadre — le natif garde un seul ratio pour tout
- * le clip, la variante pose chaque plan au sien. C'est la conséquence du choix
- * de ratio qui ne se voyait nulle part, alors qu'elle change ce qu'on aura à
- * publier.
+ * le clip, la variante pose chaque plan au sien.
+ *
+ * **La lecture sur place a déménagé dans `LecteursLivres`**, et la séparation
+ * porte une décision : ces noms-ci sont du détail qu'on replie, un fichier livré
+ * est un résultat qu'on regarde. Les tenir dans une seule liste obligeait à
+ * choisir entre replier le résultat et déplier le détail.
  */
 function ListeDesSorties({
-  clip,
-  outputs,
   noms,
   native,
+  outputs,
 }: {
-  clip: Clip
-  outputs: ClipOutputs
   noms: ReturnType<typeof nomsDeSortie>
   native: Ratio
+  outputs: ClipOutputs
 }) {
   return (
-    <ul className="flex flex-col gap-2">
-      <Sortie
-        nom={noms.mp4}
-        libellé={`le rendu ${native}, pour le feed`}
-        url={outputs.mp4Url}
-        étiquette={`Le rendu ${native} de ${clip.title || 'ce clip'}`}
-      />
+    <ul className="mt-2 flex flex-col gap-1">
+      <li className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-[0.75rem]">{noms.mp4}</span>
+        <span className="text-[0.75rem] text-muted-foreground">le rendu {native}, pour le feed</span>
+      </li>
 
       {noms.variant9x16 === null ? (
         // **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même
@@ -340,54 +367,65 @@ function ListeDesSorties({
           Le ratio natif est déjà 9:16 : pas de variante à produire.
         </li>
       ) : (
-        <Sortie
-          nom={noms.variant9x16}
-          libellé="la variante sur fond flouté, pour TikTok et Shorts"
-          url={outputs.variant9x16Url}
-          étiquette="La variante 9:16 sur fond flouté"
-          absence="due, pas encore produite"
-        />
+        <li className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-mono text-[0.75rem]">{noms.variant9x16}</span>
+          <span className="text-[0.75rem] text-muted-foreground">
+            la variante sur fond flouté, pour TikTok et Shorts
+            {outputs.variant9x16Url === null && outputs.variant9x16Due && ' — due, pas encore produite'}
+          </span>
+        </li>
       )}
 
-      <Sortie nom={noms.texts} libellé="titre, description, mots-dièse" url={null} />
+      <li className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-mono text-[0.75rem]">{noms.texts}</span>
+        <span className="text-[0.75rem] text-muted-foreground">titre, description, mots-dièse</span>
+      </li>
     </ul>
   )
 }
 
-function Sortie({
-  nom,
-  libellé,
-  url,
-  étiquette,
-  absence,
+/**
+ * Ce qui est **sur le disque**, lisible sur place.
+ *
+ * « L'export produit un ou deux fichiers et le panneau les montre : lecture sur
+ * place […] C'est le seul succès du parcours qui mérite d'être vu » (parcours
+ * §3.3). Il reste donc hors du pli qui range les noms : c'est le résultat, pas
+ * la nomenclature.
+ *
+ * Rien ne s'affiche tant que rien n'existe — et `mp4Url: null` ne veut pas dire
+ * « jamais exporté » (voir le contrat de `ClipOutputs`) ; ce qui se dit ici est
+ * seulement ce qui est disponible maintenant.
+ */
+function LecteursLivres({
+  clip,
+  outputs,
+  native,
 }: {
-  nom: string
-  libellé: string
-  url: string | null
-  /** Le nom que lit un lecteur d'écran sur la vidéo. Absent : pas de lecture sur place. */
-  étiquette?: string
-  /** Ce qu'on dit quand le fichier est **dû** et pas encore là. */
-  absence?: string
+  clip: Clip
+  outputs: ClipOutputs
+  native: Ratio
 }) {
+  const livres = [
+    { url: outputs.mp4Url, étiquette: `Le rendu ${native} de ${clip.title || 'ce clip'}` },
+    { url: outputs.variant9x16Url, étiquette: 'La variante 9:16 sur fond flouté' },
+  ].filter((s): s is { url: string; étiquette: string } => s.url !== null)
+
+  if (livres.length === 0) return null
+
   return (
-    <li className="flex flex-col gap-1">
-      <span className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-[0.75rem]">{nom}</span>
-        <span className="text-[0.75rem] text-muted-foreground">{libellé}</span>
-      </span>
-      {url !== null && étiquette !== undefined && (
-        <video
-          src={url}
-          aria-label={étiquette}
-          controls
-          preload="metadata"
-          className="w-full max-w-64 rounded bg-zinc-950"
-        />
-      )}
-      {url === null && absence !== undefined && (
-        <span className="text-[0.75rem] text-muted-foreground">{absence}</span>
-      )}
-    </li>
+    <ul className="flex flex-wrap gap-3">
+      {livres.map(({ url, étiquette }) => (
+        <li key={url}>
+          <video
+            src={url}
+            aria-label={étiquette}
+            controls
+            preload="metadata"
+            className="w-full max-w-64 rounded bg-zinc-950"
+          />
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -426,12 +464,17 @@ function ZoneDeTextes({ clip }: { clip: Clip }) {
           {àJour ? 'Copié' : 'Copier'}
         </Button>
       </div>
+      {/* **De la place, et le titre au-dessus plutôt qu'à côté.** C'est ce qu'on
+          vient chercher au moment de publier : le coller demande de le relire, et
+          une zone de sept lignes dans une colonne étroite faisait défiler une
+          description de trois lignes. Douze lignes, redimensionnable, et la
+          colonne fait la moitié du bandeau. */}
       <textarea
         readOnly
         value={texte}
         aria-label="Textes de publication"
-        rows={7}
-        className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-[0.75rem] leading-relaxed"
+        rows={12}
+        className="w-full flex-1 resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-[0.8rem] leading-relaxed"
       />
     </div>
   )

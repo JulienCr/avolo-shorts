@@ -185,11 +185,17 @@ export const useEditeur = create<EtatEditeur>((set, get) => ({
 
   setBoundaryAt(time, edge) {
     const { historique } = get()
-    // **La sélection reste**, contrairement à `poserBorne`. Celle-ci vide parce
-    // que le geste part d'un mot qu'on vient de désigner ; ici aucun mot n'est
-    // en cause, et jeter une sélection faite dans le tiroir parce qu'on a tiré
-    // une oreille serait un effet que personne n'a demandé.
-    set({ historique: pushHistory(historique, moveBoundary(historique.present, edge, time)) })
+    // **La sélection se vide, comme dans `poserBorne`.** On a d'abord voulu la
+    // garder — aucun mot n'est en cause dans ce geste-ci. Mais elle survit alors
+    // à un déplacement de borne qui peut l'avoir mise dehors, et le `Suppr`
+    // suivant retire un passage déjà retiré : rien ne change à l'écran, un
+    // instantané s'empile dans la pile d'annulation, et le clavier a l'air
+    // cassé. Une sélection qu'on ne voit plus ne doit pas rester agissante.
+    // (relevé par Aristarque)
+    set({
+      historique: pushHistory(historique, moveBoundary(historique.present, edge, time)),
+      selection: null,
+    })
   },
 
   annuler() {

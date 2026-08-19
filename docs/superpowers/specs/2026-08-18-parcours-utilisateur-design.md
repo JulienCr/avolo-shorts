@@ -877,6 +877,13 @@ Un seul `<video>` décode, et le canevas de sortie se peint à partir de lui par
 écrire et décoderaient deux fois le même flux, sur un proxy que la page lit déjà
 en requêtes partielles.
 
+**La bande de temps fait exception, et c'est la seule** (19 août 2026). Sa
+vignette de scrub tire son image d'un second `<video>` caché : faire chercher le
+lecteur principal pendant qu'on tire une oreille tuerait la lecture et ferait
+sauter l'aperçu de sortie, qui s'accroche à ses trames. L'exception se paie au
+minimum — élément muet, `preload="metadata"`, **une seule recherche en vol**, la
+dernière position demandée relancée au `seeked` précédent.
+
 **Le canevas se redessine sur deux déclencheurs, pas un.** `requestVideoFrameCallback`
 pendant la lecture, et **tout changement de crop ou de ratio**, par un `drawImage`
 direct sur l'image courante. Le second est le plus important des deux : le geste

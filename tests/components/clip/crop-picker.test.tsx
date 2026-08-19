@@ -208,10 +208,10 @@ describe('CropOverlay', () => {
         describedBy="raison-cadrage"
       />,
     )
-    const curseur = screen.getByRole('slider')
-    expect(curseur.getAttribute('tabindex')).toBe('0')
-    expect(curseur.getAttribute('aria-disabled')).toBe('true')
-    expect(curseur.getAttribute('aria-describedby')).toBe('raison-cadrage')
+    const slider = screen.getByRole('slider')
+    expect(slider.getAttribute('tabindex')).toBe('0')
+    expect(slider.getAttribute('aria-disabled')).toBe('true')
+    expect(slider.getAttribute('aria-describedby')).toBe('raison-cadrage')
   })
 
   it('ne décrit rien quand il déplace pour de bon', () => {
@@ -226,8 +226,8 @@ describe('CropOverlay', () => {
         describedBy="raison-cadrage"
       />,
     )
-    const curseur = screen.getByRole('slider')
-    expect(curseur.getAttribute('aria-describedby')).toBeNull()
-    expect(curseur.getAttribute('aria-disabled')).toBeNull()
+    const slider = screen.getByRole('slider')
+    expect(slider.getAttribute('aria-describedby')).toBeNull()
+    expect(slider.getAttribute('aria-disabled')).toBeNull()
   })
 })

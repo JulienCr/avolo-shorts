@@ -16,7 +16,7 @@ import type { CandidateClip } from '@/lib/api'
 
 afterEach(cleanup)
 
-function candidat(id: string, surcharges: Partial<CandidateClip> = {}): CandidateClip {
+function candidate(id: string, overrides: Partial<CandidateClip> = {}): CandidateClip {
   return {
     id,
     projectId: 'p1',
@@ -31,13 +31,13 @@ function candidat(id: string, surcharges: Partial<CandidateClip> = {}): Candidat
     pass: 1,
     preview: '',
     thumbnailUrl: null,
-    ...surcharges,
+    ...overrides,
   }
 }
 
 describe('ClipStrip', () => {
   it('mène à chaque autre clip gardé', () => {
-    render(<ClipStrip clips={[candidat('a'), candidat('b'), candidat('c')]} currentId="b" />)
+    render(<ClipStrip clips={[candidate('a'), candidate('b'), candidate('c')]} currentId="b" />)
     const liens = screen.getAllByRole('link')
     expect(liens.map((l) => l.getAttribute('href'))).toEqual(['/clips/a', '/clips/c'])
   })
@@ -45,23 +45,23 @@ describe('ClipStrip', () => {
   it('marque le clip courant, et n’en fait pas un lien vers lui-même', () => {
     // Un lien vers l'écran où l'on est n'est pas une navigation et volerait un
     // arrêt de tabulation — la règle que le fil d'Ariane applique déjà.
-    render(<ClipStrip clips={[candidat('a'), candidat('b')]} currentId="b" />)
+    render(<ClipStrip clips={[candidate('a'), candidate('b')]} currentId="b" />)
     expect(screen.queryByRole('link', { name: /Le clip b/ })).toBeNull()
-    const courant = screen.getByText('Le clip b').closest('[aria-current]')
-    expect(courant?.getAttribute('aria-current')).toBe('page')
+    const current = screen.getByText('Le clip b').closest('[aria-current]')
+    expect(current?.getAttribute('aria-current')).toBe('page')
   })
 
   it('dit le rang au complet à la voix, abrégé à l’œil', () => {
     // « 4 » seul ne dit pas de quoi c'est le quatrième ; « sur 12 » répété douze
     // fois ne tient pas dans la bande.
-    render(<ClipStrip clips={[candidat('a'), candidat('b'), candidat('c')]} currentId="a" />)
+    render(<ClipStrip clips={[candidate('a'), candidate('b'), candidate('c')]} currentId="a" />)
     expect(screen.getByText(/clip 3 sur 3/)).toBeTruthy()
   })
 
   it('porte l’état de chaque clip', () => {
     // Un clip déjà exporté se distingue d'un clip qui attend son montage : c'est
     // ce qui évite de rouvrir celui qui est fait.
-    render(<ClipStrip clips={[candidat('a'), candidat('b', { status: 'exported' })]} currentId="a" />)
+    render(<ClipStrip clips={[candidate('a'), candidate('b', { status: 'exported' })]} currentId="a" />)
     expect(screen.getByText('exporté')).toBeTruthy()
     expect(screen.getByText('gardé')).toBeTruthy()
   })
@@ -74,7 +74,7 @@ describe('ClipStrip', () => {
   it('se passe d’une vignette quand le proxy n’est pas encodé', () => {
     // `thumbnailUrl: null` est un état normal d'un projet récent, pas une
     // anomalie : le repli est prévu, comme sur les cartes de tri.
-    const { container } = render(<ClipStrip clips={[candidat('a')]} currentId="a" />)
+    const { container } = render(<ClipStrip clips={[candidate('a')]} currentId="a" />)
     expect(container.querySelector('img')).toBeNull()
   })
 })

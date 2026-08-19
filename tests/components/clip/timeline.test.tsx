@@ -37,8 +37,8 @@ beforeAll(() => {
  * rien ne le dise. Un `MouseEvent` du bon type porte la coordonnée, et React le
  * livre au même `onPointerDown`.
  */
-function pointeur(cible: Element | Window, type: string, clientX: number) {
-  fireEvent(cible, new MouseEvent(type, { clientX, bubbles: true, cancelable: true }))
+function pointerAt(target: Element | Window, type: string, clientX: number) {
+  fireEvent(target, new MouseEvent(type, { clientX, bubbles: true, cancelable: true }))
 }
 
 afterEach(() => {
@@ -48,7 +48,7 @@ afterEach(() => {
 })
 
 /** La bande occupe 1000 px : une fraction lue vaut donc un millième de la fenêtre. */
-function mesurerLaBande() {
+function measureTrack() {
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
     () =>
       ({
@@ -65,7 +65,7 @@ function mesurerLaBande() {
   )
 }
 
-function monter(surcharges: Partial<Parameters<typeof Timeline>[0]> = {}) {
+function mount(overrides: Partial<Parameters<typeof Timeline>[0]> = {}) {
   const onScrub = vi.fn()
   const onBoundary = vi.fn()
   render(
@@ -76,21 +76,21 @@ function monter(surcharges: Partial<Parameters<typeof Timeline>[0]> = {}) {
       sourceDuration={5940}
       onScrub={onScrub}
       onBoundary={onBoundary}
-      {...surcharges}
+      {...overrides}
     />,
   )
   return { onScrub, onBoundary }
 }
 
-function bande() {
+function track() {
   const element = document.querySelector('[data-timeline]')
   if (element === null) throw new Error('la bande de temps n’est pas rendue')
   return element
 }
 
-function oreille(bord: 'start' | 'end') {
-  const element = document.querySelector(`[data-edge="${bord}"]`)
-  if (element === null) throw new Error(`l’oreille « ${bord} » n’est pas rendue`)
+function handle(edge: 'start' | 'end') {
+  const element = document.querySelector(`[data-edge="${edge}"]`)
+  if (element === null) throw new Error(`l’oreille « ${edge} » n’est pas rendue`)
   return element
 }
 
@@ -98,7 +98,7 @@ describe('la fenêtre', () => {
   it('montre trois secondes de contexte de chaque côté', () => {
     // Sans ce contexte on ne peut que resserrer, jamais élargir, et la moitié de
     // l'intérêt des oreilles disparaît. Le clip va de 100 à 120.
-    monter()
+    mount()
     expect(screen.getByText('0:01:37')).toBeTruthy()
     expect(screen.getByText('0:02:03')).toBeTruthy()
   })
@@ -106,14 +106,14 @@ describe('la fenêtre', () => {
   it('dit que les creux sont les coupes', () => {
     // Une bande en temps source montre les passages retirés à leur vraie place.
     // Sans cette ligne, ils passent pour des blancs de rendu.
-    monter()
+    mount()
     expect(screen.getByText(/les creux sont les passages retirés/i)).toBeTruthy()
   })
 
   it('n’affiche pas de bande quand tout a été retiré', () => {
     // Il n'y a plus de bornes. L'écran dit ailleurs comment en sortir : le
     // répéter ici ferait deux phrases pour un seul état.
-    monter({ segments: [] })
+    mount({ segments: [] })
     expect(document.querySelector('[data-timeline]')).toBeNull()
     expect(screen.getByText(/réapparaîtra dès qu’un passage sera remonté/i)).toBeTruthy()
   })
@@ -123,24 +123,24 @@ describe('les oreilles', () => {
   it('portent le timecode plutôt qu’un nombre de secondes', () => {
     // « 100 » ne se compare à rien ; « 0:01:40 » se compare à ce qu'on lit
     // partout ailleurs à l'écran.
-    monter()
-    expect(oreille('start').getAttribute('aria-valuetext')).toBe('0:01:40')
-    expect(oreille('end').getAttribute('aria-valuetext')).toBe('0:02:00')
+    mount()
+    expect(handle('start').getAttribute('aria-valuetext')).toBe('0:01:40')
+    expect(handle('end').getAttribute('aria-valuetext')).toBe('0:02:00')
   })
 
   it('n’écrivent qu’une fois par geste, pas une fois par mouvement', () => {
     // Poser la borne à chaque `pointermove` empilerait soixante instantanés dans
     // la pile d'annulation pour un seul glissé, et `Ctrl+Z` défairait alors un
     // soixantième de geste.
-    mesurerLaBande()
-    const { onBoundary } = monter()
-    const poignee = oreille('start')
-    pointeur(poignee, 'pointerdown', 115)
-    pointeur(poignee, 'pointermove', 200)
-    pointeur(poignee, 'pointermove', 300)
+    measureTrack()
+    const { onBoundary } = mount()
+    const grip = handle('start')
+    pointerAt(grip, 'pointerdown', 115)
+    pointerAt(grip, 'pointermove', 200)
+    pointerAt(grip, 'pointermove', 300)
     expect(onBoundary).not.toHaveBeenCalled()
 
-    pointeur(window, 'pointerup', 300)
+    pointerAt(window, 'pointerup', 300)
     expect(onBoundary).toHaveBeenCalledTimes(1)
   })
 
@@ -148,50 +148,50 @@ describe('les oreilles', () => {
     // Le contrôle est celui d'un banc de montage : la borne vaut exactement ce
     // que la main a demandé, quitte à tomber au milieu d'un mot. La fenêtre va
     // de 97 à 123, sur 1000 px : 500 px valent donc 110 s.
-    mesurerLaBande()
-    const { onBoundary } = monter()
-    const poignee = oreille('start')
-    pointeur(poignee, 'pointerdown', 500)
-    pointeur(window, 'pointerup', 500)
+    measureTrack()
+    const { onBoundary } = mount()
+    const grip = handle('start')
+    pointerAt(grip, 'pointerdown', 500)
+    pointerAt(window, 'pointerup', 500)
 
-    const [temps, bord] = onBoundary.mock.calls[0]
-    expect(bord).toBe('start')
-    expect(temps).toBeCloseTo(110, 5)
+    const [time, edge] = onBoundary.mock.calls[0]
+    expect(edge).toBe('start')
+    expect(time).toBeCloseTo(110, 5)
   })
 
   it('ne traversent pas l’autre borne', () => {
     // Une borne d'entrée posée après la sortie laisserait une durée négative.
-    mesurerLaBande()
-    const { onBoundary } = monter()
-    pointeur(oreille('start'), 'pointerdown', 990)
-    pointeur(window, 'pointerup', 990)
+    measureTrack()
+    const { onBoundary } = mount()
+    pointerAt(handle('start'), 'pointerdown', 990)
+    pointerAt(window, 'pointerup', 990)
     expect(onBoundary.mock.calls[0][0]).toBeLessThan(120)
   })
 
   it('avancent d’une image à la flèche, d’un pas large sous Maj', () => {
-    const { onBoundary } = monter()
-    fireEvent.keyDown(oreille('start'), { key: 'ArrowLeft' })
+    const { onBoundary } = mount()
+    fireEvent.keyDown(handle('start'), { key: 'ArrowLeft' })
     expect(onBoundary.mock.calls[0][0]).toBeCloseTo(100 - 1 / 30, 5)
 
-    fireEvent.keyDown(oreille('start'), { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(handle('start'), { key: 'ArrowRight', shiftKey: true })
     expect(onBoundary.mock.calls[1][0]).toBeCloseTo(100.5, 5)
   })
 
   it('laissent les flèches à l’oreille et non à l’écran', () => {
     // `role="slider"` : la garde des raccourcis écarte déjà les flèches d'un
     // curseur, donc une oreille focalisée les reçoit sans se les faire voler.
-    monter()
-    expect(oreille('start').getAttribute('role')).toBe('slider')
-    expect(oreille('start').getAttribute('tabindex')).toBe('0')
+    mount()
+    expect(handle('start').getAttribute('role')).toBe('slider')
+    expect(handle('start').getAttribute('tabindex')).toBe('0')
   })
 
   it('ne sortent pas de la source', () => {
     // Tirer loin à gauche ne demande pas un temps négatif : il n'y a rien avant
     // le début de l'émission.
-    mesurerLaBande()
-    const { onBoundary } = monter({ segments: [{ start: 1, end: 20 }] })
-    pointeur(oreille('start'), 'pointerdown', -5000)
-    pointeur(window, 'pointerup', -5000)
+    measureTrack()
+    const { onBoundary } = mount({ segments: [{ start: 1, end: 20 }] })
+    pointerAt(handle('start'), 'pointerdown', -5000)
+    pointerAt(window, 'pointerup', -5000)
     expect(onBoundary.mock.calls[0][0]).toBe(0)
   })
 })
@@ -209,7 +209,7 @@ describe('la vignette de scrub', () => {
    * montage en deux temps ci-dessous est la reproduction exacte.
    */
   it('peint la position demandée, même montée après le premier rendu', () => {
-    mesurerLaBande()
+    measureTrack()
     const dessiner = vi.fn()
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       drawImage: dessiner,
@@ -243,7 +243,7 @@ describe('la vignette de scrub', () => {
     Object.defineProperty(source, 'videoWidth', { value: 960, configurable: true })
     Object.defineProperty(source, 'videoHeight', { value: 540, configurable: true })
 
-    pointeur(oreille('start'), 'pointerdown', 400)
+    pointerAt(handle('start'), 'pointerdown', 400)
     dessiner.mockClear()
     fireEvent(source, new Event('seeked'))
     expect(dessiner).toHaveBeenCalledTimes(1)
@@ -252,7 +252,7 @@ describe('la vignette de scrub', () => {
   it('ne cherche pas sans proxy', () => {
     // Un projet dont le proxy n'est pas encodé : la bande reste utilisable, il
     // n'y a simplement pas d'image à montrer.
-    monter({ proxyUrl: null })
+    mount({ proxyUrl: null })
     expect(document.querySelector('video')).toBeNull()
   })
 })
@@ -262,11 +262,11 @@ describe('le scrub', () => {
     // Pendant le geste, c'est la vignette qui montre l'image : faire chercher le
     // lecteur principal soixante fois par seconde tuerait la lecture et ferait
     // sauter l'aperçu de sortie, qui s'accroche à ses trames.
-    mesurerLaBande()
-    const { onScrub } = monter()
-    pointeur(bande(), 'pointerdown', 500)
+    measureTrack()
+    const { onScrub } = mount()
+    pointerAt(track(), 'pointerdown', 500)
     expect(onScrub).not.toHaveBeenCalled()
-    pointeur(window, 'pointerup', 500)
+    pointerAt(window, 'pointerup', 500)
     expect(onScrub).toHaveBeenCalledTimes(1)
     expect(onScrub.mock.calls[0][0]).toBeCloseTo(110, 5)
   })
@@ -275,17 +275,17 @@ describe('le scrub', () => {
     // C'est tout l'intérêt d'une bande en temps source : on regarde ce qu'il y a
     // dans le trou avant de décider de le remonter. La lecture, elle, saute les
     // retraits — c'est l'écran qui le tranche, pas la bande.
-    mesurerLaBande()
-    const { onScrub } = monter({
+    measureTrack()
+    const { onScrub } = mount({
       segments: [
         { start: 100, end: 105 },
         { start: 115, end: 120 },
       ],
     })
-    pointeur(bande(), 'pointerdown', 500)
-    pointeur(window, 'pointerup', 500)
-    const temps = onScrub.mock.calls[0][0]
-    expect(temps).toBeGreaterThan(105)
-    expect(temps).toBeLessThan(115)
+    pointerAt(track(), 'pointerdown', 500)
+    pointerAt(window, 'pointerup', 500)
+    const time = onScrub.mock.calls[0][0]
+    expect(time).toBeGreaterThan(105)
+    expect(time).toBeLessThan(115)
   })
 })

@@ -294,8 +294,19 @@ export function RatioPicker({
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
+  /**
+   * Le ratio du fichier natif **tel que le prochain rendu le prendra**.
+   *
+   * `framing.ratio` est celui que le serveur a résolu au dernier `PATCH`, donc
+   * celui d'avant tant que l'écriture différée n'est pas partie : épingler 4:5
+   * sur un clip résolu en 9:16 faisait annoncer « le natif est déjà vertical »
+   * pendant une seconde, c'est-à-dire une sortie qui n'aura pas lieu. Un ratio
+   * épinglé, lui, se connaît tout de suite — `computeFraming` le prend verbatim.
+   * (relevé par Aristarque)
+   */
+  const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
-  const variantDue = framing.ratio !== '9:16'
+  const variantDue = nativeRatio !== '9:16'
   const cropReason = frozenCropReason(framing, effectif)
 
   return (
@@ -328,7 +339,7 @@ export function RatioPicker({
       <p className="font-mono text-[0.75rem] text-muted-foreground">
         {ratio === 'auto' ? `auto → ${effectif}` : `${effectif} · épinglé partout`}
         {' · natif '}
-        {framing.ratio}
+        {nativeRatio}
       </p>
 
       {/* **Les deux fichiers, nommés.** Voir le bloc de tête : c'est la ligne qui
@@ -337,8 +348,8 @@ export function RatioPicker({
         {variantDue ? (
           <>
             Le <strong className="font-medium">fichier natif</strong> sort en{' '}
-            <span className="font-mono">{framing.ratio}</span>, le même d’un bout à l’autre, pour
-            le feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan sur
+            <span className="font-mono">{nativeRatio}</span>, le même d’un bout à l’autre, pour le
+            feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan sur
             un canevas vertical, sur fond flouté
             {varies && (
               <>

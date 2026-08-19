@@ -82,12 +82,12 @@ export function TranscriptDrawer({
   onPlay: (index: number) => void
 }) {
   const popup = useRef<HTMLDivElement>(null)
-  const editeur = useEditeur()
+  const editor = useEditeur()
   const segments = useSegments()
-  const peutAnnuler = usePeutAnnuler()
-  const peutRetablir = usePeutRetablir()
+  const canUndo = usePeutAnnuler()
+  const canRedo = usePeutRetablir()
 
-  const selection = editeur.selection
+  const selection = editor.selection
   const selectionSpan = selection
     ? selectionBounds(words, selection.ancre, selection.tete)
     : null
@@ -98,10 +98,10 @@ export function TranscriptDrawer({
       const word = words[index]
       if (!word) return
       const gesture = gesteSurMotBarré(clipBounds(segments), word)
-      if (gesture.kind === 'remonter') editeur.remonterMot(words, index)
-      else editeur.poserBorne(words, index, gesture.bord)
+      if (gesture.kind === 'remonter') editor.remonterMot(words, index)
+      else editor.poserBorne(words, index, gesture.bord)
     },
-    [words, segments, editeur],
+    [words, segments, editor],
   )
 
   return (
@@ -173,7 +173,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={() => editeur.retirerSelection(words)}
+                onClick={() => editor.retirerSelection(words)}
                 title="Suppr"
               >
                 <Scissors aria-hidden />
@@ -182,7 +182,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => editeur.poserBorne(words, selection.tete, 'start')}
+                onClick={() => editor.poserBorne(words, selection.tete, 'start')}
                 title="I"
               >
                 <ArrowLeftToLine aria-hidden />
@@ -191,7 +191,7 @@ export function TranscriptDrawer({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => editeur.poserBorne(words, selection.tete, 'end')}
+                onClick={() => editor.poserBorne(words, selection.tete, 'end')}
                 title="O"
               >
                 <ArrowRightToLine aria-hidden />
@@ -222,8 +222,8 @@ export function TranscriptDrawer({
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={editeur.annuler}
-              disabled={!peutAnnuler}
+              onClick={editor.annuler}
+              disabled={!canUndo}
               title="Ctrl+Z"
               aria-label="Annuler"
             >
@@ -232,8 +232,8 @@ export function TranscriptDrawer({
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={editeur.retablir}
-              disabled={!peutRetablir}
+              onClick={editor.retablir}
+              disabled={!canRedo}
               title="Ctrl+Shift+Z"
               aria-label="Rétablir"
             >
@@ -272,9 +272,9 @@ export function TranscriptDrawer({
             words={words}
             selection={selection}
             ligneInitiale={firstLine}
-            onSelectionner={editeur.commencerSelection}
-            onEtendre={editeur.etendreSelection}
-            onTerminer={editeur.terminerSelection}
+            onSelectionner={editor.commencerSelection}
+            onEtendre={editor.etendreSelection}
+            onTerminer={editor.terminerSelection}
             onRemonter={restore}
             onPlacer={onPlay}
             recherche={search}

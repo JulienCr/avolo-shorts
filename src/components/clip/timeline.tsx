@@ -98,6 +98,21 @@ export function Timeline({
   // donc jamais coincé à trois secondes : chaque geste en rouvre trois autres.
   const view = viewport(bounds, limit)
 
+  /**
+   * Les bornes **du dernier rendu**, lues par les flèches du clavier.
+   *
+   * Une touche maintenue se répète plus vite que React ne rend : trois frappes
+   * lues dans la même fermeture partent toutes de la même borne et calculent
+   * trois fois le même résultat — l'oreille n'avance que d'un cran et paraît
+   * collée. C'est le défaut exact que le curseur de cadrage a déjà payé, où la
+   * forme fonctionnelle de `deplacerCrop` le règle ; ici la cible est absolue,
+   * donc c'est une référence qui la tient à jour. (relevé par Aristarque)
+   */
+  const boundsRef = useRef(bounds)
+  useEffect(() => {
+    boundsRef.current = bounds
+  }, [bounds])
+
   const draggingHandle = drag !== null && drag.edge !== null
   const { setVideo: setPreviewVideo, canvas: previewCanvas } = useFramePreview(drag)
 
@@ -189,6 +204,14 @@ export function Timeline({
 
   const span = view.end - view.start
   const toFraction = (t: number) => Math.min(Math.max((t - view.start) / span, 0), 1)
+
+  /** Une frappe de flèche : depuis la borne courante, pas depuis celle du rendu. */
+  const stepBoundary = (edge: 'start' | 'end', step: number) => {
+    const courantes = boundsRef.current
+    if (courantes === null) return
+    const depuis = edge === 'start' ? courantes.start : courantes.end
+    onBoundary(clampEdge(clampToSource(depuis + step, limit), edge), edge)
+  }
   const inTime = drag !== null && drag.edge === 'start' ? drag.time : bounds.start
   const outTime = drag !== null && drag.edge === 'end' ? drag.time : bounds.end
   const ghost = drag !== null && drag.edge === null ? drag.time : null
@@ -266,9 +289,7 @@ export function Timeline({
           left={toFraction(inTime)}
           active={drag?.edge === 'start'}
           onGrab={(clientX) => moveTo(clientX, 'start')}
-          onStep={(step) =>
-            onBoundary(clampEdge(clampToSource(bounds.start + step, limit), 'start'), 'start')
-          }
+          onStep={(step) => stepBoundary('start', step)}
           min={view.start}
           max={view.end}
         />
@@ -278,9 +299,7 @@ export function Timeline({
           left={toFraction(outTime)}
           active={drag?.edge === 'end'}
           onGrab={(clientX) => moveTo(clientX, 'end')}
-          onStep={(step) =>
-            onBoundary(clampEdge(clampToSource(bounds.end + step, limit), 'end'), 'end')
-          }
+          onStep={(step) => stepBoundary('end', step)}
           min={view.start}
           max={view.end}
         />
@@ -554,12 +573,20 @@ function useFramePreview(drag: Drag | null) {
 
   // Le geste fini, la file se vide : une recherche restée en attente ferait
   // repartir le décodeur pour une image que plus personne ne regarde.
+  //
+  // **Et au changement d'élément aussi.** Un `seeked` qui n'arrive jamais —
+  // l'élément remplacé sous une recherche en vol — laisserait `inFlight` levé,
+  // donc plus aucune vignette jusqu'au geste suivant. (relevé par Aristarque)
   useEffect(() => {
     if (drag === null) {
       queued.current = null
       inFlight.current = false
     }
   }, [drag])
+  useEffect(() => {
+    queued.current = null
+    inFlight.current = false
+  }, [monte])
 
   return { setVideo, canvas }
 }

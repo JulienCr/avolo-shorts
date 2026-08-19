@@ -29,6 +29,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import * as ts from "typescript";
 import { ROOT } from "./project.mts";
+import { loadSymbolEntries, buildResolver, type NameResolution } from "./proof-inverse-tree.mts";
 
 const BASE_REF = process.argv[2] ?? "origin/main";
 
@@ -194,7 +195,8 @@ function buildBasenameMap(renamedFiles: RenamedFile[]): Map<string, Set<string>>
 function isPureSubstitution(
   beforeRaw: string,
   afterRaw: string,
-  idTable: Map<string, string>,
+  file: string,
+  resolve: (oldName: string, currentFileRel: string) => NameResolution,
   basenameMap: Map<string, Set<string>>
 ): boolean {
   const before = beforeRaw.normalize("NFC");
@@ -202,13 +204,27 @@ function isPureSubstitution(
   if (before === after) return true;
   // Tokenise les deux chaînes sur la même grille (mots vs séparateurs), et
   // vérifie que chaque désaccord est couvert par l'une des deux tables.
-  const tokenize = (s: string) => s.split(/([A-Za-z_$][A-Za-z0-9_$]*)/g);
+  // `\p{L}`/`\p{N}`, pas `A-Za-z0-9` : un vieux nom accentué (`créerProjet`)
+  // ne tokenise pas comme un seul mot sous une classe ASCII — le `é` casse le
+  // token en deux, les tableaux avant/après n'ont plus la même longueur, et
+  // une substitution pourtant exacte échoue à tort. Repéré en substituant en
+  // masse les anciens noms dans les commentaires (issue #73, tour suivant) :
+  // resté invisible tant que les substitutions de commentaires connues
+  // d'avance ne portaient pas d'accent dans leur ancien nom.
+  const tokenize = (s: string) => s.split(/([\p{L}_$][\p{L}\p{N}_$]*)/gu);
   const a = tokenize(before);
   const b = tokenize(after);
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     if (a[i] === b[i]) continue;
-    if (idTable.get(a[i]) === b[i]) continue;
+    // Résolu par fichier, pas par une table plate : la table n'est pas une
+    // bijection depuis sa réparation (issue #73, tour suivant) — un même
+    // old_name a parfois plusieurs new_name selon la déclaration
+    // (`chemin` → `path`/`filePath`/`thumbPath`/...). Un idTable naïf
+    // (une seule valeur par clé) rejetait à tort une substitution pourtant
+    // exacte dès qu'elle touchait un old_name ambigu résolu ici par
+    // fichier.
+    if (resolve(a[i], file).resolved === b[i]) continue;
     if (basenameMap.get(a[i])?.has(b[i]) === true) continue;
     return false;
   }
@@ -236,6 +252,7 @@ function main() {
   const renamedFiles = loadTsv("renames-files.tsv");
   const renamedFolders = loadTsv("renames-folders.tsv");
   const idTable = loadIdentifierTable();
+  const resolve = buildResolver(loadSymbolEntries(), renamedFiles, renamedFolders);
   const basenameMap = buildBasenameMap(renamedFiles);
 
   const exceptions: Exception[] = [];
@@ -283,7 +300,7 @@ function main() {
         exceptions.push({ file, kind: "type-index", before: b, after: a });
         continue;
       }
-      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, idTable, basenameMap)) {
+      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap)) {
         exceptions.push({ file, kind: "module-specifier", before: b, after: a });
         continue;
       }
@@ -301,7 +318,7 @@ function main() {
       const b = beforeExtracted.comments[i];
       const a = afterExtracted.comments[i];
       if (nfc(b) === nfc(a)) continue;
-      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, idTable, basenameMap)) {
+      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap)) {
         exceptions.push({ file, kind: "comment-substitution", before: b, after: a });
         continue;
       }

@@ -29,7 +29,6 @@ function loadOldNames(): Set<string> {
 
 function extractComments(filePath: string, content: string): string[] {
   const ext = path.extname(filePath);
-  const kind: ts.ScriptKind = ext === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const variant = ext === ".tsx" ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard;
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, variant, content);
   const comments: string[] = [];
@@ -57,9 +56,9 @@ function main() {
   const files = listProjectFiles();
 
   let rawCommentsWithHit = 0;
-  let rawFilesWithHit = new Set<string>();
+  const rawFilesWithHit = new Set<string>();
   let compoundCommentsWithHit = 0;
-  let compoundFilesWithHit = new Set<string>();
+  const compoundFilesWithHit = new Set<string>();
   const compoundExamples: string[] = [];
 
   for (const file of files) {

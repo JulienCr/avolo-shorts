@@ -51,8 +51,19 @@ function loadOldNames(): Set<string> {
   const lines = fs.readFileSync(p, "utf8").split("\n").slice(1).filter(Boolean);
   const set = new Set<string>();
   for (const line of lines) {
-    const [oldName] = line.split("\t");
-    set.add(oldName.normalize("NFC"));
+    const [oldName, newName] = line.split("\t");
+    // old_name === new_name : un mot cognat («video», «schema»...) ou une
+    // entrée réparée dont le nom réellement appliqué s'est trouvé être
+    // identique à l'ancien (planSteps → planSteps, après réparation contre
+    // le code — voir repair-tables-from-applied.mts). Rien n'a jamais
+    // changé pour cette entrée : elle ne peut pas « traîner » dans une
+    // chaîne, puisqu'il n'y a rien à distinguer de l'actuel. La compter
+    // comme old_name ferait tort à `describe('planSteps', ...)`, qui
+    // recopie le nom **actuel**, pas un ancien.
+    const on = oldName.normalize("NFC");
+    const nn = newName.normalize("NFC");
+    if (on === nn) continue;
+    set.add(on);
   }
   return set;
 }

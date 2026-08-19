@@ -43,9 +43,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
 import { ROOT, listProjectFiles } from "./project.mts";
-import { loadSymbolEntries, toCurrentPath, loadPairTsv, type SymbolEntry } from "./proof-inverse-tree.mts";
+import { loadSymbolEntries, loadPairTsv, buildResolver, type NameResolution } from "./proof-inverse-tree.mts";
 
-const WHOLE_TOKEN_RE = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
 function isCompoundShaped(token: string): boolean {
   return /[a-z][A-Z]/.test(token) || /[A-Z]{2,}/.test(token) || token.includes("_") || token.includes("$");
 }
@@ -78,41 +77,8 @@ function isSymbolShaped(token: TokenMatch, fullText: string): boolean {
   return false;
 }
 
-interface Resolution {
-  resolved: string | null;
-  reason: string;
-}
-
-function buildResolver(entries: SymbolEntry[], fileRenames: Array<{ from: string; to: string }>, folderRenames: Array<{ from: string; to: string }>) {
-  const globalCandidates = new Map<string, Set<string>>();
-  for (const e of entries) {
-    const set = globalCandidates.get(e.oldName) ?? new Set<string>();
-    set.add(e.newName);
-    globalCandidates.set(e.oldName, set);
-  }
-  // Pour chaque (oldName, currentFile) : les newName déclarés dans ce fichier.
-  const byOldNameAndFile = new Map<string, Map<string, Set<string>>>();
-  for (const e of entries) {
-    const currentFile = toCurrentPath(e.file, fileRenames, folderRenames);
-    const byFile = byOldNameAndFile.get(e.oldName) ?? new Map<string, Set<string>>();
-    byOldNameAndFile.set(e.oldName, byFile);
-    const set = byFile.get(currentFile) ?? new Set<string>();
-    set.add(e.newName);
-    byFile.set(currentFile, set);
-  }
-
-  return function resolve(oldName: string, currentFileRel: string): Resolution {
-    const globals = globalCandidates.get(oldName);
-    if (!globals) return { resolved: null, reason: "absent de la table" };
-    if (globals.size === 1) return { resolved: [...globals][0], reason: "non ambigu" };
-    const localSet = byOldNameAndFile.get(oldName)?.get(currentFileRel);
-    if (localSet && localSet.size === 1) return { resolved: [...localSet][0], reason: "résolu par fichier" };
-    return {
-      resolved: null,
-      reason: localSet && localSet.size > 1 ? `fichier lui-même ambigu [${[...localSet].join(", ")}]` : `aucune déclaration locale, candidats globaux [${[...globals].join(", ")}]`,
-    };
-  };
-}
+// buildResolver, NameResolution : voir proof-inverse-tree.mts — partagé avec
+// la vérification de la preuve A, pour que substitution et vérification s'accordent.
 
 interface EditSpan {
   start: number; // absolu dans le fichier
@@ -143,7 +109,7 @@ interface FileResult {
 function processFile(
   absPath: string,
   relPath: string,
-  resolve: (oldName: string, file: string) => Resolution
+  resolve: (oldName: string, file: string) => NameResolution
 ): FileResult {
   const content = fs.readFileSync(absPath, "utf8");
   const ext = path.extname(relPath);
@@ -161,13 +127,19 @@ function processFile(
       if (!isSymbolShaped(tok, segText)) continue;
       const { resolved, reason } = resolve(tok.text, relPath);
       if (resolved === null) {
-        const key = `${tok.text}|${reason}`;
-        if (!skippedSeen.has(key)) {
-          skippedSeen.add(key);
-          skipped.push({ oldName: tok.text, reason, context: segText.slice(Math.max(0, tok.start - 20), tok.end + 20) });
+        // « absent de la table » : ce n'est même pas un ancien identifiant
+        // (une simple ressemblance de forme — un sigle, un mot anglais en
+        // PascalCase…) — pas un cas à lister, juste du bruit si on le fait.
+        if (reason !== "absent de la table") {
+          const key = `${tok.text}|${reason}`;
+          if (!skippedSeen.has(key)) {
+            skippedSeen.add(key);
+            skipped.push({ oldName: tok.text, reason, context: segText.slice(Math.max(0, tok.start - 20), tok.end + 20) });
+          }
         }
         continue;
       }
+      if (resolved === tok.text) continue; // cognate (video, schema...) : déjà le bon texte, rien à faire
       spans.push({ start: segStart + tok.start, end: segStart + tok.end, newText: resolved });
     }
   }
@@ -209,6 +181,23 @@ function processFile(
   return { file: relPath, edits: spans.length, skipped };
 }
 
+/**
+ * Un piège rencontré en écrivant ce script, gardé en commentaire pour ne
+ * pas le refaire : 8 mots de la table sont à la fois un `old_name` et un
+ * `new_name` (`shots`, `force`, `plan`, `resume`…) — un ancien nom traduit
+ * *devient* le texte qu'un autre ancien nom cherche à traduire ailleurs.
+ * Relancer ce script plusieurs fois sur le même arbre (fait en mettant ce
+ * script au point) enchaîne alors les deux substitutions : une occurrence
+ * de `plans()` devient correctement `shots()`, puis, sur un lancement
+ * suivant, ce `shots()` fraîchement écrit se fait retraduire en
+ * `framedShots()` — le nom que `shots` prend *ailleurs*, dans
+ * `src/core/framing.ts`, sans le moindre rapport avec ce commentaire-ci.
+ * Trouvé par la preuve A, pas par ce script : elle seule sait comparer au
+ * texte d'origine, quand ce script ne regarde jamais que l'état courant.
+ * La leçon : lancer ce script vers un état stable, jamais en boucle
+ * jusqu'à ce qu'il ne trouve plus rien — et faire de la preuve A, toujours,
+ * le dernier mot.
+ */
 function main() {
   const write = process.argv.includes("--write");
   const entries = loadSymbolEntries();

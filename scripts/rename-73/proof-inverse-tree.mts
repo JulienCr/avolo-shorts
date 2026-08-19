@@ -177,6 +177,70 @@ function toOriginalPath(currentPath: string, fileRenames: Array<{ from: string; 
   return currentPath;
 }
 
+export interface NameResolution {
+  resolved: string | null;
+  reason: string;
+}
+
+/**
+ * Résout un ancien nom en son nouveau nom **dans un fichier donné** — le
+ * seul recours quand une table n'est pas une bijection (`chemin` → `path`,
+ * mais aussi `filePath`/`thumbPath`/`resultPath`/`fingerprintPath` selon la
+ * déclaration) et que le point d'usage — un commentaire, un titre de test —
+ * n'a pas de portée lexicale : impossible de demander au service de langage
+ * quelle déclaration il désigne.
+ *
+ *   1. Un seul `newName` dans toute la table pour cet `oldName` : aucune
+ *      ambiguïté, valable dans n'importe quel fichier.
+ *   2. Sinon, si CE fichier contient exactement une déclaration de cet
+ *      `oldName` (`renames-identifiers.json`, champ `file`, ramené au
+ *      chemin actuel) : son `newName` s'applique — résolu par fichier.
+ *   3. Sinon (zéro ou plusieurs candidats locaux) : non résolu. Mieux vaut
+ *      un cas non résolu qu'un cas deviné.
+ *
+ * Partagé par `fix-dangling-comments.mts` (qui substitue) et
+ * `proof-a-strings-and-comments.mts` (qui vérifie une substitution déjà
+ * faite) — les deux doivent s'accorder sur la même règle, sous peine que la
+ * preuve rejette une substitution que l'outil vient pourtant de faire
+ * correctement.
+ */
+export function buildResolver(
+  entries: SymbolEntry[],
+  fileRenames: Array<{ from: string; to: string }>,
+  folderRenames: Array<{ from: string; to: string }>
+): (oldName: string, currentFileRel: string) => NameResolution {
+  const globalCandidates = new Map<string, Set<string>>();
+  for (const e of entries) {
+    const set = globalCandidates.get(e.oldName) ?? new Set<string>();
+    set.add(e.newName);
+    globalCandidates.set(e.oldName, set);
+  }
+  const byOldNameAndFile = new Map<string, Map<string, Set<string>>>();
+  for (const e of entries) {
+    const currentFile = toCurrentPath(e.file, fileRenames, folderRenames);
+    const byFile = byOldNameAndFile.get(e.oldName) ?? new Map<string, Set<string>>();
+    byOldNameAndFile.set(e.oldName, byFile);
+    const set = byFile.get(currentFile) ?? new Set<string>();
+    set.add(e.newName);
+    byFile.set(currentFile, set);
+  }
+
+  return function resolve(oldName: string, currentFileRel: string): NameResolution {
+    const globals = globalCandidates.get(oldName);
+    if (!globals) return { resolved: null, reason: "absent de la table" };
+    if (globals.size === 1) return { resolved: [...globals][0], reason: "non ambigu" };
+    const localSet = byOldNameAndFile.get(oldName)?.get(currentFileRel);
+    if (localSet && localSet.size === 1) return { resolved: [...localSet][0], reason: "résolu par fichier" };
+    return {
+      resolved: null,
+      reason:
+        localSet && localSet.size > 1
+          ? `fichier lui-même ambigu [${[...localSet].join(", ")}]`
+          : `aucune déclaration locale, candidats globaux [${[...globals].join(", ")}]`,
+    };
+  };
+}
+
 /** Un identifiant TypeScript complet — lettres Unicode, chiffres, `_`, `$`. */
 export function wordBoundaryRegex(word: string): RegExp {
   const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -2,6 +2,7 @@ old_name	new_name	occurrences	first_seen
 _cas	_case	1	tests/components/clip/textes.test.ts:52
 _codage	_encoding	1	src/server/steps/ingest.ts:221
 _données	_data	1	src/lib/queries.ts:379
+_erreur	_error	4	src/lib/queries.ts:304
 _nom	_name	11	tests/core/ffmpeg-args.test.ts:392
 _plan	_shot	2	src/lib/queries.ts:500
 _requête	_request	4	src/app/api/clips/[id]/route.ts:71
@@ -18,11 +19,13 @@ accord	agreement	1	src/components/tri/modele.ts:185
 accrocherArrêt	hookShutdown	2	src/instrumentation.ts:35
 àCôté	toSide	1	tests/server/render.test.ts:410
 acquis	acquired	1	src/components/tri/avancement.tsx:336
+actif	active	3	src/components/tri/avancement.tsx:332
 actionPourTouche	actionForKey	1	src/components/tri/raccourcis.ts:106
 actionsMuettes	actionsMute	1	tests/components/tri/raccourcis.test.tsx:104
 ActionsRaccourcis	ActionsShortcuts	1	src/components/clip/raccourcis.tsx:87
 ActionsTri	ActionsReview	1	src/components/tri/raccourcis.ts:85
 ACTIVABLES	ACTIVATABLE	1	src/components/clip/raccourcis.tsx:29
+actuel	current	1	src/lib/enregistrement.ts:282
 admises	admitted	1	src/server/db.ts:755
 àDroite	toRight	1	tests/core/framing.test.ts:611
 àÉcrire	toWrite	1	src/components/clip/champs-textes.tsx:184
@@ -33,7 +36,9 @@ aide	help	6	src/components/clip/ecran-clip.tsx:100
 AideClavier	HelpKeyboard	1	src/components/tri/fil.tsx:640
 àJour	toDay	9	src/app/api/clips/[id]/route.ts:261
 àJourOuInchangés	toDayOrUnchanged	1	src/server/db.ts:964
+ajouter	add	2	src/server/ffmpeg.ts:101
 àLenvers	toReversed	1	tests/core/framing.test.ts:550
+alerte	alert	2	tests/components/clip/panneau-export.test.tsx:286
 allerÀ	goTo	1	src/components/tri/ecran-projet.tsx:305
 allerÀLaVue	goToView	1	src/components/tri/ecran-projet.tsx:45
 allerAuMot	goWord	1	src/components/clip/transcript-surface.tsx:224
@@ -57,6 +62,7 @@ annuler	cancel	4	src/components/clip/raccourcis.tsx:90
 anormale	abnormal	1	tests/server/candidates.test.ts:83
 aperçu	preview	1	src/server/vues.ts:170
 ApercuSortie	PreviewOutput	1	src/components/clip/apercu-sortie.tsx:75
+appartient	belongs	1	src/components/tri/modele.ts:61
 appel	call	29	src/server/steps/candidates.ts:523
 Appel	Call	1	tests/lib/enregistrement-auto.test.tsx:66
 appelerGemini	callGemini	1	src/server/steps/candidates.ts:522
@@ -106,14 +112,16 @@ AvancementCopie	ProgressCopy	1	src/server/steps/ingest.ts:655
 avancementDuMontage	editingProgress	1	src/components/tri/fin-de-boucle.tsx:102
 AvancementRendu	ProgressRender	1	src/server/steps/render.ts:60
 avancementWorker	progressWorker	1	src/core/pipeline.ts:72
+avancer	advance	2	src/server/run.ts:855
 avant	before	19	scripts/dev-commun.ts:35
 avantLeDébut	beforeStart	2	tests/server/analysis.test.ts:81
 avec	with	3	tests/core/framing.test.ts:866
 avecEspace	withEspace	1	tests/server/sources.test.ts:58
-avecEspaces	withEspaces	1	tests/server/vignettes-sources.test.ts:663
+avecEspaces	withSpaces	1	tests/server/vignettes-sources.test.ts:663
 avecFiltre	withFilter	2	scripts/mesure-premier-plan.ts:236
 avecTrou	withGap	1	tests/core/transcript.test.ts:503
 avertissements	warnings	1	tests/server/render.test.ts:693
+balayage	sweep	1	scripts/mesure-ratios.ts:625
 BandeAvancement	StripProgress	1	src/components/tri/avancement.tsx:232
 barre	bar	4	scripts/dev-render.ts:54
 barreAudio	barAudio	1	scripts/dev-ingest.ts:72
@@ -189,7 +197,7 @@ causeDe	cause	1	src/server/sources.ts:191
 CauseIndisponible	CauseUnavailable	1	src/lib/api.ts:350
 caviarder	redact	1	src/server/steps/candidates.ts:504
 caviarderClés	redactKeys	1	src/core/erreurs.ts:170
-caviarderRéférencesConnues	redactReferencesConnues	1	src/server/erreurs.ts:116
+caviarderRéférencesConnues	redactReferencesKnown	1	src/server/erreurs.ts:116
 centième	hundredth	1	tests/server/analysis.test.ts:185
 centiemes	hundredths	1	src/core/captions/ass.ts:145
 centis	hundredths	1	src/core/captions/ass.ts:157
@@ -206,6 +214,7 @@ changementDÉtape	changeDStep	1	src/server/run.ts:585
 chaque2s	each2S	1	tests/core/transcript.test.ts:494
 charge	load	1	tests/server/analysis.test.ts:391
 chargeFichier	loadFile	1	tests/server/analysis.test.ts:402
+Chargement	Loading	1	src/app/projects/[id]/page.tsx:27
 charges	loaded	4	tests/server/candidates.test.ts:1314
 chemin	path	58	src/app/api/projects/[id]/proxy/route.ts:50
 chemins	paths	41	src/app/api/clips/[id]/route.ts:199
@@ -219,6 +228,7 @@ cheminVariante	pathVariant	1	src/server/steps/render.ts:160
 chercher	find	3	src/components/clip/raccourcis.tsx:95
 chercherSidecar	findSidecar	1	src/server/run.ts:290
 chevauchement	overlap	1	tests/server/analysis.test.ts:121
+chiffres	digits	1	src/core/captions/ass.ts:102
 choisi	chosen	1	src/components/clip/crop-picker.tsx:316
 choisie	chosen	2	src/components/tri/ecran-projet.tsx:305
 choisirEncodeur	chooseEncoder	1	src/server/ffmpeg.ts:181
@@ -245,7 +255,7 @@ clipDepuisLigne	clipSinceLine	1	src/server/db.ts:774
 clipsChevauchés	clipsOverlapping	1	src/lib/queries.ts:175
 clipSuivant	clipNext	1	src/lib/parcours.ts:212
 collé	stuck	1	tests/core/framing.test.ts:573
-collecterMarques	collecterMarkers	1	src/server/steps/render.ts:999
+collecterMarques	collectMarkers	1	src/server/steps/render.ts:999
 collées	attached	1	scripts/mesure-premier-plan.ts:97
 collés	attached	1	tests/server/analysis.test.ts:198
 CollisionDeProjetError	ProjectErrorCollision	1	src/server/run.ts:125
@@ -256,8 +266,10 @@ combinaisons	combinations	1	tests/lib/parcours.test.ts:66
 comédienDebout	performerStanding	1	tests/core/framing.test.ts:782
 comédienLointain	performerDistant	1	tests/core/framing.test.ts:784
 comédiens	performers	1	tests/core/framing.test.ts:857
-commandeLisible	commandeReadable	1	src/server/steps/analysis.ts:550
+commande	command	3	src/components/clip/raccourcis.tsx:114
+commandeLisible	commandReadable	1	src/server/steps/analysis.ts:550
 commun	common	4	src/server/run.ts:1028
+comparaison	comparison	1	scripts/mesure-ratios.ts:579
 complet	complete	4	src/server/run.ts:497
 complètes	complete	1	src/server/ffmpeg.ts:410
 compte	count	15	scripts/mesure-premier-plan.ts:143
@@ -267,12 +279,17 @@ compteur	counter	1	src/server/steps/ingest.ts:220
 condensatDesPolices	fontsDigest	1	src/server/steps/render.ts:502
 condensatDuLook	lookDigest	1	src/server/steps/render.ts:468
 confié	delegated	1	src/server/octets.ts:238
+conflit	conflict	1	src/components/tri/relance.tsx:269
 construireLeRendu	buildRender	1	src/core/ffmpeg/args.ts:487
+conteneur	container	1	src/components/clip/transcript-surface.tsx:79
 contenu	content	13	scripts/dev-transcribe.ts:127
 CONTENU	CONTENT	1	tests/server/proxy.test.ts:54
 contenuDuFichier	fileContent	1	src/server/steps/render.ts:456
-ContexteDétail	ContexteDetail	1	src/server/steps/candidates.ts:1440
-contexteRendu	contexteRender	1	tests/server/api.test.ts:61
+contexte	context	16	src/app/api/clips/[id]/export/route.ts:36
+CONTEXTE_S	CONTEXT_S	1	src/server/vues.ts:266
+ContexteDétail	ContextDetail	1	src/server/steps/candidates.ts:1440
+ContexteNotation	ContextNotation	1	src/server/steps/candidates.ts:1138
+contexteRendu	contextRender	1	tests/server/api.test.ts:61
 contient	contains	1	src/server/sources.ts:269
 contigus	contiguous	1	tests/core/transcript.test.ts:479
 contour	outline	1	src/core/captions/ass.ts:243
@@ -292,6 +309,7 @@ CorrectionRefusal	CorrectionRejection	1	src/lib/editing.ts:311
 couleur	color	5	scripts/vignettes-cadrage.ts:90
 couleurDeStyle	styleColor	1	src/core/captions/ass.ts:117
 couleurEnLigne	colorInLine	1	src/core/captions/ass.ts:130
+COULEURS	COLORS	1	scripts/vignettes-premier-plan.ts:93
 coupé	cut	1	tests/lib/enregistrement.test.ts:40
 coupes	cuts	2	src/components/clip/clip-player.tsx:123
 courant	current	10	src/components/tri/fil.tsx:159
@@ -334,6 +352,7 @@ découvert	discovered	1	src/core/framing.ts:1178
 décrites	described	1	tests/core/parcours.test.ts:182
 décritLeClip	describedClip	2	src/server/steps/render.ts:778
 dedans	inside	7	scripts/mesure-ratios.ts:361
+defaire	undo	2	src/components/tri/fil.tsx:211
 défaut	default	7	scripts/mesure-ratios.ts:641
 defilement	scroll	3	src/components/tri/fil.tsx:588
 defiler	scroll	2	tests/components/tri/fil.test.tsx:451
@@ -391,7 +410,7 @@ détailleur	detailer	1	tests/server/candidates.test.ts:1312
 détails	details	1	tests/server/candidates.test.ts:1367
 deux	two	5	tests/components/clip/apercu-sortie.test.tsx:183
 DEUX	TWO	1	tests/components/clip/framing.test.ts:30
-deuxChiffres	twoChiffres	1	src/core/captions/ass.ts:107
+deuxChiffres	twoDigits	1	src/core/captions/ass.ts:107
 DialogueRaccourcis	DialogueShortcuts	1	src/components/clip/raccourcis.tsx:187
 dièses	hashes	3	src/components/clip/panneau-export.tsx:512
 differee	deferred	1	tests/components/sources/library-screen.test.tsx:215
@@ -414,7 +433,8 @@ dossiersLib	foldersLib	2	src/server/steps/transcript.ts:66
 dossierVideToléré	folderEmptyTolerated	1	src/server/steps/render.ts:649
 dossierVignettesSources	folderVignettesSources	1	src/server/vignettes-sources.ts:59
 douze	twelve	1	tests/core/gemini.test.ts:264
-drapeauxAvecValeur	drapeauxWithValue	1	scripts/vignettes-cadrage.ts:265
+drapeau	flag	2	scripts/vignettes-cadrage.ts:259
+drapeauxAvecValeur	flagsWithValue	1	scripts/vignettes-cadrage.ts:265
 droite	right	3	src/server/steps/candidates.ts:1733
 DU_PLUS_ÉTROIT_AU_PLUS_LARGE	MORE_NARROW_MORE_WIDE	3	scripts/mesure-premier-plan.ts:69
 duree	duration	6	src/components/clip/ecran-clip.tsx:139
@@ -480,8 +500,11 @@ effet	effect	3	src/components/clip/raccourcis.tsx:173
 émission	show	8	scripts/mesure-ratios.ts:537
 Émission	Show	1	scripts/mesure-ratios.ts:502
 émissions	shows	2	scripts/mesure-ratios.ts:579
-empanFiltré	empanFilter	1	scripts/vignettes-premier-plan.ts:141
-empansDe	empans	1	scripts/mesure-ratios.ts:414
+empan	span	9	scripts/mesure-ratios.ts:1026
+Empan	Span	1	src/core/framing.ts:678
+empanFiltré	spanFilter	1	scripts/vignettes-premier-plan.ts:141
+empans	spans	6	scripts/mesure-premier-plan.ts:179
+empansDe	spans	1	scripts/mesure-ratios.ts:414
 empêché	prevented	1	tests/components/clip/raccourcis.test.tsx:106
 empêchement	prevention	1	src/components/clip/panneau-export.tsx:133
 empiler	stack	1	src/components/tri/fil.tsx:199
@@ -497,6 +520,7 @@ empreinteSource	fingerprintSource	1	src/server/steps/ingest.ts:53
 enAttente	inWait	1	src/lib/enregistrement.ts:231
 enchainer	chain	1	tests/lib/enregistrement-auto.test.tsx:94
 enchaîner	chain	1	src/core/ffmpeg/args.ts:363
+encodages	encodings	1	tests/server/empreinte.test.ts:42
 encodeur	encoder	2	src/server/steps/render.ts:1359
 encodeurProxy	encoderProxy	1	src/server/steps/proxy.ts:45
 enCours	inCurrent	17	src/components/tri/relance.tsx:49
@@ -540,9 +564,13 @@ epaisseur	thickness	1	src/core/captions/ass.ts:239
 épurerChemins	cleanPaths	1	src/core/erreurs.ts:194
 épurerMandataire	cleanProxy	1	src/server/steps/transcript.ts:192
 épurerRéférenceNue	cleanReferenceBare	1	src/core/erreurs.ts:147
-erreursDePureté	purityErreurs	1	tests/core/purete.test.ts:38
+erreur	error	50	scripts/dev-ingest.ts:100
+ErreurHttp	ErrorHttp	1	src/server/http.ts:27
+erreurs	errors	3	tests/core/etapes.test.ts:42
+erreursDePureté	purityErrors	1	tests/core/purete.test.ts:38
 espion	spy	7	tests/components/tri/fil.test.tsx:196
 essais	attempts	12	tests/server/candidates.test.ts:186
+estAbsolu	estAbsolute	1	src/core/erreurs.ts:31
 estCible	estTarget	1	scripts/dev-run.ts:22
 estEcarte	estDiscarded	1	src/core/parcours.ts:33
 estGarde	estGuard	1	src/core/parcours.ts:29
@@ -605,6 +633,7 @@ extraireAvecFfmpeg	extractWithFfmpeg	1	src/server/vignettes-sources.ts:474
 extraireOk	extractOk	1	tests/server/vignettes-sources.test.ts:61
 factices	fake	1	tests/server/run.test.ts:724
 fait	done	3	src/core/pipeline.ts:75
+faites	made	2	tests/components/tri/avancement.test.tsx:22
 faux	false	6	tests/components/sources/library-screen.test.tsx:84
 fenêtre	window	3	src/core/gemini/parse.ts:200
 fenêtres	windows	10	scripts/mesure-premier-plan.ts:258
@@ -622,6 +651,7 @@ finDAnalyse	finDAnalysis	1	src/components/sources/announce.ts:67
 finDe	fin	1	tests/server/ffmpeg.test.ts:319
 FinDeBoucle	BoucleFin	1	src/components/tri/fin-de-boucle.tsx:31
 fini	done	2	scripts/dev-commun.ts:124
+finir	finish	1	src/server/ffmpeg.ts:399
 FINS_SANS_REFUS	ENDS_WITHOUT_REJECTION	1	src/server/steps/candidates.ts:201
 fixe	fixed	1	tests/core/framing.test.ts:372
 FLECHES	ARROWS	1	src/components/clip/raccourcis.tsx:32
@@ -676,7 +706,9 @@ HAUT_DE_BANDE	STRIP_TOP	1	src/server/steps/render.ts:839
 hautDeBande	stripTop	1	src/server/steps/render.ts:962
 hérité	inherited	1	src/server/steps/transcript.ts:102
 hésite	hesitates	1	scripts/vignettes-premier-plan.ts:290
+heures	hours	1	src/core/captions/ass.ts:158
 HEX_COULEUR	HEX_COLOR	1	src/core/captions/ass.ts:87
+histogramme	histogram	1	scripts/mesure-premier-plan.ts:137
 historique	history	5	src/store/editor.ts:48
 hôte	host	2	tests/components/tri/raccourcis.test.tsx:23
 humains	humans	1	src/core/candidates.ts:55
@@ -686,6 +718,7 @@ iAnalyse	iAnalysis	1	scripts/mesure-premier-plan.ts:272
 ici	here	1	src/lib/parcours.ts:129
 icone	icon	1	src/components/sources/ligne-montage.tsx:38
 identifiant	identifier	1	src/components/clip/champs-textes.tsx:52
+Identiques	Identical	1	tests/server/contrat.test.ts:28
 identités	identities	1	src/components/tri/fil.tsx:525
 identitésDeMarques	markersIdentities	1	src/server/steps/render.ts:527
 idsPourVue	idsForView	1	src/components/tri/modele.ts:77
@@ -694,6 +727,8 @@ iInstants	iMoments	1	scripts/mesure-ratios.ts:1089
 illisible	unreadable	1	tests/server/api.test.ts:1451
 imageSuivante	imageNext	1	tests/components/clip/transcript-surface.test.tsx:76
 imbriques	nested	1	tests/core/transcript.test.ts:544
+inconnue	unknown	2	tests/core/parcours.test.ts:101
+inconnues	unknown	1	scripts/dev-run.ts:42
 incrusté	burnedIn	2	tests/server/render.test.ts:514
 incrustées	burnedIn	1	src/server/steps/render.ts:654
 incrustés	burnedIn	2	src/server/steps/render.ts:541
@@ -729,7 +764,7 @@ journaliser	log	2	src/server/steps/analysis.ts:592
 journaliserBilan	logSummary	1	src/server/steps/candidates.ts:1281
 jusquÀLaFenêtreSeule	untilToWindowOnly	1	src/server/steps/candidates.ts:1260
 juste	just	1	tests/worker/detect.test.ts:357
-laisserFinir	leaveFinir	1	tests/server/api.test.ts:98
+laisserFinir	leaveFinish	1	tests/server/api.test.ts:98
 lancement	launch	1	src/app/api/projects/[id]/run/route.ts:75
 lancer	launch	3	src/components/clip/panneau-export.tsx:144
 lancerRoute	launchRoute	1	tests/server/api.test.ts:1248
@@ -789,7 +824,7 @@ lisible	readable	2	src/server/vignettes-sources.ts:134
 lisibles	readable	1	src/core/gemini/parse.ts:311
 liste	list	14	scripts/vignettes-premier-plan.ts:167
 ListeDesSorties	OutputsList	1	src/components/clip/panneau-export.tsx:402
-listeInconnue	listInconnue	1	src/components/tri/ecran-projet.tsx:82
+listeInconnue	listUnknown	1	src/components/tri/ecran-projet.tsx:82
 listerProjets	listProjects	1	tests/server/api.test.ts:13
 listerSources	listSources	2	src/server/sources.ts:301
 listes	lists	1	tests/lib/parcours.test.ts:79
@@ -804,6 +839,7 @@ LOT_NOTATION_PAR_DÉFAUT	BATCH_NOTATION_BY_DEFAULT	1	src/server/steps/candidates
 lots	batches	13	src/components/tri/modele.ts:159
 lotsRefusés	batchesRejected	1	src/server/steps/candidates.ts:805
 lotsRépondus	batchesResponded	1	src/server/steps/candidates.ts:807
+lus	read	2	src/server/db.ts:863
 maintenant	now	2	src/lib/queries.ts:198
 MANDATAIRES	PROXIES	1	src/server/steps/transcript.ts:177
 marge	margin	9	scripts/mesure-ratios.ts:632
@@ -831,6 +867,7 @@ mauvaise	bad	2	tests/core/ffmpeg-args.test.ts:534
 MAX_CHARS_DEFAUT	MAX_CHARS_DEFAULT	1	src/core/captions/cards.ts:16
 MAX_DURATION_DEFAUT	MAX_DURATION_DEFAULT	1	src/core/captions/cards.ts:19
 médiane	median	5	scripts/mesure-premier-plan.ts:77
+meilleur	best	2	src/core/framing.ts:926
 mêmesSegments	sameSegments	2	src/lib/enregistrement.ts:39
 mêmeUnion	sameUnion	1	tests/server/contrat.test.ts:37
 mémoire	memory	3	src/components/tri/session.ts:92
@@ -854,6 +891,8 @@ MODAUX	MODALS	1	src/components/clip/raccourcis.tsx:42
 modèle	template	3	src/server/steps/analysis.ts:434
 modèleDétection	templateDetection	1	src/server/steps/analysis.ts:299
 modif	change	2	src/components/clip/ecran-clip.tsx:300
+mois	month	1	src/core/pipeline.ts:39
+MOIS	MONTH	1	src/core/pipeline.ts:6
 moitié	half	1	src/server/steps/candidates.ts:1386
 montage	editing	7	src/components/sources/ligne-montage.tsx:32
 MONTAGE_ATTENDU	EDITING_EXPECTED	1	src/components/sources/ligne-montage.tsx:74
@@ -877,7 +916,7 @@ mot	word	24	src/components/clip/geste-mot.ts:37
 Mot	Word	1	src/components/clip/transcript-surface.tsx:436
 mot0	word0	2	tests/components/show/transcript-panel.test.tsx:410
 motÀ	wordTo	1	src/components/clip/lecture.ts:41
-motActif	wordActif	2	src/components/clip/lecture.ts:62
+motActif	wordActive	2	src/components/clip/lecture.ts:62
 motAuDécalage	wordOffset	1	src/components/clip/recherche.ts:40
 motDuRepérage	detectionWord	1	src/components/tri/modele.ts:120
 MotDuRepérage	DetectionWord	1	src/components/tri/modele.ts:109
@@ -891,6 +930,7 @@ MULTIPLES	MULTIPLE	1	src/components/sources/textes.ts:15
 natif	native	1	src/core/framing.ts:1202
 natifEncodé	nativeEncoded	1	src/server/steps/render.ts:1363
 nettoyé	cleaned	2	src/core/gemini/parse.ts:374
+NEUTRE	NEUTRAL	1	src/components/tri/session.ts:68
 nFrontière	nBoundary	1	scripts/vignettes-premier-plan.ts:262
 nInstants	nMoments	1	scripts/mesure-ratios.ts:1155
 nLarge	nWide	1	scripts/vignettes-premier-plan.ts:263
@@ -912,6 +952,7 @@ nomSidecar	nameSidecar	1	src/server/run.ts:296
 nomSource	nameSource	1	src/components/sources/use-sources.ts:49
 nonNotées	notNoted	2	src/server/steps/candidates.ts:1112
 normalisé	normalized	1	src/components/clip/recherche.ts:48
+normaliser	normalize	1	src/components/clip/recherche.ts:16
 notée	noted	1	src/core/gemini/parse.ts:32
 notées	noted	6	src/server/steps/candidates.ts:776
 noter	note	1	tests/server/run.test.ts:52
@@ -936,8 +977,10 @@ onGarder	onKeep	2	src/components/tri/candidate-card.tsx:36
 onOuvert	onOpen	4	src/components/clip/raccourcis.tsx:189
 onPlacer	onPlace	6	src/components/clip/transcript-surface.tsx:59
 onRecherche	onSearch	3	src/components/clip/transcript-surface.tsx:61
+onReessayer	onRetry	2	src/components/sources/ligne-montage.tsx:33
 onRemonter	onSurface	4	src/components/clip/transcript-surface.tsx:58
 onRequête	onRequest	2	src/components/clip/transcript-surface.tsx:392
+onSelectionner	onSelect	5	src/components/clip/transcript-surface.tsx:55
 onStatut	onStatus	2	src/components/tri/fil.tsx:70
 onSuivant	onNext	2	src/components/clip/transcript-surface.tsx:393
 onTerminer	onFinish	6	src/components/clip/transcript-surface.tsx:57
@@ -994,13 +1037,14 @@ peindreMaintenant	paintNow	1	src/components/clip/apercu-sortie.tsx:159
 peindreRef	paintRef	1	src/components/clip/apercu-sortie.tsx:152
 peindreSortie	paintOutput	1	src/components/clip/apercu-sortie.tsx:54
 pendant	during	1	tests/server/candidates.test.ts:588
-pendantLEncodage	duringLEncodage	1	tests/server/empreinte.test.ts:39
+pendantLEncodage	duringLEncoding	1	tests/server/empreinte.test.ts:39
 pendre	pend	1	tests/server/run.test.ts:725
 perdu	lost	1	tests/components/tri/fil.test.tsx:728
 périmé	stale	1	src/app/api/clips/[id]/route.ts:206
 périmée	stale	3	tests/server/db.test.ts:630
 PÉRIODE_ÉCRITURE_MS	PERIOD_WRITE_MS	1	src/server/run.ts:583
 personnes	people	1	tests/core/framing.test.ts:211
+perte	loss	2	src/components/tri/modele.ts:111
 PETIT_CÔTÉ	PETIT_SIDE	1	src/components/clip/apercu-sortie.tsx:34
 peutAnnuler	canCancel	1	src/components/clip/ecran-clip.tsx:70
 peutRenvoyer	canReturn	1	src/components/clip/ecran-clip.tsx:202
@@ -1018,7 +1062,7 @@ placés	placed	1	tests/server/render.test.ts:832
 plafond	cap	4	scripts/mesure-premier-plan.ts:158
 PLAFOND_DE_SORTIE	OUTPUT_CAP	1	src/server/steps/candidates.ts:127
 PLAFOND_HAUTEUR	CAP_HAUTEUR	1	src/server/steps/render.ts:860
-plafondAbsolu	capAbsolu	1	src/server/steps/candidates.ts:1448
+plafondAbsolu	capAbsolute	1	src/server/steps/candidates.ts:1448
 plage	range	2	src/server/octets.ts:89
 PLAGE	RANGE	1	src/core/range.ts:34
 plan	shot	46	scripts/dev-run.ts:51
@@ -1036,6 +1080,7 @@ PLANS	SHOTS	1	tests/core/framing.test.ts:231
 plansEnPartition	shotsInPartition	1	src/server/steps/analysis.ts:154
 planSteps	shotSteps	1	src/core/graph.ts:71
 plate	flat	1	tests/server/analysis.test.ts:92
+plein	full	1	scripts/dev-commun.ts:87
 pluriel	plural	3	src/components/clip/panneau-export.tsx:122
 pluriels	plurals	1	src/components/sources/textes.ts:99
 plusHaute	moreHigh	1	tests/server/render.test.ts:843
@@ -1060,6 +1105,7 @@ POSIX_NU	POSIX_BARE	1	src/core/erreurs.ts:48
 poster	post	1	src/lib/api.ts:680
 pourcent	percent	4	scripts/dev-commun.ts:84
 pourquoi	why	1	src/server/http.ts:43
+pousser	push	2	src/server/ffmpeg.ts:128
 préambule	preamble	1	tests/worker/detect.test.ts:42
 precedent	previous	5	src/components/clip/crop-picker.tsx:113
 précédent	previous	2	src/core/ffmpeg/args.ts:528
@@ -1104,6 +1150,7 @@ propre	clean	3	src/components/clip/champs-textes.tsx:231
 provisoire	provisional	5	src/components/tri/modele.ts:113
 proxyPret	proxyReady	10	src/components/tri/candidate-card.tsx:38
 publié	published	2	tests/server/analysis.test.ts:499
+publier	publish	2	src/server/run.ts:585
 putClipOrdonné	putClipOrdered	1	src/server/db.ts:940
 pythonDétection	pythonDetection	1	src/server/steps/analysis.ts:273
 quand	when	1	tests/server/ingest.test.ts:241
@@ -1125,7 +1172,7 @@ ranger	sort	1	src/server/steps/candidates.ts:1418
 rapides	fast	1	tests/lib/editing.test.ts:146
 ratioDe	ratio	1	scripts/mesure-ratios.ts:241
 ratioNatif	ratioNative	1	src/components/clip/textes.ts:79
-réarmerLeDisjoncteur	rearmDisjoncteur	1	src/server/vignettes-sources.ts:287
+réarmerLeDisjoncteur	rearmCircuitBreaker	1	src/server/vignettes-sources.ts:287
 recalés	recalibrated	1	src/server/steps/render.ts:1902
 recherche	search	3	src/components/clip/ecran-clip.tsx:81
 reconcilie	reconciled	9	tests/lib/enregistrement-auto.test.tsx:125
@@ -1140,7 +1187,7 @@ référence	reference	14	scripts/mesure-ratios.ts:631
 RÉFÉRENCE	REFERENCE	1	tests/server/erreurs.test.ts:34
 RÉFÉRENCE_CITÉE	REFERENCE_CITED	1	src/core/erreurs.ts:141
 RÉFÉRENCE_NUE	REFERENCE_BARE	1	src/core/erreurs.ts:120
-référencesConnues	referencesConnues	1	src/server/erreurs.ts:76
+référencesConnues	referencesKnown	1	src/server/erreurs.ts:76
 refus	rejection	3	tests/server/render.test.ts:1142
 REFUS_DE_CONTENU	CONTENT_REJECTION	1	src/server/steps/candidates.ts:229
 refusal	rejection	1	src/server/llm/openai.ts:55
@@ -1174,6 +1221,7 @@ releverAvecGarde	captureWithGuard	1	src/server/sources.ts:200
 releverLeDossier	captureFolder	1	src/server/sources.ts:115
 relevés	readings	1	tests/lib/parcours.test.ts:64
 relu	reread	5	src/app/api/clips/[id]/route.ts:308
+relus	reread	1	tests/server/db.test.ts:583
 remède	fix	2	src/server/secrets.ts:190
 remonterMot	surfaceWord	2	src/store/editor.ts:63
 remplacé	replaced	1	tests/server/render.test.ts:603
@@ -1194,7 +1242,7 @@ REPLI_INSTANT_S	FALLBACK_MOMENT_S	1	src/server/vignettes-sources.ts:198
 repondre	respond	1	tests/components/sources/library-screen.test.tsx:214
 reponse	response	11	tests/components/clip/ecran-clip.test.tsx:82
 réponse	response	45	src/app/api/clips/[id]/renders/[file]/route.ts:72
-réponseErreur	responseErreur	1	src/server/http.ts:77
+réponseErreur	responseError	1	src/server/http.ts:77
 reponses	responses	1	tests/components/sources/library-screen.test.tsx:76
 repris	resumed	5	tests/lib/enregistrement-auto.test.tsx:71
 reprise	resume	2	src/components/tri/avancement.tsx:38
@@ -1210,6 +1258,7 @@ résoudreSecrets	resolveSecrets	2	src/instrumentation.ts:23
 respiration	breath	1	tests/lib/editing.test.ts:177
 resserrés	tightened	1	scripts/mesure-ratios.ts:640
 restant	remaining	1	src/server/steps/candidates.ts:1135
+restants	remaining	1	scripts/dev-commun.ts:123
 reste	remaining	8	src/core/pipeline.ts:39
 restes	remaining	1	tests/server/candidates.test.ts:685
 resultat	result	2	src/lib/enregistrement.ts:315
@@ -1234,7 +1283,8 @@ retournée	returned	1	tests/server/analysis.test.ts:98
 réussi	succeeded	1	src/server/paths.ts:236
 réussis	succeeded	1	src/server/steps/candidates.ts:1640
 revenu	returned	1	tests/server/candidates.test.ts:622
-riennEstProduit	riennEstProduced	1	tests/components/clip/panneau-export.test.tsx:45
+rien	nothing	2	tests/components/tri/modele.test.ts:144
+riennEstProduit	nothingEstProduced	1	tests/components/clip/panneau-export.test.tsx:45
 rognée	cropped	1	scripts/mesure-ratios.ts:882
 RunPlan	RunShot	1	src/lib/api.ts:141
 saisir	input	1	src/components/clip/champs-textes.tsx:212
@@ -1272,7 +1322,10 @@ secondesDeParole	speechSeconds	1	src/core/transcript.ts:278
 SEGMENT_DANS_LE_CLIP	SEGMENT_IN_CLIP	1	tests/server/empreinte.test.ts:762
 SEGMENT_HORS_DU_CLIP	CLIP_SEGMENT_HORS	1	tests/server/empreinte.test.ts:774
 SegmentDeTranscript	TranscriptSegment	1	tests/server/empreinte.test.ts:170
+segmentsIdentiques	segmentsIdentical	1	src/lib/enregistrement.ts:50
+selectionne	selected	4	src/components/clip/transcript-surface.tsx:438
 selonLaCause	perCause	1	src/components/sources/ligne-montage.tsx:96
+sens	direction	1	scripts/mesure-premier-plan.ts:246
 séparateur	separator	1	scripts/mesure-ratios.ts:1113
 separes	separated	2	tests/lib/editing.test.ts:159
 serré	tight	1	tests/server/render.test.ts:931
@@ -1310,6 +1363,7 @@ signalerLeBilan	flagSummary	2	src/server/run.ts:871
 signalerRef	flagRef	1	src/components/clip/champs-textes.tsx:163
 signatureRendue	signatureRendered	1	src/components/clip/panneau-export.tsx:98
 simultanéMax	concurrentMax	1	tests/server/vignettes-sources.test.ts:540
+singulier	singular	2	src/components/sources/textes.ts:99
 sobre	sober	1	tests/core/transcript.test.ts:366
 sondage	probe	1	scripts/dev-ingest.ts:88
 Sondage	Probe	1	src/server/ffprobe.ts:14
@@ -1368,6 +1422,8 @@ surTemps	onTime	1	src/components/clip/clip-player.tsx:128
 surTouche	onKey	2	src/components/clip/raccourcis.tsx:112
 survivant	surviving	1	tests/server/ingest.test.ts:365
 symétrique	symmetric	1	tests/core/framing.test.ts:524
+tabulable	tabbable	2	src/components/tri/candidate-card.tsx:218
+tabulables	tabbable	1	tests/components/tri/fil.test.tsx:391
 taille	size	7	scripts/dev-commun.ts:68
 TAILLE_QUEUE_MAX	SIZE_QUEUE_MAX	1	src/server/ffmpeg.ts:169
 tailleDeLot	batchSize	1	src/server/steps/candidates.ts:1096
@@ -1391,7 +1447,7 @@ terminée	finished	1	src/server/run.ts:78
 terminerSelection	finishSelection	2	src/store/editor.ts:91
 tete	head	3	src/store/editor.ts:44
 texte	text	27	src/components/clip/panneau-export.tsx:579
-texteActuel	textActuel	1	src/server/steps/render.ts:1289
+texteActuel	textCurrent	1	src/server/steps/render.ts:1289
 texteDe	text	1	tests/core/captions.test.ts:17
 texteDePublication	publicationText	2	src/components/clip/textes.ts:45
 texteDuServeur	serverText	1	tests/components/clip/textes.test.ts:22
@@ -1409,9 +1465,11 @@ TOUS	ALL	1	tests/core/framing.test.ts:23
 tout	all	2	tests/core/parcours.test.ts:16
 toutes	all	1	tests/components/tri/avancement.test.tsx:23
 toutRefusé	allRejected	4	tests/server/candidates.test.ts:721
-traiteDéjàLaTouche	traiteAlreadyKey	1	src/components/tri/raccourcis.ts:76
+traiteDéjàLaTouche	processAlreadyKey	1	src/components/tri/raccourcis.ts:76
 TranscriptCorrectionRefusal	TranscriptCorrectionRejection	1	src/server/steps/transcript.ts:488
 transcriptDuProjet	projectTranscript	1	src/server/vues.ts:123
+transmis	forwarded	2	src/server/steps/analysis.ts:355
+TRANSMISES	FORWARDED	2	src/server/steps/analysis.ts:324
 travail	work	7	src/core/parcours.ts:56
 Travail	Work	1	src/core/parcours.ts:50
 travailProjet	workProject	1	src/core/parcours.ts:127
@@ -1419,7 +1477,7 @@ traversée	traversal	2	tests/core/framing.test.ts:414
 triées	sorted	6	scripts/mesure-premier-plan.ts:79
 triéesParNom	sortedByName	1	src/server/steps/render.ts:522
 trois	three	2	tests/core/shot-split.test.ts:103
-troisHeures	threeHeures	1	tests/core/transcript.test.ts:403
+troisHeures	threeHours	1	tests/core/transcript.test.ts:403
 tronque	truncated	1	tests/core/transcript.test.ts:94
 tronquée	truncated	1	tests/server/candidates.test.ts:94
 trou	gap	1	tests/server/analysis.test.ts:154
@@ -1455,7 +1513,7 @@ valeur	value	45	src/components/clip/champs-textes.tsx:148
 valeurAdmise	valueAdmitted	1	src/server/db.ts:755
 valeurDe	value	1	scripts/vignettes-cadrage.ts:259
 valeurs	values	14	scripts/mesure-premier-plan.ts:77
-valeursDeDrapeaux	drapeauxValues	1	scripts/vignettes-premier-plan.ts:238
+valeursDeDrapeaux	flagsValues	1	scripts/vignettes-premier-plan.ts:238
 valeurServeur	valueServer	1	src/components/clip/champs-textes.tsx:144
 valide	valid	1	src/core/pipeline.ts:48
 variante	variant	1	src/server/steps/render.ts:1528
@@ -1476,7 +1534,7 @@ vide	empty	5	tests/server/analysis.test.ts:78
 Vide	Empty	1	src/components/tri/fil.tsx:497
 VIDE	EMPTY	2	src/components/clip/lecture.ts:78
 vidéo	video	2	src/server/sources.ts:323
-VideoÀTrames	VideoToTrames	1	src/components/clip/apercu-sortie.tsx:247
+VideoÀTrames	VideoToFrames	1	src/components/clip/apercu-sortie.tsx:247
 videoEncodeArgs	videoEncodedArgs	1	src/core/ffmpeg/encoder.ts:58
 vidéos	videos	2	src/server/sources.ts:77
 vider	clear	3	src/components/clip/champs-textes.tsx:111

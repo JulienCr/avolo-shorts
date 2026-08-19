@@ -80,6 +80,14 @@
     "line": 84
   },
   {
+    "id": 20,
+    "oldName": "plein",
+    "newName": "full",
+    "kind": "variable",
+    "file": "scripts/dev-commun.ts",
+    "line": 87
+  },
+  {
     "id": 21,
     "oldName": "finBarre",
     "newName": "finBar",
@@ -110,6 +118,14 @@
     "kind": "function",
     "file": "scripts/dev-commun.ts",
     "line": 121
+  },
+  {
+    "id": 26,
+    "oldName": "restants",
+    "newName": "remaining",
+    "kind": "variable",
+    "file": "scripts/dev-commun.ts",
+    "line": 123
   },
   {
     "id": 27,
@@ -176,6 +192,14 @@
     "line": 88
   },
   {
+    "id": 48,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "scripts/dev-ingest.ts",
+    "line": 100
+  },
+  {
     "id": 51,
     "oldName": "force",
     "newName": "forced",
@@ -240,6 +264,14 @@
     "line": 86
   },
   {
+    "id": 70,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "scripts/dev-render.ts",
+    "line": 101
+  },
+  {
     "id": 71,
     "oldName": "estCible",
     "newName": "estTarget",
@@ -270,6 +302,14 @@
     "kind": "variable",
     "file": "scripts/dev-run.ts",
     "line": 33
+  },
+  {
+    "id": 80,
+    "oldName": "inconnues",
+    "newName": "unknown",
+    "kind": "variable",
+    "file": "scripts/dev-run.ts",
+    "line": 42
   },
   {
     "id": 83,
@@ -408,6 +448,14 @@
     "line": 130
   },
   {
+    "id": 123,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "scripts/dev-transcribe.ts",
+    "line": 144
+  },
+  {
     "id": 125,
     "oldName": "VARIANTES",
     "newName": "VARIANTS",
@@ -512,6 +560,14 @@
     "line": 120
   },
   {
+    "id": 153,
+    "oldName": "histogramme",
+    "newName": "histogram",
+    "kind": "function",
+    "file": "scripts/mesure-premier-plan.ts",
+    "line": 137
+  },
+  {
     "id": 154,
     "oldName": "valeurs",
     "newName": "values",
@@ -558,6 +614,14 @@
     "kind": "variable",
     "file": "scripts/mesure-premier-plan.ts",
     "line": 161
+  },
+  {
+    "id": 168,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "function",
+    "file": "scripts/mesure-premier-plan.ts",
+    "line": 179
   },
   {
     "id": 170,
@@ -686,6 +750,14 @@
     "kind": "variable",
     "file": "scripts/mesure-premier-plan.ts",
     "line": 240
+  },
+  {
+    "id": 207,
+    "oldName": "sens",
+    "newName": "direction",
+    "kind": "variable",
+    "file": "scripts/mesure-premier-plan.ts",
+    "line": 246
   },
   {
     "id": 208,
@@ -978,7 +1050,7 @@
   {
     "id": 324,
     "oldName": "empansDe",
-    "newName": "empans",
+    "newName": "spans",
     "kind": "function",
     "file": "scripts/mesure-ratios.ts",
     "line": 414
@@ -1192,6 +1264,14 @@
     "line": 539
   },
   {
+    "id": 389,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "variable",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 555
+  },
+  {
     "id": 390,
     "oldName": "durée",
     "newName": "duration",
@@ -1206,6 +1286,14 @@
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 565
+  },
+  {
+    "id": 396,
+    "oldName": "comparaison",
+    "newName": "comparison",
+    "kind": "function",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 579
   },
   {
     "id": 397,
@@ -1238,6 +1326,14 @@
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 583
+  },
+  {
+    "id": 416,
+    "oldName": "balayage",
+    "newName": "sweep",
+    "kind": "function",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 625
   },
   {
     "id": 417,
@@ -1286,6 +1382,14 @@
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 635
+  },
+  {
+    "id": 428,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "variable",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 636
   },
   {
     "id": 430,
@@ -1456,6 +1560,14 @@
     "line": 836
   },
   {
+    "id": 510,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "variable",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 838
+  },
+  {
     "id": 527,
     "oldName": "défaut",
     "newName": "default",
@@ -1550,6 +1662,14 @@
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 943
+  },
+  {
+    "id": 557,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "variable",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 945
   },
   {
     "id": 571,
@@ -1664,6 +1784,14 @@
     "line": 1024
   },
   {
+    "id": 592,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "variable",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 1026
+  },
+  {
     "id": 593,
     "oldName": "gardées",
     "newName": "kept",
@@ -1702,6 +1830,14 @@
     "kind": "variable",
     "file": "scripts/mesure-ratios.ts",
     "line": 1045
+  },
+  {
+    "id": 610,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/mesure-ratios.ts",
+    "line": 1048
   },
   {
     "id": 611,
@@ -1880,6 +2016,14 @@
     "line": 206
   },
   {
+    "id": 719,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/vignettes-cadrage.ts",
+    "line": 206
+  },
+  {
     "id": 722,
     "oldName": "haut",
     "newName": "top",
@@ -1984,6 +2128,14 @@
     "line": 259
   },
   {
+    "id": 755,
+    "oldName": "drapeau",
+    "newName": "flag",
+    "kind": "parameter",
+    "file": "scripts/vignettes-cadrage.ts",
+    "line": 259
+  },
+  {
     "id": 757,
     "oldName": "brut",
     "newName": "raw",
@@ -1994,7 +2146,7 @@
   {
     "id": 758,
     "oldName": "drapeauxAvecValeur",
-    "newName": "drapeauxWithValue",
+    "newName": "flagsWithValue",
     "kind": "variable",
     "file": "scripts/vignettes-cadrage.ts",
     "line": 265
@@ -2120,6 +2272,14 @@
     "line": 405
   },
   {
+    "id": 799,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "variable",
+    "file": "scripts/vignettes-cadrage.ts",
+    "line": 406
+  },
+  {
     "id": 804,
     "oldName": "débordantes",
     "newName": "overflowing",
@@ -2160,6 +2320,14 @@
     "line": 67
   },
   {
+    "id": 827,
+    "oldName": "COULEURS",
+    "newName": "COLORS",
+    "kind": "variable",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 93
+  },
+  {
     "id": 831,
     "oldName": "boîtes",
     "newName": "boxes",
@@ -2186,7 +2354,7 @@
   {
     "id": 843,
     "oldName": "empanFiltré",
-    "newName": "empanFilter",
+    "newName": "spanFilter",
     "kind": "function",
     "file": "scripts/vignettes-premier-plan.ts",
     "line": 141
@@ -2264,12 +2432,36 @@
     "line": 186
   },
   {
+    "id": 861,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 186
+  },
+  {
+    "id": 865,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 189
+  },
+  {
     "id": 866,
     "oldName": "vus",
     "newName": "seen",
     "kind": "variable",
     "file": "scripts/vignettes-premier-plan.ts",
     "line": 190
+  },
+  {
+    "id": 869,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 191
   },
   {
     "id": 871,
@@ -2300,6 +2492,14 @@
     "oldName": "nombreAprès",
     "newName": "numberAfter",
     "kind": "variable",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 214
+  },
+  {
+    "id": 878,
+    "oldName": "drapeau",
+    "newName": "flag",
+    "kind": "parameter",
     "file": "scripts/vignettes-premier-plan.ts",
     "line": 214
   },
@@ -2338,7 +2538,7 @@
   {
     "id": 886,
     "oldName": "valeursDeDrapeaux",
-    "newName": "drapeauxValues",
+    "newName": "flagsValues",
     "kind": "variable",
     "file": "scripts/vignettes-premier-plan.ts",
     "line": 238
@@ -2424,6 +2624,14 @@
     "line": 304
   },
   {
+    "id": 913,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "interfaceProperty",
+    "file": "scripts/vignettes-premier-plan.ts",
+    "line": 305
+  },
+  {
     "id": 918,
     "oldName": "dossier",
     "newName": "folder",
@@ -2488,6 +2696,14 @@
     "line": 36
   },
   {
+    "id": 934,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/app/api/clips/[id]/export/route.ts",
+    "line": 36
+  },
+  {
     "id": 938,
     "oldName": "force",
     "newName": "forced",
@@ -2507,6 +2723,14 @@
     "id": 942,
     "oldName": "requête",
     "newName": "request",
+    "kind": "parameter",
+    "file": "src/app/api/clips/[id]/renders/[file]/route.ts",
+    "line": 29
+  },
+  {
+    "id": 943,
+    "oldName": "contexte",
+    "newName": "context",
     "kind": "parameter",
     "file": "src/app/api/clips/[id]/renders/[file]/route.ts",
     "line": 29
@@ -2544,6 +2768,14 @@
     "line": 71
   },
   {
+    "id": 957,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/app/api/clips/[id]/route.ts",
+    "line": 71
+  },
+  {
     "id": 963,
     "oldName": "projet",
     "newName": "project",
@@ -2555,6 +2787,14 @@
     "id": 967,
     "oldName": "requête",
     "newName": "request",
+    "kind": "parameter",
+    "file": "src/app/api/clips/[id]/route.ts",
+    "line": 107
+  },
+  {
+    "id": 968,
+    "oldName": "contexte",
+    "newName": "context",
     "kind": "parameter",
     "file": "src/app/api/clips/[id]/route.ts",
     "line": 107
@@ -2664,6 +2904,14 @@
     "line": 20
   },
   {
+    "id": 994,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/app/api/clips/[id]/thumb/route.ts",
+    "line": 20
+  },
+  {
     "id": 999,
     "oldName": "fichier",
     "newName": "file",
@@ -2688,6 +2936,14 @@
     "line": 19
   },
   {
+    "id": 1005,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/app/api/projects/[id]/candidates/route.ts",
+    "line": 19
+  },
+  {
     "id": 1010,
     "oldName": "projet",
     "newName": "project",
@@ -2707,6 +2963,14 @@
     "id": 1024,
     "oldName": "_requête",
     "newName": "_request",
+    "kind": "parameter",
+    "file": "src/app/api/projects/[id]/route.ts",
+    "line": 16
+  },
+  {
+    "id": 1025,
+    "oldName": "contexte",
+    "newName": "context",
     "kind": "parameter",
     "file": "src/app/api/projects/[id]/route.ts",
     "line": 16
@@ -2747,6 +3011,14 @@
     "id": 1036,
     "oldName": "requête",
     "newName": "request",
+    "kind": "parameter",
+    "file": "src/app/api/projects/[id]/run/route.ts",
+    "line": 61
+  },
+  {
+    "id": 1037,
+    "oldName": "contexte",
+    "newName": "context",
     "kind": "parameter",
     "file": "src/app/api/projects/[id]/run/route.ts",
     "line": 61
@@ -2870,6 +3142,14 @@
     "kind": "function",
     "file": "src/app/projects/[id]/page.tsx",
     "line": 18
+  },
+  {
+    "id": 1121,
+    "oldName": "Chargement",
+    "newName": "Loading",
+    "kind": "function",
+    "file": "src/app/projects/[id]/page.tsx",
+    "line": 27
   },
   {
     "id": 1131,
@@ -3026,7 +3306,7 @@
   {
     "id": 1183,
     "oldName": "VideoÀTrames",
-    "newName": "VideoToTrames",
+    "newName": "VideoToFrames",
     "kind": "typeAlias",
     "file": "src/components/clip/apercu-sortie.tsx",
     "line": 247
@@ -4026,7 +4306,7 @@
   {
     "id": 1492,
     "oldName": "motActif",
-    "newName": "wordActif",
+    "newName": "wordActive",
     "kind": "interfaceProperty",
     "file": "src/components/clip/lecture.ts",
     "line": 62
@@ -4760,6 +5040,14 @@
     "line": 112
   },
   {
+    "id": 1633,
+    "oldName": "commande",
+    "newName": "command",
+    "kind": "variable",
+    "file": "src/components/clip/raccourcis.tsx",
+    "line": 114
+  },
+  {
     "id": 1634,
     "oldName": "touche",
     "newName": "key",
@@ -4846,6 +5134,14 @@
     "kind": "bindingElement",
     "file": "src/components/clip/raccourcis.tsx",
     "line": 205
+  },
+  {
+    "id": 1646,
+    "oldName": "normaliser",
+    "newName": "normalize",
+    "kind": "function",
+    "file": "src/components/clip/recherche.ts",
+    "line": 16
   },
   {
     "id": 1647,
@@ -5064,6 +5360,14 @@
     "line": 54
   },
   {
+    "id": 1869,
+    "oldName": "onSelectionner",
+    "newName": "onSelect",
+    "kind": "bindingElement",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 55
+  },
+  {
     "id": 1870,
     "oldName": "onEtendre",
     "newName": "onExtend",
@@ -5128,6 +5432,14 @@
     "line": 69
   },
   {
+    "id": 1881,
+    "oldName": "onSelectionner",
+    "newName": "onSelect",
+    "kind": "interfaceProperty",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 70
+  },
+  {
     "id": 1883,
     "oldName": "etendre",
     "newName": "extend",
@@ -5190,6 +5502,14 @@
     "kind": "parameter",
     "file": "src/components/clip/transcript-surface.tsx",
     "line": 77
+  },
+  {
+    "id": 1894,
+    "oldName": "conteneur",
+    "newName": "container",
+    "kind": "variable",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 79
   },
   {
     "id": 1895,
@@ -5672,12 +5992,28 @@
     "line": 437
   },
   {
+    "id": 1967,
+    "oldName": "selectionne",
+    "newName": "selected",
+    "kind": "bindingElement",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 438
+  },
+  {
     "id": 1968,
     "oldName": "auCurseur",
     "newName": "cursor",
     "kind": "bindingElement",
     "file": "src/components/clip/transcript-surface.tsx",
     "line": 439
+  },
+  {
+    "id": 1969,
+    "oldName": "onSelectionner",
+    "newName": "onSelect",
+    "kind": "bindingElement",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 440
   },
   {
     "id": 1970,
@@ -5720,12 +6056,28 @@
     "line": 446
   },
   {
+    "id": 1975,
+    "oldName": "selectionne",
+    "newName": "selected",
+    "kind": "interfaceProperty",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 447
+  },
+  {
     "id": 1976,
     "oldName": "auCurseur",
     "newName": "cursor",
     "kind": "interfaceProperty",
     "file": "src/components/clip/transcript-surface.tsx",
     "line": 448
+  },
+  {
+    "id": 1977,
+    "oldName": "onSelectionner",
+    "newName": "onSelect",
+    "kind": "interfaceProperty",
+    "file": "src/components/clip/transcript-surface.tsx",
+    "line": 449
   },
   {
     "id": 1979,
@@ -5912,12 +6264,28 @@
     "line": 32
   },
   {
+    "id": 2623,
+    "oldName": "onReessayer",
+    "newName": "onRetry",
+    "kind": "bindingElement",
+    "file": "src/components/sources/ligne-montage.tsx",
+    "line": 33
+  },
+  {
     "id": 2624,
     "oldName": "montage",
     "newName": "editing",
     "kind": "interfaceProperty",
     "file": "src/components/sources/ligne-montage.tsx",
     "line": 35
+  },
+  {
+    "id": 2625,
+    "oldName": "onReessayer",
+    "newName": "onRetry",
+    "kind": "interfaceProperty",
+    "file": "src/components/sources/ligne-montage.tsx",
+    "line": 36
   },
   {
     "id": 2626,
@@ -6040,6 +6408,14 @@
     "line": 99
   },
   {
+    "id": 2699,
+    "oldName": "singulier",
+    "newName": "singular",
+    "kind": "parameter",
+    "file": "src/components/sources/textes.ts",
+    "line": 99
+  },
+  {
     "id": 2700,
     "oldName": "pluriels",
     "newName": "plurals",
@@ -6052,6 +6428,14 @@
     "oldName": "messageServeur",
     "newName": "messageServer",
     "kind": "function",
+    "file": "src/components/sources/textes.ts",
+    "line": 115
+  },
+  {
+    "id": 2702,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
     "file": "src/components/sources/textes.ts",
     "line": 115
   },
@@ -6088,6 +6472,14 @@
     "line": 33
   },
   {
+    "id": 2714,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "bindingElement",
+    "file": "src/components/tri/avancement.tsx",
+    "line": 36
+  },
+  {
     "id": 2716,
     "oldName": "reprise",
     "newName": "resume",
@@ -6102,6 +6494,14 @@
     "kind": "bindingElement",
     "file": "src/components/tri/avancement.tsx",
     "line": 39
+  },
+  {
+    "id": 2722,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/avancement.tsx",
+    "line": 48
   },
   {
     "id": 2724,
@@ -6264,6 +6664,14 @@
     "line": 332
   },
   {
+    "id": 2762,
+    "oldName": "actif",
+    "newName": "active",
+    "kind": "parameter",
+    "file": "src/components/tri/avancement.tsx",
+    "line": 332
+  },
+  {
     "id": 2763,
     "oldName": "secondes",
     "newName": "seconds",
@@ -6336,6 +6744,14 @@
     "line": 38
   },
   {
+    "id": 2775,
+    "oldName": "selectionne",
+    "newName": "selected",
+    "kind": "bindingElement",
+    "file": "src/components/tri/candidate-card.tsx",
+    "line": 39
+  },
+  {
     "id": 2778,
     "oldName": "onGarder",
     "newName": "onKeep",
@@ -6358,6 +6774,14 @@
     "kind": "interfaceProperty",
     "file": "src/components/tri/candidate-card.tsx",
     "line": 53
+  },
+  {
+    "id": 2781,
+    "oldName": "selectionne",
+    "newName": "selected",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/candidate-card.tsx",
+    "line": 69
   },
   {
     "id": 2783,
@@ -6416,12 +6840,28 @@
     "line": 217
   },
   {
+    "id": 2791,
+    "oldName": "tabulable",
+    "newName": "tabbable",
+    "kind": "bindingElement",
+    "file": "src/components/tri/candidate-card.tsx",
+    "line": 218
+  },
+  {
     "id": 2793,
     "oldName": "proxyPret",
     "newName": "proxyReady",
     "kind": "interfaceProperty",
     "file": "src/components/tri/candidate-card.tsx",
     "line": 221
+  },
+  {
+    "id": 2794,
+    "oldName": "tabulable",
+    "newName": "tabbable",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/candidate-card.tsx",
+    "line": 222
   },
   {
     "id": 2795,
@@ -6512,6 +6952,14 @@
     "line": 45
   },
   {
+    "id": 2815,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/components/tri/ecran-projet.tsx",
+    "line": 53
+  },
+  {
     "id": 2817,
     "oldName": "àReprendre",
     "newName": "toResume",
@@ -6522,7 +6970,7 @@
   {
     "id": 2819,
     "oldName": "listeInconnue",
-    "newName": "listInconnue",
+    "newName": "listUnknown",
     "kind": "variable",
     "file": "src/components/tri/ecran-projet.tsx",
     "line": 82
@@ -6628,6 +7076,14 @@
     "oldName": "messageDe",
     "newName": "message",
     "kind": "function",
+    "file": "src/components/tri/ecran-projet.tsx",
+    "line": 346
+  },
+  {
+    "id": 2839,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
     "file": "src/components/tri/ecran-projet.tsx",
     "line": 346
   },
@@ -6934,6 +7390,14 @@
     "kind": "function",
     "file": "src/components/tri/fil.tsx",
     "line": 203
+  },
+  {
+    "id": 2910,
+    "oldName": "defaire",
+    "newName": "undo",
+    "kind": "function",
+    "file": "src/components/tri/fil.tsx",
+    "line": 211
   },
   {
     "id": 2911,
@@ -7408,6 +7872,14 @@
     "line": 56
   },
   {
+    "id": 2997,
+    "oldName": "appartient",
+    "newName": "belongs",
+    "kind": "function",
+    "file": "src/components/tri/modele.ts",
+    "line": 61
+  },
+  {
     "id": 2999,
     "oldName": "vue",
     "newName": "view",
@@ -7438,6 +7910,14 @@
     "kind": "typeAlias",
     "file": "src/components/tri/modele.ts",
     "line": 109
+  },
+  {
+    "id": 3008,
+    "oldName": "perte",
+    "newName": "loss",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/modele.ts",
+    "line": 111
   },
   {
     "id": 3009,
@@ -7472,6 +7952,14 @@
     "line": 123
   },
   {
+    "id": 3015,
+    "oldName": "perte",
+    "newName": "loss",
+    "kind": "variable",
+    "file": "src/components/tri/modele.ts",
+    "line": 140
+  },
+  {
     "id": 3017,
     "oldName": "lots",
     "newName": "batches",
@@ -7484,6 +7972,14 @@
     "oldName": "accord",
     "newName": "agreement",
     "kind": "function",
+    "file": "src/components/tri/modele.ts",
+    "line": 185
+  },
+  {
+    "id": 3021,
+    "oldName": "singulier",
+    "newName": "singular",
+    "kind": "parameter",
     "file": "src/components/tri/modele.ts",
     "line": 185
   },
@@ -7530,7 +8026,7 @@
   {
     "id": 3031,
     "oldName": "traiteDéjàLaTouche",
-    "newName": "traiteAlreadyKey",
+    "newName": "processAlreadyKey",
     "kind": "function",
     "file": "src/components/tri/raccourcis.ts",
     "line": 76
@@ -7590,6 +8086,14 @@
     "kind": "interfaceProperty",
     "file": "src/components/tri/raccourcis.ts",
     "line": 92
+  },
+  {
+    "id": 3039,
+    "oldName": "defaire",
+    "newName": "undo",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/raccourcis.ts",
+    "line": 94
   },
   {
     "id": 3040,
@@ -7840,6 +8344,30 @@
     "line": 267
   },
   {
+    "id": 3085,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "bindingElement",
+    "file": "src/components/tri/relance.tsx",
+    "line": 267
+  },
+  {
+    "id": 3086,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "interfaceProperty",
+    "file": "src/components/tri/relance.tsx",
+    "line": 267
+  },
+  {
+    "id": 3087,
+    "oldName": "conflit",
+    "newName": "conflict",
+    "kind": "variable",
+    "file": "src/components/tri/relance.tsx",
+    "line": 269
+  },
+  {
     "id": 3088,
     "oldName": "ÉtatDeTri",
     "newName": "ReviewState",
@@ -7878,6 +8406,14 @@
     "kind": "interfaceProperty",
     "file": "src/components/tri/session.ts",
     "line": 51
+  },
+  {
+    "id": 3094,
+    "oldName": "NEUTRE",
+    "newName": "NEUTRAL",
+    "kind": "variable",
+    "file": "src/components/tri/session.ts",
+    "line": 68
   },
   {
     "id": 3095,
@@ -8048,6 +8584,14 @@
     "line": 90
   },
   {
+    "id": 3416,
+    "oldName": "chiffres",
+    "newName": "digits",
+    "kind": "function",
+    "file": "src/core/captions/ass.ts",
+    "line": 102
+  },
+  {
     "id": 3417,
     "oldName": "couleur",
     "newName": "color",
@@ -8066,7 +8610,7 @@
   {
     "id": 3420,
     "oldName": "deuxChiffres",
-    "newName": "twoChiffres",
+    "newName": "twoDigits",
     "kind": "function",
     "file": "src/core/captions/ass.ts",
     "line": 107
@@ -8158,6 +8702,14 @@
     "kind": "parameter",
     "file": "src/core/captions/ass.ts",
     "line": 157
+  },
+  {
+    "id": 3436,
+    "oldName": "heures",
+    "newName": "hours",
+    "kind": "variable",
+    "file": "src/core/captions/ass.ts",
+    "line": 158
   },
   {
     "id": 3440,
@@ -8266,7 +8818,7 @@
   {
     "id": 3456,
     "oldName": "motActif",
-    "newName": "wordActif",
+    "newName": "wordActive",
     "kind": "variable",
     "file": "src/core/captions/ass.ts",
     "line": 253
@@ -8390,6 +8942,14 @@
     "kind": "variable",
     "file": "src/core/erreurs.ts",
     "line": 27
+  },
+  {
+    "id": 3597,
+    "oldName": "estAbsolu",
+    "newName": "estAbsolute",
+    "kind": "function",
+    "file": "src/core/erreurs.ts",
+    "line": 31
   },
   {
     "id": 3598,
@@ -8548,6 +9108,14 @@
     "oldName": "messageÉpuré",
     "newName": "messageCleaned",
     "kind": "function",
+    "file": "src/core/erreurs.ts",
+    "line": 225
+  },
+  {
+    "id": 3624,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
     "file": "src/core/erreurs.ts",
     "line": 225
   },
@@ -8880,6 +9448,14 @@
     "line": 672
   },
   {
+    "id": 3866,
+    "oldName": "Empan",
+    "newName": "Span",
+    "kind": "typeAlias",
+    "file": "src/core/framing.ts",
+    "line": 678
+  },
+  {
     "id": 3870,
     "oldName": "dansIntervalle",
     "newName": "inInterval",
@@ -8894,6 +9470,14 @@
     "kind": "parameter",
     "file": "src/core/framing.ts",
     "line": 686
+  },
+  {
+    "id": 3874,
+    "oldName": "empans",
+    "newName": "spans",
+    "kind": "function",
+    "file": "src/core/framing.ts",
+    "line": 705
   },
   {
     "id": 3877,
@@ -9030,6 +9614,14 @@
     "kind": "variable",
     "file": "src/core/framing.ts",
     "line": 917
+  },
+  {
+    "id": 3924,
+    "oldName": "meilleur",
+    "newName": "best",
+    "kind": "variable",
+    "file": "src/core/framing.ts",
+    "line": 926
   },
   {
     "id": 3929,
@@ -9408,6 +10000,14 @@
     "line": 200
   },
   {
+    "id": 4072,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/core/gemini/parse.ts",
+    "line": 296
+  },
+  {
     "id": 4081,
     "oldName": "proposées",
     "newName": "proposed",
@@ -9462,6 +10062,14 @@
     "kind": "variable",
     "file": "src/core/gemini/parse.ts",
     "line": 379
+  },
+  {
+    "id": 4098,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/core/gemini/parse.ts",
+    "line": 384
   },
   {
     "id": 4099,
@@ -9608,12 +10216,28 @@
     "line": 102
   },
   {
+    "id": 4229,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/core/parcours.ts",
+    "line": 105
+  },
+  {
     "id": 4232,
     "oldName": "analyseProjet",
     "newName": "analysisProject",
     "kind": "function",
     "file": "src/core/parcours.ts",
     "line": 111
+  },
+  {
+    "id": 4237,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/core/parcours.ts",
+    "line": 114
   },
   {
     "id": 4238,
@@ -9720,6 +10344,14 @@
     "line": 232
   },
   {
+    "id": 4291,
+    "oldName": "MOIS",
+    "newName": "MONTH",
+    "kind": "variable",
+    "file": "src/core/pipeline.ts",
+    "line": 6
+  },
+  {
     "id": 4292,
     "oldName": "PRÉFIXE_DATE",
     "newName": "PREFIX_DATE",
@@ -9739,6 +10371,14 @@
     "id": 4296,
     "oldName": "année",
     "newName": "year",
+    "kind": "bindingElement",
+    "file": "src/core/pipeline.ts",
+    "line": 39
+  },
+  {
+    "id": 4297,
+    "oldName": "mois",
+    "newName": "month",
     "kind": "bindingElement",
     "file": "src/core/pipeline.ts",
     "line": 39
@@ -10280,6 +10920,14 @@
     "line": 43
   },
   {
+    "id": 4829,
+    "oldName": "actif",
+    "newName": "active",
+    "kind": "variable",
+    "file": "src/lib/clip-status.ts",
+    "line": 46
+  },
+  {
     "id": 4830,
     "oldName": "ORDRE_RATIOS",
     "newName": "ORDER_RATIOS",
@@ -10358,6 +11006,14 @@
     "kind": "function",
     "file": "src/lib/enregistrement.ts",
     "line": 39
+  },
+  {
+    "id": 4995,
+    "oldName": "segmentsIdentiques",
+    "newName": "segmentsIdentical",
+    "kind": "variable",
+    "file": "src/lib/enregistrement.ts",
+    "line": 50
   },
   {
     "id": 4997,
@@ -10518,6 +11174,14 @@
     "kind": "variable",
     "file": "src/lib/enregistrement.ts",
     "line": 274
+  },
+  {
+    "id": 5034,
+    "oldName": "actuel",
+    "newName": "current",
+    "kind": "variable",
+    "file": "src/lib/enregistrement.ts",
+    "line": 282
   },
   {
     "id": 5036,
@@ -10872,6 +11536,22 @@
     "line": 294
   },
   {
+    "id": 5185,
+    "oldName": "_erreur",
+    "newName": "_error",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 304
+  },
+  {
+    "id": 5188,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 304
+  },
+  {
     "id": 5189,
     "oldName": "precedentCandidat",
     "newName": "previousCandidate",
@@ -10896,6 +11576,14 @@
     "line": 317
   },
   {
+    "id": 5201,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 325
+  },
+  {
     "id": 5202,
     "oldName": "liste",
     "newName": "list",
@@ -10907,6 +11595,14 @@
     "id": 5206,
     "oldName": "_données",
     "newName": "_data",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 379
+  },
+  {
+    "id": 5207,
+    "oldName": "_erreur",
+    "newName": "_error",
     "kind": "parameter",
     "file": "src/lib/queries.ts",
     "line": 379
@@ -10984,9 +11680,25 @@
     "line": 506
   },
   {
+    "id": 5236,
+    "oldName": "_erreur",
+    "newName": "_error",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 506
+  },
+  {
     "id": 5248,
     "oldName": "_resultat",
     "newName": "_result",
+    "kind": "parameter",
+    "file": "src/lib/queries.ts",
+    "line": 584
+  },
+  {
+    "id": 5249,
+    "oldName": "_erreur",
+    "newName": "_error",
     "kind": "parameter",
     "file": "src/lib/queries.ts",
     "line": 584
@@ -11022,6 +11734,14 @@
     "kind": "interfaceProperty",
     "file": "src/server/clip-framing.ts",
     "line": 142
+  },
+  {
+    "id": 5303,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/clip-framing.ts",
+    "line": 157
   },
   {
     "id": 5314,
@@ -11246,6 +11966,14 @@
     "kind": "variable",
     "file": "src/server/db.ts",
     "line": 858
+  },
+  {
+    "id": 5483,
+    "oldName": "lus",
+    "newName": "read",
+    "kind": "variable",
+    "file": "src/server/db.ts",
+    "line": 863
   },
   {
     "id": 5484,
@@ -11546,7 +12274,7 @@
   {
     "id": 5549,
     "oldName": "référencesConnues",
-    "newName": "referencesConnues",
+    "newName": "referencesKnown",
     "kind": "function",
     "file": "src/server/erreurs.ts",
     "line": 76
@@ -11610,7 +12338,7 @@
   {
     "id": 5559,
     "oldName": "caviarderRéférencesConnues",
-    "newName": "redactReferencesConnues",
+    "newName": "redactReferencesKnown",
     "kind": "function",
     "file": "src/server/erreurs.ts",
     "line": 116
@@ -11644,6 +12372,14 @@
     "oldName": "messageSûr",
     "newName": "messageSafe",
     "kind": "function",
+    "file": "src/server/erreurs.ts",
+    "line": 125
+  },
+  {
+    "id": 5565,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
     "file": "src/server/erreurs.ts",
     "line": 125
   },
@@ -11712,6 +12448,14 @@
     "line": 91
   },
   {
+    "id": 5582,
+    "oldName": "ajouter",
+    "newName": "add",
+    "kind": "methodSignature",
+    "file": "src/server/ffmpeg.ts",
+    "line": 101
+  },
+  {
     "id": 5583,
     "oldName": "morceau",
     "newName": "piece",
@@ -11760,6 +12504,14 @@
     "line": 126
   },
   {
+    "id": 5590,
+    "oldName": "pousser",
+    "newName": "push",
+    "kind": "variable",
+    "file": "src/server/ffmpeg.ts",
+    "line": 128
+  },
+  {
     "id": 5591,
     "oldName": "brute",
     "newName": "raw",
@@ -11790,6 +12542,14 @@
     "kind": "variable",
     "file": "src/server/ffmpeg.ts",
     "line": 140
+  },
+  {
+    "id": 5596,
+    "oldName": "ajouter",
+    "newName": "add",
+    "kind": "method",
+    "file": "src/server/ffmpeg.ts",
+    "line": 149
   },
   {
     "id": 5597,
@@ -11902,6 +12662,14 @@
     "kind": "variable",
     "file": "src/server/ffmpeg.ts",
     "line": 385
+  },
+  {
+    "id": 5640,
+    "oldName": "finir",
+    "newName": "finish",
+    "kind": "variable",
+    "file": "src/server/ffmpeg.ts",
+    "line": 399
   },
   {
     "id": 5641,
@@ -12104,6 +12872,22 @@
     "line": 75
   },
   {
+    "id": 5701,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/server/ffprobe.ts",
+    "line": 124
+  },
+  {
+    "id": 5707,
+    "oldName": "ErreurHttp",
+    "newName": "ErrorHttp",
+    "kind": "class",
+    "file": "src/server/http.ts",
+    "line": 27
+  },
+  {
     "id": 5708,
     "oldName": "statut",
     "newName": "status",
@@ -12160,10 +12944,34 @@
     "line": 52
   },
   {
+    "id": 5718,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/server/http.ts",
+    "line": 52
+  },
+  {
     "id": 5719,
     "oldName": "réponseErreur",
-    "newName": "responseErreur",
+    "newName": "responseError",
     "kind": "function",
+    "file": "src/server/http.ts",
+    "line": 77
+  },
+  {
+    "id": 5720,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/server/http.ts",
+    "line": 77
+  },
+  {
+    "id": 5721,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
     "file": "src/server/http.ts",
     "line": 77
   },
@@ -12176,12 +12984,28 @@
     "line": 78
   },
   {
+    "id": 5725,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "parameter",
+    "file": "src/server/http.ts",
+    "line": 91
+  },
+  {
     "id": 5726,
     "oldName": "gestionnaire",
     "newName": "handler",
     "kind": "parameter",
     "file": "src/server/http.ts",
     "line": 92
+  },
+  {
+    "id": 5730,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/http.ts",
+    "line": 97
   },
   {
     "id": 5731,
@@ -12232,10 +13056,26 @@
     "line": 55
   },
   {
+    "id": 5824,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/llm/registry.ts",
+    "line": 71
+  },
+  {
     "id": 5876,
     "oldName": "estUneAbsence",
     "newName": "estAAbsence",
     "kind": "function",
+    "file": "src/server/octets.ts",
+    "line": 40
+  },
+  {
+    "id": 5877,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
     "file": "src/server/octets.ts",
     "line": 40
   },
@@ -12310,6 +13150,14 @@
     "kind": "variable",
     "file": "src/server/octets.ts",
     "line": 226
+  },
+  {
+    "id": 5923,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/octets.ts",
+    "line": 229
   },
   {
     "id": 5924,
@@ -12534,6 +13382,14 @@
     "kind": "parameter",
     "file": "src/server/rendus.ts",
     "line": 88
+  },
+  {
+    "id": 6011,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/rendus.ts",
+    "line": 98
   },
   {
     "id": 6012,
@@ -13048,6 +13904,14 @@
     "line": 583
   },
   {
+    "id": 6136,
+    "oldName": "publier",
+    "newName": "publish",
+    "kind": "function",
+    "file": "src/server/run.ts",
+    "line": 585
+  },
+  {
     "id": 6137,
     "oldName": "exécution",
     "newName": "execution",
@@ -13344,6 +14208,14 @@
     "line": 853
   },
   {
+    "id": 6196,
+    "oldName": "avancer",
+    "newName": "advance",
+    "kind": "variable",
+    "file": "src/server/run.ts",
+    "line": 855
+  },
+  {
     "id": 6198,
     "oldName": "signalerLeBilan",
     "newName": "flagSummary",
@@ -13398,6 +14270,14 @@
     "kind": "parameter",
     "file": "src/server/run.ts",
     "line": 1015
+  },
+  {
+    "id": 6212,
+    "oldName": "avancer",
+    "newName": "advance",
+    "kind": "parameter",
+    "file": "src/server/run.ts",
+    "line": 1016
   },
   {
     "id": 6214,
@@ -13550,6 +14430,14 @@
     "kind": "parameter",
     "file": "src/server/secrets.ts",
     "line": 139
+  },
+  {
+    "id": 6251,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/secrets.ts",
+    "line": 156
   },
   {
     "id": 6254,
@@ -13888,6 +14776,14 @@
     "line": 191
   },
   {
+    "id": 6319,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/server/sources.ts",
+    "line": 191
+  },
+  {
     "id": 6321,
     "oldName": "releverAvecGarde",
     "newName": "captureWithGuard",
@@ -13912,6 +14808,14 @@
     "line": 205
   },
   {
+    "id": 6327,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/sources.ts",
+    "line": 219
+  },
+  {
     "id": 6328,
     "oldName": "fstypeDeMontage",
     "newName": "editingFstype",
@@ -13934,6 +14838,14 @@
     "kind": "parameter",
     "file": "src/server/sources.ts",
     "line": 243
+  },
+  {
+    "id": 6331,
+    "oldName": "meilleur",
+    "newName": "best",
+    "kind": "variable",
+    "file": "src/server/sources.ts",
+    "line": 244
   },
   {
     "id": 6334,
@@ -14216,12 +15128,28 @@
     "line": 306
   },
   {
+    "id": 6397,
+    "oldName": "TRANSMISES",
+    "newName": "FORWARDED",
+    "kind": "variable",
+    "file": "src/server/steps/analysis.ts",
+    "line": 324
+  },
+  {
     "id": 6398,
     "oldName": "environnementDétection",
     "newName": "environmentDetection",
     "kind": "function",
     "file": "src/server/steps/analysis.ts",
     "line": 349
+  },
+  {
+    "id": 6400,
+    "oldName": "transmis",
+    "newName": "forwarded",
+    "kind": "variable",
+    "file": "src/server/steps/analysis.ts",
+    "line": 355
   },
   {
     "id": 6401,
@@ -14346,7 +15274,7 @@
   {
     "id": 6432,
     "oldName": "commandeLisible",
-    "newName": "commandeReadable",
+    "newName": "commandReadable",
     "kind": "function",
     "file": "src/server/steps/analysis.ts",
     "line": 550
@@ -14592,6 +15520,14 @@
     "line": 441
   },
   {
+    "id": 6499,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "src/server/steps/candidates.ts",
+    "line": 441
+  },
+  {
     "id": 6500,
     "oldName": "bas",
     "newName": "bottom",
@@ -14720,6 +15656,14 @@
     "line": 592
   },
   {
+    "id": 6532,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/candidates.ts",
+    "line": 595
+  },
+  {
     "id": 6535,
     "oldName": "attente",
     "newName": "wait",
@@ -14758,6 +15702,14 @@
     "kind": "parameter",
     "file": "src/server/steps/candidates.ts",
     "line": 688
+  },
+  {
+    "id": 6547,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/candidates.ts",
+    "line": 703
   },
   {
     "id": 6548,
@@ -15168,6 +16120,14 @@
     "line": 1119
   },
   {
+    "id": 6635,
+    "oldName": "publier",
+    "newName": "publish",
+    "kind": "interfaceProperty",
+    "file": "src/server/steps/candidates.ts",
+    "line": 1123
+  },
+  {
     "id": 6636,
     "oldName": "bilan",
     "newName": "summary",
@@ -15182,6 +16142,14 @@
     "kind": "interfaceProperty",
     "file": "src/server/steps/candidates.ts",
     "line": 1135
+  },
+  {
+    "id": 6639,
+    "oldName": "ContexteNotation",
+    "newName": "ContextNotation",
+    "kind": "typeAlias",
+    "file": "src/server/steps/candidates.ts",
+    "line": 1138
   },
   {
     "id": 6643,
@@ -15432,6 +16400,14 @@
     "line": 1316
   },
   {
+    "id": 6692,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/candidates.ts",
+    "line": 1328
+  },
+  {
     "id": 6693,
     "oldName": "récupérer",
     "newName": "recover",
@@ -15578,7 +16554,7 @@
   {
     "id": 6720,
     "oldName": "ContexteDétail",
-    "newName": "ContexteDetail",
+    "newName": "ContextDetail",
     "kind": "typeAlias",
     "file": "src/server/steps/candidates.ts",
     "line": 1440
@@ -15602,7 +16578,7 @@
   {
     "id": 6727,
     "oldName": "plafondAbsolu",
-    "newName": "capAbsolu",
+    "newName": "capAbsolute",
     "kind": "interfaceProperty",
     "file": "src/server/steps/candidates.ts",
     "line": 1448
@@ -15742,6 +16718,14 @@
     "kind": "parameter",
     "file": "src/server/steps/candidates.ts",
     "line": 1695
+  },
+  {
+    "id": 6766,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/candidates.ts",
+    "line": 1708
   },
   {
     "id": 6767,
@@ -16448,6 +17432,14 @@
     "line": 582
   },
   {
+    "id": 7047,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/render.ts",
+    "line": 585
+  },
+  {
     "id": 7048,
     "oldName": "brut",
     "newName": "raw",
@@ -16922,7 +17914,7 @@
   {
     "id": 7133,
     "oldName": "collecterMarques",
-    "newName": "collecterMarkers",
+    "newName": "collectMarkers",
     "kind": "function",
     "file": "src/server/steps/render.ts",
     "line": 999
@@ -16966,6 +17958,14 @@
     "kind": "variable",
     "file": "src/server/steps/render.ts",
     "line": 1009
+  },
+  {
+    "id": 7140,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "src/server/steps/render.ts",
+    "line": 1012
   },
   {
     "id": 7143,
@@ -17162,7 +18162,7 @@
   {
     "id": 7189,
     "oldName": "texteActuel",
-    "newName": "textActuel",
+    "newName": "textCurrent",
     "kind": "variable",
     "file": "src/server/steps/render.ts",
     "line": 1289
@@ -17472,6 +18472,14 @@
     "line": 103
   },
   {
+    "id": 7282,
+    "oldName": "transmis",
+    "newName": "forwarded",
+    "kind": "variable",
+    "file": "src/server/steps/transcript.ts",
+    "line": 110
+  },
+  {
     "id": 7283,
     "oldName": "nom",
     "newName": "name",
@@ -17486,6 +18494,14 @@
     "kind": "variable",
     "file": "src/server/steps/transcript.ts",
     "line": 112
+  },
+  {
+    "id": 7285,
+    "oldName": "TRANSMISES",
+    "newName": "FORWARDED",
+    "kind": "variable",
+    "file": "src/server/steps/transcript.ts",
+    "line": 144
   },
   {
     "id": 7286,
@@ -17898,7 +18914,7 @@
   {
     "id": 7458,
     "oldName": "réarmerLeDisjoncteur",
-    "newName": "rearmDisjoncteur",
+    "newName": "rearmCircuitBreaker",
     "kind": "function",
     "file": "src/server/vignettes-sources.ts",
     "line": 287
@@ -18224,12 +19240,28 @@
     "line": 229
   },
   {
+    "id": 7547,
+    "oldName": "lus",
+    "newName": "read",
+    "kind": "variable",
+    "file": "src/server/vues.ts",
+    "line": 231
+  },
+  {
     "id": 7548,
     "oldName": "brut",
     "newName": "raw",
     "kind": "variable",
     "file": "src/server/vues.ts",
     "line": 232
+  },
+  {
+    "id": 7554,
+    "oldName": "CONTEXTE_S",
+    "newName": "CONTEXT_S",
+    "kind": "variable",
+    "file": "src/server/vues.ts",
+    "line": 266
   },
   {
     "id": 7555,
@@ -18768,6 +19800,14 @@
     "line": 30
   },
   {
+    "id": 7676,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "function",
+    "file": "tests/components/clip/apercu-sortie.test.tsx",
+    "line": 37
+  },
+  {
     "id": 7698,
     "oldName": "demander",
     "newName": "request",
@@ -19162,7 +20202,7 @@
   {
     "id": 7845,
     "oldName": "riennEstProduit",
-    "newName": "riennEstProduced",
+    "newName": "nothingEstProduced",
     "kind": "variable",
     "file": "tests/components/clip/panneau-export.test.tsx",
     "line": 45
@@ -19254,6 +20294,14 @@
     "kind": "variable",
     "file": "tests/components/clip/panneau-export.test.tsx",
     "line": 229
+  },
+  {
+    "id": 7868,
+    "oldName": "alerte",
+    "newName": "alert",
+    "kind": "variable",
+    "file": "tests/components/clip/panneau-export.test.tsx",
+    "line": 286
   },
   {
     "id": 7872,
@@ -19592,6 +20640,14 @@
     "line": 198
   },
   {
+    "id": 7985,
+    "oldName": "onSelectionner",
+    "newName": "onSelect",
+    "kind": "bindingElement",
+    "file": "tests/components/clip/transcript-surface.test.tsx",
+    "line": 207
+  },
+  {
     "id": 7986,
     "oldName": "onTerminer",
     "newName": "onFinish",
@@ -19710,6 +20766,14 @@
     "kind": "variable",
     "file": "tests/components/show/transcript-panel.test.tsx",
     "line": 432
+  },
+  {
+    "id": 8208,
+    "oldName": "pousser",
+    "newName": "push",
+    "kind": "variable",
+    "file": "tests/components/sources/library-screen.test.tsx",
+    "line": 27
   },
   {
     "id": 8209,
@@ -19936,6 +21000,14 @@
     "line": 234
   },
   {
+    "id": 8279,
+    "oldName": "alerte",
+    "newName": "alert",
+    "kind": "variable",
+    "file": "tests/components/sources/library.test.tsx",
+    "line": 297
+  },
+  {
     "id": 8297,
     "oldName": "cases",
     "newName": "cells",
@@ -19956,6 +21028,14 @@
     "oldName": "releve",
     "newName": "reading",
     "kind": "function",
+    "file": "tests/components/tri/avancement.test.tsx",
+    "line": 22
+  },
+  {
+    "id": 8307,
+    "oldName": "faites",
+    "newName": "made",
+    "kind": "parameter",
     "file": "tests/components/tri/avancement.test.tsx",
     "line": 22
   },
@@ -19982,6 +21062,22 @@
     "kind": "function",
     "file": "tests/components/tri/avancement.test.tsx",
     "line": 73
+  },
+  {
+    "id": 8320,
+    "oldName": "faites",
+    "newName": "made",
+    "kind": "parameter",
+    "file": "tests/components/tri/avancement.test.tsx",
+    "line": 74
+  },
+  {
+    "id": 8324,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "tests/components/tri/avancement.test.tsx",
+    "line": 76
   },
   {
     "id": 8326,
@@ -20488,6 +21584,14 @@
     "line": 374
   },
   {
+    "id": 8415,
+    "oldName": "tabulables",
+    "newName": "tabbable",
+    "kind": "variable",
+    "file": "tests/components/tri/fil.test.tsx",
+    "line": 391
+  },
+  {
     "id": 8416,
     "oldName": "titre",
     "newName": "title",
@@ -20806,6 +21910,14 @@
     "kind": "variable",
     "file": "tests/components/tri/modele.test.ts",
     "line": 117
+  },
+  {
+    "id": 8463,
+    "oldName": "rien",
+    "newName": "nothing",
+    "kind": "variable",
+    "file": "tests/components/tri/modele.test.ts",
+    "line": 144
   },
   {
     "id": 8464,
@@ -21152,6 +22264,14 @@
     "line": 260
   },
   {
+    "id": 8590,
+    "oldName": "actif",
+    "newName": "active",
+    "kind": "variable",
+    "file": "tests/core/captions.test.ts",
+    "line": 274
+  },
+  {
     "id": 8596,
     "oldName": "champs",
     "newName": "fields",
@@ -21318,6 +22438,14 @@
     "kind": "variable",
     "file": "tests/core/etapes.test.ts",
     "line": 27
+  },
+  {
+    "id": 8665,
+    "oldName": "erreurs",
+    "newName": "errors",
+    "kind": "function",
+    "file": "tests/core/etapes.test.ts",
+    "line": 42
   },
   {
     "id": 8667,
@@ -21718,6 +22846,14 @@
     "kind": "variable",
     "file": "tests/core/framing.test.ts",
     "line": 282
+  },
+  {
+    "id": 8829,
+    "oldName": "empan",
+    "newName": "span",
+    "kind": "variable",
+    "file": "tests/core/framing.test.ts",
+    "line": 307
   },
   {
     "id": 8830,
@@ -22656,6 +23792,14 @@
     "line": 94
   },
   {
+    "id": 9214,
+    "oldName": "inconnue",
+    "newName": "unknown",
+    "kind": "variable",
+    "file": "tests/core/parcours.test.ts",
+    "line": 101
+  },
+  {
     "id": 9215,
     "oldName": "complet",
     "newName": "complete",
@@ -22768,6 +23912,14 @@
     "line": 327
   },
   {
+    "id": 9243,
+    "oldName": "inconnue",
+    "newName": "unknown",
+    "kind": "variable",
+    "file": "tests/core/parcours.test.ts",
+    "line": 335
+  },
+  {
     "id": 9255,
     "oldName": "RÈGLES_DE_PURETÉ",
     "newName": "PURITY_RULES",
@@ -22776,9 +23928,17 @@
     "line": 25
   },
   {
+    "id": 9256,
+    "oldName": "erreurs",
+    "newName": "errors",
+    "kind": "function",
+    "file": "tests/core/purete.test.ts",
+    "line": 31
+  },
+  {
     "id": 9262,
     "oldName": "erreursDePureté",
-    "newName": "purityErreurs",
+    "newName": "purityErrors",
     "kind": "function",
     "file": "tests/core/purete.test.ts",
     "line": 38
@@ -23162,7 +24322,7 @@
   {
     "id": 9452,
     "oldName": "troisHeures",
-    "newName": "threeHeures",
+    "newName": "threeHours",
     "kind": "variable",
     "file": "tests/core/transcript.test.ts",
     "line": 403
@@ -24264,6 +25424,14 @@
     "line": 77
   },
   {
+    "id": 9748,
+    "oldName": "erreurs",
+    "newName": "errors",
+    "kind": "variable",
+    "file": "tests/lib/parcours.test.ts",
+    "line": 78
+  },
+  {
     "id": 9749,
     "oldName": "listes",
     "newName": "lists",
@@ -24286,6 +25454,14 @@
     "kind": "variable",
     "file": "tests/lib/parcours.test.ts",
     "line": 91
+  },
+  {
+    "id": 9754,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/lib/parcours.test.ts",
+    "line": 94
   },
   {
     "id": 9755,
@@ -25096,6 +26272,14 @@
     "line": 457
   },
   {
+    "id": 9974,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/analysis.test.ts",
+    "line": 496
+  },
+  {
     "id": 9976,
     "oldName": "publié",
     "newName": "published",
@@ -25152,12 +26336,28 @@
     "line": 563
   },
   {
+    "id": 9986,
+    "oldName": "commande",
+    "newName": "command",
+    "kind": "variable",
+    "file": "tests/server/analysis.test.ts",
+    "line": 586
+  },
+  {
     "id": 9987,
     "oldName": "publié",
     "newName": "published",
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 594
+  },
+  {
+    "id": 9989,
+    "oldName": "commande",
+    "newName": "command",
+    "kind": "variable",
+    "file": "tests/server/analysis.test.ts",
+    "line": 610
   },
   {
     "id": 9990,
@@ -25182,6 +26382,14 @@
     "kind": "variable",
     "file": "tests/server/analysis.test.ts",
     "line": 639
+  },
+  {
+    "id": 9995,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/analysis.test.ts",
+    "line": 650
   },
   {
     "id": 9997,
@@ -25272,9 +26480,17 @@
     "line": 53
   },
   {
+    "id": 10021,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "function",
+    "file": "tests/server/api.test.ts",
+    "line": 56
+  },
+  {
     "id": 10025,
     "oldName": "contexteRendu",
-    "newName": "contexteRender",
+    "newName": "contextRender",
     "kind": "function",
     "file": "tests/server/api.test.ts",
     "line": 61
@@ -25322,7 +26538,7 @@
   {
     "id": 10037,
     "oldName": "laisserFinir",
-    "newName": "leaveFinir",
+    "newName": "leaveFinish",
     "kind": "function",
     "file": "tests/server/api.test.ts",
     "line": 98
@@ -26384,6 +27600,14 @@
     "line": 187
   },
   {
+    "id": 10208,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/candidates.test.ts",
+    "line": 190
+  },
+  {
     "id": 10210,
     "oldName": "appel",
     "newName": "call",
@@ -26486,6 +27710,14 @@
     "kind": "variable",
     "file": "tests/server/candidates.test.ts",
     "line": 310
+  },
+  {
+    "id": 10226,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/candidates.test.ts",
+    "line": 314
   },
   {
     "id": 10228,
@@ -26798,6 +28030,14 @@
     "kind": "variable",
     "file": "tests/server/candidates.test.ts",
     "line": 743
+  },
+  {
+    "id": 10347,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/candidates.test.ts",
+    "line": 745
   },
   {
     "id": 10349,
@@ -27208,6 +28448,14 @@
     "line": 1432
   },
   {
+    "id": 10450,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/candidates.test.ts",
+    "line": 1433
+  },
+  {
     "id": 10454,
     "oldName": "blocs",
     "newName": "blocks",
@@ -27318,6 +28566,14 @@
     "kind": "variable",
     "file": "tests/server/candidates.test.ts",
     "line": 1709
+  },
+  {
+    "id": 10511,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/candidates.test.ts",
+    "line": 1714
   },
   {
     "id": 10516,
@@ -27446,6 +28702,14 @@
     "kind": "importLocal",
     "file": "tests/server/contrat.test.ts",
     "line": 3
+  },
+  {
+    "id": 10546,
+    "oldName": "Identiques",
+    "newName": "Identical",
+    "kind": "typeAlias",
+    "file": "tests/server/contrat.test.ts",
+    "line": 28
   },
   {
     "id": 10549,
@@ -27640,6 +28904,14 @@
     "line": 576
   },
   {
+    "id": 10602,
+    "oldName": "relus",
+    "newName": "reread",
+    "kind": "variable",
+    "file": "tests/server/db.test.ts",
+    "line": 583
+  },
+  {
     "id": 10606,
     "oldName": "dossier",
     "newName": "folder",
@@ -27770,10 +29042,18 @@
   {
     "id": 10663,
     "oldName": "pendantLEncodage",
-    "newName": "duringLEncodage",
+    "newName": "duringLEncoding",
     "kind": "variable",
     "file": "tests/server/empreinte.test.ts",
     "line": 39
+  },
+  {
+    "id": 10664,
+    "oldName": "encodages",
+    "newName": "encodings",
+    "kind": "variable",
+    "file": "tests/server/empreinte.test.ts",
+    "line": 42
   },
   {
     "id": 10671,
@@ -29136,6 +30416,14 @@
     "line": 58
   },
   {
+    "id": 11142,
+    "oldName": "contexte",
+    "newName": "context",
+    "kind": "function",
+    "file": "tests/server/proxy.test.ts",
+    "line": 60
+  },
+  {
     "id": 11146,
     "oldName": "demander",
     "newName": "request",
@@ -30064,6 +31352,14 @@
     "line": 1142
   },
   {
+    "id": 11346,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/render.test.ts",
+    "line": 1145
+  },
+  {
     "id": 11359,
     "oldName": "attendus",
     "newName": "expected",
@@ -30376,6 +31672,14 @@
     "line": 1574
   },
   {
+    "id": 11467,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "tests/server/render.test.ts",
+    "line": 1577
+  },
+  {
     "id": 11471,
     "oldName": "copie",
     "newName": "copy",
@@ -30534,6 +31838,14 @@
     "kind": "variable",
     "file": "tests/server/run.test.ts",
     "line": 168
+  },
+  {
+    "id": 11518,
+    "oldName": "rien",
+    "newName": "nothing",
+    "kind": "variable",
+    "file": "tests/server/run.test.ts",
+    "line": 225
   },
   {
     "id": 11519,
@@ -30896,6 +32208,14 @@
     "line": 39
   },
   {
+    "id": 11582,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "parameter",
+    "file": "tests/server/secrets.test.ts",
+    "line": 42
+  },
+  {
     "id": 11583,
     "oldName": "valeur",
     "newName": "value",
@@ -30958,6 +32278,14 @@
     "kind": "bindingElement",
     "file": "tests/server/secrets.test.ts",
     "line": 237
+  },
+  {
+    "id": 11626,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/secrets.test.ts",
+    "line": 288
   },
   {
     "id": 11633,
@@ -31038,6 +32366,22 @@
     "kind": "parameter",
     "file": "tests/server/sources.test.ts",
     "line": 299
+  },
+  {
+    "id": 11663,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/sources.test.ts",
+    "line": 303
+  },
+  {
+    "id": 11667,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/sources.test.ts",
+    "line": 344
   },
   {
     "id": 11793,
@@ -31418,10 +32762,18 @@
   {
     "id": 11892,
     "oldName": "avecEspaces",
-    "newName": "withEspaces",
+    "newName": "withSpaces",
     "kind": "variable",
     "file": "tests/server/vignettes-sources.test.ts",
     "line": 663
+  },
+  {
+    "id": 11894,
+    "oldName": "erreur",
+    "newName": "error",
+    "kind": "variable",
+    "file": "tests/server/vignettes-sources.test.ts",
+    "line": 672
   },
   {
     "id": 11897,

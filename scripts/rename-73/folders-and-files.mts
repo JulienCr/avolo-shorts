@@ -24,6 +24,17 @@ export const FOLDER_RENAMES: Array<{ from: string; to: string }> = [
     // de src/lib/parcours.ts (renommé ci-dessous en navigation.ts) — même
     // décision, même mot.
   },
+  {
+    from: "tests/components/tri",
+    to: "tests/components/review",
+    // tests/ reflète src/ fichier pour fichier dans tout ce dépôt (vérifié :
+    // apercu-sortie.test.tsx pour apercu-sortie.tsx, etc.) — laisser ce
+    // dossier-ci en "tri" aurait laissé le mot français que le renommage de
+    // src/components/tri/ visait précisément à faire disparaître. Pas
+    // d'équivalent pour src/components/parcours/ : son unique fichier
+    // (app-bar.tsx) a son test directement sous tests/components/, jamais
+    // dans un sous-dossier "parcours/".
+  },
 ];
 
 export const FILE_RENAMES: Array<{ from: string; to: string }> = [
@@ -89,4 +100,46 @@ export const FILE_RENAMES: Array<{ from: string; to: string }> = [
   { from: "scripts/mesure-ratios.ts", to: "scripts/measure-ratios.ts" },
   { from: "scripts/vignettes-cadrage.ts", to: "scripts/framing-thumbnails.ts" },
   { from: "scripts/vignettes-premier-plan.ts", to: "scripts/foreground-thumbnails.ts" },
+
+  // tests/ — miroir de src/ et scripts/, fichier pour fichier, dans tout ce
+  // dépôt (vérifié). Chaque fichier renommé ci-dessus dont le test porte le
+  // même radical est donc renommé pareil, ici. `session.ts`, `secrets.ts` et
+  // les fichiers sans test (arret, rendus, vues, les scripts de mesure et
+  // de vignettes, ligne-montage, fin-de-boucle) n'ont pas d'entrée : rien à
+  // renommer côté nom, seul le dossier bouge pour ceux qui sont sous
+  // tests/components/tri/ (voir FOLDER_RENAMES).
+  { from: "tests/components/clip/apercu-sortie.test.tsx", to: "tests/components/clip/output-preview.test.tsx" },
+  { from: "tests/components/clip/champs-textes.test.tsx", to: "tests/components/clip/text-fields.test.tsx" },
+  { from: "tests/components/clip/ecran-clip.test.tsx", to: "tests/components/clip/clip-screen.test.tsx" },
+  { from: "tests/components/clip/geste-mot.test.ts", to: "tests/components/clip/word-gesture.test.ts" },
+  { from: "tests/components/clip/lecture.test.ts", to: "tests/components/clip/playback.test.ts" },
+  { from: "tests/components/clip/panneau-export.test.tsx", to: "tests/components/clip/export-panel.test.tsx" },
+  { from: "tests/components/clip/raccourcis.test.tsx", to: "tests/components/clip/shortcuts.test.tsx" },
+  { from: "tests/components/clip/recherche.test.ts", to: "tests/components/clip/search.test.ts" },
+  { from: "tests/components/clip/textes.test.ts", to: "tests/components/clip/texts.test.ts" },
+
+  { from: "tests/components/tri/avancement.test.tsx", to: "tests/components/review/progress.test.tsx" },
+  { from: "tests/components/tri/ecran-projet.test.tsx", to: "tests/components/review/project-screen.test.tsx" },
+  { from: "tests/components/tri/fil.test.tsx", to: "tests/components/review/feed.test.tsx" },
+  { from: "tests/components/tri/modele.test.ts", to: "tests/components/review/template.test.ts" },
+  { from: "tests/components/tri/raccourcis.test.tsx", to: "tests/components/review/shortcuts.test.tsx" },
+  { from: "tests/components/tri/relance.test.tsx", to: "tests/components/review/retry.test.tsx" },
+
+  { from: "tests/components/sources/textes.test.ts", to: "tests/components/sources/texts.test.ts" },
+
+  { from: "tests/core/erreurs.test.ts", to: "tests/core/errors.test.ts" },
+  // "la phase d'un projet" — pas tests/lib/parcours.test.ts, ci-dessous,
+  // qui teste la navigation par fil d'Ariane (deux fichiers "parcours",
+  // deux sens, déjà séparés côté src/).
+  { from: "tests/core/parcours.test.ts", to: "tests/core/phase.test.ts" },
+
+  { from: "tests/lib/enregistrement.test.ts", to: "tests/lib/autosave.test.ts" },
+  { from: "tests/lib/enregistrement-auto.test.tsx", to: "tests/lib/autosave-auto.test.tsx" },
+  { from: "tests/lib/parcours.test.ts", to: "tests/lib/navigation.test.ts" },
+
+  { from: "tests/server/erreurs.test.ts", to: "tests/server/errors.test.ts" },
+  { from: "tests/server/octets.test.ts", to: "tests/server/bytes.test.ts" },
+  { from: "tests/server/vignettes-sources.test.ts", to: "tests/server/source-thumbnails.test.ts" },
+
+  { from: "tests/scripts/dev-commun.test.ts", to: "tests/scripts/dev-common.test.ts" },
 ];

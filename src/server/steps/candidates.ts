@@ -1569,7 +1569,9 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
  * **La note du détail n'a pas le barème ancré de la notation** (voir
  * `scorePrompt`) : deux sous-requêtes ne s'étalonnent pas l'une sur l'autre, et
  * les comparer reste une approximation. C'en est une bien meilleure que l'ordre
- * d'arrivée, qui ne dit rien d'autre que « plus tôt dans le transcript ».
+ * d'arrivée, qui ne dit rien d'autre que « la notation avait mis cette fenêtre
+ * plus haut », c'est-à-dire un jugement rendu sur 90 secondes de prose avant que
+ * le moindre clip n'ait été délimité. (relevé par Copilot)
  *
  * Le classement s'applique **même sans plafond**, où il ne coûte rien : la base
  * fait autorité et `getClips` trie par passe puis par identifiant, donc seul

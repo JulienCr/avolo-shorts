@@ -314,7 +314,7 @@ export function parseDetailResponse(
     const lu = SCHÉMA_CLIP.safeParse(entrée)
     if (!lu.success) continue
     lisibles += 1
-    const { start, end, predicted_score: note } = lu.data
+    const { start, end, predicted_score: score } = lu.data
     const [début, fin] = snapToWords(start, end, words, videoDuration)
     if (début < 0 || fin > videoDuration || fin <= début) continue
     if (!blocks.some((b) => début < b.end && fin > b.start)) continue
@@ -322,8 +322,8 @@ export function parseDetailResponse(
     clips.push({
       // Ramenée dans le barème plutôt que jetée, comme la note d'une fenêtre :
       // un 130 dit que le modèle tient ce clip pour excellent.
-      predictedScore: note === undefined ? 0 : Math.min(100, Math.max(0, Math.round(note))),
-      scored: note !== undefined,
+      predictedScore: score === undefined ? 0 : Math.min(100, Math.max(0, Math.round(score))),
+      scored: score !== undefined,
       clip: {
         id: clipId(projectId, début, fin),
         projectId,

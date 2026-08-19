@@ -29,7 +29,7 @@ const MOUNTED: SourcesListing['montage'] = {
   disponible: true,
   cause: null,
   fstype: '9p',
-  entrées: 3,
+  entries: 3,
 }
 
 function source(name: string, projectId: string | null = null): Source {
@@ -263,7 +263,7 @@ describe('les états d’écran', () => {
     // montrait des cartes et se taisait sur la cause. (relevé par Copilot)
     renderGrid({
       entries: buildLibrary([], [project('a')], false),
-      mount: { disponible: false, cause: 'muet', fstype: '9p', entrées: 0 },
+      mount: { disponible: false, cause: 'silent', fstype: '9p', entries: 0 },
     })
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByText(/Replay inconnu/)).toBeTruthy()
@@ -284,7 +284,7 @@ describe('les états d’écran', () => {
     renderGrid({
       entries: [],
       projects: [],
-      mount: { disponible: false, cause, fstype: null, entrées: 0 },
+      mount: { disponible: false, cause, fstype: null, entries: 0 },
     })
     expect(screen.getByText('Le dossier des replays n’existe pas à ce chemin.')).toBeTruthy()
     expect(screen.queryByRole('tab')).toBeNull()

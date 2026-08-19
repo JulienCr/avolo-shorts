@@ -106,7 +106,7 @@ function selonLaCause(cause: CauseIndisponible, fstype: string | null): {
             ? `Le partage ${MONTAGE_ATTENDU} répond : c’est donc le chemin qui est faux. Vérifier REPLAY_DIR.`
             : `${relevé(fstype)} Vérifier REPLAY_DIR, puis le partage : ${abaisser(REPARATION)}`,
       }
-    case 'refusé':
+    case 'denied':
       return {
         titre: 'La lecture du dossier des replays est refusée.',
         // **Le dossier, ou l'un de ses fichiers**, et la nuance n'est pas de la
@@ -117,12 +117,12 @@ function selonLaCause(cause: CauseIndisponible, fstype: string | null): {
         detail:
           'Les droits refusent le dossier, ou l’un des fichiers qu’il contient. Vérifier les droits sur REPLAY_DIR et sur son contenu.',
       }
-    case 'muet':
+    case 'silent':
       return {
         titre: 'Le dossier des replays ne répond pas.',
         detail: `Le partage est monté mais n’a rien rendu dans le temps imparti : son transport est mort dessous, et /proc/mounts ne le distingue pas d’un partage sain. ${REPARATION}`,
       }
-    case 'illisible':
+    case 'unreadable':
       return {
         titre: 'Le dossier des replays n’a pas pu être lu.',
         detail: `Le système de fichiers a rendu une erreur que le serveur ne sait pas nommer. ${relevé(fstype)} ${REPARATION}`,
@@ -141,23 +141,23 @@ function diagnostic(montage: SourcesListing['montage']) {
 
   // **`disponible: false` sans cause ne peut pas arriver**, et le dire ici plutôt
   // que de l'affirmer dans un type revient au même pour deux lignes : le serveur
-  // pose les deux ensemble. Si jamais l'un survivait sans l'autre, `illisible`
+  // pose les deux ensemble. Si jamais l'un survivait sans l'autre, `unreadable`
   // est la seule case qui ne mente pas.
   if (!montage.disponible) {
     return {
       grave: true,
       icone: <TriangleAlert aria-hidden />,
-      ...selonLaCause('illisible', montage.fstype),
+      ...selonLaCause('unreadable', montage.fstype),
     }
   }
 
-  if (montage.entrées > 0) {
+  if (montage.entries > 0) {
     return {
       grave: false,
       icone: <FolderOpen aria-hidden />,
       titre: 'Aucune vidéo dans le dossier des replays.',
       detail: `${relevé(montage.fstype)} Il contient ${pluriel(
-        montage.entrées,
+        montage.entries,
         'entrée',
         'entrées',
       )}, mais aucune ne porte une extension de vidéo.`,

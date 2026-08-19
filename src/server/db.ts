@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
-import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
+import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import { LLM_PROVIDERS, type AiSettings, type Settings } from '@/lib/api'
 import { DEFAULT_MODEL } from '@/server/llm/defaults'
 import { projectsDir } from '@/server/paths'
@@ -107,7 +107,11 @@ CREATE TABLE IF NOT EXISTS clips (
 -- sur \`pass, id\`. Un index sur la seule colonne \`projectId\` laissait SQLite
 -- trier en mémoire. Le volume est négligeable et le restera, mais l'index coûte
 -- le même geste à écrire. (relevé par Aristarque)
-CREATE INDEX IF NOT EXISTS clips_par_projet ON clips(projectId, pass, id);
+--
+-- Nommé \`clips_by_project\` : c'était le seul objet de schéma en français
+-- (\`clips_par_projet\`), et \`migrer\` ci-dessous le renomme sur une base qui le
+-- porte encore.
+CREATE INDEX IF NOT EXISTS clips_by_project ON clips(projectId, pass, id);
 
 -- Les réglages, en clé/valeur et en portée unique : voir \`getRéglages\`.
 CREATE TABLE IF NOT EXISTS settings (
@@ -149,6 +153,68 @@ function migrer(db: Database.Database): void {
   if (colonnes.includes('seq')) {
     db.exec('ALTER TABLE clips DROP COLUMN seq')
   }
+  // L'index composite est désormais `clips_by_project` (issue #73). Le SCHÉMA
+  // ci-dessus l'a déjà créé sous ce nom au moment où `migrer` s'exécute ; sur
+  // une base qui portait encore l'ancien, `clips_par_projet`, les deux
+  // coexisteraient sans qu'aucune erreur ne le signale — deux index sur les
+  // mêmes colonnes, l'un mort. Aucune donnée n'est touchée, seul le schéma.
+  db.exec('DROP INDEX IF EXISTS clips_par_projet')
+}
+
+/**
+ * Les cinq champs de la famille `selection`, de leur ancien nom français vers
+ * le nouveau nom anglais. Voir `migrateSelectionSettingKeys`.
+ */
+const LEGACY_SELECTION_KEYS: Readonly<Record<string, string>> = {
+  minutesParClip: 'minutesPerClip',
+  fenetresParClip: 'windowsPerClip',
+  clipsMinimum: 'minimumClips',
+  fenetresMinimum: 'minimumWindows',
+  clipsMaximum: 'maximumClips',
+}
+
+/**
+ * Renomme en place les clés `selection.<ancien-champ>` vers
+ * `selection.<nouveau-champ>`, en conservant la valeur et l'horodatage.
+ *
+ * **Il n'existe pas de table de migrations ici** (voir `migrer`, qui traite
+ * `clips` de la même façon) : le contrôle porte sur la présence de l'ancienne
+ * clé, ce qui rend l'opération idempotente — la relancer sur une base déjà
+ * migrée, ou sur une base neuve qui n'a jamais connu l'ancien nom, ne fait
+ * rien.
+ *
+ * **Sans ce passage, une base existante retomberait sur les défauts sans un
+ * mot.** `parseSetting` ignore une clé qu'il ne reconnaît pas — c'est son
+ * contrat, voir plus haut —, et `selection.minutesParClip` orpheline
+ * deviendrait indiscernable d'un réglage jamais posé. Le cas le plus cher est
+ * `maximumClips` : sa valeur signifiante est `0` (« aucun plafond »), et ce
+ * zéro-là disparaîtrait aussi silencieusement qu'un autre.
+ *
+ * **La nouvelle clé fait autorité si elle existe déjà** — une base migrée
+ * deux fois, ou réglée entre-temps sous le nouveau nom par un processus plus
+ * récent — et l'ancienne est simplement effacée sans écraser sa valeur.
+ */
+function migrateSelectionSettingKeys(db: Database.Database): void {
+  const rows = db
+    .prepare(`SELECT key, value, updatedAt FROM settings WHERE key LIKE 'selection.%'`)
+    .all() as { key: string; value: string; updatedAt: number }[]
+  const byKey = new Map(rows.map((row) => [row.key, row]))
+  const insertIfMissing = db.prepare(
+    `INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING`,
+  )
+  const remove = db.prepare('DELETE FROM settings WHERE key = ?')
+  db.transaction(() => {
+    for (const [oldName, newName] of Object.entries(LEGACY_SELECTION_KEYS)) {
+      const oldKey = `selection.${oldName}`
+      const oldRow = byKey.get(oldKey)
+      if (oldRow === undefined) continue
+      const newKey = `selection.${newName}`
+      if (!byKey.has(newKey)) {
+        insertIfMissing.run(newKey, oldRow.value, oldRow.updatedAt)
+      }
+      remove.run(oldKey)
+    }
+  })()
 }
 
 /**
@@ -170,6 +236,7 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   db.pragma('foreign_keys = ON')
   db.exec(SCHÉMA)
   migrer(db)
+  migrateSelectionSettingKeys(db)
   return db
 }
 
@@ -221,10 +288,12 @@ export function closeDb(): void {
  * avec `sqlite3`, et le dépôt est public. Un test tient la règle en refusant
  * qu'un champ du registre porte un nom de secret.
  *
- * **Les noms des cinq champs de repérage restent français**, seule entorse à la
- * règle de langue de `CLAUDE.md` : ils sont persistés en clés `selection.<champ>`
- * dans la table, donc les traduire demande une migration. Ils partiront avec le
- * reste de la dette, issue #73. Tout le reste de ce bloc est neuf, donc anglais.
+ * **Les noms des cinq champs de repérage sont désormais anglais**, comme le
+ * reste des identifiants (`CLAUDE.md`). Ils étaient restés français parce
+ * qu'ils sont persistés en clés `selection.<champ>` dans la table, et que les
+ * traduire demandait une migration — voir `migrateSelectionSettingKeys` plus
+ * bas, qui la porte. Ce champ de la dette de l'issue #73 est soldé ; le reste
+ * suit dans une PR séparée.
  */
 
 /** Ce qu'un réglage sait être. Une famille nouvelle en ajoute au besoin. */
@@ -241,7 +310,7 @@ export type SettingField = {
    * Le plus petit entier acceptable. **Entiers seulement**, et absent ailleurs.
    *
    * Un seul champ y met zéro, et c'est là sa valeur signifiante :
-   * `clipsMaximum` à zéro veut dire « aucun plafond ». Partout ailleurs zéro est
+   * `maximumClips` à zéro veut dire « aucun plafond ». Partout ailleurs zéro est
    * une saisie ratée — une durée nulle par clip diviserait par zéro, un ratio
    * nul viderait la présélection.
    */
@@ -282,13 +351,13 @@ export type SettingField = {
  * ajout, et le réglage qui manquerait ne serait jamais relu.
  */
 const SELECTION_FIELDS: readonly SettingField[] = (
-  Object.keys(DIMENSIONS_PAR_DÉFAUT) as (keyof DimensionsRepérage)[]
+  Object.keys(DEFAULT_SELECTION_DIMENSIONS) as (keyof SelectionDimensions)[]
 ).map((name) => ({
   family: 'selection' as const,
   name,
   type: 'integer' as const,
-  defaultValue: DIMENSIONS_PAR_DÉFAUT[name],
-  min: name === 'clipsMaximum' ? 0 : 1,
+  defaultValue: DEFAULT_SELECTION_DIMENSIONS[name],
+  min: name === 'maximumClips' ? 0 : 1,
 }))
 
 /**
@@ -531,9 +600,9 @@ export function effectiveSettings(db: Database.Database): Settings {
   const stored = new Map(rows.map((row) => [row.key, row.value]))
 
   const families = {
-    selection: { ...DIMENSIONS_PAR_DÉFAUT },
+    selection: { ...DEFAULT_SELECTION_DIMENSIONS },
     // Dérivé de `AI_FIELDS`, comme `SELECTION_FIELDS` l'est de
-    // `DIMENSIONS_PAR_DÉFAUT` : une seconde liste de défauts tenue à la main
+    // `DEFAULT_SELECTION_DIMENSIONS` : une seconde liste de défauts tenue à la main
     // diverge du registre au premier champ ajouté.
     ai: Object.fromEntries(AI_FIELDS.map((f) => [f.name, f.defaultValue])) as unknown as AiSettings,
   }
@@ -556,7 +625,7 @@ export function effectiveSettings(db: Database.Database): Settings {
  * de lire la même table finiraient par ne plus s'accorder sur ce qu'une valeur
  * corrompue vaut.
  */
-export function getRéglages(db: Database.Database): DimensionsRepérage {
+export function getRéglages(db: Database.Database): SelectionDimensions {
   return effectiveSettings(db).selection
 }
 
@@ -623,7 +692,7 @@ export function applySettings(db: Database.Database, patch: unknown): Settings {
  */
 export function setRéglage(
   db: Database.Database,
-  champ: keyof DimensionsRepérage,
+  champ: keyof SelectionDimensions,
   valeur: number,
 ): void {
   applySettings(db, { selection: { [champ]: valeur } })

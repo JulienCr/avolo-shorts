@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { clipEligibilityFromStatus } from '@/core/publication'
 import type { ClipStatus } from '@/core/edl'
 import { compter } from '@/core/parcours'
-import type { BilanRepérage, CandidateClip } from '@/lib/api'
+import type { SelectionReport, CandidateClip } from '@/lib/api'
 import { basculerStatut, type Decision } from '@/lib/clip-status'
 import { formatDuration } from '@/lib/format'
 import type { Suite } from '@/lib/parcours'
@@ -77,7 +77,7 @@ export function FilDeTri({
   /** Le proxy est-il là ? Il commande les vignettes et l'ouverture du montage. */
   proxyPret: boolean
   /** Ce que le repérage n'a pas jugé, ou `null`. Voir `motDuRepérage`. */
-  bilan: BilanRepérage | null
+  bilan: SelectionReport | null
   /**
    * L'issue de la phase, calculée par la page.
    *

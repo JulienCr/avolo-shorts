@@ -5,7 +5,7 @@ import {
   anchor,
   buildWindows,
   clipCountTargets,
-  DIMENSIONS_PAR_DÉFAUT,
+  DEFAULT_SELECTION_DIMENSIONS,
   mergeOverlappingWindows,
   secondesDeParole,
   shortlistSize,
@@ -312,49 +312,49 @@ describe('clipCountTargets', () => {
   // minimum qu'on lui donne. Les utilisateurs qui recevaient 1 à 3 clips
   // revenaient 0,4 % du temps contre 16 % pour ceux qui en recevaient 4 à 9.
   it('suit la durée de parole, un clip toutes les six minutes par défaut', () => {
-    expect(clipCountTargets(CQLP.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(13)
-    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(15)
-    expect(clipCountTargets(min(180), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(30)
+    expect(clipCountTargets(CQLP.parole, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(13)
+    expect(clipCountTargets(ENTRE_NOUS.parole, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(15)
+    expect(clipCountTargets(min(180), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(30)
   })
 
   // Le défaut qui a motivé tout ce changement : la cible était `[6, 12]` pour
   // toute source de plus de dix minutes, capsule comme live de deux heures.
   it('ne sature plus : deux durées différentes donnent deux cibles différentes', () => {
-    const court = clipCountTargets(min(30), DIMENSIONS_PAR_DÉFAUT)
-    const long = clipCountTargets(min(120), DIMENSIONS_PAR_DÉFAUT)
+    const court = clipCountTargets(min(30), DEFAULT_SELECTION_DIMENSIONS)
+    const long = clipCountTargets(min(120), DEFAULT_SELECTION_DIMENSIONS)
     expect(long[0]).toBeGreaterThan(court[0])
     expect(long[1]).toBeGreaterThan(court[1])
   })
 
   it('le plancher absolu tient les sources courtes hors de la zone morte', () => {
     // Un quart d'heure de parole ne vaut que trois clips au prorata, une
-    // demi-heure cinq : `clipsMinimum` prend le relais, et c'est la mesure de
+    // demi-heure cinq : `minimumClips` prend le relais, et c'est la mesure de
     // rétention qui le justifie.
-    expect(clipCountTargets(min(15), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(6)
-    expect(clipCountTargets(min(30), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(6)
+    expect(clipCountTargets(min(15), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(6)
+    expect(clipCountTargets(min(30), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(6)
     // Au-delà, le prorata reprend la main.
-    expect(clipCountTargets(min(45), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(8)
+    expect(clipCountTargets(min(45), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(8)
   })
 
   it('les créneaux tiennent les sources trop courtes pour ce plancher', () => {
     // 90 secondes ne portent qu'un créneau : six clips n'auraient aucun support.
-    expect(clipCountTargets(90, DIMENSIONS_PAR_DÉFAUT)[0]).toBe(1)
-    expect(clipCountTargets(min(5), DIMENSIONS_PAR_DÉFAUT)[0]).toBe(3)
+    expect(clipCountTargets(90, DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(1)
+    expect(clipCountTargets(min(5), DEFAULT_SELECTION_DIMENSIONS)[0]).toBe(3)
   })
 
   // Ne plafonner que le plancher laissait le plafond repartir au-dessus : un
   // maximum de 10 rendait `[10, 15]`, et le prompt autorisait toujours quinze
   // clips. Le tuple entier est vérifié, pas seulement sa première borne.
   // (relevé par Codex et Copilot)
-  it('clipsMaximum borne les deux bornes, et zéro veut dire aucune', () => {
-    const borné = { ...DIMENSIONS_PAR_DÉFAUT, clipsMaximum: 10 }
+  it('maximumClips borne les deux bornes, et zéro veut dire aucune', () => {
+    const borné = { ...DEFAULT_SELECTION_DIMENSIONS, maximumClips: 10 }
     expect(clipCountTargets(ENTRE_NOUS.parole, borné)).toEqual([10, 10])
-    expect(clipCountTargets(ENTRE_NOUS.parole, DIMENSIONS_PAR_DÉFAUT)).toEqual([15, 23])
+    expect(clipCountTargets(ENTRE_NOUS.parole, DEFAULT_SELECTION_DIMENSIONS)).toEqual([15, 23])
     // Le plafond ne descend jamais sous le plancher, quel que soit le maximum.
     for (let max = 1; max <= 40; max++) {
       const [bas, haut] = clipCountTargets(ENTRE_NOUS.parole, {
-        ...DIMENSIONS_PAR_DÉFAUT,
-        clipsMaximum: max,
+        ...DEFAULT_SELECTION_DIMENSIONS,
+        maximumClips: max,
       })
       expect(bas).toBeLessThanOrEqual(haut)
       expect(haut).toBeLessThanOrEqual(max)
@@ -362,29 +362,29 @@ describe('clipCountTargets', () => {
   })
 
   it('le rendement se règle', () => {
-    const dense = { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 }
-    const sobre = { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 12 }
+    const dense = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 }
+    const sobre = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 12 }
     expect(clipCountTargets(ENTRE_NOUS.parole, dense)[0]).toBe(22)
     expect(clipCountTargets(ENTRE_NOUS.parole, sobre)[0]).toBe(7)
   })
 
   it('le plancher ne dépasse jamais le plafond', () => {
     for (let m = 0; m <= 240; m += 3) {
-      const [bas, haut] = clipCountTargets(min(m), DIMENSIONS_PAR_DÉFAUT)
+      const [bas, haut] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
       expect(bas).toBeLessThanOrEqual(haut)
     }
   })
 
   it('une entrée dégénérée ne casse rien', () => {
     for (const parole of [0, -5, NaN, Infinity]) {
-      const [bas, haut] = clipCountTargets(parole, DIMENSIONS_PAR_DÉFAUT)
+      const [bas, haut] = clipCountTargets(parole, DEFAULT_SELECTION_DIMENSIONS)
       expect(bas).toBeGreaterThanOrEqual(1)
       expect(haut).toBeGreaterThanOrEqual(bas)
     }
   })
 
   it('un réglage absurde ne divise pas par zéro', () => {
-    const cassé = { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 0 }
+    const cassé = { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 0 }
     const [bas, haut] = clipCountTargets(ENTRE_NOUS.parole, cassé)
     expect(Number.isFinite(bas)).toBe(true)
     expect(haut).toBeGreaterThanOrEqual(bas)
@@ -393,17 +393,17 @@ describe('clipCountTargets', () => {
 
 describe('shortlistSize', () => {
   it('suit le plancher de clips, à raison de deux fenêtres par clip', () => {
-    expect(shortlistSize(CQLP.parole, CQLP.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(26)
-    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBe(30)
+    expect(shortlistSize(CQLP.parole, CQLP.fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBe(26)
+    expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBe(30)
   })
 
   // Le plafond plat de 24 est retiré : c'est lui qui faisait examiner un quart
   // de la matière d'un 1 h 51 et la même chose d'un trois heures.
   it('ne sature plus au-delà de deux heures', () => {
-    const troisHeures = shortlistSize(min(180), 154, DIMENSIONS_PAR_DÉFAUT)
+    const troisHeures = shortlistSize(min(180), 154, DEFAULT_SELECTION_DIMENSIONS)
     expect(troisHeures).toBe(60)
     expect(troisHeures).toBeGreaterThan(
-      shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DIMENSIONS_PAR_DÉFAUT),
+      shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, DEFAULT_SELECTION_DIMENSIONS),
     )
   })
 
@@ -411,34 +411,34 @@ describe('shortlistSize', () => {
     for (let m = 0; m <= 240; m += 3) {
       // Une fenêtre tous les ~70 s, mesuré sur les deux émissions.
       const fenêtres = Math.max(1, Math.round(min(m) / 70))
-      expect(shortlistSize(min(m), fenêtres, DIMENSIONS_PAR_DÉFAUT)).toBeLessThanOrEqual(fenêtres)
+      expect(shortlistSize(min(m), fenêtres, DEFAULT_SELECTION_DIMENSIONS)).toBeLessThanOrEqual(fenêtres)
     }
   })
 
-  // Le plancher de dix ne mord que sous le produit `clipsMinimum ×
-  // fenetresParClip`, qui vaut douze : le nommer « plancher de dix » figerait
+  // Le plancher de dix ne mord que sous le produit `minimumClips ×
+  // windowsPerClip`, qui vaut douze : le nommer « plancher de dix » figerait
   // une règle que la fonction n'applique pas. (relevé par Copilot)
-  it('les sources courtes suivent le plancher de clips, pas fenetresMinimum', () => {
-    expect(shortlistSize(min(15), 13, DIMENSIONS_PAR_DÉFAUT)).toBe(12)
+  it('les sources courtes suivent le plancher de clips, pas minimumWindows', () => {
+    expect(shortlistSize(min(15), 13, DEFAULT_SELECTION_DIMENSIONS)).toBe(12)
     // Moins de fenêtres que le plancher : c'est le réel qui gagne.
-    expect(shortlistSize(min(15), 4, DIMENSIONS_PAR_DÉFAUT)).toBe(4)
+    expect(shortlistSize(min(15), 4, DEFAULT_SELECTION_DIMENSIONS)).toBe(4)
   })
 
-  it('fenetresMinimum reprend la main quand le produit descend sous lui', () => {
-    const étroit = { ...DIMENSIONS_PAR_DÉFAUT, fenetresParClip: 1 }
+  it('minimumWindows reprend la main quand le produit descend sous lui', () => {
+    const étroit = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 1 }
     // Six clips à une fenêtre chacun ne feraient que six fenêtres examinées.
     expect(shortlistSize(min(15), 13, étroit)).toBe(10)
   })
 
-  it('fenetresParClip règle la largeur de l examen', () => {
-    const large = { ...DIMENSIONS_PAR_DÉFAUT, fenetresParClip: 4 }
+  it('windowsPerClip règle la largeur de l examen', () => {
+    const large = { ...DEFAULT_SELECTION_DIMENSIONS, windowsPerClip: 4 }
     expect(shortlistSize(ENTRE_NOUS.parole, ENTRE_NOUS.fenêtres, large)).toBe(60)
   })
 
   it('une entrée dégénérée ne casse rien', () => {
-    expect(shortlistSize(0, 0, DIMENSIONS_PAR_DÉFAUT)).toBe(1)
-    expect(shortlistSize(NaN, -5, DIMENSIONS_PAR_DÉFAUT)).toBe(1)
-    expect(shortlistSize(min(120), NaN, DIMENSIONS_PAR_DÉFAUT)).toBe(1)
+    expect(shortlistSize(0, 0, DEFAULT_SELECTION_DIMENSIONS)).toBe(1)
+    expect(shortlistSize(NaN, -5, DEFAULT_SELECTION_DIMENSIONS)).toBe(1)
+    expect(shortlistSize(min(120), NaN, DEFAULT_SELECTION_DIMENSIONS)).toBe(1)
   })
 
   // L'invariant qui compte pour la suite : la présélection doit toujours offrir
@@ -447,8 +447,8 @@ describe('shortlistSize', () => {
   it('offre toujours au moins autant de fenêtres que de clips demandés', () => {
     for (let m = 3; m <= 240; m += 3) {
       const fenêtres = Math.max(1, Math.round(min(m) / 70))
-      const retenues = shortlistSize(min(m), fenêtres, DIMENSIONS_PAR_DÉFAUT)
-      const [plancher] = clipCountTargets(min(m), DIMENSIONS_PAR_DÉFAUT)
+      const retenues = shortlistSize(min(m), fenêtres, DEFAULT_SELECTION_DIMENSIONS)
+      const [plancher] = clipCountTargets(min(m), DEFAULT_SELECTION_DIMENSIONS)
       expect(retenues).toBeGreaterThanOrEqual(Math.min(plancher, fenêtres))
     }
   })

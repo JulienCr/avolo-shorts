@@ -191,17 +191,17 @@ describe('bilanDeRepérage', () => {
 
   it('publie les décomptes, jamais la liste des identifiants', () => {
     expect(bilanDeRepérage(bilan, 'fait')).toEqual({
-      fenêtres: 83,
-      notées: 51,
-      lotsRefusés: 4,
-      lotsRépondus: 7,
-      couverture: 0.6412,
-      partiel: false,
+      windows: 83,
+      scored: 51,
+      rejectedBatches: 4,
+      respondedBatches: 7,
+      coverage: 0.6412,
+      partial: false,
     })
   })
 
   it('marque partiel un repérage qui a échoué', () => {
-    expect(bilanDeRepérage(bilan, 'échoué')?.partiel).toBe(true)
+    expect(bilanDeRepérage(bilan, 'échoué')?.partial).toBe(true)
   })
 
   /**
@@ -209,7 +209,7 @@ describe('bilanDeRepérage', () => {
    * provisoire, et le dire est précisément le rôle de ce drapeau.
    */
   it('marque partiel un repérage en cours', () => {
-    expect(bilanDeRepérage(bilan, 'en cours')?.partiel).toBe(true)
+    expect(bilanDeRepérage(bilan, 'en cours')?.partial).toBe(true)
   })
 
   /**
@@ -217,7 +217,7 @@ describe('bilanDeRepérage', () => {
    * l'exécution ne l'est pas encore.
    */
   it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
-    expect(bilanDeRepérage(bilan, 'fait')?.partiel).toBe(false)
+    expect(bilanDeRepérage(bilan, 'fait')?.partial).toBe(false)
   })
 })
 
@@ -628,6 +628,78 @@ describe('status.json', () => {
     // rien à y faire, même quand elle vient d'un message de ffmpeg.
     expect(statut?.error).not.toContain(racine)
     expect(statut?.error).toContain('…/x.mp4')
+  })
+
+  /**
+   * **La lecture tolérante des anciens noms** (issue #73). `status.json` n'a
+   * pas de migration de fichiers — voir `statusFromJSON` dans
+   * `src/server/run.ts`, qui explique pourquoi une lecture tolérante suffit
+   * ici là où la table `settings` en a une pour de bon. Un fichier écrit par
+   * une version d'avant cette PR porte encore `cibles` et `repérage`, avec les
+   * six champs du bilan sous leurs noms français : `lireStatut` doit les
+   * retrouver sous `targets` et `selectionReport`, sans qu'un redémarrage du
+   * serveur ne les efface silencieusement de l'écran de projet.
+   */
+  it('relit un `status.json` écrit avant la traduction des clés, bilan compris', () => {
+    poserProjet()
+    const dir = path.join(racine, 'projects', PROJET)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'status.json'),
+      JSON.stringify({
+        pid: 1,
+        updatedAt: 0,
+        cibles: ['candidates', 'proxy'],
+        plan: ['candidates', 'proxy'],
+        running: null,
+        error: null,
+        finishedAt: 1,
+        stopped: false,
+        repérage: {
+          fenêtres: 83,
+          notées: 51,
+          lotsRefusés: 4,
+          lotsRépondus: 7,
+          couverture: 0.6412,
+          partiel: false,
+        },
+      }),
+    )
+
+    const status = lireStatut(PROJET)
+    expect(status?.targets).toEqual(['candidates', 'proxy'])
+    expect(status?.selectionReport).toEqual({
+      windows: 83,
+      scored: 51,
+      rejectedBatches: 4,
+      respondedBatches: 7,
+      coverage: 0.6412,
+      partial: false,
+    })
+  })
+
+  it('relit un `status.json` écrit avant la traduction quand le repérage n’a rien à dire', () => {
+    poserProjet()
+    const dir = path.join(racine, 'projects', PROJET)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, 'status.json'),
+      JSON.stringify({
+        pid: 1,
+        updatedAt: 0,
+        cibles: ['candidates'],
+        plan: ['candidates'],
+        running: null,
+        error: null,
+        finishedAt: 1,
+        stopped: false,
+        repérage: null,
+      }),
+    )
+
+    const status = lireStatut(PROJET)
+    expect(status?.targets).toEqual(['candidates'])
+    expect(status?.selectionReport).toBeNull()
   })
 })
 

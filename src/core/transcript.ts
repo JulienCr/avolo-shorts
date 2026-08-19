@@ -15,7 +15,7 @@
  * Un second écart, structurant : **`shortlistSize` et `clipCountTargets` ne
  * viennent plus de la source.** Leurs plafonds plats donnaient la même consigne
  * à une capsule de dix minutes et à un live de deux heures ; ils se calculent
- * désormais sur la durée de parole et sur `DimensionsRepérage`. L'écart
+ * désormais sur la durée de parole et sur `SelectionDimensions`. L'écart
  * d'arrondi avec le `round` de Python qui était documenté ici a disparu avec la
  * formule qui le portait.
  *
@@ -23,7 +23,7 @@
  * `CLIP_TARGET_MIN`/`MAX`, pour ses campagnes A/B) ne sont toujours pas
  * portées : elles lisent `process.env`, ce que la frontière de pureté de
  * `src/core` interdit — un calcul qui dépend de l'environnement qui l'exécute
- * n'est pas reproductible en test. Le réglage passe par `DimensionsRepérage`,
+ * n'est pas reproductible en test. Le réglage passe par `SelectionDimensions`,
  * que l'appelant lit en base et **transmet** : la valeur est configurable sans
  * que le calcul cesse d'être pur.
  */
@@ -303,17 +303,17 @@ export function secondesDeParole(tx: Transcript): number {
  * soi-même, et c'est ce qui rend les deux fonctions ci-dessous testables sans
  * base ni environnement.
  */
-export type DimensionsRepérage = {
+export type SelectionDimensions = {
   /** Une proposition attendue par tranche de tant de minutes de parole. */
-  minutesParClip: number
+  minutesPerClip: number
   /** Combien de fenêtres sont examinées pour chaque clip demandé. */
-  fenetresParClip: number
+  windowsPerClip: number
   /** Plancher absolu de clips, pour que les sources courtes sortent de la zone morte. */
-  clipsMinimum: number
+  minimumClips: number
   /** Plancher absolu de fenêtres examinées. */
-  fenetresMinimum: number
+  minimumWindows: number
   /** Plafond absolu de clips. `0` veut dire « aucun ». */
-  clipsMaximum: number
+  maximumClips: number
 }
 
 /**
@@ -324,7 +324,7 @@ export type DimensionsRepérage = {
  * là-bas obligerait ce fichier — et ses tests — à dépendre du serveur pour
  * connaître son propre comportement nominal.
  */
-export const DIMENSIONS_PAR_DÉFAUT: DimensionsRepérage = {
+export const DEFAULT_SELECTION_DIMENSIONS: SelectionDimensions = {
   // Six et non sept, et le chiffre a une histoire : sept avait été arrêté sur
   // une mesure qui prenait l'écart du premier mot au dernier pour de la parole,
   // donc sur 21 % de matière qui n'existe pas. `secondesDeParole` a corrigé la
@@ -332,11 +332,11 @@ export const DIMENSIONS_PAR_DÉFAUT: DimensionsRepérage = {
   // sur la fausse — 15 clips pour `2026-22-02-entre-nous`, 13 pour
   // `2025-06-15-cqlp`. Corriger l'un sans l'autre aurait livré un rendement que
   // personne n'a choisi.
-  minutesParClip: 6,
-  fenetresParClip: 2,
-  clipsMinimum: 6,
-  fenetresMinimum: 10,
-  clipsMaximum: 0,
+  minutesPerClip: 6,
+  windowsPerClip: 2,
+  minimumClips: 6,
+  minimumWindows: 10,
+  maximumClips: 0,
 }
 
 /** La fenêtre de 90 secondes, atome de la conception (spec §7 et `buildWindows`). */
@@ -378,7 +378,7 @@ function créneaux(speechSeconds: number): number {
  * to return one clip and stop »), c'est ce nombre-là qui décide. Les
  * utilisateurs qui recevaient 1 à 3 clips revenaient le lendemain 0,4 % du
  * temps ; ceux qui en recevaient 4 à 9, 16,1 % : c'est le NOMBRE de clips, et
- * non leur qualité, qui porte la courbe de rétention. D'où `clipsMinimum`.
+ * non leur qualité, qui porte la courbe de rétention. D'où `minimumClips`.
  *
  * **Ce que cette version corrige.** Le plancher était `min(6, …)` et le plafond
  * `min(12, …)`, tous deux calculés sur la taille de la présélection — laquelle
@@ -393,7 +393,7 @@ function créneaux(speechSeconds: number): number {
  * deux grandeurs portent le même signal à 1 % près, et changer d'entrée ne
  * change rien par soi-même — ce sont les plafonds plats qui bloquaient. La durée
  * est retenue parce qu'elle rend la règle énonçable : « un clip toutes les
- * `minutesParClip` minutes de parole » se règle et s'audite, « 30 % des
+ * `minutesPerClip` minutes de parole » se règle et s'audite, « 30 % des
  * fenêtres » non.
  *
  * **Et « parole » veut dire `secondesDeParole`**, l'union des segments qui
@@ -404,27 +404,27 @@ function créneaux(speechSeconds: number): number {
  */
 export function clipCountTargets(
   speechSeconds: number,
-  dimensions: DimensionsRepérage,
+  dimensions: SelectionDimensions,
 ): [number, number] {
   const parole = paroleUtile(speechSeconds)
-  const parMinutes = Math.round(parole / (60 * Math.max(1, dimensions.minutesParClip)))
+  const parMinutes = Math.round(parole / (60 * Math.max(1, dimensions.minutesPerClip)))
   // Le plancher absolu tient les sources courtes hors de la zone morte ; les
   // créneaux tiennent les très courtes, où six clips n'auraient pas de support.
   let plancher = Math.max(
     1,
-    Math.min(créneaux(parole), Math.max(dimensions.clipsMinimum, parMinutes)),
+    Math.min(créneaux(parole), Math.max(dimensions.minimumClips, parMinutes)),
   )
   // Le plafond laisse une fenêtre riche en rendre plus d'un, sans inviter au
   // remplissage. Il est surtout décoratif : voir le premier paragraphe.
   let plafond = Math.max(plancher + 2, Math.round(plancher * 1.5))
-  // **`clipsMaximum` borne les DEUX bornes.** Ne plafonner que le plancher
+  // **`maximumClips` borne les DEUX bornes.** Ne plafonner que le plancher
   // laissait le plafond repartir au-dessus — un maximum de 10 rendait `[10, 15]`
   // et le prompt autorisait toujours quinze clips, ce qui vidait de son sens un
   // réglage documenté comme absolu. Le plancher suit le plafond quand celui-ci
   // descend sous lui, pour que l'intervalle reste valide. (relevé par Codex et
   // Copilot)
-  if (dimensions.clipsMaximum > 0) {
-    plafond = Math.min(plafond, dimensions.clipsMaximum)
+  if (dimensions.maximumClips > 0) {
+    plafond = Math.min(plafond, dimensions.maximumClips)
     plancher = Math.min(plancher, plafond)
   }
   return [plancher, plafond]
@@ -435,7 +435,7 @@ export function clipCountTargets(
  *
  * **Dérivée du plancher de clips plutôt que calculée à part**, et c'est ce qui
  * empêche les deux règles de diverger : la présélection existe pour donner de
- * quoi trouver les clips demandés, donc `fenetresParClip` les lie par
+ * quoi trouver les clips demandés, donc `windowsPerClip` les lie par
  * construction. Deux formules indépendantes finiraient par demander vingt clips
  * dans dix fenêtres.
  *
@@ -443,22 +443,22 @@ export function clipCountTargets(
  * porte le texte de chaque fenêtre » — chiffrait elle-même sa propre marge : un
  * transcript de deux heures ne fait que ~23 000 jetons **en entier**, donc même
  * envoyer toutes les fenêtres tiendrait. Ce qui reste vrai, et que
- * `fenetresParClip` gouverne, c'est qu'une charge trop grosse dilue l'attention
+ * `windowsPerClip` gouverne, c'est qu'une charge trop grosse dilue l'attention
  * du modèle, exactement comme pour les lots de notation.
  *
  * `nWindows` borne le résultat par le haut : on ne présélectionne pas des
- * fenêtres qui n'existent pas. `fenetresMinimum` le borne par le bas, sauf
+ * fenêtres qui n'existent pas. `minimumWindows` le borne par le bas, sauf
  * quand la source en a moins que ça.
  */
 export function shortlistSize(
   speechSeconds: number,
   nWindows: number,
-  dimensions: DimensionsRepérage,
+  dimensions: SelectionDimensions,
 ): number {
   const n = atLeastOneWindow(nWindows)
   const [plancherClips] = clipCountTargets(speechSeconds, dimensions)
-  const voulu = plancherClips * Math.max(1, dimensions.fenetresParClip)
-  return Math.max(Math.min(dimensions.fenetresMinimum, n), Math.min(n, voulu))
+  const voulu = plancherClips * Math.max(1, dimensions.windowsPerClip)
+  return Math.max(Math.min(dimensions.minimumWindows, n), Math.min(n, voulu))
 }
 
 /**

@@ -77,12 +77,12 @@ async function main(): Promise<number> {
 
   const statut = lireStatut(projectId)
   console.log(`Fini en ${durée(t())}`)
-  if (statut?.repérage) {
-    const r = statut.repérage
+  if (statut?.selectionReport) {
+    const r = statut.selectionReport
     console.log(
-      `Repérage : ${r.notées} fenêtres notées sur ${r.fenêtres}` +
-        ` (couverture ${(r.couverture * 100).toFixed(1)} %` +
-        `, ${r.lotsRefusés} lot(s) refusé(s), ${r.lotsRépondus} repris)`,
+      `Repérage : ${r.scored} fenêtres notées sur ${r.windows}` +
+        ` (couverture ${(r.coverage * 100).toFixed(1)} %` +
+        `, ${r.rejectedBatches} lot(s) refusé(s), ${r.respondedBatches} repris)`,
     )
   }
   // L'échec est **rendu**, pas seulement affiché : ce script s'enchaîne dans un

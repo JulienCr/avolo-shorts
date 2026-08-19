@@ -188,15 +188,15 @@ export type ProjectSummary = {
  * qu'on regarde ce qu'elle a de mieux **dans les deux tiers qui ont été notés**
  * — et rien n'invite à aller chercher dans le tiers manquant (spec §7.2).
  */
-export type BilanRepérage = {
+export type SelectionReport = {
   /** Les fenêtres que la passe avait à noter. */
-  fenêtres: number
+  windows: number
   /** Celles qui portent une note du modèle. */
-  notées: number
+  scored: number
   /** Les lots refusés par le filtre de sécurité, toutes profondeurs de découpe confondues. */
-  lotsRefusés: number
+  rejectedBatches: number
   /** Les lots auxquels le modèle a répondu. */
-  lotsRépondus: number
+  respondedBatches: number
   /**
    * La part de l'étendue du transcript couverte par les fenêtres notées, entre
    * 0 et 1. **L'union des intervalles, pas leur somme** : `buildWindows`
@@ -205,9 +205,9 @@ export type BilanRepérage = {
    * premier mot au dernier —, jamais la durée de l'émission : le silence n'est
    * pas de la matière qu'on aurait omis de juger.
    */
-  couverture: number
+  coverage: number
   /**
-   * Vrai quand la passe de repérage ne s'est pas terminée : `notées` décrit
+   * Vrai quand la passe de repérage ne s'est pas terminée : `scored` décrit
    * alors ce qui avait été jugé au moment de l'arrêt.
    *
    * **Le sort de l'étape `candidates`, jamais celui de l'exécution qui la
@@ -220,7 +220,7 @@ export type BilanRepérage = {
    * étape ultérieure tombe. Le serveur a déjà fait la déduction ; il n'y a rien
    * à recalculer ici. (relevé par Copilot)
    */
-  partiel: boolean
+  partial: boolean
 }
 
 /**
@@ -254,10 +254,10 @@ export type ProjectStatus = {
    *
    * **À lire avec `error`, jamais seul** : le bilan décrit une notation
    * *tentée*. Le serveur a déjà fait ce croisement — c'est ce que porte
-   * `partiel` —, et l'écran n'a donc pas à le refaire ; il a en revanche à ne
+   * `partial` —, et l'écran n'a donc pas à le refaire ; il a en revanche à ne
    * pas présenter un décompte partiel comme un résultat.
    */
-  repérage: BilanRepérage | null
+  selectionReport: SelectionReport | null
   /**
    * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
    *
@@ -335,19 +335,19 @@ export type Source = {
  * rendaient franchement trompeur : un `REPLAY_DIR` mal orthographié **sous un
  * partage 9p sain** — `absent` le dit maintenant, là où `fstype: '9p'` faisait
  * conclure au transport mort — et un unique fichier aux droits refusés, qui fait
- * basculer tout le dossier et qui dit désormais `refusé`.
+ * basculer tout le dossier et qui dit désormais `denied`.
  *
  * - `absent` — rien à ce chemin. Le cas le plus fréquent, et le plus mal
  *   diagnostiqué : une faute de frappe dans `REPLAY_DIR`.
- * - `refusé` — les droits refusent le dossier, ou l'un de ses fichiers.
- * - `muet` — aucune réponse dans le délai de garde. C'est la signature du
+ * - `denied` — les droits refusent le dossier, ou l'un de ses fichiers.
+ * - `silent` — aucune réponse dans le délai de garde. C'est la signature du
  *   partage monté avec son transport mort dessous, que `/proc/mounts` ne
  *   distingue pas d'un partage sain.
- * - `illisible` — le système de fichiers a rendu autre chose. `EIO`, `ESTALE`,
+ * - `unreadable` — le système de fichiers a rendu autre chose. `EIO`, `ESTALE`,
  *   `ENOTCONN` : les ranger de force dans une des trois autres cases ferait dire
  *   quelque chose de faux plutôt que quelque chose de vague.
  */
-export type CauseIndisponible = 'absent' | 'refusé' | 'muet' | 'illisible'
+export type CauseIndisponible = 'absent' | 'denied' | 'silent' | 'unreadable'
 
 /**
  * Ce que rend `GET /api/sources` : les replays, **et l'état du montage qui les
@@ -368,7 +368,7 @@ export type SourcesListing = {
     /** Le type de système de fichiers relevé, ou `null` quand il n'a pas pu l'être. */
     fstype: string | null
     /** Les entrées du dossier, vidéos ou non. `0` avec `disponible: true` est un dossier vraiment vide. */
-    entrées: number
+    entries: number
   }
 }
 
@@ -829,16 +829,16 @@ export function exportClip(clipId: string, force?: boolean): Promise<ExportResul
 /**
  * Ce qui dimensionne le repérage (spec §7, « Combien on en garde »).
  *
- * **Les cinq champs sont ceux de `DimensionsRepérage`** (`src/core/transcript.ts`),
+ * **Les cinq champs sont ceux de `SelectionDimensions`** (`src/core/transcript.ts`),
  * et un test tient les deux formes ensemble dans les deux sens : ce type est une
  * promesse d'API, celui-là est l'argument d'un calcul pur, et ils ne peuvent pas
  * diverger sans qu'un réglage cesse d'être lu.
  *
- * **Les noms de champs restent français, et c'est la seule entorse à la règle de
- * langue de `CLAUDE.md`.** Ils sont **persistés** — la table `settings` en fait
- * des clés `selection.<champ>` —, donc les traduire demande une migration, qui
- * n'est pas le sujet de cette livraison. Ils partiront avec le reste de la dette,
- * issue #73.
+ * **Les noms de champs sont anglais depuis la migration de la table
+ * `settings`** (`src/server/db.ts`, `migrateSelectionSettingKeys`) : ils sont
+ * **persistés** sous des clés `selection.<champ>`, et une base ouverte avant
+ * cette migration porte encore les anciens noms français — la migration les
+ * réécrit à l'ouverture, en conservant leur valeur.
  *
  * **Les défauts ne sont pas recopiés ici.** `fetchSettings` rend les réglages
  * *effectifs* — la base complétée par les défauts —, donc l'écran affiche ce qui
@@ -846,15 +846,15 @@ export function exportClip(clipId: string, force?: boolean): Promise<ExportResul
  */
 export type SelectionSettings = {
   /** Une proposition attendue par tranche de tant de minutes de parole. */
-  minutesParClip: number
+  minutesPerClip: number
   /** Combien de fenêtres sont examinées pour chaque clip demandé. */
-  fenetresParClip: number
+  windowsPerClip: number
   /** Plancher absolu de clips, pour que les sources courtes sortent de la zone morte. */
-  clipsMinimum: number
+  minimumClips: number
   /** Plancher absolu de fenêtres examinées. */
-  fenetresMinimum: number
+  minimumWindows: number
   /** Plafond absolu de clips. `0` veut dire « aucun ». */
-  clipsMaximum: number
+  maximumClips: number
 }
 
 /**
@@ -913,7 +913,7 @@ export type SettingsPatch = { selection?: Partial<SelectionSettings>; ai?: Parti
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.
  *
- * C'est la seule source de vérité côté écran. Recopier `DIMENSIONS_PAR_DÉFAUT`
+ * C'est la seule source de vérité côté écran. Recopier `DEFAULT_SELECTION_DIMENSIONS`
  * dans un composant ferait afficher le défaut du code là où la base porte autre
  * chose, et personne ne verrait la différence avant le premier repérage.
  */

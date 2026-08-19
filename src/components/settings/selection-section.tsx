@@ -9,8 +9,8 @@ import { Label } from '@/components/ui/label'
 import {
   clipCountTargets,
   shortlistSize,
-  DIMENSIONS_PAR_DÉFAUT,
-  type DimensionsRepérage,
+  DEFAULT_SELECTION_DIMENSIONS,
+  type SelectionDimensions,
 } from '@/core/transcript'
 
 /**
@@ -20,7 +20,7 @@ import {
  * les rend réglables ici n'est pas la boîte de saisie mais les trois choses qui
  * l'accompagnent : un libellé qui ne soit pas le nom de la clé, une phrase qui
  * dit ce que le réglage fait, et le moyen de revenir au défaut. Un écran qui
- * afficherait `fenetresParClip: 2` demanderait d'aller lire le code pour savoir
+ * afficherait `windowsPerClip: 2` demanderait d'aller lire le code pour savoir
  * s'il faut monter ou descendre.
  *
  * **L'estimation résultante fait le reste.** Cinq nombres qui se règlent
@@ -54,7 +54,7 @@ const UNBOUNDED_WINDOWS = 10_000
 
 /** Un réglage, tel que l'écran le présente. */
 type Field = {
-  key: keyof DimensionsRepérage
+  key: keyof SelectionDimensions
   label: string
   help: string
   /** L'unité qui suit la boîte de saisie, ou `null`. */
@@ -65,7 +65,7 @@ type Field = {
 
 const FIELDS: readonly Field[] = [
   {
-    key: 'minutesParClip',
+    key: 'minutesPerClip',
     label: 'Une proposition par tranche de',
     help:
       'Le repérage demande au modèle un extrait par tranche de parole. Plus la valeur est basse, plus il en propose sur une même émission.',
@@ -73,7 +73,7 @@ const FIELDS: readonly Field[] = [
     minimum: 1,
   },
   {
-    key: 'clipsMinimum',
+    key: 'minimumClips',
     label: 'Propositions demandées au minimum',
     help:
       'Le modèle s’assied sur le minimum qu’on lui donne : mesuré en production, 95 % des passes rendaient trois extraits ou moins alors que le prompt était libre d’en rendre bien plus. C’est ce nombre-là qui décide, pas la consigne.',
@@ -81,7 +81,7 @@ const FIELDS: readonly Field[] = [
     minimum: 1,
   },
   {
-    key: 'clipsMaximum',
+    key: 'maximumClips',
     label: 'Propositions demandées au maximum',
     help:
       'Borne les deux bouts de la fourchette envoyée au modèle. À zéro, aucune limite ne s’applique.',
@@ -89,7 +89,7 @@ const FIELDS: readonly Field[] = [
     minimum: 0,
   },
   {
-    key: 'fenetresParClip',
+    key: 'windowsPerClip',
     label: 'Fenêtres examinées par proposition demandée',
     help:
       'L’émission est notée par fenêtres de 90 secondes, puis seules les meilleures partent à la passe de détail. Ce nombre dit combien de fenêtres accompagnent chaque extrait demandé : plus haut, le modèle a plus de matière — et une charge trop grosse dilue son attention.',
@@ -97,7 +97,7 @@ const FIELDS: readonly Field[] = [
     minimum: 1,
   },
   {
-    key: 'fenetresMinimum',
+    key: 'minimumWindows',
     label: 'Fenêtres examinées au minimum',
     help:
       'Un plancher, pour qu’une émission courte ne parte pas avec trop peu de matière. Il ne s’applique pas au-delà de ce que l’émission contient.',
@@ -111,7 +111,7 @@ export function SelectionSection({
   onChange,
   disabled = false,
 }: {
-  values: DimensionsRepérage
+  values: SelectionDimensions
   /**
    * Écrit un ou plusieurs champs. L'écran décide quand et comment.
    *
@@ -122,7 +122,7 @@ export function SelectionSection({
    * bandeau qui déclare qu'il n'est pas enregistré. Un appelant qui ne rend rien
    * garde l'ancien comportement. (relevé par Copilot)
    */
-  onChange: (patch: Partial<DimensionsRepérage>) => void | Promise<unknown>
+  onChange: (patch: Partial<SelectionDimensions>) => void | Promise<unknown>
   /** Le temps qu'une lecture ou une écriture soit en vol. */
   disabled?: boolean
 }) {
@@ -145,7 +145,7 @@ export function SelectionSection({
             key={field.key}
             field={field}
             value={values[field.key]}
-            defaultValue={DIMENSIONS_PAR_DÉFAUT[field.key]}
+            defaultValue={DEFAULT_SELECTION_DIMENSIONS[field.key]}
             disabled={disabled}
             onChange={(value) => onChange({ [field.key]: value })}
           />
@@ -289,7 +289,7 @@ function SettingField({
  * arrivé une fois, entre le plancher de clips et la taille de présélection, et
  * `shortlistSize` dérive du premier depuis.
  */
-function Estimate({ values }: { values: DimensionsRepérage }) {
+function Estimate({ values }: { values: SelectionDimensions }) {
   const [low, high] = clipCountTargets(REFERENCE_SPEECH_SEC, values)
   const windows = shortlistSize(REFERENCE_SPEECH_SEC, UNBOUNDED_WINDOWS, values)
 

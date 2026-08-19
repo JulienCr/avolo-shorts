@@ -14,7 +14,7 @@ import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
-import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
+import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type {
   CandidateClip,
   ClipDetail,
@@ -76,13 +76,13 @@ function poserStatut(champs: Record<string, unknown>): void {
     JSON.stringify({
       pid: 1,
       updatedAt: 0,
-      cibles: ['candidates'],
+      targets: ['candidates'],
       plan: ['candidates'],
       running: null,
       error: null,
       finishedAt: 1,
       stopped: false,
-      repérage: null,
+      selectionReport: null,
       ...champs,
     }),
   )
@@ -410,7 +410,7 @@ describe('GET /api/projects/:id', () => {
       JSON.stringify({
         pid: 1,
         updatedAt: 0,
-        cibles: ['candidates'],
+        targets: ['candidates'],
         plan: ['candidates'],
         running: null,
         error: 'Gemini a bloqué le contenu de cette vidéo (PROHIBITED_CONTENT).',
@@ -437,26 +437,26 @@ describe('GET /api/projects/:id', () => {
    */
   it('publie ce que le repérage n’a pas jugé', async () => {
     poserStatut({
-      repérage: {
-        fenêtres: 83,
-        notées: 51,
-        lotsRefusés: 4,
-        lotsRépondus: 7,
-        couverture: 0.6412,
-        partiel: false,
+      selectionReport: {
+        windows: 83,
+        scored: 51,
+        rejectedBatches: 4,
+        respondedBatches: 7,
+        coverage: 0.6412,
+        partial: false,
       },
     })
 
     const état = (await (
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
-    expect(état.repérage).toEqual({
-      fenêtres: 83,
-      notées: 51,
-      lotsRefusés: 4,
-      lotsRépondus: 7,
-      couverture: 0.6412,
-      partiel: false,
+    expect(état.selectionReport).toEqual({
+      windows: 83,
+      scored: 51,
+      rejectedBatches: 4,
+      respondedBatches: 7,
+      coverage: 0.6412,
+      partial: false,
     })
   })
 
@@ -472,7 +472,7 @@ describe('GET /api/projects/:id', () => {
     const état = (await (
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
-    expect(état.repérage).toBeNull()
+    expect(état.selectionReport).toBeNull()
   })
 
   it('ne rend pas d’échec quand rien n’a jamais tourné', async () => {
@@ -1319,7 +1319,7 @@ describe('POST /api/projects/:id/run', () => {
 
     const réponse = await lancerRoute({ target: ['candidates', 'candidates', 'candidates'] })
     expect(réponse.status).toBe(202)
-    expect(lireStatut(PROJET)?.cibles).toEqual(['candidates'])
+    expect(lireStatut(PROJET)?.targets).toEqual(['candidates'])
   })
 
   it('refuse une cible interdite au milieu d’une liste', async () => {
@@ -1409,19 +1409,19 @@ describe('/api/settings', () => {
   it('rend les réglages effectifs, défauts compris', async () => {
     const reponse = await getSettingsRoute()
     expect(reponse.status).toBe(200)
-    expect(await reponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT, ai: AI_DEFAULTS })
+    expect(await reponse.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
   })
 
   it('applique un patch partiel et rend les réglages résultants', async () => {
-    const reponse = await ecrire({ selection: { minutesParClip: 4 } })
+    const reponse = await ecrire({ selection: { minutesPerClip: 4 } })
     expect(reponse.status).toBe(200)
     expect(await reponse.json()).toEqual({
-      selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+      selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
-      selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+      selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
     })
   })
@@ -1437,12 +1437,12 @@ describe('/api/settings', () => {
     // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
     // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
     expect((await ecrire({ hook: {} })).status).toBe(400)
-    expect((await ecrire({ selection: { minutesParClip: 0 } })).status).toBe(400)
-    expect((await ecrire({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
-    expect((await ecrire({ selection: { minutesParClip: '4' } })).status).toBe(400)
+    expect((await ecrire({ selection: { minutesPerClip: 0 } })).status).toBe(400)
+    expect((await ecrire({ selection: { minimumClips: 2.5 } })).status).toBe(400)
+    expect((await ecrire({ selection: { minutesPerClip: '4' } })).status).toBe(400)
     // Et rien n'a été écrit : la lecture rend toujours les défauts.
     expect(await (await getSettingsRoute()).json()).toEqual({
-      selection: DIMENSIONS_PAR_DÉFAUT,
+      selection: DEFAULT_SELECTION_DIMENSIONS,
       ai: AI_DEFAULTS,
     })
   })
@@ -1454,7 +1454,7 @@ describe('/api/settings', () => {
     expect(illisible.status).toBe(400)
     const vide = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
     expect(vide.status).toBe(200)
-    expect(await vide.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT, ai: AI_DEFAULTS })
+    expect(await vide.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
   })
 
   /**
@@ -1468,7 +1468,7 @@ describe('/api/settings', () => {
     fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
     fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
 
-    await ecrire({ selection: { minutesParClip: 4 } })
+    await ecrire({ selection: { minutesPerClip: 4 } })
 
     expect(progression(PROJET)).toBeNull()
     expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'candidates.json'))).toBe(true)

@@ -50,7 +50,7 @@ function etat(champs: Partial<ProjectStatus> = {}): ProjectStatus {
     },
     running: { step: 'candidates', progress: 0.5 },
     error: null,
-    repérage: null,
+    selectionReport: null,
     stopped: false,
     sizeBytes: 4_300_000_000,
     ...champs,

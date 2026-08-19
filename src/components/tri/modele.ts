@@ -12,7 +12,7 @@
 import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import { estEcarte, estGarde, type Phase } from '@/core/parcours'
-import type { BilanRepérage } from '@/lib/api'
+import type { SelectionReport } from '@/lib/api'
 
 /**
  * Les trois vues du tri.
@@ -21,6 +21,17 @@ import type { BilanRepérage } from '@/lib/api'
  * bouton fantôme, ce qui ne sait pas dire « montre-moi ce que j'ai gardé » —
  * la question qu'on se pose à la fin de la boucle, et celle qui ouvre le
  * montage.
+ *
+ * **Hors du périmètre de la traduction des clés persistées (issue #73, PR sur
+ * les clés persistées).** `atrier`, `gardes` et `ecartes` sont françaises sans
+ * accent, mais ce sont des valeurs du paramètre d'URL `?vue=`, pas des
+ * identifiants — voir le commentaire sur `lienProjet` dans
+ * `src/components/tri/ecran-projet.tsx`, qui qualifie ce contrat de gelé. Une
+ * URL en signet porte l'ancienne valeur pour toujours, et `vueDepuisUrl`
+ * retombe **silencieusement** sur `atrier` devant une valeur qu'elle ne
+ * reconnaît pas : traduire ces trois mots casserait un signet sans qu'aucun
+ * test ni aucun log ne le dise. Le balayage général de #73 doit laisser cette
+ * union intacte.
  */
 export type Vue = 'atrier' | 'gardes' | 'ecartes'
 
@@ -83,7 +94,7 @@ export function idsPourVue(
  *
  * - **on dit ce qu'on a mesuré.** Le serveur compte des **lots**, et « sept lots
  *   sur onze » ne font 64 % de rien : les fenêtres se chevauchent d'environ 30 s
- *   et le dernier lot est plus court. `couverture` est la vraie mesure — l'union
+ *   et le dernier lot est plus court. `coverage` est la vraie mesure — l'union
  *   des fenêtres notées rapportée à l'étendue du transcript —, donc c'est elle
  *   qui porte la phrase ; les lots ne viennent qu'en explication ;
  * - **ça ne porte pas de fausse action.** `buildWindows` et le découpage en lots
@@ -106,35 +117,35 @@ export type MotDuRepérage = {
   detail: string | null
 }
 
-export function motDuRepérage(bilan: BilanRepérage | null): MotDuRepérage | null {
+export function motDuRepérage(bilan: SelectionReport | null): MotDuRepérage | null {
   if (bilan === null) return null
 
-  const provisoire = bilan.partiel
+  const provisoire = bilan.partial
 
   // Aucune fenêtre à noter : un transcript vide, ou une passe qui n'a rien eu à
   // soumettre. Pas de dénominateur, donc pas de pourcentage.
-  if (bilan.fenêtres <= 0) {
+  if (bilan.windows <= 0) {
     return { perte: false, provisoire, phrase: 'Le repérage n’avait aucune fenêtre à noter.', detail: null }
   }
 
   // **Sur les fenêtres, jamais sur les lots refusés.** Le second terme a vécu
   // ici et c'était un défaut (issue #57) : depuis que le repérage recoupe les
   // lots refusés par le filtre de sécurité et les resoumet un à un — le cas
-  // *normal*, livré par la PR #30 —, `notées === fenêtres` avec `lotsRefusés > 0`
+  // *normal*, livré par la PR #30 —, `scored === windows` avec `rejectedBatches > 0`
   // est la situation courante. L'écran annonçait alors une perte qui n'existe
   // pas, dans une phrase qui se contredit : « n'a jugé que 100 % … 83 fenêtres
   // sur 83 ». Un lot refusé et jamais rattrapé tombe déjà dans ce prédicat,
   // puisqu'il laisse des fenêtres non notées ; les lots ne viennent qu'en
   // explication, comme le dit le docblock plus haut.
-  const perte = bilan.notées < bilan.fenêtres
+  const perte = bilan.scored < bilan.windows
   if (!perte) {
     return {
       perte: false,
       provisoire,
       phrase:
-        bilan.fenêtres === 1
+        bilan.windows === 1
           ? 'Le repérage a noté la fenêtre de l’émission.'
-          : `Le repérage a noté les ${bilan.fenêtres} fenêtres de l’émission.`,
+          : `Le repérage a noté les ${bilan.windows} fenêtres de l’émission.`,
       detail: null,
     }
   }
@@ -143,22 +154,22 @@ export function motDuRepérage(bilan: BilanRepérage | null): MotDuRepérage | n
   // dément la perte que la même phrase annonce deux mots plus loin. Vers le bas,
   // 100 % ne sort que d'une couverture exacte — ce qui arrive : deux fenêtres
   // voisines se chevauchant, celle du milieu peut manquer sans laisser de trou.
-  const part = Math.max(0, Math.min(100, Math.floor((bilan.couverture || 0) * 100)))
+  const part = Math.max(0, Math.min(100, Math.floor((bilan.coverage || 0) * 100)))
 
-  const lots = bilan.lotsRefusés + bilan.lotsRépondus
+  const lots = bilan.rejectedBatches + bilan.respondedBatches
   const detail =
-    bilan.lotsRefusés > 0
-      ? `${bilan.lotsRefusés === 1 ? '1 lot de fenêtres' : `${bilan.lotsRefusés} lots de fenêtres`} sur ${lots} ${
-          bilan.lotsRefusés === 1 ? 'a été refusé' : 'ont été refusés'
+    bilan.rejectedBatches > 0
+      ? `${bilan.rejectedBatches === 1 ? '1 lot de fenêtres' : `${bilan.rejectedBatches} lots de fenêtres`} sur ${lots} ${
+          bilan.rejectedBatches === 1 ? 'a été refusé' : 'ont été refusés'
         } par le filtre de sécurité du modèle. Le découpage est déterministe : une nouvelle passe soumettrait les mêmes lots et obtiendrait le même refus.`
       : null
 
   return {
     perte: true,
     provisoire,
-    phrase: `Le repérage n’a jugé que ${part} % de ce qui se dit dans l’émission : ${bilan.notées} ${
-      bilan.notées === 1 ? 'fenêtre' : 'fenêtres'
-    } sur ${bilan.fenêtres}.`,
+    phrase: `Le repérage n’a jugé que ${part} % de ce qui se dit dans l’émission : ${bilan.scored} ${
+      bilan.scored === 1 ? 'fenêtre' : 'fenêtres'
+    } sur ${bilan.windows}.`,
     detail,
   }
 }

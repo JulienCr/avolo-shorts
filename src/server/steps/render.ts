@@ -207,8 +207,8 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
  * décrive pas le clip.
  *
  * Les champs de `FormeRendue` disent ce qui a été *demandé* — et, depuis le
- * cadrage automatique, ce qui a été *décidé pour* le clip —, `marques` et
- * `sousTitres` ce qui a été *obtenu*. Reste tout ce que le code fait sans qu'on
+ * cadrage automatique, ce qui a été *décidé pour* le clip —, `marks` et
+ * `captionsLook` ce qui a été *obtenu*. Reste tout ce que le code fait sans qu'on
  * le lui demande : la position de la bande de marque, le graphe de filtres, le
  * style de sous-titres par défaut. Rien de cela ne tient dans un champ, et un
  * rendu produit sous une recette qui n'est plus celle d'aujourd'hui est pourtant
@@ -232,8 +232,17 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
  * reprendre un MP4 qui portait encore les anciens mots, sans un mot pour le
  * dire. Toutes les empreintes d'avant sont muettes sur ce point — il n'y a rien
  * à en déduire, donc rien à faire d'autre que les refaire.
+ *
+ * **Passée à 4 le 19 août 2026, avec la traduction des clés persistées
+ * (issue #73).** `marques` devient `marks`, `sousTitres` devient
+ * `captionsLook`, et `MarqueIncrustée` devient `EmbeddedMark` avec ses champs
+ * `nom`/`contenu` en `name`/`content`. Le chemin est déjà celui qui gère un
+ * changement de recette : `lireEmpreinte` compare `version` **avant** le
+ * schéma et rend `null` sur un nombre différent, donc les trois rendus déjà
+ * sur le disque seront simplement refaits — aucun n'a de marque incrustée à
+ * ce jour (voir `ROADMAP.md`), le coût est donc nul en pratique.
  */
-export const VERSION_EMPREINTE = 3
+export const VERSION_EMPREINTE = 4
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -328,7 +337,7 @@ export type EmpreinteRendu = FormeRendue & {
    * verrait « rien n'a bougé » là où tout a changé, et l'export continuerait de
    * livrer l'ancienne image. (relevé par Codex)
    */
-  marques: MarqueIncrustée[]
+  marks: EmbeddedMark[]
   /**
    * `null` quand aucun document ASS n'a été incrusté ; sinon le condensat du
    * preset avec lequel il l'a été.
@@ -337,7 +346,7 @@ export type EmpreinteRendu = FormeRendue & {
    * preset n'a de sens que s'il y a des sous-titres, et deux champs porteraient
    * un invariant à tenir entre eux. Un clip qui demande des sous-titres et dont
    * aucun mot ne tombe dans les segments se rend sans, en le journalisant :
-   * `captions: true` avec `sousTitres: null` dit exactement cela.
+   * `captions: true` avec `captionsLook: null` dit exactement cela.
    *
    * **Le condensat se compare, la présence non**, et l'asymétrie a une cause.
    * `OptionsRendu.style` change l'image : un rendu forcé avec un preset
@@ -355,18 +364,18 @@ export type EmpreinteRendu = FormeRendue & {
    * dans ce cas : #87 en a fait le prix nécessaire pour voir un transcript
    * corrigé sans qu'aucun segment ne bouge.
    */
-  sousTitres: string | null
+  captionsLook: string | null
   /**
    * Le condensat de ce que les sous-titres ont **réellement porté** (#87) —
    * le document ASS produit par `sousTitresDuClip`, pas le transcript entier.
-   * `null` par la même règle que `sousTitres` : aucun document n'a été
+   * `null` par la même règle que `captionsLook` : aucun document n'a été
    * incrusté, que le clip n'en demande pas ou qu'aucun mot ne tombe dans ses
    * segments.
    *
    * **C'est le champ qui manquait avant #87.** Le transcript ne pouvait pas
    * changer sans que le graphe refasse ce qui en dépend — jusqu'à ce qu'une
    * correction manuelle réécrive des mots sans toucher à aucun segment de
-   * clip. `sousTitres` (le look) ne voit rien de ce cas : deux presets
+   * clip. `captionsLook` (le look) ne voit rien de ce cas : deux presets
    * identiques appliqués à deux transcripts différents produisent le même
    * condensat de style. Il fallait un champ sur le contenu, pas sur la forme.
    *
@@ -380,7 +389,7 @@ export type EmpreinteRendu = FormeRendue & {
 }
 
 /** Une marque incrustée : son nom de fichier, et de quoi voir qu'elle a changé. */
-export type MarqueIncrustée = { nom: string; contenu: string }
+export type EmbeddedMark = { name: string; content: string }
 
 /**
  * Ce qui décide de l'allure des sous-titres à l'image — **le preset et les
@@ -429,8 +438,8 @@ const SCHÉMA_EMPREINTE = z.object({
       }),
     ),
   }),
-  marques: z.array(z.object({ nom: z.string(), contenu: z.string() })),
-  sousTitres: z.string().nullable(),
+  marks: z.array(z.object({ name: z.string(), content: z.string() })),
+  captionsLook: z.string().nullable(),
   captionsContent: z.string().nullable(),
 })
 
@@ -510,13 +519,13 @@ export function condensatDesPolices(dossier: string): string {
 }
 
 /** Une liste de marques dans un ordre stable, quelle que soit sa provenance. */
-function triéesParNom(marques: readonly MarqueIncrustée[]): MarqueIncrustée[] {
-  return [...marques].sort((a, b) => (a.nom < b.nom ? -1 : a.nom > b.nom ? 1 : 0))
+function triéesParNom(marques: readonly EmbeddedMark[]): EmbeddedMark[] {
+  return [...marques].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
 /** Les marques telles que l'empreinte les note : nom et contenu, triés par nom. */
-function identitésDeMarques(marques: readonly MarqueNative[]): MarqueIncrustée[] {
-  return triéesParNom(marques.map((m) => ({ nom: path.basename(m.path), contenu: m.contenu })))
+function identitésDeMarques(marques: readonly MarqueNative[]): EmbeddedMark[] {
+  return triéesParNom(marques.map((m) => ({ name: path.basename(m.path), content: m.contenu })))
 }
 
 /**
@@ -551,8 +560,8 @@ export function empreinteDuRendu(
     },
     captions: clip.captions,
     branding: clip.branding,
-    marques: identitésDeMarques(marques),
-    sousTitres: sousTitres.incrustés ? condensatDuLook(sousTitres.look) : null,
+    marks: identitésDeMarques(marques),
+    captionsLook: sousTitres.incrustés ? condensatDuLook(sousTitres.look) : null,
     captionsContent: sousTitres.incrustés ? digestOfCaptionsText(sousTitres.texte) : null,
   }
 }
@@ -642,10 +651,10 @@ export function lesMarquesOntBougé(
   const aujourdhui = identitésDeMarques(disponibles)
   if (dossierVideToléré && aujourdhui.length === 0) return false
   // Retriées à la lecture : le fichier a pu être écrit à la main.
-  const incrustées = triéesParNom(empreinte.marques)
+  const incrustées = triéesParNom(empreinte.marks)
   return (
     incrustées.length !== aujourdhui.length ||
-    incrustées.some((m, i) => m.nom !== aujourdhui[i].nom || m.contenu !== aujourdhui[i].contenu)
+    incrustées.some((m, i) => m.name !== aujourdhui[i].name || m.content !== aujourdhui[i].content)
   )
 }
 
@@ -703,13 +712,13 @@ export function écartDeLEmpreinte(
   if (observé.marques !== null && lesMarquesOntBougé(empreinte, observé.marques, clip.branding)) {
     return 'marques'
   }
-  // **Seulement quand un document a été incrusté.** `sousTitres` à `null` dit
+  // **Seulement quand un document a été incrusté.** `captionsLook` à `null` dit
   // qu'il n'y en a pas eu, et le preset n'a alors rien décrit de l'image : le
   // comparer périmerait au premier réglage de police un clip qui n'en porte pas.
   if (
     observé.look !== null &&
-    empreinte.sousTitres !== null &&
-    empreinte.sousTitres !== condensatDuLook(observé.look)
+    empreinte.captionsLook !== null &&
+    empreinte.captionsLook !== condensatDuLook(observé.look)
   ) {
     return 'style'
   }
@@ -1266,11 +1275,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   //
   // **Un aller-retour sur le Drive, à la différence des marques et du look
   // juste au-dessus.** C'est nouveau : jusqu'ici la décision de saut l'évitait
-  // exprès (voir le commentaire de `EmpreinteRendu.sousTitres`), parce
+  // exprès (voir le commentaire de `EmpreinteRendu.captionsLook`), parce
   // qu'aucun des huit champs d'avant ne pouvait bouger sans que le graphe
   // refasse ce qui en dépend. Le texte, si — c'est tout le défaut que #87
   // ferme —, et rien d'autre ne peut le voir. Seulement quand le clip demande
-  // des sous-titres : sans cela, `sousTitres` comme `captionsContent` valent
+  // des sous-titres : sans cela, `captionsLook` comme `captionsContent` valent
   // déjà `null` dans l'empreinte, et rien ne doit dépendre du transcript pour
   // un clip qui ne l'affiche pas (spec §4).
   //

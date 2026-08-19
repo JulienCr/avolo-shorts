@@ -43,11 +43,11 @@ export const GET = route(
       error: running === null ? (statut?.error ?? null) : null,
       // **Publié même pendant qu'une exécution tourne**, contrairement à
       // `error`. Le décompte d'une passe en cours n'est pas celui d'avant — le
-      // lanceur l'oublie au lancement —, et il porte `partiel` pour dire
+      // lanceur l'oublie au lancement —, et il porte `partial` pour dire
       // exactement ce qu'il vaut. C'est la seule information de cet écran qui
       // change la confiance qu'on accorde à la liste : la cacher pendant les
       // trente minutes où elle se construit serait la cacher au moment utile.
-      repérage: statut?.repérage ?? null,
+      selectionReport: statut?.selectionReport ?? null,
       // **Le même champ que celui de la bibliothèque, tiré du même relevé.** Un
       // arrêt ne laisse ni `running`, ni `error`, ni artefact particulier : il
       // n'est pas dérivable, et deux écrans qui le déduiraient chacun de leur

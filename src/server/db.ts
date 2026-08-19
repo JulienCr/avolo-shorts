@@ -304,55 +304,52 @@ const SELECTION_FIELDS: readonly SettingField[] = (
  * `hook*` se règlent et se persistent — le retour d'usage §6.1 les annonce
  * tous les trois —, mais rien ne les lit encore : la correction du transcript
  * et la génération du hook n'existent pas.
+ *
+ * **Exhaustif par le type, sans prose** : la clé est `keyof AiSettings` et
+ * `satisfies` fait échouer le type-check si un champ manque ou si un nom en
+ * trop s'ajoute — la même garde que portait `AI_LABELS` avant que #78 ne
+ * retire le `label`/`description` qu'il transportait avec elle. `AI_FIELDS`
+ * en est dérivé, jamais réénuméré : un champ de `AiSettings` oublié ici ne
+ * compile pas.
  */
-const AI_FIELDS: readonly SettingField[] = [
-  {
-    family: 'ai',
-    name: 'selectionProvider',
+const AI_FIELD_SHAPES = {
+  selectionProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
   },
-  {
-    family: 'ai',
-    name: 'selectionModel',
+  selectionModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
   },
-  {
-    family: 'ai',
-    name: 'correctionProvider',
+  correctionProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
   },
-  {
-    family: 'ai',
-    name: 'correctionModel',
+  correctionModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
   },
-  {
-    family: 'ai',
-    name: 'hookProvider',
+  hookProvider: {
     type: 'text',
     defaultValue: 'gemini',
     enum: LLM_PROVIDERS,
   },
-  {
-    family: 'ai',
-    name: 'hookModel',
+  hookModel: {
     type: 'text',
     defaultValue: DEFAULT_MODEL.gemini,
   },
-  {
-    family: 'ai',
-    name: 'ollamaBaseUrl',
+  ollamaBaseUrl: {
     type: 'text',
     defaultValue: '',
     allowEmpty: true,
   },
-]
+} satisfies Record<keyof AiSettings, Omit<SettingField, 'family' | 'name'>>
+
+const AI_FIELDS: readonly SettingField[] = (
+  Object.keys(AI_FIELD_SHAPES) as (keyof AiSettings)[]
+).map((name) => ({ family: 'ai' as const, name, ...AI_FIELD_SHAPES[name] }))
 
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
 export const SETTING_FIELDS: readonly SettingField[] = [...SELECTION_FIELDS, ...AI_FIELDS]

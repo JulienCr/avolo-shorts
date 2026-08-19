@@ -50,18 +50,30 @@ MODELS_DIR="$REPO_DIR/worker/models"
 
 # Les poids YOLO, épinglés sur une release d'ultralytics/assets pour la même
 # raison que le build ffmpeg : une étiquette mobile rendrait l'installation non
-# reproductible. `yolo11m` est le modèle mesuré (docs de la PR d'itération 1) ;
-# `yolo11x` détecte un peu plus mais coûte 40 % de temps en plus.
+# reproductible. `yolo11x` détecte un peu plus mais coûte 40 % de temps en plus.
 YOLO_RELEASE="${YOLO_RELEASE:-v8.3.0}"
-YOLO_MODEL="${YOLO_MODEL:-yolo11m.pt}"
-YOLO_URL="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/$YOLO_MODEL"
-# La somme du fichier réellement installé le 18 août 2026. ultralytics/assets ne
-# publie pas de `checksums.sha256`, donc elle est écrite ici plutôt que lue.
+
+# **Deux fichiers, et les deux servent.** `yolo11m-pose.pt` est ce que le serveur
+# fait tourner depuis le 19 août 2026 : il rend dix-sept points par personne, dont
+# `src/core/framing.ts` déduit le tronc — la partie d'une personne que le cadre
+# doit vraiment contenir. `yolo11m.pt` reste parce qu'il est la ligne de base de
+# toutes les mesures du dépôt, et qu'un `analysis.json` de version 1 se compare à
+# un de version 2 en relançant l'un des deux, pas en croyant une page.
 #
-# **Elle vaut pour `yolo11m.pt` et pour lui seul.** Demander un autre `YOLO_MODEL`
+# Le surcoût de la pose est **nul à la mesure** : sur le même proxy, trois passes
+# chacun, la médiane vaut 147 im/s pour la détection et 145 pour la pose — 1,4 %,
+# très en deçà des 10 % qu'une mesure prise sous WSL permet d'établir (`CLAUDE.md`).
+YOLO_MODEL="${YOLO_MODEL:-yolo11m.pt}"
+YOLO_POSE_MODEL="${YOLO_POSE_MODEL:-yolo11m-pose.pt}"
+
+# Les sommes des fichiers réellement installés — `yolo11m.pt` le 18 août 2026,
+# `yolo11m-pose.pt` le 19. ultralytics/assets ne publie pas de
+# `checksums.sha256`, donc elles sont écrites ici plutôt que lues.
+#
+# **Chacune vaut pour son fichier et pour lui seul.** Demander un autre modèle
 # sans rien dire de plus fait donc échouer l'installation sur une somme qui n'est
 # pas la sienne — ce qui est le bon défaut, mais mérite d'être écrit : il faut
-# alors fournir `YOLO_SHA256` du modèle voulu, ou la vider pour ne pas vérifier.
+# alors fournir la somme du modèle voulu, ou la vider pour ne pas vérifier.
 # (relevé par Copilot)
 #
 # `${VAR-défaut}` et non `${VAR:-défaut}` : la seconde forme remplace aussi une
@@ -69,6 +81,7 @@ YOLO_URL="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/
 # vérifier — reprendrait la somme de `yolo11m` et ferait échouer l'installation
 # de tout autre modèle. Ne pas vérifier doit rester possible.
 YOLO_SHA256="${YOLO_SHA256-d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95}"
+YOLO_POSE_SHA256="${YOLO_POSE_SHA256-29b17eaf3a3117cbea906090dbedf9159f7c6a49db58ec8b99ed2dfde1cf6eb2}"
 
 FORCE=0
 SKIP_DETECT=0
@@ -88,8 +101,11 @@ Variables :
   FFMPEG_RELEASE   release BtbN à installer (défaut : le build mesuré).
                    `latest` prend le dernier build nocturne.
   YOLO_RELEASE     release ultralytics/assets des poids (défaut : v8.3.0)
-  YOLO_MODEL       le fichier de poids (défaut : yolo11m.pt)
+  YOLO_MODEL       les poids de détection (défaut : yolo11m.pt)
   YOLO_SHA256      sa somme attendue ; vide pour ne pas vérifier
+  YOLO_POSE_MODEL  les poids de pose, ceux que le serveur fait tourner
+                   (défaut : yolo11m-pose.pt)
+  YOLO_POSE_SHA256 sa somme attendue ; vide pour ne pas vérifier
   PYTHON           l'interpréteur qui crée worker/venv (défaut : python3)
 EOF
       exit 0
@@ -389,8 +405,13 @@ fi
 # Les poids, à côté du venv. Téléchargés ici plutôt que laissés à ultralytics :
 # livré à lui-même il les tire au premier appel, dans le dossier de travail du
 # processus, donc à la racine du dépôt et sous une version qui bouge.
-if [ "$SKIP_DETECT" -eq 0 ]; then
-  poids="$MODELS_DIR/$YOLO_MODEL"
+#
+# `$1` le fichier, `$2` la somme attendue — vide pour ne pas vérifier. Une
+# fonction et non deux copies du bloc : deux copies divergent, et celle qui
+# divergerait ici est celle qui vérifie une somme.
+installer_poids() {
+  poids="$MODELS_DIR/$1"
+  attendue="$2"
   # **La présence ne vaut pas conformité**, exactement comme pour ffmpeg et pour
   # le venv plus haut : ce script vérifie par un contrôle réel, jamais par un
   # fichier qui existe. Sauter le téléchargement sur la seule présence garderait
@@ -400,44 +421,51 @@ if [ "$SKIP_DETECT" -eq 0 ]; then
   # détection qui tourne sur des poids que personne n'a demandés.
   poids_conformes=0
   if [ -s "$poids" ]; then
-    if [ -z "$YOLO_SHA256" ]; then
+    if [ -z "$attendue" ]; then
       poids_conformes=1
-    elif [ "$(sha256sum "$poids" | cut -d' ' -f1)" = "$YOLO_SHA256" ]; then
+    elif [ "$(sha256sum "$poids" | cut -d' ' -f1)" = "$attendue" ]; then
       poids_conformes=1
     else
-      say "Poids $YOLO_MODEL présents mais de somme inattendue : ils sont remplacés."
+      say "Poids $1 présents mais de somme inattendue : ils sont remplacés."
     fi
   fi
   if [ "$FORCE" -eq 0 ] && [ "$poids_conformes" -eq 1 ]; then
-    say "Poids $YOLO_MODEL déjà en place."
-  else
-    command -v curl >/dev/null 2>&1 || { bad "curl est requis"; exit 1; }
-    mkdir -p "$MODELS_DIR"
-    say "Téléchargement de $YOLO_MODEL ($YOLO_RELEASE)"
-    # Dans un fichier temporaire : un téléchargement coupé ne doit pas laisser
-    # des poids tronqués sous le nom définitif, que la relance prendrait pour un
-    # fichier valable — la même règle que `produireArtefact` côté Node.
-    tmp_poids="$poids.partiel.$$"
-    if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_poids" "$YOLO_URL"; then
+    say "Poids $1 déjà en place."
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || { bad "curl est requis"; exit 1; }
+  mkdir -p "$MODELS_DIR"
+  say "Téléchargement de $1 ($YOLO_RELEASE)"
+  # Dans un fichier temporaire : un téléchargement coupé ne doit pas laisser
+  # des poids tronqués sous le nom définitif, que la relance prendrait pour un
+  # fichier valable — la même règle que `produireArtefact` côté Node.
+  tmp_poids="$poids.partiel.$$"
+  url="https://github.com/ultralytics/assets/releases/download/$YOLO_RELEASE/$1"
+  if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_poids" "$url"; then
+    rm -f "$tmp_poids"
+    bad "téléchargement de $url en échec"
+    exit 1
+  fi
+  if [ -n "$attendue" ]; then
+    somme="$(sha256sum "$tmp_poids" | cut -d' ' -f1)"
+    if [ "$somme" != "$attendue" ]; then
       rm -f "$tmp_poids"
-      bad "téléchargement de $YOLO_URL en échec"
+      bad "somme SHA-256 inattendue pour $1 : $somme"
+      bad "attendue : $attendue (ajuster la somme pour un autre modèle)"
       exit 1
     fi
-    if [ -n "$YOLO_SHA256" ]; then
-      somme="$(sha256sum "$tmp_poids" | cut -d' ' -f1)"
-      if [ "$somme" != "$YOLO_SHA256" ]; then
-        rm -f "$tmp_poids"
-        bad "somme SHA-256 inattendue pour $YOLO_MODEL : $somme"
-        bad "attendue : $YOLO_SHA256 (ajuster YOLO_SHA256 pour un autre modèle)"
-        exit 1
-      fi
-      ok "somme conforme"
-    else
-      say "YOLO_SHA256 vide : la somme n'est pas vérifiée"
-    fi
-    mv "$tmp_poids" "$poids"
-    ok "poids installés dans $poids"
+    ok "somme conforme"
+  else
+    say "somme vide : elle n'est pas vérifiée pour $1"
   fi
+  mv "$tmp_poids" "$poids"
+  ok "poids installés dans $poids"
+}
+
+if [ "$SKIP_DETECT" -eq 0 ]; then
+  installer_poids "$YOLO_MODEL" "$YOLO_SHA256"
+  installer_poids "$YOLO_POSE_MODEL" "$YOLO_POSE_SHA256"
+  poids_pose="$MODELS_DIR/$YOLO_POSE_MODEL"
 fi
 
 # --- rappeler la configuration ------------------------------------------------
@@ -449,10 +477,15 @@ fi
 say "Prêt. FFMPEG_BIN=$FFMPEG"
 if [ "$SKIP_DETECT" -eq 0 ]; then
   say "       DETECT_PYTHON=$VENV_PY"
-  # **`YOLO_MODEL` ne configure que le téléchargement.** Le serveur, lui, lit
-  # `DETECT_MODEL` et retombe sur `worker/models/yolo11m.pt` : demander un autre
-  # modèle sans reporter cette ligne dans `.env` téléchargerait `yolo11x.pt` pour
-  # faire tourner l'analyse sur autre chose, ou échouer. On affiche donc le
-  # chemin réellement installé. (relevé par Copilot)
-  say "       DETECT_MODEL=$poids"
+  # **Les variables de ce script ne configurent que le téléchargement.** Le
+  # serveur, lui, lit `DETECT_MODEL` et retombe sur
+  # `worker/models/yolo11m-pose.pt` : demander un autre modèle sans reporter
+  # cette ligne dans `.env` téléchargerait `yolo11x.pt` pour faire tourner
+  # l'analyse sur autre chose, ou échouer. On affiche donc le chemin réellement
+  # installé. (relevé par Copilot)
+  #
+  # C'est le modèle **de pose** qu'on nomme : sans lui, l'analyse sort en
+  # version 2 sans points, le cadrage retombe sur la boîte corps entier et sur
+  # le rognage latéral, et rien ne le dit sinon le champ `keypoints` du fichier.
+  say "       DETECT_MODEL=$poids_pose"
 fi

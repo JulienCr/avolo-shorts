@@ -274,9 +274,24 @@ function pythonDétection(): string {
   return process.env.DETECT_PYTHON || path.join(process.cwd(), 'worker', 'venv', 'bin', 'python')
 }
 
-/** Les poids YOLO, posés par `setup.sh` dans `worker/models/`. */
+/**
+ * Les poids YOLO, posés par `setup.sh` dans `worker/models/`.
+ *
+ * **Le modèle de pose, et pas celui de détection.** Les deux rendent les mêmes
+ * boîtes de personnes ; celui-ci rend en plus dix-sept points par personne, dont
+ * `src/core/framing.ts` déduit le tronc. Sans eux, le cadrage retombe sur la
+ * boîte corps entier et sur le rognage latéral — c'est-à-dire sur un cadre
+ * décidé par des jambes tendues (issue #69).
+ *
+ * Le surcoût mesuré est nul : 145 im/s contre 147, trois passes chacun sur le
+ * même proxy, soit 1,4 % — sous le seuil de ce qu'une mesure prise ici établit.
+ * `DETECT_MODEL` reste là pour repasser sur `yolo11m.pt` et refaire une mesure
+ * de comparaison sans toucher au code.
+ */
 function modèleDétection(): string {
-  return process.env.DETECT_MODEL || path.join(process.cwd(), 'worker', 'models', 'yolo11m.pt')
+  return (
+    process.env.DETECT_MODEL || path.join(process.cwd(), 'worker', 'models', 'yolo11m-pose.pt')
+  )
 }
 
 /** Le script Python. Même convention que `WHISPER_WORKER`. */

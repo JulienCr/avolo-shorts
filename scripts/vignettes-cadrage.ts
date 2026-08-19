@@ -36,11 +36,21 @@
  * pire est par construction une exception, et trois copies du même accident ne
  * disent rien du cadrage courant.
  *
- * Quatre couleurs. Trois pour les boîtes, les mêmes que l'autre script — vert
+ * Cinq couleurs. Trois pour les boîtes, les mêmes que l'autre script — vert
  * gardée, rouge écartée par le filtre du premier plan, gris sous le seuil de
- * confiance —, plus un liseré **cyan** à l'intérieur des vertes qui montre ce que
- * le rognage abandonne. Et **jaune** pour le crop, qui n'est pas une boîte mais
- * une décision.
+ * confiance —, plus un liseré **cyan** à l'intérieur des vertes qui montre **ce
+ * que le cadrage exige vraiment** de cette personne : son tronc quand les points
+ * de pose le disent, sa boîte moins ses extrémités sinon. Et **jaune** pour le
+ * crop, qui n'est pas une boîte mais une décision.
+ *
+ * Sur une analyse qui porte des points, un carré **magenta** marque la tête. Il
+ * répond à la seule question qui compte quand on regarde un resserrement : le
+ * visage est-il dans le rectangle jaune ? La campagne du 19 août a posé le
+ * plafond du rognage sur un visage tombé dehors, et elle ne l'a vu qu'en
+ * regardant — le carré évite d'avoir à deviner sur une image de 960 pixels.
+ *
+ * `--analyse <fichier>` lit une autre analyse que celle du projet, ce qui permet
+ * de comparer deux détecteurs sans écraser le fichier que le serveur sert.
  *
  * Les vignettes vont dans `--out` (défaut : un dossier temporaire), jamais dans
  * `projects/`, que d'autres processus lisent au même moment.
@@ -56,12 +66,14 @@ import type { Ratio } from '@/core/edl'
 import {
   FRAMING_DEFAULTS,
   RATIOS,
+  TORSOS,
   computeFraming,
   cropRect,
   isForeground,
+  personBounds,
   requiredWidths,
-  trimmedBounds,
 } from '@/core/framing'
+import type { TorsoName } from '@/core/framing'
 import { shotStartMs } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
 import { closeDb, getClips, getDb } from '@/server/db'
@@ -86,6 +98,32 @@ function couleur(b: PersonBox): string {
 type Cadre = { x: number; y: number; w: number; h: number }
 
 /**
+ * L'étendue des points de tête d'une personne, ou `null` si le squelette n'en
+ * porte pas — analyse sans points, ou dos tourné.
+ *
+ * Les cinq points COCO de la tête, et non le seul nez : un profil ne montre
+ * qu'un œil et qu'une oreille.
+ */
+function têteDe(b: PersonBox): { x0: number; y0: number; x1: number; y1: number } | null {
+  const k = b.k
+  if (k === undefined) return null
+  let x0 = Number.POSITIVE_INFINITY
+  let y0 = Number.POSITIVE_INFINITY
+  let x1 = Number.NEGATIVE_INFINITY
+  let y1 = Number.NEGATIVE_INFINITY
+  let vus = 0
+  for (const rang of TORSOS.head) {
+    if (!(k[rang * 3 + 2] >= FRAMING_DEFAULTS.torsoMinScore)) continue
+    vus += 1
+    x0 = Math.min(x0, k[rang * 3])
+    x1 = Math.max(x1, k[rang * 3])
+    y0 = Math.min(y0, k[rang * 3 + 1])
+    y1 = Math.max(y1, k[rang * 3 + 1])
+  }
+  return vus === 0 ? null : { x0, y0, x1, y1 }
+}
+
+/**
  * Une vignette : les boîtes de l'image, puis le rectangle de crop par-dessus.
  *
  * Le crop est tracé en dernier et plus épais — c'est lui qu'on regarde, et un
@@ -107,6 +145,7 @@ function vignette(
   H: number,
   out: string,
   trim: number,
+  tronc: TorsoName | 'off',
 ): void {
   const filtres = boîtes.map((b) => {
     const x = Math.round(b.x0 * W)
@@ -115,20 +154,28 @@ function vignette(
     const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
     return `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${couleur(b)}:t=2`
   })
-  // **Ce que le rognage abandonne**, en cyan et à l'intérieur de la boîte : la
-  // part de chaque personne dont le cadrage accepte de se passer. C'est la seule
-  // chose que le chiffre ne dit pas — un pourcentage ne montre pas si ce qui
-  // tombe est une épaule ou une joue.
-  if (trim > 0) {
-    for (const b of boîtes) {
-      if (couleur(b) !== 'lime') continue
-      const { x0, x1 } = trimmedBounds(b, { sideTrim: trim })
-      const y = Math.round(b.y0 * H)
-      const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
-      filtres.push(
-        `drawbox=x=${Math.round(x0 * W)}:y=${y}:w=${Math.max(1, Math.round((x1 - x0) * W))}:h=${h}:color=cyan:t=1`,
-      )
-    }
+  // **Ce que le cadrage exige vraiment**, en cyan et à l'intérieur de la boîte :
+  // le tronc quand les points de pose le disent, la boîte rognée sinon. C'est la
+  // seule chose que le chiffre ne dit pas — un pourcentage ne montre pas si ce
+  // qui tombe est une épaule ou une joue.
+  for (const b of boîtes) {
+    if (couleur(b) !== 'lime') continue
+    const { x0, x1 } = personBounds(b, { sideTrim: trim, torso: tronc })
+    const y = Math.round(b.y0 * H)
+    const h = Math.max(1, Math.round((b.y1 - b.y0) * H))
+    filtres.push(
+      `drawbox=x=${Math.round(x0 * W)}:y=${y}:w=${Math.max(1, Math.round((x1 - x0) * W))}:h=${h}:color=cyan:t=1`,
+    )
+    // La tête, quand elle est connue. Un carré et non un point : un pixel se
+    // perd sur une image de 960 de large, et ce qu'on cherche à voir est de
+    // quel côté du trait jaune il tombe.
+    const tête = têteDe(b)
+    if (tête === null) continue
+    filtres.push(
+      `drawbox=x=${Math.round(tête.x0 * W)}:y=${Math.round(tête.y0 * H)}` +
+        `:w=${Math.max(3, Math.round((tête.x1 - tête.x0) * W))}` +
+        `:h=${Math.max(3, Math.round((tête.y1 - tête.y0) * H))}:color=magenta:t=2`,
+    )
   }
   filtres.push(
     `drawbox=x=${Math.round(crop.x * W)}:y=${Math.round(crop.y * H)}` +
@@ -171,10 +218,11 @@ function étendue(
   boîtes: PersonBox[],
   marge: number,
   trim: number,
+  tronc: TorsoName | 'off',
 ): { g: number | undefined; d: number | undefined; haut: number; bas: number } {
   const gardées = boîtes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
   if (gardées.length === 0) return { g: undefined, d: undefined, haut: 0, bas: 1 }
-  const rognées = gardées.map((b) => trimmedBounds(b, { sideTrim: trim }))
+  const rognées = gardées.map((b) => personBounds(b, { sideTrim: trim, torso: tronc }))
   return {
     g: Math.max(0, Math.min(...rognées.map((b) => b.x0)) - marge),
     d: Math.min(1, Math.max(...rognées.map((b) => b.x1)) + marge),
@@ -208,7 +256,7 @@ async function main(): Promise<number> {
     return brut === undefined || brut.startsWith('--') ? undefined : brut
   }
   const drapeauxAvecValeur = new Set<number>()
-  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images']) {
+  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse']) {
     const i = arguments_.indexOf(d)
     if (i >= 0) drapeauxAvecValeur.add(i + 1)
   }
@@ -219,7 +267,8 @@ async function main(): Promise<number> {
   if (projectId === undefined || clipId === undefined) {
     console.error(
       'Usage : pnpm tsx scripts/vignettes-cadrage.ts <projectId> <clipId> ' +
-        '[--marge M] [--trim T] [--ratio 9:16|4:5|1:1|16:9] [--images N] [--out <dossier>]',
+        '[--marge M] [--trim T] [--tronc <nom|off>] [--ratio 9:16|4:5|1:1|16:9] ' +
+        '[--images N] [--analyse <fichier>] [--out <dossier>]',
     )
     return 1
   }
@@ -249,13 +298,24 @@ async function main(): Promise<number> {
     console.error(`--images attend un entier \u2265 1, re\u00e7u \u00ab ${String(brutImages)} \u00bb.`)
     return 1
   }
+  // Refusé et non corrigé, pour la même raison que la marge : une vignette qui
+  // montre un autre tronc que celui de sa légende est l'image dont on tire une
+  // conclusion fausse.
+  const brutTronc = valeurDe('--tronc')
+  const troncsConnus = ['off', ...Object.keys(TORSOS)]
+  if (brutTronc !== undefined && !troncsConnus.includes(brutTronc)) {
+    console.error(`--tronc attend l'un de ${troncsConnus.join(', ')}, reçu « ${brutTronc} ».`)
+    return 1
+  }
+  const tronc = (brutTronc ?? FRAMING_DEFAULTS.torso) as TorsoName | 'off'
+
   const brutRatio = valeurDe('--ratio')
   if (brutRatio !== undefined && !estRatio(brutRatio)) {
     console.error(`--ratio attend l'un de ${Object.keys(RATIOS).join(', ')}, reçu « ${brutRatio} ».`)
     return 1
   }
 
-  const analyse = lireAnalyse(analysisPath(projectId))
+  const analyse = lireAnalyse(valeurDe('--analyse') ?? analysisPath(projectId))
   const proxy = proxyPath(projectId)
   if (!fs.existsSync(proxy)) {
     console.error(`Proxy introuvable : ${proxy}`)
@@ -273,6 +333,7 @@ async function main(): Promise<number> {
   const cadrage = computeFraming({
     margin: marge,
     sideTrim: trim,
+    torso: tronc,
     segments: clip.segments,
     shots: analyse.shots,
     people: analyse.boxes,
@@ -288,7 +349,7 @@ async function main(): Promise<number> {
   const segments = normalizeSegments(clip.segments)
   const { w: W, h: H } = analyse.proxy
   console.log(
-    `${clipId} — natif ${cadrage.ratio}, marge ${marge}, rognage ${trim}, ` +
+    `${clipId} — natif ${cadrage.ratio}, marge ${marge}, rognage ${trim}, tronc ${tronc}, ` +
       `${cadrage.shots.length} plan(s)` +
       ` — largeur du crop natif ${((RATIOS[cadrage.ratio] * analyse.source.h) / analyse.source.w).toFixed(3)}`,
   )
@@ -335,8 +396,8 @@ async function main(): Promise<number> {
     // dès que `cropRect` recentre verticalement.
     const classées = [...parImage.entries()]
       .map(([clé, boîtes]) => {
-        const empan = requiredWidths(boîtes, { margin: marge, sideTrim: trim })[0]
-        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge, trim) }
+        const empan = requiredWidths(boîtes, { margin: marge, sideTrim: trim, torso: tronc })[0]
+        return { t: clé / 1000, boîtes, empan, ...étendue(boîtes, marge, trim, tronc) }
       })
       .filter(
         (e): e is Mesurée => e.empan !== undefined && e.g !== undefined && e.d !== undefined,
@@ -373,7 +434,7 @@ async function main(): Promise<number> {
         dossier,
         `plan${shotStartMs(plan.shot)}_r${rang}_t${vue.t.toFixed(1)}.png`,
       )
-      vignette(proxy, vue.t, vue.boîtes, crop, W, H, fichier, trim)
+      vignette(proxy, vue.t, vue.boîtes, crop, W, H, fichier, trim, tronc)
 
       console.log(
         `  ${fichier}  plan ${shotStartMs(plan.shot)} ms ${plan.ratio}, image ${vue.t.toFixed(1)} s` +

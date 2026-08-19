@@ -232,28 +232,6 @@ function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions):
 }
 
 /**
- * Ce que le cadrage retenu **coupe de chaque personne**, une valeur par boîte
- * gardée : la fraction de sa largeur qui tombe hors du rectangle.
- *
- * **C'est la mesure de sûreté du rognage, et elle ne se déduit d'aucune autre.**
- * La répartition des ratios dit ce qu'on gagne ; celle-ci dit ce qu'on paie. Un
- * rognage se juge sur les deux — un réglage qui fait basculer tous les clips en
- * 1:1 en coupant un comédien sur deux n'est pas un progrès.
- *
- * Le cadre mesuré est **celui du plan**, pas celui du natif : c'est le plus
- * serré des deux (le natif prend le plus large des plans), donc le seul qui
- * puisse couper quelqu'un que l'autre garderait.
- *
- * Les images que le seuil de 90 % sacrifie sont **comptées comme les autres**, et
- * c'est tout l'intérêt : rien d'autre ne les regarde. Le choix du ratio les
- * ignore par construction, donc c'est exactement là que se cachent les pertes
- * qu'aucun tableau de ratios ne montre.
- */
-function pertesDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): number[] {
-  return coûtDe(découpe, analyse, options).boîte
-}
-
-/**
  * Les points de tête d'une personne, ceux dont la présence dans le cadre n'est
  * pas négociable : nez, yeux, oreilles.
  *

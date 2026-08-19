@@ -12,9 +12,12 @@ import {
   requiredWidths,
   resolveRatio,
   sizeInCanvas,
+  personBounds,
+  torsoBounds,
   trimmedBounds,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
+import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
 
 const TOUS: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
@@ -1283,5 +1286,241 @@ describe('le rognage latéral', () => {
     expect(ratio(0.2, FRAMING_DEFAULTS.sideTrimMax)).toBe('16:9')
     expect(ratio(FRAMING_DEFAULTS.sideTrim, 0.06)).toBe('16:9')
     expect(ratio(FRAMING_DEFAULTS.sideTrim, FRAMING_DEFAULTS.sideTrimMax)).toBe('1:1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Un squelette COCO à plat, à partir des seules abscisses qui nous intéressent.
+ *
+ * Les points non nommés sortent à confiance nulle : c'est ce que le détecteur
+ * fait d'un membre qu'il ne voit pas, et c'est le cas qu'il faut éprouver — un
+ * point invisible arrive avec une position quand même, souvent au milieu du
+ * corps, et le compter resserre le tronc sans rien signaler.
+ */
+function squelette(abscisses: Partial<Record<keyof typeof POINT, number>>): number[] {
+  const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+  for (const [nom, x] of Object.entries(abscisses)) {
+    const rang = POINT[nom as keyof typeof POINT]
+    k[rang * 3] = x as number
+    k[rang * 3 + 1] = 0.4
+    k[rang * 3 + 2] = 0.9
+  }
+  return k
+}
+
+/** Une boîte de personne qui porte un squelette. */
+function avecPose(
+  t: number,
+  x0: number,
+  x1: number,
+  abscisses: Partial<Record<keyof typeof POINT, number>>,
+  score = 0.9,
+): PersonBox {
+  return { ...boîte(t, x0, x1, score), k: squelette(abscisses) }
+}
+
+describe('le tronc déduit des points de pose', () => {
+  /**
+   * **Le cas de l'issue #69, relevé dans l'analyse du 19 août 2026.**
+   *
+   * Sur `2026-22-02-entre-nous` à 2 973 s, deux comédiennes assises. La boîte de
+   * l'une va de 0,304 à 0,827 : ses jambes sont tendues vers la droite et sa
+   * cheville est à 0,757, alors que sa tête tient entre 0,417 et 0,482. La
+   * seconde va de 0,008 à 0,410 pour une tête entre 0,181 et 0,305.
+   *
+   * L'union des boîtes fait 0,819 quand un 1:1 en couvre 0,5625 ; celle des
+   * troncs fait 0,454. Le ratio était décidé par des jambes que personne ne
+   * regarde.
+   */
+  const jambesTendues = [
+    avecPose(0, 0.304, 0.827, {
+      NOSE: 0.482,
+      RIGHT_EYE: 0.469,
+      RIGHT_EAR: 0.417,
+      LEFT_SHOULDER: 0.409,
+      RIGHT_SHOULDER: 0.379,
+      LEFT_KNEE: 0.663,
+      LEFT_ANKLE: 0.743,
+      RIGHT_ANKLE: 0.757,
+    }),
+    avecPose(0, 0.008, 0.41, {
+      NOSE: 0.305,
+      LEFT_EYE: 0.298,
+      RIGHT_EYE: 0.271,
+      RIGHT_EAR: 0.181,
+      LEFT_SHOULDER: 0.309,
+      RIGHT_SHOULDER: 0.078,
+    }),
+  ]
+
+  it('ignore les jambes, que le cadre n’a aucune raison de contenir', () => {
+    const tronc = torsoBounds(jambesTendues[0], { torsoPad: 0, torsoTrim: 0 })
+    expect(tronc).not.toBeNull()
+    // Les épaules et le nez, pas la cheville à 0,757.
+    expect(tronc?.x0).toBeCloseTo(0.379, 10)
+    expect(tronc?.x1).toBeCloseTo(0.482, 10)
+  })
+
+  it('fait tomber sous le 16:9 le plan que les jambes y maintenaient', () => {
+    const plan = []
+    for (let t = 0; t < 10; t += 0.5) {
+      for (const p of jambesTendues) plan.push({ ...p, t })
+    }
+    expect(chooseRatio(plan, SRC_W, SRC_H, { torso: 'off' })).toBe('16:9')
+    // 4:5 et non 1:1 : aux réglages retenus, les troncs rognés font une union de
+    // 0,370 quand un 4:5 en couvre 0,450. L'issue #69 comptait les têtes seules
+    // et annonçait 0,45 — les épaules et le rembourrage ajoutent le reste.
+    expect(chooseRatio(plan, SRC_W, SRC_H)).toBe('4:5')
+  })
+
+  /**
+   * **Le contre-exemple qui a posé le plafond du rognage latéral, et que le
+   * tronc rend sans objet.**
+   *
+   * Sur `2026-03-08-caro-mdlm` à 7 250 s, un comédien assis jambes tendues vers
+   * la gauche : boîte de 0,332 à 0,873, tête entre 0,704 et 0,813 — à
+   * l'extrémité **droite** de sa boîte. Le rognage latéral, qui abandonne une
+   * part de chaque côté sans savoir ce qu'elle contient, s'arrête à 0,711 sans
+   * plafond : son visage tombe dehors pendant les 28 secondes du plan. Le tronc
+   * n'a pas besoin du plafond, parce qu'il ne devine pas où est la tête.
+   */
+  it('garde la tête d’une boîte large dont la tête est à un bout', () => {
+    const assis = avecPose(0, 0.332, 0.873, {
+      NOSE: 0.722,
+      LEFT_EYE: 0.751,
+      RIGHT_EYE: 0.727,
+      LEFT_EAR: 0.801,
+      LEFT_SHOULDER: 0.813,
+      RIGHT_SHOULDER: 0.704,
+      LEFT_ANKLE: 0.36,
+    })
+    // Ce que le rognage latéral faisait, plafond retiré : le visage dehors.
+    const sansPlafond = trimmedBounds(assis, { sideTrim: 0.3, sideTrimMax: 1 })
+    expect(sansPlafond.x1).toBeLessThan(0.722)
+
+    const tronc = torsoBounds(assis, { torsoPad: 0, torsoTrim: 0 })
+    expect(tronc?.x0).toBeCloseTo(0.704, 10)
+    expect(tronc?.x1).toBeCloseTo(0.813, 10)
+    // Et le tronc y arrive **sans plafond** : le réglage qui protégeait la tête
+    // par un pari ne sert plus à rien là où les points la nomment.
+    expect(personBounds(assis, { sideTrimMax: 1 })).toEqual(personBounds(assis))
+  })
+
+  it('n’écoute pas un point que le réseau n’a pas vu', () => {
+    // Une hanche à confiance nulle posée loin sur la gauche : elle ne doit pas
+    // entrer dans un tronc qui l'inclut, sinon un membre invisible décide du
+    // cadre — le défaut qu'on répare, retourné.
+    const k = squelette({ LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.5 })
+    k[POINT.LEFT_HIP * 3] = 0.05
+    k[POINT.LEFT_HIP * 3 + 2] = 0.01
+    const b: PersonBox = { ...boîte(0, 0.02, 0.6), k }
+    const tronc = torsoBounds(b, { torso: 'bust-hips', torsoPad: 0, torsoTrim: 0 })
+    expect(tronc?.x0).toBeCloseTo(0.4, 10)
+  })
+
+  /**
+   * **Un seul point n'est pas un tronc.** L'intervalle serait de largeur nulle :
+   * ce n'est pas un cadrage serré, c'est une personne réduite à un nez. On rend
+   * `null`, et l'appelant retombe sur la boîte — c'est-à-dire sur le
+   * comportement mesuré du 19 août, qui marchait.
+   */
+  it('retombe sur la boîte rognée quand le tronc n’est pas lisible', () => {
+    const seulNez = avecPose(0, 0.2, 0.6, { NOSE: 0.4 })
+    expect(torsoBounds(seulNez)).toBeNull()
+    expect(personBounds(seulNez)).toEqual(trimmedBounds(seulNez))
+
+    const sansPoints = boîte(0, 0.2, 0.6)
+    expect(torsoBounds(sansPoints)).toBeNull()
+    expect(personBounds(sansPoints)).toEqual(trimmedBounds(sansPoints))
+  })
+
+  it('refuse un squelette de la mauvaise longueur plutôt que de le lire à moitié', () => {
+    const tronqué: PersonBox = { ...boîte(0, 0.2, 0.6), k: squelette({ NOSE: 0.4 }).slice(0, 30) }
+    expect(torsoBounds(tronqué)).toBeNull()
+  })
+
+  it('éteint le tronc sur demande, et rend alors exactement la boîte rognée', () => {
+    const b = jambesTendues[0]
+    expect(torsoBounds(b, { torso: 'off' })).toBeNull()
+    expect(personBounds(b, { torso: 'off' })).toEqual(trimmedBounds(b))
+  })
+
+  /**
+   * **Le rembourrage existe parce qu'un point d'épaule est le centre d'une
+   * articulation**, pas le bord de la silhouette. Sans lui, le cadre passe au
+   * milieu de chaque épaule.
+   */
+  it('élargit le tronc à proportion de sa largeur', () => {
+    const b = avecPose(0, 0.2, 0.8, { LEFT_SHOULDER: 0.4, RIGHT_SHOULDER: 0.6, NOSE: 0.5 })
+    const { x0, x1 } = torsoBounds(b, { torsoPad: 0.15, torsoTrim: 0 }) ?? { x0: 0, x1: 0 }
+    expect(x0).toBeCloseTo(0.4 - 0.03, 10)
+    expect(x1).toBeCloseTo(0.6 + 0.03, 10)
+  })
+
+  /**
+   * **Le rognage du tronc ne touche pas à la tête, et c'est ce qui le sépare de
+   * `sideTrim`.** Celui-là abandonne des extrémités sans savoir ce qu'elles
+   * contiennent, d'où son plafond ; celui-ci sait, donc il remet la tête dedans.
+   */
+  it('rogne les épaules, jamais la tête', () => {
+    const profil = avecPose(0, 0.2, 0.8, {
+      NOSE: 0.3,
+      RIGHT_EAR: 0.28,
+      LEFT_SHOULDER: 0.7,
+      RIGHT_SHOULDER: 0.5,
+    })
+    const { x0, x1 } = torsoBounds(profil, { torsoPad: 0, torsoTrim: 0.5 }) ?? { x0: 0, x1: 0 }
+    // Le tronc brut va de 0,28 à 0,70 ; rogné de moitié il se réduirait à son
+    // milieu, 0,49. La tête le tire jusqu'à 0,28 et pas plus loin.
+    expect(x0).toBeCloseTo(0.28, 10)
+    expect(x1).toBeCloseTo(0.49, 10)
+  })
+
+  it('retombe sur les défauts quand un réglage n’est pas fini', () => {
+    const b = jambesTendues[0]
+    expect(torsoBounds(b, { torsoPad: Number.NaN })).toEqual(torsoBounds(b))
+    expect(torsoBounds(b, { torsoTrim: Number.NaN })).toEqual(torsoBounds(b))
+    expect(torsoBounds(b, { torsoMinScore: Number.NaN })).toEqual(torsoBounds(b))
+  })
+
+  /**
+   * Les valeurs, épinglées — même rôle que pour la marge et le rognage latéral :
+   * elles sortent d'une campagne, et les déplacer doit se voir.
+   *
+   * Ce que la campagne du 19 août 2026 a établi sur trois émissions, points de
+   * pose compris (`docs/ratios-par-clip.md`) : le rognage du tronc a son coude à
+   * 0,30 — de 0,20 à 0,30 il gagne cinq à six points de temps de montage sous le
+   * 16:9, de 0,30 à 0,40 il n'en gagne que deux et commence à couper le tronc.
+   * Le rembourrage, lui, ferme le rognage du tronc par lui-même dès 0,10 ; 0,15
+   * est le point où le tronc n'est plus jamais coupé sur deux émissions sur
+   * trois.
+   */
+  it('porte les valeurs de la campagne du 19 août 2026', () => {
+    expect(FRAMING_DEFAULTS.torso).toBe('bust')
+    expect(FRAMING_DEFAULTS.torsoMinScore).toBe(0.5)
+    expect(FRAMING_DEFAULTS.torsoPad).toBe(0.15)
+    expect(FRAMING_DEFAULTS.torsoTrim).toBe(0.3)
+  })
+
+  /**
+   * **Le tronc ne remplace pas la boîte, et le filtre du premier plan le
+   * prouve.** Sa géométrie — bord bas à 0,97, hauteur sous 0,35 — décrit une
+   * troncature par le bas de l'image, ce qu'aucun squelette ne dit. Sur
+   * `2025-06-15-cqlp`, c'est 30 % des boîtes.
+   */
+  it('laisse le filtre du premier plan lire la boîte, pas le tronc', () => {
+    const spectateur: PersonBox = {
+      ...avecPose(0, 0.02, 0.2, { NOSE: 0.1, LEFT_EAR: 0.05, RIGHT_EAR: 0.15 }),
+      y0: 0.8,
+      y1: 0.999,
+    }
+    expect(isForeground(spectateur)).toBe(true)
+    // Même avec un tronc parfaitement lisible, il ne compte pas dans l'empan.
+    expect(torsoBounds(spectateur)).not.toBeNull()
+    expect(requiredWidths([spectateur, ...jambesTendues])).toEqual(
+      requiredWidths(jambesTendues),
+    )
   })
 })

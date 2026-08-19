@@ -548,17 +548,25 @@ La parenté s'arrête au diariseur.
 | Locuteurs | pyannote, hors itération 0 | non mesuré |
 | Correction du transcript | lexique, puis Ollama (après libération du GPU) | 3 à 8 min |
 | Frontières de plans | détection sur le proxy | 2 min |
-| Personnes | YOLO classe *person*, 2 images par seconde | 5 min |
+| Personnes et poses | YOLO `-pose`, 2 images par seconde | 2 à 3 min |
 | Analyse audio | voir plus bas | 5 min |
 | Repérage des candidats | Gemini | 1 min |
 
-**Quatre lignes sur neuf sont mesurées, quatre restent des estimations et les
+**Six lignes sur neuf sont mesurées, trois restent des estimations et les
 locuteurs n'ont ni l'une ni l'autre.** Relevé le 18 août 2026 sur
 `2025-06-15-cqlp.mp4`, une émission entière de 1 h 39 : proxy en 6 min, soit 16,4x
 le temps réel et 7 min pour 2 h ; extraction audio en 6 s ; transcription et
-alignement en 1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les quatre estimations qui
-subsistent (correction du transcript, frontières de plans, personnes, analyse
-audio) n'ont encore rien derrière elles.
+alignement en 1 min 41 s, soit 59x le temps réel ; repérage Gemini en 30 s. Les trois estimations qui
+subsistent (correction du transcript, analyse audio, locuteurs) n'ont encore rien
+derrière elles.
+
+**Les deux passes du détecteur sont mesurées depuis le 19 août 2026**, et elles
+tiennent ensemble dans une même exécution : 139 s pour 1 h 54, 207 s pour 2 h 50,
+113 s pour 1 h 39, frontières de plans comprises. La détection de pose ne coûte
+rien de plus que la détection de boîtes — 145 im/s contre 147, trois passes chacun
+sur le même proxy, un écart de 1,4 % que la variance de cette machine ne permet
+pas d'établir. Ce qu'elle coûte est sur le disque : `analysis.json` grossit d'un
+facteur cinq, dix-sept points par personne.
 
 **La cadence de la source décide du proxy, d'où la fourchette.** Les 16,4x
 viennent de `2025-06-15-cqlp`, seule source du corpus déjà en 30 fps. La section 11
@@ -813,7 +821,15 @@ Les deux bornes sont nécessaires, et la seconde a été payée par une image :
   la tête occupe l'extrémité droite : 30 % de chaque côté font 0,161 de l'image et
   **son visage tombe dehors pendant les 28 secondes du plan**, sans que le
   compteur de pertes le signale — il n'a perdu que 27 % de sa boîte. C'est le cas
-  des jambes tendues de l'issue #69, vu par l'autre bout.
+  des jambes tendues de l'issue #69, vu par l'autre bout. **Ce plafond ne sert plus
+  que sur le chemin de repli** depuis que les points de pose nomment la tête au
+  lieu de la deviner : voir plus bas.
+
+Le compteur qui manquait à ce paragraphe existe depuis le 19 août au soir, et
+c'est ce que les points de pose ont apporté de plus net : `scripts/mesure-ratios.ts`
+compte les couples (personne, image) dont **aucun point de tête n'est dans le
+rectangle de crop**. Un visage tombé dehors ne se cherche donc plus à l'œil sur une
+image.
 
 Ce que ça déplace, sur les trois émissions : la part des clips en 16:9 tombe de
 84 à 42 % sur `cqlp`, de 100 à 83 % sur `caro-mdlm`, de 100 à 67 % sur
@@ -824,11 +840,43 @@ quelqu'un amputé de plus de la moitié, tous dans les 10 % d'images que le seui
 sacrifie déjà. Le détail, les seuils et les images sont dans
 `docs/ratios-par-clip.md`.
 
+**Et depuis le 19 août au soir, « cadrer » veut dire contenir les troncs**, pas
+les boîtes rognées. Le détecteur tourne sur `yolo11m-pose.pt`, qui rend dix-sept
+points COCO par personne ; le cadre doit contenir la tête et les épaules de
+chacun, rognées de 30 % et rembourrées de 15 % de leur largeur, la tête servant de
+plancher à ce rognage. C'est la réponse à l'issue #69, et c'est un changement de
+primitive : une `PersonBox` est un rectangle dont la largeur est la même à toutes
+les hauteurs, donc rien à l'intérieur ne distingue une tête d'une cheville, et le
+rognage latéral ne pouvait que parier sur la position de la tête.
+
+Ce que ça déplace, part du temps de montage en 16:9, à modèle égal :
+`2025-06-15-cqlp` 42 → 37 % sur les fenêtres, `2026-22-02-entre-nous` 55 → 51 %
+sur les fenêtres et 60 → 49 % sur les clips, `2026-03-08-caro-mdlm` inchangé. Ce
+que ça déplace surtout, c'est le coût : ce que le cadre coupe d'un tronc tombe de
+0,309 à 0,016 au p99 sur `cqlp` et de 0,192 à 0,000 sur `entre-nous`, et le nombre
+de têtes posées à moins de 1 % du bord du cadre est divisé par cinq et par trois.
+
+**Le plafond du rognage latéral n'a donc plus d'objet sur ce chemin-là.** Il
+existait pour empêcher un rognage aveugle de jeter un visage — le cas de
+`caro-mdlm` à 7 250 s, ci-dessous —, et la tête n'est plus devinée. `sideTrim` et
+`sideTrimMax` restent comme **repli** : une analyse de version 1 n'a pas de points,
+un `DETECT_MODEL` repassé sur `yolo11m.pt` non plus, et une personne de dos n'a pas
+de tronc lisible. Sur une analyse de pose, 99 % des boîtes ont un tronc et le
+balayage complet du rognage latéral ne déplace plus aucun ratio.
+
+**La boîte corps entier reste écrite à côté du tronc**, et ce n'est pas de la
+prudence : le filtre du public au premier plan lit sa géométrie — bord bas et
+hauteur —, et un squelette ne dit pas si le bas de l'image a tronqué quelqu'un.
+
 **Ce que ça ne fait pas.** Un plan dont le détecteur ne donne aucune boîte
-exploitable reste mal cadré, et aucun critère lisant ces boîtes n'y changera rien
-— sur le second plan du clip de référence, un gros plan sur un comédien qui parle,
-ses boîtes vont de 0,42 à 0,65 de large et sautent de ±0,15 d'une image à l'autre
-pour un visage qui en occupe 0,30. La suite est du côté du détecteur (issue #69).
+exploitable reste mal cadré — sur le second plan du clip de référence, un gros plan
+sur un comédien qui parle, ses boîtes vont de 0,42 à 0,65 de large et sautent de
+±0,15 d'une image à l'autre pour un visage qui en occupe 0,30. Les points de pose
+divisent cette gigue par deux, de 0,380 à 0,178 d'écart entre la plus étroite et la
+plus large, et **le plan reste en 1:1 quand il devrait être en 9:16** : ce n'est
+plus la largeur qui décide, c'est la position — aucune position fixe de 9:16 ne
+sert dix de ses onze images. Le reste de l'issue #69 est là, et dans les faux
+positifs sur du mobilier, que les points n'écartent pas non plus.
 
 **Ce paragraphe demandait un ratio unique pour tout le clip, et la mesure l'a
 démenti.** Sur trois émissions, la part des fenêtres de 30 s qui descend sous le

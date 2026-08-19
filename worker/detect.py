@@ -12,6 +12,17 @@ jouent debout, face à face, **de profil**, et un détecteur de visages rate le
 profil — d'où les 5 à 30 % d'images sans aucune détection que MediaPipe rendait.
 YOLO classe *person* tient le profil, le dos, et les corps partiellement cachés.
 
+**Et depuis le 19 août 2026, on détecte aussi la pose.** Les variantes ``-pose``
+de la même famille rendent dix-sept points COCO par personne en plus de la boîte,
+et ce script les écrit tels quels quand le modèle chargé en produit. C'est ce qui
+permet à ``src/core/framing.ts`` de savoir où est la tête : une boîte est un
+rectangle dont la largeur est la même à toutes les hauteurs, donc rien à
+l'intérieur ne distingue une tête d'une cheville, et le cadrage se retrouvait
+décidé par des jambes tendues (issue #69). Le surcoût est nul à la mesure —
+145 im/s contre 147, trois passes chacun sur le même proxy. Ce script ne choisit
+rien : il accepte les deux familles de poids, et ``keypoints`` dit dans le
+résultat ce qu'il a trouvé.
+
 **Deux passes, un seul fichier.** Les frontières de plans et les boîtes décrivent
 le même proxy et atterrissent dans le même ``analysis.json`` : les séparer
 donnerait deux flux d'avancement et une fusion dont personne n'est propriétaire.

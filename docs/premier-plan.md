@@ -219,6 +219,32 @@ Trois pistes restent ouvertes, aucune n'est de ce ressort :
   noir, dont le score tombe à 0,42. Deux réglages qui tirent sur la même corde
   valent moins qu'un seul dont on sait ce qu'il fait.
 
+## Ce que les points de pose y ont changé, le 19 août 2026
+
+**Rien au critère, et beaucoup à ce qu'il a à écarter.**
+
+Le critère ne bouge pas : il lit la **boîte** — bord bas à 0,97, hauteur sous
+0,35 — et il le doit. Un squelette ne dit pas si le bas de l'image a tronqué
+quelqu'un, alors que c'est exactement la situation physique que ce filtre décrit.
+Le tronc déduit des points remplace la boîte pour l'empan, pas pour ce filtre-là.
+
+Mais le modèle de pose ne voit pas la même population, et sur `2025-06-15-cqlp`
+l'écart est massif : **8 325 boîtes courtes collées au bord bas avec
+`yolo11m.pt`, 2 429 avec `yolo11m-pose.pt`**. Le filtre n'a donc plus que 11,5 %
+des boîtes à écarter au lieu de 30 %. Le nombre de boîtes gardées, lui, ne bouge
+presque pas — 19 972 contre 20 306 : le modèle de pose **ne détecte pas la plupart
+des têtes de spectateurs**, il ne les détecte pas autrement. Il lui faut des
+articulations, et une tête vue de dos au premier rang n'en offre aucune.
+
+La structure bimodale qui fonde le seuil survit : sur les boîtes collées au bas,
+entre 0,32 et 0,40 il reste 22 boîtes sur 18 395. Le creux est toujours là, le
+seuil de 0,35 est toujours dans son fond, il a simplement moins à trancher.
+
+**Ce que ça coûte n'est pas établi**, et il faut le dire plutôt que de conclure :
+sur `cqlp`, à primitive de cadrage égale, la part du temps de montage en 16:9 passe
+de 36 à 42 % en changeant de modèle. La cause est située — deux populations de
+boîtes différentes — et non démontrée. Le tronc en récupère cinq points sur six.
+
 ## Reproduire
 
 ```bash
@@ -247,7 +273,7 @@ en quelques minutes et son résultat se lit directement :
 ```bash
 ./worker/venv/bin/python worker/detect.py \
   --proxy projects/<projet>/proxy.mp4 --out /tmp/analyse.json \
-  --ffmpeg "$FFMPEG_BIN" --model worker/models/yolo11m.pt \
+  --ffmpeg "$FFMPEG_BIN" --model worker/models/yolo11m-pose.pt \
   --duration <secondes> --proxy-size 960x540 --source-size 1920x1080
 pnpm tsx scripts/mesure-premier-plan.ts --analyse /tmp/analyse.json
 ```

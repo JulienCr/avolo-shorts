@@ -92,9 +92,17 @@ export function LibraryScreen() {
   // laisser en cache — un cache périmé, lui, reste affiché, c'est la règle que
   // l'écran de projet tient déjà pour ses candidats. (relevé par Copilot)
   const projectsUnknown = projects.isError && projects.data === undefined
+  // **Une panne des replays ne doit pas emporter les émissions.** L'ancien écran
+  // gardait sa section « Projets » quand `GET /api/sources` échouait ; la liste
+  // unifiée la perdait, et avec elle l'accès aux clips et aux rendus de tout ce
+  // qui était déjà analysé — sur une panne qui ne les concerne pas. Les projets
+  // restent donc des entrées, marquées `replay: 'unknown'` plutôt qu'orphelines :
+  // on ne sait pas si leur fichier est là, on n'a pas pu regarder.
+  // (relevé par Copilot)
+  const sourcesKnown = !(sources.isError && sources.data === undefined)
   const entries = projectsUnknown
     ? []
-    : buildLibrary(sources.data?.sources ?? [], projects.data ?? [])
+    : buildLibrary(sources.data?.sources ?? [], projects.data ?? [], sourcesKnown)
 
   return (
     <div className="flex min-h-full flex-col">

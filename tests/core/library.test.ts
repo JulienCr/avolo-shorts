@@ -126,6 +126,24 @@ describe('buildLibrary', () => {
     expect(orphan.state).toBe('analyzed')
   })
 
+  it('ne déclare pas orphelin ce qu’on n’a pas pu chercher', () => {
+    // **`GET /api/sources` en échec ne prouve rien sur les fichiers.** Les
+    // projets restent des entrées — sinon leurs clips et leurs rendus
+    // deviendraient inatteignables sur une panne qui ne les concerne pas —,
+    // mais aucun n'est orphelin : on n'a pas regardé. (relevé par Copilot)
+    const [entry] = buildLibrary([], [project({ id: 'a' })], false)
+    expect(entry.replay).toBe('unknown')
+    expect(entry.project?.id).toBe('a')
+
+    const [orphan] = buildLibrary([], [project({ id: 'a' })])
+    expect(orphan.replay).toBe('missing')
+  })
+
+  it('marque « present » un replay que la liste porte', () => {
+    const [entry] = buildLibrary([source('a.mp4')], [])
+    expect(entry.replay).toBe('present')
+  })
+
   it('range les orphelins après les replays, jamais mêlés', () => {
     const entries = buildLibrary(
       [source('b.mp4'), source('a.mp4', 'a')],

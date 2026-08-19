@@ -63,14 +63,21 @@ export function useAnalysisAnnouncement(
   return memory.message
 }
 
+/** Comment une analyse s'est terminée, en toutes lettres. */
+function finDAnalyse(projet: ProjectListItem): string {
+  if (projet.error !== null) return 'analyse en échec'
+  return projet.stopped ? 'analyse arrêtée' : 'analyse terminée'
+}
+
 /**
- * Ce dont l'annonce dépend, et rien d'autre : l'étape en cours de chaque projet
- * et le fait qu'il ait échoué. La progression n'y est pas — c'est ce qui fait
- * qu'un tour de sondage sur un pourcentage qui avance ne dit rien.
+ * Ce dont l'annonce dépend, et rien d'autre : l'étape en cours de chaque projet,
+ * le fait qu'il ait échoué et le fait qu'il ait été arrêté. La progression n'y
+ * est pas — c'est ce qui fait qu'un tour de sondage sur un pourcentage qui
+ * avance ne dit rien.
  */
 function sign(projects: readonly ProjectListItem[] | undefined): string {
   return (projects ?? [])
-    .map((p) => `${p.id}\u0000${p.running?.step ?? ''}\u0000${p.error !== null}`)
+    .map((p) => `${p.id}\u0000${p.running?.step ?? ''}\u0000${p.error !== null}\u0000${p.stopped}`)
     .join('\u0001')
 }
 
@@ -92,7 +99,13 @@ function announce(
     if (now !== undefined && now !== before) {
       messages.push(`${p.title} : ${LIBELLES_ETAPES[now]}.`)
     } else if (now === undefined && before !== undefined) {
-      messages.push(`${p.title} : ${p.error !== null ? 'analyse en échec' : 'analyse terminée'}.`)
+      // **Trois fins, pas deux.** Un arrêt demandé laisse `error` à `null` — ce
+      // n'est pas une panne —, si bien que la région live annonçait « analyse
+      // terminée » au moment précis où la carte affichait « Analyse interrompue ».
+      // Deux surfaces qui décrivent le même projet ne peuvent pas se
+      // contredire, et c'est celle qu'on n'entend qu'une fois qui aurait menti.
+      // (relevé par Copilot)
+      messages.push(`${p.title} : ${finDAnalyse(p)}.`)
     }
   }
 

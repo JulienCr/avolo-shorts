@@ -202,7 +202,7 @@ describe('le lecteur et la bande', () => {
     const band = screen.getByTestId('coverage-timeline')
     // jsdom ne met rien en page : le rectangle est nul, et `instantAuClic` rend
     // alors 0 plutôt qu'un infini. Ce qui se vérifie ici est le câblage —
-    // l'arithmétique est éprouvée dans `tests/core/couverture.test.ts`.
+    // l'arithmétique est éprouvée dans `tests/core/coverage.test.ts`.
     vi.spyOn(band, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       width: 1_000,

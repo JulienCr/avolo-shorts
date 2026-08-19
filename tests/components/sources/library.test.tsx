@@ -196,6 +196,46 @@ describe('la recherche', () => {
   })
 })
 
+describe('ce qui se dit à voix haute', () => {
+  /** Deux relevés successifs, comme le sondage les rend. */
+  function annoncer(avant: ProjectListItem[], après: ProjectListItem[]): string {
+    const { rerender } = renderGrid({ entries: buildLibrary([], avant), projects: avant })
+    rerender(
+      <LibraryGrid
+        entries={buildLibrary([], après)}
+        projects={après}
+        mount={MOUNTED}
+        loading={false}
+        error={null}
+        projectsError={null}
+        onRetry={vi.fn()}
+        creation={creation()}
+      />,
+    )
+    return screen.getByRole('status').textContent ?? ''
+  }
+
+  it('dit « arrêtée » et non « terminée » après un arrêt', () => {
+    // **Un arrêt demandé laisse `error` à `null`** — ce n'est pas une panne —,
+    // si bien que la région live annonçait « analyse terminée » au moment précis
+    // où la carte affichait « Analyse interrompue ». Deux surfaces qui décrivent
+    // le même projet ne peuvent pas se contredire, et c'est celle qu'on n'entend
+    // qu'une fois qui aurait menti. (relevé par Copilot)
+    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(annoncer([enCours], [project('a', { stopped: true })])).toContain('arrêtée')
+  })
+
+  it('dit « terminée » sur une fin ordinaire', () => {
+    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(annoncer([enCours], [project('a')])).toContain('terminée')
+  })
+
+  it('dit « en échec » sur un échec', () => {
+    const enCours = project('a', { running: { step: 'proxy', progress: 0.3 } })
+    expect(annoncer([enCours], [project('a', { error: 'tombé' })])).toContain('échec')
+  })
+})
+
 describe('les états d’écran', () => {
   it('pose des squelettes tant qu’une des deux listes n’a pas répondu', () => {
     const { container } = renderGrid({ loading: true })
@@ -203,9 +243,30 @@ describe('les états d’écran', () => {
     expect(screen.queryByRole('tab')).toBeNull()
   })
 
-  it('affiche le message du serveur quand les émissions ne se listent pas', () => {
-    renderGrid({ error: 'REPLAY_DIR est absent.' })
+  it('affiche le message du serveur sans emporter les émissions', () => {
+    // **La panne des replays ne remplace plus la grille.** Elle la remplaçait,
+    // et les émissions déjà analysées devenaient inatteignables — leurs clips,
+    // leurs rendus — sur une panne qui ne les concerne pas.
+    // (relevé par Copilot)
+    renderGrid({
+      error: 'REPLAY_DIR est absent.',
+      entries: buildLibrary([], [project('a')], false),
+      mount: undefined,
+    })
     expect(screen.getByText('REPLAY_DIR est absent.')).toBeTruthy()
+    expect(screen.getByText(/Replay inconnu/)).toBeTruthy()
+  })
+
+  it('dit l’incident de montage même quand des émissions restent affichées', () => {
+    // Il dépendait du nombre d'entrées, donc ne s'affichait jamais dès qu'un
+    // seul projet existait : le partage pouvait être tombé, la bibliothèque
+    // montrait des cartes et se taisait sur la cause. (relevé par Copilot)
+    renderGrid({
+      entries: buildLibrary([], [project('a')], false),
+      mount: { disponible: false, cause: 'muet', fstype: '9p', entrées: 0 },
+    })
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByText(/Replay inconnu/)).toBeTruthy()
   })
 
   it('avertit quand l’état des analyses n’a pas pu être lu', () => {

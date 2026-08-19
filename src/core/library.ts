@@ -112,8 +112,18 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
    * recherche mord dessus autant que sur le titre, pour la même raison.
    */
   fileName: string | null
-  /** Le replay, ou `null` s'il a disparu du Drive. */
+  /** Le replay, ou `null` quand l'entrée n'en a pas — voir `replay`. */
   source: S | null
+  /**
+   * Ce qu'on sait du fichier derrière cette entrée.
+   *
+   * **Trois états et non deux, parce que « absent » et « pas regardé » ne se
+   * ressemblent que par leur silence.** Un projet sans source correspondante est
+   * orphelin *si le dossier a été lu* ; si `GET /api/sources` a échoué, on ne
+   * sait simplement pas, et le déclarer orphelin accuserait le Drive d'avoir
+   * perdu un fichier qu'on n'a pas cherché. (relevé par Copilot)
+   */
+  replay: 'present' | 'missing' | 'unknown'
   /** Le projet, ou `null` si personne n'a lancé l'analyse. */
   project: P | null
   state: ShowState
@@ -173,10 +183,26 @@ export function showState(project: LibraryProject | null, projectExpected: boole
  *
  * Ces entrées passent **après** les replays, jamais mêlées : ce sont des restes,
  * pas des propositions de travail.
+ *
+ * **Et « orphelin » se dit seulement quand on a regardé.** Sur un
+ * `GET /api/sources` en échec, les mêmes entrées se fabriquent — les projets
+ * doivent rester atteignables, c'était toute la raison d'être de cette
+ * branche — mais avec `replay: 'unknown'` : déclarer orphelins vingt projets
+ * parce qu'un partage n'a pas répondu accuserait le Drive d'une perte qui n'a
+ * pas eu lieu.
  */
 export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
   sources: readonly S[],
   projects: readonly P[],
+  /**
+   * Le dossier des replays a-t-il été lu ?
+   *
+   * **Faux quand `GET /api/sources` a échoué.** Les projets restent alors des
+   * entrées — sans quoi leurs clips et leurs rendus deviendraient inatteignables
+   * sur une panne qui ne les concerne pas —, mais aucun n'est déclaré orphelin :
+   * on ne sait pas si son fichier est là. (relevé par Copilot)
+   */
+  sourcesKnown = true,
 ): LibraryEntry<S, P>[] {
   const byId = new Map(projects.map((p) => [p.id, p]))
   const claimed = new Set<string>()
@@ -190,6 +216,7 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
       fileName: source.name,
       source,
       project,
+      replay: 'present',
       state: showState(project, source.projectId !== null),
     }
   })
@@ -198,12 +225,13 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
     if (claimed.has(project.id)) continue
     entries.push({
       key: project.id,
-      // Une entrée orpheline n'a plus de fichier : son identifiant est tout ce
-      // qui reste, et c'est de lui que le serveur tire déjà `project.title`.
+      // Sans fichier, l'identifiant est tout ce qui reste, et c'est de lui que le
+      // serveur tire déjà `project.title`.
       title: project.title,
       fileName: null,
       source: null,
       project,
+      replay: sourcesKnown ? 'missing' : 'unknown',
       state: showState(project, true),
     })
   }

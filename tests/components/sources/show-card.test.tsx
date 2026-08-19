@@ -181,6 +181,15 @@ describe('le projet orphelin', () => {
     expect(screen.getByText('Orpheline')).toBeTruthy()
   })
 
+  it('dit « inconnu » et non « introuvable » quand le dossier n’a pas été lu', () => {
+    // Déclarer orphelin un projet dont on n'a pas pu chercher le fichier
+    // accuserait le Drive d'une perte qui n'a pas eu lieu. (relevé par Copilot)
+    const [entry] = buildLibrary([], [{ ...PROJECT, id: 'perdu', title: 'perdu' }], false)
+    renderCard(entry)
+    expect(screen.getByText(/Replay inconnu/)).toBeTruthy()
+    expect(screen.queryByText('Orpheline')).toBeNull()
+  })
+
   it('affiche la durée sondée à l’ingestion, qui survit au fichier', () => {
     renderCard(entry(null, { id: 'perdu', durationSec: 5_940 }))
     expect(screen.getByText(/1:39:00/)).toBeTruthy()

@@ -201,7 +201,17 @@ function Subtitle({ entry }: { entry: Entry }) {
     )
   }
   const durationSec = entry.project?.durationSec ?? 0
-  return <>Replay introuvable{durationSec > 0 && <> · {formatDuration(durationSec)}</>}</>
+  // **« Introuvable » et « inconnu » ne se disent pas pareil.** Le premier est un
+  // constat — le dossier a été lu, le fichier n'y est plus ; le second dit qu'on
+  // n'a pas pu regarder. Les confondre accuserait le Drive d'une perte qui n'a
+  // pas eu lieu. (relevé par Copilot)
+  const état = entry.replay === 'missing' ? 'Replay introuvable' : 'Replay inconnu'
+  return (
+    <>
+      {état}
+      {durationSec > 0 && <> · {formatDuration(durationSec)}</>}
+    </>
+  )
 }
 
 /**
@@ -272,7 +282,10 @@ function StateLine({ entry, creating }: { entry: Entry; creating: boolean }) {
         <Badge className="border-stage/40 bg-stage/20 text-stage-foreground">
           {STATE_LABELS.analyzed}
         </Badge>
-        {entry.source === null && (
+        {/* **Orpheline seulement quand on a regardé.** Sur un dossier qu'on n'a
+            pas pu lire, l'entrée existe pour rester atteignable, pas pour
+            accuser le Drive. */}
+        {entry.replay === 'missing' && (
           <span className="flex items-center gap-1 text-muted-foreground">
             <Unplug className="size-3.5" aria-hidden />
             Orpheline

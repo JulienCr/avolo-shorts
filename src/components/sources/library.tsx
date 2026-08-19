@@ -190,10 +190,17 @@ export function LibraryGrid({
         </Alert>
       )}
 
-      {error !== null ? (
+      {/* **La panne des replays ne remplace plus la grille, elle la surmonte.**
+          Elle la remplaçait, et les émissions déjà analysées devenaient
+          inatteignables — leurs clips, leurs rendus — sur une panne qui ne les
+          concerne pas, alors que l'ancien écran gardait sa section « Projets ».
+          Les cartes qui restent sont marquées « Replay inconnu » et non
+          orphelines : on ne sait pas si leur fichier est là, on n'a pas pu
+          regarder. (relevé par Copilot) */}
+      {error !== null && (
         <Alert variant="destructive" className="px-4 py-3">
           <TriangleAlert aria-hidden />
-          <AlertTitle className="text-sm">Les émissions n’ont pas pu être listées.</AlertTitle>
+          <AlertTitle className="text-sm">Les replays n’ont pas pu être listés.</AlertTitle>
           {/* Le message du serveur, tel quel. Un `GET /api/sources` en échec est
               une panne du serveur lui-même — un montage muet, lui, répond 200 et
               se raconte dans la ligne de montage. */}
@@ -204,7 +211,18 @@ export function LibraryGrid({
             </Button>
           </AlertAction>
         </Alert>
-      ) : !entriesKnown ? null : loading ? (
+      )}
+
+      {/* **L'incident de montage ne dépend pas du nombre d'entrées.** Il en
+          dépendait, et il ne s'affichait donc jamais dès qu'un seul projet
+          existait : le partage pouvait être tombé, la bibliothèque montrait des
+          cartes et se taisait sur la cause. Le vide du dossier, lui, reste un
+          cas de grille — c'est là qu'il se lit. (relevé par Copilot) */}
+      {mount !== undefined && !mount.disponible && (
+        <LigneMontage montage={mount} onReessayer={onRetry} />
+      )}
+
+      {!entriesKnown ? null : loading ? (
         <ul className={GRID}>
           {Array.from({ length: SKELETONS }, (_, i) => (
             <li key={i}>
@@ -212,13 +230,13 @@ export function LibraryGrid({
             </li>
           ))}
         </ul>
-      ) : entries.length === 0 && mount !== undefined ? (
+      ) : entries.length === 0 && mount !== undefined && mount.disponible ? (
         // Le vide de la bibliothèque **est** celui du dossier des replays : sans
         // fichier et sans projet, il n'y a rien à montrer et une seule question
-        // à poser — le montage a-t-il eu lieu ? La cause vient du serveur, qui
-        // seul sait si le chemin était absent, refusé, muet ou illisible.
+        // à poser — le dossier a-t-il quelque chose dedans ? La cause vient du
+        // serveur, qui seul sait ce qu'il a lu.
         <LigneMontage montage={mount} onReessayer={onRetry} />
-      ) : (
+      ) : entries.length === 0 ? null : (
         <Tabs value={filter} onValueChange={(value) => setFilter(value as LibraryFilter)}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList>

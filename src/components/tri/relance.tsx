@@ -87,7 +87,7 @@ export function BoutonReprise({ projectId, enCours }: { projectId: string; enCou
  * boîte de dialogue ne protégerait rien et retarderait le seul geste que
  * quelqu'un qui vient de lancer la mauvaise émission veut faire vite.
  *
- * **`arrêtée: false` est un succès.** C'est ce que rend la route quand rien ne
+ * **`stopped: false` est un succès.** C'est ce que rend la route quand rien ne
  * tournait — l'analyse venait de finir, ou un redémarrage du serveur a emporté
  * l'exécution. Le dire comme un échec ferait chercher un défaut là où il n'y a
  * qu'une course perdue de quelques secondes ; l'écran ne montre donc rien de

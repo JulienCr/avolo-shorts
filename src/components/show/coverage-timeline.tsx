@@ -121,7 +121,9 @@ export function CoverageTimeline({
                   <Link
                     href={lienClip(item.id)}
                     data-clip={item.id}
-                    aria-label={`${item.title} — ${formatTimecode(interval.start)} à ${formatTimecode(interval.end)}`}
+                    // Le même repli que le résumé : un titre vide est permis, et
+                    // le nom accessible commencerait sinon par des timecodes.
+                    aria-label={`${item.title || 'Sans titre'} — ${formatTimecode(interval.start)} à ${formatTimecode(interval.end)}`}
                     onClick={(e) => {
                       // **La propagation s'arrête ici.** Sans cela le clic
                       // remontait jusqu'au `onClick` de la bande et déplaçait

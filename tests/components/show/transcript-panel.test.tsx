@@ -255,3 +255,96 @@ describe('RetranscribeButton', () => {
     expect(corpsEnvoyé(appel, index)).toEqual({ target: 'candidates', force: ['transcript'] })
   })
 })
+
+describe('la navigation au clavier', () => {
+  /**
+   * Trois propriétés vérifiées, pas supposées : une trace de tabulation sur
+   * soixante phrases s'arrêtait au septième mot avant de sauter au bouton de
+   * fermeture — la plupart des mots étaient structurellement inatteignables,
+   * puisqu'un mot hors de la fenêtre virtualisée n'existe pas dans le DOM.
+   * Et démonter le mot focalisé (au défilement) faisait retomber
+   * `document.activeElement` sur `<body>`.
+   */
+
+  it('un seul mot est un arrêt de tabulation à la fois, et les flèches le déplacent', async () => {
+    stubFetch([lireTranscript()])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+
+    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
+    const a = screen.getByRole('button', { name: 'à' })
+    expect(bonjour.getAttribute('tabindex')).toBe('0')
+    expect(a.getAttribute('tabindex')).toBe('-1')
+
+    bonjour.focus()
+    fireEvent.keyDown(bonjour, { key: 'ArrowRight' })
+
+    expect(a.getAttribute('tabindex')).toBe('0')
+    expect(bonjour.getAttribute('tabindex')).toBe('-1')
+    expect(document.activeElement).toBe(a)
+  })
+
+  it('Entrée sur le mot du curseur le sélectionne, comme un clic', async () => {
+    stubFetch([lireTranscript()])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+
+    const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
+    bonjour.focus()
+    fireEvent.keyDown(bonjour, { key: 'Enter' })
+
+    const champ = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
+    expect(champ.value).toBe('Bonjour')
+  })
+
+  it('demande un défilement quand le curseur vise un mot hors de la fenêtre rendue', async () => {
+    // jsdom n'implémente pas `Element.scrollTo` (`typeof el.scrollTo ===
+    // 'undefined'`, vérifié) : un bouchon suffit à prouver l'intention — que
+    // le composant demande le défilement — sans dépendre d'un round-trip que
+    // jsdom ne sait de toute façon pas simuler.
+    const scrollTo = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo })
+    try {
+      const soixante: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
+        id: `l${i}`,
+        start: i * 10,
+        end: i * 10 + 2,
+        words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
+      }))
+      stubFetch([lireTranscript(soixante)])
+      render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+      const mot0 = await screen.findByRole('button', { name: 'mot0' })
+      mot0.focus()
+      scrollTo.mockClear()
+
+      fireEvent.keyDown(mot0, { key: 'End' })
+
+      expect(scrollTo).toHaveBeenCalled()
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
+    }
+  })
+
+  it('le conteneur devient un arrêt de tabulation quand le mot du curseur sort du rendu', async () => {
+    const soixante: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
+      id: `l${i}`,
+      start: i * 10,
+      end: i * 10 + 2,
+      words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
+    }))
+    stubFetch([lireTranscript(soixante)])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: enveloppe })
+
+    const mot0 = await screen.findByRole('button', { name: 'mot0' })
+    const conteneur = document.querySelector('[data-surface-transcript-émission]') as HTMLDivElement
+    // Le mot du curseur (index 0) est rendu : le conteneur n'est pas un
+    // arrêt de tabulation, mot0 l'est.
+    expect(conteneur.getAttribute('tabindex')).toBe('-1')
+
+    // Un défilement à la molette, hors de tout geste clavier de ce
+    // composant : le mot du curseur sort de la fenêtre virtualisée.
+    Object.defineProperty(conteneur, 'scrollTop', { configurable: true, value: 5000, writable: true })
+    fireEvent.scroll(conteneur)
+
+    await waitFor(() => expect(document.body.contains(mot0)).toBe(false))
+    expect(conteneur.getAttribute('tabindex')).toBe('0')
+  })
+})

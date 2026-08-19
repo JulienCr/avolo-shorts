@@ -3,11 +3,11 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { FileText, RotateCcw } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { compter } from '@/core/parcours'
 import { ApiError, type CandidateClip } from '@/lib/api'
-import type { TranscriptLine } from '@/lib/editing'
+import { indexTranscript, type IndexedLine, type TranscriptLine } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
 import { lienProjet } from '@/lib/parcours'
 import { useCandidats, useCorrectTranscript, useProjet, useRelancer, useTranscript } from '@/lib/queries'
@@ -52,13 +52,23 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
  * (parcours §6.2), qui interposerait le sien et ferait retomber
  * `scrollToIndex` à côté.
  *
- * **Le clavier reste plus simple que celui de l'écran de clip.** Chaque mot
- * est un `<button>` réel, dans l'ordre naturel de tabulation : Tab, Entrée et
- * Espace fonctionnent partout sans rien écrire de plus, au prix d'un
- * parcours plus long qu'avec le curseur unique de `TranscriptSurface`.
- * Reprendre ce mécanisme-là — la moitié du fichier qui le porte — pour une
- * surface qui n'a ni retrait, ni bornes, ni restauration de mot n'aurait
- * ajouté que du risque à ce que cette PR livre.
+ * **Le clavier reprend le tabindex glissant de `TranscriptSurface`,
+ * cette fois-ci réutilisé et pas seulement lu.** La première version posait
+ * `tabIndex={0}` sur chaque mot : sous vingt mille mots virtualisés, Tab
+ * n'atteignait que ceux déjà montés dans la fenêtre de rendu — une poignée —
+ * avant de sauter tout droit au bouton de fermeture, et un défilement à la
+ * molette qui démonte le mot focalisé laissait le focus retomber sur le
+ * corps du document. Vérifié, pas supposé : une trace de tabulation sur
+ * soixante phrases s'arrêtait au septième mot avant de sauter à « Fermer »,
+ * et démonter le mot focalisé faisait retomber `document.activeElement` sur
+ * `<body>`. Un seul mot — celui du curseur — porte `tabIndex={0}` à la fois ;
+ * tous les autres portent `-1`. Les flèches déplacent le curseur, y compris
+ * vers un mot pas encore rendu : `virtualizer.scrollToIndex` l'amène dans la
+ * fenêtre, puis un effet qui suit chaque rendu lui donne le focus DOM une
+ * fois monté — ou, à défaut, au conteneur lui-même, qui ne devient un arrêt
+ * de tabulation que lorsque le mot du curseur n'est pas rendu. Entrée ou
+ * Espace sélectionne le mot pour le corriger ; majuscule-flèche étend la
+ * sélection, bornée à la phrase du curseur.
  */
 export function TranscriptTrigger({ projectId }: { projectId: string }) {
   const [open, setOpen] = useTranscriptPanelUrl(projectId)
@@ -98,14 +108,49 @@ export function useTranscriptPanelUrl(projectId: string): [boolean, (open: boole
   return [open, setOpen]
 }
 
-/** Une sélection en cours : un empan de mots, dans une seule phrase. */
-type Selection = { lineId: string; anchor: number; cursor: number }
+/**
+ * Une sélection en cours : un empan de mots. Les deux bornes sont des index
+ * **globaux** — dans la liste plate de tous les mots de l'émission, comme le
+ * rend `indexTranscript` — jamais des index locaux à une phrase : c'est ce
+ * qui permet au curseur clavier de désigner n'importe quel mot, y compris un
+ * qui n'est pas encore rendu.
+ *
+ * **Toujours bornée à la phrase de l'ancre.** L'API de correction est
+ * bornée à une phrase (`WordCorrection`, `src/lib/editing.ts`) ; laisser la
+ * sélection déborder visuellement dans une autre poserait une sélection que
+ * la correction ne pourrait jamais accepter. `clampToLine` referme le cas à
+ * la source plutôt que de le rejeter après coup.
+ */
+type Selection = { anchor: number; cursor: number }
+
+/** Une référence stable, pour ne pas recréer `[]` à chaque rendu. */
+const EMPTY_LINES: TranscriptLine[] = []
 
 function selectionBounds(selection: Selection): { from: number; to: number } {
   return {
     from: Math.min(selection.anchor, selection.cursor),
     to: Math.max(selection.anchor, selection.cursor),
   }
+}
+
+/** La phrase qui porte le mot `word`, par recherche dichotomique sur ses bornes. */
+function lineOfWord(indexedLines: IndexedLine[], word: number): number {
+  let low = 0
+  let high = indexedLines.length - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (word < indexedLines[mid].from) high = mid - 1
+    else if (word >= indexedLines[mid].to) low = mid + 1
+    else return mid
+  }
+  return -1
+}
+
+/** Ramène `word` à l'intérieur de la phrase `lineIndex`, sans jamais en sortir. */
+function clampToLine(indexedLines: IndexedLine[], lineIndex: number, word: number): number {
+  const line = indexedLines[lineIndex]
+  if (line === undefined) return word
+  return Math.min(Math.max(word, line.from), line.to - 1)
 }
 
 export function TranscriptPanel({
@@ -124,8 +169,19 @@ export function TranscriptPanel({
   const transcript = useTranscript(projectId, { enabled: open })
   const correction = useCorrectTranscript()
 
-  const lines = transcript.data ?? []
+  // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
+  // juste en dessous, qui recalculerait indexTranscript à chaque frappe.
+  const lines = transcript.data ?? EMPTY_LINES
 
+  // **Aplati une fois, pour l'indexation globale que le clavier exige.**
+  // `segments: []` : `indexTranscript` calcule aussi un statut « monté »
+  // hérité de l'écran de clip, sans objet ici — jamais aucun mot n'est
+  // « monté » au sens de cette fonction, et ce champ n'est simplement pas lu.
+  const indexed = useMemo(() => indexTranscript(lines, []), [lines])
+  const words = indexed.words
+  const indexedLines = indexed.lines
+
+  const [cursor, setCursor] = useState(0)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [draft, setDraft] = useState('')
   const [retranscribeOpen, setRetranscribeOpen] = useState(false)
@@ -137,51 +193,124 @@ export function TranscriptPanel({
   const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
   const [correctionsApplied, setCorrectionsApplied] = useState(0)
 
-  const conteneur = useRef<HTMLDivElement>(null)
-  const virtualiseur = useVirtualizer({
+  const container = useRef<HTMLDivElement>(null)
+  // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
+  // `useVirtualizer` rend des fonctions dont le résultat change à chaque
+  // défilement. C'est le comportement voulu, comme dans `TranscriptSurface`.
+  const virtualizer = useVirtualizer({
     count: lines.length,
-    getScrollElement: () => conteneur.current,
+    getScrollElement: () => container.current,
     estimateSize: () => 60,
     overscan: 6,
   })
 
-  function choisirMot(line: TranscriptLine, index: number, étendre: boolean) {
-    setSelection((précédente) => {
-      if (étendre && précédente !== null && précédente.lineId === line.id) {
-        return { ...précédente, cursor: index }
-      }
-      return { lineId: line.id, anchor: index, cursor: index }
-    })
-    const bornes = étendre && selection !== null && selection.lineId === line.id
-      ? { from: Math.min(selection.anchor, index), to: Math.max(selection.anchor, index) }
-      : { from: index, to: index }
-    setDraft(line.words.slice(bornes.from, bornes.to + 1).map((w) => w.word).join(' '))
+  /**
+   * Ouvre la phrase qui porte `word` et lui donne le focus, une fois montée.
+   *
+   * **`toFocus` porte l'intention d'une image à l'autre.** `scrollToIndex`
+   * ne monte le mot que dans un rendu ultérieur ; le focaliser tout de suite
+   * viserait un nœud qui n'existe pas encore. L'effet plus bas s'exécute
+   * après chaque rendu et referme la boucle : si le drapeau est levé, il
+   * cherche `[data-word="${cursor}"]` et le focalise, ou retombe sur le
+   * conteneur si ce mot précis n'est toujours pas monté.
+   */
+  function moveCursorTo(word: number, extend: boolean) {
+    const clamped = Math.min(Math.max(word, 0), Math.max(0, words.length - 1))
+    let target = clamped
+
+    if (extend) {
+      const anchor = selection?.anchor ?? cursor
+      const anchorLine = lineOfWord(indexedLines, anchor)
+      target = clampToLine(indexedLines, anchorLine, clamped)
+      const bounds = { from: Math.min(anchor, target), to: Math.max(anchor, target) }
+      setSelection({ anchor, cursor: target })
+      setDraft(words.slice(bounds.from, bounds.to + 1).map((w) => w.word).join(' '))
+    } else {
+      setSelection(null)
+      setDraft('')
+    }
+
+    setCursor(target)
+    toFocus.current = true
+    const line = lineOfWord(indexedLines, target)
+    if (line >= 0) virtualizer.scrollToIndex(line, { align: 'center' })
   }
 
-  function annulerSélection() {
+  function onWordKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'ArrowRight') moveCursorTo(cursor + 1, e.shiftKey)
+    else if (e.key === 'ArrowLeft') moveCursorTo(cursor - 1, e.shiftKey)
+    else if (e.key === 'ArrowDown') {
+      const line = lineOfWord(indexedLines, cursor)
+      moveCursorTo(indexedLines[line + 1]?.from ?? words.length - 1, e.shiftKey)
+    } else if (e.key === 'ArrowUp') {
+      const line = lineOfWord(indexedLines, cursor)
+      moveCursorTo(indexedLines[line - 1]?.from ?? 0, e.shiftKey)
+    } else if (e.key === 'Home') moveCursorTo(0, false)
+    else if (e.key === 'End') moveCursorTo(words.length - 1, false)
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      selectWord(cursor, false)
+      return
+    } else return
+    e.preventDefault()
+  }
+
+  // **Le mot du curseur reçoit le focus une fois monté, jamais avant.**
+  // Sans effet séparé, `moveCursorTo` focaliserait un nœud qui n'existe pas
+  // encore — `scrollToIndex` ne fait que programmer le défilement, le mot
+  // n'est monté qu'au rendu suivant. Sans dépendances : il tourne après
+  // *chaque* rendu, et se tait dès que le drapeau retombe.
+  const toFocus = useRef(false)
+  useEffect(() => {
+    if (!toFocus.current) return
+    toFocus.current = false
+    const target = container.current?.querySelector<HTMLElement>(`[data-word="${cursor}"]`)
+    if (target) target.focus()
+    else container.current?.focus()
+  })
+
+  function selectWord(word: number, extend: boolean) {
+    setCursor(word)
+    if (extend && selection !== null) {
+      const anchorLine = lineOfWord(indexedLines, selection.anchor)
+      const target = clampToLine(indexedLines, anchorLine, word)
+      const bounds = { from: Math.min(selection.anchor, target), to: Math.max(selection.anchor, target) }
+      setSelection({ anchor: selection.anchor, cursor: target })
+      setDraft(words.slice(bounds.from, bounds.to + 1).map((w) => w.word).join(' '))
+    } else {
+      setSelection({ anchor: word, cursor: word })
+      setDraft(words[word]?.word ?? '')
+    }
+  }
+
+  function clearSelection() {
     setSelection(null)
     setDraft('')
   }
 
-  function valider() {
+  function submitCorrection() {
     if (selection === null) return
-    const line = lines.find((l) => l.id === selection.lineId)
-    if (line === undefined) return
     const { from, to } = selectionBounds(selection)
-    const expected = line.words.slice(from, to + 1).map((w) => w.word)
+    const lineIndex = lineOfWord(indexedLines, from)
+    const line = indexedLines[lineIndex]
+    if (line === undefined) return
+    const expected = words.slice(from, to + 1).map((w) => w.word)
     const replacement = draft.trim() === '' ? [] : draft.trim().split(/\s+/)
 
     correction.mutate(
-      { projectId, correction: { lineId: line.id, from, to, expected, replacement } },
       {
-        onSuccess(résultat) {
-          annulerSélection()
+        projectId,
+        correction: { lineId: line.id, from: from - line.from, to: to - line.from, expected, replacement },
+      },
+      {
+        onSuccess(result) {
+          clearSelection()
           setCorrectionsApplied((n) => n + 1)
-          if (résultat.clipsTouched.length > 0) {
-            setTouchedClips((précédent) => {
-              const suivant = new Map(précédent)
-              for (const c of résultat.clipsTouched) suivant.set(c.id, c.title)
-              return suivant
+          if (result.clipsTouched.length > 0) {
+            setTouchedClips((previous) => {
+              const next = new Map(previous)
+              for (const c of result.clipsTouched) next.set(c.id, c.title)
+              return next
             })
           }
         },
@@ -189,8 +318,10 @@ export function TranscriptPanel({
     )
   }
 
-  const items = virtualiseur.getVirtualItems()
+  const items = virtualizer.getVirtualItems()
   const touchedClipsList = Array.from(touchedClips.values())
+  const cursorLine = lineOfWord(indexedLines, cursor)
+  const cursorRendered = items.some((item) => item.index === cursorLine)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -242,19 +373,19 @@ export function TranscriptPanel({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  valider()
+                  submitCorrection()
                 } else if (e.key === 'Escape') {
                   e.preventDefault()
-                  annulerSélection()
+                  clearSelection()
                 }
               }}
               placeholder="Texte corrigé…"
               className="max-w-xs"
             />
-            <Button size="sm" onClick={valider} aria-disabled={correction.isPending}>
+            <Button size="sm" onClick={submitCorrection} aria-disabled={correction.isPending}>
               Corriger
             </Button>
-            <Button size="sm" variant="ghost" onClick={annulerSélection}>
+            <Button size="sm" variant="ghost" onClick={clearSelection}>
               Annuler
             </Button>
             {correction.isError && (
@@ -280,19 +411,25 @@ export function TranscriptPanel({
         )}
 
         <div
-          ref={conteneur}
+          ref={container}
           data-surface-transcript-émission
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-4"
+          // Un seul arrêt de tabulation entre les mots et le conteneur : celui-ci
+          // ne le devient que lorsque le mot du curseur n'est pas rendu, sans quoi
+          // la surface aurait deux arrêts de tabulation au lieu d'un.
+          tabIndex={cursorRendered ? -1 : 0}
+          onKeyDown={onWordKeyDown}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
-          <div className="relative w-full" style={{ height: virtualiseur.getTotalSize() }}>
+          <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
             {items.map((item) => {
-              const line = lines[item.index]
-              const bornes =
-                selection !== null && selection.lineId === line.id ? selectionBounds(selection) : null
+              const line = indexedLines[item.index]
+              if (line === undefined) return null
+              const lineWords = words.slice(line.from, line.to)
+              const bounds = selection !== null ? selectionBounds(selection) : null
               return (
                 <div
                   key={line.id}
-                  ref={virtualiseur.measureElement}
+                  ref={virtualizer.measureElement}
                   data-index={item.index}
                   className="absolute top-0 left-0 w-full"
                   style={{ transform: `translateY(${item.start}px)` }}
@@ -302,19 +439,20 @@ export function TranscriptPanel({
                       {formatTimecode(line.start)}
                     </span>
                     <p className="flex-1 text-[0.97rem] leading-[1.95] text-pretty">
-                      {line.words.map((mot, index) => (
+                      {lineWords.map((word) => (
                         <button
-                          key={index}
+                          key={word.index}
                           type="button"
-                          data-mot={`${line.id}-${index}`}
-                          onClick={(e) => choisirMot(line, index, e.shiftKey)}
+                          data-word={word.index}
+                          tabIndex={word.index === cursor ? 0 : -1}
+                          onClick={(e) => selectWord(word.index, e.shiftKey)}
                           className={`-mx-0.5 cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
-                            bornes !== null && index >= bornes.from && index <= bornes.to
+                            bounds !== null && word.index >= bounds.from && word.index <= bounds.to
                               ? 'bg-stage/35 text-foreground'
                               : ''
                           }`}
                         >
-                          {mot.word}{' '}
+                          {word.word}{' '}
                         </button>
                       ))}
                     </p>

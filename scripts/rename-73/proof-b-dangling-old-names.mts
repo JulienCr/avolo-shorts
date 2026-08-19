@@ -113,9 +113,17 @@ function extractStrings(filePath: string, content: string): string[] {
  * interne (`camelCase`, `PascalCase`), un underscore, ou un `$` — la forme
  * qu'un mot de prose française n'a jamais. Restreindre aux tokens de cette
  * forme fait tomber les 484 candidats à 23, tous des titres de `describe()`
- * qui recopient effectivement un ancien nom de fonction ou de variable. */
+ * qui recopient effectivement un ancien nom de fonction ou de variable.
+ *
+ * Classes Unicode, pas `[a-z]`/`[A-Z]` : un ancien nom dont la frontière de
+ * casse suit une lettre accentuée (`relevéPrésence`, `é` puis `P`) ne
+ * matche ni l'une ni l'autre — `é` n'est ni `[a-z]` ni `[A-Z]` — et se
+ * faisait donc classer prose plutôt qu'identifiant composé, alors même que
+ * `proof-inverse-tree.mts` avait déjà remplacé ce même genre de classe par
+ * `\p{L}` pour la raison inverse (issue #73, revue de la preuve elle-même :
+ * le correctif d'un tokenizer ASCII n'avait pas été reporté ici). */
 function isCompoundShaped(token: string): boolean {
-  return /[a-z][A-Z]/.test(token) || /[A-Z]{2,}/.test(token) || token.includes("_") || token.includes("$");
+  return /\p{Ll}\p{Lu}/u.test(token) || /\p{Lu}{2,}/u.test(token) || token.includes("_") || token.includes("$");
 }
 
 interface Finding {

@@ -285,7 +285,7 @@ describe('le caviardage des références de secret', () => {
   )
 })
 
-describe('messageÉpuré', () => {
+describe('messageCleaned', () => {
   it('lit le message d’une Error', () => {
     expect(messageCleaned(new Error('échec sur /var/tmp/x.wav'))).toBe('échec sur …/x.wav')
   })

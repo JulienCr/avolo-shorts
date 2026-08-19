@@ -18,7 +18,7 @@ const words = [
   { start: 30, end: 30.5 },
 ]
 
-describe('motÀ', () => {
+describe('wordTo', () => {
   it('rend le mot qui contient la position', () => {
     expect(wordTo(words, 10.5)).toBe(1)
   })

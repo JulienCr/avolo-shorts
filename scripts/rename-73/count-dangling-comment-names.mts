@@ -43,8 +43,12 @@ function extractComments(filePath: string, content: string): string[] {
 }
 
 const WHOLE_TOKEN_RE = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
+// Classes Unicode, pas `[a-z]`/`[A-Z]` : un ancien nom dont la frontière de
+// casse suit une lettre accentuée (`relevéPrésence`) ne matche ni l'une ni
+// l'autre — même correctif que `proof-b-dangling-old-names.mts`, reporté ici
+// parce que c'est la même fonction (issue #73, revue de la preuve elle-même).
 function isCompoundShaped(token: string): boolean {
-  return /[a-z][A-Z]/.test(token) || /[A-Z]{2,}/.test(token) || token.includes("_") || token.includes("$");
+  return /\p{Ll}\p{Lu}/u.test(token) || /\p{Lu}{2,}/u.test(token) || token.includes("_") || token.includes("$");
 }
 
 function tokenizeComment(comment: string): string[] {

@@ -248,7 +248,7 @@ describe('planForTargets', () => {
   })
 })
 
-describe('relevéPrésence', () => {
+describe('readingPresence', () => {
   it('lit les artefacts sur le disque, y compris le sidecar rabattu dans le projet', async () => {
     poserProject()
     poserTranscript()

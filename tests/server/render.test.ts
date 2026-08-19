@@ -1311,8 +1311,14 @@ describe('renderClip, chemin du saut', () => {
 
   it("écrit le .txt manquant sans relire le transcript ni rappeler ffmpeg", async () => {
     // La reprise d'un passage interrompu juste après l'encodage. Aucun transcript
-    // n'existe dans ce dossier de replays jetable : si l'étape allait le lire,
-    // `lireTranscript` lèverait. C'est ce qui rend ce test concluant.
+    // n'existe dans ce dossier de replays jetable, et ce clip ne demande pas de
+    // sous-titres (`captions: false`, le défaut de ce `préparer` depuis #87) :
+    // si l'étape allait lire le transcript malgré tout, `currentCaptionsDocument`
+    // lèverait. C'est ce qui rend ce test concluant — **sur ce cas**. Un clip
+    // qui demande des sous-titres, lui, lit désormais le transcript même sur ce
+    // chemin : #87 ne peut pas savoir si le texte a changé sans ça, et c'est
+    // `tests/server/empreinte.test.ts` qui couvre cette lecture-là, transcript
+    // posé pour de vrai.
     const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.variant9x16 as string])

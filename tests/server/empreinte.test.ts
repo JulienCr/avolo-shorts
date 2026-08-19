@@ -817,6 +817,12 @@ describe('le texte des sous-titres (#87)', () => {
     const chemins = cheminsRendu(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
     const avant = lireEmpreinte(chemins.empreinte)?.captionsContent
+    // **Sans elle, ce test passe à vide sous ablation.** `avant` et la relecture
+    // valent tous deux `undefined` si `captionsContent` n'existe pas : l'égalité
+    // ne prouve alors rien. C'est le seul des quatre à devoir le dire
+    // explicitement, puisque c'est le seul dont l'assertion finale est une
+    // non-égalité entre deux lectures plutôt qu'un type ou un changement.
+    expect(avant).toBeTypeOf('string')
 
     écrireTranscript([
       SEGMENT_DANS_LE_CLIP,
@@ -859,5 +865,36 @@ describe('le texte des sous-titres (#87)', () => {
     expect(résultat.skipped).toBe(true)
     expect(encodages).toEqual([])
     expect(lireEmpreinte(chemins.empreinte)?.captionsContent).toBeNull()
+  })
+
+  /**
+   * **La boucle que #48 avait rencontrée, et pour laquelle la comparaison du
+   * texte avait été écartée à l'époque.** Un clip qui demande des sous-titres
+   * mais dont aucun mot ne tombe dans ses segments rend un document `null` —
+   * `sousTitresDuClip` le dit, `writeCaptionsDocument` le journalise sans
+   * échouer. `captionsContent` vaut alors `null` dans l'empreinte, exactement
+   * comme un clip sans sous-titres : la seconde lecture compare `null` à
+   * `null`, ne trouve aucun écart, et l'export ne se reprend pas indéfiniment.
+   * Rien ne garantissait ça par construction avant ce test — seulement une
+   * lecture du code.
+   */
+  it("ne boucle pas sur un clip sous-titré dont aucun mot ne tombe dans les segments", async () => {
+    // Le transcript existe, mais loin des segments du clip par défaut
+    // (`[100, 115.7]` et `[130, 140]`).
+    écrireTranscript([SEGMENT_HORS_DU_CLIP])
+    putClip(getDb(), clip({ captions: true }))
+    const chemins = cheminsRendu(ID, CLIP, '1:1')
+
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const empreinte = lireEmpreinte(chemins.empreinte)
+    expect(empreinte?.captions).toBe(true)
+    expect(empreinte?.sousTitres).toBeNull()
+    expect(empreinte?.captionsContent).toBeNull()
+
+    encodages = []
+    const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
+
+    expect(résultat.skipped).toBe(true)
+    expect(encodages).toEqual([])
   })
 })

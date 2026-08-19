@@ -14,7 +14,7 @@ import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
 import type { Word } from '@/core/transcript'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
-import { getClip, getDb, getProject, putClip } from '@/server/db'
+import { getClip, getDb, getProject, putClip, type Project } from '@/server/db'
 import {
   cheminTemporaire,
   encoderName,
@@ -23,9 +23,9 @@ import {
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { estUneAbsence } from '@/server/octets'
-import { placeSidecar, rendersDir } from '@/server/paths'
-import { lireTranscript } from '@/server/steps/candidates'
-import { ensureLocalCopy, holdStagedCopy } from '@/server/steps/ingest'
+import { rendersDir, resolveSource } from '@/server/paths'
+import { ensureLocalCopy, holdStagedCopy, montageRépond } from '@/server/steps/ingest'
+import { transcriptDuProjet } from '@/server/vues'
 
 /**
  * L'export : d'une EDL en base au MP4 que Julien publie.
@@ -1277,7 +1277,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // Calculé une seule fois pour tout le passage : la décision de saut s'en
   // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
   // plutôt que de relire le transcript une seconde fois.
-  const texteActuel: string | null = clip.captions ? sousTitresActuels(clip, projet, look.style) : null
+  const texteActuel: string | null = clip.captions ? await currentCaptionsDocument(clip, projet, look.style) : null
 
   // Ce que les fichiers présents décrivent, s'il y en a.
   const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), renderedShape(clip, framingSnapshot), {
@@ -1435,7 +1435,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // Le document a déjà été calculé plus haut, en `texteActuel` — pour la
       // décision de saut autant que pour ceci, une seule lecture du transcript.
       const assProvisoire = clip.captions
-        ? await écrireDocumentSousTitres(clip.id, texteActuel, cheminTemporaire(chemins.ass))
+        ? await writeCaptionsDocument(clip.id, texteActuel, cheminTemporaire(chemins.ass))
         : undefined
       // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
       // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
@@ -1904,36 +1904,72 @@ export function sousTitresDuClip(
  * réelle du `.ass` plus bas dans `renderClip`, qui réutilise le même document
  * plutôt que de relire le transcript une seconde fois.
  *
- * **Par `placeSidecar`, jamais par `transcriptPath`.** Le second rend le chemin
- * voulu, à côté de l'original, et ignore le repli dans le projet : un
- * transcript rangé là par une passe précédente passerait pour absent.
+ * **Sondée avant de lire, jamais après.** `placeSidecar` — la porte qu'utilisait
+ * la version précédente de cette fonction — fait plusieurs appels
+ * **synchrones** au montage (`existsSync`, et au besoin `mkdirSync` +
+ * `writeFileSync`), et sur un montage 9p au transport mort, un appel
+ * synchrone ne bloque pas un fil du vivier comme le ferait `fsp.stat` : il
+ * gèle la boucle d'événements entière, donc **tout le serveur**, pas
+ * seulement cet export. `transcribe` (`steps/transcript.ts`) pose la même
+ * garde avant le même genre d'appel, pour la même raison ; avant #87 ce
+ * chemin n'était atteint qu'à un rendu réel, rare et déjà coûteux — désormais
+ * il l'est à chaque `renderClip` sur un clip sous-titré, y compris ceux qui
+ * se seraient contentés de sauter sans toucher au montage.
  *
- * `lireTranscript` vient de l'étape de repérage plutôt que d'être réécrit ici.
- * C'est la même lecture, avec la même validation et la même règle sur les mots
- * non alignés — que WhisperX émet, et qui ne doivent pas faire échouer un
- * export. Deux lectures du même fichier finiraient par ne plus dire la même
- * chose du même JSON.
+ * **Le troisième verdict.** Un montage qui ne répond pas n'est ni « périmé »
+ * — reboucler l'export contre un Drive illisible — ni « à jour » — servir un
+ * rendu peut-être faux : c'est un refus explicite, dans le même vocabulaire
+ * que `montage.cause` (#62) donne à `listerSources`. « muet » est transitoire
+ * et invite à réessayer ; un transcript introuvable une fois le montage
+ * confirmé vivant ne l'est pas, et se dit autrement plus bas.
+ *
+ * **Par `transcriptDuProjet` (`vues.ts`), jamais par `placeSidecar` ni
+ * `lireTranscript` directement**, une fois le montage confirmé vivant :
+ *
+ * - il mémoïse sur `fichier:taille:mtime` — un second export de la même
+ *   émission, ou un GET qui a déjà tout lu pour l'écran de clip, ne repaie pas
+ *   la lecture ;
+ * - il sait déjà chercher le repli dans le projet avant le Drive, ce
+ *   qu'`existsSync(transcriptPath(...))` seul raterait (`paths.ts` documente le
+ *   piège) ;
+ * - à la différence de `placeSidecar`, il ne **crée** jamais rien : c'est une
+ *   lecture, pas l'écriture du sidecar que fait `transcribe`, et elle n'a donc
+ *   pas à préparer un dossier sur un montage qui vient tout juste de répondre.
  */
-function sousTitresActuels(
-  clip: Pick<Clip, 'id' | 'projectId' | 'segments'>,
-  projet: { sourcePath: string },
+async function currentCaptionsDocument(
+  clip: Pick<Clip, 'id' | 'segments'>,
+  projet: Project,
   style: CaptionStyle,
-): string | null {
-  const placement = placeSidecar(projet.sourcePath, clip.projectId)
-  const transcript = lireTranscript(placement.transcript)
+): Promise<string | null> {
+  if (!(await montageRépond(resolveSource(projet.sourcePath)))) {
+    throw new Error(
+      `Le dossier des replays ne répond pas : impossible de lire le transcript du clip ${clip.id}. ` +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+
+  const transcript = await transcriptDuProjet(projet)
+  if (transcript === null) {
+    throw new Error(
+      `Aucun transcript pour le clip ${clip.id} : ni à côté de l'original, ni dans le projet. Le ` +
+        'clip demande des sous-titres, et il n’y a rien à en tirer.',
+    )
+  }
+
   const mots: Word[] = transcript.segments.flatMap((s) => s.words)
   return sousTitresDuClip(mots, clip.segments, style)
 }
 
 /**
- * Écrit le `.ass` à partir du document déjà calculé par `sousTitresActuels`, et
+ * Écrit le `.ass` à partir du document déjà calculé par `currentCaptionsDocument`, et
  * rend son chemin — ou `undefined` s'il n'y a rien à incruster, auquel cas un
  * `.ass` d'un passage précédent est **effacé** ailleurs dans `renderClip`. Il
  * est gardé sur le disque pour relire ce que libass a incrusté ; un fichier
  * périmé y raconterait des sous-titres que le MP4 ne porte pas.
  * (relevé par Copilot)
  */
-async function écrireDocumentSousTitres(
+async function writeCaptionsDocument(
   clipId: string,
   document: string | null,
   chemin: string,

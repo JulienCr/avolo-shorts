@@ -57,7 +57,7 @@ async function main(): Promise<number> {
   })
   finBar()
   // L'encodeur ne s'affiche **que si un encodage a eu lieu**, et pas au-dessus :
-  // `encodeurProxy()` lève sur un `FFMPEG_ENCODER` inconnu, or `buildProxy` rend
+  // `encoderProxy()` lève sur un `FFMPEG_ENCODER` inconnu, or `buildProxy` rend
   // justement ce choix paresseux pour qu'un proxy déjà là revienne tout de suite,
   // quoi que porte l'environnement. L'afficher plus haut aurait rétabli d'une
   // main ce que l'autre venait de retirer. Rien n'appelle `encoderName()` non

@@ -61,7 +61,7 @@ const VARIANTS = [
   ['filtre livré ', {}],
 ] as const satisfies readonly (readonly [string, FramingOptions])[]
 
-/** Les deux variantes que l'avant/après compare, par leur rang dans `VARIANTES`. */
+/** Les deux variantes que l'avant/après compare, par leur rang dans `VARIANTS`. */
 const I_WITHOUT_FILTER = 0
 const I_WITH_FILTER = 2
 

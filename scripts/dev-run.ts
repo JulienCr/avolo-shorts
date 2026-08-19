@@ -7,11 +7,11 @@
  * `dev-transcribe.ts` ne vise que le transcript et `dev-ingest.ts` que
  * l'ingestion ; **rien ne lançait `analysis` ni `candidates` hors du serveur**,
  * alors que les deux sont exactement ce qu'une mesure de cadrage a besoin de
- * refaire. Ce script comble ce trou et rien d'autre : il appelle `lancer`, le
+ * refaire. Ce script comble ce trou et rien d'autre : il appelle `launch`, le
  * même point d'entrée que `POST /api/projects/:id/run`, et attend la fin.
  *
  * Il n'y a donc **aucune décision ici** — ni quelles étapes exécuter, ni dans
- * quel ordre : `planPourCibles` le dit, et le redire ailleurs ferait une seconde
+ * quel ordre : `planForTargets` le dit, et le redire ailleurs ferait une seconde
  * source de vérité sur la seule question que le graphe existe pour trancher.
  */
 

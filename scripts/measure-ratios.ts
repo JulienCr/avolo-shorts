@@ -116,7 +116,7 @@ const MORE_NARROW_MORE_WIDE = (Object.keys(RATIOS) as Ratio[]).sort(
 const MARGINS = [...new Set([0, 0.01, 0.02, 0.03, FRAMING_DEFAULTS.margin])].sort((a, b) => a - b)
 
 /**
- * Les rognages balayés, **plus le défaut en vigueur** — même règle que `MARGES`,
+ * Les rognages balayés, **plus le défaut en vigueur** — même règle que `MARGINS`,
  * et pour la même raison : recopier la valeur du jour la fait disparaître de la
  * sortie le jour où elle bouge.
  *
@@ -158,7 +158,7 @@ const TORSO_NAMES: readonly (TorsoName | 'off')[] = ['off', ...(Object.keys(TORS
 
 /**
  * Les élargissements de tronc balayés, **plus le défaut en vigueur** — même
- * règle que `MARGES` et `ROGNAGES`.
+ * règle que `MARGINS` et `ROGNAGES`.
  */
 const TORSO_PADS = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torsoPad])].sort(
   (a, b) => a - b,
@@ -990,7 +990,7 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
 
   // Le cadrage réellement retenu pour ce clip : c'est lui qui dit ce qui déborde.
   //
-  // **Par `cadrageDe`, donc par `opts()`**, et pas par un `computeFraming` à
+  // **Par `framingFor`, donc par `opts()`**, et pas par un `computeFraming` à
   // soi : cette section était la seule à ignorer `--tronc` par omission, si bien
   // qu'un balayage lancé avec un autre tronc désignait des images calculées avec
   // celui par défaut. La section 6 l'ignore aussi, mais parce qu'elle le balaie —
@@ -1029,11 +1029,11 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
       )
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))
-      // Bornées des deux côtés, comme `empans` de `framing.ts` et `étendue` de
+      // Bornées des deux côtés, comme `measurements` de `framing.ts` et `extent` de
       // `vignettes-cadrage.ts`. C'est le troisième exemplaire du même défaut, et
       // le seul que les deux premiers correctifs avaient laissé : un tronc
       // entièrement hors cadre donnait `g = 0` avec `d < 0`, donc un
-      // `sortie` inventé qui remontait l'image en tête du classement — dans la
+      // `output` inventé qui remontait l'image en tête du classement — dans la
       // section dont le seul travail est de dire où regarder. (relevé par Copilot)
       const in01 = (n: number): number => Math.min(Math.max(n, 0), 1)
       const g = in01(Math.min(...required.map((e) => e.x0)) - margin)

@@ -149,13 +149,17 @@ export function Timeline({
    * relâchement.
    */
   const commit = useCallback(() => {
-    setDrag((current) => {
-      if (current === null) return null
-      if (current.edge === null) onScrub(current.time)
-      else onBoundary(current.time, current.edge)
-      return null
-    })
-  }, [onScrub, onBoundary])
+    // **L'effet est ici, pas dans la fonction de mise à jour.** Un `setDrag`
+    // dont l'argument pose une borne au passage est un effet de bord dans un
+    // calcul d'état : le mode strict rejoue les mises à jour, donc le geste
+    // partirait deux fois et empilerait deux instantanés d'annulation pour un
+    // seul glissé. `drag` est déjà une dépendance de l'écouteur qui appelle
+    // ceci, donc la valeur lue est celle du geste en cours.
+    if (drag === null) return
+    if (drag.edge === null) onScrub(drag.time)
+    else onBoundary(drag.time, drag.edge)
+    setDrag(null)
+  }, [drag, onScrub, onBoundary])
 
   // Un glissé qui se termine hors de la bande — sur la marge, hors de la
   // fenêtre — doit quand même se conclure. Même raison que dans le transcript :

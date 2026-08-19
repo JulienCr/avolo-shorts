@@ -94,6 +94,12 @@ describe('les champs de repérage', () => {
     expect(SETTING_FIELDS.filter((f) => f.family === 'selection').map((f) => f.name).sort()).toEqual(
       Object.keys(DIMENSIONS_PAR_DÉFAUT).sort(),
     )
-    expect(SETTING_FIELDS.length).toBe(Object.keys(DIMENSIONS_PAR_DÉFAUT).length)
+    // **La longueur totale, pas seulement celle de la famille `selection`** :
+    // le registre porte aussi `ai` depuis la PR C, donc l'égalité se vérifie
+    // sur la sous-liste filtrée ci-dessus, et non plus sur `SETTING_FIELDS`
+    // entier.
+    expect(SETTING_FIELDS.filter((f) => f.family === 'selection').length).toBe(
+      Object.keys(DIMENSIONS_PAR_DÉFAUT).length,
+    )
   })
 })

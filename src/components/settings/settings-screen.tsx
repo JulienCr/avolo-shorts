@@ -3,13 +3,14 @@
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 
 import { AppBar } from '@/components/parcours/app-bar'
+import { AiSection } from '@/components/settings/ai-section'
 import { HookSection } from '@/components/settings/hook-section'
 import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useSaveSettings, useSettings } from '@/lib/queries'
+import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
 
 /**
  * L'écran des paramètres.
@@ -37,6 +38,7 @@ import { useSaveSettings, useSettings } from '@/lib/queries'
 export function SettingsScreen() {
   const settings = useSettings()
   const save = useSaveSettings()
+  const availability = useLlmAvailability()
 
   return (
     <div className="flex min-h-full flex-col">
@@ -91,6 +93,37 @@ export function SettingsScreen() {
             // au-dessus, lui, vient de `save.isError`. (relevé par Copilot)
             onChange={(patch) => save.mutateAsync({ selection: patch })}
           />
+        )}
+
+        <Separator />
+
+        {settings.data !== undefined && (
+          <>
+            {/* **`isError`, pas seulement `data === undefined`.** Sans ce
+                contrôle, un échec de `/api/llm/availability` se lit comme un
+                chargement encore en cours : `AiSection` masque alors toutes
+                les alertes de clé absente, et un repérage peut se lancer sans
+                que la vérification qui existe pour le dire ait pu parler.
+                (relevé par Copilot) */}
+            {availability.isError && (
+              <Alert variant="destructive">
+                <TriangleAlert aria-hidden />
+                <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
+                <AlertDescription>{availability.error.message}</AlertDescription>
+                <AlertAction>
+                  <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
+                    Réessayer
+                  </Button>
+                </AlertAction>
+              </Alert>
+            )}
+            <AiSection
+              values={settings.data.ai}
+              availability={availability.data}
+              disabled={save.isPending}
+              onChange={(patch) => save.mutateAsync({ ai: patch })}
+            />
+          </>
         )}
 
         <Separator />

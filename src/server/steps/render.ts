@@ -14,7 +14,7 @@ import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
 import type { Word } from '@/core/transcript'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
-import { getClip, getDb, getProject, putClip } from '@/server/db'
+import { getClip, getDb, getProject, putClip, type Project } from '@/server/db'
 import {
   cheminTemporaire,
   encoderName,
@@ -23,9 +23,9 @@ import {
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { estUneAbsence } from '@/server/octets'
-import { placeSidecar, rendersDir } from '@/server/paths'
-import { lireTranscript } from '@/server/steps/candidates'
-import { ensureLocalCopy, holdStagedCopy } from '@/server/steps/ingest'
+import { rendersDir, resolveSource } from '@/server/paths'
+import { ensureLocalCopy, holdStagedCopy, montageRépond } from '@/server/steps/ingest'
+import { transcriptDuProjet } from '@/server/vues'
 
 /**
  * L'export : d'une EDL en base au MP4 que Julien publie.
@@ -225,8 +225,15 @@ export function cheminsRendu(projectId: string, clipId: string, ratio: Ratio): C
  * unique ne montre pas ce qu'un rendu à crop variable montrerait, même à cadrage
  * équivalent : le rectangle saute désormais aux frontières de plans, et les
  * empreintes d'avant ne portent pas de quoi le dire.
+ *
+ * **Passée à 3 le 19 août 2026, avec `captionsContent` (#87).** Le texte
+ * réellement incrusté n'entrait pas dans l'empreinte : une correction du
+ * transcript qui ne touche aucun segment d'aucun clip laissait `sauterLeRendu`
+ * reprendre un MP4 qui portait encore les anciens mots, sans un mot pour le
+ * dire. Toutes les empreintes d'avant sont muettes sur ce point — il n'y a rien
+ * à en déduire, donc rien à faire d'autre que les refaire.
  */
-export const VERSION_EMPREINTE = 2
+export const VERSION_EMPREINTE = 3
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -336,13 +343,40 @@ export type EmpreinteRendu = FormeRendue & {
    * `OptionsRendu.style` change l'image : un rendu forcé avec un preset
    * personnalisé, puis un appel avec le preset par défaut, sautait en déclarant
    * à jour une vidéo produite avec l'autre style. (relevé par Copilot) La
-   * *présence*, elle, ne peut se comparer qu'en relisant le transcript, donc en
-   * payant l'aller-retour sur le Drive en 9p que la décision de saut évite
-   * exprès — et la rendre périmante sans cette lecture ferait boucler l'export
-   * sur un clip dont aucun mot ne tombe dans les segments : chaque passage
-   * referait le rendu pour réécrire la même empreinte.
+   * *présence*, elle, ne peut se comparer qu'en relisant le transcript — et la
+   * rendre périmante sans cette lecture ferait boucler l'export sur un clip
+   * dont aucun mot ne tombe dans les segments : chaque passage referait le
+   * rendu pour réécrire la même empreinte.
+   *
+   * **Ce champ-ci n'a donc toujours pas besoin du transcript**, mais `renderClip`
+   * le lit désormais avant la décision de saut dès qu'un clip demande des
+   * sous-titres — pour `captionsContent`, pas pour celui-ci. L'aller-retour sur
+   * le Drive en 9p que ce paragraphe décrivait comme évité ne l'est donc plus
+   * dans ce cas : #87 en a fait le prix nécessaire pour voir un transcript
+   * corrigé sans qu'aucun segment ne bouge.
    */
   sousTitres: string | null
+  /**
+   * Le condensat de ce que les sous-titres ont **réellement porté** (#87) —
+   * le document ASS produit par `sousTitresDuClip`, pas le transcript entier.
+   * `null` par la même règle que `sousTitres` : aucun document n'a été
+   * incrusté, que le clip n'en demande pas ou qu'aucun mot ne tombe dans ses
+   * segments.
+   *
+   * **C'est le champ qui manquait avant #87.** Le transcript ne pouvait pas
+   * changer sans que le graphe refasse ce qui en dépend — jusqu'à ce qu'une
+   * correction manuelle réécrive des mots sans toucher à aucun segment de
+   * clip. `sousTitres` (le look) ne voit rien de ce cas : deux presets
+   * identiques appliqués à deux transcripts différents produisent le même
+   * condensat de style. Il fallait un champ sur le contenu, pas sur la forme.
+   *
+   * **Sur le document entier, pas sur les seuls mots.** `sousTitresDuClip`
+   * recale les horodatages et découpe en cartons avant `renderAss` ; deux
+   * documents identiques mot pour mot mais recalés différemment ne montrent
+   * pas la même chose à l'image. Prendre le document, comme `contenuDuFichier`
+   * le fait pour une marque, évite de réinventer cette chaîne côté empreinte.
+   */
+  captionsContent: string | null
 }
 
 /** Une marque incrustée : son nom de fichier, et de quoi voir qu'elle a changé. */
@@ -397,6 +431,7 @@ const SCHÉMA_EMPREINTE = z.object({
   }),
   marques: z.array(z.object({ nom: z.string(), contenu: z.string() })),
   sousTitres: z.string().nullable(),
+  captionsContent: z.string().nullable(),
 })
 
 /**
@@ -424,6 +459,15 @@ function contenuDuFichier(chemin: string): string {
 function condensatDuLook(look: LookDesSousTitres): string {
   const stable = Object.entries(look.style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   return createHash('sha256').update(JSON.stringify([stable, look.polices])).digest('hex')
+}
+
+/**
+ * Le condensat de ce qu'un document ASS porte réellement, ou `null` s'il n'y en
+ * a pas — `null` se propage tel quel, jamais vers le digest de la chaîne vide,
+ * pour ne pas confondre « rien incrusté » avec « un document vide ».
+ */
+function digestOfCaptionsText(document: string | null): string | null {
+  return document === null ? null : createHash('sha256').update(document, 'utf8').digest('hex')
 }
 
 /** Ce que libass sait charger depuis un `fontsdir`. */
@@ -485,7 +529,7 @@ function identitésDeMarques(marques: readonly MarqueNative[]): MarqueIncrustée
 export function empreinteDuRendu(
   clip: FormeRendue,
   marques: readonly MarqueNative[],
-  sousTitres: { incrustés: boolean; look: LookDesSousTitres },
+  sousTitres: { incrustés: boolean; look: LookDesSousTitres; texte: string | null },
 ): EmpreinteRendu {
   return {
     version: VERSION_EMPREINTE,
@@ -509,6 +553,7 @@ export function empreinteDuRendu(
     branding: clip.branding,
     marques: identitésDeMarques(marques),
     sousTitres: sousTitres.incrustés ? condensatDuLook(sousTitres.look) : null,
+    captionsContent: sousTitres.incrustés ? digestOfCaptionsText(sousTitres.texte) : null,
   }
 }
 
@@ -605,7 +650,7 @@ export function lesMarquesOntBougé(
 }
 
 /** Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant. */
-export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 'style'
+export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte'
 
 /**
  * Ce qu'on incrusterait **maintenant**, pour ce que l'appelant en sait.
@@ -620,6 +665,18 @@ export type ÉcartEmpreinte = 'absente' | 'recette' | 'montage' | 'marques' | 's
 export type CeQuOnIncrusterait = {
   marques: readonly MarqueNative[] | null
   look: LookDesSousTitres | null
+  /**
+   * Le document ASS qu'on incrusterait maintenant — **trois valeurs, pas
+   * deux**. `undefined` dit « pas sondé », comme `null` pour les deux champs
+   * au-dessus ; `null` dit « sondé, et rien à incruster » (pas de sous-titres
+   * demandés, ou aucun mot dans les segments) ; une chaîne est le document.
+   * Confondre les deux `null` laisserait passer exactement le cas où une
+   * correction a vidé de mots les segments d'un clip qui demande des
+   * sous-titres : l'empreinte porterait encore l'ancien document, `texte`
+   * vaudrait `null` « je n'ai rien à incruster », et la comparaison
+   * conclurait à tort que rien n'a changé.
+   */
+  texte: string | null | undefined
 }
 
 /**
@@ -656,6 +713,14 @@ export function écartDeLEmpreinte(
   ) {
     return 'style'
   }
+  // **`undefined` seul est « pas sondé ».** `null` est une réponse : « rien à
+  // incruster maintenant », qui doit se comparer au `captionsContent` de
+  // l'empreinte comme n'importe quelle autre valeur — c'est exactement ce qui
+  // détecte une correction ayant vidé de mots les segments d'un clip qui
+  // demande des sous-titres (#87).
+  if (observé.texte !== undefined && empreinte.captionsContent !== digestOfCaptionsText(observé.texte)) {
+    return 'texte'
+  }
   return null
 }
 
@@ -675,6 +740,7 @@ const RAISON_DE_LÉCART: Record<ÉcartEmpreinte, string> = {
   montage: 'le montage a changé depuis',
   marques: "les marques incrustées ne sont plus celles du dossier",
   style: "les sous-titres ont été incrustés avec un autre look",
+  texte: 'le transcript a changé sur les segments de ce clip',
 }
 
 /**
@@ -1192,10 +1258,32 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     polices: condensatDesPolices(dossierDesPolices(options.fontsDir)),
   }
 
+  // **Le document qu'on incrusterait maintenant, avant la décision de saut
+  // (#87).** Sans lui, une correction du transcript qui ne touche aucun
+  // segment de ce clip laisserait `sauterLeRendu` reprendre un MP4 qui porte
+  // encore les anciens mots — c'est exactement le chemin que la correction
+  // manuelle de la PR #86 a ouvert : elle ne touche aux segments d'aucun clip.
+  //
+  // **Un aller-retour sur le Drive, à la différence des marques et du look
+  // juste au-dessus.** C'est nouveau : jusqu'ici la décision de saut l'évitait
+  // exprès (voir le commentaire de `EmpreinteRendu.sousTitres`), parce
+  // qu'aucun des huit champs d'avant ne pouvait bouger sans que le graphe
+  // refasse ce qui en dépend. Le texte, si — c'est tout le défaut que #87
+  // ferme —, et rien d'autre ne peut le voir. Seulement quand le clip demande
+  // des sous-titres : sans cela, `sousTitres` comme `captionsContent` valent
+  // déjà `null` dans l'empreinte, et rien ne doit dépendre du transcript pour
+  // un clip qui ne l'affiche pas (spec §4).
+  //
+  // Calculé une seule fois pour tout le passage : la décision de saut s'en
+  // sert ici, et l'écriture du `.ass` plus bas réutilise le même document
+  // plutôt que de relire le transcript une seconde fois.
+  const texteActuel: string | null = clip.captions ? await currentCaptionsDocument(clip, projet, look.style) : null
+
   // Ce que les fichiers présents décrivent, s'il y en a.
   const écart = écartDeLEmpreinte(lireEmpreinte(chemins.empreinte), renderedShape(clip, framingSnapshot), {
     marques,
     look,
+    texte: texteActuel,
   })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
@@ -1209,10 +1297,11 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
     )
   }
 
-  // **Le saut se décide avant de toucher au transcript.** Le sidecar vit sur le
-  // Drive partagé, monté en 9p, lent et sujet au décrochage : un clip déjà rendu
-  // ne doit pas payer un aller-retour dessus pour s'entendre dire qu'il n'y a
-  // rien à faire.
+  // **Le transcript est déjà lu, si le clip demande des sous-titres** — voir
+  // `texteActuel` ci-dessus (#87). Ce n'était pas le cas avant : le sidecar vit
+  // sur le Drive partagé, monté en 9p, lent et sujet au décrochage, et la
+  // décision de saut évitait cet aller-retour tant que rien ne pouvait le
+  // rendre nécessaire. Un clip sans sous-titres continue de l'éviter.
   if (sauterLeRendu(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
     // **Le `.txt` se réécrit même quand le rendu saute**, et c'est le seul des
     // trois à le faire. Il ne coûte rien, et c'est celui qu'on retouche le plus :
@@ -1343,8 +1432,10 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
       // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
       // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
       // en place. (relevé par Copilot)
+      // Le document a déjà été calculé plus haut, en `texteActuel` — pour la
+      // décision de saut autant que pour ceci, une seule lecture du transcript.
       const assProvisoire = clip.captions
-        ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, look.style)
+        ? await writeCaptionsDocument(clip.id, texteActuel, cheminTemporaire(chemins.ass))
         : undefined
       // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
       // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
@@ -1517,6 +1608,7 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
         const empreinte = empreinteDuRendu(renderedShape(clip, framingSnapshot), marques, {
           incrustés: assProvisoire !== undefined,
           look,
+          texte: texteActuel,
         })
         const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
         // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
@@ -1804,33 +1896,81 @@ export function sousTitresDuClip(
 }
 
 /**
- * Écrit le `.ass` du clip et rend son chemin, ou `undefined` s'il n'y a rien à
- * incruster — auquel cas un `.ass` d'un passage précédent est **effacé**. Il est
- * gardé sur le disque pour relire ce que libass a incrusté ; un fichier périmé y
- * raconterait des sous-titres que le MP4 ne porte pas. (relevé par Copilot)
+ * Le document ASS qu'on incrusterait maintenant pour ce clip, sans rien
+ * écrire — ou `null` si aucun mot ne tombe dans ses segments.
+ *
+ * **Sert deux fois** (#87) : à la décision de saut, qui doit savoir si le
+ * texte a changé avant de décider s'il y a un rendu à refaire, et à l'écriture
+ * réelle du `.ass` plus bas dans `renderClip`, qui réutilise le même document
+ * plutôt que de relire le transcript une seconde fois.
+ *
+ * **Par `transcriptDuProjet` (`vues.ts`) d'abord, jamais par `placeSidecar` ni
+ * `lireTranscript` directement** :
+ *
+ * - il sait déjà chercher le repli dans le projet **avant** le Drive
+ *   (`chercherSidecar`, `run.ts`) — un `existsSync(transcriptPath(...))` seul
+ *   raterait ce repli (`paths.ts` documente le piège), et sonder le montage
+ *   avant de le lui laisser essayer le raterait tout autant : un projet dont
+ *   le repli local existe déjà n'a jamais besoin du Drive, que le montage
+ *   réponde ou non ;
+ * - il mémoïse sur `fichier:taille:mtime` — un second export de la même
+ *   émission, ou un GET qui a déjà tout lu pour l'écran de clip, ne repaie pas
+ *   la lecture ;
+ * - à la différence de `placeSidecar`, il ne **crée** jamais rien : c'est une
+ *   lecture, pas l'écriture du sidecar que fait `transcribe`, et elle n'a donc
+ *   pas à préparer un dossier sur un montage qui vient tout juste de répondre.
+ *
+ * **Le montage n'est sondé qu'en cas d'échec**, pour distinguer les deux
+ * raisons possibles — le troisième verdict. Un montage qui ne répond pas
+ * n'est ni « périmé » — reboucler l'export contre un Drive illisible — ni « à
+ * jour » — servir un rendu peut-être faux : c'est un refus explicite, dans le
+ * même vocabulaire que `montage.cause` (#62) donne à `listerSources`. «
+ * muet » est transitoire et invite à réessayer ; un transcript introuvable
+ * une fois le montage confirmé vivant ne l'est pas. Sonder ici, à l'appel
+ * `fsp.stat` (pas `existsSync`) — `transcribe` (`steps/transcript.ts`) pose la
+ * même garde avant le même genre d'appel, pour la même raison : un montage 9p
+ * au transport mort gèle la boucle d'événements entière sur un appel
+ * synchrone, donc **tout le serveur**, pas seulement cet export.
  */
-async function écrireSousTitres(
-  clip: Clip,
-  chemin: string,
-  projet: { sourcePath: string },
+async function currentCaptionsDocument(
+  clip: Pick<Clip, 'id' | 'segments'>,
+  projet: Project,
   style: CaptionStyle,
-): Promise<string | undefined> {
-  // **Par `placeSidecar`, jamais par `transcriptPath`.** Le second rend le chemin
-  // voulu, à côté de l'original, et ignore le repli dans le projet : un
-  // transcript rangé là par une passe précédente passerait pour absent.
-  //
-  // `lireTranscript` vient de l'étape de repérage plutôt que d'être réécrit ici.
-  // C'est la même lecture, avec la même validation et la même règle sur les mots
-  // non alignés — que WhisperX émet, et qui ne doivent pas faire échouer un
-  // export. Deux lectures du même fichier finiraient par ne plus dire la même
-  // chose du même JSON.
-  const placement = placeSidecar(projet.sourcePath, clip.projectId)
-  const transcript = lireTranscript(placement.transcript)
-  const mots: Word[] = transcript.segments.flatMap((s) => s.words)
+): Promise<string | null> {
+  const transcript = await transcriptDuProjet(projet)
+  if (transcript === null) {
+    if (!(await montageRépond(resolveSource(projet.sourcePath)))) {
+      throw new Error(
+        `Le dossier des replays ne répond pas : impossible de lire le transcript du clip ${clip.id}. ` +
+          'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+          '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+      )
+    }
+    throw new Error(
+      `Aucun transcript pour le clip ${clip.id} : ni à côté de l'original, ni dans le projet. Le ` +
+        'clip demande des sous-titres, et il n’y a rien à en tirer.',
+    )
+  }
 
-  const document = sousTitresDuClip(mots, clip.segments, style)
+  const mots: Word[] = transcript.segments.flatMap((s) => s.words)
+  return sousTitresDuClip(mots, clip.segments, style)
+}
+
+/**
+ * Écrit le `.ass` à partir du document déjà calculé par `currentCaptionsDocument`, et
+ * rend son chemin — ou `undefined` s'il n'y a rien à incruster, auquel cas un
+ * `.ass` d'un passage précédent est **effacé** ailleurs dans `renderClip`. Il
+ * est gardé sur le disque pour relire ce que libass a incrusté ; un fichier
+ * périmé y raconterait des sous-titres que le MP4 ne porte pas.
+ * (relevé par Copilot)
+ */
+async function writeCaptionsDocument(
+  clipId: string,
+  document: string | null,
+  chemin: string,
+): Promise<string | undefined> {
   if (document === null) {
-    console.warn(`Clip ${clip.id} : aucun mot dans les segments retenus, rendu sans sous-titres.`)
+    console.warn(`Clip ${clipId} : aucun mot dans les segments retenus, rendu sans sous-titres.`)
     return undefined
   }
 

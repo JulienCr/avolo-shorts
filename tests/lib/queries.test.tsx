@@ -309,6 +309,15 @@ describe('les réglages', () => {
       fenetresMinimum: 10,
       clipsMaximum: 0,
     },
+    ai: {
+      selectionProvider: 'gemini',
+      selectionModel: 'gemini-3.1-flash-lite',
+      correctionProvider: 'gemini',
+      correctionModel: 'gemini-3.1-flash-lite',
+      hookProvider: 'gemini',
+      hookModel: 'gemini-3.1-flash-lite',
+      ollamaBaseUrl: '',
+    },
   }
 
   it('se lisent sans interrogation en boucle', async () => {
@@ -328,7 +337,10 @@ describe('les réglages', () => {
    * seconde requête pour obtenir exactement le corps qu'on vient de recevoir.
    */
   it('remplacent le cache avec la réponse plutôt que de la redemander', async () => {
-    const after: Settings = { selection: { ...settings.selection, minutesParClip: 4 } }
+    const after: Settings = {
+      selection: { ...settings.selection, minutesParClip: 4 },
+      ai: { ...settings.ai },
+    }
     vi.stubGlobal('fetch', vi.fn(async () => reponse(after)))
     const { client, invalide, enveloppe } = harnais()
     const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })

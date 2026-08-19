@@ -224,14 +224,17 @@ const eslintConfig = defineConfig([
   //     choisit pas ce nom-là.
   //
   // **Ce que la règle ne couvre PAS**, pour que ça ne se lise pas comme
-  // « le linter s'en occupe désormais » : mesuré sur ce chantier, sur les
-  // 1 477 identifiants renommés par le balayage #73, **462 seulement
-  // portaient un accent** — les 1 015 autres étaient du français **sans**
-  // accent (`enregistrement`, `parcours`, `montage`…), qu'un motif ASCII ne
-  // détecte pas puisqu'ils s'écrivent déjà en ASCII. Cette règle attrape
-  // donc mécaniquement **31 %** du problème, pas 100 % : le reste demande
-  // une lecture, humaine ou outillée (voir `scripts/rename-73/`), pas un
-  // motif.
+  // « le linter s'en occupe désormais » : recompté depuis
+  // `scripts/rename-73/renames-identifiers.tsv` (paires (old_name,
+  // new_name) distinctes, en excluant les entrées où old_name === new_name —
+  // un identifiant déjà anglais avant le balayage, jamais réellement
+  // renommé), sur les **1 574 identifiants renommés par le balayage #73,
+  // 467 seulement portaient un accent** — les 1 107 autres étaient du
+  // français **sans** accent (`enregistrement`, `parcours`, `montage`…),
+  // qu'un motif ASCII ne détecte pas puisqu'ils s'écrivent déjà en ASCII.
+  // Cette règle attrape donc mécaniquement **29,7 %** du problème, pas
+  // 100 % : le reste demande une lecture, humaine ou outillée (voir
+  // `scripts/rename-73/`), pas un motif.
   {
     files: ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
     rules: {

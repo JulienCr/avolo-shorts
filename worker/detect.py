@@ -749,6 +749,26 @@ def refine_switch(
     ambiguïté » dans ``CLAUDE.md`` : un défaut prudent est juste quand
     l'information manque, faux quand elle départage deux hypothèses
     concurrentes — ici, bascule réelle ou mouvement de comédiens.
+
+    **Un défaut résiduel, mesuré et borné, pas corrigé.** La fenêtre retient
+    le score **maximal** qu'elle y trouve, sans jamais vérifier qu'il est
+    *grand* — seulement qu'il dépasse le plancher de collecte. Un score
+    faible peut donc être la traîne décroissante d'une coupe voisine plutôt
+    que la preuve d'une coupe propre à cette fenêtre. Mesuré sur
+    ``2026-03-08-caro-mdlm`` à t ≈ 652,5 s : le score confirmant vaut
+    **0,131**, traîne d'un évènement à **0,9612** situé 33 ms plus tôt, sur
+    une troisième boîte fantôme que YOLO produit juste après une vraie coupe
+    et qui disparaît dès l'image suivante.
+
+    **Non corrigé, et ce n'est pas un oubli : ce cas tombe sous ``min_shot``,
+    donc ``_spaced_boundaries`` l'absorbe dans la coupe voisine — par
+    coïncidence de proximité, pas par conception.** Rien dans cette fonction
+    ni dans ``_spaced_boundaries`` ne garantit qu'un score faible tombera
+    toujours près d'une frontière déjà retenue ; un seuil sur la *magnitude*
+    du score confirmant réglerait la question proprement, mais l'écrire
+    exigerait de le mesurer — donc de rouvrir l'étalonnage validé sur les
+    quatre émissions du corpus pour un seul cas connu, sans impact sur le
+    rendu livré. Piste suivante, pas dette silencieuse.
     """
     upper_bound = t2 + 1.0 / (2.0 * fps)
     window = [(t, s) for t, s in events if t1 < t <= upper_bound]

@@ -558,7 +558,68 @@ l'image étiquetée `t` vient donc d'un instant postérieur, jusqu'à
 dans la fenêtre de recherche de `refine_switch`, documenté pour ce qu'il est
 plutôt que corrigé à la source : le corriger imposerait une version 3 du
 schéma et une ré-analyse GPU des quatre projets. Voir la skill `cadrage`
-(cinquième piège) pour le détail.
+(sixième piège) pour le détail.
+
+**Un défaut résiduel du raffinement, mesuré et borné, pas corrigé.**
+`refine_switch` confirme sur le score maximal de sa fenêtre, sans jamais
+vérifier qu'il est grand — seulement qu'il dépasse le plancher de collecte.
+Sur `2026-03-08-caro-mdlm` à t ≈ 652,5 s, le score confirmant vaut 0,131,
+traîne d'un évènement à 0,9612 situé 33 ms plus tôt, sur une troisième boîte
+fantôme que YOLO produit juste après une vraie coupe et qui disparaît à
+l'image suivante. Ce cas précis ne produit aucun artefact rendu, mais **par
+coïncidence de proximité, pas par conception** : il tombe sous `min_shot`,
+donc `_spaced_boundaries` l'absorbe dans la coupe voisine déjà retenue — rien
+ne garantit qu'un score faible tombe toujours près d'une frontière existante.
+Non corrigé : le seuil qui réglerait la question proprement exigerait de le
+mesurer, donc de rouvrir l'étalonnage validé sur les quatre émissions pour un
+seul cas connu. Voir la skill `cadrage` (septième piège) et la docstring de
+`refine_switch`.
+
+### Un biais de comptage : bascule détectée n'est pas frontière ajoutée
+
+**Compté pendant tout le chantier, le nombre de bascules « acceptées » — au
+sens où `refine_switch` a confirmé leur raffinement — surestime largement ce
+que le chantier change.** Beaucoup retombent sur une coupe que le score de
+scène pose déjà tout seul, au même instant exact : `composition_switches`
+redétecte alors une frontière déjà connue plutôt que d'en ajouter une. Ce
+n'est ni un faux positif ni un vrai positif nouveau — c'est une confirmation
+redondante, sans effet sur `shots`.
+
+| | bascules acceptées | dont redondantes avec une coupe déjà connue | **frontières réellement neuves** |
+|---|---|---|---|
+| `2025-06-15-cqlp` | 43 | 23 | **20** |
+| `2026-03-08-caro-mdlm` | 126 | 90 | **33** |
+| `2026-05-31-nabla` | 67 | 51 | **16** |
+| `2026-22-02-entre-nous` | 161 | 58 | **101** |
+
+Le compte de « frontières neuves » est celui qui explique le delta de plans
+déjà mesuré (1 483 → 1 516 sur `caro-mdlm`, etc.) — pas le compte de bascules
+acceptées.
+
+**Et une frontière neuve n'est pas un saut de cadre.** `splitByShot` fusionne
+ce que `computeFraming` cadre pareil des deux côtés ; une frontière dont le
+ratio et le `cropX` ne changent pas ne produit aucun artefact visible, même
+si la coupe elle-même est réelle. Sur les quatre émissions, les frontières
+neuves qui produisent un **saut de cadre effectif** (`computeFraming` appelé
+sur le plan isolé de chaque côté, ratio différent ou `cropX` à plus de 1 %
+d'écart) :
+
+| | frontières neuves | dont un saut de cadre |
+|---|---|---|
+| `2025-06-15-cqlp` | 20 | 14 (70 %) |
+| `2026-03-08-caro-mdlm` | 33 | 13 (39 %) |
+| `2026-05-31-nabla` | 16 | 7 (44 %) |
+| `2026-22-02-entre-nous` | 101 | 80 (79 %) |
+| **total** | **170** | **114 (67 %)** |
+
+**« Inerte » veut dire que le cadre ne change pas, pas que la coupe est
+fausse.** Vérifié à l'image sur `caro-mdlm` t ≈ 8 518,6 s : une vraie coupe
+caméra spectaculaire — angle entièrement différent, une troisième personne
+apparaît — inerte au rendu parce que les deux plans restent en 16:9 centré
+des deux côtés. Le chiffre qui dit le risque d'un changement de détection
+est donc **le nombre de sauts de cadre effectifs**, pas le nombre de
+frontières ni le nombre de bascules détectées : c'est la seule mesure qui
+dit ce qu'un spectateur verrait changer.
 
 #### Reproduction
 

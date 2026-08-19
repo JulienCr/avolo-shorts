@@ -82,7 +82,7 @@ quelqu'un d'assis les hanches ne dépassent pas les épaules, et quand elles le
 feraient elles sont cachées donc peu confiantes ; `upper-body` élargit de six
 points, un bras tendu rentrant dans le cadre qu'on venait d'en sortir.
 
-## Six pièges
+## Sept pièges
 
 **1. Les points de pose sortent de `[0, 1]`.** Un bornage qui ne couvre qu'une
 extrémité produit alors une **largeur négative** qui traverse le choix du ratio en
@@ -120,6 +120,21 @@ les scores de scène rate 22 bascules sur 58 ; il faut l'étendre à
 (`worker/detect.py`), pas corrigé à la source — corriger l'étiquette imposerait
 une version 3 du schéma et une ré-analyse GPU du corpus.
 
+**7. `refine_switch` confirme sur le score maximal de sa fenêtre, jamais sur sa
+grandeur.** Un score faible peut être la traîne décroissante d'une coupe
+voisine plutôt que la preuve d'une coupe propre à cette fenêtre-là. Mesuré sur
+`2026-03-08-caro-mdlm` à t ≈ 652,5 s : score confirmant 0,131, traîne d'un
+évènement à 0,9612 situé 33 ms plus tôt, sur une troisième boîte fantôme que
+YOLO produit juste après une vraie coupe et qui disparaît à l'image suivante.
+**Ce cas précis ne produit aucun artefact rendu, mais par coïncidence de
+proximité, pas par conception** : il tombe sous `min_shot`, donc
+`_spaced_boundaries` l'absorbe dans la coupe voisine déjà retenue — rien ne
+garantit qu'un score faible tombe toujours près d'une frontière existante.
+Non corrigé : le seuil qui réglerait la question proprement (une magnitude
+minimale sur le score confirmant, pas seulement un plancher) exigerait de le
+mesurer, donc de rouvrir l'étalonnage validé sur les quatre émissions du
+corpus pour un seul cas connu.
+
 ## Mesurer
 
 Trois outils, à étendre plutôt qu'à doubler :
@@ -139,6 +154,18 @@ attribué le même gain.
 **Compter des empans est déterministe : une passe suffit.** La règle des trois
 passes et de la médiane de `CLAUDE.md` vise les mesures de *temps*, que la variance
 de 40 à 80 % sous WSL rend traîtresses.
+
+**Compter des frontières n'est pas mesurer le risque d'un détecteur.** Le
+chantier des bascules de composition a compté des frontières pendant tout son
+déroulement, et mesuré des **sauts de cadre** une seule fois, à la fin, sur
+une question posée après coup. Une bascule détectée n'est pas une frontière
+ajoutée — la majorité en retombe sur une coupe que le score de scène pose déjà,
+sans rien changer — et une frontière ajoutée n'est pas un saut de cadre : le
+crop peut rester identique des deux côtés. Le chiffre qui dit le risque d'un
+changement de détection est **le nombre de sauts de cadre effectifs**, pas le
+nombre de frontières ni le nombre de bascules détectées. Voir
+`docs/ratios-par-clip.md` pour la distinction chiffrée sur les quatre
+émissions.
 
 **Et vérifie à l'image.** Ce n'est pas une précaution de style : sur ce sujet, la
 lecture d'une image a renversé une conclusion que les chiffres soutenaient au moins

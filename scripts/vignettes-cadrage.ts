@@ -1,9 +1,14 @@
 /**
  * **Le rectangle que le cadrage automatique découperait, dessiné sur l'image.**
  *
- *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_004655941-004681822
+ *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp_004655941-004681822
  *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --marge 0.01 --ratio 1:1
  *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --trim 0 --images 3
+ *
+ * `<projectId>` est optionnel : `<clipId>` le contient (il se construit en
+ * `${projectId}_${msDebut}-${msFin}`), donc un seul positionnel suffit quand on
+ * n'a que l'identifiant du clip sous la main. Passer les deux reste possible et
+ * prioritaire.
  *
  * `vignettes-premier-plan.ts` dessine les **boîtes** : il répond à « qui le
  * détecteur voit-il, et lesquels le filtre écarte ». Celui-ci dessine le **crop**
@@ -227,6 +232,16 @@ function estRatio(a: string): a is Ratio {
   return Object.prototype.hasOwnProperty.call(RATIOS, a)
 }
 
+/**
+ * Le projet contenu dans un identifiant de clip — `clipId` de
+ * `src/core/gemini/parse.ts` le construit en `${projectId}_${ms(start)}-${ms(end)}`,
+ * donc l'un se retrouve dans l'autre sans jamais interroger la base.
+ */
+function projectIdFromClipId(clipId: string): string | undefined {
+  const m = /^(.+)_\d{9}-\d{9}$/.exec(clipId)
+  return m?.[1]
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
 
@@ -245,12 +260,22 @@ async function main(): Promise<number> {
   const positionnels = arguments_.filter(
     (a, i) => !a.startsWith('--') && !drapeauxAvecValeur.has(i),
   )
-  const [projectId, clipId] = positionnels
+  // Le projet est optionnel : `clipId` le contient (`projectIdFromClipId`), donc
+  // un seul positionnel suffit — `pnpm tsx scripts/vignettes-cadrage.ts <clipId>`.
+  let projectId: string | undefined
+  let clipId: string | undefined
+  if (positionnels.length >= 2) {
+    ;[projectId, clipId] = positionnels
+  } else {
+    clipId = positionnels[0]
+    projectId = clipId === undefined ? undefined : projectIdFromClipId(clipId)
+  }
   if (projectId === undefined || clipId === undefined) {
     console.error(
-      'Usage : pnpm tsx scripts/vignettes-cadrage.ts <projectId> <clipId> ' +
+      'Usage : pnpm tsx scripts/vignettes-cadrage.ts [<projectId>] <clipId> ' +
         '[--marge M] [--trim T] [--tronc <nom|off>] [--ratio 9:16|4:5|1:1|16:9] ' +
-        '[--images N] [--analyse <fichier>] [--out <dossier>]',
+        '[--images N] [--analyse <fichier>] [--out <dossier>]\n' +
+        `<projectId> est optionnel : déduit de <clipId> quand un seul positionnel est passé.`,
     )
     return 1
   }

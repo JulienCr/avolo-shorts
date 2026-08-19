@@ -201,24 +201,39 @@ function buildBasenameMap(renamedFiles: RenamedFile[]): Map<string, Set<string>>
   return m;
 }
 
+/** Même principe que `buildBasenameMap`, pour un dossier renommé cité par
+ * son seul dernier segment (`src/components/tri` → `tri`), la forme qu'un
+ * commentaire emploie quand il ne recopie pas le chemin en entier. */
+function buildFolderBasenameMap(renamedFolders: RenamedFile[]): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  for (const r of renamedFolders) {
+    const key = path.basename(r.from);
+    const set = m.get(key) ?? new Set<string>();
+    set.add(path.basename(r.to));
+    m.set(key, set);
+  }
+  return m;
+}
+
 /** Une chaîne (commentaire ou littéral) "ancienne" est admise à devenir la
  * "nouvelle" si la différence entière s'explique par une ou plusieurs
  * substitutions ancien→nouveau tirées soit de la table des identifiants,
- * soit — token par token — des noms de base de fichiers renommés. Jamais
- * une reformulation, jamais un mot français abîmé : chaque token qui diffère
- * doit être *exactement* une entrée de l'une des deux tables. */
+ * soit — token par token — des noms de base de fichiers ou de dossiers
+ * renommés. Jamais une reformulation, jamais un mot français abîmé : chaque
+ * token qui diffère doit être *exactement* une entrée de l'une des tables. */
 function isPureSubstitution(
   beforeRaw: string,
   afterRaw: string,
   file: string,
   resolve: (oldName: string, currentFileRel: string) => NameResolution,
-  basenameMap: Map<string, Set<string>>
+  basenameMap: Map<string, Set<string>>,
+  folderBasenameMap: Map<string, Set<string>>
 ): boolean {
   const before = beforeRaw.normalize("NFC");
   const after = afterRaw.normalize("NFC");
   if (before === after) return true;
   // Tokenise les deux chaînes sur la même grille (mots vs séparateurs), et
-  // vérifie que chaque désaccord est couvert par l'une des deux tables.
+  // vérifie que chaque désaccord est couvert par l'une des tables.
   // `\p{L}`/`\p{N}`, pas `A-Za-z0-9` : un vieux nom accentué (`créerProjet`)
   // ne tokenise pas comme un seul mot sous une classe ASCII — le `é` casse le
   // token en deux, les tableaux avant/après n'ont plus la même longueur, et
@@ -226,7 +241,18 @@ function isPureSubstitution(
   // masse les anciens noms dans les commentaires (issue #73, tour suivant) :
   // resté invisible tant que les substitutions de commentaires connues
   // d'avance ne portaient pas d'accent dans leur ancien nom.
-  const tokenize = (s: string) => s.split(/([\p{L}_$][\p{L}\p{N}_$]*)/gu);
+  //
+  // Un tiret interne fait partie du token, pas une frontière : un nom de
+  // fichier renommé en kebab-case (`vignettes-sources` → `source-thumbnails`,
+  // `ecran-clip` → `clip-screen`) est une seule entrée de `basenameMap`, sous
+  // sa forme complète — le couper en `vignettes`/`sources` ferait chercher
+  // ces demi-mots dans la table un par un, où ils n'existent pas, et une
+  // substitution pourtant exacte échouerait à tort ; pire, un renommage qui
+  // permute l'ordre des mots (`ecran-clip` → `clip-screen`) ne serait même
+  // plus une substitution position par position une fois les moitiés
+  // séparées (issue #73, correctifs des chemins de module morts en
+  // commentaire).
+  const tokenize = (s: string) => s.split(/([\p{L}_$][\p{L}\p{N}_$]*(?:-[\p{L}_$][\p{L}\p{N}_$]*)*)/gu);
   const a = tokenize(before);
   const b = tokenize(after);
   if (a.length !== b.length) return false;
@@ -241,6 +267,11 @@ function isPureSubstitution(
     // fichier.
     if (resolve(a[i], file).resolved === b[i]) continue;
     if (basenameMap.get(a[i])?.has(b[i]) === true) continue;
+    // Un dossier renommé cité par son seul dernier segment
+    // (`src/components/tri` → `.../review`, mentionné comme `tri` au fil
+    // d'une phrase) : même table que `isKnownModuleRename` pour les chaînes,
+    // absente jusqu'ici du côté commentaires.
+    if (folderBasenameMap.get(a[i])?.has(b[i]) === true) continue;
     return false;
   }
   return true;
@@ -269,6 +300,7 @@ function main() {
   const idTable = loadIdentifierTable();
   const resolve = buildResolver(loadSymbolEntries(), renamedFiles, renamedFolders);
   const basenameMap = buildBasenameMap(renamedFiles);
+  const folderBasenameMap = buildFolderBasenameMap(renamedFolders);
 
   const exceptions: Exception[] = [];
   const failures: string[] = [];
@@ -315,7 +347,7 @@ function main() {
         exceptions.push({ file, kind: "type-index", before: b, after: a });
         continue;
       }
-      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap)) {
+      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap, folderBasenameMap)) {
         exceptions.push({ file, kind: "module-specifier", before: b, after: a });
         continue;
       }
@@ -333,7 +365,7 @@ function main() {
       const b = beforeExtracted.comments[i];
       const a = afterExtracted.comments[i];
       if (nfc(b) === nfc(a)) continue;
-      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap)) {
+      if (a !== undefined && b !== undefined && isPureSubstitution(b, a, file, resolve, basenameMap, folderBasenameMap)) {
         exceptions.push({ file, kind: "comment-substitution", before: b, after: a });
         continue;
       }

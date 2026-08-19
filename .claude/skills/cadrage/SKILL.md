@@ -102,7 +102,7 @@ repli, passe par lui plutôt que de lire les points en direct.
 
 **4. Les outils qui dessinent la boîte mentent maintenant.** Le cadre suit le
 tronc ; un outil qui affiche les boîtes entières montre un rectangle qui n'est
-celui d'aucune sortie. `scripts/vignettes-cadrage.ts` dessine les deux ;
+celui d'aucune sortie. `scripts/framing-thumbnails.ts` dessine les deux ;
 vérifie-le avant de juger un cadrage sur une image annotée.
 
 **5. `sideTrim` ne décide plus rien sur une analyse de version 2.** Balayé de 0 à
@@ -139,12 +139,12 @@ corpus pour un seul cas connu.
 
 Trois outils, à étendre plutôt qu'à doubler :
 
-- `scripts/mesure-ratios.ts` — la répartition des ratios par clip, par fenêtre de
+- `scripts/measure-ratios.ts` — la répartition des ratios par clip, par fenêtre de
   30 s et **en temps de plan**. C'est le troisième qui compte : il dit ce que la
   sortie verticale montre vraiment ;
-- `scripts/vignettes-cadrage.ts` — une image par plan, choisie sur son débordement,
+- `scripts/framing-thumbnails.ts` — une image par plan, choisie sur son débordement,
   avec les boîtes, les troncs et le rectangle de crop ;
-- `scripts/apercu-cadrage.ts` — un serveur local qui joue le proxy avec la même
+- `scripts/framing-preview.ts` — un serveur local qui joue le proxy avec la même
   surimpression, pour voir *où* dans un plan le crop serre.
 
 Quatre projets sont sur le disque avec leur analyse. **Compare toujours au code en

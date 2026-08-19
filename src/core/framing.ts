@@ -646,7 +646,7 @@ export function torsoBounds(
  *
  * Les cinq points COCO de `TORSOS.head` (nez, yeux, oreilles), et non le seul
  * nez : un profil ne montre qu'un œil et qu'une oreille. Partagée entre
- * `scripts/vignettes-cadrage.ts` et `scripts/apercu-cadrage.ts` — les deux
+ * `scripts/framing-thumbnails.ts` et `scripts/framing-preview.ts` — les deux
  * répondent à la même question (le visage est-il dans le crop ?) et ne
  * doivent pas porter chacun sa propre lecture des points.
  */
@@ -656,7 +656,7 @@ export function headBounds(
 ): { x0: number; y0: number; x1: number; y1: number } | null {
   const k = box.k
   if (k === undefined) return null
-  const threshold = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  const threshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
   let x0 = Number.POSITIVE_INFINITY
   let y0 = Number.POSITIVE_INFINITY
   let x1 = Number.NEGATIVE_INFINITY

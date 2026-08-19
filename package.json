@@ -9,8 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "type-check": "next typegen && tsc --noEmit",
-    "apercu-cadrage": "tsx scripts/apercu-cadrage.ts",
-    "apercu-cadrage:stop": "lsof -ti :${PORT:-4321} | xargs -r kill -INT"
+    "framing-preview": "tsx scripts/framing-preview.ts",
+    "framing-preview:stop": "lsof -t -iTCP:${PORT:-4321} -sTCP:LISTEN | xargs -r kill -INT"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

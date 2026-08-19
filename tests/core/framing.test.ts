@@ -1584,7 +1584,7 @@ describe('le tronc déduit des points de pose', () => {
 
 describe('headBounds', () => {
   it('rend les bornes des points de tête, pas ceux du reste du squelette', () => {
-    const b = withPose(0, 0.3, 0.5, {
+    const b = withPosed(0, 0.3, 0.5, {
       NOSE: 0.42,
       LEFT_EYE: 0.41,
       RIGHT_EYE: 0.44,
@@ -1601,11 +1601,11 @@ describe('headBounds', () => {
   })
 
   it('rend null sans points de pose', () => {
-    expect(headBounds(boîte(0, 0.3, 0.5, 0.9))).toBeNull()
+    expect(headBounds(box(0, 0.3, 0.5, 0.9))).toBeNull()
   })
 
   it('rend null quand aucun point de tête ne passe le seuil de confiance', () => {
-    const b = withPose(0, 0.3, 0.5, { NOSE: 0.42 })
+    const b = withPosed(0, 0.3, 0.5, { NOSE: 0.42 })
     expect(headBounds(b, { torsoMinScore: 0.95 })).toBeNull()
   })
 })

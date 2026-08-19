@@ -2,14 +2,14 @@
  * Un serveur local qui joue le proxy d'un projet avec, en surimpression, les
  * boîtes du détecteur et le rectangle de crop d'un clip.
  *
- *     pnpm apercu-cadrage
- *     pnpm apercu-cadrage --port 4321
+ *     pnpm framing-preview
+ *     pnpm framing-preview --port 4321
  *
  * Serveur au premier plan (`Ctrl-C` arrête proprement, voir le `SIGINT` plus
- * bas) ; en arrière-plan, `pnpm apercu-cadrage:stop` l'arrête par le port
+ * bas) ; en arrière-plan, `pnpm framing-preview:stop` l'arrête par le port
  * qu'il écoute (`PORT=4321` par défaut, comme `--port` ci-dessus).
  *
- * `vignettes-cadrage.ts` répond « qu'est-ce que le spectateur verrait », mais
+ * `framing-thumbnails.ts` répond « qu'est-ce que le spectateur verrait », mais
  * une image à la fois : une vignette par plan, choisie sur son débordement. Ce
  * script répond à la même question en continu, en scrubant dans la vidéo — utile
  * pour repérer *où* dans un plan le crop serre, pas seulement *que* le pire
@@ -18,7 +18,7 @@
  * **Le cadre dessiné est celui de `computeFraming`, pas une réimplémentation.**
  * Un sélecteur choisit le projet — donc le proxy —, un second choisit un clip de
  * ce projet, et le crop envoyé au navigateur est celui que ce clip obtiendrait
- * réellement : mêmes réglages, même fonction que `vignettes-cadrage.ts` et que
+ * réellement : mêmes réglages, même fonction que `framing-thumbnails.ts` et que
  * le rendu final. Un rectangle recalculé à la main ici montrerait un cadrage
  * plausible mais qui n'est celui d'aucun chemin réel.
  *
@@ -26,7 +26,7 @@
  * plan, gris sous le seuil de confiance) est calculée côté serveur avec
  * `isForeground`, pour la même raison : le navigateur ne doit pas porter une
  * seconde copie de cette règle. Le tronc (cyan) et la tête (magenta) que
- * `vignettes-cadrage.ts` dessine sur les boîtes gardées suivent le même
+ * `framing-thumbnails.ts` dessine sur les boîtes gardées suivent le même
  * principe : `personBounds` et `headBounds` tournent côté serveur, le
  * navigateur ne reçoit que des rectangles déjà résolus.
  *
@@ -49,13 +49,13 @@ import { parseRange } from '@/core/range'
 import type { PersonBox } from '@/core/shots'
 import { closeDb, getClips, getDb, listProjects } from '@/server/db'
 import { analysisPath, proxyPath } from '@/server/paths'
-import { lireAnalyse } from '@/server/steps/analysis'
-import { chargerEnv, quitter } from './dev-commun'
+import { lireAnalysis } from '@/server/steps/analysis'
+import { chargerEnv, quit } from './dev-common'
 
-const PORT_DÉFAUT = 4321
+const DEFAULT_PORT = 4321
 
 /** Les projets qui ont de quoi être montrés : un proxy, et une analyse. */
-function projetsUtilisables(): string[] {
+function usableProjects(): string[] {
   const db = getDb()
   try {
     return listProjects(db)
@@ -66,23 +66,23 @@ function projetsUtilisables(): string[] {
   }
 }
 
-/** Le sort d'une boîte, à l'identique de `vignettes-cadrage.ts`. */
-function couleur(b: PersonBox): 'gray' | 'red' | 'lime' {
+/** Le sort d'une boîte, à l'identique de `framing-thumbnails.ts`. */
+function boxColor(b: PersonBox): 'gray' | 'red' | 'lime' {
   // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit tomber du
   // côté écarté, pas passer au travers d'une comparaison qui rend toujours faux.
   if (!(b.score >= FRAMING_DEFAULTS.minScore)) return 'gray'
   return isForeground(b) ? 'red' : 'lime'
 }
 
-/** Un plan de `cadrage.shots`, réduit à ce que le navigateur dessine. */
-type PlanEnvoyé = { start: number; end: number; ratio: Ratio; x: number; y: number; w: number; h: number }
+/** Un plan de `framing.shots`, réduit à ce que le navigateur dessine. */
+type ShotPayload = { start: number; end: number; ratio: Ratio; x: number; y: number; w: number; h: number }
 
-function planEnvoyé(plan: ShotFraming, srcW: number, srcH: number): PlanEnvoyé {
-  const rect = cropRect(plan.ratio, plan.cropX, srcW, srcH)
+function shotPayload(shot: ShotFraming, srcW: number, srcH: number): ShotPayload {
+  const rect = cropRect(shot.ratio, shot.cropX, srcW, srcH)
   return {
-    start: plan.shot.start,
-    end: plan.shot.end,
-    ratio: plan.ratio,
+    start: shot.shot.start,
+    end: shot.shot.end,
+    ratio: shot.ratio,
     x: rect.x / srcW,
     y: rect.y / srcH,
     w: rect.w / srcW,
@@ -90,21 +90,21 @@ function planEnvoyé(plan: ShotFraming, srcW: number, srcH: number): PlanEnvoyé
   }
 }
 
-function json(res: ServerResponse, corps: unknown, statut = 200): void {
-  const texte = JSON.stringify(corps)
-  res.writeHead(statut, {
+function sendJson(res: ServerResponse, body: unknown, status = 200): void {
+  const text = JSON.stringify(body)
+  res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(texte),
+    'Content-Length': Buffer.byteLength(text),
   })
-  res.end(texte)
+  res.end(text)
 }
 
-function texte(res: ServerResponse, contenu: string, type: string, statut = 200): void {
-  res.writeHead(statut, {
+function sendText(res: ServerResponse, content: string, type: string, status = 200): void {
+  res.writeHead(status, {
     'Content-Type': type,
-    'Content-Length': Buffer.byteLength(contenu),
+    'Content-Length': Buffer.byteLength(content),
   })
-  res.end(contenu)
+  res.end(content)
 }
 
 /**
@@ -114,35 +114,50 @@ function texte(res: ServerResponse, contenu: string, type: string, statut = 200)
  * fichier entier avec `Accept-Ranges` posé pour annoncer que le navigateur
  * *peut* en demander des morceaux ; avec, la plage demandée en 206, ou un 416 si
  * `parseRange` la refuse.
+ *
+ * **Un dossier nommé `proxy.mp4` n'est pas une vidéo**, et Linux accepte de
+ * l'ouvrir (mesuré, la même garde existe dans `src/server/bytes.ts:240-245`) :
+ * sans le contrôle `isFile()`, `createReadStream` échoue plus loin, au milieu
+ * d'une réponse déjà commencée. Et le flux lui-même reste sujet à une
+ * disparition du fichier *pendant* la lecture (rotation, suppression) — sans
+ * écouteur d'erreur, l'exception non captée fait tomber le process Node entier
+ * au lieu de simplement interrompre cette réponse.
  */
-function servirProxy(req: IncomingMessage, res: ServerResponse, chemin: string): void {
-  let taille: number
+function serveProxy(req: IncomingMessage, res: ServerResponse, filePath: string): void {
+  let stat: fs.Stats
   try {
-    taille = fs.statSync(chemin).size
+    stat = fs.statSync(filePath)
   } catch {
     res.writeHead(404).end()
     return
   }
+  if (!stat.isFile()) {
+    res.writeHead(404).end()
+    return
+  }
+  const size = stat.size
 
-  const enTête = req.headers.range ?? null
-  if (enTête === null) {
+  const rangeHeader = req.headers.range ?? null
+  if (rangeHeader === null) {
     res.writeHead(200, {
       'Content-Type': 'video/mp4',
-      'Content-Length': taille,
+      'Content-Length': size,
       'Accept-Ranges': 'bytes',
     })
     if (req.method === 'HEAD') {
       res.end()
       return
     }
-    createReadStream(chemin).pipe(res)
+    const stream = createReadStream(filePath)
+    stream.on('error', () => res.destroy())
+    stream.pipe(res)
     return
   }
 
-  const plage = parseRange(enTête, taille)
-  if (plage === null) {
+  const range = parseRange(rangeHeader, size)
+  if (range === null) {
     res.writeHead(416, {
-      'Content-Range': `bytes */${taille}`,
+      'Content-Range': `bytes */${size}`,
       'Accept-Ranges': 'bytes',
     })
     res.end()
@@ -151,15 +166,17 @@ function servirProxy(req: IncomingMessage, res: ServerResponse, chemin: string):
 
   res.writeHead(206, {
     'Content-Type': 'video/mp4',
-    'Content-Length': plage.end - plage.start + 1,
-    'Content-Range': `bytes ${plage.start}-${plage.end}/${taille}`,
+    'Content-Length': range.end - range.start + 1,
+    'Content-Range': `bytes ${range.start}-${range.end}/${size}`,
     'Accept-Ranges': 'bytes',
   })
   if (req.method === 'HEAD') {
     res.end()
     return
   }
-  createReadStream(chemin, { start: plage.start, end: plage.end }).pipe(res)
+  const stream = createReadStream(filePath, { start: range.start, end: range.end })
+  stream.on('error', () => res.destroy())
+  stream.pipe(res)
 }
 
 const PAGE = `<!DOCTYPE html>
@@ -178,9 +195,9 @@ const PAGE = `<!DOCTYPE html>
   button { background: #222; color: #eee; border: 1px solid #444; padding: 4px 10px; cursor: pointer; }
   button:hover { background: #333; }
   #status { color: #8f8; }
-  legend { display: flex; gap: 16px; font-size: 13px; margin-top: 4px; }
-  legend span { display: inline-flex; align-items: center; gap: 4px; }
-  legend i { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
+  .legend { display: flex; gap: 16px; font-size: 13px; margin-top: 4px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -223,9 +240,15 @@ const statusEl = document.getElementById('status');
 let boxesByTime = new Map();
 let sortedTimes = [];
 let sampleFps = 2;
-let plans = [];
+let shots = [];
 let currentProxy = '';
 let currentNativeRatio = null;
+// Incrémenté à chaque sélection de projet ou de clip : une réponse dont la
+// génération ne correspond plus à la dernière demandée est obsolète — deux
+// changements rapides peuvent sinon faire terminer l'ancienne requête après
+// la nouvelle et écraser l'état avec des données qui ne correspondent plus
+// aux sélecteurs affichés.
+let requestGeneration = 0;
 
 function findNearestTimeIndex(t) {
   if (sortedTimes.length === 0) return -1;
@@ -238,10 +261,10 @@ function findNearestTimeIndex(t) {
   return lo;
 }
 
-function planPourInstant(t) {
+function shotAtTime(t) {
   // Recherche linéaire : quelques centaines de plans au plus, largement sous
   // le coût d'une frame à 30 im/s.
-  return plans.find((p) => t >= p.start && t < p.end);
+  return shots.find((s) => t >= s.start && t < s.end);
 }
 
 function draw() {
@@ -250,11 +273,11 @@ function draw() {
   const t = video.currentTime;
   const w = canvas.width, h = canvas.height;
 
-  const plan = planPourInstant(t);
-  if (plan) {
+  const shot = shotAtTime(t);
+  if (shot) {
     ctx.strokeStyle = 'yellow';
     ctx.lineWidth = 4;
-    ctx.strokeRect(plan.x * w, plan.y * h, plan.w * w, plan.h * h);
+    ctx.strokeRect(shot.x * w, shot.y * h, shot.w * w, shot.h * h);
   }
 
   if (showBoxes.checked && sortedTimes.length > 0) {
@@ -268,7 +291,7 @@ function draw() {
         // Ce que le cadrage exige vraiment de cette personne, déjà résolu
         // côté serveur (personBounds / headBounds) — voir le docstring en
         // tête de fichier. Absents sur gris/rouge, comme dans
-        // vignettes-cadrage.ts.
+        // framing-thumbnails.ts.
         if (b.torso) {
           ctx.strokeStyle = 'cyan';
           ctx.lineWidth = 1;
@@ -277,7 +300,13 @@ function draw() {
         if (b.head) {
           ctx.strokeStyle = 'magenta';
           ctx.lineWidth = 2;
-          ctx.strokeRect(b.head.x0 * w, b.head.y0 * h, (b.head.x1 - b.head.x0) * w, (b.head.y1 - b.head.y0) * h);
+          // Largeur/hauteur minimales à 3 px, comme framing-thumbnails.ts : un
+          // squelette à un seul point fiable (ou plusieurs qui partagent une
+          // coordonnée) rend un tronc de largeur ou hauteur nulle, et
+          // \`strokeRect\` ne trace rien sur une dimension à zéro.
+          const headW = Math.max(3, (b.head.x1 - b.head.x0) * w);
+          const headH = Math.max(3, (b.head.y1 - b.head.y0) * h);
+          ctx.strokeRect(b.head.x0 * w, b.head.y0 * h, headW, headH);
         }
       }
     }
@@ -289,14 +318,14 @@ function draw() {
  * \`canvas\`) : la capture les recompose sur un troisième canvas avant de la
  * copier, sinon un \`drawImage(video, ...)\` seul perdrait les boîtes.
  */
-function composerCapture() {
+function composeCapture() {
   const out = document.createElement('canvas');
   out.width = canvas.width;
   out.height = canvas.height;
-  const octx = out.getContext('2d');
-  octx.drawImage(video, 0, 0, out.width, out.height);
-  octx.drawImage(canvas, 0, 0, out.width, out.height);
-  return new Promise((résoudre) => out.toBlob(résoudre, 'image/png'));
+  const outCtx = out.getContext('2d');
+  outCtx.drawImage(video, 0, 0, out.width, out.height);
+  outCtx.drawImage(canvas, 0, 0, out.width, out.height);
+  return new Promise((resolve) => out.toBlob(resolve, 'image/png'));
 }
 
 /**
@@ -305,10 +334,10 @@ function composerCapture() {
  * qui l'a déclenchée, et un \`await\` du \`toBlob\` avant \`write\` perdrait cette
  * fenêtre d'activation.
  */
-async function copierImage() {
+async function copyImage() {
   copyStatusEl.textContent = 'copie...';
   try {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': composerCapture() })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': composeCapture() })]);
     copyStatusEl.textContent = 'copié dans le presse-papier';
   } catch (e) {
     copyStatusEl.textContent = 'échec de la copie : ' + (e && e.message ? e.message : String(e));
@@ -316,7 +345,7 @@ async function copierImage() {
   setTimeout(() => { copyStatusEl.textContent = ''; }, 3000);
 }
 
-copyImageBtn.addEventListener('click', copierImage);
+copyImageBtn.addEventListener('click', copyImage);
 
 /**
  * Ce qu'un rapport de bug demande en premier — le fichier lu, l'instant, la
@@ -324,11 +353,11 @@ copyImageBtn.addEventListener('click', copierImage);
  * JSON plutôt qu'à la main dans un message, avec les points de pose bruts
  * (\`k\`) pour rejouer le calcul sans capture d'écran.
  */
-function assemblerDebug() {
+function buildDebugInfo() {
   const t = video.currentTime;
   const idx = findNearestTimeIndex(t);
   const nearestT = sortedTimes[idx];
-  const proche = idx >= 0 && Math.abs(nearestT - t) <= 1 / sampleFps;
+  const near = idx >= 0 && Math.abs(nearestT - t) <= 1 / sampleFps;
   return {
     proxy: currentProxy,
     project: projectSel.value,
@@ -337,17 +366,17 @@ function assemblerDebug() {
     fps: sampleFps,
     // L'instant réellement échantillonné peut différer de \`t\` : le
     // scrubbing n'est pas calé sur la cadence d'analyse.
-    sampledT: proche ? nearestT : null,
-    boxes: proche ? boxesByTime.get(nearestT) || [] : [],
-    plan: planPourInstant(t) || null,
+    sampledT: near ? nearestT : null,
+    boxes: near ? boxesByTime.get(nearestT) || [] : [],
+    shot: shotAtTime(t) || null,
     nativeRatio: currentNativeRatio,
   };
 }
 
-async function copierDebug() {
+async function copyDebug() {
   debugStatusEl.textContent = 'copie...';
   try {
-    await navigator.clipboard.writeText(JSON.stringify(assemblerDebug(), null, 2));
+    await navigator.clipboard.writeText(JSON.stringify(buildDebugInfo(), null, 2));
     debugStatusEl.textContent = 'copié dans le presse-papier';
   } catch (e) {
     debugStatusEl.textContent = 'échec de la copie : ' + (e && e.message ? e.message : String(e));
@@ -355,31 +384,56 @@ async function copierDebug() {
   setTimeout(() => { debugStatusEl.textContent = ''; }, 3000);
 }
 
-copyDebugBtn.addEventListener('click', copierDebug);
+copyDebugBtn.addEventListener('click', copyDebug);
 
-async function chargerProjets() {
-  const projets = await (await fetch('/api/projects')).json();
-  projectSel.innerHTML = projets.map((p) => \`<option value="\${p}">\${p}</option>\`).join('');
-  if (projets.length > 0) await choisirProjet(projets[0]);
+/** Remplit un \`<select>\` via l'API DOM, jamais \`innerHTML\` : un identifiant de
+ * projet ou un titre de clip stocké peut porter guillemets et chevrons
+ * (src/server/paths.ts), et les concaténer dans une chaîne HTML permettrait à
+ * une valeur stockée d'altérer le DOM de cette page. \`textContent\` les garde
+ * en texte littéral. */
+function setOptions(select, items) {
+  select.innerHTML = '';
+  for (const item of items) {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    select.appendChild(option);
+  }
 }
 
-async function choisirProjet(id) {
+async function loadProjects() {
+  const projects = await (await fetch('/api/projects')).json();
+  setOptions(projectSel, projects.map((p) => ({ value: p, label: p })));
+  if (projects.length > 0) await selectProject(projects[0]);
+}
+
+async function selectProject(id) {
+  const generation = ++requestGeneration;
   video.src = \`/api/projects/\${encodeURIComponent(id)}/proxy\`;
   boxesByTime = new Map();
   sortedTimes = [];
-  plans = [];
+  shots = [];
   const clips = await (await fetch(\`/api/projects/\${encodeURIComponent(id)}/clips\`)).json();
-  clipSel.innerHTML = '<option value="">(toute la vidéo, auto)</option>' +
-    clips.map((c) => \`<option value="\${c.id}">\${c.title || c.id}</option>\`).join('');
-  await chargerCadre(id, '');
+  // Une sélection plus récente a déjà pris le dessus pendant l'attente : ne
+  // pas peupler le sélecteur de clip avec la réponse d'un projet abandonné.
+  if (generation !== requestGeneration) return;
+  setOptions(clipSel, [
+    { value: '', label: '(toute la vidéo, auto)' },
+    ...clips.map((c) => ({ value: c.id, label: c.title || c.id })),
+  ]);
+  await loadFraming(id, '', generation);
 }
 
-async function chargerCadre(projectId, clipId) {
+async function loadFraming(projectId, clipId, generation = ++requestGeneration) {
   statusEl.textContent = 'chargement...';
   const url = clipId
-    ? \`/api/projects/\${encodeURIComponent(projectId)}/cadrage/\${encodeURIComponent(clipId)}\`
-    : \`/api/projects/\${encodeURIComponent(projectId)}/cadrage\`;
+    ? \`/api/projects/\${encodeURIComponent(projectId)}/framing/\${encodeURIComponent(clipId)}\`
+    : \`/api/projects/\${encodeURIComponent(projectId)}/framing\`;
   const data = await (await fetch(url)).json();
+  // Idem : une réponse dont la génération est dépassée ne doit plus écraser
+  // l'état, même si le sélecteur affiche encore l'ancienne valeur au moment
+  // où elle revient.
+  if (generation !== requestGeneration) return;
   sampleFps = data.fps || 2;
   boxesByTime = new Map();
   for (const b of data.boxes) {
@@ -387,22 +441,22 @@ async function chargerCadre(projectId, clipId) {
     boxesByTime.get(b.t).push(b);
   }
   sortedTimes = Array.from(boxesByTime.keys()).sort((a, b) => a - b);
-  plans = data.shots;
+  shots = data.shots;
   currentProxy = data.proxy || '';
   currentNativeRatio = data.nativeRatio || null;
   statusEl.textContent = \`\${data.boxes.length} boîtes, \${data.shots.length} plan(s) cadré(s)\` +
     (data.nativeRatio ? \` — natif \${data.nativeRatio}\` : '');
 }
 
-projectSel.addEventListener('change', () => choisirProjet(projectSel.value));
-clipSel.addEventListener('change', () => chargerCadre(projectSel.value, clipSel.value));
+projectSel.addEventListener('change', () => selectProject(projectSel.value));
+clipSel.addEventListener('change', () => loadFraming(projectSel.value, clipSel.value));
 
 video.addEventListener('loadedmetadata', () => {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 });
 
-chargerProjets();
+loadProjects();
 requestAnimationFrame(draw);
 </script>
 </body>
@@ -413,40 +467,40 @@ async function main(): Promise<number> {
   await chargerEnv()
 
   const arguments_ = process.argv.slice(2)
-  const iPort = arguments_.indexOf('--port')
-  const port = iPort >= 0 ? Number(arguments_[iPort + 1]) : PORT_DÉFAUT
+  const portIndex = arguments_.indexOf('--port')
+  const port = portIndex >= 0 ? Number(arguments_[portIndex + 1]) : DEFAULT_PORT
   if (!Number.isInteger(port) || port <= 0) {
-    console.error(`--port attend un entier > 0, reçu « ${String(arguments_[iPort + 1])} ».`)
+    console.error(`--port attend un entier > 0, reçu « ${String(arguments_[portIndex + 1])} ».`)
     return 1
   }
 
   const server = createServer((req, res) => {
-    void gérer(req, res).catch((erreur: unknown) => {
-      console.error(erreur)
+    void handleRequest(req, res).catch((error: unknown) => {
+      console.error(error)
       if (!res.headersSent) res.writeHead(500)
-      res.end(erreur instanceof Error ? erreur.message : String(erreur))
+      res.end(error instanceof Error ? error.message : String(error))
     })
   })
 
-  await new Promise<void>((résoudre) => server.listen(port, résoudre))
+  await new Promise<void>((resolve) => server.listen(port, resolve))
   console.log(`Aperçu du cadrage : http://localhost:${port}/`)
   console.log('Ctrl-C pour arrêter.')
 
-  await new Promise<void>((résoudre) => {
+  await new Promise<void>((resolve) => {
     process.on('SIGINT', () => {
-      server.close(() => résoudre())
+      server.close(() => resolve())
     })
   })
 
   return 0
 }
 
-async function gérer(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const segments = url.pathname.split('/').filter(Boolean)
 
   if (segments.length === 0) {
-    texte(res, PAGE, 'text/html; charset=utf-8')
+    sendText(res, PAGE, 'text/html; charset=utf-8')
     return
   }
 
@@ -456,7 +510,7 @@ async function gérer(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   if (segments.length === 2) {
-    json(res, projetsUtilisables())
+    sendJson(res, usableProjects())
     return
   }
 
@@ -467,26 +521,26 @@ async function gérer(req: IncomingMessage, res: ServerResponse): Promise<void> 
   // main sur cette machine, la même garde vaut ici sans être répétée : un
   // identifiant qui ne peut nommer aucun chemin devient un 404, comme un projet
   // absent.
-  let chemin: string
+  let filePath: string
   try {
-    chemin = proxyPath(projectId)
+    filePath = proxyPath(projectId)
   } catch {
     res.writeHead(404).end()
     return
   }
 
-  const reste = segments.slice(3)
+  const rest = segments.slice(3)
 
-  if (reste.length === 1 && reste[0] === 'proxy') {
-    servirProxy(req, res, chemin)
+  if (rest.length === 1 && rest[0] === 'proxy') {
+    serveProxy(req, res, filePath)
     return
   }
 
-  if (reste.length === 1 && reste[0] === 'clips') {
+  if (rest.length === 1 && rest[0] === 'clips') {
     const db = getDb()
     try {
       const clips = getClips(db, projectId)
-      json(
+      sendJson(
         res,
         clips.map((c) => ({ id: c.id, title: c.title, ratio: c.ratio })),
       )
@@ -496,13 +550,13 @@ async function gérer(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return
   }
 
-  if (reste.length === 1 && reste[0] === 'cadrage') {
-    envoyerCadrage(res, projectId, undefined)
+  if (rest.length === 1 && rest[0] === 'framing') {
+    sendFraming(res, projectId, undefined)
     return
   }
 
-  if (reste.length === 2 && reste[0] === 'cadrage') {
-    envoyerCadrage(res, projectId, decodeURIComponent(reste[1]))
+  if (rest.length === 2 && rest[0] === 'framing') {
+    sendFraming(res, projectId, decodeURIComponent(rest[1]))
     return
   }
 
@@ -519,28 +573,28 @@ async function gérer(req: IncomingMessage, res: ServerResponse): Promise<void> 
  * réellement choisi ; sans clip, les « segments » couvrent toute la source d'un
  * bout à l'autre et le ratio reste `'auto'` — c'est la décision que
  * l'automatique prendrait plan par plan s'il fallait tout garder, la même
- * lecture que permet `vignettes-cadrage.ts` en pointant un clip qui couvre
+ * lecture que permet `framing-thumbnails.ts` en pointant un clip qui couvre
  * l'émission entière.
  */
-function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string | undefined): void {
-  let analyse: ReturnType<typeof lireAnalyse>
+function sendFraming(res: ServerResponse, projectId: string, clipId: string | undefined): void {
+  let analysis: ReturnType<typeof lireAnalysis>
   try {
-    analyse = lireAnalyse(analysisPath(projectId))
-  } catch (erreur) {
-    json(res, { error: erreur instanceof Error ? erreur.message : String(erreur) }, 404)
+    analysis = lireAnalysis(analysisPath(projectId))
+  } catch (error) {
+    sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 404)
     return
   }
 
-  // Rappelé ici plutôt que transmis depuis `gérer` : `envoyerCadrage` doit
+  // Rappelé ici plutôt que transmis depuis `handleRequest` : `sendFraming` doit
   // pouvoir répondre seule, et `proxyPath` est une simple validation de chemin
   // déjà repassée sans effet de bord.
   const proxy = proxyPath(projectId)
 
-  const boxes = analyse.boxes.map((b) => {
-    const c = couleur(b)
+  const boxes = analysis.boxes.map((b) => {
+    const c = boxColor(b)
     // Tronc et tête ne se calculent que sur ce que le cadrage retient
     // vraiment — même restriction que le liseré cyan et le carré magenta de
-    // `vignettes-cadrage.ts`, pas de calcul superflu sur gris/rouge.
+    // `framing-thumbnails.ts`, pas de calcul superflu sur gris/rouge.
     const torso = c === 'lime' ? personBounds(b) : undefined
     const head = c === 'lime' ? headBounds(b) : null
     return {
@@ -565,13 +619,13 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
 
   if (clipId === undefined) {
     // Toute la source, un seul segment de sa première à sa dernière frontière
-    // de plan — les bornes que `analyse.shots` porte déjà, donc sans dépendre
-    // d'une durée que `Analyse` ne donne pas ailleurs.
-    if (analyse.shots.length === 0) {
-      json(res, { fps: analyse.fps, boxes, shots: [], proxy })
+    // de plan — les bornes que `analysis.shots` porte déjà, donc sans dépendre
+    // d'une durée que `Analysis` ne donne pas ailleurs.
+    if (analysis.shots.length === 0) {
+      sendJson(res, { fps: analysis.fps, boxes, shots: [], proxy })
       return
     }
-    segments = [{ start: analyse.shots[0].start, end: analyse.shots[analyse.shots.length - 1].end }]
+    segments = [{ start: analysis.shots[0].start, end: analysis.shots[analysis.shots.length - 1].end }]
     ratio = 'auto'
   } else {
     const db = getDb()
@@ -582,36 +636,36 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
       closeDb()
     }
     if (clip === undefined) {
-      json(res, { error: `Clip inconnu : ${clipId}` }, 404)
+      sendJson(res, { error: `Clip inconnu : ${clipId}` }, 404)
       return
     }
     segments = clip.segments
     ratio = clip.ratio
   }
 
-  // Mêmes réglages que `vignettes-cadrage.ts` sans drapeau : les défauts de
+  // Mêmes réglages que `framing-thumbnails.ts` sans drapeau : les défauts de
   // `FRAMING_DEFAULTS`. `ratio: 'auto'` laisse `computeFraming` décider comme le
   // ferait le rendu ; un clip choisi passe le sien.
-  const cadrage = computeFraming({
+  const framing = computeFraming({
     segments,
-    shots: analyse.shots,
-    people: analyse.boxes,
-    srcW: analyse.source.w,
-    srcH: analyse.source.h,
+    shots: analysis.shots,
+    people: analysis.boxes,
+    srcW: analysis.source.w,
+    srcH: analysis.source.h,
     ratio,
     cropMode: 'auto',
   })
 
-  json(res, {
-    fps: analyse.fps,
+  sendJson(res, {
+    fps: analysis.fps,
     boxes,
-    nativeRatio: cadrage.ratio,
-    shots: cadrage.shots.map((s) => planEnvoyé(s, analyse.source.w, analyse.source.h)),
+    nativeRatio: framing.ratio,
+    shots: framing.shots.map((s) => shotPayload(s, analysis.source.w, analysis.source.h)),
     proxy,
   })
 }
 
-void main().then(quitter, (e: unknown) => {
+void main().then(quit, (e: unknown) => {
   console.error(e instanceof Error ? e.message : String(e))
-  quitter(1)
+  quit(1)
 })

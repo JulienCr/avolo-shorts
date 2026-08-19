@@ -48,6 +48,17 @@ export const GET = route(
       // change la confiance qu'on accorde à la liste : la cacher pendant les
       // trente minutes où elle se construit serait la cacher au moment utile.
       repérage: statut?.repérage ?? null,
+      // **Le même champ que celui de la bibliothèque, tiré du même relevé.** Un
+      // arrêt ne laisse ni `running`, ni `error`, ni artefact particulier : il
+      // n'est pas dérivable, et deux écrans qui le déduiraient chacun de leur
+      // côté finiraient par diverger. Il se tait pendant qu'une exécution
+      // tourne, comme `error`.
+      stopped: running === null ? (statut?.stopped ?? false) : false,
+      // La taille de la source, pour la seule chose qui en dépende :
+      // `stepDurationRange` s'en sert pour suppléer la durée, qui manque
+      // précisément quand le panneau d'avancement apparaît. Elle vient de la
+      // ligne déjà lue, sans un accès disque de plus.
+      sizeBytes: projet.sizeBytes,
     })
   },
 )

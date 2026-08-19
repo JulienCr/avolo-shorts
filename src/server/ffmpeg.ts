@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -231,6 +231,84 @@ export function encoderName(): EncoderName {
   return choisirEncodeur(process.env.FFMPEG_ENCODER, sonderNvenc)
 }
 
+/**
+ * L'arrêt demandé par un humain. **Ni une panne, ni un échec.**
+ *
+ * Elle existe pour que `run.ts` puisse écrire un `status.json` qui ne ressemble
+ * pas à un incident : un ffmpeg tué par `SIGTERM` rend « ffmpeg a échoué (tué
+ * par SIGTERM) », message parfaitement exact et parfaitement trompeur sur la
+ * seule surface qui dise à quelqu'un ce qui s'est passé.
+ *
+ * Elle vit ici plutôt que dans `run.ts`, qui tient pourtant le contrôleur : les
+ * trois lanceurs de sous-processus du dépôt — ffmpeg, WhisperX, le détecteur —
+ * l'utilisent, et `run.ts` les importe tous les trois. La poser là-bas ferait un
+ * cycle d'imports pour un type de trois lignes.
+ */
+export class StopRequestedError extends Error {
+  constructor(what?: string) {
+    super(`Arrêt demandé${what === undefined ? '' : ` — ${what}`}.`)
+    this.name = 'StopRequestedError'
+  }
+}
+
+/**
+ * Le délai entre le `SIGTERM` poli et le `SIGKILL` qui ne demande rien.
+ *
+ * **WhisperX ne rend pas la main tout de suite** : le processus doit libérer le
+ * modèle et la VRAM, et CTranslate2 y met plusieurs secondes. Tuer d'emblée
+ * marcherait — c'est un sous-processus dont on jette le travail — mais laisserait
+ * régulièrement le pilote NVIDIA avec de la mémoire à récupérer, et l'étape
+ * suivante démarrerait dans cet état-là. Dix secondes couvrent le cas mesuré et
+ * ne coûtent rien quand le processus part tout de suite.
+ */
+export const SIGKILL_DELAY_MS = 10_000
+
+/**
+ * Branche un signal d'annulation sur un processus fils : `SIGTERM`, puis
+ * `SIGKILL` si le processus n'est pas parti.
+ *
+ * Rend la fonction qui débranche tout, **à appeler quand le processus se
+ * termine** : sans elle, l'écouteur d'`abort` survit au processus qu'il visait et
+ * la minuterie de `SIGKILL` tient la boucle d'événements en vie pour rien.
+ *
+ * Le second `kill` sur un processus déjà mort est sans effet : Node le refuse en
+ * silence quand `exitCode` est posé, et un `ESRCH` sur une course serait de
+ * toute façon inoffensif. On l'attrape quand même, parce qu'une exception jetée
+ * depuis une minuterie n'a personne pour la rattraper et couperait le serveur.
+ */
+export function forwardAbort(
+  proc: ChildProcess,
+  signal: AbortSignal | undefined,
+  delayMs: number = SIGKILL_DELAY_MS,
+): () => void {
+  if (signal === undefined) return () => {}
+
+  let killTimer: NodeJS.Timeout | undefined
+  const send = (sig: NodeJS.Signals): void => {
+    try {
+      proc.kill(sig)
+    } catch {
+      // Le processus est déjà parti : c'est le résultat qu'on visait.
+    }
+  }
+
+  const onAbort = (): void => {
+    send('SIGTERM')
+    killTimer = setTimeout(() => send('SIGKILL'), delayMs)
+  }
+
+  // **Le signal peut déjà avoir été levé.** Un arrêt demandé pendant qu'une
+  // étape démarrait laisserait sinon tourner le processus qu'elle vient de
+  // lancer, seul, jusqu'au bout de ses six minutes.
+  if (signal.aborted) onAbort()
+  else signal.addEventListener('abort', onAbort, { once: true })
+
+  return () => {
+    clearTimeout(killTimer)
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
 export type OptionsFfmpeg = {
   /** La durée attendue de la sortie, pour convertir `time=` en fraction. */
   durationSec?: number | null
@@ -257,6 +335,17 @@ export type OptionsFfmpeg = {
    * vignette demandée pendant que le partage est tombé.
    */
   timeoutMs?: number
+  /**
+   * L'arrêt demandé par un humain (`POST /api/projects/:id/stop`).
+   *
+   * **Distinct de `timeoutMs`, et pour une raison de fond** : celui-ci décide
+   * qu'un ffmpeg qui pend sur un montage mort ne reviendra pas, celui-là dit que
+   * quelqu'un ne veut plus du résultat. Le second se propage depuis le lanceur à
+   * travers toute la chaîne ; le premier est une garde locale. Ils tuent le même
+   * processus et ne veulent pas dire la même chose — l'un est une panne, l'autre
+   * un choix, et `status.json` ne doit pas les confondre.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -276,7 +365,16 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
   const journal = créerJournal()
 
   return new Promise<void>((resolve, reject) => {
+    // **Le refus vient avant le `spawn`.** Un arrêt demandé pendant qu'une étape
+    // se prépare — le `mkdir` de `produireArtefact`, par exemple — laisserait
+    // sinon partir un encodage de six minutes que plus personne n'attend.
+    if (options.signal?.aborted === true) {
+      reject(new StopRequestedError(options.quoi))
+      return
+    }
+
     const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    const detach = forwardAbort(proc, options.signal)
 
     // **On rejette *et* on tue, dans cet ordre.** Sur un montage 9p mort, le
     // processus part en sommeil non interruptible : `SIGKILL` est enregistré
@@ -298,7 +396,10 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
               ),
             )
           }, options.timeoutMs)
-    const finir = () => clearTimeout(renoncer)
+    const finir = () => {
+      clearTimeout(renoncer)
+      detach()
+    }
 
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (morceau: string) => {
@@ -338,6 +439,17 @@ export function runFfmpeg(args: string[], options: OptionsFfmpeg = {}): Promise<
         resolve()
         return
       }
+      // **Un arrêt demandé n'est pas un échec de ffmpeg.** Le processus est bien
+      // mort d'un `SIGTERM`, et le message que ce bloc écrirait — « ffmpeg a
+      // échoué (tué par SIGTERM) » — est exact et trompeur : il finirait dans
+      // `status.json`, puis dans le champ `error` de `GET /api/projects/:id`,
+      // c'est-à-dire sur la seule surface qui dise à quelqu'un ce qui s'est
+      // passé. Le contrôle est sur le signal d'annulation et non sur le nom du
+      // signal Unix reçu : un `SIGTERM` venu d'ailleurs reste un incident.
+      if (options.signal?.aborted === true) {
+        reject(new StopRequestedError(options.quoi))
+        return
+      }
       // Un signal donne `code === null` : le dire, sinon le message annonce
       // « code null » et laisse croire à un bug du lanceur.
       const cause = signal !== null ? `tué par ${signal}` : `code de sortie ${code}`
@@ -372,6 +484,8 @@ export type OptionsArtefact = {
   durationSec?: number | null
   onProgress?: (avancement: Avancement) => void
   quoi?: string
+  /** L'arrêt demandé. Voir `OptionsFfmpeg.signal`. */
+  signal?: AbortSignal
 }
 
 /**
@@ -390,6 +504,14 @@ export type OptionsArtefact = {
  * Le temporaire **garde l'extension d'origine** : ffmpeg choisit son muxeur
  * dessus, et un `proxy.mp4.partiel` sortirait sur « Unable to find a suitable
  * output format ».
+ *
+ * **C'est la règle 2 qui rend l'arrêt d'une analyse sûr**, et elle vaut d'être
+ * lue dans ce sens-là aussi : un ffmpeg tué en plein encodage ne laisse rien qui
+ * porte le nom définitif, donc `relevéPrésence` ne verra pas l'étape comme
+ * faite et la reprise la refera. Le fichier temporaire est effacé au passage, et
+ * `rendusPrésents` ignore de toute façon les `*.partiel-*`. Le même invariant
+ * tient pour les deux workers Python, qui écrivent par `cheminTemporaire` et ne
+ * renomment qu'après validation.
  */
 export async function produireArtefact(o: OptionsArtefact): Promise<Artefact> {
   if (o.force !== true && fs.existsSync(o.dst)) return { path: o.dst, skipped: true }
@@ -402,6 +524,7 @@ export async function produireArtefact(o: OptionsArtefact): Promise<Artefact> {
       durationSec: o.durationSec,
       onProgress: o.onProgress,
       quoi: o.quoi,
+      signal: o.signal,
     })
     await fsp.rename(temporaire, o.dst)
   } catch (cause) {

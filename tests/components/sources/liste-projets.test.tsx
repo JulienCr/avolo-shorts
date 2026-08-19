@@ -25,6 +25,7 @@ const CQLP: ProjectListItem = {
   createdAt: '2025-06-15T19:04:00.000Z',
   running: null,
   error: null,
+  stopped: false,
 }
 
 function liste(props: Partial<Parameters<typeof ListeProjets>[0]> = {}) {

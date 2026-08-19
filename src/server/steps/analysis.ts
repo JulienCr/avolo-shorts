@@ -3,7 +3,14 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
-import { cheminTemporaire, créerJournal, ffmpegBin, type Artefact } from '@/server/ffmpeg'
+import {
+  StopRequestedError,
+  cheminTemporaire,
+  créerJournal,
+  ffmpegBin,
+  forwardAbort,
+  type Artefact,
+} from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { analysisPath, proxyPath } from '@/server/paths'
 
@@ -275,6 +282,8 @@ export type OptionsAnalyse = {
   sceneThreshold?: number
   /** Les lignes que le worker écrit sur stderr, au fil de l'eau. */
   onLog?: (ligne: string) => void
+  /** L'arrêt demandé (`POST /api/projects/:id/stop`). Voir `OptionsFfmpeg.signal`. */
+  signal?: AbortSignal
 }
 
 /**
@@ -346,7 +355,18 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // toujours zéro octet sans jamais être « plus court que demandé », donc une
   // boucle qui produit indéfiniment des images vides. Le pire des symptômes :
   // pas d'erreur, pas de fin. (relevé par Copilot)
-  const sondageProxy = await probe(proxy)
+  // Une fonction et non l'expression écrite deux fois : `aborted` change de
+  // valeur entre les deux sondages, et TypeScript, qui l'ignore, retenait la
+  // restriction du premier contrôle jusqu'au second.
+  const isAborted = (): boolean => o.signal?.aborted === true
+
+  const sondageProxy = await probe(proxy, undefined, o.signal)
+  // **Le contrôle vient avant l'interprétation du sondage.** Un sondage
+  // abandonné rend un sondage vide, comme un fichier illisible : sans cette
+  // ligne, un arrêt demandé ressortait en « ffprobe n'a rien su dire du
+  // proxy — le refaire avec un run --force », qui envoie réencoder six minutes
+  // de vidéo parfaitement valide. (relevé par Copilot)
+  if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
     sondageProxy.width === null ||
     sondageProxy.height === null ||
@@ -365,7 +385,8 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   // recopiées telles quelles dans `analysis.json`, où `SCHÉMA_TAILLE` les exige
   // positives. Un zéro qui passerait ici ferait échouer la validation **après**
   // les trois minutes de détection.
-  const sondageSource = await probe(o.source)
+  const sondageSource = await probe(o.source, undefined, o.signal)
+  if (isAborted()) throw new StopRequestedError("l'analyse d'image")
   if (
     sondageSource.width === null ||
     sondageSource.height === null ||
@@ -400,7 +421,7 @@ export async function runAnalysis(o: OptionsAnalyse): Promise<Artefact> {
   ]
 
   try {
-    await lancerWorker(python, args, environnementDétection(process.env), o.onLog)
+    await lancerWorker(python, args, environnementDétection(process.env), o.onLog, o.signal)
     // Valider **avant** le renommage : un JSON hors contrat ne doit jamais
     // porter le nom définitif, sans quoi le graphe par présence le sert comme
     // une analyse valide à toutes les relances suivantes.
@@ -454,11 +475,18 @@ function lancerWorker(
   args: string[],
   env: NodeJS.ProcessEnv,
   onLog?: (ligne: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const journal = créerJournal(40)
 
   return new Promise<void>((resolve, reject) => {
+    // L'arrêt peut être arrivé pendant les deux `ffprobe` qui précèdent.
+    if (signal?.aborted === true) {
+      reject(new StopRequestedError("l'analyse d'image"))
+      return
+    }
     const proc = spawn(python, args, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const detach = forwardAbort(proc, signal)
 
     // Un découpage en lignes par flux : les deux arrivent par morceaux coupés
     // n'importe où, et un tampon partagé recollerait la fin de l'un au début de
@@ -488,6 +516,7 @@ function lancerWorker(
     relayer(proc.stdout, false)
 
     proc.on('error', (cause) => {
+      detach()
       // **Le code d'erreur, pas `cause.message`.** Node y écrit
       // `spawn <chemin> ENOENT`, avec le chemin **nu** : rien ne peut le citer
       // après coup, et l'épuration d'un chemin nu s'arrête à la première espace.
@@ -506,12 +535,18 @@ function lancerWorker(
       )
     })
 
-    proc.on('close', (code, signal) => {
+    proc.on('close', (code, exitSignal) => {
+      detach()
       if (code === 0) {
         resolve()
         return
       }
-      const cause = signal !== null ? `tué par ${signal}` : `code de sortie ${code}`
+      // Un arrêt demandé n'est pas un échec de l'analyse. Voir `runFfmpeg`.
+      if (signal?.aborted === true) {
+        reject(new StopRequestedError("l'analyse d'image"))
+        return
+      }
+      const cause = exitSignal !== null ? `tué par ${exitSignal}` : `code de sortie ${code}`
       reject(
         new Error(
           [

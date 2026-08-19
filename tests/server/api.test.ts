@@ -8,10 +8,13 @@ import { GET as getClipRoute, PATCH as patchClipRoute } from '@/app/api/clips/[i
 import { GET as getCandidats } from '@/app/api/projects/[id]/candidates/route'
 import { GET as getProjet } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
+import { POST as postStop } from '@/app/api/projects/[id]/stop/route'
+import { GET as getSettingsRoute, PUT as putSettingsRoute } from '@/app/api/settings/route'
 import { GET as listerProjets } from '@/app/api/projects/route'
 import { GET as listerSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
+import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
 import type {
   CandidateClip,
   ClipDetail,
@@ -78,6 +81,7 @@ function poserStatut(champs: Record<string, unknown>): void {
       running: null,
       error: null,
       finishedAt: 1,
+      stopped: false,
       repérage: null,
       ...champs,
     }),
@@ -218,11 +222,50 @@ describe('GET /api/projects', () => {
       'error',
       'id',
       'running',
+      'stopped',
       'title',
     ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.
     expect(JSON.stringify(projets)).not.toContain(racine)
+  })
+
+  /**
+   * **La bibliothèque n'a pas `steps`, donc elle ne peut pas déduire l'arrêt.**
+   * Une analyse arrêtée après l'ingestion ne tourne pas, n'a pas d'erreur et a
+   * une durée : sans ce champ, elle est indiscernable d'une analyse finie, et
+   * l'écran l'annonce « Analysée ».
+   */
+  it('publie l’arrêt de la dernière exécution', async () => {
+    poserStatut({ stopped: true })
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].stopped).toBe(true)
+  })
+
+  /** Comme `error` : ce qu'on afficherait serait l'arrêt d'avant. */
+  it('tait l’arrêt pendant qu’une exécution tourne', async () => {
+    poserStatut({ stopped: true })
+    poserTranscript()
+    let relacher: (() => void) | undefined
+    const blocked = new Promise<Clip[]>((resolve) => {
+      relacher = () => resolve([])
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => blocked } })
+    try {
+      const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+      expect(projets[0].running).not.toBeNull()
+      expect(projets[0].stopped).toBe(false)
+    } finally {
+      relacher?.()
+      await laisserFinir()
+    }
+  })
+
+  /** Un `status.json` d'avant cette PR ne porte pas le champ : « pas arrêtée ». */
+  it('lit un statut sans le champ comme une exécution non arrêtée', async () => {
+    poserStatut({})
+    const projets = (await (await listerProjets()).json()) as ProjectListItem[]
+    expect(projets[0].stopped).toBe(false)
   })
 
   it('dérive le titre du nom de fichier', async () => {
@@ -433,6 +476,20 @@ describe('GET /api/projects/:id', () => {
       await getProjet(new Request('http://x'), contexte(PROJET))
     ).json()) as ProjectStatus
     expect(état.error).toBeNull()
+  })
+
+  /**
+   * Les deux champs que l'écran d'analyse ne peut pas déduire : l'arrêt, qui ne
+   * laisse ni `running` ni `error` ni artefact, et la taille de la source, dont
+   * `stepDurationRange` a besoin pour annoncer une durée **avant** que ffprobe
+   * n'ait relevé la vraie.
+   */
+  it('publie l’arrêt et la taille de la source', async () => {
+    poserStatut({ stopped: true })
+    const réponse = await getProjet(new Request('http://x'), contexte(PROJET))
+    const état = (await réponse.json()) as ProjectStatus
+    expect(état.stopped).toBe(true)
+    expect(état.sizeBytes).toBe(12)
   })
 
   it('rend 404 sur un projet inconnu', async () => {
@@ -1268,6 +1325,137 @@ describe('POST /api/projects/:id/run', () => {
 
   it('rend 404 sur un projet inconnu', async () => {
     expect((await lancerRoute({ target: 'candidates' }, 'jamais-vu')).status).toBe(404)
+  })
+})
+
+describe('POST /api/projects/:id/stop', () => {
+  const stopper = (id = PROJET): Promise<Response> =>
+    postStop(new Request('http://x', { method: 'POST' }), contexte(id))
+
+  /**
+   * **`arrêtée: false` n'est pas un échec.** Rien ne tournait : l'analyse venait
+   * de finir, ou un redémarrage du serveur a emporté l'exécution — la table des
+   * exécutions est celle du processus. Un 409 ferait afficher une erreur à
+   * quelqu'un dont le souhait est déjà réalisé, et le bouton ne pourrait pas se
+   * cliquer deux fois.
+   */
+  it('rend 200 et `arrêtée: false` quand rien ne tourne', async () => {
+    const reponse = await stopper()
+    expect(reponse.status).toBe(200)
+    expect(await reponse.json()).toEqual({ stopped: false })
+  })
+
+  it('rend 200 et `arrêtée: true` quand une exécution tourne', async () => {
+    poserTranscript()
+    // Une étape qui ne finit pas d'elle-même : c'est l'arrêt qui doit la clore.
+    let relacher: (() => void) | undefined
+    const bloquee = new Promise<Clip[]>((resoudre) => {
+      relacher = () => resoudre([])
+    })
+    await lancer(PROJET, ['candidates'], { étapes: { runCandidates: () => bloquee } })
+    for (let i = 0; i < 200 && progression(PROJET) === null; i += 1) {
+      await new Promise((r) => setTimeout(r, 5))
+    }
+
+    const reponse = await stopper()
+    expect(reponse.status).toBe(200)
+    expect(await reponse.json()).toEqual({ stopped: true })
+
+    // Idempotente : tant que l'exécution descend, la réponse reste la même.
+    expect(await (await stopper()).json()).toEqual({ stopped: true })
+
+    relacher?.()
+    await laisserFinir()
+    // Et le statut ne ressemble pas à une panne.
+    expect(lireStatut(PROJET)?.error).toBeNull()
+    expect(lireStatut(PROJET)?.stopped).toBe(true)
+  })
+
+  /**
+   * 404 et `arrêtée: false` disent deux choses différentes : « ce projet
+   * n'existe pas » et « rien à arrêter ». Les confondre ferait passer une faute
+   * de frappe dans l'identifiant pour un arrêt réussi.
+   */
+  it('rend 404 sur un projet inconnu', async () => {
+    expect((await stopper('jamais-vu')).status).toBe(404)
+  })
+})
+
+describe('/api/settings', () => {
+  const ecrire = (corps: unknown): Promise<Response> =>
+    putSettingsRoute(
+      new Request('http://x', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(corps),
+      }),
+    )
+
+  it('rend les réglages effectifs, défauts compris', async () => {
+    const reponse = await getSettingsRoute()
+    expect(reponse.status).toBe(200)
+    expect(await reponse.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+  })
+
+  it('applique un patch partiel et rend les réglages résultants', async () => {
+    const reponse = await ecrire({ selection: { minutesParClip: 4 } })
+    expect(reponse.status).toBe(200)
+    expect(await reponse.json()).toEqual({
+      selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+    })
+    // Et ça persiste : la lecture suivante le voit.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 4 },
+    })
+  })
+
+  /**
+   * **Une clé mal orthographiée est un 400, pas un enregistrement silencieux.**
+   * Elle ne serait jamais relue, et l'écran de réglages afficherait le défaut en
+   * jurant avoir enregistré.
+   */
+  it('refuse une clé inconnue et une valeur hors bornes', async () => {
+    expect((await ecrire({ selection: { minutesParClipe: 4 } })).status).toBe(400)
+    expect((await ecrire({ hook: { duree: 2 } })).status).toBe(400)
+    // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
+    // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
+    expect((await ecrire({ hook: {} })).status).toBe(400)
+    expect((await ecrire({ selection: { minutesParClip: 0 } })).status).toBe(400)
+    expect((await ecrire({ selection: { clipsMinimum: 2.5 } })).status).toBe(400)
+    expect((await ecrire({ selection: { minutesParClip: '4' } })).status).toBe(400)
+    // Et rien n'a été écrit : la lecture rend toujours les défauts.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DIMENSIONS_PAR_DÉFAUT,
+    })
+  })
+
+  it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
+    const illisible = await putSettingsRoute(
+      new Request('http://x', { method: 'PUT', body: '{pas du json' }),
+    )
+    expect(illisible.status).toBe(400)
+    const vide = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
+    expect(vide.status).toBe(200)
+    expect(await vide.json()).toEqual({ selection: DIMENSIONS_PAR_DÉFAUT })
+  })
+
+  /**
+   * **Changer un réglage ne recalcule rien** (retour d'usage §6.1 et §11) : les
+   * émissions déjà analysées gardent leurs propositions, un recalcul reste une
+   * action explicite. La route ne doit donc toucher ni aux clips, ni à un
+   * artefact, ni lancer quoi que ce soit.
+   */
+  it('ne recalcule aucune émission', async () => {
+    putClip(getDb(), clipDeBase())
+    fs.mkdirSync(path.join(racine, 'projects', PROJET), { recursive: true })
+    fs.writeFileSync(path.join(racine, 'projects', PROJET, 'candidates.json'), '[]')
+
+    await ecrire({ selection: { minutesParClip: 4 } })
+
+    expect(progression(PROJET)).toBeNull()
+    expect(fs.existsSync(path.join(racine, 'projects', PROJET, 'candidates.json'))).toBe(true)
+    const clip = await getClipRoute(new Request('http://x'), contexte(CLIP))
+    expect(((await clip.json()) as ClipDetail).clip.status).toBe('candidate')
   })
 })
 

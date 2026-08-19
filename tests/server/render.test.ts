@@ -182,7 +182,7 @@ function empreinteAvec(
   incrustés = true,
   cad: RenderedFraming = cadrage(),
 ): ReturnType<typeof empreinteDuRendu> {
-  return empreinteDuRendu(forme(c, cad), marques, { incrustés, look: look() })
+  return empreinteDuRendu(forme(c, cad), marques, { incrustés, look: look(), texte: null })
 }
 
 /** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
@@ -192,7 +192,7 @@ function look(): LookDesSousTitres {
 
 /** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
 function observé(surcharges: Partial<CeQuOnIncrusterait> = {}): CeQuOnIncrusterait {
-  return { marques: null, look: null, ...surcharges }
+  return { marques: null, look: null, texte: undefined, ...surcharges }
 }
 
 /**
@@ -391,6 +391,10 @@ describe("l'empreinte de rendu", () => {
       ],
       // Le condensat du preset, et non un booléen : il dit avec quel look.
       sousTitres: e.sousTitres,
+      // Le condensat de ce qui a été réellement incrusté (#87) — `null` ici :
+      // `empreinteAvec` fixe `texte: null`, et ces tests-ci ne portent pas sur
+      // le contenu du transcript.
+      captionsContent: null,
     })
   })
 
@@ -707,7 +711,7 @@ describe("l'empreinte de rendu", () => {
         }),
       )
       expect(lireEmpreinte(chemin())).toBeNull()
-      expect(String(avertissements[0]?.[0])).toMatch(/version 1/)
+      expect(String(avertissements[0]?.[0])).toMatch(/version 2/)
       expect(String(avertissements[0]?.[0])).not.toMatch(/illisible/)
       espion.mockRestore()
     })
@@ -1079,7 +1083,10 @@ describe('renderClip, la porte des marques', () => {
     // **La copie de travail est là, exprès.** Sans elle, le refus tomberait sur
     // elle et ces tests ne prouveraient rien des marques.
     fs.writeFileSync(path.join(stage, SOURCE), 'pas vraiment une vidéo')
-    const c = clip(surcharges)
+    // **Sans sous-titres**, pour la même raison qu'au describe du saut : un clip
+    // qui en demande ferait lire le transcript avant la porte des marques (#87),
+    // et aucun n'existe dans ce dossier de replays jetable.
+    const c = clip({ captions: false, ...surcharges })
     putClip(db, c)
     // Jetable et vide, comme un `assets/brand/` fraîchement cloné : le dépôt
     // n'en porte que le README, et la CI encore moins.
@@ -1208,7 +1215,12 @@ describe('renderClip, chemin du saut', () => {
       mtimeMs: 1,
       createdAt: 1,
     })
-    const c = clip(surcharges)
+    // **Sans sous-titres par défaut.** Ce describe ne traverse jamais que le
+    // chemin du saut, sans mocker ffmpeg : un clip qui en demande ferait lire le
+    // transcript avant la décision de saut (#87), et aucun n'existe dans ce
+    // dossier de replays jetable. Les tests qui portent sur les sous-titres
+    // vivent dans `tests/server/empreinte.test.ts`, qui pose un vrai transcript.
+    const c = clip({ captions: false, ...surcharges })
     putClip(db, c)
     // **Jetable et vide, jamais celui du dépôt.** `renderClip` sonde le dossier
     // des marques avant même la décision de saut, pour comparer l'empreinte :
@@ -1396,7 +1408,11 @@ describe('renderClip, chemin du saut', () => {
       { branding: false },
     ]
     for (const surcharge of cas) {
-      const { db, c } = préparer()
+      // **`captions: true` en base ici**, pour que le cas `{ captions: false }`
+      // représente un vrai changement — le défaut de `préparer` est `false`
+      // depuis #87, et partir de là rendrait ce cas-ci un no-op qui ne prouve
+      // plus rien.
+      const { db, c } = préparer({ captions: true })
       putClip(db, { ...c, ...surcharge })
 
       marquerExporté(db, c.id, c, cadrageDe(c))

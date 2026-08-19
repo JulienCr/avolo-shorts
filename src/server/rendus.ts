@@ -145,7 +145,10 @@ export function livraisonÀJour(clip: Clip, framing: PublishedFraming = clipFram
   return empreinteÀJour(
     lireEmpreinte(sorties(clip, framing).empreinte),
     renderedShape(clip, renderedFraming(framing)),
-    { marques: null, look: null },
+    // `texte: undefined` pour la même raison que les deux champs au-dessus :
+    // sonder le texte suppose de lire le transcript, sur le Drive, et un `GET`
+    // ne paie pas cet aller-retour à chaque affichage de carte.
+    { marques: null, look: null, texte: undefined },
   )
 }
 

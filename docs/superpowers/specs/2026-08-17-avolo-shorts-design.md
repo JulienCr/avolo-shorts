@@ -276,14 +276,18 @@ l'issue #48, il se saute sur une **empreinte persistée** à côté des sorties
 (`projects/<projet>/renders/<clip>.rendu.json`), et une empreinte absente vaut
 *périmé*, jamais *inconnu* — c'est ce qui fait repasser par la porte les rendus
 posés avant elle. Elle porte les cinq champs qui disent ce qui était **demandé**
-(`segments`, `ratio`, `cropX`, `captions`, `branding`) et trois qui disent ce qui
+(`segments`, `ratio`, `cropX`, `captions`, `branding`) et quatre qui disent ce qui
 a été **obtenu** : le condensat de chaque marque réellement incrustée — les deux
 fichiers portent des noms fixes, donc le nom seul ne distingue pas une mise à
 jour —, un condensat du style des sous-titres qui inclut le contenu du dossier de
 polices — sans `fonts/`, libass se rabat sur fontconfig et incruste dans une
-autre police sans un mot —, et une `version` de recette pour le cas général du
-rendu produit dans des conditions qui ne sont plus celles d'aujourd'hui. Le reste
-des étapes en est toujours à la présence de fichier ; la clé de validité générale
+autre police sans un mot —, un condensat de ce que les sous-titres ont
+**réellement porté** (`captionsContent`, issue #87) — sans lui, une correction du
+transcript qui ne touche aucun segment d'aucun clip laisse un MP4 déjà exporté
+porter des mots que le transcript ne dit plus —, et une `version` de recette pour
+le cas général du rendu produit dans des conditions qui ne sont plus celles
+d'aujourd'hui. Le reste des étapes en est toujours à la présence de fichier ; la
+clé de validité générale
 reste l'itération 4.
 
 Le choix manuel du crop n'est pas un pis-aller jetable : il reste ensuite comme

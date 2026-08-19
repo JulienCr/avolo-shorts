@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Cinq sorties :
+ * Six sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -78,6 +78,7 @@ import {
   TORSOS,
   computeFraming,
   isForeground,
+  personBounds,
   ratioCoverage,
   requiredWidths,
   torsoBounds,
@@ -120,7 +121,7 @@ const MARGES = [...new Set([0, 0.01, 0.02, 0.03, FRAMING_DEFAULTS.margin])].sort
  * les boîtes tiennent en entier — jusqu'au delà de ce qui a été retenu, parce
  * que c'est la pente au-delà du défaut qui dit s'il est posé sur une falaise.
  */
-const ROGNAGES = [
+const SIDE_TRIMS = [
   ...new Set([0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.325, 0.35, 0.4, FRAMING_DEFAULTS.sideTrim]),
 ].sort((a, b) => a - b)
 
@@ -133,7 +134,7 @@ const ROGNAGES = [
  * spectateur voit quelqu'un sortir du cadre pendant quatre secondes ou pendant
  * un battement de paupières.
  */
-const PAS_ÉCHANTILLON = 0.5
+const SAMPLE_STEP = 0.5
 
 /**
  * Les définitions de tronc balayées, **plus le repli sans tronc**.
@@ -143,13 +144,13 @@ const PAS_ÉCHANTILLON = 0.5
  * tableau dirait ce que chaque tronc vaut par rapport aux autres et jamais ce
  * qu'il vaut par rapport à ce qui tourne aujourd'hui.
  */
-const TRONCS: readonly (TorsoName | 'off')[] = ['off', ...(Object.keys(TORSOS) as TorsoName[])]
+const TORSO_NAMES: readonly (TorsoName | 'off')[] = ['off', ...(Object.keys(TORSOS) as TorsoName[])]
 
 /**
  * Les élargissements de tronc balayés, **plus le défaut en vigueur** — même
  * règle que `MARGES` et `ROGNAGES`.
  */
-const REMBOURRAGES = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torsoPad])].sort(
+const TORSO_PADS = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torsoPad])].sort(
   (a, b) => a - b,
 )
 
@@ -160,7 +161,7 @@ const REMBOURRAGES = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torso
  * milieu — et, la tête servant de plancher, exactement la tête. C'est la borne
  * de l'exercice : au-delà, il n'y a plus rien à abandonner.
  */
-const ROGNAGES_TRONC = [
+const TORSO_TRIMS = [
   ...new Set([0, 0.1, 0.2, 0.3, 0.4, 0.5, FRAMING_DEFAULTS.torsoTrim]),
 ].sort((a, b) => a - b)
 
@@ -213,7 +214,7 @@ function nombre(n: number, décimales = 3): string {
 }
 
 /** Le cadrage complet d'une découpe : le ratio natif, et un cadre par plan. */
-function cadrageDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): ClipFraming {
+function framingOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): ClipFraming {
   return computeFraming({
     ...options,
     segments: découpe.segments,
@@ -228,7 +229,7 @@ function cadrageDe(découpe: Découpe, analyse: Analyse, options: FramingOptions
 
 /** Le ratio du fichier natif d'une découpe : le plus large de ses plans. */
 function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): Ratio {
-  return cadrageDe(découpe, analyse, options).ratio
+  return framingOf(découpe, analyse, options).ratio
 }
 
 /**
@@ -238,20 +239,20 @@ function ratioDe(découpe: Découpe, analyse: Analyse, options: FramingOptions):
  * Les cinq et pas seulement le nez — un profil ne montre qu'un œil et qu'une
  * oreille, et un dos n'en montre aucun. La confiance décide, pas le rang.
  */
-const POINTS_DE_TÊTE = TORSOS.head
+const HEAD_POINTS = TORSOS.head
 
 /** Ce qu'un cadrage coûte à une découpe, sur les trois grandeurs qui le jugent. */
-type Coût = {
+type Cost = {
   /** Ce qui est coupé de chaque **boîte corps entier**, une valeur par boîte. */
-  boîte: number[]
+  box: number[]
   /** Ce qui est coupé de chaque **tronc**, quand la personne en a un de lisible. */
-  tronc: number[]
+  torso: number[]
   /** Le nombre de (personne, image) dont **aucun point de tête** n'est dans le cadre. */
-  têtesDehors: number
+  headsOutside: number
   /** Celles dont un point de tête est dans le cadre mais à moins de 1 % du bord. */
-  têtesAuBord: number
+  headsAtEdge: number
   /** Le nombre de personnes-images examinées, pour rapporter les deux précédents. */
-  personnes: number
+  people: number
 }
 
 /**
@@ -280,8 +281,8 @@ type Coût = {
  * l'œil. Une personne dont aucun point de tête n'est fiable ne compte pas :
  * l'absence de tête détectée n'est pas une tête hors cadre.
  */
-function coûtDe(découpe: Découpe, analyse: Analyse, options: FramingOptions): Coût {
-  const cadrage = cadrageDe(découpe, analyse, options)
+function costOf(découpe: Découpe, analyse: Analyse, options: FramingOptions): Cost {
+  const cadrage = framingOf(découpe, analyse, options)
   const segments = normalizeSegments(découpe.segments)
   const seuil = FRAMING_DEFAULTS.minScore
   // **L'étalon ne bouge pas avec le réglage qu'on juge.** Le tronc et les points
@@ -289,62 +290,62 @@ function coûtDe(découpe: Découpe, analyse: Analyse, options: FramingOptions):
   // test, la ligne « tronc off » n'aurait aucun tronc à mesurer et la colonne
   // qui compare les deux primitives serait vide sur la seule ligne qui sert de
   // référence. Chaque ligne du balayage se juge donc au même mètre.
-  const étalon: FramingOptions = {
+  const gauge: FramingOptions = {
     torso: FRAMING_DEFAULTS.torso,
     torsoMinScore: FRAMING_DEFAULTS.torsoMinScore,
     torsoPad: FRAMING_DEFAULTS.torsoPad,
   }
-  const seuilPoint = FRAMING_DEFAULTS.torsoMinScore
-  const coût: Coût = { boîte: [], tronc: [], têtesDehors: 0, têtesAuBord: 0, personnes: 0 }
+  const pointThreshold = FRAMING_DEFAULTS.torsoMinScore
+  const cost: Cost = { box: [], torso: [], headsOutside: 0, headsAtEdge: 0, people: 0 }
   for (const plan of cadrage.shots) {
     const largeur = ratioCoverage(plan.ratio, analyse.source.w, analyse.source.h)
     // Le bord gauche du rectangle, borné dans l'image comme `cropRect` le fait.
     const x = Math.min(Math.max(plan.cropX - largeur / 2, 0), Math.max(0, 1 - largeur))
     for (const b of analyse.boxes) {
-      if (!dansIntervalle(b.t, plan.shot.start, plan.shot.end)) continue
-      if (!segments.some((s) => dansIntervalle(b.t, s.start, s.end))) continue
+      if (!withinInterval(b.t, plan.shot.start, plan.shot.end)) continue
+      if (!segments.some((s) => withinInterval(b.t, s.start, s.end))) continue
       if (!(b.score >= seuil) || isForeground(b, options)) continue
-      const largeurBoîte = b.x1 - b.x0
-      if (!(largeurBoîte > 0)) continue
-      coût.personnes += 1
+      const boxWidth = b.x1 - b.x0
+      if (!(boxWidth > 0)) continue
+      cost.people += 1
       // **La boîte entière, pas la boîte rognée.** Le rognage est ce qu'on
       // s'autorise à perdre ; ce qu'on perd vraiment se mesure sur la personne.
       const dedans = Math.max(0, Math.min(b.x1, x + largeur) - Math.max(b.x0, x))
-      coût.boîte.push(1 - dedans / largeurBoîte)
+      cost.box.push(1 - dedans / boxWidth)
 
-      const tronc = torsoBounds(b, étalon)
-      if (tronc !== null && tronc.x1 > tronc.x0) {
-        const dedansTronc = Math.max(0, Math.min(tronc.x1, x + largeur) - Math.max(tronc.x0, x))
-        coût.tronc.push(1 - dedansTronc / (tronc.x1 - tronc.x0))
+      const torso = torsoBounds(b, gauge)
+      if (torso !== null && torso.x1 > torso.x0) {
+        const insideTorso = Math.max(0, Math.min(torso.x1, x + largeur) - Math.max(torso.x0, x))
+        cost.torso.push(1 - insideTorso / (torso.x1 - torso.x0))
       }
 
       const k = b.k
       if (k === undefined) continue
       let vue = false
-      let dansLeCadre = false
-      let auBord = false
-      for (const rang of POINTS_DE_TÊTE) {
+      let inFrame = false
+      let atEdge = false
+      for (const rang of HEAD_POINTS) {
         const px = k[rang * 3]
-        if (!Number.isFinite(px) || !(k[rang * 3 + 2] >= seuilPoint)) continue
+        if (!Number.isFinite(px) || !(k[rang * 3 + 2] >= pointThreshold)) continue
         vue = true
         if (px >= x && px <= x + largeur) {
-          dansLeCadre = true
-          if (px - x < 0.01 || x + largeur - px < 0.01) auBord = true
+          inFrame = true
+          if (px - x < 0.01 || x + largeur - px < 0.01) atEdge = true
         }
       }
       if (!vue) continue
-      if (!dansLeCadre) coût.têtesDehors += 1
-      else if (auBord) coût.têtesAuBord += 1
+      if (!inFrame) cost.headsOutside += 1
+      else if (atEdge) cost.headsAtEdge += 1
     }
   }
-  return coût
+  return cost
 }
 
 /**
  * `t` tombe-t-il dans l'intervalle ? **Fin exclue**, comme `computeFraming` :
  * une image posée sur une frontière appartient au plan qui suit.
  */
-function dansIntervalle(t: number, début: number, fin: number): boolean {
+function withinInterval(t: number, début: number, fin: number): boolean {
   return t >= début && t < fin
 }
 
@@ -376,7 +377,7 @@ function empansDe(découpe: Découpe, analyse: Analyse, options: FramingOptions)
  * Le temps compté est l'intersection du plan avec les segments montés, pas la
  * durée du plan dans la source : le clip ne montre pas le reste.
  */
-function tempsParRatio(
+function timePerRatio(
   découpes: Découpe[],
   analyse: Analyse,
   options: FramingOptions,
@@ -384,7 +385,7 @@ function tempsParRatio(
   const temps = new Map<Ratio, number>(DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => [r, 0]))
   for (const découpe of découpes) {
     const segments = normalizeSegments(découpe.segments)
-    for (const plan of cadrageDe(découpe, analyse, options).shots) {
+    for (const plan of framingOf(découpe, analyse, options).shots) {
       const durée = segments.reduce(
         (n, s) =>
           n + Math.max(0, Math.min(plan.shot.end, s.end) - Math.max(plan.shot.start, s.start)),
@@ -397,17 +398,17 @@ function tempsParRatio(
 }
 
 /** La part du temps de montage qui sort au ratio le plus large, en pourcentage. */
-function partEnSeizeNeuvièmes(temps: Map<Ratio, number>): number {
+function shareInSixteenNine(temps: Map<Ratio, number>): number {
   const total = [...temps.values()].reduce((a, b) => a + b, 0)
   const large = temps.get(DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]) ?? 0
   return total === 0 ? Number.NaN : (100 * large) / total
 }
 
-function ligneTemps(temps: Map<Ratio, number>): string {
+function timeLine(temps: Map<Ratio, number>): string {
   return (
     DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => `${(temps.get(r) ?? 0).toFixed(0).padStart(6)}`).join(
       ' ',
-    ) + `   16:9 = ${nombre(partEnSeizeNeuvièmes(temps), 0).padStart(3)} %`
+    ) + `   16:9 = ${nombre(shareInSixteenNine(temps), 0).padStart(3)} %`
   )
 }
 
@@ -445,11 +446,11 @@ function fenêtres(durée: number, longueur: number, pas: number): Découpe[] {
 /** Ce qu'on charge d'un projet avant de mesurer quoi que ce soit. */
 type Émission = { id: string; analyse: Analyse; clips: Découpe[]; fenêtres: Découpe[] }
 
-function charger(id: string, remplacements: Map<string, string>): Émission | null {
+function charger(id: string, overrides: Map<string, string>): Émission | null {
   // **Un fichier nommé à la main court-circuite `analysisPath`**, et c'est ce
   // qui permet de comparer deux détecteurs sur la même émission sans écraser
   // celui que le serveur de développement sert en direct.
-  const fichier = remplacements.get(id) ?? analysisPath(id)
+  const fichier = overrides.get(id) ?? analysisPath(id)
   if (!fs.existsSync(fichier)) {
     console.error(`${id} : pas d'analyse (${fichier}). Lancer : pnpm tsx scripts/dev-run.ts ${id} analysis`)
     return null
@@ -548,9 +549,9 @@ function comparaison(émissions: Émission[], quoi: 'clips' | 'fenêtres'): void
   // répondent pas à la même question — celui qui ne lirait que le premier
   // conclurait qu'un clip « en 16:9 » sort entièrement en 16:9.
   console.log(`\n  temps de montage par ratio, en secondes`)
-  const temps = émissions.map((e) => tempsParRatio(e[quoi], e.analyse, opts()))
+  const temps = émissions.map((e) => timePerRatio(e[quoi], e.analyse, opts()))
   for (const [i, e] of émissions.entries()) {
-    console.log(`  ${e.id.padEnd(24)} ${ligneTemps(temps[i])}`)
+    console.log(`  ${e.id.padEnd(24)} ${timeLine(temps[i])}`)
   }
 }
 
@@ -621,7 +622,7 @@ function balayage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
  *   d'un tiers, puis de la moitié. La seconde est le seuil au-delà duquel un
  *   visage peut tomber, et c'est la ligne rouge posée par Julien.
  */
-function balayageRognage(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
+function sweepSideTrim(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
   const découpes = émission[quoi]
   if (découpes.length === 0) return
   console.log(`\n  ${émission.id} — ${découpes.length} ${quoi}`)
@@ -631,26 +632,26 @@ function balayageRognage(émission: Émission, quoi: 'clips' | 'fenêtres'): voi
   )
 
   const référence = découpes.map((d) => ratioDe(d, émission.analyse, opts({ sideTrim: 0 })))
-  for (const trim of ROGNAGES) {
+  for (const trim of SIDE_TRIMS) {
     const options = opts({ sideTrim: trim })
     const ratios = découpes.map((d) => ratioDe(d, émission.analyse, options))
     const compte = répartition(ratios)
-    const temps = tempsParRatio(découpes, émission.analyse, options)
-    const coûts = découpes.map((d) => coûtDe(d, émission.analyse, options))
-    const pertes = coûts.flatMap((c) => c.boîte)
-    const dehors = coûts.reduce((n, c) => n + c.têtesDehors, 0)
-    const secondes = (n: number): string => `${(n * PAS_ÉCHANTILLON).toFixed(1)} s`
+    const temps = timePerRatio(découpes, émission.analyse, options)
+    const costs = découpes.map((d) => costOf(d, émission.analyse, options))
+    const losses = costs.flatMap((c) => c.box)
+    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
+    const secondes = (n: number): string => `${(n * SAMPLE_STEP).toFixed(1)} s`
     const élargis = ratios.filter((r, i) => RATIOS[r] > RATIOS[référence[i]]).length
     const défaut = trim === FRAMING_DEFAULTS.sideTrim ? ' ←' : '  '
     console.log(
       `  ${trim.toFixed(3)}${défaut}` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(6)).join(' ') +
-        `  ${nombre(partEnSeizeNeuvièmes(temps), 0).padStart(6)} %` +
-        `   ${nombre(percentile(pertes, 0.9)).padStart(24)}` +
-        ` ${nombre(percentile(pertes, 0.99)).padStart(6)}` +
-        ` ${secondes(pertes.filter((v) => v > 1 / 3).length).padStart(8)}` +
-        ` ${secondes(pertes.filter((v) => v > 0.5).length).padStart(8)}` +
-        ` ${nombre(percentile(coûts.flatMap((c) => c.tronc), 0.99)).padStart(19)}` +
+        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
+        `   ${nombre(percentile(losses, 0.9)).padStart(24)}` +
+        ` ${nombre(percentile(losses, 0.99)).padStart(6)}` +
+        ` ${secondes(losses.filter((v) => v > 1 / 3).length).padStart(8)}` +
+        ` ${secondes(losses.filter((v) => v > 0.5).length).padStart(8)}` +
+        ` ${nombre(percentile(costs.flatMap((c) => c.torso), 0.99)).padStart(19)}` +
         ` ${`${dehors} (${secondes(dehors)})`.padStart(14)}` +
         (élargis > 0 ? `   ${élargis} ÉLARGI(S)` : ''),
     )
@@ -681,7 +682,7 @@ function balayageRognage(émission: Émission, quoi: 'clips' | 'fenêtres'): voi
  * que le crop fixe par plan n'est pas. Un plan qui la dépasse est donc borné par
  * la position **à coup sûr**, jamais par accident d'arrondi.
  */
-function bornésParLaPosition(émission: Émission): void {
+function boundedByPosition(émission: Émission): void {
   const { w, h } = émission.analyse.source
   let plans = 0
   let bornés = 0
@@ -690,13 +691,13 @@ function bornésParLaPosition(émission: Émission): void {
   const lignes: string[] = []
 
   for (const clip of émission.clips) {
-    const cadrage = cadrageDe(clip, émission.analyse, opts())
+    const cadrage = framingOf(clip, émission.analyse, opts())
     const segments = normalizeSegments(clip.segments)
     for (const plan of cadrage.shots) {
       const dedans = émission.analyse.boxes.filter(
         (b) =>
-          dansIntervalle(b.t, plan.shot.start, plan.shot.end) &&
-          segments.some((s) => dansIntervalle(b.t, s.start, s.end)),
+          withinInterval(b.t, plan.shot.start, plan.shot.end) &&
+          segments.some((s) => withinInterval(b.t, s.start, s.end)),
       )
       const mesures = requiredWidths(dedans, opts())
       if (mesures.length === 0) continue
@@ -756,7 +757,7 @@ function bornésParLaPosition(émission: Émission): void {
  * rectangle. C'est le compteur qui manquait à la campagne précédente, qui n'a vu
  * son visage tombé qu'en regardant une image.
  */
-function balayageTronc(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
+function sweepTorso(émission: Émission, quoi: 'clips' | 'fenêtres'): void {
   const découpes = émission[quoi]
   if (découpes.length === 0) return
   console.log(`\n  ${émission.id} — ${découpes.length} ${quoi}`)
@@ -765,26 +766,26 @@ function balayageTronc(émission: Émission, quoi: 'clips' | 'fenêtres'): void 
       `  16:9 tps  empan méd.   coupé boîte p99   coupé tronc p99   têtes dehors  au bord`,
   )
 
-  for (const tronc of TRONCS) {
-    const options = opts({ torso: tronc })
+  for (const torso of TORSO_NAMES) {
+    const options = opts({ torso })
     const compte = répartition(découpes.map((d) => ratioDe(d, émission.analyse, options)))
-    const temps = tempsParRatio(découpes, émission.analyse, options)
+    const temps = timePerRatio(découpes, émission.analyse, options)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
-    const coûts = découpes.map((d) => coûtDe(d, émission.analyse, options))
-    const boîte = coûts.flatMap((c) => c.boîte)
-    const troncs = coûts.flatMap((c) => c.tronc)
-    const dehors = coûts.reduce((n, c) => n + c.têtesDehors, 0)
-    const auBord = coûts.reduce((n, c) => n + c.têtesAuBord, 0)
-    const défaut = tronc === FRAMING_DEFAULTS.torso ? ' ←' : '  '
+    const costs = découpes.map((d) => costOf(d, émission.analyse, options))
+    const box = costs.flatMap((c) => c.box)
+    const torsos = costs.flatMap((c) => c.torso)
+    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
+    const atEdge = costs.reduce((n, c) => n + c.headsAtEdge, 0)
+    const défaut = torso === FRAMING_DEFAULTS.torso ? ' ←' : '  '
     console.log(
-      `  ${tronc.padEnd(16)}${défaut}` +
+      `  ${torso.padEnd(16)}${défaut}` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(5)).join(' ') +
-        `  ${nombre(partEnSeizeNeuvièmes(temps), 0).padStart(6)} %` +
+        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
         `  ${nombre(médiane(empans)).padStart(9)}` +
-        `  ${nombre(percentile(boîte, 0.99)).padStart(16)}` +
-        `  ${nombre(percentile(troncs, 0.99)).padStart(16)}` +
-        `  ${`${dehors} (${(PAS_ÉCHANTILLON * dehors).toFixed(1)} s)`.padStart(13)}` +
-        `  ${String(auBord).padStart(7)}`,
+        `  ${nombre(percentile(box, 0.99)).padStart(16)}` +
+        `  ${nombre(percentile(torsos, 0.99)).padStart(16)}` +
+        `  ${`${dehors} (${(SAMPLE_STEP * dehors).toFixed(1)} s)`.padStart(13)}` +
+        `  ${String(atEdge).padStart(7)}`,
     )
   }
 }
@@ -799,22 +800,22 @@ function balayageTronc(émission: Émission, quoi: 'clips' | 'fenêtres'): void 
  * s'applique jamais — c'est exactement ce que le filtre du premier plan a failli
  * être ailleurs que sur `cqlp`.
  */
-function troncContreBoîte(émission: Émission): void {
+function torsoVersusBox(émission: Émission): void {
   const options = opts({ torso: FRAMING_DEFAULTS.torso })
   const seuil = FRAMING_DEFAULTS.minScore
   const gardées = émission.analyse.boxes.filter((b) => b.score >= seuil && !isForeground(b, options))
-  const largeursBoîte: number[] = []
-  const largeursRognée: number[] = []
+  const boxWidths: number[] = []
+  const trimmedWidths: number[] = []
   const largeursTronc: number[] = []
   let avecTronc = 0
   for (const b of gardées) {
-    largeursBoîte.push(b.x1 - b.x0)
+    boxWidths.push(b.x1 - b.x0)
     const rognée = trimmedBounds(b, options)
-    largeursRognée.push(rognée.x1 - rognée.x0)
-    const tronc = torsoBounds(b, options)
-    if (tronc === null) continue
+    trimmedWidths.push(rognée.x1 - rognée.x0)
+    const torso = torsoBounds(b, options)
+    if (torso === null) continue
     avecTronc += 1
-    largeursTronc.push(tronc.x1 - tronc.x0)
+    largeursTronc.push(torso.x1 - torso.x0)
   }
   if (gardées.length === 0) return
   console.log(
@@ -824,8 +825,8 @@ function troncContreBoîte(émission: Émission): void {
   )
   console.log('                     médiane      p90      p99')
   for (const [nom, valeurs] of [
-    ['boîte corps entier', largeursBoîte],
-    ['boîte rognée', largeursRognée],
+    ['boîte corps entier', boxWidths],
+    ['boîte rognée', trimmedWidths],
     [`tronc « ${FRAMING_DEFAULTS.torso} »`, largeursTronc],
   ] as const) {
     console.log(
@@ -844,38 +845,38 @@ function troncContreBoîte(émission: Émission): void {
  * sans que la colonne « tête » s'en émeuve. Le balayage dit où s'arrête le
  * bénéfice et où commence la dépense.
  */
-function balayageRembourrage(
+function sweepTorsoPadding(
   émission: Émission,
   quoi: 'clips' | 'fenêtres',
-  quoiVarier: 'torsoPad' | 'torsoTrim',
+  whatVaries: 'torsoPad' | 'torsoTrim',
 ): void {
   const découpes = émission[quoi]
   if (découpes.length === 0) return
   console.log(`\n  ${émission.id} — ${découpes.length} ${quoi}`)
-  const valeurs = quoiVarier === 'torsoPad' ? REMBOURRAGES : ROGNAGES_TRONC
-  const défautDu = quoiVarier === 'torsoPad' ? FRAMING_DEFAULTS.torsoPad : FRAMING_DEFAULTS.torsoTrim
+  const valeurs = whatVaries === 'torsoPad' ? TORSO_PADS : TORSO_TRIMS
+  const défautDu = whatVaries === 'torsoPad' ? FRAMING_DEFAULTS.torsoPad : FRAMING_DEFAULTS.torsoTrim
   console.log(
-    `  ${quoiVarier === 'torsoPad' ? 'rembourrage' : 'rognage    '}  ${DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => r.padStart(5)).join(' ')}` +
+    `  ${whatVaries === 'torsoPad' ? 'rembourrage' : 'rognage    '}  ${DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => r.padStart(5)).join(' ')}` +
       `  16:9 tps  empan méd.   coupé boîte p99   coupé tronc p99   têtes dehors`,
   )
   for (const pad of valeurs) {
-    const options = opts(quoiVarier === 'torsoPad' ? { torsoPad: pad } : { torsoTrim: pad })
+    const options = opts(whatVaries === 'torsoPad' ? { torsoPad: pad } : { torsoTrim: pad })
     const compte = répartition(découpes.map((d) => ratioDe(d, émission.analyse, options)))
-    const temps = tempsParRatio(découpes, émission.analyse, options)
+    const temps = timePerRatio(découpes, émission.analyse, options)
     const empans = découpes.flatMap((d) => empansDe(d, émission.analyse, options))
-    const coûts = découpes.map((d) => coûtDe(d, émission.analyse, options))
-    const boîte = coûts.flatMap((c) => c.boîte)
-    const troncs = coûts.flatMap((c) => c.tronc)
-    const dehors = coûts.reduce((n, c) => n + c.têtesDehors, 0)
+    const costs = découpes.map((d) => costOf(d, émission.analyse, options))
+    const box = costs.flatMap((c) => c.box)
+    const torsos = costs.flatMap((c) => c.torso)
+    const dehors = costs.reduce((n, c) => n + c.headsOutside, 0)
     const défaut = pad === défautDu ? ' ←' : '  '
     console.log(
       `  ${pad.toFixed(2)}${défaut}         ` +
         DU_PLUS_ÉTROIT_AU_PLUS_LARGE.map((r) => String(compte.get(r) ?? 0).padStart(5)).join(' ') +
-        `  ${nombre(partEnSeizeNeuvièmes(temps), 0).padStart(6)} %` +
+        `  ${nombre(shareInSixteenNine(temps), 0).padStart(6)} %` +
         `  ${nombre(médiane(empans)).padStart(9)}` +
-        `  ${nombre(percentile(boîte, 0.99)).padStart(16)}` +
-        `  ${nombre(percentile(troncs, 0.99)).padStart(16)}` +
-        `  ${`${dehors} (${(PAS_ÉCHANTILLON * dehors).toFixed(1)} s)`.padStart(13)}`,
+        `  ${nombre(percentile(box, 0.99)).padStart(16)}` +
+        `  ${nombre(percentile(torsos, 0.99)).padStart(16)}` +
+        `  ${`${dehors} (${(SAMPLE_STEP * dehors).toFixed(1)} s)`.padStart(13)}`,
     )
   }
 }
@@ -905,21 +906,28 @@ function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number
   const dedans = analyse.boxes.filter((b) => segments.some((s) => b.t >= s.start && b.t < s.end))
 
   // Le cadrage réellement retenu pour ce clip : c'est lui qui dit ce qui déborde.
-  const cadrage = computeFraming({
-    segments: découpe.segments,
-    shots: analyse.shots,
-    people: analyse.boxes,
-    srcW: analyse.source.w,
-    srcH: analyse.source.h,
-    ratio: 'auto',
-    cropMode: 'auto',
-  })
+  //
+  // **Par `cadrageDe`, donc par `opts()`**, et pas par un `computeFraming` à
+  // soi : cette section était la seule à ignorer `--tronc` par omission, si bien
+  // qu'un balayage lancé avec un autre tronc désignait des images calculées avec
+  // celui par défaut. La section 6 l'ignore aussi, mais parce qu'elle le balaie —
+  // ce n'est pas la même chose, et c'est pourquoi elle reste seule à le faire.
+  // (relevé par Aristarque)
+  const cadrage = framingOf(découpe, analyse, opts())
   const largeur = ratioCoverage(cadrage.ratio, analyse.source.w, analyse.source.h)
 
   // Par image, en passant par `requiredWidths` plutôt qu'en refaisant le calcul :
   // le seuil de confiance, la marge et le filtre du premier plan y sont déjà, et
   // une seconde copie de ces trois réglages finirait par diverger de celle qui
-  // décide vraiment. Les bornes, elles, se relisent sur les boîtes gardées.
+  // décide vraiment. Les bornes, elles, se relisent sur les boîtes gardées —
+  // **par `personBounds`**, comme l'empan.
+  //
+  // C'est ce qui a divergé : depuis que `requiredWidths` lit le tronc ou la
+  // boîte rognée, relire `b.x0` / `b.x1` bruts mesurait un débordement que le
+  // critère ne regarde plus. Une image dont les boîtes débordent mais dont les
+  // troncs tiennent remontait en tête du classement, et la section 7 envoyait
+  // regarder les mauvaises images — sans jamais se contredire, puisque c'est
+  // elle qui dit où regarder. (relevé par Aristarque)
   const parImage = new Map<number, PersonBox[]>()
   for (const b of dedans) {
     const clé = Math.round(b.t * 1000)
@@ -932,13 +940,14 @@ function instantsQuiÉlargissent(découpe: Découpe, analyse: Analyse, n: number
   const classées = [...parImage.entries()]
     .map(([clé, boîtes]) => {
       const t = clé / 1000
-      const empan = requiredWidths(boîtes)[0]
+      const empan = requiredWidths(boîtes, opts())[0]
       const gardées = boîtes.filter(
-        (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b),
+        (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
       )
       if (empan === undefined || gardées.length === 0) return undefined
-      const g = Math.max(0, Math.min(...gardées.map((b) => b.x0)) - marge)
-      const d = Math.min(1, Math.max(...gardées.map((b) => b.x1)) + marge)
+      const required = gardées.map((b) => personBounds(b, opts()))
+      const g = Math.max(0, Math.min(...required.map((e) => e.x0)) - marge)
+      const d = Math.min(1, Math.max(...required.map((e) => e.x1)) + marge)
       // Le crop de *son* plan : à défaut de plan, le centre, comme `computeFraming`.
       const plan = cadrage.shots.find((p) => t >= p.shot.start && t < p.shot.end)
       const centre = plan?.cropX ?? 0.5
@@ -1007,7 +1016,7 @@ async function main(): Promise<number> {
   // **Un fichier d'analyse nommé à la main, par projet.** Répétable, parce que
   // la comparaison qui vaut est celle de deux détecteurs sur la même émission,
   // et qu'on ne l'obtient qu'en lisant deux fichiers.
-  const remplacements = new Map<string, string>()
+  const overrides = new Map<string, string>()
   for (const [i, a] of arguments_.entries()) {
     if (a !== '--analyse') continue
     const brut = arguments_[i + 1]
@@ -1016,7 +1025,7 @@ async function main(): Promise<number> {
       console.error(`--analyse attend <projet>=<fichier>, reçu « ${String(brut)} ».`)
       return 1
     }
-    remplacements.set(brut.slice(0, séparateur), brut.slice(séparateur + 1))
+    overrides.set(brut.slice(0, séparateur), brut.slice(séparateur + 1))
   }
 
   // Un tronc inconnu est **refusé**, pas remplacé par le défaut : une faute de
@@ -1026,8 +1035,8 @@ async function main(): Promise<number> {
   const iTronc = arguments_.indexOf('--tronc')
   if (iTronc >= 0) {
     const brut = arguments_[iTronc + 1]
-    if (brut === undefined || !TRONCS.some((t) => t === brut)) {
-      console.error(`--tronc attend l'un de ${TRONCS.join(', ')}, reçu « ${String(brut)} ».`)
+    if (brut === undefined || !TORSO_NAMES.some((t) => t === brut)) {
+      console.error(`--tronc attend l'un de ${TORSO_NAMES.join(', ')}, reçu « ${String(brut)} ».`)
       return 1
     }
     BASE.torso = brut as TorsoName | 'off'
@@ -1049,7 +1058,7 @@ async function main(): Promise<number> {
 
   try {
     const émissions = ids
-      .map((id) => charger(id, remplacements))
+      .map((id) => charger(id, overrides))
       .filter((e): e is Émission => e !== null)
     if (émissions.length === 0) return 1
 
@@ -1061,10 +1070,10 @@ async function main(): Promise<number> {
         `points ≥ ${FRAMING_DEFAULTS.torsoMinScore} rembourré de ${FRAMING_DEFAULTS.torsoPad}`,
     )
     if (BASE.torso !== undefined) {
-      console.log(`Sections 1 à 5 forcées sur le tronc « ${BASE.torso} ».`)
+      console.log(`Sections 1 à 5 et 7 forcées sur le tronc « ${BASE.torso} » ; la 6 le balaie.`)
     }
     for (const e of émissions) {
-      const source = remplacements.get(e.id)
+      const source = overrides.get(e.id)
       console.log(
         `  ${e.id} : ${source ?? analysisPath(e.id)}` +
           ` — version ${e.analyse.version}, ${e.analyse.model ?? 'modèle inconnu'}` +
@@ -1086,26 +1095,26 @@ async function main(): Promise<number> {
 
     console.log('\n=== 4. Le balayage du rognage latéral ===')
     console.log('  (« coupé » se mesure sur le cadre du plan, boîtes entières, images sacrifiées comprises)')
-    for (const e of émissions) balayageRognage(e, 'clips')
-    for (const e of émissions) balayageRognage(e, 'fenêtres')
+    for (const e of émissions) sweepSideTrim(e, 'clips')
+    for (const e of émissions) sweepSideTrim(e, 'fenêtres')
 
     console.log('\n=== 5. Les plans que la position borne, et non la largeur ===')
     console.log('  (leurs images tiendraient plus serré ; aucune position fixe ne les sert)')
-    for (const e of émissions) bornésParLaPosition(e)
+    for (const e of émissions) boundedByPosition(e)
 
     console.log('\n=== 6. Le tronc contre la boîte corps entier ===')
     console.log("  (l'empan que chaque primitive demande, avant tout choix de ratio)")
-    for (const e of émissions) troncContreBoîte(e)
+    for (const e of émissions) torsoVersusBox(e)
     console.log('\n  Ce que chaque définition de tronc change')
     console.log('  (« têtes dehors » : personnes-images dont aucun point de tête n’est dans le crop)')
-    for (const e of émissions) balayageTronc(e, 'clips')
-    for (const e of émissions) balayageTronc(e, 'fenêtres')
+    for (const e of émissions) sweepTorso(e, 'clips')
+    for (const e of émissions) sweepTorso(e, 'fenêtres')
     console.log('\n  Le rembourrage du tronc')
-    for (const e of émissions) balayageRembourrage(e, 'clips', 'torsoPad')
-    for (const e of émissions) balayageRembourrage(e, 'fenêtres', 'torsoPad')
+    for (const e of émissions) sweepTorsoPadding(e, 'clips', 'torsoPad')
+    for (const e of émissions) sweepTorsoPadding(e, 'fenêtres', 'torsoPad')
     console.log('\n  Le rognage du tronc, tête exceptée')
-    for (const e of émissions) balayageRembourrage(e, 'clips', 'torsoTrim')
-    for (const e of émissions) balayageRembourrage(e, 'fenêtres', 'torsoTrim')
+    for (const e of émissions) sweepTorsoPadding(e, 'clips', 'torsoTrim')
+    for (const e of émissions) sweepTorsoPadding(e, 'fenêtres', 'torsoTrim')
 
     if (nInstants !== null) {
       console.log('\n=== 7. Où regarder — les images qui font monter le ratio ===')

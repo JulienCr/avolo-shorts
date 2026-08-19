@@ -136,7 +136,7 @@ describe('listerSources', () => {
     expect(listing.sources.map((s) => s.name)).toEqual(['2025-06-15-cqlp.mp4'])
     // Trois entrées dans le dossier : le relevé de montage les compte toutes,
     // parce qu'un dossier plein de fichiers illisibles n'est pas un dossier vide.
-    expect(listing.montage.entrées).toBe(3)
+    expect(listing.montage.entries).toBe(3)
   })
 
   /**
@@ -154,7 +154,7 @@ describe('listerSources', () => {
 
     const listing = await listerSources({ db })
     expect(listing.sources.map((s) => s.name)).toEqual(['vraie.mp4'])
-    expect(listing.montage.entrées).toBe(3)
+    expect(listing.montage.entries).toBe(3)
   })
 
   it('reconnaît une vidéo quelle que soit la casse de son extension', async () => {
@@ -248,7 +248,7 @@ describe('listerSources', () => {
     expect(listing.sources).toEqual([])
     expect(listing.montage.disponible).toBe(true)
     expect(listing.montage.cause).toBeNull()
-    expect(listing.montage.entrées).toBe(0)
+    expect(listing.montage.entries).toBe(0)
   })
 
   it('distingue un dossier vide d’un montage absent — le montage absent', async () => {
@@ -258,7 +258,7 @@ describe('listerSources', () => {
     expect(listing.sources).toEqual([])
     expect(listing.montage.disponible).toBe(false)
     expect(listing.montage.cause).toBe('absent')
-    expect(listing.montage.entrées).toBe(0)
+    expect(listing.montage.entries).toBe(0)
   })
 
   /**
@@ -275,7 +275,7 @@ describe('listerSources', () => {
       relever: () => new Promise(() => {}),
     })
     expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('muet')
+    expect(listing.montage.cause).toBe('silent')
     expect(listing.sources).toEqual([])
   })
 
@@ -292,10 +292,10 @@ describe('listerSources', () => {
     ['ENOENT', 'absent'],
     ['ENOTDIR', 'absent'],
     ['ENAMETOOLONG', 'absent'],
-    ['EACCES', 'refusé'],
-    ['EPERM', 'refusé'],
-    ['EIO', 'illisible'],
-    ['ESTALE', 'illisible'],
+    ['EACCES', 'denied'],
+    ['EPERM', 'denied'],
+    ['EIO', 'unreadable'],
+    ['ESTALE', 'unreadable'],
   ])('nomme la cause : %s donne « %s »', async (code, attendue) => {
     const listing = await listerSources({
       db,
@@ -310,9 +310,9 @@ describe('listerSources', () => {
     expect(listing.montage.cause).toBe(attendue)
   })
 
-  it('range sous « illisible » une erreur sans code plutôt que de deviner', async () => {
+  it('range sous « unreadable » une erreur sans code plutôt que de deviner', async () => {
     const listing = await listerSources({ db, relever: () => Promise.reject(new Error('boum')) })
-    expect(listing.montage.cause).toBe('illisible')
+    expect(listing.montage.cause).toBe('unreadable')
   })
 
   /**
@@ -350,7 +350,7 @@ describe('listerSources', () => {
     lstat.mockRestore()
 
     expect(listing.montage.disponible).toBe(false)
-    expect(listing.montage.cause).toBe('refusé')
+    expect(listing.montage.cause).toBe('denied')
   })
 
   /**

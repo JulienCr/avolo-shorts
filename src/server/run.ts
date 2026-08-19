@@ -4,7 +4,7 @@ import path from 'node:path'
 import type Database from 'better-sqlite3'
 
 import { planSteps, type StepName } from '@/core/graph'
-import type { BilanRepérage } from '@/lib/api'
+import type { SelectionReport } from '@/lib/api'
 import { avancementWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
 import { messageSûr } from '@/server/erreurs'
@@ -375,7 +375,7 @@ export async function relevéPrésence(projet: Project): Promise<Record<StepName
 export type Statut = {
   pid: number
   updatedAt: number
-  cibles: StepName[]
+  targets: StepName[]
   plan: StepName[]
   running: Progression | null
   /** Le message d'échec, **déjà épuré** : ce fichier se recopie dans un rapport. */
@@ -419,7 +419,7 @@ export type Statut = {
    *
    * Déduit par `bilanDeRepérage`, jamais recopié tel quel — voir pourquoi là-bas.
    */
-  repérage: BilanRepérage | null
+  selectionReport: SelectionReport | null
 }
 
 /**
@@ -445,7 +445,7 @@ export type ÉtatRepérage = 'absent' | 'en cours' | 'fait' | 'échoué'
  * 1. *Il décrit une notation tentée, pas une notation réussie.* Il est posé
  *    avant le premier appel et se remplit au fil de l'eau : une passe qui tombe
  *    à la quarantième fenêtre en laisse un qui dit « 40 sur 83 ». Publié seul,
- *    ce chiffre passerait pour un résultat. D'où `partiel`, que seul l'état de
+ *    ce chiffre passerait pour un résultat. D'où `partial`, que seul l'état de
  *    l'étape peut dire — le bilan, lui, ne sait pas s'il est fini.
  * 2. *Il survit à l'exécution qui l'a produit.* La table est celle du processus,
  *    pas celle d'une passe : une relance qui ne vise que le proxy y recopierait
@@ -460,15 +460,15 @@ export type ÉtatRepérage = 'absent' | 'en cours' | 'fait' | 'échoué'
 export function bilanDeRepérage(
   bilan: BilanNotation | null,
   état: ÉtatRepérage,
-): BilanRepérage | null {
+): SelectionReport | null {
   if (bilan === null || état === 'absent') return null
   return {
-    fenêtres: bilan.fenêtres,
-    notées: bilan.notées,
-    lotsRefusés: bilan.lotsRefusés,
-    lotsRépondus: bilan.lotsRépondus,
-    couverture: bilan.couverture,
-    partiel: état !== 'fait',
+    windows: bilan.fenêtres,
+    scored: bilan.notées,
+    rejectedBatches: bilan.lotsRefusés,
+    answeredBatches: bilan.lotsRépondus,
+    coverage: bilan.couverture,
+    partial: état !== 'fait',
   }
 }
 
@@ -486,7 +486,7 @@ function cheminStatut(projectId: string): string {
  */
 function écrireStatut(
   projectId: string,
-  statut: Omit<Statut, 'repérage'>,
+  statut: Omit<Statut, 'selectionReport'>,
   repérage: ÉtatRepérage,
 ): void {
   try {
@@ -496,7 +496,7 @@ function écrireStatut(
     // sans que rien ne le signale.
     const complet: Statut = {
       ...statut,
-      repérage: bilanDeRepérage(dernierBilan(projectId), repérage),
+      selectionReport: bilanDeRepérage(dernierBilan(projectId), repérage),
     }
     const fichier = cheminStatut(projectId)
     fs.mkdirSync(path.dirname(fichier), { recursive: true })
@@ -509,13 +509,71 @@ function écrireStatut(
 }
 
 /**
+ * Les six champs du bilan de repérage, de leur ancien nom français vers le
+ * nouveau nom anglais — la même traduction que celle des cinq clés de
+ * `selection` dans `src/server/db.ts` (`LEGACY_SELECTION_KEYS`), pour la
+ * famille de champs que porte `SelectionReport`.
+ */
+const LEGACY_SELECTION_REPORT_FIELDS: Readonly<Record<string, keyof SelectionReport>> = {
+  fenêtres: 'windows',
+  notées: 'scored',
+  lotsRefusés: 'rejectedBatches',
+  lotsRépondus: 'answeredBatches',
+  couverture: 'coverage',
+  partiel: 'partial',
+}
+
+/** Le bilan de repérage lu d'un JSON, sous son ancien nom ou le nouveau. */
+function selectionReportFromJSON(raw: unknown): SelectionReport | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  // Le nouveau format se reconnaît à un seul de ses champs : les six
+  // arrivent toujours ensemble, voir `bilanDeRepérage`.
+  if ('windows' in obj) return obj as unknown as SelectionReport
+  const translated: Record<string, unknown> = {}
+  for (const [oldName, newName] of Object.entries(LEGACY_SELECTION_REPORT_FIELDS)) {
+    if (oldName in obj) translated[newName] = obj[oldName]
+  }
+  return translated as unknown as SelectionReport
+}
+
+/**
+ * Un `status.json` écrit avant la traduction des clés persistées (issue #73),
+ * ramené à la forme d'aujourd'hui.
+ *
+ * **Une lecture tolérante, pas une migration de fichiers.** Contrairement à la
+ * table `settings` — une ligne par réglage, réécrite une fois pour toutes par
+ * `migrateSelectionSettingKeys` —, `status.json` est un fichier par projet,
+ * jamais collecté au démarrage, et il se réécrit de toute façon au prochain
+ * lancement d'une analyse. Migrer les fichiers coûterait de parcourir
+ * `PROJECTS_DIR` pour un gain identique à celui-ci, qui ne coûte qu'à la
+ * lecture. `cibles` devient `targets`, `repérage` devient `selectionReport`,
+ * et ses six champs suivent `LEGACY_SELECTION_REPORT_FIELDS`. **Ce chemin
+ * pourra partir** le jour où plus aucun `status.json` d'avant cette PR ne
+ * traîne sur le disque — pas avant.
+ */
+function statusFromJSON(raw: unknown): Statut {
+  const obj = { ...(raw as Record<string, unknown>) }
+  const targets = ('targets' in obj ? obj.targets : obj.cibles) as StepName[]
+  const rawSelectionReport = 'selectionReport' in obj ? obj.selectionReport : obj.repérage
+  delete obj.cibles
+  delete obj.repérage
+  return {
+    ...(obj as unknown as Statut),
+    targets,
+    selectionReport: selectionReportFromJSON(rawSelectionReport),
+  }
+}
+
+/**
  * Le dernier statut connu, ou `null`.
  *
  * Lu par `GET /api/projects/:id` pour le seul champ `error` — voir `Statut`.
  */
 export function lireStatut(projectId: string): Statut | null {
   try {
-    return JSON.parse(fs.readFileSync(cheminStatut(projectId), 'utf8')) as Statut
+    const raw: unknown = JSON.parse(fs.readFileSync(cheminStatut(projectId), 'utf8'))
+    return statusFromJSON(raw)
   } catch {
     return null
   }
@@ -533,7 +591,7 @@ function publier(exécution: Exécution, changementDÉtape: boolean): void {
     {
       pid: process.pid,
       updatedAt: maintenant,
-      cibles: exécution.cibles,
+      targets: exécution.cibles,
       plan: exécution.plan,
       running: { ...exécution.courante },
       error: null,
@@ -675,7 +733,7 @@ export async function lancer(
         {
           pid: process.pid,
           updatedAt: Date.now(),
-          cibles: [...cibles],
+          targets: [...cibles],
           plan: [],
           running: null,
           error: null,
@@ -832,7 +890,7 @@ async function exécuter(
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        cibles: exécution.cibles,
+        targets: exécution.cibles,
         plan: exécution.plan,
         running: null,
         error: null,
@@ -896,7 +954,7 @@ async function exécuter(
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        cibles: exécution.cibles,
+        targets: exécution.cibles,
         plan: exécution.plan,
         running: null,
         error: null,
@@ -928,7 +986,7 @@ async function exécuter(
       {
         pid: process.pid,
         updatedAt: Date.now(),
-        cibles: exécution.cibles,
+        targets: exécution.cibles,
         plan: exécution.plan,
         running: null,
         error: messageSûr(cause),

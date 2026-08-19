@@ -1028,7 +1028,7 @@ export async function runCandidates(
   console.log(
     `Présélection : ${retenues.length} fenêtre(s) → ${blocs.length} bloc(s) de détail, ` +
       `cible ${minClips}-${maxClips} clip(s) pour ${(paroleSec / 60).toFixed(1)} min de parole ` +
-      `(un clip toutes les ${réglages.minutesParClip} min).`,
+      `(un clip toutes les ${réglages.minutesPerClip} min).`,
   )
 
   // **La relecture des clips, faite une seule fois et jamais avant l'attente
@@ -1057,7 +1057,7 @@ export async function runCandidates(
     durée,
     minClips,
     maxClips,
-    plafondAbsolu: réglages.clipsMaximum,
+    plafondAbsolu: réglages.maximumClips,
     idsPris: () =>
       new Set(readFreshClips().filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
@@ -1444,7 +1444,7 @@ type ContexteDétail = {
   durée: number
   minClips: number
   maxClips: number
-  /** `clipsMaximum` tel qu'il est réglé — `0` quand il ne l'est pas. */
+  /** `maximumClips` tel qu'il est réglé — `0` quand il ne l'est pas. */
   plafondAbsolu: number
   /**
    * Les `id` que `mergeCandidates` écartera de toute façon : ceux des clips
@@ -1549,7 +1549,7 @@ async function détailler(retenues: Window[], ctx: ContexteDétail): Promise<Cli
   // s'arrondit à zéro est relevée à un pour ne pas abandonner de région : la
   // somme des consignes peut donc dépasser le plafond que l'utilisateur a posé.
   // Le prompt n'est de toute façon qu'une consigne — ni le modèle ni
-  // `parseDetailResponse` ne l'imposent. Ce qui rend `clipsMaximum` vrai est
+  // `parseDetailResponse` ne l'imposent. Ce qui rend `maximumClips` vrai est
   // cette coupe-ci. (relevé par Copilot)
   //
   // Le plafond **réglé**, jamais la cible proportionnelle : sans réglage, rendre

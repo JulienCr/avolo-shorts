@@ -380,17 +380,15 @@ describe("l'empreinte de rendu", () => {
       // **Le cadrage résolu, pas `clip.ratio` ni `clip.cropX`.** Ceux-là ne
       // décrivent plus l'image : le ratio effectif est celui que le calcul
       // choisit — par plan pour la variante, le plus large pour le natif — et
-      // le crop se calcule par plan. La clé est en anglais comme tout ce que
-      // cette PR ajoute ; `marques` et `sousTitres`, plus anciennes, attendent
-      // le balayage de #73.
+      // le crop se calcule par plan.
       framing: cadrage(),
       // Triées : l'ordre de lecture d'un dossier n'a rien à dire.
-      marques: [
-        { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
-        { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
+      marks: [
+        { name: 'logo.png', content: 'contenu-de-logo.png' },
+        { name: 'twitch.png', content: 'contenu-de-twitch.png' },
       ],
       // Le condensat du preset, et non un booléen : il dit avec quel look.
-      sousTitres: e.sousTitres,
+      captionsLook: e.captionsLook,
       // Le condensat de ce qui a été réellement incrusté (#87) — `null` ici :
       // `empreinteAvec` fixe `texte: null`, et ces tests-ci ne portent pas sur
       // le contenu du transcript.
@@ -404,7 +402,7 @@ describe("l'empreinte de rendu", () => {
     // demandé — les deux champs sont là et ils divergent.
     const e = empreinteAvec(clip({ captions: true }), [], false)
     expect(e.captions).toBe(true)
-    expect(e.sousTitres).toBeNull()
+    expect(e.captionsLook).toBeNull()
   })
 
   describe('écartDeLEmpreinte', () => {
@@ -583,9 +581,9 @@ describe("l'empreinte de rendu", () => {
     it("compare sans tenir compte de l'ordre", () => {
       const empreinte = {
         ...empreinteAvec(clip(), []),
-        marques: [
-          { nom: 'twitch.png', contenu: 'contenu-de-twitch.png' },
-          { nom: 'logo.png', contenu: 'contenu-de-logo.png' },
+        marks: [
+          { name: 'twitch.png', content: 'contenu-de-twitch.png' },
+          { name: 'logo.png', content: 'contenu-de-logo.png' },
         ],
       }
       expect(lesMarquesOntBougé(empreinte, marquesNommées(['logo.png', 'twitch.png']), true)).toBe(
@@ -711,9 +709,54 @@ describe("l'empreinte de rendu", () => {
         }),
       )
       expect(lireEmpreinte(chemin())).toBeNull()
-      expect(String(avertissements[0]?.[0])).toMatch(/version 2/)
+      expect(String(avertissements[0]?.[0])).toMatch(
+        new RegExp(`version ${VERSION_EMPREINTE - 1}`),
+      )
       expect(String(avertissements[0]?.[0])).not.toMatch(/illisible/)
       espion.mockRestore()
+    })
+
+    /**
+     * **Le cas concret de l'issue #73.** `VERSION_EMPREINTE` est passée de 3 à 4
+     * avec la traduction des clés persistées (`marques` → `marks`, `sousTitres`
+     * → `captionsLook`) : une empreinte réellement laissée par la recette
+     * d'avant porte encore ces deux noms français, et ce test l'écrit telle
+     * quelle plutôt que par `VERSION_EMPREINTE - 1`, pour que la preuve ne
+     * dépende pas de la valeur courante de la constante. `lireEmpreinte` doit
+     * la périmer sans lever — la version tranche avant que le nouveau schéma ne
+     * la voie — exactement comme les trois rendus déjà sur le disque au moment
+     * de cette PR (aucun n'a de marque incrustée, voir `ROADMAP.md`).
+     */
+    it('périme proprement une empreinte en version 3, sans lever', () => {
+      const warnings: unknown[][] = []
+      const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+        warnings.push(a)
+      })
+      fs.mkdirSync(path.dirname(chemin()), { recursive: true })
+      fs.writeFileSync(
+        chemin(),
+        JSON.stringify({
+          version: 3,
+          segments: clip().segments,
+          captions: true,
+          branding: true,
+          framing: cadrage(),
+          marques: [{ nom: 'logo.png', contenu: 'contenu-de-logo.png' }],
+          sousTitres: 'un-condensat',
+          captionsContent: 'un-autre-condensat',
+        }),
+      )
+      expect(() => lireEmpreinte(chemin())).not.toThrow()
+      expect(lireEmpreinte(chemin())).toBeNull()
+      // **La distinction qui compte** (voir le commentaire de `lireEmpreinte`) :
+      // une recette antérieure n'est pas un fichier illisible. Si
+      // `VERSION_EMPREINTE` n'avait pas été montée à 4 avec cette traduction, la
+      // version stockée matcherait encore la version courante, le fichier
+      // passerait au schéma — qui ne connaît plus `marques`/`sousTitres` — et le
+      // message basculerait sur « illisible », le mauvais diagnostic.
+      expect(String(warnings[0]?.[0])).toMatch(/version 3/)
+      expect(String(warnings[0]?.[0])).not.toMatch(/illisible/)
+      spy.mockRestore()
     })
 
     it("garde un champ inconnu sans s'en offusquer : c'est `version` qui tranche", () => {

@@ -16,7 +16,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
-import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
+import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type { Settings } from '@/lib/api'
 
 vi.mock('next/navigation', () => ({
@@ -53,7 +53,7 @@ const AI_DEFAULTS: Settings['ai'] = {
   ollamaBaseUrl: '',
 }
 
-const DEFAULTS: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT }, ai: { ...AI_DEFAULTS } }
+const DEFAULTS: Settings = { selection: { ...DEFAULT_SELECTION_DIMENSIONS }, ai: { ...AI_DEFAULTS } }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
 function server(options: { read?: () => Response; write?: () => Response } = {}) {
@@ -93,12 +93,12 @@ async function mountScreen() {
 
 describe('les réglages du repérage', () => {
   it('nomme les réglages en français, jamais par leur clé', async () => {
-    // Un écran qui afficherait `fenetresParClip: 2` demanderait d'aller lire le
+    // Un écran qui afficherait `windowsPerClip: 2` demanderait d'aller lire le
     // code pour savoir s'il faut monter ou descendre.
     server()
     await mountScreen()
 
-    expect(document.body.textContent).not.toMatch(/fenetresParClip|clipsMinimum|minutesParClip/)
+    expect(document.body.textContent).not.toMatch(/windowsPerClip|minimumClips|minutesPerClip/)
     expect(screen.getByLabelText(/Fenêtres examinées par proposition/)).toBeTruthy()
   })
 
@@ -116,7 +116,7 @@ describe('les réglages du repérage', () => {
     // défauts. Afficher les constantes ferait voir le défaut du code là où la
     // base porte autre chose, et personne ne verrait la différence avant le
     // premier repérage.
-    server({ read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }) })
+    server({ read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS }) })
     await mountScreen()
     expect(screen.getByLabelText(/tranche de/i)).toHaveProperty('value', '9')
   })
@@ -134,7 +134,7 @@ describe('les réglages du repérage', () => {
     expect(writes).toEqual([])
 
     await userEvent.tab()
-    await waitFor(() => expect(writes).toEqual([{ selection: { minutesParClip: 12 } }]))
+    await waitFor(() => expect(writes).toEqual([{ selection: { minutesPerClip: 12 } }]))
   })
 
   it('n’envoie que le champ touché', async () => {
@@ -146,7 +146,7 @@ describe('les réglages du repérage', () => {
     await userEvent.type(field, '20')
     await userEvent.tab()
 
-    await waitFor(() => expect(writes).toEqual([{ selection: { fenetresMinimum: 20 } }]))
+    await waitFor(() => expect(writes).toEqual([{ selection: { minimumWindows: 20 } }]))
   })
 
   it('ne prend pas une boîte vide pour un zéro', async () => {
@@ -162,7 +162,7 @@ describe('les réglages du repérage', () => {
     await userEvent.tab()
 
     expect(writes).toEqual([])
-    expect(max).toHaveProperty('value', String(DEFAULTS.selection.clipsMaximum))
+    expect(max).toHaveProperty('value', String(DEFAULTS.selection.maximumClips))
   })
 
   it('ne laisse pas un refus du bouton « Revenir à » partir en rejet nu', async () => {
@@ -177,7 +177,7 @@ describe('les réglages du repérage', () => {
     window.addEventListener('unhandledrejection', surRejet)
     try {
       server({
-        read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }),
+        read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS }),
         write: () => response({ error: 'refusé' }, 400),
       })
       await mountScreen()
@@ -202,19 +202,19 @@ describe('les réglages du repérage', () => {
 
   it('propose de revenir au défaut, et seulement quand il y a de quoi', async () => {
     const writes = server({
-      read: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 9 }, ai: AI_DEFAULTS }),
+      read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS }),
     })
     await mountScreen()
 
     // Un seul réglage s'écarte du défaut, donc un seul bouton de retour.
     const resets = screen.getAllByRole('button', { name: /Revenir à/ })
     expect(resets).toHaveLength(1)
-    expect(resets[0].textContent).toContain(String(DIMENSIONS_PAR_DÉFAUT.minutesParClip))
+    expect(resets[0].textContent).toContain(String(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip))
 
     await userEvent.click(resets[0])
     await waitFor(() =>
       expect(writes).toEqual([
-        { selection: { minutesParClip: DIMENSIONS_PAR_DÉFAUT.minutesParClip } },
+        { selection: { minutesPerClip: DEFAULT_SELECTION_DIMENSIONS.minutesPerClip } },
       ]),
     )
   })
@@ -231,7 +231,7 @@ describe('les réglages du repérage', () => {
 
   it('bouge l’estimation quand un réglage bouge', async () => {
     server({
-      write: () => response({ selection: { ...DIMENSIONS_PAR_DÉFAUT, minutesParClip: 3 }, ai: AI_DEFAULTS }),
+      write: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 3 }, ai: AI_DEFAULTS }),
     })
     await mountScreen()
     const before = screen.getByTestId('selection-estimate').textContent
@@ -252,7 +252,7 @@ describe('les pannes', () => {
     // Une valeur hors bornes rend un 400, et l'écriture n'est pas optimiste :
     // sans ce mot, le champ reviendrait à sa valeur d'avant et on croirait à un
     // écran qui ne réagit pas.
-    server({ write: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    server({ write: () => response({ error: 'minutesPerClip doit valoir au moins 1.' }, 400) })
     await mountScreen()
 
     const field = screen.getByLabelText(/tranche de/i)
@@ -261,7 +261,7 @@ describe('les pannes', () => {
     await userEvent.tab()
 
     await waitFor(() =>
-      expect(screen.getByText('minutesParClip doit valoir au moins 1.')).toBeTruthy(),
+      expect(screen.getByText('minutesPerClip doit valoir au moins 1.')).toBeTruthy(),
     )
   })
 
@@ -271,7 +271,7 @@ describe('les pannes', () => {
     // pas et le recalage sur `value` seul ne se déclenchait jamais — le bandeau
     // disait « pas enregistré » pendant que la boîte affichait toujours le
     // nombre refusé. (relevé par Copilot)
-    server({ write: () => response({ error: 'minutesParClip doit valoir au moins 1.' }, 400) })
+    server({ write: () => response({ error: 'minutesPerClip doit valoir au moins 1.' }, 400) })
     await mountScreen()
 
     const field = screen.getByLabelText(/tranche de/i)
@@ -280,7 +280,7 @@ describe('les pannes', () => {
     await userEvent.tab()
 
     await waitFor(() => expect(screen.getByText(/au moins 1/)).toBeTruthy())
-    expect(field).toHaveProperty('value', String(DIMENSIONS_PAR_DÉFAUT.minutesParClip))
+    expect(field).toHaveProperty('value', String(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip))
   })
 
   it('reprend la valeur à chaque refus, y compris au second d’affilée', async () => {
@@ -295,7 +295,7 @@ describe('les pannes', () => {
       await userEvent.type(field, typed)
       await userEvent.tab()
       await waitFor(() =>
-        expect(field).toHaveProperty('value', String(DIMENSIONS_PAR_DÉFAUT.minutesParClip)),
+        expect(field).toHaveProperty('value', String(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip)),
       )
     }
   })

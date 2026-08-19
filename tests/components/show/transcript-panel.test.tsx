@@ -305,7 +305,7 @@ describe('TranscriptPanel — correction', () => {
       running: { step: 'transcript', progress: 0.4 },
       error: null,
       stopped: false,
-      repérage: null,
+      selectionReport: null,
       sizeBytes: null,
     }
     stubFetch([

@@ -303,11 +303,11 @@ describe('useCreerProjet', () => {
 describe('les réglages', () => {
   const settings: Settings = {
     selection: {
-      minutesParClip: 6,
-      fenetresParClip: 2,
-      clipsMinimum: 6,
-      fenetresMinimum: 10,
-      clipsMaximum: 0,
+      minutesPerClip: 6,
+      windowsPerClip: 2,
+      minimumClips: 6,
+      minimumWindows: 10,
+      maximumClips: 0,
     },
     ai: {
       selectionProvider: 'gemini',
@@ -338,7 +338,7 @@ describe('les réglages', () => {
    */
   it('remplacent le cache avec la réponse plutôt que de la redemander', async () => {
     const after: Settings = {
-      selection: { ...settings.selection, minutesParClip: 4 },
+      selection: { ...settings.selection, minutesPerClip: 4 },
       ai: { ...settings.ai },
     }
     vi.stubGlobal('fetch', vi.fn(async () => reponse(after)))
@@ -346,7 +346,7 @@ describe('les réglages', () => {
     const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
-      result.current.mutate({ selection: { minutesParClip: 4 } })
+      result.current.mutate({ selection: { minutesPerClip: 4 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(client.getQueryData(cles.settings)).toEqual(after)
@@ -365,7 +365,7 @@ describe('les réglages', () => {
     const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
-      result.current.mutate({ selection: { clipsMaximum: 12 } })
+      result.current.mutate({ selection: { maximumClips: 12 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(invalide).not.toHaveBeenCalled()
@@ -375,17 +375,17 @@ describe('les réglages', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        reponse({ error: 'Réglage selection.minutesParClip : un entier supérieur…' }, 400),
+        reponse({ error: 'Réglage selection.minutesPerClip : un entier supérieur…' }, 400),
       ),
     )
     const { enveloppe } = harnais()
     const { result } = renderHook(() => useSaveSettings(), { wrapper: enveloppe })
 
     await act(async () => {
-      result.current.mutate({ selection: { minutesParClip: 0 } })
+      result.current.mutate({ selection: { minutesPerClip: 0 } })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(result.current.error?.message).toContain('Réglage selection.minutesParClip')
+    expect(result.current.error?.message).toContain('Réglage selection.minutesPerClip')
   })
 })
 

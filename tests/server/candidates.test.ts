@@ -561,7 +561,7 @@ describe("l'étape de repérage", () => {
 
     const [, min, max] = /return (\d+) to (\d+) clips/.exec(détail)!
     // 40 segments de 3,5 s : 140 s de parole, et non les 239 s que sépare le
-    // premier mot du dernier. Le prorata n'en tire aucun clip, `clipsMinimum` en
+    // premier mot du dernier. Le prorata n'en tire aucun clip, `minimumClips` en
     // voudrait six, et les deux créneaux de 90 s tranchent à deux. Fusionner
     // remanie la charge utile, cela ne sélectionne pas moins de matière — et
     // depuis que la cible se calcule sur la parole, la fusion ne peut plus
@@ -602,8 +602,8 @@ describe("l'étape de repérage", () => {
    * relevait la borne haute d'un cran après que `clipCountTargets` l'eut posée.
    * (relevé par Copilot)
    */
-  it('ne relève pas la borne haute que clipsMaximum vient de poser', async () => {
-    setRéglage(db, 'clipsMaximum', 2)
+  it('ne relève pas la borne haute que maximumClips vient de poser', async () => {
+    setRéglage(db, 'maximumClips', 2)
     const prompts: { mode: ModeGemini; prompt: string }[] = []
     await runCandidates(ID, { db, appel: modèle(prompts), sleep: async () => {} })
 
@@ -776,13 +776,13 @@ describe("l'étape de repérage", () => {
       })
       await attendre(ID)
 
-      expect(lireStatut(ID)?.repérage).toEqual({
-        fenêtres: 4,
-        notées: 4,
-        lotsRefusés: 0,
-        lotsRépondus: 2,
-        couverture: 1,
-        partiel: false,
+      expect(lireStatut(ID)?.selectionReport).toEqual({
+        windows: 4,
+        scored: 4,
+        rejectedBatches: 0,
+        answeredBatches: 2,
+        coverage: 1,
+        partial: false,
       })
     })
 
@@ -806,7 +806,7 @@ describe("l'étape de repérage", () => {
 
       const statut = lireStatut(ID)
       expect(statut?.error).toMatch(/refusé/)
-      expect(statut?.repérage).toMatchObject({ notées: 0, couverture: 0, partiel: true })
+      expect(statut?.selectionReport).toMatchObject({ scored: 0, coverage: 0, partial: true })
     })
 
     /**
@@ -842,7 +842,7 @@ describe("l'étape de repérage", () => {
 
       const statut = lireStatut(ID)
       expect(statut?.error).toMatch(/copie de travail/)
-      expect(statut?.repérage).toMatchObject({ notées: 4, couverture: 1, partiel: false })
+      expect(statut?.selectionReport).toMatchObject({ scored: 4, coverage: 1, partial: false })
     })
 
     /**
@@ -857,7 +857,7 @@ describe("l'étape de repérage", () => {
       process.env.SCORE_BATCH = '2'
       const vus: unknown[] = []
       const espion: AppelGemini = async (prompt, mode) => {
-        if (mode === 'score') vus.push(lireStatut(ID)?.repérage ?? null)
+        if (mode === 'score') vus.push(lireStatut(ID)?.selectionReport ?? null)
         return modèle([])(prompt, mode)
       }
 
@@ -877,7 +877,7 @@ describe("l'étape de repérage", () => {
       // lot est rangé et le statut le dit déjà.
       expect(vus).toHaveLength(2)
       expect(vus[0]).toBeNull()
-      expect(vus[1]).toMatchObject({ notées: 2, fenêtres: 4, partiel: true })
+      expect(vus[1]).toMatchObject({ scored: 2, windows: 4, partial: true })
     })
 
     /**
@@ -895,7 +895,7 @@ describe("l'étape de repérage", () => {
         },
       })
       await attendre(ID)
-      expect(lireStatut(ID)?.repérage).not.toBeNull()
+      expect(lireStatut(ID)?.selectionReport).not.toBeNull()
 
       // Une seconde passe dont l'étape ne note rien : le décompte publié ne peut
       // venir que de la précédente.
@@ -905,7 +905,7 @@ describe("l'étape de repérage", () => {
         étapes: { runCandidates: async () => [] },
       })
       await attendre(ID)
-      expect(lireStatut(ID)?.repérage).toBeNull()
+      expect(lireStatut(ID)?.selectionReport).toBeNull()
     })
   })
 
@@ -1301,7 +1301,7 @@ describe("l'étape de repérage", () => {
       // défaut n'en retiendrait que dix des quinze fenêtres et la découpe
       // n'aurait plus huit blocs à recouper. Le réglage élargit l'examen : ce
       // qui s'exerce ici est le garde-fou, pas le dimensionnement.
-      setRéglage(db, 'fenetresParClip', 8)
+      setRéglage(db, 'windowsPerClip', 8)
     })
 
     /**
@@ -1473,12 +1473,12 @@ describe("l'étape de repérage", () => {
      *
      * La consigne seule ne suffit pas : une part qui s'arrondit à zéro est
      * relevée à un pour ne pas abandonner de région, donc la somme des consignes
-     * enfants peut dépasser le plafond. Avec `clipsMaximum = 2` et une descente
+     * enfants peut dépasser le plafond. Avec `maximumClips = 2` et une descente
      * jusqu'aux fenêtres, quinze appels demandent chacun un clip. C'est la coupe
      * finale qui rend le réglage vrai. (relevé par Copilot)
      */
     it('tient le plafond réglé même après une découpe complète', async () => {
-      setRéglage(db, 'clipsMaximum', 2)
+      setRéglage(db, 'maximumClips', 2)
       const clips = await runCandidates(ID, {
         db,
         appel: détailleur((blocs) => blocs.length > 1),
@@ -1499,7 +1499,7 @@ describe("l'étape de repérage", () => {
      * autorisait. (relevé par Codex)
      */
     it('dédoublonne avant de plafonner, pas après', async () => {
-      setRéglage(db, 'clipsMaximum', 2)
+      setRéglage(db, 'maximumClips', 2)
       // Deux bornes brutes distinctes qui se calent toutes deux sur (0, 32), et
       // une troisième bien distincte.
       const brutes = [
@@ -1555,7 +1555,7 @@ describe("l'étape de repérage", () => {
      * identifiants attendus ici s'en déduisent plutôt que de se coder en dur.
      */
     it('reclasse les résultats d’une découpe avant de plafonner', async () => {
-      setRéglage(db, 'clipsMaximum', 2)
+      setRéglage(db, 'maximumClips', 2)
       // Le modèle note d'autant mieux que la grappe est tardive, et rend ses
       // clips comme le prompt le lui demande — le meilleur d'abord. Les deux
       // meilleurs de l'émission sont donc tout au bout, dans la seconde moitié
@@ -1616,7 +1616,7 @@ describe("l'étape de repérage", () => {
      * réglé. (relevé par Codex)
      */
     it('relit les décisions prises pendant la requête avant de plafonner', async () => {
-      setRéglage(db, 'clipsMaximum', 2)
+      setRéglage(db, 'maximumClips', 2)
       const model = détailleur(() => false)
       const firstPass = await runCandidates(ID, { db, appel: model, sleep: async () => {} })
       expect(firstPass).toHaveLength(2)

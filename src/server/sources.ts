@@ -41,7 +41,7 @@ import { urlVignetteSource } from '@/server/vignettes-sources'
  *    rendaient franchement trompeur — un `REPLAY_DIR` mal orthographié **sous un
  *    partage 9p sain** annonçait `fstype: '9p'` avec la lecture en échec, et un
  *    seul fichier aux droits refusés faisait basculer tout le dossier. Ils sont
- *    désormais nommés, `absent` et `refusé`, et le geste utile suit du nom.
+ *    désormais nommés, `absent` et `denied`, et le geste utile suit du nom.
  */
 
 /**
@@ -189,11 +189,11 @@ type Relevé = { relevé: RelevéDossier; cause: null } | { relevé: null; cause
  * faux plutôt que quelque chose de vague.
  */
 function causeDe(erreur: unknown): CauseIndisponible {
-  if (erreur instanceof Error && erreur.message === RENONCEMENT) return 'muet'
+  if (erreur instanceof Error && erreur.message === RENONCEMENT) return 'silent'
   if (estUneAbsence(erreur)) return 'absent'
   const code = (erreur as NodeJS.ErrnoException | null)?.code
-  if (code === 'EACCES' || code === 'EPERM') return 'refusé'
-  return 'illisible'
+  if (code === 'EACCES' || code === 'EPERM') return 'denied'
+  return 'unreadable'
 }
 
 /** Le relevé, ou la cause pour laquelle il n'a pas eu lieu. */
@@ -311,7 +311,7 @@ export async function listerSources(options: OptionsSources = {}): Promise<Sourc
     disponible: relevé !== null,
     cause,
     fstype: fstypeDe(dir),
-    entrées: relevé?.entrées ?? 0,
+    entries: relevé?.entrées ?? 0,
   }
   if (relevé === null) return { sources: [], montage }
 

@@ -19,7 +19,7 @@ import type { StepName } from '@/core/graph'
 import { phaseProjet } from '@/core/parcours'
 import { suite } from '@/lib/parcours'
 import { FilDeTri } from '@/components/tri/fil'
-import type { BilanRepérage, CandidateClip } from '@/lib/api'
+import type { SelectionReport, CandidateClip } from '@/lib/api'
 import type { Vue } from '@/components/tri/modele'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 
@@ -72,7 +72,7 @@ function Harnais({
   depart: CandidateClip[]
   vueInitiale?: Vue
   proxyPret?: boolean
-  bilan?: BilanRepérage | null
+  bilan?: SelectionReport | null
 }) {
   const [clips, setClips] = useState(depart)
   const [vue, setVue] = useState<Vue>(vueInitiale)
@@ -725,13 +725,13 @@ describe('le montage sans proxy', () => {
 })
 
 describe('la couverture du repérage', () => {
-  const perdu: BilanRepérage = {
-    fenêtres: 83,
-    notées: 57,
-    lotsRefusés: 4,
-    lotsRépondus: 7,
-    couverture: 0.684,
-    partiel: false,
+  const perdu: SelectionReport = {
+    windows: 83,
+    scored: 57,
+    rejectedBatches: 4,
+    answeredBatches: 7,
+    coverage: 0.684,
+    partial: false,
   }
 
   it('vit à côté du compte, et ne se referme pas', () => {
@@ -750,7 +750,7 @@ describe('la couverture du repérage', () => {
   })
 
   it('annonce un décompte provisoire sans le déduire lui-même', () => {
-    render(<Harnais depart={[candidat(1)]} bilan={{ ...perdu, partiel: true }} />)
+    render(<Harnais depart={[candidat(1)]} bilan={{ ...perdu, partial: true }} />)
     expect(screen.getByTestId('reperage').textContent).toMatch(/provisoire/i)
   })
 })

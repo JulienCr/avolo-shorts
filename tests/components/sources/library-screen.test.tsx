@@ -68,7 +68,7 @@ const SOURCES: SourcesListing = {
       thumbnailUrl: '/api/sources/thumb?file=2025-06-15-cqlp.mp4',
     },
   ],
-  montage: { disponible: true, cause: null, fstype: '9p', entrées: 1 },
+  montage: { disponible: true, cause: null, fstype: '9p', entries: 1 },
 }
 
 /** Un serveur réduit aux trois routes de cet écran. */
@@ -297,7 +297,7 @@ describe('les pannes', () => {
       sources: () =>
         reponse({
           sources: [],
-          montage: { disponible: false, cause: 'absent', fstype: null, entrées: 0 },
+          montage: { disponible: false, cause: 'absent', fstype: null, entries: 0 },
         }),
     })
     renderScreen()

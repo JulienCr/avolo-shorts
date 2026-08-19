@@ -92,7 +92,7 @@ export function EcranDeProjet({ id }: { id: string }) {
   const size: ShowSize = {
     durationSec: projet.data?.project.durationSec ?? null,
     sizeBytes: projet.data?.sizeBytes ?? null,
-    windows: projet.data?.repérage?.fenêtres ?? null,
+    windows: projet.data?.selectionReport?.windows ?? null,
   }
 
   const prêt = !projet.isPending && !candidats.isPending
@@ -239,7 +239,7 @@ export function EcranDeProjet({ id }: { id: string }) {
                 vue={vue}
                 onVue={allerÀLaVue}
                 proxyPret={steps.proxy === true}
-                bilan={projet.data?.repérage ?? null}
+                bilan={projet.data?.selectionReport ?? null}
                 suite={suite(phase, { id })}
                 onStatut={(clipId, status) =>
                   patch.mutate({ clipId, projectId: id, patch: { status } })

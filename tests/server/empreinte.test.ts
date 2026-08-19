@@ -214,7 +214,7 @@ function poserTranscript(): void {
 
 /** Les noms des marques que l'empreinte dit incrustées, triés. */
 function marquesIncrustées(chemin: string): string[] {
-  return (lireEmpreinte(chemin)?.marques ?? []).map((m) => m.nom)
+  return (lireEmpreinte(chemin)?.marks ?? []).map((m) => m.name)
 }
 
 /** Le `PATCH` réel, tel que Next l'appelle. */
@@ -451,7 +451,7 @@ describe('les marques incrustées', () => {
     putClip(getDb(), clip())
     const chemins = cheminsRendu(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir })
-    const avant = lireEmpreinte(chemins.empreinte)?.marques
+    const avant = lireEmpreinte(chemins.empreinte)?.marks
 
     fs.writeFileSync(path.join(brandDir, 'logo.png'), 'une tout autre image')
     encodages = []
@@ -461,7 +461,7 @@ describe('les marques incrustées', () => {
     expect(encodages).toContain(chemins.mp4)
     // Le nom n'a pas bougé, le contenu si.
     expect(marquesIncrustées(chemins.empreinte)).toEqual(['logo.png', 'twitch.png'])
-    expect(lireEmpreinte(chemins.empreinte)?.marques).not.toEqual(avant)
+    expect(lireEmpreinte(chemins.empreinte)?.marks).not.toEqual(avant)
   })
 
   it('ne périme rien quand le fichier est réécrit à l’identique', async () => {
@@ -570,7 +570,7 @@ describe('le preset de sous-titres', () => {
     putClip(getDb(), clip({ captions: true }))
     const chemins = cheminsRendu(ID, CLIP, '1:1')
     await renderClip(CLIP, { db: getDb(), brandDir, style: AUTRE })
-    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).toBeTypeOf('string')
+    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).toBeTypeOf('string')
 
     encodages = []
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir })
@@ -604,7 +604,7 @@ describe('le preset de sous-titres', () => {
     const chemins = cheminsRendu(ID, CLIP, '1:1')
     const polices = path.join(racine, 'fonts')
     await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
-    const sansPolice = lireEmpreinte(chemins.empreinte)?.sousTitres
+    const sansPolice = lireEmpreinte(chemins.empreinte)?.captionsLook
 
     // Anton arrive.
     fs.mkdirSync(polices, { recursive: true })
@@ -614,7 +614,7 @@ describe('le preset de sous-titres', () => {
 
     expect(résultat.skipped).toBe(false)
     expect(encodages).toContain(chemins.mp4)
-    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).not.toBe(sansPolice)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).not.toBe(sansPolice)
   })
 
   /**
@@ -631,14 +631,14 @@ describe('le preset de sous-titres', () => {
     fs.mkdirSync(polices, { recursive: true })
     fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’hier')
     await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
-    const avant = lireEmpreinte(chemins.empreinte)?.sousTitres
+    const avant = lireEmpreinte(chemins.empreinte)?.captionsLook
 
     fs.writeFileSync(path.join(polices, 'Anton-Regular.ttf'), 'la version d’aujourd’hui')
     encodages = []
     const résultat = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: polices })
 
     expect(résultat.skipped).toBe(false)
-    expect(lireEmpreinte(chemins.empreinte)?.sousTitres).not.toBe(avant)
+    expect(lireEmpreinte(chemins.empreinte)?.captionsLook).not.toBe(avant)
   })
 
   it("ignore un fichier du dossier qui n'est pas une police", async () => {
@@ -671,7 +671,7 @@ describe('le preset de sous-titres', () => {
 
     const empreinte = lireEmpreinte(chemins.empreinte)
     expect(empreinte?.captions).toBe(true)
-    expect(empreinte?.sousTitres).toBeNull()
+    expect(empreinte?.captionsLook).toBeNull()
   })
 })
 
@@ -914,7 +914,7 @@ describe('le texte des sous-titres (#87)', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
     const empreinte = lireEmpreinte(chemins.empreinte)
     expect(empreinte?.captions).toBe(true)
-    expect(empreinte?.sousTitres).toBeNull()
+    expect(empreinte?.captionsLook).toBeNull()
     expect(empreinte?.captionsContent).toBeNull()
 
     encodages = []

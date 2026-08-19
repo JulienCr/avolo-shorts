@@ -26,7 +26,7 @@ import {
   type Project,
 } from '@/server/db'
 import { mergeCandidates } from '@/core/candidates'
-import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
+import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type { Clip } from '@/core/edl'
 
 /**
@@ -122,20 +122,20 @@ describe('le schéma', () => {
 
 describe('les réglages', () => {
   it('rendent les défauts sur une base vierge', () => {
-    expect(getRéglages(db)).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(getRéglages(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   it('font l’aller-retour', () => {
-    setRéglage(db, 'minutesParClip', 4)
-    expect(getRéglages(db).minutesParClip).toBe(4)
+    setRéglage(db, 'minutesPerClip', 4)
+    expect(getRéglages(db).minutesPerClip).toBe(4)
     // Les autres ne bougent pas : un réglage écrit n'en efface aucun.
-    expect(getRéglages(db).fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
+    expect(getRéglages(db).windowsPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.windowsPerClip)
   })
 
   it('réécrivent sans dupliquer', () => {
-    setRéglage(db, 'minutesParClip', 4)
-    setRéglage(db, 'minutesParClip', 9)
-    expect(getRéglages(db).minutesParClip).toBe(9)
+    setRéglage(db, 'minutesPerClip', 4)
+    setRéglage(db, 'minutesPerClip', 9)
+    expect(getRéglages(db).minutesPerClip).toBe(9)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 1 })
   })
 
@@ -145,36 +145,36 @@ describe('les réglages', () => {
     const poser = (valeur: string) =>
       db
         .prepare('INSERT OR REPLACE INTO settings (key, value, updatedAt) VALUES (?, ?, ?)')
-        .run('selection.minutesParClip', valeur, 0)
+        .run('selection.minutesPerClip', valeur, 0)
     for (const valeur of ['', 'sept', '-3', '0']) {
       poser(valeur)
-      expect(getRéglages(db).minutesParClip).toBe(DIMENSIONS_PAR_DÉFAUT.minutesParClip)
+      expect(getRéglages(db).minutesPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.minutesPerClip)
     }
   })
 
   // Zéro est la valeur signifiante de ce champ-là — « aucun plafond » — et lui
   // appliquer le refus des autres le rendrait impossible à remettre à zéro.
-  it('acceptent zéro pour clipsMaximum, et lui seul', () => {
-    setRéglage(db, 'clipsMaximum', 30)
-    expect(getRéglages(db).clipsMaximum).toBe(30)
-    setRéglage(db, 'clipsMaximum', 0)
-    expect(getRéglages(db).clipsMaximum).toBe(0)
-    expect(() => setRéglage(db, 'fenetresParClip', 0)).toThrow()
+  it('acceptent zéro pour maximumClips, et lui seul', () => {
+    setRéglage(db, 'maximumClips', 30)
+    expect(getRéglages(db).maximumClips).toBe(30)
+    setRéglage(db, 'maximumClips', 0)
+    expect(getRéglages(db).maximumClips).toBe(0)
+    expect(() => setRéglage(db, 'windowsPerClip', 0)).toThrow()
   })
 
   // Une clé mal orthographiée s'écrirait sans bruit, ne serait jamais relue, et
   // l'écran de réglages afficherait le défaut en jurant avoir enregistré.
   it('refusent une clé inconnue', () => {
     expect(() =>
-      setRéglage(db, 'minutesParClipe' as keyof typeof DIMENSIONS_PAR_DÉFAUT, 4),
+      setRéglage(db, 'minutesParClipe' as keyof typeof DEFAULT_SELECTION_DIMENSIONS, 4),
     ).toThrow(/inconnu/i)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
   it('refusent une valeur qui n’est pas un entier positif', () => {
-    expect(() => setRéglage(db, 'minutesParClip', 0)).toThrow()
-    expect(() => setRéglage(db, 'minutesParClip', -1)).toThrow()
-    expect(() => setRéglage(db, 'minutesParClip', 4.5)).toThrow()
+    expect(() => setRéglage(db, 'minutesPerClip', 0)).toThrow()
+    expect(() => setRéglage(db, 'minutesPerClip', -1)).toThrow()
+    expect(() => setRéglage(db, 'minutesPerClip', 4.5)).toThrow()
   })
 
   /**
@@ -184,14 +184,14 @@ describe('les réglages', () => {
    * mot le signale. (relevé par Copilot)
    */
   it('refusent un entier non sûr, comme le lecteur', () => {
-    expect(() => setRéglage(db, 'minutesParClip', 1e100)).toThrow()
+    expect(() => setRéglage(db, 'minutesPerClip', 1e100)).toThrow()
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
-  // Le contrat qui relie la table au type : une clé ajoutée à `DimensionsRepérage`
+  // Le contrat qui relie la table au type : une clé ajoutée à `SelectionDimensions`
   // sans être relue ici passerait inaperçue jusqu'à ce qu'on la règle en vain.
-  it('savent lire et écrire chacun des champs de DimensionsRepérage', () => {
-    for (const champ of Object.keys(DIMENSIONS_PAR_DÉFAUT) as (keyof typeof DIMENSIONS_PAR_DÉFAUT)[]) {
+  it('savent lire et écrire chacun des champs de SelectionDimensions', () => {
+    for (const champ of Object.keys(DEFAULT_SELECTION_DIMENSIONS) as (keyof typeof DEFAULT_SELECTION_DIMENSIONS)[]) {
       setRéglage(db, champ, 3)
       expect(getRéglages(db)[champ]).toBe(3)
     }
@@ -199,13 +199,13 @@ describe('les réglages', () => {
 })
 
 describe('le registre des réglages', () => {
-  it('décrit chaque champ de DimensionsRepérage', () => {
-    // L'exhaustivité par le type : un champ ajouté à `DimensionsRepérage` sans
+  it('décrit chaque champ de SelectionDimensions', () => {
+    // L'exhaustivité par le type : un champ ajouté à `SelectionDimensions` sans
     // venir dans `SELECTION_FIELDS` casse le type-check.
-    for (const nom of Object.keys(DIMENSIONS_PAR_DÉFAUT)) {
+    for (const nom of Object.keys(DEFAULT_SELECTION_DIMENSIONS)) {
       const champ = settingField('selection', nom)
       expect(champ, nom).toBeDefined()
-      expect(champ!.defaultValue).toBe(DIMENSIONS_PAR_DÉFAUT[nom as keyof typeof DIMENSIONS_PAR_DÉFAUT])
+      expect(champ!.defaultValue).toBe(DEFAULT_SELECTION_DIMENSIONS[nom as keyof typeof DEFAULT_SELECTION_DIMENSIONS])
     }
   })
 
@@ -230,9 +230,9 @@ describe('le registre des réglages', () => {
   })
 
   it('préfixe chaque clé stockée par sa famille', () => {
-    setRéglage(db, 'minutesParClip', 4)
+    setRéglage(db, 'minutesPerClip', 4)
     expect(db.prepare('SELECT key FROM settings').all()).toEqual([
-      { key: 'selection.minutesParClip' },
+      { key: 'selection.minutesPerClip' },
     ])
   })
 })
@@ -376,13 +376,13 @@ describe('la grammaire du registre', () => {
 describe('appliquerRéglages', () => {
   it('écrit plusieurs champs d’un coup et rend les réglages résultants', () => {
     const result = applySettings(db, {
-      selection: { minutesParClip: 4, clipsMaximum: 12 },
+      selection: { minutesPerClip: 4, maximumClips: 12 },
     })
-    expect(result.selection.minutesParClip).toBe(4)
-    expect(result.selection.clipsMaximum).toBe(12)
+    expect(result.selection.minutesPerClip).toBe(4)
+    expect(result.selection.maximumClips).toBe(12)
     // Les champs non touchés ressortent à leur valeur effective, pas absents :
     // l'écran affiche ce qui s'applique.
-    expect(result.selection.fenetresParClip).toBe(DIMENSIONS_PAR_DÉFAUT.fenetresParClip)
+    expect(result.selection.windowsPerClip).toBe(DEFAULT_SELECTION_DIMENSIONS.windowsPerClip)
   })
 
   it('refuse une clé inconnue', () => {
@@ -404,23 +404,23 @@ describe('appliquerRéglages', () => {
   it('refuse une famille inconnue même sans aucun champ', () => {
     expect(() => applySettings(db, { hook: {} })).toThrow(InvalidSettingError)
     // Et une famille connue vide reste acceptée : elle ne demande rien.
-    expect(applySettings(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(applySettings(db, { selection: {} }).selection).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   it('refuse une valeur hors bornes', () => {
-    expect(() => applySettings(db, { selection: { minutesParClip: 0 } })).toThrow(
+    expect(() => applySettings(db, { selection: { minutesPerClip: 0 } })).toThrow(
       InvalidSettingError,
     )
-    expect(() => applySettings(db, { selection: { fenetresParClip: -1 } })).toThrow()
-    expect(() => applySettings(db, { selection: { clipsMinimum: 2.5 } })).toThrow()
+    expect(() => applySettings(db, { selection: { windowsPerClip: -1 } })).toThrow()
+    expect(() => applySettings(db, { selection: { minimumClips: 2.5 } })).toThrow()
   })
 
   it('refuse une valeur du mauvais type sans la convertir', () => {
     // `"4"` n'est pas 4 : accepter la chaîne ferait passer `"4abc"` par le même
     // chemin le jour où quelqu'un remplacerait le contrôle par un `Number()`.
-    expect(() => applySettings(db, { selection: { minutesParClip: '4' } })).toThrow()
-    expect(() => applySettings(db, { selection: { minutesParClip: null } })).toThrow()
-    expect(() => applySettings(db, { selection: { minutesParClip: true } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesPerClip: '4' } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesPerClip: null } })).toThrow()
+    expect(() => applySettings(db, { selection: { minutesPerClip: true } })).toThrow()
   })
 
   it('refuse un corps qui n’est pas un objet de familles', () => {
@@ -437,14 +437,14 @@ describe('appliquerRéglages', () => {
    */
   it('n’écrit rien quand un seul champ du patch est refusé', () => {
     expect(() =>
-      applySettings(db, { selection: { minutesParClip: 4, fenetresParClip: 0 } }),
+      applySettings(db, { selection: { minutesPerClip: 4, windowsPerClip: 0 } }),
     ).toThrow()
-    expect(getRéglages(db)).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(getRéglages(db)).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   it('accepte un patch vide sans rien changer', () => {
-    expect(applySettings(db, {}).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
-    expect(applySettings(db, { selection: {} }).selection).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    expect(applySettings(db, {}).selection).toEqual(DEFAULT_SELECTION_DIMENSIONS)
+    expect(applySettings(db, { selection: {} }).selection).toEqual(DEFAULT_SELECTION_DIMENSIONS)
     expect(db.prepare('SELECT count(*) AS n FROM settings').get()).toEqual({ n: 0 })
   })
 
@@ -454,12 +454,12 @@ describe('appliquerRéglages', () => {
     // recalculer des émissions existantes ».
     upsertProject(db, PROJET)
     putClip(db, clip('clip_01', { status: 'kept' }))
-    applySettings(db, { selection: { minutesParClip: 4 } })
+    applySettings(db, { selection: { minutesPerClip: 4 } })
     expect(getClips(db, PROJET.id).map((c) => c.status)).toEqual(['kept'])
   })
 
   it('rend la même chose que réglagesEffectifs', () => {
-    applySettings(db, { selection: { clipsMinimum: 9 } })
+    applySettings(db, { selection: { minimumClips: 9 } })
     // **`ai` aussi**, depuis la PR C : `effectiveSettings` rend les deux
     // familles, `getRéglages` ne projette que `selection`. Le résultat est
     // comparé aux défauts de la famille — inchangée par ce patch, qui ne
@@ -749,6 +749,169 @@ describe('migrer', () => {
     openDb(fichier).close()
     const db = openDb(fichier)
     expect(getClip(db, 'vieux')?.status).toBe('kept')
+    db.close()
+  })
+})
+
+/**
+ * La traduction des cinq clés de la famille `selection` (issue #73), éprouvée
+ * depuis une base **d'avant** — même défense que `migrer` juste au-dessus, et
+ * pour la même raison : la rejouer sur une base ouverte par le code courant ne
+ * prouve rien, elle n'a jamais porté les anciens noms.
+ *
+ * **Le cas qui compte est `clipsMaximum` à `0`.** C'est le seul champ dont le
+ * défaut et la valeur significative sont différents de « rien de réglé » :
+ * une migration qui perdrait la ligne ferait retomber `maximumClips` sur son
+ * défaut, `0` aussi — silencieusement identique en apparence, alors qu'un
+ * plafond réellement réglé à une autre valeur aurait disparu tout aussi
+ * silencieusement. Le test choisit délibérément une valeur non nulle sur les
+ * quatre autres champs pour qu'un défaut resurgi ne puisse pas se confondre
+ * avec la valeur migrée.
+ */
+describe('migrateSelectionSettingKeys', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-selection-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  /** Une base au schéma courant, dont les clés `selection.*` sont les anciennes. */
+  function seedLegacySelectionSettings(values: Record<string, string>): void {
+    openDb(file).close()
+    const raw = new Database(file)
+    const insert = raw.prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, 0)')
+    for (const [field, value] of Object.entries(values)) {
+      insert.run(`selection.${field}`, value)
+    }
+    raw.close()
+  }
+
+  it('migre les cinq clés en conservant leurs valeurs, `clipsMaximum` à zéro compris', () => {
+    seedLegacySelectionSettings({
+      minutesParClip: '9',
+      fenetresParClip: '3',
+      clipsMinimum: '4',
+      fenetresMinimum: '12',
+      clipsMaximum: '0',
+    })
+
+    const db = openDb(file)
+    expect(getRéglages(db)).toEqual({
+      minutesPerClip: 9,
+      windowsPerClip: 3,
+      minimumClips: 4,
+      minimumWindows: 12,
+      maximumClips: 0,
+    })
+
+    // Les anciennes clés ne traînent pas : une base migrée deux fois, ou
+    // relue à la main avec `sqlite3`, ne doit pas retrouver les deux noms.
+    const remaining = db
+      .prepare("SELECT key FROM settings WHERE key LIKE 'selection.%' ORDER BY key")
+      .all() as { key: string }[]
+    expect(remaining.map((r) => r.key)).toEqual([
+      'selection.maximumClips',
+      'selection.minimumClips',
+      'selection.minimumWindows',
+      'selection.minutesPerClip',
+      'selection.windowsPerClip',
+    ])
+    db.close()
+  })
+
+  it('ne touche à rien sur une base qui ne porte déjà que les nouveaux noms', () => {
+    const first = openDb(file)
+    setRéglage(first, 'minutesPerClip', 7)
+    first.close()
+
+    const db = openDb(file)
+    expect(getRéglages(db).minutesPerClip).toBe(7)
+    db.close()
+  })
+
+  it('laisse la nouvelle clé faire autorité si les deux noms coexistent', () => {
+    const first = openDb(file)
+    setRéglage(first, 'minutesPerClip', 5)
+    first.close()
+    const raw = new Database(file)
+    raw
+      .prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, 0)')
+      .run('selection.minutesParClip', '99')
+    raw.close()
+
+    const db = openDb(file)
+    // La valeur écrite sous le nouveau nom l'emporte : celle sous l'ancien
+    // n'écrase rien, elle est simplement effacée.
+    expect(getRéglages(db).minutesPerClip).toBe(5)
+    expect(
+      db.prepare("SELECT key FROM settings WHERE key = 'selection.minutesParClip'").all(),
+    ).toHaveLength(0)
+    db.close()
+  })
+
+  it('est idempotente : deux ouvertures de suite ne se marchent pas dessus', () => {
+    seedLegacySelectionSettings({ minutesParClip: '9' })
+    openDb(file).close()
+    const db = openDb(file)
+    expect(getRéglages(db).minutesPerClip).toBe(9)
+    db.close()
+  })
+})
+
+/**
+ * Le seul objet de schéma en français (issue #73) : `clips_par_projet` devient
+ * `clips_by_project`. Aucune donnée n'est portée par un index — `DROP` puis
+ * `CREATE` suffit —, mais une base qui gardait encore l'ancien nom se
+ * retrouverait avec les deux, l'un mort, sans qu'aucune erreur ne le signale.
+ */
+describe('l’index clips_by_project', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-index-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  function indexNames(base: BaseSqlite): string[] {
+    return (
+      base
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'clips'")
+        .all() as { name: string }[]
+    )
+      .map((r) => r.name)
+      // Celui de la clé primaire, posé par SQLite lui-même : hors sujet ici.
+      .filter((name) => !name.startsWith('sqlite_autoindex_'))
+  }
+
+  it('renomme `clips_par_projet` sans dupliquer l’index', () => {
+    // Une base au schéma courant, sauf pour l'index : posé sous l'ancien nom,
+    // comme l'aurait laissé une base ouverte avant cette PR.
+    const first = openDb(file)
+    first.close()
+    const raw = new Database(file)
+    raw.exec('DROP INDEX clips_by_project')
+    raw.exec('CREATE INDEX clips_par_projet ON clips(projectId, pass, id)')
+    raw.close()
+
+    const db = openDb(file)
+    expect(indexNames(db)).toEqual(['clips_by_project'])
+    db.close()
+  })
+
+  it('ne touche à rien sur une base qui porte déjà le nouveau nom', () => {
+    const db = openDb(file)
+    expect(indexNames(db)).toEqual(['clips_by_project'])
     db.close()
   })
 })

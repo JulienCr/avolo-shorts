@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { StepName as ÉtapeDuGraphe } from '@/core/graph'
-import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
+import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   CIBLES_DE_REPRISE,
   type SelectionSettings,
@@ -72,34 +72,34 @@ describe('les cibles de reprise', () => {
 
 describe('les champs de repérage', () => {
   /**
-   * `ChampsRepérage` est ce que l'API promet, `DimensionsRepérage` est ce qu'un
-   * calcul pur reçoit. Les deux affectations sont le contrôle : l'une attrape un
-   * champ que le client ignorerait, l'autre un champ que le client inventerait.
-   * Sans elles, un réglage ajouté au calcul serait réglable nulle part, et un
-   * réglage retiré du calcul resterait réglable en pure perte.
+   * `SelectionSettings` est ce que l'API promet, `SelectionDimensions` est ce
+   * qu'un calcul pur reçoit. Les deux affectations sont le contrôle : l'une
+   * attrape un champ que le client ignorerait, l'autre un champ que le client
+   * inventerait. Sans elles, un réglage ajouté au calcul serait réglable nulle
+   * part, et un réglage retiré du calcul resterait réglable en pure perte.
    */
   it('sont les mêmes des deux côtés de la frontière', () => {
-    const versLeClient: SelectionSettings = DIMENSIONS_PAR_DÉFAUT
-    const versLeCalcul: DimensionsRepérage = versLeClient
-    expect(versLeCalcul).toEqual(DIMENSIONS_PAR_DÉFAUT)
+    const versLeClient: SelectionSettings = DEFAULT_SELECTION_DIMENSIONS
+    const versLeCalcul: SelectionDimensions = versLeClient
+    expect(versLeCalcul).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
 
   /**
    * Et le registre les couvre tous. `REGISTRE_RÉGLAGES` se dérive des clés de
-   * `DIMENSIONS_PAR_DÉFAUT`, donc l'égalité est vraie par construction — ce test
+   * `DEFAULT_SELECTION_DIMENSIONS`, donc l'égalité est vraie par construction — ce test
    * la tient le jour où quelqu'un remplacera la dérivation par une liste écrite
    * à la main, ce qui est exactement la forme qu'avait le code d'avant.
    */
   it('sont tous décrits par le registre, et lui seul', () => {
     expect(SETTING_FIELDS.filter((f) => f.family === 'selection').map((f) => f.name).sort()).toEqual(
-      Object.keys(DIMENSIONS_PAR_DÉFAUT).sort(),
+      Object.keys(DEFAULT_SELECTION_DIMENSIONS).sort(),
     )
     // **La longueur totale, pas seulement celle de la famille `selection`** :
     // le registre porte aussi `ai` depuis la PR C, donc l'égalité se vérifie
     // sur la sous-liste filtrée ci-dessus, et non plus sur `SETTING_FIELDS`
     // entier.
     expect(SETTING_FIELDS.filter((f) => f.family === 'selection').length).toBe(
-      Object.keys(DIMENSIONS_PAR_DÉFAUT).length,
+      Object.keys(DEFAULT_SELECTION_DIMENSIONS).length,
     )
   })
 })

@@ -1,8 +1,9 @@
 'use client'
 
-import { Keyboard } from 'lucide-react'
+import { Keyboard, Send } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { clipEligibilityFromStatus } from '@/core/publication'
 import type { ClipStatus } from '@/core/edl'
 import { compter } from '@/core/parcours'
 import type { BilanRepérage, CandidateClip } from '@/lib/api'
@@ -21,8 +22,10 @@ import {
 } from '@/components/tri/modele'
 import { useRaccourcisTri } from '@/components/tri/raccourcis'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
+import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -99,6 +102,55 @@ export function FilDeTri({
   const [aide, setAide] = useState(false)
   // La pile d'annulation : le statut d'avant, et sur quelle carte le rendre.
   const [pile, setPile] = useState<{ clipId: string; avant: ClipStatus }[]>([])
+
+  /**
+   * La sélection pour la publication en masse (retour d'usage §2.4).
+   *
+   * **Un `Set` d'identifiants, distinct de `selection`.** Cette dernière est
+   * la carte sur laquelle le clavier travaille — une seule à la fois, jamais
+   * persistée au-delà d'un changement de vue. Celle-ci est un choix explicite
+   * de l'utilisateur, indépendant du clavier, et qui survit au déplacement du
+   * curseur : cocher trois cartes puis naviguer aux flèches ne doit rien
+   * décocher.
+   */
+  const [selectedForPublish, setSelectedForPublish] = useState<ReadonlySet<string>>(new Set())
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+
+  function togglePublishSelection(clipId: string) {
+    setSelectedForPublish((current) => {
+      const next = new Set(current)
+      if (next.has(clipId)) next.delete(clipId)
+      else next.add(clipId)
+      return next
+    })
+  }
+
+  // **La même logique que la publication d'un clip seul** (retour d'usage
+  // §11) : `PublishClipTarget` et `clipEligibilityFromStatus` viennent tous
+  // deux de `@/core/publication`, sans rien de propre à la vue Émission.
+  // L'éligibilité diffère dans sa source — le statut du clip ici, `outputs`
+  // sur l'écran de clip, parce que cette liste n'a jamais chargé les sorties
+  // de chaque clip — et donc dans sa précision : `outputs.mp4Url` peut
+  // devenir `null` (rendu périmé par une édition, fichier disparu) alors que
+  // `status` reste `exported`, ce que cette vue ne peut pas voir. La sélection
+  // en masse peut donc, dans ce cas rare, juger publiable un clip que l'écran
+  // de clip refuserait — signalé par Aristarque, non corrigé ici : le
+  // corriger demanderait de charger `outputs` pour chaque candidat, un appel
+  // réseau que cette PR ne fait pas (hors périmètre, voir issue de suivi).
+  //
+  // **Réconciliée avec `clips`, jamais lue sur `selectedForPublish` seul.**
+  // `selectedForPublish` peut porter un identifiant qu'un repérage forcé a fait
+  // disparaître de `clips` ; filtrer ici est ce qui évite d'annoncer « 1 clip
+  // sélectionné » puis d'ouvrir une modale « Publier 0 clip ». (relevé par
+  // Copilot)
+  const clipsToPublish: PublishClipTarget[] = clips
+    .filter((c) => selectedForPublish.has(c.id))
+    .map((c) => ({
+      clipId: c.id,
+      title: c.title,
+      eligibility: clipEligibilityFromStatus(c.status),
+    }))
+  const selectedForPublishCount = clipsToPublish.length
 
   // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
   // se stocke : une sélection gardée dans l'état survivrait à la disparition de
@@ -257,6 +309,27 @@ export function FilDeTri({
         </div>
       </div>
 
+      {/* **La barre d'outils, dès qu'au moins un clip est coché** (retour
+          d'usage §2.4). Elle ouvre la même modale que le bouton « Publier »
+          de l'écran de clip — `PublishDialog`, `@/components/publication` —
+          sans rien réécrire de sa logique. */}
+      {selectedForPublishCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-3 py-2">
+          <p className="text-sm">
+            {selectedForPublishCount === 1 ? '1 clip sélectionné' : `${selectedForPublishCount} clips sélectionnés`}
+          </p>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedForPublish(new Set())}>
+              Annuler la sélection
+            </Button>
+            <Button size="sm" onClick={() => setPublishDialogOpen(true)}>
+              <Send aria-hidden />
+              Publier {selectedForPublishCount === 1 ? '1 clip' : `${selectedForPublishCount} clips`}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : ce
           que le repérage n'a pas jugé est une propriété permanente de cette
           liste, au même titre que son nombre d'éléments, et ça vit à côté du
@@ -335,31 +408,66 @@ export function FilDeTri({
               className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
             >
               {visibles.map((clip) => (
-                <CandidateCard
-                  key={clip.id}
-                  clip={clip}
-                  proxyPret={proxyPret}
-                  selectionne={clip.id === courant}
-                  onSelection={() => setSelection(clip.id)}
-                  // **Le focus revient à la carte après un clic.** Il resterait
-                  // sinon sur le bouton, que la garde des raccourcis écarte comme
-                  // tout `button` : plus une seule touche ne répondrait, sans
-                  // message et sans retour visible — la carte garderait son anneau
-                  // de sélection, donc l'écran affirmerait le contraire. Or la
-                  // souris pour décider puis le clavier pour enchaîner est le mode
-                  // d'usage attendu, pas un cas tordu. Un focus posé par programme
-                  // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
-                  onGarder={() => {
-                    empiler(clip)
-                    onStatut(clip.id, basculerStatut(clip.status, 'kept'))
-                    focaliser(clip.id)
-                  }}
-                  onEcarter={() => {
-                    empiler(clip)
-                    onStatut(clip.id, basculerStatut(clip.status, 'discarded'))
-                    focaliser(clip.id)
-                  }}
-                />
+                // **La case vit hors de `CandidateCard`, en superposition** —
+                // comme le lien qui couvre déjà la vignette (voir le
+                // commentaire de `candidate-card.tsx`). `CandidateCard` reste
+                // celui de l'écran de tri seul ; lui ajouter une seconde
+                // notion de sélection y aurait mélangé la carte sur laquelle
+                // le clavier travaille (`selectionne`) et le choix,
+                // indépendant, de ce qui part à la publication.
+                <div key={clip.id} className="relative">
+                  {/* Le clic sur la case ne doit pas ouvrir le clip : elle
+                      n'est pas dans le lien qui couvre la vignette, et la
+                      capture au niveau du fil (plus bas) ne cible que
+                      `a[href^="/clips/"]`, donc rien à arrêter ici. */}
+                  <div className="absolute top-2 right-2 z-10 flex items-center rounded-md bg-black/55 p-1 backdrop-blur-sm">
+                    <Checkbox
+                      checked={selectedForPublish.has(clip.id)}
+                      // **Le même parcours Tab glissant que `CandidateCard`**
+                      // (`candidate-card.tsx`, `tabulable`/`selectionne`) :
+                      // sans ça, chaque carte visible ajoute un arrêt Tab
+                      // supplémentaire, y compris les cartes qui ne sont pas
+                      // sous le curseur — des dizaines d'arrêts sur une
+                      // grille chargée. (relevé par Copilot)
+                      tabIndex={clip.id === courant ? 0 : -1}
+                      // **Le focus revient à la carte, comme après « Garder »
+                      // ou « Écarter ».** La case, un `[role="checkbox"]`,
+                      // est désormais dans la garde des raccourcis
+                      // (`raccourcis.ts`) : y rester après le clic rendrait
+                      // le clavier muet sans que rien à l'écran ne le
+                      // signale, la carte gardant son anneau de sélection.
+                      onCheckedChange={() => {
+                        togglePublishSelection(clip.id)
+                        focaliser(clip.id)
+                      }}
+                      aria-label={`Sélectionner « ${clip.title || clip.id} » pour publication`}
+                    />
+                  </div>
+                  <CandidateCard
+                    clip={clip}
+                    proxyPret={proxyPret}
+                    selectionne={clip.id === courant}
+                    onSelection={() => setSelection(clip.id)}
+                    // **Le focus revient à la carte après un clic.** Il resterait
+                    // sinon sur le bouton, que la garde des raccourcis écarte comme
+                    // tout `button` : plus une seule touche ne répondrait, sans
+                    // message et sans retour visible — la carte garderait son anneau
+                    // de sélection, donc l'écran affirmerait le contraire. Or la
+                    // souris pour décider puis le clavier pour enchaîner est le mode
+                    // d'usage attendu, pas un cas tordu. Un focus posé par programme
+                    // ne déclenche pas `:focus-visible` : rien ne bouge à l'œil.
+                    onGarder={() => {
+                      empiler(clip)
+                      onStatut(clip.id, basculerStatut(clip.status, 'kept'))
+                      focaliser(clip.id)
+                    }}
+                    onEcarter={() => {
+                      empiler(clip)
+                      onStatut(clip.id, basculerStatut(clip.status, 'discarded'))
+                      focaliser(clip.id)
+                    }}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -368,6 +476,8 @@ export function FilDeTri({
       </Tabs>
 
       <AideClavier ouvert={aide} onOuvert={setAide} />
+
+      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={clipsToPublish} />
     </div>
   )
 }

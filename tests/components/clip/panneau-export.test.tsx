@@ -430,3 +430,23 @@ describe('les textes et les marques', () => {
   // et le cadrage : ce qu'elle décide est ce que l'image porte. Son test la suit,
   // dans `ecran-clip.test.tsx`.
 })
+
+describe('le bouton « Publier »', () => {
+  it('se refuse avec sa raison quand le clip n’a pas de rendu disponible', () => {
+    monter({ outputs: riennEstProduit })
+    const bouton = screen.getByRole('button', { name: /^publier$/i })
+    expect(bouton.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText(/Exporter avant de publier/)).toBeTruthy()
+  })
+
+  it('ouvre la modale de publication une fois le clip exporté', () => {
+    monter({
+      outputs: { ...riennEstProduit, mp4Url: 'https://example.test/c1.mp4' },
+    })
+    const bouton = screen.getByRole('button', { name: /^publier$/i })
+    expect(bouton.hasAttribute('aria-disabled')).toBe(false)
+
+    fireEvent.click(bouton)
+    expect(screen.getByRole('heading', { name: 'Publier « La chute »' })).toBeTruthy()
+  })
+})

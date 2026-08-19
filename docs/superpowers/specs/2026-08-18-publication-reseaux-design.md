@@ -1,10 +1,11 @@
 # Publication vers les réseaux : conception
 
 Date : 18 août 2026.
-Statut : proposition, issue d'un spike. Aucune ligne de `src/` n'a été écrite pour
-l'accompagner, et deux des quatre connecteurs ne doivent pas l'être avant que des
-démarches administratives aboutissent — c'est le point le plus important de ce
-document.
+Statut : proposition, issue d'un spike. **Mise à jour au 19 août 2026** : la PR
+#95 a écrit `src/core/publication.ts` et la modale de publication — l'UI seule,
+sans connecteur ni backend, périmètre tranché par Julien. Deux des quatre
+connecteurs ne doivent pas s'écrire avant que des démarches administratives
+aboutissent — c'est toujours le point le plus important de ce document.
 
 Ce document décide de **la publication depuis l'outil**, que la conception
 générale rangeait jusqu'ici hors périmètre
@@ -167,7 +168,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | On téléverse **depuis le disque**, jamais par URL publique | exposer la machine ou héberger les rendus |
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
-| Le type s'appelle `Plateforme` | `Cible`, déjà pris par `CibleLançable` dans `run.ts` |
+| Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
 | Upload Post reste **écrit et non codé** | l'abstraire tout de suite « au cas où » |
 
 ## 4. Périmètre
@@ -233,10 +234,13 @@ publication suit la même ligne : tout ce qui se décide sans réseau se décide
 
 ### 6.1 `src/core/publication/`
 
-- **`Plateforme = 'instagram' | 'facebook' | 'youtube' | 'tiktok'`.** Pas `Cible` :
-  `src/server/run.ts` nomme déjà `CibleLançable` les étapes du pipeline, et deux
-  « cibles » de sens différent dans le même dépôt se confondent à la première
-  relecture.
+- **`Platform = 'instagram' | 'facebook' | 'youtube' | 'tiktok'`, en anglais et
+  sans accent — pas `Plateforme`.** Cette conception nommait le type en
+  français ; elle a été écrite avant que `CLAUDE.md` n'énonce la règle de
+  langue pour le code, et `src/core/publication.ts` (PR #95, interface seule)
+  la suit plutôt que ce paragraphe. Pas `Cible` non plus : `src/server/run.ts`
+  nomme déjà `CibleLançable` les étapes du pipeline, et deux « cibles » de sens
+  différent dans le même dépôt se confondent à la première relecture.
 - **Quel fichier part où.** La conception générale l'a tranché en §11 — le natif
   (4:5, 1:1) pour le feed Instagram et Facebook, la variante 9:16 sur fond flouté
   pour TikTok et Shorts — mais personne ne l'a jamais écrit en code. C'est une
@@ -274,14 +278,17 @@ et rend aussitôt ; l'interface interroge.
 
 C'est un état, pas un ordonnanceur : ni horaires, ni file, ni réessai automatique.
 
-Quatre valeurs, et la troisième est celle qui compte :
+Quatre valeurs, et la troisième est celle qui compte. Nommées en anglais dans
+le code (`PublicationStatus`, `src/core/publication.ts`, PR #95) — la règle de
+langue du dépôt vaut pour l'identifiant, pas pour la colonne « Ce qu'il veut
+dire » ci-dessous, qui reste en français comme le reste de cette conception :
 
-| État | Ce qu'il veut dire |
-|---|---|
-| `en_cours` | le téléversement tourne |
-| `déposé` | **c'est chez la plateforme, ce n'est pas en ligne** — un brouillon TikTok attend un geste dans l'app |
-| `publié` | en ligne, avec son URL |
-| `échec` | avec le message de la plateforme, conservé |
+| État (code) | Libellé affiché | Ce qu'il veut dire |
+|---|---|---|
+| `in_progress` | en cours | le téléversement tourne |
+| `submitted` | déposé | **c'est chez la plateforme, ce n'est pas en ligne** — un brouillon TikTok attend un geste dans l'app |
+| `published` | publié | en ligne, avec son URL |
+| `failed` | échec | avec le message de la plateforme, conservé |
 
 Afficher « publié » sur un dépôt mentirait sur ce qui est en ligne, et c'est le
 genre de mensonge qu'on ne découvre qu'en cherchant la vidéo.
@@ -297,10 +304,15 @@ c'est ce qui interdit la transaction unique qui viendrait naturellement.
 
 ### 6.5 L'interface
 
-Le panneau d'export (parcours utilisateur, §3.4) gagne une seconde moitié : les
-cases à cocher, le bouton, et une ligne par plateforme avec son état et son lien.
-Il reste un panneau, pas un écran, pour la même raison que l'export : il consomme
-ce qu'on vient de produire et se juge à côté.
+**Mise à jour au 19 août 2026, PR #95** : ce paragraphe décrivait les cases et la
+ligne par plateforme posées directement dans le panneau d'export. La PR a choisi
+une modale partagée (`PublishDialog`) à la place — même primitive pour un clip
+seul et pour la sélection en masse de la vue Émission, qui n'a pas de panneau
+d'export où poser des cases. Le panneau d'export (parcours utilisateur, §3.4)
+gagne un bouton « Publier », à côté d'« Exporter », qui ouvre cette modale ; il
+reste un panneau, pas un écran, pour la même raison que l'export. Voir
+`docs/superpowers/specs/2026-08-18-parcours-utilisateur-design.md` §3.0 et §6.1
+pour le parcours de la modale.
 
 Trois garde-fous :
 

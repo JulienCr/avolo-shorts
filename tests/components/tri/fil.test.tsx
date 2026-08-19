@@ -23,6 +23,17 @@ import type { BilanRepérage, CandidateClip } from '@/lib/api'
 import type { Vue } from '@/components/tri/modele'
 import { lireSessionTri, écrireSessionTri } from '@/components/tri/session'
 
+// **`PointerEvent` n'existe pas sous `jsdom`.** La case de sélection en masse
+// (Base UI `Checkbox`) dispatche elle-même un `PointerEvent` synthétique à la
+// validation, quel que soit le mécanisme qui a déclenché le clic. Voir le même
+// repli, plus longuement commenté, dans
+// `tests/components/publication/publish-dialog.test.tsx`.
+if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {}
+  // @ts-expect-error -- un repli minimal, pas la classe complète du DOM.
+  window.PointerEvent = PointerEventPolyfill
+}
+
 afterEach(() => {
   cleanup()
   window.sessionStorage.clear()
@@ -725,5 +736,45 @@ describe('la couverture du repérage', () => {
   it('annonce un décompte provisoire sans le déduire lui-même', () => {
     render(<Harnais depart={[candidat(1)]} bilan={{ ...perdu, partiel: true }} />)
     expect(screen.getByTestId('reperage').textContent).toMatch(/provisoire/i)
+  })
+})
+
+describe('la sélection en masse pour la publication (retour d’usage §2.4)', () => {
+  it('n’affiche la barre d’outils que dès qu’un clip est coché', async () => {
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'kept')]} vueInitiale="gardes" />)
+    const utilisateur = userEvent.setup()
+
+    expect(screen.queryByRole('button', { name: /^Publier/ })).toBeNull()
+
+    await utilisateur.click(screen.getByRole('checkbox', { name: /Extrait 1/ }))
+    expect(screen.getByRole('button', { name: 'Publier 1 clip' })).toBeTruthy()
+
+    await utilisateur.click(screen.getByRole('checkbox', { name: /Extrait 2/ }))
+    expect(screen.getByRole('button', { name: 'Publier 2 clips' })).toBeTruthy()
+  })
+
+  it('ouvre la même modale que celle du clip seul, sur les clips cochés', async () => {
+    render(<Harnais depart={[candidat(1, 'kept'), candidat(2, 'exported')]} vueInitiale="gardes" />)
+    const utilisateur = userEvent.setup()
+
+    await utilisateur.click(screen.getByRole('checkbox', { name: /Extrait 2/ }))
+    await utilisateur.click(screen.getByRole('button', { name: 'Publier 1 clip' }))
+
+    expect(screen.getByRole('heading', { name: 'Publier « Extrait 2 »' })).toBeTruthy()
+  })
+
+  it('ne vole pas le clavier du tri après un clic sur une case', async () => {
+    // Le motif du contrat : le focus ne doit pas rester sur la case après le
+    // clic, avec l'anneau de sélection resté sur la carte pendant que plus
+    // rien ne répond au clavier.
+    render(<Harnais depart={[candidat(1), candidat(2)]} />)
+    const utilisateur = await focaliser('Extrait 1')
+    await utilisateur.click(screen.getByRole('checkbox', { name: /Extrait 1/ }))
+    await utilisateur.keyboard('g')
+
+    expect(within(carte('Extrait 1')).getByRole('button', { name: /gardé/i })).toHaveProperty(
+      'ariaPressed',
+      'true',
+    )
   })
 })

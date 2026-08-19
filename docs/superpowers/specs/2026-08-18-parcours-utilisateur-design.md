@@ -619,6 +619,15 @@ rechargeable et partageable, ce qu'un état de composant n'aurait pas donné.
 C'est cette propriété-là que la règle protège ; un tiroir qui la respecte n'est
 pas l'exception qu'il paraît être.
 
+**La modale de publication (3.4, `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`
+§6.5) est le troisième cas de confirmation**, aux côtés du repérage forcé et du
+ré-export : publier est un geste public et potentiellement irréversible, donc
+l'ouvrir en modale applique la règle plutôt que de la rompre. Elle sert depuis
+l'écran de clip et depuis une sélection multiple de la vue Émission sans que
+son URL en porte trace — ce n'est pas un défaut : contrairement au clip ouvert
+que le premier paragraphe interdit, une confirmation ne décrit aucun état qu'on
+voudrait recharger ou partager, elle se rejoue à l'identique à chaque ouverture.
+
 ### 3.1 Bibliothèque (`/`)
 
 **Objectif unique** : reprendre un travail en cours, ou en commencer un.
@@ -1227,6 +1236,17 @@ plateforme. La conception en est à part, dans
 `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` §6.5, et elle
 laisse la zone de textes intacte : elle sert les réseaux qu'on ne branche pas.
 
+**Cette seconde moitié est posée depuis le 19 août 2026, et elle est
+délibérément incomplète : l'interface existe, aucun connecteur n'existe.**
+Un bouton « Publier », à côté de « Exporter », ouvre `PublishDialog`
+(`src/components/publication/`) — la même modale que celle qui part d'une
+sélection multiple dans la vue Émission (§3.2, retour d'usage §2.4), pour
+qu'aucune des deux n'ait sa propre logique. Les quatre plateformes s'y
+affichent désactivées, en « non configuré » : c'est l'état honnête tant que
+rien n'est branché, pas une case vide qu'on aurait pu remplir. La modale reste
+parcourable jusqu'à la confirmation malgré tout — c'est le geste que cette
+livraison-ci veut fixer, avant que le premier connecteur n'existe.
+
 **Un défaut connu à signaler dans le panneau — et il n'y en a plus.** Ce
 paragraphe demandait au panneau d'avertir sur la variante 9:16, dont l'anomalie
 #22 laissait les sous-titres lisibles dans le fond flouté, jaune du mot actif
@@ -1824,7 +1844,7 @@ contrôler à l'installation.
 
 | Primitive | Ce qu'elle sert | Pourquoi elle vaut son poids |
 |---|---|---|
-| `dialog` | confirmer un repérage forcé, confirmer un ré-export, afficher la liste des raccourcis | trois usages, et surtout le piège de focus, la fermeture par `Échap` et le retour du focus au déclencheur. Réécrire ça à la main est la façon la plus sûre de le rater |
+| `dialog` | confirmer un repérage forcé, confirmer un ré-export, afficher la liste des raccourcis, confirmer une publication | quatre usages depuis le 19 août 2026 (`PublishDialog`, `src/components/publication/`), et surtout le piège de focus, la fermeture par `Échap` et le retour du focus au déclencheur. Réécrire ça à la main est la façon la plus sûre de le rater |
 | `progress` | l'avancement, dans la bibliothèque et dans le panneau du projet | le `role="progressbar"` est aujourd'hui écrit à la main dans un fichier de page, avec ses quatre attributs ARIA. Il va servir à deux endroits, donc il sort |
 | `alert` | quatre surfaces d'erreur : analyse échouée, liste non chargée, enregistrement en échec, export en échec | le bandeau actuel est écrit à la main, et son `role="alert"` a été ajouté en revue. Quatre occurrences valent une primitive |
 | `input`, `textarea`, `label` | le titre et la description du clip | il n'existe aucun champ de saisie dans le dépôt, alors que ces deux textes sont un livrable du produit |

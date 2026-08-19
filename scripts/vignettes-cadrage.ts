@@ -69,6 +69,7 @@ import {
   TORSOS,
   computeFraming,
   cropRect,
+  headBounds,
   isForeground,
   personBounds,
   requiredWidths,
@@ -96,32 +97,6 @@ function couleur(b: PersonBox): string {
 
 /** Le rectangle de crop en fractions de la source, ses **quatre** composantes. */
 type Cadre = { x: number; y: number; w: number; h: number }
-
-/**
- * L'étendue des points de tête d'une personne, ou `null` si le squelette n'en
- * porte pas — analyse sans points, ou dos tourné.
- *
- * Les cinq points COCO de la tête, et non le seul nez : un profil ne montre
- * qu'un œil et qu'une oreille.
- */
-function headBounds(b: PersonBox): { x0: number; y0: number; x1: number; y1: number } | null {
-  const k = b.k
-  if (k === undefined) return null
-  let x0 = Number.POSITIVE_INFINITY
-  let y0 = Number.POSITIVE_INFINITY
-  let x1 = Number.NEGATIVE_INFINITY
-  let y1 = Number.NEGATIVE_INFINITY
-  let seen = 0
-  for (const rank of TORSOS.head) {
-    if (!(k[rank * 3 + 2] >= FRAMING_DEFAULTS.torsoMinScore)) continue
-    seen += 1
-    x0 = Math.min(x0, k[rank * 3])
-    x1 = Math.max(x1, k[rank * 3])
-    y0 = Math.min(y0, k[rank * 3 + 1])
-    y1 = Math.max(y1, k[rank * 3 + 1])
-  }
-  return seen === 0 ? null : { x0, y0, x1, y1 }
-}
 
 /**
  * Une vignette : les boîtes de l'image, puis le rectangle de crop par-dessus.

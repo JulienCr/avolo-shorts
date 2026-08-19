@@ -6,6 +6,7 @@ import {
   chooseRatio,
   computeFraming,
   cropRect,
+  headBounds,
   isForeground,
   outputSize,
   ratioCoverage,
@@ -1578,5 +1579,33 @@ describe('le tronc déduit des points de pose', () => {
     // Et le ratio qui en sort reste le plus étroit, pas un 16:9 tiré d'un empan
     // aberrant.
     expect(chooseRatio([offLeft], SRC_W, SRC_H)).toBe('9:16')
+  })
+})
+
+describe('headBounds', () => {
+  it('rend les bornes des points de tête, pas ceux du reste du squelette', () => {
+    const b = withPose(0, 0.3, 0.5, {
+      NOSE: 0.42,
+      LEFT_EYE: 0.41,
+      RIGHT_EYE: 0.44,
+      LEFT_EAR: 0.39,
+      RIGHT_SHOULDER: 0.47,
+    })
+    const head = headBounds(b)
+    expect(head).not.toBeNull()
+    expect(head?.x0).toBeCloseTo(0.39, 10)
+    expect(head?.x1).toBeCloseTo(0.44, 10)
+    // `skeleton()` pose y = 0.4 sur chaque point nommé : mêmes bornes en y.
+    expect(head?.y0).toBeCloseTo(0.4, 10)
+    expect(head?.y1).toBeCloseTo(0.4, 10)
+  })
+
+  it('rend null sans points de pose', () => {
+    expect(headBounds(boîte(0, 0.3, 0.5, 0.9))).toBeNull()
+  })
+
+  it('rend null quand aucun point de tête ne passe le seuil de confiance', () => {
+    const b = withPose(0, 0.3, 0.5, { NOSE: 0.42 })
+    expect(headBounds(b, { torsoMinScore: 0.95 })).toBeNull()
   })
 })

@@ -8,7 +8,9 @@
     "start": "next start -p 4005",
     "lint": "eslint",
     "test": "vitest run",
-    "type-check": "next typegen && tsc --noEmit"
+    "type-check": "next typegen && tsc --noEmit",
+    "apercu-cadrage": "tsx scripts/apercu-cadrage.ts",
+    "apercu-cadrage:stop": "lsof -ti :${PORT:-4321} | xargs -r kill -INT"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

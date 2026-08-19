@@ -641,6 +641,39 @@ export function torsoBounds(
 }
 
 /**
+ * L'étendue des points de tête d'une personne, ou `null` si le squelette n'en
+ * porte pas — analyse sans points, ou dos tourné.
+ *
+ * Les cinq points COCO de `TORSOS.head` (nez, yeux, oreilles), et non le seul
+ * nez : un profil ne montre qu'un œil et qu'une oreille. Partagée entre
+ * `scripts/vignettes-cadrage.ts` et `scripts/apercu-cadrage.ts` — les deux
+ * répondent à la même question (le visage est-il dans le crop ?) et ne
+ * doivent pas porter chacun sa propre lecture des points.
+ */
+export function headBounds(
+  box: PersonBox,
+  options: FramingOptions = {},
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  const k = box.k
+  if (k === undefined) return null
+  const threshold = réglage(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  let x0 = Number.POSITIVE_INFINITY
+  let y0 = Number.POSITIVE_INFINITY
+  let x1 = Number.NEGATIVE_INFINITY
+  let y1 = Number.NEGATIVE_INFINITY
+  let seen = 0
+  for (const rank of TORSOS.head) {
+    if (!(k[rank * 3 + 2] >= threshold)) continue
+    seen += 1
+    x0 = Math.min(x0, k[rank * 3])
+    x1 = Math.max(x1, k[rank * 3])
+    y0 = Math.min(y0, k[rank * 3 + 1])
+    y1 = Math.max(y1, k[rank * 3 + 1])
+  }
+  return seen === 0 ? null : { x0, y0, x1, y1 }
+}
+
+/**
  * Ce que le cadre doit contenir d'une personne : son tronc si les points le
  * disent, sa boîte moins ses extrémités sinon.
  *

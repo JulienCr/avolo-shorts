@@ -1,10 +1,11 @@
 'use client'
 
-import { Check, Copy, FileText, LoaderCircle, TriangleAlert } from 'lucide-react'
+import { Check, Copy, FileText, LoaderCircle, Send, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
 import { unmeasuredShots, shotRatios } from '@/components/clip/framing'
 import type { Clip, Ratio } from '@/core/edl'
+import { clipExportEligibility } from '@/core/publication'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { motsDièse, nomsDeSortie, texteDePublication } from '@/components/clip/textes'
+import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
 import type { EtatEnregistrement } from '@/lib/enregistrement'
 import { useExporter } from '@/lib/queries'
@@ -145,6 +147,28 @@ export function PanneauExport({
     exporter.mutate({ clipId: clip.id, force })
   }
 
+  const [publierOuvert, setPublierOuvert] = useState(false)
+  /**
+   * L'éligibilité à la publication, **lue sur `outputs.mp4Url`, jamais
+   * déduite du statut.** `mp4Url` vaut `null` dans les trois situations que
+   * son propre docbloc énumère (`src/lib/api.ts`) — jamais rendu, rendu
+   * périmé, fichier disparu — et c'est exactement ce que `déjàLivré`
+   * utilise déjà deux lignes plus haut pour le même écran. Répéter le même
+   * calcul ici serait la première divergence.
+   */
+  const éligibilitéPublication = clipExportEligibility(déjàLivré)
+  const cibleÀPublier: PublishClipTarget = {
+    clipId: clip.id,
+    title: clip.title,
+    eligibility: éligibilitéPublication,
+    // **L'empreinte de ce panneau, pas une recomputation.** `empreinte` porte
+    // déjà tout ce qui décide du rendu (segments, ratio, cadrage, marques,
+    // sous-titres, textes) — voir le commentaire de la prop plus haut. La
+    // passer ici est ce qui préparera la nuance du retour d'usage §9 le jour
+    // où une publication existera pour de vrai.
+    currentFingerprint: empreinte,
+  }
+
   return (
     // **Deux colonnes, parce que le panneau est devenu un bandeau.** Il vivait au
     // bas d'une colonne de réglages, où l'empilement était la seule mise en page
@@ -243,6 +267,19 @@ export function PanneauExport({
             {déjàLivré ? 'Ré-exporter' : 'Exporter'}
           </Button>
 
+          {/* **Le bouton principal de la publication** (retour d'usage §3.6),
+              à côté de l'export dans la zone Livraison. Il ouvre la même
+              modale que la sélection en masse de la vue Émission — voir
+              `PublishDialog`, qui porte la logique, jamais recopiée ici. */}
+          <Button
+            variant="outline"
+            onClick={() => éligibilitéPublication.eligible && setPublierOuvert(true)}
+            aria-disabled={!éligibilitéPublication.eligible || undefined}
+          >
+            <Send aria-hidden />
+            Publier
+          </Button>
+
           {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
               en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
               mentirait sur ce qui se passe. */}
@@ -258,6 +295,13 @@ export function PanneauExport({
           // qu'au survol est invisible au clavier, et la raison d'un blocage doit
           // se lire avant d'essayer.
           <p className="text-[0.75rem] text-muted-foreground">{empêchement}</p>
+        )}
+
+        {/* **Même règle pour « Publier » : la raison se lit, elle ne se
+            devine pas** (retour d'usage §2.4, mot pour mot). Un clip non
+            exporté explique pourquoi plutôt que de désactiver en silence. */}
+        {!éligibilitéPublication.eligible && (
+          <p className="text-[0.75rem] text-muted-foreground">{éligibilitéPublication.reason}</p>
         )}
 
         {exporter.isError && (
@@ -321,6 +365,8 @@ export function PanneauExport({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={[cibleÀPublier]} />
     </section>
   )
 }

@@ -3,6 +3,7 @@
  *
  *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_004655941-004681822
  *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --marge 0.01 --ratio 1:1
+ *     pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp <clipId> --trim 0 --images 3
  *
  * `vignettes-premier-plan.ts` dessine les **boîtes** : il répond à « qui le
  * détecteur voit-il, et lesquels le filtre écarte ». Celui-ci dessine le **crop**
@@ -18,6 +19,12 @@
  * rectangle et voir ce qui reste dedans. `FRAMING_DEFAULTS` fait foi sur la
  * valeur du jour ; cette phrase raconte pourquoi elle a bougé. (relevé par Copilot)
  *
+ * **Et c'est ici que le rognage latéral s'est tranché**, pour la même raison que
+ * la marge : les tableaux disent qu'il resserre des clips, ils ne disent pas si ce
+ * qui tombe au bord est une épaule ou une joue. Le cas qui a posé son plafond n'a
+ * été vu qu'à l'image — un comédien assis jambes tendues, dont la boîte est large
+ * mais dont la tête est à l'extrémité droite.
+ *
  * Le crop est **fixe à l'intérieur d'un plan** (spec §10), donc une vignette par
  * plan suffit — et on y choisit l'image qui **sort le plus** du rectangle, pas la
  * plus large. Ce n'est pas la même : un sujet plus étroit posé ailleurs peut
@@ -25,9 +32,15 @@
  * justement des images à déborder. Le compte des images débordantes du plan est
  * imprimé à côté, parce qu'une vignette qui tient ne dit rien des autres.
  *
- * Trois couleurs, les mêmes que l'autre script pour les boîtes — vert gardée,
- * rouge écartée par le filtre du premier plan, gris sous le seuil de confiance —
- * et **jaune** pour le crop, qui n'est pas une boîte mais une décision.
+ * `--images N` en tire N, à rangs régulièrement espacés dans le classement : la
+ * pire est par construction une exception, et trois copies du même accident ne
+ * disent rien du cadrage courant.
+ *
+ * Quatre couleurs. Trois pour les boîtes, les mêmes que l'autre script — vert
+ * gardée, rouge écartée par le filtre du premier plan, gris sous le seuil de
+ * confiance —, plus un liseré **cyan** à l'intérieur des vertes qui montre ce que
+ * le rognage abandonne. Et **jaune** pour le crop, qui n'est pas une boîte mais
+ * une décision.
  *
  * Les vignettes vont dans `--out` (défaut : un dossier temporaire), jamais dans
  * `projects/`, que d'autres processus lisent au même moment.

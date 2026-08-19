@@ -242,6 +242,12 @@ pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_003089230-
 
 ## Ce que ça dit de la suite de l'itération 1
 
+**Cette section est celle du 18 août, et la campagne du 19 en dément la première
+phrase** — elle est gardée telle quelle parce que le raisonnement qui suit reste
+juste et parce que la corriger effacerait ce qui a fait chercher plus loin. La
+répartition d'aujourd'hui est dans « Le rognage latéral », plus bas : 7 % des
+fenêtres de `caro-mdlm` et 32 % de celles d'`entre-nous` descendent sous le 16:9.
+
 La mécanique de crop par plan **ne se déclenche presque jamais** sur les émissions
 mesurées : 1 % des fenêtres de `caro-mdlm` et 8 % de celles d'`entre-nous`
 descendent sous le 16:9. Ce n'est pas zéro, et le crop par plan reste nécessaire
@@ -258,7 +264,166 @@ Les deux causes ne sont pas dans le choix du ratio et ne se corrigent pas là :
 - **Le détecteur élargit pour deux raisons évitables** : des faux positifs sur du
   mobilier vide, et des boîtes de corps qui suivent des jambes tendues. Les deux
   se voient à l'image, aucun des deux n'est mesuré, et aucun des deux ne relève du
-  filtre du premier plan.
+  filtre du premier plan. C'est l'issue #69, et le rognage du 19 août en rattrape
+  une partie sans la résoudre : il borne ce qu'une boîte fausse peut coûter, il ne
+  la corrige pas.
+
+## Le rognage latéral : mesuré le 19 août 2026
+
+Ce qui précède est daté du 18 août. La suite est du 19, elle porte sur les mêmes
+trois émissions, et elle **déplace la conclusion de la section précédente** : la
+mécanique du crop par plan ne se déclenchait presque jamais parce que le critère
+demandait trop, pas parce que les émissions ne s'y prêtent pas.
+
+### Le constat qui l'a ouverte
+
+Clip `2025-06-15-cqlp_002107357-002143228`, deux plans, tous deux en 16:9. Sur le
+premier — 30,6 s, 61 images, deux comédiens —, l'empan brut vaut 0,669 au médian
+et 0,686 au p90 quand un 1:1 en couvre 0,5625 : **aucune** image ne tient, donc
+aucun réglage de percentile n'aurait pu produire autre chose qu'un 16:9.
+
+À l'image, à 2 120 s, elle occupe `[0,106 ; 0,490]` et lui `[0,523 ; 0,778]`. Un
+1:1 posé sur `[0,181 ; 0,744]` garde **les deux visages et les deux bustes** et ne
+perd que l'épaule extérieure de chacun. Le critère refusait ce cadre parce qu'il
+exigeait que l'union des boîtes **entières** tienne, bras traînant compris.
+
+### Ce qui a été retenu, et pourquoi pas les autres
+
+Chaque boîte abandonne, de chaque côté, `min(0,30 × sa largeur ; 0,12 de
+l'image)`. C'est le seul changement ; le seuil de 90 %, la marge, le filtre du
+premier plan et le choix de position ne bougent pas.
+
+Trois formes ont été mesurées :
+
+- **Un débordement toléré, uniforme.** Arithmétiquement identique à une marge
+  négative : la fenêtre admissible s'élargit de deux fois la tolérance, quels que
+  soient les gens présents. Elle rabote donc autant les empans déjà étroits, et
+  les pousse vers des ratios trop serrés — à 0,07 de tolérance, `cqlp` sort 17
+  fenêtres en 9:16 contre 29 en 4:5, là où le rognage proportionnel en amène 13 et
+  29. Rogner là où il y a de quoi rogner vaut mieux que rogner partout, et une
+  boîte est large précisément quand un membre est tendu.
+- **Une fraction exigée de chaque personne.** Elle autorise à prendre toute la
+  perte d'un seul côté, alors que la version symétrique — celle retenue — donne la
+  même réduction d'empan en garantissant que ce qui reste est centré. À gain égal,
+  elle est strictement moins sûre.
+- **Pondérer la boîte par sa partie haute**, comme le suggère l'issue #69 : pas
+  possible avec les données actuelles. `PersonBox` est un rectangle sans structure
+  interne, et sa largeur est la même à toutes les hauteurs. Il faudrait des points
+  de pose, donc une autre passe de détection.
+
+### Le plafond, payé par une image
+
+Sans plafond, à 0,30 de part, `2026-03-08-caro-mdlm` à 7 250 s bascule en 1:1 —
+et **c'est une faute**. Un comédien assis, jambes tendues vers la gauche, donne
+une boîte de 0,536 de large dont la tête occupe l'extrémité droite. En abandonner
+30 % de chaque côté fait 0,161 de l'image, le crop s'arrête à 0,736, et **son
+visage est dehors pendant les 28 secondes du plan**. Le compteur de pertes ne le
+signalait pas : il n'a perdu que 27 % de sa boîte.
+
+C'est le cas des jambes tendues de l'issue #69, vu par l'autre bout. Le plafond
+ramène la perte à un liseré et le plan reste en 16:9.
+
+Les deux bornes se lisent ensemble : la part protège les sujets **lointains**,
+qu'un plafond seul effacerait ; le plafond protège les sujets **larges**, dont la
+tête n'est pas au milieu.
+
+### Les valeurs, et la distance aux deux falaises
+
+| | seuil | ce qui se passe en dessous / au-dessus |
+|---|---|---|
+| part | 0,30 | en dessous, le plan de référence reste en 16:9 |
+| plafond, borne basse | 0,09 | en dessous, le plan de référence reste en 16:9 |
+| plafond, borne haute | 0,15 | au-dessus, le visage de `caro-mdlm` tombe |
+
+Le plafond retenu, **0,12**, est au milieu de l'intervalle. Au-delà de 0,40 de
+part le coût s'emballe : sur les fenêtres de `cqlp`, le temps où quelqu'un perd
+plus d'un tiers de sa largeur passe de 79 s à 220 s.
+
+### La répartition, avant et après
+
+Rognage nul à gauche de la flèche, réglage retenu à droite.
+
+**Clips du repérage** — la population du produit. Les 19 de `cqlp` incluent les
+deux vestiges `clip_verif_*` et les clips non écartés de la base du jour ; c'est
+ce que le script compte, et les lignes sont nommées dans sa sortie.
+
+| | `cqlp` (19) | `caro-mdlm` (6) | `entre-nous` (6) |
+|---|---|---|---|
+| 9:16 | 0 → **1** | 0 → 0 | 0 → 0 |
+| 4:5 | 1 → **4** | 0 → 0 | 0 → 0 |
+| 1:1 | 2 → **6** | 0 → **1** | 0 → **2** |
+| 16:9 | 16 → **8** | 6 → **5** | 6 → **4** |
+| part en 16:9 | 84 % → **42 %** | 100 % → **83 %** | 100 % → **67 %** |
+
+**Fenêtres de 30 s** — ce qu'un clip quelconque deviendrait.
+
+| | `cqlp` (197) | `caro-mdlm` (339) | `entre-nous` (227) |
+|---|---|---|---|
+| 9:16 | 1 → **18** | 0 → 0 | 3 → **5** |
+| 4:5 | 16 → **32** | 0 → **1** | 1 → **20** |
+| 1:1 | 22 → **49** | 1 → **24** | 8 → **47** |
+| 16:9 | 158 → **98** | 338 → **314** | 215 → **155** |
+| part en 16:9 | 80 % → **50 %** | 100 % → **93 %** | 95 % → **68 %** |
+
+**Aucun clip ni aucune fenêtre ne s'élargit**, à aucune valeur du balayage, de 0
+à 0,40. La propriété se démontre — rogner ne peut que réduire un empan — et un
+test la tient.
+
+### Ce que ça coûte, en secondes de clip
+
+La mesure porte sur **toutes** les images des clips, y compris celles que le seuil
+de 90 % sacrifie : c'est là que se cachent les pertes qu'aucun tableau de ratios
+ne montre. Une image vaut une demi-seconde.
+
+| | `cqlp` (19 clips) | `caro-mdlm` (6) | `entre-nous` (6) |
+|---|---|---|---|
+| p99 de ce qu'une personne perd | 0,000 → 0,300 | 0,000 → 0,198 | 0,000 → 0,509 |
+| temps où quelqu'un perd > 1/3 | 0,5 s → 8,5 s | 0 s → 0,5 s | 0 s → 8,0 s |
+| temps où quelqu'un perd > 1/2 | 0 s → 2,5 s | 0 s → 0 s | 0 s → 7,5 s |
+
+Sur les 31 clips, dix épisodes dépassent la moitié, **de 0,5 à 1,5 seconde
+chacun**, 7,5 s cumulées. Aucun n'est une perte installée : ce sont des images
+isolées, celles que le seuil de 90 % accepte déjà de sacrifier. Le pire est à
+2 137,5 s de `cqlp`, où le comédien de droite marche jusqu'au bord dans la
+dernière demi-seconde de son plan et sort du cadre.
+
+**Un cas reste discutable et il faut le nommer.** Sur
+`2026-22-02-entre-nous_001964265-002036031`, le plan de 1 979 s passe en 4:5. La
+plupart du temps il cadre bien les deux comédiens ; mais la comédienne assise se
+déplace, et pendant trois épisodes d'une seconde elle se retrouve au bord gauche
+du crop, visage compris. C'est le seul endroit du corpus où le réglage perd un
+visage.
+
+### Ce que les images ont dit, et que les chiffres ne disaient pas
+
+- **Le 1:1 du plan de référence est bon** : à 2 113 s comme à 2 123 s, les deux
+  visages, les deux bustes et les deux mains sont dedans. Ce qui tombe est le
+  dehors du chignon de l'une et le bord de l'épaule de l'autre.
+- **Le rognage est une permission, pas une coupe.** Sur ce plan, la fenêtre 1:1
+  fait 0,5625 pour un empan rogné de 0,501 : le crop rend l'essentiel de ce qui a
+  été abandonné, et chacun ne perd en fait que 12 % et 20 % de sa boîte, non 30 %.
+- **Le chat Twitch sort du cadre**, et c'est un bénéfice qu'aucune ligne du
+  tableau ne porte. À 3 930 s, un 4:5 cadre le comédien seul et laisse le panneau
+  dehors ; à 5 014 s, un 9:16 fait de même sur un gros plan. En 16:9, un quart de
+  l'image partait en chat et un autre quart en mur vide.
+- **Un faux positif posé dans le panneau de chat est éjecté** par le resserrement,
+  à 1 226 s. Le gain est réel et fortuit.
+- **Le deuxième plan du clip de référence sort en 1:1, pas en 9:16.** Julien le
+  voyait en 9:16 et il a raison sur ce qu'il faut voir — un gros plan sur le
+  comédien qui parle. Le détecteur ne le permet pas : ses boîtes pour cet homme
+  vont de 0,42 à 0,65 de large et sautent de ±0,15 d'une image à l'autre, pour un
+  visage qui occupe 0,30. Aucun critère lisant ces boîtes ne peut cadrer ce
+  visage ; il faudrait de meilleures boîtes, ce qui est l'issue #69. La troisième
+  boîte que Julien voyait à gauche, une main au bord du cadre, est en revanche
+  **déjà écartée** par le seuil de confiance, à 0,45 contre 0,50 exigé.
+
+### Reproduction
+
+```bash
+pnpm tsx scripts/mesure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm 2026-22-02-entre-nous
+pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --images 3
+pnpm tsx scripts/vignettes-cadrage.ts 2025-06-15-cqlp 2025-06-15-cqlp_002107357-002143228 --trim 0
+```
 
 ## Discipline de mesure
 

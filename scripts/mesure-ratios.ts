@@ -1,6 +1,6 @@
 /**
  * Le ratio que le cadrage automatique choisit, clip par clip, sur plusieurs
- * émissions — et ce que la marge lui coûte.
+ * émissions — et ce que ses deux réglages d'empan lui coûtent.
  *
  *     pnpm tsx scripts/mesure-ratios.ts 2025-06-15-cqlp 2026-03-08-caro-mdlm
  *
@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Trois sorties :
+ * Quatre sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -31,6 +31,10 @@
  *    boîte du détecteur met un coude au bord. Elle coûte deux fois sa valeur en
  *    empan — une fois de chaque côté — et arbitre plusieurs clips autour du seuil
  *    du 1:1. C'est ce balayage qui l'a fait tomber à 1 %.
+ * 4. **Le balayage du rognage latéral**, avec en regard **ce qui est coupé des
+ *    gens**. Les deux moitiés ne se lisent pas séparément : un rognage assez fort
+ *    fait basculer n'importe quel plan en 1:1, il suffit de couper les comédiens.
+ *    C'est ce balayage qui a posé la part à 0,30 et son plafond à 0,12.
  *
  * Et `--instants N` imprime, par clip, les N images qui **font monter le ratio** :
  * les plus larges après filtrage, une par plan au plus, parce que le crop est
@@ -587,9 +591,10 @@ async function main(): Promise<number> {
     if (émissions.length === 0) return 1
 
     console.log(
-      `Filtre du premier plan à son défaut : y1 ≥ ${FRAMING_DEFAULTS.bottomEdge}, ` +
+      `Réglages par défaut : y1 ≥ ${FRAMING_DEFAULTS.bottomEdge}, ` +
         `hauteur < ${FRAMING_DEFAULTS.foregroundMaxHeight}, score ≥ ${FRAMING_DEFAULTS.minScore}, ` +
-        `marge ${FRAMING_DEFAULTS.margin}`,
+        `marge ${FRAMING_DEFAULTS.margin}, rognage ${FRAMING_DEFAULTS.sideTrim} ` +
+        `plafonné à ${FRAMING_DEFAULTS.sideTrimMax}`,
     )
 
     console.log('\n=== 1. Le ratio par clip ===')

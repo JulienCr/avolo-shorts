@@ -9,9 +9,14 @@
  * caméra ne suit personne.
  *
  * **Le ratio est choisi par plan**, et c'est ce que la mesure impose : la part
- * du temps qui descend sous le 16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur
- * `2026-22-02-entre-nous` et 1 % sur `2026-03-08-caro-mdlm`. Un ratio unique
- * écrase ces 8 à 25 % sous le plan le plus large.
+ * du temps qui descend sous le 16:9 vaut 50 % sur `2025-06-15-cqlp`, 32 % sur
+ * `2026-22-02-entre-nous` et 7 % sur `2026-03-08-caro-mdlm`. Un ratio unique
+ * écrase cette part sous le plan le plus large.
+ *
+ * **Et le cadre n'a pas à contenir les gens en entier** : chaque boîte abandonne
+ * ses extrémités avant d'entrer dans l'empan, voir `trimmedBounds`. C'est ce qui
+ * a fait passer ces trois parts de 20 %, 5 % et moins de 1 % à ce qu'elles valent
+ * ci-dessus, sur des fenêtres de 30 s qui couvrent l'émission entière.
  *
  * **Les deux sorties n'en font pas le même usage** (spec §11), et c'est un
  * arbitrage, pas une inconséquence :

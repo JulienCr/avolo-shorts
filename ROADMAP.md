@@ -126,9 +126,14 @@ jette 76 % des comédiens.
 Sur `2025-06-15-cqlp`, l'empan médian tombe de 0,661 à 0,540, la part des images
 tenant dans un 1:1 monte de 31,3 % à 55,1 %, et 25 fenêtres de 30 s sur 197 se
 resserrent sans qu'aucune ne s'élargisse. **Et pourtant les dix clips réels
-sortent tous en 16:9, avant comme après.** Sur quatre d'entre eux les deux
+sortaient tous en 16:9, avant comme après.** Sur quatre d'entre eux les deux
 comédiens sont réellement aux deux bords : l'empan résiduel vaut 0,61 pour un 1:1
-qui en couvre 0,5625, et le ratio est juste.
+qui en couvre 0,5625.
+
+**Et c'est là que la conclusion était fausse, ce qui a coûté une journée** : on en
+avait tiré que le ratio était large et qu'il n'y avait plus de levier. Le levier
+n'était pas dans le choix des boîtes, il était dans ce qu'on exigeait d'elles —
+voir le rognage latéral, plus bas.
 
 Le piège que cette mesure a fermé mérite d'être gardé : **le filtre naïf sur le
 bord bas seul paraît bien meilleur — 90,4 % en 1:1 — parce qu'il vide 64 % des
@@ -142,14 +147,31 @@ libre par image cadrerait. Or la mesure fondatrice de la spec §2, « 48 % du te
 tient dans un 1:1 ou plus serré », est une mesure **par image**. Elle ne soutient
 donc pas directement ce qu'on en a conclu pour les clips.
 
-**Personne n'a mesuré la répartition des ratios par clip sur une émission sans
-chat incrusté**, et c'est ce chiffre qui dit si l'itération 1 paie : à 16:9 sur
-une source 16:9, un crop couvre toute la largeur et n'a rien à placer. La mesure
-est en cours sur `2026-03-08-caro-mdlm` — proxy et `analysis.json` sur le disque,
-il lui manque audio, transcript et candidats, soit une quinzaine de minutes. Elle
-mesure aussi ce que coûte `FramingOptions.margin`, la marge de confort de 2 %
-jamais mesurée, qui vaut 0,04 d'empan et arbitre plusieurs clips autour du seuil
-du 1:1 — la piste la plus rentable devant toute amélioration du filtre.
+**La répartition des ratios par clip est mesurée sur trois émissions**, et deux
+campagnes l'ont déplacée. Celle du 18 août a fait tomber la marge de confort de
+2 % à 1 % et démenti l'accusation portée contre le chat incrusté : `cqlp`, qu'on
+croyait le pire cas, est le meilleur des trois.
+
+**Celle du 19 août a débloqué le sujet, et c'est le rognage latéral.** Une boîte
+de personne abandonne désormais `min(0,30 × sa largeur ; 0,12 de l'image)` de
+chaque côté avant d'entrer dans l'empan : le cadre n'a plus à contenir les gens en
+entier, seulement à garder leurs visages et leurs bustes. La part des clips en
+16:9 tombe de 84 à 42 % sur `cqlp`, de 100 à 83 % sur `caro-mdlm`, de 100 à 67 %
+sur `entre-nous` ; celle des fenêtres de 30 s, de 80 à 50 %, de 100 à 93 % et de
+95 à 68 %. Rien ne s'élargit.
+
+Deux choses à ne pas défaire, et les deux ont été payées par une image :
+
+- **le plafond n'est pas décoratif.** Sans lui, un comédien assis jambes tendues
+  donne une boîte large dont la tête est à un bout, et le cadrage perd son visage
+  pendant les 28 secondes de son plan sans que le compteur de pertes le signale ;
+- **le rognage ne remplace pas de meilleures boîtes.** Là où le détecteur ne rend
+  rien d'exploitable — un gros plan dont les boîtes sautent de ±0,15 d'une image à
+  l'autre —, aucun critère lisant ces boîtes ne cadrera juste. C'est l'issue #69,
+  et elle reste entière.
+
+Le détail, les seuils, le coût en secondes et les images sont dans
+`docs/ratios-par-clip.md`.
 
 **Le cadrage automatique est en service depuis le 19 août 2026.** Le serveur
 publie le cadrage résolu dans `ClipDetail.framing` et dans

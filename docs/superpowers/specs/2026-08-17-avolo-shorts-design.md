@@ -100,6 +100,12 @@ du premier plan actif (`scripts/mesure-ratios.ts`).
 | Fenêtres de 30 s sous le 16:9 | 25 % (197) | 1 % (339) | 8 % (227) |
 | Empan résiduel médian | 0,551 | 0,778 | 0,614 |
 
+**Ce tableau est celui du 18 août, et le rognage latéral de la §10 l'a déplacé le
+19.** Aux réglages du jour, la part des fenêtres qui descend sous le 16:9 vaut
+**50 % sur `cqlp`, 7 % sur `caro-mdlm` et 32 % sur `entre-nous`**, et quatorze clips
+sur trente et un sortent en 1:1 ou plus serré. Le tableau reste parce qu'il dit
+d'où l'on part et pourquoi la question s'est posée.
+
 **Le cumul de 48 % du tableau des images ne se retrouve pas en clips.** Ce n'est
 pas une contradiction — un crop fixe par plan doit cadrer 90 % des images du
 clip, et le paragraphe précédent dit pourquoi les deux grandeurs divergent —,
@@ -784,6 +790,46 @@ fixe cadre 90 % de ses images. Pas le maximum, sinon une seule image où quelqu'
 traverse le cadre condamne le plan entier ; sur les 10 % restants, un sujet peut
 sortir partiellement du cadre.
 
+**Et « cadrer » ne veut pas dire contenir les gens en entier.** C'est la mesure du
+19 août 2026, et c'est ce qui a débloqué le choix du ratio. Une boîte de personne
+abandonne, de chaque côté, `min(0,30 × sa largeur ; 0,12 de l'image)` avant
+d'entrer dans l'empan. Le cas qui l'a ouverte : sur
+`2025-06-15-cqlp_002107357-002143228`, deux comédiens occupent `[0,106 ; 0,490]`
+et `[0,523 ; 0,778]`, leur union fait 0,669 quand un 1:1 en couvre 0,5625, et
+**aucune** des 61 images du plan ne tient — aucun réglage de percentile ne pouvait
+donc rendre autre chose qu'un 16:9. Vérifié à l'image, le 1:1 garde pourtant les
+deux visages et les deux bustes, et ne perd que l'épaule extérieure de chacun.
+
+Les deux bornes sont nécessaires, et la seconde a été payée par une image :
+
+- *La part* borne la perte relative. Elle protège les sujets lointains — un
+  rognage absolu effacerait une boîte de 0,10 de large — et elle rogne là où il y
+  a de quoi rogner, une boîte étant large précisément quand un membre est tendu.
+  Un débordement toléré uniforme, qui revient arithmétiquement à une marge
+  négative, rabote autant les empans déjà étroits et les pousse vers des ratios
+  trop serrés.
+- *Le plafond* borne la perte absolue. Sans lui, sur `2026-03-08-caro-mdlm` à
+  7 250 s, un comédien assis jambes tendues donne une boîte de 0,536 de large dont
+  la tête occupe l'extrémité droite : 30 % de chaque côté font 0,161 de l'image et
+  **son visage tombe dehors pendant les 28 secondes du plan**, sans que le
+  compteur de pertes le signale — il n'a perdu que 27 % de sa boîte. C'est le cas
+  des jambes tendues de l'issue #69, vu par l'autre bout.
+
+Ce que ça déplace, sur les trois émissions : la part des clips en 16:9 tombe de
+84 à 42 % sur `cqlp`, de 100 à 83 % sur `caro-mdlm`, de 100 à 67 % sur
+`entre-nous` ; celle des fenêtres de 30 s, de 80 à 50 %, de 100 à 93 % et de 95 à
+68 %. Aucun clip ni aucune fenêtre ne s'élargit. Le prix se compte en secondes :
+sur les 31 clips, dix épisodes d'une demi-seconde à une seconde et demie montrent
+quelqu'un amputé de plus de la moitié, tous dans les 10 % d'images que le seuil
+sacrifie déjà. Le détail, les seuils et les images sont dans
+`docs/ratios-par-clip.md`.
+
+**Ce que ça ne fait pas.** Un plan dont le détecteur ne donne aucune boîte
+exploitable reste mal cadré, et aucun critère lisant ces boîtes n'y changera rien
+— sur le second plan du clip de référence, un gros plan sur un comédien qui parle,
+ses boîtes vont de 0,42 à 0,65 de large et sautent de ±0,15 d'une image à l'autre
+pour un visage qui en occupe 0,30. La suite est du côté du détecteur (issue #69).
+
 **Ce paragraphe demandait un ratio unique pour tout le clip, et la mesure l'a
 démenti.** Sur trois émissions, la part des fenêtres de 30 s qui descend sous le
 16:9 vaut 25 % sur `2025-06-15-cqlp`, 8 % sur `2026-22-02-entre-nous` et 1 % sur
@@ -806,7 +852,8 @@ sur une fenêtre.
 
 Mesuré sur les 23 clips en base le 19 août 2026 : **huit portent au moins un plan
 plus serré que leur plan le plus large**, c'est-à-dire huit clips dont le 9:16
-gagne quelque chose qu'un ratio unique aurait écrasé.
+gagne quelque chose qu'un ratio unique aurait écrasé. Le rognage latéral du même
+jour n'a fait qu'agrandir cet écart, puisqu'il resserre par plan.
 
 Ce paragraphe demandait le **percentile 90 des largeurs par image**, et c'est
 faux : une largeur par image suppose un crop libre par image, alors que le crop
@@ -847,11 +894,16 @@ un poisson rouge du générique de fin. C'est le comportement voulu — une faut
 voyante plutôt qu'un cadrage serré sur rien.
 
 **Le filtre ne suffit pas à sortir `cqlp` du 16:9, et ce n'est pas un défaut du
-filtre.** Ses dix clips y restent, vérification à l'image comprise : les deux
-comédiens y sont réellement aux deux bords du cadre. Ce qui se gagne se mesure
-ailleurs — l'empan médian passe de 0,642 à 0,520, la part des images qui tient
-dans un 1:1 de 34,5 % à 60,1 %, et 25 fenêtres de 30 s sur 197 se resserrent sans
-qu'aucune ne s'élargisse.
+filtre.** Ses dix clips y restaient au 18 août, vérification à l'image comprise.
+Ce qui se gagne se mesurait ailleurs — l'empan médian passe de 0,642 à 0,520, la
+part des images qui tient dans un 1:1 de 34,5 % à 60,1 %, et 25 fenêtres de 30 s
+sur 197 se resserrent sans qu'aucune ne s'élargisse.
+
+Le 19 août les a fait sortir, et par l'autre bout : ce n'est pas *quelles* boîtes
+comptent qui bloquait, c'est *ce qu'on exigeait d'elles*. Le paragraphe reste
+parce que sa conclusion tient toujours pour le filtre — et parce que la lecture
+qui en a été faite pendant une journée, « le ratio est large partout, tant pis »,
+est exactement celle qu'il ne fallait pas en tirer.
 
 **La marge est un réglage mesuré depuis le 18 août 2026, et elle vaut 0,01.**
 Elle comptait 0,02 sans avoir jamais été éprouvée, et elle pèse **deux fois** —

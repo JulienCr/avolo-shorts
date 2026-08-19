@@ -257,23 +257,23 @@ describe('detect.py — le seuil de scène face à son plancher de collecte', ()
 describe('detect.py — le refus, étendu à --min-shot et aux bascules de composition', () => {
   // Les valeurs mesurées, reprises telles quelles : seul le paramètre sous
   // test s'écarte du défaut.
-  const étendu = (nom: string, expression: string): unknown =>
+  const extended = (name: string, expression: string): unknown =>
     évaluer(
       [
-        `résultat = detect.refus_du_seuil_de_scène(`,
+        `result = detect.refus_du_seuil_de_scène(`,
         '    0.4, 0.05,',
-        `    plan_min=${nom === 'plan_min' ? expression : '1.0'},`,
-        `    switch_shift=${nom === 'switch_shift' ? expression : '0.10'},`,
-        `    switch_tolerance=${nom === 'switch_tolerance' ? expression : '0.03'},`,
-        `    switch_share=${nom === 'switch_share' ? expression : '6'},`,
-        `    switch_point_score=${nom === 'switch_point_score' ? expression : '0.5'},`,
+        `    plan_min=${name === 'plan_min' ? expression : '1.0'},`,
+        `    switch_shift=${name === 'switch_shift' ? expression : '0.10'},`,
+        `    switch_tolerance=${name === 'switch_tolerance' ? expression : '0.03'},`,
+        `    switch_share=${name === 'switch_share' ? expression : '6'},`,
+        `    switch_point_score=${name === 'switch_point_score' ? expression : '0.5'},`,
         ')',
-        'print(json.dumps(résultat))',
+        'print(json.dumps(result))',
       ].join('\n'),
     )
 
   it('laisse passer les cinq valeurs mesurées, sans rien à leur reprocher', () => {
-    expect(étendu('plan_min', '1.0')).toBeNull()
+    expect(extended('plan_min', '1.0')).toBeNull()
   })
 
   /**
@@ -285,18 +285,18 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
    * détection de corps.
    */
   it('refuse un --min-shot non fini, nul ou négatif', () => {
-    expect(typeof étendu('plan_min', "float('nan')")).toBe('string')
-    expect(typeof étendu('plan_min', "float('inf')")).toBe('string')
-    expect(typeof étendu('plan_min', '0')).toBe('string')
-    expect(typeof étendu('plan_min', '-1.0')).toBe('string')
+    expect(typeof extended('plan_min', "float('nan')")).toBe('string')
+    expect(typeof extended('plan_min', "float('inf')")).toBe('string')
+    expect(typeof extended('plan_min', '0')).toBe('string')
+    expect(typeof extended('plan_min', '-1.0')).toBe('string')
   })
 
   it('refuse un --switch-shift ou un --switch-tolerance non fini, nul ou négatif', () => {
-    for (const nom of ['switch_shift', 'switch_tolerance']) {
-      expect(typeof étendu(nom, "float('nan')")).toBe('string')
-      expect(typeof étendu(nom, "float('inf')")).toBe('string')
-      expect(typeof étendu(nom, '0')).toBe('string')
-      expect(typeof étendu(nom, '-0.05')).toBe('string')
+    for (const name of ['switch_shift', 'switch_tolerance']) {
+      expect(typeof extended(name, "float('nan')")).toBe('string')
+      expect(typeof extended(name, "float('inf')")).toBe('string')
+      expect(typeof extended(name, '0')).toBe('string')
+      expect(typeof extended(name, '-0.05')).toBe('string')
     }
   })
 
@@ -307,22 +307,22 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
    * ne jamais déclarer de bascule — elle ne casse rien.
    */
   it('accepte un --switch-shift supérieur à 1', () => {
-    expect(étendu('switch_shift', '1.5')).toBeNull()
+    expect(extended('switch_shift', '1.5')).toBeNull()
   })
 
   it('refuse un --switch-share hors de [1, 10] ou non entier', () => {
-    expect(typeof étendu('switch_share', '0')).toBe('string')
-    expect(typeof étendu('switch_share', '11')).toBe('string')
-    expect(typeof étendu('switch_share', '6.5')).toBe('string')
-    expect(étendu('switch_share', '1')).toBeNull()
-    expect(étendu('switch_share', '10')).toBeNull()
+    expect(typeof extended('switch_share', '0')).toBe('string')
+    expect(typeof extended('switch_share', '11')).toBe('string')
+    expect(typeof extended('switch_share', '6.5')).toBe('string')
+    expect(extended('switch_share', '1')).toBeNull()
+    expect(extended('switch_share', '10')).toBeNull()
   })
 
   it('refuse un --switch-point-score hors de [0, 1] ou non fini', () => {
-    expect(typeof étendu('switch_point_score', '0')).toBe('string')
-    expect(typeof étendu('switch_point_score', '1.4')).toBe('string')
-    expect(typeof étendu('switch_point_score', "float('nan')")).toBe('string')
-    expect(étendu('switch_point_score', '1')).toBeNull()
+    expect(typeof extended('switch_point_score', '0')).toBe('string')
+    expect(typeof extended('switch_point_score', '1.4')).toBe('string')
+    expect(typeof extended('switch_point_score', "float('nan')")).toBe('string')
+    expect(extended('switch_point_score', '1')).toBeNull()
   })
 })
 
@@ -335,24 +335,27 @@ describe('detect.py — le refus, étendu à --min-shot et aux bascules de compo
  * logique d'espacement (`--min-shot` reste un seul réglage, partagé).
  */
 describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
-  const bornes = (
-    évènements: [number, number][],
-    durée: number,
-    seuil: number,
-    planMin: number,
+  const boundariesFrom = (
+    events: [number, number][],
+    duration: number,
+    threshold: number,
+    minShot: number,
   ): number[] =>
     évaluer(
-      `print(json.dumps(detect.scene_boundaries(${JSON.stringify(évènements)}, ${durée}, ${seuil}, ${planMin})))`,
+      `print(json.dumps(detect.scene_boundaries(${JSON.stringify(events)}, ${duration}, ${threshold}, ${minShot})))`,
     ) as number[]
 
-  const plans = (frontières: number[], durée: number): { start: number; end: number }[] =>
+  const shotsFrom = (
+    boundaries: number[],
+    duration: number,
+  ): { start: number; end: number }[] =>
     évaluer(
-      `print(json.dumps(detect.shots_from_boundaries(${JSON.stringify(frontières)}, ${durée})))`,
+      `print(json.dumps(detect.shots_from_boundaries(${JSON.stringify(boundaries)}, ${duration})))`,
     ) as { start: number; end: number }[]
 
   it('ignore une frontière hors de [0, durée], le score de la première image se comparant à rien', () => {
     expect(
-      bornes(
+      boundariesFrom(
         [
           [0, 0.9],
           [5, 0.9],
@@ -369,7 +372,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
     // Un éclair de lumière à une image d'intervalle (0,5 s à 2 im/s) : la
     // seconde ne fait pas un plan de 0,5 s.
     expect(
-      bornes(
+      boundariesFrom(
         [
           [5, 0.9],
           [5.5, 0.9],
@@ -384,7 +387,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
   it('mesure plan_min depuis 0 et jusqu’à durée, pas seulement entre deux frontières', () => {
     // À 0,4 s du début et 0,3 s de la fin, sous plan_min = 1 : les deux tombent.
     expect(
-      bornes(
+      boundariesFrom(
         [
           [0.4, 0.9],
           [10, 0.9],
@@ -399,7 +402,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
 
   it('écarte un score sous le seuil', () => {
     expect(
-      bornes(
+      boundariesFrom(
         [
           [5, 0.39],
           [10, 0.4],
@@ -412,11 +415,11 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
   })
 
   it('shots_from_boundaries rend toujours au moins un plan, même sans frontière', () => {
-    expect(plans([], 42.5)).toEqual([{ start: 0, end: 42.5 }])
+    expect(shotsFrom([], 42.5)).toEqual([{ start: 0, end: 42.5 }])
   })
 
   it('shots_from_boundaries découpe aux frontières données, plans qui se touchent', () => {
-    expect(plans([12.4, 30], 91.2)).toEqual([
+    expect(shotsFrom([12.4, 30], 91.2)).toEqual([
       { start: 0, end: 12.4 },
       { start: 12.4, end: 30 },
       { start: 30, end: 91.2 },
@@ -424,7 +427,7 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
   })
 
   it('composées, reproduisent le comportement de l’ancienne plans()', () => {
-    const évènements: [number, number][] = [
+    const events: [number, number][] = [
       [0.4, 0.9],
       [5.0, 0.35],
       [10.0, 0.9],
@@ -432,8 +435,8 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
       [25.0, 0.9],
       [39.8, 0.9],
     ]
-    const frontières = bornes(évènements, 40, 0.4, 1.0)
-    expect(plans(frontières, 40)).toEqual([
+    const boundaries = boundariesFrom(events, 40, 0.4, 1.0)
+    expect(shotsFrom(boundaries, 40)).toEqual([
       { start: 0, end: 10 },
       { start: 10, end: 25 },
       { start: 25, end: 40 },
@@ -449,33 +452,33 @@ describe('detect.py — scene_boundaries et shots_from_boundaries', () => {
  * se chercher dans les trois autres.
  */
 describe('detect.py — person_anchor', () => {
-  const ancre = (box: Record<string, unknown>, minScore: number): number =>
+  const anchor = (box: Record<string, unknown>, minScore: number): number =>
     évaluer(`print(json.dumps(detect.person_anchor(${JSON.stringify(box)}, ${minScore})))`) as number
 
   it('repli sur le centre de la boîte quand elle ne porte pas de points', () => {
-    expect(ancre({ x0: 0.2, x1: 0.6 }, 0.5)).toBe(0.4)
+    expect(anchor({ x0: 0.2, x1: 0.6 }, 0.5)).toBe(0.4)
   })
 
   it('repli sur le centre de la boîte quand aucun point n’atteint le seuil', () => {
-    expect(ancre({ x0: 0.2, x1: 0.6, k: [0.5, 0, 0.2] }, 0.5)).toBe(0.4)
+    expect(anchor({ x0: 0.2, x1: 0.6, k: [0.5, 0, 0.2] }, 0.5)).toBe(0.4)
   })
 
   it('ignore un point sous le seuil, en garde un autre au-dessus', () => {
     // Point à x = 0.9, confiance 0.4 (sous le seuil) ; point à x = 0.1,
     // confiance 0.9 (au-dessus). Seul le second doit compter.
-    expect(ancre({ x0: 0, x1: 1, k: [0.9, 0, 0.4, 0.1, 0, 0.9] }, 0.5)).toBe(0.1)
+    expect(anchor({ x0: 0, x1: 1, k: [0.9, 0, 0.4, 0.1, 0, 0.9] }, 0.5)).toBe(0.1)
   })
 
   it('prend la médiane des points confiants, pas leur moyenne', () => {
     const k = [0.1, 0, 0.9, 0.5, 0, 0.9, 0.9, 0, 0.9]
-    expect(ancre({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
+    expect(anchor({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
   })
 
   it('un point isolé loin du groupe ne tire pas la médiane vers lui', () => {
     // Quatre points confiants groupés autour de 0,5, un cinquième à 10 : la
     // moyenne serait tirée vers 10, la médiane reste au groupe.
     const k = [0.48, 0, 0.9, 0.5, 0, 0.9, 0.5, 0, 0.9, 0.52, 0, 0.9, 10.0, 0, 0.9]
-    expect(ancre({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
+    expect(anchor({ x0: 0, x1: 1, k }, 0.5)).toBe(0.5)
   })
 })
 
@@ -537,7 +540,7 @@ describe('detect.py — composition_switches', () => {
 
   // Trois personnes qui glissent toutes de +0,2 entre deux images
   // consécutives (fps = 2, donc un pas de 0,5 s).
-  const TROIS_QUI_GLISSENT = [
+  const THREE_SLIDING = [
     { t: 0.0, x0: 0.05, x1: 0.15 },
     { t: 0.0, x0: 0.35, x1: 0.45 },
     { t: 0.0, x0: 0.65, x1: 0.75 },
@@ -547,13 +550,13 @@ describe('detect.py — composition_switches', () => {
   ]
 
   it('déclare une bascule quand trois personnes glissent ensemble au-dessus du seuil', () => {
-    expect(switches(TROIS_QUI_GLISSENT, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([[0.0, 0.5]])
+    expect(switches(THREE_SLIDING, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([[0.0, 0.5]])
   })
 
   it('ne compare jamais par-dessus un trou de détection', () => {
     // Même glissement, mais entre deux images séparées d'un pas double :
     // aucune détection à mi-chemin. La condition 1 doit refuser la paire.
-    const avecTrou = [
+    const withGap = [
       { t: 0.0, x0: 0.05, x1: 0.15 },
       { t: 0.0, x0: 0.35, x1: 0.45 },
       { t: 0.0, x0: 0.65, x1: 0.75 },
@@ -561,15 +564,15 @@ describe('detect.py — composition_switches', () => {
       { t: 1.0, x0: 0.54, x1: 0.64 },
       { t: 1.0, x0: 0.85, x1: 0.95 },
     ]
-    expect(switches(avecTrou, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+    expect(switches(withGap, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
   })
 
   it('refuse un seul comédien apparié, qui ne prouve rien', () => {
-    const uneSeulePersonne = [
+    const onePerson = [
       { t: 0.0, x0: 0.05, x1: 0.15 },
       { t: 0.5, x0: 0.26, x1: 0.36 },
     ]
-    expect(switches(uneSeulePersonne, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+    expect(switches(onePerson, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
   })
 
   it('refuse un déplacement sous le seuil de la part appariée — entrée ou sortie de cadre', () => {
@@ -581,7 +584,7 @@ describe('detect.py — composition_switches', () => {
     // former, ni entre elles ni avec le déplacement réel, aucun cluster
     // fortuit : ce ne sont pas des coordonnées plausibles d'écran, seulement
     // des valeurs qui ne se recroisent nulle part à 0,03 près.
-    const entréeSortie = [
+    const entryExit = [
       { t: 0.0, x0: 0.05, x1: 0.15 },
       { t: 0.0, x0: 0.35, x1: 0.45 },
       { t: 0.0, x0: 6.0654, x1: 6.1654 },
@@ -593,43 +596,43 @@ describe('detect.py — composition_switches', () => {
       { t: 0.5, x0: -3.1582, x1: -3.0582 },
       { t: 0.5, x0: -3.6364, x1: -3.5364 },
     ]
-    expect(switches(entréeSortie, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+    expect(switches(entryExit, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
   })
 
   it('refuse un déplacement collectif réel mais trop petit', () => {
-    const petit = TROIS_QUI_GLISSENT.map((b) => ({ ...b }))
+    const shrunk = THREE_SLIDING.map((b) => ({ ...b }))
     // Même trio, glissement ramené à 0,02 (sous min_shift = 0,1).
-    petit[3] = { t: 0.5, x0: 0.07, x1: 0.17 }
-    petit[4] = { t: 0.5, x0: 0.37, x1: 0.47 }
-    petit[5] = { t: 0.5, x0: 0.67, x1: 0.77 }
-    expect(switches(petit, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
+    shrunk[3] = { t: 0.5, x0: 0.07, x1: 0.17 }
+    shrunk[4] = { t: 0.5, x0: 0.37, x1: 0.47 }
+    shrunk[5] = { t: 0.5, x0: 0.67, x1: 0.77 }
+    expect(switches(shrunk, 2.0, 0.5, 0.03, 6, 0.1)).toEqual([])
   })
 })
 
 describe('detect.py — refine_switch', () => {
-  const raffiner = (
+  const refine = (
     t1: number,
     t2: number,
-    évènements: [number, number][],
+    events: [number, number][],
     fps: number,
   ): [number, boolean] =>
     évaluer(
-      `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(évènements)}, ${fps}))))`,
+      `print(json.dumps(list(detect.refine_switch(${t1}, ${t2}, ${JSON.stringify(events)}, ${fps}))))`,
     ) as [number, boolean]
 
   it('trouve le score maximal dans (t1, t2 + 1/(2·fps)]', () => {
-    const évènements: [number, number][] = [
+    const events: [number, number][] = [
       [10.0, 0.9], // == t1, exclu : la fenêtre est ouverte à gauche
       [10.2, 0.5],
       [10.6, 0.7],
       [10.75, 0.95], // == borne haute, inclus : la fenêtre est fermée à droite
       [10.76, 0.99], // juste après la borne, exclu
     ]
-    expect(raffiner(10.0, 10.5, évènements, 2.0)).toEqual([10.75, true])
+    expect(refine(10.0, 10.5, events, 2.0)).toEqual([10.75, true])
   })
 
   it('replie sur le milieu de l’intervalle de contenu, sans évènement dans la fenêtre', () => {
-    expect(raffiner(10.0, 10.5, [], 2.0)).toEqual([10.375, false])
+    expect(refine(10.0, 10.5, [], 2.0)).toEqual([10.375, false])
   })
 })
 

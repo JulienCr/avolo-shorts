@@ -134,7 +134,7 @@ def arrondi_vers_le_bas(valeur: float, décimales: int) -> float:
 COUPLE_SCÈNE = re.compile(r"pts_time:([0-9.]+)\s*\nlavfi\.scene_score=([0-9.]+)")
 
 
-def scene_filter(plancher: float) -> str:
+def scene_filter(floor: float) -> str:
     """Le filtre ``-vf`` qui collecte les candidates de coupe, pur pour être testé
     sans lancer ffmpeg.
 
@@ -149,7 +149,7 @@ def scene_filter(plancher: float) -> str:
     deux cas, aucune image dont le score tombe exactement sur un multiple du
     millième du plancher ou du seuil sur l'échantillon mesuré.
     """
-    return f"select='gte(scene,{plancher})',metadata=print:file=-"
+    return f"select='gte(scene,{floor})',metadata=print:file=-"
 
 
 def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[float, float]]:
@@ -187,9 +187,9 @@ def scores_de_scène(ffmpeg: str, proxy: str, plancher: float) -> list[tuple[flo
     return [(float(t), float(s)) for t, s in COUPLE_SCÈNE.findall(terminé.stdout)]
 
 
-def _frontières_espacées(candidats: list[float], durée: float, plan_min: float) -> list[float]:
-    """Aligne une liste de temps candidats, gardés à ``plan_min`` les uns des
-    autres — les deux bouts de ``[0, durée]`` comptant comme des frontières.
+def _spaced_boundaries(candidates: list[float], duration: float, min_shot: float) -> list[float]:
+    """Aligne une liste de temps candidats, gardés à ``min_shot`` les uns des
+    autres — les deux bouts de ``[0, duration]`` comptant comme des frontières.
 
     **Partagée entre deux sources.** ``scene_boundaries`` l'appelle avec les
     seuls candidats qui franchissent le seuil de scène ; le croisement avec les
@@ -206,36 +206,36 @@ def _frontières_espacées(candidats: list[float], durée: float, plan_min: floa
       produit deux images de score élevé à une image d'intervalle, donc un
       « plan » de 33 millisecondes dans lequel le cadrage n'a rien à calculer.
 
-    **Les deux bouts comptent comme des frontières.** ``plan_min`` se mesure
-    depuis 0 pour la première et jusqu'à ``durée`` pour la dernière : sans cela
-    une coupe à une demi-seconde du début, ou de la fin, produit un plan plus
-    court que le minimum annoncé — le cas exact que le garde-fou est censé
-    fermer, à l'endroit où il ne regardait pas.
+    **Les deux bouts comptent comme des frontières.** ``min_shot`` se mesure
+    depuis 0 pour la première et jusqu'à ``duration`` pour la dernière : sans
+    cela une coupe à une demi-seconde du début, ou de la fin, produit un plan
+    plus court que le minimum annoncé — le cas exact que le garde-fou est
+    censé fermer, à l'endroit où il ne regardait pas.
     """
-    frontières: list[float] = []
-    for t in sorted(candidats):
-        if t <= 0 or t >= durée:
+    boundaries: list[float] = []
+    for t in sorted(candidates):
+        if t <= 0 or t >= duration:
             continue
         # 0 quand la liste est vide : le début de la vidéo est une frontière
         # comme une autre du point de vue de la durée d'un plan.
-        précédente = frontières[-1] if frontières else 0.0
-        if t - précédente < plan_min:
+        previous = boundaries[-1] if boundaries else 0.0
+        if t - previous < min_shot:
             continue
-        frontières.append(t)
+        boundaries.append(t)
 
     # Un seul retrait suffit : la frontière qui devient dernière est à au moins
-    # ``plan_min`` de celle qu'on vient d'ôter, donc à plus de ``plan_min`` de la
-    # fin.
-    if frontières and durée - frontières[-1] < plan_min:
-        frontières.pop()
-    return frontières
+    # ``min_shot`` de celle qu'on vient d'ôter, donc à plus de ``min_shot`` de
+    # la fin.
+    if boundaries and duration - boundaries[-1] < min_shot:
+        boundaries.pop()
+    return boundaries
 
 
 def scene_boundaries(
-    évènements: list[tuple[float, float]], durée: float, seuil: float, plan_min: float
+    events: list[tuple[float, float]], duration: float, threshold: float, min_shot: float
 ) -> list[float]:
-    """Les instants où le score de scène franchit ``seuil``, espacés d'au moins
-    ``plan_min``.
+    """Les instants où le score de scène franchit ``threshold``, espacés d'au
+    moins ``min_shot``.
 
     Anciennement la première moitié de ``plans()``, dont la signature change :
     cette fonction-ci ne rend que les frontières, ``shots_from_boundaries``
@@ -244,20 +244,18 @@ def scene_boundaries(
     s'ajouter à la liste avant le découpage, sans dupliquer la logique
     d'espacement.
     """
-    return _frontières_espacées([t for t, score in évènements if score >= seuil], durée, plan_min)
+    return _spaced_boundaries([t for t, score in events if score >= threshold], duration, min_shot)
 
 
-def shots_from_boundaries(frontières: list[float], durée: float) -> list[dict[str, float]]:
-    """Découpe ``[0, durée]`` aux ``frontières`` données, déjà triées et
+def shots_from_boundaries(boundaries: list[float], duration: float) -> list[dict[str, float]]:
+    """Découpe ``[0, duration]`` aux ``boundaries`` données, déjà triées et
     espacées — la seconde moitié de l'ancienne ``plans()``.
 
     Rend toujours au moins un plan : une liste de frontières vide est un plan
     unique, pas une liste vide, et le cadrage n'a pas à distinguer les deux cas.
     """
-    bornes = [0.0, *frontières, durée]
-    return [
-        {"start": round(a, 3), "end": round(b, 3)} for a, b in zip(bornes, bornes[1:])
-    ]
+    edges = [0.0, *boundaries, duration]
+    return [{"start": round(a, 3), "end": round(b, 3)} for a, b in zip(edges, edges[1:])]
 
 
 # ---------------------------------------------------------------------------
@@ -521,8 +519,8 @@ def person_anchor(box: dict, min_point_score: float) -> float:
         )
         if xs:
             n = len(xs)
-            milieu = n // 2
-            return xs[milieu] if n % 2 == 1 else (xs[milieu - 1] + xs[milieu]) / 2
+            mid = n // 2
+            return xs[mid] if n % 2 == 1 else (xs[mid - 1] + xs[mid]) / 2
     return (box["x0"] + box["x1"]) / 2
 
 
@@ -551,42 +549,42 @@ def collective_shift(
     comédien qui bouge plus que les autres dans le même sens ne doit pas tirer
     le déplacement collectif au-delà de ce que le groupe fait vraiment.
     """
-    candidats = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
-    if not candidats:
+    candidates = [(bj - ai, i, j) for i, ai in enumerate(a) for j, bj in enumerate(b)]
+    if not candidates:
         return None, 0
 
     def votes(d: float) -> int:
-        return sum(1 for d2, _, _ in candidats if abs(d2 - d) <= tolerance)
+        return sum(1 for d2, _, _ in candidates if abs(d2 - d) <= tolerance)
 
-    meilleur_vote = -1
-    meilleur_d = 0.0
-    for d, _, _ in candidats:
+    best_votes = -1
+    best_shift = 0.0
+    for d, _, _ in candidates:
         v = votes(d)
-        if v > meilleur_vote or (v == meilleur_vote and abs(d) < abs(meilleur_d)):
-            meilleur_vote = v
-            meilleur_d = d
+        if v > best_votes or (v == best_votes and abs(d) < abs(best_shift)):
+            best_votes = v
+            best_shift = d
 
-    utilisés_a: set[int] = set()
-    utilisés_b: set[int] = set()
-    appariées: list[float] = []
-    for d, i, j in sorted(candidats, key=lambda c: abs(c[0] - meilleur_d)):
-        if abs(d - meilleur_d) > tolerance:
-            # Trié par proximité avec `meilleur_d` : personne au-delà ne peut
+    used_a: set[int] = set()
+    used_b: set[int] = set()
+    matched: list[float] = []
+    for d, i, j in sorted(candidates, key=lambda c: abs(c[0] - best_shift)):
+        if abs(d - best_shift) > tolerance:
+            # Trié par proximité avec `best_shift` : personne au-delà ne peut
             # plus qualifier.
             break
-        if i in utilisés_a or j in utilisés_b:
+        if i in used_a or j in used_b:
             continue
-        utilisés_a.add(i)
-        utilisés_b.add(j)
-        appariées.append(d)
+        used_a.add(i)
+        used_b.add(j)
+        matched.append(d)
 
-    if not appariées:
+    if not matched:
         return None, 0
-    appariées.sort()
-    n = len(appariées)
-    milieu = n // 2
-    médiane = appariées[milieu] if n % 2 == 1 else (appariées[milieu - 1] + appariées[milieu]) / 2
-    return médiane, len(appariées)
+    matched.sort()
+    n = len(matched)
+    mid = n // 2
+    median = matched[mid] if n % 2 == 1 else (matched[mid - 1] + matched[mid]) / 2
+    return median, len(matched)
 
 
 def composition_switches(
@@ -622,32 +620,32 @@ def composition_switches(
        pour un score comparé à un seuil inclusif (``arrondi_vers_le_bas``),
        parce que la comparaison qui suit l'est aussi.
     """
-    par_instant: dict[float, list[dict]] = {}
-    for boîte in boxes:
-        par_instant.setdefault(boîte["t"], []).append(boîte)
-    instants = sorted(par_instant)
+    by_time: dict[float, list[dict]] = {}
+    for entry in boxes:
+        by_time.setdefault(entry["t"], []).append(entry)
+    times = sorted(by_time)
 
-    pas = 1.0 / fps
-    candidats: list[tuple[float, float]] = []
-    for t1, t2 in zip(instants, instants[1:]):
-        if abs((t2 - t1) - pas) > 1e-3:
+    step = 1.0 / fps
+    candidates: list[tuple[float, float]] = []
+    for t1, t2 in zip(times, times[1:]):
+        if abs((t2 - t1) - step) > 1e-3:
             continue
-        ancrages_1 = [person_anchor(b, min_point_score) for b in par_instant[t1]]
-        ancrages_2 = [person_anchor(b, min_point_score) for b in par_instant[t2]]
-        décalage, appariés = collective_shift(ancrages_1, ancrages_2, tolerance)
-        if décalage is None or appariés < 2:
+        anchors_1 = [person_anchor(b, min_point_score) for b in by_time[t1]]
+        anchors_2 = [person_anchor(b, min_point_score) for b in by_time[t2]]
+        shift, matched = collective_shift(anchors_1, anchors_2, tolerance)
+        if shift is None or matched < 2:
             continue
-        effectif = min(len(ancrages_1), len(ancrages_2))
-        if appariés * 10 < effectif * part:
+        smallest_count = min(len(anchors_1), len(anchors_2))
+        if matched * 10 < smallest_count * part:
             continue
-        if arrondi_vers_le_bas(abs(décalage), 4) < min_shift:
+        if arrondi_vers_le_bas(abs(shift), 4) < min_shift:
             continue
-        candidats.append((t1, t2))
-    return candidats
+        candidates.append((t1, t2))
+    return candidates
 
 
 def refine_switch(
-    t1: float, t2: float, évènements: list[tuple[float, float]], fps: float
+    t1: float, t2: float, events: list[tuple[float, float]], fps: float
 ) -> tuple[float, bool]:
     """L'image exacte d'une bascule détectée entre ``t1`` et ``t2`` — et si le
     raffinement a réussi, pour que l'appelant compte le taux de repli.
@@ -674,12 +672,12 @@ def refine_switch(
     minimise l'écart maximal possible avec la vraie coupe, où qu'elle soit
     tombée dans l'intervalle.
     """
-    borne_haute = t2 + 1.0 / (2.0 * fps)
-    fenêtre = [(t, s) for t, s in évènements if t1 < t <= borne_haute]
-    if fenêtre:
-        t_max, _ = max(fenêtre, key=lambda paire: paire[1])
-        return t_max, True
-    return (t1 + borne_haute) / 2, False
+    upper_bound = t2 + 1.0 / (2.0 * fps)
+    window = [(t, s) for t, s in events if t1 < t <= upper_bound]
+    if window:
+        best_t, _ = max(window, key=lambda pair: pair[1])
+        return best_t, True
+    return (t1 + upper_bound) / 2, False
 
 
 # ---------------------------------------------------------------------------
@@ -1061,32 +1059,32 @@ def main() -> int:
     # Calcul pur, sans GPU : la VRAM est déjà rendue ci-dessus. Deux détecteurs
     # orthogonaux, croisés sur la même liste de frontières et le même
     # `--min-shot` — pas de plancher séparé pour les bascules, voir
-    # `_frontières_espacées`.
+    # `_spaced_boundaries`.
     journal(f"[4/5] Frontières (scène ≥ {a.scene_threshold}, bascules)…")
     t0 = time.monotonic()
-    frontières_scène = scene_boundaries(évènements, a.duration, a.scene_threshold, a.min_shot)
+    scene_boundary_times = scene_boundaries(évènements, a.duration, a.scene_threshold, a.min_shot)
 
-    candidats_bascule = composition_switches(
+    switch_candidates = composition_switches(
         boîtes, a.fps, a.switch_point_score, a.switch_tolerance, a.switch_share, a.switch_shift
     )
-    frontières_bascule: list[float] = []
-    repli = 0
-    for t1, t2 in candidats_bascule:
-        t_raffiné, raffiné = refine_switch(t1, t2, évènements, a.fps)
-        frontières_bascule.append(t_raffiné)
-        if not raffiné:
-            repli += 1
+    switch_boundary_times: list[float] = []
+    fallback_count = 0
+    for t1, t2 in switch_candidates:
+        refined_t, refined = refine_switch(t1, t2, évènements, a.fps)
+        switch_boundary_times.append(refined_t)
+        if not refined:
+            fallback_count += 1
 
-    frontières = _frontières_espacées(
-        [*frontières_scène, *frontières_bascule], a.duration, a.min_shot
+    boundaries = _spaced_boundaries(
+        [*scene_boundary_times, *switch_boundary_times], a.duration, a.min_shot
     )
-    découpe = shots_from_boundaries(frontières, a.duration)
+    découpe = shots_from_boundaries(boundaries, a.duration)
 
-    part_repli = repli / len(candidats_bascule) if candidats_bascule else 0.0
+    fallback_rate = fallback_count / len(switch_candidates) if switch_candidates else 0.0
     journal(
-        f"      {len(découpe)} plans, {len(frontières)} frontières ({len(frontières_scène)} "
-        f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(frontières_bascule)} "
-        f"bascules dont {repli} en repli, {100 * part_repli:.0f} %), en "
+        f"      {len(découpe)} plans, {len(boundaries)} frontières ({len(scene_boundary_times)} "
+        f"scène sur {len(évènements)} candidates ≥ {a.scene_floor}, {len(switch_boundary_times)} "
+        f"bascules dont {fallback_count} en repli, {100 * fallback_rate:.0f} %), en "
         f"{time.monotonic() - t0:.0f} s"
     )
 

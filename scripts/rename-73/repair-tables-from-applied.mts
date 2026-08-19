@@ -192,31 +192,41 @@ function resolveActualAppliedName(
   return { entry, resolvedName: undefined, candidates: uniq };
 }
 
-function writeJson(entries: SymbolEntry[]) {
+export function writeJson(entries: SymbolEntry[]) {
   const p = path.join(ROOT, "scripts/rename-73/renames-identifiers.json");
   fs.writeFileSync(p, JSON.stringify(entries, null, 2) + "\n");
 }
 
-function writeTsv(entries: SymbolEntry[]) {
+/** Régénère `renames-identifiers.tsv`, groupé par le triplet (old_name,
+ * new_name, note) — voir l'en-tête du fichier. La 5e colonne `note` reste
+ * vide pour l'écrasante majorité des lignes ; elle ne porte un texte que
+ * pour les entrées qu'aucun `first_seen` de `collect.mts` n'a jamais
+ * suivies — ajoutées après coup par `catalogue-uncatalogued.mts` — pour
+ * qu'un lecteur du TSV voie tout de suite pourquoi une ligne existe sans
+ * avoir à deviner. La note fait partie de la clé de groupe, pas seulement
+ * la paire (old_name, new_name) : `centre` → `center` a 6 occurrences
+ * suivies depuis toujours et une 7e jamais cataloguée avant aujourd'hui —
+ * les fondre sous une note commune masquerait laquelle des sept est
+ * l'exception, les séparer en deux lignes le dit directement. */
+export function writeTsv(entries: SymbolEntry[]) {
   const p = path.join(ROOT, "scripts/rename-73/renames-identifiers.tsv");
-  // Groupe par la paire (old, new) — plus par old seul, voir l'en-tête.
   const groups = new Map<string, SymbolEntry[]>();
   for (const e of entries) {
-    const key = `${e.oldName}\t${e.newName}`;
+    const key = `${e.oldName}\t${e.newName}\t${e.note ?? ""}`;
     const list = groups.get(key) ?? [];
     list.push(e);
     groups.set(key, list);
   }
   const rows = [...groups.entries()].map(([key, list]) => {
-    const [oldName, newName] = key.split("\t");
+    const [oldName, newName, note] = key.split("\t");
     const sorted = [...list].sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)));
     const first = sorted[0];
-    return { oldName, newName, occurrences: list.length, firstSeen: `${first.file}:${first.line}` };
+    return { oldName, newName, occurrences: list.length, firstSeen: `${first.file}:${first.line}`, note };
   });
   rows.sort((a, b) => (a.oldName === b.oldName ? a.newName.localeCompare(b.newName) : a.oldName.localeCompare(b.oldName)));
 
-  const lines = ["old_name\tnew_name\toccurrences\tfirst_seen"];
-  for (const r of rows) lines.push(`${r.oldName}\t${r.newName}\t${r.occurrences}\t${r.firstSeen}`);
+  const lines = ["old_name\tnew_name\toccurrences\tfirst_seen\tnote"];
+  for (const r of rows) lines.push(`${r.oldName}\t${r.newName}\t${r.occurrences}\t${r.firstSeen}\t${r.note}`);
   fs.writeFileSync(p, lines.join("\n") + "\n");
   return rows.length;
 }
@@ -277,4 +287,6 @@ function main() {
   }
 }
 
-main();
+// Ne s'exécute que si ce fichier est le point d'entrée — `catalogue-uncatalogued.mts`
+// importe writeJson/writeTsv d'ici sans vouloir relancer cette réparation.
+if (import.meta.url === `file://${process.argv[1]}`) main();

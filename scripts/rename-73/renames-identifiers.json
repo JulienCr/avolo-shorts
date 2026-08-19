@@ -33158,5 +33158,29 @@
     "kind": "variable",
     "file": "tests/worker/detect.test.ts",
     "line": 408
+  },
+  {
+    "oldName": "centre",
+    "newName": "center",
+    "kind": "propertyAssignment",
+    "file": "src/core/framing.ts",
+    "line": 926,
+    "note": "clé de propriété d'un objet littéral — jamais suivie par collect.mts (traduction ordinaire, seulement jamais cataloguée)"
+  },
+  {
+    "oldName": "shots",
+    "newName": "framedShots",
+    "kind": "variable",
+    "file": "src/core/framing.ts",
+    "line": 1194,
+    "note": "déjà anglais avant le balayage — déplacé par collision avec plans→shots à la ligne 1137, jamais candidat à une traduction"
+  },
+  {
+    "oldName": "lines",
+    "newName": "indexed",
+    "kind": "bindingElement",
+    "file": "tests/lib/editing.test.ts",
+    "line": 65,
+    "note": "déjà anglais avant le balayage — déplacé par collision avec lignes→lines (la variable englobante lue sur la même ligne), jamais candidat à une traduction"
   }
 ]

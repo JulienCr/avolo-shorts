@@ -130,6 +130,11 @@ export interface SymbolEntry {
   kind: string;
   file: string; // chemin d'origine (avant renommage de fichier/dossier)
   line: number; // 1-based
+  /** Pourquoi cette entrée n'était pas dans la table d'origine — absente pour
+   * les 4145 symboles que `collect.mts` a réellement suivis, présente pour
+   * les quelques-uns catalogués après coup (voir
+   * `scripts/rename-73/catalogue-uncatalogued.mts`). */
+  note?: string;
 }
 
 export function loadSymbolEntries(): SymbolEntry[] {
@@ -453,6 +458,101 @@ function reverseModuleSpecifiers(dirB: string, filesAtHead: string[], pathMap: M
   return editedFiles;
 }
 
+/**
+ * Recolle en forme raccourcie (`{ x }`) une propriété ou une liaison de
+ * déstructuration que la substitution symbole par symbole a laissée en
+ * forme développée (`{ x: x }`) — la clé et la valeur, renommées chacune
+ * indépendamment par leur propre `findRenameLocations`, convergent parfois
+ * vers exactement le même texte sans que rien ne les recolle. `apply.mts`
+ * ne rencontre jamais ce cas dans le sens direct (`providePrefixAndSuffixTextForRename: false`
+ * empêche justement TypeScript de développer une forme raccourcie à
+ * l'aller) ; au retour, une substitution textuelle sur deux symboles
+ * distincts qui se rejoignent n'a par construction aucun moyen de le
+ * savoir sans relire l'arbre après coup. Repéré sur trois fichiers,
+ * `src/core/framing.ts` (`shots: shots`), `src/server/rendus.ts`
+ * (`chemin: chemin`) et `tests/lib/editing.test.ts` (`lines: lines`) —
+ * jamais une clé de table manquante, un artefact de cette reconstruction.
+ *
+ * **Ne recolle que ce que cette reconstruction a elle-même développé.**
+ * Un premier jet collait toute paire `clé: valeur` de texte identique,
+ * y compris celles que le code portait déjà sous cette forme avant tout
+ * balayage — trouvé sur `src/app/api/clips/[id]/route.ts`, où
+ * `framing: framing` est la forme choisie par l'auteur, jamais touchée
+ * par aucun renommage (ni `framing` la clé ni `framing` la valeur ne
+ * sont dans la table), et que le collage aurait pourtant raccourcie à
+ * tort. Le garde-fou : ne recoller que si la **ligne** diffère de ce que
+ * porte le worktree actuel (`HEAD`, non modifié par ce script) au même
+ * numéro de ligne dans le fichier d'origine — un renommage d'identifiant
+ * ne change jamais le nombre de lignes, la même hypothèse que partout
+ * ailleurs dans cette preuve. Une ligne identique à `HEAD` n'a par
+ * construction reçu aucune substitution ; ce qu'elle porte est à laisser
+ * intact, forme développée comprise. */
+function collapseShorthand(
+  dirB: string,
+  files: string[],
+  fileRenames: Array<{ from: string; to: string }>,
+  folderRenames: Array<{ from: string; to: string }>
+): number {
+  let editedFiles = 0;
+  for (const rel of files) {
+    if (!/\.(ts|tsx|mts)$/.test(rel)) continue;
+    const abs = path.join(dirB, rel);
+    const content = fs.readFileSync(abs, "utf8");
+    const kind: ts.ScriptKind = path.extname(rel) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const source = ts.createSourceFile(rel, content, ts.ScriptTarget.Latest, true, kind);
+    const lineStarts = source.getLineStarts();
+
+    const currentFileAbs = path.join(ROOT, toCurrentPath(rel, fileRenames, folderRenames));
+    const pristineLines = fs.existsSync(currentFileAbs) ? fs.readFileSync(currentFileAbs, "utf8").split("\n") : undefined;
+
+    const touchedLine = (pos: number): boolean => {
+      if (!pristineLines) return false;
+      const lineIndex = source.getLineAndCharacterOfPosition(pos).line;
+      const lineStart = lineStarts[lineIndex];
+      const lineEnd = lineIndex + 1 < lineStarts.length ? lineStarts[lineIndex + 1] : content.length;
+      const currentLineText = content.slice(lineStart, lineEnd);
+      const pristineLineText = pristineLines[lineIndex];
+      return pristineLineText === undefined || currentLineText !== pristineLineText + (currentLineText.endsWith("\n") ? "\n" : "");
+    };
+
+    const edits: Array<{ start: number; end: number; newText: string }> = [];
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        ts.isIdentifier(node.name) &&
+        ts.isIdentifier(node.initializer) &&
+        node.name.text === node.initializer.text &&
+        touchedLine(node.getStart(source))
+      ) {
+        edits.push({ start: node.getStart(source), end: node.initializer.getEnd(), newText: node.name.text });
+      } else if (
+        ts.isBindingElement(node) &&
+        node.propertyName &&
+        !node.dotDotDotToken &&
+        !node.initializer &&
+        ts.isIdentifier(node.propertyName) &&
+        ts.isIdentifier(node.name) &&
+        node.propertyName.text === node.name.text &&
+        touchedLine(node.getStart(source))
+      ) {
+        edits.push({ start: node.getStart(source), end: node.name.getEnd(), newText: node.propertyName.text });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+
+    if (edits.length === 0) continue;
+    edits.sort((a, b) => b.start - a.start);
+    let newContent = content;
+    for (const e of edits) {
+      newContent = newContent.slice(0, e.start) + e.newText + newContent.slice(e.end);
+    }
+    fs.writeFileSync(abs, newContent, "utf8");
+    editedFiles++;
+  }
+  return editedFiles;
+}
+
 /** Découpe un contenu en tokens d'identifiant (lettres Unicode, chiffres,
  * `_`, `$`) et en tout le reste, sur la même grille des deux côtés — pour
  * comparer terme à terme plutôt que ligne à ligne. */
@@ -566,6 +666,11 @@ function main() {
     if (fs.readdirSync(dir).length === 0 && dir !== dirB) fs.rmdirSync(dir);
   }
   pruneEmptyDirs(dirB);
+
+  console.log("Recollage des propriétés/liaisons développées en trop (clé et valeur convergentes)...");
+  const filesAfterMoves = listFiles(dirB);
+  const collapsedFiles = collapseShorthand(dirB, filesAfterMoves, fileRenames, folderRenames);
+  console.log(`  ${collapsedFiles} fichier(s) recollés en forme raccourcie.`);
 
   console.log("\nComparaison à origin/main...");
   let diffOutput = "";

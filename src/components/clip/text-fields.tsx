@@ -19,7 +19,7 @@ import { DEBOUNCE_MS } from '@/lib/autosave'
  * lecture seule.
  *
  * **Ils ne passent pas par le store d'édition**, contrairement aux segments, au
- * ratio et au cadrage : ils vivent dans le clip du serveur, et `ChampsSuivis`
+ * ratio et au cadrage : ils vivent dans le clip du serveur, et `FieldsTracked`
  * ne les nomme pas — les y ajouter ferait réconcilier un état qui n'existe pas.
  * Le protocole d'écriture est donc ici, en petit : temporiser, écrire au flou,
  * ne pas perdre la dernière frappe.

@@ -8,7 +8,7 @@
  * qui est la seule conséquence du choix de ratio qui ne se voyait nulle part.
  *
  * **C'est une copie de `src/server/steps/render.ts`, et elle est délibérée.**
- * `texteDePublication` et `cheminsRendu` y vivent au milieu de `node:fs`, de
+ * `publicationText` et `pathsRender` y vivent au milieu de `node:fs`, de
  * `better-sqlite3` et de ffmpeg : rien de tout cela n'entre dans un composant
  * client. Les partager demanderait de les remonter dans `src/core/`, qui est
  * gelé pour cette PR — et le geste vaut d'être fait d'un coup pour les deux

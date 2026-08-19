@@ -20,10 +20,10 @@ import { cn } from '@/lib/utils'
  * qu'aucune surface ne le montre. Un rang écrit en toutes lettres — « clip 4 sur
  * 12 » — le dit, une bande de vignettes le fait voir, et les deux boutons
  * restent parce qu'ils portent une règle que la bande n'exprime pas :
- * `clipSuivant` saute les écartés, donc « le clip suivant à monter » n'est pas
+ * `clipNext` saute les écartés, donc « le clip suivant à monter » n'est pas
  * toujours « celui d'à côté ».
  *
- * **Aucune requête de plus.** L'écran de clip interroge déjà `useCandidats` pour
+ * **Aucune requête de plus.** L'écran de clip interroge déjà `useCandidates` pour
  * son rang, et la liste porte `thumbnailUrl` : la bande se sert de ce qui est
  * déjà là.
  *

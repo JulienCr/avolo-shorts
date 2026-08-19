@@ -21,10 +21,10 @@ import { cn } from '@/lib/utils'
  * ne se sait qu'à la fin du tri, et c'est pourquoi le reste de l'écran compte
  * ce qui reste à faire plutôt qu'un pourcentage.
  *
- * **Elle tranche ce que `suite` ne distingue pas.** « Tout a été écarté » et
+ * **Elle tranche ce que `next` ne distingue pas.** « Tout a été écarté » et
  * « des clips gardés restent à monter » tombent tous deux sur `travail: 'trie'`
- * : la liste est non vide, donc pas `rien`, et sans clip gardé, donc pas
- * `livre`. Les séparer demanderait une cinquième valeur de `Travail` ou la liste
+ * : la liste est non vide, donc pas `nothing`, et sans clip gardé, donc pas
+ * `livre`. Les séparer demanderait une cinquième valeur de `Work` ou la liste
  * des clips en argument. C'est donc l'écran qui le dit, puisque c'est lui qui
  * tient la liste.
  */
@@ -95,7 +95,7 @@ export function LoopEnd({
 /**
  * Où en est le montage des clips gardés.
  *
- * Trois formes plutôt qu'un `accord` unique : « 0 est monté » se lit mal, et
+ * Trois formes plutôt qu'un `agreement` unique : « 0 est monté » se lit mal, et
  * c'est la phrase la plus regardée du parcours — celle qui dit ce qu'il reste à
  * faire une fois le tri fini.
  */

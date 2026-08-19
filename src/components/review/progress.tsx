@@ -25,8 +25,8 @@ import { Progress } from '@/components/ui/progress'
  * précision d'une seconde affirmerait ce qu'une mesure unique, sur une machine à
  * 40-80 % de variance, ne porte pas.
  *
- * **Il n'énumère aucun nom d'étape** : il itère `ÉTAPES`, qui vit à côté de
- * `phaseProjet`. Ajouter une étape au graphe est alors une ligne de données, et
+ * **Il n'énumère aucun nom d'étape** : il itère `STEPS`, qui vit à côté de
+ * `phaseProject`. Ajouter une étape au graphe est alors une ligne de données, et
  * en oublier une casse le type-check plutôt que d'afficher « undefined en
  * cours » (issue #39).
  */
@@ -38,8 +38,8 @@ export function PanelProgress({
   resume,
   shutdown,
 }: {
-  // Pas de `phase` : elle serait redondante. `interrompu` et `echec` ne se
-  // distinguent que par la présence d'`erreur`, et `attente` que par celle de
+  // Pas de `phase` : elle serait redondante. `interrompu` et `failure` ne se
+  // distinguent que par la présence d'`error`, et `wait` que par celle de
   // `running` — le panneau lit donc directement les deux champs dont la phase
   // elle-même est faite, sans se donner une seconde source de vérité.
   steps: Record<StepName, boolean>

@@ -40,7 +40,7 @@ const REASON_IN_CURRENT = 'Une exécution est déjà en cours ; la relance sera 
  * analysé, sans erreur, sans rien qui tourne et sans recours. C'est
  * `Analyse: 'interrompu'`.
  *
- * **Il vise `CIBLES_DE_REPRISE`, importé et jamais recopié.** Une cible nomme un
+ * **Il vise `RESUME_TARGETS`, importé et jamais recopié.** Une cible nomme un
  * résultat à atteindre, pas une étape à refaire : viser la première étape
  * absente reconstruirait celle-là et s'arrêterait, et viser `candidates` seul ne
  * construirait jamais le proxy, puisque rien n'en dépend dans le graphe. La

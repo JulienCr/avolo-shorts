@@ -154,13 +154,13 @@ export function TranscriptSurface({
   // positionnement se fait alors sur des hauteurs pas encore mesurées. Une
   // image plus tard, les lignes sont mesurées et le défilement tombe juste.
   //
-  // **Une fois par clip, et pas une de plus.** `ligneInitiale` se recalcule
+  // **Une fois par clip, et pas une de plus.** `lineInitial` se recalcule
   // quand le clip enregistré change ; repositionner à chaque fois ferait fuir
-  // le texte sous les yeux pendant qu'on monte. Le repère est donc `cle`, pas
+  // le texte sous les yeux pendant qu'on monte. Le repère est donc `key`, pas
   // la valeur.
   //
   // Le repère se pose **quand le défilement a eu lieu**, pas quand il est
-  // programmé. `deplacer` vient du virtualiseur et rien ne garantit sa
+  // programmé. `move` vient du virtualiseur et rien ne garantit sa
   // stabilité d'un rendu à l'autre : si l'effet se rejoue avant l'image, son
   // nettoyage annule la précédente, et un repère posé trop tôt court-circuiterait
   // la nouvelle. Le défilement initial n'aurait alors jamais lieu.
@@ -227,7 +227,7 @@ export function TranscriptSurface({
       setCursor(bound)
       // **Le curseur du clavier *est* la sélection.** Sans cela, `I` et `O`
       // posent la borne sur le mot cliqué il y a trois gestes, puisque l'écran
-      // lit `selection.tete` — et rien ne le dit. `onTerminer` referme le
+      // lit `selection.tete` — et rien ne le dit. `onFinish` referme le
       // glissé que `commencerSelection` ouvre : un survol à la souris étendrait
       // sinon la sélection sans qu'on ait rien pressé. (relevé par Copilot)
       onSelect(bound, false)

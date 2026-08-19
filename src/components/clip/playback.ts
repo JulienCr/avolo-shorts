@@ -63,7 +63,7 @@ type StatePlayback = {
   /**
    * Les mots du transcript indexé, tels que `indexTranscript` les rend.
    *
-   * Ils vivent ici parce que `motActif` s'en dérive : le calculer ailleurs
+   * Ils vivent ici parce que `wordActive` s'en dérive : le calculer ailleurs
    * obligerait un composant à s'abonner à la position pour le faire, ce qui est
    * exactement ce que ce store existe pour éviter.
    */

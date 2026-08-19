@@ -17,7 +17,7 @@ import type { CauseUnavailable, SourcesListing } from '@/lib/api'
  * `SourcesListing.montage` existe pour ça, et l'écran serait fautif de ne pas
  * s'en servir.
  *
- * Deux vides viennent en prime et ne coûtent rien. `entrées` compte **toutes**
+ * Deux vides viennent en prime et ne coûtent rien. `entries` compte **toutes**
  * les entrées du dossier, vidéos ou non : un dossier qui en porte trois sans
  * qu'aucune ne soit une vidéo n'est pas vide, il est mal rempli, et le dire
  * épargne de remonter un partage qui fonctionne. Et `cause` dit **laquelle** des
@@ -85,9 +85,9 @@ const REPAIR = 'Rouvrir le lecteur côté Windows, ou remonter le partage.'
  * partage a perdu son transport… vérifier REPLAY_DIR et ses droits ; s'ils sont
  * bons, rouvrir le lecteur ». Trois gestes ordonnés du moins cher au plus cher,
  * honnêtes, et trois fois trop longs. Le serveur savait lequel des trois
- * s'appliquait et le jetait (`releverAvecGarde`) ; il le dit maintenant.
+ * s'appliquait et le jetait (`captureWithGuard`) ; il le dit maintenant.
  *
- * **`absent` est celui qui valait le déplacement.** Un `REPLAY_DIR` mal
+ * **`missing` est celui qui valait le déplacement.** Un `REPLAY_DIR` mal
  * orthographié sous un partage 9p parfaitement sain rendait `fstype: '9p'` avec
  * la lecture en échec — le diagnostic le plus trompeur possible, puisqu'il
  * désigne le partage alors que le partage va bien. C'est une faute de frappe, et

@@ -28,7 +28,7 @@ export type GestureWord = { kind: 'remonter' } | { kind: 'borne'; edge: 'start' 
  * pour partie, et le remonter n'est pas une redéfinition de l'étendue : c'est le
  * même trou à combler, sur un mot que la coupe a coupé en deux.
  *
- * `étendue` vaut `null` quand tous les mots ont été retirés. Il n'y a alors
+ * `extent` vaut `null` quand tous les mots ont été retirés. Il n'y a alors
  * aucun bord dont ce mot serait dehors, et `restoreWord` reconstruit exactement
  * le clip qu'on redemande.
  */

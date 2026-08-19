@@ -76,12 +76,12 @@ export function ReviewFeed({
   onView: (view: View) => void
   /** Le proxy est-il là ? Il commande les vignettes et l'ouverture du montage. */
   proxyReady: boolean
-  /** Ce que le repérage n'a pas jugé, ou `null`. Voir `motDuRepérage`. */
+  /** Ce que le repérage n'a pas jugé, ou `null`. Voir `detectionWord`. */
   summary: SelectionReport | null
   /**
    * L'issue de la phase, calculée par la page.
    *
-   * Elle arrive en propriété plutôt que d'être calculée ici : `suite` a besoin
+   * Elle arrive en propriété plutôt que d'être calculée ici : `next` a besoin
    * de la phase, donc du relevé d'artefacts et de l'exécution en cours, que ce
    * composant n'a aucune raison de connaître. C'est la fin de boucle qui la
    * consomme — c'est le seul endroit où l'on sait enfin de quoi la liste est
@@ -160,7 +160,7 @@ export function ReviewFeed({
 
   // **Aucun `useCallback` ici, et c'est délibéré.** Ces gestes ferment sur la
   // liste, la vue et la sélection : leurs tableaux de dépendances seraient longs,
-  // faux un jour, et sans bénéfice — `useRaccourcisTri` garde les derniers
+  // faux un jour, et sans bénéfice — `useShortcutsReview` garde les derniers
   // derrière une référence, donc rien ne se réabonne au changement d'identité, et
   // le compilateur de React mémorise ce qui vaut de l'être.
   function element(clipId: string | null): HTMLElement | null {
@@ -191,7 +191,7 @@ export function ReviewFeed({
     const since = visible.findIndex((c) => c.id === current)
     // **Sans rebouclage, aux deux bouts.** Reboucler ferait repasser
     // indéfiniment sur des cartes déjà vues sans que rien ne dise qu'on a fait
-    // le tour — le même choix que `clipSuivant`.
+    // le tour — le même choix que `clipNext`.
     const toward = Math.max(0, Math.min(visible.length - 1, (since < 0 ? 0 : since) + not))
     focus(visible[toward]?.id ?? null)
   }
@@ -257,13 +257,13 @@ export function ReviewFeed({
         if (link === null) return
         // **La carte se note ici, et pas en continu au fil de la sélection.**
         // Une écriture à chaque déplacement écrasait la carte mémorisée pendant
-        // la restauration elle-même : au retour, `focaliser` posait la sélection
+        // la restauration elle-même : au retour, `focus` posait la sélection
         // sur une carte que la vue n'affichait pas encore, la sélection
         // retombait sur la première visible, et cette retombée était réécrite
         // par-dessus la carte qu'on cherchait à retrouver.
         //
         // Et elle se lit sur la carte cliquée plutôt que sur la sélection : la
-        // capture précède le focus, donc `courant` désigne encore la carte
+        // capture précède le focus, donc `current` désigne encore la carte
         // d'avant. À défaut de carte — la liste de fin de boucle n'en est pas
         // une —, l'identifiant se relit dans l'URL du lien.
         const card =

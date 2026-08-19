@@ -68,7 +68,7 @@ export type PublishClipTarget = {
   /** Ce qu'une publication précédente a laissé, par plateforme. Vide tant que rien n'écrit ici. */
   records?: Partial<Record<Platform, PublicationRecord>>
   /**
-   * L'empreinte de rendu courante (`empreinteDuRendu`), pour la nuance du
+   * L'empreinte de rendu courante (`renderFingerprint`), pour la nuance du
    * retour d'usage §9 : « Instagram — publié » contre « Instagram — publié,
    * mais le clip local a été modifié depuis ». Absente tant qu'aucun appelant
    * ne la calcule pour ce contexte — la vue Émission, par exemple, n'a que le
@@ -105,7 +105,7 @@ export function PublishDialog({
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
   // un clip après l'autre : rouvrir sur la sélection du clip précédent
   // publierait sur une plateforme qu'on n'a jamais choisie pour celui-ci. Un
-  // ajustement d'état pendant le rendu — le motif que `useVueFigée` (fil.tsx)
+  // ajustement d'état pendant le rendu — le motif que `useViewFrozen` (fil.tsx)
   // emploie déjà pour la même raison — évite l'image intermédiaire qu'un
   // `useEffect` produirait entre l'ouverture et la remise à zéro.
   const [wasOpen, setWasOpen] = useState(open)

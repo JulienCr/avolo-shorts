@@ -88,7 +88,7 @@ export function shotIndexAt(shots: readonly ShotFraming[], position: number): nu
 /**
  * Le plan sous la lecture, **sans réveiller le composant à chaque `timeupdate`**.
  *
- * Le sélecteur rend un index, donc un nombre : `useLecture` compare par
+ * Le sélecteur rend un index, donc un nombre : `usePlayback` compare par
  * `Object.is` et ne re-rend qu'aux frontières, soit quelques fois par clip. Un
  * sélecteur qui rendrait le plan lui-même fabriquerait un objet neuf quatre fois
  * par seconde et re-rendrait le rectangle de cadrage à cette cadence — ce que le

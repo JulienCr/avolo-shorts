@@ -197,10 +197,10 @@ export function TranscriptPanel({
   // comme sur cet écran.** WhisperX remplace le fichier entier : le bandeau
   // « corrections appliquées » et les clips « concernés » qu'il affiche ne
   // correspondraient plus à rien une fois le nouveau texte chargé. On ne se
-  // fie ni à `lines` ni à la réponse de correction pour le détecter — les deux
+  // fie ni à `indexed` ni à la réponse de correction pour le détecter — les deux
   // changent aussi après une correction manuelle, dont ce bandeau doit au
   // contraire survivre — mais à la transition `running → null` de ce projet,
-  // le même signal que `useProjet` utilise pour invalider le cache du
+  // le même signal que `useProject` utilise pour invalider le cache du
   // transcript. Une sélection ouverte est également abandonnée : son ancre
   // porterait l'ancien texte. (relevé par Copilot)
   //

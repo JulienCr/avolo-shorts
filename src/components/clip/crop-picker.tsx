@@ -44,7 +44,7 @@ const NOT_FAST = 0.05
  *
  * **La seconde moitié de cette fonction est datée et doit partir avec le lot qui
  * rebranche le curseur.** Elle tient en une branche, exprès : le jour où la
- * dérogation s'enregistre, c'est la condition `automatique` qui disparaît, pas
+ * dérogation s'enregistre, c'est la condition `automatic` qui disparaît, pas
  * une phrase à retrouver dans trois paragraphes.
  *
  * Exportée parce que **deux composants en ont besoin et doivent s'accorder** :
@@ -154,7 +154,7 @@ export function CropOverlay({
 
   function onKeyboard(e: React.KeyboardEvent) {
     const not = e.shiftKey ? NOT_FAST : NOT
-    // Depuis la valeur précédente et non depuis `centre` : une flèche maintenue
+    // Depuis la valeur précédente et non depuis `center` : une flèche maintenue
     // envoie plusieurs frappes avant le prochain rendu, et toutes liraient sinon
     // la même valeur — le cadre n'avancerait que d'un cran.
     if (e.key === 'ArrowLeft') onCropX((p) => clampCropX(p - not, width))

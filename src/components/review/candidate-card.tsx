@@ -75,7 +75,7 @@ export function CandidateCard({
   const duration = clipDuration(clip.segments)
   const start = clip.segments[0]?.start ?? 0
   const cuts = Math.max(0, clip.segments.length - 1)
-  // La même définition que celle du gestionnaire de clic (`basculerStatut`) :
+  // La même définition que celle du gestionnaire de clic (`toggleStatus`) :
   // les deux divergeaient, et le bouton « Gardé » d'un clip exporté produisait
   // alors un changement d'état invisible.
   const guard = isGuard(clip.status)

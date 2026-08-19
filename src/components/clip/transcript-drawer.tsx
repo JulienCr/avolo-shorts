@@ -144,7 +144,7 @@ export function TranscriptDrawer({
         side="right"
         className="w-full sm:max-w-2xl"
         // **Ce modal-ci héberge les raccourcis de l'écran au lieu de les
-        // suspendre**, et c'est ce que cet attribut déclare à `volerait`. La
+        // suspendre**, et c'est ce que cet attribut déclare à `wouldSteal`. La
         // règle générale — un modal possède toutes les touches — vise les boîtes
         // qui interrompent le travail : la liste des raccourcis, la confirmation
         // d'écrasement. Ce tiroir est le travail. Sans cette dérogation, `Suppr`,

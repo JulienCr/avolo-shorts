@@ -28,7 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton'
  *
  * Il ne calcule rien lui-même. La phase vient de `@/core/parcours`, la
  * disposition et le vocabulaire des vues de `@/components/tri/modele`, la boucle
- * de tri de `FilDeTri` : il interroge, distribue et dispose. C'est la même
+ * de tri de `ReviewFeed` : il interroge, distribue et dispose. C'est la même
  * frontière que `src/core` contre `src/server`, appliquée un cran plus haut.
  *
  * **Il vit ici et non dans le fichier de route**, et c'est ce qui le rend
@@ -56,7 +56,7 @@ export function ProjectScreen({ id }: { id: string }) {
 
   // **Attendre n'est pas la même chose que ne pas savoir.**
   //
-  // `prêt` dit que les deux requêtes ont rendu la main, en succès comme en
+  // `ready` dit que les deux requêtes ont rendu la main, en succès comme en
   // échec : c'est lui qui décide entre le squelette et le contenu, et le tenir
   // sur le seul succès laissait un projet introuvable sur un squelette éternel,
   // sans message et sans recours.

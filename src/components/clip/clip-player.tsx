@@ -80,7 +80,7 @@ export function placePlayback(
  * transcript en a besoin dans l'autre colonne : gardée en état local, elle
  * rendait le lecteur et sa superposition de cadrage à cette cadence, et le
  * surlignage du mot en cours aurait étendu le rendu à tout l'écran. Elle part
- * dans `useLecture`, où seuls ses abonnés la lisent — ici, l'horloge et rien
+ * dans `usePlayback`, où seuls ses abonnés la lisent — ici, l'horloge et rien
  * d'autre.
  *
  * Le proxy n'existe pas tant que la tâche 11 ne le sert pas. L'emplacement est

@@ -72,7 +72,7 @@ export function PanelExport({
   /**
    * Une écriture de clip, **quelle qu'elle soit**, est en vol.
    *
-   * `enregistrement` ne couvre que le montage. Le titre, la description et les
+   * `autosave` ne couvre que le montage. Le titre, la description et les
    * marques partent par la même mutation sans y figurer : sans ce second
    * signal, basculer les marques puis exporter dans la foulée fait lire au
    * rendu la valeur d'avant, et produit un fichier qui contredit l'écran.

@@ -49,7 +49,7 @@ const GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols
  * **La jointure est côté client, et le coût serveur ne bouge pas.** Les deux
  * requêtes existaient déjà. Celle qui aurait été évidente — un
  * `GET /api/projects/:id` par entrée, pour connaître les artefacts présents —
- * reste écartée : elle exécute `relevéPrésence`, qui sonde le montage 9p sous
+ * reste écartée : elle exécute `readingPresence`, qui sonde le montage 9p sous
  * délai de garde, et quatre fils du vivier de libuv suffisent à figer tout ce
  * qui touche au disque dans le serveur, analyse en cours comprise. `buildLibrary`
  * (`@/core/library`) fait l'appariement, pur et testable sans DOM.
@@ -92,7 +92,7 @@ export function LibraryGrid({
   /**
    * La liste brute des projets, pour la région live seulement.
    *
-   * Elle ne sert pas au rendu — les cartes lisent `entrées` —, mais l'annonce
+   * Elle ne sert pas au rendu — les cartes lisent `entries` —, mais l'annonce
    * porte sur les changements d'étape, donc sur les projets et non sur les
    * replays : un projet orphelin qui reprend son analyse doit s'entendre comme
    * les autres.

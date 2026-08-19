@@ -128,7 +128,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     return () => usePlayback.getState().reset()
   }, [clip.id])
 
-  // Le surlignage se calcule dans `useLecture`, à partir de ces mots-ci : ils
+  // Le surlignage se calcule dans `usePlayback`, à partir de ces mots-ci : ils
   // sont réindexés à chaque coupe, et un index gardé tel quel surlignerait un
   // mot au hasard.
   useEffect(() => {
@@ -159,7 +159,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const selection = editor.selection
 
   // Calculée sur le clip **enregistré**, et la règle est dans `@/lib/editing`.
-  // La surface, elle, ne s'en sert qu'une fois par clip (voir `cle`).
+  // La surface, elle, ne s'en sert qu'une fois par clip (voir `key`).
   const firstLine = useMemo(() => lineInitial(lines, clip.segments), [lines, clip.segments])
 
   const autosave = useAutosave({
@@ -174,7 +174,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     segments,
     ratio: editor.ratio,
     cropX: editor.cropX,
-    // **`mutateAsync` ici aussi**, et pour la raison écrite sur `ecrire` plus
+    // **`mutateAsync` ici aussi**, et pour la raison écrite sur `write` plus
     // bas : cet observateur-ci est celui que les champs de texte et les marques
     // se partagent avec le montage, donc `mutate` aurait laissé la première
     // frappe de titre emporter le sort de l'enregistrement en vol. (issue #55)
@@ -182,7 +182,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     reconcile: editor.reconcile,
   })
 
-  // **L'échec d'une écriture directe ne remonte pas par `useEnregistrementAuto`.**
+  // **L'échec d'une écriture directe ne remonte pas par `useAutosave`.**
   // Celui-ci ne compare que les segments, le ratio et le cadrage ; le titre, la
   // description et les marques partent par la même mutation sans y figurer. Sans
   // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
@@ -447,7 +447,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 // position tombée dans un passage retiré est légitime à regarder —
                 // c'est tout l'intérêt d'une bande à coupes visibles — mais la
                 // lecture, elle, saute les retraits (`playbackAction`). On confie
-                // donc la position à `placerLecture`, qui la ramène dans le
+                // donc la position à `placePlayback`, qui la ramène dans le
                 // montage : l'image montrait ce qu'il y a là, la lecture reprend
                 // au segment suivant.
                 placePlayback(video, segments, time)

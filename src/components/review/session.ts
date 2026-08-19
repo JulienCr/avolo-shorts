@@ -12,7 +12,7 @@ import { VIEWS, type View } from '@/components/review/template'
  *
  * **La vue reste dans l'URL, et n'est copiée ici qu'en repli.** L'URL est la
  * vérité — un rechargement doit rendre le même écran, et une URL se partage —,
- * mais on revient d'un clip par le fil d'Ariane, qui pointe sur `lienProjet`,
+ * mais on revient d'un clip par le fil d'Ariane, qui pointe sur `linkProject`,
  * c'est-à-dire une URL sans vue. La copie ne sert qu'à ce cas-là. La position de
  * défilement, elle, n'a rien à faire dans une URL : ce serait une URL qu'on ne
  * peut plus partager.
@@ -33,7 +33,7 @@ export type ReviewState = {
    * **Elle double l'URL, elle ne la remplace pas.** L'URL reste la vérité — un
    * rechargement doit rendre le même écran, et une URL se partage. Mais on
    * revient d'un clip par le fil d'Ariane, que `chemin` construit sur
-   * `lienProjet` : une URL nue, sans vue. Sans cette copie, le retour retombait
+   * `linkProject` : une URL nue, sans vue. Sans cette copie, le retour retombait
    * sur « à trier », la carte gardée n'y était pas, et le focus mémorisé n'avait
    * nulle part où se poser. (relevé par Codex)
    */
@@ -50,7 +50,7 @@ export type ReviewState = {
    */
   returning: boolean
   /**
-   * L'instant, en millisecondes depuis l'époque Unix, où `retour` a été posé à `true`.
+   * L'instant, en millisecondes depuis l'époque Unix, où `returning` a été posé à `true`.
    *
    * **Sans horodatage, la marque survit à un départ sans retour.** Elle est
    * posée au clic vers un clip, mais rien ne la retire si l'on quitte ensuite

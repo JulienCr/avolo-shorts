@@ -27,7 +27,7 @@ import { useCreateProject, useProjects } from '@/lib/queries'
  * **L'écran ne calcule rien.** Il tient les trois requêtes, décide de ce qu'on
  * fait d'un 202, et passe le reste à `buildLibrary` (pur) puis à une grille qui
  * n'a besoin d'aucun serveur pour être montée. La redirection appartient bien
- * ici : `useCreerProjet` s'arrête à l'invalidation, parce qu'aller au projet,
+ * ici : `useCreateProject` s'arrête à l'invalidation, parce qu'aller au projet,
  * l'annoncer ou rester sur la grille est une décision de parcours, et un hook
  * qui naviguerait empêcherait d'en changer sans le réécrire.
  *

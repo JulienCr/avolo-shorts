@@ -21,7 +21,7 @@ export function normalize(text: string): string {
 }
 
 /**
- * Les mots qui commencent une occurrence de `requête`.
+ * Les mots qui commencent une occurrence de `request`.
  *
  * **L'appariement commence sur une frontière de mot**, jamais au milieu : sans
  * cette règle, chercher « le » désigne aussi « brûle », et la navigation saute

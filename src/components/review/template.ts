@@ -23,11 +23,11 @@ import type { SelectionReport } from '@/lib/api'
  * montage.
  *
  * **Hors du périmètre de la traduction des clés persistées (issue #73, PR sur
- * les clés persistées).** `atrier`, `gardes` et `ecartes` sont françaises sans
+ * les clés persistées).** `atrier`, `guards` et `discarded` sont françaises sans
  * accent, mais ce sont des valeurs du paramètre d'URL `?vue=`, pas des
- * identifiants — voir le commentaire sur `lienProjet` dans
+ * identifiants — voir le commentaire sur `linkProject` dans
  * `src/components/tri/ecran-projet.tsx`, qui qualifie ce contrat de gelé. Une
- * URL en signet porte l'ancienne valeur pour toujours, et `vueDepuisUrl`
+ * URL en signet porte l'ancienne valeur pour toujours, et `viewSinceUrl`
  * retombe **silencieusement** sur `atrier` devant une valeur qu'elle ne
  * reconnaît pas : traduire ces trois mots casserait un signet sans qu'aucun
  * test ni aucun log ne le dise. Le balayage général de #73 doit laisser cette
@@ -101,7 +101,7 @@ export function idsForView(
  *   sont déterministes, et le serveur traite le refus comme reproductible : une
  *   seconde passe soumettrait exactement les mêmes charges pour se faire refuser
  *   pareil. On énonce la perte, on ne feint pas de la réparer ;
- * - **`provisoire` vient du serveur**, qui le calcule sur le sort de l'étape
+ * - **`provisional` vient du serveur**, qui le calcule sur le sort de l'étape
  *   `candidates` et non sur celui de l'exécution qui la porte. Le refabriquer
  *   depuis `error` marquerait provisoire un repérage complet dès qu'une étape
  *   ultérieure tombe.

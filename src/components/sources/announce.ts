@@ -10,7 +10,7 @@ import type { ProjectListItem, StepName } from '@/lib/api'
  * d'étape, et la fin**.
  *
  * **Une annonce par changement d'étape, plus une à la fin** — donc autant que le
- * graphe a d'étapes observables, et pas un compte figé : `ÉTAPES` en porte cinq
+ * graphe a d'étapes observables, et pas un compte figé : `STEPS` en porte cinq
  * depuis que la PR #31 y a ajouté `analysis`, et la prochaine itération en
  * ajoutera. Ce qui compte est l'ordre de grandeur : une poignée sur toute
  * l'analyse, contre une toutes les deux secondes pendant neuf minutes si le

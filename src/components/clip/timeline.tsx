@@ -105,7 +105,7 @@ export function Timeline({
    * lues dans la même fermeture partent toutes de la même borne et calculent
    * trois fois le même résultat — l'oreille n'avance que d'un cran et paraît
    * collée. C'est le défaut exact que le curseur de cadrage a déjà payé, où la
-   * forme fonctionnelle de `deplacerCrop` le règle ; ici la cible est absolue,
+   * forme fonctionnelle de `moveCrop` le règle ; ici la cible est absolue,
    * donc c'est une référence qui la tient à jour. (relevé par Aristarque)
    */
   const boundsRef = useRef(bounds)
@@ -214,7 +214,7 @@ export function Timeline({
    * contrôle qui ne répondrait qu'au pointeur retirerait donc au clavier une
    * capacité neuve, et pas un doublon. (relevé par Copilot)
    *
-   * La position part de `useLecture` plutôt que d'un état local : c'est la même
+   * La position part de `usePlayback` plutôt que d'un état local : c'est la même
    * horloge que le lecteur, et deux sources divergeraient dès la première
    * lecture.
    */

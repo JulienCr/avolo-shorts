@@ -48,10 +48,10 @@ async function main(): Promise<number> {
   }
 
   const t = timer()
-  const { shot } = await launch(projectId, targets.filter(estTarget), { force })
+  const { plan } = await launch(projectId, targets.filter(estTarget), { force })
   console.log(`Projet  : ${projectId}`)
   console.log(`Cibles  : ${targets.join(', ')}${force ? ' (forcées)' : ''}`)
-  console.log(`Plan    : ${shot.length === 0 ? 'rien, tout est là' : shot.join(' → ')}`)
+  console.log(`Plan    : ${plan.length === 0 ? 'rien, tout est là' : plan.join(' → ')}`)
 
   // **Le suivi passe par `status.json`, pas par les rappels de `lancer`.** Le
   // lanceur les garde pour lui et publie son avancement dans le fichier, qui est

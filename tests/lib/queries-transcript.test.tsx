@@ -8,7 +8,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { actAsync, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -66,7 +66,7 @@ describe('useCorrectTranscript', () => {
     const { wrapper } = harness()
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({
         projectId: 'p1',
         correction: { lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] },
@@ -95,7 +95,7 @@ describe('useCorrectTranscript', () => {
     client.setQueryData(keys.transcript('p1'), lines)
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({
         projectId: 'p1',
         correction: { lineId: 'l1', from: 0, to: 0, expected: ['Suite'], replacement: ['Suivant'] },
@@ -114,7 +114,7 @@ describe('useCorrectTranscript', () => {
     const { wrapper } = harness()
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({
         projectId: 'p1',
         correction: { lineId: 'l0', from: 0, to: 0, expected: ['pas-le-bon-mot'], replacement: ['x'] },
@@ -136,7 +136,7 @@ describe('useCorrectTranscript', () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries')
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({
         projectId: 'p1',
         correction: { lineId: 'l0', from: 0, to: 0, expected: ['pas-le-bon-mot'], replacement: ['x'] },
@@ -160,7 +160,7 @@ describe('useCorrectTranscript', () => {
     client.setQueryData(keys.transcript('p1'), lines)
 
     const { result } = renderHook(() => useCorrectTranscript(), { wrapper })
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({
         projectId: 'p1',
         correction: { lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: [] },
@@ -196,7 +196,7 @@ describe('useProjet', () => {
     const { result } = renderHook(() => useProject('p1'), { wrapper })
     await waitFor(() => expect(result.current.data?.running).not.toBeNull())
 
-    await actAsync(async () => {
+    await act(async () => {
       client.setQueryData(keys.projet('p1'), { ...runningStatus, running: null })
     })
     await waitFor(() => expect(result.current.data?.running).toBeNull())

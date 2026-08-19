@@ -11,7 +11,7 @@
  * trois secondes de contexte.
  */
 
-import { actAsync, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Timeline } from '@/components/clip/timeline'
@@ -275,7 +275,7 @@ describe('la tête de lecture', () => {
     // contrôle réservé au pointeur retirerait donc au clavier une capacité neuve.
     // (relevé par Copilot)
     const { onScrub } = mount()
-    actAsync(() => usePlayback.getState().definePosition(110))
+    act(() => usePlayback.getState().definePosition(110))
     const head = document.querySelector('[data-playhead]')
     if (head === null) throw new Error('la tête de lecture n’est pas rendue')
 
@@ -297,7 +297,7 @@ describe('la tête de lecture', () => {
 
   it('annonce sa position en timecode', () => {
     mount()
-    actAsync(() => usePlayback.getState().definePosition(110.4))
+    act(() => usePlayback.getState().definePosition(110.4))
     const head = document.querySelector('[data-playhead]')
     expect(head?.getAttribute('aria-valuetext')).toBe('0:01:50, image 12')
   })

@@ -9,7 +9,7 @@
  * l'aperçu au rendu, trois minutes d'export plus tard.
  */
 
-import { actAsync, renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
@@ -55,9 +55,9 @@ describe('useCurrentShot', () => {
   const lire = (c = TWO) => renderHook(() => useCurrentShot(c)).result
 
   it('suit la lecture de plan en plan', () => {
-    actAsync(() => usePlayback.getState().definePosition(15))
+    act(() => usePlayback.getState().definePosition(15))
     expect(lire().current?.ratio).toBe('1:1')
-    actAsync(() => usePlayback.getState().definePosition(25))
+    act(() => usePlayback.getState().definePosition(25))
     expect(lire().current?.ratio).toBe('16:9')
   })
 
@@ -79,7 +79,7 @@ describe('useCurrentShot', () => {
    * chose que ce que le fichier contiendra. (relevé par Codex)
    */
   it('ne montre aucun plan sur un intervalle qu’aucun ne couvre', () => {
-    actAsync(() => usePlayback.getState().definePosition(40))
+    act(() => usePlayback.getState().definePosition(40))
     expect(lire().current).toBeNull()
     // Et le repli des appelants est bien celui du rendu.
     expect(effectiveRatio(null, 'auto')).toBe('16:9')

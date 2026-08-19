@@ -116,8 +116,8 @@ describe('phaseProjet, l’axe du travail humain', () => {
     // `candidates.json` vide donne `{ triable, rien }`, et c'est l'axe du
     // travail qui porte le vide. C'est la raison d'être des deux axes.
     expect(phaseProject(reading('candidates'), null, null, [])).toEqual({
-      analyse: 'triable',
-      travail: 'rien',
+      analysis: 'triable',
+      work: 'rien',
     })
   })
 
@@ -160,8 +160,8 @@ describe('phaseProjet, l’axe du travail humain', () => {
     // toujours montables. La phase choisit ce que l'écran met en avant, elle ne
     // retire jamais ce qui existe.
     expect(phaseProject(reading('proxy'), inCurrent, null, clips('kept', 'discarded'))).toEqual({
-      analyse: 'attente',
-      travail: 'trie',
+      analysis: 'attente',
+      work: 'trie',
     })
   })
 })
@@ -206,7 +206,7 @@ describe('le tableau des étapes', () => {
     // minutes. `stepDurationRange` les remplace, et deux tables sur la même
     // question auraient fini par diverger.
     for (const step of STEPS) {
-      expect(Object.keys(step).toSorted()).toEqual(['libelle', 'nom'])
+      expect(Object.keys(step).toSorted()).toEqual(['label', 'name'])
     }
   })
 })
@@ -217,7 +217,7 @@ describe('compter', () => {
   }
 
   it('ne compte rien sur une liste vide', () => {
-    expect(count([])).toEqual({ aTrier: 0, gardes: 0, ecartes: 0, dureeGardee: 0 })
+    expect(count([])).toEqual({ aSort: 0, guards: 0, discarded: 0, durationKept: 0 })
   })
 
   it('compte un clip exporté comme gardé', () => {
@@ -233,7 +233,7 @@ describe('compter', () => {
       candidate('discarded', 90),
       candidate('candidate', 45),
     ])
-    expect(result).toEqual({ aTrier: 1, gardes: 2, ecartes: 1, dureeGardee: 42 })
+    expect(result).toEqual({ aSort: 1, guards: 2, discarded: 1, durationKept: 42 })
   })
 
   it('rend une durée nulle quand les gardés n’ont plus de segment', () => {

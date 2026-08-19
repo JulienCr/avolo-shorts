@@ -10,7 +10,7 @@
  * lit dans le texte.
  */
 
-import { actAsync, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { indexTranscript, type TranscriptLine } from '@/lib/editing'
@@ -74,7 +74,7 @@ function mount(props: Partial<Parameters<typeof TranscriptSurface>[0]> = {}) {
 
 /** Vide la file d'images : c'est là que le défilement automatique rend la main. */
 async function imageNext() {
-  await actAsync(async () => {
+  await act(async () => {
     await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
   })
 }
@@ -87,7 +87,7 @@ function stops(surface: HTMLElement): Element[] {
 }
 
 beforeEach(() => {
-  actAsync(() => usePlayback.getState().reset())
+  act(() => usePlayback.getState().reset())
 })
 afterEach(cleanup)
 
@@ -112,7 +112,7 @@ describe('la lecture et le texte', () => {
 
   it('surligne le mot en cours de lecture', () => {
     const { words } = mount()
-    actAsync(() => {
+    act(() => {
       usePlayback.getState().defineWords(words)
       usePlayback.getState().definePosition(3.2)
     })
@@ -124,9 +124,9 @@ describe('la lecture et le texte', () => {
 describe('le défilement automatique', () => {
   it('suit la lecture, puis se coupe dès qu’on défile à la main', async () => {
     const { words, surface } = mount()
-    actAsync(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().defineWords(words))
 
-    actAsync(() => usePlayback.getState().definePosition(80))
+    act(() => usePlayback.getState().definePosition(80))
     const tracked = surface.scrollTop
     expect(tracked).toBeGreaterThan(0)
     await imageNext()
@@ -134,7 +134,7 @@ describe('le défilement automatique', () => {
     // Le geste de l'utilisateur reprend la main : le texte ne doit plus fuir
     // sous les yeux pendant qu'on lit ailleurs.
     fireEvent.scroll(surface)
-    actAsync(() => usePlayback.getState().definePosition(160))
+    act(() => usePlayback.getState().definePosition(160))
     expect(surface.scrollTop).toBe(tracked)
   })
 
@@ -142,20 +142,20 @@ describe('le défilement automatique', () => {
     // `scroll` ne part que si `scrollTop` bouge : une molette en butée n'émet
     // rien, et le suivi restait actif. (relevé par Copilot)
     const { words, surface } = mount()
-    actAsync(() => usePlayback.getState().defineWords(words))
-    actAsync(() => usePlayback.getState().definePosition(80))
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
     await imageNext()
     const frozen = surface.scrollTop
 
     fireEvent.wheel(surface)
-    actAsync(() => usePlayback.getState().definePosition(160))
+    act(() => usePlayback.getState().definePosition(160))
     expect(surface.scrollTop).toBe(frozen)
   })
 
   it('reprend au clic sur un mot', async () => {
     const { words, surface } = mount()
-    actAsync(() => usePlayback.getState().defineWords(words))
-    actAsync(() => usePlayback.getState().definePosition(80))
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
     await imageNext()
     fireEvent.scroll(surface)
     const frozen = surface.scrollTop
@@ -166,7 +166,7 @@ describe('le défilement automatique', () => {
     fireEvent.pointerDown(word)
     fireEvent.pointerUp(word)
 
-    actAsync(() => usePlayback.getState().definePosition(160))
+    act(() => usePlayback.getState().definePosition(160))
     expect(surface.scrollTop).toBeGreaterThan(frozen)
   })
 })
@@ -241,15 +241,15 @@ describe('la recherche', () => {
     // Chercher, c'est aller voir ailleurs. Laisser le défilement suivre la
     // lecture ramènerait le texte sous les yeux au moment où on lit l'occurrence.
     const { words, surface } = mount({ search: true })
-    actAsync(() => usePlayback.getState().defineWords(words))
-    actAsync(() => usePlayback.getState().definePosition(80))
+    act(() => usePlayback.getState().defineWords(words))
+    act(() => usePlayback.getState().definePosition(80))
     await imageNext()
 
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'm2-0' } })
     await imageNext()
     const stopped = surface.scrollTop
 
-    actAsync(() => usePlayback.getState().definePosition(160))
+    act(() => usePlayback.getState().definePosition(160))
     expect(surface.scrollTop).toBe(stopped)
   })
 

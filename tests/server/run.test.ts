@@ -19,7 +19,7 @@ import {
   ExecutionInCurrentError,
   launch,
   lireStatus,
-  shotForTargets,
+  planForTargets,
   forgetSidecar,
   ProjectInconnuError,
   progression,
@@ -234,7 +234,7 @@ describe('planPourCibles', () => {
   it('enchaîne deux cibles sans répéter ce qui est déjà planifié', () => {
     // C'est ce que fait `POST /api/projects` : rien ne dépend du proxy dans le
     // graphe, donc viser les candidats ne le construirait jamais.
-    expect(shotForTargets(['candidates', 'proxy'], nothing, [])).toEqual([
+    expect(planForTargets(['candidates', 'proxy'], nothing, [])).toEqual([
       'audio',
       'transcript',
       'candidates',
@@ -244,7 +244,7 @@ describe('planPourCibles', () => {
 
   it('ne planifie rien quand tout est là', () => {
     const all = { ...nothing, proxy: true, audio: true, transcript: true, candidates: true }
-    expect(shotForTargets(['candidates', 'proxy'], all, [])).toEqual([])
+    expect(planForTargets(['candidates', 'proxy'], all, [])).toEqual([])
   })
 })
 
@@ -309,8 +309,8 @@ describe('relevéPrésence', () => {
 describe('analysis', () => {
   it('ne construit que le proxy pour atteindre l’analyse', async () => {
     poserProject()
-    const { shot } = await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
-    expect(shot).toEqual(['proxy', 'analysis'])
+    const { plan } = await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+    expect(plan).toEqual(['proxy', 'analysis'])
     await wait(PROJECT)
     expect(calls).toEqual(['proxy', 'analysis'])
   })
@@ -360,9 +360,9 @@ describe('créerProjet', () => {
    */
   it('vise l’analyse à la création, après le proxy dont elle dépend', async () => {
     poserProject()
-    const { shot } = await createProject(`${PROJECT}.mp4`, { db, steps: stepsFake() })
-    expect(shot).toContain('analysis')
-    expect(shot.indexOf('proxy')).toBeLessThan(shot.indexOf('analysis'))
+    const { plan } = await createProject(`${PROJECT}.mp4`, { db, steps: stepsFake() })
+    expect(plan).toContain('analysis')
+    expect(plan.indexOf('proxy')).toBeLessThan(plan.indexOf('analysis'))
 
     await wait(PROJECT)
     expect(calls).toContain('analysis')
@@ -468,8 +468,8 @@ describe('lancer', () => {
     poserProject()
     poserTranscript()
 
-    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
-    expect(shot).toEqual(['candidates'])
+    const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(plan).toEqual(['candidates'])
 
     await waitFin()
     // Ni transcription, ni audio, ni ingestion : c'est tout l'objet du graphe.
@@ -479,8 +479,8 @@ describe('lancer', () => {
   it('sur un projet neuf, remonte les dépendances jusqu’à la source', async () => {
     poserProject()
 
-    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
-    expect(shot).toEqual(['audio', 'transcript', 'candidates'])
+    const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(plan).toEqual(['audio', 'transcript', 'candidates'])
     await waitFin()
     expect(calls).toEqual(['audio', 'transcript', 'candidates'])
   })
@@ -491,14 +491,14 @@ describe('lancer', () => {
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'audio.wav'), '')
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { shot } = await launch(PROJECT, ['candidates'], {
+    const { plan } = await launch(PROJECT, ['candidates'], {
       db,
       force: ['transcript'],
       steps: stepsFake(),
     })
     // Refaire le transcript sans reprendre le repérage laisserait des candidats
     // calculés sur un texte qui n'existe plus.
-    expect(shot).toEqual(['transcript', 'candidates'])
+    expect(plan).toEqual(['transcript', 'candidates'])
     await waitFin()
   })
 
@@ -507,12 +507,12 @@ describe('lancer', () => {
     poserTranscript()
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { shot } = await launch(PROJECT, ['candidates'], {
+    const { plan } = await launch(PROJECT, ['candidates'], {
       db,
       force: true,
       steps: stepsFake(),
     })
-    expect(shot).toEqual(['candidates'])
+    expect(plan).toEqual(['candidates'])
     await waitFin()
   })
 
@@ -565,7 +565,7 @@ describe('lancer', () => {
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
     let ingested = false
-    const { shot } = await launch(PROJECT, ['candidates'], {
+    const { plan } = await launch(PROJECT, ['candidates'], {
       db,
       steps: {
         ...stepsFake(),
@@ -583,7 +583,7 @@ describe('lancer', () => {
         },
       },
     })
-    expect(shot).toEqual([])
+    expect(plan).toEqual([])
     await waitFin()
     expect(ingested).toBe(true)
   })
@@ -593,8 +593,8 @@ describe('lancer', () => {
     poserTranscript()
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
-    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
-    expect(shot).toEqual([])
+    const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(plan).toEqual([])
     expect(progression(PROJECT)).toBeNull()
     expect(calls).toEqual([])
   })
@@ -611,7 +611,7 @@ describe('status.json', () => {
     const status = lireStatus(PROJECT)
     expect(status?.running).toBeNull()
     expect(status?.error).toBeNull()
-    expect(status?.shot).toEqual(['candidates'])
+    expect(status?.plan).toEqual(['candidates'])
     expect(status?.finishedAt).toBeTypeOf('number')
   })
 
@@ -833,9 +833,9 @@ describe("l'arrêt d'une exécution", () => {
     expect(presence.candidates).toBe(false)
 
     calls = []
-    const { shot } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
     // La reprise ne refait ni l'audio ni le transcript.
-    expect(shot).toEqual(['candidates'])
+    expect(plan).toEqual(['candidates'])
     await waitFin()
     expect(calls).toEqual(['candidates'])
     expect(lireStatus(PROJECT)?.stopped).toBe(false)

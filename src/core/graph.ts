@@ -68,7 +68,7 @@ const DEPS: Record<StepName, readonly StepName[]> = {
  * L'ordre rendu est celui de l'exécution : toute étape y apparaît après ses
  * dépendances.
  */
-export function shotSteps(
+export function planSteps(
   target: StepName,
   exists: Record<StepName, boolean>,
   forced: readonly StepName[] = [],
@@ -99,7 +99,7 @@ export function shotSteps(
    */
   const toRedo = (step: StepName): boolean => forcedInUpstream(step) || !exists[step]
 
-  const shot: StepName[] = []
+  const plan: StepName[] = []
   const registered = new Set<StepName>()
 
   const schedule = (step: StepName): void => {
@@ -109,9 +109,9 @@ export function shotSteps(
     for (const dep of DEPS[step]) {
       if (toRedo(dep)) schedule(dep)
     }
-    shot.push(step)
+    plan.push(step)
   }
 
   if (toRedo(target)) schedule(target)
-  return shot
+  return plan
 }

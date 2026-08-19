@@ -29,7 +29,7 @@ import {
  * la CI n'a pas de ffmpeg — c'est écrit dans `ROADMAP.md` — donc simuler est la
  * seule façon d'avoir ces cas sous test plutôt que sous surveillance humaine.
  *
- * Ce qui est simulé se limite à deux frontières déjà étanches : `produireArtefact`,
+ * Ce qui est simulé se limite à deux frontières déjà étanches : `produceArtifact`,
  * qui pose un fichier et rend la main, et `probe`, qui dit des dimensions. Le
  * reste — décision de saut, écriture de l'empreinte, statut, sous-titres — est
  * le vrai code.
@@ -46,13 +46,13 @@ vi.mock('@/server/ffmpeg', async (importOriginal) => {
   return {
     ...original,
     /**
-     * Le contrat de `produireArtefact` tenu sans ffmpeg : le fichier de
+     * Le contrat de `produceArtifact` tenu sans ffmpeg : le fichier de
      * destination existe au retour, et pas avant.
      *
      * `o.args(...)` est appelé pour de vrai — c'est gratuit, et cela garde sous
      * test le fait que la construction des arguments n'explose pas.
      */
-    produireArtefact: async (o: OptionsArtifact): Promise<Artifact> => {
+    produceArtifact: async (o: OptionsArtifact): Promise<Artifact> => {
       encodings.push(o.dst)
       o.args(`${o.dst}.partiel`)
       if (duringLEncoding !== null) {
@@ -89,7 +89,7 @@ vi.mock('@/server/steps/ingest', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/steps/ingest')>()
   return {
     ...original,
-    montageRépond: async (): Promise<boolean> => editingRespond,
+    editingResponds: async (): Promise<boolean> => editingRespond,
   }
 })
 

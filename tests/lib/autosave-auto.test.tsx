@@ -15,7 +15,7 @@
  */
 
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
-import { actAsync, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -109,7 +109,7 @@ function promiseWatched<T>() {
  * `setTimeout` qui ne s'écoulerait jamais — qui rend la main au moteur.
  */
 async function actWrapped(gesture: () => void): Promise<void> {
-  await actAsync(async () => {
+  await act(async () => {
     gesture()
     await vi.advanceTimersByTimeAsync(0)
   })
@@ -183,7 +183,7 @@ afterEach(() => {
 describe('useEnregistrementAuto', () => {
   it('n’écrit rien quand l’état local est celui du serveur', () => {
     const { result, calls } = mount(rest)
-    actWrapped(() => void vi.advanceTimersByTime(5_000))
+    act(() => void vi.advanceTimersByTime(5_000))
     expect(calls).toHaveLength(0)
     expect(result.current).toBe('enregistre')
   })
@@ -192,9 +192,9 @@ describe('useEnregistrementAuto', () => {
     const { replay, calls } = mount(rest)
     for (const cropX of [0.6, 0.7, 0.8]) {
       replay({ cropX })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
     }
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     expect(calls).toHaveLength(1)
     expect(calls[0].patch).toEqual({ cropX: 0.8 })
   })
@@ -203,7 +203,7 @@ describe('useEnregistrementAuto', () => {
   // affichait « enregistré ».
   it('écrit la dernière modification quand on quitte avant la temporisation', () => {
     const { unmount, calls } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
     expect(calls).toHaveLength(0)
 
     unmount()
@@ -218,7 +218,7 @@ describe('useEnregistrementAuto', () => {
   // console en production.
   it('ne laisse pas un rejet non géré derrière le vidage du départ', async () => {
     const { unmount, calls } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS - 100))
     unmount()
     expect(calls).toHaveLength(1)
 
@@ -232,11 +232,11 @@ describe('useEnregistrementAuto', () => {
   // à nouveau inégale toutes les 600 ms.
   it('ne rejoue pas indéfiniment une écriture qui a échoué', async () => {
     const { result, calls } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     expect(calls).toHaveLength(1)
 
     await actWrapped(() => calls[0].reject(new Error('réseau coupé')))
-    actWrapped(() => void vi.advanceTimersByTime(10_000))
+    act(() => void vi.advanceTimersByTime(10_000))
 
     expect(calls).toHaveLength(1)
     expect(result.current).toBe('echec')
@@ -244,11 +244,11 @@ describe('useEnregistrementAuto', () => {
 
   it('repart au geste suivant, une fois l’échec passé', async () => {
     const { replay, calls } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     await actWrapped(() => calls[0].reject(new Error('réseau coupé')))
 
     replay({ cropX: 0.9 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
 
     expect(calls).toHaveLength(2)
     expect(calls[1].patch).toEqual({ cropX: 0.9 })
@@ -260,7 +260,7 @@ describe('useEnregistrementAuto', () => {
     const { result, replay, calls } = mount({ ...rest, cropX: 0.8 })
     expect(result.current).toBe('en-attente')
 
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     expect(result.current).toBe('en-attente')
 
     // La réponse met à jour le cache, donc la référence : c'est elle, et rien
@@ -281,9 +281,9 @@ describe('useEnregistrementAuto', () => {
   describe('quand deux enregistrements du montage se chevauchent', () => {
     it('ne laisse pas le succès tardif du dépassé effacer l’échec du récent', async () => {
       const { result, replay, calls } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       replay({ cropX: 0.9 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       expect(calls.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
 
       // Le plus récent échoue : c'est lui qui doit tenir le blocage.
@@ -294,7 +294,7 @@ describe('useEnregistrementAuto', () => {
       // porte, et l'écriture ratée repartirait toute seule 600 ms plus tard :
       // le garde-fou anti-boucle contourné par le chemin qu'il surveille.
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.8 }), true)))
-      actWrapped(() => void vi.advanceTimersByTime(10_000))
+      act(() => void vi.advanceTimersByTime(10_000))
 
       expect(result.current).toBe('echec')
       expect(calls).toHaveLength(2)
@@ -307,9 +307,9 @@ describe('useEnregistrementAuto', () => {
       // seconde lecture est la bonne, et adopter le gagnant écraserait le geste
       // le plus récent de tous. (relevé par Codex)
       const { replay, calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       replay({ cropX: 0.9 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       expect(calls.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
 
       // L'utilisateur ramène le cadrage là où il était, avant que la première
@@ -320,7 +320,7 @@ describe('useEnregistrementAuto', () => {
       expect(reconciled).not.toHaveBeenCalled()
 
       // Et le geste survit : c'est lui qui part.
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       expect(calls).toHaveLength(3)
       expect(calls[2].patch).toEqual({ cropX: 0.8 })
     })
@@ -328,9 +328,9 @@ describe('useEnregistrementAuto', () => {
     it('ne retient pas la signature d’un échec tardif déjà dépassé', async () => {
       const winner = clip({ cropX: 0.9 })
       const { result, replay, calls } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       replay({ cropX: 0.9 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
 
       // Le plus récent passe, et le cache adopte le clip rendu.
       await actWrapped(() => calls[1].resolve(response(winner, true)))
@@ -343,7 +343,7 @@ describe('useEnregistrementAuto', () => {
       await actWrapped(() => calls[0].reject(new Error('réseau coupé')))
 
       replay({ cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
 
       expect(result.current).not.toBe('echec')
       expect(calls).toHaveLength(3)
@@ -358,7 +358,7 @@ describe('useEnregistrementAuto', () => {
   // le même dans les deux sessions. (relevé par Codex)
   it('n’adopte plus rien pour une écriture encore en vol au démontage', async () => {
     const { unmount, calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     expect(calls).toHaveLength(1)
 
     unmount()
@@ -374,12 +374,12 @@ describe('useEnregistrementAuto', () => {
   // croire. (relevé par Copilot)
   it('périme les tentatives en vol quand le départ vide une modification', async () => {
     const { replay, calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-    actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+    act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
     expect(calls).toHaveLength(1)
 
     // Un geste de plus, promis mais pas encore parti, que la fermeture emporte.
     replay({ cropX: 0.9 })
-    actWrapped(() => void window.dispatchEvent(new Event('pagehide')))
+    act(() => void window.dispatchEvent(new Event('pagehide')))
     expect(calls.map((a) => a.patch)).toEqual([{ cropX: 0.8 }, { cropX: 0.9 }])
 
     // La page revient du bfcache et l'utilisateur ramène le cadrage à 0,8 —
@@ -393,7 +393,7 @@ describe('useEnregistrementAuto', () => {
   describe('quand le serveur refuse pour jeton périmé', () => {
     it('n’affiche pas d’échec de l’enregistrement', async () => {
       const { result, calls } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.2 }), false)))
 
       expect(result.current).not.toBe('echec')
@@ -401,7 +401,7 @@ describe('useEnregistrementAuto', () => {
 
     it('remet le montage local d’accord avec le gagnant', async () => {
       const { calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.2 }), false)))
 
       expect(reconciled).toHaveBeenCalledWith('c1', { cropX: 0.2 })
@@ -413,14 +413,14 @@ describe('useEnregistrementAuto', () => {
       // neuf, donc gagnant — l'ordre payé côté serveur ne sert plus à rien.
       const winner = clip({ cropX: 0.2 })
       const { replay, calls } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       // Le cache adopte le clip rendu ; le store, lui, n'adopte que ce que la
       // réconciliation lui demande — et c'est tout l'objet de ce test.
       await actWrapped(() => {
         replay({ reference: winner })
         calls[0].resolve(response(winner, false))
       })
-      actWrapped(() => void vi.advanceTimersByTime(10_000))
+      act(() => void vi.advanceTimersByTime(10_000))
 
       expect(calls).toHaveLength(1)
     })
@@ -433,7 +433,7 @@ describe('useEnregistrementAuto', () => {
       // la tentative suivante passe. Réconcilier ici tuerait ce rétablissement
       // et perdrait la modification.
       const { replay, calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       await actWrapped(() => calls[0].resolve(response(rest.reference, false)))
 
       expect(reconciled).not.toHaveBeenCalled()
@@ -441,14 +441,14 @@ describe('useEnregistrementAuto', () => {
       // Un geste de plus, et l'écriture repart — avec un jeton au-dessus du
       // plancher, donc gagnante.
       replay({ cropX: 0.81 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       expect(calls).toHaveLength(2)
       expect(calls[1].patch).toEqual({ cropX: 0.81 })
     })
 
     it('ne jette pas un geste posé pendant l’aller-retour', async () => {
       const { replay, calls, reconciled } = mount({ ...rest, cropX: 0.8 })
-      actWrapped(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
+      act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
 
       // L'utilisateur continue de cadrer pendant que la réponse voyage.
       replay({ cropX: 0.42 })

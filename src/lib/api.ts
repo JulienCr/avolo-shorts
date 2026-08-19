@@ -138,7 +138,7 @@ export type RunTarget = Exclude<StepName, 'renders'>
  * L'avancement se lit ensuite dans `ProjectStatus.running`, et l'échec éventuel
  * dans `ProjectStatus.error`.
  */
-export type RunShot = {
+export type RunPlan = {
   projectId: string
   /**
    * Les étapes qui vont tourner, dépendances remontées. **Un plan vide est une
@@ -718,8 +718,8 @@ export function listSources(): Promise<SourcesListing> {
  * Rend la main tout de suite, sur un 202 : c'est le `plan` qui dit ce qui va
  * tourner, et `getProject` qui suit l'avancement.
  */
-export function createProject(source: string): Promise<RunShot> {
-  return post<RunShot>('/api/projects', { source })
+export function createProject(source: string): Promise<RunPlan> {
+  return post<RunPlan>('/api/projects', { source })
 }
 
 /**
@@ -744,8 +744,8 @@ export function runProject(
   projectId: string,
   targets: RunTarget | readonly RunTarget[],
   force?: boolean | readonly RunTarget[],
-): Promise<RunShot> {
-  return post<RunShot>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
+): Promise<RunPlan> {
+  return post<RunPlan>(`/api/projects/${encodeURIComponent(projectId)}/run`, {
     target: targets,
     force,
   })

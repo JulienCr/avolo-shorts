@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
 
-import { shotSteps, type StepName } from '@/core/graph'
+import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
 import { getDb, getProject, upsertProject, type Project } from '@/server/db'
@@ -69,7 +69,7 @@ export type Progression = { step: StepName; progress: number }
 type Execution = {
   projectId: string
   targets: StepName[]
-  shot: StepName[]
+  plan: StepName[]
   current: Progression
   /** Où en est l'étape `candidates` **dans cette exécution**. Voir `bilanDeRepérage`. */
   detection: StateDetection
@@ -376,7 +376,7 @@ export type Status = {
   pid: number
   updatedAt: number
   targets: StepName[]
-  shot: StepName[]
+  plan: StepName[]
   running: Progression | null
   /** Le message d'échec, **déjà épuré** : ce fichier se recopie dans un rapport. */
   error: string | null
@@ -592,7 +592,7 @@ function publish(execution: Execution, changeDStep: boolean): void {
       pid: process.pid,
       updatedAt: now,
       targets: execution.targets,
-      shot: execution.shot,
+      plan: execution.plan,
       running: { ...execution.current },
       error: null,
       finishedAt: null,
@@ -648,18 +648,18 @@ export type TargetLaunchable = (typeof TARGETS_LAUNCHABLE)[number]
  * Ce n'est pas une réécriture du graphe : chaque cible passe par `planSteps`, et
  * on ne fait que concaténer sans répéter ce qui est déjà planifié.
  */
-export function shotForTargets(
+export function planForTargets(
   targets: readonly StepName[],
   presence: Record<StepName, boolean>,
   force: readonly StepName[],
 ): StepName[] {
-  const shot: StepName[] = []
+  const plan: StepName[] = []
   for (const target of targets) {
-    for (const step of shotSteps(target, presence, force)) {
-      if (!shot.includes(step)) shot.push(step)
+    for (const step of planSteps(target, presence, force)) {
+      if (!plan.includes(step)) plan.push(step)
     }
   }
-  return shot
+  return plan
 }
 
 /**
@@ -675,7 +675,7 @@ export async function launch(
   projectId: string,
   targets: readonly StepName[],
   options: OptionsLaunch = {},
-): Promise<{ projectId: string; shot: StepName[] }> {
+): Promise<{ projectId: string; plan: StepName[] }> {
   // **Rien d'asynchrone au-dessus de cette ligne.** La réservation ferme la
   // course entre deux requêtes simultanées, et elle ne la ferme que si aucun
   // point d'attente ne s'intercale entre le contrôle et la pose.
@@ -683,7 +683,7 @@ export async function launch(
   const execution: Execution = {
     projectId,
     targets: [...targets],
-    shot: [],
+    plan: [],
     current: { step: targets[0] ?? 'candidates', progress: 0 },
     detection: 'absent',
     lastWrite: 0,
@@ -705,15 +705,15 @@ export async function launch(
           : [...options.force]
 
     const presence = await readingPresence(project)
-    execution.shot = shotForTargets(targets, presence, force)
+    execution.plan = planForTargets(targets, presence, force)
     // **L'oubli est posé au lancement, pas à l'entrée du repérage.** Une
     // exécution qui vise `candidates` peut passer une demi-heure dans la
     // transcription avant d'y arriver, et `status.json` publierait pendant tout
     // ce temps le décompte de la passe précédente comme s'il décrivait celle-ci.
     // `runCandidates` refait ce nettoyage pour son propre compte — il s'appelle
     // aussi hors du lanceur —, ce qui ne le rend pas redondant ici.
-    if (execution.shot.includes('candidates')) forgetSummary(projectId)
-    execution.current = { step: execution.shot[0] ?? targets[0] ?? 'candidates', progress: 0 }
+    if (execution.plan.includes('candidates')) forgetSummary(projectId)
+    execution.current = { step: execution.plan[0] ?? targets[0] ?? 'candidates', progress: 0 }
 
     // **L'ingestion se décide avant, pas dans l'exécution.** Un projet dont les
     // artefacts sont déjà sur le disque mais dont la ligne en base est neuve —
@@ -722,11 +722,11 @@ export async function launch(
     // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
     // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
     // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    const doitIngest = ingestionNecessary(project, execution.shot)
+    const doitIngest = ingestionNecessary(project, execution.plan)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
     // suivre et rien à verrouiller.
-    if (execution.shot.length === 0 && !doitIngest) {
+    if (execution.plan.length === 0 && !doitIngest) {
       inCurrent.delete(projectId)
       writeStatus(
         projectId,
@@ -734,7 +734,7 @@ export async function launch(
           pid: process.pid,
           updatedAt: Date.now(),
           targets: [...targets],
-          shot: [],
+          plan: [],
           running: null,
           error: null,
           finishedAt: Date.now(),
@@ -742,7 +742,7 @@ export async function launch(
         },
         'absent',
       )
-      return { projectId, shot: [] }
+      return { projectId, plan: [] }
     }
 
     publish(execution, true)
@@ -759,7 +759,7 @@ export async function launch(
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
     execution.finished.catch(() => {})
 
-    return { projectId, shot: [...execution.shot] }
+    return { projectId, plan: [...execution.plan] }
   } catch (cause) {
     inCurrent.delete(projectId)
     throw cause
@@ -835,8 +835,8 @@ function copiesInUse(db?: Database.Database): string[] | null {
  * pas au Drive du tout**, ce qui est exactement ce qu'on veut d'un montage lent
  * qui décroche.
  */
-function ingestionNecessary(project: Project, shot: readonly StepName[]): boolean {
-  const copyNeed = shot.includes('proxy') || shot.includes('audio')
+function ingestionNecessary(project: Project, plan: readonly StepName[]): boolean {
+  const copyNeed = plan.includes('proxy') || plan.includes('audio')
   const copy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
   return (copyNeed && !copy) || project.durationSec === null
 }
@@ -891,7 +891,7 @@ async function execute(
         pid: process.pid,
         updatedAt: Date.now(),
         targets: execution.targets,
-        shot: execution.shot,
+        plan: execution.plan,
         running: null,
         error: null,
         finishedAt: Date.now(),
@@ -918,7 +918,7 @@ async function execute(
       else project = { ...project, stagedPath: ingestion.stagedPath, durationSec: ingestion.durationSec }
     }
 
-    for (const step of execution.shot) {
+    for (const step of execution.plan) {
       // **Le contrôle est à l'entrée de chaque étape, pas seulement dans les
       // processus.** Un arrêt demandé pendant la transcription doit couper le
       // worker *et* empêcher les six minutes de proxy qui la suivent de partir.
@@ -955,7 +955,7 @@ async function execute(
         pid: process.pid,
         updatedAt: Date.now(),
         targets: execution.targets,
-        shot: execution.shot,
+        plan: execution.plan,
         running: null,
         error: null,
         finishedAt: Date.now(),
@@ -963,7 +963,7 @@ async function execute(
       },
       execution.detection,
     )
-    console.log(`[${projectId}] terminé : ${execution.shot.join(' → ')}`)
+    console.log(`[${projectId}] terminé : ${execution.plan.join(' → ')}`)
   } catch (cause) {
     // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
     // l'étape, elle vaut `StopRequestedError`, une `AbortError` de `pipeline` ou
@@ -987,7 +987,7 @@ async function execute(
         pid: process.pid,
         updatedAt: Date.now(),
         targets: execution.targets,
-        shot: execution.shot,
+        plan: execution.plan,
         running: null,
         error: messageSafe(cause),
         finishedAt: Date.now(),
@@ -1140,7 +1140,7 @@ export const TARGETS_INITIAL: StepName[] = ['candidates', 'proxy', 'analysis']
 export async function createProject(
   source: string,
   options: OptionsLaunch = {},
-): Promise<{ projectId: string; shot: StepName[] }> {
+): Promise<{ projectId: string; plan: StepName[] }> {
   const sourcePath = resolveSource(source)
   const projectId = projectIdFromSource(source)
   const db = options.db ?? getDb()

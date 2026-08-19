@@ -11,11 +11,11 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { actAsync, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ClipDetail, ExportResult, PatchClipResult, RunShot, Settings } from '@/lib/api'
+import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
   useCreateProject,
@@ -82,7 +82,7 @@ describe('useExporter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -99,7 +99,7 @@ describe('useExporter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -114,7 +114,7 @@ describe('useExporter', () => {
     const { envelope } = harness()
     const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -133,7 +133,7 @@ describe('useExporter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -146,7 +146,7 @@ describe('useExporter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useExporter(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ clipId: 'c1' })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -204,7 +204,7 @@ describe('usePatchClip', () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(patchResult)))
 
     const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
-    await actAsync(async () => {
+    await act(async () => {
       await result.current.mutateAsync({
         clipId: 'c1',
         projectId: 'p1',
@@ -242,7 +242,7 @@ describe('usePatchClip', () => {
     )
 
     const { result } = renderHook(() => usePatchClip(), { wrapper: envelope })
-    await actAsync(async () => {
+    await act(async () => {
       await result.current.mutateAsync({ clipId: 'c1', projectId: 'p1', patch: { cropX: 0.1 } })
     })
 
@@ -251,14 +251,14 @@ describe('usePatchClip', () => {
 })
 
 describe('useCreerProjet', () => {
-  const shot: RunShot = { projectId: 'p1', shot: ['audio', 'transcript'] }
+  const plan: RunPlan = { projectId: 'p1', shot: ['audio', 'transcript'] }
 
   it('invalide la liste des projets', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response(shot, 202)))
+    vi.stubGlobal('fetch', vi.fn(async () => response(plan, 202)))
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -269,15 +269,15 @@ describe('useCreerProjet', () => {
     // La réponse est un 202 : elle confirme que l'analyse est acceptée et
     // lancée, pas qu'elle est faite. Où l'on va ensuite est une décision
     // d'écran, pas de hook.
-    vi.stubGlobal('fetch', vi.fn(async () => response(shot, 202)))
+    vi.stubGlobal('fetch', vi.fn(async () => response(plan, 202)))
     const { envelope } = harness()
     const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data).toEqual(shot)
+    expect(result.current.data).toEqual(plan)
   })
 
   it('remonte le message du serveur quand le Drive ne répond pas', async () => {
@@ -291,7 +291,7 @@ describe('useCreerProjet', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useCreateProject(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('2025-06-15-cqlp.mp4')
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -345,7 +345,7 @@ describe('les réglages', () => {
     const { client, invalid, envelope } = harness()
     const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ selection: { minutesPerClip: 4 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -364,7 +364,7 @@ describe('les réglages', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ selection: { maximumClips: 12 } })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -381,7 +381,7 @@ describe('les réglages', () => {
     const { envelope } = harness()
     const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ selection: { minutesPerClip: 0 } })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -401,7 +401,7 @@ describe('useArrêter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -420,7 +420,7 @@ describe('useArrêter', () => {
     const { envelope } = harness()
     const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -433,7 +433,7 @@ describe('useArrêter', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useStopAnalysis(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate('p1')
     })
     await waitFor(() => expect(result.current.isError).toBe(true))

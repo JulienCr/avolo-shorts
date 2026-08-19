@@ -11,7 +11,7 @@
  * serveur ne vient jamais écraser une frappe en cours.
  */
 
-import { actAsync, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
@@ -58,7 +58,7 @@ describe('ChampsTextes', () => {
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'La chute finale' } })
     expect(onWrite).not.toHaveBeenCalled()
 
-    actAsync(() => void vi.advanceTimersByTime(600))
+    act(() => void vi.advanceTimersByTime(600))
     expect(onWrite).toHaveBeenCalledTimes(1)
     expect(onWrite.mock.calls[0][0]).toEqual({ title: 'La chute finale' })
   })
@@ -70,7 +70,7 @@ describe('ChampsTextes', () => {
     render(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Autre chose' } })
-    actAsync(() => void vi.advanceTimersByTime(600))
+    act(() => void vi.advanceTimersByTime(600))
     expect(onWrite.mock.calls[0][0]).toEqual({ description: 'Autre chose' })
   })
 
@@ -91,7 +91,7 @@ describe('ChampsTextes', () => {
     const title = screen.getByLabelText('Titre')
     fireEvent.change(title, { target: { value: 'La chut' } })
     fireEvent.change(title, { target: { value: 'La chute' } })
-    actAsync(() => void vi.advanceTimersByTime(600))
+    act(() => void vi.advanceTimersByTime(600))
     expect(onWrite).not.toHaveBeenCalled()
   })
 
@@ -119,7 +119,7 @@ describe('ChampsTextes', () => {
     const { rerender } = render(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
-    await actAsync(async () => {
+    await act(async () => {
       vi.advanceTimersByTime(600)
     })
     // Le rollback du cache : le clip repasse à la version du serveur.
@@ -137,7 +137,7 @@ describe('ChampsTextes', () => {
     render(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
-    await actAsync(async () => {
+    await act(async () => {
       vi.advanceTimersByTime(600)
     })
     expect(onWrite).toHaveBeenCalledTimes(1)
@@ -155,7 +155,7 @@ describe('ChampsTextes', () => {
     const { rerender } = render(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Le vrai titre' } })
-    actAsync(() => void vi.advanceTimersByTime(600))
+    act(() => void vi.advanceTimersByTime(600))
     rerender(<FieldsTexts clip={clip({ title: 'Le vrai titre' })} onWrite={onWrite} />)
     rerender(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
@@ -174,11 +174,11 @@ describe('ChampsTextes', () => {
     render(<FieldsTexts clip={clip()} onWrite={onWrite} />)
 
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un' } })
-    await actAsync(async () => {
+    await act(async () => {
       vi.advanceTimersByTime(600)
     })
     fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Deux' } })
-    await actAsync(async () => {
+    await act(async () => {
       vi.advanceTimersByTime(600)
     })
 

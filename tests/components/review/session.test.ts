@@ -21,10 +21,10 @@ afterEach(() => {
 describe('la session de tri', () => {
   it('rend un état neutre pour un projet jamais visité', () => {
     expect(lireSessionReview('inconnu')).toEqual({
-      carte: null,
-      defilement: 0,
-      vue: null,
-      retour: false,
+      card: null,
+      scroll: 0,
+      view: null,
+      returning: false,
       postedAt: null,
     })
   })
@@ -32,10 +32,10 @@ describe('la session de tri', () => {
   it('retrouve la carte et le défilement du projet', () => {
     writeSessionReview('p1', { card: 'c7', scroll: 940, view: 'gardes' })
     expect(lireSessionReview('p1')).toEqual({
-      carte: 'c7',
-      defilement: 940,
-      vue: 'gardes',
-      retour: false,
+      card: 'c7',
+      scroll: 940,
+      view: 'gardes',
+      returning: false,
       postedAt: null,
     })
   })
@@ -53,10 +53,10 @@ describe('la session de tri', () => {
     writeSessionReview('p1', { card: 'c7', scroll: 940 })
     writeSessionReview('p1', { scroll: 12 })
     expect(lireSessionReview('p1')).toEqual({
-      carte: 'c7',
-      defilement: 12,
-      vue: null,
-      retour: false,
+      card: 'c7',
+      scroll: 12,
+      view: null,
+      returning: false,
       postedAt: null,
     })
   })
@@ -74,10 +74,10 @@ describe('la session de tri', () => {
     // Une clé écrite par une version précédente, ou bricolée à la main.
     window.sessionStorage.setItem('avolo-shorts:tri:p1', '{pas du json')
     expect(lireSessionReview('p1')).toEqual({
-      carte: null,
-      defilement: 0,
-      vue: null,
-      retour: false,
+      card: null,
+      scroll: 0,
+      view: null,
+      returning: false,
       postedAt: null,
     })
   })
@@ -85,10 +85,10 @@ describe('la session de tri', () => {
   it('refuse un contenu du bon format mais du mauvais type', () => {
     window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"carte":42,"defilement":"beaucoup"}')
     expect(lireSessionReview('p1')).toEqual({
-      carte: null,
-      defilement: 0,
-      vue: null,
-      retour: false,
+      card: null,
+      scroll: 0,
+      view: null,
+      returning: false,
       postedAt: null,
     })
   })
@@ -162,7 +162,7 @@ describe('la marque de retour, et sa durée de vie', () => {
     now.mockReturnValue(1_000_000)
     window.sessionStorage.setItem(
       'avolo-shorts:tri:p1',
-      JSON.stringify({ retour: true, carte: 'c1', postedAt: 1_000_000 + 60_000 }),
+      JSON.stringify({ returning: true, card: 'c1', postedAt: 1_000_000 + 60_000 }),
     )
     expect(lireSessionReview('p1').returning).toBe(false)
   })

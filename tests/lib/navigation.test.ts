@@ -15,15 +15,15 @@ describe('chemin', () => {
   })
 
   it('nomme le projet, sans lien vers l’écran où l’on est', () => {
-    expect(path({ kind: 'projet', project })).toEqual([{ libelle: project.title }])
+    expect(path({ kind: 'projet', project })).toEqual([{ label: project.title }])
   })
 
   it('rend le projet cliquable depuis un clip', () => {
     // C'est la sortie du sous-parcours de montage : chaque niveau se quitte par
     // le haut, et la profondeur ne dépasse jamais trois.
     expect(path({ kind: 'clip', project, clip: { title: 'La chute' } })).toEqual([
-      { libelle: project.title, href: '/projects/p1' },
-      { libelle: 'La chute' },
+      { label: project.title, href: '/projects/p1' },
+      { label: 'La chute' },
     ])
   })
 
@@ -41,14 +41,14 @@ describe('chemin', () => {
   it('nomme les paramètres, en frère de la racine et non en quatrième étage', () => {
     // Les réglages ne décrivent aucune émission : changer l'un d'eux ne
     // recalcule rien. Les ranger sous une émission aurait suggéré le contraire.
-    expect(path({ kind: 'settings' })).toEqual([{ libelle: 'Paramètres' }])
+    expect(path({ kind: 'settings' })).toEqual([{ label: 'Paramètres' }])
     expect(settingsLink()).toBe('/settings')
   })
 
   it('porte un cran quand l’objet n’est pas encore connu', () => {
     // Le chargement et l'objet introuvable : le fil d'Ariane reste atteignable
     // dans tous les états, y compris « clip introuvable ».
-    expect(path({ kind: 'inconnu', label: '…' })).toEqual([{ libelle: '…' }])
+    expect(path({ kind: 'inconnu', label: '…' })).toEqual([{ label: '…' }])
   })
 })
 
@@ -137,14 +137,14 @@ describe('suite', () => {
     // processus Next, et un redémarrage du serveur perd l'exécution sans laisser
     // d'erreur.
     const issue = next({ analysis: 'interrompu', work: 'rien' }, project)
-    expect(issue).toEqual({ kind: 'action', libelle: expect.any(String), cible: '/projects/p1' })
+    expect(issue).toEqual({ kind: 'action', label: expect.any(String), target: '/projects/p1' })
   })
 
   it('propose la reprise après un échec qui n’a rien laissé', () => {
     expect(next({ analysis: 'echec', work: 'rien' }, project)).toEqual({
       kind: 'action',
-      libelle: expect.any(String),
-      cible: '/projects/p1',
+      label: expect.any(String),
+      target: '/projects/p1',
     })
   })
 
@@ -167,8 +167,8 @@ describe('suite', () => {
   it('attend les propositions tant que le repérage n’a pas rendu', () => {
     expect(next({ analysis: 'attente', work: 'rien' }, project)).toEqual({
       kind: 'attente',
-      raison: expect.any(String),
-      debloquePar: 'candidates',
+      reason: expect.any(String),
+      unblockedBy: 'candidates',
     })
   })
 
@@ -179,8 +179,8 @@ describe('suite', () => {
     // faire — c'est l'invariant, la phase ne retire jamais ce qui existe.
     expect(next({ analysis: 'attente', work: 'atrier' }, project)).toEqual({
       kind: 'action',
-      libelle: expect.any(String),
-      cible: '/projects/p1',
+      label: expect.any(String),
+      target: '/projects/p1',
     })
   })
 
@@ -193,8 +193,8 @@ describe('suite', () => {
   it('ne cache pas un projet déjà livré pendant un repérage forcé', () => {
     expect(next({ analysis: 'attente', work: 'livre' }, project)).toEqual({
       kind: 'action',
-      libelle: expect.any(String),
-      cible: '/',
+      label: expect.any(String),
+      target: '/',
     })
   })
 
@@ -204,14 +204,14 @@ describe('suite', () => {
     // montage**. Forcer une action ici reviendrait à en inventer une.
     expect(next({ analysis: 'triable', work: 'trie' }, project)).toEqual({
       kind: 'attente',
-      raison: expect.any(String),
-      debloquePar: 'proxy',
+      reason: expect.any(String),
+      unblockedBy: 'proxy',
     })
   })
 
   it('mène au tri tant qu’une proposition reste indécise', () => {
     const issue = next({ analysis: 'complet', work: 'atrier' }, project)
-    expect(issue).toEqual({ kind: 'action', libelle: expect.any(String), cible: '/projects/p1' })
+    expect(issue).toEqual({ kind: 'action', label: expect.any(String), target: '/projects/p1' })
   })
 
   it('propose de relancer le repérage sur une liste vide', () => {
@@ -221,8 +221,8 @@ describe('suite', () => {
   it('ramène à la bibliothèque quand tout est livré', () => {
     expect(next({ analysis: 'complet', work: 'livre' }, project)).toEqual({
       kind: 'action',
-      libelle: expect.any(String),
-      cible: '/',
+      label: expect.any(String),
+      target: '/',
     })
   })
 

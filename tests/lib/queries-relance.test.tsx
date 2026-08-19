@@ -9,11 +9,11 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { actAsync, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, RESUME_TARGETS, type RunShot } from '@/lib/api'
+import { ApiError, RESUME_TARGETS, type RunPlan } from '@/lib/api'
 import { keys, useRetry } from '@/lib/queries'
 
 function response(body: unknown, status = 202): Response {
@@ -41,7 +41,7 @@ function bodySent(call: ReturnType<typeof vi.fn>): unknown {
   return JSON.parse(String(options.body))
 }
 
-const shot: RunShot = { projectId: 'p1', shot: ['candidates', 'proxy'] }
+const plan: RunPlan = { projectId: 'p1', shot: ['candidates', 'proxy'] }
 
 afterEach(() => {
   cleanup()
@@ -54,12 +54,12 @@ describe('useRelancer', () => {
     // Une cible nomme un résultat à atteindre, pas une étape à refaire : viser
     // `candidates` seul ne construirait jamais le proxy, et l'écran resterait
     // dans l'impasse dont il voulait sortir.
-    const call = vi.fn(async () => response(shot))
+    const call = vi.fn(async () => response(plan))
     vi.stubGlobal('fetch', call)
     const { envelope } = harness()
     const { result } = renderHook(() => useRetry(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ projectId: 'p1', targets: RESUME_TARGETS })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -74,11 +74,11 @@ describe('useRelancer', () => {
     // `useProjet` n'interroge en boucle que tant que `running` est non nul :
     // après un 202, le cache porte encore `running: null` et l'écran resterait
     // immobile devant une analyse qui tourne.
-    vi.stubGlobal('fetch', vi.fn(async () => response(shot)))
+    vi.stubGlobal('fetch', vi.fn(async () => response(plan)))
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useRetry(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ projectId: 'p1', targets: 'candidates', force: true })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -90,12 +90,12 @@ describe('useRelancer', () => {
   })
 
   it('transmet `force` tel quel', async () => {
-    const call = vi.fn(async () => response(shot))
+    const call = vi.fn(async () => response(plan))
     vi.stubGlobal('fetch', call)
     const { envelope } = harness()
     const { result } = renderHook(() => useRetry(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ projectId: 'p1', targets: 'candidates', force: true })
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -113,7 +113,7 @@ describe('useRelancer', () => {
     const { envelope } = harness()
     const { result } = renderHook(() => useRetry(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ projectId: 'p1', targets: 'candidates' })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -132,7 +132,7 @@ describe('useRelancer', () => {
     const { invalid, envelope } = harness()
     const { result } = renderHook(() => useRetry(), { wrapper: envelope })
 
-    await actAsync(async () => {
+    await act(async () => {
       result.current.mutate({ projectId: 'p1', targets: 'candidates' })
     })
     await waitFor(() => expect(result.current.isError).toBe(true))

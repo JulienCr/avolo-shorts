@@ -22,14 +22,14 @@ describe('gesteSurMotBarré', () => {
   it('déplace la borne de début quand le mot est avant', () => {
     expect(gestureOnWordBar(extent, { start: 40, end: 40.3 })).toEqual({
       kind: 'borne',
-      bord: 'start',
+      edge: 'start',
     })
   })
 
   it('déplace la borne de fin quand le mot est après', () => {
     expect(gestureOnWordBar(extent, { start: 320, end: 320.3 })).toEqual({
       kind: 'borne',
-      bord: 'end',
+      edge: 'end',
     })
   })
 

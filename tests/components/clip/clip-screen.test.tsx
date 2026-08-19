@@ -9,7 +9,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { actAsync, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -388,14 +388,14 @@ describe('l’enregistrement en échec', () => {
       // transcript — c'est ce qui garantit qu'aucun second chemin d'écriture n'a
       // été ouvert.
       fireEvent.keyDown(handle('start'), { key: 'ArrowLeft' })
-      await actAsync(async () => {
+      await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
 
       expect(screen.getByText(/échec de l’enregistrement/i)).toBeTruthy()
       const patchesBefore = fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length
       fireEvent.click(screen.getByRole('button', { name: /réessayer/i }))
-      await actAsync(async () => {
+      await act(async () => {
         await vi.advanceTimersByTimeAsync(0)
       })
       expect(fetch.mock.calls.filter(([, o]) => o?.method === 'PATCH').length).toBe(
@@ -420,7 +420,7 @@ describe('le surlignage, dès l’ouverture', () => {
     cleanup()
     await mount('c2')
     await openEditing()
-    actAsync(() => usePlayback.getState().definePosition(3.2))
+    act(() => usePlayback.getState().definePosition(3.2))
     expect(screen.getByText(/m0-3/).getAttribute('aria-current')).toBe('location')
   })
 })
@@ -497,7 +497,7 @@ describe('l’export et les écritures qui se chevauchent', () => {
 
       fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
       fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un autre titre' } })
-      await actAsync(async () => {
+      await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
 
@@ -538,11 +538,11 @@ describe('un texte resté non enregistré', () => {
       await mount('c2')
 
       fireEvent.change(screen.getByLabelText('Titre'), { target: { value: 'Un autre titre' } })
-      await actAsync(async () => {
+      await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
       fireEvent.click(screen.getByRole('checkbox', { name: /marques/i }))
-      await actAsync(async () => {
+      await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000)
       })
 

@@ -11,7 +11,7 @@
  * différence qu'on cherche à voir.
  */
 
-import { actAsync, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PreviewOutput, lScreenPart, paintOutput } from '@/components/clip/output-preview'
@@ -191,7 +191,7 @@ describe('ApercuSortie', () => {
     expect(container.textContent).toContain('56')
     expect(container.textContent).toContain('1:1')
 
-    actAsync(() => usePlayback.getState().definePosition(60))
+    act(() => usePlayback.getState().definePosition(60))
     rerender(<PreviewOutput video={video()} framing={two} ratio="auto" cropX={0.5} />)
     expect(container.textContent).toContain('32')
     expect(container.textContent).toContain('16:9')

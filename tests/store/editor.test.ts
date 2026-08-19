@@ -84,7 +84,7 @@ describe('la sélection', () => {
     editor.charger(clip())
     editor.commencerSelection(1, false)
     editor.commencerSelection(3, true)
-    expect(useEditor.getState().selection).toEqual({ ancre: 1, tete: 3 })
+    expect(useEditor.getState().selection).toEqual({ anchor: 1, head: 3 })
   })
 
   it('le survol n’étend que pendant un glissé', () => {
@@ -92,11 +92,11 @@ describe('la sélection', () => {
     editor.charger(clip())
     editor.commencerSelection(1, false)
     editor.extendSelection(3)
-    expect(useEditor.getState().selection).toEqual({ ancre: 1, tete: 3 })
+    expect(useEditor.getState().selection).toEqual({ anchor: 1, head: 3 })
 
     editor.finishSelection()
     useEditor.getState().extendSelection(4)
-    expect(useEditor.getState().selection).toEqual({ ancre: 1, tete: 3 })
+    expect(useEditor.getState().selection).toEqual({ anchor: 1, head: 3 })
   })
 
   it('s’étend aussi vers la gauche', () => {
@@ -104,7 +104,7 @@ describe('la sélection', () => {
     editor.charger(clip())
     editor.commencerSelection(3, false)
     editor.extendSelection(1)
-    expect(useEditor.getState().selection).toEqual({ ancre: 3, tete: 1 })
+    expect(useEditor.getState().selection).toEqual({ anchor: 3, head: 1 })
   })
 })
 

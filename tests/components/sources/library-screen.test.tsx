@@ -14,7 +14,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { actAsync, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -297,7 +297,7 @@ describe('les pannes', () => {
       sources: () =>
         response({
           sources: [],
-          montage: { disponible: false, cause: 'absent', fstype: null, entries: 0 },
+          editing: { available: false, cause: 'absent', fstype: null, entries: 0 },
         }),
     })
     renderScreen()
@@ -319,11 +319,11 @@ describe('useProjets, le sondage', () => {
     vi.stubGlobal('fetch', fake)
 
     const { result } = renderHook(() => useProjects(), { wrapper: envelope() })
-    await actAsync(async () => void (await vi.advanceTimersByTimeAsync(0)))
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
     expect(result.current.data).toHaveLength(1)
     expect(fake).toHaveBeenCalledTimes(1)
 
-    await actAsync(async () => void (await vi.advanceTimersByTimeAsync(2_100)))
+    await act(async () => void (await vi.advanceTimersByTimeAsync(2_100)))
     expect(fake).toHaveBeenCalledTimes(2)
   })
 
@@ -335,10 +335,10 @@ describe('useProjets, le sondage', () => {
     vi.stubGlobal('fetch', fake)
 
     renderHook(() => useProjects(), { wrapper: envelope() })
-    await actAsync(async () => void (await vi.advanceTimersByTimeAsync(0)))
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)))
     expect(fake).toHaveBeenCalledTimes(1)
 
-    await actAsync(async () => void (await vi.advanceTimersByTimeAsync(30_000)))
+    await act(async () => void (await vi.advanceTimersByTimeAsync(30_000)))
     expect(fake).toHaveBeenCalledTimes(1)
   })
 })

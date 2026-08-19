@@ -74,6 +74,6 @@ export const POST = route('POST /api/projects', async (request: Request) => {
     )
   }
 
-  const { projectId, shot } = await createProject(source)
-  return json({ projectId, shot }, { status: 202 })
+  const { projectId, plan } = await createProject(source)
+  return json({ projectId, plan }, { status: 202 })
 })

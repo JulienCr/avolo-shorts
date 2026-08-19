@@ -62,9 +62,9 @@ describe('le vocabulaire des étapes', () => {
     const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
-        "import { LIBELLES_ETAPES } from '@/core/parcours'",
+        "import { LABELS_STEPS } from '@/core/phase'",
         "type Étendu = StepName | 'sous_titres'",
-        'export const sonde: Record<Étendu, string> = LIBELLES_ETAPES',
+        'export const sonde: Record<Étendu, string> = LABELS_STEPS',
       ].join('\n'),
     )
     expect(messages.join('\n')).toContain('sous_titres')
@@ -76,8 +76,8 @@ describe('le vocabulaire des étapes', () => {
     const messages = errors(
       [
         "import type { StepName } from '@/core/graph'",
-        "import { LIBELLES_ETAPES } from '@/core/parcours'",
-        'export const sonde: Record<StepName, string> = LIBELLES_ETAPES',
+        "import { LABELS_STEPS } from '@/core/phase'",
+        'export const sonde: Record<StepName, string> = LABELS_STEPS',
       ].join('\n'),
     )
     expect(messages).toEqual([])

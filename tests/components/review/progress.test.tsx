@@ -48,7 +48,7 @@ describe('dispositionAvancement', () => {
     // panneau ne doit pas manger la liste.
     const clips = [{ status: 'kept' as const }]
     const phase = phaseProject(reading(['proxy']), null, null, clips)
-    expect(phase).toEqual({ analyse: 'interrompu', travail: 'trie' })
+    expect(phase).toEqual({ analysis: 'interrompu', work: 'trie' })
     expect(layoutProgress(phase, null, false)).toBe('rien')
   })
 

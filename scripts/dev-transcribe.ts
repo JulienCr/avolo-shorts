@@ -15,7 +15,7 @@
  */
 
 import fs from 'node:fs'
-import { shotSteps, type StepName } from '@/core/graph'
+import { planSteps, type StepName } from '@/core/graph'
 import { closeDb, getDb, getProject } from '@/server/db'
 import { audioPath, placeSidecar, proxyPath } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
@@ -75,13 +75,13 @@ async function main(): Promise<number> {
     renders: false,
   }
 
-  const shot = shotSteps('transcript', presence, force ? ['transcript'] : [])
+  const plan = planSteps('transcript', presence, force ? ['transcript'] : [])
   console.log(`Projet     : ${projectId}`)
   console.log(`Source     : ${project.sourcePath}`)
   console.log(`Sidecar    : ${placement.transcript}${placement.fallback ? ' (repli dans le projet)' : ''}`)
-  console.log(`À faire    : ${shot.length === 0 ? 'rien, tout est là' : shot.join(' → ')}`)
+  console.log(`À faire    : ${plan.length === 0 ? 'rien, tout est là' : plan.join(' → ')}`)
 
-  if (shot.includes('audio')) {
+  if (plan.includes('audio')) {
     if (project.stagedPath === null) {
       console.error("Le projet n'a pas de copie de travail. Relancer dev-ingest.ts.")
       return 1
@@ -105,7 +105,7 @@ async function main(): Promise<number> {
   // sur un transcript pourtant bien produit. (relevé par Copilot)
   let transcript = placement.transcript
 
-  if (shot.includes('transcript')) {
+  if (plan.includes('transcript')) {
     const t = timer()
     const result = await transcribe({
       source: project.sourcePath,

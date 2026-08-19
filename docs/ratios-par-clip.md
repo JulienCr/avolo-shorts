@@ -423,6 +423,47 @@ visage.
   boîte que Julien voyait à gauche, une main au bord du cadre, est en revanche
   **déjà écartée** par le seuil de confiance, à 0,45 contre 0,50 exigé.
 
+### Ce que le rognage ne peut pas soigner : les frontières de plans manquées
+
+Signalé par Julien sur `2026-22-02-entre-nous_002940409-003025773` : le clip
+commence bien en 1:1 et 4:5, puis bascule en 16:9 alors que les plans suivants
+s'y prêtaient. Ce n'est pas le critère.
+
+**Ces plans-là ne sont pas trop larges, ils sont trop mobiles.** Sur le plan
+3 234 → 3 297 s, **89 images sur 89 tiennent dans un 1:1** et le ratio retenu est
+le 16:9 : l'action y alterne entre `[0,12 ; 0,55]` et `[0,39 ; 0,91]`, deux axes
+de caméra dans un même « plan ». Aucune position fixe n'en sert plus de 47 sur 89.
+
+Vérifié à l'image sur le plan voisin, 2 949,9 → 2 955,8 s : à 2 952,5 s c'est un
+plan serré sur les deux comédiens, à 2 954,0 s un plan large depuis une autre
+caméra. La coupe est réelle, elle tombe à **2 953,2 s**, et son score de scène
+vaut **0,366** — sous le seuil de 0,40 du détecteur.
+
+Le compte, par `scripts/mesure-ratios.ts` (section 5) :
+
+| | plans bornés par la position | temps de montage concerné |
+|---|---|---|
+| `2025-06-15-cqlp` | 1 sur 32 | 22 s sur 549 (4 %) |
+| `2026-03-08-caro-mdlm` | 0 sur 31 | 0 s sur 330 (0 %) |
+| `2026-22-02-entre-nous` | **13 sur 54** | **138 s sur 391 (35 %)** |
+
+Les treize sortent tous « 1:1 possible, 16:9 retenu ». Sur `entre-nous`, c'est
+**le premier gisement restant**, devant tout réglage du cadrage.
+
+**Et la correction évidente ne l'est pas.** Sur les cent secondes autour de la
+coupe manquée, la distribution des scores est parfaitement séparée : dix-neuf
+évènements au-dessus de 0,48, six entre 0,366 et 0,388 — tous de vraies coupes —,
+puis plus rien jusqu'à 0,032. Un seuil n'importe où entre 0,05 et 0,36 les
+prendrait tous sans rien ajouter.
+
+Sur l'émission entière, cette vallée n'existe pas : 373 évènements entre 0,35 et
+0,40 contre 255 entre 0,40 et 0,45, sans creux. Descendre le seuil à 0,35
+ajouterait 41 % d'évènements dont on ne sait pas ce qu'ils sont — et la §2 de la
+conception prévient que ce n'est pas le mouvement qui fait monter le score de
+scène, c'est la lumière. **La fenêtre de cent secondes disait un seuil ; l'heure
+et demie dit qu'il faudra le mesurer.** Le tableau ci-dessus est le bon critère
+pour le faire, parce qu'il nomme les plans à réparer au lieu de compter des pics.
+
 ### Reproduction
 
 ```bash

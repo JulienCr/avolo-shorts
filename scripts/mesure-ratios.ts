@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Quatre sorties :
+ * Cinq sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -35,6 +35,10 @@
  *    gens**. Les deux moitiés ne se lisent pas séparément : un rognage assez fort
  *    fait basculer n'importe quel plan en 1:1, il suffit de couper les comédiens.
  *    C'est ce balayage qui a posé la part à 0,30 et son plafond à 0,12.
+ * 5. **Les plans que la position borne**, et non la largeur : ceux dont toutes
+ *    les images tiendraient plus serré, mais qu'aucune position fixe ne sert.
+ *    C'est la signature d'une frontière de plan manquée, et ça ne se corrige pas
+ *    dans le choix du ratio.
  *
  * Et `--instants N` imprime, par clip, les N images qui **font monter le ratio** :
  * les plus larges après filtrage, une par plan au plus, parce que le crop est
@@ -454,7 +458,86 @@ function balayageRognage(émission: Émission, quoi: 'clips' | 'fenêtres'): voi
 }
 
 // ---------------------------------------------------------------------------
-// 5. Où regarder
+// 5. Les plans que la position borne, et non la largeur
+// ---------------------------------------------------------------------------
+
+/**
+ * Les plans dont le ratio monte **alors que leurs images tiendraient toutes dans
+ * un cadre plus serré** — c'est-à-dire ceux qu'aucune position fixe ne sert.
+ *
+ * **C'est la signature d'une frontière de plan manquée**, et il faut savoir la
+ * distinguer d'un plan réellement large, parce que les deux se soignent à des
+ * endroits opposés. Le cas qui a fait écrire cette section :
+ * `2026-22-02-entre-nous`, plan 3 234 → 3 297 s, **89 images sur 89 tiennent dans
+ * un 1:1** et le ratio retenu est pourtant le 16:9. L'action y alterne entre
+ * `[0,12 ; 0,55]` et `[0,39 ; 0,91]` : deux axes de caméra dans un même « plan ».
+ * Vérifié à l'image sur le plan voisin — la coupe existe bel et bien à 2 953,2 s,
+ * son score de scène vaut 0,366, et le seuil du détecteur est à 0,40.
+ *
+ * Le compte se lit en **temps**, pas en plans : un plan borné de deux secondes ne
+ * coûte pas ce que coûte un plan de quarante.
+ *
+ * La borne comparée est **optimiste** : elle suppose un crop libre par image, ce
+ * que le crop fixe par plan n'est pas. Un plan qui la dépasse est donc borné par
+ * la position **à coup sûr**, jamais par accident d'arrondi.
+ */
+function bornésParLaPosition(émission: Émission): void {
+  const { w, h } = émission.analyse.source
+  let plans = 0
+  let bornés = 0
+  let secondes = 0
+  let secondesBornées = 0
+  const lignes: string[] = []
+
+  for (const clip of émission.clips) {
+    const cadrage = cadrageDe(clip, émission.analyse, {})
+    const segments = normalizeSegments(clip.segments)
+    for (const plan of cadrage.shots) {
+      const dedans = émission.analyse.boxes.filter(
+        (b) =>
+          dansIntervalle(b.t, plan.shot.start, plan.shot.end) &&
+          segments.some((s) => dansIntervalle(b.t, s.start, s.end)),
+      )
+      const mesures = requiredWidths(dedans, {})
+      if (mesures.length === 0) continue
+      // Le plus petit ratio que 90 % des images atteindraient si chacune pouvait
+      // se cadrer pour elle-même.
+      let libre: Ratio = DU_PLUS_ÉTROIT_AU_PLUS_LARGE[DU_PLUS_ÉTROIT_AU_PLUS_LARGE.length - 1]
+      for (const r of DU_PLUS_ÉTROIT_AU_PLUS_LARGE) {
+        const couverture = ratioCoverage(r, w, h)
+        if (mesures.filter((m) => m <= couverture + 1e-9).length * 10 >= mesures.length * 9) {
+          libre = r
+          break
+        }
+      }
+      const durée = segments.reduce(
+        (n, s) =>
+          n + Math.max(0, Math.min(plan.shot.end, s.end) - Math.max(plan.shot.start, s.start)),
+        0,
+      )
+      plans++
+      secondes += durée
+      if (RATIOS[plan.ratio] <= RATIOS[libre]) continue
+      bornés++
+      secondesBornées += durée
+      lignes.push(
+        `    ${plan.shot.start.toFixed(1)} → ${plan.shot.end.toFixed(1)}` +
+          `  ${durée.toFixed(1)} s  ${libre} possible, ${plan.ratio} retenu  ${clip.nom}`,
+      )
+    }
+  }
+
+  if (plans === 0) return
+  const part = secondes === 0 ? 0 : (100 * secondesBornées) / secondes
+  console.log(
+    `\n  ${émission.id} : ${bornés} plans sur ${plans}, ` +
+      `${secondesBornées.toFixed(0)} s sur ${secondes.toFixed(0)} s (${part.toFixed(0)} %)`,
+  )
+  for (const l of lignes) console.log(l)
+}
+
+// ---------------------------------------------------------------------------
+// 6. Où regarder
 // ---------------------------------------------------------------------------
 
 /**
@@ -614,8 +697,12 @@ async function main(): Promise<number> {
     for (const e of émissions) balayageRognage(e, 'clips')
     for (const e of émissions) balayageRognage(e, 'fenêtres')
 
+    console.log('\n=== 5. Les plans que la position borne, et non la largeur ===')
+    console.log('  (leurs images tiendraient plus serré ; aucune position fixe ne les sert)')
+    for (const e of émissions) bornésParLaPosition(e)
+
     if (nInstants !== null) {
-      console.log('\n=== 5. Où regarder — les images qui font monter le ratio ===')
+      console.log('\n=== 6. Où regarder — les images qui font monter le ratio ===')
       for (const e of émissions) oùRegarder(e, nInstants)
     }
 

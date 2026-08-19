@@ -191,7 +191,7 @@ describe('useProjet', () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(runningStatus)))
     const { client, wrapper } = harness()
     client.setQueryData(cles.projet('p1'), runningStatus)
-    const invalide = vi.spyOn(client, 'invalidateQueries')
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
 
     const { result } = renderHook(() => useProjet('p1'), { wrapper })
     await waitFor(() => expect(result.current.data?.running).not.toBeNull())
@@ -201,7 +201,7 @@ describe('useProjet', () => {
     })
     await waitFor(() => expect(result.current.data?.running).toBeNull())
 
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
-    expect(invalide).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.candidats('p1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: cles.transcript('p1') })
   })
 })

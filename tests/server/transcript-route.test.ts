@@ -44,7 +44,7 @@ function postRequest(body: unknown): Request {
 }
 
 /** Deux phrases, à la forme de WhisperX — comme un vrai `transcript.json`. */
-function poserTranscript(): void {
+function writeTranscriptFixture(): void {
   const dir = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(
@@ -76,7 +76,7 @@ function poserTranscript(): void {
   )
 }
 
-function clipDeBase(): Clip {
+function baseClip(): Clip {
   return {
     id: `${PROJECT}_000060000-000090000`,
     projectId: PROJECT,
@@ -118,7 +118,7 @@ afterEach(() => {
 
 describe('GET /api/projects/:id/transcript', () => {
   it('rend le transcript entier, pas seulement une fenêtre autour d’un clip', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await getTranscript(new Request('http://test'), context(PROJECT))
     expect(response.status).toBe(200)
     const lines = (await response.json()) as TranscriptLine[]
@@ -149,7 +149,7 @@ describe('GET /api/projects/:id/transcript', () => {
 
 describe('POST /api/projects/:id/transcript', () => {
   it('applique une correction et la rend telle qu’écrite', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
       context(PROJECT),
@@ -159,13 +159,13 @@ describe('POST /api/projects/:id/transcript', () => {
     expect(body.line.words[0]).toEqual({ word: 'Salut', start: 60, end: 60.6 })
 
     // Se relit vraiment sur le disque, pas seulement dans ce que la route rend.
-    const relu = await getTranscript(new Request('http://test'), context(PROJECT))
-    const lines = (await relu.json()) as TranscriptLine[]
+    const reread = await getTranscript(new Request('http://test'), context(PROJECT))
+    const lines = (await reread.json()) as TranscriptLine[]
     expect(lines[0].words[0].word).toBe('Salut')
   })
 
   it('409 quand une retranscription est en cours pour ce projet', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const spy = vi.spyOn(run, 'progression').mockReturnValue({ step: 'transcript', progress: 0.4 })
     try {
       const response = await postCorrection(
@@ -175,8 +175,8 @@ describe('POST /api/projects/:id/transcript', () => {
       expect(response.status).toBe(409)
 
       // Rien n'a été écrit : le refus arrive avant toute lecture du sidecar.
-      const relu = await getTranscript(new Request('http://test'), context(PROJECT))
-      const lines = (await relu.json()) as TranscriptLine[]
+      const reread = await getTranscript(new Request('http://test'), context(PROJECT))
+      const lines = (await reread.json()) as TranscriptLine[]
       expect(lines[0].words[0].word).toBe('Bonjour')
     } finally {
       spy.mockRestore()
@@ -188,7 +188,7 @@ describe('POST /api/projects/:id/transcript', () => {
     // première garde. Le second (dans `correctTranscript`, juste avant
     // l'écriture) rend un état en cours : c'est la seconde sonde qui doit
     // refuser, pas la première.
-    poserTranscript()
+    writeTranscriptFixture()
     const spy = vi
       .spyOn(run, 'progression')
       .mockReturnValueOnce(null)
@@ -200,8 +200,8 @@ describe('POST /api/projects/:id/transcript', () => {
       )
       expect(response.status).toBe(409)
 
-      const relu = await getTranscript(new Request('http://test'), context(PROJECT))
-      const lines = (await relu.json()) as TranscriptLine[]
+      const reread = await getTranscript(new Request('http://test'), context(PROJECT))
+      const lines = (await reread.json()) as TranscriptLine[]
       expect(lines[0].words[0].word).toBe('Bonjour')
     } finally {
       spy.mockRestore()
@@ -209,22 +209,22 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('nomme les clips touchés par la phrase corrigée', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const db = getDb()
-    putClip(db, clipDeBase())
+    putClip(db, baseClip())
 
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
       context(PROJECT),
     )
     const body = (await response.json()) as { clipsTouched: { id: string; title: string }[] }
-    expect(body.clipsTouched).toEqual([{ id: clipDeBase().id, title: 'Le canapé' }])
+    expect(body.clipsTouched).toEqual([{ id: baseClip().id, title: 'Le canapé' }])
   })
 
   it('ne nomme pas un clip sans sous-titres incrustés — la correction ne périme aucun rendu', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const db = getDb()
-    putClip(db, { ...clipDeBase(), captions: false })
+    putClip(db, { ...baseClip(), captions: false })
 
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] }),
@@ -262,7 +262,7 @@ describe('POST /api/projects/:id/transcript', () => {
       }),
     )
     const db = getDb()
-    putClip(db, { ...clipDeBase(), segments: [{ start: 60, end: 70 }] })
+    putClip(db, { ...baseClip(), segments: [{ start: 60, end: 70 }] })
 
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 5, to: 5, expected: ['tard'], replacement: ['tardivement'] }),
@@ -273,9 +273,9 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('ne nomme pas un clip que la phrase ne recouvre pas', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const db = getDb()
-    putClip(db, clipDeBase())
+    putClip(db, baseClip())
 
     // La seconde phrase (200-201) est hors du clip (60-90).
     const response = await postCorrection(
@@ -287,7 +287,7 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('409 sur une ancre qui ne correspond plus', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['pas-le-bon-mot'], replacement: ['x'] }),
       context(PROJECT),
@@ -296,7 +296,7 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('404 sur une phrase inconnue', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await postCorrection(
       postRequest({ lineId: 'l99', from: 0, to: 0, expected: ['x'], replacement: ['y'] }),
       context(PROJECT),
@@ -318,7 +318,7 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('400 sur un remplacement qui colle plusieurs mots dans un seul token', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['deux mots'] }),
       context(PROJECT),
@@ -327,7 +327,7 @@ describe('POST /api/projects/:id/transcript', () => {
   })
 
   it('400 sur un mot vide ailleurs qu’une suppression d’empan', async () => {
-    poserTranscript()
+    writeTranscriptFixture()
     const response = await postCorrection(
       postRequest({ lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: [''] }),
       context(PROJECT),

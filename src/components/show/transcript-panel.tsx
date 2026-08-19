@@ -25,7 +25,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 
 /**
  * Le transcript **entier** de l'émission, administré depuis la vue Émission
@@ -72,15 +79,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
  */
 export function TranscriptTrigger({ projectId }: { projectId: string }) {
   const [open, setOpen] = useTranscriptPanelUrl(projectId)
-  return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <FileText aria-hidden />
-        Voir le transcript
-      </Button>
-      <TranscriptPanel projectId={projectId} open={open} onOpenChange={setOpen} />
-    </>
-  )
+  return <TranscriptPanel projectId={projectId} open={open} onOpenChange={setOpen} />
 }
 
 /**
@@ -204,16 +203,30 @@ export function TranscriptPanel({
   // le même signal que `useProjet` utilise pour invalider le cache du
   // transcript. Une sélection ouverte est également abandonnée : son ancre
   // porterait l'ancien texte. (relevé par Copilot)
+  //
+  // **Seulement quand l'étape `transcript` a tourné**, pas à la fin de
+  // n'importe quelle exécution. Le bouton « Relancer le repérage » du
+  // bandeau lance un repérage seul (`target: 'candidates'`, sans
+  // `force: ['transcript']`) : cette passe ne réexporte aucun clip, et
+  // « corrections appliquées »/« clips concernés » restent exacts à sa fin.
+  // Les effacer là aurait fait disparaître un avertissement encore vrai.
+  // (relevé par Copilot)
   const wasRunning = useRef(false)
+  const sawTranscriptStep = useRef(false)
   useEffect(() => {
-    const running = project.data?.running != null
-    if (wasRunning.current && !running) {
-      setTouchedClips(new Map())
-      setCorrectionsApplied(0)
-      setSelection(null)
-      setDraft('')
+    const running = project.data?.running ?? null
+    if (running?.step === 'transcript') sawTranscriptStep.current = true
+    const isRunning = running != null
+    if (wasRunning.current && !isRunning) {
+      if (sawTranscriptStep.current) {
+        setTouchedClips(new Map())
+        setCorrectionsApplied(0)
+        setSelection(null)
+        setDraft('')
+      }
+      sawTranscriptStep.current = false
     }
-    wasRunning.current = running
+    wasRunning.current = isRunning
   }, [project.data?.running])
 
   const container = useRef<HTMLDivElement>(null)
@@ -355,6 +368,16 @@ export function TranscriptPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
+      {/* **`SheetTrigger`, pas un bouton qui bascule un booléen à côté.**
+          C'est lui que la primitive refocalise à la fermeture — le même
+          contrat que `TranscriptDrawer` documente pour le tiroir de montage
+          (`src/components/clip/transcript-drawer.tsx:53-55,133-140`). Un
+          bouton extérieur au `Sheet` ne le garantit pas. (relevé par Copilot) */}
+      <SheetTrigger render={<Button variant="outline" size="sm" />}>
+        <FileText aria-hidden />
+        Voir le transcript
+      </SheetTrigger>
+
       <SheetContent side="right" className="w-full sm:max-w-3xl">
         <SheetHeader>
           <SheetTitle>Le transcript de l’émission</SheetTitle>

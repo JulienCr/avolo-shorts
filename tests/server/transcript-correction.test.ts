@@ -39,13 +39,13 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-correction-'))
   replay = path.join(root, 'Replay')
   const stage = path.join(root, 'stage')
-  const projets = path.join(root, 'projects')
-  for (const d of [replay, stage, projets]) fs.mkdirSync(d, { recursive: true })
+  const projects = path.join(root, 'projects')
+  for (const d of [replay, stage, projects]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(replay, SOURCE), 'pas vraiment une vidéo')
 
   process.env.REPLAY_DIR = replay
   process.env.STAGE_DIR = stage
-  process.env.PROJECTS_DIR = projets
+  process.env.PROJECTS_DIR = projects
 
   project = {
     id: ID,

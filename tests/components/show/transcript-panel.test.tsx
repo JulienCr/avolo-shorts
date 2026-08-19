@@ -81,17 +81,17 @@ function stubFetch(rules: Rule[]) {
 }
 
 /** Sert `LIGNES` sur `GET .../transcript`. */
-function lireTranscript(body: unknown = LIGNES): Rule {
+function transcriptResponse(body: unknown = LIGNES): Rule {
   return { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body }
 }
 
 /** Répond à `POST .../transcript` — la correction. */
-function poserCorrection(body: unknown, status = 200): Rule {
+function correctionResponse(body: unknown, status = 200): Rule {
   return { when: (u, m) => m === 'POST' && u.endsWith('/transcript'), body, status }
 }
 
 /** Répond à `POST .../run`. */
-function poserRun(body: unknown, status = 202): Rule {
+function runResponse(body: unknown, status = 202): Rule {
   return { when: (u, m) => m === 'POST' && u.endsWith('/run'), body, status }
 }
 
@@ -116,18 +116,29 @@ afterEach(() => {
 describe('TranscriptTrigger', () => {
   it('pose `?transcript=1` sans effacer les autres paramètres', async () => {
     query = 'vue=gardes'
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptTrigger projectId="cqlp" />, { wrapper })
 
     await userEvent.setup().click(screen.getByRole('button', { name: /voir le transcript/i }))
 
     expect(replaceMock).toHaveBeenCalledWith('/projects/cqlp?vue=gardes&transcript=1', { scroll: false })
   })
+
+  it('ouvre par un `SheetTrigger` réel, pas un bouton qui bascule un booléen à côté', async () => {
+    // La primitive ne peut garantir le retour du focus à la fermeture
+    // (`src/components/clip/transcript-drawer.tsx:53-55,133-140`) que si le
+    // bouton d'ouverture est son propre déclencheur. (relevé par Copilot)
+    stubFetch([transcriptResponse()])
+    render(<TranscriptTrigger projectId="cqlp" />, { wrapper })
+
+    const button = screen.getByRole('button', { name: /voir le transcript/i })
+    expect(button.getAttribute('data-slot')).toBe('sheet-trigger')
+  })
 })
 
 describe('TranscriptPanel — lecture', () => {
   it('rend le transcript par phrase, avec son horodatage', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     expect(await screen.findByRole('button', { name: 'Bonjour' })).toBeTruthy()
@@ -135,14 +146,14 @@ describe('TranscriptPanel — lecture', () => {
   })
 
   it("dit qu'il n'y a pas encore de transcript plutôt que de rendre une surface vide", async () => {
-    stubFetch([lireTranscript([])])
+    stubFetch([transcriptResponse([])])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     expect(await screen.findByText(/n’a pas encore de transcript/)).toBeTruthy()
   })
 
   it("ne demande rien au serveur tant que le panneau n'est pas ouvert", () => {
-    const call = stubFetch([lireTranscript()])
+    const call = stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open={false} onOpenChange={vi.fn()} />, { wrapper })
 
     expect(call).not.toHaveBeenCalled()
@@ -151,17 +162,17 @@ describe('TranscriptPanel — lecture', () => {
 
 describe('TranscriptPanel — correction', () => {
   it('sélectionne un mot au clic et propose son texte à corriger', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Bonjour' }))
 
-    const champ = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
-    expect(champ.value).toBe('Bonjour')
+    const field = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
+    expect(field.value).toBe('Bonjour')
   })
 
   it('porte la sélection au clavier, pas seulement à la couleur (aria-pressed)', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
@@ -173,20 +184,20 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('majuscule-clique étend la sélection à plusieurs mots, dans la même phrase', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     fireEvent.click(await screen.findByRole('button', { name: 'Bonjour' }))
     fireEvent.click(screen.getByRole('button', { name: 'à' }), { shiftKey: true })
 
-    const champ = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
-    expect(champ.value).toBe('Bonjour à')
+    const field = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
+    expect(field.value).toBe('Bonjour à')
   })
 
   it('envoie un empan de mots et son remplacement — jamais du texte libre', async () => {
     const call = stubFetch([
-      lireTranscript(),
-      poserCorrection({
+      transcriptResponse(),
+      correctionResponse({
         line: {
           ...LIGNES[0],
           words: [{ word: 'Salut', start: 10, end: 10.6 }, LIGNES[0].words[1], LIGNES[0].words[2]],
@@ -198,9 +209,9 @@ describe('TranscriptPanel — correction', () => {
 
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
-    const champ = screen.getByPlaceholderText('Texte corrigé…')
-    await user.clear(champ)
-    await user.type(champ, 'Salut')
+    const field = screen.getByPlaceholderText('Texte corrigé…')
+    await user.clear(field)
+    await user.type(field, 'Salut')
     await user.click(screen.getByRole('button', { name: 'Corriger' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Salut' })).toBeTruthy())
@@ -253,21 +264,21 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('dit que le texte a changé sous les yeux sur un 409', async () => {
-    stubFetch([lireTranscript(), poserCorrection({ error: 'Le texte a changé sous vos yeux.' }, 409)])
+    stubFetch([transcriptResponse(), correctionResponse({ error: 'Le texte a changé sous vos yeux.' }, 409)])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'Bonjour' }))
     await user.click(screen.getByRole('button', { name: 'Corriger' }))
 
-    const alerte = await screen.findByRole('alert')
-    expect(alerte.textContent).toMatch(/changé sous vos yeux/)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/changé sous vos yeux/)
   })
 
   it('nomme les clips touchés, pour rendre la conséquence explicite', async () => {
     stubFetch([
-      lireTranscript(),
-      poserCorrection({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
+      transcriptResponse(),
+      correctionResponse({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
     ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
@@ -298,8 +309,8 @@ describe('TranscriptPanel — correction', () => {
       sizeBytes: null,
     }
     stubFetch([
-      lireTranscript(),
-      poserCorrection({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
+      transcriptResponse(),
+      correctionResponse({ line: LIGNES[0], clipsTouched: [{ id: 'c1', title: 'Le canapé' }] }),
       { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
     ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
@@ -319,7 +330,7 @@ describe('TranscriptPanel — correction', () => {
 
 describe('RetranscribeButton', () => {
   it('demande confirmation avant de retranscrire', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     await userEvent.setup().click(await screen.findByRole('button', { name: /retranscrire l’émission/i }))
@@ -328,7 +339,7 @@ describe('RetranscribeButton', () => {
   })
 
   it('vise `candidates` en forçant `transcript` — le graphe refait les deux', async () => {
-    const call = stubFetch([lireTranscript(), poserRun({ projectId: 'cqlp', plan: ['transcript', 'candidates'] })])
+    const call = stubFetch([transcriptResponse(), runResponse({ projectId: 'cqlp', plan: ['transcript', 'candidates'] })])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const user = userEvent.setup()
@@ -352,7 +363,7 @@ describe('la navigation au clavier', () => {
    */
 
   it('un seul mot est un arrêt de tabulation à la fois, et les flèches le déplacent', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
@@ -369,15 +380,15 @@ describe('la navigation au clavier', () => {
   })
 
   it('Entrée sur le mot du curseur le sélectionne, comme un clic', async () => {
-    stubFetch([lireTranscript()])
+    stubFetch([transcriptResponse()])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const bonjour = await screen.findByRole('button', { name: 'Bonjour' })
     bonjour.focus()
     fireEvent.keyDown(bonjour, { key: 'Enter' })
 
-    const champ = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
-    expect(champ.value).toBe('Bonjour')
+    const field = screen.getByPlaceholderText('Texte corrigé…') as HTMLInputElement
+    expect(field.value).toBe('Bonjour')
   })
 
   it('demande un défilement quand le curseur vise un mot hors de la fenêtre rendue', async () => {
@@ -388,13 +399,13 @@ describe('la navigation au clavier', () => {
     const scrollTo = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo })
     try {
-      const soixante: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
+      const sixty: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
         id: `l${i}`,
         start: i * 10,
         end: i * 10 + 2,
         words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
       }))
-      stubFetch([lireTranscript(soixante)])
+      stubFetch([transcriptResponse(sixty)])
       render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
       const mot0 = await screen.findByRole('button', { name: 'mot0' })
       mot0.focus()
@@ -409,27 +420,27 @@ describe('la navigation au clavier', () => {
   })
 
   it('le conteneur devient un arrêt de tabulation quand le mot du curseur sort du rendu', async () => {
-    const soixante: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
+    const sixty: TranscriptLine[] = Array.from({ length: 60 }, (_, i) => ({
       id: `l${i}`,
       start: i * 10,
       end: i * 10 + 2,
       words: [{ word: `mot${i}`, start: i * 10, end: i * 10 + 1 }],
     }))
-    stubFetch([lireTranscript(soixante)])
+    stubFetch([transcriptResponse(sixty)])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const mot0 = await screen.findByRole('button', { name: 'mot0' })
-    const conteneur = document.querySelector('[data-surface-transcript-show]') as HTMLDivElement
-    // Le mot du curseur (index 0) est rendu : le conteneur n'est pas un
+    const container = document.querySelector('[data-surface-transcript-show]') as HTMLDivElement
+    // Le mot du curseur (index 0) est rendu : ce conteneur n'est pas un
     // arrêt de tabulation, mot0 l'est.
-    expect(conteneur.getAttribute('tabindex')).toBe('-1')
+    expect(container.getAttribute('tabindex')).toBe('-1')
 
     // Un défilement à la molette, hors de tout geste clavier de ce
     // composant : le mot du curseur sort de la fenêtre virtualisée.
-    Object.defineProperty(conteneur, 'scrollTop', { configurable: true, value: 5000, writable: true })
-    fireEvent.scroll(conteneur)
+    Object.defineProperty(container, 'scrollTop', { configurable: true, value: 5000, writable: true })
+    fireEvent.scroll(container)
 
     await waitFor(() => expect(document.body.contains(mot0)).toBe(false))
-    expect(conteneur.getAttribute('tabindex')).toBe('0')
+    expect(container.getAttribute('tabindex')).toBe('0')
   })
 })

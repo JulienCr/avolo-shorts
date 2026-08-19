@@ -466,7 +466,7 @@ export function bilanDeRepérage(
     windows: bilan.fenêtres,
     scored: bilan.notées,
     rejectedBatches: bilan.lotsRefusés,
-    respondedBatches: bilan.lotsRépondus,
+    answeredBatches: bilan.lotsRépondus,
     coverage: bilan.couverture,
     partial: état !== 'fait',
   }
@@ -518,7 +518,7 @@ const LEGACY_SELECTION_REPORT_FIELDS: Readonly<Record<string, keyof SelectionRep
   fenêtres: 'windows',
   notées: 'scored',
   lotsRefusés: 'rejectedBatches',
-  lotsRépondus: 'respondedBatches',
+  lotsRépondus: 'answeredBatches',
   couverture: 'coverage',
   partiel: 'partial',
 }

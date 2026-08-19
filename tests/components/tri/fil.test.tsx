@@ -729,7 +729,7 @@ describe('la couverture du repérage', () => {
     windows: 83,
     scored: 57,
     rejectedBatches: 4,
-    respondedBatches: 7,
+    answeredBatches: 7,
     coverage: 0.684,
     partial: false,
   }

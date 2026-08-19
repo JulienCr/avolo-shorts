@@ -441,7 +441,7 @@ describe('GET /api/projects/:id', () => {
         windows: 83,
         scored: 51,
         rejectedBatches: 4,
-        respondedBatches: 7,
+        answeredBatches: 7,
         coverage: 0.6412,
         partial: false,
       },
@@ -454,7 +454,7 @@ describe('GET /api/projects/:id', () => {
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
-      respondedBatches: 7,
+      answeredBatches: 7,
       coverage: 0.6412,
       partial: false,
     })

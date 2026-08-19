@@ -58,7 +58,7 @@ function bilan(champs: Partial<SelectionReport> = {}): SelectionReport {
     windows: 83,
     scored: 83,
     rejectedBatches: 0,
-    respondedBatches: 11,
+    answeredBatches: 11,
     coverage: 1,
     partial: false,
     ...champs,
@@ -77,7 +77,7 @@ describe('motDuRepérage', () => {
     // « 7 lots sur 11 » ne fait 64 % de rien : les fenêtres se chevauchent de
     // 30 s et le dernier lot est plus court. La couverture est la mesure ; les
     // lots ne sont là que pour nommer la cause.
-    const mot = motDuRepérage(bilan({ scored: 57, rejectedBatches: 4, respondedBatches: 7, coverage: 0.684 }))
+    const mot = motDuRepérage(bilan({ scored: 57, rejectedBatches: 4, answeredBatches: 7, coverage: 0.684 }))
     expect(mot?.perte).toBe(true)
     expect(mot?.phrase).toContain('68 %')
     expect(mot?.phrase).toContain('57 fenêtres sur 83')
@@ -88,7 +88,7 @@ describe('motDuRepérage', () => {
   it('arrondit la couverture vers le bas tant qu’il manque quelque chose', () => {
     // 99,6 % arrondi au plus proche donne 100 %, c'est-à-dire dément la perte
     // que la même phrase annonce deux mots plus loin.
-    const mot = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, respondedBatches: 10, coverage: 0.996 }))
+    const mot = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, answeredBatches: 10, coverage: 0.996 }))
     expect(mot?.phrase).toContain('99 %')
   })
 
@@ -97,14 +97,14 @@ describe('motDuRepérage', () => {
     // traite le refus comme reproductible : une seconde passe soumettrait les
     // mêmes charges pour se faire refuser pareil. Un bouton qui ne répare rien
     // est pire que pas de bouton.
-    const mot = motDuRepérage(bilan({ scored: 57, rejectedBatches: 4, respondedBatches: 7, coverage: 0.684 }))
+    const mot = motDuRepérage(bilan({ scored: 57, rejectedBatches: 4, answeredBatches: 7, coverage: 0.684 }))
     expect(`${mot?.phrase} ${mot?.detail}`).not.toMatch(/relanc|réessay|recommenc/i)
   })
 
   it('ne parle pas de refus quand il n’y en a pas eu', () => {
     // Une passe interrompue perd des fenêtres sans qu'aucun lot n'ait été
     // refusé : nommer le filtre de sécurité désignerait le mauvais coupable.
-    const mot = motDuRepérage(bilan({ scored: 40, rejectedBatches: 0, respondedBatches: 5, coverage: 0.48, partial: true }))
+    const mot = motDuRepérage(bilan({ scored: 40, rejectedBatches: 0, answeredBatches: 5, coverage: 0.48, partial: true }))
     expect(mot?.perte).toBe(true)
     expect(mot?.provisoire).toBe(true)
     expect(mot?.detail).toBeNull()
@@ -133,7 +133,7 @@ describe('motDuRepérage', () => {
     // de ce qui se dit dans l'émission : 83 fenêtres sur 83 », une phrase qui se
     // contredit elle-même — et le détail aggravait en affirmant qu'une nouvelle
     // passe obtiendrait le même refus, ce que la descente venait de démentir.
-    const message = motDuRepérage(bilan({ scored: 83, rejectedBatches: 4, respondedBatches: 11 }))
+    const message = motDuRepérage(bilan({ scored: 83, rejectedBatches: 4, answeredBatches: 11 }))
     expect(message?.perte).toBe(false)
     expect(message?.phrase).toContain('83 fenêtres')
     expect(message?.detail).toBeNull()
@@ -141,7 +141,7 @@ describe('motDuRepérage', () => {
 
   it('tient les deux bornes de la couverture', () => {
     // Zéro : tous les lots refusés, rien n'a été jugé.
-    const rien = motDuRepérage(bilan({ scored: 0, rejectedBatches: 11, respondedBatches: 0, coverage: 0 }))
+    const rien = motDuRepérage(bilan({ scored: 0, rejectedBatches: 11, answeredBatches: 0, coverage: 0 }))
     expect(rien?.phrase).toContain('0 %')
     expect(rien?.perte).toBe(true)
 
@@ -149,7 +149,7 @@ describe('motDuRepérage', () => {
     // milieu peut manquer sans laisser de trou. La couverture est alors
     // sincèrement totale, et ce sont les comptes de fenêtres qui portent la
     // perte.
-    const couvert = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, respondedBatches: 10, coverage: 1 }))
+    const couvert = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, answeredBatches: 10, coverage: 1 }))
     expect(couvert?.phrase).toContain('100 %')
     expect(couvert?.perte).toBe(true)
     expect(couvert?.detail).toContain('1 lot de fenêtres sur 11')
@@ -158,16 +158,16 @@ describe('motDuRepérage', () => {
   it('ne rapporte rien à zéro fenêtre', () => {
     // Un transcript vide : il n'y avait rien à noter, donc aucun pourcentage
     // n'a de dénominateur.
-    const mot = motDuRepérage(bilan({ windows: 0, scored: 0, respondedBatches: 0, coverage: 0 }))
+    const mot = motDuRepérage(bilan({ windows: 0, scored: 0, answeredBatches: 0, coverage: 0 }))
     expect(mot?.perte).toBe(false)
     expect(mot?.phrase).not.toContain('%')
   })
 
   it('accorde le singulier', () => {
-    expect(motDuRepérage(bilan({ windows: 1, scored: 1, respondedBatches: 1 }))?.phrase).toContain(
+    expect(motDuRepérage(bilan({ windows: 1, scored: 1, answeredBatches: 1 }))?.phrase).toContain(
       'la fenêtre',
     )
-    const une = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, respondedBatches: 10, coverage: 0.9 }))
+    const une = motDuRepérage(bilan({ scored: 82, rejectedBatches: 1, answeredBatches: 10, coverage: 0.9 }))
     expect(une?.detail).toContain('1 lot de fenêtres sur 11 a été refusé')
   })
 })

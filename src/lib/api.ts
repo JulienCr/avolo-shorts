@@ -196,7 +196,7 @@ export type SelectionReport = {
   /** Les lots refusés par le filtre de sécurité, toutes profondeurs de découpe confondues. */
   rejectedBatches: number
   /** Les lots auxquels le modèle a répondu. */
-  respondedBatches: number
+  answeredBatches: number
   /**
    * La part de l'étendue du transcript couverte par les fenêtres notées, entre
    * 0 et 1. **L'union des intervalles, pas leur somme** : `buildWindows`

@@ -194,7 +194,7 @@ describe('bilanDeRepérage', () => {
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
-      respondedBatches: 7,
+      answeredBatches: 7,
       coverage: 0.6412,
       partial: false,
     })
@@ -672,7 +672,7 @@ describe('status.json', () => {
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
-      respondedBatches: 7,
+      answeredBatches: 7,
       coverage: 0.6412,
       partial: false,
     })

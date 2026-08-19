@@ -641,10 +641,10 @@ aussi ce qui rend la mesure comparable au fenêtrage, qui se bâtit sur les mêm
 segments.
 
 ```
-plancher de clips  = étendue de parole / minutesParClip, borné par clipsMinimum
+plancher de clips  = étendue de parole / minutesPerClip, borné par minimumClips
                      et par le nombre de créneaux de 90 s
-plafond            = une moitié en plus, borné par clipsMaximum
-présélection       = plancher × fenetresParClip, borné par fenetresMinimum et par
+plafond            = une moitié en plus, borné par maximumClips
+présélection       = plancher × windowsPerClip, borné par minimumWindows et par
                      le nombre de fenêtres réelles
 ```
 

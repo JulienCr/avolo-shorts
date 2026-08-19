@@ -780,7 +780,7 @@ describe("l'étape de repérage", () => {
         windows: 4,
         scored: 4,
         rejectedBatches: 0,
-        respondedBatches: 2,
+        answeredBatches: 2,
         coverage: 1,
         partial: false,
       })

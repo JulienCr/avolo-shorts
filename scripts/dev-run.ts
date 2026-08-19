@@ -82,7 +82,7 @@ async function main(): Promise<number> {
     console.log(
       `Repérage : ${r.scored} fenêtres notées sur ${r.windows}` +
         ` (couverture ${(r.coverage * 100).toFixed(1)} %` +
-        `, ${r.rejectedBatches} lot(s) refusé(s), ${r.respondedBatches} repris)`,
+        `, ${r.rejectedBatches} lot(s) refusé(s), ${r.answeredBatches} repris)`,
     )
   }
   // L'échec est **rendu**, pas seulement affiché : ce script s'enchaîne dans un

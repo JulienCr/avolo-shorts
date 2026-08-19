@@ -156,7 +156,7 @@ export function motDuRepérage(bilan: SelectionReport | null): MotDuRepérage | 
   // voisines se chevauchant, celle du milieu peut manquer sans laisser de trou.
   const part = Math.max(0, Math.min(100, Math.floor((bilan.coverage || 0) * 100)))
 
-  const lots = bilan.rejectedBatches + bilan.respondedBatches
+  const lots = bilan.rejectedBatches + bilan.answeredBatches
   const detail =
     bilan.rejectedBatches > 0
       ? `${bilan.rejectedBatches === 1 ? '1 lot de fenêtres' : `${bilan.rejectedBatches} lots de fenêtres`} sur ${lots} ${

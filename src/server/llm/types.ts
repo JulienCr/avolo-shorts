@@ -56,7 +56,7 @@ export type LlmCallConfig = {
  * **Volontairement la forme du SDK Gemini, élargie.** C'est celle que
  * `leverSiBloquée`, `appelerGemini` et le reste de la politique de relance de
  * `src/server/steps/candidates.ts` consomment déjà — voir la décision au
- * point d'appel de `clientParDéfaut` (renommé `clientDepuisRéglages`) : les
+ * point d'appel de `clientParDéfaut` (renommé `createCallFromSettings`) : les
  * relances, le backoff et la détection du filtre de sécurité restent
  * **communs aux trois fournisseurs**, portés par cette forme normalisée,
  * plutôt que réécrits une fois par fournisseur.
@@ -65,7 +65,7 @@ export type LlmCallConfig = {
  * type sans conversion : c'est ce qui a évité de réécrire les réponses
  * figées de `tests/server/candidates.test.ts`. `openai.ts` et `ollama.ts`,
  * eux, **construisent** cette forme depuis leur réponse REST — voir leurs
- * fonctions `versLlmResponse`.
+ * fonctions `toLlmResponse`.
  */
 export type LlmResponse = {
   text?: string

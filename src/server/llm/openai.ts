@@ -44,18 +44,18 @@ const ENDPOINT = 'https://api.openai.com/v1/chat/completions'
  * `leverSiBloquée` les traiterait comme une fin anormale non nommée — un
  * défaut de ce côté, pas un refus de contenu, exactement le traitement voulu.
  */
-export function versRaisonDeFin(brut: string | null | undefined): string {
+export function toFinishReason(brut: string | null | undefined): string {
   if (brut === 'length') return 'MAX_TOKENS'
   if (brut === 'content_filter') return 'CONTENT_FILTER'
   return (brut ?? '').toUpperCase()
 }
 
-type ChoixOpenAI = {
+type OpenAiChoice = {
   finish_reason?: string | null
   message?: { content?: string | null; refusal?: string | null }
 }
 
-type RéponseOpenAI = { choices?: ChoixOpenAI[] }
+type OpenAiResponse = { choices?: OpenAiChoice[] }
 
 /**
  * Traduit la réponse REST vers la forme commune que `appelerGemini` consomme.
@@ -67,18 +67,18 @@ type RéponseOpenAI = { choices?: ChoixOpenAI[] }
  * passerait pour réussie et `parseJsonResponse` échouerait sur du texte libre,
  * classé passager par erreur plutôt que reconnu comme un refus définitif.
  */
-export function versLlmResponse(données: RéponseOpenAI): LlmResponse {
+export function toLlmResponse(données: OpenAiResponse): LlmResponse {
   const choix = données.choices?.[0]
   if (choix?.message?.refusal != null && choix.message.refusal !== '') {
     return { candidates: [{ finishReason: 'CONTENT_FILTER' }] }
   }
   return {
     text: choix?.message?.content ?? undefined,
-    candidates: [{ finishReason: versRaisonDeFin(choix?.finish_reason) }],
+    candidates: [{ finishReason: toFinishReason(choix?.finish_reason) }],
   }
 }
 
-function corpsDeRequête(model: string, prompt: string, schema: JsonSchema, temperature: number, maxOutputTokens: number) {
+function requestBody(model: string, prompt: string, schema: JsonSchema, temperature: number, maxOutputTokens: number) {
   return {
     model,
     messages: [{ role: 'user', content: prompt }],
@@ -91,7 +91,7 @@ function corpsDeRequête(model: string, prompt: string, schema: JsonSchema, temp
   }
 }
 
-export function créerAppelOpenAI(options: LlmClientOptions): LlmCall {
+export function createOpenAiCall(options: LlmClientOptions): LlmCall {
   return async (prompt, mode) => {
     const { schema, temperature, maxOutputTokens } = options.config(mode)
     // **Le délai est fini, comme pour Gemini** (voir `DÉLAI_APPEL_MS` dans
@@ -106,7 +106,7 @@ export function créerAppelOpenAI(options: LlmClientOptions): LlmCall {
         'content-type': 'application/json',
         authorization: `Bearer ${options.apiKey ?? ''}`,
       },
-      body: JSON.stringify(corpsDeRequête(options.model, prompt, schema, temperature, maxOutputTokens)),
+      body: JSON.stringify(requestBody(options.model, prompt, schema, temperature, maxOutputTokens)),
       signal: AbortSignal.any(signaux),
     })
 
@@ -119,7 +119,7 @@ export function créerAppelOpenAI(options: LlmClientOptions): LlmCall {
       throw new Error(`OpenAI a répondu ${réponse.status} ${réponse.statusText} : ${corps.slice(0, 500)}`)
     }
 
-    const données = (await réponse.json()) as RéponseOpenAI
-    return versLlmResponse(données)
+    const données = (await réponse.json()) as OpenAiResponse
+    return toLlmResponse(données)
   }
 }

@@ -31,7 +31,7 @@ import {
 } from '@/core/transcript'
 import { getClips, getDb, getProject, getRéglages, replaceClips } from '@/server/db'
 import { StopRequestedError } from '@/server/ffmpeg'
-import { créerAppelDepuisRéglages } from '@/server/llm/registry'
+import { createCallFromSettings } from '@/server/llm/registry'
 import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode, LlmResponse } from '@/server/llm/types'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 
@@ -48,6 +48,14 @@ import { candidatesPath, placeSidecar } from '@/server/paths'
  * quatre autres pourvoyeurs — mouvement des corps, cartouches de jeu,
  * resserrement du cadre, densité des tours de parole — et le reclassement en
  * vision sont l'itération 2.
+ *
+ * **Ce fichier garde ses identifiers français accentués — `clientParDéfaut`,
+ * `SCHÉMA_NOTATION`, `SCHÉMA_DÉTAIL`, `DÉLAI_APPEL_MS`, etc.** La règle de
+ * langue de `CLAUDE.md` veut le code en anglais ; les balayer ici est le
+ * travail de l'issue #73, pas celui de cette PR, qui les a touchés sans les
+ * renommer pour ne pas gonfler son diff. Le module neuf qu'elle ajoute,
+ * `src/server/llm/**`, lui, est écrit en anglais dès sa première ligne : rien
+ * n'y avait de dette à hériter.
  */
 
 /**
@@ -211,7 +219,7 @@ const FINS_SANS_REFUS = new Set([
  * (relevé par Copilot)
  *
  * **`CONTENT_FILTER` est le refus d'OpenAI**, traduit ici par
- * `src/server/llm/openai.ts` (`versRaisonDeFin`) depuis `finish_reason:
+ * `src/server/llm/openai.ts` (`toFinishReason`) depuis `finish_reason:
  * "content_filter"` ou depuis `message.refusal`. Il déclenche exactement la
  * même politique que `SAFETY` chez Gemini : `GeminiBlockedError`, jamais
  * réessayé tel quel, et recoupé par `récupérer`. Ollama, lui, n'a pas de
@@ -314,7 +322,7 @@ export type AppelGemini = LlmCall
  *
  * **Déplacés depuis leur forme Gemini (`Type.OBJECT`, …) vers cette forme
  * générique** : c'est le geste qui généralise la couture — chaque fournisseur
- * les convertit ensuite vers ce qu'il attend, `créerAppelGemini` vers
+ * les convertit ensuite vers ce qu'il attend, `createGeminiCall` vers
  * l'énumération `Type`, OpenAI et Ollama les exercent tels quels puisque
  * `JsonSchema` est déjà écrit dans leur vocabulaire.
  */
@@ -627,7 +635,7 @@ export async function appelerGemini<T = unknown>(
  *
  * **Ce qui restait vrai avant cette PR le reste : un délai fini, et le signal
  * qui coupe vraiment la requête en vol.** `DÉLAI_APPEL_MS` et `signal` sont
- * désormais des paramètres de `créerAppelDepuisRéglages`
+ * désormais des paramètres de `createCallFromSettings`
  * (`@/server/llm/registry`), qui les fait traverser jusqu'au client du
  * fournisseur choisi — chacun des trois porte la même propriété (voir
  * `src/server/llm/gemini.ts`, `openai.ts`, `ollama.ts`). Un arrêt demandé
@@ -642,7 +650,7 @@ export async function appelerGemini<T = unknown>(
  * politique n'ait pas à se réécrire par fournisseur.
  */
 function clientParDéfaut(db: Database.Database, signal?: AbortSignal): AppelGemini {
-  return créerAppelDepuisRéglages(db, 'selection', {
+  return createCallFromSettings(db, 'selection', {
     signal,
     timeoutMs: DÉLAI_APPEL_MS,
     config: configuration,

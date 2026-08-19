@@ -2,14 +2,14 @@ import { Type } from '@google/genai'
 import { describe, expect, it } from 'vitest'
 
 import type { JsonSchema } from '@/server/llm/types'
-import { versSchémaGemini } from '@/server/llm/gemini'
+import { toGeminiSchema } from '@/server/llm/gemini'
 
 describe('la conversion du schéma générique vers celui de Gemini', () => {
   it('convertit chaque type primitif', () => {
-    expect(versSchémaGemini({ type: 'string' })).toEqual({ type: Type.STRING })
-    expect(versSchémaGemini({ type: 'integer' })).toEqual({ type: Type.INTEGER })
-    expect(versSchémaGemini({ type: 'number' })).toEqual({ type: Type.NUMBER })
-    expect(versSchémaGemini({ type: 'boolean' })).toEqual({ type: Type.BOOLEAN })
+    expect(toGeminiSchema({ type: 'string' })).toEqual({ type: Type.STRING })
+    expect(toGeminiSchema({ type: 'integer' })).toEqual({ type: Type.INTEGER })
+    expect(toGeminiSchema({ type: 'number' })).toEqual({ type: Type.NUMBER })
+    expect(toGeminiSchema({ type: 'boolean' })).toEqual({ type: Type.BOOLEAN })
   })
 
   it('convertit un objet, propriétés et champs requis compris', () => {
@@ -18,7 +18,7 @@ describe('la conversion du schéma générique vers celui de Gemini', () => {
       properties: { id: { type: 'string' }, score: { type: 'integer' } },
       required: ['id', 'score'],
     }
-    expect(versSchémaGemini(schéma)).toEqual({
+    expect(toGeminiSchema(schéma)).toEqual({
       type: Type.OBJECT,
       properties: { id: { type: Type.STRING }, score: { type: Type.INTEGER } },
       required: ['id', 'score'],
@@ -30,7 +30,7 @@ describe('la conversion du schéma générique vers celui de Gemini', () => {
       type: 'array',
       items: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     }
-    expect(versSchémaGemini(schéma)).toEqual({
+    expect(toGeminiSchema(schéma)).toEqual({
       type: Type.ARRAY,
       items: { type: Type.OBJECT, properties: { id: { type: Type.STRING } }, required: ['id'] },
     })
@@ -60,7 +60,7 @@ describe('la conversion du schéma générique vers celui de Gemini', () => {
       },
       required: ['windows'],
     }
-    const converti = versSchémaGemini(notation)
+    const converti = toGeminiSchema(notation)
     expect(converti.type).toBe(Type.OBJECT)
     expect(converti.required).toEqual(['windows'])
     expect(converti.properties?.windows?.type).toBe(Type.ARRAY)

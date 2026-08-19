@@ -18,7 +18,7 @@ const execFileP = promisify(execFile)
  * L'adresse de la passerelle WSL, résolue par `ip route show default` —
  * **jamais codée en dur, elle change au redémarrage** (`CLAUDE.md`).
  */
-async function résoudrePasserelle(): Promise<string> {
+async function resolveGateway(): Promise<string> {
   const { stdout } = await execFileP('ip', ['route', 'show', 'default'])
   const trouvée = /default via (\S+)/.exec(stdout)
   if (trouvée === null) {
@@ -35,12 +35,12 @@ async function résoudrePasserelle(): Promise<string> {
  * `LlmCall` qui la referme — pas à chaque appel : un repérage en fait des
  * dizaines, et la passerelle ne change pas en cours de route.
  */
-function résolveurDAdresse(configurée: string | undefined): () => Promise<string> {
+function baseUrlResolver(configurée: string | undefined): () => Promise<string> {
   let mémo: Promise<string> | null = null
   return () => {
     const propre = configurée?.trim()
     if (propre !== undefined && propre !== '') return Promise.resolve(propre.replace(/\/+$/, ''))
-    mémo ??= résoudrePasserelle().then((ip) => `http://${ip}:11434`)
+    mémo ??= resolveGateway().then((ip) => `http://${ip}:11434`)
     return mémo
   }
 }
@@ -50,22 +50,22 @@ function résolveurDAdresse(configurée: string | undefined): () => Promise<stri
  * vocabulaire que `leverSiBloquée` reconnaît. Un modèle local n'a pas de
  * filtre de contenu fournisseur : rien ici ne produit `CONTENT_FILTER`.
  */
-export function versRaisonDeFin(brut: string | null | undefined): string {
+export function toFinishReason(brut: string | null | undefined): string {
   if (brut === 'length') return 'MAX_TOKENS'
   return (brut ?? '').toUpperCase()
 }
 
-type RéponseOllama = { message?: { content?: string }; done_reason?: string | null }
+type OllamaResponse = { message?: { content?: string }; done_reason?: string | null }
 
-export function versLlmResponse(données: RéponseOllama): LlmResponse {
+export function toLlmResponse(données: OllamaResponse): LlmResponse {
   return {
     text: données.message?.content,
-    candidates: [{ finishReason: versRaisonDeFin(données.done_reason) }],
+    candidates: [{ finishReason: toFinishReason(données.done_reason) }],
   }
 }
 
-export function créerAppelOllama(options: LlmClientOptions): LlmCall {
-  const résoudreAdresse = résolveurDAdresse(options.baseUrl)
+export function createOllamaCall(options: LlmClientOptions): LlmCall {
+  const résoudreAdresse = baseUrlResolver(options.baseUrl)
 
   return async (prompt, mode) => {
     const { schema, temperature, maxOutputTokens } = options.config(mode)
@@ -92,7 +92,7 @@ export function créerAppelOllama(options: LlmClientOptions): LlmCall {
       throw new Error(`Ollama a répondu ${réponse.status} ${réponse.statusText} : ${corps.slice(0, 500)}`)
     }
 
-    const données = (await réponse.json()) as RéponseOllama
-    return versLlmResponse(données)
+    const données = (await réponse.json()) as OllamaResponse
+    return toLlmResponse(données)
   }
 }

@@ -13,18 +13,18 @@ import type { JsonSchema, LlmCall, LlmClientOptions } from '@/server/llm/types'
  */
 
 /** Convertit le schéma générique vers la forme que l'API Gemini attend. */
-export function versSchémaGemini(schéma: JsonSchema): Schema {
+export function toGeminiSchema(schéma: JsonSchema): Schema {
   switch (schéma.type) {
     case 'object':
       return {
         type: Type.OBJECT,
         properties: Object.fromEntries(
-          Object.entries(schéma.properties).map(([clé, valeur]) => [clé, versSchémaGemini(valeur)]),
+          Object.entries(schéma.properties).map(([clé, valeur]) => [clé, toGeminiSchema(valeur)]),
         ),
         required: schéma.required ? [...schéma.required] : undefined,
       }
     case 'array':
-      return { type: Type.ARRAY, items: versSchémaGemini(schéma.items) }
+      return { type: Type.ARRAY, items: toGeminiSchema(schéma.items) }
     case 'string':
       return { type: Type.STRING }
     case 'integer':
@@ -36,7 +36,7 @@ export function versSchémaGemini(schéma: JsonSchema): Schema {
   }
 }
 
-export function créerAppelGemini(options: LlmClientOptions): LlmCall {
+export function createGeminiCall(options: LlmClientOptions): LlmCall {
   const ai = new GoogleGenAI({ apiKey: options.apiKey, httpOptions: { timeout: options.timeoutMs } })
   return (prompt, mode) => {
     const { schema, temperature, maxOutputTokens } = options.config(mode)
@@ -45,7 +45,7 @@ export function créerAppelGemini(options: LlmClientOptions): LlmCall {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseSchema: versSchémaGemini(schema),
+        responseSchema: toGeminiSchema(schema),
         temperature,
         candidateCount: 1,
         maxOutputTokens,

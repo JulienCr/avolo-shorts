@@ -14,13 +14,13 @@
  * POST  /api/projects        { source }     -> RunPlan       (202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
- * POST  /api/projects/:id/stop              -> { arrêtée }
+ * POST  /api/projects/:id/stop              -> { stopped }
  * GET   /api/projects/:id/candidates        -> CandidateClip[]
  * GET   /api/clips/:id                      -> ClipDetail
  * PATCH /api/clips/:id       { ClipPatch }  -> PatchClipResult
  * POST  /api/clips/:id/export  { force? }   -> ExportResult
- * GET   /api/settings                       -> Réglages
- * PUT   /api/settings        { PatchRéglages } -> Réglages
+ * GET   /api/settings                       -> Settings
+ * PUT   /api/settings        { SettingsPatch } -> Settings
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -257,6 +257,33 @@ export type ProjectStatus = {
    * pas présenter un décompte partiel comme un résultat.
    */
   repérage: BilanRepérage | null
+  /**
+   * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
+   *
+   * **Le même champ que celui de `ProjectListItem`, tiré du même relevé.** Deux
+   * écrans qui déduiraient la même chose par deux chemins différents finissent
+   * par diverger, et celui-ci n'est pas dérivable : un arrêt ne laisse ni
+   * `running`, ni `error`, ni artefact particulier.
+   *
+   * Faux pendant qu'une exécution tourne, comme `error`.
+   */
+  stopped: boolean
+  /**
+   * La taille du fichier source en octets, ou `null` tant que l'ingestion ne
+   * l'a pas relevée.
+   *
+   * **Elle est là pour la seule chose qui en dépende** : `stepDurationRange`
+   * (`src/core/parcours.ts`) s'en sert pour suppléer la durée, qui manque
+   * précisément au moment où le panneau d'avancement apparaît — un projet créé
+   * il y a trois secondes n'a pas encore été sondé par ffprobe. Sans elle, la
+   * branche existe et ne sert jamais, et le panneau se tait pendant la copie,
+   * c'est-à-dire pendant l'étape la plus longue sur un fichier de 12 Go.
+   *
+   * **Sur `ProjectStatus` et non sur `ProjectSummary`** : la bibliothèque n'en
+   * fait rien, et `résuméProjet` documente qu'il porte quatre champs et pas un
+   * de plus. La colonne, elle, est déjà en base.
+   */
+  sizeBytes: number | null
 }
 
 /**
@@ -364,6 +391,24 @@ export type ProjectListItem = ProjectSummary & {
   running: { step: StepName; progress: number } | null
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
+  /**
+   * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
+   *
+   * **Il vient du même `status.json` qu'`error`**, dans la même lecture : la
+   * liste ne paie donc toujours que deux relevés, et la décision de §3.1 tient.
+   *
+   * **Il est publié parce que la bibliothèque n'a pas `steps`.** L'écran de
+   * projet déduit « interrompue » de `phaseProjet`, qui lit le relevé de
+   * présence ; la liste, elle, ne l'a pas — c'est exactement ce que le partage
+   * ci-dessus lui refuse. Sans ce champ, une analyse arrêtée après l'ingestion
+   * est indiscernable d'une analyse finie : elle ne tourne pas, elle n'a pas
+   * d'erreur, et elle a une durée.
+   *
+   * **Faux pendant qu'une exécution tourne**, pour la raison exacte qui tait
+   * `error` : ce qu'on afficherait serait l'arrêt d'avant, et deux écrans qui se
+   * contredisent sur le même projet valent moins que pas d'écran du tout.
+   */
+  stopped: boolean
 }
 
 /**
@@ -788,11 +833,17 @@ export function exportClip(clipId: string, force?: boolean): Promise<ExportResul
  * promesse d'API, celui-là est l'argument d'un calcul pur, et ils ne peuvent pas
  * diverger sans qu'un réglage cesse d'être lu.
  *
- * **Les défauts ne sont pas recopiés ici.** `lireRéglages` rend les réglages
+ * **Les noms de champs restent français, et c'est la seule entorse à la règle de
+ * langue de `CLAUDE.md`.** Ils sont **persistés** — la table `settings` en fait
+ * des clés `selection.<champ>` —, donc les traduire demande une migration, qui
+ * n'est pas le sujet de cette livraison. Ils partiront avec le reste de la dette,
+ * issue #73.
+ *
+ * **Les défauts ne sont pas recopiés ici.** `fetchSettings` rend les réglages
  * *effectifs* — la base complétée par les défauts —, donc l'écran affiche ce qui
  * s'applique vraiment plutôt qu'une copie de constantes qui vieillirait à part.
  */
-export type ChampsRepérage = {
+export type SelectionSettings = {
   /** Une proposition attendue par tranche de tant de minutes de parole. */
   minutesParClip: number
   /** Combien de fenêtres sont examinées pour chaque clip demandé. */
@@ -814,10 +865,10 @@ export type ChampsRepérage = {
  * hook (retour d'usage §6.1 et §6.3). Aplatir maintenant ferait renommer chaque
  * clé le jour où la deuxième arrive.
  */
-export type Réglages = { selection: ChampsRepérage }
+export type Settings = { selection: SelectionSettings }
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
-export type PatchRéglages = { selection?: Partial<ChampsRepérage> }
+export type SettingsPatch = { selection?: Partial<SelectionSettings> }
 
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.
@@ -826,8 +877,8 @@ export type PatchRéglages = { selection?: Partial<ChampsRepérage> }
  * dans un composant ferait afficher le défaut du code là où la base porte autre
  * chose, et personne ne verrait la différence avant le premier repérage.
  */
-export function lireRéglages(): Promise<Réglages> {
-  return lire<Réglages>('/api/settings')
+export function fetchSettings(): Promise<Settings> {
+  return lire<Settings>('/api/settings')
 }
 
 /**
@@ -846,20 +897,20 @@ export function lireRéglages(): Promise<Réglages> {
  * **Changer un réglage ne recalcule rien** (retour d'usage §6.1) : un recalcul
  * reste une action explicite, `runProject`.
  */
-export async function écrireRéglages(patch: PatchRéglages): Promise<Réglages> {
-  const réponse = await fetch('/api/settings', {
+export async function saveSettings(patch: SettingsPatch): Promise<Settings> {
+  const response = await fetch('/api/settings', {
     method: 'PUT',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(patch),
   })
-  if (!réponse.ok) throw await échec(réponse)
-  return (await réponse.json()) as Réglages
+  if (!response.ok) throw await échec(response)
+  return (await response.json()) as Settings
 }
 
 /**
  * Arrête l'analyse en cours sur un projet. **Idempotent.**
  *
- * `arrêtée: false` n'est pas un échec : c'est ce qu'on obtient quand rien ne
+ * `stopped: false` n'est pas un échec : c'est ce qu'on obtient quand rien ne
  * tournait — parce que l'analyse venait de finir, ou parce qu'un redémarrage du
  * serveur a emporté l'exécution avec lui. Le bouton peut donc se cliquer deux
  * fois sans que l'écran ait à décider lequel des deux clics comptait.
@@ -869,6 +920,6 @@ export async function écrireRéglages(patch: PatchRéglages): Promise<Réglages
  * manquante. Un `status.json` d'arrêt ne porte pas d'erreur : un arrêt demandé
  * n'est pas une panne, et l'écran ne doit pas l'afficher comme telle.
  */
-export function arrêterAnalyse(projectId: string): Promise<{ arrêtée: boolean }> {
-  return poster<{ arrêtée: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
+export function stopAnalysis(projectId: string): Promise<{ stopped: boolean }> {
+  return poster<{ stopped: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/stop`, {})
 }

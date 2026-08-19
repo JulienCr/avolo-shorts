@@ -4,11 +4,11 @@ import type { ClipStatus } from '@/core/edl'
 import type { StepName } from '@/core/graph'
 import {
   compter,
-  fourchetteDÉtape,
+  stepDurationRange,
   phaseProjet,
   ÉTAPES,
   LIBELLES_ETAPES,
-  type TailleÉmission,
+  type ShowSize,
 } from '@/core/parcours'
 
 /** Un relevé de présence : ce qui n'est pas nommé est absent. */
@@ -203,7 +203,7 @@ describe('le tableau des étapes', () => {
   it('ne porte plus de coût : il dépend de l’émission, pas de l’étape', () => {
     // Les cinq `coûtSec` étaient mesurés une seule fois, sur une émission
     // d'1 h 40, et s'affichaient à l'identique pour une capsule de vingt
-    // minutes. `fourchetteDÉtape` les remplace, et deux tables sur la même
+    // minutes. `stepDurationRange` les remplace, et deux tables sur la même
     // question auraient fini par diverger.
     for (const étape of ÉTAPES) {
       expect(Object.keys(étape).toSorted()).toEqual(['libelle', 'nom'])
@@ -245,37 +245,47 @@ describe('compter', () => {
  * L'émission de référence de `ROADMAP.md` : 1 h 39, 4,3 Go, 83 fenêtres. Les
  * constantes du module en sortent, donc elle doit se retrouver à la seconde.
  */
-const CQLP: TailleÉmission = { durationSec: 5_940, sizeBytes: 4_300_000_000, fenêtres: 83 }
+const CQLP: ShowSize = { durationSec: 5_940, sizeBytes: 4_300_000_000, windows: 83 }
 
 /** Une émission de vingt minutes, celle du §4.2 du retour d'usage. */
-const VINGT_MINUTES: TailleÉmission = { durationSec: 1_200, sizeBytes: null, fenêtres: null }
+const VINGT_MINUTES: ShowSize = { durationSec: 1_200, sizeBytes: null, windows: null }
 
 /** Le centre de la fourchette, arrondi à la seconde. */
-function centre(f: { basseSec: number; hauteSec: number } | null): number {
+function midpoint(f: { lowSec: number; highSec: number } | null): number {
   if (f === null) throw new Error('fourchette absente')
-  return Math.round((f.basseSec + f.hauteSec) / 2)
+  return Math.round((f.lowSec + f.highSec) / 2)
 }
 
-describe('fourchetteDÉtape', () => {
-  it('retrouve les mesures de l’émission de référence', () => {
-    expect(centre(fourchetteDÉtape('audio', CQLP))).toBe(6)
-    expect(centre(fourchetteDÉtape('transcript', CQLP))).toBe(101)
-    expect(centre(fourchetteDÉtape('proxy', CQLP))).toBe(360)
-    expect(centre(fourchetteDÉtape('candidates', CQLP))).toBe(30)
+describe('stepDurationRange', () => {
+  /**
+   * **Les quatre mesures de `ROADMAP.md`, retrouvées sur l'émission dont elles
+   * sortent.** Ce test croisait les deux tables tant qu'elles coexistaient —
+   * `ÉTAPES` portait un `coûtSec` constant, celle-ci le rapporte à l'émission
+   * qu'on regarde, et elles devaient s'accorder sur la référence. `coûtSec` est
+   * retiré depuis : il ne reste qu'un côté, et ce sont les valeurs elles-mêmes
+   * qui l'ancrent. C'est d'ailleurs ce que la boucle d'alors ne garantissait
+   * pas seule — son propre commentaire le disait, un `ÉTAPES` vidé l'aurait
+   * fait passer sans rien vérifier. (relevé par Aristarque)
+   */
+  it('retrouve, sur l’émission de référence, les quatre coûts mesurés', () => {
+    expect(midpoint(stepDurationRange('audio', CQLP))).toBe(6)
+    expect(midpoint(stepDurationRange('transcript', CQLP))).toBe(101)
+    expect(midpoint(stepDurationRange('proxy', CQLP))).toBe(360)
+    expect(midpoint(stepDurationRange('candidates', CQLP))).toBe(30)
   })
 
   it('annonce beaucoup moins sur une émission de vingt minutes', () => {
     // C'est tout l'objet de la fonction : une émission cinq fois plus courte ne
     // doit pas annoncer les six minutes de proxy de l'émission de référence.
-    const proxy = fourchetteDÉtape('proxy', VINGT_MINUTES)
-    expect(centre(proxy)).toBe(73)
-    expect(proxy!.hauteSec).toBeLessThan(360)
+    const proxy = stepDurationRange('proxy', VINGT_MINUTES)
+    expect(midpoint(proxy)).toBe(73)
+    expect(proxy!.highSec).toBeLessThan(360)
   })
 
   it('reste proportionnelle : doubler la durée double le coût', () => {
-    const une = centre(fourchetteDÉtape('proxy', { ...CQLP, fenêtres: null }))
-    const deux = centre(
-      fourchetteDÉtape('proxy', { durationSec: 11_880, sizeBytes: null, fenêtres: null }),
+    const une = midpoint(stepDurationRange('proxy', { ...CQLP, windows: null }))
+    const deux = midpoint(
+      stepDurationRange('proxy', { durationSec: 11_880, sizeBytes: null, windows: null }),
     )
     expect(deux).toBe(une * 2)
   })
@@ -283,60 +293,60 @@ describe('fourchetteDÉtape', () => {
   it('compte le repérage en fenêtres quand on les connaît', () => {
     // Deux fois plus de fenêtres pour la même durée : le repérage coûte le
     // double, alors que le proxy ne bouge pas.
-    const avec = fourchetteDÉtape('candidates', { ...CQLP, fenêtres: 166 })
-    expect(centre(avec)).toBe(60)
+    const avec = stepDurationRange('candidates', { ...CQLP, windows: 166 })
+    expect(midpoint(avec)).toBe(60)
   })
 
   it('déduit une durée de la taille du fichier, et élargit la fourchette', () => {
-    const parLaTaille = fourchetteDÉtape('proxy', {
+    const fromSize = stepDurationRange('proxy', {
       durationSec: null,
       sizeBytes: 4_300_000_000,
-      fenêtres: null,
+      windows: null,
     })
     // Le centre est le même — c'est le débit de la même émission — mais la
     // fourchette est deux fois plus large, parce que le débit vidéo n'a jamais
     // été relevé sur plus d'un fichier.
-    expect(centre(parLaTaille)).toBe(360)
-    const parLaDurée = fourchetteDÉtape('proxy', CQLP)
-    expect(parLaTaille!.hauteSec - parLaTaille!.basseSec).toBeGreaterThan(
-      parLaDurée!.hauteSec - parLaDurée!.basseSec,
+    expect(midpoint(fromSize)).toBe(360)
+    const fromDuration = stepDurationRange('proxy', CQLP)
+    expect(fromSize!.highSec - fromSize!.lowSec).toBeGreaterThan(
+      fromDuration!.highSec - fromDuration!.lowSec,
     )
   })
 
   it('préfère la durée à la taille quand les deux sont là', () => {
     // Une taille aberrante ne doit rien changer tant que la durée est connue.
-    const f = fourchetteDÉtape('proxy', { ...CQLP, sizeBytes: 1 })
-    expect(centre(f)).toBe(360)
+    const f = stepDurationRange('proxy', { ...CQLP, sizeBytes: 1 })
+    expect(midpoint(f)).toBe(360)
   })
 
   it('n’annonce rien pour une étape jamais chronométrée', () => {
     // `analysis` est absente de la table des débits parce que personne ne l'a
-    // mesurée sur une émission entière — elle reste dans `ÉTAPES`, qui décrit
-    // l'ordre du plan et non son prix.
-    expect(fourchetteDÉtape('analysis', CQLP)).toBeNull()
+    // chronométrée sur une émission entière — elle reste dans `ÉTAPES`, qui
+    // décrit l'ordre du plan et non son prix.
+    expect(stepDurationRange('analysis', CQLP)).toBeNull()
     expect(ÉTAPES.some((é) => é.nom === 'analysis')).toBe(true)
   })
 
   it('n’annonce rien pour les rendus, qui ne passent pas par le graphe', () => {
-    expect(fourchetteDÉtape('renders', CQLP)).toBeNull()
+    expect(stepDurationRange('renders', CQLP)).toBeNull()
   })
 
   it('n’annonce rien quand l’émission n’a livré ni durée ni taille', () => {
-    const inconnue: TailleÉmission = { durationSec: null, sizeBytes: null, fenêtres: null }
-    for (const étape of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
-      expect(fourchetteDÉtape(étape, inconnue)).toBeNull()
+    const inconnue: ShowSize = { durationSec: null, sizeBytes: null, windows: null }
+    for (const step of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
+      expect(stepDurationRange(step, inconnue)).toBeNull()
     }
   })
 
   it('traite zéro et les valeurs aberrantes comme une absence', () => {
     expect(
-      fourchetteDÉtape('proxy', { durationSec: 0, sizeBytes: 0, fenêtres: 0 }),
+      stepDurationRange('proxy', { durationSec: 0, sizeBytes: 0, windows: 0 }),
     ).toBeNull()
     expect(
-      fourchetteDÉtape('proxy', {
+      stepDurationRange('proxy', {
         durationSec: Number.NaN,
         sizeBytes: Number.POSITIVE_INFINITY,
-        fenêtres: null,
+        windows: null,
       }),
     ).toBeNull()
   })
@@ -344,19 +354,19 @@ describe('fourchetteDÉtape', () => {
   it('compte encore le repérage quand seules les fenêtres sont connues', () => {
     // L'ordre du graphe le permet : les fenêtres se comptent sur le transcript,
     // et rien n'oblige la durée à être en base pour autant.
-    const f = fourchetteDÉtape('candidates', {
+    const f = stepDurationRange('candidates', {
       durationSec: null,
       sizeBytes: null,
-      fenêtres: 83,
+      windows: 83,
     })
-    expect(centre(f)).toBe(30)
+    expect(midpoint(f)).toBe(30)
   })
 
   it('rend une borne basse jamais négative', () => {
-    for (const étape of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
-      const f = fourchetteDÉtape(étape, VINGT_MINUTES)
-      expect(f!.basseSec).toBeGreaterThanOrEqual(0)
-      expect(f!.basseSec).toBeLessThanOrEqual(f!.hauteSec)
+    for (const step of ['audio', 'transcript', 'proxy', 'candidates'] as const) {
+      const f = stepDurationRange(step, VINGT_MINUTES)
+      expect(f!.lowSec).toBeGreaterThanOrEqual(0)
+      expect(f!.lowSec).toBeLessThanOrEqual(f!.highSec)
     }
   })
 })

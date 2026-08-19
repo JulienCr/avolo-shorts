@@ -159,7 +159,7 @@ function travailProjet(clips: readonly { status: ClipStatus }[]): Travail {
  * `2025-06-15-cqlp.mp4`, une émission d'1 h 40. Le panneau les affichait à
  * l'identique pour une capsule de vingt minutes et pour un live de deux heures
  * et demie, avec la même mention « environ ». Ce qu'une étape coûte dépend de
- * l'émission ; `fourchetteDÉtape` le calcule, et deux tables sur la même
+ * l'émission ; `stepDurationRange` le calcule, et deux tables sur la même
  * question auraient fini par diverger.
  */
 export type ÉtapeDécrite = {
@@ -202,7 +202,7 @@ export const LIBELLES_ETAPES: Record<StepName, string> = {
  * dans un panneau d'avancement décrirait une étape qui n'y passera jamais.
  *
  * Ce que chaque étape coûte **sur une émission donnée** se demande à
- * `fourchetteDÉtape`, plus bas. Cette table ne porte que l'ordre et les
+ * `stepDurationRange`, plus bas. Cette table ne porte que l'ordre et les
  * libellés.
  */
 export const ÉTAPES: readonly ÉtapeDécrite[] = [
@@ -211,7 +211,7 @@ export const ÉTAPES: readonly ÉtapeDécrite[] = [
   { nom: 'candidates', libelle: LIBELLES_ETAPES.candidates },
   { nom: 'proxy', libelle: LIBELLES_ETAPES.proxy },
   // Livrée par la PR #31 et jamais chronométrée sur une émission entière :
-  // `fourchetteDÉtape` n'annonce donc rien pour elle.
+  // `stepDurationRange` n'annonce donc rien pour elle.
   { nom: 'analysis', libelle: LIBELLES_ETAPES.analysis },
 ]
 
@@ -252,7 +252,7 @@ export function compter(clips: readonly { status: ClipStatus; segments: Segment[
  * topologie hybride. Annoncer « 2 min 17 s restantes » affirmerait une précision
  * qu'aucune de ces mesures ne porte ; « environ 2–3 min » dit ce qu'on sait.
  */
-export type Fourchette = { basseSec: number; hauteSec: number }
+export type DurationRange = { lowSec: number; highSec: number }
 
 /**
  * Ce qu'on connaît de l'émission au moment d'annoncer une durée. **Les trois
@@ -263,14 +263,14 @@ export type Fourchette = { basseSec: number; hauteSec: number }
  *   moment où le panneau d'avancement apparaît ;
  * - `sizeBytes` est ce qui reste alors, puisque la liste des replays l'a mesuré
  *   sans ouvrir le fichier. Il ne sert qu'à **suppléer** la durée, et la
- *   fourchette qui en découle est deux fois plus large — voir `MARGE_SUR_TAILLE` ;
- * - `fenêtres` ne se connaît qu'une fois le transcript découpé, et le repérage
+ *   fourchette qui en découle est deux fois plus large — voir `MARGIN_FROM_SIZE` ;
+ * - `windows` ne se connaît qu'une fois le transcript découpé, et le repérage
  *   est la seule étape dont le coût s'y indexe plutôt que sur la durée.
  */
-export type TailleÉmission = {
+export type ShowSize = {
   durationSec: number | null
   sizeBytes: number | null
-  fenêtres: number | null
+  windows: number | null
 }
 
 /**
@@ -279,35 +279,47 @@ export type TailleÉmission = {
  *
  * Toutes les constantes qui suivent sont des **rapports** tirés de cette unique
  * mesure. Les écrire ainsi plutôt qu'en secondes est tout l'objet de ce bloc :
- * les cinq coûts que portait `ÉTAPES` annonçaient les mêmes chiffres à une capsule de
- * vingt minutes et à un live de deux heures et demie.
+ * les cinq coûts que portait `ÉTAPES` annonçaient les mêmes chiffres à une
+ * capsule de vingt minutes et à un live de deux heures et demie.
  */
-const RÉFÉRENCE = {
-  duréeSec: 5940,
-  octets: 4_300_000_000,
+const REFERENCE = {
+  durationSec: 5940,
+  bytes: 4_300_000_000,
   /** Les 83 fenêtres de notation de cette émission-là. */
-  fenêtres: 83,
+  windows: 83,
 } as const
 
 /**
  * Ce qu'une seconde d'émission coûte à chaque étape, en secondes.
  *
- * **`analysis` n'y est pas, et c'est la même abstention qu'`ÉTAPES`** : elle n'a
- * jamais été chronométrée sur une émission entière. Mieux vaut ne rien annoncer
- * qu'annoncer une estimation qui n'est adossée à rien. `renders` non plus — un
- * rendu se demande par clip, jamais par le graphe.
+ * **Exhaustif, comme `LIBELLES_ETAPES`** : ajouter une étape au graphe sans
+ * venir ici casse le type-check. C'est le correctif de fond d'#39 appliqué à une
+ * seconde table — une étape oubliée n'annoncerait rien, ce qui ressemble trait
+ * pour trait à une étape délibérément non chronométrée.
+ *
+ * `null` dit précisément cela : **on ne sait pas, donc on n'annonce rien.**
+ * C'est l'abstention que portait le `coûtSec` d'`ÉTAPES` avant qu'il ne soit
+ * retiré, et elle vaut mieux qu'une estimation qui n'est adossée à rien.
  */
-const DÉBITS: Partial<Record<StepName, number>> = {
+const RATES: Record<StepName, number | null> = {
   // 6 s. La seule étape dont le résultat tienne toujours sous la minute.
-  audio: 6 / RÉFÉRENCE.duréeSec,
+  audio: 6 / REFERENCE.durationSec,
   // 1 min 41, soit 59x le temps réel.
-  transcript: 101 / RÉFÉRENCE.duréeSec,
+  transcript: 101 / REFERENCE.durationSec,
   // 6 min, soit 16,4x le temps réel. La plus longue, et de loin.
-  proxy: 360 / RÉFÉRENCE.duréeSec,
+  proxy: 360 / REFERENCE.durationSec,
+  // Livrée par la PR #31 et jamais chronométrée sur une émission entière.
+  analysis: null,
+  // Le repérage se compte en fenêtres et non en secondes d'émission : il est
+  // traité avant cette table, qui ne le nomme que pour rester exhaustive.
+  candidates: null,
+  // Un rendu se demande par clip, jamais par le graphe : il ne passe jamais
+  // dans un panneau d'avancement.
+  renders: null,
 }
 
 /** 30 s de repérage pour 83 fenêtres notées. */
-const SEC_PAR_FENÊTRE = 30 / RÉFÉRENCE.fenêtres
+const SEC_PER_WINDOW = 30 / REFERENCE.windows
 
 /**
  * Combien de fenêtres une seconde d'émission produit, **quand on ne les a pas
@@ -319,10 +331,10 @@ const SEC_PAR_FENÊTRE = 30 / RÉFÉRENCE.fenêtres
  * dernier surestime la matière de 19 à 21 %). On prend donc le rapport mesuré,
  * pas le rapport théorique.
  */
-const FENÊTRES_PAR_SECONDE = RÉFÉRENCE.fenêtres / RÉFÉRENCE.duréeSec
+const WINDOWS_PER_SECOND = REFERENCE.windows / REFERENCE.durationSec
 
 /** Le débit vidéo de l'émission de référence, pour suppléer une durée absente. */
-const OCTETS_PAR_SECONDE = RÉFÉRENCE.octets / RÉFÉRENCE.duréeSec
+const BYTES_PER_SECOND = REFERENCE.bytes / REFERENCE.durationSec
 
 /**
  * La demi-largeur de la fourchette, en part de l'estimation.
@@ -333,7 +345,7 @@ const OCTETS_PAR_SECONDE = RÉFÉRENCE.octets / RÉFÉRENCE.duréeSec
  * mesurable sur cette machine, et que la variance d'une exécution à l'autre
  * monte à 40 à 80 %.
  */
-const MARGE = 0.25
+const MARGIN = 0.25
 
 /**
  * La même, quand la durée elle-même est déduite de la taille du fichier.
@@ -342,21 +354,21 @@ const MARGE = 0.25
  * une source plus ou moins compressée que la référence décalerait la durée
  * déduite d'autant, et la fourchette doit le porter.
  */
-const MARGE_SUR_TAILLE = 0.5
+const MARGIN_FROM_SIZE = 0.5
 
-/** La durée exploitable, et si elle a fallu la déduire de la taille. */
-function duréeEstimée(taille: TailleÉmission): { sec: number; déduite: boolean } | null {
-  if (taille.durationSec !== null && Number.isFinite(taille.durationSec) && taille.durationSec > 0) {
-    return { sec: taille.durationSec, déduite: false }
+/** La durée exploitable, et s'il a fallu la déduire de la taille. */
+function estimatedDuration(size: ShowSize): { sec: number; fromSize: boolean } | null {
+  if (size.durationSec !== null && Number.isFinite(size.durationSec) && size.durationSec > 0) {
+    return { sec: size.durationSec, fromSize: false }
   }
-  if (taille.sizeBytes !== null && Number.isFinite(taille.sizeBytes) && taille.sizeBytes > 0) {
-    return { sec: taille.sizeBytes / OCTETS_PAR_SECONDE, déduite: true }
+  if (size.sizeBytes !== null && Number.isFinite(size.sizeBytes) && size.sizeBytes > 0) {
+    return { sec: size.sizeBytes / BYTES_PER_SECOND, fromSize: true }
   }
   return null
 }
 
-function encadrer(sec: number, marge: number): Fourchette {
-  return { basseSec: Math.max(0, sec * (1 - marge)), hauteSec: sec * (1 + marge) }
+function toRange(sec: number, margin: number): DurationRange {
+  return { lowSec: Math.max(0, sec * (1 - margin)), highSec: sec * (1 + margin) }
 }
 
 /**
@@ -366,30 +378,30 @@ function encadrer(sec: number, marge: number): Fourchette {
  * `null` a trois causes, et elles se valent toutes les trois pour l'appelant :
  * l'étape n'a jamais été chronométrée (`analysis`), elle ne passe pas par le
  * graphe (`renders`), ou l'émission n'a encore livré ni durée ni taille. Dans
- * les trois cas on n'affiche rien, ce qui est la règle déjà posée par
- * `formatFourchette`, qui rend la chaîne vide.
+ * les trois cas on n'affiche rien, et c'est `formatDurationRange` qui rend
+ * alors la chaîne vide.
  */
-export function fourchetteDÉtape(étape: StepName, taille: TailleÉmission): Fourchette | null {
-  const durée = duréeEstimée(taille)
+export function stepDurationRange(step: StepName, size: ShowSize): DurationRange | null {
+  const duration = estimatedDuration(size)
 
-  if (étape === 'candidates') {
+  if (step === 'candidates') {
     // **Le repérage se compte en fenêtres, pas en minutes.** Un décompte réel
     // est plus juste que n'importe quelle extrapolation depuis la durée : deux
     // émissions de même longueur n'ont pas la même quantité de parole, et c'est
     // la parole qui fait les fenêtres.
-    const compte =
-      taille.fenêtres !== null && Number.isFinite(taille.fenêtres) && taille.fenêtres > 0
-        ? { valeur: taille.fenêtres, marge: MARGE }
-        : durée === null
+    const count =
+      size.windows !== null && Number.isFinite(size.windows) && size.windows > 0
+        ? { value: size.windows, margin: MARGIN }
+        : duration === null
           ? null
           : {
-              valeur: durée.sec * FENÊTRES_PAR_SECONDE,
-              marge: durée.déduite ? MARGE_SUR_TAILLE : MARGE,
+              value: duration.sec * WINDOWS_PER_SECOND,
+              margin: duration.fromSize ? MARGIN_FROM_SIZE : MARGIN,
             }
-    return compte === null ? null : encadrer(compte.valeur * SEC_PAR_FENÊTRE, compte.marge)
+    return count === null ? null : toRange(count.value * SEC_PER_WINDOW, count.margin)
   }
 
-  const débit = DÉBITS[étape]
-  if (débit === undefined || durée === null) return null
-  return encadrer(durée.sec * débit, durée.déduite ? MARGE_SUR_TAILLE : MARGE)
+  const rate = RATES[step]
+  if (rate === null || duration === null) return null
+  return toRange(duration.sec * rate, duration.fromSize ? MARGIN_FROM_SIZE : MARGIN)
 }

@@ -50,6 +50,7 @@ function project(id: string, partial: Partial<ProjectListItem> = {}): ProjectLis
     createdAt: '2025-06-15T19:04:00.000Z',
     running: null,
     error: null,
+    stopped: false,
     ...partial,
   }
 }
@@ -68,7 +69,7 @@ const SOURCES = [
 ]
 const PROJETS = [
   project('b', { running: { step: 'proxy', progress: 0.3 } }),
-  project('c', { durationSec: 0 }),
+  project('c', { stopped: true }),
   project('d', { error: 'ffmpeg est tombé.' }),
   project('e'),
 ]

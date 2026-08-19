@@ -1,4 +1,4 @@
-import type { Fourchette } from '@/core/parcours'
+import type { DurationRange } from '@/core/parcours'
 
 /**
  * Les nombres tels qu'on les lit à l'écran.
@@ -63,7 +63,7 @@ export function formatTimecode(seconds: number): string {
  *
  * **Deux bornes arrondies, jamais une seconde près.** C'est la demande du §4.2
  * du retour d'usage, mot pour mot : « environ 2–3 min » plutôt que « 2 min 17 s
- * restantes ». La raison est dans `Fourchette` — chaque étape n'a été
+ * restantes ». La raison est dans `DurationRange` — chaque étape n'a été
  * chronométrée qu'une fois, sur une machine à 40-80 % de variance.
  *
  * `null` rend la **chaîne vide**, et pas un texte d'excuse : c'est la règle déjà
@@ -74,12 +74,12 @@ export function formatTimecode(seconds: number): string {
  * secondes sur une émission d'1 h 40 : « environ 0–1 min » serait ridicule, et
  * « 4–8 s » promettrait une précision qu'une mesure unique ne porte pas.
  */
-export function formatFourchette(f: Fourchette | null): string {
-  if (f === null) return ''
-  const basse = Number.isFinite(f.basseSec) ? Math.max(0, f.basseSec) : 0
-  const haute = Number.isFinite(f.hauteSec) ? Math.max(basse, f.hauteSec) : 0
-  if (haute <= 0) return ''
-  if (haute < 60) return 'moins d’une minute'
+export function formatDurationRange(range: DurationRange | null): string {
+  if (range === null) return ''
+  const low = Number.isFinite(range.lowSec) ? Math.max(0, range.lowSec) : 0
+  const high = Number.isFinite(range.highSec) ? Math.max(low, range.highSec) : 0
+  if (high <= 0) return ''
+  if (high < 60) return 'moins d’une minute'
 
   // **Les deux bornes s'arrondissent au plus proche, pas l'une vers le bas et
   // l'autre vers le haut.** Un arrondi divergent élargit la fourchette d'une
@@ -90,8 +90,8 @@ export function formatFourchette(f: Fourchette | null): string {
   //
   // Le plancher à une minute évite « environ 0–2 min », qui promet une fin
   // immédiate.
-  const basseMin = Math.max(1, Math.round(basse / 60))
-  const hauteMin = Math.max(basseMin, Math.round(haute / 60))
-  if (basseMin === hauteMin) return `environ ${basseMin} min`
-  return `environ ${basseMin}–${hauteMin} min`
+  const lowMin = Math.max(1, Math.round(low / 60))
+  const highMin = Math.max(lowMin, Math.round(high / 60))
+  if (lowMin === highMin) return `environ ${lowMin} min`
+  return `environ ${lowMin}–${highMin} min`
 }

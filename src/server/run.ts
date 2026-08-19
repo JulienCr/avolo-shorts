@@ -28,7 +28,7 @@ import {
   runCandidates,
   type BilanNotation,
 } from '@/server/steps/candidates'
-import { attendreOuRenoncer, DÉLAI_STAT_MS, ingest, nettoyerStage } from '@/server/steps/ingest'
+import { attendreOuRenoncer, cleanStage, DÉLAI_STAT_MS, ingest } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -90,7 +90,7 @@ type Exécution = {
    * pendant six minutes après qu'on a demandé l'arrêt, et une transcription
    * garderait le GPU.
    */
-  contrôleur: AbortController
+  controller: AbortController
 }
 
 const enCours = new Map<string, Exécution>()
@@ -150,7 +150,7 @@ export function progression(projectId: string): Progression | null {
  * `enCours` est une table de *ce* processus. Le bouton peut donc se cliquer deux
  * fois sans que l'appelant ait à décider lequel des deux clics comptait.
  *
- * **Elle ne bloque pas.** `propagerArrêt` laisse dix secondes à un `SIGTERM`
+ * **Elle ne bloque pas.** `forwardAbort` laisse dix secondes à un `SIGTERM`
  * avant le `SIGKILL`, et une route qui attendrait la mort effective du processus
  * ferait patienter le navigateur d'autant. Ce qui dit que l'arrêt a eu lieu est
  * `running` qui retombe à `null`, sur le même sondage qui suivait l'avancement.
@@ -161,13 +161,13 @@ export function progression(projectId: string): Progression | null {
  * pour faite, et les précédentes gardent les leurs. La reprise repart à la
  * première étape manquante — c'est le graphe, rien de plus.
  */
-export function arrêter(projectId: string): boolean {
+export function stopRun(projectId: string): boolean {
   const exécution = enCours.get(projectId)
   if (exécution === undefined) return false
   // Un second appel pendant que le premier finit de descendre : l'exécution est
   // toujours là, la demande est toujours vraie, et `abort()` deux fois n'a pas
   // d'effet supplémentaire.
-  if (!exécution.contrôleur.signal.aborted) exécution.contrôleur.abort()
+  if (!exécution.controller.signal.aborted) exécution.controller.abort()
   return true
 }
 
@@ -389,13 +389,22 @@ export type Statut = {
    * exactement comme une exécution qui a fini son plan, alors qu'il manque des
    * artefacts. Sans lui, les deux cas sont indiscernables sur le disque.
    *
-   * **Il ne traverse pas la frontière HTTP, et il n'a pas à la traverser.**
-   * `phaseProjet` (`src/core/parcours.ts`) déduit déjà l'état juste : plus rien
-   * ne tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
-   * propose de reprendre. Publier un second champ qui dit la même chose ferait
-   * deux vérités sur une question déjà tranchée.
+   * **Un `status.json` écrit avant cette PR ne le porte pas**, et `lireStatut`
+   * ne valide rien : il y vaut `undefined`, pas `false`. Ses deux lecteurs
+   * — `élémentDeListe` et `GET /api/projects/:id` — écrivent donc `?? false`, et
+   * personne ne doit tester `=== false`, qui prendrait un vieux fichier pour une
+   * exécution menée à son terme. (relevé par Aristarque)
+   *
+   * **Il traverse la frontière HTTP, et il a fallu qu'il la traverse.** Ce
+   * commentaire a d'abord dit l'inverse, en s'appuyant sur `phaseProjet`
+   * (`src/core/parcours.ts`) qui déduit l'état juste — plus rien ne tourne,
+   * aucune erreur, une étape manque, donc `interrompu`. L'argument vaut pour
+   * l'écran de projet et **pas pour la bibliothèque, qui n'a pas `steps`** : la
+   * liste ne porte que deux lectures gratuites, par une décision de coût qui ne
+   * bouge pas (spec §3.1). Sans ce champ, une analyse arrêtée après l'ingestion
+   * y est indiscernable d'une analyse finie. (relevé par Copilot)
    */
-  arrêtée: boolean
+  stopped: boolean
   /**
    * Ce que le repérage de **cette** exécution n'a pas jugé, ou `null`.
    *
@@ -529,7 +538,7 @@ function publier(exécution: Exécution, changementDÉtape: boolean): void {
       running: { ...exécution.courante },
       error: null,
       finishedAt: null,
-      arrêtée: false,
+      stopped: false,
     },
     exécution.repérage,
   )
@@ -621,7 +630,7 @@ export async function lancer(
     repérage: 'absent',
     dernièreÉcriture: 0,
     terminée: Promise.resolve(),
-    contrôleur: new AbortController(),
+    controller: new AbortController(),
   }
   enCours.set(projectId, exécution)
 
@@ -671,7 +680,7 @@ export async function lancer(
           running: null,
           error: null,
           finishedAt: Date.now(),
-          arrêtée: false,
+          stopped: false,
         },
         'absent',
       )
@@ -686,8 +695,7 @@ export async function lancer(
       // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
       // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
       // c'est voulu, le TTL vaut pour elle comme pour les autres.
-      const garder = copiesEnUsage(db)
-      if (garder !== null) void nettoyerStage({ garder }).catch(() => {})
+      void cleanWorkCache(db).catch(() => {})
     })
     // Le rejet est traité dans `exécuter` ; ce `catch` n'existe que pour qu'une
     // promesse dont personne n'attend le résultat ne coupe pas le processus.
@@ -701,6 +709,26 @@ export async function lancer(
 }
 
 /**
+ * Nettoie le cache de travail **en épargnant ce que les exécutions lisent**.
+ *
+ * **Le seul endroit qui sache faire les deux à la fois**, et c'est la raison
+ * d'être de cette fonction : `cleanStage` connaît le TTL, `run.ts` connaît les
+ * exécutions, et un appelant qui n'aurait que le premier efface la copie du
+ * second. C'est ce qui est arrivé au nettoyage de démarrage
+ * (`src/instrumentation.ts`), qui appelait `cleanStage` nu : le balayage
+ * continue après le retour de `register()`, donc le serveur accepte une analyse
+ * pendant qu'il tourne, cette analyse constate sa copie présente — elle n'a rien
+ * à recopier, donc rien ne l'inscrit dans `copiesInFlight` — et la perd.
+ * (relevé par Copilot)
+ *
+ * La liste est passée en **fonction** : le balayage dure, et une exécution
+ * démarrée pendant ce temps doit être vue. Voir `cleanStage`.
+ */
+export function cleanWorkCache(db?: Database.Database): Promise<string[]> {
+  return cleanStage({ keep: () => copiesInUse(db) })
+}
+
+/**
  * Les copies de travail qu'une exécution est en train de lire, ou `null` si on
  * n'a pas pu le savoir.
  *
@@ -710,24 +738,30 @@ export async function lancer(
  * tourner en même temps : `enCours` est une table par projet, pas un verrou
  * global.
  *
- * **`null` veut dire « ne nettoie pas », pas « n'épargne rien ».** Cette
- * fonction est appelée depuis le `finally` d'une exécution, et `closeDb`
- * s'accroche à l'arrêt du serveur : la base peut s'être refermée entre les deux.
- * Rendre une liste vide ferait alors effacer à l'aveugle exactement les copies
- * qu'on cherchait à épargner, et laisser lever ferait rejeter une exécution qui,
- * elle, s'est bien passée. Ne rien nettoyer coûte au pire un passage sauté.
+ * **`null` veut dire « épargne tout », pas « n'épargne rien ».** Cette fonction
+ * est rappelée à chaque fichier par `cleanStage`, et `closeDb` s'accroche à
+ * l'arrêt du serveur : la base peut s'être refermée entre-temps. Rendre une
+ * liste vide ferait alors effacer à l'aveugle exactement les copies qu'on
+ * cherchait à épargner, et laisser lever ferait rejeter une exécution qui, elle,
+ * s'est bien passée. Ne rien effacer coûte au pire un passage sauté.
  */
-function copiesEnUsage(db: Database.Database): string[] | null {
-  const chemins: string[] = []
+function copiesInUse(db?: Database.Database): string[] | null {
+  // **Rien ne tourne, donc rien à épargner — et surtout rien à ouvrir.** C'est
+  // le cas du nettoyage de démarrage, et il vaut mieux qu'une optimisation :
+  // sans lui, `getDb()` ouvrirait SQLite pendant l'amorçage du serveur, pour
+  // une liste dont on sait déjà qu'elle est vide.
+  if (enCours.size === 0) return []
+  const paths: string[] = []
   try {
+    const base = db ?? getDb()
     for (const id of enCours.keys()) {
-      const copie = getProject(db, id)?.stagedPath
-      if (copie != null) chemins.push(copie)
+      const copie = getProject(base, id)?.stagedPath
+      if (copie != null) paths.push(copie)
     }
   } catch {
     return null
   }
-  return chemins
+  return paths
 }
 
 /**
@@ -780,7 +814,7 @@ async function exécuter(
     publier(exécution, true)
   }
 
-  const signal = exécution.contrôleur.signal
+  const signal = exécution.controller.signal
 
   /**
    * Le `status.json` d'une exécution qu'on a arrêtée.
@@ -792,7 +826,7 @@ async function exécuter(
    * tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
    * propose de reprendre.
    */
-  const publierLArrêt = (): void => {
+  const writeStoppedStatus = (): void => {
     écrireStatut(
       projectId,
       {
@@ -803,7 +837,7 @@ async function exécuter(
         running: null,
         error: null,
         finishedAt: Date.now(),
-        arrêtée: true,
+        stopped: true,
       },
       exécution.repérage,
     )
@@ -853,7 +887,7 @@ async function exécuter(
     // L'arrêt tombé entre deux étapes, ou pendant la dernière : la boucle est
     // sortie sans lever, et il ne faut surtout pas écrire un statut de succès.
     if (signal.aborted) {
-      publierLArrêt()
+      writeStoppedStatus()
       return
     }
 
@@ -867,20 +901,20 @@ async function exécuter(
         running: null,
         error: null,
         finishedAt: Date.now(),
-        arrêtée: false,
+        stopped: false,
       },
       exécution.repérage,
     )
     console.log(`[${projectId}] terminé : ${exécution.plan.join(' → ')}`)
   } catch (cause) {
     // **L'arrêt se lit sur le signal, jamais sur l'erreur reçue.** Selon
-    // l'étape, elle vaut `ArrêtDemandéError`, une `AbortError` de `pipeline` ou
+    // l'étape, elle vaut `StopRequestedError`, une `AbortError` de `pipeline` ou
     // le refus d'un flux fermé sous les pieds d'une bibliothèque tierce ; le
     // seul fait commun est que quelqu'un a demandé l'arrêt. Et on ne relève pas
     // l'erreur : une exécution arrêtée s'est terminée comme on le voulait, donc
     // `attendre()` doit rendre la main sans rejeter.
     if (signal.aborted) {
-      publierLArrêt()
+      writeStoppedStatus()
       return
     }
     // **Le message complet au journal, sa version épurée dans le fichier.** Les
@@ -899,7 +933,7 @@ async function exécuter(
         running: null,
         error: messageSûr(cause),
         finishedAt: Date.now(),
-        arrêtée: false,
+        stopped: false,
       },
       exécution.repérage,
     )
@@ -978,8 +1012,8 @@ async function exécuterÉtape(
       // elle reste bornée — on lit un en-tête, pas la vidéo —, ce qui justifie
       // de ne pas repayer cinq minutes de recopie ; ce qui ne se justifie pas,
       // c'est de le taire.
-      const copieLà = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
-      if (!copieLà) {
+      const hasLocalCopy = projet.stagedPath !== null && fs.existsSync(projet.stagedPath)
+      if (!hasLocalCopy) {
         console.warn(
           `[${projet.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
             'relevées sur l’original — c’est-à-dire sur le montage 9p. Un ffprobe d’en-tête le ' +
@@ -987,7 +1021,8 @@ async function exécuterÉtape(
             'reconstitue la copie.',
         )
       }
-      const source = copieLà && projet.stagedPath !== null ? projet.stagedPath : projet.sourcePath
+      const source =
+        hasLocalCopy && projet.stagedPath !== null ? projet.stagedPath : projet.sourcePath
       await étapes.runAnalysis({
         projectId: projet.id,
         source,

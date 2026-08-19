@@ -9,7 +9,7 @@ import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useRéglages, useÉcrireRéglages } from '@/lib/queries'
+import { useSaveSettings, useSettings } from '@/lib/queries'
 
 /**
  * L'écran des paramètres.
@@ -26,7 +26,7 @@ import { useRéglages, useÉcrireRéglages } from '@/lib/queries'
  *
  * **Il ne recalcule rien.** Changer un réglage n'invalide aucune émission
  * analysée : un recalcul est une action explicite, depuis l'écran de l'émission.
- * `useÉcrireRéglages` n'invalide d'ailleurs que le cache des réglages, et c'est
+ * `useSaveSettings` n'invalide d'ailleurs que le cache des réglages, et c'est
  * la règle qui compte.
  *
  * **Il vit ici et non dans le fichier de route**, comme les trois autres écrans.
@@ -35,8 +35,8 @@ import { useRéglages, useÉcrireRéglages } from '@/lib/queries'
  * l'écran montable en test.
  */
 export function SettingsScreen() {
-  const settings = useRéglages()
-  const save = useÉcrireRéglages()
+  const settings = useSettings()
+  const save = useSaveSettings()
 
   return (
     <div className="flex min-h-full flex-col">
@@ -49,7 +49,7 @@ export function SettingsScreen() {
 
         {/* **Une écriture refusée se dit, et elle se dit avec le message du
             serveur.** Une valeur hors bornes rend un 400 : sans ce mot, le champ
-            reviendrait tout seul à sa valeur d'avant — `useÉcrireRéglages`
+            reviendrait tout seul à sa valeur d'avant — `useSaveSettings`
             n'écrit pas en optimiste — et on croirait à un écran qui ne réagit
             pas. */}
         {save.isError && (

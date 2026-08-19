@@ -43,6 +43,7 @@ const PROJET: ProjectListItem = {
   createdAt: '2025-06-15T19:04:00.000Z',
   running: null,
   error: null,
+  stopped: false,
 }
 
 function creation(partial: Partial<Creation> = {}): Creation {
@@ -103,9 +104,9 @@ describe('les cinq états', () => {
   })
 
   it('dit qu’une analyse est interrompue et propose de la reprendre', () => {
-    // `progression()` lit une `Map` du processus Next : un redémarrage la vide
-    // sans laisser d'erreur. `durationSec` à zéro est la trace qu'il reste.
-    poser(entry({ projectId: PROJET.id }, { durationSec: 0 }))
+    // Un arrêt demandé ne laisse ni `running` ni `error` — ce n'est pas une
+    // panne —, et `stopped` est le seul chemin par lequel il se voit.
+    poser(entry({ projectId: PROJET.id }, { stopped: true }))
     expect(carte().getAttribute('data-state')).toBe('interrupted')
     expect(screen.getByText('Analyse interrompue')).toBeTruthy()
     expect(screen.getByText('Reprendre')).toBeTruthy()
@@ -156,7 +157,7 @@ describe('la hauteur', () => {
     const cas: Entry[] = [
       entry({}),
       entry({ projectId: PROJET.id }, { running: { step: 'proxy', progress: 0.1 } }),
-      entry({ projectId: PROJET.id }, { durationSec: 0 }),
+      entry({ projectId: PROJET.id }, { stopped: true }),
       entry({ projectId: PROJET.id }, { error: 'tombé' }),
       entry({ projectId: PROJET.id }, {}),
     ]

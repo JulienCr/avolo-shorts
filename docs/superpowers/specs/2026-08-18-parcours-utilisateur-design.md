@@ -477,7 +477,7 @@ Aristarque)
 règle ci-dessus n'a pas bougé, sa formulation si : elle disait « le proxy coûte
 environ 6 min sur 1 h 40 d'émission », c'est-à-dire le coût mesuré sur l'émission
 de référence, affiché tel quel à une capsule de vingt minutes comme à un live de
-deux heures et demie. Depuis le 19 août 2026, `fourchetteDÉtape`
+deux heures et demie. Depuis le 19 août 2026, `stepDurationRange`
 (`src/core/parcours.ts`) transforme ces mesures en débits et rend deux bornes —
 « environ 2–3 min ». Deux bornes et non un point, parce que chaque étape n'a été
 chronométrée qu'**une fois**, sur une machine dont `CLAUDE.md` documente 40 à
@@ -631,17 +631,25 @@ ouvre la vue Émission. `POST /api/projects` reste idempotent sur une source dé
 analysée, mais proposer deux chemins vers le même endroit sans le dire fait
 douter de ce qu'on vient de déclencher.
 
-**Cinq états, et quatre se lisent sur ce que la liste porte déjà.** Le cinquième,
-`interrompue`, se déduit de `durationSec` — nul tant que l'ingestion n'a pas sondé
-la source. La déduction est vraie quand elle répond et muette au-delà : une
-exécution perdue **après** l'ingestion, ou une analyse arrêtée depuis l'écran
-(`publierLArrêt` écrit délibérément `error: null`), retombent sur `analysée`. Le
-serveur sait les deux — `status.json` porte `arrêtée`, `pid` et `finishedAt`, et
-`élémentDeListe` lit déjà ce fichier — mais ne les publie pas, au motif que
-`phaseProjet` déduit `interrompu` de `steps`. L'argument tient pour l'écran de
-projet et **pas pour la bibliothèque, qui n'a pas `steps`** : c'est justement le
-sondage qu'elle refuse de payer. Un champ de plus sur `ProjectListItem` fermerait
-le cas, sans une lecture disque de plus.
+**Cinq états, et les cinq se lisent sur ce que la liste porte.** Quatre allaient
+de soi ; le cinquième, `interrompue`, a demandé un champ. Un arrêt demandé ne
+laisse ni `running`, ni `error` — `publierLArrêt` écrit délibérément `error: null`,
+parce qu'un arrêt n'est pas une panne —, ni artefact particulier, et une exécution
+qu'un redémarrage du serveur a emportée n'en laisse pas davantage.
+
+Une première version le déduisait de `durationSec`, nul tant que l'ingestion n'a
+pas sondé la source. Vrai quand ça répondait, **faux au-delà** : une analyse
+arrêtée après l'ingestion s'affichait « Analysée », c'est-à-dire dans le cas exact
+que quelqu'un venait de provoquer d'un clic, sur la seule carte qu'il regardait.
+C'était le seul des cinq états qui pouvait mentir.
+
+`ProjectListItem.stopped` l'a remplacé, et il ne coûte rien : `élémentDeListe` lit
+déjà `status.json` pour son champ `error`, et `stopped` y était déjà écrit. Le
+champ se tait pendant qu'une exécution tourne, comme `error`, pour la même raison
+— deux écrans qui se contredisent sur le même projet valent moins que pas d'écran.
+L'argument qui l'avait d'abord retenu (« `phaseProjet` déduit `interrompu` de
+`steps` ») ne valait que pour l'écran de projet : **la bibliothèque n'a pas
+`steps`**, c'est justement le sondage qu'elle refuse de payer.
 
 **Un projet dont la source a disparu du Drive garde une carte**, marquée comme
 telle et rangée après les replays. Sans elle il n'a plus de replay, donc plus de
@@ -815,20 +823,23 @@ durée, et une phrase qui dit ce qui devient possible ensuite. Le temps restant
 **n'est pas affiché** : les seules mesures dont on dispose sont un point par
 étape sur une seule émission, et une estimation fausse coûte plus cher qu'une
 absence d'estimation. Le coût attendu par étape, lui, s'affiche comme un ordre de
-grandeur **rapporté à l'émission qu'on regarde** : `fourchetteDÉtape` en tire
-deux bornes de la durée du fichier, et `formatFourchette` les écrit « environ
-5–8 min ». Une étape qu'on n'a jamais chronométrée n'annonce rien du tout.
+grandeur **rapporté à l'émission qu'on regarde** : `stepDurationRange` en tire
+deux bornes de la durée du fichier — de sa taille tant que l'ingestion ne l'a pas
+sondé —, et `formatDurationRange` les écrit « environ 5–8 min ». Une étape qu'on n'a
+jamais chronométrée n'annonce rien du tout.
 
-Deux précisions qui viennent de l'implémentation. **`TailleÉmission` sait suppléer
-la durée par la taille du fichier, et cet écran ne le peut pas** :
-`GET /api/projects/:id` ne publie pas `sizeBytes`, qui vit sur `Source` et que
-seule la bibliothèque interroge. Le panneau se tait donc pendant les quelques
-dizaines de secondes qui précèdent la fin de l'ingestion — ce qui est la règle
-qu'il tient déjà. Et **`ÉtapeDécrite` ne porte plus de `coûtSec`** : la table
-décrit l'ordre du plan et les libellés, le prix se demande à `fourchetteDÉtape`.
-Deux tables sur la même question auraient fini par diverger, et la première
-annonçait les mêmes secondes à une capsule de vingt minutes qu'à un live de deux
-heures et demie.
+**La suppléance par la taille sert pour de bon**, et c'est le seul moment où elle
+compte : `ProjectStatus` publie `sizeBytes` depuis le 19 août, donc le panneau
+annonce une fourchette dès la première seconde au lieu de se taire jusqu'à la fin
+de l'ingestion. Sur un fichier de 12 Go, c'est l'étape la plus longue du plan qui
+cesse d'être muette. La fourchette y est deux fois plus large, parce que la durée
+est déduite d'un débit d'encodage relevé sur un seul fichier — et l'annoncer large
+est exactement ce que ce document demande.
+
+**Et `ÉtapeDécrite` ne porte plus de `coûtSec`** : la table décrit l'ordre du plan
+et les libellés, le prix se demande à `stepDurationRange`. Deux tables sur la même
+question auraient fini par diverger, et la première annonçait les mêmes secondes à
+une capsule de vingt minutes qu'à un live de deux heures et demie.
 
 **La durée affichée est celle qu'on sait mesurer, et son libellé dit laquelle.**
 Ce document réclamait le temps écoulé depuis le lancement. `ProjectStatus` ne le
@@ -855,7 +866,7 @@ l'analyse redevienne la seule chose à l'écran, ce qui n'arrive jamais pendant 
 six minutes de proxy pendant lesquelles on trie déjà.
 
 **Aucune confirmation** : l'arrêt ne détruit ni artefact ni décision humaine, il
-rend du temps de calcul, et le geste inverse est à un clic. Et `arrêtée: false` —
+rend du temps de calcul, et le geste inverse est à un clic. Et `stopped: false` —
 ce que rend la route quand rien ne tournait — **est un succès** : le dire comme un
 échec ferait chercher un défaut là où il n'y a qu'une course perdue de quelques
 secondes.
@@ -1848,11 +1859,11 @@ sur `PATCH`, la liste de cibles pour `POST /run` — sans laquelle le bouton de
 reprise n'aurait reconstruit que les candidats —, l'arrêt d'exécution, et les
 réglages du repérage.
 
-**Une dépendance serveur reste ouverte, et elle est petite** : la bibliothèque ne
-sait pas distinguer une analyse arrêtée ou perdue après l'ingestion d'une analyse
-terminée. Le serveur le sait — `status.json` porte `arrêtée` —, la lecture est
-déjà payée par `élémentDeListe`, et il n'y a qu'un champ à publier sur
-`ProjectListItem`. Voir 3.1.
+Les deux dernières sont arrivées avec la même livraison, et elles ferment chacune
+un mensonge d'écran : **`stopped` sur `ProjectListItem`**, sans lequel la
+bibliothèque affichait « Analysée » sur une analyse qu'on venait d'arrêter (3.1),
+et **`sizeBytes` sur `ProjectStatus`**, sans lequel le panneau d'avancement se
+taisait pendant toute la copie — l'étape la plus longue d'un fichier de 12 Go.
 
 **Le septième ne l'est pas, et ce n'est pas l'interface qui le retient.** Il lit
 le résultat du cadrage automatique, qui est en ligne et ne produit rien

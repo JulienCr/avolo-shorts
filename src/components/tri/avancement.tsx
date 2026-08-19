@@ -4,8 +4,8 @@ import { Check, CircleDashed, LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { StepName } from '@/core/graph'
-import { fourchetteDÉtape, ÉTAPES, LIBELLES_ETAPES, type TailleÉmission } from '@/core/parcours'
-import { formatDuration, formatFourchette } from '@/lib/format'
+import { stepDurationRange, ÉTAPES, LIBELLES_ETAPES, type ShowSize } from '@/core/parcours'
+import { formatDuration, formatDurationRange } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
@@ -20,7 +20,7 @@ import { Progress } from '@/components/ui/progress'
  * **Le temps restant n'est jamais affiché, et le coût annoncé est celui de
  * cette émission-ci.** Le panneau donnait cinq durées mesurées une seule fois
  * sur une émission d'1 h 40, à l'identique pour une capsule de vingt minutes :
- * `fourchetteDÉtape` les rapporte à la taille de l'émission, et les rend en
+ * `stepDurationRange` les rapporte à la taille de l'émission, et les rend en
  * fourchettes — « environ 2–3 min », jamais « 2 min 17 s restantes ». La
  * précision d'une seconde affirmerait ce qu'une mesure unique, sur une machine à
  * 40-80 % de variance, ne porte pas.
@@ -34,7 +34,7 @@ export function PanneauAvancement({
   steps,
   running,
   erreur,
-  taille,
+  size,
   reprise,
   arret,
 }: {
@@ -52,7 +52,7 @@ export function PanneauAvancement({
    * Les trois champs peuvent manquer et le panneau n'annonce alors rien — c'est
    * la règle qu'il tenait déjà : une absence se lit mieux qu'un chiffre inventé.
    */
-  taille: TailleÉmission
+  size: ShowSize
   /** Le bouton de reprise. La page le fournit : c'est elle qui porte la mutation. */
   reprise: ReactNode
   /**
@@ -97,7 +97,7 @@ export function PanneauAvancement({
           // La fourchette de **cette** émission, jamais une constante. Chaîne
           // vide quand l'étape n'a jamais été chronométrée, ou que l'émission
           // n'a pas encore livré sa durée.
-          const fourchette = formatFourchette(fourchetteDÉtape(nom, taille))
+          const range = formatDurationRange(stepDurationRange(nom, size))
           return (
             <li
               key={nom}
@@ -125,9 +125,9 @@ export function PanneauAvancement({
                   restant. Rien quand personne ne l'a chronométré, ni quand
                   l'ingestion n'a pas encore sondé la durée : une absence se lit
                   mieux qu'un chiffre inventé. */}
-              {fourchette !== '' && (
+              {range !== '' && (
                 <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                  {fourchette}
+                  {range}
                 </span>
               )}
             </li>

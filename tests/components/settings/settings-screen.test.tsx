@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DIMENSIONS_PAR_DÉFAUT } from '@/core/transcript'
-import type { Réglages } from '@/lib/api'
+import type { Settings } from '@/lib/api'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
@@ -38,7 +38,7 @@ function reponse(corps: unknown, status = 200): Response {
   } as Response
 }
 
-const PAR_DÉFAUT: Réglages = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
+const PAR_DÉFAUT: Settings = { selection: { ...DIMENSIONS_PAR_DÉFAUT } }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
 function serveur(options: { lecture?: () => Response; écriture?: () => Response } = {}) {

@@ -4,11 +4,11 @@ import type { StepName as ÉtapeDuGraphe } from '@/core/graph'
 import { DIMENSIONS_PAR_DÉFAUT, type DimensionsRepérage } from '@/core/transcript'
 import {
   CIBLES_DE_REPRISE,
-  type ChampsRepérage,
+  type SelectionSettings,
   type RunTarget,
   type StepName,
 } from '@/lib/api'
-import { REGISTRE_RÉGLAGES } from '@/server/db'
+import { SETTING_FIELDS } from '@/server/db'
 import { CIBLES_INITIALES, CIBLES_LANÇABLES, type CibleLançable } from '@/server/run'
 
 /**
@@ -79,7 +79,7 @@ describe('les champs de repérage', () => {
    * réglage retiré du calcul resterait réglable en pure perte.
    */
   it('sont les mêmes des deux côtés de la frontière', () => {
-    const versLeClient: ChampsRepérage = DIMENSIONS_PAR_DÉFAUT
+    const versLeClient: SelectionSettings = DIMENSIONS_PAR_DÉFAUT
     const versLeCalcul: DimensionsRepérage = versLeClient
     expect(versLeCalcul).toEqual(DIMENSIONS_PAR_DÉFAUT)
   })
@@ -91,9 +91,9 @@ describe('les champs de repérage', () => {
    * à la main, ce qui est exactement la forme qu'avait le code d'avant.
    */
   it('sont tous décrits par le registre, et lui seul', () => {
-    expect(REGISTRE_RÉGLAGES.filter((c) => c.famille === 'selection').map((c) => c.nom).sort()).toEqual(
+    expect(SETTING_FIELDS.filter((f) => f.family === 'selection').map((f) => f.name).sort()).toEqual(
       Object.keys(DIMENSIONS_PAR_DÉFAUT).sort(),
     )
-    expect(REGISTRE_RÉGLAGES.length).toBe(Object.keys(DIMENSIONS_PAR_DÉFAUT).length)
+    expect(SETTING_FIELDS.length).toBe(Object.keys(DIMENSIONS_PAR_DÉFAUT).length)
   })
 })

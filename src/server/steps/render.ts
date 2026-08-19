@@ -23,8 +23,9 @@ import {
 } from '@/server/ffmpeg'
 import { probe } from '@/server/ffprobe'
 import { estUneAbsence } from '@/server/octets'
-import { placeSidecar, rendersDir, stagedPath } from '@/server/paths'
+import { placeSidecar, rendersDir } from '@/server/paths'
 import { lireTranscript } from '@/server/steps/candidates'
+import { ensureLocalCopy, holdStagedCopy } from '@/server/steps/ingest'
 
 /**
  * L'export : d'une EDL en base au MP4 que Julien publie.
@@ -1274,256 +1275,274 @@ export async function renderClip(clipId: string, options: OptionsRendu = {}): Pr
   // reprise-là n'a rien à faire du transcript, qui vit sur le Drive et coûte un
   // aller-retour en 9p, ni des sondages ffprobe.
   if (refaireLesSorties(chemins, (c) => fs.existsSync(c), écart === null, options.force)) {
-    // La copie de travail, pas le Drive. Elle est transitoire par contrat — voir
-    // `stagedPath` — donc son absence se répare en réingérant, et le dire vaut
-    // mieux que retomber sur un montage 9p qui peut geler la boucle d'événements.
-    const src = projet.stagedPath ?? stagedPath(projet.sourcePath)
-    if (!fs.existsSync(src)) {
-      throw new Error(
-        `La copie de travail du projet ${clip.projectId} est absente. Le rendu part de l'original, ` +
-          "jamais du proxy : relancer l'ingestion pour la reconstituer.",
-      )
-    }
-
-    // **La porte des marques, et elle est ici pour deux raisons.** Avant tout ce
-    // qui coûte : la lecture du transcript traverse le Drive en 9p, l'encodage
-    // dure de dix secondes à une minute, et `POST /api/clips/:id/export` est
-    // synchrone — personne n'attend une minute pour apprendre qu'il manquait un
-    // PNG de quarante kilo-octets. Et après la copie de travail : sans source il
-    // n'y a rien à cadrer, là où une marque absente est un défaut de la
-    // livraison et non de l'entrée.
+    // **La copie de travail, pas le Drive — et son absence se répare ici.** Ce
+    // commentaire disait déjà « son absence se répare en réingérant » et le code
+    // se contentait de lever en le prescrivant : or rien dans l'application ne
+    // savait déclencher une réingestion, `CIBLES_LANÇABLES` ne l'expose pas, et
+    // un projet dont tous les artefacts existent planifie un plan vide. Le seul
+    // remède était un script dans un terminal, ce que le critère de réussite de
+    // la conception exclut. Et le TTL de huit heures posé par cette même
+    // livraison en aurait fait le cas normal plutôt que l'accident. (issue #76)
     //
-    // **Le chemin du saut ne refuse toujours pas**, et c'est délibéré : y
-    // refuser ferait échouer une relance qui se contente de réécrire un `.txt`
-    // sans rien changer aux fichiers livrés.
-    //
-    // Ce qui a changé avec #48, c'est qu'il ne saute plus à l'aveugle. Un clip
-    // exporté sans marque avant #37 n'a pas d'empreinte, donc il ne saute plus,
-    // donc il arrive ici et se refait — ou refuse en le disant, si le dossier
-    // est vide. Le `force` reste, il n'est simplement plus le seul remède, ni
-    // un remède qu'il faut avoir lu ce commentaire pour connaître.
-    //
-    // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
-    // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de
-    // travail manquante se dit toujours avant la marque manquante.
-    if (refuserFauteDeMarque(clip.branding, marques)) {
-      // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
-      // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
-      // et `collecterMarques` écarte la marque en le journalisant. Dire que le
-      // dossier est vide serait alors faux, et enverrait chercher un fichier qui
-      // est là.
-      throw new Error(
-        `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
-          `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absentes, ou illisibles et ` +
-          `alors signalées au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
-          `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
-          `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
-      )
-    }
-
-    // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
-    // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
-    // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
-    // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
-    // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
-    // en place. (relevé par Copilot)
-    const assProvisoire = clip.captions
-      ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, look.style)
-      : undefined
-    // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
-    // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
-    // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
-    const fontsDir =
-      assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
-
+    // `ensureLocalCopy` sonde le montage sous délai de garde avant de promettre
+    // quoi que ce soit, passe par le verrou des copies — deux exports lancés
+    // coup sur coup sur la même émission attendent la même copie —, et laisse le
+    // message qui dit quoi faire en dernier recours, pour le montage muet ou
+    // l'original disparu.
+    const src = await ensureLocalCopy(projet, { db })
+    // **Et on la tient jusqu'à la fin du rendu.** `ensureLocalCopy` ne protège
+    // la copie que pendant sa recopie ; ensuite le rendu la lit — lecture du
+    // transcript, sondage des dimensions, puis dix secondes à une minute
+    // d'encodage — et le TTL de huit heures s'applique à elle comme aux autres.
+    // Un balayage, celui du démarrage ou celui qui suit une analyse, pouvait
+    // donc l'effacer entre ce retour et l'ouverture du fichier par ffmpeg :
+    // `copiesInUse` ne connaît que les analyses, pas les exports.
+    // (relevé par Copilot)
+    const releaseCopy = holdStagedCopy(src)
     try {
-      const taille = await dimensionsSource(src)
 
-      // **Le montage découpé aux frontières de plans.** C'est ici que le cadre
-      // cesse d'être unique : un segment qui traverse cinq plans devient cinq
-      // entrées, chacune avec le ratio et la position de son plan, et le cadre
-      // saute là où une coupe existe déjà.
+      // **La porte des marques, et elle est ici pour deux raisons.** Avant tout ce
+      // qui coûte : la lecture du transcript traverse le Drive en 9p, l'encodage
+      // dure de dix secondes à une minute, et `POST /api/clips/:id/export` est
+      // synchrone — personne n'attend une minute pour apprendre qu'il manquait un
+      // PNG de quarante kilo-octets. Et après la copie de travail : sans source il
+      // n'y a rien à cadrer, là où une marque absente est un défaut de la
+      // livraison et non de l'entrée.
       //
-      // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
-      // recalage des sous-titres : `splitByShot` recopie les bornes
-      // intermédiaires au lieu de les recalculer, donc chaque segment se
-      // retrouve couvert exactement. `sousTitresDuClip` continue de lire
-      // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
-      const pieces = splitByShot(
-        clip.segments,
-        framing.shots,
-        // Le repli d'un intervalle qu'aucun plan ne couvre : le cadre le plus
-        // large, centré. Le plus large parce qu'on ne sait rien de ce qui s'y
-        // passe et qu'un 9:16 aveugle jetterait 68 % de la largeur sans le dire
-        // — c'est déjà ce que `chooseRatio` fait quand il ne mesure rien. Centré,
-        // comme `computeFraming` centre un plan sur lequel il n'a rien mesuré :
-        // deux défauts qui divergent finissent par se contredire.
-        { ratio: '16:9', cropX: 0.5, cropXNative: 0.5 },
-      )
-
-      // **Un décodeur par entrée**, et le graphe est mesuré bon jusqu'à une
-      // dizaine (`renderArgs`). Le découpage par plan en ajoute : la médiane des
-      // plans est de 5,3 s sur `2026-03-08-caro-mdlm`, donc un clip d'une minute
-      // peut en traverser une douzaine. On le dit plutôt que de le découvrir sur
-      // un export qui rame — il n'y a rien à décider ici, et refuser serait pire
-      // que lent.
-      if (pieces.length > PIECE_COUNT_WARN) {
-        console.warn(
-          `Clip ${clipId} : ${pieces.length} morceaux à décoder (${clip.segments.length} segments ` +
-            `découpés sur ${framing.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
-            `dizaine, l'export ralentit.`,
+      // **Le chemin du saut ne refuse toujours pas**, et c'est délibéré : y
+      // refuser ferait échouer une relance qui se contente de réécrire un `.txt`
+      // sans rien changer aux fichiers livrés.
+      //
+      // Ce qui a changé avec #48, c'est qu'il ne saute plus à l'aveugle. Un clip
+      // exporté sans marque avant #37 n'a pas d'empreinte, donc il ne saute plus,
+      // donc il arrive ici et se refait — ou refuse en le disant, si le dossier
+      // est vide. Le `force` reste, il n'est simplement plus le seul remède, ni
+      // un remède qu'il faut avoir lu ce commentaire pour connaître.
+      //
+      // Le dossier a été lu plus haut, pour comparer l'empreinte : la porte se
+      // contente d'en juger, et l'ordre des erreurs ne change pas — la copie de
+      // travail manquante se dit toujours avant la marque manquante.
+      if (refuserFauteDeMarque(clip.branding, marques)) {
+        // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
+        // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
+        // et `collecterMarques` écarte la marque en le journalisant. Dire que le
+        // dossier est vide serait alors faux, et enverrait chercher un fichier qui
+        // est là.
+        throw new Error(
+          `Le clip ${clipId} demande des marques et aucune n'est exploitable : ni ` +
+            `${MARQUES_ATTENDUES.map((m) => m.fichier).join(' ni ')} — absentes, ou illisibles et ` +
+            `alors signalées au journal. L'export livrerait un MP4 sans logo sans un mot, et le rendu ` +
+            `est la dernière étape avant publication. Déposer au moins l'une d'elles dans ` +
+            `assets/brand/ (son README dit le format), ou passer branding à false sur ce clip.`,
         )
       }
 
-      // **Le natif garde un seul ratio pour tout le clip** — seule la position
-      // saute aux frontières. La variante, elle, prend le ratio de chaque plan.
-      const out = outputSize(ratio)
-      const verticalCanvas = outputSize('9:16')
-      const nativePieces: FramedSegment[] = pieces.map((m) => ({
-        start: m.start,
-        end: m.end,
-        ratio,
-        crop: cropRect(ratio, m.cropXNative, taille.w, taille.h),
-      }))
-      const verticalPieces: FramedSegment[] = pieces.map((m) => ({
-        start: m.start,
-        end: m.end,
-        ratio: m.ratio,
-        crop: cropRect(m.ratio, m.cropX, taille.w, taille.h),
-      }))
+      // **Le `.ass` s'écrit d'abord sous un nom temporaire.** Il est gardé sur le
+      // disque pour relire ce que libass a incrusté, et `produireArtefact` conserve
+      // l'ancien MP4 quand ffmpeg échoue : écrire directement sur le nom définitif
+      // laisserait, après un rendu forcé raté, l'ASS d'une tentative qui n'a rien
+      // produit à côté d'une vidéo d'avant. Le sidecar ne bouge qu'une fois le MP4
+      // en place. (relevé par Copilot)
+      const assProvisoire = clip.captions
+        ? await écrireSousTitres(clip, cheminTemporaire(chemins.ass), projet, look.style)
+        : undefined
+      // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
+      // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
+      // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
+      const fontsDir =
+        assProvisoire === undefined ? undefined : dossierDesPolicesUtilisable(options.fontsDir)
 
-      // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
-      // une fois pour les deux : elles s'incrustent après la composition, à la
-      // taille du fichier produit, et `planifierMarques` raisonne en fractions
-      // de ce canevas. Les planifier une seule fois poserait dans la variante
-      // une bande calculée pour un autre format. C'est la même raison que pour
-      // les sous-titres — voir `renderArgs`.
-      const logos = planifierMarques(out.w, out.h, marques)
-      const verticalLogos = planifierMarques(verticalCanvas.w, verticalCanvas.h, marques)
+      try {
+        const taille = await dimensionsSource(src)
 
-      // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
-      // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
-      // rendre ; la laisser le temps du natif ouvre une fenêtre où un arrêt
-      // brutal — coupure, tueur de mémoire — laisse l'ancienne 9:16 à côté d'un
-      // natif tout neuf, et la relance suivante, sans `force`, trouve les trois
-      // sorties présentes et saute définitivement sur cette paire incohérente.
-      // Effacée d'abord, n'importe quelle interruption laisse une sortie
-      // manquante, donc réessayable. (relevé par Copilot)
-      const variante = chemins.variant9x16
-      if (variante !== null) fs.rmSync(variante, { force: true })
+        // **Le montage découpé aux frontières de plans.** C'est ici que le cadre
+        // cesse d'être unique : un segment qui traverse cinq plans devient cinq
+        // entrées, chacune avec le ratio et la position de son plan, et le cadre
+        // saute là où une coupe existe déjà.
+        //
+        // **La somme des durées ne bouge pas**, et c'est ce dont dépend le
+        // recalage des sous-titres : `splitByShot` recopie les bornes
+        // intermédiaires au lieu de les recalculer, donc chaque segment se
+        // retrouve couvert exactement. `sousTitresDuClip` continue de lire
+        // `clip.segments`, comme avant, et n'a rien à savoir de ce découpage.
+        const pieces = splitByShot(
+          clip.segments,
+          framing.shots,
+          // Le repli d'un intervalle qu'aucun plan ne couvre : le cadre le plus
+          // large, centré. Le plus large parce qu'on ne sait rien de ce qui s'y
+          // passe et qu'un 9:16 aveugle jetterait 68 % de la largeur sans le dire
+          // — c'est déjà ce que `chooseRatio` fait quand il ne mesure rien. Centré,
+          // comme `computeFraming` centre un plan sur lequel il n'a rien mesuré :
+          // deux défauts qui divergent finissent par se contredire.
+          { ratio: '16:9', cropX: 0.5, cropXNative: 0.5 },
+        )
 
-      // **L'empreinte d'avant part avec elle, et pour la même raison poussée
-      // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la
-      // laisser en place le temps des deux encodages laisse `livraisonÀJour`
-      // répondre vrai sur une paire à moitié réécrite, et rien ne le signale
-      // puisqu'un `GET` ne sonde pas le dossier des marques. N'importe quelle
-      // sortie de ce bloc — interruption, refus de certifier plus bas — laisse
-      // alors des fichiers que rien ne certifie, donc à refaire.
-      // (relevé par Copilot)
-      fs.rmSync(chemins.empreinte, { force: true })
+        // **Un décodeur par entrée**, et le graphe est mesuré bon jusqu'à une
+        // dizaine (`renderArgs`). Le découpage par plan en ajoute : la médiane des
+        // plans est de 5,3 s sur `2026-03-08-caro-mdlm`, donc un clip d'une minute
+        // peut en traverser une douzaine. On le dit plutôt que de le découvrir sur
+        // un export qui rame — il n'y a rien à décider ici, et refuser serait pire
+        // que lent.
+        if (pieces.length > PIECE_COUNT_WARN) {
+          console.warn(
+            `Clip ${clipId} : ${pieces.length} morceaux à décoder (${clip.segments.length} segments ` +
+              `découpés sur ${framing.shots.length} plans). Chacun ouvre un décodeur ; au-delà d'une ` +
+              `dizaine, l'export ralentit.`,
+          )
+        }
 
-      await produireArtefact({
-        dst: chemins.mp4,
-        // `true` et non `options.force` : la décision est prise au-dessus, une
-        // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
-        // un natif présent dont la variante manque, et la paire repartirait de
-        // deux montages. (relevé par Codex et Copilot)
-        force: true,
-        durationSec: durée,
-        onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
-        quoi: `rendu ${ratio} du clip ${clipId}`,
-        args: (destination) =>
-          renderArgs({
-            src,
-            segments: nativePieces,
-            out,
-            assPath: assProvisoire,
-            fontsDir,
-            logos,
-            dst: destination,
-            encoder: encodeur(),
-          }),
-      })
-      // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
-      // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
-      // décrit bien la vidéo posée sur le disque.
-      natifEncodé = true
+        // **Le natif garde un seul ratio pour tout le clip** — seule la position
+        // saute aux frontières. La variante, elle, prend le ratio de chaque plan.
+        const out = outputSize(ratio)
+        const verticalCanvas = outputSize('9:16')
+        const nativePieces: FramedSegment[] = pieces.map((m) => ({
+          start: m.start,
+          end: m.end,
+          ratio,
+          crop: cropRect(ratio, m.cropXNative, taille.w, taille.h),
+        }))
+        const verticalPieces: FramedSegment[] = pieces.map((m) => ({
+          start: m.start,
+          end: m.end,
+          ratio: m.ratio,
+          crop: cropRect(m.ratio, m.cropX, taille.w, taille.h),
+        }))
 
-      // **La variante suit le natif, toujours** : ils décrivent le même montage,
-      // et un natif réencodé alors que la variante est restée en place laisserait
-      // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
-      // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
-      if (variante !== null) {
+        // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
+        // une fois pour les deux : elles s'incrustent après la composition, à la
+        // taille du fichier produit, et `planifierMarques` raisonne en fractions
+        // de ce canevas. Les planifier une seule fois poserait dans la variante
+        // une bande calculée pour un autre format. C'est la même raison que pour
+        // les sous-titres — voir `renderArgs`.
+        const logos = planifierMarques(out.w, out.h, marques)
+        const verticalLogos = planifierMarques(verticalCanvas.w, verticalCanvas.h, marques)
+
+        // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
+        // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
+        // rendre ; la laisser le temps du natif ouvre une fenêtre où un arrêt
+        // brutal — coupure, tueur de mémoire — laisse l'ancienne 9:16 à côté d'un
+        // natif tout neuf, et la relance suivante, sans `force`, trouve les trois
+        // sorties présentes et saute définitivement sur cette paire incohérente.
+        // Effacée d'abord, n'importe quelle interruption laisse une sortie
+        // manquante, donc réessayable. (relevé par Copilot)
+        const variante = chemins.variant9x16
+        if (variante !== null) fs.rmSync(variante, { force: true })
+
+        // **L'empreinte d'avant part avec elle, et pour la même raison poussée
+        // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la
+        // laisser en place le temps des deux encodages laisse `livraisonÀJour`
+        // répondre vrai sur une paire à moitié réécrite, et rien ne le signale
+        // puisqu'un `GET` ne sonde pas le dossier des marques. N'importe quelle
+        // sortie de ce bloc — interruption, refus de certifier plus bas — laisse
+        // alors des fichiers que rien ne certifie, donc à refaire.
+        // (relevé par Copilot)
+        fs.rmSync(chemins.empreinte, { force: true })
+
         await produireArtefact({
-          dst: variante,
+          dst: chemins.mp4,
+          // `true` et non `options.force` : la décision est prise au-dessus, une
+          // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
+          // un natif présent dont la variante manque, et la paire repartirait de
+          // deux montages. (relevé par Codex et Copilot)
           force: true,
           durationSec: durée,
-          onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
-          quoi: `variante 9:16 du clip ${clipId}`,
+          onProgress: (a) => options.onProgress?.({ ...a, sortie: 'natif' }),
+          quoi: `rendu ${ratio} du clip ${clipId}`,
           args: (destination) =>
-            blurredVariantArgs({
+            renderArgs({
               src,
-              segments: verticalPieces,
-              out: verticalCanvas,
+              segments: nativePieces,
+              out,
               assPath: assProvisoire,
               fontsDir,
-              logos: verticalLogos,
+              logos,
               dst: destination,
               encoder: encodeur(),
             }),
         })
-      }
+        // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
+        // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
+        // décrit bien la vidéo posée sur le disque.
+        natifEncodé = true
 
-      // **L'empreinte se pose une fois les deux sorties écrites, jamais avant.**
-      // Une interruption entre les deux laisse alors des fichiers sans
-      // empreinte, donc à refaire — l'ordre inverse laisserait une empreinte qui
-      // certifie un MP4 qui n'existe pas, ou qui n'est écrit qu'à moitié.
-      //
-      // Elle porte **ce qui a été incrusté** : les marques réellement posées et
-      // non ce que `branding` demandait, et le preset avec lequel les
-      // sous-titres l'ont été. C'est ce qui distingue un rendu d'aujourd'hui des
-      // trois du 18 août, sur lesquels `branding` valait `true` sans qu'aucune
-      // marque n'ait été incrustée.
-      //
-      // **Les marques sont relues avant d'être certifiées.** Elles ont été
-      // sondées avant la décision de saut, et les deux ffmpeg rouvrent ensuite
-      // les mêmes chemins : un PNG remplacé pendant l'export peut se retrouver
-      // incrusté dans la variante et pas dans le natif, pendant que l'empreinte
-      // certifierait le condensat d'avant — et le clip partirait `exported` sur
-      // deux fichiers qui ne montrent pas la même marque. On ne certifie que ce
-      // qu'on a pu vérifier ; sans empreinte, l'export suivant les refait.
-      // (relevé par Copilot)
-      //
-      // Un dossier vidé pendant l'export déclenche donc, lui aussi : ce qui a
-      // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
-      // une empreinte qui affirme sans avoir vérifié est exactement ce que
-      // cette PR ferme.
-      const empreinte = empreinteDuRendu(renderedShape(clip, framingSnapshot), marques, {
-        incrustés: assProvisoire !== undefined,
-        look,
-      })
-      const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
-      // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
-      // une livraison déjà faite quand on ne sait plus ce qu'elle porte ; ici on
-      // décide de *certifier* celle qu'on vient de faire, et ne pas savoir n'est
-      // pas une raison d'affirmer. Un logo remplacé entre les deux encodages
-      // puis retiré avant ce contrôle passait sinon inaperçu.
-      // (relevé par Codex)
-      if (lesMarquesOntBougé(empreinte, marquesAprès, false)) {
-        throw new Error(
-          `Les marques du clip ${clipId} ne sont plus celles qui ont servi à son export : les deux sorties peuvent ne pas porter la même, et rien ne permet de le vérifier. Aucune empreinte n'est posée, l'export suivant les refera. Relancer l'export.`,
-        )
+        // **La variante suit le natif, toujours** : ils décrivent le même montage,
+        // et un natif réencodé alors que la variante est restée en place laisserait
+        // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
+        // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
+        if (variante !== null) {
+          await produireArtefact({
+            dst: variante,
+            force: true,
+            durationSec: durée,
+            onProgress: (a) => options.onProgress?.({ ...a, sortie: '9x16' }),
+            quoi: `variante 9:16 du clip ${clipId}`,
+            args: (destination) =>
+              blurredVariantArgs({
+                src,
+                segments: verticalPieces,
+                out: verticalCanvas,
+                assPath: assProvisoire,
+                fontsDir,
+                logos: verticalLogos,
+                dst: destination,
+                encoder: encodeur(),
+              }),
+          })
+        }
+
+        // **L'empreinte se pose une fois les deux sorties écrites, jamais avant.**
+        // Une interruption entre les deux laisse alors des fichiers sans
+        // empreinte, donc à refaire — l'ordre inverse laisserait une empreinte qui
+        // certifie un MP4 qui n'existe pas, ou qui n'est écrit qu'à moitié.
+        //
+        // Elle porte **ce qui a été incrusté** : les marques réellement posées et
+        // non ce que `branding` demandait, et le preset avec lequel les
+        // sous-titres l'ont été. C'est ce qui distingue un rendu d'aujourd'hui des
+        // trois du 18 août, sur lesquels `branding` valait `true` sans qu'aucune
+        // marque n'ait été incrustée.
+        //
+        // **Les marques sont relues avant d'être certifiées.** Elles ont été
+        // sondées avant la décision de saut, et les deux ffmpeg rouvrent ensuite
+        // les mêmes chemins : un PNG remplacé pendant l'export peut se retrouver
+        // incrusté dans la variante et pas dans le natif, pendant que l'empreinte
+        // certifierait le condensat d'avant — et le clip partirait `exported` sur
+        // deux fichiers qui ne montrent pas la même marque. On ne certifie que ce
+        // qu'on a pu vérifier ; sans empreinte, l'export suivant les refait.
+        // (relevé par Copilot)
+        //
+        // Un dossier vidé pendant l'export déclenche donc, lui aussi : ce qui a
+        // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
+        // une empreinte qui affirme sans avoir vérifié est exactement ce que
+        // cette PR ferme.
+        const empreinte = empreinteDuRendu(renderedShape(clip, framingSnapshot), marques, {
+          incrustés: assProvisoire !== undefined,
+          look,
+        })
+        const marquesAprès = clip.branding ? await collecterMarques(options.brandDir) : []
+        // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
+        // une livraison déjà faite quand on ne sait plus ce qu'elle porte ; ici on
+        // décide de *certifier* celle qu'on vient de faire, et ne pas savoir n'est
+        // pas une raison d'affirmer. Un logo remplacé entre les deux encodages
+        // puis retiré avant ce contrôle passait sinon inaperçu.
+        // (relevé par Codex)
+        if (lesMarquesOntBougé(empreinte, marquesAprès, false)) {
+          throw new Error(
+            `Les marques du clip ${clipId} ne sont plus celles qui ont servi à son export : les deux sorties peuvent ne pas porter la même, et rien ne permet de le vérifier. Aucune empreinte n'est posée, l'export suivant les refera. Relancer l'export.`,
+          )
+        }
+        await écrireEmpreinte(chemins.empreinte, empreinte)
+      } finally {
+        // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
+        // en place celui qui décrit la vidéo réellement posée sur le disque.
+        if (natifEncodé) {
+          if (assProvisoire === undefined) fs.rmSync(chemins.ass, { force: true })
+          else await fsp.rename(assProvisoire, chemins.ass)
+        } else if (assProvisoire !== undefined) {
+          await fsp.rm(assProvisoire, { force: true }).catch(() => {})
+        }
       }
-      await écrireEmpreinte(chemins.empreinte, empreinte)
     } finally {
-      // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
-      // en place celui qui décrit la vidéo réellement posée sur le disque.
-      if (natifEncodé) {
-        if (assProvisoire === undefined) fs.rmSync(chemins.ass, { force: true })
-        else await fsp.rename(assProvisoire, chemins.ass)
-      } else if (assProvisoire !== undefined) {
-        await fsp.rm(assProvisoire, { force: true }).catch(() => {})
-      }
+      releaseCopy()
     }
   }
 

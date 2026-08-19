@@ -1505,23 +1505,69 @@ describe('renderClip, chemin du saut', () => {
     expect(getClip(db, c.id)?.status).toBe('kept')
   })
 
-  it("dit quoi faire quand la copie de travail a disparu", async () => {
+  /** Le message d'un refus, ou la chaîne vide si l'appel a réussi. */
+  async function messageDeRefus(promesse: Promise<unknown>): Promise<string> {
+    return promesse.then(
+      () => '',
+      (erreur: unknown) => (erreur instanceof Error ? erreur.message : String(erreur)),
+    )
+  }
+
+  /**
+   * **La copie de travail se répare, elle ne se réclame plus.** Ce test disait
+   * l'inverse : le rendu levait en prescrivant une réingestion que rien dans
+   * l'application ne savait déclencher — `CIBLES_LANÇABLES` ne l'expose pas, et
+   * un projet dont tous les artefacts existent planifie un plan vide. Le seul
+   * remède était un script dans un terminal, ce que le critère de réussite de la
+   * conception exclut. Et le TTL de huit heures en aurait fait le cas normal.
+   * (issue #76)
+   */
+  it('reconstitue la copie de travail quand elle a disparu', async () => {
     const { db, c, brandDir } = préparer()
-    // Rien dans `stage/` : `stagedPath` est transitoire par contrat.
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/copie de travail/)
+    const copie = path.join(stage, SOURCE)
+    expect(fs.existsSync(copie)).toBe(false)
+
+    // Le rendu échoue plus loin — ce dossier de marques est vide, exprès — mais
+    // il ne doit plus échouer *ici*, et la copie doit être revenue.
+    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    expect(message).not.toMatch(/copie de travail/)
+    expect(fs.existsSync(copie)).toBe(true)
+    expect(fs.readFileSync(copie, 'utf8')).toBe('pas vraiment une vidéo')
+  })
+
+  /**
+   * **Le dernier recours reste, pour ce qu'il est vraiment.** L'original absent
+   * du dossier des replays n'est pas un cache à reconstituer : c'est une source
+   * disparue, et le message doit le dire plutôt que de rendre un `ENOENT` nu.
+   */
+  it('dit quoi faire quand l’original a disparu du dossier des replays', async () => {
+    const { db, c, brandDir } = préparer()
+    fs.rmSync(path.join(replay, SOURCE), { force: true })
+
+    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    expect(message).toMatch(/copie de travail/)
+    expect(message).toMatch(/original/)
+    // Le chemin complet porte l'arborescence du Drive : seul le nom traverse.
+    expect(message).not.toContain(racine)
   })
 
   // **La variante réclame la source, même quand le natif est déjà là**, et c'est
   // le correctif de #22 vu depuis cette fonction : elle ne dérive plus du MP4
   // natif, donc son fond ne peut plus en hériter les sous-titres. Avant, ce cas
   // sautait la préparation et lançait ffmpeg sur le natif ; il exige maintenant
-  // la copie de travail, et le dit.
-  it("réclame la source quand seule la variante manque", async () => {
+  // la copie de travail — et va la chercher si elle n'est pas là (issue #76).
+  it('réclame la source quand seule la variante manque, et la reconstitue', async () => {
     const { db, c, brandDir } = préparer()
     const attendus = cheminsRendu(ID, c.id, '1:1')
     poser([attendus.mp4, attendus.texts])
     poserEmpreinte(c, '1:1')
+    const copie = path.join(stage, SOURCE)
+    expect(fs.existsSync(copie)).toBe(false)
 
-    await expect(renderClip(c.id, { db, brandDir, fontsDir: polices })).rejects.toThrow(/copie de travail/)
+    // Le rendu ne saute pas : il lui manque la variante. Il va donc chercher la
+    // source, et c'est ce qu'on vérifie — l'échec qui suit vient des marques.
+    const message = await messageDeRefus(renderClip(c.id, { db, brandDir, fontsDir: polices }))
+    expect(message).not.toMatch(/copie de travail/)
+    expect(fs.existsSync(copie)).toBe(true)
   })
 })

@@ -25,6 +25,7 @@ function project(partial: Partial<LibraryProject> & { id: string }): LibraryProj
     durationSec: 5_940,
     running: null,
     error: null,
+    stopped: false,
     ...partial,
   }
 }
@@ -49,18 +50,39 @@ describe('showState', () => {
     )
   })
 
+  it('dit « analyse » dès qu’une exécution tourne, même après un arrêt précédent', () => {
+    // Le serveur tait déjà `stopped` pendant qu'une exécution tourne ; l'écran
+    // ne s'y fie pas et fait le même arbitrage, pour que la règle tienne des
+    // deux côtés.
+    expect(showState(project({ id: 'a', running: RUNNING, stopped: true }), true)).toBe(
+      'analyzing',
+    )
+  })
+
   it('dit « echec » au repos quand la dernière exécution a échoué', () => {
     expect(showState(project({ id: 'a', error: 'ffmpeg est tombé' }), true)).toBe('failed')
   })
 
-  it('dit « interrompue » quand rien ne tourne et que l’ingestion n’a pas sondé la durée', () => {
-    // C'est le redémarrage du serveur pendant l'analyse : `progression()` lit
-    // une `Map` du processus, qu'un redémarrage vide sans laisser d'erreur.
-    // `durationSec` est la seule trace gratuite qu'il reste.
-    expect(showState(project({ id: 'a', durationSec: 0 }), true)).toBe('interrupted')
+  it('dit « interrompue » sur ce que le serveur a marqué arrêté', () => {
+    // Un arrêt demandé ne laisse ni `running`, ni `error`, ni artefact
+    // particulier : `stopped` est le seul chemin, et il couvre aussi l'exécution
+    // qu'un redémarrage du serveur a emportée.
+    expect(showState(project({ id: 'a', stopped: true }), true)).toBe('interrupted')
   })
 
-  it('dit « analysée » quand le projet est au repos et que son ingestion a abouti', () => {
+  it('ne déduit plus l’interruption de la durée', () => {
+    // **La déduction précédente mentait dans les deux sens.** Elle lisait
+    // `durationSec === 0` : une analyse arrêtée *après* l'ingestion s'affichait
+    // « Analysée » — le cas qu'on vient de provoquer d'un clic, sur la carte
+    // qu'on regarde —, et un projet sans durée mais bel et bien terminé aurait
+    // dit le contraire.
+    expect(showState(project({ id: 'a', durationSec: 0 }), true)).toBe('analyzed')
+    expect(showState(project({ id: 'a', durationSec: 5_940, stopped: true }), true)).toBe(
+      'interrupted',
+    )
+  })
+
+  it('dit « analysée » quand le projet est au repos, sans échec ni arrêt', () => {
     expect(showState(project({ id: 'a' }), true)).toBe('analyzed')
   })
 })

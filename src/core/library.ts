@@ -56,15 +56,17 @@ export type LibrarySource = {
 export type LibraryProject = {
   id: string
   title: string
-  /**
-   * La durée sondée à l'ingestion. **Zéro veut dire « pas encore sondée »**, et
-   * c'est ce qui rend `interrupted` observable sans rien demander de plus au
-   * serveur : `résuméProjet` rend `projet.durationSec ?? 0`, et la colonne n'est
-   * écrite qu'une fois l'ingestion passée.
-   */
+  /** La durée sondée à l'ingestion. Zéro tant qu'elle ne l'a pas été. */
   durationSec: number
   running: { step: StepName; progress: number } | null
   error: string | null
+  /**
+   * La dernière exécution terminée a-t-elle été **arrêtée** ?
+   *
+   * Faux pendant qu'une exécution tourne, exactement comme `error`, et pour la
+   * même raison : ce qu'on afficherait serait l'arrêt d'avant.
+   */
+  stopped: boolean
 }
 
 /**
@@ -118,34 +120,26 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
 }
 
 /**
- * L'état d'une émission, **et ce que le serveur ne dit pas encore**.
+ * L'état d'une émission, **et pourquoi le serveur a fini par le dire**.
  *
- * Les quatre premières valeurs se lisent directement. `interrupted` est le cas
- * difficile : `progression()` lit une `Map` du processus Next, qu'un redémarrage
- * vide **sans laisser d'erreur**, et il y a un redémarrage à chaque édition en
- * développement. Vue de la liste, une exécution perdue est donc indiscernable
- * d'une exécution terminée : même `running: null`, même `error: null`.
+ * Quatre valeurs se lisent directement. `interrupted` était le cas difficile :
+ * `progression()` lit une `Map` du processus Next, qu'un redémarrage vide **sans
+ * laisser d'erreur**, et un arrêt demandé écrit délibérément `error: null` —
+ * un arrêt n'est pas une panne. Vue de la liste, une exécution perdue ou arrêtée
+ * était donc indiscernable d'une exécution terminée : même `running: null`, même
+ * `error: null`.
  *
- * Ce qui la rend malgré tout observable est `durationSec`. L'ingestion est la
- * première étape du plan, et c'est elle qui écrit la durée : un projet au repos
- * qui n'en a pas n'a pas fini ce qu'il avait commencé. La déduction est vraie
- * quand elle répond, et muette au-delà — une exécution perdue **après**
- * l'ingestion retombe sur `analyzed`.
+ * Une première version le déduisait de `durationSec`, nul tant que l'ingestion
+ * n'a pas sondé la source. C'était vrai quand ça répondait et **faux au-delà** :
+ * une analyse arrêtée après l'ingestion s'affichait « Analysée », c'est-à-dire
+ * exactement dans le cas que quelqu'un vient de provoquer d'un clic, sur la
+ * seule carte qu'il regarde. C'était le seul des cinq états qui pouvait mentir.
  *
- * **Ce qu'elle ne couvre pas, et ce qui le couvrirait.** Deux cas échappent à la
- * déduction et retombent sur `analyzed` : une exécution perdue **après**
- * l'ingestion, et une analyse **arrêtée** depuis l'écran — `publierLArrêt`
- * (`src/server/run.ts`) écrit délibérément `error: null`, parce qu'un arrêt
- * demandé n'est pas une panne.
- *
- * Le serveur, lui, sait les deux. `status.json` porte `arrêtée`, `pid` et
- * `finishedAt`, et `élémentDeListe` (`src/server/vues.ts`) lit déjà ce fichier
- * pour son champ `error` : la lecture est payée, il n'y aurait qu'un champ à
- * publier. Le choix de ne pas le faire est écrit dans `Statut.arrêtée` et il
- * tient pour l'écran de projet, où `phaseProjet` déduit `interrompu` de
- * `steps` ; **la bibliothèque, elle, n'a pas `steps`** — c'est justement le
- * sondage qu'elle refuse de payer. La branche ci-dessous est ce qui reste.
- * (contrat manquant, signalé)
+ * `ProjectListItem.stopped` le remplace. Le champ ne coûte rien : `élémentDeListe`
+ * lit déjà `status.json` pour son champ `error`, et `stopped` y était déjà écrit.
+ * Il se tait pendant qu'une exécution tourne, comme `error`, pour la même
+ * raison — deux écrans qui se contredisent sur le même projet valent moins que
+ * pas d'écran.
  */
 export function showState(project: LibraryProject | null, projectExpected: boolean): ShowState {
   if (project === null) {
@@ -159,11 +153,12 @@ export function showState(project: LibraryProject | null, projectExpected: boole
     // répondre : « en cours » est donc aussi le plus probable des deux.
     return projectExpected ? 'analyzing' : 'new'
   }
-  // Ce qui tourne l'emporte sur ce qui a échoué, comme dans `analyseProjet` :
-  // `error` décrit la dernière exécution *terminée*.
+  // Ce qui tourne l'emporte sur ce qui a échoué et sur ce qui a été arrêté,
+  // comme dans `analyseProjet` : les deux décrivent la dernière exécution
+  // *terminée*, et le serveur les tait d'ailleurs tant qu'une autre tourne.
   if (project.running !== null) return 'analyzing'
   if (project.error !== null) return 'failed'
-  return project.durationSec > 0 ? 'analyzed' : 'interrupted'
+  return project.stopped ? 'interrupted' : 'analyzed'
 }
 
 /**

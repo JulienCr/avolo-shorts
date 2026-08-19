@@ -4,16 +4,18 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   attendreOuRenoncer,
+  cleanStage,
   décisionCopie,
   empreinteSource,
+  ensureLocalCopy,
+  holdStagedCopy,
   ingest,
   montageRépond,
-  nettoyerStage,
   statAvecDélai,
-  TTL_STAGE_MS,
+  STAGE_TTL_MS,
   vérifierTailleCopiée,
 } from '@/server/steps/ingest'
-import { ArrêtDemandéError } from '@/server/ffmpeg'
+import { StopRequestedError } from '@/server/ffmpeg'
 
 /**
  * Ce qui se teste de l'ingestion sans le Drive : la décision de recopier et la
@@ -233,24 +235,24 @@ describe('nettoyerStage', () => {
   })
 
   /** Une copie de travail, avec l'âge qu'on veut lui donner. */
-  function poser(nom: string, âgeMs: number): string {
+  function poser(nom: string, ageMs: number): string {
     const chemin = path.join(process.env.STAGE_DIR as string, nom)
     fs.writeFileSync(chemin, 'une copie')
-    const quand = new Date(Date.now() - âgeMs)
+    const quand = new Date(Date.now() - ageMs)
     fs.utimesSync(chemin, quand, quand)
     return chemin
   }
 
   it('retire ce qui a dépassé les huit heures', async () => {
-    const vieille = poser('vieille.mp4', TTL_STAGE_MS + 60_000)
-    expect(await nettoyerStage()).toEqual(['vieille.mp4'])
+    const vieille = poser('vieille.mp4', STAGE_TTL_MS + 60_000)
+    expect(await cleanStage()).toEqual(['vieille.mp4'])
     expect(fs.existsSync(vieille)).toBe(false)
   })
 
   it('garde ce qui est encore frais', async () => {
-    const fraîche = poser('fraiche.mp4', TTL_STAGE_MS - 60_000)
-    expect(await nettoyerStage()).toEqual([])
-    expect(fs.existsSync(fraîche)).toBe(true)
+    const fraiche = poser('fraiche.mp4', STAGE_TTL_MS - 60_000)
+    expect(await cleanStage()).toEqual([])
+    expect(fs.existsSync(fraiche)).toBe(true)
   })
 
   /**
@@ -260,10 +262,115 @@ describe('nettoyerStage', () => {
    * 12 Go cela veut dire cinq minutes de Drive.
    */
   it('épargne les copies qu’une exécution utilise', async () => {
-    const enUsage = poser('en-usage.mp4', TTL_STAGE_MS * 2)
-    poser('autre.mp4', TTL_STAGE_MS * 2)
-    expect(await nettoyerStage({ garder: [enUsage] })).toEqual(['autre.mp4'])
+    const enUsage = poser('en-usage.mp4', STAGE_TTL_MS * 2)
+    poser('autre.mp4', STAGE_TTL_MS * 2)
+    expect(await cleanStage({ keep: () => [enUsage] })).toEqual(['autre.mp4'])
     expect(fs.existsSync(enUsage)).toBe(true)
+  })
+
+  /**
+   * **La liste est relue à chaque fichier, pas prise en instantané au départ.**
+   * Une exécution démarrée pendant le balayage ne recopie rien — sa copie est
+   * là, `ingestionNécessaire` l'a constaté — donc rien d'autre ne la
+   * signalerait, et le balayage l'effaçait sous ses pieds. (relevé par Codex)
+   */
+  it('voit une exécution démarrée pendant le balayage', async () => {
+    const tardive = poser('tardive.mp4', STAGE_TTL_MS * 2)
+    poser('a.mp4', STAGE_TTL_MS * 2)
+    poser('b.mp4', STAGE_TTL_MS * 2)
+
+    // Rien à épargner au départ ; `tardive` entre en usage au premier fichier vu.
+    let enUsage: string[] = []
+    let vus = 0
+    const retires = await cleanStage({
+      keep: () => {
+        vus += 1
+        if (vus === 1) enUsage = [tardive]
+        return enUsage
+      },
+    })
+
+    expect(retires).not.toContain('tardive.mp4')
+    expect(fs.existsSync(tardive)).toBe(true)
+  })
+
+  /** On n'a pas pu savoir : on épargne, plutôt que d'effacer à l'aveugle. */
+  it('n’efface rien quand la liste des copies en usage est indisponible', async () => {
+    poser('a.mp4', STAGE_TTL_MS * 2)
+    expect(await cleanStage({ keep: () => null })).toEqual([])
+  })
+
+  /**
+   * **Le dernier contrôle est postérieur au sondage du fichier, pas antérieur.**
+   * Relire `keep` avant le `lstat` ne suffisait pas : l'`await` qui les sépare
+   * rend la main, et une exécution démarrée là constatait sa copie présente puis
+   * la perdait. Ce test l'exerce par le seul moyen observable — une liste qui
+   * change entre les deux appels. (relevé par Copilot)
+   */
+  it('relit la liste après avoir sondé le fichier, pas seulement avant', async () => {
+    const cible = poser('a.mp4', STAGE_TTL_MS * 2)
+    let appels = 0
+    const retirés = await cleanStage({
+      keep: () => {
+        appels += 1
+        // Rien à épargner au premier appel, la cible au second : sans le
+        // contrôle d'après-sondage, le fichier serait effacé.
+        return appels === 1 ? [] : [cible]
+      },
+    })
+    expect(appels).toBeGreaterThanOrEqual(2)
+    expect(retirés).toEqual([])
+    expect(fs.existsSync(cible)).toBe(true)
+  })
+
+  /**
+   * **Une copie qu'un traitement tient ouverte est épargnée.** `copiesInFlight`
+   * ne couvre qu'une copie en train de s'écrire ; un export, lui, lit la sienne
+   * pendant tout l'encodage sans plus rien qui la signale, et le TTL s'applique
+   * à elle comme aux autres. (relevé par Copilot)
+   */
+  it('épargne une copie qu’un traitement tient ouverte', async () => {
+    const tenue = poser('tenue.mp4', STAGE_TTL_MS * 2)
+    const release = holdStagedCopy(tenue)
+
+    expect(await cleanStage()).toEqual([])
+    expect(fs.existsSync(tenue)).toBe(true)
+
+    release()
+    expect(await cleanStage()).toEqual(['tenue.mp4'])
+  })
+
+  /**
+   * **Un compteur, pas un ensemble.** Deux exports simultanés sur des clips de
+   * la même émission tiennent la même copie, et le premier à finir ne doit pas
+   * la libérer sous le second.
+   */
+  it('ne relâche qu’au dernier des tenants, et une seule fois par tenant', async () => {
+    const tenue = poser('tenue.mp4', STAGE_TTL_MS * 2)
+    const premier = holdStagedCopy(tenue)
+    const second = holdStagedCopy(tenue)
+
+    premier()
+    // Un relâchement idempotent : appelé deux fois, il ne décompte qu'une.
+    premier()
+    expect(await cleanStage()).toEqual([])
+    expect(fs.existsSync(tenue)).toBe(true)
+
+    second()
+    expect(await cleanStage()).toEqual(['tenue.mp4'])
+  })
+
+  /** Même chose quand elle lève : le nettoyage ne s'arrête pas, il s'abstient. */
+  it('n’échoue pas quand la liste des copies en usage lève', async () => {
+    const survivant = poser('a.mp4', STAGE_TTL_MS * 2)
+    await expect(
+      cleanStage({
+        keep: () => {
+          throw new Error('la base est refermée')
+        },
+      }),
+    ).resolves.toEqual([])
+    expect(fs.existsSync(survivant)).toBe(true)
   })
 
   it('ne touche ni aux sous-dossiers ni aux liens', async () => {
@@ -273,11 +380,11 @@ describe('nettoyerStage', () => {
     fs.symlinkSync(cible, path.join(stage, 'un-lien.mp4'))
     // Le lien est vieux au sens de `lstat` — il vient d'être créé, donc frais —
     // mais même vieilli, ce n'est pas un fichier ordinaire.
-    const vieux = new Date(Date.now() - TTL_STAGE_MS * 2)
+    const vieux = new Date(Date.now() - STAGE_TTL_MS * 2)
     fs.lutimesSync(path.join(stage, 'un-lien.mp4'), vieux, vieux)
     fs.utimesSync(path.join(stage, 'un-dossier'), vieux, vieux)
 
-    expect(await nettoyerStage()).toEqual([])
+    expect(await cleanStage()).toEqual([])
     expect(fs.existsSync(cible)).toBe(true)
     expect(fs.existsSync(path.join(stage, 'un-dossier'))).toBe(true)
   })
@@ -291,12 +398,12 @@ describe('nettoyerStage', () => {
    */
   it('ne lève pas quand le dossier n’existe pas', async () => {
     process.env.STAGE_DIR = path.join(racine, 'jamais-créé')
-    await expect(nettoyerStage()).resolves.toEqual([])
+    await expect(cleanStage()).resolves.toEqual([])
   })
 
   it('accepte un TTL et une horloge, pour se tester sans attendre huit heures', async () => {
     poser('a.mp4', 0)
-    expect(await nettoyerStage({ ttlMs: 0, maintenant: Date.now() + 1_000 })).toEqual(['a.mp4'])
+    expect(await cleanStage({ ttlMs: 0, now: Date.now() + 1_000 })).toEqual(['a.mp4'])
   })
 })
 
@@ -377,13 +484,13 @@ describe('ingest', () => {
    * analyse pendant les cinq minutes de copie depuis le Drive.
    */
   it('s’interrompt en cours de copie, sans laisser de moignon', async () => {
-    const contrôleur = new AbortController()
+    const controller = new AbortController()
     const promesse = ingest(NOM, {
       db: null,
-      signal: contrôleur.signal,
-      onProgress: () => contrôleur.abort(),
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
     })
-    await expect(promesse).rejects.toThrow(ArrêtDemandéError)
+    await expect(promesse).rejects.toThrow(StopRequestedError)
     // Ni la copie définitive, ni son temporaire.
     expect(fs.readdirSync(path.join(racine, 'stage'))).toEqual([])
   })
@@ -392,5 +499,96 @@ describe('ingest', () => {
     await ingest(NOM, { db: null })
     const seconde = await ingest(NOM, { db: null })
     expect(seconde.copied).toBe(false)
+  })
+})
+
+/**
+ * La copie de travail, **reconstituée là où elle manque**.
+ *
+ * C'est la propriété que le §5 du retour d'usage exige du cache — « peut être
+ * supprimé sans conséquence fonctionnelle » — et que le code ne tenait pas : le
+ * rendu levait en prescrivant une réingestion que rien dans l'application ne
+ * savait déclencher. Le TTL de huit heures en aurait fait le cas normal.
+ * (issue #76)
+ */
+describe('ensureLocalCopy', () => {
+  let root: string
+  const before = { replay: process.env.REPLAY_DIR, stage: process.env.STAGE_DIR }
+  const NAME = '2025-06-15-cqlp.mp4'
+  const ID = '2025-06-15-cqlp'
+  let source: string
+  let destination: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-repare-'))
+    process.env.REPLAY_DIR = path.join(root, 'replays')
+    process.env.STAGE_DIR = path.join(root, 'stage')
+    fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
+    fs.mkdirSync(process.env.STAGE_DIR, { recursive: true })
+    source = path.join(process.env.REPLAY_DIR, NAME)
+    destination = path.join(process.env.STAGE_DIR, NAME)
+    fs.writeFileSync(source, Buffer.alloc(4 * 1024 * 1024, 3))
+  })
+
+  afterEach(() => {
+    for (const [clé, valeur] of [
+      ['REPLAY_DIR', before.replay],
+      ['STAGE_DIR', before.stage],
+    ] as const) {
+      if (valeur === undefined) delete process.env[clé]
+      else process.env[clé] = valeur
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  const projet = () => ({ id: ID, sourcePath: source, stagedPath: destination })
+
+  it('rend la copie telle quelle quand elle est là', async () => {
+    fs.writeFileSync(destination, 'déjà copiée')
+    expect(await ensureLocalCopy(projet(), { db: null })).toBe(destination)
+    // Rien n'a été récrit : c'est le cas courant, il ne doit rien coûter.
+    expect(fs.readFileSync(destination, 'utf8')).toBe('déjà copiée')
+  })
+
+  it('la reconstitue quand elle manque', async () => {
+    expect(fs.existsSync(destination)).toBe(false)
+    expect(await ensureLocalCopy(projet(), { db: null })).toBe(destination)
+    expect(fs.statSync(destination).size).toBe(4 * 1024 * 1024)
+  })
+
+  /**
+   * **Deux exports lancés coup sur coup sur la même émission n'en font qu'une.**
+   * Sans le verrou, ce sont deux copies de 12 Go qui se disputent la bande
+   * passante d'un montage à 97 Mo/s.
+   */
+  it('ne déclenche pas deux copies pour deux appels simultanés', async () => {
+    const [a, b] = await Promise.all([
+      ensureLocalCopy(projet(), { db: null }),
+      ensureLocalCopy(projet(), { db: null }),
+    ])
+    expect(a).toBe(destination)
+    expect(b).toBe(destination)
+    expect(fs.statSync(destination).size).toBe(4 * 1024 * 1024)
+    // **L'invariant observable : une seule écriture est allée au bout.** Le
+    // verrou lui-même est celui de `copyOnce`, éprouvé plus haut sur `ingest` ;
+    // ce qui se vérifie ici est que ce chemin-ci y passe bien — sans lui, deux
+    // temporaires cohabiteraient et le second renommage écraserait le premier.
+    expect(fs.readdirSync(path.dirname(destination))).toEqual([NAME])
+  })
+
+  /**
+   * Le dernier recours reste : l'original disparu du dossier des replays n'est
+   * pas un cache à reconstituer, et le message le dit sans rendre un `ENOENT` nu
+   * ni l'arborescence du Drive.
+   */
+  it('dit quoi faire quand l’original a disparu', async () => {
+    fs.rmSync(source, { force: true })
+    const message = await ensureLocalCopy(projet(), { db: null }).then(
+      () => '',
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    )
+    expect(message).toMatch(/copie de travail/)
+    expect(message).toMatch(/original/)
+    expect(message).not.toContain(root)
   })
 })

@@ -4,7 +4,7 @@ import { RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { useState } from 'react'
 
 import { ApiError, CIBLES_DE_REPRISE } from '@/lib/api'
-import { useArrêter, useRelancer } from '@/lib/queries'
+import { useRelancer, useStopAnalysis } from '@/lib/queries'
 import { accord } from '@/components/tri/modele'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -107,7 +107,7 @@ export function StopButton({
    */
   compact?: boolean
 }) {
-  const stop = useArrêter()
+  const stop = useStopAnalysis()
 
   const button = (
     <Button

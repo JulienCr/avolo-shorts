@@ -108,7 +108,12 @@ export function lireSessionTri(projectId: string): ÉtatDeTri {
     // bibliothèque, ou un onglet ouvert en arrière-plan qui n'a jamais navigué)
     // qu'un aller-retour en cours : on ne la restaure plus.
     const MAX_RETURN_AGE_MS = 30 * 60 * 1000
-    const isFresh = retour === true && storedPostedAt !== null && Date.now() - storedPostedAt <= MAX_RETURN_AGE_MS
+    // L'âge doit être positif : un `postedAt` dans le futur (horloge reculée,
+    // clé bricolée à la main) rendrait sinon un âge négatif, toujours
+    // inférieur à la limite, et la marque ne périmerait jamais. (relevé par
+    // Copilot)
+    const age = storedPostedAt !== null ? Date.now() - storedPostedAt : null
+    const isFresh = retour === true && age !== null && age >= 0 && age <= MAX_RETURN_AGE_MS
     return {
       carte: typeof carte === 'string' ? carte : null,
       defilement: typeof defilement === 'number' && Number.isFinite(defilement) ? defilement : 0,

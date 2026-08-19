@@ -153,4 +153,17 @@ describe('la marque de retour, et sa durée de vie', () => {
     window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"retour":true,"carte":"c1"}')
     expect(lireSessionTri('p1').retour).toBe(false)
   })
+
+  it('refuse une marque horodatée dans le futur', () => {
+    // Une horloge reculée, ou une clé bricolée à la main : sans le contrôle
+    // de signe, un âge négatif restait toujours sous la limite et la marque
+    // ne périmait jamais. (relevé par Copilot)
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000_000)
+    window.sessionStorage.setItem(
+      'avolo-shorts:tri:p1',
+      JSON.stringify({ retour: true, carte: 'c1', postedAt: 1_000_000 + 60_000 }),
+    )
+    expect(lireSessionTri('p1').retour).toBe(false)
+  })
 })

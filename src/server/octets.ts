@@ -239,7 +239,7 @@ export async function servirFichier(
     if (!info.isFile()) return null
     const taille = info.size
     const { etag, lastModified } = computeValidators(taille, info.mtimeMs)
-    const entêtesAvecValidateurs = { ...entêtes, ETag: etag, 'Last-Modified': lastModified }
+    const headersWithValidators = { ...entêtes, ETag: etag, 'Last-Modified': lastModified }
 
     const enTête = requête.headers.get('range')
 
@@ -252,7 +252,7 @@ export async function servirFichier(
       if (notModified(requête, etag, info.mtimeMs)) {
         // Sans corps, donc sans `Content-Length` qui le décrirait : rien à
         // envoyer, seulement les validateurs qui ont permis de le dire.
-        return new Response(null, { status: 304, headers: entêtesAvecValidateurs })
+        return new Response(null, { status: 304, headers: headersWithValidators })
       }
       // `Accept-Ranges` est posé quand même, et c'est tout l'intérêt de cette
       // branche — c'est cet en-tête qui annonce au navigateur qu'il *peut*
@@ -261,7 +261,7 @@ export async function servirFichier(
       confié = true
       return new Response(fluxWeb(fichier), {
         status: 200,
-        headers: { ...entêtesAvecValidateurs, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
+        headers: { ...headersWithValidators, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
       })
     }
 
@@ -275,7 +275,7 @@ export async function servirFichier(
       confié = true
       return new Response(fluxWeb(fichier), {
         status: 200,
-        headers: { ...entêtesAvecValidateurs, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
+        headers: { ...headersWithValidators, 'Content-Length': String(taille), 'Accept-Ranges': 'bytes' },
       })
     }
 
@@ -295,7 +295,7 @@ export async function servirFichier(
       // qu'espéré.
       return new Response(null, {
         status: 416,
-        headers: { ...entêtesAvecValidateurs, 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
+        headers: { ...headersWithValidators, 'Content-Range': `bytes */${taille}`, 'Accept-Ranges': 'bytes' },
       })
     }
 
@@ -303,7 +303,7 @@ export async function servirFichier(
     return new Response(fluxWeb(fichier, plage), {
       status: 206,
       headers: {
-        ...entêtesAvecValidateurs,
+        ...headersWithValidators,
         // Les deux bornes sont inclusives : `bytes=0-1023` fait 1024 octets.
         'Content-Length': String(plage.end - plage.start + 1),
         'Content-Range': `bytes ${plage.start}-${plage.end}/${taille}`,

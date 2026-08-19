@@ -280,19 +280,19 @@ describe('servir des octets', () => {
     }
 
     it('rend une étiquette différente quand le fichier est remplacé', async () => {
-      const première = await headerOf('etag')
+      const first = await headerOf('etag')
       // `writeFileSync` change la taille et l'horodatage de modification :
       // l'étiquette, dérivée des deux, doit changer avec eux.
       fs.writeFileSync(filePath, Buffer.alloc(SIZE + 1, 9))
-      const seconde = await headerOf('etag')
-      expect(seconde).not.toBe(première)
+      const second = await headerOf('etag')
+      expect(second).not.toBe(first)
     })
 
     it('ne laisse aucun descripteur derrière une série de 304', async () => {
-      const étiquette = await headerOf('etag')
+      const etagHeader = await headerOf('etag')
       const before = openDescriptors()
       for (let i = 0; i < 20; i++) {
-        const response = await serveWith({ 'if-none-match': étiquette })
+        const response = await serveWith({ 'if-none-match': etagHeader })
         expect(response?.status).toBe(304)
       }
       expect(openDescriptors()).toBeLessThanOrEqual(before)

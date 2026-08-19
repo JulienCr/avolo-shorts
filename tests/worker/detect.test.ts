@@ -868,7 +868,7 @@ describe('detect.py — --replay', () => {
     fs.writeFileSync(analysisPath, JSON.stringify(ANALYSIS))
     const scoresPath = path.join(root, 'scene.txt')
     fs.writeFileSync(scoresPath, '')
-    const linkPath = path.join(root, 'lien-vers-analysis.json')
+    const linkPath = path.join(root, 'link-to-analysis.json')
     fs.symlinkSync(analysisPath, linkPath)
     const before = fs.readFileSync(analysisPath, 'utf8')
     const r = spawnSync(
@@ -878,6 +878,29 @@ describe('detect.py — --replay', () => {
         '--replay', analysisPath,
         '--scene-scores', scoresPath,
         '--out', linkPath,
+      ],
+      { encoding: 'utf8', env: SANS_BYTECODE },
+    )
+    expect(r.status).not.toBe(0)
+    expect(r.stderr).toContain('désigne le même fichier')
+    expect(fs.readFileSync(analysisPath, 'utf8')).toBe(before)
+  })
+
+  it("refuse --out désignant --replay via un lien physique, sans écrire", () => {
+    const analysisPath = path.join(root, 'analysis.json')
+    fs.writeFileSync(analysisPath, JSON.stringify(ANALYSIS))
+    const scoresPath = path.join(root, 'scene.txt')
+    fs.writeFileSync(scoresPath, '')
+    const hardLinkPath = path.join(root, 'hard-link-to-analysis.json')
+    fs.linkSync(analysisPath, hardLinkPath)
+    const before = fs.readFileSync(analysisPath, 'utf8')
+    const r = spawnSync(
+      'python3',
+      [
+        path.join(RACINE, 'worker', 'detect.py'),
+        '--replay', analysisPath,
+        '--scene-scores', scoresPath,
+        '--out', hardLinkPath,
       ],
       { encoding: 'utf8', env: SANS_BYTECODE },
     )

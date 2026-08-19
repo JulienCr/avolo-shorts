@@ -377,11 +377,11 @@ describe('nettoyerStage', () => {
     const stage = process.env.STAGE_DIR as string
     const target = poser('cible.mp4', 0)
     fs.mkdirSync(path.join(stage, 'un-dossier'))
-    fs.symlinkSync(target, path.join(stage, 'a-link.mp4'))
+    fs.symlinkSync(target, path.join(stage, 'un-lien.mp4'))
     // Le lien est vieux au sens de `lstat` — il vient d'être créé, donc frais —
     // mais même vieilli, ce n'est pas un fichier ordinaire.
     const old = new Date(Date.now() - STAGE_TTL_MS * 2)
-    fs.lutimesSync(path.join(stage, 'a-link.mp4'), old, old)
+    fs.lutimesSync(path.join(stage, 'un-lien.mp4'), old, old)
     fs.utimesSync(path.join(stage, 'un-dossier'), old, old)
 
     expect(await cleanStage()).toEqual([])

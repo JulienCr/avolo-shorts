@@ -579,18 +579,32 @@ seul cas connu. Voir la skill `cadrage` (septième piège) et la docstring de
 
 **Compté pendant tout le chantier, le nombre de bascules « acceptées » — au
 sens où `refine_switch` a confirmé leur raffinement — surestime largement ce
-que le chantier change.** Beaucoup retombent sur une coupe que le score de
-scène pose déjà tout seul, au même instant exact : `composition_switches`
-redétecte alors une frontière déjà connue plutôt que d'en ajouter une. Ce
-n'est ni un faux positif ni un vrai positif nouveau — c'est une confirmation
-redondante, sans effet sur `shots`.
+que le chantier change, et de deux façons distinctes, pas une.** La première :
+beaucoup retombent sur une coupe que le score de scène pose déjà tout seul, au
+même instant exact — `composition_switches` redétecte alors une frontière
+déjà connue plutôt que d'en ajouter une, confirmation redondante sans effet
+sur `shots`. La seconde, plus rare : une bascule acceptée peut tomber à moins
+d'une seconde (`min_shot`) d'une frontière déjà retenue **sans lui être
+identique** — une autre coupe de scène toute proche, ou une autre bascule
+acceptée juste à côté — et `_spaced_boundaries` l'absorbe pour la même raison
+que documentée plus haut : la fenêtre de `refine_switch` protège contre
+l'absence de second signal, pas contre sa proximité avec une frontière qui
+existe déjà. Trois issues, donc, pas deux :
 
-| | bascules acceptées | dont redondantes avec une coupe déjà connue | **frontières réellement neuves** |
-|---|---|---|---|
-| `2025-06-15-cqlp` | 43 | 23 | **20** |
-| `2026-03-08-caro-mdlm` | 126 | 90 | **33** |
-| `2026-05-31-nabla` | 67 | 51 | **16** |
-| `2026-22-02-entre-nous` | 161 | 58 | **101** |
+| | bascules acceptées | redondantes (coupe déjà connue) | absorbées (trop proches d'une autre frontière) | **frontières réellement neuves** |
+|---|---|---|---|---|
+| `2025-06-15-cqlp` | 43 | 23 | 0 | **20** |
+| `2026-03-08-caro-mdlm` | 126 | 90 | 3 | **33** |
+| `2026-05-31-nabla` | 67 | 51 | 0 | **16** |
+| `2026-22-02-entre-nous` | 161 | 58 | 2 | **101** |
+
+Les cinq absorptions se répartissent en deux mécanismes : une seule est le cas
+`refine_switch` déjà détaillé ci-dessus (`caro-mdlm` t ≈ 652,5, absorbée par la
+coupe de scène voisine à 652,467) ; les quatre autres (`caro-mdlm` t ≈ 8 865,1
+et 8 988,1 ; `entre-nous` t ≈ 3 285,9 et 3 385,1) sont deux bascules acceptées
+qui tombent l'une sur l'autre, sans coupe de scène dans les parages — le même
+`min_shot` qui protège contre un doublon de coupe en fusionne aussi deux
+détections distinctes quand elles se suivent de trop près.
 
 Le compte de « frontières neuves » est celui qui explique le delta de plans
 déjà mesuré (1 483 → 1 516 sur `caro-mdlm`, etc.) — pas le compte de bascules

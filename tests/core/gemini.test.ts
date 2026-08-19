@@ -15,7 +15,7 @@ import {
 import { buildWindows, type Transcript, type Window, type Word } from '@/core/transcript'
 import notation from '../fixtures/gemini-score.json'
 import detail from '../fixtures/gemini-detail.json'
-import detailHorsMedia from '../fixtures/gemini-detail-hors-media.json'
+import detailOutsideMedia from '../fixtures/gemini-detail-outside-media.json'
 
 /**
  * Le pourvoyeur Gemini, testé **sans jamais appeler Gemini** : les réponses
@@ -350,7 +350,7 @@ describe('parseDetailResponse', () => {
   })
 
   it('rejette un clip dont les bornes sortent de la vidéo', () => {
-    expect(detailed(detailHorsMedia, { words: WORDS_SHORT, videoDuration: 100 })).toEqual([])
+    expect(detailed(detailOutsideMedia, { words: WORDS_SHORT, videoDuration: 100 })).toEqual([])
   })
 
   it('rejette un clip qui ne recoupe aucun bloc présélectionné', () => {

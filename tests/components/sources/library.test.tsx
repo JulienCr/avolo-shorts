@@ -61,11 +61,11 @@ function creation(partial: Partial<Creation> = {}): Creation {
 
 /** Les cinq états, une émission chacun. */
 const SOURCES = [
-  source('a-neuve.mp4'),
-  source('b-encours.mp4', 'b'),
-  source('c-interrompue.mp4', 'c'),
-  source('d-echec.mp4', 'd'),
-  source('e-analysee.mp4', 'e'),
+  source('a-new.mp4'),
+  source('b-analyzing.mp4', 'b'),
+  source('c-interrupted.mp4', 'c'),
+  source('d-failed.mp4', 'd'),
+  source('e-analyzed.mp4', 'e'),
 ]
 const PROJECTS = [
   project('b', { running: { step: 'proxy', progress: 0.3 } }),
@@ -139,13 +139,13 @@ describe('les filtres', () => {
     // geste : reprendre l'analyse.
     renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
-    expect(files()).toEqual(['c-interrompue.mp4', 'd-echec.mp4'])
+    expect(files()).toEqual(['c-interrupted.mp4', 'd-failed.mp4'])
   })
 
   it('ne retient que les neuves sous « À analyser »', async () => {
     renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /À analyser/ }))
-    expect(files()).toEqual(['a-neuve.mp4'])
+    expect(files()).toEqual(['a-new.mp4'])
   })
 
   it('dit pourquoi un filtre ne rend rien, sans le confondre avec un dossier vide', async () => {
@@ -158,8 +158,8 @@ describe('les filtres', () => {
 describe('la recherche', () => {
   it('filtre par titre, sans tenir compte de la casse', async () => {
     renderGrid()
-    await userEvent.type(screen.getByRole('searchbox'), 'ECHEC')
-    expect(files()).toEqual(['d-echec.mp4'])
+    await userEvent.type(screen.getByRole('searchbox'), 'FAILED')
+    expect(files()).toEqual(['d-failed.mp4'])
   })
 
   it('trouve une émission par le nom de fichier qu’elle affiche', async () => {
@@ -174,8 +174,8 @@ describe('la recherche', () => {
   it('se compose avec le filtre actif', async () => {
     renderGrid()
     await userEvent.click(screen.getByRole('tab', { name: /Erreurs/ }))
-    await userEvent.type(screen.getByRole('searchbox'), 'interrompue')
-    expect(files()).toEqual(['c-interrompue.mp4'])
+    await userEvent.type(screen.getByRole('searchbox'), 'interrupted')
+    expect(files()).toEqual(['c-interrupted.mp4'])
   })
 
   it('laisse les comptes des filtres intacts pendant la frappe', async () => {

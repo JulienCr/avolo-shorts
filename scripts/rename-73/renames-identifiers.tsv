@@ -413,7 +413,7 @@ desordre	outOfOrder	2	tests/core/captions.test.ts:73
 désordre	outOfOrder	1	tests/server/analysis.test.ts:130	
 détachées	detached	1	scripts/mesure-premier-plan.ts:98	
 détail	detail	12	scripts/mesure-premier-plan.ts:229	
-détailHorsMédia	detailHorsMedia	1	tests/core/gemini.test.ts:18	
+détailHorsMédia	detailOutsideMedia	1	tests/core/gemini.test.ts:18	
 détaille	detailed	1	tests/core/gemini.test.ts:105	
 détailler	detail	1	src/server/steps/candidates.ts:1507	
 détailleur	detailer	1	tests/server/candidates.test.ts:1312	

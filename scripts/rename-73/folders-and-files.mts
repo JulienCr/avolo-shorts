@@ -142,4 +142,12 @@ export const FILE_RENAMES: Array<{ from: string; to: string }> = [
   { from: "tests/server/vignettes-sources.test.ts", to: "tests/server/source-thumbnails.test.ts" },
 
   { from: "tests/scripts/dev-commun.test.ts", to: "tests/scripts/dev-common.test.ts" },
+
+  // Une fixture de données, pas un module TypeScript — hors du périmètre
+  // initial (qui ne couvrait que .ts/.tsx/.mts), ajoutée en revue du delta
+  // de la PR #103 dans le même mouvement que son identifiant importateur
+  // (detailHorsMedia → detailOutsideMedia, voir fix-detail-hors-media.mts) :
+  // aucun autre lecteur, aucune écriture à l'exécution, une fixture n'a pas
+  // la portée de persistance d'un fichier de production.
+  { from: "tests/fixtures/gemini-detail-hors-media.json", to: "tests/fixtures/gemini-detail-outside-media.json" },
 ];

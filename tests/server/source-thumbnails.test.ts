@@ -356,10 +356,10 @@ describe('vignetteSource', () => {
   it('refuse un lien symbolique, que l’ingestion refuse déjà', async () => {
     const outside = path.join(root, 'dehors.mp4')
     fs.writeFileSync(outside, Buffer.alloc(4_096))
-    fs.symlinkSync(outside, path.join(replays, 'lien.mp4'))
+    fs.symlinkSync(outside, path.join(replays, 'link.mp4'))
     const extract = vi.fn(extractOk())
 
-    expect(await vignetteSource('lien.mp4', { probe: PROBE_MUTE, extract })).toBeNull()
+    expect(await vignetteSource('link.mp4', { probe: PROBE_MUTE, extract })).toBeNull()
     expect(extract).not.toHaveBeenCalled()
   })
 

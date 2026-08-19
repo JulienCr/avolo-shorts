@@ -23466,7 +23466,7 @@
   {
     "id": 9010,
     "oldName": "détailHorsMédia",
-    "newName": "detailHorsMedia",
+    "newName": "detailOutsideMedia",
     "kind": "importDefault",
     "file": "tests/core/gemini.test.ts",
     "line": 18

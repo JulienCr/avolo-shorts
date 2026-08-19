@@ -58,3 +58,4 @@ tests/server/erreurs.test.ts	tests/server/errors.test.ts
 tests/server/octets.test.ts	tests/server/bytes.test.ts
 tests/server/vignettes-sources.test.ts	tests/server/source-thumbnails.test.ts
 tests/scripts/dev-commun.test.ts	tests/scripts/dev-common.test.ts
+tests/fixtures/gemini-detail-hors-media.json	tests/fixtures/gemini-detail-outside-media.json

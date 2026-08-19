@@ -71,9 +71,23 @@ export function collectCandidates(): Candidate[] {
     const visit = (node: ts.Node) => {
       const kindName = DECL_KIND_NAMES[node.kind];
       if (kindName) {
-        const withName = node as unknown as { name?: ts.Node };
+        const withName = node as unknown as { name?: ts.Node; propertyName?: ts.Node };
         const nameNode = withName.name;
-        if (nameNode && ts.isIdentifier(nameNode)) {
+
+        // Un `import { quitter } from './x'` (sans "as") crée un symbole que
+        // TypeScript relie à la déclaration d'origine : la renommer déjà via
+        // sa déclaration fait bouger ce site-là aussi. Le collecter en plus
+        // comme candidat séparé fait démarrer un *second*
+        // findRenameLocations sur un symbole équivalent, qui revient sur les
+        // mêmes emplacements — deux édits sur le même empan, détecté à
+        // l'application comme un chevauchement. Seul un alias explicite
+        // (`as`) introduit un nom local réellement distinct, qu'aucun
+        // renommage de l'origine ne touchera : lui seul reste un candidat.
+        const isImportOrExportSpecifier =
+          node.kind === ts.SyntaxKind.ImportSpecifier || node.kind === ts.SyntaxKind.ExportSpecifier;
+        const skipUnaliasedSpecifier = isImportOrExportSpecifier && withName.propertyName === undefined;
+
+        if (!skipUnaliasedSpecifier && nameNode && ts.isIdentifier(nameNode)) {
           const symbol = checker.getSymbolAtLocation(nameNode);
           if (symbol && !bySymbol.has(symbol)) {
             const oldName = nameNode.text;

@@ -155,11 +155,14 @@ function main() {
   // --- 3. Fusion + application, fichier par fichier ---
   const movesByFrom = new Map(moves.map((m) => [path.join(ROOT, m.from), path.join(ROOT, m.to)]));
 
+  // Chevauchement : deux édits qui se recouvrent viendraient de deux
+  // symboles distincts touchant le même texte — jamais légitime pour un
+  // renommage sémantique. Vérifié pour **tous** les fichiers avant la
+  // moindre écriture : un renommage qui échoue au milieu de 197 fichiers ne
+  // doit pas laisser une moitié réécrite et l'autre non.
+  const sortedByFile = new Map<string, TextEdit[]>();
   for (const [file, edits] of editsByFile) {
     const sorted = [...edits].sort((a, b) => b.start - a.start);
-    // Chevauchement : deux édits qui se recouvrent viendraient de deux
-    // symboles distincts touchant le même texte — jamais légitime pour un
-    // renommage sémantique. Vérifié plutôt que supposé.
     for (let i = 1; i < sorted.length; i++) {
       const prevEnd = sorted[i - 1].start;
       const curEnd = sorted[i].start + sorted[i].length;
@@ -169,6 +172,10 @@ function main() {
         );
       }
     }
+    sortedByFile.set(file, sorted);
+  }
+
+  for (const [file, sorted] of sortedByFile) {
     let content = fs.readFileSync(file, "utf8");
     for (const e of sorted) {
       content = content.slice(0, e.start) + e.newText + content.slice(e.start + e.length);

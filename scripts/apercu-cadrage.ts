@@ -190,6 +190,8 @@ const PAGE = `<!DOCTYPE html>
   <label><input id="showBoxes" type="checkbox" checked> boîtes</label>
   <button id="copyImage" type="button">Copier l'image</button>
   <span id="copyStatus"></span>
+  <button id="copyDebug" type="button">Copier le debug</button>
+  <span id="debugStatus"></span>
   <span id="status"></span>
 </div>
 <div id="wrap">
@@ -214,12 +216,16 @@ const clipSel = document.getElementById('clip');
 const showBoxes = document.getElementById('showBoxes');
 const copyImageBtn = document.getElementById('copyImage');
 const copyStatusEl = document.getElementById('copyStatus');
+const copyDebugBtn = document.getElementById('copyDebug');
+const debugStatusEl = document.getElementById('debugStatus');
 const statusEl = document.getElementById('status');
 
 let boxesByTime = new Map();
 let sortedTimes = [];
 let sampleFps = 2;
 let plans = [];
+let currentProxy = '';
+let currentNativeRatio = null;
 
 function findNearestTimeIndex(t) {
   if (sortedTimes.length === 0) return -1;
@@ -312,6 +318,45 @@ async function copierImage() {
 
 copyImageBtn.addEventListener('click', copierImage);
 
+/**
+ * Ce qu'un rapport de bug demande en premier — le fichier lu, l'instant, la
+ * détection qui s'y trouvait, la décision de cadrage qui en sort — assemblé en
+ * JSON plutôt qu'à la main dans un message, avec les points de pose bruts
+ * (\`k\`) pour rejouer le calcul sans capture d'écran.
+ */
+function assemblerDebug() {
+  const t = video.currentTime;
+  const idx = findNearestTimeIndex(t);
+  const nearestT = sortedTimes[idx];
+  const proche = idx >= 0 && Math.abs(nearestT - t) <= 1 / sampleFps;
+  return {
+    proxy: currentProxy,
+    project: projectSel.value,
+    clip: clipSel.value || null,
+    t,
+    fps: sampleFps,
+    // L'instant réellement échantillonné peut différer de \`t\` : le
+    // scrubbing n'est pas calé sur la cadence d'analyse.
+    sampledT: proche ? nearestT : null,
+    boxes: proche ? boxesByTime.get(nearestT) || [] : [],
+    plan: planPourInstant(t) || null,
+    nativeRatio: currentNativeRatio,
+  };
+}
+
+async function copierDebug() {
+  debugStatusEl.textContent = 'copie...';
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(assemblerDebug(), null, 2));
+    debugStatusEl.textContent = 'copié dans le presse-papier';
+  } catch (e) {
+    debugStatusEl.textContent = 'échec de la copie : ' + (e && e.message ? e.message : String(e));
+  }
+  setTimeout(() => { debugStatusEl.textContent = ''; }, 3000);
+}
+
+copyDebugBtn.addEventListener('click', copierDebug);
+
 async function chargerProjets() {
   const projets = await (await fetch('/api/projects')).json();
   projectSel.innerHTML = projets.map((p) => \`<option value="\${p}">\${p}</option>\`).join('');
@@ -343,6 +388,8 @@ async function chargerCadre(projectId, clipId) {
   }
   sortedTimes = Array.from(boxesByTime.keys()).sort((a, b) => a - b);
   plans = data.shots;
+  currentProxy = data.proxy || '';
+  currentNativeRatio = data.nativeRatio || null;
   statusEl.textContent = \`\${data.boxes.length} boîtes, \${data.shots.length} plan(s) cadré(s)\` +
     (data.nativeRatio ? \` — natif \${data.nativeRatio}\` : '');
 }
@@ -484,6 +531,11 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
     return
   }
 
+  // Rappelé ici plutôt que transmis depuis `gérer` : `envoyerCadrage` doit
+  // pouvoir répondre seule, et `proxyPath` est une simple validation de chemin
+  // déjà repassée sans effet de bord.
+  const proxy = proxyPath(projectId)
+
   const boxes = analyse.boxes.map((b) => {
     const c = couleur(b)
     // Tronc et tête ne se calculent que sur ce que le cadrage retient
@@ -501,6 +553,10 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
       c,
       torso,
       head: head ?? undefined,
+      // Les points bruts, pour le débogage (bouton « Copier le debug ») : la
+      // seule façon de vérifier `torso`/`head` sans relancer le calcul à la
+      // main sur une capture.
+      k: b.k,
     }
   })
 
@@ -512,7 +568,7 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
     // de plan — les bornes que `analyse.shots` porte déjà, donc sans dépendre
     // d'une durée que `Analyse` ne donne pas ailleurs.
     if (analyse.shots.length === 0) {
-      json(res, { fps: analyse.fps, boxes, shots: [] })
+      json(res, { fps: analyse.fps, boxes, shots: [], proxy })
       return
     }
     segments = [{ start: analyse.shots[0].start, end: analyse.shots[analyse.shots.length - 1].end }]
@@ -551,6 +607,7 @@ function envoyerCadrage(res: ServerResponse, projectId: string, clipId: string |
     boxes,
     nativeRatio: cadrage.ratio,
     shots: cadrage.shots.map((s) => planEnvoyé(s, analyse.source.w, analyse.source.h)),
+    proxy,
   })
 }
 

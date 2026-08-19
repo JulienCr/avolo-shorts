@@ -365,6 +365,12 @@ ce que le script compte, et les lignes sont nommées dans sa sortie.
 | 16:9 | 158 → **98** | 338 → **314** | 215 → **155** |
 | part en 16:9 | 80 % → **50 %** | 100 % → **93 %** | 95 % → **68 %** |
 
+**Et le ratio se choisit par plan, donc le chiffre qui décrit ce que la variante
+9:16 montre est le temps, pas le compte de clips.** Part du temps de plan monté
+en 16:9, sur les clips du repérage : **77 % → 25 %** sur `cqlp`, **100 % → 90 %**
+sur `caro-mdlm`, **99 % → 58 %** sur `entre-nous`. Sur les fenêtres : 69 % → 36 %,
+97 % → 84 %, 87 % → 52 %.
+
 **Aucun clip ni aucune fenêtre ne s'élargit**, à aucune valeur du balayage, de 0
 à 0,40. La propriété se démontre — rogner ne peut que réduire un empan — et un
 test la tient.

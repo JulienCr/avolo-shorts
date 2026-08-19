@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { GET as servirProxy } from '@/app/api/projects/[id]/proxy/route'
+import { GET as serveProxy } from '@/app/api/projects/[id]/proxy/route'
 import { servirFichier } from '@/server/octets'
 
 /**
@@ -38,8 +38,8 @@ async function uncaughtDuring(work: () => Promise<void>): Promise<unknown[]> {
   const previous = process.listeners('uncaughtException')
   process.removeAllListeners('uncaughtException')
   const caught: unknown[] = []
-  const collect = (erreur: unknown): void => {
-    caught.push(erreur)
+  const collect = (error: unknown): void => {
+    caught.push(error)
   }
   process.on('uncaughtException', collect)
   try {
@@ -58,30 +58,59 @@ async function uncaughtDuring(work: () => Promise<void>): Promise<unknown[]> {
  *
  * `pipeToNodeResponse` pousse le corps vers la réponse Node, et une écriture qui
  * ne passe plus attend l'événement `drain`. C'est le moment que ce montage
- * reproduit : le puits se fige après le premier morceau — le flux de fichier a
- * donc le temps de remplir son tampon et de se mettre en pause —, puis le signal
- * avorte, puis l'attente se dénoue. Next fait exactement cet ordre-là : son
- * `AbortController` est branché sur `close` de la réponse avant le résolveur de
- * `drain`.
+ * reproduit : le puits se fige, le flux de fichier a donc le temps de remplir son
+ * tampon et de se mettre en pause, puis le signal avorte, puis l'attente se
+ * dénoue. Next fait exactement cet ordre-là : son `AbortController` est branché
+ * sur `close` de la réponse avant le résolveur de `drain`.
+ *
+ * **Un signal d'abord, un délai ensuite, et le délai ne s'enlève pas.** Le
+ * risque relevé était juste : sous un délai seul, une machine chargée abandonne
+ * avant que le puits se soit figé, le scénario n'est pas atteint, rien ne lève et
+ * le test passe à vide en annonçant une couverture qu'il n'a pas. `stallReached`
+ * supprime ce cas-là.
+ *
+ * Mais le remède complet — n'attendre que le signal — a été essayé et **mesuré
+ * inopérant** : sur le code défectueux, l'abandon déclenché à l'instant du
+ * figement ne lève jamais (0 sur 8, quelle que soit l'écriture où l'on fige),
+ * là où un simple `setTimeout(0)` derrière le signal lève 5 fois sur 5. La raison
+ * est dans la nature du défaut : il faut que la lecture disque **en vol** se soit
+ * achevée et que le flux se soit rangé en pause avec son tampon plein, et cet
+ * achèvement-là n'a aucun observable depuis ici. Le délai couvre ce que le signal
+ * ne peut pas couvrir, et il est large pour la même raison.
+ *
+ * L'assertion finale refuse le cas où le puits ne se serait jamais figé.
+ * (relevé par Aristarque)
  */
-async function abortMidStream(corps: ReadableStream<Uint8Array>): Promise<void> {
+async function abortMidStream(body: ReadableStream<Uint8Array>): Promise<void> {
   let release = (): void => {}
   const stalled = new Promise<void>((resolve) => {
     release = resolve
   })
+  let markStalled = (): void => {}
+  const stallReached = new Promise<void>((resolve) => {
+    markStalled = resolve
+  })
+
   const controller = new AbortController()
   let written = 0
   const sink = new WritableStream<Uint8Array>({
     write() {
       written += 1
-      return written === 1 ? undefined : stalled
+      if (written === 1) return undefined
+      markStalled()
+      return stalled
     },
   })
-  const piped = corps.pipeTo(sink, { signal: controller.signal }).catch(() => {})
-  await delay(30)
+
+  const piped = body.pipeTo(sink, { signal: controller.signal }).catch(() => {})
+  await stallReached
+  await delay(50)
+
   controller.abort(new Error('le client est parti'))
   release()
   await piped
+
+  expect(written).toBeGreaterThanOrEqual(2)
 }
 
 /** Les descripteurs ouverts par ce processus. Linux seulement, comme la CI. */
@@ -90,6 +119,10 @@ function openDescriptors(): number {
 }
 
 describe('servir des octets', () => {
+  // L'accent est **volontaire** et repris de `tests/server/proxy.test.ts` : une
+  // émission s'appelle comme elle s'appelle, et le nom du projet traverse
+  // `proxyPath` puis `vérifierId` avant de nommer un chemin. Un identifiant ASCII
+  // ici ne dirait rien de ce cas-là. (relevé par Aristarque)
   const PROJECT = '2026-01-11-méchante'
   let root: string
   let filePath: string
@@ -156,7 +189,7 @@ describe('servir des octets', () => {
   it('ne lève rien quand la route du proxy est abandonnée en cours', async () => {
     const raised = await uncaughtDuring(async () => {
       for (let i = 0; i < 5; i++) {
-        const response = await servirProxy(
+        const response = await serveProxy(
           new Request('http://x', { headers: { range: 'bytes=0-' } }),
           { params: Promise.resolve({ id: PROJECT }) },
         )

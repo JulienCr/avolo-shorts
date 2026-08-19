@@ -45,7 +45,15 @@ const SCHÉMA_CLIP = z.object({
   end: z.number(),
   // Le prompt la demande depuis toujours ; elle était lue et jetée. C'est elle
   // qui reclasse deux réponses concaténées — voir `DetailClip`.
-  predicted_score: z.number().optional(),
+  //
+  // **`catch` et pas seulement `optional` : une note illisible ne coûte pas la
+  // proposition.** Une note en chaîne ou un `null` sont exactement le genre
+  // d'entrée hostile que ce fichier attend, et sans ce repli le champ faisait
+  // échouer le `safeParse` de l'entrée entière : un clip aux bornes parfaitement
+  // valides était jeté, et compté comme illisible, pour une note accessoire.
+  // C'était une régression — avant cette PR, le champ n'était pas lu du tout.
+  // (relevé par Copilot et Aristarque)
+  predicted_score: z.number().optional().catch(undefined),
   video_description_for_tiktok: z.string().optional(),
   video_description_for_instagram: z.string().optional(),
   video_title_for_youtube_short: z.string().optional(),

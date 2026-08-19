@@ -1560,48 +1560,48 @@ describe("l'étape de repérage", () => {
       // clips comme le prompt le lui demande — le meilleur d'abord. Les deux
       // meilleurs de l'émission sont donc tout au bout, dans la seconde moitié
       // de la descente.
-      const soumis = new Map<string, number>()
-      const appel: AppelGemini = async (prompt, mode) => {
+      const submitted = new Map<string, number>()
+      const call: AppelGemini = async (prompt, mode) => {
         if (mode === 'score') return détailleur(() => false)(prompt, mode)
-        const blocs = [...prompt.matchAll(/"id":"(window_\d+)","start":([\d.]+)/g)].map((m) => ({
+        const blocks = [...prompt.matchAll(/"id":"(window_\d+)","start":([\d.]+)/g)].map((m) => ({
           id: m[1],
           start: Number(m[2]),
         }))
-        for (const bloc of blocs) soumis.set(bloc.id, bloc.start)
+        for (const block of blocks) submitted.set(block.id, block.start)
         // Plus de quatre blocs dans la charge : refusée. La descente coupe une
         // fois, et chaque moitié répond ensuite pour elle seule.
-        if (blocs.length > 4) {
+        if (blocks.length > 4) {
           return réponse('', { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } as never)
         }
         return réponse(
           JSON.stringify({
-            shorts: [...blocs]
+            shorts: [...blocks]
               .sort((a, b) => b.start - a.start)
-              .map((bloc) => ({
-                start: bloc.start,
-                end: bloc.start + 32,
-                source_window_id: bloc.id,
-                predicted_score: Math.round(bloc.start / 600) * 10 + 10,
+              .map((block) => ({
+                start: block.start,
+                end: block.start + 32,
+                source_window_id: block.id,
+                predicted_score: Math.round(block.start / 600) * 10 + 10,
                 video_description_for_tiktok: 'une vanne #impro',
                 video_description_for_instagram: 'une vanne #impro',
-                video_title_for_youtube_short: `Le moment ${bloc.id}`,
+                video_title_for_youtube_short: `Le moment ${block.id}`,
                 viral_hook_text: 'Et là',
               })),
           }),
         )
       }
 
-      const clips = await runCandidates(ID, { db, appel, sleep: async () => {} })
+      const clips = await runCandidates(ID, { db, appel: call, sleep: async () => {} })
 
       // Les deux blocs les mieux notés, qui sont les deux derniers de
       // l'émission — et qui tombent tous deux dans la seconde branche de la
       // descente. Avant le correctif : `window_011` et `window_009`, les deux
       // premiers clips de la branche gauche.
-      const meilleurs = [...soumis.entries()]
+      const best = [...submitted.entries()]
         .sort(([, a], [, b]) => b - a)
         .slice(0, 2)
         .map(([id]) => `Le moment ${id}`)
-      expect(clips.map((c) => c.title)).toEqual(meilleurs)
+      expect(clips.map((c) => c.title)).toEqual(best)
     })
 
     /**
@@ -1618,19 +1618,19 @@ describe("l'étape de repérage", () => {
     it('relit les décisions prises pendant la requête avant de plafonner', async () => {
       setRéglage(db, 'clipsMaximum', 2)
       const model = détailleur(() => false)
-      const premiers = await runCandidates(ID, { db, appel: model, sleep: async () => {} })
-      expect(premiers).toHaveLength(2)
+      const firstPass = await runCandidates(ID, { db, appel: model, sleep: async () => {} })
+      expect(firstPass).toHaveLength(2)
 
       // La décision tombe **pendant** l'appel de détail de la passe suivante :
       // ni avant, où l'instantané la verrait, ni après, où seule la fusion la
       // verrait.
-      const écarté: Clip = { ...premiers[0], status: 'discarded' }
-      const appel: AppelGemini = async (prompt, mode) => {
-        if (mode === 'detail') putClip(db, écarté)
+      const discarded: Clip = { ...firstPass[0], status: 'discarded' }
+      const call: AppelGemini = async (prompt, mode) => {
+        if (mode === 'detail') putClip(db, discarded)
         return model(prompt, mode)
       }
 
-      const clips = await runCandidates(ID, { db, appel, sleep: async () => {} })
+      const clips = await runCandidates(ID, { db, appel: call, sleep: async () => {} })
 
       // Le clip écarté ne consomme plus de créneau : deux propositions
       // survivent, comme le plafond l'autorise. Avant le correctif, une seule —
@@ -1638,7 +1638,7 @@ describe("l'étape de repérage", () => {
       // suivante avait déjà été coupée par le plafond.
       expect(clips.filter((c) => c.status === 'candidate')).toHaveLength(2)
       // Et la décision, elle, traverse la passe intacte.
-      expect(clips.filter((c) => c.id === écarté.id)).toEqual([écarté])
+      expect(clips.filter((c) => c.id === discarded.id)).toEqual([discarded])
     })
 
     /**

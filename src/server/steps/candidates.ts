@@ -1010,8 +1010,8 @@ export async function runCandidates(
   // ferme. Elle est différée parce que le plafond, quand il est réglé, est le
   // premier à la demander — c'est-à-dire juste après les appels.
   // (relevé par Codex)
-  let relus: Clip[] | null = null
-  const relire = (): Clip[] => (relus ??= getClips(db, projectId))
+  let freshClips: Clip[] | null = null
+  const readFreshClips = (): Clip[] => (freshClips ??= getClips(db, projectId))
 
   // 4. Le détail, sur la liste fusionnée et ancrée. Le calage sur les mots se
   //    fait DANS la relance, pour qu'une enveloppe cassée soit réessayée au lieu
@@ -1025,7 +1025,8 @@ export async function runCandidates(
     minClips,
     maxClips,
     plafondAbsolu: réglages.clipsMaximum,
-    idsPris: () => new Set(relire().filter((c) => c.status !== 'candidate').map((c) => c.id)),
+    idsPris: () =>
+      new Set(readFreshClips().filter((c) => c.status !== 'candidate').map((c) => c.id)),
     appel,
     sleep,
     signal: options.signal,
@@ -1039,7 +1040,7 @@ export async function runCandidates(
   // la décision. C'est très exactement la garantie « une nouvelle passe n'écrase
   // jamais un travail humain » (spec §5), qu'une lecture hissée trop haut
   // suffisait à défaire. (relevé par Codex et Copilot)
-  const existants = relire()
+  const existants = readFreshClips()
   // `reduce` et non `Math.max(...tableau)` : la liste fait la taille du projet
   // entier, et l'étalement finirait par dépasser la pile. (relevé par Aristarque)
   const passe = 1 + existants.reduce((haut, c) => Math.max(haut, c.pass), 0)

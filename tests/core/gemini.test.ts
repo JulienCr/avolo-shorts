@@ -494,13 +494,13 @@ describe('parseDetailResponse', () => {
  */
 describe('la note prédite d’un clip', () => {
   it('ressort avec le clip, sans entrer dedans', () => {
-    const proposées = propose(détail)
-    expect(proposées.map((p) => p.predictedScore)).toEqual([88, 74, 61])
-    expect(proposées.every((p) => p.scored)).toBe(true)
+    const proposals = propose(détail)
+    expect(proposals.map((p) => p.predictedScore)).toEqual([88, 74, 61])
+    expect(proposals.every((p) => p.scored)).toBe(true)
     // `Clip` est ce que la base porte et ce que l'interface édite : une
     // estimation de viralité n'y a pas sa place, et elle ressortirait dans
     // `candidates.json` comme si elle décrivait le clip monté.
-    for (const { clip } of proposées) {
+    for (const { clip } of proposals) {
       expect(clip).not.toHaveProperty('predictedScore')
       expect(clip).not.toHaveProperty('predicted_score')
     }
@@ -509,14 +509,32 @@ describe('la note prédite d’un clip', () => {
   it('ramène une note hors barème dans le barème, au lieu de la jeter', () => {
     // Un 130 dit que le modèle tient ce clip pour excellent : le jeter perdrait
     // précisément le clip qu'il classait premier.
-    const proposées = propose({
+    const proposals = propose({
       shorts: [
         { start: 12.0, end: 41.4, predicted_score: 130 },
         { start: 96.0, end: 187.2, predicted_score: -5 },
         { start: 240.0, end: 268.2, predicted_score: 61.6 },
       ],
     })
-    expect(proposées.map((p) => p.predictedScore)).toEqual([100, 0, 62])
+    expect(proposals.map((p) => p.predictedScore)).toEqual([100, 0, 62])
+  })
+
+  it('une note illisible ne coûte pas la proposition', () => {
+    // La réponse est une entrée hostile, et une note en chaîne y est plausible.
+    // Le champ vit dans le schéma du clip : sans repli, il faisait échouer
+    // l'entrée entière, et un clip aux bornes valides était jeté — et compté
+    // comme illisible — pour une note accessoire. Avant cette PR, le champ
+    // n'était pas lu du tout. (relevé par Copilot et Aristarque)
+    const proposals = propose({
+      shorts: [
+        { start: 12.0, end: 41.4, predicted_score: 'très bon' },
+        { start: 96.0, end: 187.2, predicted_score: null },
+        { start: 240.0, end: 268.2, predicted_score: 61 },
+      ],
+    })
+    expect(proposals).toHaveLength(3)
+    expect(proposals.map((p) => p.scored)).toEqual([false, false, true])
+    expect(proposals.map((p) => p.predictedScore)).toEqual([0, 0, 61])
   })
 
   it('une note absente n’est pas une note nulle', () => {
@@ -524,12 +542,12 @@ describe('la note prédite d’un clip', () => {
     // non noté partagerait le zéro d'un clip que le modèle a jugé sans intérêt,
     // et le classement mêlerait les deux — c'est la leçon déjà tirée sur les
     // fenêtres avec `notée`.
-    const [sans] = propose({ shorts: [{ start: 12.0, end: 41.4 }] })
-    expect(sans.scored).toBe(false)
-    expect(sans.predictedScore).toBe(0)
-    const [avec] = propose({ shorts: [{ start: 12.0, end: 41.4, predicted_score: 0 }] })
-    expect(avec.scored).toBe(true)
-    expect(avec.predictedScore).toBe(0)
+    const [withoutScore] = propose({ shorts: [{ start: 12.0, end: 41.4 }] })
+    expect(withoutScore.scored).toBe(false)
+    expect(withoutScore.predictedScore).toBe(0)
+    const [withScore] = propose({ shorts: [{ start: 12.0, end: 41.4, predicted_score: 0 }] })
+    expect(withScore.scored).toBe(true)
+    expect(withScore.predictedScore).toBe(0)
   })
 })
 

@@ -132,7 +132,7 @@ export function FilDeTri({
   // sur l'écran de clip — parce que cette liste n'a jamais chargé les sorties
   // de chaque clip ; les deux lisent la même règle (un clip qui n'est pas
   // `exported` ne se publie pas).
-  const clipsÀPublier: PublishClipTarget[] = clips
+  const clipsToPublish: PublishClipTarget[] = clips
     .filter((c) => publierSelection.has(c.id))
     .map((c) => ({
       clipId: c.id,
@@ -458,7 +458,7 @@ export function FilDeTri({
 
       <AideClavier ouvert={aide} onOuvert={setAide} />
 
-      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={clipsÀPublier} />
+      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={clipsToPublish} />
     </div>
   )
 }

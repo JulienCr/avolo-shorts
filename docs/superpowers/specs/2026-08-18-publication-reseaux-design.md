@@ -167,7 +167,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | On téléverse **depuis le disque**, jamais par URL publique | exposer la machine ou héberger les rendus |
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
-| Le type s'appelle `Plateforme` | `Cible`, déjà pris par `CibleLançable` dans `run.ts` |
+| Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
 | Upload Post reste **écrit et non codé** | l'abstraire tout de suite « au cas où » |
 
 ## 4. Périmètre
@@ -233,10 +233,13 @@ publication suit la même ligne : tout ce qui se décide sans réseau se décide
 
 ### 6.1 `src/core/publication/`
 
-- **`Plateforme = 'instagram' | 'facebook' | 'youtube' | 'tiktok'`.** Pas `Cible` :
-  `src/server/run.ts` nomme déjà `CibleLançable` les étapes du pipeline, et deux
-  « cibles » de sens différent dans le même dépôt se confondent à la première
-  relecture.
+- **`Platform = 'instagram' | 'facebook' | 'youtube' | 'tiktok'`, en anglais et
+  sans accent — pas `Plateforme`.** Cette conception nommait le type en
+  français ; elle a été écrite avant que `CLAUDE.md` n'énonce la règle de
+  langue pour le code, et `src/core/publication.ts` (PR #95, interface seule)
+  la suit plutôt que ce paragraphe. Pas `Cible` non plus : `src/server/run.ts`
+  nomme déjà `CibleLançable` les étapes du pipeline, et deux « cibles » de sens
+  différent dans le même dépôt se confondent à la première relecture.
 - **Quel fichier part où.** La conception générale l'a tranché en §11 — le natif
   (4:5, 1:1) pour le feed Instagram et Facebook, la variante 9:16 sur fond flouté
   pour TikTok et Shorts — mais personne ne l'a jamais écrit en code. C'est une

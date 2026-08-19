@@ -156,11 +156,11 @@ export function PanneauExport({
    * utilise déjà deux lignes plus haut pour le même écran. Répéter le même
    * calcul ici serait la première divergence.
    */
-  const éligibilitéPublication = clipExportEligibility(déjàLivré)
-  const cibleÀPublier: PublishClipTarget = {
+  const publicationEligibility = clipExportEligibility(déjàLivré)
+  const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
-    eligibility: éligibilitéPublication,
+    eligibility: publicationEligibility,
     // **L'empreinte de ce panneau, pas une recomputation.** `empreinte` porte
     // déjà tout ce qui décide du rendu (segments, ratio, cadrage, marques,
     // sous-titres, textes) — voir le commentaire de la prop plus haut. La
@@ -273,8 +273,8 @@ export function PanneauExport({
               `PublishDialog`, qui porte la logique, jamais recopiée ici. */}
           <Button
             variant="outline"
-            onClick={() => éligibilitéPublication.eligible && setPublierOuvert(true)}
-            aria-disabled={!éligibilitéPublication.eligible || undefined}
+            onClick={() => publicationEligibility.eligible && setPublierOuvert(true)}
+            aria-disabled={!publicationEligibility.eligible || undefined}
           >
             <Send aria-hidden />
             Publier
@@ -300,8 +300,8 @@ export function PanneauExport({
         {/* **Même règle pour « Publier » : la raison se lit, elle ne se
             devine pas** (retour d'usage §2.4, mot pour mot). Un clip non
             exporté explique pourquoi plutôt que de désactiver en silence. */}
-        {!éligibilitéPublication.eligible && (
-          <p className="text-[0.75rem] text-muted-foreground">{éligibilitéPublication.reason}</p>
+        {!publicationEligibility.eligible && (
+          <p className="text-[0.75rem] text-muted-foreground">{publicationEligibility.reason}</p>
         )}
 
         {exporter.isError && (
@@ -366,7 +366,7 @@ export function PanneauExport({
         </DialogContent>
       </Dialog>
 
-      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={[cibleÀPublier]} />
+      <PublishDialog open={publierOuvert} onOpenChange={setPublierOuvert} clips={[publishTarget]} />
     </section>
   )
 }

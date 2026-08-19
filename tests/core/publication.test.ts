@@ -38,9 +38,9 @@ describe('selectablePlatforms', () => {
 
 describe('clipExportEligibility', () => {
   it('refuse un clip qui n’a pas de rendu disponible, avec sa raison', () => {
-    const résultat = clipExportEligibility(false)
-    expect(résultat.eligible).toBe(false)
-    if (!résultat.eligible) expect(résultat.reason.length).toBeGreaterThan(0)
+    const result = clipExportEligibility(false)
+    expect(result.eligible).toBe(false)
+    if (!result.eligible) expect(result.reason.length).toBeGreaterThan(0)
   })
 
   it('accepte un clip exporté', () => {

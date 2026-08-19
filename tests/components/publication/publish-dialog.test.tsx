@@ -77,12 +77,12 @@ describe('PublishDialog — état honnête d’aujourd’hui', () => {
 
 describe('PublishDialog — un clip non exporté', () => {
   it('est refusé avec son explication, pas caché', () => {
-    const inéligible = eligible({
+    const ineligible = eligible({
       clipId: 'c2',
       title: 'Pas encore rendu',
       eligibility: { eligible: false, reason: 'Exporter avant de publier.' },
     })
-    render(<PublishDialog open onOpenChange={() => {}} clips={[inéligible]} />)
+    render(<PublishDialog open onOpenChange={() => {}} clips={[ineligible]} />)
     expect(screen.getByText(/ne peut pas être publié/)).toBeTruthy()
     expect(screen.getAllByText('Pas encore rendu', { exact: false }).length).toBeGreaterThan(0)
     expect(screen.getByText('Exporter avant de publier.')).toBeTruthy()

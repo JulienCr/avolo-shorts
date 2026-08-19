@@ -96,7 +96,7 @@ export function PublishDialog({
    */
   onLaunch?: (targets: readonly { clipId: string; platform: Platform }[]) => void
 }) {
-  const résolue = availability ?? defaultPlatformAvailability()
+  const resolvedAvailability = availability ?? defaultPlatformAvailability()
   const [step, setStep] = useState<Step>('platforms')
   const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
   const [force, setForce] = useState(false)
@@ -107,9 +107,9 @@ export function PublishDialog({
   // ajustement d'état pendant le rendu — le motif que `useVueFigée` (fil.tsx)
   // emploie déjà pour la même raison — évite l'image intermédiaire qu'un
   // `useEffect` produirait entre l'ouverture et la remise à zéro.
-  const [étaitOuvert, setÉtaitOuvert] = useState(open)
-  if (open !== étaitOuvert) {
-    setÉtaitOuvert(open)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
     if (open) {
       setStep('platforms')
       setSelected(new Set())
@@ -119,7 +119,7 @@ export function PublishDialog({
 
   const eligible = clips.filter((c) => c.eligibility.eligible)
   const ineligible = clips.filter((c) => !c.eligibility.eligible)
-  const selectable = PLATFORMS.filter((p) => résolue[p].available)
+  const selectable = PLATFORMS.filter((p) => resolvedAvailability[p].available)
 
   // **Chaque plateforme réussit ou échoue seule** (spec publication §6.4) :
   // la cible se calcule couple par couple, jamais en bloc, pour que la suite
@@ -199,7 +199,7 @@ export function PublishDialog({
         {step === 'platforms' ? (
           <PlatformsStep
             eligible={eligible}
-            availability={résolue}
+            availability={resolvedAvailability}
             selected={selected}
             onToggle={togglePlatform}
             force={force}
@@ -361,7 +361,7 @@ function PlatformRecords({
       {avecEnregistrement.map((clip) => {
         const record = clip.records?.[platform]
         if (record === undefined) return null
-        const périmée =
+        const stale =
           clip.currentFingerprint !== undefined && isPublicationStale(record, clip.currentFingerprint)
         return (
           <li key={clip.clipId} className="flex items-center gap-1.5 text-xs">
@@ -378,7 +378,7 @@ function PlatformRecords({
                 <span className="sr-only">voir en ligne</span>
               </a>
             )}
-            {périmée && (
+            {stale && (
               <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400">
                 <AlertTriangle className="size-3" aria-hidden />
                 modifié depuis

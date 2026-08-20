@@ -63,6 +63,7 @@ const exportComplete: ExportResult = {
     status: 'exported',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
   },
   mp4: 'c1.mp4',
@@ -172,6 +173,7 @@ describe('usePatchClip', () => {
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
   }
 

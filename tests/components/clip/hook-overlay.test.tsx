@@ -21,7 +21,7 @@ import { HOOK_DEFAULTS, hookLayout, type ResolvedHook } from '@/core/hook'
 afterEach(cleanup)
 
 function resolved(overrides: Partial<ResolvedHook> = {}): ResolvedHook {
-  return { ...HOOK_DEFAULTS, text: 'Regarde ça', ...overrides }
+  return { ...HOOK_DEFAULTS, text: 'Regarde ça', badge: '', ...overrides }
 }
 
 /**

@@ -101,6 +101,28 @@ export const HOOK_PATTERNS = `HOOK PLAYBOOK — pick the strongest fitting patte
 - POV / pattern interrupt: "POV: you finally understand it."
 (These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)`
 
+/**
+ * Le brief du badge : la pastille courte posée **au-dessus** de l'accroche.
+ * Anglais et fixe, comme tout ce fichier, et **partagé par les deux prompts**
+ * pour la raison écrite sur `HOOK_PATTERNS` — deux briefs recopiés à la main
+ * dérivent au premier ajustement.
+ *
+ * **Toute la consigne tient dans « rendre vide plutôt qu'inventer ».** Un
+ * modèle remplit systématiquement un champ facultatif si on ne l'en dissuade
+ * pas, et un badge sur chaque clip est exactement le contraire de ce qu'un
+ * badge sert à faire : signaler qu'un clip appartient à une rubrique
+ * récurrente. Sur toute la ligne, le badge est facultatif — absent du
+ * `required` de `SCHEMA_DETAIL`, `.optional()` côté zod, vide par défaut en
+ * base.
+ */
+export const HOOK_BADGE_BRIEF = `BADGE — an OPTIONAL 1-3 word kicker that sits ABOVE the hook, in a small
+coloured pill (e.g. "DÉFI 10", "EPISODE 4", "BACKSTAGE"). Only return one when
+the clip really carries a label of that kind: a numbered challenge, a segment
+name, a recurring rubric. Return an EMPTY STRING rather than inventing one — a
+badge on every clip is noise, not a signal. Never repeat or paraphrase the hook
+in it.
+(Write it in TRANSCRIPT_LANGUAGE.)`
+
 export type DetailPromptInput = {
   language: string
   videoDuration: number
@@ -166,6 +188,8 @@ CLIP RULES:
 
 ${HOOK_PATTERNS}
 
+${HOOK_BADGE_BRIEF}
+
 COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE (${language}):
 - Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
   without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
@@ -191,7 +215,8 @@ Return only:
       "video_description_for_tiktok": "<description + hashtags>",
       "video_description_for_instagram": "<description + hashtags>",
       "video_title_for_youtube_short": "<title max 100 chars>",
-      "viral_hook_text": "<short overlay max 6 words>"
+      "viral_hook_text": "<short overlay max 6 words>",
+      "viral_hook_badge": "<optional 1-3 word kicker, or empty string>"
     }
   ]
 }

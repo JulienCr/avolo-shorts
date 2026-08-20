@@ -54,6 +54,7 @@ function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
       status: 'kept',
       pass: 1,
       hookText: '',
+      hookBadge: '',
       hookStyle: {},
     },
     project: { id: 'p1', title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { GlobalFonts } from '@napi-rs/canvas'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HOOK_DEFAULTS, type HookSettings, type ResolvedHook } from '@/core/hook'
+import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
 import { renderHookImage } from '@/server/hook-image'
 
 /**
@@ -21,8 +21,8 @@ import { renderHookImage } from '@/server/hook-image'
  */
 const FONTS_DIR = path.join(process.cwd(), 'fonts')
 
-function resolved(overrides: Partial<HookSettings & { text: string }> = {}): ResolvedHook {
-  return { ...HOOK_DEFAULTS, text: 'ÇA TOURNE', ...overrides }
+function resolved(overrides: Partial<ResolvedHook> = {}): ResolvedHook {
+  return { ...HOOK_DEFAULTS, text: 'ÇA TOURNE', badge: '', ...overrides }
 }
 
 afterEach(() => {

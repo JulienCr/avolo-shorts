@@ -63,6 +63,12 @@ const EDIT = z.strictObject({
   // de traiter à sa façon — cette route ne fait qu'accepter ou refuser une
   // longueur.
   hookText: z.string().max(280).optional(),
+  // **120, pas 280 comme le hook.** Un badge est un mot-clé, pas une phrase,
+  // et le rasteriseur ne le fait PAS revenir à la ligne
+  // (`src/server/hook-image.ts`) : une saisie longue produirait une pastille
+  // large comme le canevas plutôt que deux lignes. Comme `hookText`, il n'est
+  // pas normalisé ici — cette route accepte ou refuse une longueur.
+  hookBadge: z.string().max(120).optional(),
   // Un objet **creux**, toutes les clés facultatives : `{}` dit « aux valeurs
   // globales », comme `Clip.hookStyle` le documente (`core/edl.ts`).
   // `z.strictObject`, comme `segments` deux lignes plus haut : une clé

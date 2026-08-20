@@ -364,6 +364,7 @@ const SCHEMA_DETAIL: JsonSchema = {
           video_description_for_instagram: { type: 'string' },
           video_title_for_youtube_short: { type: 'string' },
           viral_hook_text: { type: 'string' },
+          viral_hook_badge: { type: 'string' },
         },
         required: [
           'start',
@@ -374,6 +375,10 @@ const SCHEMA_DETAIL: JsonSchema = {
           'video_description_for_instagram',
           'video_title_for_youtube_short',
           'viral_hook_text',
+          // `viral_hook_badge` est **absent d'ici, et c'est la décision** :
+          // toutes les émissions ne portent pas de rubrique numérotée, et
+          // l'exiger pousserait le modèle à en inventer une par clip plutôt
+          // qu'à s'abstenir. Voir `HOOK_BADGE_BRIEF`.
         ],
       },
     },

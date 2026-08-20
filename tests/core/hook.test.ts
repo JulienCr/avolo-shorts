@@ -7,9 +7,10 @@ import {
   hookLayout,
   hookPlacement,
   hookRgba,
+  normalizeHookBadge,
   normalizeHookText,
   resolveHook,
-  type HookSettings,
+  type ResolvedHook,
 } from '@/core/hook'
 
 /**
@@ -19,11 +20,11 @@ import {
  * changer sous elle.
  */
 
-const clip = (remaining: Partial<Pick<Clip, 'hookText' | 'hookStyle'>> = {}): Pick<
-  Clip,
-  'hookText' | 'hookStyle'
-> => ({
+const clip = (
+  remaining: Partial<Pick<Clip, 'hookText' | 'hookBadge' | 'hookStyle'>> = {},
+): Pick<Clip, 'hookText' | 'hookBadge' | 'hookStyle'> => ({
   hookText: 'Il n’avait rien vu venir',
+  hookBadge: '',
   hookStyle: {},
   ...remaining,
 })
@@ -38,7 +39,13 @@ describe('resolveHook', () => {
 
   it('un hookStyle vide vaut les globaux, tels quels', () => {
     const resolved = resolveHook(HOOK_DEFAULTS, clip({ hookStyle: {} }))
-    expect({ ...resolved, text: undefined }).toEqual({ ...HOOK_DEFAULTS, text: undefined })
+    // `text` et `badge` neutralisés : ce sont les deux champs de CONTENU que
+    // `resolveHook` ajoute aux réglages, et le test porte sur les réglages.
+    expect({ ...resolved, text: undefined, badge: undefined }).toEqual({
+      ...HOOK_DEFAULTS,
+      text: undefined,
+      badge: undefined,
+    })
   })
 
   /**
@@ -164,7 +171,7 @@ describe('normalizeHookText', () => {
   })
 })
 
-const RESOLVED_BASE: HookSettings & { text: string } = { ...HOOK_DEFAULTS, text: 'x' }
+const RESOLVED_BASE: ResolvedHook = { ...HOOK_DEFAULTS, text: 'x', badge: '' }
 
 describe('hookLayout', () => {
   // **Le cœur du critère d'acceptation 2 : les fractions ne dépendent QUE de
@@ -219,6 +226,108 @@ describe('hookLayout', () => {
     expect(a.maxBoxWidthFraction).toBe(b.maxBoxWidthFraction)
     expect(a.maxBoxWidthFraction).toBeGreaterThan(0)
     expect(a.maxBoxWidthFraction).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('le badge', () => {
+  it('resolveHook remonte le texte du badge depuis le clip', () => {
+    expect(resolveHook(HOOK_DEFAULTS, clip({ hookBadge: 'DÉFI 10' })).badge).toBe('DÉFI 10')
+  })
+
+  /**
+   * **Le badge ne fait pas brûler à lui seul, et c'est instruit.** Sa
+   * géométrie est définie par rapport au carton — le chevauchement, le retrait
+   * qui aligne les premières lettres —, donc sans carton il n'a pas d'ancre.
+   * Le silence que ça pourrait créer est fermé par une phrase dans l'écran
+   * Clip, pas par une incrustation que personne n'a validée à l'image.
+   */
+  it("n'incruste rien quand le badge est seul, sans accroche", () => {
+    const resolved = resolveHook(HOOK_DEFAULTS, clip({ hookText: '', hookBadge: 'DÉFI 10' }))
+    expect(hookIsBurned(resolved)).toBe(false)
+  })
+
+  it('la pastille est nettement plus petite que le carton', () => {
+    const layout = hookLayout(RESOLVED_BASE)
+    expect(layout.badgeFontSizeFraction).toBeLessThan(layout.fontSizeFraction)
+    expect(layout.badgeFontSizeFraction).toBeGreaterThan(layout.fontSizeFraction / 2.5)
+  })
+
+  /**
+   * La hauteur de la pastille est **calculée**, jamais mesurée : c'est ce qui
+   * permet au calque de preview de poser exactement celle du PNG. Elle doit
+   * donc rester une fonction pure des fractions, sans dépendance au texte.
+   */
+  it('la hauteur de la pastille se déduit de sa police et de son rembourrage', () => {
+    const layout = hookLayout(RESOLVED_BASE)
+    expect(layout.badgeHeightFraction).toBeCloseTo(
+      layout.badgeFontSizeFraction * 1.2 + 2 * layout.badgePaddingYFraction,
+      12,
+    )
+  })
+
+  it('tout suit proportionnellement quand la taille du hook change', () => {
+    const small = hookLayout({ ...RESOLVED_BASE, sizePermille: 60 })
+    const large = hookLayout({ ...RESOLVED_BASE, sizePermille: 120 })
+    expect(large.badgeFontSizeFraction).toBeCloseTo(small.badgeFontSizeFraction * 2, 12)
+    expect(large.badgeHeightFraction).toBeCloseTo(small.badgeHeightFraction * 2, 12)
+  })
+
+  it('le chevauchement reste une fraction de la hauteur de la pastille', () => {
+    const layout = hookLayout(RESOLVED_BASE)
+    expect(layout.badgeOverlapFraction).toBeGreaterThan(0)
+    expect(layout.badgeOverlapFraction).toBeLessThan(layout.badgeHeightFraction / 2)
+  })
+
+  /**
+   * Le retrait aligne les deux premières lettres. Il ne peut jamais être
+   * négatif : au plancher de taille du hook, le rembourrage de la pastille
+   * peut dépasser celui du carton, et un retrait négatif la ferait sortir du
+   * carton par le côté que l'alignement était censé tenir.
+   */
+  it('le retrait de la pastille ne devient jamais négatif', () => {
+    for (const sizePermille of [20, 90, 250]) {
+      expect(hookLayout({ ...RESOLVED_BASE, sizePermille }).badgeInsetFraction).toBeGreaterThanOrEqual(0)
+    }
+  })
+})
+
+describe('normalizeHookBadge', () => {
+  it('plafonne à trois mots', () => {
+    expect(normalizeHookBadge('un deux trois quatre cinq')).toBe('un deux trois')
+  })
+
+  it('retire les guillemets encadrants, comme le hook', () => {
+    expect(normalizeHookBadge('«\u00a0DÉFI 10\u00a0»')).toBe('DÉFI 10')
+    expect(normalizeHookBadge('"DÉFI 10"')).toBe('DÉFI 10')
+  })
+
+  it('effondre les blancs et taille les bords', () => {
+    expect(normalizeHookBadge('  DÉFI   10  ')).toBe('DÉFI 10')
+  })
+
+  /**
+   * Le plafond de caractères n'est pas cosmétique : le rasteriseur n'enroule
+   * PAS la pastille, donc un badge long produirait une boîte large comme le
+   * canevas au lieu de revenir à la ligne. C'est ce plafond qui l'en empêche.
+   */
+  it('plafonne à 24 caractères sans couper au milieu d’un mot', () => {
+    const badge = normalizeHookBadge('ABCDEFGHIJ KLMNOPQRSTUVWXYZ')
+    expect(badge).toBe('ABCDEFGHIJ')
+    expect(Array.from(badge).length).toBeLessThanOrEqual(24)
+  })
+
+  it('garde la coupe dure quand il n’y a aucun espace où reculer', () => {
+    expect(normalizeHookBadge('A'.repeat(40))).toBe('A'.repeat(24))
+  })
+
+  /**
+   * **La preuve que la mécanique est partagée et non recopiée** : à plafonds
+   * égaux, les deux fonctions doivent traiter identiquement le même cas de
+   * coupe. Si quelqu'un réécrit l'une, ce test tombe.
+   */
+  it('traite les guillemets et les blancs exactement comme normalizeHookText', () => {
+    const raw = '  «\u00a0Trois mots ici\u00a0»  '
+    expect(normalizeHookBadge(raw)).toBe(normalizeHookText(raw))
   })
 })
 

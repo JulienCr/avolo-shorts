@@ -85,7 +85,7 @@ export const HOOK_BOUNDS = {
 } as const
 
 /**
- * Les treize réglages du hook, globaux ou surchargés par un clip.
+ * Les quinze réglages du hook, globaux ou surchargés par un clip.
  *
  * **`durationMs`, pas `durationSec`.** `src/server/db.ts` ne porte pas de type
  * décimal — sa doctrine, écrite dans `parseSetting`, refuse tout ce qui n'est
@@ -119,10 +119,25 @@ export type HookSettings = {
   backgroundOpacity: number
   enter: (typeof HOOK_TRANSITIONS)[number]
   exit: (typeof HOOK_TRANSITIONS)[number]
+  /** La couleur du texte de la pastille. Voir `badgeBackground`. */
+  badgeColor: string
+  /**
+   * La couleur de fond de la pastille — celle qui la détache du carton.
+   *
+   * **Ce sont les deux SEULS réglages propres au badge, et c'est une
+   * décision.** Tout le reste — police, capitales, rayon des coins, position,
+   * alignement, durée, transitions — est hérité du hook : une pastille qui
+   * pourrait avoir sa propre police et sa propre taille cesserait d'être
+   * l'accessoire d'un carton pour devenir un second hook, et l'écran des
+   * réglages doublerait de longueur pour un gain que les vignettes de
+   * référence ne réclament nulle part. Le texte, lui, n'est pas ici : c'est du
+   * contenu, il vit sur `Clip.hookBadge`.
+   */
+  badgeBackground: string
 }
 
 /**
- * Les treize défauts globaux du hook — ceux que le registre de réglages
+ * Les quinze défauts globaux du hook — ceux que le registre de réglages
  * enregistre (`src/server/db.ts`, `HOOK_FIELD_SHAPES`) et que l'écran des
  * réglages propose au bouton « Revenir à … » (`hook-section.tsx`).
  *
@@ -130,7 +145,7 @@ export type HookSettings = {
  * l'écran de réglages est un composant client : `ai-section.tsx` duplique ses
  * propres défauts à la main pour cette raison (`DEFAULT_PROVIDER`,
  * `DEFAULT_MODEL`), parce qu'ils dépendent du fournisseur choisi. Ceux du hook
- * sont treize littéraux sans logique — les dupliquer à la main créerait deux
+ * sont quinze littéraux sans logique — les dupliquer à la main créerait deux
  * listes qui divergeraient au premier réglage changé, exactement le défaut que
  * `CLAUDE.md` documente sous « un correctif compris comme local revient au
  * champ suivant ». Poser la valeur ici et la faire lire des deux côtés
@@ -164,10 +179,15 @@ export const HOOK_DEFAULTS: HookSettings = {
   backgroundOpacity: 100,
   enter: 'none',
   exit: 'fade',
+  badgeColor: '#FFFFFF',
+  // Le magenta des vignettes de référence : une pastille ne se détache du
+  // carton que si sa couleur ne s'y trouve pas déjà, et le carton est noir ou
+  // blanc dans tous les exemples fournis.
+  badgeBackground: '#E5007D',
 }
 
 /** Les globaux, écrasés par ce que le clip surcharge. */
-export type ResolvedHook = HookSettings & { text: string }
+export type ResolvedHook = HookSettings & { text: string; badge: string }
 
 /**
  * Les globaux, avec la surcharge du clip par-dessus.
@@ -181,19 +201,33 @@ export type ResolvedHook = HookSettings & { text: string }
  */
 export function resolveHook(
   globals: HookSettings,
-  clip: Pick<Clip, 'hookText' | 'hookStyle'>,
+  clip: Pick<Clip, 'hookText' | 'hookBadge' | 'hookStyle'>,
 ): ResolvedHook {
-  return { ...globals, ...clip.hookStyle, text: clip.hookText }
+  return { ...globals, ...clip.hookStyle, text: clip.hookText, badge: clip.hookBadge }
 }
 
 /**
  * Vrai quand quelque chose sera incrusté : activé ET un texte non vide.
  *
  * Un hook activé sur un texte vide ne produit aucun carton — c'est l'état
- * initial de tout clip nouvellement gardé, avant que le repérage ou une saisie
- * manuelle ne pose `hookText`. Un hook désactivé ne produit rien non plus,
- * quel que soit son texte : c'est le geste « désactiver pour ce clip » que
- * §7 demande.
+ * initial d'un clip dont le repérage n'a rien proposé, avant qu'une saisie
+ * manuelle ou le rattrapage ne pose `hookText`. Un hook désactivé ne produit
+ * rien non plus, quel que soit son texte : c'est le geste « désactiver pour
+ * ce clip » que §7 demande.
+ *
+ * **Le badge ne compte pas, et la question a été instruite.** Une pastille
+ * seule n'a été validée sur aucune image : les vignettes de référence la
+ * montrent toujours posée SUR un carton, et sa géométrie est définie par
+ * rapport à lui — le chevauchement, le retrait qui aligne les deux premières
+ * lettres. Sans carton, il n'y a pas d'ancre. S'y ajoute que le repérage rend
+ * `viral_hook_text` obligatoire et `viral_hook_badge` facultatif : « un badge
+ * sans accroche » vient donc surtout d'un modèle qui a rempli le mauvais
+ * champ, et l'incruster ferait d'un raté un artefact visible.
+ *
+ * Ce qui ne veut pas dire s'en taire — c'est le silence qui serait le défaut.
+ * `hook-fields.tsx` affiche la phrase qui manque quand un badge est saisi sur
+ * une accroche vide, plutôt que de laisser quelqu'un conclure que le champ
+ * est cassé.
  */
 export function hookIsBurned(resolved: ResolvedHook): boolean {
   return resolved.enabled && resolved.text.trim() !== ''
@@ -250,6 +284,40 @@ export type HookLayout = {
   marginYFraction: number
   /** La largeur maximale de la boîte avant retour à la ligne, fraction de la largeur du canevas. */
   maxBoxWidthFraction: number
+  /** La taille de police de la pastille, fraction de la largeur du canevas. */
+  badgeFontSizeFraction: number
+  /** Le rembourrage horizontal interne à la pastille, fraction de la largeur. */
+  badgePaddingXFraction: number
+  /** Le rembourrage vertical interne à la pastille, fraction de la largeur. */
+  badgePaddingYFraction: number
+  /**
+   * La hauteur **totale** de la pastille, fraction de la largeur.
+   *
+   * **Calculée ici et non mesurée**, contrairement à celle du carton : la
+   * pastille tient sur une seule ligne par construction — `normalizeHookBadge`
+   * la plafonne à trois mots et le rasteriseur ne l'enroule pas —, donc sa
+   * hauteur ne dépend d'aucune mesure de texte. C'est ce qui permet au calque
+   * de preview de poser exactement la même hauteur que le PNG sans mesurer
+   * quoi que ce soit, ce qu'il ne peut pas faire pour le carton.
+   */
+  badgeHeightFraction: number
+  /** Le rayon des coins de la pastille, fraction de la largeur. */
+  badgeRadiusFraction: number
+  /** De combien la base de la pastille descend sous le bord haut du carton, fraction de la largeur. */
+  badgeOverlapFraction: number
+  /**
+   * Le retrait horizontal de la pastille par rapport au bord du carton, du
+   * côté par lequel l'alignement les tient.
+   *
+   * **Il aligne les deux premières LETTRES, pas les deux bords de boîte** —
+   * c'est ce que montrent les vignettes de référence, et ça ne s'obtient pas
+   * tout seul : les deux boîtes n'ont pas le même rembourrage, donc des bords
+   * alignés donneraient des textes décalés. La valeur est la différence des
+   * deux rembourrages, bornée à zéro pour le cas où celui de la pastille
+   * dépasse celui du carton (hook à son plancher de taille), qui la ferait
+   * sinon sortir du carton du mauvais côté.
+   */
+  badgeInsetFraction: number
 }
 
 /**
@@ -322,6 +390,40 @@ const HOOK_LINE_HEIGHT_FACTOR = 1.2
  */
 const HOOK_MAX_BOX_WIDTH_FRACTION = 0.84
 
+/**
+ * La taille de la pastille, en multiple de celle du hook. Mesuré sur les
+ * vignettes de référence : « DÉFI 10 » y fait un peu plus de la moitié de la
+ * hauteur de « ENCORE UN PROCÈS ». Assez petit pour se lire comme un
+ * accessoire, assez grand pour rester lisible à la taille d'une vignette dans
+ * un fil — au-delà, la pastille cesse d'être un sur-titre et devient une
+ * seconde ligne de hook.
+ */
+const HOOK_BADGE_SIZE_FACTOR = 0.55
+
+/**
+ * Le rembourrage horizontal de la pastille, en multiple de SA taille de
+ * police — **plus généreux que les 0,6 du carton**. Un à trois mots courts ont
+ * besoin de plus de marge relative pour se lire comme une pastille et non
+ * comme une étiquette serrée ; c'est la proportion des vignettes de référence.
+ */
+const HOOK_BADGE_PADDING_X_FACTOR = 0.7
+
+/** Nettement plus resserré que les 0,42 du carton : une pastille est large et basse. */
+const HOOK_BADGE_PADDING_Y_FACTOR = 0.3
+
+/**
+ * De combien la pastille mord sur le carton, en fraction de sa propre hauteur.
+ *
+ * **Un chevauchement, pas un écart**, et c'est ce que montrent les vignettes
+ * de référence : deux boîtes qui se touchent se lisent comme un seul objet
+ * posé sur l'image, là où deux boîtes séparées par du vide se lisent comme
+ * deux incrustations sans rapport. À 0 elles se touchent sans se lier ; à 0,5
+ * la pastille s'enfonce jusqu'à son axe et le carton la coupe en deux. La
+ * valeur se règle à l'image, pas au raisonnement — voir la vérification du
+ * plan.
+ */
+const HOOK_BADGE_OVERLAP_FACTOR = 0.25
+
 function marginYFractionFor(position: HookSettings['position']): number {
   if (position === 'top') return HOOK_MARGIN_TOP_FRACTION
   if (position === 'bottom') return HOOK_MARGIN_BOTTOM_FRACTION
@@ -330,15 +432,34 @@ function marginYFractionFor(position: HookSettings['position']): number {
 
 export function hookLayout(resolved: ResolvedHook): HookLayout {
   const fontSizeFraction = resolved.sizePermille / 1000
+  const paddingXFraction = fontSizeFraction * HOOK_PADDING_X_FACTOR
+  const badgeFontSizeFraction = fontSizeFraction * HOOK_BADGE_SIZE_FACTOR
+  const badgePaddingXFraction = badgeFontSizeFraction * HOOK_BADGE_PADDING_X_FACTOR
+  const badgePaddingYFraction = badgeFontSizeFraction * HOOK_BADGE_PADDING_Y_FACTOR
+  const badgeHeightFraction =
+    badgeFontSizeFraction * HOOK_LINE_HEIGHT_FACTOR + 2 * badgePaddingYFraction
   return {
     fontSizeFraction,
     lineHeightFraction: fontSizeFraction * HOOK_LINE_HEIGHT_FACTOR,
-    paddingXFraction: fontSizeFraction * HOOK_PADDING_X_FACTOR,
+    paddingXFraction,
     paddingYFraction: fontSizeFraction * HOOK_PADDING_Y_FACTOR,
     radiusFraction: resolved.cornerRadiusPermille / 1000,
     marginXFraction: HOOK_MARGIN_X_FRACTION,
     marginYFraction: marginYFractionFor(resolved.position),
     maxBoxWidthFraction: HOOK_MAX_BOX_WIDTH_FRACTION,
+    badgeFontSizeFraction,
+    badgePaddingXFraction,
+    badgePaddingYFraction,
+    badgeHeightFraction,
+    // **Le rayon suit la taille de la pastille, pas celle du carton.** Un
+    // rayon absolu identique sur les deux boîtes donnerait une pastille en
+    // gélule à côté d'un carton à peine arrondi, alors que le réglage de
+    // l'humain porte sur une seule idée : « à quel point c'est arrondi ».
+    // Et ce n'est pas non plus une gélule d'office — les pastilles de
+    // référence sont des rectangles franchement arrondis, pas des capsules.
+    badgeRadiusFraction: (resolved.cornerRadiusPermille / 1000) * HOOK_BADGE_SIZE_FACTOR,
+    badgeOverlapFraction: badgeHeightFraction * HOOK_BADGE_OVERLAP_FACTOR,
+    badgeInsetFraction: Math.max(0, paddingXFraction - badgePaddingXFraction),
   }
 }
 
@@ -398,17 +519,47 @@ const HOOK_TEXT_MAX_CHARS = 120
  * occupe deux (une paire de substituts) — couper au milieu en rendrait un
  * seul, une chaîne Unicode invalide.
  */
-export function normalizeHookText(raw: string): string {
+function normalizeShortText(raw: string, maxWords: number, maxChars: number): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ')
   const unquoted = stripSurroundingQuotes(collapsed)
   const words = unquoted.split(' ').filter((word) => word !== '')
-  const limitedByWords = words.slice(0, HOOK_TEXT_MAX_WORDS).join(' ')
+  const limitedByWords = words.slice(0, maxWords).join(' ')
   const codePoints = Array.from(limitedByWords)
-  if (codePoints.length <= HOOK_TEXT_MAX_CHARS) return limitedByWords
-  const hardCut = codePoints.slice(0, HOOK_TEXT_MAX_CHARS).join('')
-  const cutsMidWord = codePoints[HOOK_TEXT_MAX_CHARS] !== ' '
+  if (codePoints.length <= maxChars) return limitedByWords
+  const hardCut = codePoints.slice(0, maxChars).join('')
+  const cutsMidWord = codePoints[maxChars] !== ' '
   const lastSpace = hardCut.lastIndexOf(' ')
   return (cutsMidWord && lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
+}
+
+export function normalizeHookText(raw: string): string {
+  return normalizeShortText(raw, HOOK_TEXT_MAX_WORDS, HOOK_TEXT_MAX_CHARS)
+}
+
+/**
+ * **3 mots et 24 caractères, nettement sous le hook.** Les pastilles des
+ * vignettes de référence font deux mots (« DÉFI 10 », « DÉFI 08 ») ; une
+ * pastille de six mots n'est plus une pastille, c'est un second hook posé
+ * au-dessus du premier — et le rasteriseur ne la fait pas revenir à la ligne,
+ * donc une pastille bavarde sortirait du cadre plutôt que de s'y replier.
+ * `HOOK_BADGE_PROMPT_MAX_WORDS` (`src/server/steps/hook.ts`) demande la même
+ * limite au modèle, pour la raison écrite sur `HOOK_TEXT_MAX_WORDS`.
+ */
+const HOOK_BADGE_MAX_WORDS = 3
+const HOOK_BADGE_MAX_CHARS = 24
+
+/**
+ * Le texte d'une pastille, ramené à une forme affichable — les mêmes gestes
+ * que `normalizeHookText`, à des plafonds plus serrés.
+ *
+ * **La mécanique est partagée, pas recopiée.** Le recul au dernier espace, le
+ * comptage en points de code et le retrait des guillemets encadrants ont
+ * chacun été corrigés une fois, en review ; les réécrire ici les exposerait à
+ * l'être une seconde — c'est exactement ce que `CLAUDE.md` décrit sous « un
+ * correctif compris comme local revient au champ suivant ».
+ */
+export function normalizeHookBadge(raw: string): string {
+  return normalizeShortText(raw, HOOK_BADGE_MAX_WORDS, HOOK_BADGE_MAX_CHARS)
 }
 
 /**

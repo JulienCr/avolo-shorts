@@ -17,6 +17,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     status: 'candidate',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     ...overrides,
   }

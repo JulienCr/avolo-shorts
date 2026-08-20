@@ -297,8 +297,18 @@ export function pathsRender(projectId: string, clipId: string, ratio: Ratio): Pa
  * porte donc plus la bonne recette de comparaison ; le coût est un
  * réencodage par clip ayant un hook, une fois — nul en pratique le jour de ce
  * changement, aucun clip de production n'en portant encore.
+ *
+ * **Passée à 7 le 20 août 2026, avec le badge du hook.** La cause n'est ni le
+ * badge lui-même ni le passage du défaut `enter` à `none` : le texte du badge,
+ * ses deux couleurs et sa géométrie entrent tous dans `hookImageDigest` par
+ * `stableEntries(resolved)` et `stableEntries(hookLayout(resolved))`, donc le
+ * contenu suffirait à périmer les rendus concernés. La cause est
+ * `SCHEMA_FINGERPRINT`, qui gagne `hookBadge` **requis** : aucune empreinte en
+ * version 6 ne le porte, et sans ce numéro elle se dirait « illisible » alors
+ * qu'elle est parfaitement formée — ce qui se lit mal doit se dire au bon nom.
+ * Coût : un réencodage par clip, une fois.
  */
-export const VERSION_FINGERPRINT = 6
+export const VERSION_FINGERPRINT = 7
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -347,7 +357,10 @@ export type RenderedFraming = {
  * en service, ces deux champs continuent de décrire directement ce que le
  * clip demande : rien ne les recalcule, un `resolveHook` les lit tels quels.
  */
-export type ShapeRendered = Pick<Clip, 'segments' | 'captions' | 'branding' | 'hookText' | 'hookStyle'> & {
+export type ShapeRendered = Pick<
+  Clip,
+  'segments' | 'captions' | 'branding' | 'hookText' | 'hookBadge' | 'hookStyle'
+> & {
   framing: RenderedFraming
 }
 
@@ -373,7 +386,10 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
 
 /** Le clip et son cadrage, tels que `leRenduEstPérimé` les compare. */
 export function renderedShape(
-  clip: Pick<Clip, 'segments' | 'captions' | 'branding' | 'hookText' | 'hookStyle'>,
+  clip: Pick<
+    Clip,
+    'segments' | 'captions' | 'branding' | 'hookText' | 'hookBadge' | 'hookStyle'
+  >,
   framing: RenderedFraming,
 ): ShapeRendered {
   return {
@@ -381,6 +397,7 @@ export function renderedShape(
     captions: clip.captions,
     branding: clip.branding,
     hookText: clip.hookText,
+    hookBadge: clip.hookBadge,
     hookStyle: clip.hookStyle,
     framing,
   }
@@ -560,6 +577,7 @@ const SCHEMA_FINGERPRINT = z.object({
   // ne pas tenir une seconde définition des onze champs qui divergerait au
   // premier réglage ajouté (`CLAUDE.md`, « une seule source pour les bornes »).
   hookText: z.string(),
+  hookBadge: z.string(),
   hookStyle: z.object(HOOK_STYLE_SHAPE).partial(),
   hook: z.string().nullable(),
 })
@@ -644,10 +662,21 @@ function sameHookStyle(a: Partial<HookSettings>, b: Partial<HookSettings>): bool
  * qui a bougé.
  */
 function sameHook(
-  a: Pick<ShapeRendered, 'hookText' | 'hookStyle'>,
-  b: Pick<ShapeRendered, 'hookText' | 'hookStyle'>,
+  a: Pick<ShapeRendered, 'hookText' | 'hookBadge' | 'hookStyle'>,
+  b: Pick<ShapeRendered, 'hookText' | 'hookBadge' | 'hookStyle'>,
 ): boolean {
-  return a.hookText === b.hookText && sameHookStyle(a.hookStyle, b.hookStyle)
+  // **`hookBadge` se compare sans condition**, et ça coûte un cas : taper un
+  // badge sur un clip exporté dont l'accroche est vide périme ses MP4 alors
+  // qu'aucun pixel ne changerait (`hookIsBurned` est faux dans les deux
+  // états). Le coût est déjà consenti pour `hookText` dans exactement les
+  // mêmes conditions, et la variante conditionnelle devrait raisonner sur le
+  // texte de l'autre côté ET sur le `enabled` global — une comparaison de
+  // champs qui dépendrait d'une résolution de réglages. La cohérence gagne.
+  return (
+    a.hookText === b.hookText &&
+    a.hookBadge === b.hookBadge &&
+    sameHookStyle(a.hookStyle, b.hookStyle)
+  )
 }
 
 /**
@@ -851,6 +880,7 @@ export function renderFingerprint(
     // fichier est un certificat qu'on lit à la main quand on cherche pourquoi
     // un rendu se refait, et un condensat partout le rendrait muet.
     hookText: clip.hookText,
+    hookBadge: clip.hookBadge,
     hookStyle: clip.hookStyle,
     marks: markersIdentities(markers),
     captionsLook: underTitles.burnedIn ? lookDigest(underTitles.look) : null,

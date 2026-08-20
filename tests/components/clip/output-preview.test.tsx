@@ -220,7 +220,7 @@ describe('PreviewOutput', () => {
   it('le calque du hook ne bouge pas quand le ratio du clip change : la boîte porteuse reste au format 9:16', () => {
     context()
     const v = video()
-    const burning: ResolvedHook = { ...HOOK_DEFAULTS, text: 'Regarde ça' }
+    const burning: ResolvedHook = { ...HOOK_DEFAULTS, text: 'Regarde ça', badge: '' }
     const { container, rerender } = render(
       <PreviewOutput video={v} framing={framing()} ratio="1:1" cropX={0.5} hook={burning} />,
     )
@@ -250,7 +250,7 @@ describe('PreviewOutput', () => {
         framing={framing()}
         ratio="1:1"
         cropX={0.5}
-        hook={{ ...HOOK_DEFAULTS, enabled: false, text: 'Regarde ça' }}
+        hook={{ ...HOOK_DEFAULTS, enabled: false, text: 'Regarde ça', badge: '' }}
       />,
     )
     expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()
@@ -261,7 +261,7 @@ describe('PreviewOutput', () => {
         framing={framing()}
         ratio="1:1"
         cropX={0.5}
-        hook={{ ...HOOK_DEFAULTS, enabled: true, text: '' }}
+        hook={{ ...HOOK_DEFAULTS, enabled: true, text: '', badge: '' }}
       />,
     )
     expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()

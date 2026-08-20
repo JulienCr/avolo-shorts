@@ -636,6 +636,41 @@ describe('viral_hook_text', () => {
   })
 })
 
+/**
+ * Le badge voyage dans la même réponse que l'accroche, et **facultativement** :
+ * `SCHEMA_DETAIL` ne le met pas dans `required`, parce que toutes les
+ * émissions ne portent pas de rubrique numérotée et qu'exiger le champ
+ * pousserait le modèle à en inventer une par clip.
+ */
+describe('viral_hook_badge', () => {
+  it('récolte le badge rendu par le modèle, normalisé', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: '  «\u00a0DÉFI 10\u00a0»  ' }],
+    })
+    expect(clips[0].hookBadge).toBe('DÉFI 10')
+  })
+
+  it('rend une chaîne vide quand le modèle n’en propose pas — le cas courant', () => {
+    const [clip] = proposed({ shorts: [{ start: 12.0, end: 41.4 }] }).map((p) => p.clip)
+    expect(clip.hookBadge).toBe('')
+  })
+
+  it('un badge illisible ne coûte pas la proposition', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: null }],
+    })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].hookBadge).toBe('')
+  })
+
+  it('un badge bavard est ramené à trois mots', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: 'un badge beaucoup trop long' }],
+    })
+    expect(clips[0].hookBadge).toBe('un badge beaucoup')
+  })
+})
+
 describe('parseJsonResponse', () => {
   it('lit un objet nu', () => {
     expect(parseJsonResponse('{"shorts": []}')).toEqual({ shorts: [] })

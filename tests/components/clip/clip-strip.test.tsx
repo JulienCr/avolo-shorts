@@ -30,6 +30,7 @@ function candidate(id: string, overrides: Partial<CandidateClip> = {}): Candidat
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     preview: '',
     thumbnailUrl: null,

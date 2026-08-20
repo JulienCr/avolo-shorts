@@ -52,6 +52,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     ...overrides,
   }

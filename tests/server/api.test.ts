@@ -171,6 +171,7 @@ function baseClip(): Clip {
     status: 'candidate',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
   }
 }
@@ -918,6 +919,19 @@ describe('PATCH /api/clips/:id', () => {
     const response = await patch({ hookText: 'Une accroche' })
     expect(response.status).toBe(200)
     expect(((await response.json()) as PatchClipResult).clip.hookText).toBe('Une accroche')
+  })
+
+  it('accepte un hookBadge et l’enregistre', async () => {
+    const response = await patch({ hookBadge: 'DÉFI 10' })
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as PatchClipResult).clip.hookBadge).toBe('DÉFI 10')
+  })
+
+  // **120, pas 280** : le rasteriseur n'enroule pas la pastille, donc une
+  // saisie longue produirait une boîte large comme le canevas.
+  it('refuse un hookBadge trop long, à un plafond plus serré que le hook', async () => {
+    expect((await patch({ hookBadge: 'x'.repeat(121) })).status).toBe(400)
+    expect((await patch({ hookBadge: 'x'.repeat(120) })).status).toBe(200)
   })
 
   it('refuse un hookText trop long', async () => {

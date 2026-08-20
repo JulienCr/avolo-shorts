@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PreviewOutput, lScreenPart, paintOutput } from '@/components/clip/output-preview'
 import { usePlayback } from '@/components/clip/playback'
+import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
 import { framing, manualFraming, shot } from '../../fixtures/framing'
 
 afterEach(() => {
@@ -201,6 +202,58 @@ describe('PreviewOutput', () => {
    * Le pendant : sans analyse, le crop du clip reprend la main, et c'est le seul
    * cas où le curseur sert encore à quelque chose.
    */
+  /**
+   * **Le calque du hook est frère du canvas, jamais peint dedans**
+   * (`hook-overlay.tsx`) : il couvre toujours la boîte 9:16 entière, et un
+   * changement de ratio — qui redimensionne le canvas — ne doit rien lui
+   * faire. C'est la garantie décisive : peindre le hook dans le canvas
+   * l'aurait enfermé dans la bande centrale et fait sauter de place à chaque
+   * changement de ratio.
+   */
+  it('le calque du hook ne bouge pas quand le ratio du clip change', () => {
+    context()
+    const v = video()
+    const burning: ResolvedHook = { ...HOOK_DEFAULTS, text: 'Regarde ça' }
+    const { container, rerender } = render(
+      <PreviewOutput video={v} framing={framing()} ratio="1:1" cropX={0.5} hook={burning} />,
+    )
+    const layerBefore = container.querySelector('[aria-hidden="true"].absolute.inset-0')
+    expect(layerBefore).not.toBeNull()
+
+    rerender(<PreviewOutput video={v} framing={framing()} ratio="16:9" cropX={0.5} hook={burning} />)
+    const layerAfter = container.querySelector('[aria-hidden="true"].absolute.inset-0')
+    expect(layerAfter).not.toBeNull()
+    // Toujours `inset-0` de la même boîte : rien dans sa position ne dépend du
+    // canvas qu'il recouvre, qui lui a changé de hauteur entre les deux rendus.
+    expect(layerAfter?.className).toBe(layerBefore?.className)
+  })
+
+  it('le calque du hook disparaît quand le hook est désactivé ou le texte vide', () => {
+    context()
+    const v = video()
+    const { container, rerender } = render(
+      <PreviewOutput
+        video={v}
+        framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
+        hook={{ ...HOOK_DEFAULTS, enabled: false, text: 'Regarde ça' }}
+      />,
+    )
+    expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()
+
+    rerender(
+      <PreviewOutput
+        video={v}
+        framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
+        hook={{ ...HOOK_DEFAULTS, enabled: true, text: '' }}
+      />,
+    )
+    expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()
+  })
+
   it('suit le réglage manuel quand aucun calcul n’a eu lieu', () => {
     const ctx = context()
     const v = video()

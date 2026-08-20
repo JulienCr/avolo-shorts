@@ -404,6 +404,21 @@ export async function ensureLocalCopy(
   // longtemps sans que rien ne l'explique se cherche ailleurs pendant une
   // demi-heure.
   if (!copiesSourceLocally(options.db === undefined ? getDb() : options.db)) {
+    // **`editingResponds` ne dit pas que le fichier est là.** Un `ENOENT`
+    // immédiat *est* une réponse, et c'est précisément ce qui la rend utile
+    // pour distinguer un montage mort d'un montage absent. Sur le chemin qui
+    // copie, l'original manquant se dit plus loin, dans `ingestOrExplain` ;
+    // ici il n'y a plus rien après nous, et rendre un chemin qui ne désigne
+    // rien ferait échouer ffmpeg trois fonctions plus loin sur un message que
+    // personne ne peut relier au réglage. Le `existsSync` est sans danger : le
+    // sondage ci-dessus vient de prouver que le montage répond.
+    if (!fs.existsSync(project.sourcePath)) {
+      throw new Error(
+        `La copie de travail de ${project.id} est désactivée dans les réglages, et l'original ` +
+          `${JSON.stringify(path.basename(project.sourcePath))} est introuvable dans le dossier ` +
+          'des replays. Sans copie locale, c’est lui que le rendu lit : il doit être là.',
+      )
+    }
     console.log(
       `[${project.id}] copie de travail désactivée dans les réglages : l’export lit l’original.`,
     )

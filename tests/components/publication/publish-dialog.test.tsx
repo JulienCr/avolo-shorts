@@ -16,19 +16,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import type { Platform, PlatformAvailability } from '@/core/publication'
+import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 // **`PointerEvent` n'existe pas sous `jsdom`.** La case à cocher de Base UI
 // distingue la souris du tactile en dispatchant elle-même un `PointerEvent`
-// synthétique à la validation — `dispatchClickWithModifiers` — et lève sans
-// ce constructeur. Aucun autre test du dépôt ne clique une `Checkbox` : c'est
-// la première fois que cette primitive rencontre `jsdom`, donc le repli vit
-// ici plutôt que dans une configuration globale qui le ferait payer à des
-// dizaines de fichiers qui n'en ont pas besoin.
-if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
-  class PointerEventPolyfill extends MouseEvent {}
-  // @ts-expect-error -- un repli minimal, pas la classe complète du DOM.
-  window.PointerEvent = PointerEventPolyfill
-}
+// synthétique à la validation — `dispatchClickWithModifiers` — et lève sans ce
+// constructeur. Le repli est né ici, quand ce fichier était le seul du dépôt à
+// cliquer une `Checkbox` ; ils sont trois maintenant, donc il vit dans
+// `tests/fixtures/` — mais toujours pas dans une configuration globale, qui le
+// ferait payer aux dizaines de fichiers qui n'en ont pas besoin.
+installPointerEventPolyfill()
 
 afterEach(cleanup)
 

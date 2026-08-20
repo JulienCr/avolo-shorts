@@ -16,7 +16,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip, ClipDetail } from '@/lib/api'
-import { HOOK_DEFAULTS, type HookSettings } from '@/core/hook'
+import { HOOK_BOUNDS, HOOK_DEFAULTS, type HookSettings } from '@/core/hook'
 import { HookFields } from '@/components/clip/hook-fields'
 import { keys } from '@/lib/queries'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
@@ -91,6 +91,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * Ouvre le panneau replié des douze surcharges — fermé par défaut (voir la
+ * doc de `HookFields`). Tout ce qui n'est ni le texte, ni « Hook activé », ni
+ * « Régénérer » vit dedans, donc un test qui les interroge doit d'abord
+ * cliquer sur « Personnaliser », comme le ferait quelqu'un devant l'écran.
+ */
+function openPersonalize() {
+  fireEvent.click(screen.getByRole('button', { name: /Personnaliser/ }))
+}
+
 describe('le texte du hook', () => {
   it('montre ce que le clip porte', () => {
     mount({ clip: clip({ hookText: 'Regarde ça' }) })
@@ -123,33 +133,66 @@ describe('le texte du hook', () => {
 describe('hérité vs surchargé', () => {
   it('un champ non surchargé se dit hérité', () => {
     mount({ clip: clip({ hookStyle: {} }) })
-    // `size` n'est pas dans `hookStyle` : hérité.
+    openPersonalize()
+    // `sizePermille` n'est pas dans `hookStyle` : hérité.
     expect(screen.getAllByText('— hérité').length).toBeGreaterThan(0)
   })
 
   it('un champ surchargé à la MÊME valeur que le global ne se dit plus hérité', () => {
-    // Le cas central du contrat : `{ size: 56 }` sur un global à 56 doit rester
-    // distinguable de `{}` — sans quoi la persistance de la PR précédente ne
-    // sert à rien.
-    mount({ clip: clip({ hookStyle: { size: HOOK_DEFAULTS.size } }) })
+    // Le cas central du contrat : `{ sizePermille: 90 }` sur un global à 90
+    // doit rester distinguable de `{}` — sans quoi la persistance de la PR
+    // précédente ne sert à rien.
+    mount({ clip: clip({ hookStyle: { sizePermille: HOOK_DEFAULTS.sizePermille } }) })
+    openPersonalize()
     expect(screen.queryByText('revenir à l’héritage')).toBeTruthy()
+  })
+
+  it('le bouton « Personnaliser » affiche le nombre de surcharges', () => {
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }) })
+    const trigger = screen.getByRole('button', { name: /Personnaliser/ })
+    expect(trigger.textContent).toContain('2')
+  })
+
+  // **`aria-expanded` est toujours posé** (Base UI, `Collapsible.Trigger`) ;
+  // `aria-controls` ne l'est que le panneau ouvert — c'est
+  // `'aria-controls': open ? panelId : undefined` dans
+  // `useCollapsibleRoot`, indexé sur `open` et non sur le montage du
+  // panneau. Une version antérieure de `ui/collapsible.tsx` posait
+  // `keepMounted` en croyant que c'était lui qui manquait ; revenir dessus
+  // ne change rien à ce test, ce qui a confirmé que ce n'était pas la cause
+  // (relevé en review). L'absence d'`aria-controls` fermé n'est donc pas
+  // vérifiée ici : ce n'est pas un défaut, c'est le choix de Base UI.
+  it('« Personnaliser » annonce son état : aria-expanded toujours, aria-controls une fois ouvert', () => {
+    mount()
+    const trigger = screen.getByRole('button', { name: /Personnaliser/ })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    const panelId = trigger.getAttribute('aria-controls')
+    expect(panelId).toBeTruthy()
+    // La cible existe réellement : un `aria-controls` qui pointe dans le vide
+    // ne vaudrait pas mieux que son absence.
+    expect(document.getElementById(panelId as string)).toBeTruthy()
   })
 
   it('« Réinitialiser » n’apparaît que s’il y a de quoi', () => {
     const { rerender } = mount({ clip: clip({ hookStyle: {} }) })
+    openPersonalize()
     expect(screen.queryByText('Réinitialiser avec les paramètres globaux')).toBeNull()
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     rerender(
       <QueryClientProvider client={client}>
         <HookFields
-          clip={clip({ hookStyle: { size: 80 } })}
+          clip={clip({ hookStyle: { sizePermille: 150 } })}
           globals={HOOK_DEFAULTS}
           canRegenerate
           onWrite={vi.fn()}
         />
       </QueryClientProvider>,
     )
+    openPersonalize()
     expect(screen.getByText('Réinitialiser avec les paramètres globaux')).toBeTruthy()
   })
 
@@ -157,7 +200,8 @@ describe('hérité vs surchargé', () => {
     vi.useRealTimers()
     const onWrite = vi.fn()
     const user = userEvent.setup({ delay: null })
-    mount({ clip: clip({ hookStyle: { size: 80, position: 'bottom' } }), onWrite })
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }), onWrite })
+    openPersonalize()
 
     await user.click(screen.getByText('Réinitialiser avec les paramètres globaux'))
     expect(onWrite).toHaveBeenCalledWith({ hookStyle: {} })
@@ -167,7 +211,8 @@ describe('hérité vs surchargé', () => {
     vi.useRealTimers()
     const onWrite = vi.fn()
     const user = userEvent.setup({ delay: null })
-    mount({ clip: clip({ hookStyle: { size: 80, position: 'bottom' } }), onWrite })
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }), onWrite })
+    openPersonalize()
 
     const [resetButton] = screen.getAllByText('revenir à l’héritage')
     await user.click(resetButton)
@@ -183,6 +228,60 @@ describe('hérité vs surchargé', () => {
 
     await user.click(screen.getByRole('checkbox', { name: /Hook activé/ }))
     expect(onWrite).toHaveBeenCalledWith({ hookStyle: { enabled: false } })
+  })
+})
+
+/**
+ * **`durationMs` a rejoint le panneau replié** (PR #117, seconde manche) :
+ * le PNG en `overlay` ne portait plus la borne temporelle du tout, et ce
+ * réglage n'avait donc aucun contrôle dans cet écran. `DurationField`
+ * reprend la conversion secondes/millisecondes de `hook-section.tsx`
+ * (`src/components/settings/hook-section.tsx`), testée là pour le réglage
+ * global — même comportement ici, pour la surcharge par clip.
+ */
+describe('Durée', () => {
+  it('affiche durationMs converti en secondes', () => {
+    mount({ clip: clip({ hookStyle: { durationMs: 2_500 } }) })
+    openPersonalize()
+    expect((screen.getByLabelText('Durée') as HTMLInputElement).value).toBe('2.5')
+  })
+
+  it('convertit les secondes saisies en millisecondes, à `hookStyle.durationMs`', async () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    const user = userEvent.setup({ delay: null })
+    mount({ onWrite })
+    openPersonalize()
+
+    const field = screen.getByLabelText('Durée')
+    await user.clear(field)
+    await user.type(field, '3.2')
+    await user.tab()
+
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { durationMs: 3_200 } })
+  })
+
+  it('borne la durée saisie aux limites du registre avant de l’écrire', async () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    const user = userEvent.setup({ delay: null })
+    mount({ onWrite })
+    openPersonalize()
+
+    const field = screen.getByLabelText('Durée')
+    await user.clear(field)
+    await user.type(field, '99')
+    await user.tab()
+
+    expect(onWrite).toHaveBeenCalledWith({
+      hookStyle: { durationMs: HOOK_BOUNDS.durationMs.max },
+    })
+  })
+
+  it('se dit surchargé même à la MÊME valeur que le global (le cas central du contrat)', () => {
+    mount({ clip: clip({ hookStyle: { durationMs: HOOK_DEFAULTS.durationMs } }) })
+    openPersonalize()
+    expect(screen.queryByLabelText('Durée : revenir à l’héritage')).toBeTruthy()
   })
 })
 

@@ -7,20 +7,32 @@
  *   point 5 des critères d'acceptation ;
  * - il couvre toute la boîte, en position absolue, indépendamment de tout
  *   ratio — point 4 ;
- * - ses unités sont converties depuis le repère `PlayResX 384 × PlayResY 288`
- *   de `hookLayout`, jamais recalculées.
+ * - ses unités sont converties depuis les fractions de largeur de
+ *   `hookLayout`, jamais recalculées — critère 3 : la même fonction que le
+ *   rasteriseur PNG du rendu.
  */
 
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { HookOverlay, rgbaFrom } from '@/components/clip/hook-overlay'
-import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
+import { HookOverlay } from '@/components/clip/hook-overlay'
+import { HOOK_DEFAULTS, hookLayout, type ResolvedHook } from '@/core/hook'
 
 afterEach(cleanup)
 
 function resolved(overrides: Partial<ResolvedHook> = {}): ResolvedHook {
   return { ...HOOK_DEFAULTS, text: 'Regarde ça', ...overrides }
+}
+
+/**
+ * Le pourcentage attendu pour une fraction donnée, dans la forme que
+ * `cqw()`/`cqh()` de `hook-overlay.tsx` produit — `calc(Xcqw)`. jsdom, le
+ * moteur CSS de ces tests, refuse une longueur `cqw` nue mais accepte et
+ * évalue un `calc()` qui la contient ; un navigateur réel traite les deux
+ * formes de façon identique.
+ */
+function percent(fraction: number): string {
+  return String(fraction * 100)
 }
 
 describe('HookOverlay', () => {
@@ -40,8 +52,24 @@ describe('HookOverlay', () => {
   })
 
   it('rend le texte quand le hook est incrusté', () => {
-    const { getByText } = render(<HookOverlay hook={resolved({ text: 'Regarde ça' })} />)
+    // `uppercase: false` : `HOOK_DEFAULTS.uppercase` vaut `true`, et le
+    // rendu en capitales est vérifié séparément juste après.
+    const { getByText } = render(
+      <HookOverlay hook={resolved({ text: 'Regarde ça', uppercase: false })} />,
+    )
     expect(getByText('Regarde ça')).toBeTruthy()
+  })
+
+  it('met le texte en capitales quand uppercase est vrai, le laisse tel quel sinon', () => {
+    const { getByText: withUppercase } = render(
+      <HookOverlay hook={resolved({ text: 'Regarde ça', uppercase: true })} />,
+    )
+    expect(withUppercase('REGARDE ÇA')).toBeTruthy()
+    cleanup()
+    const { getByText: withoutUppercase } = render(
+      <HookOverlay hook={resolved({ text: 'Regarde ça', uppercase: false })} />,
+    )
+    expect(withoutUppercase('Regarde ça')).toBeTruthy()
   })
 
   it("couvre toute la boîte, en position absolue, et ne pilote pas d'interaction", () => {
@@ -53,55 +81,69 @@ describe('HookOverlay', () => {
     expect(layer.getAttribute('aria-hidden')).toBe('true')
   })
 
-  // **Chaque valeur est enveloppée dans `calc(…)`**, même à un seul terme
-  // (voir `cqw`/`cqh` dans `hook-overlay.tsx`) : jsdom, le moteur CSS de ces
-  // tests, refuse une longueur `cqw`/`cqh` nue mais accepte et évalue un
-  // `calc()` qui la contient — un navigateur réel traite les deux formes de
-  // façon identique. D'où les motifs plutôt qu'une égalité stricte : jsdom
-  // évalue l'expression et arrondit le flottant à sa façon.
-  it('convertit les marges horizontales du script ASS (384) en cqw', () => {
-    const { container } = render(<HookOverlay hook={resolved({ position: 'top' })} />)
-    const inner = (container.firstElementChild?.firstElementChild) as HTMLElement
-    // marginL = marginR = 24, 24 / 384 * 100 = 6.25
-    expect(inner.style.paddingLeft).toMatch(/^calc\(6\.25cqw\)$/)
-    expect(inner.style.paddingRight).toMatch(/^calc\(6\.25cqw\)$/)
+  it('convertit la marge de sécurité gauche/droite (marginXFraction) en cqw', () => {
+    const hook = resolved({ position: 'top' })
+    const layout = hookLayout(hook)
+    const { container } = render(<HookOverlay hook={hook} />)
+    const inner = container.firstElementChild?.firstElementChild as HTMLElement
+    expect(inner.style.paddingLeft).toMatch(new RegExp(`^calc\\(${percent(layout.marginXFraction)}cqw\\)$`))
+    expect(inner.style.paddingRight).toMatch(new RegExp(`^calc\\(${percent(layout.marginXFraction)}cqw\\)$`))
   })
 
-  it('convertit la marge du haut (position top) en cqh, et laisse le bas nul', () => {
-    const { container } = render(<HookOverlay hook={resolved({ position: 'top' })} />)
-    const inner = (container.firstElementChild?.firstElementChild) as HTMLElement
-    // marginV du haut = 24, 24 / 288 * 100 = 8.333...
-    expect(inner.style.paddingTop).toMatch(/^calc\(8\.333/)
+  it('convertit la marge du haut (position top) en cqw, et laisse le bas nul', () => {
+    const hook = resolved({ position: 'top' })
+    const layout = hookLayout(hook)
+    const { container } = render(<HookOverlay hook={hook} />)
+    const inner = container.firstElementChild?.firstElementChild as HTMLElement
+    expect(inner.style.paddingTop).toMatch(new RegExp(`^calc\\(${percent(layout.marginYFraction)}cqw\\)$`))
     expect(inner.style.paddingBottom).toBe('')
   })
 
-  it('convertit la marge du bas (position bottom), différente de celle du haut', () => {
+  it('convertit la marge du bas (position bottom) en cqh — hauteur, pas largeur, différente de celle du haut', () => {
+    const top = hookLayout(resolved({ position: 'top' }))
+    const bottom = hookLayout(resolved({ position: 'bottom' }))
+    expect(bottom.marginYFraction).not.toBe(top.marginYFraction)
     const { container } = render(<HookOverlay hook={resolved({ position: 'bottom' })} />)
-    const inner = (container.firstElementChild?.firstElementChild) as HTMLElement
-    // marginV du bas = 43, 43 / 288 * 100 = 14.930...
-    expect(inner.style.paddingBottom).toMatch(/^calc\(14\.930/)
+    const inner = container.firstElementChild?.firstElementChild as HTMLElement
+    // `cqh`, pas `cqw` : la marge basse protège une zone de chrome de
+    // plateforme dont l'étendue suit la hauteur du canevas, voir la doc de
+    // `HOOK_MARGIN_BOTTOM_FRACTION` dans `@/core/hook`.
+    expect(inner.style.paddingBottom).toMatch(new RegExp(`^calc\\(${percent(bottom.marginYFraction)}cqh\\)$`))
     expect(inner.style.paddingTop).toBe('')
   })
 
   it('la position centre ne pose ni marge haute ni marge basse', () => {
     const { container } = render(<HookOverlay hook={resolved({ position: 'center' })} />)
-    const inner = (container.firstElementChild?.firstElementChild) as HTMLElement
+    const inner = container.firstElementChild?.firstElementChild as HTMLElement
     expect(inner.style.paddingTop).toBe('')
     expect(inner.style.paddingBottom).toBe('')
   })
 
-  it('la taille du texte dérive de `sizeUnits`, floor(size * 0,85)', () => {
-    const { container } = render(<HookOverlay hook={resolved({ size: 56 })} />)
+  it('la taille du texte dérive de fontSizeFraction (sizePermille / 1000)', () => {
+    const hook = resolved({ sizePermille: 150 })
+    const layout = hookLayout(hook)
+    const { container } = render(<HookOverlay hook={hook} />)
     const span = container.querySelector('span') as HTMLElement
-    // sizeUnits = floor(56 * 0.85) = 47, 47 / 288 * 100 = 16.319...
-    expect(span.style.fontSize).toMatch(/^calc\(16\.319/)
+    expect(span.style.fontSize).toMatch(new RegExp(`^calc\\(${percent(layout.fontSizeFraction)}cqw\\)$`))
   })
-})
 
-describe('rgbaFrom', () => {
-  it('convertit une couleur hex et une opacité en pourcentage vers `rgba()`', () => {
-    expect(rgbaFrom('#000000', 60)).toBe('rgba(0, 0, 0, 0.6)')
-    expect(rgbaFrom('#FFFFFF', 100)).toBe('rgba(255, 255, 255, 1)')
-    expect(rgbaFrom('#FF0000', 0)).toBe('rgba(255, 0, 0, 0)')
+  it('le rayon des coins dérive de radiusFraction (cornerRadiusPermille / 1000)', () => {
+    const hook = resolved({ cornerRadiusPermille: 40 })
+    const layout = hookLayout(hook)
+    const { container } = render(<HookOverlay hook={hook} />)
+    const span = container.querySelector('span') as HTMLElement
+    expect(span.style.borderRadius).toMatch(new RegExp(`^calc\\(${percent(layout.radiusFraction)}cqw\\)$`))
+  })
+
+  it("force content-box sur le span de texte — le preflight Tailwind pose border-box globalement, sous quoi `max-width` inclurait déjà le rembourrage et le soustraire une seconde fois réduirait la largeur utile en double (relevé par Copilot, PR #117, passe 4)", () => {
+    const { container } = render(<HookOverlay hook={resolved()} />)
+    const span = container.querySelector('span') as HTMLElement
+    expect(span.style.boxSizing).toBe('content-box')
+  })
+
+  it("n'utilise pas pre-wrap — wrapLines (rasteriseur PNG) réduit les espaces répétés à un seul, `pre-wrap` les aurait conservés et désaccordé la largeur de la boîte de la preview de celle du rendu (relevé par Copilot, PR #117, passe 4)", () => {
+    const { container } = render(<HookOverlay hook={resolved()} />)
+    const span = container.querySelector('span') as HTMLElement
+    expect(span.style.whiteSpace).toBe('normal')
   })
 })

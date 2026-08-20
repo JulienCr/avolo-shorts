@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { LOUDNORM, METADATA_SCRUB, RESAMPLE, videoEncodedArgs } from '@/core/ffmpeg/encoder'
 import type { Ratio } from '@/core/edl'
+import type { HookSettings } from '@/core/hook'
 import {
   audioArgs,
   blurredVariantArgs,
@@ -210,6 +211,45 @@ function entry(
   ratio: Ratio = '9:16',
 ): FramedSegment {
   return { start, end, crop, ratio }
+}
+
+/**
+ * Le `hookImage` minimal — durée par défaut de 2 s, aucune transition. Les
+ * tests de timing (bornage, fondus) font varier `durationMs`/`enter`/`exit`
+ * explicitement ; les autres n'ont besoin que d'un objet qui type-checke.
+ */
+function hookImage(
+  overrides: Partial<{
+    path: string
+    x: number
+    y: number
+    w: number
+    h: number
+    durationMs: number
+    enter: HookSettings['enter']
+    exit: HookSettings['exit']
+  }> = {},
+): {
+  path: string
+  x: number
+  y: number
+  w: number
+  h: number
+  durationMs: number
+  enter: HookSettings['enter']
+  exit: HookSettings['exit']
+} {
+  return {
+    path: '/h.png',
+    x: 60,
+    y: 90,
+    w: 200,
+    h: 80,
+    durationMs: 2_000,
+    enter: 'none',
+    exit: 'none',
+    ...overrides,
+  }
 }
 
 describe('renderArgs', () => {
@@ -456,18 +496,24 @@ describe('renderArgs', () => {
 
   // **L'ordre verrouillé : sous-titres → hook → marques**, comparé à la
   // chaîne exacte des trois étiquettes, comme les autres tests d'ordre de ce
-  // fichier.
+  // fichier. Le hook s'incruste désormais en `overlay`, comme les logos — pas
+  // de `scale=` préalable puisque le PNG arrive déjà à sa taille finale.
   it('incruste le hook APRÈS les sous-titres et AVANT les marques', () => {
     const a = renderArgs({
       ...base,
       segments: [entry(0, 10)],
       assPath: '/c.ass',
-      hookAssPath: '/h.ass',
+      hookImage: hookImage(),
       logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
     })
     const graph = a[a.indexOf('-filter_complex') + 1]
     expect(graph).toContain("[v0]ass=filename='/c.ass'[vf0]")
-    expect(graph).toContain("[vf0]ass=filename='/h.ass'[vf1]")
+    // L'entrée `[1:v]` est le PNG du hook : la 0 est le segment, le hook suit,
+    // les logos viennent après (voir le test des entrées ffmpeg plus bas).
+    // `enable=` porte la borne temporelle — voir le describe dédié plus bas.
+    expect(graph).toContain(
+      "[vf0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf1]",
+    )
     expect(graph).toContain('[vf1][lg0]overlay=x=40:y=250[v]')
   })
 
@@ -479,12 +525,30 @@ describe('renderArgs', () => {
     const a = renderArgs({
       ...base,
       segments: [entry(0, 10)],
-      hookAssPath: '/h.ass',
+      hookImage: hookImage(),
       logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
     })
     const graph = a[a.indexOf('-filter_complex') + 1]
-    expect(graph).toContain("[v0]ass=filename='/h.ass'[vf0]")
+    expect(graph).toContain("[v0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf0]")
     expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
+  })
+
+  // **Le PNG du hook prend une entrée à lui seul, entre les segments et les
+  // logos** — sans ce décalage, un logo pointerait vers l'entrée du hook.
+  it('décale les entrées des logos d’un cran quand un hook est présent', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [entry(0, 10)],
+      hookImage: hookImage({ x: 0, y: 0, w: 100, h: 40 }),
+      logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+    })
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    // Segment = entrée 0, hook = entrée 1, logo = entrée 2.
+    expect(graph).toContain('[2:v]scale=300:90[lg0]')
+    const inputs = a.join(' ')
+    expect(inputs).toContain('-i /h.png')
+    expect(inputs).toContain('-i /logo.png')
+    expect(inputs.indexOf('-i /h.png')).toBeLessThan(inputs.indexOf('-i /logo.png'))
   })
 
   // Les quatre combinaisons avec/sans sous-titres × avec/sans hook produisent
@@ -494,8 +558,8 @@ describe('renderArgs', () => {
   it.each([
     ['ni sous-titres ni hook', {}],
     ['sous-titres seuls', { assPath: '/c.ass' }],
-    ['hook seul', { hookAssPath: '/h.ass' }],
-    ['les deux', { assPath: '/c.ass', hookAssPath: '/h.ass' }],
+    ['hook seul', { hookImage: hookImage({ x: 0, y: 0, w: 100, h: 40 }) }],
+    ['les deux', { assPath: '/c.ass', hookImage: hookImage({ x: 0, y: 0, w: 100, h: 40 }) }],
   ])('%s : produit un graphe valide, terminé par [v]/[a]', (_name, options) => {
     for (const segments of [[entry(0, 10)], [entry(0, 10), entry(20, 30)]]) {
       const a = renderArgs({ ...base, ...options, segments })
@@ -506,12 +570,130 @@ describe('renderArgs', () => {
     }
   })
 
-  // Même chemin, même échappement mesuré que pour `assPath` — voir « ferme et
-  // rouvre la chaîne autour d'une apostrophe » plus haut, dont ce test reprend
-  // l'entrée éprouvée sur le binaire.
-  it('échappe le chemin du .ass de hook comme celui des sous-titres', () => {
-    const a = renderArgs({ ...base, segments: [entry(0, 10)], hookAssPath: "/l'été:2026/h.ass" })
-    expect(a.join(' ')).toContain(String.raw`ass=filename='/l'\\\''été\:2026/h.ass'`)
+  // **Le contrat temporel du hook** (PR #117, seconde manche) : le PNG en
+  // `overlay` ne porte plus lui-même de durée — `durationMs`/`enter`/`exit`
+  // doivent donc se retrouver dans le graphe, comme l'ancien document ASS
+  // (`hook-ass.ts`, supprimé) les portait par sa ligne `Dialogue` et sa
+  // balise `\fad`. Un test de graphe par égalité de chaîne dit que le filtre
+  // est écrit, pas que l'image s'éteint réellement à l'exécution — voir
+  // `tmp/hook-proof/` pour la preuve à l'image.
+  describe('le contrat temporel du hook', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it("borne l'incrustation à durationMs par enable='between(t,0,…)'", () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ durationMs: 3_500 }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain("overlay=x=60:y=90:enable='between(t,0,3.5)':shortest=1")
+    })
+
+    // `-loop 1` : sans lui, l'entrée du PNG ne décode qu'une seule image, que
+    // `fade` ne peut animer — voir la doc de ce bloc dans `args.ts`.
+    // `-framerate 30` fixe le débit de cette boucle, indépendant de la source.
+    it('boucle le PNG du hook, et seulement lui', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage(),
+        logos: [{ path: '/logo.png', x: 0, y: 0, w: 10, h: 10 }],
+      })
+      const inputs = a.join(' ')
+      expect(inputs).toContain('-loop 1 -framerate 30 -i /h.png')
+      expect(inputs).not.toContain('-loop 1 -framerate 30 -i /logo.png')
+      expect(inputs).not.toContain('-loop 1 -i /s.mp4')
+    })
+
+    it('ne pose aucun filtre de fondu quand enter et exit valent none', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ enter: 'none', exit: 'none' }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).not.toContain('format=rgba')
+      expect(graph).not.toContain('fade=')
+      // Sans fondu, l'overlay lit directement l'entrée brute du hook.
+      expect(graph).toContain("[1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1")
+    })
+
+    it("pose un fondu d'entrée sur le flux brut du hook quand enter vaut fade", () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ enter: 'fade', exit: 'none', durationMs: 2_000 }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain('[1:v]format=rgba,fade=t=in:st=0:d=0.3:alpha=1[hk]')
+      expect(graph).toContain("[hk]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1")
+      expect(graph).not.toContain('fade=t=out')
+    })
+
+    it('pose un fondu de sortie qui finit avant durationMs quand exit vaut fade', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ enter: 'none', exit: 'fade', durationMs: 2_000 }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      // 2 s de durée, 0,3 s de fondu : le fondu commence à 1,7 s et finit pile
+      // à 2 s, l'instant où `enable=` éteint déjà l'incrustation.
+      expect(graph).toContain('[1:v]format=rgba,fade=t=out:st=1.7:d=0.3:alpha=1[hk]')
+      expect(graph).not.toContain('fade=t=in')
+    })
+
+    it('pose les deux fondus, dans le même filtre, quand les deux valent fade', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ enter: 'fade', exit: 'fade', durationMs: 2_000 }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain(
+        '[1:v]format=rgba,fade=t=in:st=0:d=0.3:alpha=1,fade=t=out:st=1.7:d=0.3:alpha=1[hk]',
+      )
+    })
+
+    // **Bornage au plancher de durée** (200 ms, `HOOK_BOUNDS.durationMs.min`) :
+    // deux fondus de 300 ms se chevaucheraient sur toute la durée et le hook
+    // n'atteindrait jamais son opacité normale. Chaque fondu se borne donc à
+    // la moitié de `durationMs` — 100 ms ici, pas 300.
+    it('borne chaque fondu à la moitié de durationMs, au plancher', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ enter: 'fade', exit: 'fade', durationMs: 200 }),
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain(
+        '[1:v]format=rgba,fade=t=in:st=0:d=0.1:alpha=1,fade=t=out:st=0.1:d=0.1:alpha=1[hk]',
+      )
+    })
+
+    // `glitch`/`scanline` ne sont pas implémentées (remis à plus tard par le
+    // propriétaire) : elles se comportent comme `none` — aucun filtre de
+    // fondu — mais avertissent, pour ne pas laisser croire en silence qu'une
+    // transition a été appliquée.
+    it.each(['glitch', 'scanline'] as const)(
+      "traite %s comme none : aucun fondu, mais un avertissement",
+      (transition) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const a = renderArgs({
+          ...base,
+          segments: [entry(0, 10)],
+          hookImage: hookImage({ enter: transition, exit: 'none' }),
+        })
+        const graph = a[a.indexOf('-filter_complex') + 1]
+        expect(graph).not.toContain('format=rgba')
+        expect(graph).not.toContain('fade=')
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(String(warn.mock.calls[0]?.[0])).toContain(transition)
+      },
+    )
   })
 
   it('enchaîne les logos dans l’ordre reçu', () => {
@@ -687,13 +869,32 @@ describe('blurredVariantArgs', () => {
     expect(blurredVariantArgs(base).join(' ')).toContain('gblur=sigma=12')
   })
 
-  // **Le même chemin de hook que `renderArgs`, et c'est le point.** Le
-  // document est écrit en unités de script (`PlayResX 384 × PlayResY 288`),
-  // donc il s'incruste à l'identique sur les deux canevas — contrairement aux
-  // marques, planifiées séparément par canevas.
-  it('incruste le même chemin de hook que renderArgs', () => {
-    const g = graph(blurredVariantArgs({ ...base, hookAssPath: '/h.ass' }))
-    expect(g).toContain("ass=filename='/h.ass'")
+  // **Le même mécanisme que `renderArgs` — `buildRender` est partagé —, mais
+  // pas le même `hookImage`.** Contrairement à l'ancien document ASS, écrit
+  // une fois en unités de script et incrusté à l'identique sur les deux
+  // canevas, le PNG et son placement sont mesurés en pixels : c'est
+  // `renderClip` qui doit passer un `hookImage` propre à CE canevas, pas
+  // cette fonction qui le partagerait à tort.
+  it('incruste le hookImage de cette sortie, en overlay comme les logos', () => {
+    const g = graph(
+      blurredVariantArgs({ ...base, hookImage: hookImage({ x: 30, y: 40, w: 200, h: 80 }) }),
+    )
+    expect(g).toContain('[1:v]overlay=x=30:y=40')
+  })
+
+  // `buildRender` est partagé avec `renderArgs`, mais rien ne garantit que la
+  // variante reçoive le même traitement temporel sans un test qui le vérifie
+  // ICI : le piège documenté par le contrat de la seconde manche (« les deux
+  // sorties ») est précisément qu'un correctif posé côté natif passe à côté
+  // de la variante 9:16. Relevé par Aristarque, PR #117, passe 4.
+  it("borne aussi la variante à durationMs et pose shortest=1, comme renderArgs", () => {
+    const g = graph(
+      blurredVariantArgs({
+        ...base,
+        hookImage: hookImage({ x: 30, y: 40, w: 200, h: 80, durationMs: 3500 }),
+      }),
+    )
+    expect(g).toContain("overlay=x=30:y=40:enable='between(t,0,3.5)':shortest=1")
   })
 
   // **La hauteur occupée suit le ratio du plan**, et c'est la table de la

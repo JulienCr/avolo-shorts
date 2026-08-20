@@ -376,17 +376,23 @@ describe('la famille `ingestion`', () => {
 })
 
 /**
- * La famille `hook` (retour d'usage §6.3), branchée par cette PR : les onze
+ * La famille `hook` (retour d'usage §6.3), branchée par cette PR : les treize
  * défauts globaux du hook, écrits et relus comme les deux familles
  * précédentes.
+ *
+ * `sizePermille` et `cornerRadiusPermille` remplacent l'ancien `size` — un
+ * fond translucide à angles droits recouvrait l'image plutôt que de s'y
+ * poser, le 20 août 2026 — et `uppercase` s'ajoute au même moment.
  */
 describe('la famille `hook`', () => {
-  it('décrit ses onze champs', () => {
+  it('décrit ses treize champs', () => {
     for (const name of [
       'enabled',
       'durationMs',
       'font',
-      'size',
+      'sizePermille',
+      'cornerRadiusPermille',
+      'uppercase',
       'position',
       'alignment',
       'textColor',
@@ -400,16 +406,16 @@ describe('la famille `hook`', () => {
     }
   })
 
-  it('rend les onze défauts sur une base vierge', () => {
+  it('rend les treize défauts sur une base vierge', () => {
     expect(effectiveSettings(db).hook).toEqual(HOOK_DEFAULTS)
   })
 
   it('fait l’aller-retour sur un champ de chacun des quatre types', () => {
     const after = applySettings(db, {
-      hook: { enabled: false, size: 72, position: 'bottom', textColor: '#a1b2c3' },
+      hook: { enabled: false, sizePermille: 150, position: 'bottom', textColor: '#a1b2c3' },
     })
     expect(after.hook.enabled).toBe(false)
-    expect(after.hook.size).toBe(72)
+    expect(after.hook.sizePermille).toBe(150)
     expect(after.hook.position).toBe('bottom')
     expect(after.hook.textColor).toBe('#A1B2C3')
     // Les autres champs ne bougent pas : un patch partiel ne réinitialise rien
@@ -427,7 +433,7 @@ describe('la famille `hook`', () => {
   it('ne recalcule rien : changer un défaut du hook ne touche aucun clip', () => {
     upsertProject(db, PROJECT)
     putClip(db, clip('clip_01', { status: 'kept' }))
-    applySettings(db, { hook: { size: 72 } })
+    applySettings(db, { hook: { sizePermille: 150 } })
     expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
   })
 })
@@ -724,23 +730,23 @@ describe('les clips', () => {
 
 /**
  * Le hook sur un clip (retour d'usage §7) : `hookText` et `hookStyle`, la
- * surcharge par clip des onze défauts globaux.
+ * surcharge par clip des treize défauts globaux.
  */
 describe('le hook sur un clip', () => {
   it('font l’aller-retour, texte et style compris', () => {
-    const c = clip('clip_07', { hookText: 'Une accroche', hookStyle: { size: 72 } })
+    const c = clip('clip_07', { hookText: 'Une accroche', hookStyle: { sizePermille: 150 } })
     putClip(db, c)
     expect(getClip(db, 'clip_07')).toEqual(c)
   })
 
   it('`{}` reste distinct d’une surcharge qui vaudrait le même que le défaut', () => {
     // §7 : les deux doivent rester distincts. `{}` dit « aux valeurs
-    // globales », `{ size: 56 }` dit « j'ai surchargé, et c'est la même
-    // valeur » — l'un ne doit jamais se réduire à l'autre à l'aller-retour.
+    // globales », `{ sizePermille: 90 }` dit « j'ai surchargé, et c'est la
+    // même valeur » — l'un ne doit jamais se réduire à l'autre à l'aller-retour.
     putClip(db, clip('sans-surcharge', { hookStyle: {} }))
-    putClip(db, clip('avec-surcharge', { hookStyle: { size: 56 } }))
+    putClip(db, clip('avec-surcharge', { hookStyle: { sizePermille: 90 } }))
     expect(getClip(db, 'sans-surcharge')?.hookStyle).toEqual({})
-    expect(getClip(db, 'avec-surcharge')?.hookStyle).toEqual({ size: 56 })
+    expect(getClip(db, 'avec-surcharge')?.hookStyle).toEqual({ sizePermille: 90 })
   })
 
   it('un hookStyle illisible retombe sur `{}`, sans rendre le clip illisible', () => {
@@ -763,7 +769,7 @@ describe('le hook sur un clip', () => {
     // colonne corrompue, c'est une valeur qui ne passe plus la validation.
     putClip(db, clip('clip_07'))
     db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
-      JSON.stringify({ size: 9999 }),
+      JSON.stringify({ sizePermille: 9999 }),
       'clip_07',
     )
     expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
@@ -780,13 +786,13 @@ describe('le hook sur un clip', () => {
 
   it('une clé inconnue mêlée à une clé valide fait retomber tout l’objet sur `{}`', () => {
     // Un schéma non strict (`z.object` plutôt que `z.strictObject`) tronquerait
-    // silencieusement la clé inconnue et garderait `size`, exactement le
-    // comportement partiel que les deux tests ci-dessus refusent pour une
+    // silencieusement la clé inconnue et garderait `sizePermille`, exactement
+    // le comportement partiel que les deux tests ci-dessus refusent pour une
     // valeur hors bornes ou une clé seule : la relecture doit se comporter en
     // tout ou rien, pas en filtrage clé par clé. (relevé par Copilot)
     putClip(db, clip('clip_07'))
     db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
-      JSON.stringify({ size: 72, unknownField: true }),
+      JSON.stringify({ sizePermille: 150, unknownField: true }),
       'clip_07',
     )
     expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
@@ -1165,6 +1171,139 @@ describe('migrateSelectionSettingKeys', () => {
     openDb(file).close()
     const db = openDb(file)
     expect(getSettings(db).minutesPerClip).toBe(9)
+    db.close()
+  })
+})
+
+/**
+ * `hook.size` a disparu le 20 août 2026 avec le hook en PNG : `sizePermille`
+ * ne mesure plus la même chose (une fraction de la largeur du canevas, pas
+ * une taille en unités de script ASS), donc la valeur ne se reporte pas —
+ * contrairement à `migrateSelectionSettingKeys`, la clé est simplement
+ * effacée et `HOOK_DEFAULTS.sizePermille` prend le relais.
+ */
+describe('migrateHookSizeSettingKey', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-hook-size-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('efface `hook.size` sans écrire `hook.sizePermille`', () => {
+    openDb(file).close()
+    const raw = new Database(file)
+    raw
+      .prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, 0)')
+      .run('hook.size', '72')
+    raw.close()
+
+    const db = openDb(file)
+    expect(
+      db.prepare("SELECT key FROM settings WHERE key LIKE 'hook.size%'").all(),
+    ).toHaveLength(0)
+    // La valeur d'hier n'a aucune correspondance dans la nouvelle échelle :
+    // le défaut prend le relais, pas un report numérique qui aurait l'air
+    // valide sans l'être.
+    expect(effectiveSettings(db).hook.sizePermille).toBe(HOOK_DEFAULTS.sizePermille)
+    db.close()
+  })
+
+  it('ne touche à rien sur une base qui ne porte pas `hook.size`', () => {
+    const first = openDb(file)
+    applySettings(first, { hook: { sizePermille: 150 } })
+    first.close()
+
+    const db = openDb(file)
+    expect(effectiveSettings(db).hook.sizePermille).toBe(150)
+    db.close()
+  })
+
+  it('est idempotente', () => {
+    openDb(file).close()
+    const raw = new Database(file)
+    raw
+      .prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, 0)')
+      .run('hook.size', '72')
+    raw.close()
+    openDb(file).close()
+    const db = openDb(file)
+    expect(effectiveSettings(db).hook.sizePermille).toBe(HOOK_DEFAULTS.sizePermille)
+    db.close()
+  })
+})
+
+/**
+ * Complément de la suite au-dessus, côté `clips` cette fois : la garantie
+ * anti-perte de données que `migrateHookSizeClipColumn` annonce dans son
+ * commentaire — un `hookStyle.size` de clip ne fait disparaître que `size`,
+ * jamais les autres surcharges. Relevé par Copilot (PR #117, passe 3) : les
+ * tests d'origine ne couvraient que `settings`, pas `clips`.
+ */
+describe('migrateHookSizeClipColumn', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-hook-size-clip-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  function seedClipWithLegacySize(): void {
+    const first = openDb(file)
+    upsertProject(first, PROJECT)
+    putClip(first, clip('vieux-hook'))
+    first.close()
+    // `HOOK_STYLE_SCHEMA` est strict : passer par `putClip` rejetterait `size`
+    // au lieu de le laisser en base comme le ferait une vraie base d'avant
+    // cette PR. On écrit donc le JSON brut, comme la migration le lira.
+    const raw = new Database(file)
+    raw
+      .prepare('UPDATE clips SET hookStyle = ? WHERE id = ?')
+      .run(JSON.stringify({ size: 72, position: 'bottom' }), 'vieux-hook')
+    raw.close()
+  }
+
+  it('efface seulement `size`, conserve les autres surcharges', () => {
+    seedClipWithLegacySize()
+
+    const db = openDb(file)
+    const raw = db.prepare('SELECT hookStyle FROM clips WHERE id = ?').get('vieux-hook') as {
+      hookStyle: string
+    }
+    expect(JSON.parse(raw.hookStyle)).toEqual({ position: 'bottom' })
+    // Et le résultat est de nouveau lisible par le schéma strict — c'est
+    // précisément ce qu'une clé `size` qui traîne empêchait.
+    expect(getClip(db, 'vieux-hook')?.hookStyle).toEqual({ position: 'bottom' })
+    db.close()
+  })
+
+  it('ne touche pas un clip sans `size`', () => {
+    const first = openDb(file)
+    upsertProject(first, PROJECT)
+    putClip(first, clip('sans-size', { hookStyle: { position: 'bottom' } }))
+    first.close()
+
+    const db = openDb(file)
+    expect(getClip(db, 'sans-size')?.hookStyle).toEqual({ position: 'bottom' })
+    db.close()
+  })
+
+  it('est idempotente', () => {
+    seedClipWithLegacySize()
+
+    openDb(file).close()
+    const db = openDb(file)
+    expect(getClip(db, 'vieux-hook')?.hookStyle).toEqual({ position: 'bottom' })
     db.close()
   })
 })

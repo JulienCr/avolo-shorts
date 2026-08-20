@@ -93,7 +93,7 @@ Return only:
  * défaut que `CLAUDE.md` documente pour un bornage réécrit deux fois plutôt
  * qu'importé (« un correctif compris comme local revient au champ suivant »).
  */
-export const HOOK_PATTERNS = `HOOK PLAYBOOK — pick the strongest fitting pattern for \`viral_hook_text\` (max 10 words):
+export const HOOK_PATTERNS = `HOOK PLAYBOOK — pick the strongest fitting pattern for \`viral_hook_text\` (max 6 words):
 - Open question: "Why does everyone get this wrong?"
 - Hot take / controversy: "Stop doing this. Seriously."
 - Number / fact shock: "97% of people miss this."
@@ -191,7 +191,7 @@ Return only:
       "video_description_for_tiktok": "<description + hashtags>",
       "video_description_for_instagram": "<description + hashtags>",
       "video_title_for_youtube_short": "<title max 100 chars>",
-      "viral_hook_text": "<short overlay max 10 words>"
+      "viral_hook_text": "<short overlay max 6 words>"
     }
   ]
 }

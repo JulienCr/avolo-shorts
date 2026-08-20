@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
-import { resolveHook, type HookSettings } from '@/core/hook'
-import { renderHookAss } from '@/core/hook-ass'
+import { outputSize } from '@/core/framing'
+import { hookIsBurned, resolveHook, type HookSettings } from '@/core/hook'
 import type { PublishedFraming, ClipOutputs } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
 import { isAAbsence } from '@/server/bytes'
@@ -149,9 +149,11 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
  * — `docs/retour-ui-and-next-steps.md` (le PR 1 en a déjà la phrase, sous la
  * section des réglages). La péremption est donc **paresseuse**, posée ici, à
  * la porte qui pose déjà la question. Elle ne coûte qu'une lecture de la
- * table `settings` et un appel à `resolveHook`/`renderHookAss`, tous deux
- * purs — pas de `ffprobe`, pas de Drive, ce que les trois autres critères ne
- * peuvent pas dire.
+ * table `settings` et deux appels purs — `resolveHook`, `outputSize` —, pas de
+ * rasterisation PNG : ce qui détermine l'image (le hook résolu, sa géométrie,
+ * les dimensions des deux canevas) suffit à la comparaison, voir
+ * `hookFingerprint` dans `src/server/steps/render.ts`. Pas de `ffprobe`, pas
+ * de Drive, ce que les trois autres critères ne peuvent pas dire.
  */
 export function deliveryToDay(
   clip: Clip,
@@ -159,8 +161,10 @@ export function deliveryToDay(
   hookGlobals: HookSettings = effectiveSettings(getDb()).hook,
 ): boolean {
   if (clip.status !== 'exported') return false
+  const produced = outputs(clip, framing)
+  const resolvedHook = resolveHook(hookGlobals, clip)
   return fingerprintToDay(
-    lireFingerprint(outputs(clip, framing).fingerprint),
+    lireFingerprint(produced.fingerprint),
     renderedShape(clip, renderedFraming(framing)),
     // `texte: undefined` pour la même raison que les deux champs au-dessus :
     // sonder le texte suppose de lire le transcript, sur le Drive, et un `GET`
@@ -169,10 +173,15 @@ export function deliveryToDay(
       markers: null,
       look: null,
       text: undefined,
-      // `warn: false` — cette fonction tourne à chaque `GET` (voir plus haut) ;
-      // l'avertissement `glitch`/`scanline` de `renderHookAss` reste réservé
-      // au chemin d'export (`src/server/steps/render.ts`).
-      hook: renderHookAss(resolveHook(hookGlobals, clip), false),
+      hook: hookIsBurned(resolvedHook)
+        ? {
+            resolved: resolvedHook,
+            canvases: {
+              native: outputSize(framing.ratio),
+              variant: produced.variant9x16 === null ? null : outputSize('9:16'),
+            },
+          }
+        : null,
     },
   )
 }

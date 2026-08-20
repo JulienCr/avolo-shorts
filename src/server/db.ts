@@ -249,6 +249,66 @@ function migrateSelectionSettingKeys(db: Database.Database): void {
 }
 
 /**
+ * Efface `hook.size`, la clé qu'a remplacée `hook.sizePermille` le 20 août
+ * 2026 quand le hook est passé de l'ASS à un PNG rasterisé.
+ *
+ * **Pas le patron de `migrateSelectionSettingKeys` : la valeur ne se
+ * reporte pas.** Là-bas l'ancien et le nouveau nom désignaient la même
+ * grandeur (renommage pur, issue #73) ; ici `size` était une taille en
+ * unités de script ASS et `sizePermille` est une fraction de la largeur du
+ * canevas — deux échelles sans correspondance. Reporter l'ancienne valeur
+ * numérique sous la nouvelle clé donnerait un nombre qui a l'air valide et
+ * qui ne veut plus rien dire. La base de production de ce dépôt ne porte
+ * aujourd'hui aucune ligne `hook.size` (vérifié le 20 août 2026) : le coût
+ * réel de cette purge est nul, et `HOOK_DEFAULTS.sizePermille` prend le
+ * relais pour quiconque en aurait posé une.
+ */
+function migrateHookSizeSettingKey(db: Database.Database): void {
+  db.prepare("DELETE FROM settings WHERE key = 'hook.size'").run()
+}
+
+/**
+ * Retire `size` de chaque `hookStyle` de `clips`, en conservant les autres
+ * clés. Complément de `migrateHookSizeSettingKey` juste au-dessus, qui ne
+ * purge que `settings` : `HOOK_STYLE_SCHEMA` (`z.strictObject`, plus bas)
+ * rejette l'objet entier dès qu'une clé inconnue traîne, donc un clip qui
+ * portait encore `hookStyle.size` perdrait silencieusement **toutes** ses
+ * autres surcharges au premier `readHookStyle` — pas seulement `size`.
+ * Relevé en review sur la PR #117 (Aristarque et Copilot, indépendamment) ;
+ * la base de production ne porte aujourd'hui aucun clip avec cette clé
+ * (vérifié le 20 août 2026), donc le coût réel est nul, mais la fenêtre où
+ * un tel clip aurait pu naître — entre le merge de #114 et cette migration —
+ * existait, et la classe de défaut (un renommage de clé qui efface un clip
+ * entier) survivrait au prochain renommage sans ce filet.
+ *
+ * On manipule le JSON brut plutôt que `HOOK_STYLE_SCHEMA` : passer par le
+ * schéma strict reproduirait exactement le bug qu'on corrige. Une ligne dont
+ * le JSON ne parse pas est laissée telle quelle — elle est déjà illisible
+ * pour `readHookStyle`, cette migration ne répare pas ce cas-là.
+ */
+function migrateHookSizeClipColumn(db: Database.Database): void {
+  const rows = db
+    .prepare(`SELECT id, hookStyle FROM clips WHERE hookStyle LIKE '%"size"%'`)
+    .all() as { id: string; hookStyle: string }[]
+  const update = db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?')
+  db.transaction(() => {
+    for (const row of rows) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(row.hookStyle)
+      } catch {
+        continue
+      }
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue
+      const record = parsed as Record<string, unknown>
+      if (!('size' in record)) continue
+      const rest = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'size'))
+      update.run(JSON.stringify(rest), row.id)
+    }
+  })()
+}
+
+/**
  * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` couvre le
  * cas courant — une base absente —, `migrer` celles qui existaient déjà.
  *
@@ -268,6 +328,8 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   db.exec(SCHEMA)
   migrate(db)
   migrateSelectionSettingKeys(db)
+  migrateHookSizeSettingKey(db)
+  migrateHookSizeClipColumn(db)
   return db
 }
 
@@ -516,7 +578,17 @@ const HOOK_FIELD_SHAPES = {
   enabled: { type: 'boolean', defaultValue: HOOK_DEFAULTS.enabled },
   durationMs: { type: 'integer', defaultValue: HOOK_DEFAULTS.durationMs, ...HOOK_BOUNDS.durationMs },
   font: { type: 'text', defaultValue: HOOK_DEFAULTS.font, enum: HOOK_FONTS },
-  size: { type: 'integer', defaultValue: HOOK_DEFAULTS.size, ...HOOK_BOUNDS.size },
+  sizePermille: {
+    type: 'integer',
+    defaultValue: HOOK_DEFAULTS.sizePermille,
+    ...HOOK_BOUNDS.sizePermille,
+  },
+  cornerRadiusPermille: {
+    type: 'integer',
+    defaultValue: HOOK_DEFAULTS.cornerRadiusPermille,
+    ...HOOK_BOUNDS.cornerRadiusPermille,
+  },
+  uppercase: { type: 'boolean', defaultValue: HOOK_DEFAULTS.uppercase },
   position: { type: 'text', defaultValue: HOOK_DEFAULTS.position, enum: HOOK_POSITIONS },
   alignment: { type: 'text', defaultValue: HOOK_DEFAULTS.alignment, enum: HOOK_ALIGNMENTS },
   textColor: { type: 'color', defaultValue: HOOK_DEFAULTS.textColor },
@@ -917,7 +989,13 @@ export const HOOK_STYLE_SHAPE = {
   enabled: z.boolean(),
   durationMs: z.number().int().min(HOOK_BOUNDS.durationMs.min).max(HOOK_BOUNDS.durationMs.max),
   font: z.enum(HOOK_FONTS),
-  size: z.number().int().min(HOOK_BOUNDS.size.min).max(HOOK_BOUNDS.size.max),
+  sizePermille: z.number().int().min(HOOK_BOUNDS.sizePermille.min).max(HOOK_BOUNDS.sizePermille.max),
+  cornerRadiusPermille: z
+    .number()
+    .int()
+    .min(HOOK_BOUNDS.cornerRadiusPermille.min)
+    .max(HOOK_BOUNDS.cornerRadiusPermille.max),
+  uppercase: z.boolean(),
   position: z.enum(HOOK_POSITIONS),
   alignment: z.enum(HOOK_ALIGNMENTS),
   textColor: z

@@ -14,11 +14,13 @@
  * un champ au preset que rien ne réglerait.
  *
  * **`bound`, `digits`, `HEX_COLOR`, `styleColor`, `colorInLine`, `escape`,
- * `fontName`, `hundredths`, `timeAss` et `BOM` sont exportés pour
- * `src/core/hook-ass.ts`**, le second émetteur ASS (le hook). Les deux documents
- * partagent la même syntaxe de couleur et la même unité de temps : deux
- * implémentations de la même conversion finiraient par ne plus dire la même
- * chose.
+ * `fontName`, `hundredths`, `timeAss` et `BOM` n'étaient exportés que pour
+ * `src/core/hook-ass.ts`**, le second émetteur ASS (le hook). Il a disparu le
+ * 20 août 2026 : le hook s'incruste désormais par un PNG rasterisé
+ * (`src/server/hook-image.ts`), pas par un second document ASS — un fond plein
+ * à coins arrondis n'était pas atteignable avec `BorderStyle: 3`. Ces dix
+ * symboles redeviennent internes à ce module, `renderAss` restant seul export
+ * de rendu.
  */
 
 import type { Word } from '@/core/transcript'
@@ -58,12 +60,8 @@ const FONT_BY_DEFAULT = 'Anton'
  * Nommé, et écrit par son point de code : un U+FEFF littéral au milieu d'une
  * chaîne est **invisible dans la source**, et la première édition de l'en-tête
  * le perdrait sans que personne ne le voie — jusqu'aux accents mangés au rendu.
- *
- * **Exporté pour `src/core/hook-ass.ts`**, qui écrit un second document ASS et
- * a besoin du même repère d'encodage — le hook porte les mêmes accents que
- * les sous-titres.
  */
-export const BOM = '\uFEFF'
+const BOM = '\uFEFF'
 
 /**
  * La marge basse, en unités de `PlayResY` — soit ~15 % de la hauteur de l'image.
@@ -95,10 +93,10 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   marginV: MARGIN_LOW,
 }
 
-export const HEX_COLOR = /^[0-9A-Fa-f]{6}$/
+const HEX_COLOR = /^[0-9A-Fa-f]{6}$/
 
 /** Le nombre coercé et borné, ou `fallback` s'il n'est pas un nombre fini. */
-export function bound(value: number, min: number, max: number, fallback: number): number {
+function bound(value: number, min: number, max: number, fallback: number): number {
   const n = Number.isFinite(value) ? value : fallback
   return Math.max(min, Math.min(max, n))
 }
@@ -110,7 +108,7 @@ export function bound(value: number, min: number, max: number, fallback: number)
  * Un repli plutôt qu'une exception : une couleur invalide vient d'un preset
  * édité à la main, et elle ne doit pas faire échouer un export de trois minutes.
  */
-export function digits(color: string, fallback: string): string {
+function digits(color: string, fallback: string): string {
   const digits = String(color ?? '').replace(/^#/, '')
   return HEX_COLOR.test(digits) ? digits.toUpperCase() : fallback
 }
@@ -125,7 +123,7 @@ function twoDigits(n: number): string {
  * `opacity` vaut 1 pour opaque et 0 pour transparent — l'inverse de l'alpha ASS,
  * où 255 est transparent.
  */
-export function styleColor(color: string, opacity: number, fallback = 'FFFFFF'): string {
+function styleColor(color: string, opacity: number, fallback = 'FFFFFF'): string {
   const d = digits(color, fallback)
   const alpha = Math.round((1 - bound(opacity, 0, 1, 1)) * 255)
   return `&H${twoDigits(alpha)}${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}`
@@ -138,7 +136,7 @@ export function styleColor(color: string, opacity: number, fallback = 'FFFFFF'):
  * aucune erreur : juste des couleurs inversées. `#FFE500` s'écrit `&H00E5FF&`
  * ici et `&H0000E5FF` là-haut.
  */
-export function colorInLine(color: string, fallback = 'FFD700'): string {
+function colorInLine(color: string, fallback = 'FFD700'): string {
   const d = digits(color, fallback)
   return `&H${d.slice(4, 6)}${d.slice(2, 4)}${d.slice(0, 2)}&`
 }
@@ -153,7 +151,7 @@ export function colorInLine(color: string, fallback = 'FFD700'): string {
  * qui laissait passer un événement de quatre millisecondes — écrit avec un début
  * et une fin identiques.
  */
-export function hundredths(seconds: number): number {
+function hundredths(seconds: number): number {
   return Math.round(Math.max(0, Number.isFinite(seconds) ? seconds : 0) * 100)
 }
 
@@ -165,7 +163,7 @@ export function hundredths(seconds: number): number {
  * écrêtait à 99 pour éviter un `0:00:59.100` — ce qui écrit `59,999` en
  * `0:00:59.99` et perd jusqu'à dix millisecondes au passage de chaque seconde.
  */
-export function timeAss(hundredths: number): string {
+function timeAss(hundredths: number): string {
   const hours = Math.floor(hundredths / 360000)
   const minutes = Math.floor((hundredths % 360000) / 6000)
   const s = Math.floor((hundredths % 6000) / 100)
@@ -191,7 +189,7 @@ export function timeAss(hundredths: number): string {
  * lequel les lecteurs s'accordent. On remplace donc par un caractère voisin —
  * c'est ce que fait la version d'origine, éprouvée en production.
  */
-export function escape(text: string): string {
+function escape(text: string): string {
   return text
     .replace(/[\r\n]+/g, ' ')
     .replace(/\\/g, '/')
@@ -206,7 +204,7 @@ export function escape(text: string): string {
  * taille, les couleurs et la marge qui la suivent ; une accolade ou un antislash
  * y ouvriraient des balises.
  */
-export function fontName(name: string): string {
+function fontName(name: string): string {
   const clean = String(name ?? '')
     .replace(/[^A-Za-z0-9 _-]/g, '')
     .trim()

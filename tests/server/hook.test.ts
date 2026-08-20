@@ -109,7 +109,11 @@ describe('generateHookText', () => {
 
     const text = await generateHookText(getDb(), baseClip().id)
     expect(text).toBe('Ce pingouin va tout faire capoter')
-    expect(text.split(' ').length).toBeLessThanOrEqual(10)
+    // 6, pas 10 : le plafond que `normalizeHookText` applique depuis la PR
+    // #117 (relevé par Aristarque — le texte de ce test ne fait que 6 mots,
+    // donc l'ancienne assertion à 10 ne l'exerçait pas ; la ligne 169
+    // couvre déjà le plafond avec un texte de 12 mots).
+    expect(text.split(' ').length).toBeLessThanOrEqual(6)
 
     // Le prompt envoyé porte le texte du clip, pas la phrase hors segment.
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { messages: { content: string }[] }
@@ -166,7 +170,7 @@ describe('generateHookText', () => {
     await expect(generateHookText(getDb(), baseClip().id)).resolves.toBe('')
   })
 
-  it('normalise le texte rendu — guillemets et plafond de dix mots', async () => {
+  it('normalise le texte rendu — guillemets et plafond de six mots', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -175,7 +179,7 @@ describe('generateHookText', () => {
     )
     const text = await generateHookText(getDb(), baseClip().id)
     expect(text.startsWith('"')).toBe(false)
-    expect(text.split(' ')).toHaveLength(10)
+    expect(text.split(' ')).toHaveLength(6)
   })
 
   it("échoue avant tout appel réseau quand le fournisseur réglé n'a pas sa clé — critère 8", async () => {

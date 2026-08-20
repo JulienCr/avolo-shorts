@@ -30,6 +30,7 @@ import {
   videoEncodedArgs,
   type EncoderName,
 } from '@/core/ffmpeg/encoder'
+import { hookFadeMsFor, type HookSettings } from '@/core/hook'
 
 /**
  * Options communes à toutes les commandes.
@@ -342,16 +343,37 @@ export type RenderOptions = {
   out: { w: number; h: number }
   assPath?: string
   /**
-   * Le document ASS du hook (`src/core/hook-ass.ts`), s'il y a quelque chose à
-   * incruster.
+   * Le PNG du hook (`src/server/hook-image.ts`), s'il y a quelque chose à
+   * incruster — un `overlay=x:y`, comme les logos, et non plus un second
+   * document `ass=`.
    *
-   * **`blurredVariantArgs` reçoit le même chemin que `renderArgs`.** Le
-   * document est écrit en unités de script (`PlayResX 384 × PlayResY 288`),
-   * donc il s'incruste à l'identique sur les deux canevas — contrairement aux
-   * marques, qui doivent être planifiées par canevas parce qu'elles sont
-   * positionnées en pixels.
+   * **`x`/`y` sont en pixels du canevas de CETTE sortie**, contrairement à
+   * l'ancien document ASS qui s'incrustait à l'identique sur les deux
+   * canevas via un repère partagé (`PlayResX 384 × PlayResY 288`). Le PNG et
+   * son placement sont désormais mesurés en pixels réels, donc **planifiés
+   * par canevas** — `renderArgs` et `blurredVariantArgs` reçoivent chacun
+   * leur propre `hookImage`, pas le même. C'est la même raison que les
+   * marques (`scheduleMarkers`) : deux canevas de largeurs différentes (le
+   * natif 16:9 fait 1920, tout le reste fait 1080) rendraient sinon un hook
+   * mal placé ou mal dimensionné sur l'un des deux.
+   *
+   * **`durationMs`/`enter`/`exit` viennent tels quels du hook résolu**
+   * (`ResolvedHook`, `@/core/hook`) : c'est ce que ce fichier transporte
+   * jusqu'au graphe — `enable='between(t,0,…)'` pour la borne, `fade=` pour
+   * les transitions (`hookFadeMsFor`). Le PNG en lui-même ne porte aucune
+   * animation ; tout le comportement temporel se pose ici, jamais dans
+   * `src/server/hook-image.ts`, qui rasterise une image fixe.
    */
-  hookAssPath?: string
+  hookImage?: {
+    path: string
+    x: number
+    y: number
+    w: number
+    h: number
+    durationMs: number
+    enter: HookSettings['enter']
+    exit: HookSettings['exit']
+  }
   fontsDir?: string
   logos?: { path: string; x: number; y: number; w: number; h: number }[]
   encoder: EncoderName
@@ -549,6 +571,13 @@ function buildRender(
   const logos = o.logos ?? []
   const multi = segments.length > 1
 
+  // **Le PNG du hook prend une entrée à lui seul**, juste après les segments
+  // et avant les logos — voir la doc de `hookImage` sur `RenderOptions` pour
+  // pourquoi il est planifié par canevas et non partagé entre les deux
+  // sorties comme l'était l'ancien document ASS.
+  const hookInputIndex = o.hookImage !== undefined ? segments.length : null
+  const logoInputOffset = segments.length + (hookInputIndex !== null ? 1 : 0)
+
   // Ce qui s'incruste **sur le canevas composé**, une seule fois, à sa taille.
   //
   // **L'ordre est sous-titres → hook → marques.** Le hook après les
@@ -570,10 +599,49 @@ function buildRender(
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
     steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
-  if (o.hookAssPath !== undefined) {
-    const options = [option('filename', o.hookAssPath)]
-    if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
-    steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+  // **Un `overlay`, comme les logos — plus un `ass=`.** Le PNG est déjà à sa
+  // taille finale (`src/server/hook-image.ts` le rasterise pour ce canevas
+  // précis), donc pas de `scale=` préalable comme en ont besoin les logos, qui
+  // partent de leur taille native.
+  //
+  // **`enable='between(t,0,durationSec)'` porte la borne temporelle que le PNG
+  // ne porte plus** (l'ancien document ASS la portait par sa seule ligne
+  // `Dialogue`, jusqu'à `renderHookAss(...).durationMs`) : sans elle, un flux
+  // d'image statique bouclé (`-loop 1`, voir plus bas) resterait incrusté du
+  // début à la fin du clip, quelle que soit `durationMs` — c'était le défaut
+  // relevé par Copilot sur la PR #117, `src/core/ffmpeg/args.ts:592`.
+  const hookFadeInMs =
+    o.hookImage !== undefined ? hookFadeMsFor(o.hookImage.enter, 'enter', o.hookImage.durationMs) : 0
+  const hookFadeOutMs =
+    o.hookImage !== undefined ? hookFadeMsFor(o.hookImage.exit, 'exit', o.hookImage.durationMs) : 0
+  const hookNeedsFade = hookFadeInMs > 0 || hookFadeOutMs > 0
+  // `'hk'` quand un fondu se pose sur le flux — voir le `format=rgba,fade=…`
+  // poussé au graphe plus bas, avec les mises à l'échelle des logos, pour la
+  // même raison qu'elles : cette étape porte sur l'entrée BRUTE du hook, pas
+  // sur le canevas composé que `steps`/`chain()` font grandir. `none` (les
+  // deux côtés) ne pose aucun filtre de fondu : l'entrée brute suffit.
+  const hookOverlayLabel =
+    hookInputIndex !== null ? (hookNeedsFade ? 'hk' : `${hookInputIndex}:v`) : null
+  if (o.hookImage !== undefined && hookInputIndex !== null && hookOverlayLabel !== null) {
+    const x = number(o.hookImage.x, 'hookImage.x')
+    const y = number(o.hookImage.y, 'hookImage.y')
+    number(o.hookImage.durationMs, 'hookImage.durationMs')
+    const durationSec = seconds(o.hookImage.durationMs / 1000)
+    // **`:shortest=1`, sans quoi ce rendu ne se termine jamais.** Vérifié à
+    // l'exécution, pas déduit de la doctrine ffmpeg (contrat de la PR #117,
+    // seconde manche) : l'entrée du hook est bouclée (`-loop 1`, voir plus
+    // bas) et donc infinie, et le comportement PAR DÉFAUT d'`overlay` —
+    // `eof_action=repeat`, qui ne réagit qu'à la fin du flux SECONDAIRE — ne
+    // fait rien terminer quand c'est le flux PRINCIPAL qui finit le premier.
+    // Reproduit : sans `shortest=1`, un rendu de 6 s a atteint 1040 s de
+    // sortie en 10 s réelles avant d'être arrêté — il n'aurait jamais fini
+    // tout seul. `shortest=1` force la sortie à s'arrêter avec le flux le
+    // plus court, qui est TOUJOURS le contenu principal ici (le hook boucle
+    // à l'infini) : aucun risque de tronquer le contenu par erreur.
+    steps.push(
+      (e, s) =>
+        `[${e}][${hookOverlayLabel}]overlay=x=${x}:y=${y}:enable='between(t,0,${durationSec})':shortest=1[${s}]`,
+    )
   }
   // Les logos passent **après** l'incrustation des sous-titres et du hook :
   // une marque posée dessous serait recouverte par le premier carton (ou le
@@ -648,12 +716,45 @@ function buildRender(
   // **96 kHz**. Personne ne livre du 96 kHz.
   graph.push(`[${audio}]${LOUDNORM},${RESAMPLE}[a]`)
 
+  // **Le fondu se pose sur le flux BRUT du hook, avant l'overlay** — jamais
+  // sur le canevas composé, que `format=rgba,fade=…` n'a aucune raison de
+  // toucher. `format=rgba` d'abord : `fade=…:alpha=1` a besoin d'un canal
+  // alpha explicite pour ne faire varier QUE la transparence — sans lui, un
+  // pixel format sans alpha ferait fondre vers du noir plutôt que vers de la
+  // transparence, ce qui laisserait un carton noir plein cadre au lieu de
+  // rien du tout. `hookInputIndex`, pas `hookOverlayLabel` : ce bloc est ce
+  // qui PRODUIT `'hk'`, il doit donc partir de l'entrée brute.
+  if (o.hookImage !== undefined && hookInputIndex !== null && hookNeedsFade) {
+    const durationSec = o.hookImage.durationMs / 1000
+    const filters = ['format=rgba']
+    if (hookFadeInMs > 0) {
+      filters.push(`fade=t=in:st=0:d=${seconds(hookFadeInMs / 1000)}:alpha=1`)
+    }
+    if (hookFadeOutMs > 0) {
+      // `st` compté depuis le début de CE flux, qui démarre à `t=0` comme le
+      // flux principal (aucun `-ss` sur l'entrée du hook) : la sortie doit
+      // donc finir avant `durationSec`, l'instant où `enable=` éteint déjà
+      // l'incrustation — sinon le fondu de sortie commencerait après que le
+      // hook a déjà disparu.
+      const fadeOutStartSec = durationSec - hookFadeOutMs / 1000
+      filters.push(
+        `fade=t=out:st=${seconds(fadeOutStartSec)}:d=${seconds(hookFadeOutMs / 1000)}:alpha=1`,
+      )
+    }
+    graph.push(`[${hookInputIndex}:v]${filters.join(',')}[hk]`)
+  }
+
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
   // les superpose. La position donnée est le coin supérieur gauche.
+  //
+  // **`logoInputOffset`, pas `segments.length`** : le PNG du hook, s'il y en
+  // a un, s'est glissé une entrée avant les logos (voir sa définition plus
+  // haut) — sans ce décalage, chaque logo pointerait vers l'entrée qui le
+  // précède, et le dernier logo n'aurait pas d'entrée du tout.
   logos.forEach((logo, i) => {
     const w = number(logo.w, `logos[${i}].w`)
     const h = number(logo.h, `logos[${i}].h`)
-    graph.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
+    graph.push(`[${logoInputOffset + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
   chain(graph, content, steps, terminal)
@@ -668,6 +769,20 @@ function buildRender(
       '-t', seconds(s.end - s.start),
       '-i', o.src,
     ]),
+    // Le PNG du hook, s'il y en a un, juste après les segments — voir
+    // `hookInputIndex`. Pas de `-hwaccel` non plus : même raison que les logos.
+    //
+    // **`-loop 1 -framerate 30`, contrairement aux logos.** Un logo se pose
+    // tel quel sur toute la durée du clip et une seule image décodée suffit —
+    // `overlay` la répète après coup (`eof_action=repeat` par défaut). Le
+    // hook, lui, doit soit s'éteindre (`enable=`) soit fondre (`fade=`) à un
+    // instant précis : `fade` a besoin d'un flux dont les images continuent
+    // d'arriver au fil du temps pour animer quoi que ce soit, ce qu'une
+    // entrée non bouclée — une seule image décodée, une seule fois — ne
+    // fournit pas. `-loop 1` boucle indéfiniment ; le graphe s'arrête de
+    // toute façon avec le reste du contenu (aucun `-t` ni `-shortest` requis
+    // côté hook). Vérifié à l'image dans `tmp/hook-proof/`.
+    ...(o.hookImage !== undefined ? ['-loop', '1', '-framerate', '30', '-i', o.hookImage.path] : []),
     // Les logos n'ont pas de `-hwaccel` : décoder un PNG sur le GPU ne rapporte
     // rien et le ferait remonter en mémoire vidéo pour redescendre aussitôt.
     ...logos.flatMap((logo) => ['-i', logo.path]),

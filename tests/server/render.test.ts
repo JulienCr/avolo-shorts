@@ -15,6 +15,7 @@ import {
   lFingerprintGap,
   type ObservedBurnIn,
   type CaptionsLook,
+  type HookObserved,
   renderFingerprint,
   renderIsStale,
   markersHaveMoved,
@@ -183,9 +184,9 @@ function fingerprintWith(
   markers: readonly MarkerNative[],
   burnedIn = true,
   cad: RenderedFraming = framing(),
-  hookDocument: string | null = null,
+  hook: HookObserved | null = null,
 ): ReturnType<typeof renderFingerprint> {
-  return renderFingerprint(shape(c, cad), markers, { burnedIn, look: look(), text: null }, hookDocument)
+  return renderFingerprint(shape(c, cad), markers, { burnedIn, look: look(), text: null }, hook)
 }
 
 /** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
@@ -397,7 +398,7 @@ describe("l'empreinte de rendu", () => {
       // le contenu du transcript.
       captionsContent: null,
       // `clip()` ne porte pas de hook (`hookText: ''`) : les deux champs bruts
-      // sont recopiés tels quels, `hook` (le condensat du document) est `null`
+      // sont recopiés tels quels, `hook` (le condensat de l'image) est `null`
       // puisque `fingerprintWith` passe `null` par défaut.
       hookText: '',
       hookStyle: {},

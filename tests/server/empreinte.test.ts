@@ -571,7 +571,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
     expect(fs.existsSync(paths.fingerprint)).toBe(true)
 
-    await patch({ hookStyle: { size: 72 } })
+    await patch({ hookStyle: { sizePermille: 120 } })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
     expect(fs.existsSync(paths.mp4)).toBe(false)
@@ -590,6 +590,35 @@ describe('le hook (#48, le cas sans précédent)', () => {
     // réglage global a changé.
     expect(getClip(getDb(), CLIP)).toEqual(toDay)
     expect(clipOutputs(toDay).mp4Url).toBeNull()
+  })
+
+  /**
+   * **Le point de la seconde manche de la PR #117** : `durationMs` (et
+   * `enter`/`exit`) déterminent désormais le graphe ffmpeg
+   * (`enable='between(t,0,…)'`, `fade=`), mais ne changent RIEN au PNG
+   * rasterisé lui-même — sa géométrie ne dépend que de `sizePermille` et des
+   * autres réglages de forme. Sans `durationMs` dans `hookImageDigest`
+   * (`src/server/steps/render.ts`), un export resterait perpétuellement
+   * « à jour » après un changement de durée, alors que la vidéo produite
+   * diffère bel et bien (le hook resterait incrusté plus ou moins longtemps).
+   * Ce test couvre exactement ce que le test voisin (`textColor`) ne couvre
+   * pas : `textColor` change aussi le PNG, `durationMs` non.
+   */
+  it('un changement de durationMs périme l’export même si le PNG rendu est identique', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const toDay = getClip(getDb(), CLIP) as Clip
+    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+
+    applySettings(getDb(), { hook: { durationMs: 5_000 } })
+
+    expect(getClip(getDb(), CLIP)).toEqual(toDay)
+    expect(clipOutputs(toDay).mp4Url).toBeNull()
+
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(pathsRender(ID, CLIP, '1:1').mp4)
   })
 
   it('le prochain export journalise « hook » et refuse de sauter après ce même réglage global', async () => {

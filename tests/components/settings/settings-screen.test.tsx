@@ -327,15 +327,15 @@ describe('les pannes', () => {
 
 describe('la section du hook', () => {
   it('affiche les valeurs de la base, jamais les constantes du code', async () => {
-    // Servir `size: 72` dans la fixture : l'écran doit montrer 72, pas le
-    // défaut du code (56). Afficher une constante ferait croire à une valeur
-    // enregistrée là où la base porte autre chose.
+    // Servir `sizePermille: 150` dans la fixture : l'écran doit montrer 150,
+    // pas le défaut du code (90). Afficher une constante ferait croire à une
+    // valeur enregistrée là où la base porte autre chose.
     server({
-      read: () => response({ ...DEFAULTS, hook: { ...HOOK_DEFAULTS, size: 72 } }),
+      read: () => response({ ...DEFAULTS, hook: { ...HOOK_DEFAULTS, sizePermille: 150 } }),
     })
     await mountScreen()
 
-    expect(screen.getByLabelText('Taille')).toHaveProperty('value', '72')
+    expect(screen.getByLabelText('Taille')).toHaveProperty('value', '150')
   })
 
   it('ouvre les quatre transitions du premier lot, deux d’entre elles inertes', async () => {

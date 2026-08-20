@@ -1,0 +1,200 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { POST as postHook } from '@/app/api/clips/[id]/hook/route'
+import { GeminiBlockedError } from '@/server/steps/candidates'
+import type { Clip } from '@/core/edl'
+import { applySettings, closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
+import { generateHookText } from '@/server/steps/hook'
+
+/**
+ * La génération du hook — `generateHookText`, premier appelant de l'usage
+ * `'hook'`, et `POST /api/clips/:id/hook`, son seul appelant.
+ *
+ * **Ollama, pas Gemini.** Ollama n'a pas de clé à vérifier : c'est le
+ * fournisseur qui laisse la politique de clé (point 8) se tester à côté, sur
+ * un fournisseur qui en réclame une, sans mélanger les deux préoccupations
+ * dans le même test.
+ */
+
+const PROJECT = '2025-06-15-cqlp'
+
+function baseClip(fields: Partial<Clip> = {}): Clip {
+  return {
+    id: `${PROJECT}_000060000-000090000`,
+    projectId: PROJECT,
+    segments: [{ start: 60, end: 90 }],
+    ratio: 'auto',
+    cropX: 0.5,
+    captions: true,
+    branding: true,
+    title: 'Le pingouin au tribunal',
+    description: 'Un procès improbable',
+    status: 'kept',
+    pass: 1,
+    hookText: '',
+    hookStyle: {},
+    ...fields,
+  }
+}
+
+let root: string
+
+function writeTranscriptFixture(): void {
+  const dir = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'transcript.json'),
+    JSON.stringify({
+      language: 'fr',
+      segments: [
+        { start: 60, end: 65, text: 'Alors moi je dis que ce pingouin ment', words: [] },
+        { start: 70, end: 75, text: 'Un pingouin avec un cartable ça se discute', words: [] },
+        // Hors du segment du clip [60,90) : ne doit pas apparaître dans le prompt.
+        { start: 200, end: 205, text: 'Une phrase totalement hors sujet', words: [] },
+      ],
+    }),
+  )
+}
+
+function ollamaResponse(hook: string): Response {
+  return new Response(JSON.stringify({ message: { content: JSON.stringify({ hook }) } }), {
+    status: 200,
+  })
+}
+
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-hook-'))
+  process.env.REPLAY_DIR = path.join(root, 'replays')
+  process.env.STAGE_DIR = path.join(root, 'stage')
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
+  fs.mkdirSync(process.env.REPLAY_DIR, { recursive: true })
+  fs.writeFileSync(path.join(process.env.REPLAY_DIR, `${PROJECT}.mp4`), '')
+
+  upsertProject(getDb(), {
+    id: PROJECT,
+    sourcePath: path.join(root, 'replays', `${PROJECT}.mp4`),
+    stagedPath: path.join(root, 'stage', `${PROJECT}.mp4`),
+    durationSec: 400,
+    sizeBytes: 12,
+    mtimeMs: 0,
+    createdAt: 1,
+  })
+  putClip(getDb(), baseClip())
+  writeTranscriptFixture()
+
+  // Une adresse fixe : sans elle, `createOllamaCall` shellerait `ip route
+  // show default` pour résoudre la passerelle WSL, un aller au système que ce
+  // test n'a pas à payer.
+  applySettings(getDb(), { ai: { hookProvider: 'ollama', ollamaBaseUrl: 'http://127.0.0.1:11434' } })
+})
+
+afterEach(() => {
+  closeDb()
+  fs.rmSync(root, { recursive: true, force: true })
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
+
+function context(id: string): { params: Promise<{ id: string }> } {
+  return { params: Promise.resolve({ id }) }
+}
+
+describe('generateHookText', () => {
+  it("produit le texte du fournisseur, normalisé — c'est le critère 7", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ollamaResponse('Ce pingouin va tout faire capoter'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const text = await generateHookText(getDb(), baseClip().id)
+    expect(text).toBe('Ce pingouin va tout faire capoter')
+    expect(text.split(' ').length).toBeLessThanOrEqual(10)
+
+    // Le prompt envoyé porte le texte du clip, pas la phrase hors segment.
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { messages: { content: string }[] }
+    const prompt = body.messages[0].content
+    expect(prompt).toContain('Alors moi je dis que ce pingouin ment')
+    expect(prompt).toContain('Un pingouin avec un cartable ça se discute')
+    expect(prompt).not.toContain('Une phrase totalement hors sujet')
+  })
+
+  it('un texte vide rendu par le modèle est une réponse valide, pas une erreur', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('')))
+    await expect(generateHookText(getDb(), baseClip().id)).resolves.toBe('')
+  })
+
+  it('normalise le texte rendu — guillemets et plafond de dix mots', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        ollamaResponse('"un deux trois quatre cinq six sept huit neuf dix onze douze"'),
+      ),
+    )
+    const text = await generateHookText(getDb(), baseClip().id)
+    expect(text.startsWith('"')).toBe(false)
+    expect(text.split(' ')).toHaveLength(10)
+  })
+
+  it("échoue avant tout appel réseau quand le fournisseur réglé n'a pas sa clé — critère 8", async () => {
+    applySettings(getDb(), { ai: { hookProvider: 'gemini', hookModel: 'gemini-3.1-flash-lite' } })
+    vi.stubEnv('GEMINI_API_KEY', '')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow(/GEMINI_API_KEY/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('un blocage de contenu ne se réessaie pas — critère 9', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: {}, done_reason: 'length' }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    // `done_reason: 'length'` se traduit en `MAX_TOKENS`, une troncature — pas
+    // un refus. On simule ici plutôt une fin non nommée, qui échoue aussi sans
+    // se réessayer (Ollama n'a pas de filtre fournisseur nommé, voir
+    // `toFinishReason`) : le point qui compte est le même, un seul appel.
+    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('propage un refus de contenu nommé sans le réessayer', async () => {
+    // Simulé via une réponse Gemini bloquée, pour exercer `leverIfBlocked`
+    // avec un refus réellement nommé plutôt que la fin non reconnue d'Ollama.
+    applySettings(getDb(), { ai: { hookProvider: 'gemini', hookModel: 'gemini-3.1-flash-lite' } })
+    vi.stubEnv('GEMINI_API_KEY', 'clé-de-test')
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [{ finishReason: 'SAFETY' }],
+          promptFeedback: {},
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow(GeminiBlockedError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('POST /api/clips/:id/hook', () => {
+  it('régénère le hook et l’écrit sur le clip', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Un pingouin, un procès, un scandale')))
+
+    const clip = baseClip()
+    const response = await postHook(new Request('http://test', { method: 'POST' }), context(clip.id))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { clip: Clip }
+    expect(body.clip.hookText).toBe('Un pingouin, un procès, un scandale')
+    expect(getClip(getDb(), clip.id)?.hookText).toBe('Un pingouin, un procès, un scandale')
+  })
+
+  it('404 sur un clip inconnu', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    const response = await postHook(new Request('http://test', { method: 'POST' }), context('inconnu'))
+    expect(response.status).toBe(404)
+  })
+})

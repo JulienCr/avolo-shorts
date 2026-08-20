@@ -449,4 +449,68 @@ describe('scheduleHookBackfill', () => {
 
     expect(getClip(getDb(), clip.id)?.hookText).toBe('Écrit à la main')
   })
+
+  /**
+   * **Relevé par Copilot sur la PR #121.** Contrairement au bouton
+   * « Régénérer » et au `PATCH`, ce rattrapage part sans le moindre geste de
+   * l'utilisateur sur CE clip précis au moment où l'appel se termine :
+   * écrire quand même périmerait silencieusement une livraison que personne
+   * n'a demandé de refaire. `fresh.status !== 'kept'` doit donc abandonner
+   * sur `exported` comme sur `discarded`.
+   */
+  it('un export terminé pendant l’appel gagne aussi sur la réponse du modèle', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '' })
+    putClip(getDb(), clip)
+
+    let resolveFetch: (response: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve
+        }),
+      ),
+    )
+
+    const work = scheduleHookBackfill(getDb(), clip.id)
+    // Pendant l'appel, le clip est exporté.
+    putClip(getDb(), { ...clip, status: 'exported' })
+    resolveFetch(ollamaResponse('Une accroche du modèle'))
+    await work
+
+    const written = getClip(getDb(), clip.id)
+    expect(written?.hookText).toBe('')
+    expect(written?.status).toBe('exported')
+  })
+
+  /**
+   * **Relevé par Copilot sur la PR #121.** La relecture ne garde que
+   * `hookText` vide comme condition d'écriture, mais l'écran autorise à
+   * saisir le badge avant l'accroche : un badge tapé pendant l'appel ne doit
+   * pas disparaître sous celui que le modèle vient de générer.
+   */
+  it('un badge saisi pendant l’appel gagne sur celui du modèle', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '', hookBadge: '' })
+    putClip(getDb(), clip)
+
+    let resolveFetch: (response: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve
+        }),
+      ),
+    )
+
+    const work = scheduleHookBackfill(getDb(), clip.id)
+    // Pendant l'appel, quelqu'un saisit le badge à la main — sans hookText.
+    putClip(getDb(), { ...clip, hookBadge: 'Écrit à la main' })
+    resolveFetch(ollamaResponse('Une accroche du modèle', 'DÉFI 10'))
+    await work
+
+    const written = getClip(getDb(), clip.id)
+    expect(written?.hookText).toBe('Une accroche du modèle')
+    expect(written?.hookBadge).toBe('Écrit à la main')
+  })
 })

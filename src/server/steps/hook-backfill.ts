@@ -1,10 +1,7 @@
 import type Database from 'better-sqlite3'
 
-import { isGuard } from '@/core/phase'
-import { clipFraming } from '@/server/clip-framing'
 import { getClip, putClip } from '@/server/db'
 import { generateHook } from '@/server/steps/hook'
-import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps/render'
 
 /**
  * Le rattrapage du hook, quand un candidat devient un clip gardé sans en
@@ -57,15 +54,6 @@ function messageOf(cause: unknown): string {
 }
 
 /**
- * Lance, en tâche de fond, la génération du hook d'un clip fraîchement gardé
- * qui n'en a pas. **Ne lève jamais, n'attend rien, ne bloque rien.**
- *
- * Rend la promesse plutôt que `void`, et c'est un choix de testabilité
- * assumé : l'appelant de production l'ignore (`void scheduleHookBackfill(…)`),
- * un test l'attend au lieu de sonder la base. Elle ne rejette pas — un échec
- * s'y résout après un avertissement.
- */
-/**
  * Attend que tous les rattrapages en vol se soient tus. **Une couture de
  * test, et elle est assumée comme telle.**
  *
@@ -80,6 +68,19 @@ export function pendingHookBackfills(): Promise<void> {
   return Promise.all([...inFlight.values()]).then(() => undefined)
 }
 
+/**
+ * Lance, en tâche de fond, la génération du hook d'un clip fraîchement gardé
+ * qui n'en a pas. **Ne lève jamais, n'attend rien, ne bloque rien.**
+ *
+ * Rend la promesse plutôt que `void`, et c'est un choix de testabilité
+ * assumé : l'appelant de production l'ignore (`void scheduleHookBackfill(…)`),
+ * un test l'attend au lieu de sonder la base. Elle ne rejette pas — un échec
+ * s'y résout après un avertissement.
+ *
+ * (relevé par Aristarque, PR #121, passe 3 : les deux blocs de doc étaient
+ * inversés — celui-ci suivait immédiatement `pendingHookBackfills`, et cette
+ * fonction-ci se retrouvait sans JSDoc attaché.)
+ */
 export function scheduleHookBackfill(db: Database.Database, clipId: string): Promise<void> {
   // **Rien d'asynchrone au-dessus de cette ligne.** La réservation ne ferme la
   // course entre deux `PATCH` rapprochés que si aucun point d'attente ne
@@ -89,7 +90,7 @@ export function scheduleHookBackfill(db: Database.Database, clipId: string): Pro
   if (already !== undefined) return already
 
   const clip = getClip(db, clipId)
-  if (clip === undefined || !isGuard(clip.status) || clip.hookText.trim() !== '') {
+  if (clip === undefined || clip.status !== 'kept' || clip.hookText.trim() !== '') {
     return Promise.resolve()
   }
 
@@ -101,24 +102,30 @@ export function scheduleHookBackfill(db: Database.Database, clipId: string): Pro
       // la ligne entière, et l'appel tient jusqu'à trente secondes — assez
       // pour qu'un autosave ou un autre onglet se glisse dedans.
       const fresh = getClip(db, clipId)
-      // Trois façons de devenir périmé pendant l'appel : le clip a disparu, il
-      // a été écarté, ou quelqu'un a saisi un hook à la main. Dans les trois
-      // cas la réponse du modèle se jette. **On n'écrase jamais un hook non
-      // vide** — c'est ce qui distingue un rattrapage d'une régénération.
-      if (fresh === undefined || !isGuard(fresh.status) || fresh.hookText.trim() !== '') return
-      // **Périme le rendu exporté, comme le fait déjà `PATCH /api/clips/:id`.**
-      // `docs/retour-ui-and-next-steps.md` §7 : « toute modification du hook
-      // […] doit invalider les fichiers exportés existants ». Le clip est
-      // `kept` au moment où le rattrapage part, mais l'appel LLM tient jusqu'à
-      // trente secondes (`TIMEOUT_MS`, `src/server/steps/hook.ts`) : un export
-      // déclenché entre-temps peut produire des MP4 sans hook (accroche encore
-      // vide, donc non incrustée) avant que ce bloc n'écrive le texte généré.
-      // Sans cet appel, le statut resterait `exported` sur des fichiers qui ne
-      // montrent pas ce hook-là. (relevé par Copilot)
-      const framing = clipFraming(fresh)
-      const paths = pathsRender(fresh.projectId, clipId, framing.ratio)
-      putClip(db, { ...fresh, hookText: text, hookBadge: badge })
-      discardRenderStale(db, clipId, paths, fresh, renderedFraming(framing))
+      // **Quatre façons de devenir périmé pendant l'appel : le clip a
+      // disparu, il a été écarté, il a été exporté, ou quelqu'un a saisi un
+      // hook à la main.** Dans les quatre cas la réponse du modèle se jette.
+      // **`fresh.status !== 'kept'`, pas `isGuard`** : contrairement au
+      // bouton « Régénérer » (`POST /api/clips/:id/hook`) et au `PATCH`, ce
+      // rattrapage part sans le moindre geste de l'utilisateur sur CE clip
+      // précis au moment où l'appel se termine. Écrire quand même sur un
+      // clip devenu `exported` faudrait rabattre son statut et effacer ses
+      // MP4 comme le fait déjà `PATCH` pour une édition manuelle — mais ici
+      // ce serait un processus de fond qui périme silencieusement une
+      // livraison que personne n'a demandé de refaire, ce que le rattrapage
+      // n'a pas mandat de faire. **On n'écrase jamais un hook non vide** non
+      // plus — c'est ce qui distingue un rattrapage d'une régénération.
+      // (relevé par Copilot)
+      if (fresh === undefined || fresh.status !== 'kept' || fresh.hookText.trim() !== '') return
+      // **Le badge relu l'emporte s'il existe déjà.** La relecture ci-dessus
+      // ne garde que `hookText` vide comme condition d'écriture, mais
+      // l'écran autorise à saisir le badge avant l'accroche — un badge tapé
+      // pendant les trente secondes de l'appel LLM ne doit pas disparaître
+      // sous celui que le modèle vient de générer. Même règle que « on
+      // n'écrase jamais un hook non vide », un champ plus loin. (relevé par
+      // Copilot)
+      const nextBadge = fresh.hookBadge.trim() !== '' ? fresh.hookBadge : badge
+      putClip(db, { ...fresh, hookText: text, hookBadge: nextBadge })
     } catch (cause) {
       // **Le tri ne casse jamais.** Garder un clip est un geste au clavier
       // dans le feed ; il ne peut pas dépendre d'un fournisseur LLM joignable.

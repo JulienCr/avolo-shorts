@@ -89,6 +89,17 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
       style={{
         justifyContent:
           hook.position === 'top' ? 'flex-start' : hook.position === 'bottom' ? 'flex-end' : 'center',
+        // **Le bord du canevas, reproduit.** `inset-0` fait déjà de cette
+        // boîte l'équivalent du `canvas.w`/`canvas.h` du rasteriseur — voir
+        // la doc de tête du fichier. Le rasteriseur ne dessine jamais
+        // au-delà de ses propres bords ; sans `overflow: hidden` ici, une
+        // pastille démesurée (jusqu'à 120 caractères, non normalisée côté
+        // route) déborde de la preview alors que le PNG exporté, lui,
+        // s'arrête au bord du canevas. Posé sur le composite entier — pas
+        // sur la seule pastille — parce que les marges du conteneur parent
+        // et le retrait de la pastille entrent aussi dans ce que le
+        // rasteriseur borne à `canvas.w`. (relevé par Copilot)
+        overflow: 'hidden',
       }}
     >
       <div
@@ -165,16 +176,6 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
                 // ligne ; le navigateur le ferait. Même classe de défaut que
                 // le `pre-wrap` corrigé sur la PR #117, passe 4.
                 whiteSpace: 'nowrap',
-                // **La même borne que le rasteriseur, et le même rognage.**
-                // `badgeWidth` y est plafonné à `canvas.w` (`src/server/hook-image.ts`) ;
-                // sans cette borne, une saisie manuelle proche des 120
-                // caractères que la route accepte déborde de la boîte 9:16
-                // dans cette preview alors que le PNG exporté, lui, s'arrête
-                // au bord du canevas. `content-box` retire le rembourrage des
-                // deux côtés, comme `maxWidth` du carton juste en dessous.
-                // (relevé par Copilot)
-                maxWidth: cqw(1 - 2 * layout.badgePaddingXFraction),
-                overflow: 'hidden',
               }}
             >
               {badge}

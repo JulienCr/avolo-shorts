@@ -41,6 +41,12 @@ import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps
  * déjà livré laissait donc le statut à `exported` et ses MP4 en place alors
  * qu'ils ne montrent plus ce texte-là, la vague de l'empreinte (§48) restant
  * aveugle à une écriture qui ne passe pas par elle. (relevé par Copilot)
+ *
+ * **L'invalidation peut échouer sans laisser le statut mentir.** Un `rmSync`
+ * qui lève pour une autre raison qu'une absence (`force: true` couvre déjà
+ * celle-là) intervient après que le nouveau hook a été écrit ; sans le même
+ * rattrapage que `PATCH` — rabattre `exported` à `kept` — le clip resterait
+ * livré sur des fichiers que rien n'a pu écarter. (relevé par Copilot)
  */
 export const POST = route(
   'POST /api/clips/:id/hook',
@@ -61,7 +67,15 @@ export const POST = route(
     const framing = clipFraming(fresh)
     const paths = pathsRender(fresh.projectId, id, framing.ratio)
     putClip(db, { ...fresh, hookText: text, hookBadge: badge })
-    discardRenderStale(db, id, paths, fresh, renderedFraming(framing))
+    try {
+      discardRenderStale(db, id, paths, fresh, renderedFraming(framing))
+    } catch (cause) {
+      console.warn(`Sorties non mises à jour pour ${id} :`, cause)
+      const toDay = getClip(db, id)
+      if (toDay !== undefined && toDay.status === 'exported') {
+        putClip(db, { ...toDay, status: 'kept' })
+      }
+    }
     const written = getClip(db, id) ?? { ...fresh, hookText: text, hookBadge: badge }
     return json({ clip: written })
   },

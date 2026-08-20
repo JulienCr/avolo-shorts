@@ -1,10 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { GlobalFonts } from '@napi-rs/canvas'
+import { GlobalFonts, createCanvas, loadImage } from '@napi-rs/canvas'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
+import { HOOK_DEFAULTS, hookLayout, type ResolvedHook } from '@/core/hook'
 import { renderHookImage } from '@/server/hook-image'
 
 /**
@@ -30,6 +30,124 @@ afterEach(() => {
 })
 
 describe('renderHookImage', () => {
+  describe('le badge, composé dans le même PNG', () => {
+    /**
+     * **Le garde-fou de non-régression de tout ce chantier.** Sans badge, le
+     * composite doit rendre exactement ce que rendait le rasteriseur d'avant :
+     * mêmes dimensions, même position. Si ce test tombe, c'est que la
+     * composition a changé le cas nominal, qui est aussi le cas courant.
+     */
+    it('un hook sans badge rend exactement la boîte d’avant', () => {
+      const sans = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      const vide = renderHookImage(resolved({ badge: '   ' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(sans).not.toBeNull()
+      if (sans === null || vide === null) return
+      // Un badge fait de blancs est un badge absent : c'est `trim()` qui
+      // tranche, du même geste que `hookIsBurned` pour l'accroche.
+      expect(vide.width).toBe(sans.width)
+      expect(vide.height).toBe(sans.height)
+    })
+
+    it('la pastille ajoute de la hauteur, moins son chevauchement', () => {
+      const sans = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      const avec = renderHookImage(resolved({ badge: 'DÉFI 10' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(sans).not.toBeNull()
+      expect(avec).not.toBeNull()
+      if (sans === null || avec === null) return
+      expect(avec.height).toBeGreaterThan(sans.height)
+      // Et pas de la hauteur pleine de la pastille : le chevauchement en
+      // reprend une part.
+      const layout = hookLayout(resolved({ badge: 'DÉFI 10' }))
+      const badgeHeight = 1080 * layout.badgeHeightFraction
+      expect(avec.height - sans.height).toBeLessThan(badgeHeight)
+    })
+
+    it('le composite prend la largeur du plus large des deux', () => {
+      // Une accroche d’un mot court, un badge de trois mots : c'est la
+      // pastille qui décide de la largeur, cas que le carton seul n'atteint
+      // jamais.
+      const hook = resolved({ text: 'OUI', badge: 'UN DEUX TROIS' })
+      const image = renderHookImage(hook, { w: 1080, h: 1920 }, FONTS_DIR)
+      const carton = renderHookImage(resolved({ text: 'OUI', badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(image).not.toBeNull()
+      expect(carton).not.toBeNull()
+      if (image === null || carton === null) return
+      expect(image.width).toBeGreaterThan(carton.width)
+    })
+
+    /**
+     * **La seule assertion de pixel de ce fichier, et elle est structurelle.**
+     * Elle ne vérifie aucun rendu de texte : elle vérifie l'ORDRE de dessin.
+     * La pastille mord sur le carton, donc elle doit être peinte APRÈS lui ;
+     * peinte avant, le fond opaque du carton en effacerait la partie basse.
+     * C'est le seul défaut de cette composition qui produirait une image
+     * plausible et fausse — donc le seul qu'un test de dimensions ne verrait
+     * pas passer.
+     */
+    it('dans la zone de chevauchement, c’est la pastille qu’on voit, pas le carton', async () => {
+      const hook = resolved({
+        text: 'ENCORE UN PROCÈS',
+        badge: 'DÉFI 10',
+        alignment: 'center',
+        backgroundColor: '#FFFFFF',
+        badgeBackground: '#E5007D',
+      })
+      const image = renderHookImage(hook, { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(image).not.toBeNull()
+      if (image === null) return
+
+      const layout = hookLayout(hook)
+      const badgeHeight = Math.round(1080 * layout.badgeHeightFraction)
+      const overlap = Math.round(1080 * layout.badgeOverlapFraction)
+      expect(overlap).toBeGreaterThan(1)
+
+      // Un point au milieu de la bande de chevauchement, sur l'axe vertical
+      // de la pastille — donc à l'intérieur des deux boîtes à la fois.
+      const y = badgeHeight - Math.floor(overlap / 2)
+      const surface = createCanvas(image.width, image.height)
+      const ctx = surface.getContext('2d')
+      ctx.drawImage(await loadImage(image.buffer), 0, 0)
+      const [r, g, b] = ctx.getImageData(Math.round(image.width / 2), y, 1, 1).data
+      expect([r, g, b]).toEqual([0xe5, 0x00, 0x7d])
+    })
+
+    it('un badge démesuré ne fait jamais déborder le composite du canevas', () => {
+      const hook = resolved({
+        text: 'MOT',
+        badge: 'X'.repeat(120),
+        sizePermille: 250,
+      })
+      const image = renderHookImage(hook, { w: 1080, h: 200 }, FONTS_DIR)
+      expect(image).not.toBeNull()
+      if (image === null) return
+      expect(image.width).toBeLessThanOrEqual(1080)
+      expect(image.height).toBeLessThanOrEqual(200)
+      expect(image.x).toBeGreaterThanOrEqual(0)
+      expect(image.y).toBeGreaterThanOrEqual(0)
+      expect(image.x + image.width).toBeLessThanOrEqual(1080)
+      expect(image.y + image.height).toBeLessThanOrEqual(200)
+    })
+
+    /**
+     * En alignement `left`, le bord gauche du CARTON doit coïncider avec
+     * celui du composite — même quand la pastille est plus large que lui,
+     * cas où un placement naïf collerait le carton au bord de la pastille et
+     * le décalerait de la marge de sécurité que `hookPlacement` pose.
+     */
+    it.each(['left', 'right'] as const)(
+      'en alignement %s, le carton touche le bord du composite même sous une pastille plus large',
+      (alignment) => {
+        const hook = resolved({ text: 'OUI', badge: 'UN DEUX TROIS', alignment })
+        const image = renderHookImage(hook, { w: 1080, h: 1920 }, FONTS_DIR)
+        expect(image).not.toBeNull()
+        if (image === null) return
+        const marginX = Math.round(1080 * hookLayout(hook).marginXFraction)
+        const expected = alignment === 'left' ? marginX : 1080 - marginX - image.width
+        expect(image.x).toBe(expected)
+      },
+    )
+  })
+
   it('rend null quand le hook est désactivé ou son texte est vide — pas de PNG à incruster', () => {
     expect(renderHookImage(resolved({ enabled: false }), { w: 1080, h: 1920 }, FONTS_DIR)).toBeNull()
     expect(renderHookImage(resolved({ text: '' }), { w: 1080, h: 1920 }, FONTS_DIR)).toBeNull()

@@ -126,11 +126,7 @@ const USAGES: readonly Usage[] = [
     modelField: 'hookModel',
     title: 'Hook',
     help: 'Le modèle qui écrirait le texte d’accroche affiché en début de clip.',
-    banner: {
-      title: 'Pas encore branché.',
-      description:
-        'Ce réglage se persiste, mais rien ne le lit : la génération automatique du hook n’existe pas encore.',
-    },
+    banner: null,
   },
 ]
 

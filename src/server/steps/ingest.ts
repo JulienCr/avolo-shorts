@@ -449,9 +449,15 @@ export async function ensureLocalCopy(
   const start = Date.now()
   let milestone = 0
   let lastLog = start
+  // **`copyLocally` déjà lu, pas relu.** Cette branche n'est atteinte que
+  // parce qu'il vaut `true` ; sans le transmettre, `ingest` relirait la base
+  // après son propre sondage du montage — jusqu'à vingt secondes — et un
+  // réglage décoché entre-temps lui ferait sauter la copie que cette fonction
+  // vient pourtant de promettre. (relevé par Copilot)
   const ingestion = await ingestOrExplain(project, {
     db: options.db,
     signal: options.signal,
+    copyLocally,
     onProgress: (a: ProgressCopy) => {
       if (a.fraction === null) return
       // **Deux conditions, et il faut les deux.** Un palier tous les dix pour

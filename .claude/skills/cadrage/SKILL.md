@@ -102,7 +102,7 @@ repli, passe par lui plutôt que de lire les points en direct.
 
 **4. Les outils qui dessinent la boîte mentent maintenant.** Le cadre suit le
 tronc ; un outil qui affiche les boîtes entières montre un rectangle qui n'est
-celui d'aucune sortie. `scripts/vignettes-cadrage.ts` dessine les deux ;
+celui d'aucune sortie. `scripts/framing-thumbnails.ts` dessine les deux ;
 vérifie-le avant de juger un cadrage sur une image annotée.
 
 **5. `sideTrim` ne décide plus rien sur une analyse de version 2.** Balayé de 0 à
@@ -139,12 +139,12 @@ corpus pour un seul cas connu.
 
 Trois outils, à étendre plutôt qu'à doubler :
 
-- `scripts/mesure-ratios.ts` — la répartition des ratios par clip, par fenêtre de
+- `scripts/measure-ratios.ts` — la répartition des ratios par clip, par fenêtre de
   30 s et **en temps de plan**. C'est le troisième qui compte : il dit ce que la
   sortie verticale montre vraiment ;
-- `scripts/vignettes-cadrage.ts` — une image par plan, choisie sur son débordement,
+- `scripts/framing-thumbnails.ts` — une image par plan, choisie sur son débordement,
   avec les boîtes, les troncs et le rectangle de crop ;
-- `scripts/apercu-cadrage.ts` — un serveur local qui joue le proxy avec la même
+- `scripts/framing-preview.ts` — un serveur local qui joue le proxy avec la même
   surimpression, pour voir *où* dans un plan le crop serre.
 
 Quatre projets sont sur le disque avec leur analyse. **Compare toujours au code en
@@ -167,9 +167,12 @@ nombre de frontières ni le nombre de bascules détectées. Voir
 `docs/ratios-par-clip.md` pour la distinction chiffrée sur les quatre
 émissions.
 
-**Et vérifie à l'image.** Ce n'est pas une précaution de style : sur ce sujet, la
-lecture d'une image a renversé une conclusion que les chiffres soutenaient au moins
-trois fois. Les cas de contrôle, avec leur timestamp :
+**Et vérifie à l'image.** Ce n'est pas une précaution de style : sur ce sujet, une
+lecture d'image a renversé une conclusion chiffrée à répétition. `CLAUDE.md` en
+tient le compte et la raison, sous « Distinguer l'absence d'information de son
+ambiguïté » — ne les recopie pas ici, les deux comptes ont déjà divergé une fois.
+
+Les cas de contrôle, avec leur timestamp :
 
 | Cas | Où | Ce qu'il éprouve |
 |---|---|---|
@@ -177,6 +180,13 @@ trois fois. Les cas de contrôle, avec leur timestamp :
 | Tête à l'extrémité de sa boîte | `2026-03-08-caro-mdlm`, 7 250 s | Qu'un rognage aveugle perd un visage |
 | Deux comédiens aux deux bords | `2025-06-15-cqlp`, 2 120 s | Qu'un 1:1 garde les deux bustes |
 | Gros plan à boîtes instables | `2025-06-15-cqlp`, 2 138 s | Ce qu'aucune largeur ne résout |
+| Bascule acceptée sans coupe | `2026-03-08-caro-mdlm`, 652,5 s | Qu'une frontière posée corresponde à une coupe |
+
+La dernière ligne couvre ce que les quatre autres ne voient pas. Elles éprouvent
+toutes un **cadre**, mesurable ; celle-ci éprouve une **frontière**, qui ne l'est
+pas : le détecteur de bascules en ajoute, donc il peut en ajouter de fausses, et
+une fausse frontière ne dégrade aucun chiffre de cadrage. Elle ne se voit qu'en
+regardant les deux images qui l'encadrent.
 
 ## Ce qui reste ouvert
 

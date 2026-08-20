@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Clip } from '@/core/edl'
-import { normalizeHookText } from '@/core/hook'
+import { normalizeHookBadge, normalizeHookText } from '@/core/hook'
 import { snapToWords, type Window, type Word } from '@/core/transcript'
 
 /**
@@ -64,6 +64,7 @@ const SCHEMA_CLIP = z.object({
   // `predicted_score`** : une accroche illisible ne coûte pas la proposition
   // entière.
   viral_hook_text: z.string().optional().catch(undefined),
+  viral_hook_badge: z.string().optional().catch(undefined),
 })
 
 /**
@@ -361,6 +362,11 @@ export function parseDetailResponse(
         // `Clip.title` par ce même fichier pour la même raison. `normalizeHookText`
         // ramène guillemets et blancs excédentaires à une forme affichable.
         hookText: normalizeHookText(lu.data.viral_hook_text ?? ''),
+        // Le badge voyage dans la même réponse et pour la même raison — mais
+        // il est **facultatif** côté schéma du modèle : toutes les émissions
+        // ne portent pas de libellé récurrent, et l'exiger pousserait le
+        // modèle à en inventer un plutôt qu'à s'abstenir.
+        hookBadge: normalizeHookBadge(lu.data.viral_hook_badge ?? ''),
         // Aucune surcharge à la sortie du repérage : un clip fraîchement
         // proposé suit les défauts globaux du hook tant que personne n'y a
         // touché.

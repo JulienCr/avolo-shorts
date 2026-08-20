@@ -110,6 +110,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     ...overrides,
   }
@@ -401,6 +402,7 @@ describe("l'empreinte de rendu", () => {
       // sont recopiés tels quels, `hook` (le condensat de l'image) est `null`
       // puisque `fingerprintWith` passe `null` par défaut.
       hookText: '',
+      hookBadge: '',
       hookStyle: {},
       hook: null,
     })

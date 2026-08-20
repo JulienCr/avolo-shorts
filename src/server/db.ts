@@ -122,7 +122,10 @@ CREATE TABLE IF NOT EXISTS clips (
   -- rapport aux défauts globaux (famille \`hook\` du registre, plus bas).
   -- \`{}\` dit « aux valeurs globales » ; voir \`hookStyle\` sur \`Clip\`
   -- (\`core/edl.ts\`).
-  hookStyle   TEXT NOT NULL DEFAULT '{}'
+  hookStyle   TEXT NOT NULL DEFAULT '{}',
+  -- Le libellé court posé au-dessus de l'accroche (« DÉFI 10 »). Du contenu,
+  -- comme \`hookText\` : ses deux couleurs, elles, sont un réglage.
+  hookBadge   TEXT NOT NULL DEFAULT ''
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -177,6 +180,10 @@ function migrate(db: Database.Database): void {
   }
   if (!columns.includes('hookStyle')) {
     db.exec(`ALTER TABLE clips ADD COLUMN hookStyle TEXT NOT NULL DEFAULT '{}'`)
+  }
+  // Le badge du hook, arrivé après les deux précédentes. Même défense.
+  if (!columns.includes('hookBadge')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN hookBadge TEXT NOT NULL DEFAULT ''`)
   }
   // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
   // laisser derrière nous ferait une colonne morte au nom presque identique à
@@ -600,6 +607,8 @@ const HOOK_FIELD_SHAPES = {
   },
   enter: { type: 'text', defaultValue: HOOK_DEFAULTS.enter, enum: HOOK_TRANSITIONS },
   exit: { type: 'text', defaultValue: HOOK_DEFAULTS.exit, enum: HOOK_TRANSITIONS },
+  badgeColor: { type: 'color', defaultValue: HOOK_DEFAULTS.badgeColor },
+  badgeBackground: { type: 'color', defaultValue: HOOK_DEFAULTS.badgeBackground },
 } satisfies Record<keyof HookSettings, Omit<SettingField, 'family' | 'name'>>
 
 const HOOK_FIELDS: readonly SettingField[] = (
@@ -1013,6 +1022,14 @@ export const HOOK_STYLE_SHAPE = {
     .max(HOOK_BOUNDS.backgroundOpacity.max),
   enter: z.enum(HOOK_TRANSITIONS),
   exit: z.enum(HOOK_TRANSITIONS),
+  badgeColor: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
+  badgeBackground: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
 } satisfies Record<keyof HookSettings, z.ZodType>
 
 /**
@@ -1060,6 +1077,7 @@ type LineClip = {
   status: ClipStatus
   pass: number
   hookText: string
+  hookBadge: string
   hookStyle: string
 }
 
@@ -1117,6 +1135,7 @@ function clipSinceLine(line: LineClip): Clip {
     status: valueAdmitted(STATUSES, line.status, 'status'),
     pass: line.pass,
     hookText: line.hookText,
+    hookBadge: line.hookBadge,
     hookStyle: readHookStyle(line.hookStyle, line.id),
   }
 }
@@ -1135,18 +1154,20 @@ function lineSinceClip(clip: Clip): LineClip {
     status: clip.status,
     pass: clip.pass,
     hookText: clip.hookText,
+    hookBadge: clip.hookBadge,
     hookStyle: JSON.stringify(clip.hookStyle),
   }
 }
 
-// **Trois endroits, pas un**, pour `hookText`/`hookStyle` : la liste des
-// colonnes, le `VALUES` et le `DO UPDATE SET`. Oublier le troisième laisserait
-// un `putClip` sur un clip existant garder le hook d'avant sans un mot.
+// **Trois endroits, pas un**, pour `hookText`/`hookBadge`/`hookStyle` : la
+// liste des colonnes, le `VALUES` et le `DO UPDATE SET`. Oublier le troisième
+// laisserait un `putClip` sur un clip existant garder le hook d'avant sans un
+// mot.
 const INSERT_CLIP = `
   INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
-                     title, description, status, pass, hookText, hookStyle)
+                     title, description, status, pass, hookText, hookBadge, hookStyle)
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
-          @title, @description, @status, @pass, @hookText, @hookStyle)
+          @title, @description, @status, @pass, @hookText, @hookBadge, @hookStyle)
   ON CONFLICT(id) DO UPDATE SET
     segments    = excluded.segments,
     ratio       = excluded.ratio,
@@ -1158,6 +1179,7 @@ const INSERT_CLIP = `
     status      = excluded.status,
     pass        = excluded.pass,
     hookText    = excluded.hookText,
+    hookBadge   = excluded.hookBadge,
     hookStyle   = excluded.hookStyle`
 
 /**

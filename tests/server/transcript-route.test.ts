@@ -90,6 +90,7 @@ function baseClip(): Clip {
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
   }
 }

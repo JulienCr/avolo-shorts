@@ -70,6 +70,16 @@ export type Clip = {
   pass: number
   /** L'accroche incrustée, vide quand il n'y en a pas. */
   hookText: string
+  /**
+   * Le libellé court posé **au-dessus** de l'accroche — « DÉFI 10 » sur les
+   * vignettes de référence —, vide quand il n'y en a pas.
+   *
+   * **Du contenu, pas du style**, d'où sa place ici plutôt que dans
+   * `hookStyle` : il change d'un clip à l'autre comme le titre change, alors
+   * que ses deux couleurs, elles, sont un réglage global qu'un clip peut
+   * surcharger (`HookSettings.badgeColor`/`badgeBackground`).
+   */
+  hookBadge: string
   /** Les seules clés que ce clip surcharge. `{}` = aux valeurs globales. */
   hookStyle: Partial<HookSettings>
 }

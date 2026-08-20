@@ -62,6 +62,7 @@ const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   status: 'candidate',
   pass: 1,
   hookText: '',
+  hookBadge: '',
   hookStyle: {},
   ...remaining,
 })
@@ -303,6 +304,7 @@ describe('la famille `ai`', () => {
       status: 'kept',
       pass: 1,
       hookText: '',
+      hookBadge: '',
       hookStyle: {},
     })
     applySettings(db, { ai: { correctionProvider: 'openai', hookProvider: 'ollama' } })
@@ -739,6 +741,24 @@ describe('le hook sur un clip', () => {
     expect(getClip(db, 'clip_07')).toEqual(c)
   })
 
+  // **Le badge est du contenu, pas du style** : il vit dans sa propre colonne
+  // à côté de `hookText`, pas dans le JSON de `hookStyle`. L'aller-retour doit
+  // donc le rendre tel quel, et `putClip` l'écrire aux TROIS endroits de
+  // l'`INSERT` — c'est le troisième, l'`ON CONFLICT DO UPDATE`, que ce test
+  // attrape en réécrivant un clip déjà en base.
+  it('le badge fait l’aller-retour, y compris en réécriture', () => {
+    putClip(db, clip('clip_07', { hookBadge: 'DÉFI 10' }))
+    expect(getClip(db, 'clip_07')?.hookBadge).toBe('DÉFI 10')
+
+    putClip(db, clip('clip_07', { hookBadge: 'DÉFI 11' }))
+    expect(getClip(db, 'clip_07')?.hookBadge).toBe('DÉFI 11')
+  })
+
+  it('un badge vide reste vide, il ne devient pas nul', () => {
+    putClip(db, clip('clip_07', { hookBadge: '' }))
+    expect(getClip(db, 'clip_07')?.hookBadge).toBe('')
+  })
+
   it('`{}` reste distinct d’une surcharge qui vaudrait le même que le défaut', () => {
     // §7 : les deux doivent rester distincts. `{}` dit « aux valeurs
     // globales », `{ sizePermille: 90 }` dit « j'ai surchargé, et c'est la
@@ -1005,6 +1025,33 @@ describe('migrer', () => {
     const old = getClip(db, 'vieux')
     expect(old?.hookText).toBe('')
     expect(old?.hookStyle).toEqual({})
+    db.close()
+  })
+
+  it('ajoute `hookBadge` à une base qui ne le porte pas', () => {
+    poserBaseOld(false)
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns).toContain('hookBadge')
+    expect(db.prepare('SELECT hookBadge FROM clips WHERE id = ?').get('vieux')).toEqual({
+      hookBadge: '',
+    })
+    expect(getClip(db, 'vieux')?.hookBadge).toBe('')
+    db.close()
+  })
+
+  it('est idempotente sur `hookBadge` : une seconde ouverture ne fait rien', () => {
+    poserBaseOld(false)
+    openDb(file).close()
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns.filter((c) => c === 'hookBadge')).toHaveLength(1)
     db.close()
   })
 

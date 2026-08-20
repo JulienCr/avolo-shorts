@@ -101,6 +101,28 @@ export const HOOK_PATTERNS = `HOOK PLAYBOOK — pick the strongest fitting patte
 - POV / pattern interrupt: "POV: you finally understand it."
 (These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)`
 
+/**
+ * Le brief du badge : la pastille courte posée **au-dessus** de l'accroche.
+ * Anglais et fixe, comme tout ce fichier, et **partagé par les deux prompts**
+ * pour la raison écrite sur `HOOK_PATTERNS` — deux briefs recopiés à la main
+ * dérivent au premier ajustement.
+ *
+ * **Toute la consigne tient dans « rendre vide plutôt qu'inventer ».** Un
+ * modèle remplit systématiquement un champ facultatif si on ne l'en dissuade
+ * pas, et un badge sur chaque clip est exactement le contraire de ce qu'un
+ * badge sert à faire : signaler qu'un clip appartient à une rubrique
+ * récurrente. Sur toute la ligne, le badge est facultatif — absent du
+ * `required` de `SCHEMA_DETAIL`, `.optional()` côté zod, vide par défaut en
+ * base.
+ */
+export const HOOK_BADGE_BRIEF = `BADGE — an OPTIONAL 1-3 word kicker that sits ABOVE the hook, in a small
+coloured pill (e.g. "DÉFI 10", "EPISODE 4", "BACKSTAGE"). Only return one when
+the clip really carries a label of that kind: a numbered challenge, a segment
+name, a recurring rubric. Return an EMPTY STRING rather than inventing one — a
+badge on every clip is noise, not a signal. Never repeat or paraphrase the hook
+in it.
+(Write it in TRANSCRIPT_LANGUAGE.)`
+
 export type DetailPromptInput = {
   language: string
   videoDuration: number
@@ -166,6 +188,8 @@ CLIP RULES:
 
 ${HOOK_PATTERNS}
 
+${HOOK_BADGE_BRIEF}
+
 COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE (${language}):
 - Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
   without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
@@ -191,7 +215,8 @@ Return only:
       "video_description_for_tiktok": "<description + hashtags>",
       "video_description_for_instagram": "<description + hashtags>",
       "video_title_for_youtube_short": "<title max 100 chars>",
-      "viral_hook_text": "<short overlay max 6 words>"
+      "viral_hook_text": "<short overlay max 6 words>",
+      "viral_hook_badge": "<optional 1-3 word kicker, or empty string>"
     }
   ]
 }
@@ -213,19 +238,30 @@ export type HookPromptInput = {
    * paramètre plutôt qu'importé : ce fichier reste pur et sans dépendance vers
    * `@/core/hook`, comme le reste de `src/core/gemini/`. */
   maxWords: number
+  /** Le plafond de mots du badge — `HOOK_BADGE_MAX_WORDS`, passé pour la même raison. */
+  maxBadgeWords: number
 }
 
 /**
  * Régénère le hook d'un clip **déjà choisi** — contrairement à `detailPrompt`,
  * qui le propose parmi d'autres champs sur des fenêtres encore candidates.
  *
- * **Un seul champ en sortie**, `{ hook: string }` : ce prompt ne rejuge ni le
- * titre ni la description, il ne fait que réécrire l'accroche à partir de ce
- * que le clip contient maintenant — utile après une coupe qui a déplacé
- * l'ouverture, ou simplement parce que la première proposition ne convainc
- * pas.
+ * **Deux champs en sortie**, `{ hook, badge }` : ce prompt ne rejuge ni le
+ * titre ni la description, il ne fait que réécrire l'accroche et sa pastille à
+ * partir de ce que le clip contient maintenant — utile après une coupe qui a
+ * déplacé l'ouverture, ou simplement parce que la première proposition ne
+ * convainc pas. Les deux ensemble et non l'un sans l'autre : une accroche
+ * neuve sous une pastille écrite pour l'ancienne accolerait un sur-titre à une
+ * ligne pour laquelle il n'a jamais été écrit.
  */
-export function hookPrompt({ language, title, description, lines, maxWords }: HookPromptInput): string {
+export function hookPrompt({
+  language,
+  title,
+  description,
+  lines,
+  maxWords,
+  maxBadgeWords,
+}: HookPromptInput): string {
   return `
 You are a senior short-form video viral copywriter.
 Write ONE short hook overlay for this already-selected clip — the text burned
@@ -233,9 +269,13 @@ onto the very first frame to stop a cold viewer from scrolling.
 
 ${HOOK_PATTERNS}
 
+${HOOK_BADGE_BRIEF}
+
 RULES:
 - Return only valid JSON.
 - \`hook\` is at most ${maxWords} words, written in TRANSCRIPT_LANGUAGE (${language}).
+- \`badge\` is at most ${maxBadgeWords} words, or an empty string when the clip
+  carries no such label. Prefer the empty string.
 - No surrounding quotes.
 - Base it on what the clip actually says below — not the title or description alone.
 
@@ -247,7 +287,8 @@ ${lines.join('\n')}
 
 Return only:
 {
-  "hook": "<short overlay max ${maxWords} words>"
+  "hook": "<short overlay max ${maxWords} words>",
+  "badge": "<optional kicker max ${maxBadgeWords} words, or empty string>"
 }
 `
 }

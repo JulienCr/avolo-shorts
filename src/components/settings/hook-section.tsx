@@ -207,6 +207,26 @@ export function HookSection({
           />
         </Row>
 
+        {/* Les couleurs de la pastille du badge, dans leur propre ligne : les
+            deux précédentes habillent le carton, et les mêler ferait lire cinq
+            réglages du même objet. */}
+        <Row>
+          <ColorField
+            label="Badge — texte"
+            value={shown.badgeColor}
+            defaultValue={HOOK_DEFAULTS.badgeColor}
+            disabled={inert}
+            onCommit={(value) => onChange({ badgeColor: value })}
+          />
+          <ColorField
+            label="Badge — fond"
+            value={shown.badgeBackground}
+            defaultValue={HOOK_DEFAULTS.badgeBackground}
+            disabled={inert}
+            onCommit={(value) => onChange({ badgeBackground: value })}
+          />
+        </Row>
+
         <Row>
           <TransitionField
             label="Effet d’apparition"
@@ -223,6 +243,14 @@ export function HookSection({
             onChange={(value) => onChange({ exit: value })}
           />
         </Row>
+
+        {/* « Aucune » en apparition n'est pas un oubli, et personne ne
+            devinerait pourquoi sans cette phrase. */}
+        <p className="text-xs text-muted-foreground">
+          Aucun effet d’apparition par défaut : Instagram fabrique la vignette du
+          fil avec la première image, et un fondu y poserait un hook invisible —
+          son opacité y est nulle, pas partielle.
+        </p>
       </div>
 
       {/* Vrai depuis que le rendu du hook entre dans l'empreinte (#48/#116),

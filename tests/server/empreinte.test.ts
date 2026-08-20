@@ -164,6 +164,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     status: 'kept',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     ...overrides,
   }
@@ -576,6 +577,35 @@ describe('le hook (#48, le cas sans précédent)', () => {
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
     expect(fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+
+  it('un PATCH sur hookBadge périme aussi, par le même chemin', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    await patch({ hookBadge: 'DÉFI 10' })
+
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+
+  // **Un réglage de couleur du badge périme comme les autres**, alors même
+  // qu'il ne vit que dans `hookStyle` : c'est `stableEntries(resolved)` qui
+  // l'embarque dans `hookImageDigest`, sans une ligne écrite pour lui. Ce
+  // test existe pour que ça reste vrai le jour où quelqu'un touche au
+  // condensat.
+  it('une couleur de badge surchargée périme le rendu', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça', hookBadge: 'DÉFI 10' }))
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    await patch({ hookStyle: { badgeBackground: '#00FF00' } })
+
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
   })
 
   it("un réglage global de hook fait passer mp4Url à null sans que le clip ait bougé", async () => {

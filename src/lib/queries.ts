@@ -707,8 +707,32 @@ export function useRegenerateHook() {
     mutationFn: (clipId: string) => postRegenerateHook(clipId),
     onSuccess(result, clipId) {
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
-        detail ? { ...detail, clip: { ...detail.clip, hookText: result.clip.hookText } } : detail,
+        detail
+          ? {
+              ...detail,
+              // `hookText` ET `hookBadge`, et **rien d'autre** : la règle
+              // documentée juste au-dessus vaut mot pour mot pour ce second
+              // champ — écraser `detail.clip` en entier remettrait en place
+              // les champs qu'un `PATCH` concurrent a fait avancer pendant
+              // l'appel.
+              clip: {
+                ...detail.clip,
+                hookText: result.clip.hookText,
+                hookBadge: result.clip.hookBadge,
+              },
+            }
+          : detail,
       )
+      // **La régénération peut désormais périmer le rendu exporté**
+      // (`discardRenderStale`, `src/app/api/clips/[id]/hook/route.ts`) :
+      // le statut peut redescendre d'`exported` à `kept`, et les sorties
+      // disparaître du disque. La fusion ci-dessus ne porte volontairement
+      // que `hookText`/`hookBadge`, donc c'est cette invalidation qui relit
+      // le statut et les sorties à jour — en arrière-plan, sans écraser
+      // tout de suite le cache et donc sans revenir en arrière sur un
+      // `PATCH` concurrent. (relevé par Copilot)
+      void client.invalidateQueries({ queryKey: keys.clip(clipId) })
+      void client.invalidateQueries({ queryKey: keys.candidats(result.clip.projectId) })
     },
   })
 }

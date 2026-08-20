@@ -37,6 +37,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     status: 'kept',
     pass: 1,
     hookText: 'Ça part en vrille',
+    hookBadge: '',
     hookStyle: {},
     ...fields,
   }
@@ -92,7 +93,7 @@ afterEach(() => {
 })
 
 /**
- * Ouvre le panneau replié des douze surcharges — fermé par défaut (voir la
+ * Ouvre le panneau replié des quatorze surcharges — fermé par défaut (voir la
  * doc de `HookFields`). Tout ce qui n'est ni le texte, ni « Hook activé », ni
  * « Régénérer » vit dedans, donc un test qui les interroge doit d'abord
  * cliquer sur « Personnaliser », comme le ferait quelqu'un devant l'écran.
@@ -337,5 +338,76 @@ describe('Régénérer', () => {
     mount({ canRegenerate: false })
     const button = screen.getByRole('button', { name: /Régénérer/ }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
+  })
+})
+
+describe('le badge', () => {
+  it('son champ est visible sans ouvrir « Personnaliser » — c’est du contenu', () => {
+    mount({ clip: clip({ hookBadge: 'DÉFI 10' }) })
+    expect((screen.getByLabelText('Badge') as HTMLInputElement).value).toBe('DÉFI 10')
+  })
+
+  it('temporise l’écriture, exactement comme l’accroche', () => {
+    const onWrite = vi.fn()
+    mount({ onWrite })
+
+    fireEvent.change(screen.getByLabelText('Badge'), { target: { value: 'DÉFI 11' } })
+    expect(onWrite).not.toHaveBeenCalled()
+
+    act(() => void vi.advanceTimersByTime(600))
+    expect(onWrite).toHaveBeenCalledWith({ hookBadge: 'DÉFI 11' })
+  })
+
+  it('a son propre échec, indépendant de celui de l’accroche', async () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn().mockRejectedValue(new Error('boom'))
+    mount({ onWrite })
+
+    fireEvent.change(screen.getByLabelText('Badge'), { target: { value: 'DÉFI 11' } })
+    fireEvent.blur(screen.getByLabelText('Badge'))
+
+    await waitFor(() => expect(screen.getByText(/badge n’a pas été enregistré/i)).toBeTruthy())
+  })
+
+  /**
+   * `hookIsBurned` (`@/core/hook`) n'incruste rien sans accroche. Sans cette
+   * phrase, quelqu'un qui saisit un badge et ne voit rien apparaître ne peut
+   * que conclure que le champ est cassé — c'est le silence qui serait le
+   * défaut, pas le comportement.
+   */
+  it('prévient quand un badge est saisi sur une accroche vide', () => {
+    mount({ clip: clip({ hookText: '', hookBadge: 'DÉFI 10' }) })
+    expect(screen.getByText(/le badge n’est pas incrusté/i)).toBeTruthy()
+  })
+
+  it('ne prévient pas quand l’accroche est là', () => {
+    mount({ clip: clip({ hookText: 'Une accroche', hookBadge: 'DÉFI 10' }) })
+    expect(screen.queryByText(/le badge n’est pas incrusté/i)).toBeNull()
+  })
+
+  it('ses deux couleurs se surchargent depuis le panneau replié', () => {
+    const onWrite = vi.fn()
+    mount({ onWrite })
+    openPersonalize()
+
+    expect(screen.getByLabelText('Badge — texte')).toBeTruthy()
+    const background = screen.getByLabelText('Badge — fond')
+    fireEvent.change(background, { target: { value: '#00FF00' } })
+    fireEvent.blur(background)
+
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { badgeBackground: '#00FF00' } })
+  })
+
+  /**
+   * **Le compteur suit `COLLAPSIBLE_FIELDS`, qui est désormais un `Record`.**
+   * Un réglage ajouté à `HookSettings` et oublié dans cette liste ne compile
+   * plus ; ce test vérifie l'autre moitié — que la liste est bien celle que le
+   * panneau affiche.
+   */
+  it('les deux couleurs du badge comptent dans les surcharges annoncées', () => {
+    mount({
+      clip: clip({ hookStyle: { badgeColor: '#000000', badgeBackground: '#00FF00' } }),
+    })
+    expect(screen.getByRole('button', { name: /Personnaliser/ }).textContent).toContain('2')
   })
 })

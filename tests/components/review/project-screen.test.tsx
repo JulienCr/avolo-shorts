@@ -71,6 +71,7 @@ function candidate(n: number): CandidateClip {
     status: 'candidate',
     pass: 1,
     hookText: '',
+    hookBadge: '',
     hookStyle: {},
     preview: 'Ce qui se dit.',
     thumbnailUrl: null,

@@ -3,6 +3,7 @@ import { clipDuration } from '@/core/edl'
 import {
   detailPrompt,
   detailWindowsJson,
+  HOOK_BADGE_BRIEF,
   HOOK_PATTERNS,
   hookPrompt,
   scorePrompt,
@@ -189,6 +190,7 @@ describe('hookPrompt', () => {
     description: 'Un procès improbable',
     lines: ['alors moi je dis que ce pingouin ment', 'un pingouin avec un cartable ça se discute'],
     maxWords: 10,
+    maxBadgeWords: 3,
   }
 
   it('porte le même HOOK PLAYBOOK que detailPrompt, mot pour mot', () => {
@@ -214,12 +216,24 @@ describe('hookPrompt', () => {
     expect(p).toContain('max 6 words')
   })
 
-  it("ne demande qu'un seul champ en sortie", () => {
+  it('ne demande que le hook et son badge en sortie', () => {
     const p = hookPrompt(ENTRIES_HOOK)
     const returnBlock = p.slice(p.indexOf('Return only:'))
     expect(returnBlock).toContain('"hook":')
+    expect(returnBlock).toContain('"badge":')
+    // Ni les noms du repérage, ni son enveloppe : ce prompt ne rejuge rien.
     expect(returnBlock).not.toContain('viral_hook_text')
+    expect(returnBlock).not.toContain('viral_hook_badge')
     expect(returnBlock).not.toContain('shorts')
+  })
+
+  it('porte le même brief de badge que detailPrompt, mot pour mot', () => {
+    expect(hookPrompt(ENTRIES_HOOK)).toContain(HOOK_BADGE_BRIEF)
+    expect(detailPrompt(ENTRIES_DETAIL)).toContain(HOOK_BADGE_BRIEF)
+  })
+
+  it('porte le plafond de mots du badge demandé, pas une valeur fixe', () => {
+    expect(hookPrompt({ ...ENTRIES_HOOK, maxBadgeWords: 2 })).toContain('at most 2 words')
   })
 })
 
@@ -633,6 +647,41 @@ describe('viral_hook_text', () => {
   it('n’a pas de surcharge à la sortie du repérage', () => {
     const [clip] = detailed(detail)
     expect(clip.hookStyle).toEqual({})
+  })
+})
+
+/**
+ * Le badge voyage dans la même réponse que l'accroche, et **facultativement** :
+ * `SCHEMA_DETAIL` ne le met pas dans `required`, parce que toutes les
+ * émissions ne portent pas de rubrique numérotée et qu'exiger le champ
+ * pousserait le modèle à en inventer une par clip.
+ */
+describe('viral_hook_badge', () => {
+  it('récolte le badge rendu par le modèle, normalisé', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: '  «\u00a0DÉFI 10\u00a0»  ' }],
+    })
+    expect(clips[0].hookBadge).toBe('DÉFI 10')
+  })
+
+  it('rend une chaîne vide quand le modèle n’en propose pas — le cas courant', () => {
+    const [clip] = proposed({ shorts: [{ start: 12.0, end: 41.4 }] }).map((p) => p.clip)
+    expect(clip.hookBadge).toBe('')
+  })
+
+  it('un badge illisible ne coûte pas la proposition', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: null }],
+    })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].hookBadge).toBe('')
+  })
+
+  it('un badge bavard est ramené à trois mots', () => {
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_badge: 'un badge beaucoup trop long' }],
+    })
+    expect(clips[0].hookBadge).toBe('un badge beaucoup')
   })
 })
 

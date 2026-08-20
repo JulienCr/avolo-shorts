@@ -10,7 +10,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -326,6 +326,60 @@ describe('les pannes', () => {
 })
 
 describe('la section du hook', () => {
+  /**
+   * **Le contrôle d'exhaustivité, et il ferme un piège éprouvé.**
+   *
+   * `durationMs` a vécu une PR entière en étant réglable en base, surchargeable
+   * par l'API et présent dans l'empreinte du rendu — sans aucun contrôle dans
+   * l'écran Clip (relevé par Copilot, PR #117). Rien ne l'avait signalé, parce
+   * que rien ne le pouvait : une liste de champs ne casse pas au type-check
+   * quand elle en oublie un. `CLAUDE.md` demande alors la question qui suit un
+   * défaut de forme — « quels autres champs ont cette forme » —, et l'écran des
+   * réglages globaux avait la même faiblesse, sans même une liste.
+   *
+   * Ce test parcourt le registre lui-même : un réglage de la famille `hook`
+   * ajouté à `HookSettings` sans contrôle ici fait tomber la suite, au lieu de
+   * disparaître en silence. Le libellé attendu est déclaré à côté, ce qui rend
+   * l'oubli impossible à commettre en deux temps.
+   */
+  const HOOK_LABELS: Record<keyof typeof HOOK_DEFAULTS, string> = {
+    enabled: 'Hook activé par défaut',
+    durationMs: 'Durée',
+    font: 'Police',
+    sizePermille: 'Taille',
+    cornerRadiusPermille: 'Rayon des coins',
+    uppercase: 'Capitales',
+    position: 'Position',
+    alignment: 'Alignement',
+    textColor: 'Couleur du texte',
+    backgroundColor: 'Couleur du fond',
+    backgroundOpacity: 'Opacité du fond',
+    enter: 'Effet d’apparition',
+    exit: 'Effet de disparition',
+    badgeColor: 'Badge — texte',
+    badgeBackground: 'Badge — fond',
+  }
+
+  it('offre un contrôle pour CHAQUE réglage de la famille hook, sans exception', async () => {
+    server()
+    await mountScreen()
+
+    // **Scopé à la section du hook**, pas à l'écran entier : « Durée » et
+    // « Taille » existent aussi ailleurs, et une recherche globale les y
+    // trouverait — le test passerait alors sur un contrôle qui n'est pas
+    // celui-là.
+    const section = within(screen.getByRole('region', { name: /hook/i }))
+    for (const [field, label] of Object.entries(HOOK_LABELS)) {
+      // `queryAll`, pas `query` : la bascule « Hook activé par défaut » porte
+      // son libellé sur deux nœuds. Ce test compte les absences, pas les
+      // doublons.
+      expect(
+        section.queryAllByLabelText(label).length,
+        `réglage sans contrôle : ${field}`,
+      ).toBeGreaterThan(0)
+    }
+  })
+
   it('affiche les valeurs de la base, jamais les constantes du code', async () => {
     // Servir `sizePermille: 150` dans la fixture : l'écran doit montrer 150,
     // pas le défaut du code (90). Afficher une constante ferait croire à une
@@ -345,8 +399,14 @@ describe('la section du hook', () => {
     await mountScreen()
 
     const trigger = screen.getByLabelText('Effet d’apparition')
+    // **« Aucune », parce que c'est le défaut depuis le 20 août 2026** : un
+    // fondu d'entrée laisse le hook à opacité nulle sur la première image,
+    // dont Instagram fait la vignette du fil (voir `HOOK_DEFAULTS`).
+    expect(trigger.textContent).toContain('Aucune')
     // Le libellé, pas la valeur brute : l'écran dit « Fondu », pas « fade ».
-    expect(trigger.textContent).toContain('Fondu')
+    // Vérifié sur la disparition, qui garde ce défaut — la sortie ne se joue
+    // sur aucune vignette.
+    expect(screen.getByLabelText('Effet de disparition').textContent).toContain('Fondu')
 
     await userEvent.click(trigger)
     const options = await screen.findAllByRole('option')

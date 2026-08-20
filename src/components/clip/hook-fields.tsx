@@ -60,9 +60,19 @@ import { useRegenerateHook } from '@/lib/queries'
 type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
 
 /**
- * Les douze champs de `HookSettings` que le panneau replié couvre — ni
- * `enabled` (visible en permanence, à côté du texte) ni le texte lui-même,
- * qui n'appartient pas à `HookSettings`.
+ * Les quatorze champs de `HookSettings` que le panneau replié couvre — ni
+ * `enabled` (visible en permanence, à côté du texte) ni les deux textes,
+ * qui n'appartiennent pas à `HookSettings`.
+ *
+ * **Un `Record` et non un tableau, depuis le 20 août 2026.** Un
+ * `readonly (keyof HookSettings)[]` ne casse pas au type-check quand un
+ * réglage neuf est oublié : il atterrit en base, se surcharge par l'API,
+ * entre dans l'empreinte du rendu — et reste invisible ici, sans que rien ne
+ * le dise. C'est exactement ce qui est arrivé à `durationMs` (relevé par
+ * Copilot, PR #117), et `CLAUDE.md` demande de se poser la question qui suit
+ * un défaut de forme : « quels autres champs ont cette forme ». Le `Record`
+ * exige toutes les clés et n'en accepte aucune de plus, donc l'oubli ne
+ * compile plus.
  *
  * **`durationMs` manquait à cette liste** (PR #117, seconde manche) : le
  * réglage existait déjà dans `HookSettings`, bornait déjà une surcharge côté
@@ -72,20 +82,24 @@ type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
  * borne temporelle (`src/core/ffmpeg/args.ts`), ce qui n'était pas vrai
  * avant.
  */
-const COLLAPSIBLE_FIELDS: readonly (keyof HookSettings)[] = [
-  'font',
-  'sizePermille',
-  'cornerRadiusPermille',
-  'uppercase',
-  'position',
-  'alignment',
-  'textColor',
-  'backgroundColor',
-  'backgroundOpacity',
-  'durationMs',
-  'enter',
-  'exit',
-]
+const COLLAPSIBLE: Record<Exclude<keyof HookSettings, 'enabled'>, true> = {
+  font: true,
+  sizePermille: true,
+  cornerRadiusPermille: true,
+  uppercase: true,
+  position: true,
+  alignment: true,
+  textColor: true,
+  backgroundColor: true,
+  backgroundOpacity: true,
+  durationMs: true,
+  enter: true,
+  exit: true,
+  badgeColor: true,
+  badgeBackground: true,
+}
+
+const COLLAPSIBLE_FIELDS = Object.keys(COLLAPSIBLE) as (keyof HookSettings)[]
 
 export function HookFields({
   clip,
@@ -105,7 +119,7 @@ export function HookFields({
    */
   canRegenerate: boolean
   onWrite: OnWrite
-  onFailure?: (field: 'hookText', inFailure: boolean) => void
+  onFailure?: (field: 'hookText' | 'hookBadge', inFailure: boolean) => void
 }) {
   const identifier = useId()
   const [open, setOpen] = useState(false)
@@ -114,6 +128,12 @@ export function HookFields({
     clip.hookText,
     useCallback((text: string) => onWrite({ hookText: text }), [onWrite]),
     useCallback((inFailure: boolean) => onFailure?.('hookText', inFailure), [onFailure]),
+  )
+
+  const hookBadge = useTextDeferred(
+    clip.hookBadge,
+    useCallback((text: string) => onWrite({ hookBadge: text }), [onWrite]),
+    useCallback((inFailure: boolean) => onFailure?.('hookBadge', inFailure), [onFailure]),
   )
 
   // **Inerte tant que les globaux n'ont pas chargé**, sans faire clignoter
@@ -182,6 +202,36 @@ export function HookFields({
             {regenerate.error instanceof Error
               ? regenerate.error.message
               : 'La génération a échoué.'}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${identifier}-badge`}>Badge</Label>
+        <Input
+          id={`${identifier}-badge`}
+          value={hookBadge.value}
+          onChange={(e) => hookBadge.input(e.target.value)}
+          onBlur={hookBadge.clear}
+          placeholder="Le petit libellé au-dessus — « DÉFI 10 », facultatif"
+        />
+        {hookBadge.failure && (
+          <p className="flex items-center gap-2 text-[0.75rem] text-destructive">
+            Le badge n’a pas été enregistré.
+            <Button size="xs" variant="outline" onClick={hookBadge.clear}>
+              Réessayer
+            </Button>
+          </p>
+        )}
+        {/* **Dire ce que le rendu fera, plutôt que de le taire.** Un badge
+            posé sur une accroche vide n'est pas incrusté (`hookIsBurned`,
+            `@/core/hook`) : sans cette phrase, quelqu'un qui saisit
+            « DÉFI 10 » et ne voit rien apparaître ne peut que conclure que le
+            champ est cassé. Pas un `disabled` pour autant — le badge a le
+            droit de se saisir avant l'accroche. */}
+        {hookBadge.value.trim() !== '' && hookText.value.trim() === '' && (
+          <p className="text-[0.75rem] text-muted-foreground">
+            Sans texte de hook, le badge n’est pas incrusté.
           </p>
         )}
       </div>
@@ -319,6 +369,28 @@ export function HookFields({
               overridden={hasOverrideOf(clip, 'backgroundOpacity')}
               onCommit={(value) => setStyle('backgroundOpacity', value)}
               onReset={() => resetField('backgroundOpacity')}
+            />
+          </div>
+
+          {/* Une ligne à part, pas cinq couleurs dans la précédente : les
+              deux premières habillent le carton, celles-ci la pastille, et
+              les mêler ferait lire cinq réglages du même objet. */}
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
+            <ColorField
+              label="Badge — texte"
+              value={resolved.badgeColor}
+              disabled={loading}
+              overridden={hasOverrideOf(clip, 'badgeColor')}
+              onCommit={(value) => setStyle('badgeColor', value)}
+              onReset={() => resetField('badgeColor')}
+            />
+            <ColorField
+              label="Badge — fond"
+              value={resolved.badgeBackground}
+              disabled={loading}
+              overridden={hasOverrideOf(clip, 'badgeBackground')}
+              onCommit={(value) => setStyle('badgeBackground', value)}
+              onReset={() => resetField('badgeBackground')}
             />
           </div>
 

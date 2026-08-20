@@ -552,6 +552,7 @@ export type ClipPatch = Partial<
     | 'captions'
     | 'branding'
     | 'hookText'
+    | 'hookBadge'
     | 'hookStyle'
   >
 > & {

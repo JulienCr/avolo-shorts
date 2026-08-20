@@ -627,9 +627,20 @@ function buildRender(
     const y = number(o.hookImage.y, 'hookImage.y')
     number(o.hookImage.durationMs, 'hookImage.durationMs')
     const durationSec = seconds(o.hookImage.durationMs / 1000)
+    // **`:shortest=1`, sans quoi ce rendu ne se termine jamais.** Vérifié à
+    // l'exécution, pas déduit de la doctrine ffmpeg (contrat de la PR #117,
+    // seconde manche) : l'entrée du hook est bouclée (`-loop 1`, voir plus
+    // bas) et donc infinie, et le comportement PAR DÉFAUT d'`overlay` —
+    // `eof_action=repeat`, qui ne réagit qu'à la fin du flux SECONDAIRE — ne
+    // fait rien terminer quand c'est le flux PRINCIPAL qui finit le premier.
+    // Reproduit : sans `shortest=1`, un rendu de 6 s a atteint 1040 s de
+    // sortie en 10 s réelles avant d'être arrêté — il n'aurait jamais fini
+    // tout seul. `shortest=1` force la sortie à s'arrêter avec le flux le
+    // plus court, qui est TOUJOURS le contenu principal ici (le hook boucle
+    // à l'infini) : aucun risque de tronquer le contenu par erreur.
     steps.push(
       (e, s) =>
-        `[${e}][${hookOverlayLabel}]overlay=x=${x}:y=${y}:enable='between(t,0,${durationSec})'[${s}]`,
+        `[${e}][${hookOverlayLabel}]overlay=x=${x}:y=${y}:enable='between(t,0,${durationSec})':shortest=1[${s}]`,
     )
   }
   // Les logos passent **après** l'incrustation des sous-titres et du hook :

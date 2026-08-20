@@ -512,7 +512,7 @@ describe('renderArgs', () => {
     // les logos viennent après (voir le test des entrées ffmpeg plus bas).
     // `enable=` porte la borne temporelle — voir le describe dédié plus bas.
     expect(graph).toContain(
-      "[vf0][1:v]overlay=x=60:y=90:enable='between(t,0,2)'[vf1]",
+      "[vf0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf1]",
     )
     expect(graph).toContain('[vf1][lg0]overlay=x=40:y=250[v]')
   })
@@ -529,7 +529,7 @@ describe('renderArgs', () => {
       logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
     })
     const graph = a[a.indexOf('-filter_complex') + 1]
-    expect(graph).toContain("[v0][1:v]overlay=x=60:y=90:enable='between(t,0,2)'[vf0]")
+    expect(graph).toContain("[v0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf0]")
     expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
   })
 
@@ -589,7 +589,7 @@ describe('renderArgs', () => {
         hookImage: hookImage({ durationMs: 3_500 }),
       })
       const graph = a[a.indexOf('-filter_complex') + 1]
-      expect(graph).toContain("overlay=x=60:y=90:enable='between(t,0,3.5)'")
+      expect(graph).toContain("overlay=x=60:y=90:enable='between(t,0,3.5)':shortest=1")
     })
 
     // `-loop 1` : sans lui, l'entrée du PNG ne décode qu'une seule image, que
@@ -618,7 +618,7 @@ describe('renderArgs', () => {
       expect(graph).not.toContain('format=rgba')
       expect(graph).not.toContain('fade=')
       // Sans fondu, l'overlay lit directement l'entrée brute du hook.
-      expect(graph).toContain("[1:v]overlay=x=60:y=90:enable='between(t,0,2)'")
+      expect(graph).toContain("[1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1")
     })
 
     it("pose un fondu d'entrée sur le flux brut du hook quand enter vaut fade", () => {
@@ -629,7 +629,7 @@ describe('renderArgs', () => {
       })
       const graph = a[a.indexOf('-filter_complex') + 1]
       expect(graph).toContain('[1:v]format=rgba,fade=t=in:st=0:d=0.3:alpha=1[hk]')
-      expect(graph).toContain("[hk]overlay=x=60:y=90:enable='between(t,0,2)'")
+      expect(graph).toContain("[hk]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1")
       expect(graph).not.toContain('fade=t=out')
     })
 

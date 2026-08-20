@@ -248,8 +248,8 @@ export function HookSection({
             devinerait pourquoi sans cette phrase. */}
         <p className="text-xs text-muted-foreground">
           Aucun effet d’apparition par défaut : Instagram fabrique la vignette du
-          fil avec la première image, et un fondu y poserait un hook à moitié
-          transparent.
+          fil avec la première image, et un fondu y poserait un hook invisible —
+          son opacité y est nulle, pas partielle.
         </p>
       </div>
 

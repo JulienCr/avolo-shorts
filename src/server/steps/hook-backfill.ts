@@ -1,8 +1,10 @@
 import type Database from 'better-sqlite3'
 
 import { isGuard } from '@/core/phase'
+import { clipFraming } from '@/server/clip-framing'
 import { getClip, putClip } from '@/server/db'
 import { generateHook } from '@/server/steps/hook'
+import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps/render'
 
 /**
  * Le rattrapage du hook, quand un candidat devient un clip gardé sans en
@@ -104,7 +106,19 @@ export function scheduleHookBackfill(db: Database.Database, clipId: string): Pro
       // cas la réponse du modèle se jette. **On n'écrase jamais un hook non
       // vide** — c'est ce qui distingue un rattrapage d'une régénération.
       if (fresh === undefined || !isGuard(fresh.status) || fresh.hookText.trim() !== '') return
+      // **Périme le rendu exporté, comme le fait déjà `PATCH /api/clips/:id`.**
+      // `docs/retour-ui-and-next-steps.md` §7 : « toute modification du hook
+      // […] doit invalider les fichiers exportés existants ». Le clip est
+      // `kept` au moment où le rattrapage part, mais l'appel LLM tient jusqu'à
+      // trente secondes (`TIMEOUT_MS`, `src/server/steps/hook.ts`) : un export
+      // déclenché entre-temps peut produire des MP4 sans hook (accroche encore
+      // vide, donc non incrustée) avant que ce bloc n'écrive le texte généré.
+      // Sans cet appel, le statut resterait `exported` sur des fichiers qui ne
+      // montrent pas ce hook-là. (relevé par Copilot)
+      const framing = clipFraming(fresh)
+      const paths = pathsRender(fresh.projectId, clipId, framing.ratio)
       putClip(db, { ...fresh, hookText: text, hookBadge: badge })
+      discardRenderStale(db, clipId, paths, fresh, renderedFraming(framing))
     } catch (cause) {
       // **Le tri ne casse jamais.** Garder un clip est un geste au clavier
       // dans le feed ; il ne peut pas dépendre d'un fournisseur LLM joignable.

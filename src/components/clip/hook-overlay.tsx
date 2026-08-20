@@ -165,6 +165,16 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
                 // ligne ; le navigateur le ferait. Même classe de défaut que
                 // le `pre-wrap` corrigé sur la PR #117, passe 4.
                 whiteSpace: 'nowrap',
+                // **La même borne que le rasteriseur, et le même rognage.**
+                // `badgeWidth` y est plafonné à `canvas.w` (`src/server/hook-image.ts`) ;
+                // sans cette borne, une saisie manuelle proche des 120
+                // caractères que la route accepte déborde de la boîte 9:16
+                // dans cette preview alors que le PNG exporté, lui, s'arrête
+                // au bord du canevas. `content-box` retire le rembourrage des
+                // deux côtés, comme `maxWidth` du carton juste en dessous.
+                // (relevé par Copilot)
+                maxWidth: cqw(1 - 2 * layout.badgePaddingXFraction),
+                overflow: 'hidden',
               }}
             >
               {badge}

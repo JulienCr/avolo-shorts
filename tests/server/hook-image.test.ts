@@ -38,28 +38,28 @@ describe('renderHookImage', () => {
      * composition a changé le cas nominal, qui est aussi le cas courant.
      */
     it('un hook sans badge rend exactement la boîte d’avant', () => {
-      const sans = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
-      const vide = renderHookImage(resolved({ badge: '   ' }), { w: 1080, h: 1920 }, FONTS_DIR)
-      expect(sans).not.toBeNull()
-      if (sans === null || vide === null) return
+      const noBadge = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      const blank = renderHookImage(resolved({ badge: '   ' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(noBadge).not.toBeNull()
+      if (noBadge === null || blank === null) return
       // Un badge fait de blancs est un badge absent : c'est `trim()` qui
       // tranche, du même geste que `hookIsBurned` pour l'accroche.
-      expect(vide.width).toBe(sans.width)
-      expect(vide.height).toBe(sans.height)
+      expect(blank.width).toBe(noBadge.width)
+      expect(blank.height).toBe(noBadge.height)
     })
 
     it('la pastille ajoute de la hauteur, moins son chevauchement', () => {
-      const sans = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
-      const avec = renderHookImage(resolved({ badge: 'DÉFI 10' }), { w: 1080, h: 1920 }, FONTS_DIR)
-      expect(sans).not.toBeNull()
-      expect(avec).not.toBeNull()
-      if (sans === null || avec === null) return
-      expect(avec.height).toBeGreaterThan(sans.height)
+      const noBadge = renderHookImage(resolved({ badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      const withBadge = renderHookImage(resolved({ badge: 'DÉFI 10' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      expect(noBadge).not.toBeNull()
+      expect(withBadge).not.toBeNull()
+      if (noBadge === null || withBadge === null) return
+      expect(withBadge.height).toBeGreaterThan(noBadge.height)
       // Et pas de la hauteur pleine de la pastille : le chevauchement en
       // reprend une part.
       const layout = hookLayout(resolved({ badge: 'DÉFI 10' }))
       const badgeHeight = 1080 * layout.badgeHeightFraction
-      expect(avec.height - sans.height).toBeLessThan(badgeHeight)
+      expect(withBadge.height - noBadge.height).toBeLessThan(badgeHeight)
     })
 
     it('le composite prend la largeur du plus large des deux', () => {
@@ -68,11 +68,11 @@ describe('renderHookImage', () => {
       // jamais.
       const hook = resolved({ text: 'OUI', badge: 'UN DEUX TROIS' })
       const image = renderHookImage(hook, { w: 1080, h: 1920 }, FONTS_DIR)
-      const carton = renderHookImage(resolved({ text: 'OUI', badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
+      const card = renderHookImage(resolved({ text: 'OUI', badge: '' }), { w: 1080, h: 1920 }, FONTS_DIR)
       expect(image).not.toBeNull()
-      expect(carton).not.toBeNull()
-      if (image === null || carton === null) return
-      expect(image.width).toBeGreaterThan(carton.width)
+      expect(card).not.toBeNull()
+      if (image === null || card === null) return
+      expect(image.width).toBeGreaterThan(card.width)
     })
 
     /**

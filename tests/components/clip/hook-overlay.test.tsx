@@ -154,8 +154,8 @@ describe('HookOverlay', () => {
       const { container } = render(<HookOverlay hook={badged()} />)
       expect(container.querySelector('[data-hook="badge"]')).not.toBeNull()
       cleanup()
-      const sans = render(<HookOverlay hook={resolved({ badge: '' })} />)
-      expect(sans.container.querySelector('[data-hook="badge"]')).toBeNull()
+      const noBadge = render(<HookOverlay hook={resolved({ badge: '' })} />)
+      expect(noBadge.container.querySelector('[data-hook="badge"]')).toBeNull()
     })
 
     it('un badge fait de blancs vaut un badge absent', () => {
@@ -167,8 +167,8 @@ describe('HookOverlay', () => {
       const { container } = render(<HookOverlay hook={badged({ badge: 'défi 10' })} />)
       expect(container.querySelector('[data-hook="badge"]')?.textContent).toBe('DÉFI 10')
       cleanup()
-      const bas = render(<HookOverlay hook={badged({ badge: 'défi 10', uppercase: false })} />)
-      expect(bas.container.querySelector('[data-hook="badge"]')?.textContent).toBe('défi 10')
+      const lowercase = render(<HookOverlay hook={badged({ badge: 'défi 10', uppercase: false })} />)
+      expect(lowercase.container.querySelector('[data-hook="badge"]')?.textContent).toBe('défi 10')
     })
 
     it('porte ses deux couleurs, le fond NU — backgroundOpacity est au carton', () => {
@@ -214,16 +214,16 @@ describe('HookOverlay', () => {
     })
 
     it('le retrait ne s’applique que sur un bord, jamais au centre', () => {
-      const gauche = render(<HookOverlay hook={badged({ alignment: 'left' })} />)
-      const badgeGauche = gauche.container.querySelector('[data-hook="badge"]') as HTMLElement
-      expect(badgeGauche.style.marginLeft).not.toBe('')
-      expect(badgeGauche.style.marginRight).toBe('')
+      const left = render(<HookOverlay hook={badged({ alignment: 'left' })} />)
+      const badgeLeft = left.container.querySelector('[data-hook="badge"]') as HTMLElement
+      expect(badgeLeft.style.marginLeft).not.toBe('')
+      expect(badgeLeft.style.marginRight).toBe('')
       cleanup()
 
-      const centre = render(<HookOverlay hook={badged({ alignment: 'center' })} />)
-      const badgeCentre = centre.container.querySelector('[data-hook="badge"]') as HTMLElement
-      expect(badgeCentre.style.marginLeft).toBe('')
-      expect(badgeCentre.style.marginRight).toBe('')
+      const center = render(<HookOverlay hook={badged({ alignment: 'center' })} />)
+      const badgeCenter = center.container.querySelector('[data-hook="badge"]') as HTMLElement
+      expect(badgeCenter.style.marginLeft).toBe('')
+      expect(badgeCenter.style.marginRight).toBe('')
     })
 
     it('rien ne rend quand l’accroche est vide, badge ou pas', () => {

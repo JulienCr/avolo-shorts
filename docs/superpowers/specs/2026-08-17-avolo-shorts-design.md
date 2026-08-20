@@ -1150,9 +1150,10 @@ Depuis l'original, jamais depuis le proxy.
 
    **Aucun fondu d'entrée par défaut.** Instagram fabrique la vignette du fil
    avec la **première image** du fichier ; un fondu, si court soit-il, y pose
-   un hook à moitié transparent — donc une accroche absente de la seule image
-   qu'on voit avant de cliquer. Le réglage reste, son défaut est `none`. Le
-   fondu de sortie, lui, ne se joue sur aucune vignette et reste à `fade`.
+   un hook invisible — opacité nulle sur cette image, pas partielle — donc une
+   accroche absente de la seule image qu'on voit avant de cliquer. Le réglage
+   reste, son défaut est `none`. Le fondu de sortie, lui, ne se joue sur
+   aucune vignette et reste à `fade`.
 5. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
    (chrome des plateformes en haut, sous-titres en bas) — après le hook, pour
    la même raison qui le place après les sous-titres : une marque posée

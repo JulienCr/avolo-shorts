@@ -391,9 +391,9 @@ describe('le badge', () => {
     openPersonalize()
 
     expect(screen.getByLabelText('Badge — texte')).toBeTruthy()
-    const fond = screen.getByLabelText('Badge — fond')
-    fireEvent.change(fond, { target: { value: '#00FF00' } })
-    fireEvent.blur(fond)
+    const background = screen.getByLabelText('Badge — fond')
+    fireEvent.change(background, { target: { value: '#00FF00' } })
+    fireEvent.blur(background)
 
     expect(onWrite).toHaveBeenCalledWith({ hookStyle: { badgeBackground: '#00FF00' } })
   })

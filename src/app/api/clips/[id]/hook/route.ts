@@ -1,7 +1,9 @@
 import { isGuard } from '@/core/phase'
+import { clipFraming } from '@/server/clip-framing'
 import { getClip, getDb, putClip } from '@/server/db'
 import { requestInvalid, notFound, json, route } from '@/server/http'
 import { generateHook } from '@/server/steps/hook'
+import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps/render'
 
 /**
  * `POST /api/clips/:id/hook` — régénère le hook du clip **et son badge**, et
@@ -31,6 +33,14 @@ import { generateHook } from '@/server/steps/hook'
  * elles : la fenêtre qui reste est celle, synchrone, que `PATCH
  * /api/clips/:id` accepte déjà pour toute écriture sans jeton `seq`.
  * (relevé en review interne)
+ *
+ * **Périme le rendu exporté, comme le fait déjà `PATCH /api/clips/:id`.**
+ * `docs/retour-ui-and-next-steps.md` §7 : « toute modification du hook […]
+ * doit invalider les fichiers exportés existants ». Cette route accepte un
+ * clip `exported` sans passer par le `PATCH` — régénérer le hook d'un clip
+ * déjà livré laissait donc le statut à `exported` et ses MP4 en place alors
+ * qu'ils ne montrent plus ce texte-là, la vague de l'empreinte (§48) restant
+ * aveugle à une écriture qui ne passe pas par elle. (relevé par Copilot)
  */
 export const POST = route(
   'POST /api/clips/:id/hook',
@@ -45,7 +55,13 @@ export const POST = route(
     const { text, badge } = await generateHook(db, id, { signal: request.signal })
 
     const fresh = getClip(db, id) ?? clip
+    // Le cadrage se lit sur l'état d'avant l'écriture : ni `hookText` ni
+    // `hookBadge` ne le changent, mais `discardRenderStale` en a besoin pour
+    // retrouver les chemins des sorties à écarter.
+    const framing = clipFraming(fresh)
+    const paths = pathsRender(fresh.projectId, id, framing.ratio)
     putClip(db, { ...fresh, hookText: text, hookBadge: badge })
+    discardRenderStale(db, id, paths, fresh, renderedFraming(framing))
     const written = getClip(db, id) ?? { ...fresh, hookText: text, hookBadge: badge }
     return json({ clip: written })
   },

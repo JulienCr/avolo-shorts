@@ -16,7 +16,7 @@
 
 import fs from 'node:fs'
 import { planSteps, type StepName } from '@/core/graph'
-import { closeDb, getDb, getProject } from '@/server/db'
+import { closeDb, copiesSourceLocally, getDb, getProject } from '@/server/db'
 import { audioPath, placeSidecar, proxyPath } from '@/server/paths'
 import { extractAudio } from '@/server/steps/audio'
 import { editingResponds, workingInput } from '@/server/steps/ingest'
@@ -82,12 +82,21 @@ async function main(): Promise<number> {
   console.log(`À faire    : ${plan.length === 0 ? 'rien, tout est là' : plan.join(' → ')}`)
 
   if (plan.includes('audio')) {
-    // **On ne refuse plus faute de copie**, on dit ce qu'on lit. Avec
-    // `ingestion.copySourceLocally` décoché il n'y en a jamais, et exiger
-    // `dev-ingest.ts` renverrait vers une commande qui n'en fabriquera pas
-    // davantage. L'extraction sur le montage 9p est lente — c'est le prix
-    // annoncé du réglage — mais elle aboutit.
     const input = workingInput(project)
+    // **Le refus ne saute que si le réglage l'explique.** Décoché, il n'y a
+    // jamais de copie et exiger `dev-ingest.ts` renverrait vers une commande
+    // qui n'en fabriquera pas davantage — l'extraction sur le montage 9p est
+    // alors le prix annoncé du réglage, et elle aboutit. Coché, une copie
+    // absente ou périmée est le même défaut d'ordonnancement que dans le
+    // lanceur principal : le taire ferait lire le montage lent en silence
+    // plutôt que de dire pourquoi. (relevé par Copilot)
+    if (!input.local && copiesSourceLocally(db)) {
+      console.error(
+        "Le projet n'a pas de copie de travail à jour. Relancer dev-ingest.ts, ou décocher " +
+          'ingestion.copySourceLocally pour lire l’original.',
+      )
+      return 1
+    }
     console.log(`Entrée     : ${input.path}${input.local ? '' : ' (original, pas de copie locale)'}`)
     const bar = createBar('  audio ')
     const t = timer()

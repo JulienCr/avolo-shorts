@@ -397,13 +397,24 @@ export async function ensureLocalCopy(
   // **Le sondage passe avant le réglage, et il y reste.** Décoché, on ne recopie
   // rien — mais l'encodage qui suit va lire l'original, donc un montage muet
   // reste une panne, et elle se dit ici avec le message qui explique quoi faire
-  // plutôt que sous la forme d'un ffmpeg qui pend sans rien écrire.
+  // plutôt que sous la forme d'un ffmpeg qui pend sans rien écrire. **Le
+  // réglage se lit ici aussi**, avant de formuler le message : décoché,
+  // personne n'a demandé de copie, donc « impossible de la reconstituer »
+  // dirait un but que l'utilisateur a précisément écarté. (relevé par
+  // Aristarque)
+  const copyLocally = copiesSourceLocally(options.db === undefined ? getDb() : options.db)
   if (!(await editingResponds(project.sourcePath))) {
     throw new Error(
-      `La copie de travail de ${project.id} est absente et le dossier des replays ne répond pas : ` +
-        'impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté avec son ' +
-        "transport mort dessous — /proc/mounts ne le distingue pas. Rouvrir le lecteur côté " +
-        'Windows, ou remonter le partage.',
+      copyLocally
+        ? `La copie de travail de ${project.id} est absente et le dossier des replays ne répond ` +
+            'pas : impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté ' +
+            "avec son transport mort dessous — /proc/mounts ne le distingue pas. Rouvrir le " +
+            'lecteur côté Windows, ou remonter le partage.'
+        : `La copie de travail de ${project.id} est absente et la copie locale est désactivée ` +
+            'dans les réglages : le rendu doit lire l’original, mais le dossier des replays ne ' +
+            'répond pas. REPLAY_DIR est monté en 9p et peut être monté avec son transport mort ' +
+            'dessous — /proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou ' +
+            'remonter le partage.',
     )
   }
 
@@ -412,7 +423,7 @@ export async function ensureLocalCopy(
   // comportement demandé, pas un repli — mais un export qui dure trois fois plus
   // longtemps sans que rien ne l'explique se cherche ailleurs pendant une
   // demi-heure.
-  if (!copiesSourceLocally(options.db === undefined ? getDb() : options.db)) {
+  if (!copyLocally) {
     // **`editingResponds` ne dit pas que le fichier est là.** Un `ENOENT`
     // immédiat *est* une réponse, et c'est précisément ce qui la rend utile
     // pour distinguer un montage mort d'un montage absent. Sur le chemin qui
@@ -841,9 +852,15 @@ export type Ingestion = {
   /**
    * Vrai quand **cet appel** a écrit la copie.
    *
-   * Faux dans deux cas, et ils veulent dire la même chose pour l'appelant — il
-   * n'a rien payé : la copie était déjà là à la bonne taille, ou un autre appel
-   * la faisait déjà et celui-ci l'a attendue (voir `copyOnce`).
+   * Faux dans trois cas. Les deux premiers veulent dire la même chose pour
+   * l'appelant — il n'a rien payé : la copie était déjà là à la bonne taille,
+   * ou un autre appel la faisait déjà et celui-ci l'a attendue (voir
+   * `copyOnce`). Le troisième est différent : `ingestion.copySourceLocally`
+   * était décoché, et aucune copie n'a été demandée du tout — `stagedPath`
+   * peut alors nommer un fichier qui n'existe pas, ou qui existe mais décrit
+   * une autre vidéo. `copied` ne le distingue pas du premier cas ; c'est
+   * `workingInput`, pas ce champ, qui sait dire ce qu'un fichier trouvé là
+   * contiendrait.
    */
   copied: boolean
 } & Fingerprint

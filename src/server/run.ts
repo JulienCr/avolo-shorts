@@ -28,7 +28,14 @@ import {
   runCandidates,
   type SummaryNotation,
 } from '@/server/steps/candidates'
-import { waitOrAbandon, cleanStage, DELAY_STAT_MS, ingest, workingInput } from '@/server/steps/ingest'
+import {
+  waitOrAbandon,
+  cleanStage,
+  DELAY_STAT_MS,
+  editingResponds,
+  ingest,
+  workingInput,
+} from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
 import { transcribe } from '@/server/steps/transcript'
 
@@ -722,7 +729,16 @@ export async function launch(
     // premier `run --force` échouait bien plus tard sur « le projet n'a pas de
     // durée ». Un `lstat` et un `ffprobe` sur la copie locale suffisent à le
     // réparer, et l'ingestion saute la copie si elle est déjà à la bonne taille.
-    const doitIngest = ingestionNecessary(project, execution.plan, copiesSourceLocally(db))
+    //
+    // **Une seule lecture du réglage pour toute l'exécution.** Une transcription
+    // dure jusqu'à quarante minutes avant que `proxy` ne soit atteint ; relire
+    // `copiesSourceLocally(db)` à l'entrée de chaque étape laissait le réglage
+    // coché entre-temps contredire ce que la planification venait de décider —
+    // aucune ingestion prévue, mais l'étape l'exigeant quand même, sur un projet
+    // qu'aucune relance ne pouvait plus débloquer. La valeur lue ici vaut pour
+    // tout le reste du lancement (relevé par la review de la PR #113).
+    const copyLocally = copiesSourceLocally(db)
+    const doitIngest = ingestionNecessary(project, execution.plan, copyLocally)
 
     // Un plan vide n'est pas une exécution : tout est déjà là, il n'y a rien à
     // suivre et rien à verrouiller.
@@ -746,7 +762,7 @@ export async function launch(
     }
 
     publish(execution, true)
-    execution.finished = execute(execution, project, db, options, doitIngest).finally(() => {
+    execution.finished = execute(execution, project, db, options, doitIngest, copyLocally).finally(() => {
       inCurrent.delete(projectId)
       // **Le nettoyage du cache de travail, après traitement** (retour d'usage
       // §5). Best effort et sans attente : il ne fait pas partie de
@@ -865,6 +881,7 @@ async function execute(
   db: Database.Database,
   options: OptionsLaunch,
   doitIngest: boolean,
+  copyLocally: boolean,
 ): Promise<void> {
   const steps = { ...STEPS, ...options.steps }
   const { projectId } = execution
@@ -949,7 +966,7 @@ async function execute(
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
       try {
-        await executeStep(step, project, db, steps, advance, flagSummary, signal)
+        await executeStep(step, project, db, copyLocally, steps, advance, flagSummary, signal)
       } catch (cause) {
         // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
         // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
@@ -1030,6 +1047,7 @@ async function executeStep(
   step: StepName,
   project: Project,
   db: Database.Database,
+  copyLocally: boolean,
   steps: Steps,
   advance: (fraction: number | null) => void,
   flagSummary: () => void,
@@ -1045,9 +1063,27 @@ async function executeStep(
       // qui relit six gigaoctets sur un montage à 40 Mo/s sans que personne ne
       // sache pourquoi l'étape a triplé. Décoché, lire l'original **est** le
       // comportement demandé.
-      if (copiesSourceLocally(db) && !input.local) {
+      //
+      // **`copyLocally` vient du lancement, pas d'une relecture ici** — voir le
+      // commentaire au point d'appel de `execute`, dans `launch`.
+      if (copyLocally && !input.local) {
         throw new Error(
           `Le projet ${project.id} n'a pas de copie de travail : l'ingestion doit passer avant ${step}.`,
+        )
+      }
+      // **Décoché, ou copie absente sans copie exigée, `ffmpeg` va ouvrir
+      // l'original — sonder le montage avant, sous délai de garde.** Le cas
+      // courant ne repasse pas par `ingest` ici (`ingestionNecessary` n'a rien
+      // planifié quand la durée est déjà connue), donc rien d'autre n'a encore
+      // touché le Drive sur ce lancement. Sans ce sondage, un 9p monté avec son
+      // transport mort dessous laisserait `produceArtifact` — qui ne reçoit
+      // aucun `timeoutMs` — pendre indéfiniment plutôt que d'échouer avec un
+      // message qui dit quoi faire. (relevé par la review de la PR #113)
+      if (!input.local && !(await editingResponds(input.path))) {
+        throw new Error(
+          `${step} de ${project.id} : le dossier des replays ne répond pas. REPLAY_DIR est ` +
+            'monté en 9p et peut être monté avec son transport mort dessous — /proc/mounts ne le ' +
+            'distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
         )
       }
       const common = {
@@ -1102,7 +1138,7 @@ async function executeStep(
       // et le premier vrai — celui qui décrit une copie perdue — passerait avec
       // les autres.
       const input = workingInput(project)
-      if (!input.local && copiesSourceLocally(db)) {
+      if (!input.local && copyLocally) {
         console.warn(
           `[${project.id}] analyse : pas de copie de travail dans stage/, les dimensions sont ` +
             'relevées sur l’original — c’est-à-dire sur le montage 9p. Un ffprobe d’en-tête le ' +

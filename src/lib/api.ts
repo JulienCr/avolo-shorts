@@ -906,6 +906,19 @@ export type AiSettings = {
 }
 
 /**
+ * Le défaut de `copySourceLocally`, partagé entre le registre serveur
+ * (`INGESTION_FIELD_SHAPES`, `src/server/db.ts`) et l'écran de réglages
+ * (`IngestionSection`), comme `DEFAULT_SELECTION_DIMENSIONS` l'est pour
+ * `SelectionSection`.
+ *
+ * **Une seule source, pas deux qui doivent rester d'accord.** Si le défaut
+ * changeait sans passer par cette constante, le bouton « Revenir au défaut »
+ * écrirait une valeur périmée et sa visibilité mentirait sur ce qui a
+ * effectivement changé.
+ */
+export const DEFAULT_COPY_SOURCE_LOCALLY = true
+
+/**
  * Ce qui décide de la façon dont une source est amenée jusqu'à ffmpeg.
  *
  * **Un seul champ, et il gouverne toute la chaîne** — le proxy, l'audio, le

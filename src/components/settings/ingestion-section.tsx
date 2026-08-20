@@ -6,7 +6,7 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { type IngestionSettings } from '@/lib/api'
+import { DEFAULT_COPY_SOURCE_LOCALLY, type IngestionSettings } from '@/lib/api'
 
 /**
  * La section « Source » des réglages : faut-il copier le replay en local avant
@@ -28,9 +28,6 @@ import { type IngestionSettings } from '@/lib/api'
  * émission déjà analysée garde ses artefacts, et décocher n'efface aucune copie
  * — c'est le TTL de huit heures qui s'en charge.
  */
-
-/** Le défaut du registre (`INGESTION_FIELD_SHAPES`, `src/server/db.ts`). */
-const DEFAULT_COPY_SOURCE_LOCALLY = true
 
 export function IngestionSection({
   values,

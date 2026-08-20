@@ -1257,8 +1257,11 @@ rapide, où la recopie ne fait que dupliquer plusieurs gigaoctets par émission.
 Décoché, toute la chaîne lit l'original — le proxy, l'audio, le relevé des
 dimensions et l'export d'un clip. Trois choses ne changent pas : une copie déjà
 présente sert toujours (le réglage gouverne ce qu'on *fabrique*), décocher
-n'efface rien, et `workingInput` (`src/server/steps/ingest.ts`) est le seul
-endroit qui réponde à « quel fichier ffmpeg doit-il ouvrir ».
+n'efface rien, et `workingInput` (`src/server/steps/ingest.ts`) tranche seul la
+question « ce fichier décrit-il encore la source ? ». L'export ne l'appelle pas
+directement : `ensureLocalCopy`, dans le même fichier, s'en remet à lui puis
+reconstitue la copie manquante sous délai de garde plutôt que d'exiger une
+ingestion préalable.
 
 ### Lister les sources
 

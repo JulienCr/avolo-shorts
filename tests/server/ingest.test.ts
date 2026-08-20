@@ -625,15 +625,15 @@ describe('workingInput', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  const poser = (name: string, octets: number): string => {
+  const writeFixture = (name: string, octets: number): string => {
     const p = path.join(root, name)
     fs.writeFileSync(p, Buffer.alloc(octets, 4))
     return p
   }
 
   it('rend la copie quand elle est là et qu’elle décrit la source', () => {
-    const source = poser('source.mp4', 500)
-    const copy = poser('copie.mp4', 500)
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 500)
     expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
       path: copy,
       local: true,
@@ -641,14 +641,14 @@ describe('workingInput', () => {
   })
 
   it('rend l’original quand la copie n’est pas là', () => {
-    const source = poser('source.mp4', 500)
+    const source = writeFixture('source.mp4', 500)
     expect(
       workingInput({ sourcePath: source, stagedPath: path.join(root, 'absente.mp4'), sizeBytes: 500 }),
     ).toEqual({ path: source, local: false })
   })
 
   it('rend l’original quand aucune copie n’est prévue', () => {
-    const source = poser('source.mp4', 500)
+    const source = writeFixture('source.mp4', 500)
     expect(workingInput({ sourcePath: source, stagedPath: null, sizeBytes: 500 })).toEqual({
       path: source,
       local: false,
@@ -656,8 +656,8 @@ describe('workingInput', () => {
   })
 
   it('rend l’original quand la copie ne décrit plus la source', () => {
-    const source = poser('source.mp4', 500)
-    const copy = poser('copie.mp4', 300)
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 300)
     expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
       path: source,
       local: false,
@@ -671,8 +671,8 @@ describe('workingInput', () => {
    * montage 9p sur un soupçon que rien n'étaye.
    */
   it('accepte la copie quand la taille de l’original est inconnue', () => {
-    const source = poser('source.mp4', 500)
-    const copy = poser('copie.mp4', 300)
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 300)
     for (const sizeBytes of [null, undefined]) {
       expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes })).toEqual({
         path: copy,

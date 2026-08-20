@@ -3,7 +3,13 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
-import { LLM_PROVIDERS, type AiSettings, type IngestionSettings, type Settings } from '@/lib/api'
+import {
+  DEFAULT_COPY_SOURCE_LOCALLY,
+  LLM_PROVIDERS,
+  type AiSettings,
+  type IngestionSettings,
+  type Settings,
+} from '@/lib/api'
 import { DEFAULT_MODEL } from '@/server/llm/defaults'
 import { projectsDir } from '@/server/paths'
 
@@ -433,7 +439,7 @@ const AI_FIELDS: readonly SettingField[] = (
  * champ ou s'il en traîne un de trop.
  */
 const INGESTION_FIELD_SHAPES = {
-  copySourceLocally: { type: 'boolean', defaultValue: true },
+  copySourceLocally: { type: 'boolean', defaultValue: DEFAULT_COPY_SOURCE_LOCALLY },
 } satisfies Record<keyof IngestionSettings, Omit<SettingField, 'family' | 'name'>>
 
 const INGESTION_FIELDS: readonly SettingField[] = (

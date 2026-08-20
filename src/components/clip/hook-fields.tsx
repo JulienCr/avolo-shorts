@@ -52,12 +52,20 @@ type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
 export function HookFields({
   clip,
   globals,
+  canRegenerate,
   onWrite,
   onFailure,
 }: {
   clip: Clip
   /** Les réglages globaux du hook. `undefined` tant que `GET /api/settings` n'a pas répondu. */
   globals: HookSettings | undefined
+  /**
+   * `false` pour un clip non gardé. `POST /api/clips/:id/hook` refuse déjà
+   * l'appel côté serveur (`isGuard`) — cette prop évite en plus de laisser un
+   * candidat ou un clip écarté déclencher, sans effet, un appel LLM. (relevé
+   * par Copilot)
+   */
+  canRegenerate: boolean
   onWrite: OnWrite
   onFailure?: (field: 'hookText', inFailure: boolean) => void
 }) {
@@ -106,7 +114,8 @@ export function HookFields({
             type="button"
             size="sm"
             variant="outline"
-            disabled={regenerate.isPending}
+            disabled={regenerate.isPending || !canRegenerate}
+            title={canRegenerate ? undefined : 'Réservé aux clips gardés'}
             onClick={() => void regenerate.mutateAsync(clip.id).catch(() => {})}
           >
             <Sparkles aria-hidden />
@@ -137,18 +146,22 @@ export function HookFields({
         )}
       </div>
 
-      <label className="flex items-center gap-2 text-[0.75rem]">
+      <div className="flex items-center gap-2 text-[0.75rem]">
         <Checkbox
+          id={`${identifier}-enabled`}
           checked={resolved.enabled}
           disabled={loading}
           onCheckedChange={(value) => setStyle('enabled', value === true)}
         />
-        Hook activé
+        <Label htmlFor={`${identifier}-enabled`} className="text-[0.75rem] font-normal">
+          Hook activé
+        </Label>
         <FieldOrigin
+          field="Hook activé"
           overridden={hasOverrideOf(clip, 'enabled')}
           onReset={() => resetField('enabled')}
         />
-      </label>
+      </div>
 
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
         <SelectField
@@ -268,14 +281,31 @@ function hasOverrideOf(clip: Clip, field: keyof HookSettings): boolean {
 }
 
 
-/** « hérité » à côté d'un libellé, et le bouton qui rend le champ à l'héritage. */
-function FieldOrigin({ overridden, onReset }: { overridden: boolean; onReset: () => void }) {
+/**
+ * « hérité » à côté d'un libellé, et le bouton qui rend le champ à l'héritage.
+ *
+ * **`field` porte le nom accessible du bouton.** Sans lui, tous les boutons de
+ * réinitialisation partagent le même nom « revenir à l’héritage » : un lecteur
+ * d'écran ne peut alors pas distinguer celui de la taille de celui de la
+ * position. Le libellé visuel reste générique, l'`aria-label` seul est
+ * contextualisé. (relevé par Copilot)
+ */
+function FieldOrigin({
+  field,
+  overridden,
+  onReset,
+}: {
+  field: string
+  overridden: boolean
+  onReset: () => void
+}) {
   if (!overridden) {
     return <span className="text-muted-foreground">— hérité</span>
   }
   return (
     <button
       type="button"
+      aria-label={`${field} : revenir à l’héritage`}
       onClick={onReset}
       className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
     >
@@ -351,7 +381,7 @@ function SelectField<T extends string>({
             ))}
           </SelectContent>
         </Select>
-        <FieldOrigin overridden={overridden} onReset={onReset} />
+        <FieldOrigin field={label} overridden={overridden} onReset={onReset} />
       </div>
     </div>
   )
@@ -419,7 +449,7 @@ function NumberField({
           className="h-8 w-20 tabular-nums"
         />
         <span className="text-muted-foreground">{unit}</span>
-        <FieldOrigin overridden={overridden} onReset={onReset} />
+        <FieldOrigin field={label} overridden={overridden} onReset={onReset} />
       </div>
     </div>
   )
@@ -480,7 +510,7 @@ function ColorField({
           }}
           className="h-8 w-24 font-mono uppercase"
         />
-        <FieldOrigin overridden={overridden} onReset={onReset} />
+        <FieldOrigin field={label} overridden={overridden} onReset={onReset} />
       </div>
     </div>
   )
@@ -527,7 +557,7 @@ function TransitionField({
             ))}
           </SelectContent>
         </Select>
-        <FieldOrigin overridden={overridden} onReset={onReset} />
+        <FieldOrigin field={label} overridden={overridden} onReset={onReset} />
       </div>
     </div>
   )

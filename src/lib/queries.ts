@@ -688,10 +688,17 @@ export function useLlmAvailability() {
  * ce que le modèle va rendre ; le champ affiche un état « en cours » pendant
  * l'appel plutôt qu'une valeur devinée.
  *
- * **Le cache se pose depuis la réponse, sans redemander le clip.** `POST
- * /api/clips/:id/hook` rend le clip tel qu'il vient d'être écrit — la même
- * garantie que `usePatchClip` applique à `PATCH` — donc une seconde requête
- * ne apprendrait rien de plus.
+ * **Le cache se pose depuis la réponse, sans redemander le clip — mais seul
+ * `hookText` en est tiré.** `POST /api/clips/:id/hook` rend le clip entier
+ * tel que le serveur vient de l'écrire, relu juste avant l'écriture
+ * (`route.ts`). Ce jeu réseau tient jusqu'à 30 s (`TIMEOUT_MS`), assez pour
+ * qu'un `PATCH` concurrent (édition du titre, de la description, du montage)
+ * pose sur le cache une valeur plus récente que celle capturée par cette
+ * relecture serveur : écraser `detail.clip` en entier avec `result.clip`
+ * ferait revenir en arrière un champ que ce `PATCH` vient de faire avancer.
+ * Ne fusionner que `hookText` — le seul champ que cette mutation possède —
+ * laisse les autres au dernier écrivain qui les a réellement touchés.
+ * (relevé par Aristarque)
  */
 export function useRegenerateHook() {
   const client = useQueryClient()
@@ -700,7 +707,7 @@ export function useRegenerateHook() {
     mutationFn: (clipId: string) => postRegenerateHook(clipId),
     onSuccess(result, clipId) {
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
-        detail ? { ...detail, clip: result.clip } : detail,
+        detail ? { ...detail, clip: { ...detail.clip, hookText: result.clip.hookText } } : detail,
       )
     },
   })

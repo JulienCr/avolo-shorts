@@ -440,11 +440,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 />
               </figure>
               <PreviewOutput
+                hook={hookGlobals !== undefined ? resolvedHook : undefined}
                 video={video}
                 framing={framing}
                 ratio={editor.ratio}
                 cropX={editor.cropX}
-                hook={resolvedHook}
                 frame={cn(PREVIEW_HEIGHT, 'w-auto')}
               />
             </div>
@@ -508,6 +508,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <HookFields
                 clip={clip}
                 globals={hookGlobals}
+                canRegenerate={isGuard(clip.status)}
                 onWrite={write}
                 onFailure={flagFailureText}
               />

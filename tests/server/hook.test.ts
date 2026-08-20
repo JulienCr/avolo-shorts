@@ -119,6 +119,48 @@ describe('generateHookText', () => {
     expect(prompt).not.toContain('Une phrase totalement hors sujet')
   })
 
+  it("filtre au mot, pas au segment Whisper entier — une coupe au milieu d'une phrase n'envoie que ce que le clip garde", async () => {
+    // Le segment Whisper [60,66) chevauche le clip [60,63) sans y tenir en
+    // entier : seuls les mots dont l'intervalle recoupe [60,63) doivent
+    // atteindre le prompt.
+    const dir = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+    fs.writeFileSync(
+      path.join(dir, 'transcript.json'),
+      JSON.stringify({
+        language: 'fr',
+        segments: [
+          {
+            start: 60,
+            end: 66,
+            text: 'Alors moi je dis que ce pingouin ment',
+            words: [
+              { word: 'Alors', start: 60, end: 60.5 },
+              { word: 'moi', start: 60.5, end: 61 },
+              { word: 'je', start: 61, end: 61.3 },
+              { word: 'dis', start: 61.3, end: 61.6 },
+              { word: 'que', start: 61.6, end: 61.9 },
+              { word: 'ce', start: 64, end: 64.3 },
+              { word: 'pingouin', start: 64.3, end: 65 },
+              { word: 'ment', start: 65, end: 65.5 },
+            ],
+          },
+        ],
+      }),
+    )
+    const clip = baseClip({ segments: [{ start: 60, end: 63 }] })
+    putClip(getDb(), clip)
+
+    const fetchMock = vi.fn().mockResolvedValue(ollamaResponse('Ce pingouin va tout faire capoter'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateHookText(getDb(), clip.id)
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { messages: { content: string }[] }
+    const prompt = body.messages[0].content
+    expect(prompt).toContain('Alors moi je dis que')
+    expect(prompt).not.toContain('ce pingouin ment')
+  })
+
   it('un texte vide rendu par le modèle est une réponse valide, pas une erreur', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('')))
     await expect(generateHookText(getDb(), baseClip().id)).resolves.toBe('')
@@ -196,6 +238,17 @@ describe('POST /api/clips/:id/hook', () => {
     vi.stubGlobal('fetch', vi.fn())
     const response = await postHook(new Request('http://test', { method: 'POST' }), context('inconnu'))
     expect(response.status).toBe(404)
+  })
+
+  it("400 sur un clip qui n'est pas gardé — un candidat ne consomme pas d'appel LLM", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const clip = baseClip({ status: 'candidate' })
+    putClip(getDb(), clip)
+
+    const response = await postHook(new Request('http://test', { method: 'POST' }), context(clip.id))
+    expect(response.status).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   /**

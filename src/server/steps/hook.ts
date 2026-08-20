@@ -74,11 +74,25 @@ function configuration(mode: LlmMode): LlmCallConfig {
  * Les phrases que le clip contient **actuellement** (`clip.segments`), dans
  * l'ordre — pas la fenêtre de contexte que l'écran de montage affiche autour
  * (`clipLinesAround`, `CONTEXT_S`), qui déborderait le clip des deux côtés.
+ *
+ * **Filtre au mot, pas au segment Whisper entier.** Une coupe au milieu d'une
+ * phrase ou une suppression centrale laisse le segment Whisper chevaucher un
+ * morceau gardé sans que tout son texte y tienne : reprendre `s.text` tel
+ * quel enverrait au modèle des mots retirés du clip. Seul un segment dépourvu
+ * de mots horodatés (WhisperX en émet, voir `lireTranscript`) retombe sur son
+ * `text` entier.
  */
 function linesInClip(transcript: TranscriptLu, segments: readonly Segment[]): string[] {
   return transcript.segments
     .filter((s) => segments.some((seg) => s.end > seg.start && s.start < seg.end))
-    .map((s) => s.text.trim())
+    .map((s) => {
+      if (s.words.length === 0) return s.text.trim()
+      return s.words
+        .filter((w) => segments.some((seg) => w.end > seg.start && w.start < seg.end))
+        .map((w) => w.word.trim())
+        .filter((w) => w !== '')
+        .join(' ')
+    })
     .filter((t) => t !== '')
 }
 

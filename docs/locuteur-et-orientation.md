@@ -382,6 +382,106 @@ essayée non plus.
 
 ---
 
+## Les sous-plans, et ce qu'ils gagnent vraiment
+
+`scripts/spike/subshots.ts` subdivise chaque plan en intervalles, chacun gardant
+un crop fixe, et suit la personne la plus de face quand l'écart est décisif. La
+partition reste exacte — aucun trou, aucun recouvrement, vérifié sur les quatre
+émissions et les quatre variantes.
+
+Rien du cœur n'est modifié : `computeFraming` reçoit des `people` filtrées et des
+`shots` subdivisés, et fait le reste.
+
+Gain, en part du temps de montage dont la sortie verticale **remplit le
+canevas** :
+
+| variante | corpus | ce qu'elle isole |
+|---|---|---|
+| `today` | 7,7 % | le comportement actuel |
+| `candidate` | **41,1 %** | subdiviser et suivre la plus de face |
+| `randomWho` | 39,3 % | mêmes frontières, sujet **tiré au sort** |
+| `evenCuts` | 33,6 % | coupes **régulières**, choix par frontalité |
+
+Le risque ne monte pas : les têtes perdues **parmi les personnes gardées**
+passent de 19 images-personne aujourd'hui à 14 pour le candidat. Subdiviser ne
+coûte aucun visage. Les 1 350 images-personne de têtes **écartées** sont l'effet
+voulu, pas une faute, et les confondre ferait crier au désastre pour ce qu'on
+cherche à faire.
+
+Le prix se paie en respiration : 2,67 coupes de plus par minute, et les
+changements de taille de canevas passent de 3,14 à 5,43 par minute.
+
+### La métrique ne peut pas juger le choix, et il faut le dire
+
+`candidate` ne bat `randomWho` que de 1,8 point sur les 33,4 gagnés, soit 5 %.
+Le témoin est pourtant bien exercé : il désigne l'autre rang sur 62,4 % du temps
+où le candidat suit quelqu'un, et six graines le situent entre 38,9 et 40,4 %.
+
+La conclusion facile serait que le choix ne sert à rien. Elle est fausse, et
+c'est un piège de mesure qu'il faut nommer : **cadrer sur la mauvaise personne
+remplit le canevas exactement aussi bien que cadrer sur la bonne.** La grandeur
+mesurée est le remplissage, pas la justesse. Aucun chiffre de cadrage ne verra
+jamais la différence, et en construire un ne changerait rien — c'est le contenu
+qui est en cause, pas la géométrie.
+
+Le choix se juge donc à la vidéo, avec le son : on voit qui est cadré, on entend
+qui parle. C'est ce que produit `scripts/spike/subshot-ab.ts`.
+
+### Ce que la comparaison mesure légitimement
+
+`evenCuts` fait 33,6 % contre 41,1 %, soit **7,5 points, quatre fois ce que vaut
+le choix**. Cette comparaison-là est valide : le placement des frontières décide
+si un cadre serré est seulement possible sur un intervalle, et la géométrie le
+voit.
+
+Ce que la frontalité apporte n'est donc pas *qui* suivre, mais *où* couper.
+
+### Les replis, et le prix des visages imprimés
+
+La règle ne se déclenche pas partout, et la ventilation dit pourquoi :
+
+| cause | temps | part du montage |
+|---|---|---|
+| écart de frontalité insuffisant | 600 s | 29,7 % |
+| moins de deux personnes | 238 s | 11,8 % |
+| **plus de deux personnes** | **208 s** | **10,3 %** |
+| une frontalité `unknown` | 89 s | 4,4 % |
+
+**Les 208 s de « plus de deux personnes » viennent pour 166 s de `caro-mdlm`
+seule**, soit la moitié du montage de cette émission. C'est le faux positif sur
+visage imprimé : une boîte de plus fait passer le plan à trois personnes, et une
+règle qui n'agit qu'à deux se tait. Un filtre rendrait presque tout son effet
+sur une seule émission.
+
+### Les deux réglages, et ce qu'ils coûtent
+
+`--min-hold` est bon marché : de 1 s à 4 s, le gain ne perd que 3,5 points et la
+cadence tombe de 3,50 à 1,48 coupe par minute. Le confort ne se paie presque pas.
+
+`--ratio-lock shot` coûte cher, et par un mécanisme qu'on n'attendait pas.
+Verrouiller le ratio met tous les sous-plans d'un plan à la même largeur, donc
+leurs crops se recouvrent presque toujours, donc le garde-fou du faux raccord les
+refuse en bloc : 0,15 coupe par minute et 25,8 % de gain. Ce n'est pas un défaut
+du garde-fou, c'est sa conclusion juste — à ratio verrouillé, la plupart de ces
+coupes *sont* des faux raccords. Le compromis reste défendable : 25,8 % contre
+7,7 % aujourd'hui, avec **moins** de respiration qu'aujourd'hui, 2,97 par minute
+contre 3,14.
+
+Aucune des huit lignes du balayage n'achète du gain en coupant des têtes : le
+risque parmi les gardées tient entre 13 et 14 images-personne partout.
+
+### Le garde-fou du faux raccord se rapporte au crop le plus large
+
+Écrit d'abord au plus étroit, ce qui se lit spontanément, puis mesuré : un 9:16
+entièrement contenu dans le 16:9 voisin note alors un recouvrement de 1,00, donc
+**toute** coupe touchant un plan large est refusée, et 45 % du montage de `nabla`
+refusionne. Or ce cas n'est pas un faux raccord, c'est un **cut-in** — la scène
+entière, puis une personne, 31,6 % → 100 % de canevas. Le vrai faux raccord est
+deux cadres de même taille au même endroit, et c'est lui que le rapport au plus
+large note à 1,00.
+
+---
+
 ## Ce qui reste ouvert
 
 - Une frontalité calculée sans le terme d'épaules est-elle exploitable ? Le cas

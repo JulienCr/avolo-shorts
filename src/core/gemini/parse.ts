@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Clip } from '@/core/edl'
+import { normalizeHookText } from '@/core/hook'
 import { snapToWords, type Window, type Word } from '@/core/transcript'
 
 /**
@@ -57,6 +58,12 @@ const SCHEMA_CLIP = z.object({
   video_description_for_tiktok: z.string().optional(),
   video_description_for_instagram: z.string().optional(),
   video_title_for_youtube_short: z.string().optional(),
+  // Le prompt la demande depuis toujours (`HOOK PLAYBOOK`, `prompts.ts`) et
+  // le schéma de repérage la requiert (`candidates.ts`) ; ce fichier-ci la
+  // lisait et la jetait. **`.catch(undefined)`, pour la même raison que
+  // `predicted_score`** : une accroche illisible ne coûte pas la proposition
+  // entière.
+  viral_hook_text: z.string().optional().catch(undefined),
 })
 
 /**
@@ -347,6 +354,17 @@ export function parseDetailResponse(
         // Le numéro de passe appartient au lot, pas au clip : `mergeCandidates`
         // le pose.
         pass: 0,
+        // Le modèle rend déjà `viral_hook_text` (§7 : « pas de génération pour
+        // tous les candidats » vise les *appels* au LLM, pas cette ligne qui
+        // voyage sans coût supplémentaire dans la même réponse) — voir
+        // `video_title_for_youtube_short` deux lignes plus haut, versé dans
+        // `Clip.title` par ce même fichier pour la même raison. `normalizeHookText`
+        // ramène guillemets et blancs excédentaires à une forme affichable.
+        hookText: normalizeHookText(lu.data.viral_hook_text ?? ''),
+        // Aucune surcharge à la sortie du repérage : un clip fraîchement
+        // proposé suit les défauts globaux du hook tant que personne n'y a
+        // touché.
+        hookStyle: {},
       },
     })
   }

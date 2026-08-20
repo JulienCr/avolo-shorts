@@ -7,11 +7,21 @@ import type { Clip } from '@/core/edl'
  * du projet, volontairement non versionnée : ce fichier ne se trouve pas dans
  * le dépôt cloné).
  *
- * **Ce module est l'interface dont héritent l'émetteur ASS (rendu) et le
- * calque de preview (écran Clip).** Sa signature est celle que l'orchestrateur
- * a figée pour la flotte : `resolveHook`, `hookIsBurned`, `hookLayout` et
- * `normalizeHookText` ne bougent pas d'une PR à l'autre — c'est ce qui permet
- * aux deux camps de calculer la même géométrie sans se copier l'un l'autre.
+ * **Ce module est l'interface dont héritent le rasteriseur PNG du rendu
+ * (`src/server/hook-image.ts`) et le calque de preview (écran Clip).**
+ * `resolveHook`, `hookIsBurned`, `hookLayout` et `normalizeHookText` sont ce
+ * que les deux camps partagent — c'est ce qui permet aux deux de calculer la
+ * même géométrie sans se copier l'un l'autre.
+ *
+ * **Le hook s'incrustait en ASS (`BorderStyle: 3`) jusqu'au 20 août 2026.**
+ * `BorderStyle: 3` ne dessine que des angles droits — aucun réglage ASS
+ * n'arrondit un coin — et une boîte par ligne, ce qui produit un escalier sur
+ * un hook de plusieurs lignes. Le propriétaire du dépôt a regardé les rendus
+ * et demandé un fond plein à coins arrondis qui épouse un texte court : ce
+ * n'était pas atteignable en ASS, donc le hook s'incruste désormais par une
+ * image PNG composée en `overlay`, exactement comme `logo.png` et
+ * `twitch.png` (`src/core/ffmpeg/args.ts`). Les sous-titres, eux, restent en
+ * ASS : rien dans ce paragraphe ne les concerne.
  *
  * **`HookSettings` et les valeurs qui le bornent vivent ici, pas dans
  * `src/lib/api.ts`, et c'est une contrainte de la frontière de pureté.**
@@ -58,15 +68,24 @@ export const HOOK_FONTS = ['Anton'] as const
  * (`hookStyle`, même fichier) et la validation de `PATCH /api/clips/:id` s'y
  * réfèrent tous les trois — une liste de bornes réécrite à la main aurait fini
  * par diverger (`CLAUDE.md`, « un correctif compris comme local »).
+ *
+ * **`sizePermille` et `cornerRadiusPermille`, pas `sizeFraction` ni
+ * `cornerRadiusFraction`.** Le registre de réglages n'a pas de type décimal
+ * (`src/server/db.ts`, doc de `SettingFieldType` : « pas de type flottant, et
+ * c'est une décision prise ») — la même raison que `durationMs` porte des
+ * millisecondes plutôt que des secondes. Une fraction de la largeur du
+ * canevas (0 à 1) exigerait des décimales pour toute granularité utile ; en
+ * millièmes, elle reste un entier — `90` veut dire 9,0 % de la largeur.
  */
 export const HOOK_BOUNDS = {
   durationMs: { min: 200, max: 10_000 },
-  size: { min: 10, max: 200 },
+  sizePermille: { min: 20, max: 250 },
+  cornerRadiusPermille: { min: 0, max: 200 },
   backgroundOpacity: { min: 0, max: 100 },
 } as const
 
 /**
- * Les onze réglages du hook, globaux ou surchargés par un clip.
+ * Les treize réglages du hook, globaux ou surchargés par un clip.
  *
  * **`durationMs`, pas `durationSec`.** `src/server/db.ts` ne porte pas de type
  * décimal — sa doctrine, écrite dans `parseSetting`, refuse tout ce qui n'est
@@ -74,12 +93,25 @@ export const HOOK_BOUNDS = {
  * arrondie à un seuil inclusif (`CLAUDE.md`). L'écran affiche encore
  * « 2 secondes » : la conversion vit dans `hook-section.tsx`, seul endroit qui
  * porte déjà toute la prose de cette section.
+ *
+ * **`sizePermille`, pas `size`.** Le champ a changé de sens — d'une taille en
+ * unités de script ASS à une fraction de la largeur du canevas — et
+ * `CLAUDE.md` refuse qu'une clé change de sens sous le même nom (« un
+ * correctif compris comme local revient au champ suivant »). Voir
+ * `HOOK_BOUNDS` pour pourquoi ce sont des millièmes et pas une fraction
+ * décimale.
+ *
+ * **`cornerRadiusPermille` et `uppercase` sont neufs**, demandés par le
+ * propriétaire du dépôt après avoir regardé les rendus : un fond translucide
+ * à angles droits ne « pose » pas le bandeau sur l'image, il la recouvre.
  */
 export type HookSettings = {
   enabled: boolean
   durationMs: number
   font: (typeof HOOK_FONTS)[number]
-  size: number
+  sizePermille: number
+  cornerRadiusPermille: number
+  uppercase: boolean
   position: (typeof HOOK_POSITIONS)[number]
   alignment: (typeof HOOK_ALIGNMENTS)[number]
   textColor: string
@@ -90,7 +122,7 @@ export type HookSettings = {
 }
 
 /**
- * Les onze défauts globaux du hook — ceux que le registre de réglages
+ * Les treize défauts globaux du hook — ceux que le registre de réglages
  * enregistre (`src/server/db.ts`, `HOOK_FIELD_SHAPES`) et que l'écran des
  * réglages propose au bouton « Revenir à … » (`hook-section.tsx`).
  *
@@ -98,22 +130,30 @@ export type HookSettings = {
  * l'écran de réglages est un composant client : `ai-section.tsx` duplique ses
  * propres défauts à la main pour cette raison (`DEFAULT_PROVIDER`,
  * `DEFAULT_MODEL`), parce qu'ils dépendent du fournisseur choisi. Ceux du hook
- * sont onze littéraux sans logique — les dupliquer à la main créerait deux
+ * sont treize littéraux sans logique — les dupliquer à la main créerait deux
  * listes qui divergeraient au premier réglage changé, exactement le défaut que
  * `CLAUDE.md` documente sous « un correctif compris comme local revient au
  * champ suivant ». Poser la valeur ici et la faire lire des deux côtés
  * l'empêche par construction.
+ *
+ * **`backgroundOpacity` à 100, pas 60.** Le retour du propriétaire est net :
+ * « un fond plein, à coins arrondis ». Le réglage reste — un fond translucide
+ * peut se vouloir — mais ce n'est plus le défaut. `cornerRadiusPermille` à 24
+ * (2,4 % de la largeur) donne l'arrondi franc des deux exemples fournis : ni
+ * angle droit, ni gélule — vérifié à l'image, voir `tmp/hook-proof/`.
  */
 export const HOOK_DEFAULTS: HookSettings = {
   enabled: true,
   durationMs: 2_000,
   font: 'Anton',
-  size: 56,
+  sizePermille: 90,
+  cornerRadiusPermille: 24,
+  uppercase: true,
   position: 'top',
   alignment: 'center',
   textColor: '#FFFFFF',
   backgroundColor: '#000000',
-  backgroundOpacity: 60,
+  backgroundOpacity: 100,
   enter: 'fade',
   exit: 'fade',
 }
@@ -152,81 +192,119 @@ export function hookIsBurned(resolved: ResolvedHook): boolean {
 }
 
 /**
- * La géométrie du hook, en unités du script ASS `PlayResX 384 × PlayResY 288`
- * — le même repère que `src/core/captions/ass.ts`, pour que le hook et les
- * sous-titres se positionnent l'un par rapport à l'autre sans conversion.
+ * La géométrie du hook, en **fractions sans unité de la LARGEUR du
+ * canevas** — jamais de sa hauteur, et jamais un pixel ou une unité de script.
+ *
+ * **C'est un renversement délibéré par rapport aux sous-titres**, et il faut
+ * l'écrire ici parce qu'il sera reproposé à l'envers par le premier lecteur
+ * qui verra que `src/core/captions/ass.ts` fait autrement. Les sous-titres
+ * suivent `PlayResY` — la hauteur du canevas — et c'est **mesuré** sans être
+ * un défaut : le même texte y fait deux lignes modérées sur un 1:1
+ * (1080×1080) et quatre lignes énormes sur un 9:16 (1080×1920), parce que la
+ * hauteur change du tout au tout entre les deux quand la largeur, elle, ne
+ * bouge pas (1080 dans les deux cas — seul le 16:9 natif, à 1920, diffère).
+ * C'est exactement le reproche que le propriétaire a fait sur les rendus : un
+ * bandeau qui change de taille selon le format alors que c'est le MÊME hook.
+ * Une géométrie assise sur la largeur rend au contraire le même bandeau sur
+ * toutes les sorties dont la largeur coïncide — natif 1:1/4:5/9:16 et
+ * variante 9:16, qui partagent tous 1080 — et seul le natif 16:9 (1920) en
+ * sort à une échelle différente, ce qui est juste : un cadre deux fois plus
+ * large mérite un bandeau proportionnellement plus grand, pas le même nombre
+ * de pixels perdu dans le coin.
+ *
+ * **Une seule fonction, deux consommateurs, aucun calcul parallèle** : le
+ * rasteriseur PNG du rendu (`src/server/hook-image.ts`) multiplie ces
+ * fractions par la largeur et la hauteur réelles du canevas, le calque de
+ * preview (`hook-overlay.tsx`) par `cqw`/`cqh` de la boîte 9:16 d'aperçu.
+ * `PlayResX`/`PlayResY` n'existent plus pour le hook : c'était l'échelle
+ * imposée par l'ASS, que le passage au PNG existe justement pour lever.
  */
 export type HookLayout = {
-  /** L'alignement ASS, 1 à 9, dérivé de position × alignment. */
-  assAlignment: number
-  marginL: number
-  marginR: number
-  marginV: number
-  /** La taille en unités de script : floor(size * 0.85), comme les sous-titres. */
-  sizeUnits: number
+  /** La taille de police, fraction de la largeur du canevas. */
+  fontSizeFraction: number
+  /** L'interligne, fraction de la largeur — `fontSizeFraction × HOOK_LINE_HEIGHT_FACTOR`. */
+  lineHeightFraction: number
+  /** Le rembourrage horizontal interne à la boîte, fraction de la largeur. */
+  paddingXFraction: number
+  /** Le rembourrage vertical interne, fraction de la largeur (même raison que la taille : une boîte qui garde ses proportions quel que soit le format). */
+  paddingYFraction: number
+  /** Le rayon des coins, fraction de la largeur. */
+  radiusFraction: number
+  /** La marge de sécurité gauche/droite, fraction de la largeur. */
+  marginXFraction: number
+  /** La marge depuis le bord haut ou bas (selon `position`), fraction de la largeur ; 0 pour `center`. */
+  marginYFraction: number
+  /** La largeur maximale de la boîte avant retour à la ligne, fraction de la largeur du canevas. */
+  maxBoxWidthFraction: number
 }
 
 /**
- * La marge horizontale de sécurité, des deux côtés — ~6,25 % de `PlayResX`
- * (384). Posée symétriquement quel que soit l'alignement : c'est ce que
- * « respecter une safe-area adaptée au format vertical » (§7) veut dire pour
- * un texte qui peut revenir sur plusieurs lignes, pas seulement une marge côté
- * texte.
+ * La marge de sécurité gauche/droite, ~6 % de la largeur — l'équivalent en
+ * fraction de largeur de l'ancienne `HOOK_MARGIN_X` (24 unités sur
+ * `PlayResX: 384`, soit 6,25 %).
  */
-const HOOK_MARGIN_X = 24
+const HOOK_MARGIN_X_FRACTION = 0.06
 
 /**
  * Depuis le haut, quand `position` vaut `top`. Le tiers supérieur d'un feed
  * vertical est en général le moins recouvert par l'interface de la
- * plateforme — contrairement au bas, voir `HOOK_MARGIN_BOTTOM`.
+ * plateforme — contrairement au bas, voir `HOOK_MARGIN_BOTTOM_FRACTION`.
  */
-const HOOK_MARGIN_TOP = 24
+const HOOK_MARGIN_TOP_FRACTION = 0.05
 
 /**
- * Depuis le bas, quand `position` vaut `bottom`. **La même mesure que les
- * sous-titres** (`MARGIN_LOW`, `src/core/captions/ass.ts`, ~15 % de
- * `PlayResY`) : c'est la zone que le bloc légende/pseudo et le bandeau musical
- * de TikTok et de Reels recouvrent, mesurée pour les sous-titres et valable
- * pour tout texte posé en bas de cadre.
+ * Depuis le bas, quand `position` vaut `bottom` — plus large que la marge du
+ * haut, pour la même raison que l'ancienne `HOOK_MARGIN_BOTTOM` : c'est la
+ * zone que le bloc légende/pseudo et le bandeau musical de TikTok et de Reels
+ * recouvrent le plus souvent.
  */
-const HOOK_MARGIN_BOTTOM = 43
+const HOOK_MARGIN_BOTTOM_FRACTION = 0.09
 
-/** `position: 'center'` n'a pas de marge verticale à tenir : ASS centre déjà. */
-const HOOK_MARGIN_CENTER = 0
+/** `position: 'center'` n'a pas de marge verticale à tenir : la boîte est déjà centrée. */
+const HOOK_MARGIN_CENTER_FRACTION = 0
 
 /**
- * L'alignement ASS façon pavé numérique, 1 à 9 : `7 8 9` en haut, `4 5 6` au
- * centre, `1 2 3` en bas — colonne gauche/centre/droite dans cet ordre à
- * chaque ligne. C'est la convention que lit `src/core/captions/ass.ts`
- * (`Alignment: 2`, bas centré).
+ * Le rembourrage horizontal, proportionnel à la taille de police — pour
+ * qu'un gros hook garde une marge propre plutôt qu'une boîte collée aux
+ * lettres, ce qu'une constante fixe aurait donné aux deux extrémités de
+ * `HOOK_BOUNDS.sizePermille`. Mesuré à l'image sur les deux exemples fournis
+ * (`tmp/hook-proof/`) : c'est ce facteur qui fait que la boîte « épouse » le
+ * texte sans le serrer ni nager dedans.
  */
-function assAlignmentFor(
-  position: HookSettings['position'],
-  alignment: HookSettings['alignment'],
-): number {
-  const row = position === 'top' ? 6 : position === 'center' ? 3 : 0
-  const column = alignment === 'left' ? 1 : alignment === 'center' ? 2 : 3
-  return row + column
-}
+const HOOK_PADDING_X_FACTOR = 0.6
 
-function marginVFor(position: HookSettings['position']): number {
-  if (position === 'top') return HOOK_MARGIN_TOP
-  if (position === 'bottom') return HOOK_MARGIN_BOTTOM
-  return HOOK_MARGIN_CENTER
+/** Le rembourrage vertical, plus resserré que l'horizontal comme sur les deux exemples fournis. */
+const HOOK_PADDING_Y_FACTOR = 0.42
+
+/** L'interligne d'un hook sur plusieurs lignes, en multiple de la taille de police. */
+const HOOK_LINE_HEIGHT_FACTOR = 1.2
+
+/**
+ * La largeur maximale de la boîte avant retour à la ligne — l'équivalent en
+ * fraction de largeur de l'ancienne zone utile de `renderHookAss`
+ * (`PlayResX - 2 × HOOK_MARGIN_X = 336/384 = 87,5 %`), resserrée légèrement
+ * pour laisser une respiration visible entre la boîte et la marge de
+ * sécurité plutôt que de les faire coïncider.
+ */
+const HOOK_MAX_BOX_WIDTH_FRACTION = 0.84
+
+function marginYFractionFor(position: HookSettings['position']): number {
+  if (position === 'top') return HOOK_MARGIN_TOP_FRACTION
+  if (position === 'bottom') return HOOK_MARGIN_BOTTOM_FRACTION
+  return HOOK_MARGIN_CENTER_FRACTION
 }
 
 export function hookLayout(resolved: ResolvedHook): HookLayout {
+  const fontSizeFraction = resolved.sizePermille / 1000
   return {
-    assAlignment: assAlignmentFor(resolved.position, resolved.alignment),
-    marginL: HOOK_MARGIN_X,
-    marginR: HOOK_MARGIN_X,
-    marginV: marginVFor(resolved.position),
-    // Le facteur 0,85 est repris tel quel de `src/core/captions/ass.ts`, pour
-    // qu'un hook à 44 et un sous-titre à 44 donnent la même hauteur de glyphe
-    // — une propriété produit, pas un détail d'implémentation. Le plancher de
-    // 10 aussi : sans lui, la taille minimale du registre (`HOOK_BOUNDS.size.min`)
-    // rendrait 8, plus petit que ce que les sous-titres s'autorisent jamais.
-    sizeUnits: Math.max(10, Math.floor(resolved.size * 0.85)),
+    fontSizeFraction,
+    lineHeightFraction: fontSizeFraction * HOOK_LINE_HEIGHT_FACTOR,
+    paddingXFraction: fontSizeFraction * HOOK_PADDING_X_FACTOR,
+    paddingYFraction: fontSizeFraction * HOOK_PADDING_Y_FACTOR,
+    radiusFraction: resolved.cornerRadiusPermille / 1000,
+    marginXFraction: HOOK_MARGIN_X_FRACTION,
+    marginYFraction: marginYFractionFor(resolved.position),
+    maxBoxWidthFraction: HOOK_MAX_BOX_WIDTH_FRACTION,
   }
 }
 
@@ -252,7 +330,16 @@ function stripSurroundingQuotes(text: string): string {
   return text
 }
 
-const HOOK_TEXT_MAX_WORDS = 10
+/**
+ * **6, pas 10.** Les deux exemples fournis par le propriétaire du dépôt font
+ * un à cinq mots (« CURIOSITY », « ÇA TOURNE ! », « LES ALÉAS DU BTP », « JE
+ * VOUS AI BIEN EUS ») : un hook « court et frappant » n'a jamais besoin de
+ * dix. `src/core/gemini/prompts.ts` (`HOOK_PATTERNS`, `HOOK_PROMPT_MAX_WORDS`)
+ * demande la même limite au modèle — resserrer l'une sans l'autre laisserait
+ * `normalizeHookText` couper au milieu d'une phrase que le modèle croyait
+ * complète.
+ */
+const HOOK_TEXT_MAX_WORDS = 6
 const HOOK_TEXT_MAX_CHARS = 120
 
 /**

@@ -82,6 +82,31 @@ quelqu'un d'assis les hanches ne dépassent pas les épaules, et quand elles le
 feraient elles sont cachées donc peu confiantes ; `upper-body` élargit de six
 points, un bras tendu rentrant dans le cadre qu'on venait d'en sortir.
 
+**Savoir qui parle en regardant bouger sa bouche.** Mesuré le 20 août 2026 sur
+17 927 images, sans étiquetage humain : les plans à une seule personne disent
+qui parle, puisque c'est elle. Trois statistiques de différence d'images sur la
+région de bouche donnent une AUC de 0,49 à 0,52, et le **témoin de bruit de
+tête les bat toutes**. La courbe de décalage est plate sur ±267 ms. Ni
+l'orientation, ni l'immobilité de la tête, ni la résolution ne l'expliquent —
+la région fait 55 × 42 px en médiane, donc elle est sur-échantillonnée en
+32×32. Ça ferme la statistique de pixels, pas un modèle appris comme Light-ASD
+ou TalkNet, ni la piste audio. Le détail est dans
+`docs/locuteur-et-orientation.md`.
+
+**Repérer une frontière de plan manquée par un saut de largeur d'empan.** Le
+critère resserre le ratio sur 41,3 % du gisement — mais **couper au hasard le
+resserre sur 31,7 %** et fait mieux que lui sur deux émissions sur quatre. Ce
+qu'on croyait mesurer n'existait pas ; ce qu'on a appris, en revanche, vaut
+pour tout ce qui subdivise un plan, et c'est le paragraphe suivant.
+
+**Et une chose qu'il faut savoir avant de mesurer quoi que ce soit qui
+subdivise.** Couper un plan **n'importe où** resserre souvent le ratio, parce
+que la règle des 90 % s'applique alors à un intervalle plus court, où l'action a
+moins le temps de bouger. Tout gain annoncé par une subdivision — sur le
+locuteur, sur l'orientation, sur une frontière retrouvée — doit donc être
+comparé à un **témoin qui coupe au même rythme sans rien savoir**. Sans lui, on
+crédite le signal d'un gain que la coupe seule donne.
+
 ## Sept pièges
 
 **1. Les points de pose sortent de `[0, 1]`.** Un bornage qui ne couvre qu'une
@@ -198,6 +223,14 @@ regardant les deux images qui l'encadrent.
   premier plan sur la population de pose.
 - **Les faux positifs sur du mobilier** (issue #69, cause restante) : un modèle de
   pose pose un squelette sur un fauteuil vide.
+- **Et sur les visages imprimés**, qui sont une famille distincte et bien plus
+  gênante. Le 20 août 2026, sur `2026-05-31-nabla` à 988,5 s, le détecteur pose
+  une personne sur la femme imprimée d'une jaquette de DVD brandie devant la
+  caméra, tête comprise, avec une **frontalité de 0,96 — plus haute que celle
+  des deux vrais comédiens**. Le plan passe à trois personnes et toute règle qui
+  n'agit qu'à deux se tait. Pire : sur une image à deux boîtes dont l'une serait
+  une affiche, une règle d'orientation cadrerait **sur l'affiche**. Sur une
+  émission qui parle de culture pop, jaquettes, livres et écrans sont partout.
 - **Les plans trop mobiles, en grande partie refermé depuis le 19 août 2026.**
   Sur `2026-22-02-entre-nous`, le temps de montage borné par la position plutôt
   que par la largeur tombait à 41 % : le mélangeur OBS translate la scène en

@@ -683,6 +683,237 @@ export function headBounds(
 }
 
 /**
+ * À quel point une personne est de face — `1` pleinement de face, `0` pur
+ * profil — et `'unknown'` quand on ne sait pas.
+ */
+export type Facing = 'frontal' | 'profile' | 'unknown'
+
+/** Les trois signaux dont `orientationOf` moyenne les contributions disponibles. */
+export type OrientationTerms = {
+  /**
+   * Asymétrie des confiances d'oreille, 0 (symétrique) à 1 (une seule vue).
+   * `null` si les deux confiances sont nulles.
+   */
+  earAsymmetry: number | null
+  /** 1 si les deux yeux sont confiants, 0 si un seul. `null` si aucun. */
+  eyeTerm: number | null
+  /** Écart des épaules en x, rapporté à une échelle verticale. `null` si incalculable. */
+  shoulderRatio: number | null
+}
+
+/**
+ * Le résultat d'`orientationOf`.
+ *
+ * **`frontality` vaut `null` si et seulement si `facing` vaut `'unknown'`** —
+ * jamais `0`. Un appelant qui trierait par `frontality` classerait sinon un
+ * `0` comme « le plus de profil », alors qu'on n'en sait rien : une personne
+ * de dos n'est pas de profil, elle est de dos. C'est la distinction que
+ * `CLAUDE.md` pose sous « Distinguer l'absence d'information de son
+ * ambiguïté » — l'absence de signal n'est pas la valeur la plus prudente,
+ * c'est une troisième chose.
+ */
+export type Orientation = {
+  facing: Facing
+  /** `null` si et seulement si `facing` vaut `'unknown'`. */
+  frontality: number | null
+  /** Le côté vers lequel la personne est tournée : -1 vers la gauche de l'image, +1 vers la droite, 0 indéterminé. */
+  side: -1 | 0 | 1
+  terms: OrientationTerms
+}
+
+/**
+ * Les réglages d'`orientationOf`, **à part de `FramingOptions`** : cette
+ * fonction n'est appelée par personne pour l'instant, surtout pas
+ * `computeFraming`, et un champ de plus dans `FramingOptions` obligerait à
+ * toucher son bloc de recopie sans aucun besoin.
+ *
+ * `shoulderRatioFull` et `sideDeadband` sont des valeurs de départ à mesurer,
+ * pas des constantes gagnées par une campagne — un balayage viendra, comme
+ * celui qui a fixé `sideTrim` ou `torsoTrim`. `pointMinScore` fait exception :
+ * il reprend le défaut de `torsoMinScore`, déjà mesuré par la campagne du
+ * 19 août 2026.
+ *
+ * **`frontalThreshold` valait 0,35 et deux mesures indépendantes l'ont
+ * condamné** (20 août 2026, `docs/locuteur-et-orientation.md`). Sur une planche
+ * de trente vignettes tirées entre 0,25 et 0,80 et triées par frontalité, la
+ * fonction dit `'frontal'` sur des profils francs jusqu'à 0,54 ; la frontière
+ * lue à l'image tombe vers 0,60. Et sur les 17 927 images du jeu
+ * auto-supervisé, 0,35 range **97,7 %** des boîtes en `'frontal'` : une
+ * étiquette qui ne distingue plus rien.
+ *
+ * **Aucun seuil unique ne sépare proprement**, et c'est le vrai résultat : des
+ * profils francs subsistent jusqu'à 0,71 quand des visages exploitables
+ * descendent à 0,54. 0,60 rend l'étiquette honnête, il ne la rend pas juste.
+ * D'où la conséquence de conception, qui est ailleurs : **la décision de
+ * cadrage se prend sur un écart entre deux personnes du même plan**, jamais sur
+ * ce seuil. Dans un plan, les deux personnes partagent le détecteur,
+ * l'éclairage et l'angle, donc leurs biais se compensent dans la différence là
+ * où ils s'ajoutent dans la valeur. `facing` est un diagnostic, pas une
+ * décision.
+ */
+export type OrientationOptions = {
+  /** Confiance minimale d'un point pour compter, inclusive. Défaut : celui de `FRAMING_DEFAULTS.torsoMinScore`. */
+  pointMinScore?: number
+  /** Rapport d'épaules au-delà duquel le terme sature à 1. */
+  shoulderRatioFull?: number
+  /** Seuil de `frontality` qui sépare `'frontal'` de `'profile'`, inclusif du côté frontal. */
+  frontalThreshold?: number
+  /** Asymétrie d'oreille en deçà de laquelle `side` vaut 0. */
+  sideDeadband?: number
+}
+
+export const ORIENTATION_DEFAULTS: Readonly<Required<OrientationOptions>> = Object.freeze({
+  pointMinScore: FRAMING_DEFAULTS.torsoMinScore,
+  shoulderRatioFull: 1,
+  frontalThreshold: 0.6,
+  sideDeadband: 0.5,
+})
+
+/**
+ * L'écart horizontal des épaules, rapporté à une échelle verticale
+ * insensible au lacet — un torse de profil projette ses deux épaules
+ * quasiment au même `x`, quel que soit le sens dans lequel il regarde.
+ *
+ * **L'échelle n'est pas la largeur de tête** : elle se calcule sur les points
+ * confiants du moment (nez à défaut hanches), donc elle bouge avec la
+ * grandeur qu'on mesure plutôt que de dépendre d'une mesure indépendante
+ * qu'il faudrait recaler séparément.
+ */
+function shoulderRatioOf(k: readonly number[], threshold: number): number | null {
+  const shoulderLeftX = k[POINT.LEFT_SHOULDER * 3]
+  const shoulderLeftY = k[POINT.LEFT_SHOULDER * 3 + 1]
+  const shoulderLeftScore = k[POINT.LEFT_SHOULDER * 3 + 2]
+  const shoulderRightX = k[POINT.RIGHT_SHOULDER * 3]
+  const shoulderRightY = k[POINT.RIGHT_SHOULDER * 3 + 1]
+  const shoulderRightScore = k[POINT.RIGHT_SHOULDER * 3 + 2]
+
+  // `!(c >= seuil)` et non `c < seuil`, comme partout ailleurs ici : un `NaN`
+  // doit tomber du côté écarté.
+  if (
+    !Number.isFinite(shoulderLeftX) ||
+    !Number.isFinite(shoulderRightX) ||
+    !(shoulderLeftScore >= threshold) ||
+    !(shoulderRightScore >= threshold)
+  ) {
+    return null
+  }
+
+  const span = Math.abs(shoulderLeftX - shoulderRightX)
+  const shoulderMidY = (shoulderLeftY + shoulderRightY) / 2
+
+  const noseY = k[POINT.NOSE * 3 + 1]
+  const noseScore = k[POINT.NOSE * 3 + 2]
+  let scale: number
+  if (Number.isFinite(noseY) && noseScore >= threshold) {
+    scale = Math.abs(noseY - shoulderMidY)
+  } else {
+    const hipLeftScore = k[POINT.LEFT_HIP * 3 + 2]
+    const hipRightScore = k[POINT.RIGHT_HIP * 3 + 2]
+    if (hipLeftScore >= threshold && hipRightScore >= threshold) {
+      const hipLeftY = k[POINT.LEFT_HIP * 3 + 1]
+      const hipRightY = k[POINT.RIGHT_HIP * 3 + 1]
+      scale = Math.abs(shoulderMidY - (hipLeftY + hipRightY) / 2)
+    } else {
+      return null
+    }
+  }
+
+  // `!(scale > 0)` et non `scale === 0`, pour que `NaN` tombe du côté écarté.
+  if (!(scale > 0)) return null
+  return span / scale
+}
+
+/**
+ * À quel point une personne est de face, à partir de son squelette COCO.
+ *
+ * **Un spike : cette fonction n'est appelée par personne**, et surtout pas
+ * `computeFraming` — elle mesure avant de brancher, et le comportement du
+ * cadrage en service ne change pas d'un iota tant qu'elle reste en dehors du
+ * chemin qui y mène.
+ *
+ * Trois signaux, chacun pouvant manquer indépendamment des deux autres :
+ *
+ * - `earAsymmetry` compare les confiances brutes des deux oreilles, sans
+ *   seuil — ici la confiance *est* le signal, pas un filtre. Une vue de
+ *   profil ne montre le détecteur qu'une oreille, l'autre étant masquée par
+ *   la tête.
+ * - `eyeTerm` compte les yeux confiants. **Un seul œil confiant est une
+ *   information — le visage est tourné — et vaut `0`, pas `null`.** `null`
+ *   ne dit que l'absence totale de signal, quand aucun œil n'est confiant :
+ *   c'est la même distinction que celle de `frontality` plus bas, à
+ *   l'échelle d'un seul terme.
+ * - `shoulderRatio` mesure l'écart horizontal des épaules, voir
+ *   `shoulderRatioOf`.
+ *
+ * **`frontality` exige deux contributions disponibles, jamais une seule** :
+ * une oreille seule ne doit pas pouvoir trancher à elle seule entre face et
+ * profil, ce qui rendrait le résultat aussi fragile qu'un signal isolé.
+ * En dessous de deux, `facing` vaut `'unknown'` et `frontality` `null`.
+ *
+ * `side` ne regarde que l'asymétrie d'oreille : sous `sideDeadband`, aucune
+ * oreille ne domine assez pour dire un côté, et `side` vaut 0.
+ */
+export function orientationOf(box: PersonBox, options: OrientationOptions = {}): Orientation {
+  const unknown: Orientation = {
+    facing: 'unknown',
+    frontality: null,
+    side: 0,
+    terms: { earAsymmetry: null, eyeTerm: null, shoulderRatio: null },
+  }
+
+  const k = box.k
+  if (k === undefined || k.length !== POINT_COUNT * 3) return unknown
+
+  const pointMinScore = setting(options.pointMinScore, ORIENTATION_DEFAULTS.pointMinScore)
+  const shoulderRatioFull = setting(
+    options.shoulderRatioFull,
+    ORIENTATION_DEFAULTS.shoulderRatioFull,
+  )
+  const frontalThreshold = setting(options.frontalThreshold, ORIENTATION_DEFAULTS.frontalThreshold)
+  const sideDeadband = setting(options.sideDeadband, ORIENTATION_DEFAULTS.sideDeadband)
+
+  // 1. earAsymmetry, sur les confiances brutes.
+  const earLeftScore = k[POINT.LEFT_EAR * 3 + 2]
+  const earRightScore = k[POINT.RIGHT_EAR * 3 + 2]
+  const earAsymmetry =
+    Number.isFinite(earLeftScore) && Number.isFinite(earRightScore) && earLeftScore + earRightScore > 0
+      ? Math.abs(earLeftScore - earRightScore) / (earLeftScore + earRightScore)
+      : null
+
+  // 2. eyeTerm, au compte des yeux confiants.
+  const leftEyeSeen = k[POINT.LEFT_EYE * 3 + 2] >= pointMinScore
+  const rightEyeSeen = k[POINT.RIGHT_EYE * 3 + 2] >= pointMinScore
+  const eyesSeen = (leftEyeSeen ? 1 : 0) + (rightEyeSeen ? 1 : 0)
+  const eyeTerm = eyesSeen === 0 ? null : eyesSeen === 2 ? 1 : 0
+
+  // 3. shoulderRatio.
+  const shoulderRatio = shoulderRatioOf(k, pointMinScore)
+
+  // 4. frontality et facing : deux contributions disponibles au minimum.
+  const contributions: number[] = []
+  if (earAsymmetry !== null) contributions.push(1 - earAsymmetry)
+  if (eyeTerm !== null) contributions.push(eyeTerm)
+  if (shoulderRatio !== null) {
+    contributions.push(bound(shoulderRatio / shoulderRatioFull, 0, 1))
+  }
+
+  let frontality: number | null = null
+  let facing: Facing = 'unknown'
+  if (contributions.length >= 2) {
+    frontality = contributions.reduce((sum, c) => sum + c, 0) / contributions.length
+    facing = frontality >= frontalThreshold ? 'frontal' : 'profile'
+  }
+
+  // 5. side.
+  let side: -1 | 0 | 1 = 0
+  if (earAsymmetry !== null && earAsymmetry >= sideDeadband) {
+    side = earLeftScore > earRightScore ? -1 : 1
+  }
+
+  return { facing, frontality, side, terms: { earAsymmetry, eyeTerm, shoulderRatio } }
+}
+
+/**
  * Ce que le cadre doit contenir d'une personne : son tronc si les points le
  * disent, sa boîte moins ses extrémités sinon.
  *

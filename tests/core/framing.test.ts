@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   FRAMING_DEFAULTS,
   MIN_PIECE_SEC,
+  ORIENTATION_DEFAULTS,
   RATIOS,
   chooseRatio,
   computeFraming,
   cropRect,
   headBounds,
   isForeground,
+  orientationOf,
   outputSize,
   ratioCoverage,
   requiredWidths,
@@ -1607,5 +1609,228 @@ describe('headBounds', () => {
   it('rend null quand aucun point de tête ne passe le seuil de confiance', () => {
     const b = withPosed(0, 0.3, 0.5, { NOSE: 0.42 })
     expect(headBounds(b, { torsoMinScore: 0.95 })).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+/** Une boîte de personne qui porte un squelette complet, donné brut. */
+function personWithK(t: number, k: number[]): PersonBox {
+  return { ...box(t, 0, 1), k }
+}
+
+describe('orientationOf', () => {
+  // Quatre personnes réelles de `2026-05-31-nabla`, relevées à la main — voir
+  // le rapport du spike pour le détail des écarts entre ce calcul et celui de
+  // la demande d'origine.
+  const personA = personWithK(770, [
+    0.2812, 0.3218, 0.99, 0.3031, 0.2824, 0.99, 0.2629, 0.2794, 0.99, 0.3474, 0.2681, 0.97, 0.2411,
+    0.2655, 0.4, 0.4112, 0.4269, 0.99, 0.1966, 0.4174, 0.99, 0.4198, 0.7324, 0.99, 0.1513, 0.6769,
+    0.99, 0.2898, 0.8194, 0.99, 0.1557, 0.7903, 0.99, 0.3654, 0.8222, 0.98, 0.2154, 0.806, 0.99,
+    0.387, 0.8944, 0.66, 0.1007, 0.887, 0.77, 0.3677, 1, 0.04, 0.1266, 1, 0.07,
+  ])
+  const personB = personWithK(770, [
+    0.6568, 0.5065, 0.93, 0.6651, 0.4968, 0.97, 0.6823, 0.4741, 0.15, 0.7078, 0.5894, 0.99, 0.7594,
+    0.5287, 0.01, 0.7911, 0.8343, 0.97, 0.813, 0.6769, 0.98, 0.7177, 1, 0.29, 0.7068, 0.9074, 0.71,
+    0.6354, 0.9981, 0.2, 0.5906, 0.9704, 0.48, 0.8208, 1, 0.01, 0.8453, 0.9889, 0.03, 0.6307, 0.9602,
+    0, 0.6625, 0.7324, 0, 0.6172, 1, 0, 0.6823, 0.9556, 0,
+  ])
+  const personC = personWithK(7160, [
+    0.674, 0.2463, 0.99, 0.6948, 0.2222, 0.99, 0.6687, 0.2144, 0.95, 0.7438, 0.2359, 0.99, 0.6698,
+    0.2141, 0.13, 0.7995, 0.3778, 0.99, 0.6307, 0.3491, 0.99, 0.8094, 0.6181, 0.99, 0.5677, 0.5588,
+    0.99, 0.724, 0.7074, 0.99, 0.6344, 0.6375, 0.99, 0.7703, 0.725, 0.99, 0.6615, 0.7157, 0.99, 0.788,
+    0.9199, 0.76, 0.6568, 0.919, 0.75, 0.7688, 0.9907, 0.03, 0.6865, 1, 0.03,
+  ])
+  const personD = personWithK(7160, [
+    0.3141, 0.2991, 0.99, 0.3159, 0.266, 0.8, 0.2938, 0.2699, 0.99, 0.2935, 0.2667, 0.03, 0.237,
+    0.2796, 0.99, 0.3005, 0.3838, 0.99, 0.1495, 0.431, 0.99, 0.3359, 0.588, 0.99, 0.1392, 0.7162,
+    0.99, 0.4042, 0.6519, 0.99, 0.2812, 0.7394, 0.99, 0.2421, 0.7148, 0.98, 0.1435, 0.7556, 0.98,
+    0.3031, 0.8301, 0.77, 0.1971, 0.8787, 0.81, 0.2241, 0.9032, 0.09, 0.1971, 0.9833, 0.08,
+  ])
+
+  it('rend la frontalité et le facing des quatre personnes de référence', () => {
+    const a = orientationOf(personA)
+    expect(a.terms.eyeTerm).toBe(1)
+    expect(a.terms.earAsymmetry).toBeCloseTo(0.416, 2)
+    expect(a.terms.shoulderRatio).toBeCloseTo(2.14, 1)
+    expect(a.frontality).toBeCloseTo(0.861, 2)
+    expect(a.facing).toBe('frontal')
+
+    const b = orientationOf(personB)
+    expect(b.terms.eyeTerm).toBe(0)
+    expect(b.terms.earAsymmetry).toBeCloseTo(0.98, 2)
+    expect(b.terms.shoulderRatio).toBeCloseTo(0.088, 2)
+    expect(b.frontality).toBeCloseTo(0.036, 2)
+    expect(b.facing).toBe('profile')
+
+    const c = orientationOf(personC)
+    expect(c.terms.eyeTerm).toBe(1)
+    expect(c.terms.earAsymmetry).toBeCloseTo(0.767, 2)
+    expect(c.terms.shoulderRatio).toBeCloseTo(1.44, 1)
+    expect(c.frontality).toBeCloseTo(0.744, 2)
+    expect(c.facing).toBe('frontal')
+
+    const d = orientationOf(personD)
+    expect(d.terms.eyeTerm).toBe(1)
+    expect(d.terms.earAsymmetry).toBeCloseTo(0.941, 2)
+    expect(d.terms.shoulderRatio).toBeCloseTo(1.39, 1)
+    expect(d.frontality).toBeCloseTo(0.686, 2)
+    expect(d.facing).toBe('frontal')
+  })
+
+  /**
+   * **`side` sur B, C et D suit la demande d'origine ; A s'en écarte, et c'est
+   * la formule qui fait foi.** Pour A, l'asymétrie d'oreille vaut 0,416 —
+   * l'oreille gauche domine, mais l'écart reste *sous* `sideDeadband` (0,5) :
+   * la formule dit donc `side = 0`, pas `-1`. La demande avait fixé `-1` à la
+   * main sur la seule observation « l'oreille gauche domine », sans repasser
+   * par le seuil de la zone morte. Voir le rapport du spike.
+   */
+  it('rend le côté vers lequel la personne est tournée', () => {
+    expect(orientationOf(personA).side).toBe(0)
+    expect(orientationOf(personB).side).toBe(-1)
+    expect(orientationOf(personC).side).toBe(-1)
+    expect(orientationOf(personD).side).toBe(1)
+  })
+
+  it('rend `unknown` et `frontality` `null` sans points de pose', () => {
+    const result = orientationOf(box(0, 0.2, 0.6))
+    expect(result.facing).toBe('unknown')
+    expect(result.frontality).toBeNull()
+    expect(result.side).toBe(0)
+    expect(result.terms).toEqual({ earAsymmetry: null, eyeTerm: null, shoulderRatio: null })
+  })
+
+  it('rend `unknown` pour un squelette de la mauvaise longueur', () => {
+    const tooShort = personWithK(0, personA.k!.slice(0, 50))
+    const tooLong = personWithK(0, [...personA.k!, 0])
+    expect(orientationOf(tooShort).facing).toBe('unknown')
+    expect(orientationOf(tooLong).facing).toBe('unknown')
+  })
+
+  it('rend `unknown` quand toutes les confiances sont nulles — aucun terme disponible', () => {
+    const nobody = personWithK(0, skeleton({}))
+    const result = orientationOf(nobody)
+    expect(result.facing).toBe('unknown')
+    expect(result.frontality).toBeNull()
+    expect(result.terms).toEqual({ earAsymmetry: null, eyeTerm: null, shoulderRatio: null })
+  })
+
+  /**
+   * **La règle des deux termes.** Un seul signal disponible — ici les deux
+   * yeux, sans oreille ni épaule confiantes — ne doit pas suffire à trancher
+   * entre face et profil : c'est exactement ce qui empêche une oreille seule
+   * de décider à la place du reste du visage.
+   */
+  it('rend `unknown` quand un seul terme est disponible', () => {
+    const onlyEyes = personWithK(0, skeleton({ LEFT_EYE: 0.4, RIGHT_EYE: 0.6 }))
+    const result = orientationOf(onlyEyes)
+    expect(result.terms.eyeTerm).toBe(1)
+    expect(result.terms.earAsymmetry).toBeNull()
+    expect(result.terms.shoulderRatio).toBeNull()
+    expect(result.facing).toBe('unknown')
+    expect(result.frontality).toBeNull()
+  })
+
+  /**
+   * **Les coordonnées ne sont pas bornées à [0, 1]**, côté épaules et nez
+   * comme ailleurs dans ce fichier. Décaler nez et épaules d'un même montant —
+   * positif ou négatif, largement hors de l'image — ne change ni `span` ni
+   * `scale`, qui ne dépendent que de différences : le résultat doit rester
+   * fini et de même nature qu'avant le décalage.
+   */
+  it('reste fini et de même nature avec des coordonnées d’épaule et de nez hors [0, 1]', () => {
+    const reference = orientationOf(personA)
+    for (const offset of [10, -10]) {
+      const shifted = [...personA.k!]
+      // NOSE (rang 0) et les deux épaules (rangs 5 et 6) : x et y.
+      for (const rank of [0, 5, 6]) {
+        shifted[rank * 3] += offset
+        shifted[rank * 3 + 1] += offset
+      }
+      const result = orientationOf(personWithK(770, shifted))
+      expect(Number.isFinite(result.frontality)).toBe(true)
+      expect(result.facing).toBe(reference.facing)
+      expect(result.terms.shoulderRatio).toBeCloseTo(reference.terms.shoulderRatio!, 6)
+      expect(result.frontality).toBeCloseTo(reference.frontality!, 6)
+    }
+  })
+
+  /**
+   * **Une confiance à `NaN` tombe du côté écarté**, comme partout ailleurs
+   * dans ce fichier — jamais un `frontality` à `NaN`.
+   */
+  it('écarte une confiance à NaN plutôt que de la laisser produire un NaN', () => {
+    const withNaNEars = [...personA.k!]
+    withNaNEars[POINT.LEFT_EAR * 3 + 2] = Number.NaN
+    withNaNEars[POINT.RIGHT_EAR * 3 + 2] = Number.NaN
+    const result = orientationOf(personWithK(770, withNaNEars))
+    expect(result.terms.earAsymmetry).toBeNull()
+    expect(result.frontality).not.toBeNaN()
+    expect(Number.isFinite(result.frontality)).toBe(true)
+    // Il ne reste que eyeTerm et shoulderRatio : la moyenne des deux.
+    expect(result.frontality).toBeCloseTo(
+      (1 + Math.min(1, result.terms.shoulderRatio!)) / 2,
+      10,
+    )
+
+    const withNaNShoulder = [...personA.k!]
+    withNaNShoulder[POINT.LEFT_SHOULDER * 3 + 2] = Number.NaN
+    const shoulderResult = orientationOf(personWithK(770, withNaNShoulder))
+    expect(shoulderResult.terms.shoulderRatio).toBeNull()
+    expect(shoulderResult.frontality).not.toBeNaN()
+  })
+
+  /**
+   * **`frontality` est `null` si et seulement si `facing` vaut `'unknown'`.**
+   * Vérifié sur un échantillon qui couvre les deux régimes, pas sur une seule
+   * entrée.
+   */
+  it('rend `frontality` null exactement quand `facing` vaut `unknown`', () => {
+    const cases = [
+      orientationOf(personA),
+      orientationOf(personB),
+      orientationOf(personC),
+      orientationOf(personD),
+      orientationOf(box(0, 0.2, 0.6)),
+      orientationOf(personWithK(0, skeleton({}))),
+      orientationOf(personWithK(0, skeleton({ LEFT_EYE: 0.4, RIGHT_EYE: 0.6 }))),
+    ]
+    for (const result of cases) {
+      expect(result.frontality === null).toBe(result.facing === 'unknown')
+    }
+  })
+
+  it('retombe sur les défauts quand un réglage n’est pas fini', () => {
+    expect(orientationOf(personA, { pointMinScore: Number.NaN })).toEqual(orientationOf(personA))
+    expect(orientationOf(personA, { shoulderRatioFull: Number.NaN })).toEqual(
+      orientationOf(personA),
+    )
+    expect(orientationOf(personA, { frontalThreshold: Number.NaN })).toEqual(
+      orientationOf(personA),
+    )
+    expect(orientationOf(personA, { sideDeadband: Number.NaN })).toEqual(orientationOf(personA))
+  })
+
+  it('porte les défauts documentés', () => {
+    expect(ORIENTATION_DEFAULTS.pointMinScore).toBe(FRAMING_DEFAULTS.torsoMinScore)
+    expect(ORIENTATION_DEFAULTS.shoulderRatioFull).toBe(1)
+    // Relevé de 0,35 le 20 août 2026 : à 0,35, la fonction disait `'frontal'`
+    // sur des profils francs jusqu'à 0,54 sur une planche-contact, et rangeait
+    // 97,7 % des 17 927 images du jeu auto-supervisé du même côté.
+    expect(ORIENTATION_DEFAULTS.frontalThreshold).toBe(0.6)
+    expect(ORIENTATION_DEFAULTS.sideDeadband).toBe(0.5)
+  })
+
+  // Le seuil ne décide rien du cadrage — la règle est un écart entre deux
+  // personnes du même plan — mais le relever ne doit pas non plus déplacer les
+  // quatre cas réels sur lesquels la formule a été étalonnée.
+  it("relever le seuil à 0,6 ne fait basculer aucun cas d'étalonnage", () => {
+    for (const box of [personA, personC, personD]) {
+      expect(orientationOf(box).facing).toBe('frontal')
+      expect(orientationOf(box, { frontalThreshold: 0.35 }).facing).toBe('frontal')
+    }
+    expect(orientationOf(personB).facing).toBe('profile')
+    expect(orientationOf(personB, { frontalThreshold: 0.35 }).facing).toBe('profile')
   })
 })

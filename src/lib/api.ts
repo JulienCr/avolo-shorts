@@ -45,6 +45,7 @@
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
+import type { HookSettings } from '@/core/hook'
 import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
@@ -59,6 +60,31 @@ export type { Clip, ClipStatus, Ratio, Segment }
  * l'importent déjà pour `cropRect` et `outputSize`.
  */
 export type { ClipFraming, ShotFraming }
+
+/**
+ * Le hook, **importé de `@/core/hook` plutôt que redit ici**, pour la même
+ * raison que `ClipFraming` l'est de `@/core/framing` deux lignes plus haut :
+ * deux exemplaires du même type ne se contraignent pas.
+ *
+ * **La frontière de pureté impose le sens de cet import.** `src/core/hook.ts`
+ * a besoin du type `Clip` (`Pick<Clip, 'hookText' | 'hookStyle'>` dans la
+ * signature de `resolveHook`), donc `HookSettings` ne peut pas être défini ici
+ * et importé par `core/hook.ts` : `tests/core/purete.test.ts` refuse à
+ * `src/core/**` tout import qui ne commence pas par `./`, `@/core/` ou `zod` —
+ * y compris un import de type. `HookSettings` est donc authored dans
+ * `@/core/hook`, et ce fichier ne fait que le republier pour l'écran des
+ * réglages et l'écran de clip, qui l'attendent ici comme le reste des types
+ * partagés.
+ */
+export {
+  HOOK_ALIGNMENTS,
+  HOOK_BOUNDS,
+  HOOK_DEFAULTS,
+  HOOK_FONTS,
+  HOOK_POSITIONS,
+  HOOK_TRANSITIONS,
+} from '@/core/hook'
+export type { HookSettings } from '@/core/hook'
 
 /**
  * D'où vient le cadrage qu'on publie.
@@ -516,7 +542,18 @@ export type ClipOutputs = {
  * — son schéma est strict — et normalise les segments avant écriture.
  */
 export type ClipPatch = Partial<
-  Pick<Clip, 'segments' | 'ratio' | 'cropX' | 'title' | 'description' | 'captions' | 'branding'>
+  Pick<
+    Clip,
+    | 'segments'
+    | 'ratio'
+    | 'cropX'
+    | 'title'
+    | 'description'
+    | 'captions'
+    | 'branding'
+    | 'hookText'
+    | 'hookStyle'
+  >
 > & {
   /**
    * **`exported` est absent, et c'est délibéré.** Un clip devient exporté parce
@@ -949,6 +986,7 @@ export type Settings = {
   selection: SelectionSettings
   ai: AiSettings
   ingestion: IngestionSettings
+  hook: HookSettings
 }
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
@@ -956,6 +994,7 @@ export type SettingsPatch = {
   selection?: Partial<SelectionSettings>
   ai?: Partial<AiSettings>
   ingestion?: Partial<IngestionSettings>
+  hook?: Partial<HookSettings>
 }
 
 /**

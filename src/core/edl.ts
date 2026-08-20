@@ -1,3 +1,5 @@
+import type { HookSettings } from '@/core/hook'
+
 /**
  * L'EDL — la liste des morceaux de source qui composent un clip.
  *
@@ -66,6 +68,10 @@ export type Clip = {
   status: ClipStatus
   /** Le numéro de passe de repérage qui a produit ce clip. */
   pass: number
+  /** L'accroche incrustée, vide quand il n'y en a pas. */
+  hookText: string
+  /** Les seules clés que ce clip surcharge. `{}` = aux valeurs globales. */
+  hookStyle: Partial<HookSettings>
 }
 
 /**

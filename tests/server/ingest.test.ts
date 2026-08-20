@@ -14,6 +14,7 @@ import {
   statWithDelay,
   STAGE_TTL_MS,
   verifySizeCopied,
+  workingInput,
 } from '@/server/steps/ingest'
 import { StopRequestedError } from '@/server/ffmpeg'
 import { applySettings, openDb } from '@/server/db'
@@ -559,6 +560,125 @@ describe('ingest', () => {
       expect(ingestion.copied).toBe(false)
       expect(fs.existsSync(path.join(root, 'stage'))).toBe(false)
     })
+
+    /**
+     * **Le troisième état, celui que le réglage a créé.**
+     *
+     * Tant que l'ingestion copiait sans condition, un fichier présent dans
+     * `stage/` était forcément une copie de la source : `decisionCopy` rendait
+     * « copier » sur une taille différente, et la copie corrigeait l'écart.
+     * Décoché, elle relève l'empreinte **sur l'original** et laisse en place ce
+     * qu'elle ne récrit pas — la base annonce alors une taille et une durée que
+     * le fichier réellement lu ne porte pas.
+     *
+     * Le cas n'est pas théorique : c'est le replay réimporté sous le même nom
+     * avec une autre taille, celui que `decisionCopy` existe pour attraper (voir
+     * « recopie une copie tronquée »). Et il ne s'annonce pas — le proxy,
+     * l'audio, l'analyse et l'export travailleraient sur l'ancienne vidéo sans
+     * qu'aucun d'eux ne puisse le remarquer, jusqu'au balayage du TTL.
+     */
+    it('écarte une copie qui ne décrit plus la source', async () => {
+      const stale = path.join(root, 'stage', NAME)
+      fs.mkdirSync(path.dirname(stale), { recursive: true })
+      fs.writeFileSync(stale, Buffer.alloc(OCTETS / 2, 1))
+
+      const ingestion = await ingest(NAME, { db: null, copyLocally: false })
+      // L'empreinte décrit bien l'original, pas le fichier périmé.
+      expect(ingestion.copied).toBe(false)
+      expect(ingestion.sizeBytes).toBe(OCTETS)
+      // Et c'est l'original qu'on lit, malgré le fichier présent dans `stage/`.
+      expect(workingInput(ingestion)).toEqual({
+        path: ingestion.sourcePath,
+        local: false,
+      })
+      // Rien n'a été effacé : décocher ne détruit pas, le TTL s'en charge.
+      expect(fs.existsSync(stale)).toBe(true)
+    })
+
+    /**
+     * Le pendant du précédent, et la garde contre un correctif trop zélé : une
+     * copie **de la bonne taille** reste la bonne entrée. Sans elle, on
+     * repaierait le montage 9p pour un fichier local parfaitement valable.
+     */
+    it('garde une copie qui décrit toujours la source', async () => {
+      const first = await ingest(NAME, { db: null, copyLocally: true })
+      const second = await ingest(NAME, { db: null, copyLocally: false })
+      expect(workingInput(second)).toEqual({ path: first.stagedPath, local: true })
+    })
+  })
+})
+
+/**
+ * `workingInput` : le seul endroit qui réponde à « quel fichier ffmpeg
+ * doit-il ouvrir ». Quatre appelants s'en remettent à lui — le proxy, l'audio,
+ * l'analyse et l'export —, donc ses cas limites valent d'être posés à part
+ * plutôt que déduits de l'un d'eux.
+ */
+describe('workingInput', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-entree-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  const poser = (name: string, octets: number): string => {
+    const p = path.join(root, name)
+    fs.writeFileSync(p, Buffer.alloc(octets, 4))
+    return p
+  }
+
+  it('rend la copie quand elle est là et qu’elle décrit la source', () => {
+    const source = poser('source.mp4', 500)
+    const copy = poser('copie.mp4', 500)
+    expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
+      path: copy,
+      local: true,
+    })
+  })
+
+  it('rend l’original quand la copie n’est pas là', () => {
+    const source = poser('source.mp4', 500)
+    expect(
+      workingInput({ sourcePath: source, stagedPath: path.join(root, 'absente.mp4'), sizeBytes: 500 }),
+    ).toEqual({ path: source, local: false })
+  })
+
+  it('rend l’original quand aucune copie n’est prévue', () => {
+    const source = poser('source.mp4', 500)
+    expect(workingInput({ sourcePath: source, stagedPath: null, sizeBytes: 500 })).toEqual({
+      path: source,
+      local: false,
+    })
+  })
+
+  it('rend l’original quand la copie ne décrit plus la source', () => {
+    const source = poser('source.mp4', 500)
+    const copy = poser('copie.mp4', 300)
+    expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
+      path: source,
+      local: false,
+    })
+  })
+
+  /**
+   * **Sans taille connue, on garde le comportement d'avant.** Une empreinte
+   * absente ne prouve pas que la copie est périmée : c'est le projet qu'une
+   * ingestion n'a pas encore visité, et lui refuser sa copie ferait relire le
+   * montage 9p sur un soupçon que rien n'étaye.
+   */
+  it('accepte la copie quand la taille de l’original est inconnue', () => {
+    const source = poser('source.mp4', 500)
+    const copy = poser('copie.mp4', 300)
+    for (const sizeBytes of [null, undefined]) {
+      expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes })).toEqual({
+        path: copy,
+        local: true,
+      })
+    }
   })
 })
 

@@ -46,7 +46,7 @@ let db: Database.Database
 let calls: StepName[]
 /** La vidéo que le lanceur donne à l'analyse pour en relever les dimensions. */
 let sourcesAnalysis: string[]
-/** Le fichier que chaque etape ffmpeg a recu, dans l'ordre. */
+/** Le fichier que chaque étape ffmpeg a reçu, dans l'ordre. */
 let inputsSteps: string[]
 
 /** Les étapes, remplacées par des témoins qui ne font qu'écrire leur artefact. */
@@ -95,14 +95,27 @@ function stepsFake(fail?: StepName): Partial<Steps> {
   }
 }
 
-function poserProject(o: { durationSec?: number | null; copy?: boolean } = {}): void {
+function poserProject(
+  o: {
+    durationSec?: number | null
+    copy?: boolean
+    /**
+     * La taille de la copie, quand elle doit **différer** de celle de
+     * l'original. Sert le seul cas où `workingInput` doit écarter un fichier
+     * pourtant présent : un replay réimporté sous le même nom avec une autre
+     * taille. Par défaut les deux font zéro octet, donc la copie décrit bien
+     * la source.
+     */
+    copyBytes?: number
+  } = {},
+): void {
   const source = path.join(root, 'replays', `${PROJECT}.mp4`)
   const copy = path.join(root, 'stage', `${PROJECT}.mp4`)
   fs.mkdirSync(path.dirname(source), { recursive: true })
   fs.writeFileSync(source, '')
   if (o.copy !== false) {
     fs.mkdirSync(path.dirname(copy), { recursive: true })
-    fs.writeFileSync(copy, '')
+    fs.writeFileSync(copy, Buffer.alloc(o.copyBytes ?? 0, 1))
   }
   upsertProject(db, {
     id: PROJECT,
@@ -594,6 +607,23 @@ describe('lancer', () => {
       await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
       await wait(PROJECT)
       expect(inputsSteps).toEqual([path.join(root, 'stage', `${PROJECT}.mp4`)])
+    })
+
+    /**
+     * **Une copie qui ne décrit plus la source ne sert pas d'entrée.**
+     *
+     * C'est le cas qui amplifie le plus loin : la durée étant déjà connue,
+     * `ingestionNecessary` rend `false` et `ingest` n'est **jamais rappelé** —
+     * donc rien ne vient corriger l'écart, et le proxy encoderait l'ancienne
+     * vidéo pendant que la base annonce la taille et la durée de la nouvelle. Il
+     * n'y a même pas d'avertissement pour le dire : `input.local` serait vrai.
+     */
+    it('écarte une copie qui ne décrit plus la source', async () => {
+      poserProject({ copyBytes: 3 })
+
+      await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+      await wait(PROJECT)
+      expect(inputsSteps).toEqual([path.join(root, 'replays', `${PROJECT}.mp4`)])
     })
 
     /**

@@ -377,13 +377,22 @@ async function copyOnce(
  *   ce qui se passe et à quelle vitesse.
  */
 export async function ensureLocalCopy(
-  project: { id: string; sourcePath: string; stagedPath: string | null },
+  project: {
+    id: string
+    sourcePath: string
+    stagedPath: string | null
+    /** La taille de l'original, pour écarter une copie qui ne la décrit plus. */
+    sizeBytes?: number | null
+  },
   options: { db?: Database | null; signal?: AbortSignal } = {},
 ): Promise<string> {
   const destination = project.stagedPath ?? stagedPath(project.sourcePath)
-  // Le cas courant, et il ne coûte qu'un appel local : `stage/` est sur le
-  // disque de la machine, jamais sur le montage.
-  if (fs.existsSync(destination)) return destination
+  // Le cas courant, et il ne coûte que deux appels locaux : `stage/` est sur le
+  // disque de la machine, jamais sur le montage. **Et c'est `workingInput` qui
+  // tranche**, pas un `existsSync` écrit ici : une copie qui ne décrit plus la
+  // source doit être écartée du rendu comme elle l'est du reste de la chaîne, et
+  // deux façons de répondre à la même question finiraient par ne plus s'accorder.
+  if (workingInput({ ...project, stagedPath: destination }).local) return destination
 
   // **Le sondage passe avant le réglage, et il y reste.** Décoché, on ne recopie
   // rien — mais l'encodage qui suit va lire l'original, donc un montage muet
@@ -459,8 +468,8 @@ export async function ensureLocalCopy(
 }
 
 /**
- * Le fichier que ffmpeg doit ouvrir : **la copie de travail si elle est là,
- * l'original sinon.**
+ * Le fichier que ffmpeg doit ouvrir : **la copie de travail si elle décrit la
+ * source, l'original sinon.**
  *
  * Cette règle vivait en clair dans le cas `analysis` du lanceur, et nulle part
  * ailleurs — le proxy et l'audio, eux, exigeaient la copie. Le réglage
@@ -468,10 +477,30 @@ export async function ensureLocalCopy(
  * recopiée à quatre endroits est une règle qui divergera au premier correctif :
  * un défaut compris comme local revient au champ suivant (`CLAUDE.md`).
  *
- * **Un `existsSync` et rien d'autre.** `stage/` est sur le disque de la machine,
- * jamais sur le montage — c'est ce qui autorise un appel synchrone ici, là où le
- * même appel sur `sourcePath` gèlerait la boucle d'événements entière si le 9p
- * était monté avec son transport mort dessous.
+ * **« Décrit la source » et non « existe », et c'est le correctif qui compte.**
+ * Un `existsSync` seul suffisait tant que la seule façon d'avoir un fichier dans
+ * `stage/` était de l'y avoir copié — ce que faisait `ingest` sans condition, et
+ * qui garantissait donc qu'il correspondait. Le réglage a créé un troisième
+ * état : décoché, `ingest` relève l'empreinte **sur l'original** et laisse en
+ * place le fichier qu'il n'a pas récrit. Un replay réimporté sous le même nom
+ * avec une autre taille — le cas que `decisionCopy` existe pour attraper —
+ * laissait alors la base annoncer une durée et une taille que le fichier
+ * réellement lu ne portait pas. Le proxy, l'audio, l'analyse et l'export
+ * travaillaient sur l'ancienne vidéo, sans qu'aucun d'eux ne puisse le
+ * remarquer, jusqu'à ce que le TTL de huit heures balaie la copie.
+ *
+ * **La taille seule tranche, comme dans `decisionCopy`**, et pour les mêmes
+ * raisons : comparer les dates ferait rejeter une copie que le Drive vient de
+ * resynchroniser sans la modifier, comparer le contenu coûterait plus cher que
+ * l'étape qu'on cherche à éviter. `sizeBytes` est l'empreinte relevée sur
+ * l'original au dernier passage de l'ingestion ; `undefined` ou `null` veut dire
+ * qu'on n'a rien à quoi comparer, et on garde alors le comportement d'avant
+ * plutôt que d'inventer un refus.
+ *
+ * **Deux appels synchrones, et ils portent tous les deux sur `stage/`**, qui est
+ * sur le disque de la machine et jamais sur le montage. C'est ce qui les
+ * autorise ici, là où le même appel sur `sourcePath` gèlerait la boucle
+ * d'événements entière si le 9p était monté avec son transport mort dessous.
  *
  * `local` dit lequel des deux a été retenu, pour que l'appelant puisse le
  * journaliser sans refaire le test.
@@ -479,11 +508,32 @@ export async function ensureLocalCopy(
 export function workingInput(project: {
   sourcePath: string
   stagedPath: string | null
+  /** La taille de l'original, telle que l'ingestion l'a relevée. */
+  sizeBytes?: number | null
 }): { path: string; local: boolean } {
-  if (project.stagedPath !== null && fs.existsSync(project.stagedPath)) {
-    return { path: project.stagedPath, local: true }
+  const copy = project.stagedPath
+  if (copy !== null && fs.existsSync(copy) && copyDescribes(copy, project.sizeBytes)) {
+    return { path: copy, local: true }
   }
   return { path: project.sourcePath, local: false }
+}
+
+/**
+ * La copie porte-t-elle bien la source dont on connaît la taille ?
+ *
+ * **Un `statSync` qui échoue vaut « oui ».** La question posée est « faut-il
+ * écarter cette copie », et on ne l'écarte que sur une preuve. Une permission
+ * refusée ou une course avec le balayage ne prouvent rien : rendre `false` y
+ * ferait relire douze gigaoctets sur le montage 9p pour un incident qui n'a rien
+ * à voir avec la fraîcheur du fichier.
+ */
+function copyDescribes(copy: string, sizeBytes: number | null | undefined): boolean {
+  if (typeof sizeBytes !== 'number') return true
+  try {
+    return fs.statSync(copy).size === sizeBytes
+  } catch {
+    return true
+  }
 }
 
 /**
@@ -777,10 +827,15 @@ export type Ingestion = {
    *
    * Le champ nomme un emplacement, pas une présence — c'est déjà le contrat de
    * la colonne du même nom en base, que `createProject` remplit avant que la
-   * moindre copie ne parte. Le fichier est là si `copied` est vrai ou si une
-   * copie de la bonne taille y était déjà ; il ne l'est pas quand
-   * `ingestion.copySourceLocally` est décoché. Pour savoir ce que ffmpeg doit
-   * ouvrir, passer par `workingInput` plutôt que par ce champ.
+   * moindre copie ne parte.
+   *
+   * **Et il ne dit rien non plus de ce qu'un fichier trouvé là contiendrait.**
+   * `copySourceLocally` décoché, l'ingestion relève l'empreinte sur l'original
+   * et laisse en place ce qu'elle n'a pas récrit : le fichier peut donc être là
+   * *et* décrire une autre vidéo — un replay réimporté sous le même nom avec une
+   * autre taille. **Pour savoir ce que ffmpeg doit ouvrir, passer par
+   * `workingInput`**, qui compare la taille à `sizeBytes` ; ce champ-là ne
+   * répond pas à cette question et ne l'a jamais fait.
    */
   stagedPath: string
   /**

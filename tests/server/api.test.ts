@@ -1397,7 +1397,7 @@ describe('/api/settings', () => {
     ollamaBaseUrl: '',
   }
 
-  /** Le defaut de la famille `ingestion`, recopie de `db.ts`. */
+  /** Le défaut de la famille `ingestion`, recopié de `db.ts`. */
   const INGESTION_DEFAULTS = { copySourceLocally: true }
 
   const write = (body: unknown): Promise<Response> =>

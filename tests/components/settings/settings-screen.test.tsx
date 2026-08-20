@@ -345,8 +345,14 @@ describe('la section du hook', () => {
     await mountScreen()
 
     const trigger = screen.getByLabelText('Effet d’apparition')
+    // **« Aucune », parce que c'est le défaut depuis le 20 août 2026** : un
+    // fondu d'entrée laisse le hook à opacité nulle sur la première image,
+    // dont Instagram fait la vignette du fil (voir `HOOK_DEFAULTS`).
+    expect(trigger.textContent).toContain('Aucune')
     // Le libellé, pas la valeur brute : l'écran dit « Fondu », pas « fade ».
-    expect(trigger.textContent).toContain('Fondu')
+    // Vérifié sur la disparition, qui garde ce défaut — la sortie ne se joue
+    // sur aucune vignette.
+    expect(screen.getByLabelText('Effet de disparition').textContent).toContain('Fondu')
 
     await userEvent.click(trigger)
     const options = await screen.findAllByRole('option')

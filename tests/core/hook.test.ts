@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { Clip } from '@/core/edl'
 import {
   HOOK_DEFAULTS,
+  hookFadeMsFor,
   hookIsBurned,
   hookLayout,
   hookPlacement,
@@ -286,5 +287,22 @@ describe('hookPlacement', () => {
     const { y } = hookPlacement(image, tallCanvas, { position: 'top', alignment: 'center' }, layout)
     const marginOnWidth = Math.round(tallCanvas.w * layout.marginYFraction)
     expect(y).toBe(marginOnWidth)
+  })
+})
+
+describe('HOOK_DEFAULTS', () => {
+  /**
+   * **Le défaut qui décide de la vignette.** Instagram fabrique l'image du fil
+   * avec la première frame du fichier ; un fondu d'entrée y laisse le hook à
+   * opacité nulle, donc l'accroche manque à la seule image qu'on voit avant de
+   * cliquer. Ce test existe pour qu'on ne remette pas `fade` par défaut sans
+   * lire cette phrase — le réglage lui-même reste disponible par clip.
+   */
+  it("n'ouvre sur aucun fondu d'entrée : le hook est plein dès la frame 0", () => {
+    expect(hookFadeMsFor(HOOK_DEFAULTS.enter, 'enter', HOOK_DEFAULTS.durationMs)).toBe(0)
+  })
+
+  it('garde en revanche le fondu de sortie, qui ne se joue sur aucune vignette', () => {
+    expect(hookFadeMsFor(HOOK_DEFAULTS.exit, 'exit', HOOK_DEFAULTS.durationMs)).toBeGreaterThan(0)
   })
 })

@@ -136,6 +136,14 @@ export type HookSettings = {
  * champ suivant ». Poser la valeur ici et la faire lire des deux côtés
  * l'empêche par construction.
  *
+ * **`enter` à `none`, pas `fade` (20 août 2026).** Instagram fabrique la
+ * vignette du fil avec la **première image** du fichier. Un fondu d'entrée de
+ * 300 ms y laisse le hook à opacité nulle : l'accroche censée arrêter le
+ * défilement était donc absente de la seule image qu'on voit avant de cliquer.
+ * Le réglage reste — un fondu d'entrée peut se vouloir sur un clip donné —
+ * mais ce n'est plus le défaut. `exit` garde le sien : la sortie ne se joue
+ * sur aucune vignette.
+ *
  * **`backgroundOpacity` à 100, pas 60.** Le retour du propriétaire est net :
  * « un fond plein, à coins arrondis ». Le réglage reste — un fond translucide
  * peut se vouloir — mais ce n'est plus le défaut. `cornerRadiusPermille` à 24
@@ -154,7 +162,7 @@ export const HOOK_DEFAULTS: HookSettings = {
   textColor: '#FFFFFF',
   backgroundColor: '#000000',
   backgroundOpacity: 100,
-  enter: 'fade',
+  enter: 'none',
   exit: 'fade',
 }
 

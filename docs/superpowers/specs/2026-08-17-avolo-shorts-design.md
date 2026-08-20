@@ -1120,12 +1120,14 @@ Depuis l'original, jamais depuis le proxy.
    rasterisé (fond plein, coins arrondis, texte capitales par défaut) composé
    en `overlay`, pas un second document ASS : `BorderStyle: 3` ne sait
    dessiner ni un coin arrondi ni une boîte unique sur plusieurs lignes. Sa
-   géométrie est une fraction de la **largeur** du canevas — jamais de sa
-   hauteur, contrairement aux sous-titres — pour que le même hook rende le
-   même bandeau sur le natif et sur la variante 9:16 quand les deux partagent
-   leur largeur (1080). Rasterisé par canevas : le PNG et son placement
-   dépendent de dimensions en pixels, donc potentiellement deux images
-   distinctes par clip.
+   géométrie est une fraction de la **largeur** du canevas, contrairement aux
+   sous-titres, pour que le même hook rende le même bandeau sur le natif et
+   sur la variante 9:16 quand les deux partagent leur largeur (1080) — sauf
+   une exception : la marge basse, qui protège du chrome de TikTok et Reels,
+   une contrainte physique en hauteur, reste une fraction de la **hauteur**
+   du canevas quand le hook est positionné en bas. Rasterisé par canevas : le
+   PNG et son placement dépendent de dimensions en pixels, donc
+   potentiellement deux images distinctes par clip.
 5. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
    (chrome des plateformes en haut, sous-titres en bas) — après le hook, pour
    la même raison qui le place après les sous-titres : une marque posée

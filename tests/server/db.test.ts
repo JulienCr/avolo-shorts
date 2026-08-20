@@ -1239,6 +1239,76 @@ describe('migrateHookSizeSettingKey', () => {
 })
 
 /**
+ * Complément de la suite au-dessus, côté `clips` cette fois : la garantie
+ * anti-perte de données que `migrateHookSizeClipColumn` annonce dans son
+ * commentaire — un `hookStyle.size` de clip ne fait disparaître que `size`,
+ * jamais les autres surcharges. Relevé par Copilot (PR #117, passe 3) : les
+ * tests d'origine ne couvraient que `settings`, pas `clips`.
+ */
+describe('migrateHookSizeClipColumn', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-hook-size-clip-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  function poserClipAvecSize(): void {
+    const first = openDb(file)
+    upsertProject(first, PROJECT)
+    putClip(first, clip('vieux-hook'))
+    first.close()
+    // `HOOK_STYLE_SCHEMA` est strict : passer par `putClip` rejetterait `size`
+    // au lieu de le laisser en base comme le ferait une vraie base d'avant
+    // cette PR. On écrit donc le JSON brut, comme la migration le lira.
+    const raw = new Database(file)
+    raw
+      .prepare('UPDATE clips SET hookStyle = ? WHERE id = ?')
+      .run(JSON.stringify({ size: 72, position: 'bottom' }), 'vieux-hook')
+    raw.close()
+  }
+
+  it('efface seulement `size`, conserve les autres surcharges', () => {
+    poserClipAvecSize()
+
+    const db = openDb(file)
+    const raw = db.prepare('SELECT hookStyle FROM clips WHERE id = ?').get('vieux-hook') as {
+      hookStyle: string
+    }
+    expect(JSON.parse(raw.hookStyle)).toEqual({ position: 'bottom' })
+    // Et le résultat est de nouveau lisible par le schéma strict — c'est
+    // précisément ce qu'une clé `size` qui traîne empêchait.
+    expect(getClip(db, 'vieux-hook')?.hookStyle).toEqual({ position: 'bottom' })
+    db.close()
+  })
+
+  it('ne touche pas un clip sans `size`', () => {
+    const first = openDb(file)
+    upsertProject(first, PROJECT)
+    putClip(first, clip('sans-size', { hookStyle: { position: 'bottom' } }))
+    first.close()
+
+    const db = openDb(file)
+    expect(getClip(db, 'sans-size')?.hookStyle).toEqual({ position: 'bottom' })
+    db.close()
+  })
+
+  it('est idempotente', () => {
+    poserClipAvecSize()
+
+    openDb(file).close()
+    const db = openDb(file)
+    expect(getClip(db, 'vieux-hook')?.hookStyle).toEqual({ position: 'bottom' })
+    db.close()
+  })
+})
+
+/**
  * Le seul objet de schéma en français (issue #73) : `clips_par_projet` devient
  * `clips_by_project`. Aucune donnée n'est portée par un index — `DROP` puis
  * `CREATE` suffit —, mais une base qui gardait encore l'ancien nom se

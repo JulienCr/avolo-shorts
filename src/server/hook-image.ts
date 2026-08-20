@@ -189,7 +189,16 @@ export function renderHookImage(
     pairEven(Math.ceil(textWidthPx) + 2 * paddingXPx),
     pairEvenFloor(canvas.w),
   )
-  const boxHeight = pairEven(Math.ceil(lines.length * lineHeightPx) + 2 * paddingYPx)
+  // Même plafond que `boxWidth`, sur l'autre axe : un `sizePermille` valide
+  // combiné à un texte long sur plusieurs lignes (ou à un `hookText` manuel
+  // de 280 caractères, non passé par `normalizeHookText`) peut produire une
+  // boîte plus haute que le canevas — relevé par Copilot sur la PR #117,
+  // passe 3. Sans ce plafond, `hookPlacement` ramenait seulement `y` à zéro
+  // et ffmpeg coupait le bas du texte, silencieusement.
+  const boxHeight = Math.min(
+    pairEven(Math.ceil(lines.length * lineHeightPx) + 2 * paddingYPx),
+    pairEvenFloor(canvas.h),
+  )
   // Le rayon ne dépasse jamais la moitié du plus petit côté : au-delà, un
   // arc de cercle de rayon supérieur à la moitié de la boîte ne se distingue
   // plus d'une gélule, et `roundRect` en déborderait de toute façon sur une

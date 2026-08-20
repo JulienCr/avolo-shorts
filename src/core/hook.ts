@@ -431,9 +431,14 @@ export function hookRgba(hex: string, opacityPercent: number): string {
  * donc pure : de l'arithmétique sur des tailles déjà connues, comme
  * `scheduleMarkers` (`src/server/steps/render.ts`) le fait pour les marques.
  *
- * Bornée à l'intérieur du canevas (`Math.max(0, …)`) : un texte plus large que
- * le canevas — un réglage extrême, un canevas 16:9 étroit — ne doit jamais
- * produire une coordonnée négative que ffmpeg refuserait.
+ * Bornée aux **deux** extrémités de chaque axe : `Math.max(0, …)` empêche une
+ * coordonnée négative que ffmpeg refuserait, `Math.min(…, canvas − image)`
+ * empêche le débordement par la droite ou par le bas qu'un bornage à une
+ * seule extrémité laisse passer — un mot insécable en alignement `left` peut
+ * plafonner l'image à `canvas.w` (voir `renderHookImage`) sans que `x` en
+ * tienne compte, donc `x + image.w` dépasse quand même le bord droit. Relevé
+ * par Copilot sur la PR #117, passe 3 — même famille que les deux bornages à
+ * une seule extrémité déjà corrigés sur cette PR (`boxWidth`, `boxHeight`).
  */
 export function hookPlacement(
   image: { w: number; h: number },
@@ -461,7 +466,10 @@ export function hookPlacement(
       : resolved.position === 'bottom'
         ? canvas.h - marginY - image.h
         : Math.round((canvas.h - image.h) / 2)
-  return { x: Math.max(0, x), y: Math.max(0, y) }
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, canvas.w - image.w)),
+    y: Math.min(Math.max(0, y), Math.max(0, canvas.h - image.h)),
+  }
 }
 
 /**

@@ -44,11 +44,30 @@ describe('renderHookImage', () => {
     expect(image.width % 2).toBe(0)
     expect(image.height % 2).toBe(0)
     expect(image.width).toBeLessThanOrEqual(1080)
+    expect(image.height).toBeLessThanOrEqual(1920)
     // La position posée par `hookPlacement` (fonction pure partagée, testée
     // par ailleurs) reste dans le canevas.
     expect(image.x).toBeGreaterThanOrEqual(0)
     expect(image.y).toBeGreaterThanOrEqual(0)
     expect(image.x + image.width).toBeLessThanOrEqual(1080)
+    expect(image.y + image.height).toBeLessThanOrEqual(1920)
+  })
+
+  it('un texte qui s’enroule sur beaucoup de lignes ne produit jamais une boîte plus haute que le canevas', () => {
+    // Miroir du cas « mot insécable » ci-dessous, sur l'axe vertical cette
+    // fois : plusieurs mots courts wrappent sur de nombreuses lignes, et une
+    // grande taille de police peut alors faire dépasser `canvas.h` — relevé
+    // par Copilot sur la PR #117, passe 3 (seul `boxWidth` était plafonné).
+    const hook = resolved({
+      text: Array.from({ length: 40 }, () => 'MOT').join(' '),
+      sizePermille: 250,
+    })
+    const image = renderHookImage(hook, { w: 1080, h: 200 }, FONTS_DIR)
+    expect(image).not.toBeNull()
+    if (image === null) return
+    expect(image.height).toBeLessThanOrEqual(200)
+    expect(image.y).toBeGreaterThanOrEqual(0)
+    expect(image.y + image.height).toBeLessThanOrEqual(200)
   })
 
   it('le même hook produit le même bandeau (largeur/hauteur en pixels) sur deux canevas de même largeur', () => {

@@ -254,6 +254,21 @@ describe('hookPlacement', () => {
     expect(x).toBeGreaterThanOrEqual(0)
   })
 
+  it("ne déborde jamais par la droite ou par le bas — bornage à une seule extrémité relevé par Copilot (PR #117, passe 3)", () => {
+    // Une image plafonnée à `canvas.w`/`canvas.h` par `renderHookImage` peut
+    // quand même déborder si `hookPlacement` ne borne que `Math.max(0, …)` :
+    // en alignement `left`, `x` reste à la marge, donc `x + image.w` dépasse
+    // le bord droit dès que `image.w` approche `canvas.w`.
+    const asWideAsCanvas = { w: canvas.w, h: 90 }
+    const { x } = hookPlacement(asWideAsCanvas, canvas, { position: 'top', alignment: 'left' }, layout)
+    expect(x + asWideAsCanvas.w).toBeLessThanOrEqual(canvas.w)
+
+    const asTallAsCanvas = { w: 300, h: canvas.h }
+    const { y } = hookPlacement(asTallAsCanvas, canvas, { position: 'bottom', alignment: 'center' }, layout)
+    expect(y + asTallAsCanvas.h).toBeLessThanOrEqual(canvas.h)
+    expect(y).toBeGreaterThanOrEqual(0)
+  })
+
   it("la marge basse suit la HAUTEUR du canevas, pas sa largeur — protection contre le chrome de TikTok/Reels, mesurée comme celle des sous-titres (relevé par Aristarque sur la PR #117)", () => {
     // Un canevas dont la largeur et la hauteur divergent nettement rend les
     // deux hypothèses (marge sur `w` vs marge sur `h`) numériquement

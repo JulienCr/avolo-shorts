@@ -153,6 +153,21 @@ describe('hérité vs surchargé', () => {
     expect(trigger.textContent).toContain('2')
   })
 
+  it('« Personnaliser » annonce son état : aria-expanded toujours, aria-controls une fois ouvert', () => {
+    mount()
+    const trigger = screen.getByRole('button', { name: /Personnaliser/ })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(trigger.getAttribute('aria-controls')).toBeNull()
+
+    fireEvent.click(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    const panelId = trigger.getAttribute('aria-controls')
+    expect(panelId).toBeTruthy()
+    // La cible existe réellement : un `aria-controls` qui pointe dans le vide
+    // ne vaudrait pas mieux que son absence.
+    expect(document.getElementById(panelId as string)).toBeTruthy()
+  })
+
   it('« Réinitialiser » n’apparaît que s’il y a de quoi', () => {
     const { rerender } = mount({ clip: clip({ hookStyle: {} }) })
     openPersonalize()

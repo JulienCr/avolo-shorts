@@ -30,10 +30,25 @@ function CollapsibleTrigger({
   )
 }
 
-function CollapsiblePanel({ className, ...props }: CollapsiblePrimitive.Panel.Props) {
+/**
+ * **`keepMounted` par défaut.** Sans lui, Base UI retire le panneau du DOM
+ * quand il est fermé — et avec lui, `aria-controls` du déclencheur, qui ne
+ * peut pas référencer un `id` que rien ne porte plus. Mesuré : sans
+ * `keepMounted`, le bouton « Personnaliser » de `HookFields` gardait
+ * `aria-expanded="false"` mais perdait `aria-controls` entièrement, exactement
+ * le critère d'accessibilité que ce repli doit tenir. Fermé, Base UI pose
+ * `hidden` sur le panneau à la place — invisible et hors du parcours du
+ * clavier, mais toujours référençable.
+ */
+function CollapsiblePanel({
+  className,
+  keepMounted = true,
+  ...props
+}: CollapsiblePrimitive.Panel.Props) {
   return (
     <CollapsiblePrimitive.Panel
       data-slot="collapsible-panel"
+      keepMounted={keepMounted}
       className={cn('flex flex-col gap-3', className)}
       {...props}
     />

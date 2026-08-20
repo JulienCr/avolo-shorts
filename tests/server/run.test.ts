@@ -570,6 +570,34 @@ describe('lancer', () => {
   })
 
   /**
+   * **Une copie périmée se réingère, elle ne coince pas le projet.**
+   *
+   * Ce test-là porte sur le réglage **coché**, c'est-à-dire sur le défaut : il
+   * n'a besoin de personne pour toucher aux paramètres. Un replay réimporté sous
+   * le même nom avec une autre taille, sur un projet déjà analysé une fois,
+   * suffit à l'atteindre — le cas que `decisionCopy` existe pour attraper.
+   *
+   * Il garde deux façons de se tromper, à un correctif d'écart. Avec un
+   * `existsSync` des deux côtés, la planification et l'étape s'accordaient à
+   * accepter le fichier périmé : le proxy encodait l'ancienne vidéo, en silence.
+   * Avec le contrôle de taille du seul côté de l'étape, elles ne s'accordaient
+   * plus : la planification ne réingérait pas, l'étape refusait l'entrée, et
+   * aucune relance ne pouvait lever l'erreur — rien n'efface la copie, rien ne
+   * rafraîchit la durée. Le second est pire que le premier, et il faut les deux
+   * réponses pour n'avoir ni l'un ni l'autre.
+   */
+  it('réingère quand la copie ne décrit plus la source, plutôt que de coincer', async () => {
+    poserProject({ copyBytes: 3 })
+
+    await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+    await waitFin()
+    // Le témoin d'ingestion lève : ce qui compte est qu'on l'ait appelé, là où
+    // le défaut faisait échouer l'étape sur « n'a pas de copie de travail ».
+    expect(lireStatus(PROJECT)?.error).toMatch(/ingestion ne devait pas être appelée/)
+    expect(lireStatus(PROJECT)?.error).not.toMatch(/n’a pas de copie de travail/)
+  })
+
+  /**
    * Le réglage `ingestion.copySourceLocally` décoché.
    *
    * **Le fait qui compte est qu'aucune ingestion ne parte.** `stepsFake` fait

@@ -846,7 +846,16 @@ function ingestionNecessary(
   // indispensable — `runCandidates` refuse de travailler sans —, et l'ingestion
   // sait la relever sur l'original quand elle ne copie pas.
   const copyNeed = copyLocally && (plan.includes('proxy') || plan.includes('audio'))
-  const copy = project.stagedPath !== null && fs.existsSync(project.stagedPath)
+  // **`workingInput` et non un `existsSync` écrit ici**, parce que c'est la même
+  // question que se pose l'entrée des étapes : *ce fichier décrit-il encore la
+  // source ?* Un `existsSync` y répondait « oui » à un fichier périmé, et les
+  // deux réponses divergeaient — la planification ne réingérait pas, l'étape
+  // refusait l'entrée, et le projet restait coincé sur une erreur qu'aucune
+  // relance ne pouvait lever : rien n'efface la copie, rien ne rafraîchit la
+  // durée. Un défaut compris comme local revient au champ suivant (`CLAUDE.md`),
+  // et c'est exactement ce qui s'est produit ici, une couche au-dessus du
+  // correctif précédent.
+  const copy = workingInput(project).local
   return (copyNeed && !copy) || project.durationSec === null
 }
 

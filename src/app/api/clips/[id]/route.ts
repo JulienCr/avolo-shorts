@@ -14,6 +14,7 @@ import {
 } from '@/server/db'
 import { body, notFound, json, route } from '@/server/http'
 import { clipOutputs } from '@/server/renders'
+import { scheduleHookBackfill } from '@/server/steps/hook-backfill'
 import {
   renderedFraming,
   pathsRender,
@@ -332,6 +333,23 @@ export const PATCH = route(
     // le ratio d'avant la coupe jusqu'à la prochaine navigation, et le montage
     // mentirait sur ce que l'export produira.
     const reread = getClip(db, id) ?? written
+
+    // **Le rattrapage du hook, à la transition `candidate → kept`.**
+    //
+    // La TRANSITION, pas l'état d'arrivée : re-`PATCH`er `kept` sur un clip
+    // déjà gardé ne relance rien. Et sur `reread`, ce que la base porte
+    // vraiment — pas sur `edit`, qu'un jeton `seq` plus récent a pu écarter.
+    //
+    // **Après toutes les écritures, jamais dedans.** Le commentaire en tête de
+    // ce gestionnaire protège l'absence de point d'attente entre la lecture et
+    // l'écriture ; `scheduleHookBackfill` prend sa réservation et rend la main
+    // de façon synchrone, sans `await`, donc la propriété tient telle quelle.
+    // Le `void` est délibéré : la réponse ne l'attend pas, et un échec de
+    // génération ne doit jamais casser un tri au clavier.
+    if (clip.status === 'candidate' && reread.status === 'kept' && reread.hookText.trim() === '') {
+      void scheduleHookBackfill(db, id)
+    }
+
     const framingAfter = framingWith(reread, analysis)
     return json({
       applied: applied,

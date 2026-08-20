@@ -1,15 +1,21 @@
 import { isGuard } from '@/core/phase'
 import { getClip, getDb, putClip } from '@/server/db'
 import { requestInvalid, notFound, json, route } from '@/server/http'
-import { generateHookText } from '@/server/steps/hook'
+import { generateHook } from '@/server/steps/hook'
 
 /**
- * `POST /api/clips/:id/hook` — régénère le hook du clip et l'écrit.
+ * `POST /api/clips/:id/hook` — régénère le hook du clip **et son badge**, et
+ * les écrit.
  *
- * **Premier et seul appelant de `generateHookText`.** Rien d'automatique ne
- * mène ici : c'est le bouton « Régénérer » de l'écran Clip, et lui seul.
+ * **Les deux ensemble, y compris quand le badge revient vide.** « Régénérer »
+ * remplace la paire : garder l'ancienne pastille au-dessus d'une accroche
+ * neuve lui accolerait un sur-titre écrit pour un texte qui n'est plus là.
  *
- * **Réservé aux clips gardés (`isGuard`).** `generateHookText` documente ce
+ * **Seul appelant HTTP.** C'est le bouton « Régénérer » de l'écran Clip, et
+ * lui seul ; le rattrapage automatique appelle `generateHook` directement,
+ * sans passer par cette route (`src/server/steps/hook-backfill.ts`).
+ *
+ * **Réservé aux clips gardés (`isGuard`).** `generateHook` documente ce
  * contrat sans le faire respecter ; chaque carte candidate ouvre pourtant
  * `ClipScreen`, où le bouton s'affiche sans condition. Sans ce garde-fou, un
  * candidat ou un clip écarté pourrait consommer un appel LLM. (relevé par
@@ -36,11 +42,11 @@ export const POST = route(
     if (!isGuard(clip.status))
       throw requestInvalid(`Le hook ne se régénère que pour un clip gardé : ${id}`)
 
-    const hookText = await generateHookText(db, id, { signal: request.signal })
+    const { text, badge } = await generateHook(db, id, { signal: request.signal })
 
     const fresh = getClip(db, id) ?? clip
-    putClip(db, { ...fresh, hookText })
-    const written = getClip(db, id) ?? { ...fresh, hookText }
+    putClip(db, { ...fresh, hookText: text, hookBadge: badge })
+    const written = getClip(db, id) ?? { ...fresh, hookText: text, hookBadge: badge }
     return json({ clip: written })
   },
 )

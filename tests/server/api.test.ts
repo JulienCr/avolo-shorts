@@ -26,6 +26,7 @@ import type {
   SourcesListing,
 } from '@/lib/api'
 import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
+import { pendingHookBackfills } from '@/server/steps/hook-backfill'
 import { statusFor } from '@/server/http'
 import { clipFraming } from '@/server/clip-framing'
 import {
@@ -932,6 +933,68 @@ describe('PATCH /api/clips/:id', () => {
   it('refuse un hookBadge trop long, à un plafond plus serré que le hook', async () => {
     expect((await patch({ hookBadge: 'x'.repeat(121) })).status).toBe(400)
     expect((await patch({ hookBadge: 'x'.repeat(120) })).status).toBe(200)
+  })
+
+  /**
+   * **Le rattrapage part à la transition, et il ne bloque pas la réponse.**
+   *
+   * La sonde est l'avertissement, pas `fetch` : aucun fournisseur n'est
+   * configuré dans ce fichier, donc `generateHook` échoue **avant tout appel
+   * réseau** (c'est son contrat, `src/server/llm/registry.ts`) et un
+   * `expect(fetch).toHaveBeenCalled()` passerait à côté du chemin qu'on teste.
+   * Un avertissement de rattrapage prouve à la fois que le travail est parti
+   * et que son échec est avalé — le tri ne casse pas.
+   */
+  const backfillWarnings = (warn: { mock: { calls: unknown[][] } }): string[] =>
+    warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes('Rattrapage du hook'))
+
+  /**
+   * **`mockClear` à chaque prise, et ce n'est pas de la superstition.** Ce
+   * fichier n'a pas de `restoreAllMocks` en `afterEach` ; un second
+   * `vi.spyOn` sur une méthode déjà espionnée rend le MÊME espion, avec les
+   * appels du test précédent dedans. Sans ce nettoyage, un test qui vérifie
+   * qu'aucun rattrapage n'est parti lisait celui du test d'avant.
+   */
+  const silenceWarnings = () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    warn.mockClear()
+    return warn
+  }
+
+  it('garder un candidat au hook vide déclenche le rattrapage sans bloquer la réponse', async () => {
+    putClip(getDb(), { ...baseClip(), status: 'candidate', hookText: '', hookBadge: '' })
+    const warn = silenceWarnings()
+
+    const response = await patch({ status: 'kept' })
+    expect(response.status).toBe(200)
+
+    // Le travail de fond a démarré : on l'attend ICI, jamais depuis la route.
+    // Un délai arbitraire laisserait le rattrapage déborder sur le test
+    // suivant, où son avertissement passerait pour celui d'un autre cas.
+    await pendingHookBackfills()
+    expect(backfillWarnings(warn)).toHaveLength(1)
+    // Et le clip est gardé quoi qu'il arrive : l'échec n'a rien coûté au tri.
+    expect(((await response.json()) as PatchClipResult).clip.status).toBe('kept')
+  })
+
+  it('garder un candidat qui a déjà son hook ne déclenche aucun rattrapage', async () => {
+    putClip(getDb(), { ...baseClip(), status: 'candidate', hookText: 'Venu du repérage' })
+    const warn = silenceWarnings()
+
+    expect((await patch({ status: 'kept' })).status).toBe(200)
+    await pendingHookBackfills()
+    expect(backfillWarnings(warn)).toHaveLength(0)
+  })
+
+  it('re-garder un clip déjà gardé ne relance rien : c’est la transition qui compte', async () => {
+    putClip(getDb(), { ...baseClip(), status: 'kept', hookText: '' })
+    const warn = silenceWarnings()
+
+    expect((await patch({ status: 'kept' })).status).toBe(200)
+    await pendingHookBackfills()
+    expect(backfillWarnings(warn)).toHaveLength(0)
   })
 
   it('refuse un hookText trop long', async () => {

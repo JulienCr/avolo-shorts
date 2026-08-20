@@ -7,10 +7,11 @@ import { POST as postHook } from '@/app/api/clips/[id]/hook/route'
 import { GeminiBlockedError } from '@/server/steps/candidates'
 import type { Clip } from '@/core/edl'
 import { applySettings, closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
-import { generateHookText } from '@/server/steps/hook'
+import { scheduleHookBackfill } from '@/server/steps/hook-backfill'
+import { generateHook } from '@/server/steps/hook'
 
 /**
- * La génération du hook — `generateHookText`, premier appelant de l'usage
+ * La génération du hook — `generateHook`, premier appelant de l'usage
  * `'hook'`, et `POST /api/clips/:id/hook`, son seul appelant.
  *
  * **Ollama, pas Gemini.** Ollama n'a pas de clé à vérifier : c'est le
@@ -60,8 +61,8 @@ function writeTranscriptFixture(): void {
   )
 }
 
-function ollamaResponse(hook: string): Response {
-  return new Response(JSON.stringify({ message: { content: JSON.stringify({ hook }) } }), {
+function ollamaResponse(hook: string, badge = ''): Response {
+  return new Response(JSON.stringify({ message: { content: JSON.stringify({ hook, badge }) } }), {
     status: 200,
   })
 }
@@ -103,12 +104,12 @@ function context(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) }
 }
 
-describe('generateHookText', () => {
+describe('generateHook', () => {
   it("produit le texte du fournisseur, normalisé — c'est le critère 7", async () => {
     const fetchMock = vi.fn().mockResolvedValue(ollamaResponse('Ce pingouin va tout faire capoter'))
     vi.stubGlobal('fetch', fetchMock)
 
-    const text = await generateHookText(getDb(), baseClip().id)
+    const { text } = await generateHook(getDb(), baseClip().id)
     expect(text).toBe('Ce pingouin va tout faire capoter')
     // 6, pas 10 : le plafond que `normalizeHookText` applique depuis la PR
     // #117 (relevé par Aristarque — le texte de ce test ne fait que 6 mots,
@@ -158,7 +159,7 @@ describe('generateHookText', () => {
     const fetchMock = vi.fn().mockResolvedValue(ollamaResponse('Ce pingouin va tout faire capoter'))
     vi.stubGlobal('fetch', fetchMock)
 
-    await generateHookText(getDb(), clip.id)
+    await generateHook(getDb(), clip.id)
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { messages: { content: string }[] }
     const prompt = body.messages[0].content
@@ -168,7 +169,7 @@ describe('generateHookText', () => {
 
   it('un texte vide rendu par le modèle est une réponse valide, pas une erreur', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('')))
-    await expect(generateHookText(getDb(), baseClip().id)).resolves.toBe('')
+    await expect(generateHook(getDb(), baseClip().id)).resolves.toEqual({ text: '', badge: '' })
   })
 
   it('normalise le texte rendu — guillemets et plafond de six mots', async () => {
@@ -178,7 +179,7 @@ describe('generateHookText', () => {
         ollamaResponse('"un deux trois quatre cinq six sept huit neuf dix onze douze"'),
       ),
     )
-    const text = await generateHookText(getDb(), baseClip().id)
+    const { text } = await generateHook(getDb(), baseClip().id)
     expect(text.startsWith('"')).toBe(false)
     expect(text.split(' ')).toHaveLength(6)
   })
@@ -189,7 +190,7 @@ describe('generateHookText', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow(/GEMINI_API_KEY/)
+    await expect(generateHook(getDb(), baseClip().id)).rejects.toThrow(/GEMINI_API_KEY/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -202,7 +203,7 @@ describe('generateHookText', () => {
     // un refus. On simule ici plutôt une fin non nommée, qui échoue aussi sans
     // se réessayer (Ollama n'a pas de filtre fournisseur nommé, voir
     // `toFinishReason`) : le point qui compte est le même, un seul appel.
-    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow()
+    await expect(generateHook(getDb(), baseClip().id)).rejects.toThrow()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -222,7 +223,7 @@ describe('generateHookText', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(generateHookText(getDb(), baseClip().id)).rejects.toThrow(GeminiBlockedError)
+    await expect(generateHook(getDb(), baseClip().id)).rejects.toThrow(GeminiBlockedError)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -285,5 +286,167 @@ describe('POST /api/clips/:id/hook', () => {
     const written = getClip(getDb(), clip.id)
     expect(written?.title).toBe('Titre changé pendant l’appel')
     expect(written?.hookText).toBe('Un hook régénéré')
+  })
+describe('le badge, à la régénération', () => {
+  it('rend le badge du modèle, normalisé', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche', '  «\u00a0DÉFI 10\u00a0»  ')))
+    const { badge } = await generateHook(getDb(), baseClip().id)
+    expect(badge).toBe('DÉFI 10')
+  })
+
+  it('un badge absent de la réponse vaut la chaîne vide, sans échouer', async () => {
+    // Une réponse de l'ancienne forme — `{ hook }` seul — reste exploitable :
+    // le badge n'est pas la raison de l'appel.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: { content: JSON.stringify({ hook: 'Une accroche' }) } }), {
+          status: 200,
+        }),
+      ),
+    )
+    await expect(generateHook(getDb(), baseClip().id)).resolves.toEqual({
+      text: 'Une accroche',
+      badge: '',
+    })
+  })
+
+  it('un badge bavard est ramené à trois mots', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche', 'un badge beaucoup trop long')))
+    const { badge } = await generateHook(getDb(), baseClip().id)
+    expect(badge).toBe('un badge beaucoup')
+  })
+
+  /**
+   * **« Régénérer » remplace la PAIRE, y compris par du vide.** Garder
+   * l'ancienne pastille au-dessus d'une accroche neuve lui accolerait un
+   * sur-titre écrit pour un texte qui n'est plus là.
+   */
+  it('la route écrit les deux champs, et efface un badge que le modèle ne reconduit pas', async () => {
+    const clip = baseClip({ hookText: 'Ancienne', hookBadge: 'DÉFI 09' })
+    putClip(getDb(), clip)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche neuve', '')))
+
+    const response = await postHook(new Request('http://x', { method: 'POST' }), context(clip.id))
+    expect(response.status).toBe(200)
+
+    const written = getClip(getDb(), clip.id)
+    expect(written?.hookText).toBe('Une accroche neuve')
+    expect(written?.hookBadge).toBe('')
+  })
+
+  it('la route écrit le badge quand le modèle en propose un', async () => {
+    const clip = baseClip({ hookText: 'Ancienne', hookBadge: '' })
+    putClip(getDb(), clip)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche neuve', 'DÉFI 10')))
+
+    await postHook(new Request('http://x', { method: 'POST' }), context(clip.id))
+    expect(getClip(getDb(), clip.id)?.hookBadge).toBe('DÉFI 10')
+  })
+})
+
+})
+
+/**
+ * Le rattrapage à la transition `candidate → kept`
+ * (`src/server/steps/hook-backfill.ts`).
+ *
+ * Ce que ces tests fixent : il ne part que sur un hook vide, il n'écrase
+ * jamais rien, il ne part qu'une fois, et son échec ne se voit nulle part
+ * ailleurs que dans un avertissement.
+ */
+describe('scheduleHookBackfill', () => {
+  it('remplit un clip fraîchement gardé dont l’accroche est vide', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '', hookBadge: '' })
+    putClip(getDb(), clip)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Une accroche', 'DÉFI 10')))
+
+    await scheduleHookBackfill(getDb(), clip.id)
+
+    const written = getClip(getDb(), clip.id)
+    expect(written?.hookText).toBe('Une accroche')
+    expect(written?.hookBadge).toBe('DÉFI 10')
+  })
+
+  /**
+   * **Le cas courant, et celui qui protège la contrainte du §7** : le hook
+   * arrive gratuitement du repérage, donc le rattrapage ne doit consommer
+   * aucun appel.
+   */
+  it('ne touche à rien quand l’accroche est déjà là — aucun appel réseau', async () => {
+    const clip = baseClip({ status: 'kept', hookText: 'Déjà là' })
+    putClip(getDb(), clip)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await scheduleHookBackfill(getDb(), clip.id)
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(getClip(getDb(), clip.id)?.hookText).toBe('Déjà là')
+  })
+
+  it('ne part pas sur un clip qui n’est pas gardé', async () => {
+    const clip = baseClip({ status: 'candidate', hookText: '' })
+    putClip(getDb(), clip)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await scheduleHookBackfill(getDb(), clip.id)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('deux appels rapprochés ne produisent qu’un seul appel au modèle', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '' })
+    putClip(getDb(), clip)
+    const fetchMock = vi.fn().mockResolvedValue(ollamaResponse('Une accroche'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await Promise.all([
+      scheduleHookBackfill(getDb(), clip.id),
+      scheduleHookBackfill(getDb(), clip.id),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('un échec du fournisseur laisse le clip intact et ne rejette pas', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '' })
+    putClip(getDb(), clip)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('quota dépassé')))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await expect(scheduleHookBackfill(getDb(), clip.id)).resolves.toBeUndefined()
+
+    expect(getClip(getDb(), clip.id)?.hookText).toBe('')
+    expect(getClip(getDb(), clip.id)?.status).toBe('kept')
+    expect(warn).toHaveBeenCalled()
+  })
+
+  /**
+   * Miroir du test « ne perd pas une écriture concurrente » de la route :
+   * l'appel tient jusqu'à trente secondes, largement de quoi qu'une saisie
+   * manuelle se glisse dedans. Elle gagne — un rattrapage n'écrase pas.
+   */
+  it('une saisie manuelle pendant l’appel gagne sur la réponse du modèle', async () => {
+    const clip = baseClip({ status: 'kept', hookText: '' })
+    putClip(getDb(), clip)
+
+    let resolveFetch: (response: Response) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve
+        }),
+      ),
+    )
+
+    const work = scheduleHookBackfill(getDb(), clip.id)
+    // Pendant l'appel, quelqu'un saisit son hook à la main.
+    putClip(getDb(), { ...clip, hookText: 'Écrit à la main' })
+    resolveFetch(ollamaResponse('Une accroche du modèle'))
+    await work
+
+    expect(getClip(getDb(), clip.id)?.hookText).toBe('Écrit à la main')
   })
 })

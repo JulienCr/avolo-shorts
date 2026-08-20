@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Segment } from '@/core/edl'
 import { parseJsonResponse } from '@/core/gemini/parse'
 import { hookPrompt } from '@/core/gemini/prompts'
-import { normalizeHookText } from '@/core/hook'
+import { normalizeHookBadge, normalizeHookText } from '@/core/hook'
 import { getClip, getProject } from '@/server/db'
 import { createCallFromSettings } from '@/server/llm/registry'
 import type { JsonSchema, LlmCallConfig, LlmMode } from '@/server/llm/types'
@@ -17,12 +17,17 @@ import { projectTranscript } from '@/server/views'
  * précédente : réglages, persistance, câblage du fournisseur. Il ne lui
  * manquait qu'un appelant, et c'est tout ce que ce fichier ajoute.
  *
- * **Aucun déclenchement automatique.** Le seul appelant est le bouton
- * « Régénérer » de l'écran Clip — un clip qu'on monte, à la demande. Zéro
- * étape de graphe, zéro traitement par lot : la lecture la plus économique et
- * la plus fidèle de « uniquement pour les clips réellement gardés,
- * idéalement au moment où ils entrent dans le workflow de montage ou à la
- * demande ».
+ * **Deux appelants, aucun par le graphe.** Le bouton « Régénérer » de l'écran
+ * Clip — un clip qu'on monte, à la demande — et le rattrapage qui part à la
+ * transition `candidate → kept` quand l'accroche est vide
+ * (`src/server/steps/hook-backfill.ts`). Zéro étape de graphe, zéro traitement
+ * par lot : la lecture la plus économique et la plus fidèle de « uniquement
+ * pour les clips réellement gardés, idéalement au moment où ils entrent dans
+ * le workflow de montage ou à la demande ».
+ *
+ * Le cas courant ne passe par aucun des deux : la passe de détail du repérage
+ * rend déjà `viral_hook_text` et `viral_hook_badge` dans la même réponse que
+ * le titre, donc un clip naît avec son hook, sans un appel de plus.
  *
  * **Pas la politique de relance de `src/server/steps/candidates.ts`.**
  * L'escalier 5 s/10 s, les trois tentatives, l'attente de quota existent pour
@@ -45,6 +50,14 @@ import { projectTranscript } from '@/server/views'
 const HOOK_PROMPT_MAX_WORDS = 6
 
 /**
+ * Le plafond de mots du badge demandé au modèle. **Dupliqué depuis
+ * `HOOK_BADGE_MAX_WORDS` de `@/core/hook` pour la même raison que
+ * ci-dessus** : cette constante-là n'est pas exportée, et l'autorité sur la
+ * forme rendue reste `normalizeHookBadge`.
+ */
+const HOOK_BADGE_PROMPT_MAX_WORDS = 3
+
+/**
  * Le délai au-delà duquel l'appel est abandonné, en millisecondes. Plus court
  * que celui du repérage (`DELAY_CALL_MS`, 120 s) : personne n'attend une
  * passe de repérage devant son écran, mais ici quelqu'un attend ce bouton.
@@ -53,11 +66,19 @@ const TIMEOUT_MS = 30_000
 
 const SCHEMA_HOOK: JsonSchema = {
   type: 'object',
-  properties: { hook: { type: 'string' } },
-  required: ['hook'],
+  properties: { hook: { type: 'string' }, badge: { type: 'string' } },
+  // **`badge` est requis ici, contrairement à `SCHEMA_DETAIL`.** L'appel n'a
+  // qu'une tâche et le modèle sait quoi rendre quand il n'a rien à proposer :
+  // la chaîne vide, que `HOOK_BADGE_BRIEF` lui demande explicitement de
+  // préférer. La passe de détail, elle, rend une douzaine de champs sur des
+  // fenêtres encore candidates — y exiger le badge le pousserait à en
+  // inventer un par clip.
+  required: ['hook', 'badge'],
 }
 
-const RESPONSE_HOOK = z.object({ hook: z.string() })
+// `.catch('')` sur le badge : une réponse de l'ancienne forme, ou un modèle
+// qui l'omet malgré le schéma, ne doit pas coûter la régénération entière.
+const RESPONSE_HOOK = z.object({ hook: z.string(), badge: z.string().catch('') })
 
 function configuration(mode: LlmMode): LlmCallConfig {
   if (mode !== 'hook') {
@@ -97,17 +118,22 @@ function linesInClip(transcript: TranscriptLu, segments: readonly Segment[]): st
 }
 
 /**
- * Régénère le texte d'un hook, à la demande, pour un clip déjà gardé.
+ * Régénère le hook d'un clip déjà gardé : **l'accroche ET sa pastille**.
+ *
+ * **`generateHook` et non `generateHookText`.** La fonction a changé de nature
+ * en changeant de retour, et garder un nom qui dit « text » sur ce qui rend
+ * deux champs coûterait une relecture par mois.
  *
  * **Un texte vide rendu par le modèle est une réponse valide**, pas une
  * erreur : c'est ce que `hookIsBurned` (`@/core/hook`) attend pour ne rien
- * incruster.
+ * incruster. Un badge vide l'est encore plus — c'est même ce que
+ * `HOOK_BADGE_BRIEF` demande de préférer.
  */
-export async function generateHookText(
+export async function generateHook(
   db: Database.Database,
   clipId: string,
   params: { signal?: AbortSignal } = {},
-): Promise<string> {
+): Promise<{ text: string; badge: string }> {
   const clip = getClip(db, clipId)
   if (clip === undefined) throw new Error(`Clip inconnu : ${clipId}`)
   const project = getProject(db, clip.projectId)
@@ -122,6 +148,7 @@ export async function generateHookText(
     description: clip.description,
     lines,
     maxWords: HOOK_PROMPT_MAX_WORDS,
+    maxBadgeWords: HOOK_BADGE_PROMPT_MAX_WORDS,
   })
 
   // **La clé se lit ici**, avant tout appel réseau — c'est ce qui fait
@@ -144,5 +171,5 @@ export async function generateHookText(
     throw new Error(`Réponse du fournisseur inexploitable pour le hook : ${lu.error.message}`)
   }
 
-  return normalizeHookText(lu.data.hook)
+  return { text: normalizeHookText(lu.data.hook), badge: normalizeHookBadge(lu.data.badge) }
 }

@@ -3,6 +3,7 @@ import { clipDuration } from '@/core/edl'
 import {
   detailPrompt,
   detailWindowsJson,
+  HOOK_BADGE_BRIEF,
   HOOK_PATTERNS,
   hookPrompt,
   scorePrompt,
@@ -189,6 +190,7 @@ describe('hookPrompt', () => {
     description: 'Un procès improbable',
     lines: ['alors moi je dis que ce pingouin ment', 'un pingouin avec un cartable ça se discute'],
     maxWords: 10,
+    maxBadgeWords: 3,
   }
 
   it('porte le même HOOK PLAYBOOK que detailPrompt, mot pour mot', () => {
@@ -214,12 +216,24 @@ describe('hookPrompt', () => {
     expect(p).toContain('max 6 words')
   })
 
-  it("ne demande qu'un seul champ en sortie", () => {
+  it('ne demande que le hook et son badge en sortie', () => {
     const p = hookPrompt(ENTRIES_HOOK)
     const returnBlock = p.slice(p.indexOf('Return only:'))
     expect(returnBlock).toContain('"hook":')
+    expect(returnBlock).toContain('"badge":')
+    // Ni les noms du repérage, ni son enveloppe : ce prompt ne rejuge rien.
     expect(returnBlock).not.toContain('viral_hook_text')
+    expect(returnBlock).not.toContain('viral_hook_badge')
     expect(returnBlock).not.toContain('shorts')
+  })
+
+  it('porte le même brief de badge que detailPrompt, mot pour mot', () => {
+    expect(hookPrompt(ENTRIES_HOOK)).toContain(HOOK_BADGE_BRIEF)
+    expect(detailPrompt(ENTRIES_DETAIL)).toContain(HOOK_BADGE_BRIEF)
+  })
+
+  it('porte le plafond de mots du badge demandé, pas une valeur fixe', () => {
+    expect(hookPrompt({ ...ENTRIES_HOOK, maxBadgeWords: 2 })).toContain('at most 2 words')
   })
 })
 

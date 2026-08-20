@@ -707,7 +707,21 @@ export function useRegenerateHook() {
     mutationFn: (clipId: string) => postRegenerateHook(clipId),
     onSuccess(result, clipId) {
       client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
-        detail ? { ...detail, clip: { ...detail.clip, hookText: result.clip.hookText } } : detail,
+        detail
+          ? {
+              ...detail,
+              // `hookText` ET `hookBadge`, et **rien d'autre** : la règle
+              // documentée juste au-dessus vaut mot pour mot pour ce second
+              // champ — écraser `detail.clip` en entier remettrait en place
+              // les champs qu'un `PATCH` concurrent a fait avancer pendant
+              // l'appel.
+              clip: {
+                ...detail.clip,
+                hookText: result.clip.hookText,
+                hookBadge: result.clip.hookBadge,
+              },
+            }
+          : detail,
       )
     },
   })

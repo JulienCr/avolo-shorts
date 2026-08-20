@@ -73,6 +73,29 @@ function fadeTag(enter: ResolvedHook['enter'], exit: ResolvedHook['exit']): stri
 }
 
 /**
+ * Le champ `Outline` de la ligne `Style`, en unités de script — **la seule
+ * chose qui donne à la boîte de `BorderStyle: 3` un peu d'air autour du
+ * texte.**
+ *
+ * **Mesuré sur le binaire, pas déduit de la doctrine ASS.** À `0`, libass ne
+ * dessine aucune boîte du tout — pas même une boîte ajustée au plus près des
+ * lettres, rien : le premier rendu de cette fonction sortait un texte blanc
+ * nu sur fond flouté, `BorderStyle: 3` et `OutlineColour` posés pour rien.
+ * `Outline` en est la cause : pour cette valeur de bordure, c'est elle qui
+ * dimensionne le rembourrage de la boîte, contrairement à `renderAss` où elle
+ * ne fait qu'épaissir un contour de trait (`BorderStyle: 1`).
+ *
+ * Proportionnel à `sizeUnits`, pour qu'un gros hook garde une marge propre
+ * plutôt qu'une boîte collée aux lettres, ce qu'une constante fixe aurait
+ * donné aux deux extrémités de `HOOK_BOUNDS.size`. Le plancher de 4 est ce qui
+ * reste visible sur le plus petit hook possible (`sizeUnits` peut descendre à
+ * son propre plancher de 10).
+ */
+function boxPadding(sizeUnits: number): number {
+  return Math.max(4, Math.round(sizeUnits * 0.13))
+}
+
+/**
  * Le document ASS du hook, ou `null` quand il n'y a rien à incruster —
  * exactement quand `hookIsBurned(resolved)` est faux : hook désactivé, ou
  * texte vide.
@@ -114,7 +137,7 @@ export function renderHookAss(resolved: ResolvedHook): string | null {
     'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, ' +
     'Alignment, MarginL, MarginR, MarginV, Encoding\n' +
     `Style: Default,${font},${layout.sizeUnits},${primary},${primary},` +
-    `${outline},${shadow},1,0,0,0,100,100,0,0,3,0,0,` +
+    `${outline},${shadow},1,0,0,0,100,100,0,0,3,${boxPadding(layout.sizeUnits)},0,` +
     `${layout.assAlignment},${layout.marginL},${layout.marginR},${layout.marginV},1\n` +
     '\n' +
     '[Events]\n' +

@@ -105,7 +105,7 @@ describe('renderHookAss', () => {
         'OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ' +
         'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, ' +
         'Alignment, MarginL, MarginR, MarginV, Encoding\n' +
-        'Style: Default,Anton,47,&H00FFFFFF,&H00FFFFFF,&H66000000,&HFF000000,1,0,0,0,100,100,0,0,3,0,0,8,24,24,24,1\n' +
+        'Style: Default,Anton,47,&H00FFFFFF,&H00FFFFFF,&H66000000,&HFF000000,1,0,0,0,100,100,0,0,3,6,0,8,24,24,24,1\n' +
         '\n' +
         '[Events]\n' +
         'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' +

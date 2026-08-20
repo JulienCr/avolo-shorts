@@ -329,7 +329,12 @@ function DurationField({
           id={id}
           type="number"
           inputMode="decimal"
-          step={0.5}
+          // 0,1 et non 0,5 : la grille HTML part de `min` (0,2) par pas de
+          // `step`, et 0,2 + n × 0,5 ne retombe jamais sur le défaut (2 s) —
+          // le champ naissait en `stepMismatch`, et les flèches sautaient à
+          // une valeur inattendue. 0,1 aligne `min`, le défaut et `max` sur
+          // la même grille. (relevé par Copilot)
+          step={0.1}
           min={minSeconds}
           max={maxSeconds}
           disabled={disabled}
@@ -483,7 +488,11 @@ function SelectField<T extends string>({
           <ResetButton
             disabled={disabled}
             onClick={() => void Promise.resolve(onChange(defaultValue)).catch(() => {})}
-            label="Revenir au défaut"
+            // Cette section porte cinq boutons `Select` réglés au défaut :
+            // « Revenir au défaut » seul les rendrait tous identiques au nom
+            // accessible, impossible à distinguer en navigation par boutons.
+            // (relevé par Copilot)
+            label={`${label} : revenir au défaut`}
           />
         )}
       </div>
@@ -544,7 +553,11 @@ function TransitionField({
           <ResetButton
             disabled={disabled}
             onClick={() => void Promise.resolve(onChange(defaultValue)).catch(() => {})}
-            label="Revenir au défaut"
+            // Les deux instances (apparition, disparition) partagent le même
+            // défaut (`fade`) : un texte qui ne nommerait que la valeur ne les
+            // distinguerait pas davantage que le texte fixe qu'il remplace.
+            // (relevé par Copilot)
+            label={`${label} : revenir au défaut`}
           />
         )}
       </div>

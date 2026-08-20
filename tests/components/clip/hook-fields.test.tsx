@@ -153,11 +153,19 @@ describe('hérité vs surchargé', () => {
     expect(trigger.textContent).toContain('2')
   })
 
+  // **`aria-expanded` est toujours posé** (Base UI, `Collapsible.Trigger`) ;
+  // `aria-controls` ne l'est que le panneau ouvert — c'est
+  // `'aria-controls': open ? panelId : undefined` dans
+  // `useCollapsibleRoot`, indexé sur `open` et non sur le montage du
+  // panneau. Une version antérieure de `ui/collapsible.tsx` posait
+  // `keepMounted` en croyant que c'était lui qui manquait ; revenir dessus
+  // ne change rien à ce test, ce qui a confirmé que ce n'était pas la cause
+  // (relevé en review). L'absence d'`aria-controls` fermé n'est donc pas
+  // vérifiée ici : ce n'est pas un défaut, c'est le choix de Base UI.
   it('« Personnaliser » annonce son état : aria-expanded toujours, aria-controls une fois ouvert', () => {
     mount()
     const trigger = screen.getByRole('button', { name: /Personnaliser/ })
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    expect(trigger.getAttribute('aria-controls')).toBeNull()
 
     fireEvent.click(trigger)
     expect(trigger.getAttribute('aria-expanded')).toBe('true')

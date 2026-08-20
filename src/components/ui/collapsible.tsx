@@ -31,24 +31,24 @@ function CollapsibleTrigger({
 }
 
 /**
- * **`keepMounted` par défaut.** Sans lui, Base UI retire le panneau du DOM
- * quand il est fermé — et avec lui, `aria-controls` du déclencheur, qui ne
- * peut pas référencer un `id` que rien ne porte plus. Mesuré : sans
- * `keepMounted`, le bouton « Personnaliser » de `HookFields` gardait
- * `aria-expanded="false"` mais perdait `aria-controls` entièrement, exactement
- * le critère d'accessibilité que ce repli doit tenir. Fermé, Base UI pose
- * `hidden` sur le panneau à la place — invisible et hors du parcours du
- * clavier, mais toujours référençable.
+ * **`keepMounted` n'est PAS posé ici, et c'est délibéré après vérification.**
+ * Une première version le forçait à `true` en croyant que `aria-controls` du
+ * déclencheur en dépendait — faux : dans `useCollapsibleRoot`
+ * (`@base-ui/react/collapsible`), `panelId` retombe sur le `useId()` de la
+ * racine indépendamment du montage du panneau, et le déclencheur pose
+ * `'aria-controls': open ? panelId : undefined` — **`open`, pas
+ * `keepMounted`**. Revenir sur `keepMounted: false` et rejouer
+ * `hook-fields.test.tsx` ne fait échouer aucun des tests qui vérifient
+ * `aria-controls` une fois le panneau ouvert (relevé en review). L'absence
+ * d'`aria-controls` quand le panneau est fermé n'est donc pas un défaut :
+ * c'est le choix de Base UI, cohérent avec la pratique où le bouton n'a rien
+ * à contrôler tant qu'il n'y a rien d'ouvert à désigner — `aria-expanded`
+ * porte l'état à lui seul dans ce cas-là.
  */
-function CollapsiblePanel({
-  className,
-  keepMounted = true,
-  ...props
-}: CollapsiblePrimitive.Panel.Props) {
+function CollapsiblePanel({ className, ...props }: CollapsiblePrimitive.Panel.Props) {
   return (
     <CollapsiblePrimitive.Panel
       data-slot="collapsible-panel"
-      keepMounted={keepMounted}
       className={cn('flex flex-col gap-3', className)}
       {...props}
     />

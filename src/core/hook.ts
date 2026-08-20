@@ -334,8 +334,9 @@ function stripSurroundingQuotes(text: string): string {
  * **6, pas 10.** Les deux exemples fournis par le propriétaire du dépôt font
  * un à cinq mots (« CURIOSITY », « ÇA TOURNE ! », « LES ALÉAS DU BTP », « JE
  * VOUS AI BIEN EUS ») : un hook « court et frappant » n'a jamais besoin de
- * dix. `src/core/gemini/prompts.ts` (`HOOK_PATTERNS`, `HOOK_PROMPT_MAX_WORDS`)
- * demande la même limite au modèle — resserrer l'une sans l'autre laisserait
+ * dix. `HOOK_PATTERNS` (`src/core/gemini/prompts.ts`) et
+ * `HOOK_PROMPT_MAX_WORDS` (`src/server/steps/hook.ts`) demandent la même
+ * limite au modèle — resserrer l'une sans l'autre laisserait
  * `normalizeHookText` couper au milieu d'une phrase que le modèle croyait
  * complète.
  */

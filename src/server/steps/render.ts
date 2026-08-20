@@ -12,9 +12,19 @@ import { splitByShot } from '@/core/shot-split'
 import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
+import { resolveHook, type HookSettings } from '@/core/hook'
+import { renderHookAss } from '@/core/hook-ass'
 import type { Word } from '@/core/transcript'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
-import { getClip, getDb, getProject, putClip, type Project } from '@/server/db'
+import {
+  effectiveSettings,
+  getClip,
+  getDb,
+  getProject,
+  putClip,
+  HOOK_STYLE_SHAPE,
+  type Project,
+} from '@/server/db'
 import {
   pathTemporary,
   encoderName,
@@ -109,6 +119,15 @@ export type PathsRender = {
   texts: string
   ass: string
   /**
+   * Le `.ass` du hook — un second document, distinct de `ass` ci-dessus.
+   *
+   * Même statut que lui : un intermédiaire, réécrit à chaque passage, gardé
+   * sur le disque pour relire ce que libass a incrusté. `ass` porte les
+   * sous-titres, `hookAss` le bandeau de hook ; les deux s'incrustent par deux
+   * appels distincts au filtre `ass=` (`src/core/ffmpeg/args.ts`).
+   */
+  hookAss: string
+  /**
    * L'empreinte du rendu — ce que les fichiers ci-dessus décrivent (#48).
    *
    * **Elle n'est pas une sortie** : `clipOutputs` ne la publie pas et
@@ -175,6 +194,7 @@ export function pathsRender(projectId: string, clipId: string, ratio: Ratio): Pa
     variant9x16: ratio === '9:16' ? null : pathVariant(projectId, name),
     texts: path.join(folder, `${name}.txt`),
     ass: path.join(folder, `${name}.ass`),
+    hookAss: path.join(folder, `${name}.hook.ass`),
     // **Le nom ne dépend pas du ratio**, contrairement à celui de la variante :
     // l'empreinte décrit le rendu quel que soit le ratio, et un clip dont le
     // ratio natif change doit retrouver — pour l'écarter — celle qu'il a écrite
@@ -241,8 +261,14 @@ export function pathsRender(projectId: string, clipId: string, ratio: Ratio): Pa
  * schéma et rend `null` sur un nombre différent, donc les trois rendus déjà
  * sur le disque seront simplement refaits — aucun n'a de marque incrustée à
  * ce jour (voir `ROADMAP.md`), le coût est donc nul en pratique.
+ *
+ * **Passée à 5 le 20 août 2026, avec le hook.** `ShapeRendered` gagne
+ * `hookText`/`hookStyle` et `FingerprintRender` gagne `hook` : ce que les
+ * empreintes d'avant ne portent pas du tout, comme `captionsContent` avant
+ * #87. Le prix est le même — un réencodage par clip, une fois — et le hook
+ * n'existait pour aucun clip avant cette PR : le coût est nul en pratique.
  */
-export const VERSION_FINGERPRINT = 4
+export const VERSION_FINGERPRINT = 5
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -282,8 +308,16 @@ export type RenderedFraming = {
  * Nommer ce sous-ensemble est ce qui permet de comparer une empreinte à un clip
  * par la **même** fonction que deux clips entre eux. Deux comparaisons sur la
  * même question finiraient par ne plus dire la même chose.
+ *
+ * **`hookText` et `hookStyle` depuis le 20 août 2026.** Un `PATCH` qui touche
+ * l'un ou l'autre doit périmer le rendu au même titre qu'un segment déplacé —
+ * `docs/retour-ui-and-next-steps.md` §7 : « toute modification du hook […]
+ * doit invalider les fichiers exportés existants ». Contrairement à `ratio`
+ * et `cropX`, retirés du sous-ensemble quand le cadrage automatique est entré
+ * en service, ces deux champs continuent de décrire directement ce que le
+ * clip demande : rien ne les recalcule, un `resolveHook` les lit tels quels.
  */
-export type ShapeRendered = Pick<Clip, 'segments' | 'captions' | 'branding'> & {
+export type ShapeRendered = Pick<Clip, 'segments' | 'captions' | 'branding' | 'hookText' | 'hookStyle'> & {
   framing: RenderedFraming
 }
 
@@ -308,11 +342,16 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
 }
 
 /** Le clip et son cadrage, tels que `leRenduEstPérimé` les compare. */
-export function renderedShape(clip: Pick<Clip, 'segments' | 'captions' | 'branding'>, framing: RenderedFraming): ShapeRendered {
+export function renderedShape(
+  clip: Pick<Clip, 'segments' | 'captions' | 'branding' | 'hookText' | 'hookStyle'>,
+  framing: RenderedFraming,
+): ShapeRendered {
   return {
     segments: clip.segments,
     captions: clip.captions,
     branding: clip.branding,
+    hookText: clip.hookText,
+    hookStyle: clip.hookStyle,
     framing,
   }
 }
@@ -386,6 +425,32 @@ export type FingerprintRender = ShapeRendered & {
    * le fait pour une marque, évite de réinventer cette chaîne côté empreinte.
    */
   captionsContent: string | null
+  /**
+   * `null` quand rien n'a été incrusté (`hookIsBurned` faux) ; sinon le
+   * condensat du document ASS de hook réellement écrit, mêlé au condensat des
+   * polices — voir `hookFingerprint` un peu plus bas pour la forme exacte.
+   *
+   * **Un seul champ, comme `captionsLook`, et pour la même raison** : un
+   * document n'a de sens que s'il y a un hook, deux champs porteraient un
+   * invariant entre eux.
+   *
+   * **Le document, pas le texte brut, et c'est le point qui compte le plus.**
+   * Le document ASS est fonction totale de (réglages globaux + surcharge du
+   * clip + texte) : il attrape donc un changement de réglage **global** que
+   * rien d'autre dans cette empreinte ne peut voir, puisque `hookText` et
+   * `hookStyle` (dans `ShapeRendered`) ne portent que ce que LE CLIP
+   * surcharge. C'est `docs/retour-ui-and-next-steps.md` §7 : « toute
+   * modification du hook […] doit invalider les fichiers exportés
+   * existants », y compris quand rien sur le clip lui-même n'a changé.
+   *
+   * **Le condensat des polices dedans, comme pour `captionsLook`.** Un clip
+   * qui a un hook mais pas de sous-titres a `captionsLook: null` : le
+   * condensat des polices n'entre alors nulle part, et Anton remplacé
+   * passerait inaperçu sur ce clip précisément. C'est le défaut que
+   * `CaptionsLook.fonts` existe pour fermer côté sous-titres, et il se
+   * rouvrirait ici sans le même geste.
+   */
+  hook: string | null
 }
 
 /** Une marque incrustée : son nom de fichier, et de quoi voir qu'elle a changé. */
@@ -441,6 +506,15 @@ const SCHEMA_FINGERPRINT = z.object({
   marks: z.array(z.object({ name: z.string(), content: z.string() })),
   captionsLook: z.string().nullable(),
   captionsContent: z.string().nullable(),
+  // Requis, pour la même raison que `framing` ci-dessus : une empreinte de la
+  // version d'avant ne les porte pas, et elle est écartée sur son numéro de
+  // version avant d'atteindre ce schéma. `hookStyle` reprend `HOOK_STYLE_SHAPE`
+  // de `db.ts`, rendue `.partial()` — la même source que `Clip.hookStyle`, pour
+  // ne pas tenir une seconde définition des onze champs qui divergerait au
+  // premier réglage ajouté (`CLAUDE.md`, « une seule source pour les bornes »).
+  hookText: z.string(),
+  hookStyle: z.object(HOOK_STYLE_SHAPE).partial(),
+  hook: z.string().nullable(),
 })
 
 /**
@@ -477,6 +551,106 @@ function lookDigest(look: CaptionsLook): string {
  */
 function digestOfCaptionsText(document: string | null): string | null {
   return document === null ? null : createHash('sha256').update(document, 'utf8').digest('hex')
+}
+
+/**
+ * `hookStyle` comparé par JSON à clés triées, comme `lookDigest` le fait déjà
+ * pour le preset des sous-titres.
+ *
+ * **Un `JSON.stringify` naïf ferait qu'un littéral réordonné périme tous les
+ * rendus du disque.** `JSON.stringify` suit l'ordre d'insertion, et rien ne
+ * garantit que deux écritures du même `hookStyle` — l'une par le formulaire,
+ * l'autre par une relecture de la base — insèrent les clés dans le même ordre.
+ * (`CLAUDE.md`, « un correctif compris comme local revient au champ suivant » :
+ * c'est le même défaut de forme que `lookDigest` corrige déjà, un champ plus
+ * loin.)
+ */
+function sameHookStyle(a: Partial<HookSettings>, b: Partial<HookSettings>): boolean {
+  const sorted = (o: Partial<HookSettings>): string =>
+    JSON.stringify(Object.entries(o).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+  return sorted(a) === sorted(b)
+}
+
+/**
+ * Le hook a-t-il changé **sur le clip**, indépendamment de tout réglage
+ * global ? `hookText` se compare directement, `hookStyle` par
+ * `sameHookStyle`.
+ *
+ * Réutilisée à deux endroits : dans `renderIsStale`, pour qu'un `PATCH` qui
+ * touche le hook périme le rendu par le chemin `discardRenderStale` existant,
+ * sans une ligne neuve à son point d'appel ; et dans `lFingerprintGap`,
+ * isolée du reste de `renderIsStale`, pour que le journal dise *« le hook a
+ * changé »* plutôt que *« le montage a changé »* quand c'est la seule chose
+ * qui a bougé.
+ */
+function sameHook(
+  a: Pick<ShapeRendered, 'hookText' | 'hookStyle'>,
+  b: Pick<ShapeRendered, 'hookText' | 'hookStyle'>,
+): boolean {
+  return a.hookText === b.hookText && sameHookStyle(a.hookStyle, b.hookStyle)
+}
+
+/**
+ * Le condensat du document ASS de hook — la seule partie qu'un `GET` peut
+ * reconstruire sans lire `fonts/` (voir `hookHasChanged` plus bas).
+ */
+function hookDocumentDigest(document: string): string {
+  return createHash('sha256').update(document, 'utf8').digest('hex')
+}
+
+/**
+ * Ce que l'empreinte pose dans `FingerprintRender.hook` : le condensat du
+ * document, **mêlé au condensat des polices**, séparés par `:` — jamais un
+ * caractère d'un hex sha256, donc un séparateur qui ne collisionne jamais.
+ *
+ * **Composite, et pas un unique sha256 comme `lookDigest`, et c'est le point
+ * le plus délicat de cette empreinte.** `renderClip` (export) connaît déjà le
+ * condensat des polices — `look.fonts`, calculé de toute façon pour les
+ * sous-titres — et compare le tout : c'est ce qui détecte un remplacement
+ * d'`Anton-Regular.ttf` sur un clip qui a un hook et pas de sous-titres.
+ * `deliveryToDay` (lecture), lui, ne lit pas `fonts/` — un `GET` ne paie pas
+ * cet accès disque à chaque affichage de carte, comme il ne paie déjà pas les
+ * deux `ffprobe` des marques ni l'aller-retour sur le Drive du transcript —
+ * et ne peut donc comparer que la partie document. La forme composite est ce
+ * qui permet aux deux chemins de comparer ce qu'ils savent, sans que l'un
+ * doive deviner ce que l'autre a lu.
+ */
+function hookFingerprint(document: string, fonts: string): string {
+  return `${hookDocumentDigest(document)}:${fonts}`
+}
+
+/** La partie document d'un `FingerprintRender.hook` composite. */
+function hookDocumentPart(fingerprintHook: string): string {
+  const i = fingerprintHook.indexOf(':')
+  return i === -1 ? fingerprintHook : fingerprintHook.slice(0, i)
+}
+
+/**
+ * Le hook incrusté a-t-il changé depuis l'empreinte ?
+ *
+ * `fonts === null` dit qu'on ne les a pas lues — le chemin de lecture,
+ * `deliveryToDay` — et la comparaison se limite alors à la partie document :
+ * un remplacement de police n'y est détecté qu'au prochain export, jamais à
+ * l'affichage d'une carte. `fonts` non nul — le chemin d'export,
+ * `renderClip` — compare le condensat entier, polices comprises.
+ *
+ * Les deux `null` (rien avant, rien maintenant) valent « rien n'a changé » :
+ * comparer deux absences donnerait un `false` de toute façon en tombant dans
+ * la branche générale, mais l'écrire ici évite un appel à
+ * `hookDocumentDigest(null)` que rien ne demande.
+ */
+function hookHasChanged(
+  fingerprintHook: string | null,
+  observedDocument: string | null,
+  fonts: string | null,
+): boolean {
+  if (fingerprintHook === null || observedDocument === null) {
+    return fingerprintHook !== null || observedDocument !== null
+  }
+  if (fonts === null) {
+    return hookDocumentPart(fingerprintHook) !== hookDocumentDigest(observedDocument)
+  }
+  return fingerprintHook !== hookFingerprint(observedDocument, fonts)
 }
 
 /** Ce que libass sait charger depuis un `fontsdir`. */
@@ -534,11 +708,18 @@ function markersIdentities(markers: readonly MarkerNative[]): EmbeddedMark[] {
  * `style` n'est lu que si un document a été incrusté : le preset d'un clip sans
  * sous-titres ne décrit rien de son image, et l'y noter périmerait ce clip au
  * premier réglage de police.
+ *
+ * `hookDocument` suit la même règle que `underTitles.text` : le document que
+ * `renderHookAss` a produit, ou `null` s'il n'y avait rien à incruster.
+ * `underTitles.look.fonts` sert aux deux — sous-titres et hook partagent le
+ * même dossier de polices — et il est calculé une seule fois par
+ * l'appelant, qu'il y ait des sous-titres ou non.
  */
 export function renderFingerprint(
   clip: ShapeRendered,
   markers: readonly MarkerNative[],
   underTitles: { burnedIn: boolean; look: CaptionsLook; text: string | null },
+  hookDocument: string | null,
 ): FingerprintRender {
   return {
     version: VERSION_FINGERPRINT,
@@ -560,9 +741,15 @@ export function renderFingerprint(
     },
     captions: clip.captions,
     branding: clip.branding,
+    // `hookText`/`hookStyle` sont écrits en clair, comme `segments` : ce
+    // fichier est un certificat qu'on lit à la main quand on cherche pourquoi
+    // un rendu se refait, et un condensat partout le rendrait muet.
+    hookText: clip.hookText,
+    hookStyle: clip.hookStyle,
     marks: markersIdentities(markers),
     captionsLook: underTitles.burnedIn ? lookDigest(underTitles.look) : null,
     captionsContent: underTitles.burnedIn ? digestOfCaptionsText(underTitles.text) : null,
+    hook: hookDocument === null ? null : hookFingerprint(hookDocument, underTitles.look.fonts),
   }
 }
 
@@ -658,8 +845,16 @@ export function markersHaveMoved(
   )
 }
 
-/** Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant. */
-export type GapFingerprint = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte'
+/**
+ * Pourquoi une empreinte ne décrit pas le rendu qu'on produirait maintenant.
+ *
+ * **`'hook'`, en anglais, contrairement aux six autres.** Les six valeurs
+ * françaises sont la dette de l'issue #73 ; `CLAUDE.md` dit que la règle de
+ * l'anglais pour le code vaut « dès maintenant pour tout code neuf », et ce
+ * champ neuf s'y tient sans renommer ses voisins — les renommer serait hors
+ * périmètre de cette PR et entrerait en conflit avec d'autres.
+ */
+export type GapFingerprint = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte' | 'hook'
 
 /**
  * Ce qu'on incrusterait **maintenant**, pour ce que l'appelant en sait.
@@ -686,6 +881,21 @@ export type ObservedBurnIn = {
    * conclurait à tort que rien n'a changé.
    */
   text: string | null | undefined
+  /**
+   * Le document ASS de hook qu'on incrusterait maintenant — **la même
+   * grammaire à trois valeurs que `text`** : `undefined` pas sondé, `null`
+   * sondé et rien à incruster (hook désactivé, ou texte vide — `hookIsBurned`
+   * faux), une chaîne le document.
+   *
+   * **Sondé aux deux portes, à la différence de `markers`/`look`/`text`.**
+   * `renderClip` (export) le construit toujours, avant la décision de saut.
+   * `deliveryToDay` (lecture) aussi : résoudre le hook — une lecture de la
+   * table `settings` et un appel à `renderHookAss`, tous deux purs — ne coûte
+   * ni `ffprobe` ni aller-retour sur le Drive, contrairement aux trois autres
+   * champs. C'est ce qui attrape un réglage **global** changé sans qu'aucun
+   * champ du clip n'ait bougé (`docs/retour-ui-and-next-steps.md` §7).
+   */
+  hook: string | null | undefined
 }
 
 /**
@@ -706,6 +916,14 @@ export function lFingerprintGap(
   // jour.
   if (fingerprint === null) return 'absente'
   if (fingerprint.version !== VERSION_FINGERPRINT) return 'recette'
+  // **Le hook du CLIP se contrôle avant `renderIsStale`, et c'est délibéré.**
+  // `renderIsStale` compare aussi `hookText`/`hookStyle` — il le doit, pour
+  // que `discardRenderStale` périme un rendu sans code neuf à son point
+  // d'appel — mais le journal dirait alors « le montage a changé depuis »
+  // pour un hook édité, ce qui envoie chercher au mauvais endroit. Ce
+  // contrôle-ci n'ajoute rien à ce que `renderIsStale` sait déjà : il ne fait
+  // que répondre en premier, avec le bon nom.
+  if (!sameHook(fingerprint, clip)) return 'hook'
   if (renderIsStale(fingerprint, clip)) return 'montage'
   // `clip.branding` en guise de tolérance : un clip qui ne demande pas de marque
   // n'a rien à excuser, son empreinte en porte zéro et la comparaison passe.
@@ -730,6 +948,18 @@ export function lFingerprintGap(
   if (observed.text !== undefined && fingerprint.captionsContent !== digestOfCaptionsText(observed.text)) {
     return 'texte'
   }
+  // **Le cas sans précédent : un réglage GLOBAL de hook a changé, sans que
+  // `hookText`/`hookStyle` du clip n'aient bougé** — le premier contrôle,
+  // au-dessus, ne peut rien en voir puisqu'il ne regarde que le clip.
+  // `observed.hook` porte le document qu'on incrusterait maintenant, résolu
+  // avec les globaux d'aujourd'hui ; `hookHasChanged` compare son condensat à
+  // celui de l'empreinte, aux polices près quand on les connaît (voir sa
+  // doc). C'est le seul champ de cette fonction sondé aussi bien à l'export
+  // qu'à la lecture (`observed.hook` n'est jamais `undefined` côté
+  // `deliveryToDay`, `docs/retour-ui-and-next-steps.md` §7).
+  if (observed.hook !== undefined && hookHasChanged(fingerprint.hook, observed.hook, observed.look?.fonts ?? null)) {
+    return 'hook'
+  }
   return null
 }
 
@@ -750,6 +980,7 @@ const GAP_REASON: Record<GapFingerprint, string> = {
   marques: "les marques incrustées ne sont plus celles du dossier",
   style: "les sous-titres ont été incrustés avec un autre look",
   texte: 'le transcript a changé sur les segments de ce clip',
+  hook: "le hook — le sien ou un réglage global — a changé depuis",
 }
 
 /**
@@ -1267,6 +1498,16 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
+  // **Le document de hook qu'on incrusterait maintenant, avant la décision de
+  // saut** — le même geste que `textCurrent` plus bas, pour la même raison :
+  // c'est ce qui attrape un réglage global changé sans qu'aucun champ du clip
+  // n'ait bougé (le cas sans précédent de
+  // `docs/retour-ui-and-next-steps.md` §7). `resolveHook` et `renderHookAss`
+  // sont tous les deux purs — aucune E/S, contrairement à `textCurrent` qui
+  // lit le transcript sur le Drive.
+  const hookGlobals: HookSettings = effectiveSettings(db).hook
+  const hookDocument = renderHookAss(resolveHook(hookGlobals, clip))
+
   // **Le document qu'on incrusterait maintenant, avant la décision de saut
   // (#87).** Sans lui, une correction du transcript qui ne touche aucun
   // segment de ce clip laisserait `sauterRender` reprendre un MP4 qui porte
@@ -1293,6 +1534,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     markers,
     look,
     text: textCurrent,
+    hook: hookDocument,
   })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
@@ -1446,11 +1688,23 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       const assProvisional = clip.captions
         ? await writeCaptionsDocument(clip.id, textCurrent, pathTemporary(paths.ass))
         : undefined
-      // Le dossier de polices n'a de sens qu'avec un `.ass` à incruster : en parler
-      // sans cela ferait avertir sur un clip qui n'a pas de sous-titres. Son
+      // Même geste pour le hook, avec `hookDocument` déjà calculé plus haut.
+      // **Un hook vide ne fait pas échouer l'export**, contrairement au
+      // branding (`markerRejectFault` refuse l'export si `branding` est
+      // demandé mais introuvable) : l'asymétrie est voulue. Une marque
+      // absente livre un MP4 sans logo *alors qu'on l'a demandé* — un défaut
+      // qu'il faut signaler avant de le livrer. Un hook absent est un hook
+      // qu'on n'a pas écrit : c'est l'état normal de tout clip avant qu'un
+      // texte ne lui soit donné, pas un défaut de la livraison.
+      const hookProvisional = await writeHookDocument(hookDocument, pathTemporary(paths.hookAss))
+      // Le dossier de polices n'a de sens qu'avec au moins un `.ass` à
+      // incruster (sous-titres ou hook, les deux partagent Anton) : en parler
+      // sans cela ferait avertir sur un clip qui n'a ni l'un ni l'autre. Son
       // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
       const fontsDir =
-        assProvisional === undefined ? undefined : fontsUsableFolder(options.fontsDir)
+        assProvisional === undefined && hookProvisional === undefined
+          ? undefined
+          : fontsUsableFolder(options.fontsDir)
 
       try {
         const size = await dimensionsSource(src)
@@ -1554,6 +1808,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
               segments: nativePieces,
               out,
               assPath: assProvisional,
+              hookAssPath: hookProvisional,
               fontsDir,
               logos,
               dst: destination,
@@ -1582,6 +1837,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
                 segments: verticalPieces,
                 out: verticalCanvas,
                 assPath: assProvisional,
+                hookAssPath: hookProvisional,
                 fontsDir,
                 logos: verticalLogos,
                 dst: destination,
@@ -1614,11 +1870,16 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // été incrusté l'a bien été, mais plus rien ne permet de le vérifier, et
         // une empreinte qui affirme sans avoir vérifié est exactement ce que
         // cette PR ferme.
-        const fingerprint = renderFingerprint(renderedShape(clip, framingSnapshot), markers, {
-          burnedIn: assProvisional !== undefined,
-          look,
-          text: textCurrent,
-        })
+        const fingerprint = renderFingerprint(
+          renderedShape(clip, framingSnapshot),
+          markers,
+          {
+            burnedIn: assProvisional !== undefined,
+            look,
+            text: textCurrent,
+          },
+          hookDocument,
+        )
         const markersAfter = clip.branding ? await collectMarkers(options.brandDir) : []
         // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
         // une livraison déjà faite quand on ne sait plus ce qu'elle porte ; ici on
@@ -1635,11 +1896,19 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       } finally {
         // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
         // en place celui qui décrit la vidéo réellement posée sur le disque.
+        // Même geste pour le `.hook.ass`, en plus du `.ass` des sous-titres.
         if (nativeEncoded) {
           if (assProvisional === undefined) fs.rmSync(paths.ass, { force: true })
           else await fsp.rename(assProvisional, paths.ass)
-        } else if (assProvisional !== undefined) {
-          await fsp.rm(assProvisional, { force: true }).catch(() => {})
+          if (hookProvisional === undefined) fs.rmSync(paths.hookAss, { force: true })
+          else await fsp.rename(hookProvisional, paths.hookAss)
+        } else {
+          if (assProvisional !== undefined) {
+            await fsp.rm(assProvisional, { force: true }).catch(() => {})
+          }
+          if (hookProvisional !== undefined) {
+            await fsp.rm(hookProvisional, { force: true }).catch(() => {})
+          }
         }
       }
     } finally {
@@ -1810,12 +2079,17 @@ export function discardRenderStale(
  * Vrai quand ce qui a été rendu ne décrit plus le clip.
  *
  * **Seuls les champs que l'encodage consomme comptent.** Les segments, le
- * cadrage résolu, les sous-titres et la marque sont dans l'image : les changer
- * périme le fichier. Le titre et la description, eux, ne vont que dans le `.txt`,
- * qui est réécrit depuis l'état à jour — les compter ici ferait perdre son
- * statut à un clip dont on a seulement corrigé une faute de frappe. Et `ratio`
- * comme `cropX` n'y sont plus : c'est `framing` qui porte ce que ffmpeg a
- * réellement découpé, voir `ShapeRendered`.
+ * cadrage résolu, les sous-titres, la marque et le hook sont dans l'image :
+ * les changer périme le fichier. Le titre et la description, eux, ne vont que
+ * dans le `.txt`, qui est réécrit depuis l'état à jour — les compter ici
+ * ferait perdre son statut à un clip dont on a seulement corrigé une faute de
+ * frappe. Et `ratio` comme `cropX` n'y sont plus : c'est `framing` qui porte
+ * ce que ffmpeg a réellement découpé, voir `ShapeRendered`.
+ *
+ * **`hookText`/`hookStyle` se comparent par `sameHook`, pas par `!==`.**
+ * `hookStyle` est un objet, et deux valeurs identiques réécrites depuis la
+ * base ne sont jamais le même objet ; `sameHook` compare la valeur, comme le
+ * fait déjà le tableau `shots` deux lignes plus bas pour la même raison.
  *
  * **Elle prend une `ShapeRendered`, pas un `Clip`**, et c'est ce qui permet de lui
  * passer aussi bien deux clips qu'une empreinte et un clip : la liste des champs
@@ -1851,7 +2125,8 @@ export function renderIsStale(render: ShapeRendered, toDay: ShapeRendered): bool
     !sameSegments ||
     !sameFraming ||
     render.captions !== toDay.captions ||
-    render.branding !== toDay.branding
+    render.branding !== toDay.branding ||
+    !sameHook(render, toDay)
   )
 }
 
@@ -1983,6 +2258,21 @@ async function writeCaptionsDocument(
     return undefined
   }
 
+  await writeFile(path, document)
+  return path
+}
+
+/**
+ * Écrit le `.hook.ass` à partir du document déjà calculé (`renderHookAss`), et
+ * rend son chemin — ou `undefined` s'il n'y a rien à incruster.
+ *
+ * **Sans avertissement, contrairement à `writeCaptionsDocument`.** Un hook
+ * absent n'a rien d'anormal — c'est l'état de tout clip avant qu'un texte lui
+ * soit donné — alors qu'un clip qui demande des sous-titres sans qu'aucun mot
+ * ne tombe dans ses segments est une surprise qui mérite d'être signalée.
+ */
+async function writeHookDocument(document: string | null, path: string): Promise<string | undefined> {
+  if (document === null) return undefined
   await writeFile(path, document)
   return path
 }

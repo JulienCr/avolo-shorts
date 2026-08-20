@@ -64,6 +64,11 @@ assets/brand/*
 # règle, n'importe quel `git add -A` les embarque comme gitlinks.
 .claude/worktrees/
 
+# Fichiers de travail jetables (scripts de vérification manuelle, preuves
+# visuelles pour une revue). Ancré à la racine pour ne pas gober un `tmp/` de
+# dépendance.
+/tmp/
+
 # Divers
 .DS_Store
 *.log

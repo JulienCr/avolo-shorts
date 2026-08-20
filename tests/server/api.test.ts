@@ -145,6 +145,8 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
           look: { style: DEFAULT_CAPTION_STYLE, fonts: 'peu importe : ces tests-ci ne rendent pas' },
           text: null,
         },
+        // `null` : ces clips n'ont pas de hook (`hookText: ''`), voir `baseClip`.
+        null,
       ),
     ),
   )

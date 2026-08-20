@@ -183,8 +183,9 @@ function fingerprintWith(
   markers: readonly MarkerNative[],
   burnedIn = true,
   cad: RenderedFraming = framing(),
+  hookDocument: string | null = null,
 ): ReturnType<typeof renderFingerprint> {
-  return renderFingerprint(shape(c, cad), markers, { burnedIn, look: look(), text: null })
+  return renderFingerprint(shape(c, cad), markers, { burnedIn, look: look(), text: null }, hookDocument)
 }
 
 /** Le look de référence : le preset par défaut, sur le dossier de polices vide. */
@@ -194,7 +195,7 @@ function look(): CaptionsLook {
 
 /** Ce que l'appelant a sondé de ce qu'on incrusterait : rien, sauf mention. */
 function observed(overrides: Partial<ObservedBurnIn> = {}): ObservedBurnIn {
-  return { markers: null, look: null, text: undefined, ...overrides }
+  return { markers: null, look: null, text: undefined, hook: undefined, ...overrides }
 }
 
 /**
@@ -395,6 +396,12 @@ describe("l'empreinte de rendu", () => {
       // `empreinteAvec` fixe `texte: null`, et ces tests-ci ne portent pas sur
       // le contenu du transcript.
       captionsContent: null,
+      // `clip()` ne porte pas de hook (`hookText: ''`) : les deux champs bruts
+      // sont recopiés tels quels, `hook` (le condensat du document) est `null`
+      // puisque `fingerprintWith` passe `null` par défaut.
+      hookText: '',
+      hookStyle: {},
+      hook: null,
     })
   })
 

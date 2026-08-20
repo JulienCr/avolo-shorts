@@ -341,6 +341,17 @@ export type RenderOptions = {
    */
   out: { w: number; h: number }
   assPath?: string
+  /**
+   * Le document ASS du hook (`src/core/hook-ass.ts`), s'il y a quelque chose à
+   * incruster.
+   *
+   * **`blurredVariantArgs` reçoit le même chemin que `renderArgs`.** Le
+   * document est écrit en unités de script (`PlayResX 384 × PlayResY 288`),
+   * donc il s'incruste à l'identique sur les deux canevas — contrairement aux
+   * marques, qui doivent être planifiées par canevas parce qu'elles sont
+   * positionnées en pixels.
+   */
+  hookAssPath?: string
   fontsDir?: string
   logos?: { path: string; x: number; y: number; w: number; h: number }[]
   encoder: EncoderName
@@ -539,6 +550,18 @@ function buildRender(
   const multi = segments.length > 1
 
   // Ce qui s'incruste **sur le canevas composé**, une seule fois, à sa taille.
+  //
+  // **L'ordre est sous-titres → hook → marques.** Le hook après les
+  // sous-titres et avant les marques, pour la même raison que les marques
+  // passent après les sous-titres deux lignes plus bas : une marque posée
+  // dessous serait recouverte par le premier carton qui monte assez haut, et
+  // ça vaut *a fortiori* pour un bandeau de hook, généralement plus haut
+  // encore. `chain()` compte les étapes après coup — ajouter une étape
+  // conditionnelle de plus continue de fonctionner dans les quatre
+  // combinaisons (avec/sans sous-titres × avec/sans hook), y compris le hook
+  // seul : la seule chose qui compte est que la DERNIÈRE étape écrite porte
+  // l'étiquette terminale, et `chain()` s'en charge sans savoir laquelle des
+  // deux ce sera.
   const steps: Step[] = []
   if (o.assPath !== undefined) {
     const options = [option('filename', o.assPath)]
@@ -547,8 +570,14 @@ function buildRender(
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
     steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
-  // Les logos passent **après** l'incrustation des sous-titres : une marque
-  // posée dessous serait recouverte par le premier carton qui monte assez haut.
+  if (o.hookAssPath !== undefined) {
+    const options = [option('filename', o.hookAssPath)]
+    if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
+    steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+  }
+  // Les logos passent **après** l'incrustation des sous-titres et du hook :
+  // une marque posée dessous serait recouverte par le premier carton (ou le
+  // bandeau de hook) qui monte assez haut.
   logos.forEach((logo, i) => {
     const x = number(logo.x, `logos[${i}].x`)
     const y = number(logo.y, `logos[${i}].y`)

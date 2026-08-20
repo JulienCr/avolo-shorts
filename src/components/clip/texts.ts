@@ -21,6 +21,7 @@
  */
 
 import type { Ratio } from '@/core/edl'
+import { RENDER_NATIVE } from '@/core/render-flags'
 
 /** Les mots-dièse d'un texte, dans l'ordre, sans doublon — la casse ne compte pas. */
 export function wordsHash(text: string): string[] {
@@ -59,7 +60,12 @@ export function publicationText(clip: { title: string; description: string }): s
 
 /** Ce que l'export produira, sous les noms qu'il leur donnera. */
 export type OutputNames = {
-  mp4: string
+  /**
+   * `null` quand `RENDER_NATIVE` est désactivé (`@/core/render-flags`) ET
+   * qu'une variante 9:16 existe pour le remplacer. Reste dû sur un clip déjà
+   * en 9:16 — c'est alors l'unique livrable.
+   */
+  mp4: string | null
   /**
    * `null` quand le ratio **natif** résolu est déjà 9:16 : la variante à fond
    * flouté serait le même cadre réencodé une seconde fois. Elle n'existera
@@ -75,10 +81,18 @@ export type OutputNames = {
  * **Le ratio attendu est le ratio natif résolu**, celui que le serveur publie
  * dans `framing.ratio` — le plus large que les plans demandent —, jamais
  * `clip.ratio` : un clip en `auto` n'en a pas à lui.
+ *
+ * `renderNative` défaut à `RENDER_NATIVE`, comme `pathsRender` s'y règle côté
+ * serveur — les deux doivent rester d'accord, faute de quoi ce panneau
+ * annoncerait un fichier que l'export ne produira jamais, ou l'inverse.
  */
-export function outputNames(clipId: string, ratioNative: Ratio): OutputNames {
+export function outputNames(
+  clipId: string,
+  ratioNative: Ratio,
+  renderNative = RENDER_NATIVE,
+): OutputNames {
   return {
-    mp4: `${clipId}.mp4`,
+    mp4: renderNative || ratioNative === '9:16' ? `${clipId}.mp4` : null,
     variant9x16: ratioNative === '9:16' ? null : `${clipId}-9x16.mp4`,
     texts: `${clipId}.txt`,
   }

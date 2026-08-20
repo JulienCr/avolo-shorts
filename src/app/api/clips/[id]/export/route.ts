@@ -46,7 +46,7 @@ export const POST = route(
       // Relu après le rendu : c'est `renderClip` qui pose `exported`, et
       // l'appelant a besoin du clip tel qu'il est maintenant.
       clip: getClip(db, id),
-      mp4: path.basename(result.mp4),
+      mp4: result.mp4 === null ? null : path.basename(result.mp4),
       variant9x16: result.variant9x16 === null ? null : path.basename(result.variant9x16),
       texts: path.basename(result.texts),
       skipped: result.skipped,

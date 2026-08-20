@@ -12,6 +12,7 @@ import { splitByShot } from '@/core/shot-split'
 import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
+import { RENDER_NATIVE } from '@/core/render-flags'
 import {
   hookIsBurned,
   hookLayout,
@@ -77,8 +78,14 @@ export type ProgressRender = Progress & { output: OutputRender }
 
 /** Ce que `renderClip` rend à son appelant — la route d'export. */
 export type RenderResult = {
-  /** Le rendu au ratio natif du clip — celui du feed. Toujours produit. */
-  mp4: string
+  /**
+   * Le rendu au ratio natif du clip — celui du feed.
+   *
+   * `null` quand `RENDER_NATIVE` est désactivé (`@/core/render-flags`) ET
+   * qu'une variante 9:16 existe pour le remplacer : sur un clip déjà en 9:16,
+   * il reste produit, faute de quoi ce clip n'aurait plus aucun livrable.
+   */
+  mp4: string | null
   /**
    * La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est
    * **déjà** 9:16 et qu'elle serait une copie du fichier précédent.
@@ -123,7 +130,14 @@ export type OptionsRender = {
  * seul moyen de relire ce que libass a incrusté quand un sous-titre surprend.
  */
 export type PathsRender = {
-  mp4: string
+  /**
+   * `null` quand `renderNative` (voir `pathsRender`) vaut faux ET que
+   * `variant9x16` n'est pas `null` : le natif serait alors produit pour rien,
+   * puisque personne ne le récupère quand la variante existe déjà. Sur un
+   * clip déjà en 9:16, il reste toujours présent — c'est alors l'unique
+   * livrable.
+   */
+  mp4: string | null
   variant9x16: string | null
   texts: string
   ass: string
@@ -200,11 +214,22 @@ function pathVariant(projectId: string, clipId: string): string {
  * n'en a pas à lui, et lire le mauvais ferait chercher une variante sous un clip
  * qui n'en a pas, ou l'inverse.
  */
-export function pathsRender(projectId: string, clipId: string, ratio: Ratio): PathsRender {
+/**
+ * `renderNative` défaut à `true`, et non à `RENDER_NATIVE` : cette fonction
+ * pure reste neutre par défaut, c'est `renderClip` et `outputs` (`renders.ts`)
+ * qui lui passent explicitement le réglage de l'application. Un appelant qui
+ * veut le comportement natif désactivé le demande explicitement.
+ */
+export function pathsRender(
+  projectId: string,
+  clipId: string,
+  ratio: Ratio,
+  renderNative = true,
+): PathsRender {
   const folder = rendersDir(projectId)
   const name = verifyClipId(clipId)
   return {
-    mp4: path.join(folder, `${name}.mp4`),
+    mp4: renderNative || ratio === '9:16' ? path.join(folder, `${name}.mp4`) : null,
     variant9x16: ratio === '9:16' ? null : pathVariant(projectId, name),
     texts: path.join(folder, `${name}.txt`),
     ass: path.join(folder, `${name}.ass`),
@@ -1190,7 +1215,10 @@ export function redoOutputs(
   // sauterait l'encodage pour n'y réécrire que le `.txt` : le correctif de
   // `sauterLeRendu` ne ferait alors que déplacer le mensonge d'une fonction.
   if (!describedClip) return true
-  return !exists(paths.mp4) || (paths.variant9x16 !== null && !exists(paths.variant9x16))
+  return (
+    (paths.mp4 !== null && !exists(paths.mp4)) ||
+    (paths.variant9x16 !== null && !exists(paths.variant9x16))
+  )
 }
 
 /**
@@ -1211,8 +1239,7 @@ const STRIP_TOP = 0.13
 const MARGIN = 0.05
 
 /**
- * Le plafond de hauteur d'une marque, en fraction de la hauteur du clip, et
- * **appliqué par marque, pas à la bande entière**.
+ * Le plafond de hauteur d'une marque, en fraction de la hauteur du clip.
  *
  * Les largeurs sont une fraction de la LARGEUR du clip, ce qui est le bon axe
  * pour juger de la taille apparente d'une marque — mais c'est la hauteur qui
@@ -1225,8 +1252,14 @@ const MARGIN = 0.05
  * Mise à l'échelle plutôt que refus : une marque un peu plus petite reste une
  * marque, alors qu'un refus sur un export paysage ne donnerait pas de marque du
  * tout.
+ *
+ * **Réglé par marque, pas globalement** — voir `capHauteur` dans
+ * `MARKERS_EXPECTED` ci-dessous. Le logo (quasi carré) et la mention Twitch
+ * (très plate) ne sont pas contraints par le même axe : à plafond partagé, un
+ * seul des deux réglages (`widthRatio` ou l'ancien plafond commun) était actif
+ * par marque, et agrandir l'autre ne changeait rien — impossible de dimensionner
+ * les deux indépendamment.
  */
-const CAP_HAUTEUR = 0.06
 
 /**
  * En dessous, une marque réduite cesse d'être lisible sur un téléphone. Un très
@@ -1238,16 +1271,29 @@ const CAP_HAUTEUR = 0.06
 const WIDTH_MINIMUM = 80
 
 /**
- * Ce que le dossier des marques peut porter, et à quelle largeur.
+ * Ce que le dossier des marques peut porter, à quelle largeur et avec quel
+ * plafond de hauteur.
  *
  * Le logo est plus étroit que le filigrane d'openshorts (0,30) parce qu'il ne
  * cherche pas à être difficile à recadrer ; la mention Twitch l'est encore plus —
  * c'est une adresse, pas une signature. Les deux sont facultatives, et chacune se
  * rend seule.
+ *
+ * Le logo (quasi carré, 1000x996) est gouverné par `capHauteur` : sa largeur
+ * cible ne joue aucun rôle tant que le plafond de hauteur ne l'a pas déjà
+ * ramené en dessous. La mention Twitch (996x224, très plate) est gouvernée par
+ * `widthRatio` à l'inverse : son plafond de hauteur reste large sous ce que sa
+ * largeur produit. Garder chaque marque sur l'axe qui la gouvernait déjà évite
+ * qu'un des deux réglages devienne un numéro mort à l'usage.
  */
-const MARKERS_EXPECTED: readonly { file: string; widthRatio: number; edge: Edge }[] = [
-  { file: 'logo.png', widthRatio: 0.22, edge: 'gauche' },
-  { file: 'twitch.png', widthRatio: 0.16, edge: 'droite' },
+const MARKERS_EXPECTED: readonly {
+  file: string
+  widthRatio: number
+  capHauteur: number
+  edge: Edge
+}[] = [
+  { file: 'logo.png', widthRatio: 0.20, capHauteur: 0.1, edge: 'gauche' },
+  { file: 'twitch.png', widthRatio: 0.35, capHauteur: 0.08, edge: 'droite' },
 ]
 
 type Edge = 'gauche' | 'droite'
@@ -1258,6 +1304,8 @@ export type MarkerNative = {
   nativeW: number
   nativeH: number
   widthRatio: number
+  /** Plafond de hauteur propre à cette marque. Voir `MARKERS_EXPECTED`. */
+  capHauteur: number
   edge: Edge
   /**
    * Le condensat du fichier. Il ne sert pas au rendu — `planifierMarques`
@@ -1307,9 +1355,9 @@ export function scheduleMarkers(
 
   const margin = Math.round(clipW * MARGIN)
   const espace = pair(clipW - 2 * margin)
-  const cap = clipH * CAP_HAUTEUR
 
   const sized = markers.map((m) => {
+    const cap = clipH * m.capHauteur
     let w = Math.max(WIDTH_MINIMUM, Math.round(clipW * m.widthRatio))
     // Jamais plus large que l'espace entre les marges : sur un cadre très étroit,
     // le plancher de lisibilité ferait sinon déborder la marque hors de l'image.
@@ -1394,6 +1442,7 @@ export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]>
       nativeW: width,
       nativeH: height,
       widthRatio: expected.widthRatio,
+      capHauteur: expected.capHauteur,
       edge: expected.edge,
       content,
     })
@@ -1610,7 +1659,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   const framing = clipFraming(clip)
   const ratio = framing.ratio
   const framingSnapshot = renderedFraming(framing)
-  const paths = pathsRender(clip.projectId, clipId, ratio)
+  const paths = pathsRender(clip.projectId, clipId, ratio, RENDER_NATIVE)
 
   // **L'EDL se valide avant la décision de saut**, et l'ordre compte : l'édition
   // autorise de vider un clip, et un clip vidé après un premier export a encore
@@ -1693,7 +1742,10 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // `skipped: true` comme un succès (spec §3.4). Le réencodage se voit déjà —
   // l'export dure alors dix secondes au lieu d'aucune — mais rien ne disait
   // pourquoi. Sous `force`, la décision ne vient pas de l'empreinte : on se tait.
-  if (gap !== null && options.force !== true && fs.existsSync(paths.mp4)) {
+  const anyOutputOnDisk =
+    (paths.mp4 !== null && fs.existsSync(paths.mp4)) ||
+    (paths.variant9x16 !== null && fs.existsSync(paths.variant9x16))
+  if (gap !== null && options.force !== true && anyOutputOnDisk) {
     console.warn(
       `Clip ${clipId} : des rendus sont là mais ${GAP_REASON[gap]}. Ils sont refaits.`,
     )
@@ -1751,9 +1803,13 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // tout de suite, quoi que porte l'environnement.
   const encoder = (): EncoderName => options.encoder ?? encoderName()
 
-  // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage :
-  // c'est lui qui décide du sort du `.ass` provisoire, dans le `finally`.
-  let nativeEncoded = false
+  // Vrai dès que ffmpeg a réellement produit une sortie fraîche dans ce
+  // passage — le natif, la variante, ou les deux — et c'est lui qui décide du
+  // sort du `.ass` provisoire, dans le `finally`. Pas seulement le natif :
+  // depuis que `RENDER_NATIVE` peut le sauter par design, un passage qui ne
+  // produit que la variante doit aussi promouvoir les provisoires qu'elle
+  // vient de consommer.
+  let outputsEncoded = false
   // Déclarés ici, et non dans le `try` qui les assigne : le `finally` qui les
   // range ou les efface est un bloc frère, pas un enfant, et n'y aurait pas
   // accès autrement.
@@ -2027,38 +2083,46 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // (relevé par Copilot)
         fs.rmSync(paths.fingerprint, { force: true })
 
-        await produceArtifact({
-          dst: paths.mp4,
-          // `true` et non `options.force` : la décision est prise au-dessus, une
-          // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
-          // un natif présent dont la variante manque, et la paire repartirait de
-          // deux montages. (relevé par Codex et Copilot)
-          force: true,
-          durationSec: duration,
-          onProgress: (a) => options.onProgress?.({ ...a, output: 'natif' }),
-          what: `rendu ${ratio} du clip ${clipId}`,
-          args: (destination) =>
-            renderArgs({
-              src,
-              segments: nativePieces,
-              out,
-              assPath: assProvisional,
-              hookImage: hookImageNativeArg,
-              fontsDir,
-              logos,
-              dst: destination,
-              encoder: encoder(),
-            }),
-        })
-        // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
-        // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
-        // décrit bien la vidéo posée sur le disque.
-        nativeEncoded = true
+        // **`paths.mp4` est `null` quand `RENDER_NATIVE` est désactivé et
+        // qu'une variante existe pour le remplacer** (`pathsRender`) : personne
+        // ne récupère un natif que la variante rend redondant, alors autant ne
+        // pas payer l'encodage. Sur un clip déjà en 9:16, `paths.mp4` reste
+        // toujours non nul — c'est alors l'unique livrable.
+        if (paths.mp4 !== null) {
+          await produceArtifact({
+            dst: paths.mp4,
+            // `true` et non `options.force` : la décision est prise au-dessus, une
+            // fois pour les deux sorties. La laisser se reprendre ici ferait sauter
+            // un natif présent dont la variante manque, et la paire repartirait de
+            // deux montages. (relevé par Codex et Copilot)
+            force: true,
+            durationSec: duration,
+            onProgress: (a) => options.onProgress?.({ ...a, output: 'natif' }),
+            what: `rendu ${ratio} du clip ${clipId}`,
+            args: (destination) =>
+              renderArgs({
+                src,
+                segments: nativePieces,
+                out,
+                assPath: assProvisional,
+                hookImage: hookImageNativeArg,
+                fontsDir,
+                logos,
+                dst: destination,
+                encoder: encoder(),
+              }),
+          })
+          // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
+          // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
+          // décrit bien la vidéo posée sur le disque.
+          outputsEncoded = true
+        }
 
-        // **La variante suit le natif, toujours** : ils décrivent le même montage,
-        // et un natif réencodé alors que la variante est restée en place laisserait
-        // deux fichiers qui ne racontent plus la même chose — l'appel suivant, les
-        // trouvant tous les deux, sauterait sans un mot. (relevé par Aristarque)
+        // **La variante suit le natif, toujours, quand les deux sont dus** : ils
+        // décrivent le même montage, et un natif réencodé alors que la variante
+        // est restée en place laisserait deux fichiers qui ne racontent plus la
+        // même chose — l'appel suivant, les trouvant tous les deux, sauterait
+        // sans un mot. (relevé par Aristarque)
         if (variant !== null) {
           await produceArtifact({
             dst: variant,
@@ -2079,6 +2143,13 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
                 encoder: encoder(),
               }),
           })
+          // **Couvre aussi le cas où le natif vient d'être sauté par design.**
+          // `outputsEncoded` ne peut se fier au seul bloc du natif ci-dessus dès
+          // que celui-ci peut légitimement ne jamais s'exécuter : sans cette
+          // ligne, un passage qui ne produit QUE la variante laisserait le
+          // `.ass`/les PNG du hook provisoires effacés dans le `finally`, alors
+          // que la variante vient justement de les consommer.
+          outputsEncoded = true
         }
 
         // **L'empreinte se pose une fois les deux sorties écrites, jamais avant.**
@@ -2132,7 +2203,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
         // en place celui qui décrit la vidéo réellement posée sur le disque.
         // Même geste pour les deux PNG du hook, en plus du `.ass` des sous-titres.
-        if (nativeEncoded) {
+        if (outputsEncoded) {
           if (assProvisional === undefined) fs.rmSync(paths.ass, { force: true })
           else await fsp.rename(assProvisional, paths.ass)
           if (hookImageNativeProvisional === undefined) fs.rmSync(paths.hookImageNative, { force: true })

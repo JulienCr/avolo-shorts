@@ -723,6 +723,16 @@ export function useRegenerateHook() {
             }
           : detail,
       )
+      // **La régénération peut désormais périmer le rendu exporté**
+      // (`discardRenderStale`, `src/app/api/clips/[id]/hook/route.ts`) :
+      // le statut peut redescendre d'`exported` à `kept`, et les sorties
+      // disparaître du disque. La fusion ci-dessus ne porte volontairement
+      // que `hookText`/`hookBadge`, donc c'est cette invalidation qui relit
+      // le statut et les sorties à jour — en arrière-plan, sans écraser
+      // tout de suite le cache et donc sans revenir en arrière sur un
+      // `PATCH` concurrent. (relevé par Copilot)
+      void client.invalidateQueries({ queryKey: keys.clip(clipId) })
+      void client.invalidateQueries({ queryKey: keys.candidats(result.clip.projectId) })
     },
   })
 }

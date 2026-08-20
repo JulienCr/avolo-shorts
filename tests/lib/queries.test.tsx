@@ -22,6 +22,7 @@ import {
   useCreateProject,
   useExporter,
   usePatchClip,
+  useRegenerateHook,
   useSaveSettings,
   useSettings,
   useStopAnalysis,
@@ -156,6 +157,73 @@ describe('useExporter', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error?.message).toBe('ffmpeg a rendu 1')
     expect(invalid).not.toHaveBeenCalled()
+  })
+})
+
+describe('useRegenerateHook', () => {
+  const regenerated: ExportResult['clip'] = {
+    id: 'c1',
+    projectId: 'p1',
+    segments: [{ start: 0, end: 20 }],
+    ratio: '1:1',
+    cropX: 0.5,
+    captions: true,
+    branding: true,
+    title: 'Un titre',
+    description: '',
+    status: 'kept',
+    pass: 1,
+    hookText: 'Une accroche du modèle',
+    hookBadge: 'DÉFI 10',
+    hookStyle: {},
+  }
+
+  it('fusionne hookText et hookBadge, rien d’autre', async () => {
+    // La règle documentée au-dessus de `useRegenerateHook` : écraser
+    // `detail.clip` en entier remettrait en place les champs qu'un `PATCH`
+    // concurrent a fait avancer pendant l'appel LLM.
+    vi.stubGlobal('fetch', vi.fn(async () => response({ clip: regenerated })))
+    const { client, envelope } = harness()
+    client.setQueryData<ClipDetail>(keys.clip('c1'), {
+      clip: { ...regenerated, hookText: '', hookBadge: '', title: 'Titre concurrent' },
+      project: { id: 'p1', title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },
+      lines: [],
+      proxyUrl: null,
+      outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      framing: { ratio: '1:1', shots: [], rejectedOverrides: [], origin: 'computed' },
+    })
+    const { result } = renderHook(() => useRegenerateHook(), { wrapper: envelope })
+
+    await act(async () => {
+      result.current.mutate('c1')
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const detail = client.getQueryData<ClipDetail>(keys.clip('c1'))
+    expect(detail?.clip.hookText).toBe('Une accroche du modèle')
+    expect(detail?.clip.hookBadge).toBe('DÉFI 10')
+    expect(detail?.clip.title).toBe('Titre concurrent')
+  })
+
+  /**
+   * **Relevé par Copilot sur la PR #121.** La régénération peut désormais
+   * périmer un export (`discardRenderStale`) : le statut peut redescendre
+   * d'`exported` à `kept`, et les sorties disparaître. La fusion ci-dessus ne
+   * porte que `hookText`/`hookBadge`, donc c'est cette invalidation qui relit
+   * le statut et les sorties à jour.
+   */
+  it('invalide le clip et la liste des candidats, que le statut et les sorties peuvent avoir changé', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ clip: regenerated })))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useRegenerateHook(), { wrapper: envelope })
+
+    await act(async () => {
+      result.current.mutate('c1')
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.clip('c1') })
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.candidats('p1') })
   })
 })
 

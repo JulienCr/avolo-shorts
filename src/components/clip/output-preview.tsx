@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
+import { HookOverlay } from '@/components/clip/hook-overlay'
 import type { Ratio } from '@/core/edl'
 import { RATIOS, cropRect, outputSize } from '@/core/framing'
+import type { ResolvedHook } from '@/core/hook'
 import type { PublishedFraming } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -77,6 +79,7 @@ export function PreviewOutput({
   framing,
   ratio,
   cropX,
+  hook,
   frame,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
@@ -87,6 +90,13 @@ export function PreviewOutput({
   ratio: Ratio | 'auto'
   /** Le cadrage manuel en cours d'édition. Ignoré quand le cadrage est calculé. */
   cropX: number
+  /**
+   * Le hook résolu (globaux + surcharge du clip), à peindre en calque —
+   * **jamais dans le canvas**, voir `HookOverlay`. `undefined` tant que les
+   * réglages globaux n'ont pas chargé : aucun calque ne se peint, plutôt que
+   * d'en peindre un sur des valeurs qui ne sont pas les vraies.
+   */
+  hook?: ResolvedHook
   /**
    * La boîte du téléphone, dimensionnée par l'appelant.
    *
@@ -225,7 +235,12 @@ export function PreviewOutput({
           'items-center justify-center',
           frame ?? 'w-40',
         )}
-        style={{ aspectRatio: String(RATIOS['9:16']) }}
+        // **`containerType: 'size'` sur cette boîte, pas ailleurs.** C'est le
+        // contexte de requête de conteneur que `HookOverlay` lit pour ses
+        // unités `cqw`/`cqh` : le calque doit couvrir le 9:16 complet, pas la
+        // part que le canvas occupe, donc son repère est cette boîte-ci et
+        // non le canvas lui-même.
+        style={{ aspectRatio: String(RATIOS['9:16']), containerType: 'size' }}
       >
         <canvas
           ref={canvas}
@@ -235,6 +250,13 @@ export function PreviewOutput({
           className="w-full"
           style={{ height: `${part * 100}%` }}
         />
+        {/* **Calque frère du canvas, jamais peint dedans.** Le canvas ne
+            porte que l'image vidéo cadrée — `part * 100 %` de cette boîte —
+            alors que le hook s'incruste sur le 9:16 complet, bandes floutées
+            comprises. Le peindre dans le canvas l'enfermerait dans la bande
+            centrale et le ferait sauter de place à chaque changement de
+            ratio. */}
+        {hook !== undefined && <HookOverlay hook={hook} />}
       </div>
     </figure>
   )

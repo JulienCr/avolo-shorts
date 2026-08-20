@@ -859,6 +859,19 @@ export function exportClip(clipId: string, force?: boolean): Promise<ExportResul
   return post<ExportResult>(`/api/clips/${encodeURIComponent(clipId)}/export`, { force })
 }
 
+/**
+ * Régénère le hook du clip par le modèle, et l'écrit — `POST /api/clips/:id/hook`.
+ *
+ * Aucun corps à envoyer : le contexte (titre, description, transcript du
+ * clip) se construit côté serveur, à partir de ce que le clip porte déjà.
+ * Rend le clip **tel qu'écrit**, `hookText` inclus — c'est ce que
+ * `useRegenerateHook` (`@/lib/queries`) pose dans le cache, à la place d'un
+ * second aller-retour pour relire ce qu'on vient de recevoir.
+ */
+export function postRegenerateHook(clipId: string): Promise<{ clip: Clip }> {
+  return post<{ clip: Clip }>(`/api/clips/${encodeURIComponent(clipId)}/hook`, {})
+}
+
 // ---------------------------------------------------------------------------
 // Les réglages, et l'arrêt d'une analyse
 // ---------------------------------------------------------------------------

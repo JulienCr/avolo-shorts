@@ -1204,9 +1204,17 @@ GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
 PATCH  /api/clips/:id                          édition de l'EDL
 POST   /api/clips/:id/export                   rendu
+POST   /api/clips/:id/hook                     régénère le texte du hook (LLM)
 GET    /api/settings                           les réglages effectifs
 PUT    /api/settings                           applique un patch partiel
 ```
+
+`POST /api/clips/:id/hook` (19 août 2026) refuse un clip qui n'est pas **gardé**
+(`isGuard`, `src/core/phase.ts`) : la génération n'a de sens qu'à la demande, sur
+un clip qu'on monte, jamais sur un candidat ou un clip écarté qu'on n'a pas
+encore décidé de garder. Écrit sur le clip **relu juste avant l'écriture**, pas
+sur l'instantané pris avant l'appel — l'appel réseau tient jusqu'à 30 s, assez
+pour qu'une écriture concurrente (autosave, un autre onglet) se glisse dedans.
 
 Et les routes qui portent la reprise :
 
@@ -1346,6 +1354,19 @@ timeline.
   clip**. Elle a été écrite en lecture seule ; le 19 août 2026 elle a gagné deux
   oreilles qu'on tire, et c'est une exception assumée à la ligne suivante — voir
   « la bande des plans est en lecture seule », plus bas, où la raison est écrite.
+
+**Le hook, en zone Contenu, à côté du titre et de la description (19 août
+2026).** Chaque contrôle de style (police, taille, position, alignement,
+couleurs, opacité, transitions) dit s'il est **hérité** des réglages globaux ou
+**surchargé** par le clip — même à valeur égale — et se rend individuellement à
+l'héritage. Un calque de prévisualisation, frère du `<canvas>` de l'aperçu 9:16
+et jamais peint dedans, montre le rendu approché en `cqw`/`cqh` dérivés de
+`hookLayout()` ; l'approximation porte sur la coupure de ligne, l'interlignage
+de libass et celui du navigateur ne sortant pas de la même formule. Le bouton
+« Régénérer » appelle `POST /api/clips/:id/hook` (§12), réservé aux clips
+**gardés** : un essai, sans la politique de relance du repérage — quelqu'un
+attend devant un bouton, pas un lot de trente appels derrière quarante minutes
+de pipeline.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 

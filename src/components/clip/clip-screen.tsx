@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { AppBar } from '@/components/navigation/app-bar'
+import { HookFields } from '@/components/clip/hook-fields'
 import { PreviewOutput } from '@/components/clip/output-preview'
 import { FieldsTexts } from '@/components/clip/text-fields'
 import { ClipPlayer, togglePlayback, placePlayback } from '@/components/clip/clip-player'
@@ -20,15 +21,17 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { clipDuration } from '@/core/edl'
+import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
+import { HOOK_DEFAULTS } from '@/lib/api'
 import { LABELS_STATUS } from '@/lib/clip-status'
 import { clampCropX, cropWidthFraction } from '@/lib/crop-preview'
 import { clipBounds, indexTranscript, lineInitial } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { formatDuration, formatTimecode } from '@/lib/format'
 import { clipNext, linkClip } from '@/lib/navigation'
-import { usePatchClip, useCandidates } from '@/lib/queries'
+import { usePatchClip, useCandidates, useSettings } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 import { useEditor, useCanCancel, useCanRestore, useSegments } from '@/store/editor'
 
@@ -76,6 +79,14 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // conception promet de rendre repreneur, et le cache est alors vide. Venant du
   // tri, c'est un succès de cache et cela ne coûte rien.
   const candidates = useCandidates(clip.projectId)
+
+  // Les globaux du hook, en cache et sans coût : `useSettings` sert déjà
+  // l'écran des réglages. `resolveHook` les croise avec la surcharge du clip
+  // pour l'aperçu (`PreviewOutput`) et pour `HookFields`, qui en a besoin
+  // pour distinguer un champ hérité d'un champ surchargé.
+  const settings = useSettings()
+  const hookGlobals = settings.data?.hook
+  const resolvedHook = resolveHook(hookGlobals ?? HOOK_DEFAULTS, clip)
 
   const [video, setVideo] = useState<HTMLVideoElement | null>(null)
   const [search, setSearch] = useState(false)
@@ -429,6 +440,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 />
               </figure>
               <PreviewOutput
+                hook={hookGlobals !== undefined ? resolvedHook : undefined}
                 video={video}
                 framing={framing}
                 ratio={editor.ratio}
@@ -490,10 +502,16 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <h2 id="zone-contenu" className="text-sm font-medium">
                 Contenu
               </h2>
-              {/* Le titre et la description, et rien d'autre : ce sont des
-                  livrables du produit, pas des étiquettes de la page. Le hook,
-                  quand il arrivera, vient ici. */}
+              {/* Le titre, la description et le hook : des livrables du
+                  produit, pas des étiquettes de la page. */}
               <FieldsTexts clip={clip} onWrite={write} onFailure={flagFailureText} />
+              <HookFields
+                clip={clip}
+                globals={hookGlobals}
+                canRegenerate={isGuard(clip.status)}
+                onWrite={write}
+                onFailure={flagFailureText}
+              />
             </section>
 
             <section aria-labelledby="zone-montage" className="flex flex-col gap-3 p-4">

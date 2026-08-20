@@ -16,6 +16,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PreviewOutput, lScreenPart, paintOutput } from '@/components/clip/output-preview'
 import { usePlayback } from '@/components/clip/playback'
+import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
+import { RATIOS } from '@/core/framing'
 import { framing, manualFraming, shot } from '../../fixtures/framing'
 
 afterEach(() => {
@@ -195,6 +197,74 @@ describe('PreviewOutput', () => {
     rerender(<PreviewOutput video={video()} framing={two} ratio="auto" cropX={0.5} />)
     expect(container.textContent).toContain('32')
     expect(container.textContent).toContain('16:9')
+  })
+
+  /**
+   * **Le calque du hook est frère du canvas, jamais peint dedans**
+   * (`hook-overlay.tsx`) : il couvre toujours la boîte 9:16 entière, et un
+   * changement de ratio — qui redimensionne le canvas — ne doit rien lui
+   * faire. C'est la garantie décisive : peindre le hook dans le canvas
+   * l'aurait enfermé dans la bande centrale et fait sauter de place à chaque
+   * changement de ratio.
+   *
+   * **L'assertion porte sur la boîte porteuse, pas sur la classe du
+   * calque.** `HookOverlay` rend toujours la même `className` statique quel
+   * que soit l'endroit où il est monté — comparer deux rendus de cette
+   * classe ne prouverait rien d'autre que son invariance interne, et
+   * laisserait passer une régression qui l'imbriquerait dans la boîte que le
+   * canvas dimensionne. Ce qui doit rester fixe, c'est `aspectRatio` sur la
+   * boîte elle-même — posé une fois sur `9:16`, indépendamment de la prop
+   * `ratio` — puisque c'est elle qui donne au calque toute sa boîte, jamais
+   * la part que le canvas occupe. (relevé en review interne)
+   */
+  it('le calque du hook ne bouge pas quand le ratio du clip change : la boîte porteuse reste au format 9:16', () => {
+    context()
+    const v = video()
+    const burning: ResolvedHook = { ...HOOK_DEFAULTS, text: 'Regarde ça' }
+    const { container, rerender } = render(
+      <PreviewOutput video={v} framing={framing()} ratio="1:1" cropX={0.5} hook={burning} />,
+    )
+    const boxBefore = container.querySelector('canvas')?.parentElement as HTMLElement
+    const layerBefore = container.querySelector('[aria-hidden="true"].absolute.inset-0')
+    expect(layerBefore).not.toBeNull()
+    expect(boxBefore.style.aspectRatio).toBe(String(RATIOS['9:16']))
+
+    rerender(<PreviewOutput video={v} framing={framing()} ratio="16:9" cropX={0.5} hook={burning} />)
+    const boxAfter = container.querySelector('canvas')?.parentElement as HTMLElement
+    const layerAfter = container.querySelector('[aria-hidden="true"].absolute.inset-0')
+    expect(layerAfter).not.toBeNull()
+    // La même boîte, toujours au même format 9:16 : rien dans la géométrie
+    // du calque ne dépend du canvas qu'il recouvre, qui lui a changé de
+    // hauteur entre les deux rendus (`part * 100 %` d'une boîte plus large).
+    expect(boxAfter.style.aspectRatio).toBe(String(RATIOS['9:16']))
+    expect(boxAfter).toBe(boxBefore)
+    expect(layerAfter?.parentElement).toBe(boxAfter)
+  })
+
+  it('le calque du hook disparaît quand le hook est désactivé ou le texte vide', () => {
+    context()
+    const v = video()
+    const { container, rerender } = render(
+      <PreviewOutput
+        video={v}
+        framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
+        hook={{ ...HOOK_DEFAULTS, enabled: false, text: 'Regarde ça' }}
+      />,
+    )
+    expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()
+
+    rerender(
+      <PreviewOutput
+        video={v}
+        framing={framing()}
+        ratio="1:1"
+        cropX={0.5}
+        hook={{ ...HOOK_DEFAULTS, enabled: true, text: '' }}
+      />,
+    )
+    expect(container.querySelector('[aria-hidden="true"].absolute.inset-0')).toBeNull()
   })
 
   /**

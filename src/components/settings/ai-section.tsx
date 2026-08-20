@@ -21,15 +21,17 @@ import { type AiSettings, type LlmAvailability, type LlmProvider, LLM_PROVIDERS 
  * le fournisseur et le modèle de chaque usage — repérage, correction du
  * transcript, génération du hook —, plus l'adresse d'un serveur Ollama.
  *
- * **Seul le repérage agit.** La correction du transcript et le hook n'existent
- * pas encore : leurs réglages se posent et se persistent, comme le contrat le
- * demande, mais rien ne les lit. Chacun des deux porte donc son propre bandeau
- * — la forme retenue par `HookSection` pour le même problème, mais **pas la
- * même solution** : là-bas, rien ne s'écrit, parce qu'aucun stockage n'existe
- * encore pour ces valeurs. Ici, le stockage existe — c'est tout l'objet de
- * cette PR — donc les champs restent actifs, réglables et persistés ; seul le
- * banner change, pour ne jamais laisser croire qu'un réglage agit alors
- * qu'aucun code ne le lit.
+ * **Le repérage et le hook agissent ; seule la correction du transcript
+ * n'existe pas encore.** `POST /api/clips/:id/hook` est le premier appelant
+ * de l'usage `hook` — câblé, persisté et réglable depuis une PR antérieure,
+ * il attendait cet appelant. La correction du transcript, elle, se règle et
+ * se persiste sans que rien ne la lise : elle porte donc encore son propre
+ * bandeau — la forme retenue par `HookSection` pour le même problème, mais
+ * **pas la même solution** : là-bas, rien ne s'écrit, parce qu'aucun
+ * stockage n'existe encore pour ces valeurs. Ici, le stockage existe, donc
+ * le champ reste actif, réglable et persisté ; seul le bandeau dit qu'aucun
+ * code ne le lit — et il disparaît le jour où un appelant existe, comme il
+ * vient de disparaître pour le hook.
  *
  * **Changer un réglage ne recalcule rien** (retour d'usage §6.1 et §11), comme
  * le reste de cet écran : un recalcul reste une action explicite, depuis
@@ -126,11 +128,7 @@ const USAGES: readonly Usage[] = [
     modelField: 'hookModel',
     title: 'Hook',
     help: 'Le modèle qui écrirait le texte d’accroche affiché en début de clip.',
-    banner: {
-      title: 'Pas encore branché.',
-      description:
-        'Ce réglage se persiste, mais rien ne le lit : la génération automatique du hook n’existe pas encore.',
-    },
+    banner: null,
   },
 ]
 

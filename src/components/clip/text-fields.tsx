@@ -140,7 +140,14 @@ function Failure({
  * rechargement ; une frappe en cours, elle, est postérieure — personne ne l'a
  * refusée, et l'écraser serait perdre un geste au milieu d'un mot.
  */
-function useTextDeferred(
+/**
+ * **Exporté pour `hook-fields.tsx`.** Le hook du clip suit exactement le même
+ * protocole d'écriture que le titre et la description — brouillon local,
+ * temporisation, vidage au démontage et sur `pagehide`, référence qui n'avance
+ * qu'au succès — et le réécrire y ouvrirait une seconde version du même
+ * protocole, vouée à diverger de celle-ci.
+ */
+export function useTextDeferred(
   valueServer: string,
   write: Write,
   flag?: (inFailure: boolean) => void,
@@ -261,4 +268,4 @@ function useTextDeferred(
  * jamais, refuse toute écriture suivante, et n'affiche aucun échec. La promesse,
  * elle, appartient à la mutation et non à l'observateur. (relevé par Copilot)
  */
-type Write = (value: string) => Promise<unknown> | void
+export type Write = (value: string) => Promise<unknown> | void

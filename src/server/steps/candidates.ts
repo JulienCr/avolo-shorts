@@ -388,12 +388,27 @@ const SCHEMA_DETAIL: JsonSchema = {
  * est un jugement calibré, et la variabilité y est du bruit. 0,9 pour détailler —
  * l'étape écrit des accroches et des descriptions, et les horodatages qu'elle
  * rend sont de toute façon validés puis calés sur les mots juste après.
+ *
+ * **Un `switch` exhaustif, et pas des ternaires.** `LlmMode` porte désormais
+ * `'hook'` (`@/server/llm/types`), et un ternaire `mode === 'detail' ? … :
+ * SCHEMA_NOTATION` y aurait fait tomber ce mode-là dans la branche de notation
+ * — un barème et une température qui ne lui sont pas destinés — sans que rien
+ * ne le signale. Ce fichier ne configure que le repérage, donc le mode
+ * `'hook'` n'est pas un cas normal ici : il ne peut être atteint qu'à un défaut
+ * de câblage, jamais à une réponse du fournisseur, d'où l'exception plutôt
+ * qu'une configuration inventée. `src/server/steps/hook.ts` configure son
+ * propre appel séparément.
  */
 function configuration(mode: ModeGemini): LlmCallConfig {
-  return {
-    schema: mode === 'detail' ? SCHEMA_DETAIL : SCHEMA_NOTATION,
-    temperature: mode === 'detail' ? 0.9 : 0.2,
-    maxOutputTokens: OUTPUT_CAP,
+  switch (mode) {
+    case 'score':
+      return { schema: SCHEMA_NOTATION, temperature: 0.2, maxOutputTokens: OUTPUT_CAP }
+    case 'detail':
+      return { schema: SCHEMA_DETAIL, temperature: 0.9, maxOutputTokens: OUTPUT_CAP }
+    case 'hook':
+      throw new Error(
+        "configuration(mode) du repérage appelée avec le mode 'hook' : ce fichier ne configure que le repérage, pas la génération du hook.",
+      )
   }
 }
 

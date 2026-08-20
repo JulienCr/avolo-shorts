@@ -23,7 +23,7 @@ export type { LlmProvider }
  * nom. Le renommer aurait coûté une réécriture de ce fichier entier pour un
  * gain nul : c'est un alias de type, il ne coûte rien à l'exécution.
  */
-export type LlmMode = 'score' | 'detail'
+export type LlmMode = 'score' | 'detail' | 'hook'
 
 /**
  * Un schéma JSON minimal, commun aux trois fournisseurs.

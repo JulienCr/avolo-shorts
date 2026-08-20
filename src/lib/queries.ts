@@ -38,6 +38,9 @@ import {
 // en cours, et la règle est d'ajouter en fin de fichier sans réordonner
 // l'existant — y compris ses imports.
 import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } from '@/lib/api'
+// Import à part, même règle : ce fichier est partagé avec une autre PR en
+// cours, on ajoute en fin de fichier sans réordonner l'existant.
+import { postRegenerateHook } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
 export const keys = {
@@ -675,4 +678,37 @@ export function useCorrectTranscript() {
  */
 export function useLlmAvailability() {
   return useQuery({ queryKey: keys.llmAvailability, queryFn: fetchLlmAvailability })
+}
+
+/**
+ * Régénère le hook du clip par le modèle — le bouton « Régénérer » de
+ * `hook-fields.tsx`, seul appelant.
+ *
+ * **Pas d'écriture optimiste.** Contrairement au tri, on ne sait pas d'avance
+ * ce que le modèle va rendre ; le champ affiche un état « en cours » pendant
+ * l'appel plutôt qu'une valeur devinée.
+ *
+ * **Le cache se pose depuis la réponse, sans redemander le clip — mais seul
+ * `hookText` en est tiré.** `POST /api/clips/:id/hook` rend le clip entier
+ * tel que le serveur vient de l'écrire, relu juste avant l'écriture
+ * (`route.ts`). Ce jeu réseau tient jusqu'à 30 s (`TIMEOUT_MS`), assez pour
+ * qu'un `PATCH` concurrent (édition du titre, de la description, du montage)
+ * pose sur le cache une valeur plus récente que celle capturée par cette
+ * relecture serveur : écraser `detail.clip` en entier avec `result.clip`
+ * ferait revenir en arrière un champ que ce `PATCH` vient de faire avancer.
+ * Ne fusionner que `hookText` — le seul champ que cette mutation possède —
+ * laisse les autres au dernier écrivain qui les a réellement touchés.
+ * (relevé par Aristarque)
+ */
+export function useRegenerateHook() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (clipId: string) => postRegenerateHook(clipId),
+    onSuccess(result, clipId) {
+      client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
+        detail ? { ...detail, clip: { ...detail.clip, hookText: result.clip.hookText } } : detail,
+      )
+    },
+  })
 }

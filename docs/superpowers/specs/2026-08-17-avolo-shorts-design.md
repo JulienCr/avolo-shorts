@@ -1116,8 +1116,21 @@ Depuis l'original, jamais depuis le proxy.
 3. Sous-titres incrustés depuis le transcript aligné au mot, **recalés sur la
    timeline du clip**. Après les coupes internes, les timings d'origine ne valent
    plus rien : c'est le piège principal du rendu.
-4. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
-   (chrome des plateformes en haut, sous-titres en bas).
+4. Le hook, s'il y en a un, incrusté **après** les sous-titres — un PNG
+   rasterisé (fond plein, coins arrondis, texte capitales par défaut) composé
+   en `overlay`, pas un second document ASS : `BorderStyle: 3` ne sait
+   dessiner ni un coin arrondi ni une boîte unique sur plusieurs lignes. Sa
+   géométrie est une fraction de la **largeur** du canevas — jamais de sa
+   hauteur, contrairement aux sous-titres — pour que le même hook rende le
+   même bandeau sur le natif et sur la variante 9:16 quand les deux partagent
+   leur largeur (1080). Rasterisé par canevas : le PNG et son placement
+   dépendent de dimensions en pixels, donc potentiellement deux images
+   distinctes par clip.
+5. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
+   (chrome des plateformes en haut, sous-titres en bas) — après le hook, pour
+   la même raison qui le place après les sous-titres : une marque posée
+   dessous serait recouverte par le premier carton, ou le bandeau, qui monte
+   assez haut.
 
 Deux fichiers par clip quand le natif n'est pas déjà 9:16, et ils ne se déduisent
 pas l'un de l'autre :
@@ -1356,13 +1369,22 @@ timeline.
   « la bande des plans est en lecture seule », plus bas, où la raison est écrite.
 
 **Le hook, en zone Contenu, à côté du titre et de la description (19 août
-2026).** Chaque contrôle de style (police, taille, position, alignement,
-couleurs, opacité, transitions) dit s'il est **hérité** des réglages globaux ou
-**surchargé** par le clip — même à valeur égale — et se rend individuellement à
-l'héritage. Un calque de prévisualisation, frère du `<canvas>` de l'aperçu 9:16
-et jamais peint dedans, montre le rendu approché en `cqw`/`cqh` dérivés de
-`hookLayout()` ; l'approximation porte sur la coupure de ligne, l'interlignage
-de libass et celui du navigateur ne sortant pas de la même formule. Le bouton
+2026, revu le 20 août 2026).** Le texte, l'activation et « Régénérer » restent
+visibles en permanence ; les onze réglages de style (police, taille, rayon des
+coins, capitales, position, alignement, couleurs, opacité, transitions) sont
+repliés derrière un bouton « Personnaliser », fermé par défaut et affichant
+leur nombre — republier à plat tout le panneau Réglages sur l'écran qui sert à
+monter un clip s'est avéré une gêne plutôt qu'un service. Chaque contrôle dit
+s'il est **hérité** des réglages globaux ou **surchargé** par le clip — même à
+valeur égale — et se rend individuellement à l'héritage. Un calque de
+prévisualisation, frère du `<canvas>` de l'aperçu 9:16 et jamais peint dedans,
+montre le rendu approché en `cqw`/`cqh` dérivés des fractions de largeur de
+`hookLayout()` — les mêmes que le rasteriseur PNG du rendu multiplie par la
+largeur réelle du canevas. L'approximation ne porte plus sur l'interlignage de
+libass, qui n'intervient plus dans le rendu du hook : elle porte sur la
+largeur exacte de la boîte, le rasteriseur mesurant le texte avec les vraies
+métriques d'Anton quand le calque laisse le navigateur composer la sienne
+autour d'un `<span>`. Le bouton
 « Régénérer » appelle `POST /api/clips/:id/hook` (§12), réservé aux clips
 **gardés** : un essai, sans la politique de relance du repérage — quelqu'un
 attend devant un bouton, pas un lot de trente appels derrière quarante minutes

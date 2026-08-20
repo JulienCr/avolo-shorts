@@ -1815,7 +1815,22 @@ describe('orientationOf', () => {
   it('porte les défauts documentés', () => {
     expect(ORIENTATION_DEFAULTS.pointMinScore).toBe(FRAMING_DEFAULTS.torsoMinScore)
     expect(ORIENTATION_DEFAULTS.shoulderRatioFull).toBe(1)
-    expect(ORIENTATION_DEFAULTS.frontalThreshold).toBe(0.35)
+    // Relevé de 0,35 le 20 août 2026 : à 0,35, la fonction disait `'frontal'`
+    // sur des profils francs jusqu'à 0,54 sur une planche-contact, et rangeait
+    // 97,7 % des 17 927 images du jeu auto-supervisé du même côté.
+    expect(ORIENTATION_DEFAULTS.frontalThreshold).toBe(0.6)
     expect(ORIENTATION_DEFAULTS.sideDeadband).toBe(0.5)
+  })
+
+  // Le seuil ne décide rien du cadrage — la règle est un écart entre deux
+  // personnes du même plan — mais le relever ne doit pas non plus déplacer les
+  // quatre cas réels sur lesquels la formule a été étalonnée.
+  it("relever le seuil à 0,6 ne fait basculer aucun cas d'étalonnage", () => {
+    for (const box of [personA, personC, personD]) {
+      expect(orientationOf(box).facing).toBe('frontal')
+      expect(orientationOf(box, { frontalThreshold: 0.35 }).facing).toBe('frontal')
+    }
+    expect(orientationOf(personB).facing).toBe('profile')
+    expect(orientationOf(personB, { frontalThreshold: 0.35 }).facing).toBe('profile')
   })
 })

@@ -727,11 +727,29 @@ export type Orientation = {
  * `computeFraming`, et un champ de plus dans `FramingOptions` obligerait à
  * toucher son bloc de recopie sans aucun besoin.
  *
- * `shoulderRatioFull`, `frontalThreshold` et `sideDeadband` sont des valeurs
- * de départ à mesurer, pas des constantes gagnées par une campagne — un
- * balayage viendra, comme celui qui a fixé `sideTrim` ou `torsoTrim`.
- * `pointMinScore` fait exception : il reprend le défaut de `torsoMinScore`,
- * déjà mesuré par la campagne du 19 août 2026.
+ * `shoulderRatioFull` et `sideDeadband` sont des valeurs de départ à mesurer,
+ * pas des constantes gagnées par une campagne — un balayage viendra, comme
+ * celui qui a fixé `sideTrim` ou `torsoTrim`. `pointMinScore` fait exception :
+ * il reprend le défaut de `torsoMinScore`, déjà mesuré par la campagne du
+ * 19 août 2026.
+ *
+ * **`frontalThreshold` valait 0,35 et deux mesures indépendantes l'ont
+ * condamné** (20 août 2026, `docs/locuteur-et-orientation.md`). Sur une planche
+ * de trente vignettes tirées entre 0,25 et 0,80 et triées par frontalité, la
+ * fonction dit `'frontal'` sur des profils francs jusqu'à 0,54 ; la frontière
+ * lue à l'image tombe vers 0,60. Et sur les 17 927 images du jeu
+ * auto-supervisé, 0,35 range **97,7 %** des boîtes en `'frontal'` : une
+ * étiquette qui ne distingue plus rien.
+ *
+ * **Aucun seuil unique ne sépare proprement**, et c'est le vrai résultat : des
+ * profils francs subsistent jusqu'à 0,71 quand des visages exploitables
+ * descendent à 0,54. 0,60 rend l'étiquette honnête, il ne la rend pas juste.
+ * D'où la conséquence de conception, qui est ailleurs : **la décision de
+ * cadrage se prend sur un écart entre deux personnes du même plan**, jamais sur
+ * ce seuil. Dans un plan, les deux personnes partagent le détecteur,
+ * l'éclairage et l'angle, donc leurs biais se compensent dans la différence là
+ * où ils s'ajoutent dans la valeur. `facing` est un diagnostic, pas une
+ * décision.
  */
 export type OrientationOptions = {
   /** Confiance minimale d'un point pour compter, inclusive. Défaut : celui de `FRAMING_DEFAULTS.torsoMinScore`. */
@@ -747,7 +765,7 @@ export type OrientationOptions = {
 export const ORIENTATION_DEFAULTS: Readonly<Required<OrientationOptions>> = Object.freeze({
   pointMinScore: FRAMING_DEFAULTS.torsoMinScore,
   shoulderRatioFull: 1,
-  frontalThreshold: 0.35,
+  frontalThreshold: 0.6,
   sideDeadband: 0.5,
 })
 

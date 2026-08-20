@@ -207,6 +207,28 @@ l'angle de caméra, donc leurs biais se compensent dans la différence là où i
 s'ajoutent dans la valeur. `frontalThreshold` ne sert alors qu'à l'étiquette
 `facing`, qui est un diagnostic et non une décision.
 
+Il est passé de 0,35 à **0,60** le 20 août, sur deux mesures indépendantes : la
+planche montre des profils francs étiquetés `frontal` jusqu'à 0,54, et sur les
+17 927 images du jeu auto-supervisé, 0,35 range 97,7 % des boîtes du même côté.
+Le nouveau seuil rend l'étiquette honnête ; il ne la rend pas juste, et aucune
+valeur ne le ferait. Les quatre cas d'étalonnage ne basculent pas.
+
+### Ce que ça donne à l'image
+
+`scripts/spike/orientation-ab.ts` compose, par cas, trois panneaux : la source
+avec les deux rectangles de crop, la sortie verticale d'aujourd'hui et celle du
+candidat. L'instant choisi dans le plan est **le plus défavorable au
+resserrement**, celui où l'empan est le plus large — un avant/après qui choisit
+sa meilleure image ne prouve rien.
+
+Sur `2026-05-31-nabla` à 2 707,5 s, frontalité 0,70 contre 0,23 : la sortie passe
+de 31,7 % à 100 % de hauteur de canevas, et l'homme de profil sort entièrement du
+cadre. C'est l'effet voulu.
+
+Les trois contrôles négatifs — deux personnes de face, une seule personne, deux
+personnes de profil — rendent des panneaux identiques, à un déplacement de
+`cropX` de 0,0003 près sur le troisième, soit moins d'un pixel sur 960.
+
 ---
 
 ## La bouche est lisible sur le proxy
@@ -263,21 +285,117 @@ personnes dans le cadre.
 
 ---
 
+## Ce que la règle rejette, et pourquoi
+
+À l'échelle du plan entier, la règle du cas 2 ne retient que 162 s, soit 8,0 %
+du montage, sur les 878 s du gisement. La ventilation des rejets :
+
+| cause | temps | part du montage |
+|---|---|---|
+| `noGap` — l'écart médian est sous la marge | 364 s | 18,0 % |
+| `unknownVeto` — la perdante est `unknown` quelque part | **0 s** | 0,0 % |
+| `winnerFlips` — le gagnant change en cours de plan | 178 s | 8,8 % |
+| `shareTooLow` — l'écart n'est décisif que sur trop peu d'images | 175 s | 8,6 % |
+| `ratioUnchanged` — tout est net mais le ratio ne bouge pas | 0 s | 0,0 % |
+
+Le veto sur `unknown` était le coupable désigné et **il ne rejette pas une
+seconde**. Le desserrer n'achète rien tant qu'un autre réglage ne rend pas
+d'abord des plans éligibles.
+
+Les deux vrais goulots disent la même chose sous deux angles : **sur un plan
+réel, la frontalité ne tient pas en place**, ni dans sa direction, ni dans sa
+constance. Les gens bougent. Les 17,4 % qui manquent ne demandent donc pas une
+meilleure règle, ils demandent une **frontière plus fine** — et c'est le même
+mécanisme dont le suivi du locuteur aurait besoin.
+
+### Un visage imprimé n'est pas une personne
+
+Deux des six cas soumis à l'examen visuel ne gagnent rien, pour la même raison.
+Sur `2026-05-31-nabla` à 988,5 s, le détecteur pose une boîte de personne sur la
+femme imprimée d'une jaquette de DVD qu'un comédien brandit, avec une tête posée
+sur son visage imprimé et une **frontalité de 0,96, plus haute que celle des deux
+vrais comédiens**. Le plan compte alors trois personnes et la règle, qui n'agit
+qu'à deux, ne se déclenche plus.
+
+C'est pire qu'un manque à gagner. Sur une image à deux boîtes dont l'une serait
+une affiche, la règle cadrerait **sur l'affiche**. L'issue #69 documente les faux
+positifs sur du mobilier ; les visages imprimés sont une famille distincte, et
+sur une émission qui parle de culture pop ils sont systématiques — jaquettes,
+livres, écrans.
+
+Un remède se présente tout seul : un visage imprimé ne bouge pas la bouche.
+
+---
+
+## Qui parle : la voie la moins chère est fermée
+
+L'hypothèse : la bouche qui bouge **en synchronie avec le son** est celle qui
+parle. Le mouvement seul ne discrimine pas — rires, hochements, mastication —,
+c'est la synchronie qui devait trancher.
+
+L'évaluation n'a demandé **aucun étiquetage humain**. Sur les plans où une seule
+personne est à l'écran, on sait qui parle sans le demander : c'est elle. Le
+corpus en porte 3 031 s. La vérité vient des instants de **mots** du transcript,
+pas des segments, qui couvrent aussi leurs silences.
+
+Tirage : 48 fenêtres, 634 s, 19 020 images, 17 927 mesurables, dont 74,5 %
+portent de la parole.
+
+| mesure | AUC corpus | AUC médiane par fenêtre | Pearson |
+|---|---|---|---|
+| `rawDiff` | 0,523 | 0,492 | 0,077 |
+| `normDiff` | 0,502 | 0,496 | 0,142 |
+| `centerDiff` | 0,509 | 0,498 | 0,127 |
+| **`noseShift`, témoin de bruit de tête** | **0,551** | 0,491 | 0,001 |
+
+**Le témoin bat les trois mesures de bouche.** C'est le verdict qu'il existait
+pour rendre.
+
+Le contrôle négatif ne fait pas s'effondrer l'AUC, parce qu'il n'y avait rien à
+effondrer : elle est déjà à 0,5, et deux fois la vérité décalée fait mieux que la
+vraie. La corrélation, elle, tombe bien de 0,127 à 0,021 — mais sa médiane par
+fenêtre vaut 0,014. C'est une covariance **entre** extraits, les passages
+bruyants étant aussi ceux où ça bouge, et non un lien à l'intérieur d'un plan.
+
+La courbe de décalage, cherchée entre −8 et +8 images, est plate : 17 %
+d'amplitude sur ±267 ms, aucun pic.
+
+Les trois explications commodes ont été éprouvées et écartées :
+
+- **l'orientation** — restreindre aux visages de face ne gagne rien (0,511
+  contre 0,509) ;
+- **le mouvement de tête** — restreindre au tiers d'images où la tête est la plus
+  immobile fait *baisser* l'AUC à 0,476 ;
+- **la résolution** — la région de bouche fait 55 × 42 px en médiane sur le proxy,
+  redimensionnée en 32×32, donc sur-échantillonnée plutôt que l'inverse.
+
+**Conclusion : bâtir un détecteur de locuteur sur une statistique de différence
+d'images donnerait un pile-ou-face.** Le critère d'arrêt était écrit d'avance et
+il s'applique.
+
+Ce que ce résultat ne dit pas : il ferme la statistique de pixels, pas la
+détection audiovisuelle de locuteur. Un modèle appris comme Light-ASD ou TalkNet
+travaille sur un plongement avec du contexte temporel, pas sur une différence
+image à image, et il n'est pas réfuté ici. La piste audio — diarisation, ancrage
+sur les gros plans, ré-identification par la couleur du buste — n'a pas été
+essayée non plus.
+
+---
+
 ## Ce qui reste ouvert
 
-- Le seuil `frontalThreshold` doit être relevé, et la valeur se tranche sur une
-  planche centrée sur la frontière plutôt que sur un balayage.
-- Une frontalité calculée sans le terme d'épaules est-elle exploitable ? Si non,
-  le cas doit passer en `unknown`, ce qui est sans danger puisque `unknown`
-  n'exclut personne.
-- La règle du cas 2 rejette 353 s de plans dont l'écart de frontalité médiane
-  dépasse pourtant 0,25. La cause est en cours de ventilation.
-- Le cas 2 mesuré à l'échelle du plan entier vaut 8,0 % du montage. L'orientation
-  change à l'intérieur d'un plan comme la parole, donc la même mesure à l'échelle
-  du sous-plan vaudrait plus.
+- Une frontalité calculée sans le terme d'épaules est-elle exploitable ? Le cas
+  ne pèse que 3 % des boîtes ; le basculer en `unknown` serait sans danger,
+  puisque `unknown` n'exclut personne.
+- Les faux positifs sur les visages imprimés, à consigner en commentaire sur
+  l'issue #69 plutôt qu'en issue neuve.
+- Le plafond de gain annoncé par `addressable.ts` est optimiste : ses colonnes
+  `ratioIfRank0/1` ne comptent que les images à exactement deux personnes, alors
+  qu'un cadrage réel doit aussi satisfaire les images à une ou trois personnes du
+  même plan.
 - Les frontières de segments du transcript sont des candidates naturelles pour
   les sous-plans : 14 segments dans les 45 s du plan de référence, durée médiane
-  3,02 s. Les adopter supprime en revanche le contrôle qui devait vérifier
+  3,02 s. Les adopter supprimerait en revanche le contrôle qui devait vérifier
   l'alignement des bascules sur les tours de parole.
 - `chargerEnv()` résout les secrets 1Password au démarrage de tout script, y
   compris ceux qui n'appellent aucun modèle. Chaque script de mesure doit poser

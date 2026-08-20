@@ -110,7 +110,10 @@ export type OptionsRender = {
 }
 
 /**
- * Les six chemins d'un clip. `variant9x16` vaut `null` quand le ratio natif est
+ * Les sept chemins d'un clip (relevé par Copilot, PR #117 passe 5 : ce
+ * commentaire disait encore « six », périmé depuis que le hook PNG s'est
+ * scindé en `hookImageNative`/`hookImageVariant`). `variant9x16` vaut `null`
+ * quand le ratio natif est
  * déjà 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un
  * 1:1 sur TikTok et Shorts, et sur un clip déjà vertical elle serait le même
  * cadre rendu une seconde fois (spec §11).

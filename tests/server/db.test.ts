@@ -1258,7 +1258,7 @@ describe('migrateHookSizeClipColumn', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  function poserClipAvecSize(): void {
+  function seedClipWithLegacySize(): void {
     const first = openDb(file)
     upsertProject(first, PROJECT)
     putClip(first, clip('vieux-hook'))
@@ -1274,7 +1274,7 @@ describe('migrateHookSizeClipColumn', () => {
   }
 
   it('efface seulement `size`, conserve les autres surcharges', () => {
-    poserClipAvecSize()
+    seedClipWithLegacySize()
 
     const db = openDb(file)
     const raw = db.prepare('SELECT hookStyle FROM clips WHERE id = ?').get('vieux-hook') as {
@@ -1299,7 +1299,7 @@ describe('migrateHookSizeClipColumn', () => {
   })
 
   it('est idempotente', () => {
-    poserClipAvecSize()
+    seedClipWithLegacySize()
 
     openDb(file).close()
     const db = openDb(file)

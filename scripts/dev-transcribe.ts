@@ -97,6 +97,16 @@ async function main(): Promise<number> {
       )
       return 1
     }
+    // **`editingResponds` répond « oui » à un `ENOENT` immédiat** — c'est ce
+    // qui le distingue d'un montage mort — donc le sondage du haut de ce
+    // script n'exclut pas un original supprimé. Sans ce contrôle, l'original
+    // passerait tel quel jusqu'à `extractAudio`. (relevé par Copilot)
+    if (!input.local && !fs.existsSync(input.path)) {
+      console.error(
+        `L'original ${input.path} est introuvable dans le dossier des replays.`,
+      )
+      return 1
+    }
     console.log(`Entrée     : ${input.path}${input.local ? '' : ' (original, pas de copie locale)'}`)
     const bar = createBar('  audio ')
     const t = timer()

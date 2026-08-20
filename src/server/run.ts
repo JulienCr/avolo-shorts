@@ -943,9 +943,16 @@ async function execute(
       // projet n'existe pas —, elle n'a donc pas de nom à afficher. On garde
       // celui de la première étape à faire, dont la progression est bien à zéro
       // tant que la copie n'est pas finie.
+      // **`copyLocally` explicite, pas la lecture propre d'`ingest`.** Sans ce
+      // paramètre, `ingest` relit `copiesSourceLocally(db)` lui-même après le
+      // sondage du montage — un sondage qui peut prendre jusqu'à vingt
+      // secondes — et la valeur figée au lancement cesserait de gouverner
+      // « toute l'exécution » si le réglage changeait pendant l'attente.
+      // (relevé par la review de la PR #113)
       const ingestion = await steps.ingest(project.sourcePath, {
         db,
         signal,
+        copyLocally,
         onProgress: (a) => advance(a.fraction),
       })
       const reread = getProject(db, projectId)
@@ -1079,12 +1086,28 @@ async function executeStep(
       // transport mort dessous laisserait `produceArtifact` — qui ne reçoit
       // aucun `timeoutMs` — pendre indéfiniment plutôt que d'échouer avec un
       // message qui dit quoi faire. (relevé par la review de la PR #113)
-      if (!input.local && !(await editingResponds(input.path))) {
-        throw new Error(
-          `${step} de ${project.id} : le dossier des replays ne répond pas. REPLAY_DIR est ` +
-            'monté en 9p et peut être monté avec son transport mort dessous — /proc/mounts ne le ' +
-            'distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
-        )
+      if (!input.local) {
+        if (!(await editingResponds(input.path))) {
+          throw new Error(
+            `${step} de ${project.id} : le dossier des replays ne répond pas. REPLAY_DIR est ` +
+              'monté en 9p et peut être monté avec son transport mort dessous — /proc/mounts ne le ' +
+              'distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+          )
+        }
+        // **`editingResponds` dit que le montage répond, pas que le fichier y
+        // est.** Un `ENOENT` immédiat *est* une réponse en ce sens — c'est ce
+        // qui distingue un montage mort d'un montage vivant —, donc un
+        // original supprimé passerait le sondage ci-dessus tel quel et
+        // laisserait ffmpeg échouer sur un message qui n'explique rien.
+        // `ensureLocalCopy` fait déjà cette distinction pour l'export ; les
+        // mêmes deux questions se posent ici. (relevé par Copilot)
+        if (!fs.existsSync(input.path)) {
+          throw new Error(
+            `${step} de ${project.id} : la copie de travail est désactivée ou absente, et ` +
+              `l'original ${JSON.stringify(path.basename(input.path))} est introuvable dans le ` +
+              'dossier des replays.',
+          )
+        }
       }
       const common = {
         projectId: project.id,

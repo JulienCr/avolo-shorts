@@ -532,18 +532,26 @@ export function workingInput(project: {
 /**
  * La copie porte-t-elle bien la source dont on connaît la taille ?
  *
- * **Un `statSync` qui échoue vaut « oui ».** La question posée est « faut-il
- * écarter cette copie », et on ne l'écarte que sur une preuve. Une permission
- * refusée ou une course avec le balayage ne prouvent rien : rendre `false` y
- * ferait relire douze gigaoctets sur le montage 9p pour un incident qui n'a rien
- * à voir avec la fraîcheur du fichier.
+ * **Un `statSync` qui échoue sans preuve vaut « oui ».** La question posée est
+ * « faut-il écarter cette copie », et on ne l'écarte que sur une preuve. Une
+ * permission refusée ne prouve rien : rendre `false` y ferait relire douze
+ * gigaoctets sur le montage 9p pour un incident qui n'a rien à voir avec la
+ * fraîcheur du fichier.
+ *
+ * **Mais un `ENOENT` en est une, de preuve, et fait exception.** L'appelant
+ * vient de constater `fs.existsSync(copy)` vrai ; un `ENOENT` ici veut dire que
+ * la copie a disparu entre les deux — la course avec le balayage du TTL que le
+ * paragraphe précédent nommait sans trancher. Rendre `true` y sélectionnerait
+ * un fichier qui n'existe plus, et ferait échouer ffmpeg sur un message qui
+ * n'explique rien, là où l'original est précisément le repli prévu. (relevé
+ * par Copilot)
  */
 function copyDescribes(copy: string, sizeBytes: number | null | undefined): boolean {
   if (typeof sizeBytes !== 'number') return true
   try {
     return fs.statSync(copy).size === sizeBytes
-  } catch {
-    return true
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code !== 'ENOENT'
   }
 }
 

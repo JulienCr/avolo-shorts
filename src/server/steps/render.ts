@@ -678,7 +678,24 @@ export type HookObserved = { resolved: ResolvedHook; canvases: HookCanvases }
  * qu'il faille se souvenir d'ajouter cette ligne au condensat ce jour-là.
  */
 function hookImageDigest(resolved: ResolvedHook, canvases: HookCanvases): string {
-  const stable = JSON.stringify([stableEntries(resolved), stableEntries(hookLayout(resolved)), canvases])
+  // `canvases`, comme `resolved` et `hookLayout(resolved)` deux lignes plus
+  // bas, passe par `stableEntries` — pas laissé à l'ordre d'insertion de
+  // `JSON.stringify`. Il n'existe aujourd'hui qu'un seul point de
+  // construction (`hookCanvases` dans `renderClip`, `outputSize` derrière),
+  // donc l'ordre des clés est déjà stable en pratique ; mais si `outputSize`
+  // changeait un jour l'ordre des siennes, ce digest ne devrait pas en
+  // dépendre — c'est exactement la garantie que `stableEntries` tient déjà
+  // pour les deux autres entrées de ce même condensat. Relevé par Aristarque
+  // en review, sous « à vérifier », sur la PR #117.
+  const stableCanvases = {
+    native: stableEntries(canvases.native),
+    variant: canvases.variant === null ? null : stableEntries(canvases.variant),
+  }
+  const stable = JSON.stringify([
+    stableEntries(resolved),
+    stableEntries(hookLayout(resolved)),
+    stableCanvases,
+  ])
   return createHash('sha256').update(stable).digest('hex')
 }
 

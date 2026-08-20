@@ -665,7 +665,11 @@ les défauts du hook suivent, et chacune aurait sinon réinventé ce que « hors
 bornes » veut dire. Le plafond (`max`) et un quatrième type, `color`
 (`#RRGGBB`, normalisé en majuscules), sont arrivés avec la famille `hook`
 (PR #114) : les deux étaient absents jusque-là, les familles antérieures
-n'en avaient pas besoin. Le préfixe `selection.` de la clé stockée a été posé
+n'en avaient pas besoin. Une liste de champs à couvrir par un écran ne doit
+en revanche **pas** être un tableau : `durationMs` a vécu une PR entière
+réglable en base, surchargeable par l'API et présent dans l'empreinte, sans
+aucun contrôle dans l'écran Clip, parce qu'un `readonly K[]` ne casse pas au
+type-check quand il en oublie un. Un `Record<K, true>` l'exige. Le préfixe `selection.` de la clé stockée a été posé
 en prévoyant exactement cela. Une clé inconnue et une valeur hors bornes sont
 des 400, jamais un enregistrement silencieux ; changer un réglage ne recalcule
 rien.
@@ -1128,6 +1132,27 @@ Depuis l'original, jamais depuis le proxy.
    du canevas quand le hook est positionné en bas. Rasterisé par canevas : le
    PNG et son placement dépendent de dimensions en pixels, donc
    potentiellement deux images distinctes par clip.
+
+   **Le PNG est un composite depuis le 20 août 2026.** Quand le clip porte un
+   badge — un libellé très court posé au-dessus de l'accroche, « DÉFI 10 » sur
+   les vignettes de référence —, sa pastille est dessinée dans la **même**
+   image, mordant légèrement sur le haut du carton. Un seul PNG et non deux,
+   parce que tout le reste de la chaîne en dépend : une seconde entrée ffmpeg
+   décalerait l'index des logos, il faudrait un second placement que rien ne
+   garderait accordé au premier, et les deux fichiers par clip deviendraient
+   quatre. Le carton est peint **avant** la pastille, sans quoi son fond opaque
+   en effacerait la partie basse ; le calque de preview a le problème inverse,
+   le DOM empilant dans l'autre sens, d'où le `z-index` qu'il pose. Le badge
+   n'a que **deux** réglages propres, ses couleurs — tout le reste est hérité
+   du hook, parce que les deux boîtes sont un seul objet visuel. Un badge sans
+   accroche n'incruste rien : sa géométrie est définie par rapport au carton,
+   et l'écran le dit plutôt que de se taire.
+
+   **Aucun fondu d'entrée par défaut.** Instagram fabrique la vignette du fil
+   avec la **première image** du fichier ; un fondu, si court soit-il, y pose
+   un hook à moitié transparent — donc une accroche absente de la seule image
+   qu'on voit avant de cliquer. Le réglage reste, son défaut est `none`. Le
+   fondu de sortie, lui, ne se joue sur aucune vignette et reste à `fade`.
 5. Logo et mention Twitch, dans une bande qui tient compte des zones réservées
    (chrome des plateformes en haut, sous-titres en bas) — après le hook, pour
    la même raison qui le place après les sous-titres : une marque posée
@@ -1219,7 +1244,7 @@ GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
 PATCH  /api/clips/:id                          édition de l'EDL
 POST   /api/clips/:id/export                   rendu
-POST   /api/clips/:id/hook                     régénère le texte du hook (LLM)
+POST   /api/clips/:id/hook                     régénère le hook et son badge (LLM)
 GET    /api/settings                           les réglages effectifs
 PUT    /api/settings                           applique un patch partiel
 ```
@@ -1230,6 +1255,35 @@ un clip qu'on monte, jamais sur un candidat ou un clip écarté qu'on n'a pas
 encore décidé de garder. Écrit sur le clip **relu juste avant l'écriture**, pas
 sur l'instantané pris avant l'appel — l'appel réseau tient jusqu'à 30 s, assez
 pour qu'une écriture concurrente (autosave, un autre onglet) se glisse dedans.
+Elle régénère **la paire**, accroche et badge, y compris quand le badge revient
+vide : une accroche neuve sous une pastille écrite pour l'ancienne lui
+accolerait un sur-titre qui ne la décrit plus.
+
+**Le cas courant ne passe par aucune route** (20 août 2026). La passe de détail
+du repérage rend `viral_hook_text` et `viral_hook_badge` dans la **même
+réponse** que le titre et la description : un clip naît donc avec son hook,
+sans un appel LLM de plus — c'est ainsi que « ne pas générer des hooks pour
+tous les candidats » est tenu. Le badge y est **facultatif** là où l'accroche
+est requise : toutes les émissions ne portent pas de rubrique numérotée, et
+l'exiger pousserait le modèle à en inventer une par clip.
+
+Reste le trou : un modèle qui a omis le champ, ou un clip antérieur à la
+fonctionnalité. Un **rattrapage** part alors à la transition
+`candidate → kept` de `PATCH /api/clips/:id`
+(`src/server/steps/hook-backfill.ts`), et seulement quand l'accroche est vide.
+En tâche de fond, jamais bloquant, hors du chemin synchrone lecture→écriture
+que cette route protège. Il relit le clip avant d'écrire et **n'écrase jamais
+un hook non vide**. Son échec est un avertissement, jamais une erreur rendue au
+client : garder un clip est un geste au clavier dans le feed, il ne peut pas
+dépendre d'un fournisseur LLM joignable. Ce n'est ni une étape du graphe ni un
+`launch` — la réservation de `launch` est par projet, donc un rattrapage
+entrerait en collision avec une analyse et s'afficherait comme « une analyse
+tourne » sur la carte du projet.
+
+L'interface n'en est pas notifiée : le hook apparaît au prochain chargement de
+l'écran Clip, ce qui suffit dans le parcours réel (on garde une série de clips,
+puis on les ouvre un par un). Le bouton « Régénérer » reste le recours
+explicite.
 
 Et les routes qui portent la reprise :
 
@@ -1372,8 +1426,10 @@ timeline.
 
 **Le hook, en zone Contenu, à côté du titre et de la description (19 août
 2026, revu le 20 août 2026).** Le texte, l'activation et « Régénérer » restent
-visibles en permanence ; les douze réglages de style (police, taille, rayon des
-coins, capitales, position, alignement, couleurs, opacité, durée, transitions)
+visibles en permanence — **le texte du badge aussi, depuis le 20 août 2026** :
+c'est du contenu, pas un réglage, et il vit à côté de l'accroche. Les quatorze
+réglages de style (police, taille, rayon des coins, capitales, position,
+alignement, couleurs du carton, opacité, couleurs du badge, durée, transitions)
 sont repliés derrière un bouton « Personnaliser », fermé par défaut et affichant
 leur nombre — republier à plat tout le panneau Réglages sur l'écran qui sert à
 monter un clip s'est avéré une gêne plutôt qu'un service. Chaque contrôle dit
@@ -1384,9 +1440,12 @@ montre le rendu approché en `cqw`/`cqh` dérivés des fractions de largeur de
 `hookLayout()` — les mêmes que le rasteriseur PNG du rendu multiplie par la
 largeur réelle du canevas. L'approximation ne porte plus sur l'interlignage de
 libass, qui n'intervient plus dans le rendu du hook : elle porte sur la
-largeur exacte de la boîte, le rasteriseur mesurant le texte avec les vraies
+largeur exacte de la boîte — celle du **composite** depuis le badge, donc sur
+deux mesures plutôt qu'une —, le rasteriseur mesurant le texte avec les vraies
 métriques d'Anton quand le calque laisse le navigateur composer la sienne
-autour d'un `<span>`. Le bouton
+autour d'un `<span>`. La **hauteur** de la pastille, elle, est exacte des deux
+côtés : elle se calcule au lieu de se mesurer, la pastille tenant sur une seule
+ligne par construction. Le bouton
 « Régénérer » appelle `POST /api/clips/:id/hook` (§12), réservé aux clips
 **gardés** : un essai, sans la politique de relance du repérage — quelqu'un
 attend devant un bouton, pas un lot de trente appels derrière quarante minutes

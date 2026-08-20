@@ -31,6 +31,8 @@ function clip(fields: Partial<Clip> = {}): Clip {
     description: 'Une impro',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
     ...fields,
   }
 }

@@ -551,6 +551,48 @@ describe('la note prédite d’un clip', () => {
   })
 })
 
+/**
+ * `viral_hook_text` — le prompt le demande depuis toujours (`HOOK PLAYBOOK`,
+ * `prompts.ts`) et le schéma de repérage le requiert (`candidates.ts`) ; ce
+ * fichier le lisait et le jetait. Il verse désormais dans `Clip.hookText`,
+ * comme `video_title_for_youtube_short` verse dans `Clip.title` deux lignes
+ * plus loin dans `parseDetailResponse`.
+ */
+describe('viral_hook_text', () => {
+  it('récolte l’accroche rendue par le modèle, normalisée', () => {
+    const clips = detailed(detail)
+    // La fixture porte l'accroche entre guillemets pour aucun des trois clips
+    // lisibles ; `normalizeHookText` ne fait ici qu'un passage sans effet visible
+    // sur des phrases déjà propres, donc l'égalité directe suffit à prouver la
+    // récolte.
+    expect(clips.map((c) => c.hookText)).toEqual([
+      "Personne n'a osé l'arrêter",
+      "Il n'avait rien vu venir",
+      'Et là, plus personne ne parle',
+    ])
+  })
+
+  it('rend une chaîne vide quand le modèle n’a pas fourni d’accroche', () => {
+    const [clip] = proposed({ shorts: [{ start: 12.0, end: 41.4 }] }).map((p) => p.clip)
+    expect(clip.hookText).toBe('')
+  })
+
+  it('une accroche illisible ne coûte pas la proposition', () => {
+    // Même garde que `predicted_score` : une entrée hostile sur ce champ ne
+    // doit pas faire échouer le `safeParse` de la proposition entière.
+    const clips = detailed({
+      shorts: [{ start: 12.0, end: 41.4, viral_hook_text: null }],
+    })
+    expect(clips).toHaveLength(1)
+    expect(clips[0].hookText).toBe('')
+  })
+
+  it('n’a pas de surcharge à la sortie du repérage', () => {
+    const [clip] = detailed(detail)
+    expect(clip.hookStyle).toEqual({})
+  })
+})
+
 describe('parseJsonResponse', () => {
   it('lit un objet nu', () => {
     expect(parseJsonResponse('{"shorts": []}')).toEqual({ shorts: [] })

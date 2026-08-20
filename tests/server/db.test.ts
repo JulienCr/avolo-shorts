@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -29,6 +29,7 @@ import {
 import { mergeCandidates } from '@/core/candidates'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
 import type { Clip } from '@/core/edl'
+import { HOOK_DEFAULTS } from '@/lib/api'
 
 /**
  * La base porte les projets et les clips. Les artefacts du pipeline — proxy,
@@ -60,6 +61,8 @@ const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   description: '',
   status: 'candidate',
   pass: 1,
+  hookText: '',
+  hookStyle: {},
   ...remaining,
 })
 
@@ -226,7 +229,10 @@ describe('le registre des réglages', () => {
   })
 
   it('ne connaît pas une famille qui n’existe pas', () => {
-    expect(settingField('hook', 'duree')).toBeUndefined()
+    // `hook` est une vraie famille depuis cette PR : le témoin d'une famille
+    // inconnue doit rester un nom que le registre n'a jamais porté. Le témoin
+    // lui-même est en anglais, comme tout code neuf (`CLAUDE.md`).
+    expect(settingField('unknownFamily', 'unknownField')).toBeUndefined()
     expect(settingField('selection', 'minutesParClipe')).toBeUndefined()
   })
 
@@ -296,6 +302,8 @@ describe('la famille `ai`', () => {
       description: 'd',
       status: 'kept',
       pass: 1,
+      hookText: '',
+      hookStyle: {},
     })
     applySettings(db, { ai: { correctionProvider: 'openai', hookProvider: 'ollama' } })
     expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
@@ -368,14 +376,73 @@ describe('la famille `ingestion`', () => {
 })
 
 /**
+ * La famille `hook` (retour d'usage §6.3), branchée par cette PR : les onze
+ * défauts globaux du hook, écrits et relus comme les deux familles
+ * précédentes.
+ */
+describe('la famille `hook`', () => {
+  it('décrit ses onze champs', () => {
+    for (const name of [
+      'enabled',
+      'durationMs',
+      'font',
+      'size',
+      'position',
+      'alignment',
+      'textColor',
+      'backgroundColor',
+      'backgroundOpacity',
+      'enter',
+      'exit',
+    ]) {
+      const f = settingField('hook', name)
+      expect(f, name).toBeDefined()
+    }
+  })
+
+  it('rend les onze défauts sur une base vierge', () => {
+    expect(effectiveSettings(db).hook).toEqual(HOOK_DEFAULTS)
+  })
+
+  it('fait l’aller-retour sur un champ de chacun des quatre types', () => {
+    const after = applySettings(db, {
+      hook: { enabled: false, size: 72, position: 'bottom', textColor: '#a1b2c3' },
+    })
+    expect(after.hook.enabled).toBe(false)
+    expect(after.hook.size).toBe(72)
+    expect(after.hook.position).toBe('bottom')
+    expect(after.hook.textColor).toBe('#A1B2C3')
+    // Les autres champs ne bougent pas : un patch partiel ne réinitialise rien
+    // de ce qu'il ne touche pas.
+    expect(after.hook.backgroundColor).toBe(HOOK_DEFAULTS.backgroundColor)
+  })
+
+  it('contraint position, alignment, enter et exit à leurs énumérations', () => {
+    expect(() => applySettings(db, { hook: { position: 'diagonal' } })).toThrow(
+      InvalidSettingError,
+    )
+    expect(() => applySettings(db, { hook: { enter: 'wipe' } })).toThrow(InvalidSettingError)
+  })
+
+  it('ne recalcule rien : changer un défaut du hook ne touche aucun clip', () => {
+    upsertProject(db, PROJECT)
+    putClip(db, clip('clip_01', { status: 'kept' }))
+    applySettings(db, { hook: { size: 72 } })
+    expect(getClips(db, PROJECT.id).map((c) => c.status)).toEqual(['kept'])
+  })
+})
+
+/**
  * **La grammaire du registre.** Le repérage ne porte que des entiers ; la
  * famille `ai` porte des chaînes, dont certaines contraintes à un ensemble
  * fermé ou tolérantes au vide (voir ci-dessus) ; `ingestion.copySourceLocally`
  * est le premier booléen à sortir de ce bloc pour aller vivre dans une vraie
- * famille. Ces branches *sont* la généralisation — sans elles le registre n'est
- * qu'une table d'entiers déguisée —, et elles ont été écrites et tenues ici
- * pendant tout le temps où aucune famille ne les empruntait. C'est ce qui a
- * fait qu'ajouter ce réglage-là n'a demandé aucune validation nouvelle.
+ * famille, et la famille `hook` porte le premier type `color` — les deux
+ * derniers types que ce fichier exerçait sans qu'une famille ne s'en serve.
+ * Ces branches *sont* la généralisation — sans elles le registre n'est qu'une
+ * table d'entiers déguisée —, et elles ont été écrites et tenues ici pendant
+ * tout le temps où aucune famille ne les empruntait. C'est ce qui a fait
+ * qu'ajouter ces réglages-là n'a demandé aucune validation nouvelle.
  */
 describe('la grammaire du registre', () => {
   const field = (
@@ -437,6 +504,70 @@ describe('la grammaire du registre', () => {
       expect(parseSetting(c, stored)).toBe(value)
     }
   })
+
+  /**
+   * **`color`, le quatrième type.** Format `#RRGGBB`, normalisé en majuscules
+   * à la lecture comme à l'écriture — jamais un `pattern` générique posé à
+   * côté, voir la doc de `SettingFieldType`.
+   */
+  describe('le type color', () => {
+    const c = field('color', { defaultValue: '#000000' })
+
+    it('accepte une couleur minuscule et la normalise en majuscules', () => {
+      expect(parseSetting(c, '#a1b2c3')).toBe('#A1B2C3')
+      expect(validateSetting(c, '#a1b2c3')).toBe('#A1B2C3')
+    })
+
+    it('refuse une couleur sans #', () => {
+      expect(parseSetting(c, 'a1b2c3')).toBeUndefined()
+      expect(() => validateSetting(c, 'a1b2c3')).toThrow(InvalidSettingError)
+    })
+
+    it('refuse des chiffres hexadécimaux invalides', () => {
+      expect(parseSetting(c, '#GG0000')).toBeUndefined()
+      expect(() => validateSetting(c, '#GG0000')).toThrow(InvalidSettingError)
+    })
+
+    it('refuse une forme abrégée à trois chiffres', () => {
+      expect(parseSetting(c, '#abc')).toBeUndefined()
+      expect(() => validateSetting(c, '#abc')).toThrow(InvalidSettingError)
+    })
+
+    it('fait l’aller-retour, majuscules comprises', () => {
+      const stored = String(validateSetting(c, '#ffe500'))
+      expect(stored).toBe('#FFE500')
+      expect(parseSetting(c, stored)).toBe('#FFE500')
+    })
+  })
+
+  /**
+   * **`max`, le plafond entier — sémantiques opposées, comme `min`.**
+   * `parseSetting` ignore une valeur au-delà comme il ignore déjà une valeur
+   * en-deçà du plancher ; `validateSetting` lève, parce que quelqu'un attend
+   * une réponse.
+   */
+  describe('le plafond max', () => {
+    const c = field('integer', { min: 0, max: 10 })
+
+    it('accepte la borne elle-même', () => {
+      expect(parseSetting(c, '10')).toBe(10)
+      expect(validateSetting(c, 10)).toBe(10)
+    })
+
+    it('parseSetting ignore une valeur au-delà, comme une valeur en-deçà du plancher', () => {
+      expect(parseSetting(c, '11')).toBeUndefined()
+    })
+
+    it('validateSetting lève au-delà, là où parseSetting se tait', () => {
+      expect(() => validateSetting(c, 11)).toThrow(InvalidSettingError)
+    })
+
+    it('un champ sans max n’a pas de plafond', () => {
+      const unbounded = field('integer', { min: 0 })
+      expect(parseSetting(unbounded, '999999')).toBe(999999)
+      expect(validateSetting(unbounded, 999999)).toBe(999999)
+    })
+  })
 })
 
 describe('appliquerRéglages', () => {
@@ -458,17 +589,20 @@ describe('appliquerRéglages', () => {
   })
 
   it('refuse une famille inconnue', () => {
-    expect(() => applySettings(db, { hook: { duree: 2 } })).toThrow(/inconnu/i)
+    // `hook` est une vraie famille depuis cette PR (§6.3) : le témoin d'une
+    // famille inconnue doit porter un nom que le registre n'a jamais eu, et
+    // rester en anglais comme tout code neuf (`CLAUDE.md`).
+    expect(() => applySettings(db, { unknownFamily: { unknownField: 2 } })).toThrow(/inconnu/i)
   })
 
   /**
    * **Y compris vide.** Contrôler le champ suffisait tant que le patch en
-   * portait un : `{ hook: {} }` ne déclenchait aucun tour de boucle, donc aucun
-   * contrôle, et la route répondait 200 sur une famille qui n'existe pas.
-   * (relevé par Codex)
+   * portait un : `{ unknownFamily: {} }` ne déclenchait aucun tour de boucle,
+   * donc aucun contrôle, et la route répondait 200 sur une famille qui
+   * n'existe pas. (relevé par Codex)
    */
   it('refuse une famille inconnue même sans aucun champ', () => {
-    expect(() => applySettings(db, { hook: {} })).toThrow(InvalidSettingError)
+    expect(() => applySettings(db, { unknownFamily: {} })).toThrow(InvalidSettingError)
     // Et une famille connue vide reste acceptée : elle ne demande rien.
     expect(applySettings(db, { selection: {} }).selection).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
@@ -542,6 +676,7 @@ describe('appliquerRéglages', () => {
         ollamaBaseUrl: '',
       },
       ingestion: { copySourceLocally: true },
+      hook: { ...HOOK_DEFAULTS },
     })
   })
 })
@@ -584,6 +719,77 @@ describe('les clips', () => {
     putClip(db, clip('clip_07'))
     db.prepare('DELETE FROM projects WHERE id = ?').run(PROJECT.id)
     expect(getClips(db, PROJECT.id)).toEqual([])
+  })
+})
+
+/**
+ * Le hook sur un clip (retour d'usage §7) : `hookText` et `hookStyle`, la
+ * surcharge par clip des onze défauts globaux.
+ */
+describe('le hook sur un clip', () => {
+  it('font l’aller-retour, texte et style compris', () => {
+    const c = clip('clip_07', { hookText: 'Une accroche', hookStyle: { size: 72 } })
+    putClip(db, c)
+    expect(getClip(db, 'clip_07')).toEqual(c)
+  })
+
+  it('`{}` reste distinct d’une surcharge qui vaudrait le même que le défaut', () => {
+    // §7 : les deux doivent rester distincts. `{}` dit « aux valeurs
+    // globales », `{ size: 56 }` dit « j'ai surchargé, et c'est la même
+    // valeur » — l'un ne doit jamais se réduire à l'autre à l'aller-retour.
+    putClip(db, clip('sans-surcharge', { hookStyle: {} }))
+    putClip(db, clip('avec-surcharge', { hookStyle: { size: 56 } }))
+    expect(getClip(db, 'sans-surcharge')?.hookStyle).toEqual({})
+    expect(getClip(db, 'avec-surcharge')?.hookStyle).toEqual({ size: 56 })
+  })
+
+  it('un hookStyle illisible retombe sur `{}`, sans rendre le clip illisible', () => {
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run('{pas du json', 'clip_07')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const reread = getClip(db, 'clip_07')
+    expect(reread?.hookStyle).toEqual({})
+    // Le reste du clip reste lisible : une colonne abîmée ne doit pas coûter
+    // le clip entier.
+    expect(reread?.title).toBe('La vanne du chapeau')
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('un hookStyle dont une clé est hors bornes retombe sur `{}`, sans avertissement', () => {
+    // Contrairement à l'échec de `JSON.parse` ci-dessus : la forme est un
+    // JSON valide, seule une valeur ne respecte pas le schéma. Même partage
+    // que `lireTokens` pour `seqs` : silencieux, parce que ce n'est pas une
+    // colonne corrompue, c'est une valeur qui ne passe plus la validation.
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
+      JSON.stringify({ size: 9999 }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
+  })
+
+  it('une clé inconnue dans hookStyle retombe sur `{}`', () => {
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
+      JSON.stringify({ unknownField: true }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
+  })
+
+  it('une clé inconnue mêlée à une clé valide fait retomber tout l’objet sur `{}`', () => {
+    // Un schéma non strict (`z.object` plutôt que `z.strictObject`) tronquerait
+    // silencieusement la clé inconnue et garderait `size`, exactement le
+    // comportement partiel que les deux tests ci-dessus refusent pour une
+    // valeur hors bornes ou une clé seule : la relecture doit se comporter en
+    // tout ou rien, pas en filtrage clé par clé. (relevé par Copilot)
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
+      JSON.stringify({ size: 72, unknownField: true }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
   })
 })
 
@@ -774,6 +980,38 @@ describe('migrer', () => {
     const old = getClip(db, 'vieux')
     expect(old?.title).toBe("Un titre d'avant")
     expect(old?.segments).toEqual([{ start: 10, end: 20 }])
+    db.close()
+  })
+
+  it('ajoute `hookText` et `hookStyle` à une base qui ne les porte pas', () => {
+    poserBaseOld(false)
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns).toContain('hookText')
+    expect(columns).toContain('hookStyle')
+    expect(
+      db.prepare('SELECT hookText, hookStyle FROM clips WHERE id = ?').get('vieux'),
+    ).toEqual({ hookText: '', hookStyle: '{}' })
+
+    const old = getClip(db, 'vieux')
+    expect(old?.hookText).toBe('')
+    expect(old?.hookStyle).toEqual({})
+    db.close()
+  })
+
+  it('est idempotente sur `hookText`/`hookStyle` : une seconde ouverture ne fait rien', () => {
+    poserBaseOld(false)
+    openDb(file).close()
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns.filter((c) => c === 'hookText')).toHaveLength(1)
+    expect(columns.filter((c) => c === 'hookStyle')).toHaveLength(1)
     db.close()
   })
 

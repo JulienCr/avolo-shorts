@@ -29,6 +29,8 @@ function candidate(id: string, overrides: Partial<CandidateClip> = {}): Candidat
     description: '',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
     preview: '',
     thumbnailUrl: null,
     ...overrides,

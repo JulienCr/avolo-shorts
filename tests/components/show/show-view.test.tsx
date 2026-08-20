@@ -65,6 +65,8 @@ function clip(
     description: '',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
     preview: 'Trois premières phrases.',
     thumbnailUrl: `/api/clips/${id}/thumb`,
     ...partial,

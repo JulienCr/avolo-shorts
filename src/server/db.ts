@@ -1,12 +1,20 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
+import { z } from 'zod'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
+  HOOK_ALIGNMENTS,
+  HOOK_BOUNDS,
+  HOOK_DEFAULTS,
+  HOOK_FONTS,
+  HOOK_POSITIONS,
+  HOOK_TRANSITIONS,
   LLM_PROVIDERS,
   type AiSettings,
+  type HookSettings,
   type IngestionSettings,
   type Settings,
 } from '@/lib/api'
@@ -106,7 +114,15 @@ CREATE TABLE IF NOT EXISTS clips (
   --
   -- Un objet vide par défaut : tout jeton dépasse un champ absent, donc une
   -- ligne écrite avant cette colonne ne bloque personne.
-  seqs        TEXT NOT NULL DEFAULT '{}'
+  seqs        TEXT NOT NULL DEFAULT '{}',
+  -- Le hook : l'accroche incrustée dès la première image (retour d'usage §7).
+  -- Vide par défaut, comme un clip qui n'en a pas encore.
+  hookText    TEXT NOT NULL DEFAULT '',
+  -- Un objet JSON **creux** : seules les clés que ce clip surcharge par
+  -- rapport aux défauts globaux (famille \`hook\` du registre, plus bas).
+  -- \`{}\` dit « aux valeurs globales » ; voir \`hookStyle\` sur \`Clip\`
+  -- (\`core/edl.ts\`).
+  hookStyle   TEXT NOT NULL DEFAULT '{}'
 );
 
 -- Composite, dans l'ordre exact de \`getClips\` : filtre sur \`projectId\`, tri
@@ -152,6 +168,15 @@ function migrate(db: Database.Database): void {
   )
   if (!columns.includes('seqs')) {
     db.exec(`ALTER TABLE clips ADD COLUMN seqs TEXT NOT NULL DEFAULT '{}'`)
+  }
+  // Le hook (retour d'usage §7) : deux colonnes de plus sur une base qui ne
+  // les portait pas. Même défense que `seqs` juste au-dessus — le contrôle
+  // porte sur la colonne, pas sur un numéro de version.
+  if (!columns.includes('hookText')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN hookText TEXT NOT NULL DEFAULT ''`)
+  }
+  if (!columns.includes('hookStyle')) {
+    db.exec(`ALTER TABLE clips ADD COLUMN hookStyle TEXT NOT NULL DEFAULT '{}'`)
   }
   // `seq`, son prédécesseur par ligne, n'a jamais quitté cette branche : le
   // laisser derrière nous ferait une colonne morte au nom presque identique à
@@ -302,8 +327,24 @@ export function closeDb(): void {
  * suit dans une PR séparée.
  */
 
-/** Ce qu'un réglage sait être. Une famille nouvelle en ajoute au besoin. */
-export type SettingFieldType = 'integer' | 'text' | 'boolean'
+/**
+ * Ce qu'un réglage sait être. Une famille nouvelle en ajoute au besoin.
+ *
+ * **`color`, et non un `pattern?: RegExp` générique sur `text`** — question
+ * attendue en review. Le registre décrit une **forme**, close et à
+ * orthographe canonique (voir `COLOR_PATTERN` et sa normalisation en
+ * majuscules) ; un `pattern` générique serait l'échappatoire où le prochain
+ * champ rangerait une règle métier, et comme ce registre ne porte aucune
+ * prose (issue #78), rien n'expliquerait alors le refus. Un type nommé, si.
+ *
+ * **Pas de type décimal, et c'est une décision prise, pas une simplification**
+ * — voir le commentaire de `parseSetting` sur `/^\d+$/` : un type flottant
+ * rouvrirait la sérialisation, la précision, et la comparaison d'une valeur
+ * arrondie à un seuil inclusif, que `CLAUDE.md` documente comme s'étant
+ * réintroduite deux fois à un an d'écart. C'est pour ça que le hook porte
+ * `durationMs`, un entier, plutôt que des secondes.
+ */
+export type SettingFieldType = 'integer' | 'text' | 'boolean' | 'color'
 
 /** Un réglage, décrit une fois : sa forme, ses bornes et ce qu'il veut dire. */
 export type SettingField = {
@@ -321,6 +362,16 @@ export type SettingField = {
    * nul viderait la présélection.
    */
   min?: number
+  /**
+   * Le plus grand entier acceptable. **Entiers seulement, comme `min`, et
+   * absent ailleurs.** `undefined` veut dire « pas de plafond » : les trois
+   * familles qui existaient avant le hook (`selection`, `ai`, `ingestion`)
+   * n'en portent aucun et restent inchangées. Câblée dans les deux fonctions, avec des
+   * sémantiques opposées comme `min` : `parseSetting` ignore une valeur
+   * au-delà comme il ignore déjà une valeur en-deçà du plancher ;
+   * `validateSetting` lève.
+   */
+  max?: number
   /**
    * Pour un champ `text`, autorise la chaîne vide comme valeur valide et
    * significative — le seul cas aujourd'hui est `ai.ollamaBaseUrl`, où vide
@@ -446,11 +497,49 @@ const INGESTION_FIELDS: readonly SettingField[] = (
   Object.keys(INGESTION_FIELD_SHAPES) as (keyof IngestionSettings)[]
 ).map((name) => ({ family: 'ingestion' as const, name, ...INGESTION_FIELD_SHAPES[name] }))
 
+/**
+ * Les champs de la famille `hook` — les défauts globaux du hook (retour
+ * d'usage §6.3), branchés dès cette PR : l'écran des réglages les enregistre,
+ * et `hookStyle` sur `Clip` s'en sert comme base à surcharger.
+ *
+ * **Même patron qu'`AI_FIELD_SHAPES`, `satisfies` compris** : la clé est
+ * `keyof HookSettings`, et un champ oublié ou en trop casse le type-check
+ * plutôt que de diverger en silence.
+ *
+ * **Les défauts viennent de `HOOK_DEFAULTS`** (`@/core/hook`), pas d'une
+ * valeur littérale recopiée ici : c'est la même constante que lit
+ * `hook-section.tsx` pour son bouton « Revenir à … » et pour ce qu'il affiche
+ * pendant le chargement. Deux littéraux à la main auraient fini par diverger
+ * au premier défaut changé.
+ */
+const HOOK_FIELD_SHAPES = {
+  enabled: { type: 'boolean', defaultValue: HOOK_DEFAULTS.enabled },
+  durationMs: { type: 'integer', defaultValue: HOOK_DEFAULTS.durationMs, ...HOOK_BOUNDS.durationMs },
+  font: { type: 'text', defaultValue: HOOK_DEFAULTS.font, enum: HOOK_FONTS },
+  size: { type: 'integer', defaultValue: HOOK_DEFAULTS.size, ...HOOK_BOUNDS.size },
+  position: { type: 'text', defaultValue: HOOK_DEFAULTS.position, enum: HOOK_POSITIONS },
+  alignment: { type: 'text', defaultValue: HOOK_DEFAULTS.alignment, enum: HOOK_ALIGNMENTS },
+  textColor: { type: 'color', defaultValue: HOOK_DEFAULTS.textColor },
+  backgroundColor: { type: 'color', defaultValue: HOOK_DEFAULTS.backgroundColor },
+  backgroundOpacity: {
+    type: 'integer',
+    defaultValue: HOOK_DEFAULTS.backgroundOpacity,
+    ...HOOK_BOUNDS.backgroundOpacity,
+  },
+  enter: { type: 'text', defaultValue: HOOK_DEFAULTS.enter, enum: HOOK_TRANSITIONS },
+  exit: { type: 'text', defaultValue: HOOK_DEFAULTS.exit, enum: HOOK_TRANSITIONS },
+} satisfies Record<keyof HookSettings, Omit<SettingField, 'family' | 'name'>>
+
+const HOOK_FIELDS: readonly SettingField[] = (
+  Object.keys(HOOK_FIELD_SHAPES) as (keyof HookSettings)[]
+).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
+
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
 export const SETTING_FIELDS: readonly SettingField[] = [
   ...SELECTION_FIELDS,
   ...AI_FIELDS,
   ...INGESTION_FIELDS,
+  ...HOOK_FIELDS,
 ]
 
 /** Le champ décrit par une famille et un nom, ou `undefined` s'il n'existe pas. */
@@ -493,6 +582,15 @@ export class InvalidSettingError extends Error {
 const TEXT_MAX = 2_048
 
 /**
+ * La forme canonique d'une couleur du registre : `#` puis six chiffres
+ * hexadécimaux, **majuscules à la lecture comme à l'écriture**. Exportée pour
+ * que `PATCH /api/clips/:id` valide `hookStyle.textColor`/`backgroundColor`
+ * avec exactement la même forme que le registre — une seule source, pas une
+ * regex réécrite à la main de l'autre côté.
+ */
+export const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
+
+/**
  * Relit une valeur stockée, ou rend `undefined` si elle n'a aucun sens.
  *
  * **Exportée avec `validateSetting` parce que les familles qui exerceront les
@@ -523,10 +621,21 @@ export function parseSetting(
       if (!/^\d+$/.test(raw.trim())) return undefined
       const value = Number(raw.trim())
       if (!Number.isSafeInteger(value) || value < (field.min ?? 0)) return undefined
+      // **Ignorée comme le plancher, jamais levée** : c'est `parseSetting`,
+      // la lecture tolérante. `field.max` est absent partout sauf pour le
+      // hook, donc les familles existantes ne voient jamais cette branche.
+      if (field.max !== undefined && value > field.max) return undefined
       return value
     }
     case 'boolean':
       return raw === 'true' ? true : raw === 'false' ? false : undefined
+    case 'color': {
+      // Même normalisation qu'à l'écriture (`validateSetting`) : la lecture
+      // et l'écriture doivent s'accorder sur ce qu'une valeur stockée veut
+      // dire, exactement comme pour les trois autres types.
+      const trimmed = raw.trim()
+      return COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : undefined
+    }
     case 'text': {
       // **Les mêmes bornes que `validateSetting`, et c'est le contrat.** Une
       // valeur stockée vide, blanche ou trop longue passait ici alors que
@@ -578,6 +687,13 @@ export function validateSetting(
           `Réglage ${key} : un entier supérieur ou égal à ${min} est attendu, reçu ${JSON.stringify(value)}.`,
         )
       }
+      // **Lève, contrairement à `parseSetting`** : c'est l'inverse exact, et
+      // c'est le contrat de cette fonction — quelqu'un attend une réponse.
+      if (field.max !== undefined && value > field.max) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : un entier au plus égal à ${field.max} est attendu, reçu ${JSON.stringify(value)}.`,
+        )
+      }
       return value
     }
     case 'boolean': {
@@ -587,6 +703,14 @@ export function validateSetting(
         )
       }
       return value
+    }
+    case 'color': {
+      if (typeof value !== 'string' || !COLOR_PATTERN.test(value)) {
+        throw new InvalidSettingError(
+          `Réglage ${key} : une couleur #RRGGBB est attendue, reçu ${JSON.stringify(value)}.`,
+        )
+      }
+      return value.toUpperCase()
     }
     case 'text': {
       const isEmpty = value === ''
@@ -638,6 +762,10 @@ export function effectiveSettings(db: Database.Database): Settings {
     ingestion: Object.fromEntries(
       INGESTION_FIELDS.map((f) => [f.name, f.defaultValue]),
     ) as unknown as IngestionSettings,
+    // Même dérivation, pour la même raison, pour les onze défauts du hook.
+    hook: Object.fromEntries(
+      HOOK_FIELDS.map((f) => [f.name, f.defaultValue]),
+    ) as unknown as HookSettings,
   }
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))
@@ -770,6 +898,76 @@ export function listProjects(db: Database.Database): Project[] {
   return db.prepare('SELECT * FROM projects ORDER BY createdAt DESC').all() as Project[]
 }
 
+/**
+ * La forme d'un style de hook surchargé, **une seule fois** : `PATCH
+ * /api/clips/:id` la réutilise en stricte pour refuser une clé inconnue ou
+ * hors bornes, et `readHookStyle` ci-dessous en tolérante pour la relecture
+ * d'une colonne abîmée. Les bornes viennent de `HOOK_BOUNDS`, la même source
+ * que la famille `hook` du registre plus haut — `CLAUDE.md`, « une seule
+ * source pour les bornes, pas une liste réécrite à la main ».
+ *
+ * **Les couleurs se normalisent en majuscules ici aussi**, par le même
+ * `.transform` que `parseSetting`/`validateSetting` appliquent à la famille
+ * `hook` (`COLOR_PATTERN`, forme canonique documentée juste au-dessus). Un
+ * schéma qui ne ferait que valider le motif laisserait passer `#a1b2c3` tel
+ * quel, brisant l'invariant « majuscules à la lecture comme à l'écriture »
+ * pour toute surcharge par clip. (relevé par Copilot)
+ */
+export const HOOK_STYLE_SHAPE = {
+  enabled: z.boolean(),
+  durationMs: z.number().int().min(HOOK_BOUNDS.durationMs.min).max(HOOK_BOUNDS.durationMs.max),
+  font: z.enum(HOOK_FONTS),
+  size: z.number().int().min(HOOK_BOUNDS.size.min).max(HOOK_BOUNDS.size.max),
+  position: z.enum(HOOK_POSITIONS),
+  alignment: z.enum(HOOK_ALIGNMENTS),
+  textColor: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
+  backgroundColor: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
+  backgroundOpacity: z
+    .number()
+    .int()
+    .min(HOOK_BOUNDS.backgroundOpacity.min)
+    .max(HOOK_BOUNDS.backgroundOpacity.max),
+  enter: z.enum(HOOK_TRANSITIONS),
+  exit: z.enum(HOOK_TRANSITIONS),
+} satisfies Record<keyof HookSettings, z.ZodType>
+
+/**
+ * Le style qu'un clip surcharge, relu **sans jamais lever**. Une colonne
+ * abîmée retombe sur `{}` avec un avertissement — comme `lireTokens` pour
+ * `seqs`, et pour la même raison : une valeur illisible ne doit pas rendre un
+ * clip entier illisible.
+ *
+ * **Le `console.warn` ne couvre que l'échec de `JSON.parse`**, exactement
+ * comme `lireTokens` : une forme reconnaissable comme JSON mais dont une clé
+ * est hors bornes, au mauvais type ou simplement inconnue retombe sur `{}` en
+ * silence, via le `.catch({})` du schéma — le même partage que `lireTokens`
+ * applique déjà entre son `try/catch` et son filtrage silencieux par type.
+ *
+ * **`z.strictObject`, pas `z.object`.** Un schéma non strict tronquerait une
+ * clé inconnue au lieu de rejeter l'objet entier — `{ size: 72, chapeau: true }`
+ * relirait `{ size: 72 }` plutôt que `{}`, un comportement partiel que les deux
+ * autres cas de corruption (valeur hors bornes, clé seule inconnue) refusent
+ * déjà : la relecture est tout ou rien, jamais un filtrage clé par clé.
+ */
+const HOOK_STYLE_SCHEMA = z.strictObject(HOOK_STYLE_SHAPE).partial().catch({})
+
+function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (cause) {
+    console.warn(`Style de hook illisible pour le clip ${clipId} :`, cause)
+    return {}
+  }
+  return HOOK_STYLE_SCHEMA.parse(parsed)
+}
+
 /** La forme brute d'une ligne de `clips`, avant reconversion. */
 type LineClip = {
   id: string
@@ -783,6 +981,8 @@ type LineClip = {
   description: string
   status: ClipStatus
   pass: number
+  hookText: string
+  hookStyle: string
 }
 
 // Les valeurs admises, écrites en `Record<union, true>` : TypeScript exige
@@ -838,6 +1038,8 @@ function clipSinceLine(line: LineClip): Clip {
     description: line.description,
     status: valueAdmitted(STATUSES, line.status, 'status'),
     pass: line.pass,
+    hookText: line.hookText,
+    hookStyle: readHookStyle(line.hookStyle, line.id),
   }
 }
 
@@ -854,14 +1056,19 @@ function lineSinceClip(clip: Clip): LineClip {
     description: clip.description,
     status: clip.status,
     pass: clip.pass,
+    hookText: clip.hookText,
+    hookStyle: JSON.stringify(clip.hookStyle),
   }
 }
 
+// **Trois endroits, pas un**, pour `hookText`/`hookStyle` : la liste des
+// colonnes, le `VALUES` et le `DO UPDATE SET`. Oublier le troisième laisserait
+// un `putClip` sur un clip existant garder le hook d'avant sans un mot.
 const INSERT_CLIP = `
   INSERT INTO clips (id, projectId, segments, ratio, cropX, captions, branding,
-                     title, description, status, pass)
+                     title, description, status, pass, hookText, hookStyle)
   VALUES (@id, @projectId, @segments, @ratio, @cropX, @captions, @branding,
-          @title, @description, @status, @pass)
+          @title, @description, @status, @pass, @hookText, @hookStyle)
   ON CONFLICT(id) DO UPDATE SET
     segments    = excluded.segments,
     ratio       = excluded.ratio,
@@ -871,7 +1078,9 @@ const INSERT_CLIP = `
     title       = excluded.title,
     description = excluded.description,
     status      = excluded.status,
-    pass        = excluded.pass`
+    pass        = excluded.pass,
+    hookText    = excluded.hookText,
+    hookStyle   = excluded.hookStyle`
 
 /**
  * Refuse qu'un identifiant de clip change de projet.

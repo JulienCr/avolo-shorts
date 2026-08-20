@@ -87,6 +87,8 @@ describe('mergeCandidates', () => {
       description: 'ça part en vrille',
       status: 'candidate',
       pass: 0,
+      hookText: '',
+      hookStyle: {},
     }
     expect(mergeCandidates([], [incoming], 4)).toEqual([{ ...incoming, pass: 4 }])
   })

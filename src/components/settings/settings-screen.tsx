@@ -139,7 +139,11 @@ export function SettingsScreen() {
 
         <Separator />
 
-        <HookSection />
+        <HookSection
+          values={settings.data?.hook}
+          disabled={save.isPending}
+          onChange={(patch) => save.mutateAsync({ hook: patch })}
+        />
       </main>
     </div>
   )

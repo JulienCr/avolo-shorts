@@ -2,7 +2,7 @@
 
 /**
  * L'écran des paramètres : les cinq réglages du repérage, leur estimation, et la
- * section du hook qui n'écrit rien.
+ * section du hook, qui écrit ses onze champs comme les autres réglages.
  *
  * **Ce qu'un écran de réglages rate le plus souvent**, et que ces tests tiennent :
  * afficher le nom technique d'une clé, écrire à chaque frappe, et ne rien dire
@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
+import { HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
 import type { Settings } from '@/lib/api'
 
 vi.mock('next/navigation', () => ({
@@ -60,6 +61,7 @@ const DEFAULTS: Settings = {
   selection: { ...DEFAULT_SELECTION_DIMENSIONS },
   ai: { ...AI_DEFAULTS },
   ingestion: { ...INGESTION_DEFAULTS },
+  hook: { ...HOOK_DEFAULTS },
 }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
@@ -324,37 +326,78 @@ describe('les pannes', () => {
 })
 
 describe('la section du hook', () => {
-  it('montre la forme retenue et dit qu’elle ne s’enregistre pas', async () => {
-    // Inventer une seconde voie d'écriture aurait fait un endroit de plus où le
-    // même réglage vit, donc un endroit de plus d'où il diverge.
-    server()
+  it('affiche les valeurs de la base, jamais les constantes du code', async () => {
+    // Servir `size: 72` dans la fixture : l'écran doit montrer 72, pas le
+    // défaut du code (56). Afficher une constante ferait croire à une valeur
+    // enregistrée là où la base porte autre chose.
+    server({
+      read: () => response({ ...DEFAULTS, hook: { ...HOOK_DEFAULTS, size: 72 } }),
+    })
     await mountScreen()
 
-    expect(screen.getByRole('heading', { name: 'Hook' })).toBeTruthy()
-    expect(screen.getByText(/ne s’enregistrent pas encore/)).toBeTruthy()
+    expect(screen.getByLabelText('Taille')).toHaveProperty('value', '72')
   })
 
-  it('n’offre que les quatre transitions du premier lot', async () => {
+  it('ouvre les quatre transitions du premier lot, deux d’entre elles inertes', async () => {
+    // La liste **s'ouvre** désormais — la fermer était l'effet de bord d'un
+    // stockage qui n'existait pas encore, pas une règle en soi.
     server()
     await mountScreen()
 
-    const enter = screen.getByLabelText('Effet d’apparition')
+    const trigger = screen.getByLabelText('Effet d’apparition')
     // Le libellé, pas la valeur brute : l'écran dit « Fondu », pas « fade ».
-    expect(enter.textContent).toContain('Fondu')
-    expect(document.body.textContent).not.toMatch(/scanline/i)
+    expect(trigger.textContent).toContain('Fondu')
+
+    await userEvent.click(trigger)
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(4)
+
+    const glitch = options.find((o) => o.textContent?.includes('Glitch'))
+    const scanline = options.find((o) => o.textContent?.includes('Scanline'))
+    expect(glitch?.getAttribute('aria-disabled')).toBe('true')
+    expect(scanline?.getAttribute('aria-disabled')).toBe('true')
   })
 
-  it('laisse ses contrôles inertes, sans les sortir de la lecture', async () => {
-    // « En lecture seule » et non « absent » : la forme est visible pour la
-    // livraison qui branchera le stockage, et aucune écriture n'est ouverte.
-    server()
+  it('enregistre un choix de position', async () => {
+    const writes = server()
     await mountScreen()
-    const fieldset = document.querySelector('fieldset')
-    expect(fieldset?.hasAttribute('disabled')).toBe(true)
-    expect(fieldset?.textContent).toContain('Hook activé par défaut')
+
+    await userEvent.click(screen.getByLabelText('Position'))
+    await userEvent.click(await screen.findByRole('option', { name: /Tiers inférieur/ }))
+
+    await waitFor(() => expect(writes).toEqual([{ hook: { position: 'bottom' } }]))
   })
 
-  it('désactive chaque contrôle lui-même, sans compter sur le fieldset', async () => {
+  it('convertit les secondes saisies en millisecondes à l’écriture', async () => {
+    // `durationMs` est ce qui se stocke ; le champ affiche des secondes. La
+    // conversion vit dans `DurationField` et n'était couverte par aucun test
+    // de composant. (relevé par Copilot)
+    const writes = server()
+    await mountScreen()
+
+    const field = screen.getByLabelText('Durée')
+    await userEvent.clear(field)
+    await userEvent.type(field, '2.5')
+    await userEvent.tab()
+
+    await waitFor(() => expect(writes).toEqual([{ hook: { durationMs: 2500 } }]))
+  })
+
+  it('borne la durée saisie aux limites du registre avant de l’envoyer', async () => {
+    const writes = server()
+    await mountScreen()
+
+    const field = screen.getByLabelText('Durée')
+    await userEvent.clear(field)
+    await userEvent.type(field, '99')
+    await userEvent.tab()
+
+    await waitFor(() =>
+      expect(writes).toEqual([{ hook: { durationMs: HOOK_BOUNDS.durationMs.max } }]),
+    )
+  })
+
+  it('désactive chaque contrôle lui-même, sans compter sur le fieldset, pendant le chargement', async () => {
     // **`fieldset[disabled]` ne désactive que les contrôles de formulaire
     // natifs.** Mesuré : le déclencheur de `Select` rend un
     // `<button role="combobox">` et tombe sous la règle, la case rend un
@@ -362,21 +405,37 @@ describe('la section du hook', () => {
     // `disabled` par contrôle, l'inertie de la section dépendait du tag que la
     // primitive choisit de rendre — et un changement de version l'aurait défaite
     // en silence. (relevé par Aristarque)
+    //
+    // **Ce qui change avec le stockage réel, c'est le moment de l'inertie** :
+    // elle ne dure plus toute la vie de l'écran, seulement le temps que
+    // `GET /api/settings` réponde. La section reste montée avant cette
+    // réponse — contrairement à `SelectionSection`/`AiSection` — donc c'est ce
+    // court moment qu'il faut prouver, avant tout `await`.
     server()
-    await mountScreen()
+    const Wrapper = wrapper()
+    render(
+      <Wrapper>
+        <SettingsScreen />
+      </Wrapper>,
+    )
 
     expect(screen.getByLabelText('Effet d’apparition')).toHaveProperty('disabled', true)
     const box = screen.getAllByLabelText('Hook activé par défaut')[0]
     expect(box.getAttribute('aria-disabled')).toBe('true')
+
+    await waitFor(() => expect(screen.getByLabelText(/tranche de/i)).toBeTruthy())
   })
 
-  it('n’ouvre pas la liste d’un choix inerte', async () => {
-    // La preuve par le geste plutôt que par l'attribut : c'est ce qu'un
-    // utilisateur peut faire qui compte.
-    server()
+  it('ouvre la liste et enregistre le choix, une fois les réglages chargés', async () => {
+    // L'inverse du comportement d'avant cette PR : la liste s'ouvre, et le
+    // choix part au serveur.
+    const writes = server()
     await mountScreen()
 
     await userEvent.click(screen.getByLabelText('Effet d’apparition'))
-    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(await screen.findByRole('listbox')).toBeTruthy()
+
+    await userEvent.click(await screen.findByRole('option', { name: 'Aucune' }))
+    await waitFor(() => expect(writes).toEqual([{ hook: { enter: 'none' } }]))
   })
 })

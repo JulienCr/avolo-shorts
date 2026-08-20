@@ -15,6 +15,7 @@ import { GET as listSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
+import { HOOK_DEFAULTS } from '@/lib/api'
 import type {
   CandidateClip,
   ClipDetail,
@@ -167,6 +168,8 @@ function baseClip(): Clip {
     description: "C'était pas moi.",
     status: 'candidate',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
   }
 }
 
@@ -904,6 +907,52 @@ describe('PATCH /api/clips/:id', () => {
     expect((await patch({ cropX: 1.5 })).status).toBe(400)
   })
 
+  /**
+   * Le hook sur un clip (retour d'usage §7). `hookStyle` est un
+   * `z.strictObject` : une clé inconnue est un 400, comme le reste de cette
+   * route (`segments`, par exemple).
+   */
+  it('accepte un hookText et l’enregistre', async () => {
+    const response = await patch({ hookText: 'Une accroche' })
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as PatchClipResult).clip.hookText).toBe('Une accroche')
+  })
+
+  it('refuse un hookText trop long', async () => {
+    expect((await patch({ hookText: 'x'.repeat(281) })).status).toBe(400)
+  })
+
+  it('accepte un hookStyle et l’enregistre', async () => {
+    const response = await patch({ hookStyle: { size: 72, position: 'bottom' } })
+    expect(response.status).toBe(200)
+    const { clip } = (await response.json()) as PatchClipResult
+    expect(clip.hookStyle).toEqual({ size: 72, position: 'bottom' })
+  })
+
+  it('refuse un hookStyle avec une valeur hors bornes', async () => {
+    expect((await patch({ hookStyle: { size: 9 } })).status).toBe(400)
+  })
+
+  it('refuse un hookStyle avec une clé inconnue', async () => {
+    expect((await patch({ hookStyle: { unknownField: true } })).status).toBe(400)
+  })
+
+  it('refuse un hookStyle avec une couleur mal formée', async () => {
+    expect((await patch({ hookStyle: { textColor: '#GG0000' } })).status).toBe(400)
+  })
+
+  it('normalise une couleur de hookStyle en majuscules, comme le registre', async () => {
+    // Même contrat que la famille `hook` (`COLOR_PATTERN`, `src/server/db.ts`,
+    // lignes 585-589) : `HOOK_STYLE_SHAPE` est partagé entre cette route et
+    // `readHookStyle`, donc une seule normalisation doit couvrir les deux
+    // chemins d'écriture — le registre global et la surcharge par clip.
+    // (relevé par Copilot)
+    const response = await patch({ hookStyle: { textColor: '#a1b2c3' } })
+    expect(response.status).toBe(200)
+    const { clip } = (await response.json()) as PatchClipResult
+    expect(clip.hookStyle).toEqual({ textColor: '#A1B2C3' })
+  })
+
   it('normalise les segments avant écriture', async () => {
     const response = await patch({
       segments: [
@@ -1400,6 +1449,9 @@ describe('/api/settings', () => {
   /** Le défaut de la famille `ingestion`, recopié de `db.ts`. */
   const INGESTION_DEFAULTS = { copySourceLocally: true }
 
+  /** Les onze défauts de la famille `hook` (retour d'usage §6.3). */
+  const HOOK_SETTINGS_DEFAULTS = { ...HOOK_DEFAULTS }
+
   const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
@@ -1416,6 +1468,7 @@ describe('/api/settings', () => {
       selection: DEFAULT_SELECTION_DIMENSIONS,
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
     })
   })
 
@@ -1426,12 +1479,14 @@ describe('/api/settings', () => {
       selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
     })
   })
 
@@ -1442,10 +1497,13 @@ describe('/api/settings', () => {
    */
   it('refuse une clé inconnue et une valeur hors bornes', async () => {
     expect((await write({ selection: { minutesParClipe: 4 } })).status).toBe(400)
-    expect((await write({ hook: { duree: 2 } })).status).toBe(400)
+    // `hook` est une vraie famille depuis cette PR : le témoin d'une famille
+    // inconnue porte un nom que le registre n'a jamais eu, en anglais comme
+    // tout code neuf (`CLAUDE.md`).
+    expect((await write({ unknownFamily: { unknownField: 2 } })).status).toBe(400)
     // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
     // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
-    expect((await write({ hook: {} })).status).toBe(400)
+    expect((await write({ unknownFamily: {} })).status).toBe(400)
     expect((await write({ selection: { minutesPerClip: 0 } })).status).toBe(400)
     expect((await write({ selection: { minimumClips: 2.5 } })).status).toBe(400)
     expect((await write({ selection: { minutesPerClip: '4' } })).status).toBe(400)
@@ -1454,7 +1512,35 @@ describe('/api/settings', () => {
       selection: DEFAULT_SELECTION_DIMENSIONS,
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
     })
+  })
+
+  /**
+   * Les critères d'acceptation de la PR : une valeur hors bornes ou mal
+   * formée sur la famille `hook` est un 400, comme pour `selection` — la
+   * validation vit dans le registre (`applySettings`), pas ici, donc le même
+   * chemin couvre les deux familles.
+   */
+  it('refuse une valeur de hook hors bornes ou mal formée', async () => {
+    expect((await write({ hook: { size: 9 } })).status).toBe(400) // sous le plancher (10)
+    expect((await write({ hook: { backgroundOpacity: 101 } })).status).toBe(400) // au-dessus du plafond (100)
+    expect((await write({ hook: { textColor: '#GG0000' } })).status).toBe(400) // couleur mal formée
+    // Rien de tout ça n'a été écrit.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+    })
+  })
+
+  it('accepte et relit une valeur de hook valide, couleur normalisée en majuscules', async () => {
+    const response = await write({ hook: { size: 72, textColor: '#a1b2c3' } })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { hook: { size: number; textColor: string } }
+    expect(body.hook.size).toBe(72)
+    expect(body.hook.textColor).toBe('#A1B2C3')
   })
 
   it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
@@ -1468,6 +1554,7 @@ describe('/api/settings', () => {
       selection: DEFAULT_SELECTION_DIMENSIONS,
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
     })
   })
 

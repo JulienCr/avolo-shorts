@@ -1,9 +1,8 @@
 'use client'
 
-import { Info } from 'lucide-react'
-import { useId } from 'react'
+import { RotateCcw } from 'lucide-react'
+import { useId, useState } from 'react'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,75 +13,84 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  HOOK_ALIGNMENTS,
+  HOOK_BOUNDS,
+  HOOK_DEFAULTS,
+  HOOK_FONTS,
+  HOOK_POSITIONS,
+  HOOK_TRANSITIONS,
+  type HookSettings,
+} from '@/lib/api'
 
 /**
- * Les valeurs par défaut du hook — **en lecture seule, et c'est délibéré**.
+ * Les défauts globaux du hook (retour d'usage §6.3) : le texte court affiché
+ * dès la première image d'un clip, pour accrocher dans le fil avant que le
+ * spectateur comprenne le contexte.
  *
- * Le hook est le texte court affiché dès la première image d'un clip, pour
- * accrocher dans le fil avant même que le spectateur comprenne le contexte. Ces
- * réglages en sont les défauts ; un clip pourra ensuite les surcharger.
+ * **Chaque champ s'édite et s'enregistre, désormais.** Le bandeau « ne
+ * s'enregistrent pas encore » et le `fieldset disabled` inconditionnel ont
+ * disparu avec lui : ce que cette PR livre, c'est le stockage. Voir
+ * `src/server/db.ts` (famille `hook` du registre) et `src/core/hook.ts`
+ * (`HookSettings`, `HOOK_DEFAULTS`).
  *
- * **Rien ne s'écrit ici tant que le serveur ne sait pas les stocker.** Le
- * contrat des réglages ne porte aujourd'hui que la section « repérage »
- * (`Réglages = { selection: ChampsRepérage }`), et le rendu du hook appartient à
- * une livraison ultérieure. Deux mauvaises réponses étaient possibles : inventer
- * une seconde voie d'écriture — un endroit de plus où le même réglage vivrait,
- * donc un endroit de plus d'où il divergerait —, ou ne rien montrer et laisser
- * la prochaine livraison redécouvrir la forme. Celle-ci montre la forme, dit
- * qu'elle ne s'enregistre pas encore, et n'ouvre aucune porte.
+ * **`values` peut être `undefined`.** Contrairement à `SelectionSection` et
+ * `AiSection`, cette section reste montée avant que `GET /api/settings` n'ait
+ * répondu — c'est le comportement d'avant cette PR, conservé — donc elle doit
+ * savoir s'afficher sans données. Elle montre alors `HOOK_DEFAULTS` et force
+ * l'inertie, qui se lève dès que `values` arrive.
  *
- * **Quatre transitions, pas dix.** Le retour d'usage le dit : « éviter
- * d'implémenter dix effets avant d'avoir validé visuellement les quatre
- * premiers ». Chacune coûte un filtre ffmpeg à écrire, à mesurer et à regarder.
+ * **La leçon d'Aristarque doit survivre** : `fieldset[disabled]` ne désactive
+ * que les contrôles de formulaire natifs — le déclencheur de `Select` rend un
+ * `<button role="combobox">` et tombe sous la règle, la `Checkbox` de Base UI
+ * rend un `<span role="checkbox">` qu'elle ignore complètement. L'inertie
+ * pendant le chargement (`values === undefined`) est donc portée par
+ * **chaque contrôle**, pas par un `fieldset` global — exactement comme
+ * pendant une écriture en cours (`disabled` prop).
  */
 
-/** Les quatre seules transitions du premier lot. */
-export const TRANSITIONS = [
-  { value: 'none', label: 'Aucune' },
-  { value: 'fade', label: 'Fondu' },
-  { value: 'glitch', label: 'Glitch' },
-  { value: 'scanline', label: 'Scanline' },
-] as const
+/** Les quatre transitions du premier lot. `glitch` et `scanline` restent visibles, mais inertes : rien ne les rend encore. */
+const TRANSITION_LABELS: Record<(typeof HOOK_TRANSITIONS)[number], string> = {
+  none: 'Aucune',
+  fade: 'Fondu',
+  glitch: 'Glitch',
+  scanline: 'Scanline',
+}
 
-const POSITIONS = [
-  { value: 'top', label: 'Tiers supérieur' },
-  { value: 'center', label: 'Centre' },
-  { value: 'bottom', label: 'Tiers inférieur' },
-] as const
+/** Pourquoi `glitch` et `scanline` restent choisissables à l'œil, mais pas au clic. */
+const TRANSITION_COMING_SOON: ReadonlySet<(typeof HOOK_TRANSITIONS)[number]> = new Set([
+  'glitch',
+  'scanline',
+])
 
-const ALIGNMENTS = [
-  { value: 'left', label: 'À gauche' },
-  { value: 'center', label: 'Centré' },
-  { value: 'right', label: 'À droite' },
-] as const
+const POSITION_LABELS: Record<(typeof HOOK_POSITIONS)[number], string> = {
+  top: 'Tiers supérieur',
+  center: 'Centre',
+  bottom: 'Tiers inférieur',
+}
 
-/**
- * Ce que l'écran propose, **et ce que rien n'enregistre encore**.
- *
- * Écrit en un seul objet pour que la livraison qui branchera le stockage ait un
- * seul endroit à déplacer, et pour que ces valeurs ne se retrouvent pas
- * dispersées dans le JSX.
- *
- * `font` ne propose qu'Anton : c'est la seule police embarquée dans `fonts/`,
- * celle que les sous-titres utilisent déjà, et la seule que le rendu sache
- * résoudre. En proposer d'autres inviterait à choisir une police que ffmpeg ne
- * trouverait pas — un rendu correct à l'écran et faux dans le fichier.
- */
-export const HOOK_DEFAULTS = {
-  enabled: true,
-  durationSec: 2,
-  font: 'Anton',
-  size: 56,
-  position: 'top',
-  textColor: '#FFFFFF',
-  backgroundColor: '#000000',
-  backgroundOpacity: 60,
-  alignment: 'center',
-  enter: 'fade',
-  exit: 'fade',
-} as const
+const ALIGNMENT_LABELS: Record<(typeof HOOK_ALIGNMENTS)[number], string> = {
+  left: 'À gauche',
+  center: 'Centré',
+  right: 'À droite',
+}
 
-export function HookSection() {
+type OnChange = (patch: Partial<HookSettings>) => void | Promise<unknown>
+
+export function HookSection({
+  values,
+  disabled = false,
+  onChange,
+}: {
+  /** `undefined` tant que `GET /api/settings` n'a pas répondu. */
+  values: HookSettings | undefined
+  /** Le temps qu'une écriture soit en vol — s'ajoute à l'inertie du chargement, ne la remplace pas. */
+  disabled?: boolean
+  onChange: OnChange
+}) {
+  const shown = values ?? HOOK_DEFAULTS
+  const inert = disabled || values === undefined
+
   return (
     <section aria-labelledby="titre-hook" className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
@@ -96,84 +104,115 @@ export function HookSection() {
         </p>
       </div>
 
-      <Alert>
-        <Info aria-hidden />
-        <AlertTitle>Ces réglages ne s’enregistrent pas encore.</AlertTitle>
-        <AlertDescription>
-          Le rendu du hook et le stockage de ses défauts arrivent dans une
-          livraison suivante. Ce qui est montré ici est la forme retenue, pas un
-          état enregistré.
-        </AlertDescription>
-      </Alert>
-
-      {/* **Le `fieldset` ne suffit pas, et c'est mesuré.** `fieldset[disabled]`
-          ne désactive que les contrôles de formulaire natifs. Le déclencheur de
-          `Select` rend un `<button role="combobox">` et tombe donc bien sous la
-          règle — vérifié : le clic n'ouvre pas la liste. La case, elle, rend un
-          `<span role="checkbox">`, que le `fieldset` ignore complètement. Chaque
-          contrôle porte donc aussi son propre `disabled` : c'est ce qui rend
-          l'inertie indépendante du tag que la primitive choisit de rendre, et un
-          changement de version ne la défera pas en silence.
-          (relevé par Aristarque) */}
-      <fieldset
-        disabled
-        aria-describedby="hook-inerte"
-        className="flex flex-col gap-4 opacity-70"
-      >
-        <legend className="sr-only">Valeurs par défaut du hook</legend>
-        <p id="hook-inerte" className="sr-only">
-          Ces contrôles sont inertes : les valeurs ne sont pas encore
-          enregistrées.
-        </p>
-
+      <div className="flex flex-col gap-4">
         <Row>
-          <CheckboxField label="Hook activé par défaut" checked={HOOK_DEFAULTS.enabled} />
-          <NumberField
-            label="Durée"
-            value={HOOK_DEFAULTS.durationSec}
-            unit="secondes"
-            step={0.5}
+          <ToggleField
+            label="Hook activé par défaut"
+            checked={shown.enabled}
+            defaultValue={HOOK_DEFAULTS.enabled}
+            disabled={inert}
+            onChange={(value) => onChange({ enabled: value })}
+          />
+          <DurationField
+            value={shown.durationMs}
+            disabled={inert}
+            onCommit={(value) => onChange({ durationMs: value })}
           />
         </Row>
 
         <Row>
           <SelectField
             label="Police"
-            value={HOOK_DEFAULTS.font}
-            options={[{ value: 'Anton', label: 'Anton — la seule police embarquée' }]}
+            value={shown.font}
+            defaultValue={HOOK_DEFAULTS.font}
+            disabled={inert}
+            options={HOOK_FONTS.map((f) => ({ value: f, label: `${f} — la seule police embarquée` }))}
+            onChange={(value) => onChange({ font: value })}
           />
-          <NumberField label="Taille" value={HOOK_DEFAULTS.size} unit="points" step={1} />
+          <NumberField
+            label="Taille"
+            value={shown.size}
+            defaultValue={HOOK_DEFAULTS.size}
+            unit="points"
+            min={HOOK_BOUNDS.size.min}
+            max={HOOK_BOUNDS.size.max}
+            step={1}
+            disabled={inert}
+            onCommit={(value) => onChange({ size: value })}
+          />
         </Row>
 
         <Row>
-          <SelectField label="Position" value={HOOK_DEFAULTS.position} options={POSITIONS} />
-          <SelectField label="Alignement" value={HOOK_DEFAULTS.alignment} options={ALIGNMENTS} />
+          <SelectField
+            label="Position"
+            value={shown.position}
+            defaultValue={HOOK_DEFAULTS.position}
+            disabled={inert}
+            options={HOOK_POSITIONS.map((p) => ({ value: p, label: POSITION_LABELS[p] }))}
+            onChange={(value) => onChange({ position: value })}
+          />
+          <SelectField
+            label="Alignement"
+            value={shown.alignment}
+            defaultValue={HOOK_DEFAULTS.alignment}
+            disabled={inert}
+            options={HOOK_ALIGNMENTS.map((a) => ({ value: a, label: ALIGNMENT_LABELS[a] }))}
+            onChange={(value) => onChange({ alignment: value })}
+          />
         </Row>
 
         <Row>
-          <ColorField label="Couleur du texte" value={HOOK_DEFAULTS.textColor} />
-          <ColorField label="Couleur du fond" value={HOOK_DEFAULTS.backgroundColor} />
+          <ColorField
+            label="Couleur du texte"
+            value={shown.textColor}
+            defaultValue={HOOK_DEFAULTS.textColor}
+            disabled={inert}
+            onCommit={(value) => onChange({ textColor: value })}
+          />
+          <ColorField
+            label="Couleur du fond"
+            value={shown.backgroundColor}
+            defaultValue={HOOK_DEFAULTS.backgroundColor}
+            disabled={inert}
+            onCommit={(value) => onChange({ backgroundColor: value })}
+          />
           <NumberField
             label="Opacité du fond"
-            value={HOOK_DEFAULTS.backgroundOpacity}
+            value={shown.backgroundOpacity}
+            defaultValue={HOOK_DEFAULTS.backgroundOpacity}
             unit="%"
+            min={HOOK_BOUNDS.backgroundOpacity.min}
+            max={HOOK_BOUNDS.backgroundOpacity.max}
             step={5}
+            disabled={inert}
+            onCommit={(value) => onChange({ backgroundOpacity: value })}
           />
         </Row>
 
         <Row>
-          <SelectField
+          <TransitionField
             label="Effet d’apparition"
-            value={HOOK_DEFAULTS.enter}
-            options={TRANSITIONS}
+            value={shown.enter}
+            defaultValue={HOOK_DEFAULTS.enter}
+            disabled={inert}
+            onChange={(value) => onChange({ enter: value })}
           />
-          <SelectField
+          <TransitionField
             label="Effet de disparition"
-            value={HOOK_DEFAULTS.exit}
-            options={TRANSITIONS}
+            value={shown.exit}
+            defaultValue={HOOK_DEFAULTS.exit}
+            disabled={inert}
+            onChange={(value) => onChange({ exit: value })}
           />
         </Row>
-      </fieldset>
+      </div>
+
+      {/* Vrai à partir de la PR qui écrit le fichier ASS du hook — l'écrire
+          maintenant évite de rouvrir ce fichier pour une phrase. */}
+      <p className="text-xs text-muted-foreground">
+        Changer ces valeurs périme les exports des clips qui ne les ont pas
+        surchargées. Ils seront réencodés au prochain export.
+      </p>
     </section>
   )
 }
@@ -186,14 +225,143 @@ function Row({ children }: { children: React.ReactNode }) {
   )
 }
 
-function CheckboxField({ label, checked }: { label: string; checked: boolean }) {
+/** Le bouton « Revenir à … », affiché seulement s'il y a de quoi défaire. */
+function ResetButton({ onClick, disabled, label }: { onClick: () => void; disabled: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      <RotateCcw aria-hidden className="size-3" />
+      {label}
+    </button>
+  )
+}
+
+function ToggleField({
+  label,
+  checked,
+  defaultValue,
+  disabled,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  defaultValue: boolean
+  disabled: boolean
+  onChange: (value: boolean) => void | Promise<unknown>
+}) {
   const id = useId()
   return (
     <div className="flex items-center gap-2">
-      <Checkbox id={id} checked={checked} disabled />
+      <Checkbox
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(value) => void Promise.resolve(onChange(value === true)).catch(() => {})}
+      />
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
+      {checked !== defaultValue && (
+        <ResetButton
+          disabled={disabled}
+          onClick={() => void Promise.resolve(onChange(defaultValue)).catch(() => {})}
+          label={`Revenir à ${defaultValue ? 'activé' : 'désactivé'}`}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * La durée, affichée en secondes — **`durationMs` est ce qui se stocke et se
+ * valide**, la conversion vit ici parce que c'est déjà l'endroit de toute la
+ * prose de cette section (voir `src/core/hook.ts`, doc de `HookSettings`).
+ */
+function DurationField({
+  value,
+  disabled,
+  onCommit,
+}: {
+  /** En millisecondes — l'unité stockée. */
+  value: number
+  disabled: boolean
+  onCommit: (valueMs: number) => void | Promise<unknown>
+}) {
+  const id = useId()
+  const helpId = `${id}-help`
+  const seconds = value / 1000
+  const defaultSeconds = HOOK_DEFAULTS.durationMs / 1000
+  const minSeconds = HOOK_BOUNDS.durationMs.min / 1000
+  const maxSeconds = HOOK_BOUNDS.durationMs.max / 1000
+
+  const [draft, setDraft] = useState(String(seconds))
+  const [seen, setSeen] = useState(seconds)
+  if (seen !== seconds) {
+    setSeen(seconds)
+    setDraft(String(seconds))
+  }
+
+  function submit(nextMs: number) {
+    if (nextMs === value) return
+    void Promise.resolve(onCommit(nextMs)).catch(() => setDraft(String(seconds)))
+  }
+
+  function commit() {
+    const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
+    if (!Number.isFinite(parsed)) return setDraft(String(seconds))
+    const bounded = Math.min(maxSeconds, Math.max(minSeconds, parsed))
+    const ms = Math.round(bounded * 1000)
+    setDraft(String(ms / 1000))
+    submit(ms)
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} className="text-sm font-normal">
+        Durée
+      </Label>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          // 0,1 et non 0,5 : la grille HTML part de `min` (0,2) par pas de
+          // `step`, et 0,2 + n × 0,5 ne retombe jamais sur le défaut (2 s) —
+          // le champ naissait en `stepMismatch`, et les flèches sautaient à
+          // une valeur inattendue. 0,1 aligne `min`, le défaut et `max` sur
+          // la même grille. (relevé par Copilot)
+          step={0.1}
+          min={minSeconds}
+          max={maxSeconds}
+          disabled={disabled}
+          aria-describedby={helpId}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          className="h-8 w-20 text-sm tabular-nums"
+        />
+        <span className="text-xs text-muted-foreground">secondes</span>
+        {value !== HOOK_DEFAULTS.durationMs && (
+          <ResetButton
+            disabled={disabled}
+            onClick={() => submit(HOOK_DEFAULTS.durationMs)}
+            label={`Revenir à ${defaultSeconds}`}
+          />
+        )}
+      </div>
+      <p id={helpId} className="text-xs text-muted-foreground">
+        Combien de temps le hook reste à l’image, dès la première image.
+      </p>
     </div>
   )
 }
@@ -201,15 +369,45 @@ function CheckboxField({ label, checked }: { label: string; checked: boolean }) 
 function NumberField({
   label,
   value,
+  defaultValue,
   unit,
+  min,
+  max,
   step,
+  disabled,
+  onCommit,
 }: {
   label: string
   value: number
+  defaultValue: number
   unit: string
+  min: number
+  max: number
   step: number
+  disabled: boolean
+  onCommit: (value: number) => void | Promise<unknown>
 }) {
   const id = useId()
+  const [draft, setDraft] = useState(String(value))
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    setDraft(String(value))
+  }
+
+  function submit(next: number) {
+    if (next === value) return
+    void Promise.resolve(onCommit(next)).catch(() => setDraft(String(value)))
+  }
+
+  function commit() {
+    const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
+    if (!Number.isFinite(parsed)) return setDraft(String(value))
+    const bounded = Math.min(max, Math.max(min, Math.round(parsed)))
+    setDraft(String(bounded))
+    submit(bounded)
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
@@ -219,25 +417,49 @@ function NumberField({
         <Input
           id={id}
           type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
           step={step}
-          value={value}
-          readOnly
+          disabled={disabled}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            }
+          }}
           className="h-8 w-20 text-sm tabular-nums"
         />
         <span className="text-xs text-muted-foreground">{unit}</span>
+        {value !== defaultValue && (
+          <ResetButton
+            disabled={disabled}
+            onClick={() => submit(defaultValue)}
+            label={`Revenir à ${defaultValue}`}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-function SelectField({
+function SelectField<T extends string>({
   label,
   value,
+  defaultValue,
   options,
+  disabled,
+  onChange,
 }: {
   label: string
-  value: string
-  options: readonly { value: string; label: string }[]
+  value: T
+  defaultValue: T
+  options: readonly { value: T; label: string }[]
+  disabled: boolean
+  onChange: (value: T) => void | Promise<unknown>
 }) {
   const id = useId()
   return (
@@ -245,26 +467,141 @@ function SelectField({
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
-      <Select value={value} disabled>
-        <SelectTrigger id={id} className="w-52">
-          {/* Le libellé, pas la valeur : sans lui la boîte affiche `fade` là où
-              l'écran dit « Fondu » partout ailleurs. */}
-          <SelectValue>{options.find((o) => o.value === value)?.label ?? value}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="flex items-center gap-2">
+        <Select
+          value={value}
+          disabled={disabled}
+          onValueChange={(next) => void Promise.resolve(onChange(next as T)).catch(() => {})}
+        >
+          <SelectTrigger id={id} className="w-52">
+            <SelectValue>{options.find((o) => o.value === value)?.label ?? value}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {value !== defaultValue && (
+          <ResetButton
+            disabled={disabled}
+            onClick={() => void Promise.resolve(onChange(defaultValue)).catch(() => {})}
+            // Cette section porte cinq boutons `Select` réglés au défaut :
+            // « Revenir au défaut » seul les rendrait tous identiques au nom
+            // accessible, impossible à distinguer en navigation par boutons.
+            // (relevé par Copilot)
+            label={`${label} : revenir au défaut`}
+          />
+        )}
+      </div>
     </div>
   )
 }
 
-function ColorField({ label, value }: { label: string; value: string }) {
+/**
+ * Une transition : les quatre options du premier lot restent **visibles**,
+ * mais `glitch` et `scanline` sont `disabled` avec la raison — une valeur
+ * choisissable qui rendrait un fondu en silence serait un mensonge, et ce
+ * dépôt en refuse ailleurs. `SelectItem` porte alors `aria-disabled` (mesuré
+ * sur Base UI : un item non natif se rend inerte par cet attribut, jamais par
+ * `disabled` nu) et refuse le clic.
+ */
+function TransitionField({
+  label,
+  value,
+  defaultValue,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: (typeof HOOK_TRANSITIONS)[number]
+  defaultValue: (typeof HOOK_TRANSITIONS)[number]
+  disabled: boolean
+  onChange: (value: (typeof HOOK_TRANSITIONS)[number]) => void | Promise<unknown>
+}) {
   const id = useId()
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} className="text-sm font-normal">
+        {label}
+      </Label>
+      <div className="flex items-center gap-2">
+        <Select
+          value={value}
+          disabled={disabled}
+          onValueChange={(next) =>
+            void Promise.resolve(onChange(next as (typeof HOOK_TRANSITIONS)[number])).catch(() => {})
+          }
+        >
+          <SelectTrigger id={id} className="w-52">
+            <SelectValue>{TRANSITION_LABELS[value]}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {HOOK_TRANSITIONS.map((t) => (
+              <SelectItem key={t} value={t} disabled={TRANSITION_COMING_SOON.has(t)}>
+                {TRANSITION_LABELS[t]}
+                {TRANSITION_COMING_SOON.has(t) && (
+                  <span className="text-xs text-muted-foreground"> — à venir</span>
+                )}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {value !== defaultValue && (
+          <ResetButton
+            disabled={disabled}
+            onClick={() => void Promise.resolve(onChange(defaultValue)).catch(() => {})}
+            // Les deux instances (apparition, disparition) partagent le même
+            // défaut (`fade`) : un texte qui ne nommerait que la valeur ne les
+            // distinguerait pas davantage que le texte fixe qu'il remplace.
+            // (relevé par Copilot)
+            label={`${label} : revenir au défaut`}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Une couleur `#RRGGBB` : un aperçu, une boîte de texte, un brouillon validé
+ * au blur — même geste que les champs numériques.
+ */
+function ColorField({
+  label,
+  value,
+  defaultValue,
+  disabled,
+  onCommit,
+}: {
+  label: string
+  value: string
+  defaultValue: string
+  disabled: boolean
+  onCommit: (value: string) => void | Promise<unknown>
+}) {
+  const id = useId()
+  const [draft, setDraft] = useState(value)
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    setDraft(value)
+  }
+
+  function submit(next: string) {
+    if (next === value) return
+    void Promise.resolve(onCommit(next)).catch(() => setDraft(value))
+  }
+
+  function commit() {
+    const trimmed = draft.trim().toUpperCase()
+    if (!/^#[0-9A-F]{6}$/.test(trimmed)) return setDraft(value)
+    setDraft(trimmed)
+    submit(trimmed)
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
@@ -274,9 +611,29 @@ function ColorField({ label, value }: { label: string; value: string }) {
         <span
           aria-hidden
           className="size-6 shrink-0 rounded-md border"
-          style={{ backgroundColor: value }}
+          style={{ backgroundColor: /^#[0-9A-Fa-f]{6}$/.test(draft) ? draft : value }}
         />
-        <Input id={id} value={value} readOnly className="h-8 w-24 font-mono text-sm uppercase" />
+        <Input
+          id={id}
+          disabled={disabled}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          className="h-8 w-24 font-mono text-sm uppercase"
+        />
+        {value !== defaultValue && (
+          <ResetButton
+            disabled={disabled}
+            onClick={() => submit(defaultValue)}
+            label={`Revenir à ${defaultValue}`}
+          />
+        )}
       </div>
     </div>
   )

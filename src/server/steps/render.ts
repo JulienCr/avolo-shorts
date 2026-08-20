@@ -12,8 +12,14 @@ import { splitByShot } from '@/core/shot-split'
 import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
 import { cropRect, outputSize } from '@/core/framing'
-import { resolveHook, type HookSettings } from '@/core/hook'
-import { renderHookAss } from '@/core/hook-ass'
+import {
+  hookIsBurned,
+  hookLayout,
+  hookPlacement,
+  resolveHook,
+  type HookSettings,
+  type ResolvedHook,
+} from '@/core/hook'
 import type { Word } from '@/core/transcript'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
 import {
@@ -31,6 +37,7 @@ import {
   produceArtifact,
   type Progress,
 } from '@/server/ffmpeg'
+import { renderHookImage, type HookImage } from '@/server/hook-image'
 import { probe } from '@/server/ffprobe'
 import { isAAbsence } from '@/server/bytes'
 import { rendersDir, resolveSource } from '@/server/paths'
@@ -104,7 +111,7 @@ export type OptionsRender = {
 }
 
 /**
- * Les cinq chemins d'un clip. `variant9x16` vaut `null` quand le ratio natif est
+ * Les six chemins d'un clip. `variant9x16` vaut `null` quand le ratio natif est
  * déjà 9:16 : la variante à fond flouté n'existe que pour porter un 4:5 ou un
  * 1:1 sur TikTok et Shorts, et sur un clip déjà vertical elle serait le même
  * cadre rendu une seconde fois (spec §11).
@@ -119,14 +126,19 @@ export type PathsRender = {
   texts: string
   ass: string
   /**
-   * Le `.ass` du hook — un second document, distinct de `ass` ci-dessus.
+   * Le PNG du hook pour le canevas **natif** — un intermédiaire, comme `ass`,
+   * réécrit à chaque passage et gardé sur le disque pour relire ce que le
+   * rasteriseur a produit.
    *
-   * Même statut que lui : un intermédiaire, réécrit à chaque passage, gardé
-   * sur le disque pour relire ce que libass a incrusté. `ass` porte les
-   * sous-titres, `hookAss` le bandeau de hook ; les deux s'incrustent par deux
-   * appels distincts au filtre `ass=` (`src/core/ffmpeg/args.ts`).
+   * **Deux fichiers, pas un**, depuis que le hook est un PNG et non plus un
+   * document ASS partagé en unités de script : la géométrie de `hookLayout`
+   * est une fraction de la LARGEUR du canevas, et le natif (1080 ou 1920
+   * selon le ratio) et la variante 9:16 (toujours 1080) n'ont pas forcément
+   * la même — voir `hookImageNative`/`hookImageVariant` dans `renderClip`.
    */
-  hookAss: string
+  hookImageNative: string
+  /** Le PNG du hook pour le canevas de la **variante 9:16**. N'existe sur le disque que si `variant9x16` n'est pas `null`. */
+  hookImageVariant: string
   /**
    * L'empreinte du rendu — ce que les fichiers ci-dessus décrivent (#48).
    *
@@ -194,7 +206,8 @@ export function pathsRender(projectId: string, clipId: string, ratio: Ratio): Pa
     variant9x16: ratio === '9:16' ? null : pathVariant(projectId, name),
     texts: path.join(folder, `${name}.txt`),
     ass: path.join(folder, `${name}.ass`),
-    hookAss: path.join(folder, `${name}.hook.ass`),
+    hookImageNative: path.join(folder, `${name}.hook-native.png`),
+    hookImageVariant: path.join(folder, `${name}.hook-variant.png`),
     // **Le nom ne dépend pas du ratio**, contrairement à celui de la variante :
     // l'empreinte décrit le rendu quel que soit le ratio, et un clip dont le
     // ratio natif change doit retrouver — pour l'écarter — celle qu'il a écrite
@@ -267,8 +280,23 @@ export function pathsRender(projectId: string, clipId: string, ratio: Ratio): Pa
  * empreintes d'avant ne portent pas du tout, comme `captionsContent` avant
  * #87. Le prix est le même — un réencodage par clip, une fois — et le hook
  * n'existait pour aucun clip avant cette PR : le coût est nul en pratique.
+ *
+ * **Passée à 6 le 20 août 2026, quelques heures plus tard, avec le hook en
+ * PNG.** Le propriétaire du dépôt a regardé les rendus : fond translucide,
+ * angles droits, un bandeau qui recouvre l'image. Le hook s'incruste
+ * désormais par un PNG rasterisé (`src/server/hook-image.ts`) posé en
+ * `overlay`, plus par un document ASS — l'image produite a changé, donc la
+ * recette a changé. `FingerprintRender.hook` garde la même forme (un
+ * condensat composite `<contenu>:<polices>`), mais son `<contenu>` ne
+ * condense plus un document ASS : il condense ce qui détermine le PNG — le
+ * hook résolu, sa géométrie (`hookLayout`) et les dimensions des deux
+ * canevas possibles (natif, variante 9:16), puisqu'un même hook peut désormais
+ * produire deux images de tailles différentes. Une empreinte en version 5 ne
+ * porte donc plus la bonne recette de comparaison ; le coût est un
+ * réencodage par clip ayant un hook, une fois — nul en pratique le jour de ce
+ * changement, aucun clip de production n'en portant encore.
  */
-export const VERSION_FINGERPRINT = 5
+export const VERSION_FINGERPRINT = 6
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -427,21 +455,38 @@ export type FingerprintRender = ShapeRendered & {
   captionsContent: string | null
   /**
    * `null` quand rien n'a été incrusté (`hookIsBurned` faux) ; sinon le
-   * condensat du document ASS de hook réellement écrit, mêlé au condensat des
+   * condensat de ce qui détermine l'image PNG du hook, mêlé au condensat des
    * polices — voir `hookFingerprint` un peu plus bas pour la forme exacte.
    *
-   * **Un seul champ, comme `captionsLook`, et pour la même raison** : un
-   * document n'a de sens que s'il y a un hook, deux champs porteraient un
+   * **Un seul champ, comme `captionsLook`, et pour la même raison** : une
+   * géométrie n'a de sens que s'il y a un hook, deux champs porteraient un
    * invariant entre eux.
    *
-   * **Le document, pas le texte brut, et c'est le point qui compte le plus.**
-   * Le document ASS est fonction totale de (réglages globaux + surcharge du
-   * clip + texte) : il attrape donc un changement de réglage **global** que
-   * rien d'autre dans cette empreinte ne peut voir, puisque `hookText` et
-   * `hookStyle` (dans `ShapeRendered`) ne portent que ce que LE CLIP
-   * surcharge. C'est `docs/retour-ui-and-next-steps.md` §7 : « toute
-   * modification du hook […] doit invalider les fichiers exportés
-   * existants », y compris quand rien sur le clip lui-même n'a changé.
+   * **Ce qui détermine l'image, pas le texte brut — et c'est le point qui
+   * compte le plus.** Avant le 20 août 2026, ce champ condensait le document
+   * ASS produit ; depuis que le hook est un PNG rasterisé
+   * (`src/server/hook-image.ts`), il condense le hook résolu (réglages
+   * globaux + surcharge du clip + texte), sa géométrie (`hookLayout`) et les
+   * dimensions des DEUX canevas possibles — voir le paragraphe suivant. Dans
+   * les deux cas, la propriété tenue est la même : une fonction totale de
+   * (réglages globaux + surcharge du clip + texte), donc elle attrape un
+   * changement de réglage **global** que rien d'autre dans cette empreinte ne
+   * peut voir, puisque `hookText` et `hookStyle` (dans `ShapeRendered`) ne
+   * portent que ce que LE CLIP surcharge. C'est
+   * `docs/retour-ui-and-next-steps.md` §7 : « toute modification du hook […]
+   * doit invalider les fichiers exportés existants », y compris quand rien
+   * sur le clip lui-même n'a changé.
+   *
+   * **Les deux canevas dans le même condensat, pas un composite par sortie.**
+   * Le PNG est planifié par canevas (`hookImageNative`/`hookImageVariant`,
+   * `PathsRender`) : le natif peut faire 1080 ou 1920 de large selon le
+   * ratio, la variante 9:16 fait toujours 1080. Un composite qui ne
+   * retiendrait qu'un des deux laisserait un changement de ratio qui ne
+   * toucherait que l'autre canevas passer inaperçu. Les deux dimensions
+   * entrent donc dans le MÊME condensat (`native` et `variant`, `variant`
+   * valant `null` quand la variante n'est pas due) : un clip sans variante n'a
+   * qu'une seule dimension à faire varier pour changer le condensat, un clip
+   * qui en a une en a deux — et changer l'une ou l'autre suffit à le voir.
    *
    * **Le condensat des polices dedans, comme pour `captionsLook`.** Un clip
    * qui a un hook mais pas de sous-titres a `captionsLook: null` : le
@@ -532,6 +577,22 @@ function fileContent(filePath: string): string {
 }
 
 /**
+ * Les clés d'un objet plat, triées — jamais l'ordre d'insertion de
+ * `JSON.stringify`, qui dépend de l'écriture qui l'a produit et non de la
+ * valeur elle-même.
+ *
+ * **Une seule fonction, trois appelants** (`lookDigest`, `sameHookStyle`,
+ * `hookImageDigest`) : `CLAUDE.md` documente sous « un correctif compris
+ * comme local revient au champ suivant » comment le même défaut de forme —
+ * un `JSON.stringify` qui périme tout au premier réglage réordonné — s'est
+ * retrouvé trois fois dans la même PR sur un bornage voisin. Une seule
+ * implémentation ne peut pas diverger d'elle-même.
+ */
+function stableEntries(o: Record<string, unknown>): [string, unknown][] {
+  return Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+/**
  * Le condensat du look des sous-titres.
  *
  * **Clés triées avant sérialisation.** `JSON.stringify` suit l'ordre
@@ -540,8 +601,7 @@ function fileContent(filePath: string): string {
  * disque.
  */
 function lookDigest(look: CaptionsLook): string {
-  const stable = Object.entries(look.style).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return createHash('sha256').update(JSON.stringify([stable, look.fonts])).digest('hex')
+  return createHash('sha256').update(JSON.stringify([stableEntries(look.style), look.fonts])).digest('hex')
 }
 
 /**
@@ -566,9 +626,7 @@ function digestOfCaptionsText(document: string | null): string | null {
  * loin.)
  */
 function sameHookStyle(a: Partial<HookSettings>, b: Partial<HookSettings>): boolean {
-  const sorted = (o: Partial<HookSettings>): string =>
-    JSON.stringify(Object.entries(o).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
-  return sorted(a) === sorted(b)
+  return JSON.stringify(stableEntries(a)) === JSON.stringify(stableEntries(b))
 }
 
 /**
@@ -591,17 +649,45 @@ function sameHook(
 }
 
 /**
- * Le condensat du document ASS de hook — la seule partie qu'un `GET` peut
- * reconstruire sans lire `fonts/` (voir `hookHasChanged` plus bas).
+ * Les deux canevas où le PNG du hook peut s'incruster : le natif — 1080 ou
+ * 1920 de large selon le ratio — et la variante 9:16, toujours 1080, ou
+ * `null` quand elle n'est pas due (`PathsRender.variant9x16`).
+ *
+ * **Les deux entrent dans le MÊME condensat** (`hookImageDigest`), pas un
+ * composite par canevas : voir la doc de `FingerprintRender.hook` pour la
+ * raison — un composite qui n'en retiendrait qu'un laisserait un changement
+ * de ratio qui ne toucherait que l'autre canevas passer inaperçu.
  */
-function hookDocumentDigest(document: string): string {
-  return createHash('sha256').update(document, 'utf8').digest('hex')
+export type HookCanvases = { native: { w: number; h: number }; variant: { w: number; h: number } | null }
+
+/** Le hook résolu, observé pour la comparaison d'empreinte — voir `ObservedBurnIn.hook`. */
+export type HookObserved = { resolved: ResolvedHook; canvases: HookCanvases }
+
+/**
+ * Le condensat de ce qui détermine l'image PNG du hook — le hook résolu, sa
+ * géométrie (`hookLayout`) et les deux canevas —, **la seule partie qu'un
+ * `GET` peut reconstruire sans lire `fonts/`** (voir `hookHasChanged` plus
+ * bas). Aucune rasterisation ici : contrairement à l'ancien
+ * `hookDocumentDigest(document: string)`, qui condensait un document déjà
+ * produit, celui-ci condense les **entrées** du rasteriseur — c'est ce qui
+ * permet à `deliveryToDay` de comparer sans dessiner un PNG à chaque `GET`.
+ *
+ * `hookLayout(resolved)` est redondant avec `resolved` — une fonction pure de
+ * lui seul — mais il entre quand même dans le condensat : une géométrie
+ * dérivée différemment demain (un facteur de rembourrage ajusté après une
+ * preuve visuelle, par exemple) doit périmer les rendus d'aujourd'hui sans
+ * qu'il faille se souvenir d'ajouter cette ligne au condensat ce jour-là.
+ */
+function hookImageDigest(resolved: ResolvedHook, canvases: HookCanvases): string {
+  const stable = JSON.stringify([stableEntries(resolved), stableEntries(hookLayout(resolved)), canvases])
+  return createHash('sha256').update(stable).digest('hex')
 }
 
 /**
- * Ce que l'empreinte pose dans `FingerprintRender.hook` : le condensat du
- * document, **mêlé au condensat des polices**, séparés par `:` — jamais un
- * caractère d'un hex sha256, donc un séparateur qui ne collisionne jamais.
+ * Ce que l'empreinte pose dans `FingerprintRender.hook` : le condensat des
+ * entrées de l'image, **mêlé au condensat des polices**, séparés par `:` —
+ * jamais un caractère d'un hex sha256, donc un séparateur qui ne collisionne
+ * jamais.
  *
  * **Composite, et pas un unique sha256 comme `lookDigest`, et c'est le point
  * le plus délicat de cette empreinte.** `renderClip` (export) connaît déjà le
@@ -611,16 +697,16 @@ function hookDocumentDigest(document: string): string {
  * `deliveryToDay` (lecture), lui, ne lit pas `fonts/` — un `GET` ne paie pas
  * cet accès disque à chaque affichage de carte, comme il ne paie déjà pas les
  * deux `ffprobe` des marques ni l'aller-retour sur le Drive du transcript —
- * et ne peut donc comparer que la partie document. La forme composite est ce
+ * et ne peut donc comparer que la partie image. La forme composite est ce
  * qui permet aux deux chemins de comparer ce qu'ils savent, sans que l'un
  * doive deviner ce que l'autre a lu.
  */
-function hookFingerprint(document: string, fonts: string): string {
-  return `${hookDocumentDigest(document)}:${fonts}`
+function hookFingerprint(resolved: ResolvedHook, canvases: HookCanvases, fonts: string): string {
+  return `${hookImageDigest(resolved, canvases)}:${fonts}`
 }
 
-/** La partie document d'un `FingerprintRender.hook` composite. */
-function hookDocumentPart(fingerprintHook: string): string {
+/** La partie image d'un `FingerprintRender.hook` composite. */
+function hookImagePart(fingerprintHook: string): string {
   const i = fingerprintHook.indexOf(':')
   return i === -1 ? fingerprintHook : fingerprintHook.slice(0, i)
 }
@@ -629,28 +715,28 @@ function hookDocumentPart(fingerprintHook: string): string {
  * Le hook incrusté a-t-il changé depuis l'empreinte ?
  *
  * `fonts === null` dit qu'on ne les a pas lues — le chemin de lecture,
- * `deliveryToDay` — et la comparaison se limite alors à la partie document :
- * un remplacement de police n'y est détecté qu'au prochain export, jamais à
+ * `deliveryToDay` — et la comparaison se limite alors à la partie image : un
+ * remplacement de police n'y est détecté qu'au prochain export, jamais à
  * l'affichage d'une carte. `fonts` non nul — le chemin d'export,
  * `renderClip` — compare le condensat entier, polices comprises.
  *
  * Les deux `null` (rien avant, rien maintenant) valent « rien n'a changé » :
  * comparer deux absences donnerait un `false` de toute façon en tombant dans
  * la branche générale, mais l'écrire ici évite un appel à
- * `hookDocumentDigest(null)` que rien ne demande.
+ * `hookImageDigest(null)` que rien ne demande.
  */
 function hookHasChanged(
   fingerprintHook: string | null,
-  observedDocument: string | null,
+  observed: HookObserved | null,
   fonts: string | null,
 ): boolean {
-  if (fingerprintHook === null || observedDocument === null) {
-    return fingerprintHook !== null || observedDocument !== null
+  if (fingerprintHook === null || observed === null) {
+    return fingerprintHook !== null || observed !== null
   }
   if (fonts === null) {
-    return hookDocumentPart(fingerprintHook) !== hookDocumentDigest(observedDocument)
+    return hookImagePart(fingerprintHook) !== hookImageDigest(observed.resolved, observed.canvases)
   }
-  return fingerprintHook !== hookFingerprint(observedDocument, fonts)
+  return fingerprintHook !== hookFingerprint(observed.resolved, observed.canvases, fonts)
 }
 
 /** Ce que libass sait charger depuis un `fontsdir`. */
@@ -709,17 +795,18 @@ function markersIdentities(markers: readonly MarkerNative[]): EmbeddedMark[] {
  * sous-titres ne décrit rien de son image, et l'y noter périmerait ce clip au
  * premier réglage de police.
  *
- * `hookDocument` suit la même règle que `underTitles.text` : le document que
- * `renderHookAss` a produit, ou `null` s'il n'y avait rien à incruster.
- * `underTitles.look.fonts` sert aux deux — sous-titres et hook partagent le
- * même dossier de polices — et il est calculé une seule fois par
- * l'appelant, qu'il y ait des sous-titres ou non.
+ * `hook` suit la même règle que `underTitles.text` : le hook résolu et ses
+ * deux canevas, tels qu'ils seraient rasterisés, ou `null` s'il n'y avait
+ * rien à incruster (`hookIsBurned` faux). `underTitles.look.fonts` sert aux
+ * deux — sous-titres et hook partagent le même dossier de polices — et il
+ * est calculé une seule fois par l'appelant, qu'il y ait des sous-titres ou
+ * non.
  */
 export function renderFingerprint(
   clip: ShapeRendered,
   markers: readonly MarkerNative[],
   underTitles: { burnedIn: boolean; look: CaptionsLook; text: string | null },
-  hookDocument: string | null,
+  hook: HookObserved | null,
 ): FingerprintRender {
   return {
     version: VERSION_FINGERPRINT,
@@ -749,7 +836,7 @@ export function renderFingerprint(
     marks: markersIdentities(markers),
     captionsLook: underTitles.burnedIn ? lookDigest(underTitles.look) : null,
     captionsContent: underTitles.burnedIn ? digestOfCaptionsText(underTitles.text) : null,
-    hook: hookDocument === null ? null : hookFingerprint(hookDocument, underTitles.look.fonts),
+    hook: hook === null ? null : hookFingerprint(hook.resolved, hook.canvases, underTitles.look.fonts),
   }
 }
 
@@ -882,20 +969,21 @@ export type ObservedBurnIn = {
    */
   text: string | null | undefined
   /**
-   * Le document ASS de hook qu'on incrusterait maintenant — **la même
-   * grammaire à trois valeurs que `text`** : `undefined` pas sondé, `null`
-   * sondé et rien à incruster (hook désactivé, ou texte vide — `hookIsBurned`
-   * faux), une chaîne le document.
+   * Le hook (résolu + ses deux canevas) qu'on incrusterait maintenant — **la
+   * même grammaire à trois valeurs que `text`** : `undefined` pas sondé,
+   * `null` sondé et rien à incruster (hook désactivé, ou texte vide —
+   * `hookIsBurned` faux), un `HookObserved` sinon.
    *
    * **Sondé aux deux portes, à la différence de `markers`/`look`/`text`.**
    * `renderClip` (export) le construit toujours, avant la décision de saut.
    * `deliveryToDay` (lecture) aussi : résoudre le hook — une lecture de la
-   * table `settings` et un appel à `renderHookAss`, tous deux purs — ne coûte
-   * ni `ffprobe` ni aller-retour sur le Drive, contrairement aux trois autres
-   * champs. C'est ce qui attrape un réglage **global** changé sans qu'aucun
-   * champ du clip n'ait bougé (`docs/retour-ui-and-next-steps.md` §7).
+   * table `settings` et deux appels purs (`resolveHook`, `outputSize`) — ne
+   * coûte ni `ffprobe` ni aller-retour sur le Drive, contrairement aux trois
+   * autres champs, et ne rasterise rien : voir `hookImageDigest`. C'est ce
+   * qui attrape un réglage **global** changé sans qu'aucun champ du clip
+   * n'ait bougé (`docs/retour-ui-and-next-steps.md` §7).
    */
-  hook: string | null | undefined
+  hook: HookObserved | null | undefined
 }
 
 /**
@@ -951,8 +1039,9 @@ export function lFingerprintGap(
   // **Le cas sans précédent : un réglage GLOBAL de hook a changé, sans que
   // `hookText`/`hookStyle` du clip n'aient bougé** — le premier contrôle,
   // au-dessus, ne peut rien en voir puisqu'il ne regarde que le clip.
-  // `observed.hook` porte le document qu'on incrusterait maintenant, résolu
-  // avec les globaux d'aujourd'hui ; `hookHasChanged` compare son condensat à
+  // `observed.hook` porte le hook résolu et ses canevas, tels qu'on les
+  // rasteriserait maintenant, avec les globaux d'aujourd'hui ; `hookHasChanged`
+  // compare leur condensat à
   // celui de l'empreinte, aux polices près quand on les connaît (voir sa
   // doc). C'est le seul champ de cette fonction sondé aussi bien à l'export
   // qu'à la lecture (`observed.hook` n'est jamais `undefined` côté
@@ -1343,11 +1432,17 @@ export function publicationText(clip: Clip): string {
  * pour les MP4, et l'étape ne serait pas plus sûre que son maillon le plus
  * faible.
  */
-async function writeFile(filePath: string, content: string): Promise<void> {
+/**
+ * `content` accepte un `Buffer` depuis le 20 août 2026, pour le PNG du hook
+ * (`writeHookImage`) — `fsp.writeFile` écrit un `Buffer` tel quel, sans passer
+ * par un encodage de texte qui le corromprait.
+ */
+async function writeFile(filePath: string, content: string | Buffer): Promise<void> {
   await fsp.mkdir(path.dirname(filePath), { recursive: true })
   const temporary = pathTemporary(filePath)
   try {
-    await fsp.writeFile(temporary, content, 'utf8')
+    if (typeof content === 'string') await fsp.writeFile(temporary, content, 'utf8')
+    else await fsp.writeFile(temporary, content)
     await fsp.rename(temporary, filePath)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
@@ -1498,15 +1593,22 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     fonts: fontsDigest(fontsFolder(options.fontsDir)),
   }
 
-  // **Le document de hook qu'on incrusterait maintenant, avant la décision de
-  // saut** — le même geste que `textCurrent` plus bas, pour la même raison :
-  // c'est ce qui attrape un réglage global changé sans qu'aucun champ du clip
-  // n'ait bougé (le cas sans précédent de
-  // `docs/retour-ui-and-next-steps.md` §7). `resolveHook` et `renderHookAss`
-  // sont tous les deux purs — aucune E/S, contrairement à `textCurrent` qui
-  // lit le transcript sur le Drive.
+  // **Le hook qu'on incrusterait maintenant, avant la décision de saut** — le
+  // même geste que `textCurrent` plus bas, pour la même raison : c'est ce qui
+  // attrape un réglage global changé sans qu'aucun champ du clip n'ait bougé
+  // (le cas sans précédent de `docs/retour-ui-and-next-steps.md` §7).
+  // `resolveHook` et `outputSize` sont tous les deux purs — aucune E/S,
+  // contrairement à `textCurrent` qui lit le transcript sur le Drive, et
+  // aucune rasterisation : voir la doc de `hookImageDigest`.
   const hookGlobals: HookSettings = effectiveSettings(db).hook
-  const hookDocument = renderHookAss(resolveHook(hookGlobals, clip))
+  const resolvedHook = resolveHook(hookGlobals, clip)
+  const hookCanvases: HookCanvases = {
+    native: outputSize(ratio),
+    variant: paths.variant9x16 === null ? null : outputSize('9:16'),
+  }
+  const hookObserved: HookObserved | null = hookIsBurned(resolvedHook)
+    ? { resolved: resolvedHook, canvases: hookCanvases }
+    : null
 
   // **Le document qu'on incrusterait maintenant, avant la décision de saut
   // (#87).** Sans lui, une correction du transcript qui ne touche aucun
@@ -1534,7 +1636,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     markers,
     look,
     text: textCurrent,
-    hook: hookDocument,
+    hook: hookObserved,
   })
 
   // **Le refus de sauter se dit.** C'est tout le défaut qu'on ferme : un rendu
@@ -1603,6 +1705,11 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   // Vrai dès que ffmpeg a réellement produit le MP4 natif dans ce passage :
   // c'est lui qui décide du sort du `.ass` provisoire, dans le `finally`.
   let nativeEncoded = false
+  // Déclarés ici, et non dans le `try` qui les assigne : le `finally` qui les
+  // range ou les efface est un bloc frère, pas un enfant, et n'y aurait pas
+  // accès autrement.
+  let hookImageNativeProvisional: string | undefined
+  let hookImageVariantProvisional: string | undefined
 
   // **Les deux sorties se rendent depuis la source et se refont ensemble.** La
   // variante partait du MP4 natif ; elle en héritait alors les sous-titres dans
@@ -1688,7 +1795,6 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       const assProvisional = clip.captions
         ? await writeCaptionsDocument(clip.id, textCurrent, pathTemporary(paths.ass))
         : undefined
-      // Même geste pour le hook, avec `hookDocument` déjà calculé plus haut.
       // **Un hook vide ne fait pas échouer l'export**, contrairement au
       // branding (`markerRejectFault` refuse l'export si `branding` est
       // demandé mais introuvable) : l'asymétrie est voulue. Une marque
@@ -1696,13 +1802,14 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       // qu'il faut signaler avant de le livrer. Un hook absent est un hook
       // qu'on n'a pas écrit : c'est l'état normal de tout clip avant qu'un
       // texte ne lui soit donné, pas un défaut de la livraison.
-      const hookProvisional = await writeHookDocument(hookDocument, pathTemporary(paths.hookAss))
-      // Le dossier de polices n'a de sens qu'avec au moins un `.ass` à
-      // incruster (sous-titres ou hook, les deux partagent Anton) : en parler
-      // sans cela ferait avertir sur un clip qui n'a ni l'un ni l'autre. Son
-      // *contenu*, lui, a déjà été relevé plus haut pour l'empreinte.
+      //
+      // **Le PNG se rasterise plus bas**, une fois `out`/`verticalCanvas`
+      // connus — sa taille en pixels en dépend, contrairement à l'ancien
+      // document ASS qui s'écrivait ici en unités de script indépendantes du
+      // canevas. `hookObserved` (résolu, `hookIsBurned`) est en revanche déjà
+      // connu : c'est lui qui décide si le dossier de polices a un sens.
       const fontsDir =
-        assProvisional === undefined && hookProvisional === undefined
+        assProvisional === undefined && hookObserved === null
           ? undefined
           : fontsUsableFolder(options.fontsDir)
 
@@ -1749,6 +1856,30 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // saute aux frontières. La variante, elle, prend le ratio de chaque plan.
         const out = outputSize(ratio)
         const verticalCanvas = outputSize('9:16')
+
+        // **Le PNG du hook se rasterise ici, une fois par canevas dû.**
+        // `hookObserved` porte le hook résolu — le même que la décision de
+        // saut a déjà comparé — et `renderHookImage` en tire une image dont
+        // la taille en pixels dépend de CE canevas (`hookLayout` est une
+        // fraction de sa largeur, `@/core/hook`). Un hook désactivé ou vide
+        // rend `null` aux deux canevas, sans que `renderHookImage` ait besoin
+        // de le savoir deux fois : `hookIsBurned` a déjà tranché dans
+        // `hookObserved`.
+        //
+        // **`fontsFolder`, pas `fontsUsableFolder`.** Ce dernier avertit et
+        // rend `undefined` quand le dossier manque, pour le `fontsdir=` de
+        // libass qui sait alors se rabattre sur fontconfig ; le rasteriseur
+        // PNG n'a pas ce filet, et `renderHookImage` porte son propre
+        // avertissement, ciblé sur le fichier de police précis qui lui
+        // manque plutôt que sur le dossier entier.
+        const hookFontsDir = fontsFolder(options.fontsDir)
+        const hookImageNative =
+          hookObserved !== null ? renderHookImage(hookObserved.resolved, out, hookFontsDir) : null
+        const hookImageVariant =
+          hookObserved !== null && paths.variant9x16 !== null
+            ? renderHookImage(hookObserved.resolved, verticalCanvas, hookFontsDir)
+            : null
+
         const nativePieces: FramedSegment[] = pieces.map((m) => ({
           start: m.start,
           end: m.end,
@@ -1770,6 +1901,32 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // les sous-titres — voir `renderArgs`.
         const logos = scheduleMarkers(out.w, out.h, markers)
         const verticalLogos = scheduleMarkers(verticalCanvas.w, verticalCanvas.h, markers)
+
+        // **Le PNG du hook s'écrit d'abord sous un nom temporaire**, comme le
+        // `.ass` des sous-titres — gardé sur le disque pour relire ce qui a
+        // été réellement incrusté, et écrit sur le nom définitif seulement
+        // une fois le MP4 en place (voir le `finally` plus bas).
+        hookImageNativeProvisional = await writeHookImage(
+          hookImageNative,
+          pathTemporary(paths.hookImageNative),
+        )
+        hookImageVariantProvisional = await writeHookImage(
+          hookImageVariant,
+          pathTemporary(paths.hookImageVariant),
+        )
+        // `renderArgs`/`blurredVariantArgs` attendent `{path, x, y, w, h}` —
+        // la même forme qu'un logo. `hookImageNative`/`Variant` porte déjà
+        // ces quatre nombres (`renderHookImage`, `@/server/hook-image.ts`) ;
+        // seul le chemin change entre le buffer rasterisé et le fichier
+        // temporaire qui vient d'être écrit.
+        const hookImageNativeArg =
+          hookImageNative !== null && hookImageNativeProvisional !== undefined
+            ? { path: hookImageNativeProvisional, x: hookImageNative.x, y: hookImageNative.y, w: hookImageNative.width, h: hookImageNative.height }
+            : undefined
+        const hookImageVariantArg =
+          hookImageVariant !== null && hookImageVariantProvisional !== undefined
+            ? { path: hookImageVariantProvisional, x: hookImageVariant.x, y: hookImageVariant.y, w: hookImageVariant.width, h: hookImageVariant.height }
+            : undefined
 
         // **La variante périmée s'efface avant le PREMIER encodage**, et non entre
         // les deux. Elle ne décrit déjà plus le montage qu'on est en train de
@@ -1808,7 +1965,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
               segments: nativePieces,
               out,
               assPath: assProvisional,
-              hookAssPath: hookProvisional,
+              hookImage: hookImageNativeArg,
               fontsDir,
               logos,
               dst: destination,
@@ -1837,7 +1994,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
                 segments: verticalPieces,
                 out: verticalCanvas,
                 assPath: assProvisional,
-                hookAssPath: hookProvisional,
+                hookImage: hookImageVariantArg,
                 fontsDir,
                 logos: verticalLogos,
                 dst: destination,
@@ -1878,7 +2035,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
             look,
             text: textCurrent,
           },
-          hookDocument,
+          hookObserved,
         )
         const markersAfter = clip.branding ? await collectMarkers(options.brandDir) : []
         // **Sans la tolérance du dossier vide.** Elle existe pour ne pas détruire
@@ -1896,18 +2053,23 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       } finally {
         // Le sidecar définitif suit le MP4, et seulement lui : un rendu raté laisse
         // en place celui qui décrit la vidéo réellement posée sur le disque.
-        // Même geste pour le `.hook.ass`, en plus du `.ass` des sous-titres.
+        // Même geste pour les deux PNG du hook, en plus du `.ass` des sous-titres.
         if (nativeEncoded) {
           if (assProvisional === undefined) fs.rmSync(paths.ass, { force: true })
           else await fsp.rename(assProvisional, paths.ass)
-          if (hookProvisional === undefined) fs.rmSync(paths.hookAss, { force: true })
-          else await fsp.rename(hookProvisional, paths.hookAss)
+          if (hookImageNativeProvisional === undefined) fs.rmSync(paths.hookImageNative, { force: true })
+          else await fsp.rename(hookImageNativeProvisional, paths.hookImageNative)
+          if (hookImageVariantProvisional === undefined) fs.rmSync(paths.hookImageVariant, { force: true })
+          else await fsp.rename(hookImageVariantProvisional, paths.hookImageVariant)
         } else {
           if (assProvisional !== undefined) {
             await fsp.rm(assProvisional, { force: true }).catch(() => {})
           }
-          if (hookProvisional !== undefined) {
-            await fsp.rm(hookProvisional, { force: true }).catch(() => {})
+          if (hookImageNativeProvisional !== undefined) {
+            await fsp.rm(hookImageNativeProvisional, { force: true }).catch(() => {})
+          }
+          if (hookImageVariantProvisional !== undefined) {
+            await fsp.rm(hookImageVariantProvisional, { force: true }).catch(() => {})
           }
         }
       }
@@ -2263,16 +2425,16 @@ async function writeCaptionsDocument(
 }
 
 /**
- * Écrit le `.hook.ass` à partir du document déjà calculé (`renderHookAss`), et
- * rend son chemin — ou `undefined` s'il n'y a rien à incruster.
+ * Écrit le PNG du hook déjà rasterisé (`renderHookImage`), et rend son
+ * chemin — ou `undefined` s'il n'y avait rien à incruster sur ce canevas.
  *
  * **Sans avertissement, contrairement à `writeCaptionsDocument`.** Un hook
  * absent n'a rien d'anormal — c'est l'état de tout clip avant qu'un texte lui
  * soit donné — alors qu'un clip qui demande des sous-titres sans qu'aucun mot
  * ne tombe dans ses segments est une surprise qui mérite d'être signalée.
  */
-async function writeHookDocument(document: string | null, path: string): Promise<string | undefined> {
-  if (document === null) return undefined
-  await writeFile(path, document)
+async function writeHookImage(image: HookImage | null, path: string): Promise<string | undefined> {
+  if (image === null) return undefined
+  await writeFile(path, image.buffer)
   return path
 }

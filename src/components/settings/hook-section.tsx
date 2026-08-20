@@ -131,14 +131,25 @@ export function HookSection({
           />
           <NumberField
             label="Taille"
-            value={shown.size}
-            defaultValue={HOOK_DEFAULTS.size}
-            unit="points"
-            min={HOOK_BOUNDS.size.min}
-            max={HOOK_BOUNDS.size.max}
-            step={1}
+            value={shown.sizePermille}
+            defaultValue={HOOK_DEFAULTS.sizePermille}
+            unit="‰ de la largeur"
+            min={HOOK_BOUNDS.sizePermille.min}
+            max={HOOK_BOUNDS.sizePermille.max}
+            step={5}
             disabled={inert}
-            onCommit={(value) => onChange({ size: value })}
+            onCommit={(value) => onChange({ sizePermille: value })}
+          />
+          <NumberField
+            label="Rayon des coins"
+            value={shown.cornerRadiusPermille}
+            defaultValue={HOOK_DEFAULTS.cornerRadiusPermille}
+            unit="‰ de la largeur"
+            min={HOOK_BOUNDS.cornerRadiusPermille.min}
+            max={HOOK_BOUNDS.cornerRadiusPermille.max}
+            step={2}
+            disabled={inert}
+            onCommit={(value) => onChange({ cornerRadiusPermille: value })}
           />
         </Row>
 
@@ -158,6 +169,13 @@ export function HookSection({
             disabled={inert}
             options={HOOK_ALIGNMENTS.map((a) => ({ value: a, label: ALIGNMENT_LABELS[a] }))}
             onChange={(value) => onChange({ alignment: value })}
+          />
+          <ToggleField
+            label="Capitales"
+            checked={shown.uppercase}
+            defaultValue={HOOK_DEFAULTS.uppercase}
+            disabled={inert}
+            onChange={(value) => onChange({ uppercase: value })}
           />
         </Row>
 
@@ -207,8 +225,8 @@ export function HookSection({
         </Row>
       </div>
 
-      {/* Vrai à partir de la PR qui écrit le fichier ASS du hook — l'écrire
-          maintenant évite de rouvrir ce fichier pour une phrase. */}
+      {/* Vrai depuis que le rendu du hook entre dans l'empreinte (#48/#116),
+          PNG rasterisé compris depuis le 20 août 2026. */}
       <p className="text-xs text-muted-foreground">
         Changer ces valeurs périme les exports des clips qui ne les ont pas
         surchargées. Ils seront réencodés au prochain export.

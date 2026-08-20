@@ -571,7 +571,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     await renderClip(CLIP, { db: getDb(), brandDir })
     expect(fs.existsSync(paths.fingerprint)).toBe(true)
 
-    await patch({ hookStyle: { size: 72 } })
+    await patch({ hookStyle: { sizePermille: 120 } })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
     expect(fs.existsSync(paths.mp4)).toBe(false)

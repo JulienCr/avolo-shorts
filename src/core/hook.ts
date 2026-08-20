@@ -375,3 +375,58 @@ export function normalizeHookText(raw: string): string {
   const lastSpace = hardCut.lastIndexOf(' ')
   return (cutsMidWord && lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
 }
+
+/**
+ * `#RRGGBB` + une opacité 0-100 → `rgba(r, g, b, a)`, la forme que le CSS et
+ * le canevas 2D comprennent tous les deux.
+ *
+ * **Une seule fonction, deux consommateurs** — le calque de preview
+ * (`hook-overlay.tsx`, en CSS) et le rasteriseur PNG (`src/server/hook-image.ts`,
+ * `ctx.fillStyle`) — pour que le fond du hook ait exactement la même couleur
+ * dans le navigateur et dans le fichier. Pure : aucune dépendance au DOM ni au
+ * canevas, seulement de l'arithmétique sur une chaîne.
+ */
+export function hookRgba(hex: string, opacityPercent: number): string {
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${opacityPercent / 100})`
+}
+
+/**
+ * Où poser la boîte du hook sur son canevas, en pixels — le coin
+ * supérieur gauche de l'image déjà rasterisée.
+ *
+ * **Prend l'image en entrée plutôt que de la mesurer elle-même** : sa largeur
+ * et sa hauteur dépendent du texte réel (mesuré au pixel par le rasteriseur,
+ * `src/server/hook-image.ts`), que cette fonction n'a aucun moyen de connaître
+ * sans un contexte de canevas — ce qui la sortirait de `src/core`. Elle reste
+ * donc pure : de l'arithmétique sur des tailles déjà connues, comme
+ * `scheduleMarkers` (`src/server/steps/render.ts`) le fait pour les marques.
+ *
+ * Bornée à l'intérieur du canevas (`Math.max(0, …)`) : un texte plus large que
+ * le canevas — un réglage extrême, un canevas 16:9 étroit — ne doit jamais
+ * produire une coordonnée négative que ffmpeg refuserait.
+ */
+export function hookPlacement(
+  image: { w: number; h: number },
+  canvas: { w: number; h: number },
+  resolved: Pick<ResolvedHook, 'position' | 'alignment'>,
+  layout: HookLayout,
+): { x: number; y: number } {
+  const marginX = Math.round(canvas.w * layout.marginXFraction)
+  const marginY = Math.round(canvas.w * layout.marginYFraction)
+  const x =
+    resolved.alignment === 'left'
+      ? marginX
+      : resolved.alignment === 'right'
+        ? canvas.w - marginX - image.w
+        : Math.round((canvas.w - image.w) / 2)
+  const y =
+    resolved.position === 'top'
+      ? marginY
+      : resolved.position === 'bottom'
+        ? canvas.h - marginY - image.h
+        : Math.round((canvas.h - image.h) / 2)
+  return { x: Math.max(0, x), y: Math.max(0, y) }
+}

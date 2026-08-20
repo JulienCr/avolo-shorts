@@ -249,6 +249,25 @@ function migrateSelectionSettingKeys(db: Database.Database): void {
 }
 
 /**
+ * Efface `hook.size`, la clé qu'a remplacée `hook.sizePermille` le 20 août
+ * 2026 quand le hook est passé de l'ASS à un PNG rasterisé.
+ *
+ * **Pas le patron de `migrateSelectionSettingKeys` : la valeur ne se
+ * reporte pas.** Là-bas l'ancien et le nouveau nom désignaient la même
+ * grandeur (renommage pur, issue #73) ; ici `size` était une taille en
+ * unités de script ASS et `sizePermille` est une fraction de la largeur du
+ * canevas — deux échelles sans correspondance. Reporter l'ancienne valeur
+ * numérique sous la nouvelle clé donnerait un nombre qui a l'air valide et
+ * qui ne veut plus rien dire. La base de production de ce dépôt ne porte
+ * aujourd'hui aucune ligne `hook.size` (vérifié le 20 août 2026) : le coût
+ * réel de cette purge est nul, et `HOOK_DEFAULTS.sizePermille` prend le
+ * relais pour quiconque en aurait posé une.
+ */
+function migrateHookSizeSettingKey(db: Database.Database): void {
+  db.prepare("DELETE FROM settings WHERE key = 'hook.size'").run()
+}
+
+/**
  * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` couvre le
  * cas courant — une base absente —, `migrer` celles qui existaient déjà.
  *
@@ -268,6 +287,7 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   db.exec(SCHEMA)
   migrate(db)
   migrateSelectionSettingKeys(db)
+  migrateHookSizeSettingKey(db)
   return db
 }
 
@@ -516,7 +536,17 @@ const HOOK_FIELD_SHAPES = {
   enabled: { type: 'boolean', defaultValue: HOOK_DEFAULTS.enabled },
   durationMs: { type: 'integer', defaultValue: HOOK_DEFAULTS.durationMs, ...HOOK_BOUNDS.durationMs },
   font: { type: 'text', defaultValue: HOOK_DEFAULTS.font, enum: HOOK_FONTS },
-  size: { type: 'integer', defaultValue: HOOK_DEFAULTS.size, ...HOOK_BOUNDS.size },
+  sizePermille: {
+    type: 'integer',
+    defaultValue: HOOK_DEFAULTS.sizePermille,
+    ...HOOK_BOUNDS.sizePermille,
+  },
+  cornerRadiusPermille: {
+    type: 'integer',
+    defaultValue: HOOK_DEFAULTS.cornerRadiusPermille,
+    ...HOOK_BOUNDS.cornerRadiusPermille,
+  },
+  uppercase: { type: 'boolean', defaultValue: HOOK_DEFAULTS.uppercase },
   position: { type: 'text', defaultValue: HOOK_DEFAULTS.position, enum: HOOK_POSITIONS },
   alignment: { type: 'text', defaultValue: HOOK_DEFAULTS.alignment, enum: HOOK_ALIGNMENTS },
   textColor: { type: 'color', defaultValue: HOOK_DEFAULTS.textColor },
@@ -917,7 +947,13 @@ export const HOOK_STYLE_SHAPE = {
   enabled: z.boolean(),
   durationMs: z.number().int().min(HOOK_BOUNDS.durationMs.min).max(HOOK_BOUNDS.durationMs.max),
   font: z.enum(HOOK_FONTS),
-  size: z.number().int().min(HOOK_BOUNDS.size.min).max(HOOK_BOUNDS.size.max),
+  sizePermille: z.number().int().min(HOOK_BOUNDS.sizePermille.min).max(HOOK_BOUNDS.sizePermille.max),
+  cornerRadiusPermille: z
+    .number()
+    .int()
+    .min(HOOK_BOUNDS.cornerRadiusPermille.min)
+    .max(HOOK_BOUNDS.cornerRadiusPermille.max),
+  uppercase: z.boolean(),
   position: z.enum(HOOK_POSITIONS),
   alignment: z.enum(HOOK_ALIGNMENTS),
   textColor: z

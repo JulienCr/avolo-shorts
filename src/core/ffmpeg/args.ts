@@ -342,16 +342,21 @@ export type RenderOptions = {
   out: { w: number; h: number }
   assPath?: string
   /**
-   * Le document ASS du hook (`src/core/hook-ass.ts`), s'il y a quelque chose à
-   * incruster.
+   * Le PNG du hook (`src/server/hook-image.ts`), s'il y a quelque chose à
+   * incruster — un `overlay=x:y`, comme les logos, et non plus un second
+   * document `ass=`.
    *
-   * **`blurredVariantArgs` reçoit le même chemin que `renderArgs`.** Le
-   * document est écrit en unités de script (`PlayResX 384 × PlayResY 288`),
-   * donc il s'incruste à l'identique sur les deux canevas — contrairement aux
-   * marques, qui doivent être planifiées par canevas parce qu'elles sont
-   * positionnées en pixels.
+   * **`x`/`y` sont en pixels du canevas de CETTE sortie**, contrairement à
+   * l'ancien document ASS qui s'incrustait à l'identique sur les deux
+   * canevas via un repère partagé (`PlayResX 384 × PlayResY 288`). Le PNG et
+   * son placement sont désormais mesurés en pixels réels, donc **planifiés
+   * par canevas** — `renderArgs` et `blurredVariantArgs` reçoivent chacun
+   * leur propre `hookImage`, pas le même. C'est la même raison que les
+   * marques (`scheduleMarkers`) : deux canevas de largeurs différentes (le
+   * natif 16:9 fait 1920, tout le reste fait 1080) rendraient sinon un hook
+   * mal placé ou mal dimensionné sur l'un des deux.
    */
-  hookAssPath?: string
+  hookImage?: { path: string; x: number; y: number; w: number; h: number }
   fontsDir?: string
   logos?: { path: string; x: number; y: number; w: number; h: number }[]
   encoder: EncoderName
@@ -549,6 +554,13 @@ function buildRender(
   const logos = o.logos ?? []
   const multi = segments.length > 1
 
+  // **Le PNG du hook prend une entrée à lui seul**, juste après les segments
+  // et avant les logos — voir la doc de `hookImage` sur `RenderOptions` pour
+  // pourquoi il est planifié par canevas et non partagé entre les deux
+  // sorties comme l'était l'ancien document ASS.
+  const hookInputIndex = o.hookImage !== undefined ? segments.length : null
+  const logoInputOffset = segments.length + (hookInputIndex !== null ? 1 : 0)
+
   // Ce qui s'incruste **sur le canevas composé**, une seule fois, à sa taille.
   //
   // **L'ordre est sous-titres → hook → marques.** Le hook après les
@@ -570,10 +582,14 @@ function buildRender(
     if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
     steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
   }
-  if (o.hookAssPath !== undefined) {
-    const options = [option('filename', o.hookAssPath)]
-    if (o.fontsDir !== undefined) options.push(option('fontsdir', o.fontsDir))
-    steps.push((e, s) => `[${e}]ass=${options.join(':')}[${s}]`)
+  // **Un `overlay`, comme les logos — plus un `ass=`.** Le PNG est déjà à sa
+  // taille finale (`src/server/hook-image.ts` le rasterise pour ce canevas
+  // précis), donc pas de `scale=` préalable comme en ont besoin les logos, qui
+  // partent de leur taille native.
+  if (o.hookImage !== undefined && hookInputIndex !== null) {
+    const x = number(o.hookImage.x, 'hookImage.x')
+    const y = number(o.hookImage.y, 'hookImage.y')
+    steps.push((e, s) => `[${e}][${hookInputIndex}:v]overlay=x=${x}:y=${y}[${s}]`)
   }
   // Les logos passent **après** l'incrustation des sous-titres et du hook :
   // une marque posée dessous serait recouverte par le premier carton (ou le
@@ -650,10 +666,15 @@ function buildRender(
 
   // Les logos sont des images fixes : on les met à l'échelle une fois, puis on
   // les superpose. La position donnée est le coin supérieur gauche.
+  //
+  // **`logoInputOffset`, pas `segments.length`** : le PNG du hook, s'il y en
+  // a un, s'est glissé une entrée avant les logos (voir sa définition plus
+  // haut) — sans ce décalage, chaque logo pointerait vers l'entrée qui le
+  // précède, et le dernier logo n'aurait pas d'entrée du tout.
   logos.forEach((logo, i) => {
     const w = number(logo.w, `logos[${i}].w`)
     const h = number(logo.h, `logos[${i}].h`)
-    graph.push(`[${segments.length + i}:v]scale=${w}:${h}[lg${i}]`)
+    graph.push(`[${logoInputOffset + i}:v]scale=${w}:${h}[lg${i}]`)
   })
 
   chain(graph, content, steps, terminal)
@@ -668,6 +689,9 @@ function buildRender(
       '-t', seconds(s.end - s.start),
       '-i', o.src,
     ]),
+    // Le PNG du hook, s'il y en a un, juste après les segments — voir
+    // `hookInputIndex`. Pas de `-hwaccel` non plus : même raison que les logos.
+    ...(o.hookImage !== undefined ? ['-i', o.hookImage.path] : []),
     // Les logos n'ont pas de `-hwaccel` : décoder un PNG sur le GPU ne rapporte
     // rien et le ferait remonter en mémoire vidéo pour redescendre aussitôt.
     ...logos.flatMap((logo) => ['-i', logo.path]),

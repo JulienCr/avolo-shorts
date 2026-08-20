@@ -1,4 +1,4 @@
-import { hookIsBurned, hookLayout, type ResolvedHook } from '@/core/hook'
+import { hookIsBurned, hookLayout, hookRgba, type ResolvedHook } from '@/core/hook'
 import { hookFont } from '@/components/clip/hook-font'
 
 /**
@@ -12,76 +12,40 @@ import { hookFont } from '@/components/clip/hook-font'
  * chaque changement de ratio, ce que ce calque évite en couvrant toute la
  * boîte, indépendamment du canvas qu'il recouvre.
  *
- * **Les unités sont `cqh`/`cqw`, jamais des pixels.** Le repère du rendu est
- * `PlayResX 384 × PlayResY 288` (`src/core/hook.ts`) ; la boîte qui porte ce
- * calque n'a pas de taille fixe — sa hauteur vient d'une classe Tailwind que
- * l'appelant choisit (`PREVIEW_HEIGHT`, `clip-screen.tsx`). `containerType:
- * 'size'` est posé par `output-preview.tsx` sur la boîte elle-même, pas ici :
- * c'est elle qui définit le contexte de requête de conteneur que ces unités
- * lisent.
+ * **Les unités sont `cqw`/`cqh`, jamais des pixels — et depuis le 20 août
+ * 2026, presque toujours `cqw`.** `hookLayout` (`@/core/hook`) rend
+ * désormais des fractions de la **largeur** du canevas, pas de `PlayResX`
+ * ni de `PlayResY` : la boîte 9:16 qui porte ce calque a `containerType:
+ * 'size'` posé par `output-preview.tsx`, et sa largeur `cqw` correspond
+ * exactement à la largeur du canevas que le rasteriseur PNG utilise
+ * (`src/server/hook-image.ts`) — 1080 dans les deux cas pour toute sortie
+ * qui n'est pas le natif 16:9. `cqh` ne sert plus qu'à couvrir toute la
+ * hauteur de la boîte (`inset-0`) ; aucune fraction de géométrie du hook
+ * n'en dépend plus.
  *
  * **Toutes les valeurs viennent de `hookLayout(hook)`** — la même fonction
- * que l'émetteur ASS de la PR de rendu consomme pour poser le hook dans le
+ * que le rasteriseur PNG du rendu consomme pour poser le hook dans le
  * fichier réellement encodé. C'est la garantie de cette preview : pas une
  * géométrie parallèle qui lui ressemblerait, la même.
  *
- * **Ce que ce calque ne peut pas promettre.** Il est exact sur la position, la
- * boîte, les couleurs et la taille : ce sont des nombres, traduits sans
- * approximation. Il est **approché d'un mot sur la coupure de ligne** : libass
- * (le moteur qui incruste le rendu final) et le navigateur ne calculent pas
- * l'interlignage et le passage à la ligne selon la même formule. Un hook
- * d'une ligne ne bouge pas d'un pixel entre les deux ; un hook qui revient à
- * la ligne peut la couper à un mot différent. Ce n'est pas un défaut de ce
- * calque, c'est une limite qu'il faut connaître avant de traiter le moindre
- * écart d'un mot comme un bug.
+ * **Ce que ce calque ne peut pas promettre.** Il est exact sur la position, le
+ * fond, les couleurs, l'arrondi et la taille de police : ce sont des nombres,
+ * traduits sans approximation, et la même fraction de largeur que le
+ * rasteriseur. Il reste **approché sur la largeur exacte de la boîte** : le
+ * rasteriseur mesure le texte avec les vraies métriques d'Anton
+ * (`measureText`) pour que la boîte épouse le mot au pixel, alors que ce
+ * calque laisse le navigateur composer sa propre boîte autour d'un `<span>`
+ * en `inline-block` — la même police, mais un moteur de mise en page
+ * différent. L'écart est sous le pixel visible sur un hook d'un mot ; il peut
+ * se voir de quelques pixels sur un hook qui revient à la ligne, où les deux
+ * moteurs ne coupent pas forcément au même endroit. Ce n'est pas un défaut de
+ * ce calque, c'est une limite qu'il faut connaître avant de traiter le
+ * moindre écart de largeur comme un bug.
  */
 
-/**
- * Le bord vertical que désigne l'alignement ASS 1-9, dérivé de sa *rangée*
- * — `7 8 9` en haut, `4 5 6` au centre, `1 2 3` en bas, la convention que
- * `assAlignmentFor` (`@/core/hook`) pose. Une dérivation pure de la valeur
- * numérique que `hookLayout` rend déjà, pas un second calcul de position.
- */
-function verticalEdge(assAlignment: number): 'top' | 'center' | 'bottom' {
-  if (assAlignment >= 7) return 'top'
-  if (assAlignment >= 4) return 'center'
-  return 'bottom'
-}
-
-/** La colonne, même principe : `1 4 7` à gauche, `2 5 8` au centre, `3 6 9` à droite. */
-function horizontalAlign(assAlignment: number): 'left' | 'center' | 'right' {
-  const column = ((assAlignment - 1) % 3) + 1
-  if (column === 1) return 'left'
-  if (column === 2) return 'center'
-  return 'right'
-}
-
-/**
- * `u` unités du script ASS, en pourcentage de la largeur du conteneur
- * (`PlayResX = 384`).
- *
- * **Enveloppé dans `calc(…)`, même à un seul terme.** jsdom (`tests/`) refuse
- * une longueur en `cqw`/`cqh` nue — l'unité n'existe pas encore dans son
- * analyseur CSS — mais accepte et évalue un `calc()` qui la contient. Un
- * navigateur réel traite les deux formes de façon identique : `calc(x)` vaut
- * `x`. C'est donc l'écriture qui fonctionne des deux côtés, pas un
- * contournement propre au test.
- */
-function cqw(units: number): string {
-  return `calc(${(units / 384) * 100}cqw)`
-}
-
-/** Idem en hauteur (`PlayResY = 288`). */
-function cqh(units: number): string {
-  return `calc(${(units / 288) * 100}cqh)`
-}
-
-/** `#RRGGBB` + une opacité 0-100 → `rgba()`. Pure, exportée pour le test. */
-export function rgbaFrom(hex: string, opacityPercent: number): string {
-  const r = Number.parseInt(hex.slice(1, 3), 16)
-  const g = Number.parseInt(hex.slice(3, 5), 16)
-  const b = Number.parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${opacityPercent / 100})`
+/** `u`, une fraction (0 à 1) de la largeur du conteneur, en `cqw`. */
+function cqw(fraction: number): string {
+  return `calc(${fraction * 100}cqw)`
 }
 
 export function HookOverlay({ hook }: { hook: ResolvedHook }) {
@@ -91,40 +55,50 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
   if (!hookIsBurned(hook)) return null
 
   const layout = hookLayout(hook)
-  const edge = verticalEdge(layout.assAlignment)
-  const align = horizontalAlign(layout.assAlignment)
+  const text = hook.uppercase ? hook.text.toUpperCase() : hook.text
 
   return (
     <div
       aria-hidden
       className="pointer-events-none absolute inset-0 flex flex-col"
       style={{
-        justifyContent: edge === 'top' ? 'flex-start' : edge === 'bottom' ? 'flex-end' : 'center',
+        justifyContent:
+          hook.position === 'top' ? 'flex-start' : hook.position === 'bottom' ? 'flex-end' : 'center',
       }}
     >
       <div
         style={{
           width: '100%',
-          textAlign: align,
-          paddingLeft: cqw(layout.marginL),
-          paddingRight: cqw(layout.marginR),
-          paddingTop: edge === 'top' ? cqh(layout.marginV) : undefined,
-          paddingBottom: edge === 'bottom' ? cqh(layout.marginV) : undefined,
+          textAlign: hook.alignment,
+          paddingLeft: cqw(layout.marginXFraction),
+          paddingRight: cqw(layout.marginXFraction),
+          paddingTop: hook.position === 'top' ? cqw(layout.marginYFraction) : undefined,
+          paddingBottom: hook.position === 'bottom' ? cqw(layout.marginYFraction) : undefined,
         }}
       >
         <span
           className={hookFont.className}
           style={{
             display: 'inline-block',
-            fontSize: `calc(${layout.sizeUnits} / 288 * 100 * 1cqh)`,
-            lineHeight: 1.15,
+            // Le contenu, pas la boîte : `max-width` porte sur le texte en
+            // `box-sizing: content-box` (le défaut), donc il faut lui retirer
+            // le rembourrage des deux côtés pour viser la même largeur
+            // maximale de boîte que `maxTextWidthPx` dans le rasteriseur PNG
+            // (`src/server/hook-image.ts`).
+            maxWidth: cqw(layout.maxBoxWidthFraction - 2 * layout.paddingXFraction),
+            fontSize: cqw(layout.fontSizeFraction),
+            lineHeight: cqw(layout.lineHeightFraction),
             color: hook.textColor,
-            backgroundColor: rgbaFrom(hook.backgroundColor, hook.backgroundOpacity),
-            padding: '0.15em 0.35em',
+            backgroundColor: hookRgba(hook.backgroundColor, hook.backgroundOpacity),
+            borderRadius: cqw(layout.radiusFraction),
+            paddingLeft: cqw(layout.paddingXFraction),
+            paddingRight: cqw(layout.paddingXFraction),
+            paddingTop: cqw(layout.paddingYFraction),
+            paddingBottom: cqw(layout.paddingYFraction),
             whiteSpace: 'pre-wrap',
           }}
         >
-          {hook.text}
+          {text}
         </span>
       </div>
     </div>

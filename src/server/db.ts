@@ -932,11 +932,17 @@ export const HOOK_STYLE_SHAPE = {
  *
  * **Le `console.warn` ne couvre que l'échec de `JSON.parse`**, exactement
  * comme `lireTokens` : une forme reconnaissable comme JSON mais dont une clé
- * est hors bornes ou au mauvais type retombe sur `{}` en silence, via le
- * `.catch({})` du schéma — le même partage que `lireTokens` applique déjà
- * entre son `try/catch` et son filtrage silencieux par type.
+ * est hors bornes, au mauvais type ou simplement inconnue retombe sur `{}` en
+ * silence, via le `.catch({})` du schéma — le même partage que `lireTokens`
+ * applique déjà entre son `try/catch` et son filtrage silencieux par type.
+ *
+ * **`z.strictObject`, pas `z.object`.** Un schéma non strict tronquerait une
+ * clé inconnue au lieu de rejeter l'objet entier — `{ size: 72, chapeau: true }`
+ * relirait `{ size: 72 }` plutôt que `{}`, un comportement partiel que les deux
+ * autres cas de corruption (valeur hors bornes, clé seule inconnue) refusent
+ * déjà : la relecture est tout ou rien, jamais un filtrage clé par clé.
  */
-const HOOK_STYLE_SCHEMA = z.object(HOOK_STYLE_SHAPE).partial().catch({})
+const HOOK_STYLE_SCHEMA = z.strictObject(HOOK_STYLE_SHAPE).partial().catch({})
 
 function readHookStyle(raw: string, clipId: string): Partial<HookSettings> {
   let parsed: unknown

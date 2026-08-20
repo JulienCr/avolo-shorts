@@ -775,6 +775,20 @@ describe('le hook sur un clip', () => {
     )
     expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
   })
+
+  it('une clé inconnue mêlée à une clé valide fait retomber tout l’objet sur `{}`', () => {
+    // Un schéma non strict (`z.object` plutôt que `z.strictObject`) tronquerait
+    // silencieusement la clé inconnue et garderait `size`, exactement le
+    // comportement partiel que les deux tests ci-dessus refusent pour une
+    // valeur hors bornes ou une clé seule : la relecture doit se comporter en
+    // tout ou rien, pas en filtrage clé par clé. (relevé par Copilot)
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
+      JSON.stringify({ size: 72, chapeau: true }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
+  })
 })
 
 describe('replaceClips', () => {

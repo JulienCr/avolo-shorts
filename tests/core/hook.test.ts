@@ -130,6 +130,15 @@ describe('normalizeHookText', () => {
     expect(normalizeHookText(raw)).toBe('x'.repeat(120))
   })
 
+  it('ne recule pas quand la coupe dure tombe déjà sur une frontière de mot', () => {
+    // Le 120e caractère termine le deuxième mot pile, et le caractère suivant
+    // est l'espace séparateur : reculer quand même supprimerait ce mot entier
+    // alors qu'il tient dans la limite. (relevé par Copilot)
+    const raw = `${'a'.repeat(100)} ${'b'.repeat(19)} ${'c'.repeat(5)}`
+    expect(raw.length).toBeGreaterThan(120)
+    expect(normalizeHookText(raw)).toBe(`${'a'.repeat(100)} ${'b'.repeat(19)}`)
+  })
+
   it('rend une chaîne vide pour une entrée vide ou faite de guillemets vides', () => {
     expect(normalizeHookText('')).toBe('')
     expect(normalizeHookText('   ')).toBe('')

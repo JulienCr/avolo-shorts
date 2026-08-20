@@ -267,7 +267,11 @@ const HOOK_TEXT_MAX_CHARS = 120
  * une saisie manuelle sans espaces. Le filet lui-même ne coupe pas un mot :
  * quand la coupe dure tombe au milieu d'un mot, on recule au dernier espace
  * du fragment ; une saisie sans aucun espace n'a nulle part où reculer, et
- * garde la coupe dure.
+ * garde la coupe dure. **On ne recule que si la coupe tombe vraiment au
+ * milieu d'un mot** — si le caractère suivant est l'espace séparateur (ou
+ * s'il n'y en a pas, le texte s'arrêtant pile là), la coupe dure est déjà une
+ * frontière de mot et reculer supprimerait un mot entier qui tenait dans la
+ * limite.
  */
 export function normalizeHookText(raw: string): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ')
@@ -276,6 +280,7 @@ export function normalizeHookText(raw: string): string {
   const limitedByWords = words.slice(0, HOOK_TEXT_MAX_WORDS).join(' ')
   if (limitedByWords.length <= HOOK_TEXT_MAX_CHARS) return limitedByWords
   const hardCut = limitedByWords.slice(0, HOOK_TEXT_MAX_CHARS)
+  const cutsMidWord = limitedByWords[HOOK_TEXT_MAX_CHARS] !== ' '
   const lastSpace = hardCut.lastIndexOf(' ')
-  return (lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
+  return (cutsMidWord && lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
 }

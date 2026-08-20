@@ -91,6 +91,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * Ouvre le panneau replié des onze surcharges — fermé par défaut (voir la
+ * doc de `HookFields`). Tout ce qui n'est ni le texte, ni « Hook activé », ni
+ * « Régénérer » vit dedans, donc un test qui les interroge doit d'abord
+ * cliquer sur « Personnaliser », comme le ferait quelqu'un devant l'écran.
+ */
+function openPersonalize() {
+  fireEvent.click(screen.getByRole('button', { name: /Personnaliser/ }))
+}
+
 describe('le texte du hook', () => {
   it('montre ce que le clip porte', () => {
     mount({ clip: clip({ hookText: 'Regarde ça' }) })
@@ -123,33 +133,43 @@ describe('le texte du hook', () => {
 describe('hérité vs surchargé', () => {
   it('un champ non surchargé se dit hérité', () => {
     mount({ clip: clip({ hookStyle: {} }) })
-    // `size` n'est pas dans `hookStyle` : hérité.
+    openPersonalize()
+    // `sizePermille` n'est pas dans `hookStyle` : hérité.
     expect(screen.getAllByText('— hérité').length).toBeGreaterThan(0)
   })
 
   it('un champ surchargé à la MÊME valeur que le global ne se dit plus hérité', () => {
-    // Le cas central du contrat : `{ size: 56 }` sur un global à 56 doit rester
-    // distinguable de `{}` — sans quoi la persistance de la PR précédente ne
-    // sert à rien.
-    mount({ clip: clip({ hookStyle: { size: HOOK_DEFAULTS.size } }) })
+    // Le cas central du contrat : `{ sizePermille: 90 }` sur un global à 90
+    // doit rester distinguable de `{}` — sans quoi la persistance de la PR
+    // précédente ne sert à rien.
+    mount({ clip: clip({ hookStyle: { sizePermille: HOOK_DEFAULTS.sizePermille } }) })
+    openPersonalize()
     expect(screen.queryByText('revenir à l’héritage')).toBeTruthy()
+  })
+
+  it('le bouton « Personnaliser » affiche le nombre de surcharges', () => {
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }) })
+    const trigger = screen.getByRole('button', { name: /Personnaliser/ })
+    expect(trigger.textContent).toContain('2')
   })
 
   it('« Réinitialiser » n’apparaît que s’il y a de quoi', () => {
     const { rerender } = mount({ clip: clip({ hookStyle: {} }) })
+    openPersonalize()
     expect(screen.queryByText('Réinitialiser avec les paramètres globaux')).toBeNull()
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     rerender(
       <QueryClientProvider client={client}>
         <HookFields
-          clip={clip({ hookStyle: { size: 80 } })}
+          clip={clip({ hookStyle: { sizePermille: 150 } })}
           globals={HOOK_DEFAULTS}
           canRegenerate
           onWrite={vi.fn()}
         />
       </QueryClientProvider>,
     )
+    openPersonalize()
     expect(screen.getByText('Réinitialiser avec les paramètres globaux')).toBeTruthy()
   })
 
@@ -157,7 +177,8 @@ describe('hérité vs surchargé', () => {
     vi.useRealTimers()
     const onWrite = vi.fn()
     const user = userEvent.setup({ delay: null })
-    mount({ clip: clip({ hookStyle: { size: 80, position: 'bottom' } }), onWrite })
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }), onWrite })
+    openPersonalize()
 
     await user.click(screen.getByText('Réinitialiser avec les paramètres globaux'))
     expect(onWrite).toHaveBeenCalledWith({ hookStyle: {} })
@@ -167,7 +188,8 @@ describe('hérité vs surchargé', () => {
     vi.useRealTimers()
     const onWrite = vi.fn()
     const user = userEvent.setup({ delay: null })
-    mount({ clip: clip({ hookStyle: { size: 80, position: 'bottom' } }), onWrite })
+    mount({ clip: clip({ hookStyle: { sizePermille: 150, position: 'bottom' } }), onWrite })
+    openPersonalize()
 
     const [resetButton] = screen.getAllByText('revenir à l’héritage')
     await user.click(resetButton)

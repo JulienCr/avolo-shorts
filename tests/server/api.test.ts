@@ -925,14 +925,14 @@ describe('PATCH /api/clips/:id', () => {
   })
 
   it('accepte un hookStyle et l’enregistre', async () => {
-    const response = await patch({ hookStyle: { size: 72, position: 'bottom' } })
+    const response = await patch({ hookStyle: { sizePermille: 150, position: 'bottom' } })
     expect(response.status).toBe(200)
     const { clip } = (await response.json()) as PatchClipResult
-    expect(clip.hookStyle).toEqual({ size: 72, position: 'bottom' })
+    expect(clip.hookStyle).toEqual({ sizePermille: 150, position: 'bottom' })
   })
 
   it('refuse un hookStyle avec une valeur hors bornes', async () => {
-    expect((await patch({ hookStyle: { size: 9 } })).status).toBe(400)
+    expect((await patch({ hookStyle: { sizePermille: 5 } })).status).toBe(400)
   })
 
   it('refuse un hookStyle avec une clé inconnue', async () => {
@@ -1525,7 +1525,7 @@ describe('/api/settings', () => {
    * chemin couvre les deux familles.
    */
   it('refuse une valeur de hook hors bornes ou mal formée', async () => {
-    expect((await write({ hook: { size: 9 } })).status).toBe(400) // sous le plancher (10)
+    expect((await write({ hook: { sizePermille: 5 } })).status).toBe(400) // sous le plancher (20)
     expect((await write({ hook: { backgroundOpacity: 101 } })).status).toBe(400) // au-dessus du plafond (100)
     expect((await write({ hook: { textColor: '#GG0000' } })).status).toBe(400) // couleur mal formée
     // Rien de tout ça n'a été écrit.
@@ -1538,10 +1538,10 @@ describe('/api/settings', () => {
   })
 
   it('accepte et relit une valeur de hook valide, couleur normalisée en majuscules', async () => {
-    const response = await write({ hook: { size: 72, textColor: '#a1b2c3' } })
+    const response = await write({ hook: { sizePermille: 150, textColor: '#a1b2c3' } })
     expect(response.status).toBe(200)
-    const body = (await response.json()) as { hook: { size: number; textColor: string } }
-    expect(body.hook.size).toBe(72)
+    const body = (await response.json()) as { hook: { sizePermille: number; textColor: string } }
+    expect(body.hook.sizePermille).toBe(150)
     expect(body.hook.textColor).toBe('#A1B2C3')
   })
 

@@ -166,7 +166,7 @@ describe('generateHookText', () => {
     await expect(generateHookText(getDb(), baseClip().id)).resolves.toBe('')
   })
 
-  it('normalise le texte rendu — guillemets et plafond de dix mots', async () => {
+  it('normalise le texte rendu — guillemets et plafond de six mots', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -175,7 +175,7 @@ describe('generateHookText', () => {
     )
     const text = await generateHookText(getDb(), baseClip().id)
     expect(text.startsWith('"')).toBe(false)
-    expect(text.split(' ')).toHaveLength(10)
+    expect(text.split(' ')).toHaveLength(6)
   })
 
   it("échoue avant tout appel réseau quand le fournisseur réglé n'a pas sa clé — critère 8", async () => {

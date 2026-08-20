@@ -42,7 +42,7 @@ import { projectTranscript } from '@/server/views'
  * consigne légèrement différente du plafond réel, que `normalizeHookText`
  * applique de toute façon après coup.
  */
-const HOOK_PROMPT_MAX_WORDS = 10
+const HOOK_PROMPT_MAX_WORDS = 6
 
 /**
  * Le délai au-delà duquel l'appel est abandonné, en millisecondes. Plus court

@@ -344,10 +344,10 @@ const HOOK_TEXT_MAX_CHARS = 120
 
 /**
  * Le texte d'un hook, ramené à une forme affichable : trim, blancs effondrés,
- * guillemets encadrants retirés, plafonné à 10 mots puis à 120 caractères.
+ * guillemets encadrants retirés, plafonné à 6 mots puis à 120 caractères.
  *
  * Gemini rend `viral_hook_text` entouré de guillemets plus souvent qu'autrement
- * — un tic de rédaction, pas une intention — et le prompt le plafonne à 10
+ * — un tic de rédaction, pas une intention — et le prompt le plafonne à 6
  * mots sans garantir que le modèle s'y tienne. Les deux plafonds sont
  * indépendants et appliqués dans cet ordre : les mots d'abord, pour ne pas
  * couper un mot au milieu, les caractères ensuite, en filet de sécurité pour

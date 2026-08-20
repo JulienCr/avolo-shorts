@@ -4,16 +4,18 @@ import {
   HOOK_DEFAULTS,
   hookIsBurned,
   hookLayout,
+  hookPlacement,
+  hookRgba,
   normalizeHookText,
   resolveHook,
   type HookSettings,
 } from '@/core/hook'
 
 /**
- * `src/core/hook.ts` — l'interface dont héritent l'émetteur ASS (PR suivante)
- * et le calque de preview (PR suivante encore). Sa signature est figée par
- * l'orchestrateur ; ce fichier teste ce qu'elle promet, pas une implémentation
- * qui pourrait changer sous elle.
+ * `src/core/hook.ts` — l'interface dont héritent le rasteriseur PNG du rendu
+ * (`src/server/hook-image.ts`) et le calque de preview (`hook-overlay.tsx`).
+ * Ce fichier teste ce qu'elle promet, pas une implémentation qui pourrait
+ * changer sous elle.
  */
 
 const clip = (remaining: Partial<Pick<Clip, 'hookText' | 'hookStyle'>> = {}): Pick<
@@ -27,8 +29,8 @@ const clip = (remaining: Partial<Pick<Clip, 'hookText' | 'hookStyle'>> = {}): Pi
 
 describe('resolveHook', () => {
   it('surcharge une seule clé, le reste vient des globaux', () => {
-    const resolved = resolveHook(HOOK_DEFAULTS, clip({ hookStyle: { size: 72 } }))
-    expect(resolved.size).toBe(72)
+    const resolved = resolveHook(HOOK_DEFAULTS, clip({ hookStyle: { sizePermille: 150 } }))
+    expect(resolved.sizePermille).toBe(150)
     expect(resolved.position).toBe(HOOK_DEFAULTS.position)
     expect(resolved.enabled).toBe(HOOK_DEFAULTS.enabled)
   })
@@ -50,11 +52,11 @@ describe('resolveHook', () => {
   it('une surcharge dont la valeur égale le défaut gagne quand même', () => {
     const identical = resolveHook(
       HOOK_DEFAULTS,
-      clip({ hookStyle: { size: HOOK_DEFAULTS.size } }),
+      clip({ hookStyle: { sizePermille: HOOK_DEFAULTS.sizePermille } }),
     )
-    const different = resolveHook(HOOK_DEFAULTS, clip({ hookStyle: { size: 72 } }))
-    expect(identical.size).toBe(HOOK_DEFAULTS.size)
-    expect(different.size).toBe(72)
+    const different = resolveHook(HOOK_DEFAULTS, clip({ hookStyle: { sizePermille: 150 } }))
+    expect(identical.sizePermille).toBe(HOOK_DEFAULTS.sizePermille)
+    expect(different.sizePermille).toBe(150)
   })
 
   it('le texte vient de hookText, jamais des globaux', () => {
@@ -104,9 +106,9 @@ describe('normalizeHookText', () => {
     expect(normalizeHookText('Il a dit "non" clairement')).toBe('Il a dit "non" clairement')
   })
 
-  it('plafonne à 10 mots', () => {
+  it('plafonne à 6 mots', () => {
     const raw = Array.from({ length: 15 }, (_, i) => `mot${i}`).join(' ')
-    expect(normalizeHookText(raw).split(' ')).toHaveLength(10)
+    expect(normalizeHookText(raw).split(' ')).toHaveLength(6)
   })
 
   it('plafonne à 120 caractères, après le plafond de mots', () => {
@@ -116,12 +118,17 @@ describe('normalizeHookText', () => {
   })
 
   it('recule au dernier espace plutôt que de couper un mot en deux', () => {
-    const raw = Array.from({ length: 10 }, () => 'x'.repeat(13)).join(' ')
+    // Six mots de 25 caractères (150 + 5 espaces = 155) : même après le
+    // plafond de 6 mots, la chaîne dépasse encore 120 caractères, donc le
+    // plafond de caractères s'exerce toujours — avec seulement 6 mots plus
+    // courts, le plafond de mots suffirait à faire passer sous la barre
+    // avant que celui des caractères n'ait quoi que ce soit à couper.
+    const raw = Array.from({ length: 6 }, () => 'x'.repeat(25)).join(' ')
     expect(raw.length).toBeGreaterThan(120)
     const result = normalizeHookText(raw)
     expect(result.length).toBeLessThanOrEqual(120)
     for (const word of result.split(' ')) {
-      expect(word).toHaveLength(13)
+      expect(word).toHaveLength(25)
     }
   })
 
@@ -159,48 +166,91 @@ describe('normalizeHookText', () => {
 const RESOLVED_BASE: HookSettings & { text: string } = { ...HOOK_DEFAULTS, text: 'x' }
 
 describe('hookLayout', () => {
-  it.each([
-    ['top', 'left', 7],
-    ['top', 'center', 8],
-    ['top', 'right', 9],
-    ['center', 'left', 4],
-    ['center', 'center', 5],
-    ['center', 'right', 6],
-    ['bottom', 'left', 1],
-    ['bottom', 'center', 2],
-    ['bottom', 'right', 3],
-  ] as const)('position %s × alignement %s -> assAlignment %i', (position, alignment, expected) => {
-    const layout = hookLayout({ ...RESOLVED_BASE, position, alignment })
-    expect(layout.assAlignment).toBe(expected)
+  // **Le cœur du critère d'acceptation 2 : les fractions ne dépendent QUE de
+  // `resolved`, jamais d'un canevas.** `hookLayout` ne prend pas de largeur ni
+  // de hauteur en argument : c'est aux deux consommateurs (rasteriseur PNG,
+  // calque de preview) de multiplier par LEUR largeur. Deux canevas de même
+  // largeur (1080, natif 1:1/4:5/9:16 et variante 9:16) reçoivent donc
+  // exactement les mêmes fractions, et c'est ce qui garantit le même bandeau.
+  it('fontSizeFraction est sizePermille/1000', () => {
+    expect(hookLayout({ ...RESOLVED_BASE, sizePermille: 90 }).fontSizeFraction).toBe(0.09)
+    expect(hookLayout({ ...RESOLVED_BASE, sizePermille: 150 }).fontSizeFraction).toBe(0.15)
   })
 
-  it('les marges horizontales sont les mêmes des deux côtés, quel que soit l’alignement', () => {
-    const left = hookLayout({ ...RESOLVED_BASE, alignment: 'left' })
-    const right = hookLayout({ ...RESOLVED_BASE, alignment: 'right' })
-    expect(left.marginL).toBe(left.marginR)
-    expect(right.marginL).toBe(right.marginR)
-    expect(left.marginL).toBe(right.marginL)
+  it('radiusFraction est cornerRadiusPermille/1000', () => {
+    expect(hookLayout({ ...RESOLVED_BASE, cornerRadiusPermille: 24 }).radiusFraction).toBe(0.024)
+    expect(hookLayout({ ...RESOLVED_BASE, cornerRadiusPermille: 0 }).radiusFraction).toBe(0)
+  })
+
+  it('lineHeightFraction et le rembourrage sont proportionnels à fontSizeFraction', () => {
+    const small = hookLayout({ ...RESOLVED_BASE, sizePermille: 50 })
+    const big = hookLayout({ ...RESOLVED_BASE, sizePermille: 100 })
+    // Deux fois la taille de police -> deux fois l'interligne et le rembourrage :
+    // ce sont des multiples constants de `fontSizeFraction`, pas des valeurs fixes.
+    expect(big.lineHeightFraction).toBeCloseTo(small.lineHeightFraction * 2)
+    expect(big.paddingXFraction).toBeCloseTo(small.paddingXFraction * 2)
+    expect(big.paddingYFraction).toBeCloseTo(small.paddingYFraction * 2)
+  })
+
+  it('la marge horizontale ne dépend ni de la taille ni de l’alignement', () => {
+    const left = hookLayout({ ...RESOLVED_BASE, alignment: 'left', sizePermille: 60 })
+    const right = hookLayout({ ...RESOLVED_BASE, alignment: 'right', sizePermille: 200 })
+    expect(left.marginXFraction).toBe(right.marginXFraction)
   })
 
   it('la marge verticale dépend de la position, jamais de l’alignement', () => {
     const top = hookLayout({ ...RESOLVED_BASE, position: 'top' })
     const bottom = hookLayout({ ...RESOLVED_BASE, position: 'bottom' })
     const center = hookLayout({ ...RESOLVED_BASE, position: 'center' })
-    expect(top.marginV).not.toBe(bottom.marginV)
-    expect(top.marginV).toBeGreaterThan(0)
-    expect(bottom.marginV).toBeGreaterThan(0)
-    expect(center.marginV).toBe(0)
+    expect(top.marginYFraction).not.toBe(bottom.marginYFraction)
+    expect(top.marginYFraction).toBeGreaterThan(0)
+    expect(bottom.marginYFraction).toBeGreaterThan(0)
+    expect(center.marginYFraction).toBe(0)
+    // Même valeur, quel que soit l'alignement — la position seule décide.
+    expect(hookLayout({ ...RESOLVED_BASE, position: 'top', alignment: 'left' }).marginYFraction).toBe(
+      top.marginYFraction,
+    )
   })
 
-  it('la taille suit le facteur 0,85 des sous-titres', () => {
-    expect(hookLayout({ ...RESOLVED_BASE, size: 44 }).sizeUnits).toBe(Math.floor(44 * 0.85))
-    expect(hookLayout({ ...RESOLVED_BASE, size: 56 }).sizeUnits).toBe(Math.floor(56 * 0.85))
+  it('maxBoxWidthFraction est une constante, indépendante du hook résolu', () => {
+    const a = hookLayout({ ...RESOLVED_BASE, sizePermille: 40, position: 'bottom' })
+    const b = hookLayout({ ...RESOLVED_BASE, sizePermille: 200, position: 'top' })
+    expect(a.maxBoxWidthFraction).toBe(b.maxBoxWidthFraction)
+    expect(a.maxBoxWidthFraction).toBeGreaterThan(0)
+    expect(a.maxBoxWidthFraction).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('hookRgba', () => {
+  it('convertit une couleur hex et un pourcentage en rgba()', () => {
+    expect(hookRgba('#FF00FF', 100)).toBe('rgba(255, 0, 255, 1)')
+    expect(hookRgba('#000000', 0)).toBe('rgba(0, 0, 0, 0)')
+    expect(hookRgba('#112233', 50)).toBe('rgba(17, 34, 51, 0.5)')
+  })
+})
+
+describe('hookPlacement', () => {
+  const layout = hookLayout(RESOLVED_BASE)
+  const canvas = { w: 1080, h: 1920 }
+  const image = { w: 300, h: 90 }
+
+  it('centre horizontalement pour alignment: center, verticalement pour position: center', () => {
+    const { x, y } = hookPlacement(image, canvas, { position: 'center', alignment: 'center' }, layout)
+    expect(x).toBe(Math.round((canvas.w - image.w) / 2))
+    expect(y).toBe(Math.round((canvas.h - image.h) / 2))
   })
 
-  it('ne descend jamais sous 10 unités, comme le calcul de référence des sous-titres', () => {
-    // À la taille plancher du registre (10), le facteur 0,85 rendrait 8 sans ce
-    // plancher — src/core/captions/ass.ts impose le même `Math.max(10, …)`.
-    expect(hookLayout({ ...RESOLVED_BASE, size: 10 }).sizeUnits).toBe(10)
-    expect(hookLayout({ ...RESOLVED_BASE, size: 11 }).sizeUnits).toBe(10)
+  it('colle à gauche/droite et haut/bas, à la marge près', () => {
+    const marginX = Math.round(canvas.w * layout.marginXFraction)
+    const { x: leftX } = hookPlacement(image, canvas, { position: 'top', alignment: 'left' }, layout)
+    expect(leftX).toBe(marginX)
+    const { x: rightX } = hookPlacement(image, canvas, { position: 'top', alignment: 'right' }, layout)
+    expect(rightX).toBe(canvas.w - marginX - image.w)
+  })
+
+  it('ne rend jamais une coordonnée négative, même pour une image plus large que le canevas', () => {
+    const tooWide = { w: 2000, h: 90 }
+    const { x } = hookPlacement(tooWide, canvas, { position: 'top', alignment: 'right' }, layout)
+    expect(x).toBeGreaterThanOrEqual(0)
   })
 })

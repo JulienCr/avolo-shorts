@@ -15,7 +15,6 @@ import { cropRect, outputSize } from '@/core/framing'
 import {
   hookIsBurned,
   hookLayout,
-  hookPlacement,
   resolveHook,
   type HookSettings,
   type ResolvedHook,

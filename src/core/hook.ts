@@ -3,7 +3,9 @@ import type { Clip } from '@/core/edl'
 /**
  * Le hook : un texte court incrusté dès la première image d'un clip exporté,
  * pour accrocher dans le fil avant que le spectateur comprenne le contexte
- * (`docs/retour-ui-and-next-steps.md` §6.3 et §7).
+ * (`docs/retour-ui-and-next-steps.md` §6.3 et §7 — note de travail de l'auteur
+ * du projet, volontairement non versionnée : ce fichier ne se trouve pas dans
+ * le dépôt cloné).
  *
  * **Ce module est l'interface dont héritent l'émetteur ASS (rendu) et le
  * calque de preview (écran Clip).** Sa signature est celle que l'orchestrateur
@@ -221,8 +223,10 @@ export function hookLayout(resolved: ResolvedHook): HookLayout {
     marginV: marginVFor(resolved.position),
     // Le facteur 0,85 est repris tel quel de `src/core/captions/ass.ts`, pour
     // qu'un hook à 44 et un sous-titre à 44 donnent la même hauteur de glyphe
-    // — une propriété produit, pas un détail d'implémentation.
-    sizeUnits: Math.floor(resolved.size * 0.85),
+    // — une propriété produit, pas un détail d'implémentation. Le plancher de
+    // 10 aussi : sans lui, la taille minimale du registre (`HOOK_BOUNDS.size.min`)
+    // rendrait 8, plus petit que ce que les sous-titres s'autorisent jamais.
+    sizeUnits: Math.max(10, Math.floor(resolved.size * 0.85)),
   }
 }
 
@@ -260,14 +264,18 @@ const HOOK_TEXT_MAX_CHARS = 120
  * mots sans garantir que le modèle s'y tienne. Les deux plafonds sont
  * indépendants et appliqués dans cet ordre : les mots d'abord, pour ne pas
  * couper un mot au milieu, les caractères ensuite, en filet de sécurité pour
- * une saisie manuelle sans espaces.
+ * une saisie manuelle sans espaces. Le filet lui-même ne coupe pas un mot :
+ * quand la coupe dure tombe au milieu d'un mot, on recule au dernier espace
+ * du fragment ; une saisie sans aucun espace n'a nulle part où reculer, et
+ * garde la coupe dure.
  */
 export function normalizeHookText(raw: string): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ')
   const unquoted = stripSurroundingQuotes(collapsed)
   const words = unquoted.split(' ').filter((word) => word !== '')
   const limitedByWords = words.slice(0, HOOK_TEXT_MAX_WORDS).join(' ')
-  return limitedByWords.length > HOOK_TEXT_MAX_CHARS
-    ? limitedByWords.slice(0, HOOK_TEXT_MAX_CHARS).trimEnd()
-    : limitedByWords
+  if (limitedByWords.length <= HOOK_TEXT_MAX_CHARS) return limitedByWords
+  const hardCut = limitedByWords.slice(0, HOOK_TEXT_MAX_CHARS)
+  const lastSpace = hardCut.lastIndexOf(' ')
+  return (lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
 }

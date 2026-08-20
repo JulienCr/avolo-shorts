@@ -115,6 +115,21 @@ describe('normalizeHookText', () => {
     expect(normalizeHookText(raw).length).toBeLessThanOrEqual(120)
   })
 
+  it('recule au dernier espace plutôt que de couper un mot en deux', () => {
+    const raw = Array.from({ length: 10 }, () => 'x'.repeat(13)).join(' ')
+    expect(raw.length).toBeGreaterThan(120)
+    const result = normalizeHookText(raw)
+    expect(result.length).toBeLessThanOrEqual(120)
+    for (const word of result.split(' ')) {
+      expect(word).toHaveLength(13)
+    }
+  })
+
+  it('garde la coupe dure pour une saisie sans espace', () => {
+    const raw = 'x'.repeat(150)
+    expect(normalizeHookText(raw)).toBe('x'.repeat(120))
+  })
+
   it('rend une chaîne vide pour une entrée vide ou faite de guillemets vides', () => {
     expect(normalizeHookText('')).toBe('')
     expect(normalizeHookText('   ')).toBe('')
@@ -161,5 +176,12 @@ describe('hookLayout', () => {
   it('la taille suit le facteur 0,85 des sous-titres', () => {
     expect(hookLayout({ ...RESOLVED_BASE, size: 44 }).sizeUnits).toBe(Math.floor(44 * 0.85))
     expect(hookLayout({ ...RESOLVED_BASE, size: 56 }).sizeUnits).toBe(Math.floor(56 * 0.85))
+  })
+
+  it('ne descend jamais sous 10 unités, comme le calcul de référence des sous-titres', () => {
+    // À la taille plancher du registre (10), le facteur 0,85 rendrait 8 sans ce
+    // plancher — src/core/captions/ass.ts impose le même `Math.max(10, …)`.
+    expect(hookLayout({ ...RESOLVED_BASE, size: 10 }).sizeUnits).toBe(10)
+    expect(hookLayout({ ...RESOLVED_BASE, size: 11 }).sizeUnits).toBe(10)
   })
 })

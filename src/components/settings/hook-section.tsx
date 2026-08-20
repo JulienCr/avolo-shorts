@@ -355,7 +355,7 @@ function DurationField({
         )}
       </div>
       <p id={helpId} className="text-xs text-muted-foreground">
-        Combien de temps le hook reste à l’image, dès la première frame.
+        Combien de temps le hook reste à l’image, dès la première image.
       </p>
     </div>
   )

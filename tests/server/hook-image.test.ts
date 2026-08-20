@@ -111,19 +111,28 @@ describe('renderHookImage', () => {
     fs.writeFileSync(path.join(dir, 'Anton-Regular.ttf'), real)
 
     const spy = vi.spyOn(GlobalFonts, 'registerFromPath')
+    const removeSpy = vi.spyOn(GlobalFonts, 'remove')
 
     renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
     expect(spy).toHaveBeenCalledTimes(1)
+    // Rien à retirer au tout premier enregistrement — pas d'ancienne clé.
+    expect(removeSpy).not.toHaveBeenCalled()
+    const firstKey = spy.mock.results[0]?.value as unknown
 
     // Même contenu, même dossier : pas de second appel.
     renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
     expect(spy).toHaveBeenCalledTimes(1)
+    expect(removeSpy).not.toHaveBeenCalled()
 
     // Le contenu change (même chemin) : l'ancien `FontKey` doit être retiré
     // et la police réenregistrée — sinon un remplacement de police que
     // l'empreinte déclare pourtant à jour ne se voit jamais dans le PNG.
+    // Vérifié à la clé précise, pas seulement au décompte d'appels : un
+    // `GlobalFonts.remove()` retiré du code laisserait ce test vert si on ne
+    // vérifiait que `spy` (relevé par Aristarque, PR #117, passe 4).
     fs.writeFileSync(path.join(dir, 'Anton-Regular.ttf'), Buffer.concat([real, Buffer.from('x')]))
     renderHookImage(resolved(), { w: 1080, h: 1080 }, dir)
     expect(spy).toHaveBeenCalledTimes(2)
+    expect(removeSpy).toHaveBeenCalledExactlyOnceWith(firstKey)
   })
 })

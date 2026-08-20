@@ -93,10 +93,17 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
           style={{
             display: 'inline-block',
             // Le contenu, pas la boîte : `max-width` porte sur le texte en
-            // `box-sizing: content-box` (le défaut), donc il faut lui retirer
-            // le rembourrage des deux côtés pour viser la même largeur
-            // maximale de boîte que `maxTextWidthPx` dans le rasteriseur PNG
-            // (`src/server/hook-image.ts`).
+            // `box-sizing: content-box`, donc il faut lui retirer le
+            // rembourrage des deux côtés pour viser la même largeur maximale
+            // de boîte que `maxTextWidthPx` dans le rasteriseur PNG
+            // (`src/server/hook-image.ts`). **`content-box` n'est plus le
+            // défaut ici** : le preflight Tailwind de `globals.css` pose
+            // `box-sizing: border-box` globalement, sous quoi `max-width`
+            // inclurait déjà le rembourrage — le soustraire une seconde fois
+            // réduirait la largeur utile en double. Posé explicitement pour
+            // annuler le preflight sur ce seul span (relevé par Copilot,
+            // PR #117, passe 4).
+            boxSizing: 'content-box',
             maxWidth: cqw(layout.maxBoxWidthFraction - 2 * layout.paddingXFraction),
             fontSize: cqw(layout.fontSizeFraction),
             lineHeight: cqw(layout.lineHeightFraction),
@@ -107,7 +114,13 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
             paddingRight: cqw(layout.paddingXFraction),
             paddingTop: cqw(layout.paddingYFraction),
             paddingBottom: cqw(layout.paddingYFraction),
-            whiteSpace: 'pre-wrap',
+            // `normal`, pas `pre-wrap` : `wrapLines` (`src/server/hook-image.ts`)
+            // coupe sur `' '` et filtre les chaînes vides, donc des espaces
+            // répétés dans un `hookText` saisi à la main se réduisent à un
+            // seul dans le PNG. `pre-wrap` les aurait conservés tels quels
+            // dans cette preview, désaccordant sa largeur de boîte de celle
+            // du rendu réel (relevé par Copilot, PR #117, passe 4).
+            whiteSpace: 'normal',
           }}
         >
           {text}

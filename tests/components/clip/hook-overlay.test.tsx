@@ -134,4 +134,16 @@ describe('HookOverlay', () => {
     const span = container.querySelector('span') as HTMLElement
     expect(span.style.borderRadius).toMatch(new RegExp(`^calc\\(${percent(layout.radiusFraction)}cqw\\)$`))
   })
+
+  it("force content-box sur le span de texte — le preflight Tailwind pose border-box globalement, sous quoi `max-width` inclurait déjà le rembourrage et le soustraire une seconde fois réduirait la largeur utile en double (relevé par Copilot, PR #117, passe 4)", () => {
+    const { container } = render(<HookOverlay hook={resolved()} />)
+    const span = container.querySelector('span') as HTMLElement
+    expect(span.style.boxSizing).toBe('content-box')
+  })
+
+  it("n'utilise pas pre-wrap — wrapLines (rasteriseur PNG) réduit les espaces répétés à un seul, `pre-wrap` les aurait conservés et désaccordé la largeur de la boîte de la preview de celle du rendu (relevé par Copilot, PR #117, passe 4)", () => {
+    const { container } = render(<HookOverlay hook={resolved()} />)
+    const span = container.querySelector('span') as HTMLElement
+    expect(span.style.whiteSpace).toBe('normal')
+  })
 })

@@ -47,7 +47,7 @@ import { useRegenerateHook } from '@/lib/queries'
  * couleurs, pas de la frappe. Le texte du hook, lui, suit exactement ce
  * protocole, comme le titre et la description.
  *
- * **Onze réglages sont repliés derrière un bouton, fermé par
+ * **Douze réglages sont repliés derrière un bouton, fermé par
  * défaut.** Le propriétaire du dépôt a regardé l'écran Clip et constaté que
  * les contrôles de surcharge republiaient à plat tout le panneau
  * Réglages — un écran qui existe pour monter un clip, pas pour régler le

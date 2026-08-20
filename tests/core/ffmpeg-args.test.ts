@@ -882,6 +882,21 @@ describe('blurredVariantArgs', () => {
     expect(g).toContain('[1:v]overlay=x=30:y=40')
   })
 
+  // `buildRender` est partagé avec `renderArgs`, mais rien ne garantit que la
+  // variante reçoive le même traitement temporel sans un test qui le vérifie
+  // ICI : le piège documenté par le contrat de la seconde manche (« les deux
+  // sorties ») est précisément qu'un correctif posé côté natif passe à côté
+  // de la variante 9:16. Relevé par Aristarque, PR #117, passe 4.
+  it("borne aussi la variante à durationMs et pose shortest=1, comme renderArgs", () => {
+    const g = graph(
+      blurredVariantArgs({
+        ...base,
+        hookImage: hookImage({ x: 30, y: 40, w: 200, h: 80, durationMs: 3500 }),
+      }),
+    )
+    expect(g).toContain("overlay=x=30:y=40:enable='between(t,0,3.5)':shortest=1")
+  })
+
   // **La hauteur occupée suit le ratio du plan**, et c'est la table de la
   // conception : un 9:16 remplit, un 4:5 occupe 1350 des 1920, un 1:1 1080, un
   // 16:9 608. Elle se calcule sur le **ratio nominal** et jamais sur le

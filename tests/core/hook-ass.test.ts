@@ -61,6 +61,11 @@ describe('renderHookAss', () => {
     expect(ass).toContain('{\\fad(300,0)}')
   })
 
+  it('un hook au plancher de durée (200 ms) borne chaque fondu à sa moitié, pour ne pas se chevaucher', () => {
+    const ass = renderHookAss(resolved({ enter: 'fade', exit: 'fade', durationMs: 200 }))
+    expect(ass).toContain('{\\fad(100,100)}')
+  })
+
   it('glitch ne rend PAS un fondu — il se replie sur aucune transition, avec un avertissement', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const ass = renderHookAss(resolved({ enter: 'glitch', exit: 'glitch' }))
@@ -74,6 +79,14 @@ describe('renderHookAss', () => {
     const ass = renderHookAss(resolved({ enter: 'scanline', exit: 'none' }))
     expect(ass).not.toContain('\\fad')
     expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('warn=false (chemin de lecture) ne journalise rien pour glitch/scanline', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ass = renderHookAss(resolved({ enter: 'glitch', exit: 'scanline' }), false)
+    expect(ass).not.toContain('\\fad')
+    expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 

@@ -165,7 +165,15 @@ export function deliveryToDay(
     // `texte: undefined` pour la même raison que les deux champs au-dessus :
     // sonder le texte suppose de lire le transcript, sur le Drive, et un `GET`
     // ne paie pas cet aller-retour à chaque affichage de carte.
-    { markers: null, look: null, text: undefined, hook: renderHookAss(resolveHook(hookGlobals, clip)) },
+    {
+      markers: null,
+      look: null,
+      text: undefined,
+      // `warn: false` — cette fonction tourne à chaque `GET` (voir plus haut) ;
+      // l'avertissement `glitch`/`scanline` de `renderHookAss` reste réservé
+      // au chemin d'export (`src/server/steps/render.ts`).
+      hook: renderHookAss(resolveHook(hookGlobals, clip), false),
+    },
   )
 }
 

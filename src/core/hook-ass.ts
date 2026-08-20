@@ -44,7 +44,11 @@ const FADE_MS = 300
 
 /**
  * La durée de fondu pour un côté, en millisecondes — 0 pour `none`, ou pour
- * `glitch`/`scanline`, non implémentées dans cette PR.
+ * `glitch`/`scanline`, non implémentées dans cette PR. Bornée à la moitié de
+ * `durationMs` : au plancher de durée (200 ms, `HOOK_BOUNDS.durationMs.min`),
+ * les deux `FADE_MS` de 300 ms se chevaucheraient sur toute la durée et le
+ * hook n'atteindrait jamais son opacité normale — trouvaille de review sur
+ * `src/core/hook-ass.ts:43`.
  *
  * **`glitch` et `scanline` ne sont jamais rendus comme un `fade`.** L'énum
  * persistée les porte déjà (PR précédente), et l'écran Réglages les affiche
@@ -53,12 +57,24 @@ const FADE_MS = 300
  * fondu serait le mensonge silencieux que ce dépôt refuse ailleurs (`CLAUDE.md`) —
  * mieux vaut avertir et ne rien montrer que montrer autre chose que ce qui a
  * été demandé.
+ *
+ * **`warn` est à `false` sur le chemin de lecture** (`src/server/renders.ts`,
+ * `deliveryToDay`) : cette fonction y est appelée à chaque `GET`, et un
+ * avertissement à chaque affichage de carte saturerait le journal tant qu'un
+ * réglage `glitch`/`scanline` persiste. Le chemin d'export
+ * (`src/server/steps/render.ts`) garde le défaut `true`.
  */
-function fadeMsFor(transition: ResolvedHook['enter'] | ResolvedHook['exit'], side: 'entrée' | 'sortie'): number {
-  if (transition === 'fade') return FADE_MS
-  if (transition === 'glitch' || transition === 'scanline') {
+function fadeMsFor(
+  transition: ResolvedHook['enter'] | ResolvedHook['exit'],
+  side: 'enter' | 'exit',
+  durationMs: number,
+  warn: boolean,
+): number {
+  if (transition === 'fade') return Math.min(FADE_MS, Math.floor(durationMs / 2))
+  if (warn && (transition === 'glitch' || transition === 'scanline')) {
+    const label = side === 'enter' ? 'entrée' : 'sortie'
     console.warn(
-      `Transition de ${side} "${transition}" pas encore rendue (hors périmètre de cette PR) : ` +
+      `Transition de ${label} "${transition}" pas encore rendue (hors périmètre de cette PR) : ` +
         'le hook sera incrusté sans transition.',
     )
   }
@@ -66,9 +82,14 @@ function fadeMsFor(transition: ResolvedHook['enter'] | ResolvedHook['exit'], sid
 }
 
 /** La balise `\fad(in,out)`, ou une chaîne vide quand les deux côtés sont `none`. */
-function fadeTag(enter: ResolvedHook['enter'], exit: ResolvedHook['exit']): string {
-  const fadeIn = fadeMsFor(enter, 'entrée')
-  const fadeOut = fadeMsFor(exit, 'sortie')
+function fadeTag(
+  enter: ResolvedHook['enter'],
+  exit: ResolvedHook['exit'],
+  durationMs: number,
+  warn: boolean,
+): string {
+  const fadeIn = fadeMsFor(enter, 'enter', durationMs, warn)
+  const fadeOut = fadeMsFor(exit, 'exit', durationMs, warn)
   return fadeIn === 0 && fadeOut === 0 ? '' : `{\\fad(${fadeIn},${fadeOut})}`
 }
 
@@ -103,8 +124,11 @@ function boxPadding(sizeUnits: number): number {
  * Un `Style` unique en boîte opaque (`BorderStyle: 3`) : `PrimaryColour` est
  * la couleur du texte, `OutlineColour` celle du fond — c'est là que le fond et
  * son opacité vivent. Un seul `Dialogue`, de `0:00:00.00` à la durée du hook.
+ *
+ * `warn` (défaut `true`) : passer `false` sur le chemin de lecture, qui
+ * appelle cette fonction à chaque `GET` — voir le commentaire de `fadeMsFor`.
  */
-export function renderHookAss(resolved: ResolvedHook): string | null {
+export function renderHookAss(resolved: ResolvedHook, warn = true): string | null {
   if (!hookIsBurned(resolved)) return null
 
   const layout = hookLayout(resolved)
@@ -143,7 +167,7 @@ export function renderHookAss(resolved: ResolvedHook): string | null {
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
 
-  const text = `${fadeTag(resolved.enter, resolved.exit)}${escape(resolved.text)}`
+  const text = `${fadeTag(resolved.enter, resolved.exit, resolved.durationMs, warn)}${escape(resolved.text)}`
   const end = timeAss(hundredths(resolved.durationMs / 1000))
   const dialogue = `Dialogue: 0,0:00:00.00,${end},Default,,0,0,0,,${text}`
 

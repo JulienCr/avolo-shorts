@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
-import { closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
+import { applySettings, closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
 import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
 import type { Probe } from '@/server/ffprobe'
 import { outputNamed, clipOutputs } from '@/server/renders'
@@ -535,6 +535,125 @@ describe('les sorties publiées', () => {
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
     expect(fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+})
+
+/**
+ * **Le cas sans précédent de #48 : un hook change.** Les critères 3 à 6 du
+ * contrat de cette PR. Deux voies distinctes, qui ne doivent pas se confondre
+ * au journal :
+ *
+ * - un `PATCH` sur `hookText`/`hookStyle` **du clip** périme par le chemin
+ *   `discardRenderStale` existant, comme n'importe quel autre champ de
+ *   `ShapeRendered` ;
+ * - un réglage **global** de hook ne périme rien tant que personne ne
+ *   redemande le clip — ni `PUT /api/settings`, ni un `PATCH` ne l'effacent —
+ *   mais `mp4Url` retombe à `null` dès la prochaine lecture, et le prochain
+ *   export refuse de sauter en le disant.
+ */
+describe('le hook (#48, le cas sans précédent)', () => {
+  it('un PATCH sur hookText efface les sorties et redescend le statut, par discardRenderStale', async () => {
+    putClip(getDb(), clip())
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    await patch({ hookText: 'Une accroche neuve' })
+
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+
+  it('un PATCH sur hookStyle périme aussi, par le même chemin', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    await patch({ hookStyle: { size: 72 } })
+
+    expect(fs.existsSync(paths.fingerprint)).toBe(false)
+    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+  })
+
+  it("un réglage global de hook fait passer mp4Url à null sans que le clip ait bougé", async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
+    await renderClip(CLIP, { db: getDb(), brandDir })
+    const toDay = getClip(getDb(), CLIP) as Clip
+    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+
+    applySettings(getDb(), { hook: { textColor: '#00FF00' } })
+
+    // Le clip lui-même n'a pas bougé : même statut, mêmes champs — seul le
+    // réglage global a changé.
+    expect(getClip(getDb(), CLIP)).toEqual(toDay)
+    expect(clipOutputs(toDay).mp4Url).toBeNull()
+  })
+
+  it('le prochain export journalise « hook » et refuse de sauter après ce même réglage global', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
+    const paths = pathsRender(ID, CLIP, '1:1')
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    applySettings(getDb(), { hook: { textColor: '#00FF00' } })
+
+    const messages: string[] = []
+    const before = console.warn
+    console.warn = (...args: unknown[]) => void messages.push(args.join(' '))
+    encodings = []
+    let result: Awaited<ReturnType<typeof renderClip>>
+    try {
+      result = await renderClip(CLIP, { db: getDb(), brandDir })
+    } finally {
+      console.warn = before
+    }
+
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
+    expect(messages.some((m) => m.includes('le hook'))).toBe(true)
+  })
+
+  it("n'est périmé par AUCUN réglage global de hook quand le clip n'a pas de hook", async () => {
+    // `clip()` par défaut : `hookText: ''`, aucun hook actif.
+    putClip(getDb(), clip())
+    await renderClip(CLIP, { db: getDb(), brandDir })
+
+    applySettings(getDb(), { hook: { textColor: '#00FF00', durationMs: 5000, position: 'bottom' } })
+
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir })
+    expect(result.skipped).toBe(true)
+    expect(encodings).toEqual([])
+
+    const toDay = getClip(getDb(), CLIP) as Clip
+    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+  })
+
+  /**
+   * **Le point 2 de la doc du champ `hook`** : sans le condensat des polices
+   * dedans, un clip qui a un hook mais pas de sous-titres ne verrait jamais
+   * passer un remplacement d'Anton — `captionsLook` vaut `null` pour ce clip,
+   * donc rien d'autre dans l'empreinte ne porte les polices.
+   */
+  it('remplacer fonts/Anton-Regular.ttf périme un clip qui a un hook et pas de sous-titres', async () => {
+    putClip(getDb(), clip({ hookText: 'Attends de voir ça', captions: false }))
+    const paths = pathsRender(ID, CLIP, '1:1')
+    const fonts = path.join(root, 'fonts')
+    fs.mkdirSync(fonts, { recursive: true })
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'la version d’hier')
+    await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
+    const before = lireFingerprint(paths.fingerprint)?.hook
+    expect(before).toBeTypeOf('string')
+
+    fs.writeFileSync(path.join(fonts, 'Anton-Regular.ttf'), 'la version d’aujourd’hui')
+    encodings = []
+    const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
+
+    expect(result.skipped).toBe(false)
+    expect(encodings).toContain(paths.mp4)
+    expect(lireFingerprint(paths.fingerprint)?.hook).not.toBe(before)
   })
 })
 

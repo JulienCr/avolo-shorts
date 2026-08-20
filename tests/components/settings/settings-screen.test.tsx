@@ -2,7 +2,7 @@
 
 /**
  * L'écran des paramètres : les cinq réglages du repérage, leur estimation, et la
- * section du hook qui n'écrit rien.
+ * section du hook, qui écrit ses onze champs comme les autres réglages.
  *
  * **Ce qu'un écran de réglages rate le plus souvent**, et que ces tests tiennent :
  * afficher le nom technique d'une clé, écrire à chaque frappe, et ne rien dire

@@ -3,7 +3,15 @@ import { z } from 'zod'
 
 import { normalizeSegments, type Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
-import { getClip, getDb, getProject, floorDOrder, putClip, putClipOrdered } from '@/server/db'
+import {
+  getClip,
+  getDb,
+  getProject,
+  floorDOrder,
+  putClip,
+  putClipOrdered,
+  HOOK_STYLE_SHAPE,
+} from '@/server/db'
 import { body, notFound, json, route } from '@/server/http'
 import { clipOutputs } from '@/server/renders'
 import {
@@ -49,6 +57,18 @@ const EDIT = z.strictObject({
   captions: z.boolean().optional(),
   branding: z.boolean().optional(),
   status: z.enum(['candidate', 'kept', 'discarded']).optional(),
+  // Le hook (retour d'usage §7). `hookText` n'est pas normalisé ici : la
+  // normalisation (`normalizeHookText`, `@/core/hook`) s'applique à ce que le
+  // repérage récolte, pas à une saisie manuelle que l'écran de clip a le droit
+  // de traiter à sa façon — cette route ne fait qu'accepter ou refuser une
+  // longueur.
+  hookText: z.string().max(280).optional(),
+  // Un objet **creux**, toutes les clés facultatives : `{}` dit « aux valeurs
+  // globales », comme `Clip.hookStyle` le documente (`core/edl.ts`).
+  // `z.strictObject`, comme `segments` deux lignes plus haut : une clé
+  // inconnue est un 400, pas un enregistrement silencieux qui ne serait
+  // jamais relu.
+  hookStyle: z.strictObject(HOOK_STYLE_SHAPE).partial().optional(),
   /**
    * Le numéro d'ordre du **geste**, et non de l'arrivée.
    *

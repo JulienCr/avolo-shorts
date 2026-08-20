@@ -425,7 +425,26 @@ jamais la différence, et en construire un ne changerait rien — c'est le conte
 qui est en cause, pas la géométrie.
 
 Le choix se juge donc à la vidéo, avec le son : on voit qui est cadré, on entend
-qui parle. C'est ce que produit `scripts/spike/subshot-ab.ts`.
+qui parle. C'est ce que produit `scripts/spike/subshot-ab.ts` — trois panneaux
+côte à côte, chacun un vrai canevas 9:16 passé par `blurredVariantArgs`, donc ce
+que le rendu produirait et non une démonstration.
+
+Et la vidéo tranche en un dixième de seconde. Sur `2025-06-15-cqlp` à 2 107 s,
+au même instant :
+
+| panneau | ce qu'on voit |
+|---|---|
+| aujourd'hui | un 1:1 en boîte aux lettres, les deux comédiens minuscules |
+| candidat | plein canevas sur l'homme, face caméra, en train de parler |
+| témoin | plein canevas sur **la nuque de la comédienne**, pas un visage |
+
+Les deux derniers remplissent le canevas à l'identique et la métrique leur donne
+la même note. **Le choix compte énormément ; c'est la mesure qui est aveugle.**
+
+Le contrôle négatif, un gros plan à une personne, est mieux qu'indiscernable :
+les trois panneaux ont un PSNR **infini** sur douze secondes, donc ils sont
+identiques bit à bit. Sur un cas où les cadrages diffèrent, le même PSNR vaut
+14,3 dB.
 
 ### Ce que la comparaison mesure légitimement
 

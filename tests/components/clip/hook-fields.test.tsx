@@ -54,7 +54,7 @@ function clipDetail(c: Clip): ClipDetail {
     project: { id: c.projectId, title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },
     lines: [],
     proxyUrl: null,
-    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
     framing: { ratio: '1:1', shots: [], rejectedOverrides: [], origin: 'computed' },
   }
 }

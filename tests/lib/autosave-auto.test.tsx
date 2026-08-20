@@ -49,7 +49,7 @@ function response(winner: Clip, applied: boolean): PatchClipResult {
   return {
     applied,
     clip: winner,
-    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+    outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
     framing: framing(),
     seq: 42,
   }

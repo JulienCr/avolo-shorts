@@ -70,7 +70,7 @@ async function main(): Promise<number> {
   } else {
     console.log(`Rendu      : produit en ${duration(t())}`)
   }
-  console.log(`MP4        : ${result.mp4}`)
+  console.log(`MP4        : ${result.mp4 ?? '(aucun, RENDER_NATIVE est désactivé)'}`)
   console.log(`Variante   : ${result.variant9x16 ?? '(aucune, le clip est déjà en 9:16)'}`)
   console.log(`Textes     : ${result.texts}`)
 

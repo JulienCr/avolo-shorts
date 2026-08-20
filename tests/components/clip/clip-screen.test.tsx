@@ -69,7 +69,7 @@ function detail(id = 'c2', segments = [{ start: 100, end: 120 }]): ClipDetail {
       })),
     })),
     proxyUrl: '/api/projects/p1/proxy',
-    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
   }
 }
 

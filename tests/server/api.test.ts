@@ -138,6 +138,7 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
           nativeW: 1000,
           nativeH: 996,
           widthRatio: 0.22,
+          capHauteur: 0.06,
           edge: 'gauche' as const,
           content: `contenu-de-${name}`,
         })),
@@ -730,12 +731,17 @@ describe('GET /api/clips/:id/renders/:file', () => {
       contextRender(id, name),
     )
 
+  // **Ratio 9:16 par défaut**, pour que le natif reste dû quel que soit
+  // `RENDER_NATIVE` — la plupart de ces tests portent sur le mécanisme de
+  // service (octets, plages, 404), pas sur le choix natif/variante. Le seul
+  // test qui a besoin d'une variante (`sert la variante 9:16...`) repose le
+  // clip sous un autre ratio, localement.
   beforeEach(() => {
-    putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
+    putClip(getDb(), { ...baseClip(), ratio: '9:16', status: 'exported' })
     // Sans elle, la route refuse : un rendu que rien ne certifie n'est pas une
     // livraison à jour, et la porte des octets dit la même chose que celle des
     // URL. Ce que ces tests-ci éprouvent est ce qui vient après.
-    poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
+    poserFingerprint({ ...baseClip(), ratio: '9:16', status: 'exported' })
   })
 
   it('ne sert rien pour un clip que l’édition a fait sortir d’`exported`', async () => {
@@ -780,6 +786,9 @@ describe('GET /api/clips/:id/renders/:file', () => {
   })
 
   it('sert la variante 9:16 et le texte de publication', async () => {
+    // Un ratio natif qui n'est PAS déjà 9:16, pour que la variante soit due.
+    putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
+    poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
     poserRenders(`${CLIP}-9x16.mp4`, `${CLIP}.txt`)
     expect((await request(`${CLIP}-9x16.mp4`)).status).toBe(200)
 
@@ -1344,6 +1353,7 @@ describe('PATCH /api/clips/:id', () => {
       // son cache dessus, et une absence de champ le laisserait sur l'ancien.
       expect(result.outputs).toEqual({
         mp4Url: null,
+        mp4Due: true,
         variant9x16Url: null,
         variant9x16Due: false,
         textsUrl: null,

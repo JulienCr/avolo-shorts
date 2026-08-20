@@ -514,7 +514,10 @@ describe('renderArgs', () => {
     expect(graph).toContain(
       "[vf0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf1]",
     )
-    expect(graph).toContain('[vf1][lg0]overlay=x=40:y=250[v]')
+    // La marque est masquée pendant tout le hook (exit: 'none' par défaut,
+    // donc apparition sèche à durationSec) — voir « les marques attendent la
+    // fin du hook » plus bas pour le contrat complet.
+    expect(graph).toContain("[vf1][lg0]overlay=x=40:y=250:enable='gte(t,2)'[v]")
   })
 
   // **Le cas qui casse en silence : le hook SANS sous-titres.** C'est alors
@@ -530,7 +533,7 @@ describe('renderArgs', () => {
     })
     const graph = a[a.indexOf('-filter_complex') + 1]
     expect(graph).toContain("[v0][1:v]overlay=x=60:y=90:enable='between(t,0,2)':shortest=1[vf0]")
-    expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
+    expect(graph).toContain("[vf0][lg0]overlay=x=40:y=250:enable='gte(t,2)'[v]")
   })
 
   // **Le PNG du hook prend une entrée à lui seul, entre les segments et les
@@ -694,6 +697,112 @@ describe('renderArgs', () => {
         expect(String(warn.mock.calls[0]?.[0])).toContain(transition)
       },
     )
+  })
+
+  // **Les marques attendent la fin du hook.** Pendant que le hook occupe
+  // l'écran, une marque posée dessous serait invisible, une marque posée
+  // dessus le recouvrirait : ni l'un ni l'autre n'a de sens. `logoAppearSec`
+  // reprend tel quel le fondu de sortie du hook (`hookFadeOutMs`) — la marque
+  // apparaît exactement quand le hook commence à s'effacer, et finit
+  // d'apparaître pile à l'instant où `enable=` du hook l'éteint : même
+  // rythme, jamais un rythme indépendant qui déraperait de quelques images.
+  describe('les marques attendent la fin du hook', () => {
+    it("masque la marque jusqu'à durationSec quand le hook n'a pas de fondu de sortie", () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ exit: 'none', durationMs: 3_000 }),
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      // Pas de fondu de sortie sur le hook -> pas de fondu sur la marque non
+      // plus, seulement une apparition sèche au même instant.
+      expect(graph).not.toContain('fade=t=in')
+      expect(graph).toContain("overlay=x=40:y=250:enable='gte(t,3)'[v]")
+    })
+
+    it('fait apparaître la marque en fondu, synchronisé sur le fondu de sortie du hook', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ exit: 'fade', durationMs: 2_000 }),
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      // Le hook s'efface entre 1,7 s et 2 s (fondu de 0,3 s) : la marque suit
+      // exactement le même intervalle.
+      expect(graph).toContain('[2:v]scale=300:90,format=rgba,fade=t=in:st=1.7:d=0.3:alpha=1[lg0]')
+      // `:shortest=1` : la marque est bouclée (voir le test dédié plus bas),
+      // donc infinie — sans lui, ce rendu ne se terminerait jamais, comme le
+      // hook.
+      expect(graph).toContain("overlay=x=40:y=250:enable='gte(t,1.7)':shortest=1[v]")
+    })
+
+    // **Le piège du hook, retrouvé sur les marques.** `fade=` a besoin d'un
+    // flux dont les images continuent d'arriver au fil du temps pour animer
+    // quoi que ce soit (voir la doc de `-loop 1 -framerate 30` sur l'entrée du
+    // hook, plus haut) — un logo décodé une seule fois, sans boucle, ne
+    // fournit qu'UNE image à `fade`, évaluée à son PTS d'origine (~0), donc
+    // transparente puisque avant `st`. `overlay` répète ensuite cette image
+    // figée pour tout le reste du clip (`eof_action=repeat` par défaut) : la
+    // marque ne redevient JAMAIS visible, quelle que soit `enable=`.
+    // Reproduit à l'image sur un vrai export avant ce test.
+    it("boucle l'entrée d'une marque quand elle porte un fondu, comme le hook", () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ exit: 'fade', durationMs: 2_000 }),
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      const inputs = a.join(' ')
+      expect(inputs).toContain('-loop 1 -framerate 30 -i /logo.png')
+    })
+
+    // Sans fondu à porter — pas de hook, ou un hook dont l'`exit` ne fond pas
+    // — une marque garde son entrée non bouclée : une seule image décodée
+    // suffit, `overlay` la répète telle quelle.
+    it("ne boucle pas l'entrée d'une marque sans fondu à porter", () => {
+      const sansHook = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      expect(sansHook.join(' ')).not.toContain('-loop 1 -framerate 30 -i /logo.png')
+
+      const hookSansFondu = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ exit: 'none' }),
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      expect(hookSansFondu.join(' ')).not.toContain('-loop 1 -framerate 30 -i /logo.png')
+    })
+
+    it("laisse les marques visibles dès la première image quand il n'y a pas de hook", () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain('overlay=x=40:y=250[v]')
+      expect(graph).not.toContain('enable=')
+    })
+
+    it('synchronise toutes les marques sur le même instant', () => {
+      const a = renderArgs({
+        ...base,
+        segments: [entry(0, 10)],
+        hookImage: hookImage({ exit: 'fade', durationMs: 2_000 }),
+        logos: [
+          { path: '/logo.png', x: 40, y: 250, w: 300, h: 90 },
+          { path: '/twitch.png', x: 700, y: 260, w: 200, h: 60 },
+        ],
+      })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph.match(/fade=t=in:st=1\.7:d=0\.3:alpha=1/g)).toHaveLength(2)
+      expect(graph.match(/enable='gte\(t,1\.7\)'/g)).toHaveLength(2)
+    })
   })
 
   it('enchaîne les logos dans l’ordre reçu', () => {
@@ -895,6 +1004,21 @@ describe('blurredVariantArgs', () => {
       }),
     )
     expect(g).toContain("overlay=x=30:y=40:enable='between(t,0,3.5)':shortest=1")
+  })
+
+  // Même garde que ci-dessus, pour l'attente des marques sur la fin du hook :
+  // `buildRender` est partagé, mais rien ne garantit que la variante suive
+  // sans un test qui le vérifie ICI.
+  it('fait aussi attendre les marques de cette sortie, comme renderArgs', () => {
+    const g = graph(
+      blurredVariantArgs({
+        ...base,
+        hookImage: hookImage({ x: 30, y: 40, w: 200, h: 80, exit: 'fade', durationMs: 2_000 }),
+        logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+      }),
+    )
+    expect(g).toContain('format=rgba,fade=t=in:st=1.7:d=0.3:alpha=1')
+    expect(g).toContain("overlay=x=40:y=250:enable='gte(t,1.7)'")
   })
 
   // **La hauteur occupée suit le ratio du plan**, et c'est la table de la

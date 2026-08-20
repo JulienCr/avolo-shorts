@@ -47,6 +47,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
 
 const nothingIsProduced: ClipOutputs = {
   mp4Url: null,
+  mp4Due: true,
   variant9x16Url: null,
   variant9x16Due: true,
   textsUrl: null,
@@ -81,11 +82,12 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
 const buttonExporter = () => screen.getByRole('button', { name: /exporter/i })
 
 describe('avant l’export', () => {
-  it('annonce deux vidéos quand le ratio natif n’est pas 9:16', () => {
-    // C'est la seule conséquence du choix de ratio qui ne se voyait nulle part,
-    // alors qu'elle change ce qu'on aura à publier.
+  it('n’annonce que la variante quand le ratio natif n’est pas 9:16 (natif désactivé)', () => {
+    // Le natif est désactivé (`RENDER_NATIVE`) sur tout ratio autre que 9:16 :
+    // la variante 9:16 le remplace, un seul fichier vidéo reste à produire.
     mount({ framing: framing() })
-    expect(screen.getByText('c1.mp4')).toBeTruthy()
+    expect(screen.queryByText('c1.mp4')).toBeNull()
+    expect(screen.getByText(/rendu natif est désactivé/i)).toBeTruthy()
     expect(screen.getByText('c1-9x16.mp4')).toBeTruthy()
     expect(screen.getByText('c1.txt')).toBeTruthy()
   })
@@ -189,6 +191,7 @@ describe('les raisons de ne pas pouvoir exporter', () => {
       autosave: 'en-attente',
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
+        mp4Due: true,
         variant9x16Url: null,
         variant9x16Due: true,
         textsUrl: null,
@@ -295,6 +298,7 @@ describe('après l’export', () => {
     mount({
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
+        mp4Due: true,
         variant9x16Url: '/api/clips/c1/renders/c1-9x16.mp4',
         variant9x16Due: true,
         textsUrl: '/api/clips/c1/renders/c1.txt',
@@ -315,6 +319,7 @@ describe('après l’export', () => {
       framing: framing({ ratio: '9:16', shots: [shot(0, 20, '9:16', 0.5)] }),
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
+        mp4Due: true,
         variant9x16Url: null,
         variant9x16Due: false,
         textsUrl: '/api/clips/c1/renders/c1.txt',
@@ -328,6 +333,7 @@ describe('après l’export', () => {
     mount({
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
+        mp4Due: true,
         variant9x16Url: null,
         variant9x16Due: true,
         textsUrl: null,
@@ -342,13 +348,16 @@ describe('le ré-export', () => {
     const fetch = vi.fn(async (url: string, options: RequestInit) => {
       void url
       void options
-      return response({ mp4: 'c1.mp4', variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false })
+      return response({ mp4: null, variant9x16: 'c1-9x16.mp4', texts: 'c1.txt', skipped: false })
     })
     vi.stubGlobal('fetch', fetch)
     mount({
       clip: clip({ status: 'exported' }),
       outputs: {
-        mp4Url: '/api/clips/c1/renders/c1.mp4',
+        // Le natif est désactivé sur ce ratio (1:1, le défaut de `framing()`) :
+        // `mp4Url` reste `null` par construction, jamais un fichier à écraser.
+        mp4Url: null,
+        mp4Due: false,
         variant9x16Url: '/api/clips/c1/renders/c1-9x16.mp4',
         variant9x16Due: true,
         textsUrl: '/api/clips/c1/renders/c1.txt',
@@ -357,7 +366,7 @@ describe('le ré-export', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /ré-exporter/i }))
     const box = await screen.findByRole('alertdialog')
-    expect(box.textContent).toContain('c1.mp4')
+    expect(box.textContent).not.toContain('c1.mp4')
     expect(box.textContent).toContain('c1-9x16.mp4')
     expect(fetch).not.toHaveBeenCalled()
 

@@ -132,6 +132,7 @@ function markersNamed(
     nativeW: 1000,
     nativeH: 996,
     widthRatio: 0.22,
+    capHauteur: 0.06,
     edge: 'gauche' as const,
     content: content(name),
   }))
@@ -812,6 +813,7 @@ describe('scheduleMarkers', () => {
     nativeW,
     nativeH,
     widthRatio: 0.22,
+    capHauteur: 0.06,
     edge: 'gauche',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
@@ -820,6 +822,7 @@ describe('scheduleMarkers', () => {
     nativeW,
     nativeH,
     widthRatio: 0.16,
+    capHauteur: 0.06,
     edge: 'droite',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
@@ -1085,6 +1088,7 @@ describe('markerRejectFault', () => {
     nativeW: 1000,
     nativeH: 250,
     widthRatio: 0.22,
+    capHauteur: 0.06,
     edge: 'gauche',
     content: 'peu importe : la porte ne lit pas le contenu',
   })
@@ -1191,7 +1195,7 @@ describe('renderClip, la porte des marques', () => {
     const expected = pathsRender(ID, c.id, '1:1')
     await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/marques/)
     for (const path of [
-      expected.mp4,
+      expected.mp4 as string,
       expected.variant9x16 as string,
       expected.texts,
       expected.ass,
@@ -1222,7 +1226,7 @@ describe('renderClip, la porte des marques', () => {
     // contente de réécrire un `.txt`, sans rien changer aux fichiers livrés.
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+    for (const filePath of [expected.mp4 as string, expected.variant9x16 as string, expected.texts]) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true })
       fs.writeFileSync(filePath, '')
     }
@@ -1240,7 +1244,7 @@ describe('renderClip, la porte des marques', () => {
   it("refuse un rendu sans empreinte quand le dossier n'a plus de marque", async () => {
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    for (const filePath of [expected.mp4, expected.variant9x16 as string, expected.texts]) {
+    for (const filePath of [expected.mp4 as string, expected.variant9x16 as string, expected.texts]) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true })
       fs.writeFileSync(filePath, '')
     }
@@ -1294,15 +1298,21 @@ describe('renderClip, chemin du saut', () => {
     }
   }
 
-  it('rend les trois chemins et saute quand tout est là', async () => {
+  it('rend les deux chemins dus (natif désactivé en 1:1) et saute quand tout est là', async () => {
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    // Le natif reste posé sur le disque (harmless, `poser` ne fait qu'écrire des
+    // fichiers vides) même s'il n'est plus dû : la décision de saut ne le lit
+    // plus, seule sa présence facultative pourrait fausser un test qui la
+    // vérifierait, ce qu'aucun ici ne fait.
+    poser([expected.mp4 as string, expected.variant9x16 as string, expected.texts])
     poserFingerprint(c, '1:1')
 
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
     expect(result).toEqual({
-      mp4: expected.mp4,
+      // `RENDER_NATIVE` désactivé + ratio 1:1 : la variante remplace le natif,
+      // qui n'est plus produit.
+      mp4: null,
       variant9x16: expected.variant9x16,
       texts: expected.texts,
       skipped: true,
@@ -1312,7 +1322,7 @@ describe('renderClip, chemin du saut', () => {
   it("rabat 'auto' sur 9:16, donc sans variante (itération 0)", async () => {
     const { db, c, brandDir } = prepare({ ratio: 'auto' })
     const expected = pathsRender(ID, c.id, '9:16')
-    poser([expected.mp4, expected.texts])
+    poser([expected.mp4 as string, expected.texts])
     poserFingerprint(c, '9:16')
 
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1325,7 +1335,7 @@ describe('renderClip, chemin du saut', () => {
     // exiger un --force qui réencoderait trois minutes de vidéo pour rien.
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poser([expected.mp4 as string, expected.variant9x16 as string, expected.texts])
     poserFingerprint(c, '1:1')
     const before = fs.statSync(expected.variant9x16 as string).mtimeMs
     putClip(db, { ...c, description: 'Corrigée après coup. #impro' })
@@ -1342,7 +1352,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c, brandDir } = prepare({ ratio: '9:16' })
     const expected = pathsRender(ID, c.id, '9:16')
     const stale = path.join(projects, ID, 'renders', `${c.id}-9x16.mp4`)
-    poser([expected.mp4, expected.texts, stale])
+    poser([expected.mp4 as string, expected.texts, stale])
     poserFingerprint(c, '9:16')
 
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1357,7 +1367,7 @@ describe('renderClip, chemin du saut', () => {
     // sauterait et le clip resterait en « kept » pour toujours.
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poser([expected.mp4 as string, expected.variant9x16 as string, expected.texts])
     poserFingerprint(c, '1:1')
 
     await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1376,7 +1386,7 @@ describe('renderClip, chemin du saut', () => {
     // posé pour de vrai.
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.variant9x16 as string])
+    poser([expected.mp4 as string, expected.variant9x16 as string])
     poserFingerprint(c, '1:1')
 
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1391,7 +1401,7 @@ describe('renderClip, chemin du saut', () => {
     const { db, c, brandDir } = prepare({ ratio: '9:16' })
     const expected = pathsRender(ID, c.id, '9:16')
     const stale = path.join(projects, ID, 'renders', `${c.id}-9x16.mp4`)
-    poser([expected.mp4, stale])
+    poser([expected.mp4 as string, stale])
     poserFingerprint(c, '9:16')
 
     const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
@@ -1499,13 +1509,13 @@ describe('renderClip, chemin du saut', () => {
     // ce qu'on sait faux. (relevé par Copilot)
     const { db, c } = prepare({ status: 'exported' })
     const paths = pathsRender(ID, c.id, '1:1')
-    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
     poserFingerprint(c, '1:1')
     putClip(db, { ...c, status: 'exported', segments: [{ start: 0, end: 5 }] })
 
     expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(true)
 
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(fs.existsSync(paths.mp4 as string)).toBe(false)
     expect(fs.existsSync(paths.variant9x16 as string)).toBe(false)
     expect(fs.existsSync(paths.texts)).toBe(false)
     // **L'empreinte part avec eux**, et elle part la première : la laisser
@@ -1519,11 +1529,11 @@ describe('renderClip, chemin du saut', () => {
   it("ne touche à rien quand le montage n'a pas bougé", () => {
     const { db, c } = prepare()
     const paths = pathsRender(ID, c.id, '1:1')
-    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
     poserFingerprint(c, '1:1')
 
     expect(discardRenderStale(db, c.id, paths, c, framingFor(c))).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(true)
+    expect(fs.existsSync(paths.mp4 as string)).toBe(true)
     expect(fs.existsSync(paths.fingerprint)).toBe(true)
   })
 
@@ -1541,7 +1551,7 @@ describe('renderClip, chemin du saut', () => {
   it('utilise le résolveur qu’on lui donne plutôt que de relire l’analyse', () => {
     const { db, c } = prepare()
     const paths = pathsRender(ID, c.id, '1:1')
-    poser([paths.mp4, paths.variant9x16 as string, paths.texts])
+    poser([paths.mp4 as string, paths.variant9x16 as string, paths.texts])
     poserFingerprint(c, '1:1')
 
     let calls = 0
@@ -1557,7 +1567,7 @@ describe('renderClip, chemin du saut', () => {
     expect(
       discardRenderStale(db, c.id, paths, c, framingFor(c), () => framing({ ratio: '4:5' })),
     ).toBe(true)
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(fs.existsSync(paths.mp4 as string)).toBe(false)
   })
 
   it('refuse un clip inconnu', async () => {
@@ -1576,7 +1586,7 @@ describe('renderClip, chemin du saut', () => {
     // `skipped: true` et marqué exporté. (relevé par Copilot)
     const { db, c, brandDir } = prepare({ segments: [] })
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.variant9x16 as string, expected.texts])
+    poser([expected.mp4 as string, expected.variant9x16 as string, expected.texts])
 
     await expect(renderClip(c.id, { db, brandDir, fontsDir: fonts })).rejects.toThrow(/aucun segment/)
     expect(getClip(db, c.id)?.status).toBe('kept')
@@ -1636,7 +1646,7 @@ describe('renderClip, chemin du saut', () => {
   it('réclame la source quand seule la variante manque, et la reconstitue', async () => {
     const { db, c, brandDir } = prepare()
     const expected = pathsRender(ID, c.id, '1:1')
-    poser([expected.mp4, expected.texts])
+    poser([expected.mp4 as string, expected.texts])
     poserFingerprint(c, '1:1')
     const copy = path.join(stage, SOURCE)
     expect(fs.existsSync(copy)).toBe(false)

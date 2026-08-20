@@ -287,7 +287,7 @@ describe('des sorties complètes sous un montage qui a changé', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
   })
 
   it('saute quand le rendu décrit bien le clip — le cas nominal reste vrai', async () => {
@@ -296,7 +296,7 @@ describe('des sorties complètes sous un montage qui a changé', () => {
 
     const first = await renderClip(CLIP, { db: getDb(), brandDir })
     expect(first.skipped).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(true)
+    expect(paths.variant9x16 !== null && fs.existsSync(paths.variant9x16)).toBe(true)
 
     encodings = []
     const second = await renderClip(CLIP, { db: getDb(), brandDir })
@@ -352,7 +352,7 @@ describe('un rendu sans empreinte, déjà sur le disque', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toEqual([paths.mp4, paths.variant9x16])
+    expect(encodings).toEqual([paths.variant9x16])
     // Et il en laisse une, donc le cas ne se reproduit qu'une fois par clip.
     expect(markersBurnedIn(paths.fingerprint)).toEqual(['logo.png', 'twitch.png'])
   })
@@ -461,7 +461,7 @@ describe('les marques incrustées', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     // Le nom n'a pas bougé, le contenu si.
     expect(markersBurnedIn(paths.fingerprint)).toEqual(['logo.png', 'twitch.png'])
     expect(lireFingerprint(paths.fingerprint)?.marks).not.toEqual(before)
@@ -510,7 +510,10 @@ describe('les sorties publiées', () => {
     const toDay = getClip(getDb(), CLIP)
     expect(toDay?.status).toBe('exported')
     const outputs = clipOutputs(toDay as Clip)
-    expect(outputs.mp4Url).not.toBeNull()
+    // Le natif est désactivé pour ce ratio (1:1) : `mp4Url` reste `null` par
+    // construction, `mp4Due` le dit — ce n'est pas un rendu manquant.
+    expect(outputs.mp4Url).toBeNull()
+    expect(outputs.mp4Due).toBe(false)
     expect(outputs.variant9x16Url).not.toBeNull()
     expect(outputs.textsUrl).not.toBeNull()
   })
@@ -522,7 +525,7 @@ describe('les sorties publiées', () => {
 
     expect(outputNamed(toDay, `${CLIP}.rendu.json`)).toBeNull()
     // Le contrôle vaut quelque chose : le vrai nom, lui, se sert.
-    expect(outputNamed(toDay, `${CLIP}.mp4`)).not.toBeNull()
+    expect(outputNamed(toDay, `${CLIP}-9x16.mp4`)).not.toBeNull()
   })
 
   it("cesse de les publier quand un PATCH périme le rendu, empreinte comprise", async () => {
@@ -534,7 +537,7 @@ describe('les sorties publiées', () => {
     await patch({ cropX: 0.1 })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(paths.mp4 !== null && fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 })
@@ -562,7 +565,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     await patch({ hookText: 'Une accroche neuve' })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(paths.mp4 !== null && fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 
@@ -575,7 +578,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     await patch({ hookStyle: { sizePermille: 120 } })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(paths.mp4 !== null && fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 
@@ -588,7 +591,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     await patch({ hookBadge: 'DÉFI 10' })
 
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
-    expect(fs.existsSync(paths.mp4)).toBe(false)
+    expect(paths.mp4 !== null && fs.existsSync(paths.mp4)).toBe(false)
     expect(getClip(getDb(), CLIP)?.status).toBe('kept')
   })
 
@@ -608,18 +611,18 @@ describe('le hook (#48, le cas sans précédent)', () => {
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
   })
 
-  it("un réglage global de hook fait passer mp4Url à null sans que le clip ait bougé", async () => {
+  it("un réglage global de hook fait passer variant9x16Url à null sans que le clip ait bougé", async () => {
     putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
     await renderClip(CLIP, { db: getDb(), brandDir })
     const toDay = getClip(getDb(), CLIP) as Clip
-    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).not.toBeNull()
 
     applySettings(getDb(), { hook: { textColor: '#00FF00' } })
 
     // Le clip lui-même n'a pas bougé : même statut, mêmes champs — seul le
     // réglage global a changé.
     expect(getClip(getDb(), CLIP)).toEqual(toDay)
-    expect(clipOutputs(toDay).mp4Url).toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).toBeNull()
   })
 
   /**
@@ -638,17 +641,17 @@ describe('le hook (#48, le cas sans précédent)', () => {
     putClip(getDb(), clip({ hookText: 'Attends de voir ça' }))
     await renderClip(CLIP, { db: getDb(), brandDir })
     const toDay = getClip(getDb(), CLIP) as Clip
-    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).not.toBeNull()
 
     applySettings(getDb(), { hook: { durationMs: 5_000 } })
 
     expect(getClip(getDb(), CLIP)).toEqual(toDay)
-    expect(clipOutputs(toDay).mp4Url).toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).toBeNull()
 
     encodings = []
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(pathsRender(ID, CLIP, '1:1').mp4)
+    expect(encodings).toContain(pathsRender(ID, CLIP, '1:1').variant9x16)
   })
 
   it('le prochain export journalise « hook » et refuse de sauter après ce même réglage global', async () => {
@@ -670,7 +673,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     }
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     expect(messages.some((m) => m.includes('le hook'))).toBe(true)
   })
 
@@ -687,7 +690,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     expect(encodings).toEqual([])
 
     const toDay = getClip(getDb(), CLIP) as Clip
-    expect(clipOutputs(toDay).mp4Url).not.toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).not.toBeNull()
   })
 
   /**
@@ -711,7 +714,7 @@ describe('le hook (#48, le cas sans précédent)', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     expect(lireFingerprint(paths.fingerprint)?.hook).not.toBe(before)
   })
 })
@@ -734,7 +737,7 @@ describe('la version de recette', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
   })
 })
 
@@ -756,7 +759,7 @@ describe('le preset de sous-titres', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
   })
 
   it('saute quand le preset est le même — le cas nominal reste vrai', async () => {
@@ -793,7 +796,7 @@ describe('le preset de sous-titres', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir, fontsDir: fonts })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     expect(lireFingerprint(paths.fingerprint)?.captionsLook).not.toBe(withoutFont)
   })
 
@@ -922,7 +925,7 @@ describe("une marque remplacée pendant l'export", () => {
     // Plus rien ne certifie ce qui reste sur le disque.
     expect(fs.existsSync(paths.fingerprint)).toBe(false)
     const toDay = getClip(getDb(), CLIP) as Clip
-    expect(clipOutputs(toDay).mp4Url).toBeNull()
+    expect(clipOutputs(toDay).variant9x16Url).toBeNull()
   })
 })
 
@@ -1008,7 +1011,7 @@ describe('le texte des sous-titres (#87)', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     expect(lireFingerprint(paths.fingerprint)?.captionsContent).not.toBe(before)
   })
 
@@ -1126,7 +1129,7 @@ describe('le texte des sous-titres (#87)', () => {
     const result = await renderClip(CLIP, { db: getDb(), brandDir })
 
     expect(result.skipped).toBe(false)
-    expect(encodings).toContain(paths.mp4)
+    expect(encodings).toContain(paths.variant9x16)
     expect(lireFingerprint(paths.fingerprint)?.captionsContent).toBeNull()
   })
 

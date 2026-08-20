@@ -108,6 +108,8 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     description: 'La chute arrive au bon moment. #impro #avolo',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
     ...overrides,
   }
 }

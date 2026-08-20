@@ -70,6 +70,8 @@ function candidate(n: number): CandidateClip {
     description: '',
     status: 'candidate',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
     preview: 'Ce qui se dit.',
     thumbnailUrl: null,
   }

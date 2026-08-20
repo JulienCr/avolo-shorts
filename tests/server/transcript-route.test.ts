@@ -89,6 +89,8 @@ function baseClip(): Clip {
     description: '',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
   }
 }
 

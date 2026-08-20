@@ -15,6 +15,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { HOOK_DEFAULTS } from '@/lib/api'
 import type { ClipDetail, ExportResult, PatchClipResult, RunPlan, Settings } from '@/lib/api'
 import {
   keys,
@@ -61,6 +62,8 @@ const exportComplete: ExportResult = {
     description: '',
     status: 'exported',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
   },
   mp4: 'c1.mp4',
   variant9x16: 'c1-9x16.mp4',
@@ -168,6 +171,8 @@ describe('usePatchClip', () => {
     description: '',
     status: 'kept',
     pass: 1,
+    hookText: '',
+    hookStyle: {},
   }
 
   const detail = (framing: ClipDetail['framing']): ClipDetail => ({
@@ -319,6 +324,7 @@ describe('les réglages', () => {
       ollamaBaseUrl: '',
     },
     ingestion: { copySourceLocally: true },
+    hook: { ...HOOK_DEFAULTS },
   }
 
   it('se lisent sans interrogation en boucle', async () => {
@@ -342,6 +348,7 @@ describe('les réglages', () => {
       selection: { ...settings.selection, minutesPerClip: 4 },
       ai: { ...settings.ai },
       ingestion: { ...settings.ingestion },
+      hook: { ...settings.hook },
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(after)))
     const { client, invalid, envelope } = harness()

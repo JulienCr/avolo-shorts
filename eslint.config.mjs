@@ -259,6 +259,15 @@ const eslintConfig = defineConfig([
     // n'a écrit, sur une machine où setup.sh a tourné. La CI ne les voyait pas,
     // faute de venv ; le développeur, si.
     "worker/venv/**",
+    // Les worktrees de la flotte d'agents, montés sous `.claude/worktrees/`.
+    // Même famille que le venv ci-dessus, et même piège : `.next/**` est ancré
+    // à la racine, donc il ne couvre pas un `.next` imbriqué. Un worktree où
+    // quelqu'un a lancé `pnpm dev` fait alors remonter des milliers
+    // d'avertissements sur du JavaScript généré, et `pnpm lint` sort en échec
+    // dans le dépôt principal alors qu'il est vert dans chaque worktree — où
+    // les worktrees frères sont hors de la racine. La CI ne le voit jamais,
+    // elle part d'un clone propre.
+    ".claude/worktrees/**",
   ]),
 ]);
 

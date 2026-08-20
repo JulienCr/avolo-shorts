@@ -454,6 +454,66 @@ describe('renderArgs', () => {
     expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
   })
 
+  // **L'ordre verrouillé : sous-titres → hook → marques**, comparé à la
+  // chaîne exacte des trois étiquettes, comme les autres tests d'ordre de ce
+  // fichier.
+  it('incruste le hook APRÈS les sous-titres et AVANT les marques', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [entry(0, 10)],
+      assPath: '/c.ass',
+      hookAssPath: '/h.ass',
+      logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+    })
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain("[v0]ass=filename='/c.ass'[vf0]")
+    expect(graph).toContain("[vf0]ass=filename='/h.ass'[vf1]")
+    expect(graph).toContain('[vf1][lg0]overlay=x=40:y=250[v]')
+  })
+
+  // **Le cas qui casse en silence : le hook SANS sous-titres.** C'est alors
+  // le hook qui doit écrire l'étiquette que le premier `overlay` attend — un
+  // `chain()` mal compté laisserait ce cas produire une étiquette absente du
+  // graphe, une erreur ffmpeg loin de la ligne qui la cause.
+  it('incruste le hook seul (sans sous-titres) avant les marques', () => {
+    const a = renderArgs({
+      ...base,
+      segments: [entry(0, 10)],
+      hookAssPath: '/h.ass',
+      logos: [{ path: '/logo.png', x: 40, y: 250, w: 300, h: 90 }],
+    })
+    const graph = a[a.indexOf('-filter_complex') + 1]
+    expect(graph).toContain("[v0]ass=filename='/h.ass'[vf0]")
+    expect(graph).toContain('[vf0][lg0]overlay=x=40:y=250[v]')
+  })
+
+  // Les quatre combinaisons avec/sans sous-titres × avec/sans hook produisent
+  // toutes un graphe valide, étiquette terminale `[v]` comprise — y compris
+  // sur plusieurs segments, où `chain()` part de l'étiquette de concaténation
+  // plutôt que de celle d'une entrée unique.
+  it.each([
+    ['ni sous-titres ni hook', {}],
+    ['sous-titres seuls', { assPath: '/c.ass' }],
+    ['hook seul', { hookAssPath: '/h.ass' }],
+    ['les deux', { assPath: '/c.ass', hookAssPath: '/h.ass' }],
+  ])('%s : produit un graphe valide, terminé par [v]/[a]', (_name, options) => {
+    for (const segments of [[entry(0, 10)], [entry(0, 10), entry(20, 30)]]) {
+      const a = renderArgs({ ...base, ...options, segments })
+      const graph = a[a.indexOf('-filter_complex') + 1]
+      expect(graph).toContain('[v]')
+      expect(graph).toContain('[a]')
+      expect(a.join(' ')).toContain('-map [v] -map [a]')
+    }
+  })
+
+  // Même chemin, même échappement mesuré que pour `assPath` — voir « ferme et
+  // rouvre la chaîne autour d'une apostrophe » plus haut, dont ce test reprend
+  // l'entrée éprouvée sur le binaire.
+  it('échappe le chemin du .ass de hook comme celui des sous-titres', () => {
+    const a = renderArgs({ ...base, segments: [entry(0, 10)], hookAssPath: "/l'été:2026/h.ass" })
+    expect(a.join(' ')).toContain(String.raw`ass=filename='/l'\\\''été\:2026/h.ass'`)
+  })
+
   it('enchaîne les logos dans l’ordre reçu', () => {
     const a = renderArgs({
       ...base,
@@ -625,6 +685,15 @@ describe('blurredVariantArgs', () => {
 
   it('floute le fond', () => {
     expect(blurredVariantArgs(base).join(' ')).toContain('gblur=sigma=12')
+  })
+
+  // **Le même chemin de hook que `renderArgs`, et c'est le point.** Le
+  // document est écrit en unités de script (`PlayResX 384 × PlayResY 288`),
+  // donc il s'incruste à l'identique sur les deux canevas — contrairement aux
+  // marques, planifiées séparément par canevas.
+  it('incruste le même chemin de hook que renderArgs', () => {
+    const g = graph(blurredVariantArgs({ ...base, hookAssPath: '/h.ass' }))
+    expect(g).toContain("ass=filename='/h.ass'")
   })
 
   // **La hauteur occupée suit le ratio du plan**, et c'est la table de la

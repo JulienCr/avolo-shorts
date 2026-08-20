@@ -2,9 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Clip } from '@/core/edl'
+import { resolveHook, type HookSettings } from '@/core/hook'
+import { renderHookAss } from '@/core/hook-ass'
 import type { PublishedFraming, ClipOutputs } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
 import { isAAbsence } from '@/server/bytes'
+import { effectiveSettings, getDb } from '@/server/db'
 import {
   renderedFraming,
   pathsRender,
@@ -139,8 +142,22 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
  * sert à chaque affichage de carte et ne lance pas deux ffprobe pour cela. C'est
  * la même fonction que celle du rendu, avec deux critères de moins — voir
  * `CeQuOnIncrusterait`.
+ *
+ * **Le hook, lui, EST sondé — le cas sans précédent.** Un `PUT /api/settings`
+ * qui change un réglage global de hook ne recalcule rien (`applySettings`
+ * n'a pas à savoir que `render.ts` existe), et ne doit rien effacer non plus
+ * — `docs/retour-ui-and-next-steps.md` (le PR 1 en a déjà la phrase, sous la
+ * section des réglages). La péremption est donc **paresseuse**, posée ici, à
+ * la porte qui pose déjà la question. Elle ne coûte qu'une lecture de la
+ * table `settings` et un appel à `resolveHook`/`renderHookAss`, tous deux
+ * purs — pas de `ffprobe`, pas de Drive, ce que les trois autres critères ne
+ * peuvent pas dire.
  */
-export function deliveryToDay(clip: Clip, framing: PublishedFraming = clipFraming(clip)): boolean {
+export function deliveryToDay(
+  clip: Clip,
+  framing: PublishedFraming = clipFraming(clip),
+  hookGlobals: HookSettings = effectiveSettings(getDb()).hook,
+): boolean {
   if (clip.status !== 'exported') return false
   return fingerprintToDay(
     lireFingerprint(outputs(clip, framing).fingerprint),
@@ -148,7 +165,7 @@ export function deliveryToDay(clip: Clip, framing: PublishedFraming = clipFramin
     // `texte: undefined` pour la même raison que les deux champs au-dessus :
     // sonder le texte suppose de lire le transcript, sur le Drive, et un `GET`
     // ne paie pas cet aller-retour à chaque affichage de carte.
-    { markers: null, look: null, text: undefined },
+    { markers: null, look: null, text: undefined, hook: renderHookAss(resolveHook(hookGlobals, clip)) },
   )
 }
 
@@ -161,10 +178,20 @@ export function deliveryToDay(clip: Clip, framing: PublishedFraming = clipFramin
  * n'en a pas encore n'est pas fini. Sans ce booléen, une interface affiche
  * « rendu manquant » sur le premier — sur le clip le mieux livré de la
  * bibliothèque.
+ *
+ * **`hookGlobals` se transmet à `deliveryToDay`, jamais ne se relit.** Un
+ * second appel à `effectiveSettings` entre les deux poserait la question deux
+ * fois — une fois ici, une fois dans son propre défaut — et une écriture
+ * concurrente entre les deux ferait dire à l'un « à jour » et à l'autre
+ * « périmé » sur le même appel.
  */
-export function clipOutputs(clip: Clip, framing: PublishedFraming = clipFraming(clip)): ClipOutputs {
+export function clipOutputs(
+  clip: Clip,
+  framing: PublishedFraming = clipFraming(clip),
+  hookGlobals: HookSettings = effectiveSettings(getDb()).hook,
+): ClipOutputs {
   const { mp4, variant9x16, texts } = outputs(clip, framing)
-  if (!deliveryToDay(clip, framing)) {
+  if (!deliveryToDay(clip, framing, hookGlobals)) {
     return {
       mp4Url: null,
       variant9x16Url: null,

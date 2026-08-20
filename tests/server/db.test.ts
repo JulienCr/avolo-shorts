@@ -230,8 +230,9 @@ describe('le registre des réglages', () => {
 
   it('ne connaît pas une famille qui n’existe pas', () => {
     // `hook` est une vraie famille depuis cette PR : le témoin d'une famille
-    // inconnue doit rester un nom que le registre n'a jamais porté.
-    expect(settingField('inconnue', 'duree')).toBeUndefined()
+    // inconnue doit rester un nom que le registre n'a jamais porté. Le témoin
+    // lui-même est en anglais, comme tout code neuf (`CLAUDE.md`).
+    expect(settingField('unknownFamily', 'unknownField')).toBeUndefined()
     expect(settingField('selection', 'minutesParClipe')).toBeUndefined()
   })
 
@@ -589,18 +590,19 @@ describe('appliquerRéglages', () => {
 
   it('refuse une famille inconnue', () => {
     // `hook` est une vraie famille depuis cette PR (§6.3) : le témoin d'une
-    // famille inconnue doit porter un nom que le registre n'a jamais eu.
-    expect(() => applySettings(db, { inconnue: { duree: 2 } })).toThrow(/inconnu/i)
+    // famille inconnue doit porter un nom que le registre n'a jamais eu, et
+    // rester en anglais comme tout code neuf (`CLAUDE.md`).
+    expect(() => applySettings(db, { unknownFamily: { unknownField: 2 } })).toThrow(/inconnu/i)
   })
 
   /**
    * **Y compris vide.** Contrôler le champ suffisait tant que le patch en
-   * portait un : `{ inconnue: {} }` ne déclenchait aucun tour de boucle, donc
-   * aucun contrôle, et la route répondait 200 sur une famille qui n'existe pas.
-   * (relevé par Codex)
+   * portait un : `{ unknownFamily: {} }` ne déclenchait aucun tour de boucle,
+   * donc aucun contrôle, et la route répondait 200 sur une famille qui
+   * n'existe pas. (relevé par Codex)
    */
   it('refuse une famille inconnue même sans aucun champ', () => {
-    expect(() => applySettings(db, { inconnue: {} })).toThrow(InvalidSettingError)
+    expect(() => applySettings(db, { unknownFamily: {} })).toThrow(InvalidSettingError)
     // Et une famille connue vide reste acceptée : elle ne demande rien.
     expect(applySettings(db, { selection: {} }).selection).toEqual(DEFAULT_SELECTION_DIMENSIONS)
   })
@@ -770,7 +772,7 @@ describe('le hook sur un clip', () => {
   it('une clé inconnue dans hookStyle retombe sur `{}`', () => {
     putClip(db, clip('clip_07'))
     db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
-      JSON.stringify({ chapeau: true }),
+      JSON.stringify({ unknownField: true }),
       'clip_07',
     )
     expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})
@@ -784,7 +786,7 @@ describe('le hook sur un clip', () => {
     // tout ou rien, pas en filtrage clé par clé. (relevé par Copilot)
     putClip(db, clip('clip_07'))
     db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?').run(
-      JSON.stringify({ size: 72, chapeau: true }),
+      JSON.stringify({ size: 72, unknownField: true }),
       'clip_07',
     )
     expect(getClip(db, 'clip_07')?.hookStyle).toEqual({})

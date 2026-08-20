@@ -934,11 +934,23 @@ describe('PATCH /api/clips/:id', () => {
   })
 
   it('refuse un hookStyle avec une clé inconnue', async () => {
-    expect((await patch({ hookStyle: { chapeau: true } })).status).toBe(400)
+    expect((await patch({ hookStyle: { unknownField: true } })).status).toBe(400)
   })
 
   it('refuse un hookStyle avec une couleur mal formée', async () => {
     expect((await patch({ hookStyle: { textColor: '#GG0000' } })).status).toBe(400)
+  })
+
+  it('normalise une couleur de hookStyle en majuscules, comme le registre', async () => {
+    // Même contrat que la famille `hook` (`COLOR_PATTERN`, `src/server/db.ts`,
+    // lignes 585-589) : `HOOK_STYLE_SHAPE` est partagé entre cette route et
+    // `readHookStyle`, donc une seule normalisation doit couvrir les deux
+    // chemins d'écriture — le registre global et la surcharge par clip.
+    // (relevé par Copilot)
+    const response = await patch({ hookStyle: { textColor: '#a1b2c3' } })
+    expect(response.status).toBe(200)
+    const { clip } = (await response.json()) as PatchClipResult
+    expect(clip.hookStyle).toEqual({ textColor: '#A1B2C3' })
   })
 
   it('normalise les segments avant écriture', async () => {
@@ -1486,11 +1498,12 @@ describe('/api/settings', () => {
   it('refuse une clé inconnue et une valeur hors bornes', async () => {
     expect((await write({ selection: { minutesParClipe: 4 } })).status).toBe(400)
     // `hook` est une vraie famille depuis cette PR : le témoin d'une famille
-    // inconnue porte un nom que le registre n'a jamais eu.
-    expect((await write({ inconnue: { duree: 2 } })).status).toBe(400)
+    // inconnue porte un nom que le registre n'a jamais eu, en anglais comme
+    // tout code neuf (`CLAUDE.md`).
+    expect((await write({ unknownFamily: { unknownField: 2 } })).status).toBe(400)
     // Y compris vide : sans champ, aucune boucle ne s'exécutait et le `PUT`
     // répondait 200 sur une famille qui n'existe pas. (relevé par Codex)
-    expect((await write({ inconnue: {} })).status).toBe(400)
+    expect((await write({ unknownFamily: {} })).status).toBe(400)
     expect((await write({ selection: { minutesPerClip: 0 } })).status).toBe(400)
     expect((await write({ selection: { minimumClips: 2.5 } })).status).toBe(400)
     expect((await write({ selection: { minutesPerClip: '4' } })).status).toBe(400)

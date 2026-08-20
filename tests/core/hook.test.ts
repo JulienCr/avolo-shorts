@@ -139,6 +139,16 @@ describe('normalizeHookText', () => {
     expect(normalizeHookText(raw)).toBe(`${'a'.repeat(100)} ${'b'.repeat(19)}`)
   })
 
+  it('ne coupe pas un emoji en deux, en comptant par points de code plutôt que par unités UTF-16', () => {
+    // Un emoji hors du plan de base occupe deux unités UTF-16 (une paire de
+    // substituts) : `.length`/`.slice` comptent des unités, pas des points de
+    // code, et une coupe au 120e caractère peut retomber entre les deux
+    // moitiés d'un emoji et rendre un substitut seul, chaîne Unicode
+    // invalide. (relevé par Copilot)
+    const raw = `${'a'.repeat(119)}😀😀`
+    expect(normalizeHookText(raw)).toBe(`${'a'.repeat(119)}😀`)
+  })
+
   it('rend une chaîne vide pour une entrée vide ou faite de guillemets vides', () => {
     expect(normalizeHookText('')).toBe('')
     expect(normalizeHookText('   ')).toBe('')

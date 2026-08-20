@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { HOOK_DEFAULTS } from '@/lib/api'
+import { HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
 import type { Settings } from '@/lib/api'
 
 vi.mock('next/navigation', () => ({
@@ -366,6 +366,35 @@ describe('la section du hook', () => {
     await userEvent.click(await screen.findByRole('option', { name: /Tiers inférieur/ }))
 
     await waitFor(() => expect(writes).toEqual([{ hook: { position: 'bottom' } }]))
+  })
+
+  it('convertit les secondes saisies en millisecondes à l’écriture', async () => {
+    // `durationMs` est ce qui se stocke ; le champ affiche des secondes. La
+    // conversion vit dans `DurationField` et n'était couverte par aucun test
+    // de composant. (relevé par Copilot)
+    const writes = server()
+    await mountScreen()
+
+    const field = screen.getByLabelText('Durée')
+    await userEvent.clear(field)
+    await userEvent.type(field, '2.5')
+    await userEvent.tab()
+
+    await waitFor(() => expect(writes).toEqual([{ hook: { durationMs: 2500 } }]))
+  })
+
+  it('borne la durée saisie aux limites du registre avant de l’envoyer', async () => {
+    const writes = server()
+    await mountScreen()
+
+    const field = screen.getByLabelText('Durée')
+    await userEvent.clear(field)
+    await userEvent.type(field, '99')
+    await userEvent.tab()
+
+    await waitFor(() =>
+      expect(writes).toEqual([{ hook: { durationMs: HOOK_BOUNDS.durationMs.max } }]),
+    )
   })
 
   it('désactive chaque contrôle lui-même, sans compter sur le fieldset, pendant le chargement', async () => {

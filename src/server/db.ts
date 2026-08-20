@@ -365,8 +365,8 @@ export type SettingField = {
   /**
    * Le plus grand entier acceptable. **Entiers seulement, comme `min`, et
    * absent ailleurs.** `undefined` veut dire « pas de plafond » : les trois
-   * familles qui existaient avant le hook (`selection`, `ai`) n'en portent
-   * aucun et restent inchangées. Câblée dans les deux fonctions, avec des
+   * familles qui existaient avant le hook (`selection`, `ai`, `ingestion`)
+   * n'en portent aucun et restent inchangées. Câblée dans les deux fonctions, avec des
    * sémantiques opposées comme `min` : `parseSetting` ignore une valeur
    * au-delà comme il ignore déjà une valeur en-deçà du plancher ;
    * `validateSetting` lève.
@@ -905,6 +905,13 @@ export function listProjects(db: Database.Database): Project[] {
  * d'une colonne abîmée. Les bornes viennent de `HOOK_BOUNDS`, la même source
  * que la famille `hook` du registre plus haut — `CLAUDE.md`, « une seule
  * source pour les bornes, pas une liste réécrite à la main ».
+ *
+ * **Les couleurs se normalisent en majuscules ici aussi**, par le même
+ * `.transform` que `parseSetting`/`validateSetting` appliquent à la famille
+ * `hook` (`COLOR_PATTERN`, forme canonique documentée juste au-dessus). Un
+ * schéma qui ne ferait que valider le motif laisserait passer `#a1b2c3` tel
+ * quel, brisant l'invariant « majuscules à la lecture comme à l'écriture »
+ * pour toute surcharge par clip. (relevé par Copilot)
  */
 export const HOOK_STYLE_SHAPE = {
   enabled: z.boolean(),
@@ -913,8 +920,14 @@ export const HOOK_STYLE_SHAPE = {
   size: z.number().int().min(HOOK_BOUNDS.size.min).max(HOOK_BOUNDS.size.max),
   position: z.enum(HOOK_POSITIONS),
   alignment: z.enum(HOOK_ALIGNMENTS),
-  textColor: z.string().regex(COLOR_PATTERN),
-  backgroundColor: z.string().regex(COLOR_PATTERN),
+  textColor: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
+  backgroundColor: z
+    .string()
+    .regex(COLOR_PATTERN)
+    .transform((v) => v.toUpperCase()),
   backgroundOpacity: z
     .number()
     .int()

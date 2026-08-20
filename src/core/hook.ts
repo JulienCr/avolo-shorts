@@ -271,16 +271,20 @@ const HOOK_TEXT_MAX_CHARS = 120
  * milieu d'un mot** — si le caractère suivant est l'espace séparateur (ou
  * s'il n'y en a pas, le texte s'arrêtant pile là), la coupe dure est déjà une
  * frontière de mot et reculer supprimerait un mot entier qui tenait dans la
- * limite.
+ * limite. **Le plafond compte des points de code, pas des unités UTF-16** :
+ * `.length`/`.slice` comptent des unités, et un emoji hors du plan de base en
+ * occupe deux (une paire de substituts) — couper au milieu en rendrait un
+ * seul, une chaîne Unicode invalide.
  */
 export function normalizeHookText(raw: string): string {
   const collapsed = raw.trim().replace(/\s+/g, ' ')
   const unquoted = stripSurroundingQuotes(collapsed)
   const words = unquoted.split(' ').filter((word) => word !== '')
   const limitedByWords = words.slice(0, HOOK_TEXT_MAX_WORDS).join(' ')
-  if (limitedByWords.length <= HOOK_TEXT_MAX_CHARS) return limitedByWords
-  const hardCut = limitedByWords.slice(0, HOOK_TEXT_MAX_CHARS)
-  const cutsMidWord = limitedByWords[HOOK_TEXT_MAX_CHARS] !== ' '
+  const codePoints = Array.from(limitedByWords)
+  if (codePoints.length <= HOOK_TEXT_MAX_CHARS) return limitedByWords
+  const hardCut = codePoints.slice(0, HOOK_TEXT_MAX_CHARS).join('')
+  const cutsMidWord = codePoints[HOOK_TEXT_MAX_CHARS] !== ' '
   const lastSpace = hardCut.lastIndexOf(' ')
   return (cutsMidWord && lastSpace > 0 ? hardCut.slice(0, lastSpace) : hardCut).trimEnd()
 }

@@ -3,6 +3,8 @@ import { clipDuration } from '@/core/edl'
 import {
   detailPrompt,
   detailWindowsJson,
+  HOOK_PATTERNS,
+  hookPrompt,
   scorePrompt,
   scoreWindowsJson,
 } from '@/core/gemini/prompts'
@@ -177,6 +179,47 @@ describe('detailPrompt', () => {
     const p = detailPrompt({ ...ENTRIES_DETAIL, language: 'français' })
     expect(p.match(/français/g) ?? []).toHaveLength(2)
     expect(p).not.toContain('${')
+  })
+})
+
+describe('hookPrompt', () => {
+  const ENTRIES_HOOK = {
+    language: 'fr',
+    title: 'Le pingouin au tribunal',
+    description: 'Un procès improbable',
+    lines: ['alors moi je dis que ce pingouin ment', 'un pingouin avec un cartable ça se discute'],
+    maxWords: 10,
+  }
+
+  it('porte le même HOOK PLAYBOOK que detailPrompt, mot pour mot', () => {
+    const p = hookPrompt(ENTRIES_HOOK)
+    expect(p).toContain(HOOK_PATTERNS)
+    expect(detailPrompt(ENTRIES_DETAIL)).toContain(HOOK_PATTERNS)
+  })
+
+  it('interpole la langue, le titre, la description et le texte du clip', () => {
+    const p = hookPrompt(ENTRIES_HOOK)
+    expect(p).toContain('TRANSCRIPT_LANGUAGE: fr')
+    expect(p).toContain('TITLE: Le pingouin au tribunal')
+    expect(p).toContain('DESCRIPTION: Un procès improbable')
+    expect(p).toContain('alors moi je dis que ce pingouin ment')
+    expect(p).toContain('un pingouin avec un cartable ça se discute')
+    // Aucun trou de gabarit laissé derrière.
+    expect(p).not.toContain('${')
+  })
+
+  it('porte le plafond de mots demandé, pas une valeur fixe', () => {
+    const p = hookPrompt({ ...ENTRIES_HOOK, maxWords: 6 })
+    expect(p).toContain('at most 6 words')
+    expect(p).toContain('max 6 words')
+  })
+
+  it("ne demande qu'un seul champ en sortie", () => {
+    const p = hookPrompt(ENTRIES_HOOK)
+    const returnBlock = p.slice(p.indexOf('Return only:'))
+    expect(returnBlock).toContain('"hook":')
+    expect(returnBlock).not.toContain('viral_hook_text')
+    expect(returnBlock).not.toContain('shorts')
   })
 })
 

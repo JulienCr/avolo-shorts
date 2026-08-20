@@ -81,6 +81,26 @@ Return only:
 `
 }
 
+/**
+ * Le « HOOK PLAYBOOK » : les cinq patrons d'accroche, **anglais et fixes**,
+ * pour la même raison que le reste de ce fichier — c'est le texte calibré, le
+ * traduire referait le calibrage à zéro.
+ *
+ * **Extrait de `detailPrompt` plutôt que réénumérés dans `hookPrompt`.** Les
+ * deux prompts en ont besoin — la passe de détail les pose sur
+ * `viral_hook_text`, `hookPrompt` régénère un hook seul — et deux listes
+ * recopiées à la main dérivent au premier patron ajouté ou reformulé, le même
+ * défaut que `CLAUDE.md` documente pour un bornage réécrit deux fois plutôt
+ * qu'importé (« un correctif compris comme local revient au champ suivant »).
+ */
+export const HOOK_PATTERNS = `HOOK PLAYBOOK — pick the strongest fitting pattern for \`viral_hook_text\` (max 10 words):
+- Open question: "Why does everyone get this wrong?"
+- Hot take / controversy: "Stop doing this. Seriously."
+- Number / fact shock: "97% of people miss this."
+- Story loop: "This one email almost ruined me."
+- POV / pattern interrupt: "POV: you finally understand it."
+(These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)`
+
 export type DetailPromptInput = {
   language: string
   videoDuration: number
@@ -144,13 +164,7 @@ CLIP RULES:
   stronger one and drop the other. Two clips on the same broad topic are fine
   as long as each lands its own moment.
 
-HOOK PLAYBOOK — pick the strongest fitting pattern for \`viral_hook_text\` (max 10 words):
-- Open question: "Why does everyone get this wrong?"
-- Hot take / controversy: "Stop doing this. Seriously."
-- Number / fact shock: "97% of people miss this."
-- Story loop: "This one email almost ruined me."
-- POV / pattern interrupt: "POV: you finally understand it."
-(These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)
+${HOOK_PATTERNS}
 
 COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE (${language}):
 - Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
@@ -180,6 +194,60 @@ Return only:
       "viral_hook_text": "<short overlay max 10 words>"
     }
   ]
+}
+`
+}
+
+export type HookPromptInput = {
+  /** La langue du transcript, telle que WhisperX l'a détectée. */
+  language: string
+  title: string
+  description: string
+  /**
+   * Les phrases du clip, dans l'ordre — le texte que le clip contient
+   * **actuellement** (`clip.segments`), pas la fenêtre de contexte que
+   * l'écran de montage affiche autour.
+   */
+  lines: readonly string[]
+  /** Le plafond de mots — `HOOK_TEXT_MAX_WORDS` de `@/core/hook`, dupliqué en
+   * paramètre plutôt qu'importé : ce fichier reste pur et sans dépendance vers
+   * `@/core/hook`, comme le reste de `src/core/gemini/`. */
+  maxWords: number
+}
+
+/**
+ * Régénère le hook d'un clip **déjà choisi** — contrairement à `detailPrompt`,
+ * qui le propose parmi d'autres champs sur des fenêtres encore candidates.
+ *
+ * **Un seul champ en sortie**, `{ hook: string }` : ce prompt ne rejuge ni le
+ * titre ni la description, il ne fait que réécrire l'accroche à partir de ce
+ * que le clip contient maintenant — utile après une coupe qui a déplacé
+ * l'ouverture, ou simplement parce que la première proposition ne convainc
+ * pas.
+ */
+export function hookPrompt({ language, title, description, lines, maxWords }: HookPromptInput): string {
+  return `
+You are a senior short-form video viral copywriter.
+Write ONE short hook overlay for this already-selected clip — the text burned
+onto the very first frame to stop a cold viewer from scrolling.
+
+${HOOK_PATTERNS}
+
+RULES:
+- Return only valid JSON.
+- \`hook\` is at most ${maxWords} words, written in TRANSCRIPT_LANGUAGE (${language}).
+- No surrounding quotes.
+- Base it on what the clip actually says below — not the title or description alone.
+
+TRANSCRIPT_LANGUAGE: ${language}
+TITLE: ${title}
+DESCRIPTION: ${description}
+CLIP_TEXT:
+${lines.join('\n')}
+
+Return only:
+{
+  "hook": "<short overlay max ${maxWords} words>"
 }
 `
 }

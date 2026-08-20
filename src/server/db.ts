@@ -268,6 +268,47 @@ function migrateHookSizeSettingKey(db: Database.Database): void {
 }
 
 /**
+ * Retire `size` de chaque `hookStyle` de `clips`, en conservant les autres
+ * clés. Complément de `migrateHookSizeSettingKey` juste au-dessus, qui ne
+ * purge que `settings` : `HOOK_STYLE_SCHEMA` (`z.strictObject`, plus bas)
+ * rejette l'objet entier dès qu'une clé inconnue traîne, donc un clip qui
+ * portait encore `hookStyle.size` perdrait silencieusement **toutes** ses
+ * autres surcharges au premier `readHookStyle` — pas seulement `size`.
+ * Relevé en review sur la PR #117 (Aristarque et Copilot, indépendamment) ;
+ * la base de production ne porte aujourd'hui aucun clip avec cette clé
+ * (vérifié le 20 août 2026), donc le coût réel est nul, mais la fenêtre où
+ * un tel clip aurait pu naître — entre le merge de #114 et cette migration —
+ * existait, et la classe de défaut (un renommage de clé qui efface un clip
+ * entier) survivrait au prochain renommage sans ce filet.
+ *
+ * On manipule le JSON brut plutôt que `HOOK_STYLE_SCHEMA` : passer par le
+ * schéma strict reproduirait exactement le bug qu'on corrige. Une ligne dont
+ * le JSON ne parse pas est laissée telle quelle — elle est déjà illisible
+ * pour `readHookStyle`, cette migration ne répare pas ce cas-là.
+ */
+function migrateHookSizeClipColumn(db: Database.Database): void {
+  const rows = db
+    .prepare(`SELECT id, hookStyle FROM clips WHERE hookStyle LIKE '%"size"%'`)
+    .all() as { id: string; hookStyle: string }[]
+  const update = db.prepare('UPDATE clips SET hookStyle = ? WHERE id = ?')
+  db.transaction(() => {
+    for (const row of rows) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(row.hookStyle)
+      } catch {
+        continue
+      }
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue
+      const record = parsed as Record<string, unknown>
+      if (!('size' in record)) continue
+      const rest = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'size'))
+      update.run(JSON.stringify(rest), row.id)
+    }
+  })()
+}
+
+/**
  * Ouvre la base et applique le schéma. `CREATE TABLE IF NOT EXISTS` couvre le
  * cas courant — une base absente —, `migrer` celles qui existaient déjà.
  *
@@ -288,6 +329,7 @@ export function openDb(file: string = defaultDbPath()): Database.Database {
   migrate(db)
   migrateSelectionSettingKeys(db)
   migrateHookSizeSettingKey(db)
+  migrateHookSizeClipColumn(db)
   return db
 }
 

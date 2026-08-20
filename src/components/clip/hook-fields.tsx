@@ -60,9 +60,17 @@ import { useRegenerateHook } from '@/lib/queries'
 type OnWrite = (patch: ClipPatch) => Promise<unknown> | void
 
 /**
- * Les onze champs de `HookSettings` que le panneau replié couvre — ni
+ * Les douze champs de `HookSettings` que le panneau replié couvre — ni
  * `enabled` (visible en permanence, à côté du texte) ni le texte lui-même,
  * qui n'appartient pas à `HookSettings`.
+ *
+ * **`durationMs` manquait à cette liste** (PR #117, seconde manche) : le
+ * réglage existait déjà dans `HookSettings`, bornait déjà une surcharge côté
+ * serveur, mais n'avait aucun contrôle ni badge de surcharge dans cet écran —
+ * relevé par Copilot, `hook-fields.tsx:70`. Il redevient un réglage actif
+ * dans ce même correctif : le PNG en `overlay` porte désormais lui-même la
+ * borne temporelle (`src/core/ffmpeg/args.ts`), ce qui n'était pas vrai
+ * avant.
  */
 const COLLAPSIBLE_FIELDS: readonly (keyof HookSettings)[] = [
   'font',
@@ -74,6 +82,7 @@ const COLLAPSIBLE_FIELDS: readonly (keyof HookSettings)[] = [
   'textColor',
   'backgroundColor',
   'backgroundOpacity',
+  'durationMs',
   'enter',
   'exit',
 ]
@@ -314,6 +323,13 @@ export function HookFields({
           </div>
 
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border px-3 py-2.5">
+            <DurationField
+              value={resolved.durationMs}
+              disabled={loading}
+              overridden={hasOverrideOf(clip, 'durationMs')}
+              onCommit={(value) => setStyle('durationMs', value)}
+              onReset={() => resetField('durationMs')}
+            />
             <TransitionField
               label="Apparition"
               value={resolved.enter}
@@ -528,6 +544,83 @@ function NumberField({
         />
         <span className="text-muted-foreground">{unit}</span>
         <FieldOrigin field={label} overridden={overridden} onReset={onReset} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * La durée, affichée en secondes — **`durationMs` est ce qui se stocke et se
+ * valide**, la même conversion que `hook-section.tsx` tient déjà pour le
+ * réglage global (voir sa doc). Dupliquée plutôt qu'importée : ce fichier
+ * porte sa propre variante de `NumberField` avec `FieldOrigin`, et les deux
+ * écrans ne partagent aucun autre composant de champ.
+ */
+function DurationField({
+  value,
+  disabled,
+  overridden,
+  onCommit,
+  onReset,
+}: {
+  /** En millisecondes — l'unité stockée. */
+  value: number
+  disabled: boolean
+  overridden: boolean
+  onCommit: (valueMs: number) => void
+  onReset: () => void
+}) {
+  const id = useId()
+  const seconds = value / 1000
+  const minSeconds = HOOK_BOUNDS.durationMs.min / 1000
+  const maxSeconds = HOOK_BOUNDS.durationMs.max / 1000
+
+  const [draft, setDraft] = useState(String(seconds))
+  const [seen, setSeen] = useState(seconds)
+  if (seen !== seconds) {
+    setSeen(seconds)
+    setDraft(String(seconds))
+  }
+
+  function commit() {
+    const parsed = draft.trim() === '' ? Number.NaN : Number(draft)
+    if (!Number.isFinite(parsed)) return setDraft(String(seconds))
+    const bounded = Math.min(maxSeconds, Math.max(minSeconds, parsed))
+    const ms = Math.round(bounded * 1000)
+    setDraft(String(ms / 1000))
+    if (ms !== value) onCommit(ms)
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} className="text-sm font-normal">
+        Durée
+      </Label>
+      <div className="flex items-center gap-2 text-[0.75rem]">
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          // 0,1 et non 0,5 : la grille HTML part de `min` (0,2) par pas de
+          // `step`, et 0,2 + n × 0,5 ne retombe jamais sur le défaut (2 s) —
+          // même correctif que `hook-section.tsx` (relevé par Copilot).
+          step={0.1}
+          min={minSeconds}
+          max={maxSeconds}
+          disabled={disabled}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          className="h-8 w-20 tabular-nums"
+        />
+        <span className="text-muted-foreground">secondes</span>
+        <FieldOrigin field="Durée" overridden={overridden} onReset={onReset} />
       </div>
     </div>
   )

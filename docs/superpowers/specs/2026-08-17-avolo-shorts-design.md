@@ -1370,9 +1370,9 @@ timeline.
 
 **Le hook, en zone Contenu, à côté du titre et de la description (19 août
 2026, revu le 20 août 2026).** Le texte, l'activation et « Régénérer » restent
-visibles en permanence ; les onze réglages de style (police, taille, rayon des
-coins, capitales, position, alignement, couleurs, opacité, transitions) sont
-repliés derrière un bouton « Personnaliser », fermé par défaut et affichant
+visibles en permanence ; les douze réglages de style (police, taille, rayon des
+coins, capitales, position, alignement, couleurs, opacité, durée, transitions)
+sont repliés derrière un bouton « Personnaliser », fermé par défaut et affichant
 leur nombre — republier à plat tout le panneau Réglages sur l'écran qui sert à
 monter un clip s'est avéré une gêne plutôt qu'un service. Chaque contrôle dit
 s'il est **hérité** des réglages globaux ou **surchargé** par le clip — même à

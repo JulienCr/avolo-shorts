@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
  * `aria-controls` tout seuls : rien à câbler à la main ici pour le critère
  * d'accessibilité du repli des surcharges du hook (`hook-fields.tsx`).
  *
- * Premier appelant : le panneau des onze surcharges de `HookFields`, fermé
+ * Premier appelant : le panneau des douze surcharges de `HookFields`, fermé
  * par défaut. Aucun composant `ui/` ne portait encore ce besoin.
  */
 const Collapsible = CollapsiblePrimitive.Root

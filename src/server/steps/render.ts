@@ -1930,18 +1930,47 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
           hookImageVariant,
           pathTemporary(paths.hookImageVariant),
         )
-        // `renderArgs`/`blurredVariantArgs` attendent `{path, x, y, w, h}` —
-        // la même forme qu'un logo. `hookImageNative`/`Variant` porte déjà
-        // ces quatre nombres (`renderHookImage`, `@/server/hook-image.ts`) ;
-        // seul le chemin change entre le buffer rasterisé et le fichier
-        // temporaire qui vient d'être écrit.
+        // `renderArgs`/`blurredVariantArgs` attendent `{path, x, y, w, h,
+        // durationMs, enter, exit}` — la même forme qu'un logo, plus le
+        // contrat temporel du hook. `hookImageNative`/`Variant` porte déjà
+        // les quatre premiers nombres (`renderHookImage`,
+        // `@/server/hook-image.ts`) ; les trois derniers viennent de
+        // `hookObserved.resolved` — le MÊME hook résolu que `renderHookImage`
+        // vient de rasteriser, donc `durationMs`/`enter`/`exit` décrivent
+        // exactement le PNG qu'ils accompagnent. **C'est ce que le passage à
+        // l'overlay PNG avait perdu** : le document ASS supprimé portait ces
+        // trois champs par sa seule ligne `Dialogue` ; `renderArgs` doit
+        // désormais les recevoir explicitement pour les poser dans le graphe
+        // (`enable=`, `fade=` — voir `src/core/ffmpeg/args.ts`).
         const hookImageNativeArg =
-          hookImageNative !== null && hookImageNativeProvisional !== undefined
-            ? { path: hookImageNativeProvisional, x: hookImageNative.x, y: hookImageNative.y, w: hookImageNative.width, h: hookImageNative.height }
+          hookImageNative !== null &&
+          hookImageNativeProvisional !== undefined &&
+          hookObserved !== null
+            ? {
+                path: hookImageNativeProvisional,
+                x: hookImageNative.x,
+                y: hookImageNative.y,
+                w: hookImageNative.width,
+                h: hookImageNative.height,
+                durationMs: hookObserved.resolved.durationMs,
+                enter: hookObserved.resolved.enter,
+                exit: hookObserved.resolved.exit,
+              }
             : undefined
         const hookImageVariantArg =
-          hookImageVariant !== null && hookImageVariantProvisional !== undefined
-            ? { path: hookImageVariantProvisional, x: hookImageVariant.x, y: hookImageVariant.y, w: hookImageVariant.width, h: hookImageVariant.height }
+          hookImageVariant !== null &&
+          hookImageVariantProvisional !== undefined &&
+          hookObserved !== null
+            ? {
+                path: hookImageVariantProvisional,
+                x: hookImageVariant.x,
+                y: hookImageVariant.y,
+                w: hookImageVariant.width,
+                h: hookImageVariant.height,
+                durationMs: hookObserved.resolved.durationMs,
+                enter: hookObserved.resolved.enter,
+                exit: hookObserved.resolved.exit,
+              }
             : undefined
 
         // **La variante périmée s'efface avant le PREMIER encodage**, et non entre

@@ -463,3 +463,48 @@ export function hookPlacement(
         : Math.round((canvas.h - image.h) / 2)
   return { x: Math.max(0, x), y: Math.max(0, y) }
 }
+
+/**
+ * La durée du fondu, en millisecondes, pour un côté (`enter`/`exit`).
+ *
+ * **300 ms, une valeur fixe.** Reprend la constante de l'ancien émetteur ASS
+ * (`src/core/hook-ass.ts`, supprimé le 20 août 2026) : assez long pour se
+ * voir, assez court pour ne pas manger la moitié d'un hook réglé à son
+ * plancher de durée (200 ms, `HOOK_BOUNDS.durationMs.min`).
+ */
+export const HOOK_FADE_MS = 300
+
+/**
+ * La durée de fondu pour un côté, en millisecondes — 0 pour `none`, ou pour
+ * `glitch`/`scanline`, non implémentées dans cette PR. Bornée à la moitié de
+ * `durationMs` : au plancher de durée, deux fondus de 300 ms se
+ * chevaucheraient sur toute la durée et le hook n'atteindrait jamais son
+ * opacité normale (même correctif que portait déjà `hook-ass.ts`).
+ *
+ * **`glitch` et `scanline` ne sont jamais rendus comme un fondu.** L'énum
+ * persistée les porte déjà (PR précédente) et l'écran les affiche
+ * `disabled`, mais une valeur de l'un des deux peut arriver ici malgré tout —
+ * une base éditée à la main, une régression amont. Les rendre comme un fondu
+ * serait le mensonge silencieux que ce dépôt refuse ailleurs (`CLAUDE.md`) :
+ * mieux vaut avertir et ne poser aucun fondu que d'en poser un que personne
+ * n'a demandé.
+ *
+ * Appelée depuis `src/core/ffmpeg/args.ts`, à la construction du graphe —
+ * donc uniquement à l'export, jamais à un `GET` de lecture, qui ne construit
+ * aucun graphe ffmpeg.
+ */
+export function hookFadeMsFor(
+  transition: HookSettings['enter'] | HookSettings['exit'],
+  side: 'enter' | 'exit',
+  durationMs: number,
+): number {
+  if (transition === 'fade') return Math.min(HOOK_FADE_MS, Math.floor(durationMs / 2))
+  if (transition === 'glitch' || transition === 'scanline') {
+    const label = side === 'enter' ? 'entrée' : 'sortie'
+    console.warn(
+      `Transition de ${label} "${transition}" pas encore rendue (hors périmètre de cette PR) : ` +
+        'le hook sera incrusté sans transition.',
+    )
+  }
+  return 0
+}

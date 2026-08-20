@@ -16,7 +16,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip, ClipDetail } from '@/lib/api'
-import { HOOK_DEFAULTS, type HookSettings } from '@/core/hook'
+import { HOOK_BOUNDS, HOOK_DEFAULTS, type HookSettings } from '@/core/hook'
 import { HookFields } from '@/components/clip/hook-fields'
 import { keys } from '@/lib/queries'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
@@ -92,7 +92,7 @@ afterEach(() => {
 })
 
 /**
- * Ouvre le panneau replié des onze surcharges — fermé par défaut (voir la
+ * Ouvre le panneau replié des douze surcharges — fermé par défaut (voir la
  * doc de `HookFields`). Tout ce qui n'est ni le texte, ni « Hook activé », ni
  * « Régénérer » vit dedans, donc un test qui les interroge doit d'abord
  * cliquer sur « Personnaliser », comme le ferait quelqu'un devant l'écran.
@@ -228,6 +228,60 @@ describe('hérité vs surchargé', () => {
 
     await user.click(screen.getByRole('checkbox', { name: /Hook activé/ }))
     expect(onWrite).toHaveBeenCalledWith({ hookStyle: { enabled: false } })
+  })
+})
+
+/**
+ * **`durationMs` a rejoint le panneau replié** (PR #117, seconde manche) :
+ * le PNG en `overlay` ne portait plus la borne temporelle du tout, et ce
+ * réglage n'avait donc aucun contrôle dans cet écran. `DurationField`
+ * reprend la conversion secondes/millisecondes de `hook-section.tsx`
+ * (`src/components/settings/hook-section.tsx`), testée là pour le réglage
+ * global — même comportement ici, pour la surcharge par clip.
+ */
+describe('Durée', () => {
+  it('affiche durationMs converti en secondes', () => {
+    mount({ clip: clip({ hookStyle: { durationMs: 2_500 } }) })
+    openPersonalize()
+    expect((screen.getByLabelText('Durée') as HTMLInputElement).value).toBe('2.5')
+  })
+
+  it('convertit les secondes saisies en millisecondes, à `hookStyle.durationMs`', async () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    const user = userEvent.setup({ delay: null })
+    mount({ onWrite })
+    openPersonalize()
+
+    const field = screen.getByLabelText('Durée')
+    await user.clear(field)
+    await user.type(field, '3.2')
+    await user.tab()
+
+    expect(onWrite).toHaveBeenCalledWith({ hookStyle: { durationMs: 3_200 } })
+  })
+
+  it('borne la durée saisie aux limites du registre avant de l’écrire', async () => {
+    vi.useRealTimers()
+    const onWrite = vi.fn()
+    const user = userEvent.setup({ delay: null })
+    mount({ onWrite })
+    openPersonalize()
+
+    const field = screen.getByLabelText('Durée')
+    await user.clear(field)
+    await user.type(field, '99')
+    await user.tab()
+
+    expect(onWrite).toHaveBeenCalledWith({
+      hookStyle: { durationMs: HOOK_BOUNDS.durationMs.max },
+    })
+  })
+
+  it('se dit surchargé même à la MÊME valeur que le global (le cas central du contrat)', () => {
+    mount({ clip: clip({ hookStyle: { durationMs: HOOK_DEFAULTS.durationMs } }) })
+    openPersonalize()
+    expect(screen.queryByLabelText('Durée : revenir à l’héritage')).toBeTruthy()
   })
 })
 

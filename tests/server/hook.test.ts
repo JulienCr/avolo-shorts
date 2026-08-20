@@ -109,7 +109,11 @@ describe('generateHookText', () => {
 
     const text = await generateHookText(getDb(), baseClip().id)
     expect(text).toBe('Ce pingouin va tout faire capoter')
-    expect(text.split(' ').length).toBeLessThanOrEqual(10)
+    // 6, pas 10 : le plafond que `normalizeHookText` applique depuis la PR
+    // #117 (relevé par Aristarque — le texte de ce test ne fait que 6 mots,
+    // donc l'ancienne assertion à 10 ne l'exerçait pas ; la ligne 169
+    // couvre déjà le plafond avec un texte de 12 mots).
+    expect(text.split(' ').length).toBeLessThanOrEqual(6)
 
     // Le prompt envoyé porte le texte du clip, pas la phrase hors segment.
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { messages: { content: string }[] }

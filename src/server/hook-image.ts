@@ -1,5 +1,7 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
-import { GlobalFonts, createCanvas, type SKRSContext2D } from '@napi-rs/canvas'
+import { GlobalFonts, createCanvas, type FontKey, type SKRSContext2D } from '@napi-rs/canvas'
 
 import { hookIsBurned, hookLayout, hookPlacement, hookRgba, type ResolvedHook } from '@/core/hook'
 
@@ -38,34 +40,69 @@ export type HookImage = {
 
 /**
  * `fonts/Anton-Regular.ttf` chargée sous le nom de famille `Anton` —
- * mémorisé par dossier pour ne l'enregistrer qu'une fois par processus,
- * `GlobalFonts` étant un registre global à `@napi-rs/canvas` et non un état
- * par instance de canevas.
+ * mémorisée par dossier, `GlobalFonts` étant un registre global à
+ * `@napi-rs/canvas` et non un état par instance de canevas.
+ *
+ * **Keyée sur le contenu du fichier, pas seulement sur le dossier.** Un
+ * premier passage qui ne rechargeait jamais après le premier rendu rendait
+ * inopérant le remplacement d'Anton que l'empreinte (`fontsDigest`,
+ * `src/server/steps/render.ts`) prétend pourtant gérer : le condensat de
+ * police change, le rendu se déclare périmé et se relance — mais rasterisait
+ * encore avec l'ancienne police en mémoire, certifiant un PNG incohérent
+ * avec le condensat qui venait de le déclarer à jour. Relevé par Copilot sur
+ * la PR #117. `registerFromPath` de `@napi-rs/canvas` 1.0.7 déduplique en
+ * plus par **chemin**, pas par contenu : rappeler la fonction sur le même
+ * chemin sans retirer l'ancienne entrée ne rechargerait pas non plus les
+ * octets — d'où le `GlobalFonts.remove(oldKey)` avant de réenregistrer.
  */
-const registeredFontFolders = new Set<string>()
+const registeredFonts = new Map<string, { digest: string; key: FontKey | null }>()
+
+/** `sha256` du fichier, tronqué : assez pour détecter un remplacement, pas pour l'identifier de façon cryptographique — le même usage que `fontsDigest`. */
+function fileDigest(file: string): string {
+  const bytes = fs.readFileSync(file)
+  return crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16)
+}
 
 function ensureFontRegistered(fontsDir: string): void {
-  if (registeredFontFolders.has(fontsDir)) return
-  registeredFontFolders.add(fontsDir)
   const file = path.join(fontsDir, 'Anton-Regular.ttf')
+  let digest: string
   try {
-    const registered = GlobalFonts.registerFromPath(file, 'Anton')
-    if (registered === null) {
-      console.warn(
-        `Police Anton introuvable pour le hook (${file}) : le rasteriseur se repliera sur la ` +
-          'police par défaut du système, ce qui ne ressemblera pas au rendu attendu.',
-      )
-    }
+    digest = fileDigest(file)
   } catch (error) {
     console.warn(
       `Police Anton illisible pour le hook (${file}) : ${error instanceof Error ? error.message : 'erreur inconnue'}.`,
     )
+    return
   }
+  const cached = registeredFonts.get(fontsDir)
+  if (cached !== undefined && cached.digest === digest) return
+
+  if (cached?.key !== null && cached?.key !== undefined) GlobalFonts.remove(cached.key)
+
+  const registered = GlobalFonts.registerFromPath(file, 'Anton')
+  if (registered === null) {
+    console.warn(
+      `Police Anton introuvable pour le hook (${file}) : le rasteriseur se repliera sur la ` +
+        'police par défaut du système, ce qui ne ressemblera pas au rendu attendu.',
+    )
+  }
+  // On mémorise le digest même en cas d'échec d'enregistrement : sinon
+  // chaque appel retenterait `registerFromPath` sur le même fichier cassé,
+  // ce que le `Set` d'origine évitait déjà pour le cas nominal.
+  registeredFonts.set(fontsDir, { digest, key: registered })
 }
 
 /** Rond au pair le plus proche, jamais sous 2 — même contrainte que `scheduleMarkers` (chrominance sous-échantillonnée en yuv420p). */
 function pairEven(n: number): number {
   return Math.max(2, Math.round(n / 2) * 2)
+}
+
+/**
+ * Comme `pairEven`, mais **vers le bas** — pour un plafond qu'on ne veut
+ * jamais dépasser, jamais atteindre par excès d'un demi-pixel.
+ */
+function pairEvenFloor(n: number): number {
+  return Math.max(2, Math.floor(n / 2) * 2)
 }
 
 /**
@@ -134,7 +171,24 @@ export function renderHookImage(
   const lines = wrapLines(measurer, text, maxTextWidthPx)
   const textWidthPx = Math.max(...lines.map((l) => measurer.measureText(l).width))
 
-  const boxWidth = pairEven(Math.ceil(textWidthPx) + 2 * paddingXPx)
+  // Borné à `canvas.w` : `wrapLines` refuse de couper un mot, donc une
+  // ligne seule peut mesurer plus que `maxTextWidthPx` — d'ordinaire de peu
+  // (« déborde légèrement », voir sa doc), mais `hookText` peut aussi venir
+  // d'un `PATCH` manuel jusqu'à 280 caractères, non passé par
+  // `normalizeHookText` (`src/app/api/clips/[id]/route.ts`), à une taille
+  // allant jusqu'à `sizePermille: 250` (25 % de la largeur) : un seul mot
+  // insécable peut alors produire une boîte plusieurs fois plus large que le
+  // canevas. Sans ce plafond, `hookPlacement` la posait à `x = 0` et ffmpeg
+  // coupait le reste à droite, silencieusement — relevé par Copilot sur la
+  // PR #117. Le texte qui dépasserait quand même `boxWidth` une fois
+  // plafonné n'est pas retaillé : le canevas du PNG s'arrête à `boxWidth`,
+  // et `@napi-rs/canvas`, comme tout canevas 2D, ne rasterise rien au-delà
+  // de ses propres bords — l'excès disparaît de lui-même, sans clip
+  // explicite à poser.
+  const boxWidth = Math.min(
+    pairEven(Math.ceil(textWidthPx) + 2 * paddingXPx),
+    pairEvenFloor(canvas.w),
+  )
   const boxHeight = pairEven(Math.ceil(lines.length * lineHeightPx) + 2 * paddingYPx)
   // Le rayon ne dépasse jamais la moitié du plus petit côté : au-delà, un
   // arc de cercle de rayon supérieur à la moitié de la boîte ne se distingue

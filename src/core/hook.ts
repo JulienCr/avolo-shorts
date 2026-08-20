@@ -232,7 +232,13 @@ export type HookLayout = {
   radiusFraction: number
   /** La marge de sécurité gauche/droite, fraction de la largeur. */
   marginXFraction: number
-  /** La marge depuis le bord haut ou bas (selon `position`), fraction de la largeur ; 0 pour `center`. */
+  /**
+   * La marge depuis le bord haut ou bas (selon `position`), 0 pour `center`.
+   *
+   * **Fraction de la largeur pour `top`, fraction de la HAUTEUR pour
+   * `bottom`** — la seule fraction de tout `HookLayout` qui ne suit pas la
+   * largeur, et volontairement : voir `HOOK_MARGIN_BOTTOM_FRACTION`.
+   */
   marginYFraction: number
   /** La largeur maximale de la boîte avant retour à la ligne, fraction de la largeur du canevas. */
   maxBoxWidthFraction: number
@@ -253,12 +259,32 @@ const HOOK_MARGIN_X_FRACTION = 0.06
 const HOOK_MARGIN_TOP_FRACTION = 0.05
 
 /**
- * Depuis le bas, quand `position` vaut `bottom` — plus large que la marge du
- * haut, pour la même raison que l'ancienne `HOOK_MARGIN_BOTTOM` : c'est la
- * zone que le bloc légende/pseudo et le bandeau musical de TikTok et de Reels
- * recouvrent le plus souvent.
+ * Depuis le bas, quand `position` vaut `bottom`. **Fraction de la HAUTEUR du
+ * canevas, pas de sa largeur** — la seule exception à la règle du reste de
+ * ce fichier, et délibérée : cette marge protège d'une zone que le bloc
+ * légende/pseudo et le bandeau musical de TikTok et de Reels recouvrent, et
+ * cette zone est une propriété physique du chrome de la plateforme — elle
+ * grandit avec la hauteur de l'image, pas avec sa largeur. La taille du
+ * bandeau, elle, reste à dessein assise sur la largeur (voir plus haut) :
+ * les deux questions sont indépendantes, et répondent à des contraintes
+ * différentes.
+ *
+ * `0,1493`, soit `43 / 288` arrondi à quatre décimales : la valeur que
+ * portait l'ancienne `HOOK_MARGIN_BOTTOM` en unités `PlayResY`, **identique**
+ * à `MARGIN_LOW` des sous-titres (`src/core/captions/ass.ts`) — une mesure
+ * contre le chrome réel de TikTok et Reels (`CLAUDE.md`, « le point d'arrêt
+ * est sur les images »), pas un goût. Le premier passage en fraction de
+ * largeur de la PR #117 avait réinterprété ce nombre sans le reconvertir, ce
+ * qui donnait ~5 % de la hauteur sur un 9:16 (1080×1920) au lieu des ~15 %
+ * mesurés — relevé par Aristarque en review. Dupliquée plutôt qu'importée :
+ * les deux systèmes (ASS pour les sous-titres, PNG pour le hook) partagent
+ * la même contrainte physique par coïncidence de plateforme, pas par une
+ * dépendance qui devrait les lier. Arrondie plutôt que laissée en fraction
+ * exacte (`43 / 288`) : au-delà de la troisième décimale la précision ne
+ * représente plus rien de mesuré, et un flottant à répétition sérialise
+ * différemment en `calc()` selon le moteur qui le formate.
  */
-const HOOK_MARGIN_BOTTOM_FRACTION = 0.09
+const HOOK_MARGIN_BOTTOM_FRACTION = 0.1493
 
 /** `position: 'center'` n'a pas de marge verticale à tenir : la boîte est déjà centrée. */
 const HOOK_MARGIN_CENTER_FRACTION = 0
@@ -416,7 +442,13 @@ export function hookPlacement(
   layout: HookLayout,
 ): { x: number; y: number } {
   const marginX = Math.round(canvas.w * layout.marginXFraction)
-  const marginY = Math.round(canvas.w * layout.marginYFraction)
+  // `bottom` protège une zone dont la hauteur du canevas fixe l'étendue (le
+  // chrome de TikTok/Reels), `top` reste une marge de respiration assise sur
+  // la largeur comme le reste de la géométrie — voir la doc de
+  // `HOOK_MARGIN_BOTTOM_FRACTION`.
+  const marginY = Math.round(
+    (resolved.position === 'bottom' ? canvas.h : canvas.w) * layout.marginYFraction,
+  )
   const x =
     resolved.alignment === 'left'
       ? marginX

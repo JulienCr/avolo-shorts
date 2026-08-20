@@ -253,4 +253,23 @@ describe('hookPlacement', () => {
     const { x } = hookPlacement(tooWide, canvas, { position: 'top', alignment: 'right' }, layout)
     expect(x).toBeGreaterThanOrEqual(0)
   })
+
+  it("la marge basse suit la HAUTEUR du canevas, pas sa largeur — protection contre le chrome de TikTok/Reels, mesurée comme celle des sous-titres (relevé par Aristarque sur la PR #117)", () => {
+    // Un canevas dont la largeur et la hauteur divergent nettement rend les
+    // deux hypothèses (marge sur `w` vs marge sur `h`) numériquement
+    // distinguables — un carré ne les distinguerait pas.
+    const tallCanvas = { w: 1080, h: 1920 }
+    const { y } = hookPlacement(image, tallCanvas, { position: 'bottom', alignment: 'center' }, layout)
+    const marginOnHeight = Math.round(tallCanvas.h * layout.marginYFraction)
+    const marginOnWidth = Math.round(tallCanvas.w * layout.marginYFraction)
+    expect(marginOnHeight).not.toBe(marginOnWidth)
+    expect(y).toBe(tallCanvas.h - marginOnHeight - image.h)
+  })
+
+  it("la marge haute, elle, suit la LARGEUR du canevas — seule `bottom` protège une zone de chrome", () => {
+    const tallCanvas = { w: 1080, h: 1920 }
+    const { y } = hookPlacement(image, tallCanvas, { position: 'top', alignment: 'center' }, layout)
+    const marginOnWidth = Math.round(tallCanvas.w * layout.marginYFraction)
+    expect(y).toBe(marginOnWidth)
+  })
 })

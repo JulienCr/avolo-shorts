@@ -99,13 +99,16 @@ describe('HookOverlay', () => {
     expect(inner.style.paddingBottom).toBe('')
   })
 
-  it('convertit la marge du bas (position bottom), différente de celle du haut', () => {
+  it('convertit la marge du bas (position bottom) en cqh — hauteur, pas largeur, différente de celle du haut', () => {
     const top = hookLayout(resolved({ position: 'top' }))
     const bottom = hookLayout(resolved({ position: 'bottom' }))
     expect(bottom.marginYFraction).not.toBe(top.marginYFraction)
     const { container } = render(<HookOverlay hook={resolved({ position: 'bottom' })} />)
     const inner = container.firstElementChild?.firstElementChild as HTMLElement
-    expect(inner.style.paddingBottom).toMatch(new RegExp(`^calc\\(${percent(bottom.marginYFraction)}cqw\\)$`))
+    // `cqh`, pas `cqw` : la marge basse protège une zone de chrome de
+    // plateforme dont l'étendue suit la hauteur du canevas, voir la doc de
+    // `HOOK_MARGIN_BOTTOM_FRACTION` dans `@/core/hook`.
+    expect(inner.style.paddingBottom).toMatch(new RegExp(`^calc\\(${percent(bottom.marginYFraction)}cqh\\)$`))
     expect(inner.style.paddingTop).toBe('')
   })
 

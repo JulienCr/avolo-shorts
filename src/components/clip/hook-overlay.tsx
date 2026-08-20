@@ -19,9 +19,11 @@ import { hookFont } from '@/components/clip/hook-font'
  * 'size'` posé par `output-preview.tsx`, et sa largeur `cqw` correspond
  * exactement à la largeur du canevas que le rasteriseur PNG utilise
  * (`src/server/hook-image.ts`) — 1080 dans les deux cas pour toute sortie
- * qui n'est pas le natif 16:9. `cqh` ne sert plus qu'à couvrir toute la
- * hauteur de la boîte (`inset-0`) ; aucune fraction de géométrie du hook
- * n'en dépend plus.
+ * qui n'est pas le natif 16:9. `cqh` couvre toute la hauteur de la boîte
+ * (`inset-0`), **et porte aussi la marge basse** : `marginYFraction` est
+ * une fraction de la hauteur, pas de la largeur, quand `position` vaut
+ * `bottom` — la seule fraction de `hookLayout` dans ce cas, voir la doc de
+ * `HOOK_MARGIN_BOTTOM_FRACTION` dans `@/core/hook`.
  *
  * **Toutes les valeurs viennent de `hookLayout(hook)`** — la même fonction
  * que le rasteriseur PNG du rendu consomme pour poser le hook dans le
@@ -46,6 +48,16 @@ import { hookFont } from '@/components/clip/hook-font'
 /** `u`, une fraction (0 à 1) de la largeur du conteneur, en `cqw`. */
 function cqw(fraction: number): string {
   return `calc(${fraction * 100}cqw)`
+}
+
+/**
+ * `u`, une fraction (0 à 1) de la hauteur du conteneur, en `cqh` — pour la
+ * seule fraction de `hookLayout` qui suit la hauteur plutôt que la
+ * largeur : `marginYFraction` en position `bottom`. Voir la doc de
+ * `HOOK_MARGIN_BOTTOM_FRACTION` dans `@/core/hook`.
+ */
+function cqh(fraction: number): string {
+  return `calc(${fraction * 100}cqh)`
 }
 
 export function HookOverlay({ hook }: { hook: ResolvedHook }) {
@@ -73,7 +85,7 @@ export function HookOverlay({ hook }: { hook: ResolvedHook }) {
           paddingLeft: cqw(layout.marginXFraction),
           paddingRight: cqw(layout.marginXFraction),
           paddingTop: hook.position === 'top' ? cqw(layout.marginYFraction) : undefined,
-          paddingBottom: hook.position === 'bottom' ? cqw(layout.marginYFraction) : undefined,
+          paddingBottom: hook.position === 'bottom' ? cqh(layout.marginYFraction) : undefined,
         }}
       >
         <span

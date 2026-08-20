@@ -22,9 +22,17 @@ export default defineConfig({
     // quelques fichiers qui s'en passent, à chaque exécution, y compris en CI.
     environment: 'node',
   },
-  // Le même alias que `tsconfig.json`. Sans lui, `@/core/edl` ne se résout pas
-  // sous Vitest alors qu'il se résout sous `tsc` et sous Next.
   resolve: {
-    alias: { '@': path.resolve(import.meta.dirname, 'src') },
+    alias: {
+      // Le même alias que `tsconfig.json`. Sans lui, `@/core/edl` ne se
+      // résout pas sous Vitest alors qu'il se résout sous `tsc` et sous Next.
+      '@': path.resolve(import.meta.dirname, 'src'),
+      // `next/font/local` (`hook-font.ts`) est une transformation statique du
+      // pipeline de build de Next, pas une fonction exécutable sous Node : un
+      // test qui l'importe — même transitivement, via `output-preview.tsx`
+      // ou `clip-screen.tsx` — lève au chargement du module sans cet alias.
+      // Voir `tests/stubs/next-font-local.ts`.
+      'next/font/local': path.resolve(import.meta.dirname, 'tests/stubs/next-font-local.ts'),
+    },
   },
 })

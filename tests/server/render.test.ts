@@ -6,7 +6,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip, Ratio } from '@/core/edl'
 import { cleanPaths } from '@/core/errors'
 import type { Word } from '@/core/transcript'
-import { openDb, upsertProject, putClip, getClip } from '@/server/db'
+import { applySettings, openDb, upsertProject, putClip, getClip } from '@/server/db'
 import {
   pathsRender,
   collectMarkers,
@@ -1634,5 +1634,26 @@ describe('renderClip, chemin du saut', () => {
     const message = await rejectionMessage(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
     expect(message).not.toMatch(/copie de travail/)
     expect(fs.existsSync(copy)).toBe(true)
+  })
+
+  /**
+   * **Le symétrique du premier, et le seul qui dise que le réglage vaut aussi
+   * pour l'export.**
+   *
+   * Le limiter à l'analyse aurait laissé cette fonction-ci recopier douze
+   * gigaoctets dans le dos de quelqu'un qui vient précisément de dire qu'il n'en
+   * voulait pas — et sans le moindre écran pour l'annoncer, puisque
+   * `POST /api/clips/:id/export` est synchrone et muet pendant tout ce temps.
+   */
+  it('n’en reconstitue aucune quand le réglage la refuse', async () => {
+    const { db, c, brandDir } = prepare()
+    applySettings(db, { ingestion: { copySourceLocally: false } })
+    const copy = path.join(stage, SOURCE)
+    fs.rmSync(copy, { force: true })
+
+    // Comme ci-dessus : l'échec attendu vient des marques, pas de la source.
+    const message = await rejectionMessage(renderClip(c.id, { db, brandDir, fontsDir: fonts }))
+    expect(message).not.toMatch(/copie de travail/)
+    expect(fs.existsSync(copy)).toBe(false)
   })
 })

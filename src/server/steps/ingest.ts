@@ -4,7 +4,7 @@ import path from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Database } from 'better-sqlite3'
-import { getDb, getProject, upsertProject } from '@/server/db'
+import { copiesSourceLocally, getDb, getProject, upsertProject } from '@/server/db'
 import { pathTemporary, StopRequestedError } from '@/server/ffmpeg'
 import { probeDuration } from '@/server/ffprobe'
 import { projectIdFromSource, resolveSource, stageDir, stagedPath } from '@/server/paths'
@@ -354,6 +354,13 @@ async function copyOnce(
  * Un TTL sans réparation est exactement la panne qui n'échoue pas au bon
  * endroit.
  *
+ * **Et elle obéit au réglage `ingestion.copySourceLocally`** : décoché, elle
+ * rend l'original sans rien recopier. Le nom de la fonction ne ment pas pour
+ * autant — ce qu'elle garantit est *une entrée exploitable pour le rendu*, et
+ * l'appelant n'a jamais eu à savoir laquelle des deux il tenait. Une copie déjà
+ * présente sert toujours, décoché comme coché : le réglage gouverne ce qu'on
+ * fabrique.
+ *
  * Trois choses qu'elle ne fait pas, et chacune ferme un mode d'échec :
  *
  * - **elle ne promet rien avant d'avoir sondé le montage.** `REPLAY_DIR` est en
@@ -370,30 +377,87 @@ async function copyOnce(
  *   ce qui se passe et à quelle vitesse.
  */
 export async function ensureLocalCopy(
-  project: { id: string; sourcePath: string; stagedPath: string | null },
+  project: {
+    id: string
+    sourcePath: string
+    stagedPath: string | null
+    /** La taille de l'original, pour écarter une copie qui ne la décrit plus. */
+    sizeBytes?: number | null
+  },
   options: { db?: Database | null; signal?: AbortSignal } = {},
 ): Promise<string> {
   const destination = project.stagedPath ?? stagedPath(project.sourcePath)
-  // Le cas courant, et il ne coûte qu'un appel local : `stage/` est sur le
-  // disque de la machine, jamais sur le montage.
-  if (fs.existsSync(destination)) return destination
+  // Le cas courant, et il ne coûte que deux appels locaux : `stage/` est sur le
+  // disque de la machine, jamais sur le montage. **Et c'est `workingInput` qui
+  // tranche**, pas un `existsSync` écrit ici : une copie qui ne décrit plus la
+  // source doit être écartée du rendu comme elle l'est du reste de la chaîne, et
+  // deux façons de répondre à la même question finiraient par ne plus s'accorder.
+  if (workingInput({ ...project, stagedPath: destination }).local) return destination
 
+  // **Le sondage passe avant le réglage, et il y reste.** Décoché, on ne recopie
+  // rien — mais l'encodage qui suit va lire l'original, donc un montage muet
+  // reste une panne, et elle se dit ici avec le message qui explique quoi faire
+  // plutôt que sous la forme d'un ffmpeg qui pend sans rien écrire. **Le
+  // réglage se lit ici aussi**, avant de formuler le message : décoché,
+  // personne n'a demandé de copie, donc « impossible de la reconstituer »
+  // dirait un but que l'utilisateur a précisément écarté. (relevé par
+  // Aristarque)
+  const copyLocally = copiesSourceLocally(options.db === undefined ? getDb() : options.db)
   if (!(await editingResponds(project.sourcePath))) {
     throw new Error(
-      `La copie de travail de ${project.id} est absente et le dossier des replays ne répond pas : ` +
-        'impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté avec son ' +
-        "transport mort dessous — /proc/mounts ne le distingue pas. Rouvrir le lecteur côté " +
-        'Windows, ou remonter le partage.',
+      copyLocally
+        ? `La copie de travail de ${project.id} est absente et le dossier des replays ne répond ` +
+            'pas : impossible de la reconstituer. REPLAY_DIR est monté en 9p et peut être monté ' +
+            "avec son transport mort dessous — /proc/mounts ne le distingue pas. Rouvrir le " +
+            'lecteur côté Windows, ou remonter le partage.'
+        : `La copie de travail de ${project.id} est absente et la copie locale est désactivée ` +
+            'dans les réglages : le rendu doit lire l’original, mais le dossier des replays ne ' +
+            'répond pas. REPLAY_DIR est monté en 9p et peut être monté avec son transport mort ' +
+            'dessous — /proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou ' +
+            'remonter le partage.',
     )
+  }
+
+  // **Le réglage dit non : on rend l'original, et on le dit.** Le rendu lit
+  // alors la source sur le montage 9p pendant tout l'encodage. C'est le
+  // comportement demandé, pas un repli — mais un export qui dure trois fois plus
+  // longtemps sans que rien ne l'explique se cherche ailleurs pendant une
+  // demi-heure.
+  if (!copyLocally) {
+    // **`editingResponds` ne dit pas que le fichier est là.** Un `ENOENT`
+    // immédiat *est* une réponse, et c'est précisément ce qui la rend utile
+    // pour distinguer un montage mort d'un montage absent. Sur le chemin qui
+    // copie, l'original manquant se dit plus loin, dans `ingestOrExplain` ;
+    // ici il n'y a plus rien après nous, et rendre un chemin qui ne désigne
+    // rien ferait échouer ffmpeg trois fonctions plus loin sur un message que
+    // personne ne peut relier au réglage. Le `existsSync` est sans danger : le
+    // sondage ci-dessus vient de prouver que le montage répond.
+    if (!fs.existsSync(project.sourcePath)) {
+      throw new Error(
+        `La copie de travail de ${project.id} est désactivée dans les réglages, et l'original ` +
+          `${JSON.stringify(path.basename(project.sourcePath))} est introuvable dans le dossier ` +
+          'des replays. Sans copie locale, c’est lui que le rendu lit : il doit être là.',
+      )
+    }
+    console.log(
+      `[${project.id}] copie de travail désactivée dans les réglages : l’export lit l’original.`,
+    )
+    return project.sourcePath
   }
 
   console.log(`[${project.id}] copie de travail absente, reconstitution depuis le Drive…`)
   const start = Date.now()
   let milestone = 0
   let lastLog = start
+  // **`copyLocally` déjà lu, pas relu.** Cette branche n'est atteinte que
+  // parce qu'il vaut `true` ; sans le transmettre, `ingest` relirait la base
+  // après son propre sondage du montage — jusqu'à vingt secondes — et un
+  // réglage décoché entre-temps lui ferait sauter la copie que cette fonction
+  // vient pourtant de promettre. (relevé par Copilot)
   const ingestion = await ingestOrExplain(project, {
     db: options.db,
     signal: options.signal,
+    copyLocally,
     onProgress: (a: ProgressCopy) => {
       if (a.fraction === null) return
       // **Deux conditions, et il faut les deux.** Un palier tous les dix pour
@@ -418,6 +482,83 @@ export async function ensureLocalCopy(
       `(${(ingestion.sizeBytes / 1e6 / Math.max(seconds, 0.001)).toFixed(0)} Mo/s).`,
   )
   return ingestion.stagedPath
+}
+
+/**
+ * Le fichier que ffmpeg doit ouvrir : **la copie de travail si elle décrit la
+ * source, l'original sinon.**
+ *
+ * Cette règle vivait en clair dans le cas `analysis` du lanceur, et nulle part
+ * ailleurs — le proxy et l'audio, eux, exigeaient la copie. Le réglage
+ * `ingestion.copySourceLocally` la rend nécessaire partout, et une règle
+ * recopiée à quatre endroits est une règle qui divergera au premier correctif :
+ * un défaut compris comme local revient au champ suivant (`CLAUDE.md`).
+ *
+ * **« Décrit la source » et non « existe », et c'est le correctif qui compte.**
+ * Un `existsSync` seul suffisait tant que la seule façon d'avoir un fichier dans
+ * `stage/` était de l'y avoir copié — ce que faisait `ingest` sans condition, et
+ * qui garantissait donc qu'il correspondait. Le réglage a créé un troisième
+ * état : décoché, `ingest` relève l'empreinte **sur l'original** et laisse en
+ * place le fichier qu'il n'a pas récrit. Un replay réimporté sous le même nom
+ * avec une autre taille — le cas que `decisionCopy` existe pour attraper —
+ * laissait alors la base annoncer une durée et une taille que le fichier
+ * réellement lu ne portait pas. Le proxy, l'audio, l'analyse et l'export
+ * travaillaient sur l'ancienne vidéo, sans qu'aucun d'eux ne puisse le
+ * remarquer, jusqu'à ce que le TTL de huit heures balaie la copie.
+ *
+ * **La taille seule tranche, comme dans `decisionCopy`**, et pour les mêmes
+ * raisons : comparer les dates ferait rejeter une copie que le Drive vient de
+ * resynchroniser sans la modifier, comparer le contenu coûterait plus cher que
+ * l'étape qu'on cherche à éviter. `sizeBytes` est l'empreinte relevée sur
+ * l'original au dernier passage de l'ingestion ; `undefined` ou `null` veut dire
+ * qu'on n'a rien à quoi comparer, et on garde alors le comportement d'avant
+ * plutôt que d'inventer un refus.
+ *
+ * **Deux appels synchrones, et ils portent tous les deux sur `stage/`**, qui est
+ * sur le disque de la machine et jamais sur le montage. C'est ce qui les
+ * autorise ici, là où le même appel sur `sourcePath` gèlerait la boucle
+ * d'événements entière si le 9p était monté avec son transport mort dessous.
+ *
+ * `local` dit lequel des deux a été retenu, pour que l'appelant puisse le
+ * journaliser sans refaire le test.
+ */
+export function workingInput(project: {
+  sourcePath: string
+  stagedPath: string | null
+  /** La taille de l'original, telle que l'ingestion l'a relevée. */
+  sizeBytes?: number | null
+}): { path: string; local: boolean } {
+  const copy = project.stagedPath
+  if (copy !== null && fs.existsSync(copy) && copyDescribes(copy, project.sizeBytes)) {
+    return { path: copy, local: true }
+  }
+  return { path: project.sourcePath, local: false }
+}
+
+/**
+ * La copie porte-t-elle bien la source dont on connaît la taille ?
+ *
+ * **Un `statSync` qui échoue sans preuve vaut « oui ».** La question posée est
+ * « faut-il écarter cette copie », et on ne l'écarte que sur une preuve. Une
+ * permission refusée ne prouve rien : rendre `false` y ferait relire douze
+ * gigaoctets sur le montage 9p pour un incident qui n'a rien à voir avec la
+ * fraîcheur du fichier.
+ *
+ * **Mais un `ENOENT` en est une, de preuve, et fait exception.** L'appelant
+ * vient de constater `fs.existsSync(copy)` vrai ; un `ENOENT` ici veut dire que
+ * la copie a disparu entre les deux — la course avec le balayage du TTL que le
+ * paragraphe précédent nommait sans trancher. Rendre `true` y sélectionnerait
+ * un fichier qui n'existe plus, et ferait échouer ffmpeg sur un message qui
+ * n'explique rien, là où l'original est précisément le repli prévu. (relevé
+ * par Copilot)
+ */
+function copyDescribes(copy: string, sizeBytes: number | null | undefined): boolean {
+  if (typeof sizeBytes !== 'number') return true
+  try {
+    return fs.statSync(copy).size === sizeBytes
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code !== 'ENOENT'
+  }
 }
 
 /**
@@ -651,6 +792,20 @@ export function verifySizeCopied(copy: number, expected: number, source: string)
   )
 }
 
+/**
+ * Faut-il fabriquer la copie de travail ? L'option de l'appelant, sinon le
+ * réglage.
+ *
+ * **La résolution de la base est celle d'`ingest`, à la lettre** : `undefined`
+ * ouvre la base partagée, `null` dit de n'en ouvrir aucune. Deux façons de lire
+ * `options.db` dans la même fonction finiraient par ne plus s'accorder, et
+ * celle-ci décide d'une copie de douze gigaoctets.
+ */
+function shouldCopyLocally(options: OptionsIngestion): boolean {
+  if (options.copyLocally !== undefined) return options.copyLocally
+  return copiesSourceLocally(options.db === undefined ? getDb() : options.db)
+}
+
 /** L'avancement d'une copie, en octets. */
 export type ProgressCopy = { done: number; total: number; fraction: number | null }
 
@@ -671,6 +826,20 @@ export type OptionsIngestion = {
    * son propre délai de garde de vingt secondes.
    */
   signal?: AbortSignal
+  /**
+   * Fabriquer la copie de travail, ou lire l'original.
+   *
+   * Absent, la réponse vient du réglage `ingestion.copySourceLocally`, coché par
+   * défaut. Le passer explicitement est le chemin des tests et des scripts, qui
+   * n'ont pas toujours de base sous la main — `db: null` veut dire « n'en
+   * renseigner aucune », et on ne va pas en ouvrir une juste pour lire un
+   * booléen.
+   *
+   * **Faux ne veut pas dire « ignore `stage/` ».** Une copie déjà présente à la
+   * bonne taille reste rendue telle quelle : le réglage gouverne ce qu'on
+   * fabrique, pas ce qu'on utilise.
+   */
+  copyLocally?: boolean
 }
 
 /** Ce que l'ingestion rend, et ce que les étapes suivantes consomment. */
@@ -678,14 +847,34 @@ export type Ingestion = {
   projectId: string
   /** L'original sur `REPLAY_DIR`. Jamais modifié. */
   sourcePath: string
-  /** La copie de travail. C'est **elle** que ffmpeg lit ensuite. */
+  /**
+   * **Où la copie de travail vit**, qu'elle existe ou non.
+   *
+   * Le champ nomme un emplacement, pas une présence — c'est déjà le contrat de
+   * la colonne du même nom en base, que `createProject` remplit avant que la
+   * moindre copie ne parte.
+   *
+   * **Et il ne dit rien non plus de ce qu'un fichier trouvé là contiendrait.**
+   * `copySourceLocally` décoché, l'ingestion relève l'empreinte sur l'original
+   * et laisse en place ce qu'elle n'a pas récrit : le fichier peut donc être là
+   * *et* décrire une autre vidéo — un replay réimporté sous le même nom avec une
+   * autre taille. **Pour savoir ce que ffmpeg doit ouvrir, passer par
+   * `workingInput`**, qui compare la taille à `sizeBytes` ; ce champ-là ne
+   * répond pas à cette question et ne l'a jamais fait.
+   */
   stagedPath: string
   /**
    * Vrai quand **cet appel** a écrit la copie.
    *
-   * Faux dans deux cas, et ils veulent dire la même chose pour l'appelant — il
-   * n'a rien payé : la copie était déjà là à la bonne taille, ou un autre appel
-   * la faisait déjà et celui-ci l'a attendue (voir `copyOnce`).
+   * Faux dans trois cas. Les deux premiers veulent dire la même chose pour
+   * l'appelant — il n'a rien payé : la copie était déjà là à la bonne taille,
+   * ou un autre appel la faisait déjà et celui-ci l'a attendue (voir
+   * `copyOnce`). Le troisième est différent : `ingestion.copySourceLocally`
+   * était décoché, et aucune copie n'a été demandée du tout — `stagedPath`
+   * peut alors nommer un fichier qui n'existe pas, ou qui existe mais décrit
+   * une autre vidéo. `copied` ne le distingue pas du premier cas ; c'est
+   * `workingInput`, pas ce champ, qui sait dire ce qu'un fichier trouvé là
+   * contiendrait.
    */
   copied: boolean
 } & Fingerprint
@@ -730,13 +919,23 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     force: options.force,
   })
 
+  // **Le réglage ne se lit que si la copie est en jeu.** `décisionCopie` a déjà
+  // pu répondre « garder » — la copie est là, à la bonne taille —, et dans ce
+  // cas la question ne se pose pas : le réglage gouverne ce qu'on fabrique, pas
+  // ce qu'on utilise. Ouvrir SQLite pour l'apprendre serait du travail pour
+  // rien, et `db: null` (les tests) n'a de toute façon pas de base à ouvrir.
+  const copyWanted = decision === 'copier' && shouldCopyLocally(options)
+
   const copied =
-    decision === 'copier' &&
+    copyWanted &&
     (await copyOnce(sourcePath, destination, stat.size, options.onProgress, options.signal))
 
-  // Sonder la **copie locale**, pas l'original : c'est le même contenu, et
-  // ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait payer.
-  const fingerprint = fingerprintSource(stat, await probeDuration(destination, undefined, options.signal))
+  // **Sonder la copie locale quand il y en a une**, pas l'original : c'est le
+  // même contenu, et ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait
+  // payer. Sans copie, il n'y a pas de choix à faire — sonder `destination`
+  // rendrait un `ENOENT` sur un fichier que personne n'a demandé d'écrire.
+  const probed = copyWanted || decision === 'garder' ? destination : sourcePath
+  const fingerprint = fingerprintSource(stat, await probeDuration(probed, undefined, options.signal))
 
   const ingestion: Ingestion = {
     projectId,

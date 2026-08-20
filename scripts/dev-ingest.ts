@@ -12,7 +12,7 @@
 import { closeDb, getDb } from '@/server/db'
 import { probe } from '@/server/ffprobe'
 import { extractAudio } from '@/server/steps/audio'
-import { ingest } from '@/server/steps/ingest'
+import { ingest, workingInput } from '@/server/steps/ingest'
 import { buildProxy, encoderProxy } from '@/server/steps/proxy'
 import { chargerEnv, timer, createBar, duration, finBar, quit, size } from './dev-common'
 
@@ -41,16 +41,22 @@ async function main(): Promise<number> {
   console.log(`Projet   : ${project.projectId}`)
   console.log(`Source   : ${project.sourcePath}`)
   console.log(`           ${size(project.sizeBytes)}, ${duration(project.durationSec)}`)
+  // **Ce que les étapes vont vraiment lire.** Avec `ingestion.copySourceLocally`
+  // décoché, il n'y a pas de copie et tout part de l'original : l'afficher
+  // évite de chercher pourquoi le proxy a triplé de durée.
+  const input = workingInput(project)
   console.log(
-    `Copie    : ${project.stagedPath} — ${
-      project.copied ? `copiée en ${duration(tCopy())}` : 'déjà présente, rien à faire'
-    }`,
+    input.local
+      ? `Copie    : ${input.path} — ${
+          project.copied ? `copiée en ${duration(tCopy())}` : 'déjà présente, rien à faire'
+        }`
+      : `Copie    : aucune — réglage « copier la source en local » décoché, on lit l'original`,
   )
   const barProxy = createBar('  proxy ')
   const tProxy = timer()
   const proxy = await buildProxy({
     projectId: project.projectId,
-    input: project.stagedPath,
+    input: input.path,
     durationSec: project.durationSec,
     force,
     onProgress: (a) => barProxy(a.fraction),
@@ -73,7 +79,7 @@ async function main(): Promise<number> {
   const tAudio = timer()
   const audio = await extractAudio({
     projectId: project.projectId,
-    input: project.stagedPath,
+    input: input.path,
     durationSec: project.durationSec,
     force,
     onProgress: (a) => barAudio(a.fraction),

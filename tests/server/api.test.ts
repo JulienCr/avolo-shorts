@@ -1397,6 +1397,9 @@ describe('/api/settings', () => {
     ollamaBaseUrl: '',
   }
 
+  /** Le défaut de la famille `ingestion`, recopié de `db.ts`. */
+  const INGESTION_DEFAULTS = { copySourceLocally: true }
+
   const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
@@ -1409,7 +1412,11 @@ describe('/api/settings', () => {
   it('rend les réglages effectifs, défauts compris', async () => {
     const response = await getSettingsRoute()
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
+    expect(await response.json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+    })
   })
 
   it('applique un patch partiel et rend les réglages résultants', async () => {
@@ -1418,11 +1425,13 @@ describe('/api/settings', () => {
     expect(await response.json()).toEqual({
       selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 4 },
       ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
     })
   })
 
@@ -1444,6 +1453,7 @@ describe('/api/settings', () => {
     expect(await (await getSettingsRoute()).json()).toEqual({
       selection: DEFAULT_SELECTION_DIMENSIONS,
       ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
     })
   })
 
@@ -1454,7 +1464,11 @@ describe('/api/settings', () => {
     expect(unreadable.status).toBe(400)
     const empty = await putSettingsRoute(new Request('http://x', { method: 'PUT' }))
     expect(empty.status).toBe(200)
-    expect(await empty.json()).toEqual({ selection: DEFAULT_SELECTION_DIMENSIONS, ai: AI_DEFAULTS })
+    expect(await empty.json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+    })
   })
 
   /**

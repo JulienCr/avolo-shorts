@@ -1250,6 +1250,19 @@ après chaque exécution. Deux traitements qui demandent la même source ne la
 copient pas deux fois : la seconde demande attend la première au lieu d'ouvrir un
 second flux sur un montage à 97 Mo/s.
 
+**La copie est un réglage depuis le 20 août 2026**, `ingestion.copySourceLocally`,
+coché par défaut. Le « copier en local d'abord » ci-dessus décrit le Drive, et
+c'est ce qui le justifie ; il ne décrit pas une source déjà posée sur un disque
+rapide, où la recopie ne fait que dupliquer plusieurs gigaoctets par émission.
+Décoché, toute la chaîne lit l'original — le proxy, l'audio, le relevé des
+dimensions et l'export d'un clip. Trois choses ne changent pas : une copie déjà
+présente sert toujours (le réglage gouverne ce qu'on *fabrique*), décocher
+n'efface rien, et `workingInput` (`src/server/steps/ingest.ts`) tranche seul la
+question « ce fichier décrit-il encore la source ? ». L'export ne l'appelle pas
+directement : `ensureLocalCopy`, dans le même fichier, s'en remet à lui puis
+reconstitue la copie manquante sous délai de garde plutôt que d'exiger une
+ingestion préalable.
+
 ### Lister les sources
 
 `GET /api/sources` alimente le sélecteur. La forme est reprise d'OpenShorts, où

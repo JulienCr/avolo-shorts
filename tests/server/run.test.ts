@@ -3,11 +3,11 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type Database from 'better-sqlite3'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StepName } from '@/core/graph'
 import type { SummaryNotation } from '@/server/steps/candidates'
-import { getProject, openDb, upsertProject, type Project } from '@/server/db'
+import { applySettings, getProject, openDb, upsertProject, type Project } from '@/server/db'
 import {
   cleanWorkCache,
   stopRun,
@@ -46,6 +46,8 @@ let db: Database.Database
 let calls: StepName[]
 /** La vidéo que le lanceur donne à l'analyse pour en relever les dimensions. */
 let sourcesAnalysis: string[]
+/** Le fichier que chaque étape ffmpeg a reçu, dans l'ordre. */
+let inputsSteps: string[]
 
 /** Les étapes, remplacées par des témoins qui ne font qu'écrire leur artefact. */
 function stepsFake(fail?: StepName): Partial<Steps> {
@@ -66,10 +68,12 @@ function stepsFake(fail?: StepName): Partial<Steps> {
       throw new Error("l'ingestion ne devait pas être appelée")
     },
     buildProxy: async (o) => {
+      inputsSteps.push(o.input)
       await note('proxy', path.join(root, 'projects', o.projectId, 'proxy.mp4'))
       return { path: 'proxy.mp4', skipped: false }
     },
     extractAudio: async (o) => {
+      inputsSteps.push(o.input)
       await note('audio', path.join(root, 'projects', o.projectId, 'audio.wav'))
       return { path: 'audio.wav', skipped: false }
     },
@@ -91,14 +95,27 @@ function stepsFake(fail?: StepName): Partial<Steps> {
   }
 }
 
-function poserProject(o: { durationSec?: number | null; copy?: boolean } = {}): void {
+function poserProject(
+  o: {
+    durationSec?: number | null
+    copy?: boolean
+    /**
+     * La taille de la copie, quand elle doit **différer** de celle de
+     * l'original. Sert le seul cas où `workingInput` doit écarter un fichier
+     * pourtant présent : un replay réimporté sous le même nom avec une autre
+     * taille. Par défaut les deux font zéro octet, donc la copie décrit bien
+     * la source.
+     */
+    copyBytes?: number
+  } = {},
+): void {
   const source = path.join(root, 'replays', `${PROJECT}.mp4`)
   const copy = path.join(root, 'stage', `${PROJECT}.mp4`)
   fs.mkdirSync(path.dirname(source), { recursive: true })
   fs.writeFileSync(source, '')
   if (o.copy !== false) {
     fs.mkdirSync(path.dirname(copy), { recursive: true })
-    fs.writeFileSync(copy, '')
+    fs.writeFileSync(copy, Buffer.alloc(o.copyBytes ?? 0, 1))
   }
   upsertProject(db, {
     id: PROJECT,
@@ -134,6 +151,7 @@ beforeEach(() => {
   db = openDb(':memory:')
   calls = []
   sourcesAnalysis = []
+  inputsSteps = []
 })
 
 afterEach(async () => {
@@ -340,6 +358,41 @@ describe('analysis', () => {
     expect(sourcesAnalysis).toEqual([path.join(root, 'stage', `${PROJECT}.mp4`)])
   })
 
+  /**
+   * **L'avertissement du repli ne tombe que s'il décrit un accident.**
+   *
+   * Coché, une copie absente au moment de l'analyse est une anomalie : le §5 du
+   * retour d'usage décrit ce basculement silencieux sur le 9p comme « extrêmement
+   * lent », et une lenteur inexpliquée se cherche une demi-heure avant qu'on
+   * pense au montage. Décoché, c'est le réglage qui s'applique — le signaler à
+   * chaque passe apprendrait à ne plus lire les avertissements, et le premier
+   * vrai passerait avec les autres.
+   */
+  it('n’avertit du repli sur l’original que si la copie était attendue', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      poserProject({ copy: false })
+      poserProxy()
+
+      await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
+      await wait(PROJECT)
+      expect(warn.mock.calls.flat().join('\n')).toMatch(/pas de copie de travail dans stage\//)
+
+      warn.mockClear()
+      applySettings(db, { ingestion: { copySourceLocally: false } })
+      await launch(PROJECT, ['analysis'], { db, steps: stepsFake(), force: ['analysis'] })
+      await wait(PROJECT)
+      expect(warn.mock.calls.flat().join('\n')).not.toMatch(/pas de copie de travail/)
+      // Et la source retenue est bien l'original, dans les deux cas.
+      expect(sourcesAnalysis).toEqual([
+        path.join(root, 'replays', `${PROJECT}.mp4`),
+        path.join(root, 'replays', `${PROJECT}.mp4`),
+      ])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('ne relance pas la transcription pour une analyse', async () => {
     poserProject()
     await launch(PROJECT, ['analysis'], { db, steps: stepsFake() })
@@ -514,6 +567,108 @@ describe('lancer', () => {
     })
     expect(plan).toEqual(['candidates'])
     await waitFin()
+  })
+
+  /**
+   * **Une copie périmée se réingère, elle ne coince pas le projet.**
+   *
+   * Ce test-là porte sur le réglage **coché**, c'est-à-dire sur le défaut : il
+   * n'a besoin de personne pour toucher aux paramètres. Un replay réimporté sous
+   * le même nom avec une autre taille, sur un projet déjà analysé une fois,
+   * suffit à l'atteindre — le cas que `decisionCopy` existe pour attraper.
+   *
+   * Il garde deux façons de se tromper, à un correctif d'écart. Avec un
+   * `existsSync` des deux côtés, la planification et l'étape s'accordaient à
+   * accepter le fichier périmé : le proxy encodait l'ancienne vidéo, en silence.
+   * Avec le contrôle de taille du seul côté de l'étape, elles ne s'accordaient
+   * plus : la planification ne réingérait pas, l'étape refusait l'entrée, et
+   * aucune relance ne pouvait lever l'erreur — rien n'efface la copie, rien ne
+   * rafraîchit la durée. Le second est pire que le premier, et il faut les deux
+   * réponses pour n'avoir ni l'un ni l'autre.
+   */
+  it('réingère quand la copie ne décrit plus la source, plutôt que de coincer', async () => {
+    poserProject({ copyBytes: 3 })
+
+    await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+    await waitFin()
+    // Le témoin d'ingestion lève : ce qui compte est qu'on l'ait appelé, là où
+    // le défaut faisait échouer l'étape sur « n'a pas de copie de travail ».
+    expect(lireStatus(PROJECT)?.error).toMatch(/ingestion ne devait pas être appelée/)
+    expect(lireStatus(PROJECT)?.error).not.toMatch(/n’a pas de copie de travail/)
+  })
+
+  /**
+   * Le réglage `ingestion.copySourceLocally` décoché.
+   *
+   * **Le fait qui compte est qu'aucune ingestion ne parte.** `stepsFake` fait
+   * lever son `ingest` — « l'ingestion ne devait pas être appelée » —, donc un
+   * plan qui la déclencherait ferait tomber ces tests sur ce message-là. Sans
+   * cette bascule, viser le proxy sur un projet sans copie planifiait une
+   * ingestion dont l'unique travail aurait été la copie qu'on refuse d'écrire :
+   * on aurait payé le sondage du Drive pour rien.
+   */
+  describe('sans copie locale', () => {
+    beforeEach(() => {
+      applySettings(db, { ingestion: { copySourceLocally: false } })
+    })
+
+    it('donne l’original au proxy et à l’audio, sans ingérer', async () => {
+      poserProject({ copy: false })
+
+      const { plan } = await launch(PROJECT, ['proxy', 'audio'], { db, steps: stepsFake() })
+      expect(plan).toEqual(['proxy', 'audio'])
+      await wait(PROJECT)
+
+      const original = path.join(root, 'replays', `${PROJECT}.mp4`)
+      expect(inputsSteps).toEqual([original, original])
+      expect(calls).toEqual(['proxy', 'audio'])
+    })
+
+    /**
+     * **Le réglage gouverne ce qu'on fabrique, pas ce qu'on utilise.** Une copie
+     * déjà là est strictement plus rapide à lire, et l'ignorer ferait repayer le
+     * montage 9p pour rien.
+     */
+    it('préfère quand même une copie déjà présente', async () => {
+      poserProject()
+
+      await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+      await wait(PROJECT)
+      expect(inputsSteps).toEqual([path.join(root, 'stage', `${PROJECT}.mp4`)])
+    })
+
+    /**
+     * **Une copie qui ne décrit plus la source ne sert pas d'entrée.**
+     *
+     * C'est le cas qui amplifie le plus loin : la durée étant déjà connue,
+     * `ingestionNecessary` rend `false` et `ingest` n'est **jamais rappelé** —
+     * donc rien ne vient corriger l'écart, et le proxy encoderait l'ancienne
+     * vidéo pendant que la base annonce la taille et la durée de la nouvelle. Il
+     * n'y a même pas d'avertissement pour le dire : `input.local` serait vrai.
+     */
+    it('écarte une copie qui ne décrit plus la source', async () => {
+      poserProject({ copyBytes: 3 })
+
+      await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+      await wait(PROJECT)
+      expect(inputsSteps).toEqual([path.join(root, 'replays', `${PROJECT}.mp4`)])
+    })
+
+    /**
+     * **La durée reste indispensable, elle.** `runCandidates` refuse de
+     * travailler sans, et l'ingestion est le seul endroit qui la relève : la
+     * bascule ne doit pas la faire sauter avec la copie, sinon le réglage
+     * échouerait une demi-heure plus tard dans une étape qui n'a rien à voir.
+     */
+    it('ingère quand même quand la durée manque', async () => {
+      poserProject({ copy: false, durationSec: null })
+
+      await launch(PROJECT, ['proxy'], { db, steps: stepsFake() })
+      await waitFin()
+      // Le témoin d'ingestion lève ; ce qui se vérifie est qu'il a été appelé.
+      expect(calls[0]).toBe('proxy')
+      expect(lireStatus(PROJECT)?.error).toMatch(/ingestion ne devait pas être appelée/)
+    })
   })
 
   it('refuse une seconde exécution sur le même projet', async () => {

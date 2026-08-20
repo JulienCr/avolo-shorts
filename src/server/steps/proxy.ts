@@ -12,7 +12,13 @@ import { proxyPath } from '@/server/paths'
  */
 export type OptionsProxy = {
   projectId: string
-  /** La copie de travail dans `stage/`, pas l'original sur le Drive. */
+  /**
+   * Le fichier à lire. **L'appelant choisit, et il passe par `workingInput`** :
+   * la copie de travail dans `stage/` quand elle est là, l'original sur le Drive
+   * sinon — ce que le réglage `ingestion.copySourceLocally` rend possible
+   * exprès. Ce champ ne suppose donc plus la copie ; ce qu'il suppose est que
+   * quelqu'un a tranché en amont.
+   */
   input: string
   force?: boolean
   /** La durée de la source, pour rendre une fraction plutôt que des secondes. */

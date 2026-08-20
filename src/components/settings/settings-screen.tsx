@@ -5,6 +5,7 @@ import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { AppBar } from '@/components/navigation/app-bar'
 import { AiSection } from '@/components/settings/ai-section'
 import { HookSection } from '@/components/settings/hook-section'
+import { IngestionSection } from '@/components/settings/ingestion-section'
 import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -124,6 +125,16 @@ export function SettingsScreen() {
               onChange={(patch) => save.mutateAsync({ ai: patch })}
             />
           </>
+        )}
+
+        <Separator />
+
+        {settings.data !== undefined && (
+          <IngestionSection
+            values={settings.data.ingestion}
+            disabled={save.isPending}
+            onChange={(patch) => save.mutateAsync({ ingestion: patch })}
+          />
         )}
 
         <Separator />

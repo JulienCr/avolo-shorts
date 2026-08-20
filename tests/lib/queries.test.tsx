@@ -318,6 +318,7 @@ describe('les réglages', () => {
       hookModel: 'gemini-3.1-flash-lite',
       ollamaBaseUrl: '',
     },
+    ingestion: { copySourceLocally: true },
   }
 
   it('se lisent sans interrogation en boucle', async () => {
@@ -340,6 +341,7 @@ describe('les réglages', () => {
     const after: Settings = {
       selection: { ...settings.selection, minutesPerClip: 4 },
       ai: { ...settings.ai },
+      ingestion: { ...settings.ingestion },
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(after)))
     const { client, invalid, envelope } = harness()

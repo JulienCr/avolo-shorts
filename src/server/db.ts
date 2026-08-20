@@ -3,7 +3,13 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
-import { LLM_PROVIDERS, type AiSettings, type Settings } from '@/lib/api'
+import {
+  DEFAULT_COPY_SOURCE_LOCALLY,
+  LLM_PROVIDERS,
+  type AiSettings,
+  type IngestionSettings,
+  type Settings,
+} from '@/lib/api'
 import { DEFAULT_MODEL } from '@/server/llm/defaults'
 import { projectsDir } from '@/server/paths'
 
@@ -420,8 +426,32 @@ const AI_FIELDS: readonly SettingField[] = (
   Object.keys(AI_FIELD_SHAPES) as (keyof AiSettings)[]
 ).map((name) => ({ family: 'ai' as const, name, ...AI_FIELD_SHAPES[name] }))
 
+/**
+ * Les champs de la famille `ingestion`.
+ *
+ * **La première famille à exercer le type `boolean`.** Les branches booléennes
+ * de `parseSetting` et `validateSetting` existaient déjà, sans famille pour les
+ * emprunter : c'est cette généralisation-là qui fait qu'ajouter un réglage se
+ * résume à décrire une forme, plutôt qu'à réécrire une validation.
+ *
+ * **Exhaustif par le type, sans prose**, comme `AI_FIELD_SHAPES` : la clé est
+ * `keyof IngestionSettings`, et `satisfies` refuse de compiler s'il manque un
+ * champ ou s'il en traîne un de trop.
+ */
+const INGESTION_FIELD_SHAPES = {
+  copySourceLocally: { type: 'boolean', defaultValue: DEFAULT_COPY_SOURCE_LOCALLY },
+} satisfies Record<keyof IngestionSettings, Omit<SettingField, 'family' | 'name'>>
+
+const INGESTION_FIELDS: readonly SettingField[] = (
+  Object.keys(INGESTION_FIELD_SHAPES) as (keyof IngestionSettings)[]
+).map((name) => ({ family: 'ingestion' as const, name, ...INGESTION_FIELD_SHAPES[name] }))
+
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
-export const SETTING_FIELDS: readonly SettingField[] = [...SELECTION_FIELDS, ...AI_FIELDS]
+export const SETTING_FIELDS: readonly SettingField[] = [
+  ...SELECTION_FIELDS,
+  ...AI_FIELDS,
+  ...INGESTION_FIELDS,
+]
 
 /** Le champ décrit par une famille et un nom, ou `undefined` s'il n'existe pas. */
 export function settingField(family: string, name: string): SettingField | undefined {
@@ -605,6 +635,9 @@ export function effectiveSettings(db: Database.Database): Settings {
     // `DEFAULT_SELECTION_DIMENSIONS` : une seconde liste de défauts tenue à la main
     // diverge du registre au premier champ ajouté.
     ai: Object.fromEntries(AI_FIELDS.map((f) => [f.name, f.defaultValue])) as unknown as AiSettings,
+    ingestion: Object.fromEntries(
+      INGESTION_FIELDS.map((f) => [f.name, f.defaultValue]),
+    ) as unknown as IngestionSettings,
   }
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))
@@ -627,6 +660,24 @@ export function effectiveSettings(db: Database.Database): Settings {
  */
 export function getSettings(db: Database.Database): SelectionDimensions {
   return effectiveSettings(db).selection
+}
+
+/**
+ * Faut-il fabriquer une copie de travail locale avant d'exploiter la source ?
+ *
+ * Une projection d'`effectiveSettings`, comme `getSettings` : la question se
+ * pose à quatre endroits — l'ingestion, le plan d'exécution, l'entrée des étapes
+ * et l'export —, et quatre lectures directes de la table finiraient par ne plus
+ * s'accorder sur ce qu'une valeur corrompue vaut.
+ *
+ * **Elle accepte `null`, et rend alors le défaut du registre.** Les tests et les
+ * scripts passent `db: null` pour dire « n'ouvre aucune base » ; leur laisser
+ * écrire `?? true` de leur côté poserait le défaut une seconde fois, à
+ * l'endroit exact où il divergerait sans que rien ne le signale.
+ */
+export function copiesSourceLocally(db: Database.Database | null): boolean {
+  if (db === null) return INGESTION_FIELD_SHAPES.copySourceLocally.defaultValue
+  return effectiveSettings(db).ingestion.copySourceLocally
 }
 
 /**

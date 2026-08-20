@@ -22,17 +22,12 @@ import { ReviewFeed } from '@/components/review/feed'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
 import type { View } from '@/components/review/template'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
+import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 // **`PointerEvent` n'existe pas sous `jsdom`.** La case de sélection en masse
 // (Base UI `Checkbox`) dispatche elle-même un `PointerEvent` synthétique à la
-// validation, quel que soit le mécanisme qui a déclenché le clic. Voir le même
-// repli, plus longuement commenté, dans
-// `tests/components/publication/publish-dialog.test.tsx`.
-if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
-  class PointerEventPolyfill extends MouseEvent {}
-  // @ts-expect-error -- un repli minimal, pas la classe complète du DOM.
-  window.PointerEvent = PointerEventPolyfill
-}
+// validation, quel que soit le mécanisme qui a déclenché le clic.
+installPointerEventPolyfill()
 
 afterEach(() => {
   cleanup()

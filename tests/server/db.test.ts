@@ -5,6 +5,7 @@ import path from 'node:path'
 import Database, { type Database as BaseSqlite } from 'better-sqlite3'
 import {
   applySettings,
+  copiesSourceLocally,
   settingField,
   parseSetting,
   validateSetting,
@@ -302,14 +303,79 @@ describe('la famille `ai`', () => {
 })
 
 /**
+ * La famille `ingestion` : faut-il copier le replay dans `stage/` avant de
+ * l'exploiter ?
+ *
+ * **La première famille booléenne du registre.** Ce qu'elle vérifie n'est donc
+ * pas seulement son propre comportement, mais que la généralisation tient une
+ * fois empruntée pour de bon : le défaut, l'aller-retour, le refus d'un
+ * non-booléen, et une valeur corrompue en base traitée comme absente.
+ */
+describe('la famille `ingestion`', () => {
+  it('copie par défaut, base vide', () => {
+    // **Le défaut le plus prudent est celui qui décrit le Drive**, parce que
+    // c'est de là que viennent les replays : décoché par défaut ferait relire
+    // douze gigaoctets en 9p à qui n'a rien réglé.
+    expect(effectiveSettings(db).ingestion.copySourceLocally).toBe(true)
+    expect(copiesSourceLocally(db)).toBe(true)
+  })
+
+  it('fait l’aller-retour, et la projection dit la même chose que la famille', () => {
+    expect(applySettings(db, { ingestion: { copySourceLocally: false } }).ingestion).toEqual({
+      copySourceLocally: false,
+    })
+    expect(effectiveSettings(db).ingestion.copySourceLocally).toBe(false)
+    // Deux lecteurs de la même clé, et c'est tout l'objet de la projection :
+    // s'ils divergeaient, l'écran et l'ingestion ne parleraient pas du même
+    // réglage.
+    expect(copiesSourceLocally(db)).toBe(false)
+    expect(applySettings(db, { ingestion: { copySourceLocally: true } }).ingestion).toEqual({
+      copySourceLocally: true,
+    })
+  })
+
+  it('refuse ce qui n’est pas un booléen, y compris ce qui lui ressemble', () => {
+    // `'true'` et `1` sont les deux formes qu'un client mal écrit enverrait, et
+    // les accepter ferait passer `0` pour un « non » là où le registre n'en
+    // sait rien.
+    for (const value of ['true', 'false', 1, 0, null]) {
+      expect(
+        () => applySettings(db, { ingestion: { copySourceLocally: value as never } }),
+        String(value),
+      ).toThrow(InvalidSettingError)
+    }
+    // Et rien n'a été écrit : le défaut s'applique toujours.
+    expect(effectiveSettings(db).ingestion.copySourceLocally).toBe(true)
+  })
+
+  it('ignore une valeur corrompue en base au profit du défaut', () => {
+    // Le seul chemin qui y mène est une table éditée à la main avec `sqlite3`,
+    // et c'est précisément le chemin qu'on ne contrôle pas. Une ingestion ne
+    // doit pas échouer là-dessus : elle tourne derrière une transcription qui a
+    // coûté quarante minutes.
+    db.prepare(
+      'INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)',
+    ).run('ingestion.copySourceLocally', 'oui', Date.now())
+    expect(effectiveSettings(db).ingestion.copySourceLocally).toBe(true)
+  })
+
+  it('rend le défaut du registre quand aucune base n’est ouverte', () => {
+    // `db: null` est le contrat des tests et des scripts. Leur laisser écrire
+    // `?? true` de leur côté poserait le défaut une seconde fois, à l'endroit
+    // exact où il divergerait sans que rien ne le signale.
+    expect(copiesSourceLocally(null)).toBe(true)
+  })
+})
+
+/**
  * **La grammaire du registre.** Le repérage ne porte que des entiers ; la
  * famille `ai` porte des chaînes, dont certaines contraintes à un ensemble
- * fermé ou tolérantes au vide (voir ci-dessus) ; les défauts du hook porteront
- * des booléens (retour d'usage §6.3), qu'aucune famille n'exerce encore. Ces
- * branches *sont* la généralisation — sans elles le registre n'est qu'une
- * table d'entiers déguisée —, et les laisser sans test jusqu'à ce qu'une
- * famille arrive reviendrait à les découvrir fausses le jour où quelqu'un
- * s'en sert.
+ * fermé ou tolérantes au vide (voir ci-dessus) ; `ingestion.copySourceLocally`
+ * est le premier booléen à sortir de ce bloc pour aller vivre dans une vraie
+ * famille. Ces branches *sont* la généralisation — sans elles le registre n'est
+ * qu'une table d'entiers déguisée —, et elles ont été écrites et tenues ici
+ * pendant tout le temps où aucune famille ne les empruntait. C'est ce qui a
+ * fait qu'ajouter ce réglage-là n'a demandé aucune validation nouvelle.
  */
 describe('la grammaire du registre', () => {
   const field = (
@@ -475,6 +541,7 @@ describe('appliquerRéglages', () => {
         hookModel: 'gemini-3.1-flash-lite',
         ollamaBaseUrl: '',
       },
+      ingestion: { copySourceLocally: true },
     })
   })
 })

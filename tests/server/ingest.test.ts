@@ -14,8 +14,11 @@ import {
   statWithDelay,
   STAGE_TTL_MS,
   verifySizeCopied,
+  workingInput,
 } from '@/server/steps/ingest'
 import { StopRequestedError } from '@/server/ffmpeg'
+import { applySettings, openDb } from '@/server/db'
+import type { Database as BaseSqlite } from 'better-sqlite3'
 
 /**
  * Ce qui se teste de l'ingestion sans le Drive : la décision de recopier et la
@@ -500,6 +503,183 @@ describe('ingest', () => {
     const second = await ingest(NAME, { db: null })
     expect(second.copied).toBe(false)
   })
+
+  /**
+   * Le réglage `ingestion.copySourceLocally` décoché : **on ne copie plus, et on
+   * relève quand même l'empreinte.**
+   *
+   * C'est le point qui décide si le réglage est utilisable ou seulement présent.
+   * `runCandidates` refuse de travailler sans durée, et l'ingestion est le seul
+   * endroit qui la relève — la laisser à `null` faute de copie aurait rendu le
+   * réglage inutilisable en échouant une demi-heure plus tard, dans une étape
+   * qui n'a rien à voir.
+   */
+  describe('sans copie locale', () => {
+    it('ne pose rien dans stage/ et rend l’empreinte complète', async () => {
+      const source = path.join(process.env.REPLAY_DIR!, NAME)
+      const stat = fs.statSync(source)
+      const ingestion = await ingest(NAME, { db: null, copyLocally: false })
+
+      expect(ingestion.copied).toBe(false)
+      // `stage/` n'est même pas créé : la copie est le seul motif de son
+      // existence.
+      expect(fs.existsSync(path.join(root, 'stage'))).toBe(false)
+      // Le champ nomme un emplacement, pas une présence — c'est le contrat, et
+      // c'est ce qui permet à `workingInput` de trancher plus tard.
+      expect(path.basename(ingestion.stagedPath)).toBe(NAME)
+      expect(fs.existsSync(ingestion.stagedPath)).toBe(false)
+
+      expect(ingestion.sizeBytes).toBe(stat.size)
+      expect(ingestion.mtimeMs).toBe(Math.trunc(stat.mtimeMs))
+    })
+
+    /**
+     * **Le réglage gouverne ce qu'on fabrique, pas ce qu'on utilise.** Une copie
+     * déjà là est strictement plus rapide à lire, et l'ignorer ferait repayer le
+     * montage 9p pour rien. C'est aussi la réponse à « j'ai décoché mais il lit
+     * encore `stage/` » : oui, et c'est voulu ; le TTL de huit heures s'en
+     * charge.
+     */
+    it('rend quand même la copie qui est déjà là', async () => {
+      const first = await ingest(NAME, { db: null, copyLocally: true })
+      expect(first.copied).toBe(true)
+
+      const second = await ingest(NAME, { db: null, copyLocally: false })
+      expect(second.copied).toBe(false)
+      expect(fs.statSync(second.stagedPath).size).toBe(OCTETS)
+    })
+
+    /**
+     * **`force` ne rouvre pas la porte que le réglage a fermée.** Les deux
+     * répondent à la même question — faut-il écrire dans `stage/` — et laisser
+     * `force` l'emporter ferait recopier douze gigaoctets à qui vient de
+     * demander qu'on n'en copie aucun.
+     */
+    it('ne recopie pas davantage sous --force', async () => {
+      const ingestion = await ingest(NAME, { db: null, copyLocally: false, force: true })
+      expect(ingestion.copied).toBe(false)
+      expect(fs.existsSync(path.join(root, 'stage'))).toBe(false)
+    })
+
+    /**
+     * **Le troisième état, celui que le réglage a créé.**
+     *
+     * Tant que l'ingestion copiait sans condition, un fichier présent dans
+     * `stage/` était forcément une copie de la source : `decisionCopy` rendait
+     * « copier » sur une taille différente, et la copie corrigeait l'écart.
+     * Décoché, elle relève l'empreinte **sur l'original** et laisse en place ce
+     * qu'elle ne récrit pas — la base annonce alors une taille et une durée que
+     * le fichier réellement lu ne porte pas.
+     *
+     * Le cas n'est pas théorique : c'est le replay réimporté sous le même nom
+     * avec une autre taille, celui que `decisionCopy` existe pour attraper (voir
+     * « recopie une copie tronquée »). Et il ne s'annonce pas — le proxy,
+     * l'audio, l'analyse et l'export travailleraient sur l'ancienne vidéo sans
+     * qu'aucun d'eux ne puisse le remarquer, jusqu'au balayage du TTL.
+     */
+    it('écarte une copie qui ne décrit plus la source', async () => {
+      const stale = path.join(root, 'stage', NAME)
+      fs.mkdirSync(path.dirname(stale), { recursive: true })
+      fs.writeFileSync(stale, Buffer.alloc(OCTETS / 2, 1))
+
+      const ingestion = await ingest(NAME, { db: null, copyLocally: false })
+      // L'empreinte décrit bien l'original, pas le fichier périmé.
+      expect(ingestion.copied).toBe(false)
+      expect(ingestion.sizeBytes).toBe(OCTETS)
+      // Et c'est l'original qu'on lit, malgré le fichier présent dans `stage/`.
+      expect(workingInput(ingestion)).toEqual({
+        path: ingestion.sourcePath,
+        local: false,
+      })
+      // Rien n'a été effacé : décocher ne détruit pas, le TTL s'en charge.
+      expect(fs.existsSync(stale)).toBe(true)
+    })
+
+    /**
+     * Le pendant du précédent, et la garde contre un correctif trop zélé : une
+     * copie **de la bonne taille** reste la bonne entrée. Sans elle, on
+     * repaierait le montage 9p pour un fichier local parfaitement valable.
+     */
+    it('garde une copie qui décrit toujours la source', async () => {
+      const first = await ingest(NAME, { db: null, copyLocally: true })
+      const second = await ingest(NAME, { db: null, copyLocally: false })
+      expect(workingInput(second)).toEqual({ path: first.stagedPath, local: true })
+    })
+  })
+})
+
+/**
+ * `workingInput` : le seul endroit qui réponde à « quel fichier ffmpeg
+ * doit-il ouvrir ». Quatre appelants s'en remettent à lui — le proxy, l'audio,
+ * l'analyse et l'export —, donc ses cas limites valent d'être posés à part
+ * plutôt que déduits de l'un d'eux.
+ */
+describe('workingInput', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-entree-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  const writeFixture = (name: string, octets: number): string => {
+    const p = path.join(root, name)
+    fs.writeFileSync(p, Buffer.alloc(octets, 4))
+    return p
+  }
+
+  it('rend la copie quand elle est là et qu’elle décrit la source', () => {
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 500)
+    expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
+      path: copy,
+      local: true,
+    })
+  })
+
+  it('rend l’original quand la copie n’est pas là', () => {
+    const source = writeFixture('source.mp4', 500)
+    expect(
+      workingInput({ sourcePath: source, stagedPath: path.join(root, 'absente.mp4'), sizeBytes: 500 }),
+    ).toEqual({ path: source, local: false })
+  })
+
+  it('rend l’original quand aucune copie n’est prévue', () => {
+    const source = writeFixture('source.mp4', 500)
+    expect(workingInput({ sourcePath: source, stagedPath: null, sizeBytes: 500 })).toEqual({
+      path: source,
+      local: false,
+    })
+  })
+
+  it('rend l’original quand la copie ne décrit plus la source', () => {
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 300)
+    expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes: 500 })).toEqual({
+      path: source,
+      local: false,
+    })
+  })
+
+  /**
+   * **Sans taille connue, on garde le comportement d'avant.** Une empreinte
+   * absente ne prouve pas que la copie est périmée : c'est le projet qu'une
+   * ingestion n'a pas encore visité, et lui refuser sa copie ferait relire le
+   * montage 9p sur un soupçon que rien n'étaye.
+   */
+  it('accepte la copie quand la taille de l’original est inconnue', () => {
+    const source = writeFixture('source.mp4', 500)
+    const copy = writeFixture('copie.mp4', 300)
+    for (const sizeBytes of [null, undefined]) {
+      expect(workingInput({ sourcePath: source, stagedPath: copy, sizeBytes })).toEqual({
+        path: copy,
+        local: true,
+      })
+    }
+  })
 })
 
 /**
@@ -590,5 +770,61 @@ describe('ensureLocalCopy', () => {
     expect(message).toMatch(/copie de travail/)
     expect(message).toMatch(/original/)
     expect(message).not.toContain(root)
+  })
+
+  /**
+   * Le réglage décoché : **l'export lit l'original, il ne recopie rien.**
+   *
+   * Le symétrique du bloc ci-dessus (issue #76). Là, la reconstitution existait
+   * pour qu'un cache absent ne soit jamais une impasse ; ici, l'absence est le
+   * réglage lui-même, et reconstituer contredirait la demande.
+   */
+  describe('sans copie locale', () => {
+    let db: BaseSqlite
+
+    beforeEach(() => {
+      db = openDb(':memory:')
+      applySettings(db, { ingestion: { copySourceLocally: false } })
+    })
+
+    afterEach(() => {
+      db.close()
+    })
+
+    it('rend l’original plutôt que de reconstituer la copie', async () => {
+      expect(fs.existsSync(destination)).toBe(false)
+      expect(await ensureLocalCopy(project(), { db })).toBe(source)
+      // Et rien n'a été écrit : `stage/` est resté vide.
+      expect(fs.readdirSync(path.dirname(destination))).toEqual([])
+    })
+
+    it('rend la copie quand elle est là, décoché comme coché', async () => {
+      fs.writeFileSync(destination, 'déjà copiée')
+      expect(await ensureLocalCopy(project(), { db })).toBe(destination)
+    })
+
+    /**
+     * **Sans copie, l'original est la seule entrée : son absence est une panne
+     * ici, et pas trois fonctions plus loin.**
+     *
+     * `editingResponds` ne suffit pas à le dire — un `ENOENT` immédiat *est* une
+     * réponse, et c'est justement ce qui lui permet de distinguer un montage
+     * mort d'un montage absent. Sur le chemin qui copie, l'original manquant se
+     * dit dans `ingestOrExplain` ; sur celui-ci il n'y a plus rien après, et
+     * rendre un chemin qui ne désigne rien renverrait un échec ffmpeg que
+     * personne ne peut relier au réglage.
+     */
+    it('refuse quand l’original a disparu, et nomme le réglage', async () => {
+      fs.rmSync(source, { force: true })
+      const message = await ensureLocalCopy(project(), { db }).then(
+        () => '',
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      )
+      expect(message).toMatch(/désactivée dans les réglages/)
+      expect(message).toMatch(/introuvable/)
+      // Le chemin complet porte l'arborescence de la machine : seul le nom de
+      // base traverse, comme dans le message du chemin qui copie.
+      expect(message).not.toContain(root)
+    })
   })
 })

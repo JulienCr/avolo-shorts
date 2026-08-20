@@ -905,10 +905,58 @@ export type AiSettings = {
   ollamaBaseUrl: string
 }
 
-export type Settings = { selection: SelectionSettings; ai: AiSettings }
+/**
+ * Le défaut de `copySourceLocally`, partagé entre le registre serveur
+ * (`INGESTION_FIELD_SHAPES`, `src/server/db.ts`) et l'écran de réglages
+ * (`IngestionSection`), comme `DEFAULT_SELECTION_DIMENSIONS` l'est pour
+ * `SelectionSection`.
+ *
+ * **Une seule source, pas deux qui doivent rester d'accord.** Si le défaut
+ * changeait sans passer par cette constante, le bouton « Revenir au défaut »
+ * écrirait une valeur périmée et sa visibilité mentirait sur ce qui a
+ * effectivement changé.
+ */
+export const DEFAULT_COPY_SOURCE_LOCALLY = true
+
+/**
+ * Ce qui décide de la façon dont une source est amenée jusqu'à ffmpeg.
+ *
+ * **Un seul champ, et il gouverne toute la chaîne** — le proxy, l'audio, le
+ * relevé des dimensions et l'export d'un clip. Un réglage qui ne vaudrait que
+ * pour l'analyse laisserait l'export recopier douze gigaoctets dans le dos de
+ * quelqu'un qui vient précisément de dire qu'il n'en voulait pas.
+ */
+export type IngestionSettings = {
+  /**
+   * Copier la source dans `stage/` avant de l'exploiter. **Coché par défaut.**
+   *
+   * Vrai : on paie une recopie — 45 s pour 4,3 Go depuis le Drive — puis toutes
+   * les étapes lisent un fichier local. Faux : rien n'est dupliqué, et chaque
+   * étape relit l'original. Le §5 du retour d'usage mesure que l'extraction
+   * audio y devient « extrêmement lente » quand l'original est hors du système
+   * de fichiers de WSL ; elle ne l'est pas quand il est déjà sur un disque
+   * rapide, et c'est le cas que ce réglage existe pour servir.
+   *
+   * **Il gouverne la fabrication d'une copie, pas son usage** : une copie déjà
+   * présente dans `stage/` continue de servir, parce que la lire est strictement
+   * plus rapide et ne coûte rien. Décocher n'efface rien — le TTL de huit heures
+   * s'en charge.
+   */
+  copySourceLocally: boolean
+}
+
+export type Settings = {
+  selection: SelectionSettings
+  ai: AiSettings
+  ingestion: IngestionSettings
+}
 
 /** Un patch : les familles et les champs qu'on veut changer, pas les autres. */
-export type SettingsPatch = { selection?: Partial<SelectionSettings>; ai?: Partial<AiSettings> }
+export type SettingsPatch = {
+  selection?: Partial<SelectionSettings>
+  ai?: Partial<AiSettings>
+  ingestion?: Partial<IngestionSettings>
+}
 
 /**
  * Les réglages effectifs : ce que porte la base, complété par les défauts.

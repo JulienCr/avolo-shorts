@@ -15,9 +15,10 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Clip } from '@/core/edl'
+import type { Clip, ClipDetail } from '@/lib/api'
 import { HOOK_DEFAULTS, type HookSettings } from '@/core/hook'
 import { HookFields } from '@/components/clip/hook-fields'
+import { keys } from '@/lib/queries'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
 installPointerEventPolyfill()
@@ -41,19 +42,44 @@ function clip(fields: Partial<Clip> = {}): Clip {
   }
 }
 
-function mount(props: Partial<Parameters<typeof HookFields>[0]> = {}) {
+/**
+ * Le strict nécessaire pour préseeder `keys.clip(id)` : c'est ce cache que
+ * `useRegenerateHook` écrit en `onSuccess`, et qu'un test doit préseeder pour
+ * exercer le mécanisme plutôt que de se contenter de l'appel réseau.
+ */
+function clipDetail(c: Clip): ClipDetail {
+  return {
+    clip: c,
+    project: { id: c.projectId, title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },
+    lines: [],
+    proxyUrl: null,
+    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    framing: { ratio: '1:1', shots: [], rejectedOverrides: [], origin: 'computed' },
+  }
+}
+
+function mount(
+  props: Partial<Parameters<typeof HookFields>[0]> = {},
+  /**
+   * Préseeder `keys.clip(id)` avant le montage : c'est le cache que
+   * `useRegenerateHook` écrit en `onSuccess`, et un test qui veut l'exercer
+   * — pas seulement l'appel réseau — doit lui donner une entrée à écraser.
+   */
+  seedCache = false,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  const envelope = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  )
   const merged = {
     clip: clip(),
     globals: HOOK_DEFAULTS,
     onWrite: vi.fn(),
     ...props,
   }
+  if (seedCache) client.setQueryData(keys.clip(merged.clip.id), clipDetail(merged.clip))
+  const envelope = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  )
   return { client, ...render(<HookFields {...merged} />, { wrapper: envelope }) }
 }
 
@@ -155,24 +181,34 @@ describe('hérité vs surchargé', () => {
 })
 
 describe('Régénérer', () => {
-  it('produit un texte et le pose dans le champ, via le cache de `useClip`', async () => {
+  it('produit un texte et le pose dans le cache de `useClip` — pas seulement l’appel réseau', async () => {
     vi.useRealTimers()
+    const regenerated = clip({ hookText: 'Un texte régénéré' })
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ clip: clip({ hookText: 'Un texte régénéré' }) }),
+        json: async () => ({ clip: regenerated }),
       })),
     )
     const user = userEvent.setup({ delay: null })
-    mount()
+    // **Préseedé** : sans entrée existante pour `keys.clip('c1')`, le
+    // `setQueryData` de `onSuccess` est un no-op silencieux, et le test
+    // passerait sans jamais avoir exercé le mécanisme qu'il annonce.
+    const { client } = mount({}, true)
 
     await user.click(screen.getByRole('button', { name: /Régénérer/ }))
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
     const [url, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
     expect(url).toContain('/api/clips/c1/hook')
     expect(options.method).toBe('POST')
+
+    await waitFor(() =>
+      expect(client.getQueryData<ClipDetail>(keys.clip('c1'))?.clip.hookText).toBe(
+        'Un texte régénéré',
+      ),
+    )
   })
 
   it('affiche une erreur lisible, pas un `console.error` muet', async () => {

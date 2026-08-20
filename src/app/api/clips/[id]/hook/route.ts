@@ -7,6 +7,17 @@ import { generateHookText } from '@/server/steps/hook'
  *
  * **Premier et seul appelant de `generateHookText`.** Rien d'automatique ne
  * mène ici : c'est le bouton « Régénérer » de l'écran Clip, et lui seul.
+ *
+ * **Le clip est relu juste avant l'écriture, pas avant l'appel au modèle.**
+ * `putClip` remplace la ligne entière — ce n'est pas un merge partiel — et
+ * l'appel réseau tient jusqu'à trente secondes (`TIMEOUT_MS`,
+ * `src/server/steps/hook.ts`). Écrire sur l'instantané pris avant l'appel
+ * effacerait silencieusement tout ce que l'autosave, une écriture directe de
+ * champ, ou un autre onglet auraient posé sur ce clip pendant l'attente. La
+ * relecture ici et l'écriture qui suit n'ont aucun point d'attente entre
+ * elles : la fenêtre qui reste est celle, synchrone, que `PATCH
+ * /api/clips/:id` accepte déjà pour toute écriture sans jeton `seq`.
+ * (relevé en review interne)
  */
 export const POST = route(
   'POST /api/clips/:id/hook',
@@ -18,8 +29,9 @@ export const POST = route(
 
     const hookText = await generateHookText(db, id)
 
-    putClip(db, { ...clip, hookText })
-    const written = getClip(db, id) ?? { ...clip, hookText }
+    const fresh = getClip(db, id) ?? clip
+    putClip(db, { ...fresh, hookText })
+    const written = getClip(db, id) ?? { ...fresh, hookText }
     return json({ clip: written })
   },
 )

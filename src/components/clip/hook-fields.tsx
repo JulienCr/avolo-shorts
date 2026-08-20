@@ -2,7 +2,6 @@
 
 import { RotateCcw, Sparkles } from 'lucide-react'
 import { useCallback, useId, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import {
   HOOK_ALIGNMENTS,
@@ -26,8 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
-import { keys } from '@/lib/queries'
+import type { Clip, ClipPatch } from '@/lib/api'
+import { useRegenerateHook } from '@/lib/queries'
 
 /**
  * Le hook du clip, en zone **Contenu** de l'écran Clip (retour d'usage §7).
@@ -63,7 +62,6 @@ export function HookFields({
   onFailure?: (field: 'hookText', inFailure: boolean) => void
 }) {
   const identifier = useId()
-  const client = useQueryClient()
 
   const hookText = useTextDeferred(
     clip.hookText,
@@ -97,14 +95,7 @@ export function HookFields({
     [clip.hookStyle, onWrite],
   )
 
-  const regenerate = useMutation({
-    mutationFn: () => regenerateHookRequest(clip.id),
-    onSuccess: ({ clip: written }) => {
-      client.setQueryData<ClipDetail>(keys.clip(clip.id), (detail) =>
-        detail ? { ...detail, clip: written } : detail,
-      )
-    },
-  })
+  const regenerate = useRegenerateHook()
 
   return (
     <div className="flex flex-col gap-3">
@@ -116,7 +107,7 @@ export function HookFields({
             size="sm"
             variant="outline"
             disabled={regenerate.isPending}
-            onClick={() => regenerate.mutate()}
+            onClick={() => void regenerate.mutateAsync(clip.id).catch(() => {})}
           >
             <Sparkles aria-hidden />
             {regenerate.isPending ? 'Génération…' : 'Régénérer'}
@@ -276,23 +267,6 @@ function hasOverrideOf(clip: Clip, field: keyof HookSettings): boolean {
   return Object.hasOwn(clip.hookStyle, field)
 }
 
-async function regenerateHookRequest(clipId: string): Promise<{ clip: Clip }> {
-  const response = await fetch(`/api/clips/${encodeURIComponent(clipId)}/hook`, {
-    method: 'POST',
-    headers: { accept: 'application/json' },
-  })
-  if (!response.ok) {
-    let message = `La génération a échoué (${response.status}).`
-    try {
-      const body = (await response.json()) as { error?: string }
-      if (typeof body.error === 'string' && body.error !== '') message = body.error
-    } catch {
-      // Corps vide ou non JSON : le message générique suffit.
-    }
-    throw new Error(message)
-  }
-  return (await response.json()) as { clip: Clip }
-}
 
 /** « hérité » à côté d'un libellé, et le bouton qui rend le champ à l'héritage. */
 function FieldOrigin({ overridden, onReset }: { overridden: boolean; onReset: () => void }) {

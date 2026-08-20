@@ -197,4 +197,35 @@ describe('POST /api/clips/:id/hook', () => {
     const response = await postHook(new Request('http://test', { method: 'POST' }), context('inconnu'))
     expect(response.status).toBe(404)
   })
+
+  /**
+   * **Le point sérieux relevé en review interne.** `putClip` remplace la
+   * ligne entière ; écrire sur l'instantané pris avant l'appel au modèle
+   * effacerait silencieusement tout ce qui s'est posé sur ce clip pendant les
+   * trente secondes que l'appel peut prendre. La route relit le clip juste
+   * avant d'écrire, et ce test le prouve en simulant une écriture concurrente
+   * pendant que l'appel au modèle est encore en vol.
+   */
+  it('ne perd pas une écriture concurrente survenue pendant l’appel au modèle', async () => {
+    let resolveFetch!: (value: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending))
+
+    const clip = baseClip()
+    const promise = postHook(new Request('http://test', { method: 'POST' }), context(clip.id))
+
+    // Une écriture concurrente arrive pendant que l'appel au modèle est en
+    // vol — un autre onglet, l'autosave du montage, un champ de texte.
+    putClip(getDb(), { ...clip, title: 'Titre changé pendant l’appel' })
+
+    resolveFetch(ollamaResponse('Un hook régénéré'))
+    const response = await promise
+    expect(response.status).toBe(200)
+
+    const written = getClip(getDb(), clip.id)
+    expect(written?.title).toBe('Titre changé pendant l’appel')
+    expect(written?.hookText).toBe('Un hook régénéré')
+  })
 })

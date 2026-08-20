@@ -38,6 +38,9 @@ import {
 // en cours, et la règle est d'ajouter en fin de fichier sans réordonner
 // l'existant — y compris ses imports.
 import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } from '@/lib/api'
+// Import à part, même règle : ce fichier est partagé avec une autre PR en
+// cours, on ajoute en fin de fichier sans réordonner l'existant.
+import { postRegenerateHook } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
 export const keys = {
@@ -675,4 +678,30 @@ export function useCorrectTranscript() {
  */
 export function useLlmAvailability() {
   return useQuery({ queryKey: keys.llmAvailability, queryFn: fetchLlmAvailability })
+}
+
+/**
+ * Régénère le hook du clip par le modèle — le bouton « Régénérer » de
+ * `hook-fields.tsx`, seul appelant.
+ *
+ * **Pas d'écriture optimiste.** Contrairement au tri, on ne sait pas d'avance
+ * ce que le modèle va rendre ; le champ affiche un état « en cours » pendant
+ * l'appel plutôt qu'une valeur devinée.
+ *
+ * **Le cache se pose depuis la réponse, sans redemander le clip.** `POST
+ * /api/clips/:id/hook` rend le clip tel qu'il vient d'être écrit — la même
+ * garantie que `usePatchClip` applique à `PATCH` — donc une seconde requête
+ * ne apprendrait rien de plus.
+ */
+export function useRegenerateHook() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (clipId: string) => postRegenerateHook(clipId),
+    onSuccess(result, clipId) {
+      client.setQueryData<ClipDetail>(keys.clip(clipId), (detail) =>
+        detail ? { ...detail, clip: result.clip } : detail,
+      )
+    },
+  })
 }

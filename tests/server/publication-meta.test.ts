@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PublicationJob } from '@/server/publication/adapter'
 import { createMetaAdapter } from '@/server/publication/meta'
+import { MetaTokenExpiredError } from '@/server/publication/errors'
 import {
   ensureFreshInstagramToken,
   forgetTokenCache,
   readMetaTokens,
+  refreshInstagramToken,
   writeMetaTokens,
 } from '@/server/publication/meta-tokens'
 
@@ -44,6 +46,10 @@ const ENV = { META_APP_ID: 'app1', META_APP_SECRET: 'secret1', META_PAGE_ID: 'pa
 
 async function seedInstagramToken(token = 'OLD'): Promise<void> {
   await writeMetaTokens({ instagramUserId: 'ig1', instagramAccessToken: token, instagramTokenExpiresAt: Date.now() + 5_000_000_000 })
+}
+
+async function seedPerpetualInstagramToken(token = 'PERPETUAL'): Promise<void> {
+  await writeMetaTokens({ instagramUserId: 'ig1', instagramAccessToken: token, instagramTokenExpiresAt: null })
 }
 
 beforeEach(() => {
@@ -395,6 +401,28 @@ describe('availability', () => {
     expect(availability.facebook).toEqual({ available: false, reason: 'not_configured' })
   })
 
+  it('jeton système appairé, sans META_APP_ID ni META_APP_SECRET : Instagram disponible tout de même', async () => {
+    await seedPerpetualInstagramToken('SYSTEM_USER')
+    const { fetchImpl, order } = instagramFetch()
+    const adapter = createMetaAdapter({}, fetchImpl, noSleep)
+
+    const availability = await adapter.availability({})
+
+    expect(availability.instagram).toEqual({ available: true })
+    expect(order).not.toContain('refresh')
+  })
+
+  it('jeton expirable appairé, sans META_APP_ID ni META_APP_SECRET : `not_configured`, aucun appel réseau', async () => {
+    await seedInstagramToken()
+    const fetchImpl = vi.fn()
+    const adapter = createMetaAdapter({}, fetchImpl as unknown as typeof fetch, noSleep)
+
+    const availability = await adapter.availability({})
+
+    expect(availability.instagram).toEqual({ available: false, reason: 'not_configured' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('Page et jeton renseignés et valides : Facebook disponible', async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = input.toString()
@@ -459,5 +487,56 @@ describe('jeton Instagram', () => {
     } finally {
       fs.chmodSync(file, 0o600)
     }
+  })
+
+  it('un jeton système (sans expiration) se rend tel quel, sans appel réseau ni lecture de META_APP_SECRET', async () => {
+    await seedPerpetualInstagramToken('SYSTEM_USER')
+    const fetchImpl = vi.fn()
+    const env = new Proxy(
+      {},
+      {
+        get(_target, prop: string) {
+          if (prop === 'META_APP_SECRET') throw new Error('META_APP_SECRET ne doit jamais être lue sur le chemin perpétuel.')
+          return undefined
+        },
+      },
+    ) as Record<string, string | undefined>
+
+    const tokens = await ensureFreshInstagramToken(env, fetchImpl as unknown as typeof fetch)
+
+    expect(tokens.instagramAccessToken).toBe('SYSTEM_USER')
+    expect(tokens.instagramTokenExpiresAt).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('un jeton expirable déclenche toujours l’échange, et persiste ce qu’il rend', async () => {
+    await seedInstagramToken('OLD')
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { access_token: 'NEW', expires_in: 100 })) as unknown as typeof fetch
+
+    const tokens = await ensureFreshInstagramToken(ENV, fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(tokens.instagramAccessToken).toBe('NEW')
+    expect(tokens.instagramTokenExpiresAt).not.toBeNull()
+    const onDisk = await readMetaTokens()
+    expect(onDisk?.instagramAccessToken).toBe('NEW')
+  })
+
+  it('un échec de l’échange sur le chemin expirable remonte en `MetaTokenExpiredError`, jamais avalé', async () => {
+    await seedInstagramToken('OLD')
+    const fetchImpl = vi.fn(async () => jsonResponse(400, { error: { message: 'jeton révoqué' } })) as unknown as typeof fetch
+
+    await expect(ensureFreshInstagramToken(ENV, fetchImpl)).rejects.toThrow(MetaTokenExpiredError)
+  })
+
+  it('`refreshInstagramToken` appelée directement sur un jeton perpétuel le rend tel quel, sans échange', async () => {
+    await seedPerpetualInstagramToken('SYSTEM_USER')
+    const fetchImpl = vi.fn()
+
+    const tokens = await refreshInstagramToken(ENV, fetchImpl as unknown as typeof fetch)
+
+    expect(tokens.instagramAccessToken).toBe('SYSTEM_USER')
+    expect(tokens.instagramTokenExpiresAt).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

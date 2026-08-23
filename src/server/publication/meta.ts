@@ -386,8 +386,9 @@ async function checkFacebook(env: Environment, fetchImpl: typeof fetch): Promise
 /**
  * `not_configured` sans réseau quand rien n'est branché (spec `adapter.ts`) :
  * pas de jeton persisté pour Instagram, pas de `META_PAGE_ID`/`META_PAGE_TOKEN`
- * pour Facebook. `META_APP_ID`/`META_APP_SECRET` ne sont pas la condition —
- * un jeton système (system-user) n'en a pas besoin (`meta-tokens.ts`).
+ * pour Facebook. `META_APP_ID`/`META_APP_SECRET` ne sont la condition que pour
+ * un jeton qui expire — un jeton système (system-user) n'en a pas besoin
+ * (`meta-tokens.ts`).
  */
 async function availability(
   env: Environment,
@@ -395,11 +396,21 @@ async function availability(
 ): Promise<Record<Platform, PlatformAvailability>> {
   const result = defaultPlatformAvailability()
 
-  // Pas de tentative de rafraîchissement ici : un jeton absent est
-  // `not_configured`, un jeton présent mais mort est `unavailable` — et
-  // seul `checkInstagram` (via `ensureFreshInstagramToken`) sait lequel.
-  if ((await readMetaTokens()) !== null) {
-    result.instagram = await checkInstagram(env, fetchImpl)
+  const tokens = await readMetaTokens()
+  // Un jeton système (expiry `null`) se vérifie sans identifiants d'app ; un
+  // jeton rafraîchissable en a besoin, et leur absence est `not_configured`,
+  // pas `unavailable` — sinon un serveur mal configuré se lit comme une panne
+  // réseau transitoire.
+  if (tokens !== null) {
+    const appConfigured =
+      env.META_APP_ID !== undefined &&
+      env.META_APP_ID !== '' &&
+      env.META_APP_SECRET !== undefined &&
+      env.META_APP_SECRET !== ''
+    result.instagram =
+      tokens.instagramTokenExpiresAt !== null && !appConfigured
+        ? { available: false, reason: 'not_configured' }
+        : await checkInstagram(env, fetchImpl)
   }
 
   if (env.META_PAGE_ID !== undefined && env.META_PAGE_ID !== '') {

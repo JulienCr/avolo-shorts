@@ -4,7 +4,11 @@
  *
  *     pnpm tsx scripts/dev-connect-meta.ts
  *     pnpm tsx scripts/dev-connect-meta.ts --code=<code renvoyé par Meta>
- *     pnpm tsx scripts/dev-connect-meta.ts --system-user-token=<jeton système>
+ *     META_SYSTEM_USER_TOKEN=<jeton> pnpm tsx scripts/dev-connect-meta.ts [--expires-in-days=<n>]
+ *
+ * Le jeton système passe par l'environnement, jamais par `argv` (historique
+ * du shell, `/proc/<pid>/cmdline`) ; `--expires-in-days` couvre le jeton créé
+ * sans « Never expire », sans lui il est persisté perpétuel (`null`).
  *
  * Facebook Login, pas Instagram Login (`docs/lessons.md`). Le jeton de Page
  * n'expire pas : affiché ici pour 1Password (lecture seule) ; le jeton
@@ -152,8 +156,8 @@ async function pairAndPersist(userToken: string, expiresIn: number | null): Prom
     instagramTokenExpiresAt: expiresIn === null ? null : Date.now() + expiresIn * 1000,
   })
 
-  const duree = expiresIn === null ? 'n\'expire jamais' : `${Math.round(expiresIn / 86_400)} j`
-  console.log(`Instagram : compte ${instagramUserId}, jeton persisté dans projects/meta-tokens.json (${duree}).`)
+  const duration = expiresIn === null ? 'n\'expire jamais' : `${Math.round(expiresIn / 86_400)} j`
+  console.log(`Instagram : compte ${instagramUserId}, jeton persisté dans projects/meta-tokens.json (${duration}).`)
   console.log(`Facebook  : Page « ${page.name} » (${page.id}).`)
   console.log('\nÀ coller à la main, une fois pour toutes — ces valeurs ne rafraîchissent jamais :')
   console.log(`  META_PAGE_ID=${page.id}`)
@@ -168,9 +172,14 @@ function flag(name: string): string | undefined {
 async function main(): Promise<number> {
   await chargerEnv()
 
-  const systemUserToken = flag('system-user-token') ?? process.env.META_SYSTEM_USER_TOKEN
+  const systemUserToken = process.env.META_SYSTEM_USER_TOKEN
   if (systemUserToken !== undefined && systemUserToken !== '') {
-    await pairAndPersist(systemUserToken, null)
+    const expiresInDays = flag('expires-in-days')
+    const expiresIn = expiresInDays === undefined ? null : Number(expiresInDays) * 86_400
+    if (expiresInDays !== undefined && !Number.isFinite(expiresIn)) {
+      throw new Error(`--expires-in-days=${expiresInDays} n'est pas un nombre.`)
+    }
+    await pairAndPersist(systemUserToken, expiresIn)
     return 0
   }
 

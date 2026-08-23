@@ -118,6 +118,12 @@ export async function refreshInstagramToken(
       'Aucun jeton Instagram enregistré. Lancer pnpm tsx scripts/dev-connect-meta.ts.',
     )
   }
+  if (current.instagramTokenExpiresAt === null) {
+    // Un jeton perpétuel réappairé entre la lecture de `loadFreshInstagramToken`
+    // et celle-ci ne doit jamais partir dans `fb_exchange_token` : la garde
+    // porte ici aussi, pas seulement chez l'appelant.
+    return current
+  }
   const appId = requiredEnv(env, 'META_APP_ID')
   const appSecret = requiredEnv(env, 'META_APP_SECRET')
   const url =

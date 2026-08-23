@@ -10,6 +10,7 @@ import {
   ensureFreshInstagramToken,
   forgetTokenCache,
   readMetaTokens,
+  refreshInstagramToken,
   writeMetaTokens,
 } from '@/server/publication/meta-tokens'
 
@@ -411,6 +412,17 @@ describe('availability', () => {
     expect(order).not.toContain('refresh')
   })
 
+  it('jeton expirable appairé, sans META_APP_ID ni META_APP_SECRET : `not_configured`, aucun appel réseau', async () => {
+    await seedInstagramToken()
+    const fetchImpl = vi.fn()
+    const adapter = createMetaAdapter({}, fetchImpl as unknown as typeof fetch, noSleep)
+
+    const availability = await adapter.availability({})
+
+    expect(availability.instagram).toEqual({ available: false, reason: 'not_configured' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('Page et jeton renseignés et valides : Facebook disponible', async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = input.toString()
@@ -515,5 +527,16 @@ describe('jeton Instagram', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(400, { error: { message: 'jeton révoqué' } })) as unknown as typeof fetch
 
     await expect(ensureFreshInstagramToken(ENV, fetchImpl)).rejects.toThrow(MetaTokenExpiredError)
+  })
+
+  it('`refreshInstagramToken` appelée directement sur un jeton perpétuel le rend tel quel, sans échange', async () => {
+    await seedPerpetualInstagramToken('SYSTEM_USER')
+    const fetchImpl = vi.fn()
+
+    const tokens = await refreshInstagramToken(ENV, fetchImpl as unknown as typeof fetch)
+
+    expect(tokens.instagramAccessToken).toBe('SYSTEM_USER')
+    expect(tokens.instagramTokenExpiresAt).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })

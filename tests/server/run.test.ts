@@ -34,9 +34,16 @@ import { StopRequestedError } from '@/server/ffmpeg'
  * Ce qui se vérifie ici n'est pas qu'un proxy s'encode — c'est déjà testé
  * ailleurs — mais **ce que le lanceur décide de faire tourner**, et ce qu'il
  * refuse. Le cas qui compte tient en une phrase : sur un projet dont le
- * transcript existe, demander les candidats ne doit relancer que le repérage. Si
- * ce test tombe, le produit est inutilisable au quotidien — on retranscrit deux
- * heures cinquante d'audio pour reformuler des propositions.
+ * transcript **et** la correction existent déjà, demander les candidats ne
+ * doit relancer que le repérage. Si ce test tombe, le produit est
+ * inutilisable au quotidien — on retranscrit deux heures cinquante d'audio,
+ * ou on rappelle le modèle de correction pour rien, pour reformuler des
+ * propositions.
+ *
+ * **`correction` s'intercale entre `transcript` et `candidates`** depuis le
+ * 23 août 2026 (spec §5, §9) : un transcript présent sans `correction.json`
+ * ne suffit plus à limiter le plan au seul repérage, et `poserCorrection`
+ * pose l'artefact qui manque pour retrouver ce cas.
  */
 
 const PROJECT = '2025-06-15-cqlp'
@@ -87,6 +94,11 @@ function stepsFake(fail?: StepName): Partial<Steps> {
       await note('analysis', file)
       sourcesAnalysis.push(o.source)
       return { path: file, skipped: false }
+    },
+    applyTranscriptCorrections: async (project) => {
+      const file = path.join(root, 'projects', project.id, `${PROJECT}.avolo`, 'correction.json')
+      await note('correction', file)
+      return { entries: [], applied: 0, failed: 0, rejected: {} }
     },
     runCandidates: async (id) => {
       await note('candidates', path.join(root, 'projects', id, 'candidates.json'))
@@ -140,6 +152,13 @@ function poserTranscript(): void {
   const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
   fs.mkdirSync(folder, { recursive: true })
   fs.writeFileSync(path.join(folder, 'transcript.json'), '{"segments":[]}')
+}
+
+/** Le journal de correction déjà là, à côté du transcript — même repli. */
+function poserCorrection(): void {
+  const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'correction.json'), '{"nextId":1,"entries":[]}')
 }
 
 beforeEach(() => {
@@ -244,6 +263,7 @@ describe('planForTargets', () => {
     proxy: false,
     audio: false,
     transcript: false,
+    correction: false,
     analysis: false,
     candidates: false,
     renders: false,
@@ -255,13 +275,21 @@ describe('planForTargets', () => {
     expect(planForTargets(['candidates', 'proxy'], nothing, [])).toEqual([
       'audio',
       'transcript',
+      'correction',
       'candidates',
       'proxy',
     ])
   })
 
   it('ne planifie rien quand tout est là', () => {
-    const all = { ...nothing, proxy: true, audio: true, transcript: true, candidates: true }
+    const all = {
+      ...nothing,
+      proxy: true,
+      audio: true,
+      transcript: true,
+      correction: true,
+      candidates: true,
+    }
     expect(planForTargets(['candidates', 'proxy'], all, [])).toEqual([])
   })
 })
@@ -285,6 +313,7 @@ describe('readingPresence', () => {
       proxy: true,
       audio: false,
       transcript: true,
+      correction: false,
       analysis: false,
       candidates: false,
       renders: false,
@@ -546,30 +575,47 @@ describe('pathTranscript', () => {
 })
 
 describe('lancer', () => {
-  it('sur un projet transcrit, viser les candidats ne relance que le repérage', async () => {
+  it('sur un projet transcrit et corrigé, viser les candidats ne relance que le repérage', async () => {
     poserProject()
     poserTranscript()
+    poserCorrection()
 
     const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
     expect(plan).toEqual(['candidates'])
 
     await waitFin()
-    // Ni transcription, ni audio, ni ingestion : c'est tout l'objet du graphe.
+    // Ni transcription, ni audio, ni correction, ni ingestion : c'est tout
+    // l'objet du graphe.
     expect(calls).toEqual(['candidates'])
+  })
+
+  // La moitié manquante du cas ci-dessus, et c'est elle que cette PR ajoute :
+  // un transcript présent sans `correction.json` ne suffit plus à limiter le
+  // plan au seul repérage.
+  it('sur un projet transcrit mais pas encore corrigé, refait la correction avant le repérage', async () => {
+    poserProject()
+    poserTranscript()
+
+    const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
+    expect(plan).toEqual(['correction', 'candidates'])
+
+    await waitFin()
+    expect(calls).toEqual(['correction', 'candidates'])
   })
 
   it('sur un projet neuf, remonte les dépendances jusqu’à la source', async () => {
     poserProject()
 
     const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
-    expect(plan).toEqual(['audio', 'transcript', 'candidates'])
+    expect(plan).toEqual(['audio', 'transcript', 'correction', 'candidates'])
     await waitFin()
-    expect(calls).toEqual(['audio', 'transcript', 'candidates'])
+    expect(calls).toEqual(['audio', 'transcript', 'correction', 'candidates'])
   })
 
   it('force entraîne l’aval avec lui', async () => {
     poserProject()
     poserTranscript()
+    poserCorrection()
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'audio.wav'), '')
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
@@ -578,15 +624,31 @@ describe('lancer', () => {
       force: ['transcript'],
       steps: stepsFake(),
     })
-    // Refaire le transcript sans reprendre le repérage laisserait des candidats
-    // calculés sur un texte qui n'existe plus.
-    expect(plan).toEqual(['transcript', 'candidates'])
+    // Refaire le transcript sans reprendre la correction ni le repérage
+    // laisserait des candidats calculés sur un texte qui n'existe plus.
+    expect(plan).toEqual(['transcript', 'correction', 'candidates'])
+    await waitFin()
+  })
+
+  it('forcer la correction seule entraîne aussi le repérage', async () => {
+    poserProject()
+    poserTranscript()
+    poserCorrection()
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
+
+    const { plan } = await launch(PROJECT, ['candidates'], {
+      db,
+      force: ['correction'],
+      steps: stepsFake(),
+    })
+    expect(plan).toEqual(['correction', 'candidates'])
     await waitFin()
   })
 
   it('`force: true` vise la cible', async () => {
     poserProject()
     poserTranscript()
+    poserCorrection()
     fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
 
     const { plan } = await launch(PROJECT, ['candidates'], {
@@ -703,6 +765,7 @@ describe('lancer', () => {
   it('refuse une seconde exécution sur le même projet', async () => {
     poserProject()
     poserTranscript()
+    poserCorrection()
 
     let unblock = (): void => {}
     const blocked = new Promise<void>((resolve) => {
@@ -718,6 +781,11 @@ describe('lancer', () => {
         },
       },
     })
+    // Le journal est déjà là (`poserCorrection`) : la correction ne repasse
+    // pas, et l'exécution bloque directement sur le repérage — l'assertion
+    // qui suit peut donc viser une étape connue plutôt que de deviner laquelle
+    // des deux, correction ou candidats, tourne encore.
+    await waitStep('candidates')
 
     await expect(launch(PROJECT, ['candidates'], { db })).rejects.toBeInstanceOf(
       ExecutionInCurrentError,
@@ -784,10 +852,140 @@ describe('lancer', () => {
   })
 })
 
+/**
+ * L'étape `correction`, dans le lanceur : ce que `case 'correction'`
+ * d'`executeStep` décide de faire d'une panne du modèle, et ce qu'il transmet
+ * à `applyTranscriptCorrections` (`src/server/steps/transcript-correction.ts`).
+ *
+ * **Ne pas passer `isRunning` s'y vérifie ailleurs** — `applyTranscriptCorrections`
+ * ne prend même pas cette option, donc rien ici ne pourrait la lui passer par
+ * erreur. La preuve que l'étape ne se refuse pas elle-même se fait contre la
+ * vraie fonction, dans `transcript-correction-apply.test.ts`.
+ */
+describe("l'étape correction", () => {
+  it('une panne du modèle n’arrête pas le plan : candidates tourne quand même', async () => {
+    poserProject()
+    poserTranscript()
+
+    const { plan } = await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        applyTranscriptCorrections: async () => {
+          calls.push('correction')
+          throw new Error('le modèle ne répond pas')
+        },
+      },
+    })
+    expect(plan).toEqual(['correction', 'candidates'])
+    await waitFin()
+
+    // Le repérage a bien tourné derrière la panne — c'est tout l'objet du
+    // choix : une panne réseau ne doit pas bloquer un lancement du soir
+    // jusqu'au matin.
+    expect(calls).toEqual(['correction', 'candidates'])
+
+    const status = lireStatus(PROJECT)
+    // Ni `stopped`, ni une erreur qui rejetterait `wait()` : le plan est allé
+    // à son terme. Mais la panne n'a pas disparu — voir `status?.error`.
+    expect(status?.stopped).toBe(false)
+    expect(status?.finishedAt).toBeTypeOf('number')
+    expect(status?.error).toContain('correction automatique du transcript a échoué')
+    expect(status?.error).toContain('le modèle ne répond pas')
+    // Le rattrapage explicite est nommé dans le message lui-même — c'est ce
+    // que l'écran affiche tel quel (`project-screen.tsx`).
+    expect(status?.error).toContain('relancer la correction')
+  })
+
+  it('un correction.json n’est pas écrit quand la panne est avalée', async () => {
+    poserProject()
+    poserTranscript()
+
+    await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        applyTranscriptCorrections: async () => {
+          throw new Error('injoignable')
+        },
+      },
+    })
+    await waitFin()
+
+    // La présence est le seul signal du graphe : sans artefact, un futur
+    // lancement qui vise `candidates` redécouvre `correction` comme manquante
+    // et la retente — c'est `toRedo`, pas un rattrapage écrit à la main ici.
+    const presence = await readingPresence(getProject(db, PROJECT) as Project)
+    expect(presence.correction).toBe(false)
+  })
+
+  it('un arrêt demandé pendant la correction n’est pas avalé comme une panne', async () => {
+    poserProject()
+    poserTranscript()
+
+    let signalSeen: AbortSignal | undefined
+    const { plan } = await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        applyTranscriptCorrections: async (_project, _db, options) => {
+          calls.push('correction')
+          signalSeen = options?.signal
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(new Error('coupé')))
+          })
+        },
+      },
+    })
+    expect(plan).toEqual(['correction', 'candidates'])
+    await waitStep('correction')
+    stopRun(PROJECT)
+    await waitFin()
+
+    expect(signalSeen?.aborted).toBe(true)
+    // L'arrêt se lit sur `stopped`, jamais sur `error` — un arrêt demandé
+    // n'est pas une panne, avalée ou non.
+    const status = lireStatus(PROJECT)
+    expect(status?.stopped).toBe(true)
+    expect(status?.error).toBeNull()
+    // Le repérage n'a pas dû démarrer derrière un arrêt.
+    expect(calls).toEqual(['correction'])
+  })
+
+  it('freshTranscript est vrai seulement quand transcript vient de tourner dans le même plan', async () => {
+    poserProject()
+    const freshSeen: (boolean | undefined)[] = []
+    const fakeCorrection = async (_project: Project, _db: Database.Database, options?: { freshTranscript?: boolean }) => {
+      freshSeen.push(options?.freshTranscript)
+      return { entries: [], applied: 0, failed: 0, rejected: {} }
+    }
+
+    // Premier lancement, sur un projet neuf : `transcript` fait partie du plan.
+    await launch(PROJECT, ['candidates'], {
+      db,
+      steps: { ...stepsFake(), applyTranscriptCorrections: fakeCorrection },
+    })
+    await waitFin()
+    expect(freshSeen).toEqual([true])
+
+    // Second lancement, avec un journal déjà là mais forcé : `transcript` ne
+    // fait plus partie du plan, la correction s'accumule.
+    poserCorrection()
+    await launch(PROJECT, ['candidates'], {
+      db,
+      force: ['correction'],
+      steps: { ...stepsFake(), applyTranscriptCorrections: fakeCorrection },
+    })
+    await waitFin()
+    expect(freshSeen).toEqual([true, false])
+  })
+})
+
 describe('status.json', () => {
   it('rend la main sur `running: null` quand tout est fini', async () => {
     poserProject()
     poserTranscript()
+    poserCorrection()
 
     await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
     await waitFin()
@@ -1010,15 +1208,17 @@ describe("l'arrêt d'une exécution", () => {
     stopRun(PROJECT)
     await waitFin()
 
-    // L'audio et le transcript sont passés avant l'arrêt : ils restent.
+    // L'audio, le transcript et la correction sont passés avant l'arrêt :
+    // ils restent.
     const presence = await readingPresence(getProject(db, PROJECT) as Project)
     expect(presence.audio).toBe(true)
     expect(presence.transcript).toBe(true)
+    expect(presence.correction).toBe(true)
     expect(presence.candidates).toBe(false)
 
     calls = []
     const { plan } = await launch(PROJECT, ['candidates'], { db, steps: stepsFake() })
-    // La reprise ne refait ni l'audio ni le transcript.
+    // La reprise ne refait ni l'audio, ni le transcript, ni la correction.
     expect(plan).toEqual(['candidates'])
     await waitFin()
     expect(calls).toEqual(['candidates'])

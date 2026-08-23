@@ -92,6 +92,17 @@ La démonstration, avec les deux reels publiés et le test qui a discriminé les
 hypothèses : [`docs/lessons.md`](../../lessons.md), « Ce que Meta ne dit pas
 quand on publie un reel ».
 
+**Mesuré le 23 août 2026 (issue #146), les deux points ci-dessus sont tranchés,
+et un connecteur direct existe désormais** — `src/server/publication/meta.ts`,
+qui publie sans passer par Upload Post. Un compte **Créateur** (`MEDIA_CREATOR`)
+publie des reels sans réserve. Et le chemin qui compte n'est **pas** celui du
+tableau ci-dessus : `upload_type=resumable` n'existe que par **Facebook Login**
+(jeton `EAA…`, `graph.facebook.com`) — la connexion Instagram directe
+(`graph.instagram.com`, jetons `IGA…`) n'accepte qu'un `video_url` public, ce
+que le §3 interdit. Détail complet, dont le piège du sous-code `2207085` sur
+`media_publish` : `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie
+un reel ».
+
 ### 2.2 Facebook Page Reels — aucun verrou
 
 | | |
@@ -105,6 +116,11 @@ quand on publie un reel ».
 Même raisonnement d'accès que pour Instagram, et la même app Meta porte les deux.
 Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur du lot 2 gratuit sur
 Facebook — et sur lui seul.
+
+**`meta.ts` code ce chemin, mais ne l'a jamais exercé contre le réseau**
+(issue #146) : le jeton de Page manque encore `pages_manage_posts` au moment
+d'écrire ceci. Le tableau ci-dessus reste donc la seule source pour Facebook,
+contrairement à Instagram, publié pour de vrai le 23 août 2026.
 
 ### 2.3 TikTok — un verrou, et un chemin qui le contourne
 
@@ -267,15 +283,15 @@ Hors périmètre, et nommément :
 
 ## 5. Le séquencement, qui est la vraie décision
 
-**Mise à jour au 23 août 2026 : ce séquencement décrit la voie d'un accès
-direct par plateforme, qui n'a pas démarré — aucun lot ci-dessous n'est fait.**
-Upload Post, lui, est câblé et court-circuite les quatre lots à la fois :
-Julien s'est abonné, la publication passe par leur transport pour Instagram,
-Facebook, TikTok et YouTube dès aujourd'hui, sans attendre le lot 0 ni les deux
-audits. Ce séquencement reste la description qui vaudrait le jour où un accès
-direct remplacerait Upload Post pour une plateforme donnée — un gain de délai
-de dépôt TikTok, une commission économisée — mais rien n'en dépend pour publier
-maintenant.
+**Mise à jour au 23 août 2026 : le lot 1 est fait — le seul de ce séquencement à
+l'être.** Upload Post plafonne Instagram à dix envois par mois sur l'offre
+gratuite (§2.5), ce qu'une émission dépasse en un jour ; Meta direct est gratuit
+et autorise 100 publications par 24 h (issue #146). `src/server/publication/
+meta.ts` porte donc Instagram et Facebook sans passer par Upload Post, sans
+qu'aucune démarche du lot 0 n'ait été nécessaire — Meta n'exige ni App Review ni
+audit (§1). TikTok et YouTube restent chez Upload Post, lots 2 et 3 non
+démarrés : ce séquencement continue de décrire la voie qui les en affranchirait
+un jour, mais rien n'en dépend pour publier maintenant.
 
 Les audits durent de deux à six semaines et peuvent échouer. Le travail se range
 donc par ce qui n'attend rien, et non par ce qui semble le plus important.
@@ -297,9 +313,11 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
 5. Déposer les deux audits : le formulaire *YouTube API Services — Audit and
    Quota Extension*, et l'audit TikTok.
 
-**Lot 1 — Instagram et Facebook, de bout en bout.** Aucun verrou : c'est ce qui se
-mesure tout de suite, et c'est ce qui valide l'architecture pendant que les audits
-dorment.
+**Lot 1 — Instagram et Facebook, de bout en bout. Fait (issue #146).** Aucun
+verrou : c'est ce qui se mesurait tout de suite, et c'est ce qui a validé
+l'architecture pendant que les audits dorment. Instagram a publié un reel réel
+le 23 août 2026 ; Facebook Page Reels est codé mais jamais exercé, faute de
+`pages_manage_posts` sur le jeton de Page.
 
 **Lot 2 — TikTok en brouillon.** Fonctionne sans audit. Le jour où l'audit passe,
 c'est l'implémentation qui change, pas l'interface ni la table.

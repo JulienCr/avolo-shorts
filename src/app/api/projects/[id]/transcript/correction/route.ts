@@ -1,53 +1,29 @@
 import { getDb, getProject } from '@/server/db'
-import { ErrorHttp, notFound, json, route } from '@/server/http'
-import { progression } from '@/server/run'
-import { proposeTranscriptCorrections } from '@/server/steps/transcript-correction'
+import { notFound, json, route } from '@/server/http'
+import { readCorrectionLog } from '@/server/steps/transcript-correction'
 
 /**
- * `POST /api/projects/:id/transcript/correction` — propose des corrections
- * du transcript par modèle (spec §9, étage 2).
- * @returns Une proposition, jamais une écriture — voir `TranscriptCorrectionRequest`
- * pour le chemin de validation. 404 sans transcript, 409 pendant une
- * exécution (issue #93, contrainte de VRAM — `CLAUDE.md`).
+ * `GET /api/projects/:id/transcript/correction` — l'historique de la
+ * correction automatique du transcript (spec §9, étage 2, correction du
+ * 23 août 2026) : la liste des substitutions appliquées, dans l'ordre où
+ * `correction.json` les porte.
+ *
+ * **Il n'y a plus de `POST` ici.** La correction s'applique désormais
+ * d'office pendant l'analyse (`case 'correction'`, `src/server/run.ts`) : la
+ * relecture avant écriture livrée par #128 n'a plus d'appelant, et cette
+ * route ne fait plus que lire ce que le pipeline a déjà écrit. Défaire une
+ * substitution est `POST .../correction/undo`.
+ * @returns Un journal vide, jamais une erreur, tant que la correction n'a pas
+ * encore tourné sur ce projet.
  */
-export const POST = route(
-  'POST /api/projects/:id/transcript/correction',
-  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+export const GET = route(
+  'GET /api/projects/:id/transcript/correction',
+  async (_request: Request, context: { params: Promise<{ id: string }> }) => {
     const { id } = await context.params
     const db = getDb()
     const project = getProject(db, id)
     if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
-    if (progression(id) !== null) {
-      throw new ErrorHttp(
-        409,
-        'Une retranscription est en cours pour ce projet : attendre qu’elle se termine avant de corriger le transcript.',
-      )
-    }
-
-    const result = await proposeTranscriptCorrections(db, project, {
-      signal: request.signal,
-      isRunning: (projectId) => progression(projectId) !== null,
-    })
-    if (!result.ok) throw notFound("Ce projet n'a pas encore de transcript.")
-
-    // `request` a la forme de `TranscriptCorrectionRequest` (`@/lib/api`) :
-    // l'écran valide une proposition en rappelant `POST .../transcript` telle
-    // quelle, sans traduction côté client.
-    return json({
-      proposals: result.proposals.map((p) => ({
-        request: {
-          lineId: p.lineId,
-          from: p.correction.from,
-          to: p.correction.to,
-          expected: p.correction.expected,
-          replacement: p.correction.replacement,
-        },
-        timecode: p.timecode,
-        original: p.original,
-        replacement: p.replacement,
-      })),
-      rejected: result.rejected,
-    })
+    return json(readCorrectionLog(project).entries)
   },
 )

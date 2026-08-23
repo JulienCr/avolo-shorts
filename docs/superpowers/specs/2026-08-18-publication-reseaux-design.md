@@ -48,7 +48,7 @@ auditée** — soit le seul verrou que l'argent lève et que le travail ne lève
 | Chemin | `POST /{ig-user-id}/media` en `media_type=REELS`, attente de `status_code = FINISHED`, puis `POST /{ig-user-id}/media_publish` |
 | Permissions | `instagram_business_basic` + `instagram_business_content_publish` (Instagram Login), ou `instagram_basic` + `instagram_content_publish` + `pages_read_engagement` (Facebook Login) |
 | Niveau d'accès | **Standard Access**, accordé d'office |
-| Fichier | URL publique **ou** `upload_type=resumable` vers `rupload.facebook.com` |
+| Fichier | **Facebook Login** : `upload_type=resumable` vers `rupload.facebook.com`. **Instagram Login** : URL publique uniquement — voir ci-dessous |
 | Débit | 100 publications par API sur 24 h glissantes |
 
 Le fait qui compte est le niveau d'accès. Meta accorde le Standard Access à toute
@@ -67,9 +67,27 @@ Les anciennes permissions `instagram_basic` et `instagram_content_publish` ont �
 dépréciées le 27 janvier 2025 au profit des `instagram_business_*` : un exemple de
 code trouvé en ligne a de bonnes chances de nommer les mauvaises.
 
-À vérifier au branchement, parce que la documentation et les commentaires divergent :
-le compte doit être **professionnel**, et la publication de reels par API a
-longtemps exclu le type *Créateur* au profit du seul type *Entreprise*.
+**Mesuré le 23 août 2026, et ça décide de l'appairage.** Meta expose deux
+configurations dans la même app, et celle qu'il met en avant est la mauvaise ici.
+La **connexion Instagram** (jeton `IGA…`, `graph.instagram.com`) n'accepte
+**que** `video_url`, une URL publique — testé en v21, v22 et v23. Elle contredit
+donc frontalement la décision du §3, « on téléverse depuis le disque, jamais par
+URL publique », et n'est pas utilisable. C'est la **connexion Facebook** (jeton
+`EAA…`, `graph.facebook.com`) qui porte `upload_type=resumable`, donc le
+téléversement local. Le parcours *Instagram Tester* décrit au paragraphe
+précédent reste vrai du niveau d'accès, mais il appaire par le mauvais chemin.
+
+Deux questions que ce document laissait ouvertes sont tranchées par la même
+mesure : un compte de type **Créateur** (`MEDIA_CREATOR`) publie des reels sans
+réserve, et `media_publish` exige un **droit sur l'actif** dans le portefeuille
+business — la portée `business_management` suffit à lire le compte, à créer le
+conteneur et à téléverser, mais pas à publier. Sans ce droit, Meta rend un
+`error_subcode: 2207085` libellé « erreur de serveur interne », qui invite à
+réessayer alors qu'il faut affecter une personne au compte.
+
+La démonstration, avec les deux reels publiés et le test qui a discriminé les
+hypothèses : [`docs/lessons.md`](../../lessons.md), « Ce que Meta ne dit pas
+quand on publie un reel ».
 
 ### 2.2 Facebook Page Reels — aucun verrou
 

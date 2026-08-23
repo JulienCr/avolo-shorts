@@ -178,3 +178,37 @@ tranchées : un compte de type **Créateur** (`MEDIA_CREATOR`) publie des reels
 sans réserve, et l'identifiant du compte diffère selon le chemin — un identifiant
 cadré par l'app en connexion Instagram, un identifiant business en `17841…` par
 connexion Facebook. Le même compte, deux nombres sans rapport visible.
+
+## Ce qu'une doublure injectée ne peut pas voir
+
+Le dépôt teste ses dépendances externes en les injectant : un lecteur de secret
+dans `secrets.ts`, un `fetch` dans `upload-post.ts` et `meta.ts`, des
+adaptateurs littéraux dans les tests de route. C'est une bonne convention, elle
+tient le réseau hors des tests, et elle a un angle mort systématique qu'il faut
+connaître : **elle valide ce que le consommateur fait d'une dépendance, jamais
+la façon dont la production la fabrique.**
+
+Le cas mesuré, le 23 août 2026. `publicationAdapters()` construisait une
+instance neuve à chaque appel. `groupByAdapter` regroupe les plateformes **par
+identité d'objet**, si bien que deux plateformes du même connecteur
+n'atterrissaient jamais dans le même groupe : chaque publication partait en
+autant d'appels que de plateformes, ce que le connecteur Upload Post facture en
+téléversements — exactement ce que le regroupement existait pour éviter. Le
+test du regroupement passait pourtant, et il était bon : il construit des
+adaptateurs littéraux, donc à identité stable, et il mocke le module de registre
+en entier. La fabrique réelle ne s'exécutait jamais sous lui. Le correctif tient
+en un `??=`, et le docbloc de `src/server/publication/index.ts` porte désormais
+la raison.
+
+La règle qui en sort : dès qu'un code compare des dépendances **par identité**
+plutôt que par valeur — une `Map`, un `Set`, un `===`, un `includes` sur des
+objets —, la stabilité de l'instance devient une propriété du système, et
+aucun test à doublures ne la vérifiera. Elle se teste en appelant deux fois la
+vraie fabrique, ou elle ne se teste pas.
+
+Le corollaire de conduite vaut autant. Une revue interne qui lit le diff contre
+un contrat ne trouve pas ça : le diff est correct, le test est correct, et le
+défaut vit dans la couture entre les deux. Sur les deux dernières PR de
+publication, la revue interne a validé le fond et les relecteurs externes ont
+trouvé seize défauts réels derrière elle. Les deux étages ne se remplacent pas,
+et supposer que le premier couvre le second est ce qui coûte cher.

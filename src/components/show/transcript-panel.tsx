@@ -682,15 +682,15 @@ export function TranscriptPanel({
                             {/* L'espace est hors du bouton : un `inline-block`
                                 supprime l'espace final de son contenu, là où le
                                 `<span>` inline de `transcript-surface.tsx` le
-                                garde. La marge négative part avec, sinon elle
-                                le mangeait en entier. */}
+                                garde. Ni `px-` ni `-mx-` ici : l'un élargit
+                                l'espace, l'autre le mange. */}
                             <button
                               type="button"
                               data-word={word.index}
                               tabIndex={word.index === cursor ? 0 : -1}
                               aria-pressed={isSelected}
                               onClick={(e) => selectWord(word.index, e.shiftKey)}
-                              className={`cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
+                              className={`cursor-pointer rounded-[3px] outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
                                 isSelected ? 'bg-stage/35 text-foreground' : ''
                               }`}
                             >

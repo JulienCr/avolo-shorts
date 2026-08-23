@@ -508,7 +508,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <HookFields
                 clip={clip}
                 globals={hookGlobals}
-                canRegenerate={isGuard(clip.status)}
                 onWrite={write}
                 onFailure={flagFailureText}
               />

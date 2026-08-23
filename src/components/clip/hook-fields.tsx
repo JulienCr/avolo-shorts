@@ -104,20 +104,12 @@ const COLLAPSIBLE_FIELDS = Object.keys(COLLAPSIBLE) as (keyof HookSettings)[]
 export function HookFields({
   clip,
   globals,
-  canRegenerate,
   onWrite,
   onFailure,
 }: {
   clip: Clip
   /** Les réglages globaux du hook. `undefined` tant que `GET /api/settings` n'a pas répondu. */
   globals: HookSettings | undefined
-  /**
-   * `false` pour un clip non gardé. `POST /api/clips/:id/hook` refuse déjà
-   * l'appel côté serveur (`isGuard`) — cette prop évite en plus de laisser un
-   * candidat ou un clip écarté déclencher, sans effet, un appel LLM. (relevé
-   * par Copilot)
-   */
-  canRegenerate: boolean
   onWrite: OnWrite
   onFailure?: (field: 'hookText' | 'hookBadge', inFailure: boolean) => void
 }) {
@@ -174,8 +166,7 @@ export function HookFields({
             type="button"
             size="sm"
             variant="outline"
-            disabled={regenerate.isPending || !canRegenerate}
-            title={canRegenerate ? undefined : 'Réservé aux clips gardés'}
+            disabled={regenerate.isPending}
             onClick={() => void regenerate.mutateAsync(clip.id).catch(() => {})}
           >
             <Sparkles aria-hidden />

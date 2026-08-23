@@ -246,15 +246,18 @@ describe('POST /api/clips/:id/hook', () => {
     expect(response.status).toBe(404)
   })
 
-  it("400 sur un clip qui n'est pas gardé — un candidat ne consomme pas d'appel LLM", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
+  // Un clic explicite sur un clip précis est un appel délibéré et unique : la
+  // route l'autorise sur n'importe quel statut, candidat compris. Seul le
+  // rattrapage automatique (`hook-backfill.ts`) reste borné à `kept`.
+  it('génère un hook pour un clip candidat', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ollamaResponse('Un pingouin, un procès, un scandale')))
     const clip = baseClip({ status: 'candidate' })
     putClip(getDb(), clip)
 
     const response = await postHook(new Request('http://test', { method: 'POST' }), context(clip.id))
-    expect(response.status).toBe(400)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { clip: Clip }
+    expect(body.clip.hookText).toBe('Un pingouin, un procès, un scandale')
   })
 
   /**

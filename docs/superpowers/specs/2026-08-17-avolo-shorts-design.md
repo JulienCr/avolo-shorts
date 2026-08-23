@@ -821,6 +821,37 @@ légitimes — un homophone rare qu'elle ne rapproche pas assez —, ce qui est 
 bon sens de l'erreur : mieux vaut un excès de prudence qu'une réécriture qui
 passe pour une correction.
 
+**Cette prudence a deux limites, symétriques, et une seule était documentée
+jusqu'ici.** Le faux négatif ci-dessus — une correction légitime rejetée — en
+est une. L'autre, trouvée en review externe de la PR #128 : sur des mots
+courts dont la consonne finale se prononce, la clé confond deux mots qui ne
+sont pas homophones. `phoneticKey('net')` et `phoneticKey('nez')` valent
+toutes deux `ne`, alors que le `t` de « net » se prononce et n'a rien d'une
+consonne finale muette. Mesuré sur des paires témoins : les collisions
+légitimes que la garde doit laisser passer tiennent (`et`/`est`, `a`/`à`,
+`ces`/`ses`, `c'est`/`s'est`, `vert`/`vers`, `fait`/`fais`, `tout`/`tous`,
+`ce`/`cet`), les non-collisions correctes aussi (`chat`/`chien`, `sept`/`sec`,
+`port`/`pore`) — mais `net`/`nez` et `ne`/`nez` collident à tort.
+
+**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut a été
+formulé quand la correction était pensée automatique — une réécriture qui
+passe pour une correction s'écrivait alors sans second regard. Ce n'est plus
+le cas : Julien valide chaque substitution avant écriture (§9, « Le modèle
+propose, Julien valide »), donc un faux positif de la garde phonétique coûte
+un coup d'œil et un décochage sur l'écran de relecture, jamais un export
+faux. Et la garde phonétique n'a jamais été la garantie principale contre la
+réécriture — le schéma de sortie l'est, qui interdit structurellement
+l'insertion, la suppression et le réordonnancement (plus haut dans cette
+section). Elle en est la seconde, pas la première.
+
+**Une fausse piste, fermée ici pour ne pas être rouverte** : interdire le
+dépouillement des consonnes finales sous une longueur minimale de mot est le
+correctif qui vient spontanément, et il casse la collision la plus utile de
+toutes, `et`/`est` — deux mots de deux et trois lettres. Un seuil de longueur
+ne distingue pas « consonne finale muette » de « consonne finale prononcée » ;
+seule une liste d'exceptions nommées le pourrait, et elle n'est pas écrite
+tant que le besoin ne s'en fait pas sentir en pratique.
+
 ### La correction humaine
 
 Le transcript est déjà la surface d'édition de l'interface : corriger un mot est

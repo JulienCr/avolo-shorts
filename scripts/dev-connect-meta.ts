@@ -31,14 +31,16 @@ const GRAPH_VERSION = 'v23.0'
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
 
 /**
- * `instagram_business_content_publish` publie ; les trois autres lisent la
- * Page et le compte business ; `business_management` est ce qui suffit à
- * créer le conteneur et à téléverser — la publication, elle, exige en plus
- * un droit sur l'actif lui-même (voir `MetaAssetPermissionError`).
+ * `instagram_basic`/`instagram_content_publish`, pas les `instagram_business_*`
+ * qui les remplacent — **uniquement côté Instagram Login** ; ce script
+ * appaire par Facebook Login, qui veut encore les noms dépréciés (mesuré,
+ * `docs/lessons.md`). `business_management` suffit à créer le conteneur et à
+ * téléverser ; la publication exige en plus un droit sur l'actif lui-même
+ * (voir `MetaAssetPermissionError`).
  */
 const SCOPES = [
-  'instagram_business_basic',
-  'instagram_business_content_publish',
+  'instagram_basic',
+  'instagram_content_publish',
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_posts',

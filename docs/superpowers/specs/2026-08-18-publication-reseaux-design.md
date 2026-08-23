@@ -92,16 +92,9 @@ La démonstration, avec les deux reels publiés et le test qui a discriminé les
 hypothèses : [`docs/lessons.md`](../../lessons.md), « Ce que Meta ne dit pas
 quand on publie un reel ».
 
-**Mesuré le 23 août 2026 (issue #146), les deux points ci-dessus sont tranchés,
-et un connecteur direct existe désormais** — `src/server/publication/meta.ts`,
-qui publie sans passer par Upload Post. Un compte **Créateur** (`MEDIA_CREATOR`)
-publie des reels sans réserve. Et le chemin qui compte n'est **pas** celui du
-tableau ci-dessus : `upload_type=resumable` n'existe que par **Facebook Login**
-(jeton `EAA…`, `graph.facebook.com`) — la connexion Instagram directe
-(`graph.instagram.com`, jetons `IGA…`) n'accepte qu'un `video_url` public, ce
-que le §3 interdit. Détail complet, dont le piège du sous-code `2207085` sur
-`media_publish` : `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie
-un reel ».
+**Le connecteur existe** (issue #146) — `src/server/publication/meta.ts`,
+qui publie Instagram sans passer par Upload Post, sur le chemin Facebook Login
+mesuré ci-dessus.
 
 ### 2.2 Facebook Page Reels — aucun verrou
 

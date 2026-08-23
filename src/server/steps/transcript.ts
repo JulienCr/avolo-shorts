@@ -374,7 +374,15 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
     // transcript qu'il ne décrit plus — `readingPresence` le lirait comme
     // « fait » et une relance visant `candidates` sauterait la correction.
     // (relevé par Codex, Copilot et Aristarque)
-    await fsp.rm(placement.correction, { force: true }).catch(() => {})
+    //
+    // **`force: true` avale déjà `ENOENT`** — c'est tout ce qu'il doit avaler.
+    // Un `.catch(() => {})` par-dessus masquerait aussi `EIO`/`EPERM` : le
+    // nouveau transcript resterait posé à côté d'un ancien journal que
+    // personne n'aurait réussi à effacer, et `readingPresence` le lirait
+    // encore comme fait. Laisser l'échec de suppression faire échouer la
+    // transcription, comme n'importe quelle autre panne disque ici. (relevé
+    // par Codex)
+    await fsp.rm(placement.correction, { force: true })
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

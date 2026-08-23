@@ -480,6 +480,26 @@ export function TranscriptPanel({
           />
         )}
 
+        {/* **Les deux échouaient en silence.** `history.data` indéfini ressemble à
+            une liste vide, et un « Défaire » refusé (409 ancre changée, ou
+            retranscription en cours) ne rendait rien : le bouton semblait n'avoir
+            aucun effet. Même traitement que la correction manuelle un peu plus
+            bas. (relevé par Copilot et Codex) */}
+        {history.isError && (
+          <div className="shrink-0 border-b px-4 py-2">
+            <span role="alert" className="text-xs text-destructive">
+              L’historique de correction ne se charge pas : {errorMessage(history.error)}
+            </span>
+          </div>
+        )}
+        {undo.isError && (
+          <div className="shrink-0 border-b px-4 py-2">
+            <span role="alert" className="text-xs text-destructive">
+              {rejectionMessage(undo.error)}
+            </span>
+          </div>
+        )}
+
         {correctionsApplied > 0 && (
           <div className="shrink-0 border-b px-4 py-2">
             <Alert>

@@ -274,7 +274,11 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('dit que le texte a changé sous les yeux sur un 409', async () => {
-    stubFetch([transcriptResponse(), correctionResponse({ error: 'Le texte a changé sous vos yeux.' }, 409)])
+    stubFetch([
+      transcriptResponse(),
+      historyResponse(),
+      correctionResponse({ error: 'Le texte a changé sous vos yeux.' }, 409),
+    ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const user = userEvent.setup()

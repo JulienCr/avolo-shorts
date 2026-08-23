@@ -138,8 +138,20 @@ export function ProjectScreen({ id }: { id: string }) {
               « réessayer ». Les deux peuvent tenir en même temps.
 
               Le bandeau ne double pas le panneau, qui porte déjà le message du
-              serveur et le bouton de reprise. */}
-          {error !== null && running === null && layout !== 'panneau' && (
+              serveur et le bouton de reprise.
+
+              **`steps.candidates` avant `error`, comme `analysisProject`
+              (`src/core/phase.ts`).** `error` ne dit pas seulement « l'analyse a
+              échoué » depuis que la correction avale sa propre panne dans ce
+              même champ (§9, correction du 23 août 2026) : des candidats
+              présents disent que le repérage, lui, a fini. Le bandeau, son titre
+              et « Reprendre l'analyse » sont trompeurs dans ce cas précis — ce
+              bouton vise `candidates`, le trouve déjà là, et ne relance rien
+              d'autre qu'un plan vide qui efface l'avertissement sans jamais
+              relancer la correction. Le rattrapage réel, « Relancer la
+              correction », vit dans le panneau transcript, à côté du même
+              message. (relevé par Aristarque) */}
+          {error !== null && running === null && layout !== 'panneau' && steps.candidates !== true && (
             <Alert variant="destructive">
               <AlertTitle>La dernière analyse a échoué.</AlertTitle>
               <AlertDescription>

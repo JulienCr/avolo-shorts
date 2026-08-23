@@ -20,6 +20,7 @@ import { isAAbsence } from '@/server/bytes'
 import { clipFraming } from '@/server/clip-framing'
 import { messageSafe } from '@/server/errors'
 import { requestInvalid } from '@/server/http'
+import { wait } from '@/server/llm/retry'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import { PublicationAlreadyPublishedError } from '@/server/publication/errors'
 import { reserve, release } from '@/server/publication/registry'
@@ -124,6 +125,55 @@ function applyOutcomes(
   }
 }
 
+/**
+ * Combien de fois sonder un envoi resté `in_progress` avant d'abandonner, et à
+ * quel intervalle — `async_upload=true` est de règle (voir `upload-post.ts`),
+ * donc la réponse immédiate de `/api/upload` ne porte le plus souvent qu'un
+ * `request_id` : sans ce sondage, la ligne reste `in_progress` pour toujours,
+ * nul ne la relit jamais (aucun autre appelant de `adapter.poll` dans le
+ * dépôt).
+ */
+const SETTLE_ATTEMPTS = 5
+const SETTLE_INTERVAL_MS = 3_000
+
+/**
+ * Relit les plateformes encore `in_progress` jusqu'à un état terminal, ou
+ * jusqu'à épuiser `SETTLE_ATTEMPTS`. Groupe par `requestId` : un envoi porte
+ * en général un seul identifiant partagé par toutes ses plateformes, mais
+ * rien ne l'impose.
+ */
+async function settleAsync(
+  adapter: PublicationAdapter,
+  platforms: readonly Platform[],
+  outcomes: Record<Platform, PlatformOutcome>,
+  sleep: (ms: number) => Promise<void>,
+): Promise<Record<Platform, PlatformOutcome>> {
+  let current = outcomes
+  for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
+    const pending = platforms.filter((platform) => current[platform].status === 'in_progress')
+    if (pending.length === 0) return current
+
+    await sleep(SETTLE_INTERVAL_MS)
+
+    const byRequestId = new Map<string, Platform[]>()
+    for (const platform of pending) {
+      const outcome = current[platform]
+      if (outcome.status !== 'in_progress') continue
+      const group = byRequestId.get(outcome.requestId) ?? []
+      group.push(platform)
+      byRequestId.set(outcome.requestId, group)
+    }
+
+    const next = { ...current }
+    for (const [requestId, group] of byRequestId) {
+      const polled = await adapter.poll(requestId, group)
+      for (const platform of group) next[platform] = polled[platform]
+    }
+    current = next
+  }
+  return current
+}
+
 async function runDetached(
   db: Database.Database,
   adapter: PublicationAdapter,
@@ -131,9 +181,11 @@ async function runDetached(
   platforms: readonly Platform[],
   job: PublicationJob,
   fingerprint: string | null,
+  sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
   try {
-    const outcomes = await adapter.publish(job, platforms)
+    const published = await adapter.publish(job, platforms)
+    const outcomes = await settleAsync(adapter, platforms, published, sleep)
     applyOutcomes(db, clip.id, platforms, outcomes, fingerprint)
   } catch (error) {
     const message = messageSafe(error)
@@ -153,6 +205,8 @@ export type LaunchPublishInput = {
   clip: Clip
   platforms: readonly Platform[]
   force: boolean
+  /** Le délai entre deux sondages d'un envoi resté `in_progress` — les tests y passent un délai nul. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export type LaunchPublishResult = {
@@ -172,7 +226,7 @@ export type LaunchPublishResult = {
  * n'ait posé sa réservation.
  */
 export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
-  const { db, adapter, clip, platforms, force } = input
+  const { db, adapter, clip, platforms, force, sleep = wait } = input
 
   const exportEligibility = clipEligibilityFromStatus(clip.status)
   if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
@@ -186,7 +240,18 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const videoPath = platformFile({ mp4: paths.mp4, variant9x16: paths.variant9x16 })
   if (videoPath === null) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
 
-  const stat = fs.statSync(videoPath)
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(videoPath)
+  } catch (error) {
+    // `pathsRender` dit ce que le rendu *devrait* produire, pas ce qui existe
+    // encore : un MP4 supprimé après coup laisse `deliveryToDay` valider sur
+    // l'empreinte seule (`src/server/renders.ts`). Une absence de fichier est
+    // le même refus 400 que « exporter avant de publier », pas un défaut du
+    // serveur ; toute autre erreur d'E/S remonte telle quelle.
+    if (isAAbsence(error)) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
+    throw error
+  }
   const eligibility = platformEligibility(clipDuration(clip.segments), stat.size)
   if (!eligibility.eligible) throw requestInvalid(eligibility.reason)
 
@@ -212,8 +277,8 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
 
   const texts = platformTexts(clip, representativePlatform(platforms))
-  const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, ...texts }
-  const settled = runDetached(db, adapter, clip, platforms, job, fingerprint)
+  const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
+  const settled = runDetached(db, adapter, clip, platforms, job, fingerprint, sleep)
   settled.catch(() => {
     // Les échecs sont déjà écrits dans `publications` par `runDetached` ; ce
     // `catch` n'existe que pour qu'une promesse dont personne n'attend le

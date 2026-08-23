@@ -8,11 +8,13 @@ import { GET as publicationsRoute } from '@/app/api/clips/[id]/publications/rout
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import type { Platform } from '@/core/publication'
 import type { Clip } from '@/core/edl'
-import { closeDb, getDb, getPublications, putClip, upsertProject, upsertPublication } from '@/server/db'
+import { RENDER_NATIVE } from '@/core/render-flags'
+import { closeDb, getClip, getDb, getPublications, putClip, upsertProject, upsertPublication } from '@/server/db'
 import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
 import type { Probe } from '@/server/ffprobe'
 import { forgetAll } from '@/server/publication/registry'
-import { renderClip } from '@/server/steps/render'
+import { launchPublish } from '@/server/publication/service'
+import { pathsRender, renderClip } from '@/server/steps/render'
 
 /**
  * Les routes `POST /api/clips/:id/publish` et `GET /api/clips/:id/publications`,
@@ -254,5 +256,97 @@ describe('GET /api/clips/:id/publications', () => {
     expect(response.status).toBe(200)
     const payload = (await response.json()) as { publications: { platform: string }[] }
     expect(payload.publications.map((p) => p.platform)).toEqual(['youtube'])
+  })
+})
+
+describe('POST /api/clips/:id/publish — plateformes en double', () => {
+  it('refuse une plateforme répétée à la frontière HTTP', async () => {
+    await exportClip()
+    const response = await publishRoute(postRequest({ platforms: ['instagram', 'instagram'] }), context(CLIP_ID))
+    expect(response.status).toBe(400)
+  })
+})
+
+describe('POST /api/clips/:id/publish — rendu manquant sur disque', () => {
+  it('400, pas 500, quand le fichier attendu a disparu', async () => {
+    await exportClip()
+    const paths = pathsRender(PROJECT_ID, CLIP_ID, '1:1', RENDER_NATIVE)
+    fs.rmSync((paths.variant9x16 ?? paths.mp4)!, { force: true })
+    const response = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
+    expect(response.status).toBe(400)
+  })
+})
+
+/** Un adaptateur dont `publish` rend tout `in_progress`, contrôlé par `poll`. */
+function pollingAdapter(poll: PublicationAdapter['poll']): PublicationAdapter {
+  return {
+    platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
+    availability: async () => {
+      throw new Error('non utilisé par ces tests')
+    },
+    publish: async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'in_progress', requestId: 'r1' }
+      return outcomes
+    },
+    poll,
+  }
+}
+
+describe('launchPublish — sondage d’un envoi asynchrone', () => {
+  it('sonde jusqu’à un état terminal avant d’écrire le résultat', async () => {
+    await exportClip()
+    let pollCalls = 0
+    const adapter = pollingAdapter(async (_requestId, platforms) => {
+      pollCalls += 1
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] =
+          pollCalls < 2
+            ? { status: 'in_progress', requestId: 'r1' }
+            : { status: 'published', remoteId: 'p1', remoteUrl: 'https://example.test/p1' }
+      }
+      return outcomes
+    })
+
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({
+      db: getDb(),
+      adapter,
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      sleep: async () => {},
+    })
+    await settled
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows).toEqual([expect.objectContaining({ platform: 'instagram', status: 'published', remoteId: 'p1' })])
+    expect(pollCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it('abandonne après un nombre borné d’essais, honnêtement `in_progress`', async () => {
+    await exportClip()
+    const adapter = pollingAdapter(async (_requestId, platforms) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) outcomes[platform] = { status: 'in_progress', requestId: 'r1' }
+      return outcomes
+    })
+
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({
+      db: getDb(),
+      adapter,
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      sleep: async () => {},
+    })
+    await settled
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows).toEqual([expect.objectContaining({ platform: 'instagram', status: 'in_progress' })])
   })
 })

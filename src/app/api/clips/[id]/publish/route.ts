@@ -18,7 +18,16 @@ import { launchPublish } from '@/server/publication/service'
  */
 
 const REQUEST = z.strictObject({
-  platforms: z.array(z.enum(PLATFORMS as [Platform, ...Platform[]])).min(1),
+  // Une plateforme répétée deviendrait plusieurs `platform[]` identiques dans
+  // le formulaire Upload Post, alors que la table et le registre en cours
+  // supposent un seul couple (clip, plateforme) : refusée ici plutôt que plus
+  // bas, où l'erreur serait moins lisible.
+  platforms: z
+    .array(z.enum(PLATFORMS as [Platform, ...Platform[]]))
+    .min(1)
+    .refine((platforms) => new Set(platforms).size === platforms.length, {
+      message: 'une plateforme ne peut pas apparaître deux fois',
+    }),
   /** Republier une plateforme déjà `published` (spec §6.5). */
   force: z.boolean().optional(),
 })

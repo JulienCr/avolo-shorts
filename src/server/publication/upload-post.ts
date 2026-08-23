@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
@@ -14,7 +15,7 @@ import {
   UploadPostRateLimitError,
   UploadPostTokenExpiredError,
 } from '@/server/publication/errors'
-import type { Environment } from '@/server/secrets'
+import { isReference, type Environment } from '@/server/secrets'
 
 /**
  * Le connecteur Upload Post — un seul connecteur pour les quatre plateformes,
@@ -65,6 +66,19 @@ type RawUploadResponse = {
   usage?: UsageFigures
 }
 
+/**
+ * La forme de `GET /api/uploadposts/status` (openapi.json, vérifié le 23 août
+ * 2026) : `results` y est un **tableau** `{platform, success, message}`, pas
+ * un objet indexé par plateforme comme sur `/api/upload` — les deux points de
+ * terminaison ne partagent pas leur schéma de retour malgré le nom identique
+ * du champ. Ni `url` ni `post_id` n'y figurent.
+ */
+type RawStatusResult = { platform: string; success: boolean; message?: string }
+type RawStatusResponse = {
+  status?: 'pending' | 'in_progress' | 'completed'
+  results?: RawStatusResult[]
+}
+
 function isUsage(value: unknown): value is UsageFigures {
   return (
     typeof value === 'object' &&
@@ -77,10 +91,10 @@ function isUsage(value: unknown): value is UsageFigures {
 /** Le message d'erreur qu'un corps de réponse porte, débarrassé de ce qui n'apprend rien. */
 async function bodyDetail(
   response: Response,
-): Promise<{ message: string; usage: UsageFigures | null; parsed: RawUploadResponse | null }> {
+): Promise<{ message: string; usage: UsageFigures | null; parsed: unknown }> {
   const text = await response.text()
   try {
-    const parsed = JSON.parse(text) as RawUploadResponse & { message?: unknown; error?: unknown }
+    const parsed = JSON.parse(text) as { usage?: unknown; message?: unknown; error?: unknown }
     const usage = isUsage(parsed.usage) ? parsed.usage : null
     const message =
       typeof parsed.message === 'string'
@@ -96,9 +110,12 @@ async function bodyDetail(
 
 /**
  * Lève l'une des quatre erreurs nommées de la spec §8 sur les codes qui les
- * distinguent, ou une erreur générique pour tout le reste.
+ * distinguent, ou une erreur générique pour tout le reste. Générique sur `T` :
+ * `/api/upload` et `/api/uploadposts/status` répondent 200 avec des formes
+ * différentes (voir `RawStatusResponse`), mais partagent ce même traitement
+ * d'erreur.
  */
-async function requireOk(response: Response): Promise<RawUploadResponse> {
+async function requireOk<T>(response: Response): Promise<T> {
   const { message, usage, parsed } = await bodyDetail(response)
   if (response.status === 401) throw new UploadPostTokenExpiredError(message)
   if (response.status === 429) throw new UploadPostRateLimitError(usage)
@@ -106,13 +123,25 @@ async function requireOk(response: Response): Promise<RawUploadResponse> {
   if (response.status === 400) throw new UploadPostAccountMisconfiguredError(message)
   if (!response.ok) throw new Error(`Upload Post a répondu ${response.status} : ${message}`)
   if (parsed === null) throw new Error(`Upload Post a répondu un corps illisible : ${message}`)
-  return parsed
+  return parsed as T
 }
 
+/**
+ * Refuse une adresse 1Password non résolue (`op://…`) plutôt que de
+ * l'envoyer telle quelle comme clé API : Upload Post répondrait 401, et
+ * l'erreur nommée qui en sortirait — jeton expiré — cacherait la vraie cause
+ * (un `.env` modifié pendant que le serveur tourne ; `requireSecret`,
+ * `src/server/secrets.ts`, porte le même garde-fou côté démarrage).
+ */
 function requiredEnv(env: Environment, name: string): string {
   const value = env[name]
   if (value === undefined || value === '') {
     throw new UploadPostAccountMisconfiguredError(`${name} n'est pas définie.`)
+  }
+  if (isReference(value)) {
+    throw new UploadPostAccountMisconfiguredError(
+      `${name} vaut encore une adresse 1Password (op://…) : la résolution du démarrage a été défaite. Relancer le serveur.`,
+    )
   }
   return value
 }
@@ -132,6 +161,20 @@ function outcomeFor(platform: Platform, result: RawPlatformResult | undefined, r
   const remoteUrl = result.url ?? null
   if (platform === 'tiktok') return { status: 'submitted', remoteId, remoteUrl }
   return { status: 'published', remoteId, remoteUrl }
+}
+
+/**
+ * Même règle de statut que `outcomeFor`, sur la forme de
+ * `/api/uploadposts/status` — qui ne porte ni `url` ni `post_id`. `null` :
+ * cette plateforme n'apparaît pas encore dans les résultats, l'envoi continue.
+ */
+function outcomeForStatus(platform: Platform, result: RawStatusResult | undefined): PlatformOutcome | null {
+  if (result === undefined) return null
+  if (!result.success) {
+    return { status: 'failed', error: result.message ?? 'Échec sans message chez Upload Post.' }
+  }
+  if (platform === 'tiktok') return { status: 'submitted', remoteId: null, remoteUrl: null }
+  return { status: 'published', remoteId: null, remoteUrl: null }
 }
 
 /** Les paramètres propres à chaque plateforme (table A.4 du contrat de cette PR). */
@@ -169,23 +212,36 @@ async function publish(
   form.set('user', user)
   for (const platform of platforms) form.append('platform[]', platform)
   form.set('video', new Blob([buffer]), path.basename(job.videoPath))
-  form.set('title', job.title)
-  form.set('description', job.description)
+  if (platforms.includes('youtube')) {
+    form.set('title', job.title)
+    form.set('description', job.description)
+  } else {
+    // Sur `/api/upload`, `title` est la légende par défaut que lisent
+    // Instagram, TikTok et Facebook ; `description` y est ignoré (openapi.json,
+    // vérifié le 23 août 2026). `platformTexts` (`src/core/publication.ts`)
+    // range déjà toute la légende de ces plateformes dans `job.description`
+    // (`job.title` y vaut toujours '') — c'est donc `description` qu'il faut
+    // envoyer sous `title` pour qu'elle ne se perde pas.
+    form.set('title', job.title !== '' ? job.title : job.description)
+  }
   form.set('async_upload', 'true')
   for (const platform of platforms) applyPlatformParams(form, platform)
 
   // Une clé par (clip, jeu de plateformes, empreinte) : deux appels identiques
   // — un double-clic, une relance réseau — ne déposent pas deux fois. Les
   // plateformes sont triées : leur ordre d'arrivée dans `platforms` ne doit
-  // pas changer la clé.
-  const idempotencyKey = `${job.clipId}:${[...platforms].sort().join('+')}:${job.fingerprint}`
+  // pas changer la clé. **Une republication forcée** (`force: true`, même
+  // rendu) doit au contraire recevoir une clé distincte : sans quoi Upload
+  // Post la traite comme un doublon de l'envoi d'origine et ne republie rien.
+  const baseKey = `${job.clipId}:${[...platforms].sort().join('+')}:${job.fingerprint}`
+  const idempotencyKey = job.force ? `${baseKey}:force:${randomUUID()}` : baseKey
 
   const response = await fetchImpl(`${BASE_URL}/api/upload`, {
     method: 'POST',
     headers: { Authorization: `Apikey ${apiKey}`, 'Idempotency-Key': idempotencyKey },
     body: form,
   })
-  const raw = await requireOk(response)
+  const raw = await requireOk<RawUploadResponse>(response)
   const requestId = raw.request_id ?? idempotencyKey
 
   const outcomes = {} as Record<Platform, PlatformOutcome>
@@ -204,10 +260,13 @@ async function poll(
     `${BASE_URL}/api/uploadposts/status?request_id=${encodeURIComponent(requestId)}`,
     { headers: { Authorization: `Apikey ${apiKey}` } },
   )
-  const raw = await requireOk(response)
+  const raw = await requireOk<RawStatusResponse>(response)
+  const byPlatform = new Map((raw.results ?? []).map((r) => [r.platform, r]))
 
   const outcomes = {} as Record<Platform, PlatformOutcome>
-  for (const platform of platforms) outcomes[platform] = outcomeFor(platform, raw.results?.[platform], requestId)
+  for (const platform of platforms) {
+    outcomes[platform] = outcomeForStatus(platform, byPlatform.get(platform)) ?? { status: 'in_progress', requestId }
+  }
   return outcomes
 }
 

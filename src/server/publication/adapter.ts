@@ -17,6 +17,13 @@ export type PublicationJob = {
   description: string
   /** L'empreinte de rendu au moment du lancement, voir `PublicationRecord.publishedFingerprint`. */
   fingerprint: string
+  /**
+   * Une republication explicite du même rendu (spec §6.5), plutôt qu'un
+   * premier envoi ou une relance réseau — un connecteur qui déduit une clé
+   * d'idempotence de `(clipId, platforms, fingerprint)` en a besoin pour ne
+   * pas dédupliquer le geste volontaire.
+   */
+  force?: boolean
 }
 
 export type PlatformOutcome =

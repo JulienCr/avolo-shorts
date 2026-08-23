@@ -21,17 +21,12 @@ import { type AiSettings, type LlmAvailability, type LlmProvider, LLM_PROVIDERS 
  * le fournisseur et le modèle de chaque usage — repérage, correction du
  * transcript, génération du hook —, plus l'adresse d'un serveur Ollama.
  *
- * **Le repérage et le hook agissent ; seule la correction du transcript
- * n'existe pas encore.** `POST /api/clips/:id/hook` est le premier appelant
- * de l'usage `hook` — câblé, persisté et réglable depuis une PR antérieure,
- * il attendait cet appelant. La correction du transcript, elle, se règle et
- * se persiste sans que rien ne la lise : elle porte donc encore son propre
- * bandeau — la forme retenue par `HookSection` pour le même problème, mais
- * **pas la même solution** : là-bas, rien ne s'écrit, parce qu'aucun
- * stockage n'existe encore pour ces valeurs. Ici, le stockage existe, donc
- * le champ reste actif, réglable et persisté ; seul le bandeau dit qu'aucun
- * code ne le lit — et il disparaît le jour où un appelant existe, comme il
- * vient de disparaître pour le hook.
+ * **Les trois usages agissent désormais.** `POST /api/clips/:id/hook` a été
+ * le premier appelant de l'usage `hook`, câblé, persisté et réglable depuis
+ * une PR antérieure ; `POST /api/projects/:id/transcript/correction` est
+ * celui de `correction` — la dernière case qui portait encore un bandeau
+ * « pas encore branché », sur le même modèle que `HookSection` l'a fait
+ * disparaître pour le hook.
  *
  * **Changer un réglage ne recalcule rien** (retour d'usage §6.1 et §11), comme
  * le reste de cet écran : un recalcul reste une action explicite, depuis
@@ -92,14 +87,10 @@ type Usage = {
 
 /**
  * Le contrat le dit en toutes lettres : « ne laisse pas croire qu'un réglage
- * agit ». `correction` et `hook` s'écrivent et se persistent — contrairement
- * aux réglages inertes de `HookSection` — mais rien ne les lit encore, et
- * c'est ce que chacun de ces deux bandeaux annonce.
- *
- * **La forme reprend celle de `HookSection`** (`Alert` + `Info` + un titre et
- * une description), sans le verrou : là-bas rien ne s'écrit parce qu'aucun
- * stockage n'existe ; ici le stockage existe, donc le champ reste actif, et
- * seul le banner change de sens.
+ * agit ». `banner` reste dans `Usage` pour cette raison-là — un futur usage
+ * réglable avant d'avoir son appelant en aurait de nouveau besoin —, mais
+ * aucun des trois n'en porte plus : les trois usages ont désormais un
+ * appelant.
  */
 const USAGES: readonly Usage[] = [
   {
@@ -115,12 +106,8 @@ const USAGES: readonly Usage[] = [
     providerField: 'correctionProvider',
     modelField: 'correctionModel',
     title: 'Correction du transcript',
-    help: 'Le modèle qui corrigerait les fautes de reconnaissance vocale du transcript.',
-    banner: {
-      title: 'Pas encore branché.',
-      description:
-        'Ce réglage se persiste, mais rien ne le lit : la correction du transcript n’existe pas encore.',
-    },
+    help: 'Le modèle qui corrige la ponctuation, les homophones et les accords du transcript.',
+    banner: null,
   },
   {
     key: 'hook',

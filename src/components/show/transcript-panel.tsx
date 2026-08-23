@@ -1,20 +1,29 @@
 'use client'
 
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { FileText, RotateCcw } from 'lucide-react'
+import { FileText, RotateCcw, Wand2 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import type { CorrectionRejectionReason } from '@/core/correction'
 import { count } from '@/core/phase'
-import { ApiError, type CandidateClip } from '@/lib/api'
-import { indexTranscript, type IndexedLine, type TranscriptLine } from '@/lib/editing'
+import { ApiError, type CandidateClip, type CorrectionProposal } from '@/lib/api'
+import { indexTranscript, wordsToText, type IndexedLine, type TranscriptLine } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
 import { linkProject } from '@/lib/navigation'
-import { useCandidates, useCorrectTranscript, useProject, useRetry, useTranscript } from '@/lib/queries'
+import {
+  useCandidates,
+  useCorrectTranscript,
+  useProject,
+  useProposeCorrection,
+  useRetry,
+  useTranscript,
+} from '@/lib/queries'
 import { agreement } from '@/components/review/template'
 import { ButtonRetry } from '@/components/review/retry'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogClose,
@@ -167,6 +176,7 @@ export function TranscriptPanel({
   // ait effectivement ouvert le transcript.
   const transcript = useTranscript(projectId, { enabled: open })
   const correction = useCorrectTranscript()
+  const propose = useProposeCorrection()
   const project = useProject(projectId, { enabled: open })
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
@@ -186,12 +196,24 @@ export function TranscriptPanel({
   const [draft, setDraft] = useState('')
   const [retranscribeOpen, setRetranscribeOpen] = useState(false)
   // **Accumulés pour la séance, jamais persistés.** Ce n'est pas un état du
-  // serveur — le mécanisme d'empreinte de rendu ne compare pas encore le
-  // texte pour décider qu'un rendu est périmé (voir le rapport de cette
-  // PR) —, c'est une trace de ce qu'on vient de faire, pour que la
-  // conséquence reste visible sans qu'il faille la retenir soi-même.
+  // serveur — ni la correction manuelle ni la correction par modèle
+  // n'appellent `discardRenderStale`, donc un rendu déjà exporté ne se
+  // périme pas tout seul ici, même si l'empreinte sait comparer le texte
+  // depuis #87 (`captionsContent`) —, c'est une trace de ce qu'on vient de
+  // faire, pour que la conséquence reste visible sans qu'il faille la
+  // retenir soi-même.
   const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
   const [correctionsApplied, setCorrectionsApplied] = useState(0)
+
+  // **La proposition du modèle n'est jamais écrite toute seule.** Elle vit
+  // ici, dans l'état du composant, le temps qu'on décoche ce qu'on ne veut
+  // pas — `proposals` reste vide tant que personne n'a cliqué le bouton, et
+  // se vide à nouveau une fois validée ou fermée.
+  const [proposals, setProposals] = useState<CorrectionProposal[]>([])
+  const [excluded, setExcluded] = useState<Set<number>>(new Set())
+  const [rejected, setRejected] = useState<Partial<Record<CorrectionRejectionReason, number>>>({})
+  const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   // **La retranscription efface les corrections manuelles, sur le sidecar
   // comme sur cet écran.** WhisperX remplace le fichier entier : le bandeau
@@ -223,6 +245,10 @@ export function TranscriptPanel({
         setCorrectionsApplied(0)
         setSelection(null)
         setDraft('')
+        // Les propositions du modèle indexent l'ancien texte : une
+        // retranscription les rend caduques avant même qu'on ait pu les lire.
+        setProposals([])
+        setExcluded(new Set())
       }
       sawTranscriptStep.current = false
     }
@@ -363,6 +389,78 @@ export function TranscriptPanel({
     )
   }
 
+  function proposeCorrections() {
+    if (propose.isPending) return
+    propose.mutate(projectId, {
+      onSuccess(result) {
+        setProposals(result.proposals)
+        setExcluded(new Set())
+        setRejected(result.rejected)
+        setApplyError(null)
+      },
+    })
+  }
+
+  function toggleProposal(index: number) {
+    setExcluded((previous) => {
+      const next = new Set(previous)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
+  function dismissProposals() {
+    setProposals([])
+    setExcluded(new Set())
+    setApplyError(null)
+  }
+
+  /**
+   * Écrit les substitutions retenues, **une à la fois** — le chemin
+   * d'écriture existant (`POST /api/projects/:id/transcript`) via la même
+   * mutation que la correction manuelle, jamais un second chemin.
+   *
+   * Une substitution qui échoue (409 : le texte a changé sous les yeux)
+   * reste dans la liste plutôt que de disparaître en silence — les autres
+   * continuent, `applyError` dit combien n'ont pas pu s'écrire.
+   */
+  async function applyProposals() {
+    if (applying) return
+    const toApply = proposals.filter((_, i) => !excluded.has(i))
+    if (toApply.length === 0) return
+    setApplying(true)
+    setApplyError(null)
+
+    const remaining: CorrectionProposal[] = proposals.filter((_, i) => excluded.has(i))
+    let failures = 0
+    for (const proposal of toApply) {
+      try {
+        const result = await correction.mutateAsync({ projectId, correction: proposal.request })
+        setCorrectionsApplied((n) => n + 1)
+        if (result.clipsTouched.length > 0) {
+          setTouchedClips((previous) => {
+            const next = new Map(previous)
+            for (const c of result.clipsTouched) next.set(c.id, c.title)
+            return next
+          })
+        }
+      } catch {
+        failures += 1
+        remaining.push(proposal)
+      }
+    }
+
+    setProposals(remaining)
+    setExcluded(new Set())
+    setApplying(false)
+    if (failures > 0) {
+      setApplyError(
+        `${agreement(failures, 'correction n’a', 'corrections n’ont')} pas pu s’écrire : le texte a peut-être changé entretemps.`,
+      )
+    }
+  }
+
   const items = virtualizer.getVirtualItems()
   const touchedClipsList = Array.from(touchedClips.values())
   const cursorLine = lineOfWord(indexedLines, cursor)
@@ -395,7 +493,37 @@ export function TranscriptPanel({
             onOpenChange={setRetranscribeOpen}
             projectId={projectId}
           />
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-disabled={propose.isPending}
+              onClick={proposeCorrections}
+            >
+              <Wand2 aria-hidden />
+              {propose.isPending ? 'Analyse en cours…' : 'Corriger automatiquement avec un LLM'}
+            </Button>
+            {propose.isError && (
+              <span role="alert" className="text-xs text-destructive">
+                {propose.error.message}
+              </span>
+            )}
+          </div>
         </div>
+
+        {proposals.length > 0 && (
+          <CorrectionProposals
+            proposals={proposals}
+            lines={lines}
+            excluded={excluded}
+            rejected={rejected}
+            applying={applying}
+            applyError={applyError}
+            onToggle={toggleProposal}
+            onApply={() => void applyProposals()}
+            onDismiss={dismissProposals}
+          />
+        )}
 
         {correctionsApplied > 0 && (
           <div className="shrink-0 border-b px-4 py-2">
@@ -526,6 +654,132 @@ export function TranscriptPanel({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** Le libellé de chaque catégorie de refus (`CorrectionRejectionReason`, `@/core/correction`). */
+const REJECTION_LABELS: Record<CorrectionRejectionReason, string> = {
+  'out-of-range': 'hors de l’empan',
+  overlap: 'en recouvrement',
+  'empty-word': 'remplacement vide',
+  'word-has-space': 'remplacement à plusieurs mots',
+  'phonetic-mismatch': 'invariance phonétique',
+  'crosses-line': 'à cheval sur deux phrases',
+}
+
+function rejectionSummary(rejected: Partial<Record<CorrectionRejectionReason, number>>): string {
+  return Object.entries(rejected)
+    .map(([reason, n]) => `${n} ${REJECTION_LABELS[reason as CorrectionRejectionReason]}`)
+    .join(', ')
+}
+
+/**
+ * La liste des substitutions que le modèle propose, avant toute écriture.
+ *
+ * **Virtualisée comme le reste du panneau** (§2.3) : une correction sur une
+ * émission entière peut en proposer plusieurs centaines, et les monter
+ * toutes gèlerait le défilement pour la même raison que le transcript
+ * lui-même — `useVirtualizer` mesure la hauteur réelle de son conteneur.
+ */
+function CorrectionProposals({
+  proposals,
+  lines,
+  excluded,
+  rejected,
+  applying,
+  applyError,
+  onToggle,
+  onApply,
+  onDismiss,
+}: {
+  proposals: CorrectionProposal[]
+  lines: TranscriptLine[]
+  excluded: Set<number>
+  rejected: Partial<Record<CorrectionRejectionReason, number>>
+  applying: boolean
+  applyError: string | null
+  onToggle: (index: number) => void
+  onApply: () => void
+  onDismiss: () => void
+}) {
+  const lineById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines])
+  const container = useRef<HTMLDivElement>(null)
+  // Même raison que le virtualiseur du transcript lui-même : voir son commentaire.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: proposals.length,
+    getScrollElement: () => container.current,
+    estimateSize: () => 56,
+    overscan: 8,
+  })
+  const items = virtualizer.getVirtualItems()
+  const keptCount = proposals.length - excluded.size
+  const rejectedTotal = Object.values(rejected).reduce((a, b) => a + (b ?? 0), 0)
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {agreement(proposals.length, 'substitution proposée', 'substitutions proposées')}
+          {rejectedTotal > 0 &&
+            ` — ${agreement(rejectedTotal, 'refusée', 'refusées')} par les gardes (${rejectionSummary(rejected)}).`}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={applying} onClick={onDismiss}>
+            Fermer
+          </Button>
+          <Button size="sm" aria-disabled={applying || keptCount === 0} onClick={onApply}>
+            {applying ? 'Application…' : `Valider ${agreement(keptCount, 'correction', 'corrections')}`}
+          </Button>
+        </div>
+      </div>
+
+      {applyError && (
+        <span role="alert" className="text-xs text-destructive">
+          {applyError}
+        </span>
+      )}
+
+      <div ref={container} className="max-h-64 overflow-y-auto rounded-md border">
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          {items.map((item) => {
+            const proposal = proposals[item.index]
+            if (proposal === undefined) return null
+            const line = lineById.get(proposal.request.lineId)
+            const id = `correction-proposal-${item.index}`
+            return (
+              <div
+                key={item.index}
+                ref={virtualizer.measureElement}
+                data-index={item.index}
+                className="absolute top-0 left-0 flex w-full items-start gap-2 px-2 py-1.5"
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                <Checkbox
+                  id={id}
+                  checked={!excluded.has(item.index)}
+                  onCheckedChange={() => onToggle(item.index)}
+                  className="mt-1 shrink-0"
+                />
+                <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+                  <span className="mr-2 font-mono text-[0.75rem] text-muted-foreground/70 tabular-nums">
+                    {formatTimecode(proposal.timecode)}
+                  </span>
+                  {line !== undefined && (
+                    <p className="truncate text-xs text-muted-foreground">{wordsToText(line.words)}</p>
+                  )}
+                  <p className="text-sm">
+                    <span className="text-muted-foreground line-through">{proposal.original}</span>
+                    {' → '}
+                    <span className="font-medium">{proposal.replacement}</span>
+                  </p>
+                </label>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
   )
 }
 

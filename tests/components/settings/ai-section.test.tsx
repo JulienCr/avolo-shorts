@@ -4,12 +4,11 @@
  * `AiSection` : le fournisseur et le modèle des trois usages, plus l'adresse
  * Ollama — retour d'usage §6.1.
  *
- * **Ce qui distingue cette section de `HookSection`, et que ces tests
- * tiennent** : `correction` reste un champ **actif** — il s'écrit, comme le
- * repérage et le hook — mais porte un bandeau qui dit que rien ne le lit
- * encore. Le repérage et le hook, eux, n'ont plus ce bandeau : le premier
- * agissait déjà, le second a désormais `POST /api/clips/:id/hook` pour
- * appelant.
+ * **Les trois usages ont désormais un appelant** : le repérage agissait
+ * déjà, le hook a `POST /api/clips/:id/hook`, et la correction du transcript
+ * a `POST /api/projects/:id/transcript/correction` — la dernière case qui
+ * portait encore le bandeau « pas encore câblé ». Aucun des trois n'en a
+ * plus, et ce test le vérifie.
  */
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -39,7 +38,7 @@ const AVAILABLE: LlmAvailability = {
   ollama: { available: true, reason: null },
 }
 
-it('affiche les trois usages, un seul avec le bandeau « pas encore câblé »', () => {
+it('affiche les trois usages, aucun avec le bandeau « pas encore câblé »', () => {
   render(
     <AiSection values={VALUES} availability={AVAILABLE} onChange={() => {}} />,
   )
@@ -48,9 +47,8 @@ it('affiche les trois usages, un seul avec le bandeau « pas encore câblé »',
   expect(screen.getByText('Correction du transcript')).toBeTruthy()
   expect(screen.getByText('Hook')).toBeTruthy()
 
-  // Un seul bandeau « pas encore câblé » : la correction du transcript.
-  // Le hook, désormais appelé par `POST /api/clips/:id/hook`, ne l'a plus.
-  expect(screen.getAllByText(/rien ne le lit/)).toHaveLength(1)
+  // Aucun bandeau « pas encore câblé » : les trois usages ont un appelant.
+  expect(screen.queryAllByText(/rien ne le lit/)).toHaveLength(0)
 })
 
 it('affiche le modèle réglé de chaque usage, pas un nom technique', () => {

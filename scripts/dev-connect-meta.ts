@@ -1,26 +1,13 @@
 /**
- * L'appairage OAuth Meta (Facebook Login for Business), à rejouer environ une
- * fois par an — quand le jeton Instagram est mort et que le rafraîchissement
- * automatique n'a plus rien à rafraîchir.
+ * L'appairage OAuth Meta (Facebook Login for Business) — à rejouer environ
+ * une fois par an.
  *
  *     pnpm tsx scripts/dev-connect-meta.ts
  *     pnpm tsx scripts/dev-connect-meta.ts --code=<code renvoyé par Meta>
  *
- * Sans `--code`, affiche l'URL d'autorisation à ouvrir dans un navigateur —
- * elle redirige vers la page de retour OAuth d'`avolo.fr`, qui affiche le
- * `code` dans l'adresse. Le recopier dans `--code=` relance le script pour
- * l'échanger.
- *
- * **Chemin Facebook Login, pas Instagram Login** — mesuré (issue #146) : seul
- * celui-ci permet `upload_type=resumable`, donc un téléversement depuis le
- * disque plutôt que par URL publique (spec §3).
- *
- * Le jeton de Page (`META_PAGE_TOKEN`) n'expire pas une fois dérivé d'un
- * jeton utilisateur longue durée (spec §7) : ce script l'affiche pour qu'il
- * soit collé à la main dans 1Password, plutôt que d'y écrire — cette
- * intégration est en lecture seule (`src/server/secrets.ts`). Le jeton
- * Instagram, lui, tourne : il est persisté directement dans
- * `projects/meta-tokens.json`, que `.gitignore` couvre déjà.
+ * Facebook Login, pas Instagram Login (`docs/lessons.md`). Le jeton de Page
+ * n'expire pas : affiché ici pour 1Password (lecture seule) ; le jeton
+ * Instagram tourne et se persiste dans `projects/meta-tokens.json`.
  */
 
 import { requireSecret } from '@/server/secrets'

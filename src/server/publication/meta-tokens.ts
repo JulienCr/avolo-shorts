@@ -7,15 +7,13 @@ import { isReference, type Environment } from '@/server/secrets'
 
 /**
  * Ce qui tourne côté Meta et ne peut donc pas vivre dans 1Password (lecture
- * seule ici) : le jeton Facebook Login qui porte les droits Instagram, 60
- * jours, rafraîchissable (spec §7). L'identifiant du compte Instagram est
- * découvert à l'appairage et rangé avec lui plutôt que dans `.env`, puisque
- * `scripts/dev-connect-meta.ts` les obtient dans le même appel.
+ * seule ici) : le jeton Facebook Login, 60 jours, rafraîchissable (spec §7).
+ * L'identifiant du compte Instagram est rangé avec lui plutôt que dans
+ * `.env`, puisque `scripts/dev-connect-meta.ts` les obtient dans le même
+ * appel.
  *
- * Ce que le jeton de Page Facebook n'a pas besoin d'être ici : il n'expire
- * pas une fois dérivé d'un jeton utilisateur longue durée (spec §7), donc il
- * vit en 1Password comme `META_PAGE_TOKEN` — rien à rafraîchir, rien à
- * persister.
+ * Le jeton de Page Facebook n'est pas ici : il n'expire pas, donc il vit en
+ * 1Password (`META_PAGE_TOKEN`).
  */
 export type MetaTokenFile = {
   instagramUserId: string

@@ -88,10 +88,9 @@ export function statusFor(error: unknown): number {
   if (error instanceof UploadPostRateLimitError) return 429
   if (error instanceof UploadPostFileRefusedError) return 422
   if (error instanceof UploadPostAccountMisconfiguredError) return 400
-  // Le connecteur Meta direct (issue #146) : même quatre natures, plus le
-  // droit manquant sur l'actif (2207085) et le sondage de conteneur qui
-  // n'aboutit jamais — retentable plus tard, donc un 503 comme les pannes
-  // transitoires ci-dessous.
+  // Le connecteur Meta direct (issue #146) : droit manquant sur l'actif
+  // (2207085) en 403, sondage de conteneur qui n'aboutit jamais en 503 —
+  // retentable plus tard, comme les pannes transitoires ci-dessous.
   if (error instanceof MetaTokenExpiredError) return 401
   if (error instanceof MetaRateLimitError) return 429
   if (error instanceof MetaFileRefusedError) return 422

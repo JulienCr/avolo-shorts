@@ -22,24 +22,14 @@ import { wait } from '@/server/llm/retry'
 /**
  * Le connecteur Meta direct — Instagram Reels et Facebook Page Reels par
  * l'API Graph, sans passer par Upload Post (issue #146). Un appel par
- * plateforme, contrairement à `upload-post.ts` : Meta n'a pas de point
- * d'entrée qui prenne les deux à la fois, donc `publish` boucle en interne et
+ * plateforme, contrairement à `upload-post.ts` : `publish` boucle en interne,
  * un échec sur l'une n'annule jamais la réussite de l'autre.
  *
- * **Chemin d'authentification unique : Facebook Login, pas Instagram
- * Login.** `upload_type=resumable` — le seul mode qui téléverse depuis le
- * disque plutôt que par URL publique (spec §3) — n'existe que sur les jetons
- * `EAA…` de `graph.facebook.com`. Mesuré en v21, v22 et v23 : la connexion
- * Instagram directe (`graph.instagram.com`, jetons `IGA…`) rejette
- * systématiquement l'appel avec « The parameter video_url is required ».
- * Voir `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie un reel ».
+ * Chemin Facebook Login exclusivement (pas Instagram Login) — voir
+ * `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie un reel ».
  *
- * **Jamais vérifié pour de vrai côté Facebook Page Reels.** Le flux
- * Instagram a publié un reel réel le 23 août 2026
- * (<https://www.instagram.com/reel/DcY8KVBCml7/>) ; l'appariement Facebook
- * attend encore `pages_manage_posts` sur le jeton de Page. Tout ce fichier
- * est donc testé contre un `fetch` injecté, jamais contre le réseau — voir
- * le corps de la PR pour le détail des chemins non exercés.
+ * **Jamais vérifié côté Facebook Page Reels** : le jeton de Page manque
+ * encore `pages_manage_posts`. Testé partout contre un `fetch` injecté.
  */
 
 const UPLOAD_BASE = 'https://rupload.facebook.com'

@@ -133,7 +133,8 @@ export function quotaDelay(message: string): number | null {
   return Math.ceil(Number(found[1]) * 1000)
 }
 
-const wait = (ms: number): Promise<void> =>
+/** Le `sleep` par défaut d'un appel — aussi le défaut de `runCandidates` (`candidates.ts`). */
+export const wait = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
@@ -213,7 +214,7 @@ export async function callWithRetry<T = unknown>(
       if (quota !== null && quota > WAIT_QUOTA_MAX_MS) {
         throw new Error(
           `Le fournisseur refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
-            `soit plus que les ${WAIT_QUOTA_MAX_MS / 1000} s que cette politique accepte d'attendre. ` +
+            `soit plus que les ${WAIT_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
             `Arrêt plutôt que relance avant le délai demandé (${label}).`,
         )
       }

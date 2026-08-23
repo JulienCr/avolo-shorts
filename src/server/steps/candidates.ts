@@ -36,6 +36,7 @@ import {
   isTransient,
   leverIfBlocked,
   quotaDelay,
+  wait,
 } from '@/server/llm/retry'
 import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode } from '@/server/llm/types'
 import { candidatesPath, placeSidecar } from '@/server/paths'
@@ -137,16 +138,6 @@ const RECOVERY_MAX = 3
  * approcher ce que le modèle sait produire.
  */
 const OUTPUT_CAP = 16_384
-
-/**
- * Trois tentatives, et l'attente double à chaque échec : 5 s puis 10 s.
- *
- * L'échelle est celle d'openshorts (`5 * 2^(n-1)`), qui monterait à 20 s à une
- * quatrième tentative — elle n'y va pas, et c'est délibéré : au-delà de trois
- * essais, un service qui ne répond pas ne répondra pas dans la minute, et
- * l'appelant a une chaîne de quarante minutes derrière lui à ne pas bloquer.
- */
-const ATTEMPTS = 3
 
 /**
  * Le délai au-delà duquel un appel est abandonné, en millisecondes.

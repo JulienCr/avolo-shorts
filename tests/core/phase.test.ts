@@ -53,7 +53,7 @@ describe('phaseProject, l’axe des artefacts', () => {
     // ne décrit alors plus une exécution morte, mais un projet qui vient d'être
     // créé. `everRan` — tiré de `status.json` — est le seul fait qui distingue
     // les deux, puisque `steps`, `running` et `error` sont identiques.
-    expect(phaseProject(reading(), null, null, [], false).analysis).toBe('neuf')
+    expect(phaseProject(reading(), null, null, [], false).analysis).toBe('new')
   })
 
   it('dit « interrompu », et non « neuf », dès qu’une exécution a laissé un status.json', () => {

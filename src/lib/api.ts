@@ -11,7 +11,7 @@
  * GET   /api/sources                        -> SourcesListing
  * GET   /api/sources/thumb?file=<nom>       -> image/jpeg
  * GET   /api/projects                       -> ProjectListItem[]
- * POST  /api/projects        { source }     -> RunPlan       (202)
+ * POST  /api/projects        { source, launch? } -> RunPlan  (201/202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
  * POST  /api/projects/:id/stop              -> { stopped }
@@ -159,10 +159,11 @@ export type RunTarget = Exclude<StepName, 'renders'>
 /**
  * Ce que rend une demande d'analyse, création de projet comprise.
  *
- * **202, et pas 201.** L'analyse dure trente à quarante-cinq minutes : ce que la
+ * **202 quand une analyse est lancée**, jamais 201 dans ce cas : ce que la
  * réponse confirme est qu'elle est acceptée et lancée, pas qu'elle est faite.
  * L'avancement se lit ensuite dans `ProjectStatus.running`, et l'échec éventuel
- * dans `ProjectStatus.error`.
+ * dans `ProjectStatus.error`. **Une création sans `launch` (23 août 2026, spec
+ * §12) rend 201** — `shot` y est toujours vide, rien n'a démarré.
  */
 export type RunPlan = {
   projectId: string
@@ -311,7 +312,7 @@ export type ProjectStatus = {
    * de plus. La colonne, elle, est déjà en base.
    */
   sizeBytes: number | null
-  /** Une exécution a-t-elle déjà eu lieu ? Distingue `analysis === 'neuf'` d'`'interrompu'` (spec §12). */
+  /** Une exécution a-t-elle déjà eu lieu ? Distingue `analysis === 'new'` d'`'interrompu'` (spec §12). */
   everRan: boolean
 }
 

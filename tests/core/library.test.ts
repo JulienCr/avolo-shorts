@@ -33,20 +33,19 @@ function project(partial: Partial<LibraryProject> & { id: string }): LibraryProj
 
 describe('showState', () => {
   it('dit « neuve » quand aucun projet n’existe', () => {
-    expect(showState(null, false)).toBe('new')
+    expect(showState(null)).toBe('new')
   })
 
-  it('dit « analyse » quand la source annonce un projet que la liste ne porte pas encore', () => {
-    // Les deux requêtes ne se rafraîchissent pas ensemble :
-    // `markSourceAnalyzed` inscrit le `projectId` dès la réponse de création,
-    // la liste des projets arrive au tour suivant. Retomber sur « neuve »
-    // pendant cette fenêtre reproposerait de lancer l'analyse, et le second clic
-    // rend un 409.
-    expect(showState(null, true)).toBe('analyzing')
+  it('dit « neuve » aussi quand la source annonce un projet que la liste ne porte pas encore', () => {
+    // `createProject` ne lance plus rien par défaut (23 août 2026, spec §12) :
+    // la fenêtre entre la réponse de création et le tour de sondage suivant
+    // décrit donc toujours un projet qui n'a rien lancé, jamais une analyse en
+    // cours.
+    expect(showState(null)).toBe('new')
   })
 
   it('dit « analyse » dès qu’une exécution tourne, même après un échec précédent', () => {
-    expect(showState(project({ id: 'a', running: RUNNING, error: 'tombé' }), true)).toBe(
+    expect(showState(project({ id: 'a', running: RUNNING, error: 'tombé' }))).toBe(
       'analyzing',
     )
   })
@@ -55,20 +54,20 @@ describe('showState', () => {
     // Le serveur tait déjà `stopped` pendant qu'une exécution tourne ; l'écran
     // ne s'y fie pas et fait le même arbitrage, pour que la règle tienne des
     // deux côtés.
-    expect(showState(project({ id: 'a', running: RUNNING, stopped: true }), true)).toBe(
+    expect(showState(project({ id: 'a', running: RUNNING, stopped: true }))).toBe(
       'analyzing',
     )
   })
 
   it('dit « echec » au repos quand la dernière exécution a échoué', () => {
-    expect(showState(project({ id: 'a', error: 'ffmpeg est tombé' }), true)).toBe('failed')
+    expect(showState(project({ id: 'a', error: 'ffmpeg est tombé' }))).toBe('failed')
   })
 
   it('dit « interrompue » sur ce que le serveur a marqué arrêté', () => {
     // Un arrêt demandé ne laisse ni `running`, ni `error`, ni artefact
     // particulier : `stopped` est le seul chemin, et il couvre aussi l'exécution
     // qu'un redémarrage du serveur a emportée.
-    expect(showState(project({ id: 'a', stopped: true }), true)).toBe('interrupted')
+    expect(showState(project({ id: 'a', stopped: true }))).toBe('interrupted')
   })
 
   it('ne déduit plus l’interruption de la durée', () => {
@@ -77,14 +76,14 @@ describe('showState', () => {
     // « Analysée » — le cas qu'on vient de provoquer d'un clic, sur la carte
     // qu'on regarde —, et un projet sans durée mais bel et bien terminé aurait
     // dit le contraire.
-    expect(showState(project({ id: 'a', durationSec: 0 }), true)).toBe('analyzed')
-    expect(showState(project({ id: 'a', durationSec: 5_940, stopped: true }), true)).toBe(
+    expect(showState(project({ id: 'a', durationSec: 0 }))).toBe('analyzed')
+    expect(showState(project({ id: 'a', durationSec: 5_940, stopped: true }))).toBe(
       'interrupted',
     )
   })
 
   it('dit « analysée » quand le projet est au repos, sans échec ni arrêt', () => {
-    expect(showState(project({ id: 'a' }), true)).toBe('analyzed')
+    expect(showState(project({ id: 'a' }))).toBe('analyzed')
   })
 
   // Point A.3 du retour d'usage : un projet peut exister sans qu'aucune
@@ -92,11 +91,11 @@ describe('showState', () => {
   // alors tous leur défaut — exactement comme un projet au repos, sans
   // `everRan` pour les distinguer.
   it('dit « neuve » sur un projet créé sans lancement, même au repos', () => {
-    expect(showState(project({ id: 'a', everRan: false }), true)).toBe('new')
+    expect(showState(project({ id: 'a', everRan: false }))).toBe('new')
   })
 
   it('l’exécution en cours l’emporte sur « neuve »', () => {
-    expect(showState(project({ id: 'a', everRan: false, running: RUNNING }), true)).toBe(
+    expect(showState(project({ id: 'a', everRan: false, running: RUNNING }))).toBe(
       'analyzing',
     )
   })

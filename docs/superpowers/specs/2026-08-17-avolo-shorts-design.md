@@ -741,18 +741,21 @@ puis incrustation par ffmpeg.
 
 Ces valeurs deviennent un preset modifiable, pas des constantes en dur.
 
-**Correction du 23 août 2026.** Le preset d'OpenShorts (Anton 44, contour 4 px,
-16 caractères et 1,4 seconde par carton) rendait des cartons de quatre mots qui
-occupaient toute la largeur du cadre — mesuré à 247 px de hauteur de glyphe sur
-un rendu 1080×1920. Julien a choisi, sur une planche de quatre candidats rendus
-sur de vraies images, un preset plus petit et posé plus longtemps à l'écran :
-Anton 22 (120 px sur 1080×1920), contour 2 px, 36 caractères et 2,5 secondes par
-carton. Le contour descend avec la police parce que `ScaledBorderAndShadow` le
-met à l'échelle du repère `PlayResY`, pas de la taille de police — resté à 4 il
-aurait mangé la lettre à ce corps. Ce nouveau preset est le défaut
-(`DEFAULT_CAPTION_STYLE` dans `src/core/captions/ass.ts`, `MAX_CHARS_DEFAULT` et
-`MAX_DURATION_DEFAULT` dans `src/core/captions/cards.ts`), pas une borne : il
-reste modifiable par preset.
+**Correction du 23 août 2026.** Le preset d'OpenShorts (Anton 44, contour 4
+unités `PlayResY`, 16 caractères et 1,4 seconde par carton) rendait des cartons
+de quatre mots qui occupaient toute la largeur du cadre — mesuré à 247 px de
+hauteur de glyphe sur un rendu 1080×1920. Julien a choisi, sur une planche de
+quatre candidats rendus sur de vraies images, un preset plus petit et posé plus
+longtemps à l'écran : Anton 22 (120 px sur 1080×1920), contour 2 unités `PlayResY`
+(~13 px sur ce même rendu), 36 caractères et 2,5 secondes par carton. **Les
+unités de `borderWidth` ne sont pas des pixels** : `ScaledBorderAndShadow` les
+met à l'échelle du rapport `PlayResY → frame` (`1920 / 288 ≈ 6,67` sur un
+1080×1920), la même mise à l'échelle qui donne 120 px à un `fontSize` de 18
+unités (22 × 0,85, voir `captionUnits`). Le contour descend avec la police pour
+la même raison — resté à 4 unités il aurait mangé la lettre à ce corps. Ce
+nouveau preset est le défaut (`DEFAULT_CAPTION_STYLE` dans
+`src/core/captions/ass.ts`, `MAX_CHARS_DEFAULT` et `MAX_DURATION_DEFAULT` dans
+`src/core/captions/cards.ts`), pas une borne : il reste modifiable par preset.
 
 **Point qui reste ouvert, pas dans le périmètre de cette correction.** Le même
 fichier `.ass` est incrusté sur les deux canevas le jour où `RENDER_NATIVE`
@@ -1295,7 +1298,7 @@ dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
 ```
 GET    /api/sources                            les replays disponibles
 GET    /api/sources/thumb?file=<nom>           la vignette d'un replay
-POST   /api/projects              { source, launch? } -> 202 + projectId
+POST   /api/projects              { source, launch? } -> 201/202 + projectId
 GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL

@@ -102,7 +102,7 @@ export function ShowView({
         <ShowPlayer
           projectId={projectId}
           proxyReady={proxyReady}
-          video={video}
+          videoRef={video}
           onTime={setTime}
           captionCards={transcript.data !== undefined ? captionCards : undefined}
           captionStyle={DEFAULT_CAPTION_STYLE}

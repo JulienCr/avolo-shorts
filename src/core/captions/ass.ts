@@ -74,6 +74,16 @@ const BOM = '\uFEFF'
 const MARGIN_LOW = 43
 
 /**
+ * La marge latérale, en unités de `PlayResY` — écrite en dur dans le bloc
+ * `[V4+ Styles]` (`MarginL`/`MarginR`), jamais réglée par `CaptionStyle`.
+ *
+ * Partagée avec `CaptionOverlay`, qui en a besoin pour la même largeur de
+ * boîte que le rendu : la confondre avec `MARGIN_LOW` (la marge basse, 43)
+ * écrase le carton dans une colonne bien trop étroite.
+ */
+export const MARGIN_SIDE = 10
+
+/**
  * Le look appliqué par défaut. Choisi dans openshorts en rendant quatre
  * candidats sur un vrai clip et en les comparant : Anton blanc en majuscules,
  * mot actif en jaune, contour noir épais, léger effet de pop. Le jaune parce
@@ -286,7 +296,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   const header =
     BOM + '[Script Info]\n' +
     'ScriptType: v4.00+\n' +
-    'PlayResY: 288\n' +
+    `PlayResY: ${PLAYRES_Y}\n` +
     'WrapStyle: 0\n' +
     'ScaledBorderAndShadow: yes\n' +
     '\n' +
@@ -296,7 +306,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
     'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, ' +
     'Alignment, MarginL, MarginR, MarginV, Encoding\n' +
     `Style: Default,${font},${size},${main},${main},` +
-    `${outline},${background},1,0,0,0,100,100,0,0,1,${thickness},0,2,10,10,${margin},1\n` +
+    `${outline},${background},1,0,0,0,100,100,0,0,1,${thickness},0,2,${MARGIN_SIDE},${MARGIN_SIDE},${margin},1\n` +
     '\n' +
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'

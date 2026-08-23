@@ -47,7 +47,7 @@ export function PanelProgress({
   running: { step: StepName; progress: number } | null
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
-  /** Distingue `'neuf'` d'`'interrompu'` (spec §12) ; ne change que le titre. */
+  /** Distingue `'new'` d'`'interrompu'` (spec §12) ; ne change que le titre. */
   everRan: boolean
   /**
    * Ce qu'on sait de la taille de l'émission, pour dimensionner les durées.

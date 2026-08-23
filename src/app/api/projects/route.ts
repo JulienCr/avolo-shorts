@@ -26,8 +26,10 @@ export const GET = route('GET /api/projects', async () => {
 })
 
 /**
- * **202, et pas 201** : la réponse confirme que le projet est créé, pas que
- * l'ingestion a fini. `plan` reste vide sans `launch`.
+ * **202 seulement si `launch` a lancé un travail asynchrone**, 201 sinon : sans
+ * `launch`, la création est terminée avant la réponse et rien ne continue en
+ * arrière-plan — répondre 202 (« accepté pour traitement ») serait trompeur.
+ * `plan` reste vide dans les deux cas sans `launch`.
  */
 export const POST = route('POST /api/projects', async (request: Request) => {
   const { source, launch } = await body(request, CREATION)
@@ -75,6 +77,7 @@ export const POST = route('POST /api/projects', async (request: Request) => {
     )
   }
 
-  const { projectId, plan } = await createProject(source, { launchNow: launch === true })
-  return json({ projectId, plan }, { status: 202 })
+  const launchNow = launch === true
+  const { projectId, plan } = await createProject(source, { launchNow })
+  return json({ projectId, plan }, { status: launchNow ? 202 : 201 })
 })

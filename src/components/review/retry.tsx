@@ -69,7 +69,7 @@ export function ButtonResume({ projectId, inCurrent }: { projectId: string; inCu
   )
 }
 
-/** Le bouton « Commencer l'analyse », décliné de `ButtonResume` — mêmes cibles, affiché sur `analysis === 'neuf'` (spec §12). */
+/** Le bouton « Commencer l'analyse », décliné de `ButtonResume` — mêmes cibles, affiché sur `analysis === 'new'` (spec §12). */
 export function ButtonStart({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
   const retry = useRetry()
   const blocked = inCurrent || retry.isPending

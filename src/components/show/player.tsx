@@ -1,9 +1,9 @@
 'use client'
 
 import { Film } from 'lucide-react'
-import type { RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 
-import { CaptionOverlay } from '@/components/captions/caption-overlay'
+import { CaptionOverlay, useCaptionClock } from '@/components/captions/caption-overlay'
 import type { CaptionStyle } from '@/core/captions/ass'
 import type { Word } from '@/core/transcript'
 
@@ -33,7 +33,7 @@ import type { Word } from '@/core/transcript'
 export function ShowPlayer({
   projectId,
   proxyReady,
-  video,
+  videoRef,
   onTime,
   captionCards,
   captionStyle,
@@ -48,7 +48,7 @@ export function ShowPlayer({
    * attente dont on connaît la cause est une attente supportable.
    */
   proxyReady: boolean
-  video: RefObject<HTMLVideoElement | null>
+  videoRef: RefObject<HTMLVideoElement | null>
   /** L'instant courant, en secondes. La bande de couverture s'en sert. */
   onTime: (seconds: number) => void
   /** Cartons du transcript entier, non recalés. `undefined` tant qu'il n'a pas chargé. */
@@ -58,6 +58,17 @@ export function ShowPlayer({
   /** L'instant courant, en secondes — le même que `onTime` publie, tenu par l'appelant. */
   time?: number
 }) {
+  // **Résolu en état, pas en simple lecture de `videoRef.current`.** `videoRef`
+  // est le ref de l'appelant, stable d'un rendu à l'autre : le lire directement
+  // ne redéclencherait pas `useCaptionClock` au montage de la vidéo. Un état
+  // posé par le ref lui-même force le rendu qui manque.
+  const [element, setElement] = useState<HTMLVideoElement | null>(null)
+  const frameTime = useCaptionClock(element, captionCards !== undefined && captionStyle !== undefined)
+  // Le repli tant qu'aucune trame ni aucun événement natif n'est encore
+  // arrivé sur `element` — une vidéo en pause, ou l'instant qui suit
+  // immédiatement le montage. Voir la docstring d'`useCaptionClock`.
+  const captionTime = frameTime !== -1 ? frameTime : (time ?? -1)
+
   if (!proxyReady) {
     return (
       <div
@@ -74,9 +85,16 @@ export function ShowPlayer({
 
   return (
     // Le repère `relative`/`cqh` qu'exige `CaptionOverlay` — voir `captionUnits`.
-    <div className="relative" style={{ containerType: 'size' }}>
+    // `aspect-video` **sur ce conteneur**, pas seulement sur la vidéo :
+    // `containerType: 'size'` dimensionne la boîte sans tenir compte de son
+    // contenu, donc une boîte sans hauteur propre tombe à zéro et le calque
+    // `absolute inset-0` se retrouve clippé par `overflow: hidden`.
+    <div className="relative aspect-video w-full" style={{ containerType: 'size' }}>
       <video
-        ref={video}
+        ref={(node) => {
+          videoRef.current = node
+          setElement(node)
+        }}
         data-testid="lecteur-emission"
         // **`preload="metadata"` et non `auto`.** Le proxy pèse plus d'un
         // gigaoctet et cet écran s'ouvre à chaque retour de clip : tirer la vidéo
@@ -94,7 +112,7 @@ export function ShowPlayer({
         className="aspect-video w-full rounded-xl border bg-black"
       />
       {captionCards !== undefined && captionStyle !== undefined && (
-        <CaptionOverlay cards={captionCards} time={time ?? -1} style={captionStyle} />
+        <CaptionOverlay cards={captionCards} time={captionTime} style={captionStyle} />
       )}
     </div>
   )

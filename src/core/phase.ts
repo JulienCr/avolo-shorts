@@ -34,9 +34,15 @@ export function isDiscarded(status: ClipStatus): boolean {
   return status === 'discarded'
 }
 
-/** Ce que la machine a produit. Des artefacts, jamais une activité. */
+/**
+ * Ce que la machine a produit. Des artefacts, jamais une activité.
+ *
+ * `'new'` est en anglais, ses voisines ne le sont pas : dette existante
+ * (issue #73), et le code neuf s'écrit en anglais même à côté d'elle
+ * (`CLAUDE.md`) — ne pas franciser cette valeur pour « s'accorder ».
+ */
 export type Analysis =
-  | 'neuf' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
+  | 'new' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
   | 'attente' // les candidats manquent, une exécution tourne
   | 'interrompu' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
   | 'echec' // la dernière exécution a échoué
@@ -74,7 +80,7 @@ export type Phase = { analysis: Analysis; work: Work }
  *
  * Quatre propriétés, chacune payée par une relecture :
  *
- * - **`neuf` existe depuis le 23 août 2026** (spec §9) : `everRan` — tiré de
+ * - **`new` existe depuis le 23 août 2026** (spec §12) : `everRan` — tiré de
  *   `status.json` — distingue un projet jamais lancé d'une exécution morte ;
  * - **`interrompu` et `failure` ne s'appliquent que tant que `candidates` est
  *   absent.** Sans cette précondition ils recouvrent `triable` : une exécution
@@ -102,7 +108,7 @@ export function phaseProject(
   running: { step: StepName; progress: number } | null,
   error: string | null,
   clips: readonly { status: ClipStatus }[],
-  /** `status.json` a-t-il déjà été écrit ? Défaut `true` : seul un appelant qui distingue `neuf` d'`interrompu` doit le passer. */
+  /** `status.json` a-t-il déjà été écrit ? Défaut `true` : seul un appelant qui distingue `new` d'`interrompu` doit le passer. */
   everRan = true,
 ): Phase {
   return { analysis: analysisProject(steps, running, error, everRan), work: workProject(clips) }
@@ -123,7 +129,7 @@ function analysisProject(
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
   if (running !== null) return 'attente'
   if (error !== null) return 'echec'
-  return everRan ? 'interrompu' : 'neuf'
+  return everRan ? 'interrompu' : 'new'
 }
 
 function workProject(clips: readonly { status: ClipStatus }[]): Work {

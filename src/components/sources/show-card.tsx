@@ -22,7 +22,7 @@ export type Entry = LibraryEntry<Source, ProjectListItem>
  * Une création de projet, vue par la bibliothèque.
  *
  * Le hook vit dans l'écran — c'est lui qui redirige, parce que ce qu'on fait
- * d'un 202 est une décision de parcours. Ce que les cartes ont besoin de savoir
+ * de la réponse de création est une décision de parcours. Ce que les cartes ont besoin de savoir
  * tient en trois choses, et `inCurrent` porte le **nom** de la source plutôt qu'un
  * booléen : c'est ce qui permet à la carte cliquée d'afficher l'attente et aux
  * autres de se contenter de se taire.
@@ -130,8 +130,10 @@ export function ShowCard({ entry, creation }: { entry: Entry; creation: Creation
   // de création et le tour de sondage suivant, `markSourceAnalyzed` a déjà
   // inscrit le `projectId` dans le cache des sources alors que la liste des
   // projets ne connaît encore rien. Ne lire que `project` laissait alors un
-  // bouton de création sur une émission dont l'analyse venait de partir, et le
-  // second clic rend un 409 (`ExecutionInCurrentError`).
+  // bouton de création sur une émission qui vient d'en créer un, et un
+  // second clic en créerait un second — `createProject` ne lance plus rien
+  // par défaut (23 août 2026, spec §12), donc ce n'est plus un 409 qui guette,
+  // mais un doublon silencieux.
   const projectId = project?.id ?? source?.projectId ?? null
 
   if (projectId !== null) {

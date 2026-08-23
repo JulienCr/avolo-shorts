@@ -152,18 +152,17 @@ export type LibraryEntry<S extends LibrarySource, P extends LibraryProject> = {
  * Il se tait pendant qu'une exécution tourne, comme `error`, pour la même
  * raison — deux écrans qui se contredisent sur le même projet valent moins que
  * pas d'écran.
+ *
+ * `project === null` rend toujours `'new'` : `createProject` ne lance plus
+ * rien par défaut depuis le 23 août 2026 (spec §12), donc la fenêtre entre la
+ * réponse de création et le tour de sondage suivant — pendant laquelle la
+ * source connaît déjà un `projectId` que la liste des projets ne porte pas
+ * encore, voir `markSourceAnalyzed` — décrit toujours un projet qui n'a rien
+ * lancé, jamais une analyse en cours.
  */
-export function showState(project: LibraryProject | null, projectExpected: boolean): ShowState {
+export function showState(project: LibraryProject | null): ShowState {
   if (project === null) {
-    // **Une source qui annonce un projet que la liste ne porte pas encore n'est
-    // pas une source neuve.** Les deux requêtes ne se rafraîchissent pas
-    // ensemble : `markSourceAnalyzed` inscrit le `projectId` dans le cache
-    // des sources dès la réponse de création, et la liste des projets arrive au
-    // tour suivant. Retomber sur `new` pendant cette fenêtre reproposerait
-    // « lancer l'analyse » sur un projet qui vient d'en lancer une, et le second
-    // clic rend un 409 (`ExecutionInCurrentError`). `createProject` lance avant de
-    // répondre : « en cours » est donc aussi le plus probable des deux.
-    return projectExpected ? 'analyzing' : 'new'
+    return 'new'
   }
   // Ce qui tourne l'emporte sur ce qui a échoué et sur ce qui a été arrêté,
   // comme dans `analysisProject` : les deux décrivent la dernière exécution
@@ -220,7 +219,7 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
       source,
       project,
       replay: 'present',
-      state: showState(project, source.projectId !== null),
+      state: showState(project),
     }
   })
 
@@ -235,7 +234,7 @@ export function buildLibrary<S extends LibrarySource, P extends LibraryProject>(
       source: null,
       project,
       replay: sourcesKnown ? 'missing' : 'unknown',
-      state: showState(project, true),
+      state: showState(project),
     })
   }
 

@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
-import { CaptionOverlay } from '@/components/captions/caption-overlay'
+import { CaptionOverlay, useCaptionClock } from '@/components/captions/caption-overlay'
 import type { CaptionStyle } from '@/core/captions/ass'
 import { elapsedInClip } from '@/core/captions/retime'
 import type { Word } from '@/core/transcript'
@@ -208,19 +208,7 @@ export function PreviewOutput({
     }
   }, [video])
 
-  // `timeupdate` (~4/s) suffit : les cartons durent au moins 2,5 s.
-  const [time, setTime] = useState(0)
-  useEffect(() => {
-    if (video === null || captionCards === undefined) return
-    const track = () => setTime(video.currentTime)
-    track()
-    video.addEventListener('timeupdate', track)
-    video.addEventListener('seeked', track)
-    return () => {
-      video.removeEventListener('timeupdate', track)
-      video.removeEventListener('seeked', track)
-    }
-  }, [video, captionCards])
+  const time = useCaptionClock(video, captionCards !== undefined)
 
   return (
     <figure className="flex min-w-0 flex-col gap-1.5">

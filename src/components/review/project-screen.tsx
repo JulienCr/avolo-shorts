@@ -196,7 +196,7 @@ export function ProjectScreen({ id }: { id: string }) {
               everRan={everRan}
               size={size}
               resume={
-                phase.analysis === 'neuf' ? (
+                phase.analysis === 'new' ? (
                   <ButtonStart projectId={id} inCurrent={running !== null} />
                 ) : (
                   <ButtonResume projectId={id} inCurrent={running !== null} />

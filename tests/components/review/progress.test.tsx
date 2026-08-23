@@ -208,7 +208,7 @@ describe('PanelProgress', () => {
     expect(screen.getByText('L’analyse s’est arrêtée.')).toBeTruthy()
   })
 
-  // `everRan: false` (analysis === 'neuf') : rien ne tourne, rien n'a échoué,
+  // `everRan: false` (analysis === 'new') : rien ne tourne, rien n'a échoué,
   // mais aucune exécution n'a jamais eu lieu — pas la même chose qu'une
   // exécution morte, et le titre comme l'absence de bandeau d'erreur le disent.
   it('dit que l’analyse n’a pas encore commencé, sans bandeau d’erreur', () => {
@@ -259,6 +259,13 @@ describe('AnnouncementDStep', () => {
     // analyse d'être jamais annoncée comme terminée.
     render(<AnnouncementDStep running={null} steps={reading(['audio'])} connu />)
     expect(screen.getByTestId('annonce').textContent).toMatch(/arrêtée/i)
+  })
+
+  it('distingue une analyse jamais lancée d’une exécution morte', () => {
+    // `everRan: false` (analysis === 'new') : même absence d'étape et de
+    // progression qu'une exécution morte, mais rien n'a jamais tourné.
+    render(<AnnouncementDStep running={null} steps={reading([])} connu everRan={false} />)
+    expect(screen.getByTestId('annonce').textContent).toMatch(/n’a pas encore commencé/i)
   })
 })
 

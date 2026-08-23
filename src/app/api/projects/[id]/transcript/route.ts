@@ -105,13 +105,9 @@ export const POST = route(
       throw new ErrorHttp(REJECTION_STATUS[result.reason], rejectionMessage(result.reason))
     }
 
-    // **Explicite, pas une invalidation silencieuse.** Le repérage se relance
-    // par le graphe (`POST /run { target: 'candidates', force: ['transcript'] }`,
-    // déjà exposé par le bouton de retranscription) ; les rendus déjà exportés,
-    // eux, ne sont pas encore périmés par le mécanisme d'empreinte
-    // (`src/server/steps/render.ts` ne compare pas le texte — voir le rapport
-    // de cette PR). Nommer les clips touchés est ce que cette route peut faire
-    // sans toucher à ce fichier.
+    // Nomme les clips touchés, n'invalide pas leur rendu : voir spec §9
+    // (« deux conséquences restent partielles ») pour ce que `discardRenderStale`
+    // saurait faire ici et pourquoi rien ne l'appelle encore.
     const clips = clipsTouchedBySpan(getClips(db, id), result.correctedSpan)
 
     return json({ line: result.line, clipsTouched: clips })

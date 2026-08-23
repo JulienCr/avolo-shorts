@@ -4,6 +4,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/**
+ * L'établi de l'écran de clip (spec du 23 août, §3.3) : deux volets fixes qui
+ * ne défilent pas, à condition d'avoir la place. La largeur seule ne suffit
+ * pas — un 1024 px de large mais 600 px de haut écraserait les deux aperçus
+ * sous les contrôles du volet gauche plutôt que de les montrer. Les deux
+ * conditions sont donc dans UNE variante plutôt que deux `lg:`/`h-[…]:`
+ * séparées : en dessous de l'une ou de l'autre, l'écran repasse en lecture
+ * verticale qui défile, comme avant ce lot. 700 px de hauteur est le plancher
+ * mesuré à la main : sous ce chiffre, la colonne de gauche (transport, bande
+ * de temps, sélecteur de ratio, faits de montage, bouton) ne tient plus à
+ * côté d'un aperçu utilisable sans l'écraser sous 150 px de haut.
+ */
+@custom-variant workbench (@media (min-width: 1024px) and (min-height: 700px));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

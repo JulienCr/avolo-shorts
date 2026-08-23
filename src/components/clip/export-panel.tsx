@@ -1,6 +1,6 @@
 'use client'
 
-import { Check, Copy, FileText, LoaderCircle, Send, TriangleAlert } from 'lucide-react'
+import { Check, ChevronDown, Copy, LoaderCircle, Send, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 
 import { unmeasuredShots, shotRatios } from '@/components/clip/framing'
@@ -8,6 +8,7 @@ import type { Clip, Ratio } from '@/core/edl'
 import { clipExportEligibility } from '@/core/publication'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -16,7 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Separator } from '@/components/ui/separator'
 import { wordsHash, outputNames, publicationText } from '@/components/clip/texts'
 import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
 import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
@@ -24,14 +24,53 @@ import type { AutosaveState } from '@/lib/autosave'
 import { useExporter } from '@/lib/queries'
 
 /**
- * L'export : **un panneau, pas un écran** (spec §3.4).
+ * L'état de livraison d'un clip, réduit à ce que le rail doit en montrer.
  *
- * Il consomme le clip qu'on vient de monter, il dure de dix secondes à une
- * minute, et son résultat se juge à côté de ce qui l'a produit. Un écran séparé
- * ferait sortir du sous-parcours pour y revenir aussitôt.
+ * **Une seule dérivation, là où il y en avait deux** (spec du 23 août, §3.4) :
+ * `alreadyDelivered` (compté sur les trois fichiers, `.txt` compris) et
+ * `publicationEligibility.eligible` (compté sur la vidéo seule) répondaient
+ * chacun à une question différente, mais avec le même vocabulaire — « livré »
+ * — ce qui les faisait lire comme la même chose. Elles convergent ici, et le
+ * signal qui survit est celui d'`publicationEligibility` : une vidéo au moins
+ * (`mp4Url` ou `variant9x16Url`), jamais le seul `.txt`. C'est le distinguo qui
+ * comptait — un clip dont la vidéo a disparu du disque en ne laissant que son
+ * texte n'a rien de publiable, quel que soit le libellé du bouton d'export —
+ * et c'est donc lui qui décide aussi si le bouton dit « Publier » plutôt que
+ * « Ré-exporter ». La lecture littérale du §3.4 (`mp4Url === null`) figerait
+ * en « périmé » tout clip dont le natif est désactivé par `RENDER_NATIVE` —
+ * `mp4Url` n'existe alors jamais, même livré — donc « vidéo rendue » se lit
+ * sur les deux champs, pas sur un seul.
+ */
+export type DeliveryState = 'never' | 'stale' | 'delivered'
+
+export function deriveDeliveryState(
+  status: Clip['status'],
+  outputs: Pick<ClipOutputs, 'mp4Url' | 'variant9x16Url'>,
+): DeliveryState {
+  const hasRenderedVideo = outputs.mp4Url !== null || outputs.variant9x16Url !== null
+  if (hasRenderedVideo) return 'delivered'
+  return status === 'exported' ? 'stale' : 'never'
+}
+
+/** La phrase du rail, à gauche, dans les mots qu'on lirait à voix haute. */
+function deliverySentence(state: DeliveryState, native: Ratio): string {
+  const base =
+    state === 'delivered'
+      ? 'exporté et à jour'
+      : state === 'stale'
+        ? 'le rendu ne correspond plus au montage'
+        : 'jamais exporté'
+  return `${base} · natif ${native}`
+}
+
+/**
+ * L'export : **un rail, pas un panneau** (spec du 23 août, §3.3-§3.4).
  *
- * Quatre choses, dans cet ordre : ce qui sera produit, le travail pendant qu'il
- * a lieu, ce qui a été produit, et les textes à coller.
+ * Il vivait au bas d'une colonne de réglages, en pleine largeur ; il devient
+ * la troisième pointe de la diagonale du regard — le geste terminal, à
+ * l'extrémité droite de la dernière ligne de l'écran. Tout ce qui n'est pas
+ * le geste ou l'avertissement qui l'empêche part derrière « Détail », un
+ * dépliant qui s'ouvre au-dessus du rail plutôt que de l'alourdir.
  */
 export function PanelExport({
   clip,
@@ -49,9 +88,9 @@ export function PanelExport({
   /**
    * Le cadrage que le serveur publie.
    *
-   * **Le panneau d'export énonce le cadrage** (§3.5) : c'est la dernière surface
-   * avant la livraison, et le seul endroit où l'automatique passerait en fraude
-   * si personne ne l'y disait. Ça ne coûte rien et ça retire ce cas.
+   * **Le rail énonce le cadrage** (§3.5) : c'est la dernière surface avant la
+   * livraison, et le seul endroit où l'automatique passerait en fraude si
+   * personne ne l'y disait. Ça ne coûte rien et ça retire ce cas.
    */
   framing: PublishedFraming
   /** La durée montée. Zéro veut dire qu'il ne reste rien à rendre. */
@@ -62,9 +101,9 @@ export function PanelExport({
    *
    * **Elle sert à dater l'annonce de résultat, et la durée n'y suffisait pas** :
    * une coupe de même durée, un cadrage déplacé ou les marques basculées
-   * périment les fichiers sans changer un seul des nombres que ce panneau
-   * affichait. « Rendu terminé » continuait alors de décrire des fichiers que le
-   * `PATCH` venait d'écarter. (relevé par Copilot)
+   * périment les fichiers sans changer un seul des nombres que ce rail
+   * affichait. « Rendu terminé » continuait alors de décrire des fichiers que
+   * le `PATCH` venait d'écarter. (relevé par Copilot)
    */
   fingerprint: string
   /** L'écriture différée du **montage** : segments, ratio, cadrage. */
@@ -84,6 +123,7 @@ export function PanelExport({
 }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   /**
    * Ce que décrivait le clip au moment où on l'a lancé.
@@ -104,6 +144,7 @@ export function PanelExport({
   const shotCount = framing.shots.length
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
+  const state = deriveDeliveryState(clip.status, outputs)
   /**
    * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
    * combien sont là. Le reste — leurs noms, le compte des plans — est du détail
@@ -118,19 +159,13 @@ export function PanelExport({
   const delivered = [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter(
     (u) => u !== null,
   ).length
-  // **Le même défaut que `expected`/`delivered` visait déjà, retrouvé un cran
-  // plus haut.** `mp4Url` seul ne dit plus « livré » depuis que le natif peut
-  // être durablement absent par design (`RENDER_NATIVE`) : un clip qui n'a
-  // livré que sa variante 9:16 a bien été exporté, et le bouton doit dire
-  // « Ré-exporter », pas « Exporter » comme s'il n'y avait jamais rien eu.
-  const alreadyDelivered = delivered > 0
   const plural = expected > 1 ? 's' : ''
   const summary =
     delivered === 0
-      ? `${expected} fichier${plural} à produire · natif ${native}`
+      ? `${expected} fichier${plural} à produire`
       : delivered === expected
-        ? `${expected} fichier${plural} livré${plural} · natif ${native}`
-        : `${delivered} fichier${delivered > 1 ? 's' : ''} sur ${expected} livré${delivered > 1 ? 's' : ''} · natif ${native}`
+        ? `${expected} fichier${plural} livré${plural}`
+        : `${delivered} fichier${delivered > 1 ? 's' : ''} sur ${expected} livré${delivered > 1 ? 's' : ''}`
 
   // **Trois empêchements, et chacun a sa raison écrite à côté du bouton.**
   // Rendre un état non enregistré produirait un fichier qui ne correspond à rien
@@ -153,24 +188,12 @@ export function PanelExport({
   }
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
-  /**
-   * L'éligibilité à la publication, **lue sur une vidéo, jamais sur
-   * `alreadyDelivered`.** Les deux se ressemblent mais répondent à deux
-   * questions différentes : `alreadyDelivered` dit si le bouton doit proposer
-   * « Ré-exporter » plutôt que « Exporter », et un `.txt` déjà sur le disque y
-   * répond aussi bien qu'une vidéo — le mot est bien réexportable. Ici, la
-   * question est « y a-t-il quelque chose à envoyer », et le `.txt` seul n'y
-   * répond pas : un clip dont la vidéo a disparu du disque en ne laissant que
-   * son texte n'a rien de publiable, alors que `alreadyDelivered` le dirait
-   * livré. (relevé par Copilot et Aristarque)
-   */
-  const hasRenderedVideo = outputs.mp4Url !== null || outputs.variant9x16Url !== null
-  const publicationEligibility = clipExportEligibility(hasRenderedVideo)
+  const publicationEligibility = clipExportEligibility(state === 'delivered')
   const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
     eligibility: publicationEligibility,
-    // **L'empreinte de ce panneau, pas une recomputation.** `empreinte` porte
+    // **L'empreinte de ce rail, pas une recomputation.** `empreinte` porte
     // déjà tout ce qui décide du rendu (segments, ratio, cadrage, marques,
     // sous-titres, textes) — voir le commentaire de la prop plus haut. La
     // passer ici est ce qui préparera la nuance du retour d'usage §9 le jour
@@ -179,75 +202,53 @@ export function PanelExport({
   }
 
   return (
-    // **Deux colonnes, parce que le panneau est devenu un bandeau.** Il vivait au
-    // bas d'une colonne de réglages, où l'empilement était la seule mise en page
-    // possible ; sous les quatre zones, en pleine largeur, l'empiler ferait
-    // descendre les textes à coller sous un pli. Ce qui sort à gauche, ce qui se
-    // colle à droite — et c'est à gauche, sous le bouton, que « Publier » viendra.
-    <section
-      className="grid items-start gap-4 lg:grid-cols-2 lg:gap-10"
-      aria-labelledby="titre-export"
+    // **Un seul enveloppe pour le pli et le rail** (spec du 23 août, §3.3) :
+    // le pli s'ouvre au-dessus, avant le rail dans l'ordre du DOM, et les deux
+    // sont le quatrième frère flexible de l'écran — après `<main>`, jamais en
+    // `sticky` ni `fixed`.
+    <Collapsible
+      open={detailOpen}
+      onOpenChange={setDetailOpen}
+      className="flex shrink-0 flex-col border-t"
     >
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className="flex items-baseline gap-2">
-          {/* `h3` et non `h2` : l'écran de clip nomme désormais quatre zones, et
-              « Livraison » est le titre de celle-ci. Deux `h2` empilés diraient
-              deux sections là où il n'y en a qu'une — et c'est ici que le bouton
-              « Publier » viendra se poser à côté de l'export. */}
-          <h3 id="titre-export" className="text-sm font-medium">
-            Export
-          </h3>
-          <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
-        </div>
+      <CollapsiblePanel className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:gap-10">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-sm font-medium">Ce que l’export produit</h3>
+            <span className="font-mono text-[0.75rem] text-muted-foreground">{native}</span>
+          </div>
 
-        {/* **Ce que l'automatique a décidé, sur la dernière surface avant la
-            livraison** (§3.5). Sans cette ligne, on peut exporter sans avoir
-            jamais vu ce qui a été choisi pour soi — le seul cas où l'automatique
-            passerait en fraude. */}
-        {/* **Ce qui est livré se regarde ; ce qui s'appelle comment se replie.**
-            Le nom des fichiers, le compte des plans et « due, pas encore
-            produite » sont vrais et utiles le jour où quelque chose cloche —
-            pas les trente autres fois. Ils prenaient le tiers du panneau au
-            détriment des textes qu'on vient y chercher. Ils restent à un clic,
-            ce qui est la même règle que le transcript dans son tiroir. */}
-        <details className="group/sorties">
-          <summary className="cursor-pointer list-none text-[0.75rem] text-muted-foreground marker:content-none hover:text-foreground">
-            <span className="mr-1 inline-block transition-transform group-open/sorties:rotate-90">
-              ›
-            </span>
-            {summary}
-          </summary>
-
-          <p className="mt-2 text-[0.75rem] text-muted-foreground">
-            {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
+          <p className="text-[0.75rem] text-muted-foreground">
+            {summary} · {shotCount === 1 ? '1 plan' : `${shotCount} plans`}, cadrés{' '}
             <span className="font-mono">{frames.join(', ') || '—'}</span>
             {frames.length > 1 && ' selon le plan, dans la variante 9:16'}
           </p>
 
           <OutputsList names={names} native={native} outputs={outputs} />
-        </details>
 
-        {/* **L'avertissement, lui, ne se replie pas.** Un plan que le détecteur
-            n'a pas mesuré est posé au centre par défaut : c'est la dernière
-            surface avant la livraison où cela peut encore se dire (§3.5), et le
-            cacher derrière un pli reviendrait à le taire. */}
-        {unmeasured > 0 && (
-          <p className="text-[0.75rem] text-amber-500 dark:text-amber-400">
-            {unmeasured === 1
-              ? '1 plan sans mesure, centré par défaut'
-              : `${unmeasured} plans sans mesure, centrés par défaut`}
-          </p>
-        )}
+          {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
+              parcours qui mérite d'être vu, donc il reste au premier niveau du
+              pli plutôt que d'exiger un second clic. */}
+          <DeliveredPlayers clip={clip} outputs={outputs} native={native} />
+        </div>
 
-        {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
-            parcours qui mérite d'être vu, donc il reste hors du pli. */}
-        <DeliveredPlayers clip={clip} outputs={outputs} native={native} />
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <h3 className="text-sm font-medium">Textes de publication</h3>
+          <FieldCopyable tag="Titre" value={clip.title.trim()} />
+          <FieldCopyable tag="Description" value={clip.description.trim()} lines={6} />
+          <FieldCopyable
+            tag="Mots-dièse"
+            value={wordsHash(`${clip.title.trim()}\n${clip.description.trim()}`).join(' ')}
+          />
+        </div>
+      </CollapsiblePanel>
 
+      <div className="flex flex-col gap-2 p-3">
+        {/* **Ce qui suit ne se replie jamais** (doctrine de `export-panel.tsx`,
+            reprise spec §3.4 point 5) : la raison d'un blocage, le titre vide,
+            l'alerte d'échec et « rendu en cours » se lisent avant d'essayer,
+            sur chaque clip où ils s'appliquent — jamais derrière « Détail ». */}
         {clip.title.trim() === '' && (
-          // L'avertissement se pose sur le bouton d'export, pas sur le champ : le
-          // titre est libre pendant la frappe, et un titre vide n'empêche pas le
-          // rendu — il produit un `.txt` dont la première ligne est vide, donc
-          // rien à coller au moment de publier.
           <p className="flex items-start gap-1.5 text-[0.75rem] text-muted-foreground">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             Le titre est vide : le fichier de textes sortira avec « (sans titre) », donc rien à
@@ -255,64 +256,13 @@ export function PanelExport({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            onClick={() => {
-              // **Le même garde-fou des deux côtés.** Posé sur le seul lancement,
-              // la boîte de confirmation s'ouvrait quand même : on confirmait, et
-              // rien ne partait, sans qu'une ligne le dise.
-              if (prevention !== null || exporter.isPending) return
-              if (alreadyDelivered) setConfirmation(true)
-              else launch(false)
-            }}
-            aria-disabled={prevention !== null || undefined}
-            aria-busy={exporter.isPending || undefined}
-          >
-            {exporter.isPending ? (
-              <LoaderCircle className="animate-spin" aria-hidden />
-            ) : (
-              <FileText aria-hidden />
-            )}
-            {alreadyDelivered ? 'Ré-exporter' : 'Exporter'}
-          </Button>
-
-          {/* **Le bouton principal de la publication** (retour d'usage §3.6),
-              à côté de l'export dans la zone Livraison. Il ouvre la même
-              modale que la sélection en masse de la vue Émission — voir
-              `PublishDialog`, qui porte la logique, jamais recopiée ici.
-              **Le même garde-fou que « Exporter », `exporter.isPending`
-              compris.** Sans lui, `mp4Url` restait disponible pendant un
-              ré-export en cours et « Publier » ouvrait la publication de
-              l'ancien fichier alors que le nouveau rendu tournait encore.
-              (relevé par Copilot) */}
-          <Button
-            variant="outline"
-            onClick={() =>
-              prevention === null &&
-              !exporter.isPending &&
-              publicationEligibility.eligible &&
-              setPublishDialogOpen(true)
-            }
-            aria-disabled={
-              prevention !== null ||
-              exporter.isPending ||
-              !publicationEligibility.eligible ||
-              undefined
-            }
-          >
-            <Send aria-hidden />
-            Publier
-          </Button>
-
-          {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
-              en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
-              mentirait sur ce qui se passe. */}
-          {exporter.isPending && (
-            <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
-              Rendu en cours — de dix secondes à une minute.
-            </span>
-          )}
-        </div>
+        {unmeasured > 0 && (
+          <p className="text-[0.75rem] text-amber-500 dark:text-amber-400">
+            {unmeasured === 1
+              ? '1 plan sans mesure, centré par défaut'
+              : `${unmeasured} plans sans mesure, centrés par défaut`}
+          </p>
+        )}
 
         {prevention !== null && (
           // Écrite ici, jamais dans une bulle d'aide : une bulle qui n'apparaît
@@ -322,8 +272,10 @@ export function PanelExport({
         )}
 
         {/* **Même règle pour « Publier » : la raison se lit, elle ne se
-            devine pas** (retour d'usage §2.4, mot pour mot). Un clip non
-            exporté explique pourquoi plutôt que de désactiver en silence. */}
+            devine pas** (retour d'usage §2.4, mot pour mot). « Publier »
+            disparaît plutôt que de rester grisé (spec du 23 août, §3.4) — la
+            phrase qui dit pourquoi reste, elle, toujours là où le bouton
+            aurait été. */}
         {!publicationEligibility.eligible && (
           <p className="text-[0.75rem] text-muted-foreground">{publicationEligibility.reason}</p>
         )}
@@ -349,13 +301,89 @@ export function PanelExport({
               : 'Rendu terminé.'}
           </p>
         )}
-      </div>
 
-      <div className="flex min-w-0 flex-col gap-3">
-        {/* Le filet ne sépare qu'en colonnes : empilées, c'est le trait
-            horizontal qui fait le même travail. */}
-        <Separator className="lg:hidden" />
-        <TextsZone clip={clip} />
+        {/* **Le rail : l'état en clair à gauche, le geste terminal à
+            droite** (spec du 23 août, §3.3-§3.4). Rien entre les deux
+            n'engage à lui seul — « Détail » ouvre le pli, « Copier » remplit
+            le presse-papiers, « Ré-exporter » n'est jamais le primaire
+            puisqu'il confirme toujours l'écrasement. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[0.75rem] text-muted-foreground">
+            {deliverySentence(state, native)}
+          </span>
+
+          <CollapsibleTrigger
+            render={
+              <Button size="sm" variant="ghost">
+                <ChevronDown
+                  aria-hidden
+                  className={`size-3.5 transition-transform ${detailOpen ? 'rotate-180' : ''}`}
+                />
+                Détail
+              </Button>
+            }
+          />
+
+          <ButtonCopy text={publicationText(clip)} label="Copier pour publication" />
+
+          {exporter.isPending && (
+            <span className="text-[0.75rem] text-muted-foreground" aria-live="polite">
+              Rendu en cours — de dix secondes à une minute.
+            </span>
+          )}
+
+          {/* **Pas d'annulation.** Le rendu ffmpeg ne s'interrompt pas proprement
+              en itération 0, et un bouton qui ne ferait qu'ignorer la réponse
+              mentirait sur ce qui se passe. */}
+
+          {state === 'delivered' && (
+            <Button
+              variant="outline"
+              onClick={() => prevention === null && !exporter.isPending && setConfirmation(true)}
+              aria-disabled={prevention !== null || exporter.isPending || undefined}
+            >
+              Ré-exporter
+            </Button>
+          )}
+
+          {state === 'delivered' ? (
+            <Button
+              onClick={() =>
+                prevention === null &&
+                !exporter.isPending &&
+                publicationEligibility.eligible &&
+                setPublishDialogOpen(true)
+              }
+              aria-disabled={
+                prevention !== null ||
+                exporter.isPending ||
+                !publicationEligibility.eligible ||
+                undefined
+              }
+            >
+              <Send aria-hidden />
+              Publier
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                if (prevention !== null || exporter.isPending) return
+                // « jamais livré » lance directement ; « périmé » confirme
+                // toujours l'écrasement — un geste confirmé n'est jamais le
+                // primaire (spec du 23 août, §3.4).
+                if (state === 'stale') setConfirmation(true)
+                else launch(false)
+              }}
+              aria-disabled={prevention !== null || undefined}
+              aria-busy={exporter.isPending || undefined}
+            >
+              {exporter.isPending ? (
+                <LoaderCircle className="animate-spin" aria-hidden />
+              ) : null}
+              {state === 'stale' ? 'Ré-exporter' : 'Exporter'}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Dialog open={confirmation} onOpenChange={setConfirmation}>
@@ -391,7 +419,7 @@ export function PanelExport({
       </Dialog>
 
       <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={[publishTarget]} />
-    </section>
+    </Collapsible>
   )
 }
 
@@ -402,11 +430,6 @@ export function PanelExport({
  * d'Instagram et de Facebook, la variante floutée pour TikTok et Shorts. Et
  * elles ne montrent pas le même cadre — le natif garde un seul ratio pour tout
  * le clip, la variante pose chaque plan au sien.
- *
- * **La lecture sur place a déménagé dans `DeliveredPlayers`**, et la séparation
- * porte une décision : ces noms-ci sont du détail qu'on replie, un fichier livré
- * est un résultat qu'on regarde. Les tenir dans une seule liste obligeait à
- * choisir entre replier le résultat et déplier le détail.
  */
 function OutputsList({
   names,
@@ -418,7 +441,7 @@ function OutputsList({
   outputs: ClipOutputs
 }) {
   return (
-    <ul className="mt-2 flex flex-col gap-1">
+    <ul className="flex flex-col gap-1">
       {names.mp4 === null ? (
         // **`mp4Due` sépare deux `null` qui ne veulent pas dire la même
         // chose**, comme `variant9x16Due` juste en dessous. Le natif est
@@ -466,11 +489,6 @@ function OutputsList({
 /**
  * Ce qui est **sur le disque**, lisible sur place.
  *
- * « L'export produit un ou deux fichiers et le panneau les montre : lecture sur
- * place […] C'est le seul succès du parcours qui mérite d'être vu » (parcours
- * §3.3). Il reste donc hors du pli qui range les noms : c'est le résultat, pas
- * la nomenclature.
- *
  * Rien ne s'affiche tant que rien n'existe — et `mp4Url: null` ne veut pas dire
  * « jamais exporté » (voir le contrat de `ClipOutputs`) ; ce qui se dit ici est
  * seulement ce qui est disponible maintenant.
@@ -509,46 +527,10 @@ function DeliveredPlayers({
 }
 
 /**
- * Les textes à coller — **trois champs, trois boutons, et un pour tout**.
- *
- * Le `.txt` existe sur le disque du serveur : ce qu'il faut ici est le
- * presse-papiers, pas un chemin. Il a d'abord vécu en un seul bloc, celui du
- * fichier ; mais on ne colle jamais le fichier — on colle un titre dans un
- * champ, une description dans un autre, des mots-dièse dans un troisième, et
- * chaque formulaire les demande séparément. Un bloc unique obligeait à
- * sélectionner à la main les trois morceaux, ce qui est exactement le geste que
- * le bouton existait pour supprimer.
- *
- * **Le bouton « tout » reste**, parce qu'il sert le cas où l'on garde le texte
- * de côté plutôt qu'on ne le publie tout de suite, et parce qu'il produit le
- * même contenu que le `.txt` — la seule chose qui garantisse que les deux ne
- * divergent pas.
- *
- * Les champs restent en lecture seule plutôt qu'en blocs de texte : un
- * presse-papiers refusé — contexte non sécurisé, permission coupée — laisse
- * alors la sélection à la main comme recours, au lieu d'un bouton mort.
- */
-function TextsZone({ clip }: { clip: Clip }) {
-  const title = clip.title.trim()
-  const description = clip.description.trim()
-  const hashes = wordsHash(`${title}\n${description}`).join(' ')
-
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">Textes de publication</h3>
-        <ButtonCopy text={publicationText(clip)} label="Copier tout" />
-      </div>
-
-      <FieldCopyable tag="Titre" value={title} />
-      <FieldCopyable tag="Description" value={description} lines={6} />
-      <FieldCopyable tag="Mots-dièse" value={hashes} />
-    </div>
-  )
-}
-
-/**
- * Un des trois textes, avec son bouton.
+ * Un des trois textes, avec son bouton — **dans le pli « Détail »**
+ * désormais : la copie d'ensemble vit dans le rail (« Copier pour
+ * publication », spec du 23 août, §3.2), et rien n'oblige plus à ouvrir un
+ * champ readonly pour chaque texte pris séparément.
  *
  * Vide, le champ le dit plutôt que de rester blanc — et son bouton se désactive
  * : copier le vide efface le presse-papiers, ce qui est le contraire du service
@@ -567,12 +549,6 @@ function FieldCopyable({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-baseline justify-between gap-2">
-        {/* **Le nom accessible dit « de publication », l'étiquette visible non.**
-            L'écran porte déjà un champ « Titre » et un champ « Description »,
-            ceux qu'on écrit ; ces trois-ci sont ce qu'on en copie. Deux contrôles
-            du même nom sur le même écran, c'est un lecteur d'écran qui ne sait
-            plus lequel il annonce — et à l'œil, la colonne dit déjà lequel est
-            lequel. */}
         <span aria-hidden className="text-[0.75rem] text-muted-foreground">
           {tag}
         </span>
@@ -608,9 +584,9 @@ function ButtonCopy({
 }) {
   const [copy, setCopy] = useState<string | null>(null)
   const toDay = copy === text && text !== ''
-  // Ce que le bouton montre : « Copier », ou « Copier tout » quand il les prend
-  // tous. Son nom accessible, lui, reste complet.
-  const court = label.startsWith('Copier tout') ? 'Copier tout' : 'Copier'
+  // Ce que le bouton montre : « Copier », ou « Copier pour publication » pour
+  // le seul bouton du rail. Son nom accessible, lui, reste complet.
+  const court = label.startsWith('Copier pour publication') ? 'Copier pour publication' : 'Copier'
 
   async function copyToClipboard() {
     try {
@@ -629,11 +605,11 @@ function ButtonCopy({
       // Copier le vide efface le presse-papiers : le contraire du service rendu,
       // et cela ne se remarque qu'au moment de coller.
       disabled={text === ''}
-      // **Le nom complet à la voix, court à l'œil.** Quatre boutons « Copier »
-      // sur le même écran ne se distinguent qu'à leur place ; un lecteur d'écran
-      // n'a pas cette place. Et le nom porte l'état : sans lui, « Copié » ne
-      // serait qu'un mot à l'écran, invisible à la voix — un `aria-label` fixe
-      // masque le contenu du bouton.
+      // **Le nom complet à la voix, court à l'œil.** Plusieurs boutons
+      // « Copier » sur le même écran ne se distinguent qu'à leur place ; un
+      // lecteur d'écran n'a pas cette place. Et le nom porte l'état : sans
+      // lui, « Copié » ne serait qu'un mot à l'écran, invisible à la voix —
+      // un `aria-label` fixe masque le contenu du bouton.
       aria-label={toDay ? `${label} — copié` : label}
     >
       {toDay ? <Check aria-hidden /> : <Copy aria-hidden />}

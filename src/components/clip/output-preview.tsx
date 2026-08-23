@@ -107,12 +107,21 @@ export function PreviewOutput({
   /**
    * La boîte du téléphone, dimensionnée par l'appelant.
    *
-   * **Elle existe pour que les deux aperçus aient exactement la même hauteur.**
-   * Cet aperçu était bridé à `max-w-40` pendant que la source prenait la largeur
-   * restante : la différence de ratio devenait une différence de poids visuel,
-   * et la sortie — la seule des deux qui montre le résultat — passait pour
-   * l'illustration de l'autre. La hauteur se donne donc au même endroit pour les
-   * deux, et chacun en déduit sa largeur.
+   * **Elle existe pour que les deux aperçus aient exactement la même hauteur —
+   * et depuis l'établi (spec du 23 août, §3.3), c'est la hauteur du volet
+   * gauche, pas une constante.** `clip-screen.tsx` calcule une seule classe et
+   * la passe telle quelle à `ClipPlayer` et à celui-ci : deux frères qui
+   * s'étirent tous les deux sur la hauteur de leur rangée est une garantie plus
+   * forte qu'une constante partagée, parce qu'aucune retouche future ne peut
+   * donner une largeur à l'un et une hauteur à l'autre sans casser visiblement
+   * la rangée elle-même.
+   *
+   * **Pas de `max-width` ici, et c'est la condition de recette du lot.** Un
+   * `max-width` posé à côté d'un `aspect-ratio` fait recalculer la hauteur
+   * depuis la largeur clampée plutôt que l'inverse — mesuré : la boîte 16:9
+   * retombait à 202 px là où on lui en demandait 272, et l'égalité des deux
+   * aperçus tombait avec. La hauteur seule se donne, en pixels ou en `flex-1` ;
+   * la largeur se déduit de `aspect-ratio` et ne se borne jamais.
    */
   frame?: string
   /** Cartons de `splitIntoCards(retimeWords(mots, segments))` — fidèle au rendu (spec §9). `undefined` ferme le calque. */
@@ -211,7 +220,7 @@ export function PreviewOutput({
   const time = useCaptionClock(video, captionCards !== undefined)
 
   return (
-    <figure className="flex min-w-0 flex-col gap-1.5">
+    <figure className="flex min-h-0 min-w-0 flex-col gap-1.5">
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
           doivent avoir la même hauteur visuelle : une légende sous l'un et
           au-dessus de l'autre décalerait leurs cadres d'une ligne, ce qui est
@@ -223,30 +232,25 @@ export function PreviewOutput({
           Sans ce mot, l'aperçu qui bouge donne à croire que c'est lui qu'on
           pilote — et le sélecteur de ratio l'énonce en toutes lettres.
 
-          Elle reste **plus courte que la boîte n'est large**, et ce n'est pas de
-          la coquetterie : la figure prend la largeur du plus large de ses
-          enfants, donc une légende bavarde élargit la colonne et décolle
-          l'aperçu de la source d'à côté. */}
-      <figcaption className="text-[0.75rem] text-muted-foreground">
+          **Une seule ligne, toujours.** `whitespace-nowrap` n'est pas de
+          l'esthétique : les deux aperçus doivent avoir exactement la même
+          hauteur, et une légende qui passerait à deux lignes sur l'un des deux
+          déciderait seule laquelle des deux boîtes cadre est la plus haute. */}
+      <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
         {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
         <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
         <span className="font-mono">{effective}</span>
       </figcaption>
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
-          occupe la part que le ratio lui laisse, et rien d'autre ne le dit. */}
-      {/* **`self-center`, et ce n'est pas un réglage d'esthétique.** Cette boîte
-          est l'enfant d'un conteneur `flex-col`, donc étirée en largeur par
-          défaut : la largeur imposée l'emportait sur `aspect-ratio`, qui en
-          déduisait la hauteur, et le « 9:16 » n'était plus un 9:16 — l'aperçu
-          mentait sur la seule chose qu'il existe pour montrer. Désétirée par `self-start`,
-          sa largeur redevient automatique et se déduit de la hauteur et du
-          rapport — et les deux aperçus s'alignent par le haut *et* par la gauche,
-          comme deux vues qui se valent. La légende suit le même bord : centrée,
-          elle flottait au-dessus d'une boîte alignée à gauche. */}
+          occupe la part que le ratio lui laisse, et rien d'autre ne le dit.
+          **Ni `self-start` ni largeur imposée** : la hauteur vient de `frame`
+          (celle du volet, ou `PREVIEW_HEIGHT` en dessous du seuil), et
+          `aspect-ratio` en déduit la largeur — voir la note de la prop
+          `frame` plus haut sur ce qu'un `max-width` casserait ici. */}
       <div
         className={cn(
-          'relative flex shrink-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
+          'relative flex min-h-0 overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
           'items-center justify-center',
           frame ?? 'w-40',
         )}

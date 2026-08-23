@@ -368,12 +368,24 @@ export function RatioPicker({
         )}
       </p>
 
-      {/* **Le repli se dit, il ne se subit pas.** `renders` ne dépend pas
-          d'`analysis` dans le graphe : rien ne garantit qu'un clip en « auto »
-          ait des plans sous la main, et un 9:16 centré posé sans un mot ne se
-          verrait qu'à l'image, trois minutes d'export plus tard. */}
+      {/* **Le repli se dit, il ne se subit pas** — mais il se lit à la demande.
+          `renders` ne dépend pas d'`analysis` dans le graphe : rien ne garantit
+          qu'un clip en « auto » ait des plans sous la main, et un 9:16 centré
+          posé sans un mot ne se verrait qu'à l'image, trois minutes d'export
+          plus tard. C'était la troisième prose permanente de l'écran de clip
+          (retour d'usage §4.1) ; elle passe derrière un dépliant plutôt que de
+          disparaître, parce que c'est un avertissement, pas une explication
+          qu'on apprend une fois. Le losange ambre sur le déclencheur porte le
+          même mot que le texte qu'il replie, pour qu'on n'ait pas à l'ouvrir
+          pour savoir qu'il y a quelque chose à lire. */}
       {origin !== null && (
-        <p className="basis-full text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
+        <details className="group/aide basis-full">
+          <summary className="flex cursor-pointer list-none items-center gap-1 text-[0.75rem] text-amber-500 marker:content-none hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300">
+            <span className="inline-block transition-transform group-open/aide:rotate-90">›</span>
+            Repli du cadrage automatique
+          </summary>
+          <p className="mt-1 text-[0.75rem] text-amber-500 dark:text-amber-400">{origin}</p>
+        </details>
       )}
 
       {/* **La raison d'un contrôle inerte s'écrit à côté de lui**, et le

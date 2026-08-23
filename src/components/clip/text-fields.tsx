@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { Clip } from '@/core/edl'
+import { wordsHash } from '@/components/clip/texts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -88,6 +89,18 @@ export function FieldsTexts({
         />
         <Failure field="La description" state={description} />
       </div>
+
+      {/* **Extraits, pas saisis** : `wordsHash` les lit dans le titre et la
+          description, ils ne s'écrivent nulle part d'autre. Montrés ici, sous
+          le champ qui les porte, plutôt qu'au moment de les copier (retour
+          d'usage §3.2) — on les voit apparaître en tapant, au lieu de les
+          découvrir dans le panneau de livraison trois champs plus loin. */}
+      <p className="text-[0.75rem] text-muted-foreground">
+        Mots-dièse :{' '}
+        <span className="font-mono">
+          {wordsHash(`${title.value}\n${description.value}`).join(' ') || '—'}
+        </span>
+      </p>
 
       {/* Rien ne se valide pendant la frappe : les deux textes sont libres. La
           seule règle se dit au moment de l'export — un titre vide n'empêche pas

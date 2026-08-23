@@ -49,7 +49,7 @@ import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { HookSettings } from '@/core/hook'
-import type { Platform, PlatformAvailability } from '@/core/publication'
+import type { Platform, PlatformAvailability, PublicationRow } from '@/core/publication'
 import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
@@ -1264,19 +1264,12 @@ export function fetchLlmAvailability(): Promise<LlmAvailability> {
 // La publication
 // ---------------------------------------------------------------------------
 
-/** Une ligne de `publications` telle que le serveur la rend — même champs que `PublicationRow` (`src/server/db.ts`). */
-export type PublicationRow = {
-  clipId: string
-  platform: Platform
-  status: 'in_progress' | 'submitted' | 'published' | 'failed'
-  remoteId: string | null
-  remoteUrl: string | null
-  requestId: string | null
-  error: string | null
-  publishedFingerprint: string | null
-  createdAt: number
-  updatedAt: number
-}
+/**
+ * Une ligne de `publications` telle que le serveur la rend — importée de
+ * `@/core/publication` plutôt que redite, pour la même raison que
+ * `ClipFraming`/`HookSettings` ci-dessus. (relevé par Aristarque)
+ */
+export type { PublicationRow }
 
 /** Quelle plateforme est branchée aujourd'hui — `GET /api/publication/availability`. */
 export function fetchPublicationAvailability(): Promise<Record<Platform, PlatformAvailability>> {

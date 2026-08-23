@@ -10,7 +10,7 @@
  * optimiste se défait.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -46,7 +46,7 @@ import { getCorrectionHistory, removeCorrectionEntry, undoCorrection } from '@/l
 // Import à part, même règle, pour la même raison.
 import { fetchPublicationAvailability, getPublications, publishClip } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
-import type { Platform } from '@/core/publication'
+import type { Platform, PublicationRecord } from '@/core/publication'
 
 export const keys = {
   projets: ['projets'] as const,
@@ -839,6 +839,46 @@ export function usePublications(clipId: string) {
     refetchInterval: (query) =>
       query.state.data?.some((p) => p.status === 'in_progress') ? 2_000 : false,
   })
+}
+
+/**
+ * Les publications de plusieurs clips à la fois, pour `PublishDialog` en
+ * sélection groupée (vue Émission).
+ *
+ * **Un `GET` par clip, pas un lot** : la route ne prend qu'un identifiant
+ * (`GET /api/clips/:id/publications`), comme `usePublisher` n'accepte qu'un
+ * seul clip par `POST`. Sans cet appel, la modale ne voit jamais qu'une
+ * plateforme est déjà `published` : elle la propose par défaut, et le serveur
+ * refuse la publication groupée entière faute de `force`. (relevé par
+ * Copilot, Codex et Aristarque)
+ */
+export function usePublicationRecordsByClip(clipIds: readonly string[]) {
+  const results = useQueries({
+    queries: clipIds.map((clipId) => ({
+      queryKey: keys.publications(clipId),
+      queryFn: () => getPublications(clipId).then((r) => r.publications),
+      refetchInterval: (query: { state: { data?: { status: string }[] } }) =>
+        query.state.data?.some((p) => p.status === 'in_progress') ? 2_000 : false,
+    })),
+  })
+
+  const byClip: Record<string, Partial<Record<Platform, PublicationRecord>>> = {}
+  clipIds.forEach((clipId, index) => {
+    const rows = results[index]?.data
+    if (rows === undefined) return
+    byClip[clipId] = Object.fromEntries(
+      rows.map((row) => [
+        row.platform,
+        {
+          status: row.status,
+          remoteUrl: row.remoteUrl,
+          publishedFingerprint: row.publishedFingerprint,
+          error: row.error,
+        },
+      ]),
+    )
+  })
+  return byClip
 }
 
 /**

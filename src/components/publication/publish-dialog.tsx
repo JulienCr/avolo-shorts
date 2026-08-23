@@ -126,13 +126,32 @@ export function PublishDialog({
   // emploie déjà pour la même raison — évite l'image intermédiaire qu'un
   // `useEffect` produirait entre l'ouverture et la remise à zéro.
   const [wasOpen, setWasOpen] = useState(open)
+
+  // **`availability` et `records` sont deux requêtes asynchrones, injectées
+  // par la page.** Ouvrir la boîte pendant qu'elles chargent encore fige la
+  // sélection sur leur repli — quatre plateformes `not_configured`, aucun
+  // enregistrement connu — et leur arrivée ensuite ne rejoue pas
+  // `defaultSelection` : une plateforme qui vient de se brancher reste
+  // décochée, une déjà `published` reste cochée. Réconcilié tant que
+  // l'utilisateur n'a touché aucune case (`dirty`) ; un geste manuel gèle la
+  // sélection, quoi que les données fassent ensuite. (relevé par Copilot,
+  // Codex et Aristarque)
+  const [dirty, setDirty] = useState(false)
+  const dataSignature = JSON.stringify([resolvedAvailability, eligible.map((c) => c.records ?? null)])
+  const [lastDataSignature, setLastDataSignature] = useState(dataSignature)
+
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
       setStep('platforms')
       setSelected(defaultSelection(selectable, eligible))
       setForced(false)
+      setDirty(false)
+      setLastDataSignature(dataSignature)
     }
+  } else if (open && !dirty && dataSignature !== lastDataSignature) {
+    setLastDataSignature(dataSignature)
+    setSelected(defaultSelection(selectable, eligible))
   }
 
   // **Chaque plateforme réussit ou échoue seule** (spec publication §6.4) :
@@ -166,6 +185,7 @@ export function PublishDialog({
   const canContinue = selectable.length === 0 || selectedAndAvailable.length > 0
 
   function togglePlatform(platform: Platform) {
+    setDirty(true)
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(platform)) next.delete(platform)
@@ -436,6 +456,15 @@ function PlatformRecords({
               <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400">
                 <AlertTriangle className="size-3" aria-hidden />
                 modifié depuis
+              </span>
+            )}
+            {/* **Le message du connecteur, pas seulement le badge.** Jeton
+                expiré, quota atteint, fichier refusé : trois échecs que
+                « échec » seul ne distingue pas, alors que le serveur garde
+                déjà la raison. (relevé par Codex) */}
+            {record.status === 'failed' && record.error !== null && (
+              <span className="truncate text-destructive" title={record.error}>
+                {record.error}
               </span>
             )}
           </li>

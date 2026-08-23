@@ -83,6 +83,7 @@ export function PanelExport({
   writeInFailure,
   publicationAvailability,
   publicationRecords,
+  publishError,
   onPublish,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
@@ -129,6 +130,8 @@ export function PanelExport({
   publicationRecords?: Partial<Record<Platform, PublicationRecord>>
   /** Lance la publication — la page en fait un `POST /api/clips/:id/publish`. */
   onPublish?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
+  /** Ce qu'un envoi a laissé en échec après la fermeture de la boîte — voir son commentaire dans `clip-screen.tsx`. */
+  publishError?: string | null
 }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
@@ -461,6 +464,17 @@ export function PanelExport({
         availability={publicationAvailability}
         onLaunch={onPublish}
       />
+
+      {/* **Une ligne persistante, jamais un `toast`** (spec publication §6.2) :
+          la boîte se ferme dès la confirmation, avant que le `POST` ne
+          réponde — voir le commentaire de `publishError` dans `clip-screen.tsx`. */}
+      {publishError !== null && publishError !== undefined && (
+        <Alert variant="destructive">
+          <TriangleAlert aria-hidden />
+          <AlertTitle>La publication a échoué.</AlertTitle>
+          <AlertDescription>{publishError}</AlertDescription>
+        </Alert>
+      )}
     </Collapsible>
   )
 }

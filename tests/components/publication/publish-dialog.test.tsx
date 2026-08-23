@@ -168,10 +168,10 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     // la version précédente de ce test. (relevé par Copilot)
     const target = eligible({
       records: {
-        instagram: { status: 'in_progress', remoteUrl: null, publishedFingerprint: null },
-        facebook: { status: 'submitted', remoteUrl: null, publishedFingerprint: null },
-        tiktok: { status: 'published', remoteUrl: 'https://tiktok.test/p/1', publishedFingerprint: null },
-        youtube: { status: 'failed', remoteUrl: null, publishedFingerprint: null },
+        instagram: { status: 'in_progress', remoteUrl: null, publishedFingerprint: null, error: null },
+        facebook: { status: 'submitted', remoteUrl: null, publishedFingerprint: null, error: null },
+        tiktok: { status: 'published', remoteUrl: 'https://tiktok.test/p/1', publishedFingerprint: null, error: null },
+        youtube: { status: 'failed', remoteUrl: null, publishedFingerprint: null, error: null },
       },
     })
     render(
@@ -190,7 +190,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     const onLaunch = vi.fn()
     const target = eligible({
       records: {
-        instagram: { status: 'published', remoteUrl: null, publishedFingerprint: null },
+        instagram: { status: 'published', remoteUrl: null, publishedFingerprint: null, error: null },
       },
     })
     render(
@@ -220,7 +220,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     const target = eligible({
       currentFingerprint: 'empreinte-actuelle',
       records: {
-        instagram: { status: 'published', remoteUrl: null, publishedFingerprint: 'empreinte-ancienne' },
+        instagram: { status: 'published', remoteUrl: null, publishedFingerprint: 'empreinte-ancienne', error: null },
       },
     })
     render(

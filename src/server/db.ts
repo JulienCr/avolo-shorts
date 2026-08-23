@@ -3,7 +3,9 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { z } from 'zod'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
-import type { Platform, PublicationStatus } from '@/core/publication'
+import type { PublicationRow } from '@/core/publication'
+
+export type { PublicationRow } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
@@ -1455,20 +1457,6 @@ export function getClips(db: Database.Database, projectId: string): Clip[] {
 export function getClip(db: Database.Database, id: string): Clip | undefined {
   const line = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as LineClip | undefined
   return line && clipSinceLine(line)
-}
-
-/** Une ligne de `publications` : l'état d'une publication pour un couple (clip, plateforme). */
-export type PublicationRow = {
-  clipId: string
-  platform: Platform
-  status: PublicationStatus
-  remoteId: string | null
-  remoteUrl: string | null
-  requestId: string | null
-  error: string | null
-  publishedFingerprint: string | null
-  createdAt: number
-  updatedAt: number
 }
 
 /** Les publications d'un clip, dans un ordre stable — celui des plateformes déclarées en base. */

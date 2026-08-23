@@ -1,13 +1,20 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { StepName } from '@/core/graph'
 import { count, phaseProject, type ShowSize } from '@/core/phase'
 import { RESUME_TARGETS } from '@/lib/api'
 import { linkProject, next } from '@/lib/navigation'
-import { useCandidates, usePatchClip, usePublicationAvailability, usePublisher, useProject } from '@/lib/queries'
+import {
+  useCandidates,
+  usePatchClip,
+  usePublicationAvailability,
+  usePublicationRecordsByClip,
+  usePublisher,
+  useProject,
+} from '@/lib/queries'
 import type { Platform } from '@/core/publication'
 import { ShowView } from '@/components/show/show-view'
 import { AppBar } from '@/components/navigation/app-bar'
@@ -48,22 +55,47 @@ export function ProjectScreen({ id }: { id: string }) {
   const publisher = usePublisher()
   const [view, goToView] = useViewInUrl(id)
 
+  const clips = candidates.data ?? []
+  // **Seuls les clips exportés peuvent porter une publication** (`clipExportEligibility`) :
+  // borner la requête à eux évite un `GET /publications` par clip du projet,
+  // dont la grande majorité n'a jamais été rendue.
+  const exportedClipIds = clips.filter((c) => c.status === 'exported').map((c) => c.id)
+  const publicationRecords = usePublicationRecordsByClip(exportedClipIds)
+
+  const [publishError, setPublishError] = useState<string | null>(null)
+
   /**
    * Un `POST /publish` par clip, jamais un seul lot : la route ne prend qu'un
    * identifiant de clip (spec §6.4). `ReviewFeed` ne fait qu'appeler ceci ;
    * il ne connaît ni la mutation ni le regroupement.
+   *
+   * **`mutateAsync` et non `mutate`, en boucle `await`.** `publisher` est une
+   * seule mutation partagée par tous les clips sélectionnés : l'appeler en
+   * boucle sans attendre ne laisse `isError`/`error` refléter que le dernier
+   * appel, et un 409 sur un clip déjà publié disparaissait sans qu'aucun
+   * message ne le dise — la boîte se ferme dans tous les cas. (relevé par
+   * Copilot, Codex et Aristarque)
    */
-  function publishSelection(targets: readonly { clipId: string; platform: Platform }[], force: boolean) {
+  async function publishSelection(targets: readonly { clipId: string; platform: Platform }[], force: boolean) {
+    setPublishError(null)
     const byClip = new Map<string, Platform[]>()
     for (const target of targets) {
       const platforms = byClip.get(target.clipId) ?? []
       platforms.push(target.platform)
       byClip.set(target.clipId, platforms)
     }
-    for (const [clipId, platforms] of byClip) publisher.mutate({ clipId, platforms, force })
+    const outcomes = await Promise.allSettled(
+      Array.from(byClip, ([clipId, platforms]) => publisher.mutateAsync({ clipId, platforms, force })),
+    )
+    const failures = outcomes.filter((o): o is PromiseRejectedResult => o.status === 'rejected')
+    if (failures.length > 0) {
+      setPublishError(
+        failures
+          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
+          .join(' · '),
+      )
+    }
   }
-
-  const clips = candidates.data ?? []
   const steps = project.data?.steps ?? ({} as Record<StepName, boolean>)
   const running = project.data?.running ?? null
   // **Au repos seulement.** Pendant qu'une exécution tourne, l'échec affiché
@@ -308,6 +340,8 @@ export function ProjectScreen({ id }: { id: string }) {
                   patch.mutate({ clipId, projectId: id, patch: { status } })
                 }
                 publicationAvailability={publicationAvailability.data}
+                publicationRecords={publicationRecords}
+                publishError={publishError}
                 onPublish={publishSelection}
                 header={
                   <>

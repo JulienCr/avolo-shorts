@@ -105,12 +105,27 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   const publicationRecords = Object.fromEntries(
     (publications.data ?? []).map((row) => [
       row.platform,
-      { status: row.status, remoteUrl: row.remoteUrl, publishedFingerprint: row.publishedFingerprint },
+      {
+        status: row.status,
+        remoteUrl: row.remoteUrl,
+        publishedFingerprint: row.publishedFingerprint,
+        error: row.error,
+      },
     ]),
   )
   function launchPublish(targets: readonly { clipId: string; platform: Platform }[], force: boolean) {
     publisher.mutate({ clipId: clip.id, platforms: targets.map((t) => t.platform), force })
   }
+  // **La boîte se ferme dès la confirmation** (`confirmLaunch`, `publish-dialog.tsx`),
+  // avant que le `POST` ne réponde : un refus de prévalidation — rendu
+  // périmé, titre YouTube vide, conflit 409 — disparaissait donc sans aucun
+  // retour. `publisher.error` porte ce refus, affiché ici plutôt que dans la
+  // boîte qui n'existe déjà plus. (relevé par Codex)
+  const publishError = publisher.isError
+    ? publisher.error instanceof Error
+      ? publisher.error.message
+      : 'La publication a échoué.'
+    : null
 
   // Les globaux du hook, en cache et sans coût : `useSettings` sert déjà
   // l'écran des réglages. `resolveHook` les croise avec la surcharge du clip
@@ -679,6 +694,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         writeInFailure={patch.isError || textsInFailure.length > 0}
         publicationAvailability={publicationAvailability.data}
         publicationRecords={publicationRecords}
+        publishError={publishError}
         onPublish={launchPublish}
       />
 

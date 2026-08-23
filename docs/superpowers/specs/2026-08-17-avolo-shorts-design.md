@@ -783,8 +783,15 @@ taille, et approché sur la largeur de boîte : le moteur de mise en page du
 navigateur n'est pas `measureText`, donc un carton qui reviendrait à la ligne
 autrement dans les deux moteurs peut différer de quelques pixels. La
 recherche du carton actif est dichotomique et non linéaire : le lecteur de
-l'émission peut porter le transcript entier, plusieurs milliers de mots, et
-cette recherche s'exécute à chaque `timeupdate`.
+l'émission peut porter le transcript entier, plusieurs milliers de mots.
+
+**Correction du 23 août 2026.** L'horloge locale du calque (`useCaptionClock`,
+`src/components/captions/caption-overlay.tsx`) suit `currentTime` à la cadence
+de la trame par `requestVideoFrameCallback`, `timeupdate`/`seeked` servant de
+repli sur les navigateurs qui ne l'ont pas. `timeupdate` seul (~4 Hz) pouvait
+sauter entièrement un carton plus court que l'intervalle entre deux
+événements — un mot isolé suivi d'un silence en forme un, `splitIntoCards` ne
+garantissant qu'une durée maximale par carton, jamais minimale.
 
 `show-view.tsx` appelle `useTranscript` sans condition pour nourrir ce
 calque, alors que le tiroir de transcript (`?transcript=1`) ne le demandait
@@ -1314,7 +1321,7 @@ A.3) : un clic sur la carte d'un replay déclenchait jusque-là 30 à 45 minutes
 de traitement sans étape intermédiaire. `show-card.tsx` crée le projet et
 navigue sans lancer ; un bouton « Commencer l'analyse » (`retry.tsx`) déclenche
 ensuite le travail. `phaseProject` (`src/core/phase.ts`) en tire une
-cinquième valeur d'`Analysis`, `'neuf'` : un projet sans artefact et sans
+cinquième valeur d'`Analysis`, `'new'` : un projet sans artefact et sans
 exécution était jusque-là forcément une exécution interrompue, puisque
 `createProject` lançait toujours — ce raisonnement devient faux le jour où la
 création cesse de lancer, et `everRan` (tiré de la présence de

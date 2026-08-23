@@ -839,10 +839,25 @@ passe pour une correction s'écrivait alors sans second regard. Ce n'est plus
 le cas : Julien valide chaque substitution avant écriture (§9, « Le modèle
 propose, Julien valide »), donc un faux positif de la garde phonétique coûte
 un coup d'œil et un décochage sur l'écran de relecture, jamais un export
-faux. Et la garde phonétique n'a jamais été la garantie principale contre la
-réécriture — le schéma de sortie l'est, qui interdit structurellement
-l'insertion, la suppression et le réordonnancement (plus haut dans cette
-section). Elle en est la seconde, pas la première.
+faux.
+
+**Une précision sur ce que le schéma garantit vraiment, relevée en review
+externe : il n'interdit pas le réordonnancement, contrairement à ce qu'une
+formulation antérieure de ce paragraphe laissait entendre.** Le schéma bloque
+structurellement l'insertion et la suppression (plus haut dans cette
+section) — aucune forme ne les exprime. Le réordonnancement, lui, n'a pas de
+forme dédiée à rejeter : c'est la garde phonétique, et elle seule, qui
+l'arrête, chaque substitution étant jugée sans savoir qu'une autre y répond.
+Et comme cette garde confond parfois deux mots qui ne sont pas homophones
+(ci-dessus) et parfois deux mots qui le sont vraiment, un échange entre deux
+mots dont les clés collident — `{i:0,w:'est'},{i:1,w:'et'}` sur `['et','est']`
+— la traverse sans y être arrêté : ce n'est déjà plus une correction, c'est
+une réécriture qui a pris la forme d'une paire de substitutions. Le filet qui
+reste est le même que celui qui rend le faux positif tenable : la relecture
+avant écriture. La garde phonétique n'a donc jamais été la garantie
+principale contre la réécriture, le schéma ne l'est qu'à moitié — et c'est
+Julien, à l'écran de relecture, qui referme ce que ni l'un ni l'autre ne
+couvre.
 
 **Une fausse piste, fermée ici pour ne pas être rouverte** : interdire le
 dépouillement des consonnes finales sous une longueur minimale de mot est le

@@ -4,6 +4,12 @@ import { InvalidSettingError } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { isTransient, GeminiBlockedError } from '@/server/llm/retry'
 import {
+  MetaAccountMisconfiguredError,
+  MetaAssetPermissionError,
+  MetaContainerTimeoutError,
+  MetaFileRefusedError,
+  MetaRateLimitError,
+  MetaTokenExpiredError,
   PublicationAlreadyPublishedError,
   UploadPostAccountMisconfiguredError,
   UploadPostFileRefusedError,
@@ -82,6 +88,15 @@ export function statusFor(error: unknown): number {
   if (error instanceof UploadPostRateLimitError) return 429
   if (error instanceof UploadPostFileRefusedError) return 422
   if (error instanceof UploadPostAccountMisconfiguredError) return 400
+  // Le connecteur Meta direct (issue #146) : droit manquant sur l'actif
+  // (2207085) en 403, sondage de conteneur qui n'aboutit jamais en 503 —
+  // retentable plus tard, comme les pannes transitoires ci-dessous.
+  if (error instanceof MetaTokenExpiredError) return 401
+  if (error instanceof MetaRateLimitError) return 429
+  if (error instanceof MetaFileRefusedError) return 422
+  if (error instanceof MetaAccountMisconfiguredError) return 400
+  if (error instanceof MetaAssetPermissionError) return 403
+  if (error instanceof MetaContainerTimeoutError) return 503
   // Le filtre de contenu a refusé : ni la faute de l'appelant, ni un défaut du
   // serveur. 422 — la demande est bien formée, elle ne peut simplement pas être
   // traitée.

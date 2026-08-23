@@ -13,8 +13,8 @@
 
 import { PLATFORMS, type Platform } from '@/core/publication'
 import { closeDb, getClip, getDb, getPublications } from '@/server/db'
+import { publicationAvailability } from '@/server/publication'
 import { launchPublish } from '@/server/publication/service'
-import { createUploadPostAdapter } from '@/server/publication/upload-post'
 import { chargerEnv, quit } from './dev-common'
 
 function parsePlatforms(arg: string | undefined): Platform[] {
@@ -61,17 +61,17 @@ async function main(): Promise<number> {
   console.log(`Clip       : ${clipId} (${clip.title === '' ? '(sans titre)' : clip.title})`)
   console.log(`Plateformes: ${platforms.join(', ')}${force ? ' (force)' : ''}`)
 
-  const adapter = createUploadPostAdapter()
   // Diagnostic seulement : `launchPublish` ne se fie pas à ce relevé pour
   // décider — chaque plateforme réussit ou échoue seule (spec §6.4), la
-  // vraie réponse d'Upload Post fait foi.
-  const availability = await adapter.availability(process.env)
+  // vraie réponse du connecteur qui la prend fait foi (Meta ou Upload Post,
+  // issue #146).
+  const availability = await publicationAvailability()
   for (const platform of platforms) {
     const state = availability[platform]
     console.log(`  ${platform.padEnd(10)}: ${state.available ? 'connecté' : state.reason}`)
   }
 
-  const { rows, settled } = launchPublish({ db, adapter, clip, platforms, force })
+  const { rows, settled } = launchPublish({ db, clip, platforms, force })
   console.log('Lancé      :')
   for (const row of rows) console.log(`  ${row.platform.padEnd(10)}: ${row.status}`)
 

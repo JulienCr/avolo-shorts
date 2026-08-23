@@ -1,16 +1,23 @@
 import { defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
 import type { PublicationAdapter } from '@/server/publication/adapter'
+import { createMetaAdapter } from '@/server/publication/meta'
 import { createUploadPostAdapter } from '@/server/publication/upload-post'
 
 /**
  * Déclaration canonique du registre de connecteurs (contrat de la PR
- * « Wave B (UI) », section « SHARED SEAM »). Un futur `meta.ts` s'y ajoute par
- * une seule ligne, placée **avant** Upload Post — Meta direct est gratuit et
- * autorise 100 publications par 24 h, contre 10 par mois sur le palier
- * gratuit d'Upload Post — sans rien restructurer ici.
+ * « Wave B (UI) », section « SHARED SEAM »). Meta est placé **avant** Upload
+ * Post — à plateforme égale (Instagram, Facebook), gratuit et 100 publications
+ * par 24 h l'emporte sur dix par mois (issue #146) — un ordre délibéré, pas un
+ * accident d'insertion.
+ *
+ * Mémorisé : `groupByAdapter` (`service.ts`) regroupe par identité d'objet, et
+ * une instance neuve à chaque appel ferait manquer tout regroupement entre
+ * deux plateformes prises par le même connecteur.
  */
+let adapters: PublicationAdapter[] | undefined
 export function publicationAdapters(): PublicationAdapter[] {
-  return [createUploadPostAdapter()]
+  adapters ??= [createMetaAdapter(), createUploadPostAdapter()]
+  return adapters
 }
 
 /** L'adaptateur qui prend cette plateforme — le premier du tableau à la porter. */

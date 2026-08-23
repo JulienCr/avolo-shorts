@@ -162,6 +162,14 @@ describe('planSteps — correction', () => {
       'candidates',
     ])
   })
+
+  // Le cas qui compte le plus des trois : c'est exactement l'état dans lequel
+  // une panne du modèle laisse un projet (candidats calculés sur du texte non
+  // corrigé) — la présence de `candidates` ne remonte pas non plus, et le
+  // rattrapage passe par `force: ['correction']`, jamais par ce test.
+  it('un correction.json absent sous un candidates.json présent ne relance rien non plus', () => {
+    expect(planSteps('candidates', { ...none, candidates: true })).toEqual([])
+  })
 })
 
 /**

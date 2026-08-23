@@ -232,6 +232,7 @@ describe('GET /api/projects', () => {
       'createdAt',
       'durationSec',
       'error',
+      'everRan',
       'id',
       'running',
       'stopped',

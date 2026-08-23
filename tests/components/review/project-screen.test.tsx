@@ -53,6 +53,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
     selectionReport: null,
     stopped: false,
     sizeBytes: 4_300_000_000,
+    everRan: true,
     ...fields,
   }
 }
@@ -130,6 +131,21 @@ describe('l’écran de projet', () => {
 
     await waitFor(() => expect(screen.getByText(/l’analyse est en cours/i)).toBeTruthy())
     expect(screen.queryByRole('tab', { name: /à trier/i })).toBeNull()
+  })
+
+  // Point A.3 du retour d'usage : un projet créé sans lancement (`everRan:
+  // false`) affiche « Commencer l'analyse », pas « Reprendre l'analyse » — les
+  // deux boutons visent les mêmes cibles, mais le libellé qui ment invite à
+  // « reprendre » un travail qui n'a jamais commencé.
+  it('propose « Commencer l’analyse » sur un projet créé sans lancement', async () => {
+    serve(state({ running: null, everRan: false }), [])
+    mount()
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'L’analyse n’a pas encore commencé.' })).toBeTruthy(),
+    )
+    expect(screen.getByRole('button', { name: /commencer l’analyse/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /reprendre l’analyse/i })).toBeNull()
   })
 
   it('rend la page à la grille dès qu’il y a quelque chose à trier', async () => {

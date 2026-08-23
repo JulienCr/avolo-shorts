@@ -13,7 +13,7 @@ import { AppBar } from '@/components/navigation/app-bar'
 import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/review/progress'
 import { ReviewFeed } from '@/components/review/feed'
 import { layoutProgress, viewSinceUrl, type View } from '@/components/review/template'
-import { ButtonRetry, ButtonResume, StopButton } from '@/components/review/retry'
+import { ButtonRetry, ButtonResume, ButtonStart, StopButton } from '@/components/review/retry'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -51,8 +51,14 @@ export function ProjectScreen({ id }: { id: string }) {
   // serait celui d'avant — et c'est le serveur qui le garantit déjà en rendant
   // `error: null` tant que `running` n'est pas nul.
   const error = project.data?.error ?? null
+  // **`true` par défaut, tant que l'état n'a pas répondu** : c'est la lecture
+  // prudente, celle qui affiche « interrompu » plutôt que « neuf » sur un
+  // squelette — `analysis` ne sert alors à rien tant que `ready` est faux plus
+  // bas, mais un défaut à `false` afficherait un instant « Commencer
+  // l'analyse » sur un projet qui a peut-être déjà tourné.
+  const everRan = project.data?.everRan ?? true
 
-  const phase = phaseProject(steps, running, error, clips)
+  const phase = phaseProject(steps, running, error, clips, everRan)
 
   // **Attendre n'est pas la même chose que ne pas savoir.**
   //
@@ -121,7 +127,12 @@ export function ProjectScreen({ id }: { id: string }) {
         {/* Au-dessus de la disposition, pour survivre au panneau : c'est
             précisément quand il cède la place à la grille qu'il y a quelque
             chose à annoncer. */}
-        <AnnouncementDStep running={running} steps={steps} connu={project.isSuccess} />
+        <AnnouncementDStep
+          running={running}
+          steps={steps}
+          connu={project.isSuccess}
+          everRan={everRan}
+        />
 
         <div className="flex flex-col gap-4">
           {/* **Deux origines d'erreur, et la seconde n'efface pas la première.**
@@ -186,8 +197,15 @@ export function ProjectScreen({ id }: { id: string }) {
               steps={steps}
               running={running}
               error={error}
+              everRan={everRan}
               size={size}
-              resume={<ButtonResume projectId={id} inCurrent={running !== null} />}
+              resume={
+                phase.analysis === 'neuf' ? (
+                  <ButtonStart projectId={id} inCurrent={running !== null} />
+                ) : (
+                  <ButtonResume projectId={id} inCurrent={running !== null} />
+                )
+              }
               shutdown={running !== null ? <StopButton projectId={id} /> : null}
             />
           ) : !ready ? (

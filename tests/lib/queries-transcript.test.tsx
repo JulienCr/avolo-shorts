@@ -180,6 +180,7 @@ const runningStatus: ProjectStatus = {
   stopped: false,
   selectionReport: null,
   sizeBytes: null,
+  everRan: true,
 }
 
 describe('useProject', () => {

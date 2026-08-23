@@ -54,6 +54,15 @@ export const GET = route(
       // côté finiraient par diverger. Il se tait pendant qu'une exécution
       // tourne, comme `error`.
       stopped: running === null ? (status?.stopped ?? false) : false,
+      // **Vrai dès qu'une exécution a existé, même arrêtée ou échouée.**
+      // `status.json` n'est écrit que depuis `lancer` (`src/server/run.ts`) :
+      // sa seule présence dit qu'un `POST /api/projects` avec `launch: true`
+      // ou une reprise ont eu lieu au moins une fois. C'est le fait que
+      // `analysisProject` (`src/core/phase.ts`) demande pour distinguer
+      // `neuf` d'`interrompu`, que `steps`, `running` et `error` seuls ne
+      // peuvent pas dire — un projet neuf et un projet dont l'exécution a
+      // été perdue au redémarrage ont les trois identiques.
+      everRan: status !== null,
       // La taille de la source, pour la seule chose qui en dépende :
       // `stepDurationRange` s'en sert pour suppléer la durée, qui manque
       // précisément quand le panneau d'avancement apparaît. Elle vient de la

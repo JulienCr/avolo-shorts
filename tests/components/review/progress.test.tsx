@@ -75,12 +75,14 @@ describe('PanelProgress', () => {
     running: { step: StepName; progress: number } | null = inCurrent,
     error: string | null = null,
     size = CQLP,
+    everRan = true,
   ) {
     return render(
       <PanelProgress
         steps={reading(made)}
         running={running}
         error={error}
+        everRan={everRan}
         size={size}
         resume={<button type="button">Reprendre l’analyse</button>}
         shutdown={<button type="button">Arrêter l’analyse</button>}
@@ -202,6 +204,16 @@ describe('PanelProgress', () => {
     // et il manque une étape.
     mount([], null)
     expect(screen.getByRole('button', { name: /reprendre/i })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('L’analyse s’est arrêtée.')).toBeTruthy()
+  })
+
+  // `everRan: false` (analysis === 'neuf') : rien ne tourne, rien n'a échoué,
+  // mais aucune exécution n'a jamais eu lieu — pas la même chose qu'une
+  // exécution morte, et le titre comme l'absence de bandeau d'erreur le disent.
+  it('dit que l’analyse n’a pas encore commencé, sans bandeau d’erreur', () => {
+    mount([], null, null, CQLP, false)
+    expect(screen.getByText('L’analyse n’a pas encore commencé.')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

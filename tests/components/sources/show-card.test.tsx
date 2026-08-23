@@ -44,6 +44,7 @@ const PROJECT: ProjectListItem = {
   running: null,
   error: null,
   stopped: false,
+  everRan: true,
 }
 
 function creation(partial: Partial<Creation> = {}): Creation {
@@ -120,6 +121,18 @@ describe('les cinq états', () => {
     expect(card().getAttribute('data-state')).toBe('failed')
     expect(screen.getByText('Analyse en erreur')).toBeTruthy()
     expect(screen.queryByText(/ffmpeg/)).toBeNull()
+  })
+
+  // Point A.3 du retour d'usage : la carte crée le projet sans lancer son
+  // analyse. `everRan: false` doit donc rester à l'état « new », pas
+  // « analyzed » — sans quoi un projet qui n'a encore rien produit
+  // afficherait le badge ambre et « Ouvrir ».
+  it('reste « new » sur un projet créé sans lancement, et mène à l’écran de projet', () => {
+    renderCard(entry({ projectId: PROJECT.id }, { everRan: false }))
+    const link = screen.getByRole('link')
+    expect(link.getAttribute('data-state')).toBe('new')
+    expect(link).toHaveProperty('pathname', '/projects/2025-06-15-cqlp')
+    expect(screen.getByText('Lancer l’analyse')).toBeTruthy()
   })
 
   it('marque une émission analysée et mène à sa vue', () => {

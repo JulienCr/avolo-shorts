@@ -43,12 +43,21 @@ describe('phaseProject, l’axe des artefacts', () => {
     expect(phaseProject(reading('audio', 'transcript'), null, null, []).analysis).toBe('interrompu')
   })
 
-  it('n’a pas de valeur « neuf » : rien sur le disque et rien qui tourne est interrompu', () => {
-    // `createProject` appelle `launch` avant de répondre, et `launch` pose sa
-    // réservation avant son premier `await` : un projet que le client peut voir
-    // a toujours quelque chose qui tourne ou quelque chose sur le disque. La
-    // forme « aucun artefact, aucune exécution » décrit une exécution morte.
+  it('dit « interrompu », par défaut, quand rien n’est sur le disque et que rien ne tourne', () => {
     expect(phaseProject(reading(), null, null, []).analysis).toBe('interrompu')
+  })
+
+  it('dit « neuf » quand rien n’est sur le disque, rien ne tourne, et status.json n’a jamais été écrit', () => {
+    // Depuis le 23 août 2026, `createProject` peut créer un projet sans le
+    // lancer (retour d'usage, point A.3) : « aucun artefact, aucune exécution »
+    // ne décrit alors plus une exécution morte, mais un projet qui vient d'être
+    // créé. `everRan` — tiré de `status.json` — est le seul fait qui distingue
+    // les deux, puisque `steps`, `running` et `error` sont identiques.
+    expect(phaseProject(reading(), null, null, [], false).analysis).toBe('neuf')
+  })
+
+  it('dit « interrompu », et non « neuf », dès qu’une exécution a laissé un status.json', () => {
+    expect(phaseProject(reading(), null, null, [], true).analysis).toBe('interrompu')
   })
 
   it('dit « echec » quand la dernière exécution a échoué', () => {

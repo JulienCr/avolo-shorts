@@ -311,6 +311,17 @@ export type ProjectStatus = {
    * de plus. La colonne, elle, est déjà en base.
    */
   sizeBytes: number | null
+  /**
+   * Vrai dès qu'une exécution a déjà eu lieu sur ce projet, même arrêtée ou
+   * échouée — tiré de la présence de `status.json`.
+   *
+   * **Le seul fait qui distingue `analysis === 'neuf'` d'`'interrompu'`**
+   * (`src/core/phase.ts`) : les deux ont `steps` vide, `running` nul et
+   * `error` nul. Depuis que `POST /api/projects` peut créer un projet sans le
+   * lancer (retour d'usage, point A.3), les deux cas sont réellement
+   * distincts et non dérivables l'un de l'autre.
+   */
+  everRan: boolean
 }
 
 /**
@@ -436,6 +447,12 @@ export type ProjectListItem = ProjectSummary & {
    * contredisent sur le même projet valent moins que pas d'écran du tout.
    */
   stopped: boolean
+  /**
+   * Une exécution a-t-elle déjà eu lieu ? Le même fait que sur `ProjectStatus`,
+   * pour la même raison : `showState` (`src/core/library.ts`) en a besoin pour
+   * distinguer un projet créé sans lancement d'une exécution interrompue.
+   */
+  everRan: boolean
 }
 
 /**
@@ -763,15 +780,18 @@ export function listSources(): Promise<SourcesListing> {
 }
 
 /**
- * Ingère un replay et lance son analyse.
+ * Ingère un replay, sans lancer son analyse.
  *
  * `source` est le **nom du fichier** dans `REPLAY_DIR`, tel que le sélecteur de
  * sources le donne — jamais un chemin absolu : le serveur le rejoint lui-même
  * sur sa racine, et exige que le fichier y soit posé directement. L'identifiant
  * du projet en dérive.
  *
- * Rend la main tout de suite, sur un 202 : c'est le `plan` qui dit ce qui va
- * tourner, et `getProject` qui suit l'avancement.
+ * **N'envoie pas `launch`, donc laisse le serveur à son défaut `false`**
+ * depuis le 23 août 2026 (retour d'usage, point A.3) : `show-card.tsx` crée le
+ * projet et navigue, et c'est `ButtonStart` (`retry.tsx`) qui déclenche
+ * ensuite le travail. Le `plan` rendu est alors vide ; `getProject` dira
+ * `analysis: 'neuf'` tant que rien n'a démarré.
  */
 export function createProject(source: string): Promise<RunPlan> {
   return post<RunPlan>('/api/projects', { source })

@@ -75,10 +75,10 @@ export function LibraryScreen() {
   // rien faire. Un effet ne s'exécute pas sur un composant démonté, ce qui
   // exprime la règle sans qu'on ait à tenir un drapeau « suis-je encore là ».
   //
-  // **La redirection est la confirmation.** La réponse est un 202 — l'analyse
-  // est acceptée et lancée, pas faite —, et la vue Émission est celle qui sait
-  // montrer une analyse qui commence. Une notification en plus dirait deux fois
-  // la même chose.
+  // **La redirection est la confirmation.** La réponse est un 202 — le projet
+  // est créé, l'analyse ne l'est pas encore —, et la vue Émission est celle qui
+  // porte « Commencer l'analyse » (`analysis === 'neuf'`). Une notification en
+  // plus dirait deux fois la même chose.
   const createdProjectId = create.data?.projectId
   useEffect(() => {
     if (createdProjectId !== undefined) router.push(linkProject(createdProjectId))

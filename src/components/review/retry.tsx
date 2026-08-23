@@ -1,6 +1,6 @@
 'use client'
 
-import { RefreshCw, RotateCcw, Square } from 'lucide-react'
+import { Play, RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { useState } from 'react'
 
 import { ApiError, RESUME_TARGETS } from '@/lib/api'
@@ -62,6 +62,40 @@ export function ButtonResume({ projectId, inCurrent }: { projectId: string; inCu
       >
         <RotateCcw aria-hidden />
         Reprendre l’analyse
+      </Button>
+      <Reason blocked={blocked} inCurrent={inCurrent} />
+      <RetryFailure error={retry.error} />
+    </div>
+  )
+}
+
+/**
+ * Le bouton « Commencer l'analyse ». **Décliné de `ButtonResume`, mêmes cibles.**
+ *
+ * Depuis le 23 août 2026, créer un projet ne lance plus systématiquement son
+ * analyse (retour d'usage, point A.3) : `show-card.tsx` crée le projet et
+ * navigue, sans lancer. C'est ce bouton qui déclenche le travail, sur
+ * `analysis === 'neuf'` (`project-screen.tsx`). Il vise les mêmes
+ * `RESUME_TARGETS` que la reprise et partage le même `useRetry` — la seule
+ * différence entre les deux est le fait qui les rend pertinents : une
+ * exécution qui a déjà eu lieu, ou aucune.
+ */
+export function ButtonStart({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
+  const retry = useRetry()
+  const blocked = inCurrent || retry.isPending
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button
+        variant="default"
+        aria-disabled={blocked}
+        onClick={() => {
+          if (blocked) return
+          retry.mutate({ projectId, targets: RESUME_TARGETS })
+        }}
+      >
+        <Play aria-hidden />
+        Commencer l’analyse
       </Button>
       <Reason blocked={blocked} inCurrent={inCurrent} />
       <RetryFailure error={retry.error} />

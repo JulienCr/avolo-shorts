@@ -36,8 +36,9 @@ export function isDiscarded(status: ClipStatus): boolean {
 
 /** Ce que la machine a produit. Des artefacts, jamais une activité. */
 export type Analysis =
+  | 'neuf' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
   | 'attente' // les candidats manquent, une exécution tourne
-  | 'interrompu' // il manque une étape et rien ne tourne
+  | 'interrompu' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
   | 'echec' // la dernière exécution a échoué
   | 'triable' // candidats présents, proxy absent : on trie, on ne monte pas
   | 'complet' // candidats et proxy présents
@@ -73,11 +74,12 @@ export type Phase = { analysis: Analysis; work: Work }
  *
  * Quatre propriétés, chacune payée par une relecture :
  *
- * - **il n'y a pas de valeur `neuf`.** `createProject` appelle `launch` avant de
- *   répondre, et `launch` pose sa réservation avant son premier `await` : un
- *   projet que le client peut voir a toujours quelque chose qui tourne, ou
- *   quelque chose sur le disque. « Aucun artefact, aucune exécution » ne décrit
- *   pas un projet neuf, mais une exécution morte — donc `interrompu` ;
+ * - **`neuf` existe depuis le 23 août 2026.** `createProject` ne lance plus
+ *   systématiquement l'analyse (retour d'usage, point A.3) : un projet créé
+ *   par la carte d'un replay peut donc n'avoir ni artefact ni exécution ni
+ *   `status.json` jamais écrit. C'est ce dernier critère, `everRan`, qui
+ *   distingue « jamais commencé » d'une exécution morte — sans lui, un projet
+ *   neuf afficherait « Reprendre l'analyse », un libellé faux ;
  * - **`interrompu` et `failure` ne s'appliquent que tant que `candidates` est
  *   absent.** Sans cette précondition ils recouvrent `triable` : une exécution
  *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
@@ -104,14 +106,26 @@ export function phaseProject(
   running: { step: StepName; progress: number } | null,
   error: string | null,
   clips: readonly { status: ClipStatus }[],
+  /**
+   * Vrai si `status.json` a déjà été écrit une fois, tous artefacts et
+   * exécutions confondus. C'est le seul fait qui distingue un projet neuf
+   * d'une exécution interrompue : les deux ont `steps` vide, `running` nul et
+   * `error` nul.
+   *
+   * **Défaut à `true`** pour ne pas casser les appelants qui ne s'intéressent
+   * qu'à l'axe `work`, où `everRan` ne joue aucun rôle : seul un appelant qui
+   * doit distinguer `neuf` d'`interrompu` a besoin de le passer explicitement.
+   */
+  everRan = true,
 ): Phase {
-  return { analysis: analysisProject(steps, running, error), work: workProject(clips) }
+  return { analysis: analysisProject(steps, running, error, everRan), work: workProject(clips) }
 }
 
 function analysisProject(
   steps: Record<StepName, boolean>,
   running: { step: StepName; progress: number } | null,
   error: string | null,
+  everRan: boolean,
 ): Analysis {
   // `=== true` et non la vérité de la valeur : le relevé arrive du réseau, et
   // une étape que le client ne connaît pas encore y vaut `undefined`.
@@ -121,7 +135,8 @@ function analysisProject(
   // décrit la dernière exécution *terminée* ; tant qu'une autre tourne, ce que
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
   if (running !== null) return 'attente'
-  return error !== null ? 'echec' : 'interrompu'
+  if (error !== null) return 'echec'
+  return everRan ? 'interrompu' : 'neuf'
 }
 
 function workProject(clips: readonly { status: ClipStatus }[]): Work {

@@ -26,6 +26,7 @@ function project(partial: Partial<LibraryProject> & { id: string }): LibraryProj
     running: null,
     error: null,
     stopped: false,
+    everRan: true,
     ...partial,
   }
 }
@@ -84,6 +85,20 @@ describe('showState', () => {
 
   it('dit « analysée » quand le projet est au repos, sans échec ni arrêt', () => {
     expect(showState(project({ id: 'a' }), true)).toBe('analyzed')
+  })
+
+  // Point A.3 du retour d'usage : un projet peut exister sans qu'aucune
+  // exécution n'ait jamais eu lieu. `stopped`, `error` et `running` valent
+  // alors tous leur défaut — exactement comme un projet au repos, sans
+  // `everRan` pour les distinguer.
+  it('dit « neuve » sur un projet créé sans lancement, même au repos', () => {
+    expect(showState(project({ id: 'a', everRan: false }), true)).toBe('new')
+  })
+
+  it('l’exécution en cours l’emporte sur « neuve »', () => {
+    expect(showState(project({ id: 'a', everRan: false, running: RUNNING }), true)).toBe(
+      'analyzing',
+    )
   })
 })
 

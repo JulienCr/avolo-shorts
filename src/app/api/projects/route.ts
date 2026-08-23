@@ -10,12 +10,21 @@ import { listElement } from '@/server/views'
 
 /**
  * `GET /api/projects` — la bibliothèque.
- * `POST /api/projects` — ingérer un replay et lancer son analyse.
+ * `POST /api/projects` — ingérer un replay, et lancer son analyse si `launch`
+ * le demande.
  */
 
 const CREATION = z.strictObject({
   /** Le nom du fichier dans `REPLAY_DIR`, ou son chemin complet. */
   source: z.string().min(1),
+  /**
+   * Lancer l'analyse tout de suite. **`false` par défaut**, depuis le 23 août
+   * 2026 (retour d'usage, point A.3) : un clic sur la carte d'un replay
+   * déclenchait jusque-là 30 à 45 minutes de traitement sans étape
+   * intermédiaire. `show-card.tsx` n'envoie pas ce champ ; c'est `ButtonStart`
+   * qui lance ensuite le travail, explicitement.
+   */
+  launch: z.boolean().optional(),
 })
 
 export const GET = route('GET /api/projects', async () => {
@@ -23,13 +32,14 @@ export const GET = route('GET /api/projects', async () => {
 })
 
 /**
- * **202, et pas 201.** L'analyse dure 30 à 45 minutes : ce que la réponse
- * confirme est qu'elle est acceptée et lancée, pas qu'elle est faite. Le `plan`
- * dit ce qui va tourner — sur un projet déjà transcrit, il ne contient pas
- * `transcript`, et c'est là que ça se lit.
+ * **202, et pas 201.** L'ingestion peut prendre plusieurs minutes depuis un
+ * Drive lent : ce que la réponse confirme est que le projet est créé, pas que
+ * la source est copiée. Quand `launch` vaut `true`, le `plan` dit en plus ce
+ * qui va tourner — sur un projet déjà transcrit, il ne contient pas
+ * `transcript`. Sans `launch`, le `plan` est vide : rien n'a été demandé.
  */
 export const POST = route('POST /api/projects', async (request: Request) => {
-  const { source } = await body(request, CREATION)
+  const { source, launch } = await body(request, CREATION)
 
   // **Appelé pour lui-même, et hors du `try` qui suit** : `replayDir()` lève si
   // `REPLAY_DIR` manque ou est vide, et `resolveSource` l'appelle. Sous le
@@ -74,6 +84,6 @@ export const POST = route('POST /api/projects', async (request: Request) => {
     )
   }
 
-  const { projectId, plan } = await createProject(source)
+  const { projectId, plan } = await createProject(source, { launchNow: launch === true })
   return json({ projectId, plan }, { status: 202 })
 })

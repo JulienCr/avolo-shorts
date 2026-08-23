@@ -1217,17 +1217,26 @@ async function executeStep(
 export const TARGETS_INITIAL: StepName[] = ['candidates', 'proxy', 'analysis']
 
 /**
- * Inscrit un projet et lance son analyse.
+ * Inscrit un projet, et lance son analyse si on le demande.
  *
  * **La ligne est écrite avant que la copie ne commence**, et c'est ce qui rend
  * la réponse 202 utile : sans elle, `GET /api/projects/:id` répondrait 404
  * pendant les cinq minutes de copie depuis le Drive, et l'interface n'aurait
  * rien à interroger. Les champs que l'ingestion relève — durée, taille, date —
  * arrivent ensuite ; `upsertProject` les met à jour sans toucher à `createdAt`.
+ *
+ * **`launchNow` vaut `false` par défaut, depuis le 23 août 2026** (retour
+ * d'usage, point A.3). Un clic sur la carte d'un replay non analysé
+ * déclenchait jusque-là 30 à 45 minutes de traitement sans étape
+ * intermédiaire ; `show-card.tsx` crée désormais le projet et navigue sans
+ * lancer, et c'est `ButtonStart` (`retry.tsx`), affiché sur `analysis ===
+ * 'neuf'`, qui déclenche le travail. Un projet créé sans lancement ne laisse
+ * aucun `status.json` : c'est ce que `analysisProject` lit pour distinguer
+ * `neuf` d'`interrompu`.
  */
 export async function createProject(
   source: string,
-  options: OptionsLaunch = {},
+  options: OptionsLaunch & { launchNow?: boolean } = {},
 ): Promise<{ projectId: string; plan: StepName[] }> {
   const sourcePath = resolveSource(source)
   const projectId = projectIdFromSource(source)
@@ -1248,5 +1257,6 @@ export async function createProject(
     createdAt: existant?.createdAt ?? Date.now(),
   })
 
+  if (options.launchNow !== true) return { projectId, plan: [] }
   return launch(projectId, TARGETS_INITIAL, options)
 }

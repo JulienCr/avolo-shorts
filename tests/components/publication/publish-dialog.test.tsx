@@ -103,31 +103,61 @@ describe('PublishDialog — même logique depuis un clip ou une sélection', () 
   })
 })
 
+/** Une seule plateforme disponible — les trois autres `not_configured`. */
+const onlyInstagram: Record<Platform, PlatformAvailability> = {
+  instagram: { available: true },
+  facebook: { available: false, reason: 'not_configured' },
+  tiktok: { available: false, reason: 'not_configured' },
+  youtube: { available: false, reason: 'not_configured' },
+}
+
 describe('PublishDialog — quand une plateforme est disponible (injecté pour le test)', () => {
-  it('se coche, se confirme, et lance la publication choisie', () => {
+  it('coche par défaut les plateformes disponibles (issue #97)', () => {
+    render(
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />,
+    )
+    for (const label of ['Instagram', 'Facebook', 'TikTok', 'YouTube Shorts']) {
+      expect(screen.getByRole('checkbox', { name: label }).getAttribute('aria-checked')).toBe('true')
+    }
+  })
+
+  it('ne coche jamais une plateforme `not_configured` (issue #97)', () => {
+    render(
+      <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={onlyInstagram} />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Instagram' }).getAttribute('aria-checked')).toBe('true')
+    for (const label of ['Facebook', 'TikTok', 'YouTube Shorts']) {
+      expect(screen.getByRole('checkbox', { name: label }).getAttribute('aria-checked')).toBe('false')
+    }
+  })
+
+  it('se confirme, et lance la publication choisie par défaut, avec `force`', () => {
     const onLaunch = vi.fn()
     render(
       <PublishDialog
         open
         onOpenChange={() => {}}
         clips={[eligible()]}
-        availability={allAvailable}
+        availability={onlyInstagram}
         onLaunch={onLaunch}
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
     fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
     expect(screen.getByText(/Confirmer déclenche l’envoi/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer et publier' }))
-    expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }])
+    expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }], false)
   })
 
   it('n’avance pas tant qu’aucune plateforme disponible n’est cochée', () => {
     render(
       <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />,
     )
+    // Cochées par défaut : il faut les décocher pour retrouver le blocage.
+    for (const label of ['Instagram', 'Facebook', 'TikTok', 'YouTube Shorts']) {
+      fireEvent.click(screen.getByRole('checkbox', { name: label }))
+    }
     expect(screen.getByRole('button', { name: 'Suivant' })).toHaveProperty('disabled', true)
   })
 
@@ -147,10 +177,9 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     render(
       <PublishDialog open onOpenChange={() => {}} clips={[target]} availability={allAvailable} />,
     )
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Facebook' }))
+    // Instagram, Facebook et YouTube sont cochés par défaut (rien n'est
+    // `published` chez eux) ; TikTok, déjà `published`, ne l'est pas.
     fireEvent.click(screen.getByRole('checkbox', { name: 'TikTok' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'YouTube Shorts' }))
     expect(screen.getByText('en cours')).toBeTruthy()
     expect(screen.getByText('déposé')).toBeTruthy()
     expect(screen.getByText('publié')).toBeTruthy()
@@ -169,10 +198,12 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
         open
         onOpenChange={() => {}}
         clips={[target]}
-        availability={allAvailable}
+        availability={onlyInstagram}
         onLaunch={onLaunch}
       />,
     )
+    // Déjà `published` : pas coché par défaut (issue #97).
+    expect(screen.getByRole('checkbox', { name: 'Instagram' }).getAttribute('aria-checked')).toBe('false')
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
     fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
     // Sans avoir coché « republier », il n'y a rien à lancer.
@@ -182,7 +213,7 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     fireEvent.click(screen.getByRole('checkbox', { name: /Republier explicitement/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer et publier' }))
-    expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }])
+    expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }], true)
   })
 
   it('signale une publication périmée par une modification locale', () => {
@@ -201,17 +232,20 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
 })
 
 describe('PublishDialog — remise à zéro entre deux ouvertures', () => {
-  it('oublie la sélection du clip précédent en se rouvrant', () => {
+  it('revient à la sélection par défaut en se rouvrant, pas à celle laissée avant de fermer', () => {
+    // Instagram est coché par défaut (disponible, jamais publié) ; le
+    // décocher est le geste qui doit se défaire à la réouverture.
     const { rerender } = render(
       <PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />,
     )
     fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
+    expect(screen.getByRole('checkbox', { name: 'Instagram' }).getAttribute('aria-checked')).toBe('false')
 
     rerender(<PublishDialog open={false} onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
     rerender(<PublishDialog open onOpenChange={() => {}} clips={[eligible()]} availability={allAvailable} />)
 
     const checkbox = screen.getByRole('checkbox', { name: 'Instagram' }) as HTMLElement
-    expect(checkbox.getAttribute('aria-checked')).toBe('false')
+    expect(checkbox.getAttribute('aria-checked')).toBe('true')
   })
 })
 

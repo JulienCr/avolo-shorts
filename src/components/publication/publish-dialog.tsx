@@ -54,12 +54,11 @@ import { cn } from '@/lib/utils'
  * pas la règle « rien ne s'ouvre en modale sauf une confirmation », elle
  * l'applique.
  *
- * **Rien n'est branché.** `availability` par défaut à `defaultPlatformAvailability()` —
- * les quatre plateformes en `not_configured` — et `onLaunch` n'est appelé que
- * si au moins une cible a été retenue, ce qui n'arrive jamais aujourd'hui
- * puisqu'aucune plateforme n'est sélectionnable. Les deux sont injectables
- * pour que le composant se teste sans attendre un connecteur, et pour que le
- * jour où l'un existera, seul l'appelant change.
+ * `availability` par défaut à `defaultPlatformAvailability()` — les quatre
+ * plateformes en `not_configured` —, et `onLaunch` n'est appelé que si au
+ * moins une cible a été retenue. Les deux sont injectables : pour tester le
+ * composant sans connecteur, et parce qu'un connecteur réel (Upload Post) les
+ * fournit désormais depuis les deux appelants (`export-panel.tsx`, `feed.tsx`).
  */
 export type PublishClipTarget = {
   clipId: string
@@ -79,6 +78,16 @@ export type PublishClipTarget = {
 
 type Step = 'platforms' | 'confirm'
 
+/** Coché à l'ouverture (issue #97) : disponible, et jamais une plateforme qui exigerait `force`. */
+function defaultSelection(
+  selectable: readonly Platform[],
+  eligible: readonly PublishClipTarget[],
+): Set<Platform> {
+  return new Set(
+    selectable.filter((platform) => !eligible.some((clip) => clip.records?.[platform]?.status === 'published')),
+  )
+}
+
 export function PublishDialog({
   open,
   onOpenChange,
@@ -92,14 +101,22 @@ export function PublishDialog({
   /** Injectable pour les tests, et pour le connecteur du jour où il existera. */
   availability?: Readonly<Record<Platform, PlatformAvailability>>
   /**
-   * Appelé une fois, seulement si au moins une cible a été retenue. Aucun
-   * appelant réel n'existe encore : la publication n'a pas de backend.
+   * Appelé une fois, seulement si au moins une cible a été retenue. Porte
+   * `force` (issue #97) : sans lui, une republication délibérée se distingue
+   * mal d'un premier envoi côté appelant.
    */
-  onLaunch?: (targets: readonly { clipId: string; platform: Platform }[]) => void
+  onLaunch?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
 }) {
+  // **Qui décide (issue #96) : l'appelant propose, cette modale décide.**
+  // `eligibility` vient de `clip.status` (vue Émission) ou d'`outputs.mp4Url`
+  // (écran de clip) — non réconciliés ; la modale filtre sur ce qu'on lui donne.
   const resolvedAvailability = availability ?? defaultPlatformAvailability()
+  const eligible = clips.filter((c) => c.eligibility.eligible)
+  const ineligible = clips.filter((c) => !c.eligibility.eligible)
+  const selectable = selectablePlatforms(resolvedAvailability)
+
   const [step, setStep] = useState<Step>('platforms')
-  const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
+  const [selected, setSelected] = useState<ReadonlySet<Platform>>(() => defaultSelection(selectable, eligible))
   const [force, setForced] = useState(false)
 
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
@@ -113,14 +130,10 @@ export function PublishDialog({
     setWasOpen(open)
     if (open) {
       setStep('platforms')
-      setSelected(new Set())
+      setSelected(defaultSelection(selectable, eligible))
       setForced(false)
     }
   }
-
-  const eligible = clips.filter((c) => c.eligibility.eligible)
-  const ineligible = clips.filter((c) => !c.eligibility.eligible)
-  const selectable = selectablePlatforms(resolvedAvailability)
 
   // **Chaque plateforme réussit ou échoue seule** (spec publication §6.4) :
   // la cible se calcule couple par couple, jamais en bloc, pour que la suite
@@ -162,7 +175,7 @@ export function PublishDialog({
   }
 
   function confirmLaunch() {
-    if (targets.length > 0) onLaunch?.(targets)
+    if (targets.length > 0) onLaunch?.(targets, force)
     onOpenChange(false)
   }
 

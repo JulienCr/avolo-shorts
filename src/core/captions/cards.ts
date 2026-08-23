@@ -10,13 +10,13 @@
 import type { Word } from '@/core/transcript'
 
 /**
- * Seize caractères par carton — **espaces compris**, voir `splitIntoCards` pour
- * ce que « compris » veut dire exactement.
+ * Trente-six caractères par carton — **espaces compris**, voir `splitIntoCards`
+ * pour ce que « compris » veut dire exactement.
  */
-export const MAX_CHARS_DEFAULT = 16
+export const MAX_CHARS_DEFAULT = 36
 
-/** Une seconde quatre par carton, mesurée depuis son premier mot. */
-export const MAX_DURATION_DEFAULT = 1.4
+/** Deux secondes cinq par carton, mesurée depuis son premier mot. */
+export const MAX_DURATION_DEFAULT = 2.5
 
 /**
  * Groupe les mots en cartons courts, lisibles sur un format vertical.
@@ -25,8 +25,8 @@ export const MAX_DURATION_DEFAULT = 1.4
  * ce mot ouvre le suivant.
  *
  * **Le décompte de caractères compte un espace par mot** : `somme(len + 1)`,
- * séparateur inclus pour le dernier mot aussi. « 16 caractères » vaut donc 16
- * espaces compris, soit à peu près trois mots français. C'est le décompte de la
+ * séparateur inclus pour le dernier mot aussi. « 36 caractères » vaut donc 36
+ * espaces compris, soit à peu près sept mots français. C'est le décompte de la
  * version d'origine, et le rendu a été réglé dessus — le corriger en un décompte
  * « juste » rallongerait tous les cartons d'un mot.
  *

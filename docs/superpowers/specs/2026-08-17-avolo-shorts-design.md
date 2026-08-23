@@ -735,12 +735,31 @@ tolérance. À défaut, jump cut assumé.
 
 ### Le format
 
-Repris d'OpenShorts, dont le rendu convient : karaoké mot à mot, Anton 44, blanc
-sur surlignage `#FFE500`, contour noir de 4 px, majuscules, 16 caractères par
-carton au maximum et 1,4 seconde par carton au maximum. Génération d'un fichier
-ASS puis incrustation par ffmpeg.
+Repris d'OpenShorts, dont le rendu convient : karaoké mot à mot, Anton, blanc
+sur surlignage `#FFE500`, contour noir, majuscules. Génération d'un fichier ASS
+puis incrustation par ffmpeg.
 
 Ces valeurs deviennent un preset modifiable, pas des constantes en dur.
+
+**Correction du 23 août 2026.** Le preset d'OpenShorts (Anton 44, contour 4 px,
+16 caractères et 1,4 seconde par carton) rendait des cartons de quatre mots qui
+occupaient toute la largeur du cadre — mesuré à 247 px de hauteur de glyphe sur
+un rendu 1080×1920. Julien a choisi, sur une planche de quatre candidats rendus
+sur de vraies images, un preset plus petit et posé plus longtemps à l'écran :
+Anton 22 (120 px sur 1080×1920), contour 2 px, 36 caractères et 2,5 secondes par
+carton. Le contour descend avec la police parce que `ScaledBorderAndShadow` le
+met à l'échelle du repère `PlayResY`, pas de la taille de police — resté à 4 il
+aurait mangé la lettre à ce corps. Ce nouveau preset est le défaut
+(`DEFAULT_CAPTION_STYLE` dans `src/core/captions/ass.ts`, `MAX_CHARS_DEFAULT` et
+`MAX_DURATION_DEFAULT` dans `src/core/captions/cards.ts`), pas une borne : il
+reste modifiable par preset.
+
+**Point qui reste ouvert, pas dans le périmètre de cette correction.** Le même
+fichier `.ass` est incrusté sur les deux canevas le jour où `RENDER_NATIVE`
+(`src/core/render-flags.ts`) repasse à `true` : 18 unités de `PlayResY` donnent
+120 px sur un 9:16 (1920 de haut) mais 84 px sur un natif 4:5 (1350 de haut).
+C'est déjà vrai aujourd'hui, ce n'est pas une régression introduite par ce
+preset.
 
 ### La correction, trois étages du moins risqué au plus risqué
 

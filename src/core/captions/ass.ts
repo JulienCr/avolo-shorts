@@ -82,11 +82,15 @@ const MARGIN_LOW = 43
  */
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontName: FONT_BY_DEFAULT,
-  fontSize: 44,
+  // 22 → 120 px sur un rendu 1080×1920, mesuré le 23 août 2026 (44 → 247 px
+  // était jugé trop grand à l'usage). `ScaledBorderAndShadow` met le contour à
+  // l'échelle du repère, pas de la police : `borderWidth` descend d'autant pour
+  // rester ~11 % du corps plutôt que de manger la lettre.
+  fontSize: 22,
   fontColor: '#FFFFFF',
   highlightColor: '#FFE500',
   borderColor: '#000000',
-  borderWidth: 4,
+  borderWidth: 2,
   uppercase: true,
   maxChars: MAX_CHARS_DEFAULT,
   maxDuration: MAX_DURATION_DEFAULT,
@@ -238,14 +242,14 @@ function fontName(name: string): string {
 export function renderAss(cards: Word[][], style: CaptionStyle): string {
   // La taille est exprimée dans le repère `PlayResY: 288`, pas en pixels de
   // l'image : le facteur 0,85 est celui de la version d'origine, à laquelle le
-  // rendu de référence a été réglé. 44 devient donc 37.
-  const size = Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 44) * 0.85))
+  // rendu de référence a été réglé. 22 devient donc 18.
+  const size = Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85))
   const font = fontName(style.fontName)
   // Le contour ne descend pas sous 1 : sur de la vidéo, du texte sans contour
   // devient illisible dès que le fond s'éclaircit. Une seule garde l'énonce —
   // borner à 0 puis remonter à 1 par un `Math.max` disait deux choses opposées,
   // et un preset réglé à 0 remontait à 1 sans un mot.
-  const thickness = Math.floor(bound(style.borderWidth, 1, 10, 4))
+  const thickness = Math.floor(bound(style.borderWidth, 1, 10, 2))
   const margin = Math.round(bound(style.marginV, 0, 200, MARGIN_LOW))
 
   const main = styleColor(style.fontColor, 1)

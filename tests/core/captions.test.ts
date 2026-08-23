@@ -124,28 +124,28 @@ describe('retimeWords', () => {
 })
 
 describe('splitIntoCards', () => {
-  it('ferme un carton à 16 caractères, espaces compris', () => {
-    const words = 'alpha bravo charlie delta'.split(' ').map((w, i) => ({
+  it('ferme un carton à 36 caractères, espaces compris', () => {
+    const words = 'alpha bravo charlie delta echo foxtrot golf hotel'.split(' ').map((w, i) => ({
       word: w,
       start: i * 0.3,
       end: i * 0.3 + 0.25,
     }))
     for (const card of splitIntoCards(words)) {
       const len = card.reduce((n, w) => n + w.word.length + 1, 0)
-      expect(len).toBeLessThanOrEqual(16 + card[card.length - 1].word.length)
+      expect(len).toBeLessThanOrEqual(36 + card[card.length - 1].word.length)
     }
   })
 
   // Sans marge : le code garantit exactement le seuil, et une tolérance d'une
   // demi-seconde laisserait passer un dépassement de 0,1 à 0,4 s (Aristarque).
-  it('ferme un carton à 1,4 seconde', () => {
+  it('ferme un carton à 2,5 secondes', () => {
     const words = Array.from({ length: 8 }, (_, i) => ({
       word: 'a',
       start: i * 0.5,
       end: i * 0.5 + 0.4,
     }))
     for (const card of splitIntoCards(words)) {
-      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(1.4)
+      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(2.5)
     }
   })
 
@@ -169,8 +169,8 @@ describe('splitIntoCards', () => {
   it('mesure la durée depuis le début du carton', () => {
     const words = Array.from({ length: 6 }, (_, i) => ({
       word: 'a',
-      start: i * 0.5,
-      end: i * 0.5 + 0.4,
+      start: i * 0.8,
+      end: i * 0.8 + 0.4,
     }))
     expect(splitIntoCards(words).map((c) => c.length)).toEqual([3, 3])
   })
@@ -239,10 +239,17 @@ describe('renderAss', () => {
     expect(text).not.toContain('{piégé')
   })
 
-  it('met la police à l’échelle de PlayResY 288 : 44 devient 37', () => {
+  it('met la police à l’échelle de PlayResY 288 : 22 devient 18', () => {
     const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
     expect(ass).toContain('PlayResY: 288')
-    expect(styleLine(ass).split(',')[2]).toBe('37')
+    expect(styleLine(ass).split(',')[2]).toBe('18')
+  })
+
+  // La traduction taille → unités ASS ne se relit nulle part ailleurs dans le
+  // fichier rendu : c'est celle qui se casse silencieusement.
+  it('verrouille la traduction fontSize → Fontsize : 22 produit 18', () => {
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontSize: 22 })
+    expect(styleLine(ass).split(',')[2]).toBe('18')
   })
 
   // 43 unités de PlayResY, soit ~15 % de la hauteur. Les 25 d'avant passaient

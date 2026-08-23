@@ -6,8 +6,10 @@ import type Database from 'better-sqlite3'
 import { planSteps, type StepName } from '@/core/graph'
 import type { SelectionReport } from '@/lib/api'
 import { progressWorker } from '@/core/pipeline'
+import { isAAbsence } from '@/server/bytes'
 import { copiesSourceLocally, getDb, getProject, upsertProject, type Project } from '@/server/db'
 import { messageSafe } from '@/server/errors'
+import { pathTemporary } from '@/server/ffmpeg'
 import {
   analysisPath,
   audioPath,
@@ -37,7 +39,7 @@ import {
   workingInput,
 } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
-import { applyTranscriptCorrections } from '@/server/steps/transcript-correction'
+import { applyTranscriptCorrections, CorrectionProposalError } from '@/server/steps/transcript-correction'
 import { transcribe } from '@/server/steps/transcript'
 
 /**
@@ -1264,11 +1266,21 @@ async function executeStep(
       // **`signal.aborted` n'est pas avalé.** Un arrêt demandé n'est pas une
       // panne du modèle : il doit remonter tel quel, pour que l'exécution se
       // termine comme `interrompu`, pas comme un succès avec un avertissement.
+      //
+      // **Seule `CorrectionProposalError` est avalée, rien d'autre.** Elle
+      // ne peut venir que d'avant toute écriture (voir son type) : le
+      // transcript reste intact, donc le repli sur le texte non corrigé est
+      // honnête. Une autre erreur — une panne survenue dans la boucle
+      // d'écriture d'`applyTranscriptCorrections` — peut laisser le
+      // transcript à moitié corrigé ; l'avaler comme la précédente serait
+      // l'échec qui n'échoue pas (`CLAUDE.md`), donc elle propage et fait
+      // échouer tout le plan comme n'importe quelle autre étape (issue #136).
       let correctionOutcome: { applied: number } | undefined
       try {
         correctionOutcome = await steps.applyTranscriptCorrections(project, db, { signal, freshTranscript })
       } catch (cause) {
         if (signal.aborted) throw cause
+        if (!(cause instanceof CorrectionProposalError)) throw cause
         const message = `La correction automatique du transcript a échoué : ${messageSafe(cause)}. ` +
           'Le repérage a tourné sur le texte non corrigé — relancer la correction depuis le ' +
           'transcript de l’émission.'
@@ -1291,7 +1303,29 @@ async function executeStep(
       // déjà là — ne le redécouvrirait jamais absent. On ne le supprime que si
       // au moins une substitution a réellement changé le texte : sans ça,
       // rien n'a bougé sous lui. (relevé par Codex)
-      if (correctionOutcome.applied > 0) await fsp.rm(candidatesPath(project.id), { force: true })
+      //
+      // **Écarté avant d'être supprimé — jamais supprimé directement.** Un
+      // `fsp.rm` qui échoue (`EIO`/`EPERM`) faisait échouer toute l'étape
+      // alors que la correction, elle, a réussi : le plan s'arrêtait avec
+      // `candidates.json` toujours là, et une relance ordinaire ne le
+      // redécouvrait jamais absent (issue #141). Le renommage est
+      // l'invalidation elle-même — `readingPresence` ne voit plus rien à
+      // `candidatesPath` dès qu'il réussit —, donc c'est lui qui doit passer.
+      // La suppression qui suit n'est qu'un nettoyage : son échec ne laisse
+      // rien d'incohérent derrière lui, seulement un fichier orphelin sous un
+      // nom que plus rien ne lit. Même idiome que `transcribe()`
+      // (`src/server/steps/transcript.ts`) pour `correction.json`.
+      if (correctionOutcome.applied > 0) {
+        const stale = pathTemporary(candidatesPath(project.id))
+        try {
+          await fsp.rename(candidatesPath(project.id), stale)
+        } catch (cause) {
+          if (!isAAbsence(cause)) throw cause
+        }
+        await fsp.rm(stale, { force: true }).catch((cause: unknown) => {
+          console.warn(`[${project.id}] nettoyage de l’ancien candidates.json (écarté) :`, cause)
+        })
+      }
       return null
     }
 

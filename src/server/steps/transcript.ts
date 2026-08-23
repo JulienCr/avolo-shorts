@@ -383,12 +383,22 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
       if (hadCorrection) await fsp.rename(correctionSetAside, placement.correction).catch(() => {})
       throw cause
     }
-    // Le transcript est publié, donc l'ancien journal ne décrit plus rien —
-    // **`force: true` avale déjà `ENOENT`**, c'est tout ce qu'il doit
-    // avaler : un `.catch(() => {})` par-dessus masquerait aussi `EIO`/`EPERM`
-    // sur ce nettoyage, sans conséquence sur ce qui vient d'être publié avec
-    // succès. (relevé par Codex)
-    if (hadCorrection) await fsp.rm(correctionSetAside, { force: true })
+    // **Le transcript est publié, donc l'ancien journal ne décrit plus
+    // rien — et son sort ne doit plus engager celui de la transcription.**
+    // Un nettoyage raté après publication ne laisse rien d'incohérent : on
+    // avale et on journalise (règle du groupe E, `transcript-correction.ts`).
+    // Une version antérieure laissait `EIO`/`EPERM` se propager ici et
+    // faisait échouer toute la transcription pour un artefact déjà publié
+    // avec succès (issue #141). (corrige un choix antérieur du même diff,
+    // relevé par Codex)
+    if (hadCorrection) {
+      await fsp.rm(correctionSetAside, { force: true }).catch((cause: unknown) => {
+        console.warn(
+          `[transcribe] nettoyage de l’ancien correction.json (écarté sous ${JSON.stringify(path.basename(correctionSetAside))}) :`,
+          cause,
+        )
+      })
+    }
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

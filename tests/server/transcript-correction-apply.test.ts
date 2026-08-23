@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -137,6 +138,56 @@ describe('applyTranscriptCorrections', () => {
           expected: ['deux', 'mots'],
           replacement: 'deuxmots',
         }),
+      ]),
+    )
+  })
+
+  it('journalise au fil de l’eau : une panne d’écriture ne perd que la substitution en cours (#136)', async () => {
+    // **Le scénario de l'issue, borné.** Trois substitutions à appliquer,
+    // rightmost-first ; l'écriture du journal échoue à la troisième (disque
+    // plein, simulé), après que les deux premières ont réussi — transcript
+    // et journal. Si le journal ne s'écrivait qu'une fois à la fin, cette
+    // panne perdrait la trace des trois ; au fil de l'eau, seule la
+    // troisième — celle en cours au moment de la panne — reste hors du
+    // journal, alors que son mot est déjà écrit sur le transcript. C'est le
+    // pire résiduel annoncé par le commentaire d'`applyTranscriptCorrections` :
+    // jamais le lot entier, au plus une substitution.
+    const words = ['a', 'la', 'le']
+    writeTranscript(words)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        ollamaResponse([
+          { i: 0, w: 'à' },
+          { i: 1, w: 'là' },
+          { i: 2, w: 'lè' },
+        ]),
+      ),
+    )
+
+    let writes = 0
+    const original = fsp.writeFile
+    vi.spyOn(fsp, 'writeFile').mockImplementation(async (file, data, options) => {
+      if (String(file).includes('correction.partiel')) {
+        writes += 1
+        if (writes === 3) throw new Error('ENOSPC: no space left on device')
+      }
+      return original(file, data, options)
+    })
+
+    await expect(applyTranscriptCorrections(project, getDb())).rejects.toThrow(/ENOSPC/)
+
+    // Les trois mots sont corrigés sur le disque — `correctTranscript`
+    // écrit avant que ce test ne fasse échouer le journal.
+    expect(readTranscriptWords()).toEqual(['à', 'là', 'lè'])
+    // Mais le journal ne porte que les deux premières écritures réussies :
+    // la troisième, en cours au moment de la panne, n'y figure pas.
+    const log = await readCorrectionLog(project)
+    expect(log.entries).toHaveLength(2)
+    expect(log.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ lineId: 'l0', from: 2, expected: ['le'], replacement: 'lè' }),
+        expect.objectContaining({ lineId: 'l0', from: 1, expected: ['la'], replacement: 'là' }),
       ]),
     )
   })

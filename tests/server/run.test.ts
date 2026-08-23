@@ -27,6 +27,7 @@ import {
   type Steps,
 } from '@/server/run'
 import { StopRequestedError } from '@/server/ffmpeg'
+import { CorrectionProposalError } from '@/server/steps/transcript-correction'
 
 /**
  * Le lanceur, sans GPU, sans ffmpeg et sans vidéo : les étapes sont injectées.
@@ -873,7 +874,7 @@ describe("l'étape correction", () => {
         ...stepsFake(),
         applyTranscriptCorrections: async () => {
           calls.push('correction')
-          throw new Error('le modèle ne répond pas')
+          throw new CorrectionProposalError('le modèle ne répond pas')
         },
       },
     })
@@ -908,7 +909,7 @@ describe("l'étape correction", () => {
       steps: {
         ...stepsFake(),
         applyTranscriptCorrections: async () => {
-          throw new Error('injoignable')
+          throw new CorrectionProposalError('injoignable')
         },
       },
     })
@@ -919,6 +920,77 @@ describe("l'étape correction", () => {
     // et la retente — c'est `toRedo`, pas un rattrapage écrit à la main ici.
     const presence = await readingPresence(getProject(db, PROJECT) as Project)
     expect(presence.correction).toBe(false)
+  })
+
+  it('une panne qui n’est pas `CorrectionProposalError` fait échouer tout le plan (#136)', async () => {
+    // **Ce que ce groupe distingue.** Une `CorrectionProposalError` ne peut
+    // venir que d'avant toute écriture — voir son type — donc elle seule se
+    // tolère. Une erreur nue, ici, représente une panne survenue dans la
+    // boucle d'écriture d'`applyTranscriptCorrections` : elle peut laisser le
+    // transcript à moitié corrigé, et la confondre avec la précédente
+    // avalait aussi les pannes de stockage.
+    poserProject()
+    poserTranscript()
+
+    await launch(PROJECT, ['candidates'], {
+      db,
+      steps: {
+        ...stepsFake(),
+        applyTranscriptCorrections: async () => {
+          calls.push('correction')
+          throw new Error('ENOSPC: no space left on device')
+        },
+      },
+    })
+    await waitFin()
+
+    // `candidates` ne tourne pas derrière : le plan s'est arrêté sur la
+    // panne, comme n'importe quelle autre étape qui lève.
+    expect(calls).toEqual(['correction'])
+    const status = lireStatus(PROJECT)
+    expect(status?.error).toContain('ENOSPC')
+    expect(status?.warning).toBeNull()
+  })
+
+  it('un échec de suppression de l’ancien candidates.json ne fait pas échouer la correction (#141)', async () => {
+    // **Le scénario de l'issue.** `candidates.json` existant est écarté puis
+    // supprimé une fois la correction réussie ; si la seule suppression finale
+    // échoue (`EIO`/`EPERM`), l'écartement — le renommage hors de
+    // `candidatesPath` — a déjà eu lieu : le graphe voit `candidates: false`
+    // et une relance ordinaire retente l'étape, sans qu'un fichier orphelin
+    // sous un nom que plus rien ne lit fasse échouer la correction elle-même.
+    poserProject()
+    poserTranscript()
+    fs.writeFileSync(path.join(root, 'projects', PROJECT, 'candidates.json'), '[]')
+
+    // Recouvre la forme d'avant cette PR (`rm(candidatesPath(...))` direct)
+    // et celle d'après (`rm(pathTemporary(candidatesPath(...)))`, une fois
+    // l'écartement fait) : les deux commencent par `candidates`.
+    const originalRm = fsp.rm
+    const spy = vi.spyOn(fsp, 'rm').mockImplementation(async (target, options) => {
+      if (path.basename(String(target)).startsWith('candidates')) throw new Error('EIO: i/o error')
+      return originalRm(target, options)
+    })
+    try {
+      await launch(PROJECT, ['correction'], {
+        db,
+        steps: {
+          ...stepsFake(),
+          applyTranscriptCorrections: async () => {
+            calls.push('correction')
+            return { entries: [], applied: 1, failed: 0, rejected: {} }
+          },
+        },
+      })
+      await waitFin()
+    } finally {
+      spy.mockRestore()
+    }
+
+    const status = lireStatus(PROJECT)
+    expect(status?.error).toBeNull()
+    const presence = await readingPresence(getProject(db, PROJECT) as Project)
+    expect(presence.candidates).toBe(false)
   })
 
   it('un arrêt demandé pendant la correction n’est pas avalé comme une panne', async () => {

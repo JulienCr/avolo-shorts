@@ -196,9 +196,16 @@ Deux champs **déjà transmis** suffisent, et ils se croisent en trois cas :
 
 | État | Condition | Primaire | Secondaire |
 |---|---|---|---|
-| jamais livré | `status !== 'exported'` et `mp4Url === null` | **Exporter** | — |
-| périmé | `status === 'exported'` et `mp4Url === null` | **Ré-exporter** | — |
-| livré, à jour | `mp4Url !== null` | **Publier** | Ré-exporter |
+| jamais livré | `status !== 'exported'` et aucune vidéo rendue | **Exporter** | — |
+| périmé | `status === 'exported'` et aucune vidéo rendue | **Ré-exporter** | — |
+| livré, à jour | une vidéo rendue existe | **Publier** | Ré-exporter |
+
+« Une vidéo rendue » se lit `mp4Url !== null || variant9x16Url !== null`, jamais
+le seul `mp4Url`. `RENDER_NATIVE` peut désactiver le rendu natif — tout clip dont
+le ratio résolu n'est pas déjà 9:16 —, et `mp4Url` est alors **définitivement**
+nul, même sur une livraison complète : lire `mp4Url` seul figerait ces clips en
+« périmé » à vie. Le `.txt` seul ne compte pas davantage, puisqu'il n'y a alors
+rien à publier.
 
 Le troisième cas est atteignable parce que la péremption est **paresseuse**,
 posée par `deliveryToDay` (`src/server/renders.ts:162`) : un réglage global de

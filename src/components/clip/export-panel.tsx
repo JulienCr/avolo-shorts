@@ -36,10 +36,9 @@ import { useExporter } from '@/lib/queries'
  * comptait — un clip dont la vidéo a disparu du disque en ne laissant que son
  * texte n'a rien de publiable, quel que soit le libellé du bouton d'export —
  * et c'est donc lui qui décide aussi si le bouton dit « Publier » plutôt que
- * « Ré-exporter ». La lecture littérale du §3.4 (`mp4Url === null`) figerait
- * en « périmé » tout clip dont le natif est désactivé par `RENDER_NATIVE` —
- * `mp4Url` n'existe alors jamais, même livré — donc « vidéo rendue » se lit
- * sur les deux champs, pas sur un seul.
+ * « Ré-exporter ». Le §3.4 de la spec détaille pourquoi les deux champs
+ * comptent : `RENDER_NATIVE` peut laisser `mp4Url` définitivement nul sur un
+ * clip pourtant livré.
  */
 export type DeliveryState = 'never' | 'stale' | 'delivered'
 

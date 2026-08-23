@@ -59,7 +59,7 @@ export function summaryProject(project: Project): ProjectSummary {
  * écrans qui se contredisent sur le même projet valent moins que pas d'écran du
  * tout. `stopped` se tait pour la même raison.
  *
- * **Une seule lecture de `status.json` pour les deux champs.** La bibliothèque
+ * **Une seule lecture de `status.json` pour tous les champs.** La bibliothèque
  * appelle cette fonction une fois par projet ; en faire deux doublerait le
  * relevé, et laisserait la porte ouverte à une réponse qui mêle deux versions du
  * fichier.

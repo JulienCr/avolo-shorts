@@ -30,11 +30,15 @@ export const POST = route(
     if (progression(id) !== null) {
       throw new ErrorHttp(
         409,
-        'Une retranscription est en cours pour ce projet : attendre qu’elle se termine avant de retirer une entrée de l’historique.',
+        'Une exécution est en cours pour ce projet : attendre qu’elle se termine avant de retirer une entrée de l’historique.',
       )
     }
 
-    const result: RemoveEntryOutcome = await removeCorrectionEntry(project, entryId)
+    const result: RemoveEntryOutcome = await removeCorrectionEntry(
+      project,
+      entryId,
+      (projectId) => progression(projectId) !== null,
+    )
     if (!result.ok) {
       throw new ErrorHttp(404, 'Cette entrée ne se trouve plus dans l’historique — il a peut-être changé. Recharger.')
     }

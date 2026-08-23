@@ -240,6 +240,23 @@ describe('applyTranscriptCorrections', () => {
     await expect(applyTranscriptCorrections(project, getDb())).rejects.toThrow()
   })
 
+  it('publie un journal vide quand aucune proposition n’est retenue', async () => {
+    // **Le scénario de la review de la #143.** Aucune substitution retenue —
+    // le modèle ne propose rien, ou `correctTranscript` rejette tout — laisse
+    // `applied` à 0 : la boucle d'écriture au fil de l'eau ne tourne jamais.
+    // Sans l'écriture finale, `correction.json` resterait absent alors que
+    // l'étape a réussi, et `readingPresence` (`src/server/run.ts`) — qui ne
+    // sonde que l'existence du fichier — reprogrammerait le modèle à chaque
+    // exécution suivante.
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([])))
+
+    await applyTranscriptCorrections(project, getDb())
+
+    const placement = placeSidecar(SOURCE, ID)
+    expect(fs.existsSync(placement.correction)).toBe(true)
+  })
+
   it('ne réutilise jamais un identifiant entre deux journaux (#139)', async () => {
     // **Le scénario de l'issue.** Un compteur qui repart de `1` à chaque
     // `freshTranscript` produirait le même `id` sur deux retranscriptions

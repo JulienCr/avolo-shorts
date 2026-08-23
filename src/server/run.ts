@@ -1257,7 +1257,7 @@ async function executeStep(
       // ensuite, calculé sur du texte non corrigé, et plus rien ne le
       // dirait — le graphe ne redécouvre jamais une dépendance absente sous
       // un artefact présent (`toRedo`, `src/core/graph.ts`). Le message
-      // remonté ici devient donc `status.json.error` (voir `correctionWarning`
+      // remonté ici devient donc `status.json.warning` (voir `correctionWarning`
       // dans `execute`), visible au repos sur l'écran de projet, et le
       // rattrapage explicite est le bouton « Relancer la correction » du
       // transcript de l'émission (`force: ['correction']`, qui entraîne

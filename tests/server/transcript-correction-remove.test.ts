@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Project } from '@/server/db'
 import { placeSidecar } from '@/server/paths'
 import { removeCorrectionEntry, undoCorrectionEntry, readCorrectionLog } from '@/server/steps/transcript-correction'
+import { ExecutionInCurrentError } from '@/server/run'
 import type { CorrectionLog } from '@/core/correction'
 
 /**
@@ -110,6 +111,22 @@ describe('removeCorrectionEntry', () => {
     // Rien n'a bougé sur le disque : ce geste ne touche que le journal.
     expect(readTranscriptWords()).toEqual(['inséré', 'autrechose', 'suite'])
     expect((await readCorrectionLog(project)).entries).toEqual([])
+  })
+
+  it('refuse juste avant d’écrire si une exécution démarre entre-temps (relevé par Codex, PR #143)', async () => {
+    // Le point d'appel (`route.ts`) vérifie `progression` une fois, avant
+    // d'attendre la sonde `editingResponds` puis de lire/écrire le journal —
+    // une fenêtre où une retranscription peut démarrer. `removeCorrectionEntry`
+    // doit donc revérifier lui-même, juste avant l'écriture, plutôt que
+    // faire confiance à une garde posée plus tôt par l'appelant.
+    writeTranscript(['a'])
+    writeLog({
+      entries: [{ id: 'A', lineId: 'l0', from: 0, expected: ['x'], replacement: 'a', timecode: 0 }],
+    })
+
+    await expect(removeCorrectionEntry(project, 'A', () => true)).rejects.toThrow(ExecutionInCurrentError)
+    // Rien n'a été écrit : l'entrée est toujours là.
+    expect((await readCorrectionLog(project)).entries.map((e) => e.id)).toEqual(['A'])
   })
 
   it('laisse les autres entrées intactes', async () => {

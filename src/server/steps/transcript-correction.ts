@@ -372,6 +372,14 @@ export async function applyTranscriptCorrections(
     await writeCorrectionLog(placement.correction, { entries })
   }
 
+  // **`applied === 0` doit tout de même publier le journal.** `readingPresence`
+  // (`src/server/run.ts`) marque `correction` faite sur la seule existence de
+  // `correction.json` : si aucune proposition n'a été retenue, la boucle
+  // ci-dessus n'écrit jamais, et un transcript neuf ou fraîchement
+  // retranscrit resterait sans marqueur — le graphe reprogrammerait le modèle
+  // à chaque exécution suivante alors que l'étape a bien tourné.
+  if (applied === 0) await writeCorrectionLog(placement.correction, { entries })
+
   return { entries, applied, failed, rejected: proposed.rejected }
 }
 
@@ -445,8 +453,20 @@ export type RemoveEntryOutcome = { ok: true; entries: CorrectionEntry[] } | { ok
  * oublier, ce geste garantit qu'aucune entrée ne reste jamais bloquée :
  * n'écrivant que sur le journal, il n'a pas de garde d'ancrage à faire
  * respecter.
+ *
+ * @param isRunning Revérifiée juste avant l'écriture, pas seulement par la
+ * route appelante avant d'invoquer cette fonction : la sonde `editingResponds`
+ * ci-dessous attend sur le montage 9p, et une retranscription qui démarre
+ * pendant cette attente écrirait son propre journal derrière ce retrait sans
+ * que la garde de la route ne l'ait vue passer. Même défaut que celui que
+ * `undoCorrectionEntry` évite déjà en revérifiant juste avant
+ * `correctTranscript`.
  */
-export async function removeCorrectionEntry(project: Project, id: string): Promise<RemoveEntryOutcome> {
+export async function removeCorrectionEntry(
+  project: Project,
+  id: string,
+  isRunning: (projectId: string) => boolean = () => false,
+): Promise<RemoveEntryOutcome> {
   // Même garde que `readCorrectionLog` et `undoCorrectionEntry`, et pour la
   // même raison : `placeSidecar` gèle la boucle d'événements sur un montage
   // 9p au transport mort.
@@ -460,6 +480,8 @@ export async function removeCorrectionEntry(project: Project, id: string): Promi
   const placement = placeSidecar(project.sourcePath, project.id)
   const log = readCorrectionLogFrom(placement.correction)
   if (!log.entries.some((e) => e.id === id)) return { ok: false, reason: 'unknown-entry' }
+
+  if (isRunning(project.id)) throw new ExecutionInCurrentError(project.id)
 
   const entries = log.entries.filter((e) => e.id !== id)
   await writeCorrectionLog(placement.correction, { entries })

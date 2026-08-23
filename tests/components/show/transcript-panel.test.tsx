@@ -478,6 +478,42 @@ describe('TranscriptPanel — historique de correction', () => {
     expect(posts).toHaveLength(1)
     expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
   })
+
+  it('n’affiche l’historique qu’une fois le transcript chargé, même si l’historique répond avant (relevé par Copilot et Codex sur la PR #143)', async () => {
+    // **Le scénario du finding.** L'historique et le transcript se chargent
+    // indépendamment ; si l'historique répond en premier, `lines` vaut encore
+    // `EMPTY_LINES` — sans la garde sur `transcript.data`, chaque entrée
+    // valide serait classée périmée et « Retirer de l’historique » cliquable
+    // tout de suite, sur un historique qui ne l'est pas.
+    let resolveTranscript: (value: unknown) => void = () => {}
+    const transcriptPromise = new Promise((resolve) => {
+      resolveTranscript = resolve
+    })
+    const entries = [{ id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 }]
+    stubFetch([
+      { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body: transcriptPromise },
+      historyResponse(entries),
+    ])
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const localWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+
+    // **Attend que l'historique ait vraiment fini de se charger** — pas
+    // seulement que la requête soit partie — avant de vérifier l'absence :
+    // sans ça, `waitFor` se satisferait de l'état initial (rien n'est encore
+    // monté) sans jamais rejouer le contrôle une fois l'historique arrivé, et
+    // laisserait passer la régression qu'il vérifie.
+    await waitFor(() => expect(client.getQueryData(['correction-history', 'cqlp'])).toEqual(entries))
+    expect(screen.queryByText(/substitution appliquée/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retirer de l’historique' })).toBeNull()
+
+    resolveTranscript(LINES)
+    await waitFor(() => expect(screen.getByText(/1 substitution appliquée/)).toBeTruthy())
+  })
 })
 
 describe('TranscriptPanel — relancer la correction automatique', () => {

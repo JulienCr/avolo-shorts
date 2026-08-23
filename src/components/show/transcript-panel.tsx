@@ -489,7 +489,14 @@ export function TranscriptPanel({
             </div>
           )}
 
-        {history.data !== undefined && history.data.length > 0 && (
+        {/* **`transcript.data !== undefined`, pas seulement `history.data`.**
+            L'historique se charge indépendamment du transcript, souvent plus
+            vite : sans cette garde, `lines` vaut encore `EMPTY_LINES` le temps
+            que la requête du transcript réponde, et `stale` (ci-dessous)
+            classe alors chaque entrée valide comme périmée — un bouton
+            destructif immédiatement cliquable sur un historique qui ne l'est
+            pas (relevé par Copilot et Codex). */}
+        {history.data !== undefined && history.data.length > 0 && transcript.data !== undefined && (
           <CorrectionHistory
             entries={history.data}
             lines={lines}
@@ -772,6 +779,9 @@ function CorrectionHistory({
     overscan: 8,
   })
   const items = virtualizer.getVirtualItems()
+  // Une seule file d'écriture sur `correction.json` : voir le commentaire au
+  // point d'appel des deux boutons.
+  const busy = undoing || removing
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2">
@@ -816,12 +826,17 @@ function CorrectionHistory({
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
+                  {/* **`busy`, pas seulement la mutation propre à ce bouton.**
+                      Les deux routes réécrivent le même `correction.json` : un
+                      retrait lancé pendant un défaire (ou l'inverse) lirait le
+                      journal avant l'écriture de l'autre, puis écraserait sa
+                      mise à jour (relevé par Copilot). */}
                   <Button
                     size="sm"
                     variant="ghost"
-                    aria-disabled={undoing}
+                    aria-disabled={busy}
                     onClick={() => {
-                      if (undoing) return
+                      if (busy) return
                       onUndo(entry)
                     }}
                   >
@@ -835,9 +850,9 @@ function CorrectionHistory({
                       size="sm"
                       variant="ghost"
                       className="text-xs text-muted-foreground"
-                      aria-disabled={removing}
+                      aria-disabled={busy}
                       onClick={() => {
-                        if (removing) return
+                        if (busy) return
                         onRemove(entry)
                       }}
                     >

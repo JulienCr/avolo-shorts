@@ -65,6 +65,7 @@ const MARKERS_TRANSIENT = [
   'empty response body',
   'did not contain a json object',
   'did not contain a "shorts" array',
+  'ne porte pas de tableau "corrections"',
   'failed to parse gemini json response',
   'truncated (max_tokens)',
   'operation was aborted',

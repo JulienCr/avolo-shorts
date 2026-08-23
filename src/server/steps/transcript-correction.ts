@@ -16,6 +16,7 @@ import { createCallFromSettings } from '@/server/llm/registry'
 import { callWithRetry } from '@/server/llm/retry'
 import type { JsonSchema, LlmCallConfig, LlmMode } from '@/server/llm/types'
 import { placeSidecar, resolveSource } from '@/server/paths'
+import { ExecutionInCurrentError } from '@/server/run'
 import { editingResponds } from '@/server/steps/ingest'
 import { lireTranscript } from '@/server/steps/candidates'
 
@@ -127,12 +128,10 @@ export async function proposeTranscriptCorrections(
   }
 
   for (const span of spans(flat)) {
-    if (isRunning(project.id)) {
-      throw new Error(
-        'Une exécution a démarré pendant la correction : arrêt avant l’empan suivant, ' +
-          'pour ne pas faire tourner Ollama et WhisperX en même temps.',
-      )
-    }
+    // `ExecutionInCurrentError`, pas une `Error` nue : `statusFor` (`@/server/http`)
+    // la mappe déjà en 409, comme la sonde d'entrée de la route — la spec §9
+    // n'a qu'un seul code pour « une exécution tourne », pas un second en 500.
+    if (isRunning(project.id)) throw new ExecutionInCurrentError(project.id)
 
     const prompt = correctionPrompt({
       language: transcript.language,

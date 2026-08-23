@@ -391,8 +391,12 @@ export function TranscriptPanel({
     )
   }
 
+  // **Mutuellement exclusif avec `applyProposals`.** Les deux écrivent le
+  // même état `proposals` ; une nouvelle proposition arrivée pendant
+  // l'application écraserait `remaining` ou porterait sur un transcript que
+  // la boucle vient de modifier. (relevé par Copilot)
   function proposeCorrections() {
-    if (propose.isPending) return
+    if (propose.isPending || applying) return
     propose.mutate(projectId, {
       onSuccess(result) {
         setProposals(result.proposals)
@@ -434,7 +438,7 @@ export function TranscriptPanel({
    * pas rendre les autres implicitement retenues.
    */
   async function applyProposals() {
-    if (applying) return
+    if (applying || propose.isPending) return
     const excludedProposals = proposals.filter((_, i) => excluded.has(i))
     const toApply = [...proposals.filter((_, i) => !excluded.has(i))].sort((a, b) => {
       if (a.request.lineId !== b.request.lineId) return 0
@@ -509,7 +513,7 @@ export function TranscriptPanel({
             <Button
               variant="outline"
               size="sm"
-              aria-disabled={propose.isPending}
+              aria-disabled={propose.isPending || applying}
               onClick={proposeCorrections}
             >
               <Wand2 aria-hidden />
@@ -529,7 +533,7 @@ export function TranscriptPanel({
             lines={lines}
             excluded={excluded}
             rejected={rejected}
-            applying={applying}
+            applying={applying || propose.isPending}
             applyError={applyError}
             onToggle={toggleProposal}
             onApply={() => void applyProposals()}

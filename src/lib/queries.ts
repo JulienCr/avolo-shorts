@@ -745,11 +745,9 @@ export function useRegenerateHook() {
 
 /**
  * Demande au modèle une proposition de corrections sur le transcript entier.
- *
- * **Aucune écriture ici, et donc aucun cache à mettre à jour.** La
- * proposition vit dans l'état du composant appelant, le temps qu'on décoche
- * ce qu'on ne veut pas ; valider rappelle `useCorrectTranscript` (l'écriture
- * existante) pour chaque substitution retenue, une à la fois.
+ * @remarks Aucune écriture, donc aucun cache à mettre à jour — la
+ * proposition vit dans l'état du composant appelant ; valider rappelle
+ * `useCorrectTranscript` pour chaque substitution retenue.
  */
 export function useProposeCorrection() {
   return useMutation({

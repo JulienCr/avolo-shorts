@@ -1140,15 +1140,9 @@ export function correctTranscript(
   )
 }
 
-/**
- * Une substitution proposée par le modèle, pas encore écrite.
- *
- * **`request` a exactement la forme de `correctTranscript`** —
- * `TranscriptCorrectionRequest` — pour que valider une proposition consiste
- * à rappeler cette même fonction, une substitution à la fois : aucune
- * traduction côté client, aucun second chemin d'écriture.
- */
+/** Une substitution proposée par le modèle, pas encore écrite. */
 export type CorrectionProposal = {
+  /** À passer tel quel à `correctTranscript` pour valider cette substitution. */
   request: TranscriptCorrectionRequest
   /** Le début du mot corrigé, en secondes. */
   timecode: number
@@ -1156,25 +1150,17 @@ export type CorrectionProposal = {
   replacement: string
 }
 
-/**
- * Ce que rend une proposition de correction : les substitutions retenues, et
- * un compte des refus par catégorie (`CorrectionRejectionReason`,
- * `@/core/correction`) — assez pour dire « 4 refusées, invariance phonétique »
- * sans en faire une liste.
- */
+/** Une proposition de correction : les substitutions retenues, et un compte des refus par catégorie. */
 export type ProposeCorrectionsResult = {
   proposals: CorrectionProposal[]
   rejected: Partial<Record<CorrectionRejectionReason, number>>
 }
 
 /**
- * Demande au modèle de proposer des corrections sur le transcript entier —
- * `POST /api/projects/:id/transcript/correction`. **Ne rend qu'une
- * proposition** : rien n'est écrit avant que `correctTranscript` ne soit
- * rappelée pour chaque substitution retenue (décision de Julien, spec §9).
- *
- * **409 pendant une retranscription**, même garde que `correctTranscript` —
- * la contrainte de VRAM (`CLAUDE.md`) interdit Ollama et WhisperX ensemble.
+ * Demande au modèle une proposition de corrections sur le transcript entier
+ * — `POST /api/projects/:id/transcript/correction`.
+ * @returns Une proposition, jamais une écriture (spec §9) : chaque
+ * substitution retenue se valide en rappelant `correctTranscript`.
  */
 export function proposeTranscriptCorrections(projectId: string): Promise<ProposeCorrectionsResult> {
   return post<ProposeCorrectionsResult>(

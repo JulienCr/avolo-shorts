@@ -205,10 +205,7 @@ export function TranscriptPanel({
   const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
   const [correctionsApplied, setCorrectionsApplied] = useState(0)
 
-  // **La proposition du modèle n'est jamais écrite toute seule.** Elle vit
-  // ici, dans l'état du composant, le temps qu'on décoche ce qu'on ne veut
-  // pas — `proposals` reste vide tant que personne n'a cliqué le bouton, et
-  // se vide à nouveau une fois validée ou fermée.
+  // La proposition du modèle vit ici, jamais écrite avant validation.
   const [proposals, setProposals] = useState<CorrectionProposal[]>([])
   const [excluded, setExcluded] = useState<Set<number>>(new Set())
   const [rejected, setRejected] = useState<Partial<Record<CorrectionRejectionReason, number>>>({})
@@ -417,13 +414,10 @@ export function TranscriptPanel({
   }
 
   /**
-   * Écrit les substitutions retenues, **une à la fois** — le chemin
-   * d'écriture existant (`POST /api/projects/:id/transcript`) via la même
-   * mutation que la correction manuelle, jamais un second chemin.
-   *
-   * Une substitution qui échoue (409 : le texte a changé sous les yeux)
-   * reste dans la liste plutôt que de disparaître en silence — les autres
-   * continuent, `applyError` dit combien n'ont pas pu s'écrire.
+   * Écrit les substitutions retenues, une à la fois, via la mutation de
+   * correction existante.
+   * @remarks Une substitution qui échoue (409, le texte a changé) reste
+   * dans la liste plutôt que de disparaître ; les autres continuent.
    */
   async function applyProposals() {
     if (applying) return
@@ -674,12 +668,9 @@ function rejectionSummary(rejected: Partial<Record<CorrectionRejectionReason, nu
 }
 
 /**
- * La liste des substitutions que le modèle propose, avant toute écriture.
- *
- * **Virtualisée comme le reste du panneau** (§2.3) : une correction sur une
- * émission entière peut en proposer plusieurs centaines, et les monter
- * toutes gèlerait le défilement pour la même raison que le transcript
- * lui-même — `useVirtualizer` mesure la hauteur réelle de son conteneur.
+ * La liste des substitutions proposées par le modèle, avant toute écriture.
+ * @remarks Virtualisée comme le reste du panneau (§2.3) : une émission
+ * entière peut en proposer plusieurs centaines.
  */
 function CorrectionProposals({
   proposals,

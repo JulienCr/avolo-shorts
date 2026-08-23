@@ -20,17 +20,9 @@ import { type AiSettings, type LlmAvailability, type LlmProvider, LLM_PROVIDERS 
  * La section « Intelligence artificielle » des réglages (retour d'usage §6.1) :
  * le fournisseur et le modèle de chaque usage — repérage, correction du
  * transcript, génération du hook —, plus l'adresse d'un serveur Ollama.
- *
- * **Les trois usages agissent désormais.** `POST /api/clips/:id/hook` a été
- * le premier appelant de l'usage `hook`, câblé, persisté et réglable depuis
- * une PR antérieure ; `POST /api/projects/:id/transcript/correction` est
- * celui de `correction` — la dernière case qui portait encore un bandeau
- * « pas encore branché », sur le même modèle que `HookSection` l'a fait
- * disparaître pour le hook.
- *
- * **Changer un réglage ne recalcule rien** (retour d'usage §6.1 et §11), comme
- * le reste de cet écran : un recalcul reste une action explicite, depuis
- * l'écran de l'émission.
+ * @remarks Les trois usages ont désormais un appelant, donc aucun bandeau
+ * « pas encore branché ». Changer un réglage ne recalcule rien (§6.1, §11) :
+ * un recalcul reste une action explicite, depuis l'écran de l'émission.
  */
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {

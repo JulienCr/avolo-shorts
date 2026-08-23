@@ -41,11 +41,8 @@ import {
 import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode } from '@/server/llm/types'
 import { candidatesPath, placeSidecar } from '@/server/paths'
 
-// **Réexportés pour ne rien casser de la couture de test existante** —
-// `tests/server/candidates.test.ts` importe ces cinq noms d'ici, sous le nom
-// `callGemini` pour l'ancien `callWithRetry`. La politique de relance vit
-// désormais dans `@/server/llm/retry` (voir sa doc pour la raison de
-// l'extraction) ; ce fichier n'en garde que l'usage.
+// Réexportés pour la couture de `tests/server/candidates.test.ts`, qui
+// importe ces cinq noms d'ici, sous `callGemini` pour `callWithRetry`.
 export { GeminiBlockedError, isTransient, leverIfBlocked, quotaDelay, callWithRetry as callGemini }
 
 /**
@@ -247,16 +244,11 @@ const SCHEMA_DETAIL: JsonSchema = {
  * l'étape écrit des accroches et des descriptions, et les horodatages qu'elle
  * rend sont de toute façon validés puis calés sur les mots juste après.
  *
- * **Un `switch` exhaustif, et pas des ternaires.** `LlmMode` porte désormais
- * `'hook'` et `'correction'` (`@/server/llm/types`), et un ternaire
- * `mode === 'detail' ? … : SCHEMA_NOTATION` y aurait fait tomber ces modes-là
- * dans la branche de notation — un barème et une température qui ne leur sont
- * pas destinés — sans que rien ne le signale. Ce fichier ne configure que le
- * repérage, donc `'hook'` et `'correction'` n'y sont pas des cas normaux : ils
- * ne peuvent être atteints qu'à un défaut de câblage, jamais à une réponse du
- * fournisseur, d'où l'exception plutôt qu'une configuration inventée.
- * `src/server/steps/hook.ts` et `transcript-correction.ts` configurent chacun
- * leur propre appel séparément.
+ * `switch` exhaustif plutôt qu'un ternaire, pour que `'hook'` et
+ * `'correction'` (`LlmMode`) ne tombent pas dans la branche de notation par
+ * défaut. Ce fichier ne configure que le repérage : les deux autres modes
+ * n'y sont atteignables qu'à un défaut de câblage — `hook.ts` et
+ * `transcript-correction.ts` configurent chacun leur propre appel.
  */
 function configuration(mode: ModeGemini): LlmCallConfig {
   switch (mode) {
@@ -297,13 +289,9 @@ export const redact = redactKeys
  * pendant un appel de notation ne doit pas attendre la fin du lot en cours,
  * et c'est une propriété du fournisseur, pas de ce fichier.
  *
- * **Les relances, le backoff et le filtre de sécurité vivent dans
- * `@/server/llm/retry` (`callWithRetry`), pas ici** — extraits de ce fichier
- * le jour où la correction du transcript en a eu besoin à son tour. Communs
- * aux trois fournisseurs grâce à `LlmResponse` (`@/server/llm/types`) : la
- * forme normalisée que chaque client rend porte assez d'information
- * (`promptFeedback.blockReason`, `candidates[].finishReason`) pour que cette
- * politique n'ait pas à se réécrire par fournisseur.
+ * Les relances, le backoff et le filtre de sécurité vivent dans
+ * `@/server/llm/retry` (`callWithRetry`), extraits d'ici pour leur deuxième
+ * appelant, la correction du transcript.
  */
 function clientByDefault(db: Database.Database, signal?: AbortSignal): CallGemini {
   return createCallFromSettings(db, 'selection', {

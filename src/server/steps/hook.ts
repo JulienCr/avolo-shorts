@@ -30,14 +30,10 @@ import { projectTranscript } from '@/server/views'
  * rend déjà `viral_hook_text` et `viral_hook_badge` dans la même réponse que
  * le titre, donc un clip naît avec son hook, sans un appel de plus.
  *
- * **Pas la politique de relance de `@/server/llm/retry` (`callWithRetry`).**
- * L'escalier 5 s/10 s, les trois tentatives, l'attente de quota existent pour
- * un lot de trente appels derrière quarante minutes de pipeline sans personne
- * devant l'écran. Ici quelqu'un attend devant un bouton : un essai, un
- * message d'erreur clair, un bouton qu'on re-clique. **C'est ce fichier qui a
- * fait s'extraire cette politique de `src/server/steps/candidates.ts`** — la
- * correction du transcript en est le deuxième appelant —, sans pour autant
- * s'y brancher elle-même : la génération du hook reste à un seul essai.
+ * **Pas la politique de relance** (`callWithRetry`, `@/server/llm/retry`,
+ * extraite d'ici pour son deuxième appelant, la correction du transcript) :
+ * un lot de trente appels sans personne devant l'écran en a besoin, un
+ * bouton « Régénérer » non — un essai, un message d'erreur, un re-clic.
  */
 
 /**

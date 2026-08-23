@@ -209,6 +209,19 @@ function pathVariant(projectId: string, clipId: string): string {
 }
 
 /**
+ * Le nom du natif, **dû ou non**.
+ *
+ * Séparé de `cheminsRendu` pour la même raison que `pathVariant` : il sert
+ * aussi à effacer celui d'un passage où `RENDER_NATIVE` l'a rendu non dû —
+ * sans quoi remettre le flag à `true` plus tard retrouverait ce fichier
+ * périmé, le prendrait pour une sortie à jour, et le sauterait sur la foi
+ * d'une empreinte qui n'a jamais rien certifié à son sujet.
+ */
+function pathNative(projectId: string, clipId: string): string {
+  return path.join(rendersDir(projectId), `${verifyClipId(clipId)}.mp4`)
+}
+
+/**
  * **Le ratio attendu est le ratio NATIF résolu**, celui que `computeFraming`
  * choisit — le plus large des plans —, jamais `clip.ratio` : un clip en `auto`
  * n'en a pas à lui, et lire le mauvais ferait chercher une variante sous un clip
@@ -229,7 +242,7 @@ export function pathsRender(
   const folder = rendersDir(projectId)
   const name = verifyClipId(clipId)
   return {
-    mp4: renderNative || ratio === '9:16' ? path.join(folder, `${name}.mp4`) : null,
+    mp4: renderNative || ratio === '9:16' ? pathNative(projectId, name) : null,
     variant9x16: ratio === '9:16' ? null : pathVariant(projectId, name),
     texts: path.join(folder, `${name}.txt`),
     ass: path.join(folder, `${name}.ass`),
@@ -332,8 +345,20 @@ export function pathsRender(
  * version 6 ne le porte, et sans ce numéro elle se dirait « illisible » alors
  * qu'elle est parfaitement formée — ce qui se lit mal doit se dire au bon nom.
  * Coût : un réencodage par clip, une fois.
+ *
+ * **Passée à 8 le 23 août 2026, avec l'agrandissement des marques et leur
+ * synchronisation au hook.** `MARKERS_EXPECTED` change `widthRatio` et gagne
+ * `heightCap` par marque, et `logoRevealMs`/`logoAppearSec` (`args.ts`)
+ * retardent leur apparition sur la fin du hook — deux changements qui
+ * modifient les pixels rendus sans qu'aucun champ de l'empreinte ne les
+ * capture : `marks` ne condense que le nom et le contenu des PNG des marques,
+ * pas les constantes qui les dimensionnent, et le timing dérive de
+ * `hookFadeOutMs`, déjà couvert par `hook`, mais seulement pour les clips qui
+ * en ont un. Sans cet incrément, `sauterRender` retrouve un rendu déjà en
+ * version 7 comme à jour et ne republie jamais les nouvelles tailles.
+ * (relevé par Copilot et Aristarque)
  */
-export const VERSION_FINGERPRINT = 7
+export const VERSION_FINGERPRINT = 8
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -1253,7 +1278,7 @@ const MARGIN = 0.05
  * marque, alors qu'un refus sur un export paysage ne donnerait pas de marque du
  * tout.
  *
- * **Réglé par marque, pas globalement** — voir `capHauteur` dans
+ * **Réglé par marque, pas globalement** — voir `heightCap` dans
  * `MARKERS_EXPECTED` ci-dessous. Le logo (quasi carré) et la mention Twitch
  * (très plate) ne sont pas contraints par le même axe : à plafond partagé, un
  * seul des deux réglages (`widthRatio` ou l'ancien plafond commun) était actif
@@ -1279,7 +1304,7 @@ const WIDTH_MINIMUM = 80
  * c'est une adresse, pas une signature. Les deux sont facultatives, et chacune se
  * rend seule.
  *
- * Le logo (quasi carré, 1000x996) est gouverné par `capHauteur` : sa largeur
+ * Le logo (quasi carré, 1000x996) est gouverné par `heightCap` : sa largeur
  * cible ne joue aucun rôle tant que le plafond de hauteur ne l'a pas déjà
  * ramené en dessous. La mention Twitch (996x224, très plate) est gouvernée par
  * `widthRatio` à l'inverse : son plafond de hauteur reste large sous ce que sa
@@ -1289,11 +1314,11 @@ const WIDTH_MINIMUM = 80
 const MARKERS_EXPECTED: readonly {
   file: string
   widthRatio: number
-  capHauteur: number
+  heightCap: number
   edge: Edge
 }[] = [
-  { file: 'logo.png', widthRatio: 0.20, capHauteur: 0.1, edge: 'gauche' },
-  { file: 'twitch.png', widthRatio: 0.35, capHauteur: 0.08, edge: 'droite' },
+  { file: 'logo.png', widthRatio: 0.20, heightCap: 0.1, edge: 'gauche' },
+  { file: 'twitch.png', widthRatio: 0.35, heightCap: 0.08, edge: 'droite' },
 ]
 
 type Edge = 'gauche' | 'droite'
@@ -1305,7 +1330,7 @@ export type MarkerNative = {
   nativeH: number
   widthRatio: number
   /** Plafond de hauteur propre à cette marque. Voir `MARKERS_EXPECTED`. */
-  capHauteur: number
+  heightCap: number
   edge: Edge
   /**
    * Le condensat du fichier. Il ne sert pas au rendu — `planifierMarques`
@@ -1357,7 +1382,7 @@ export function scheduleMarkers(
   const espace = pair(clipW - 2 * margin)
 
   const sized = markers.map((m) => {
-    const cap = clipH * m.capHauteur
+    const cap = clipH * m.heightCap
     let w = Math.max(WIDTH_MINIMUM, Math.round(clipW * m.widthRatio))
     // Jamais plus large que l'espace entre les marges : sur un cadre très étroit,
     // le plancher de lisibilité ferait sinon déborder la marque hors de l'image.
@@ -1442,7 +1467,7 @@ export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]>
       nativeW: width,
       nativeH: height,
       widthRatio: expected.widthRatio,
-      capHauteur: expected.capHauteur,
+      heightCap: expected.heightCap,
       edge: expected.edge,
       content,
     })
@@ -2072,6 +2097,13 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         // manquante, donc réessayable. (relevé par Copilot)
         const variant = paths.variant9x16
         if (variant !== null) fs.rmSync(variant, { force: true })
+
+        // **Le même correctif, sur le natif.** `paths.mp4` vaut `null` quand
+        // `RENDER_NATIVE` le rend non dû : un fichier d'un passage antérieur
+        // (le flag à `true`, ou avant que ce garde-fou existe) resterait sinon
+        // sur le disque sous ce même nom, prêt à être retrouvé — et publié
+        // sans jamais avoir été vérifié — le jour où le flag repasse à `true`.
+        if (paths.mp4 === null) fs.rmSync(pathNative(clip.projectId, clipId), { force: true })
 
         // **L'empreinte d'avant part avec elle, et pour la même raison poussée
         // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la

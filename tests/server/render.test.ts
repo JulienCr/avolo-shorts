@@ -132,7 +132,7 @@ function markersNamed(
     nativeW: 1000,
     nativeH: 996,
     widthRatio: 0.22,
-    capHauteur: 0.06,
+    heightCap: 0.06,
     edge: 'gauche' as const,
     content: content(name),
   }))
@@ -813,7 +813,7 @@ describe('scheduleMarkers', () => {
     nativeW,
     nativeH,
     widthRatio: 0.22,
-    capHauteur: 0.06,
+    heightCap: 0.06,
     edge: 'gauche',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
@@ -822,7 +822,7 @@ describe('scheduleMarkers', () => {
     nativeW,
     nativeH,
     widthRatio: 0.16,
-    capHauteur: 0.06,
+    heightCap: 0.06,
     edge: 'droite',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
@@ -1088,7 +1088,7 @@ describe('markerRejectFault', () => {
     nativeW: 1000,
     nativeH: 250,
     widthRatio: 0.22,
-    capHauteur: 0.06,
+    heightCap: 0.06,
     edge: 'gauche',
     content: 'peu importe : la porte ne lit pas le contenu',
   })

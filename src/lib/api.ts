@@ -661,8 +661,15 @@ export type ExportResult = {
    * `undefined` au retour d'un export par ailleurs réussi. (relevé par Copilot)
    */
   clip?: Clip
-  /** Le rendu au ratio natif du clip. Toujours produit. */
-  mp4: string
+  /**
+   * Le rendu au ratio natif du clip.
+   *
+   * `null` quand le rendu natif est désactivé (`RENDER_NATIVE`) ET qu'une
+   * variante 9:16 le remplace — voir `RenderResult.mp4` côté serveur. Sur un
+   * clip déjà en 9:16, il reste toujours produit : c'est alors l'unique
+   * livrable. (relevé par Copilot)
+   */
+  mp4: string | null
   /** La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est déjà 9:16. */
   variant9x16: string | null
   /** Le `.txt` : titre, description, mots-dièse. */

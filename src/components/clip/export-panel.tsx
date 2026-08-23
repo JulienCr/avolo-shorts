@@ -154,14 +154,18 @@ export function PanelExport({
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   /**
-   * L'éligibilité à la publication, **lue sur `alreadyDelivered`, jamais
-   * déduite du statut.** Ni sur le seul `outputs.mp4Url` non plus, depuis que
-   * le natif peut être durablement absent par design (`RENDER_NATIVE`) : un
-   * clip qui n'a livré que sa variante 9:16 reste publiable. `alreadyDelivered`
-   * porte déjà cette règle, définie plus haut pour le même écran — répéter le
-   * calcul ici serait la première divergence.
+   * L'éligibilité à la publication, **lue sur une vidéo, jamais sur
+   * `alreadyDelivered`.** Les deux se ressemblent mais répondent à deux
+   * questions différentes : `alreadyDelivered` dit si le bouton doit proposer
+   * « Ré-exporter » plutôt que « Exporter », et un `.txt` déjà sur le disque y
+   * répond aussi bien qu'une vidéo — le mot est bien réexportable. Ici, la
+   * question est « y a-t-il quelque chose à envoyer », et le `.txt` seul n'y
+   * répond pas : un clip dont la vidéo a disparu du disque en ne laissant que
+   * son texte n'a rien de publiable, alors que `alreadyDelivered` le dirait
+   * livré. (relevé par Copilot et Aristarque)
    */
-  const publicationEligibility = clipExportEligibility(alreadyDelivered)
+  const hasRenderedVideo = outputs.mp4Url !== null || outputs.variant9x16Url !== null
+  const publicationEligibility = clipExportEligibility(hasRenderedVideo)
   const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
@@ -428,7 +432,7 @@ function OutputsList({
           <span className="font-mono text-[0.75rem]">{names.mp4}</span>
           <span className="text-[0.75rem] text-muted-foreground">
             le rendu {native}, pour le feed
-            {outputs.mp4Url === null && outputs.mp4Due && ' — due, pas encore produit'}
+            {outputs.mp4Url === null && outputs.mp4Due && ' — dû, pas encore produit'}
           </span>
         </li>
       )}

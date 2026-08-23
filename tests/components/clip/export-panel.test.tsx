@@ -461,4 +461,17 @@ describe('le bouton « Publier »', () => {
     fireEvent.click(button)
     expect(screen.getByRole('heading', { name: 'Publier « La chute »' })).toBeTruthy()
   })
+
+  it('se refuse quand seul le .txt est présent, sans vidéo à envoyer', () => {
+    // Le cas relevé par la review : un MP4 supprimé du disque laisse
+    // l'empreinte et le `.txt` en place. `alreadyDelivered` (le bouton
+    // « Ré-exporter ») les compte tous les deux à raison, mais publier n'a
+    // alors rien à envoyer.
+    mount({
+      outputs: { ...nothingIsProduced, textsUrl: '/api/clips/c1/renders/c1.txt' },
+    })
+    const button = screen.getByRole('button', { name: /^publier$/i })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText(/Exporter avant de publier/)).toBeTruthy()
+  })
 })

@@ -601,7 +601,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
           // Même raccord que la zone Image : `shrink-0` hors de l'établi,
           // `min-h-0` seulement dedans (où c'est `workbench:overflow-y-auto`
           // qui reprend le défilement, local au volet plutôt qu'à la page).
-          className="flex min-w-0 shrink-0 flex-col gap-3 p-4 workbench:min-h-0 workbench:w-[30rem] workbench:shrink-0 workbench:overflow-y-auto"
+          className="flex min-w-0 shrink-0 flex-col gap-3 p-4 workbench:min-h-0 workbench:w-[30rem] workbench:overflow-y-auto"
         >
           <h2 id="zone-contenu" className="shrink-0 text-sm font-medium">
             Contenu

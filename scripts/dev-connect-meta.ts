@@ -1,7 +1,6 @@
 /**
  * L'appairage Meta — OAuth (Facebook Login for Business, à rejouer environ
- * une fois par an) ou jeton système (system-user, collé une fois pour
- * toutes, ne rafraîchit jamais).
+ * une fois par an) ou jeton système collé une fois pour toutes.
  *
  *     pnpm tsx scripts/dev-connect-meta.ts
  *     pnpm tsx scripts/dev-connect-meta.ts --code=<code renvoyé par Meta>
@@ -9,8 +8,7 @@
  *
  * Facebook Login, pas Instagram Login (`docs/lessons.md`). Le jeton de Page
  * n'expire pas : affiché ici pour 1Password (lecture seule) ; le jeton
- * Instagram tourne (ou pas, en jeton système) et se persiste dans
- * `projects/meta-tokens.json`.
+ * Instagram se persiste dans `projects/meta-tokens.json`.
  */
 
 import { requireSecret } from '@/server/secrets'

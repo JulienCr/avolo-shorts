@@ -64,8 +64,8 @@ export function parseCorrectionResponse(raw: unknown): CorrectionCandidate[] {
   }
   const candidates: CorrectionCandidate[] = []
   for (const entry of envelope.data.corrections) {
-    const lu = CORRECTION_CANDIDATE_SCHEMA.safeParse(entry)
-    if (lu.success) candidates.push(lu.data)
+    const parsed = CORRECTION_CANDIDATE_SCHEMA.safeParse(entry)
+    if (parsed.success) candidates.push(parsed.data)
   }
   return candidates
 }

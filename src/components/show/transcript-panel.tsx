@@ -249,8 +249,15 @@ export function TranscriptPanel({
         setDraft('')
         // Les propositions du modèle indexent l'ancien texte : une
         // retranscription les rend caduques avant même qu'on ait pu les lire.
+        // `hasProposed`, `rejected` et `applyError` en font partie : les
+        // laisser survivre affiche « 0 substitution » ou une erreur d'une
+        // passe qui ne porte plus sur ce transcript. (relevé par Copilot et
+        // Codex)
         setProposals([])
         setExcluded(new Set())
+        setHasProposed(false)
+        setRejected({})
+        setApplyError(null)
       }
       sawTranscriptStep.current = false
     }
@@ -440,20 +447,35 @@ export function TranscriptPanel({
   async function applyProposals() {
     if (applying || propose.isPending) return
     const excludedProposals = proposals.filter((_, i) => excluded.has(i))
+    // **Ordre total, pas seulement stable.** `0` pour deux phrases
+    // différentes ne les regroupe pas : un tri stable ne garantit
+    // l'ordre au sein d'une phrase que si les paires de cette phrase sont
+    // comparées entre elles, ce qu'une autre phrase intercalée empêche.
+    // Comparer d'abord `lineId` établit un ordre total, sous lequel toutes
+    // les entrées d'une même phrase se retrouvent contiguës et triées par
+    // `from` décroissant. (relevé par Copilot et Codex)
     const toApply = [...proposals.filter((_, i) => !excluded.has(i))].sort((a, b) => {
-      if (a.request.lineId !== b.request.lineId) return 0
+      if (a.request.lineId !== b.request.lineId) return a.request.lineId < b.request.lineId ? -1 : 1
       return b.request.from - a.request.from
     })
     if (toApply.length === 0) return
     setApplying(true)
     setApplyError(null)
 
+    // **Une fusion réussie invalide les ancres des autres propositions de
+    // la même phrase**, décochées ou en échec : leurs `from`/`to` indexent
+    // la phrase d'avant la fusion. Les recaler demanderait de rappeler le
+    // modèle ; on les retire plutôt que de les garder pour un futur
+    // `anchor-mismatch` qui n'a rien à voir avec leur texte. (relevé par
+    // Copilot)
+    const shiftedLines = new Set<string>()
     const failed: CorrectionProposal[] = []
     let failures = 0
     for (const proposal of toApply) {
       try {
         const result = await correction.mutateAsync({ projectId, correction: proposal.request })
         setCorrectionsApplied((n) => n + 1)
+        if (proposal.request.to > proposal.request.from) shiftedLines.add(proposal.request.lineId)
         if (result.clipsTouched.length > 0) {
           setTouchedClips((previous) => {
             const next = new Map(previous)
@@ -467,14 +489,24 @@ export function TranscriptPanel({
       }
     }
 
-    setProposals([...excludedProposals, ...failed])
-    setExcluded(new Set(excludedProposals.map((_, i) => i)))
+    const keptExcluded = excludedProposals.filter((p) => !shiftedLines.has(p.request.lineId))
+    const keptFailed = failed.filter((p) => !shiftedLines.has(p.request.lineId))
+    const staleCount = excludedProposals.length + failed.length - keptExcluded.length - keptFailed.length
+    setProposals([...keptExcluded, ...keptFailed])
+    setExcluded(new Set(keptExcluded.map((_, i) => i)))
     setApplying(false)
+    const messages: string[] = []
     if (failures > 0) {
-      setApplyError(
+      messages.push(
         `${agreement(failures, 'correction n’a', 'corrections n’ont')} pas pu s’écrire : le texte a peut-être changé entretemps.`,
       )
     }
+    if (staleCount > 0) {
+      messages.push(
+        `${agreement(staleCount, 'proposition retirée', 'propositions retirées')} : une fusion appliquée dans la même phrase a changé ses mots — relancer l’analyse pour les revoir.`,
+      )
+    }
+    if (messages.length > 0) setApplyError(messages.join(' '))
   }
 
   const items = virtualizer.getVirtualItems()
@@ -772,6 +804,7 @@ function CorrectionProposals({
                   id={id}
                   checked={!excluded.has(item.index)}
                   onCheckedChange={() => onToggle(item.index)}
+                  disabled={applying}
                   className="mt-1 shrink-0"
                 />
                 <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">

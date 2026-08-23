@@ -5,8 +5,9 @@ import { notFound, json, route } from '@/server/http'
  * `GET /api/clips/:id/publications` — l'état de chaque publication.
  *
  * Une route séparée plutôt qu'un champ de plus sur `GET /api/clips/:id` :
- * `src/server/views.ts`, qui construit `ClipDetail`, est tenu par la PR #143
- * en cours de revue.
+ * l'écran de clip interroge cet état seul, à son propre rythme
+ * (`refetchInterval` tant qu'une ligne est `in_progress`), sans vouloir
+ * redemander tout `ClipDetail` à chaque sondage.
  */
 export const GET = route(
   'GET /api/clips/:id/publications',

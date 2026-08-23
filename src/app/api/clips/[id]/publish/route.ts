@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 import { PLATFORMS, type Platform } from '@/core/publication'
 import { getClip, getDb } from '@/server/db'
-import { body, notFound, json, route } from '@/server/http'
-import { createUploadPostAdapter } from '@/server/publication/upload-post'
+import { body, notFound, requestInvalid, json, route } from '@/server/http'
+import { adapterFor } from '@/server/publication'
 import { launchPublish } from '@/server/publication/service'
 
 /**
@@ -42,9 +42,15 @@ export const POST = route(
     const clip = getClip(db, id)
     if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
 
+    // Un seul connecteur sert les quatre plateformes aujourd'hui (Upload
+    // Post) : `adapterFor` sur la première suffit. Scinder un lancement
+    // entre deux connecteurs viendra avec le second (`meta.ts`).
+    const adapter = adapterFor(platforms[0] as Platform)
+    if (adapter === undefined) throw requestInvalid(`Aucun connecteur ne prend ${platforms[0]}.`)
+
     const { rows } = launchPublish({
       db,
-      adapter: createUploadPostAdapter(),
+      adapter,
       clip,
       platforms,
       force: force ?? false,

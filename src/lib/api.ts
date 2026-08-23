@@ -42,6 +42,7 @@
  * moindre espace casserait l'URL.
  */
 
+import type { CorrectionRejectionReason } from '@/core/correction'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
@@ -958,9 +959,10 @@ export type LlmProvider = (typeof LLM_PROVIDERS)[number]
  * dimensions du repérage. Les deux cohabitent déjà dans le vocabulaire du
  * projet.
  *
- * **Seul `selection*` est branché.** `correction*` et `hook*` se règlent et se
- * persistent, mais rien ne les lit encore : la correction du transcript et la
- * génération du hook sont des livraisons ultérieures (retour d'usage §6.1).
+ * **Les trois sont branchés.** `selection*` alimente le repérage, `hook*` la
+ * génération du hook (`POST /api/clips/:id/hook`), `correction*` la
+ * correction du transcript (`POST /api/projects/:id/transcript/correction`,
+ * `proposeTranscriptCorrections`) — dernier des trois, retour d'usage §6.1.
  */
 export type AiSettings = {
   selectionProvider: LlmProvider
@@ -1135,6 +1137,35 @@ export function correctTranscript(
   return post<TranscriptCorrectionResult>(
     `/api/projects/${encodeURIComponent(projectId)}/transcript`,
     correction,
+  )
+}
+
+/** Une substitution proposée par le modèle, pas encore écrite. */
+export type CorrectionProposal = {
+  /** À passer tel quel à `correctTranscript` pour valider cette substitution. */
+  request: TranscriptCorrectionRequest
+  /** Le début du mot corrigé, en secondes. */
+  timecode: number
+  original: string
+  replacement: string
+}
+
+/** Une proposition de correction : les substitutions retenues, et un compte des refus par catégorie. */
+export type ProposeCorrectionsResult = {
+  proposals: CorrectionProposal[]
+  rejected: Partial<Record<CorrectionRejectionReason, number>>
+}
+
+/**
+ * Demande au modèle une proposition de corrections sur le transcript entier
+ * — `POST /api/projects/:id/transcript/correction`.
+ * @returns Une proposition, jamais une écriture (spec §9) : chaque
+ * substitution retenue se valide en rappelant `correctTranscript`.
+ */
+export function proposeTranscriptCorrections(projectId: string): Promise<ProposeCorrectionsResult> {
+  return post<ProposeCorrectionsResult>(
+    `/api/projects/${encodeURIComponent(projectId)}/transcript/correction`,
+    {},
   )
 }
 

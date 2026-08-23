@@ -219,7 +219,7 @@ Dans le périmètre :
 - ingestion d'un fichier local, analyse complète, repérage de candidats ;
 - délimitation d'un extrait sur son unité narrative entière ;
 - nettoyage du transcript (hésitations appliquées, digressions proposées) ;
-- correction du transcript (glossaire, lexique, modèle local) et correction
+- correction du transcript (glossaire, lexique, modèle) et correction
   manuelle persistée ;
 - choix du cadre et rendu ;
 - sous-titres incrustés, logo et mention Twitch ;
@@ -307,7 +307,7 @@ réglage de dernier recours, et l'automatique ne fera que le préremplir.
 |---|---|
 | 1 | Cadrage automatique : détection de personnes et de plans, ratio au seuil de 90 % d’images cadrées, crop fixe par plan, coupes posées sur les frontières |
 | 2 | Qualité du repérage : les quatre autres pourvoyeurs, reclassement en vision |
-| 3 | Sous-titres : nettoyage déterministe des hésitations, correction par modèle local, personnalisation du style |
+| 3 | Sous-titres : nettoyage déterministe des hésitations, ~~correction par modèle~~ (livrée, §9), personnalisation du style |
 | 4 | Automatisation : watcher sur le dossier de replays, webhook, graphe complet avec clés de validité |
 
 L'ordre suit le rapport entre ce que chaque étage change à l'écran et ce qu'il
@@ -757,9 +757,21 @@ sérieux, mais à prévoir en itération 3 plutôt qu'à découvrir.
 **Étage 1, un lexique déterministe.** Remplacements exacts pour ce que le
 glossaire n'a pas attrapé. Aucun risque.
 
-**Étage 2, un modèle local via Ollama**, sur ce qui reste : ponctuation et
-homophones français (et/est, a/à, ces/ses/c'est) plus les accords. Seul étage qui
-peut mal tourner.
+**Étage 2, un modèle, sur ce qui reste** : ponctuation et homophones français
+(et/est, a/à, ces/ses/c'est) plus les accords. Seul étage qui peut mal
+tourner.
+
+**Livré, PR « brancher la correction du transcript », 23 août 2026.** Le
+fournisseur reste celui réglé pour l'usage `correction` (`AiSettings`,
+registre `@/server/llm/registry`) — **Gemini par défaut, comme les deux
+autres usages**, pas Ollama : rien n'impose le modèle local que ce paragraphe
+appelait de ses vœux, Ollama restant un choix de réglage parmi trois. Le
+transcript se découpe en empans de l'ordre de 120 mots, sans chevauchement ;
+chaque empan passe par le contrat ci-dessous et ses deux gardes ; les
+substitutions retenues sont **proposées, jamais écrites** — l'écran de
+l'émission (§13) les liste, décochables, et ne les remonte dans le sidecar
+qu'après validation, une par une, par le même chemin d'écriture que la
+correction manuelle.
 
 ### Le contrat qui rend la réécriture impossible
 
@@ -788,6 +800,73 @@ Deux gardes par-dessus :
   qui a été dit ».
 - **Horodatages préservés** mot par mot, sinon le karaoké se désynchronise.
 
+**Comment l'insertion, la suppression et le réordonnancement échouent
+concrètement** (`validateCorrections`, `src/core/correction.ts`) : un `i`
+au-delà du dernier mot de l'empan, ou un `merge` qui déborde, est hors bornes
+— l'insertion n'a donc pas de forme à réussir. Un `w` vide est refusé — la
+suppression non plus. Un réordonnancement (échanger deux mots via deux
+substitutions) n'a pas de forme dédiée à rejeter : c'est la garde phonétique
+qui l'arrête, chaque substitution étant jugée seule contre ce qui se trouve
+réellement à sa position. C'est aussi la réponse à ce qu'« ancre concordante »
+désigne dans ce contrat : le modèle ne renvoie pas ce qu'il a vu à `i`, contrat
+sans champ `expected` — la garde phonétique est ce qui vérifie que le
+remplacement concorde avec ce qui s'y trouve, à sa place.
+
+**La clé phonétique n'est pas un phonétiseur.** Minuscules, accents dépliés,
+ponctuation et apostrophes retirées, `c` dur/doux assoupli devant `e`/`i`/`y`,
+consonnes finales muettes (`s`, `t`, `d`, `x`, `z`) réduites en boucle : assez
+pour faire collider `et`/`est`, `a`/`à`, `ces`/`ses`/`c'est`/`s'est`, et pour
+ne pas faire collider `chat`/`chien`. Elle rejettera quelques corrections
+légitimes — un homophone rare qu'elle ne rapproche pas assez —, ce qui est le
+bon sens de l'erreur : mieux vaut un excès de prudence qu'une réécriture qui
+passe pour une correction.
+
+**Cette prudence a deux limites, symétriques, et une seule était documentée
+jusqu'ici.** Le faux négatif ci-dessus — une correction légitime rejetée — en
+est une. L'autre, trouvée en review externe de la PR #128 : sur des mots
+courts dont la consonne finale se prononce, la clé confond deux mots qui ne
+sont pas homophones. `phoneticKey('net')` et `phoneticKey('nez')` valent
+toutes deux `ne`, alors que le `t` de « net » se prononce et n'a rien d'une
+consonne finale muette. Mesuré sur des paires témoins : les collisions
+légitimes que la garde doit laisser passer tiennent (`et`/`est`, `a`/`à`,
+`ces`/`ses`, `c'est`/`s'est`, `vert`/`vers`, `fait`/`fais`, `tout`/`tous`,
+`ce`/`cet`), les non-collisions correctes aussi (`chat`/`chien`, `sept`/`sec`,
+`port`/`pore`) — mais `net`/`nez` et `ne`/`nez` collident à tort.
+
+**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut a été
+formulé quand la correction était pensée automatique — une réécriture qui
+passe pour une correction s'écrivait alors sans second regard. Ce n'est plus
+le cas : Julien valide chaque substitution avant écriture (§9, « Le modèle
+propose, Julien valide »), donc un faux positif de la garde phonétique coûte
+un coup d'œil et un décochage sur l'écran de relecture, jamais un export
+faux.
+
+**Une précision sur ce que le schéma garantit vraiment, relevée en review
+externe : il n'interdit pas le réordonnancement, contrairement à ce qu'une
+formulation antérieure de ce paragraphe laissait entendre.** Le schéma bloque
+structurellement l'insertion et la suppression (plus haut dans cette
+section) — aucune forme ne les exprime. Le réordonnancement, lui, n'a pas de
+forme dédiée à rejeter : c'est la garde phonétique, et elle seule, qui
+l'arrête, chaque substitution étant jugée sans savoir qu'une autre y répond.
+Et comme cette garde confond parfois deux mots qui ne sont pas homophones
+(ci-dessus) et parfois deux mots qui le sont vraiment, un échange entre deux
+mots dont les clés collident — `{i:0,w:'est'},{i:1,w:'et'}` sur `['et','est']`
+— la traverse sans y être arrêté : ce n'est déjà plus une correction, c'est
+une réécriture qui a pris la forme d'une paire de substitutions. Le filet qui
+reste est le même que celui qui rend le faux positif tenable : la relecture
+avant écriture. La garde phonétique n'a donc jamais été la garantie
+principale contre la réécriture, le schéma ne l'est qu'à moitié — et c'est
+Julien, à l'écran de relecture, qui referme ce que ni l'un ni l'autre ne
+couvre.
+
+**Une fausse piste, fermée ici pour ne pas être rouverte** : interdire le
+dépouillement des consonnes finales sous une longueur minimale de mot est le
+correctif qui vient spontanément, et il casse la collision la plus utile de
+toutes, `et`/`est` — deux mots de deux et trois lettres. Un seuil de longueur
+ne distingue pas « consonne finale muette » de « consonne finale prononcée » ;
+seule une liste d'exceptions nommées le pourrait, et elle n'est pas écrite
+tant que le besoin ne s'en fait pas sentir en pratique.
+
 ### La correction humaine
 
 Le transcript est déjà la surface d'édition de l'interface : corriger un mot est
@@ -807,14 +886,24 @@ de l'empan ne bougent pas, ceux du remplacement se redistribuent sur l'empan
 retiré au prorata de la longueur des mots.
 
 **Deux conséquences restent partielles.** Le glossaire de l'étage 0 n'est pas
-alimenté — cette PR pose la correction, pas la boucle de rétroaction vers
-`initial_prompt`, qui reste à faire. Et le mécanisme d'empreinte de rendu
-(`src/server/steps/render.ts`, §11 ci-dessous) ne compare pas encore le texte
-pour décider qu'un rendu déjà exporté est périmé : une correction touchant un
-clip déjà monté est signalée à l'écran — les clips concernés sont nommés dans
-la réponse de la route —, mais rien ne force encore le réexport par le graphe
+alimenté — ni par la correction manuelle, ni par celle du modèle (étage 2,
+ci-dessus) : les deux posent la correction, pas la boucle de rétroaction vers
+`initial_prompt`, qui reste à faire.
+
+Et une correction touchant un clip déjà exporté ne périme pas son rendu.
+**Ce n'est plus faute de mécanisme** : l'empreinte de rendu sait comparer le
+texte des sous-titres depuis le même jour que cette précision
+(`captionsContent`, issue #87, `lFingerprintGap` dans
+`src/server/steps/render.ts`, §11 ci-dessous). C'est faute de branchement :
+`discardRenderStale` s'appelle après un montage édité (`PATCH
+/api/clips/:id`) et après une régénération du hook (`POST
+/api/clips/:id/hook`), jamais après une correction du transcript, manuelle ou
+par modèle. Les deux routes de correction se contentent de nommer les clips
+touchés dans leur réponse ; rien ne force encore le réexport par le graphe
 comme le fait déjà l'empreinte pour le montage, les marques ou le style des
-sous-titres.
+sous-titres. Brancher `discardRenderStale` ici demanderait de relire l'état
+de chaque clip touché au moment de la correction, plutôt que de se contenter
+de les nommer — une décision qui n'est pas prise.
 
 ### Ce qui est constaté sur la machine
 
@@ -829,7 +918,11 @@ Ollama tourne sur l'hôte Windows, joignable depuis WSL sur le port 11434, avec
   équivalent. Le modèle et l'adresse sont configurables.
 - **Contrainte de VRAM, bloquante.** 18 Go de modèle et WhisperX large-v3 ne
   tiennent pas ensemble sur 24 Go. La correction s'exécute après que la
-  transcription a rendu le GPU, jamais en parallèle.
+  transcription a rendu le GPU, jamais en parallèle — **posé en dur depuis
+  cette PR** : `POST /api/projects/:id/transcript/correction` refuse en 409
+  tant qu'une exécution du projet est en cours, et revérifie entre chaque
+  empan pour la même raison (issue #93, qui reste ouverte sur la question
+  plus large de la réservation d'écriture partagée du sidecar).
 
 ## 10. Le cadrage
 

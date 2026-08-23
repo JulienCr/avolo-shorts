@@ -16,14 +16,11 @@ import type { LlmProvider } from '@/lib/api'
 export type { LlmProvider }
 
 /**
- * Le mode d'appel du repérage. **Défini ici, réexporté sous le nom
- * `ModeGemini`** par `src/server/steps/candidates.ts`, qui l'utilisait avant
- * que cette couche existe et dont la couture de test —
- * `tests/server/candidates.test.ts`, environ 1800 lignes — s'y accroche par ce
- * nom. Le renommer aurait coûté une réécriture de ce fichier entier pour un
- * gain nul : c'est un alias de type, il ne coûte rien à l'exécution.
+ * Le mode d'appel, un par usage (`LlmUsage`, `@/server/llm/registry`).
+ * @remarks Réexporté sous `ModeGemini` par `src/server/steps/candidates.ts`,
+ * dont la couture de test s'accroche à ce nom.
  */
-export type LlmMode = 'score' | 'detail' | 'hook'
+export type LlmMode = 'score' | 'detail' | 'hook' | 'correction'
 
 /**
  * Un schéma JSON minimal, commun aux trois fournisseurs.

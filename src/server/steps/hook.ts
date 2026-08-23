@@ -7,8 +7,9 @@ import { hookPrompt } from '@/core/gemini/prompts'
 import { normalizeHookBadge, normalizeHookText } from '@/core/hook'
 import { getClip, getProject } from '@/server/db'
 import { createCallFromSettings } from '@/server/llm/registry'
+import { leverIfBlocked } from '@/server/llm/retry'
 import type { JsonSchema, LlmCallConfig, LlmMode } from '@/server/llm/types'
-import { leverIfBlocked, type TranscriptLu } from '@/server/steps/candidates'
+import type { TranscriptLu } from '@/server/steps/candidates'
 import { projectTranscript } from '@/server/views'
 
 /**
@@ -29,13 +30,10 @@ import { projectTranscript } from '@/server/views'
  * rend déjà `viral_hook_text` et `viral_hook_badge` dans la même réponse que
  * le titre, donc un clip naît avec son hook, sans un appel de plus.
  *
- * **Pas la politique de relance de `src/server/steps/candidates.ts`.**
- * L'escalier 5 s/10 s, les trois tentatives, l'attente de quota existent pour
- * un lot de trente appels derrière quarante minutes de pipeline sans personne
- * devant l'écran. Ici quelqu'un attend devant un bouton : un essai, un
- * message d'erreur clair, un bouton qu'on re-clique. Le jour où un deuxième
- * usage a besoin de cette politique, c'est là qu'elle s'extrait de
- * `candidates.ts` — pas avant.
+ * **Pas la politique de relance** (`callWithRetry`, `@/server/llm/retry`,
+ * extraite d'ici pour son deuxième appelant, la correction du transcript) :
+ * un lot de trente appels sans personne devant l'écran en a besoin, un
+ * bouton « Régénérer » non — un essai, un message d'erreur, un re-clic.
  */
 
 /**

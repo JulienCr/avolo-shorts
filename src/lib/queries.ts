@@ -41,6 +41,8 @@ import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } fr
 // Import à part, même règle : ce fichier est partagé avec une autre PR en
 // cours, on ajoute en fin de fichier sans réordonner l'existant.
 import { postRegenerateHook } from '@/lib/api'
+// Import à part, même règle, pour la même raison.
+import { proposeTranscriptCorrections } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
 export const keys = {
@@ -734,5 +736,21 @@ export function useRegenerateHook() {
       void client.invalidateQueries({ queryKey: keys.clip(clipId) })
       void client.invalidateQueries({ queryKey: keys.candidats(result.clip.projectId) })
     },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// La correction du transcript par modèle (§2.3, spec §9 étage 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Demande au modèle une proposition de corrections sur le transcript entier.
+ * @remarks Aucune écriture, donc aucun cache à mettre à jour — la
+ * proposition vit dans l'état du composant appelant ; valider rappelle
+ * `useCorrectTranscript` pour chaque substitution retenue.
+ */
+export function useProposeCorrection() {
+  return useMutation({
+    mutationFn: (projectId: string) => proposeTranscriptCorrections(projectId),
   })
 }

@@ -1,4 +1,5 @@
 import { defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
+import { effectiveSettings, getDb } from '@/server/db'
 import type { PublicationAdapter } from '@/server/publication/adapter'
 import { createMetaAdapter } from '@/server/publication/meta'
 import { createUploadPostAdapter } from '@/server/publication/upload-post'
@@ -20,9 +21,23 @@ export function publicationAdapters(): PublicationAdapter[] {
   return adapters
 }
 
-/** L'adaptateur qui prend cette plateforme — le premier du tableau à la porter. */
+/**
+ * L'adaptateur qui prend cette plateforme.
+ *
+ * **Le réglage `publication.<plateforme>` décide, l'ordre du tableau retombe.**
+ * Une préférence qui nomme un connecteur enregistré et le portant l'emporte ;
+ * `auto`, ou un identifiant sans registre (`tiktok` avant que son adaptateur
+ * n'existe), retombe sur le premier du tableau à porter la plateforme — jamais
+ * une erreur, jamais `undefined` pour cette seule raison.
+ */
 export function adapterFor(platform: Platform): PublicationAdapter | undefined {
-  return publicationAdapters().find((adapter) => adapter.platforms.includes(platform))
+  const adapters = publicationAdapters()
+  const preference = effectiveSettings(getDb()).publication[platform]
+  if (preference !== 'auto') {
+    const preferred = adapters.find((adapter) => adapter.id === preference)
+    if (preferred !== undefined && preferred.platforms.includes(platform)) return preferred
+  }
+  return adapters.find((adapter) => adapter.platforms.includes(platform))
 }
 
 /**

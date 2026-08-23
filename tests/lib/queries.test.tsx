@@ -395,6 +395,7 @@ describe('les réglages', () => {
     },
     ingestion: { copySourceLocally: true },
     hook: { ...HOOK_DEFAULTS },
+    publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
   }
 
   it('se lisent sans interrogation en boucle', async () => {
@@ -419,6 +420,7 @@ describe('les réglages', () => {
       ai: { ...settings.ai },
       ingestion: { ...settings.ingestion },
       hook: { ...settings.hook },
+      publication: { ...settings.publication },
     }
     vi.stubGlobal('fetch', vi.fn(async () => response(after)))
     const { client, invalid, envelope } = harness()

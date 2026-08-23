@@ -423,6 +423,7 @@ export function createUploadPostAdapter(
   fetchImpl: typeof fetch = fetch,
 ): PublicationAdapter {
   return {
+    id: 'upload-post',
     platforms: PLATFORMS,
     availability: (checkedEnv) => availability(checkedEnv, fetchImpl),
     publish: (job, platforms) => publish(env, fetchImpl, job, platforms),

@@ -16,9 +16,11 @@ import {
   HOOK_POSITIONS,
   HOOK_TRANSITIONS,
   LLM_PROVIDERS,
+  PUBLICATION_ADAPTER_CHOICES,
   type AiSettings,
   type HookSettings,
   type IngestionSettings,
+  type PublicationSettings,
   type Settings,
 } from '@/lib/api'
 import { DEFAULT_MODEL } from '@/server/llm/defaults'
@@ -639,12 +641,30 @@ const HOOK_FIELDS: readonly SettingField[] = (
   Object.keys(HOOK_FIELD_SHAPES) as (keyof HookSettings)[]
 ).map((name) => ({ family: 'hook' as const, name, ...HOOK_FIELD_SHAPES[name] }))
 
+/**
+ * Les champs de la famille `publication` : quel connecteur porte chaque
+ * plateforme, `auto` par défaut. **Même patron que les familles précédentes**,
+ * `satisfies` compris ; l'énumération de chaque champ vient de
+ * `PUBLICATION_ADAPTER_CHOICES` (`@/lib/api`), pour ne pas la retenir deux fois.
+ */
+const PUBLICATION_FIELD_SHAPES = {
+  instagram: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.instagram },
+  facebook: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.facebook },
+  tiktok: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.tiktok },
+  youtube: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.youtube },
+} satisfies Record<keyof PublicationSettings, Omit<SettingField, 'family' | 'name'>>
+
+const PUBLICATION_FIELDS: readonly SettingField[] = (
+  Object.keys(PUBLICATION_FIELD_SHAPES) as (keyof PublicationSettings)[]
+).map((name) => ({ family: 'publication' as const, name, ...PUBLICATION_FIELD_SHAPES[name] }))
+
 /** Tous les réglages que l'application connaît. L'écran de réglages se lit ici. */
 export const SETTING_FIELDS: readonly SettingField[] = [
   ...SELECTION_FIELDS,
   ...AI_FIELDS,
   ...INGESTION_FIELDS,
   ...HOOK_FIELDS,
+  ...PUBLICATION_FIELDS,
 ]
 
 /** Le champ décrit par une famille et un nom, ou `undefined` s'il n'existe pas. */
@@ -871,6 +891,10 @@ export function effectiveSettings(db: Database.Database): Settings {
     hook: Object.fromEntries(
       HOOK_FIELDS.map((f) => [f.name, f.defaultValue]),
     ) as unknown as HookSettings,
+    // Même dérivation, pour les quatre défauts `auto` de la publication.
+    publication: Object.fromEntries(
+      PUBLICATION_FIELDS.map((f) => [f.name, f.defaultValue]),
+    ) as unknown as PublicationSettings,
   }
   for (const field of SETTING_FIELDS) {
     const raw = stored.get(storedKey(field))

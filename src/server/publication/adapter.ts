@@ -2,6 +2,15 @@ import type { Platform, PlatformAvailability } from '@/core/publication'
 import type { Environment } from '@/server/secrets'
 
 /**
+ * L'identifiant stable d'un connecteur, tel que les réglages le nomment.
+ *
+ * **`'tiktok'` figure ici avant que l'adaptateur n'existe** — le registre des
+ * réglages (`src/lib/api.ts`) propose déjà ce choix, et `adapterFor` retombe
+ * sur l'ordre de priorité tant qu'aucun adaptateur ne le porte.
+ */
+export type AdapterId = 'meta' | 'upload-post' | 'tiktok'
+
+/**
  * L'interface partagée par tout connecteur de publication.
  *
  * **Déclaration canonique** : un futur `meta.ts` et l'écran qui branchera
@@ -33,6 +42,7 @@ export type PlatformOutcome =
   | { status: 'failed'; error: string }
 
 export type PublicationAdapter = {
+  readonly id: AdapterId
   readonly platforms: readonly Platform[]
   /**
    * **Mesurée, pas déduite de l'environnement.** Une clé API valide ne dit

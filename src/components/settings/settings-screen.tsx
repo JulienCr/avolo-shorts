@@ -6,6 +6,7 @@ import { AppBar } from '@/components/navigation/app-bar'
 import { AiSection } from '@/components/settings/ai-section'
 import { HookSection } from '@/components/settings/hook-section'
 import { IngestionSection } from '@/components/settings/ingestion-section'
+import { PublicationSection } from '@/components/settings/publication-section'
 import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -144,6 +145,16 @@ export function SettingsScreen() {
           disabled={save.isPending}
           onChange={(patch) => save.mutateAsync({ hook: patch })}
         />
+
+        <Separator />
+
+        {settings.data !== undefined && (
+          <PublicationSection
+            values={settings.data.publication}
+            disabled={save.isPending}
+            onChange={(patch) => save.mutateAsync({ publication: patch })}
+          />
+        )}
       </main>
     </div>
   )

@@ -1589,6 +1589,9 @@ describe('/api/settings', () => {
   /** Les onze défauts de la famille `hook` (retour d'usage §6.3). */
   const HOOK_SETTINGS_DEFAULTS = { ...HOOK_DEFAULTS }
 
+  /** Le défaut `auto` des quatre champs de la famille `publication`. */
+  const PUBLICATION_DEFAULTS = { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' }
+
   const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
@@ -1606,6 +1609,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1617,6 +1621,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
@@ -1624,6 +1629,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1650,6 +1656,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1669,6 +1676,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1692,6 +1700,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 

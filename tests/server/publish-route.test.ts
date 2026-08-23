@@ -64,6 +64,7 @@ vi.mock('@/server/publication', () => ({
 
 function resolvedAdapter(outcome: (platform: Platform) => PlatformOutcome): PublicationAdapter {
   return {
+    id: 'upload-post',
     platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
     availability: async () => {
       throw new Error('non utilisé par ces tests')
@@ -82,6 +83,7 @@ function resolvedAdapter(outcome: (platform: Platform) => PlatformOutcome): Publ
 /** Un adaptateur dont `publish` ne se règle jamais — pour observer la réservation en vol. */
 function pendingAdapter(): PublicationAdapter {
   return {
+    id: 'upload-post',
     platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
     availability: async () => {
       throw new Error('non utilisé par ces tests')
@@ -302,6 +304,7 @@ describe('POST /api/clips/:id/publish — rendu manquant sur disque', () => {
 /** Un adaptateur dont `publish` rend tout `in_progress`, contrôlé par `poll`. */
 function pollingAdapter(poll: PublicationAdapter['poll']): PublicationAdapter {
   return {
+    id: 'upload-post',
     platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
     availability: async () => {
       throw new Error('non utilisé par ces tests')
@@ -391,6 +394,7 @@ describe('launchPublish — deux connecteurs', () => {
       return outcomes
     })
     const meta: PublicationAdapter = {
+      id: 'meta',
       platforms: ['instagram', 'facebook'],
       availability: async () => {
         throw new Error('non utilisé par ces tests')
@@ -409,6 +413,7 @@ describe('launchPublish — deux connecteurs', () => {
       return outcomes
     })
     const uploadPost: PublicationAdapter = {
+      id: 'upload-post',
       platforms: ['tiktok', 'youtube'],
       availability: async () => {
         throw new Error('non utilisé par ces tests')
@@ -446,6 +451,7 @@ describe('launchPublish — deux connecteurs', () => {
     await exportClip()
 
     const meta: PublicationAdapter = {
+      id: 'meta',
       platforms: ['instagram', 'facebook'],
       availability: async () => {
         throw new Error('non utilisé par ces tests')

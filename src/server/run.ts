@@ -37,6 +37,7 @@ import {
   workingInput,
 } from '@/server/steps/ingest'
 import { buildProxy } from '@/server/steps/proxy'
+import { applyTranscriptCorrections } from '@/server/steps/transcript-correction'
 import { transcribe } from '@/server/steps/transcript'
 
 /**
@@ -205,7 +206,12 @@ export async function wait(projectId: string): Promise<void> {
  * jamais deux — et `editingAlive`, juste en dessous, ferme le cas où la sonde
  * ne revient pas du tout.
  */
-type EntrySidecar = { value: string | null; expire: number; inFlight?: Promise<string | null> }
+/**
+ * Le couple que le sidecar peut porter : le transcript, et si `correction.json`
+ * est à côté de lui.
+ */
+type SidecarState = { transcript: string | null; correction: boolean }
+type EntrySidecar = SidecarState & { expire: number; inFlight?: Promise<SidecarState> }
 const sidecars = new Map<string, EntrySidecar>()
 
 /** Assez court pour qu'un transcript qui vient d'être écrit apparaisse presque tout de suite. */
@@ -271,15 +277,30 @@ async function editingAlive(path: string): Promise<boolean> {
  * et qu'il n'y en a pas de copie locale.
  */
 export async function pathTranscript(project: Project): Promise<string | null> {
+  return (await sidecarState(project)).transcript
+}
+
+/**
+ * `correction.json` est-il à côté du transcript ? **Le même cache TTL que
+ * `pathTranscript`, pas un second** : les deux se répondent depuis une seule
+ * sonde du Drive, sans quoi le sondage de 2 s de l'écran de tri doublerait le
+ * risque d'épuiser le vivier de libuv que `TTL_SIDECAR_MS` existe déjà pour
+ * éviter — voir le commentaire de `sidecars` plus haut.
+ */
+export async function correctionPresent(project: Project): Promise<boolean> {
+  return (await sidecarState(project)).correction
+}
+
+async function sidecarState(project: Project): Promise<SidecarState> {
   const key = keySidecar(project)
   const entry = sidecars.get(key)
   if (entry !== undefined) {
     if (entry.inFlight !== undefined) return entry.inFlight
-    if (entry.expire > Date.now()) return entry.value
+    if (entry.expire > Date.now()) return { transcript: entry.transcript, correction: entry.correction }
   }
 
   const work = findSidecar(project, key)
-  sidecars.set(key, { value: null, expire: 0, inFlight: work })
+  sidecars.set(key, { transcript: null, correction: false, expire: 0, inFlight: work })
   return work
 }
 
@@ -294,22 +315,41 @@ function keySidecar(project: Project): string {
   return `${projectDir(project.id)}\0${project.sourcePath}`
 }
 
-async function findSidecar(project: Project, key: string): Promise<string | null> {
-  const keep = (value: string | null, ttl: number): string | null => {
-    sidecars.set(key, { value, expire: Date.now() + ttl })
-    return value
+async function findSidecar(project: Project, key: string): Promise<SidecarState> {
+  const keep = (state: SidecarState, ttl: number): SidecarState => {
+    sidecars.set(key, { ...state, expire: Date.now() + ttl })
+    return state
   }
 
   const nameSidecar = path.basename(sidecarDir(project.sourcePath))
-  const fallback = path.join(projectDir(project.id), nameSidecar, 'transcript.json')
-  if (fs.existsSync(fallback)) return keep(fallback, TTL_SIDECAR_MS)
+  const fallbackDir = path.join(projectDir(project.id), nameSidecar)
+  const fallback = path.join(fallbackDir, 'transcript.json')
+  if (fs.existsSync(fallback)) {
+    // Local : un `existsSync` de plus ne coûte rien, contrairement à celui du
+    // Drive un peu plus bas.
+    return keep(
+      { transcript: fallback, correction: fs.existsSync(path.join(fallbackDir, 'correction.json')) },
+      TTL_SIDECAR_MS,
+    )
+  }
 
   // **Sonder avant de toucher au Drive.** Monté avec son transport mort dessous,
   // il ne répond pas, et un `existsSync` synchrone gèle la boucle d'événements —
   // donc le serveur entier, pas seulement cette requête.
-  if (!(await editingAlive(project.sourcePath))) return keep(null, TTL_SIDECAR_MS)
-  const desired = path.join(sidecarDir(project.sourcePath), 'transcript.json')
-  return keep(fs.existsSync(desired) ? desired : null, TTL_SIDECAR_MS)
+  if (!(await editingAlive(project.sourcePath))) {
+    return keep({ transcript: null, correction: false }, TTL_SIDECAR_MS)
+  }
+  const desiredDir = sidecarDir(project.sourcePath)
+  const desired = path.join(desiredDir, 'transcript.json')
+  const found = fs.existsSync(desired)
+  // Le Drive répond déjà à ce point : un second `existsSync` sur le même
+  // dossier, pour `correction.json`, ne fait pas une seconde sonde de vivacité
+  // — seulement l'appel synchrone déjà payé pour `transcript.json`, une fois de
+  // plus.
+  return keep(
+    { transcript: found ? desired : null, correction: found && fs.existsSync(path.join(desiredDir, 'correction.json')) },
+    TTL_SIDECAR_MS,
+  )
 }
 
 /**
@@ -348,10 +388,14 @@ function rendersPresent(projectId: string): boolean {
  * d'outil, les paramètres et l'empreinte des entrées sont l'itération 4.
  */
 export async function readingPresence(project: Project): Promise<Record<StepName, boolean>> {
+  // **Une seule sonde du sidecar pour les deux étapes** : `sidecarState` porte
+  // déjà le couple transcript/correction depuis un seul passage par le Drive.
+  const sidecar = await sidecarState(project)
   return {
     proxy: fs.existsSync(proxyPath(project.id)),
     audio: fs.existsSync(audioPath(project.id)),
-    transcript: (await pathTranscript(project)) !== null,
+    transcript: sidecar.transcript !== null,
+    correction: sidecar.correction,
     analysis: fs.existsSync(analysisPath(project.id)),
     candidates: fs.existsSync(candidatesPath(project.id)),
     renders: rendersPresent(project.id),
@@ -619,11 +663,20 @@ export type Steps = {
   buildProxy: typeof buildProxy
   extractAudio: typeof extractAudio
   transcribe: typeof transcribe
+  applyTranscriptCorrections: typeof applyTranscriptCorrections
   runAnalysis: typeof runAnalysis
   runCandidates: typeof runCandidates
 }
 
-const STEPS: Steps = { ingest, buildProxy, extractAudio, transcribe, runAnalysis, runCandidates }
+const STEPS: Steps = {
+  ingest,
+  buildProxy,
+  extractAudio,
+  transcribe,
+  applyTranscriptCorrections,
+  runAnalysis,
+  runCandidates,
+}
 
 export type OptionsLaunch = {
   /** Les étapes à refaire même si leur artefact est là. `true` vaut « la cible ». */
@@ -640,7 +693,17 @@ export type OptionsLaunch = {
  * fabriquer, et prétendre le contraire ferait une exécution qui s'arrête sans
  * rien produire.
  */
-export const TARGETS_LAUNCHABLE = ['proxy', 'audio', 'transcript', 'analysis', 'candidates'] as const
+// `correction` y entre pour que `force: ['correction']` valide côté route
+// (`POST /api/projects/:id/run` borne `force` à cette même liste) — c'est le
+// chemin du bouton « Relancer la correction ».
+export const TARGETS_LAUNCHABLE = [
+  'proxy',
+  'audio',
+  'transcript',
+  'correction',
+  'analysis',
+  'candidates',
+] as const
 export type TargetLaunchable = (typeof TARGETS_LAUNCHABLE)[number]
 
 /**
@@ -886,6 +949,12 @@ async function execute(
   const steps = { ...STEPS, ...options.steps }
   const { projectId } = execution
   let project = projectInitial
+  // **Portée par l'exécution, jamais par un throw.** L'étape `correction`
+  // avale une panne du modèle plutôt que d'arrêter toute l'analyse (voir son
+  // `case` dans `executeStep`) ; ce que cette variable porte, c'est ce que
+  // `status.json` doit dire malgré tout — sinon la panne n'échoue pas, elle
+  // disparaît.
+  let correctionWarning: string | null = null
 
   const advance = (fraction: number | null): void => {
     if (fraction === null) return
@@ -973,7 +1042,22 @@ async function execute(
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
       try {
-        await executeStep(step, project, db, copyLocally, steps, advance, flagSummary, signal)
+        const warning = await executeStep(
+          step,
+          project,
+          db,
+          copyLocally,
+          steps,
+          advance,
+          flagSummary,
+          signal,
+          // **Une retranscription dans ce même plan fait repartir le journal
+          // de correction à vide.** `transcript.json` vient d'être remplacé
+          // en entier : les positions d'un journal antérieur n'y correspondent
+          // plus à rien (voir `applyTranscriptCorrections`).
+          execution.plan.includes('transcript'),
+        )
+        if (warning !== null) correctionWarning = warning
       } catch (cause) {
         // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
         // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
@@ -999,7 +1083,7 @@ async function execute(
         targets: execution.targets,
         plan: execution.plan,
         running: null,
-        error: null,
+        error: correctionWarning,
         finishedAt: Date.now(),
         stopped: false,
       },
@@ -1059,7 +1143,8 @@ async function executeStep(
   advance: (fraction: number | null) => void,
   flagSummary: () => void,
   signal: AbortSignal,
-): Promise<void> {
+  freshTranscript: boolean,
+): Promise<string | null> {
   switch (step) {
     case 'proxy':
     case 'audio': {
@@ -1118,7 +1203,7 @@ async function executeStep(
         onProgress: (a: { fraction: number | null }) => advance(a.fraction),
       }
       await (step === 'proxy' ? steps.buildProxy(common) : steps.extractAudio(common))
-      return
+      return null
     }
 
     case 'transcript': {
@@ -1137,7 +1222,44 @@ async function executeStep(
       // a quarante minutes. Sans cet oubli, l'étape suivante consulterait une
       // absence que l'étape qui vient de finir a précisément levée.
       forgetSidecar(project)
-      return
+      return null
+    }
+
+    case 'correction': {
+      // **Jamais `isRunning`.** `applyTranscriptCorrections` ne le prend même
+      // pas en option — voir son commentaire — précisément pour qu'aucun
+      // appelant ne puisse reproduire ici le piège documenté au contrat de
+      // cette PR : l'exécution en cours est la nôtre.
+      //
+      // **Une panne du modèle n'arrête pas l'analyse, mais elle ne disparaît
+      // pas non plus.** Un modèle injoignable est une panne d'environnement,
+      // pas un transcript invalide ; bloquer tout le plan derrière une panne
+      // réseau referait exactement ce que cette PR retire — un lancement du
+      // soir qui attend jusqu'au matin. Mais l'avaler en silence serait
+      // l'échec qui n'échoue pas (`CLAUDE.md`) : `candidates.json` existerait
+      // ensuite, calculé sur du texte non corrigé, et plus rien ne le
+      // dirait — le graphe ne redécouvre jamais une dépendance absente sous
+      // un artefact présent (`toRedo`, `src/core/graph.ts`). Le message
+      // remonté ici devient donc `status.json.error` (voir `correctionWarning`
+      // dans `execute`), visible au repos sur l'écran de projet, et le
+      // rattrapage explicite est le bouton « Relancer la correction » du
+      // transcript de l'émission (`force: ['correction']`, qui entraîne
+      // `candidates` avec lui).
+      //
+      // **`signal.aborted` n'est pas avalé.** Un arrêt demandé n'est pas une
+      // panne du modèle : il doit remonter tel quel, pour que l'exécution se
+      // termine comme `interrompu`, pas comme un succès avec un avertissement.
+      try {
+        await steps.applyTranscriptCorrections(project, db, { signal, freshTranscript })
+      } catch (cause) {
+        if (signal.aborted) throw cause
+        const message = `La correction automatique du transcript a échoué : ${messageSafe(cause)}. ` +
+          'Le repérage a tourné sur le texte non corrigé — relancer la correction depuis le ' +
+          'transcript de l’émission.'
+        console.error(`[${project.id}] correction du transcript :`, cause)
+        return message
+      }
+      return null
     }
 
     case 'analysis': {
@@ -1179,7 +1301,7 @@ async function executeStep(
           advance(progressWorker(line))
         },
       })
-      return
+      return null
     }
 
     case 'candidates': {
@@ -1188,7 +1310,7 @@ async function executeStep(
       // affiche « rien à signaler » pendant les trente secondes où la perte se
       // constitue. (relevé par Codex et Copilot)
       await steps.runCandidates(project.id, { db, signal, onSummary: flagSummary })
-      return
+      return null
     }
 
     case 'renders': {

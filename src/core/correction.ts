@@ -225,3 +225,88 @@ export function toProposedCorrection(
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// Le journal des corrections appliquées — l'historique de relecture, et la
+// présence de l'étape (`correction.json`, voir `SidecarPlacement`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Une substitution appliquée, telle que `correction.json` la porte.
+ *
+ * **`from` est la position actuelle du mot corrigé dans sa phrase, un seul
+ * mot** — le contrat de la correction automatique (`w`, jamais une liste) n'en
+ * produit jamais plus, contrairement à `SegmentCorrection.to` qui borne un
+ * empan côté modèle. `expected` porte les mots d'origine, dans l'ordre : leur
+ * nombre dit combien de mots défaire réinsère.
+ */
+export type CorrectionEntry = {
+  /** Unique **pour la durée de vie du journal**, pas seulement d'une passe — voir `CorrectionLog.nextId`. */
+  id: string
+  lineId: string
+  from: number
+  expected: string[]
+  replacement: string
+  /** Le début du mot corrigé, en secondes — pour l'affichage. */
+  timecode: number
+}
+
+/**
+ * Le fichier entier. `nextId` survit aux passes : le journal **s'accumule**
+ * (spec §9, correction du 23 août 2026) plutôt que de se réécrire à chaque
+ * exécution de l'étape, parce qu'une seconde passe travaille sur un texte déjà
+ * corrigé — ses propres substitutions ne recouvrent jamais celles d'une passe
+ * précédente, et les perdre de l'historique retirerait la moitié de ce que le
+ * journal promet en échange de l'écriture sans veto (voir le commentaire de
+ * `applyTranscriptCorrections`, `src/server/steps/transcript-correction.ts`).
+ */
+export type CorrectionLog = {
+  nextId: number
+  entries: CorrectionEntry[]
+}
+
+/** Un journal vide, pour un projet qui n'a jamais encore été corrigé. */
+export const EMPTY_CORRECTION_LOG: CorrectionLog = { nextId: 1, entries: [] }
+
+/**
+ * Décale les entrées d'une même phrase, après qu'un nombre de mots a changé à
+ * une position donnée.
+ *
+ * **Une seule formule pour appliquer et pour défaire.** Appliquer une fusion de
+ * N mots en un seul mot à la position `p` réduit la phrase de N−1 mots : tout
+ * ce qui suit `p` recule d'autant. Défaire cette même fusion la réinsère : tout
+ * ce qui suit `p` avance de N−1. Les deux sont le même décalage, de signe
+ * opposé — `delta` porte ce signe, l'appelant n'a rien d'autre à distinguer.
+ * @param afterPosition Les entrées dont `from` lui est strictement supérieur
+ * décalent ; celle qui vient d'être écrite ou défaite ne s'y retrouve jamais
+ * elle-même, l'appelant l'a déjà retirée ou pas encore ajoutée.
+ */
+export function shiftEntries(
+  entries: readonly CorrectionEntry[],
+  lineId: string,
+  afterPosition: number,
+  delta: number,
+): CorrectionEntry[] {
+  if (delta === 0) return [...entries]
+  return entries.map((e) => (e.lineId === lineId && e.from > afterPosition ? { ...e, from: e.from + delta } : e))
+}
+
+/**
+ * L'ordre d'application d'une passe : par phrase, puis par position
+ * décroissante à l'intérieur d'une phrase.
+ *
+ * **Décroissant, pas seulement stable.** Écrire les substitutions les plus à
+ * droite d'une phrase en premier laisse les positions des suivantes — plus à
+ * gauche — inchangées : c'est ce qui rend leurs `from`/`to` valables jusqu'à
+ * leur propre écriture, sans qu'aucune des deux n'ait besoin de relire l'autre.
+ * Comparer d'abord `lineId` établit un ordre total, sous lequel toutes les
+ * entrées d'une même phrase sont contiguës et triées par `from` décroissant —
+ * même algorithme que l'écran de relecture livré par #128, déplacé ici parce
+ * que c'est désormais le pipeline qui écrit, plus l'écran.
+ */
+export function orderForApplication(proposals: readonly ProposedCorrection[]): ProposedCorrection[] {
+  return [...proposals].sort((a, b) => {
+    if (a.lineId !== b.lineId) return a.lineId < b.lineId ? -1 : 1
+    return b.correction.from - a.correction.from
+  })
+}

@@ -40,7 +40,12 @@ import { pathsRender } from '@/server/steps/render'
 
 function toRecord(row: PublicationRow | undefined): PublicationRecord | undefined {
   if (row === undefined) return undefined
-  return { status: row.status, remoteUrl: row.remoteUrl, publishedFingerprint: row.publishedFingerprint }
+  return {
+    status: row.status,
+    remoteUrl: row.remoteUrl,
+    publishedFingerprint: row.publishedFingerprint,
+    error: row.error,
+  }
 }
 
 /**

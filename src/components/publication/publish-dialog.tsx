@@ -54,12 +54,11 @@ import { cn } from '@/lib/utils'
  * pas la règle « rien ne s'ouvre en modale sauf une confirmation », elle
  * l'applique.
  *
- * **Rien n'est branché.** `availability` par défaut à `defaultPlatformAvailability()` —
- * les quatre plateformes en `not_configured` — et `onLaunch` n'est appelé que
- * si au moins une cible a été retenue, ce qui n'arrive jamais aujourd'hui
- * puisqu'aucune plateforme n'est sélectionnable. Les deux sont injectables
- * pour que le composant se teste sans attendre un connecteur, et pour que le
- * jour où l'un existera, seul l'appelant change.
+ * `availability` par défaut à `defaultPlatformAvailability()` — les quatre
+ * plateformes en `not_configured` —, et `onLaunch` n'est appelé que si au
+ * moins une cible a été retenue. Les deux sont injectables : pour tester le
+ * composant sans connecteur, et parce qu'un connecteur réel (Upload Post) les
+ * fournit désormais depuis les deux appelants (`export-panel.tsx`, `feed.tsx`).
  */
 export type PublishClipTarget = {
   clipId: string
@@ -79,11 +78,22 @@ export type PublishClipTarget = {
 
 type Step = 'platforms' | 'confirm'
 
+/** Coché à l'ouverture (issue #97) : disponible, et jamais une plateforme qui exigerait `force`. */
+function defaultSelection(
+  selectable: readonly Platform[],
+  eligible: readonly PublishClipTarget[],
+): Set<Platform> {
+  return new Set(
+    selectable.filter((platform) => !eligible.some((clip) => clip.records?.[platform]?.status === 'published')),
+  )
+}
+
 export function PublishDialog({
   open,
   onOpenChange,
   clips,
   availability,
+  recordsLoading = false,
   onLaunch,
 }: {
   open: boolean
@@ -92,14 +102,35 @@ export function PublishDialog({
   /** Injectable pour les tests, et pour le connecteur du jour où il existera. */
   availability?: Readonly<Record<Platform, PlatformAvailability>>
   /**
-   * Appelé une fois, seulement si au moins une cible a été retenue. Aucun
-   * appelant réel n'existe encore : la publication n'a pas de backend.
+   * La requête qui remplit `clips[].records` est encore en vol.
+   *
+   * **`records === undefined` porte deux sens qu'il faut distinguer** :
+   * « aucune publication connue » (sélection par défaut légitime) et « la
+   * requête charge encore » (sélection inconnue). Sans ce signal, une
+   * plateforme déjà `published` reste précochée le temps du chargement, et
+   * confirmer avant l'arrivée des données envoie un clip vers un 409 pendant
+   * que les autres partent — la sélection par défaut se recalcule à
+   * l'arrivée (voir `dataSignature` plus bas), mais rien n'empêchait de
+   * confirmer avant. (relevé par Copilot)
    */
-  onLaunch?: (targets: readonly { clipId: string; platform: Platform }[]) => void
+  recordsLoading?: boolean
+  /**
+   * Appelé une fois, seulement si au moins une cible a été retenue. Porte
+   * `force` (issue #97) : sans lui, une republication délibérée se distingue
+   * mal d'un premier envoi côté appelant.
+   */
+  onLaunch?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
 }) {
+  // **Qui décide (issue #96) : l'appelant propose, cette modale décide.**
+  // `eligibility` vient de `clip.status` (vue Émission) ou d'`outputs.mp4Url`
+  // (écran de clip) — non réconciliés ; la modale filtre sur ce qu'on lui donne.
   const resolvedAvailability = availability ?? defaultPlatformAvailability()
+  const eligible = clips.filter((c) => c.eligibility.eligible)
+  const ineligible = clips.filter((c) => !c.eligibility.eligible)
+  const selectable = selectablePlatforms(resolvedAvailability)
+
   const [step, setStep] = useState<Step>('platforms')
-  const [selected, setSelected] = useState<ReadonlySet<Platform>>(new Set())
+  const [selected, setSelected] = useState<ReadonlySet<Platform>>(() => defaultSelection(selectable, eligible))
   const [force, setForced] = useState(false)
 
   // **Remise à zéro pendant le rendu, pas dans un effet.** La même boîte sert
@@ -109,18 +140,33 @@ export function PublishDialog({
   // emploie déjà pour la même raison — évite l'image intermédiaire qu'un
   // `useEffect` produirait entre l'ouverture et la remise à zéro.
   const [wasOpen, setWasOpen] = useState(open)
+
+  // **`availability` et `records` sont deux requêtes asynchrones, injectées
+  // par la page.** Ouvrir la boîte pendant qu'elles chargent encore fige la
+  // sélection sur leur repli — quatre plateformes `not_configured`, aucun
+  // enregistrement connu — et leur arrivée ensuite ne rejoue pas
+  // `defaultSelection` : une plateforme qui vient de se brancher reste
+  // décochée, une déjà `published` reste cochée. Réconcilié tant que
+  // l'utilisateur n'a touché aucune case (`dirty`) ; un geste manuel gèle la
+  // sélection, quoi que les données fassent ensuite. (relevé par Copilot,
+  // Codex et Aristarque)
+  const [dirty, setDirty] = useState(false)
+  const dataSignature = JSON.stringify([resolvedAvailability, eligible.map((c) => c.records ?? null)])
+  const [lastDataSignature, setLastDataSignature] = useState(dataSignature)
+
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
       setStep('platforms')
-      setSelected(new Set())
+      setSelected(defaultSelection(selectable, eligible))
       setForced(false)
+      setDirty(false)
+      setLastDataSignature(dataSignature)
     }
+  } else if (open && !dirty && dataSignature !== lastDataSignature) {
+    setLastDataSignature(dataSignature)
+    setSelected(defaultSelection(selectable, eligible))
   }
-
-  const eligible = clips.filter((c) => c.eligibility.eligible)
-  const ineligible = clips.filter((c) => !c.eligibility.eligible)
-  const selectable = selectablePlatforms(resolvedAvailability)
 
   // **Chaque plateforme réussit ou échoue seule** (spec publication §6.4) :
   // la cible se calcule couple par couple, jamais en bloc, pour que la suite
@@ -135,14 +181,24 @@ export function PublishDialog({
   // dans `onLaunch` sous prétexte qu'elle était cochée avant. (relevé par
   // Copilot)
   const selectedAndAvailable = PLATFORMS.filter((p) => selected.has(p) && selectable.includes(p))
-  const targets = eligible.flatMap((clip) =>
-    selectedAndAvailable.flatMap((platform) =>
-      canTargetPlatform(clip.records?.[platform], force) ? [{ clipId: clip.clipId, platform }] : [],
-    ),
-  )
 
   const alreadyPublished = eligible.some((clip) =>
     selectedAndAvailable.some((p) => clip.records?.[p]?.status === 'published'),
+  )
+
+  // **`force` s'annule avec la case qui l'a rendu pertinent.** Cocher
+  // « Republier explicitement » puis décocher la seule plateforme déjà
+  // `published` gardait `force` à `true` : un envoi ordinaire suivant
+  // partait avec lui, et Upload Post lui associe une clé d'idempotence
+  // aléatoire (`upload-post.ts`), perdant sa protection contre les
+  // doublons. `effectiveForce` ne vaut jamais plus que ce que la sélection
+  // courante justifie. (relevé par Copilot)
+  const effectiveForce = force && alreadyPublished
+
+  const targets = eligible.flatMap((clip) =>
+    selectedAndAvailable.flatMap((platform) =>
+      canTargetPlatform(clip.records?.[platform], effectiveForce) ? [{ clipId: clip.clipId, platform }] : [],
+    ),
   )
 
   // **Recoupé avec `selectedAndAvailable`, pas `selected` seul.**
@@ -150,9 +206,10 @@ export function PublishDialog({
   // boîte reste ouverte laissait « Suivant » actif alors que `targets` était
   // déjà vide — la passe 2 avait renommé l'identifiant sans corriger le
   // calcul. (relevé par Copilot, passe 3)
-  const canContinue = selectable.length === 0 || selectedAndAvailable.length > 0
+  const canContinue = !recordsLoading && (selectable.length === 0 || selectedAndAvailable.length > 0)
 
   function togglePlatform(platform: Platform) {
+    setDirty(true)
     setSelected((current) => {
       const next = new Set(current)
       if (next.has(platform)) next.delete(platform)
@@ -162,7 +219,7 @@ export function PublishDialog({
   }
 
   function confirmLaunch() {
-    if (targets.length > 0) onLaunch?.(targets)
+    if (targets.length > 0) onLaunch?.(targets, effectiveForce)
     onOpenChange(false)
   }
 
@@ -229,6 +286,12 @@ export function PublishDialog({
               </ul>
             </AlertDescription>
           </Alert>
+        )}
+
+        {recordsLoading && (
+          <p className="text-xs text-muted-foreground">
+            Chargement de l’état des publications précédentes…
+          </p>
         )}
 
         {step === 'platforms' ? (
@@ -423,6 +486,15 @@ function PlatformRecords({
               <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400">
                 <AlertTriangle className="size-3" aria-hidden />
                 modifié depuis
+              </span>
+            )}
+            {/* **Le message du connecteur, pas seulement le badge.** Jeton
+                expiré, quota atteint, fichier refusé : trois échecs que
+                « échec » seul ne distingue pas, alors que le serveur garde
+                déjà la raison. (relevé par Codex) */}
+            {record.status === 'failed' && record.error !== null && (
+              <span className="truncate text-destructive" title={record.error}>
+                {record.error}
               </span>
             )}
           </li>

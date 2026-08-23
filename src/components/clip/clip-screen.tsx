@@ -35,7 +35,15 @@ import { clipBounds, indexTranscript, lineInitial } from '@/lib/editing'
 import { differences, useAutosave } from '@/lib/autosave'
 import { formatDuration, formatTimecode } from '@/lib/format'
 import { clipNext, linkClip } from '@/lib/navigation'
-import { usePatchClip, useCandidates, useSettings } from '@/lib/queries'
+import {
+  usePatchClip,
+  useCandidates,
+  usePublications,
+  usePublicationAvailability,
+  usePublisher,
+  useSettings,
+} from '@/lib/queries'
+import type { Platform } from '@/core/publication'
 import { cn } from '@/lib/utils'
 import { useEditor, useCanCancel, useCanRestore, useSegments } from '@/store/editor'
 
@@ -90,6 +98,34 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // conception promet de rendre repreneur, et le cache est alors vide. Venant du
   // tri, c'est un succès de cache et cela ne coûte rien.
   const candidates = useCandidates(clip.projectId)
+
+  const publicationAvailability = usePublicationAvailability()
+  const publications = usePublications(clip.id)
+  const publisher = usePublisher()
+  const publicationRecords = Object.fromEntries(
+    (publications.data ?? []).map((row) => [
+      row.platform,
+      {
+        status: row.status,
+        remoteUrl: row.remoteUrl,
+        publishedFingerprint: row.publishedFingerprint,
+        error: row.error,
+      },
+    ]),
+  )
+  function launchPublish(targets: readonly { clipId: string; platform: Platform }[], force: boolean) {
+    publisher.mutate({ clipId: clip.id, platforms: targets.map((t) => t.platform), force })
+  }
+  // **La boîte se ferme dès la confirmation** (`confirmLaunch`, `publish-dialog.tsx`),
+  // avant que le `POST` ne réponde : un refus de prévalidation — rendu
+  // périmé, titre YouTube vide, conflit 409 — disparaissait donc sans aucun
+  // retour. `publisher.error` porte ce refus, affiché ici plutôt que dans la
+  // boîte qui n'existe déjà plus. (relevé par Codex)
+  const publishError = publisher.isError
+    ? publisher.error instanceof Error
+      ? publisher.error.message
+      : 'La publication a échoué.'
+    : null
 
   // Les globaux du hook, en cache et sans coût : `useSettings` sert déjà
   // l'écran des réglages. `resolveHook` les croise avec la surcharge du clip
@@ -656,6 +692,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         // et les marques passent par la même mutation sans y figurer.
         writeInCurrent={writesInFlight > 0}
         writeInFailure={patch.isError || textsInFailure.length > 0}
+        publicationAvailability={publicationAvailability.data}
+        publicationRecords={publicationRecords}
+        recordsLoading={publications.isPending}
+        publishError={publishError}
+        onPublish={launchPublish}
       />
 
       <DialogueShortcuts open={help} onOpen={setHelp} />

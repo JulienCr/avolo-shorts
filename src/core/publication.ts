@@ -125,6 +125,37 @@ export type PublicationRecord = {
    * du branding et des marques (PR #89).
    */
   publishedFingerprint: string | null
+  /**
+   * Le message que le connecteur a laissé pour un échec — expiration de jeton,
+   * quota, fichier refusé. `null` hors échec. Sans lui, l'interface ne peut
+   * rendre qu'un badge « échec » indifférencié alors que le serveur a gardé la
+   * raison (`upload-post.ts`). (relevé par Codex)
+   */
+  error: string | null
+}
+
+/**
+ * Une ligne de `publications` telle que le serveur la rend, en base
+ * (`src/server/db.ts`) comme sur le fil (`GET /api/clips/:id/publications`,
+ * `POST /api/clips/:id/publish`).
+ *
+ * **Déclarée ici, jamais redite.** `src/server/db.ts` et `src/lib/api.ts` la
+ * réexportent tous les deux plutôt que de la redéfinir — la même règle que
+ * `ClipFraming`/`HookSettings` dans `src/lib/api.ts` : deux exemplaires d'une
+ * même union ne se contraignent pas, et celui qui prend du retard ne fait rien
+ * échouer, il affiche seulement quelque chose de faux. (relevé par Aristarque)
+ */
+export type PublicationRow = {
+  clipId: string
+  platform: Platform
+  status: PublicationStatus
+  remoteId: string | null
+  remoteUrl: string | null
+  requestId: string | null
+  error: string | null
+  publishedFingerprint: string | null
+  createdAt: number
+  updatedAt: number
 }
 
 /**

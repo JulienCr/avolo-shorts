@@ -1,9 +1,14 @@
 'use client'
 
-import { Keyboard, Send } from 'lucide-react'
+import { Keyboard, Send, TriangleAlert } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { clipEligibilityFromStatus } from '@/core/publication'
+import {
+  clipEligibilityFromStatus,
+  type Platform,
+  type PlatformAvailability,
+  type PublicationRecord,
+} from '@/core/publication'
 import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
@@ -23,6 +28,7 @@ import {
 import { useShortcutsReview } from '@/components/review/shortcuts'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { PublishDialog, type PublishClipTarget } from '@/components/publication/publish-dialog'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -69,6 +75,11 @@ export function ReviewFeed({
   next,
   onStatus,
   header,
+  publicationAvailability,
+  publicationRecords,
+  publicationRecordsPending,
+  publishError,
+  onPublish,
 }: {
   projectId: string
   clips: readonly CandidateClip[]
@@ -78,6 +89,22 @@ export function ReviewFeed({
   proxyReady: boolean
   /** Ce que le repérage n'a pas jugé, ou `null`. Voir `detectionWord`. */
   summary: SelectionReport | null
+  /** Injectée par la page, comme `PublishDialog` — voir son propre commentaire. */
+  publicationAvailability?: Readonly<Record<Platform, PlatformAvailability>>
+  /**
+   * Ce qu'une publication précédente a laissé, par clip et par plateforme —
+   * la page l'interroge par `usePublicationRecordsByClip`. Sans lui, la boîte
+   * ne voit jamais qu'une plateforme est déjà `published` : elle la propose
+   * par défaut, et le serveur refuse toute la publication groupée faute de
+   * `force`. (relevé par Copilot, Codex et Aristarque)
+   */
+  publicationRecords?: Readonly<Record<string, Partial<Record<Platform, PublicationRecord>>>>
+  /** Les clips dont l'enregistrement n'a pas encore répondu — voir `PublishDialog.recordsLoading`. */
+  publicationRecordsPending?: ReadonlySet<string>
+  /** Ce qu'un envoi groupé a laissé en échec — la page l'attend avec `mutateAsync`. */
+  publishError?: string | null
+  /** Lance la publication en masse — la page en fait un `POST` par clip. */
+  onPublish?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
   /**
    * L'issue de la phase, calculée par la page.
    *
@@ -149,8 +176,10 @@ export function ReviewFeed({
       clipId: c.id,
       title: c.title,
       eligibility: clipEligibilityFromStatus(c.status),
+      records: publicationRecords?.[c.id],
     }))
   const selectedForPublishCount = clipsToPublish.length
+  const publicationRecordsLoading = clipsToPublish.some((c) => publicationRecordsPending?.has(c.clipId))
 
   // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
   // se stocke : une sélection gardée dans l'état survivrait à la disparition de
@@ -330,6 +359,17 @@ export function ReviewFeed({
         </div>
       )}
 
+      {/* **Une ligne persistante, jamais un `toast`** (spec publication §6.2) :
+          l'échec d'un envoi groupé ne doit pas disparaître avant d'avoir été
+          lu. (relevé par Copilot, Codex et Aristarque) */}
+      {publishError !== null && publishError !== undefined && (
+        <Alert variant="destructive">
+          <TriangleAlert aria-hidden />
+          <AlertTitle>La publication groupée a rencontré une erreur.</AlertTitle>
+          <AlertDescription>{publishError}</AlertDescription>
+        </Alert>
+      )}
+
       {/* **Ça reste à l'écran.** Ni notification, ni bandeau qu'on referme : ce
           que le repérage n'a pas jugé est une propriété permanente de cette
           liste, au même titre que son nombre d'éléments, et ça vit à côté du
@@ -477,7 +517,14 @@ export function ReviewFeed({
 
       <HelpKeyboard open={help} onOpen={setHelp} />
 
-      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={clipsToPublish} />
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        clips={clipsToPublish}
+        availability={publicationAvailability}
+        recordsLoading={publicationRecordsLoading}
+        onLaunch={onPublish}
+      />
     </div>
   )
 }

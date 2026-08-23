@@ -306,6 +306,15 @@ describe('availability', () => {
     expect(availability.youtube).toEqual({ available: false, reason: 'unavailable' })
   })
 
+  it('un `UPLOAD_POST_USER` qui ne correspond à aucun profil est `not_configured`, pas `unavailable`', async () => {
+    // La clé répond (pas de panne réseau) mais ne désigne aucun profil connu :
+    // une configuration durable à corriger, pas une panne transitoire.
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { profiles: [{ username: 'un-autre-profil', social_accounts: {} }] }))
+    const adapter = createUploadPostAdapter(ENV, fetchImpl)
+    const availability = await adapter.availability(ENV)
+    expect(availability.youtube).toEqual({ available: false, reason: 'not_configured' })
+  })
+
   it('met le relevé en cache : deux appels rapprochés ne font qu’une requête', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, { profiles: [{ username: 'perso', social_accounts: {} }] }))
     const adapter = createUploadPostAdapter(ENV, fetchImpl)

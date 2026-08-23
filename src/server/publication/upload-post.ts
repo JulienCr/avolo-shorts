@@ -294,7 +294,17 @@ function isConnected(value: unknown): boolean {
   return true
 }
 
-/** `null` : le profil n'a pas pu être relevé — clé invalide, réseau injoignable, réponse illisible. */
+/**
+ * `null` : la clé elle-même n'a pas pu être vérifiée — réseau injoignable,
+ * réponse illisible. C'est une panne transitoire (`unavailable`).
+ *
+ * **Un profil introuvable n'est pas la même panne.** La clé répond, mais
+ * `UPLOAD_POST_USER` ne désigne aucun profil connu d'elle : c'est une
+ * configuration durable à corriger, pas un réseau qui reviendra tout seul —
+ * rendre un ensemble vide plutôt que `null` fait retomber `probeAvailability`
+ * sur `not_configured` pour les quatre plateformes, exactement comme un
+ * profil réel sans aucun compte connecté.
+ */
 async function fetchSocialAccounts(
   fetchImpl: typeof fetch,
   apiKey: string,
@@ -320,7 +330,7 @@ async function fetchSocialAccounts(
   const profile = profiles.find((p) => (p as { username?: unknown })?.username === user) as
     | { social_accounts?: unknown }
     | undefined
-  if (profile === undefined) return null
+  if (profile === undefined) return {}
   const accounts = profile.social_accounts
   return typeof accounts === 'object' && accounts !== null ? (accounts as SocialAccounts) : {}
 }

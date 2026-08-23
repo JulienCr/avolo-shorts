@@ -364,6 +364,17 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
   try {
     await launchWorker(python, args, env, o.onLog, o.signal)
     await fsp.rename(temporary, placement.transcript)
+    // **Un transcript neuf rend obsolète tout `correction.json` déjà là** —
+    // ses positions ne correspondent plus à rien. Le supprimer ici, au point
+    // unique où `transcript.json` change, ferme le chemin que
+    // `applyTranscriptCorrections` seul ne couvre pas : `dev-transcribe.ts`
+    // ne vise jamais `correction` dans son plan, et une panne du modèle avant
+    // l'écriture finale du journal (dans une passe qui, elle, vise
+    // `correction`) laisserait sinon un ancien journal présent sous un
+    // transcript qu'il ne décrit plus — `readingPresence` le lirait comme
+    // « fait » et une relance visant `candidates` sauterait la correction.
+    // (relevé par Codex, Copilot et Aristarque)
+    await fsp.rm(placement.correction, { force: true }).catch(() => {})
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

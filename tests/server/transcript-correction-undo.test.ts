@@ -105,7 +105,7 @@ describe('undoCorrectionEntry', () => {
     const outcome = await undoCorrectionEntry(project, '1')
     expect(outcome.ok).toBe(true)
     expect(readTranscriptWords()).toEqual(['a', 'suite'])
-    expect(readCorrectionLog(project).entries).toEqual([])
+    expect((await readCorrectionLog(project)).entries).toEqual([])
   })
 
   it('refuse quand le texte a changé sous les yeux', async () => {
@@ -121,7 +121,7 @@ describe('undoCorrectionEntry', () => {
     expect(outcome).toEqual({ ok: false, reason: 'anchor-mismatch' })
     // Le journal n'a pas bougé : rien n'a été écrit sur la promesse d'un
     // défaire qui a en réalité échoué.
-    expect(readCorrectionLog(project).entries).toHaveLength(1)
+    expect((await readCorrectionLog(project)).entries).toHaveLength(1)
   })
 
   it('409 quand une exécution est en cours', async () => {
@@ -133,7 +133,7 @@ describe('undoCorrectionEntry', () => {
 
     const outcome = await undoCorrectionEntry(project, '1', () => true)
     expect(outcome).toEqual({ ok: false, reason: 'run-in-progress' })
-    expect(readCorrectionLog(project).entries).toHaveLength(1)
+    expect((await readCorrectionLog(project)).entries).toHaveLength(1)
   })
 
   // La propriété centrale de la review du plan : défaire une fusion recalcule
@@ -159,7 +159,7 @@ describe('undoCorrectionEntry', () => {
     expect(first.ok).toBe(true)
     expect(readTranscriptWords()).toEqual(['à', 'deux', 'mots', 'x'])
 
-    const afterFirst = readCorrectionLog(project).entries
+    const afterFirst = (await readCorrectionLog(project)).entries
     expect(afterFirst.find((e) => e.id === 'A')).toMatchObject({ from: 0 })
     expect(afterFirst.find((e) => e.id === 'B')).toBeUndefined()
     expect(afterFirst.find((e) => e.id === 'C')).toMatchObject({ from: 3 })
@@ -169,7 +169,7 @@ describe('undoCorrectionEntry', () => {
     expect(second.ok).toBe(true)
     expect(readTranscriptWords()).toEqual(['à', 'deux', 'mots', 'y'])
 
-    const afterSecond = readCorrectionLog(project).entries
+    const afterSecond = (await readCorrectionLog(project)).entries
     expect(afterSecond).toEqual([{ id: 'A', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 }])
   })
 })

@@ -24,6 +24,6 @@ export const GET = route(
     const project = getProject(db, id)
     if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
-    return json(readCorrectionLog(project).entries)
+    return json((await readCorrectionLog(project)).entries)
   },
 )

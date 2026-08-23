@@ -18,12 +18,6 @@ import type { ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranscriptLine } from '@/lib/editing'
-import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
-
-// **`PointerEvent` n'existe pas sous `jsdom`.** Les cases à cocher de la
-// relecture des propositions du modèle (Base UI `Checkbox`) en dispatchent
-// un synthétique à la validation, quel que soit le mécanisme du clic.
-installPointerEventPolyfill()
 
 const replaceMock = vi.fn()
 let query = ''

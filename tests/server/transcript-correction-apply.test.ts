@@ -126,7 +126,7 @@ describe('applyTranscriptCorrections', () => {
     expect(outcome.applied).toBe(2)
     expect(readTranscriptWords()).toEqual(['à', 'deuxmots', 'la'])
 
-    const log = readCorrectionLog(project)
+    const log = await readCorrectionLog(project)
     expect(log.entries).toHaveLength(2)
     expect(log.entries).toEqual(
       expect.arrayContaining([
@@ -156,7 +156,7 @@ describe('applyTranscriptCorrections', () => {
 
     await applyTranscriptCorrections(project, getDb())
 
-    const log = readCorrectionLog(project)
+    const log = await readCorrectionLog(project)
     // L'entrée d'une passe précédente, sur une autre phrase, reste là.
     expect(log.entries.some((e) => e.id === '4' && e.lineId === 'l1')).toBe(true)
     // La nouvelle s'ajoute, avec un identifiant qui ne recouvre pas l'ancien.
@@ -180,7 +180,7 @@ describe('applyTranscriptCorrections', () => {
 
     await applyTranscriptCorrections(project, getDb(), { freshTranscript: true })
 
-    const log = readCorrectionLog(project)
+    const log = await readCorrectionLog(project)
     // L'entrée de l'ancien journal — sur une phrase que la retranscription a
     // pu entièrement recomposer — n'a plus de sens et ne survit pas.
     expect(log.entries.some((e) => e.id === '4')).toBe(false)

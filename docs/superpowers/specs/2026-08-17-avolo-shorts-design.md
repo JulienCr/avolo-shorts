@@ -928,13 +928,13 @@ légitimes que la garde doit laisser passer tiennent (`et`/`est`, `a`/`à`,
 `ce`/`cet`), les non-collisions correctes aussi (`chat`/`chien`, `sept`/`sec`,
 `port`/`pore`) — mais `net`/`nez` et `ne`/`nez` collident à tort.
 
-**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut a été
-formulé quand la correction était pensée automatique — une réécriture qui
-passe pour une correction s'écrivait alors sans second regard. Ce n'est plus
-le cas : Julien valide chaque substitution avant écriture (§9, « Le modèle
-propose, Julien valide »), donc un faux positif de la garde phonétique coûte
-un coup d'œil et un décochage sur l'écran de relecture, jamais un export
-faux.
+**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut protège
+d'abord contre une réécriture qui passerait pour une correction. Depuis le
+basculement du 23 août 2026 ci-dessus, il n'y a plus de veto avant écriture :
+c'est la garde phonétique elle-même, avec le schéma et l'horodatage préservé,
+qui est le filet — et un faux positif qu'elle laisse passer coûte un coup
+d'œil dans l'historique et un « Défaire » sur l'écran de l'émission, jamais
+un export faux sans trace de ce qui a changé.
 
 **Une précision sur ce que le schéma garantit vraiment, relevée en review
 externe : il n'interdit pas le réordonnancement, contrairement à ce qu'une

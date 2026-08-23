@@ -280,17 +280,6 @@ export async function pathTranscript(project: Project): Promise<string | null> {
   return (await sidecarState(project)).transcript
 }
 
-/**
- * `correction.json` est-il à côté du transcript ? **Le même cache TTL que
- * `pathTranscript`, pas un second** : les deux se répondent depuis une seule
- * sonde du Drive, sans quoi le sondage de 2 s de l'écran de tri doublerait le
- * risque d'épuiser le vivier de libuv que `TTL_SIDECAR_MS` existe déjà pour
- * éviter — voir le commentaire de `sidecars` plus haut.
- */
-export async function correctionPresent(project: Project): Promise<boolean> {
-  return (await sidecarState(project)).correction
-}
-
 async function sidecarState(project: Project): Promise<SidecarState> {
   const key = keySidecar(project)
   const entry = sidecars.get(key)
@@ -1259,6 +1248,12 @@ async function executeStep(
         console.error(`[${project.id}] correction du transcript :`, cause)
         return message
       }
+      // Même oubli qu'après `transcript`, ligne 1224 : `correction.json` vient
+      // d'être écrit, et le cache retenait `correction: false` depuis le
+      // relevé de présence au lancement — sans cet oubli, un arrêt ou une
+      // relance immédiate dans la fenêtre du TTL (4 s) reprogrammerait la
+      // correction pour rien. (relevé par Copilot et Aristarque)
+      forgetSidecar(project)
       return null
     }
 

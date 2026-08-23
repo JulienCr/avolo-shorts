@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import type Database from 'better-sqlite3'
 
+import { isAAbsence } from '@/server/bytes'
 import {
   flattenTranscript,
   orderForApplication,
@@ -179,22 +180,45 @@ export async function proposeTranscriptCorrections(
 // Le journal — lecture, écriture atomique, application, et son inverse
 // ---------------------------------------------------------------------------
 
-/** Lit `correction.json` depuis son chemin. Rend le journal vide si absent ou illisible. */
+/**
+ * Lit `correction.json` depuis son chemin. Rend le journal vide si absent.
+ * @throws Toute erreur qui n'est pas une absence (`isAAbsence`) — un JSON
+ * tronqué ou une erreur disque ne doit pas passer pour « aucune correction » :
+ * la présence du fichier marque déjà l'étape faite, donc une corruption
+ * avalée en silence serait écrasée par la prochaine passe, sans laisser de
+ * trace. (relevé par Copilot et Aristarque)
+ */
 function readCorrectionLogFrom(path: string): CorrectionLog {
   try {
     return JSON.parse(fs.readFileSync(path, 'utf8')) as CorrectionLog
-  } catch {
-    return EMPTY_CORRECTION_LOG
+  } catch (cause) {
+    if (isAAbsence(cause)) return EMPTY_CORRECTION_LOG
+    throw cause
   }
 }
 
 /**
  * Le journal des corrections d'un projet — l'historique que l'écran affiche.
+ *
+ * **Sondée avant `placeSidecar`, comme `correctTranscript` et
+ * `proposeTranscriptCorrections`.** `placeSidecar` fait des appels
+ * *synchrones* — `existsSync`, `mkdirSync` — et sur un montage 9p au
+ * transport mort, un appel synchrone gèle la boucle d'événements entière,
+ * donc tout le serveur : ouvrir le panneau transcript ne doit pas pouvoir
+ * geler une analyse en cours. (relevé par Codex, Copilot et Aristarque)
  * @returns Le journal vide si la correction n'a jamais tourné sur ce projet,
  * jamais une erreur : c'est l'état normal entre le repérage et la première
  * exécution de l'étape `correction`.
+ * @throws Si le dossier des replays ne répond pas.
  */
-export function readCorrectionLog(project: Project): CorrectionLog {
+export async function readCorrectionLog(project: Project): Promise<CorrectionLog> {
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de lire l’historique de correction. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
   const placement = placeSidecar(project.sourcePath, project.id)
   return readCorrectionLogFrom(placement.correction)
 }
@@ -326,6 +350,16 @@ export async function undoCorrectionEntry(
   id: string,
   isRunning: (projectId: string) => boolean = () => false,
 ): Promise<UndoCorrectionOutcome> {
+  // Même garde que `readCorrectionLog` et `correctTranscript`, et pour la
+  // même raison : `placeSidecar` gèle la boucle d'événements sur un montage
+  // 9p au transport mort. (relevé par Copilot)
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de défaire cette correction. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
   const placement = placeSidecar(project.sourcePath, project.id)
   const log = readCorrectionLogFrom(placement.correction)
   const entry = log.entries.find((e) => e.id === id)

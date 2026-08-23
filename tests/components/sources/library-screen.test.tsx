@@ -56,6 +56,7 @@ const CQLP: ProjectListItem = {
   running: null,
   error: null,
   stopped: false,
+  everRan: true,
 }
 
 const SOURCES: SourcesListing = {

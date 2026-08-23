@@ -15,7 +15,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -263,5 +263,49 @@ describe('le lecteur et la bande', () => {
     const video = screen.getByTestId('lecteur-emission')
     expect(video.getAttribute('src')).toBe('/api/projects/cqlp/proxy')
     expect(video.getAttribute('preload')).toBe('metadata')
+  })
+})
+
+describe('les sous-titres du lecteur', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // Point A.4 du retour d'usage : le calque est **indicatif**, sur le
+  // transcript entier et sans recalage — c'est la propriété qui distingue ce
+  // point de montage de celui de l'aperçu de sortie, fidèle lui.
+  it('affiche le carton actif au clic hors bloc, sur le transcript entier', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/transcript')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              { id: 'l0', start: 1_500, end: 1_502, words: [{ word: 'coucou', start: 1_500, end: 1_502 }] },
+            ],
+          } as Response
+        }
+        return { ok: false, status: 404, json: async () => ({ error: 'introuvable' }) } as Response
+      }),
+    )
+    renderView()
+
+    const band = screen.getByTestId('coverage-timeline')
+    vi.spyOn(band, 'getBoundingClientRect').mockReturnValue({
+      left: 0, width: 1_000, top: 0, right: 1_000, bottom: 24, height: 24, x: 0, y: 0,
+      toJSON: () => ({}),
+    })
+    // 25 % de 6 000 s de durée sondée : 1 500 s, exactement le mot du transcript.
+    await userEvent.pointer({ target: band, coords: { clientX: 250, clientY: 5 }, keys: '[MouseLeft]' })
+
+    await waitFor(() => expect(screen.getByText('COUCOU')).toBeTruthy())
+    expect(document.querySelector('[data-caption="card"]')).toBeTruthy()
+    expect(document.querySelector('[data-caption="active"]')?.textContent).toBe('COUCOU')
+  })
+
+  it('ne pose aucun calque tant que le transcript n’a pas chargé', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Promise(() => {})))
+    renderView()
+    expect(document.querySelector('[data-caption="card"]')).toBeNull()
   })
 })

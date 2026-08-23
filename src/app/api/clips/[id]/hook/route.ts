@@ -1,7 +1,6 @@
-import { isGuard } from '@/core/phase'
 import { clipFraming } from '@/server/clip-framing'
 import { getClip, getDb, putClip } from '@/server/db'
-import { requestInvalid, notFound, json, route } from '@/server/http'
+import { notFound, json, route } from '@/server/http'
 import { generateHook } from '@/server/steps/hook'
 import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps/render'
 
@@ -17,11 +16,9 @@ import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps
  * lui seul ; le rattrapage automatique appelle `generateHook` directement,
  * sans passer par cette route (`src/server/steps/hook-backfill.ts`).
  *
- * **Réservé aux clips gardés (`isGuard`).** `generateHook` documente ce
- * contrat sans le faire respecter ; chaque carte candidate ouvre pourtant
- * `ClipScreen`, où le bouton s'affiche sans condition. Sans ce garde-fou, un
- * candidat ou un clip écarté pourrait consommer un appel LLM. (relevé par
- * Copilot)
+ * **Autorisée sur n'importe quel statut, candidat compris** (23 août 2026) :
+ * seule la génération automatique reste bornée à `candidate → kept`
+ * (`hook-backfill.ts`), voir spec §12.
  *
  * **Le clip est relu juste avant l'écriture, pas avant l'appel au modèle.**
  * `putClip` remplace la ligne entière — ce n'est pas un merge partiel — et
@@ -55,8 +52,6 @@ export const POST = route(
     const db = getDb()
     const clip = getClip(db, id)
     if (clip === undefined) throw notFound(`Clip inconnu : ${id}`)
-    if (!isGuard(clip.status))
-      throw requestInvalid(`Le hook ne se régénère que pour un clip gardé : ${id}`)
 
     const { text, badge } = await generateHook(db, id, { signal: request.signal })
 

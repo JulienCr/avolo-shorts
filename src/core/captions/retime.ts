@@ -16,6 +16,27 @@ import { normalizeSegments, type Segment } from '@/core/edl'
 import type { Word } from '@/core/transcript'
 
 /**
+ * `sourceTime`, converti sur la timeline du clip.
+ *
+ * Sert de pont entre `video.currentTime` — qui reste en temps source pendant
+ * la lecture d'un clip, `ClipPlayer` sautant les coupes plutôt que de
+ * reprojeter le temps — et des cartons déjà produits par
+ * `splitIntoCards(retimeWords(...))`.
+ *
+ * @returns Le nombre de secondes écoulées dans le clip, ou `null` si
+ *   `sourceTime` ne tombe dans aucun segment.
+ */
+export function elapsedInClip(segments: Segment[], sourceTime: number): number | null {
+  const segs = normalizeSegments(segments)
+  let elapsed = 0
+  for (const seg of segs) {
+    if (sourceTime >= seg.start && sourceTime < seg.end) return elapsed + (sourceTime - seg.start)
+    elapsed += seg.end - seg.start
+  }
+  return null
+}
+
+/**
  * Les mots de `words` qui survivent aux segments, horodatés sur la timeline du
  * clip.
  *

@@ -25,7 +25,7 @@ import { useCreateProject, useProjects } from '@/lib/queries'
  * déjà.
  *
  * **L'écran ne calcule rien.** Il tient les trois requêtes, décide de ce qu'on
- * fait d'un 202, et passe le reste à `buildLibrary` (pur) puis à une grille qui
+ * fait de la réponse de création, et passe le reste à `buildLibrary` (pur) puis à une grille qui
  * n'a besoin d'aucun serveur pour être montée. La redirection appartient bien
  * ici : `useCreateProject` s'arrête à l'invalidation, parce qu'aller au projet,
  * l'annoncer ou rester sur la grille est une décision de parcours, et un hook
@@ -75,10 +75,11 @@ export function LibraryScreen() {
   // rien faire. Un effet ne s'exécute pas sur un composant démonté, ce qui
   // exprime la règle sans qu'on ait à tenir un drapeau « suis-je encore là ».
   //
-  // **La redirection est la confirmation.** La réponse est un 202 — l'analyse
-  // est acceptée et lancée, pas faite —, et la vue Émission est celle qui sait
-  // montrer une analyse qui commence. Une notification en plus dirait deux fois
-  // la même chose.
+  // **La redirection est la confirmation.** Cette carte ne demande jamais
+  // `launch` : la réponse est un 201, le projet est créé, l'analyse ne l'est
+  // pas encore. La vue Émission est celle qui porte « Commencer l'analyse »
+  // (`analysis === 'new'`). Une notification en plus dirait deux fois la même
+  // chose.
   const createdProjectId = create.data?.projectId
   useEffect(() => {
     if (createdProjectId !== undefined) router.push(linkProject(createdProjectId))

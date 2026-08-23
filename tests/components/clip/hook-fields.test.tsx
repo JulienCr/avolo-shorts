@@ -74,7 +74,6 @@ function mount(
   const merged = {
     clip: clip(),
     globals: HOOK_DEFAULTS,
-    canRegenerate: true,
     onWrite: vi.fn(),
     ...props,
   }
@@ -188,7 +187,6 @@ describe('hérité vs surchargé', () => {
         <HookFields
           clip={clip({ hookStyle: { sizePermille: 150 } })}
           globals={HOOK_DEFAULTS}
-          canRegenerate
           onWrite={vi.fn()}
         />
       </QueryClientProvider>,
@@ -334,10 +332,10 @@ describe('Régénérer', () => {
     await waitFor(() => expect(screen.getByText('Le fournisseur ne répond pas.')).toBeTruthy())
   })
 
-  it("se désactive pour un clip que le serveur refuserait (candidat, écarté)", () => {
-    mount({ canRegenerate: false })
+  it("reste actif sur un clip candidat — la génération manuelle s'autorise sur n'importe quel statut", () => {
+    mount({ clip: clip({ status: 'candidate' }) })
     const button = screen.getByRole('button', { name: /Régénérer/ }) as HTMLButtonElement
-    expect(button.disabled).toBe(true)
+    expect(button.disabled).toBe(false)
   })
 })
 

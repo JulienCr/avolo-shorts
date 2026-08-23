@@ -1,6 +1,6 @@
 'use client'
 
-import { RefreshCw, RotateCcw, Square } from 'lucide-react'
+import { Play, RefreshCw, RotateCcw, Square } from 'lucide-react'
 import { useState } from 'react'
 
 import { ApiError, RESUME_TARGETS } from '@/lib/api'
@@ -62,6 +62,30 @@ export function ButtonResume({ projectId, inCurrent }: { projectId: string; inCu
       >
         <RotateCcw aria-hidden />
         Reprendre l’analyse
+      </Button>
+      <Reason blocked={blocked} inCurrent={inCurrent} />
+      <RetryFailure error={retry.error} />
+    </div>
+  )
+}
+
+/** Le bouton « Commencer l'analyse », décliné de `ButtonResume` — mêmes cibles, affiché sur `analysis === 'new'` (spec §12). */
+export function ButtonStart({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
+  const retry = useRetry()
+  const blocked = inCurrent || retry.isPending
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button
+        variant="default"
+        aria-disabled={blocked}
+        onClick={() => {
+          if (blocked) return
+          retry.mutate({ projectId, targets: RESUME_TARGETS })
+        }}
+      >
+        <Play aria-hidden />
+        Commencer l’analyse
       </Button>
       <Reason blocked={blocked} inCurrent={inCurrent} />
       <RetryFailure error={retry.error} />

@@ -20,6 +20,9 @@ import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import { splitIntoCards } from '@/core/captions/cards'
+import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
 import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
@@ -127,6 +130,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     () => indexTranscript(lines, segments),
     [lines, segments],
   )
+
+  // Mémoïsé : seule la recherche du carton actif varie au timeupdate (voir `CaptionOverlay`).
+  const captionCards = useMemo(() => splitIntoCards(retimeWords(words, segments)), [words, segments])
 
   // **La remise à zéro d'abord, la publication des mots ensuite — l'ordre de
   // déclaration est l'ordre d'exécution.** Le clip suivant repart d'une position
@@ -446,6 +452,9 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
                 ratio={editor.ratio}
                 cropX={editor.cropX}
                 frame={cn(PREVIEW_HEIGHT, 'w-auto')}
+                captionCards={clip.captions ? captionCards : undefined}
+                captionStyle={DEFAULT_CAPTION_STYLE}
+                segments={segments}
               />
             </div>
 
@@ -508,7 +517,6 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               <HookFields
                 clip={clip}
                 globals={hookGlobals}
-                canRegenerate={isGuard(clip.status)}
                 onWrite={write}
                 onFailure={flagFailureText}
               />

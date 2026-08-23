@@ -82,6 +82,8 @@ export function listElement(project: Project): ProjectListItem {
     // champ : on le lit comme « pas arrêtée », ce qui est la lecture prudente —
     // un vieux fichier décrit une exécution qu'aucune route ne pouvait arrêter.
     stopped: status?.stopped ?? false,
+    // Sans coût de plus : `status` est déjà lu pour `error`/`stopped` ci-dessus.
+    everRan: running !== null || status !== null,
   }
 }
 

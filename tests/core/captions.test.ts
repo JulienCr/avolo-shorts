@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 // Trois modules distincts, et non un `@/core/captions/…` qui ne se résout pas :
 // Vitest échouerait sur l'import avant d'exécuter le moindre test.
-import { retimeWords } from '@/core/captions/retime'
+import { retimeWords, elapsedInClip } from '@/core/captions/retime'
 import { splitIntoCards } from '@/core/captions/cards'
-import { renderAss, DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import { renderAss, captionUnits, PLAYRES_Y, DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 
 /** Les lignes d'événement d'un fichier ASS, dans l'ordre. */
 function dialogues(ass: string): string[] {
@@ -123,29 +123,65 @@ describe('retimeWords', () => {
   })
 })
 
+describe('elapsedInClip', () => {
+  const segments = [
+    { start: 100, end: 110 },
+    { start: 200, end: 210 },
+  ]
+
+  it('convertit un instant du premier segment depuis zéro', () => {
+    expect(elapsedInClip(segments, 102)).toBe(2)
+  })
+
+  it('décale un instant du second segment de la durée du premier', () => {
+    expect(elapsedInClip(segments, 202)).toBe(12)
+  })
+
+  it('rend null dans une coupe interne', () => {
+    expect(elapsedInClip(segments, 150)).toBeNull()
+  })
+
+  it('rend null avant et après le clip', () => {
+    expect(elapsedInClip(segments, 50)).toBeNull()
+    expect(elapsedInClip(segments, 300)).toBeNull()
+  })
+
+  it('trie les segments avant de cumuler leurs durées', () => {
+    expect(
+      elapsedInClip(
+        [
+          { start: 200, end: 210 },
+          { start: 100, end: 110 },
+        ],
+        202,
+      ),
+    ).toBe(12)
+  })
+})
+
 describe('splitIntoCards', () => {
-  it('ferme un carton à 16 caractères, espaces compris', () => {
-    const words = 'alpha bravo charlie delta'.split(' ').map((w, i) => ({
+  it('ferme un carton à 36 caractères, espaces compris', () => {
+    const words = 'alpha bravo charlie delta echo foxtrot golf hotel'.split(' ').map((w, i) => ({
       word: w,
       start: i * 0.3,
       end: i * 0.3 + 0.25,
     }))
     for (const card of splitIntoCards(words)) {
       const len = card.reduce((n, w) => n + w.word.length + 1, 0)
-      expect(len).toBeLessThanOrEqual(16 + card[card.length - 1].word.length)
+      expect(len).toBeLessThanOrEqual(36 + card[card.length - 1].word.length)
     }
   })
 
   // Sans marge : le code garantit exactement le seuil, et une tolérance d'une
   // demi-seconde laisserait passer un dépassement de 0,1 à 0,4 s (Aristarque).
-  it('ferme un carton à 1,4 seconde', () => {
+  it('ferme un carton à 2,5 secondes', () => {
     const words = Array.from({ length: 8 }, (_, i) => ({
       word: 'a',
       start: i * 0.5,
       end: i * 0.5 + 0.4,
     }))
     for (const card of splitIntoCards(words)) {
-      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(1.4)
+      expect(card[card.length - 1].end - card[0].start).toBeLessThanOrEqual(2.5)
     }
   })
 
@@ -169,8 +205,8 @@ describe('splitIntoCards', () => {
   it('mesure la durée depuis le début du carton', () => {
     const words = Array.from({ length: 6 }, (_, i) => ({
       word: 'a',
-      start: i * 0.5,
-      end: i * 0.5 + 0.4,
+      start: i * 0.8,
+      end: i * 0.8 + 0.4,
     }))
     expect(splitIntoCards(words).map((c) => c.length)).toEqual([3, 3])
   })
@@ -194,6 +230,30 @@ describe('splitIntoCards', () => {
     const words = [{ word: ' salut ', start: 0, end: 0.4 }]
     splitIntoCards(words)
     expect(words).toEqual([{ word: ' salut ', start: 0, end: 0.4 }])
+  })
+})
+
+describe('captionUnits', () => {
+  it('applique le même calcul que renderAss écrit dans le bloc Style', () => {
+    const units = captionUnits(DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(
+      [[{ word: 'x', start: 0, end: 1 }]],
+      DEFAULT_CAPTION_STYLE,
+    )
+    const fields = ass.split('\n').find((l) => l.startsWith('Style: '))!.split(',')
+    expect(fields[2]).toBe(String(units.sizeUnits))
+    expect(fields[16]).toBe(String(units.borderUnits))
+    expect(fields[21]).toBe(String(units.marginUnits))
+  })
+
+  it('divise par PLAYRES_Y pour donner la fraction de hauteur que CaptionOverlay pose en cqh', () => {
+    const units = captionUnits(DEFAULT_CAPTION_STYLE)
+    expect(units.sizeUnits / PLAYRES_Y).toBeCloseTo(18 / 288)
+    expect(units.marginUnits / PLAYRES_Y).toBeCloseTo(43 / 288)
+  })
+
+  it('remonte un contour nul au minimum lisible, comme renderAss', () => {
+    expect(captionUnits({ ...DEFAULT_CAPTION_STYLE, borderWidth: 0 }).borderUnits).toBe(1)
   })
 })
 
@@ -239,10 +299,17 @@ describe('renderAss', () => {
     expect(text).not.toContain('{piégé')
   })
 
-  it('met la police à l’échelle de PlayResY 288 : 44 devient 37', () => {
+  it('met la police à l’échelle de PlayResY 288 : 22 devient 18', () => {
     const ass = renderAss(cards, DEFAULT_CAPTION_STYLE)
     expect(ass).toContain('PlayResY: 288')
-    expect(styleLine(ass).split(',')[2]).toBe('37')
+    expect(styleLine(ass).split(',')[2]).toBe('18')
+  })
+
+  // La traduction taille → unités ASS ne se relit nulle part ailleurs dans le
+  // fichier rendu : c'est celle qui se casse silencieusement.
+  it('verrouille la traduction fontSize → Fontsize : 22 produit 18', () => {
+    const ass = renderAss(cards, { ...DEFAULT_CAPTION_STYLE, fontSize: 22 })
+    expect(styleLine(ass).split(',')[2]).toBe('18')
   })
 
   // 43 unités de PlayResY, soit ~15 % de la hauteur. Les 25 d'avant passaient

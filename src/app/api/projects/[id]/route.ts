@@ -54,6 +54,8 @@ export const GET = route(
       // côté finiraient par diverger. Il se tait pendant qu'une exécution
       // tourne, comme `error`.
       stopped: running === null ? (status?.stopped ?? false) : false,
+      // Distingue `neuf` d'`interrompu` — voir spec §12.
+      everRan: status !== null,
       // La taille de la source, pour la seule chose qui en dépende :
       // `stepDurationRange` s'en sert pour suppléer la durée, qui manque
       // précisément quand le panneau d'avancement apparaît. Elle vient de la

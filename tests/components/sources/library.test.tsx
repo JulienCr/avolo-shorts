@@ -51,6 +51,7 @@ function project(id: string, partial: Partial<ProjectListItem> = {}): ProjectLis
     running: null,
     error: null,
     stopped: false,
+    everRan: true,
     ...partial,
   }
 }

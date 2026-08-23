@@ -10,7 +10,7 @@ import { GET as getProject } from '@/app/api/projects/[id]/route'
 import { POST as postRun } from '@/app/api/projects/[id]/run/route'
 import { POST as postStop } from '@/app/api/projects/[id]/stop/route'
 import { GET as getSettingsRoute, PUT as putSettingsRoute } from '@/app/api/settings/route'
-import { GET as listProjects } from '@/app/api/projects/route'
+import { GET as listProjects, POST as postProjects } from '@/app/api/projects/route'
 import { GET as listSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
@@ -232,6 +232,7 @@ describe('GET /api/projects', () => {
       'createdAt',
       'durationSec',
       'error',
+      'everRan',
       'id',
       'running',
       'stopped',
@@ -1379,6 +1380,43 @@ describe('PATCH /api/clips/:id', () => {
       await patch({ segments: [{ start: 10, end: 20 }], seq: 41 })
       expect(fs.existsSync(vignette)).toBe(false)
     })
+  })
+})
+
+describe('POST /api/projects', () => {
+  const createRoute = (body: unknown): Promise<Response> =>
+    postProjects(
+      new Request('http://x', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    )
+
+  /**
+   * Sans `launch`, la création est terminée avant la réponse : rien ne
+   * continue en arrière-plan. Répondre 202 (« accepté pour traitement »)
+   * serait trompeur — voir la docstring de la route. (relevé par Copilot)
+   */
+  it('rend 201, pas 202, quand launch est absent', async () => {
+    fs.writeFileSync(path.join(process.env.REPLAY_DIR as string, `${PROJECT}-b.mp4`), '')
+    const response = await createRoute({ source: `${PROJECT}-b.mp4` })
+    expect(response.status).toBe(201)
+    expect((await response.json()) as { plan: unknown[] }).toEqual(
+      expect.objectContaining({ plan: [] }),
+    )
+  })
+
+  it('rend 202 quand launch lance un travail', async () => {
+    fs.writeFileSync(path.join(process.env.REPLAY_DIR as string, `${PROJECT}-c.mp4`), '')
+    const response = await createRoute({ source: `${PROJECT}-c.mp4`, launch: true })
+    expect(response.status).toBe(202)
+    // Pas `leaveFinish()` : elle sonde `PROJECT`, pas l'identifiant que cette
+    // création vient de créer sous son propre nom.
+    const { projectId } = (await response.json()) as { projectId: string }
+    for (let i = 0; i < 400 && progression(projectId) !== null; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
   })
 })
 

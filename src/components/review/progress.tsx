@@ -34,6 +34,7 @@ export function PanelProgress({
   steps,
   running,
   error,
+  everRan,
   size,
   resume,
   shutdown,
@@ -46,6 +47,8 @@ export function PanelProgress({
   running: { step: StepName; progress: number } | null
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
+  /** Distingue `'new'` d'`'interrompu'` (spec §12) ; ne change que le titre. */
+  everRan: boolean
   /**
    * Ce qu'on sait de la taille de l'émission, pour dimensionner les durées.
    *
@@ -53,7 +56,7 @@ export function PanelProgress({
    * la règle qu'il tenait déjà : une absence se lit mieux qu'un chiffre inventé.
    */
   size: ShowSize
-  /** Le bouton de reprise. La page le fournit : c'est elle qui porte la mutation. */
+  /** Le bouton de reprise ou de départ. La page le fournit : c'est elle qui porte la mutation. */
   resume: ReactNode
   /**
    * Le bouton d'arrêt, quand une exécution tourne.
@@ -79,7 +82,9 @@ export function PanelProgress({
           ? 'L’analyse est en cours.'
           : error !== null
             ? 'La dernière analyse a échoué.'
-            : 'L’analyse s’est arrêtée.'}
+            : everRan
+              ? 'L’analyse s’est arrêtée.'
+              : 'L’analyse n’a pas encore commencé.'}
       </h1>
 
       {running !== null && (
@@ -195,6 +200,7 @@ export function AnnouncementDStep({
   running,
   steps,
   connu,
+  everRan = true,
 }: {
   running: { step: StepName } | null
   steps: Record<StepName, boolean>
@@ -208,6 +214,8 @@ export function AnnouncementDStep({
    * que ce qui change pendant qu'elle est là.
    */
   connu: boolean
+  /** Défaut `true`, comme dans `phaseProject` — voir spec §12. */
+  everRan?: boolean
 }) {
   return (
     <p data-testid="annonce" aria-live="polite" className="sr-only">
@@ -217,7 +225,9 @@ export function AnnouncementDStep({
           ? `${LABELS_STEPS[running.step]} en cours.`
           : STEPS.every(({ name }) => steps[name] === true)
             ? 'L’analyse est terminée.'
-            : 'L’analyse s’est arrêtée.'}
+            : everRan
+              ? 'L’analyse s’est arrêtée.'
+              : 'L’analyse n’a pas encore commencé.'}
     </p>
   )
 }

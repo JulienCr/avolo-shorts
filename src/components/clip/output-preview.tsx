@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
-import type { Ratio } from '@/core/edl'
+import { CaptionOverlay, useCaptionClock } from '@/components/captions/caption-overlay'
+import type { CaptionStyle } from '@/core/captions/ass'
+import { elapsedInClip } from '@/core/captions/retime'
+import type { Word } from '@/core/transcript'
+import type { Ratio, Segment } from '@/core/edl'
 import { RATIOS, cropRect, outputSize } from '@/core/framing'
 import type { ResolvedHook } from '@/core/hook'
 import type { PublishedFraming } from '@/lib/api'
@@ -81,6 +85,9 @@ export function PreviewOutput({
   cropX,
   hook,
   frame,
+  captionCards,
+  captionStyle,
+  segments,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
   video: HTMLVideoElement | null
@@ -108,6 +115,12 @@ export function PreviewOutput({
    * deux, et chacun en déduit sa largeur.
    */
   frame?: string
+  /** Cartons de `splitIntoCards(retimeWords(mots, segments))` — fidèle au rendu (spec §9). `undefined` ferme le calque. */
+  captionCards?: readonly Word[][]
+  /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
+  captionStyle?: CaptionStyle
+  /** Les segments, en temps source (unité de `video.currentTime`) — pour `elapsedInClip`. */
+  segments?: Segment[]
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   // Le plan sous la lecture : le cadre saute à ses frontières, ici comme dans le
@@ -195,6 +208,8 @@ export function PreviewOutput({
     }
   }, [video])
 
+  const time = useCaptionClock(video, captionCards !== undefined)
+
   return (
     <figure className="flex min-w-0 flex-col gap-1.5">
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
@@ -257,6 +272,13 @@ export function PreviewOutput({
             centrale et le ferait sauter de place à chaque changement de
             ratio. */}
         {hook !== undefined && <HookOverlay hook={hook} />}
+        {captionCards !== undefined && captionStyle !== undefined && segments !== undefined && (
+          <CaptionOverlay
+            cards={captionCards}
+            time={elapsedInClip(segments, time) ?? -1}
+            style={captionStyle}
+          />
+        )}
       </div>
     </figure>
   )

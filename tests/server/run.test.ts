@@ -413,13 +413,42 @@ describe('createProject', () => {
    */
   it('vise l’analyse à la création, après le proxy dont elle dépend', async () => {
     poserProject()
-    const { plan } = await createProject(`${PROJECT}.mp4`, { db, steps: stepsFake() })
+    const { plan } = await createProject(`${PROJECT}.mp4`, {
+      db,
+      steps: stepsFake(),
+      launchNow: true,
+    })
     expect(plan).toContain('analysis')
     expect(plan.indexOf('proxy')).toBeLessThan(plan.indexOf('analysis'))
 
     await wait(PROJECT)
     expect(calls).toContain('analysis')
     expect(calls.indexOf('proxy')).toBeLessThan(calls.indexOf('analysis'))
+  })
+
+  // Point A.3 du retour d'usage (23 août 2026) : un clic sur la carte d'un
+  // replay ne doit plus déclencher 30 à 45 minutes de traitement sans étape
+  // intermédiaire. `launchNow` vaut donc `false` par défaut — ni `launch` ni
+  // aucune étape n'est appelée, et le projet reste sans `status.json`.
+  it('n’inscrit le projet et ne lance rien, par défaut', async () => {
+    poserProject()
+    const { plan } = await createProject(`${PROJECT}.mp4`, { db, steps: stepsFake() })
+    expect(plan).toEqual([])
+    expect(calls).toEqual([])
+    expect(getProject(db, PROJECT)).toBeDefined()
+    expect(fs.existsSync(path.join(root, 'projects', PROJECT, 'status.json'))).toBe(false)
+  })
+
+  it('lance quand `launchNow` vaut `true`, explicitement', async () => {
+    poserProject()
+    const { plan } = await createProject(`${PROJECT}.mp4`, {
+      db,
+      steps: stepsFake(),
+      launchNow: true,
+    })
+    expect(plan).not.toEqual([])
+    await wait(PROJECT)
+    expect(calls.length).toBeGreaterThan(0)
   })
 
   /**

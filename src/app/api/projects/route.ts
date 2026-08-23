@@ -10,12 +10,15 @@ import { listElement } from '@/server/views'
 
 /**
  * `GET /api/projects` — la bibliothèque.
- * `POST /api/projects` — ingérer un replay et lancer son analyse.
+ * `POST /api/projects` — ingérer un replay, et lancer son analyse si `launch`
+ * le demande.
  */
 
 const CREATION = z.strictObject({
   /** Le nom du fichier dans `REPLAY_DIR`, ou son chemin complet. */
   source: z.string().min(1),
+  /** Lancer l'analyse tout de suite. `false` par défaut depuis le 23 août 2026 (spec §12). */
+  launch: z.boolean().optional(),
 })
 
 export const GET = route('GET /api/projects', async () => {
@@ -23,13 +26,17 @@ export const GET = route('GET /api/projects', async () => {
 })
 
 /**
- * **202, et pas 201.** L'analyse dure 30 à 45 minutes : ce que la réponse
- * confirme est qu'elle est acceptée et lancée, pas qu'elle est faite. Le `plan`
- * dit ce qui va tourner — sur un projet déjà transcrit, il ne contient pas
- * `transcript`, et c'est là que ça se lit.
+ * **202 seulement si un travail asynchrone a réellement démarré**, 201 sinon.
+ *
+ * Le fait vient du **résultat** de `createProject`, pas de l'intention
+ * (`launch`) : un plan vide veut dire « rien à faire », que `launch` ait été
+ * demandé ou non — un projet déjà transcrit et déjà pourvu de candidats vise
+ * `launch: true` sans que rien ne se lance. Répondre 202 sur ce seul fait que
+ * `launch` a été demandé promettrait un traitement en cours qui n'existe pas.
+ * (relevé par Copilot, PR #126, passe 2)
  */
 export const POST = route('POST /api/projects', async (request: Request) => {
-  const { source } = await body(request, CREATION)
+  const { source, launch } = await body(request, CREATION)
 
   // **Appelé pour lui-même, et hors du `try` qui suit** : `replayDir()` lève si
   // `REPLAY_DIR` manque ou est vide, et `resolveSource` l'appelle. Sous le
@@ -74,6 +81,6 @@ export const POST = route('POST /api/projects', async (request: Request) => {
     )
   }
 
-  const { projectId, plan } = await createProject(source)
-  return json({ projectId, plan }, { status: 202 })
+  const { projectId, plan } = await createProject(source, { launchNow: launch === true })
+  return json({ projectId, plan }, { status: plan.length > 0 ? 202 : 201 })
 })

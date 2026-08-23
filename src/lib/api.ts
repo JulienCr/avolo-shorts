@@ -11,7 +11,7 @@
  * GET   /api/sources                        -> SourcesListing
  * GET   /api/sources/thumb?file=<nom>       -> image/jpeg
  * GET   /api/projects                       -> ProjectListItem[]
- * POST  /api/projects        { source }     -> RunPlan       (202)
+ * POST  /api/projects        { source, launch? } -> RunPlan  (201/202)
  * GET   /api/projects/:id                   -> ProjectStatus
  * POST  /api/projects/:id/run  { target }   -> RunPlan       (202)
  * POST  /api/projects/:id/stop              -> { stopped }
@@ -160,10 +160,11 @@ export type RunTarget = Exclude<StepName, 'renders'>
 /**
  * Ce que rend une demande d'analyse, création de projet comprise.
  *
- * **202, et pas 201.** L'analyse dure trente à quarante-cinq minutes : ce que la
+ * **202 quand une analyse est lancée**, jamais 201 dans ce cas : ce que la
  * réponse confirme est qu'elle est acceptée et lancée, pas qu'elle est faite.
  * L'avancement se lit ensuite dans `ProjectStatus.running`, et l'échec éventuel
- * dans `ProjectStatus.error`.
+ * dans `ProjectStatus.error`. **Une création sans `launch` (23 août 2026, spec
+ * §12) rend 201** — `shot` y est toujours vide, rien n'a démarré.
  */
 export type RunPlan = {
   projectId: string
@@ -312,6 +313,8 @@ export type ProjectStatus = {
    * de plus. La colonne, elle, est déjà en base.
    */
   sizeBytes: number | null
+  /** Une exécution a-t-elle déjà eu lieu ? Distingue `analysis === 'new'` d'`'interrompu'` (spec §12). */
+  everRan: boolean
 }
 
 /**
@@ -437,6 +440,8 @@ export type ProjectListItem = ProjectSummary & {
    * contredisent sur le même projet valent moins que pas d'écran du tout.
    */
   stopped: boolean
+  /** Même fait que sur `ProjectStatus`, pour `showState` (`src/core/library.ts`). */
+  everRan: boolean
 }
 
 /**
@@ -764,15 +769,10 @@ export function listSources(): Promise<SourcesListing> {
 }
 
 /**
- * Ingère un replay et lance son analyse.
+ * Ingère un replay, sans lancer son analyse — `launch` n'est pas envoyé,
+ * donc reste au défaut `false` du serveur (spec §12).
  *
- * `source` est le **nom du fichier** dans `REPLAY_DIR`, tel que le sélecteur de
- * sources le donne — jamais un chemin absolu : le serveur le rejoint lui-même
- * sur sa racine, et exige que le fichier y soit posé directement. L'identifiant
- * du projet en dérive.
- *
- * Rend la main tout de suite, sur un 202 : c'est le `plan` qui dit ce qui va
- * tourner, et `getProject` qui suit l'avancement.
+ * @param source Le nom du fichier dans `REPLAY_DIR`, jamais un chemin absolu.
  */
 export function createProject(source: string): Promise<RunPlan> {
   return post<RunPlan>('/api/projects', { source })

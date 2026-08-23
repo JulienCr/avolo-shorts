@@ -75,12 +75,14 @@ describe('PanelProgress', () => {
     running: { step: StepName; progress: number } | null = inCurrent,
     error: string | null = null,
     size = CQLP,
+    everRan = true,
   ) {
     return render(
       <PanelProgress
         steps={reading(made)}
         running={running}
         error={error}
+        everRan={everRan}
         size={size}
         resume={<button type="button">Reprendre l’analyse</button>}
         shutdown={<button type="button">Arrêter l’analyse</button>}
@@ -203,6 +205,16 @@ describe('PanelProgress', () => {
     mount([], null)
     expect(screen.getByRole('button', { name: /reprendre/i })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('L’analyse s’est arrêtée.')).toBeTruthy()
+  })
+
+  // `everRan: false` (analysis === 'new') : rien ne tourne, rien n'a échoué,
+  // mais aucune exécution n'a jamais eu lieu — pas la même chose qu'une
+  // exécution morte, et le titre comme l'absence de bandeau d'erreur le disent.
+  it('dit que l’analyse n’a pas encore commencé, sans bandeau d’erreur', () => {
+    mount([], null, null, CQLP, false)
+    expect(screen.getByText('L’analyse n’a pas encore commencé.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('ne compte pas le temps depuis le lancement quand il ne l’a pas vu', () => {
@@ -247,6 +259,13 @@ describe('AnnouncementDStep', () => {
     // analyse d'être jamais annoncée comme terminée.
     render(<AnnouncementDStep running={null} steps={reading(['audio'])} connu />)
     expect(screen.getByTestId('annonce').textContent).toMatch(/arrêtée/i)
+  })
+
+  it('distingue une analyse jamais lancée d’une exécution morte', () => {
+    // `everRan: false` (analysis === 'new') : même absence d'étape et de
+    // progression qu'une exécution morte, mais rien n'a jamais tourné.
+    render(<AnnouncementDStep running={null} steps={reading([])} connu everRan={false} />)
+    expect(screen.getByTestId('annonce').textContent).toMatch(/n’a pas encore commencé/i)
   })
 })
 

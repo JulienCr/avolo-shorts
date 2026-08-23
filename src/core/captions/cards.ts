@@ -10,45 +10,24 @@
 import type { Word } from '@/core/transcript'
 
 /**
- * Seize caractères par carton — **espaces compris**, voir `splitIntoCards` pour
- * ce que « compris » veut dire exactement.
+ * Trente-six caractères par carton — **espaces compris**, voir `splitIntoCards`
+ * pour ce que « compris » veut dire exactement.
  */
-export const MAX_CHARS_DEFAULT = 16
+export const MAX_CHARS_DEFAULT = 36
 
-/** Une seconde quatre par carton, mesurée depuis son premier mot. */
-export const MAX_DURATION_DEFAULT = 1.4
+/** Deux secondes cinq par carton, mesurée depuis son premier mot. */
+export const MAX_DURATION_DEFAULT = 2.5
 
 /**
  * Groupe les mots en cartons courts, lisibles sur un format vertical.
  *
- * Un carton se referme sur le mot qui ferait dépasser l'une des deux limites, et
- * ce mot ouvre le suivant.
- *
- * **Le décompte de caractères compte un espace par mot** : `somme(len + 1)`,
- * séparateur inclus pour le dernier mot aussi. « 16 caractères » vaut donc 16
- * espaces compris, soit à peu près trois mots français. C'est le décompte de la
- * version d'origine, et le rendu a été réglé dessus — le corriger en un décompte
- * « juste » rallongerait tous les cartons d'un mot.
- *
- * **La durée se mesure depuis le début du carton**, pas depuis le mot précédent.
- * Mesurée d'un mot à l'autre, elle ne dépasserait jamais le seuil tant que la
- * parole s'enchaîne — c'est-à-dire dans le cas courant — et un carton ne se
- * refermerait que sur la longueur.
- *
- * Les blancs autour d'un mot sont normalisés et un jeton sans texte est écarté :
- * certains transcripts portent le séparateur dans le jeton lui-même, ce qui
- * fausserait le décompte et doublerait l'espace au rendu. Ni le tableau ni les
- * mots de l'appelant ne sont modifiés.
- *
- * Deux réserves sur la sortie :
- *
- * - **les mots sont attendus dans l'ordre du temps**, ce que rend `retimeWords`,
- *   le seul appelant du pipeline. Aucun tri ici : ce serait trier deux fois le
- *   même tableau, et sur un tableau désordonné la durée d'un carton — mesurée
- *   depuis son premier mot — n'aurait de toute façon plus de sens ;
- * - un mot **plus long que `maxDuration`** tient un carton à lui seul, au-delà
- *   du seuil : le premier mot ouvre le carton sans condition, et le jeter parce
- *   qu'il dure trop serait pire que l'afficher trop longtemps.
+ * @param words Attendus dans l'ordre du temps — non triés ici, voir `retimeWords`.
+ * @param maxChars Compte un espace par mot, séparateur inclus pour le dernier
+ *   aussi (`somme(len + 1)`) : ne pas « corriger » ce décompte, le rendu y est réglé.
+ * @param maxDuration Mesurée depuis le premier mot du carton, jamais depuis le
+ *   mot précédent — sinon un carton ne se refermerait jamais tant que la parole
+ *   s'enchaîne. Un mot qui dépasse ce seuil à lui seul tient son propre carton
+ *   plutôt que d'être jeté.
  */
 export function splitIntoCards(
   words: Word[],

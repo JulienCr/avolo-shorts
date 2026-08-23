@@ -74,6 +74,16 @@ const BOM = '\uFEFF'
 const MARGIN_LOW = 43
 
 /**
+ * La marge latérale, en unités de `PlayResY` — écrite en dur dans le bloc
+ * `[V4+ Styles]` (`MarginL`/`MarginR`), jamais réglée par `CaptionStyle`.
+ *
+ * Partagée avec `CaptionOverlay`, qui en a besoin pour la même largeur de
+ * boîte que le rendu : la confondre avec `MARGIN_LOW` (la marge basse, 43)
+ * écrase le carton dans une colonne bien trop étroite.
+ */
+export const MARGIN_SIDE = 10
+
+/**
  * Le look appliqué par défaut. Choisi dans openshorts en rendant quatre
  * candidats sur un vrai clip et en les comparant : Anton blanc en majuscules,
  * mot actif en jaune, contour noir épais, léger effet de pop. Le jaune parce
@@ -82,11 +92,12 @@ const MARGIN_LOW = 43
  */
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontName: FONT_BY_DEFAULT,
-  fontSize: 44,
+  // 22 → 120 px sur 1080×1920, mesuré le 23 août 2026 (44 → 247 px, spec §9).
+  fontSize: 22,
   fontColor: '#FFFFFF',
   highlightColor: '#FFE500',
   borderColor: '#000000',
-  borderWidth: 4,
+  borderWidth: 2,
   uppercase: true,
   maxChars: MAX_CHARS_DEFAULT,
   maxDuration: MAX_DURATION_DEFAULT,
@@ -99,6 +110,29 @@ const HEX_COLOR = /^[0-9A-Fa-f]{6}$/
 function bound(value: number, min: number, max: number, fallback: number): number {
   const n = Number.isFinite(value) ? value : fallback
   return Math.max(min, Math.min(max, n))
+}
+
+/** Le repère `PlayResY` de `renderAss`, partagé avec `CaptionOverlay` (spec §9). */
+export const PLAYRES_Y = 288
+
+/**
+ * Taille de police, marge basse et épaisseur de contour dans les unités
+ * `PlayResY` que `renderAss` écrit telles quelles.
+ *
+ * @returns `sizeUnits` — `Fontsize` ; `marginUnits` — `MarginV` ; `borderUnits`
+ *   — `Outline`. Trois entiers dans le repère `PlayResY: 288`.
+ */
+export function captionUnits(
+  style: Pick<CaptionStyle, 'fontSize' | 'marginV' | 'borderWidth'>,
+): { sizeUnits: number; marginUnits: number; borderUnits: number } {
+  return {
+    // 0,85 : le facteur de la version d'origine, auquel le rendu de référence
+    // a été réglé — ne pas le retoucher sans une mesure à l'appui.
+    sizeUnits: Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85)),
+    marginUnits: Math.round(bound(style.marginV, 0, 200, MARGIN_LOW)),
+    // Un contour à 0 devient illisible sur un fond clair.
+    borderUnits: Math.floor(bound(style.borderWidth, 1, 10, 2)),
+  }
 }
 
 /**
@@ -236,17 +270,9 @@ function fontName(name: string): string {
  * l'appelant de décider s'il vaut la peine d'incruster un fichier vide.
  */
 export function renderAss(cards: Word[][], style: CaptionStyle): string {
-  // La taille est exprimée dans le repère `PlayResY: 288`, pas en pixels de
-  // l'image : le facteur 0,85 est celui de la version d'origine, à laquelle le
-  // rendu de référence a été réglé. 44 devient donc 37.
-  const size = Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 44) * 0.85))
+  // Partagé avec `CaptionOverlay` — voir `captionUnits`.
+  const { sizeUnits: size, marginUnits: margin, borderUnits: thickness } = captionUnits(style)
   const font = fontName(style.fontName)
-  // Le contour ne descend pas sous 1 : sur de la vidéo, du texte sans contour
-  // devient illisible dès que le fond s'éclaircit. Une seule garde l'énonce —
-  // borner à 0 puis remonter à 1 par un `Math.max` disait deux choses opposées,
-  // et un preset réglé à 0 remontait à 1 sans un mot.
-  const thickness = Math.floor(bound(style.borderWidth, 1, 10, 4))
-  const margin = Math.round(bound(style.marginV, 0, 200, MARGIN_LOW))
 
   const main = styleColor(style.fontColor, 1)
   const outline = styleColor(style.borderColor, 1, '000000')
@@ -270,7 +296,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
   const header =
     BOM + '[Script Info]\n' +
     'ScriptType: v4.00+\n' +
-    'PlayResY: 288\n' +
+    `PlayResY: ${PLAYRES_Y}\n` +
     'WrapStyle: 0\n' +
     'ScaledBorderAndShadow: yes\n' +
     '\n' +
@@ -280,7 +306,7 @@ export function renderAss(cards: Word[][], style: CaptionStyle): string {
     'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, ' +
     'Alignment, MarginL, MarginR, MarginV, Encoding\n' +
     `Style: Default,${font},${size},${main},${main},` +
-    `${outline},${background},1,0,0,0,100,100,0,0,1,${thickness},0,2,10,10,${margin},1\n` +
+    `${outline},${background},1,0,0,0,100,100,0,0,1,${thickness},0,2,${MARGIN_SIDE},${MARGIN_SIDE},${margin},1\n` +
     '\n' +
     '[Events]\n' +
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'

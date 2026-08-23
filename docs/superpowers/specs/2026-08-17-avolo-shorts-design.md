@@ -735,12 +735,69 @@ tolérance. À défaut, jump cut assumé.
 
 ### Le format
 
-Repris d'OpenShorts, dont le rendu convient : karaoké mot à mot, Anton 44, blanc
-sur surlignage `#FFE500`, contour noir de 4 px, majuscules, 16 caractères par
-carton au maximum et 1,4 seconde par carton au maximum. Génération d'un fichier
-ASS puis incrustation par ffmpeg.
+Repris d'OpenShorts, dont le rendu convient : karaoké mot à mot, Anton, blanc
+sur surlignage `#FFE500`, contour noir, majuscules. Génération d'un fichier ASS
+puis incrustation par ffmpeg.
 
 Ces valeurs deviennent un preset modifiable, pas des constantes en dur.
+
+**Correction du 23 août 2026.** Le preset d'OpenShorts (Anton 44, contour 4
+unités `PlayResY`, 16 caractères et 1,4 seconde par carton) rendait des cartons
+de quatre mots qui occupaient toute la largeur du cadre — mesuré à 247 px de
+hauteur de glyphe sur un rendu 1080×1920. Julien a choisi, sur une planche de
+quatre candidats rendus sur de vraies images, un preset plus petit et posé plus
+longtemps à l'écran : Anton 22 (120 px sur 1080×1920), contour 2 unités `PlayResY`
+(~13 px sur ce même rendu), 36 caractères et 2,5 secondes par carton. **Les
+unités de `borderWidth` ne sont pas des pixels** : `ScaledBorderAndShadow` les
+met à l'échelle du rapport `PlayResY → frame` (`1920 / 288 ≈ 6,67` sur un
+1080×1920), la même mise à l'échelle qui donne 120 px à un `fontSize` de 18
+unités (22 × 0,85, voir `captionUnits`). Le contour descend avec la police pour
+la même raison — resté à 4 unités il aurait mangé la lettre à ce corps. Ce
+nouveau preset est le défaut (`DEFAULT_CAPTION_STYLE` dans
+`src/core/captions/ass.ts`, `MAX_CHARS_DEFAULT` et `MAX_DURATION_DEFAULT` dans
+`src/core/captions/cards.ts`), pas une borne : il reste modifiable par preset.
+
+**Point qui reste ouvert, pas dans le périmètre de cette correction.** Le même
+fichier `.ass` est incrusté sur les deux canevas le jour où `RENDER_NATIVE`
+(`src/core/render-flags.ts`) repasse à `true` : 18 unités de `PlayResY` donnent
+120 px sur un 9:16 (1920 de haut) mais 84 px sur un natif 4:5 (1350 de haut).
+C'est déjà vrai aujourd'hui, ce n'est pas une régression introduite par ce
+preset.
+
+**Aperçu, ajouté le 23 août 2026.** Les sous-titres n'existaient jusque-là que
+sous forme d'ASS incrusté par ffmpeg : rien ne les montrait avant l'export.
+`CaptionOverlay` (`src/components/captions/caption-overlay.tsx`) les pose en
+calque DOM, sur le modèle de `HookOverlay` — un frère du canevas, jamais peint
+dedans, en unités `cqh`. Sa géométrie vient de `captionUnits`
+(`src/core/captions/ass.ts`), la même fonction que `renderAss` : diviser l'un
+de ses champs par `PLAYRES_Y` (288) donne la fraction de hauteur que
+l'aperçu pose, donc les deux ne peuvent pas diverger sur la taille de police
+ou la marge basse sans qu'un test ne le voie. Deux points de montage, aux
+garanties différentes : l'aperçu de sortie du clip (`output-preview.tsx`) est
+**fidèle** — mêmes cartons que le rendu, retimés sur la timeline du clip — le
+lecteur de l'émission (`show/player.tsx`) est **indicatif** — le transcript
+entier, sans recalage, sur une source en 16:9 quand la sortie est en 9:16.
+
+Comme `HookOverlay`, le calque est exact sur la position, les couleurs et la
+taille, et approché sur la largeur de boîte : le moteur de mise en page du
+navigateur n'est pas `measureText`, donc un carton qui reviendrait à la ligne
+autrement dans les deux moteurs peut différer de quelques pixels. La
+recherche du carton actif est dichotomique et non linéaire : le lecteur de
+l'émission peut porter le transcript entier, plusieurs milliers de mots.
+
+**Correction du 23 août 2026.** L'horloge locale du calque (`useCaptionClock`,
+`src/components/captions/caption-overlay.tsx`) suit `currentTime` à la cadence
+de la trame par `requestVideoFrameCallback`, `timeupdate`/`seeked` servant de
+repli sur les navigateurs qui ne l'ont pas. `timeupdate` seul (~4 Hz) pouvait
+sauter entièrement un carton plus court que l'intervalle entre deux
+événements — un mot isolé suivi d'un silence en forme un, `splitIntoCards` ne
+garantissant qu'une durée maximale par carton, jamais minimale.
+
+`show-view.tsx` appelle `useTranscript` sans condition pour nourrir ce
+calque, alors que le tiroir de transcript (`?transcript=1`) ne le demandait
+jusque-là que sur ouverture explicite : la vue Émission déclenche donc
+désormais ce chargement à chaque visite, pas seulement quand le tiroir
+s'ouvre.
 
 ### La correction, trois étages du moins risqué au plus risqué
 
@@ -1341,7 +1398,7 @@ dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
 ```
 GET    /api/sources                            les replays disponibles
 GET    /api/sources/thumb?file=<nom>           la vignette d'un replay
-POST   /api/projects              { source } -> 202 + projectId
+POST   /api/projects              { source, launch? } -> 201/202 + projectId
 GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
@@ -1352,10 +1409,32 @@ GET    /api/settings                           les réglages effectifs
 PUT    /api/settings                           applique un patch partiel
 ```
 
-`POST /api/clips/:id/hook` (19 août 2026) refuse un clip qui n'est pas **gardé**
-(`isGuard`, `src/core/phase.ts`) : la génération n'a de sens qu'à la demande, sur
-un clip qu'on monte, jamais sur un candidat ou un clip écarté qu'on n'a pas
-encore décidé de garder. Écrit sur le clip **relu juste avant l'écriture**, pas
+**`launch` vaut `false` par défaut** (23 août 2026, retour d'usage point
+A.3) : un clic sur la carte d'un replay déclenchait jusque-là 30 à 45 minutes
+de traitement sans étape intermédiaire. `show-card.tsx` crée le projet et
+navigue sans lancer ; un bouton « Commencer l'analyse » (`retry.tsx`) déclenche
+ensuite le travail. `phaseProject` (`src/core/phase.ts`) en tire une
+cinquième valeur d'`Analysis`, `'new'` : un projet sans artefact et sans
+exécution était jusque-là forcément une exécution interrompue, puisque
+`createProject` lançait toujours — ce raisonnement devient faux le jour où la
+création cesse de lancer, et `everRan` (tiré de la présence de
+`status.json`) est le seul fait qui distingue les deux cas, `steps`, `running`
+et `error` étant sinon identiques.
+
+**`showState` (`src/core/library.ts`) portait le même défaut**, trouvé au
+passage : sa bibliothèque de cartes ne connaissait pas `everRan` et lisait
+`{ running: null, error: null, stopped: false }` comme `'analyzed'` — un
+projet neuf aurait donc affiché le badge ambre et « Ouvrir » sur une
+émission qui n'a encore rien produit. Corrigé dans le même mouvement,
+`ProjectListItem.everRan` portant le même fait que celui de `ProjectStatus`.
+
+`POST /api/clips/:id/hook` **s'autorise sur n'importe quel statut, candidat
+compris** (23 août 2026, retour d'usage §7 point A.2 — corrige la restriction
+posée le 19 août). La règle « pas de hooks en masse pour tous les candidats »
+visait la génération **automatique**, bornée à `candidate → kept`
+(`hook-backfill.ts`, ci-dessous) ; un clic explicite sur un clip précis est
+un appel délibéré et unique, que restreindre aux clips gardés désactivait
+sans raison technique. Écrit sur le clip **relu juste avant l'écriture**, pas
 sur l'instantané pris avant l'appel — l'appel réseau tient jusqu'à 30 s, assez
 pour qu'une écriture concurrente (autosave, un autre onglet) se glisse dedans.
 Elle régénère **la paire**, accroche et badge, y compris quand le badge revient

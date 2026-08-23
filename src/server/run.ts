@@ -1217,17 +1217,19 @@ async function executeStep(
 export const TARGETS_INITIAL: StepName[] = ['candidates', 'proxy', 'analysis']
 
 /**
- * Inscrit un projet et lance son analyse.
+ * Inscrit un projet, et lance son analyse si on le demande.
  *
  * **La ligne est écrite avant que la copie ne commence**, et c'est ce qui rend
  * la réponse 202 utile : sans elle, `GET /api/projects/:id` répondrait 404
  * pendant les cinq minutes de copie depuis le Drive, et l'interface n'aurait
  * rien à interroger. Les champs que l'ingestion relève — durée, taille, date —
  * arrivent ensuite ; `upsertProject` les met à jour sans toucher à `createdAt`.
+ *
+ * `launchNow` vaut `false` par défaut depuis le 23 août 2026 — voir spec §12.
  */
 export async function createProject(
   source: string,
-  options: OptionsLaunch = {},
+  options: OptionsLaunch & { launchNow?: boolean } = {},
 ): Promise<{ projectId: string; plan: StepName[] }> {
   const sourcePath = resolveSource(source)
   const projectId = projectIdFromSource(source)
@@ -1248,5 +1250,6 @@ export async function createProject(
     createdAt: existant?.createdAt ?? Date.now(),
   })
 
+  if (options.launchNow !== true) return { projectId, plan: [] }
   return launch(projectId, TARGETS_INITIAL, options)
 }

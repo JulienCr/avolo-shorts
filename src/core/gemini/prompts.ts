@@ -325,3 +325,68 @@ export function detailWindowsJson(windows: Window[], tx: Transcript): string {
     })),
   )
 }
+
+// ---------------------------------------------------------------------------
+// La correction du transcript (spec §9, étage 2)
+// ---------------------------------------------------------------------------
+
+export type CorrectionPromptInput = {
+  /** La langue du transcript, telle que WhisperX l'a détectée. */
+  language: string
+  /** Les mots de l'empan, sérialisés — voir `correctionWordsJson`. */
+  wordsJson: string
+}
+
+/**
+ * Le prompt de la correction du transcript par modèle (spec §9).
+ * @remarks En anglais comme les deux autres prompts de ce fichier — un
+ * modèle suit des consignes en anglais plus fidèlement, quelle que soit la
+ * langue du texte à corriger. La garantie vient du contrat de sortie et de
+ * `validateCorrections` (`@/core/correction`), pas de ce texte : rien ici
+ * n'empêche techniquement le modèle d'halluciner.
+ */
+export function correctionPrompt({ language, wordsJson }: CorrectionPromptInput): string {
+  return `
+You are a meticulous French transcription proofreader.
+Fix punctuation, French homophones (et/est, a/à, ces/ses/c'est/s'est, and
+similar), and grammatical agreement mistakes in this transcript excerpt —
+nothing else.
+
+READING THE WORDS — each word of the excerpt is given as {"i": <index>, "w": "<word>"}
+in WORDS_JSON, in the original order. \`i\` is its position in THIS excerpt,
+starting at 0.
+
+Rules:
+- Return only valid JSON.
+- Return ONLY the words that need a correction — do not repeat words that are
+  already correct.
+- For a single-word fix, return { "i": <index>, "w": "<corrected word>" }.
+- To fix a mistake spread over several consecutive words, return
+  { "i": <first index>, "merge": <word count>, "w": "<single corrected token>" } —
+  \`merge\` collapses that many consecutive original words into ONE replacement.
+- \`w\` is always a SINGLE token: never put a space in it. Use a hyphen if the
+  correct spelling needs one.
+- Never invent a word, delete one, or reorder the excerpt — only replace what
+  is already there, word for word. If nothing needs fixing, return an empty array.
+- Proper nouns belonging to the show (e.g. "Avolo") are corrected the same
+  way when misheard, but do not invent a name that is not actually there.
+- Stay as close as possible to the sound of the original word or words —
+  turning a mistake into an unrelated word is never a correction.
+
+TRANSCRIPT_LANGUAGE: ${language}
+WORDS_JSON:
+${wordsJson}
+
+Return only:
+{ "corrections": [ { "i": <number>, "merge": <optional number>, "w": "<token>" } ] }
+`
+}
+
+/**
+ * Les mots d'un empan, sérialisés pour `WORDS_JSON` — indexés dans l'empan
+ * lui-même, pas dans le transcript entier : c'est cet index-là que le modèle
+ * doit rendre dans `i`.
+ */
+export function correctionWordsJson(words: readonly string[]): string {
+  return JSON.stringify(words.map((w, i) => ({ i, w })))
+}

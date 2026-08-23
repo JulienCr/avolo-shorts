@@ -244,6 +244,7 @@ describe('GET /api/projects', () => {
       'running',
       'stopped',
       'title',
+      'warning',
     ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.

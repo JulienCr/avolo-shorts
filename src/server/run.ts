@@ -420,6 +420,24 @@ export type Status = {
   running: Progression | null
   /** Le message d'échec, **déjà épuré** : ce fichier se recopie dans un rapport. */
   error: string | null
+  /**
+   * L'avertissement d'une correction du transcript tolérée, ou `null`.
+   *
+   * **Un champ distinct d'`error`, et c'est le point.** La panne du modèle à
+   * l'étape `correction` n'arrête pas l'analyse (voir son `case` dans
+   * `executeStep`) ; ce champ porte le rattrapage promis en échange, sans
+   * jamais se faire lire comme une vraie panne de pipeline par les lecteurs
+   * préexistants d'`error` — `finDAnalysis` (`@/components/sources/announce`)
+   * et le bandeau de `ProjectScreen`, tous deux antérieurs à la correction.
+   * Un `steps.candidates !== true` en guise de distinction masquait aussi les
+   * pannes de `proxy`/`analysis` survenant après `candidates`, qui tourne en
+   * premier sur `TARGETS_INITIAL` : ce champ retire ce garde-fou en le rendant
+   * inutile. (issues #137, #140)
+   *
+   * Même contrat qu'`error` : `null` tant qu'une exécution tourne, servi
+   * seulement au repos.
+   */
+  warning: string | null
   finishedAt: number | null
   /**
    * Vrai quand l'exécution s'est arrêtée parce qu'on le lui a demandé.
@@ -635,6 +653,7 @@ function publish(execution: Execution, changeDStep: boolean): void {
       plan: execution.plan,
       running: { ...execution.current },
       error: null,
+      warning: null,
       finishedAt: null,
       stopped: false,
     },
@@ -805,6 +824,7 @@ export async function launch(
           plan: [],
           running: null,
           error: null,
+          warning: null,
           finishedAt: Date.now(),
           stopped: false,
         },
@@ -987,6 +1007,7 @@ async function execute(
         plan: execution.plan,
         running: null,
         error: null,
+        warning: null,
         finishedAt: Date.now(),
         stopped: true,
       },
@@ -1072,7 +1093,8 @@ async function execute(
         targets: execution.targets,
         plan: execution.plan,
         running: null,
-        error: correctionWarning,
+        error: null,
+        warning: correctionWarning,
         finishedAt: Date.now(),
         stopped: false,
       },
@@ -1105,6 +1127,10 @@ async function execute(
         plan: execution.plan,
         running: null,
         error: messageSafe(cause),
+        // La correction a pu tourner avant l'étape qui casse : un avertissement
+        // déjà là ne dit rien de faux, et le taire ferait disparaître le
+        // rattrapage promis pour une raison qui n'a rien à voir avec lui.
+        warning: correctionWarning,
         finishedAt: Date.now(),
         stopped: false,
       },

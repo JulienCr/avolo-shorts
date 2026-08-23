@@ -887,14 +887,16 @@ describe("l'étape correction", () => {
 
     const status = lireStatus(PROJECT)
     // Ni `stopped`, ni une erreur qui rejetterait `wait()` : le plan est allé
-    // à son terme. Mais la panne n'a pas disparu — voir `status?.error`.
+    // à son terme. Mais la panne n'a pas disparu — voir `status?.warning`, un
+    // champ distinct d'`error` depuis les issues #137/#140.
     expect(status?.stopped).toBe(false)
     expect(status?.finishedAt).toBeTypeOf('number')
-    expect(status?.error).toContain('correction automatique du transcript a échoué')
-    expect(status?.error).toContain('le modèle ne répond pas')
+    expect(status?.error).toBeNull()
+    expect(status?.warning).toContain('correction automatique du transcript a échoué')
+    expect(status?.warning).toContain('le modèle ne répond pas')
     // Le rattrapage explicite est nommé dans le message lui-même — c'est ce
     // que l'écran affiche tel quel (`project-screen.tsx`).
-    expect(status?.error).toContain('relancer la correction')
+    expect(status?.warning).toContain('relancer la correction')
   })
 
   it('un correction.json n’est pas écrit quand la panne est avalée', async () => {

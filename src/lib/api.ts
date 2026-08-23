@@ -277,6 +277,17 @@ export type ProjectStatus = {
    */
   error: string | null
   /**
+   * L'avertissement d'une correction du transcript tolérée, ou `null`.
+   *
+   * **Distinct d'`error` depuis les issues #137/#140.** Une correction dont le
+   * modèle est resté injoignable n'empêche pas le repérage de tourner — le
+   * repérage lit un texte non corrigé, mais il a fini —, et le confondre avec
+   * `error` faisait dire « analyse en échec » à `finDAnalysis`
+   * (`@/components/sources/announce`) sur une analyse qui a réussi. Même
+   * contrat qu'`error` : `null` tant qu'une exécution tourne.
+   */
+  warning: string | null
+  /**
    * Ce que le repérage n'a pas jugé, ou `null`.
    *
    * **À lire avec `error`, jamais seul** : le bilan décrit une notation
@@ -421,6 +432,15 @@ export type ProjectListItem = ProjectSummary & {
   running: { step: StepName; progress: number } | null
   /** L'échec de la dernière exécution terminée. Un petit fichier local. */
   error: string | null
+  /**
+   * L'avertissement d'une correction du transcript tolérée. Même fichier
+   * qu'`error`, dans la même lecture — voir `ProjectStatus.warning`.
+   *
+   * **Publié pour `finDAnalysis`** (`@/components/sources/announce`), qui n'a
+   * pas `steps` et distinguait mal une analyse en échec d'une analyse dont
+   * seule la correction est à rattraper avant cette PR (issue #137).
+   */
+  warning: string | null
   /**
    * Vrai quand la dernière exécution s'est arrêtée parce qu'on le lui a demandé.
    *

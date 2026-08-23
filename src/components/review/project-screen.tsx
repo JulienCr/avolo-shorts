@@ -14,6 +14,7 @@ import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/re
 import { ReviewFeed } from '@/components/review/feed'
 import { layoutProgress, viewSinceUrl, type View } from '@/components/review/template'
 import { ButtonRetry, ButtonResume, ButtonStart, StopButton } from '@/components/review/retry'
+import { RerunCorrectionButton } from '@/components/show/transcript-panel'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -51,6 +52,9 @@ export function ProjectScreen({ id }: { id: string }) {
   // serait celui d'avant — et c'est le serveur qui le garantit déjà en rendant
   // `error: null` tant que `running` n'est pas nul.
   const error = project.data?.error ?? null
+  // Distinct d'`error` depuis les issues #137/#140 : voir le commentaire du
+  // bandeau plus bas.
+  const warning = project.data?.warning ?? null
   // Défaut prudent tant que l'état n'a pas répondu : `true` plutôt que `false`.
   const everRan = project.data?.everRan ?? true
 
@@ -140,18 +144,17 @@ export function ProjectScreen({ id }: { id: string }) {
               Le bandeau ne double pas le panneau, qui porte déjà le message du
               serveur et le bouton de reprise.
 
-              **`steps.candidates` avant `error`, comme `analysisProject`
-              (`src/core/phase.ts`).** `error` ne dit pas seulement « l'analyse a
-              échoué » depuis que la correction avale sa propre panne dans ce
-              même champ (§9, correction du 23 août 2026) : des candidats
-              présents disent que le repérage, lui, a fini. Le bandeau, son titre
-              et « Reprendre l'analyse » sont trompeurs dans ce cas précis — ce
-              bouton vise `candidates`, le trouve déjà là, et ne relance rien
-              d'autre qu'un plan vide qui efface l'avertissement sans jamais
-              relancer la correction. Le rattrapage réel, « Relancer la
-              correction », vit dans le panneau transcript, à côté du même
-              message. (relevé par Aristarque) */}
-          {error !== null && running === null && layout !== 'panneau' && steps.candidates !== true && (
+              **Plus de garde sur `steps.candidates` depuis les issues
+              #137/#140.** Elle visait à taire ce bandeau quand seule la
+              correction avait échoué — `candidates.json` existe alors quand
+              même —, mais `candidates` tourne **avant** `proxy` et `analysis`
+              sur `TARGETS_INITIAL` (`src/server/run.ts`) : une vraie panne de
+              l'un des deux, après un repérage réussi, restait masquée par la
+              même garde. `error` et l'avertissement de correction vivent
+              maintenant dans deux champs séparés du statut ; ce bandeau ne lit
+              plus que le premier, et n'a donc plus besoin de deviner. (relevé
+              par Aristarque) */}
+          {error !== null && running === null && layout !== 'panneau' && (
             <Alert variant="destructive">
               <AlertTitle>La dernière analyse a échoué.</AlertTitle>
               <AlertDescription>
@@ -162,6 +165,22 @@ export function ProjectScreen({ id }: { id: string }) {
                     le bouton doit se désactiver tout seul plutôt que de rester
                     figé sur un `false` écrit à la main. */}
                 <ButtonResume projectId={id} inCurrent={running !== null} />
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* **La panne tolérée de la correction, distincte de `error` depuis
+              les issues #137/#140.** Ni un échec d'analyse ni un incident
+              local : le repérage a tourné sur un texte non corrigé, et le
+              rattrapage est le même bouton que dans le panneau transcript —
+              réutilisé tel quel, pour ne garder qu'un seul endroit qui sache
+              lancer `force: ['correction']`. */}
+          {warning !== null && running === null && layout !== 'panneau' && (
+            <Alert>
+              <AlertTitle>La correction automatique du transcript a échoué.</AlertTitle>
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <p>{warning}</p>
+                <RerunCorrectionButton projectId={id} inCurrent={running !== null} />
               </AlertDescription>
             </Alert>
           )}

@@ -456,17 +456,18 @@ export function TranscriptPanel({
           />
         </div>
 
-        {/* **La panne de la correction automatique, si la dernière analyse
-            en a signalé une.** L'étape avale une panne du modèle plutôt que
-            de bloquer tout le plan (`src/server/run.ts`) ; ce bandeau est le
-            rattrapage explicite promis en échange — le message dit déjà
-            « relancer la correction », le bouton juste au-dessus le fait. */}
-        {project.data?.error !== null &&
-          project.data?.error !== undefined &&
+        {/* **La panne tolérée de la correction automatique, si la dernière
+            analyse en a signalé une — `project.data.warning`, distinct
+            d'`error` depuis les issues #137/#140.** L'étape avale une panne
+            du modèle plutôt que de bloquer tout le plan (`src/server/run.ts`) ;
+            ce bandeau est le rattrapage explicite promis en échange — le
+            bouton juste au-dessus le fait. */}
+        {project.data?.warning !== null &&
+          project.data?.warning !== undefined &&
           (project.data?.running ?? null) === null && (
             <div className="shrink-0 border-b px-4 py-2">
-              <Alert variant="destructive">
-                <AlertDescription>{project.data.error}</AlertDescription>
+              <Alert>
+                <AlertDescription>{project.data.warning}</AlertDescription>
               </Alert>
             </div>
           )}
@@ -648,8 +649,13 @@ export function TranscriptPanel({
  * `planSteps` qui le fait (`src/core/graph.ts`, « forced descend dans
  * l'aval ») : le repérage doit relire le texte que cette passe vient de
  * corriger.
+ *
+ * **Exporté et réutilisé par `ProjectScreen`** (`@/components/review/project-screen`),
+ * dont le bandeau d'avertissement de correction propose le même geste. Un
+ * seul endroit sait lancer ce `force`, plutôt que deux boutons qui pourraient
+ * diverger.
  */
-function RerunCorrectionButton({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
+export function RerunCorrectionButton({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
   const retry = useRetry()
   const [open, setOpen] = useState(false)
   const blocked = inCurrent || retry.isPending

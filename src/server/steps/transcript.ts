@@ -361,9 +361,34 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
     '--language', o.language ?? 'fr',
   ]
 
+  // **Écarté, pas supprimé, avant même de savoir si la transcription
+  // aboutit.** Un `correction.json` déjà là décrit l'ancien transcript, donc
+  // ni avant ni après le seul renommage du transcript n'est un ordre sûr : le
+  // supprimer après laisse les deux publiés ensemble si la suppression
+  // échoue (`EIO`/`EPERM`) ; le supprimer avant perd l'historique pour de bon
+  // si c'est le renommage du transcript qui échoue ensuite. Le déplacer sur
+  // place, restaurable, ferme les deux : la publication du transcript ne
+  // touche qu'un `rename` de plus. (relevé par Codex, Copilot, Aristarque et
+  // Codex à nouveau)
+  const hadCorrection = fs.existsSync(placement.correction)
+  const correctionSetAside = pathTemporary(placement.correction)
   try {
     await launchWorker(python, args, env, o.onLog, o.signal)
-    await fsp.rename(temporary, placement.transcript)
+    if (hadCorrection) await fsp.rename(placement.correction, correctionSetAside)
+    try {
+      await fsp.rename(temporary, placement.transcript)
+    } catch (cause) {
+      // Le transcript n'est pas publié : l'ancien journal doit reprendre sa
+      // place, pas rester égaré sous un nom temporaire.
+      if (hadCorrection) await fsp.rename(correctionSetAside, placement.correction).catch(() => {})
+      throw cause
+    }
+    // Le transcript est publié, donc l'ancien journal ne décrit plus rien —
+    // **`force: true` avale déjà `ENOENT`**, c'est tout ce qu'il doit
+    // avaler : un `.catch(() => {})` par-dessus masquerait aussi `EIO`/`EPERM`
+    // sur ce nettoyage, sans conséquence sur ce qui vient d'être publié avec
+    // succès. (relevé par Codex)
+    if (hadCorrection) await fsp.rm(correctionSetAside, { force: true })
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

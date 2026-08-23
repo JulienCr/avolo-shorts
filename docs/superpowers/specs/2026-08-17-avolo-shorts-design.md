@@ -352,6 +352,18 @@ source.mp4
                     └─► rendus  <- EDL, source, style (logo, sous-titres, habillage)
 ```
 
+**Correction du 23 août 2026 : ce diagramme dit enfin ce que le code fait.**
+`StepName` (`src/core/graph.ts`) porte désormais `correction` comme étape à
+part entière, entre `transcript` et `candidates` — c'est elle que le nœud
+« transcript corrigé » nomme ici. Avant cette date, le code sautait cette
+étape : `candidates` dépendait directement de `transcript`, et la correction
+par modèle (§9, étage 2) ne s'appliquait qu'à la main, depuis un bouton, après
+coup. Le repérage lisait donc le texte brut, en écart avec ce diagramme —
+voir §9 pour ce que ce basculement change et pourquoi. Les corrections
+humaines, elles, n'ont jamais gardé cette étape : elles s'écrivent à tout
+moment sur `transcript.json`, avant ou après le passage de `correction`, et
+n'ont pas leur propre artefact.
+
 Le style n'entre que dans le rendu. Cette propriété du graphe est ce qui rend un
 changement de logo bon marché.
 
@@ -824,11 +836,37 @@ registre `@/server/llm/registry`) — **Gemini par défaut, comme les deux
 autres usages**, pas Ollama : rien n'impose le modèle local que ce paragraphe
 appelait de ses vœux, Ollama restant un choix de réglage parmi trois. Le
 transcript se découpe en empans de l'ordre de 120 mots, sans chevauchement ;
-chaque empan passe par le contrat ci-dessous et ses deux gardes ; les
-substitutions retenues sont **proposées, jamais écrites** — l'écran de
-l'émission (§13) les liste, décochables, et ne les remonte dans le sidecar
-qu'après validation, une par une, par le même chemin d'écriture que la
-correction manuelle.
+chaque empan passe par le contrat ci-dessous et ses deux gardes.
+
+**Basculement du 23 août 2026, PR « la correction entre dans le pipeline »,
+contre la décision qui précède.** La correction **s'applique désormais
+d'office pendant l'analyse**, comme une étape du graphe à part entière
+(`correction`, entre `transcript` et `candidates` — §5) : le repérage lit
+toujours le texte corrigé, jamais le brut. Ce n'est plus « proposées, jamais
+écrites » — c'est l'inverse : écrites d'office, la relecture devient
+**postérieure**. L'écran de l'émission (§13) affiche l'historique de ce qui a
+été changé (`correction.json`, dans le sidecar, à côté de `transcript.json`)
+et permet de défaire une substitution, par le même chemin d'écriture que la
+correction manuelle et les mêmes gardes.
+
+Le veto **avant** écriture est ce qu'on perd : personne ne relit plus une
+proposition avant qu'elle ne touche le sidecar. Une étape de graphe tourne
+sans personne devant l'écran, et la faire attendre une validation aurait
+bloqué une analyse lancée le soir jusqu'au matin — c'est ce qui a fait
+pencher la balance. Ce qui reste comme filet : les mêmes gardes (schéma qui
+n'exprime ni insertion ni suppression, clé phonétique, horodatages
+préservés), plus la trace de ce qui a changé et le moyen de le défaire.
+
+Le journal **s'accumule** d'une passe à l'autre — une seconde passe travaille
+sur un texte déjà corrigé, ses substitutions ne recouvrent jamais celles
+d'une passe précédente — sauf quand une retranscription vient de remplacer
+`transcript.json` en entier, auquel cas il repart vide avec lui. Une panne du
+modèle (réseau, service injoignable) n'arrête pas toute l'analyse — un
+lancement du soir ne doit pas attendre le matin pour une panne
+d'environnement —, mais elle ne disparaît pas non plus : le message remonte
+dans `status.json`, visible au repos sur l'écran de projet, et le rattrapage
+explicite est de relancer la correction (`force: ['correction']`, qui
+entraîne `candidates` avec lui).
 
 ### Le contrat qui rend la réécriture impossible
 
@@ -890,13 +928,13 @@ légitimes que la garde doit laisser passer tiennent (`et`/`est`, `a`/`à`,
 `ce`/`cet`), les non-collisions correctes aussi (`chat`/`chien`, `sept`/`sec`,
 `port`/`pore`) — mais `net`/`nez` et `ne`/`nez` collident à tort.
 
-**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut a été
-formulé quand la correction était pensée automatique — une réécriture qui
-passe pour une correction s'écrivait alors sans second regard. Ce n'est plus
-le cas : Julien valide chaque substitution avant écriture (§9, « Le modèle
-propose, Julien valide »), donc un faux positif de la garde phonétique coûte
-un coup d'œil et un décochage sur l'écran de relecture, jamais un export
-faux.
+**Pourquoi c'est tenable.** Le biais de prudence énoncé plus haut protège
+d'abord contre une réécriture qui passerait pour une correction. Depuis le
+basculement du 23 août 2026 ci-dessus, il n'y a plus de veto avant écriture :
+c'est la garde phonétique elle-même, avec le schéma et l'horodatage préservé,
+qui est le filet — et un faux positif qu'elle laisse passer coûte un coup
+d'œil dans l'historique et un « Défaire » sur l'écran de l'émission, jamais
+un export faux sans trace de ce qui a changé.
 
 **Une précision sur ce que le schéma garantit vraiment, relevée en review
 externe : il n'interdit pas le réordonnancement, contrairement à ce qu'une
@@ -955,12 +993,20 @@ texte des sous-titres depuis le même jour que cette précision
 `discardRenderStale` s'appelle après un montage édité (`PATCH
 /api/clips/:id`) et après une régénération du hook (`POST
 /api/clips/:id/hook`), jamais après une correction du transcript, manuelle ou
-par modèle. Les deux routes de correction se contentent de nommer les clips
+par modèle. Les trois routes de correction (manuelle, l'étape automatique du
+graphe, et le défaire du 23 août 2026) se contentent de nommer les clips
 touchés dans leur réponse ; rien ne force encore le réexport par le graphe
 comme le fait déjà l'empreinte pour le montage, les marques ou le style des
 sous-titres. Brancher `discardRenderStale` ici demanderait de relire l'état
 de chaque clip touché au moment de la correction, plutôt que de se contenter
 de les nommer — une décision qui n'est pas prise.
+
+**La correction automatique tourne désormais sans personne devant l'écran**
+(basculement du 23 août 2026, ci-dessus), ce qui rend deux réserves déjà
+posées plus atteignables qu'avant, sans que cette PR les résolve : l'issue
+**#93** (pas de réservation d'écriture partagée sur le sidecar — une analyse
+et une correction manuelle simultanées restent, en théorie, une course) et
+l'issue **#94** (jetons non alignés). Les deux restent ouvertes.
 
 ### Ce qui est constaté sur la machine
 

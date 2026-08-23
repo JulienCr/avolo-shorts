@@ -18,12 +18,6 @@ import type { ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranscriptLine } from '@/lib/editing'
-import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
-
-// **`PointerEvent` n'existe pas sous `jsdom`.** Les cases à cocher de la
-// relecture des propositions du modèle (Base UI `Checkbox`) en dispatchent
-// un synthétique à la validation, quel que soit le mécanisme du clic.
-installPointerEventPolyfill()
 
 const replaceMock = vi.fn()
 let query = ''
@@ -101,9 +95,14 @@ function runResponse(body: unknown, status = 202): Rule {
   return { when: (u, m) => m === 'POST' && u.endsWith('/run'), body, status }
 }
 
-/** Répond à `POST .../transcript/correction` — la proposition du modèle. */
-function proposeResponse(body: unknown, status = 200): Rule {
-  return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction'), body, status }
+/** Répond à `GET .../transcript/correction` — l'historique de correction. */
+function historyResponse(body: unknown = [], status = 200): Rule {
+  return { when: (u, m) => m === 'GET' && u.endsWith('/transcript/correction'), body, status }
+}
+
+/** Répond à `POST .../transcript/correction/undo` — défaire une entrée. */
+function undoResponse(body: unknown, status = 200): Rule {
+  return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction/undo'), body, status }
 }
 
 function sentBody(call: ReturnType<typeof vi.fn>, index: number): unknown {
@@ -275,7 +274,11 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('dit que le texte a changé sous les yeux sur un 409', async () => {
-    stubFetch([transcriptResponse(), correctionResponse({ error: 'Le texte a changé sous vos yeux.' }, 409)])
+    stubFetch([
+      transcriptResponse(),
+      historyResponse(),
+      correctionResponse({ error: 'Le texte a changé sous vos yeux.' }, 409),
+    ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const user = userEvent.setup()
@@ -339,143 +342,99 @@ describe('TranscriptPanel — correction', () => {
   })
 })
 
-/** Une phrase de six mots, pour poser deux propositions dessus (une fusion, une simple). */
-const LINE_L1: TranscriptLine = {
-  id: 'l1',
-  start: 20,
-  end: 24,
-  words: [
-    { word: 'un', start: 20, end: 20.2 },
-    { word: 'chat', start: 20.3, end: 20.6 },
-    { word: 'noir', start: 20.7, end: 21 },
-    { word: 'et', start: 21.1, end: 21.3 },
-    { word: 'deux', start: 21.4, end: 21.7 },
-    { word: 'chiens', start: 21.8, end: 22.2 },
-  ],
-}
+describe('TranscriptPanel — historique de correction', () => {
+  it("n'affiche rien tant que l'historique est vide", async () => {
+    stubFetch([transcriptResponse(), historyResponse([])])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-describe('TranscriptPanel — correction par modèle', () => {
-  it(
-    'applique les propositions d’une même phrase de l’index le plus haut au plus bas, ' +
-      'pour ne pas décaler l’ancre d’une correction pas encore envoyée (relevé par Copilot et Codex)',
-    async () => {
-      // Le serveur les rend dans l'ordre naturel (index croissant) : la fusion
-      // (from=1..2) avant la correction simple (from=4). Appliquées telles
-      // quelles, la fusion raccourcirait la phrase avant que la seconde ne
-      // parte, décalant son ancre. Le composant doit les réordonner.
-      const proposals = [
-        {
-          request: { lineId: 'l1', from: 1, to: 2, expected: ['chat', 'noir'], replacement: ['chaton'] },
-          timecode: 20.3,
-          original: 'chat noir',
-          replacement: 'chaton',
-        },
-        {
-          request: { lineId: 'l1', from: 4, to: 4, expected: ['deux'], replacement: ['trois'] },
-          timecode: 21.4,
-          original: 'deux',
-          replacement: 'trois',
-        },
-      ]
-      const correction = stubFetch([
-        transcriptResponse([LINES[0], LINE_L1]),
-        proposeResponse({ proposals, rejected: {} }),
-        correctionResponse({ line: LINE_L1, clipsTouched: [] }),
-      ])
-      render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+    await screen.findByRole('button', { name: 'Bonjour' })
+    expect(screen.queryByText(/substitution appliquée/)).toBeNull()
+  })
 
-      const user = userEvent.setup()
-      await user.click(await screen.findByRole('button', { name: /corriger automatiquement/i }))
-      expect(await screen.findByText(/2 substitutions proposées/)).toBeTruthy()
-
-      await user.click(screen.getByRole('button', { name: /valider 2 corrections/i }))
-
-      await waitFor(() => {
-        const posts = correction.mock.calls.filter(
-          ([input, init]) => String(input).endsWith('/transcript') && (init as RequestInit | undefined)?.method === 'POST',
-        )
-        expect(posts).toHaveLength(2)
-      })
-      const posts = correction.mock.calls.filter(
-        ([input, init]) => String(input).endsWith('/transcript') && (init as RequestInit | undefined)?.method === 'POST',
-      )
-      const bodies = posts.map(([, init]) => JSON.parse(String((init as RequestInit).body)) as { from: number })
-      expect(bodies.map((b) => b.from)).toEqual([4, 1])
-    },
-  )
-
-  it('préserve les exclusions après un envoi partiel', async () => {
-    const proposals = [
-      {
-        request: { lineId: 'l0', from: 0, to: 0, expected: ['Bonjour'], replacement: ['Salut'] },
-        timecode: 10,
-        original: 'Bonjour',
-        replacement: 'Salut',
-      },
-      {
-        request: { lineId: 'l1', from: 4, to: 4, expected: ['deux'], replacement: ['trois'] },
-        timecode: 21.4,
-        original: 'deux',
-        replacement: 'trois',
-      },
+  it('affiche les substitutions déjà appliquées, avec un bouton « Défaire » chacune', async () => {
+    // `original`/`replacement` sont choisis pour ne recouvrir aucun mot du
+    // transcript stubbé (« Bonjour à tous ») : sans quoi le même texte serait
+    // à la fois un mot cliquable et une entrée d'historique.
+    const entries = [
+      { id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 },
     ]
-    stubFetch([
-      transcriptResponse([LINES[0], LINE_L1]),
-      proposeResponse({ proposals, rejected: {} }),
-      correctionResponse({ line: LINES[0], clipsTouched: [] }),
+    stubFetch([transcriptResponse(), historyResponse(entries)])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    expect(await screen.findByText(/1 substitution appliquée/)).toBeTruthy()
+    expect(screen.getByText('ancien')).toBeTruthy()
+    expect(screen.getByText('nouveau')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Défaire' })).toBeTruthy()
+  })
+
+  it('défaire retire l’entrée de l’historique — même chemin d’écriture, même 409', async () => {
+    const entries = [
+      { id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 },
+    ]
+    const call = stubFetch([
+      transcriptResponse(),
+      historyResponse(entries),
+      undoResponse({ entries: [], clipsTouched: [] }),
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    await screen.findByText(/1 substitution appliquée/)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Défaire' }))
+
+    await waitFor(() => expect(screen.queryByText(/substitution appliquée/)).toBeNull())
+
+    const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/transcript/correction/undo'))
+    expect(posts).toHaveLength(1)
+    expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
+  })
+})
+
+describe('TranscriptPanel — relancer la correction automatique', () => {
+  it('demande confirmation, puis relance en forçant `correction` — le repérage suit', async () => {
+    const call = stubFetch([
+      transcriptResponse(),
+      historyResponse([]),
+      runResponse({ projectId: 'cqlp', plan: ['correction', 'candidates'] }),
     ])
     render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /corriger automatiquement/i }))
-    expect(await screen.findByText(/2 substitutions proposées/)).toBeTruthy()
+    await user.click(await screen.findByRole('button', { name: /relancer la correction automatique/i }))
+    // La confirmation nomme ce qui va se passer, comme celle du repérage forcé.
+    expect(await screen.findByText(/relancer la correction automatique \?/i)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Relancer' }))
 
-    // Décoche la seconde proposition (« deux » → « trois ») avant de valider.
-    const checkboxes = screen.getAllByRole('checkbox')
-    await user.click(checkboxes[1])
-    await waitFor(() => expect(checkboxes[1].getAttribute('data-state')).not.toBe('checked'))
-    await user.click(screen.getByRole('button', { name: /Valider 1 correction/i }))
-
-    // La proposition décochée revient dans la liste restante : elle doit
-    // rester décochée, pas repasser cochée par défaut.
-    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(1))
-    expect(screen.getByRole('checkbox').getAttribute('data-state')).not.toBe('checked')
+    await waitFor(() => {
+      const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/run'))
+      expect(posts).toHaveLength(1)
+    })
+    const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/run'))
+    expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({
+      target: 'candidates',
+      force: ['correction'],
+    })
   })
 
-  it('efface le résultat de la passe précédente quand une retranscription se termine', async () => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    })
-    const localWrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    )
+  it("affiche la panne de la dernière analyse, si `status.json` en porte une", async () => {
     const runningStatus = {
       project: { id: 'cqlp', title: 'cqlp', durationSec: 100, createdAt: '2026-01-01' },
-      steps: { proxy: true, audio: true, transcript: true, analysis: true, candidates: true, renders: false },
-      running: { step: 'transcript', progress: 0.4 },
-      error: null,
+      steps: { proxy: true, audio: true, transcript: true, correction: false, candidates: true, analysis: true, renders: false },
+      running: null,
+      error: 'La correction automatique du transcript a échoué : injoignable. Relancer la correction.',
       stopped: false,
       selectionReport: null,
       sizeBytes: null,
     }
     stubFetch([
       transcriptResponse(),
-      proposeResponse({ proposals: [], rejected: {} }),
+      historyResponse([]),
       { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
     ])
-    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
 
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /corriger automatiquement/i }))
-    expect(await screen.findByText(/0 substitution proposée/)).toBeTruthy()
-
-    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
-    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
-
-    await waitFor(() => expect(screen.queryByText(/substitution proposée/)).toBeNull())
+    expect(await screen.findByText(/correction automatique du transcript a échoué/)).toBeTruthy()
   })
 })
-
 describe('RetranscribeButton', () => {
   it('demande confirmation avant de retranscrire', async () => {
     stubFetch([transcriptResponse()])

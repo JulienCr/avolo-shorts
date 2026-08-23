@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   flattenTranscript,
+  orderForApplication,
   parseCorrectionResponse,
   phoneticKey,
+  shiftEntries,
   toProposedCorrection,
   validateCorrections,
   type CorrectionCandidate,
+  type CorrectionEntry,
+  type ProposedCorrection,
 } from '@/core/correction'
 import type { Transcript, Word } from '@/core/transcript'
 
@@ -256,5 +260,90 @@ describe('les six catégories de refus sont toutes atteignables', () => {
     ])
     expect(accepted).toEqual([{ from: 0, to: 1, original: ['un', 'deux'], replacement: 'undeux' }])
     expect(rejected).toEqual([{ candidate: { i: 0, w: 'un' }, reason: 'overlap' }])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Le journal — décalage des index et ordre d'application (correction du
+// 23 août 2026 : la correction entre dans le pipeline)
+// ---------------------------------------------------------------------------
+
+function entry(id: string, lineId: string, from: number, width: number): CorrectionEntry {
+  return {
+    id,
+    lineId,
+    from,
+    expected: Array.from({ length: width }, (_, i) => `mot${i}`),
+    replacement: 'x',
+    timecode: from,
+  }
+}
+
+describe('shiftEntries', () => {
+  it('décale les entrées de la même phrase strictement après la position', () => {
+    const entries = [entry('a', 'l0', 2, 1), entry('b', 'l0', 5, 1)]
+    const shifted = shiftEntries(entries, 'l0', 3, -1)
+    // `timecode` ne bouge pas : le mot n'a pas changé d'instant, seulement
+    // d'index dans le tableau des mots de sa phrase.
+    expect(shifted).toEqual([entries[0], { ...entries[1], from: 4 }])
+  })
+
+  it('ne touche pas les entrées d’une autre phrase', () => {
+    const entries = [entry('a', 'l1', 5, 1)]
+    expect(shiftEntries(entries, 'l0', 3, -1)).toEqual(entries)
+  })
+
+  it('ne touche pas les entrées à la position ou avant', () => {
+    const entries = [entry('a', 'l0', 3, 1)]
+    expect(shiftEntries(entries, 'l0', 3, -1)).toEqual(entries)
+  })
+
+  it('delta 0 ne change rien', () => {
+    const entries = [entry('a', 'l0', 5, 1)]
+    expect(shiftEntries(entries, 'l0', 3, 0)).toEqual(entries)
+  })
+
+  // La formule à l'application (une fusion de N mots en un seul, delta
+  // négatif) et son inverse au défaire (delta positif) sont la même fonction :
+  // appliquer puis défaire doit rendre le décalage à zéro.
+  it('appliquer puis défaire une fusion de 3 mots ramène les entrées voisines à leur position d’origine', () => {
+    const before = [entry('a', 'l0', 0, 1), entry('b', 'l0', 10, 1)]
+    const afterMerge = shiftEntries(before, 'l0', 7, 1 - 3) // fusion [5..7] -> 1 mot
+    const afterUndo = shiftEntries(afterMerge, 'l0', 5, 3 - 1) // défaire : réinsère 2 mots après la position 5
+    expect(afterUndo).toEqual(before)
+  })
+})
+
+function proposal(lineId: string, from: number, to: number): ProposedCorrection {
+  return {
+    lineId,
+    timecode: from,
+    correction: { from, to, expected: [], replacement: ['x'] },
+    original: 'x',
+    replacement: 'x',
+  }
+}
+
+describe('orderForApplication', () => {
+  it('trie par position décroissante à l’intérieur d’une phrase', () => {
+    const ordered = orderForApplication([proposal('l0', 2, 2), proposal('l0', 8, 9)])
+    expect(ordered.map((p) => p.correction.from)).toEqual([8, 2])
+  })
+
+  it('regroupe les phrases, un ordre total plutôt qu’un tri stable', () => {
+    // Une phrase intercalée entre deux entrées d'une autre phrase, comme la
+    // proposition brute d'un modèle peut en produire.
+    const ordered = orderForApplication([
+      proposal('l1', 3, 3),
+      proposal('l0', 1, 1),
+      proposal('l1', 0, 0),
+      proposal('l0', 5, 5),
+    ])
+    expect(ordered.map((p) => `${p.lineId}:${p.correction.from}`)).toEqual([
+      'l0:5',
+      'l0:1',
+      'l1:3',
+      'l1:0',
+    ])
   })
 })

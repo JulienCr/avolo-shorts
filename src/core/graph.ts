@@ -10,8 +10,8 @@
  * testable en CI sans GPU, sans ffmpeg et sans vidéo.
  */
 
-/** Les six étapes, chacune adossée à un artefact. */
-export type StepName = 'proxy' | 'audio' | 'transcript' | 'analysis' | 'candidates' | 'renders'
+/** Les sept étapes, chacune adossée à un artefact. */
+export type StepName = 'proxy' | 'audio' | 'transcript' | 'correction' | 'analysis' | 'candidates' | 'renders'
 
 /**
  * Le graphe, écrit dans le sens « ce dont j'ai besoin ».
@@ -32,13 +32,22 @@ export type StepName = 'proxy' | 'audio' | 'transcript' | 'analysis' | 'candidat
  * (`POST /api/clips/:id/export`), pas par le graphe —, et lui inventer une
  * dépendance ici ferait recalculer les rendus au premier changement de modèle
  * sans que personne ne l'ait demandé.
+ *
+ * **`correction` s'intercale entre `transcript` et `candidates`** (spec §5,
+ * §9 — correction du 23 août 2026) : le repérage doit lire le texte corrigé,
+ * pas le brut. Elle n'a qu'une dépendance, `transcript`, et `candidates` ne
+ * dépend plus directement de lui — la correction est désormais le seul
+ * chemin. Conséquence voulue de « `forced` descend dans l'aval » : reforcer
+ * `transcript` (une retranscription) refait `correction` **et** `candidates`
+ * sans qu'il faille le nommer nulle part d'autre.
  */
 const DEPS: Record<StepName, readonly StepName[]> = {
   proxy: [],
   audio: [],
   transcript: ['audio'],
+  correction: ['transcript'],
   analysis: ['proxy'],
-  candidates: ['transcript'],
+  candidates: ['correction'],
   renders: ['candidates'],
 }
 

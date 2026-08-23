@@ -197,6 +197,13 @@ function poserTranscript(): void {
   )
 }
 
+/** Le journal de correction déjà là, à côté du transcript — même repli. */
+function poserCorrection(): void {
+  const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ nextId: 1, entries: [] }))
+}
+
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-api-'))
   process.env.REPLAY_DIR = path.join(root, 'replays')
@@ -294,9 +301,10 @@ describe('GET /api/projects', () => {
    * fils du vivier de libuv suffisent à figer le serveur entier (spec §3.1).
    */
   it('dit ce qui tourne, sans sonder le moindre artefact', async () => {
-    // Le transcript déjà là : le plan se réduit au repérage, seule étape qu'on
-    // remplace ici par un témoin qu'on tient en main.
+    // Le transcript et la correction déjà là : le plan se réduit au repérage,
+    // seule étape qu'on remplace ici par un témoin qu'on tient en main.
     poserTranscript()
+    poserCorrection()
     let release = (): void => {}
     const inCurrent = new Promise<Clip[]>((resolve) => {
       release = () => resolveEmpty(resolve)
@@ -400,6 +408,7 @@ describe('GET /api/projects/:id', () => {
       proxy: true,
       audio: false,
       transcript: true,
+      correction: false,
       analysis: false,
       candidates: false,
       renders: false,

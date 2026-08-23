@@ -43,6 +43,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
     steps: {
       audio: true,
       transcript: true,
+      correction: false,
       candidates: false,
       proxy: false,
       analysis: false,

@@ -189,6 +189,7 @@ export const LABELS_STEPS: Record<StepName, string> = {
   proxy: 'Proxy',
   audio: 'Audio',
   transcript: 'Transcription',
+  correction: 'Correction du transcript',
   analysis: 'Analyse d’image',
   candidates: 'Repérage',
   renders: 'Rendus',
@@ -216,6 +217,9 @@ export const LABELS_STEPS: Record<StepName, string> = {
 export const STEPS: readonly StepDescribed[] = [
   { name: 'audio', label: LABELS_STEPS.audio },
   { name: 'transcript', label: LABELS_STEPS.transcript },
+  // Entre `transcript` et `candidates`, sa position d'exécution (§5, §9) :
+  // le repérage lit le texte qu'elle vient de corriger.
+  { name: 'correction', label: LABELS_STEPS.correction },
   { name: 'candidates', label: LABELS_STEPS.candidates },
   { name: 'proxy', label: LABELS_STEPS.proxy },
   // Livrée par la PR #31 et jamais chronométrée sur une émission entière :
@@ -314,6 +318,10 @@ const RATES: Record<StepName, number | null> = {
   audio: 6 / REFERENCE.durationSec,
   // 1 min 41, soit 59x le temps réel.
   transcript: 101 / REFERENCE.durationSec,
+  // Jamais chronométrée (spec §6) : ni Gemini ni Ollama n'ont été mesurés sur
+  // une émission entière. `null` dit qu'on ne sait pas, pas qu'elle est
+  // instantanée.
+  correction: null,
   // 6 min, soit 16,4x le temps réel. La plus longue, et de loin.
   proxy: 360 / REFERENCE.durationSec,
   // Livrée par la PR #31 et jamais chronométrée sur une émission entière.

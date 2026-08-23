@@ -1,17 +1,25 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import type Database from 'better-sqlite3'
 
+import { isAAbsence } from '@/server/bytes'
 import {
   flattenTranscript,
+  orderForApplication,
   parseCorrectionResponse,
+  shiftEntries,
   toProposedCorrection,
   validateCorrections,
+  EMPTY_CORRECTION_LOG,
+  type CorrectionEntry,
+  type CorrectionLog,
   type CorrectionRejectionReason,
   type FlatWord,
   type ProposedCorrection,
 } from '@/core/correction'
 import { correctionPrompt, correctionWordsJson } from '@/core/gemini/prompts'
 import type { Project } from '@/server/db'
+import { pathTemporary } from '@/server/ffmpeg'
 import { createCallFromSettings } from '@/server/llm/registry'
 import { callWithRetry } from '@/server/llm/retry'
 import type { JsonSchema, LlmCallConfig, LlmMode } from '@/server/llm/types'
@@ -19,13 +27,18 @@ import { placeSidecar, resolveSource } from '@/server/paths'
 import { ExecutionInCurrentError } from '@/server/run'
 import { editingResponds } from '@/server/steps/ingest'
 import { lireTranscript } from '@/server/steps/candidates'
+import { correctTranscript, type TranscriptCorrectionRejection } from '@/server/steps/transcript'
 
 /**
  * L'orchestration de la correction du transcript par modèle (spec §9,
  * étage 2) : découpe en empans, appel au modèle, validation par le noyau pur
- * (`@/core/correction`). Rien n'est écrit ici — l'écriture réutilise
- * `correctTranscript` (`src/server/steps/transcript.ts`), une substitution à
- * la fois, depuis l'écran.
+ * (`@/core/correction`), écriture et journal.
+ *
+ * **Deux fonctions publiques, deux moments distincts.** `proposeTranscriptCorrections`
+ * ne fait que proposer — c'est le cœur, réutilisé tel quel ; `applyTranscriptCorrections`
+ * l'appelle puis écrit, via `correctTranscript` (`src/server/steps/transcript.ts`), la
+ * même file d'écriture que la correction manuelle. C'est `applyTranscriptCorrections`
+ * que l'étape `correction` du graphe appelle (`src/server/run.ts`).
  */
 
 /** Environ 120 mots par empan, au milieu de la fourchette 80-150 mesurée (spec §9). */
@@ -161,4 +174,208 @@ export async function proposeTranscriptCorrections(
   }
 
   return { ok: true, proposals, rejected }
+}
+
+// ---------------------------------------------------------------------------
+// Le journal — lecture, écriture atomique, application, et son inverse
+// ---------------------------------------------------------------------------
+
+/**
+ * Lit `correction.json` depuis son chemin. Rend le journal vide si absent.
+ * @throws Toute erreur qui n'est pas une absence (`isAAbsence`) — un JSON
+ * tronqué ou une erreur disque ne doit pas passer pour « aucune correction » :
+ * la présence du fichier marque déjà l'étape faite, donc une corruption
+ * avalée en silence serait écrasée par la prochaine passe, sans laisser de
+ * trace. (relevé par Copilot et Aristarque)
+ */
+function readCorrectionLogFrom(path: string): CorrectionLog {
+  try {
+    return JSON.parse(fs.readFileSync(path, 'utf8')) as CorrectionLog
+  } catch (cause) {
+    if (isAAbsence(cause)) return EMPTY_CORRECTION_LOG
+    throw cause
+  }
+}
+
+/**
+ * Le journal des corrections d'un projet — l'historique que l'écran affiche.
+ *
+ * **Sondée avant `placeSidecar`, comme `correctTranscript` et
+ * `proposeTranscriptCorrections`.** `placeSidecar` fait des appels
+ * *synchrones* — `existsSync`, `mkdirSync` — et sur un montage 9p au
+ * transport mort, un appel synchrone gèle la boucle d'événements entière,
+ * donc tout le serveur : ouvrir le panneau transcript ne doit pas pouvoir
+ * geler une analyse en cours. (relevé par Codex, Copilot et Aristarque)
+ * @returns Le journal vide si la correction n'a jamais tourné sur ce projet,
+ * jamais une erreur : c'est l'état normal entre le repérage et la première
+ * exécution de l'étape `correction`.
+ * @throws Si le dossier des replays ne répond pas.
+ */
+export async function readCorrectionLog(project: Project): Promise<CorrectionLog> {
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de lire l’historique de correction. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+  const placement = placeSidecar(project.sourcePath, project.id)
+  return readCorrectionLogFrom(placement.correction)
+}
+
+/**
+ * Écrit le journal, nom temporaire puis `rename` — comme `correctTranscript`.
+ * Une étape tuée avant ce renommage ne doit rien laisser qui passe pour un
+ * artefact fait.
+ */
+async function writeCorrectionLog(path: string, log: CorrectionLog): Promise<void> {
+  const temporary = pathTemporary(path)
+  await fsp.writeFile(temporary, `${JSON.stringify(log, null, 2)}\n`, 'utf8')
+  await fsp.rename(temporary, path)
+}
+
+export type ApplyCorrectionsOutcome = {
+  /** Les entrées du journal, **après** cette passe — le journal entier, pas seulement les nouvelles. */
+  entries: CorrectionEntry[]
+  /** Combien de substitutions proposées ont effectivement été écrites. */
+  applied: number
+  /** Combien ont échoué à l'écriture (ancre déjà changée sous les pieds d'une autre) — tolérées, pas bloquantes. */
+  failed: number
+  rejected: Partial<Record<CorrectionRejectionReason, number>>
+}
+
+/**
+ * Propose, puis écrit : le chemin que l'étape `correction` du graphe appelle.
+ *
+ * **Le journal s'accumule, il ne se réécrit pas** (spec §9, correction du
+ * 23 août 2026) — sauf quand `freshTranscript` est vrai. Une seconde passe
+ * travaille sur un texte déjà corrigé ; ses substitutions ne recouvrent jamais
+ * celles d'une passe précédente, et les perdre de l'historique retirerait la
+ * moitié de ce que le journal promet en échange de l'écriture sans veto
+ * (contrat de cette PR : « l'historique de ce qui a été changé, avec la
+ * possibilité de défaire »). Une retranscription, elle, remplace
+ * `transcript.json` en entier — les positions d'un journal antérieur n'y
+ * correspondent plus à rien, et `freshTranscript` (posé par `src/server/run.ts`
+ * quand `transcript` vient de tourner dans la même exécution) le fait
+ * repartir vide, exactement comme `transcript.json` lui-même repart vide.
+ *
+ * **Ordre rightmost-first par phrase** (`orderForApplication`), et
+ * **décalage des entrées déjà présentes** (`shiftEntries`) après chaque
+ * fusion écrite : une substitution qui remplace N mots par un seul décale de
+ * N−1 tout ce qui, dans la même phrase, se trouve plus loin — qu'il vienne de
+ * cette passe ou d'une passe précédente. C'est la même formule que `undoCorrectionEntry`
+ * applique en sens inverse.
+ *
+ * **Jamais `isRunning`** : l'exécution en cours, ici, est la nôtre — la
+ * passer ferait échouer l'étape sur `ExecutionInCurrentError` à chaque
+ * analyse (piège documenté au contrat de cette PR).
+ *
+ * **La VRAM est libre par construction** : cette étape suit toujours
+ * `transcript` dans le graphe, qui a attendu la sortie du sous-processus
+ * WhisperX avant de rendre la main (`src/server/steps/transcript.ts`).
+ *
+ * @throws Si le transcript est absent (ne devrait pas arriver : le graphe
+ * garantit `transcript` avant `correction`) ou si le modèle est injoignable —
+ * l'appelant (`src/server/run.ts`) décide alors s'il continue quand même.
+ */
+export async function applyTranscriptCorrections(
+  project: Project,
+  db: Database.Database,
+  options: { signal?: AbortSignal; freshTranscript?: boolean } = {},
+): Promise<ApplyCorrectionsOutcome> {
+  const proposed = await proposeTranscriptCorrections(db, project, { signal: options.signal })
+  if (!proposed.ok) {
+    throw new Error(
+      `Correction du transcript de ${project.id} : le transcript est introuvable alors que le ` +
+        'graphe le garantit avant cette étape — voir readingPresence/planSteps.',
+    )
+  }
+
+  const placement = placeSidecar(project.sourcePath, project.id)
+  const previous = options.freshTranscript === true ? EMPTY_CORRECTION_LOG : readCorrectionLogFrom(placement.correction)
+
+  let entries = [...previous.entries]
+  let nextId = previous.nextId
+  let applied = 0
+  let failed = 0
+
+  for (const proposal of orderForApplication(proposed.proposals)) {
+    const result = await correctTranscript(project, proposal.lineId, proposal.correction)
+    if (!result.ok) {
+      failed += 1
+      continue
+    }
+    applied += 1
+    const width = proposal.correction.to - proposal.correction.from + 1
+    const delta = 1 - width
+    if (delta !== 0) entries = shiftEntries(entries, proposal.lineId, proposal.correction.to, delta)
+    entries.push({
+      id: String(nextId),
+      lineId: proposal.lineId,
+      from: proposal.correction.from,
+      expected: [...proposal.correction.expected],
+      replacement: proposal.replacement,
+      timecode: proposal.timecode,
+    })
+    nextId += 1
+  }
+
+  await writeCorrectionLog(placement.correction, { nextId, entries })
+
+  return { entries, applied, failed, rejected: proposed.rejected }
+}
+
+export type UndoCorrectionOutcome =
+  | { ok: true; entries: CorrectionEntry[]; correctedSpan: { start: number; end: number } }
+  | { ok: false; reason: 'unknown-entry' | TranscriptCorrectionRejection }
+
+/**
+ * Défait une substitution du journal : l'inverse, par le même chemin
+ * d'écriture, mêmes gardes, même file (`correctTranscript`).
+ *
+ * **Recalcule les entrées voisines, ne les jette pas.** Défaire une fusion de
+ * N mots réinsère N−1 mots dans la phrase : toute autre entrée de cette même
+ * phrase, plus loin, doit avancer d'autant pour continuer à désigner le bon
+ * mot — sinon elle reste dans le journal, mais mentirait sur ce qu'elle
+ * permettrait de défaire. `shiftEntries` porte cette formule, la même qu'à
+ * l'application, en sens inverse.
+ *
+ * @param isRunning Transmis à `correctTranscript`, contrairement à
+ * `applyTranscriptCorrections` : contrairement à l'étape du graphe, ce geste
+ * part d'une requête HTTP indépendante d'une exécution en cours, donc soumis
+ * à la même garde que la correction manuelle.
+ */
+export async function undoCorrectionEntry(
+  project: Project,
+  id: string,
+  isRunning: (projectId: string) => boolean = () => false,
+): Promise<UndoCorrectionOutcome> {
+  // Même garde que `readCorrectionLog` et `correctTranscript`, et pour la
+  // même raison : `placeSidecar` gèle la boucle d'événements sur un montage
+  // 9p au transport mort. (relevé par Copilot)
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de défaire cette correction. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+  const placement = placeSidecar(project.sourcePath, project.id)
+  const log = readCorrectionLogFrom(placement.correction)
+  const entry = log.entries.find((e) => e.id === id)
+  if (entry === undefined) return { ok: false, reason: 'unknown-entry' }
+
+  const result = await correctTranscript(
+    project,
+    entry.lineId,
+    { from: entry.from, to: entry.from, expected: [entry.replacement], replacement: entry.expected },
+    isRunning,
+  )
+  if (!result.ok) return result
+
+  const remaining = log.entries.filter((e) => e.id !== id)
+  const shifted = shiftEntries(remaining, entry.lineId, entry.from, entry.expected.length - 1)
+  await writeCorrectionLog(placement.correction, { nextId: log.nextId, entries: shifted })
+
+  return { ok: true, entries: shifted, correctedSpan: result.correctedSpan }
 }

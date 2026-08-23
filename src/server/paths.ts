@@ -209,6 +209,15 @@ export type SidecarPlacement = {
   /** `transcript.json` à l'intérieur. */
   transcript: string
   /**
+   * `correction.json` à l'intérieur : le journal de ce que la correction
+   * automatique du transcript a changé (spec §9, étage 2, correction du
+   * 23 août 2026). Il sert deux rôles — la présence de l'étape `correction`
+   * pour `readingPresence`, et l'historique de relecture que l'écran
+   * affiche et depuis lequel on défait — d'où sa place ici plutôt qu'un
+   * chemin construit à la main au point d'écriture.
+   */
+  correction: string
+  /**
    * Vrai quand le sidecar a dû se rabattre dans le projet. Pas une erreur :
    * seulement moins de réutilisation, et l'interface le signale (spec §5).
    */
@@ -287,6 +296,7 @@ export function placeSidecar(source: string, projectId: string): SidecarPlacemen
   const placement = (dir: string, fallback: boolean): SidecarPlacement => ({
     dir,
     transcript: path.join(dir, 'transcript.json'),
+    correction: path.join(dir, 'correction.json'),
     fallback,
   })
 

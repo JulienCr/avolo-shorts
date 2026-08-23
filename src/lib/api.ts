@@ -42,7 +42,6 @@
  * moindre espace casserait l'URL.
  */
 
-import type { CorrectionRejectionReason } from '@/core/correction'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
@@ -961,8 +960,9 @@ export type LlmProvider = (typeof LLM_PROVIDERS)[number]
  *
  * **Les trois sont branchés.** `selection*` alimente le repérage, `hook*` la
  * génération du hook (`POST /api/clips/:id/hook`), `correction*` la
- * correction du transcript (`POST /api/projects/:id/transcript/correction`,
- * `proposeTranscriptCorrections`) — dernier des trois, retour d'usage §6.1.
+ * correction automatique du transcript — appliquée d'office pendant
+ * l'analyse depuis le 23 août 2026 (`case 'correction'`, `src/server/run.ts`),
+ * plus par un appel client dédié — dernier des trois, retour d'usage §6.1.
  */
 export type AiSettings = {
   selectionProvider: LlmProvider
@@ -1140,32 +1140,52 @@ export function correctTranscript(
   )
 }
 
-/** Une substitution proposée par le modèle, pas encore écrite. */
-export type CorrectionProposal = {
-  /** À passer tel quel à `correctTranscript` pour valider cette substitution. */
-  request: TranscriptCorrectionRequest
+/**
+ * Une substitution appliquée par la correction automatique — l'historique de
+ * relecture (spec §9, correction du 23 août 2026). La correction s'applique
+ * désormais d'office pendant l'analyse ; ce que l'écran offre après coup,
+ * c'est de voir et de défaire, plus de proposer.
+ */
+export type CorrectionEntry = {
+  /** Unique pour la durée de vie du journal (`correction.json`), à passer tel quel à `undoCorrection`. */
+  id: string
+  lineId: string
+  from: number
+  expected: string[]
+  replacement: string
   /** Le début du mot corrigé, en secondes. */
   timecode: number
-  original: string
-  replacement: string
-}
-
-/** Une proposition de correction : les substitutions retenues, et un compte des refus par catégorie. */
-export type ProposeCorrectionsResult = {
-  proposals: CorrectionProposal[]
-  rejected: Partial<Record<CorrectionRejectionReason, number>>
 }
 
 /**
- * Demande au modèle une proposition de corrections sur le transcript entier
- * — `POST /api/projects/:id/transcript/correction`.
- * @returns Une proposition, jamais une écriture (spec §9) : chaque
- * substitution retenue se valide en rappelant `correctTranscript`.
+ * L'historique des corrections déjà appliquées — `GET
+ * /api/projects/:id/transcript/correction`.
+ * @returns Une liste vide, jamais une erreur, tant que la correction n'a pas
+ * encore tourné sur ce projet.
  */
-export function proposeTranscriptCorrections(projectId: string): Promise<ProposeCorrectionsResult> {
-  return post<ProposeCorrectionsResult>(
-    `/api/projects/${encodeURIComponent(projectId)}/transcript/correction`,
-    {},
+export function getCorrectionHistory(projectId: string): Promise<CorrectionEntry[]> {
+  return lire<CorrectionEntry[]>(`/api/projects/${encodeURIComponent(projectId)}/transcript/correction`)
+}
+
+/** Ce que rend `undoCorrection` : le journal après retrait, et les clips touchés par le mot rétabli. */
+export type UndoCorrectionResult = {
+  entries: CorrectionEntry[]
+  clipsTouched: { id: string; title: string }[]
+}
+
+/**
+ * Défait une substitution du journal — `POST
+ * /api/projects/:id/transcript/correction/undo`. L'inverse, par le même
+ * chemin d'écriture que la correction manuelle, mêmes gardes.
+ *
+ * **409 pendant une exécution**, comme `correctTranscript` : une
+ * retranscription en cours écraserait le sidecar derrière un défaire qui
+ * vient de s'annoncer réussi.
+ */
+export function undoCorrection(projectId: string, id: string): Promise<UndoCorrectionResult> {
+  return post<UndoCorrectionResult>(
+    `/api/projects/${encodeURIComponent(projectId)}/transcript/correction/undo`,
+    { id },
   )
 }
 

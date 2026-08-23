@@ -363,26 +363,23 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
 
   try {
     await launchWorker(python, args, env, o.onLog, o.signal)
-    await fsp.rename(temporary, placement.transcript)
-    // **Un transcript neuf rend obsolète tout `correction.json` déjà là** —
-    // ses positions ne correspondent plus à rien. Le supprimer ici, au point
-    // unique où `transcript.json` change, ferme le chemin que
-    // `applyTranscriptCorrections` seul ne couvre pas : `dev-transcribe.ts`
-    // ne vise jamais `correction` dans son plan, et une panne du modèle avant
-    // l'écriture finale du journal (dans une passe qui, elle, vise
-    // `correction`) laisserait sinon un ancien journal présent sous un
-    // transcript qu'il ne décrit plus — `readingPresence` le lirait comme
-    // « fait » et une relance visant `candidates` sauterait la correction.
-    // (relevé par Codex, Copilot et Aristarque)
+    // **Avant le renommage, pas après.** Un `correction.json` déjà là décrit
+    // l'ancien transcript, pas celui qu'on s'apprête à publier — le
+    // supprimer une fois le nouveau `transcript.json` en place laisserait,
+    // sur un échec de suppression (`EIO`/`EPERM`), les deux se retrouver
+    // publiés ensemble malgré l'échec de la transcription : un
+    // `readingPresence` ultérieur lirait alors un journal périmé comme fait,
+    // sous un transcript qu'il ne décrit plus. Devant le renommage, le même
+    // échec laisse au contraire l'ancien couple transcript/journal
+    // intact — rien n'a changé, la transcription a juste échoué comme
+    // n'importe quelle autre panne disque ici. (relevé par Codex, Copilot et
+    // Aristarque)
     //
-    // **`force: true` avale déjà `ENOENT`** — c'est tout ce qu'il doit avaler.
-    // Un `.catch(() => {})` par-dessus masquerait aussi `EIO`/`EPERM` : le
-    // nouveau transcript resterait posé à côté d'un ancien journal que
-    // personne n'aurait réussi à effacer, et `readingPresence` le lirait
-    // encore comme fait. Laisser l'échec de suppression faire échouer la
-    // transcription, comme n'importe quelle autre panne disque ici. (relevé
-    // par Codex)
+    // **`force: true` avale déjà `ENOENT`** — c'est tout ce qu'il doit
+    // avaler ; un `.catch(() => {})` par-dessus masquerait aussi `EIO`/`EPERM`.
+    // (relevé par Codex)
     await fsp.rm(placement.correction, { force: true })
+    await fsp.rename(temporary, placement.transcript)
   } catch (cause) {
     await fsp.rm(temporary, { force: true }).catch(() => {})
     throw cause

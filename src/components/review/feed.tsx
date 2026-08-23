@@ -3,7 +3,7 @@
 import { Keyboard, Send } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { clipEligibilityFromStatus } from '@/core/publication'
+import { clipEligibilityFromStatus, type Platform, type PlatformAvailability } from '@/core/publication'
 import type { ClipStatus } from '@/core/edl'
 import { count } from '@/core/phase'
 import type { SelectionReport, CandidateClip } from '@/lib/api'
@@ -69,6 +69,8 @@ export function ReviewFeed({
   next,
   onStatus,
   header,
+  publicationAvailability,
+  onPublish,
 }: {
   projectId: string
   clips: readonly CandidateClip[]
@@ -78,6 +80,10 @@ export function ReviewFeed({
   proxyReady: boolean
   /** Ce que le repérage n'a pas jugé, ou `null`. Voir `detectionWord`. */
   summary: SelectionReport | null
+  /** Injectée par la page, comme `PublishDialog` — voir son propre commentaire. */
+  publicationAvailability?: Readonly<Record<Platform, PlatformAvailability>>
+  /** Lance la publication en masse — la page en fait un `POST` par clip. */
+  onPublish?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
   /**
    * L'issue de la phase, calculée par la page.
    *
@@ -477,7 +483,13 @@ export function ReviewFeed({
 
       <HelpKeyboard open={help} onOpen={setHelp} />
 
-      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={clipsToPublish} />
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        clips={clipsToPublish}
+        availability={publicationAvailability}
+        onLaunch={onPublish}
+      />
     </div>
   )
 }

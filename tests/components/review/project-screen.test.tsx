@@ -22,6 +22,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CandidateClip, ProjectStatus } from '@/lib/api'
+import { defaultPlatformAvailability } from '@/core/publication'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
 
 // Le routeur n'existe pas hors d'une application Next montée. On ne teste pas
@@ -89,6 +90,12 @@ function serve(project: ProjectStatus | null, candidates: CandidateClip[] | null
   vi.stubGlobal(
     'fetch',
     vi.fn(async (path: string) => {
+      // `ReviewFeed` porte `PublishDialog`, qui interroge ces deux routes de
+      // publication à chaque montage — indépendantes du projet et des
+      // candidats de ce test.
+      if (path.includes('/publication/availability')) {
+        return { ok: true, status: 200, statusText: '', json: async () => defaultPlatformAvailability() } as Response
+      }
       const [body, ok] = path.endsWith('/candidates')
         ? [candidates ?? { error: 'liste indisponible' }, candidates !== null]
         : [project ?? { error: 'projet introuvable' }, project !== null]

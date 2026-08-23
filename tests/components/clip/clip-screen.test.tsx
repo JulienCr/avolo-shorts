@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ClipScreen } from '@/components/clip/clip-screen'
 import { framing, shot } from '../../fixtures/framing'
+import { defaultPlatformAvailability } from '@/core/publication'
 import type { CandidateClip, ClipDetail } from '@/lib/api'
 import { useEditor } from '@/store/editor'
 import { usePlayback } from '@/components/clip/playback'
@@ -86,9 +87,22 @@ function response(body: unknown): Response {
   return { ok: true, status: 200, statusText: '', json: async () => body } as Response
 }
 
+/**
+ * Le rail d'export (`PanelExport`) interroge ces deux routes de publication à
+ * chaque montage, indépendamment du clip. `undefined` : l'appelant retombe
+ * sur sa propre réponse.
+ */
+function publicationResponse(url: string): Response | undefined {
+  if (url.includes('/publication/availability')) return response(defaultPlatformAvailability())
+  if (url.includes('/publications')) return response({ publications: [] })
+  return undefined
+}
+
 function stubFetch() {
   const fetch = vi.fn(async (url: string) => {
     if (url.includes('/candidates')) return response(candidates)
+    const publication = publicationResponse(url)
+    if (publication !== undefined) return publication
     const id = url.split('/').pop() ?? 'c2'
     return response(detail(id))
   })
@@ -319,6 +333,8 @@ describe('les marques', () => {
         return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
       }
       if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
       return response(detail('c2'))
     })
     vi.stubGlobal('fetch', fetch)
@@ -347,6 +363,8 @@ describe('les sous-titres', () => {
         return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
       }
       if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
       return response(detail('c2'))
     })
     vi.stubGlobal('fetch', fetch)
@@ -418,6 +436,8 @@ describe('l’enregistrement en échec', () => {
       const fetch = vi.fn(async (url: string, options?: RequestInit) => {
         if (options?.method === 'PATCH') throw new Error('réseau coupé')
         if (String(url).includes('/candidates')) return response(candidates)
+        const publication = publicationResponse(String(url))
+        if (publication !== undefined) return publication
         return response(detail('c2'))
       })
       vi.stubGlobal('fetch', fetch)
@@ -492,6 +512,8 @@ describe('l’échec d’une écriture directe', () => {
     const fetch = vi.fn(async (url: string, options?: RequestInit) => {
       if (options?.method === 'PATCH') throw new Error('réseau coupé')
       if (String(url).includes('/candidates')) return response(candidates)
+      const publication = publicationResponse(String(url))
+      if (publication !== undefined) return publication
       return response(detail('c2'))
     })
     vi.stubGlobal('fetch', fetch)
@@ -531,6 +553,8 @@ describe('l’export et les écritures qui se chevauchent', () => {
           })
         }
         if (String(url).includes('/candidates')) return response(candidates)
+        const publication = publicationResponse(String(url))
+        if (publication !== undefined) return publication
         return response(detail('c2'))
       })
       vi.stubGlobal('fetch', fetch)
@@ -574,6 +598,8 @@ describe('un texte resté non enregistré', () => {
           })
         }
         if (String(url).includes('/candidates')) return response(candidates)
+        const publication = publicationResponse(String(url))
+        if (publication !== undefined) return publication
         return response(detail('c2'))
       })
       vi.stubGlobal('fetch', fetch)

@@ -22,6 +22,7 @@ import { PublishDialog, type PublishClipTarget } from '@/components/publication/
 import { ApiError, type PublishedFraming, type ClipOutputs } from '@/lib/api'
 import type { AutosaveState } from '@/lib/autosave'
 import { useExporter } from '@/lib/queries'
+import type { Platform, PlatformAvailability, PublicationRecord } from '@/core/publication'
 
 /**
  * L'état de livraison d'un clip, réduit à ce que le rail doit en montrer.
@@ -80,6 +81,9 @@ export function PanelExport({
   autosave,
   writeInCurrent,
   writeInFailure,
+  publicationAvailability,
+  publicationRecords,
+  onPublish,
 }: {
   /** Le clip **du serveur** : c'est lui qui porte le titre, la description et les marques. */
   clip: Clip
@@ -119,6 +123,12 @@ export function PanelExport({
   writeInCurrent: boolean
   /** La dernière écriture de clip a échoué — le rendu lirait un état qu'on n'a pas voulu. */
   writeInFailure: boolean
+  /** Injectée par la page, comme `PublishDialog` — voir son propre commentaire. */
+  publicationAvailability?: Readonly<Record<Platform, PlatformAvailability>>
+  /** Ce qu'une publication précédente a laissé, par plateforme — voir `PublishClipTarget.records`. */
+  publicationRecords?: Partial<Record<Platform, PublicationRecord>>
+  /** Lance la publication — la page en fait un `POST /api/clips/:id/publish`. */
+  onPublish?: (targets: readonly { clipId: string; platform: Platform }[], force: boolean) => void
 }) {
   const exporter = useExporter()
   const [confirmation, setConfirmation] = useState(false)
@@ -202,6 +212,7 @@ export function PanelExport({
     clipId: clip.id,
     title: clip.title,
     eligibility: publicationEligibility,
+    records: publicationRecords,
     // **L'empreinte de ce rail, pas une recomputation.** `empreinte` porte
     // déjà tout ce qui décide du rendu (segments, ratio, cadrage, marques,
     // sous-titres, textes) — voir le commentaire de la prop plus haut. La
@@ -443,7 +454,13 @@ export function PanelExport({
         </DialogContent>
       </Dialog>
 
-      <PublishDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen} clips={[publishTarget]} />
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        clips={[publishTarget]}
+        availability={publicationAvailability}
+        onLaunch={onPublish}
+      />
     </Collapsible>
   )
 }

@@ -7,7 +7,8 @@ import type { StepName } from '@/core/graph'
 import { count, phaseProject, type ShowSize } from '@/core/phase'
 import { RESUME_TARGETS } from '@/lib/api'
 import { linkProject, next } from '@/lib/navigation'
-import { useCandidates, usePatchClip, useProject } from '@/lib/queries'
+import { useCandidates, usePatchClip, usePublicationAvailability, usePublisher, useProject } from '@/lib/queries'
+import type { Platform } from '@/core/publication'
 import { ShowView } from '@/components/show/show-view'
 import { AppBar } from '@/components/navigation/app-bar'
 import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/review/progress'
@@ -43,7 +44,24 @@ export function ProjectScreen({ id }: { id: string }) {
   const project = useProject(id)
   const candidates = useCandidates(id)
   const patch = usePatchClip()
+  const publicationAvailability = usePublicationAvailability()
+  const publisher = usePublisher()
   const [view, goToView] = useViewInUrl(id)
+
+  /**
+   * Un `POST /publish` par clip, jamais un seul lot : la route ne prend qu'un
+   * identifiant de clip (spec §6.4). `ReviewFeed` ne fait qu'appeler ceci ;
+   * il ne connaît ni la mutation ni le regroupement.
+   */
+  function publishSelection(targets: readonly { clipId: string; platform: Platform }[], force: boolean) {
+    const byClip = new Map<string, Platform[]>()
+    for (const target of targets) {
+      const platforms = byClip.get(target.clipId) ?? []
+      platforms.push(target.platform)
+      byClip.set(target.clipId, platforms)
+    }
+    for (const [clipId, platforms] of byClip) publisher.mutate({ clipId, platforms, force })
+  }
 
   const clips = candidates.data ?? []
   const steps = project.data?.steps ?? ({} as Record<StepName, boolean>)
@@ -289,6 +307,8 @@ export function ProjectScreen({ id }: { id: string }) {
                 onStatus={(clipId, status) =>
                   patch.mutate({ clipId, projectId: id, patch: { status } })
                 }
+                publicationAvailability={publicationAvailability.data}
+                onPublish={publishSelection}
                 header={
                   <>
                     {/* **La reprise vit aussi devant la grille.** Un redémarrage

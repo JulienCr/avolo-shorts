@@ -73,7 +73,14 @@ export function CaptionOverlay({
                 fontSize: cqh(units.sizeUnits / PLAYRES_Y),
                 lineHeight: 1.2,
                 color: i === activeWord ? style.highlightColor : style.fontColor,
-                WebkitTextStroke: `${cqh(units.borderUnits / PLAYRES_Y)} ${style.borderColor}`,
+                // libass dilate le contour vers l'extérieur du glyphe ;
+                // `-webkit-text-stroke` le centre, donc la moitié mange la
+                // lettre. `paint-order` peint le contour d'abord et la
+                // couleur par-dessus — la moitié intérieure disparaît, et
+                // c'est pourquoi la largeur double pour rendre l'épaisseur
+                // extérieure qu'écrit `renderAss`.
+                paintOrder: 'stroke fill',
+                WebkitTextStroke: `${cqh((2 * units.borderUnits) / PLAYRES_Y)} ${style.borderColor}`,
               }}
             >
               {display(word.word, style.uppercase)}

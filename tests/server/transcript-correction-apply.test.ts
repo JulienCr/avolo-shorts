@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -141,6 +142,56 @@ describe('applyTranscriptCorrections', () => {
     )
   })
 
+  it('journalise au fil de l’eau : une panne d’écriture ne perd que la substitution en cours (#136)', async () => {
+    // **Le scénario de l'issue, borné.** Trois substitutions à appliquer,
+    // rightmost-first ; l'écriture du journal échoue à la troisième (disque
+    // plein, simulé), après que les deux premières ont réussi — transcript
+    // et journal. Si le journal ne s'écrivait qu'une fois à la fin, cette
+    // panne perdrait la trace des trois ; au fil de l'eau, seule la
+    // troisième — celle en cours au moment de la panne — reste hors du
+    // journal, alors que son mot est déjà écrit sur le transcript. C'est le
+    // pire résiduel annoncé par le commentaire d'`applyTranscriptCorrections` :
+    // jamais le lot entier, au plus une substitution.
+    const words = ['a', 'la', 'le']
+    writeTranscript(words)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        ollamaResponse([
+          { i: 0, w: 'à' },
+          { i: 1, w: 'là' },
+          { i: 2, w: 'lè' },
+        ]),
+      ),
+    )
+
+    let writes = 0
+    const original = fsp.writeFile
+    vi.spyOn(fsp, 'writeFile').mockImplementation(async (file, data, options) => {
+      if (String(file).includes('correction.partiel')) {
+        writes += 1
+        if (writes === 3) throw new Error('ENOSPC: no space left on device')
+      }
+      return original(file, data, options)
+    })
+
+    await expect(applyTranscriptCorrections(project, getDb())).rejects.toThrow(/ENOSPC/)
+
+    // Les trois mots sont corrigés sur le disque — `correctTranscript`
+    // écrit avant que ce test ne fasse échouer le journal.
+    expect(readTranscriptWords()).toEqual(['à', 'là', 'lè'])
+    // Mais le journal ne porte que les deux premières écritures réussies :
+    // la troisième, en cours au moment de la panne, n'y figure pas.
+    const log = await readCorrectionLog(project)
+    expect(log.entries).toHaveLength(2)
+    expect(log.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ lineId: 'l0', from: 2, expected: ['le'], replacement: 'lè' }),
+        expect.objectContaining({ lineId: 'l0', from: 1, expected: ['la'], replacement: 'là' }),
+      ]),
+    )
+  })
+
   it('accumule avec le journal existant plutôt que de le remplacer', async () => {
     const words = ['a', 'deux']
     writeTranscript(words)
@@ -148,7 +199,6 @@ describe('applyTranscriptCorrections', () => {
     fs.writeFileSync(
       placement.correction,
       JSON.stringify({
-        nextId: 5,
         entries: [{ id: '4', lineId: 'l1', from: 0, expected: ['ancien'], replacement: 'x', timecode: 0 }],
       }),
     )
@@ -172,7 +222,6 @@ describe('applyTranscriptCorrections', () => {
     fs.writeFileSync(
       placement.correction,
       JSON.stringify({
-        nextId: 5,
         entries: [{ id: '4', lineId: 'l1', from: 0, expected: ['ancien'], replacement: 'x', timecode: 0 }],
       }),
     )
@@ -189,5 +238,43 @@ describe('applyTranscriptCorrections', () => {
 
   it('lève quand le transcript est absent, plutôt que d’avaler en silence', async () => {
     await expect(applyTranscriptCorrections(project, getDb())).rejects.toThrow()
+  })
+
+  it('publie un journal vide quand aucune proposition n’est retenue', async () => {
+    // **Le scénario de la review de la #143.** Aucune substitution retenue —
+    // le modèle ne propose rien, ou `correctTranscript` rejette tout — laisse
+    // `applied` à 0 : la boucle d'écriture au fil de l'eau ne tourne jamais.
+    // Sans l'écriture finale, `correction.json` resterait absent alors que
+    // l'étape a réussi, et `readingPresence` (`src/server/run.ts`) — qui ne
+    // sonde que l'existence du fichier — reprogrammerait le modèle à chaque
+    // exécution suivante.
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([])))
+
+    await applyTranscriptCorrections(project, getDb())
+
+    const placement = placeSidecar(SOURCE, ID)
+    expect(fs.existsSync(placement.correction)).toBe(true)
+  })
+
+  it('ne réutilise jamais un identifiant entre deux journaux (#139)', async () => {
+    // **Le scénario de l'issue.** Un compteur qui repart de `1` à chaque
+    // `freshTranscript` produirait le même `id` sur deux retranscriptions
+    // successives — exactement ce qu'un onglet resté ouvert sur l'ancien
+    // historique pourrait envoyer à `POST .../correction/undo` après la
+    // seconde. Deux passes, chacune avec un seul mot à corriger, chacune un
+    // journal reparti à vide : leurs deux entrées ne doivent jamais porter le
+    // même identifiant.
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([{ i: 0, w: 'à' }])))
+    await applyTranscriptCorrections(project, getDb(), { freshTranscript: true })
+    const first = (await readCorrectionLog(project)).entries[0]
+
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([{ i: 0, w: 'à' }])))
+    await applyTranscriptCorrections(project, getDb(), { freshTranscript: true })
+    const second = (await readCorrectionLog(project)).entries[0]
+
+    expect(first.id).not.toBe(second.id)
   })
 })

@@ -17,6 +17,7 @@ import {
   useCorrectionHistory,
   useCorrectTranscript,
   useProject,
+  useRemoveCorrectionEntry,
   useRetry,
   useTranscript,
   useUndoCorrection,
@@ -180,6 +181,7 @@ export function TranscriptPanel({
   const project = useProject(projectId, { enabled: open })
   const history = useCorrectionHistory(projectId, { enabled: open })
   const undo = useUndoCorrection()
+  const remove = useRemoveCorrectionEntry()
   const client = useQueryClient()
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
@@ -227,20 +229,28 @@ export function TranscriptPanel({
   // Les effacer là aurait fait disparaître un avertissement encore vrai.
   // (relevé par Copilot)
   //
-  // **L'historique s'invalide sur `transcript` comme sur `correction`.**
-  // Une retranscription fait repartir `correction.json` à vide
-  // (`applyTranscriptCorrections`, `src/server/steps/transcript-correction.ts`) ;
-  // un simple « Relancer la correction » ne touche pas `transcript` mais
-  // change quand même le journal. Les deux étapes doivent donc être suivies
-  // séparément — un seul drapeau confondrait les deux et manquerait le
-  // second cas.
+  // **L'historique s'invalide à la fin de toute exécution observée, jamais
+  // sur une étape déduite.** Avant cette PR, l'invalidation ne suivait que
+  // `sawCorrectionStep` (et `sawTranscriptStep`, pour la même raison) : un
+  // sondage de deux secondes qui manque une étape `correction` courte —
+  // démarrée et finie entre deux tours — ne la voit jamais, et l'écran garde
+  // son cache jusqu'au prochain rechargement manuel (issue #135). Suivre la
+  // seule transition `wasRunning → !isRunning` ferme le cas sans avoir à
+  // deviner quelles étapes sont passées : un aller-retour de trop sur une
+  // exécution qui n'a rien changé au journal coûte moins qu'un affichage en
+  // retard.
   const wasRunning = useRef(false)
+  // **Restreint aux clips touchés, pas à l'historique.** `transcript.json`
+  // repart entier après une retranscription : le bandeau « corrections
+  // appliquées »/« clips concernés » ne correspondrait plus à rien une fois
+  // le nouveau texte chargé. Un repérage seul (`target: 'candidates'`, sans
+  // `force: ['transcript']`) ne réexporte aucun clip, et l'effacer là ferait
+  // disparaître un avertissement encore vrai — cette portion reste donc
+  // gardée par l'étape `transcript` réellement observée. (relevé par Copilot)
   const sawTranscriptStep = useRef(false)
-  const sawCorrectionStep = useRef(false)
   useEffect(() => {
     const running = project.data?.running ?? null
     if (running?.step === 'transcript') sawTranscriptStep.current = true
-    if (running?.step === 'correction') sawCorrectionStep.current = true
     const isRunning = running != null
     if (wasRunning.current && !isRunning) {
       if (sawTranscriptStep.current) {
@@ -249,11 +259,8 @@ export function TranscriptPanel({
         setSelection(null)
         setDraft('')
       }
-      if (sawTranscriptStep.current || sawCorrectionStep.current) {
-        void client.invalidateQueries({ queryKey: keys.correctionHistory(projectId) })
-      }
+      void client.invalidateQueries({ queryKey: keys.correctionHistory(projectId) })
       sawTranscriptStep.current = false
-      sawCorrectionStep.current = false
     }
     wasRunning.current = isRunning
   }, [project.data?.running, client, projectId])
@@ -418,6 +425,16 @@ export function TranscriptPanel({
     )
   }
 
+  /**
+   * Retire une entrée sans toucher au transcript — le rattrapage de dernier
+   * recours (issues #134, #138) quand son ancre est devenue périmée et que
+   * `undoEntry` ne peut plus rien pour elle.
+   */
+  function removeEntry(entry: CorrectionEntry) {
+    if (remove.isPending) return
+    remove.mutate({ projectId, id: entry.id })
+  }
+
   const items = virtualizer.getVirtualItems()
   const touchedClipsList = Array.from(touchedClips.values())
   const cursorLine = lineOfWord(indexedLines, cursor)
@@ -456,27 +473,37 @@ export function TranscriptPanel({
           />
         </div>
 
-        {/* **La panne de la correction automatique, si la dernière analyse
-            en a signalé une.** L'étape avale une panne du modèle plutôt que
-            de bloquer tout le plan (`src/server/run.ts`) ; ce bandeau est le
-            rattrapage explicite promis en échange — le message dit déjà
-            « relancer la correction », le bouton juste au-dessus le fait. */}
-        {project.data?.error !== null &&
-          project.data?.error !== undefined &&
+        {/* **La panne tolérée de la correction automatique, si la dernière
+            analyse en a signalé une — `project.data.warning`, distinct
+            d'`error` depuis les issues #137/#140.** L'étape avale une panne
+            du modèle plutôt que de bloquer tout le plan (`src/server/run.ts`) ;
+            ce bandeau est le rattrapage explicite promis en échange — le
+            bouton juste au-dessus le fait. */}
+        {project.data?.warning !== null &&
+          project.data?.warning !== undefined &&
           (project.data?.running ?? null) === null && (
             <div className="shrink-0 border-b px-4 py-2">
-              <Alert variant="destructive">
-                <AlertDescription>{project.data.error}</AlertDescription>
+              <Alert>
+                <AlertDescription>{project.data.warning}</AlertDescription>
               </Alert>
             </div>
           )}
 
-        {history.data !== undefined && history.data.length > 0 && (
+        {/* **`transcript.data !== undefined`, pas seulement `history.data`.**
+            L'historique se charge indépendamment du transcript, souvent plus
+            vite : sans cette garde, `lines` vaut encore `EMPTY_LINES` le temps
+            que la requête du transcript réponde, et `stale` (ci-dessous)
+            classe alors chaque entrée valide comme périmée — un bouton
+            destructif immédiatement cliquable sur un historique qui ne l'est
+            pas (relevé par Copilot et Codex). */}
+        {history.data !== undefined && history.data.length > 0 && transcript.data !== undefined && (
           <CorrectionHistory
             entries={history.data}
             lines={lines}
             undoing={undo.isPending}
             onUndo={undoEntry}
+            removing={remove.isPending}
+            onRemove={removeEntry}
           />
         )}
 
@@ -496,6 +523,13 @@ export function TranscriptPanel({
           <div className="shrink-0 border-b px-4 py-2">
             <span role="alert" className="text-xs text-destructive">
               {rejectionMessage(undo.error)}
+            </span>
+          </div>
+        )}
+        {remove.isError && (
+          <div className="shrink-0 border-b px-4 py-2">
+            <span role="alert" className="text-xs text-destructive">
+              {rejectionMessage(remove.error)}
             </span>
           </div>
         )}
@@ -648,8 +682,13 @@ export function TranscriptPanel({
  * `planSteps` qui le fait (`src/core/graph.ts`, « forced descend dans
  * l'aval ») : le repérage doit relire le texte que cette passe vient de
  * corriger.
+ *
+ * **Exporté et réutilisé par `ProjectScreen`** (`@/components/review/project-screen`),
+ * dont le bandeau d'avertissement de correction propose le même geste. Un
+ * seul endroit sait lancer ce `force`, plutôt que deux boutons qui pourraient
+ * diverger.
  */
-function RerunCorrectionButton({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
+export function RerunCorrectionButton({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
   const retry = useRetry()
   const [open, setOpen] = useState(false)
   const blocked = inCurrent || retry.isPending
@@ -719,11 +758,15 @@ function CorrectionHistory({
   lines,
   undoing,
   onUndo,
+  removing,
+  onRemove,
 }: {
   entries: CorrectionEntry[]
   lines: TranscriptLine[]
   undoing: boolean
   onUndo: (entry: CorrectionEntry) => void
+  removing: boolean
+  onRemove: (entry: CorrectionEntry) => void
 }) {
   const lineById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines])
   const container = useRef<HTMLDivElement>(null)
@@ -736,6 +779,9 @@ function CorrectionHistory({
     overscan: 8,
   })
   const items = virtualizer.getVirtualItems()
+  // Une seule file d'écriture sur `correction.json` : voir le commentaire au
+  // point d'appel des deux boutons.
+  const busy = undoing || removing
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2">
@@ -750,6 +796,14 @@ function CorrectionHistory({
             const entry = entries[item.index]
             if (entry === undefined) return null
             const line = lineById.get(entry.lineId)
+            // **Le même calcul que `applyWordCorrection` fait avant d'écrire un
+            // défaire** (`@/lib/editing`), pour décider quel bouton offrir —
+            // jamais pour se dispenser de la vraie garde côté serveur. Une
+            // phrase absente ou un mot qui ne correspond plus dit que
+            // `onUndo` échouerait en `anchor-mismatch`, pour toujours : la
+            // seule sortie qui reste est de retirer l'entrée (issues #134,
+            // #138).
+            const stale = line === undefined || line.words[entry.from]?.word !== entry.replacement
             return (
               <div
                 key={entry.id}
@@ -771,18 +825,41 @@ function CorrectionHistory({
                     <span className="font-medium">{entry.replacement}</span>
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0"
-                  aria-disabled={undoing}
-                  onClick={() => {
-                    if (undoing) return
-                    onUndo(entry)
-                  }}
-                >
-                  Défaire
-                </Button>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {/* **`busy`, pas seulement la mutation propre à ce bouton.**
+                      Les deux routes réécrivent le même `correction.json` : un
+                      retrait lancé pendant un défaire (ou l'inverse) lirait le
+                      journal avant l'écriture de l'autre, puis écraserait sa
+                      mise à jour (relevé par Copilot). */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-disabled={busy}
+                    onClick={() => {
+                      if (busy) return
+                      onUndo(entry)
+                    }}
+                  >
+                    Défaire
+                  </Button>
+                  {/* **Toujours là quand l'ancre ne correspond plus** — jamais
+                      en repli après un « Défaire » refusé, qui échouerait de
+                      la même façon indéfiniment. */}
+                  {stale && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-muted-foreground"
+                      aria-disabled={busy}
+                      onClick={() => {
+                        if (busy) return
+                        onRemove(entry)
+                      }}
+                    >
+                      Retirer de l’historique
+                    </Button>
+                  )}
+                </div>
               </div>
             )
           })}

@@ -177,6 +177,7 @@ const runningStatus: ProjectStatus = {
   steps: { proxy: false, audio: false, transcript: false, correction: false, analysis: false, candidates: false, renders: false },
   running: { step: 'transcript', progress: 0.4 },
   error: null,
+  warning: null,
   stopped: false,
   selectionReport: null,
   sizeBytes: null,

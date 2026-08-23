@@ -51,6 +51,7 @@ function state(fields: Partial<ProjectStatus> = {}): ProjectStatus {
     },
     running: { step: 'candidates', progress: 0.5 },
     error: null,
+    warning: null,
     selectionReport: null,
     stopped: false,
     sizeBytes: 4_300_000_000,
@@ -197,6 +198,47 @@ describe('l’écran de projet', () => {
 
     await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
     expect(screen.queryByRole('button', { name: /reprendre l’analyse/i })).toBeNull()
+  })
+
+  it('affiche le bandeau d’échec même quand le repérage a réussi (#140)', async () => {
+    // **La régression que ce groupe corrige.** `candidates` tourne avant
+    // `proxy`/`analysis` sur `TARGETS_INITIAL` (`src/server/run.ts`) : une
+    // vraie panne de l'un des deux, survenant après un repérage réussi,
+    // laissait `steps.candidates === true` — la garde d'avant cette PR
+    // masquait alors le bandeau, alors que `error` porte une vraie panne de
+    // pipeline, pas l'avertissement toléré de la correction (celui-là vit
+    // dans `warning`, testé plus bas).
+    serve(
+      state({
+        steps: { ...state().steps, candidates: true, proxy: false, analysis: false },
+        running: null,
+        error: 'ffmpeg a rendu 1',
+      }),
+      [candidate(1)],
+    )
+    mount()
+
+    await waitFor(() => expect(screen.getByText('La dernière analyse a échoué.')).toBeTruthy())
+    expect(screen.getByText('ffmpeg a rendu 1')).toBeTruthy()
+  })
+
+  it('affiche l’avertissement de correction tolérée, distinct de l’échec (#137)', async () => {
+    serve(
+      state({
+        steps: { ...state().steps, candidates: true, proxy: true, analysis: true },
+        running: null,
+        error: null,
+        warning: 'La correction automatique du transcript a échoué : modèle injoignable.',
+      }),
+      [candidate(1)],
+    )
+    mount()
+
+    await waitFor(() =>
+      expect(screen.getByText('La correction automatique du transcript a échoué.')).toBeTruthy(),
+    )
+    expect(screen.getByText(/modèle injoignable/)).toBeTruthy()
+    expect(screen.queryByText('La dernière analyse a échoué.')).toBeNull()
   })
 
   it('reprend la vue de la session quand l’URL n’en nomme aucune', async () => {

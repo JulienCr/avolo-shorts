@@ -42,7 +42,7 @@ import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } fr
 // cours, on ajoute en fin de fichier sans réordonner l'existant.
 import { postRegenerateHook } from '@/lib/api'
 // Import à part, même règle, pour la même raison.
-import { getCorrectionHistory, undoCorrection } from '@/lib/api'
+import { getCorrectionHistory, removeCorrectionEntry, undoCorrection } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
 export const keys = {
@@ -784,6 +784,25 @@ export function useUndoCorrection() {
     onSuccess({ entries }, { projectId }) {
       client.setQueryData(keys.correctionHistory(projectId), entries)
       void client.invalidateQueries({ queryKey: keys.transcript(projectId) })
+    },
+  })
+}
+
+/**
+ * Retire une entrée de l'historique sans toucher au transcript — le
+ * rattrapage de dernier recours (issues #134, #138) pour une entrée dont
+ * l'ancre est devenue périmée.
+ *
+ * **Le transcript ne s'invalide pas ici**, contrairement à `useUndoCorrection` :
+ * ce geste n'écrit rien dessus, seulement sur le journal.
+ */
+export function useRemoveCorrectionEntry() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ projectId, id }: { projectId: string; id: string }) => removeCorrectionEntry(projectId, id),
+    onSuccess({ entries }, { projectId }) {
+      client.setQueryData(keys.correctionHistory(projectId), entries)
     },
   })
 }

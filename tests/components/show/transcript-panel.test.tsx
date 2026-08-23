@@ -105,6 +105,11 @@ function undoResponse(body: unknown, status = 200): Rule {
   return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction/undo'), body, status }
 }
 
+/** Répond à `POST .../transcript/correction/remove` — retirer une entrée. */
+function removeResponse(body: unknown, status = 200): Rule {
+  return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction/remove'), body, status }
+}
+
 function sentBody(call: ReturnType<typeof vi.fn>, index: number): unknown {
   const [, options] = call.mock.calls[index] as unknown as [string, RequestInit]
   return JSON.parse(String(options.body))
@@ -387,6 +392,128 @@ describe('TranscriptPanel — historique de correction', () => {
     expect(posts).toHaveLength(1)
     expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
   })
+
+  it('n’offre « Retirer de l’historique » que si l’ancre ne correspond plus', async () => {
+    // `from: 1` désigne « à » dans `LIGNES` : l'entrée est exacte, « Défaire »
+    // suffit — pas de rattrapage à offrir en plus.
+    const entries = [{ id: '1', lineId: 'l0', from: 1, expected: ['a'], replacement: 'à', timecode: 10.7 }]
+    stubFetch([transcriptResponse(), historyResponse(entries)])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    await screen.findByRole('button', { name: 'Défaire' })
+    expect(screen.queryByRole('button', { name: 'Retirer de l’historique' })).toBeNull()
+  })
+
+  it('invalide l’historique à la fin de toute exécution observée, même sans avoir vu `correction` (#135)', async () => {
+    // **Le scénario de l'issue.** Le sondage de deux secondes ne voit jamais
+    // `running.step === 'correction'` — une étape courte, démarrée et finie
+    // entre deux tours — donc seule `candidates` est observée avant que
+    // `running` retombe à `null`. L'ancienne déduction n'invalidait
+    // l'historique que sur `transcript`/`correction` vus ; celle-ci invalide
+    // sur la seule transition `wasRunning → !isRunning`, donc le nouveau
+    // journal se recharge quand même.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const localWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    let historyCalls = 0
+    const runningStatus = {
+      project: { id: 'cqlp', title: 'cqlp', durationSec: 100, createdAt: '2026-01-01' },
+      steps: { proxy: true, audio: true, transcript: true, correction: true, analysis: true, candidates: true, renders: false },
+      running: { step: 'candidates', progress: 0.5 },
+      error: null,
+      warning: null,
+      stopped: false,
+      selectionReport: null,
+      sizeBytes: null,
+    }
+    stubFetch([
+      transcriptResponse(),
+      {
+        when: (u, m) => m === 'GET' && u.endsWith('/transcript/correction'),
+        get body() {
+          historyCalls += 1
+          return historyCalls === 1
+            ? []
+            : [{ id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 }]
+        },
+      },
+      { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+
+    await screen.findByRole('button', { name: 'Bonjour' })
+    expect(screen.queryByText(/substitution appliquée/)).toBeNull()
+    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+
+    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+
+    await waitFor(() => expect(screen.queryByText(/1 substitution appliquée/)).toBeTruthy())
+  })
+
+  it('« Retirer de l’historique » retire l’entrée sans passer par « Défaire » (issues #134, #138)', async () => {
+    // **Le scénario de ce groupe.** Le mot que l'entrée croit corriger n'est
+    // plus là — une correction manuelle antérieure a décalé la phrase (#138),
+    // ou une passe ultérieure a recouvert le mot (#134) : `from: 1` désigne
+    // « à » dans `LIGNES`, mais l'entrée attend `nouveau`. `undoCorrectionEntry`
+    // refuserait pour toujours ; ce bouton-ci ne passe même pas par lui.
+    const entries = [
+      { id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 },
+    ]
+    const call = stubFetch([
+      transcriptResponse(),
+      historyResponse(entries),
+      removeResponse({ entries: [] }),
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    await screen.findByText(/1 substitution appliquée/)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Retirer de l’historique' }))
+
+    await waitFor(() => expect(screen.queryByText(/substitution appliquée/)).toBeNull())
+
+    const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/transcript/correction/remove'))
+    expect(posts).toHaveLength(1)
+    expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
+  })
+
+  it('n’affiche l’historique qu’une fois le transcript chargé, même si l’historique répond avant (relevé par Copilot et Codex sur la PR #143)', async () => {
+    // **Le scénario du finding.** L'historique et le transcript se chargent
+    // indépendamment ; si l'historique répond en premier, `lines` vaut encore
+    // `EMPTY_LINES` — sans la garde sur `transcript.data`, chaque entrée
+    // valide serait classée périmée et « Retirer de l’historique » cliquable
+    // tout de suite, sur un historique qui ne l'est pas.
+    let resolveTranscript: (value: unknown) => void = () => {}
+    const transcriptPromise = new Promise((resolve) => {
+      resolveTranscript = resolve
+    })
+    const entries = [{ id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 }]
+    stubFetch([
+      { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body: transcriptPromise },
+      historyResponse(entries),
+    ])
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const localWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+
+    // **Attend que l'historique ait vraiment fini de se charger** — pas
+    // seulement que la requête soit partie — avant de vérifier l'absence :
+    // sans ça, `waitFor` se satisferait de l'état initial (rien n'est encore
+    // monté) sans jamais rejouer le contrôle une fois l'historique arrivé, et
+    // laisserait passer la régression qu'il vérifie.
+    await waitFor(() => expect(client.getQueryData(['correction-history', 'cqlp'])).toEqual(entries))
+    expect(screen.queryByText(/substitution appliquée/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retirer de l’historique' })).toBeNull()
+
+    resolveTranscript(LINES)
+    await waitFor(() => expect(screen.getByText(/1 substitution appliquée/)).toBeTruthy())
+  })
 })
 
 describe('TranscriptPanel — relancer la correction automatique', () => {
@@ -420,7 +547,8 @@ describe('TranscriptPanel — relancer la correction automatique', () => {
       project: { id: 'cqlp', title: 'cqlp', durationSec: 100, createdAt: '2026-01-01' },
       steps: { proxy: true, audio: true, transcript: true, correction: false, candidates: true, analysis: true, renders: false },
       running: null,
-      error: 'La correction automatique du transcript a échoué : injoignable. Relancer la correction.',
+      error: null,
+      warning: 'La correction automatique du transcript a échoué : injoignable. Relancer la correction.',
       stopped: false,
       selectionReport: null,
       sizeBytes: null,

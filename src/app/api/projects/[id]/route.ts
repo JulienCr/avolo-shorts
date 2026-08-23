@@ -41,6 +41,9 @@ export const GET = route(
       // pendant qu'une exécution tourne, l'échec affiché serait celui d'avant.
       // (relevé par Copilot)
       error: running === null ? (status?.error ?? null) : null,
+      // Même champ, même relevé, même contrat de repos qu'`error` — voir
+      // `ProjectStatus.warning`.
+      warning: running === null ? (status?.warning ?? null) : null,
       // **Publié même pendant qu'une exécution tourne**, contrairement à
       // `error`. Le décompte d'une passe en cours n'est pas celui d'avant — le
       // lanceur l'oublie au lancement —, et il porte `partial` pour dire

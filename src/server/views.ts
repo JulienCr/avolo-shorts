@@ -59,7 +59,7 @@ export function summaryProject(project: Project): ProjectSummary {
  * écrans qui se contredisent sur le même projet valent moins que pas d'écran du
  * tout. `stopped` se tait pour la même raison.
  *
- * **Une seule lecture de `status.json` pour les deux champs.** La bibliothèque
+ * **Une seule lecture de `status.json` pour tous les champs.** La bibliothèque
  * appelle cette fonction une fois par projet ; en faire deux doublerait le
  * relevé, et laisserait la porte ouverte à une réponse qui mêle deux versions du
  * fichier.
@@ -71,6 +71,8 @@ export function listElement(project: Project): ProjectListItem {
     ...summaryProject(project),
     running,
     error: status?.error ?? null,
+    // Même relevé qu'`error`, sans coût de plus — voir `ProjectListItem.warning`.
+    warning: status?.warning ?? null,
     // **Publié parce que la liste n'a pas `steps`.** L'écran de projet déduit
     // « interrompue » de `phaseProject`, qui lit le relevé de présence ; la
     // bibliothèque ne l'a pas, et c'est délibéré — sonder vingt et un projets

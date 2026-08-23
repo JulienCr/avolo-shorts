@@ -201,7 +201,7 @@ function poserTranscript(): void {
 function poserCorrection(): void {
   const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
   fs.mkdirSync(folder, { recursive: true })
-  fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ nextId: 1, entries: [] }))
+  fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ entries: [] }))
 }
 
 beforeEach(() => {
@@ -244,6 +244,7 @@ describe('GET /api/projects', () => {
       'running',
       'stopped',
       'title',
+      'warning',
     ])
     // Le corps entier, pas seulement les clés : un chemin qui se glisserait dans
     // une valeur ne se verrait pas autrement.

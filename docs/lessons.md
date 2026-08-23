@@ -208,7 +208,7 @@ vraie fabrique, ou elle ne se teste pas.
 
 Le corollaire de conduite vaut autant. Une revue interne qui lit le diff contre
 un contrat ne trouve pas ça : le diff est correct, le test est correct, et le
-défaut vit dans la couture entre les deux. Sur les deux dernières PR de
-publication, la revue interne a validé le fond et les relecteurs externes ont
-trouvé seize défauts réels derrière elle. Les deux étages ne se remplacent pas,
-et supposer que le premier couvre le second est ce qui coûte cher.
+défaut vit dans la couture entre les deux. Sur #148 comme sur #149, la revue interne
+a validé le fond, puis la boucle externe a tourné quatre passes et corrigé des
+défauts réels à chacune des trois premières. Les deux étages ne se remplacent
+pas, et supposer que le premier couvre le second est ce qui coûte cher.

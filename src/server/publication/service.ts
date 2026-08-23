@@ -166,8 +166,17 @@ async function settleAsync(
 
     const next = { ...current }
     for (const [requestId, group] of byRequestId) {
-      const polled = await adapter.poll(requestId, group)
-      for (const platform of group) next[platform] = polled[platform]
+      // Un sondage qui lève (réseau, quota) ne doit ni faire échouer
+      // `runDetached` — qui marquerait alors **toutes** les plateformes en
+      // échec, y compris celles déjà réglées par un sondage précédent — ni
+      // arrêter la boucle : `group` reste `in_progress`, réessayé à la
+      // tentative suivante, jusqu'à `SETTLE_ATTEMPTS`.
+      try {
+        const polled = await adapter.poll(requestId, group)
+        for (const platform of group) next[platform] = polled[platform]
+      } catch {
+        // Rien à faire : `next` porte déjà l'état `in_progress` de `current`.
+      }
     }
     current = next
   }
@@ -271,19 +280,30 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   // Rien d'asynchrone au-dessus de cette ligne : voir le docbloc du module.
   reserve(clip.id, platforms)
 
-  for (const platform of platforms) {
-    upsertPublication(db, upsertFrom(byPlatform.get(platform), { clipId: clip.id, platform, status: 'in_progress' }))
+  // **Tout ce qui suit peut encore lever** (SQLite pleine, base corrompue,
+  // `getPublications` en échec pour une deuxième plateforme indépendamment de
+  // la première) — sans ce `try`, une telle levée laisserait la réservation
+  // posée sans jamais la relâcher, et tout lancement ultérieur sur ce couple
+  // (clip, plateforme) resterait bloqué en 409 jusqu'au redémarrage du
+  // serveur. Même précaution que `launch()` dans `src/server/run.ts:824-827`.
+  try {
+    for (const platform of platforms) {
+      upsertPublication(db, upsertFrom(byPlatform.get(platform), { clipId: clip.id, platform, status: 'in_progress' }))
+    }
+    const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
+
+    const texts = platformTexts(clip, representativePlatform(platforms))
+    const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
+    const settled = runDetached(db, adapter, clip, platforms, job, fingerprint, sleep)
+    settled.catch(() => {
+      // Les échecs sont déjà écrits dans `publications` par `runDetached` ; ce
+      // `catch` n'existe que pour qu'une promesse dont personne n'attend le
+      // résultat ne fasse pas remonter un rejet non géré.
+    })
+
+    return { rows, settled }
+  } catch (error) {
+    release(clip.id, platforms)
+    throw error
   }
-  const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
-
-  const texts = platformTexts(clip, representativePlatform(platforms))
-  const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
-  const settled = runDetached(db, adapter, clip, platforms, job, fingerprint, sleep)
-  settled.catch(() => {
-    // Les échecs sont déjà écrits dans `publications` par `runDetached` ; ce
-    // `catch` n'existe que pour qu'une promesse dont personne n'attend le
-    // résultat ne fasse pas remonter un rejet non géré.
-  })
-
-  return { rows, settled }
 }

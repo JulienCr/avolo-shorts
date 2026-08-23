@@ -220,8 +220,8 @@ describe('poll', () => {
           {
             platform: 'youtube',
             success: true,
-            platform_post_id: 'jZP5eJvL4sg',
-            post_url: 'https://www.youtube.com/watch?v=jZP5eJvL4sg',
+            platform_post_id: 'fake0Video1d',
+            post_url: 'https://www.youtube.com/watch?v=fake0Video1d',
             error_message: null,
             error_code: null,
             failure_stage: null,
@@ -233,8 +233,8 @@ describe('poll', () => {
     const outcomes = await adapter.poll('r1', ['youtube'])
     expect(outcomes.youtube).toEqual({
       status: 'published',
-      remoteId: 'jZP5eJvL4sg',
-      remoteUrl: 'https://www.youtube.com/watch?v=jZP5eJvL4sg',
+      remoteId: 'fake0Video1d',
+      remoteUrl: 'https://www.youtube.com/watch?v=fake0Video1d',
     })
   })
 

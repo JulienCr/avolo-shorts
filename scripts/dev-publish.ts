@@ -26,6 +26,13 @@ function parsePlatforms(arg: string | undefined): Platform[] {
   if (invalid.length > 0) {
     throw new Error(`Plateforme(s) inconnue(s) : ${invalid.join(', ')}. Valeurs possibles : ${PLATFORMS.join(', ')}.`)
   }
+  // Même refus qu'à la frontière HTTP (`POST /api/clips/:id/publish`) : une
+  // plateforme répétée atteindrait le connecteur avec deux `platform[]`
+  // identiques et deux jeux de paramètres pour la même cible.
+  const duplicates = requested.filter((p, i) => requested.indexOf(p) !== i)
+  if (duplicates.length > 0) {
+    throw new Error(`Plateforme(s) répétée(s) : ${[...new Set(duplicates)].join(', ')}.`)
+  }
   return requested as Platform[]
 }
 
@@ -77,7 +84,11 @@ async function main(): Promise<number> {
     const error = row.error === null ? '' : ` — ${row.error}`
     console.log(`  ${row.platform.padEnd(10)}: ${row.status}${url}${error}`)
   }
-  return final.some((r) => r.status === 'failed') ? 1 : 0
+  // `in_progress` après le budget de sondage de `launchPublish` n'est pas un
+  // succès : ce script sert à vérifier la chaîne de bout en bout, un code 0
+  // dessus annoncerait une publication terminée qui ne l'est pas.
+  const settledOk = final.every((r) => r.status === 'published' || r.status === 'submitted')
+  return settledOk ? 0 : 1
 }
 
 main()

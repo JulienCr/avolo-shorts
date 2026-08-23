@@ -401,7 +401,7 @@ l'ordre où ils se tiennent :
    est mesurée** (§2.4 de la spec de publication) : un envoi réel en
    `privacyStatus=unlisted` — délibérément pas `public`, pour ne rien exposer
    tout en testant le même verrou — est reparti tel quel plutôt que rabattu en
-   privé, vidéo `jZP5eJvL4sg`. Le verrou porte sur le projet API qui appelle,
+   privé, vidéo dont l'identifiant est expurgé ici (lien-capacité : le connaître suffit à la voir). Le verrou porte sur le projet API qui appelle,
    celui d'Upload Post, déjà audité pour son propre compte, et non sur
    YouTube lui-même. Un connecteur YouTube **direct**, écrit par ce dépôt,
    resterait lui soumis à l'interdiction jusqu'à son propre audit.
@@ -650,7 +650,7 @@ propre compte, pas un projet créé par ce dépôt. Mesuré le 23 août 2026 : u
 envoi réel demandant `unlisted` plutôt que `public` — pour ne rien exposer tout
 en testant le même verrou, puisqu'un projet non audité forcerait `private`
 quelle que soit la visibilité demandée — est reparti `unlisted` tel quel,
-vidéo `jZP5eJvL4sg`. Un connecteur YouTube **direct** resterait, lui, soumis à
+vidéo dont l'identifiant est expurgé ici (lien-capacité). Un connecteur YouTube **direct** resterait, lui, soumis à
 l'interdiction d'avant jusqu'à son propre audit — c'est le contre-sens le plus
 coûteux du sujet, et il est d'autant plus facile à commettre que l'intuition
 désigne TikTok comme la plateforme difficile.

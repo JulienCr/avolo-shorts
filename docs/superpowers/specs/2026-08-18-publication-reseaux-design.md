@@ -161,11 +161,12 @@ prouve donc l'absence du verrou aussi sûrement que l'aurait prouvée `public`,
 sans exposer la vidéo sur la chaîne le temps de vérifier. Résultat :
 
 ```
-{"success":true,"results":{"youtube":{"success":true,"post_id":"jZP5eJvL4sg",
-"url":"https://www.youtube.com/watch?v=jZP5eJvL4sg","status":"completed"}}}
+{"success":true,"results":{"youtube":{"success":true,"post_id":"<expurgé — lien-capacité>",
+"url":"https://www.youtube.com/watch?v=<expurgé>","status":"completed"}}}
 ```
 
-La page de la vidéo (`jZP5eJvL4sg`) rend `"isPrivate":false` et
+La page de la vidéo (identifiant expurgé — le connaître suffit à la voir, une
+vidéo `unlisted` n'a pas d'autre protection) rend `"isPrivate":false` et
 `"isUnlisted":true` — la visibilité demandée a été honorée telle quelle plutôt
 que rabattue en privé — et l'oEmbed de YouTube la résout (200, auteur « La
 Scène Avolo »), preuve indépendante que la vidéo existe côté plateforme et

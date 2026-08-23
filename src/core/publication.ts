@@ -262,15 +262,19 @@ const MAX_SIZE_BYTES = 500 * 1024 * 1024
 /** Un clip est-il publiable, du seul point de vue de sa durée et de son poids ? */
 export function platformEligibility(durationSec: number, sizeBytes: number): ClipEligibility {
   if (durationSec > MAX_DURATION_SEC) {
+    // La limite s'affiche, pas la durée mesurée arrondie : à 180,4 s,
+    // `toFixed(0)` aurait affiché « 180 s », contredisant le refus juste au-dessus
+    // de la borne qui l'a causé (une valeur comparée à un seuil se tronque, ne
+    // s'arrondit pas — voir CLAUDE.md).
     return {
       eligible: false,
-      reason: `Ce clip dure ${durationSec.toFixed(0)} s, plus de 3 minutes : ce n’est pas un format court.`,
+      reason: `Ce clip dure plus de ${MAX_DURATION_SEC} s (3 minutes) : ce n’est pas un format court.`,
     }
   }
   if (sizeBytes > MAX_SIZE_BYTES) {
     return {
       eligible: false,
-      reason: `Le fichier pèse ${(sizeBytes / (1024 * 1024)).toFixed(0)} Mio, au-delà de ce que ce dépôt envoie sans vérification manuelle.`,
+      reason: `Le fichier dépasse ${(MAX_SIZE_BYTES / (1024 * 1024)).toFixed(0)} Mio, au-delà de ce que ce dépôt envoie sans vérification manuelle.`,
     }
   }
   return { eligible: true }

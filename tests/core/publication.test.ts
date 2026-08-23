@@ -183,6 +183,21 @@ describe('platformEligibility', () => {
     expect(result.eligible).toBe(false)
     if (!result.eligible) expect(result.reason.length).toBeGreaterThan(0)
   })
+
+  it('à 180,4 s, la raison ne dit pas « 180 s » — elle ne se contredit pas elle-même', () => {
+    // `toFixed(0)` sur la durée mesurée aurait affiché « 180 s » pour un clip
+    // refusé à 180,4 s, comme s'il tenait dans la limite qui l'a pourtant
+    // rejeté.
+    const result = platformEligibility(180.4, 1024)
+    expect(result.eligible).toBe(false)
+    if (!result.eligible) expect(result.reason).not.toMatch(/dure 180 s\b/)
+  })
+
+  it('à 500 Mio et quelques octets, la raison ne dit pas « 500 Mio » sans dire « dépasse »', () => {
+    const result = platformEligibility(30, 500 * 1024 * 1024 + 100)
+    expect(result.eligible).toBe(false)
+    if (!result.eligible) expect(result.reason).toMatch(/dépasse/)
+  })
 })
 
 describe('wordsHash (core)', () => {

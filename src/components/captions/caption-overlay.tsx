@@ -160,7 +160,8 @@ type VideoToFrames = HTMLVideoElement & {
  * @param video L'élément dont on suit `currentTime`. `null` tant qu'il n'est
  *   pas monté : le calque n'a alors rien à afficher.
  * @param enabled Faux ferme l'abonnement — pas de calque, pas de trames à suivre.
- * @returns L'instant courant en secondes, ou `-1` avant le premier échantillon.
+ * @returns L'instant courant en secondes, ou `-1` avant le premier échantillon
+ *   et après chaque désabonnement (changement de `video`, ou `enabled` à faux).
  */
 export function useCaptionClock(video: HTMLVideoElement | null, enabled: boolean): number {
   const [time, setTime] = useState(-1)
@@ -180,6 +181,12 @@ export function useCaptionClock(video: HTMLVideoElement | null, enabled: boolean
       return () => {
         source.cancelVideoFrameCallback(request)
         video.removeEventListener('seeked', track)
+        // **Remis à `-1` au désabonnement**, pas seulement recalculé au
+        // suivant. Sans ça, désactiver les sous-titres pendant une vidéo en
+        // pause puis les réactiver ne produit ni `seeked` ni nouvelle trame —
+        // rien ne remplace l'échantillon, et le calque réaffiche indéfiniment
+        // le carton d'un instant périmé. (relevé par Copilot, PR #126, passe 2)
+        setTime(-1)
       }
     }
 
@@ -187,6 +194,7 @@ export function useCaptionClock(video: HTMLVideoElement | null, enabled: boolean
     return () => {
       video.removeEventListener('timeupdate', track)
       video.removeEventListener('seeked', track)
+      setTime(-1)
     }
   }, [video, enabled])
 

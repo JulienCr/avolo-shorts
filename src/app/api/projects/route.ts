@@ -26,10 +26,14 @@ export const GET = route('GET /api/projects', async () => {
 })
 
 /**
- * **202 seulement si `launch` a lancé un travail asynchrone**, 201 sinon : sans
- * `launch`, la création est terminée avant la réponse et rien ne continue en
- * arrière-plan — répondre 202 (« accepté pour traitement ») serait trompeur.
- * `plan` reste vide dans les deux cas sans `launch`.
+ * **202 seulement si un travail asynchrone a réellement démarré**, 201 sinon.
+ *
+ * Le fait vient du **résultat** de `createProject`, pas de l'intention
+ * (`launch`) : un plan vide veut dire « rien à faire », que `launch` ait été
+ * demandé ou non — un projet déjà transcrit et déjà pourvu de candidats vise
+ * `launch: true` sans que rien ne se lance. Répondre 202 sur ce seul fait que
+ * `launch` a été demandé promettrait un traitement en cours qui n'existe pas.
+ * (relevé par Copilot, PR #126, passe 2)
  */
 export const POST = route('POST /api/projects', async (request: Request) => {
   const { source, launch } = await body(request, CREATION)
@@ -77,7 +81,6 @@ export const POST = route('POST /api/projects', async (request: Request) => {
     )
   }
 
-  const launchNow = launch === true
-  const { projectId, plan } = await createProject(source, { launchNow })
-  return json({ projectId, plan }, { status: launchNow ? 202 : 201 })
+  const { projectId, plan } = await createProject(source, { launchNow: launch === true })
+  return json({ projectId, plan }, { status: plan.length > 0 ? 202 : 201 })
 })

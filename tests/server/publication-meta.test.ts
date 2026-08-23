@@ -67,9 +67,10 @@ function instagramHandler(
     pollsBeforeFinished?: number
     publishError?: { status: number; body: unknown }
     uploadFailuresBeforeOk?: number
+    permalinkFails?: boolean
   } = {},
 ): { handler: Handler; order: string[] } {
-  const { pollsBeforeFinished = 1, publishError, uploadFailuresBeforeOk = 0 } = options
+  const { pollsBeforeFinished = 1, publishError, uploadFailuresBeforeOk = 0, permalinkFails = false } = options
   const order: string[] = []
   let polls = 0
   let uploadAttempts = 0
@@ -104,6 +105,7 @@ function instagramHandler(
     }
     if (url.includes('/media1?fields=permalink')) {
       order.push('permalink')
+      if (permalinkFails) return jsonResponse(500, { error: { message: 'transient' } })
       return jsonResponse(200, { permalink: 'https://www.instagram.com/reel/abc123/' })
     }
     if (url.includes('/ig1?fields=id')) return jsonResponse(200, { id: 'ig1' })
@@ -188,6 +190,18 @@ describe('publishInstagram', () => {
 
     expect(outcomes.instagram.status).toBe('failed')
     expect((outcomes.instagram as { error: string }).error).toMatch(/droit sur l'actif/)
+  })
+
+  it('un échec transitoire sur la lecture du permalink reste `published`, pas `failed` (le reel est déjà en ligne)', async () => {
+    // `media_publish` a déjà réussi à ce stade : rendre `failed` ici autoriserait
+    // une relance qui republierait un doublon (trouvaille de revue sur cette PR).
+    await seedInstagramToken()
+    const { fetchImpl } = instagramFetch({ permalinkFails: true })
+    const adapter = createMetaAdapter(ENV, fetchImpl, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['instagram'])
+
+    expect(outcomes.instagram).toEqual({ status: 'published', remoteId: 'media1', remoteUrl: null })
   })
 })
 

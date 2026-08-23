@@ -187,11 +187,19 @@ async function publishInstagram(
   // `media_publish` rend l'identifiant du média, pas le shortcode de son URL
   // publique (`DcY8KVBCml7` sur le reel réellement publié le 23 août 2026,
   // sans rapport visible avec l'identifiant numérique) : `permalink` est le
-  // champ qui porte la vraie adresse.
-  const permalinkResponse = await fetchImpl(
-    `${GRAPH_BASE}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(tokens.instagramAccessToken)}`,
-  )
-  const { permalink } = await requireOkMeta<{ permalink: string }>(permalinkResponse)
+  // champ qui porte la vraie adresse. À ce stade le reel est déjà en ligne :
+  // une erreur transitoire sur cette lecture auxiliaire ne doit pas renvoyer
+  // `failed` (une relance republierait un doublon), donc `remoteUrl: null`
+  // plutôt qu'une exception qui remonte au `catch` de `publish()`.
+  let permalink: string | null = null
+  try {
+    const permalinkResponse = await fetchImpl(
+      `${GRAPH_BASE}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(tokens.instagramAccessToken)}`,
+    )
+    permalink = (await requireOkMeta<{ permalink: string }>(permalinkResponse)).permalink
+  } catch {
+    // Le contrat `PublicationAdapter` autorise `remoteUrl: null` sur `published`.
+  }
   return { status: 'published', remoteId: mediaId, remoteUrl: permalink }
 }
 

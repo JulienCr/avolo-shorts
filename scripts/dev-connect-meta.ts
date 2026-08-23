@@ -91,17 +91,33 @@ async function exchangeForLongLivedToken(appId: string, appSecret: string, short
 
 type PageAccount = { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }
 
-async function findPageWithInstagram(userToken: string): Promise<PageAccount> {
-  const params = new URLSearchParams({
+/**
+ * `/me/accounts` pagine (`paging.next`) : s'arrêter à la première page ferait
+ * conclure à tort qu'aucune Page n'a d'Instagram rattaché, ou en choisir une
+ * alors qu'une page suivante en porte une seconde — exactement le cas
+ * d'ambiguïté que ce script doit refuser.
+ */
+async function fetchAllPages(userToken: string): Promise<PageAccount[]> {
+  const accounts: PageAccount[] = []
+  let url: string | undefined = `${GRAPH_BASE}/me/accounts?${new URLSearchParams({
     fields: 'id,name,access_token,instagram_business_account',
     access_token: userToken,
-  })
-  const response = await fetch(`${GRAPH_BASE}/me/accounts?${params.toString()}`)
-  const body = await requireOk<{ data: PageAccount[] }>(response)
-  const withInstagram = body.data.filter((page) => page.instagram_business_account !== undefined)
+  }).toString()}`
+  while (url !== undefined) {
+    const response = await fetch(url)
+    const body: { data: PageAccount[]; paging?: { next?: string } } = await requireOk(response)
+    accounts.push(...body.data)
+    url = body.paging?.next
+  }
+  return accounts
+}
+
+async function findPageWithInstagram(userToken: string): Promise<PageAccount> {
+  const pages = await fetchAllPages(userToken)
+  const withInstagram = pages.filter((page) => page.instagram_business_account !== undefined)
   if (withInstagram.length === 0) {
     throw new Error(
-      `Aucune des ${body.data.length} Page(s) de ce compte ne porte de compte Instagram professionnel rattaché.`,
+      `Aucune des ${pages.length} Page(s) de ce compte ne porte de compte Instagram professionnel rattaché.`,
     )
   }
   // La sélection multi-compte est hors périmètre (spec) : rejeter le cas

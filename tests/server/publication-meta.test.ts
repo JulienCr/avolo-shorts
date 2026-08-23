@@ -176,6 +176,48 @@ describe('publishInstagram', () => {
     expect(outcomes.instagram.status).toBe('published')
   })
 
+  it('un 401 de rupload se nomme jeton expiré, sans épuiser les trois tentatives (trouvaille de revue)', async () => {
+    await seedInstagramToken()
+    const { handler } = instagramHandler()
+    let uploadAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString()
+      if (url.includes('rupload.facebook.com/ig-api-upload/')) {
+        uploadAttempts += 1
+        return new Response('token invalide', { status: 401 })
+      }
+      return handler(input, init)
+    }) as unknown as typeof fetch
+    const adapter = createMetaAdapter(ENV, fetchImpl, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['instagram'])
+
+    expect(outcomes.instagram.status).toBe('failed')
+    expect((outcomes.instagram as { error: string }).error).toMatch(/jeton/)
+    expect(uploadAttempts).toBe(1)
+  })
+
+  it('un 429 de rupload se nomme débit atteint, sans épuiser les trois tentatives (trouvaille de revue)', async () => {
+    await seedInstagramToken()
+    const { handler } = instagramHandler()
+    let uploadAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString()
+      if (url.includes('rupload.facebook.com/ig-api-upload/')) {
+        uploadAttempts += 1
+        return new Response('rate limited', { status: 429 })
+      }
+      return handler(input, init)
+    }) as unknown as typeof fetch
+    const adapter = createMetaAdapter(ENV, fetchImpl, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['instagram'])
+
+    expect(outcomes.instagram.status).toBe('failed')
+    expect((outcomes.instagram as { error: string }).error).toMatch(/débit/)
+    expect(uploadAttempts).toBe(1)
+  })
+
   it('un `error_subcode: 2207085` se nomme « droit manquant sur l’actif », pas le message trompeur de Meta', async () => {
     await seedInstagramToken()
     const { fetchImpl } = instagramFetch({
@@ -273,6 +315,25 @@ describe('publishFacebook', () => {
 
     expect(outcomes.facebook.status).toBe('failed')
     expect((outcomes.facebook as { error: string }).error).toMatch(/n'a pas atteint publishing_phase\.status=complete/)
+  })
+
+  it('un glitch réseau isolé sur le sondage se réessaie, sans conclure à `failed` (trouvaille de revue)', async () => {
+    const { handler: base } = facebookHandler({ pollPhases: ['complete'] })
+    let pollAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString()
+      if (url.includes('/video1?fields=status')) {
+        pollAttempts += 1
+        if (pollAttempts === 1) throw new Error('ECONNRESET')
+      }
+      return base(input, init)
+    }) as unknown as typeof fetch
+    const adapter = createMetaAdapter(ENV, fetchImpl, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
+    expect(pollAttempts).toBeGreaterThanOrEqual(2)
   })
 })
 
@@ -378,5 +439,25 @@ describe('jeton Instagram', () => {
     await Promise.all([ensureFreshInstagramToken(ENV, fetchImpl), ensureFreshInstagramToken(ENV, fetchImpl)])
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('écrit meta-tokens.json en 0600, sans fichier temporaire résiduel', async () => {
+    await seedInstagramToken()
+
+    const stat = fs.statSync(path.join(root, 'meta-tokens.json'))
+    expect(stat.mode & 0o777).toBe(0o600)
+    expect(fs.readdirSync(root).filter((name) => name.includes('.tmp'))).toEqual([])
+  })
+
+  it('une erreur d’E/S autre que l’absence du fichier remonte, plutôt que d’être lue comme « jamais appairé »', async () => {
+    await seedInstagramToken()
+    const file = path.join(root, 'meta-tokens.json')
+    fs.chmodSync(file, 0o000)
+
+    try {
+      await expect(readMetaTokens()).rejects.toThrow()
+    } finally {
+      fs.chmodSync(file, 0o600)
+    }
   })
 })

@@ -1,6 +1,7 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
+import { isAAbsence } from '@/server/bytes'
 import { projectsDir } from '@/server/paths'
 import { MetaAccountMisconfiguredError, MetaTokenExpiredError } from '@/server/publication/errors'
 import { isReference, type Environment } from '@/server/secrets'
@@ -36,13 +37,20 @@ function isMetaTokenFile(value: unknown): value is MetaTokenFile {
   )
 }
 
-/** `null` : jamais appairé, ou fichier corrompu — les deux se traitent comme « à réappairer ». */
+/**
+ * `null` : jamais appairé, ou fichier corrompu — les deux se traitent comme
+ * « à réappairer ». **Seule l'absence du fichier le prouve** : un `EACCES` ou
+ * un `EIO` sur un montage en vrac ne dit rien de l'appairage et doit remonter,
+ * plutôt que d'être lu à tort comme « jamais appairé » (même distinction que
+ * `scripts/dev-common.ts`).
+ */
 export async function readMetaTokens(): Promise<MetaTokenFile | null> {
   let raw: string
   try {
     raw = await fsp.readFile(tokenFilePath(), 'utf8')
-  } catch {
-    return null
+  } catch (error) {
+    if (isAAbsence(error)) return null
+    throw error
   }
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -52,17 +60,23 @@ export async function readMetaTokens(): Promise<MetaTokenFile | null> {
   }
 }
 
-/** `scripts/dev-connect-meta.ts` l'appelle à l'appairage ; `refreshInstagramToken` après. */
+/**
+ * `scripts/dev-connect-meta.ts` l'appelle à l'appairage ; `refreshInstagramToken`
+ * après. Écrit un fichier temporaire puis le renomme : un `rename` est
+ * atomique sur un même système de fichiers, donc un arrêt du processus entre
+ * les deux temps laisse toujours soit l'ancien jeton, soit le nouveau —
+ * jamais un JSON tronqué que `readMetaTokens` lirait comme « jamais appairé ».
+ */
 export async function writeMetaTokens(tokens: MetaTokenFile): Promise<void> {
   const file = tokenFilePath()
-  await fsp.mkdir(path.dirname(file), { recursive: true })
+  const dir = path.dirname(file)
+  await fsp.mkdir(dir, { recursive: true })
+  const tmp = path.join(dir, `.meta-tokens.json.${process.pid}.tmp`)
   // `0o600` forcé explicitement : `writeFile` applique le mode par défaut
-  // `0o666` filtré par l'umask du processus, qui peut laisser ce jeton
-  // longue durée lisible par d'autres comptes locaux. `mode` seul ne suffit
-  // pas sur un fichier déjà existant — `writeFile` ne le rétablit pas — d'où
-  // le `chmod` séparé qui s'applique dans les deux cas.
-  await fsp.writeFile(file, `${JSON.stringify(tokens, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-  await fsp.chmod(file, 0o600)
+  // `0o666` filtré par l'umask du processus, qui laisserait ce jeton longue
+  // durée lisible par d'autres comptes locaux.
+  await fsp.writeFile(tmp, `${JSON.stringify(tokens, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  await fsp.rename(tmp, file)
 }
 
 function requiredEnv(env: Environment, name: string): string {

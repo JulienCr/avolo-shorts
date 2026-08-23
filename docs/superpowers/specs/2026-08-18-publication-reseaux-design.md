@@ -306,11 +306,12 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
 5. Déposer les deux audits : le formulaire *YouTube API Services — Audit and
    Quota Extension*, et l'audit TikTok.
 
-**Lot 1 — Instagram et Facebook, de bout en bout. Fait (issue #146).** Aucun
-verrou : c'est ce qui se mesurait tout de suite, et c'est ce qui a validé
-l'architecture pendant que les audits dorment. Instagram a publié un reel réel
-le 23 août 2026 ; Facebook Page Reels est codé mais jamais exercé, faute de
-`pages_manage_posts` sur le jeton de Page.
+**Lot 1 — Instagram et Facebook, de bout en bout. Partiellement fait (issue
+#146).** Aucun verrou : c'est ce qui se mesurait tout de suite, et c'est ce
+qui a validé l'architecture pendant que les audits dorment. **Instagram** a
+publié un reel réel le 23 août 2026. **Facebook Page Reels est codé mais
+jamais exercé contre le réseau réel**, faute de `pages_manage_posts` sur le
+jeton de Page — à ne pas lire comme validé tant que ce droit manque.
 
 **Lot 2 — TikTok en brouillon.** Fonctionne sans audit. Le jour où l'audit passe,
 c'est l'implémentation qui change, pas l'interface ni la table.

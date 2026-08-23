@@ -114,6 +114,12 @@ async function uploadToRupload(
     })
     if (response.ok) return
     lastDetail = await response.text()
+    // `401`/`429` sont des signaux non ambigus, indépendants du corps (jamais
+    // observé au format Graph JSON sur `rupload`, contrairement au 400
+    // transitoire mesuré — issue #146) : les réessayer immédiatement épuiserait
+    // un débit déjà atteint au lieu de le signaler.
+    if (response.status === 401) throw new MetaTokenExpiredError(`rupload a répondu 401 : ${lastDetail}`)
+    if (response.status === 429) throw new MetaRateLimitError(`rupload a répondu 429 : ${lastDetail}`)
   }
   throw new MetaFileRefusedError(
     `rupload a refusé le fichier après ${UPLOAD_RETRY_ATTEMPTS} tentatives : ${lastDetail}`,
@@ -210,6 +216,16 @@ async function publishInstagram(
  * qu'une fois `publishing_phase.status === 'complete'`. Même forme que
  * `waitForContainerFinished` côté Instagram.
  */
+/** Les erreurs Meta nommées, dont le sens est déjà tranché : jamais transitoires. */
+function isMetaTerminalError(error: unknown): boolean {
+  return (
+    error instanceof MetaAssetPermissionError ||
+    error instanceof MetaTokenExpiredError ||
+    error instanceof MetaRateLimitError ||
+    error instanceof MetaAccountMisconfiguredError
+  )
+}
+
 async function waitForFacebookPublished(
   fetchImpl: typeof fetch,
   pageToken: string,
@@ -217,14 +233,23 @@ async function waitForFacebookPublished(
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
   for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt++) {
-    const response = await fetchImpl(
-      `${GRAPH_BASE}/${videoId}?fields=status&access_token=${encodeURIComponent(pageToken)}`,
-    )
-    const body = await requireOkMeta<{ status?: { publishing_phase?: { status?: string } } }>(response)
-    const phase = body.status?.publishing_phase?.status
-    if (phase === 'complete') return
-    if (phase === 'error') {
-      throw new MetaFileRefusedError(`Le traitement du reel Facebook ${videoId} a échoué (publishing_phase.status=error).`)
+    try {
+      const response = await fetchImpl(
+        `${GRAPH_BASE}/${videoId}?fields=status&access_token=${encodeURIComponent(pageToken)}`,
+      )
+      const body = await requireOkMeta<{ status?: { publishing_phase?: { status?: string } } }>(response)
+      const phase = body.status?.publishing_phase?.status
+      if (phase === 'complete') return
+      if (phase === 'error') {
+        throw new MetaFileRefusedError(`Le traitement du reel Facebook ${videoId} a échoué (publishing_phase.status=error).`)
+      }
+    } catch (error) {
+      // Un état distant inconnu (glitch réseau, 5xx isolé) ne doit pas se
+      // traduire en `failed` : `finish` a déjà réussi, et une relance sur un
+      // `failed` prématuré republierait un doublon (trouvaille de revue sur
+      // cette PR). Seules les erreurs nommées ci-dessus, et `error` explicite
+      // sur `publishing_phase`, concluent avant le budget de sondage.
+      if (error instanceof MetaFileRefusedError || isMetaTerminalError(error)) throw error
     }
     await sleep(CONTAINER_POLL_INTERVAL_MS)
   }

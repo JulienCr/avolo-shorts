@@ -116,6 +116,8 @@ export function captionUnits(
   style: Pick<CaptionStyle, 'fontSize' | 'marginV' | 'borderWidth'>,
 ): { sizeUnits: number; marginUnits: number; borderUnits: number } {
   return {
+    // 0,85 : le facteur de la version d'origine, auquel le rendu de référence
+    // a été réglé — ne pas le retoucher sans une mesure à l'appui.
     sizeUnits: Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85)),
     marginUnits: Math.round(bound(style.marginV, 0, 200, MARGIN_LOW)),
     // Un contour à 0 devient illisible sur un fond clair.

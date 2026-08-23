@@ -89,19 +89,20 @@ describe('les cinq états', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42')
   })
 
-  it('dit « en cours » sur une source dont le projet n’est pas encore dans la liste', () => {
+  it('mène déjà au projet sur une source dont le projet n’est pas encore dans la liste', () => {
     // Les deux requêtes ne se rafraîchissent pas ensemble : `markSourceAnalyzed`
     // inscrit le `projectId` dès la réponse de création, la liste des projets
-    // arrive au tour suivant. Reproposer « Lancer l'analyse » pendant cette
-    // fenêtre vaudrait un 409 au second clic.
+    // arrive au tour suivant. `createProject` ne lance plus rien par défaut
+    // (23 août 2026, spec §12) : cette fenêtre décrit toujours un projet créé
+    // sans lancement, jamais une analyse en cours.
     renderCard(entry({ projectId: PROJECT.id }, null))
     const link = screen.getByRole('link')
-    expect(link.getAttribute('data-state')).toBe('analyzing')
+    expect(link.getAttribute('data-state')).toBe('new')
     // Et elle mène déjà au projet : l'identifiant vient de la source, pas de la
-    // liste des projets. Un bouton de création ici aurait relancé la même
-    // analyse, pour un 409.
+    // liste des projets. Un bouton de création ici recréerait un second projet
+    // pour la même source.
     expect(link).toHaveProperty('pathname', '/projects/2025-06-15-cqlp')
-    expect(screen.getByText('Analyse en cours')).toBeTruthy()
+    expect(screen.getByText('Lancer l’analyse')).toBeTruthy()
   })
 
   it('dit qu’une analyse est interrompue et propose de la reprendre', () => {

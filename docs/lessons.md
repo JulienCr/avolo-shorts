@@ -166,6 +166,13 @@ même conteneur, avec les mêmes en-têtes, échoue puis réussit à la reprise.
 connecteur qui traite ce 400 comme définitif abandonnera des publications qui
 n'avaient besoin que d'un second essai.
 
+Ça n'entame pas le « ni file, ni réessai automatique » de la conception, et la
+distinction vaut d'être posée une fois : **reprendre un octet perdu à
+l'intérieur d'une tentative n'est pas réessayer la tentative**. Le premier est
+du transport, il se décide dans le connecteur, il est borné et immédiat. Le
+second est de l'ordonnancement — relancer plus tard une publication qui a
+échoué —, il suppose une file et des horaires, et il reste hors périmètre.
+
 Accessoirement, deux questions que la conception laissait ouvertes sont
 tranchées : un compte de type **Créateur** (`MEDIA_CREATOR`) publie des reels
 sans réserve, et l'identifiant du compte diffère selon le chemin — un identifiant

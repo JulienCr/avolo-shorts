@@ -63,9 +63,12 @@ connecteraient leurs propres comptes — ce que le §3 de la conception généra
 exclut déjà (« le multi-utilisateur, la facturation, tout ce qui relève d'un
 SaaS »).
 
-Les anciennes permissions `instagram_basic` et `instagram_content_publish` ont été
-dépréciées le 27 janvier 2025 au profit des `instagram_business_*` : un exemple de
-code trouvé en ligne a de bonnes chances de nommer les mauvaises.
+Les permissions `instagram_basic` et `instagram_content_publish` ont été dépréciées
+le 27 janvier 2025 au profit des `instagram_business_*` — **mais uniquement du côté
+Instagram Login**. Sur le chemin Facebook Login, qui est celui retenu ici, ce sont
+bien `instagram_basic` et `instagram_content_publish` qu'il faut demander, comme
+le tableau ci-dessus les nomme. Les deux jeux portent des noms voisins et ne sont
+pas interchangeables : c'est la confusion la plus facile à commettre sur ce sujet.
 
 **Mesuré le 23 août 2026, et ça décide de l'appairage.** Meta expose deux
 configurations dans la même app, et celle qu'il met en avant est la mauvaise ici.
@@ -249,8 +252,12 @@ Dans le périmètre :
 
 Hors périmètre, et nommément :
 
-- **l'ordonnancement** : horaires de parution, file, réessai automatique. C'est le
-  lot 2, et `video_state: SCHEDULED` de Facebook l'attendra là-bas ;
+- **l'ordonnancement** : horaires de parution, file, réessai automatique d'une
+  publication échouée. C'est le lot 2, et `video_state: SCHEDULED` de Facebook
+  l'attendra là-bas. À ne pas confondre avec la **reprise de transport** — rejouer
+  un téléversement qui a rendu une erreur transitoire, à l'intérieur d'une même
+  tentative : celle-là est dans le périmètre, elle appartient au connecteur, et
+  `rupload.facebook.com` la rend nécessaire (voir `docs/lessons.md`) ;
 - **le multi-comptes** : un compte par plateforme, ceux d'Avolo ;
 - **les statistiques de performance** des publications ;
 - **la publication en tant que tiers**, qui ferait basculer Meta en Advanced
@@ -276,8 +283,10 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
 **Lot 0 — les démarches. Aucun code, et rien ne commence sans.**
 
 1. Créer l'app Meta (type Entreprise), y ajouter le compte Instagram
-   professionnel comme *Instagram Tester*, accepter l'invitation côté Instagram,
-   rattacher la Page Facebook.
+   professionnel au portefeuille business, **lui affecter une personne en accès
+   total** (sans quoi `media_publish` échoue en `2207085`, §2.1), et configurer
+   l'app en **« API avec connexion Facebook »** — pas en connexion Instagram, qui
+   ne sait pas téléverser depuis le disque. Rattacher la Page Facebook.
 2. Publier sur `avolo.fr` deux pages statiques : la politique de confidentialité
    et la page de retour OAuth. Meta et TikTok exigent la première.
 3. Créer l'app TikTok, y ajouter le produit *Content Posting API*, demander les
@@ -516,8 +525,9 @@ de sa valeur est dans ses messages.
 
 - **La péremption du brouillon TikTok** (§2.3) : 24 h selon des sources tierces
   concordantes, aucune source primaire. À mesurer au premier dépôt.
-- **Le type de compte Instagram** : *Entreprise* exigé, *Créateur* longtemps exclu
-  de la publication de reels, la situation a bougé. À vérifier au branchement.
+- ~~**Le type de compte Instagram**~~ — **tranché le 23 août 2026** (§2.1) : un
+  compte *Créateur* (`MEDIA_CREATOR`) publie des reels sans réserve. Ne pas
+  convertir un compte pour cette raison.
 - **La portée des publications par API.** On lit régulièrement qu'un reel publié
   par API serait moins recommandé qu'un reel publié depuis l'app. Aucune source
   primaire, aucune mesure, et ce dépôt ne décide pas sur des ouï-dire — mais si

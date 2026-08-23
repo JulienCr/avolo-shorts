@@ -3,6 +3,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { z } from 'zod'
 import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
+import type { Platform, PublicationStatus } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
@@ -143,6 +144,27 @@ CREATE TABLE IF NOT EXISTS settings (
   key       TEXT PRIMARY KEY,
   value     TEXT NOT NULL,
   updatedAt INTEGER NOT NULL
+);
+
+-- Une ligne par couple (clip, plateforme). \`requestId\` diffère délibérément
+-- de \`remoteId\` : un envoi Upload Post porte plusieurs plateformes en une
+-- seule requête (spec publication §6.4), donc le repère de sondage est
+-- partagé entre elles tandis que l'identifiant de publication ne l'est pas.
+-- \`CREATE TABLE IF NOT EXISTS\` suffit ici, sans entrée dans \`migrer\` : la
+-- table n'existait pas avant cette PR, il n'y a donc pas de base existante à
+-- rattraper (voir la doctrine plus bas, « pas de table de migrations »).
+CREATE TABLE IF NOT EXISTS publications (
+  clipId               TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+  platform             TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  remoteId             TEXT,
+  remoteUrl            TEXT,
+  requestId            TEXT,
+  error                TEXT,
+  publishedFingerprint TEXT,
+  createdAt            INTEGER NOT NULL,
+  updatedAt            INTEGER NOT NULL,
+  PRIMARY KEY (clipId, platform)
 );
 `
 
@@ -1419,4 +1441,45 @@ export function getClips(db: Database.Database, projectId: string): Clip[] {
 export function getClip(db: Database.Database, id: string): Clip | undefined {
   const line = db.prepare('SELECT * FROM clips WHERE id = ?').get(id) as LineClip | undefined
   return line && clipSinceLine(line)
+}
+
+/** Une ligne de `publications` : l'état d'une publication pour un couple (clip, plateforme). */
+export type PublicationRow = {
+  clipId: string
+  platform: Platform
+  status: PublicationStatus
+  remoteId: string | null
+  remoteUrl: string | null
+  requestId: string | null
+  error: string | null
+  publishedFingerprint: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** Les publications d'un clip, dans un ordre stable — celui des plateformes déclarées en base. */
+export function getPublications(db: Database.Database, clipId: string): PublicationRow[] {
+  return db
+    .prepare('SELECT * FROM publications WHERE clipId = ? ORDER BY platform')
+    .all(clipId) as PublicationRow[]
+}
+
+/**
+ * Pose ou met à jour une ligne. `createdAt` ne fait pas partie du `SET` : une
+ * mise à jour ne doit pas réécrire la date de première réservation.
+ */
+export function upsertPublication(db: Database.Database, row: PublicationRow): void {
+  db.prepare(
+    `INSERT INTO publications
+       (clipId, platform, status, remoteId, remoteUrl, requestId, error, publishedFingerprint, createdAt, updatedAt)
+     VALUES (@clipId, @platform, @status, @remoteId, @remoteUrl, @requestId, @error, @publishedFingerprint, @createdAt, @updatedAt)
+     ON CONFLICT(clipId, platform) DO UPDATE SET
+       status               = excluded.status,
+       remoteId             = excluded.remoteId,
+       remoteUrl            = excluded.remoteUrl,
+       requestId            = excluded.requestId,
+       error                = excluded.error,
+       publishedFingerprint = excluded.publishedFingerprint,
+       updatedAt            = excluded.updatedAt`,
+  ).run(row)
 }

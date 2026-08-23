@@ -21,6 +21,7 @@ import {
   type ResolvedHook,
 } from '@/core/hook'
 import type { Word } from '@/core/transcript'
+import { publicationText } from '@/core/publication'
 import { clipFraming, type ResolvedFraming } from '@/server/clip-framing'
 import {
   effectiveSettings,
@@ -1500,51 +1501,15 @@ export function markerRejectFault(
   return branding && markers.length === 0
 }
 
-/** Les mots-dièse d'un texte, dédoublonnés sans tenir compte de la casse. */
-export function wordsHash(text: string): string[] {
-  const seen = new Set<string>()
-  const output: string[] = []
-  for (const found of text.matchAll(/#[\p{L}\p{N}_]+/gu)) {
-    const key = found[0].toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    output.push(found[0])
-  }
-  return output
-}
-
 /**
- * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
- *
- * Ce fichier est fait pour être **copié**, pas analysé : trois sections nommées,
- * dans l'ordre où on les colle. Il servait à publier à la main, la publication
- * étant hors périmètre ; elle y est entrée le 18 août 2026
- * (`docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`), et le
- * `.txt` reste pour les réseaux qu'on ne branche pas et pour le rattrapage quand
- * une plateforme refuse. **Il n'est pas la source des textes publiés** : ceux-ci
- * se dérivent du clip, par plateforme, et non de ce rendu-ci.
- *
- * **Les mots-dièse ne sont pas retirés de la description**, ils en sont extraits.
- * Le prompt de détail demande au modèle « une description puis 3 à 5 mots-dièse »
- * en un seul champ, et cette description est ce qui se colle tel quel dans le
- * formulaire d'Instagram ; la section du bas n'existe que pour les reprendre
- * ailleurs sans les retaper. Les amputer de la description rendrait le champ
- * principal faux pour gagner une redite.
+ * `wordsHash` et `publicationText` vivent dans `src/core/publication.ts`
+ * depuis le 23 août 2026 — elles sont pures, et la publication par plateforme
+ * (`platformTexts`, même module) en a besoin sans dépendre de ce fichier, qui
+ * ouvre des fichiers et une base. Le re-export est délibéré : il évite de
+ * toucher `export-panel.tsx`, qui les importe d'ici et que la PR #142 tient en
+ * cours de revue.
  */
-export function publicationText(clip: Clip): string {
-  const title = clip.title.trim()
-  const description = clip.description.trim()
-  const hashes = wordsHash(`${title}\n${description}`)
-  return [
-    `Titre : ${title === '' ? '(sans titre)' : title}`,
-    '',
-    'Description :',
-    description === '' ? '(sans description)' : description,
-    '',
-    `Mots-dièse : ${hashes.length === 0 ? '(aucun)' : hashes.join(' ')}`,
-    '',
-  ].join('\n')
-}
+export { wordsHash, publicationText } from '@/core/publication'
 
 /**
  * Écrit un fichier sous un nom temporaire puis le renomme.

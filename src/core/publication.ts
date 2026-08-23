@@ -9,12 +9,14 @@
  * `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` pour la
  * conception d'ensemble — ce fichier n'en code que ce qui est prêt aujourd'hui.
  *
- * **Rien n'est branché.** Aucun connecteur n'existe pour aucune des quatre
- * plateformes : `defaultPlatformAvailability` rend donc `not_configured` pour
- * les quatre, et c'est l'état honnête. `PlatformUnavailableReason` porte
- * aussi `audit_required`, prêt pour le jour où TikTok et YouTube existeront
- * en connecteur mais attendront encore leur audit (deux à six semaines,
- * refus possible) — mais rien ici ne le sélectionne encore.
+ * **Depuis le 23 août 2026, un connecteur existe** — `src/server/publication/
+ * upload-post.ts`, pour les quatre plateformes à la fois, via Upload Post
+ * plutôt qu'un accès direct par plateforme. `defaultPlatformAvailability`
+ * reste la réponse honnête pour un environnement où rien n'est configuré ;
+ * l'état réel se lit dans `PublicationAdapter.availability`. `PlatformUnavailableReason`
+ * porte toujours `audit_required`, gardé pour un futur connecteur direct qui
+ * attendrait son propre audit — Upload Post, lui, publie à travers le sien,
+ * déjà passé (voir le docbloc d'`upload-post.ts`).
  *
  * **Le nom `Platform`, pas `Plateforme`.** Le code neuf de ce dépôt s'écrit en
  * anglais (`CLAUDE.md`) ; la conception de la publication, rédigée avant que
@@ -23,7 +25,7 @@
  * jour où un connecteur s'écrira, il suivra cette même règle.
  */
 
-import type { ClipStatus } from '@/core/edl'
+import type { Clip, ClipStatus } from '@/core/edl'
 
 /** Les quatre réseaux dans le périmètre (spec publication §4). */
 export type Platform = 'instagram' | 'facebook' | 'tiktok' | 'youtube'
@@ -176,4 +178,142 @@ export function canTargetPlatform(record: PublicationRecord | undefined, force: 
   if (record === undefined) return true
   if (record.status !== 'published') return true
   return force
+}
+
+/**
+ * Les deux fichiers qu'un export peut avoir produits — mêmes noms de champs
+ * que `PathsRender` (`src/server/steps/render.ts`), redéclarés ici plutôt
+ * qu'importés : ce sont des chemins absolus sur le disque du serveur, et
+ * `src/core/` ne connaît ni `node:fs` ni `node:path`.
+ */
+export type RenderedOutputs = {
+  mp4: string | null
+  variant9x16: string | null
+}
+
+/**
+ * Le fichier à envoyer aux plateformes — **un seul**, pour tout le job : une
+ * requête Upload Post porte plusieurs plateformes mais un seul `video`
+ * (`src/server/publication/adapter.ts`), donc le choix se fait une fois, pas
+ * par plateforme.
+ *
+ * La variante 9:16 est préférée à chaque fois qu'elle existe. Elle n'existe
+ * pas seulement quand le ratio natif résolu est déjà 9:16 (`pathsRender`) —
+ * auquel cas le natif **est** la livraison —, si bien que cette seule règle
+ * reste juste sous les deux états de `RENDER_NATIVE`
+ * (`src/core/render-flags.ts`) sans avoir besoin de le lire : à
+ * `RENDER_NATIVE = false`, un clip non-9:16 n'a que la variante ; à
+ * `RENDER_NATIVE = true`, il a les deux et la variante reste le meilleur
+ * choix pour des plateformes qui veulent toutes du vertical.
+ */
+export function platformFile(outputs: RenderedOutputs): string | null {
+  return outputs.variant9x16 ?? outputs.mp4
+}
+
+/** Les textes qu'une plateforme reçoit — un couple titre/description dans les deux cas. */
+export type PlatformTexts = { title: string; description: string }
+
+/** YouTube refuse un titre de plus de 100 caractères (spec §6.1). */
+const YOUTUBE_TITLE_MAX = 100
+
+/** Tronque sur une frontière de mot, jamais en plein mot. */
+function truncateOnWordBoundary(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace <= 0 ? cut : cut.slice(0, lastSpace)).trimEnd()
+}
+
+/**
+ * Les textes envoyés pour une plateforme donnée.
+ *
+ * **YouTube veut un titre et une description séparés** (spec §6.1) ; le titre
+ * est tronqué à 100 caractères sur une frontière de mot. **Les trois autres
+ * veulent une légende unique** — Reels et TikTok n'ont pas de champ titre — :
+ * `title` sort vide et `description` porte le titre et la description du clip
+ * réunis, comme le fait déjà `publicationText` pour le `.txt` de secours.
+ */
+export function platformTexts(clip: Pick<Clip, 'title' | 'description'>, platform: Platform): PlatformTexts {
+  const title = clip.title.trim()
+  const description = clip.description.trim()
+  if (platform === 'youtube') {
+    return { title: truncateOnWordBoundary(title, YOUTUBE_TITLE_MAX), description }
+  }
+  const caption = [title, description].filter((part) => part !== '').join('\n\n')
+  return { title: '', description: caption }
+}
+
+/**
+ * Un Short ne dépasse pas trois minutes (spec §8 point 3) — refusé ici, avec sa
+ * raison, plutôt que découvert dans un 400 renvoyé après le téléversement.
+ */
+const MAX_DURATION_SEC = 180
+
+/**
+ * Une borne large plutôt que la limite propre à chacune des quatre
+ * plateformes — TikTok, la plus stricte des quatre, tolère de l'ordre de 4 Go.
+ * Elle n'existe que pour intercepter un export manifestement anormal (un
+ * proxy envoyé par erreur, un rendu non recadré) avant de payer un
+ * téléversement qui échouera de toute façon, pas pour serrer la marge exacte
+ * d'aucune API.
+ */
+const MAX_SIZE_BYTES = 500 * 1024 * 1024
+
+/** Un clip est-il publiable, du seul point de vue de sa durée et de son poids ? */
+export function platformEligibility(durationSec: number, sizeBytes: number): ClipEligibility {
+  if (durationSec > MAX_DURATION_SEC) {
+    return {
+      eligible: false,
+      reason: `Ce clip dure ${durationSec.toFixed(0)} s, plus de 3 minutes : ce n’est pas un format court.`,
+    }
+  }
+  if (sizeBytes > MAX_SIZE_BYTES) {
+    return {
+      eligible: false,
+      reason: `Le fichier pèse ${(sizeBytes / (1024 * 1024)).toFixed(0)} Mio, au-delà de ce que ce dépôt envoie sans vérification manuelle.`,
+    }
+  }
+  return { eligible: true }
+}
+
+/** Les mots-dièse d'un texte, dédoublonnés sans tenir compte de la casse. */
+export function wordsHash(text: string): string[] {
+  const seen = new Set<string>()
+  const output: string[] = []
+  for (const found of text.matchAll(/#[\p{L}\p{N}_]+/gu)) {
+    const key = found[0].toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    output.push(found[0])
+  }
+  return output
+}
+
+/**
+ * Le `.txt` qui accompagne le MP4 : titre, description, mots-dièse.
+ *
+ * Fait pour être **copié**, pas analysé — trois sections nommées, dans l'ordre
+ * où on les colle. Il servait à publier à la main avant que la publication
+ * n'entre dans l'outil (18 août 2026) ; il reste pour les réseaux qu'on ne
+ * branche pas et pour le rattrapage quand une plateforme refuse. **Il n'est
+ * pas la source des textes publiés** : ceux-ci se dérivent du clip par
+ * `platformTexts`, pas de ce rendu-ci.
+ *
+ * Les mots-dièse ne sont pas retirés de la description, ils en sont extraits :
+ * elle se colle telle quelle dans le formulaire d'Instagram, et la section du
+ * bas n'existe que pour les reprendre ailleurs sans les retaper.
+ */
+export function publicationText(clip: { title: string; description: string }): string {
+  const title = clip.title.trim()
+  const description = clip.description.trim()
+  const hashes = wordsHash(`${title}\n${description}`)
+  return [
+    `Titre : ${title === '' ? '(sans titre)' : title}`,
+    '',
+    'Description :',
+    description === '' ? '(sans description)' : description,
+    '',
+    `Mots-dièse : ${hashes.length === 0 ? '(aucun)' : hashes.join(' ')}`,
+    '',
+  ].join('\n')
 }

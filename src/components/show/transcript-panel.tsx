@@ -1,29 +1,30 @@
 'use client'
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { FileText, RotateCcw, Wand2 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { CorrectionRejectionReason } from '@/core/correction'
 import { count } from '@/core/phase'
-import { ApiError, type CandidateClip, type CorrectionProposal } from '@/lib/api'
+import { ApiError, type CandidateClip, type CorrectionEntry } from '@/lib/api'
 import { indexTranscript, wordsToText, type IndexedLine, type TranscriptLine } from '@/lib/editing'
 import { formatTimecode } from '@/lib/format'
 import { linkProject } from '@/lib/navigation'
 import {
+  keys,
   useCandidates,
+  useCorrectionHistory,
   useCorrectTranscript,
   useProject,
-  useProposeCorrection,
   useRetry,
   useTranscript,
+  useUndoCorrection,
 } from '@/lib/queries'
 import { agreement } from '@/components/review/template'
 import { ButtonRetry } from '@/components/review/retry'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogClose,
@@ -176,8 +177,10 @@ export function TranscriptPanel({
   // ait effectivement ouvert le transcript.
   const transcript = useTranscript(projectId, { enabled: open })
   const correction = useCorrectTranscript()
-  const propose = useProposeCorrection()
   const project = useProject(projectId, { enabled: open })
+  const history = useCorrectionHistory(projectId, { enabled: open })
+  const undo = useUndoCorrection()
+  const client = useQueryClient()
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
   // juste en dessous, qui recalculerait indexTranscript à chaque frappe.
@@ -205,18 +208,6 @@ export function TranscriptPanel({
   const [touchedClips, setTouchedClips] = useState<Map<string, string>>(new Map())
   const [correctionsApplied, setCorrectionsApplied] = useState(0)
 
-  // La proposition du modèle vit ici, jamais écrite avant validation.
-  const [proposals, setProposals] = useState<CorrectionProposal[]>([])
-  const [excluded, setExcluded] = useState<Set<number>>(new Set())
-  const [rejected, setRejected] = useState<Partial<Record<CorrectionRejectionReason, number>>>({})
-  const [applying, setApplying] = useState(false)
-  const [applyError, setApplyError] = useState<string | null>(null)
-  // **Distinct de `proposals.length > 0`.** Une passe qui ne retient aucune
-  // substitution — tout rejeté par les gardes, ou rien à corriger — a quand
-  // même tourné : sans ce drapeau, l'écran retombe à son état d'avant clic,
-  // indiscernable d'un bouton qui n'aurait rien fait.
-  const [hasProposed, setHasProposed] = useState(false)
-
   // **La retranscription efface les corrections manuelles, sur le sidecar
   // comme sur cet écran.** WhisperX remplace le fichier entier : le bandeau
   // « corrections appliquées » et les clips « concernés » qu'il affiche ne
@@ -235,11 +226,21 @@ export function TranscriptPanel({
   // « corrections appliquées »/« clips concernés » restent exacts à sa fin.
   // Les effacer là aurait fait disparaître un avertissement encore vrai.
   // (relevé par Copilot)
+  //
+  // **L'historique s'invalide sur `transcript` comme sur `correction`.**
+  // Une retranscription fait repartir `correction.json` à vide
+  // (`applyTranscriptCorrections`, `src/server/steps/transcript-correction.ts`) ;
+  // un simple « Relancer la correction » ne touche pas `transcript` mais
+  // change quand même le journal. Les deux étapes doivent donc être suivies
+  // séparément — un seul drapeau confondrait les deux et manquerait le
+  // second cas.
   const wasRunning = useRef(false)
   const sawTranscriptStep = useRef(false)
+  const sawCorrectionStep = useRef(false)
   useEffect(() => {
     const running = project.data?.running ?? null
     if (running?.step === 'transcript') sawTranscriptStep.current = true
+    if (running?.step === 'correction') sawCorrectionStep.current = true
     const isRunning = running != null
     if (wasRunning.current && !isRunning) {
       if (sawTranscriptStep.current) {
@@ -247,22 +248,15 @@ export function TranscriptPanel({
         setCorrectionsApplied(0)
         setSelection(null)
         setDraft('')
-        // Les propositions du modèle indexent l'ancien texte : une
-        // retranscription les rend caduques avant même qu'on ait pu les lire.
-        // `hasProposed`, `rejected` et `applyError` en font partie : les
-        // laisser survivre affiche « 0 substitution » ou une erreur d'une
-        // passe qui ne porte plus sur ce transcript. (relevé par Copilot et
-        // Codex)
-        setProposals([])
-        setExcluded(new Set())
-        setHasProposed(false)
-        setRejected({})
-        setApplyError(null)
+      }
+      if (sawTranscriptStep.current || sawCorrectionStep.current) {
+        void client.invalidateQueries({ queryKey: keys.correctionHistory(projectId) })
       }
       sawTranscriptStep.current = false
+      sawCorrectionStep.current = false
     }
     wasRunning.current = isRunning
-  }, [project.data?.running])
+  }, [project.data?.running, client, projectId])
 
   const container = useRef<HTMLDivElement>(null)
   // Le compilateur React signale ici qu'il renonce à mémoïser ce composant :
@@ -398,115 +392,30 @@ export function TranscriptPanel({
     )
   }
 
-  // **Mutuellement exclusif avec `applyProposals`.** Les deux écrivent le
-  // même état `proposals` ; une nouvelle proposition arrivée pendant
-  // l'application écraserait `remaining` ou porterait sur un transcript que
-  // la boucle vient de modifier. (relevé par Copilot)
-  function proposeCorrections() {
-    if (propose.isPending || applying) return
-    propose.mutate(projectId, {
-      onSuccess(result) {
-        setProposals(result.proposals)
-        setExcluded(new Set())
-        setRejected(result.rejected)
-        setApplyError(null)
-        setHasProposed(true)
-      },
-    })
-  }
-
-  function toggleProposal(index: number) {
-    setExcluded((previous) => {
-      const next = new Set(previous)
-      if (next.has(index)) next.delete(index)
-      else next.add(index)
-      return next
-    })
-  }
-
-  function dismissProposals() {
-    setProposals([])
-    setExcluded(new Set())
-    setApplyError(null)
-    setHasProposed(false)
-  }
-
   /**
-   * Écrit les substitutions retenues, une à la fois, via la mutation de
-   * correction existante.
-   * @remarks Une substitution qui échoue (409, le texte a changé) reste
-   * dans la liste plutôt que de disparaître ; les autres continuent.
-   * @remarks Une fusion (`merge`) raccourcit la phrase : à empan égal, les
-   * substitutions plus loin dans la phrase (`from` plus grand) s'écrivent
-   * d'abord, pour que celles qui suivent gardent des index encore valides
-   * plutôt que d'échouer en `anchor-mismatch` contre un texte déjà décalé.
-   * @remarks Les propositions déjà décochées restent décochées dans la
-   * liste qui reste après l'application — décocher un envoi partiel ne doit
-   * pas rendre les autres implicitement retenues.
+   * Défait une entrée de l'historique — l'inverse, par le même chemin
+   * d'écriture que la correction manuelle.
+   * @remarks Pas d'écriture optimiste, comme `submitCorrection` : un défaire
+   * refusé (409, le texte a changé sous les yeux) doit laisser l'historique
+   * tel qu'il est vraiment sur le disque.
    */
-  async function applyProposals() {
-    if (applying || propose.isPending) return
-    const excludedProposals = proposals.filter((_, i) => excluded.has(i))
-    // **Ordre total, pas seulement stable.** `0` pour deux phrases
-    // différentes ne les regroupe pas : un tri stable ne garantit
-    // l'ordre au sein d'une phrase que si les paires de cette phrase sont
-    // comparées entre elles, ce qu'une autre phrase intercalée empêche.
-    // Comparer d'abord `lineId` établit un ordre total, sous lequel toutes
-    // les entrées d'une même phrase se retrouvent contiguës et triées par
-    // `from` décroissant. (relevé par Copilot et Codex)
-    const toApply = [...proposals.filter((_, i) => !excluded.has(i))].sort((a, b) => {
-      if (a.request.lineId !== b.request.lineId) return a.request.lineId < b.request.lineId ? -1 : 1
-      return b.request.from - a.request.from
-    })
-    if (toApply.length === 0) return
-    setApplying(true)
-    setApplyError(null)
-
-    // **Une fusion réussie invalide les ancres des autres propositions de
-    // la même phrase**, décochées ou en échec : leurs `from`/`to` indexent
-    // la phrase d'avant la fusion. Les recaler demanderait de rappeler le
-    // modèle ; on les retire plutôt que de les garder pour un futur
-    // `anchor-mismatch` qui n'a rien à voir avec leur texte. (relevé par
-    // Copilot)
-    const shiftedLines = new Set<string>()
-    const failed: CorrectionProposal[] = []
-    let failures = 0
-    for (const proposal of toApply) {
-      try {
-        const result = await correction.mutateAsync({ projectId, correction: proposal.request })
-        setCorrectionsApplied((n) => n + 1)
-        if (proposal.request.to > proposal.request.from) shiftedLines.add(proposal.request.lineId)
-        if (result.clipsTouched.length > 0) {
-          setTouchedClips((previous) => {
-            const next = new Map(previous)
-            for (const c of result.clipsTouched) next.set(c.id, c.title)
-            return next
-          })
-        }
-      } catch {
-        failures += 1
-        failed.push(proposal)
-      }
-    }
-
-    const keptExcluded = excludedProposals.filter((p) => !shiftedLines.has(p.request.lineId))
-    const keptFailed = failed.filter((p) => !shiftedLines.has(p.request.lineId))
-    const staleCount = excludedProposals.length + failed.length - keptExcluded.length - keptFailed.length
-    setProposals([...keptExcluded, ...keptFailed])
-    setExcluded(new Set(keptExcluded.map((_, i) => i)))
-    setApplying(false)
-    const messages: string[] = []
-    if (failures > 0) {
-      messages.push(
-        `${agreement(failures, 'correction n’a', 'corrections n’ont')} pas pu s’écrire : le texte a peut-être changé entretemps.`,
-      )
-    }
-    if (staleCount > 0) {
-      messages.push(
-        `${agreement(staleCount, 'proposition retirée', 'propositions retirées')} : une fusion appliquée dans la même phrase a changé ses mots — relancer l’analyse pour les revoir.`,
-      )
-    }
-    if (messages.length > 0) setApplyError(messages.join(' '))
+  function undoEntry(entry: CorrectionEntry) {
+    if (undo.isPending) return
+    undo.mutate(
+      { projectId, id: entry.id },
+      {
+        onSuccess(result) {
+          setCorrectionsApplied((n) => n + 1)
+          if (result.clipsTouched.length > 0) {
+            setTouchedClips((previous) => {
+              const next = new Map(previous)
+              for (const c of result.clipsTouched) next.set(c.id, c.title)
+              return next
+            })
+          }
+        },
+      },
+    )
   }
 
   const items = virtualizer.getVirtualItems()
@@ -541,35 +450,33 @@ export function TranscriptPanel({
             onOpenChange={setRetranscribeOpen}
             projectId={projectId}
           />
-          <div className="flex flex-col items-end gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              aria-disabled={propose.isPending || applying}
-              onClick={proposeCorrections}
-            >
-              <Wand2 aria-hidden />
-              {propose.isPending ? 'Analyse en cours…' : 'Corriger automatiquement avec un LLM'}
-            </Button>
-            {propose.isError && (
-              <span role="alert" className="text-xs text-destructive">
-                {propose.error.message}
-              </span>
-            )}
-          </div>
+          <RerunCorrectionButton
+            projectId={projectId}
+            inCurrent={(project.data?.running ?? null) !== null}
+          />
         </div>
 
-        {(proposals.length > 0 || hasProposed) && (
-          <CorrectionProposals
-            proposals={proposals}
+        {/* **La panne de la correction automatique, si la dernière analyse
+            en a signalé une.** L'étape avale une panne du modèle plutôt que
+            de bloquer tout le plan (`src/server/run.ts`) ; ce bandeau est le
+            rattrapage explicite promis en échange — le message dit déjà
+            « relancer la correction », le bouton juste au-dessus le fait. */}
+        {project.data?.error !== null &&
+          project.data?.error !== undefined &&
+          (project.data?.running ?? null) === null && (
+            <div className="shrink-0 border-b px-4 py-2">
+              <Alert variant="destructive">
+                <AlertDescription>{project.data.error}</AlertDescription>
+              </Alert>
+            </div>
+          )}
+
+        {history.data !== undefined && history.data.length > 0 && (
+          <CorrectionHistory
+            entries={history.data}
             lines={lines}
-            excluded={excluded}
-            rejected={rejected}
-            applying={applying || propose.isPending}
-            applyError={applyError}
-            onToggle={toggleProposal}
-            onApply={() => void applyProposals()}
-            onDismiss={dismissProposals}
+            undoing={undo.isPending}
+            onUndo={undoEntry}
           />
         )}
 
@@ -711,121 +618,151 @@ export function TranscriptPanel({
   )
 }
 
-/** Le libellé de chaque catégorie de refus (`CorrectionRejectionReason`, `@/core/correction`). */
-const REJECTION_LABELS: Record<CorrectionRejectionReason, string> = {
-  'out-of-range': 'hors de l’empan',
-  overlap: 'en recouvrement',
-  'empty-word': 'remplacement vide',
-  'word-has-space': 'remplacement à plusieurs mots',
-  'phonetic-mismatch': 'invariance phonétique',
-  'crosses-line': 'à cheval sur deux phrases',
-}
+/**
+ * Relance la correction automatique, forcée — spec §9, correction du
+ * 23 août 2026 : « une seule façon de corriger, pas deux ». Ce bouton ne
+ * fait rien d'autre que ce que fait l'étape `correction` du graphe pendant
+ * une analyse ; il ne réécrit rien lui-même.
+ *
+ * **`force: ['correction']` entraîne `candidates` avec lui** — c'est
+ * `planSteps` qui le fait (`src/core/graph.ts`, « forced descend dans
+ * l'aval ») : le repérage doit relire le texte que cette passe vient de
+ * corriger.
+ */
+function RerunCorrectionButton({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
+  const retry = useRetry()
+  const [open, setOpen] = useState(false)
+  const blocked = inCurrent || retry.isPending
 
-function rejectionSummary(rejected: Partial<Record<CorrectionRejectionReason, number>>): string {
-  return Object.entries(rejected)
-    .map(([reason, n]) => `${n} ${REJECTION_LABELS[reason as CorrectionRejectionReason]}`)
-    .join(', ')
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        aria-disabled={blocked}
+        onClick={() => {
+          if (blocked) return
+          setOpen(true)
+        }}
+      >
+        <Wand2 aria-hidden />
+        Relancer la correction automatique
+      </Button>
+      {retry.isError && (
+        <span role="alert" className="text-xs text-destructive">
+          {retry.error.message}
+        </span>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Relancer la correction automatique ?</DialogTitle>
+            <DialogDescription>
+              Le modèle relit le transcript et applique de nouvelles substitutions, qui s’ajoutent à
+              l’historique plutôt que de le remplacer.
+            </DialogDescription>
+          </DialogHeader>
+
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+            <li>Le repérage repart derrière, sur le texte à jour : c’est lui qui prend du temps.</li>
+          </ul>
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+            <Button
+              onClick={() => {
+                setOpen(false)
+                retry.mutate({ projectId, targets: 'candidates', force: ['correction'] })
+              }}
+            >
+              Relancer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
 }
 
 /**
- * La liste des substitutions proposées par le modèle, avant toute écriture.
+ * L'historique de la correction automatique : ce qu'elle a changé, et de
+ * quoi le défaire (spec §9, correction du 23 août 2026).
+ *
+ * **Remplace la relecture avant écriture de #128**, qui n'a plus d'objet : la
+ * correction est déjà appliquée quand cet écran s'ouvre.
  * @remarks Virtualisée comme le reste du panneau (§2.3) : une émission
- * entière peut en proposer plusieurs centaines.
+ * entière peut accumuler plusieurs centaines d'entrées, d'une passe à l'autre.
  */
-function CorrectionProposals({
-  proposals,
+function CorrectionHistory({
+  entries,
   lines,
-  excluded,
-  rejected,
-  applying,
-  applyError,
-  onToggle,
-  onApply,
-  onDismiss,
+  undoing,
+  onUndo,
 }: {
-  proposals: CorrectionProposal[]
+  entries: CorrectionEntry[]
   lines: TranscriptLine[]
-  excluded: Set<number>
-  rejected: Partial<Record<CorrectionRejectionReason, number>>
-  applying: boolean
-  applyError: string | null
-  onToggle: (index: number) => void
-  onApply: () => void
-  onDismiss: () => void
+  undoing: boolean
+  onUndo: (entry: CorrectionEntry) => void
 }) {
   const lineById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines])
   const container = useRef<HTMLDivElement>(null)
   // Même raison que le virtualiseur du transcript lui-même : voir son commentaire.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: proposals.length,
+    count: entries.length,
     getScrollElement: () => container.current,
     estimateSize: () => 56,
     overscan: 8,
   })
   const items = virtualizer.getVirtualItems()
-  const keptCount = proposals.length - excluded.size
-  const rejectedTotal = Object.values(rejected).reduce((a, b) => a + (b ?? 0), 0)
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          {agreement(proposals.length, 'substitution proposée', 'substitutions proposées')}
-          {rejectedTotal > 0 &&
-            ` — ${agreement(rejectedTotal, 'refusée', 'refusées')} par les gardes (${rejectionSummary(rejected)}).`}
-        </p>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" disabled={applying} onClick={onDismiss}>
-            Fermer
-          </Button>
-          <Button size="sm" aria-disabled={applying || keptCount === 0} onClick={onApply}>
-            {applying ? 'Application…' : `Valider ${agreement(keptCount, 'correction', 'corrections')}`}
-          </Button>
-        </div>
-      </div>
-
-      {applyError && (
-        <span role="alert" className="text-xs text-destructive">
-          {applyError}
-        </span>
-      )}
+      <p className="text-sm text-muted-foreground">
+        {agreement(entries.length, 'substitution appliquée', 'substitutions appliquées')} par la
+        correction automatique.
+      </p>
 
       <div ref={container} className="max-h-64 overflow-y-auto rounded-md border">
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {items.map((item) => {
-            const proposal = proposals[item.index]
-            if (proposal === undefined) return null
-            const line = lineById.get(proposal.request.lineId)
-            const id = `correction-proposal-${item.index}`
+            const entry = entries[item.index]
+            if (entry === undefined) return null
+            const line = lineById.get(entry.lineId)
             return (
               <div
-                key={item.index}
+                key={entry.id}
                 ref={virtualizer.measureElement}
                 data-index={item.index}
-                className="absolute top-0 left-0 flex w-full items-start gap-2 px-2 py-1.5"
+                className="absolute top-0 left-0 flex w-full items-start justify-between gap-2 px-2 py-1.5"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <Checkbox
-                  id={id}
-                  checked={!excluded.has(item.index)}
-                  onCheckedChange={() => onToggle(item.index)}
-                  disabled={applying}
-                  className="mt-1 shrink-0"
-                />
-                <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+                <div className="min-w-0 flex-1">
                   <span className="mr-2 font-mono text-[0.75rem] text-muted-foreground/70 tabular-nums">
-                    {formatTimecode(proposal.timecode)}
+                    {formatTimecode(entry.timecode)}
                   </span>
                   {line !== undefined && (
                     <p className="truncate text-xs text-muted-foreground">{wordsToText(line.words)}</p>
                   )}
                   <p className="text-sm">
-                    <span className="text-muted-foreground line-through">{proposal.original}</span>
+                    <span className="text-muted-foreground line-through">{entry.expected.join(' ')}</span>
                     {' → '}
-                    <span className="font-medium">{proposal.replacement}</span>
+                    <span className="font-medium">{entry.replacement}</span>
                   </p>
-                </label>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0"
+                  aria-disabled={undoing}
+                  onClick={() => {
+                    if (undoing) return
+                    onUndo(entry)
+                  }}
+                >
+                  Défaire
+                </Button>
               </div>
             )
           })}

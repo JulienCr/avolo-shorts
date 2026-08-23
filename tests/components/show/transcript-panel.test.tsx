@@ -404,6 +404,55 @@ describe('TranscriptPanel — historique de correction', () => {
     expect(screen.queryByRole('button', { name: 'Retirer de l’historique' })).toBeNull()
   })
 
+  it('invalide l’historique à la fin de toute exécution observée, même sans avoir vu `correction` (#135)', async () => {
+    // **Le scénario de l'issue.** Le sondage de deux secondes ne voit jamais
+    // `running.step === 'correction'` — une étape courte, démarrée et finie
+    // entre deux tours — donc seule `candidates` est observée avant que
+    // `running` retombe à `null`. L'ancienne déduction n'invalidait
+    // l'historique que sur `transcript`/`correction` vus ; celle-ci invalide
+    // sur la seule transition `wasRunning → !isRunning`, donc le nouveau
+    // journal se recharge quand même.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const localWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    let historyCalls = 0
+    const runningStatus = {
+      project: { id: 'cqlp', title: 'cqlp', durationSec: 100, createdAt: '2026-01-01' },
+      steps: { proxy: true, audio: true, transcript: true, correction: true, analysis: true, candidates: true, renders: false },
+      running: { step: 'candidates', progress: 0.5 },
+      error: null,
+      warning: null,
+      stopped: false,
+      selectionReport: null,
+      sizeBytes: null,
+    }
+    stubFetch([
+      transcriptResponse(),
+      {
+        when: (u, m) => m === 'GET' && u.endsWith('/transcript/correction'),
+        get body() {
+          historyCalls += 1
+          return historyCalls === 1
+            ? []
+            : [{ id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 }]
+        },
+      },
+      { when: (u, m) => m === 'GET' && u.endsWith('/projects/cqlp'), body: runningStatus },
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper: localWrapper })
+
+    await screen.findByRole('button', { name: 'Bonjour' })
+    expect(screen.queryByText(/substitution appliquée/)).toBeNull()
+    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+
+    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+
+    await waitFor(() => expect(screen.queryByText(/1 substitution appliquée/)).toBeTruthy())
+  })
+
   it('« Retirer de l’historique » retire l’entrée sans passer par « Défaire » (issues #134, #138)', async () => {
     // **Le scénario de ce groupe.** Le mot que l'entrée croit corriger n'est
     // plus là — une correction manuelle antérieure a décalé la phrase (#138),

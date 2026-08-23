@@ -229,20 +229,28 @@ export function TranscriptPanel({
   // Les effacer là aurait fait disparaître un avertissement encore vrai.
   // (relevé par Copilot)
   //
-  // **L'historique s'invalide sur `transcript` comme sur `correction`.**
-  // Une retranscription fait repartir `correction.json` à vide
-  // (`applyTranscriptCorrections`, `src/server/steps/transcript-correction.ts`) ;
-  // un simple « Relancer la correction » ne touche pas `transcript` mais
-  // change quand même le journal. Les deux étapes doivent donc être suivies
-  // séparément — un seul drapeau confondrait les deux et manquerait le
-  // second cas.
+  // **L'historique s'invalide à la fin de toute exécution observée, jamais
+  // sur une étape déduite.** Avant cette PR, l'invalidation ne suivait que
+  // `sawCorrectionStep` (et `sawTranscriptStep`, pour la même raison) : un
+  // sondage de deux secondes qui manque une étape `correction` courte —
+  // démarrée et finie entre deux tours — ne la voit jamais, et l'écran garde
+  // son cache jusqu'au prochain rechargement manuel (issue #135). Suivre la
+  // seule transition `wasRunning → !isRunning` ferme le cas sans avoir à
+  // deviner quelles étapes sont passées : un aller-retour de trop sur une
+  // exécution qui n'a rien changé au journal coûte moins qu'un affichage en
+  // retard.
   const wasRunning = useRef(false)
+  // **Restreint aux clips touchés, pas à l'historique.** `transcript.json`
+  // repart entier après une retranscription : le bandeau « corrections
+  // appliquées »/« clips concernés » ne correspondrait plus à rien une fois
+  // le nouveau texte chargé. Un repérage seul (`target: 'candidates'`, sans
+  // `force: ['transcript']`) ne réexporte aucun clip, et l'effacer là ferait
+  // disparaître un avertissement encore vrai — cette portion reste donc
+  // gardée par l'étape `transcript` réellement observée. (relevé par Copilot)
   const sawTranscriptStep = useRef(false)
-  const sawCorrectionStep = useRef(false)
   useEffect(() => {
     const running = project.data?.running ?? null
     if (running?.step === 'transcript') sawTranscriptStep.current = true
-    if (running?.step === 'correction') sawCorrectionStep.current = true
     const isRunning = running != null
     if (wasRunning.current && !isRunning) {
       if (sawTranscriptStep.current) {
@@ -251,11 +259,8 @@ export function TranscriptPanel({
         setSelection(null)
         setDraft('')
       }
-      if (sawTranscriptStep.current || sawCorrectionStep.current) {
-        void client.invalidateQueries({ queryKey: keys.correctionHistory(projectId) })
-      }
+      void client.invalidateQueries({ queryKey: keys.correctionHistory(projectId) })
       sawTranscriptStep.current = false
-      sawCorrectionStep.current = false
     }
     wasRunning.current = isRunning
   }, [project.data?.running, client, projectId])

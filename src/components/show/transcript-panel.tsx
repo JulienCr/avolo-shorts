@@ -211,6 +211,11 @@ export function TranscriptPanel({
   const [rejected, setRejected] = useState<Partial<Record<CorrectionRejectionReason, number>>>({})
   const [applying, setApplying] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
+  // **Distinct de `proposals.length > 0`.** Une passe qui ne retient aucune
+  // substitution — tout rejeté par les gardes, ou rien à corriger — a quand
+  // même tourné : sans ce drapeau, l'écran retombe à son état d'avant clic,
+  // indiscernable d'un bouton qui n'aurait rien fait.
+  const [hasProposed, setHasProposed] = useState(false)
 
   // **La retranscription efface les corrections manuelles, sur le sidecar
   // comme sur cet écran.** WhisperX remplace le fichier entier : le bandeau
@@ -394,6 +399,7 @@ export function TranscriptPanel({
         setExcluded(new Set())
         setRejected(result.rejected)
         setApplyError(null)
+        setHasProposed(true)
       },
     })
   }
@@ -411,6 +417,7 @@ export function TranscriptPanel({
     setProposals([])
     setExcluded(new Set())
     setApplyError(null)
+    setHasProposed(false)
   }
 
   /**
@@ -418,15 +425,26 @@ export function TranscriptPanel({
    * correction existante.
    * @remarks Une substitution qui échoue (409, le texte a changé) reste
    * dans la liste plutôt que de disparaître ; les autres continuent.
+   * @remarks Une fusion (`merge`) raccourcit la phrase : à empan égal, les
+   * substitutions plus loin dans la phrase (`from` plus grand) s'écrivent
+   * d'abord, pour que celles qui suivent gardent des index encore valides
+   * plutôt que d'échouer en `anchor-mismatch` contre un texte déjà décalé.
+   * @remarks Les propositions déjà décochées restent décochées dans la
+   * liste qui reste après l'application — décocher un envoi partiel ne doit
+   * pas rendre les autres implicitement retenues.
    */
   async function applyProposals() {
     if (applying) return
-    const toApply = proposals.filter((_, i) => !excluded.has(i))
+    const excludedProposals = proposals.filter((_, i) => excluded.has(i))
+    const toApply = [...proposals.filter((_, i) => !excluded.has(i))].sort((a, b) => {
+      if (a.request.lineId !== b.request.lineId) return 0
+      return b.request.from - a.request.from
+    })
     if (toApply.length === 0) return
     setApplying(true)
     setApplyError(null)
 
-    const remaining: CorrectionProposal[] = proposals.filter((_, i) => excluded.has(i))
+    const failed: CorrectionProposal[] = []
     let failures = 0
     for (const proposal of toApply) {
       try {
@@ -441,12 +459,12 @@ export function TranscriptPanel({
         }
       } catch {
         failures += 1
-        remaining.push(proposal)
+        failed.push(proposal)
       }
     }
 
-    setProposals(remaining)
-    setExcluded(new Set())
+    setProposals([...excludedProposals, ...failed])
+    setExcluded(new Set(excludedProposals.map((_, i) => i)))
     setApplying(false)
     if (failures > 0) {
       setApplyError(
@@ -505,7 +523,7 @@ export function TranscriptPanel({
           </div>
         </div>
 
-        {proposals.length > 0 && (
+        {(proposals.length > 0 || hasProposed) && (
           <CorrectionProposals
             proposals={proposals}
             lines={lines}

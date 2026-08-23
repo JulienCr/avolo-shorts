@@ -20,7 +20,15 @@ import { AnnouncementDStep, StripProgress, PanelProgress } from '@/components/re
 afterEach(cleanup)
 
 function reading(made: StepName[]): Record<StepName, boolean> {
-  const all: StepName[] = ['proxy', 'audio', 'transcript', 'analysis', 'candidates', 'renders']
+  const all: StepName[] = [
+    'proxy',
+    'audio',
+    'transcript',
+    'correction',
+    'analysis',
+    'candidates',
+    'renders',
+  ]
   return Object.fromEntries(all.map((n) => [n, made.includes(n)])) as Record<StepName, boolean>
 }
 
@@ -103,7 +111,8 @@ describe('PanelProgress', () => {
     const steps = screen.getAllByRole('listitem').map((e) => e.textContent ?? '')
     expect(steps[0]).toContain('Audio')
     expect(steps[1]).toContain('Transcription')
-    expect(steps[2]).toContain('Repérage')
+    expect(steps[2]).toContain('Correction')
+    expect(steps[3]).toContain('Repérage')
     expect(screen.getByTestId('etape-audio').getAttribute('data-etat')).toBe('faite')
     expect(screen.getByTestId('etape-transcript').getAttribute('data-etat')).toBe('encours')
     expect(screen.getByTestId('etape-proxy').getAttribute('data-etat')).toBe('attendue')
@@ -239,7 +248,7 @@ describe('AnnouncementDStep', () => {
     render(
       <AnnouncementDStep
         running={null}
-        steps={reading(['audio', 'transcript', 'candidates', 'proxy', 'analysis'])}
+        steps={reading(['audio', 'transcript', 'correction', 'candidates', 'proxy', 'analysis'])}
         connu
       />,
     )

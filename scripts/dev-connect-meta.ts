@@ -98,13 +98,23 @@ async function findPageWithInstagram(userToken: string): Promise<PageAccount> {
   })
   const response = await fetch(`${GRAPH_BASE}/me/accounts?${params.toString()}`)
   const body = await requireOk<{ data: PageAccount[] }>(response)
-  const withInstagram = body.data.find((page) => page.instagram_business_account !== undefined)
-  if (withInstagram === undefined) {
+  const withInstagram = body.data.filter((page) => page.instagram_business_account !== undefined)
+  if (withInstagram.length === 0) {
     throw new Error(
       `Aucune des ${body.data.length} Page(s) de ce compte ne porte de compte Instagram professionnel rattaché.`,
     )
   }
-  return withInstagram
+  // La sélection multi-compte est hors périmètre (spec) : rejeter le cas
+  // ambigu plutôt que choisir arbitrairement la première — `/me/accounts` ne
+  // classe pas ses résultats par pertinence pour @cie.avolo.
+  if (withInstagram.length > 1) {
+    throw new Error(
+      `${withInstagram.length} Pages de ce compte portent un Instagram professionnel rattaché ` +
+        `(${withInstagram.map((page) => page.name).join(', ')}) : sélection multi-compte hors périmètre, ` +
+        'relancer avec un compte Meta qui ne gère que @cie.avolo.',
+    )
+  }
+  return withInstagram[0]
 }
 
 async function main(): Promise<number> {

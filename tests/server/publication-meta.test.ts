@@ -191,6 +191,77 @@ describe('publishInstagram', () => {
   })
 })
 
+/** Le routeur d'un flux Facebook complet, jusqu'au sondage `publishing_phase`. */
+function facebookHandler(
+  options: { pollPhases?: readonly string[] } = {},
+): { handler: Handler; order: string[] } {
+  const { pollPhases = ['complete'] } = options
+  const order: string[] = []
+  let polls = 0
+
+  const handler: Handler = async (input, init) => {
+    const url = input.toString()
+    const method = init?.method ?? 'GET'
+
+    if (method === 'POST' && url === 'https://graph.facebook.com/v23.0/page1/video_reels') {
+      const body = (init?.body as URLSearchParams).toString()
+      if (body.includes('upload_phase=start')) {
+        order.push('start')
+        return jsonResponse(200, { video_id: 'video1' })
+      }
+      order.push('finish')
+      return jsonResponse(200, { success: true })
+    }
+    if (url.includes('rupload.facebook.com/video-upload/v23.0/video1')) {
+      order.push('upload')
+      return new Response('', { status: 200 })
+    }
+    if (url.includes('/video1?fields=status')) {
+      const phase = pollPhases[Math.min(polls, pollPhases.length - 1)]
+      polls += 1
+      order.push('poll')
+      return jsonResponse(200, { status: { publishing_phase: { status: phase } } })
+    }
+    if (url.includes('/page1?fields=id')) return jsonResponse(200, { id: 'page1' })
+    throw new Error(`URL Facebook inattendue dans ce test : ${url}`)
+  }
+
+  return { handler, order }
+}
+
+describe('publishFacebook', () => {
+  it('ne publie qu’après publishing_phase.status === complete, jamais sur le succès de finish seul', async () => {
+    const { handler, order } = facebookHandler({ pollPhases: ['in_progress', 'complete'] })
+    const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
+    expect(order.filter((step) => step === 'poll')).toHaveLength(2)
+    expect(order.indexOf('finish')).toBeLessThan(order.lastIndexOf('poll'))
+  })
+
+  it('échoue nommément si publishing_phase.status passe à error, sans jamais annoncer published', async () => {
+    const { handler } = facebookHandler({ pollPhases: ['error'] })
+    const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook.status).toBe('failed')
+    expect((outcomes.facebook as { error: string }).error).toMatch(/publishing_phase\.status=error/)
+  })
+
+  it('abandonne avec une erreur nommée après le budget de sondage, sans boucler indéfiniment', async () => {
+    const { handler } = facebookHandler({ pollPhases: ['in_progress'] })
+    const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook.status).toBe('failed')
+    expect((outcomes.facebook as { error: string }).error).toMatch(/n'a pas atteint publishing_phase\.status=complete/)
+  })
+})
+
 describe('publish — Instagram et Facebook sont indépendants', () => {
   it('un échec Facebook n’annule pas une réussite Instagram, et réciproquement', async () => {
     await seedInstagramToken()

@@ -56,7 +56,13 @@ export async function readMetaTokens(): Promise<MetaTokenFile | null> {
 export async function writeMetaTokens(tokens: MetaTokenFile): Promise<void> {
   const file = tokenFilePath()
   await fsp.mkdir(path.dirname(file), { recursive: true })
-  await fsp.writeFile(file, `${JSON.stringify(tokens, null, 2)}\n`, 'utf8')
+  // `0o600` forcé explicitement : `writeFile` applique le mode par défaut
+  // `0o666` filtré par l'umask du processus, qui peut laisser ce jeton
+  // longue durée lisible par d'autres comptes locaux. `mode` seul ne suffit
+  // pas sur un fichier déjà existant — `writeFile` ne le rétablit pas — d'où
+  // le `chmod` séparé qui s'applique dans les deux cas.
+  await fsp.writeFile(file, `${JSON.stringify(tokens, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  await fsp.chmod(file, 0o600)
 }
 
 function requiredEnv(env: Environment, name: string): string {

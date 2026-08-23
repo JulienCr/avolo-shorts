@@ -247,7 +247,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
 | Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
-| Upload Post est **le transport codé pour les quatre plateformes** depuis le 23 août 2026 | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
+| Upload Post porte TikTok et YouTube ; Meta prend Instagram et Facebook en direct (issue #146) | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
 
 ## 4. Périmètre
 
@@ -360,10 +360,12 @@ publication suit la même ligne : tout ce qui se décide sans réseau se décide
 ### 6.2 `src/server/publication/`
 
 **Mise à jour au 23 août 2026 : ce paragraphe décrivait un adaptateur par
-plateforme (`meta.ts`, `tiktok.ts`) ; ce qui existe est un seul connecteur pour
-les quatre, `upload-post.ts`, derrière l'interface ci-dessous — écrite
-`src/server/publication/adapter.ts`, déclaration canonique dont hérite tout
-connecteur à venir (un `meta.ts` direct, par exemple).**
+plateforme (`meta.ts`, `tiktok.ts`) ; ce qui a existé un temps est un seul
+connecteur pour les quatre, `upload-post.ts`, derrière l'interface
+ci-dessous — écrite `src/server/publication/adapter.ts`, déclaration
+canonique dont hérite tout connecteur. Depuis l'issue #146, `meta.ts` prend
+Instagram et Facebook en direct ; Upload Post ne garde plus que TikTok et
+YouTube (§2.1, §2.2).**
 
 ```ts
 export type PublicationJob = {

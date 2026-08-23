@@ -64,12 +64,10 @@ function currentFingerprint(fingerprintPath: string): string | null {
 }
 
 /**
- * La plateforme dont `platformTexts` fournit les textes du job — **un seul**
- * `job` pour tous les groupes de `launchPublish`, même quand ils visent des
- * connecteurs différents. Mélanger YouTube avec Instagram ou Facebook (issue
- * #146) fait donc gagner la forme YouTube pour les deux : limite connue,
- * pas corrigée ici — la solution est de scinder en un `job` par forme de
- * texte, pas de complexifier `PublicationJob`.
+ * La plateforme dont `platformTexts` fournit les textes du job — appelée une
+ * fois par groupe de `launchPublish`, jamais sur la liste complète : la forme
+ * YouTube (titre et description séparés) ne doit gagner que pour le groupe
+ * qui contient YouTube.
  */
 function representativePlatform(platforms: readonly Platform[]): Platform {
   return platforms.includes('youtube') ? 'youtube' : (platforms[0] as Platform)
@@ -321,13 +319,18 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     }
     const rows = getPublications(db, clip.id).filter((r) => platforms.includes(r.platform))
 
-    const texts = platformTexts(clip, representativePlatform(platforms))
-    const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
     // Un `runDetached` par groupe : un échec Meta n'annule ni ne rejoue une
     // réussite Upload Post, et réciproquement (spec §6.4, généralisée à
-    // plusieurs connecteurs).
+    // plusieurs connecteurs). Le job — donc les textes — est construit **par
+    // groupe** : `representativePlatform` ne doit voir que les plateformes de
+    // ce groupe, sinon YouTube dans un lancement mixte imposerait sa forme de
+    // texte à Instagram/Facebook (issue trouvée en revue sur cette PR).
     const settled = Promise.all(
-      [...groups].map(([adapter, group]) => runDetached(db, adapter, clip, group, job, fingerprint, sleep)),
+      [...groups].map(([adapter, group]) => {
+        const texts = platformTexts(clip, representativePlatform(group))
+        const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
+        return runDetached(db, adapter, clip, group, job, fingerprint, sleep)
+      }),
     ).then(() => undefined)
     settled.catch(() => {
       // Les échecs sont déjà écrits dans `publications` par `runDetached` ; ce

@@ -4,8 +4,9 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
  * `src/server/publication/index.ts` — le registre canonique de la « SHARED
- * SEAM » (contrat de la PR « Wave B (UI) ») : `adapterFor` doit rendre
- * l'adaptateur Upload Post pour les quatre plateformes, et `publicationAvailability`
+ * SEAM » (contrat de la PR « Wave B (UI) ») : `adapterFor` doit rendre un
+ * connecteur pour chacune des quatre plateformes (Meta pour Instagram et
+ * Facebook, Upload Post pour TikTok et YouTube), et `publicationAvailability`
  * doit rendre `defaultPlatformAvailability()` faute de clé — sans appel réseau.
  */
 
@@ -18,11 +19,20 @@ afterEach(() => {
 })
 
 describe('adapterFor', () => {
-  it('rend l’adaptateur Upload Post pour les quatre plateformes', async () => {
+  it('rend un connecteur pour chacune des quatre plateformes', async () => {
     const { adapterFor } = await import('@/server/publication')
     for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as const) {
       expect(adapterFor(platform)?.platforms).toContain(platform)
     }
+  })
+
+  it('rend la même instance à deux appels sur des plateformes du même connecteur (regroupement, issue #146)', async () => {
+    // `service.ts` groupe les plateformes par identité d'objet de l'adaptateur
+    // (`groupByAdapter`) : deux instances distinctes pour un même connecteur
+    // feraient manquer tout regroupement, comme mesuré en revue sur cette PR.
+    const { adapterFor } = await import('@/server/publication')
+    expect(adapterFor('instagram')).toBe(adapterFor('facebook'))
+    expect(adapterFor('tiktok')).toBe(adapterFor('youtube'))
   })
 })
 

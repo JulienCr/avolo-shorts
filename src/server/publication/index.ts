@@ -9,9 +9,15 @@ import { createUploadPostAdapter } from '@/server/publication/upload-post'
  * Post — à plateforme égale (Instagram, Facebook), gratuit et 100 publications
  * par 24 h l'emporte sur dix par mois (issue #146) — un ordre délibéré, pas un
  * accident d'insertion.
+ *
+ * Mémorisé : `groupByAdapter` (`service.ts`) regroupe par identité d'objet, et
+ * une instance neuve à chaque appel ferait manquer tout regroupement entre
+ * deux plateformes prises par le même connecteur.
  */
+let adapters: PublicationAdapter[] | undefined
 export function publicationAdapters(): PublicationAdapter[] {
-  return [createMetaAdapter(), createUploadPostAdapter()]
+  adapters ??= [createMetaAdapter(), createUploadPostAdapter()]
+  return adapters
 }
 
 /** L'adaptateur qui prend cette plateforme — le premier du tableau à la porter. */

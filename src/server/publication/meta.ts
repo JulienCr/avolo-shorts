@@ -18,6 +18,7 @@ import {
 } from '@/server/publication/meta-tokens'
 import { isReference, type Environment } from '@/server/secrets'
 import { wait } from '@/server/llm/retry'
+import { messageSafe } from '@/server/errors'
 
 /**
  * Le connecteur Meta direct — Instagram Reels et Facebook Page Reels par
@@ -195,6 +196,36 @@ async function publishInstagram(
 }
 
 /**
+ * `finish` confirme seulement que la publication a été lancée, pas que le
+ * reel est en ligne (trouvaille de revue sur cette PR) : l'exemple officiel
+ * Meta sonde ensuite `/{videoId}?fields=status` et n'annonce la réussite
+ * qu'une fois `publishing_phase.status === 'complete'`. Même forme que
+ * `waitForContainerFinished` côté Instagram.
+ */
+async function waitForFacebookPublished(
+  fetchImpl: typeof fetch,
+  pageToken: string,
+  videoId: string,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 0; attempt < CONTAINER_POLL_ATTEMPTS; attempt++) {
+    const response = await fetchImpl(
+      `${GRAPH_BASE}/${videoId}?fields=status&access_token=${encodeURIComponent(pageToken)}`,
+    )
+    const body = await requireOkMeta<{ status?: { publishing_phase?: { status?: string } } }>(response)
+    const phase = body.status?.publishing_phase?.status
+    if (phase === 'complete') return
+    if (phase === 'error') {
+      throw new MetaFileRefusedError(`Le traitement du reel Facebook ${videoId} a échoué (publishing_phase.status=error).`)
+    }
+    await sleep(CONTAINER_POLL_INTERVAL_MS)
+  }
+  throw new MetaFileRefusedError(
+    `Le reel Facebook ${videoId} n'a pas atteint publishing_phase.status=complete avant l'abandon du sondage.`,
+  )
+}
+
+/**
  * Spec §2.2, jamais vérifié contre le réseau (voir le docbloc du fichier) :
  * trois phases sur `/{page-id}/video_reels`, binaire vers `rupload` comme
  * pour Instagram. `video_state=PUBLISHED` publie directement, sans brouillon.
@@ -202,6 +233,7 @@ async function publishInstagram(
 async function publishFacebook(
   env: Environment,
   fetchImpl: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
   job: PublicationJob,
 ): Promise<PlatformOutcome> {
   const pageId = requiredEnv(env, 'META_PAGE_ID')
@@ -215,7 +247,7 @@ async function publishFacebook(
   const { video_id: videoId } = await requireOkMeta<{ video_id: string }>(startResponse)
 
   const buffer = await fsp.readFile(job.videoPath)
-  await uploadToRupload(fetchImpl, `${UPLOAD_BASE}/video-upload/${videoId}`, pageToken, buffer)
+  await uploadToRupload(fetchImpl, `${UPLOAD_BASE}/video-upload/v23.0/${videoId}`, pageToken, buffer)
 
   const finishResponse = await fetchImpl(`${GRAPH_BASE}/${pageId}/video_reels`, {
     method: 'POST',
@@ -229,13 +261,10 @@ async function publishFacebook(
     }),
   })
   await requireOkMeta<{ success?: boolean }>(finishResponse)
+  await waitForFacebookPublished(fetchImpl, pageToken, videoId, sleep)
   // Meta ne rend pas d'URL publique à cette étape (non vérifié — voir le
   // docbloc du fichier) : `null` plutôt qu'une adresse devinée.
   return { status: 'published', remoteId: videoId, remoteUrl: null }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -259,9 +288,9 @@ async function publish(
         outcomes[platform] =
           platform === 'instagram'
             ? await publishInstagram(env, fetchImpl, sleep, job)
-            : await publishFacebook(env, fetchImpl, job)
+            : await publishFacebook(env, fetchImpl, sleep, job)
       } catch (error) {
-        outcomes[platform] = { status: 'failed', error: messageOf(error) }
+        outcomes[platform] = { status: 'failed', error: messageSafe(error) }
       }
     }),
   )

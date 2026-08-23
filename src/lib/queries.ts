@@ -42,7 +42,7 @@ import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } fr
 // cours, on ajoute en fin de fichier sans réordonner l'existant.
 import { postRegenerateHook } from '@/lib/api'
 // Import à part, même règle, pour la même raison.
-import { proposeTranscriptCorrections } from '@/lib/api'
+import { getCorrectionHistory, undoCorrection } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
 
 export const keys = {
@@ -69,6 +69,8 @@ export const keys = {
   settings: ['settings'] as const,
   /** Le transcript entier d'une émission — pas la fenêtre autour d'un clip. */
   transcript: (projectId: string) => ['transcript', projectId] as const,
+  /** L'historique de la correction automatique — voir `useCorrectionHistory`. */
+  correctionHistory: (projectId: string) => ['correction-history', projectId] as const,
   /** La disponibilité des fournisseurs de langage — voir `useLlmAvailability`. */
   llmAvailability: ['llm-availability'] as const,
 }
@@ -740,17 +742,48 @@ export function useRegenerateHook() {
 }
 
 // ---------------------------------------------------------------------------
-// La correction du transcript par modèle (§2.3, spec §9 étage 2)
+// La correction automatique du transcript (§2.3, spec §9 étage 2)
 // ---------------------------------------------------------------------------
 
 /**
- * Demande au modèle une proposition de corrections sur le transcript entier.
- * @remarks Aucune écriture, donc aucun cache à mettre à jour — la
- * proposition vit dans l'état du composant appelant ; valider rappelle
- * `useCorrectTranscript` pour chaque substitution retenue.
+ * L'historique de la correction automatique — les substitutions déjà
+ * appliquées pendant l'analyse (spec §9, correction du 23 août 2026).
+ *
+ * **Pas d'interrogation en boucle** : une correction automatique ne
+ * s'applique que pendant une exécution du graphe, dont `useProject` suit déjà
+ * `running`. La liste se rafraîchit en revenant sur l'écran, comme
+ * `useTranscript`.
  */
-export function useProposeCorrection() {
+export function useCorrectionHistory(projectId: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: keys.correctionHistory(projectId),
+    queryFn: () => getCorrectionHistory(projectId),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/**
+ * Défait une substitution de l'historique — l'inverse, par le même chemin
+ * d'écriture que la correction manuelle.
+ *
+ * **Le cache se remplace par la réponse**, comme `useCorrectTranscript` : la
+ * route rend le journal tel qu'il vient d'être écrit et relu, redemander
+ * l'historique entier pour une substitution défaite coûterait un aller-retour
+ * pour obtenir ce qu'on tient déjà.
+ *
+ * **Le transcript s'invalide aussi.** Défaire réécrit le mot sur le disque —
+ * `useCorrectTranscript` remplace son cache depuis la réponse d'une écriture
+ * qu'elle a elle-même déclenchée ; ici l'écriture vient de `undoCorrection`,
+ * donc le cache du transcript, lui, ne porte encore que l'ancien mot.
+ */
+export function useUndoCorrection() {
+  const client = useQueryClient()
+
   return useMutation({
-    mutationFn: (projectId: string) => proposeTranscriptCorrections(projectId),
+    mutationFn: ({ projectId, id }: { projectId: string; id: string }) => undoCorrection(projectId, id),
+    onSuccess({ entries }, { projectId }) {
+      client.setQueryData(keys.correctionHistory(projectId), entries)
+      void client.invalidateQueries({ queryKey: keys.transcript(projectId) })
+    },
   })
 }

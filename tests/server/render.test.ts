@@ -851,6 +851,20 @@ describe('scheduleMarkers', () => {
     expect(wide.w).toBe(172)
   })
 
+  it('applique un plafond de hauteur propre à chaque marque, pas un plafond partagé', () => {
+    // Relevé par la review : tous les fixtures de ce describe posaient jusqu'ici
+    // le même `heightCap` (0,06) sur les deux marques, donc rien n'exerçait la
+    // propriété centrale du changement — un plafond réglé par marque. Deux
+    // logos carrés, même largeur nominale, `heightCap` différents : sans
+    // plafond propre à chacun, ils sortiraient à la même hauteur.
+    const tight: MarkerNative = { ...logo(1, 1), heightCap: 0.04 }
+    const loose: MarkerNative = { ...logo(1, 1), heightCap: 0.1 }
+    const [placedTight, placedLoose] = scheduleMarkers(1080, 1080, [tight, loose])
+    expect(placedTight.h).toBeLessThanOrEqual(Math.round(1080 * 0.04))
+    expect(placedLoose.h).toBeLessThanOrEqual(Math.round(1080 * 0.1))
+    expect(placedLoose.h).toBeGreaterThan(placedTight.h)
+  })
+
   it('centre les marques les unes sur les autres sous ce bord supérieur', () => {
     const [square, wide] = scheduleMarkers(1080, 1920, [logo(1, 1), mention(4, 1)])
     const center = (m: { y: number; h: number }): number => m.y + m.h / 2
@@ -1317,6 +1331,25 @@ describe('renderClip, chemin du saut', () => {
       texts: expected.texts,
       skipped: true,
     })
+  })
+
+  it("efface un natif périmé (RENDER_NATIVE désactivé) même quand il saute", async () => {
+    // Le cas relevé par la review : un natif laissé par un passage antérieur
+    // (le flag à `true`, ou avant `RENDER_NATIVE`) reste sur le disque sous ce
+    // même nom quand la variante et le `.txt` sont déjà à jour — `sauterRender`
+    // ne regarde pas le natif puisqu'il n'est plus dû, et sans ce nettoyage il
+    // resterait prêt à être republié le jour où le flag repasserait à `true`.
+    const { db, c, brandDir } = prepare()
+    const expected = pathsRender(ID, c.id, '1:1')
+    const stale = pathsRender(ID, c.id, '1:1', true).mp4 as string
+    poser([stale, expected.variant9x16 as string, expected.texts])
+    poserFingerprint(c, '1:1')
+
+    const result = await renderClip(c.id, { db, brandDir, fontsDir: fonts })
+
+    expect(result.skipped).toBe(true)
+    expect(result.mp4).toBeNull()
+    expect(fs.existsSync(stale)).toBe(false)
   })
 
   it("rabat 'auto' sur 9:16, donc sans variante (itération 0)", async () => {

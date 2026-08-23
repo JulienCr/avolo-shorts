@@ -243,9 +243,12 @@ publication suit la même ligne : tout ce qui se décide sans réseau se décide
   différent dans le même dépôt se confondent à la première relecture.
 - **Quel fichier part où.** La conception générale l'a tranché en §11 — le natif
   (4:5, 1:1) pour le feed Instagram et Facebook, la variante 9:16 sur fond flouté
-  pour TikTok et Shorts — mais personne ne l'a jamais écrit en code. C'est une
-  fonction pure du clip et de ses sorties, et c'est le premier endroit où ce choix
-  cesse d'être une phrase.
+  pour TikTok et Shorts —, mais §11 note aussi que le natif ne se produit plus
+  par défaut depuis le 23 août 2026 (`RENDER_NATIVE`, `src/core/render-flags.ts`) :
+  personne ne le récupérait en pratique. Cette fonction reste utile pour le jour
+  où le flag repasse à `true`, ou pour un clip déjà en 9:16, dont le natif est
+  l'unique livrable. C'est une fonction pure du clip et de ses sorties, et c'est
+  le premier endroit où ce choix cesse d'être une phrase.
 - **Les textes par plateforme.** YouTube veut un titre (100 caractères) et une
   description séparés ; Instagram, Facebook et TikTok veulent une légende unique.
   `motsDièse` et `texteDePublication` vivent aujourd'hui dans

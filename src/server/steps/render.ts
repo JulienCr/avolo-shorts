@@ -1686,6 +1686,18 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   const framingSnapshot = renderedFraming(framing)
   const paths = pathsRender(clip.projectId, clipId, ratio, RENDER_NATIVE)
 
+  // **Le natif périmé s'efface ici, avant la décision de saut — pas dans le
+  // bloc qui encode.** `sauterRender` ne regarde que les sorties DUES
+  // (`paths.mp4 === null` compte comme satisfait), donc un passage
+  // variant-only qui trouve la variante, le `.txt` et l'empreinte déjà à jour
+  // saute entièrement sans jamais atteindre le bloc d'encodage — et un natif
+  // d'un passage antérieur (le flag à `true`, ou avant ce garde-fou) reste sur
+  // le disque sous ce même nom. Que le flag repasse ensuite à `true` sans que
+  // rien d'autre n'ait bougé, et ce natif jamais vérifié satisfait le saut à
+  // son tour, publié tel quel. L'effacer avant la décision — qu'on saute ou
+  // non ce passage — ferme les deux chemins d'un coup. (relevé par Copilot)
+  if (paths.mp4 === null) fs.rmSync(pathNative(clip.projectId, clipId), { force: true })
+
   // **L'EDL se valide avant la décision de saut**, et l'ordre compte : l'édition
   // autorise de vider un clip, et un clip vidé après un premier export a encore
   // ses fichiers. Le saut le rendrait alors `skipped: true` en le marquant
@@ -2098,12 +2110,10 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
         const variant = paths.variant9x16
         if (variant !== null) fs.rmSync(variant, { force: true })
 
-        // **Le même correctif, sur le natif.** `paths.mp4` vaut `null` quand
-        // `RENDER_NATIVE` le rend non dû : un fichier d'un passage antérieur
-        // (le flag à `true`, ou avant que ce garde-fou existe) resterait sinon
-        // sur le disque sous ce même nom, prêt à être retrouvé — et publié
-        // sans jamais avoir été vérifié — le jour où le flag repasse à `true`.
-        if (paths.mp4 === null) fs.rmSync(pathNative(clip.projectId, clipId), { force: true })
+        // Le natif périmé, lui, est déjà effacé plus haut — avant la décision
+        // de saut, pas ici : voir son commentaire sur `paths` en tête de la
+        // fonction. Un chemin de saut aurait sinon laissé ce nettoyage-ci
+        // hors d'atteinte.
 
         // **L'empreinte d'avant part avec elle, et pour la même raison poussée
         // d'un cran.** Elle certifie les MP4 qu'on est en train de remplacer : la

@@ -2,8 +2,8 @@ import type { z } from 'zod'
 
 import { InvalidSettingError } from '@/server/db'
 import { messageSafe } from '@/server/errors'
+import { isTransient, GeminiBlockedError } from '@/server/llm/retry'
 import { ProjectErrorCollision, ExecutionInCurrentError, UnknownProjectError } from '@/server/run'
-import { isTransient, GeminiBlockedError } from '@/server/steps/candidates'
 
 /**
  * La frontière HTTP : ce qui traverse, et sous quel code.

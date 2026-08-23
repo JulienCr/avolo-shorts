@@ -7,7 +7,6 @@ import { redactKeys } from '@/core/errors'
 import type { Clip } from '@/core/edl'
 import {
   parseDetailResponse,
-  parseJsonResponse,
   parseScoreResponse,
   shortlistFromScores,
   type DetailClip,
@@ -30,10 +29,23 @@ import {
   type Word,
 } from '@/core/transcript'
 import { getClips, getDb, getProject, getSettings, replaceClips } from '@/server/db'
-import { StopRequestedError } from '@/server/ffmpeg'
 import { createCallFromSettings } from '@/server/llm/registry'
-import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode, LlmResponse } from '@/server/llm/types'
+import {
+  GeminiBlockedError,
+  callWithRetry,
+  isTransient,
+  leverIfBlocked,
+  quotaDelay,
+} from '@/server/llm/retry'
+import type { JsonSchema, LlmCall, LlmCallConfig, LlmMode } from '@/server/llm/types'
 import { candidatesPath, placeSidecar } from '@/server/paths'
+
+// **Réexportés pour ne rien casser de la couture de test existante** —
+// `tests/server/candidates.test.ts` importe ces cinq noms d'ici, sous le nom
+// `callGemini` pour l'ancien `callWithRetry`. La politique de relance vit
+// désormais dans `@/server/llm/retry` (voir sa doc pour la raison de
+// l'extraction) ; ce fichier n'en garde que l'usage.
+export { GeminiBlockedError, isTransient, leverIfBlocked, quotaDelay, callWithRetry as callGemini }
 
 /**
  * L'étape `candidates` : deux passes sur le transcript, auprès du fournisseur
@@ -147,156 +159,6 @@ const ATTEMPTS = 3
 const DELAY_CALL_MS = 120_000
 
 /**
- * Le filtre de contenu a refusé. **Ne jamais réessayer la même charge** : le
- * refus est déterministe, la même charge est rejetée à chaque fois (vérifié en
- * production chez openshorts le 23 juillet 2026 — une vidéo de stand-up revenait
- * `PROHIBITED_CONTENT` en 300 ms à tous les essais). Relancer à l'identique ne
- * fait que brûler du quota et du temps, et cache à l'utilisateur la vraie
- * raison.
- *
- * **Deux choses ont été mesurées le 18 août 2026 sur `2025-06-15-cqlp`, et elles
- * séparent ce qui est inutile de ce qui marche.**
- *
- * Inutile : poser `safetySettings` à `OFF` sur les quatre catégories
- * configurables (`HARASSMENT`, `HATE_SPEECH`, `SEXUALLY_EXPLICIT`,
- * `DANGEROUS_CONTENT`). Les quatre lots refusés le sont restés, tous les quatre,
- * à l'identique. Le refus arrive en `promptFeedback.blockReason` avec
- * **`safetyRatings` absent** — ni sur le prompt, ni sur le candidat : ce n'est
- * pas une catégorie configurable qui a mordu, c'est le filtre non configurable
- * du fournisseur, celui que l'API ne laisse pas régler. Inutile de reposer la
- * question sous forme de réglage.
- *
- * Ce qui marche : **envoyer autre chose**. Les 32 fenêtres perdues dans ces
- * quatre lots passent toutes, une par une. Le refus porte sur la charge
- * assemblée, pas sur une fenêtre coupable — voir `recover`.
- */
-export class GeminiBlockedError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'GeminiBlockedError'
-  }
-}
-
-/**
- * Les fins de génération qui **ne sont pas** un refus. Tout le reste en est un.
- *
- * **Énoncé à l'envers, et c'est la leçon de la liste de modules natifs
- * d'`eslint.config.mjs` : une liste noire tenue à la main est fausse le jour où
- * on l'écrit.** La version précédente énumérait six raisons de refus reprises
- * d'openshorts et manquait déjà `MODEL_ARMOR`, `IMAGE_PROHIBITED_CONTENT` et
- * `IMAGE_RECITATION` — et il en manquerait d'autres à la prochaine version de
- * l'API. Une raison de refus non reconnue est le pire des cas : la réponse passe
- * pour normale, son corps vide est classé passager, la charge est relancée trois
- * fois pour quinze secondes d'attente, et l'erreur finale ment sur la cause.
- * (relevé par Aristarque)
- *
- * `STOP` est la fin normale. Les trois raisons d'outillage ne peuvent pas se
- * produire — cette étape ne déclare aucun outil — mais si elles arrivaient, ce
- * serait un défaut de notre côté et non un refus de contenu, donc elles ne
- * doivent pas porter un message qui accuse la vidéo. L'absence de raison est
- * normale aussi : tous les modèles ne la renseignent pas.
- *
- * **`MAX_TOKENS` n'est pas ici** : voir `leverIfBlocked`.
- */
-const ENDS_WITHOUT_REJECTION = new Set([
-  '',
-  'FINISH_REASON_UNSPECIFIED',
-  'STOP',
-  'MALFORMED_FUNCTION_CALL',
-  'UNEXPECTED_TOOL_CALL',
-  'TOO_MANY_TOOL_CALLS',
-])
-
-/**
- * Les fins qui sont un refus de contenu **nommé**, et qui méritent donc de le
- * dire à l'utilisateur.
- *
- * Cette liste-ci peut vieillir sans conséquence, et c'est ce qui la distingue de
- * celle qu'elle a remplacée : **elle ne décide pas du comportement, seulement du
- * message**. Une fin anormale absente d'ici échoue quand même, tout aussi vite,
- * avec un texte qui dit simplement que la génération s'est arrêtée. `OTHER` est
- * précisément ce cas : c'est une catégorie fourre-tout, pas un signal de
- * politique, et annoncer « le fournisseur refuse ce matériel » y serait faux.
- * (relevé par Copilot)
- *
- * **`CONTENT_FILTER` est le refus d'OpenAI**, traduit ici par
- * `src/server/llm/openai.ts` (`toFinishReason`) depuis `finish_reason:
- * "content_filter"` ou depuis `message.refusal`. Il déclenche exactement la
- * même politique que `SAFETY` chez Gemini : `GeminiBlockedError`, jamais
- * réessayé tel quel, et recoupé par `recover`. Ollama, lui, n'a pas de
- * filtre fournisseur — rien ici ne le concerne.
- */
-const CONTENT_REJECTION = new Set([
-  'SAFETY',
-  'PROHIBITED_CONTENT',
-  'BLOCKLIST',
-  'SPII',
-  'RECITATION',
-  'IMAGE_SAFETY',
-  'IMAGE_PROHIBITED_CONTENT',
-  'IMAGE_RECITATION',
-  'MODEL_ARMOR',
-  'CONTENT_FILTER',
-])
-
-/**
- * Ce qui vaut la peine d'être réessayé : les pannes et les surcharges du
- * service, les coupures réseau, et les corps de réponse inexploitables.
- *
- * Les quatre derniers marqueurs viennent de l'analyse et ne sont pas
- * cosmétiques : Gemini rend régulièrement un 200 au corps vide, et la même
- * charge passe à l'essai suivant (openshorts, production du 22 juillet 2026 —
- * la relance a récupéré toutes les occurrences observées).
- *
- * `502`, `504` et `DEADLINE_EXCEEDED` manquaient : ce sont des passerelles et
- * des délais, aussi passagers que le `503`, et ils échouaient au premier essai
- * (relevé par Copilot). Les trois erreurs réseau brutes sont là parce que rien
- * ne garantit que le SDK les enveloppe dans un message portant un code
- * (relevé par Aristarque) — une coupure d'une seconde faisait sinon échouer un
- * lot de notation entier.
- *
- * La comparaison ignore la casse : `Deadline` et `DEADLINE_EXCEEDED` sont le
- * même incident écrit par deux couches différentes, et se souvenir de quelle
- * couche parle n'est pas un service à rendre au lecteur.
- */
-const MARKERS_TRANSIENT = [
-  '429',
-  '500',
-  '502',
-  '503',
-  '504',
-  'unavailable',
-  'resource_exhausted',
-  'internal',
-  'overloaded',
-  'deadline',
-  'econnreset',
-  'etimedout',
-  'fetch failed',
-  'empty response body',
-  'did not contain a json object',
-  'did not contain a "shorts" array',
-  'failed to parse gemini json response',
-  'truncated (max_tokens)',
-  'operation was aborted',
-  'aborted due to timeout',
-]
-
-/**
- * Les erreurs qui ne se reconnaissent qu'à leur **nom**, parce que leur message
- * ne porte aucun code.
- *
- * `DELAY_CALL_MS` s'applique par `AbortSignal.timeout` dans
- * `@google/genai@2.17.1`, et l'exception qui en sort dit « This operation was
- * aborted » — pas un chiffre, pas un mot-clé de service. Le délai qu'on venait
- * d'ajouter pour *entrer* dans la politique de relance en sortait donc au
- * premier essai, ce qui est exactement le contraire du but. Rien ici n'expose de
- * signal d'annulation à l'appelant, donc un abandon ne peut venir que du délai.
- * (relevé par Copilot)
- */
-const NAMES_TRANSIENT = new Set(['AbortError', 'TimeoutError'])
-
-/**
  * Le mode d'appel : les deux passes n'ont ni le même schéma ni la même
  * température. Alias de `LlmMode` (`@/server/llm/types`) — voir sa doc pour la
  * raison de garder ce nom-ci ici plutôt que de le faire disparaître.
@@ -395,14 +257,15 @@ const SCHEMA_DETAIL: JsonSchema = {
  * rend sont de toute façon validés puis calés sur les mots juste après.
  *
  * **Un `switch` exhaustif, et pas des ternaires.** `LlmMode` porte désormais
- * `'hook'` (`@/server/llm/types`), et un ternaire `mode === 'detail' ? … :
- * SCHEMA_NOTATION` y aurait fait tomber ce mode-là dans la branche de notation
- * — un barème et une température qui ne lui sont pas destinés — sans que rien
- * ne le signale. Ce fichier ne configure que le repérage, donc le mode
- * `'hook'` n'est pas un cas normal ici : il ne peut être atteint qu'à un défaut
- * de câblage, jamais à une réponse du fournisseur, d'où l'exception plutôt
- * qu'une configuration inventée. `src/server/steps/hook.ts` configure son
- * propre appel séparément.
+ * `'hook'` et `'correction'` (`@/server/llm/types`), et un ternaire
+ * `mode === 'detail' ? … : SCHEMA_NOTATION` y aurait fait tomber ces modes-là
+ * dans la branche de notation — un barème et une température qui ne leur sont
+ * pas destinés — sans que rien ne le signale. Ce fichier ne configure que le
+ * repérage, donc `'hook'` et `'correction'` n'y sont pas des cas normaux : ils
+ * ne peuvent être atteints qu'à un défaut de câblage, jamais à une réponse du
+ * fournisseur, d'où l'exception plutôt qu'une configuration inventée.
+ * `src/server/steps/hook.ts` et `transcript-correction.ts` configurent chacun
+ * leur propre appel séparément.
  */
 function configuration(mode: ModeGemini): LlmCallConfig {
   switch (mode) {
@@ -411,105 +274,11 @@ function configuration(mode: ModeGemini): LlmCallConfig {
     case 'detail':
       return { schema: SCHEMA_DETAIL, temperature: 0.9, maxOutputTokens: OUTPUT_CAP }
     case 'hook':
+    case 'correction':
       throw new Error(
-        "configuration(mode) du repérage appelée avec le mode 'hook' : ce fichier ne configure que le repérage, pas la génération du hook.",
+        `configuration(mode) du repérage appelée avec le mode '${mode}' : ce fichier ne configure que le repérage.`,
       )
   }
-}
-
-/**
- * Lève quand l'API n'a pas rendu une réponse complète — refus de contenu, ou
- * troncature.
- *
- * Les deux se distinguent, et pas seulement dans le message. **Un refus est
- * définitif et n'est jamais réessayé ; une troncature est un accident et se
- * réessaie.** `MAX_TOKENS` passait ici pour une fin normale : une sortie
- * structurée coupée en plein tableau ne parse en général pas, donc elle
- * retombait sur la relance par hasard — mais si le JSON se refermait quand
- * même, un lot partiel était accepté et `replaceClips` remplaçait la passe
- * précédente par ce fragment, sans un mot. (relevé par Copilot)
- */
-export function leverIfBlocked(response: LlmResponse): void {
-  const reason = response.promptFeedback?.blockReason
-  if (reason) {
-    throw new GeminiBlockedError(
-      `Le fournisseur a bloqué le contenu de cette vidéo (${String(reason)}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
-    )
-  }
-  for (const candidate of response.candidates ?? []) {
-    const fin = String(candidate.finishReason ?? '').toUpperCase()
-    if (fin === 'MAX_TOKENS') {
-      // Une erreur ordinaire, pas un `GeminiBlockedError` : le message est dans
-      // les marqueurs passagers, donc l'appel repart.
-      throw new Error('Provider response was truncated (MAX_TOKENS): the answer is incomplete.')
-    }
-    if (ENDS_WITHOUT_REJECTION.has(fin)) continue
-    if (CONTENT_REJECTION.has(fin)) {
-      throw new GeminiBlockedError(
-        `Le fournisseur a bloqué sa réponse pour cette vidéo (${fin}). Les règles d'usage du fournisseur refusent ce matériel : il ne peut pas être analysé.`,
-      )
-    }
-    // Anormale mais pas nommée. Elle échoue tout de suite — le message n'est pas
-    // dans les marqueurs passagers — sans se faire passer pour un refus de
-    // contenu, qui accuserait la vidéo à tort. (relevé par Copilot)
-    throw new Error(
-      `Le fournisseur a interrompu sa génération (${fin}) : ce n'est pas une fin normale et rien ne dit qu'un nouvel essai ferait mieux.`,
-    )
-  }
-}
-
-export function isTransient(error: unknown): boolean {
-  if (error instanceof Error && NAMES_TRANSIENT.has(error.name)) return true
-  const bottom = (error instanceof Error ? error.message : String(error)).toLowerCase()
-  return MARKERS_TRANSIENT.some((marker) => bottom.includes(marker))
-}
-
-/**
- * L'attente au-delà de laquelle on **renonce** au lieu d'attendre.
- *
- * Une minute et demie couvre la fenêtre glissante d'un quota par minute ;
- * au-delà, quelle que soit la limite qui parle — horaire, journalière, un
- * ralentissement plus long —, l'attendre immobiliserait la chaîne pour une durée
- * que cette étape n'a pas à décider seule.
- *
- * **C'est un seuil de renoncement, pas un raccourcissement.** La première
- * version plafonnait l'attente à cette valeur puis relançait quand même : un
- * `retryDelay` d'une heure devenait 90 secondes, la requête repartait très avant
- * la fin du quota, échouait, et le repérage brûlait ses trois essais et trois
- * minutes pour arriver au même endroit. Raccourcir une attente qu'on sait
- * insuffisante ne rend service à personne. (relevé par Copilot)
- */
-const WAIT_QUOTA_MAX_MS = 90_000
-
-/**
- * Le délai que Google demande dans un 429, en millisecondes, ou `null`.
- *
- * **Sans lui, la relance exponentielle est trop courte pour servir à quelque
- * chose sur un dépassement de quota.** Le palier gratuit de
- * `gemini-3.1-flash-lite` plafonne à 15 requêtes par minute, et le corps du 429
- * dit exactement combien attendre — `"retryDelay":"54s"` là où les trois
- * tentatives n'attendent que 5 s puis 10 s. Le repérage échouait donc pour de
- * bon sur une limite qui se lève toute seule en moins d'une minute, et la
- * récupération des lots refusés triple précisément le nombre d'appels.
- *
- * Le motif est cherché dans le message brut parce que c'est tout ce que le SDK
- * laisse : `@google/genai` recopie le corps JSON de la réponse dans le message
- * de l'exception, sans exposer `RetryInfo` autrement.
- */
-export function quotaDelay(message: string): number | null {
-  const found = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message)
-  if (found === null) return null
-  // `ceil` et non `round` : la seule erreur qui coûte quelque chose ici est
-  // d'attendre **moins** que demandé, ce qui rejoue la requête dans la fenêtre
-  // encore fermée et brûle un essai sur trois. Arrondir au-dessus ne peut donc
-  // que faire attendre une milliseconde de trop, y compris si la conversion en
-  // flottant dépassait l'entier d'un cheveu. (relevé par Aristarque)
-  //
-  // **Rendu tel quel, sans plafond.** Ce que le fournisseur demande est un fait ;
-  // ce qu'on accepte d'attendre est une décision, et elle se prend dans
-  // `appelerGemini` avec `ATTENTE_QUOTA_MAX_MS`. Les mêler ici faisait rendre un
-  // délai raccourci qu'on relançait ensuite comme s'il suffisait.
-  return Math.ceil(Number(found[1]) * 1000)
 }
 
 /**
@@ -522,132 +291,6 @@ export function quotaDelay(message: string): number | null {
  * (relevé par Aristarque)
  */
 export const redact = redactKeys
-
-const wait = (ms: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-
-/**
- * Un appel, avec sa politique de relance et son analyse.
- *
- * **Toute l'analyse vit DANS la boucle de relance, délibérément.** Un 200 au
- * corps vide lève ici et non à l'appel, et c'est exactement le cas qu'il faut
- * réessayer. C'est aussi pourquoi `analyser` est un paramètre plutôt qu'un geste
- * de l'appelant : la passe de détail refuse une enveloppe sans tableau `shorts`,
- * et cette réponse cassée doit être réessayée — analysée après coup, elle
- * ressortirait en « zéro clip », c'est-à-dire en passe réussie qui efface les
- * propositions non traitées. (relevé par Copilot)
- */
-export async function callGemini<T = unknown>(
-  call: CallGemini,
-  prompt: string,
-  mode: ModeGemini,
-  options: {
-    sleep?: (ms: number) => Promise<void>
-    analyze?: (raw: unknown) => T
-    /**
-     * L'arrêt demandé (`POST /api/projects/:id/stop`).
-     *
-     * **Il doit être vu ici, et pas seulement passé au SDK.** L'abandon d'une
-     * requête ressort en `AbortError`, que `NOMS_PASSAGERS` classe — à raison —
-     * parmi les erreurs à réessayer : le délai d'appel s'applique par le même
-     * mécanisme, et c'est pour entrer dans la politique de relance qu'il avait
-     * été ajouté. Sans ce contrôle, un arrêt demandé relançait donc trois fois
-     * en dormant cinq puis dix secondes entre deux, c'est-à-dire l'exact
-     * contraire de ce qu'on venait de demander.
-     */
-    signal?: AbortSignal
-  } = {},
-): Promise<T> {
-  const sleep = options.sleep ?? wait
-  const analyze = options.analyze ?? ((raw: unknown) => raw as T)
-  // Une fonction et non l'expression écrite deux fois : `aborted` change de
-  // valeur pendant la boucle, et TypeScript, qui l'ignore, retenait la
-  // restriction du premier contrôle jusqu'au second — qu'il déclarait alors
-  // impossible.
-  const isAborted = (): boolean => options.signal?.aborted === true
-
-  /**
-   * L'attente entre deux tentatives, **qui se laisse couper**.
-   *
-   * Contrôler le signal aux deux bouts de la boucle ne suffisait pas : entre
-   * les deux il y a un `sleep`, et il est long. L'escalier monte à dix secondes,
-   * et un délai réclamé par le fournisseur peut porter l'attente jusqu'aux
-   * quatre-vingt-dix secondes d'`ATTENTE_QUOTA_MAX_MS`. Pendant tout ce
-   * temps l'exécution restait dans `enCours` et `running` restait non nul :
-   * l'écran continuait d'annoncer une analyse en cours après qu'on a cliqué
-   * « Arrêter ». (relevé par Copilot)
-   *
-   * La minuterie abandonnée continue de courir — `sleep` est injecté et ne
-   * connaît pas le signal, on ne peut donc pas l'annuler, seulement cesser de
-   * l'attendre. C'est le compromis habituel du dépôt, et il est sans
-   * conséquence ici : le serveur ne s'arrête pas pour autant, et les scripts de
-   * `scripts/` sortent par `quitter()`.
-   */
-  const waitOrStop = async (ms: number): Promise<void> => {
-    const signal = options.signal
-    if (signal === undefined) {
-      await sleep(ms)
-      return
-    }
-    let onAbort: (() => void) | undefined
-    try {
-      await Promise.race([
-        sleep(ms),
-        new Promise<void>((resolve) => {
-          onAbort = () => resolve()
-          signal.addEventListener('abort', onAbort, { once: true })
-        }),
-      ])
-    } finally {
-      // Sans ce retrait, chaque tentative laisse un écouteur de plus sur le
-      // signal de l'exécution, qui vit aussi longtemps qu'elle.
-      if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
-    }
-  }
-  for (let attempt = 1; ; attempt += 1) {
-    if (isAborted()) throw new StopRequestedError('le repérage')
-    try {
-      const response = await call(prompt, mode)
-      leverIfBlocked(response)
-      return analyze(parseJsonResponse(response.text ?? ''))
-    } catch (error) {
-      // Un refus de contenu ne se réessaie jamais : voir `GeminiBlockedError`.
-      if (error instanceof GeminiBlockedError) throw error
-      // Un arrêt demandé non plus. Le contrôle est **avant** `estPassagère`, qui
-      // le classerait passager par son nom d'`AbortError`.
-      if (isAborted()) throw new StopRequestedError('le repérage')
-      const message = error instanceof Error ? error.message : String(error)
-      if (attempt >= ATTEMPTS || !isTransient(error)) throw error
-      // Un quota qui ne se libère pas dans le délai qu'on s'autorise n'est plus
-      // une pointe passagère : on rend la main tout de suite plutôt que de
-      // relancer avant l'heure et de brûler les essais restants.
-      const quota = quotaDelay(message)
-      if (quota !== null && quota > WAIT_QUOTA_MAX_MS) {
-        // Le message dit ce qu'on sait — le délai demandé — et ce qu'on décide —
-        // ne pas l'attendre. **Il ne diagnostique pas la limite** : `retryDelay`
-        // donne un délai minimal recommandé, dont on ne peut pas déduire s'il
-        // s'agit d'un quota journalier, horaire ou d'un autre ralentissement. En
-        // nommer un serait affirmer ce qu'on n'a pas établi, exactement comme le
-        // faisait le verdict de `noterLesFenêtres` avant sa correction.
-        // (relevé par Copilot)
-        throw new Error(
-          `Le fournisseur refuse la requête pour dépassement de quota et demande d'attendre ${Math.round(quota / 1000)} s, ` +
-            `soit plus que les ${WAIT_QUOTA_MAX_MS / 1000} s que cette étape accepte d'attendre. ` +
-            `Le repérage s'arrête plutôt que de relancer avant le délai demandé.`,
-        )
-      }
-      // Le délai demandé l'emporte quand il est plus long : sur un quota par
-      // minute, l'escalier de 5 s puis 10 s repart toujours trop tôt.
-      const wait = Math.max(5000 * 2 ** (attempt - 1), quota ?? 0)
-      console.warn(
-        `Fournisseur, erreur passagère (essai ${attempt}/${ATTEMPTS}), nouvelle tentative dans ${wait / 1000} s : ${redact(message).slice(0, 150)}`,
-      )
-      await waitOrStop(wait)
-    }
-  }
-}
 
 /**
  * Le client par défaut : le fournisseur et le modèle réglés pour l'usage
@@ -663,10 +306,11 @@ export async function callGemini<T = unknown>(
  * pendant un appel de notation ne doit pas attendre la fin du lot en cours,
  * et c'est une propriété du fournisseur, pas de ce fichier.
  *
- * **Les relances, le backoff et le filtre de sécurité restent ici,
- * délibérément.** Ils vivent dans `appelerGemini` et `récupérer`, communs aux
- * trois fournisseurs — voir la doc de `LlmResponse` (`@/server/llm/types`) :
- * la forme normalisée que chaque client rend porte assez d'information
+ * **Les relances, le backoff et le filtre de sécurité vivent dans
+ * `@/server/llm/retry` (`callWithRetry`), pas ici** — extraits de ce fichier
+ * le jour où la correction du transcript en a eu besoin à son tour. Communs
+ * aux trois fournisseurs grâce à `LlmResponse` (`@/server/llm/types`) : la
+ * forme normalisée que chaque client rend porte assez d'information
  * (`promptFeedback.blockReason`, `candidates[].finishReason`) pour que cette
  * politique n'ait pas à se réécrire par fournisseur.
  */
@@ -1335,7 +979,7 @@ async function noteABatch(
   }
   let raw: unknown
   try {
-    raw = await callGemini(
+    raw = await callWithRetry(
       count,
       scorePrompt({
         language: ctx.language,
@@ -1699,7 +1343,7 @@ async function descend(
   const blocks = mergeOverlappingWindows(batch, ctx.transcript)
 
   try {
-    const clips = await callGemini(
+    const clips = await callWithRetry(
       ctx.call,
       detailPrompt({
         language: ctx.transcript.language,

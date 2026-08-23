@@ -22,6 +22,9 @@
  * GET   /api/settings                       -> Settings
  * PUT   /api/settings        { SettingsPatch } -> Settings
  * GET   /api/llm/availability               -> LlmAvailability
+ * GET   /api/publication/availability        -> Record<Platform, PlatformAvailability>
+ * POST  /api/clips/:id/publish { platforms, force? } -> { publications: PublicationRow[] }
+ * GET   /api/clips/:id/publications         -> { publications: PublicationRow[] }
  * ```
  *
  * Les trois `POST` ont vécu sans appelant le temps d'une itération, et la chaîne
@@ -46,6 +49,7 @@ import type { Clip, ClipStatus, Ratio, Segment } from '@/core/edl'
 import type { ClipFraming, ShotFraming } from '@/core/framing'
 import type { StepName } from '@/core/graph'
 import type { HookSettings } from '@/core/hook'
+import type { Platform, PlatformAvailability } from '@/core/publication'
 import type { TranscriptLine, WordCorrection } from '@/lib/editing'
 
 export type { Clip, ClipStatus, Ratio, Segment }
@@ -1254,4 +1258,48 @@ export type LlmAvailability = Record<LlmProvider, LlmProviderAvailability>
  */
 export function fetchLlmAvailability(): Promise<LlmAvailability> {
   return lire<LlmAvailability>('/api/llm/availability')
+}
+
+// ---------------------------------------------------------------------------
+// La publication
+// ---------------------------------------------------------------------------
+
+/** Une ligne de `publications` telle que le serveur la rend — même champs que `PublicationRow` (`src/server/db.ts`). */
+export type PublicationRow = {
+  clipId: string
+  platform: Platform
+  status: 'in_progress' | 'submitted' | 'published' | 'failed'
+  remoteId: string | null
+  remoteUrl: string | null
+  requestId: string | null
+  error: string | null
+  publishedFingerprint: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** Quelle plateforme est branchée aujourd'hui — `GET /api/publication/availability`. */
+export function fetchPublicationAvailability(): Promise<Record<Platform, PlatformAvailability>> {
+  return lire<Record<Platform, PlatformAvailability>>('/api/publication/availability')
+}
+
+/**
+ * Lance une publication — `POST /api/clips/:id/publish`. Rend aussitôt les
+ * lignes `in_progress` ; le résultat définitif s'écrit plus tard, lu par
+ * `getPublications`.
+ */
+export function publishClip(
+  clipId: string,
+  platforms: readonly Platform[],
+  force?: boolean,
+): Promise<{ publications: PublicationRow[] }> {
+  return post<{ publications: PublicationRow[] }>(`/api/clips/${encodeURIComponent(clipId)}/publish`, {
+    platforms,
+    force,
+  })
+}
+
+/** L'état de chaque publication d'un clip — `GET /api/clips/:id/publications`. */
+export function getPublications(clipId: string): Promise<{ publications: PublicationRow[] }> {
+  return lire<{ publications: PublicationRow[] }>(`/api/clips/${encodeURIComponent(clipId)}/publications`)
 }

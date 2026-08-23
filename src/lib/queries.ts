@@ -43,7 +43,10 @@ import { correctTranscript, getTranscript, type TranscriptCorrectionRequest } fr
 import { postRegenerateHook } from '@/lib/api'
 // Import à part, même règle, pour la même raison.
 import { getCorrectionHistory, removeCorrectionEntry, undoCorrection } from '@/lib/api'
+// Import à part, même règle, pour la même raison.
+import { fetchPublicationAvailability, getPublications, publishClip } from '@/lib/api'
 import type { TranscriptLine } from '@/lib/editing'
+import type { Platform } from '@/core/publication'
 
 export const keys = {
   projets: ['projets'] as const,
@@ -73,6 +76,10 @@ export const keys = {
   correctionHistory: (projectId: string) => ['correction-history', projectId] as const,
   /** La disponibilité des fournisseurs de langage — voir `useLlmAvailability`. */
   llmAvailability: ['llm-availability'] as const,
+  /** La disponibilité des plateformes de publication — voir `usePublicationAvailability`. */
+  publicationAvailability: ['publication-availability'] as const,
+  /** Les publications d'un clip — voir `usePublications`. */
+  publications: (clipId: string) => ['publications', clipId] as const,
 }
 
 export function useProjects() {
@@ -803,6 +810,59 @@ export function useRemoveCorrectionEntry() {
     mutationFn: ({ projectId, id }: { projectId: string; id: string }) => removeCorrectionEntry(projectId, id),
     onSuccess({ entries }, { projectId }) {
       client.setQueryData(keys.correctionHistory(projectId), entries)
+    },
+  })
+}
+
+/**
+ * La disponibilité des quatre plateformes de publication.
+ *
+ * **Comme `useLlmAvailability` : aucune interrogation en boucle.** Un
+ * connecteur ne se branche pas pendant qu'un onglet reste ouvert.
+ */
+export function usePublicationAvailability() {
+  return useQuery({ queryKey: keys.publicationAvailability, queryFn: fetchPublicationAvailability })
+}
+
+/**
+ * L'état des publications d'un clip.
+ *
+ * **Interroge en boucle tant qu'une ligne est `in_progress`, comme
+ * `useProject` et `useRetry` sur `running`** : un envoi détaché
+ * (`launchPublish`, `src/server/publication/service.ts`) écrit son résultat
+ * plus tard, et rien d'autre ne prévient l'écran qu'il est arrivé.
+ */
+export function usePublications(clipId: string) {
+  return useQuery({
+    queryKey: keys.publications(clipId),
+    queryFn: () => getPublications(clipId).then((r) => r.publications),
+    refetchInterval: (query) =>
+      query.state.data?.some((p) => p.status === 'in_progress') ? 2_000 : false,
+  })
+}
+
+/**
+ * Lance une publication — le bouton « Confirmer et publier » de `PublishDialog`.
+ *
+ * **Pas d'écriture optimiste** : la réponse porte les lignes `in_progress`
+ * réelles (id de requête compris), que `usePublications` reprendra en boucle
+ * jusqu'à leur état final.
+ */
+export function usePublisher() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      clipId,
+      platforms,
+      force,
+    }: {
+      clipId: string
+      platforms: readonly Platform[]
+      force?: boolean
+    }) => publishClip(clipId, platforms, force),
+    onSuccess(_result, { clipId }) {
+      void client.invalidateQueries({ queryKey: keys.publications(clipId) })
     },
   })
 }

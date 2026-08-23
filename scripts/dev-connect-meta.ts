@@ -1,13 +1,16 @@
 /**
- * L'appairage OAuth Meta (Facebook Login for Business) — à rejouer environ
- * une fois par an.
+ * L'appairage Meta — OAuth (Facebook Login for Business, à rejouer environ
+ * une fois par an) ou jeton système (system-user, collé une fois pour
+ * toutes, ne rafraîchit jamais).
  *
  *     pnpm tsx scripts/dev-connect-meta.ts
  *     pnpm tsx scripts/dev-connect-meta.ts --code=<code renvoyé par Meta>
+ *     pnpm tsx scripts/dev-connect-meta.ts --system-user-token=<jeton système>
  *
  * Facebook Login, pas Instagram Login (`docs/lessons.md`). Le jeton de Page
  * n'expire pas : affiché ici pour 1Password (lecture seule) ; le jeton
- * Instagram tourne et se persiste dans `projects/meta-tokens.json`.
+ * Instagram tourne (ou pas, en jeton système) et se persiste dans
+ * `projects/meta-tokens.json`.
  */
 
 import { requireSecret } from '@/server/secrets'
@@ -133,12 +136,49 @@ async function findPageWithInstagram(userToken: string): Promise<PageAccount> {
   return withInstagram[0]
 }
 
+/**
+ * Commun aux deux chemins d'appairage : trouver la Page Instagram et
+ * persister le jeton. `expiresIn` en secondes, ou `null` pour un jeton
+ * système qui n'expire jamais.
+ */
+async function pairAndPersist(userToken: string, expiresIn: number | null): Promise<void> {
+  const page = await findPageWithInstagram(userToken)
+  const instagramUserId = page.instagram_business_account?.id
+  if (instagramUserId === undefined) {
+    throw new Error(`La Page ${page.name} n'a plus de compte Instagram rattaché depuis l'appel précédent.`)
+  }
+
+  await writeMetaTokens({
+    instagramUserId,
+    instagramAccessToken: userToken,
+    instagramTokenExpiresAt: expiresIn === null ? null : Date.now() + expiresIn * 1000,
+  })
+
+  const duree = expiresIn === null ? 'n\'expire jamais' : `${Math.round(expiresIn / 86_400)} j`
+  console.log(`Instagram : compte ${instagramUserId}, jeton persisté dans projects/meta-tokens.json (${duree}).`)
+  console.log(`Facebook  : Page « ${page.name} » (${page.id}).`)
+  console.log('\nÀ coller à la main, une fois pour toutes — ces valeurs ne rafraîchissent jamais :')
+  console.log(`  META_PAGE_ID=${page.id}`)
+  console.log(`  META_PAGE_TOKEN=${page.access_token}`)
+  console.log('Le premier va dans .env, le second dans 1Password (op:// dans .env, la valeur dans le coffre).')
+}
+
+function flag(name: string): string | undefined {
+  return process.argv.slice(2).find((a) => a.startsWith(`--${name}=`))?.slice(`--${name}=`.length)
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
 
+  const systemUserToken = flag('system-user-token') ?? process.env.META_SYSTEM_USER_TOKEN
+  if (systemUserToken !== undefined && systemUserToken !== '') {
+    await pairAndPersist(systemUserToken, null)
+    return 0
+  }
+
   const appId = requireSecret('META_APP_ID')
   const appSecret = requireSecret('META_APP_SECRET')
-  const code = process.argv.slice(2).find((a) => a.startsWith('--code='))?.slice('--code='.length)
+  const code = flag('code')
 
   if (code === undefined) {
     console.log('Ouvrir cette URL dans un navigateur connecté au compte Meta qui gère @cie.avolo :\n')
@@ -152,24 +192,7 @@ async function main(): Promise<number> {
 
   const shortLived = await exchangeCode(appId, appSecret, code)
   const { token: userToken, expiresIn } = await exchangeForLongLivedToken(appId, appSecret, shortLived)
-  const page = await findPageWithInstagram(userToken)
-  const instagramUserId = page.instagram_business_account?.id
-  if (instagramUserId === undefined) {
-    throw new Error(`La Page ${page.name} n'a plus de compte Instagram rattaché depuis l'appel précédent.`)
-  }
-
-  await writeMetaTokens({
-    instagramUserId,
-    instagramAccessToken: userToken,
-    instagramTokenExpiresAt: Date.now() + expiresIn * 1000,
-  })
-
-  console.log(`Instagram : compte ${instagramUserId}, jeton persisté dans projects/meta-tokens.json (${Math.round(expiresIn / 86_400)} j).`)
-  console.log(`Facebook  : Page « ${page.name} » (${page.id}).`)
-  console.log('\nÀ coller à la main, une fois pour toutes — ces valeurs ne rafraîchissent jamais :')
-  console.log(`  META_PAGE_ID=${page.id}`)
-  console.log(`  META_PAGE_TOKEN=${page.access_token}`)
-  console.log('Le premier va dans .env, le second dans 1Password (op:// dans .env, la valeur dans le coffre).')
+  await pairAndPersist(userToken, expiresIn)
   return 0
 }
 

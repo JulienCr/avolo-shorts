@@ -8,8 +8,9 @@ import { isReference, type Environment } from '@/server/secrets'
 
 /**
  * Ce qui tourne côté Meta et ne peut donc pas vivre dans 1Password (lecture
- * seule ici) : le jeton Facebook Login, 60 jours, rafraîchissable (spec §7).
- * L'identifiant du compte Instagram est rangé avec lui plutôt que dans
+ * seule ici) : le jeton Facebook Login, 60 jours, rafraîchissable (spec §7),
+ * ou un jeton système (system-user) qui n'expire jamais et se colle tel
+ * quel. L'identifiant du compte Instagram est rangé avec lui plutôt que dans
  * `.env`, puisque `scripts/dev-connect-meta.ts` les obtient dans le même
  * appel.
  *
@@ -19,8 +20,8 @@ import { isReference, type Environment } from '@/server/secrets'
 export type MetaTokenFile = {
   instagramUserId: string
   instagramAccessToken: string
-  /** Époque Unix en millisecondes. */
-  instagramTokenExpiresAt: number
+  /** Époque Unix en millisecondes, ou `null` pour un jeton qui n'expire jamais. */
+  instagramTokenExpiresAt: number | null
 }
 
 function tokenFilePath(): string {
@@ -33,7 +34,7 @@ function isMetaTokenFile(value: unknown): value is MetaTokenFile {
   return (
     typeof candidate.instagramUserId === 'string' &&
     typeof candidate.instagramAccessToken === 'string' &&
-    typeof candidate.instagramTokenExpiresAt === 'number'
+    (typeof candidate.instagramTokenExpiresAt === 'number' || candidate.instagramTokenExpiresAt === null)
   )
 }
 
@@ -140,12 +141,29 @@ export async function refreshInstagramToken(
 let cachedTokens: Promise<MetaTokenFile> | null = null
 
 /**
+ * Un jeton système (system-user) n'expire jamais et se rend tel quel — pas
+ * d'échange `fb_exchange_token`, donc pas besoin de `META_APP_SECRET`. Le
+ * distinguer du jeton Facebook Login rafraîchissable évite d'écraser le
+ * premier par un jeton 60 jours à la première publication.
+ */
+async function loadFreshInstagramToken(env: Environment, fetchImpl: typeof fetch): Promise<MetaTokenFile> {
+  const current = await readMetaTokens()
+  if (current === null) {
+    throw new MetaAccountMisconfiguredError(
+      'Aucun jeton Instagram enregistré. Lancer pnpm tsx scripts/dev-connect-meta.ts.',
+    )
+  }
+  if (current.instagramTokenExpiresAt === null) return current
+  return refreshInstagramToken(env, fetchImpl)
+}
+
+/**
  * Le jeton Instagram, rafraîchi une seule fois par processus — pas à chaque
  * publication, ce que « au démarrage » (spec §7) demande. Les appels
  * concurrents pendant le premier rafraîchissement attendent la même promesse.
  */
 export function ensureFreshInstagramToken(env: Environment, fetchImpl: typeof fetch): Promise<MetaTokenFile> {
-  cachedTokens ??= refreshInstagramToken(env, fetchImpl).catch((error: unknown) => {
+  cachedTokens ??= loadFreshInstagramToken(env, fetchImpl).catch((error: unknown) => {
     cachedTokens = null
     throw error
   })

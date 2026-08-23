@@ -148,11 +148,32 @@ API qui appelle `videos.insert` est le leur, déjà audité pour leur propre
 compte — pas un projet créé ici. Leur API expose `privacyStatus:
 public|unlisted|private`, ce qu'un projet non audité ne peut pas offrir : c'est
 la raison d'y croire, et c'est écrite en toutes lettres dans le docbloc
-d'`upload-post.ts`. **Mais ce n'est pas mesuré** : personne n'a encore regardé
-sortir une vraie vidéo publique par ce chemin, et tant que ce n'est pas fait,
-traiter le verrou comme levé serait affirmer plus que ce qu'on sait. Un
-connecteur YouTube **direct**, lui, reste soumis à tout ce paragraphe sans
-changement : son verrou à lui ne se lève que par son propre audit.
+d'`upload-post.ts`.
+
+**Mesuré le 23 août 2026 : le verrou ne s'applique pas par ce chemin.** Un
+envoi réel, sur le compte de Julien, `POST /api/upload` avec
+`platform[]=youtube` et **`privacyStatus=unlisted`** — délibérément pas
+`public`, et c'est le point qui rend la mesure concluante sans rien mettre en
+ligne. Le verrou d'un projet non audité force `private` **quel que soit ce qui
+est demandé** : si le verrou s'appliquait ici, `unlisted` serait retombé en
+`private` tout comme `public` l'aurait fait. Observer `unlisted` en retour
+prouve donc l'absence du verrou aussi sûrement que l'aurait prouvée `public`,
+sans exposer la vidéo sur la chaîne le temps de vérifier. Résultat :
+
+```
+{"success":true,"results":{"youtube":{"success":true,"post_id":"jZP5eJvL4sg",
+"url":"https://www.youtube.com/watch?v=jZP5eJvL4sg","status":"completed"}}}
+```
+
+La page de la vidéo (`jZP5eJvL4sg`) rend `"isPrivate":false` et
+`"isUnlisted":true` — la visibilité demandée a été honorée telle quelle plutôt
+que rabattue en privé — et l'oEmbed de YouTube la résout (200, auteur « La
+Scène Avolo »), preuve indépendante que la vidéo existe côté plateforme et
+n'est pas un artefact de l'API d'Upload Post. **Le verrou est une propriété du
+projet API appelant, pas de YouTube, et le projet qui appelle par ce chemin
+n'en porte pas.** Un connecteur YouTube **direct**, lui, reste soumis à tout ce
+paragraphe sans changement : son verrou à lui ne se lève que par son propre
+audit.
 
 Un troisième piège, indépendant du premier : l'écran de consentement OAuth laissé
 en « Testing » fait **expirer le jeton de rafraîchissement au bout de sept jours**.
@@ -166,6 +187,11 @@ possède, et l'appairage est annuel.
 |---|---|---|---|---|
 | Gratuite | 0 | 10 par mois | 2 | **non** |
 | Basic | 24 $/mois (16 $ à l'année) | illimités | 5 | oui |
+
+**Confirmé le 23 août 2026, depuis l'API elle-même et non la seule page de
+tarifs** : l'envoi mesuré au §2.4 est reparti avec `"usage":{"count":1,
+"limit":10}` — le plafond de dix par mois de l'offre gratuite, réellement
+active sur le compte de Julien, et non celui de la Basic.
 
 L'offre gratuite couvre Instagram, YouTube, Facebook et sept autres réseaux —
 c'est-à-dire tout ce qu'on sait déjà faire soi-même — et exclut le seul cas

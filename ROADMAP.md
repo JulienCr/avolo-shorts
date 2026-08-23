@@ -397,12 +397,14 @@ l'ordre où ils se tiennent :
    via Upload Post plutôt qu'un accès direct par plateforme.** Julien s'y est
    abonné (offre gratuite) : ça court-circuite le lot 0 et les deux audits, qui
    restent la voie d'un accès direct un jour mais ne bloquent plus rien
-   aujourd'hui. **Le connecteur YouTube est câblé, mais sa qualité « publique »
-   n'est pas vérifiée** — le verrou du §2.4 de la spec de publication porte sur
-   le projet API qui appelle, celui d'Upload Post, déjà audité pour son propre
-   compte ; personne n'a encore regardé sortir une vraie vidéo publique par ce
-   chemin. Un connecteur YouTube **direct**, écrit par ce dépôt, resterait lui
-   soumis à l'interdiction jusqu'à son propre audit.
+   aujourd'hui. **Le connecteur YouTube est câblé, et sa qualité « publique »
+   est mesurée** (§2.4 de la spec de publication) : un envoi réel en
+   `privacyStatus=unlisted` — délibérément pas `public`, pour ne rien exposer
+   tout en testant le même verrou — est reparti tel quel plutôt que rabattu en
+   privé, vidéo `jZP5eJvL4sg`. Le verrou porte sur le projet API qui appelle,
+   celui d'Upload Post, déjà audité pour son propre compte, et non sur
+   YouTube lui-même. Un connecteur YouTube **direct**, écrit par ce dépôt,
+   resterait lui soumis à l'interdiction jusqu'à son propre audit.
 4. **Le balayage de l'issue #73 est livré** — PR #102 (`cf72967`) pour les
    surfaces persistées, PR #103 (`c151759`) pour le balayage. Le code du dépôt
    est en anglais. Ce qui reste tient en une dizaine d'identifiants, listés dans
@@ -640,13 +642,15 @@ le lot 0 qui les précède, restent la voie d'un accès direct un jour — une
 commission économisée, un dépôt TikTok sans passer par leur brouillon — mais
 plus rien n'en dépend pour publier aujourd'hui.
 
-**Le connecteur YouTube est câblé, mais sa qualité « publique » n'est pas
-vérifiée.** Le verrou qui interdisait de l'écrire (une vidéo envoyée par un
-projet API non audité, verrouillée en privé pour toujours) porte sur le projet
-**appelant** — celui d'Upload Post ici, déjà audité pour son propre compte, pas
-un projet créé par ce dépôt. C'est la raison d'y croire, ce n'est pas une
-mesure : personne n'a encore regardé sortir une vraie vidéo publique par ce
-chemin. Un connecteur YouTube **direct** resterait, lui, soumis à
+**Le connecteur YouTube est câblé, et sa qualité « publique » est mesurée,
+pas seulement présumée.** Le verrou qui interdisait de l'écrire (une vidéo
+envoyée par un projet API non audité, verrouillée en privé pour toujours) porte
+sur le projet **appelant** — celui d'Upload Post ici, déjà audité pour son
+propre compte, pas un projet créé par ce dépôt. Mesuré le 23 août 2026 : un
+envoi réel demandant `unlisted` plutôt que `public` — pour ne rien exposer tout
+en testant le même verrou, puisqu'un projet non audité forcerait `private`
+quelle que soit la visibilité demandée — est reparti `unlisted` tel quel,
+vidéo `jZP5eJvL4sg`. Un connecteur YouTube **direct** resterait, lui, soumis à
 l'interdiction d'avant jusqu'à son propre audit — c'est le contre-sens le plus
 coûteux du sujet, et il est d'autant plus facile à commettre que l'intuition
 désigne TikTok comme la plateforme difficile.

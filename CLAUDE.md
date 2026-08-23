@@ -3,7 +3,7 @@
 Guidance pour Claude Code (claude.ai/code) sur ce dépôt. **Des règles, pas de la
 documentation** : ce fichier est chargé en entier à chaque session, donc ce qu'on
 y met est payé par toutes les sessions, y compris celles que ça ne concerne pas.
-Les démonstrations vivent dans `docs/lecons.md` et dans les specs ; ici, une
+Les démonstrations vivent dans `docs/lessons.md` et dans les specs ; ici, une
 règle tient en trois lignes et pointe vers ce qui la fonde.
 
 ## Ce que c'est
@@ -22,7 +22,7 @@ justifient chaque décision, et plusieurs de ces décisions sont contre-intuitiv
 **Une spec est datée, et le code peut l'avoir rattrapée.** Regarde à quel commit
 elle a été écrite et ce qui a été fusionné depuis, et quand tu constates l'écart,
 corrige la spec dans le même mouvement. Deux cas mesurés dans
-[`docs/lecons.md`](docs/lecons.md).
+[`docs/lessons.md`](docs/lessons.md).
 
 ## La langue
 
@@ -37,7 +37,7 @@ de commit, titres et corps de PR, réponses de review, documentation, specs.
 
 Le dépôt ne respecte pas encore la règle — 333 identifiants accentués dans 72
 fichiers. C'est l'**issue #73** ; la règle vaut dès maintenant pour tout code
-neuf. Pourquoi le glissement se produit : [`docs/lecons.md`](docs/lecons.md).
+neuf. Pourquoi le glissement se produit : [`docs/lessons.md`](docs/lessons.md).
 
 ## Les commentaires
 
@@ -55,7 +55,7 @@ spontanément.
 |---|---|
 | Le clip est une **liste de segments**, la durée est un résultat | une fenêtre de 15 à 60 s |
 | On raccourcit **par le milieu**, jamais par les bouts | tronquer la fin |
-| Le **ratio varie par clip** (9:16, 4:5, 1:1, 16:9) | tout sortir en 9:16 |
+| Le **ratio varie par plan** (9:16, 4:5, 1:1, 16:9) | tout sortir en 9:16, ou un ratio unique par clip |
 | Le **crop est fixe à l'intérieur d'un plan** | une caméra qui suit le sujet |
 | On détecte des **corps**, pas des visages | la détection de visages |
 | La surface d'édition est le **transcript** | une timeline multi-pistes |
@@ -67,7 +67,7 @@ serré, et ce chiffre est stable sur les trois.
 
 La sixième ligne demande une précision depuis que l'écran de clip porte une bande
 de temps : elle monte du temps, le transcript monte des mots, et les deux
-coexistent. Le détail est dans [`docs/lecons.md`](docs/lecons.md).
+coexistent. Le détail est dans [`docs/lessons.md`](docs/lessons.md).
 
 ## Deux règles tirées des revues
 
@@ -80,7 +80,7 @@ coexistent. Le détail est dans [`docs/lecons.md`](docs/lecons.md).
   par le défaut : ça rend un faux résultat avec l'aplomb d'un vrai. Rejeter,
   plutôt que trancher au hasard.
 
-Les cas qui les ont produites, avec leurs chiffres : [`docs/lecons.md`](docs/lecons.md).
+Les cas qui les ont produites, avec leurs chiffres : [`docs/lessons.md`](docs/lessons.md).
 
 ## L'environnement
 
@@ -113,7 +113,7 @@ Les cas qui les ont produites, avec leurs chiffres : [`docs/lecons.md`](docs/lec
 - **Les mesures d'ici valent peu prises une fois** : 40 à 80 % de variance, ni
   thermique ni réglable. Trois passes, la médiane, `/proc/loadavg` relevé à côté
   du chiffre, et **un écart inférieur à ~10 % n'est pas établi**. Le pourquoi, et
-  le throttling thermique cherché puis écarté : [`docs/lecons.md`](docs/lecons.md).
+  le throttling thermique cherché puis écarté : [`docs/lessons.md`](docs/lessons.md).
 - **Pas de Docker ici.** Node natif, Python en venv, ffmpeg natif.
 
 ## Livraison

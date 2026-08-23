@@ -761,6 +761,20 @@ fichier `.ass` est incrusté sur les deux canevas le jour où `RENDER_NATIVE`
 C'est déjà vrai aujourd'hui, ce n'est pas une régression introduite par ce
 preset.
 
+**Aperçu, ajouté le 23 août 2026.** Les sous-titres n'existaient jusque-là que
+sous forme d'ASS incrusté par ffmpeg : rien ne les montrait avant l'export.
+`CaptionOverlay` (`src/components/captions/caption-overlay.tsx`) les pose en
+calque DOM, sur le modèle de `HookOverlay` — un frère du canevas, jamais peint
+dedans, en unités `cqh`. Sa géométrie vient de `captionUnits`
+(`src/core/captions/ass.ts`), la même fonction que `renderAss` : diviser l'un
+de ses champs par `PLAYRES_Y` (288) donne la fraction de hauteur que
+l'aperçu pose, donc les deux ne peuvent pas diverger sur la taille de police
+ou la marge basse sans qu'un test ne le voie. Deux points de montage, aux
+garanties différentes : l'aperçu de sortie du clip (`output-preview.tsx`) est
+**fidèle** — mêmes cartons que le rendu, retimés sur la timeline du clip — le
+lecteur de l'émission (`show/player.tsx`) est **indicatif** — le transcript
+entier, sans recalage, sur une source en 16:9 quand la sortie est en 9:16.
+
 ### La correction, trois étages du moins risqué au plus risqué
 
 **Étage 0, avant la transcription.** Whisper accepte un `initial_prompt` qui

@@ -1,10 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
-import type { Ratio } from '@/core/edl'
+import { CaptionOverlay } from '@/components/captions/caption-overlay'
+import type { CaptionStyle } from '@/core/captions/ass'
+import { elapsedInClip } from '@/core/captions/retime'
+import type { Word } from '@/core/transcript'
+import type { Ratio, Segment } from '@/core/edl'
 import { RATIOS, cropRect, outputSize } from '@/core/framing'
 import type { ResolvedHook } from '@/core/hook'
 import type { PublishedFraming } from '@/lib/api'
@@ -81,6 +85,9 @@ export function PreviewOutput({
   cropX,
   hook,
   frame,
+  captionCards,
+  captionStyle,
+  segments,
 }: {
   /** L'élément du lecteur. `null` tant qu'il n'y a pas de proxy. */
   video: HTMLVideoElement | null
@@ -108,6 +115,24 @@ export function PreviewOutput({
    * deux, et chacun en déduit sa largeur.
    */
   frame?: string
+  /**
+   * Les cartons de `splitIntoCards(retimeWords(mots, segments))`, **sur la
+   * timeline du clip** — coupes comprises, comme le fichier rendu.
+   * `undefined` quand `clip.captions` est faux : c'est à l'appelant de
+   * fermer le calque, cette prop ne sait pas lire le statut du clip.
+   * **Fidèle** : ce point de montage montre exactement ce que ffmpeg
+   * incrustera.
+   */
+  captionCards?: readonly Word[][]
+  /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
+  captionStyle?: CaptionStyle
+  /**
+   * Les segments du montage en cours, dans le **temps source** du proxy —
+   * c'est l'unité de `video.currentTime`. Sert à convertir la position de
+   * lecture en instant de clip via `elapsedInClip`, pour chercher le carton
+   * actif. Ignoré si `captionCards` est `undefined`.
+   */
+  segments?: Segment[]
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   // Le plan sous la lecture : le cadre saute à ses frontières, ici comme dans le
@@ -195,6 +220,26 @@ export function PreviewOutput({
     }
   }, [video])
 
+  // **Un état à part pour les sous-titres, à la cadence de `timeupdate`
+  // (environ 4/s), jamais celle de `requestVideoFrameCallback` (60/s).**
+  // `paint()` ci-dessus reste imperatif — aucun re-rendu — précisément pour
+  // tenir cette cadence-là ; le calque de sous-titres, lui, a besoin d'un
+  // rendu React pour afficher un texte, et les cartons durent au minimum
+  // 2,5 s (`MAX_DURATION_DEFAULT`) : `timeupdate` suffit très largement à ne
+  // manquer aucun changement de carton.
+  const [time, setTime] = useState(0)
+  useEffect(() => {
+    if (video === null || captionCards === undefined) return
+    const track = () => setTime(video.currentTime)
+    track()
+    video.addEventListener('timeupdate', track)
+    video.addEventListener('seeked', track)
+    return () => {
+      video.removeEventListener('timeupdate', track)
+      video.removeEventListener('seeked', track)
+    }
+  }, [video, captionCards])
+
   return (
     <figure className="flex min-w-0 flex-col gap-1.5">
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
@@ -257,6 +302,13 @@ export function PreviewOutput({
             centrale et le ferait sauter de place à chaque changement de
             ratio. */}
         {hook !== undefined && <HookOverlay hook={hook} />}
+        {captionCards !== undefined && captionStyle !== undefined && segments !== undefined && (
+          <CaptionOverlay
+            cards={captionCards}
+            time={elapsedInClip(segments, time) ?? -1}
+            style={captionStyle}
+          />
+        )}
       </div>
     </figure>
   )

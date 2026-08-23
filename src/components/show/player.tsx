@@ -3,6 +3,10 @@
 import { Film } from 'lucide-react'
 import type { RefObject } from 'react'
 
+import { CaptionOverlay } from '@/components/captions/caption-overlay'
+import type { CaptionStyle } from '@/core/captions/ass'
+import type { Word } from '@/core/transcript'
+
 /**
  * Le proxy de l'émission, lu dans la vue Émission.
  *
@@ -22,12 +26,22 @@ import type { RefObject } from 'react'
  * **Le scrub ne demande rien au serveur.** `GET /api/projects/:id/proxy` répond
  * déjà aux requêtes partielles (`src/core/range.ts`) : sans cela, un `<video>`
  * ne peut pas sauter et la barre de lecture reste inerte.
+ *
+ * **Les sous-titres qu'il porte sont indicatifs, pas fidèles.** `captionCards`
+ * vient du transcript entier, **sans recalage** — ce lecteur montre l'émission,
+ * pas un montage — et la source est en 16:9 quand la sortie est en 9:16 : ce
+ * qui s'affiche ici donne le texte et le rythme du karaoké, jamais un aperçu
+ * du cadrage final. Voir `CaptionOverlay` et son point de montage jumeau,
+ * `output-preview.tsx`, qui lui est fidèle.
  */
 export function ShowPlayer({
   projectId,
   proxyReady,
   video,
   onTime,
+  captionCards,
+  captionStyle,
+  time,
 }: {
   projectId: string
   /**
@@ -41,6 +55,16 @@ export function ShowPlayer({
   video: RefObject<HTMLVideoElement | null>
   /** L'instant courant, en secondes. La bande de couverture s'en sert. */
   onTime: (seconds: number) => void
+  /**
+   * Les cartons du transcript **entier**, non recalés — voir la doc de tête.
+   * `undefined` tant que le transcript n'a pas chargé : aucun calque ne se
+   * pose, plutôt que d'en poser un sans texte.
+   */
+  captionCards?: readonly Word[][]
+  /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
+  captionStyle?: CaptionStyle
+  /** L'instant courant, en secondes — le même que `onTime` publie, tenu par l'appelant. */
+  time?: number
 }) {
   if (!proxyReady) {
     return (
@@ -57,23 +81,33 @@ export function ShowPlayer({
   }
 
   return (
-    <video
-      ref={video}
-      data-testid="lecteur-emission"
-      // **`preload="metadata"` et non `auto`.** Le proxy pèse plus d'un
-      // gigaoctet et cet écran s'ouvre à chaque retour de clip : tirer la vidéo
-      // entière à chaque visite coûterait la bande passante du disque pour un
-      // écran où l'on ne lit pas toujours. Les métadonnées suffisent à ce que la
-      // barre de lecture connaisse la durée et sache sauter.
-      preload="metadata"
-      controls
-      src={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
-      onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}
-      // Un saut à la souris dans la barre du navigateur doit bouger la tête de
-      // lecture de la bande, et `timeupdate` ne se déclenche pas toujours à
-      // l'arrêt : `seeked` ferme le cas.
-      onSeeked={(e) => onTime(e.currentTarget.currentTime)}
-      className="aspect-video w-full rounded-xl border bg-black"
-    />
+    // **Le conteneur que le calque de sous-titres exige.** Le `<video>` n'en
+    // avait ni besoin ni un jusqu'ici : `absolute inset-0` sur `CaptionOverlay`
+    // se positionne contre ce parent `relative`, et `containerType: 'size'`
+    // lui donne le repère `cqh` dont sa géométrie a besoin — voir la doc de
+    // `captionUnits`.
+    <div className="relative" style={{ containerType: 'size' }}>
+      <video
+        ref={video}
+        data-testid="lecteur-emission"
+        // **`preload="metadata"` et non `auto`.** Le proxy pèse plus d'un
+        // gigaoctet et cet écran s'ouvre à chaque retour de clip : tirer la vidéo
+        // entière à chaque visite coûterait la bande passante du disque pour un
+        // écran où l'on ne lit pas toujours. Les métadonnées suffisent à ce que la
+        // barre de lecture connaisse la durée et sache sauter.
+        preload="metadata"
+        controls
+        src={`/api/projects/${encodeURIComponent(projectId)}/proxy`}
+        onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}
+        // Un saut à la souris dans la barre du navigateur doit bouger la tête de
+        // lecture de la bande, et `timeupdate` ne se déclenche pas toujours à
+        // l'arrêt : `seeked` ferme le cas.
+        onSeeked={(e) => onTime(e.currentTarget.currentTime)}
+        className="aspect-video w-full rounded-xl border bg-black"
+      />
+      {captionCards !== undefined && captionStyle !== undefined && (
+        <CaptionOverlay cards={captionCards} time={time ?? -1} style={captionStyle} />
+      )}
+    </div>
   )
 }

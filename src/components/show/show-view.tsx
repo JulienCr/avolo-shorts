@@ -1,12 +1,15 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { CoverageTimeline } from '@/components/show/coverage-timeline'
 import { ShowPlayer } from '@/components/show/player'
 import { TranscriptTrigger } from '@/components/show/transcript-panel'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import { splitIntoCards } from '@/core/captions/cards'
 import { isGuard } from '@/lib/clip-status'
 import type { CandidateClip } from '@/lib/api'
+import { useTranscript } from '@/lib/queries'
 
 /**
  * La vue Émission : **le proxy, et ce qu'on en a tiré**.
@@ -56,6 +59,16 @@ export function ShowView({
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
 
+  // **Les cartons du lecteur, indicatifs — voir la doc de `ShowPlayer`.**
+  // `useTranscript` charge ici, indépendamment du tiroir de transcript qui ne
+  // le demande que sur `?transcript=1` : sans lui, le calque n'aurait jamais
+  // de texte tant que personne n'a ouvert le tiroir.
+  const transcript = useTranscript(projectId)
+  const captionCards = useMemo(
+    () => splitIntoCards((transcript.data ?? []).flatMap((line) => line.words)),
+    [transcript.data],
+  )
+
   // `isGuard` et non `status === 'kept'` : un clip exporté est une décision
   // humaine qui a déjà produit un fichier, et c'est justement celui qu'on veut
   // voir sur la bande.
@@ -94,6 +107,9 @@ export function ShowView({
           proxyReady={proxyReady}
           video={video}
           onTime={setTime}
+          captionCards={transcript.data !== undefined ? captionCards : undefined}
+          captionStyle={DEFAULT_CAPTION_STYLE}
+          time={time}
         />
         <CoverageTimeline
           clips={kept}

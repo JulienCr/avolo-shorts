@@ -106,6 +106,43 @@ function bound(value: number, min: number, max: number, fallback: number): numbe
 }
 
 /**
+ * Le repère de `renderAss` — `PlayResY: 288` — dans lequel `Fontsize`,
+ * `MarginV` et `Outline` s'expriment. C'est l'unique échelle commune entre le
+ * fichier ASS et `CaptionOverlay` (aperçus DOM) : diviser une valeur de
+ * `captionUnits` par ce nombre donne la même fraction de hauteur des deux
+ * côtés.
+ */
+export const PLAYRES_Y = 288
+
+/**
+ * La taille de police, la marge basse et l'épaisseur de contour, **dans les
+ * unités `PlayResY` que `renderAss` écrit telles quelles** dans le bloc
+ * `[V4+ Styles]`.
+ *
+ * **Le seul endroit qui applique le facteur 0,85 et les trois bornes.** Extrait
+ * du corps de `renderAss` pour que `CaptionOverlay` calcule sa géométrie sur
+ * exactement les mêmes nombres — diviser chaque champ par `PLAYRES_Y` donne
+ * une fraction de la hauteur du conteneur, la même que celle du fichier rendu.
+ * Un second calcul qui « ressemblerait » à celui-ci pourrait diverger sans
+ * qu'aucun test ne le voie.
+ *
+ * @returns `sizeUnits` — `Fontsize` ; `marginUnits` — `MarginV` ; `borderUnits`
+ *   — `Outline`. Les trois sont des entiers dans le repère `PlayResY: 288`.
+ */
+export function captionUnits(
+  style: Pick<CaptionStyle, 'fontSize' | 'marginV' | 'borderWidth'>,
+): { sizeUnits: number; marginUnits: number; borderUnits: number } {
+  return {
+    sizeUnits: Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85)),
+    marginUnits: Math.round(bound(style.marginV, 0, 200, MARGIN_LOW)),
+    // Même garde que `renderAss` : le contour ne descend jamais sous 1, sur de
+    // la vidéo un texte sans contour devient illisible dès que le fond
+    // s'éclaircit.
+    borderUnits: Math.floor(bound(style.borderWidth, 1, 10, 2)),
+  }
+}
+
+/**
  * Les six chiffres hexadécimaux d'une couleur, `fallback` si l'entrée n'en est pas
  * une.
  *
@@ -240,17 +277,10 @@ function fontName(name: string): string {
  * l'appelant de décider s'il vaut la peine d'incruster un fichier vide.
  */
 export function renderAss(cards: Word[][], style: CaptionStyle): string {
-  // La taille est exprimée dans le repère `PlayResY: 288`, pas en pixels de
-  // l'image : le facteur 0,85 est celui de la version d'origine, à laquelle le
-  // rendu de référence a été réglé. 22 devient donc 18.
-  const size = Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85))
+  // La taille, le contour et la marge partagent leur calcul avec
+  // `CaptionOverlay` (aperçus DOM) — voir la doc de `captionUnits`.
+  const { sizeUnits: size, marginUnits: margin, borderUnits: thickness } = captionUnits(style)
   const font = fontName(style.fontName)
-  // Le contour ne descend pas sous 1 : sur de la vidéo, du texte sans contour
-  // devient illisible dès que le fond s'éclaircit. Une seule garde l'énonce —
-  // borner à 0 puis remonter à 1 par un `Math.max` disait deux choses opposées,
-  // et un preset réglé à 0 remontait à 1 sans un mot.
-  const thickness = Math.floor(bound(style.borderWidth, 1, 10, 2))
-  const margin = Math.round(bound(style.marginV, 0, 200, MARGIN_LOW))
 
   const main = styleColor(style.fontColor, 1)
   const outline = styleColor(style.borderColor, 1, '000000')

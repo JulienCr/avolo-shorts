@@ -16,6 +16,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PreviewOutput, lScreenPart, paintOutput } from '@/components/clip/output-preview'
 import { usePlayback } from '@/components/clip/playback'
+import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import { splitIntoCards } from '@/core/captions/cards'
+import { retimeWords } from '@/core/captions/retime'
 import { HOOK_DEFAULTS, type ResolvedHook } from '@/core/hook'
 import { RATIOS } from '@/core/framing'
 import { framing, manualFraming, shot } from '../../fixtures/framing'
@@ -282,5 +285,46 @@ describe('PreviewOutput', () => {
       <PreviewOutput video={v} framing={manualFraming('1:1', 0.5)} ratio="1:1" cropX={0.1} />,
     )
     expect(ctx.drawImage.mock.calls[0][1]).toBeLessThan(210)
+  })
+
+  // Point A.4 du retour d'usage : ce point de montage est **fidèle**, sur la
+  // timeline du clip (`retimeWords`) — c'est ce qui le distingue du calque
+  // indicatif du lecteur de l'émission.
+  describe('le calque des sous-titres', () => {
+    it('ne pose aucun calque tant que captionCards est absent', () => {
+      context()
+      const { container } = render(
+        <PreviewOutput video={video()} framing={framing()} ratio="1:1" cropX={0.5} />,
+      )
+      expect(container.querySelector('[data-caption="card"]')).toBeNull()
+    })
+
+    it("suit la timeline du clip via segments, et met à jour au timeupdate", () => {
+      context()
+      const v = video()
+      const segments = [{ start: 100, end: 110 }]
+      const cards = splitIntoCards(
+        retimeWords([{ word: 'salut', start: 100, end: 100.4 }], segments),
+      )
+      const { container } = render(
+        <PreviewOutput
+          video={v}
+          framing={framing()}
+          ratio="1:1"
+          cropX={0.5}
+          captionCards={cards}
+          captionStyle={DEFAULT_CAPTION_STYLE}
+          segments={segments}
+        />,
+      )
+      // `video.currentTime` vaut 0 au montage : hors segment, donc hors clip.
+      expect(container.querySelector('[data-caption="card"]')).toBeNull()
+
+      act(() => {
+        v.currentTime = 100.1
+        fireEvent.timeUpdate(v)
+      })
+      expect(container.querySelector('[data-caption="card"]')?.textContent).toContain('SALUT')
+    })
   })
 })

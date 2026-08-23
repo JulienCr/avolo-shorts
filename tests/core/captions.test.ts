@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 // Trois modules distincts, et non un `@/core/captions/…` qui ne se résout pas :
 // Vitest échouerait sur l'import avant d'exécuter le moindre test.
-import { retimeWords } from '@/core/captions/retime'
+import { retimeWords, elapsedInClip } from '@/core/captions/retime'
 import { splitIntoCards } from '@/core/captions/cards'
-import { renderAss, DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
+import { renderAss, captionUnits, PLAYRES_Y, DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 
 /** Les lignes d'événement d'un fichier ASS, dans l'ordre. */
 function dialogues(ass: string): string[] {
@@ -123,6 +123,42 @@ describe('retimeWords', () => {
   })
 })
 
+describe('elapsedInClip', () => {
+  const segments = [
+    { start: 100, end: 110 },
+    { start: 200, end: 210 },
+  ]
+
+  it('convertit un instant du premier segment depuis zéro', () => {
+    expect(elapsedInClip(segments, 102)).toBe(2)
+  })
+
+  it('décale un instant du second segment de la durée du premier', () => {
+    expect(elapsedInClip(segments, 202)).toBe(12)
+  })
+
+  it('rend null dans une coupe interne', () => {
+    expect(elapsedInClip(segments, 150)).toBeNull()
+  })
+
+  it('rend null avant et après le clip', () => {
+    expect(elapsedInClip(segments, 50)).toBeNull()
+    expect(elapsedInClip(segments, 300)).toBeNull()
+  })
+
+  it('trie les segments avant de cumuler leurs durées', () => {
+    expect(
+      elapsedInClip(
+        [
+          { start: 200, end: 210 },
+          { start: 100, end: 110 },
+        ],
+        202,
+      ),
+    ).toBe(12)
+  })
+})
+
 describe('splitIntoCards', () => {
   it('ferme un carton à 36 caractères, espaces compris', () => {
     const words = 'alpha bravo charlie delta echo foxtrot golf hotel'.split(' ').map((w, i) => ({
@@ -194,6 +230,30 @@ describe('splitIntoCards', () => {
     const words = [{ word: ' salut ', start: 0, end: 0.4 }]
     splitIntoCards(words)
     expect(words).toEqual([{ word: ' salut ', start: 0, end: 0.4 }])
+  })
+})
+
+describe('captionUnits', () => {
+  it('applique le même calcul que renderAss écrit dans le bloc Style', () => {
+    const units = captionUnits(DEFAULT_CAPTION_STYLE)
+    const ass = renderAss(
+      [[{ word: 'x', start: 0, end: 1 }]],
+      DEFAULT_CAPTION_STYLE,
+    )
+    const fields = ass.split('\n').find((l) => l.startsWith('Style: '))!.split(',')
+    expect(fields[2]).toBe(String(units.sizeUnits))
+    expect(fields[16]).toBe(String(units.borderUnits))
+    expect(fields[21]).toBe(String(units.marginUnits))
+  })
+
+  it('divise par PLAYRES_Y pour donner la fraction de hauteur que CaptionOverlay pose en cqh', () => {
+    const units = captionUnits(DEFAULT_CAPTION_STYLE)
+    expect(units.sizeUnits / PLAYRES_Y).toBeCloseTo(18 / 288)
+    expect(units.marginUnits / PLAYRES_Y).toBeCloseTo(43 / 288)
+  })
+
+  it('remonte un contour nul au minimum lisible, comme renderAss', () => {
+    expect(captionUnits({ ...DEFAULT_CAPTION_STYLE, borderWidth: 0 }).borderUnits).toBe(1)
   })
 })
 

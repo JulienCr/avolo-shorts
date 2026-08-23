@@ -159,9 +159,15 @@ export function ClipPlayer({
   }, [onVideo, proxyUrl])
 
   return (
+    // **`self-start`, mesuré et retenu.** La figure qui enveloppe cette boîte
+    // est en colonne ; sans `self-start`, `align-items: stretch` fixe la
+    // largeur à celle de la figure quelle que soit la hauteur, et
+    // `aspect-ratio` en déduit alors la hauteur *depuis cette largeur-là* —
+    // le sens inverse de ce que `frame` demande. Voir la même note, avec les
+    // chiffres, sur la boîte jumelle de `output-preview.tsx`.
     <div
       className={cn(
-        'relative aspect-video overflow-hidden rounded-lg bg-zinc-950',
+        'relative aspect-video self-start overflow-hidden rounded-lg bg-zinc-950',
         frame ?? 'w-full',
       )}
     >

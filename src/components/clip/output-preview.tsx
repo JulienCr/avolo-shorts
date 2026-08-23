@@ -244,13 +244,22 @@ export function PreviewOutput({
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
           occupe la part que le ratio lui laisse, et rien d'autre ne le dit.
-          **Ni `self-start` ni largeur imposée** : la hauteur vient de `frame`
-          (celle du volet, ou `PREVIEW_HEIGHT` en dessous du seuil), et
-          `aspect-ratio` en déduit la largeur — voir la note de la prop
-          `frame` plus haut sur ce qu'un `max-width` casserait ici. */}
+
+          **`self-start` reste, et c'est mesuré, pas recopié de l'ancien
+          code.** La hauteur vient de `frame` (celle du volet, ou
+          `PREVIEW_FRAME`'s repli en dessous du seuil `workbench`), et
+          `aspect-ratio` en déduit la largeur — mais seulement si l'axe
+          transversal (la largeur, ici, puisque la figure est en colonne)
+          n'est pas étiré. Sans `self-start`, mesuré dans un vrai Chrome :
+          `align-items: stretch` l'emportait sur `aspect-ratio`, la largeur
+          valait la largeur du volet entier quelle que soit la hauteur, et
+          `aspect-ratio` en déduisait la hauteur *depuis cette largeur-là* —
+          exactement le sens inverse de celui voulu, et invisible tant qu'on
+          ne mesure pas les deux dimensions à la fois. Aucun `max-width`
+          n'entre en jeu : c'est la condition de recette du lot, tenue. */}
       <div
         className={cn(
-          'relative flex min-h-0 overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
+          'relative flex min-h-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
           'items-center justify-center',
           frame ?? 'w-40',
         )}

@@ -418,7 +418,22 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
       <main className="flex min-h-0 flex-1 flex-col overflow-y-auto workbench:flex-row workbench:overflow-hidden">
         <section
           aria-labelledby="zone-image"
-          className="flex min-h-0 min-w-0 flex-col gap-3 border-b p-4 workbench:flex-1 workbench:overflow-hidden workbench:border-r workbench:border-b-0"
+          // **`container-type: inline-size` ici, pas sur la rangée qu'il
+          // borne.** Un conteneur de requête ne se mesure pas lui-même — posé
+          // sur la rangée, `cqw` remontait à l'ancêtre suivant (donc à la
+          // largeur de la fenêtre, pas du volet) et le plafond calculé
+          // valait le double de ce qu'il fallait. Mesuré : 430,7 px au lieu
+          // des 211,5 attendus à 1024 px de large.
+          //
+          // **`shrink-0` en dehors de l'établi, `min-h-0` seulement dedans.**
+          // Sous le seuil, `main` redevient une colonne qui défile
+          // (`overflow-y-auto`) plutôt qu'une rangée fixe : sans `shrink-0`,
+          // le volet pouvait se faire comprimer par l'algorithme flex avant
+          // même que le défilement n'entre en jeu, et son propre contenu
+          // débordait alors *par-dessus* le volet suivant plutôt que de
+          // pousser la page vers le bas. Mesuré, à 1416×800 : le titre du
+          // volet Contenu se peignait au milieu du transport du volet Image.
+          className="flex min-w-0 shrink-0 flex-col gap-3 border-b p-4 workbench:min-h-0 workbench:flex-1 workbench:overflow-hidden workbench:border-r workbench:border-b-0 workbench:[container-type:inline-size]"
         >
           <h2 id="zone-image" className="shrink-0 text-sm font-medium">
             Image
@@ -429,8 +444,24 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               droite le canevas de sortie, à l'échelle du téléphone : c'est là
               qu'un 16:9 se voit occuper le tiers de la hauteur et un 4:5 les sept
               dixièmes. `PREVIEW_FRAME` est l'unique source des deux — voir sa
-              note en tête de fichier. */}
-          <div className="flex flex-1 flex-wrap items-stretch gap-4 workbench:min-h-0 workbench:flex-nowrap">
+              note en tête de fichier.
+
+              **`max-h` en `cqw`, mesuré, pas deviné.** À 1024 px de large —
+              le plancher `workbench` — une fenêtre haute et étroite (par
+              exemple 1024×1318) donne au volet gauche plus de hauteur que sa
+              largeur ne peut en accueillir côte à côte sans repli à la ligne
+              (`workbench:flex-nowrap`) : les deux boîtes, dérivant leur
+              largeur de la hauteur disponible, débordaient alors du volet —
+              mesuré, `document.documentElement.scrollWidth` dépassait
+              `innerWidth` de 212 px. Le plafond ici n'est **pas** un
+              `max-width` posé à côté d'un `aspect-ratio` sur les boîtes
+              elles-mêmes — c'est la faute que le lot ne doit pas réintroduire
+              — mais un plafond sur la **rangée**, en unités de conteneur
+              (`container-type: inline-size` sur elle, comme `PreviewOutput`
+              le fait déjà pour son propre calque). `2,3403` est la somme des
+              deux rapports fixes que les boîtes portent toujours, 16:9 et
+              9:16 (`RATIOS`), jamais celui du plan en cours. */}
+          <div className="flex flex-1 flex-wrap items-stretch gap-4 workbench:min-h-0 workbench:flex-nowrap workbench:max-h-[calc((100cqw-1rem)/2.3403)]">
             <figure className="flex min-w-0 flex-col gap-1.5">
               <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
                 la source — le rectangle est le cadre pris pour ce plan
@@ -567,7 +598,10 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
 
         <section
           aria-labelledby="zone-contenu"
-          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto p-4 workbench:w-[30rem] workbench:shrink-0"
+          // Même raccord que la zone Image : `shrink-0` hors de l'établi,
+          // `min-h-0` seulement dedans (où c'est `workbench:overflow-y-auto`
+          // qui reprend le défilement, local au volet plutôt qu'à la page).
+          className="flex min-w-0 shrink-0 flex-col gap-3 p-4 workbench:min-h-0 workbench:w-[30rem] workbench:shrink-0 workbench:overflow-y-auto"
         >
           <h2 id="zone-contenu" className="shrink-0 text-sm font-medium">
             Contenu

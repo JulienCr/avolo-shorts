@@ -7,16 +7,27 @@
 /**
  * L'établi de l'écran de clip (spec du 23 août, §3.3) : deux volets fixes qui
  * ne défilent pas, à condition d'avoir la place. La largeur seule ne suffit
- * pas — un 1024 px de large mais 600 px de haut écraserait les deux aperçus
+ * pas — un 1024 px de large mais 800 px de haut écraserait les deux aperçus
  * sous les contrôles du volet gauche plutôt que de les montrer. Les deux
  * conditions sont donc dans UNE variante plutôt que deux `lg:`/`h-[…]:`
  * séparées : en dessous de l'une ou de l'autre, l'écran repasse en lecture
- * verticale qui défile, comme avant ce lot. 700 px de hauteur est le plancher
- * mesuré à la main : sous ce chiffre, la colonne de gauche (transport, bande
- * de temps, sélecteur de ratio, faits de montage, bouton) ne tient plus à
- * côté d'un aperçu utilisable sans l'écraser sous 150 px de haut.
+ * verticale qui défile, comme avant ce lot.
+ *
+ * **1000 px de hauteur, mesuré et non deviné.** À 1416 px de large, la somme
+ * de tout ce qui entoure les aperçus — barre d'app (48 px), fresque des clips
+ * (145,5 px, portée par les vignettes 16:9 de 144 px de large), transport
+ * (50 px), bande de temps (70 px), sélecteur de ratio (108 px), faits de
+ * montage (84 px), déclencheur du tiroir (28 px), « Réglages du rendu »
+ * (28 px), rail (83 px), plus les huit marges entre ces blocs (84 px) et le
+ * remplissage du volet (32 px) — pèse 780,5 px, mesurés en `getBoundingClientRect`
+ * dans un vrai Chrome. En dessous, la hauteur qui reste aux aperçus s'écroule
+ * vite : encore 219,5 px à 1000 px de fenêtre (aperçu source 348×196), 20 px
+ * à 800 (aperçus à zéro — la fenêtre la plus basse citée par le contrat de ce
+ * lot tombe *sous* ce plancher, exprès : c'est le côté qui doit replier). Le
+ * chiffre choisi laisse un aperçu déjà confortable au plancher même, et
+ * grandit linéairement au-dessus.
  */
-@custom-variant workbench (@media (min-width: 1024px) and (min-height: 700px));
+@custom-variant workbench (@media (min-width: 1024px) and (min-height: 1000px));
 
 @theme inline {
   --color-background: var(--background);

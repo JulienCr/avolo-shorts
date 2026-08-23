@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef } from 'react'
-import type { CSSProperties } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
@@ -86,7 +85,7 @@ export function PreviewOutput({
   cropX,
   hook,
   frame,
-  figureStyle,
+  figureClassName,
   captionCards,
   captionStyle,
   segments,
@@ -129,17 +128,22 @@ export function PreviewOutput({
   /**
    * Le poids de la figure racine dans la rangée des deux aperçus.
    *
-   * **`clip-screen.tsx` le pose en `flex-grow`/`flex-shrink` fixes** (16:9
-   * pour la figure jumelle, 9:16 pour celle-ci — le rapport du cadre du
-   * téléphone, pas celui du plan en cours) plutôt que de laisser
-   * `flex-basis: auto` répartir la largeur d'après le contenu : une boîte à
-   * `aspect-ratio` imbriquée dans un enfant `flex-1` se mesure à une valeur
-   * indéterminée pendant la passe intrinsèque de la rangée, et la légende
-   * ("variante 9:16 · …") pesait alors sur la largeur à sa place — la figure
-   * de sortie retombait plus étroite que sa propre boîte, rognée par
-   * `overflow-hidden` du volet. (relevé par Codex)
+   * **`clip-screen.tsx` le pose en `flex-grow`/`flex-shrink` fixes, sous
+   * `workbench:` seulement** (16:9 pour la figure jumelle, 9:16 pour
+   * celle-ci — le rapport du cadre du téléphone, pas celui du plan en
+   * cours) plutôt que de laisser `flex-basis: auto` répartir la largeur
+   * d'après le contenu : une boîte à `aspect-ratio` imbriquée dans un
+   * enfant `flex-1` se mesure à une valeur indéterminée pendant la passe
+   * intrinsèque de la rangée, et la légende ("variante 9:16 · …") pesait
+   * alors sur la largeur à sa place — la figure de sortie retombait plus
+   * étroite que sa propre boîte, rognée par `overflow-hidden` du volet.
+   * Non conditionné à `workbench:` une première fois, ce même poids cassait
+   * le repli sous le seuil : les boîtes y reviennent à une taille fixe
+   * (`h-72`) sous `flex-wrap`, et un poids `flex` sans base les faisait
+   * chevaucher au lieu de passer à la ligne. (relevé par Codex, les deux
+   * fois)
    */
-  figureStyle?: CSSProperties
+  figureClassName?: string
   /** Cartons de `splitIntoCards(retimeWords(mots, segments))` — fidèle au rendu (spec §9). `undefined` ferme le calque. */
   captionCards?: readonly Word[][]
   /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
@@ -236,7 +240,7 @@ export function PreviewOutput({
   const time = useCaptionClock(video, captionCards !== undefined)
 
   return (
-    <figure className="flex min-h-0 min-w-0 flex-col gap-1.5" style={figureStyle}>
+    <figure className={cn('flex min-h-0 min-w-0 flex-col gap-1.5', figureClassName)}>
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
           doivent avoir la même hauteur visuelle : une légende sous l'un et
           au-dessus de l'autre décalerait leurs cadres d'une ligne, ce qui est

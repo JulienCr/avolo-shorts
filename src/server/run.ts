@@ -1238,8 +1238,9 @@ async function executeStep(
       // **`signal.aborted` n'est pas avalé.** Un arrêt demandé n'est pas une
       // panne du modèle : il doit remonter tel quel, pour que l'exécution se
       // termine comme `interrompu`, pas comme un succès avec un avertissement.
+      let correctionOutcome: { applied: number } | undefined
       try {
-        await steps.applyTranscriptCorrections(project, db, { signal, freshTranscript })
+        correctionOutcome = await steps.applyTranscriptCorrections(project, db, { signal, freshTranscript })
       } catch (cause) {
         if (signal.aborted) throw cause
         const message = `La correction automatique du transcript a échoué : ${messageSafe(cause)}. ` +
@@ -1254,6 +1255,17 @@ async function executeStep(
       // relance immédiate dans la fenêtre du TTL (4 s) reprogrammerait la
       // correction pour rien. (relevé par Copilot et Aristarque)
       forgetSidecar(project)
+      // **`candidates.json` invalidé ici, pas laissé à l'étape `candidates`.**
+      // `DEPS.candidates = ['correction']` fait déjà entrer `candidates` dans
+      // le plan de cette même exécution dès que `correction` s'y trouve — mais
+      // un arrêt ou un crash entre les deux laisserait l'ancien
+      // `candidates.json` intact, calculé sur le texte d'avant les
+      // substitutions qui viennent d'être écrites. `readingPresence` le lirait
+      // comme fait, et une relance ordinaire — qui ne vise pas `correction`,
+      // déjà là — ne le redécouvrirait jamais absent. On ne le supprime que si
+      // au moins une substitution a réellement changé le texte : sans ça,
+      // rien n'a bougé sous lui. (relevé par Codex)
+      if (correctionOutcome.applied > 0) await fsp.rm(candidatesPath(project.id), { force: true })
       return null
     }
 

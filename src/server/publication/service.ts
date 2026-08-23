@@ -23,6 +23,7 @@ import { requestInvalid } from '@/server/http'
 import { wait } from '@/server/llm/retry'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import { PublicationAlreadyPublishedError } from '@/server/publication/errors'
+import { adapterFor } from '@/server/publication'
 import { reserve, release } from '@/server/publication/registry'
 import { deliveryToDay } from '@/server/renders'
 import { pathsRender } from '@/server/steps/render'
@@ -63,18 +64,12 @@ function currentFingerprint(fingerprintPath: string): string | null {
 }
 
 /**
- * La plateforme dont `platformTexts` fournit les textes du job.
- *
- * **Limite connue et documentée** : une requête Upload Post porte un seul
- * `title`/`description` pour toutes les plateformes visées (spec publication,
- * table A.4 du contrat de cette PR) — YouTube en a besoin sous une forme
- * différente des trois autres (titre et description séparés, contre une
- * légende unique). Mélanger YouTube et une autre plateforme dans le même
- * lancement fait donc gagner la forme YouTube pour toutes. Aujourd'hui le
- * compte Upload Post ne connecte que YouTube (aucune bascule Instagram/
- * Facebook/TikTok possible), donc le cas ne se présente pas encore ; le jour
- * où il se présentera, la solution est de scinder le lancement en deux appels
- * — un job par forme de texte —, pas de complexifier `PublicationJob`.
+ * La plateforme dont `platformTexts` fournit les textes du job — **un seul**
+ * `job` pour tous les groupes de `launchPublish`, même quand ils visent des
+ * connecteurs différents. Mélanger YouTube avec Instagram ou Facebook (issue
+ * #146) fait donc gagner la forme YouTube pour les deux : limite connue,
+ * pas corrigée ici — la solution est de scinder en un `job` par forme de
+ * texte, pas de complexifier `PublicationJob`.
  */
 function representativePlatform(platforms: readonly Platform[]): Platform {
   return platforms.includes('youtube') ? 'youtube' : (platforms[0] as Platform)
@@ -213,9 +208,26 @@ async function runDetached(
   }
 }
 
+/**
+ * Groupe les plateformes par le connecteur qui les prend, dans l'ordre de
+ * `platforms` — un `runDetached` par groupe, jamais un connecteur qui reçoit
+ * les plateformes d'un autre. Lève avant toute réservation si l'une n'a pas
+ * de connecteur.
+ */
+function groupByAdapter(platforms: readonly Platform[]): Map<PublicationAdapter, Platform[]> {
+  const groups = new Map<PublicationAdapter, Platform[]>()
+  for (const platform of platforms) {
+    const adapter = adapterFor(platform)
+    if (adapter === undefined) throw requestInvalid(`Aucun connecteur ne prend en charge ${platform}.`)
+    const group = groups.get(adapter) ?? []
+    group.push(platform)
+    groups.set(adapter, group)
+  }
+  return groups
+}
+
 export type LaunchPublishInput = {
   db: Database.Database
-  adapter: PublicationAdapter
   clip: Clip
   platforms: readonly Platform[]
   force: boolean
@@ -240,7 +252,7 @@ export type LaunchPublishResult = {
  * n'ait posé sa réservation.
  */
 export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
-  const { db, adapter, clip, platforms, force, sleep = wait } = input
+  const { db, clip, platforms, force, sleep = wait } = input
 
   const exportEligibility = clipEligibilityFromStatus(clip.status)
   if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
@@ -289,6 +301,11 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     }
   }
 
+  // Un connecteur par plateforme, résolu avant tout effet de bord : `service.ts`
+  // ne câble plus un seul connecteur pour tout le job (issue #146 — Meta et
+  // Upload Post coexistent désormais).
+  const groups = groupByAdapter(platforms)
+
   // Rien d'asynchrone au-dessus de cette ligne : voir le docbloc du module.
   reserve(clip.id, platforms)
 
@@ -306,7 +323,12 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
 
     const texts = platformTexts(clip, representativePlatform(platforms))
     const job: PublicationJob = { clipId: clip.id, videoPath, fingerprint, force, ...texts }
-    const settled = runDetached(db, adapter, clip, platforms, job, fingerprint, sleep)
+    // Un `runDetached` par groupe : un échec Meta n'annule ni ne rejoue une
+    // réussite Upload Post, et réciproquement (spec §6.4, généralisée à
+    // plusieurs connecteurs).
+    const settled = Promise.all(
+      [...groups].map(([adapter, group]) => runDetached(db, adapter, clip, group, job, fingerprint, sleep)),
+    ).then(() => undefined)
     settled.catch(() => {
       // Les échecs sont déjà écrits dans `publications` par `runDetached` ; ce
       // `catch` n'existe que pour qu'une promesse dont personne n'attend le

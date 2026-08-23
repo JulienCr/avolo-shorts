@@ -50,8 +50,16 @@ vi.mock('@/server/ffprobe', async (importOriginal) => {
 /** Le connecteur de test, remplacé à chaque cas. */
 let fakeAdapter: PublicationAdapter
 
-vi.mock('@/server/publication/upload-post', () => ({
-  createUploadPostAdapter: () => fakeAdapter,
+/**
+ * `adapterFor`, mocké pour piloter la résolution que `service.ts` fait via
+ * `@/server/publication` — par défaut la même valeur pour les quatre
+ * plateformes, comme du temps d'un seul connecteur. Le describe « deux
+ * connecteurs » le remplace pour une résolution par plateforme.
+ */
+let resolveAdapter: (platform: Platform) => PublicationAdapter | undefined = () => fakeAdapter
+
+vi.mock('@/server/publication', () => ({
+  adapterFor: (platform: Platform) => resolveAdapter(platform),
 }))
 
 function resolvedAdapter(outcome: (platform: Platform) => PlatformOutcome): PublicationAdapter {
@@ -150,6 +158,7 @@ beforeEach(async () => {
     remoteId: 'p1',
     remoteUrl: 'https://example.test/p1',
   }))
+  resolveAdapter = () => fakeAdapter
 })
 
 afterEach(() => {
@@ -322,11 +331,11 @@ describe('launchPublish — sondage d’un envoi asynchrone', () => {
       return outcomes
     })
 
+    resolveAdapter = () => adapter
     const clip = getClip(getDb(), CLIP_ID)
     if (clip === undefined) throw new Error('clip introuvable')
     const { settled } = launchPublish({
       db: getDb(),
-      adapter,
       clip,
       platforms: ['instagram'],
       force: false,
@@ -347,11 +356,11 @@ describe('launchPublish — sondage d’un envoi asynchrone', () => {
       return outcomes
     })
 
+    resolveAdapter = () => adapter
     const clip = getClip(getDb(), CLIP_ID)
     if (clip === undefined) throw new Error('clip introuvable')
     const { settled } = launchPublish({
       db: getDb(),
-      adapter,
       clip,
       platforms: ['instagram'],
       force: false,
@@ -361,5 +370,114 @@ describe('launchPublish — sondage d’un envoi asynchrone', () => {
 
     const rows = getPublications(getDb(), CLIP_ID)
     expect(rows).toEqual([expect.objectContaining({ platform: 'instagram', status: 'in_progress' })])
+  })
+})
+
+describe('launchPublish — deux connecteurs', () => {
+  /**
+   * Rouge si `groupByAdapter` disparaît de `service.ts` (issue #146) : sans
+   * lui, `adapterFor(platforms[0])` enverrait `tiktok` à Meta ou `instagram`
+   * à Upload Post selon l'ordre du tableau, et l'un des deux `publish` ne
+   * serait jamais appelé avec les bonnes plateformes.
+   */
+  it('groupe par connecteur : chacun ne reçoit que ses propres plateformes', async () => {
+    await exportClip()
+
+    const metaPublish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] = { status: 'published', remoteId: 'm1', remoteUrl: 'https://meta.test/m1' }
+      }
+      return outcomes
+    })
+    const meta: PublicationAdapter = {
+      platforms: ['instagram', 'facebook'],
+      availability: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+      publish: metaPublish,
+      poll: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+    }
+
+    const uploadPostPublish = vi.fn(async (_job: PublicationJob, platforms: readonly Platform[]) => {
+      const outcomes = {} as Record<Platform, PlatformOutcome>
+      for (const platform of platforms) {
+        outcomes[platform] = { status: 'submitted', remoteId: 'u1', remoteUrl: null }
+      }
+      return outcomes
+    })
+    const uploadPost: PublicationAdapter = {
+      platforms: ['tiktok', 'youtube'],
+      availability: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+      publish: uploadPostPublish,
+      poll: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+    }
+
+    resolveAdapter = (platform) => (platform === 'instagram' ? meta : uploadPost)
+
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram', 'tiktok'],
+      force: false,
+      sleep: async () => {},
+    })
+    await settled
+
+    expect(metaPublish).toHaveBeenCalledTimes(1)
+    expect(metaPublish.mock.calls[0]?.[1]).toEqual(['instagram'])
+    expect(uploadPostPublish).toHaveBeenCalledTimes(1)
+    expect(uploadPostPublish.mock.calls[0]?.[1]).toEqual(['tiktok'])
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows.find((r) => r.platform === 'instagram')).toMatchObject({ status: 'published', remoteId: 'm1' })
+    expect(rows.find((r) => r.platform === 'tiktok')).toMatchObject({ status: 'submitted', remoteId: 'u1' })
+  })
+
+  it('l’échec d’un connecteur n’empêche pas l’autre de publier', async () => {
+    await exportClip()
+
+    const meta: PublicationAdapter = {
+      platforms: ['instagram', 'facebook'],
+      availability: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+      publish: async () => {
+        throw new Error('Meta est en panne')
+      },
+      poll: async () => {
+        throw new Error('non utilisé par ces tests')
+      },
+    }
+    const uploadPost = resolvedAdapter(() => ({
+      status: 'published',
+      remoteId: 'u2',
+      remoteUrl: 'https://up.test/u2',
+    }))
+
+    resolveAdapter = (platform) => (platform === 'instagram' ? meta : uploadPost)
+
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram', 'tiktok'],
+      force: false,
+      sleep: async () => {},
+    })
+    await settled
+
+    const rows = getPublications(getDb(), CLIP_ID)
+    expect(rows.find((r) => r.platform === 'instagram')).toMatchObject({ status: 'failed' })
+    expect(rows.find((r) => r.platform === 'tiktok')).toMatchObject({ status: 'published', remoteId: 'u2' })
   })
 })

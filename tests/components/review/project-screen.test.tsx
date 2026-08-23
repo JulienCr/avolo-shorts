@@ -17,13 +17,20 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CandidateClip, ProjectStatus } from '@/lib/api'
 import { defaultPlatformAvailability } from '@/core/publication'
 import { lireSessionReview, writeSessionReview } from '@/components/review/session'
+import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
+
+// **`PointerEvent` n'existe pas sous `jsdom`.** Les cases de Base UI
+// (sélection groupée, `PublishDialog`) en dispatchent un synthétique à la
+// souris ; voir `tests/fixtures/pointer-event.ts`.
+installPointerEventPolyfill()
 
 // Le routeur n'existe pas hors d'une application Next montée. On ne teste pas
 // la navigation ici — la vue dans l'URL a son propre test — mais l'écran ne
@@ -341,6 +348,135 @@ describe('l’écran de projet', () => {
     await waitFor(() => expect(screen.getByTestId('lecteur-emission')).toBeTruthy())
     expect(screen.getByText(/les propositions ne se chargent pas/i)).toBeTruthy()
     expect(screen.queryByTestId('comptes')).toBeNull()
+  })
+
+  it('publie plusieurs clips groupés, avec `force`, et affiche un échec partiel', async () => {
+    // **Le chemin de publication groupée n'était exercé par aucun test
+    // d'écran** : deux clips sélectionnés, un déjà publié sur Instagram (donc
+    // `force` requis), le second en échec de connecteur — la modale doit
+    // regrouper les plateformes par clip, transmettre `force`, et l'échec de
+    // c2 ne doit ni empêcher c1 de partir ni disparaître en silence. (relevé
+    // par Copilot)
+    request = 'vue=gardes'
+    const clips = [
+      { ...candidate(1), status: 'exported' as const },
+      { ...candidate(2), status: 'exported' as const },
+    ]
+    const availability = { ...defaultPlatformAvailability(), instagram: { available: true as const } }
+    const publishCalls: { clipId: string; body: unknown }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path.includes('/publication/availability')) {
+          return { ok: true, status: 200, statusText: '', json: async () => availability } as Response
+        }
+        if (path.endsWith('/candidates')) {
+          return { ok: true, status: 200, statusText: '', json: async () => clips } as Response
+        }
+        if (path.endsWith('/api/projects/p1')) {
+          return {
+            ok: true,
+            status: 200,
+            statusText: '',
+            json: async () => state({ steps: { ...state().steps, candidates: true }, running: null }),
+          } as Response
+        }
+        const publications = path.match(/\/api\/clips\/(c\d)\/publications$/)
+        if (publications) {
+          const clipId = publications[1]
+          // c1 est déjà publié sur Instagram : le seul moyen de le publier à
+          // nouveau est de cocher « republier explicitement », qui pose
+          // `force`.
+          const rows =
+            clipId === 'c1'
+              ? [
+                  {
+                    clipId,
+                    platform: 'instagram',
+                    status: 'published',
+                    remoteId: 'r1',
+                    remoteUrl: 'https://instagram.test/p/1',
+                    requestId: null,
+                    error: null,
+                    publishedFingerprint: null,
+                    createdAt: 0,
+                    updatedAt: 0,
+                  },
+                ]
+              : []
+          return { ok: true, status: 200, statusText: '', json: async () => ({ publications: rows }) } as Response
+        }
+        const publish = path.match(/\/api\/clips\/(c\d)\/publish$/)
+        if (publish) {
+          const clipId = publish[1]
+          const body: unknown = JSON.parse((init?.body as string) ?? '{}')
+          publishCalls.push({ clipId, body })
+          if (clipId === 'c2') {
+            return {
+              ok: false,
+              status: 502,
+              statusText: '',
+              json: async () => ({ error: 'Upload Post a répondu 502 : indisponible.' }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: '',
+            json: async () => ({
+              publications: [
+                {
+                  clipId,
+                  platform: 'instagram',
+                  status: 'in_progress',
+                  remoteId: null,
+                  remoteUrl: null,
+                  requestId: 'req1',
+                  error: null,
+                  publishedFingerprint: null,
+                  createdAt: 0,
+                  updatedAt: 0,
+                },
+              ],
+            }),
+          } as Response
+        }
+        return { ok: false, status: 404, statusText: '', json: async () => ({ error: 'route inconnue' }) } as Response
+      }),
+    )
+    mount()
+
+    await waitFor(() => expect(screen.getByRole('article', { name: 'Extrait 1' })).toBeTruthy())
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('checkbox', { name: /Sélectionner « Extrait 1 »/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Sélectionner « Extrait 2 »/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Publier 2 clips/ }))
+
+    // c1 est déjà publié sur Instagram : la seule plateforme disponible n'est
+    // donc pas cochée par défaut (issue #97) tant que « republier
+    // explicitement » ne l'est pas.
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Instagram' })).toBeTruthy())
+    // Déjà `published` chez c1 : pas coché par défaut (issue #97).
+    expect(screen.getByRole('checkbox', { name: 'Instagram' }).getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Republier explicitement/ }))
+    // `Suivant` reste désactivé tant que les enregistrements des deux clips
+    // n'ont pas répondu (`recordsLoading`).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Suivant' })).not.toHaveProperty('disabled', true))
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer et publier' }))
+
+    await waitFor(() =>
+      expect(screen.getByText('La publication groupée a rencontré une erreur.')).toBeTruthy(),
+    )
+    expect(screen.getByText(/Upload Post a répondu 502/)).toBeTruthy()
+
+    // Les deux clips sont bien partis, groupés par clip, avec `force`.
+    expect(publishCalls.map((c) => c.clipId).sort()).toEqual(['c1', 'c2'])
+    for (const call of publishCalls) {
+      expect(call.body).toMatchObject({ platforms: ['instagram'], force: true })
+    }
   })
 
   it('porte une seule région d’annonce, et polie', async () => {

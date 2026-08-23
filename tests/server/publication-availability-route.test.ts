@@ -4,9 +4,10 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
  * `GET /api/publication/availability` — même discipline que
- * `GET /api/llm/availability` (contrat B.1) : rend l'état honnête sans
- * jamais lire un secret, et fait bien un aller-retour réseau (contrairement
- * à la version LLM, synchrone).
+ * `GET /api/llm/availability` (contrat B.1) : le secret ne quitte jamais le
+ * serveur, mais un connecteur configuré le lit bien pour interroger Upload
+ * Post, et cette route fait un aller-retour réseau (contrairement à la
+ * version LLM, synchrone). (relevé par Copilot)
  */
 
 const envStart = { ...process.env }

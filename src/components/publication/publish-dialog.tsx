@@ -93,6 +93,7 @@ export function PublishDialog({
   onOpenChange,
   clips,
   availability,
+  recordsLoading = false,
   onLaunch,
 }: {
   open: boolean
@@ -100,6 +101,19 @@ export function PublishDialog({
   clips: readonly PublishClipTarget[]
   /** Injectable pour les tests, et pour le connecteur du jour où il existera. */
   availability?: Readonly<Record<Platform, PlatformAvailability>>
+  /**
+   * La requête qui remplit `clips[].records` est encore en vol.
+   *
+   * **`records === undefined` porte deux sens qu'il faut distinguer** :
+   * « aucune publication connue » (sélection par défaut légitime) et « la
+   * requête charge encore » (sélection inconnue). Sans ce signal, une
+   * plateforme déjà `published` reste précochée le temps du chargement, et
+   * confirmer avant l'arrivée des données envoie un clip vers un 409 pendant
+   * que les autres partent — la sélection par défaut se recalcule à
+   * l'arrivée (voir `dataSignature` plus bas), mais rien n'empêchait de
+   * confirmer avant. (relevé par Copilot)
+   */
+  recordsLoading?: boolean
   /**
    * Appelé une fois, seulement si au moins une cible a été retenue. Porte
    * `force` (issue #97) : sans lui, une republication délibérée se distingue
@@ -167,14 +181,24 @@ export function PublishDialog({
   // dans `onLaunch` sous prétexte qu'elle était cochée avant. (relevé par
   // Copilot)
   const selectedAndAvailable = PLATFORMS.filter((p) => selected.has(p) && selectable.includes(p))
-  const targets = eligible.flatMap((clip) =>
-    selectedAndAvailable.flatMap((platform) =>
-      canTargetPlatform(clip.records?.[platform], force) ? [{ clipId: clip.clipId, platform }] : [],
-    ),
-  )
 
   const alreadyPublished = eligible.some((clip) =>
     selectedAndAvailable.some((p) => clip.records?.[p]?.status === 'published'),
+  )
+
+  // **`force` s'annule avec la case qui l'a rendu pertinent.** Cocher
+  // « Republier explicitement » puis décocher la seule plateforme déjà
+  // `published` gardait `force` à `true` : un envoi ordinaire suivant
+  // partait avec lui, et Upload Post lui associe une clé d'idempotence
+  // aléatoire (`upload-post.ts`), perdant sa protection contre les
+  // doublons. `effectiveForce` ne vaut jamais plus que ce que la sélection
+  // courante justifie. (relevé par Copilot)
+  const effectiveForce = force && alreadyPublished
+
+  const targets = eligible.flatMap((clip) =>
+    selectedAndAvailable.flatMap((platform) =>
+      canTargetPlatform(clip.records?.[platform], effectiveForce) ? [{ clipId: clip.clipId, platform }] : [],
+    ),
   )
 
   // **Recoupé avec `selectedAndAvailable`, pas `selected` seul.**
@@ -182,7 +206,7 @@ export function PublishDialog({
   // boîte reste ouverte laissait « Suivant » actif alors que `targets` était
   // déjà vide — la passe 2 avait renommé l'identifiant sans corriger le
   // calcul. (relevé par Copilot, passe 3)
-  const canContinue = selectable.length === 0 || selectedAndAvailable.length > 0
+  const canContinue = !recordsLoading && (selectable.length === 0 || selectedAndAvailable.length > 0)
 
   function togglePlatform(platform: Platform) {
     setDirty(true)
@@ -195,7 +219,7 @@ export function PublishDialog({
   }
 
   function confirmLaunch() {
-    if (targets.length > 0) onLaunch?.(targets, force)
+    if (targets.length > 0) onLaunch?.(targets, effectiveForce)
     onOpenChange(false)
   }
 
@@ -262,6 +286,12 @@ export function PublishDialog({
               </ul>
             </AlertDescription>
           </Alert>
+        )}
+
+        {recordsLoading && (
+          <p className="text-xs text-muted-foreground">
+            Chargement de l’état des publications précédentes…
+          </p>
         )}
 
         {step === 'platforms' ? (

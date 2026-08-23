@@ -60,7 +60,8 @@ export function ProjectScreen({ id }: { id: string }) {
   // borner la requête à eux évite un `GET /publications` par clip du projet,
   // dont la grande majorité n'a jamais été rendue.
   const exportedClipIds = clips.filter((c) => c.status === 'exported').map((c) => c.id)
-  const publicationRecords = usePublicationRecordsByClip(exportedClipIds)
+  const { byClip: publicationRecords, pendingClipIds: publicationRecordsPending } =
+    usePublicationRecordsByClip(exportedClipIds)
 
   const [publishError, setPublishError] = useState<string | null>(null)
 
@@ -341,6 +342,7 @@ export function ProjectScreen({ id }: { id: string }) {
                 }
                 publicationAvailability={publicationAvailability.data}
                 publicationRecords={publicationRecords}
+                publicationRecordsPending={publicationRecordsPending}
                 publishError={publishError}
                 onPublish={publishSelection}
                 header={

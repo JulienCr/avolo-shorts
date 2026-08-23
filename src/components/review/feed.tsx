@@ -77,6 +77,7 @@ export function ReviewFeed({
   header,
   publicationAvailability,
   publicationRecords,
+  publicationRecordsPending,
   publishError,
   onPublish,
 }: {
@@ -98,6 +99,8 @@ export function ReviewFeed({
    * `force`. (relevé par Copilot, Codex et Aristarque)
    */
   publicationRecords?: Readonly<Record<string, Partial<Record<Platform, PublicationRecord>>>>
+  /** Les clips dont l'enregistrement n'a pas encore répondu — voir `PublishDialog.recordsLoading`. */
+  publicationRecordsPending?: ReadonlySet<string>
   /** Ce qu'un envoi groupé a laissé en échec — la page l'attend avec `mutateAsync`. */
   publishError?: string | null
   /** Lance la publication en masse — la page en fait un `POST` par clip. */
@@ -176,6 +179,7 @@ export function ReviewFeed({
       records: publicationRecords?.[c.id],
     }))
   const selectedForPublishCount = clipsToPublish.length
+  const publicationRecordsLoading = clipsToPublish.some((c) => publicationRecordsPending?.has(c.clipId))
 
   // La carte sur laquelle le clavier travaille. Elle se déduit plutôt qu'elle ne
   // se stocke : une sélection gardée dans l'état survivrait à la disparition de
@@ -518,6 +522,7 @@ export function ReviewFeed({
         onOpenChange={setPublishDialogOpen}
         clips={clipsToPublish}
         availability={publicationAvailability}
+        recordsLoading={publicationRecordsLoading}
         onLaunch={onPublish}
       />
     </div>

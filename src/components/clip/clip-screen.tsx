@@ -694,6 +694,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         writeInFailure={patch.isError || textsInFailure.length > 0}
         publicationAvailability={publicationAvailability.data}
         publicationRecords={publicationRecords}
+        recordsLoading={publications.isPending}
         publishError={publishError}
         onPublish={launchPublish}
       />

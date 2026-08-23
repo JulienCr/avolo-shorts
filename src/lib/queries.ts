@@ -863,8 +863,20 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
   })
 
   const byClip: Record<string, Partial<Record<Platform, PublicationRecord>>> = {}
+  // **Distincte de `byClip[clipId] === undefined`.** Ce dernier veut aussi
+  // dire « ce clip n'est pas dans `clipIds` » — un absent n'a jamais chargé
+  // ni échoué, il n'a simplement jamais été demandé. `pendingClipIds` ne
+  // porte que les clips effectivement interrogés dont la réponse n'est pas
+  // encore là. (relevé par Copilot)
+  const pendingClipIds = new Set<string>()
   clipIds.forEach((clipId, index) => {
-    const rows = results[index]?.data
+    const result = results[index]
+    if (result === undefined) return
+    if (result.isPending) {
+      pendingClipIds.add(clipId)
+      return
+    }
+    const rows = result.data
     if (rows === undefined) return
     byClip[clipId] = Object.fromEntries(
       rows.map((row) => [
@@ -878,7 +890,7 @@ export function usePublicationRecordsByClip(clipIds: readonly string[]) {
       ]),
     )
   })
-  return byClip
+  return { byClip, pendingClipIds }
 }
 
 /**

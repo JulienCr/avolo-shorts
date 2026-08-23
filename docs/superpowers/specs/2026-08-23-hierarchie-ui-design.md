@@ -1,9 +1,10 @@
 # La hiérarchie des écrans : ce qui domine, et ce qui devrait
 
 Date : 23 août 2026.
-Statut : proposé. Rien de ce document n'est implémenté. Le chantier est suivi par
-l'**issue #131**, qui porte le périmètre et l'ordre ; les mesures et les
-arbitrages sont ici.
+Statut : en cours. Les §3.3 et §3.4 (l'établi de l'écran clip) sont implémentés ;
+le reste — dont le §3.1 (l'undo du cadrage) — ne l'est pas encore. Le chantier
+est suivi par l'**issue #131**, qui porte le périmètre et l'ordre ; les mesures
+et les arbitrages sont ici.
 
 Ce document décide du **poids relatif** de ce que les écrans portent déjà. Il
 n'ajoute aucune fonction. Il ne touche ni au pipeline, ni à l'API, ni au cadrage
@@ -140,11 +141,39 @@ Ce n'est pas un problème d'esthétique. Le champ Titre tronque le titre qu'on e
 en train d'écrire, et la description tient sur trois lignes, alors que 557 px
 attendent à côté.
 
-**Le geste.** Remonter « Contenu » dans cet espace, à droite des aperçus, et
-laisser la bande de temps, les ratios et le cadre prendre la pleine largeur
-en dessous. La colonne de droite se vide, et l'écran passe de deux colonnes
-inégales à une lecture verticale : ce qu'on voit, puis ce qu'on règle, puis ce
-qu'on livre.
+**Le geste, arrêté le 23 août 2026 après trois formes maquettées : l'établi.**
+L'écran cesse de défiler et tient dans la fenêtre. Deux volets sous la fresque —
+à gauche la scène, à droite la fiche —, et un rail d'action en pied. Les aperçus
+ne sont plus figés à `h-72` : ils se dimensionnent sur la hauteur du volet, donc
+**le vide s'annule par construction** au lieu d'être rempli.
+
+La règle qui ordonne les volets est **la diagonale du regard**. L'œil entre par
+le coin haut-gauche et sort par le coin bas-droit, et les trois moments de
+l'écran tombent dessus dans l'ordre où on les fait :
+
+1. **choisir l'extrait** — la scène, à gauche : les deux aperçus, la lecture, la
+   bande de temps, le ratio, le cadre, les faits de montage ;
+2. **définir ce qu'il dira** — la fiche, à droite : titre, description,
+   mots-dièse, hook, badge ;
+3. **l'exporter** — le rail, primaire à l'extrémité **droite**.
+
+Un geste terminal placé ailleurs demande à l'œil de revenir en arrière pour
+finir, et un parcours qui revient en arrière ne se lit pas comme une séquence.
+
+« Montage » cesse d'être une zone : ses trois faits et son déclencheur rejoignent
+la scène. Tout ce qui ne sert pas à chaque clip part derrière un déclencheur —
+c'est la **condition d'existence** de cette forme, pas un ornement.
+
+**Ce geste défait une décision mesurée, et c'est le point cher du lot.**
+`PREVIEW_HEIGHT` (`clip-screen.tsx:41-54`) refuse explicitement une hauteur qui
+suit la fenêtre. Mais sa mesure porte sur un `max-width` posé à côté d'un
+`aspect-ratio`, qui faisait recalculer la hauteur depuis la largeur clampée et
+emportait l'égalité des deux vues. L'établi ne pose aucun `max-width` : le refus
+est donc énoncé plus large que ce que sa mesure démontre. **Ça se rouvre avec une
+mesure, pas avec un avis** — et cette mesure est une condition de recette du lot,
+pas une vérification de confort. Ce qui doit rester vrai : les deux aperçus ont
+exactement la même hauteur rendue, à toute hauteur de fenêtre, et leur hauteur
+vient d'une seule source.
 
 ### 3.4 Aucune action ne porte l'écran de clip
 
@@ -156,12 +185,53 @@ Et la barre d'app porte six contrôles — état d'enregistrement, Réessayer,
 Annuler, Rétablir, Raccourcis, Paramètres — dont deux servent un undo qui ne
 couvre qu'un tiers de l'écran (§3.1).
 
-**Le geste.** Un seul bouton primaire, et il dépend de l'état du clip : non
-exporté, c'est « Exporter » ; exporté et à jour, c'est « Publier » ; exporté et
-périmé par une modification, c'est « Ré-exporter » — l'empreinte de rendu sait
-déjà faire cette distinction, elle est juste dite en petit à côté plutôt que
-portée par le bouton. « Régénérer » redescend en `ghost`, à côté du champ qu'il
-remplit.
+**Le geste.** Un seul bouton primaire, et il dépend de l'état du clip.
+
+**Ce document affirmait que « l'empreinte de rendu sait déjà faire cette
+distinction ». C'est faux**, vérifié le 23 août 2026 : les motifs que rend
+`lFingerprintGap` (`render.ts:1093`) ne quittent jamais le serveur, et
+`discardRenderStale` (`render.ts:2389`) efface les fichiers puis redescend le
+clip de `exported` à `kept` — la péremption s'auto-efface.
+
+Deux champs **déjà transmis** suffisent, et ils se croisent en trois cas :
+
+| État | Condition | Primaire | Secondaire |
+|---|---|---|---|
+| jamais livré | `status !== 'exported'` et aucune vidéo rendue | **Exporter** | — |
+| périmé | `status === 'exported'` et aucune vidéo rendue | **Ré-exporter** | — |
+| livré, à jour | une vidéo rendue existe | **Publier** | Ré-exporter |
+
+« Une vidéo rendue » se lit `mp4Url !== null || variant9x16Url !== null`, jamais
+le seul `mp4Url`. `RENDER_NATIVE` peut désactiver le rendu natif — tout clip dont
+le ratio résolu n'est pas déjà 9:16 —, et `mp4Url` est alors **définitivement**
+nul, même sur une livraison complète : lire `mp4Url` seul figerait ces clips en
+« périmé » à vie. Le `.txt` seul ne compte pas davantage, puisqu'il n'y a alors
+rien à publier.
+
+Le troisième cas est atteignable par deux chemins **paresseux**, qui laissent
+tous deux `status` à `exported` sans jamais passer par `discardRenderStale` :
+un réglage global de hook qui change annule les URL au prochain `GET`
+(`deliveryToDay`, `src/server/renders.ts:162`, compare l'empreinte au réglage
+courant), ou un fichier rendu disparu du disque (`urlIfProduced` sonde
+`existsSync`, pas `deliveryToDay`). Aucun changement d'API, ce que le §6 exige.
+
+Une modification du montage après export ne suit pas ce chemin paresseux : elle
+appelle `discardRenderStale`, qui efface les fichiers rendus **et** redescend
+`status` à `kept` dans le même geste. Il n'y a alors plus ni vidéo ni `status
+=== 'exported'` à lire — les deux champs qui distinguent « périmé » de « jamais
+livré » ont disparu ensemble. Un montage retouché après export retombe donc
+légitimement en « jamais livré », pas en « périmé » : ce document promettait
+l'inverse, à tort. Fermer cet écart demanderait de remonter `lFingerprintGap`
+(`render.ts:1093`) au client, ce que le §6 exclut de ce lot.
+
+`alreadyDelivered` (`export-panel.tsx:126`) et `publicationEligibility.eligible`
+(`:167`) sont deux dérivations distinctes du même fait : elles convergent vers un
+seul état nommé, et la seconde disparaît.
+
+« Publier » **disparaît** quand il n'est pas éligible, au lieu de rester grisé.
+« Ré-exporter » ouvre de toute façon la confirmation d'écrasement
+(`export-panel.tsx:361`) : un geste confirmé n'est jamais le primaire.
+« Régénérer » redescend en `ghost`, à côté du champ qu'il remplit.
 
 ### 3.5 La carte de proposition dit trois fois son état, et cache ce qu'on vient y faire
 
@@ -314,10 +384,17 @@ Trois lots. Le premier peut partir seul, les deux autres se parallélisent.
 **Lot 1 — ce qui fait perdre du travail.** §3.1, l'undo du cadrage. Petit, isolé
 dans `src/store/editor.ts`, testable sans interface. Aucune raison de l'attendre.
 
-**Lot 2 — l'écran de clip.** §3.3 la grille, puis §3.4 le bouton primaire, puis
-§3.2 les textes de publication, puis §4.1 et §4.2. Dans cet ordre : la grille
+**Lot 2 — l'écran de clip.** §3.3 l'ossature, puis §3.4 le bouton primaire, puis
+§3.2 les textes de publication, puis §4.1 et §4.2. Dans cet ordre : l'ossature
 décide où les autres atterrissent. Un seul agent, un seul fichier principal
-(`clip-screen.tsx`) plus `export-panel.tsx`.
+(`clip-screen.tsx`) plus `export-panel.tsx`, `crop-picker.tsx` et
+`hook-fields.tsx`.
+
+L'ossature est le point cher : l'écran passe d'un `main` qui défile à deux volets
+qui tiennent dans la fenêtre, et les aperçus cessent d'avoir une hauteur fixe.
+La mesure de §3.3 se prend **avant** de toucher au reste — si l'égalité des deux
+aperçus ne tient pas à hauteur variable, la forme retombe sur la lecture
+verticale et le lot se replanifie.
 
 **Lot 3 — l'écran d'émission et les Paramètres.** §3.5 les cartes par onglet,
 §4.3, §4.4 ; puis §3.6 l'aperçu du hook et §4.5. Deux agents possibles, les
@@ -331,7 +408,10 @@ le fichier.
 Pas une liste de cases : trois questions à poser devant l'écran rendu.
 
 1. Sur `/clips/:id`, un inconnu peut-il dire en trois secondes ce qu'on vient y
-   faire, et où cliquer pour le faire ?
+   faire, et où cliquer pour le faire ? Deux relevés le disent sans discuter :
+   l'écran ne défile plus (`document.scrollingElement.scrollHeight` vaut la
+   hauteur de la fenêtre, et le `main` n'a plus de dépassement), et le primaire
+   est l'élément interactif **le plus à droite** de la dernière ligne.
 2. Dans l'onglet « Gardés », combien de boutons pour neuf clips ? Neuf est la
    bonne réponse.
 3. `Ctrl+Z` après un déplacement du rectangle de cadrage : est-ce que le

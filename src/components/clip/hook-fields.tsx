@@ -162,10 +162,14 @@ export function HookFields({
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor={`${identifier}-hook`}>Hook</Label>
+          {/* **`ghost`, et non `outline`.** Un appel LLM facultatif n'a pas à
+              peser plus que le champ qu'il remplit — c'était l'inverse avant
+              l'établi (retour d'usage §3.4), plus visible que « Exporter » lui
+              même sur l'écran entier. */}
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant="ghost"
             disabled={regenerate.isPending}
             onClick={() => void regenerate.mutateAsync(clip.id).catch(() => {})}
           >
@@ -254,7 +258,7 @@ export function HookFields({
               />
               Personnaliser
               {overrideCount > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[0.6875rem] font-medium tabular-nums">
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
                   {overrideCount}
                 </span>
               )}

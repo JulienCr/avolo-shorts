@@ -85,6 +85,7 @@ export function PreviewOutput({
   cropX,
   hook,
   frame,
+  figureClassName,
   captionCards,
   captionStyle,
   segments,
@@ -107,14 +108,42 @@ export function PreviewOutput({
   /**
    * La boîte du téléphone, dimensionnée par l'appelant.
    *
-   * **Elle existe pour que les deux aperçus aient exactement la même hauteur.**
-   * Cet aperçu était bridé à `max-w-40` pendant que la source prenait la largeur
-   * restante : la différence de ratio devenait une différence de poids visuel,
-   * et la sortie — la seule des deux qui montre le résultat — passait pour
-   * l'illustration de l'autre. La hauteur se donne donc au même endroit pour les
-   * deux, et chacun en déduit sa largeur.
+   * **Elle existe pour que les deux aperçus aient exactement la même hauteur —
+   * et depuis l'établi (spec du 23 août, §3.3), c'est la hauteur du volet
+   * gauche, pas une constante.** `clip-screen.tsx` calcule une seule classe et
+   * la passe telle quelle à `ClipPlayer` et à celui-ci : deux frères qui
+   * s'étirent tous les deux sur la hauteur de leur rangée est une garantie plus
+   * forte qu'une constante partagée, parce qu'aucune retouche future ne peut
+   * donner une largeur à l'un et une hauteur à l'autre sans casser visiblement
+   * la rangée elle-même.
+   *
+   * **Pas de `max-width` ici, et c'est la condition de recette du lot.** Un
+   * `max-width` posé à côté d'un `aspect-ratio` fait recalculer la hauteur
+   * depuis la largeur clampée plutôt que l'inverse — mesuré : la boîte 16:9
+   * retombait à 202 px là où on lui en demandait 272, et l'égalité des deux
+   * aperçus tombait avec. La hauteur seule se donne, en pixels ou en `flex-1` ;
+   * la largeur se déduit de `aspect-ratio` et ne se borne jamais.
    */
   frame?: string
+  /**
+   * Le poids de la figure racine dans la rangée des deux aperçus.
+   *
+   * **`clip-screen.tsx` le pose en `flex-grow`/`flex-shrink` fixes, sous
+   * `workbench:` seulement** (16:9 pour la figure jumelle, 9:16 pour
+   * celle-ci — le rapport du cadre du téléphone, pas celui du plan en
+   * cours) plutôt que de laisser `flex-basis: auto` répartir la largeur
+   * d'après le contenu : une boîte à `aspect-ratio` imbriquée dans un
+   * enfant `flex-1` se mesure à une valeur indéterminée pendant la passe
+   * intrinsèque de la rangée, et la légende ("variante 9:16 · …") pesait
+   * alors sur la largeur à sa place — la figure de sortie retombait plus
+   * étroite que sa propre boîte, rognée par `overflow-hidden` du volet.
+   * Non conditionné à `workbench:` une première fois, ce même poids cassait
+   * le repli sous le seuil : les boîtes y reviennent à une taille fixe
+   * (`h-72`) sous `flex-wrap`, et un poids `flex` sans base les faisait
+   * chevaucher au lieu de passer à la ligne. (relevé par Codex, les deux
+   * fois)
+   */
+  figureClassName?: string
   /** Cartons de `splitIntoCards(retimeWords(mots, segments))` — fidèle au rendu (spec §9). `undefined` ferme le calque. */
   captionCards?: readonly Word[][]
   /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
@@ -211,7 +240,7 @@ export function PreviewOutput({
   const time = useCaptionClock(video, captionCards !== undefined)
 
   return (
-    <figure className="flex min-w-0 flex-col gap-1.5">
+    <figure className={cn('flex min-h-0 min-w-0 flex-col gap-1.5', figureClassName)}>
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
           doivent avoir la même hauteur visuelle : une légende sous l'un et
           au-dessus de l'autre décalerait leurs cadres d'une ligne, ce qui est
@@ -223,30 +252,34 @@ export function PreviewOutput({
           Sans ce mot, l'aperçu qui bouge donne à croire que c'est lui qu'on
           pilote — et le sélecteur de ratio l'énonce en toutes lettres.
 
-          Elle reste **plus courte que la boîte n'est large**, et ce n'est pas de
-          la coquetterie : la figure prend la largeur du plus large de ses
-          enfants, donc une légende bavarde élargit la colonne et décolle
-          l'aperçu de la source d'à côté. */}
-      <figcaption className="text-[0.75rem] text-muted-foreground">
+          **Une seule ligne, toujours.** `whitespace-nowrap` n'est pas de
+          l'esthétique : les deux aperçus doivent avoir exactement la même
+          hauteur, et une légende qui passerait à deux lignes sur l'un des deux
+          déciderait seule laquelle des deux boîtes cadre est la plus haute. */}
+      <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
         {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
         <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
         <span className="font-mono">{effective}</span>
       </figcaption>
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y
-          occupe la part que le ratio lui laisse, et rien d'autre ne le dit. */}
-      {/* **`self-center`, et ce n'est pas un réglage d'esthétique.** Cette boîte
-          est l'enfant d'un conteneur `flex-col`, donc étirée en largeur par
-          défaut : la largeur imposée l'emportait sur `aspect-ratio`, qui en
-          déduisait la hauteur, et le « 9:16 » n'était plus un 9:16 — l'aperçu
-          mentait sur la seule chose qu'il existe pour montrer. Désétirée par `self-start`,
-          sa largeur redevient automatique et se déduit de la hauteur et du
-          rapport — et les deux aperçus s'alignent par le haut *et* par la gauche,
-          comme deux vues qui se valent. La légende suit le même bord : centrée,
-          elle flottait au-dessus d'une boîte alignée à gauche. */}
+          occupe la part que le ratio lui laisse, et rien d'autre ne le dit.
+
+          **`self-start` reste, et c'est mesuré, pas recopié de l'ancien
+          code.** La hauteur vient de `frame` (celle du volet, ou
+          `PREVIEW_FRAME`'s repli en dessous du seuil `workbench`), et
+          `aspect-ratio` en déduit la largeur — mais seulement si l'axe
+          transversal (la largeur, ici, puisque la figure est en colonne)
+          n'est pas étiré. Sans `self-start`, mesuré dans un vrai Chrome :
+          `align-items: stretch` l'emportait sur `aspect-ratio`, la largeur
+          valait la largeur du volet entier quelle que soit la hauteur, et
+          `aspect-ratio` en déduisait la hauteur *depuis cette largeur-là* —
+          exactement le sens inverse de celui voulu, et invisible tant qu'on
+          ne mesure pas les deux dimensions à la fois. Aucun `max-width`
+          n'entre en jeu : c'est la condition de recette du lot, tenue. */}
       <div
         className={cn(
-          'relative flex shrink-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
+          'relative flex min-h-0 self-start overflow-hidden rounded-lg bg-zinc-950 ring-1 ring-border',
           'items-center justify-center',
           frame ?? 'w-40',
         )}

@@ -1416,6 +1416,19 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
       ).map((line) => [line.id, line.seqs]),
     )
 
+    // **Les publications des survivants, relevées avant le DELETE.**
+    //
+    // `publications.clipId` porte `ON DELETE CASCADE` (`src/server/db.ts:157`) :
+    // sans ce relevé, le `DELETE` qui suit efface aussi l'état `published`
+    // d'un clip qui ressort du même repérage sous le même identifiant, et
+    // permet une republication sans `force` sur une plateforme déjà en ligne.
+    // (relevé par Copilot)
+    const publications = new Map<string, PublicationRow[]>()
+    for (const clip of clips) {
+      const rows = getPublications(db, clip.id)
+      if (rows.length > 0) publications.set(clip.id, rows)
+    }
+
     db.prepare('DELETE FROM clips WHERE projectId = ?').run(projectId)
     const insert = db.prepare(INSERT_CLIP)
     const restoreTokens = db.prepare('UPDATE clips SET seqs = @seqs WHERE id = @id')
@@ -1426,6 +1439,7 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
       insert.run(line)
       const seqs = tokens.get(line.id)
       if (seqs !== undefined) restoreTokens.run({ id: line.id, seqs })
+      for (const row of publications.get(line.id) ?? []) upsertPublication(db, row)
     }
   })
   write()

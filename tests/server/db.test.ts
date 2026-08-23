@@ -887,6 +887,39 @@ describe('replaceClips', () => {
     expect(reread.find((c) => c.id === 'écarté')?.status).toBe('discarded')
     expect(reread.find((c) => c.id === 'neuf')?.pass).toBe(2)
   })
+
+  // `publications.clipId` porte `ON DELETE CASCADE` : sans relevé avant le
+  // `DELETE FROM clips`, une passe de repérage qui ressort le même clip sous
+  // le même identifiant effacerait aussi son état `published`, permettant une
+  // republication sans `force`. (relevé par Copilot)
+  it('conserve les publications d’un clip qui survit à une nouvelle passe de repérage', () => {
+    replaceClips(db, PROJECT.id, [clip('survivant'), clip('écarté')])
+    upsertPublication(db, {
+      clipId: 'survivant',
+      platform: 'youtube',
+      status: 'published',
+      remoteId: 'v1',
+      remoteUrl: 'https://youtube.test/v1',
+      requestId: null,
+      error: null,
+      publishedFingerprint: 'abc',
+      createdAt: 1000,
+      updatedAt: 1000,
+    })
+
+    replaceClips(db, PROJECT.id, [clip('survivant'), clip('neuf')])
+
+    expect(getPublications(db, 'survivant')).toEqual([
+      expect.objectContaining({ platform: 'youtube', status: 'published', remoteId: 'v1' }),
+    ])
+  })
+
+  it('n’imagine pas de publications pour un clip qui n’en a jamais eu', () => {
+    replaceClips(db, PROJECT.id, [clip('a')])
+    replaceClips(db, PROJECT.id, [clip('a'), clip('b')])
+    expect(getPublications(db, 'a')).toEqual([])
+    expect(getPublications(db, 'b')).toEqual([])
+  })
 })
 
 describe('sur un vrai fichier', () => {

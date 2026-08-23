@@ -219,6 +219,19 @@ describe('POST /api/clips/:id/publish', () => {
     expect(response.status).toBe(400)
   })
 
+  it('400 sur YouTube sans titre, avant tout téléversement', async () => {
+    await exportClip({ title: '' })
+    const response = await publishRoute(postRequest({ platforms: ['youtube'] }), context(CLIP_ID))
+    expect(response.status).toBe(400)
+    expect(getPublications(getDb(), CLIP_ID)).toEqual([])
+  })
+
+  it('un titre vide n’empêche pas les autres plateformes', async () => {
+    await exportClip({ title: '' })
+    const response = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
+    expect(response.status).toBe(200)
+  })
+
   it('écrit en base le résultat une fois l’envoi détaché résolu', async () => {
     await exportClip()
     const response = await publishRoute(postRequest({ platforms: ['tiktok'] }), context(CLIP_ID))

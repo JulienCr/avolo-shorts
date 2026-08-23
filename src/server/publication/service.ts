@@ -264,6 +264,13 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const eligibility = platformEligibility(clipDuration(clip.segments), stat.size)
   if (!eligibility.eligible) throw requestInvalid(eligibility.reason)
 
+  // YouTube exige un titre (spec §6.1) ; un clip sans titre le paierait par un
+  // téléversement complet avant un échec fournisseur. Refusé ici, avant la
+  // réservation.
+  if (platforms.includes('youtube') && clip.title.trim() === '') {
+    throw requestInvalid('YouTube exige un titre : ce clip n’en a pas.')
+  }
+
   const fingerprint = currentFingerprint(paths.fingerprint)
   if (fingerprint === null) {
     throw new Error(`Empreinte introuvable pour ${clip.id} alors que le rendu semblait à jour.`)

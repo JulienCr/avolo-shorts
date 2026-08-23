@@ -51,7 +51,6 @@ function writeLog(): void {
   fs.writeFileSync(
     placement.correction,
     JSON.stringify({
-      nextId: 2,
       entries: [{ id: '1', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 }],
     }),
   )

@@ -70,7 +70,6 @@ describe('GET /api/projects/:id/transcript/correction', () => {
     fs.writeFileSync(
       placement.correction,
       JSON.stringify({
-        nextId: 2,
         entries: [
           { id: '1', lineId: 'l0', from: 3, expected: ['et'], replacement: 'est', timecode: 3 },
         ],

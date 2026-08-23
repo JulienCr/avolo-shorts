@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import type Database from 'better-sqlite3'
@@ -295,7 +296,6 @@ export async function applyTranscriptCorrections(
   const previous = options.freshTranscript === true ? EMPTY_CORRECTION_LOG : readCorrectionLogFrom(placement.correction)
 
   let entries = [...previous.entries]
-  let nextId = previous.nextId
   let applied = 0
   let failed = 0
 
@@ -310,17 +310,16 @@ export async function applyTranscriptCorrections(
     const delta = 1 - width
     if (delta !== 0) entries = shiftEntries(entries, proposal.lineId, proposal.correction.to, delta)
     entries.push({
-      id: String(nextId),
+      id: crypto.randomUUID(),
       lineId: proposal.lineId,
       from: proposal.correction.from,
       expected: [...proposal.correction.expected],
       replacement: proposal.replacement,
       timecode: proposal.timecode,
     })
-    nextId += 1
   }
 
-  await writeCorrectionLog(placement.correction, { nextId, entries })
+  await writeCorrectionLog(placement.correction, { entries })
 
   return { entries, applied, failed, rejected: proposed.rejected }
 }
@@ -375,7 +374,7 @@ export async function undoCorrectionEntry(
 
   const remaining = log.entries.filter((e) => e.id !== id)
   const shifted = shiftEntries(remaining, entry.lineId, entry.from, entry.expected.length - 1)
-  await writeCorrectionLog(placement.correction, { nextId: log.nextId, entries: shifted })
+  await writeCorrectionLog(placement.correction, { entries: shifted })
 
   return { ok: true, entries: shifted, correctedSpan: result.correctedSpan }
 }

@@ -201,7 +201,7 @@ function poserTranscript(): void {
 function poserCorrection(): void {
   const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
   fs.mkdirSync(folder, { recursive: true })
-  fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ nextId: 1, entries: [] }))
+  fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ entries: [] }))
 }
 
 beforeEach(() => {

@@ -84,7 +84,7 @@ afterEach(() => {
 describe('undoCorrectionEntry', () => {
   it('un identifiant inconnu est un refus nommé', async () => {
     writeTranscript(['a'])
-    writeLog({ nextId: 1, entries: [] })
+    writeLog({ entries: [] })
     const outcome = await undoCorrectionEntry(project, 'jamais-vu')
     expect(outcome).toEqual({ ok: false, reason: 'unknown-entry' })
   })
@@ -98,7 +98,6 @@ describe('undoCorrectionEntry', () => {
   it('retire la substitution du fichier et du transcript', async () => {
     writeTranscript(['à', 'suite'])
     writeLog({
-      nextId: 2,
       entries: [{ id: '1', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 }],
     })
 
@@ -113,7 +112,6 @@ describe('undoCorrectionEntry', () => {
     // une correction manuelle est passée entretemps, par exemple.
     writeTranscript(['autre chose', 'suite'])
     writeLog({
-      nextId: 2,
       entries: [{ id: '1', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 }],
     })
 
@@ -127,7 +125,6 @@ describe('undoCorrectionEntry', () => {
   it('409 quand une exécution est en cours', async () => {
     writeTranscript(['à'])
     writeLog({
-      nextId: 2,
       entries: [{ id: '1', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 }],
     })
 
@@ -145,7 +142,6 @@ describe('undoCorrectionEntry', () => {
     // 2 mots -> 1), `y` -> `x` (simple, plus loin dans la phrase).
     writeTranscript(['à', 'deuxmots', 'x'])
     writeLog({
-      nextId: 4,
       entries: [
         { id: 'A', lineId: 'l0', from: 0, expected: ['a'], replacement: 'à', timecode: 0 },
         { id: 'B', lineId: 'l0', from: 1, expected: ['deux', 'mots'], replacement: 'deuxmots', timecode: 1 },

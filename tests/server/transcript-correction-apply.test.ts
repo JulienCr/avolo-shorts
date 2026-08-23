@@ -148,7 +148,6 @@ describe('applyTranscriptCorrections', () => {
     fs.writeFileSync(
       placement.correction,
       JSON.stringify({
-        nextId: 5,
         entries: [{ id: '4', lineId: 'l1', from: 0, expected: ['ancien'], replacement: 'x', timecode: 0 }],
       }),
     )
@@ -172,7 +171,6 @@ describe('applyTranscriptCorrections', () => {
     fs.writeFileSync(
       placement.correction,
       JSON.stringify({
-        nextId: 5,
         entries: [{ id: '4', lineId: 'l1', from: 0, expected: ['ancien'], replacement: 'x', timecode: 0 }],
       }),
     )
@@ -189,5 +187,26 @@ describe('applyTranscriptCorrections', () => {
 
   it('lève quand le transcript est absent, plutôt que d’avaler en silence', async () => {
     await expect(applyTranscriptCorrections(project, getDb())).rejects.toThrow()
+  })
+
+  it('ne réutilise jamais un identifiant entre deux journaux (#139)', async () => {
+    // **Le scénario de l'issue.** Un compteur qui repart de `1` à chaque
+    // `freshTranscript` produirait le même `id` sur deux retranscriptions
+    // successives — exactement ce qu'un onglet resté ouvert sur l'ancien
+    // historique pourrait envoyer à `POST .../correction/undo` après la
+    // seconde. Deux passes, chacune avec un seul mot à corriger, chacune un
+    // journal reparti à vide : leurs deux entrées ne doivent jamais porter le
+    // même identifiant.
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([{ i: 0, w: 'à' }])))
+    await applyTranscriptCorrections(project, getDb(), { freshTranscript: true })
+    const first = (await readCorrectionLog(project)).entries[0]
+
+    writeTranscript(['a'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ollamaResponse([{ i: 0, w: 'à' }])))
+    await applyTranscriptCorrections(project, getDb(), { freshTranscript: true })
+    const second = (await readCorrectionLog(project)).entries[0]
+
+    expect(first.id).not.toBe(second.id)
   })
 })

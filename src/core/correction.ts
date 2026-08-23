@@ -241,7 +241,19 @@ export function toProposedCorrection(
  * nombre dit combien de mots défaire réinsère.
  */
 export type CorrectionEntry = {
-  /** Unique **pour la durée de vie du journal**, pas seulement d'une passe — voir `CorrectionLog.nextId`. */
+  /**
+   * Un UUID, jamais réutilisable — même par un journal reparti à vide.
+   *
+   * **Un compteur qui repart de `1` s'est avéré réutilisable malgré lui**
+   * (issue #139) : une retranscription écarte `correction.json` sur le disque
+   * (`transcribe`, `src/server/steps/transcript.ts`), donc un compteur relu
+   * depuis ce même fichier reparfait toujours à `1` après coup, quoi que
+   * porte le drapeau `freshTranscript` qui l'accompagne. Un onglet resté
+   * ouvert sur l'ancien historique peut alors envoyer l'`id` d'une entrée qui
+   * n'a plus rien à voir avec celle que la route retrouve. Un UUID ferme le
+   * cas sans état à faire survivre au reset : il ne collisionne jamais, quel
+   * que soit le nombre de journaux qui se sont succédé.
+   */
   id: string
   lineId: string
   from: number
@@ -252,21 +264,20 @@ export type CorrectionEntry = {
 }
 
 /**
- * Le fichier entier. `nextId` survit aux passes : le journal **s'accumule**
- * (spec §9, correction du 23 août 2026) plutôt que de se réécrire à chaque
- * exécution de l'étape, parce qu'une seconde passe travaille sur un texte déjà
- * corrigé — ses propres substitutions ne recouvrent jamais celles d'une passe
- * précédente, et les perdre de l'historique retirerait la moitié de ce que le
- * journal promet en échange de l'écriture sans veto (voir le commentaire de
+ * Le fichier entier. Le journal **s'accumule** (spec §9, correction du
+ * 23 août 2026) plutôt que de se réécrire à chaque exécution de l'étape,
+ * parce qu'une seconde passe travaille sur un texte déjà corrigé — ses
+ * propres substitutions ne recouvrent jamais celles d'une passe précédente,
+ * et les perdre de l'historique retirerait la moitié de ce que le journal
+ * promet en échange de l'écriture sans veto (voir le commentaire de
  * `applyTranscriptCorrections`, `src/server/steps/transcript-correction.ts`).
  */
 export type CorrectionLog = {
-  nextId: number
   entries: CorrectionEntry[]
 }
 
 /** Un journal vide, pour un projet qui n'a jamais encore été corrigé. */
-export const EMPTY_CORRECTION_LOG: CorrectionLog = { nextId: 1, entries: [] }
+export const EMPTY_CORRECTION_LOG: CorrectionLog = { entries: [] }
 
 /**
  * Décale les entrées d'une même phrase, après qu'un nombre de mots a changé à

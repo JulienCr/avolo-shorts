@@ -3,7 +3,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { FileText, RotateCcw, Wand2 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { CorrectionRejectionReason } from '@/core/correction'
 import { count } from '@/core/phase'
@@ -678,19 +678,25 @@ export function TranscriptPanel({
                         const isSelected =
                           bounds !== null && word.index >= bounds.from && word.index <= bounds.to
                         return (
-                          <button
-                            key={word.index}
-                            type="button"
-                            data-word={word.index}
-                            tabIndex={word.index === cursor ? 0 : -1}
-                            aria-pressed={isSelected}
-                            onClick={(e) => selectWord(word.index, e.shiftKey)}
-                            className={`-mx-0.5 cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
-                              isSelected ? 'bg-stage/35 text-foreground' : ''
-                            }`}
-                          >
-                            {word.word}{' '}
-                          </button>
+                          <Fragment key={word.index}>
+                            {/* L'espace est hors du bouton : un `inline-block`
+                                supprime l'espace final de son contenu, là où le
+                                `<span>` inline de `transcript-surface.tsx` le
+                                garde. La marge négative part avec, sinon elle
+                                le mangeait en entier. */}
+                            <button
+                              type="button"
+                              data-word={word.index}
+                              tabIndex={word.index === cursor ? 0 : -1}
+                              aria-pressed={isSelected}
+                              onClick={(e) => selectWord(word.index, e.shiftKey)}
+                              className={`cursor-pointer rounded-[3px] px-0.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring ${
+                                isSelected ? 'bg-stage/35 text-foreground' : ''
+                              }`}
+                            >
+                              {word.word}
+                            </button>{' '}
+                          </Fragment>
                         )
                       })}
                     </p>

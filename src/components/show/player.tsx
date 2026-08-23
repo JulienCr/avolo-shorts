@@ -27,12 +27,8 @@ import type { Word } from '@/core/transcript'
  * déjà aux requêtes partielles (`src/core/range.ts`) : sans cela, un `<video>`
  * ne peut pas sauter et la barre de lecture reste inerte.
  *
- * **Les sous-titres qu'il porte sont indicatifs, pas fidèles.** `captionCards`
- * vient du transcript entier, **sans recalage** — ce lecteur montre l'émission,
- * pas un montage — et la source est en 16:9 quand la sortie est en 9:16 : ce
- * qui s'affiche ici donne le texte et le rythme du karaoké, jamais un aperçu
- * du cadrage final. Voir `CaptionOverlay` et son point de montage jumeau,
- * `output-preview.tsx`, qui lui est fidèle.
+ * Les sous-titres qu'il porte sont **indicatifs**, pas fidèles : transcript
+ * entier sans recalage, source en 16:9 (spec §9).
  */
 export function ShowPlayer({
   projectId,
@@ -55,11 +51,7 @@ export function ShowPlayer({
   video: RefObject<HTMLVideoElement | null>
   /** L'instant courant, en secondes. La bande de couverture s'en sert. */
   onTime: (seconds: number) => void
-  /**
-   * Les cartons du transcript **entier**, non recalés — voir la doc de tête.
-   * `undefined` tant que le transcript n'a pas chargé : aucun calque ne se
-   * pose, plutôt que d'en poser un sans texte.
-   */
+  /** Cartons du transcript entier, non recalés. `undefined` tant qu'il n'a pas chargé. */
   captionCards?: readonly Word[][]
   /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
   captionStyle?: CaptionStyle
@@ -81,11 +73,7 @@ export function ShowPlayer({
   }
 
   return (
-    // **Le conteneur que le calque de sous-titres exige.** Le `<video>` n'en
-    // avait ni besoin ni un jusqu'ici : `absolute inset-0` sur `CaptionOverlay`
-    // se positionne contre ce parent `relative`, et `containerType: 'size'`
-    // lui donne le repère `cqh` dont sa géométrie a besoin — voir la doc de
-    // `captionUnits`.
+    // Le repère `relative`/`cqh` qu'exige `CaptionOverlay` — voir `captionUnits`.
     <div className="relative" style={{ containerType: 'size' }}>
       <video
         ref={video}

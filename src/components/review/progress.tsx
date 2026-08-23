@@ -47,14 +47,7 @@ export function PanelProgress({
   running: { step: StepName; progress: number } | null
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
-  /**
-   * Vrai si une exécution a déjà eu lieu — le seul fait qui distingue « neuf »
-   * (`analysis === 'neuf'`) d'« interrompu », puisque les deux ont `error` et
-   * `running` nuls. Ne change que le titre : le reste du panneau (étapes en
-   * attente, pas de fourchette de durée) est déjà correct sans ce prop, et
-   * `resume` porte déjà le bon bouton — c'est la page qui choisit entre
-   * `ButtonStart` et `ButtonResume`.
-   */
+  /** Distingue `'neuf'` d'`'interrompu'` (spec §12) ; ne change que le titre. */
   everRan: boolean
   /**
    * Ce qu'on sait de la taille de l'émission, pour dimensionner les durées.
@@ -221,13 +214,7 @@ export function AnnouncementDStep({
    * que ce qui change pendant qu'elle est là.
    */
   connu: boolean
-  /**
-   * Une exécution a-t-elle déjà eu lieu ? **Défaut à `true`** pour les mêmes
-   * raisons que dans `phaseProject` : seul un appelant sur un projet possiblement
-   * `'neuf'` a besoin de le passer. Sans lui, un projet créé sans lancement
-   * s'annoncerait « arrêtée », ce qui laisse croire à une exécution qui n'a
-   * jamais eu lieu.
-   */
+  /** Défaut `true`, comme dans `phaseProject` — voir spec §12. */
   everRan?: boolean
 }) {
   return (

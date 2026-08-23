@@ -59,10 +59,7 @@ export function ShowView({
   const video = useRef<HTMLVideoElement>(null)
   const [time, setTime] = useState(0)
 
-  // **Les cartons du lecteur, indicatifs — voir la doc de `ShowPlayer`.**
-  // `useTranscript` charge ici, indépendamment du tiroir de transcript qui ne
-  // le demande que sur `?transcript=1` : sans lui, le calque n'aurait jamais
-  // de texte tant que personne n'a ouvert le tiroir.
+  // Chargé ici, indépendamment du tiroir (`?transcript=1`) — spec §9.
   const transcript = useTranscript(projectId)
   const captionCards = useMemo(
     () => splitIntoCards((transcript.data ?? []).flatMap((line) => line.words)),

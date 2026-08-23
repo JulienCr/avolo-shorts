@@ -69,17 +69,7 @@ export function ButtonResume({ projectId, inCurrent }: { projectId: string; inCu
   )
 }
 
-/**
- * Le bouton « Commencer l'analyse ». **Décliné de `ButtonResume`, mêmes cibles.**
- *
- * Depuis le 23 août 2026, créer un projet ne lance plus systématiquement son
- * analyse (retour d'usage, point A.3) : `show-card.tsx` crée le projet et
- * navigue, sans lancer. C'est ce bouton qui déclenche le travail, sur
- * `analysis === 'neuf'` (`project-screen.tsx`). Il vise les mêmes
- * `RESUME_TARGETS` que la reprise et partage le même `useRetry` — la seule
- * différence entre les deux est le fait qui les rend pertinents : une
- * exécution qui a déjà eu lieu, ou aucune.
- */
+/** Le bouton « Commencer l'analyse », décliné de `ButtonResume` — mêmes cibles, affiché sur `analysis === 'neuf'` (spec §12). */
 export function ButtonStart({ projectId, inCurrent }: { projectId: string; inCurrent: boolean }) {
   const retry = useRetry()
   const blocked = inCurrent || retry.isPending

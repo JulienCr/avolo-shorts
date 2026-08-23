@@ -34,11 +34,7 @@ import { titleProject } from '@/core/pipeline'
  * déjà**. La cinquième, `interrupted`, mérite son paragraphe (voir `showState`).
  */
 export type ShowState =
-  /**
-   * Aucun projet, ou un projet créé sans que son analyse n'ait jamais
-   * démarré (`everRan: false`, depuis le 23 août 2026, retour d'usage point
-   * A.3) : le replay est là, personne ne l'a lancée.
-   */
+  /** Aucun projet, ou un projet créé sans lancement (`everRan: false`, spec §12). */
   | 'new'
   /** Une exécution tourne. */
   | 'analyzing'
@@ -71,16 +67,7 @@ export type LibraryProject = {
    * même raison : ce qu'on afficherait serait l'arrêt d'avant.
    */
   stopped: boolean
-  /**
-   * Une exécution a-t-elle déjà eu lieu sur ce projet ?
-   *
-   * **Distingue un projet créé sans lancement d'une exécution interrompue** —
-   * les deux ont `running: null`, `error: null` et `stopped: false`. Depuis
-   * que `POST /api/projects` peut créer un projet sans le lancer (retour
-   * d'usage, point A.3), les deux cas se rencontrent réellement : sans ce
-   * champ, `showState` afficherait « Analysée » sur un projet qui n'a encore
-   * rien produit.
-   */
+  /** Distingue un projet créé sans lancement d'une exécution interrompue (spec §12). */
   everRan: boolean
 }
 
@@ -182,9 +169,6 @@ export function showState(project: LibraryProject | null, projectExpected: boole
   // comme dans `analysisProject` : les deux décrivent la dernière exécution
   // *terminée*, et le serveur les tait d'ailleurs tant qu'une autre tourne.
   if (project.running !== null) return 'analyzing'
-  // Un projet créé sans lancement (`everRan: false`) se lit comme `new` : rien
-  // n'a encore tourné, la carte doit proposer de commencer, pas de rouvrir une
-  // « analyse » qui n'a jamais eu lieu.
   if (!project.everRan) return 'new'
   if (project.error !== null) return 'failed'
   return project.stopped ? 'interrupted' : 'analyzed'

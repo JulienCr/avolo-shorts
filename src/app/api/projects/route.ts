@@ -17,13 +17,7 @@ import { listElement } from '@/server/views'
 const CREATION = z.strictObject({
   /** Le nom du fichier dans `REPLAY_DIR`, ou son chemin complet. */
   source: z.string().min(1),
-  /**
-   * Lancer l'analyse tout de suite. **`false` par défaut**, depuis le 23 août
-   * 2026 (retour d'usage, point A.3) : un clic sur la carte d'un replay
-   * déclenchait jusque-là 30 à 45 minutes de traitement sans étape
-   * intermédiaire. `show-card.tsx` n'envoie pas ce champ ; c'est `ButtonStart`
-   * qui lance ensuite le travail, explicitement.
-   */
+  /** Lancer l'analyse tout de suite. `false` par défaut depuis le 23 août 2026 (spec §12). */
   launch: z.boolean().optional(),
 })
 
@@ -32,11 +26,8 @@ export const GET = route('GET /api/projects', async () => {
 })
 
 /**
- * **202, et pas 201.** L'ingestion peut prendre plusieurs minutes depuis un
- * Drive lent : ce que la réponse confirme est que le projet est créé, pas que
- * la source est copiée. Quand `launch` vaut `true`, le `plan` dit en plus ce
- * qui va tourner — sur un projet déjà transcrit, il ne contient pas
- * `transcript`. Sans `launch`, le `plan` est vide : rien n'a été demandé.
+ * **202, et pas 201** : la réponse confirme que le projet est créé, pas que
+ * l'ingestion a fini. `plan` reste vide sans `launch`.
  */
 export const POST = route('POST /api/projects', async (request: Request) => {
   const { source, launch } = await body(request, CREATION)

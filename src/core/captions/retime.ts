@@ -16,6 +16,27 @@ import { normalizeSegments, type Segment } from '@/core/edl'
 import type { Word } from '@/core/transcript'
 
 /**
+ * `sourceTime`, converti sur la timeline du clip.
+ *
+ * Sert de pont entre `video.currentTime` — qui reste en temps source pendant
+ * la lecture d'un clip, `ClipPlayer` sautant les coupes plutôt que de
+ * reprojeter le temps — et des cartons déjà produits par
+ * `splitIntoCards(retimeWords(...))`.
+ *
+ * @returns Le nombre de secondes écoulées dans le clip, ou `null` si
+ *   `sourceTime` ne tombe dans aucun segment.
+ */
+export function elapsedInClip(segments: Segment[], sourceTime: number): number | null {
+  const segs = normalizeSegments(segments)
+  let elapsed = 0
+  for (const seg of segs) {
+    if (sourceTime >= seg.start && sourceTime < seg.end) return elapsed + (sourceTime - seg.start)
+    elapsed += seg.end - seg.start
+  }
+  return null
+}
+
+/**
  * Les mots de `words` qui survivent aux segments, horodatés sur la timeline du
  * clip.
  *
@@ -44,31 +65,6 @@ import type { Word } from '@/core/transcript'
  * JSON ou de la base n'est pas forcément dans l'ordre du temps. Ni le tableau ni
  * les mots de l'appelant ne sont modifiés — la sortie est faite d'objets neufs.
  */
-/**
- * L'instant `sourceTime`, converti sur la timeline du clip — `null` s'il
- * tombe dans une coupe interne.
- *
- * **Le même parcours que `retimeWords`, sur un scalaire plutôt que sur des
- * mots.** Le lecteur de l'aperçu de sortie (`output-preview.tsx`) lit la
- * position du proxy, qui reste en temps source même pendant la lecture d'un
- * clip — `ClipPlayer` saute les coupes plutôt que de reprojeter le temps.
- * C'est cette fonction qui fait le pont entre cette position et les cartons
- * de `splitIntoCards(retimeWords(...))`, qui eux sont sur la timeline du
- * clip.
- *
- * @returns Le nombre de secondes écoulées dans le clip, ou `null` si
- *   `sourceTime` ne tombe dans aucun segment.
- */
-export function elapsedInClip(segments: Segment[], sourceTime: number): number | null {
-  const segs = normalizeSegments(segments)
-  let elapsed = 0
-  for (const seg of segs) {
-    if (sourceTime >= seg.start && sourceTime < seg.end) return elapsed + (sourceTime - seg.start)
-    elapsed += seg.end - seg.start
-  }
-  return null
-}
-
 export function retimeWords(words: Word[], segments: Segment[]): Word[] {
   const segs = normalizeSegments(segments)
   const sorted = [...words].sort((a, b) => a.start - b.start)

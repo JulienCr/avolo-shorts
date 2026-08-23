@@ -51,11 +51,7 @@ export function ProjectScreen({ id }: { id: string }) {
   // serait celui d'avant — et c'est le serveur qui le garantit déjà en rendant
   // `error: null` tant que `running` n'est pas nul.
   const error = project.data?.error ?? null
-  // **`true` par défaut, tant que l'état n'a pas répondu** : c'est la lecture
-  // prudente, celle qui affiche « interrompu » plutôt que « neuf » sur un
-  // squelette — `analysis` ne sert alors à rien tant que `ready` est faux plus
-  // bas, mais un défaut à `false` afficherait un instant « Commencer
-  // l'analyse » sur un projet qui a peut-être déjà tourné.
+  // Défaut prudent tant que l'état n'a pas répondu : `true` plutôt que `false`.
   const everRan = project.data?.everRan ?? true
 
   const phase = phaseProject(steps, running, error, clips, everRan)

@@ -16,14 +16,10 @@ import { discardRenderStale, pathsRender, renderedFraming } from '@/server/steps
  * lui seul ; le rattrapage automatique appelle `generateHook` directement,
  * sans passer par cette route (`src/server/steps/hook-backfill.ts`).
  *
- * **Autorisée sur n'importe quel statut, candidat compris.** La règle « pas
- * de hooks en masse pour tous les candidats » (retour d'usage §7) visait la
- * génération automatique — `src/server/steps/hook-backfill.ts`, qui reste
- * bornée à la transition `candidate → kept`. Un clic explicite sur un clip
- * précis est un appel délibéré et unique ; le restreindre aux clips gardés
- * (23 août 2026) désactivait le bouton sur un candidat sans raison technique.
+ * **Autorisée sur n'importe quel statut, candidat compris** (23 août 2026) :
+ * seule la génération automatique reste bornée à `candidate → kept`
+ * (`hook-backfill.ts`), voir spec §12.
  *
-
  * **Le clip est relu juste avant l'écriture, pas avant l'appel au modèle.**
  * `putClip` remplace la ligne entière — ce n'est pas un merge partiel — et
  * l'appel réseau tient jusqu'à trente secondes (`TIMEOUT_MS`,

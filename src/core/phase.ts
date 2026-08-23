@@ -74,12 +74,8 @@ export type Phase = { analysis: Analysis; work: Work }
  *
  * Quatre propriétés, chacune payée par une relecture :
  *
- * - **`neuf` existe depuis le 23 août 2026.** `createProject` ne lance plus
- *   systématiquement l'analyse (retour d'usage, point A.3) : un projet créé
- *   par la carte d'un replay peut donc n'avoir ni artefact ni exécution ni
- *   `status.json` jamais écrit. C'est ce dernier critère, `everRan`, qui
- *   distingue « jamais commencé » d'une exécution morte — sans lui, un projet
- *   neuf afficherait « Reprendre l'analyse », un libellé faux ;
+ * - **`neuf` existe depuis le 23 août 2026** (spec §9) : `everRan` — tiré de
+ *   `status.json` — distingue un projet jamais lancé d'une exécution morte ;
  * - **`interrompu` et `failure` ne s'appliquent que tant que `candidates` est
  *   absent.** Sans cette précondition ils recouvrent `triable` : une exécution
  *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
@@ -106,16 +102,7 @@ export function phaseProject(
   running: { step: StepName; progress: number } | null,
   error: string | null,
   clips: readonly { status: ClipStatus }[],
-  /**
-   * Vrai si `status.json` a déjà été écrit une fois, tous artefacts et
-   * exécutions confondus. C'est le seul fait qui distingue un projet neuf
-   * d'une exécution interrompue : les deux ont `steps` vide, `running` nul et
-   * `error` nul.
-   *
-   * **Défaut à `true`** pour ne pas casser les appelants qui ne s'intéressent
-   * qu'à l'axe `work`, où `everRan` ne joue aucun rôle : seul un appelant qui
-   * doit distinguer `neuf` d'`interrompu` a besoin de le passer explicitement.
-   */
+  /** `status.json` a-t-il déjà été écrit ? Défaut `true` : seul un appelant qui distingue `neuf` d'`interrompu` doit le passer. */
   everRan = true,
 ): Phase {
   return { analysis: analysisProject(steps, running, error, everRan), work: workProject(clips) }

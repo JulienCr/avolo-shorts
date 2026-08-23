@@ -131,10 +131,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
     [lines, segments],
   )
 
-  // **Les cartons de sous-titres de l'aperçu de sortie**, sur la même chaîne
-  // que le rendu : recalage sur la timeline du clip, puis découpage — voir
-  // `CaptionOverlay`. Mémoïsés sur les entrées, pas recalculés à chaque
-  // `timeupdate` : seule la recherche du carton actif varie avec le temps.
+  // Mémoïsé : seule la recherche du carton actif varie au timeupdate (voir `CaptionOverlay`).
   const captionCards = useMemo(() => splitIntoCards(retimeWords(words, segments)), [words, segments])
 
   // **La remise à zéro d'abord, la publication des mots ensuite — l'ordre de

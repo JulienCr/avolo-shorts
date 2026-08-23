@@ -82,10 +82,7 @@ const MARGIN_LOW = 43
  */
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   fontName: FONT_BY_DEFAULT,
-  // 22 → 120 px sur un rendu 1080×1920, mesuré le 23 août 2026 (44 → 247 px
-  // était jugé trop grand à l'usage). `ScaledBorderAndShadow` met le contour à
-  // l'échelle du repère, pas de la police : `borderWidth` descend d'autant pour
-  // rester ~11 % du corps plutôt que de manger la lettre.
+  // 22 → 120 px sur 1080×1920, mesuré le 23 août 2026 (44 → 247 px, spec §9).
   fontSize: 22,
   fontColor: '#FFFFFF',
   highlightColor: '#FFE500',
@@ -105,29 +102,15 @@ function bound(value: number, min: number, max: number, fallback: number): numbe
   return Math.max(min, Math.min(max, n))
 }
 
-/**
- * Le repère de `renderAss` — `PlayResY: 288` — dans lequel `Fontsize`,
- * `MarginV` et `Outline` s'expriment. C'est l'unique échelle commune entre le
- * fichier ASS et `CaptionOverlay` (aperçus DOM) : diviser une valeur de
- * `captionUnits` par ce nombre donne la même fraction de hauteur des deux
- * côtés.
- */
+/** Le repère `PlayResY` de `renderAss`, partagé avec `CaptionOverlay` (spec §9). */
 export const PLAYRES_Y = 288
 
 /**
- * La taille de police, la marge basse et l'épaisseur de contour, **dans les
- * unités `PlayResY` que `renderAss` écrit telles quelles** dans le bloc
- * `[V4+ Styles]`.
- *
- * **Le seul endroit qui applique le facteur 0,85 et les trois bornes.** Extrait
- * du corps de `renderAss` pour que `CaptionOverlay` calcule sa géométrie sur
- * exactement les mêmes nombres — diviser chaque champ par `PLAYRES_Y` donne
- * une fraction de la hauteur du conteneur, la même que celle du fichier rendu.
- * Un second calcul qui « ressemblerait » à celui-ci pourrait diverger sans
- * qu'aucun test ne le voie.
+ * Taille de police, marge basse et épaisseur de contour dans les unités
+ * `PlayResY` que `renderAss` écrit telles quelles.
  *
  * @returns `sizeUnits` — `Fontsize` ; `marginUnits` — `MarginV` ; `borderUnits`
- *   — `Outline`. Les trois sont des entiers dans le repère `PlayResY: 288`.
+ *   — `Outline`. Trois entiers dans le repère `PlayResY: 288`.
  */
 export function captionUnits(
   style: Pick<CaptionStyle, 'fontSize' | 'marginV' | 'borderWidth'>,
@@ -135,9 +118,7 @@ export function captionUnits(
   return {
     sizeUnits: Math.max(10, Math.floor(bound(style.fontSize, 10, 200, 22) * 0.85)),
     marginUnits: Math.round(bound(style.marginV, 0, 200, MARGIN_LOW)),
-    // Même garde que `renderAss` : le contour ne descend jamais sous 1, sur de
-    // la vidéo un texte sans contour devient illisible dès que le fond
-    // s'éclaircit.
+    // Un contour à 0 devient illisible sur un fond clair.
     borderUnits: Math.floor(bound(style.borderWidth, 1, 10, 2)),
   }
 }
@@ -277,8 +258,7 @@ function fontName(name: string): string {
  * l'appelant de décider s'il vaut la peine d'incruster un fichier vide.
  */
 export function renderAss(cards: Word[][], style: CaptionStyle): string {
-  // La taille, le contour et la marge partagent leur calcul avec
-  // `CaptionOverlay` (aperçus DOM) — voir la doc de `captionUnits`.
+  // Partagé avec `CaptionOverlay` — voir `captionUnits`.
   const { sizeUnits: size, marginUnits: margin, borderUnits: thickness } = captionUnits(style)
   const font = fontName(style.fontName)
 

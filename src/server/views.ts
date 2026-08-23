@@ -82,11 +82,7 @@ export function listElement(project: Project): ProjectListItem {
     // champ : on le lit comme « pas arrêtée », ce qui est la lecture prudente —
     // un vieux fichier décrit une exécution qu'aucune route ne pouvait arrêter.
     stopped: status?.stopped ?? false,
-    // **Ne coûte rien de plus.** `showState` regarde `running` avant `everRan`
-    // et rend `'analyzing'` sans jamais lire ce champ tant qu'une exécution
-    // tourne : sa valeur ne compte que quand `running` est nul, exactement le
-    // cas où `status` est déjà lu, pour `error` et `stopped` deux lignes plus
-    // haut.
+    // Sans coût de plus : `status` est déjà lu pour `error`/`stopped` ci-dessus.
     everRan: running !== null || status !== null,
   }
 }

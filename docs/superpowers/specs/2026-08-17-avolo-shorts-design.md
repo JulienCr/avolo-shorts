@@ -775,6 +775,20 @@ garanties différentes : l'aperçu de sortie du clip (`output-preview.tsx`) est
 lecteur de l'émission (`show/player.tsx`) est **indicatif** — le transcript
 entier, sans recalage, sur une source en 16:9 quand la sortie est en 9:16.
 
+Comme `HookOverlay`, le calque est exact sur la position, les couleurs et la
+taille, et approché sur la largeur de boîte : le moteur de mise en page du
+navigateur n'est pas `measureText`, donc un carton qui reviendrait à la ligne
+autrement dans les deux moteurs peut différer de quelques pixels. La
+recherche du carton actif est dichotomique et non linéaire : le lecteur de
+l'émission peut porter le transcript entier, plusieurs milliers de mots, et
+cette recherche s'exécute à chaque `timeupdate`.
+
+`show-view.tsx` appelle `useTranscript` sans condition pour nourrir ce
+calque, alors que le tiroir de transcript (`?transcript=1`) ne le demandait
+jusque-là que sur ouverture explicite : la vue Émission déclenche donc
+désormais ce chargement à chaque visite, pas seulement quand le tiroir
+s'ouvre.
+
 ### La correction, trois étages du moins risqué au plus risqué
 
 **Étage 0, avant la transcription.** Whisper accepte un `initial_prompt` qui
@@ -1281,7 +1295,7 @@ dizaines de coupures et imposera alors un rendu segment par segment suivi d'un
 ```
 GET    /api/sources                            les replays disponibles
 GET    /api/sources/thumb?file=<nom>           la vignette d'un replay
-POST   /api/projects              { source } -> 202 + projectId
+POST   /api/projects              { source, launch? } -> 202 + projectId
 GET    /api/projects/:id                       état, progression, clés par étape
 GET    /api/projects/:id/candidates            les propositions
 GET    /api/clips/:id                          l'EDL
@@ -1292,10 +1306,32 @@ GET    /api/settings                           les réglages effectifs
 PUT    /api/settings                           applique un patch partiel
 ```
 
-`POST /api/clips/:id/hook` (19 août 2026) refuse un clip qui n'est pas **gardé**
-(`isGuard`, `src/core/phase.ts`) : la génération n'a de sens qu'à la demande, sur
-un clip qu'on monte, jamais sur un candidat ou un clip écarté qu'on n'a pas
-encore décidé de garder. Écrit sur le clip **relu juste avant l'écriture**, pas
+**`launch` vaut `false` par défaut** (23 août 2026, retour d'usage point
+A.3) : un clic sur la carte d'un replay déclenchait jusque-là 30 à 45 minutes
+de traitement sans étape intermédiaire. `show-card.tsx` crée le projet et
+navigue sans lancer ; un bouton « Commencer l'analyse » (`retry.tsx`) déclenche
+ensuite le travail. `phaseProject` (`src/core/phase.ts`) en tire une
+cinquième valeur d'`Analysis`, `'neuf'` : un projet sans artefact et sans
+exécution était jusque-là forcément une exécution interrompue, puisque
+`createProject` lançait toujours — ce raisonnement devient faux le jour où la
+création cesse de lancer, et `everRan` (tiré de la présence de
+`status.json`) est le seul fait qui distingue les deux cas, `steps`, `running`
+et `error` étant sinon identiques.
+
+**`showState` (`src/core/library.ts`) portait le même défaut**, trouvé au
+passage : sa bibliothèque de cartes ne connaissait pas `everRan` et lisait
+`{ running: null, error: null, stopped: false }` comme `'analyzed'` — un
+projet neuf aurait donc affiché le badge ambre et « Ouvrir » sur une
+émission qui n'a encore rien produit. Corrigé dans le même mouvement,
+`ProjectListItem.everRan` portant le même fait que celui de `ProjectStatus`.
+
+`POST /api/clips/:id/hook` **s'autorise sur n'importe quel statut, candidat
+compris** (23 août 2026, retour d'usage §7 point A.2 — corrige la restriction
+posée le 19 août). La règle « pas de hooks en masse pour tous les candidats »
+visait la génération **automatique**, bornée à `candidate → kept`
+(`hook-backfill.ts`, ci-dessous) ; un clic explicite sur un clip précis est
+un appel délibéré et unique, que restreindre aux clips gardés désactivait
+sans raison technique. Écrit sur le clip **relu juste avant l'écriture**, pas
 sur l'instantané pris avant l'appel — l'appel réseau tient jusqu'à 30 s, assez
 pour qu'une écriture concurrente (autosave, un autre onglet) se glisse dedans.
 Elle régénère **la paire**, accroche et badge, y compris quand le badge revient

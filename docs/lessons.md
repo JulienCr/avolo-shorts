@@ -127,3 +127,54 @@ Le raisonnement complet est en section 5 de la spec de conception. En bref :
 openshorts se conteneurise parce qu'il s'installe chez des inconnus, ce projet
 tourne sur une machine dont l'environnement est déjà monté, et conteneuriser
 réimporterait la fragilité des binds sur le Drive.
+
+## Ce que Meta ne dit pas quand on publie un reel
+
+Quatre faits mesurés le 23 août 2026 en branchant Instagram pour de vrai, sur le
+compte `cie.avolo`. Aucun n'est dans la documentation, et trois ont coûté un
+aller-retour chacun.
+
+**`upload_type=resumable` n'existe que par Facebook Login.** Meta expose deux
+configurations dans la même app, et le parcours qu'il met en avant — « connexion
+Instagram », jeton `IGA…` sur `graph.instagram.com` — **n'accepte que
+`video_url`, une URL publique**. Testé en v21, v22 et v23 : toujours
+`The parameter video_url is required`. Le téléversement depuis le disque, que la
+conception impose pour ne pas exposer la machine, n'est donc réalisable que par
+« connexion Facebook » (jeton `EAA…` sur `graph.facebook.com`, puis binaire vers
+`rupload.facebook.com/ig-api-upload/{v}/{container}`). Choisir le mauvais
+appairage, c'est découvrir la contrainte après avoir tout câblé.
+
+**Un `error_subcode: 2207085` sur `media_publish` veut dire « droit manquant sur
+l'actif », pas « erreur serveur ».** Meta rend « Une erreur de serveur interne
+est survenue, veuillez réessayer plus tard », qui invite précisément à la
+mauvaise action. La cause réelle : dans le portefeuille business, le compte
+Instagram n'avait **aucune personne affectée**. La portée `business_management`
+suffit à lire le compte, à créer le conteneur et à téléverser le fichier — seule
+la publication exige un droit sur l'actif lui-même. Trois des quatre étapes
+réussissent donc, ce qui fait chercher au mauvais endroit.
+
+**Ce qui a trouvé la cause est la comparaison, pas le raisonnement.** Deux
+comptes du même portefeuille, même code, même fichier, même jeton : l'un
+publiait, l'autre non. La seule différence lisible dans l'interface était le
+nombre de personnes affectées. Devant un échec que l'API refuse d'expliquer,
+chercher un actif voisin qui fonctionne coûte moins cher que relire la
+documentation — deux hypothèses plausibles avaient déjà été écartées à tort
+avant celle-là, dont la liaison à une Page Facebook, qui n'avait rien à voir.
+
+**`rupload.facebook.com` rend des 400 transitoires.** Le même fichier, sur le
+même conteneur, avec les mêmes en-têtes, échoue puis réussit à la reprise. Un
+connecteur qui traite ce 400 comme définitif abandonnera des publications qui
+n'avaient besoin que d'un second essai.
+
+Ça n'entame pas le « ni file, ni réessai automatique » de la conception, et la
+distinction vaut d'être posée une fois : **reprendre un octet perdu à
+l'intérieur d'une tentative n'est pas réessayer la tentative**. Le premier est
+du transport, il se décide dans le connecteur, il est borné et immédiat. Le
+second est de l'ordonnancement — relancer plus tard une publication qui a
+échoué —, il suppose une file et des horaires, et il reste hors périmètre.
+
+Accessoirement, deux questions que la conception laissait ouvertes sont
+tranchées : un compte de type **Créateur** (`MEDIA_CREATOR`) publie des reels
+sans réserve, et l'identifiant du compte diffère selon le chemin — un identifiant
+cadré par l'app en connexion Instagram, un identifiant business en `17841…` par
+connexion Facebook. Le même compte, deux nombres sans rapport visible.

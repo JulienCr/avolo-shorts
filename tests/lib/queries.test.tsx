@@ -438,7 +438,9 @@ describe('les réglages', () => {
    * **Changer un réglage ne recalcule rien** (retour d'usage §6.1). Invalider
    * les projets ou les candidats laisserait croire le contraire : l'écran
    * rechargerait des listes que rien n'a touchées, et l'utilisateur y lirait un
-   * effet qui n'existe pas.
+   * effet qui n'existe pas. La disponibilité de publication fait exception —
+   * `publication.<plateforme>` en change la valeur affichée, et seul un patch
+   * qui touche cette famille l'invalide, vérifié séparément ci-dessous.
    */
   it('n’invalident ni les projets ni les candidats', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(settings)))
@@ -450,6 +452,26 @@ describe('les réglages', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(invalid).not.toHaveBeenCalled()
+  })
+
+  /**
+   * **La disponibilité de publication dépend désormais du réglage** :
+   * `adapterFor` lit `publication.<plateforme>` pour choisir le connecteur, et
+   * `publicationAvailability` (`@/server/publication`) résout la disponibilité
+   * depuis ce même adaptateur. Sans invalidation, l'écran garderait l'état de
+   * l'ancien connecteur jusqu'aux 30 s de `staleTime`.
+   */
+  it('invalide la disponibilité de publication quand ce réglage change, et seulement lui', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(settings)))
+    const { invalid, envelope } = harness()
+    const { result } = renderHook(() => useSaveSettings(), { wrapper: envelope })
+
+    await act(async () => {
+      result.current.mutate({ publication: { instagram: 'upload-post' } })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalid).toHaveBeenCalledTimes(1)
+    expect(invalid).toHaveBeenCalledWith({ queryKey: keys.publicationAvailability })
   })
 
   it('remontent le refus du serveur sur une valeur hors bornes', async () => {

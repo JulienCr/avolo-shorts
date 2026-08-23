@@ -1,4 +1,4 @@
-import { defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
+import { PLATFORMS, defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
 import { effectiveSettings, getDb } from '@/server/db'
 import type { PublicationAdapter } from '@/server/publication/adapter'
 import { createMetaAdapter } from '@/server/publication/meta'
@@ -41,18 +41,22 @@ export function adapterFor(platform: Platform): PublicationAdapter | undefined {
 }
 
 /**
- * L'état de chaque plateforme, agrégé sur tous les adaptateurs.
- *
- * **Le dernier à répondre dans l'ordre de priorité l'emporte** : la boucle
- * parcourt le tableau à l'envers pour que le premier adaptateur (le plus
- * prioritaire) écrase en dernier, comme le veut `adapterFor` sur le même ordre.
+ * L'état de chaque plateforme, résolu depuis le même adaptateur que
+ * `adapterFor` — sinon la disponibilité affichée peut porter sur un
+ * connecteur différent de celui qui publiera réellement.
  */
 export async function publicationAvailability(): Promise<Record<Platform, PlatformAvailability>> {
   const merged = defaultPlatformAvailability() as Record<Platform, PlatformAvailability>
-  const adapters = publicationAdapters()
-  for (const adapter of [...adapters].reverse()) {
-    const state = await adapter.availability(process.env)
-    for (const platform of adapter.platforms) merged[platform] = state[platform]
+  const cache = new Map<PublicationAdapter, Record<Platform, PlatformAvailability>>()
+  for (const platform of PLATFORMS) {
+    const adapter = adapterFor(platform)
+    if (adapter === undefined) continue
+    let state = cache.get(adapter)
+    if (state === undefined) {
+      state = await adapter.availability(process.env)
+      cache.set(adapter, state)
+    }
+    merged[platform] = state[platform]
   }
   return merged
 }

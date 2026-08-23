@@ -508,3 +508,27 @@ describe('la section du hook', () => {
     await waitFor(() => expect(writes).toEqual([{ hook: { enter: 'none' } }]))
   })
 })
+
+describe('la section publication', () => {
+  it('choisit un connecteur pour une plateforme, sans toucher aux autres', async () => {
+    const writes = server()
+    await mountScreen()
+
+    await userEvent.click(screen.getByLabelText('Instagram'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Upload Post' }))
+
+    await waitFor(() => expect(writes).toEqual([{ publication: { instagram: 'upload-post' } }]))
+  })
+
+  it('revient à Automatique par plateforme, via le bouton dédié', async () => {
+    const writes = server({
+      read: () =>
+        response({ ...DEFAULTS, publication: { ...PUBLICATION_DEFAULTS, facebook: 'meta' } }),
+    })
+    await mountScreen()
+
+    await userEvent.click(screen.getByLabelText('Revenir à Automatique pour Facebook'))
+
+    await waitFor(() => expect(writes).toEqual([{ publication: { facebook: 'auto' } }]))
+  })
+})

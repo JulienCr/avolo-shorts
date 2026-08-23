@@ -131,6 +131,7 @@ function PlatformRow({
             variant="ghost"
             size="sm"
             disabled={disabled}
+            aria-label={`Revenir à Automatique pour ${PLATFORM_LABELS[platform]}`}
             onClick={() =>
               void Promise.resolve(onChange({ [platform]: DEFAULT_PREFERENCE })).catch(() => {})
             }

@@ -472,11 +472,14 @@ describe('l’écran de projet', () => {
     )
     expect(screen.getByText(/Upload Post a répondu 502/)).toBeTruthy()
 
-    // Les deux clips sont bien partis, groupés par clip, avec `force`.
+    // Les deux clips sont bien partis, groupés par clip. `force` ne vaut
+    // `true` que pour c1, le seul déjà publié sur Instagram — c2 ne doit pas
+    // perdre sa protection contre les doublons pour une plateforme qu'il
+    // n'a jamais visée. (relevé par Copilot, passe 3)
     expect(publishCalls.map((c) => c.clipId).sort()).toEqual(['c1', 'c2'])
-    for (const call of publishCalls) {
-      expect(call.body).toMatchObject({ platforms: ['instagram'], force: true })
-    }
+    const byClipId = Object.fromEntries(publishCalls.map((c) => [c.clipId, c.body]))
+    expect(byClipId.c1).toMatchObject({ platforms: ['instagram'], force: true })
+    expect(byClipId.c2).toMatchObject({ platforms: ['instagram'], force: false })
   })
 
   it('porte une seule région d’annonce, et polie', async () => {

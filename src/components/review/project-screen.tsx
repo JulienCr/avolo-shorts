@@ -85,8 +85,18 @@ export function ProjectScreen({ id }: { id: string }) {
       platforms.push(target.platform)
       byClip.set(target.clipId, platforms)
     }
+    // **`force` se calcule par clip, pas globalement.** La boîte le pose une
+    // seule fois pour tout le lot, mais un seul clip sélectionné peut porter
+    // une publication déjà `published` sur la plateforme visée — les autres
+    // n'en ont pas besoin, et Upload Post remplace leur clé d'idempotence
+    // stable par un UUID dès que `force` vaut `true`, perdant leur protection
+    // contre un doublon. (relevé par Copilot)
     const outcomes = await Promise.allSettled(
-      Array.from(byClip, ([clipId, platforms]) => publisher.mutateAsync({ clipId, platforms, force })),
+      Array.from(byClip, ([clipId, platforms]) => {
+        const clipForce =
+          force && platforms.some((p) => publicationRecords[clipId]?.[p]?.status === 'published')
+        return publisher.mutateAsync({ clipId, platforms, force: clipForce })
+      }),
     )
     const failures = outcomes.filter((o): o is PromiseRejectedResult => o.status === 'rejected')
     if (failures.length > 0) {

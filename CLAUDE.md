@@ -32,8 +32,13 @@ types, constantes, noms de fichiers, champs de base, clés JSON, branches git.
 dépendant de la normalisation Unicode, et traverse mal les outils qui supposent
 l'ASCII.
 
-**Tout le reste est en français** : libellés d'interface, commentaires, messages
-de commit, titres et corps de PR, réponses de review, documentation, specs.
+**Tout le reste est en français** : libellés d'interface, commentaires,
+documentation, specs, corps de PR et réponses aux relecteurs.
+
+Deux exceptions qui suivent le code plutôt que la prose. Les **messages de
+commit**, titre et corps, parce qu'ils vivent dans le dépôt aux côtés du code.
+Et les **titres de PR**, parce qu'une fusion en squash en fait le sujet du commit
+qui atterrit sur `main` — le corps de la PR, lui, reste en français.
 
 Le dépôt ne respecte pas encore la règle — 333 identifiants accentués dans 72
 fichiers. C'est l'**issue #73** ; la règle vaut dès maintenant pour tout code

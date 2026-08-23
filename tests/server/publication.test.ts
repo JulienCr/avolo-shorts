@@ -192,16 +192,62 @@ describe('poll', () => {
       jsonResponse(200, {
         status: 'completed',
         results: [
-          { platform: 'instagram', success: true, message: 'ok' },
-          { platform: 'tiktok', success: false, message: 'compte non connecté' },
+          { platform: 'instagram', success: true, post_url: 'https://instagram.test/p1', platform_post_id: 'p1' },
+          { platform: 'tiktok', success: false, error_message: 'compte non connecté' },
         ],
       }),
     )
     const adapter = createUploadPostAdapter(ENV, fetchImpl)
     const outcomes = await adapter.poll('r1', ['instagram', 'tiktok'])
 
-    expect(outcomes.instagram).toEqual({ status: 'published', remoteId: null, remoteUrl: null })
+    expect(outcomes.instagram).toEqual({
+      status: 'published',
+      remoteId: 'p1',
+      remoteUrl: 'https://instagram.test/p1',
+    })
     expect(outcomes.tiktok).toEqual({ status: 'failed', error: 'compte non connecté' })
+  })
+
+  it('un succès sondé porte son URL et son identifiant, pas `null`', async () => {
+    // Capture réelle (compte de Julien, 23 août 2026) : le sondage d'un envoi
+    // YouTube résolu porte `post_url`/`platform_post_id`, jamais absents.
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, {
+        status: 'completed',
+        completed: 1,
+        total: 1,
+        results: [
+          {
+            platform: 'youtube',
+            success: true,
+            platform_post_id: 'jZP5eJvL4sg',
+            post_url: 'https://www.youtube.com/watch?v=jZP5eJvL4sg',
+            error_message: null,
+            error_code: null,
+            failure_stage: null,
+          },
+        ],
+      }),
+    )
+    const adapter = createUploadPostAdapter(ENV, fetchImpl)
+    const outcomes = await adapter.poll('r1', ['youtube'])
+    expect(outcomes.youtube).toEqual({
+      status: 'published',
+      remoteId: 'jZP5eJvL4sg',
+      remoteUrl: 'https://www.youtube.com/watch?v=jZP5eJvL4sg',
+    })
+  })
+
+  it('un échec sondé porte le message d’Upload Post, pas le message par défaut', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, {
+        status: 'completed',
+        results: [{ platform: 'youtube', success: false, error_message: 'quota YouTube dépassé', failure_stage: 'upload' }],
+      }),
+    )
+    const adapter = createUploadPostAdapter(ENV, fetchImpl)
+    const outcomes = await adapter.poll('r1', ['youtube'])
+    expect(outcomes.youtube).toEqual({ status: 'failed', error: 'quota YouTube dépassé (upload)' })
   })
 
   it('une plateforme absente des résultats reste `in_progress`', async () => {

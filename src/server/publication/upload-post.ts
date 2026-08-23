@@ -67,13 +67,21 @@ type RawUploadResponse = {
 }
 
 /**
- * La forme de `GET /api/uploadposts/status` (openapi.json, vérifié le 23 août
- * 2026) : `results` y est un **tableau** `{platform, success, message}`, pas
- * un objet indexé par plateforme comme sur `/api/upload` — les deux points de
- * terminaison ne partagent pas leur schéma de retour malgré le nom identique
- * du champ. Ni `url` ni `post_id` n'y figurent.
+ * La forme de `GET /api/uploadposts/status`, vérifiée sur une capture réelle
+ * (compte de Julien, 23 août 2026) : `results` y est un **tableau**
+ * `{platform, success, …}`, pas un objet indexé par plateforme comme sur
+ * `/api/upload` — les deux points de terminaison ne partagent pas leur schéma
+ * de retour malgré le nom identique du champ. L'échec y porte
+ * `error_message`, pas `message`.
  */
-type RawStatusResult = { platform: string; success: boolean; message?: string }
+type RawStatusResult = {
+  platform: string
+  success: boolean
+  error_message?: string
+  failure_stage?: string
+  post_url?: string | null
+  platform_post_id?: string | null
+}
 type RawStatusResponse = {
   status?: 'pending' | 'in_progress' | 'completed'
   results?: RawStatusResult[]
@@ -165,16 +173,22 @@ function outcomeFor(platform: Platform, result: RawPlatformResult | undefined, r
 
 /**
  * Même règle de statut que `outcomeFor`, sur la forme de
- * `/api/uploadposts/status` — qui ne porte ni `url` ni `post_id`. `null` :
- * cette plateforme n'apparaît pas encore dans les résultats, l'envoi continue.
+ * `/api/uploadposts/status`. `null` : cette plateforme n'apparaît pas encore
+ * dans les résultats, l'envoi continue.
  */
 function outcomeForStatus(platform: Platform, result: RawStatusResult | undefined): PlatformOutcome | null {
   if (result === undefined) return null
   if (!result.success) {
-    return { status: 'failed', error: result.message ?? 'Échec sans message chez Upload Post.' }
+    const stage = result.failure_stage === undefined ? '' : ` (${result.failure_stage})`
+    return {
+      status: 'failed',
+      error: `${result.error_message ?? 'Échec sans message chez Upload Post.'}${stage}`,
+    }
   }
-  if (platform === 'tiktok') return { status: 'submitted', remoteId: null, remoteUrl: null }
-  return { status: 'published', remoteId: null, remoteUrl: null }
+  const remoteId = result.platform_post_id ?? null
+  const remoteUrl = result.post_url ?? null
+  if (platform === 'tiktok') return { status: 'submitted', remoteId, remoteUrl }
+  return { status: 'published', remoteId, remoteUrl }
 }
 
 /** Les paramètres propres à chaque plateforme (table A.4 du contrat de cette PR). */

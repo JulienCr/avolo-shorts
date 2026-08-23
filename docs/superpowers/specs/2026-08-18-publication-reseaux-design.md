@@ -137,12 +137,21 @@ second est une **péremption** : plusieurs sources tierces concordantes donnent 
 avant que le brouillon soit jeté, aucune source primaire consultée ne la confirme.
 À mesurer au branchement plutôt qu'à recopier.
 
-L'URL de retour OAuth doit être en HTTPS **sur un domaine vérifié** — TikTok
-refuse `localhost`, `127.0.0.1` et `*.local` pour une application web, et la
-vérification passe par une balise `tiktok-developers-site-verification` ou un
-enregistrement DNS. C'est `avolo.fr` qui la portera. (Le *Login Kit for Desktop*
-accepte la boucle locale, mais changer de type d'application pour économiser une
-page statique serait payer cher une commodité.)
+**Corrigé le 24 août 2026, mesuré contre l'app de Julien plutôt que déduit de
+la documentation.** Les deux paragraphes qui suivaient ici affirmaient que
+l'URL de retour devait porter un domaine vérifié et ne mentionnaient pas PKCE ;
+les deux sont faux pour cette app.
+
+**La boucle locale est acceptée.** `http://127.0.0.1:4005/tiktok/oauth-callback/`
+est enregistrée et l'autorisation sert son écran de connexion pour cette URL —
+sans page statique à héberger ni domaine à vérifier. Rien ne dit que ce soit
+vrai de toute app TikTok ; ça l'est de celle-ci, mesuré plutôt que supposé.
+
+**PKCE est obligatoire, et aucune source consultée avant le branchement ne le
+disait.** Sans `code_challenge` et `code_challenge_method=S256`, l'autorisation
+rend `error=param_error&errCode=10007&error_type=code_challenge` ; avec eux,
+elle sert l'écran de connexion. `src/server/publication/tiktok-pkce.ts` porte
+le calcul.
 
 ### 2.4 YouTube Shorts — un verrou sans échappatoire
 

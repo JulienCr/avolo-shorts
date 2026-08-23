@@ -2,14 +2,15 @@ import { PLATFORMS, defaultPlatformAvailability, type Platform, type PlatformAva
 import { effectiveSettings, getDb } from '@/server/db'
 import type { PublicationAdapter } from '@/server/publication/adapter'
 import { createMetaAdapter } from '@/server/publication/meta'
+import { createTikTokAdapter } from '@/server/publication/tiktok'
 import { createUploadPostAdapter } from '@/server/publication/upload-post'
 
 /**
  * Déclaration canonique du registre de connecteurs (contrat de la PR
- * « Wave B (UI) », section « SHARED SEAM »). Meta est placé **avant** Upload
- * Post — à plateforme égale (Instagram, Facebook), gratuit et 100 publications
- * par 24 h l'emporte sur dix par mois (issue #146) — un ordre délibéré, pas un
- * accident d'insertion.
+ * « Wave B (UI) », section « SHARED SEAM »). TikTok direct et Meta passent
+ * **avant** Upload Post, à plateforme égale — gratuit l'emporte sur dix
+ * téléversements par mois (issue #146), et Upload Post n'a jamais porté
+ * TikTok que sur une offre payante — un ordre délibéré, pas un accident.
  *
  * Mémorisé : `groupByAdapter` (`service.ts`) regroupe par identité d'objet, et
  * une instance neuve à chaque appel ferait manquer tout regroupement entre
@@ -17,7 +18,7 @@ import { createUploadPostAdapter } from '@/server/publication/upload-post'
  */
 let adapters: PublicationAdapter[] | undefined
 export function publicationAdapters(): PublicationAdapter[] {
-  adapters ??= [createMetaAdapter(), createUploadPostAdapter()]
+  adapters ??= [createTikTokAdapter(), createMetaAdapter(), createUploadPostAdapter()]
   return adapters
 }
 

@@ -18,6 +18,14 @@ déjà tranchée, et deux sources sur la même question finissent par diverger.
 Quand tu constates l'écart, corrige la spec dans le même mouvement : elle fait
 autorité, donc la laisser fausse coûte au suivant ce qu'elle vient de te coûter.
 
+Un troisième cas, le 24 août 2026 : la spec publication §2.3 affirmait, d'après
+la documentation TikTok, qu'un domaine vérifié était obligatoire pour l'URL de
+retour OAuth et ne mentionnait pas PKCE. Un appel réel contre l'app de Julien a
+montré l'inverse des deux — la boucle locale est acceptée, PKCE est obligatoire
+et absent de tout ce qui avait été lu avant. La documentation d'un tiers décrit
+une plateforme en général ; seul un appel contre l'app réelle dit ce qui est
+vrai d'elle.
+
 ## Pourquoi les identifiants se francisent tout seuls
 
 Le glissement s'explique, et il se reproduira sinon. La prose de ce dépôt est

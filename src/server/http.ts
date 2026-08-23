@@ -11,6 +11,10 @@ import {
   MetaRateLimitError,
   MetaTokenExpiredError,
   PublicationAlreadyPublishedError,
+  TikTokAccountMisconfiguredError,
+  TikTokFileRefusedError,
+  TikTokRateLimitError,
+  TikTokTokenExpiredError,
   UploadPostAccountMisconfiguredError,
   UploadPostFileRefusedError,
   UploadPostRateLimitError,
@@ -97,6 +101,11 @@ export function statusFor(error: unknown): number {
   if (error instanceof MetaAccountMisconfiguredError) return 400
   if (error instanceof MetaAssetPermissionError) return 403
   if (error instanceof MetaContainerTimeoutError) return 503
+  // Le connecteur TikTok direct : mêmes quatre natures, spec §2.3/§8.
+  if (error instanceof TikTokTokenExpiredError) return 401
+  if (error instanceof TikTokRateLimitError) return 429
+  if (error instanceof TikTokFileRefusedError) return 422
+  if (error instanceof TikTokAccountMisconfiguredError) return 400
   // Le filtre de contenu a refusé : ni la faute de l'appelant, ni un défaut du
   // serveur. 422 — la demande est bien formée, elle ne peut simplement pas être
   // traitée.

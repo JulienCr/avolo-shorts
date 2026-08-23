@@ -13,6 +13,7 @@ import {
   getClip,
   getClips,
   getProject,
+  getPublications,
   getSettings,
   listProjects,
   openDb,
@@ -24,7 +25,9 @@ import {
   effectiveSettings,
   setSetting,
   upsertProject,
+  upsertPublication,
   type Project,
+  type PublicationRow,
 } from '@/server/db'
 import { mergeCandidates } from '@/core/candidates'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
@@ -1404,5 +1407,104 @@ describe('l’index clips_by_project', () => {
     const db = openDb(file)
     expect(indexNames(db)).toEqual(['clips_by_project'])
     db.close()
+  })
+})
+
+/**
+ * La table `publications` (`clipId`, `platform`) : posée par un `CREATE TABLE
+ * IF NOT EXISTS`, sans entrée dans `migrer` — elle n'existait avant aucune
+ * base, il n'y a donc rien à rattraper (`src/server/db.ts`, doctrine des
+ * migrations).
+ */
+describe('la table publications', () => {
+  function row(remaining: Partial<PublicationRow> = {}): PublicationRow {
+    return {
+      clipId: 'clip1',
+      platform: 'instagram',
+      status: 'in_progress',
+      remoteId: null,
+      remoteUrl: null,
+      requestId: null,
+      error: null,
+      publishedFingerprint: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+      ...remaining,
+    }
+  }
+
+  it('existe sur une base fraîche', () => {
+    const blank = openDb(':memory:')
+    try {
+      const tables = blank
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .all() as { name: string }[]
+      expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['publications']))
+    } finally {
+      blank.close()
+    }
+  })
+
+  it('existe aussi sur une base déjà ouverte avant cette PR', () => {
+    // `openDb` applique `SCHEMA` à chaque ouverture : rouvrir une base qui
+    // l'a déjà appliquée une fois est exactement ce cas-là, `CREATE TABLE IF
+    // NOT EXISTS` ne rejouant rien sur une table déjà là.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-publications-migration-'))
+    const file = path.join(root, 'avolo.db')
+    try {
+      openDb(file).close()
+      const reopened = openDb(file)
+      try {
+        upsertProject(reopened, PROJECT)
+        putClip(reopened, clip('clip-old'))
+        upsertPublication(reopened, row({ clipId: 'clip-old' }))
+        expect(getPublications(reopened, 'clip-old')).toHaveLength(1)
+      } finally {
+        reopened.close()
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('pose une ligne et la relit', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row())
+    expect(getPublications(db, 'clip1')).toEqual([row()])
+  })
+
+  it('met à jour sans dupliquer la ligne, et sans réécrire `createdAt`', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row({ createdAt: 1000, updatedAt: 1000 }))
+    upsertPublication(
+      db,
+      row({ status: 'published', remoteId: 'p1', remoteUrl: 'https://x.test/p1', createdAt: 9999, updatedAt: 2000 }),
+    )
+    const rows = getPublications(db, 'clip1')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual(
+      row({ status: 'published', remoteId: 'p1', remoteUrl: 'https://x.test/p1', createdAt: 1000, updatedAt: 2000 }),
+    )
+  })
+
+  it('porte une ligne par plateforme, indépendamment', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row({ platform: 'instagram', status: 'published' }))
+    upsertPublication(db, row({ platform: 'tiktok', status: 'failed', error: 'quota atteint' }))
+    const rows = getPublications(db, 'clip1')
+    expect(rows.map((r) => r.platform)).toEqual(['instagram', 'tiktok'])
+  })
+
+  it('supprime les publications quand le clip est supprimé — la cascade est voulue', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row())
+    expect(getPublications(db, 'clip1')).toHaveLength(1)
+
+    // `replaceClips` avec une liste vide retire tous les clips du projet ; le
+    // clip et sa publication disparaissent ensemble, `foreign_keys = ON`
+    // faisant le reste (`openDb`).
+    replaceClips(db, PROJECT.id, [])
+    expect(getClip(db, 'clip1')).toBeUndefined()
+    expect(getPublications(db, 'clip1')).toEqual([])
   })
 })

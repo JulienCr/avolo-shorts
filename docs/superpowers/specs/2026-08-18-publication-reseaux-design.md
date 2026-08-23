@@ -3,9 +3,16 @@
 Date : 18 août 2026.
 Statut : proposition, issue d'un spike. **Mise à jour au 19 août 2026** : la PR
 #95 a écrit `src/core/publication.ts` et la modale de publication — l'UI seule,
-sans connecteur ni backend, périmètre tranché par Julien. Deux des quatre
-connecteurs ne doivent pas s'écrire avant que des démarches administratives
-aboutissent — c'est toujours le point le plus important de ce document.
+sans connecteur ni backend, périmètre tranché par Julien.
+
+**Mise à jour au 23 août 2026, la plus importante depuis l'écriture de ce
+document** : Julien s'est abonné à Upload Post (offre gratuite — voir §2.5, la
+Basic évoquée plus bas n'est pas celle qui tourne). Ce n'est plus le repli du
+§5 en cas d'échec de l'audit TikTok, c'est le transport qui existe **aujourd'hui**
+pour les quatre plateformes à la fois, écrit dans cette PR-ci. §2.4, §3, §5 et
+§6.2 sont corrigés en conséquence. Le lot 0 (démarches Meta/TikTok/YouTube) et
+les audits restent la voie qui affranchirait un connecteur direct un jour,
+mais rien n'en dépend plus pour publier.
 
 Ce document décide de **la publication depuis l'outil**, que la conception
 générale rangeait jusqu'ici hors périmètre
@@ -124,14 +131,28 @@ c'est-à-dire six envois quotidiens, chiffre encore recopié partout. Depuis fin
 2025 c'est une unité dans un panier séparé, plafonné à cent envois par jour. Le
 quota n'a donc aucune influence sur la conception.
 
-**Le verrou, lui, est absolu.** Google écrit : « You will not be able to change
-the video's state until after you have successfully submitted the video for
+**Le verrou, lui, est absolu — mais c'est un verrou du *projet API appelant*,
+pas de YouTube lui-même.** Google écrit : « You will not be able to change the
+video's state until after you have successfully submitted the video for
 verification. » On ne peut pas relever la visibilité à la main dans Studio. Les
 deux seuls remèdes sont de re-téléverser la vidéo par le site, ou de faire auditer
-le projet API. **Conséquence directe pour ce dépôt : coder le connecteur YouTube
-avant que l'audit soit passé, c'est coder une destruction de travail** — il
-produirait une vidéo morte et imposerait un ré-envoi manuel, soit exactement le
-geste qu'il prétend supprimer, plus une vidéo privée à nettoyer.
+le projet API. **Conséquence directe pour un connecteur écrit par ce dépôt et
+appelant l'API en son nom propre : le coder avant que l'audit soit passé, c'est
+coder une destruction de travail** — il produirait une vidéo morte et imposerait
+un ré-envoi manuel, soit exactement le geste qu'il prétend supprimer, plus une
+vidéo privée à nettoyer.
+
+**Mise à jour au 23 août 2026 : ce paragraphe ne s'applique plus tel quel,
+parce qu'Upload Post n'est pas un connecteur écrit par ce dépôt.** Le projet
+API qui appelle `videos.insert` est le leur, déjà audité pour leur propre
+compte — pas un projet créé ici. Leur API expose `privacyStatus:
+public|unlisted|private`, ce qu'un projet non audité ne peut pas offrir : c'est
+la raison d'y croire, et c'est écrite en toutes lettres dans le docbloc
+d'`upload-post.ts`. **Mais ce n'est pas mesuré** : personne n'a encore regardé
+sortir une vraie vidéo publique par ce chemin, et tant que ce n'est pas fait,
+traiter le verrou comme levé serait affirmer plus que ce qu'on sait. Un
+connecteur YouTube **direct**, lui, reste soumis à tout ce paragraphe sans
+changement : son verrou à lui ne se lève que par son propre audit.
 
 Un troisième piège, indépendant du premier : l'écran de consentement OAuth laissé
 en « Testing » fait **expirer le jeton de rafraîchissement au bout de sept jours**.
@@ -169,7 +190,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
 | Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
-| Upload Post reste **écrit et non codé** | l'abstraire tout de suite « au cas où » |
+| Upload Post est **le transport codé pour les quatre plateformes** depuis le 23 août 2026 | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
 
 ## 4. Périmètre
 
@@ -193,6 +214,16 @@ Hors périmètre, et nommément :
   de les servir.
 
 ## 5. Le séquencement, qui est la vraie décision
+
+**Mise à jour au 23 août 2026 : ce séquencement décrit la voie d'un accès
+direct par plateforme, qui n'a pas démarré — aucun lot ci-dessous n'est fait.**
+Upload Post, lui, est câblé et court-circuite les quatre lots à la fois :
+Julien s'est abonné, la publication passe par leur transport pour Instagram,
+Facebook, TikTok et YouTube dès aujourd'hui, sans attendre le lot 0 ni les deux
+audits. Ce séquencement reste la description qui vaudrait le jour où un accès
+direct remplacerait Upload Post pour une plateforme donnée — un gain de délai
+de dépôt TikTok, une commission économisée — mais rien n'en dépend pour publier
+maintenant.
 
 Les audits durent de deux à six semaines et peuvent échouer. Le travail se range
 donc par ce qui n'attend rien, et non par ce qui semble le plus important.
@@ -221,10 +252,12 @@ c'est l'implémentation qui change, pas l'interface ni la table.
 
 **Lot 3 — YouTube, et seulement l'audit passé.** Voir §2.4.
 
-**Le repli Upload Post ne se code que si l'audit TikTok est refusé.** Il est décrit
-ici pour que la décision soit prête, pas pour être anticipé — `CLAUDE.md` : « ne
-pas anticiper une itération ultérieure au prétexte que c'est presque le même
-code ».
+**Upload Post n'est plus un repli qui attend l'échec de l'audit TikTok — voir la
+mise à jour en tête de section.** Le paragraphe qui suivait ici décrivait
+l'abonnement Basic (24 $/mois) comme la condition de son code ; l'offre
+réellement active au 23 août 2026 est la **gratuite** (§2.5) — dix
+téléversements par mois, un seul profil connecté (YouTube). Le connecteur
+existe donc déjà, sous ce plafond, et non sous celui de la Basic.
 
 ## 6. La conception
 
@@ -261,11 +294,56 @@ publication suit la même ligne : tout ce qui se décide sans réseau se décide
 
 ### 6.2 `src/server/publication/`
 
-Un adaptateur par plateforme derrière une seule interface. `meta.ts` couvre
-Instagram et Facebook, qui partagent le téléversement resumable et le même jeton.
-`tiktok.ts` porte les deux implémentations (directe ou Upload Post), choisies par
-l'environnement : **une seule est câblée à la fois**, et le repli n'existe pas
-tant que l'audit n'a pas échoué.
+**Mise à jour au 23 août 2026 : ce paragraphe décrivait un adaptateur par
+plateforme (`meta.ts`, `tiktok.ts`) ; ce qui existe est un seul connecteur pour
+les quatre, `upload-post.ts`, derrière l'interface ci-dessous — écrite
+`src/server/publication/adapter.ts`, déclaration canonique dont hérite tout
+connecteur à venir (un `meta.ts` direct, par exemple).**
+
+```ts
+export type PublicationJob = {
+  clipId: string
+  videoPath: string   // chemin absolu sur le disque — jamais une URL (§3)
+  title: string
+  description: string
+  fingerprint: string
+}
+
+export type PlatformOutcome =
+  | { status: 'in_progress'; requestId: string }
+  | { status: 'submitted';  remoteId: string | null; remoteUrl: string | null }
+  | { status: 'published';  remoteId: string | null; remoteUrl: string | null }
+  | { status: 'failed';     error: string }
+
+export type PublicationAdapter = {
+  readonly platforms: readonly Platform[]
+  availability(env: Environment): Promise<Record<Platform, PlatformAvailability>>
+  publish(job: PublicationJob, platforms: readonly Platform[]):
+    Promise<Record<Platform, PlatformOutcome>>
+  poll(requestId: string, platforms: readonly Platform[]):
+    Promise<Record<Platform, PlatformOutcome>>
+}
+```
+
+Deux points qui ne vont pas de soi.
+
+**`publish` prend un *ensemble* de plateformes, jamais une seule.** Une requête
+Upload Post porte `platform[]=…` en répétition et un seul fichier vidéo : un
+appel par plateforme paierait le téléversement autant de fois qu'il y a de
+plateformes visées. Le retour reste **par** plateforme (`Record<Platform,
+PlatformOutcome>`), ce qui satisfait §6.4 à la lettre : un échec Instagram
+n'annule ni ne rejoue une réussite TikTok.
+
+**`availability` est mesurée, pas déduite des variables d'environnement, et
+c'est asynchrone pour cette raison.** Une clé Upload Post valide ne dit rien
+des comptes réellement connectés au profil qu'elle sert — l'exemple qui a
+motivé cette correction est réel : le compte de Julien n'a relié que YouTube,
+et rapporter Instagram comme disponible aurait été le même mensonge que celui
+que `defaultPlatformAvailability` (`src/core/publication.ts`) existe déjà pour
+éviter. `upload-post.ts` interroge `GET /api/uploadposts/users` et met le
+résultat en cache une minute, dans la forme du cache sidecar de `run.ts`
+(`sidecars`) plutôt que par un import — ce fichier de `run.ts` est tenu par une
+autre PR au moment où ceci s'écrit.
 
 ### 6.3 L'état : une table, pas un ordonnanceur
 
@@ -360,7 +438,11 @@ confondre coûte une heure à chaque fois :
 
 1. **le jeton a expiré** — rejouer le script d'appairage ;
 2. **le débit est atteint** — 100 chez Instagram, 30 chez Facebook, 5 utilisateurs
-   chez TikTok non audité, 100 envois chez YouTube. Attendre, pas réessayer ;
+   chez TikTok non audité, 100 envois chez YouTube pour un accès direct.
+   **En passant par Upload Post (23 août 2026), c'est un autre plafond qui
+   frappe en premier : dix téléversements par mois, tous comptes confondus,
+   sur l'offre gratuite réellement active.** Attendre, pas réessayer, dans les
+   deux cas ;
 3. **le fichier est refusé** — durée, ratio, taille. Se rattrape dans `core`,
    avant l'envoi, pour ne pas payer un téléversement qui finira en 400 ;
 4. **l'audit n'est pas passé** — visible seulement à la visibilité du résultat, pas

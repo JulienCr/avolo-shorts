@@ -155,9 +155,19 @@ export function PanelExport({
    * détail, ce qui est pire que de ne rien dire. (relevé par Copilot)
    */
   const expected = [names.mp4, names.variant9x16, names.texts].filter((n) => n !== null).length
-  const delivered = [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter(
-    (u) => u !== null,
-  ).length
+  /**
+   * **Ne compte rien tant que `state` dit « jamais exporté ».** Un `.txt` peut
+   * rester sur le disque d'une tentative passée alors que la vidéo a disparu
+   * (`state === 'never'`, voir `deriveDeliveryState`) : sans cette garde, le pli
+   * annonçait « 1 fichier livré » pendant que le rail disait « jamais exporté »
+   * — la même contradiction que celle déjà corrigée ci-dessus, sur le champ
+   * voisin. (relevé par Aristarque)
+   */
+  const delivered =
+    state === 'never'
+      ? 0
+      : [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter((u) => u !== null)
+          .length
   const plural = expected > 1 ? 's' : ''
   const summary =
     delivered === 0
@@ -210,7 +220,22 @@ export function PanelExport({
       onOpenChange={setDetailOpen}
       className="flex shrink-0 flex-col border-t"
     >
-      <CollapsiblePanel className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:gap-10">
+      {/* **Bornée en hauteur d'établi, et pas ailleurs.** Le rail est le
+          quatrième frère flexible après `<main>` (jamais `sticky`/`fixed`) :
+          un pli qui grandit sans borne — un lecteur 9:16 livré, ses noms de
+          fichiers, les trois textes — vole cette hauteur à `main`, qui se
+          comprime jusqu'à faire sortir « Réglages du rendu » de son propre
+          volet sous `workbench:overflow-hidden`. Mesuré à 1024×1000, pli
+          ouvert : la section Image tombait à 315,25 px, sous les 486 px
+          qu'exigent ses seuls contrôles fixes (transport, bande de temps,
+          sélecteur de ratio, faits de montage, les deux déclencheurs, huit
+          marges et le remplissage du volet) même la rangée d'aperçus
+          écrasée à zéro — son déclencheur de réglages sortait des bornes du
+          volet. `20vh` (200 px à ce plancher) rend la section à 508,5 px,
+          au-dessus de ce seuil avec marge ; le débordement du pli lui-même
+          défile, plutôt que de repousser ce qui l'entoure. (relevé par
+          Codex) */}
+      <CollapsiblePanel className="flex flex-col gap-4 border-b p-4 lg:flex-row lg:gap-10 workbench:max-h-[20vh] workbench:overflow-y-auto">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex items-baseline gap-2">
             <h3 className="text-sm font-medium">Ce que l’export produit</h3>
@@ -225,9 +250,8 @@ export function PanelExport({
 
           <OutputsList names={names} native={native} outputs={outputs} />
 
-          {/* Ce qui est sur le disque se lit sur place. C'est le seul succès du
-              parcours qui mérite d'être vu, donc il reste au premier niveau du
-              pli plutôt que d'exiger un second clic. */}
+          {/* Ce qui est sur le disque se lit sur place, dans le pli « Détail » —
+              premier élément du pli, pas derrière un second dépliant imbriqué. */}
           <DeliveredPlayers clip={clip} outputs={outputs} native={native} />
         </div>
 
@@ -340,6 +364,7 @@ export function PanelExport({
               variant="outline"
               onClick={() => prevention === null && !exporter.isPending && setConfirmation(true)}
               aria-disabled={prevention !== null || exporter.isPending || undefined}
+              aria-busy={exporter.isPending || undefined}
             >
               Ré-exporter
             </Button>
@@ -359,6 +384,7 @@ export function PanelExport({
                 !publicationEligibility.eligible ||
                 undefined
               }
+              aria-busy={exporter.isPending || undefined}
             >
               <Send aria-hidden />
               Publier

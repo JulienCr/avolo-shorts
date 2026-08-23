@@ -25,6 +25,7 @@ import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
 import { clipDuration } from '@/core/edl'
+import { RATIOS } from '@/core/framing'
 import { resolveHook } from '@/core/hook'
 import { isGuard } from '@/core/phase'
 import type { Clip, ClipDetail, ClipPatch } from '@/lib/api'
@@ -462,7 +463,25 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               deux rapports fixes que les boîtes portent toujours, 16:9 et
               9:16 (`RATIOS`), jamais celui du plan en cours. */}
           <div className="flex flex-1 flex-wrap items-stretch gap-4 workbench:min-h-0 workbench:flex-nowrap workbench:max-h-[calc((100cqw-1rem)/2.3403)]">
-            <figure className="flex min-w-0 flex-col gap-1.5">
+            {/* **La largeur de chaque figure se pose, elle ne se déduit plus.**
+                Mesuré : laissée à `flex-basis: auto` (le défaut), la largeur
+                d'une figure dépendait de la longueur de sa légende — 420 px de
+                figure pour une boîte 16:9 qui n'en demandait que 333 — et le
+                calcul intrinsèque d'une boîte à `aspect-ratio` imbriquée dans
+                un enfant `flex-1` (la hauteur du cadre) se résout à une valeur
+                indéterminée pendant cette même passe : la boîte de sortie
+                débordait alors de sa figure de 30,7 px, rognée par
+                `overflow-hidden` du volet. Les deux rapports sont **fixes**
+                (16:9 pour la source, 9:16 pour le cadre du téléphone — jamais
+                celui du plan en cours, qui ne change que le canevas *dans* ce
+                cadre) : leur donner ces poids en `flex-grow`/`flex-shrink`
+                répartit la rangée d'après eux plutôt que d'après le texte de
+                la légende, qui tronque désormais au lieu de peser sur la
+                mise en page. (relevé par Codex) */}
+            <figure
+              className="flex min-w-0 flex-col gap-1.5"
+              style={{ flex: `${RATIOS['16:9']} ${RATIOS['16:9']} 0%` }}
+            >
               <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
                 la source — le rectangle est le cadre pris pour ce plan
               </figcaption>
@@ -489,6 +508,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
               ratio={editor.ratio}
               cropX={editor.cropX}
               frame={PREVIEW_FRAME}
+              figureStyle={{ flex: `${RATIOS['9:16']} ${RATIOS['9:16']} 0%` }}
               captionCards={clip.captions ? captionCards : undefined}
               captionStyle={DEFAULT_CAPTION_STYLE}
               segments={segments}

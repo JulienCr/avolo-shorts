@@ -1,9 +1,10 @@
 # La hiérarchie des écrans : ce qui domine, et ce qui devrait
 
 Date : 23 août 2026.
-Statut : proposé. Rien de ce document n'est implémenté. Le chantier est suivi par
-l'**issue #131**, qui porte le périmètre et l'ordre ; les mesures et les
-arbitrages sont ici.
+Statut : en cours. Les §3.3 et §3.4 (l'établi de l'écran clip) sont implémentés ;
+le reste — dont le §3.1 (l'undo du cadrage) — ne l'est pas encore. Le chantier
+est suivi par l'**issue #131**, qui porte le périmètre et l'ordre ; les mesures
+et les arbitrages sont ici.
 
 Ce document décide du **poids relatif** de ce que les écrans portent déjà. Il
 n'ajoute aucune fonction. Il ne touche ni au pipeline, ni à l'API, ni au cadrage
@@ -207,11 +208,21 @@ nul, même sur une livraison complète : lire `mp4Url` seul figerait ces clips e
 « périmé » à vie. Le `.txt` seul ne compte pas davantage, puisqu'il n'y a alors
 rien à publier.
 
-Le troisième cas est atteignable parce que la péremption est **paresseuse**,
-posée par `deliveryToDay` (`src/server/renders.ts:162`) : un réglage global de
-hook qui change annule les URL au prochain `GET` sans que `discardRenderStale`
-soit passé, et `status` reste `exported`. Aucun changement d'API, ce que le §6
-exige.
+Le troisième cas est atteignable par deux chemins **paresseux**, qui laissent
+tous deux `status` à `exported` sans jamais passer par `discardRenderStale` :
+un réglage global de hook qui change annule les URL au prochain `GET`
+(`deliveryToDay`, `src/server/renders.ts:162`, compare l'empreinte au réglage
+courant), ou un fichier rendu disparu du disque (`urlIfProduced` sonde
+`existsSync`, pas `deliveryToDay`). Aucun changement d'API, ce que le §6 exige.
+
+Une modification du montage après export ne suit pas ce chemin paresseux : elle
+appelle `discardRenderStale`, qui efface les fichiers rendus **et** redescend
+`status` à `kept` dans le même geste. Il n'y a alors plus ni vidéo ni `status
+=== 'exported'` à lire — les deux champs qui distinguent « périmé » de « jamais
+livré » ont disparu ensemble. Un montage retouché après export retombe donc
+légitimement en « jamais livré », pas en « périmé » : ce document promettait
+l'inverse, à tort. Fermer cet écart demanderait de remonter `lFingerprintGap`
+(`render.ts:1093`) au client, ce que le §6 exclut de ce lot.
 
 `alreadyDelivered` (`export-panel.tsx:126`) et `publicationEligibility.eligible`
 (`:167`) sont deux dérivations distinctes du même fait : elles convergent vers un

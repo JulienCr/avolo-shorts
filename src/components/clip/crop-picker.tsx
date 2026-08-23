@@ -342,31 +342,52 @@ export function RatioPicker({
         {nativeRatio}
       </p>
 
-      {/* **Les deux fichiers, nommés.** Voir le bloc de tête : c'est la ligne qui
-          empêche de croire qu'on règle ici la sortie verticale plan par plan. */}
+      {/* **La ligne qui nomme les deux fichiers reste visible, toujours.**
+          `2026-08-18-parcours-utilisateur-design.md` §3.3 : c'est elle seule qui
+          empêche de croire que les six pastilles de ratio règlent la sortie
+          verticale plan par plan. Ce qui folde en dessous, ce sont les phrases
+          qui expliquent *comment* chacune se comporte (§4.1 du 23 août) — la
+          distinction est le point du geste : le nom ne se cache jamais, la
+          notice s'ouvre à la demande. (relevé par Aristarque) */}
       <p className="basis-full text-[0.75rem] text-muted-foreground">
-        {variantDue ? (
-          <>
-            Le <strong className="font-medium">fichier natif</strong> sort en{' '}
-            <span className="font-mono">{nativeRatio}</span>, le même d’un bout à l’autre, pour le
-            feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan sur
-            un canevas vertical, sur fond flouté
-            {varies && (
-              <>
-                {' '}
-                — le cadre y change avec les plans (
-                <span className="font-mono">{varied.join(', ')}</span>)
-              </>
-            )}{' '}
-            : elle suit le calcul et ne se règle pas ici.
-          </>
-        ) : (
-          <>
-            Le <strong className="font-medium">fichier natif</strong> est déjà vertical : c’est la
-            seule sortie, il n’y a pas de variante à produire.
-          </>
-        )}
+        <strong className="font-medium">Fichier natif</strong>{' '}
+        <span className="font-mono">{nativeRatio}</span>
+        {' · '}
+        <strong className="font-medium">Variante 9:16</strong>{' '}
+        {variantDue ? 'sur fond flouté' : 'aucune'}
       </p>
+
+      <details className="group/comportement basis-full">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[0.75rem] text-muted-foreground marker:content-none hover:text-foreground">
+          <span className="inline-block transition-transform group-open/comportement:rotate-90">
+            ›
+          </span>
+          Comment chaque sortie se comporte
+        </summary>
+        <p className="mt-1 text-[0.75rem] text-muted-foreground">
+          {variantDue ? (
+            <>
+              Le <strong className="font-medium">fichier natif</strong> sort en{' '}
+              <span className="font-mono">{nativeRatio}</span>, le même d’un bout à l’autre, pour le
+              feed. La <strong className="font-medium">variante 9:16</strong> pose chaque plan sur
+              un canevas vertical, sur fond flouté
+              {varies && (
+                <>
+                  {' '}
+                  — le cadre y change avec les plans (
+                  <span className="font-mono">{varied.join(', ')}</span>)
+                </>
+              )}{' '}
+              : elle suit le calcul et ne se règle pas ici.
+            </>
+          ) : (
+            <>
+              Le <strong className="font-medium">fichier natif</strong> est déjà vertical : c’est la
+              seule sortie, il n’y a pas de variante à produire.
+            </>
+          )}
+        </p>
+      </details>
 
       {/* **Le repli se dit, il ne se subit pas** — mais il se lit à la demande.
           `renders` ne dépend pas d'`analysis` dans le graphe : rien ne garantit

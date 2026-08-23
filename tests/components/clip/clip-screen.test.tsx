@@ -334,6 +334,34 @@ describe('les marques', () => {
   })
 })
 
+describe('les sous-titres', () => {
+  it('décochent et écrivent, symétrique au cas des marques ci-dessus', async () => {
+    // Le réglage voisin des marques vérifie déjà l'écriture optimiste/PATCH ;
+    // les sous-titres partagent le même mécanisme (`RenderSettings`) et n'en
+    // avaient pas le pendant, alors qu'une régression de ce contrôle passerait
+    // silencieusement. (relevé par Copilot)
+    const patches: string[] = []
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        patches.push(String(options.body))
+        return response({ applied: true, clip: detail('c2').clip, outputs: detail('c2').outputs, seq: 2 })
+      }
+      if (String(url).includes('/candidates')) return response(candidates)
+      return response(detail('c2'))
+    })
+    vi.stubGlobal('fetch', fetch)
+    await mount('c2')
+
+    const zone = screen.getByRole('region', { name: 'Image' })
+    fireEvent.click(within(zone).getByRole('button', { name: /réglages du rendu/i }))
+    const captions = within(zone).getByRole<HTMLInputElement>('checkbox', { name: /sous-titres/i })
+    expect(captions.checked).toBe(true)
+
+    fireEvent.click(captions)
+    await waitFor(() => expect(patches.some((body) => body.includes('"captions":false'))).toBe(true))
+  })
+})
+
 describe('le mot barré cliqué loin devant', () => {
   it('déplace la borne plutôt que d’ajouter une île', async () => {
     // Spec §7.1 : un mot barré à l'extérieur de l'étendue est une borne, pas un

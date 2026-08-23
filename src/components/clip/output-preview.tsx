@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef } from 'react'
+import type { CSSProperties } from 'react'
 
 import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
@@ -85,6 +86,7 @@ export function PreviewOutput({
   cropX,
   hook,
   frame,
+  figureStyle,
   captionCards,
   captionStyle,
   segments,
@@ -124,6 +126,20 @@ export function PreviewOutput({
    * la largeur se déduit de `aspect-ratio` et ne se borne jamais.
    */
   frame?: string
+  /**
+   * Le poids de la figure racine dans la rangée des deux aperçus.
+   *
+   * **`clip-screen.tsx` le pose en `flex-grow`/`flex-shrink` fixes** (16:9
+   * pour la figure jumelle, 9:16 pour celle-ci — le rapport du cadre du
+   * téléphone, pas celui du plan en cours) plutôt que de laisser
+   * `flex-basis: auto` répartir la largeur d'après le contenu : une boîte à
+   * `aspect-ratio` imbriquée dans un enfant `flex-1` se mesure à une valeur
+   * indéterminée pendant la passe intrinsèque de la rangée, et la légende
+   * ("variante 9:16 · …") pesait alors sur la largeur à sa place — la figure
+   * de sortie retombait plus étroite que sa propre boîte, rognée par
+   * `overflow-hidden` du volet. (relevé par Codex)
+   */
+  figureStyle?: CSSProperties
   /** Cartons de `splitIntoCards(retimeWords(mots, segments))` — fidèle au rendu (spec §9). `undefined` ferme le calque. */
   captionCards?: readonly Word[][]
   /** Le preset appliqué aux sous-titres. Ignoré si `captionCards` est `undefined`. */
@@ -220,7 +236,7 @@ export function PreviewOutput({
   const time = useCaptionClock(video, captionCards !== undefined)
 
   return (
-    <figure className="flex min-h-0 min-w-0 flex-col gap-1.5">
+    <figure className="flex min-h-0 min-w-0 flex-col gap-1.5" style={figureStyle}>
       {/* **La légende est au-dessus, et pas sous l'image.** Les deux aperçus
           doivent avoir la même hauteur visuelle : une légende sous l'un et
           au-dessus de l'autre décalerait leurs cadres d'une ligne, ce qui est

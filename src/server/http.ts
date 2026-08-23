@@ -3,6 +3,14 @@ import type { z } from 'zod'
 import { InvalidSettingError } from '@/server/db'
 import { messageSafe } from '@/server/errors'
 import { isTransient, GeminiBlockedError } from '@/server/llm/retry'
+import {
+  PublicationAlreadyPublishedError,
+  UploadPostAccountMisconfiguredError,
+  UploadPostFileRefusedError,
+  UploadPostRateLimitError,
+  UploadPostTokenExpiredError,
+} from '@/server/publication/errors'
+import { PublicationInCurrentError } from '@/server/publication/registry'
 import { ProjectErrorCollision, ExecutionInCurrentError, UnknownProjectError } from '@/server/run'
 
 /**
@@ -60,6 +68,20 @@ export function statusFor(error: unknown): number {
   // Deux sources différentes pour un même identifiant : la demande est bien
   // formée, elle entre en conflit avec ce qui existe déjà.
   if (error instanceof ProjectErrorCollision) return 409
+  // Une publication tourne déjà sur ce couple (clip, plateforme) — même rôle
+  // que `ExecutionInCurrentError` côté pipeline.
+  if (error instanceof PublicationInCurrentError) return 409
+  // Republier une plateforme déjà `published` sans `force` : la demande est
+  // bien formée, elle entre en conflit avec ce qui existe déjà (spec §6.5).
+  if (error instanceof PublicationAlreadyPublishedError) return 409
+  // Les quatre natures d'échec d'Upload Post qui remontent par un code HTTP
+  // (spec publication §8) : jeton expiré, débit atteint, fichier refusé,
+  // compte mal configuré. La cinquième — l'audit non passé — ne se voit qu'à
+  // la visibilité du résultat, jamais dans un statut.
+  if (error instanceof UploadPostTokenExpiredError) return 401
+  if (error instanceof UploadPostRateLimitError) return 429
+  if (error instanceof UploadPostFileRefusedError) return 422
+  if (error instanceof UploadPostAccountMisconfiguredError) return 400
   // Le filtre de contenu a refusé : ni la faute de l'appelant, ni un défaut du
   // serveur. 422 — la demande est bien formée, elle ne peut simplement pas être
   // traitée.

@@ -72,6 +72,7 @@ changé dans le produit et ce qu'il faut savoir avant d'y toucher.
 | #85 | Un fournisseur et un modèle **par usage** — Gemini, OpenAI, Ollama —, réglables depuis les Paramètres |
 | #86 | Le transcript de l'émission : le voir en entier, le corriger par substitutions indexées qui préservent les timings, relancer la transcription par le graphe |
 | #95 | L'interface de publication, **sans connecteur** : une modale partagée entre un clip et une sélection, six états, quatre plateformes visibles et désactivées avec leur raison |
+| #144 | Le connecteur de publication, via Upload Post plutôt qu'un accès direct par plateforme : cœur pur, table `publications`, interface `PublicationAdapter`, routes API, `scripts/dev-publish.ts`. YouTube câblé mais **non vérifié** — voir plus bas |
 | #79, #89 | Deux préconditions découvertes en construisant, décrites juste en dessous |
 
 **Deux préconditions qui n'étaient dans aucun plan.** Elles valent d'être
@@ -392,11 +393,18 @@ l'ordre où ils se tiennent :
    la forme est déjà tranchée : **des substitutions indexées, pas du texte**.
    Attention à la VRAM : un modèle Ollama de 18 Go et WhisperX ne tiennent pas
    ensemble sur 24 Go, la correction s'exécute **après** la transcription.
-3. **Les connecteurs de publication** — hors périmètre décidé, l'interface les
-   attend. Rien ne démarre avant le dépôt des deux audits (§lot 0 de la spec de
-   publication), et **le connecteur YouTube ne s'écrit pas avant que le sien
-   soit passé** : sans audit, une vidéo envoyée par l'API est verrouillée en
-   privé et ne peut plus être libérée, même à la main.
+3. **Les connecteurs de publication — livrés le 23 août 2026 par la PR #144,
+   via Upload Post plutôt qu'un accès direct par plateforme.** Julien s'y est
+   abonné (offre gratuite) : ça court-circuite le lot 0 et les deux audits, qui
+   restent la voie d'un accès direct un jour mais ne bloquent plus rien
+   aujourd'hui. **Le connecteur YouTube est câblé, et sa qualité « publique »
+   est mesurée** (§2.4 de la spec de publication) : un envoi réel en
+   `privacyStatus=unlisted` — délibérément pas `public`, pour ne rien exposer
+   tout en testant le même verrou — est reparti tel quel plutôt que rabattu en
+   privé, vidéo dont l'identifiant est expurgé ici (lien-capacité : le connaître suffit à la voir). Le verrou porte sur le projet API qui appelle,
+   celui d'Upload Post, déjà audité pour son propre compte, et non sur
+   YouTube lui-même. Un connecteur YouTube **direct**, écrit par ce dépôt,
+   resterait lui soumis à l'interdiction jusqu'à son propre audit.
 4. **Le balayage de l'issue #73 est livré** — PR #102 (`cf72967`) pour les
    surfaces persistées, PR #103 (`c151759`) pour le balayage. Le code du dépôt
    est en anglais. Ce qui reste tient en une dizaine d'identifiants, listés dans
@@ -620,27 +628,36 @@ bénéfice visuel mesuré. Le réglage manuel livré en itération 0 n'est pas j
 il reste comme réglage de dernier recours, et l'automatique ne fera que le
 préremplir.
 
-### La publication, qui s'ajoute et dont l'horloge tourne déjà
+### La publication, dont le connecteur est branché depuis le 23 août 2026
 
 Un spike du 18 août 2026 a sorti la publication du hors-périmètre. Sa conception
-est dans `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md` ; trois
-choses en ressortent pour qui orchestre.
+est dans `docs/superpowers/specs/2026-08-18-publication-reseaux-design.md`,
+corrigée par la PR #144 sur trois points depuis. Ce qui suit tient compte de la
+correction ; le détail et son pourquoi sont dans la spec.
 
-**Deux audits sont à déposer, et ils ne tiennent pas dans une itération** : deux à
-six semaines chez YouTube comme chez TikTok, avec un refus possible. Ils se
-déposent donc **avant** le code qui en dépend, en parallèle du reste — c'est le
-« lot 0 » de la spec, qui ne contient pas une ligne de code.
+**Le connecteur des quatre plateformes est écrit, via Upload Post plutôt qu'un
+accès direct.** Julien s'y est abonné (offre gratuite — dix téléversements par
+mois, un seul profil connecté : YouTube). Les deux audits YouTube et TikTok, et
+le lot 0 qui les précède, restent la voie d'un accès direct un jour — une
+commission économisée, un dépôt TikTok sans passer par leur brouillon — mais
+plus rien n'en dépend pour publier aujourd'hui.
 
-**Instagram et Facebook n'attendent rien** et se branchent quand on veut : une app
-Meta en mode développement publie réellement, gratuitement, sans revue, sur les
-comptes qui ont un rôle sur elle.
+**Le connecteur YouTube est câblé, et sa qualité « publique » est mesurée,
+pas seulement présumée.** Le verrou qui interdisait de l'écrire (une vidéo
+envoyée par un projet API non audité, verrouillée en privé pour toujours) porte
+sur le projet **appelant** — celui d'Upload Post ici, déjà audité pour son
+propre compte, pas un projet créé par ce dépôt. Mesuré le 23 août 2026 : un
+envoi réel demandant `unlisted` plutôt que `public` — pour ne rien exposer tout
+en testant le même verrou, puisqu'un projet non audité forcerait `private`
+quelle que soit la visibilité demandée — est reparti `unlisted` tel quel,
+vidéo dont l'identifiant est expurgé ici (lien-capacité). Un connecteur YouTube **direct** resterait, lui, soumis à
+l'interdiction d'avant jusqu'à son propre audit — c'est le contre-sens le plus
+coûteux du sujet, et il est d'autant plus facile à commettre que l'intuition
+désigne TikTok comme la plateforme difficile.
 
-**Le connecteur YouTube ne doit pas être écrit avant que son audit soit passé.**
-Sans audit, une vidéo envoyée par l'API est verrouillée en privé et ne peut plus
-être libérée, même à la main dans Studio : le connecteur produirait une vidéo morte
-et un ré-envoi manuel. C'est le contre-sens le plus coûteux du sujet, et il est
-d'autant plus facile à commettre que l'intuition désigne TikTok comme la
-plateforme difficile.
+**Ce qui reste à faire** : brancher `onLaunch`/`availability` sur la modale de
+publication de la PR #95, une fois les PR #142 et #143 fusionnées et la base
+stabilisée — la PR #144 livre le backend sans toucher à l'interface.
 
 ## Reprendre l'orchestration
 

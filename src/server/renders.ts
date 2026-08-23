@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Clip } from '@/core/edl'
 import { outputSize } from '@/core/framing'
 import { hookIsBurned, resolveHook, type HookSettings } from '@/core/hook'
+import { RENDER_NATIVE } from '@/core/render-flags'
 import type { PublishedFraming, ClipOutputs } from '@/lib/api'
 import { clipFraming } from '@/server/clip-framing'
 import { isAAbsence } from '@/server/bytes'
@@ -42,7 +43,11 @@ export type OutputClip = {
 }
 
 type Outputs = {
-  mp4: OutputClip
+  /**
+   * `null` quand `RENDER_NATIVE` est désactivé ET qu'une variante 9:16 existe
+   * pour le remplacer — voir `pathsRender`. Reste dû sur un clip déjà en 9:16.
+   */
+  mp4: OutputClip | null
   /** `null` quand le ratio natif résolu est **déjà** 9:16 : la variante n'est pas due. */
   variant9x16: OutputClip | null
   texts: OutputClip
@@ -68,9 +73,9 @@ function outputs(clip: Clip, framing: PublishedFraming): Outputs {
   // plans —, et c'est sous ce ratio-là que l'export a décidé s'il devait une
   // variante. Le lire ailleurs ferait chercher un `-9x16.mp4` sous un clip qui
   // n'en a pas, ou l'inverse.
-  const paths = pathsRender(clip.projectId, clip.id, framing.ratio)
+  const paths = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE)
   return {
-    mp4: output(paths.mp4, 'video/mp4'),
+    mp4: paths.mp4 === null ? null : output(paths.mp4, 'video/mp4'),
     variant9x16:
       paths.variant9x16 === null ? null : output(paths.variant9x16, 'video/mp4'),
     texts: output(paths.texts, 'text/plain; charset=utf-8'),
@@ -211,13 +216,15 @@ export function clipOutputs(
   if (!deliveryToDay(clip, framing, hookGlobals)) {
     return {
       mp4Url: null,
+      mp4Due: mp4 !== null,
       variant9x16Url: null,
       variant9x16Due: variant9x16 !== null,
       textsUrl: null,
     }
   }
   return {
-    mp4Url: urlIfProduced(clip, mp4),
+    mp4Url: mp4 === null ? null : urlIfProduced(clip, mp4),
+    mp4Due: mp4 !== null,
     variant9x16Url: variant9x16 === null ? null : urlIfProduced(clip, variant9x16),
     variant9x16Due: variant9x16 !== null,
     textsUrl: urlIfProduced(clip, texts),

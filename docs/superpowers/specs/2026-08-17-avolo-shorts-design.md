@@ -1172,6 +1172,15 @@ pas l'un de l'autre :
   qui reste. Un plan en 9:16 remplit le canevas, un 1:1 en occupe 56,3 % de la
   hauteur, un 16:9 31,6 %.
 
+**Le natif ne se produit plus par défaut depuis le 23 août 2026**
+(`src/core/render-flags.ts`, `RENDER_NATIVE`). Sur les trois émissions
+mesurées, personne ne récupérait ce fichier : Instagram, TikTok et YouTube
+Shorts publient tous la variante 9:16. Un clip déjà en 9:16 continue de
+produire son natif — il n'a pas de variante séparée, c'est alors l'unique
+livrable. Un simple booléen, gardé réversible : remettre le flag à `true`
+restaure le comportement ci-dessus à l'identique, pour le jour où un feed
+Instagram/Facebook natif redevient un besoin réel.
+
 **Les deux sont deux rendus indépendants de la source** : `blurredVariantArgs`
 refait tout le chemin — décoder, recadrer, mettre à l'échelle, composer — plutôt
 que de partir du fichier natif. C'est ce qui permet au 9:16 de resserrer un plan

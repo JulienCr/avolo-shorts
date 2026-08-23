@@ -453,11 +453,16 @@ repéré : un dépôt fraîchement cloné voit donc ses exports échouer tant qu
 pas de marque, et `branding: false` sur le clip est la façon de rendre
 volontairement sans. L'une des deux images suffit à faire passer l'export.
 
-Un clip produit **deux fichiers dès que son ratio natif n'est pas 9:16** : le
-format natif pour le feed d'Instagram et de Facebook, et une variante 9:16 sur
-fond flouté pour TikTok et Shorts. **Les deux se rendent depuis la source**, avec
-les mêmes segments et les mêmes sous-titres — voir la section suivante, qui
-explique pourquoi la variante ne part plus du natif.
+Un clip produisait **deux fichiers dès que son ratio natif n'était pas 9:16** :
+le format natif pour le feed d'Instagram et de Facebook, et une variante 9:16
+sur fond flouté pour TikTok et Shorts. **Depuis le 23 août 2026, le natif ne
+se produit plus par défaut** (`RENDER_NATIVE`, `src/core/render-flags.ts`) :
+seule la variante 9:16 sert en pratique, les trois plateformes mesurées la
+publiant toutes. Un clip déjà en 9:16 continue de produire son natif — c'est
+alors l'unique livrable, pas un doublon. **Les deux se rendent depuis la
+source**, avec les mêmes segments et les mêmes sous-titres, quand les deux
+sont dus — voir la section suivante, qui explique pourquoi la variante ne
+part plus du natif.
 
 **Ils n'ont plus le même rectangle de crop, et c'est le cadrage automatique du
 19 août 2026.** Le ratio se choisit désormais **par plan** : le natif prend le

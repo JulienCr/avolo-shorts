@@ -615,6 +615,27 @@ function buildRender(
   const hookFadeOutMs =
     o.hookImage !== undefined ? hookFadeMsFor(o.hookImage.exit, 'exit', o.hookImage.durationMs) : 0
   const hookNeedsFade = hookFadeInMs > 0 || hookFadeOutMs > 0
+  // **Les marques (logo + Twitch) attendent la fin du hook.** Posées dessous
+  // le hook, elles seraient invisibles ; posées dessus, elles le
+  // recouvriraient. `logoRevealMs` reprend tel quel `hookFadeOutMs` : la
+  // marque apparaît exactement quand le hook commence à s'effacer, et finit
+  // d'apparaître pile à l'instant où `enable=` du hook l'éteint — jamais un
+  // rythme indépendant qui déraperait de quelques images. Sans hook
+  // (`hookImage` absent), `logoAppearSec` reste `null` et les marques restent
+  // visibles dès la première image, comme avant cette fonctionnalité.
+  const logoRevealMs = hookFadeOutMs
+  const logoAppearSec =
+    o.hookImage !== undefined ? o.hookImage.durationMs / 1000 - logoRevealMs / 1000 : null
+  // **Vrai seulement quand une marque porte réellement un fondu** (le hook a
+  // un fondu de sortie) — jamais seulement parce qu'un hook existe. Gouverne
+  // trois choses ensemble, et les trois doivent rester d'accord entre elles :
+  // le filtre `fade=` sur le flux brut (`logoFade`), la boucle de l'entrée
+  // ffmpeg qui le nourrit en images (`-loop 1 -framerate 30`, sans quoi
+  // `fade` ne voit qu'UNE image et la marque ne redevient jamais visible —
+  // constaté sur un vrai export), et `:shortest=1` sur l'overlay qui en
+  // dépend (sans quoi une entrée bouclée devenue infinie ne laisse jamais le
+  // rendu se terminer — le même défaut, déjà mesuré sur le hook lui-même).
+  const logoLoops = logoAppearSec !== null && logoRevealMs > 0
   // `'hk'` quand un fondu se pose sur le flux — voir le `format=rgba,fade=…`
   // poussé au graphe plus bas, avec les mises à l'échelle des logos, pour la
   // même raison qu'elles : cette étape porte sur l'entrée BRUTE du hook, pas
@@ -646,10 +667,17 @@ function buildRender(
   // Les logos passent **après** l'incrustation des sous-titres et du hook :
   // une marque posée dessous serait recouverte par le premier carton (ou le
   // bandeau de hook) qui monte assez haut.
+  const logoEnable = logoAppearSec !== null ? `:enable='gte(t,${seconds(logoAppearSec)})'` : ''
+  // Le même besoin que le hook, et pour la même raison : une entrée bouclée
+  // (donc infinie) sans `shortest=1` ne laisse jamais ce rendu se terminer.
+  // Seulement quand `logoLoops` boucle vraiment l'entrée — ajouté sans
+  // condition, `shortest=1` couperait une marque non bouclée dès sa seule
+  // image décodée, bien avant la fin du clip.
+  const logoShortest = logoLoops ? ':shortest=1' : ''
   logos.forEach((logo, i) => {
     const x = number(logo.x, `logos[${i}].x`)
     const y = number(logo.y, `logos[${i}].y`)
-    steps.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}[${s}]`)
+    steps.push((e, s) => `[${e}][lg${i}]overlay=x=${x}:y=${y}${logoEnable}${logoShortest}[${s}]`)
   })
 
   // Où finit tout le graphe. Quand rien ne s'incruste, c'est la composition —
@@ -751,10 +779,13 @@ function buildRender(
   // a un, s'est glissé une entrée avant les logos (voir sa définition plus
   // haut) — sans ce décalage, chaque logo pointerait vers l'entrée qui le
   // précède, et le dernier logo n'aurait pas d'entrée du tout.
+  const logoFade = logoLoops
+    ? `,format=rgba,fade=t=in:st=${seconds(logoAppearSec)}:d=${seconds(logoRevealMs / 1000)}:alpha=1`
+    : ''
   logos.forEach((logo, i) => {
     const w = number(logo.w, `logos[${i}].w`)
     const h = number(logo.h, `logos[${i}].h`)
-    graph.push(`[${logoInputOffset + i}:v]scale=${w}:${h}[lg${i}]`)
+    graph.push(`[${logoInputOffset + i}:v]scale=${w}:${h}${logoFade}[lg${i}]`)
   })
 
   chain(graph, content, steps, terminal)
@@ -785,7 +816,22 @@ function buildRender(
     ...(o.hookImage !== undefined ? ['-loop', '1', '-framerate', '30', '-i', o.hookImage.path] : []),
     // Les logos n'ont pas de `-hwaccel` : décoder un PNG sur le GPU ne rapporte
     // rien et le ferait remonter en mémoire vidéo pour redescendre aussitôt.
-    ...logos.flatMap((logo) => ['-i', logo.path]),
+    //
+    // **`-loop 1 -framerate 30`, comme le hook, dès qu'une marque porte un
+    // fondu.** Un logo sans fondu se pose tel quel sur toute la durée du clip
+    // et une seule image décodée suffit — `overlay` la répète après coup
+    // (`eof_action=repeat` par défaut). Mais `logoFade` (voir plus haut) pose
+    // un `fade=` sur son flux brut, qui a besoin d'images qui continuent
+    // d'arriver au fil du temps pour animer quoi que ce soit : sans boucle,
+    // `fade` ne reçoit qu'UNE image, évaluée à son PTS d'origine — avant `st`,
+    // donc transparente — et `overlay` répète ensuite cette image figée pour
+    // tout le reste du clip. La marque ne redevient alors JAMAIS visible,
+    // quelle que soit `enable=`. Constaté sur un vrai export avant ce
+    // correctif : reproduit isolément, une entrée non bouclée derrière un
+    // `fade=t=in` ne montre rien, la même entrée bouclée montre l'image.
+    ...logos.flatMap((logo) =>
+      logoLoops ? ['-loop', '1', '-framerate', '30', '-i', logo.path] : ['-i', logo.path],
+    ),
     '-filter_complex', graph.join(';'),
     '-map', '[v]',
     '-map', '[a]',

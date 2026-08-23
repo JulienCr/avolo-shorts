@@ -64,18 +64,30 @@ describe('wordsHash', () => {
 })
 
 describe('outputNames', () => {
-  it.each<Ratio>(['9:16', '4:5', '1:1', '16:9'])(
-    'nomme les fichiers comme l’export les écrit — %s',
-    (ratio) => {
-      const paths = pathsRender('p1', 'c1', ratio)
-      expect(outputNames('c1', ratio)).toEqual({
-        mp4: path.basename(paths.mp4),
-        variant9x16:
-          paths.variant9x16 === null ? null : path.basename(paths.variant9x16),
-        texts: path.basename(paths.texts),
-      })
-    },
-  )
+  // **Les deux côtés de la copie doivent lire le même `renderNative`.**
+  // `pathsRender` défaut à `true` (fonction pure, neutre par défaut) et
+  // `outputNames` à `RENDER_NATIVE` (le réglage réel de l'application) : sans
+  // le passer explicitement aux deux, ce test comparerait deux calculs sous
+  // deux réglages différents, et une vraie divergence entre les deux copies
+  // se cacherait derrière ce décalage plutôt que d'échouer.
+  it.each<[Ratio, boolean]>([
+    ['9:16', true],
+    ['4:5', true],
+    ['1:1', true],
+    ['16:9', true],
+    ['9:16', false],
+    ['4:5', false],
+    ['1:1', false],
+    ['16:9', false],
+  ])('nomme les fichiers comme l’export les écrit — %s, natif actif : %s', (ratio, renderNative) => {
+    const paths = pathsRender('p1', 'c1', ratio, renderNative)
+    expect(outputNames('c1', ratio, renderNative)).toEqual({
+      mp4: paths.mp4 === null ? null : path.basename(paths.mp4),
+      variant9x16:
+        paths.variant9x16 === null ? null : path.basename(paths.variant9x16),
+      texts: path.basename(paths.texts),
+    })
+  })
 
   it('n’annonce pas de variante quand le ratio est déjà 9:16', () => {
     // Ce n'est pas une sortie manquante : elle n'existera jamais, et le panneau

@@ -104,7 +104,6 @@ export function PanelExport({
   const shotCount = framing.shots.length
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
-  const alreadyDelivered = outputs.mp4Url !== null
   /**
    * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et
    * combien sont là. Le reste — leurs noms, le compte des plans — est du détail
@@ -119,6 +118,12 @@ export function PanelExport({
   const delivered = [outputs.mp4Url, outputs.variant9x16Url, outputs.textsUrl].filter(
     (u) => u !== null,
   ).length
+  // **Le même défaut que `expected`/`delivered` visait déjà, retrouvé un cran
+  // plus haut.** `mp4Url` seul ne dit plus « livré » depuis que le natif peut
+  // être durablement absent par design (`RENDER_NATIVE`) : un clip qui n'a
+  // livré que sa variante 9:16 a bien été exporté, et le bouton doit dire
+  // « Ré-exporter », pas « Exporter » comme s'il n'y avait jamais rien eu.
+  const alreadyDelivered = delivered > 0
   const plural = expected > 1 ? 's' : ''
   const summary =
     delivered === 0
@@ -149,14 +154,18 @@ export function PanelExport({
 
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   /**
-   * L'éligibilité à la publication, **lue sur `outputs.mp4Url`, jamais
-   * déduite du statut.** `mp4Url` vaut `null` dans les trois situations que
-   * son propre docbloc énumère (`src/lib/api.ts`) — jamais rendu, rendu
-   * périmé, fichier disparu — et c'est exactement ce que `déjàLivré`
-   * utilise déjà deux lignes plus haut pour le même écran. Répéter le même
-   * calcul ici serait la première divergence.
+   * L'éligibilité à la publication, **lue sur une vidéo, jamais sur
+   * `alreadyDelivered`.** Les deux se ressemblent mais répondent à deux
+   * questions différentes : `alreadyDelivered` dit si le bouton doit proposer
+   * « Ré-exporter » plutôt que « Exporter », et un `.txt` déjà sur le disque y
+   * répond aussi bien qu'une vidéo — le mot est bien réexportable. Ici, la
+   * question est « y a-t-il quelque chose à envoyer », et le `.txt` seul n'y
+   * répond pas : un clip dont la vidéo a disparu du disque en ne laissant que
+   * son texte n'a rien de publiable, alors que `alreadyDelivered` le dirait
+   * livré. (relevé par Copilot et Aristarque)
    */
-  const publicationEligibility = clipExportEligibility(alreadyDelivered)
+  const hasRenderedVideo = outputs.mp4Url !== null || outputs.variant9x16Url !== null
+  const publicationEligibility = clipExportEligibility(hasRenderedVideo)
   const publishTarget: PublishClipTarget = {
     clipId: clip.id,
     title: clip.title,
@@ -410,10 +419,23 @@ function OutputsList({
 }) {
   return (
     <ul className="mt-2 flex flex-col gap-1">
-      <li className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-[0.75rem]">{names.mp4}</span>
-        <span className="text-[0.75rem] text-muted-foreground">le rendu {native}, pour le feed</span>
-      </li>
+      {names.mp4 === null ? (
+        // **`mp4Due` sépare deux `null` qui ne veulent pas dire la même
+        // chose**, comme `variant9x16Due` juste en dessous. Le natif est
+        // désactivé (`RENDER_NATIVE`) sur ce clip parce que sa variante 9:16
+        // le remplace : son absence n'est pas un rendu manquant.
+        <li className="text-[0.75rem] text-muted-foreground">
+          Le rendu natif est désactivé : la variante 9:16 sert de livrable.
+        </li>
+      ) : (
+        <li className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-mono text-[0.75rem]">{names.mp4}</span>
+          <span className="text-[0.75rem] text-muted-foreground">
+            le rendu {native}, pour le feed
+            {outputs.mp4Url === null && outputs.mp4Due && ' — dû, pas encore produit'}
+          </span>
+        </li>
+      )}
 
       {names.variant9x16 === null ? (
         // **`variant9x16Due` sépare deux `null` qui ne veulent pas dire la même

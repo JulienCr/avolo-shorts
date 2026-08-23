@@ -496,6 +496,14 @@ export type ClipDetail = {
  * fichiers ; ici ce sont des URL, directement lisibles par un `<video>` ou un
  * `<a>`.
  *
+ * **`mp4Due` sépare deux `null` qui ne veulent pas dire la même chose non
+ * plus, du côté du natif cette fois.** Le rendu natif est désactivé
+ * (`RENDER_NATIVE`, `@/core/render-flags`) sur tout clip dont le ratio résolu
+ * n'est pas déjà 9:16 — la variante 9:16 le remplace, personne ne récupère les
+ * deux. `mp4Due === false` veut dire « n'existera jamais, la variante est le
+ * livrable » ; `mp4Due === true` veut dire « c'est soit le seul livrable (ratio
+ * déjà 9:16), soit il reste dû ».
+ *
  * **Un clip a une ou deux vidéos**, et `variant9x16Due` dit laquelle des deux
  * situations on regarde quand `variant9x16Url` vaut `null` :
  *
@@ -526,6 +534,8 @@ export type ClipOutputs = {
    * disponible maintenant, jamais l'historique. (relevé par Copilot)
    */
   mp4Url: string | null
+  /** Vrai quand le natif est dû — voir `mp4Due` au-dessus du type avant de lire `mp4Url === null`. */
+  mp4Due: boolean
   /** La variante 9:16 sur fond flouté. Voir `variant9x16Due` avant de lire ce `null`. */
   variant9x16Url: string | null
   /** Vrai quand la variante 9:16 est **due**, c'est-à-dire quand le ratio natif ne l'est pas. */
@@ -651,8 +661,15 @@ export type ExportResult = {
    * `undefined` au retour d'un export par ailleurs réussi. (relevé par Copilot)
    */
   clip?: Clip
-  /** Le rendu au ratio natif du clip. Toujours produit. */
-  mp4: string
+  /**
+   * Le rendu au ratio natif du clip.
+   *
+   * `null` quand le rendu natif est désactivé (`RENDER_NATIVE`) ET qu'une
+   * variante 9:16 le remplace — voir `RenderResult.mp4` côté serveur. Sur un
+   * clip déjà en 9:16, il reste toujours produit : c'est alors l'unique
+   * livrable. (relevé par Copilot)
+   */
+  mp4: string | null
   /** La variante 9:16 sur fond flouté, ou `null` quand le ratio natif est déjà 9:16. */
   variant9x16: string | null
   /** Le `.txt` : titre, description, mots-dièse. */

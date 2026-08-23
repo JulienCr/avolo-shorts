@@ -1208,11 +1208,15 @@ fichiers s'y coupaient, les lecteurs vidéo tombaient à la taille d'une vignett
 et la zone de textes devenait une meurtrière. En pleine largeur, il pose côte à
 côte ce qui sort et ce qui se colle, et c'est là que « Publier » viendra.)
 
-**Avant** : le ratio résolu, les fichiers qui seront produits et le bouton. Deux
-fichiers quand le ratio n'est pas 9:16 (le natif pour le feed, la variante
-floutée pour TikTok et Shorts), un seul sinon. **C'est la seule conséquence du
-choix de ratio qui ne se voit nulle part aujourd'hui**, alors qu'elle change ce
-qu'on aura à publier.
+**Avant** : le ratio résolu, les fichiers qui seront produits et le bouton.
+Deux fichiers quand le ratio n'est pas 9:16 (le natif pour le feed, la
+variante floutée pour TikTok et Shorts), un seul sinon — **sauf depuis le
+23 août 2026** : le natif ne se produit plus par défaut (`RENDER_NATIVE`,
+`src/core/render-flags.ts`), donc un clip dont le ratio n'est pas 9:16 ne
+produit plus que sa variante. Un clip déjà en 9:16 continue de ne produire
+que son natif, comme avant. **C'est la seule conséquence du choix de ratio
+qui ne se voit nulle part ailleurs**, alors qu'elle change ce qu'on aura à
+publier.
 
 **Pendant** : la requête est synchrone et dure de dix secondes à une minute. Un
 bouton muet pendant ce temps passe pour cassé, `ROADMAP.md` le dit déjà. Le bouton

@@ -189,7 +189,7 @@ describe('useRegenerateHook', () => {
       project: { id: 'p1', title: 'La scène du 15 juin', durationSec: 5940, createdAt: '2026-06-15T10:00:00Z' },
       lines: [],
       proxyUrl: null,
-      outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
       framing: { ratio: '1:1', shots: [], rejectedOverrides: [], origin: 'computed' },
     })
     const { result } = renderHook(() => useRegenerateHook(), { wrapper: envelope })
@@ -250,7 +250,7 @@ describe('usePatchClip', () => {
     project: { id: 'p1', title: 'p1', durationSec: 60, createdAt: '' },
     lines: [],
     proxyUrl: null,
-    outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+    outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
     framing,
   })
 
@@ -272,7 +272,7 @@ describe('usePatchClip', () => {
     const patchResult: PatchClipResult = {
       applied: true,
       clip: { ...clip!, segments: [{ start: 0, end: 12 }] },
-      outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
+      outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: false, textsUrl: null },
       framing: after,
       seq: 1,
     }
@@ -309,7 +309,7 @@ describe('usePatchClip', () => {
         response({
           applied: false,
           clip,
-          outputs: { mp4Url: null, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
+          outputs: { mp4Url: null, mp4Due: true, variant9x16Url: null, variant9x16Due: true, textsUrl: null },
           framing: winner,
           seq: 9,
         } satisfies PatchClipResult),

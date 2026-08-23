@@ -17,6 +17,7 @@ function reading(...present: StepName[]): Record<StepName, boolean> {
     proxy: false,
     audio: false,
     transcript: false,
+    correction: false,
     analysis: false,
     candidates: false,
     renders: false,
@@ -209,6 +210,14 @@ describe('le tableau des étapes', () => {
     expect(order.indexOf('proxy')).toBeLessThan(order.indexOf('analysis'))
   })
 
+  // Sa position d'exécution (spec §5, §9, correction du 23 août 2026) : le
+  // repérage doit lire le texte qu'elle vient de corriger.
+  it('place la correction entre le transcript et le repérage', () => {
+    const order = STEPS.map((e) => e.name)
+    expect(order.indexOf('transcript')).toBeLessThan(order.indexOf('correction'))
+    expect(order.indexOf('correction')).toBeLessThan(order.indexOf('candidates'))
+  })
+
   it('ne porte plus de coût : il dépend de l’émission, pas de l’étape', () => {
     // Les cinq `coûtSec` étaient mesurés une seule fois, sur une émission
     // d'1 h 40, et s'affichaient à l'identique pour une capsule de vingt
@@ -334,6 +343,14 @@ describe('stepDurationRange', () => {
     // décrit l'ordre du plan et non son prix.
     expect(stepDurationRange('analysis', CQLP)).toBeNull()
     expect(STEPS.some((step) => step.name === 'analysis')).toBe(true)
+  })
+
+  it('n’annonce rien pour la correction, jamais chronométrée non plus', () => {
+    // `null` dit « on ne sait pas », pas « instantanée » — CLAUDE.md sur les
+    // valeurs notées comparées à un seuil s'applique par analogie à la règle
+    // sœur de ce dépôt : ne jamais inventer un chiffre qui n'est adossé à rien.
+    expect(stepDurationRange('correction', CQLP)).toBeNull()
+    expect(STEPS.some((step) => step.name === 'correction')).toBe(true)
   })
 
   it('n’annonce rien pour les rendus, qui ne passent pas par le graphe', () => {

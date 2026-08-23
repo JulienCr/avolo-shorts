@@ -56,6 +56,13 @@ export function CaptionOverlay({
         style={{
           maxWidth: '100%',
           textAlign: 'center',
+          // **La taille est portée par le carton, pas par chaque mot.** Le
+          // séparateur est un nœud texte entre deux `<span>` : posée plus bas,
+          // elle laissait l'espace à la taille héritée de la page, soit le
+          // quart de sa largeur — 18 % de la hauteur de capitale contre 23 %
+          // à l'export, mesuré.
+          fontSize: cqh(units.sizeUnits / PLAYRES_Y),
+          lineHeight: 1.2,
           paddingBottom: cqh(units.marginUnits / PLAYRES_Y),
           paddingLeft: cqh(MARGIN_SIDE / PLAYRES_Y),
           paddingRight: cqh(MARGIN_SIDE / PLAYRES_Y),
@@ -70,8 +77,6 @@ export function CaptionOverlay({
               style={{
                 display: i === activeWord ? 'inline-block' : undefined,
                 transform: i === activeWord ? `scale(${scale})` : undefined,
-                fontSize: cqh(units.sizeUnits / PLAYRES_Y),
-                lineHeight: 1.2,
                 color: i === activeWord ? style.highlightColor : style.fontColor,
                 // libass dilate le contour vers l'extérieur du glyphe ;
                 // `-webkit-text-stroke` le centre, donc la moitié mange la

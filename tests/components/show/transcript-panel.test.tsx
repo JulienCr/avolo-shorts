@@ -105,6 +105,11 @@ function undoResponse(body: unknown, status = 200): Rule {
   return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction/undo'), body, status }
 }
 
+/** Répond à `POST .../transcript/correction/remove` — retirer une entrée. */
+function removeResponse(body: unknown, status = 200): Rule {
+  return { when: (u, m) => m === 'POST' && u.endsWith('/transcript/correction/remove'), body, status }
+}
+
 function sentBody(call: ReturnType<typeof vi.fn>, index: number): unknown {
   const [, options] = call.mock.calls[index] as unknown as [string, RequestInit]
   return JSON.parse(String(options.body))
@@ -384,6 +389,43 @@ describe('TranscriptPanel — historique de correction', () => {
     await waitFor(() => expect(screen.queryByText(/substitution appliquée/)).toBeNull())
 
     const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/transcript/correction/undo'))
+    expect(posts).toHaveLength(1)
+    expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
+  })
+
+  it('n’offre « Retirer de l’historique » que si l’ancre ne correspond plus', async () => {
+    // `from: 1` désigne « à » dans `LIGNES` : l'entrée est exacte, « Défaire »
+    // suffit — pas de rattrapage à offrir en plus.
+    const entries = [{ id: '1', lineId: 'l0', from: 1, expected: ['a'], replacement: 'à', timecode: 10.7 }]
+    stubFetch([transcriptResponse(), historyResponse(entries)])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    await screen.findByRole('button', { name: 'Défaire' })
+    expect(screen.queryByRole('button', { name: 'Retirer de l’historique' })).toBeNull()
+  })
+
+  it('« Retirer de l’historique » retire l’entrée sans passer par « Défaire » (issues #134, #138)', async () => {
+    // **Le scénario de ce groupe.** Le mot que l'entrée croit corriger n'est
+    // plus là — une correction manuelle antérieure a décalé la phrase (#138),
+    // ou une passe ultérieure a recouvert le mot (#134) : `from: 1` désigne
+    // « à » dans `LIGNES`, mais l'entrée attend `nouveau`. `undoCorrectionEntry`
+    // refuserait pour toujours ; ce bouton-ci ne passe même pas par lui.
+    const entries = [
+      { id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 },
+    ]
+    const call = stubFetch([
+      transcriptResponse(),
+      historyResponse(entries),
+      removeResponse({ entries: [] }),
+    ])
+    render(<TranscriptPanel projectId="cqlp" open onOpenChange={vi.fn()} />, { wrapper })
+
+    await screen.findByText(/1 substitution appliquée/)
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Retirer de l’historique' }))
+
+    await waitFor(() => expect(screen.queryByText(/substitution appliquée/)).toBeNull())
+
+    const posts = call.mock.calls.filter(([input]) => String(input).endsWith('/transcript/correction/remove'))
     expect(posts).toHaveLength(1)
     expect(sentBody(call, call.mock.calls.indexOf(posts[0]))).toEqual({ id: '1' })
   })

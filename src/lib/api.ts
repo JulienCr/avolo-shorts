@@ -1209,6 +1209,22 @@ export function undoCorrection(projectId: string, id: string): Promise<UndoCorre
   )
 }
 
+/**
+ * Retire une entrée de l'historique sans toucher au transcript — `POST
+ * /api/projects/:id/transcript/correction/remove`.
+ *
+ * **Le rattrapage de dernier recours** (issues #134, #138), à côté de
+ * `undoCorrection` plutôt qu'à sa place : une entrée dont l'ancre est devenue
+ * périmée ne se défait plus jamais, et resterait sinon affichée sans qu'on
+ * puisse s'en débarrasser. Ce geste n'écrit que sur le journal.
+ */
+export function removeCorrectionEntry(projectId: string, id: string): Promise<{ entries: CorrectionEntry[] }> {
+  return post<{ entries: CorrectionEntry[] }>(
+    `/api/projects/${encodeURIComponent(projectId)}/transcript/correction/remove`,
+    { id },
+  )
+}
+
 // ---------------------------------------------------------------------------
 // La disponibilité des fournisseurs de langage
 // ---------------------------------------------------------------------------

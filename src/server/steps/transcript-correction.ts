@@ -378,3 +378,39 @@ export async function undoCorrectionEntry(
 
   return { ok: true, entries: shifted, correctedSpan: result.correctedSpan }
 }
+
+export type RemoveEntryOutcome = { ok: true; entries: CorrectionEntry[] } | { ok: false; reason: 'unknown-entry' }
+
+/**
+ * Retire une entrée de l'historique sans toucher au transcript.
+ *
+ * **Le rattrapage de dernier recours** (issues #134, #138) : une passe
+ * ultérieure peut proposer un empan qui recouvre le mot d'une entrée déjà
+ * journalisée, et une correction manuelle plus tôt dans la même phrase ne
+ * recale pas le journal — deux chemins, peut-être d'autres à venir, qui
+ * laissent un `from` périmé. `undoCorrectionEntry` refuse alors pour
+ * toujours en `anchor-mismatch`, sans qu'aucun des deux appelants ne l'ait
+ * prévu. Plutôt que de fermer chaque chemin un par un, au risque d'en
+ * oublier, ce geste garantit qu'aucune entrée ne reste jamais bloquée :
+ * n'écrivant que sur le journal, il n'a pas de garde d'ancrage à faire
+ * respecter.
+ */
+export async function removeCorrectionEntry(project: Project, id: string): Promise<RemoveEntryOutcome> {
+  // Même garde que `readCorrectionLog` et `undoCorrectionEntry`, et pour la
+  // même raison : `placeSidecar` gèle la boucle d'événements sur un montage
+  // 9p au transport mort.
+  if (!(await editingResponds(resolveSource(project.sourcePath)))) {
+    throw new Error(
+      'Le dossier des replays ne répond pas : impossible de retirer cette entrée de l’historique. ' +
+        'REPLAY_DIR est monté en 9p et peut être monté avec son transport mort dessous — ' +
+        '/proc/mounts ne le distingue pas. Rouvrir le lecteur côté Windows, ou remonter le partage.',
+    )
+  }
+  const placement = placeSidecar(project.sourcePath, project.id)
+  const log = readCorrectionLogFrom(placement.correction)
+  if (!log.entries.some((e) => e.id === id)) return { ok: false, reason: 'unknown-entry' }
+
+  const entries = log.entries.filter((e) => e.id !== id)
+  await writeCorrectionLog(placement.correction, { entries })
+  return { ok: true, entries }
+}

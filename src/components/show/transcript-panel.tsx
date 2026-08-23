@@ -17,6 +17,7 @@ import {
   useCorrectionHistory,
   useCorrectTranscript,
   useProject,
+  useRemoveCorrectionEntry,
   useRetry,
   useTranscript,
   useUndoCorrection,
@@ -180,6 +181,7 @@ export function TranscriptPanel({
   const project = useProject(projectId, { enabled: open })
   const history = useCorrectionHistory(projectId, { enabled: open })
   const undo = useUndoCorrection()
+  const remove = useRemoveCorrectionEntry()
   const client = useQueryClient()
 
   // Une référence stable : `[]` recréé à chaque rendu casserait le useMemo
@@ -418,6 +420,16 @@ export function TranscriptPanel({
     )
   }
 
+  /**
+   * Retire une entrée sans toucher au transcript — le rattrapage de dernier
+   * recours (issues #134, #138) quand son ancre est devenue périmée et que
+   * `undoEntry` ne peut plus rien pour elle.
+   */
+  function removeEntry(entry: CorrectionEntry) {
+    if (remove.isPending) return
+    remove.mutate({ projectId, id: entry.id })
+  }
+
   const items = virtualizer.getVirtualItems()
   const touchedClipsList = Array.from(touchedClips.values())
   const cursorLine = lineOfWord(indexedLines, cursor)
@@ -478,6 +490,8 @@ export function TranscriptPanel({
             lines={lines}
             undoing={undo.isPending}
             onUndo={undoEntry}
+            removing={remove.isPending}
+            onRemove={removeEntry}
           />
         )}
 
@@ -497,6 +511,13 @@ export function TranscriptPanel({
           <div className="shrink-0 border-b px-4 py-2">
             <span role="alert" className="text-xs text-destructive">
               {rejectionMessage(undo.error)}
+            </span>
+          </div>
+        )}
+        {remove.isError && (
+          <div className="shrink-0 border-b px-4 py-2">
+            <span role="alert" className="text-xs text-destructive">
+              {rejectionMessage(remove.error)}
             </span>
           </div>
         )}
@@ -725,11 +746,15 @@ function CorrectionHistory({
   lines,
   undoing,
   onUndo,
+  removing,
+  onRemove,
 }: {
   entries: CorrectionEntry[]
   lines: TranscriptLine[]
   undoing: boolean
   onUndo: (entry: CorrectionEntry) => void
+  removing: boolean
+  onRemove: (entry: CorrectionEntry) => void
 }) {
   const lineById = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines])
   const container = useRef<HTMLDivElement>(null)
@@ -756,6 +781,14 @@ function CorrectionHistory({
             const entry = entries[item.index]
             if (entry === undefined) return null
             const line = lineById.get(entry.lineId)
+            // **Le même calcul que `applyWordCorrection` fait avant d'écrire un
+            // défaire** (`@/lib/editing`), pour décider quel bouton offrir —
+            // jamais pour se dispenser de la vraie garde côté serveur. Une
+            // phrase absente ou un mot qui ne correspond plus dit que
+            // `onUndo` échouerait en `anchor-mismatch`, pour toujours : la
+            // seule sortie qui reste est de retirer l'entrée (issues #134,
+            // #138).
+            const stale = line === undefined || line.words[entry.from]?.word !== entry.replacement
             return (
               <div
                 key={entry.id}
@@ -777,18 +810,36 @@ function CorrectionHistory({
                     <span className="font-medium">{entry.replacement}</span>
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0"
-                  aria-disabled={undoing}
-                  onClick={() => {
-                    if (undoing) return
-                    onUndo(entry)
-                  }}
-                >
-                  Défaire
-                </Button>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-disabled={undoing}
+                    onClick={() => {
+                      if (undoing) return
+                      onUndo(entry)
+                    }}
+                  >
+                    Défaire
+                  </Button>
+                  {/* **Toujours là quand l'ancre ne correspond plus** — jamais
+                      en repli après un « Défaire » refusé, qui échouerait de
+                      la même façon indéfiniment. */}
+                  {stale && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs text-muted-foreground"
+                      aria-disabled={removing}
+                      onClick={() => {
+                        if (removing) return
+                        onRemove(entry)
+                      }}
+                    >
+                      Retirer de l’historique
+                    </Button>
+                  )}
+                </div>
               </div>
             )
           })}

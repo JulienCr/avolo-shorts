@@ -688,6 +688,7 @@ describe('appliquerRéglages', () => {
       },
       ingestion: { copySourceLocally: true },
       hook: { ...HOOK_DEFAULTS },
+      publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
     })
   })
 })

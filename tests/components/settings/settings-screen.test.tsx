@@ -57,11 +57,20 @@ const AI_DEFAULTS: Settings['ai'] = {
 /** Le défaut de la famille `ingestion`, recopié de `db.ts` pour la même raison. */
 const INGESTION_DEFAULTS: Settings['ingestion'] = { copySourceLocally: true }
 
+/** Le défaut de la famille `publication`, recopié de `db.ts` pour la même raison. */
+const PUBLICATION_DEFAULTS: Settings['publication'] = {
+  instagram: 'auto',
+  facebook: 'auto',
+  tiktok: 'auto',
+  youtube: 'auto',
+}
+
 const DEFAULTS: Settings = {
   selection: { ...DEFAULT_SELECTION_DIMENSIONS },
   ai: { ...AI_DEFAULTS },
   ingestion: { ...INGESTION_DEFAULTS },
   hook: { ...HOOK_DEFAULTS },
+  publication: { ...PUBLICATION_DEFAULTS },
 }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */
@@ -125,7 +134,7 @@ describe('les réglages du repérage', () => {
     // défauts. Afficher les constantes ferait voir le défaut du code là où la
     // base porte autre chose, et personne ne verrait la différence avant le
     // premier repérage.
-    server({ read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS }) })
+    server({ read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS, publication: PUBLICATION_DEFAULTS }) })
     await mountScreen()
     expect(screen.getByLabelText(/tranche de/i)).toHaveProperty('value', '9')
   })
@@ -186,7 +195,7 @@ describe('les réglages du repérage', () => {
     window.addEventListener('unhandledrejection', onRejection)
     try {
       server({
-        read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS }),
+        read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS, publication: PUBLICATION_DEFAULTS }),
         write: () => response({ error: 'refusé' }, 400),
       })
       await mountScreen()
@@ -211,7 +220,7 @@ describe('les réglages du repérage', () => {
 
   it('propose de revenir au défaut, et seulement quand il y a de quoi', async () => {
     const writes = server({
-      read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS }),
+      read: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 9 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS, publication: PUBLICATION_DEFAULTS }),
     })
     await mountScreen()
 
@@ -240,7 +249,7 @@ describe('les réglages du repérage', () => {
 
   it('bouge l’estimation quand un réglage bouge', async () => {
     server({
-      write: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 3 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS }),
+      write: () => response({ selection: { ...DEFAULT_SELECTION_DIMENSIONS, minutesPerClip: 3 }, ai: AI_DEFAULTS, ingestion: INGESTION_DEFAULTS, publication: PUBLICATION_DEFAULTS }),
     })
     await mountScreen()
     const before = screen.getByTestId('selection-estimate').textContent
@@ -497,5 +506,29 @@ describe('la section du hook', () => {
 
     await userEvent.click(await screen.findByRole('option', { name: 'Aucune' }))
     await waitFor(() => expect(writes).toEqual([{ hook: { enter: 'none' } }]))
+  })
+})
+
+describe('la section publication', () => {
+  it('choisit un connecteur pour une plateforme, sans toucher aux autres', async () => {
+    const writes = server()
+    await mountScreen()
+
+    await userEvent.click(screen.getByLabelText('Instagram'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Upload Post' }))
+
+    await waitFor(() => expect(writes).toEqual([{ publication: { instagram: 'upload-post' } }]))
+  })
+
+  it('revient à Automatique par plateforme, via le bouton dédié', async () => {
+    const writes = server({
+      read: () =>
+        response({ ...DEFAULTS, publication: { ...PUBLICATION_DEFAULTS, facebook: 'meta' } }),
+    })
+    await mountScreen()
+
+    await userEvent.click(screen.getByLabelText('Revenir à Automatique pour Facebook'))
+
+    await waitFor(() => expect(writes).toEqual([{ publication: { facebook: 'auto' } }]))
   })
 })

@@ -1589,6 +1589,9 @@ describe('/api/settings', () => {
   /** Les onze défauts de la famille `hook` (retour d'usage §6.3). */
   const HOOK_SETTINGS_DEFAULTS = { ...HOOK_DEFAULTS }
 
+  /** Le défaut `auto` des quatre champs de la famille `publication`. */
+  const PUBLICATION_DEFAULTS = { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' }
+
   const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(
       new Request('http://x', {
@@ -1606,6 +1609,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1617,6 +1621,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
     expect(await (await getSettingsRoute()).json()).toEqual({
@@ -1624,6 +1629,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1650,6 +1656,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1669,6 +1676,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 
@@ -1678,6 +1686,47 @@ describe('/api/settings', () => {
     const body = (await response.json()) as { hook: { sizePermille: number; textColor: string } }
     expect(body.hook.sizePermille).toBe(150)
     expect(body.hook.textColor).toBe('#A1B2C3')
+  })
+
+  /**
+   * Le round-trip HTTP de la famille `publication`, jusqu'ici couvert
+   * seulement par `applySettings` en direct (`publication-index.test.ts`).
+   * (relevé par Aristarque)
+   */
+  it('accepte et relit une préférence de publication non-défaut, sans toucher aux autres plateformes', async () => {
+    const response = await write({ publication: { instagram: 'meta' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
+    })
+    // Et ça persiste.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
+    })
+  })
+
+  it('refuse une préférence de publication hors de l’énumération de sa plateforme', async () => {
+    // `youtube` n'a pas Meta dans son énumération (`PUBLICATION_ADAPTER_CHOICES`)
+    // — seuls `auto` et `upload-post` le sont — contrairement à Instagram et
+    // Facebook, où `meta` est valide.
+    expect((await write({ publication: { youtube: 'meta' } })).status).toBe(400)
+    expect((await write({ publication: { instagram: 'unknown-connector' } })).status).toBe(400)
+    // Rien de tout ça n'a été écrit.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
+    })
   })
 
   it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
@@ -1692,6 +1741,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
     })
   })
 

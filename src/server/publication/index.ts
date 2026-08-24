@@ -1,4 +1,5 @@
-import { defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
+import { PLATFORMS, defaultPlatformAvailability, type Platform, type PlatformAvailability } from '@/core/publication'
+import { effectiveSettings, getDb } from '@/server/db'
 import type { PublicationAdapter } from '@/server/publication/adapter'
 import { createMetaAdapter } from '@/server/publication/meta'
 import { createUploadPostAdapter } from '@/server/publication/upload-post'
@@ -20,24 +21,42 @@ export function publicationAdapters(): PublicationAdapter[] {
   return adapters
 }
 
-/** L'adaptateur qui prend cette plateforme — le premier du tableau à la porter. */
+/**
+ * L'adaptateur qui prend cette plateforme.
+ *
+ * **Le réglage `publication.<plateforme>` décide, l'ordre du tableau retombe.**
+ * Une préférence qui nomme un connecteur enregistré et le portant l'emporte ;
+ * `auto`, ou un identifiant sans registre (`tiktok` avant que son adaptateur
+ * n'existe), retombe sur le premier du tableau à porter la plateforme — jamais
+ * une erreur, jamais `undefined` pour cette seule raison.
+ */
 export function adapterFor(platform: Platform): PublicationAdapter | undefined {
-  return publicationAdapters().find((adapter) => adapter.platforms.includes(platform))
+  const adapters = publicationAdapters()
+  const preference = effectiveSettings(getDb()).publication[platform]
+  if (preference !== 'auto') {
+    const preferred = adapters.find((adapter) => adapter.id === preference)
+    if (preferred !== undefined && preferred.platforms.includes(platform)) return preferred
+  }
+  return adapters.find((adapter) => adapter.platforms.includes(platform))
 }
 
 /**
- * L'état de chaque plateforme, agrégé sur tous les adaptateurs.
- *
- * **Le dernier à répondre dans l'ordre de priorité l'emporte** : la boucle
- * parcourt le tableau à l'envers pour que le premier adaptateur (le plus
- * prioritaire) écrase en dernier, comme le veut `adapterFor` sur le même ordre.
+ * L'état de chaque plateforme, résolu depuis le même adaptateur que
+ * `adapterFor` — sinon la disponibilité affichée peut porter sur un
+ * connecteur différent de celui qui publiera réellement.
  */
 export async function publicationAvailability(): Promise<Record<Platform, PlatformAvailability>> {
   const merged = defaultPlatformAvailability() as Record<Platform, PlatformAvailability>
-  const adapters = publicationAdapters()
-  for (const adapter of [...adapters].reverse()) {
-    const state = await adapter.availability(process.env)
-    for (const platform of adapter.platforms) merged[platform] = state[platform]
+  const cache = new Map<PublicationAdapter, Record<Platform, PlatformAvailability>>()
+  for (const platform of PLATFORMS) {
+    const adapter = adapterFor(platform)
+    if (adapter === undefined) continue
+    let state = cache.get(adapter)
+    if (state === undefined) {
+      state = await adapter.availability(process.env)
+      cache.set(adapter, state)
+    }
+    merged[platform] = state[platform]
   }
   return merged
 }

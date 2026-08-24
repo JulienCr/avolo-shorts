@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { applySettings, closeDb, getDb } from '@/server/db'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
@@ -8,14 +12,26 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
  * connecteur pour chacune des quatre plateformes (Meta pour Instagram et
  * Facebook, Upload Post pour TikTok et YouTube), et `publicationAvailability`
  * doit rendre `defaultPlatformAvailability()` faute de clé — sans appel réseau.
+ *
+ * **`adapterFor` lit désormais le réglage `publication` en base** : chaque cas
+ * ouvre sa propre base dans un répertoire temporaire, comme
+ * `publish-route.test.ts`, pour ne pas hériter du réglage d'un autre test.
  */
 
 const envStart = { ...process.env }
+let root: string
+
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-publication-index-'))
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
+})
 
 afterEach(() => {
+  closeDb()
   forgetAvailabilityCache()
   process.env = { ...envStart }
   vi.unstubAllGlobals()
+  fs.rmSync(root, { recursive: true, force: true })
 })
 
 describe('adapterFor', () => {
@@ -33,6 +49,30 @@ describe('adapterFor', () => {
     const { adapterFor } = await import('@/server/publication')
     expect(adapterFor('instagram')).toBe(adapterFor('facebook'))
     expect(adapterFor('tiktok')).toBe(adapterFor('youtube'))
+  })
+
+  it('`auto` reproduit l’ordre de priorité d’aujourd’hui, sans réglage', async () => {
+    const { adapterFor } = await import('@/server/publication')
+    expect(adapterFor('instagram')?.id).toBe('meta')
+    expect(adapterFor('facebook')?.id).toBe('meta')
+    expect(adapterFor('tiktok')?.id).toBe('upload-post')
+    expect(adapterFor('youtube')?.id).toBe('upload-post')
+  })
+
+  it('une préférence vers un connecteur enregistré l’emporte sur l’ordre du tableau', async () => {
+    applySettings(getDb(), { publication: { facebook: 'upload-post' } })
+    const { adapterFor } = await import('@/server/publication')
+    expect(adapterFor('facebook')?.id).toBe('upload-post')
+  })
+
+  it('une préférence vers un connecteur non enregistré retombe sur l’ordre de priorité, sans lever (protège la PR TikTok)', async () => {
+    // `tiktok` est un choix valide pour ce champ (issue de la « SHARED SEAM »)
+    // bien qu'aucun adaptateur ne le porte encore — c'est exactement le cas
+    // qui doit retomber sur l'ordre de priorité plutôt que d'échouer.
+    applySettings(getDb(), { publication: { tiktok: 'tiktok' } })
+    const { adapterFor } = await import('@/server/publication')
+    expect(() => adapterFor('tiktok')).not.toThrow()
+    expect(adapterFor('tiktok')?.id).toBe('upload-post')
   })
 })
 
@@ -53,5 +93,65 @@ describe('publicationAvailability', () => {
       youtube: { available: false, reason: 'not_configured' },
     })
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('résout chaque plateforme depuis l’adaptateur que `adapterFor` choisirait, pas depuis l’ordre de priorité (relevé par Copilot)', async () => {
+    // Meta répond `available`, Upload Post répond `not_configured` : sans le
+    // routage par préférence, la boucle d'origine agrégeait par ordre de
+    // priorité et ne pouvait pas distinguer ce cas d'un simple renversement de
+    // l'ordre. Facebook est explicitement basculé vers Upload Post — son état
+    // affiché doit donc suivre Upload Post, pas Meta, malgré que Meta réponde
+    // en premier dans le registre.
+    const metaAvailability = vi.fn(async () => ({
+      instagram: { available: true },
+      facebook: { available: true },
+      tiktok: { available: false, reason: 'not_configured' as const },
+      youtube: { available: false, reason: 'not_configured' as const },
+    }))
+    const uploadPostAvailability = vi.fn(async () => ({
+      instagram: { available: false, reason: 'not_configured' as const },
+      facebook: { available: false, reason: 'not_configured' as const },
+      tiktok: { available: false, reason: 'not_configured' as const },
+      youtube: { available: false, reason: 'not_configured' as const },
+    }))
+
+    // Le registre de `@/server/publication` mémorise ses adaptateurs au
+    // premier appel (`publicationAdapters`) : un test précédent, dans ce même
+    // fichier, l'a déjà rempli avec les vrais Meta/Upload Post. Sans reset,
+    // ce mock arriverait trop tard pour être vu.
+    vi.resetModules()
+    vi.doMock('@/server/publication/meta', () => ({
+      createMetaAdapter: () => ({
+        id: 'meta',
+        platforms: ['instagram', 'facebook'],
+        availability: metaAvailability,
+      }),
+    }))
+    vi.doMock('@/server/publication/upload-post', () => ({
+      createUploadPostAdapter: () => ({
+        id: 'upload-post',
+        platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
+        availability: uploadPostAvailability,
+      }),
+    }))
+
+    try {
+      applySettings(getDb(), { publication: { facebook: 'upload-post' } })
+      const { publicationAvailability } = await import('@/server/publication')
+      const availability = await publicationAvailability()
+
+      expect(availability.instagram).toEqual({ available: true })
+      expect(availability.facebook).toEqual({ available: false, reason: 'not_configured' })
+
+      // Meta ne porte qu'Instagram ici (Facebook est allé à Upload Post) et
+      // Upload Post porte les trois autres : chacun n'est interrogé qu'une
+      // seule fois, malgré deux plateformes résolues par Upload Post.
+      expect(metaAvailability).toHaveBeenCalledTimes(1)
+      expect(uploadPostAvailability).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.doUnmock('@/server/publication/meta')
+      vi.doUnmock('@/server/publication/upload-post')
+      vi.resetModules()
+    }
   })
 })

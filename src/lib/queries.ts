@@ -556,15 +556,21 @@ export function useSettings() {
  *
  * **Rien d'autre ne s'invalide, et c'est la règle qui compte** : changer un
  * réglage ne recalcule aucune émission (retour d'usage §6.1). Invalider les
- * projets ou les candidats laisserait croire le contraire.
+ * projets ou les candidats laisserait croire le contraire. La disponibilité de
+ * publication fait exception : depuis que `publication.<plateforme>` choisit le
+ * connecteur, l'état affiché dépend du réglage — sans invalidation il resterait
+ * celui de l'ancien connecteur jusqu'aux 30 s de `staleTime`.
  */
 export function useSaveSettings() {
   const client = useQueryClient()
 
   return useMutation({
     mutationFn: (patch: SettingsPatch) => saveSettings(patch),
-    onSuccess(settings: Settings) {
+    onSuccess(settings: Settings, patch: SettingsPatch) {
       client.setQueryData(keys.settings, settings)
+      if (patch.publication !== undefined) {
+        void client.invalidateQueries({ queryKey: keys.publicationAvailability })
+      }
     },
   })
 }

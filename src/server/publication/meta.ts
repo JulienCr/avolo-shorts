@@ -431,6 +431,7 @@ export function createMetaAdapter(
   sleep: (ms: number) => Promise<void> = wait,
 ): PublicationAdapter {
   return {
+    id: 'meta',
     platforms: ['instagram', 'facebook'],
     availability: (checkedEnv) => availability(checkedEnv, fetchImpl),
     publish: (job, platforms) => publish(env, fetchImpl, sleep, job, platforms),

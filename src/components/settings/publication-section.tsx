@@ -37,14 +37,14 @@ const ADAPTER_LABELS: Record<PublicationPreference, string> = {
   auto: 'Automatique',
   meta: 'Meta (direct)',
   'upload-post': 'Upload Post',
-  tiktok: 'TikTok (direct, à venir)',
+  tiktok: 'TikTok (direct)',
 }
 
 const ADAPTER_HELP: Record<PublicationPreference, string> = {
   auto: 'Laisse l’ordre de priorité choisir — le comportement d’aujourd’hui.',
   meta: 'Gratuit, jusqu’à 100 publications par 24 h.',
   'upload-post': 'Offre gratuite du compte : 10 publications par mois, pour les quatre plateformes réunies.',
-  tiktok: 'Aucun connecteur direct n’existe encore ; le réglage retombe sur l’ordre de priorité tant qu’il en manque un.',
+  tiktok: 'Dépose un brouillon dans l’app TikTok ; publier reste un geste manuel (spec §6.3).',
 }
 
 export function PublicationSection({

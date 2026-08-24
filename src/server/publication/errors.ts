@@ -2,16 +2,15 @@ import type { Platform } from '@/core/publication'
 
 /**
  * Les échecs nommés de la publication : les quatre natures d'Upload Post de
- * la spec §8 qui remontent par un code HTTP, celles propres au connecteur
- * Meta direct plus bas, et le refus, propre à ce dépôt, de republier une
- * plateforme déjà en ligne sans un geste explicite. La cinquième nature de
- * la spec — l'audit non passé — ne se voit qu'à la visibilité du résultat,
- * jamais dans un statut : elle n'a pas d'erreur à elle.
+ * la spec §8 qui remontent par un code HTTP, celles propres aux connecteurs
+ * Meta et TikTok directs plus bas, et le refus, propre à ce dépôt, de
+ * republier une plateforme déjà en ligne sans un geste explicite. La
+ * cinquième nature de la spec — l'audit non passé — ne se voit qu'à la
+ * visibilité du résultat, jamais dans un statut : elle n'a pas d'erreur à elle.
  *
- * Wiring dans `statusFor` (`src/server/http.ts`), qui est le seul endroit qui
- * décide du code de réponse HTTP. Regroupées ici plutôt que dans
- * `service.ts`, qui les lèverait : `http.ts` doit pouvoir les importer sans
- * fermer un cycle avec `service.ts`, qui importe déjà `http.ts`.
+ * Wiring dans `statusFor` (`src/server/http.ts`), seul endroit qui décide du
+ * code de réponse HTTP. Regroupées ici plutôt que dans `service.ts`, qui les
+ * lèverait, pour ne pas fermer un cycle : `service.ts` importe déjà `http.ts`.
  */
 
 /** Le jeton d'un compte connecté a expiré. Se reconnecte sur upload-post.com. */
@@ -125,5 +124,48 @@ export class MetaContainerTimeoutError extends Error {
   constructor(readonly containerId: string) {
     super(`Le conteneur Instagram ${containerId} n'a pas atteint FINISHED avant l'abandon du sondage.`)
     this.name = 'MetaContainerTimeoutError'
+  }
+}
+
+/**
+ * Les échecs nommés du connecteur TikTok direct (`tiktok.ts`), même discipline
+ * que les deux groupes ci-dessus.
+ */
+
+/** Le jeton d'accès a expiré ou a été révoqué. Rejouer `scripts/dev-connect-tiktok.ts`. */
+export class TikTokTokenExpiredError extends Error {
+  constructor(detail: string) {
+    super(`TikTok refuse le jeton : ${detail} Rejouer pnpm tsx scripts/dev-connect-tiktok.ts.`)
+    this.name = 'TikTokTokenExpiredError'
+  }
+}
+
+/**
+ * Un 429 TikTok, quel que soit le point de terminaison — le dépôt (débit non
+ * audité, 5 utilisateurs publiants par 24 h, spec §2.3), l'envoi d'un morceau
+ * ou le rafraîchissement OAuth. Ces fenêtres ne partagent pas la même durée :
+ * le message reste générique plutôt que d'annoncer une attente de 24 h qui ne
+ * s'applique qu'au premier cas.
+ */
+export class TikTokRateLimitError extends Error {
+  constructor(detail: string) {
+    super(`Le débit TikTok est atteint : ${detail} Réessayer plus tard.`)
+    this.name = 'TikTokRateLimitError'
+  }
+}
+
+/** Le fichier est refusé — format, durée ou fenêtre de dépôt (5-64 Mo par morceau). */
+export class TikTokFileRefusedError extends Error {
+  constructor(detail: string) {
+    super(`TikTok refuse le fichier : ${detail}`)
+    this.name = 'TikTokFileRefusedError'
+  }
+}
+
+/** Clé/secret d'app absents, ou aucun jeton appairé (`dev-connect-tiktok.ts` jamais lancé). */
+export class TikTokAccountMisconfiguredError extends Error {
+  constructor(detail: string) {
+    super(`Le compte TikTok est mal configuré : ${detail}`)
+    this.name = 'TikTokAccountMisconfiguredError'
   }
 }

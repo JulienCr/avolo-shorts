@@ -4,14 +4,16 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { applySettings, closeDb, getDb } from '@/server/db'
+import { forgetTikTokTokenCache } from '@/server/publication/tiktok-tokens'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
  * `src/server/publication/index.ts` — le registre canonique de la « SHARED
  * SEAM » (contrat de la PR « Wave B (UI) ») : `adapterFor` doit rendre un
  * connecteur pour chacune des quatre plateformes (Meta pour Instagram et
- * Facebook, Upload Post pour TikTok et YouTube), et `publicationAvailability`
- * doit rendre `defaultPlatformAvailability()` faute de clé — sans appel réseau.
+ * Facebook, TikTok direct pour TikTok, Upload Post pour YouTube), et
+ * `publicationAvailability` doit rendre `defaultPlatformAvailability()` faute
+ * de clé — sans appel réseau.
  *
  * **`adapterFor` lit désormais le réglage `publication` en base** : chaque cas
  * ouvre sa propre base dans un répertoire temporaire, comme
@@ -29,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb()
   forgetAvailabilityCache()
+  forgetTikTokTokenCache()
   process.env = { ...envStart }
   vi.unstubAllGlobals()
   fs.rmSync(root, { recursive: true, force: true })
@@ -48,14 +51,25 @@ describe('adapterFor', () => {
     // feraient manquer tout regroupement, comme mesuré en revue sur cette PR.
     const { adapterFor } = await import('@/server/publication')
     expect(adapterFor('instagram')).toBe(adapterFor('facebook'))
-    expect(adapterFor('tiktok')).toBe(adapterFor('youtube'))
+  })
+
+  it('sépare désormais TikTok de YouTube (connecteur TikTok direct, cette PR)', async () => {
+    // Avant cette PR, Upload Post portait les deux et cette même assertion
+    // vérifiait le regroupement inverse (`toBe`) : le devenir `not.toBe` est
+    // le signe que TikTok a bien son propre connecteur, pas une régression.
+    const { adapterFor } = await import('@/server/publication')
+    expect(adapterFor('tiktok')).not.toBe(adapterFor('youtube'))
+    expect(adapterFor('tiktok')?.id).toBe('tiktok')
   })
 
   it('`auto` reproduit l’ordre de priorité d’aujourd’hui, sans réglage', async () => {
+    // TikTok direct existe désormais (cette PR) et passe devant Upload Post
+    // pour la plateforme `tiktok` — gratuit l'emporte, comme Meta le fait déjà
+    // pour Instagram et Facebook.
     const { adapterFor } = await import('@/server/publication')
     expect(adapterFor('instagram')?.id).toBe('meta')
     expect(adapterFor('facebook')?.id).toBe('meta')
-    expect(adapterFor('tiktok')?.id).toBe('upload-post')
+    expect(adapterFor('tiktok')?.id).toBe('tiktok')
     expect(adapterFor('youtube')?.id).toBe('upload-post')
   })
 
@@ -65,14 +79,28 @@ describe('adapterFor', () => {
     expect(adapterFor('facebook')?.id).toBe('upload-post')
   })
 
-  it('une préférence vers un connecteur non enregistré retombe sur l’ordre de priorité, sans lever (protège la PR TikTok)', async () => {
-    // `tiktok` est un choix valide pour ce champ (issue de la « SHARED SEAM »)
-    // bien qu'aucun adaptateur ne le porte encore — c'est exactement le cas
-    // qui doit retomber sur l'ordre de priorité plutôt que d'échouer.
-    applySettings(getDb(), { publication: { tiktok: 'tiktok' } })
-    const { adapterFor } = await import('@/server/publication')
-    expect(() => adapterFor('tiktok')).not.toThrow()
-    expect(adapterFor('tiktok')?.id).toBe('upload-post')
+  it('une préférence vers un connecteur absent du registre retombe sur l’ordre de priorité, sans lever', async () => {
+    // Le cas que ce test protégeait à l'origine — `tiktok` valide côté
+    // réglages mais sans adaptateur enregistré — s'est refermé quand cette PR
+    // a enregistré TikTok : `applySettings` et `effectiveSettings` valident
+    // tous deux contre le même enum, donc une valeur qui n'y figure pas
+    // n'atteint jamais `adapterFor` (voir `tests/server/db.test.ts`, « ignore
+    // une valeur corrompue en base au profit du défaut »). Le garde-fou reste
+    // réel — un connecteur qu'on retirerait du registre sans toucher l'enum
+    // rouvrirait le même écart —, donc on le simule en mockant le registre.
+    vi.resetModules()
+    vi.doMock('@/server/publication/tiktok', () => ({
+      createTikTokAdapter: () => ({ id: 'upload-post', platforms: [], availability: async () => ({}) }),
+    }))
+    try {
+      applySettings(getDb(), { publication: { tiktok: 'tiktok' } })
+      const { adapterFor } = await import('@/server/publication')
+      expect(() => adapterFor('tiktok')).not.toThrow()
+      expect(adapterFor('tiktok')?.id).toBe('upload-post')
+    } finally {
+      vi.doUnmock('@/server/publication/tiktok')
+      vi.resetModules()
+    }
   })
 })
 

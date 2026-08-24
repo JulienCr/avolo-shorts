@@ -1055,9 +1055,8 @@ export const DEFAULT_PUBLICATION_PREFERENCE: PublicationPreference = 'auto'
 
 /**
  * Les choix admis par plateforme. Chaque champ ne porte que les connecteurs
- * qui la couvrent réellement — sauf `tiktok`, dont l'adaptateur n'existe pas
- * encore : le choix figure déjà, et `adapterFor` retombe sur l'ordre de
- * priorité tant qu'il est sans registre.
+ * qui la couvrent réellement — TikTok direct existe désormais (spec §2.3) et
+ * rejoint Meta et Upload Post dans ce tableau.
  *
  * `as const satisfies` plutôt qu'une annotation `Record<Platform, …>` : ça
  * garde chaque tableau à ses littéraux, ce qui permet à `PublicationSettings`

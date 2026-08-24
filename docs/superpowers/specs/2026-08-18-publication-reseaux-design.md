@@ -8,8 +8,10 @@ sans connecteur ni backend, périmètre tranché par Julien.
 **Mise à jour au 23 août 2026, la plus importante depuis l'écriture de ce
 document** : Julien s'est abonné à Upload Post (offre gratuite — voir §2.5, la
 Basic évoquée plus bas n'est pas celle qui tourne). Ce n'est plus le repli du
-§5 en cas d'échec de l'audit TikTok, c'est le transport qui existe **aujourd'hui**
-pour les quatre plateformes à la fois, écrit dans cette PR-ci. §2.4, §3, §5 et
+§5 en cas d'échec de l'audit TikTok, c'est le transport qui existait alors pour
+les quatre plateformes à la fois, écrit dans cette PR-ci — **mise à jour au
+24 août 2026 : ça ne dure pas.** Meta (issue #146) puis TikTok (§2.3) sont
+passés en direct depuis ; Upload Post ne garde que YouTube. §2.4, §3, §5 et
 §6.2 sont corrigés en conséquence. Le lot 0 (démarches Meta/TikTok/YouTube) et
 les audits restent la voie qui affranchirait un connecteur direct un jour,
 mais rien n'en dépend plus pour publier.
@@ -107,8 +109,8 @@ mesuré ci-dessus.
 | Publication | `video_state` vaut `PUBLISHED`, `DRAFT` ou `SCHEDULED` |
 
 Même raisonnement d'accès que pour Instagram, et la même app Meta porte les deux.
-Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur du lot 2 gratuit sur
-Facebook — et sur lui seul.
+Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur (§4, hors périmètre —
+à ne pas confondre avec le lot 2 de §5) gratuit sur Facebook — et sur lui seul.
 
 **`meta.ts` code ce chemin, mais ne l'a jamais exercé contre le réseau**
 (issue #146) : le jeton de Page manque encore `pages_manage_posts` au moment
@@ -121,7 +123,7 @@ contrairement à Instagram, publié pour de vrai le 23 août 2026.
 |---|---|
 | Publication directe | `video.publish`, contenu **forcé en `SELF_ONLY` tant que l'app n'est pas auditée** |
 | Dépôt en brouillon | `video.upload`, `POST /v2/post/publish/inbox/video/init/` |
-| Téléversement | `FILE_UPLOAD` chunké (5 Mo minimum, 64 Mo maximum par morceau) ou `PULL_FROM_URL` depuis un domaine vérifié |
+| Téléversement | `FILE_UPLOAD` chunké (5-64 Mo par morceau **déclaré** à `init` ; le dernier morceau réellement envoyé peut dépasser cette borne haute, jusqu'à un peu moins du double, plutôt que produire un reste sous 5 Mo) ou `PULL_FROM_URL` depuis un domaine vérifié |
 | Débit non audité | 5 utilisateurs publiants sur 24 h |
 | Durée | 10 minutes maximum par les points d'entrée de téléversement |
 
@@ -137,12 +139,21 @@ second est une **péremption** : plusieurs sources tierces concordantes donnent 
 avant que le brouillon soit jeté, aucune source primaire consultée ne la confirme.
 À mesurer au branchement plutôt qu'à recopier.
 
-L'URL de retour OAuth doit être en HTTPS **sur un domaine vérifié** — TikTok
-refuse `localhost`, `127.0.0.1` et `*.local` pour une application web, et la
-vérification passe par une balise `tiktok-developers-site-verification` ou un
-enregistrement DNS. C'est `avolo.fr` qui la portera. (Le *Login Kit for Desktop*
-accepte la boucle locale, mais changer de type d'application pour économiser une
-page statique serait payer cher une commodité.)
+**Corrigé le 24 août 2026, mesuré contre l'app de Julien plutôt que déduit de
+la documentation.** Les deux paragraphes qui suivaient ici affirmaient que
+l'URL de retour devait porter un domaine vérifié et ne mentionnaient pas PKCE ;
+les deux sont faux pour cette app.
+
+**La boucle locale est acceptée.** `http://127.0.0.1:4005/tiktok/oauth-callback/`
+est enregistrée et l'autorisation sert son écran de connexion pour cette URL —
+sans page statique à héberger ni domaine à vérifier. Rien ne dit que ce soit
+vrai de toute app TikTok ; ça l'est de celle-ci, mesuré plutôt que supposé.
+
+**PKCE est obligatoire, et aucune source consultée avant le branchement ne le
+disait.** Sans `code_challenge` et `code_challenge_method=S256`, l'autorisation
+rend `error=param_error&errCode=10007&error_type=code_challenge` ; avec eux,
+elle sert l'écran de connexion. `src/server/publication/tiktok-pkce.ts` porte
+le calcul.
 
 ### 2.4 YouTube Shorts — un verrou sans échappatoire
 
@@ -247,7 +258,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
 | Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
-| Upload Post porte TikTok et YouTube ; Meta prend Instagram et Facebook en direct (issue #146) | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
+| Upload Post ne porte plus que YouTube ; Meta prend Instagram et Facebook en direct (issue #146), TikTok prend son propre connecteur direct (§2.3, 24 août 2026) | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
 
 ## 4. Périmètre
 
@@ -262,7 +273,8 @@ Dans le périmètre :
 Hors périmètre, et nommément :
 
 - **l'ordonnancement** : horaires de parution, file, réessai automatique d'une
-  publication échouée. C'est le lot 2, et `video_state: SCHEDULED` de Facebook
+  publication échouée. C'est un chantier séparé du séquencement de §5 — à ne pas
+  confondre avec son lot 2 —, et `video_state: SCHEDULED` de Facebook
   l'attendra là-bas. À ne pas confondre avec la **reprise de transport** — rejouer
   un téléversement qui a rendu une erreur transitoire, à l'intérieur d'une même
   tentative : celle-là est dans le périmètre, elle appartient au connecteur, et
@@ -282,9 +294,12 @@ gratuite (§2.5), ce qu'une émission dépasse en un jour ; Meta direct est grat
 et autorise 100 publications par 24 h (issue #146). `src/server/publication/
 meta.ts` porte donc Instagram et Facebook sans passer par Upload Post, sans
 qu'aucune démarche du lot 0 n'ait été nécessaire — Meta n'exige ni App Review ni
-audit (§1). TikTok et YouTube restent chez Upload Post, lots 2 et 3 non
-démarrés : ce séquencement continue de décrire la voie qui les en affranchirait
-un jour, mais rien n'en dépend pour publier maintenant.
+audit (§1). **Mise à jour au 24 août 2026 : le lot 2 est fait aussi.**
+`src/server/publication/tiktok.ts` dépose en brouillon via l'app développeur
+propre de Julien, sans passer par Upload Post ni par l'audit — voir §2.3 et le
+lot 2 ci-dessous. Seul YouTube reste chez Upload Post, lot 3 non démarré : ce
+séquencement continue de décrire la voie qui l'en affranchirait un jour, mais
+rien n'en dépend pour publier maintenant.
 
 Les audits durent de deux à six semaines et peuvent échouer. Le travail se range
 donc par ce qui n'attend rien, et non par ce qui semble le plus important.
@@ -298,9 +313,10 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
    ne sait pas téléverser depuis le disque. Rattacher la Page Facebook.
 2. Publier sur `avolo.fr` deux pages statiques : la politique de confidentialité
    et la page de retour OAuth. Meta et TikTok exigent la première.
-3. Créer l'app TikTok, y ajouter le produit *Content Posting API*, demander les
-   portées `video.upload` et `video.publish`, vérifier `avolo.fr` par balise ou
-   DNS, déclarer l'URL de retour.
+3. Créer l'app TikTok, y ajouter le produit *Content Posting API*, demander la
+   portée `video.upload` (`video.publish` reste réservée à l'audit, §2.3),
+   déclarer l'URL de retour — **corrigé le 24 août 2026** : une boucle locale
+   suffit, pas de domaine à vérifier ni de page à héberger (§2.3).
 4. Créer le projet Google, activer *YouTube Data API v3*, **passer l'écran de
    consentement en production** (sans quoi le jeton meurt tous les sept jours).
 5. Déposer les deux audits : le formulaire *YouTube API Services — Audit and
@@ -313,8 +329,8 @@ publié un reel réel le 23 août 2026. **Facebook Page Reels est codé mais
 jamais exercé contre le réseau réel**, faute de `pages_manage_posts` sur le
 jeton de Page — à ne pas lire comme validé tant que ce droit manque.
 
-**Lot 2 — TikTok en brouillon.** Fonctionne sans audit. Le jour où l'audit passe,
-c'est l'implémentation qui change, pas l'interface ni la table.
+**Lot 2 — TikTok en brouillon. Fait.** Fonctionne sans audit. Le jour où l'audit
+passe, c'est l'implémentation qui change, pas l'interface ni la table.
 
 **Lot 3 — YouTube, et seulement l'audit passé.** Voir §2.4.
 
@@ -365,8 +381,8 @@ plateforme (`meta.ts`, `tiktok.ts`) ; ce qui a existé un temps est un seul
 connecteur pour les quatre, `upload-post.ts`, derrière l'interface
 ci-dessous — écrite `src/server/publication/adapter.ts`, déclaration
 canonique dont hérite tout connecteur. Depuis l'issue #146, `meta.ts` prend
-Instagram et Facebook en direct ; Upload Post ne garde plus que TikTok et
-YouTube (§2.1, §2.2).**
+Instagram et Facebook en direct ; `tiktok.ts` prend TikTok en direct depuis le
+24 août 2026 (§2.3) ; Upload Post ne garde plus que YouTube (§2.2).**
 
 ```ts
 export type PublicationJob = {
@@ -547,9 +563,9 @@ de sa valeur est dans ses messages.
   primaire, aucune mesure, et ce dépôt ne décide pas sur des ouï-dire — mais si
   c'était vrai, cela changerait l'intérêt de tout ce document. Une comparaison sur
   quelques clips vaudra mieux qu'une conviction.
-- **L'ordonnanceur du lot 2** : Facebook sait planifier tout seul, les trois autres
-  non. Le lot 2 décidera si l'on planifie chez soi pour tout le monde ou si l'on
-  délègue là où c'est offert.
+- **L'ordonnanceur (§4, hors périmètre — pas le lot 2 de §5)** : Facebook sait
+  planifier tout seul, les trois autres non. Ce chantier décidera si l'on
+  planifie chez soi pour tout le monde ou si l'on délègue là où c'est offert.
 
 ## 11. Sources
 

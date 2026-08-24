@@ -10,7 +10,8 @@
     "test": "vitest run",
     "type-check": "next typegen && tsc --noEmit",
     "framing-preview": "tsx scripts/framing-preview.ts",
-    "framing-preview:stop": "lsof -t -iTCP:${PORT:-4321} -sTCP:LISTEN | xargs -r kill -INT"
+    "framing-preview:stop": "lsof -t -iTCP:${PORT:-4321} -sTCP:LISTEN | xargs -r kill -INT",
+    "generate-env:local": "tsx scripts/generate-env-local.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

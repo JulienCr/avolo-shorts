@@ -15,7 +15,10 @@ function base64url(buffer: Buffer): string {
 
 export function createPkcePair(): PkcePair {
   const verifier = base64url(randomBytes(32))
-  const challenge = base64url(createHash('sha256').update(verifier).digest())
+  // TikTok s'écarte de la RFC 7636 : « hashing the code verifier using hex
+  // encoding of SHA256 » (login-kit-desktop). Un challenge en base64url passe
+  // l'autorisation, dont la forme n'est pas vérifiée, et fait échouer l'échange.
+  const challenge = createHash('sha256').update(verifier).digest('hex')
   return { verifier, challenge }
 }
 

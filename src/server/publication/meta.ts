@@ -304,8 +304,10 @@ async function publishFacebook(
     const permalinkResponse = await fetchImpl(
       `${GRAPH_BASE}/${videoId}?fields=permalink_url&access_token=${encodeURIComponent(pageToken)}`,
     )
-    const { permalink_url: permalinkUrl } = await requireOkMeta<{ permalink_url: string }>(permalinkResponse)
-    remoteUrl = `https://www.facebook.com${permalinkUrl}`
+    const { permalink_url: permalinkUrl } = await requireOkMeta<{ permalink_url?: string }>(permalinkResponse)
+    if (typeof permalinkUrl === 'string' && permalinkUrl !== '') {
+      remoteUrl = new URL(permalinkUrl, 'https://www.facebook.com').toString()
+    }
   } catch {
     // Le contrat `PublicationAdapter` autorise `remoteUrl: null` sur `published`.
   }

@@ -256,9 +256,9 @@ describe('publishInstagram', () => {
 
 /** Le routeur d'un flux Facebook complet, jusqu'au sondage `publishing_phase`. */
 function facebookHandler(
-  options: { pollPhases?: readonly string[]; permalinkFails?: boolean } = {},
+  options: { pollPhases?: readonly string[]; permalinkFails?: boolean; permalinkMissing?: boolean } = {},
 ): { handler: Handler; order: string[] } {
-  const { pollPhases = ['complete'], permalinkFails = false } = options
+  const { pollPhases = ['complete'], permalinkFails = false, permalinkMissing = false } = options
   const order: string[] = []
   let polls = 0
 
@@ -288,6 +288,7 @@ function facebookHandler(
     if (url.includes('/video1?fields=permalink_url')) {
       order.push('permalink')
       if (permalinkFails) return jsonResponse(500, { error: { message: 'transient' } })
+      if (permalinkMissing) return jsonResponse(200, {})
       return jsonResponse(200, { permalink_url: '/reel/video1/' })
     }
     if (url.includes('/page1?fields=id')) return jsonResponse(200, { id: 'page1' })
@@ -315,6 +316,15 @@ describe('publishFacebook', () => {
 
   it('un échec transitoire sur la lecture du permalink reste `published`, pas `failed` (le reel est déjà en ligne)', async () => {
     const { handler } = facebookHandler({ permalinkFails: true })
+    const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
+  })
+
+  it('une réponse 2xx sans `permalink_url` rend `remoteUrl: null`, jamais une URL avec `undefined` collé dedans', async () => {
+    const { handler } = facebookHandler({ permalinkMissing: true })
     const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
 
     const outcomes = await adapter.publish(job(), ['facebook'])

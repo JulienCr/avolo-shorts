@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { closeDb } from '@/server/db'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
@@ -17,10 +18,10 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 const envStart = { ...process.env }
 
 /**
- * Les quatre plateformes sont portées par trois connecteurs, et deux d'entre eux
- * se disent configurés sur un **fichier de jetons** plutôt que sur une variable :
- * effacer les seules clés d'Upload Post laissait Meta se déclarer disponible dès
- * que `projects/meta-tokens.json` existait, donc vert en worktree et rouge sur une
+ * Les quatre plateformes sont portées par trois connecteurs, et Meta se dit
+ * configuré sur un **fichier de jetons** plutôt que sur une variable : effacer
+ * les seules clés d'Upload Post laissait Meta se déclarer disponible dès que
+ * `projects/meta-tokens.json` existait, donc vert en worktree et rouge sur une
  * machine réellement appairée.
  */
 function isolateConnectors(): string {
@@ -37,6 +38,7 @@ let root: string | undefined
 afterEach(() => {
   forgetAvailabilityCache()
   process.env = { ...envStart }
+  closeDb()
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
   vi.unstubAllGlobals()

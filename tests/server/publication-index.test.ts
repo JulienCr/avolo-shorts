@@ -4,7 +4,6 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { applySettings, closeDb, getDb } from '@/server/db'
-import type { PublicationPreference } from '@/lib/api'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
@@ -78,17 +77,28 @@ describe('adapterFor', () => {
     expect(adapterFor('facebook')?.id).toBe('upload-post')
   })
 
-  it('une préférence vers un connecteur non enregistré retombe sur l’ordre de priorité, sans lever', async () => {
-    // Le cas que ce test protégeait à l'origine — `tiktok` valide côté réglages
-    // mais sans adaptateur enregistré — n'existe plus depuis que cette PR
-    // enregistre TikTok : simuler un identifiant resté en base après le retrait
-    // d'un connecteur, ou jamais reconnu, est le cas général qui reste réel.
-    applySettings(getDb(), {
-      publication: { tiktok: 'defunct-connector' as unknown as PublicationPreference },
-    })
-    const { adapterFor } = await import('@/server/publication')
-    expect(() => adapterFor('tiktok')).not.toThrow()
-    expect(adapterFor('tiktok')?.id).toBe('tiktok')
+  it('une préférence vers un connecteur absent du registre retombe sur l’ordre de priorité, sans lever', async () => {
+    // Le cas que ce test protégeait à l'origine — `tiktok` valide côté
+    // réglages mais sans adaptateur enregistré — s'est refermé quand cette PR
+    // a enregistré TikTok : `applySettings` et `effectiveSettings` valident
+    // tous deux contre le même enum, donc une valeur qui n'y figure pas
+    // n'atteint jamais `adapterFor` (voir `tests/server/db.test.ts`, « ignore
+    // une valeur corrompue en base au profit du défaut »). Le garde-fou reste
+    // réel — un connecteur qu'on retirerait du registre sans toucher l'enum
+    // rouvrirait le même écart —, donc on le simule en mockant le registre.
+    vi.resetModules()
+    vi.doMock('@/server/publication/tiktok', () => ({
+      createTikTokAdapter: () => ({ id: 'upload-post', platforms: [], availability: async () => ({}) }),
+    }))
+    try {
+      applySettings(getDb(), { publication: { tiktok: 'tiktok' } })
+      const { adapterFor } = await import('@/server/publication')
+      expect(() => adapterFor('tiktok')).not.toThrow()
+      expect(adapterFor('tiktok')?.id).toBe('upload-post')
+    } finally {
+      vi.doUnmock('@/server/publication/tiktok')
+      vi.resetModules()
+    }
   })
 })
 

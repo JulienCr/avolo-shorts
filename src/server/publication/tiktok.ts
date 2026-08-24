@@ -73,7 +73,10 @@ type TikTokErrorBody = { code?: string; message?: string; log_id?: string }
 type TikTokEnvelope<T> = { data?: T; error?: TikTokErrorBody }
 
 const TOKEN_ERROR_CODES = ['access_token_invalid', 'access_token_expired']
-const RATE_LIMIT_CODES = ['rate_limit_exceeded', 'spam_risk_too_many_posts', 'spam_risk_user_banned_from_posting']
+const RATE_LIMIT_CODES = ['rate_limit_exceeded', 'spam_risk_too_many_posts']
+// `spam_risk_user_banned_from_posting` n'est pas un débit atteint : le compte
+// est interdit de publication, attendre la fenêtre de 24 h ne le lèvera pas.
+const ACCOUNT_ERROR_CODES = ['spam_risk_user_banned_from_posting']
 const FILE_ERROR_CODES = [
   'file_format_check_failed',
   'duration_check_failed',
@@ -109,7 +112,12 @@ async function requireOkTikTok<T>(response: Response): Promise<T> {
     if (code !== undefined && FILE_ERROR_CODES.includes(code)) {
       throw new TikTokFileRefusedError(message)
     }
-    if (response.status === 400 || code === 'invalid_params' || code === 'scope_not_authorized') {
+    if (
+      response.status === 400 ||
+      code === 'invalid_params' ||
+      code === 'scope_not_authorized' ||
+      (code !== undefined && ACCOUNT_ERROR_CODES.includes(code))
+    ) {
       throw new TikTokAccountMisconfiguredError(message)
     }
     throw new Error(`TikTok a répondu ${response.status}${code === undefined ? '' : ` (${code})`} : ${message}`)

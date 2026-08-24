@@ -123,6 +123,17 @@ function flag(name: string): string | undefined {
   return process.argv.slice(2).find((a) => a.startsWith(`--${name}=`))?.slice(`--${name}=`.length)
 }
 
+/** Refuse une durée non finie ou non positive plutôt que de persister un jeton corrompu (`NaN` → `null` en JSON). */
+function positiveDuration(envName: string, fallback: number): number {
+  const raw = process.env[envName]
+  if (raw === undefined || raw === '') return fallback
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${envName} vaut « ${raw} », ce n'est pas une durée en secondes valide.`)
+  }
+  return value
+}
+
 async function main(): Promise<number> {
   await chargerEnv()
 
@@ -133,8 +144,8 @@ async function main(): Promise<number> {
       throw new Error('TIKTOK_ACCESS_TOKEN est posé sans TIKTOK_REFRESH_TOKEN : les deux sont requis.')
     }
     const openId = process.env.TIKTOK_OPEN_ID ?? ''
-    const expiresIn = Number(process.env.TIKTOK_EXPIRES_IN_SECONDS ?? 86_400)
-    const refreshExpiresIn = Number(process.env.TIKTOK_REFRESH_EXPIRES_IN_SECONDS ?? 31_536_000)
+    const expiresIn = positiveDuration('TIKTOK_EXPIRES_IN_SECONDS', 86_400)
+    const refreshExpiresIn = positiveDuration('TIKTOK_REFRESH_EXPIRES_IN_SECONDS', 31_536_000)
     await pairAndPersist(openId, pastedAccessToken, pastedRefreshToken, expiresIn, refreshExpiresIn)
     return 0
   }

@@ -8,8 +8,10 @@ sans connecteur ni backend, périmètre tranché par Julien.
 **Mise à jour au 23 août 2026, la plus importante depuis l'écriture de ce
 document** : Julien s'est abonné à Upload Post (offre gratuite — voir §2.5, la
 Basic évoquée plus bas n'est pas celle qui tourne). Ce n'est plus le repli du
-§5 en cas d'échec de l'audit TikTok, c'est le transport qui existe **aujourd'hui**
-pour les quatre plateformes à la fois, écrit dans cette PR-ci. §2.4, §3, §5 et
+§5 en cas d'échec de l'audit TikTok, c'est le transport qui existait alors pour
+les quatre plateformes à la fois, écrit dans cette PR-ci — **mise à jour au
+24 août 2026 : ça ne dure pas.** Meta (issue #146) puis TikTok (§2.3) sont
+passés en direct depuis ; Upload Post ne garde que YouTube. §2.4, §3, §5 et
 §6.2 sont corrigés en conséquence. Le lot 0 (démarches Meta/TikTok/YouTube) et
 les audits restent la voie qui affranchirait un connecteur direct un jour,
 mais rien n'en dépend plus pour publier.
@@ -121,7 +123,7 @@ contrairement à Instagram, publié pour de vrai le 23 août 2026.
 |---|---|
 | Publication directe | `video.publish`, contenu **forcé en `SELF_ONLY` tant que l'app n'est pas auditée** |
 | Dépôt en brouillon | `video.upload`, `POST /v2/post/publish/inbox/video/init/` |
-| Téléversement | `FILE_UPLOAD` chunké (5 Mo minimum, 64 Mo maximum par morceau) ou `PULL_FROM_URL` depuis un domaine vérifié |
+| Téléversement | `FILE_UPLOAD` chunké (5-64 Mo par morceau **déclaré** à `init` ; le dernier morceau réellement envoyé peut dépasser cette borne haute, jusqu'à un peu moins du double, plutôt que produire un reste sous 5 Mo) ou `PULL_FROM_URL` depuis un domaine vérifié |
 | Débit non audité | 5 utilisateurs publiants sur 24 h |
 | Durée | 10 minutes maximum par les points d'entrée de téléversement |
 
@@ -256,7 +258,7 @@ Sur le modèle de `CLAUDE.md`, chacune contredit ce qui vient spontanément.
 | `déposé` n'est pas `publié` | un seul état « fait » par plateforme |
 | Une publication par plateforme, **échec isolé** | une transaction tout-ou-rien sur les quatre |
 | Le type s'appelle `Platform`, en anglais | `Plateforme`, ou `Cible` déjà pris par `CibleLançable` dans `run.ts` |
-| Upload Post porte TikTok et YouTube ; Meta prend Instagram et Facebook en direct (issue #146) | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
+| Upload Post ne porte plus que YouTube ; Meta prend Instagram et Facebook en direct (issue #146), TikTok prend son propre connecteur direct (§2.3, 24 août 2026) | attendre l'échec de l'audit TikTok pour l'écrire, ou coder un accès direct « pendant qu'on y est » |
 
 ## 4. Périmètre
 

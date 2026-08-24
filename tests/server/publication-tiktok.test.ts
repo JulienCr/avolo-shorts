@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PublicationJob } from '@/server/publication/adapter'
+import { TikTokAccountMisconfiguredError, TikTokRateLimitError } from '@/server/publication/errors'
 import {
   createTikTokAdapter,
   MAX_CHUNK_SIZE,
@@ -208,6 +209,25 @@ describe('publishTikTok (dépôt en brouillon)', () => {
     expect((outcomes.tiktok as { error: string }).error).toMatch(/jeton révoqué/)
   })
 
+  it('nomme un compte mal configuré sur un compte banni de publication, pas un débit atteint', async () => {
+    await seedTikTokToken()
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, {
+          error: { code: 'spam_risk_user_banned_from_posting', message: 'compte interdit de publication' },
+        })
+      }
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok.status).toBe('failed')
+    expect((outcomes.tiktok as { error: string }).error).toMatch(/interdit de publication/)
+  })
+
   it('nomme le jeton expiré sur un 401 pendant l’envoi d’un morceau, pas un fichier refusé', async () => {
     await seedTikTokToken()
     const uploadUrl = 'https://upload.tiktokapis.com/upload1'
@@ -271,6 +291,27 @@ describe('ensureFreshTikTokToken', () => {
     const persisted = await readTikTokTokens()
     expect(persisted?.accessToken).toBe('FRESH_ACCESS')
     expect(persisted?.refreshToken).toBe('FRESH_REFRESH')
+  })
+
+  it('nomme le débit atteint sur un 429 au rafraîchissement, sans redemander un appairage', async () => {
+    await seedTikTokToken({ accessTokenExpiresAt: Date.now() + 60_000 })
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 }))
+
+    await expect(ensureFreshTikTokToken(ENV, fetchImpl as unknown as typeof fetch)).rejects.toThrow(TikTokRateLimitError)
+  })
+
+  it('nomme un compte mal configuré sur invalid_client au rafraîchissement, pas un jeton expiré', async () => {
+    await seedTikTokToken({ accessTokenExpiresAt: Date.now() + 60_000 })
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: 'invalid_client', error_description: 'client secret invalide' }), {
+          status: 400,
+        }),
+    )
+
+    await expect(ensureFreshTikTokToken(ENV, fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      TikTokAccountMisconfiguredError,
+    )
   })
 
   it('utilise le nouveau jeton pour l’appel suivant, pas l’ancien', async () => {

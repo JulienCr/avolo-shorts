@@ -3,7 +3,11 @@ import path from 'node:path'
 
 import { isAAbsence } from '@/server/bytes'
 import { projectsDir } from '@/server/paths'
-import { TikTokAccountMisconfiguredError, TikTokTokenExpiredError } from '@/server/publication/errors'
+import {
+  TikTokAccountMisconfiguredError,
+  TikTokRateLimitError,
+  TikTokTokenExpiredError,
+} from '@/server/publication/errors'
 import { isReference, type Environment } from '@/server/secrets'
 
 /**
@@ -132,9 +136,15 @@ export async function refreshTikTokToken(env: Environment, fetchImpl: typeof fet
     body.expires_in === undefined ||
     body.refresh_expires_in === undefined
   ) {
-    throw new TikTokTokenExpiredError(
-      body?.error_description ?? body?.error ?? `TikTok a répondu ${response.status} au rafraîchissement.`,
-    )
+    const detail = body?.error_description ?? body?.error ?? `TikTok a répondu ${response.status} au rafraîchissement.`
+    // Un 429 ou un `invalid_client` ne disent rien du jeton de rafraîchissement
+    // lui-même : le premier veut dire réessayer plus tard, le second veut dire
+    // que `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET` sont faux. Seule une
+    // réponse qui invalide vraiment le refresh token doit demander un
+    // réappairage.
+    if (response.status === 429) throw new TikTokRateLimitError(detail)
+    if (body?.error === 'invalid_client') throw new TikTokAccountMisconfiguredError(detail)
+    throw new TikTokTokenExpiredError(detail)
   }
   const refreshed: TikTokTokenFile = {
     openId: body.open_id ?? current.openId,

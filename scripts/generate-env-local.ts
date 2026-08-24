@@ -4,19 +4,22 @@
  *
  * Le défaut mesuré de `resolveSecrets` (`src/server/secrets.ts`) : quatre
  * références distinctes lancent quatre `op read` en parallèle, donc 1Password
- * demande quatre approbations au lieu d'une — aucun des quatre process ne
- * profite de la session que les autres établissent. `op inject` lit un gabarit
- * sur stdin et remplace chaque `{{ op://… }}` en un seul aller-retour, quels
- * que soient le coffre, la fiche et le champ.
+ * demande quatre approbations au lieu d'une. `op inject` lit un gabarit sur
+ * stdin et remplace chaque `{{ op://… }}` en un seul aller-retour. Le socle
+ * partagé (gabarit à sentinelles, injecteur `execFile`+stdin) vit dans
+ * `src/server/op-inject.ts`, réutilisé ici et par `resolveSecrets`.
  */
 
-import { execFile } from 'node:child_process'
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { promisify } from 'node:util'
-import { isReference } from '@/server/secrets'
-
-const execFileP = promisify(execFile)
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import { isReference, lireInOnePassword, type SecretPlayer } from '@/server/secrets'
+import {
+  buildInjectTemplate as buildTemplateShared,
+  createBatchInjector,
+  parseInjectOutput as parseOutputShared,
+  type BatchInjector,
+  type InjectEntry,
+} from '@/server/op-inject'
 
 /** Le délai de garde d'un aller-retour vers 1Password. Voir `src/server/secrets.ts`. */
 const DELAY_MS = 60_000
@@ -30,11 +33,19 @@ export interface EnvReference {
   readonly reference: string
 }
 
-/** Ce qu'`op inject` reçoit sur stdin. Injecté par les tests, qui ne lancent jamais `op`. */
-export type BatchInjector = (template: string) => Promise<string>
+function toInjectEntries(entries: readonly EnvReference[]): InjectEntry[] {
+  return entries.map((entry) => ({ key: entry.name, reference: entry.reference }))
+}
 
-/** Ce qui lit une référence isolée, pour le diagnostic quand le lot échoue. */
-export type SecretReader = (reference: string) => Promise<string>
+/** Le gabarit à sentinelles de `src/server/op-inject.ts`, indexé par nom de variable. */
+export function buildInjectTemplate(entries: readonly EnvReference[], nonce: string): string {
+  return buildTemplateShared(toInjectEntries(entries), nonce)
+}
+
+/** Les valeurs résolues de `src/server/op-inject.ts`, indexées par nom de variable. */
+export function parseInjectOutput(output: string, entries: readonly EnvReference[], nonce: string): Map<string, string> {
+  return parseOutputShared(output, toInjectEntries(entries), nonce)
+}
 
 /**
  * Les variables de `content` dont la valeur est une adresse `op://…`, dans
@@ -59,75 +70,8 @@ export function parseEnvReferences(content: string): EnvReference[] {
   return entries
 }
 
-function sentinel(kind: 'START' | 'END', name: string, nonce: string): string {
-  return `<<<${kind}:${nonce}:${name}>>>`
-}
-
-/**
- * Un gabarit à sentinelles, une par variable. Les sentinelles délimitent
- * chaque valeur plutôt qu'une découpe par ligne : un secret peut contenir des
- * sauts de ligne (une clé privée), qu'une découpe par ligne abîmerait.
- */
-export function buildInjectTemplate(entries: readonly EnvReference[], nonce: string): string {
-  return entries
-    .map((entry) => `${sentinel('START', entry.name, nonce)}\n{{ ${entry.reference} }}\n${sentinel('END', entry.name, nonce)}`)
-    .join('\n')
-}
-
-/**
- * Les valeurs résolues, extraites entre les sentinelles de chaque variable —
- * sans ajouter ni retirer d'espace autour, un saut de ligne final faisant
- * partie du secret qui le porte.
- */
-export function parseInjectOutput(
-  output: string,
-  entries: readonly EnvReference[],
-  nonce: string,
-): Map<string, string> {
-  const values = new Map<string, string>()
-  for (const entry of entries) {
-    const start = `${sentinel('START', entry.name, nonce)}\n`
-    const end = `\n${sentinel('END', entry.name, nonce)}`
-    const startIndex = output.indexOf(start)
-    if (startIndex === -1) {
-      throw new Error(`${entry.name} : sentinelle de départ absente de la sortie de op inject.`)
-    }
-    const valueStart = startIndex + start.length
-    const endIndex = output.indexOf(end, valueStart)
-    if (endIndex === -1) {
-      throw new Error(`${entry.name} : sentinelle de fin absente de la sortie de op inject.`)
-    }
-    values.set(entry.name, output.slice(valueStart, endIndex))
-  }
-  return values
-}
-
-/**
- * `execFile` promisifié n'accepte pas d'entrée standard : `op inject` lit son
- * gabarit sur stdin, donc on retombe sur la forme à callback pour écrire dessus
- * avant que le processus ne se termine.
- */
 function injectViaOp(template: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      opBin(),
-      ['inject'],
-      { encoding: 'utf8', timeout: DELAY_MS, maxBuffer: 16 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) reject(error)
-        else resolve(stdout)
-      },
-    )
-    child.stdin?.end(template)
-  })
-}
-
-async function readViaOp(reference: string): Promise<string> {
-  const { stdout } = await execFileP(opBin(), ['read', '--no-newline', reference], {
-    encoding: 'utf8',
-    timeout: DELAY_MS,
-  })
-  return stdout
+  return createBatchInjector({ bin: opBin(), timeoutMs: DELAY_MS })(template)
 }
 
 /**
@@ -140,14 +84,15 @@ async function readViaOp(reference: string): Promise<string> {
 export async function resolveEnvLocal(
   entries: readonly EnvReference[],
   inject: BatchInjector,
-  readOne: SecretReader,
+  readOne: SecretPlayer,
 ): Promise<[string, string][]> {
   if (entries.length === 0) return []
 
   const nonce = randomUUID()
+  const injectEntries = toInjectEntries(entries)
   try {
-    const output = await inject(buildInjectTemplate(entries, nonce))
-    const values = parseInjectOutput(output, entries, nonce)
+    const output = await inject(buildTemplateShared(injectEntries, nonce))
+    const values = parseOutputShared(output, injectEntries, nonce)
     return entries.map((entry) => [entry.name, values.get(entry.name) as string])
   } catch {
     const failures: string[] = []
@@ -187,7 +132,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const resolved = await resolveEnvLocal(entries, injectViaOp, readViaOp)
+  const resolved = await resolveEnvLocal(entries, injectViaOp, lireInOnePassword)
   writeFileSync('.env.local', formatEnvLocal(resolved), { mode: 0o600 })
   chmodSync('.env.local', 0o600)
   console.log(`.env.local : ${resolved.map(([name]) => name).join(', ')} résolue(s).`)

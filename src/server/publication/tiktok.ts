@@ -163,6 +163,7 @@ async function uploadChunks(
     const chunk = buffer.subarray(start, end + 1)
     let lastDetail = ''
     let lastStatus = 0
+    let succeeded = false
     for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
       const response = await fetchImpl(uploadUrl, {
         method: 'PUT',
@@ -173,7 +174,7 @@ async function uploadChunks(
         body: new Blob([chunk]),
       })
       if (response.ok) {
-        lastDetail = ''
+        succeeded = true
         break
       }
       lastDetail = await response.text()
@@ -190,7 +191,10 @@ async function uploadChunks(
         throw new TikTokFileRefusedError(`TikTok a refusé le morceau ${start}-${end} : ${lastDetail}`)
       }
     }
-    if (lastDetail !== '') {
+    // Un drapeau explicite, jamais `lastDetail !== ''` : un 5xx sans corps
+    // (fréquent en HTTP/2) laisserait cette chaîne vide et ferait passer un
+    // échec répété pour une réussite.
+    if (!succeeded) {
       throw new TikTokFileRefusedError(
         `TikTok a refusé le morceau ${start}-${end} après ${CHUNK_RETRY_ATTEMPTS} tentatives (${lastStatus}) : ${lastDetail}`,
       )

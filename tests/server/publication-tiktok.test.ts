@@ -317,6 +317,29 @@ describe('publishTikTok (dépôt en brouillon)', () => {
     expect((outcomes.tiktok as { error: string }).error).toMatch(/503/)
     expect(uploadAttempts).toBe(3)
   })
+
+  it('abandonne le morceau après un 5xx persistant sans corps, ne rend jamais submitted', async () => {
+    await seedTikTokToken()
+    const uploadUrl = 'https://upload.tiktokapis.com/upload1'
+    let uploadAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: uploadUrl }, error: { code: 'ok' } })
+      }
+      if (url === uploadUrl) {
+        uploadAttempts += 1
+        return new Response('', { status: 503 })
+      }
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok.status).toBe('failed')
+    expect(uploadAttempts).toBe(3)
+  })
 })
 
 describe('ensureFreshTikTokToken', () => {

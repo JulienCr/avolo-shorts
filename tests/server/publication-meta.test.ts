@@ -16,9 +16,10 @@ import {
 
 /**
  * Le connecteur Meta direct, contre un `fetch` injecté — jamais le réseau,
- * l'app Meta n'existe pas encore côté serveur de test. Le seul chemin
- * réellement exercé sur le vrai réseau, une fois, est le flux Instagram
- * décrit ici (issue #146) ; Facebook Page Reels reste non vérifié.
+ * l'app Meta n'existe pas encore côté serveur de test. Instagram et Facebook
+ * Page Reels ont chacun été exercés une fois pour de vrai (issue #146) ; ces
+ * tests couvrent les deux flux, plus les cas d'erreur qu'un run réel ne
+ * traverse pas.
  */
 
 let root: string

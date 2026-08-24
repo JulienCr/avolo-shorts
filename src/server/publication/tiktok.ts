@@ -290,9 +290,7 @@ async function availability(
   if (!clientConfigured) return result
   const tokens = await readTikTokTokens()
   // La clé et le secret d'app sont là, mais `dev-connect-tiktok.ts` n'a
-  // jamais tourné : le remède est l'appairage, pas `.env` (relevé le 23 août
-  // 2026 — Julien a choisi « TikTok (direct) » et lu le message pour
-  // l'absence de clé, fausse dans ce cas).
+  // jamais tourné : le remède est l'appairage, pas `.env` (issue #146).
   if (tokens === null) {
     result.tiktok = { available: false, reason: 'not_paired' }
     return result

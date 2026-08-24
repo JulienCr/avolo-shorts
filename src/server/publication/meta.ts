@@ -22,9 +22,8 @@ import { messageSafe } from '@/server/errors'
 
 /**
  * Le connecteur Meta direct — Instagram Reels et Facebook Page Reels par
- * l'API Graph, sans passer par Upload Post (issue #146). Un appel par
- * plateforme, contrairement à `upload-post.ts` : `publish` boucle en interne,
- * un échec sur l'une n'annule jamais la réussite de l'autre.
+ * l'API Graph, sans passer par Upload Post (issue #146) : un appel par
+ * plateforme, un échec sur l'une n'annule jamais la réussite de l'autre.
  *
  * Chemin Facebook Login exclusivement (pas Instagram Login) — voir
  * `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie un reel ».

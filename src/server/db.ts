@@ -9,6 +9,7 @@ export type { PublicationRow } from '@/core/publication'
 import { DEFAULT_SELECTION_DIMENSIONS, type SelectionDimensions } from '@/core/transcript'
 import {
   DEFAULT_COPY_SOURCE_LOCALLY,
+  DEFAULT_PUBLICATION_PREFERENCE,
   HOOK_ALIGNMENTS,
   HOOK_BOUNDS,
   HOOK_DEFAULTS,
@@ -648,10 +649,26 @@ const HOOK_FIELDS: readonly SettingField[] = (
  * `PUBLICATION_ADAPTER_CHOICES` (`@/lib/api`), pour ne pas la retenir deux fois.
  */
 const PUBLICATION_FIELD_SHAPES = {
-  instagram: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.instagram },
-  facebook: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.facebook },
-  tiktok: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.tiktok },
-  youtube: { type: 'text', defaultValue: 'auto', enum: PUBLICATION_ADAPTER_CHOICES.youtube },
+  instagram: {
+    type: 'text',
+    defaultValue: DEFAULT_PUBLICATION_PREFERENCE,
+    enum: PUBLICATION_ADAPTER_CHOICES.instagram,
+  },
+  facebook: {
+    type: 'text',
+    defaultValue: DEFAULT_PUBLICATION_PREFERENCE,
+    enum: PUBLICATION_ADAPTER_CHOICES.facebook,
+  },
+  tiktok: {
+    type: 'text',
+    defaultValue: DEFAULT_PUBLICATION_PREFERENCE,
+    enum: PUBLICATION_ADAPTER_CHOICES.tiktok,
+  },
+  youtube: {
+    type: 'text',
+    defaultValue: DEFAULT_PUBLICATION_PREFERENCE,
+    enum: PUBLICATION_ADAPTER_CHOICES.youtube,
+  },
 } satisfies Record<keyof PublicationSettings, Omit<SettingField, 'family' | 'name'>>
 
 const PUBLICATION_FIELDS: readonly SettingField[] = (

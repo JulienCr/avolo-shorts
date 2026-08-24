@@ -1050,30 +1050,39 @@ export type IngestionSettings = {
  */
 export type PublicationPreference = 'auto' | 'meta' | 'upload-post' | 'tiktok'
 
+/** Le défaut de toute préférence `publication.<plateforme>` — jamais un autre littéral `'auto'` récrit à côté. */
+export const DEFAULT_PUBLICATION_PREFERENCE: PublicationPreference = 'auto'
+
 /**
  * Les choix admis par plateforme. Chaque champ ne porte que les connecteurs
  * qui la couvrent réellement — sauf `tiktok`, dont l'adaptateur n'existe pas
  * encore : le choix figure déjà, et `adapterFor` retombe sur l'ordre de
  * priorité tant qu'il est sans registre.
+ *
+ * `as const satisfies` plutôt qu'une annotation `Record<Platform, …>` : ça
+ * garde chaque tableau à ses littéraux, ce qui permet à `PublicationSettings`
+ * de dériver un type par champ plutôt que l'union des quatre.
  */
-export const PUBLICATION_ADAPTER_CHOICES: Record<Platform, readonly PublicationPreference[]> = {
+export const PUBLICATION_ADAPTER_CHOICES = {
   instagram: ['auto', 'meta', 'upload-post'],
   facebook: ['auto', 'meta', 'upload-post'],
   tiktok: ['auto', 'tiktok', 'upload-post'],
   youtube: ['auto', 'upload-post'],
-}
+} as const satisfies Record<Platform, readonly PublicationPreference[]>
 
 /**
  * Quel connecteur porte chaque plateforme — un champ par plateforme, `auto`
  * par défaut. Le défaut reproduit l'ordre de priorité du registre à
  * l'identique : Meta avant Upload Post sur Instagram et Facebook, gratuit et
  * cent publications par 24 h contre dix par mois (`CLAUDE.md`, issue #146).
+ *
+ * **Chaque champ dérive de `PUBLICATION_ADAPTER_CHOICES`**, pas de
+ * `PublicationPreference` en entier : un patch `{ youtube: 'meta' }` — que
+ * l'API refuse à l'exécution, faute d'adaptateur Meta sur YouTube — est
+ * désormais rejeté au typage aussi.
  */
 export type PublicationSettings = {
-  instagram: PublicationPreference
-  facebook: PublicationPreference
-  tiktok: PublicationPreference
-  youtube: PublicationPreference
+  [P in Platform]: (typeof PUBLICATION_ADAPTER_CHOICES)[P][number]
 }
 
 export type Settings = {

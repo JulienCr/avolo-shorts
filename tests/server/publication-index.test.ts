@@ -94,4 +94,64 @@ describe('publicationAvailability', () => {
     })
     expect(fetch).not.toHaveBeenCalled()
   })
+
+  it('résout chaque plateforme depuis l’adaptateur que `adapterFor` choisirait, pas depuis l’ordre de priorité (relevé par Copilot)', async () => {
+    // Meta répond `available`, Upload Post répond `not_configured` : sans le
+    // routage par préférence, la boucle d'origine agrégeait par ordre de
+    // priorité et ne pouvait pas distinguer ce cas d'un simple renversement de
+    // l'ordre. Facebook est explicitement basculé vers Upload Post — son état
+    // affiché doit donc suivre Upload Post, pas Meta, malgré que Meta réponde
+    // en premier dans le registre.
+    const metaAvailability = vi.fn(async () => ({
+      instagram: { available: true },
+      facebook: { available: true },
+      tiktok: { available: false, reason: 'not_configured' as const },
+      youtube: { available: false, reason: 'not_configured' as const },
+    }))
+    const uploadPostAvailability = vi.fn(async () => ({
+      instagram: { available: false, reason: 'not_configured' as const },
+      facebook: { available: false, reason: 'not_configured' as const },
+      tiktok: { available: false, reason: 'not_configured' as const },
+      youtube: { available: false, reason: 'not_configured' as const },
+    }))
+
+    // Le registre de `@/server/publication` mémorise ses adaptateurs au
+    // premier appel (`publicationAdapters`) : un test précédent, dans ce même
+    // fichier, l'a déjà rempli avec les vrais Meta/Upload Post. Sans reset,
+    // ce mock arriverait trop tard pour être vu.
+    vi.resetModules()
+    vi.doMock('@/server/publication/meta', () => ({
+      createMetaAdapter: () => ({
+        id: 'meta',
+        platforms: ['instagram', 'facebook'],
+        availability: metaAvailability,
+      }),
+    }))
+    vi.doMock('@/server/publication/upload-post', () => ({
+      createUploadPostAdapter: () => ({
+        id: 'upload-post',
+        platforms: ['instagram', 'facebook', 'tiktok', 'youtube'],
+        availability: uploadPostAvailability,
+      }),
+    }))
+
+    try {
+      applySettings(getDb(), { publication: { facebook: 'upload-post' } })
+      const { publicationAvailability } = await import('@/server/publication')
+      const availability = await publicationAvailability()
+
+      expect(availability.instagram).toEqual({ available: true })
+      expect(availability.facebook).toEqual({ available: false, reason: 'not_configured' })
+
+      // Meta ne porte qu'Instagram ici (Facebook est allé à Upload Post) et
+      // Upload Post porte les trois autres : chacun n'est interrogé qu'une
+      // seule fois, malgré deux plateformes résolues par Upload Post.
+      expect(metaAvailability).toHaveBeenCalledTimes(1)
+      expect(uploadPostAvailability).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.doUnmock('@/server/publication/meta')
+      vi.doUnmock('@/server/publication/upload-post')
+      vi.resetModules()
+    }
+  })
 })

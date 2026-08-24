@@ -1688,6 +1688,47 @@ describe('/api/settings', () => {
     expect(body.hook.textColor).toBe('#A1B2C3')
   })
 
+  /**
+   * Le round-trip HTTP de la famille `publication`, jusqu'ici couvert
+   * seulement par `applySettings` en direct (`publication-index.test.ts`).
+   * (relevé par Aristarque)
+   */
+  it('accepte et relit une préférence de publication non-défaut, sans toucher aux autres plateformes', async () => {
+    const response = await write({ publication: { instagram: 'meta' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
+    })
+    // Et ça persiste.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
+    })
+  })
+
+  it('refuse une préférence de publication hors de l’énumération de sa plateforme', async () => {
+    // `youtube` n'a pas Meta dans son énumération (`PUBLICATION_ADAPTER_CHOICES`)
+    // — seuls `auto` et `upload-post` le sont — contrairement à Instagram et
+    // Facebook, où `meta` est valide.
+    expect((await write({ publication: { youtube: 'meta' } })).status).toBe(400)
+    expect((await write({ publication: { instagram: 'unknown-connector' } })).status).toBe(400)
+    // Rien de tout ça n'a été écrit.
+    expect(await (await getSettingsRoute()).json()).toEqual({
+      selection: DEFAULT_SELECTION_DIMENSIONS,
+      ai: AI_DEFAULTS,
+      ingestion: INGESTION_DEFAULTS,
+      hook: HOOK_SETTINGS_DEFAULTS,
+      publication: PUBLICATION_DEFAULTS,
+    })
+  })
+
   it('refuse un corps illisible, et accepte un corps vide sans rien changer', async () => {
     const unreadable = await putSettingsRoute(
       new Request('http://x', { method: 'PUT', body: '{pas du json' }),

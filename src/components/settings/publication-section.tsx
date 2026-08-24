@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { PLATFORM_LABELS, PLATFORMS, type Platform } from '@/core/publication'
 import {
+  DEFAULT_PUBLICATION_PREFERENCE,
   PUBLICATION_ADAPTER_CHOICES,
   type PublicationPreference,
   type PublicationSettings,
@@ -30,7 +31,7 @@ import {
  * déjà Meta à Upload Post sur Instagram et Facebook pour cette raison.
  */
 
-const DEFAULT_PREFERENCE: PublicationPreference = 'auto'
+const DEFAULT_PREFERENCE: PublicationPreference = DEFAULT_PUBLICATION_PREFERENCE
 
 const ADAPTER_LABELS: Record<PublicationPreference, string> = {
   auto: 'Automatique',

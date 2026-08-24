@@ -61,10 +61,13 @@ export const PUBLICATION_STATUS_LABELS: Record<PublicationStatus, string> = {
  * **configuration**, pas de publication : elle ne décrit jamais un couple
  * clip/plateforme, seulement la plateforme elle-même.
  */
-export type PlatformUnavailableReason = 'not_configured' | 'unavailable' | 'audit_required'
+export type PlatformUnavailableReason = 'not_configured' | 'not_paired' | 'unavailable' | 'audit_required'
 
 export const PLATFORM_UNAVAILABLE_REASON_LABELS: Record<PlatformUnavailableReason, string> = {
   not_configured: 'Aucun connecteur n’est encore branché pour cette plateforme.',
+  // Le remède n'a rien à voir avec `not_configured` : l'identifiant est déjà
+  // renseigné, il manque le geste d'appairage (`pnpm tsx scripts/dev-connect-*`).
+  not_paired: 'Identifiants renseignés, mais jamais appairés : lancer le script d’appairage.',
   unavailable: 'Cette plateforme est momentanément indisponible.',
   // Le contre-sens le plus coûteux du sujet (spec publication §2.4 et §7) :
   // avant l'audit, une vidéo envoyée par l'API YouTube est verrouillée en

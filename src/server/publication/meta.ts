@@ -22,15 +22,15 @@ import { messageSafe } from '@/server/errors'
 
 /**
  * Le connecteur Meta direct — Instagram Reels et Facebook Page Reels par
- * l'API Graph, sans passer par Upload Post (issue #146). Un appel par
- * plateforme, contrairement à `upload-post.ts` : `publish` boucle en interne,
- * un échec sur l'une n'annule jamais la réussite de l'autre.
+ * l'API Graph, sans passer par Upload Post (issue #146) : un appel par
+ * plateforme, un échec sur l'une n'annule jamais la réussite de l'autre.
  *
  * Chemin Facebook Login exclusivement (pas Instagram Login) — voir
  * `docs/lessons.md`, « Ce que Meta ne dit pas quand on publie un reel ».
  *
- * **Jamais vérifié côté Facebook Page Reels** : le jeton de Page manque
- * encore `pages_manage_posts`. Testé partout contre un `fetch` injecté.
+ * **Facebook Page Reels vérifié pour de vrai le 23 août 2026** (issue #146,
+ * vidéo `1078358324628287`) : dépôt, appairage et lien public confirmés.
+ * Testé partout ailleurs contre un `fetch` injecté.
  */
 
 const UPLOAD_BASE = 'https://rupload.facebook.com'
@@ -259,9 +259,9 @@ async function waitForFacebookPublished(
 }
 
 /**
- * Spec §2.2, jamais vérifié contre le réseau (voir le docbloc du fichier) :
- * trois phases sur `/{page-id}/video_reels`, binaire vers `rupload` comme
- * pour Instagram. `video_state=PUBLISHED` publie directement, sans brouillon.
+ * Spec §2.2, vérifié contre le réseau (voir le docbloc du fichier) : trois
+ * phases sur `/{page-id}/video_reels`, binaire vers `rupload` comme pour
+ * Instagram. `video_state=PUBLISHED` publie directement, sans brouillon.
  */
 async function publishFacebook(
   env: Environment,
@@ -295,9 +295,25 @@ async function publishFacebook(
   })
   await requireOkMeta<{ success?: boolean }>(finishResponse)
   await waitForFacebookPublished(fetchImpl, pageToken, videoId, sleep)
-  // Meta ne rend pas d'URL publique à cette étape (non vérifié — voir le
-  // docbloc du fichier) : `null` plutôt qu'une adresse devinée.
-  return { status: 'published', remoteId: videoId, remoteUrl: null }
+
+  // Best-effort, même raisonnement qu'`publishInstagram` : le reel est déjà
+  // en ligne une fois le sondage `waitForFacebookPublished` réglé sur
+  // `complete` (`finish` ne fait que lancer la publication), une erreur
+  // transitoire ici ne doit jamais retomber en `failed` (issue #146,
+  // trouvaille de revue PR #148).
+  let remoteUrl: string | null = null
+  try {
+    const permalinkResponse = await fetchImpl(
+      `${GRAPH_BASE}/${videoId}?fields=permalink_url&access_token=${encodeURIComponent(pageToken)}`,
+    )
+    const { permalink_url: permalinkUrl } = await requireOkMeta<{ permalink_url?: string }>(permalinkResponse)
+    if (typeof permalinkUrl === 'string' && permalinkUrl !== '') {
+      remoteUrl = new URL(permalinkUrl, 'https://www.facebook.com').toString()
+    }
+  } catch {
+    // Le contrat `PublicationAdapter` autorise `remoteUrl: null` sur `published`.
+  }
+  return { status: 'published', remoteId: videoId, remoteUrl }
 }
 
 /**
@@ -383,12 +399,28 @@ async function checkFacebook(env: Environment, fetchImpl: typeof fetch): Promise
   }
 }
 
+// Un `op://…` non résolu compte comme non configuré, même raisonnement que
+// `checkFacebook` : autrement l'appel Meta échouerait en 400, lu à tort
+// comme une panne réseau plutôt qu'une résolution de démarrage défaite.
+function isMetaAppConfigured(env: Environment): boolean {
+  return (
+    env.META_APP_ID !== undefined &&
+    env.META_APP_ID !== '' &&
+    !isReference(env.META_APP_ID) &&
+    env.META_APP_SECRET !== undefined &&
+    env.META_APP_SECRET !== '' &&
+    !isReference(env.META_APP_SECRET)
+  )
+}
+
 /**
  * `not_configured` sans réseau quand rien n'est branché (spec `adapter.ts`) :
  * pas de jeton persisté pour Instagram, pas de `META_PAGE_ID`/`META_PAGE_TOKEN`
- * pour Facebook. `META_APP_ID`/`META_APP_SECRET` ne sont la condition que pour
- * un jeton qui expire — un jeton système (system-user) n'en a pas besoin
- * (`meta-tokens.ts`).
+ * pour Facebook. `META_APP_ID`/`META_APP_SECRET` sont aussi la condition
+ * d'appairage : présents sans jeton persisté, l'appairage seul manque
+ * (`not_paired`) — un jeton système (system-user) n'en a pas besoin pour
+ * fonctionner une fois posé, mais reste posé par `dev-connect-meta.ts` avec
+ * l'app déjà déclarée (`meta-tokens.ts`).
  */
 async function availability(
   env: Environment,
@@ -397,20 +429,18 @@ async function availability(
   const result = defaultPlatformAvailability()
 
   const tokens = await readMetaTokens()
+  const appConfigured = isMetaAppConfigured(env)
   // Un jeton système (expiry `null`) se vérifie sans identifiants d'app ; un
   // jeton rafraîchissable en a besoin, et leur absence est `not_configured`,
   // pas `unavailable` — sinon un serveur mal configuré se lit comme une panne
   // réseau transitoire.
   if (tokens !== null) {
-    const appConfigured =
-      env.META_APP_ID !== undefined &&
-      env.META_APP_ID !== '' &&
-      env.META_APP_SECRET !== undefined &&
-      env.META_APP_SECRET !== ''
     result.instagram =
       tokens.instagramTokenExpiresAt !== null && !appConfigured
         ? { available: false, reason: 'not_configured' }
         : await checkInstagram(env, fetchImpl)
+  } else if (appConfigured) {
+    result.instagram = { available: false, reason: 'not_paired' }
   }
 
   if (env.META_PAGE_ID !== undefined && env.META_PAGE_ID !== '') {

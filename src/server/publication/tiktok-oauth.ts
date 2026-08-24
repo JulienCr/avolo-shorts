@@ -34,33 +34,32 @@ export async function persistPkce(verifier: string, state: string): Promise<void
   await fsp.writeFile(pkceFilePath(), JSON.stringify({ verifier, state }), { encoding: 'utf8', mode: 0o600 })
 }
 
+export type ClaimPkceResult =
+  | { ok: true; verifier: string }
+  | { ok: false; reason: 'none' }
+  | { ok: false; reason: 'mismatch' }
+
 /**
- * Consomme le vérifieur en attente. Un échange raté détruit donc le fichier :
- * comportement existant, pas une régression de cette extraction — l'appelant
- * doit vérifier `state` **avant** d'appeler ceci, sans quoi un lien rejoué ou
- * un CSRF grille le seul vérifieur valide.
+ * Lit, vérifie `state` et consomme le vérifieur en une seule lecture — plutôt
+ * que `peek` puis `load` séparés, dont l'écart pouvait laisser un second
+ * lancement réécrire le fichier entre les deux et faire consommer un
+ * vérifieur dont le `state` n'a jamais été revérifié. Un échange raté détruit
+ * quand même le fichier une fois `state` validé : comportement existant, pas
+ * une régression de cette extraction.
  */
-export async function loadAndForgetPkce(): Promise<{ verifier: string; state: string }> {
+export async function claimPendingPkce(expectedState: string): Promise<ClaimPkceResult> {
   let raw: string
   try {
     raw = await fsp.readFile(pkceFilePath(), 'utf8')
   } catch {
-    throw new Error(
-      'Aucun vérifieur PKCE en attente. Relancer pnpm tsx scripts/dev-connect-tiktok.ts sans --code pour en obtenir un.',
-    )
+    return { ok: false, reason: 'none' }
+  }
+  const record = JSON.parse(raw) as { verifier: string; state: string }
+  if (record.state !== expectedState) {
+    return { ok: false, reason: 'mismatch' }
   }
   await fsp.unlink(pkceFilePath()).catch(() => {})
-  return JSON.parse(raw) as { verifier: string; state: string }
-}
-
-/** Sans consommer le fichier — pour vérifier `state` avant d'engager l'échange. */
-export async function peekPendingState(): Promise<string | null> {
-  try {
-    const raw = await fsp.readFile(pkceFilePath(), 'utf8')
-    return (JSON.parse(raw) as { verifier: string; state: string }).state
-  } catch {
-    return null
-  }
+  return { ok: true, verifier: record.verifier }
 }
 
 export type ExchangedTokens = {
@@ -124,10 +123,11 @@ export type TikTokCallbackResult = { ok: true; openId: string } | { ok: false; r
 
 /**
  * La logique de `GET /tiktok/oauth-callback`, séparée du rendu pour rester
- * testable sans monter de composant React. **`state` se vérifie avant tout
- * appel à `loadAndForgetPkce`** — issue #161 : le vérifieur est consommé à la
- * lecture, et le consommer avant d'avoir authentifié la redirection grillerait
- * le seul jeton valide sur un lien rejoué ou un CSRF.
+ * testable sans monter de composant React. **`state` se vérifie et le
+ * vérifieur se consomme en une seule lecture** (`claimPendingPkce`) — issue
+ * #161 : le vérifier avant de le consommer évite qu'un lien rejoué ou un
+ * CSRF grille le seul jeton valide, et la lecture unique évite qu'un second
+ * lancement réécrive le fichier entre la vérification et la consommation.
  */
 export async function completeTikTokCallback(params: {
   code: string | undefined
@@ -142,17 +142,17 @@ export async function completeTikTokCallback(params: {
   if (params.code === undefined || params.state === undefined) {
     return { ok: false, reason: "Paramètres manquants dans l'URL de retour : code et state sont attendus." }
   }
-  const pendingState = await peekPendingState()
-  if (pendingState === null) {
+  const claim = await claimPendingPkce(params.state)
+  if (!claim.ok) {
     return {
       ok: false,
-      reason: 'Aucun pairage en attente. Relancer pnpm tsx scripts/dev-connect-tiktok.ts.',
+      reason:
+        claim.reason === 'none'
+          ? 'Aucun pairage en attente. Relancer pnpm tsx scripts/dev-connect-tiktok.ts.'
+          : "Le state renvoyé par TikTok ne correspond pas à celui attendu.",
     }
   }
-  if (pendingState !== params.state) {
-    return { ok: false, reason: "Le state renvoyé par TikTok ne correspond pas à celui attendu." }
-  }
-  const { verifier } = await loadAndForgetPkce()
+  const { verifier } = claim
   try {
     const tokens = await exchangeTikTokCode(params.clientKey, params.clientSecret, params.code, verifier)
     await pairAndPersistTikTok(tokens)

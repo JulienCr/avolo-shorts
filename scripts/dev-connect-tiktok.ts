@@ -2,7 +2,7 @@
  * L'appairage TikTok — OAuth avec PKCE, ou jetons collés une fois pour toutes.
  *
  *     pnpm tsx scripts/dev-connect-tiktok.ts
- *     pnpm tsx scripts/dev-connect-tiktok.ts --code=<code renvoyé par TikTok>
+ *     pnpm tsx scripts/dev-connect-tiktok.ts --code=<code renvoyé par TikTok> --state=<state renvoyé par TikTok>
  *     TIKTOK_ACCESS_TOKEN=<jeton> TIKTOK_REFRESH_TOKEN=<jeton> TIKTOK_OPEN_ID=<id> \
  *       pnpm tsx scripts/dev-connect-tiktok.ts
  *
@@ -15,10 +15,9 @@ import { randomUUID } from 'node:crypto'
 
 import { authorizationUrl, createPkcePair } from '@/server/publication/tiktok-pkce'
 import {
+  claimPendingPkce,
   exchangeTikTokCode,
-  loadAndForgetPkce,
   pairAndPersistTikTok,
-  peekPendingState,
   persistPkce,
   tiktokRedirectUri,
   type ExchangedTokens,
@@ -102,12 +101,16 @@ async function main(): Promise<number> {
         ' silencieusement le vérifieur de celui-ci en recopiant un code périmé.',
     )
   }
-  const pendingState = await peekPendingState()
-  if (pendingState !== state) {
-    throw new Error("Le state fourni ne correspond pas au pairage en attente : relancer sans --code pour en ouvrir un nouveau.")
+  const claim = await claimPendingPkce(state)
+  if (!claim.ok) {
+    throw new Error(
+      claim.reason === 'none'
+        ? 'Aucun vérifieur PKCE en attente. Relancer pnpm tsx scripts/dev-connect-tiktok.ts sans --code pour en obtenir un.'
+        : 'Le state fourni ne correspond pas au pairage en attente : relancer sans --code pour en ouvrir un nouveau.',
+    )
   }
 
-  const { verifier } = await loadAndForgetPkce()
+  const { verifier } = claim
   const tokens = await exchangeTikTokCode(clientKey, clientSecret, code, verifier)
   await pairAndPersist(tokens)
   return 0

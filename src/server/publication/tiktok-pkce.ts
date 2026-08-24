@@ -15,7 +15,10 @@ function base64url(buffer: Buffer): string {
 
 export function createPkcePair(): PkcePair {
   const verifier = base64url(randomBytes(32))
-  const challenge = base64url(createHash('sha256').update(verifier).digest())
+  // TikTok s'écarte de la RFC 7636 : « hashing the code verifier using hex
+  // encoding of SHA256 » (login-kit-desktop). Un challenge en base64url passe
+  // l'autorisation, dont la forme n'est pas vérifiée, et fait échouer l'échange.
+  const challenge = createHash('sha256').update(verifier).digest('hex')
   return { verifier, challenge }
 }
 
@@ -23,8 +26,11 @@ const AUTHORIZE_BASE = 'https://www.tiktok.com/v2/auth/authorize/'
 
 /**
  * L'URL d'autorisation TikTok. La boucle locale est acceptée pour cette app
- * (mesuré le 24 août 2026, spec §2.3 corrigée par cette PR) : `redirectUri`
- * peut être `http://127.0.0.1:…` sans page à héberger ni domaine vérifié.
+ * (mesuré le 24 août 2026, spec §2.3 corrigée par cette PR), à la forme
+ * enregistrée près : `http://localhost:4005/tiktok/oauth-callback` est la
+ * seule vérifiée par un pairage réel. `127.0.0.1`, avec ou sans slash final,
+ * n'a pas été retesté depuis — ne pas en déduire qu'elle échoue, seulement
+ * qu'elle n'est pas la forme enregistrée pour cette app.
  */
 export function authorizationUrl(options: {
   clientKey: string

@@ -12,8 +12,16 @@ import { OAUTH_TOKEN_ENDPOINT, writeTikTokTokens, type OAuthTokenResponse } from
  * même `.tiktok-pkce.json`.
  */
 
+/**
+ * `localhost`, pas `127.0.0.1` — sans slash final. C'est la forme exacte
+ * enregistrée sur la console TikTok, comparée en chaîne stricte : un `127.0.0.1`
+ * ou un `/` de plus est un `redirect_uri` différent pour TikTok, et l'échec a
+ * été rapporté comme une erreur `client_key` plutôt que `redirect_uri` (mesuré
+ * le 24 août 2026, pairage en direct). Vérifié : les deux formes ont été
+ * essayées cette nuit-là, seule celle-ci a fonctionné.
+ */
 export function tiktokRedirectUri(): string {
-  return process.env.TIKTOK_REDIRECT_URI ?? 'http://127.0.0.1:4005/tiktok/oauth-callback/'
+  return process.env.TIKTOK_REDIRECT_URI ?? 'http://localhost:4005/tiktok/oauth-callback'
 }
 
 function pkceFilePath(): string {

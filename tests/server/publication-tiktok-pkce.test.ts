@@ -8,7 +8,9 @@ describe('createPkcePair', () => {
    * TikTok s'écarte de la RFC 7636 : le challenge est le SHA256 du vérifieur
    * encodé en **hex**, pas en base64url. Une régression vers base64url passe
    * l'autorisation (dont la forme n'est pas vérifiée) et casse l'échange —
-   * ce test doit rougir dans ce cas précis.
+   * ce test doit rougir dans ce cas précis. La règle est documentée sur
+   * `createPkcePair` (login-kit-desktop) ; elle est répétée ici pour que
+   * changer cette assertion sans la lire reste visible.
    */
   it('rend un challenge qui est le SHA256 hex du vérifieur, pas un hasard indépendant', () => {
     const { verifier, challenge } = createPkcePair()

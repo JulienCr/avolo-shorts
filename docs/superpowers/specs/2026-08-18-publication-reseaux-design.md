@@ -144,10 +144,14 @@ la documentation.** Les deux paragraphes qui suivaient ici affirmaient que
 l'URL de retour devait porter un domaine vérifié et ne mentionnaient pas PKCE ;
 les deux sont faux pour cette app.
 
-**La boucle locale est acceptée.** `http://127.0.0.1:4005/tiktok/oauth-callback/`
-est enregistrée et l'autorisation sert son écran de connexion pour cette URL —
-sans page statique à héberger ni domaine à vérifier. Rien ne dit que ce soit
-vrai de toute app TikTok ; ça l'est de celle-ci, mesuré plutôt que supposé.
+**La boucle locale est acceptée, à une forme exacte près.** `http://localhost:4005/tiktok/oauth-callback` (sans slash final, `localhost`
+et non `127.0.0.1`) est enregistrée et l'autorisation sert son écran de
+connexion pour cette URL — sans page statique à héberger ni domaine à
+vérifier. TikTok compare en chaîne stricte : `127.0.0.1` ou un slash final
+font échouer l'échange, rapporté comme une erreur `client_key` plutôt que
+`redirect_uri` (les deux formes essayées en pairage réel le 24 août 2026).
+Rien ne dit que ce soit vrai de toute app TikTok ; ça l'est de celle-ci,
+mesuré plutôt que supposé.
 
 **PKCE est obligatoire, et aucune source consultée avant le branchement ne le
 disait.** Sans `code_challenge` et `code_challenge_method=S256`, l'autorisation

@@ -4,9 +4,8 @@ import type { Environment } from '@/server/secrets'
 /**
  * L'identifiant stable d'un connecteur, tel que les réglages le nomment.
  *
- * **`'tiktok'` figure ici avant que l'adaptateur n'existe** — le registre des
- * réglages (`src/lib/api.ts`) propose déjà ce choix, et `adapterFor` retombe
- * sur l'ordre de priorité tant qu'aucun adaptateur ne le porte.
+ * Les trois valeurs portent chacune un adaptateur enregistré (`index.ts`) :
+ * `tiktok.ts` a rejoint `meta.ts` et `upload-post.ts`.
  */
 export type AdapterId = 'meta' | 'upload-post' | 'tiktok'
 

@@ -3,14 +3,16 @@ import { describe, expect, it } from 'vitest'
 
 import { authorizationUrl, createPkcePair } from '@/server/publication/tiktok-pkce'
 
-function base64url(buffer: Buffer): string {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
 describe('createPkcePair', () => {
-  it('rend un challenge qui est bien S256(verifier), pas un hasard indépendant', () => {
+  /**
+   * TikTok s'écarte de la RFC 7636 : le challenge est le SHA256 du vérifieur
+   * encodé en **hex**, pas en base64url. Une régression vers base64url passe
+   * l'autorisation (dont la forme n'est pas vérifiée) et casse l'échange —
+   * ce test doit rougir dans ce cas précis.
+   */
+  it('rend un challenge qui est le SHA256 hex du vérifieur, pas un hasard indépendant', () => {
     const { verifier, challenge } = createPkcePair()
-    const expected = base64url(createHash('sha256').update(verifier).digest())
+    const expected = createHash('sha256').update(verifier).digest('hex')
     expect(challenge).toBe(expected)
   })
 

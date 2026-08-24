@@ -291,9 +291,12 @@ gratuite (§2.5), ce qu'une émission dépasse en un jour ; Meta direct est grat
 et autorise 100 publications par 24 h (issue #146). `src/server/publication/
 meta.ts` porte donc Instagram et Facebook sans passer par Upload Post, sans
 qu'aucune démarche du lot 0 n'ait été nécessaire — Meta n'exige ni App Review ni
-audit (§1). TikTok et YouTube restent chez Upload Post, lots 2 et 3 non
-démarrés : ce séquencement continue de décrire la voie qui les en affranchirait
-un jour, mais rien n'en dépend pour publier maintenant.
+audit (§1). **Mise à jour au 24 août 2026 : le lot 2 est fait aussi.**
+`src/server/publication/tiktok.ts` dépose en brouillon via l'app développeur
+propre de Julien, sans passer par Upload Post ni par l'audit — voir §2.3 et le
+lot 2 ci-dessous. Seul YouTube reste chez Upload Post, lot 3 non démarré : ce
+séquencement continue de décrire la voie qui l'en affranchirait un jour, mais
+rien n'en dépend pour publier maintenant.
 
 Les audits durent de deux à six semaines et peuvent échouer. Le travail se range
 donc par ce qui n'attend rien, et non par ce qui semble le plus important.
@@ -307,9 +310,10 @@ donc par ce qui n'attend rien, et non par ce qui semble le plus important.
    ne sait pas téléverser depuis le disque. Rattacher la Page Facebook.
 2. Publier sur `avolo.fr` deux pages statiques : la politique de confidentialité
    et la page de retour OAuth. Meta et TikTok exigent la première.
-3. Créer l'app TikTok, y ajouter le produit *Content Posting API*, demander les
-   portées `video.upload` et `video.publish`, vérifier `avolo.fr` par balise ou
-   DNS, déclarer l'URL de retour.
+3. Créer l'app TikTok, y ajouter le produit *Content Posting API*, demander la
+   portée `video.upload` (`video.publish` reste réservée à l'audit, §2.3),
+   déclarer l'URL de retour — **corrigé le 24 août 2026** : une boucle locale
+   suffit, pas de domaine à vérifier ni de page à héberger (§2.3).
 4. Créer le projet Google, activer *YouTube Data API v3*, **passer l'écran de
    consentement en production** (sans quoi le jeton meurt tous les sept jours).
 5. Déposer les deux audits : le formulaire *YouTube API Services — Audit and
@@ -322,8 +326,8 @@ publié un reel réel le 23 août 2026. **Facebook Page Reels est codé mais
 jamais exercé contre le réseau réel**, faute de `pages_manage_posts` sur le
 jeton de Page — à ne pas lire comme validé tant que ce droit manque.
 
-**Lot 2 — TikTok en brouillon.** Fonctionne sans audit. Le jour où l'audit passe,
-c'est l'implémentation qui change, pas l'interface ni la table.
+**Lot 2 — TikTok en brouillon. Fait.** Fonctionne sans audit. Le jour où l'audit
+passe, c'est l'implémentation qui change, pas l'interface ni la table.
 
 **Lot 3 — YouTube, et seulement l'audit passé.** Voir §2.4.
 
@@ -374,8 +378,8 @@ plateforme (`meta.ts`, `tiktok.ts`) ; ce qui a existé un temps est un seul
 connecteur pour les quatre, `upload-post.ts`, derrière l'interface
 ci-dessous — écrite `src/server/publication/adapter.ts`, déclaration
 canonique dont hérite tout connecteur. Depuis l'issue #146, `meta.ts` prend
-Instagram et Facebook en direct ; Upload Post ne garde plus que TikTok et
-YouTube (§2.1, §2.2).**
+Instagram et Facebook en direct ; `tiktok.ts` prend TikTok en direct depuis le
+24 août 2026 (§2.3) ; Upload Post ne garde plus que YouTube (§2.2).**
 
 ```ts
 export type PublicationJob = {

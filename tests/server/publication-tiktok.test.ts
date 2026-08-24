@@ -79,9 +79,14 @@ describe('planChunks', () => {
     })
   })
 
-  it('un seul morceau, légèrement au-dessus de 64 Mo, quand il n’y a personne dans qui fondre le reste', () => {
+  it('deux morceaux égaux quand un seul dépasserait 64 Mo et qu’il n’y a personne dans qui fondre le reste', () => {
     const size = MAX_CHUNK_SIZE + MIN_CHUNK_SIZE - 1
-    expect(planChunks(size)).toEqual({ chunkSize: size, chunkCount: 1, lastChunkSize: size })
+    const chunkSize = Math.ceil(size / 2)
+    const plan = planChunks(size)
+    expect(plan).toEqual({ chunkSize, chunkCount: 2, lastChunkSize: size - chunkSize })
+    expect(plan.chunkSize).toBeLessThanOrEqual(MAX_CHUNK_SIZE)
+    expect(plan.chunkSize).toBeGreaterThanOrEqual(MIN_CHUNK_SIZE)
+    expect(plan.lastChunkSize).toBeGreaterThanOrEqual(MIN_CHUNK_SIZE)
   })
 
   it('des morceaux pleins quand le fichier se divise exactement', () => {

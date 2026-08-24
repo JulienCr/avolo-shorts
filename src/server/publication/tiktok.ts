@@ -45,10 +45,15 @@ export function planChunks(fileSize: number): ChunkPlan {
   const remainder = fileSize % MAX_CHUNK_SIZE
   if (remainder === 0) return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks, lastChunkSize: MAX_CHUNK_SIZE }
   if (remainder < MIN_CHUNK_SIZE) {
-    // Sous deux morceaux pleins, il n'y a personne dans qui fondre le reste :
-    // un seul morceau, légèrement au-dessus de 64 Mo, plutôt qu'une valeur
-    // déclarée qui ne correspondrait à aucun morceau réellement envoyé.
-    if (wholeChunks < 2) return { chunkSize: fileSize, chunkCount: 1, lastChunkSize: fileSize }
+    if (wholeChunks < 2) {
+      // Un seul morceau plein ne laisse personne dans qui fondre le reste, et
+      // le déclarer tel quel dépasserait `chunk_size` au-delà de son maximum
+      // (contrairement au dernier morceau d'un plan à plusieurs, où seule la
+      // taille réellement envoyée peut dépasser la valeur déclarée). On coupe
+      // donc en deux parts égales, toutes deux dans les bornes 5-64 Mo.
+      const chunkSize = Math.ceil(fileSize / 2)
+      return { chunkSize, chunkCount: 2, lastChunkSize: fileSize - chunkSize }
+    }
     return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks, lastChunkSize: MAX_CHUNK_SIZE + remainder }
   }
   return { chunkSize: MAX_CHUNK_SIZE, chunkCount: wholeChunks + 1, lastChunkSize: remainder }

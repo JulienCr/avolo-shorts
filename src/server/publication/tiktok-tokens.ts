@@ -163,11 +163,16 @@ async function loadFreshTikTokToken(env: Environment, fetchImpl: typeof fetch): 
   return refreshTikTokToken(env, fetchImpl)
 }
 
-/** Le jeton TikTok, rafraîchi une seule fois par processus. Même forme que `ensureFreshInstagramToken`. */
+/**
+ * Le cache ne mutualise qu'un chargement en vol — contrairement à Meta, dont
+ * le jeton système n'expire jamais, l'accès TikTok expire en 24 h : la
+ * promesse est donc oubliée dès qu'elle se règle, succès compris, pour que
+ * l'appel suivant relise l'échéance plutôt que de rendre indéfiniment le même
+ * jeton (y compris un jeton qu'un réappairage aurait remplacé sur disque).
+ */
 export function ensureFreshTikTokToken(env: Environment, fetchImpl: typeof fetch): Promise<TikTokTokenFile> {
-  cachedTokens ??= loadFreshTikTokToken(env, fetchImpl).catch((error: unknown) => {
+  cachedTokens ??= loadFreshTikTokToken(env, fetchImpl).finally(() => {
     cachedTokens = null
-    throw error
   })
   return cachedTokens
 }

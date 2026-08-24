@@ -112,10 +112,10 @@ Même raisonnement d'accès que pour Instagram, et la même app Meta porte les d
 Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur (§4, hors périmètre —
 à ne pas confondre avec le lot 2 de §5) gratuit sur Facebook — et sur lui seul.
 
-**`meta.ts` code ce chemin, mais ne l'a jamais exercé contre le réseau**
-(issue #146) : le jeton de Page manque encore `pages_manage_posts` au moment
-d'écrire ceci. Le tableau ci-dessus reste donc la seule source pour Facebook,
-contrairement à Instagram, publié pour de vrai le 23 août 2026.
+**Publié pour de vrai le 23 août 2026** (issue #146) : un reel réel est allé
+sur la Page (`video_id` `1078358324628287`), et `GET /{video-id}?fields=
+permalink_url` a rendu `"/reel/1078358324628287/"` — un chemin relatif, que
+le connecteur préfixe désormais avec `https://www.facebook.com`.
 
 ### 2.3 TikTok — un verrou, et un chemin qui le contourne
 

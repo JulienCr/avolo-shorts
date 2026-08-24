@@ -297,8 +297,10 @@ async function publishFacebook(
   await waitForFacebookPublished(fetchImpl, pageToken, videoId, sleep)
 
   // Best-effort, même raisonnement qu'`publishInstagram` : le reel est déjà
-  // en ligne une fois `finish` réglé, une erreur transitoire ici ne doit
-  // jamais retomber en `failed` (issue #146, trouvaille de revue PR #148).
+  // en ligne une fois le sondage `waitForFacebookPublished` réglé sur
+  // `complete` (`finish` ne fait que lancer la publication), une erreur
+  // transitoire ici ne doit jamais retomber en `failed` (issue #146,
+  // trouvaille de revue PR #148).
   let remoteUrl: string | null = null
   try {
     const permalinkResponse = await fetchImpl(
@@ -397,6 +399,9 @@ async function checkFacebook(env: Environment, fetchImpl: typeof fetch): Promise
   }
 }
 
+// Un `op://…` non résolu compte comme non configuré, même raisonnement que
+// `checkFacebook` : autrement l'appel Meta échouerait en 400, lu à tort
+// comme une panne réseau plutôt qu'une résolution de démarrage défaite.
 function isMetaAppConfigured(env: Environment): boolean {
   return (
     env.META_APP_ID !== undefined &&

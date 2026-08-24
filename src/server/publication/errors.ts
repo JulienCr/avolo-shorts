@@ -8,10 +8,9 @@ import type { Platform } from '@/core/publication'
  * cinquième nature de la spec — l'audit non passé — ne se voit qu'à la
  * visibilité du résultat, jamais dans un statut : elle n'a pas d'erreur à elle.
  *
- * Wiring dans `statusFor` (`src/server/http.ts`), qui est le seul endroit qui
- * décide du code de réponse HTTP. Regroupées ici plutôt que dans
- * `service.ts`, qui les lèverait : `http.ts` doit pouvoir les importer sans
- * fermer un cycle avec `service.ts`, qui importe déjà `http.ts`.
+ * Wiring dans `statusFor` (`src/server/http.ts`), seul endroit qui décide du
+ * code de réponse HTTP. Regroupées ici plutôt que dans `service.ts`, qui les
+ * lèverait, pour ne pas fermer un cycle : `service.ts` importe déjà `http.ts`.
  */
 
 /** Le jeton d'un compte connecté a expiré. Se reconnecte sur upload-post.com. */

@@ -1,22 +1,14 @@
 /**
- * L'appairage TikTok — OAuth avec PKCE (à rejouer environ une fois par an, le
- * jeton de rafraîchissement dure 365 jours), ou jetons collés une fois pour
- * toutes.
+ * L'appairage TikTok — OAuth avec PKCE, ou jetons collés une fois pour toutes.
  *
  *     pnpm tsx scripts/dev-connect-tiktok.ts
  *     pnpm tsx scripts/dev-connect-tiktok.ts --code=<code renvoyé par TikTok>
  *     TIKTOK_ACCESS_TOKEN=<jeton> TIKTOK_REFRESH_TOKEN=<jeton> TIKTOK_OPEN_ID=<id> \
  *       pnpm tsx scripts/dev-connect-tiktok.ts
  *
- * Les trois jetons de la troisième forme passent par l'environnement, jamais
- * par `argv` (historique du shell, `/proc/<pid>/cmdline`) — même règle que
- * `META_SYSTEM_USER_TOKEN` dans `dev-connect-meta.ts`, dont la première
- * version acceptait `argv` avant que trois relectures ne le corrigent.
- *
- * La boucle locale est acceptée pour cette app (spec §2.3, corrigée le 24 août
- * 2026) : `TIKTOK_REDIRECT_URI` par défaut `http://127.0.0.1:4005/tiktok/oauth-callback/`,
- * rien à héberger. PKCE est obligatoire (`tiktok-pkce.ts`) ; le vérifieur est
- * gardé entre les deux lancements dans un fichier temporaire sous `projects/`.
+ * Les jetons ci-dessus passent par l'environnement, jamais par `argv`
+ * (`/proc/<pid>/cmdline`) — même règle que `META_SYSTEM_USER_TOKEN`
+ * (`dev-connect-meta.ts`). Boucle locale et PKCE : `tiktok-pkce.ts`, §2.3.
  */
 
 import fsp from 'node:fs/promises'

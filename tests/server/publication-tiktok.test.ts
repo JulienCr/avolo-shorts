@@ -4,7 +4,11 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PublicationJob } from '@/server/publication/adapter'
-import { TikTokAccountMisconfiguredError, TikTokRateLimitError } from '@/server/publication/errors'
+import {
+  TikTokAccountMisconfiguredError,
+  TikTokRateLimitError,
+  TikTokTokenExpiredError,
+} from '@/server/publication/errors'
 import {
   createTikTokAdapter,
   MAX_CHUNK_SIZE,
@@ -265,6 +269,54 @@ describe('publishTikTok (dépôt en brouillon)', () => {
     expect(outcomes.tiktok.status).toBe('failed')
     expect((outcomes.tiktok as { error: string }).error).toMatch(/429/)
   })
+
+  it('rejoue un morceau après un 5xx transitoire, sans abandonner au premier échec', async () => {
+    await seedTikTokToken()
+    const uploadUrl = 'https://upload.tiktokapis.com/upload1'
+    let uploadAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: uploadUrl }, error: { code: 'ok' } })
+      }
+      if (url === uploadUrl) {
+        uploadAttempts += 1
+        if (uploadAttempts < 2) return new Response('indisponible', { status: 503 })
+        return new Response('', { status: 200 })
+      }
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok).toEqual({ status: 'submitted', remoteId: 'p1', remoteUrl: null })
+    expect(uploadAttempts).toBe(2)
+  })
+
+  it('abandonne le morceau après un 5xx persistant, sans boucler indéfiniment', async () => {
+    await seedTikTokToken()
+    const uploadUrl = 'https://upload.tiktokapis.com/upload1'
+    let uploadAttempts = 0
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: uploadUrl }, error: { code: 'ok' } })
+      }
+      if (url === uploadUrl) {
+        uploadAttempts += 1
+        return new Response('indisponible', { status: 503 })
+      }
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok.status).toBe('failed')
+    expect((outcomes.tiktok as { error: string }).error).toMatch(/503/)
+    expect(uploadAttempts).toBe(3)
+  })
 })
 
 describe('ensureFreshTikTokToken', () => {
@@ -311,6 +363,24 @@ describe('ensureFreshTikTokToken', () => {
 
     await expect(ensureFreshTikTokToken(ENV, fetchImpl as unknown as typeof fetch)).rejects.toThrow(
       TikTokAccountMisconfiguredError,
+    )
+  })
+
+  it('nomme le jeton expiré sur invalid_grant, jamais sur un 500 transitoire', async () => {
+    await seedTikTokToken({ accessTokenExpiresAt: Date.now() + 60_000 })
+    const invalidGrant = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'refresh token révoqué' }), {
+        status: 400,
+      }),
+    )
+    await expect(ensureFreshTikTokToken(ENV, invalidGrant as unknown as typeof fetch)).rejects.toThrow(
+      TikTokTokenExpiredError,
+    )
+
+    forgetTikTokTokenCache()
+    const transient = vi.fn(async () => new Response('', { status: 503 }))
+    await expect(ensureFreshTikTokToken(ENV, transient as unknown as typeof fetch)).rejects.not.toThrow(
+      TikTokTokenExpiredError,
     )
   })
 

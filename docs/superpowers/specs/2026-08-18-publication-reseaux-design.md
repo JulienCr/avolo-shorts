@@ -109,8 +109,8 @@ mesuré ci-dessus.
 | Publication | `video_state` vaut `PUBLISHED`, `DRAFT` ou `SCHEDULED` |
 
 Même raisonnement d'accès que pour Instagram, et la même app Meta porte les deux.
-Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur du lot 2 gratuit sur
-Facebook — et sur lui seul.
+Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur (§4, hors périmètre —
+à ne pas confondre avec le lot 2 de §5) gratuit sur Facebook — et sur lui seul.
 
 **`meta.ts` code ce chemin, mais ne l'a jamais exercé contre le réseau**
 (issue #146) : le jeton de Page manque encore `pages_manage_posts` au moment
@@ -273,7 +273,8 @@ Dans le périmètre :
 Hors périmètre, et nommément :
 
 - **l'ordonnancement** : horaires de parution, file, réessai automatique d'une
-  publication échouée. C'est le lot 2, et `video_state: SCHEDULED` de Facebook
+  publication échouée. C'est un chantier séparé du séquencement de §5 — à ne pas
+  confondre avec son lot 2 —, et `video_state: SCHEDULED` de Facebook
   l'attendra là-bas. À ne pas confondre avec la **reprise de transport** — rejouer
   un téléversement qui a rendu une erreur transitoire, à l'intérieur d'une même
   tentative : celle-là est dans le périmètre, elle appartient au connecteur, et
@@ -562,9 +563,9 @@ de sa valeur est dans ses messages.
   primaire, aucune mesure, et ce dépôt ne décide pas sur des ouï-dire — mais si
   c'était vrai, cela changerait l'intérêt de tout ce document. Une comparaison sur
   quelques clips vaudra mieux qu'une conviction.
-- **L'ordonnanceur du lot 2** : Facebook sait planifier tout seul, les trois autres
-  non. Le lot 2 décidera si l'on planifie chez soi pour tout le monde ou si l'on
-  délègue là où c'est offert.
+- **L'ordonnanceur (§4, hors périmètre — pas le lot 2 de §5)** : Facebook sait
+  planifier tout seul, les trois autres non. Ce chantier décidera si l'on
+  planifie chez soi pour tout le monde ou si l'on délègue là où c'est offert.
 
 ## 11. Sources
 

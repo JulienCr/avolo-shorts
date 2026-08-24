@@ -149,6 +149,9 @@ async function initUpload(
   return requireOkTikTok<InitResponse>(response)
 }
 
+/** Nombre de tentatives sur un 5xx transitoire du point d'envoi — même borne que `UPLOAD_RETRY_ATTEMPTS` côté Meta. */
+const CHUNK_RETRY_ATTEMPTS = 3
+
 /** `Content-Type: video/mp4` : le pipeline ne rend que du mp4 (`src/server/steps/render.ts`). */
 async function uploadChunks(
   fetchImpl: typeof fetch,
@@ -158,23 +161,39 @@ async function uploadChunks(
 ): Promise<void> {
   for (const { start, end } of chunkRanges(plan)) {
     const chunk = buffer.subarray(start, end + 1)
-    const response = await fetchImpl(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Range': `bytes ${start}-${end}/${buffer.byteLength}`,
-        'Content-Type': 'video/mp4',
-      },
-      body: new Blob([chunk]),
-    })
-    if (!response.ok) {
-      const detail = await response.text()
+    let lastDetail = ''
+    let lastStatus = 0
+    for (let attempt = 1; attempt <= CHUNK_RETRY_ATTEMPTS; attempt++) {
+      const response = await fetchImpl(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Range': `bytes ${start}-${end}/${buffer.byteLength}`,
+          'Content-Type': 'video/mp4',
+        },
+        body: new Blob([chunk]),
+      })
+      if (response.ok) {
+        lastDetail = ''
+        break
+      }
+      lastDetail = await response.text()
+      lastStatus = response.status
       // 401/429 sont des signaux non ambigus sur ce point de terminaison
       // binaire, indépendants du corps (même raisonnement que `uploadToRupload`
       // côté Meta) : un jeton qui expire pendant un envoi long doit rester
       // classé comme jeton expiré, pas comme fichier refusé.
-      if (response.status === 401) throw new TikTokTokenExpiredError(`TikTok a répondu 401 sur le morceau ${start}-${end} : ${detail}`)
-      if (response.status === 429) throw new TikTokRateLimitError(`TikTok a répondu 429 sur le morceau ${start}-${end} : ${detail}`)
-      throw new TikTokFileRefusedError(`TikTok a refusé le morceau ${start}-${end} : ${detail}`)
+      if (response.status === 401) throw new TikTokTokenExpiredError(`TikTok a répondu 401 sur le morceau ${start}-${end} : ${lastDetail}`)
+      if (response.status === 429) throw new TikTokRateLimitError(`TikTok a répondu 429 sur le morceau ${start}-${end} : ${lastDetail}`)
+      // Un 5xx est transitoire (guide de transfert TikTok : rejouer le même
+      // Content-Range) ; tout le reste est un refus définitif du morceau.
+      if (response.status < 500) {
+        throw new TikTokFileRefusedError(`TikTok a refusé le morceau ${start}-${end} : ${lastDetail}`)
+      }
+    }
+    if (lastDetail !== '') {
+      throw new TikTokFileRefusedError(
+        `TikTok a refusé le morceau ${start}-${end} après ${CHUNK_RETRY_ATTEMPTS} tentatives (${lastStatus}) : ${lastDetail}`,
+      )
     }
   }
 }

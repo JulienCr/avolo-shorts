@@ -140,10 +140,16 @@ export class TikTokTokenExpiredError extends Error {
   }
 }
 
-/** Le débit non audité est atteint : 5 utilisateurs publiants par 24 h (spec §2.3). */
+/**
+ * Un 429 TikTok, quel que soit le point de terminaison — le dépôt (débit non
+ * audité, 5 utilisateurs publiants par 24 h, spec §2.3), l'envoi d'un morceau
+ * ou le rafraîchissement OAuth. Ces fenêtres ne partagent pas la même durée :
+ * le message reste générique plutôt que d'annoncer une attente de 24 h qui ne
+ * s'applique qu'au premier cas.
+ */
 export class TikTokRateLimitError extends Error {
   constructor(detail: string) {
-    super(`Le débit TikTok est atteint : ${detail} Attendre la fenêtre de 24 h glissante.`)
+    super(`Le débit TikTok est atteint : ${detail} Réessayer plus tard.`)
     this.name = 'TikTokRateLimitError'
   }
 }

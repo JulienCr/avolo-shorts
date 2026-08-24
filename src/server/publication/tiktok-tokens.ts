@@ -139,12 +139,14 @@ export async function refreshTikTokToken(env: Environment, fetchImpl: typeof fet
     const detail = body?.error_description ?? body?.error ?? `TikTok a répondu ${response.status} au rafraîchissement.`
     // Un 429 ou un `invalid_client` ne disent rien du jeton de rafraîchissement
     // lui-même : le premier veut dire réessayer plus tard, le second veut dire
-    // que `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET` sont faux. Seule une
-    // réponse qui invalide vraiment le refresh token doit demander un
-    // réappairage.
+    // que `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET` sont faux. Un 5xx ou un
+    // corps illisible sont transitoires, indépendants du jeton. Seul
+    // `invalid_grant` — le code documenté pour un refresh token invalide ou
+    // expiré — doit demander un réappairage.
     if (response.status === 429) throw new TikTokRateLimitError(detail)
     if (body?.error === 'invalid_client') throw new TikTokAccountMisconfiguredError(detail)
-    throw new TikTokTokenExpiredError(detail)
+    if (body?.error === 'invalid_grant') throw new TikTokTokenExpiredError(detail)
+    throw new Error(`TikTok a répondu ${response.status} au rafraîchissement : ${detail}`)
   }
   const refreshed: TikTokTokenFile = {
     openId: body.open_id ?? current.openId,

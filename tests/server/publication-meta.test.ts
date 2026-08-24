@@ -255,9 +255,9 @@ describe('publishInstagram', () => {
 
 /** Le routeur d'un flux Facebook complet, jusqu'au sondage `publishing_phase`. */
 function facebookHandler(
-  options: { pollPhases?: readonly string[] } = {},
+  options: { pollPhases?: readonly string[]; permalinkFails?: boolean } = {},
 ): { handler: Handler; order: string[] } {
-  const { pollPhases = ['complete'] } = options
+  const { pollPhases = ['complete'], permalinkFails = false } = options
   const order: string[] = []
   let polls = 0
 
@@ -284,6 +284,11 @@ function facebookHandler(
       order.push('poll')
       return jsonResponse(200, { status: { publishing_phase: { status: phase } } })
     }
+    if (url.includes('/video1?fields=permalink_url')) {
+      order.push('permalink')
+      if (permalinkFails) return jsonResponse(500, { error: { message: 'transient' } })
+      return jsonResponse(200, { permalink_url: '/reel/video1/' })
+    }
     if (url.includes('/page1?fields=id')) return jsonResponse(200, { id: 'page1' })
     throw new Error(`URL Facebook inattendue dans ce test : ${url}`)
   }
@@ -298,9 +303,22 @@ describe('publishFacebook', () => {
 
     const outcomes = await adapter.publish(job(), ['facebook'])
 
-    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
+    expect(outcomes.facebook).toEqual({
+      status: 'published',
+      remoteId: 'video1',
+      remoteUrl: 'https://www.facebook.com/reel/video1/',
+    })
     expect(order.filter((step) => step === 'poll')).toHaveLength(2)
     expect(order.indexOf('finish')).toBeLessThan(order.lastIndexOf('poll'))
+  })
+
+  it('un échec transitoire sur la lecture du permalink reste `published`, pas `failed` (le reel est déjà en ligne)', async () => {
+    const { handler } = facebookHandler({ permalinkFails: true })
+    const adapter = createMetaAdapter(ENV, handler as unknown as typeof fetch, noSleep)
+
+    const outcomes = await adapter.publish(job(), ['facebook'])
+
+    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
   })
 
   it('échoue nommément si publishing_phase.status passe à error, sans jamais annoncer published', async () => {
@@ -338,7 +356,11 @@ describe('publishFacebook', () => {
 
     const outcomes = await adapter.publish(job(), ['facebook'])
 
-    expect(outcomes.facebook).toEqual({ status: 'published', remoteId: 'video1', remoteUrl: null })
+    expect(outcomes.facebook).toEqual({
+      status: 'published',
+      remoteId: 'video1',
+      remoteUrl: 'https://www.facebook.com/reel/video1/',
+    })
     expect(pollAttempts).toBeGreaterThanOrEqual(2)
   })
 })
@@ -375,7 +397,7 @@ describe('availability', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('app configurée mais jamais appairée : `not_configured`, aucun appel réseau', async () => {
+  it('app configurée mais jamais appairée : `not_paired`, aucun appel réseau', async () => {
     const fetchImpl = vi.fn()
     const adapter = createMetaAdapter(
       { META_APP_ID: 'app1', META_APP_SECRET: 'secret1' },
@@ -385,7 +407,7 @@ describe('availability', () => {
 
     const availability = await adapter.availability({ META_APP_ID: 'app1', META_APP_SECRET: 'secret1' })
 
-    expect(availability.instagram).toEqual({ available: false, reason: 'not_configured' })
+    expect(availability.instagram).toEqual({ available: false, reason: 'not_paired' })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 

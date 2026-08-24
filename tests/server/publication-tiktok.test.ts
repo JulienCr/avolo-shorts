@@ -447,13 +447,13 @@ describe('availability', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('rend not_configured sans jeton appairé, sans appel réseau, même avec la clé et le secret', async () => {
+  it('rend not_paired sans jeton appairé, sans appel réseau, même avec la clé et le secret', async () => {
     const fetchImpl = vi.fn()
     const adapter = createTikTokAdapter(ENV, fetchImpl as unknown as typeof fetch)
 
     const result = await adapter.availability(ENV)
 
-    expect(result.tiktok).toEqual({ available: false, reason: 'not_configured' })
+    expect(result.tiktok).toEqual({ available: false, reason: 'not_paired' })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 

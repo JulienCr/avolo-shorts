@@ -315,6 +315,27 @@ describe('availability', () => {
     expect(availability.youtube).toEqual({ available: false, reason: 'not_configured' })
   })
 
+  it('ne rend jamais `not_paired` : Upload Post n’a pas d’étape d’appairage séparée', async () => {
+    const scenarios = [
+      { env: {}, fetchImpl: vi.fn() },
+      { env: ENV, fetchImpl: vi.fn(async () => jsonResponse(200, { profiles: [] })) },
+      {
+        env: ENV,
+        fetchImpl: vi.fn(async () => {
+          throw new Error('ECONNREFUSED')
+        }),
+      },
+    ]
+    for (const { env, fetchImpl } of scenarios) {
+      forgetAvailabilityCache()
+      const adapter = createUploadPostAdapter(env, fetchImpl)
+      const availability = await adapter.availability(env)
+      for (const platform of ['instagram', 'facebook', 'tiktok', 'youtube'] as Platform[]) {
+        expect(availability[platform].available === false && availability[platform].reason).not.toBe('not_paired')
+      }
+    }
+  })
+
   it('met le relevé en cache : deux appels rapprochés ne font qu’une requête', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, { profiles: [{ username: 'perso', social_accounts: {} }] }))
     const adapter = createUploadPostAdapter(ENV, fetchImpl)

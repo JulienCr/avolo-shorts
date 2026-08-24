@@ -257,11 +257,7 @@ async function poll(
   return outcomes
 }
 
-/**
- * `not_configured`, sans réseau, tant que la clé/secret d'app ou le jeton
- * appairé manquent — le seul cas que le critère d'acceptation borne. Une fois
- * les deux présents, un appel léger confirme que le jeton fonctionne encore.
- */
+/** Une fois la clé/secret d'app et le jeton appairé présents, un appel léger confirme qu'il fonctionne encore. */
 async function checkTikTok(env: Environment, fetchImpl: typeof fetch): Promise<PlatformAvailability> {
   try {
     const tokens = await ensureFreshTikTokToken(env, fetchImpl)
@@ -293,7 +289,14 @@ async function availability(
     !isReference(env.TIKTOK_CLIENT_SECRET)
   if (!clientConfigured) return result
   const tokens = await readTikTokTokens()
-  if (tokens === null) return result
+  // La clé et le secret d'app sont là, mais `dev-connect-tiktok.ts` n'a
+  // jamais tourné : le remède est l'appairage, pas `.env` (relevé le 23 août
+  // 2026 — Julien a choisi « TikTok (direct) » et lu le message pour
+  // l'absence de clé, fausse dans ce cas).
+  if (tokens === null) {
+    result.tiktok = { available: false, reason: 'not_paired' }
+    return result
+  }
   result.tiktok = await checkTikTok(env, fetchImpl)
   return result
 }

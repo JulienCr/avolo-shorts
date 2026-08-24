@@ -1,5 +1,10 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { closeDb } from '@/server/db'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
@@ -12,16 +17,36 @@ import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 const envStart = { ...process.env }
 
+/**
+ * Les quatre plateformes sont portées par trois connecteurs, et Meta se dit
+ * configuré sur un **fichier de jetons** plutôt que sur une variable : effacer
+ * les seules clés d'Upload Post laissait Meta se déclarer disponible dès que
+ * `projects/meta-tokens.json` existait, donc vert en worktree et rouge sur une
+ * machine réellement appairée.
+ */
+function isolateConnectors(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'availability-'))
+  process.env.PROJECTS_DIR = path.join(root, 'projects')
+  for (const name of Object.keys(process.env)) {
+    if (/^(UPLOAD_POST|META|TIKTOK)_/.test(name)) delete process.env[name]
+  }
+  return root
+}
+
+let root: string | undefined
+
 afterEach(() => {
   forgetAvailabilityCache()
   process.env = { ...envStart }
+  closeDb()
+  if (root !== undefined) rmSync(root, { recursive: true, force: true })
+  root = undefined
   vi.unstubAllGlobals()
 })
 
 describe('GET /api/publication/availability', () => {
   it('200, quatre plateformes `not_configured` sans connecteur branché', async () => {
-    delete process.env.UPLOAD_POST_API_KEY
-    delete process.env.UPLOAD_POST_USER
+    root = isolateConnectors()
     const { GET } = await import('@/app/api/publication/availability/route')
 
     const response = await GET()

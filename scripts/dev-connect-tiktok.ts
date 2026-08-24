@@ -18,6 +18,7 @@ import {
   exchangeTikTokCode,
   loadAndForgetPkce,
   pairAndPersistTikTok,
+  peekPendingState,
   persistPkce,
   tiktokRedirectUri,
   type ExchangedTokens,
@@ -89,9 +90,21 @@ async function main(): Promise<number> {
     console.log(authorizationUrl({ clientKey, redirectUri: tiktokRedirectUri(), scope: SCOPES, state, challenge }))
     console.log(
       `\nTikTok redirige automatiquement vers ${tiktokRedirectUri()}, qui termine le pairage — ou, à défaut,` +
-        ` recopier le code dans pnpm tsx scripts/dev-connect-tiktok.ts --code=<code>.`,
+        ` recopier code et state dans pnpm tsx scripts/dev-connect-tiktok.ts --code=<code> --state=<state>.`,
     )
     return 0
+  }
+
+  const state = flag('state')
+  if (state === undefined) {
+    throw new Error(
+      '--state=<state> est requis avec --code : sans lui, un second lancement en attente écraserait' +
+        ' silencieusement le vérifieur de celui-ci en recopiant un code périmé.',
+    )
+  }
+  const pendingState = await peekPendingState()
+  if (pendingState !== state) {
+    throw new Error("Le state fourni ne correspond pas au pairage en attente : relancer sans --code pour en ouvrir un nouveau.")
   }
 
   const { verifier } = await loadAndForgetPkce()

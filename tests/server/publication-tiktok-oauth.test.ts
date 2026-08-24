@@ -25,7 +25,13 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.env = { ...envStart }
+  // Mutation, jamais réassignation : `process.env = { ...envStart }` casse
+  // silencieusement `process.loadEnvFile` pour le reste du process (mesuré
+  // dans `tests/scripts/dev-common.test.ts`).
+  for (const name of Object.keys(process.env)) {
+    if (!(name in envStart)) delete process.env[name]
+  }
+  Object.assign(process.env, envStart)
   fs.rmSync(root, { recursive: true, force: true })
   vi.unstubAllGlobals()
 })

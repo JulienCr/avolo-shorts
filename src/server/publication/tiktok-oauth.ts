@@ -13,12 +13,13 @@ import { OAUTH_TOKEN_ENDPOINT, writeTikTokTokens, type OAuthTokenResponse } from
  */
 
 /**
- * `localhost`, pas `127.0.0.1` — sans slash final. C'est la forme exacte
- * enregistrée sur la console TikTok, comparée en chaîne stricte : un `127.0.0.1`
- * ou un `/` de plus est un `redirect_uri` différent pour TikTok, et l'échec a
- * été rapporté comme une erreur `client_key` plutôt que `redirect_uri` (mesuré
- * le 24 août 2026, pairage en direct). Vérifié : les deux formes ont été
- * essayées cette nuit-là, seule celle-ci a fonctionné.
+ * `http://localhost:4005/tiktok/oauth-callback` est la forme enregistrée sur
+ * la console TikTok pour cette app, vérifiée par un pairage réel de bout en
+ * bout (24 août 2026). Un `redirect_uri` non enregistré fait échouer
+ * l'autorisation, rapportée comme une erreur `client_key` plutôt que
+ * `redirect_uri` (mesuré le même soir) — donc toute variante non vérifiée
+ * (host, slash final) est à traiter comme potentiellement différente pour
+ * TikTok, pas à « nettoyer » vers une forme qui paraît équivalente.
  */
 export function tiktokRedirectUri(): string {
   return process.env.TIKTOK_REDIRECT_URI ?? 'http://localhost:4005/tiktok/oauth-callback'

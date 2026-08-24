@@ -220,3 +220,34 @@ défaut vit dans la couture entre les deux. Sur #148 comme sur #149, la revue in
 a validé le fond, puis la boucle externe a tourné quatre passes et corrigé des
 défauts réels à chacune des trois premières. Les deux étages ne se remplacent
 pas, et supposer que le premier couvre le second est ce qui coûte cher.
+
+## Un réglage validé des deux côtés ferme son propre trou
+
+Quand deux PR parallèles doivent se rejoindre sur une énumération — l'une pose le
+choix dans les réglages, l'autre livre ce que ce choix désigne —, la question qui
+vient est : que se passe-t-il entre les deux fusions, quand le réglage propose une
+valeur que rien ne sert encore ?
+
+Rien, et c'est une propriété du dépôt plutôt qu'une chance. `applySettings` et
+`effectiveSettings` (`src/server/db.ts`) valident tous deux contre la **même** liste
+de valeurs : une valeur hors liste est refusée à l'écriture et ramenée au défaut à
+la lecture. Une préférence ne peut donc jamais nommer autre chose qu'un identifiant
+connu, et le résolveur n'a qu'à retomber sur son ordre de priorité quand cet
+identifiant n'a pas encore de porteur.
+
+Ce que ça permet, et qui décide d'un séquencement : **la valeur d'énumération peut
+précéder de plusieurs jours ce qu'elle désigne.** La PR des réglages a livré un choix
+« TikTok » alors qu'aucun connecteur TikTok n'existait ; celle du connecteur l'a
+rendu réel une nuit plus tard. Aucune migration, aucun commit de nettoyage, aucun
+état transitoire à garder en tête — le trou se referme au moment où la seconde
+fusionne. Sans cette symétrie il aurait fallu séquencer les deux PR, donc perdre le
+parallélisme, ou introduire un drapeau que quelqu'un aurait dû penser à retirer.
+
+Le corollaire pour les tests est moins agréable : le jour où le second connecteur
+existe, **le scénario « préférence sans porteur » cesse d'être atteignable par l'API
+publique**, et le test qui le couvrait paraît mort. Il ne l'est pas — le repli
+protège toujours un état réel, celui d'un connecteur retiré du registre alors que sa
+valeur traîne dans les réglages. Il se réécrit en simulant le trou dans le registre,
+il ne se supprime pas. Confondre « plus atteignable par le chemin normal » et « plus
+utile » est la façon dont une garde défensive perd sa couverture sans que personne
+ne décide de la retirer.

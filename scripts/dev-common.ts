@@ -30,12 +30,24 @@ import { resolveSecrets } from '@/server/secrets'
  * est du bruit devant les douze minutes de proxy de `dev-ingest`, et rien du
  * tout quand le `.env` ne contient que des valeurs littérales — auquel cas `op`
  * n'est même pas appelé.
+ *
+ * `<file>.local` est chargé **avant** `<file>`, avec la même précédence que
+ * `@next/env` : `process.loadEnvFile` n'écrase jamais une variable déjà posée,
+ * donc charger le fichier le plus prioritaire en premier lui donne le dernier
+ * mot. `pnpm generate-env:local` y écrit les références `op://…` déjà résolues
+ * (`scripts/generate-env-local.ts`) ; ce qu'il ne couvre pas reste à l'état
+ * d'adresse dans `.env` et se résout plus bas, sans détection de complétude
+ * séparée.
  */
 export async function chargerEnv(file = '.env'): Promise<void> {
   const before = { ...process.env }
   try {
+    process.loadEnvFile(`${file}.local`)
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') throw cause
+  }
+  try {
     process.loadEnvFile(file)
-    Object.assign(process.env, before)
   } catch (cause) {
     // **Seule l'absence est tolérée.** Les valeurs par défaut de `paths.ts`
     // suffisent alors pour `STAGE_DIR` et `PROJECTS_DIR`, et `REPLAY_DIR`
@@ -49,6 +61,7 @@ export async function chargerEnv(file = '.env'): Promise<void> {
     // Et on continue : un `.env` absent n'empêche pas l'environnement d'hériter
     // d'une référence posée à la main sur la ligne de commande.
   }
+  Object.assign(process.env, before)
 
   const resolved = await resolveSecrets()
   // Les **noms**, jamais les valeurs.

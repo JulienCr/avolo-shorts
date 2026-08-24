@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
+import { buildInjectTemplate, createBatchInjector, parseInjectOutput, type BatchInjector } from '@/server/op-inject'
 
 /**
  * Les secrets ne vivent pas dans le `.env` : il en porte l'**adresse**.
@@ -42,12 +44,10 @@ import { promisify } from 'node:util'
  *
  * ## Ce que ça coûte
  *
- * Un sous-processus par référence distincte, et **2,5 s** par lecture — mesuré
- * sur cette machine, à froid comme à chaud : c'est le démarrage de `op` et
- * l'aller-retour vers l'application 1Password de Windows, pas le réseau. D'où
- * les trois précautions : on ne lit qu'au démarrage, on ne lit qu'une fois par
- * référence distincte, et on lit tout en parallèle (3,5 s pour deux, contre 5 s
- * en série).
+ * **2,5 s** pour un `op read`, mesuré sur cette machine à froid comme à chaud.
+ * Un `op read` par référence en parallèle demande une approbation 1Password
+ * par process ; `op inject` résout tout le lot en un seul, donc une seule
+ * approbation. Voir le corps de la PR pour la mesure complète.
  *
  * ## Comment `op` s'authentifie ici
  *
@@ -94,6 +94,10 @@ function opBin(): string {
 /** Ce qui lit un secret. Injecté par les tests, qui ne lancent jamais `op`. */
 export type SecretPlayer = (reference: string) => Promise<string>
 
+/** Résout tout un lot de références en un seul `op inject`. Voir `src/server/op-inject.ts`. */
+const injectViaOp: BatchInjector = (template) =>
+  createBatchInjector({ bin: opBin(), timeoutMs: DELAY_MS })(template)
+
 /**
  * Un environnement, et non `NodeJS.ProcessEnv`.
  *
@@ -136,7 +140,7 @@ export function isReference(value: string | undefined): boolean {
  * ligne qu'il faudrait retirer — et retirer un saut de ligne final abîmerait un
  * secret qui en porte un pour de bon (une clé privée, par exemple).
  */
-async function lireInOnePassword(reference: string): Promise<string> {
+export async function lireInOnePassword(reference: string): Promise<string> {
   const { stdout } = await execFileP(opBin(), ['read', '--no-newline', reference], {
     encoding: 'utf8',
     timeout: DELAY_MS,
@@ -264,29 +268,84 @@ export function requireSecret(name: string, env: Environment = process.env): str
   return value
 }
 
+type ReferenceOutcome =
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly cause: unknown }
+
+/**
+ * Résout tout `references` en un seul `inject`. `op inject` échoue en bloc
+ * dès qu'une référence est fausse et ne nomme que la première fautive : le
+ * repli relit chaque référence séparément via `lire`, **en séquence, jamais
+ * en parallèle** — c'est tout l'objet de cette fonction —, pour un diagnostic
+ * par référence.
+ */
+async function resolveReferences(
+  references: readonly string[],
+  inject: BatchInjector,
+  lire: SecretPlayer,
+): Promise<Map<string, ReferenceOutcome>> {
+  const nonce = randomUUID()
+  const entries = references.map((reference) => ({ key: reference, reference }))
+  try {
+    const output = await inject(buildInjectTemplate(entries, nonce))
+    const values = parseInjectOutput(output, entries, nonce)
+    return new Map(
+      references.map((reference) => [reference, { ok: true, value: values.get(reference) as string }]),
+    )
+  } catch {
+    const outcomes = new Map<string, ReferenceOutcome>()
+    for (const reference of references) {
+      try {
+        outcomes.set(reference, { ok: true, value: await lire(reference) })
+      } catch (cause) {
+        outcomes.set(reference, { ok: false, cause })
+      }
+    }
+    return outcomes
+  }
+}
+
+interface Failure {
+  readonly name: string
+  readonly reference: string
+  readonly text: string
+  /** Une cause qui touche le process (op introuvable, session verrouillée), pas une référence précise. */
+  readonly systemic: boolean
+}
+
+/**
+ * Une ligne par échec, sauf pour les causes `systemic` qui partagent le même
+ * texte : op introuvable ou 1Password verrouillé touchent toutes les
+ * références à l'identique, donc une seule ligne suffit plutôt que N copies.
+ */
+function formatFailures(failures: readonly Failure[]): string {
+  const systemic = failures.filter((f) => f.systemic)
+  const distinctTexts = new Set(systemic.map((f) => f.text))
+  const systemicLines =
+    distinctTexts.size === 1 && systemic.length > 1
+      ? [systemic[0].text]
+      : systemic.map((f) => `${f.name} : impossible de lire ${f.reference}. ${f.text}`)
+  const perReferenceLines = failures.filter((f) => !f.systemic).map((f) => `${f.name} : ${f.text}`)
+  return [...systemicLines, ...perReferenceLines].join('\n')
+}
+
 /**
  * Remplace dans `env` chaque référence `op://` par le secret qu'elle désigne, et
  * rend les noms des variables résolues — **les noms, jamais les valeurs** : ce
  * retour est fait pour être journalisé au démarrage.
  *
- * Trois propriétés tiennent le reste :
- *
- * - **Sans référence, `lire` n'est jamais appelé.** C'est ce qui rend ce chemin
- *   traversable par un CI sans 1Password et par un dépôt fraîchement cloné.
- * - **`OP_BIN` est hors du balayage**, parce qu'elle nomme l'outil qui ferait la
- *   lecture : une `OP_BIN=op://…` demanderait à `op` de se lire lui-même, et
- *   `execFile` échouerait en `ENOENT` sur un binaire nommé `op://…` — donc sur
- *   « installer 1Password CLI », qui est un diagnostic faux. (relevé par
- *   Aristarque)
- * - **Tout ou rien.** Les lectures se font d'abord, les écritures ensuite : un
- *   échec ne laisse pas un environnement à moitié résolu, où la variable
- *   suivante partirait quand même chez le fournisseur d'API.
- * - **Les échecs se cumulent.** Deux références fausses valent deux lignes, pas
- *   deux démarrages ratés d'affilée.
+ * - **Sans référence, ni `inject` ni `lire` ne sont appelés** — traversable par
+ *   un CI sans 1Password.
+ * - **`OP_BIN` est hors du balayage** : une `OP_BIN=op://…` demanderait à `op`
+ *   de se lire lui-même. (relevé par Aristarque)
+ * - **Tout ou rien** : un échec ne laisse pas un environnement à moitié résolu.
+ * - **Les échecs se cumulent**, sauf ceux qui partagent une cause `systemic`
+ *   (voir `formatFailures`).
  */
 export async function resolveSecrets(
   env: Environment = process.env,
   lire: SecretPlayer = lireInOnePassword,
+  inject: BatchInjector = injectViaOp,
 ): Promise<readonly string[]> {
   // Trié : ce que la fonction rend finit dans un journal, et un journal dont
   // l'ordre suit celui d'énumération de `process.env` se compare mal d'un
@@ -296,37 +355,42 @@ export async function resolveSecrets(
     .sort()
   if (names.length === 0) return []
 
-  // Une lecture par référence **distincte**. Deux variables qui pointent le
-  // même champ ne valent pas deux allers-retours de 2,5 s, ni deux approbations.
-  const reads = new Map<string, Promise<string>>()
+  // Une entrée par référence **distincte** dans le gabarit : deux variables
+  // qui pointent le même champ n'en valent qu'une.
+  const references: string[] = []
+  const seen = new Set<string>()
   for (const name of names) {
     const reference = env[name] as string
-    if (!reads.has(reference)) reads.set(reference, lire(reference))
+    if (!seen.has(reference)) {
+      seen.add(reference)
+      references.push(reference)
+    }
   }
 
-  const results = await Promise.allSettled([...reads.values()])
-  const values = new Map<string, PromiseSettledResult<string>>()
-  for (const [index, reference] of [...reads.keys()].entries()) {
-    values.set(reference, results[index] as PromiseSettledResult<string>)
-  }
+  const outcomes = await resolveReferences(references, inject, lire)
 
-  const failures: string[] = []
+  const failures: Failure[] = []
   const resolved: [string, string][] = []
   for (const name of names) {
     const reference = env[name] as string
-    const result = values.get(reference) as PromiseSettledResult<string>
-    if (result.status === 'rejected') {
-      failures.push(`${name} : impossible de lire ${reference}. ${fix(result.reason)}`)
-    } else if (result.value === '') {
+    const outcome = outcomes.get(reference) as ReferenceOutcome
+    if (!outcome.ok) {
+      failures.push({ name, reference, text: fix(outcome.cause), systemic: true })
+    } else if (outcome.value === '') {
       // Un champ vidé dans 1Password rendrait une chaîne vide, que le garde-fou
       // de `clientParDéfaut` prendrait pour une variable absente — donc un
       // message qui accuse le `.env` alors que le `.env` est juste.
-      failures.push(`${name} : 1Password rend une valeur vide pour ${reference}. Le champ est vide.`)
+      failures.push({
+        name,
+        reference,
+        text: `1Password rend une valeur vide pour ${reference}. Le champ est vide.`,
+        systemic: false,
+      })
     } else {
-      resolved.push([name, result.value])
+      resolved.push([name, outcome.value])
     }
   }
-  if (failures.length > 0) throw new Error(failures.join('\n'))
+  if (failures.length > 0) throw new Error(formatFailures(failures))
 
   for (const [name, value] of resolved) env[name] = value
   return names

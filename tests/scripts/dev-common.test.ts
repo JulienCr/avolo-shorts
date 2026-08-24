@@ -36,7 +36,15 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(folder, { recursive: true, force: true })
-  process.env = { ...envStart }
+  // **Mutation, jamais réassignation.** `process.env = { ...envStart }` casse
+  // silencieusement `process.loadEnvFile` pour le reste du process : mesuré sur
+  // Node 22.22.1, un appel après une telle réassignation n'écrit plus rien dans
+  // `process.env`, sans lever d'erreur — les tests suivants passaient alors sans
+  // jamais exercer le chargement réel du fichier.
+  for (const name of Object.keys(process.env)) {
+    if (!(name in envStart)) delete process.env[name]
+  }
+  Object.assign(process.env, envStart)
 })
 
 describe('chargerEnv', () => {
@@ -60,6 +68,25 @@ describe('chargerEnv', () => {
 
   it("tolère un fichier absent : les valeurs par défaut de paths.ts suffisent", async () => {
     await expect(chargerEnv(path.join(folder, 'jamais-écrit'))).resolves.toBeUndefined()
+  })
+
+  it('donne la précédence à .env.local sur .env, comme @next/env', async () => {
+    const file = path.join(folder, '.env')
+    fs.writeFileSync(file, 'AVOLO_TEST_LOCAL=op://c/f/AVOLO_TEST_LOCAL\n')
+    fs.writeFileSync(`${file}.local`, 'AVOLO_TEST_LOCAL=valeur-litterale\n')
+    delete process.env.AVOLO_TEST_LOCAL
+
+    await chargerEnv(file)
+    expect(process.env.AVOLO_TEST_LOCAL).toBe('valeur-litterale')
+  })
+
+  it('tolère un .env.local absent', async () => {
+    const file = path.join(folder, '.env')
+    fs.writeFileSync(file, 'AVOLO_TEST_SANS_LOCAL=du-fichier\n')
+    delete process.env.AVOLO_TEST_SANS_LOCAL
+
+    await chargerEnv(file)
+    expect(process.env.AVOLO_TEST_SANS_LOCAL).toBe('du-fichier')
   })
 
   it("refuse un .env illisible, qui n'est pas une absence", async () => {

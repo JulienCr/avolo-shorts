@@ -10,7 +10,7 @@ import {
   TikTokTokenExpiredError,
 } from '@/server/publication/errors'
 import { ensureFreshTikTokToken, readTikTokTokens } from '@/server/publication/tiktok-tokens'
-import type { Environment } from '@/server/secrets'
+import { isReference, type Environment } from '@/server/secrets'
 
 /**
  * Le connecteur TikTok direct — dépôt en brouillon (`video.upload`), jamais
@@ -160,6 +160,12 @@ async function uploadChunks(
     })
     if (!response.ok) {
       const detail = await response.text()
+      // 401/429 sont des signaux non ambigus sur ce point de terminaison
+      // binaire, indépendants du corps (même raisonnement que `uploadToRupload`
+      // côté Meta) : un jeton qui expire pendant un envoi long doit rester
+      // classé comme jeton expiré, pas comme fichier refusé.
+      if (response.status === 401) throw new TikTokTokenExpiredError(`TikTok a répondu 401 sur le morceau ${start}-${end} : ${detail}`)
+      if (response.status === 429) throw new TikTokRateLimitError(`TikTok a répondu 429 sur le morceau ${start}-${end} : ${detail}`)
       throw new TikTokFileRefusedError(`TikTok a refusé le morceau ${start}-${end} : ${detail}`)
     }
   }
@@ -243,11 +249,17 @@ async function availability(
   fetchImpl: typeof fetch,
 ): Promise<Record<Platform, PlatformAvailability>> {
   const result = defaultPlatformAvailability()
+  // Une référence 1Password non résolue (`op://…`) répondrait `invalid_params`
+  // chez TikTok et ressortirait en `unavailable` — vrai mais trompeur, la
+  // cause est la résolution du démarrage défaite, pas une panne. Même
+  // distinction que `checkFacebook` (`meta.ts`).
   const clientConfigured =
     env.TIKTOK_CLIENT_KEY !== undefined &&
     env.TIKTOK_CLIENT_KEY !== '' &&
+    !isReference(env.TIKTOK_CLIENT_KEY) &&
     env.TIKTOK_CLIENT_SECRET !== undefined &&
-    env.TIKTOK_CLIENT_SECRET !== ''
+    env.TIKTOK_CLIENT_SECRET !== '' &&
+    !isReference(env.TIKTOK_CLIENT_SECRET)
   if (!clientConfigured) return result
   const tokens = await readTikTokTokens()
   if (tokens === null) return result

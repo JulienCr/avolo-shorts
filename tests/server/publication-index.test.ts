@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { applySettings, closeDb, getDb } from '@/server/db'
+import { forgetTikTokTokenCache } from '@/server/publication/tiktok-tokens'
 import { forgetAvailabilityCache } from '@/server/publication/upload-post'
 
 /**
@@ -30,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb()
   forgetAvailabilityCache()
+  forgetTikTokTokenCache()
   process.env = { ...envStart }
   vi.unstubAllGlobals()
   fs.rmSync(root, { recursive: true, force: true })

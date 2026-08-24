@@ -207,6 +207,44 @@ describe('publishTikTok (dépôt en brouillon)', () => {
     expect(outcomes.tiktok.status).toBe('failed')
     expect((outcomes.tiktok as { error: string }).error).toMatch(/jeton révoqué/)
   })
+
+  it('nomme le jeton expiré sur un 401 pendant l’envoi d’un morceau, pas un fichier refusé', async () => {
+    await seedTikTokToken()
+    const uploadUrl = 'https://upload.tiktokapis.com/upload1'
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: uploadUrl }, error: { code: 'ok' } })
+      }
+      if (url === uploadUrl) return new Response('jeton expiré en cours d’envoi', { status: 401 })
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok.status).toBe('failed')
+    expect((outcomes.tiktok as { error: string }).error).toMatch(/401/)
+  })
+
+  it('nomme le débit atteint sur un 429 pendant l’envoi d’un morceau', async () => {
+    await seedTikTokToken()
+    const uploadUrl = 'https://upload.tiktokapis.com/upload1'
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = input.toString()
+      if (url.endsWith('/post/publish/inbox/video/init/')) {
+        return jsonResponse(200, { data: { publish_id: 'p1', upload_url: uploadUrl }, error: { code: 'ok' } })
+      }
+      if (url === uploadUrl) return new Response('débit atteint', { status: 429 })
+      throw new Error(`inattendu : ${url}`)
+    }) as unknown as typeof fetch
+    const adapter = createTikTokAdapter(ENV, fetchImpl)
+
+    const outcomes = await adapter.publish(job(), ['tiktok'])
+
+    expect(outcomes.tiktok.status).toBe('failed')
+    expect((outcomes.tiktok as { error: string }).error).toMatch(/429/)
+  })
 })
 
 describe('ensureFreshTikTokToken', () => {
@@ -280,6 +318,17 @@ describe('availability', () => {
     const adapter = createTikTokAdapter(ENV, fetchImpl as unknown as typeof fetch)
 
     const result = await adapter.availability(ENV)
+
+    expect(result.tiktok).toEqual({ available: false, reason: 'not_configured' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('rend not_configured plutôt qu’unavailable sur une référence 1Password non résolue', async () => {
+    const fetchImpl = vi.fn()
+    const unresolvedEnv = { TIKTOK_CLIENT_KEY: 'op://vault/item/field', TIKTOK_CLIENT_SECRET: 'cs1' }
+    const adapter = createTikTokAdapter(unresolvedEnv, fetchImpl as unknown as typeof fetch)
+
+    const result = await adapter.availability(unresolvedEnv)
 
     expect(result.tiktok).toEqual({ available: false, reason: 'not_configured' })
     expect(fetchImpl).not.toHaveBeenCalled()

@@ -2,16 +2,15 @@
  * Écrit `.env.local` avec les secrets `op://…` de `.env` résolus une bonne
  * fois, en **un seul** sous-processus `op`.
  *
- * Le défaut mesuré de `resolveSecrets` (`src/server/secrets.ts`) : quatre
- * références distinctes lancent quatre `op read` en parallèle, donc 1Password
- * demande quatre approbations au lieu d'une. `op inject` lit un gabarit sur
- * stdin et remplace chaque `{{ op://… }}` en un seul aller-retour. Le socle
- * partagé (gabarit à sentinelles, injecteur `execFile`+stdin) vit dans
- * `src/server/op-inject.ts`, réutilisé ici et par `resolveSecrets`.
+ * Avant cette PR, `resolveSecrets` (`src/server/secrets.ts`) lançait un
+ * `op read` par référence distincte, en parallèle : quatre approbations
+ * 1Password au lieu d'une. Les deux résolvent désormais leur lot en un seul
+ * `op inject` ; le socle partagé (gabarit à sentinelles, injecteur
+ * `execFile`+stdin) vit dans `src/server/op-inject.ts`.
  */
 
 import { randomUUID } from 'node:crypto'
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { isReference, lireInOnePassword, type SecretPlayer } from '@/server/secrets'
 import {
   buildInjectTemplate as buildTemplateShared,
@@ -23,6 +22,8 @@ import {
 
 /** Le délai de garde d'un aller-retour vers 1Password. Voir `src/server/secrets.ts`. */
 const DELAY_MS = 60_000
+
+const ENV_LOCAL_PATH = '.env.local'
 
 function opBin(): string {
   return process.env.OP_BIN || 'op'
@@ -48,6 +49,22 @@ export function parseInjectOutput(output: string, entries: readonly EnvReference
 }
 
 /**
+ * La valeur d'une variable, débarrassée de ses guillemets et d'un commentaire
+ * de fin de ligne — vérifié sur Node 22.22.1 : `process.loadEnvFile` tronque
+ * une valeur non guillemetée au premier `#`, et coupe une valeur guillemetée
+ * juste après son guillemet fermant.
+ */
+function extractValue(rawValue: string): string {
+  const quote = rawValue[0]
+  if (quote === '"' || quote === "'") {
+    const closing = rawValue.indexOf(quote, 1)
+    return closing === -1 ? rawValue.slice(1) : rawValue.slice(1, closing)
+  }
+  const hash = rawValue.indexOf('#')
+  return (hash === -1 ? rawValue : rawValue.slice(0, hash)).trim()
+}
+
+/**
  * Les variables de `content` dont la valeur est une adresse `op://…`, dans
  * l'ordre où elles apparaissent. Une valeur littérale ne ressort pas — c'est le
  * point : `.env.local` ne doit porter que ce qui n'était pas déjà en clair.
@@ -57,14 +74,12 @@ export function parseEnvReferences(content: string): EnvReference[] {
   for (const rawLine of content.split('\n')) {
     const line = rawLine.trim()
     if (line === '' || line.startsWith('#')) continue
-    const equals = line.indexOf('=')
+    const withoutExport = line.startsWith('export ') ? line.slice('export '.length).trimStart() : line
+    const equals = withoutExport.indexOf('=')
     if (equals === -1) continue
-    const name = line.slice(0, equals).trim()
+    const name = withoutExport.slice(0, equals).trim()
     if (name === 'OP_BIN') continue
-    let value = line.slice(equals + 1).trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
+    const value = extractValue(withoutExport.slice(equals + 1).trimStart())
     if (isReference(value)) entries.push({ name, reference: value })
   }
   return entries
@@ -90,51 +105,120 @@ export async function resolveEnvLocal(
 
   const nonce = randomUUID()
   const injectEntries = toInjectEntries(entries)
+  let resolved: [string, string][]
   try {
     const output = await inject(buildTemplateShared(injectEntries, nonce))
     const values = parseOutputShared(output, injectEntries, nonce)
-    return entries.map((entry) => [entry.name, values.get(entry.name) as string])
+    resolved = entries.map((entry) => [entry.name, values.get(entry.name) as string])
   } catch {
     const failures: string[] = []
-    const resolved: [string, string][] = []
+    const partial: [string, string][] = []
     for (const entry of entries) {
       try {
-        resolved.push([entry.name, await readOne(entry.reference)])
+        partial.push([entry.name, await readOne(entry.reference)])
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause)
         failures.push(`${entry.name} : impossible de lire ${entry.reference}. ${message}`)
       }
     }
     if (failures.length > 0) throw new Error(failures.join('\n'))
-    return resolved
+    resolved = partial
+  }
+
+  // Un champ vidé dans 1Password rendrait `KEY=''` — prioritaire sur `.env` —
+  // et le garde-fou équivalent de `resolveSecrets` ne verrait plus jamais
+  // passer l'adresse `op://` pour le détecter. (relevé par Copilot et Aristarque)
+  const empty = resolved.filter(([, value]) => value === '')
+  if (empty.length > 0) {
+    throw new Error(empty.map(([name]) => `${name} : 1Password rend une valeur vide. Le champ est vide.`).join('\n'))
+  }
+  return resolved
+}
+
+/**
+ * Entoure `value` de guillemets simples, sans y toucher. Ni `\"` ni `\\` ne
+ * sont décodés par `process.loadEnvFile` **ni** par le `dotenv` de
+ * `@next/env` — vérifié, ça tronque ou double le secret. Les guillemets
+ * simples, eux, ne subissent aucune interprétation des deux côtés : un
+ * antislash, un guillemet double ou un saut de ligne y passent intacts.
+ * Seule une apostrophe dans la valeur n'a pas de représentation sûre.
+ */
+function quoteValue(name: string, value: string): string {
+  if (value.includes("'")) {
+    throw new Error(
+      `${name} : la valeur résolue contient une apostrophe, qu'aucune syntaxe de ` +
+        '.env.local ne sait représenter sans risque de troncature. Retirer la ' +
+        'référence op:// de .env pour cette variable et la garder littérale.',
+    )
+  }
+  return `'${value}'`
+}
+
+/** Le contenu d'un `.env.local` : une variable par ligne, à guillemets simples. */
+export function formatEnvLocal(resolved: readonly [string, string][]): string {
+  return resolved.map(([name, value]) => `${name}=${quoteValue(name, value)}\n`).join('')
+}
+
+/**
+ * Supprime `.env.local` s'il existe. Ce fichier n'est jamais que le dernier
+ * résultat de ce script : quand `.env` ne porte plus de référence `op://`, le
+ * laisser en place ferait persister un secret révoqué, prioritaire sur `.env`
+ * qui, lui, est à jour. (relevé par les trois relecteurs)
+ */
+export function removeStaleEnvLocal(path: string): boolean {
+  if (!existsSync(path)) return false
+  unlinkSync(path)
+  return true
+}
+
+/**
+ * Écrit `content` dans `path` en `0600`, sans jamais exposer une fenêtre où le
+ * fichier porte des permissions plus larges. `writeFileSync(path, …, {mode})`
+ * n'applique `mode` qu'à la création : si `.env.local` existe déjà en `0644`,
+ * il serait réécrit avec ces permissions jusqu'au `chmodSync` suivant. Écrire
+ * dans un fichier temporaire neuf, donc créé en `0600`, puis le renommer par
+ * dessus évite cette fenêtre. (relevé par Copilot et Aristarque)
+ */
+export function writeEnvLocalFile(path: string, content: string): void {
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`
+  writeFileSync(tmpPath, content, { mode: 0o600 })
+  renameSync(tmpPath, path)
+}
+
+/**
+ * Lit `.env`, avec un message qui nomme le fichier attendu et son remède —
+ * pas le `ENOENT` brut de Node. Cas réel : un worktree git, où `.env` est
+ * ignoré et n'est donc pas partagé avec le dépôt principal.
+ */
+export function readEnvFile(path: string): string {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      throw new Error(
+        `${path} est introuvable dans ${process.cwd()}. ` +
+          "`.env` est ignoré par git : un worktree ne le partage pas avec le " +
+          `dépôt principal. Le copier depuis là, ou le recréer depuis ${path}.example.`,
+      )
+    }
+    throw cause
   }
 }
 
-/** Échappe une valeur pour un `.env` à guillemets doubles, à la manière de `dotenv`. */
-function escapeValue(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
-}
-
-/** Le contenu d'un `.env.local` : une variable par ligne, à guillemets doubles. */
-export function formatEnvLocal(resolved: readonly [string, string][]): string {
-  return resolved.map(([name, value]) => `${name}="${escapeValue(value)}"\n`).join('')
-}
-
 async function main(): Promise<void> {
-  const source = readFileSync('.env', 'utf8')
+  const source = readEnvFile('.env')
   const entries = parseEnvReferences(source)
   if (entries.length === 0) {
-    console.log('Aucune référence op:// dans .env : rien à écrire dans .env.local.')
+    if (removeStaleEnvLocal(ENV_LOCAL_PATH)) {
+      console.log(`${ENV_LOCAL_PATH} supprimé : .env ne porte plus aucune référence op://.`)
+    } else {
+      console.log('Aucune référence op:// dans .env : rien à écrire dans .env.local.')
+    }
     return
   }
 
   const resolved = await resolveEnvLocal(entries, injectViaOp, lireInOnePassword)
-  writeFileSync('.env.local', formatEnvLocal(resolved), { mode: 0o600 })
-  chmodSync('.env.local', 0o600)
+  writeEnvLocalFile(ENV_LOCAL_PATH, formatEnvLocal(resolved))
   console.log(`.env.local : ${resolved.map(([name]) => name).join(', ')} résolue(s).`)
 }
 

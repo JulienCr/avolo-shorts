@@ -1040,8 +1040,13 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
       // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage
       // réel resterait comptée ici et désignerait la mauvaise image. (relevé
       // par Codex)
-      const floor = opts().sizeFloor ?? FRAMING_DEFAULTS.sizeFloor
-      const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
+      const floor = Math.min(1, opts().sizeFloor ?? FRAMING_DEFAULTS.sizeFloor)
+      // Bornes non finies ou inversées écartées de `tallest`, même garde que
+      // `spans()`. (relevé par Copilot)
+      const tallest = Math.max(
+        0,
+        ...scored.map((b) => b.y1 - b.y0).filter((h) => Number.isFinite(h) && h > 0),
+      )
       const kept = scored.filter((b) => b.y1 - b.y0 >= floor * tallest)
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))

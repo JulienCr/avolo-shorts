@@ -419,9 +419,10 @@ describe('requiredWidths', () => {
   })
 
   // Deux images distinctes : une implémentation qui comparerait à la plus
-  // haute boîte de tout l'appel plutôt que de sa propre image laisserait
-  // survivre la petite boîte de la seconde image, alors qu'elle est seule et
-  // devrait passer le plancher sans concurrent. (relevé par Copilot)
+  // haute boîte de tout l'appel plutôt que de sa propre image rejetterait à
+  // tort la petite boîte de la seconde image (0,2 contre la boîte de 1 de la
+  // première), alors qu'elle est seule dans la sienne et doit y survivre.
+  // (relevé par Copilot)
   it('compare chaque boîte à la plus haute de sa propre image, pas de tout l’appel', () => {
     const tallFrame1 = boxH(1, 0.4, 0.6, 0, 1)
     const shortFrame1 = boxH(1, 0.8, 0.9, 0.6, 0.8)

@@ -615,12 +615,17 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
   const proxy = proxyPath(projectId)
 
   // La plus haute boîte retenue de chaque image, requise par `boxColor` pour
-  // juger le plancher de taille relatif.
+  // juger le plancher de taille relatif. Bornes non finies ou inversées
+  // écartées, même garde que `spans()` : sans elle, une boîte `y0 === y1`
+  // ramène `tallest` à 0 et fait survivre n'importe quoi au plancher. (relevé
+  // par Copilot)
   const tallestByFrame = new Map<number, number>()
   for (const b of analysis.boxes) {
     if (!(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
+    const height = b.y1 - b.y0
+    if (!Number.isFinite(height) || height <= 0) continue
     const key = Math.round(b.t * 1000)
-    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, b.y1 - b.y0))
+    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, height))
   }
 
   const boxes = analysis.boxes.map((b) => {

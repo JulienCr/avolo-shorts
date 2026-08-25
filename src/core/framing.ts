@@ -1006,6 +1006,24 @@ function inInterval(t: number, start: number, fin: number): boolean {
  * pour les images où il y a quelqu'un — et sur les émissions mesurées, ces
  * images-là font de 5 à 30 % du total.
  */
+/**
+ * Une géométrie exploitable : bornes finies, largeur et hauteur strictement
+ * positives. `spans()` l'applique boîte par boîte avant tout le reste ; les
+ * diagnostics (`measure-ratios.ts`, `framing-thumbnails.ts`,
+ * `framing-preview.ts`) doivent la reprendre pour rester fidèles au cadrage
+ * réel plutôt que de retenir une boîte que `spans()` a déjà écartée.
+ */
+export function hasValidGeometry(box: Pick<PersonBox, 'x0' | 'x1' | 'y0' | 'y1'>): boolean {
+  return (
+    Number.isFinite(box.x0) &&
+    Number.isFinite(box.x1) &&
+    Number.isFinite(box.y0) &&
+    Number.isFinite(box.y1) &&
+    box.x1 > box.x0 &&
+    box.y1 > box.y0
+  )
+}
+
 function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
   const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
@@ -1023,16 +1041,7 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
     // Les boîtes viennent d'un JSON produit par un autre processus. Une borne
     // non finie ou inversée traverserait tout le calcul en `NaN` et ne se
     // verrait qu'au rendu, sous la forme d'un crop absurde.
-    if (
-      !Number.isFinite(b.t) ||
-      !Number.isFinite(b.x0) ||
-      !Number.isFinite(b.x1) ||
-      !Number.isFinite(b.y0) ||
-      !Number.isFinite(b.y1)
-    )
-      continue
-    if (b.x1 <= b.x0) continue
-    if (b.y1 <= b.y0) continue
+    if (!Number.isFinite(b.t) || !hasValidGeometry(b)) continue
     // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit sortir.
     if (!(b.score >= threshold)) continue
     // Le public au premier plan, écarté avant de compter l'empan : c'est lui qui

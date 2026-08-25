@@ -74,6 +74,7 @@ import {
   TORSOS,
   computeFraming,
   cropRect,
+  hasValidGeometry,
   headBounds,
   isForeground,
   personBounds,
@@ -99,6 +100,10 @@ function ffmpeg(): string {
  * en vert. (relevé par Copilot)
  */
 function color(b: PersonBox, tallest: number): string {
+  // Même géométrie que `spans()`, avant tout le reste : une boîte à `x`
+  // inversés n'a pas de hauteur invalide et passerait sinon le plancher.
+  // (relevé par Copilot)
+  if (!hasValidGeometry(b)) return 'gray'
   // `!(score >= seuil)` et non `score < seuil`, comme dans `empans` : un score
   // `NaN` doit tomber du côté écarté.
   if (!(b.score >= FRAMING_DEFAULTS.minScore)) return 'gray'
@@ -133,16 +138,14 @@ function vignette(
   trim: number,
   torso: TorsoName | 'off',
 ): void {
-  // Même garde que `spans()` : une boîte à la hauteur non finie ou inversée ne
-  // compte pas pour la plus haute de l'image, sans quoi `tallest` tomberait à
-  // `NaN` ou 0 et faisait passer une boîte qui n'aurait pas dû l'être. (relevé
-  // par Copilot)
+  // Géométrie complète, comme `spans()` : une boîte à `x` inversés a une
+  // hauteur valide et ferait sinon la référence de l'image. (relevé par
+  // Copilot)
   const tallest = Math.max(
     0,
     ...boxes
-      .filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
-      .map((b) => b.y1 - b.y0)
-      .filter((h) => Number.isFinite(h) && h > 0),
+      .filter((b) => hasValidGeometry(b) && b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
+      .map((b) => b.y1 - b.y0),
   )
   const filters = boxes.map((b) => {
     const x = Math.round(b.x0 * W)
@@ -217,16 +220,15 @@ function extent(
   trim: number,
   torso: TorsoName | 'off',
 ): { g: number | undefined; d: number | undefined; top: number; bottom: number } {
-  const scored = boxes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
+  // Géométrie complète écartée en premier, comme `spans()` : sans elle, une
+  // boîte à `x` inversés (hauteur valide) peut devenir la référence de
+  // l'image et fausser l'étendue dessinée. (relevé par Copilot)
+  const scored = boxes.filter(
+    (b) => hasValidGeometry(b) && b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b),
+  )
   // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage réel
   // restait dessinée en vignette comme si elle avait compté. (relevé par Codex)
-  // Bornes non finies ou inversées écartées de `tallest`, même garde que
-  // `spans()` : sans elle, une boîte dégénérée (`y0 === y1`) ramène `tallest` à
-  // 0 et fait survivre n'importe quoi au plancher. (relevé par Copilot)
-  const tallest = Math.max(
-    0,
-    ...scored.map((b) => b.y1 - b.y0).filter((h) => Number.isFinite(h) && h > 0),
-  )
+  const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
   const kept = scored.filter((b) => b.y1 - b.y0 >= FRAMING_DEFAULTS.sizeFloor * tallest)
   if (kept.length === 0) return { g: undefined, d: undefined, top: 0, bottom: 1 }
   const required = kept.map((b) => personBounds(b, { sideTrim: trim, torso }))

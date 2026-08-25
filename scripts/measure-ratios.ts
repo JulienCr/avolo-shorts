@@ -80,6 +80,7 @@ import {
   RATIOS,
   TORSOS,
   computeFraming,
+  hasValidGeometry,
   isForeground,
   personBounds,
   ratioCoverage,
@@ -1034,19 +1035,17 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
     .map(([key, boxes]) => {
       const t = key / 1000
       const span = requiredWidths(boxes, opts())[0]
+      // Géométrie invalide écartée en premier, comme `spans()` : sinon une
+      // boîte à `x` inversés mais à hauteur valide peut devenir la plus haute
+      // et fausser `kept`. (relevé par Copilot)
       const scored = boxes.filter(
-        (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
+        (b) => hasValidGeometry(b) && b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
       )
       // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage
       // réel resterait comptée ici et désignerait la mauvaise image. (relevé
       // par Codex)
       const floor = Math.min(1, opts().sizeFloor ?? FRAMING_DEFAULTS.sizeFloor)
-      // Bornes non finies ou inversées écartées de `tallest`, même garde que
-      // `spans()`. (relevé par Copilot)
-      const tallest = Math.max(
-        0,
-        ...scored.map((b) => b.y1 - b.y0).filter((h) => Number.isFinite(h) && h > 0),
-      )
+      const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
       const kept = scored.filter((b) => b.y1 - b.y0 >= floor * tallest)
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))

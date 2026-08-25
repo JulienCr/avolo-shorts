@@ -43,7 +43,15 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { Ratio } from '@/core/edl'
-import { FRAMING_DEFAULTS, computeFraming, cropRect, headBounds, isForeground, personBounds } from '@/core/framing'
+import {
+  FRAMING_DEFAULTS,
+  computeFraming,
+  cropRect,
+  hasValidGeometry,
+  headBounds,
+  isForeground,
+  personBounds,
+} from '@/core/framing'
 import type { ShotFraming } from '@/core/framing'
 import { parseRange } from '@/core/range'
 import type { PersonBox } from '@/core/shots'
@@ -72,6 +80,10 @@ function usableProjects(): string[] {
  * exclue du cadrage réel restait dessinée en vert. (relevé par Codex)
  */
 function boxColor(b: PersonBox, tallest: number): 'gray' | 'red' | 'lime' {
+  // Même géométrie que `spans()`, avant tout le reste : des `x` inversés
+  // n'invalident pas la hauteur et passeraient sinon le plancher. (relevé
+  // par Copilot)
+  if (!hasValidGeometry(b)) return 'gray'
   // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit tomber du
   // côté écarté, pas passer au travers d'une comparaison qui rend toujours faux.
   if (!(b.score >= FRAMING_DEFAULTS.minScore)) return 'gray'
@@ -615,17 +627,14 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
   const proxy = proxyPath(projectId)
 
   // La plus haute boîte retenue de chaque image, requise par `boxColor` pour
-  // juger le plancher de taille relatif. Bornes non finies ou inversées
-  // écartées, même garde que `spans()` : sans elle, une boîte `y0 === y1`
-  // ramène `tallest` à 0 et fait survivre n'importe quoi au plancher. (relevé
-  // par Copilot)
+  // juger le plancher de taille relatif. Géométrie complète écartée en
+  // premier, comme `spans()` : sans elle, une boîte à `x` inversés (hauteur
+  // valide) peut devenir la référence de l'image. (relevé par Copilot)
   const tallestByFrame = new Map<number, number>()
   for (const b of analysis.boxes) {
-    if (!(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
-    const height = b.y1 - b.y0
-    if (!Number.isFinite(height) || height <= 0) continue
+    if (!hasValidGeometry(b) || !(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
     const key = Math.round(b.t * 1000)
-    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, height))
+    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, b.y1 - b.y0))
   }
 
   const boxes = analysis.boxes.map((b) => {

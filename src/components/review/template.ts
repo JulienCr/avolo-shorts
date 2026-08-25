@@ -17,21 +17,12 @@ import type { SelectionReport } from '@/lib/api'
 /**
  * Les trois vues du tri.
  *
- * **Trois vues, pas un booléen.** L'écran basculait « voir les écartés » d'un
- * bouton fantôme, ce qui ne sait pas dire « montre-moi ce que j'ai gardé » —
- * la question qu'on se pose à la fin de la boucle, et celle qui ouvre le
- * montage.
- *
- * **Hors du périmètre de la traduction des clés persistées (issue #73, PR sur
- * les clés persistées).** `atrier`, `guards` et `discarded` sont françaises sans
- * accent, mais ce sont des valeurs du paramètre d'URL `?vue=`, pas des
- * identifiants — voir le commentaire sur `linkProject` dans
- * `src/components/review/project-screen.tsx`, qui qualifie ce contrat de gelé. Une
- * URL en signet porte l'ancienne valeur pour toujours, et `viewSinceUrl`
- * retombe **silencieusement** sur `atrier` devant une valeur qu'elle ne
- * reconnaît pas : traduire ces trois mots casserait un signet sans qu'aucun
- * test ni aucun log ne le dise. Le balayage général de #73 doit laisser cette
- * union intacte.
+ * `atrier`, `gardes`, `ecartes` et le paramètre `?vue=` sont un contrat gelé :
+ * un signet garde l'ancienne valeur, et `viewSinceUrl` retombe
+ * **silencieusement** sur `atrier` — traduire casserait ce signet sans qu'aucun
+ * test ni log ne le dise. Verrouillé par `tests/components/review/template.test.ts`,
+ * `tests/components/review/project-screen.test.tsx` et
+ * `tests/components/show/transcript-panel.test.tsx`.
  */
 export type View = 'atrier' | 'gardes' | 'ecartes'
 

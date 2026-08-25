@@ -423,8 +423,8 @@ function useViewInUrl(projectId: string): [View, (view: View) => void] {
     router.replace(`${linkProject(projectId)}?${next.toString()}`, { scroll: false })
   }
 
-  // **Le retour d'un clip repasse par une URL nue.** `chemin` construit le fil
-  // d'Ariane sur `lienProjet`, sans paramètre — c'est un contrat gelé, et il n'a
+  // **Le retour d'un clip repasse par une URL nue.** `path` construit le fil
+  // d'Ariane sur `linkProject`, sans paramètre — c'est un contrat gelé, et il n'a
   // pas à connaître la vue. L'écran rattrape donc depuis la session, et
   // seulement quand l'URL ne nomme rien : une URL qui nomme sa vue reste
   // souveraine, y compris celle qu'on partage. (relevé par Codex)

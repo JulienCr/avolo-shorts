@@ -83,7 +83,7 @@ describe('la session de tri', () => {
   })
 
   it('refuse un contenu du bon format mais du mauvais type', () => {
-    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"carte":42,"defilement":"beaucoup"}')
+    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"card":42,"scroll":"beaucoup"}')
     expect(lireSessionReview('p1')).toEqual({
       card: null,
       scroll: 0,
@@ -95,15 +95,19 @@ describe('la session de tri', () => {
 
   it('ne prend pour un retour que la valeur vraie', () => {
     // La marque autorise à déplacer le focus et la vue : une valeur douteuse
-    // dans la clé ne doit pas suffire à le déclencher.
-    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"retour":"oui"}')
+    // dans la clé ne doit pas suffire à le déclencher. `postedAt` est fourni et
+    // frais pour isoler ce contrôle de celui, distinct, sur l'horodatage.
+    window.sessionStorage.setItem(
+      'avolo-shorts:tri:p1',
+      JSON.stringify({ returning: 'oui', postedAt: Date.now() }),
+    )
     expect(lireSessionReview('p1').returning).toBe(false)
   })
 
   it('refuse une vue que l’écran ne connaît pas', () => {
     // La clé se bricole à la main : une vue inconnue ferait rendre une grille
     // vide, sans que rien n'explique pourquoi.
-    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"vue":"toutes"}')
+    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"view":"toutes"}')
     expect(lireSessionReview('p1').view).toBeNull()
   })
 })
@@ -150,7 +154,7 @@ describe('la marque de retour, et sa durée de vie', () => {
   it('ne prend pas une marque sans horodatage pour une marque fraîche', () => {
     // Une clé bricolée à la main, ou écrite par une version antérieure du
     // module qui ne connaissait pas encore `postedAt`.
-    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"retour":true,"carte":"c1"}')
+    window.sessionStorage.setItem('avolo-shorts:tri:p1', '{"returning":true,"card":"c1"}')
     expect(lireSessionReview('p1').returning).toBe(false)
   })
 

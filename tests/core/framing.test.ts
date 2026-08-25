@@ -204,6 +204,16 @@ const box = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
   score,
 })
 
+/** Une boîte de personne dont la hauteur visible compte, pour le plancher de taille. */
+const boxH = (
+  t: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  score = 0.9,
+): PersonBox => ({ t, x0, x1, y0, y1, score })
+
 /**
  * Les boîtes d'un intervalle, échantillonnées à 2 images par seconde comme le
  * fait le worker (spec §6), avec les mêmes personnes sur toutes les images.
@@ -367,6 +377,45 @@ describe('requiredWidths', () => {
   it('ignore une boîte inversée ou aux bornes non finies', () => {
     expect(requiredWidths([box(1, 0.6, 0.4)], { margin: 0 })).toEqual([])
     expect(requiredWidths([box(1, Number.NaN, 0.4)], { margin: 0 })).toEqual([])
+  })
+
+  // Le plancher de taille : une boîte nettement plus courte que la plus haute
+  // de la même image n'est pas quelqu'un à cadrer — voir `FRAMING_DEFAULTS` et
+  // la spec du 25 août 2026, section « Le plancher de taille ».
+  it('exclut une boîte nettement plus courte que la plus haute de la même image', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.2, 10),
+    ])
+  })
+
+  it('sizeFloor à 0 reproduit exactement le calcul sans plancher, sur un cas où il déclenche', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })[0]).toBeCloseTo(
+      0.2,
+      10,
+    )
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.5, 10),
+    ])
+  })
+
+  it("ignore une boîte dont la hauteur n'est pas finie, avant même le plancher", () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const nanHeight = boxH(1, 0.7, 0.8, Number.NaN, 0.5)
+    expect(requiredWidths([tall, nanHeight], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.2, 10),
+    ])
+  })
+
+  it('écarte une boîte dont le bas ne dépasse pas le haut', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const inverted = boxH(1, 0.7, 0.8, 0.9, 0.9)
+    expect(requiredWidths([tall, inverted], { margin: 0, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.2, 10),
+    ])
   })
 })
 

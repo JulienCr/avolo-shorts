@@ -282,6 +282,14 @@ export type FramingOptions = {
    * celui-ci sait ce qu'il abandonne et refuse de toucher à la tête.
    */
   torsoTrim?: number
+  /**
+   * La part de la **plus haute boîte retenue de la même image** en deçà de
+   * laquelle une boîte n'est plus quelqu'un à cadrer. Voir `spans` et la spec
+   * du 25 août 2026, section « Le plancher de taille ».
+   *
+   * `0` désactive le filtre entièrement, comme `foregroundMaxHeight: 0`.
+   */
+  sizeFloor?: number
 }
 
 /**
@@ -395,6 +403,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   torsoMinScore: 0.5,
   torsoPad: 0.15,
   torsoTrim: 0.3,
+  sizeFloor: 0,
 })
 
 /**
@@ -1000,14 +1009,27 @@ function inInterval(t: number, start: number, fin: number): boolean {
 function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
   const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
+  const floor = Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor))
 
-  const byImage = new Map<number, Span>()
+  // Deux passes, parce que le plancher de taille ci-dessous n'est pas un
+  // prédicat par boîte : il compare une boîte à la plus haute survivante de sa
+  // **propre image**, donc toutes les survivantes d'une image doivent être
+  // réunies avant qu'aucune ne soit jugée.
+  const byImage = new Map<number, { t: number; boxes: { x0: number; x1: number; height: number }[] }>()
   for (const b of boxes) {
     // Les boîtes viennent d'un JSON produit par un autre processus. Une borne
     // non finie ou inversée traverserait tout le calcul en `NaN` et ne se
     // verrait qu'au rendu, sous la forme d'un crop absurde.
-    if (!Number.isFinite(b.t) || !Number.isFinite(b.x0) || !Number.isFinite(b.x1)) continue
+    if (
+      !Number.isFinite(b.t) ||
+      !Number.isFinite(b.x0) ||
+      !Number.isFinite(b.x1) ||
+      !Number.isFinite(b.y0) ||
+      !Number.isFinite(b.y1)
+    )
+      continue
     if (b.x1 <= b.x0) continue
+    if (b.y1 <= b.y0) continue
     // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit sortir.
     if (!(b.score >= threshold)) continue
     // Le public au premier plan, écarté avant de compter l'empan : c'est lui qui
@@ -1015,14 +1037,35 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
     if (isForeground(b, options)) continue
 
     const { x0, x1 } = personBounds(b, options)
+    const height = b.y1 - b.y0
     const key = Math.round(b.t * 1000)
     const already = byImage.get(key)
-    if (already) {
-      already.g = Math.min(already.g, x0)
-      already.d = Math.max(already.d, x1)
-    } else {
-      byImage.set(key, { t: b.t, g: x0, d: x1 })
+    if (already) already.boxes.push({ x0, x1, height })
+    else byImage.set(key, { t: b.t, boxes: [{ x0, x1, height }] })
+  }
+
+  // Le plancher de taille : une boîte nettement plus courte que la plus haute
+  // de sa propre image n'est pas quelqu'un à cadrer — elle est le plus souvent
+  // un visage imprimé (spec du 25 août 2026, « Le plancher de taille »). `0`
+  // désactive le filtre : aucune boîte n'est jamais plus courte que zéro fois
+  // la plus haute.
+  const byFrame = new Map<number, Span>()
+  for (const { t, boxes: frameBoxes } of byImage.values()) {
+    const tallest = Math.max(...frameBoxes.map((f) => f.height))
+    let g = Number.POSITIVE_INFINITY
+    let d = Number.NEGATIVE_INFINITY
+    let any = false
+    for (const f of frameBoxes) {
+      // `!(hauteur >= plancher * plus_haute)`, même forme que pour le score
+      // plus haut : une hauteur qui ne satisfait pas la comparaison sort,
+      // `NaN` compris.
+      if (floor > 0 && !(f.height >= floor * tallest)) continue
+      g = Math.min(g, f.x0)
+      d = Math.max(d, f.x1)
+      any = true
     }
+    if (!any) continue
+    byFrame.set(Math.round(t * 1000), { t, g, d })
   }
 
   // **Les deux bornes sont ramenées dans [0, 1] des deux côtés**, et pas
@@ -1033,7 +1076,7 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   // **négative** qui traversait le choix du ratio et la position sans rien
   // signaler. Borner des deux côtés rend au pire une largeur nulle, que le
   // percentile lit comme « cette image n'exige rien ». (relevé par Copilot)
-  return [...byImage.values()].map((e) => ({
+  return [...byFrame.values()].map((e) => ({
     t: e.t,
     g: bound(e.g - margin, 0, 1),
     d: bound(e.d + margin, 0, 1),
@@ -1414,6 +1457,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     torsoMinScore: req.torsoMinScore,
     torsoPad: req.torsoPad,
     torsoTrim: req.torsoTrim,
+    sizeFloor: req.sizeFloor,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

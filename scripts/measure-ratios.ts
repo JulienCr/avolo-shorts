@@ -80,6 +80,7 @@ import {
   RATIOS,
   TORSOS,
   computeFraming,
+  hasValidGeometry,
   isForeground,
   personBounds,
   ratioCoverage,
@@ -126,6 +127,16 @@ const MARGINS = [...new Set([0, 0.01, 0.02, 0.03, FRAMING_DEFAULTS.margin])].sor
  */
 const SIDE_TRIMS = [
   ...new Set([0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.325, 0.35, 0.4, FRAMING_DEFAULTS.sideTrim]),
+].sort((a, b) => a - b)
+
+/**
+ * Les planchers de taille balayés, **plus le défaut en vigueur** — même règle
+ * que `SIDE_TRIMS`. `0,41` est la part exacte de la jaquette de DVD mesurée sur
+ * `nabla` à 984,0 s : elle sert de repère, pas de candidat, et n'est retenue que
+ * si elle coïncide déjà avec l'une des valeurs rondes.
+ */
+const SIZE_FLOORS = [
+  ...new Set([0, 0.3, 0.4, 0.5, 0.6, 0.7, FRAMING_DEFAULTS.sizeFloor]),
 ].sort((a, b) => a - b)
 
 /**
@@ -1024,9 +1035,18 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
     .map(([key, boxes]) => {
       const t = key / 1000
       const span = requiredWidths(boxes, opts())[0]
-      const kept = boxes.filter(
-        (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
+      // Géométrie invalide écartée en premier, comme `spans()` : sinon une
+      // boîte à `x` inversés mais à hauteur valide peut devenir la plus haute
+      // et fausser `kept`. (relevé par Copilot)
+      const scored = boxes.filter(
+        (b) => hasValidGeometry(b) && b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
       )
+      // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage
+      // réel resterait comptée ici et désignerait la mauvaise image. (relevé
+      // par Codex)
+      const floor = Math.min(1, opts().sizeFloor ?? FRAMING_DEFAULTS.sizeFloor)
+      const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
+      const kept = scored.filter((b) => b.y1 - b.y0 >= floor * tallest)
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))
       // Bornées des deux côtés, comme `measurements` de `framing.ts` et `extent` de
@@ -1078,6 +1098,184 @@ function whereRegarder(show: Show, n: number): void {
     `\n    pnpm tsx scripts/vignettes-premier-plan.ts ${show.id} ` +
       `${all.map((t) => t.toFixed(1)).join(' ')} --out <dossier>`,
   )
+}
+
+// ---------------------------------------------------------------------------
+// 8. Le plancher de taille
+// ---------------------------------------------------------------------------
+
+/** Ce qu'un plancher coupe, une fois par image survivante des autres filtres. */
+type SizeFloorStats = {
+  boxes: number
+  dropped: number
+  framesConsidered: number
+  /**
+   * Images qui perdent au moins une boîte — pas nécessairement resserrées :
+   * une boîte coupée déjà comprise entre les extrêmes des autres ne change
+   * pas l'empan. (relevé par Copilot)
+   */
+  framesFiltered: number
+  /** Part de la plus haute de l'image, une valeur par boîte coupée — l'honnête moitié : une boîte coupée à 0,49 n'est pas la même nouvelle qu'une coupée à 0,05. */
+  droppedShares: number[]
+}
+
+/**
+ * Ce que `spans` ferait de chaque boîte de l'analyse **entière**, filtres du
+ * score et du premier plan compris, sans se restreindre aux segments montés.
+ *
+ * **Le compte est corpus-wide par construction** : ce que le plancher coupe est
+ * une propriété du détecteur, pas du montage. Rejoue la même logique que
+ * `spans` dans `src/core/framing.ts` — deux copies qui divergeraient le jour où
+ * l'une bouge sans l'autre, acceptée ici comme ailleurs dans ce script, qui
+ * réimplémente déjà son propre `costOf` plutôt que d'appeler le cadrage produit.
+ */
+function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOptions): SizeFloorStats {
+  const threshold = FRAMING_DEFAULTS.minScore
+  const byFrame = new Map<number, number[]>()
+  for (const b of analysis.boxes) {
+    if (
+      !Number.isFinite(b.t) ||
+      !Number.isFinite(b.x0) ||
+      !Number.isFinite(b.x1) ||
+      !Number.isFinite(b.y0) ||
+      !Number.isFinite(b.y1)
+    )
+      continue
+    if (b.x1 <= b.x0 || b.y1 <= b.y0) continue
+    if (!(b.score >= threshold)) continue
+    if (isForeground(b, options)) continue
+    const key = Math.round(b.t * 1000)
+    const list = byFrame.get(key)
+    if (list) list.push(b.y1 - b.y0)
+    else byFrame.set(key, [b.y1 - b.y0])
+  }
+
+  let boxes = 0
+  let dropped = 0
+  let framesFiltered = 0
+  const droppedShares: number[] = []
+  for (const heights of byFrame.values()) {
+    boxes += heights.length
+    const tallest = Math.max(...heights)
+    let survivors = 0
+    // La plus haute boîte de l'image se compare toujours à elle-même : elle
+    // survit à tout plancher <= 1, donc `survivors` ne descend jamais à zéro
+    // pour les candidats balayés ici (tous <= 0,7). Une image ne peut donc
+    // qu'être resserrée, jamais vidée — structurel, pas mesuré. (relevé par
+    // Codex : le garde-fou qu'un tel test suggérait n'aurait jamais pu être
+    // pris en défaut)
+    for (const height of heights) {
+      if (!(height >= floor * tallest)) {
+        dropped += 1
+        droppedShares.push(height / tallest)
+        continue
+      }
+      survivors += 1
+    }
+    if (survivors < heights.length) framesFiltered += 1
+  }
+  return {
+    boxes,
+    dropped,
+    framesConsidered: byFrame.size,
+    framesFiltered,
+    droppedShares,
+  }
+}
+
+/**
+ * Ce que chaque plancher coupe et achète, **par émission et corpus entier**.
+ *
+ * Aucune image n'est jamais entièrement vidée pour les candidats balayés ici
+ * (tous <= 0,7) : c'est structurel, pas une propriété du corpus — voir le
+ * commentaire de `sizeFloorEffect`. Le piège documenté dans la skill `cadrage`
+ * (un plancher qui vide des images entières produirait de bons ratios calculés
+ * sur ce qu'il en reste) resterait réel pour un candidat >= 1, mais aucun de
+ * ceux balayés n'y expose.
+ */
+function sweepSizeFloor(shows: Show[]): void {
+  console.log('  plancher   boîtes coupées   images filtrées   part coupée p90')
+  const perShow = new Map<string, SizeFloorStats[]>()
+  for (const floor of SIZE_FLOORS) {
+    const options = opts({ sizeFloor: floor })
+    const perFloor = shows.map((show) => sizeFloorEffect(show.analysis, floor, options))
+    for (const [i, show] of shows.entries()) {
+      const list = perShow.get(show.id) ?? []
+      list.push(perFloor[i])
+      perShow.set(show.id, list)
+    }
+    printSizeFloorRow(floor, mergeSizeFloorStats(perFloor), '  ')
+  }
+
+  for (const show of shows) {
+    console.log(`\n  ${show.id}`)
+    for (const [i, floor] of SIZE_FLOORS.entries()) {
+      const stats = perShow.get(show.id)?.[i]
+      if (stats === undefined) continue
+      printSizeFloorRow(floor, stats, '    ')
+    }
+  }
+}
+
+/** Les stats de plusieurs émissions réduites à une seule ligne — le corpus. */
+function mergeSizeFloorStats(stats: SizeFloorStats[]): SizeFloorStats {
+  return stats.reduce((a, b) => ({
+    boxes: a.boxes + b.boxes,
+    dropped: a.dropped + b.dropped,
+    framesConsidered: a.framesConsidered + b.framesConsidered,
+    framesFiltered: a.framesFiltered + b.framesFiltered,
+    droppedShares: [...a.droppedShares, ...b.droppedShares],
+  }))
+}
+
+/**
+ * Une ligne du tableau du plancher. **« part coupée p90 »** est l'honnête
+ * moitié : elle dit, parmi les boîtes coupées, à combien pour cent de la plus
+ * haute de leur image elles s'arrêtaient — proche du plancher, la coupe est
+ * disputable ; proche de zéro, elle ne l'est pas. Un compte de boîtes seul ne
+ * distingue pas les deux.
+ */
+function printSizeFloorRow(floor: number, stats: SizeFloorStats, indent: string): void {
+  const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
+  const dropShare = stats.boxes === 0 ? 0 : (100 * stats.dropped) / stats.boxes
+  console.log(
+    `${indent}${floor.toFixed(2)}${defaultValue}` +
+      `   ${stats.dropped} / ${stats.boxes} (${dropShare.toFixed(1)} %)`.padStart(26) +
+      `   ${stats.framesFiltered}`.padStart(21) +
+      `   ${number(percentile(stats.droppedShares, 0.9))}`.padStart(19),
+  )
+}
+
+/**
+ * Ce que le plancher change au **ratio et au temps de montage**, dans le style
+ * des autres balayages — `sweepSideTrim` en particulier, dont il reprend la
+ * colonne « déplacés », ici nommée « resserrés » : un plancher ne peut
+ * qu'écarter des boîtes, jamais en ajouter, donc il ne peut que resserrer un
+ * ratio, jamais l'élargir.
+ */
+function sweepSizeFloorRatio(show: Show, what: 'clips' | 'windows'): void {
+  const cuts = show[what]
+  if (cuts.length === 0) return
+  console.log(`\n  ${show.id} — ${cuts.length} ${what}`)
+  console.log(
+    `  plancher ${MORE_NARROW_MORE_WIDE.map((r) => r.padStart(6)).join(' ')}` + `  16:9 tps`,
+  )
+
+  const reference = cuts.map((d) => ratio(d, show.analysis, opts({ sizeFloor: 0 })))
+  for (const floor of SIZE_FLOORS) {
+    const options = opts({ sizeFloor: floor })
+    const ratios = cuts.map((d) => ratio(d, show.analysis, options))
+    const count = distribution(ratios)
+    const times = timePerRatio(cuts, show.analysis, options)
+    const narrowed = ratios.filter((r, i) => RATIOS[r] < RATIOS[reference[i]]).length
+    const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
+    console.log(
+      `  ${floor.toFixed(2)}${defaultValue}` +
+        MORE_NARROW_MORE_WIDE.map((r) => String(count.get(r) ?? 0).padStart(6)).join(' ') +
+        `  ${number(shareInSixteenNine(times), 0).padStart(6)} %` +
+        (narrowed > 0 ? `   ${narrowed} RESSERRÉ(S)` : ''),
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1426,12 @@ async function main(): Promise<number> {
       console.log('\n=== 7. Où regarder — les images qui font monter le ratio ===')
       for (const e of shows) whereRegarder(e, nMoments)
     }
+
+    console.log('\n=== 8. Le plancher de taille ===')
+    console.log('  (une boîte plus courte que ce plancher fois la plus haute de sa propre image en sort)')
+    sweepSizeFloor(shows)
+    for (const e of shows) sweepSizeFloorRatio(e, 'clips')
+    for (const e of shows) sweepSizeFloorRatio(e, 'windows')
 
     return 0
   } finally {

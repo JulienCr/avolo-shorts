@@ -204,6 +204,16 @@ const box = (t: number, x0: number, x1: number, score = 0.9): PersonBox => ({
   score,
 })
 
+/** Une boîte de personne dont la hauteur visible compte, pour le plancher de taille. */
+const boxH = (
+  t: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  score = 0.9,
+): PersonBox => ({ t, x0, x1, y0, y1, score })
+
 /**
  * Les boîtes d'un intervalle, échantillonnées à 2 images par seconde comme le
  * fait le worker (spec §6), avec les mêmes personnes sur toutes les images.
@@ -367,6 +377,81 @@ describe('requiredWidths', () => {
   it('ignore une boîte inversée ou aux bornes non finies', () => {
     expect(requiredWidths([box(1, 0.6, 0.4)], { margin: 0 })).toEqual([])
     expect(requiredWidths([box(1, Number.NaN, 0.4)], { margin: 0 })).toEqual([])
+  })
+
+  // Le plancher de taille : une boîte nettement plus courte que la plus haute
+  // de la même image n'est pas quelqu'un à cadrer — voir `FRAMING_DEFAULTS` et
+  // la spec du 25 août 2026, section « Le plancher de taille ».
+  // Plancher non passé, exprès : c'est `FRAMING_DEFAULTS.sizeFloor` qu'on
+  // vérifie ici, pas l'algorithme. Une régression du défaut vers 0 ou 0,05
+  // laisserait ce test vert s'il fixait sa propre valeur. (relevé par Copilot)
+  it('exclut une boîte nettement plus courte que la plus haute de la même image', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.2, 10),
+    ])
+  })
+
+  it('sizeFloor à 0 reproduit exactement le calcul sans plancher, sur un cas où il déclenche', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })[0]).toBeCloseTo(
+      0.2,
+      10,
+    )
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.5, 10),
+    ])
+  })
+
+  // Sans le plafond à 1, un plancher > 1 rejette même la plus haute boîte de
+  // l'image (elle ne peut jamais valoir floor fois elle-même pour floor > 1) :
+  // l'image entière disparaît et le clip retombe sur le ratio le plus large —
+  // un plancher trop haut élargirait alors paradoxalement le cadrage.
+  // (relevé par Copilot et Aristarque)
+  it('plafonne le plancher à 1 plutôt que de vider toute image', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 1.5, ...NO_TRIM })).toEqual(
+      requiredWidths([tall, short], { margin: 0, sizeFloor: 1, ...NO_TRIM }),
+    )
+  })
+
+  // Deux images distinctes : une implémentation qui comparerait à la plus
+  // haute boîte de tout l'appel plutôt que de sa propre image rejetterait à
+  // tort la petite boîte de la seconde image (0,2 contre la boîte de 1 de la
+  // première), alors qu'elle est seule dans la sienne et doit y survivre.
+  // (relevé par Copilot)
+  it('compare chaque boîte à la plus haute de sa propre image, pas de tout l’appel', () => {
+    const tallFrame1 = boxH(1, 0.4, 0.6, 0, 1)
+    const shortFrame1 = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    const soloFrame2 = boxH(2, 0.1, 0.2, 0.3, 0.5)
+    const [w1, w2] = requiredWidths([tallFrame1, shortFrame1, soloFrame2], {
+      margin: 0,
+      sizeFloor: 0.5,
+      ...NO_TRIM,
+    })
+    expect(w1).toBeCloseTo(0.2, 10)
+    expect(w2).toBeCloseTo(0.1, 10)
+  })
+
+  it("ignore une boîte dont la hauteur n'est pas finie, avant même le plancher", () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const nanHeight = boxH(1, 0.7, 0.8, Number.NaN, 0.5)
+    expect(requiredWidths([tall, nanHeight], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })).toEqual([
+      expect.closeTo(0.2, 10),
+    ])
+  })
+
+  it('écarte une boîte dont le bas ne dépasse pas le haut', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const inverted = boxH(1, 0.7, 0.8, 0.9, 0.9)
+    // `sizeFloor: 0` isole ce garde du plancher : une boîte inversée a une
+    // hauteur nulle, que le plancher par défaut écarterait de toute façon.
+    expect(
+      requiredWidths([tall, inverted], { margin: 0, sizeFloor: 0, ...NO_TRIM }),
+    ).toEqual([expect.closeTo(0.2, 10)])
   })
 })
 
@@ -855,6 +940,9 @@ describe('isForeground', () => {
   })
 })
 
+// `sizeFloor: 0` accompagne `foregroundMaxHeight: 0` ci-dessous : le public est
+// aussi bien plus court que les comédiens, et sans l'éteindre le plancher de
+// taille l'écarterait à leur place, ce que ce bloc ne teste pas.
 describe('le premier plan écarté du cadrage', () => {
   /** Un plan de 10 s où deux comédiens tiennent le tiers central du cadre. */
   const performers = (t: number): PersonBox[] => [
@@ -878,17 +966,27 @@ describe('le premier plan écarté du cadrage', () => {
   it('resserre l’empan sur les comédiens au lieu de l’étaler d’un bord à l’autre', () => {
     const boxes = onTen(true)
     expect(
-      requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, ...NO_TRIM })[0],
+      requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, sizeFloor: 0, ...NO_TRIM })[0],
     ).toBeCloseTo(1, 10)
-    expect(requiredWidths(boxes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
+    // `sizeFloor: 0` ici aussi : le public synthétique est bien plus court que
+    // les comédiens, donc le plancher par défaut l'écarterait seul — cette
+    // branche doit isoler `foregroundMaxHeight`, pas les cumuler. (relevé par
+    // Copilot)
+    expect(
+      requiredWidths(boxes, { margin: 0, sizeFloor: 0, ...NO_TRIM })[0],
+    ).toBeCloseTo(0.26, 10)
   })
 
   // Le constat qui a motivé la tâche : sans le filtre, tout sort au ratio le
   // plus large, c'est-à-dire à rien.
   it('fait descendre le ratio du 16:9 au 9:16', () => {
     const boxes = onTen(true)
-    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
-    expect(chooseRatio(boxes, SRC_W, SRC_H)).toBe('9:16')
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0, sizeFloor: 0 })).toBe(
+      '16:9',
+    )
+    // `sizeFloor: 0` : isole `foregroundMaxHeight`, sans quoi le plancher par
+    // défaut écarterait déjà le public seul. (relevé par Copilot)
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { sizeFloor: 0 })).toBe('9:16')
   })
 
   it('ne change rien à une émission sans public au cadre', () => {
@@ -928,8 +1026,12 @@ describe('le premier plan écarté du cadrage', () => {
       ratio: 'auto' as const,
       cropMode: 'auto' as const,
     }
-    expect(computeFraming({ ...common, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
-    const frame = computeFraming(common)
+    expect(computeFraming({ ...common, foregroundMaxHeight: 0, sizeFloor: 0 }).ratio).toBe(
+      '16:9',
+    )
+    // `sizeFloor: 0` : isole `foregroundMaxHeight`, même raison que ci-dessus.
+    // (relevé par Copilot)
+    const frame = computeFraming({ ...common, sizeFloor: 0 })
     expect(frame.ratio).toBe('9:16')
     expect(frame.shots[0]).toMatchObject({ source: 'auto' })
   })
@@ -968,8 +1070,15 @@ describe('le premier plan écarté du cadrage', () => {
       margin: 0,
       ...NO_TRIM,
     }
-    const withoutFilter = computeFraming({ ...common, foregroundMaxHeight: 0 }).shots[0].cropX
-    const withFilter = computeFraming(common).shots[0].cropX
+    const withoutFilter = computeFraming({
+      ...common,
+      foregroundMaxHeight: 0,
+      sizeFloor: 0,
+    }).shots[0].cropX
+    // `sizeFloor: 0` : le public d'un seul côté est aussi bien plus court que
+    // les comédiens, isole `foregroundMaxHeight` pour la même raison qu'au-
+    // dessus. (relevé par Copilot)
+    const withFilter = computeFraming({ ...common, sizeFloor: 0 }).shots[0].cropX
     // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
     // le milieu de l'action, qu'ils occupent symétriquement.
     expect(withoutFilter).toBeCloseTo(0.315, 3)

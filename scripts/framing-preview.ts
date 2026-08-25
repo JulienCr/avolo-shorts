@@ -43,7 +43,15 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { Ratio } from '@/core/edl'
-import { FRAMING_DEFAULTS, computeFraming, cropRect, headBounds, isForeground, personBounds } from '@/core/framing'
+import {
+  FRAMING_DEFAULTS,
+  computeFraming,
+  cropRect,
+  hasValidGeometry,
+  headBounds,
+  isForeground,
+  personBounds,
+} from '@/core/framing'
 import type { ShotFraming } from '@/core/framing'
 import { parseRange } from '@/core/range'
 import type { PersonBox } from '@/core/shots'
@@ -66,12 +74,21 @@ function usableProjects(): string[] {
   }
 }
 
-/** Le sort d'une boîte, à l'identique de `framing-thumbnails.ts`. */
-function boxColor(b: PersonBox): 'gray' | 'red' | 'lime' {
+/**
+ * Le sort d'une boîte, à l'identique de `framing-thumbnails.ts`. `tallest` est
+ * la plus haute boîte survivante de la même image : sans elle, une jaquette
+ * exclue du cadrage réel restait dessinée en vert. (relevé par Codex)
+ */
+function boxColor(b: PersonBox, tallest: number): 'gray' | 'red' | 'lime' {
+  // Même géométrie que `spans()`, avant tout le reste : des `x` inversés
+  // n'invalident pas la hauteur et passeraient sinon le plancher. (relevé
+  // par Copilot)
+  if (!hasValidGeometry(b)) return 'gray'
   // `!(score >= seuil)` et non `score < seuil` : un score `NaN` doit tomber du
   // côté écarté, pas passer au travers d'une comparaison qui rend toujours faux.
   if (!(b.score >= FRAMING_DEFAULTS.minScore)) return 'gray'
-  return isForeground(b) ? 'red' : 'lime'
+  if (isForeground(b)) return 'red'
+  return b.y1 - b.y0 >= FRAMING_DEFAULTS.sizeFloor * tallest ? 'lime' : 'red'
 }
 
 /** Un plan de `framing.shots`, réduit à ce que le navigateur dessine. */
@@ -609,8 +626,20 @@ function sendFraming(res: ServerResponse, projectId: string, clipId: string | un
   // déjà repassée sans effet de bord.
   const proxy = proxyPath(projectId)
 
+  // La plus haute boîte retenue de chaque image, requise par `boxColor` pour
+  // juger le plancher de taille relatif. Géométrie complète écartée en
+  // premier, comme `spans()` : sans elle, une boîte à `x` inversés (hauteur
+  // valide) peut devenir la référence de l'image. (relevé par Copilot)
+  const tallestByFrame = new Map<number, number>()
+  for (const b of analysis.boxes) {
+    if (!hasValidGeometry(b) || !(b.score >= FRAMING_DEFAULTS.minScore) || isForeground(b)) continue
+    const key = Math.round(b.t * 1000)
+    tallestByFrame.set(key, Math.max(tallestByFrame.get(key) ?? 0, b.y1 - b.y0))
+  }
+
   const boxes = analysis.boxes.map((b) => {
-    const c = boxColor(b)
+    const tallest = tallestByFrame.get(Math.round(b.t * 1000)) ?? 0
+    const c = boxColor(b, tallest)
     // Tronc et tête ne se calculent que sur ce que le cadrage retient
     // vraiment — même restriction que le liseré cyan et le carré magenta de
     // `framing-thumbnails.ts`, pas de calcul superflu sur gris/rouge.

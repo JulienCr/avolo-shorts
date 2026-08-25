@@ -312,7 +312,7 @@ function interval(extent: Extent | null): Segment[] {
  *
  * **Pour rendre explicite une conséquence que le graphe ne porte pas
  * encore.** Corriger un mot dans une phrase déjà montée dans un clip ne
- * change ni ses bornes ni son cadrage — rien que `leRenduEstPérimé`
+ * change ni ses bornes ni son cadrage — rien que `renderIsStale`
  * (`src/server/steps/render.ts`) compare aujourd'hui — donc un clip déjà
  * exporté ne se marque pas périmé tout seul : ses sous-titres incrustés
  * viennent de ce texte-là, au moment du rendu, et resteront ceux d'avant la
@@ -324,7 +324,7 @@ function interval(extent: Extent | null): Segment[] {
  * sous-titres incrustés ne porte aucun rendu que la correction périme, donc
  * l'avertissement mentirait sur ce qu'il affecte. (relevé par Copilot)
  *
- * **`estGarde` exclut aussi.** `getClips` rend également les propositions en
+ * **`isGuard` exclut aussi.** `getClips` rend également les propositions en
  * attente et les clips écartés, qui n'ont encore aucun rendu à périmer — les
  * signaler ferait porter à l'écran une conséquence qui ne s'est pas produite.
  * (relevé par Copilot)

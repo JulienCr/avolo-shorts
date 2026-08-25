@@ -22,9 +22,9 @@ import { cn } from '@/lib/utils'
  * ce qui reste à faire plutôt qu'un pourcentage.
  *
  * **Elle tranche ce que `next` ne distingue pas.** « Tout a été écarté » et
- * « des clips gardés restent à monter » tombent tous deux sur `travail: 'trie'`
- * : la liste est non vide, donc pas `nothing`, et sans clip gardé, donc pas
- * `livre`. Les séparer demanderait une cinquième valeur de `Work` ou la liste
+ * « des clips gardés restent à monter » tombent tous deux sur `travail: 'sorted'`
+ * : la liste est non vide, donc pas `none`, et sans clip gardé, donc pas
+ * `delivered`. Les séparer demanderait une cinquième valeur de `Work` ou la liste
  * des clips en argument. C'est donc l'écran qui le dit, puisque c'est lui qui
  * tient la liste.
  */
@@ -123,9 +123,9 @@ function editingProgress(mounts: number, guards: number): string {
  *   volerait un arrêt de tabulation.
  */
 function Issue({ next, projectId }: { next: Next; projectId: string }) {
-  if (next.kind === 'attente') {
+  if (next.kind === 'waiting') {
     return (
-      <p data-testid="issue" className="mt-4 max-w-prose text-sm text-muted-foreground">
+      <p data-testid="outcome" className="mt-4 max-w-prose text-sm text-muted-foreground">
         {next.reason}
       </p>
     )
@@ -135,7 +135,7 @@ function Issue({ next, projectId }: { next: Next; projectId: string }) {
 
   return (
     <Link
-      data-testid="issue"
+      data-testid="outcome"
       href={next.target}
       className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-4')}
     >

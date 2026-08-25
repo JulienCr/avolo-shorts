@@ -191,7 +191,7 @@ describe('le clic sur un bloc', () => {
 
     await userEvent.click(blocks()[0])
 
-    const video = screen.getByTestId('lecteur-emission') as HTMLVideoElement
+    const video = screen.getByTestId('show-player') as HTMLVideoElement
     expect(video.currentTime).toBe(0)
   })
 
@@ -223,7 +223,7 @@ describe('le lecteur et la bande', () => {
   it('déplace la lecture au clic hors bloc', async () => {
     renderView()
     const band = screen.getByTestId('coverage-timeline')
-    // jsdom ne met rien en page : le rectangle est nul, et `instantAuClic` rend
+    // jsdom ne met rien en page : le rectangle est nul, et `timeAtClick` rend
     // alors 0 plutôt qu'un infini. Ce qui se vérifie ici est le câblage —
     // l'arithmétique est éprouvée dans `tests/core/coverage.test.ts`.
     vi.spyOn(band, 'getBoundingClientRect').mockReturnValue({
@@ -240,7 +240,7 @@ describe('le lecteur et la bande', () => {
 
     await userEvent.pointer({ target: band, coords: { clientX: 250, clientY: 5 }, keys: '[MouseLeft]' })
 
-    const video = screen.getByTestId('lecteur-emission') as HTMLVideoElement
+    const video = screen.getByTestId('show-player') as HTMLVideoElement
     expect(video.currentTime).toBe(1_500)
     expect(screen.getByTestId('playhead').style.left).toBe('25%')
   })
@@ -249,7 +249,7 @@ describe('le lecteur et la bande', () => {
     // Un curseur qui change de forme sur une surface inerte est la façon la plus
     // sûre de faire cliquer trois fois.
     renderView({ proxyReady: false })
-    expect(screen.queryByTestId('lecteur-emission')).toBeNull()
+    expect(screen.queryByTestId('show-player')).toBeNull()
     expect(screen.getByTestId('proxy-absent').textContent).toContain(
       'Les images arrivent avec le proxy',
     )
@@ -260,7 +260,7 @@ describe('le lecteur et la bande', () => {
     // Sans réponse aux plages d'octets, un `<video>` ne peut pas sauter et la
     // barre de lecture reste inerte.
     renderView()
-    const video = screen.getByTestId('lecteur-emission')
+    const video = screen.getByTestId('show-player')
     expect(video.getAttribute('src')).toBe('/api/projects/cqlp/proxy')
     expect(video.getAttribute('preload')).toBe('metadata')
   })

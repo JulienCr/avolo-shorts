@@ -56,7 +56,7 @@ const WORD = z
   .regex(/^\S+$/, 'un mot ne peut pas contenir d’espace')
 
 const CORRECTION = z.strictObject({
-  /** L'identifiant de la phrase, tel que `lignesDuTranscript` le rend (`l0`, `l1`, …). */
+  /** L'identifiant de la phrase, tel que `transcriptLines` le rend (`l0`, `l1`, …). */
   lineId: z.string().min(1),
   from: z.number().int().min(0),
   to: z.number().int().min(0),

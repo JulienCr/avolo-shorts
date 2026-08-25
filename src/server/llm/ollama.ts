@@ -59,7 +59,7 @@ function baseUrlResolver(configured: string | undefined): () => Promise<string> 
 
 /**
  * Les raisons de fin qu'Ollama nomme (`done_reason`), traduites vers le
- * vocabulaire que `leverSiBloquée` reconnaît. Un modèle local n'a pas de
+ * vocabulaire que `leverIfBlocked` reconnaît. Un modèle local n'a pas de
  * filtre de contenu fournisseur : rien ici ne produit `CONTENT_FILTER`.
  */
 export function toFinishReason(raw: string | null | undefined): string {

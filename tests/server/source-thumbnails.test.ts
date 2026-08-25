@@ -281,7 +281,7 @@ describe('vignetteSource', () => {
    * **Ce que le nom temporaire existe pour empêcher.** Un ffmpeg interrompu
    * laisserait sinon un JPEG tronqué sous le nom définitif, et la visite
    * suivante le servirait sans jamais le refaire — la même famille de défaut que
-   * `produireArtefact` ferme pour le proxy.
+   * `produceArtifact` ferme pour le proxy.
    */
   it('ne laisse aucun moignon derrière une extraction en échec', async () => {
     poserVideo('e.mp4')
@@ -558,7 +558,7 @@ describe('vignetteSource', () => {
 
   /**
    * Un échec ne doit pas boucher la file. C'est ce que le `then` à deux branches
-   * de `enFile` garantit : sans lui, la première extraction en échec laisserait
+   * de `inFile` garantit : sans lui, la première extraction en échec laisserait
    * une promesse rejetée en tête de chaîne et plus aucune vignette ne partirait
    * de la session.
    */

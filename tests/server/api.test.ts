@@ -121,7 +121,7 @@ function poserRenders(...names: string[]): void {
  * qui l'appellent cherchent à éprouver.
  */
 function poserFingerprint(clip: Clip, markers: string[] = []): void {
-  // **Le cadrage résolu**, comme `renderClip` l'écrit et comme `sortiesDuClip`
+  // **Le cadrage résolu**, comme `renderClip` l'écrit et comme `clipOutputs`
   // le relit : ces tests ne posent pas d'`analysis.json`, donc c'est le repli sur
   // le réglage manuel du clip. Le recalculer plutôt que de l'écrire à la main est
   // ce qui fait que l'empreinte posée ici décrit bien le clip qu'on lui donne.
@@ -139,7 +139,7 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
           nativeH: 996,
           widthRatio: 0.22,
           heightCap: 0.06,
-          edge: 'gauche' as const,
+          edge: 'left' as const,
           content: `contenu-de-${name}`,
         })),
         {
@@ -298,7 +298,7 @@ describe('GET /api/projects', () => {
    * « Trois analyses en cours, une en échec » : la bibliothèque ne peut pas le
    * dire d'un `ProjectSummary`, et la seule autre forme — une requête par projet
    * — est à écarter. Elle multiplierait par vingt et un un appel qui exécute
-   * `relevéPrésence`, lequel sonde le montage 9p avec un délai de garde : quatre
+   * `readingPresence`, lequel sonde le montage 9p avec un délai de garde : quatre
    * fils du vivier de libuv suffisent à figer le serveur entier (spec §3.1).
    */
   it('dit ce qui tourne, sans sonder le moindre artefact', async () => {
@@ -316,7 +316,7 @@ describe('GET /api/projects', () => {
     try {
       const projects = (await (await listProjects()).json()) as ProjectListItem[]
       expect(projects[0].running).toEqual({ step: 'candidates', progress: 0 })
-      // **Le contrôle qui porte la décision.** `relevéPrésence` est fait de
+      // **Le contrôle qui porte la décision.** `readingPresence` est fait de
       // `existsSync` : s'il revenait dans cette route, ce compteur le dirait.
       expect(probe).not.toHaveBeenCalled()
     } finally {
@@ -691,7 +691,7 @@ describe('GET /api/clips/:id', () => {
   })
 
   /**
-   * Les deux côtés du contrat doivent dire la même chose : `servirFichier`
+   * Les deux côtés du contrat doivent dire la même chose : `serveFile`
    * contrôle `isFile()` avant de pousser des octets, donc publier une entrée qui
    * n'est pas un fichier ordinaire annoncerait une sortie que la route des
    * rendus refuse aussitôt. (relevé par Copilot)
@@ -1258,9 +1258,9 @@ describe('PATCH /api/clips/:id', () => {
     })
 
     /**
-     * Un clip en 9:16 n'a pas de variante due, donc `cheminsRendu` du ratio de
+     * Un clip en 9:16 n'a pas de variante due, donc `pathsRender` du ratio de
      * départ ne la nomme pas et un `-9x16.mp4` abandonné y survivait. Le ratio
-     * d'arrivée, lui, la rend due : `sortiesDuClip` la publiait aussitôt comme
+     * d'arrivée, lui, la rend due : `clipOutputs` la publiait aussitôt comme
      * la livraison du jour. (relevé par Copilot)
      */
     it('efface la variante abandonnée quand le ratio change de 9:16 vers 1:1', async () => {
@@ -1492,7 +1492,7 @@ describe('POST /api/projects/:id/run', () => {
 
   /**
    * **Une cible répétée n'est pas refusée, elle est réduite.** Le plan, lui, ne
-   * changeait pas — `planPourCibles` ne planifie jamais deux fois la même étape
+   * changeait pas — `planForTargets` ne planifie jamais deux fois la même étape
    * — mais `lancer` garde la liste reçue dans `cibles`, et `status.json` la
    * réécrit à chaque mise à jour, jusqu'à une fois par seconde pendant les six
    * minutes d'un proxy. Une liste qui répète mille fois `candidates` rendait donc

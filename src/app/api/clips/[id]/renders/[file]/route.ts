@@ -38,7 +38,7 @@ export const GET = route(
     //
     // Des fichiers qui survivent sous un clip `kept` — un effacement qui a
     // échoué, les restes d'un montage abandonné — décrivent la version d'avant.
-    // `sortiesDuClip` a cessé de les publier ; les servir quand même à qui a
+    // `clipOutputs` a cessé de les publier ; les servir quand même à qui a
     // gardé l'URL laisserait exactement le même mensonge sortir par l'autre
     // porte. (relevé par Copilot)
     //

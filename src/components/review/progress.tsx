@@ -47,7 +47,7 @@ export function PanelProgress({
   running: { step: StepName; progress: number } | null
   /** Le message du serveur, ou `null`. Déjà épuré de ses chemins absolus. */
   error: string | null
-  /** Distingue `'new'` d'`'interrompu'` (spec §12) ; ne change que le titre. */
+  /** Distingue `'new'` d'`'interrupted'` (spec §12) ; ne change que le titre. */
   everRan: boolean
   /**
    * Ce qu'on sait de la taille de l'émission, pour dimensionner les durées.
@@ -106,22 +106,22 @@ export function PanelProgress({
           return (
             <li
               key={name}
-              data-testid={`etape-${name}`}
-              data-etat={state}
+              data-testid={`step-${name}`}
+              data-status={state}
               className={cn(
                 'flex items-baseline gap-2 text-sm',
-                state === 'attendue' && 'text-muted-foreground',
+                state === 'upcoming' && 'text-muted-foreground',
               )}
             >
               <Marker state={state} />
-              <span className={cn(state === 'encours' && 'font-medium')}>{label}</span>
+              <span className={cn(state === 'running' && 'font-medium')}>{label}</span>
               {/* **L'état, en toutes lettres et pour les seuls lecteurs
-                  d'écran.** L'icône est `aria-hidden`, `data-etat` sert aux
+                  d'écran.** L'icône est `aria-hidden`, `data-status` sert aux
                   tests et la couleur ne s'entend pas : sans ce mot, la liste
                   donnait les noms et les coûts sans dire ce qui est fait.
                   (relevé par Copilot) */}
               <span className="sr-only">{LABELS_STATE[state]}</span>
-              {state === 'encours' && running !== null && (
+              {state === 'running' && running !== null && (
                 <span className="font-mono text-xs tabular-nums">
                   {percent(running.progress)} %
                 </span>
@@ -145,12 +145,12 @@ export function PanelProgress({
         combien de temps elle finira.
       </p>
 
-      <p data-testid="ensuite" className="mt-6 text-sm">
+      <p data-testid="next" className="mt-6 text-sm">
         {thisWhichBecomesPossible(steps)}
       </p>
 
       {running !== null && (
-        <p data-testid="ecoule" className="mt-1 text-sm text-muted-foreground">
+        <p data-testid="elapsed" className="mt-1 text-sm text-muted-foreground">
           Analyse suivie depuis cet écran :{' '}
           <span className="font-mono tabular-nums">{formatDuration(tracked)}</span>
         </p>
@@ -180,7 +180,7 @@ export function PanelProgress({
  * **Elle n'annonce que les changements d'étape, et la fin.** L'écran interroge
  * l'état toutes les deux secondes : une région live posée sur le pourcentage
  * produirait une annonce toutes les deux secondes pendant neuf minutes. Le
- * `progressbar`, lui, met `aria-valuenow` à jour en silence. `ÉTAPES` en compte
+ * `progressbar`, lui, met `aria-valuenow` à jour en silence. `STEPS` en compte
  * cinq : six annonces sur toute l'analyse, la fin comprise.
  *
  * **Elle se pose au-dessus de la disposition, jamais dans le panneau.** Le
@@ -218,7 +218,7 @@ export function AnnouncementDStep({
   everRan?: boolean
 }) {
   return (
-    <p data-testid="annonce" aria-live="polite" className="sr-only">
+    <p data-testid="announcement" aria-live="polite" className="sr-only">
       {!connu
         ? ''
         : running !== null
@@ -258,12 +258,12 @@ export function StripProgress({ running }: { running: { step: StepName; progress
   )
 }
 
-type StateDStep = 'faite' | 'encours' | 'attendue'
+type StateDStep = 'done' | 'running' | 'upcoming'
 
 const LABELS_STATE: Record<StateDStep, string> = {
-  faite: 'terminée',
-  encours: 'en cours',
-  attendue: 'à venir',
+  done: 'terminée',
+  running: 'en cours',
+  upcoming: 'à venir',
 }
 
 function stateDStep(
@@ -271,15 +271,15 @@ function stateDStep(
   steps: Record<StepName, boolean>,
   running: { step: StepName } | null,
 ): StateDStep {
-  if (running?.step === name) return 'encours'
+  if (running?.step === name) return 'running'
   // `=== true` et non la vérité de la valeur : le relevé arrive du réseau, et
   // une étape que le client ne connaît pas encore y vaut `undefined`.
-  return steps[name] === true ? 'faite' : 'attendue'
+  return steps[name] === true ? 'done' : 'upcoming'
 }
 
 function Marker({ state }: { state: StateDStep }) {
-  if (state === 'faite') return <Check className="size-3.5 shrink-0 text-stage-foreground" aria-hidden />
-  if (state === 'encours') return <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
+  if (state === 'done') return <Check className="size-3.5 shrink-0 text-stage-foreground" aria-hidden />
+  if (state === 'running') return <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
   return <CircleDashed className="size-3.5 shrink-0 opacity-50" aria-hidden />
 }
 
@@ -304,7 +304,7 @@ function percent(progress: number): number {
  * nomme, jamais une durée restante**.
  *
  * Elle ne cite que les deux étapes qui changent ce que l'utilisateur peut faire
- * — `candidates` ouvre le tri, `proxy` ouvre le montage —, comme `phaseProjet`
+ * — `candidates` ouvre le tri, `proxy` ouvre le montage —, comme `phaseProject`
  * et pour la même raison : c'est la seule formulation qui survive à l'ajout
  * d'étapes.
  */

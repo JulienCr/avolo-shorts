@@ -198,9 +198,9 @@ export function PanelExport({
   const prevention =
     duration <= 0
       ? 'Tous les mots ont été retirés : il n’y a rien à rendre.'
-      : autosave === 'en-attente'
+      : autosave === 'pending'
         ? 'Un enregistrement est en attente. Rendre maintenant produirait un fichier qui ne correspond à rien de persistant.'
-        : autosave === 'echec' || writeInFailure
+        : autosave === 'failed' || writeInFailure
           ? 'Le dernier enregistrement a échoué. Le rendu attend qu’il passe.'
           : writeInCurrent
             ? 'Une modification est en cours d’écriture. Le rendu lirait la version d’avant.'

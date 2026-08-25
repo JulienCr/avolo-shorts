@@ -38,7 +38,7 @@ const REASON_IN_CURRENT = 'Une exécution est déjà en cours ; la relance sera 
  * `progression()` lit une `Map` du processus Next : un redémarrage du serveur —
  * et il y en a un à chaque édition en développement — laisse un projet à moitié
  * analysé, sans erreur, sans rien qui tourne et sans recours. C'est
- * `Analyse: 'interrompu'`.
+ * `Analyse: 'interrupted'`.
  *
  * **Il vise `RESUME_TARGETS`, importé et jamais recopié.** Une cible nomme un
  * résultat à atteindre, pas une étape à refaire : viser la première étape
@@ -275,7 +275,7 @@ export function ButtonRetry({
 function Reason({ blocked, inCurrent }: { blocked: boolean; inCurrent: boolean }) {
   if (!blocked) return null
   return (
-    <p data-testid="raison-relance" className="max-w-xs text-xs text-muted-foreground">
+    <p data-testid="reason-retry" className="max-w-xs text-xs text-muted-foreground">
       {inCurrent ? REASON_IN_CURRENT : 'Demande en cours d’envoi.'}
     </p>
   )

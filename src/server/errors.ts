@@ -123,9 +123,9 @@ function redactReferencesKnown(message: string): string {
 
 /** Le message d'une erreur, sans un chemin de la machine dedans. */
 export function messageSafe(error: unknown): string {
-  // Le texte est pris ici plutôt que laissé à `messageÉpuré` parce que les
-  // références doivent partir **avant** la grammaire d'`épurerChemins`, qui les
-  // couperait au premier espace. `messageÉpuré` repasse ensuite une chaîne, ce
+  // Le texte est pris ici plutôt que laissé à `messageCleaned` parce que les
+  // références doivent partir **avant** la grammaire d'`cleanPaths`, qui les
+  // couperait au premier espace. `messageCleaned` repasse ensuite une chaîne, ce
   // qui ne lui coûte rien.
   const raw = error instanceof Error ? error.message : String(error)
   return messageCleaned(redactReferencesKnown(raw), roots())

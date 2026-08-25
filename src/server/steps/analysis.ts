@@ -537,12 +537,12 @@ export async function runAnalysis(o: OptionsAnalysis): Promise<Artifact> {
  * La commande, citée là où il le faut.
  *
  * **Un argument qui contient une espace se met entre guillemets**, et ce n'est
- * pas de la cosmétique de journal : c'est ce qui permet à `épurerChemins` de le
+ * pas de la cosmétique de journal : c'est ce qui permet à `cleanPaths` de le
  * traiter d'un seul tenant. Sa passe sur les chemins nus s'arrête à la première
  * espace, faute de savoir où le chemin finit — donc un dépôt cloné sous
  * `/home/jean/Mon dossier` verrait la queue de son arborescence partir dans
  * `status.json`, puis dans la réponse de `GET /api/projects/:id`. Entre
- * guillemets, la passe `ENTRE_GUILLEMETS` prend le tout.
+ * guillemets, la passe `BETWEEN_QUOTES` prend le tout.
  *
  * Seuls les arguments à espace sont cités : une ligne de commande où chaque
  * jeton porte des guillemets ne se relit pas. (relevé par Copilot)
@@ -564,8 +564,8 @@ export function commandReadable(python: string, args: readonly string[]): string
  * mêler à la sortie du serveur.
  *
  * **Le message d'échec porte la commande complète**, donc des chemins absolus.
- * Comme ceux de `runFfmpeg` et de `lancerWorker` côté transcription, il est
- * destiné à un journal de serveur, pas à une réponse HTTP — `messageSûr` épure
+ * Comme ceux de `runFfmpeg` et de `launchWorker` côté transcription, il est
+ * destiné à un journal de serveur, pas à une réponse HTTP — `messageSafe` épure
  * ce qui part dans `status.json`.
  */
 function launchWorker(

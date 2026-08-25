@@ -69,7 +69,7 @@ function mount(props: Partial<Parameters<typeof PanelExport>[0]> = {}) {
     outputs: nothingIsProduced,
     framing: framing(),
     duration: 20,
-    autosave: 'enregistre' as const,
+    autosave: 'saved' as const,
     fingerprint: 'empreinte-de-depart',
     writeInCurrent: false,
     writeInFailure: false,
@@ -166,7 +166,7 @@ describe('les raisons de ne pas pouvoir exporter', () => {
     // découvre jamais le bouton, donc jamais sa raison (spec §4.4).
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
-    mount({ autosave: 'en-attente' })
+    mount({ autosave: 'pending' })
 
     const button = buttonExporter()
     expect(button.getAttribute('aria-disabled')).toBe('true')
@@ -203,7 +203,7 @@ describe('les raisons de ne pas pouvoir exporter', () => {
     // Le garde-fou est sur le lancement ; sans le même sur l'ouverture, la boîte
     // s'ouvre, on confirme, et rien ne part — sans qu'une ligne le dise.
     mount({
-      autosave: 'en-attente',
+      autosave: 'pending',
       outputs: {
         mp4Url: '/api/clips/c1/renders/c1.mp4',
         mp4Due: true,

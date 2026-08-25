@@ -273,7 +273,7 @@ describe('mergeOverlappingWindows', () => {
 // elles qui ancrent les attentes ci-dessous — pas des durées rondes.
 //
 // Ces durées ne sont **pas** l'écart du premier mot au dernier, qui vaut 5755,5 s
-// et 6642,3 s : voir `secondesDeParole`, l'écart surestime de 21 %.
+// et 6642,3 s : voir `speechSeconds`, l'écart surestime de 21 %.
 const CQLP = { parole: 4635.3, fenêtres: 83 }
 const BETWEEN_US = { parole: 5244.5, fenêtres: 95 }
 const min = (m: number) => m * 60

@@ -96,7 +96,7 @@ function renderGrid(props: Partial<Parameters<typeof LibraryGrid>[0]> = {}) {
  * Les noms de fichiers visibles, dans l'ordre de la grille.
  *
  * Le nom de fichier plutôt que le titre : c'est l'identité stable d'une carte —
- * le titre, lui, est dérivé par `titreProjet` et c'est ce qu'un test dédié
+ * le titre, lui, est dérivé par `titleProject` et c'est ce qu'un test dédié
  * vérifie plus bas.
  */
 function files(): string[] {

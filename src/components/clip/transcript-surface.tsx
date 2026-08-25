@@ -216,7 +216,7 @@ export function TranscriptSurface({
   useEffect(() => {
     if (!toFocus.current) return
     toFocus.current = false
-    const target = container.current?.querySelector<HTMLElement>(`[data-mot="${cursor}"]`)
+    const target = container.current?.querySelector<HTMLElement>(`[data-word="${cursor}"]`)
     if (target) target.focus()
     else container.current?.focus()
   })
@@ -479,7 +479,7 @@ function Word({
     // mais en faire cent arrêts de tabulation rendait la surface infranchissable.
     <span
       role="button"
-      data-mot={word.index}
+      data-word={word.index}
       tabIndex={cursor ? 0 : -1}
       aria-pressed={selected}
       aria-current={lu ? 'location' : undefined}

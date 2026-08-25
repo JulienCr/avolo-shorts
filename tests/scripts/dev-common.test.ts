@@ -50,20 +50,20 @@ afterEach(() => {
 describe('chargerEnv', () => {
   it("pose les variables que l'environnement n'a pas", async () => {
     const file = path.join(folder, '.env')
-    fs.writeFileSync(file, 'AVOLO_TEST_ABSENTE=du-fichier\n')
-    delete process.env.AVOLO_TEST_ABSENTE
+    fs.writeFileSync(file, 'AVOLO_TEST_UNSET=du-fichier\n')
+    delete process.env.AVOLO_TEST_UNSET
 
     await chargerEnv(file)
-    expect(process.env.AVOLO_TEST_ABSENTE).toBe('du-fichier')
+    expect(process.env.AVOLO_TEST_UNSET).toBe('du-fichier')
   })
 
   it("n'écrase pas une variable déjà posée dans l'environnement", async () => {
     const file = path.join(folder, '.env')
-    fs.writeFileSync(file, 'AVOLO_TEST_POSÉE=du-fichier\n')
-    process.env.AVOLO_TEST_POSÉE = 'de-la-ligne-de-commande'
+    fs.writeFileSync(file, 'AVOLO_TEST_SET=du-fichier\n')
+    process.env.AVOLO_TEST_SET = 'de-la-ligne-de-commande'
 
     await chargerEnv(file)
-    expect(process.env.AVOLO_TEST_POSÉE).toBe('de-la-ligne-de-commande')
+    expect(process.env.AVOLO_TEST_SET).toBe('de-la-ligne-de-commande')
   })
 
   it("tolère un fichier absent : les valeurs par défaut de paths.ts suffisent", async () => {

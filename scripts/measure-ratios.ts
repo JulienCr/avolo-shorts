@@ -158,7 +158,7 @@ const TORSO_NAMES: readonly (TorsoName | 'off')[] = ['off', ...(Object.keys(TORS
 
 /**
  * Les élargissements de tronc balayés, **plus le défaut en vigueur** — même
- * règle que `MARGINS` et `ROGNAGES`.
+ * règle que `MARGINS` et `SIDE_TRIMS`.
  */
 const TORSO_PADS = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torsoPad])].sort(
   (a, b) => a - b,
@@ -296,7 +296,7 @@ type Cost = {
  * ignore par construction, donc c'est exactement là que se cachent les pertes
  * qu'aucun tableau de ratios ne montre.
  *
- * **`têtesDehors` est l'instrument qui manquait au 19 août.** La campagne du
+ * **`headsOutside` est l'instrument qui manquait au 19 août.** La campagne du
  * rognage latéral a posé son plafond sur un visage tombé hors cadre, et elle ne
  * l'a vu qu'en regardant une image : « le compteur de pertes ne le signalait
  * pas, il n'avait perdu que 27 % de sa boîte ». Avec des points de pose, la

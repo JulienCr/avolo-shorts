@@ -27,7 +27,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 function Loading({ id }: { id: string }) {
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar lieu={{ kind: 'projet', project: { id, title: id } }} />
+      <AppBar lieu={{ kind: 'project', project: { id, title: id } }} />
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {Array.from({ length: 8 }, (_, i) => (

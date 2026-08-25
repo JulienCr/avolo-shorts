@@ -486,7 +486,7 @@ export function renderArgs(o: RenderOptions): string[] {
  * auparavant du MP4 natif déjà terminé : son fond était donc un agrandissement
  * du clip fini, cartons de sous-titres compris, et le flou ne les effaçait pas —
  * constaté à l'image, le carton restait lisible à la même taille dans la bande
- * du bas, sous le vrai. Monter le sigma ne répare pas ça (voir `SIGMA_DU_FOND`) ;
+ * du bas, sous le vrai. Monter le sigma ne répare pas ça (voir `BACKGROUND_SIGMA`) ;
  * tirer le fond d'un contenu qui n'a jamais porté de texte, si. Le `split` est
  * donc **avant** l'incrustation, et le fond ne peut plus contenir de texte par
  * construction.

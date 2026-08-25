@@ -95,7 +95,7 @@ function Harness({ actions }: { actions: Record<string, () => void> }) {
   })
   return (
     <div>
-      <article tabIndex={0} data-testid="carte" />
+      <article tabIndex={0} data-testid="card" />
       <button type="button">Relancer</button>
     </div>
   )
@@ -119,7 +119,7 @@ describe('useShortcutsReview', () => {
     render(<Harness actions={actions} />)
     const user = userEvent.setup()
 
-    await user.click(screen.getByTestId('carte'))
+    await user.click(screen.getByTestId('card'))
     await user.keyboard('jk{ArrowDown}{ArrowUp}ge{Enter}u?')
 
     expect(actions.suivant).toHaveBeenCalledTimes(2)
@@ -143,7 +143,7 @@ describe('useShortcutsReview', () => {
     render(<Harness actions={actions} />)
     const user = userEvent.setup()
 
-    await user.click(screen.getByTestId('carte'))
+    await user.click(screen.getByTestId('card'))
     await user.keyboard('{Control>}e{/Control}')
     expect(actions.ecarter).not.toHaveBeenCalled()
 

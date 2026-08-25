@@ -414,7 +414,7 @@ describe('les valeurs limites', () => {
   })
 
   it('dit par où sortir d’un clip dont tous les mots ont été retirés', async () => {
-    // Le cas est prévu côté serveur — `étendueOrigine` retombe sur
+    // Le cas est prévu côté serveur — `extentOrigin` retombe sur
     // `candidates.json` — et n'avait pas de rendu propre : durée nulle,
     // transcript entièrement barré, et rien qui dise que le transcript reste la
     // façon d'en sortir.
@@ -507,7 +507,7 @@ describe('le curseur du clavier et les bornes', () => {
 describe('l’échec d’une écriture directe', () => {
   it('le dit dans la barre et le renvoie', async () => {
     // Le titre, la description et les marques ne passent pas par
-    // `useEnregistrementAuto` : sans ce raccord, la barre affiche « enregistré »
+    // `useAutosave` : sans ce raccord, la barre affiche « enregistré »
     // sur une écriture que le serveur a refusée. (relevé par Copilot)
     const fetch = vi.fn(async (url: string, options?: RequestInit) => {
       if (options?.method === 'PATCH') throw new Error('réseau coupé')

@@ -404,7 +404,7 @@ export function closeDb(): void {
  * première famille de réglages ; le retour d'usage en annonce deux autres — le
  * fournisseur d'IA par usage (§6.1) et les défauts du hook (§6.3) —, qui
  * porteront des chaînes et des booléens là où celle-ci ne porte que des entiers.
- * Une validation écrite dans `setRéglage` aurait donc été réécrite trois fois,
+ * Une validation écrite dans `setSetting` aurait donc été réécrite trois fois,
  * et les trois auraient divergé sur ce que « hors bornes » veut dire. Le préfixe
  * de la clé stockée avait été posé en prévoyant exactement cela (PR #64).
  *
@@ -709,7 +709,7 @@ function storedKey(field: SettingField): string {
 /**
  * Une valeur refusée à l'écriture. La frontière HTTP en fait un 400.
  *
- * Une classe et non une `Error` nue : `statutPour` doit pouvoir la reconnaître
+ * Une classe et non une `Error` nue : `statusFor` doit pouvoir la reconnaître
  * sans lire son message, sinon le refus d'une saisie ressortirait en 500 et
  * enverrait chercher un défaut du serveur là où il n'y en a pas.
  */
@@ -885,7 +885,7 @@ export function validateSetting(
  * derrière une transcription qui a coûté quarante minutes ; le faire échouer sur
  * une valeur mal saisie coûterait bien plus cher que de retomber sur le défaut.
  * Une valeur illisible ou hors bornes est donc ignorée **comme si elle était
- * absente** — exactement ce que `tailleDeLot` réserve à `SCORE_BATCH`
+ * absente** — exactement ce que `batchSize` réserve à `SCORE_BATCH`
  * (`src/server/steps/candidates.ts`).
  */
 export function effectiveSettings(db: Database.Database): Settings {
@@ -1444,7 +1444,7 @@ export function replaceClips(db: Database.Database, projectId: string, clips: Cl
   const write = db.transaction(() => {
     // **Les jetons d'ordre des survivants, relevés avant le DELETE.**
     //
-    // `INSÉRER_CLIP` ne porte pas `seqs`, donc chaque survivant repartirait de
+    // `INSERT_CLIP` ne porte pas `seqs`, donc chaque survivant repartirait de
     // `{}` : une écriture ancienne encore en vol arriverait alors devant un
     // champ sans mémoire, passerait pour fraîche, et écraserait un geste plus
     // récent — #21 rouvert par une passe de repérage. La fenêtre est étroite,

@@ -107,7 +107,7 @@ export function LibraryScreen() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar lieu={{ kind: 'bibliotheque' }} />
+      <AppBar lieu={{ kind: 'library' }} />
 
       {/* Pas de colonne de texte : c'est un plan de travail, et la spec §13
           demande un rendu d'application de bureau plutôt que de site web. La

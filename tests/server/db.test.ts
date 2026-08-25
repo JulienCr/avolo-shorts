@@ -672,7 +672,7 @@ describe('appliquerRéglages', () => {
   it('rend la même chose que réglagesEffectifs', () => {
     applySettings(db, { selection: { minimumClips: 9 } })
     // **`ai` aussi**, depuis la PR C : `effectiveSettings` rend les deux
-    // familles, `getRéglages` ne projette que `selection`. Le résultat est
+    // familles, `getSettings` ne projette que `selection`. Le résultat est
     // comparé aux défauts de la famille — inchangée par ce patch, qui ne
     // touche que `selection` — plutôt qu'à lui-même, ce qui ne testerait rien.
     expect(effectiveSettings(db)).toEqual({

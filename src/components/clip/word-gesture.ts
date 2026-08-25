@@ -19,7 +19,7 @@
  */
 
 /** Le geste que le clic demande. */
-export type GestureWord = { kind: 'remonter' } | { kind: 'borne'; edge: 'start' | 'end' }
+export type GestureWord = { kind: 'restore' } | { kind: 'boundary'; edge: 'start' | 'end' }
 
 /**
  * Le geste pour ce mot barré, sachant l'étendue du clip.
@@ -36,8 +36,8 @@ export function gestureOnWordBar(
   extent: { start: number; end: number } | null,
   word: { start: number; end: number },
 ): GestureWord {
-  if (extent === null) return { kind: 'remonter' }
-  if (word.end <= extent.start) return { kind: 'borne', edge: 'start' }
-  if (word.start >= extent.end) return { kind: 'borne', edge: 'end' }
-  return { kind: 'remonter' }
+  if (extent === null) return { kind: 'restore' }
+  if (word.end <= extent.start) return { kind: 'boundary', edge: 'start' }
+  if (word.start >= extent.end) return { kind: 'boundary', edge: 'end' }
+  return { kind: 'restore' }
 }

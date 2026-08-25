@@ -41,7 +41,7 @@ function Harness(props: ReturnType<typeof actions>) {
       <button type="button">Exporter</button>
       <input aria-label="Titre" />
       <div data-surface-transcript tabIndex={-1} data-testid="surface">
-        <span role="button" tabIndex={0} data-testid="mot">
+        <span role="button" tabIndex={0} data-testid="word">
           bonjour
         </span>
       </div>
@@ -70,14 +70,14 @@ describe('useShortcuts', () => {
     // interactif retirerait ici le geste principal du produit.
     const a = actions()
     render(<Harness {...a} />)
-    fireEvent.keyDown(screen.getByTestId('mot'), { key: 'Delete' })
+    fireEvent.keyDown(screen.getByTestId('word'), { key: 'Delete' })
     expect(a.remove).toHaveBeenCalledTimes(1)
   })
 
   it('pose les bornes sur `I` et `O` depuis un mot', () => {
     const a = actions()
     render(<Harness {...a} />)
-    const word = screen.getByTestId('mot')
+    const word = screen.getByTestId('word')
     fireEvent.keyDown(word, { key: 'i' })
     fireEvent.keyDown(word, { key: 'o' })
     expect(a.poserBound).toHaveBeenNthCalledWith(1, 'start')

@@ -34,18 +34,18 @@ function clips(...statuses: ClipStatus[]): { status: ClipStatus }[] {
 
 describe('phaseProject, l’axe des artefacts', () => {
   it('attend tant que les candidats manquent et qu’une exécution tourne', () => {
-    expect(phaseProject(reading('audio'), inCurrent, null, []).analysis).toBe('attente')
+    expect(phaseProject(reading('audio'), inCurrent, null, []).analysis).toBe('waiting')
   })
 
   it('dit « interrompu » quand il manque une étape et que rien ne tourne', () => {
     // `progression()` lit une `Map` du processus Next : un redémarrage du
     // serveur perd l'exécution sans laisser d'erreur. C'est la seule impasse
     // réelle de l'interface, et la seule valeur qui appelle une réparation.
-    expect(phaseProject(reading('audio', 'transcript'), null, null, []).analysis).toBe('interrompu')
+    expect(phaseProject(reading('audio', 'transcript'), null, null, []).analysis).toBe('interrupted')
   })
 
   it('dit « interrompu », par défaut, quand rien n’est sur le disque et que rien ne tourne', () => {
-    expect(phaseProject(reading(), null, null, []).analysis).toBe('interrompu')
+    expect(phaseProject(reading(), null, null, []).analysis).toBe('interrupted')
   })
 
   it('dit « neuf » quand rien n’est sur le disque, rien ne tourne, et status.json n’a jamais été écrit', () => {
@@ -58,21 +58,21 @@ describe('phaseProject, l’axe des artefacts', () => {
   })
 
   it('dit « interrompu », et non « neuf », dès qu’une exécution a laissé un status.json', () => {
-    expect(phaseProject(reading(), null, null, [], true).analysis).toBe('interrompu')
+    expect(phaseProject(reading(), null, null, [], true).analysis).toBe('interrupted')
   })
 
   it('dit « echec » quand la dernière exécution a échoué', () => {
-    expect(phaseProject(reading('audio'), null, 'Gemini a refusé le lot', []).analysis).toBe('echec')
+    expect(phaseProject(reading('audio'), null, 'Gemini a refusé le lot', []).analysis).toBe('failed')
   })
 
   it('préfère l’exécution en cours à l’échec de la précédente', () => {
     // `error` décrit la dernière exécution **terminée**. Une exécution en cours
     // la périme : l'écran doit dire ce qui se passe, l'incident s'affiche à côté.
-    expect(phaseProject(reading('audio'), inCurrent, 'un échec d’avant', []).analysis).toBe('attente')
+    expect(phaseProject(reading('audio'), inCurrent, 'un échec d’avant', []).analysis).toBe('waiting')
   })
 
   it('devient « triable » dès que les candidats sont là, même sans proxy', () => {
-    expect(phaseProject(reading('candidates'), null, null, []).analysis).toBe('triable')
+    expect(phaseProject(reading('candidates'), null, null, []).analysis).toBe('sortable')
   })
 
   it('reste « triable » pendant l’encodage du proxy', () => {
@@ -80,7 +80,7 @@ describe('phaseProject, l’axe des artefacts', () => {
     // `triable` : elle aurait affiché le panneau d'attente sur un écran
     // parfaitement triable, pendant les six minutes du proxy.
     expect(phaseProject(reading('candidates'), { step: 'proxy', progress: 0.1 }, null, []).analysis).toBe(
-      'triable',
+      'sortable',
     )
   })
 
@@ -89,12 +89,12 @@ describe('phaseProject, l’axe des artefacts', () => {
     // tant que `candidates` est absent. Sans elle, une exécution morte pendant
     // l'encodage du proxy cacherait la grille de tri au moment précis où elle
     // doit remplacer le panneau.
-    expect(phaseProject(reading('candidates'), null, null, []).analysis).toBe('triable')
-    expect(phaseProject(reading('candidates'), null, 'le proxy a échoué', []).analysis).toBe('triable')
+    expect(phaseProject(reading('candidates'), null, null, []).analysis).toBe('sortable')
+    expect(phaseProject(reading('candidates'), null, 'le proxy a échoué', []).analysis).toBe('sortable')
   })
 
   it('est « complet » quand les candidats et le proxy sont là', () => {
-    expect(phaseProject(reading('candidates', 'proxy'), null, null, []).analysis).toBe('complet')
+    expect(phaseProject(reading('candidates', 'proxy'), null, null, []).analysis).toBe('complete')
   })
 
   it('ne cite que les deux étapes qui changent ce qu’on peut faire', () => {
@@ -126,14 +126,14 @@ describe('phaseProject, l’axe du travail humain', () => {
     // `candidates.json` vide donne `{ triable, rien }`, et c'est l'axe du
     // travail qui porte le vide. C'est la raison d'être des deux axes.
     expect(phaseProject(reading('candidates'), null, null, [])).toEqual({
-      analysis: 'triable',
-      work: 'rien',
+      analysis: 'sortable',
+      work: 'none',
     })
   })
 
   it('dit « atrier » tant qu’une proposition reste indécise', () => {
     expect(phaseProject(complete, null, null, clips('kept', 'candidate', 'discarded')).work).toBe(
-      'atrier',
+      'toSort',
     )
   })
 
@@ -141,27 +141,27 @@ describe('phaseProject, l’axe du travail humain', () => {
     // L'ordre des tests fait partie du contrat : écrites comme des prédicats
     // indépendants, les conditions se recouvrent et `livre` mordrait sur
     // `atrier` dès le premier clip exporté.
-    expect(phaseProject(complete, null, null, clips('exported', 'candidate')).work).toBe('atrier')
+    expect(phaseProject(complete, null, null, clips('exported', 'candidate')).work).toBe('toSort')
   })
 
   it('dit « livre » quand tous les gardés sont exportés', () => {
     expect(phaseProject(complete, null, null, clips('exported', 'exported', 'discarded')).work).toBe(
-      'livre',
+      'delivered',
     )
   })
 
   it('n’annonce pas « livre » sur une liste où tout a été écarté', () => {
     // « Tous les clips gardés sont exportés » est vrai d'une liste vide : la
     // phase terminale annonçait un livrable alors qu'aucun MP4 n'existe.
-    expect(phaseProject(complete, null, null, clips('discarded', 'discarded')).work).toBe('trie')
+    expect(phaseProject(complete, null, null, clips('discarded', 'discarded')).work).toBe('sorted')
   })
 
   it('dit « trie » quand tout est décidé et qu’il reste à monter', () => {
-    expect(phaseProject(complete, null, null, clips('kept', 'discarded')).work).toBe('trie')
+    expect(phaseProject(complete, null, null, clips('kept', 'discarded')).work).toBe('sorted')
   })
 
   it('dit « trie » quand un seul des gardés attend encore son rendu', () => {
-    expect(phaseProject(complete, null, null, clips('exported', 'kept')).work).toBe('trie')
+    expect(phaseProject(complete, null, null, clips('exported', 'kept')).work).toBe('sorted')
   })
 
   it('atteint { attente, trie } pendant un repérage forcé', () => {
@@ -170,8 +170,8 @@ describe('phaseProject, l’axe du travail humain', () => {
     // toujours montables. La phase choisit ce que l'écran met en avant, elle ne
     // retire jamais ce qui existe.
     expect(phaseProject(reading('proxy'), inCurrent, null, clips('kept', 'discarded'))).toEqual({
-      analysis: 'attente',
-      work: 'trie',
+      analysis: 'waiting',
+      work: 'sorted',
     })
   })
 })

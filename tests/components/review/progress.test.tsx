@@ -37,7 +37,7 @@ const inCurrent = { step: 'transcript' as StepName, progress: 0.42 }
 describe('layoutProgress', () => {
   it('remplace la grille seulement quand la grille serait vide', () => {
     const phase = phaseProject(reading([]), inCurrent, null, [])
-    expect(layoutProgress(phase, inCurrent, true)).toBe('panneau')
+    expect(layoutProgress(phase, inCurrent, true)).toBe('panel')
   })
 
   it('se replie en bande dès qu’il y a quelque chose à trier', () => {
@@ -46,7 +46,7 @@ describe('layoutProgress', () => {
     // travaille déjà.
     const clips = [{ status: 'candidate' as const }]
     const phase = phaseProject(reading(['candidates']), { step: 'proxy', progress: 0.3 }, null, clips)
-    expect(layoutProgress(phase, { step: 'proxy', progress: 0.3 }, false)).toBe('bande')
+    expect(layoutProgress(phase, { step: 'proxy', progress: 0.3 }, false)).toBe('strip')
   })
 
   it('ne cache pas un tri déjà fait derrière une reprise', () => {
@@ -56,21 +56,21 @@ describe('layoutProgress', () => {
     // panneau ne doit pas manger la liste.
     const clips = [{ status: 'kept' as const }]
     const phase = phaseProject(reading(['proxy']), null, null, clips)
-    expect(phase).toEqual({ analysis: 'interrompu', work: 'trie' })
-    expect(layoutProgress(phase, null, false)).toBe('rien')
+    expect(phase).toEqual({ analysis: 'interrupted', work: 'sorted' })
+    expect(layoutProgress(phase, null, false)).toBe('none')
   })
 
   it('ne montre rien quand tout est là et que rien ne tourne', () => {
     const phase = phaseProject(reading(['candidates', 'proxy']), null, null, [])
-    expect(layoutProgress(phase, null, true)).toBe('rien')
+    expect(layoutProgress(phase, null, true)).toBe('none')
   })
 
   it('prend la page sur l’impasse, pour y poser la reprise', () => {
     // « Aucun artefact, aucune exécution » ne décrit pas un projet neuf mais une
     // exécution morte : c'est `interrompu`, et c'est aujourd'hui sans issue.
     const phase = phaseProject(reading([]), null, null, [])
-    expect(phase.analysis).toBe('interrompu')
-    expect(layoutProgress(phase, null, true)).toBe('panneau')
+    expect(phase.analysis).toBe('interrupted')
+    expect(layoutProgress(phase, null, true)).toBe('panel')
   })
 })
 
@@ -113,25 +113,25 @@ describe('PanelProgress', () => {
     expect(steps[1]).toContain('Transcription')
     expect(steps[2]).toContain('Correction')
     expect(steps[3]).toContain('Repérage')
-    expect(screen.getByTestId('etape-audio').getAttribute('data-etat')).toBe('faite')
-    expect(screen.getByTestId('etape-transcript').getAttribute('data-etat')).toBe('encours')
-    expect(screen.getByTestId('etape-proxy').getAttribute('data-etat')).toBe('attendue')
+    expect(screen.getByTestId('step-audio').getAttribute('data-status')).toBe('done')
+    expect(screen.getByTestId('step-transcript').getAttribute('data-status')).toBe('running')
+    expect(screen.getByTestId('step-proxy').getAttribute('data-status')).toBe('upcoming')
   })
 
   it('dit l’état de chaque étape autrement que par une icône', () => {
-    // L'icône est `aria-hidden`, `data-etat` est un attribut de test et la
+    // L'icône est `aria-hidden`, `data-status` est un attribut de test et la
     // couleur ne se lit pas : un lecteur d'écran entendait les noms et les coûts
     // sans savoir ce qui est fait, en cours ou attendu. (relevé par Copilot)
     mount(['audio'])
-    expect(screen.getByTestId('etape-audio').textContent).toMatch(/terminée/i)
-    expect(screen.getByTestId('etape-transcript').textContent).toMatch(/en cours/i)
-    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/à venir/i)
+    expect(screen.getByTestId('step-audio').textContent).toMatch(/terminée/i)
+    expect(screen.getByTestId('step-transcript').textContent).toMatch(/en cours/i)
+    expect(screen.getByTestId('step-proxy').textContent).toMatch(/à venir/i)
   })
 
   it('n’annonce pas les rendus, qui ne passent jamais par le graphe', () => {
     // Un rendu se demande par clip : le lanceur refuse `renders` comme cible.
     mount(['audio'])
-    expect(screen.queryByTestId('etape-renders')).toBeNull()
+    expect(screen.queryByTestId('step-renders')).toBeNull()
   })
 
   it('donne une fourchette, jamais une seconde près, et rien sans mesure', () => {
@@ -139,19 +139,19 @@ describe('PanelProgress', () => {
     // 25 %, soit 5 à 8 min. `analysis` n'a jamais été chronométrée sur une
     // émission entière — une absence se lit mieux qu'un chiffre inventé.
     mount(['audio'])
-    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/environ 5–8 min/)
-    expect(screen.getByTestId('etape-analysis').textContent).not.toMatch(/environ/)
+    expect(screen.getByTestId('step-proxy').textContent).toMatch(/environ 5–8 min/)
+    expect(screen.getByTestId('step-analysis').textContent).not.toMatch(/environ/)
   })
 
   it('n’annonce pas la même durée à une capsule qu’à une émission entière', () => {
     // C'est tout l'objet du changement : les cinq coûts étaient mesurés une
     // seule fois, sur 1 h 39, et s'affichaient à l'identique pour vingt minutes.
     mount(['audio'])
-    const long = screen.getByTestId('etape-proxy').textContent
+    const long = screen.getByTestId('step-proxy').textContent
     cleanup()
 
     mount(['audio'], inCurrent, null, { durationSec: 20 * 60, sizeBytes: null, windows: 17 })
-    expect(screen.getByTestId('etape-proxy').textContent).not.toBe(long)
+    expect(screen.getByTestId('step-proxy').textContent).not.toBe(long)
   })
 
   it('parle dès la copie, en suppléant la durée par la taille du fichier', () => {
@@ -164,12 +164,12 @@ describe('PanelProgress', () => {
       sizeBytes: 4_300_000_000,
       windows: null,
     })
-    expect(screen.getByTestId('etape-proxy').textContent).toMatch(/environ/)
+    expect(screen.getByTestId('step-proxy').textContent).toMatch(/environ/)
   })
 
   it('n’annonce rien quand l’émission n’a livré ni durée ni taille', () => {
     mount(['audio'], inCurrent, null, { durationSec: null, sizeBytes: null, windows: null })
-    expect(screen.getByTestId('etape-proxy').textContent).not.toMatch(/environ/)
+    expect(screen.getByTestId('step-proxy').textContent).not.toMatch(/environ/)
   })
 
   it('porte l’arrêt tant qu’une exécution tourne, et jamais avec la reprise', () => {
@@ -194,12 +194,12 @@ describe('PanelProgress', () => {
 
   it('dit ce qui devient possible ensuite, jamais quand', () => {
     mount(['audio'])
-    expect(screen.getByTestId('ensuite').textContent).toMatch(/tri/i)
+    expect(screen.getByTestId('next').textContent).toMatch(/tri/i)
   })
 
   it('annonce le montage une fois les propositions là', () => {
     mount(['audio', 'transcript', 'candidates'], { step: 'proxy', progress: 0.1 })
-    expect(screen.getByTestId('ensuite').textContent).toMatch(/montage|proxy/i)
+    expect(screen.getByTestId('next').textContent).toMatch(/montage|proxy/i)
   })
 
   it('porte la reprise, et le message du serveur, quand la dernière analyse a échoué', () => {
@@ -231,14 +231,14 @@ describe('PanelProgress', () => {
     // mesurer, c'est le temps depuis qu'on regarde. Le dire autrement serait
     // inventer une donnée.
     mount(['audio'])
-    expect(screen.getByTestId('ecoule').textContent).toMatch(/écran/i)
+    expect(screen.getByTestId('elapsed').textContent).toMatch(/écran/i)
   })
 })
 
 describe('AnnouncementDStep', () => {
   it('n’annonce que l’étape, dans une région polie, sans la progression', () => {
     render(<AnnouncementDStep running={inCurrent} steps={reading(['audio'])} connu />)
-    const region = screen.getByTestId('annonce')
+    const region = screen.getByTestId('announcement')
     expect(region.getAttribute('aria-live')).toBe('polite')
     expect(region.textContent).toContain('Transcription')
     expect(region.textContent).not.toContain('42')
@@ -252,7 +252,7 @@ describe('AnnouncementDStep', () => {
         connu
       />,
     )
-    expect(screen.getByTestId('annonce').textContent).toMatch(/terminée/i)
+    expect(screen.getByTestId('announcement').textContent).toMatch(/terminée/i)
   })
 
   it('se tait tant que l’état du projet n’a pas répondu', () => {
@@ -260,21 +260,21 @@ describe('AnnouncementDStep', () => {
     // sait encore rien — et c'est le premier mot qu'entendrait un lecteur
     // d'écran en ouvrant la page.
     render(<AnnouncementDStep running={null} steps={reading([])} connu={false} />)
-    expect(screen.getByTestId('annonce').textContent).toBe('')
+    expect(screen.getByTestId('announcement').textContent).toBe('')
   })
 
   it('distingue une analyse arrêtée d’une analyse terminée', () => {
     // `renders` ne passe jamais par le graphe : l'exiger empêcherait toute
     // analyse d'être jamais annoncée comme terminée.
     render(<AnnouncementDStep running={null} steps={reading(['audio'])} connu />)
-    expect(screen.getByTestId('annonce').textContent).toMatch(/arrêtée/i)
+    expect(screen.getByTestId('announcement').textContent).toMatch(/arrêtée/i)
   })
 
   it('distingue une analyse jamais lancée d’une exécution morte', () => {
     // `everRan: false` (analysis === 'new') : même absence d'étape et de
     // progression qu'une exécution morte, mais rien n'a jamais tourné.
     render(<AnnouncementDStep running={null} steps={reading([])} connu everRan={false} />)
-    expect(screen.getByTestId('annonce').textContent).toMatch(/n’a pas encore commencé/i)
+    expect(screen.getByTestId('announcement').textContent).toMatch(/n’a pas encore commencé/i)
   })
 })
 

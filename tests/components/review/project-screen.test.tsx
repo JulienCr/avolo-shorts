@@ -256,7 +256,7 @@ describe('l’écran de projet', () => {
   })
 
   it('reprend la vue de la session quand l’URL n’en nomme aucune', async () => {
-    // Retour d'un clip par le fil d'Ariane : `chemin` rend `lienProjet`, une URL
+    // Retour d'un clip par le fil d'Ariane : `chemin` rend `linkProject`, une URL
     // nue. Sans ce rattrapage la vue retombe sur « à trier », la carte gardée
     // n'y est pas, et le focus mémorisé n'a nulle part où se poser — le
     // round-trip que la conception décrit ne marchait pas. (relevé par Codex)
@@ -345,9 +345,9 @@ describe('l’écran de projet', () => {
     )
     mount()
 
-    await waitFor(() => expect(screen.getByTestId('lecteur-emission')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('show-player')).toBeTruthy())
     expect(screen.getByText(/les propositions ne se chargent pas/i)).toBeTruthy()
-    expect(screen.queryByTestId('comptes')).toBeNull()
+    expect(screen.queryByTestId('counts')).toBeNull()
   })
 
   it('publie plusieurs clips groupés, avec `force`, et affiche un échec partiel', async () => {
@@ -488,8 +488,8 @@ describe('l’écran de projet', () => {
 
     // Muette d'abord — on ne sait rien —, puis un seul message, et un seul
     // endroit d'où il vienne.
-    expect(screen.getByTestId('annonce').textContent).toBe('')
-    await waitFor(() => expect(screen.getByTestId('annonce').textContent).toContain('Repérage'))
+    expect(screen.getByTestId('announcement').textContent).toBe('')
+    await waitFor(() => expect(screen.getByTestId('announcement').textContent).toContain('Repérage'))
     expect(document.querySelectorAll('[aria-live="polite"]').length).toBe(1)
   })
 })

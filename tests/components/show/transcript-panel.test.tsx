@@ -80,7 +80,7 @@ function stubFetch(rules: Rule[]) {
   return call
 }
 
-/** Sert `LIGNES` sur `GET .../transcript`. */
+/** Sert `LINES` sur `GET .../transcript`. */
 function transcriptResponse(body: unknown = LINES): Rule {
   return { when: (u, m) => m === 'GET' && u.endsWith('/transcript'), body }
 }
@@ -310,7 +310,7 @@ describe('TranscriptPanel — correction', () => {
   })
 
   it('efface le bandeau et la sélection ouverte quand une retranscription se termine', async () => {
-    // `useProjet` doit d'abord voir `running` non nul, puis `null`, pour que
+    // `useProject` doit d'abord voir `running` non nul, puis `null`, pour que
     // la transition se déclenche — comme la fin réelle d'une retranscription.
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -339,9 +339,9 @@ describe('TranscriptPanel — correction', () => {
     await user.click(screen.getByRole('button', { name: 'Corriger' }))
     expect(await screen.findByText(/Le canapé/)).toBeTruthy()
 
-    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+    await waitFor(() => expect(client.getQueryData(['project', 'cqlp'])).toBeTruthy())
 
-    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+    client.setQueryData(['project', 'cqlp'], { ...runningStatus, running: null })
 
     await waitFor(() => expect(screen.queryByText(/Le canapé/)).toBeNull())
   })
@@ -394,7 +394,7 @@ describe('TranscriptPanel — historique de correction', () => {
   })
 
   it('n’offre « Retirer de l’historique » que si l’ancre ne correspond plus', async () => {
-    // `from: 1` désigne « à » dans `LIGNES` : l'entrée est exacte, « Défaire »
+    // `from: 1` désigne « à » dans `LINES` : l'entrée est exacte, « Défaire »
     // suffit — pas de rattrapage à offrir en plus.
     const entries = [{ id: '1', lineId: 'l0', from: 1, expected: ['a'], replacement: 'à', timecode: 10.7 }]
     stubFetch([transcriptResponse(), historyResponse(entries)])
@@ -446,9 +446,9 @@ describe('TranscriptPanel — historique de correction', () => {
 
     await screen.findByRole('button', { name: 'Bonjour' })
     expect(screen.queryByText(/substitution appliquée/)).toBeNull()
-    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+    await waitFor(() => expect(client.getQueryData(['project', 'cqlp'])).toBeTruthy())
 
-    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+    client.setQueryData(['project', 'cqlp'], { ...runningStatus, running: null })
 
     await waitFor(() => expect(screen.queryByText(/1 substitution appliquée/)).toBeTruthy())
   })
@@ -457,7 +457,7 @@ describe('TranscriptPanel — historique de correction', () => {
     // **Le scénario de ce groupe.** Le mot que l'entrée croit corriger n'est
     // plus là — une correction manuelle antérieure a décalé la phrase (#138),
     // ou une passe ultérieure a recouvert le mot (#134) : `from: 1` désigne
-    // « à » dans `LIGNES`, mais l'entrée attend `nouveau`. `undoCorrectionEntry`
+    // « à » dans `LINES`, mais l'entrée attend `nouveau`. `undoCorrectionEntry`
     // refuserait pour toujours ; ce bouton-ci ne passe même pas par lui.
     const entries = [
       { id: '1', lineId: 'l0', from: 1, expected: ['ancien'], replacement: 'nouveau', timecode: 10.7 },

@@ -192,7 +192,7 @@ describe('la boucle de tri, au clavier', () => {
     // En capture, et avec `preventDefault` : sans lui, jsdom tenterait la
     // navigation et la noierait dans une erreur « Not implemented ».
     const spy = (event: Event) => {
-      const link = (event.target as HTMLElement).closest('a[data-ouvrir]')
+      const link = (event.target as HTMLElement).closest('a[data-open]')
       if (link !== null) {
         event.preventDefault()
         open.push(link.getAttribute('href') ?? '')
@@ -527,7 +527,7 @@ describe('ce que la carte annonce', () => {
     render(<Harness start={[candidate(1, 'kept')]} proxyReady={false} viewInitial="gardes" />)
 
     const mount = screen.getByRole('button', { name: /monter/i })
-    const reason = within(card('Extrait 1')).getByTestId('raison-monter')
+    const reason = within(card('Extrait 1')).getByTestId('reason-edit')
     expect(mount.getAttribute('aria-describedby')).toBe(reason.id)
     expect(reason.id).not.toBe('')
   })
@@ -603,16 +603,16 @@ describe('les comptes', () => {
     const user = await focus('Extrait 1')
 
     await user.keyboard('g')
-    expect(screen.getByTestId('comptes').textContent).toContain('1 clip gardé')
+    expect(screen.getByTestId('counts').textContent).toContain('1 clip gardé')
 
     await user.keyboard('u')
-    expect(screen.getByTestId('comptes').textContent).toContain('0 clip gardé')
-    expect(screen.getByTestId('comptes').textContent).toContain('3 à trier')
+    expect(screen.getByTestId('counts').textContent).toContain('0 clip gardé')
+    expect(screen.getByTestId('counts').textContent).toContain('3 à trier')
   })
 
   it('compte un clip exporté comme gardé', () => {
     render(<Harness start={[candidate(1, 'exported'), candidate(2, 'kept')]} />)
-    expect(screen.getByTestId('comptes').textContent).toContain('2 clips gardés')
+    expect(screen.getByTestId('counts').textContent).toContain('2 clips gardés')
   })
 
   it('accorde le singulier des écartés', async () => {
@@ -654,7 +654,7 @@ describe('la fin de la boucle', () => {
   })
 
   it('distingue « tout a été écarté » de « des gardés restent à monter »', () => {
-    // `suite` ne sépare pas les deux : les deux tombent sur `travail: 'trie'`.
+    // `suite` ne sépare pas les deux : les deux tombent sur `travail: 'sorted'`.
     // C'est l'écran qui tient la liste, donc c'est à lui de le dire.
     render(<Harness start={[candidate(1, 'discarded'), candidate(2, 'discarded')]} />)
 
@@ -686,8 +686,8 @@ describe('la fin de la boucle', () => {
     // résultat de plein droit — avec sa raison, et ce qui la lèvera.
     render(<Harness start={[candidate(1, 'kept')]} proxyReady={false} />)
 
-    expect(screen.getByTestId('issue').textContent).toMatch(/proxy/i)
-    expect(screen.getByTestId('issue').textContent).toMatch(/titres|descriptions/i)
+    expect(screen.getByTestId('outcome').textContent).toMatch(/proxy/i)
+    expect(screen.getByTestId('outcome').textContent).toMatch(/titres|descriptions/i)
   })
 
   it('ne parle pas de fin sur une liste vide', () => {
@@ -710,7 +710,7 @@ describe('le montage sans proxy', () => {
     const mount = screen.getByRole('button', { name: /monter/i })
     expect(mount.getAttribute('aria-disabled')).toBe('true')
     expect(mount.hasAttribute('disabled')).toBe(false)
-    expect(within(card('Extrait 1')).getByTestId('raison-monter').textContent).toMatch(/proxy/i)
+    expect(within(card('Extrait 1')).getByTestId('reason-edit').textContent).toMatch(/proxy/i)
   })
 
   it('rend « monter » cliquable dès que le proxy est là', () => {
@@ -737,19 +737,19 @@ describe('la couverture du repérage', () => {
     // de cette liste, au même titre que son nombre d'éléments.
     render(<Harness start={[candidate(1)]} summary={lost} />)
 
-    const word = screen.getByTestId('reperage')
+    const word = screen.getByTestId('detection')
     expect(word.textContent).toContain('68 %')
     expect(within(word).queryByRole('button')).toBeNull()
   })
 
   it('ne dit rien quand le serveur n’a rien mesuré', () => {
     render(<Harness start={[candidate(1)]} summary={null} />)
-    expect(screen.queryByTestId('reperage')).toBeNull()
+    expect(screen.queryByTestId('detection')).toBeNull()
   })
 
   it('annonce un décompte provisoire sans le déduire lui-même', () => {
     render(<Harness start={[candidate(1)]} summary={{ ...lost, partial: true }} />)
-    expect(screen.getByTestId('reperage').textContent).toMatch(/provisoire/i)
+    expect(screen.getByTestId('detection').textContent).toMatch(/provisoire/i)
   })
 })
 

@@ -758,7 +758,7 @@ describe("l'étape de repérage", () => {
   })
 
   /**
-   * Le raccord annoncé par `dernierBilan` et resté ouvert une itération : la
+   * Le raccord annoncé par `lastSummary` et resté ouvert une itération : la
    * perte du repérage n'allait pas plus loin que le journal du serveur. Sur
    * `2025-06-15-cqlp`, quatre lots sur onze reviennent `PROHIBITED_CONTENT` —
    * un tiers du matériau écarté sans être jugé, et Julien triait vingt-cinq
@@ -864,7 +864,7 @@ describe("l'étape de repérage", () => {
       await launch(ID, ['candidates'], {
         db,
         steps: {
-          // Les options du lanceur sont **transmises**, `onBilan` compris : c'est
+          // Les options du lanceur sont **transmises**, `onSummary` compris : c'est
           // le raccord qu'on teste, et un doublon qui les jette le testerait à
           // vide.
           runCandidates: (id, options) =>
@@ -972,7 +972,7 @@ describe("l'étape de repérage", () => {
     })
 
     /**
-     * L'invariant écrit dans `BilanNotation`, et il tient **à tout instant** :
+     * L'invariant écrit dans `SummaryNotation`, et il tient **à tout instant** :
      * une fenêtre est non jugée tant qu'une réponse ne la juge pas, y compris
      * quand une panne l'empêche d'être soumise. Le contrôler ici, sur la passe
      * la plus accidentée, est ce qui empêche un décompte de perte de mentir sur
@@ -1078,7 +1078,7 @@ describe("l'étape de repérage", () => {
     /**
      * Le budget borne des **requêtes**, pas des sous-lots.
      *
-     * `appelerGemini` réessaie jusqu'à trois fois une erreur passagère : débité
+     * `callGemini` réessaie jusqu'à trois fois une erreur passagère : débité
      * une fois par sous-lot, un plafond annoncé de 3 pouvait donc produire 9
      * requêtes — et jusqu'à 99 pour les 33 d'une vraie émission. Or la raison
      * d'être de ce plafond est le quota, et un 429 est précisément ce qui
@@ -1157,7 +1157,7 @@ describe("l'étape de repérage", () => {
     })
 
     /**
-     * L'invariant du bilan : `notées + jamaisNotées === fenêtres`, **y compris
+     * L'invariant du bilan : `notées + neverNoted === fenêtres`, **y compris
      * quand la passe casse en route**. La liste se remplissait au fil des refus,
      * donc une erreur réseau sortait de la boucle et laissait un bilan qui
      * annonçait des fenêtres jugées sans localiser les autres — un décompte de
@@ -1394,7 +1394,7 @@ describe("l'étape de repérage", () => {
 
     /**
      * Perdre une région sur huit vaut infiniment mieux que perdre l'émission.
-     * C'est la leçon déjà écrite dans `noterLesFenêtres` : « tous les lots ont
+     * C'est la leçon déjà écrite dans `noteWindows` : « tous les lots ont
      * été refusés » ne dit rien de la vidéo tant qu'on n'a pas essayé de plus
      * petites charges — et « un bloc a été refusé » n'en dit rien du tout.
      */
@@ -1425,7 +1425,7 @@ describe("l'étape de repérage", () => {
      * une branche morte et un message d'erreur pour un cas impossible.
      *
      * Le message peut donc affirmer « jusqu'au bloc seul » sans prudence
-     * oratoire : contrairement à `noterLesFenêtres`, la descente y arrive
+     * oratoire : contrairement à `noteWindows`, la descente y arrive
      * toujours.
      */
     it('se borne à 2k-1 appels, sans budget à tenir', async () => {

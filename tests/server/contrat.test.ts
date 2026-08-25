@@ -85,7 +85,7 @@ describe('les champs de repérage', () => {
   })
 
   /**
-   * Et le registre les couvre tous. `REGISTRE_RÉGLAGES` se dérive des clés de
+   * Et le registre les couvre tous. `SETTING_FIELDS` se dérive des clés de
    * `DEFAULT_SELECTION_DIMENSIONS`, donc l'égalité est vraie par construction — ce test
    * la tient le jour où quelqu'un remplacera la dérivation par une liste écrite
    * à la main, ce qui est exactement la forme qu'avait le code d'avant.

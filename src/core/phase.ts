@@ -43,11 +43,11 @@ export function isDiscarded(status: ClipStatus): boolean {
  */
 export type Analysis =
   | 'new' // aucun artefact, jamais d'exécution : créé sans avoir été lancé
-  | 'attente' // les candidats manquent, une exécution tourne
-  | 'interrompu' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
-  | 'echec' // la dernière exécution a échoué
-  | 'triable' // candidats présents, proxy absent : on trie, on ne monte pas
-  | 'complet' // candidats et proxy présents
+  | 'waiting' // les candidats manquent, une exécution tourne
+  | 'interrupted' // il manque une étape et rien ne tourne, mais une exécution a déjà eu lieu
+  | 'failed' // la dernière exécution a échoué
+  | 'sortable' // candidats présents, proxy absent : on trie, on ne monte pas
+  | 'complete' // candidats et proxy présents
 
 /**
  * Ce que l'humain a décidé. **Les quatre valeurs se testent dans cet ordre**, et
@@ -55,10 +55,10 @@ export type Analysis =
  * séparément, l'ordre est ce qui les rend exclusives.
  */
 export type Work =
-  | 'rien' // la liste est vide
-  | 'atrier' // sinon, au moins une proposition reste indécise
-  | 'livre' // sinon, au moins un clip gardé, et tous ont un rendu à jour
-  | 'trie' // sinon : tout est décidé, il reste à monter ou à exporter
+  | 'none' // la liste est vide
+  | 'toSort' // sinon, au moins une proposition reste indécise
+  | 'delivered' // sinon, au moins un clip gardé, et tous ont un rendu à jour
+  | 'sorted' // sinon : tout est décidé, il reste à monter ou à exporter
 
 export type Phase = { analysis: Analysis; work: Work }
 
@@ -82,16 +82,16 @@ export type Phase = { analysis: Analysis; work: Work }
  *
  * - **`new` existe depuis le 23 août 2026** (spec §12) : `everRan` — tiré de
  *   `status.json` — distingue un projet jamais lancé d'une exécution morte ;
- * - **`interrompu` et `failure` ne s'appliquent que tant que `candidates` est
- *   absent.** Sans cette précondition ils recouvrent `triable` : une exécution
+ * - **`interrupted` et `failed` ne s'appliquent que tant que `candidates` est
+ *   absent.** Sans cette précondition ils recouvrent `sortable` : une exécution
  *   interrompue pendant l'encodage du proxy cacherait la grille de tri au moment
  *   précis où elle doit remplacer le panneau. Passé ce point, un échec ne décrit
  *   plus ce que l'écran peut faire, il décrit un incident : il s'affiche à côté ;
- * - **`triable` teste la présence de l'artefact, pas son contenu.** C'est le
+ * - **`sortable` teste la présence de l'artefact, pas son contenu.** C'est le
  *   graphe de l'itération 0, où « à jour » veut dire « le fichier est là ». Un
- *   `candidates.json` vide donne `{ triable, rien }`, et c'est l'axe `Work`
+ *   `candidates.json` vide donne `{ sortable, none }`, et c'est l'axe `Work`
  *   qui porte le vide. Cette séparation est la raison d'être des deux axes ;
- * - **`{ attente, trie }` est atteignable.** `eraseArtifact`
+ * - **`{ waiting, sorted }` est atteignable.** `eraseArtifact`
  *   (`src/server/steps/candidates.ts`) retire `candidates.json` **avant** de
  *   toucher à la base : pendant un repérage forcé, les clips gardés sont
  *   toujours là et toujours montables.
@@ -108,7 +108,7 @@ export function phaseProject(
   running: { step: StepName; progress: number } | null,
   error: string | null,
   clips: readonly { status: ClipStatus }[],
-  /** `status.json` a-t-il déjà été écrit ? Défaut `true` : seul un appelant qui distingue `new` d'`interrompu` doit le passer. */
+  /** `status.json` a-t-il déjà été écrit ? Défaut `true` : seul un appelant qui distingue `new` d'`interrupted` doit le passer. */
   everRan = true,
 ): Phase {
   return { analysis: analysisProject(steps, running, error, everRan), work: workProject(clips) }
@@ -122,26 +122,26 @@ function analysisProject(
 ): Analysis {
   // `=== true` et non la vérité de la valeur : le relevé arrive du réseau, et
   // une étape que le client ne connaît pas encore y vaut `undefined`.
-  if (steps.candidates === true) return steps.proxy === true ? 'complet' : 'triable'
+  if (steps.candidates === true) return steps.proxy === true ? 'complete' : 'sortable'
 
   // **Une exécution en cours l'emporte sur l'échec de la précédente.** `error`
   // décrit la dernière exécution *terminée* ; tant qu'une autre tourne, ce que
   // l'écran doit dire est ce qui se passe, pas ce qui s'est passé.
-  if (running !== null) return 'attente'
-  if (error !== null) return 'echec'
-  return everRan ? 'interrompu' : 'new'
+  if (running !== null) return 'waiting'
+  if (error !== null) return 'failed'
+  return everRan ? 'interrupted' : 'new'
 }
 
 function workProject(clips: readonly { status: ClipStatus }[]): Work {
   // **Une cascade ordonnée, et l'ordre fait partie du contrat.** Écrites comme
   // quatre prédicats indépendants, les conditions se recouvrent : une liste vide
-  // satisfait aussi « plus aucune proposition en attente », et `livre` mordrait
-  // sur `atrier` dès le premier clip gardé rendu alors que d'autres propositions
+  // satisfait aussi « plus aucune proposition en attente », et `delivered` mordrait
+  // sur `toSort` dès le premier clip gardé rendu alors que d'autres propositions
   // restent indécises.
-  if (clips.length === 0) return 'rien'
-  if (clips.some((c) => c.status === 'candidate')) return 'atrier'
+  if (clips.length === 0) return 'none'
+  if (clips.some((c) => c.status === 'candidate')) return 'toSort'
 
-  // **`livre` exige au moins un clip gardé** : « tous les clips gardés sont
+  // **`delivered` exige au moins un clip gardé** : « tous les clips gardés sont
   // exportés » est vrai d'une liste vide, et après avoir tout écarté la phase
   // terminale annonçait un livrable alors qu'aucun MP4 n'existe.
   //
@@ -150,13 +150,13 @@ function workProject(clips: readonly { status: ClipStatus }[]): Work {
   // fait sortir le clip de cet état dès qu'un champ que l'encodage consomme
   // change — segments, ratio, cadrage, sous-titres, marque —, et `clipOutputs`
   // rend quatre `null` dès que le statut n'est plus `exported`, effacement des
-  // fichiers réussi ou non. La conception a tenu `livre` pour indisponible faute
+  // fichiers réussi ou non. La conception a tenu `delivered` pour indisponible faute
   // d'un champ de fraîcheur ; la vague de l'export avait déjà satisfait la
   // demande, et ses §2.3 et §9.4 sont amendées depuis.
   const guards = clips.filter((c) => isGuard(c.status))
-  if (guards.length > 0 && guards.every((c) => c.status === 'exported')) return 'livre'
+  if (guards.length > 0 && guards.every((c) => c.status === 'exported')) return 'delivered'
 
-  return 'trie'
+  return 'sorted'
 }
 
 /**

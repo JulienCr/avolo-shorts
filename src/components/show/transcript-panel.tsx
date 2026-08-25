@@ -887,7 +887,7 @@ function rejectionMessage(error: Error): string {
  * Relancer le repérage, après une ou plusieurs corrections.
  *
  * **Le même bouton que celui de l'écran de tri**, importé plutôt que
- * réécrit : `BoutonRelance` (`src/components/review/retry.tsx`) force déjà
+ * réécrit : `ButtonRetry` (`src/components/review/retry.tsx`) force déjà
  * `candidates` avec la confirmation qui énonce le partage — exactement le
  * geste qui fait relire le texte corrigé par le repérage. Il a besoin des
  * comptes de la grille (gardés, écartés, en attente), donc de la liste des
@@ -921,7 +921,7 @@ function RerunDetectionBanner({ projectId }: { projectId: string }) {
  * repérage en un seul appel — c'est `planSteps` qui fait descendre `force`
  * vers l'aval (`src/core/graph.ts`), pas cet écran.
  *
- * **Reprend la forme de `BoutonRelance`** plutôt que le composant lui-même :
+ * **Reprend la forme de `ButtonRetry`** plutôt que le composant lui-même :
  * les cibles, le texte de confirmation et ce qu'il faut dire du coût
  * diffèrent complètement d'un repérage forcé.
  */

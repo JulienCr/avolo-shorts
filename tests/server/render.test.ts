@@ -133,7 +133,7 @@ function markersNamed(
     nativeH: 996,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche' as const,
+    edge: 'left' as const,
     content: content(name),
   }))
 }
@@ -144,7 +144,7 @@ function markersNamed(
  * Aucun de ces tests ne pose d'`analysis.json`, donc `clipFraming` se rabat
  * sur le réglage manuel : un plan unique qui couvre le clip, au ratio résolu et
  * au `cropX` du clip. Passer par la vraie fonction plutôt que par un littéral
- * est ce qui fait que les tests de `marquerExporté` et d'`écarterRenduPérimé`
+ * est ce qui fait que les tests de `markExported` et d'`discardRenderStale`
  * comparent bien ce que la production compare.
  */
 function framingFor(c: Clip): RenderedFraming {
@@ -166,7 +166,7 @@ function framing(overrides: Partial<RenderedFraming> = {}): RenderedFraming {
 }
 
 /**
- * Un clip et son cadrage, tels que `leRenduEstPérimé` les compare.
+ * Un clip et son cadrage, tels que `renderIsStale` les compare.
  *
  * Le cadrage n'est pas un champ du clip : il se recalcule sur ses segments, et
  * c'est justement pour cela qu'il entre dans l'empreinte — une redétection des
@@ -177,7 +177,7 @@ function shape(c: Clip = clip(), cad: RenderedFraming = framing()): ShapeRendere
 }
 
 /**
- * `empreinteDuRendu` avec le preset par défaut, celui de tous ces tests-ci.
+ * `renderFingerprint` avec le preset par défaut, celui de tous ces tests-ci.
  * Le condensat du preset n'entre dans l'empreinte que si un document a été
  * incrusté — d'où le troisième paramètre.
  */
@@ -204,7 +204,7 @@ function observed(overrides: Partial<ObservedBurnIn> = {}): ObservedBurnIn {
 /**
  * L'empreinte qu'un rendu réussi aurait laissée à côté de ses sorties.
  *
- * Elle passe par `empreinteDuRendu` plutôt que par un littéral : un champ ajouté
+ * Elle passe par `renderFingerprint` plutôt que par un littéral : un champ ajouté
  * au format doit casser ces tests, pas les laisser poser un fichier que la
  * lecture refuserait en silence.
  */
@@ -301,7 +301,7 @@ describe('sauterRender', () => {
 })
 
 /**
- * L'autre décision de `renderClip`, et la seule que `sauterLeRendu` ne prend pas :
+ * L'autre décision de `renderClip`, et la seule que `sauterRender` ne prend pas :
  * une fois qu'il faut faire quelque chose, faut-il rallumer ffmpeg, et sur quoi.
  *
  * **C'est ici que se teste le corollaire du correctif de #22.** La variante ne
@@ -351,7 +351,7 @@ describe('redoOutputs', () => {
   })
 
   /**
-   * Sans cette ligne, le correctif de `sauterLeRendu` ne ferait que déplacer le
+   * Sans cette ligne, le correctif de `sauterRender` ne ferait que déplacer le
    * mensonge : un jeu de MP4 complet mais périmé sauterait l'encodage pour n'y
    * réécrire que le `.txt`, et repartirait `exported`.
    */
@@ -396,7 +396,7 @@ describe("l'empreinte de rendu", () => {
       // Le condensat du preset, et non un booléen : il dit avec quel look.
       captionsLook: e.captionsLook,
       // Le condensat de ce qui a été réellement incrusté (#87) — `null` ici :
-      // `empreinteAvec` fixe `texte: null`, et ces tests-ci ne portent pas sur
+      // `fingerprintWith` fixe `texte: null`, et ces tests-ci ne portent pas sur
       // le contenu du transcript.
       captionsContent: null,
       // `clip()` ne porte pas de hook (`hookText: ''`) : les deux champs bruts
@@ -428,12 +428,12 @@ describe("l'empreinte de rendu", () => {
     })
 
     it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
-      expect(lFingerprintGap(null, shape(), observed({ markers }))).toBe('absente')
+      expect(lFingerprintGap(null, shape(), observed({ markers }))).toBe('absent')
     })
 
     it('dit « recette » sur une version qui n’est plus la nôtre', () => {
       const old = { ...toSide(), version: VERSION_FINGERPRINT - 1 }
-      expect(lFingerprintGap(old, shape(), observed({ markers }))).toBe('recette')
+      expect(lFingerprintGap(old, shape(), observed({ markers }))).toBe('recipe')
     })
 
     it('dit « montage » sur chacun des champs qui vont à l’image', () => {
@@ -444,7 +444,7 @@ describe("l'empreinte de rendu", () => {
       ]
       for (const override of scenarios) {
         expect(lFingerprintGap(toSide(), shape(clip(override)), observed({ markers }))).toBe(
-          'montage',
+          'edit',
         )
       }
     })
@@ -471,7 +471,7 @@ describe("l'empreinte de rendu", () => {
       for (const override of scenarios) {
         expect(
           lFingerprintGap(toSide(), shape(clip(), framing(override)), observed({ markers })),
-        ).toBe('montage')
+        ).toBe('edit')
       }
     })
 
@@ -503,12 +503,12 @@ describe("l'empreinte de rendu", () => {
 
     it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
       const two = markersNamed(['logo.png', 'twitch.png'])
-      expect(lFingerprintGap(toSide(), shape(), observed({ markers: two }))).toBe('marques')
+      expect(lFingerprintGap(toSide(), shape(), observed({ markers: two }))).toBe('markers')
     })
 
     it('dit « marques » quand une marque a été retirée du dossier', () => {
       const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png', 'twitch.png']))
-      expect(lFingerprintGap(fingerprint, shape(), observed({ markers }))).toBe('marques')
+      expect(lFingerprintGap(fingerprint, shape(), observed({ markers }))).toBe('markers')
     })
 
     /**
@@ -518,7 +518,7 @@ describe("l'empreinte de rendu", () => {
      * de moins — jamais un second avis sur la même question.
      */
     /**
-     * **`OptionsRendu.style` change l'image et n'entrait pas dans l'empreinte.**
+     * **`OptionsRender.style` change l'image et n'entrait pas dans l'empreinte.**
      * Un rendu forcé avec un preset personnalisé, puis un appel avec le preset
      * par défaut, sautait en déclarant à jour une vidéo produite avec l'autre
      * style. (relevé par Copilot)
@@ -570,7 +570,7 @@ describe("l'empreinte de rendu", () => {
       // Le reste continue de compter.
       expect(
         lFingerprintGap(fingerprint, shape(clip(), framing({ ratio: '4:5' })), observed()),
-      ).toBe('montage')
+      ).toBe('edit')
     })
   })
 
@@ -674,7 +674,7 @@ describe("l'empreinte de rendu", () => {
     it('relit ce que `renderFingerprint` a écrit', () => {
       const c = clip()
       poserFingerprint(c, '1:1', ['logo.png'])
-      // `poserEmpreinte` écrit le cadrage **résolu** : le relire suppose de le
+      // `poserFingerprint` écrit le cadrage **résolu** : le relire suppose de le
       // recalculer de la même façon, sinon on compare deux cadrages différents.
       expect(lireFingerprint(fingerprintPath())).toEqual(
         fingerprintWith(c, markersNamed(['logo.png']), c.captions, framingFor(c)),
@@ -730,12 +730,12 @@ describe("l'empreinte de rendu", () => {
     })
 
     /**
-     * **Le cas concret de l'issue #73.** `VERSION_EMPREINTE` est passée de 3 à 4
+     * **Le cas concret de l'issue #73.** `VERSION_FINGERPRINT` est passée de 3 à 4
      * avec la traduction des clés persistées (`marques` → `marks`, `sousTitres`
      * → `captionsLook`) : une empreinte réellement laissée par la recette
      * d'avant porte encore ces deux noms français, et ce test l'écrit telle
-     * quelle plutôt que par `VERSION_EMPREINTE - 1`, pour que la preuve ne
-     * dépende pas de la valeur courante de la constante. `lireEmpreinte` doit
+     * quelle plutôt que par `VERSION_FINGERPRINT - 1`, pour que la preuve ne
+     * dépende pas de la valeur courante de la constante. `lireFingerprint` doit
      * la périmer sans lever — la version tranche avant que le nouveau schéma ne
      * la voie — exactement comme les trois rendus déjà sur le disque au moment
      * de cette PR (aucun n'a de marque incrustée, voir `ROADMAP.md`).
@@ -761,9 +761,9 @@ describe("l'empreinte de rendu", () => {
       )
       expect(() => lireFingerprint(fingerprintPath())).not.toThrow()
       expect(lireFingerprint(fingerprintPath())).toBeNull()
-      // **La distinction qui compte** (voir le commentaire de `lireEmpreinte`) :
+      // **La distinction qui compte** (voir le commentaire de `lireFingerprint`) :
       // une recette antérieure n'est pas un fichier illisible. Si
-      // `VERSION_EMPREINTE` n'avait pas été montée à 4 avec cette traduction, la
+      // `VERSION_FINGERPRINT` n'avait pas été montée à 4 avec cette traduction, la
       // version stockée matcherait encore la version courante, le fichier
       // passerait au schéma — qui ne connaît plus `marques`/`sousTitres` — et le
       // message basculerait sur « illisible », le mauvais diagnostic.
@@ -814,7 +814,7 @@ describe('scheduleMarkers', () => {
     nativeH,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche',
+    edge: 'left',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
   const mention = (nativeW: number, nativeH: number): MarkerNative => ({
@@ -823,7 +823,7 @@ describe('scheduleMarkers', () => {
     nativeH,
     widthRatio: 0.16,
     heightCap: 0.06,
-    edge: 'droite',
+    edge: 'right',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
 
@@ -881,7 +881,7 @@ describe('scheduleMarkers', () => {
   })
 
   it("ne mord ni sur le haut de l'écran ni sur les sous-titres", () => {
-    // Les sous-titres tiennent le bas : `MARGE_BASSE` vaut 43 sur `PlayResY: 288`,
+    // Les sous-titres tiennent le bas : `MARGIN_LOW` vaut 43 sur `PlayResY: 288`,
     // donc le bloc de cartons commence vers 59 % de la hauteur. La bande doit
     // rester entre le chrome de la plateforme (12 %) et cette limite, sur les
     // quatre formats de sortie.
@@ -1087,13 +1087,13 @@ describe('collectMarkers', () => {
 })
 
 /**
- * La porte des marques, ouverte par #37 : `collecterMarques` rend une liste vide
+ * La porte des marques, ouverte par #37 : `collectMarkers` rend une liste vide
  * sur un dossier vide, et le rendu partait alors sans un mot. Ce qui suit fige la
  * règle qui remplace ce silence — **le clip demande, le dossier répond, et
  * l'export refuse quand la réponse est vide**.
  *
- * `refuserFauteDeMarque` est pur, et c'est ce qui rend testable le cas limite qui
- * compte : une marque sur deux. Il ne s'atteint pas par `collecterMarques`, qui a
+ * `markerRejectFault` est pur, et c'est ce qui rend testable le cas limite qui
+ * compte : une marque sur deux. Il ne s'atteint pas par `collectMarkers`, qui a
  * besoin de ffprobe sur un vrai PNG — ni la CI ni ce fichier n'en ont.
  */
 describe('markerRejectFault', () => {
@@ -1103,7 +1103,7 @@ describe('markerRejectFault', () => {
     nativeH: 250,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche',
+    edge: 'left',
     content: 'peu importe : la porte ne lit pas le contenu',
   })
 
@@ -1184,7 +1184,7 @@ describe('renderClip, la porte des marques', () => {
   })
 
   it("refuse pareillement quand le dossier des marques n'existe pas", async () => {
-    // `collecterMarques` ne distingue pas les deux, et il n'y a rien à
+    // `collectMarkers` ne distingue pas les deux, et il n'y a rien à
     // distinguer : la marque a été demandée, aucune n'est posée. La piste 3 de
     // l'issue butait là — `assets/brand/` est de toute façon toujours présent,
     // son README étant versionné.
@@ -1481,11 +1481,11 @@ describe('renderClip, chemin du saut', () => {
   /**
    * **Le premier point de #48, et le plus grave.** L'écart de statut ne couvre
    * pas le montage : retirer un passage, déplacer une borne ou changer le ratio
-   * laisse un clip `kept` en `kept`. `marquerExporté` posait alors `exported`
-   * sur des fichiers décrivant le montage d'avant, `sortiesDuClip` publiait
+   * laisse un clip `kept` en `kept`. `markExported` posait alors `exported`
+   * sur des fichiers décrivant le montage d'avant, `clipOutputs` publiait
    * leurs URL, et l'interface les affichait comme la livraison du jour.
    *
-   * Ses deux appelants passent aussi par `écarterRenduPérimé` une ligne plus
+   * Ses deux appelants passent aussi par `discardRenderStale` une ligne plus
    * haut. Ce test ne dit donc pas qu'un chemin est ouvert : il dit que la
    * garantie appartient à cette fonction, qui est exportée, plutôt qu'à l'ordre
    * de ses appels.
@@ -1636,7 +1636,7 @@ describe('renderClip, chemin du saut', () => {
   /**
    * **La copie de travail se répare, elle ne se réclame plus.** Ce test disait
    * l'inverse : le rendu levait en prescrivant une réingestion que rien dans
-   * l'application ne savait déclencher — `CIBLES_LANÇABLES` ne l'expose pas, et
+   * l'application ne savait déclencher — `TARGETS_LAUNCHABLE` ne l'expose pas, et
    * un projet dont tous les artefacts existent planifie un plan vide. Le seul
    * remède était un script dans un terminal, ce que le critère de réussite de la
    * conception exclut. Et le TTL de huit heures en aurait fait le cas normal.

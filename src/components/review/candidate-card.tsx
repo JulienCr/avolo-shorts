@@ -133,11 +133,11 @@ export function CandidateCard({
 
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">
-          {/* `data-ouvrir` : c'est ce lien que la touche `Entrée` déclenche.
+          {/* `data-open` : c'est ce lien que la touche `Entrée` déclenche.
               Passer par lui plutôt que par le routeur garde une seule
               navigation, celle que le clic emprunte déjà. */}
           <Link
-            data-ouvrir
+            data-open
             href={linkClip(clip.id)}
             tabIndex={selected ? 0 : -1}
             className="line-clamp-2 text-sm leading-snug font-medium text-balance outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
@@ -251,7 +251,7 @@ function Mount({
             (relevé par Copilot) */}
         <p
           id={reason}
-          data-testid="raison-monter"
+          data-testid="reason-edit"
           className="mt-1 text-xs text-muted-foreground"
         >
           Le montage s’ouvrira avec le proxy, en cours d’encodage. Le titre et la

@@ -111,7 +111,7 @@ export function createOpenAiCall(options: LlmClientOptions): LlmCall {
     })
 
     if (!response.ok) {
-      // Le code HTTP entre dans le message : c'est ce qu'`estPassagère`
+      // Le code HTTP entre dans le message : c'est ce qu'`isTransient`
       // (`candidates.ts`) reconnaît pour décider une relance — même
       // convention que le SDK Gemini, qui écrit le code dans son message
       // d'exception plutôt que de l'exposer autrement.

@@ -175,9 +175,9 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  // **Rien ne doit tourner d'un test à l'autre.** `enCours` est une table de
+  // **Rien ne doit tourner d'un test à l'autre.** `inCurrent` est une table de
   // module : une exécution qu'une assertion ratée aurait laissée derrière elle
-  // ferait échouer le test suivant sur `ExécutionEnCoursError`, à un endroit qui
+  // ferait échouer le test suivant sur `ExecutionInCurrentError`, à un endroit qui
   // ne dit rien du vrai défaut. Et la base se referme après, pas avant : une
   // exécution encore vivante s'en servirait.
   stopRun(PROJECT)
@@ -215,7 +215,7 @@ describe('detectionSummary', () => {
   }
 
   it('rend null quand aucune notation n’est décrite', () => {
-    expect(detectionSummary(null, 'fait')).toBeNull()
+    expect(detectionSummary(null, 'done')).toBeNull()
   })
 
   /**
@@ -228,7 +228,7 @@ describe('detectionSummary', () => {
   })
 
   it('publie les décomptes, jamais la liste des identifiants', () => {
-    expect(detectionSummary(summary, 'fait')).toEqual({
+    expect(detectionSummary(summary, 'done')).toEqual({
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
@@ -239,7 +239,7 @@ describe('detectionSummary', () => {
   })
 
   it('marque partiel un repérage qui a échoué', () => {
-    expect(detectionSummary(summary, 'échoué')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'failed')?.partial).toBe(true)
   })
 
   /**
@@ -247,7 +247,7 @@ describe('detectionSummary', () => {
    * provisoire, et le dire est précisément le rôle de ce drapeau.
    */
   it('marque partiel un repérage en cours', () => {
-    expect(detectionSummary(summary, 'en cours')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'running')?.partial).toBe(true)
   })
 
   /**
@@ -255,7 +255,7 @@ describe('detectionSummary', () => {
    * l'exécution ne l'est pas encore.
    */
   it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
-    expect(detectionSummary(summary, 'fait')?.partial).toBe(false)
+    expect(detectionSummary(summary, 'done')?.partial).toBe(false)
   })
 })
 
@@ -322,7 +322,7 @@ describe('readingPresence', () => {
   })
 
   /**
-   * `cheminTemporaire` garde l'extension d'origine — ffmpeg choisit son muxeur
+   * `pathTemporary` garde l'extension d'origine — ffmpeg choisit son muxeur
    * dessus —, donc un encodage en cours ou tué laisse un `.partiel-….mp4` dans
    * le dossier des rendus. (relevé par Copilot)
    */
@@ -435,7 +435,7 @@ describe('analysis', () => {
 describe('createProject', () => {
   /**
    * **Ce que `POST /api/projects` vise, et le seul endroit qui le dise.**
-   * `CIBLES_INITIALES` porte `analysis` parce que personne ne clique « détecte
+   * `TARGETS_INITIAL` porte `analysis` parce que personne ne clique « détecte
    * les corps » : on veut un projet dont le cadrage sait déjà se calculer. Les
    * cas plus haut visent `analysis` explicitement, donc aucun ne verrait cette
    * cible disparaître de la liste — la suite resterait verte et un projet neuf
@@ -1092,7 +1092,7 @@ describe('status.json', () => {
    * `src/server/run.ts`, qui explique pourquoi une lecture tolérante suffit
    * ici là où la table `settings` en a une pour de bon. Un fichier écrit par
    * une version d'avant cette PR porte encore `cibles` et `repérage`, avec les
-   * six champs du bilan sous leurs noms français : `lireStatut` doit les
+   * six champs du bilan sous leurs noms français : `lireStatus` doit les
    * retrouver sous `targets` et `selectionReport`, sans qu'un redémarrage du
    * serveur ne les efface silencieusement de l'écran de projet.
    */
@@ -1234,7 +1234,7 @@ describe("l'arrêt d'une exécution", () => {
   /**
    * **Un arrêt demandé n'est pas une panne.** Écrire le message du processus tué
    * — « ffmpeg a échoué (tué par SIGTERM) » — ferait afficher un bandeau d'échec
-   * à quelqu'un qui vient de cliquer « Arrêter », et `phaseProjet` classerait le
+   * à quelqu'un qui vient de cliquer « Arrêter », et `phaseProject` classerait le
    * projet en `echec` au lieu d'`interrompu`.
    */
   it('écrit un statut d’arrêt, sans erreur et sans running', async () => {

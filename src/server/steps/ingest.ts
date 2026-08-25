@@ -62,7 +62,7 @@ export function fingerprintSource(
 }
 
 /** Ce qu'on décide devant une copie déjà présente. */
-export type DecisionCopy = 'copier' | 'garder'
+export type DecisionCopy = 'copy' | 'keep'
 
 /**
  * Faut-il recopier la source ?
@@ -82,9 +82,9 @@ export function decisionCopy(o: {
   copy: { sizeBytes: number } | null
   force?: boolean
 }): DecisionCopy {
-  if (o.force === true) return 'copier'
-  if (o.copy === null) return 'copier'
-  return o.copy.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
+  if (o.force === true) return 'copy'
+  if (o.copy === null) return 'copy'
+  return o.copy.sizeBytes === o.source.sizeBytes ? 'keep' : 'copy'
 }
 
 /**
@@ -167,7 +167,7 @@ export async function editingResponds(path: string, timeoutMs = DELAY_STAT_MS): 
 /**
  * Attend une promesse, ou renonce et explique.
  *
- * Extrait de `statAvecDélai` pour une raison de test : un `stat` sur un fichier
+ * Extrait de `statWithDelay` pour une raison de test : un `stat` sur un fichier
  * local revient trop vite pour qu'on puisse en observer le délai de garde de
  * façon reproductible, alors qu'une promesse qui ne se règle jamais reproduit
  * exactement le montage mort.
@@ -201,7 +201,7 @@ export async function waitOrAbandon<T>(
  * Copie en flux, avec avancement, vers un nom temporaire renommé à la fin.
  *
  * Le temporaire n'est pas une précaution de style : une copie interrompue à
- * 11 Go sur 12 laisserait, sous le nom définitif, un fichier que `décisionCopie`
+ * 11 Go sur 12 laisserait, sous le nom définitif, un fichier que `decisionCopy`
  * comparerait par sa taille — et qui, au premier octet près, pourrait passer.
  * Le renommage est atomique à l'intérieur d'un même système de fichiers, et
  * `stage/` en est un.
@@ -248,7 +248,7 @@ async function copy(
  * Les copies en cours, par destination. **Dans ce processus, et pas au-delà.**
  *
  * Deux traitements du même processus qui demandent la même source ne la copient
- * pas deux fois. Le cas n'est pas théorique : `enCours` (`src/server/run.ts`)
+ * pas deux fois. Le cas n'est pas théorique : `inCurrent` (`src/server/run.ts`)
  * interdit deux exécutions du même projet, mais rien n'interdit deux **exports**
  * simultanés sur des clips de la même émission, et chacun réclame la copie par
  * `ensureLocalCopy`. Sur une source de 12 Go, c'est la différence entre attendre
@@ -256,14 +256,14 @@ async function copy(
  *
  * L'exemple que ce commentaire donnait — `show.mp4` et `show.mov` visant la même
  * destination — était faux : `stagedPath` conserve l'extension, donc les deux
- * destinations diffèrent, et `créerProjet` refuse de toute façon de leur donner
+ * destinations diffèrent, et `createProject` refuse de toute façon de leur donner
  * le même identifiant. (relevé par Copilot)
  *
  * **La portée est celle d'une `Map` de module, et il faut la lire comme telle.**
  * Un `dev-ingest` lancé à côté du serveur a la sienne : les deux copies
  * repartent, et elles se disputent la bande passante d'un montage à 97 Mo/s.
  * Ce qui les empêche de se corrompre l'une l'autre n'est pas ce verrou mais
- * `cheminTemporaire`, dont le jeton porte le `pid` : chaque processus écrit son
+ * `pathTemporary`, dont le jeton porte le `pid` : chaque processus écrit son
  * propre fichier, et le renommage final est atomique — le dernier arrivé gagne,
  * les deux candidats sont entiers. Un verrou inter-processus achèterait la bande
  * passante et coûterait la gestion d'un verrou périmé qu'un processus tué laisse
@@ -306,7 +306,7 @@ async function copyOnce(
     const inFlight = copiesInFlight.get(dst)
     if (inFlight === undefined) break
     // **L'attente court contre notre propre signal.** Sans cela, un projet
-    // arrêté pendant qu'un autre copie la même source restait dans `enCours`
+    // arrêté pendant qu'un autre copie la même source restait dans `inCurrent`
     // jusqu'à la fin de cette copie — plusieurs minutes sur 12 Go — avant de
     // seulement constater son arrêt. C'est le même défaut que l'attente entre
     // deux tentatives de Gemini, sur un autre chemin. (relevé par Copilot)
@@ -342,8 +342,8 @@ async function copyOnce(
  * « le cache n'est jamais une source de vérité et peut être supprimé sans
  * conséquence fonctionnelle » (retour d'usage §5). Le rendu constatait l'absence
  * et levait, en prescrivant une réingestion que rien dans l'application ne
- * savait déclencher — `CIBLES_LANÇABLES` n'expose pas l'ingestion, et
- * `ingestionNécessaire` ne recopie que si le proxy ou l'audio sont au plan, donc
+ * savait déclencher — `TARGETS_LAUNCHABLE` n'expose pas l'ingestion, et
+ * `ingestionNecessary` ne recopie que si le proxy ou l'audio sont au plan, donc
  * un projet dont tous les artefacts existent planifie `[]` et ne recopie rien.
  * Le seul remède était `scripts/dev-ingest.ts` dans un terminal, ce qui
  * contredit le critère de réussite de la conception : *sans avoir tapé un chemin
@@ -775,7 +775,7 @@ export async function cleanStage(
  * **Une fin de fichier propre n'est pas une preuve de complétude.** Si la source
  * rétrécit pendant la copie — le Drive resynchronise, quelqu'un remplace le
  * fichier —, `pipeline` s'achève sans erreur sur un fichier plus court, et le
- * renommage le rend définitif. `décisionCopie` ne s'en rendrait pas compte tout
+ * renommage le rend définitif. `decisionCopy` ne s'en rendrait pas compte tout
  * de suite, mais tout ce qui suit — le proxy, l'audio, le transcript — serait
  * construit sur une émission tronquée, sans un mot. L'invariant que le
  * temporaire est censé garantir est « ce nom désigne une copie entière » : il
@@ -895,9 +895,9 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   const destination = stagedPath(source)
 
   const stat = await statWithDelay(sourcePath, options.statTimeoutMs ?? DELAY_STAT_MS)
-  // `statAvecDélai` fait un `lstat` : un lien symbolique n'est donc pas un
+  // `statWithDelay` fait un `lstat` : un lien symbolique n'est donc pas un
   // fichier, et il est refusé ici même s'il pointe sur une vraie vidéo. C'est
-  // volontaire — voir le commentaire de `statAvecDélai`.
+  // volontaire — voir le commentaire de `statWithDelay`.
   if (!stat.isFile()) {
     throw new Error(
       `${JSON.stringify(source)} n'est pas un fichier ordinaire. Un replay est un fichier posé ` +
@@ -919,12 +919,12 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
     force: options.force,
   })
 
-  // **Le réglage ne se lit que si la copie est en jeu.** `décisionCopie` a déjà
+  // **Le réglage ne se lit que si la copie est en jeu.** `decisionCopy` a déjà
   // pu répondre « garder » — la copie est là, à la bonne taille —, et dans ce
   // cas la question ne se pose pas : le réglage gouverne ce qu'on fabrique, pas
   // ce qu'on utilise. Ouvrir SQLite pour l'apprendre serait du travail pour
   // rien, et `db: null` (les tests) n'a de toute façon pas de base à ouvrir.
-  const copyWanted = decision === 'copier' && shouldCopyLocally(options)
+  const copyWanted = decision === 'copy' && shouldCopyLocally(options)
 
   const copied =
     copyWanted &&
@@ -934,7 +934,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   // même contenu, et ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait
   // payer. Sans copie, il n'y a pas de choix à faire — sonder `destination`
   // rendrait un `ENOENT` sur un fichier que personne n'a demandé d'écrire.
-  const probed = copyWanted || decision === 'garder' ? destination : sourcePath
+  const probed = copyWanted || decision === 'keep' ? destination : sourcePath
   const fingerprint = fingerprintSource(stat, await probeDuration(probed, undefined, options.signal))
 
   const ingestion: Ingestion = {

@@ -17,12 +17,12 @@ import type { SelectionReport } from '@/lib/api'
 /**
  * Les trois vues du tri.
  *
- * `atrier`, `gardes`, `ecartes` et le paramètre d'URL `vue` (`?vue=`) sont un
- * contrat gelé : une URL en signet garde l'ancienne valeur pour toujours, et
- * `viewSinceUrl` retombe **silencieusement** sur `atrier` devant une valeur
- * inconnue — traduire casserait un signet sans qu'aucun test ni log ne le
- * dise. Verrouillé par `tests/components/review/template.test.ts:50-52`,
- * `review/project-screen.test.tsx:267` et `show/transcript-panel.test.tsx:139`.
+ * `atrier`, `gardes`, `ecartes` et le paramètre `?vue=` sont un contrat gelé :
+ * un signet garde l'ancienne valeur, et `viewSinceUrl` retombe
+ * **silencieusement** sur `atrier` — traduire casserait ce signet sans qu'aucun
+ * test ni log ne le dise. Verrouillé par `tests/components/review/template.test.ts`,
+ * `tests/components/review/project-screen.test.tsx` et
+ * `tests/components/show/transcript-panel.test.tsx`.
  */
 export type View = 'atrier' | 'gardes' | 'ecartes'
 

@@ -282,6 +282,23 @@ function groupByFrame(boxes: PersonBox[]): Map<number, PersonBox[]> {
   return byFrame
 }
 
+/**
+ * La grille réelle d'échantillonnage sur `[start, end)`, en secondes, arrondie
+ * au même pas que `worker/detect.py` (3 décimales).
+ *
+ * Issue #174 : une image sans détection n'a aucune entrée dans `analysis.boxes`,
+ * donc un regroupement qui n'énumère que les boîtes la rend invisible plutôt
+ * que nulle. Énumérer `k / fps` couvre les trous.
+ */
+function gridTimestamps(start: number, end: number, fps: number): number[] {
+  if (!(fps > 0) || !(end > start)) return []
+  const firstK = Math.ceil(start * fps)
+  const lastK = Math.ceil(end * fps) - 1
+  const out: number[] = []
+  for (let k = firstK; k <= lastK; k += 1) out.push(Math.round((k / fps) * 1000) / 1000)
+  return out
+}
+
 type ControlSoloCandidate = { project: string; shot: Shot }
 
 /**
@@ -298,7 +315,12 @@ function findControlSoloShots(data: AddressableData, analyses: Map<string, Analy
       if (shot.end - shot.start < MIN_CONTROL_SHOT_SECONDS) continue
       const inWindow = analysis.boxes.filter((b) => b.t >= shot.start && b.t < shot.end)
       const byFrame = groupByFrame(inWindow)
-      const counts = [...byFrame.values()].map((boxes) => keptBoxes(boxes).length)
+      // Une image sans détection compte 0, elle ne disparaît pas (issue #174) :
+      // sinon un plan très peu détecté peut sembler « à une personne » sur ses
+      // seules images non vides.
+      const counts = gridTimestamps(shot.start, shot.end, analysis.fps).map(
+        (t) => keptBoxes(byFrame.get(Math.round(t * 1000)) ?? []).length,
+      )
       if (counts.length > 0 && median(counts) === 1) out.push({ project, shot })
     }
   }

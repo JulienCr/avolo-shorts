@@ -344,6 +344,23 @@ function inInterval(t: number, start: number, end: number): boolean {
   return t >= start && t < end
 }
 
+/**
+ * La grille réelle d'échantillonnage sur `[start, end)`, en secondes, arrondie
+ * au même pas que `worker/detect.py` (3 décimales).
+ *
+ * Issue #174 : une image sans détection n'a aucune entrée dans `analysis.boxes`,
+ * donc un regroupement qui n'énumère que les boîtes la rend invisible plutôt
+ * que nulle. Énumérer `k / fps` couvre les trous.
+ */
+function gridTimestamps(start: number, end: number, fps: number): number[] {
+  if (!(fps > 0) || !(end > start)) return []
+  const firstK = Math.ceil(start * fps)
+  const lastK = Math.ceil(end * fps) - 1
+  const out: number[] = []
+  for (let k = firstK; k <= lastK; k += 1) out.push(Math.round((k / fps) * 1000) / 1000)
+  return out
+}
+
 /** L'abscisse du centre de `personBounds` — le repère sur lequel le rang se départage. */
 function centerOf(box: PersonBox): number {
   const bounds = personBounds(box)
@@ -381,7 +398,7 @@ function lowerBound(boxes: readonly PersonBox[], value: number): number {
  * premier plan, tri par abscisse du centre du tronc. C'est l'**adressage** des
  * rangs, pas la règle qui choisit entre eux — celle-là est dans le JSON.
  */
-function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot): Frame[] {
+function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot, fps: number): Frame[] {
   const byFrame = new Map<number, PersonBox[]>()
   for (let i = lowerBound(sortedBoxes, shot.start); i < sortedBoxes.length; i += 1) {
     const box = sortedBoxes[i]
@@ -393,9 +410,10 @@ function framesOfShot(sortedBoxes: readonly PersonBox[], shot: Shot): Frame[] {
   }
 
   const out: Frame[] = []
-  for (const all of byFrame.values()) {
+  for (const t of gridTimestamps(shot.start, shot.end, fps)) {
+    const all = byFrame.get(Math.round(t * 1000)) ?? []
     out.push({
-      t: all[0].t,
+      t,
       all,
       ranked: all
         .filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
@@ -627,7 +645,7 @@ function loadShow(projectId: string, show: JsonShow, seed: number): Show {
       index,
       shot,
       json,
-      frames: framesOfShot(sortedBoxes, shot),
+      frames: framesOfShot(sortedBoxes, shot, analysis.fps),
       segments: editedSegments.filter(
         (s) => Math.min(shot.end, s.end) > Math.max(shot.start, s.start),
       ),

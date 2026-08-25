@@ -141,6 +141,23 @@ function inInterval(t: number, start: number, end: number): boolean {
   return t >= start && t < end
 }
 
+/**
+ * La grille réelle d'échantillonnage sur `[start, end)`, en secondes, arrondie
+ * au même pas que `worker/detect.py` (3 décimales).
+ *
+ * Issue #174 : une image sans détection n'a aucune entrée dans `analysis.boxes`,
+ * donc un regroupement qui n'énumère que les boîtes la rend invisible plutôt
+ * que nulle. Énumérer `k / fps` couvre les trous.
+ */
+function gridTimestamps(start: number, end: number, fps: number): number[] {
+  if (!(fps > 0) || !(end > start)) return []
+  const firstK = Math.ceil(start * fps)
+  const lastK = Math.ceil(end * fps) - 1
+  const out: number[] = []
+  for (let k = firstK; k <= lastK; k += 1) out.push(Math.round((k / fps) * 1000) / 1000)
+  return out
+}
+
 function number(n: number, decimals = 1): string {
   return Number.isFinite(n) ? n.toFixed(decimals) : '—'
 }
@@ -298,8 +315,13 @@ function analyzeShots(
       if (already) already.push(b)
       else byFrame.set(key, [b])
     }
-    const counts = [...byFrame.values()].map((boxes) => boxes.length)
-    // Un plan sans aucune image à personne retenue vaut 0, pas « inconnu » :
+    // La grille réelle, restreinte au montage comme `inShot` — une image sans
+    // détection vaut 0, elle ne disparaît pas (issue #174).
+    const ticks = gridTimestamps(shot.start, shot.end, analysis.fps).filter((t) =>
+      segs.some((s) => inInterval(t, s.start, s.end)),
+    )
+    const counts = ticks.map((t) => byFrame.get(Math.round(t * 1000))?.length ?? 0)
+    // Un plan sans aucune image dans le montage vaut 0, pas « inconnu » :
     // c'est la réponse honnête à « combien de personnes, typiquement ? ».
     const typicalPeople = counts.length === 0 ? 0 : median(counts)
     // Le classement en case est un arrondi au plus proche, pas un seuil

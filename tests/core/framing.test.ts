@@ -405,6 +405,36 @@ describe('requiredWidths', () => {
     ])
   })
 
+  // Sans le plafond à 1, un plancher > 1 rejette même la plus haute boîte de
+  // l'image (elle ne peut jamais valoir floor fois elle-même pour floor > 1) :
+  // l'image entière disparaît et le clip retombe sur le ratio le plus large —
+  // un plancher trop haut élargirait alors paradoxalement le cadrage.
+  // (relevé par Copilot et Aristarque)
+  it('plafonne le plancher à 1 plutôt que de vider toute image', () => {
+    const tall = boxH(1, 0.4, 0.6, 0, 1)
+    const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 1.5, ...NO_TRIM })).toEqual(
+      requiredWidths([tall, short], { margin: 0, sizeFloor: 1, ...NO_TRIM }),
+    )
+  })
+
+  // Deux images distinctes : une implémentation qui comparerait à la plus
+  // haute boîte de tout l'appel plutôt que de sa propre image laisserait
+  // survivre la petite boîte de la seconde image, alors qu'elle est seule et
+  // devrait passer le plancher sans concurrent. (relevé par Copilot)
+  it('compare chaque boîte à la plus haute de sa propre image, pas de tout l’appel', () => {
+    const tallFrame1 = boxH(1, 0.4, 0.6, 0, 1)
+    const shortFrame1 = boxH(1, 0.8, 0.9, 0.6, 0.8)
+    const soloFrame2 = boxH(2, 0.1, 0.2, 0.3, 0.5)
+    const [w1, w2] = requiredWidths([tallFrame1, shortFrame1, soloFrame2], {
+      margin: 0,
+      sizeFloor: 0.5,
+      ...NO_TRIM,
+    })
+    expect(w1).toBeCloseTo(0.2, 10)
+    expect(w2).toBeCloseTo(0.1, 10)
+  })
+
   it("ignore une boîte dont la hauteur n'est pas finie, avant même le plancher", () => {
     const tall = boxH(1, 0.4, 0.6, 0, 1)
     const nanHeight = boxH(1, 0.7, 0.8, Number.NaN, 0.5)

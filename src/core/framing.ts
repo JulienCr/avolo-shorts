@@ -1009,7 +1009,11 @@ function inInterval(t: number, start: number, fin: number): boolean {
 function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
   const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
-  const floor = Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor))
+  // Plafonné à 1 : au-delà, la plus haute boîte de l'image ne peut jamais
+  // valoir floor fois elle-même, l'image se viderait entièrement et le clip
+  // retomberait sur le ratio le plus large — l'inverse de l'intention d'un
+  // plancher élevé. (relevé par Copilot et Aristarque)
+  const floor = Math.min(1, Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor)))
 
   // Deux passes : le plancher ci-dessous compare une boîte à la plus haute
   // survivante de sa **propre image**, donc il faut réunir les survivantes

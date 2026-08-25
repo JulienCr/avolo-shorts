@@ -43,14 +43,17 @@ const WHOLE_TOKEN_RE = /^[\p{L}_$][\p{L}\p{N}_$]*$/u;
  * ni l'une ni l'autre (issue #73, revue de la preuve elle-même).
  *
  * Un token de moins de deux caractères, ou dont le seul signal composé est
- * un `$`/`_` en bord (`l$`, `_$`) plutôt qu'interne, n'est jamais retenu :
- * aucun identifiant réel du dépôt n'emploie `$`, vérifié — ces formes ne
+ * un `$`/`_` en bord (`l$`, `_$`) plutôt qu'interne, n'est jamais retenu : le
+ * signal composé se juge sur le token débarrassé de ses `$`/`_` de bord, pas
+ * sur le token brut — sinon `l$` reste compound via son `$` de bord seul.
+ * Aucun identifiant réel du dépôt n'emploie `$`, vérifié — ces formes ne
  * viennent que d'un `${nom}` de template literal recopié dans un
  * commentaire, jamais d'un symbole cité. */
 function isCompoundShaped(token: string): boolean {
   if (token.length < 2) return false;
-  if (/^[_$]|[_$]$/u.test(token) && !/\p{L}/u.test(token.replace(/^[_$]+|[_$]+$/gu, ""))) return false;
-  return /\p{Ll}\p{Lu}/u.test(token) || /\p{Lu}{2,}/u.test(token) || token.includes("_") || token.includes("$");
+  const core = token.replace(/^[_$]+|[_$]+$/gu, "");
+  if (core.length === 0) return false;
+  return /\p{Ll}\p{Lu}/u.test(core) || /\p{Lu}{2,}/u.test(core) || core.includes("_") || core.includes("$");
 }
 
 /** Tous les `ts.Identifier`/`ts.PrivateIdentifier` du programme — la

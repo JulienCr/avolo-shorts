@@ -1100,6 +1100,10 @@ type SizeFloorStats = {
   dropped: number
   framesConsidered: number
   framesEmptied: number
+  /** Images qui perdent au moins une boîte sans être vidées. */
+  framesNarrowed: number
+  /** Part de la plus haute de l'image, une valeur par boîte coupée — l'honnête moitié : une boîte coupée à 0,49 n'est pas la même nouvelle qu'une coupée à 0,05. */
+  droppedShares: number[]
 }
 
 /**
@@ -1136,20 +1140,31 @@ function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOpti
   let boxes = 0
   let dropped = 0
   let framesEmptied = 0
+  let framesNarrowed = 0
+  const droppedShares: number[] = []
   for (const heights of byFrame.values()) {
     boxes += heights.length
     const tallest = Math.max(...heights)
     let survivors = 0
     for (const height of heights) {
-      if (floor > 0 && !(height >= floor * tallest)) {
+      if (!(height >= floor * tallest)) {
         dropped += 1
+        droppedShares.push(height / tallest)
         continue
       }
       survivors += 1
     }
     if (survivors === 0) framesEmptied += 1
+    else if (survivors < heights.length) framesNarrowed += 1
   }
-  return { boxes, dropped, framesConsidered: byFrame.size, framesEmptied }
+  return {
+    boxes,
+    dropped,
+    framesConsidered: byFrame.size,
+    framesEmptied,
+    framesNarrowed,
+    droppedShares,
+  }
 }
 
 /**
@@ -1162,38 +1177,18 @@ function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOpti
  */
 function sweepSizeFloor(shows: Show[]): void {
   console.log(
-    '  plancher   boîtes coupées (corpus)     images vidées (corpus)',
+    '  plancher   boîtes coupées     images vidées   images resserrées   part coupée p90',
   )
-  const corpus = { boxes: 0, dropped: 0, framesConsidered: 0, framesEmptied: 0 }
   const perShow = new Map<string, SizeFloorStats[]>()
   for (const floor of SIZE_FLOORS) {
     const options = opts({ sizeFloor: floor })
-    let boxes = 0
-    let dropped = 0
-    let framesConsidered = 0
-    let framesEmptied = 0
-    for (const show of shows) {
-      const stats = sizeFloorEffect(show.analysis, floor, options)
-      boxes += stats.boxes
-      dropped += stats.dropped
-      framesConsidered += stats.framesConsidered
-      framesEmptied += stats.framesEmptied
+    const perFloor = shows.map((show) => sizeFloorEffect(show.analysis, floor, options))
+    for (const [i, show] of shows.entries()) {
       const list = perShow.get(show.id) ?? []
-      list.push(stats)
+      list.push(perFloor[i])
       perShow.set(show.id, list)
     }
-    const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
-    const dropShare = boxes === 0 ? 0 : (100 * dropped) / boxes
-    const emptyShare = framesConsidered === 0 ? 0 : (100 * framesEmptied) / framesConsidered
-    console.log(
-      `  ${floor.toFixed(2)}${defaultValue}` +
-        `        ${dropped} / ${boxes} (${dropShare.toFixed(1)} %)`.padStart(30) +
-        `        ${framesEmptied} / ${framesConsidered} (${emptyShare.toFixed(1)} %)`.padStart(30),
-    )
-    corpus.boxes = boxes
-    corpus.dropped = dropped
-    corpus.framesConsidered = framesConsidered
-    corpus.framesEmptied = framesEmptied
+    printSizeFloorRow(floor, mergeSizeFloorStats(perFloor), '  ')
   }
 
   for (const show of shows) {
@@ -1201,19 +1196,44 @@ function sweepSizeFloor(shows: Show[]): void {
     for (const [i, floor] of SIZE_FLOORS.entries()) {
       const stats = perShow.get(show.id)?.[i]
       if (stats === undefined) continue
-      const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
-      const dropShare = stats.boxes === 0 ? 0 : (100 * stats.dropped) / stats.boxes
-      const emptyShare =
-        stats.framesConsidered === 0 ? 0 : (100 * stats.framesEmptied) / stats.framesConsidered
-      console.log(
-        `    ${floor.toFixed(2)}${defaultValue}` +
-          `        ${stats.dropped} / ${stats.boxes} (${dropShare.toFixed(1)} %)`.padStart(30) +
-          `        ${stats.framesEmptied} / ${stats.framesConsidered} (${emptyShare.toFixed(1)} %)`.padStart(
-            30,
-          ),
-      )
+      printSizeFloorRow(floor, stats, '    ')
     }
   }
+}
+
+/** Les stats de plusieurs émissions réduites à une seule ligne — le corpus. */
+function mergeSizeFloorStats(stats: SizeFloorStats[]): SizeFloorStats {
+  return stats.reduce((a, b) => ({
+    boxes: a.boxes + b.boxes,
+    dropped: a.dropped + b.dropped,
+    framesConsidered: a.framesConsidered + b.framesConsidered,
+    framesEmptied: a.framesEmptied + b.framesEmptied,
+    framesNarrowed: a.framesNarrowed + b.framesNarrowed,
+    droppedShares: [...a.droppedShares, ...b.droppedShares],
+  }))
+}
+
+/**
+ * Une ligne du tableau du plancher. **« part coupée p90 »** est l'honnête
+ * moitié : elle dit, parmi les boîtes coupées, à combien pour cent de la plus
+ * haute de leur image elles s'arrêtaient — proche du plancher, la coupe est
+ * disputable ; proche de zéro, elle ne l'est pas. Un compte de boîtes seul ne
+ * distingue pas les deux.
+ */
+function printSizeFloorRow(floor: number, stats: SizeFloorStats, indent: string): void {
+  const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
+  const dropShare = stats.boxes === 0 ? 0 : (100 * stats.dropped) / stats.boxes
+  const emptyShare =
+    stats.framesConsidered === 0 ? 0 : (100 * stats.framesEmptied) / stats.framesConsidered
+  console.log(
+    `${indent}${floor.toFixed(2)}${defaultValue}` +
+      `   ${stats.dropped} / ${stats.boxes} (${dropShare.toFixed(1)} %)`.padStart(26) +
+      `   ${stats.framesEmptied} / ${stats.framesConsidered} (${emptyShare.toFixed(1)} %)`.padStart(
+        26,
+      ) +
+      `   ${stats.framesNarrowed}`.padStart(21) +
+      `   ${number(percentile(stats.droppedShares, 0.9))}`.padStart(19),
+  )
 }
 
 /**

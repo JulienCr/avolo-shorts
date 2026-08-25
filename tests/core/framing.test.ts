@@ -413,9 +413,11 @@ describe('requiredWidths', () => {
   it('écarte une boîte dont le bas ne dépasse pas le haut', () => {
     const tall = boxH(1, 0.4, 0.6, 0, 1)
     const inverted = boxH(1, 0.7, 0.8, 0.9, 0.9)
-    expect(requiredWidths([tall, inverted], { margin: 0, ...NO_TRIM })).toEqual([
-      expect.closeTo(0.2, 10),
-    ])
+    // `sizeFloor: 0` isole ce garde du plancher : une boîte inversée a une
+    // hauteur nulle, que le plancher par défaut écarterait de toute façon.
+    expect(
+      requiredWidths([tall, inverted], { margin: 0, sizeFloor: 0, ...NO_TRIM }),
+    ).toEqual([expect.closeTo(0.2, 10)])
   })
 })
 

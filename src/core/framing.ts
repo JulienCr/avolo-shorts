@@ -391,13 +391,6 @@ export type TorsoName = keyof typeof TORSOS
  *
  * Descendre plus bas n'achèterait donc rien, et monter coûte : à 0,03, huit
  * fenêtres de `cqlp` s'élargissent.
- *
- * **`sizeFloor` vaut 0,5, choisi par balayage (`scripts/measure-ratios.ts`,
- * section 8).** La jaquette de DVD de `nabla` à 984,0 s fait 41 % de la plus
- * haute boîte de son image ; 0,4 la garde, 0,5 l'écarte tout en gardant le
- * second comédien à 78 %. Corpus-wide, 0,5 coupe 6,1 % des boîtes et ne vide
- * aucune image sur les cinq émissions ; 0,7 en coupe 13,7 % et commence à
- * resserrer des plans entiers.
  */
 export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freeze({
   minScore: 0.5,
@@ -1018,10 +1011,9 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
   const floor = Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor))
 
-  // Deux passes, parce que le plancher de taille ci-dessous n'est pas un
-  // prédicat par boîte : il compare une boîte à la plus haute survivante de sa
-  // **propre image**, donc toutes les survivantes d'une image doivent être
-  // réunies avant qu'aucune ne soit jugée.
+  // Deux passes : le plancher ci-dessous compare une boîte à la plus haute
+  // survivante de sa **propre image**, donc il faut réunir les survivantes
+  // d'une image avant de juger l'une d'elles.
   const byImage = new Map<number, { t: number; boxes: { x0: number; x1: number; height: number }[] }>()
   for (const b of boxes) {
     // Les boîtes viennent d'un JSON produit par un autre processus. Une borne
@@ -1052,10 +1044,8 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
   }
 
   // Le plancher de taille : une boîte nettement plus courte que la plus haute
-  // de sa propre image n'est pas quelqu'un à cadrer — elle est le plus souvent
-  // un visage imprimé (spec du 25 août 2026, « Le plancher de taille »). `0`
-  // désactive le filtre : aucune boîte n'est jamais plus courte que zéro fois
-  // la plus haute.
+  // de sa propre image n'est pas quelqu'un à cadrer, souvent un visage imprimé
+  // (spec du 25 août 2026, « Le plancher de taille »).
   const byFrame = new Map<number, Span>()
   for (const { t, boxes: frameBoxes } of byImage.values()) {
     const tallest = Math.max(...frameBoxes.map((f) => f.height))
@@ -1063,10 +1053,9 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
     let d = Number.NEGATIVE_INFINITY
     let any = false
     for (const f of frameBoxes) {
-      // `!(hauteur >= plancher * plus_haute)`, même forme que pour le score
-      // plus haut : une hauteur qui ne satisfait pas la comparaison sort,
-      // `NaN` compris.
-      if (floor > 0 && !(f.height >= floor * tallest)) continue
+      // `!(hauteur >= plancher * plus_haute)`, même forme que pour le score :
+      // `NaN` sort, et `floor` à 0 ne rejette jamais rien.
+      if (!(f.height >= floor * tallest)) continue
       g = Math.min(g, f.x0)
       d = Math.max(d, f.x1)
       any = true

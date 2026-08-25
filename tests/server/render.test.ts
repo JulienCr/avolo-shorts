@@ -133,7 +133,7 @@ function markersNamed(
     nativeH: 996,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche' as const,
+    edge: 'left' as const,
     content: content(name),
   }))
 }
@@ -428,12 +428,12 @@ describe("l'empreinte de rendu", () => {
     })
 
     it("dit « absente » sur un rendu qui n'en a pas — les trois du 18 août", () => {
-      expect(lFingerprintGap(null, shape(), observed({ markers }))).toBe('absente')
+      expect(lFingerprintGap(null, shape(), observed({ markers }))).toBe('absent')
     })
 
     it('dit « recette » sur une version qui n’est plus la nôtre', () => {
       const old = { ...toSide(), version: VERSION_FINGERPRINT - 1 }
-      expect(lFingerprintGap(old, shape(), observed({ markers }))).toBe('recette')
+      expect(lFingerprintGap(old, shape(), observed({ markers }))).toBe('recipe')
     })
 
     it('dit « montage » sur chacun des champs qui vont à l’image', () => {
@@ -444,7 +444,7 @@ describe("l'empreinte de rendu", () => {
       ]
       for (const override of scenarios) {
         expect(lFingerprintGap(toSide(), shape(clip(override)), observed({ markers }))).toBe(
-          'montage',
+          'edit',
         )
       }
     })
@@ -471,7 +471,7 @@ describe("l'empreinte de rendu", () => {
       for (const override of scenarios) {
         expect(
           lFingerprintGap(toSide(), shape(clip(), framing(override)), observed({ markers })),
-        ).toBe('montage')
+        ).toBe('edit')
       }
     })
 
@@ -503,12 +503,12 @@ describe("l'empreinte de rendu", () => {
 
     it('dit « marques » quand une marque a été déposée depuis le rendu', () => {
       const two = markersNamed(['logo.png', 'twitch.png'])
-      expect(lFingerprintGap(toSide(), shape(), observed({ markers: two }))).toBe('marques')
+      expect(lFingerprintGap(toSide(), shape(), observed({ markers: two }))).toBe('markers')
     })
 
     it('dit « marques » quand une marque a été retirée du dossier', () => {
       const fingerprint = fingerprintWith(clip(), markersNamed(['logo.png', 'twitch.png']))
-      expect(lFingerprintGap(fingerprint, shape(), observed({ markers }))).toBe('marques')
+      expect(lFingerprintGap(fingerprint, shape(), observed({ markers }))).toBe('markers')
     })
 
     /**
@@ -570,7 +570,7 @@ describe("l'empreinte de rendu", () => {
       // Le reste continue de compter.
       expect(
         lFingerprintGap(fingerprint, shape(clip(), framing({ ratio: '4:5' })), observed()),
-      ).toBe('montage')
+      ).toBe('edit')
     })
   })
 
@@ -814,7 +814,7 @@ describe('scheduleMarkers', () => {
     nativeH,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche',
+    edge: 'left',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
   const mention = (nativeW: number, nativeH: number): MarkerNative => ({
@@ -823,7 +823,7 @@ describe('scheduleMarkers', () => {
     nativeH,
     widthRatio: 0.16,
     heightCap: 0.06,
-    edge: 'droite',
+    edge: 'right',
     content: 'peu importe : le placement ne lit pas le contenu',
   })
 
@@ -1103,7 +1103,7 @@ describe('markerRejectFault', () => {
     nativeH: 250,
     widthRatio: 0.22,
     heightCap: 0.06,
-    edge: 'gauche',
+    edge: 'left',
     content: 'peu importe : la porte ne lit pas le contenu',
   })
 

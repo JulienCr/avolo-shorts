@@ -37,11 +37,11 @@ type Landmarks = { id: string; title: string }
  * introuvable » — sinon la page d'erreur est elle-même une impasse.
  */
 export type Lieu =
-  | { kind: 'bibliotheque' }
-  | { kind: 'projet'; project: Landmarks }
+  | { kind: 'library' }
+  | { kind: 'project'; project: Landmarks }
   | { kind: 'clip'; project: Landmarks; clip: { title: string } }
   | { kind: 'settings' }
-  | { kind: 'inconnu'; label: string }
+  | { kind: 'unknown'; label: string }
 
 /** L'URL d'un projet. Encodée : les identifiants portent accents et espaces. */
 export function linkProject(projectId: string): string {
@@ -79,9 +79,9 @@ export function linkClip(clipId: string): string {
  */
 export function path(lieu: Lieu): { label: string; href?: string }[] {
   switch (lieu.kind) {
-    case 'bibliotheque':
+    case 'library':
       return []
-    case 'projet':
+    case 'project':
       return [{ label: lieu.project.title }]
     case 'clip':
       return [
@@ -90,7 +90,7 @@ export function path(lieu: Lieu): { label: string; href?: string }[] {
       ]
     case 'settings':
       return [{ label: 'Paramètres' }]
-    case 'inconnu':
+    case 'unknown':
       return [{ label: lieu.label }]
   }
 }
@@ -109,7 +109,7 @@ export function path(lieu: Lieu): { label: string; href?: string }[] {
  */
 export type Next =
   | { kind: 'action'; label: string; target: string }
-  | { kind: 'attente'; reason: string; unblockedBy: StepName }
+  | { kind: 'waiting'; reason: string; unblockedBy: StepName }
 
 /**
  * L'issue d'une phase : une action, ou une attente nommée.
@@ -141,19 +141,19 @@ export function next(phase: Phase, project: { id: string }): Next {
   // L'incident, lui, ne disparaît pas pour autant : le bandeau d'erreur et le
   // bouton de reprise sont des surfaces propres de l'écran de projet, servies
   // par `ProjectStatus.error` et `running`, pas par cette fonction.
-  if (phase.work === 'rien') {
+  if (phase.work === 'none') {
     // `interrompu` est la seule impasse réelle de l'interface — `progression()`
     // lit une `Map` du processus Next, qu'un redémarrage vide sans laisser
     // d'erreur — et la reprise est l'ajout qui la ferme.
-    if (phase.analysis === 'interrompu' || phase.analysis === 'echec') {
+    if (phase.analysis === 'interrupted' || phase.analysis === 'failed') {
       return { kind: 'action', label: 'Reprendre l’analyse', target: here }
     }
     // On nomme la cause, jamais une durée restante. Le repérage produit
     // l'artefact qui ouvre le tri — ce n'est pas le transcript, même s'il le
     // précède.
-    if (phase.analysis === 'attente') {
+    if (phase.analysis === 'waiting') {
       return {
-        kind: 'attente',
+        kind: 'waiting',
         reason: 'Le repérage n’a pas encore rendu ses propositions.',
         unblockedBy: 'candidates',
       }
@@ -168,13 +168,13 @@ export function next(phase: Phase, project: { id: string }): Next {
   }
 
   switch (phase.work) {
-    case 'atrier':
+    case 'toSort':
       return { kind: 'action', label: 'Trier les propositions', target: here }
-    case 'livre':
+    case 'delivered':
       // Le succès du parcours. Rien n'attend plus, même si le proxy manque : les
       // MP4 sont sur le disque.
       return { kind: 'action', label: 'Choisir une autre émission', target: '/' }
-    case 'trie':
+    case 'sorted':
       // **Le libellé ne promet aucun clip.** `trie` recouvre deux situations que
       // les deux axes ne distinguent pas : des clips gardés qui attendent leur
       // montage, et une liste dont **tout** a été écarté — non vide, donc pas
@@ -183,9 +183,9 @@ export function next(phase: Phase, project: { id: string }): Next {
       // deux sont gelés par la conception. La cible, elle, est bonne dans les
       // deux cas : l'écran de projet porte la liste, et c'est lui qui dit « 4
       // gardés » ou « rien de gardé, relancer le repérage ». (relevé par Codex)
-      return phase.analysis === 'triable'
+      return phase.analysis === 'sortable'
         ? {
-            kind: 'attente',
+            kind: 'waiting',
             reason:
               'Le montage s’ouvrira avec le proxy, en cours d’encodage. Les titres et les descriptions s’écrivent déjà.',
             unblockedBy: 'proxy',

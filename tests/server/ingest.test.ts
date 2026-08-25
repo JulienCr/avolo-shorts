@@ -30,25 +30,25 @@ describe('decisionCopy', () => {
   const source = { sizeBytes: 4_577_070_123 }
 
   it('copie quand rien n est là', () => {
-    expect(decisionCopy({ source, copy: null })).toBe('copier')
+    expect(decisionCopy({ source, copy: null })).toBe('copy')
   })
 
   it('garde une copie de la même taille — 12 Go sur du 9p ne se repaient pas', () => {
-    expect(decisionCopy({ source, copy: { sizeBytes: 4_577_070_123 } })).toBe('garder')
+    expect(decisionCopy({ source, copy: { sizeBytes: 4_577_070_123 } })).toBe('keep')
   })
 
   it('recopie une copie tronquée', () => {
-    expect(decisionCopy({ source, copy: { sizeBytes: 1_000 } })).toBe('copier')
+    expect(decisionCopy({ source, copy: { sizeBytes: 1_000 } })).toBe('copy')
   })
 
   it('force recopie même une copie complète', () => {
     expect(decisionCopy({ source, copy: { sizeBytes: 4_577_070_123 }, force: true })).toBe(
-      'copier',
+      'copy',
     )
   })
 
   it('un fichier vide des deux côtés reste une copie valide', () => {
-    expect(decisionCopy({ source: { sizeBytes: 0 }, copy: { sizeBytes: 0 } })).toBe('garder')
+    expect(decisionCopy({ source: { sizeBytes: 0 }, copy: { sizeBytes: 0 } })).toBe('keep')
   })
 })
 

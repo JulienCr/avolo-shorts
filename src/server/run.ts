@@ -494,7 +494,7 @@ export type Status = {
  * et **définitivement** si une étape ultérieure tombait, puisque l'échec reste
  * écrit. (relevé par Codex et Copilot)
  */
-export type StateDetection = 'absent' | 'en cours' | 'fait' | 'échoué'
+export type StateDetection = 'absent' | 'running' | 'done' | 'failed'
 
 /**
  * Ce qu'on publie d'une notation, à partir du bilan que le repérage a laissé
@@ -528,7 +528,7 @@ export function detectionSummary(
     rejectedBatches: summary.batchesRejected,
     answeredBatches: summary.batchesResponded,
     coverage: summary.coverage,
-    partial: state !== 'fait',
+    partial: state !== 'done',
   }
 }
 
@@ -1050,7 +1050,7 @@ async function execute(
       // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
       // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
       // `ÉtatRepérage`.
-      if (step === 'candidates') execution.detection = 'en cours'
+      if (step === 'candidates') execution.detection = 'running'
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
       try {
@@ -1074,10 +1074,10 @@ async function execute(
         // Une passe coupée n'a pas échoué : elle n'a pas fini. Les deux donnent
         // `partiel: true` dans le bilan publié, mais l'un décrit un incident et
         // l'autre une décision, et le code se relit.
-        if (step === 'candidates') execution.detection = signal.aborted ? 'en cours' : 'échoué'
+        if (step === 'candidates') execution.detection = signal.aborted ? 'running' : 'failed'
         throw cause
       }
-      if (step === 'candidates') execution.detection = 'fait'
+      if (step === 'candidates') execution.detection = 'done'
     }
 
     // L'arrêt tombé entre deux étapes, ou pendant la dernière : la boucle est

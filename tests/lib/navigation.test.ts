@@ -11,11 +11,11 @@ describe('chemin', () => {
   it('ne donne pas de fil d’Ariane à la racine', () => {
     // La bibliothèque **est** la racine : la marque du produit y suffit, et un
     // fil d'Ariane à un seul cran répéterait le titre de l'écran.
-    expect(path({ kind: 'bibliotheque' })).toEqual([])
+    expect(path({ kind: 'library' })).toEqual([])
   })
 
   it('nomme le projet, sans lien vers l’écran où l’on est', () => {
-    expect(path({ kind: 'projet', project })).toEqual([{ label: project.title }])
+    expect(path({ kind: 'project', project })).toEqual([{ label: project.title }])
   })
 
   it('rend le projet cliquable depuis un clip', () => {
@@ -48,7 +48,7 @@ describe('chemin', () => {
   it('porte un cran quand l’objet n’est pas encore connu', () => {
     // Le chargement et l'objet introuvable : le fil d'Ariane reste atteignable
     // dans tous les états, y compris « clip introuvable ».
-    expect(path({ kind: 'inconnu', label: '…' })).toEqual([{ label: '…' }])
+    expect(path({ kind: 'unknown', label: '…' })).toEqual([{ label: '…' }])
   })
 })
 
@@ -136,12 +136,12 @@ describe('suite', () => {
     // La seule impasse réelle de l'interface : `progression()` lit une `Map` du
     // processus Next, et un redémarrage du serveur perd l'exécution sans laisser
     // d'erreur.
-    const issue = next({ analysis: 'interrompu', work: 'rien' }, project)
+    const issue = next({ analysis: 'interrupted', work: 'none' }, project)
     expect(issue).toEqual({ kind: 'action', label: expect.any(String), target: '/projects/p1' })
   })
 
   it('propose la reprise après un échec qui n’a rien laissé', () => {
-    expect(next({ analysis: 'echec', work: 'rien' }, project)).toEqual({
+    expect(next({ analysis: 'failed', work: 'none' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/projects/p1',
@@ -155,18 +155,18 @@ describe('suite', () => {
     // clips de la passe précédente survivent à un repérage forcé qui a échoué,
     // qui tourne encore, ou qu'un redémarrage du serveur a perdu.
     // (relevé par Codex et Copilot)
-    for (const work of ['atrier', 'trie', 'livre'] as const) {
-      for (const analysis of ['attente', 'interrompu', 'echec'] as const) {
+    for (const work of ['toSort', 'sorted', 'delivered'] as const) {
+      for (const analysis of ['waiting', 'interrupted', 'failed'] as const) {
         expect(next({ analysis, work }, project), `${analysis}/${work}`).toEqual(
-          next({ analysis: 'complet', work }, project),
+          next({ analysis: 'complete', work }, project),
         )
       }
     }
   })
 
   it('attend les propositions tant que le repérage n’a pas rendu', () => {
-    expect(next({ analysis: 'attente', work: 'rien' }, project)).toEqual({
-      kind: 'attente',
+    expect(next({ analysis: 'waiting', work: 'none' }, project)).toEqual({
+      kind: 'waiting',
       reason: expect.any(String),
       unblockedBy: 'candidates',
     })
@@ -177,7 +177,7 @@ describe('suite', () => {
     // pendant un repérage forcé, les clips de la passe précédente sont toujours
     // là. Faire attendre ici cacherait à Julien le travail qu'il vient de
     // faire — c'est l'invariant, la phase ne retire jamais ce qui existe.
-    expect(next({ analysis: 'attente', work: 'atrier' }, project)).toEqual({
+    expect(next({ analysis: 'waiting', work: 'toSort' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/projects/p1',
@@ -187,11 +187,11 @@ describe('suite', () => {
   it('ne cache pas le montage déjà possible pendant un repérage forcé', () => {
     // La conception le dit mot pour mot : pendant un repérage forcé, « les clips
     // gardés sont toujours là et toujours montables ».
-    expect(next({ analysis: 'attente', work: 'trie' }, project).kind).toBe('action')
+    expect(next({ analysis: 'waiting', work: 'sorted' }, project).kind).toBe('action')
   })
 
   it('ne cache pas un projet déjà livré pendant un repérage forcé', () => {
-    expect(next({ analysis: 'attente', work: 'livre' }, project)).toEqual({
+    expect(next({ analysis: 'waiting', work: 'delivered' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/',
@@ -202,24 +202,24 @@ describe('suite', () => {
     // `{ triable, trie }` est un état réel : Julien a fini de trier avant que le
     // proxy ne soit encodé, et **il n'a aucune action qui fasse avancer le
     // montage**. Forcer une action ici reviendrait à en inventer une.
-    expect(next({ analysis: 'triable', work: 'trie' }, project)).toEqual({
-      kind: 'attente',
+    expect(next({ analysis: 'sortable', work: 'sorted' }, project)).toEqual({
+      kind: 'waiting',
       reason: expect.any(String),
       unblockedBy: 'proxy',
     })
   })
 
   it('mène au tri tant qu’une proposition reste indécise', () => {
-    const issue = next({ analysis: 'complet', work: 'atrier' }, project)
+    const issue = next({ analysis: 'complete', work: 'toSort' }, project)
     expect(issue).toEqual({ kind: 'action', label: expect.any(String), target: '/projects/p1' })
   })
 
   it('propose de relancer le repérage sur une liste vide', () => {
-    expect(next({ analysis: 'triable', work: 'rien' }, project).kind).toBe('action')
+    expect(next({ analysis: 'sortable', work: 'none' }, project).kind).toBe('action')
   })
 
   it('ramène à la bibliothèque quand tout est livré', () => {
-    expect(next({ analysis: 'complet', work: 'livre' }, project)).toEqual({
+    expect(next({ analysis: 'complete', work: 'delivered' }, project)).toEqual({
       kind: 'action',
       label: expect.any(String),
       target: '/',
@@ -229,7 +229,7 @@ describe('suite', () => {
   it('ne fait pas attendre le proxy quand tout est déjà livré', () => {
     // `{ triable, livre }` : le proxy a disparu du disque après coup, mais tous
     // les MP4 sont là. Il n'y a rien à attendre.
-    expect(next({ analysis: 'triable', work: 'livre' }, project).kind).toBe('action')
+    expect(next({ analysis: 'sortable', work: 'delivered' }, project).kind).toBe('action')
   })
 })
 

@@ -49,9 +49,9 @@ import type { TranscriptLine } from '@/lib/editing'
 import type { Platform, PublicationRecord } from '@/core/publication'
 
 export const keys = {
-  projets: ['projets'] as const,
-  projet: (projectId: string) => ['projet', projectId] as const,
-  candidats: (projectId: string) => ['candidats', projectId] as const,
+  projets: ['projects'] as const,
+  projet: (projectId: string) => ['project', projectId] as const,
+  candidats: (projectId: string) => ['candidates', projectId] as const,
   /**
    * Le préfixe de **toutes** les listes de candidats, pour les invalider sans
    * connaître le projet. TanStack apparie par préfixe : une clé plus courte
@@ -60,7 +60,7 @@ export const keys = {
    * Un test tient les deux ensemble — une divergence rendrait l'invalidation
    * silencieusement sans effet, ce qui est le pire des deux mondes.
    */
-  tousCandidats: ['candidats'] as const,
+  tousCandidats: ['candidates'] as const,
   clip: (clipId: string) => ['clip', clipId] as const,
   /**
    * Les réglages, une seule entrée pour toute l'application.

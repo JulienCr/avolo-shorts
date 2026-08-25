@@ -249,7 +249,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
   // ce raccord, la barre affiche « enregistré » sur une écriture que le serveur
   // vient de refuser, et son rollback a déjà remis la valeur d'avant à l'écran.
   // (relevé par Copilot)
-  const inFailure = autosave === 'echec' || patch.isError || textsInFailure.length > 0
+  const inFailure = autosave === 'failed' || patch.isError || textsInFailure.length > 0
   const lastRejection = patch.isError ? patch.variables : undefined
 
   // **Toutes les écritures en vol sur ce clip, et pas seulement la dernière.**
@@ -336,7 +336,7 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
         >
           {inFailure
             ? 'échec de l’enregistrement'
-            : autosave === 'en-attente' || patch.isPending
+            : autosave === 'pending' || patch.isPending
               ? 'enregistrement…'
               : 'enregistré'}
         </span>

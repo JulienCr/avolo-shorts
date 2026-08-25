@@ -201,14 +201,14 @@ export function agreement(n: number, singular: string, plural: string): string {
  *   à côté de la liste — c'est une surface propre de l'écran, pas une
  *   conséquence de la phase.
  */
-export type Layout = 'panneau' | 'bande' | 'rien'
+export type Layout = 'panel' | 'strip' | 'none'
 
 export function layoutProgress(
   phase: Phase,
   running: { step: StepName; progress: number } | null,
   gridEmpty: boolean,
 ): Layout {
-  if (gridEmpty && phase.analysis !== 'complet') return 'panneau'
+  if (gridEmpty && phase.analysis !== 'complete') return 'panel'
   // Sans exécution, une bande ne montrerait la progression de rien.
-  return running === null ? 'rien' : 'bande'
+  return running === null ? 'none' : 'strip'
 }

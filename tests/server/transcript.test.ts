@@ -108,7 +108,7 @@ describe('environmentWorker', () => {
         DATABASE_URL: 'postgres://user:motdepasse@hôte/base',
         REDIS_URL: 'redis://:motdepasse@hôte:6379',
         // Et n'importe quel nom qu'on n'a pas prévu.
-        DEPLOIEMENT_JETON_INTERNE: 'secret',
+        DEPLOYMENT_INTERNAL_TOKEN: 'secret',
         PATH: '/usr/bin',
         HOME: '/home/julien',
       },
@@ -120,7 +120,7 @@ describe('environmentWorker', () => {
       'DB_PASSWORD',
       'DATABASE_URL',
       'REDIS_URL',
-      'DEPLOIEMENT_JETON_INTERNE',
+      'DEPLOYMENT_INTERNAL_TOKEN',
     ]) {
       expect(env[name]).toBeUndefined()
     }

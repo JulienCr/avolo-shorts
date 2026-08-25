@@ -166,17 +166,17 @@ export function ProjectScreen({ id }: { id: string }) {
   const layout =
     project.isSuccess && !candidates.isPending
       ? layoutProgress(phase, running, clips.length === 0)
-      : 'rien'
+      : 'none'
 
   return (
     <div className="flex min-h-full flex-col">
-      <AppBar lieu={{ kind: 'projet', project: { id, title: project.data?.project.title ?? id } }}>
+      <AppBar lieu={{ kind: 'project', project: { id, title: project.data?.project.title ?? id } }}>
         {/* **L'arrêt suit l'avancement quand il se replie.** Le panneau cède la
             place à la grille dès qu'il y a quelque chose à trier, et il reste
             alors six minutes d'encodage : sans ce bouton, arrêter demanderait
             d'attendre que l'analyse redevienne la seule chose à l'écran, ce qui
             n'arrive jamais. */}
-        {layout === 'bande' && running !== null && (
+        {layout === 'strip' && running !== null && (
           <>
             <StripProgress running={running} />
             <StopButton projectId={id} compact />
@@ -215,7 +215,7 @@ export function ProjectScreen({ id }: { id: string }) {
               maintenant dans deux champs séparés du statut ; ce bandeau ne lit
               plus que le premier, et n'a donc plus besoin de deviner. (relevé
               par Aristarque) */}
-          {error !== null && running === null && layout !== 'panneau' && (
+          {error !== null && running === null && layout !== 'panel' && (
             <Alert variant="destructive">
               <AlertTitle>La dernière analyse a échoué.</AlertTitle>
               <AlertDescription>
@@ -236,7 +236,7 @@ export function ProjectScreen({ id }: { id: string }) {
               rattrapage est le même bouton que dans le panneau transcript —
               réutilisé tel quel, pour ne garder qu'un seul endroit qui sache
               lancer `force: ['correction']`. */}
-          {warning !== null && running === null && layout !== 'panneau' && (
+          {warning !== null && running === null && layout !== 'panel' && (
             <Alert>
               <AlertTitle>La correction automatique du transcript a échoué.</AlertTitle>
               <AlertDescription className="flex flex-col items-start gap-2">
@@ -280,7 +280,7 @@ export function ProjectScreen({ id }: { id: string }) {
               millisecondes : les afficher ensemble ferait passer l'un pour
               l'autre, ce qui est exactement ce que la conception reproche à
               l'écran d'aujourd'hui. */}
-          {layout === 'panneau' ? (
+          {layout === 'panel' ? (
             <PanelProgress
               steps={steps}
               running={running}

@@ -95,7 +95,7 @@ export function ShowPlayer({
           videoRef.current = node
           setElement(node)
         }}
-        data-testid="lecteur-emission"
+        data-testid="show-player"
         // **`preload="metadata"` et non `auto`.** Le proxy pèse plus d'un
         // gigaoctet et cet écran s'ouvre à chaque retour de clip : tirer la vidéo
         // entière à chaque visite coûterait la bande passante du disque pour un

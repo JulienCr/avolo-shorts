@@ -188,7 +188,7 @@ describe('useAutosave', () => {
     const { result, calls } = mount(rest)
     act(() => void vi.advanceTimersByTime(5_000))
     expect(calls).toHaveLength(0)
-    expect(result.current).toBe('enregistre')
+    expect(result.current).toBe('saved')
   })
 
   it('n’envoie qu’une écriture pour une rafale de gestes', () => {
@@ -242,7 +242,7 @@ describe('useAutosave', () => {
     act(() => void vi.advanceTimersByTime(10_000))
 
     expect(calls).toHaveLength(1)
-    expect(result.current).toBe('echec')
+    expect(result.current).toBe('failed')
   })
 
   it('repart au geste suivant, une fois l’échec passé', async () => {
@@ -261,17 +261,17 @@ describe('useAutosave', () => {
   // n'étant vrai qu'une fois le minuteur écoulé.
   it('n’annonce « enregistré » qu’une fois le serveur d’accord', async () => {
     const { result, replay, calls } = mount({ ...rest, cropX: 0.8 })
-    expect(result.current).toBe('en-attente')
+    expect(result.current).toBe('pending')
 
     act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
-    expect(result.current).toBe('en-attente')
+    expect(result.current).toBe('pending')
 
     // La réponse met à jour le cache, donc la référence : c'est elle, et rien
     // d'autre, qui fait retomber la comparaison à zéro.
     const winner = clip({ cropX: 0.8 })
     await actWrapped(() => calls[0].resolve(response(winner, true)))
     replay({ reference: winner })
-    expect(result.current).toBe('enregistre')
+    expect(result.current).toBe('saved')
   })
 
   // **Deux enregistrements du montage peuvent se chevaucher.** La temporisation
@@ -291,7 +291,7 @@ describe('useAutosave', () => {
 
       // Le plus récent échoue : c'est lui qui doit tenir le blocage.
       await actWrapped(() => calls[1].reject(new Error('réseau coupé')))
-      expect(result.current).toBe('echec')
+      expect(result.current).toBe('failed')
 
       // Puis le dépassé aboutit, en retard. Son `setFailure(null)` rouvrirait la
       // porte, et l'écriture ratée repartirait toute seule 600 ms plus tard :
@@ -299,7 +299,7 @@ describe('useAutosave', () => {
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.8 }), true)))
       act(() => void vi.advanceTimersByTime(10_000))
 
-      expect(result.current).toBe('echec')
+      expect(result.current).toBe('failed')
       expect(calls).toHaveLength(2)
     })
 
@@ -338,7 +338,7 @@ describe('useAutosave', () => {
       // Le plus récent passe, et le cache adopte le clip rendu.
       await actWrapped(() => calls[1].resolve(response(winner, true)))
       replay({ reference: winner })
-      expect(result.current).toBe('enregistre')
+      expect(result.current).toBe('saved')
 
       // Le dépassé échoue après coup. Retenir sa signature poserait une mine :
       // le serveur va très bien, mais le jour où l'utilisateur ramène le cadrage
@@ -348,7 +348,7 @@ describe('useAutosave', () => {
       replay({ cropX: 0.8 })
       act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
 
-      expect(result.current).not.toBe('echec')
+      expect(result.current).not.toBe('failed')
       expect(calls).toHaveLength(3)
       expect(calls[2].patch).toEqual({ cropX: 0.8 })
     })
@@ -399,7 +399,7 @@ describe('useAutosave', () => {
       act(() => void vi.advanceTimersByTime(DEBOUNCE_MS))
       await actWrapped(() => calls[0].resolve(response(clip({ cropX: 0.2 }), false)))
 
-      expect(result.current).not.toBe('echec')
+      expect(result.current).not.toBe('failed')
     })
 
     it('remet le montage local d’accord avec le gagnant', async () => {
@@ -551,7 +551,7 @@ describe('useAutosave sur l’observateur partagé de l’écran', () => {
     await actWrapped(() => writeATitle('Un autre titre'))
     await actWrapped(() => send[0].reject(new Error('réseau coupé')))
 
-    expect(result.current).toBe('echec')
+    expect(result.current).toBe('failed')
 
     // Et la signature ratée reste retenue : rien ne repart tout seul.
     await actWrapped(() => void vi.advanceTimersByTime(10_000))

@@ -42,14 +42,14 @@ describe('AppBar', () => {
   })
 
   it('garde la racine atteignable, y compris sans fil d’Ariane', () => {
-    render(<AppBar lieu={{ kind: 'bibliotheque' }} />)
+    render(<AppBar lieu={{ kind: 'library' }} />)
     expect(screen.getByRole('link', { name: 'avolo·shorts' })).toBeTruthy()
   })
 
   it('mène aux paramètres depuis n’importe quel écran', () => {
     // La barre est le seul élément que les écrans partagent, et les réglages
     // n'appartiennent à aucun d'eux.
-    render(<AppBar lieu={{ kind: 'bibliotheque' }} />)
+    render(<AppBar lieu={{ kind: 'library' }} />)
     expect(screen.getByRole('link', { name: 'Paramètres' })).toHaveProperty(
       'pathname',
       '/settings',
@@ -68,7 +68,7 @@ describe('AppBar', () => {
     // La barre laisse la place, elle ne dessine pas l'indicateur : c'est
     // l'écran de projet qui sait ce qui tourne.
     render(
-      <AppBar lieu={{ kind: 'projet', project: { id: 'p1', title: 'Une émission' } }}>
+      <AppBar lieu={{ kind: 'project', project: { id: 'p1', title: 'Une émission' } }}>
         <span>proxy, 40 %</span>
       </AppBar>,
     )

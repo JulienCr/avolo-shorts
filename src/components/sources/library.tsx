@@ -26,7 +26,9 @@ import type { ProjectListItem, SourcesListing } from '@/lib/api'
  * aller-retour en cours, pas une préférence. La retrouver trois jours plus tard,
  * sur une bibliothèque qui a changé entre-temps, désignerait une autre carte.
  */
-export const SCROLL_KEY = 'bibliotheque:defilement'
+// Traduite depuis `bibliotheque:defilement` (issue #110) — un retour de bibliothèque
+// perd sa position de défilement une fois, sans conséquence au-delà.
+export const SCROLL_KEY = 'library:scroll'
 
 /**
  * Le nombre de squelettes posés pendant le chargement.

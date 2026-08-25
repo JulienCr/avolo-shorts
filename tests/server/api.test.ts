@@ -139,7 +139,7 @@ function poserFingerprint(clip: Clip, markers: string[] = []): void {
           nativeH: 996,
           widthRatio: 0.22,
           heightCap: 0.06,
-          edge: 'gauche' as const,
+          edge: 'left' as const,
           content: `contenu-de-${name}`,
         })),
         {

@@ -65,8 +65,8 @@ describe('messageSafe, sur les références de secret', () => {
    * sans quoi la plus courte laisserait la queue de l'autre.
    */
   it('caviarde deux références dont l’une est le préfixe de l’autre', () => {
-    process.env.AVOLO_TEST_FICHE = 'op://Coffre de démonstration/Fiche imaginaire'
-    process.env.AVOLO_TEST_CHAMP = REFERENCE
+    process.env.AVOLO_TEST_ITEM = 'op://Coffre de démonstration/Fiche imaginaire'
+    process.env.AVOLO_TEST_FIELD = REFERENCE
 
     expect(
       messageSafe(
@@ -129,7 +129,7 @@ describe('messageSafe, sur les références de secret', () => {
    * à dépendre de ce qu'il y a dedans plutôt que de sa forme.
    */
   it('ne caviarde pas une valeur littérale de l’environnement', () => {
-    process.env.AVOLO_TEST_MODELE = 'un-modele-litteral'
+    process.env.AVOLO_TEST_MODEL = 'un-modele-litteral'
 
     expect(messageSafe(new Error('le modèle un-modele-litteral a refusé la requête'))).toBe(
       'le modèle un-modele-litteral a refusé la requête',

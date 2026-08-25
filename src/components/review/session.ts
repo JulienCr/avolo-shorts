@@ -67,9 +67,14 @@ export type ReviewState = {
 
 const NEUTRAL: ReviewState = { card: null, scroll: 0, view: null, returning: false, postedAt: null }
 
-/** Une clé par projet : le retour depuis un clip vise **sa** grille. */
+/**
+ * Une clé par projet : le retour depuis un clip vise **sa** grille.
+ *
+ * Traduite depuis `avolo-shorts:tri:` (issue #110) — un rechargement en cours
+ * de bascule perd sa position de défilement une fois, sans conséquence au-delà.
+ */
 function key(projectId: string): string {
-  return `avolo-shorts:tri:${projectId}`
+  return `avolo-shorts:sort:${projectId}`
 }
 
 /**

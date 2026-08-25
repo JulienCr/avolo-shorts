@@ -345,9 +345,9 @@ describe('l’écran de projet', () => {
     )
     mount()
 
-    await waitFor(() => expect(screen.getByTestId('lecteur-emission')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('show-player')).toBeTruthy())
     expect(screen.getByText(/les propositions ne se chargent pas/i)).toBeTruthy()
-    expect(screen.queryByTestId('comptes')).toBeNull()
+    expect(screen.queryByTestId('counts')).toBeNull()
   })
 
   it('publie plusieurs clips groupés, avec `force`, et affiche un échec partiel', async () => {
@@ -488,8 +488,8 @@ describe('l’écran de projet', () => {
 
     // Muette d'abord — on ne sait rien —, puis un seul message, et un seul
     // endroit d'où il vienne.
-    expect(screen.getByTestId('annonce').textContent).toBe('')
-    await waitFor(() => expect(screen.getByTestId('annonce').textContent).toContain('Repérage'))
+    expect(screen.getByTestId('announcement').textContent).toBe('')
+    await waitFor(() => expect(screen.getByTestId('announcement').textContent).toContain('Repérage'))
     expect(document.querySelectorAll('[aria-live="polite"]').length).toBe(1)
   })
 })

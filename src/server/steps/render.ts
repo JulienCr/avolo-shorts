@@ -73,7 +73,7 @@ import { projectTranscript } from '@/server/views'
 const PIECE_COUNT_WARN = 12
 
 /** Les deux sorties possibles, pour distinguer l'avancement de l'une et de l'autre. */
-export type OutputRender = 'natif' | '9x16'
+export type OutputRender = 'native' | '9x16'
 
 export type ProgressRender = Progress & { output: OutputRender }
 
@@ -1041,7 +1041,7 @@ export function markersHaveMoved(
  * champ neuf s'y tient sans renommer ses voisins — les renommer serait hors
  * périmètre de cette PR et entrerait en conflit avec d'autres.
  */
-export type GapFingerprint = 'absente' | 'recette' | 'montage' | 'marques' | 'style' | 'texte' | 'hook'
+export type GapFingerprint = 'absent' | 'recipe' | 'edit' | 'markers' | 'style' | 'text' | 'hook'
 
 /**
  * Ce qu'on incrusterait **maintenant**, pour ce que l'appelant en sait.
@@ -1102,8 +1102,8 @@ export function lFingerprintGap(
   // commentaire qui le dit. Ce que ça coûte est un réencodage par clip, une
   // fois ; ce que ça évite est un MP4 sans logo publié comme la livraison du
   // jour.
-  if (fingerprint === null) return 'absente'
-  if (fingerprint.version !== VERSION_FINGERPRINT) return 'recette'
+  if (fingerprint === null) return 'absent'
+  if (fingerprint.version !== VERSION_FINGERPRINT) return 'recipe'
   // **Le hook du CLIP se contrôle avant `renderIsStale`, et c'est délibéré.**
   // `renderIsStale` compare aussi `hookText`/`hookStyle` — il le doit, pour
   // que `discardRenderStale` périme un rendu sans code neuf à son point
@@ -1112,11 +1112,11 @@ export function lFingerprintGap(
   // contrôle-ci n'ajoute rien à ce que `renderIsStale` sait déjà : il ne fait
   // que répondre en premier, avec le bon nom.
   if (!sameHook(fingerprint, clip)) return 'hook'
-  if (renderIsStale(fingerprint, clip)) return 'montage'
+  if (renderIsStale(fingerprint, clip)) return 'edit'
   // `clip.branding` en guise de tolérance : un clip qui ne demande pas de marque
   // n'a rien à excuser, son empreinte en porte zéro et la comparaison passe.
   if (observed.markers !== null && markersHaveMoved(fingerprint, observed.markers, clip.branding)) {
-    return 'marques'
+    return 'markers'
   }
   // **Seulement quand un document a été incrusté.** `captionsLook` à `null` dit
   // qu'il n'y en a pas eu, et le preset n'a alors rien décrit de l'image : le
@@ -1134,7 +1134,7 @@ export function lFingerprintGap(
   // détecte une correction ayant vidé de mots les segments d'un clip qui
   // demande des sous-titres (#87).
   if (observed.text !== undefined && fingerprint.captionsContent !== digestOfCaptionsText(observed.text)) {
-    return 'texte'
+    return 'text'
   }
   // **Le cas sans précédent : un réglage GLOBAL de hook a changé, sans que
   // `hookText`/`hookStyle` du clip n'aient bougé** — le premier contrôle,
@@ -1163,12 +1163,12 @@ export function fingerprintToDay(
 
 /** Ce que le journal dit de chaque écart, à qui n'a pas lu ce fichier. */
 const GAP_REASON: Record<GapFingerprint, string> = {
-  absente: "aucune empreinte ne dit ce qu'ils décrivent",
-  recette: 'ils ont été produits par une recette de rendu antérieure',
-  montage: 'le montage a changé depuis',
-  marques: "les marques incrustées ne sont plus celles du dossier",
+  absent: "aucune empreinte ne dit ce qu'ils décrivent",
+  recipe: 'ils ont été produits par une recette de rendu antérieure',
+  edit: 'le montage a changé depuis',
+  markers: "les marques incrustées ne sont plus celles du dossier",
   style: "les sous-titres ont été incrustés avec un autre look",
-  texte: 'le transcript a changé sur les segments de ce clip',
+  text: 'le transcript a changé sur les segments de ce clip',
   hook: "le hook — le sien ou un réglage global — a changé depuis",
 }
 
@@ -1318,11 +1318,11 @@ const MARKERS_EXPECTED: readonly {
   heightCap: number
   edge: Edge
 }[] = [
-  { file: 'logo.png', widthRatio: 0.20, heightCap: 0.1, edge: 'gauche' },
-  { file: 'twitch.png', widthRatio: 0.35, heightCap: 0.08, edge: 'droite' },
+  { file: 'logo.png', widthRatio: 0.20, heightCap: 0.1, edge: 'left' },
+  { file: 'twitch.png', widthRatio: 0.35, heightCap: 0.08, edge: 'right' },
 ]
 
-type Edge = 'gauche' | 'droite'
+type Edge = 'left' | 'right'
 
 /** Une marque trouvée sur le disque, avec sa taille native. */
 export type MarkerNative = {
@@ -1409,7 +1409,7 @@ export function scheduleMarkers(
     path: d.path,
     w: d.w,
     h: d.h,
-    x: Math.max(0, d.bord === 'gauche' ? margin : clipW - margin - d.w),
+    x: Math.max(0, d.bord === 'left' ? margin : clipW - margin - d.w),
     y: Math.max(0, Math.round(median - d.h / 2)),
   }))
 }
@@ -2104,7 +2104,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
             // deux montages. (relevé par Codex et Copilot)
             force: true,
             durationSec: duration,
-            onProgress: (a) => options.onProgress?.({ ...a, output: 'natif' }),
+            onProgress: (a) => options.onProgress?.({ ...a, output: 'native' }),
             what: `rendu ${ratio} du clip ${clipId}`,
             args: (destination) =>
               renderArgs({

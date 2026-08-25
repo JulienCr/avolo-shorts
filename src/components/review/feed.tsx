@@ -259,7 +259,7 @@ export function ReviewFeed({
   function open() {
     // Le lien de la carte, pas le routeur : une seule navigation, celle que le
     // clic emprunte déjà.
-    element(current)?.querySelector<HTMLAnchorElement>('a[data-ouvrir]')?.click()
+    element(current)?.querySelector<HTMLAnchorElement>('a[data-open]')?.click()
   }
 
   useShortcutsReview({
@@ -309,7 +309,7 @@ export function ReviewFeed({
       <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
         <h1 className="text-lg font-semibold tracking-tight">Propositions</h1>
 
-        <p data-testid="comptes" className="text-sm text-muted-foreground">
+        <p data-testid="counts" className="text-sm text-muted-foreground">
           <span className="font-mono tabular-nums">{counts.aSort}</span> à trier ·{' '}
           <span className="text-stage-foreground">
             {agreement(counts.guards, 'clip gardé', 'clips gardés')}
@@ -377,7 +377,7 @@ export function ReviewFeed({
           écran ne peut pas s'afficher trois secondes. */}
       {word !== null && (
         <p
-          data-testid="reperage"
+          data-testid="detection"
           className={
             word.loss
               ? 'rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm'

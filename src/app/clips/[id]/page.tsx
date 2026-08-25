@@ -27,7 +27,7 @@ export default function ClipPage({ params }: { params: Promise<{ id: string }> }
         <ClipScreen detail={detail.data} />
       ) : (
         <>
-          <AppBar lieu={{ kind: 'inconnu', label: detail.isError ? 'Clip introuvable' : '…' }} />
+          <AppBar lieu={{ kind: 'unknown', label: detail.isError ? 'Clip introuvable' : '…' }} />
           <main className="mx-auto w-full max-w-5xl flex-1 p-6">
             {detail.isError ? (
               // Pas d'impasse : le fil d'Ariane reste atteignable, et la

@@ -62,7 +62,7 @@ export function fingerprintSource(
 }
 
 /** Ce qu'on décide devant une copie déjà présente. */
-export type DecisionCopy = 'copier' | 'garder'
+export type DecisionCopy = 'copy' | 'keep'
 
 /**
  * Faut-il recopier la source ?
@@ -82,9 +82,9 @@ export function decisionCopy(o: {
   copy: { sizeBytes: number } | null
   force?: boolean
 }): DecisionCopy {
-  if (o.force === true) return 'copier'
-  if (o.copy === null) return 'copier'
-  return o.copy.sizeBytes === o.source.sizeBytes ? 'garder' : 'copier'
+  if (o.force === true) return 'copy'
+  if (o.copy === null) return 'copy'
+  return o.copy.sizeBytes === o.source.sizeBytes ? 'keep' : 'copy'
 }
 
 /**
@@ -924,7 +924,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   // cas la question ne se pose pas : le réglage gouverne ce qu'on fabrique, pas
   // ce qu'on utilise. Ouvrir SQLite pour l'apprendre serait du travail pour
   // rien, et `db: null` (les tests) n'a de toute façon pas de base à ouvrir.
-  const copyWanted = decision === 'copier' && shouldCopyLocally(options)
+  const copyWanted = decision === 'copy' && shouldCopyLocally(options)
 
   const copied =
     copyWanted &&
@@ -934,7 +934,7 @@ export async function ingest(source: string, options: OptionsIngestion = {}): Pr
   // même contenu, et ffprobe lit quelques mégaoctets d'en-tête que le 9p ferait
   // payer. Sans copie, il n'y a pas de choix à faire — sonder `destination`
   // rendrait un `ENOENT` sur un fichier que personne n'a demandé d'écrire.
-  const probed = copyWanted || decision === 'garder' ? destination : sourcePath
+  const probed = copyWanted || decision === 'keep' ? destination : sourcePath
   const fingerprint = fingerprintSource(stat, await probeDuration(probed, undefined, options.signal))
 
   const ingestion: Ingestion = {

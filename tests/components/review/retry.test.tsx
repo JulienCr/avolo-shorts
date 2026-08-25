@@ -117,7 +117,7 @@ describe('ButtonResume', () => {
     const button = screen.getByRole('button', { name: /reprendre/i })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.hasAttribute('disabled')).toBe(false)
-    expect(screen.getByTestId('raison-relance').textContent).toMatch(/en cours/i)
+    expect(screen.getByTestId('reason-retry').textContent).toMatch(/en cours/i)
 
     await userEvent.setup().click(button)
     expect(call).not.toHaveBeenCalled()

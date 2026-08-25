@@ -98,7 +98,7 @@ export function TranscriptDrawer({
       const word = words[index]
       if (!word) return
       const gesture = gestureOnWordBar(clipBounds(segments), word)
-      if (gesture.kind === 'remonter') editor.surfaceWord(words, index)
+      if (gesture.kind === 'restore') editor.surfaceWord(words, index)
       else editor.poserBound(words, index, gesture.edge)
     },
     [words, segments, editor],

@@ -215,7 +215,7 @@ describe('detectionSummary', () => {
   }
 
   it('rend null quand aucune notation n’est décrite', () => {
-    expect(detectionSummary(null, 'fait')).toBeNull()
+    expect(detectionSummary(null, 'done')).toBeNull()
   })
 
   /**
@@ -228,7 +228,7 @@ describe('detectionSummary', () => {
   })
 
   it('publie les décomptes, jamais la liste des identifiants', () => {
-    expect(detectionSummary(summary, 'fait')).toEqual({
+    expect(detectionSummary(summary, 'done')).toEqual({
       windows: 83,
       scored: 51,
       rejectedBatches: 4,
@@ -239,7 +239,7 @@ describe('detectionSummary', () => {
   })
 
   it('marque partiel un repérage qui a échoué', () => {
-    expect(detectionSummary(summary, 'échoué')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'failed')?.partial).toBe(true)
   })
 
   /**
@@ -247,7 +247,7 @@ describe('detectionSummary', () => {
    * provisoire, et le dire est précisément le rôle de ce drapeau.
    */
   it('marque partiel un repérage en cours', () => {
-    expect(detectionSummary(summary, 'en cours')?.partial).toBe(true)
+    expect(detectionSummary(summary, 'running')?.partial).toBe(true)
   })
 
   /**
@@ -255,7 +255,7 @@ describe('detectionSummary', () => {
    * l'exécution ne l'est pas encore.
    */
   it('ne marque pas partiel un repérage fini sous une exécution qui continue', () => {
-    expect(detectionSummary(summary, 'fait')?.partial).toBe(false)
+    expect(detectionSummary(summary, 'done')?.partial).toBe(false)
   })
 })
 

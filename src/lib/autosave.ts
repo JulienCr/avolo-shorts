@@ -21,7 +21,7 @@ import type { Clip, Ratio, Segment } from '@/core/edl'
 import type { ClipPatch, PatchClipResult } from '@/lib/api'
 
 /** L'état affiché dans la barre : trois valeurs, dont l'échec. */
-export type AutosaveState = 'enregistre' | 'en-attente' | 'echec'
+export type AutosaveState = 'saved' | 'pending' | 'failed'
 
 /**
  * Les trois champs que le store porte et que cet enregistrement suit.
@@ -397,6 +397,6 @@ export function useAutosave({
     }
   }, [])
 
-  if (blocked) return 'echec'
-  return signature === null ? 'enregistre' : 'en-attente'
+  if (blocked) return 'failed'
+  return signature === null ? 'saved' : 'pending'
 }

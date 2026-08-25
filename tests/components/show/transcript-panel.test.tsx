@@ -339,9 +339,9 @@ describe('TranscriptPanel — correction', () => {
     await user.click(screen.getByRole('button', { name: 'Corriger' }))
     expect(await screen.findByText(/Le canapé/)).toBeTruthy()
 
-    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+    await waitFor(() => expect(client.getQueryData(['project', 'cqlp'])).toBeTruthy())
 
-    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+    client.setQueryData(['project', 'cqlp'], { ...runningStatus, running: null })
 
     await waitFor(() => expect(screen.queryByText(/Le canapé/)).toBeNull())
   })
@@ -446,9 +446,9 @@ describe('TranscriptPanel — historique de correction', () => {
 
     await screen.findByRole('button', { name: 'Bonjour' })
     expect(screen.queryByText(/substitution appliquée/)).toBeNull()
-    await waitFor(() => expect(client.getQueryData(['projet', 'cqlp'])).toBeTruthy())
+    await waitFor(() => expect(client.getQueryData(['project', 'cqlp'])).toBeTruthy())
 
-    client.setQueryData(['projet', 'cqlp'], { ...runningStatus, running: null })
+    client.setQueryData(['project', 'cqlp'], { ...runningStatus, running: null })
 
     await waitFor(() => expect(screen.queryByText(/1 substitution appliquée/)).toBeTruthy())
   })

@@ -290,6 +290,46 @@ export type FramingOptions = {
    * `0` désactive le filtre entièrement, comme `foregroundMaxHeight: 0`.
    */
   sizeFloor?: number
+  /**
+   * Poser un split-screen sur un plan à deux personnes plutôt qu'un crop
+   * unique. Voir `computeShotSplit` et
+   * `docs/superpowers/specs/2026-08-25-split-screen-design.md`.
+   *
+   * `false` rend le comportement d'avant le split à l'identique — le crop
+   * unique par plan, comme aujourd'hui.
+   */
+  splitScreen?: boolean
+  /** La durée en deçà de laquelle un plan n'entre pas dans le split, en secondes. */
+  splitMinShot?: number
+  /**
+   * Le plancher de largeur d'une cellule, en fraction de la largeur source,
+   * sous lequel un tronc étroit produirait un grossissement absurde.
+   *
+   * **Reproduit les maquettes validées le 25 août 2026** : `max(torse × 3,
+   * hauteur de cellule × 1,125 × 0,6)` sur le canevas 1080×1920, soit 60 % de
+   * la largeur d'une cellule prise à pleine hauteur de source. Demande un
+   * balayage, comme `sizeFloor` avant le sien.
+   */
+  splitMinCellWidth?: number
+  /**
+   * La tolérance au débordement d'une cellule dans la **boîte** de l'autre
+   * personne (pas son tronc), en fraction de la largeur source.
+   *
+   * **Repose sur trois points, pas sur un balayage** : les mesures du 25 août
+   * placent les deux plans approuvés à 0,010 et 0,020, et le seul plan rejeté
+   * à 0,123. Le défaut, `0,08`, est le point à 90 % du plan `cqlp` 2096 s
+   * validé par le repérage humain du même jour — voir le corps de la PR.
+   */
+  splitBleedTolerance?: number
+  /**
+   * La part des images appariées qui doivent tenir sous la tolérance.
+   *
+   * **Reprend la valeur de `chooseRatioFromSpans` pour sa raison** : la
+   * cellule est fixe pour tout le plan, comme le crop du ratio, et exiger
+   * que 100 % des images tiennent tiendrait le split à une norme plus
+   * stricte que celle que le dépôt applique déjà au ratio lui-même.
+   */
+  splitBleedShare?: number
 }
 
 /**
@@ -404,6 +444,11 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   torsoPad: 0.15,
   torsoTrim: 0.3,
   sizeFloor: 0.5,
+  splitScreen: true,
+  splitMinShot: 4,
+  splitMinCellWidth: 0.38,
+  splitBleedTolerance: 0.08,
+  splitBleedShare: 0.9,
 })
 
 /**
@@ -445,6 +490,11 @@ function setting(value: number | undefined, defaultValue: number): number {
  */
 function positiveSetting(value: number | undefined, defaultValue: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : defaultValue
+}
+
+/** `setting`, pour un drapeau : tout ce qui n'est pas un booléen retombe. */
+function flag(value: boolean | undefined, defaultValue: boolean): boolean {
+  return typeof value === 'boolean' ? value : defaultValue
 }
 
 /**
@@ -740,10 +790,10 @@ export type Orientation = {
 }
 
 /**
- * Les réglages d'`orientationOf`, **à part de `FramingOptions`** : cette
- * fonction n'est appelée par personne pour l'instant, surtout pas
- * `computeFraming`, et un champ de plus dans `FramingOptions` obligerait à
- * toucher son bloc de recopie sans aucun besoin.
+ * Les réglages d'`orientationOf`, **à part de `FramingOptions`** :
+ * `computeShotSplit` l'appelle avec ses défauts, jamais via `FramingOptions`,
+ * et un champ de plus dans `FramingOptions` obligerait à toucher son bloc de
+ * recopie sans aucun besoin.
  *
  * `shoulderRatioFull` et `sideDeadband` sont des valeurs de départ à mesurer,
  * pas des constantes gagnées par une campagne — un balayage viendra, comme
@@ -853,10 +903,9 @@ function shoulderRatioOf(k: readonly number[], threshold: number): number | null
 /**
  * À quel point une personne est de face, à partir de son squelette COCO.
  *
- * **Un spike : cette fonction n'est appelée par personne**, et surtout pas
- * `computeFraming` — elle mesure avant de brancher, et le comportement du
- * cadrage en service ne change pas d'un iota tant qu'elle reste en dehors du
- * chemin qui y mène.
+ * Appelée par `computeShotSplit` pour ranger les deux cellules haut/bas — le
+ * seul usage en production. Le cadrage 9:16 et natif hors split n'en dépendent
+ * pas : `frontality`/`facing` restent un diagnostic, jamais une décision.
  *
  * Trois signaux, chacun pouvant manquer indépendamment des deux autres :
  *
@@ -1024,19 +1073,21 @@ export function hasValidGeometry(box: Pick<PersonBox, 'x0' | 'x1' | 'y0' | 'y1'>
   )
 }
 
-function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
-  const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
-  const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
-  // Plafonné à 1 : au-delà, la plus haute boîte de l'image ne peut jamais
-  // valoir floor fois elle-même, l'image se viderait entièrement et le clip
-  // retomberait sur le ratio le plus large — l'inverse de l'intention d'un
-  // plancher élevé. (relevé par Copilot et Aristarque)
-  const floor = Math.min(1, Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor)))
+/** Une boîte retenue, groupée par image : la même porte que `spans` ouvre à tous ses appelants. */
+type RetainedBox = { box: PersonBox; x0: number; x1: number; height: number }
 
-  // Deux passes : le plancher ci-dessous compare une boîte à la plus haute
-  // survivante de sa **propre image**, donc il faut réunir les survivantes
-  // d'une image avant de juger l'une d'elles.
-  const byImage = new Map<number, { t: number; boxes: { x0: number; x1: number; height: number }[] }>()
+/**
+ * Groupe les boîtes retenues par image — score, géométrie, premier plan —
+ * avant le plancher de taille, qui compare une boîte à la plus haute de sa
+ * propre image. Partagée par `spans` et `computeShotSplit` : les deux doivent
+ * lire « retenu » de la même façon (trap #4 de la skill `cadrage`).
+ */
+function retainedByFrame(
+  boxes: PersonBox[],
+  options: FramingOptions,
+): Map<number, { t: number; boxes: RetainedBox[] }> {
+  const threshold = setting(options.minScore, FRAMING_DEFAULTS.minScore)
+  const byImage = new Map<number, { t: number; boxes: RetainedBox[] }>()
   for (const b of boxes) {
     // Les boîtes viennent d'un JSON produit par un autre processus. Une borne
     // non finie ou inversée traverserait tout le calcul en `NaN` et ne se
@@ -1052,28 +1103,45 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
     const height = b.y1 - b.y0
     const key = Math.round(b.t * 1000)
     const already = byImage.get(key)
-    if (already) already.boxes.push({ x0, x1, height })
-    else byImage.set(key, { t: b.t, boxes: [{ x0, x1, height }] })
+    if (already) already.boxes.push({ box: b, x0, x1, height })
+    else byImage.set(key, { t: b.t, boxes: [{ box: b, x0, x1, height }] })
   }
+  return byImage
+}
 
-  // Le plancher de taille : une boîte nettement plus courte que la plus haute
-  // de sa propre image n'est pas quelqu'un à cadrer, souvent un visage imprimé
-  // (spec du 25 août 2026, « Le plancher de taille »).
+/** Le plancher de taille clampé à `[0, 1]` : voir `spans` pour pourquoi 1 est la borne haute. */
+function clampedSizeFloor(options: FramingOptions): number {
+  return Math.min(1, Math.max(0, setting(options.sizeFloor, FRAMING_DEFAULTS.sizeFloor)))
+}
+
+/**
+ * Les survivantes d'une image après le plancher de taille : une boîte
+ * nettement plus courte que la plus haute de sa propre image n'est pas
+ * quelqu'un à cadrer, souvent un visage imprimé (spec du 25 août 2026,
+ * « Le plancher de taille »).
+ */
+function afterSizeFloor(frameBoxes: RetainedBox[], floor: number): RetainedBox[] {
+  const tallest = Math.max(...frameBoxes.map((f) => f.height))
+  // `!(hauteur >= plancher * plus_haute)`, même forme que pour le score :
+  // `NaN` sort, et `floor` à 0 ne rejette jamais rien.
+  return frameBoxes.filter((f) => f.height >= floor * tallest)
+}
+
+function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
+  const margin = Math.max(0, setting(options.margin, FRAMING_DEFAULTS.margin))
+  // Plafonné à 1 : au-delà, la plus haute boîte de l'image ne peut jamais
+  // valoir floor fois elle-même, l'image se viderait entièrement et le clip
+  // retomberait sur le ratio le plus large — l'inverse de l'intention d'un
+  // plancher élevé. (relevé par Copilot et Aristarque)
+  const floor = clampedSizeFloor(options)
+  const byImage = retainedByFrame(boxes, options)
+
   const byFrame = new Map<number, Span>()
   for (const { t, boxes: frameBoxes } of byImage.values()) {
-    const tallest = Math.max(...frameBoxes.map((f) => f.height))
-    let g = Number.POSITIVE_INFINITY
-    let d = Number.NEGATIVE_INFINITY
-    let any = false
-    for (const f of frameBoxes) {
-      // `!(hauteur >= plancher * plus_haute)`, même forme que pour le score :
-      // `NaN` sort, et `floor` à 0 ne rejette jamais rien.
-      if (!(f.height >= floor * tallest)) continue
-      g = Math.min(g, f.x0)
-      d = Math.max(d, f.x1)
-      any = true
-    }
-    if (!any) continue
+    const survivors = afterSizeFloor(frameBoxes, floor)
+    if (survivors.length === 0) continue
+    const g = Math.min(...survivors.map((f) => f.x0))
+    const d = Math.max(...survivors.map((f) => f.x1))
     byFrame.set(Math.round(t * 1000), { t, g, d })
   }
 
@@ -1091,6 +1159,312 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
     d: bound(e.d + margin, 0, 1),
   }))
 }
+
+/**
+ * Le nombre de personnes retenues par image — même filtre que `spans`, sans
+ * la fusion en empan. C'est ce que le déclencheur du split lit pour juger
+ * l'effectif d'un plan (contrat, § « Le déclencheur »).
+ */
+export function retainedCountByFrame(boxes: PersonBox[], options: FramingOptions): number[] {
+  const floor = clampedSizeFloor(options)
+  const byImage = retainedByFrame(boxes, options)
+  return [...byImage.values()].map(({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).length)
+}
+
+/**
+ * Les boîtes retenues d'une image, dans les seules images à **exactement**
+ * `count` survivantes — ce que la géométrie du split apparie.
+ */
+function retainedBoxesByFrame(
+  boxes: PersonBox[],
+  count: number,
+  options: FramingOptions,
+): PersonBox[][] {
+  const floor = clampedSizeFloor(options)
+  const byImage = retainedByFrame(boxes, options)
+  return [...byImage.values()]
+    .map(({ boxes: frameBoxes }) => afterSizeFloor(frameBoxes, floor).map((f) => f.box))
+    .filter((l) => l.length === count)
+}
+
+/** Une cellule du split, en fractions de la source. */
+export type Cell = { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * Égalité de deux cellules, `undefined` compris — la même règle que
+ * `splitByShot` applique déjà à `ratio`/`cropX`/`cropXNative` pour fusionner
+ * deux morceaux adjacents. Canonique ici parce que `Cell` l'est : `shot-split.ts`
+ * et `render.ts` l'importent plutôt que de la réécrire.
+ */
+export function sameCell(a: Cell | undefined, b: Cell | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b
+  return a.x0 === b.x0 && a.y0 === b.y0 && a.x1 === b.x1 && a.y1 === b.y1
+}
+
+/**
+ * Le rectangle en pixels d'une cellule, le pendant de `cropRect` pour le
+ * split : les composantes s'arrondissent au pair pour la même raison — libx264
+ * refuse une dimension impaire en yuv420p.
+ */
+export function splitCellRect(
+  cell: Cell,
+  srcW: number,
+  srcH: number,
+): { w: number; h: number; x: number; y: number } {
+  if (!Number.isFinite(srcW) || !Number.isFinite(srcH)) {
+    throw new Error(
+      `splitCellRect : dimensions de source invalides (${String(srcW)}x${String(srcH)}).`,
+    )
+  }
+  const x0 = bound(cell.x0, 0, 1) * srcW
+  const x1 = bound(cell.x1, 0, 1) * srcW
+  const y0 = bound(cell.y0, 0, 1) * srcH
+  const y1 = bound(cell.y1, 0, 1) * srcH
+  const w = pairLower(Math.max(2, Math.min(srcW, x1 - x0)))
+  const h = pairLower(Math.max(2, Math.min(srcH, y1 - y0)))
+  return {
+    w,
+    h,
+    x: pairLower(bound(Math.round(x0), 0, srcW - w)),
+    y: pairLower(bound(Math.round(y0), 0, srcH - h)),
+  }
+}
+
+/** Le centre de ce qu'un cadre exige d'une personne, pour la ranger à gauche ou à droite. */
+function centerOf(box: PersonBox, options: FramingOptions): number {
+  const { x0, x1 } = personBounds(box, options)
+  return (x0 + x1) / 2
+}
+
+/**
+ * La hauteur d'œil d'une personne, fraction de hauteur source. Trois
+ * priorités, jamais `null` : les deux yeux confiants en moyenne, le nez à
+ * défaut, le haut de la boîte en dernier recours (contrat, § « La géométrie »).
+ */
+function eyeLevelOf(box: PersonBox, threshold: number): number {
+  const k = box.k
+  if (k !== undefined && k.length === POINT_COUNT * 3) {
+    const leftY = k[POINT.LEFT_EYE * 3 + 1]
+    const leftScore = k[POINT.LEFT_EYE * 3 + 2]
+    const rightY = k[POINT.RIGHT_EYE * 3 + 1]
+    const rightScore = k[POINT.RIGHT_EYE * 3 + 2]
+    if (
+      Number.isFinite(leftY) &&
+      Number.isFinite(rightY) &&
+      leftScore >= threshold &&
+      rightScore >= threshold
+    ) {
+      return (leftY + rightY) / 2
+    }
+    const noseY = k[POINT.NOSE * 3 + 1]
+    const noseScore = k[POINT.NOSE * 3 + 2]
+    if (Number.isFinite(noseY) && noseScore >= threshold) return noseY
+  }
+  return box.y0
+}
+
+/** Pourquoi un plan n'a pas vu son split calculé. */
+export type SplitRejection =
+  | 'tooShort'
+  | 'notTwoPeople'
+  | 'ratioNotWide'
+  | 'noPairs'
+  | 'tooNarrowForSource'
+  | 'bleedsIntoOther'
+
+/** Ce que `computeShotSplit` rend. */
+export type ShotSplit = {
+  /** `[haut, bas]`, ou `null` quand le plan ne split pas. */
+  cells: [Cell, Cell] | null
+  rejection: SplitRejection | null
+  /**
+   * Le pire débordement mesuré d'une cellule dans la **boîte** de l'autre
+   * personne, sur les images appariées — `null` tant qu'aucune géométrie n'a
+   * pu se calculer (refus antérieur à elle). **Diagnostic, pas la décision** :
+   * le rejet compare chaque image à la tolérance et exige `splitBleedShare`
+   * d'entre elles en dessous, pas le pire seul. Exposé pour le balayage de
+   * `scripts/measure-ratios.ts`, qui doit pouvoir situer un plan par rapport
+   * à la tolérance sans la recalculer lui-même.
+   */
+  bleed: number | null
+  /**
+   * L'instant, dans la source, de l'image qui porte `bleed` — `null` en même
+   * temps que lui. C'est le plan **et** l'instant qu'il faut pouvoir rendre à
+   * nouveau pour juger un candidat de balayage sur l'image, pas sur un chiffre.
+   */
+  worstBleedAt: number | null
+}
+
+/**
+ * Le split-screen d'un plan à deux personnes (spec du 25 août 2026) : deux
+ * cellules empilées plutôt qu'un crop unique, posées là où c'est
+ * géométriquement utile. Aucun signal de contenu n'y participe — voir le
+ * contrat pour les pistes mesurées et écartées.
+ *
+ * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
+ * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
+ * @param mountedSeconds Le recouvrement entre le plan et les segments montés —
+ *   `shot.end - shot.start` par défaut, mais `boxes` ne porte que les images
+ *   montées : un extrait de quelques secondes pris dans un plan bien plus long
+ *   doit être jugé sur son propre recouvrement, pas sur la durée source.
+ * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
+ */
+export function computeShotSplit(
+  boxes: PersonBox[],
+  shot: Shot,
+  ratio: Ratio,
+  srcW: number,
+  srcH: number,
+  options: FramingOptions,
+  mountedSeconds: number = shot.end - shot.start,
+): ShotSplit {
+  const refuse = (
+    rejection: SplitRejection,
+    bleed: number | null = null,
+    worstBleedAt: number | null = null,
+  ): ShotSplit => ({
+    cells: null,
+    rejection,
+    bleed,
+    worstBleedAt,
+  })
+
+  const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
+  // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
+  if (!(mountedSeconds >= minShot)) return refuse('tooShort')
+
+  const counts = retainedCountByFrame(boxes, options)
+  if (counts.length === 0) return refuse('notTwoPeople')
+  // Tronqué, jamais arrondi (`CLAUDE.md`) : 1,5 doit rester « pas deux »,
+  // pas se hisser à 2 par arrondi.
+  if (Math.floor(median([...counts].sort((a, b) => a - b))) !== 2) return refuse('notTwoPeople')
+
+  if (!(RATIOS[ratio] > RATIOS['9:16'])) return refuse('ratioNotWide')
+
+  // Le rang gauche/droite, par image, sans suivre d'identité : deux comédiens
+  // qui se croisent échangent leurs rangs, et rien ici ne le corrige (ouvert
+  // dans la spec, « Ce qui reste ouvert »).
+  const pairs = retainedBoxesByFrame(boxes, 2, options).map((l) => {
+    const [left, right] = [...l].sort((a, b) => centerOf(a, options) - centerOf(b, options))
+    return { left, right }
+  })
+  if (pairs.length === 0) return refuse('noPairs')
+
+  const pointThreshold = setting(options.torsoMinScore, FRAMING_DEFAULTS.torsoMinScore)
+  const geometryOf = (which: 'left' | 'right') => {
+    const slotBoxes = pairs.map((p) => p[which])
+    const widths = slotBoxes
+      .map((b) => {
+        const { x0, x1 } = personBounds(b, options)
+        return x1 - x0
+      })
+      .sort((a, b) => a - b)
+    const centers = slotBoxes.map((b) => centerOf(b, options)).sort((a, b) => a - b)
+    const eyes = slotBoxes.map((b) => eyeLevelOf(b, pointThreshold)).sort((a, b) => a - b)
+    return { torsoWidth: median(widths), centerX: median(centers), eyeY: median(eyes) }
+  }
+  const left = geometryOf('left')
+  const right = geometryOf('right')
+
+  // Le rang haut/bas : celui qui regarde à droite (`side === 1`) sur la
+  // majorité des images qui départagent. Égalité ou silence : la gauche va en
+  // haut — c'est le cas `cqlp`, dont l'homme de droite sort à `side` nul.
+  let leftWins = 0
+  let rightWins = 0
+  for (const { left: l, right: r } of pairs) {
+    const sideLeft = orientationOf(l).side
+    const sideRight = orientationOf(r).side
+    if (sideLeft === 1 && sideRight !== 1) leftWins += 1
+    else if (sideRight === 1 && sideLeft !== 1) rightWins += 1
+  }
+  const leftOnTop = leftWins >= rightWins
+
+  const minWidthFrac = bound(
+    setting(options.splitMinCellWidth, FRAMING_DEFAULTS.splitMinCellWidth),
+    0,
+    1,
+  )
+  const cellRatio = 1080 / 960
+
+  const cellFor = (slot: { torsoWidth: number; centerX: number; eyeY: number }): Cell | null => {
+    // Clampée à la source : un tronc large — quelqu'un proche caméra, bras
+    // écartés — peut pousser `3 × torse` au-delà de 1, et une cellule ne peut
+    // pas être plus large que sa source.
+    const widthFrac = Math.min(1, Math.max(3 * slot.torsoWidth, minWidthFrac))
+    const heightFrac = (widthFrac * srcW) / cellRatio / srcH
+    // Une largeur clampée qui ne tient plus la hauteur voulue : pas de
+    // géométrie exploitable pour ce plan, plutôt qu'une cellule déformée.
+    if (!(heightFrac <= 1)) return null
+
+    let x0 = slot.centerX - widthFrac / 2
+    let x1 = x0 + widthFrac
+    if (x0 < 0) {
+      x1 -= x0
+      x0 = 0
+    }
+    if (x1 > 1) {
+      x0 -= x1 - 1
+      x1 = 1
+    }
+    x0 = Math.max(0, x0)
+
+    let y0 = slot.eyeY - heightFrac / 3
+    let y1 = y0 + heightFrac
+    if (y0 < 0) {
+      y1 -= y0
+      y0 = 0
+    }
+    if (y1 > 1) {
+      y0 -= y1 - 1
+      y1 = 1
+    }
+    y0 = Math.max(0, y0)
+
+    return { x0, y0, x1, y1 }
+  }
+
+  const leftCell = cellFor(left)
+  const rightCell = cellFor(right)
+  if (leftCell === null || rightCell === null) return refuse('tooNarrowForSource')
+
+  // Le recouvrement des cellules est autorisé ; ce qui compte est le
+  // débordement dans la **boîte** de l'autre personne, pas son tronc — voir
+  // le corps de la PR pour la mesure qui l'a tranché.
+  const bleedPerFrame = pairs.map(
+    ({ left: l, right: r }) =>
+      Math.max(
+        0,
+        Math.min(leftCell.x1, r.x1) - Math.max(leftCell.x0, r.x0),
+        Math.min(rightCell.x1, l.x1) - Math.max(rightCell.x0, l.x0),
+      ),
+  )
+  const bleed = Math.max(0, ...bleedPerFrame)
+  // L'image qui porte ce pire débordement — le premier rang si `bleed` vaut 0
+  // partout, faute de mieux à désigner.
+  const worstBleedAt = pairs[bleedPerFrame.indexOf(bleed)]?.left.t ?? null
+
+  const tolerance = bound(
+    setting(options.splitBleedTolerance, FRAMING_DEFAULTS.splitBleedTolerance),
+    0,
+    1,
+  )
+  // 90 % des images, pas 100 % : même tolérance relative que
+  // `chooseRatioFromSpans` applique déjà au ratio — voir le corps de la PR
+  // pour la mesure qui l'a tranché.
+  const share = bound(setting(options.splitBleedShare, FRAMING_DEFAULTS.splitBleedShare), 0, 1)
+  const within = bleedPerFrame.filter((b) => b <= tolerance).length
+  // `- 1e-9` absorbe l'arrondi flottant à la frontière, comme partout ailleurs
+  // dans ce module : `within / total >= share` peut rater de justesse un cas
+  // pile égal.
+  if (!(within >= share * bleedPerFrame.length - 1e-9)) {
+    return refuse('bleedsIntoOther', bleed, worstBleedAt)
+  }
+
+  const topCell = leftOnTop ? leftCell : rightCell
+  const bottomCell = leftOnTop ? rightCell : leftCell
+  return { cells: [topCell, bottomCell], rejection: null, bleed, worstBleedAt }
+}
+
 
 /**
  * La largeur nécessaire pour contenir les personnes, une valeur par image, en
@@ -1348,6 +1722,13 @@ export type ShotFraming = {
    * c'est un plan que personne n'a cadré, ni la machine ni l'humain.
    */
   source: 'auto' | 'default' | 'manual'
+  /**
+   * Les deux cellules du split-screen, `[haut, bas]`, quand ce plan en pose
+   * un. **Optionnel, et non une union discriminée** : `ratio`/`cropX` restent
+   * valides et calculés normalement, et tout lecteur qui ignore `split` (le
+   * natif, en particulier) continue de fonctionner sans savoir qu'il existe.
+   */
+  split?: [Cell, Cell]
 }
 
 /**
@@ -1467,6 +1848,11 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     torsoPad: req.torsoPad,
     torsoTrim: req.torsoTrim,
     sizeFloor: req.sizeFloor,
+    splitScreen: req.splitScreen,
+    splitMinShot: req.splitMinShot,
+    splitMinCellWidth: req.splitMinCellWidth,
+    splitBleedTolerance: req.splitBleedTolerance,
+    splitBleedShare: req.splitBleedShare,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne
@@ -1483,18 +1869,39 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // ne compte pas — sans plan, elle n'a pas de crop, et on ne peut donc pas dire
   // si elle serait cadrée.
   const shots = shotsForSegments(req.shots, segments)
-  const measurementsByShot = shots.map((shot) =>
-    spans(
-      peopleInSegments.filter((b) => inInterval(b.t, shot.start, shot.end)),
-      options,
-    ),
+  const boxesByShot = shots.map((shot) =>
+    peopleInSegments.filter((b) => inInterval(b.t, shot.start, shot.end)),
   )
+
+  const measuredAll = boxesByShot.map((boxes) => spans(boxes, options))
 
   // **Un ratio par plan.** Épinglé, il vaut pour tous ; sinon, chacun prend le
   // plus serré qui tienne chez lui.
-  const shotRatios = measurementsByShot.map((measurements) =>
-    req.ratio === 'auto' ? chooseRatioFromSpans(measurements, req.srcW, req.srcH) : req.ratio,
-  )
+  const ratioOf = (measurements: Span[]): Ratio =>
+    req.ratio === 'auto' ? chooseRatioFromSpans(measurements, req.srcW, req.srcH) : req.ratio
+  const shotRatiosAll = measuredAll.map(ratioOf)
+
+  // **Le split-screen** (spec du 25 août 2026) : un plan à deux personnes,
+  // plus large que le 9:16, se pose en deux cellules empilées plutôt qu'un
+  // crop unique. Ça ne touche que la variante 9:16 — `shotRatiosAll` et le
+  // natif l'ignorent totalement, voir `computeShotSplit`.
+  const splitByShotIndex = flag(req.splitScreen, FRAMING_DEFAULTS.splitScreen)
+    ? shots.map((shot, i) => {
+        const mountedSeconds = segments.reduce(
+          (m, s) => m + Math.max(0, Math.min(shot.end, s.end) - Math.max(shot.start, s.start)),
+          0,
+        )
+        return computeShotSplit(
+          boxesByShot[i],
+          shot,
+          shotRatiosAll[i],
+          req.srcW,
+          req.srcH,
+          options,
+          mountedSeconds,
+        )
+      })
+    : null
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
   // court — la même réponse que `chooseRatio` quand il ne mesure rien.
@@ -1530,7 +1937,10 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // c'est déjà la réponse de `chooseRatio` au même silence. Une sortie
   // visiblement large se rattrape d'un clic ; un 9:16 aveugle couperait les
   // comédiens sans que rien ne le signale.
-  const candidates: Ratio[] = discovered ? [...shotRatios, WIDEST] : shotRatios
+  // **Sur `shotRatiosAll` et non `shotRatios`** : le cas 2 ne touche que la
+  // variante 9:16, et `ratio` décide aussi, via `pathsRender`, quels fichiers
+  // sont dus.
+  const candidates: Ratio[] = discovered ? [...shotRatiosAll, WIDEST] : shotRatiosAll
   const nativeRatio =
     req.ratio !== 'auto'
       ? req.ratio
@@ -1540,14 +1950,16 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
   const framedShots: ShotFraming[] = shots.map((shot, i) => {
-    const measurements = measurementsByShot[i]
-    const ratio = shotRatios[i]
+    const measurements = measuredAll[i]
+    const ratio = shotRatiosAll[i]
     // Le crop se calcule **pour ce ratio-là et jamais pour un autre** — sans
     // quoi un cadre mesuré en 1:1 se retrouverait posé dans un 4:5, décalé de la
     // différence de largeur. Deux ratios, donc deux positions : celle du plan
     // pour la variante 9:16, celle du natif pour le fichier du feed.
     const { cropX: computed } = shotCrop(measurements, ratioCoverage(ratio, req.srcW, req.srcH))
-    const { cropX: native } = shotCrop(measurements, nativeWidth)
+    // Le natif prend les mesures **entières**, celles que le cas 2 n'a pas
+    // touchées : sa fenêtre n'a pas la même largeur, et il ne suit personne.
+    const { cropX: native } = shotCrop(measuredAll[i], nativeWidth)
     return {
       shot: shot,
       key: shotStartMs(shot),
@@ -1560,6 +1972,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
       cropX: computed ?? 0.5,
       cropXNative: native ?? 0.5,
       source: computed === null ? 'default' : 'auto',
+      split: splitByShotIndex?.[i].cells ?? undefined,
     }
   })
 
@@ -1630,6 +2043,9 @@ function applyExceptions(shots: ShotFraming[], req: FramingRequest): number[] {
     s.cropX = exception.value
     s.cropXNative = exception.value
     s.source = 'manual'
+    // Une dérogation pose un crop unique : un plan encore splitté l'ignorerait
+    // à l'export, la variante 9:16 gardant ses deux cellules en silence.
+    s.split = undefined
   }
 
   return [...new Set(rejected)].sort((a, b) => a - b)

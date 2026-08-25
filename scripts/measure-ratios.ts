@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Six sorties :
+ * Neuf sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -43,6 +43,13 @@
  *    points de pose. C'est le balayage de l'issue #69 : ce que chaque définition
  *    de tronc gagne en ratio, ce qu'elle coupe des gens, et ce qu'il reste au
  *    rognage latéral une fois le tronc en place.
+ * 7. **Où regarder** : les images d'une fenêtre qui font le plus monter le
+ *    ratio, pour rejouer un balayage sur l'image plutôt que sur un chiffre.
+ * 8. **Le plancher de taille** (PR #177) : ce qu'il change au ratio, et à
+ *    l'effectif retenu par image — ce second chiffre n'avait jamais été mesuré.
+ * 9. **Le split-screen**, deux personnes deux cellules : le rendement par
+ *    plan, ses causes de refus, et le contrôle que le fichier natif ne bouge
+ *    pas, split activé ou non.
  *
  * **Le chiffre qui décide est le temps de montage par ratio, pas le compte de
  * clips.** Depuis que le ratio se choisit par plan, un clip « en 16:9 » est
@@ -80,15 +87,17 @@ import {
   RATIOS,
   TORSOS,
   computeFraming,
+  computeShotSplit,
   hasValidGeometry,
   isForeground,
   personBounds,
   ratioCoverage,
   requiredWidths,
+  retainedCountByFrame,
   torsoBounds,
   trimmedBounds,
 } from '@/core/framing'
-import type { ClipFraming, TorsoName } from '@/core/framing'
+import type { ClipFraming, SplitRejection, TorsoName } from '@/core/framing'
 import type { FramingOptions } from '@/core/framing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
@@ -1279,6 +1288,244 @@ function sweepSizeFloorRatio(show: Show, what: 'clips' | 'windows'): void {
 }
 
 // ---------------------------------------------------------------------------
+// 9. Le split-screen : deux personnes, deux cellules
+// ---------------------------------------------------------------------------
+
+/** Les sorts d'un plan devant le déclencheur du split, dans l'ordre où on les lit. */
+const SPLIT_OUTCOMES = [
+  'split',
+  'tooShort',
+  'notTwoPeople',
+  'ratioNotWide',
+  'noPairs',
+  'tooNarrowForSource',
+  'bleedsIntoOther',
+] as const
+
+type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
+
+/**
+ * Ce que le split-screen change sur une émission, en **temps de montage**.
+ *
+ * La table de la spec (83,9 % sur `nabla`, 0 % sur `fmr`…) mesurait le montage
+ * en split ; celle-ci ajoute la répartition des refus, pour que chaque colonne
+ * de rejet montre au moins un cas qui la fait tomber dedans (contrat, critère
+ * d'acceptation 8) plutôt que de rester une case qui ne peut jamais s'allumer.
+ */
+/**
+ * Le contrôle mécanique de l'acceptance criterion 2 : le natif ne doit bouger
+ * sur aucun clip, split activé ou non — ni son ratio, ni la position d'aucun
+ * de ses plans.
+ */
+/**
+ * Les tolérances balayées, **plus le défaut en vigueur** — même règle que
+ * `MARGINS`/`SIDE_TRIMS`/`SIZE_FLOORS` : la fourchette entre les deux plans
+ * approuvés le 25 août (0,010 et 0,020 de débordement) et le seul rejeté
+ * (0,123).
+ */
+const SPLIT_BLEED_TOLERANCES = [
+  ...new Set([0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15, FRAMING_DEFAULTS.splitBleedTolerance]),
+].sort((a, b) => a - b)
+
+/**
+ * Ce que chaque tolérance change au rendement du split, et **le pire cas
+ * qu'elle laisse passer** — celui qu'il faut regarder à l'image, pas le
+ * confortable. Une tolérance qui n'a jamais rien à montrer ne prouve rien.
+ */
+/** Un passage du balayage, sous une valeur de `splitBleedShare` donnée. */
+function bleedPass(
+  show: Show,
+  tolerance: number,
+  share: number,
+): { counts: Map<SplitOutcome, number>; worst: { clip: string; t: number; bleed: number } | null } {
+  const withSettings = { ...opts(), splitBleedTolerance: tolerance, splitBleedShare: share }
+  const counts = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  let worst: { clip: string; t: number; bleed: number } | null = null
+
+  for (const cut of show.clips) {
+    const withoutSplit = framingOf(cut, show.analysis, { ...withSettings, splitScreen: false })
+    const segments = normalizeSegments(cut.segments)
+    const inSegments = show.analysis.boxes.filter((b) =>
+      segments.some((g) => withinInterval(b.t, g.start, g.end)),
+    )
+    for (const framed of withoutSplit.shots) {
+      const shot = framed.shot
+      const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+      const mountedSeconds = segments.reduce(
+        (m, g) => m + Math.max(0, Math.min(shot.end, g.end) - Math.max(shot.start, g.start)),
+        0,
+      )
+      const { cells, rejection, bleed, worstBleedAt } = computeShotSplit(
+        boxes,
+        shot,
+        framed.ratio,
+        show.analysis.source.w,
+        show.analysis.source.h,
+        withSettings,
+        mountedSeconds,
+      )
+      const outcome: SplitOutcome =
+        cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
+      counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
+      // Le pire cas **accepté**, celui qu'un lecteur verrait vraiment sous ce
+      // réglage — pas le pire cas tout court. `worstBleedAt` désigne l'image
+      // précise, pas seulement le plan.
+      if (cells !== null && bleed !== null && worstBleedAt !== null) {
+        if (worst === null || bleed > worst.bleed) {
+          worst = { clip: cut.name, t: worstBleedAt, bleed }
+        }
+      }
+    }
+  }
+  return { counts, worst }
+}
+
+/**
+ * Le balayage de la tolérance, **sous les deux lectures** : chaque image du
+ * plan doit tenir (part à 1 — l'ancien critère de recouvrement, en plus
+ * strict), et 90 % d'entre elles suffisent (le défaut retenu). La deuxième
+ * colonne est ce que la part achète ; sans la première à côté, 0,9 se lirait
+ * comme hérité plutôt qu'argumenté.
+ */
+function sweepBleedTolerance(show: Show): void {
+  console.log(`\n  ${show.id}`)
+  for (const tolerance of SPLIT_BLEED_TOLERANCES) {
+    for (const [label, share] of [
+      ['chaque image (part 1,0)', 1] as const,
+      [`90 % des images (part ${FRAMING_DEFAULTS.splitBleedShare})`, FRAMING_DEFAULTS.splitBleedShare] as const,
+    ]) {
+      const { counts, worst } = bleedPass(show, tolerance, share)
+      const line = SPLIT_OUTCOMES.map((o) => `${o} ${counts.get(o) ?? 0}`).join('  ')
+      const worstText =
+        worst === null
+          ? 'aucun split accepté'
+          : `pire bleed accepté ${worst.bleed.toFixed(3)} — ${worst.clip} @ ${worst.t.toFixed(1)} s`
+      console.log(`    ${tolerance.toFixed(3)}  ${label.padEnd(26)}  ${line}  —  ${worstText}`)
+    }
+  }
+}
+
+function splitNativeControl(show: Show): void {
+  const options = opts()
+  let moved = 0
+  const touched: string[] = []
+  for (const cut of show.clips) {
+    const off = framingOf(cut, show.analysis, { ...options, splitScreen: false })
+    const on = framingOf(cut, show.analysis, { ...options, splitScreen: true })
+    const same =
+      off.ratio === on.ratio &&
+      off.shots.length === on.shots.length &&
+      off.shots.every((p, i) => p.cropXNative === on.shots[i].cropXNative)
+    if (!same) {
+      moved += 1
+      touched.push(`${cut.name} : ${off.ratio} → ${on.ratio}`)
+    }
+  }
+  console.log(
+    `  ${show.id} — natif : ${moved === 0 ? 'intact sur les ' + String(show.clips.length) + ' clips' : String(moved) + ' CLIPS DÉPLACÉS'}`,
+  )
+  if (touched.length > 0) console.log(`    ${touched.join(', ')}`)
+}
+
+function splitYield(show: Show): void {
+  const options = opts()
+  const seconds = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  const shotsSeen = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  let montage = 0
+
+  for (const cut of show.clips) {
+    // Le ratio qui vaudrait **sans** split : c'est la condition 3 du
+    // déclencheur, et `computeShotSplit` la reçoit déjà tranchée plutôt que de
+    // la recalculer — une seule fonction décide de `shotRatiosAll`.
+    const withoutSplit = framingOf(cut, show.analysis, { ...options, splitScreen: false })
+
+    const segments = normalizeSegments(cut.segments)
+    const inSegments = show.analysis.boxes.filter((b) =>
+      segments.some((g) => withinInterval(b.t, g.start, g.end)),
+    )
+    for (const framed of withoutSplit.shots) {
+      const shot = framed.shot
+      const inClip = segments.reduce(
+        (n, g) => n + Math.max(0, Math.min(shot.end, g.end) - Math.max(shot.start, g.start)),
+        0,
+      )
+      montage += inClip
+      const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+      const { cells, rejection } = computeShotSplit(
+        boxes,
+        shot,
+        framed.ratio,
+        show.analysis.source.w,
+        show.analysis.source.h,
+        options,
+        inClip,
+      )
+      const outcome: SplitOutcome = cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
+      seconds.set(outcome, (seconds.get(outcome) ?? 0) + inClip)
+      shotsSeen.set(outcome, (shotsSeen.get(outcome) ?? 0) + 1)
+    }
+  }
+
+  const share = (n: number): string => (montage === 0 ? '—' : `${((100 * n) / montage).toFixed(1)} %`)
+  const split = seconds.get('split') ?? 0
+  console.log(`\n  ${show.id} — ${montage.toFixed(0)} s de montage couvertes par un plan`)
+  console.log(`    ${'sort'.padEnd(19)} ${'plans'.padStart(6)} ${'secondes'.padStart(10)} ${'du montage'.padStart(11)}`)
+  for (const outcome of SPLIT_OUTCOMES) {
+    const n = seconds.get(outcome) ?? 0
+    if (n === 0 && (shotsSeen.get(outcome) ?? 0) === 0) continue
+    console.log(
+      `    ${outcome.padEnd(19)} ${String(shotsSeen.get(outcome) ?? 0).padStart(6)} ` +
+        `${n.toFixed(1).padStart(10)} ${share(n).padStart(11)}`,
+    )
+  }
+  console.log(`    → split sur ${split.toFixed(1)} s, soit ${share(split)} du montage`)
+}
+
+/** Le nombre de personnes retenues, réduit aux trois classes que le split lit. */
+function headcountBucket(n: number): '0' | '1' | '2' | '3+' {
+  return n <= 0 ? '0' : n === 1 ? '1' : n === 2 ? '2' : '3+'
+}
+
+/**
+ * Ce que le plancher de taille de la PR #177 change à **l'effectif par
+ * image**, et non à un ratio — ce que sa propre section 8 n'a jamais mesuré,
+ * alors que c'est exactement ce que lit le déclencheur du split (contrat,
+ * critère d'acceptation 7). Une image de trois personnes qui retombe à deux
+ * quand le plancher s'active est le cas visé : la jaquette de DVD de la
+ * conception, comptée en trop tant que rien ne l'excluait.
+ */
+function sizeFloorHeadcountShift(show: Show): void {
+  const withFloor = opts()
+  const withoutFloor = opts({ sizeFloor: 0 })
+  let framesConsidered = 0
+  let framesShifted = 0
+  const shifts = new Map<string, number>()
+
+  for (const cut of show.clips) {
+    const segments = normalizeSegments(cut.segments)
+    const boxes = show.analysis.boxes.filter((b) => segments.some((g) => withinInterval(b.t, g.start, g.end)))
+    const before = retainedCountByFrame(boxes, withoutFloor)
+    const after = retainedCountByFrame(boxes, withFloor)
+    // Les deux comptes viennent du même regroupement par image et donc du même
+    // ordre d'itération : `retainedCountByFrame` ne fait que varier le
+    // plancher, jamais le regroupement lui-même.
+    framesConsidered += before.length
+    for (const [i, b] of before.entries()) {
+      const bucketBefore = headcountBucket(b)
+      const bucketAfter = headcountBucket(after[i])
+      if (bucketBefore === bucketAfter) continue
+      framesShifted += 1
+      const key = `${bucketBefore} → ${bucketAfter}`
+      shifts.set(key, (shifts.get(key) ?? 0) + 1)
+    }
+  }
+
+  const share = framesConsidered === 0 ? '—' : `${((100 * framesShifted) / framesConsidered).toFixed(2)} %`
+  console.log(`\n  ${show.id} — ${framesConsidered} image(s) considérée(s), ${framesShifted} changent de classe (${share})`)
+  for (const [key, n] of [...shifts.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${key.padEnd(10)} ${n}`)
+  }
+}
 
 async function main(): Promise<number> {
   await chargerEnv()
@@ -1432,6 +1679,18 @@ async function main(): Promise<number> {
     sweepSizeFloor(shows)
     for (const e of shows) sweepSizeFloorRatio(e, 'clips')
     for (const e of shows) sweepSizeFloorRatio(e, 'windows')
+    console.log('\n  Ce que le plancher change à l\'effectif par image, pas seulement au ratio')
+    for (const e of shows) sizeFloorHeadcountShift(e)
+
+    console.log('\n=== 9. Le split-screen : deux personnes, deux cellules ===')
+    console.log("  (« split » : le déclencheur s'applique ; les autres colonnes sont les causes de refus)")
+    for (const e of shows) splitYield(e)
+    console.log('\n  Contrôle mécanique : le natif ne bouge pas, split activé ou non')
+    for (const e of shows) splitNativeControl(e)
+
+    console.log('\n  Le balayage de la tolérance au débordement (splitBleedTolerance)')
+    console.log('  (« pire bleed accepté » : le plan le plus proche de la tolérance parmi ceux acceptés — celui à regarder à l\'image)')
+    for (const e of shows) sweepBleedTolerance(e)
 
     return 0
   } finally {

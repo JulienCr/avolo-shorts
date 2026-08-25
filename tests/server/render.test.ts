@@ -37,6 +37,7 @@ import {
   type MarkerNative,
 } from '@/server/steps/render'
 import { clipFraming, forgetAnalyses } from '@/server/clip-framing'
+import type { Cell } from '@/core/framing'
 
 /**
  * Ce que le rendu a de testable sans GPU, sans ffmpeg et sans vidéo : le choix
@@ -1031,6 +1032,31 @@ describe('renderIsStale', () => {
     for (const override of scenarios) {
       expect(renderIsStale(shape(), shape(clip(), framing(override)))).toBe(true)
     }
+  })
+
+  // Le split se compare en profondeur comme le reste du cadrage : deux
+  // cellules identiques réécrites depuis la base ne sont jamais le même objet.
+  it('voit un rendu périmé quand seules les cellules du split diffèrent', () => {
+    const CELLS: [Cell, Cell] = [
+      { x0: 0, y0: 0, x1: 0.5, y1: 0.5 },
+      { x0: 0, y0: 0.5, x1: 0.5, y1: 1 },
+    ]
+    const OTHER_CELLS: [Cell, Cell] = [
+      { x0: 0.1, y0: 0, x1: 0.6, y1: 0.5 },
+      { x0: 0.1, y0: 0.5, x1: 0.6, y1: 1 },
+    ]
+    const withSplit = framing({
+      shots: [{ start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, split: CELLS }],
+    })
+    const withOtherSplit = framing({
+      shots: [
+        { start: 0, end: 20, ratio: '1:1', cropX: 0.5, cropXNative: 0.5, split: OTHER_CELLS },
+      ],
+    })
+
+    expect(renderIsStale(shape(clip(), withSplit), shape(clip(), withSplit))).toBe(false)
+    expect(renderIsStale(shape(clip(), framing()), shape(clip(), withSplit))).toBe(true)
+    expect(renderIsStale(shape(clip(), withSplit), shape(clip(), withOtherSplit))).toBe(true)
   })
 
   it('voit un segment déplacé, à nombre de segments égal', () => {

@@ -42,6 +42,10 @@ afterEach(() => {
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
   root = undefined
   vi.unstubAllGlobals()
+  // Un test qui appelle `vi.resetModules()` laisse le registre réinitialisé
+  // pour les suivants, hors d'atteinte de `forgetAvailabilityCache()` ci-dessus
+  // (lié à l'import statique d'origine). (relevé par Aristarque)
+  vi.resetModules()
 })
 
 describe('GET /api/publication/availability', () => {

@@ -130,6 +130,7 @@ import { closeDb, getClips, getDb, getProject } from '@/server/db'
 import { encoderName, ffprobeBin, produceArtifact, runFfmpeg } from '@/server/ffmpeg'
 import { analysisPath, proxyPath } from '@/server/paths'
 import { lireAnalysis, type Analysis } from '@/server/steps/analysis'
+import { workingInput } from '@/server/steps/ingest'
 import { chargerEnv, quit } from '../dev-common'
 
 // ---------------------------------------------------------------------------
@@ -339,8 +340,8 @@ function hashOfString(s: string): number {
 // ---------------------------------------------------------------------------
 
 /** `t` tombe-t-il dans l'intervalle ? **Fin exclue**, comme `computeFraming`. */
-function inInterval(t: number, start: number, fin: number): boolean {
-  return t >= start && t < fin
+function inInterval(t: number, start: number, end: number): boolean {
+  return t >= start && t < end
 }
 
 /** L'abscisse du centre de `personBounds` — le repère sur lequel le rang se départage. */
@@ -484,8 +485,14 @@ type Show = {
 }
 
 /**
- * Le fichier à décoder : l'original s'il est là, sa copie de travail si elle
- * l'est, le proxy en dernier recours.
+ * Le fichier à décoder, **par le même choix que la production**, le proxy en
+ * dernier recours.
+ *
+ * `workingInput` et pas un `existsSync` sur la copie : il écarte en plus une
+ * copie dont la taille ne décrit plus la source. Sans lui, une copie tronquée
+ * mais présente servirait l'A/B pendant que le rendu retomberait sur l'original
+ * — et l'A/B ne montrerait plus ce que le rendu produit, ce pour quoi seul il
+ * existe. (relevé par Copilot)
  *
  * Le proxy est un repli assumé et signalé : il fait 960x540, donc un 9:16 y est
  * agrandi 1,78x pour tenir dans le canevas. Le cadrage se juge quand même — la
@@ -495,12 +502,9 @@ type Show = {
 function sourceFileOf(projectId: string): { file: string; isProxy: boolean } {
   const db = getDb()
   const project = getProject(db, projectId)
-  const staged = project?.stagedPath
-  if (staged !== null && staged !== undefined && fs.existsSync(staged)) {
-    return { file: staged, isProxy: false }
-  }
-  if (project !== undefined && fs.existsSync(project.sourcePath)) {
-    return { file: project.sourcePath, isProxy: false }
+  if (project !== undefined) {
+    const chosen = workingInput(project)
+    if (fs.existsSync(chosen.path)) return { file: chosen.path, isProxy: false }
   }
   const proxy = proxyPath(projectId)
   if (fs.existsSync(proxy)) return { file: proxy, isProxy: true }

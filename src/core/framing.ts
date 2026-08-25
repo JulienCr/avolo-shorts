@@ -430,6 +430,15 @@ function setting(value: number | undefined, defaultValue: number): number {
 }
 
 /**
+ * Le même repli que `setting`, pour une valeur qui **divise** : zéro y est aussi
+ * invalide qu'un `NaN`. Sans ce garde, `0` traverse `setting`, la division rend
+ * `NaN`, et `frontality` sort non nulle sous un `facing` décidé.
+ */
+function positiveSetting(value: number | undefined, defaultValue: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : defaultValue
+}
+
+/**
  * Une boîte du **premier plan** : quelqu'un entre la caméra et le plateau, dont
  * le bord bas de l'image coupe le corps, et dont il ne reste qu'une tranche.
  *
@@ -789,9 +798,14 @@ function shoulderRatioOf(k: readonly number[], threshold: number): number | null
 
   // `!(c >= seuil)` et non `c < seuil`, comme partout ailleurs ici : un `NaN`
   // doit tomber du côté écarté.
+  // Les `y` autant que les `x` : ils portent l'échelle, et un `Infinity` y donne
+  // `scale = Infinity` donc un rapport de 0 — un profil franc tiré du néant, que
+  // le garde `!(scale > 0)` plus bas laisse passer.
   if (
     !Number.isFinite(shoulderLeftX) ||
     !Number.isFinite(shoulderRightX) ||
+    !Number.isFinite(shoulderLeftY) ||
+    !Number.isFinite(shoulderRightY) ||
     !(shoulderLeftScore >= threshold) ||
     !(shoulderRightScore >= threshold)
   ) {
@@ -865,7 +879,7 @@ export function orientationOf(box: PersonBox, options: OrientationOptions = {}):
   if (k === undefined || k.length !== POINT_COUNT * 3) return unknown
 
   const pointMinScore = setting(options.pointMinScore, ORIENTATION_DEFAULTS.pointMinScore)
-  const shoulderRatioFull = setting(
+  const shoulderRatioFull = positiveSetting(
     options.shoulderRatioFull,
     ORIENTATION_DEFAULTS.shoulderRatioFull,
   )

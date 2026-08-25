@@ -163,8 +163,8 @@ function percent(part: number, total: number): string {
 }
 
 /** `t` tombe-t-il dans l'intervalle ? **Fin exclue**, comme `computeFraming`. */
-function inInterval(t: number, start: number, fin: number): boolean {
-  return t >= start && t < fin
+function inInterval(t: number, start: number, end: number): boolean {
+  return t >= start && t < end
 }
 
 function bound(n: number, min: number, max: number): number {

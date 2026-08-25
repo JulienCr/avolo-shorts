@@ -137,8 +137,8 @@ function median(values: number[]): number {
 }
 
 /** `t` tombe-t-il dans l'intervalle ? Fin exclue, comme `inInterval` de `framing.ts`. */
-function inInterval(t: number, start: number, fin: number): boolean {
-  return t >= start && t < fin
+function inInterval(t: number, start: number, end: number): boolean {
+  return t >= start && t < end
 }
 
 function number(n: number, decimals = 1): string {

@@ -5,9 +5,8 @@ deux personnes se répondent, peut-on cadrer en 9:16 sur celle qui parle, et
 changer quand la parole alterne ? Et sur un plan où l'une est de face et l'autre
 de profil, peut-on ignorer celle de profil ?
 
-Ce document porte les mesures. Les scripts qui les produisent vivent dans
-`scripts/spike/` et `worker/`, la fonction d'orientation dans
-`src/core/framing.ts`.
+Ce document porte les mesures. Les scripts qui les produisent vivent tous dans
+`scripts/spike/`, la fonction d'orientation dans `src/core/framing.ts`.
 
 **Rien de tout cela n'est branché sur le rendu.** `computeFraming` a le même
 comportement qu'avant le spike, et c'est délibéré : on mesure avant de brancher.

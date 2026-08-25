@@ -575,12 +575,22 @@ function usage(): string {
 /** Un entier lu sur la ligne de commande, refusé s'il est illisible — jamais remplacé par le défaut en silence. */
 function intFlag(
   value: (flag: string) => string | undefined,
+  present: (flag: string) => boolean,
   flag: string,
   defaultValue: number,
   min: number,
 ): number | undefined {
   const raw = value(flag)
-  if (raw === undefined) return defaultValue
+  // **Un drapeau présent sans valeur n'est pas un drapeau absent.** Les deux
+  // rendaient `undefined`, donc `--seed --out /tmp/x` prenait le défaut en
+  // silence et l'instrument mesurait sous d'autres réglages que l'invocation
+  // affichée — ce que la ligne au-dessus promet justement de refuser.
+  // (relevé par Copilot)
+  if (raw === undefined) {
+    if (!present(flag)) return defaultValue
+    console.error(`${flag} attend un entier ≥ ${min}, reçu sans valeur.`)
+    return undefined
+  }
   const n = Number(raw)
   if (!Number.isInteger(n) || n < min) {
     console.error(`${flag} attend un entier ≥ ${min}, reçu « ${raw} ».`)
@@ -624,13 +634,23 @@ async function main(): Promise<number> {
     const raw = arguments_[i + 1]
     return raw === undefined || raw.startsWith('--') ? undefined : raw
   }
+  /** Le drapeau est-il écrit ? Distinct de « porte-t-il une valeur ». */
+  const present = (flag: string): boolean => arguments_.includes(flag)
+  /** Une chaîne facultative : absente vaut le défaut, présente et vide se refuse. */
+  const stringFlag = (flag: string, defaultValue: string): string | undefined => {
+    const raw = value(flag)
+    if (raw !== undefined) return raw
+    if (!present(flag)) return defaultValue
+    console.error(`${flag} attend une valeur.`)
+    return undefined
+  }
 
   const projectIds = positional.length > 0 ? positional : DEFAULT_PROJECTS
 
-  const perSheet = intFlag(value, '--per-sheet', 30, 1)
-  const sheetsCount = intFlag(value, '--sheets', 4, 1)
-  const seed = intFlag(value, '--seed', 1, Number.MIN_SAFE_INTEGER)
-  const thumbSize = intFlag(value, '--thumb', 220, 32)
+  const perSheet = intFlag(value, present, '--per-sheet', 30, 1)
+  const sheetsCount = intFlag(value, present, '--sheets', 4, 1)
+  const seed = intFlag(value, present, '--seed', 1, Number.MIN_SAFE_INTEGER)
+  const thumbSize = intFlag(value, present, '--thumb', 220, 32)
   if (perSheet === undefined || sheetsCount === undefined || seed === undefined || thumbSize === undefined) {
     console.error(usage())
     return 1
@@ -657,7 +677,11 @@ async function main(): Promise<number> {
     mode = { kind: 'missing-shoulder' }
   }
 
-  const outDir = value('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'orientation-sheets-'))
+  const outDir = stringFlag(
+    '--out',
+    fs.mkdtempSync(path.join(os.tmpdir(), 'orientation-sheets-')),
+  )
+  if (outDir === undefined) return 1
   fs.mkdirSync(outDir, { recursive: true })
 
   const rng = makeRng(seed)

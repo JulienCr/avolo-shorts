@@ -1812,6 +1812,40 @@ describe('orientationOf', () => {
     expect(orientationOf(personA, { sideDeadband: Number.NaN })).toEqual(orientationOf(personA))
   })
 
+  /**
+   * **Zero et negatif sont aussi invalides qu'un `NaN` sur un reglage qui
+   * divise.** `setting` n'ecartait que le non-fini, donc `0` passait, la division
+   * rendait `NaN`, et `facing` sortait decide sous une `frontality` `NaN` --
+   * l'invariant d'au-dessus, franchi en silence. (releve par Copilot et Aristarque)
+   */
+  it('retombe sur le defaut quand shoulderRatioFull ne peut pas diviser', () => {
+    for (const shoulderRatioFull of [0, -1, -0.5]) {
+      const result = orientationOf(personA, { shoulderRatioFull })
+      expect(result).toEqual(orientationOf(personA))
+      expect(result.frontality).not.toBeNaN()
+      expect(result.frontality === null).toBe(result.facing === 'unknown')
+    }
+  })
+
+  /**
+   * Les `y` des epaules portent l'echelle. Non gardes, un `Infinity` y donnait
+   * `scale = Infinity`, donc un rapport de **0** -- un profil franc tire du neant,
+   * que le garde `!(scale > 0)` laisse passer puisque `Infinity > 0`.
+   * (releve par Aristarque)
+   */
+  it('ecarte une ordonnee d epaule infinie plutot que d en tirer un profil franc', () => {
+    for (const point of ['LEFT_SHOULDER', 'RIGHT_SHOULDER'] as const) {
+      for (const bad of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        const k = [...personA.k!]
+        k[POINT[point] * 3 + 1] = bad
+        const result = orientationOf(personWithK(770, k))
+        expect(result.terms.shoulderRatio).toBeNull()
+        expect(result.frontality).not.toBeNaN()
+        expect(result.frontality === null).toBe(result.facing === 'unknown')
+      }
+    }
+  })
+
   it('porte les défauts documentés', () => {
     expect(ORIENTATION_DEFAULTS.pointMinScore).toBe(FRAMING_DEFAULTS.torsoMinScore)
     expect(ORIENTATION_DEFAULTS.shoulderRatioFull).toBe(1)

@@ -830,12 +830,22 @@ function usage(): string {
 
 function intFlag(
   value: (flag: string) => string | undefined,
+  present: (flag: string) => boolean,
   flag: string,
   defaultValue: number,
   min: number,
 ): number | undefined {
   const raw = value(flag)
-  if (raw === undefined) return defaultValue
+  // **Un drapeau présent sans valeur n'est pas un drapeau absent.** Les deux
+  // rendaient `undefined`, donc `--seed --out /tmp/x` prenait le défaut en
+  // silence et l'instrument mesurait sous d'autres réglages que l'invocation
+  // affichée — ce que la ligne au-dessus promet justement de refuser.
+  // (relevé par Copilot)
+  if (raw === undefined) {
+    if (!present(flag)) return defaultValue
+    console.error(`${flag} attend un entier ≥ ${min}, reçu sans valeur.`)
+    return undefined
+  }
   const n = Number(raw)
   if (!Number.isInteger(n) || n < min) {
     console.error(`${flag} attend un entier ≥ ${min}, reçu « ${raw} ».`)
@@ -854,6 +864,16 @@ async function main(): Promise<number> {
     const raw = arguments_[i + 1]
     return raw === undefined || raw.startsWith('--') ? undefined : raw
   }
+  /** Le drapeau est-il écrit ? Distinct de « porte-t-il une valeur ». */
+  const present = (flag: string): boolean => arguments_.includes(flag)
+  /** Une chaîne facultative : absente vaut le défaut, présente et vide se refuse. */
+  const stringFlag = (flag: string, defaultValue: string): string | undefined => {
+    const raw = value(flag)
+    if (raw !== undefined) return raw
+    if (!present(flag)) return defaultValue
+    console.error(`${flag} attend une valeur.`)
+    return undefined
+  }
 
   const jsonPath = value('--json')
   if (jsonPath === undefined) {
@@ -861,15 +881,16 @@ async function main(): Promise<number> {
     return 1
   }
 
-  const casesCount = intFlag(value, '--cases', 6, 0)
-  const controlsCount = intFlag(value, '--controls', 3, 0)
-  const seed = intFlag(value, '--seed', 1, Number.MIN_SAFE_INTEGER)
+  const casesCount = intFlag(value, present, '--cases', 6, 0)
+  const controlsCount = intFlag(value, present, '--controls', 3, 0)
+  const seed = intFlag(value, present, '--seed', 1, Number.MIN_SAFE_INTEGER)
   if (casesCount === undefined || controlsCount === undefined || seed === undefined) {
     console.error(usage())
     return 1
   }
 
-  const outDir = value('--out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'orientation-ab-'))
+  const outDir = stringFlag('--out', fs.mkdtempSync(path.join(os.tmpdir(), 'orientation-ab-')))
+  if (outDir === undefined) return 1
   fs.mkdirSync(outDir, { recursive: true })
 
   const data = readAddressableJson(jsonPath)

@@ -177,6 +177,48 @@ describe('RatioPicker', () => {
     expect(screen.getByText(/auto → split/)).toBeTruthy()
   })
 
+  it('dit « split · sur ce plan » quand le ratio est épinglé sur un plan splitté', () => {
+    // Un ratio épinglé vaut « pour tous » (§ ci-dessus) — sauf sur un plan
+    // splitté, où ce n'est justement plus un ratio de crop qui s'applique.
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="1:1"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/split · sur ce plan/)).toBeTruthy()
+  })
+
+  it('signale le split dans la ligne qui nomme les deux fichiers', () => {
+    render(
+      <RatioPicker
+        framing={framing({
+          shots: [shot(0, 50, '16:9', 0.5, 'auto', splitCells()), shot(50, 100, '1:1', 0.5)],
+        })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/en split sur certains plans/)).toBeTruthy()
+  })
+
+  it('ne signale aucun split quand aucun plan n’en pose', () => {
+    render(<RatioPicker framing={framing()} ratio="auto" onRatio={vi.fn()} />)
+    expect(screen.queryByText(/en split sur certains plans/)).toBeNull()
+  })
+
+  it('détaille le split-screen dans le dépliant de comportement', () => {
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/deux cellules empilées, sans fond/)).toBeTruthy()
+  })
+
   it('nomme le cadre pris dans la source, pas « le ratio de sortie »', () => {
     // Il y a deux sorties, et ce sélecteur n'en règle qu'une directement :
     // « ratio de sortie » était le mot qui autorisait la confusion.

@@ -28,34 +28,12 @@ const NOT_FAST = 0.05
 /**
  * Pourquoi le curseur de cadrage ne déplace rien, ou `null` quand il déplace.
  *
- * **Un contrôle inerte sans raison écrite fait douter de l'outil**, et c'est la
- * forme que le dépôt a déjà retenue ailleurs : le bouton « Monter » d'une carte
- * de candidat reste atteignable, porte `aria-disabled` et pointe vers sa raison,
- * écrite à côté (`src/components/review/candidate-card.tsx`). Une bulle d'aide ne
- * conviendrait pas — elle serait invisible au clavier, et la raison d'un blocage
- * se lit avant d'essayer.
- *
- * Deux causes, et elles se cumulent :
- *
- * - **rien à déplacer** — en 16:9 le cadre couvre toute la source ;
- * - **rien à écrire** — le cadrage est calculé, et la dérogation par plan qui
- *   rendrait le curseur utile demande une table persistée que le clip ne porte
- *   pas encore (§9.4). C'est délibéré : un curseur qui bougerait sans rien
- *   changer au fichier produit serait pire qu'un curseur figé.
- *
- * **La seconde moitié de cette fonction est datée et doit partir avec le lot qui
- * rebranche le curseur.** Elle tient en une branche, exprès : le jour où la
- * dérogation s'enregistre, c'est la condition `automatic` qui disparaît, pas
- * une phrase à retrouver dans trois paragraphes.
- *
- * Exportée parce que **deux composants en ont besoin et doivent s'accorder** :
- * le sélecteur l'affiche, le rectangle la désigne par `aria-describedby`. Deux
- * conditions recopiées finiraient par diverger, et le jour où elles divergent le
- * rectangle pointe vers un texte qui n'est plus rendu.
- *
- * **Le split (spec du 25 août) prime sur les deux autres causes.** Un plan
- * splitté n'a pas un crop mais deux cellules empilées : il n'y a rien qu'un
- * curseur horizontal unique puisse désigner.
+ * Trois causes cumulables, dans l'ordre où elles priment : le plan est
+ * splitté (deux cellules, pas de crop unique) ; le cadrage est calculé (la
+ * dérogation par plan qui rendrait le curseur utile n'existe pas encore,
+ * §9.4) ; ou le cadre couvre toute la source (16:9, rien à déplacer).
+ * `CropOverlay` et `RatioPicker` l'appellent tous deux, pour ne jamais rendre
+ * deux textes différents pour la même cause.
  */
 export function frozenCropReason(
   framing: PublishedFraming,
@@ -151,10 +129,10 @@ export function CropOverlay({
   const width = cropWidthFraction(effective)
   const left = cropLeftFraction(position, width)
   const center = clampCropX(position, width)
-  // Figé quand le cadre couvre toute la source, quand c'est le calcul qui
-  // décide de sa position, ou quand le plan est splitté : il n'y a alors pas
-  // un seul crop à déplacer.
-  const frozen = width >= 1 || automatic || split
+  // Figé quand le cadre couvre toute la source, ou quand c'est le calcul qui
+  // décide de sa position. `split` n'a pas sa place ici : il n'est jamais posé
+  // hors du cadrage calculé, donc `automatic` couvre déjà ce cas.
+  const frozen = width >= 1 || automatic
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.

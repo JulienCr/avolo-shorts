@@ -604,10 +604,8 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <dt className="text-muted-foreground">Segments</dt>
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
-            {/* **« (variante) », et non « Cadre » seul.** Cette ligne lit
-                `shot.cropX`, jamais `cropXNative` : elle décrit la variante
-                9:16, pas le natif, qui garde son propre crop plus haut dans
-                l'écran. Sans le mot, rien ne distingue les deux (addendum #178). */}
+            {/* Lit `shot.cropX`, jamais `cropXNative` : c'est la variante 9:16,
+                pas le natif dont le crop est ailleurs à l'écran (addendum #178). */}
             <dt className="text-muted-foreground">Cadre (variante)</dt>
             {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
                 saute aux frontières, donc une seule valeur pour tout le clip ne

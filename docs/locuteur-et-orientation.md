@@ -241,10 +241,15 @@ c'était le pari le plus incertain du spike. Vérifié à l'image, agrandi six f
 les lèvres, l'ouverture sombre et le menton se distinguent. Un signal d'énergie
 temporelle sur ce patch a de quoi mordre.
 
-`worker/spike_mouth.py` décode un intervalle à 30 im/s, passe `yolo11m-pose` et
-écrit par personne et par image un patch de bouche en 32×32, les points bruts et
+L'extraction décodait un intervalle à 30 im/s, passait `yolo11m-pose` et écrivait
+par personne et par image un patch de bouche en 32×32, les points bruts et
 l'enveloppe RMS de l'audio à 100 Hz. Sur les 45 s du plan de référence : 1 353
 images, deux personnes présentes à ~100 %, 1,8 Mo.
+
+**Le harnais de cette expérience n'est plus dans le dépôt.** `speaker-probe.ts`,
+`spike_mouth.py` et `spike_activity.py` ont été retirés à la fusion du spike : leur
+question est close, et ce document porte de quoi les réécrire — la géométrie de la
+région de bouche ci-dessous, le protocole d'évaluation plus bas et son tirage.
 
 **La géométrie de la région de bouche a été fausse deux fois, et seules les
 images de contrôle l'ont dit.** D'abord un carré de la taille d'une tête entière,

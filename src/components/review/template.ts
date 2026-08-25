@@ -187,15 +187,15 @@ export function agreement(n: number, singular: string, plural: string): string {
  * manière de s'en servir — d'où une fonction, plutôt qu'une condition recopiée
  * dans un fichier de page.
  *
- * - `'panneau'` : il occupe la page. **Seulement quand la grille serait vide**,
+ * - `'panel'` : il occupe la page. **Seulement quand la grille serait vide**,
  *   et seulement s'il reste quelque chose à fabriquer. C'est le régime 1 des
  *   trois premières minutes, et c'est aussi là que se pose le bouton de reprise
  *   quand l'exécution est morte ;
- * - `'bande'` : il se replie dans la barre d'application. Dès qu'il y a quelque
+ * - `'strip'` : il se replie dans la barre d'application. Dès qu'il y a quelque
  *   chose à trier, la grille passe devant — les six minutes d'encodage du proxy
  *   sont six minutes pendant lesquelles on travaille déjà ;
- * - `'rien'` : plus rien ne tourne et la grille se suffit. Le cas
- *   `{ interrompu, trie }` tombe ici : un repérage forcé perdu par un
+ * - `'none'` : plus rien ne tourne et la grille se suffit. Le cas
+ *   `{ interrupted, sorted }` tombe ici : un repérage forcé perdu par un
  *   redémarrage laisse les clips gardés en base, et un panneau d'attente
  *   mangerait le travail qu'on vient de faire. La reprise, elle, reste offerte
  *   à côté de la liste — c'est une surface propre de l'écran, pas une

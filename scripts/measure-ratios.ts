@@ -1344,7 +1344,7 @@ function bleedPass(
     for (const framed of withoutSplit.shots) {
       const shot = framed.shot
       const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
-      const { cells, rejection, bleed } = computeShotSplit(
+      const { cells, rejection, bleed, worstBleedAt } = computeShotSplit(
         boxes,
         shot,
         framed.ratio,
@@ -1359,8 +1359,12 @@ function bleedPass(
       // le montage sous ce réglage, pas le pire cas tout court — c'est lui
       // que la part à 90 % laisse passer sans qu'aucune image entière ne
       // le protège (contrat, § « rendre le cas marginal, pas le confortable »).
-      if (cells !== null && bleed !== null && (worst === null || bleed > worst.bleed)) {
-        worst = { clip: cut.name, t: shot.start, bleed }
+      // `worstBleedAt` désigne l'image précise, pas seulement le plan : c'est
+      // elle qu'il faut rendre à nouveau pour la juger.
+      if (cells !== null && bleed !== null && worstBleedAt !== null) {
+        if (worst === null || bleed > worst.bleed) {
+          worst = { clip: cut.name, t: worstBleedAt, bleed }
+        }
       }
     }
   }

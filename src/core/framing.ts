@@ -1292,6 +1292,12 @@ export type ShotSplit = {
    * à la tolérance sans la recalculer lui-même.
    */
   bleed: number | null
+  /**
+   * L'instant, dans la source, de l'image qui porte `bleed` — `null` en même
+   * temps que lui. C'est le plan **et** l'instant qu'il faut pouvoir rendre à
+   * nouveau pour juger un candidat de balayage sur l'image, pas sur un chiffre.
+   */
+  worstBleedAt: number | null
 }
 
 /**
@@ -1316,10 +1322,15 @@ export function computeShotSplit(
   srcH: number,
   options: FramingOptions,
 ): ShotSplit {
-  const refuse = (rejection: SplitRejection, bleed: number | null = null): ShotSplit => ({
+  const refuse = (
+    rejection: SplitRejection,
+    bleed: number | null = null,
+    worstBleedAt: number | null = null,
+  ): ShotSplit => ({
     cells: null,
     rejection,
     bleed,
+    worstBleedAt,
   })
 
   const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
@@ -1437,6 +1448,9 @@ export function computeShotSplit(
       ),
   )
   const bleed = Math.max(0, ...bleedPerFrame)
+  // L'image qui porte ce pire débordement — le premier rang si `bleed` vaut 0
+  // partout, faute de mieux à désigner.
+  const worstBleedAt = pairs[bleedPerFrame.indexOf(bleed)]?.left.t ?? null
 
   const tolerance = bound(
     setting(options.splitBleedTolerance, FRAMING_DEFAULTS.splitBleedTolerance),
@@ -1453,11 +1467,13 @@ export function computeShotSplit(
   // `- 1e-9` absorbe l'arrondi flottant à la frontière, comme partout ailleurs
   // dans ce module : `within / total >= share` peut rater de justesse un cas
   // pile égal.
-  if (!(within >= share * bleedPerFrame.length - 1e-9)) return refuse('bleedsIntoOther', bleed)
+  if (!(within >= share * bleedPerFrame.length - 1e-9)) {
+    return refuse('bleedsIntoOther', bleed, worstBleedAt)
+  }
 
   const topCell = leftOnTop ? leftCell : rightCell
   const bottomCell = leftOnTop ? rightCell : leftCell
-  return { cells: [topCell, bottomCell], rejection: null, bleed }
+  return { cells: [topCell, bottomCell], rejection: null, bleed, worstBleedAt }
 }
 
 

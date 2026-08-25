@@ -2087,9 +2087,12 @@ const RIGHT_GEOMETRY: SplitGeometry = { x0: 0.6, x1: 0.68, y0: 0.25, y1: 0.85, e
 describe('computeShotSplit', () => {
   it('refuse un plan trop court', () => {
     const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
-    const { cells, rejection } = computeShotSplit(boxes, shot(0, 3), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
-    expect(cells).toBeNull()
-    expect(rejection).toBe('tooShort')
+    const result = computeShotSplit(boxes, shot(0, 3), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(result.cells).toBeNull()
+    expect(result.rejection).toBe('tooShort')
+    // Aucune géométrie ne s'est calculée : rien à désigner.
+    expect(result.bleed).toBeNull()
+    expect(result.worstBleedAt).toBeNull()
   })
 
   it("refuse un plan dont l'image médiane ne porte pas exactement deux personnes", () => {
@@ -2269,6 +2272,8 @@ describe('computeShotSplit', () => {
     // Le pire cas reste rapporté, même accepté : c'est lui qu'il faut pouvoir
     // retrouver et regarder à l'image (contrat, § « rendre le cas marginal »).
     expect(result.bleed as number).toBeGreaterThan(FRAMING_DEFAULTS.splitBleedTolerance)
+    // Et il désigne l'image précise du débordement, pas seulement le plan.
+    expect(result.worstBleedAt as number).toBeGreaterThanOrEqual(9)
   })
 
   it('refuse quand plus de 10 % des images débordent', () => {

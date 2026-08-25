@@ -15,7 +15,7 @@ import { GET as listSources } from '@/app/api/sources/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { HOOK_DEFAULTS } from '@/lib/api'
+import { FRAMING_SETTINGS_DEFAULTS, HOOK_DEFAULTS } from '@/lib/api'
 import type {
   CandidateClip,
   ClipDetail,
@@ -25,10 +25,13 @@ import type {
   ProjectSummary,
   SourcesListing,
 } from '@/lib/api'
-import { closeDb, getDb, putClip, upsertProject } from '@/server/db'
+import { applySettings, closeDb, getDb, putClip, upsertProject } from '@/server/db'
 import { pendingHookBackfills } from '@/server/steps/hook-backfill'
 import { statusFor } from '@/server/http'
 import { clipFraming } from '@/server/clip-framing'
+import { analysisPath } from '@/server/paths'
+import { POINT, POINT_COUNT } from '@/core/shots'
+import type { PersonBox } from '@/core/shots'
 import {
   renderedFraming,
   pathsRender,
@@ -202,6 +205,60 @@ function poserCorrection(): void {
   const folder = path.join(root, 'projects', PROJECT, `${PROJECT}.avolo`)
   fs.mkdirSync(folder, { recursive: true })
   fs.writeFileSync(path.join(folder, 'correction.json'), JSON.stringify({ entries: [] }))
+}
+
+/**
+ * Une analyse à deux personnes bien séparées, sur tout `[60, 90]` — la fenêtre
+ * de `baseClip()`. Assez pour que `splitScreen` change ce que `computeFraming`
+ * rend, condition nécessaire pour démontrer qu'un réglage non défaut publié
+ * par `PATCH` est bien le même que celui que `GET` publie (`CLAUDE.md`, la
+ * même règle que `renderIsStale`).
+ */
+function poserAnalyseDeuxPersonnes(): void {
+  const put = (k: number[], point: keyof typeof POINT, x: number, y: number, score: number): void => {
+    k[POINT[point] * 3] = x
+    k[POINT[point] * 3 + 1] = y
+    k[POINT[point] * 3 + 2] = score
+  }
+  const keypoints = (centerX: number, eyeY: number, shoulderY: number, halfWidth: number): number[] => {
+    const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+    put(k, 'NOSE', centerX, eyeY, 0.9)
+    put(k, 'LEFT_EYE', centerX - 0.01, eyeY, 0.9)
+    put(k, 'RIGHT_EYE', centerX + 0.01, eyeY, 0.9)
+    put(k, 'LEFT_EAR', centerX - halfWidth, eyeY, 0.9)
+    put(k, 'RIGHT_EAR', centerX + halfWidth, eyeY, 0.9)
+    put(k, 'LEFT_SHOULDER', centerX - halfWidth, shoulderY, 0.9)
+    put(k, 'RIGHT_SHOULDER', centerX + halfWidth, shoulderY, 0.9)
+    return k
+  }
+  const box = (t: number, centerX: number, eyeY: number, shoulderY: number, halfWidth: number): PersonBox => ({
+    t,
+    x0: centerX - halfWidth * 2,
+    x1: centerX + halfWidth * 2,
+    y0: eyeY - 0.1,
+    y1: shoulderY + 0.5,
+    score: 0.9,
+    k: keypoints(centerX, eyeY, shoulderY, halfWidth),
+  })
+
+  const boxes: PersonBox[] = []
+  for (let t = 60; t < 90; t += 0.5) {
+    boxes.push(box(t, 0.25, 0.3, 0.4, 0.05))
+    boxes.push(box(t, 0.64, 0.35, 0.45, 0.04))
+  }
+  fs.mkdirSync(path.join(root, 'projects', PROJECT), { recursive: true })
+  fs.writeFileSync(
+    analysisPath(PROJECT),
+    JSON.stringify({
+      version: 2,
+      keypoints: 'coco17',
+      fps: 2,
+      source: { w: 1920, h: 1080 },
+      proxy: { w: 960, h: 540 },
+      shots: [{ start: 0, end: 400 }],
+      boxes,
+    }),
+  )
 }
 
 beforeEach(() => {
@@ -1393,6 +1450,49 @@ describe('PATCH /api/clips/:id', () => {
   })
 })
 
+/**
+ * Le seam entre les deux routes : chacune résout le cadrage à sa façon
+ * (`GET` sur le clip tel qu'il est en base, `PATCH` sur celui qu'il vient
+ * d'écrire), et rien n'obligeait les deux résolutions à lire les mêmes
+ * réglages globaux. `PATCH` appelle `framingWith` en direct, quatre fois,
+ * pour ne pas relire `analysis.json` autour de l'écriture — un point où un
+ * réglage non défaut peut se perdre en silence sans qu'aucun test ne le
+ * remarque, puisque chaque route continue de rendre 200 avec un cadrage
+ * plausible.
+ */
+describe('GET et PATCH /api/clips/:id — le même cadrage', () => {
+  it('publient le même cadrage pour le même clip sous un réglage non défaut', async () => {
+    poserAnalyseDeuxPersonnes()
+    putClip(getDb(), { ...baseClip(), ratio: '1:1' })
+
+    // Le défaut (`splitScreen: true`) poserait un split sur ce plan à deux
+    // personnes : le contrôle négatif qui dit que ce test mesure bien quelque
+    // chose plutôt que de comparer deux absences.
+    const before = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
+    ).json()) as ClipDetail
+    expect(before.framing.shots[0].split).toBeDefined()
+
+    applySettings(getDb(), { framing: { splitScreen: false } })
+
+    const afterGet = (await (
+      await getClipRoute(new Request('http://x'), context(CLIP))
+    ).json()) as ClipDetail
+    expect(afterGet.framing.shots[0].split).toBeUndefined()
+
+    // Une édition qui ne touche à rien du cadrage — seul le titre bouge —
+    // pour isoler ce que `PATCH` calcule de ce qu'il écrit.
+    const afterPatch = (await (
+      await patchClipRoute(
+        new Request('http://x', { method: 'PATCH', body: JSON.stringify({ title: 'Un autre titre' }) }),
+        context(CLIP),
+      )
+    ).json()) as PatchClipResult
+
+    expect(afterPatch.framing).toEqual(afterGet.framing)
+  })
+})
+
 describe('POST /api/projects', () => {
   const createRoute = (body: unknown): Promise<Response> =>
     postProjects(
@@ -1609,6 +1709,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })
@@ -1621,6 +1722,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
     // Et ça persiste : la lecture suivante le voit.
@@ -1629,6 +1731,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })
@@ -1656,6 +1759,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })
@@ -1676,6 +1780,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })
@@ -1701,6 +1806,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
     })
     // Et ça persiste.
@@ -1709,6 +1815,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: { ...PUBLICATION_DEFAULTS, instagram: 'meta' },
     })
   })
@@ -1725,6 +1832,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })
@@ -1741,6 +1849,7 @@ describe('/api/settings', () => {
       ai: AI_DEFAULTS,
       ingestion: INGESTION_DEFAULTS,
       hook: HOOK_SETTINGS_DEFAULTS,
+      framing: FRAMING_SETTINGS_DEFAULTS,
       publication: PUBLICATION_DEFAULTS,
     })
   })

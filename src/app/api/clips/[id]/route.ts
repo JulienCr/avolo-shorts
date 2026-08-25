@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { normalizeSegments, type Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis } from '@/server/clip-framing'
 import {
+  effectiveSettings,
   getClip,
   getDb,
   getProject,
@@ -110,7 +111,12 @@ export const GET = route(
     // navigateur le demandaient à `resolveRatio`, qui rendait `9:16` en dur : ils
     // lisent désormais ce champ, et voient donc exactement ce que ffmpeg
     // découpera.
-    const framing = clipFraming(clip)
+    //
+    // **Les réglages globaux, lus explicitement plutôt que sur le défaut de
+    // `clipFraming`.** `db` est déjà en main : une deuxième lecture implicite
+    // ferait payer `effectiveSettings` une fois de plus pour rien, et ce
+    // `GET` doit voir exactement ce que `PATCH` publie pour le même clip.
+    const framing = clipFraming(clip, effectiveSettings(db).framing)
     return json({
       clip,
       project: summaryProject(project),
@@ -160,6 +166,11 @@ export const PATCH = route(
     // Ce qui suit l'écriture n'est plus que `framingWith`, qui est pur.
     // (relevé par Copilot)
     const analysis = projectAnalysis(clip.projectId)
+    // **Lus une seule fois, comme `analysis`, et pour la même raison.** Une
+    // deuxième lecture entre `framingBefore` et `framingAfter` poserait la
+    // question deux fois, et une écriture concurrente entre les deux ferait
+    // dire à l'un « split » et à l'autre non, sur le même `PATCH`.
+    const framingGlobals = effectiveSettings(db).framing
 
     const next: Clip = {
       ...clip,
@@ -222,7 +233,7 @@ export const PATCH = route(
     // retirer un passage peut changer le cadre sans qu'aucun champ du clip ne
     // dise « cadrage ». C'est aussi lui qui dit sous quel ratio natif les
     // fichiers à écarter ont été écrits.
-    const framingBefore = framingWith(clip, analysis)
+    const framingBefore = framingWith(clip, analysis, framingGlobals)
     const paths = pathsRender(clip.projectId, clip.id, framingBefore.ratio)
     try {
       // **Le résolveur passe l'analyse déjà lue**, sinon `discardRenderStale`
@@ -231,7 +242,7 @@ export const PATCH = route(
       // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
       // simple correction de titre. (relevé par Codex)
       const stale = discardRenderStale(db, id, paths, clip, renderedFraming(framingBefore), (c) =>
-        renderedFraming(framingWith(c, analysis)),
+        renderedFraming(framingWith(c, analysis, framingGlobals)),
       )
 
       // **La variante du ratio d'arrivée, en plus de celle du ratio de départ.**
@@ -248,7 +259,7 @@ export const PATCH = route(
         const variantAfter = pathsRender(
           written.projectId,
           written.id,
-          framingWith(written, analysis).ratio,
+          framingWith(written, analysis, framingGlobals).ratio,
         ).variant9x16
         if (variantAfter !== null) fs.rmSync(variantAfter, { force: true })
       }
@@ -350,7 +361,7 @@ export const PATCH = route(
       void scheduleHookBackfill(db, id)
     }
 
-    const framingAfter = framingWith(reread, analysis)
+    const framingAfter = framingWith(reread, analysis, framingGlobals)
     return json({
       applied: applied,
       clip: reread,

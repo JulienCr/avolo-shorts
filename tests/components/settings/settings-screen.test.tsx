@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
+import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
 import type { Settings } from '@/lib/api'
 
 vi.mock('next/navigation', () => ({
@@ -71,6 +71,7 @@ const DEFAULTS: Settings = {
   ingestion: { ...INGESTION_DEFAULTS },
   hook: { ...HOOK_DEFAULTS },
   publication: { ...PUBLICATION_DEFAULTS },
+  framing: { ...FRAMING_SETTINGS_DEFAULTS },
 }
 
 /** Un serveur réduit à `/api/settings`, et la liste des corps qu'il a reçus. */

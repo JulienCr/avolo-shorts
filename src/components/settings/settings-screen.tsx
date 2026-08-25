@@ -4,6 +4,7 @@ import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 
 import { AppBar } from '@/components/navigation/app-bar'
 import { AiSection } from '@/components/settings/ai-section'
+import { FramingSection } from '@/components/settings/framing-section'
 import { HookSection } from '@/components/settings/hook-section'
 import { IngestionSection } from '@/components/settings/ingestion-section'
 import { PublicationSection } from '@/components/settings/publication-section'
@@ -109,6 +110,7 @@ export function SettingsScreen() {
             <TabsTrigger value="ai">Intelligence artificielle</TabsTrigger>
             <TabsTrigger value="source">Source</TabsTrigger>
             <TabsTrigger value="hook">Hook</TabsTrigger>
+            <TabsTrigger value="framing">Cadrage</TabsTrigger>
             <TabsTrigger value="publication">Publication</TabsTrigger>
           </TabsList>
 
@@ -160,6 +162,16 @@ export function SettingsScreen() {
                 values={settings.data?.hook}
                 disabled={save.isPending}
                 onChange={(patch) => save.mutateAsync({ hook: patch })}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="framing">
+            {settings.isError ? null : (
+              <FramingSection
+                values={settings.data?.framing}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ framing: patch })}
               />
             )}
           </TabsContent>

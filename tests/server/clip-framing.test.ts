@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Clip } from '@/core/edl'
 import { framingWith, clipFraming, projectAnalysis, forgetAnalyses } from '@/server/clip-framing'
+import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
+import { POINT, POINT_COUNT } from '@/core/shots'
+import type { PersonBox } from '@/core/shots'
+import { applySettings, closeDb, effectiveSettings, openDb } from '@/server/db'
 import { analysisPath } from '@/server/paths'
 
 /**
@@ -93,7 +97,7 @@ function writeAnalysis(content?: unknown): void {
 describe('clipFraming', () => {
   it('calcule un cadre par plan quand l’analyse est là', () => {
     writeAnalysis()
-    const framing = clipFraming(clip())
+    const framing = clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.origin).toBe('computed')
     expect(framing.shots).toHaveLength(2)
     expect(framing.shots.map((p) => p.source)).toEqual(['auto', 'auto'])
@@ -107,7 +111,7 @@ describe('clipFraming', () => {
 
   it('ne retient que les plans que les segments traversent', () => {
     writeAnalysis()
-    const framing = clipFraming(clip({ segments: [{ start: 1, end: 5 }] }))
+    const framing = clipFraming(clip({ segments: [{ start: 1, end: 5 }] }), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.shots.map((p) => p.key)).toEqual([0])
   })
 
@@ -117,7 +121,7 @@ describe('clipFraming', () => {
    * Rien n'est perdu — mais `origin` le nomme, et l'écran l'affiche.
    */
   it('se rabat sur le réglage manuel quand `analysis.json` n’est pas là', () => {
-    const framing = clipFraming(clip({ ratio: '1:1', cropX: 0.3 }))
+    const framing = clipFraming(clip({ ratio: '1:1', cropX: 0.3 }), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.origin).toBe('no-analysis')
     expect(framing.ratio).toBe('1:1')
     expect(framing.shots).toEqual([
@@ -135,7 +139,7 @@ describe('clipFraming', () => {
   // `resolveRatio` est le seul endroit du dépôt où cette valeur par défaut est
   // écrite : sans mesure, « auto » vaut 9:16, et c'est ce que le rendu produira.
   it('résout « auto » en 9:16 dans le repli, comme le rendu le ferait', () => {
-    expect(clipFraming(clip()).ratio).toBe('9:16')
+    expect(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS).ratio).toBe('9:16')
   })
 
   it('couvre le clip entier, même en plusieurs segments', () => {
@@ -146,7 +150,7 @@ describe('clipFraming', () => {
   })
 
   it('ne casse pas sur un clip vidé de tous ses segments', () => {
-    const framing = clipFraming(clip({ segments: [] }))
+    const framing = clipFraming(clip({ segments: [] }), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.origin).toBe('no-analysis')
     expect(framing.shots).toHaveLength(1)
   })
@@ -164,7 +168,7 @@ describe('clipFraming', () => {
   ])('dit « analyse-illisible » sur %s', (_name, content) => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     fs.writeFileSync(analysisPath(ID), content)
-    const framing = clipFraming(clip({ ratio: '4:5', cropX: 0.2 }))
+    const framing = clipFraming(clip({ ratio: '4:5', cropX: 0.2 }), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.origin).toBe('unreadable-analysis')
     expect(framing.ratio).toBe('4:5')
     expect(framing.shots[0].cropX).toBe(0.2)
@@ -196,7 +200,7 @@ describe('clipFraming', () => {
       }
       if (readable) return
 
-      expect(() => clipFraming(clip())).toThrow()
+      expect(() => clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS)).toThrow()
     } finally {
       fs.chmodSync(analysisPath(ID), 0o644)
     }
@@ -205,7 +209,7 @@ describe('clipFraming', () => {
   it('garde le repli pour un JSON qui ne suit pas son contrat', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     fs.writeFileSync(analysisPath(ID), '{"version": 1}')
-    expect(clipFraming(clip()).origin).toBe('unreadable-analysis')
+    expect(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS).origin).toBe('unreadable-analysis')
     spy.mockRestore()
   })
 
@@ -216,7 +220,7 @@ describe('clipFraming', () => {
    */
   it('dit « sans-plans » quand aucun plan ne recouvre le montage', () => {
     writeAnalysis()
-    const framing = clipFraming(clip({ segments: [{ start: 100, end: 110 }] }))
+    const framing = clipFraming(clip({ segments: [{ start: 100, end: 110 }] }), FRAMING_SETTINGS_DEFAULTS)
     expect(framing.origin).toBe('no-shots')
     expect(framing.shots).toHaveLength(1)
     expect(framing.shots[0].source).toBe('manual')
@@ -226,7 +230,7 @@ describe('clipFraming', () => {
   // `computeFraming` l'ignore alors entièrement, y compris pour le rapport.
   it('ne rejette aucune dérogation, faute d’en poser', () => {
     writeAnalysis()
-    expect(clipFraming(clip()).rejectedOverrides).toEqual([])
+    expect(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS).rejectedOverrides).toEqual([])
   })
 
   /**
@@ -237,7 +241,7 @@ describe('clipFraming', () => {
    */
   it('relit l’analyse quand le fichier a été réécrit', () => {
     writeAnalysis()
-    expect(clipFraming(clip()).shots).toHaveLength(2)
+    expect(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS).shots).toHaveLength(2)
 
     writeAnalysis({
       version: 1,
@@ -252,7 +256,7 @@ describe('clipFraming', () => {
     const future = new Date(Date.now() + 5000)
     fs.utimesSync(analysisPath(ID), future, future)
 
-    const after = clipFraming(clip())
+    const after = clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS)
     expect(after.shots).toHaveLength(1)
     // Plus aucune boîte : le plan est centré par défaut, et ça se voit.
     expect(after.shots[0].source).toBe('default')
@@ -287,11 +291,125 @@ describe('framingWith', () => {
 
     // Et le contrôle négatif, sans lequel le précédent ne prouverait rien : la
     // moitié faillible, elle, voit bien le dossier vide.
-    expect(clipFraming(clip()).origin).toBe('no-analysis')
+    expect(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS).origin).toBe('no-analysis')
   })
 
   it('rend le même cadrage que le chemin complet', () => {
     writeAnalysis()
-    expect(framingWith(clip(), projectAnalysis(ID))).toEqual(clipFraming(clip()))
+    expect(framingWith(clip(), projectAnalysis(ID))).toEqual(clipFraming(clip(), FRAMING_SETTINGS_DEFAULTS))
+  })
+})
+
+/**
+ * Le critère d'acceptation n° 5 : `framing.splitScreen` passé **par le
+ * registre**, pas construit à la main comme `FramingOptions` — c'est le
+ * câblage de `clipFraming`/`framingWith` vers `effectiveSettings` qui est sous
+ * test ici, l'équivalence elle-même l'est déjà au niveau `FramingOptions`
+ * (`tests/core/framing.test.ts`, « le split-screen dans computeFraming »).
+ */
+describe('le split-screen à travers le registre des réglages', () => {
+  const SPLIT_ID = 'projet-a-deux'
+
+  /**
+   * Les dix-sept points COCO d'une personne, en fractions — assez pour que le
+   * tronc par défaut (`torso: 'bust'`, nez/yeux/oreilles/épaules) se calcule
+   * sans repli sur la boîte brute.
+   */
+  function personKeypoints(centerX: number, eyeY: number, shoulderY: number, halfWidth: number): number[] {
+    const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+    const put = (point: keyof typeof POINT, x: number, y: number, score: number): void => {
+      k[POINT[point] * 3] = x
+      k[POINT[point] * 3 + 1] = y
+      k[POINT[point] * 3 + 2] = score
+    }
+    put('NOSE', centerX, eyeY, 0.9)
+    put('LEFT_EYE', centerX - 0.01, eyeY, 0.9)
+    put('RIGHT_EYE', centerX + 0.01, eyeY, 0.9)
+    put('LEFT_EAR', centerX - halfWidth, eyeY, 0.9)
+    put('RIGHT_EAR', centerX + halfWidth, eyeY, 0.9)
+    put('LEFT_SHOULDER', centerX - halfWidth, shoulderY, 0.9)
+    put('RIGHT_SHOULDER', centerX + halfWidth, shoulderY, 0.9)
+    return k
+  }
+
+  function personBox(t: number, centerX: number, eyeY: number, shoulderY: number, halfWidth: number): PersonBox {
+    return {
+      t,
+      x0: centerX - halfWidth * 2,
+      x1: centerX + halfWidth * 2,
+      y0: eyeY - 0.1,
+      y1: shoulderY + 0.5,
+      score: 0.9,
+      k: personKeypoints(centerX, eyeY, shoulderY, halfWidth),
+    }
+  }
+
+  /** Deux personnes bien séparées, à chaque image d'un plan unique de 20 s. */
+  function writeSplitAnalysis(): void {
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 20; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+    }
+    fs.writeFileSync(
+      analysisPath(SPLIT_ID),
+      JSON.stringify({
+        version: 2,
+        keypoints: 'coco17',
+        fps: 2,
+        source: { w: 1920, h: 1080 },
+        proxy: { w: 960, h: 540 },
+        shots: [{ start: 0, end: 20 }],
+        boxes,
+      }),
+    )
+  }
+
+  function splitClip(): Clip {
+    return {
+      id: 'clip_split',
+      projectId: SPLIT_ID,
+      // Ratio épinglé plutôt que « auto » : ce test porte sur `splitScreen`,
+      // pas sur le choix du ratio, que `chooseRatio` pourrait faire varier
+      // sans rapport avec le réglage sous test.
+      segments: [{ start: 0, end: 20 }],
+      ratio: '1:1',
+      cropX: 0.5,
+      captions: true,
+      branding: false,
+      title: 'Un duo',
+      description: '',
+      status: 'kept',
+      pass: 1,
+      hookText: '',
+      hookBadge: '',
+      hookStyle: {},
+    }
+  }
+
+  it('pose un split par défaut, et plus aucun quand `splitScreen` passe à `false` par la base', () => {
+    fs.mkdirSync(path.join(projects, SPLIT_ID), { recursive: true })
+    writeSplitAnalysis()
+    forgetAnalyses()
+
+    const db = openDb(':memory:')
+    try {
+      const withDefault = clipFraming(splitClip(), effectiveSettings(db).framing)
+      expect(withDefault.shots[0].split).toBeDefined()
+
+      applySettings(db, { framing: { splitScreen: false } })
+      const withoutSplit = clipFraming(splitClip(), effectiveSettings(db).framing)
+
+      // **L'interrupteur reproduit le cadrage d'avant le split** : `split`
+      // disparaît, et rien d'autre ne bouge — même test que celui déjà fait au
+      // niveau `FramingOptions`, mais câblé cette fois par la base.
+      expect(withoutSplit.shots[0].split).toBeUndefined()
+      expect(withoutSplit.ratio).toBe(withDefault.ratio)
+      expect(withoutSplit.shots[0].ratio).toBe(withDefault.shots[0].ratio)
+      expect(withoutSplit.shots[0].cropX).toBeCloseTo(withDefault.shots[0].cropX, 10)
+      expect(withoutSplit.shots[0].cropXNative).toBeCloseTo(withDefault.shots[0].cropXNative, 10)
+    } finally {
+      closeDb()
+    }
   })
 })

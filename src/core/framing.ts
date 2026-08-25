@@ -452,6 +452,70 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
 })
 
 /**
+ * Les six réglages `framing` globaux (issue #180, première moitié) — la forme
+ * que le registre de réglages (`src/server/db.ts`) et l'écran des paramètres
+ * persistent et affichent.
+ *
+ * **Vit ici et pas dans `src/lib/api.ts`, sur le modèle de `HookSettings`**
+ * (`@/core/hook`) : la PR suivante ajoute `framingStyle` à `Clip`
+ * (`src/core/edl.ts`), comme `Clip.hookStyle` porte déjà `Partial<HookSettings>`
+ * — et `src/core/**` ne peut importer que de lui-même (`tests/core/purete.test.ts`).
+ * Déclarer ce type dans `lib/api.ts` obligerait alors `edl.ts` à en importer,
+ * ce que la frontière de pureté refuse. `src/lib/api.ts` le réexporte pour
+ * l'écran des réglages, exactement comme il le fait déjà pour `HookSettings`.
+ *
+ * **Entiers et booléens, jamais de fraction** : `src/server/db.ts` n'a pas de
+ * type décimal pour la même raison que le hook porte `durationMs` plutôt que
+ * des secondes (`CLAUDE.md`). La conversion vers `FramingOptions` — la forme
+ * que `computeFraming` attend — vit dans `src/server/clip-framing.ts`, seul
+ * endroit du dépôt qui la fait.
+ */
+export type FramingSettings = {
+  splitScreen: boolean
+  splitMinShotMs: number
+  splitMinCellWidthPermille: number
+  splitBleedTolerancePermille: number
+  splitBleedSharePermille: number
+  sizeFloorPermille: number
+}
+
+/**
+ * Les défauts de la famille `framing`, **dérivés de `FRAMING_DEFAULTS`** plutôt
+ * que recopiés en littéraux : un défaut de `FRAMING_DEFAULTS` qui bougerait
+ * sans que celui-ci ne suive redonnerait exactement la divergence que
+ * `HOOK_FIELD_SHAPES` évite déjà en lisant `HOOK_DEFAULTS`.
+ */
+export const FRAMING_SETTINGS_DEFAULTS: Readonly<FramingSettings> = Object.freeze({
+  splitScreen: FRAMING_DEFAULTS.splitScreen,
+  splitMinShotMs: Math.round(FRAMING_DEFAULTS.splitMinShot * 1000),
+  splitMinCellWidthPermille: Math.round(FRAMING_DEFAULTS.splitMinCellWidth * 1000),
+  splitBleedTolerancePermille: Math.round(FRAMING_DEFAULTS.splitBleedTolerance * 1000),
+  splitBleedSharePermille: Math.round(FRAMING_DEFAULTS.splitBleedShare * 1000),
+  sizeFloorPermille: Math.round(FRAMING_DEFAULTS.sizeFloor * 1000),
+})
+
+/**
+ * Les bornes des cinq réglages numériques de la famille `framing`, sur le
+ * modèle de `HOOK_BOUNDS` (`@/core/hook`) : une seule source pour le registre
+ * (`src/server/db.ts`) et pour toute validation qui s'y référerait.
+ *
+ * `splitMinShotMs` n'a pas de plafond interne — `computeShotSplit` compare la
+ * durée montée au réglage tel quel — donc 60 000 (60 s) est la borne, une
+ * durée déjà bien au-delà de tout plan réel plutôt qu'une valeur qui
+ * désactiverait le split par l'absurde. Les quatre autres sont déjà bornées à
+ * `[0, 1]` une fois converties (`computeShotSplit`, `clampedSizeFloor`) : le
+ * millième 0 à 1000 est donc leur domaine complet, pas une restriction
+ * supplémentaire.
+ */
+export const FRAMING_BOUNDS = {
+  splitMinShotMs: { min: 0, max: 60_000 },
+  splitMinCellWidthPermille: { min: 0, max: 1000 },
+  splitBleedTolerancePermille: { min: 0, max: 1000 },
+  splitBleedSharePermille: { min: 0, max: 1000 },
+  sizeFloorPermille: { min: 0, max: 1000 },
+} as const
+
+/**
  * La fraction de la largeur source qu'un crop pleine hauteur de ce ratio couvre.
  *
  * C'est la grandeur qui rend la table de la spec §2 lisible : dans une image

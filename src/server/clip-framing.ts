@@ -210,11 +210,10 @@ export function projectAnalysis(projectId: string): FramingSource {
  * fichiers écarter, et de celui d'après pour le publier.
  *
  * **`framingGlobals` se lit sur la base par défaut**, comme `hookGlobals` dans
- * `src/server/renders.ts` : cette fonction touche déjà le disque
- * (`projectAnalysis`), donc lui ajouter une lecture de la table `settings` ne
- * change pas sa nature. Un appelant qui a déjà les réglages sous la main — les
- * deux routes de `/api/clips/:id`, pour ne lire `effectiveSettings` qu'une
- * fois — les passe explicitement.
+ * `src/server/renders.ts` : cette fonction touche déjà le disque, donc lui
+ * ajouter une lecture de `settings` ne change pas sa nature. Les deux routes
+ * de `/api/clips/:id` la passent explicitement, pour ne lire les réglages
+ * qu'une fois.
  */
 export function clipFraming(
   clip: Clip,
@@ -253,9 +252,8 @@ export function framingWith(
     srcH: analysis.source.h,
     ratio: clip.ratio,
     cropMode: CROP_MODE,
-    // **La seule conversion millièmes/millisecondes → fractions/secondes du
-    // dépôt** (`CLAUDE.md`) : une deuxième, ici ou à l'écran, diverge en
-    // silence dès que l'une des deux bouge sans l'autre — voir
+    // **La seule conversion millièmes/ms → fractions/secondes du dépôt** :
+    // une deuxième, ici ou à l'écran, diverge en silence — voir
     // `tests/server/clip-framing.test.ts` pour le test qui l'épingle.
     splitScreen: framingGlobals.splitScreen,
     splitMinShot: framingGlobals.splitMinShotMs / 1000,

@@ -112,10 +112,9 @@ export const GET = route(
     // lisent désormais ce champ, et voient donc exactement ce que ffmpeg
     // découpera.
     //
-    // **Les réglages globaux, lus explicitement plutôt que sur le défaut de
-    // `clipFraming`.** `db` est déjà en main : une deuxième lecture implicite
-    // ferait payer `effectiveSettings` une fois de plus pour rien, et ce
-    // `GET` doit voir exactement ce que `PATCH` publie pour le même clip.
+    // **Réglages lus explicitement**, `db` déjà en main : ce `GET` doit voir
+    // exactement ce que `PATCH` publie pour le même clip, jamais une deuxième
+    // lecture implicite d'`effectiveSettings`.
     const framing = clipFraming(clip, effectiveSettings(db).framing)
     return json({
       clip,
@@ -166,10 +165,9 @@ export const PATCH = route(
     // Ce qui suit l'écriture n'est plus que `framingWith`, qui est pur.
     // (relevé par Copilot)
     const analysis = projectAnalysis(clip.projectId)
-    // **Lus une seule fois, comme `analysis`, et pour la même raison.** Une
-    // deuxième lecture entre `framingBefore` et `framingAfter` poserait la
-    // question deux fois, et une écriture concurrente entre les deux ferait
-    // dire à l'un « split » et à l'autre non, sur le même `PATCH`.
+    // Lus une seule fois, comme `analysis` : une écriture concurrente entre
+    // `framingBefore` et `framingAfter` ne doit pas faire dire « split » à
+    // l'un et non à l'autre, sur le même `PATCH`.
     const framingGlobals = effectiveSettings(db).framing
 
     const next: Clip = {

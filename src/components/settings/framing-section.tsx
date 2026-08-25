@@ -12,18 +12,15 @@ import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, type FramingSettings } from 
 /**
  * La section « Cadrage » des réglages : les six leviers globaux du
  * split-screen (PR #176) et du plancher de taille (PR #177), jusqu'ici en dur
- * dans `FRAMING_DEFAULTS` (`src/core/framing.ts`) et hors d'atteinte depuis
- * l'écran (issue #180, première moitié).
+ * dans `FRAMING_DEFAULTS` et hors d'atteinte depuis l'écran (issue #180).
  *
- * **Entiers et millièmes, pas des fractions ou des secondes.** Le registre
- * n'a pas de type décimal (`src/server/db.ts`, doc de `SettingFieldType`) :
- * `splitMinShotMs` se lit en millisecondes, les quatre autres en millièmes de
- * leur grandeur. La conversion vers `FramingOptions` vit dans
- * `src/server/clip-framing.ts`, seul endroit du dépôt qui la fait.
+ * **Entiers et millièmes** : le registre n'a pas de type décimal
+ * (`src/server/db.ts`). La conversion vers `FramingOptions` vit dans
+ * `src/server/clip-framing.ts`, seul endroit qui la fait.
  *
  * **`values` peut être `undefined`**, comme dans `HookSection` : la section
  * reste montée avant que `GET /api/settings` n'ait répondu, et montre alors
- * `FRAMING_SETTINGS_DEFAULTS` avec chaque contrôle inerte.
+ * les défauts avec chaque contrôle inerte.
  */
 
 type NumericKey = Exclude<keyof FramingSettings, 'splitScreen'>

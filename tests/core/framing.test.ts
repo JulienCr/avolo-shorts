@@ -2183,14 +2183,54 @@ describe('computeShotSplit', () => {
     expect(rejection).toBe('tooNarrowForSource')
   })
 
-  it('refuse quand les deux cellules se recouvrent après clamp', () => {
-    // Deux torses proches l'un de l'autre : à 0,38 de large chacune (le
-    // plancher, comme ci-dessus), les deux cellules se recouvrent largement.
-    const close: SplitGeometry = { x0: 0.5, x1: 0.6, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
-    const overlapping = splitFrames(0, 10, { ...LEFT_GEOMETRY, x0: 0.48, x1: 0.58 }, close)
-    const { cells, rejection } = computeShotSplit(overlapping, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
-    expect(cells).toBeNull()
-    expect(rejection).toBe('wouldOverlap')
+  // **Les cellules ont le droit de se recouvrir** : les deux plans approuvés
+  // le 25 août se recouvraient déjà sur les images soumises au jugement, sans
+  // qu'aucun contrôle de recouvrement n'existe alors. Ce qui compte est le
+  // débordement dans la boîte de l'autre personne, mesuré plus bas.
+  it('accepte un recouvrement de cellules qui ne mord pas dans la boîte de l’autre au-delà de la tolérance', () => {
+    const left: SplitGeometry = { x0: 0.2, x1: 0.3, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const right: SplitGeometry = { x0: 0.43, x1: 0.51, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const boxes = splitFrames(0, 10, left, right)
+    const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+
+    expect(result.cells).not.toBeNull()
+    expect(result.bleed).not.toBeNull()
+    expect(result.bleed as number).toBeGreaterThan(0)
+    expect(result.bleed as number).toBeLessThanOrEqual(FRAMING_DEFAULTS.splitBleedTolerance)
+  })
+
+  it('refuse un débordement qui mord dans la boîte de l’autre au-delà de la tolérance', () => {
+    // Un tronc large côté gauche (0,2, contre 0,08 à droite) : sa cellule
+    // (3 × 0,2 = 0,6) mord loin dans la boîte étroite de droite.
+    const left: SplitGeometry = { x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const right: SplitGeometry = { x0: 0.5, x1: 0.58, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const boxes = splitFrames(0, 10, left, right)
+    const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+
+    expect(result.cells).toBeNull()
+    expect(result.rejection).toBe('bleedsIntoOther')
+    expect(result.bleed as number).toBeGreaterThan(FRAMING_DEFAULTS.splitBleedTolerance)
+  })
+
+  it('la tolérance se clampe des deux côtés et retombe sur le défaut hors de [0, 1]', () => {
+    const left: SplitGeometry = { x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const right: SplitGeometry = { x0: 0.5, x1: 0.58, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const boxes = splitFrames(0, 10, left, right)
+
+    // Une tolérance de 1 laisse tout passer, y compris le cas rejeté ci-dessus.
+    const loose = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, {
+      ...RAW_BOUNDS,
+      splitBleedTolerance: 1,
+    })
+    expect(loose.cells).not.toBeNull()
+
+    // Une tolérance négative se clampe à 0 : rien ne passe.
+    const strict = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, {
+      ...RAW_BOUNDS,
+      splitBleedTolerance: -1,
+    })
+    expect(strict.cells).toBeNull()
+    expect(strict.rejection).toBe('bleedsIntoOther')
   })
 
   it("le plancher de taille de la PR #177 exclut une boîte trop petite et permet au split de se déclencher", () => {
@@ -2224,6 +2264,7 @@ describe('computeShotSplit', () => {
     expect(FRAMING_DEFAULTS.splitScreen).toBe(true)
     expect(FRAMING_DEFAULTS.splitMinShot).toBe(4)
     expect(FRAMING_DEFAULTS.splitMinCellWidth).toBe(0.38)
+    expect(FRAMING_DEFAULTS.splitBleedTolerance).toBe(0.05)
   })
 })
 

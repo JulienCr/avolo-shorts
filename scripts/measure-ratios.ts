@@ -1295,7 +1295,7 @@ const SPLIT_OUTCOMES = [
   'ratioNotWide',
   'noPairs',
   'tooNarrowForSource',
-  'wouldOverlap',
+  'bleedsIntoOther',
 ] as const
 
 type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
@@ -1313,6 +1313,63 @@ type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
  * sur aucun clip, split activé ou non — ni son ratio, ni la position d'aucun
  * de ses plans.
  */
+/**
+ * Les tolérances balayées : la fourchette entre les deux plans approuvés le
+ * 25 août (0,010 et 0,020 de débordement) et le seul rejeté (0,123), plus le
+ * défaut retenu sans balayage (0,05).
+ */
+const SPLIT_BLEED_TOLERANCES = [0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15]
+
+/**
+ * Ce que chaque tolérance change au rendement du split, et **le pire cas
+ * qu'elle laisse passer** — celui qu'il faut regarder à l'image, pas le
+ * confortable. Une tolérance qui n'a jamais rien à montrer ne prouve rien.
+ */
+function sweepBleedTolerance(show: Show): void {
+  const options = opts()
+  console.log(`\n  ${show.id}`)
+  for (const tolerance of SPLIT_BLEED_TOLERANCES) {
+    const withTolerance = { ...options, splitBleedTolerance: tolerance }
+    const counts = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+    let worst: { clip: string; t: number; bleed: number } | null = null
+
+    for (const cut of show.clips) {
+      const withoutSplit = framingOf(cut, show.analysis, { ...withTolerance, splitScreen: false })
+      const segments = normalizeSegments(cut.segments)
+      const inSegments = show.analysis.boxes.filter((b) =>
+        segments.some((g) => withinInterval(b.t, g.start, g.end)),
+      )
+      for (const framed of withoutSplit.shots) {
+        const shot = framed.shot
+        const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+        const { cells, rejection, bleed } = computeShotSplit(
+          boxes,
+          shot,
+          framed.ratio,
+          show.analysis.source.w,
+          show.analysis.source.h,
+          withTolerance,
+        )
+        const outcome: SplitOutcome =
+          cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
+        counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
+        // Le pire cas **accepté** : celui qu'un lecteur verrait vraiment dans
+        // le montage sous cette tolérance, pas le pire cas tout court.
+        if (cells !== null && bleed !== null && (worst === null || bleed > worst.bleed)) {
+          worst = { clip: cut.name, t: shot.start, bleed }
+        }
+      }
+    }
+
+    const line = SPLIT_OUTCOMES.map((o) => `${o} ${counts.get(o) ?? 0}`).join('  ')
+    const worstText =
+      worst === null
+        ? 'aucun split accepté'
+        : `pire bleed accepté ${worst.bleed.toFixed(3)} — ${worst.clip} @ ${worst.t.toFixed(1)} s`
+    console.log(`    ${tolerance.toFixed(3)}  ${line}  —  ${worstText}`)
+  }
+}
+
 function splitNativeControl(show: Show): void {
   const options = opts()
   let moved = 0
@@ -1594,6 +1651,10 @@ async function main(): Promise<number> {
     for (const e of shows) splitYield(e)
     console.log('\n  Contrôle mécanique : le natif ne bouge pas, split activé ou non')
     for (const e of shows) splitNativeControl(e)
+
+    console.log('\n  Le balayage de la tolérance au débordement (splitBleedTolerance)')
+    console.log('  (« pire bleed accepté » : le plan le plus proche de la tolérance parmi ceux acceptés — celui à regarder à l\'image)')
+    for (const e of shows) sweepBleedTolerance(e)
 
     return 0
   } finally {

@@ -311,6 +311,15 @@ export type FramingOptions = {
    * balayage, comme `sizeFloor` avant le sien.
    */
   splitMinCellWidth?: number
+  /**
+   * La tolérance au débordement d'une cellule dans la **boîte** de l'autre
+   * personne (pas son tronc), en fraction de la largeur source.
+   *
+   * **Repose sur trois points, pas sur un balayage** : les mesures du 25 août
+   * placent les deux plans approuvés à 0,010 et 0,020, et le seul plan rejeté
+   * à 0,123. `0,05` tient dans cet intervalle sans y avoir été balayé.
+   */
+  splitBleedTolerance?: number
 }
 
 /**
@@ -428,6 +437,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   splitScreen: true,
   splitMinShot: 4,
   splitMinCellWidth: 0.38,
+  splitBleedTolerance: 0.05,
 })
 
 /**
@@ -1255,13 +1265,21 @@ export type SplitRejection =
   | 'ratioNotWide'
   | 'noPairs'
   | 'tooNarrowForSource'
-  | 'wouldOverlap'
+  | 'bleedsIntoOther'
 
 /** Ce que `computeShotSplit` rend. */
 export type ShotSplit = {
   /** `[haut, bas]`, ou `null` quand le plan ne split pas. */
   cells: [Cell, Cell] | null
   rejection: SplitRejection | null
+  /**
+   * Le pire débordement mesuré d'une cellule dans la **boîte** de l'autre
+   * personne, sur les images appariées — `null` tant qu'aucune géométrie n'a
+   * pu se calculer (refus antérieur à elle). Exposé pour le balayage de
+   * `scripts/measure-ratios.ts`, qui doit pouvoir situer un plan par rapport
+   * à la tolérance sans la recalculer lui-même.
+   */
+  bleed: number | null
 }
 
 /**
@@ -1286,7 +1304,11 @@ export function computeShotSplit(
   srcH: number,
   options: FramingOptions,
 ): ShotSplit {
-  const refuse = (rejection: SplitRejection): ShotSplit => ({ cells: null, rejection })
+  const refuse = (rejection: SplitRejection, bleed: number | null = null): ShotSplit => ({
+    cells: null,
+    rejection,
+    bleed,
+  })
 
   const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
   // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
@@ -1380,21 +1402,42 @@ export function computeShotSplit(
     return { x0, y0, x1, y1 }
   }
 
-  const topCell = cellFor(leftOnTop ? left : right)
-  const bottomCell = cellFor(leftOnTop ? right : left)
-  if (topCell === null || bottomCell === null) return refuse('tooNarrowForSource')
+  const leftCell = cellFor(left)
+  const rightCell = cellFor(right)
+  if (leftCell === null || rightCell === null) return refuse('tooNarrowForSource')
 
-  // Recouvrement des deux rectangles dans la source, une fois clampés : c'est
-  // l'impossibilité arithmétique de la conception ("Le cadrage large"), vue
-  // ici sur la variante bornée par le tronc plutôt que sur le cas plein cadre.
-  const overlap =
-    topCell.x0 < bottomCell.x1 &&
-    bottomCell.x0 < topCell.x1 &&
-    topCell.y0 < bottomCell.y1 &&
-    bottomCell.y0 < topCell.y1
-  if (overlap) return refuse('wouldOverlap')
+  // **Les cellules ont le droit de se recouvrir.** Les deux plans approuvés le
+  // 25 août — `cqlp` et `entre-nous` — se recouvraient déjà sur les images
+  // soumises au jugement, sans qu'aucun contrôle de recouvrement n'existe
+  // alors : le rejeter aurait rejeté deux compositions qu'il a vues et
+  // acceptées. Ce qui compte est ailleurs (relevé par l'orchestrateur).
+  //
+  // **Le débordement se mesure sur la boîte de l'autre personne, pas sur son
+  // tronc.** Le tronc est trop permissif : il laisse passer une variante à
+  // cellule large dont le bras dépasse largement dans l'autre cellule, parce
+  // que ce bras est hors du tronc mais dans la boîte.
+  const bleedOf = (cell: Cell, others: PersonBox[]): number =>
+    Math.max(0, ...others.map((o) => Math.min(cell.x1, o.x1) - Math.max(cell.x0, o.x0)))
+  const bleedLeftIntoRight = bleedOf(
+    leftCell,
+    pairs.map((p) => p.right),
+  )
+  const bleedRightIntoLeft = bleedOf(
+    rightCell,
+    pairs.map((p) => p.left),
+  )
+  const bleed = Math.max(bleedLeftIntoRight, bleedRightIntoLeft)
 
-  return { cells: [topCell, bottomCell], rejection: null }
+  const tolerance = bound(
+    setting(options.splitBleedTolerance, FRAMING_DEFAULTS.splitBleedTolerance),
+    0,
+    1,
+  )
+  if (bleed > tolerance) return refuse('bleedsIntoOther', bleed)
+
+  const topCell = leftOnTop ? leftCell : rightCell
+  const bottomCell = leftOnTop ? rightCell : leftCell
+  return { cells: [topCell, bottomCell], rejection: null, bleed }
 }
 
 
@@ -1783,6 +1826,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     splitScreen: req.splitScreen,
     splitMinShot: req.splitMinShot,
     splitMinCellWidth: req.splitMinCellWidth,
+    splitBleedTolerance: req.splitBleedTolerance,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

@@ -297,7 +297,7 @@ async function main(): Promise<number> {
     return raw === undefined || raw.startsWith('--') ? undefined : raw
   }
   const flagsWithValue = new Set<number>()
-  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse', '--instant']) {
+  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse', '--instant', '--tolerance']) {
     const i = arguments_.indexOf(d)
     if (i >= 0) flagsWithValue.add(i + 1)
   }
@@ -361,6 +361,12 @@ async function main(): Promise<number> {
   const torso = (rawTorso ?? FRAMING_DEFAULTS.torso) as TorsoName | 'off'
 
   const splitScreen = !arguments_.includes('--split-off')
+  const rawTolerance = value('--tolerance')
+  const splitBleedTolerance = rawTolerance === undefined ? undefined : Number(rawTolerance)
+  if (splitBleedTolerance !== undefined && !Number.isFinite(splitBleedTolerance)) {
+    console.error(`--tolerance attend un nombre, reçu « ${rawTolerance} ».`)
+    return 1
+  }
   const rawInstant = value('--instant')
   const instant = rawInstant === undefined ? null : Number(rawInstant)
   if (instant !== null && !Number.isFinite(instant)) {
@@ -393,6 +399,7 @@ async function main(): Promise<number> {
     sideTrim: trim,
     torso,
     splitScreen,
+    splitBleedTolerance,
     segments: clip.segments,
     shots: analysis.shots,
     people: analysis.boxes,

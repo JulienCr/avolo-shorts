@@ -159,7 +159,10 @@ export function PanelExport({
   const shotCount = framing.shots.length
   const unmeasured = unmeasuredShots(framing)
   const frames = shotRatios(framing)
-  const split = anyShotSplit(framing)
+  // `anyShotSplit` seule ne dit rien du natif : sans variante due (natif déjà
+  // 9:16), le split ne se rend jamais — l'annoncer serait décrire un fichier
+  // qui n'existe pas. (relevé par Aristarque)
+  const split = names.variant9x16 !== null && anyShotSplit(framing)
   const state = deriveDeliveryState(clip.status, outputs)
   /**
    * Ce que le pli dit sans être ouvert : combien de fichiers, à quel ratio, et

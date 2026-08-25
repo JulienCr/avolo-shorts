@@ -52,9 +52,15 @@ export function effectiveRatio(
  * L'écran s'en sert pour dire, en un mot, que le cadre ne sera pas le même d'un
  * bout à l'autre : le ratio se choisit **par plan**, et ne rien en dire ferait
  * passer un saut de taille voulu pour un défaut de rendu.
+ *
+ * **Les plans splittés n'y figurent pas** : `ratio` y survit comme un champ
+ * vestigial, mais le split ignore le crop qu'il décrirait — l'y compter
+ * annoncerait un cadre qui ne sera pas rendu. (relevé par Aristarque)
  */
 export function shotRatios(framing: PublishedFraming): Ratio[] {
-  const seen = new Set(framing.shots.map((p) => p.ratio))
+  const seen = new Set(
+    framing.shots.filter((p) => p.split === undefined).map((p) => p.ratio),
+  )
   return ORDER_RATIOS.filter((r) => seen.has(r))
 }
 

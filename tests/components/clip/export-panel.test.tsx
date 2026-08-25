@@ -145,6 +145,22 @@ describe('avant l’export', () => {
   })
 
   /**
+   * Sans variante due (natif déjà 9:16), le split ne se rend jamais : rien à
+   * `src/server/steps/render.ts` ne le produit. L'annoncer décrirait un
+   * fichier qui n'existe pas. (relevé par Aristarque)
+   */
+  it('ne signale pas de split quand le natif est déjà 9:16', () => {
+    mount({
+      framing: framing({
+        ratio: '9:16',
+        shots: [shot(0, 10, '9:16', 0.5, 'auto', splitCells())],
+      }),
+    })
+    openDetail()
+    expect(screen.queryByText(/split-screen/)).toBeNull()
+  })
+
+  /**
    * **Un plan que personne n'a cadré, ni la machine ni l'humain**, mérite d'être
    * distinct des deux autres : ce n'est pas une décision, c'est celui qu'il faut
    * aller regarder avant de livrer.

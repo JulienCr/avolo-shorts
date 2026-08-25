@@ -119,6 +119,19 @@ describe('shotRatios', () => {
       ),
     ).toEqual(['9:16', '16:9'])
   })
+
+  it('exclut le ratio d’un plan splitté, vestigial et jamais rendu', () => {
+    expect(
+      shotRatios(
+        framing({
+          shots: [shot(0, 1, '16:9', 0.5), shot(1, 2, '16:9', 0.5, 'auto', splitCells())],
+        }),
+      ),
+    ).toEqual(['16:9'])
+    expect(
+      shotRatios(framing({ shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())] })),
+    ).toEqual([])
+  })
 })
 
 describe('anyShotSplit', () => {

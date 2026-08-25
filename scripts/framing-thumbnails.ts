@@ -318,7 +318,8 @@ async function main(): Promise<number> {
     console.error(
       'Usage : pnpm tsx scripts/framing-thumbnails.ts [<projectId>] <clipId> ' +
         '[--marge M] [--trim T] [--tronc <nom|off>] [--ratio 9:16|4:5|1:1|16:9] ' +
-        '[--images N] [--analyse <fichier>] [--out <dossier>]\n' +
+        '[--images N] [--analyse <fichier>] [--out <dossier>] ' +
+        '[--split-off] [--instant S] [--tolerance T]\n' +
         `<projectId> est optionnel : déduit de <clipId> quand un seul positionnel est passé.`,
     )
     return 1
@@ -458,6 +459,10 @@ async function main(): Promise<number> {
     // par débordement plus bas — pensé pour un rectangle qui doit tous les
     // contenir — ne s'applique plus. On échantillonne directement les images.
     if (shot.split !== undefined) {
+      // Même garde que le chemin non-splitté plus bas : un `--instant` hors de
+      // ce plan ne doit pas lui faire rendre l'image la plus proche quand
+      // même, sous peine d'une vignette par plan splitté au lieu d'une seule.
+      if (instant !== null && !(instant >= shot.shot.start && instant < shot.shot.end)) continue
       const instants = [...byImage.keys()].sort((a, b) => a - b)
       if (instants.length === 0) {
         console.log(`  plan ${shotStartMs(shot.shot)} ms — aucune image, split sans vignette`)

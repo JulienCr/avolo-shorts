@@ -1318,12 +1318,14 @@ type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
  * de ses plans.
  */
 /**
- * Les tolérances balayées : la fourchette entre les deux plans approuvés le
- * 25 août (0,010 et 0,020 de débordement) et le seul rejeté (0,123), plus le
- * défaut (0,08 — le point à 90 % de `cqlp` 2096 s, validé par le repérage
- * humain du 25 août).
+ * Les tolérances balayées, **plus le défaut en vigueur** — même règle que
+ * `MARGINS`/`SIDE_TRIMS`/`SIZE_FLOORS` : la fourchette entre les deux plans
+ * approuvés le 25 août (0,010 et 0,020 de débordement) et le seul rejeté
+ * (0,123).
  */
-const SPLIT_BLEED_TOLERANCES = [0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15]
+const SPLIT_BLEED_TOLERANCES = [
+  ...new Set([0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15, FRAMING_DEFAULTS.splitBleedTolerance]),
+].sort((a, b) => a - b)
 
 /**
  * Ce que chaque tolérance change au rendement du split, et **le pire cas
@@ -1349,6 +1351,10 @@ function bleedPass(
     for (const framed of withoutSplit.shots) {
       const shot = framed.shot
       const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+      const mountedSeconds = segments.reduce(
+        (m, g) => m + Math.max(0, Math.min(shot.end, g.end) - Math.max(shot.start, g.start)),
+        0,
+      )
       const { cells, rejection, bleed, worstBleedAt } = computeShotSplit(
         boxes,
         shot,
@@ -1356,6 +1362,7 @@ function bleedPass(
         show.analysis.source.w,
         show.analysis.source.h,
         withSettings,
+        mountedSeconds,
       )
       const outcome: SplitOutcome =
         cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
@@ -1451,6 +1458,7 @@ function splitYield(show: Show): void {
         show.analysis.source.w,
         show.analysis.source.h,
         options,
+        inClip,
       )
       const outcome: SplitOutcome = cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
       seconds.set(outcome, (seconds.get(outcome) ?? 0) + inClip)

@@ -21,7 +21,7 @@ import {
   trimmedBounds,
 } from '@/core/framing'
 import type { Ratio, Segment } from '@/core/edl'
-import { POINT, POINT_COUNT } from '@/core/shots'
+import { POINT, POINT_COUNT, shotStartMs } from '@/core/shots'
 import type { PersonBox, Shot } from '@/core/shots'
 
 const ALL: Ratio[] = ['9:16', '4:5', '1:1', '16:9']
@@ -2095,6 +2095,15 @@ describe('computeShotSplit', () => {
     expect(result.worstBleedAt).toBeNull()
   })
 
+  it('juge le plancher sur le recouvrement monté, pas la durée source du plan', () => {
+    // Plan source de 20 s, mais 3 s seulement montées : `boxes` ne couvre que
+    // ces 3 s, et `mountedSeconds` doit être ce qui compte pour le plancher.
+    const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const result = computeShotSplit(boxes, shot(0, 20), '1:1', SRC_W, SRC_H, RAW_BOUNDS, 3)
+    expect(result.cells).toBeNull()
+    expect(result.rejection).toBe('tooShort')
+  })
+
   it("refuse un plan dont l'image médiane ne porte pas exactement deux personnes", () => {
     // Plancher de taille éteint : ce test éprouve l'effectif, pas le plancher.
     const pair = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
@@ -2109,6 +2118,42 @@ describe('computeShotSplit', () => {
     )
     expect(cells).toBeNull()
     expect(rejection).toBe('notTwoPeople')
+  })
+
+  it('tronque la médiane vers le bas : 1,5 reste « pas deux »', () => {
+    // 5 images à 2 personnes, 5 à 1 seule (la droite absente) : médiane 1,5.
+    // Arrondie, elle vaudrait 2 et accepterait un plan à moitié vide.
+    const pair = splitFrames(0, 5, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const solo = pair.filter((b) => b.t < 2.5 && b.x0 === LEFT_GEOMETRY.x0)
+    const { cells, rejection } = computeShotSplit(
+      [...pair.filter((b) => b.t >= 2.5), ...solo],
+      shot(0, 5),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      RAW_BOUNDS,
+    )
+    expect(cells).toBeNull()
+    expect(rejection).toBe('notTwoPeople')
+  })
+
+  it('tronque la médiane vers le bas : 2,5 compte comme deux', () => {
+    // 5 images à 2 personnes, 5 à 3 (une troisième, petite, en plus) :
+    // médiane 2,5. Arrondie, elle vaudrait 3 et refuserait à tort.
+    const pair = splitFrames(0, 5, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const extra = pair
+      .filter((b) => b.t < 2.5)
+      .filter((b) => b.x0 === LEFT_GEOMETRY.x0)
+      .map((b) => splitPerson(b.t, 0.42, 0.48, 0.3, 0.6, 0.4, 0))
+    const { rejection } = computeShotSplit(
+      [...pair, ...extra],
+      shot(0, 5),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      { ...RAW_BOUNDS, sizeFloor: 0 },
+    )
+    expect(rejection).not.toBe('notTwoPeople')
   })
 
   it('refuse un ratio déjà 9:16 : le splitter ne gagnerait rien', () => {
@@ -2422,5 +2467,24 @@ describe('le split-screen dans computeFraming', () => {
     }
     const framing = computeFraming(request)
     expect(framing.shots[0].split).toBeUndefined()
+  })
+
+  it('une dérogation manuelle efface `split` : un crop unique posé dessus, jamais les deux cellules', () => {
+    const request = {
+      segments: SEGMENTS_ONE,
+      shots: SHOTS_ONE,
+      people: splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: 'auto' as const,
+      cropMode: 'manual' as const,
+      crops: { [shotStartMs(SHOTS_ONE[0])]: 0.42 },
+      ...RAW_BOUNDS,
+    }
+    const auto = computeFraming({ ...request, cropMode: 'auto' as const })
+    expect(auto.shots[0].split).toBeDefined()
+    const manual = computeFraming(request)
+    expect(manual.shots[0].split).toBeUndefined()
+    expect(manual.shots[0].cropX).toBe(0.42)
   })
 })

@@ -709,8 +709,9 @@ function buildRender(
         `${number(r.x, `segments[${i}].split[${index}].x`)}:` +
         `${number(r.y, `segments[${i}].split[${index}].y`)}`
       graph.push(`[${i}:v]split=2[sa${i}][sb${i}]`)
-      graph.push(`[sa${i}]${cropOf(top, 0)},scale=1080:960:flags=lanczos,setsar=1[st${i}]`)
-      graph.push(`[sb${i}]${cropOf(bottom, 1)},scale=1080:960:flags=lanczos,setsar=1[sbo${i}]`)
+      const cellH = canvas.h / 2
+      graph.push(`[sa${i}]${cropOf(top, 0)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[st${i}]`)
+      graph.push(`[sb${i}]${cropOf(bottom, 1)},scale=${canvas.w}:${cellH}:flags=lanczos,setsar=1[sbo${i}]`)
       graph.push(`[st${i}][sbo${i}]vstack=inputs=2[${output}]`)
       return
     }

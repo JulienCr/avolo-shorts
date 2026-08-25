@@ -317,7 +317,8 @@ export type FramingOptions = {
    *
    * **Repose sur trois points, pas sur un balayage** : les mesures du 25 août
    * placent les deux plans approuvés à 0,010 et 0,020, et le seul plan rejeté
-   * à 0,123. `0,05` tient dans cet intervalle sans y avoir été balayé.
+   * à 0,123. Le défaut, `0,08`, est le point à 90 % du plan `cqlp` 2096 s
+   * validé par le repérage humain du même jour — voir le corps de la PR.
    */
   splitBleedTolerance?: number
   /**
@@ -789,10 +790,10 @@ export type Orientation = {
 }
 
 /**
- * Les réglages d'`orientationOf`, **à part de `FramingOptions`** : cette
- * fonction n'est appelée par personne pour l'instant, surtout pas
- * `computeFraming`, et un champ de plus dans `FramingOptions` obligerait à
- * toucher son bloc de recopie sans aucun besoin.
+ * Les réglages d'`orientationOf`, **à part de `FramingOptions`** :
+ * `computeShotSplit` l'appelle avec ses défauts, jamais via `FramingOptions`,
+ * et un champ de plus dans `FramingOptions` obligerait à toucher son bloc de
+ * recopie sans aucun besoin.
  *
  * `shoulderRatioFull` et `sideDeadband` sont des valeurs de départ à mesurer,
  * pas des constantes gagnées par une campagne — un balayage viendra, comme
@@ -902,10 +903,9 @@ function shoulderRatioOf(k: readonly number[], threshold: number): number | null
 /**
  * À quel point une personne est de face, à partir de son squelette COCO.
  *
- * **Un spike : cette fonction n'est appelée par personne**, et surtout pas
- * `computeFraming` — elle mesure avant de brancher, et le comportement du
- * cadrage en service ne change pas d'un iota tant qu'elle reste en dehors du
- * chemin qui y mène.
+ * Appelée par `computeShotSplit` pour ranger les deux cellules haut/bas — le
+ * seul usage en production. Le cadrage 9:16 et natif hors split n'en dépendent
+ * pas : `frontality`/`facing` restent un diagnostic, jamais une décision.
  *
  * Trois signaux, chacun pouvant manquer indépendamment des deux autres :
  *
@@ -1303,6 +1303,10 @@ export type ShotSplit = {
  *
  * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
  * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
+ * @param mountedSeconds Le recouvrement entre le plan et les segments montés —
+ *   `shot.end - shot.start` par défaut, mais `boxes` ne porte que les images
+ *   montées : un extrait de quelques secondes pris dans un plan bien plus long
+ *   doit être jugé sur son propre recouvrement, pas sur la durée source.
  * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
  */
 export function computeShotSplit(
@@ -1312,6 +1316,7 @@ export function computeShotSplit(
   srcW: number,
   srcH: number,
   options: FramingOptions,
+  mountedSeconds: number = shot.end - shot.start,
 ): ShotSplit {
   const refuse = (
     rejection: SplitRejection,
@@ -1326,11 +1331,13 @@ export function computeShotSplit(
 
   const minShot = setting(options.splitMinShot, FRAMING_DEFAULTS.splitMinShot)
   // `!(durée >= plancher)` et non `<` : une borne non finie doit refuser.
-  if (!(shot.end - shot.start >= minShot)) return refuse('tooShort')
+  if (!(mountedSeconds >= minShot)) return refuse('tooShort')
 
   const counts = retainedCountByFrame(boxes, options)
   if (counts.length === 0) return refuse('notTwoPeople')
-  if (Math.round(median([...counts].sort((a, b) => a - b))) !== 2) return refuse('notTwoPeople')
+  // Tronqué, jamais arrondi (`CLAUDE.md`) : 1,5 doit rester « pas deux »,
+  // pas se hisser à 2 par arrondi.
+  if (Math.floor(median([...counts].sort((a, b) => a - b))) !== 2) return refuse('notTwoPeople')
 
   if (!(RATIOS[ratio] > RATIOS['9:16'])) return refuse('ratioNotWide')
 
@@ -1879,9 +1886,21 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   // crop unique. Ça ne touche que la variante 9:16 — `shotRatiosAll` et le
   // natif l'ignorent totalement, voir `computeShotSplit`.
   const splitByShotIndex = flag(req.splitScreen, FRAMING_DEFAULTS.splitScreen)
-    ? shots.map((shot, i) =>
-        computeShotSplit(boxesByShot[i], shot, shotRatiosAll[i], req.srcW, req.srcH, options),
-      )
+    ? shots.map((shot, i) => {
+        const mountedSeconds = segments.reduce(
+          (m, s) => m + Math.max(0, Math.min(shot.end, s.end) - Math.max(shot.start, s.start)),
+          0,
+        )
+        return computeShotSplit(
+          boxesByShot[i],
+          shot,
+          shotRatiosAll[i],
+          req.srcW,
+          req.srcH,
+          options,
+          mountedSeconds,
+        )
+      })
     : null
 
   // Le ratio du natif : le plus large des plans. Sans plan, le plus large tout
@@ -2024,6 +2043,9 @@ function applyExceptions(shots: ShotFraming[], req: FramingRequest): number[] {
     s.cropX = exception.value
     s.cropXNative = exception.value
     s.source = 'manual'
+    // Une dérogation pose un crop unique : un plan encore splitté l'ignorerait
+    // à l'export, la variante 9:16 gardant ses deux cellules en silence.
+    s.split = undefined
   }
 
   return [...new Set(rejected)].sort((a, b) => a - b)

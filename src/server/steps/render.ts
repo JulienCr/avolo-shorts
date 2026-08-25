@@ -629,6 +629,23 @@ const SCHEMA_FINGERPRINT = z.object({
         ratio: z.enum(['9:16', '4:5', '1:1', '16:9']),
         cropX: z.number().finite(),
         cropXNative: z.number().finite(),
+        // Optionnel : une empreinte version 9 sans plan splitté ne le porte pas.
+        split: z
+          .tuple([
+            z.object({
+              x0: z.number().finite(),
+              y0: z.number().finite(),
+              x1: z.number().finite(),
+              y1: z.number().finite(),
+            }),
+            z.object({
+              x0: z.number().finite(),
+              y0: z.number().finite(),
+              x1: z.number().finite(),
+              y1: z.number().finite(),
+            }),
+          ])
+          .optional(),
       }),
     ),
   }),
@@ -937,6 +954,7 @@ export function renderFingerprint(
         ratio: p.ratio,
         cropX: p.cropX,
         cropXNative: p.cropXNative,
+        split: p.split,
       })),
     },
     captions: clip.captions,

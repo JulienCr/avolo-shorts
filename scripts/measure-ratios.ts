@@ -158,7 +158,7 @@ const TORSO_NAMES: readonly (TorsoName | 'off')[] = ['off', ...(Object.keys(TORS
 
 /**
  * Les élargissements de tronc balayés, **plus le défaut en vigueur** — même
- * règle que `MARGINS` et `ROGNAGES`.
+ * règle que `MARGINS` et `SIDE_TRIMS`.
  */
 const TORSO_PADS = [...new Set([0, 0.1, 0.15, 0.2, 0.3, FRAMING_DEFAULTS.torsoPad])].sort(
   (a, b) => a - b,

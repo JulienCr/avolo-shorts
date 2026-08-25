@@ -38,7 +38,7 @@ export type ShotPiece = Segment & { ratio: Ratio; cropX: number; cropXNative: nu
  * l'invariant dont dépend le recalage des sous-titres, qui additionne les durées
  * dans l'ordre.
  *
- * **Un intervalle qu'aucun plan ne couvre prend `cropParDéfaut`** plutôt que de
+ * **Un intervalle qu'aucun plan ne couvre prend `fallback`** plutôt que de
  * disparaître ou d'ouvrir un trou. Le cas est atteignable même sous un
  * `analysis.json` valide, dont les plans partitionnent la durée du *proxy* : la
  * source peut finir quelques images plus loin.

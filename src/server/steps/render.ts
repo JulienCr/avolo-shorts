@@ -1336,7 +1336,7 @@ export type MarkerNative = {
   /**
    * Le condensat du fichier. Il ne sert pas au rendu — `scheduleMarkers`
    * l'ignore — mais à l'empreinte, qui doit distinguer deux images portant le
-   * même nom fixe. Voir `contenuDeLaMarque`.
+   * même nom fixe. Voir `fileContent`.
    */
   content: string
 }

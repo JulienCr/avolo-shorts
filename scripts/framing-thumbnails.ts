@@ -6,7 +6,7 @@
  *     pnpm tsx scripts/framing-thumbnails.ts 2025-06-15-cqlp <clipId> --trim 0 --images 3
  *
  * `<projectId>` est optionnel : `<clipId>` le contient (il se construit en
- * `${projectId}_${msDebut}-${msFin}`), donc un seul positionnel suffit quand on
+ * `${projectId}_${ms(start)}-${ms(end)}`), donc un seul positionnel suffit quand on
  * n'a que l'identifiant du clip sous la main. Passer les deux reste possible et
  * prioritaire.
  *

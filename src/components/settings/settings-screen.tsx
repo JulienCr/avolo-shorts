@@ -38,10 +38,10 @@ import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
  * l'écran montable en test.
  *
  * **Cinq sections, cinq onglets à gauche.** Empilées, elles demandaient de
- * faire défiler l'écran pour atteindre Publication. Un onglet ne rend que le
- * panneau actif — `Hook` en fait une exception délibérée : il reste monté
- * pendant le chargement, comme avant cette réorganisation, pour garder son
- * inertie propre plutôt que le squelette des autres sections.
+ * faire défiler l'écran pour atteindre Publication. La primitive démonte le
+ * panneau inactif, `Hook` compris — son exception porte sur le squelette et
+ * non sur le démontage : ouvert avant que les réglages n'arrivent, il montre
+ * ses vrais contrôles désactivés, comme avant cette réorganisation.
  */
 export function SettingsScreen() {
   const settings = useSettings()
@@ -83,16 +83,36 @@ export function SettingsScreen() {
           </Alert>
         )}
 
-        <Tabs defaultValue="reperage" orientation="vertical" className="flex-1 md:flex-row">
+        {/* **Au fil de la page, pas dans l'onglet « Intelligence
+            artificielle ».** Sans ce contrôle, un échec de
+            `/api/llm/availability` se lit comme un chargement encore en cours :
+            `AiSection` masque alors toutes les alertes de clé absente, et un
+            repérage peut se lancer sans que la vérification qui existe pour le
+            dire ait pu parler. Rangée dans son onglet, elle ne parle qu'à qui
+            l'ouvre. (relevé par Copilot, puis par Aristarque) */}
+        {availability.isError && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
+            <AlertDescription>{availability.error.message}</AlertDescription>
+            <AlertAction>
+              <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
+                Réessayer
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
+
+        <Tabs defaultValue="selection" orientation="vertical" className="flex-1 flex-col md:flex-row">
           <TabsList variant="line" className="shrink-0 md:w-48">
-            <TabsTrigger value="reperage">Repérage</TabsTrigger>
-            <TabsTrigger value="ia">Intelligence artificielle</TabsTrigger>
+            <TabsTrigger value="selection">Repérage</TabsTrigger>
+            <TabsTrigger value="ai">Intelligence artificielle</TabsTrigger>
             <TabsTrigger value="source">Source</TabsTrigger>
             <TabsTrigger value="hook">Hook</TabsTrigger>
             <TabsTrigger value="publication">Publication</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="reperage">
+          <TabsContent value="selection">
             {settings.isError ? null : settings.data === undefined ? (
               <SectionSkeleton />
             ) : (
@@ -109,36 +129,16 @@ export function SettingsScreen() {
             )}
           </TabsContent>
 
-          <TabsContent value="ia">
+          <TabsContent value="ai">
             {settings.isError ? null : settings.data === undefined ? (
               <SectionSkeleton />
             ) : (
-              <div className="flex flex-col gap-5">
-                {/* **`isError`, pas seulement `data === undefined`.** Sans ce
-                    contrôle, un échec de `/api/llm/availability` se lit comme un
-                    chargement encore en cours : `AiSection` masque alors toutes
-                    les alertes de clé absente, et un repérage peut se lancer sans
-                    que la vérification qui existe pour le dire ait pu parler.
-                    (relevé par Copilot) */}
-                {availability.isError && (
-                  <Alert variant="destructive">
-                    <TriangleAlert aria-hidden />
-                    <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
-                    <AlertDescription>{availability.error.message}</AlertDescription>
-                    <AlertAction>
-                      <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
-                        Réessayer
-                      </Button>
-                    </AlertAction>
-                  </Alert>
-                )}
-                <AiSection
-                  values={settings.data.ai}
-                  availability={availability.data}
-                  disabled={save.isPending}
-                  onChange={(patch) => save.mutateAsync({ ai: patch })}
-                />
-              </div>
+              <AiSection
+                values={settings.data.ai}
+                availability={availability.data}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ ai: patch })}
+              />
             )}
           </TabsContent>
 
@@ -155,11 +155,13 @@ export function SettingsScreen() {
           </TabsContent>
 
           <TabsContent value="hook">
-            <HookSection
-              values={settings.data?.hook}
-              disabled={save.isPending}
-              onChange={(patch) => save.mutateAsync({ hook: patch })}
-            />
+            {settings.isError ? null : (
+              <HookSection
+                values={settings.data?.hook}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ hook: patch })}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="publication">

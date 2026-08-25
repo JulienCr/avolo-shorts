@@ -345,6 +345,35 @@ describe('les pannes', () => {
     await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
     expect(screen.queryByLabelText(/tranche de/i)).toBeNull()
   })
+
+  it('dit une disponibilité invérifiable sans qu’il faille ouvrir l’onglet qui la concerne', async () => {
+    // **Le serveur du test ne connaît que `/api/settings`** : la disponibilité
+    // part donc en échec, ce qui est le cas à couvrir. Rangée dans le panneau
+    // « Intelligence artificielle », l'alerte ne parlait qu'à qui l'ouvre —
+    // alors qu'elle existe pour dire que `AiSection` masque ses alertes de clé
+    // absente. (relevé par Aristarque)
+    server()
+    await mountScreen()
+
+    expect(screen.getByText(/disponibilité des fournisseurs/i)).toBeTruthy()
+  })
+
+  it('ne montre aucun réglage du hook non plus quand les réglages ne se chargent pas', async () => {
+    // Le panneau Hook était le seul sans garde sur `isError` : il rendait alors
+    // `HOOK_DEFAULTS`, c'est-à-dire les constantes du code présentées comme des
+    // valeurs enregistrées. (relevé par Aristarque)
+    server({ read: () => response({ error: 'La base ne répond pas.' }, 500) })
+    const Wrapper = wrapper()
+    render(
+      <Wrapper>
+        <SettingsScreen />
+      </Wrapper>,
+    )
+
+    await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
+    await switchTab('Hook')
+    expect(screen.queryByLabelText('Effet d’apparition')).toBeNull()
+  })
 })
 
 describe('la section du hook', () => {

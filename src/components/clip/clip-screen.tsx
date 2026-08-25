@@ -609,9 +609,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <dt className="text-muted-foreground">Segments</dt>
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
-            {/* Lit `shot.cropX`, jamais `cropXNative` : c'est la variante 9:16,
-                pas le natif dont le crop est ailleurs à l'écran (addendum #178). */}
-            <dt className="text-muted-foreground">Cadre (variante)</dt>
+            {/* Lit `shot.cropX`, jamais `cropXNative` : c'est la sortie 9:16,
+                pas le natif dont le crop est ailleurs à l'écran (addendum #178).
+                « variante » se disait à tort quand le natif est déjà 9:16 et
+                qu'aucune variante n'est produite. (relevé par Copilot) */}
+            <dt className="text-muted-foreground">Cadre (9:16)</dt>
             {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
                 saute aux frontières, donc une seule valeur pour tout le clip ne
                 voudrait rien dire. La valeur est ramenée dans l'image, comme le

@@ -66,8 +66,9 @@ Un plan passe en split si les trois conditions tiennent :
 
 Les quatre conditions de la PR #176 — écart décisif, part de 90 %, gagnant
 constant, perdante jamais `unknown` — **disparaissent du déclencheur**. Elles
-servaient à désigner qui écarter, et le split n'écarte personne. Le calcul de
-frontalité, lui, survit : il décide de l'ordre des deux cellules.
+servaient à désigner qui écarter, et le split n'écarte personne. `orientationOf`
+survit, mais réduit à son seul `side` : c'est lui qui décide de l'ordre des
+deux cellules, jamais `frontality`.
 
 La deuxième condition se juge sur l'image médiane et non image par image, parce
 que le crop est fixe à l'intérieur d'un plan (spec §10). Un plan dont l'effectif
@@ -198,7 +199,7 @@ Cette conception arrête la forme de la règle, pas son seuil.
 ## Ce que la PR #176 garde
 
 La règle de détection, la section 7 de `scripts/measure-ratios.ts`, le contrôle
-mécanique que le natif ne bouge pas, les drapeaux `--profil-off` et `--instant`
+mécanique que le natif ne bouge pas, les drapeaux `--split-off` et `--instant`
 de `scripts/framing-thumbnails.ts`. Plus douze tests vérifiés rouges sans leur
-correctif. Le calcul de frontalité passe du rôle de juge à celui d'ordonnateur ;
-tout le reste sert à l'identique.
+correctif. `orientationOf` passe du rôle de juge à celui d'ordonnateur, réduit
+à son `side` ; tout le reste sert à l'identique.

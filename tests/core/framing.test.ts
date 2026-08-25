@@ -2275,7 +2275,7 @@ describe('computeShotSplit', () => {
     expect(result.bleed as number).toBeGreaterThan(FRAMING_DEFAULTS.splitBleedTolerance)
   })
 
-  it('la tolérance se clampe des deux côtés et retombe sur le défaut hors de [0, 1]', () => {
+  it('la tolérance se clampe des deux côtés, à 0 ou à 1, hors de [0, 1]', () => {
     const left: SplitGeometry = { x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
     const right: SplitGeometry = { x0: 0.5, x1: 0.58, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
     const boxes = splitFrames(0, 10, left, right)

@@ -1078,14 +1078,9 @@ type RetainedBox = { box: PersonBox; x0: number; x1: number; height: number }
 
 /**
  * Groupe les boîtes retenues par image — score, géométrie, premier plan —
- * **avant** le plancher de taille, qui doit comparer une boîte à la plus haute
- * de sa propre image et a donc besoin de toutes les survivantes d'une image à
- * la fois.
- *
- * Partagée par `spans` et par le déclencheur du split (`computeShotSplit`) :
- * les deux doivent lire « retenu » de la même façon, sans quoi un outil
- * compterait des gens que l'autre a déjà écartés (trap #4 de la skill
- * `cadrage`).
+ * avant le plancher de taille, qui compare une boîte à la plus haute de sa
+ * propre image. Partagée par `spans` et `computeShotSplit` : les deux doivent
+ * lire « retenu » de la même façon (trap #4 de la skill `cadrage`).
  */
 function retainedByFrame(
   boxes: PersonBox[],
@@ -1302,16 +1297,12 @@ export type ShotSplit = {
 
 /**
  * Le split-screen d'un plan à deux personnes (spec du 25 août 2026) : deux
- * cellules empilées plutôt qu'un crop unique, posées **là où c'est
- * géométriquement utile**. Aucun signal de contenu n'y participe — ni la
- * frontalité ni l'écart entre les deux personnes : le contrat documente les
- * trois pistes mesurées et écartées, et pourquoi aucune ne reproduit le
- * jugement du 25 août.
+ * cellules empilées plutôt qu'un crop unique, posées là où c'est
+ * géométriquement utile. Aucun signal de contenu n'y participe — voir le
+ * contrat pour les pistes mesurées et écartées.
  *
  * @param boxes Les boîtes du plan, restreintes à lui et aux segments montés.
- * @param shot Le plan, pour sa durée.
- * @param ratio Le ratio que ce plan prendrait sans split — condition 3 du
- * déclencheur, jugée sur la mesure déjà faite par l'appelant.
+ * @param ratio Le ratio que ce plan prendrait sans split (condition 3).
  * @returns Les deux cellules `[haut, bas]`, ou la cause du refus.
  */
 export function computeShotSplit(
@@ -1429,16 +1420,9 @@ export function computeShotSplit(
   const rightCell = cellFor(right)
   if (leftCell === null || rightCell === null) return refuse('tooNarrowForSource')
 
-  // **Les cellules ont le droit de se recouvrir.** Les deux plans approuvés le
-  // 25 août — `cqlp` et `entre-nous` — se recouvraient déjà sur les images
-  // soumises au jugement, sans qu'aucun contrôle de recouvrement n'existe
-  // alors : le rejeter aurait rejeté deux compositions qu'il a vues et
-  // acceptées. Ce qui compte est ailleurs (relevé par l'orchestrateur).
-  //
-  // **Le débordement se mesure sur la boîte de l'autre personne, pas sur son
-  // tronc.** Le tronc est trop permissif : il laisse passer une variante à
-  // cellule large dont le bras dépasse largement dans l'autre cellule, parce
-  // que ce bras est hors du tronc mais dans la boîte.
+  // Le recouvrement des cellules est autorisé ; ce qui compte est le
+  // débordement dans la **boîte** de l'autre personne, pas son tronc — voir
+  // le corps de la PR pour la mesure qui l'a tranché.
   const bleedPerFrame = pairs.map(
     ({ left: l, right: r }) =>
       Math.max(
@@ -1457,11 +1441,9 @@ export function computeShotSplit(
     0,
     1,
   )
-  // **90 % des images, pas 100 %** — la cellule est fixe pour tout le plan,
-  // exactement comme le crop du ratio, et `chooseRatioFromSpans` accepte déjà
-  // un ratio dont 10 % des images débordent entièrement. Exiger que chaque
-  // image tienne sous la tolérance tiendrait le split à une norme plus stricte
-  // que celle que le dépôt applique déjà au ratio (relevé par l'orchestrateur).
+  // 90 % des images, pas 100 % : même tolérance relative que
+  // `chooseRatioFromSpans` applique déjà au ratio — voir le corps de la PR
+  // pour la mesure qui l'a tranché.
   const share = bound(setting(options.splitBleedShare, FRAMING_DEFAULTS.splitBleedShare), 0, 1)
   const within = bleedPerFrame.filter((b) => b <= tolerance).length
   // `- 1e-9` absorbe l'arrondi flottant à la frontière, comme partout ailleurs
@@ -1891,8 +1873,6 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   const ratioOf = (measurements: Span[]): Ratio =>
     req.ratio === 'auto' ? chooseRatioFromSpans(measurements, req.srcW, req.srcH) : req.ratio
   const shotRatiosAll = measuredAll.map(ratioOf)
-  const measurementsByShot = measuredAll
-  const shotRatios = shotRatiosAll
 
   // **Le split-screen** (spec du 25 août 2026) : un plan à deux personnes,
   // plus large que le 9:16, se pose en deux cellules empilées plutôt qu'un
@@ -1951,8 +1931,8 @@ export function computeFraming(req: FramingRequest): ClipFraming {
   const nativeWidth = ratioCoverage(nativeRatio, req.srcW, req.srcH)
 
   const framedShots: ShotFraming[] = shots.map((shot, i) => {
-    const measurements = measurementsByShot[i]
-    const ratio = shotRatios[i]
+    const measurements = measuredAll[i]
+    const ratio = shotRatiosAll[i]
     // Le crop se calcule **pour ce ratio-là et jamais pour un autre** — sans
     // quoi un cadre mesuré en 1:1 se retrouverait posé dans un 4:5, décalé de la
     // différence de largeur. Deux ratios, donc deux positions : celle du plan

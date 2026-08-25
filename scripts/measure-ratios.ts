@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Sept sorties :
+ * Neuf sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -43,9 +43,13 @@
  *    points de pose. C'est le balayage de l'issue #69 : ce que chaque définition
  *    de tronc gagne en ratio, ce qu'elle coupe des gens, et ce qu'il reste au
  *    rognage latéral une fois le tronc en place.
- * 7. **Le cas 2**, la personne de profil écartée du cadrage : ce que la règle
- *    retient, ce que chaque cause de refus coûte, et le contrôle que le fichier
- *    natif ne bouge sur aucun clip.
+ * 7. **Où regarder** : les images d'une fenêtre qui font le plus monter le
+ *    ratio, pour rejouer un balayage sur l'image plutôt que sur un chiffre.
+ * 8. **Le plancher de taille** (PR #177) : ce qu'il change au ratio, et à
+ *    l'effectif retenu par image — ce second chiffre n'avait jamais été mesuré.
+ * 9. **Le split-screen**, deux personnes deux cellules : le rendement par
+ *    plan, ses causes de refus, et le contrôle que le fichier natif ne bouge
+ *    pas, split activé ou non.
  *
  * **Le chiffre qui décide est le temps de montage par ratio, pas le compte de
  * clips.** Depuis que le ratio se choisit par plan, un clip « en 16:9 » est
@@ -1355,12 +1359,9 @@ function bleedPass(
       const outcome: SplitOutcome =
         cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
       counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
-      // Le pire cas **accepté** : celui qu'un lecteur verrait vraiment dans
-      // le montage sous ce réglage, pas le pire cas tout court — c'est lui
-      // que la part à 90 % laisse passer sans qu'aucune image entière ne
-      // le protège (contrat, § « rendre le cas marginal, pas le confortable »).
-      // `worstBleedAt` désigne l'image précise, pas seulement le plan : c'est
-      // elle qu'il faut rendre à nouveau pour la juger.
+      // Le pire cas **accepté**, celui qu'un lecteur verrait vraiment sous ce
+      // réglage — pas le pire cas tout court. `worstBleedAt` désigne l'image
+      // précise, pas seulement le plan.
       if (cells !== null && bleed !== null && worstBleedAt !== null) {
         if (worst === null || bleed > worst.bleed) {
           worst = { clip: cut.name, t: worstBleedAt, bleed }

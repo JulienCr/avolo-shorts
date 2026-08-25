@@ -2186,6 +2186,21 @@ describe('computeShotSplit', () => {
     expect(rejection).toBe('tooNarrowForSource')
   })
 
+  // Une personne près du coin haut-gauche : le centre et le niveau d'yeux
+  // poussent la cellule hors cadre des deux côtés (x et y) si rien ne la
+  // décale. `x1 - x0` reste invariant du décalage — seules les bornes le
+  // trahissent.
+  it('décale une cellule au bord de la source plutôt que de la tronquer', () => {
+    const nearEdge: SplitGeometry = { x0: 0.01, x1: 0.11, y0: 0, y1: 0.6, eyeY: 0.02, side: 0 }
+    const boxes = splitFrames(0, 10, nearEdge, RIGHT_GEOMETRY)
+    const { cells, rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(rejection).toBeNull()
+    const [top] = cells!
+    expect(top.x0).toBeGreaterThanOrEqual(0)
+    expect(top.y0).toBeGreaterThanOrEqual(0)
+    expect(top.x1 - top.x0).toBeCloseTo(FRAMING_DEFAULTS.splitMinCellWidth, 6)
+  })
+
   // **Les cellules ont le droit de se recouvrir** : les deux plans approuvés
   // le 25 août se recouvraient déjà sur les images soumises au jugement, sans
   // qu'aucun contrôle de recouvrement n'existe alors. Ce qui compte est le
@@ -2301,6 +2316,20 @@ describe('computeShotSplit', () => {
       splitBleedShare: -1,
     })
     expect(looseShare.cells).not.toBeNull()
+  })
+
+  // La table ci-dessus ne distingue pas le clampage de son absence : 1,5 et
+  // -1 y retombent sur le même verdict avec ou sans `bound(...)`, à 18/20
+  // images sous tolérance. Ici les 20 images tiennent : une part clampée à 1
+  // exige exactement ça et accepte, une part brute au-dessus de 1 exigerait
+  // plus que la totalité et refuserait — les deux verdicts divergent.
+  it('une part au-dessus de 1 se clampe à 1, et non à une exigence plus stricte que 100 %', () => {
+    const boxes = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, {
+      ...RAW_BOUNDS,
+      splitBleedShare: 1.01,
+    })
+    expect(result.cells).not.toBeNull()
   })
 
   it("le plancher de taille de la PR #177 exclut une boîte trop petite et permet au split de se déclencher", () => {

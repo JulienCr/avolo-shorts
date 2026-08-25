@@ -699,10 +699,8 @@ function buildRender(
   segments.forEach((s, i) => {
     const output = entryLabel(i)
 
-    // **Le split-screen d'abord, avant tout le reste du graphe.** Une entrée
-    // splittée ignore `crop`/`ratio` : ses deux cellules remplissent déjà le
-    // canevas empilées, donc ni fond ni mise à l'échelle par ratio n'ont de
-    // sens ici (spec du 25 août 2026).
+    // Une entrée splittée ignore `crop`/`ratio` : ses deux cellules remplissent
+    // déjà le canevas empilées (spec du 25 août 2026).
     if (s.split !== undefined) {
       const [top, bottom] = s.split
       const cropOf = (r: Rectangle, index: number): string =>

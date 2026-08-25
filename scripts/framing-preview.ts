@@ -51,6 +51,7 @@ import {
   headBounds,
   isForeground,
   personBounds,
+  splitCellRect,
 } from '@/core/framing'
 import type { ShotFraming } from '@/core/framing'
 import { parseRange } from '@/core/range'
@@ -91,19 +92,33 @@ function boxColor(b: PersonBox, tallest: number): 'gray' | 'red' | 'lime' {
   return b.y1 - b.y0 >= FRAMING_DEFAULTS.sizeFloor * tallest ? 'lime' : 'red'
 }
 
-/** Un plan de `framing.shots`, réduit à ce que le navigateur dessine. */
-type ShotPayload = { start: number; end: number; ratio: Ratio; x: number; y: number; w: number; h: number }
+/** Un rectangle de crop, en fractions de la source. */
+type FrameRect = { x: number; y: number; w: number; h: number }
 
+/** Un plan de `framing.shots`, réduit à ce que le navigateur dessine. */
+type ShotPayload = { start: number; end: number; ratio: Ratio; crops: FrameRect[] }
+
+/**
+ * **Une boîte par cellule sur un plan splitté**, deux plutôt qu'une — le même
+ * principe que `framing-thumbnails.ts` : sans lui, l'outil montre un cadrage
+ * qu'aucune sortie ne produit.
+ */
 function shotPayload(shot: ShotFraming, srcW: number, srcH: number): ShotPayload {
-  const rect = cropRect(shot.ratio, shot.cropX, srcW, srcH)
-  return {
-    start: shot.shot.start,
-    end: shot.shot.end,
-    ratio: shot.ratio,
+  const toFraction = (rect: { x: number; y: number; w: number; h: number }): FrameRect => ({
     x: rect.x / srcW,
     y: rect.y / srcH,
     w: rect.w / srcW,
     h: rect.h / srcH,
+  })
+  const crops =
+    shot.split !== undefined
+      ? shot.split.map((cell) => toFraction(splitCellRect(cell, srcW, srcH)))
+      : [toFraction(cropRect(shot.ratio, shot.cropX, srcW, srcH))]
+  return {
+    start: shot.shot.start,
+    end: shot.shot.end,
+    ratio: shot.ratio,
+    crops,
   }
 }
 
@@ -302,7 +317,9 @@ function draw() {
   if (shot) {
     ctx.strokeStyle = 'yellow';
     ctx.lineWidth = 4;
-    ctx.strokeRect(shot.x * w, shot.y * h, shot.w * w, shot.h * h);
+    for (const crop of shot.crops) {
+      ctx.strokeRect(crop.x * w, crop.y * h, crop.w * w, crop.h * h);
+    }
   }
 
   if (showBoxes.checked && sortedTimes.length > 0) {

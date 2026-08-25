@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 
-import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
+import {
+  isComputedFraming,
+  effectiveRatio,
+  useCurrentShot,
+  activeSplit,
+} from '@/components/clip/framing'
 import { HookOverlay } from '@/components/clip/hook-overlay'
 import { CaptionOverlay, useCaptionClock } from '@/components/captions/caption-overlay'
 import type { CaptionStyle } from '@/core/captions/ass'
@@ -180,7 +185,7 @@ export function PreviewOutput({
   // Le split (spec du 25 août) n'existe que sur la variante 9:16 : ses deux
   // cellules remplissent tout le canevas, `effective`/`position` n'y servent
   // plus. Le natif, lui, garde `ratio`/`cropXNative` sans jamais lire `split`.
-  const split = shot?.split
+  const split = activeSplit(shot, framing, ratio) ? shot?.split : undefined
   const { width, hauteur } = canvasSize(split !== undefined ? '9:16' : effective)
   const part = split !== undefined ? 1 : lScreenPart(effective)
   /**

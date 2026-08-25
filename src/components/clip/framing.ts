@@ -69,6 +69,24 @@ export function anyShotSplit(framing: PublishedFraming): boolean {
 }
 
 /**
+ * Le split est-il actif, compte tenu du ratio épinglé — jamais `shot.split` seul.
+ *
+ * Épingler `9:16` supprime la variante (le serveur n'en produit aucune quand
+ * le natif est déjà vertical, `src/server/steps/render.ts`) et le split avec
+ * elle, mais `shot.split` reste celui du dernier `PATCH` le temps de
+ * l'écriture différée. Le ratio natif effectif, lui, se connaît tout de suite
+ * — même raisonnement que `effectiveRatio`. (relevé par Copilot, Codex)
+ */
+export function activeSplit(
+  shot: ShotFraming | null,
+  framing: PublishedFraming,
+  ratio: Ratio | 'auto',
+): boolean {
+  const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
+  return nativeRatio !== '9:16' && shot?.split !== undefined
+}
+
+/**
  * Le cadrage est-il celui que la machine a calculé ?
  *
  * Faux quand l'analyse manque, ne se lit pas, ou ne recouvre pas le montage : le

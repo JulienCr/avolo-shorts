@@ -20,7 +20,12 @@ import { TranscriptDrawer } from '@/components/clip/transcript-drawer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { isComputedFraming, effectiveRatio, useCurrentShot } from '@/components/clip/framing'
+import {
+  isComputedFraming,
+  effectiveRatio,
+  activeSplit,
+  useCurrentShot,
+} from '@/components/clip/framing'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import { splitIntoCards } from '@/core/captions/cards'
 import { retimeWords } from '@/core/captions/retime'
@@ -817,7 +822,7 @@ function ShotFrameLine({
   const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
   // Un plan splitté n'a pas de position de crop unique : le pourcentage ne
   // décrirait rien (spec du 25 août, addendum #178).
-  const split = shot?.split !== undefined
+  const split = activeSplit(shot, framing, ratio)
   return (
     <dd className="font-mono tabular-nums">
       {split ? 'split' : `${effective} · ${percent} %`}

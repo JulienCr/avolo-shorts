@@ -294,7 +294,9 @@ describe('CropOverlay', () => {
     expect(slider.getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('se fige sur un plan splitté, avec la raison écrite', () => {
+  it('rend les deux cellules plutôt qu’un slider, sur un plan splitté', () => {
+    // Pas de crop unique à situer : un `slider` mentirait sur les deux
+    // (`aria-valuenow` d'une position qui n'existe pas).
     render(
       <CropOverlay
         framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
@@ -304,9 +306,25 @@ describe('CropOverlay', () => {
         describedBy="raison-cadrage"
       />,
     )
-    const slider = screen.getByRole('slider')
-    expect(slider.getAttribute('aria-disabled')).toBe('true')
-    expect(slider.getAttribute('aria-describedby')).toBe('raison-cadrage')
-    expect(screen.getByText('split')).toBeTruthy()
+    expect(screen.queryByRole('slider')).toBeNull()
+    const group = screen.getByRole('group')
+    expect(group.getAttribute('aria-describedby')).toBe('raison-cadrage')
+    expect(group.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2)
+  })
+
+  it('ne rend pas les cellules quand le ratio épinglé supprime le split', () => {
+    // Épingler 9:16 supprime la variante et le split avec elle, avant même le
+    // retour du `PATCH` (`activeSplit`, addendum #178).
+    render(
+      <CropOverlay
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="9:16"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    expect(screen.queryByRole('group')).toBeNull()
+    expect(screen.getByRole('slider')).toBeTruthy()
   })
 })

@@ -8,6 +8,7 @@ import {
   effectiveRatio,
   shotRatios,
   anyShotSplit,
+  activeSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
@@ -124,7 +125,7 @@ export function CropOverlay({
   const automatic = isComputedFraming(framing)
 
   const effective = effectiveRatio(shot, ratio)
-  const split = shot?.split !== undefined
+  const split = activeSplit(shot, framing, ratio)
   const position = automatic ? (shot?.cropX ?? 0.5) : cropX
   const width = cropWidthFraction(effective)
   const left = cropLeftFraction(position, width)
@@ -155,6 +156,38 @@ export function CropOverlay({
     else if (e.key === 'End') onCropX(clampCropX(1, width))
     else return
     e.preventDefault()
+  }
+
+  if (split && shot?.split) {
+    // Pas de crop unique à situer : deux rectangles, un par cellule, dans les
+    // coordonnées de la source (mêmes fractions que `splitCellRect`). Un
+    // `slider` mentirait sur les deux (`aria-valuenow` d'une position qui
+    // n'existe pas) ; `group` porte la même raison sans en simuler une.
+    // (relevé par Codex, Copilot)
+    return (
+      <div
+        ref={frame}
+        role="group"
+        tabIndex={reason !== null ? 0 : -1}
+        aria-label="Cadre de ce plan, en deux cellules empilées"
+        aria-describedby={reason !== null ? describedBy : undefined}
+        className="pointer-events-none absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-stage focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+      >
+        {shot.split.map((cell, i) => (
+          <div
+            key={i}
+            aria-hidden
+            className="absolute border-2 border-stage/90 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+            style={{
+              left: `${cell.x0 * 100}%`,
+              top: `${cell.y0 * 100}%`,
+              width: `${(cell.x1 - cell.x0) * 100}%`,
+              height: `${(cell.y1 - cell.y0) * 100}%`,
+            }}
+          />
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -216,8 +249,9 @@ export function CropOverlay({
         )}
         style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
       >
+        {/* `split` a déjà rendu son propre retour ci-dessus : ici, toujours `effective`. */}
         <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.75rem] font-semibold text-stage-foreground">
-          {split ? 'split' : effective}
+          {effective}
         </span>
 
         {!frozen && (
@@ -283,7 +317,7 @@ export function RatioPicker({
   const values: (Ratio | 'auto')[] = ['auto', ...ORDER_RATIOS]
   const shot = useCurrentShot(framing)
   const effective = effectiveRatio(shot, ratio)
-  const split = shot?.split !== undefined
+  const split = activeSplit(shot, framing, ratio)
   const anySplit = anyShotSplit(framing)
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []

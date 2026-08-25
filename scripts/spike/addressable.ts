@@ -151,10 +151,17 @@ function inInterval(t: number, start: number, end: number): boolean {
  */
 function gridTimestamps(start: number, end: number, fps: number): number[] {
   if (!(fps > 0) || !(end > start)) return []
-  const firstK = Math.ceil(start * fps)
-  const lastK = Math.ceil(end * fps) - 1
+  // Bornes en `k` élargies d'un cran : une frontière de plan qui tombe pile sur
+  // un pas de grille peut voir `k / fps` s'arrondir de l'autre côté que le `t`
+  // stocké dans `analysis.boxes`. La membership se décide donc sur le
+  // timestamp arrondi, pas sur les bornes non arrondies.
+  const firstK = Math.floor(start * fps) - 1
+  const lastK = Math.ceil(end * fps) + 1
   const out: number[] = []
-  for (let k = firstK; k <= lastK; k += 1) out.push(Math.round((k / fps) * 1000) / 1000)
+  for (let k = Math.max(0, firstK); k <= lastK; k += 1) {
+    const t = Math.round((k / fps) * 1000) / 1000
+    if (t >= start && t < end) out.push(t)
+  }
   return out
 }
 

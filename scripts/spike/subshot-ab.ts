@@ -365,10 +365,17 @@ function inInterval(t: number, start: number, end: number): boolean {
  */
 function gridTimestamps(start: number, end: number, fps: number): number[] {
   if (!(fps > 0) || !(end > start)) return []
-  const firstK = Math.ceil(start * fps)
-  const lastK = Math.ceil(end * fps) - 1
+  // Bornes en `k` élargies d'un cran : une frontière de plan qui tombe pile sur
+  // un pas de grille peut voir `k / fps` s'arrondir de l'autre côté que le `t`
+  // stocké dans `analysis.boxes`. La membership se décide donc sur le
+  // timestamp arrondi, pas sur les bornes non arrondies.
+  const firstK = Math.floor(start * fps) - 1
+  const lastK = Math.ceil(end * fps) + 1
   const out: number[] = []
-  for (let k = firstK; k <= lastK; k += 1) out.push(Math.round((k / fps) * 1000) / 1000)
+  for (let k = Math.max(0, firstK); k <= lastK; k += 1) {
+    const t = Math.round((k / fps) * 1000) / 1000
+    if (t >= start && t < end) out.push(t)
+  }
   return out
 }
 
@@ -646,20 +653,30 @@ function probeStreamKinds(file: string): string[] {
 function worstPsnr(a: string, b: string): number {
   const statsFile = path.join(os.tmpdir(), `psnr-${process.pid}-${Math.random().toString(36).slice(2)}.txt`)
   try {
-    execFileSync(
-      ffmpegBin(),
-      ['-y', '-i', a, '-i', b, '-lavfi', `psnr=stats_file=${statsFile}`, '-f', 'null', '-'],
-      { stdio: ['ignore', 'ignore', 'ignore'] },
-    )
+    try {
+      execFileSync(
+        ffmpegBin(),
+        ['-y', '-i', a, '-i', b, '-lavfi', `psnr=stats_file=${statsFile}`, '-f', 'null', '-'],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      )
+    } catch (err) {
+      // stderr, capturé plutôt qu'ignoré : sans lui l'échec remonte comme
+      // « Command failed: ffmpeg … » sans dire lequel des deux fichiers pose
+      // problème.
+      const stderr = err instanceof Error && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : ''
+      throw new Error(`psnr entre ${a} et ${b} : ffmpeg a échoué.\n${stderr}`)
+    }
     const lines = fs.readFileSync(statsFile, 'utf8').trim().split('\n').filter((l) => l.length > 0)
     let worst = Number.POSITIVE_INFINITY
+    let matched = 0
     for (const line of lines) {
       const match = /psnr_avg:(inf|[\d.]+)/.exec(line)
       if (match === null) continue
+      matched += 1
       const value = match[1] === 'inf' ? Number.POSITIVE_INFINITY : Number.parseFloat(match[1])
       if (value < worst) worst = value
     }
-    if (lines.length === 0) throw new Error(`psnr : aucune image comparée entre ${a} et ${b}.`)
+    if (matched === 0) throw new Error(`psnr : aucune valeur psnr_avg reconnue entre ${a} et ${b}.`)
     return worst
   } finally {
     fs.rmSync(statsFile, { force: true })
@@ -1378,10 +1395,13 @@ async function main(): Promise<number> {
 
     console.log('\n=== 5bis. Le contrôle négatif — ses trois panneaux doivent être indiscernables ===')
     const controlEntry = produced.find(({ c }) => c.kind === 'control')
-    let controlOk = true
+    let controlOk = false
     if (controlEntry === undefined) {
-      console.log('  Pas de cas de contrôle rendu — rien à vérifier.')
+      console.log(
+        '  Pas de cas de contrôle rendu — le contrôle négatif annoncé par ce script n’a pas pu être vérifié.',
+      )
     } else {
+      controlOk = true
       const [today, candidate, randomWho] = controlEntry.panels
       const pairs: [string, string, string][] = [
         ['aujourd’hui / candidat', today, candidate],

@@ -2233,6 +2233,71 @@ describe('computeShotSplit', () => {
     expect(strict.rejection).toBe('bleedsIntoOther')
   })
 
+  /**
+   * Une image mesurée à un instant donné plutôt que sur tout `[from, to)` —
+   * pour mélanger des géométries différentes dans un même plan (contrat,
+   * § « adopter le percentile »).
+   */
+  function framesAt(times: number[], seq: (t: number) => [SplitGeometry, SplitGeometry]): PersonBox[] {
+    const out: PersonBox[] = []
+    for (const t of times) {
+      const [l, r] = seq(t)
+      out.push(splitPerson(t, l.x0, l.x1, l.y0, l.y1, l.eyeY, l.side))
+      out.push(splitPerson(t, r.x0, r.x1, r.y0, r.y1, r.eyeY, r.side))
+    }
+    return out
+  }
+
+  // Le tronc et le centre médians restent ceux du repos (`RIGHT_GEOMETRY`,
+  // minoritaire écarté) : seul `x0` s'étend vers la gauche, comme un bras qui
+  // se tend un instant — la cellule, elle, reste fixe et posée sur le repos.
+  const BLEEDING_RIGHT: SplitGeometry = { ...RIGHT_GEOMETRY, x0: 0.3 }
+  const BLEEDING_PAIR: [SplitGeometry, SplitGeometry] = [LEFT_GEOMETRY, BLEEDING_RIGHT]
+  const CLEAN_PAIR: [SplitGeometry, SplitGeometry] = [LEFT_GEOMETRY, RIGHT_GEOMETRY]
+  const TWENTY_HALF_SECOND_STEPS = Array.from({ length: 20 }, (_, i) => i * 0.5)
+
+  // **La cellule est fixe pour tout le plan, comme le crop du ratio** :
+  // `chooseRatioFromSpans` accepte déjà un ratio dont 10 % des images
+  // débordent entièrement, donc exiger que 100 % des images tiennent sous la
+  // tolérance du split serait une norme plus stricte que celle que le dépôt
+  // applique déjà ailleurs à la même contrainte structurelle.
+  it('accepte un débordement isolé sur 10 % des images, sous le seuil de 90 %', () => {
+    const boxes = framesAt(TWENTY_HALF_SECOND_STEPS, (t) => (t >= 9 ? BLEEDING_PAIR : CLEAN_PAIR))
+    const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+
+    expect(result.cells).not.toBeNull()
+    // Le pire cas reste rapporté, même accepté : c'est lui qu'il faut pouvoir
+    // retrouver et regarder à l'image (contrat, § « rendre le cas marginal »).
+    expect(result.bleed as number).toBeGreaterThan(FRAMING_DEFAULTS.splitBleedTolerance)
+  })
+
+  it('refuse quand plus de 10 % des images débordent', () => {
+    const boxes = framesAt(TWENTY_HALF_SECOND_STEPS, (t) => (t >= 6 ? BLEEDING_PAIR : CLEAN_PAIR))
+    const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+
+    expect(result.cells).toBeNull()
+    expect(result.rejection).toBe('bleedsIntoOther')
+  })
+
+  it('la part se clampe des deux côtés', () => {
+    const boxes = framesAt(TWENTY_HALF_SECOND_STEPS, (t) => (t >= 9 ? BLEEDING_PAIR : CLEAN_PAIR))
+
+    // Une part de 1 (clampée depuis au-delà de 1) exige que toutes les images
+    // tiennent : le débordement isolé ci-dessus la fait alors échouer.
+    const strictShare = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, {
+      ...RAW_BOUNDS,
+      splitBleedShare: 1.5,
+    })
+    expect(strictShare.cells).toBeNull()
+
+    // Une part de 0 (clampée depuis en dessous de 0) accepte n'importe quoi.
+    const looseShare = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, {
+      ...RAW_BOUNDS,
+      splitBleedShare: -1,
+    })
+    expect(looseShare.cells).not.toBeNull()
+  })
+
   it("le plancher de taille de la PR #177 exclut une boîte trop petite et permet au split de se déclencher", () => {
     // Une troisième boîte, nettement plus courte que les deux comédiens :
     // sans le plancher, l'image médiane porterait trois personnes retenues
@@ -2265,6 +2330,7 @@ describe('computeShotSplit', () => {
     expect(FRAMING_DEFAULTS.splitMinShot).toBe(4)
     expect(FRAMING_DEFAULTS.splitMinCellWidth).toBe(0.38)
     expect(FRAMING_DEFAULTS.splitBleedTolerance).toBe(0.05)
+    expect(FRAMING_DEFAULTS.splitBleedShare).toBe(0.9)
   })
 })
 

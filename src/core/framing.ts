@@ -320,6 +320,15 @@ export type FramingOptions = {
    * à 0,123. `0,05` tient dans cet intervalle sans y avoir été balayé.
    */
   splitBleedTolerance?: number
+  /**
+   * La part des images appariées qui doivent tenir sous la tolérance.
+   *
+   * **Reprend la valeur de `chooseRatioFromSpans` pour sa raison** : la
+   * cellule est fixe pour tout le plan, comme le crop du ratio, et exiger
+   * que 100 % des images tiennent tiendrait le split à une norme plus
+   * stricte que celle que le dépôt applique déjà au ratio lui-même.
+   */
+  splitBleedShare?: number
 }
 
 /**
@@ -438,6 +447,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   splitMinShot: 4,
   splitMinCellWidth: 0.38,
   splitBleedTolerance: 0.05,
+  splitBleedShare: 0.9,
 })
 
 /**
@@ -1275,7 +1285,9 @@ export type ShotSplit = {
   /**
    * Le pire débordement mesuré d'une cellule dans la **boîte** de l'autre
    * personne, sur les images appariées — `null` tant qu'aucune géométrie n'a
-   * pu se calculer (refus antérieur à elle). Exposé pour le balayage de
+   * pu se calculer (refus antérieur à elle). **Diagnostic, pas la décision** :
+   * le rejet compare chaque image à la tolérance et exige `splitBleedShare`
+   * d'entre elles en dessous, pas le pire seul. Exposé pour le balayage de
    * `scripts/measure-ratios.ts`, qui doit pouvoir situer un plan par rapport
    * à la tolérance sans la recalculer lui-même.
    */
@@ -1416,24 +1428,32 @@ export function computeShotSplit(
   // tronc.** Le tronc est trop permissif : il laisse passer une variante à
   // cellule large dont le bras dépasse largement dans l'autre cellule, parce
   // que ce bras est hors du tronc mais dans la boîte.
-  const bleedOf = (cell: Cell, others: PersonBox[]): number =>
-    Math.max(0, ...others.map((o) => Math.min(cell.x1, o.x1) - Math.max(cell.x0, o.x0)))
-  const bleedLeftIntoRight = bleedOf(
-    leftCell,
-    pairs.map((p) => p.right),
+  const bleedPerFrame = pairs.map(
+    ({ left: l, right: r }) =>
+      Math.max(
+        0,
+        Math.min(leftCell.x1, r.x1) - Math.max(leftCell.x0, r.x0),
+        Math.min(rightCell.x1, l.x1) - Math.max(rightCell.x0, l.x0),
+      ),
   )
-  const bleedRightIntoLeft = bleedOf(
-    rightCell,
-    pairs.map((p) => p.left),
-  )
-  const bleed = Math.max(bleedLeftIntoRight, bleedRightIntoLeft)
+  const bleed = Math.max(0, ...bleedPerFrame)
 
   const tolerance = bound(
     setting(options.splitBleedTolerance, FRAMING_DEFAULTS.splitBleedTolerance),
     0,
     1,
   )
-  if (bleed > tolerance) return refuse('bleedsIntoOther', bleed)
+  // **90 % des images, pas 100 %** — la cellule est fixe pour tout le plan,
+  // exactement comme le crop du ratio, et `chooseRatioFromSpans` accepte déjà
+  // un ratio dont 10 % des images débordent entièrement. Exiger que chaque
+  // image tienne sous la tolérance tiendrait le split à une norme plus stricte
+  // que celle que le dépôt applique déjà au ratio (relevé par l'orchestrateur).
+  const share = bound(setting(options.splitBleedShare, FRAMING_DEFAULTS.splitBleedShare), 0, 1)
+  const within = bleedPerFrame.filter((b) => b <= tolerance).length
+  // `- 1e-9` absorbe l'arrondi flottant à la frontière, comme partout ailleurs
+  // dans ce module : `within / total >= share` peut rater de justesse un cas
+  // pile égal.
+  if (!(within >= share * bleedPerFrame.length - 1e-9)) return refuse('bleedsIntoOther', bleed)
 
   const topCell = leftOnTop ? leftCell : rightCell
   const bottomCell = leftOnTop ? rightCell : leftCell
@@ -1827,6 +1847,7 @@ export function computeFraming(req: FramingRequest): ClipFraming {
     splitMinShot: req.splitMinShot,
     splitMinCellWidth: req.splitMinCellWidth,
     splitBleedTolerance: req.splitBleedTolerance,
+    splitBleedShare: req.splitBleedShare,
   }
 
   // Seules les images des segments retenus comptent (spec §10) : le clip ne

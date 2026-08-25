@@ -1325,48 +1325,70 @@ const SPLIT_BLEED_TOLERANCES = [0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15]
  * qu'elle laisse passer** — celui qu'il faut regarder à l'image, pas le
  * confortable. Une tolérance qui n'a jamais rien à montrer ne prouve rien.
  */
-function sweepBleedTolerance(show: Show): void {
-  const options = opts()
-  console.log(`\n  ${show.id}`)
-  for (const tolerance of SPLIT_BLEED_TOLERANCES) {
-    const withTolerance = { ...options, splitBleedTolerance: tolerance }
-    const counts = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
-    let worst: { clip: string; t: number; bleed: number } | null = null
+/** Un passage du balayage, sous une valeur de `splitBleedShare` donnée. */
+function bleedPass(
+  show: Show,
+  tolerance: number,
+  share: number,
+): { counts: Map<SplitOutcome, number>; worst: { clip: string; t: number; bleed: number } | null } {
+  const withSettings = { ...opts(), splitBleedTolerance: tolerance, splitBleedShare: share }
+  const counts = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  let worst: { clip: string; t: number; bleed: number } | null = null
 
-    for (const cut of show.clips) {
-      const withoutSplit = framingOf(cut, show.analysis, { ...withTolerance, splitScreen: false })
-      const segments = normalizeSegments(cut.segments)
-      const inSegments = show.analysis.boxes.filter((b) =>
-        segments.some((g) => withinInterval(b.t, g.start, g.end)),
+  for (const cut of show.clips) {
+    const withoutSplit = framingOf(cut, show.analysis, { ...withSettings, splitScreen: false })
+    const segments = normalizeSegments(cut.segments)
+    const inSegments = show.analysis.boxes.filter((b) =>
+      segments.some((g) => withinInterval(b.t, g.start, g.end)),
+    )
+    for (const framed of withoutSplit.shots) {
+      const shot = framed.shot
+      const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+      const { cells, rejection, bleed } = computeShotSplit(
+        boxes,
+        shot,
+        framed.ratio,
+        show.analysis.source.w,
+        show.analysis.source.h,
+        withSettings,
       )
-      for (const framed of withoutSplit.shots) {
-        const shot = framed.shot
-        const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
-        const { cells, rejection, bleed } = computeShotSplit(
-          boxes,
-          shot,
-          framed.ratio,
-          show.analysis.source.w,
-          show.analysis.source.h,
-          withTolerance,
-        )
-        const outcome: SplitOutcome =
-          cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
-        counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
-        // Le pire cas **accepté** : celui qu'un lecteur verrait vraiment dans
-        // le montage sous cette tolérance, pas le pire cas tout court.
-        if (cells !== null && bleed !== null && (worst === null || bleed > worst.bleed)) {
-          worst = { clip: cut.name, t: shot.start, bleed }
-        }
+      const outcome: SplitOutcome =
+        cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
+      counts.set(outcome, (counts.get(outcome) ?? 0) + 1)
+      // Le pire cas **accepté** : celui qu'un lecteur verrait vraiment dans
+      // le montage sous ce réglage, pas le pire cas tout court — c'est lui
+      // que la part à 90 % laisse passer sans qu'aucune image entière ne
+      // le protège (contrat, § « rendre le cas marginal, pas le confortable »).
+      if (cells !== null && bleed !== null && (worst === null || bleed > worst.bleed)) {
+        worst = { clip: cut.name, t: shot.start, bleed }
       }
     }
+  }
+  return { counts, worst }
+}
 
-    const line = SPLIT_OUTCOMES.map((o) => `${o} ${counts.get(o) ?? 0}`).join('  ')
-    const worstText =
-      worst === null
-        ? 'aucun split accepté'
-        : `pire bleed accepté ${worst.bleed.toFixed(3)} — ${worst.clip} @ ${worst.t.toFixed(1)} s`
-    console.log(`    ${tolerance.toFixed(3)}  ${line}  —  ${worstText}`)
+/**
+ * Le balayage de la tolérance, **sous les deux lectures** : chaque image du
+ * plan doit tenir (part à 1 — l'ancien critère de recouvrement, en plus
+ * strict), et 90 % d'entre elles suffisent (le défaut retenu). La deuxième
+ * colonne est ce que la part achète ; sans la première à côté, 0,9 se lirait
+ * comme hérité plutôt qu'argumenté.
+ */
+function sweepBleedTolerance(show: Show): void {
+  console.log(`\n  ${show.id}`)
+  for (const tolerance of SPLIT_BLEED_TOLERANCES) {
+    for (const [label, share] of [
+      ['chaque image (part 1,0)', 1] as const,
+      [`90 % des images (part ${FRAMING_DEFAULTS.splitBleedShare})`, FRAMING_DEFAULTS.splitBleedShare] as const,
+    ]) {
+      const { counts, worst } = bleedPass(show, tolerance, share)
+      const line = SPLIT_OUTCOMES.map((o) => `${o} ${counts.get(o) ?? 0}`).join('  ')
+      const worstText =
+        worst === null
+          ? 'aucun split accepté'
+          : `pire bleed accepté ${worst.bleed.toFixed(3)} — ${worst.clip} @ ${worst.t.toFixed(1)} s`
+      console.log(`    ${tolerance.toFixed(3)}  ${label.padEnd(26)}  ${line}  —  ${worstText}`)
+    }
   }
 }
 

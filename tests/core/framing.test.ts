@@ -382,10 +382,13 @@ describe('requiredWidths', () => {
   // Le plancher de taille : une boîte nettement plus courte que la plus haute
   // de la même image n'est pas quelqu'un à cadrer — voir `FRAMING_DEFAULTS` et
   // la spec du 25 août 2026, section « Le plancher de taille ».
+  // Plancher non passé, exprès : c'est `FRAMING_DEFAULTS.sizeFloor` qu'on
+  // vérifie ici, pas l'algorithme. Une régression du défaut vers 0 ou 0,05
+  // laisserait ce test vert s'il fixait sa propre valeur. (relevé par Copilot)
   it('exclut une boîte nettement plus courte que la plus haute de la même image', () => {
     const tall = boxH(1, 0.4, 0.6, 0, 1)
     const short = boxH(1, 0.8, 0.9, 0.6, 0.8)
-    expect(requiredWidths([tall, short], { margin: 0, sizeFloor: 0.5, ...NO_TRIM })).toEqual([
+    expect(requiredWidths([tall, short], { margin: 0, ...NO_TRIM })).toEqual([
       expect.closeTo(0.2, 10),
     ])
   })
@@ -934,7 +937,13 @@ describe('le premier plan écarté du cadrage', () => {
     expect(
       requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, sizeFloor: 0, ...NO_TRIM })[0],
     ).toBeCloseTo(1, 10)
-    expect(requiredWidths(boxes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
+    // `sizeFloor: 0` ici aussi : le public synthétique est bien plus court que
+    // les comédiens, donc le plancher par défaut l'écarterait seul — cette
+    // branche doit isoler `foregroundMaxHeight`, pas les cumuler. (relevé par
+    // Copilot)
+    expect(
+      requiredWidths(boxes, { margin: 0, sizeFloor: 0, ...NO_TRIM })[0],
+    ).toBeCloseTo(0.26, 10)
   })
 
   // Le constat qui a motivé la tâche : sans le filtre, tout sort au ratio le
@@ -944,7 +953,9 @@ describe('le premier plan écarté du cadrage', () => {
     expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0, sizeFloor: 0 })).toBe(
       '16:9',
     )
-    expect(chooseRatio(boxes, SRC_W, SRC_H)).toBe('9:16')
+    // `sizeFloor: 0` : isole `foregroundMaxHeight`, sans quoi le plancher par
+    // défaut écarterait déjà le public seul. (relevé par Copilot)
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { sizeFloor: 0 })).toBe('9:16')
   })
 
   it('ne change rien à une émission sans public au cadre', () => {
@@ -987,7 +998,9 @@ describe('le premier plan écarté du cadrage', () => {
     expect(computeFraming({ ...common, foregroundMaxHeight: 0, sizeFloor: 0 }).ratio).toBe(
       '16:9',
     )
-    const frame = computeFraming(common)
+    // `sizeFloor: 0` : isole `foregroundMaxHeight`, même raison que ci-dessus.
+    // (relevé par Copilot)
+    const frame = computeFraming({ ...common, sizeFloor: 0 })
     expect(frame.ratio).toBe('9:16')
     expect(frame.shots[0]).toMatchObject({ source: 'auto' })
   })
@@ -1031,7 +1044,10 @@ describe('le premier plan écarté du cadrage', () => {
       foregroundMaxHeight: 0,
       sizeFloor: 0,
     }).shots[0].cropX
-    const withFilter = computeFraming(common).shots[0].cropX
+    // `sizeFloor: 0` : le public d'un seul côté est aussi bien plus court que
+    // les comédiens, isole `foregroundMaxHeight` pour la même raison qu'au-
+    // dessus. (relevé par Copilot)
+    const withFilter = computeFraming({ ...common, sizeFloor: 0 }).shots[0].cropX
     // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
     // le milieu de l'action, qu'ils occupent symétriquement.
     expect(withoutFilter).toBeCloseTo(0.315, 3)

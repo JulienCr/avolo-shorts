@@ -200,7 +200,11 @@ function extent(
   trim: number,
   torso: TorsoName | 'off',
 ): { g: number | undefined; d: number | undefined; top: number; bottom: number } {
-  const kept = boxes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
+  const scored = boxes.filter((b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b))
+  // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage réel
+  // restait dessinée en vignette comme si elle avait compté. (relevé par Codex)
+  const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
+  const kept = scored.filter((b) => b.y1 - b.y0 >= FRAMING_DEFAULTS.sizeFloor * tallest)
   if (kept.length === 0) return { g: undefined, d: undefined, top: 0, bottom: 1 }
   const required = kept.map((b) => personBounds(b, { sideTrim: trim, torso }))
   // **Les deux bornes dans [0, 1] des deux côtés**, comme `empans` de

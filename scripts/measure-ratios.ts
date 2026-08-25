@@ -1034,9 +1034,15 @@ function momentsWhichWiden(cut: Cut, analysis: Analysis, n: number): number[] {
     .map(([key, boxes]) => {
       const t = key / 1000
       const span = requiredWidths(boxes, opts())[0]
-      const kept = boxes.filter(
+      const scored = boxes.filter(
         (b) => b.score >= FRAMING_DEFAULTS.minScore && !isForeground(b, opts()),
       )
+      // Même plancher que `spans()` : sans lui, une jaquette exclue du cadrage
+      // réel resterait comptée ici et désignerait la mauvaise image. (relevé
+      // par Codex)
+      const floor = opts().sizeFloor ?? FRAMING_DEFAULTS.sizeFloor
+      const tallest = Math.max(0, ...scored.map((b) => b.y1 - b.y0))
+      const kept = scored.filter((b) => b.y1 - b.y0 >= floor * tallest)
       if (span === undefined || kept.length === 0) return undefined
       const required = kept.map((b) => personBounds(b, opts()))
       // Bornées des deux côtés, comme `measurements` de `framing.ts` et `extent` de
@@ -1099,9 +1105,12 @@ type SizeFloorStats = {
   boxes: number
   dropped: number
   framesConsidered: number
-  framesEmptied: number
-  /** Images qui perdent au moins une boîte sans être vidées. */
-  framesNarrowed: number
+  /**
+   * Images qui perdent au moins une boîte — pas nécessairement resserrées :
+   * une boîte coupée déjà comprise entre les extrêmes des autres ne change
+   * pas l'empan. (relevé par Copilot)
+   */
+  framesFiltered: number
   /** Part de la plus haute de l'image, une valeur par boîte coupée — l'honnête moitié : une boîte coupée à 0,49 n'est pas la même nouvelle qu'une coupée à 0,05. */
   droppedShares: number[]
 }
@@ -1139,13 +1148,18 @@ function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOpti
 
   let boxes = 0
   let dropped = 0
-  let framesEmptied = 0
-  let framesNarrowed = 0
+  let framesFiltered = 0
   const droppedShares: number[] = []
   for (const heights of byFrame.values()) {
     boxes += heights.length
     const tallest = Math.max(...heights)
     let survivors = 0
+    // La plus haute boîte de l'image se compare toujours à elle-même : elle
+    // survit à tout plancher <= 1, donc `survivors` ne descend jamais à zéro
+    // pour les candidats balayés ici (tous <= 0,7). Une image ne peut donc
+    // qu'être resserrée, jamais vidée — structurel, pas mesuré. (relevé par
+    // Codex : le garde-fou qu'un tel test suggérait n'aurait jamais pu être
+    // pris en défaut)
     for (const height of heights) {
       if (!(height >= floor * tallest)) {
         dropped += 1
@@ -1154,15 +1168,13 @@ function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOpti
       }
       survivors += 1
     }
-    if (survivors === 0) framesEmptied += 1
-    else if (survivors < heights.length) framesNarrowed += 1
+    if (survivors < heights.length) framesFiltered += 1
   }
   return {
     boxes,
     dropped,
     framesConsidered: byFrame.size,
-    framesEmptied,
-    framesNarrowed,
+    framesFiltered,
     droppedShares,
   }
 }
@@ -1170,15 +1182,15 @@ function sizeFloorEffect(analysis: Analysis, floor: number, options: FramingOpti
 /**
  * Ce que chaque plancher coupe et achète, **par émission et corpus entier**.
  *
- * Les deux dernières colonnes sont le garde-fou du piège documenté dans la
- * skill `cadrage` : un plancher qui vide des images entières produirait de
- * bons ratios calculés sur ce qu'il en reste. « images vidées » dit ce qui
- * disparaît sans qu'aucun ratio n'en témoigne.
+ * Aucune image n'est jamais entièrement vidée pour les candidats balayés ici
+ * (tous <= 0,7) : c'est structurel, pas une propriété du corpus — voir le
+ * commentaire de `sizeFloorEffect`. Le piège documenté dans la skill `cadrage`
+ * (un plancher qui vide des images entières produirait de bons ratios calculés
+ * sur ce qu'il en reste) resterait réel pour un candidat >= 1, mais aucun de
+ * ceux balayés n'y expose.
  */
 function sweepSizeFloor(shows: Show[]): void {
-  console.log(
-    '  plancher   boîtes coupées     images vidées   images resserrées   part coupée p90',
-  )
+  console.log('  plancher   boîtes coupées   images filtrées   part coupée p90')
   const perShow = new Map<string, SizeFloorStats[]>()
   for (const floor of SIZE_FLOORS) {
     const options = opts({ sizeFloor: floor })
@@ -1207,8 +1219,7 @@ function mergeSizeFloorStats(stats: SizeFloorStats[]): SizeFloorStats {
     boxes: a.boxes + b.boxes,
     dropped: a.dropped + b.dropped,
     framesConsidered: a.framesConsidered + b.framesConsidered,
-    framesEmptied: a.framesEmptied + b.framesEmptied,
-    framesNarrowed: a.framesNarrowed + b.framesNarrowed,
+    framesFiltered: a.framesFiltered + b.framesFiltered,
     droppedShares: [...a.droppedShares, ...b.droppedShares],
   }))
 }
@@ -1223,15 +1234,10 @@ function mergeSizeFloorStats(stats: SizeFloorStats[]): SizeFloorStats {
 function printSizeFloorRow(floor: number, stats: SizeFloorStats, indent: string): void {
   const defaultValue = floor === FRAMING_DEFAULTS.sizeFloor ? ' ←' : '  '
   const dropShare = stats.boxes === 0 ? 0 : (100 * stats.dropped) / stats.boxes
-  const emptyShare =
-    stats.framesConsidered === 0 ? 0 : (100 * stats.framesEmptied) / stats.framesConsidered
   console.log(
     `${indent}${floor.toFixed(2)}${defaultValue}` +
       `   ${stats.dropped} / ${stats.boxes} (${dropShare.toFixed(1)} %)`.padStart(26) +
-      `   ${stats.framesEmptied} / ${stats.framesConsidered} (${emptyShare.toFixed(1)} %)`.padStart(
-        26,
-      ) +
-      `   ${stats.framesNarrowed}`.padStart(21) +
+      `   ${stats.framesFiltered}`.padStart(21) +
       `   ${number(percentile(stats.droppedShares, 0.9))}`.padStart(19),
   )
 }

@@ -284,8 +284,8 @@ export type FramingOptions = {
   torsoTrim?: number
   /**
    * La part de la **plus haute boîte retenue de la même image** en deçà de
-   * laquelle une boîte n'est plus quelqu'un à cadrer. Voir `spans` et la spec
-   * du 25 août 2026, section « Le plancher de taille ».
+   * laquelle une boîte n'est plus quelqu'un à cadrer. Voir `spans` et
+   * `docs/superpowers/specs/2026-08-25-size-floor-design.md`.
    *
    * `0` désactive le filtre entièrement, comme `foregroundMaxHeight: 0`.
    */

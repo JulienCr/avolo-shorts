@@ -11,7 +11,7 @@ import { clipDuration, type Clip, type Ratio, type Segment } from '@/core/edl'
 import { splitByShot } from '@/core/shot-split'
 import { blurredVariantArgs, renderArgs, type FramedSegment } from '@/core/ffmpeg/args'
 import type { EncoderName } from '@/core/ffmpeg/encoder'
-import { cropRect, outputSize } from '@/core/framing'
+import { cropRect, outputSize, sameCell, splitCellRect, type Cell } from '@/core/framing'
 import { RENDER_NATIVE } from '@/core/render-flags'
 import {
   hookIsBurned,
@@ -358,8 +358,13 @@ export function pathsRender(
  * en ont un. Sans cet incrément, `sauterRender` retrouve un rendu déjà en
  * version 7 comme à jour et ne republie jamais les nouvelles tailles.
  * (relevé par Copilot et Aristarque)
+ *
+ * **Passée à 9 le 25 août 2026, avec le split-screen.** `RenderedFraming.shots`
+ * gagne `split` — deux cellules par plan plutôt qu'un crop unique — et les
+ * empreintes d'avant n'en portent aucune trace : elles ne peuvent donc pas dire
+ * qu'un rendu splitté est périmé. Même geste que `captionsContent` en août.
  */
-export const VERSION_FINGERPRINT = 8
+export const VERSION_FINGERPRINT = 9
 
 /**
  * Le cadrage tel que l'empreinte le retient : par plan traversé, **ses bornes
@@ -377,7 +382,15 @@ export const VERSION_FINGERPRINT = 8
 export type RenderedFraming = {
   /** Le ratio du fichier natif : le plus large que les plans demandent. */
   ratio: Ratio
-  shots: { start: number; end: number; ratio: Ratio; cropX: number; cropXNative: number }[]
+  shots: {
+    start: number
+    end: number
+    ratio: Ratio
+    cropX: number
+    cropXNative: number
+    /** Les deux cellules du split-screen, `[haut, bas]`, quand ce plan en pose un. */
+    split?: [Cell, Cell]
+  }[]
 }
 
 /**
@@ -431,6 +444,7 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
       ratio: s.ratio,
       cropX: s.cropX,
       cropXNative: s.cropXNative,
+      split: s.split,
     })),
   }
 }
@@ -1993,11 +2007,21 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
           ratio,
           crop: cropRect(ratio, m.cropXNative, size.w, size.h),
         }))
+        // **Le split ne touche que la variante 9:16** : le natif construit son
+        // `FramedSegment` sans jamais lire `m.split`, ce qui garantit qu'il ne
+        // peut pas bouger d'un pixel à cause d'un plan splitté.
         const verticalPieces: FramedSegment[] = pieces.map((m) => ({
           start: m.start,
           end: m.end,
           ratio: m.ratio,
           crop: cropRect(m.ratio, m.cropX, size.w, size.h),
+          split:
+            m.split !== undefined
+              ? [
+                  splitCellRect(m.split[0], size.w, size.h),
+                  splitCellRect(m.split[1], size.w, size.h),
+                ]
+              : undefined,
         }))
 
         // **Les marques sont planifiées sur le canevas de CHAQUE sortie**, et non
@@ -2437,7 +2461,9 @@ export function renderIsStale(render: ShapeRendered, toDay: ShapeRendered): bool
         p.end === toDay.framing.shots[i].end &&
         p.ratio === toDay.framing.shots[i].ratio &&
         p.cropX === toDay.framing.shots[i].cropX &&
-        p.cropXNative === toDay.framing.shots[i].cropXNative,
+        p.cropXNative === toDay.framing.shots[i].cropXNative &&
+        sameCell(p.split?.[0], toDay.framing.shots[i].split?.[0]) &&
+        sameCell(p.split?.[1], toDay.framing.shots[i].split?.[1]),
     )
   return (
     !sameSegments ||

@@ -1308,6 +1308,33 @@ type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
  * de rejet montre au moins un cas qui la fait tomber dedans (contrat, critère
  * d'acceptation 8) plutôt que de rester une case qui ne peut jamais s'allumer.
  */
+/**
+ * Le contrôle mécanique de l'acceptance criterion 2 : le natif ne doit bouger
+ * sur aucun clip, split activé ou non — ni son ratio, ni la position d'aucun
+ * de ses plans.
+ */
+function splitNativeControl(show: Show): void {
+  const options = opts()
+  let moved = 0
+  const touched: string[] = []
+  for (const cut of show.clips) {
+    const off = framingOf(cut, show.analysis, { ...options, splitScreen: false })
+    const on = framingOf(cut, show.analysis, { ...options, splitScreen: true })
+    const same =
+      off.ratio === on.ratio &&
+      off.shots.length === on.shots.length &&
+      off.shots.every((p, i) => p.cropXNative === on.shots[i].cropXNative)
+    if (!same) {
+      moved += 1
+      touched.push(`${cut.name} : ${off.ratio} → ${on.ratio}`)
+    }
+  }
+  console.log(
+    `  ${show.id} — natif : ${moved === 0 ? 'intact sur les ' + String(show.clips.length) + ' clips' : String(moved) + ' CLIPS DÉPLACÉS'}`,
+  )
+  if (touched.length > 0) console.log(`    ${touched.join(', ')}`)
+}
+
 function splitYield(show: Show): void {
   const options = opts()
   const seconds = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
@@ -1565,6 +1592,8 @@ async function main(): Promise<number> {
     console.log('\n=== 9. Le split-screen : deux personnes, deux cellules ===')
     console.log("  (« split » : le déclencheur s'applique ; les autres colonnes sont les causes de refus)")
     for (const e of shows) splitYield(e)
+    console.log('\n  Contrôle mécanique : le natif ne bouge pas, split activé ou non')
+    for (const e of shows) splitNativeControl(e)
 
     return 0
   } finally {

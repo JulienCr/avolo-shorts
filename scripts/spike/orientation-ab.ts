@@ -38,7 +38,8 @@
  *
  * **Les contrôles négatifs comptent autant que les cas.** `--controls`
  * produit, en plus, des images sur des plans où la règle ne doit **rien**
- * changer : deux personnes de face (écart de frontalité faible), une seule
+ * changer : deux frontalités proches — de face ou non, la sélection ne
+ * distingue pas —, une seule
  * personne, et — si le corpus en offre un — deux personnes de profil. Sur ces
  * images, les panneaux 2 et 3 doivent être identiques ; ce script le vérifie
  * et le dit dans la légende, en toutes lettres si ce n'est pas le cas.
@@ -690,7 +691,7 @@ function titleFor(kind: Kind): string {
     case 'case':
       return 'Cas 2 — écarter la personne de profil'
     case 'control-frontal':
-      return 'Contrôle — deux personnes de face (écart de frontalité faible)'
+      return 'Contrôle — deux frontalités proches (de face ou non)'
     case 'control-solo':
       return 'Contrôle — une seule personne'
     case 'control-profile':
@@ -834,6 +835,9 @@ function usage(): string {
   )
 }
 
+/** Les trois categories de controle que `pickControls` sait produire. */
+const CONTROL_KINDS_COUNT = 3
+
 function intFlag(
   value: (flag: string) => string | undefined,
   present: (flag: string) => boolean,
@@ -888,7 +892,14 @@ async function main(): Promise<number> {
   }
 
   const casesCount = intFlag(value, present, '--cases', 6, 0)
+  // Trois categories de controle existent, pas davantage : accepter `--controls 10`
+  // rendrait trois panneaux en laissant croire la demande honoree.
+  // (releve par Copilot)
   const controlsCount = intFlag(value, present, '--controls', 3, 0)
+  if (controlsCount !== undefined && controlsCount > CONTROL_KINDS_COUNT) {
+    console.error(`--controls attend un entier de 0 a ${CONTROL_KINDS_COUNT}, recu ${controlsCount}.`)
+    return 1
+  }
   const seed = intFlag(value, present, '--seed', 1, Number.MIN_SAFE_INTEGER)
   if (casesCount === undefined || controlsCount === undefined || seed === undefined) {
     console.error(usage())
@@ -931,7 +942,7 @@ async function main(): Promise<number> {
     const from = near.length > 0 ? near : pool.slice(0, 1)
     const picked = shuffleInPlace([...from], rng)[0]
     if (picked === undefined) {
-      console.error('Contrôle « deux personnes de face » : aucun plan à écart de frontalité connu dans le JSON.')
+      console.error('Contrôle « frontalités proches » : aucun plan à écart de frontalité connu dans le JSON.')
     } else {
       pendingControls.push({
         kind: 'control-frontal',

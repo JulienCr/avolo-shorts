@@ -922,9 +922,13 @@ export function orientationOf(box: PersonBox, options: OrientationOptions = {}):
     facing = frontality >= frontalThreshold ? 'frontal' : 'profile'
   }
 
-  // 5. side.
+  // 5. side. **Une egalite parfaite reste `0`.** Sous `sideDeadband: 0`, deux
+  // confiances d'oreille egales et positives donnent `earAsymmetry === 0`, qui
+  // franchit le seuil ; le ternaire tranchait alors au hasard. C'est la regle du
+  // depot : un defaut prudent est juste face a une information absente, faux face
+  // a une information ambigue. (releve par Copilot)
   let side: -1 | 0 | 1 = 0
-  if (earAsymmetry !== null && earAsymmetry >= sideDeadband) {
+  if (earAsymmetry !== null && earAsymmetry >= sideDeadband && earLeftScore !== earRightScore) {
     side = earLeftScore > earRightScore ? -1 : 1
   }
 

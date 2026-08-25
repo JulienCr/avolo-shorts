@@ -1693,6 +1693,29 @@ describe('orientationOf', () => {
     expect(orientationOf(personD).side).toBe(1)
   })
 
+  /**
+   * **Une egalite parfaite n'est pas un cote, c'est une absence de cote.** Sous
+   * `sideDeadband: 0`, deux confiances d'oreille egales et positives donnent
+   * `earAsymmetry === 0`, qui franchit le seuil inclusif -- et le ternaire
+   * tranchait alors au hasard, vers `1`. C'est la regle du depot : un defaut
+   * prudent est juste face a une information absente, faux face a une information
+   * ambigue. Deux hypotheses a une voix chacune se rejettent. (releve par Copilot)
+   */
+  it('garde `side` a 0 quand les deux oreilles sont a egalite', () => {
+    const k = [...personA.k!]
+    k[POINT.LEFT_EAR * 3 + 2] = 0.8
+    k[POINT.RIGHT_EAR * 3 + 2] = 0.8
+    const tied = personWithK(770, k)
+
+    expect(orientationOf(tied).terms.earAsymmetry).toBe(0)
+    expect(orientationOf(tied, { sideDeadband: 0 }).side).toBe(0)
+    // Le meme squelette avec un ecart minuscule tranche, lui : c'est bien
+    // l'egalite qu'on refuse, pas le seuil qu'on a deplace.
+    const nudged = [...k]
+    nudged[POINT.LEFT_EAR * 3 + 2] = 0.81
+    expect(orientationOf(personWithK(770, nudged), { sideDeadband: 0 }).side).toBe(-1)
+  })
+
   it('rend `unknown` et `frontality` `null` sans points de pose', () => {
     const result = orientationOf(box(0, 0.2, 0.6))
     expect(result.facing).toBe('unknown')

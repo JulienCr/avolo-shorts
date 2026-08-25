@@ -2221,7 +2221,7 @@ describe('computeShotSplit', () => {
     // Un tronc large côté gauche (0,2, contre 0,08 à droite) : sa cellule
     // (3 × 0,2 = 0,6) mord loin dans la boîte étroite de droite.
     const left: SplitGeometry = { x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
-    const right: SplitGeometry = { x0: 0.5, x1: 0.58, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+    const right: SplitGeometry = { x0: 0.4, x1: 0.48, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
     const boxes = splitFrames(0, 10, left, right)
     const result = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
 
@@ -2363,7 +2363,7 @@ describe('computeShotSplit', () => {
     expect(FRAMING_DEFAULTS.splitScreen).toBe(true)
     expect(FRAMING_DEFAULTS.splitMinShot).toBe(4)
     expect(FRAMING_DEFAULTS.splitMinCellWidth).toBe(0.38)
-    expect(FRAMING_DEFAULTS.splitBleedTolerance).toBe(0.05)
+    expect(FRAMING_DEFAULTS.splitBleedTolerance).toBe(0.08)
     expect(FRAMING_DEFAULTS.splitBleedShare).toBe(0.9)
   })
 })

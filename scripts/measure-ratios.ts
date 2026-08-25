@@ -1320,7 +1320,8 @@ type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
 /**
  * Les tolérances balayées : la fourchette entre les deux plans approuvés le
  * 25 août (0,010 et 0,020 de débordement) et le seul rejeté (0,123), plus le
- * défaut retenu sans balayage (0,05).
+ * défaut (0,08 — le point à 90 % de `cqlp` 2096 s, validé par le repérage
+ * humain du 25 août).
  */
 const SPLIT_BLEED_TOLERANCES = [0.01, 0.02, 0.05, 0.08, 0.1, 0.123, 0.15]
 

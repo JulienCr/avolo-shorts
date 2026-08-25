@@ -446,7 +446,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   splitScreen: true,
   splitMinShot: 4,
   splitMinCellWidth: 0.38,
-  splitBleedTolerance: 0.05,
+  splitBleedTolerance: 0.08,
   splitBleedShare: 0.9,
 })
 

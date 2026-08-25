@@ -46,7 +46,8 @@
  * confiance —, plus un liseré **cyan** à l'intérieur des vertes qui montre **ce
  * que le cadrage exige vraiment** de cette personne : son tronc quand les points
  * de pose le disent, sa boîte moins ses extrémités sinon. Et **jaune** pour le
- * crop, qui n'est pas une boîte mais une décision.
+ * crop — **une boîte par cellule sur un plan splitté**, deux plutôt qu'une, pour
+ * ne jamais dessiner un cadrage qu'aucune sortie ne produit.
  *
  * Sur une analyse qui porte des points, un carré **magenta** marque la tête. Il
  * répond à la seule question qui compte quand on regarde un resserrement : le
@@ -56,6 +57,14 @@
  *
  * `--analyse <fichier>` lit une autre analyse que celle du projet, ce qui permet
  * de comparer deux détecteurs sans écraser le fichier que le serveur sert.
+ *
+ * `--split-off` désactive le split-screen et pose un crop unique, comme avant
+ * le 25 août 2026 — c'est ainsi qu'on compare les deux cadrages.
+ *
+ * `--instant <secondes>` tire **une seule** vignette, celle du plan qui contient
+ * cet instant, et court-circuite le classement. C'est ce qui rend une paire
+ * `--split-off` / sans comparable : les deux passes ne classent pas les mêmes
+ * images, donc sans lui la paire montrerait deux moments différents.
  *
  * Les vignettes vont dans `--out` (défaut : un dossier temporaire), jamais dans
  * `projects/`, que d'autres processus lisent au même moment.
@@ -79,6 +88,7 @@ import {
   isForeground,
   personBounds,
   requiredWidths,
+  splitCellRect,
 } from '@/core/framing'
 import type { TorsoName } from '@/core/framing'
 import { shotStartMs } from '@/core/shots'
@@ -131,7 +141,7 @@ function vignette(
   proxy: string,
   t: number,
   boxes: PersonBox[],
-  crop: Frame,
+  crops: Frame[],
   W: number,
   H: number,
   out: string,
@@ -177,10 +187,15 @@ function vignette(
         `:h=${Math.max(3, Math.round((head.y1 - head.y0) * H))}:color=magenta:t=2`,
     )
   }
-  filters.push(
-    `drawbox=x=${Math.round(crop.x * W)}:y=${Math.round(crop.y * H)}` +
-      `:w=${Math.round(crop.w * W)}:h=${Math.round(crop.h * H)}:color=yellow:t=4`,
-  )
+  // **Une boîte jaune par cellule** sur un plan splitté : un plan à deux
+  // cellules dessine deux rectangles, jamais un seul — sinon l'outil montre un
+  // cadrage qu'aucune sortie ne produit.
+  for (const crop of crops) {
+    filters.push(
+      `drawbox=x=${Math.round(crop.x * W)}:y=${Math.round(crop.y * H)}` +
+        `:w=${Math.round(crop.w * W)}:h=${Math.round(crop.h * H)}:color=yellow:t=4`,
+    )
+  }
   execFileSync(
     ffmpeg(),
     [
@@ -206,8 +221,8 @@ function vignette(
 type Measured = { t: number; boxes: PersonBox[]; span: number; g: number; d: number; top: number; bottom: number }
 
 /**
- * L'étendue des boîtes **que le cadrage lit** — seuil de confiance et filtre du
- * premier plan appliqués, marge comprise horizontalement.
+ * L'étendue des boîtes **que le cadrage lit** — seuil de confiance et filtre
+ * du premier plan appliqués, marge comprise horizontalement.
  *
  * Rend `undefined` quand l'image ne garde aucune boîte : elle ne dit pas que le
  * cadre peut être serré, elle ne dit rien. Les bornes verticales n'ont pas de
@@ -282,7 +297,7 @@ async function main(): Promise<number> {
     return raw === undefined || raw.startsWith('--') ? undefined : raw
   }
   const flagsWithValue = new Set<number>()
-  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse']) {
+  for (const d of ['--marge', '--out', '--ratio', '--trim', '--images', '--tronc', '--analyse', '--instant']) {
     const i = arguments_.indexOf(d)
     if (i >= 0) flagsWithValue.add(i + 1)
   }
@@ -345,6 +360,13 @@ async function main(): Promise<number> {
   }
   const torso = (rawTorso ?? FRAMING_DEFAULTS.torso) as TorsoName | 'off'
 
+  const splitScreen = !arguments_.includes('--split-off')
+  const rawInstant = value('--instant')
+  const instant = rawInstant === undefined ? null : Number(rawInstant)
+  if (instant !== null && !Number.isFinite(instant)) {
+    console.error(`--instant attend un nombre de secondes, reçu « ${rawInstant} ».`)
+    return 1
+  }
   const rawRatio = value('--ratio')
   if (rawRatio !== undefined && !estRatio(rawRatio)) {
     console.error(`--ratio attend l'un de ${Object.keys(RATIOS).join(', ')}, reçu « ${rawRatio} ».`)
@@ -370,6 +392,7 @@ async function main(): Promise<number> {
     margin: margin,
     sideTrim: trim,
     torso,
+    splitScreen,
     segments: clip.segments,
     shots: analysis.shots,
     people: analysis.boxes,
@@ -412,13 +435,56 @@ async function main(): Promise<number> {
     // cadre `cadrage.ratio` ; croiser les deux dessinait un rectangle qui n'est
     // celui d'aucune des deux sorties. C'est le cadre du plan qu'on regarde :
     // c'est le plus serré des deux, donc le seul qui puisse couper quelqu'un.
-    const rect = cropRect(shot.ratio, shot.cropX, analysis.source.w, analysis.source.h)
-    const crop: Frame = {
+    const rectToFrame = (rect: { x: number; y: number; w: number; h: number }): Frame => ({
       x: rect.x / analysis.source.w,
       y: rect.y / analysis.source.h,
       w: rect.w / analysis.source.w,
       h: rect.h / analysis.source.h,
+    })
+    const crops: Frame[] =
+      shot.split !== undefined
+        ? shot.split.map((cell) => rectToFrame(splitCellRect(cell, analysis.source.w, analysis.source.h)))
+        : [rectToFrame(cropRect(shot.ratio, shot.cropX, analysis.source.w, analysis.source.h))]
+
+    // **Un plan splitté n'a pas de crop unique à mesurer contre** : chaque
+    // cellule cadre une seule personne par construction, donc le classement
+    // par débordement plus bas — pensé pour un rectangle qui doit tous les
+    // contenir — ne s'applique plus. On échantillonne directement les images.
+    if (shot.split !== undefined) {
+      const instants = [...byImage.keys()].sort((a, b) => a - b)
+      if (instants.length === 0) {
+        console.log(`  plan ${shotStartMs(shot.shot)} ms — aucune image, split sans vignette`)
+        continue
+      }
+      const picks =
+        instant !== null
+          ? [
+              instants.reduce((best, k) =>
+                Math.abs(k / 1000 - instant) < Math.abs(best / 1000 - instant) ? k : best,
+              ),
+            ]
+          : imageCount === 1
+            ? [instants[0]]
+            : [
+                ...new Set(
+                  Array.from({ length: imageCount }, (_, i) =>
+                    instants[Math.round((i * (instants.length - 1)) / (imageCount - 1))],
+                  ),
+                ),
+              ]
+      for (const key of picks) {
+        const t = key / 1000
+        const boxes = byImage.get(key) ?? []
+        const file = path.join(folder, `plan${shotStartMs(shot.shot)}_split_t${t.toFixed(1)}.png`)
+        vignette(proxy, t, boxes, crops, W, H, file, trim, torso)
+        console.log(
+          `  ${file}  plan ${shotStartMs(shot.shot)} ms ${shot.ratio} (split), image ${t.toFixed(1)} s` +
+            ` — cellules [${crops.map((c) => `${c.x.toFixed(3)};${(c.x + c.w).toFixed(3)}`).join(' / ')}]`,
+        )
+      }
+      continue
     }
+    const crop = crops[0]
 
     // **Classées par débordement, pas par largeur** — et c'est tout le sujet du
     // script. L'image la plus large n'est pas celle qui met le crop en défaut :
@@ -455,6 +521,28 @@ async function main(): Promise<number> {
     // ne disent rien du cadrage courant. Un pas régulier de la pire à la
     // meilleure montre l'accident *et* le cas normal, qui est la seule
     // comparaison qui tranche.
+    // **Un instant imposé court-circuite le classement**, et c'est ce qui rend
+    // une paire avant/après comparable : les deux passes ne classent pas les
+    // mêmes images, donc sans lui on comparerait deux moments différents.
+    if (instant !== null) {
+      if (!(instant >= shot.shot.start && instant < shot.shot.end)) continue
+      let nearest = 0
+      for (let i = 1; i < sorted.length; i += 1) {
+        if (Math.abs(sorted[i].t - instant) < Math.abs(sorted[nearest].t - instant)) nearest = i
+      }
+      const picked = sorted[nearest]
+      const file = path.join(folder, `plan${shotStartMs(shot.shot)}_t${picked.t.toFixed(1)}.png`)
+      vignette(proxy, picked.t, picked.boxes, crops, W, H, file, trim, torso)
+      console.log(
+        `  ${file}  plan ${shotStartMs(shot.shot)} ms ${shot.ratio}, image ${picked.t.toFixed(1)} s` +
+          ` — empan [${picked.g.toFixed(3)} ; ${picked.d.toFixed(3)}] (${picked.span.toFixed(3)})` +
+          ` — crop [${crop.x.toFixed(3)} ; ${(crop.x + crop.w).toFixed(3)}]` +
+          ` — ${picked.sortie > 1e-9 ? `DÉBORDE de ${picked.sortie.toFixed(3)}` : 'cadrée'}` +
+          ` — ${overflowing} image(s) sur ${sorted.length} débordent`,
+      )
+      continue
+    }
+
     const ranks =
       imageCount === 1
         ? [0]
@@ -470,7 +558,7 @@ async function main(): Promise<number> {
         folder,
         `plan${shotStartMs(shot.shot)}_r${rank}_t${picked.t.toFixed(1)}.png`,
       )
-      vignette(proxy, picked.t, picked.boxes, crop, W, H, file, trim, torso)
+      vignette(proxy, picked.t, picked.boxes, crops, W, H, file, trim, torso)
 
       console.log(
         `  ${file}  plan ${shotStartMs(shot.shot)} ms ${shot.ratio}, image ${picked.t.toFixed(1)} s` +

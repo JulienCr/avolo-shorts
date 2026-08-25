@@ -14,7 +14,7 @@
 
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
-import { MIN_PIECE_SEC, type ShotFraming } from '@/core/framing'
+import { MIN_PIECE_SEC, sameCell, type Cell, type ShotFraming } from '@/core/framing'
 
 /**
  * Un morceau à décoder et le cadre qui lui revient, **pour les deux sorties**.
@@ -25,7 +25,13 @@ import { MIN_PIECE_SEC, type ShotFraming } from '@/core/framing'
  * sont les mêmes, et c'est ce qui garantit que les deux fichiers montrent les
  * mêmes images aux mêmes instants.
  */
-export type ShotPiece = Segment & { ratio: Ratio; cropX: number; cropXNative: number }
+export type ShotPiece = Segment & {
+  ratio: Ratio
+  cropX: number
+  cropXNative: number
+  /** Les deux cellules du split-screen, `[haut, bas]`, quand le plan en pose un. */
+  split?: [Cell, Cell]
+}
 
 /**
  * Découpe les segments aux frontières de plans, et attribue à chaque morceau la
@@ -49,7 +55,7 @@ export function splitByShot(
   segments: readonly Segment[],
   shots: readonly ShotFraming[],
   /** Le cadre d'un intervalle qu'aucun plan ne couvre. */
-  fallback: { ratio: Ratio; cropX: number; cropXNative: number },
+  fallback: { ratio: Ratio; cropX: number; cropXNative: number; split?: [Cell, Cell] },
 ): ShotPiece[] {
   // Le montage se normalise ici, une fois : trié, sans chevauchement, sans
   // segment vide. Ce qui sort, en revanche, ne se normalise plus jamais — deux
@@ -108,7 +114,9 @@ export function splitByShot(
         previous.end === from &&
         previous.ratio === frame.ratio &&
         previous.cropX === frame.cropX &&
-        previous.cropXNative === frame.cropXNative
+        previous.cropXNative === frame.cropXNative &&
+        sameCell(previous.split?.[0], frame.split?.[0]) &&
+        sameCell(previous.split?.[1], frame.split?.[1])
       ) {
         previous.end = to
         continue
@@ -120,6 +128,7 @@ export function splitByShot(
         ratio: frame.ratio,
         cropX: frame.cropX,
         cropXNative: frame.cropXNative,
+        split: frame.split,
       })
     }
   }
@@ -139,11 +148,11 @@ function frameAtMidpoint(
   sorted: readonly ShotFraming[],
   from: number,
   to: number,
-  fallback: { ratio: Ratio; cropX: number; cropXNative: number },
-): { ratio: Ratio; cropX: number; cropXNative: number } {
+  fallback: { ratio: Ratio; cropX: number; cropXNative: number; split?: [Cell, Cell] },
+): { ratio: Ratio; cropX: number; cropXNative: number; split?: [Cell, Cell] } {
   const midpoint = (from + to) / 2
   const found = sorted.find((p) => p.shot.start <= midpoint && midpoint < p.shot.end)
   return found === undefined
     ? fallback
-    : { ratio: found.ratio, cropX: found.cropX, cropXNative: found.cropXNative }
+    : { ratio: found.ratio, cropX: found.cropX, cropXNative: found.cropXNative, split: found.split }
 }

@@ -319,6 +319,12 @@ export type FramedSegment = Segment & {
    * un pixel en haut et en bas d'un cadre qui devait remplir.
    */
   ratio: Ratio
+  /**
+   * Les deux cellules du split-screen, en pixels de la source, `[haut, bas]`.
+   * Quand elles sont posées, `buildRender` les rend plutôt que `crop`/`ratio` —
+   * voir `blurredVariantArgs`. `renderArgs` (le natif) ne les lit jamais.
+   */
+  split?: [Rectangle, Rectangle]
 }
 
 export type RenderOptions = {
@@ -691,12 +697,31 @@ function buildRender(
 
   const graph: string[] = []
   segments.forEach((s, i) => {
+    const output = entryLabel(i)
+
+    // **Le split-screen d'abord, avant tout le reste du graphe.** Une entrée
+    // splittée ignore `crop`/`ratio` : ses deux cellules remplissent déjà le
+    // canevas empilées, donc ni fond ni mise à l'échelle par ratio n'ont de
+    // sens ici (spec du 25 août 2026).
+    if (s.split !== undefined) {
+      const [top, bottom] = s.split
+      const cropOf = (r: Rectangle, index: number): string =>
+        `crop=${number(r.w, `segments[${i}].split[${index}].w`)}:` +
+        `${number(r.h, `segments[${i}].split[${index}].h`)}:` +
+        `${number(r.x, `segments[${i}].split[${index}].x`)}:` +
+        `${number(r.y, `segments[${i}].split[${index}].y`)}`
+      graph.push(`[${i}:v]split=2[sa${i}][sb${i}]`)
+      graph.push(`[sa${i}]${cropOf(top, 0)},scale=1080:960:flags=lanczos,setsar=1[st${i}]`)
+      graph.push(`[sb${i}]${cropOf(bottom, 1)},scale=1080:960:flags=lanczos,setsar=1[sbo${i}]`)
+      graph.push(`[st${i}][sbo${i}]vstack=inputs=2[${output}]`)
+      return
+    }
+
     const c = s.crop
     const crop =
       `crop=${number(c.w, `segments[${i}].crop.w`)}:${number(c.h, `segments[${i}].crop.h`)}` +
       `:${number(c.x, `segments[${i}].crop.x`)}:${number(c.y, `segments[${i}].crop.y`)}`
     const inCanvas = sizeInCanvas(s.ratio, canvas)
-    const output = entryLabel(i)
 
     if (inCanvas.h >= canvas.h) {
       // Le cadre remplit le canevas : pas de fond à fabriquer, et le composer

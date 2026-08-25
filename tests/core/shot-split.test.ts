@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Ratio, Segment } from '@/core/edl'
-import { MIN_PIECE_SEC, type ShotFraming } from '@/core/framing'
+import { MIN_PIECE_SEC, type Cell, type ShotFraming } from '@/core/framing'
 import { splitByShot } from '@/core/shot-split'
 
 /**
@@ -17,7 +17,13 @@ import { splitByShot } from '@/core/shot-split'
 
 const FALLBACK = { ratio: '16:9' as Ratio, cropX: 0.5, cropXNative: 0.5 }
 
-function shot(start: number, end: number, ratio: Ratio, cropX: number): ShotFraming {
+function shot(
+  start: number,
+  end: number,
+  ratio: Ratio,
+  cropX: number,
+  split?: [Cell, Cell],
+): ShotFraming {
   return {
     shot: { start, end },
     key: Math.round(start * 1000),
@@ -25,8 +31,18 @@ function shot(start: number, end: number, ratio: Ratio, cropX: number): ShotFram
     cropX,
     cropXNative: cropX,
     source: 'auto',
+    split,
   }
 }
+
+const CELL_A: [Cell, Cell] = [
+  { x0: 0, y0: 0, x1: 0.5, y1: 0.5 },
+  { x0: 0, y0: 0.5, x1: 0.5, y1: 1 },
+]
+const CELL_B: [Cell, Cell] = [
+  { x0: 0.1, y0: 0, x1: 0.6, y1: 0.5 },
+  { x0: 0.1, y0: 0.5, x1: 0.6, y1: 1 },
+]
 
 const seg = (start: number, end: number): Segment => ({ start, end })
 
@@ -238,5 +254,39 @@ describe('splitByShot', () => {
 
   it('rend une liste vide pour un montage vide', () => {
     expect(splitByShot([], [shot(0, 10, '1:1', 0.5)], FALLBACK)).toEqual([])
+  })
+
+  // La fusion doit aussi comparer les cellules du split : sans quoi deux plans
+  // splittés différemment fusionneraient, et le second perdrait son cadrage.
+  it('fusionne deux plans consécutifs aux mêmes cellules', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [shot(0, 10, '1:1', 0.5, CELL_A), shot(10, 20, '1:1', 0.5, CELL_A)],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(1)
+    expect(m[0].split).toEqual(CELL_A)
+  })
+
+  it('ne fusionne pas deux plans splittés différemment', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [shot(0, 10, '1:1', 0.5, CELL_A), shot(10, 20, '1:1', 0.5, CELL_B)],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(2)
+    expect(m[0].split).toEqual(CELL_A)
+    expect(m[1].split).toEqual(CELL_B)
+  })
+
+  it('ne fusionne pas un plan splitté avec un plan qui ne l’est pas', () => {
+    const m = splitByShot(
+      [seg(0, 20)],
+      [shot(0, 10, '1:1', 0.5, CELL_A), shot(10, 20, '1:1', 0.5)],
+      FALLBACK,
+    )
+    expect(m).toHaveLength(2)
+    expect(m[0].split).toEqual(CELL_A)
+    expect(m[1].split).toBeUndefined()
   })
 })

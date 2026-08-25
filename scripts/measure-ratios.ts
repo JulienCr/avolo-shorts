@@ -19,7 +19,7 @@
  * puis des **marges**. Les deux se recoupent sur une ligne, la répartition des
  * ratios, et c'est voulu : elle est le point de contrôle commun.
  *
- * Six sorties :
+ * Sept sorties :
  *
  * 1. **Le ratio par clip**, avec l'empan résiduel qui l'explique. Les clips sont
  *    ceux du projet, ceux que le repérage a retenus.
@@ -43,6 +43,9 @@
  *    points de pose. C'est le balayage de l'issue #69 : ce que chaque définition
  *    de tronc gagne en ratio, ce qu'elle coupe des gens, et ce qu'il reste au
  *    rognage latéral une fois le tronc en place.
+ * 7. **Le cas 2**, la personne de profil écartée du cadrage : ce que la règle
+ *    retient, ce que chaque cause de refus coûte, et le contrôle que le fichier
+ *    natif ne bouge sur aucun clip.
  *
  * **Le chiffre qui décide est le temps de montage par ratio, pas le compte de
  * clips.** Depuis que le ratio se choisit par plan, un clip « en 16:9 » est
@@ -80,15 +83,17 @@ import {
   RATIOS,
   TORSOS,
   computeFraming,
+  computeShotSplit,
   hasValidGeometry,
   isForeground,
   personBounds,
   ratioCoverage,
   requiredWidths,
+  retainedCountByFrame,
   torsoBounds,
   trimmedBounds,
 } from '@/core/framing'
-import type { ClipFraming, TorsoName } from '@/core/framing'
+import type { ClipFraming, SplitRejection, TorsoName } from '@/core/framing'
 import type { FramingOptions } from '@/core/framing'
 import { normalizeSegments } from '@/core/edl'
 import type { Ratio, Segment } from '@/core/edl'
@@ -1279,6 +1284,128 @@ function sweepSizeFloorRatio(show: Show, what: 'clips' | 'windows'): void {
 }
 
 // ---------------------------------------------------------------------------
+// 9. Le split-screen : deux personnes, deux cellules
+// ---------------------------------------------------------------------------
+
+/** Les sorts d'un plan devant le déclencheur du split, dans l'ordre où on les lit. */
+const SPLIT_OUTCOMES = [
+  'split',
+  'tooShort',
+  'notTwoPeople',
+  'ratioNotWide',
+  'noPairs',
+  'tooNarrowForSource',
+  'wouldOverlap',
+] as const
+
+type SplitOutcome = (typeof SPLIT_OUTCOMES)[number]
+
+/**
+ * Ce que le split-screen change sur une émission, en **temps de montage**.
+ *
+ * La table de la spec (83,9 % sur `nabla`, 0 % sur `fmr`…) mesurait le montage
+ * en split ; celle-ci ajoute la répartition des refus, pour que chaque colonne
+ * de rejet montre au moins un cas qui la fait tomber dedans (contrat, critère
+ * d'acceptation 8) plutôt que de rester une case qui ne peut jamais s'allumer.
+ */
+function splitYield(show: Show): void {
+  const options = opts()
+  const seconds = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  const shotsSeen = new Map<SplitOutcome, number>(SPLIT_OUTCOMES.map((o) => [o, 0]))
+  let montage = 0
+
+  for (const cut of show.clips) {
+    // Le ratio qui vaudrait **sans** split : c'est la condition 3 du
+    // déclencheur, et `computeShotSplit` la reçoit déjà tranchée plutôt que de
+    // la recalculer — une seule fonction décide de `shotRatiosAll`.
+    const withoutSplit = framingOf(cut, show.analysis, { ...options, splitScreen: false })
+
+    const segments = normalizeSegments(cut.segments)
+    const inSegments = show.analysis.boxes.filter((b) =>
+      segments.some((g) => withinInterval(b.t, g.start, g.end)),
+    )
+    for (const framed of withoutSplit.shots) {
+      const shot = framed.shot
+      const inClip = segments.reduce(
+        (n, g) => n + Math.max(0, Math.min(shot.end, g.end) - Math.max(shot.start, g.start)),
+        0,
+      )
+      montage += inClip
+      const boxes = inSegments.filter((b) => withinInterval(b.t, shot.start, shot.end))
+      const { cells, rejection } = computeShotSplit(
+        boxes,
+        shot,
+        framed.ratio,
+        show.analysis.source.w,
+        show.analysis.source.h,
+        options,
+      )
+      const outcome: SplitOutcome = cells !== null ? 'split' : ((rejection as SplitRejection | null) ?? 'tooShort')
+      seconds.set(outcome, (seconds.get(outcome) ?? 0) + inClip)
+      shotsSeen.set(outcome, (shotsSeen.get(outcome) ?? 0) + 1)
+    }
+  }
+
+  const share = (n: number): string => (montage === 0 ? '—' : `${((100 * n) / montage).toFixed(1)} %`)
+  const split = seconds.get('split') ?? 0
+  console.log(`\n  ${show.id} — ${montage.toFixed(0)} s de montage couvertes par un plan`)
+  console.log(`    ${'sort'.padEnd(19)} ${'plans'.padStart(6)} ${'secondes'.padStart(10)} ${'du montage'.padStart(11)}`)
+  for (const outcome of SPLIT_OUTCOMES) {
+    const n = seconds.get(outcome) ?? 0
+    if (n === 0 && (shotsSeen.get(outcome) ?? 0) === 0) continue
+    console.log(
+      `    ${outcome.padEnd(19)} ${String(shotsSeen.get(outcome) ?? 0).padStart(6)} ` +
+        `${n.toFixed(1).padStart(10)} ${share(n).padStart(11)}`,
+    )
+  }
+  console.log(`    → split sur ${split.toFixed(1)} s, soit ${share(split)} du montage`)
+}
+
+/** Le nombre de personnes retenues, réduit aux trois classes que le split lit. */
+function headcountBucket(n: number): '0' | '1' | '2' | '3+' {
+  return n <= 0 ? '0' : n === 1 ? '1' : n === 2 ? '2' : '3+'
+}
+
+/**
+ * Ce que le plancher de taille de la PR #177 change à **l'effectif par
+ * image**, et non à un ratio — ce que sa propre section 8 n'a jamais mesuré,
+ * alors que c'est exactement ce que lit le déclencheur du split (contrat,
+ * critère d'acceptation 7). Une image de trois personnes qui retombe à deux
+ * quand le plancher s'active est le cas visé : la jaquette de DVD de la
+ * conception, comptée en trop tant que rien ne l'excluait.
+ */
+function sizeFloorHeadcountShift(show: Show): void {
+  const withFloor = opts()
+  const withoutFloor = opts({ sizeFloor: 0 })
+  let framesConsidered = 0
+  let framesShifted = 0
+  const shifts = new Map<string, number>()
+
+  for (const cut of show.clips) {
+    const segments = normalizeSegments(cut.segments)
+    const boxes = show.analysis.boxes.filter((b) => segments.some((g) => withinInterval(b.t, g.start, g.end)))
+    const before = retainedCountByFrame(boxes, withoutFloor)
+    const after = retainedCountByFrame(boxes, withFloor)
+    // Les deux comptes viennent du même regroupement par image et donc du même
+    // ordre d'itération : `retainedCountByFrame` ne fait que varier le
+    // plancher, jamais le regroupement lui-même.
+    framesConsidered += before.length
+    for (const [i, b] of before.entries()) {
+      const bucketBefore = headcountBucket(b)
+      const bucketAfter = headcountBucket(after[i])
+      if (bucketBefore === bucketAfter) continue
+      framesShifted += 1
+      const key = `${bucketBefore} → ${bucketAfter}`
+      shifts.set(key, (shifts.get(key) ?? 0) + 1)
+    }
+  }
+
+  const share = framesConsidered === 0 ? '—' : `${((100 * framesShifted) / framesConsidered).toFixed(2)} %`
+  console.log(`\n  ${show.id} — ${framesConsidered} image(s) considérée(s), ${framesShifted} changent de classe (${share})`)
+  for (const [key, n] of [...shifts.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${key.padEnd(10)} ${n}`)
+  }
+}
 
 async function main(): Promise<number> {
   await chargerEnv()
@@ -1432,6 +1559,12 @@ async function main(): Promise<number> {
     sweepSizeFloor(shows)
     for (const e of shows) sweepSizeFloorRatio(e, 'clips')
     for (const e of shows) sweepSizeFloorRatio(e, 'windows')
+    console.log('\n  Ce que le plancher change à l\'effectif par image, pas seulement au ratio')
+    for (const e of shows) sizeFloorHeadcountShift(e)
+
+    console.log('\n=== 9. Le split-screen : deux personnes, deux cellules ===')
+    console.log("  (« split » : le déclencheur s'applique ; les autres colonnes sont les causes de refus)")
+    for (const e of shows) splitYield(e)
 
     return 0
   } finally {

@@ -209,9 +209,16 @@ function entry(
   end: number,
   crop = FRAME_9_X_16,
   ratio: Ratio = '9:16',
+  split?: FramedSegment['split'],
 ): FramedSegment {
-  return { start, end, crop, ratio }
+  return { start, end, crop, ratio, split }
 }
+
+/** Les deux cellules d'un plan splitté, en pixels d'une source 1920x1080. */
+const SPLIT_CELLS: [{ w: number; h: number; x: number; y: number }, { w: number; h: number; x: number; y: number }] = [
+  { w: 900, h: 800, x: 100, y: 50 },
+  { w: 900, h: 800, x: 900, y: 100 },
+]
 
 /**
  * Le `hookImage` minimal — durée par défaut de 2 s, aucune transition. Les
@@ -1233,6 +1240,47 @@ describe('blurredVariantArgs', () => {
       blurredVariantArgs({ ...base, segments: [entry(Number.NaN, 10, FRAME_1_X_1, '1:1')] }),
     ).toThrow(/segments\[0\]/)
     expect(() => blurredVariantArgs({ ...base, segments: [] })).toThrow()
+  })
+
+  // **Une entrée splittée devient `split` → deux `crop`/`scale` → `vstack`**,
+  // et non un crop unique sur fond flouté : c'est la forme que le contrat fixe,
+  // et le seul moyen pour un plan à deux personnes de sortir en deux cellules.
+  describe('une entrée splittée', () => {
+    it('produit un split, deux crop/scale et un vstack, jamais de fond', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', SPLIT_CELLS)],
+        }),
+      )
+      expect(g).toContain('split=2')
+      expect((g.match(/crop=/g) ?? []).length).toBe(2)
+      expect((g.match(/scale=1080:960/g) ?? []).length).toBe(2)
+      expect(g).toContain('vstack=inputs=2')
+      expect(g).not.toContain('gblur')
+      expect(g).not.toContain('force_original_aspect_ratio')
+    })
+
+    it('cadre chaque cellule sur son propre rectangle', () => {
+      const g = graph(
+        blurredVariantArgs({
+          ...base,
+          segments: [entry(0, 10, FRAME_1_X_1, '1:1', SPLIT_CELLS)],
+        }),
+      )
+      expect(g).toContain('crop=900:800:100:50')
+      expect(g).toContain('crop=900:800:900:100')
+    })
+
+    it('sort la même taille de canevas que le natif — 1080x1920', () => {
+      const a = blurredVariantArgs({
+        ...base,
+        segments: [entry(0, 10, FRAME_1_X_1, '1:1', SPLIT_CELLS)],
+      })
+      // `vstack` de deux cellules 1080x960 remplit exactement le canevas
+      // vertical : pas de `scale=1080:1920` séparé après l'empilement.
+      expect(a.join(' ')).not.toContain('scale=1080:1920')
+    })
   })
 })
 

@@ -6,6 +6,7 @@ import {
   RATIOS,
   chooseRatio,
   computeFraming,
+  computeShotSplit,
   cropRect,
   headBounds,
   isForeground,
@@ -2024,5 +2025,261 @@ describe('orientationOf', () => {
     }
     expect(orientationOf(personB).facing).toBe('profile')
     expect(orientationOf(personB, { frontalThreshold: 0.35 }).facing).toBe('profile')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+
+/** Torse éteint, aucun rognage latéral : `personBounds` rend les bornes brutes de la boîte. */
+const RAW_BOUNDS = { ...NO_TRIM, torso: 'off' } as const
+
+/**
+ * Une personne dont on contrôle tout ce que le split lit : la boîte (donc le
+ * niveau d'yeux et la largeur de tronc, torse éteint), et `side` par
+ * l'asymétrie brute des confiances d'oreille — jamais leur position, jamais la
+ * frontalité, que le split n'utilise plus que pour rien.
+ */
+function splitPerson(
+  t: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  eyeY: number,
+  side: -1 | 0 | 1,
+): PersonBox {
+  const k = Array.from({ length: POINT_COUNT * 3 }, () => 0)
+  const put = (point: keyof typeof POINT, x: number, y: number, score: number): void => {
+    k[POINT[point] * 3] = x
+    k[POINT[point] * 3 + 1] = y
+    k[POINT[point] * 3 + 2] = score
+  }
+  const mid = (x0 + x1) / 2
+  put('LEFT_EYE', mid, eyeY, 0.9)
+  put('RIGHT_EYE', mid, eyeY, 0.9)
+  const earLeftScore = side === -1 ? 0.9 : side === 1 ? 0.1 : 0.5
+  const earRightScore = side === -1 ? 0.1 : side === 1 ? 0.9 : 0.5
+  put('LEFT_EAR', x0, y0, earLeftScore)
+  put('RIGHT_EAR', x1, y0, earRightScore)
+  return { t, x0, x1, y0, y1, score: 0.9, k }
+}
+
+type SplitGeometry = { x0: number; x1: number; y0: number; y1: number; eyeY: number; side: -1 | 0 | 1 }
+
+/** Deux personnes à chaque image du plan, à 2 images par seconde comme le worker. */
+function splitFrames(from: number, to: number, left: SplitGeometry, right: SplitGeometry): PersonBox[] {
+  const out: PersonBox[] = []
+  for (let t = from; t < to - 1e-9; t += 0.5) {
+    const at = Number(t.toFixed(3))
+    out.push(splitPerson(at, left.x0, left.x1, left.y0, left.y1, left.eyeY, left.side))
+    out.push(splitPerson(at, right.x0, right.x1, right.y0, right.y1, right.eyeY, right.side))
+  }
+  return out
+}
+
+// Deux torses de 0,10 et 0,08 : `3 ×` reste sous le plancher par défaut de
+// 0,38, donc c'est lui qui fixe la largeur des deux cellules — la première
+// chose que ces fixtures éprouvent.
+const LEFT_GEOMETRY: SplitGeometry = { x0: 0.2, x1: 0.3, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+const RIGHT_GEOMETRY: SplitGeometry = { x0: 0.6, x1: 0.68, y0: 0.25, y1: 0.85, eyeY: 0.35, side: 0 }
+
+describe('computeShotSplit', () => {
+  it('refuse un plan trop court', () => {
+    const boxes = splitFrames(0, 3, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const { cells, rejection } = computeShotSplit(boxes, shot(0, 3), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(cells).toBeNull()
+    expect(rejection).toBe('tooShort')
+  })
+
+  it("refuse un plan dont l'image médiane ne porte pas exactement deux personnes", () => {
+    // Plancher de taille éteint : ce test éprouve l'effectif, pas le plancher.
+    const pair = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const third = Array.from({ length: 20 }, (_, i) => splitPerson(i * 0.5, 0.42, 0.48, 0.3, 0.6, 0.4, 0))
+    const { cells, rejection } = computeShotSplit(
+      [...pair, ...third],
+      shot(0, 10),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      { ...RAW_BOUNDS, sizeFloor: 0 },
+    )
+    expect(cells).toBeNull()
+    expect(rejection).toBe('notTwoPeople')
+  })
+
+  it('refuse un ratio déjà 9:16 : le splitter ne gagnerait rien', () => {
+    const boxes = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const { cells, rejection } = computeShotSplit(boxes, shot(0, 10), '9:16', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(cells).toBeNull()
+    expect(rejection).toBe('ratioNotWide')
+  })
+
+  it("refuse quand aucune image ne porte exactement deux personnes bien que la médiane vaille deux", () => {
+    // Dix images à une personne, dix à trois : la médiane du compte trié vaut
+    // (1 + 3) / 2 = 2 sans qu'aucune image n'en porte réellement deux.
+    const ones = Array.from({ length: 10 }, (_, i) => splitPerson(i * 0.5, 0.2, 0.3, 0.2, 0.9, 0.3, 0))
+    const threes = Array.from({ length: 10 }, (_, i) => {
+      const t = (i + 10) * 0.5
+      return [
+        splitPerson(t, 0.2, 0.3, 0.2, 0.9, 0.3, 0),
+        splitPerson(t, 0.42, 0.48, 0.3, 0.6, 0.4, 0),
+        splitPerson(t, 0.6, 0.68, 0.25, 0.85, 0.35, 0),
+      ]
+    }).flat()
+    const { cells, rejection } = computeShotSplit(
+      [...ones, ...threes],
+      shot(0, 10),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      { ...RAW_BOUNDS, sizeFloor: 0 },
+    )
+    expect(cells).toBeNull()
+    expect(rejection).toBe('noPairs')
+  })
+
+  it('pose deux cellules quand les trois conditions tiennent, le plancher de largeur fixant leur taille', () => {
+    const boxes = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const { cells, rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(rejection).toBeNull()
+    expect(cells).not.toBeNull()
+    const [top, bottom] = cells!
+    // `3 × 0,10` et `3 × 0,08` valent 0,30 et 0,24, tous deux sous le plancher
+    // par défaut de 0,38 : c'est lui qui fixe la largeur des deux cellules.
+    expect(top.x1 - top.x0).toBeCloseTo(0.38, 6)
+    expect(bottom.x1 - bottom.x0).toBeCloseTo(0.38, 6)
+    // Aucun recouvrement : les deux centres sont assez loin l'un de l'autre.
+    expect(top.x1).toBeLessThan(bottom.x0)
+  })
+
+  it("place en haut celui qui regarde à droite, même quand il est à droite de l'image", () => {
+    const boxes = splitFrames(0, 10, { ...LEFT_GEOMETRY, side: 0 }, { ...RIGHT_GEOMETRY, side: 1 })
+    const { cells } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    const [top] = cells!
+    const topCenter = (top.x0 + top.x1) / 2
+    const rightCenter = (RIGHT_GEOMETRY.x0 + RIGHT_GEOMETRY.x1) / 2
+    const leftCenter = (LEFT_GEOMETRY.x0 + LEFT_GEOMETRY.x1) / 2
+    expect(Math.abs(topCenter - rightCenter)).toBeLessThan(Math.abs(topCenter - leftCenter))
+  })
+
+  it("la gauche va en haut par défaut quand personne ne tranche — le cas cqlp, où l'homme de droite sort à `side` nul", () => {
+    const boxes = splitFrames(0, 10, { ...LEFT_GEOMETRY, side: 0 }, { ...RIGHT_GEOMETRY, side: 0 })
+    const { cells } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    const [top] = cells!
+    const topCenter = (top.x0 + top.x1) / 2
+    const leftCenter = (LEFT_GEOMETRY.x0 + LEFT_GEOMETRY.x1) / 2
+    expect(Math.abs(topCenter - leftCenter)).toBeLessThan(1e-9)
+  })
+
+  it('clampe une largeur de cellule qui dépasserait la source, plutôt que de la déformer', () => {
+    // Un tronc de 0,5 : `3 ×` vaut 1,5, clampé à 1 — une cellule ne peut pas
+    // être plus large que sa source. La hauteur qui s'ensuit (1920 / 1,125 /
+    // 1080 ≈ 1,58) dépasse la source : pas de géométrie exploitable.
+    const wide: SplitGeometry = { x0: 0.2, x1: 0.7, y0: 0.1, y1: 0.95, eyeY: 0.3, side: 0 }
+    const boxes = splitFrames(0, 10, wide, RIGHT_GEOMETRY)
+    const { cells, rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(cells).toBeNull()
+    expect(rejection).toBe('tooNarrowForSource')
+  })
+
+  it('refuse quand les deux cellules se recouvrent après clamp', () => {
+    // Deux torses proches l'un de l'autre : à 0,38 de large chacune (le
+    // plancher, comme ci-dessus), les deux cellules se recouvrent largement.
+    const close: SplitGeometry = { x0: 0.5, x1: 0.6, y0: 0.2, y1: 0.9, eyeY: 0.3, side: 0 }
+    const overlapping = splitFrames(0, 10, { ...LEFT_GEOMETRY, x0: 0.48, x1: 0.58 }, close)
+    const { cells, rejection } = computeShotSplit(overlapping, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
+    expect(cells).toBeNull()
+    expect(rejection).toBe('wouldOverlap')
+  })
+
+  it("le plancher de taille de la PR #177 exclut une boîte trop petite et permet au split de se déclencher", () => {
+    // Une troisième boîte, nettement plus courte que les deux comédiens :
+    // sans le plancher, l'image médiane porterait trois personnes retenues
+    // et le split se refuserait sur `notTwoPeople`.
+    const pair = splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY)
+    const printed = Array.from({ length: 20 }, (_, i) => splitPerson(i * 0.5, 0.42, 0.48, 0.4, 0.42, 0.41, 0))
+    const withoutFloor = computeShotSplit(
+      [...pair, ...printed],
+      shot(0, 10),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      { ...RAW_BOUNDS, sizeFloor: 0 },
+    )
+    expect(withoutFloor.rejection).toBe('notTwoPeople')
+
+    const withFloor = computeShotSplit(
+      [...pair, ...printed],
+      shot(0, 10),
+      '1:1',
+      SRC_W,
+      SRC_H,
+      { ...RAW_BOUNDS, sizeFloor: FRAMING_DEFAULTS.sizeFloor },
+    )
+    expect(withFloor.cells).not.toBeNull()
+  })
+
+  it('porte les défauts documentés', () => {
+    expect(FRAMING_DEFAULTS.splitScreen).toBe(true)
+    expect(FRAMING_DEFAULTS.splitMinShot).toBe(4)
+    expect(FRAMING_DEFAULTS.splitMinCellWidth).toBe(0.38)
+  })
+})
+
+describe('le split-screen dans computeFraming', () => {
+  const SHOTS_ONE = [shot(0, 10)]
+  const SEGMENTS_ONE = [seg(0, 10)]
+
+  function bothWays(people: PersonBox[]) {
+    const request = {
+      segments: SEGMENTS_ONE,
+      shots: SHOTS_ONE,
+      people,
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: 'auto' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    return {
+      off: computeFraming({ ...request, splitScreen: false }),
+      on: computeFraming({ ...request, splitScreen: true }),
+    }
+  }
+
+  it('pose `split` sur le plan qui remplit les trois conditions', () => {
+    const { on } = bothWays(splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY))
+    expect(on.shots[0].split).toBeDefined()
+  })
+
+  it("l'interrupteur reproduit exactement le cadrage d'avant : `split` reste absent, rien d'autre ne bouge", () => {
+    const { off, on } = bothWays(splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY))
+    expect(off.shots[0].split).toBeUndefined()
+    expect(off.ratio).toBe(on.ratio)
+    expect(off.shots[0].ratio).toBe(on.shots[0].ratio)
+    expect(off.shots[0].cropX).toBeCloseTo(on.shots[0].cropX, 10)
+    expect(off.shots[0].cropXNative).toBeCloseTo(on.shots[0].cropXNative, 10)
+  })
+
+  it('ne déplace ni le ratio natif ni sa position, split posé ou non', () => {
+    const { off, on } = bothWays(splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY))
+    expect(on.ratio).toBe(off.ratio)
+    expect(on.shots[0].cropXNative).toBeCloseTo(off.shots[0].cropXNative, 10)
+  })
+
+  it('un plan déjà 9:16 ne split pas, même à deux personnes', () => {
+    const request = {
+      segments: SEGMENTS_ONE,
+      shots: SHOTS_ONE,
+      people: splitFrames(0, 10, LEFT_GEOMETRY, RIGHT_GEOMETRY),
+      srcW: SRC_W,
+      srcH: SRC_H,
+      ratio: '9:16' as const,
+      cropMode: 'auto' as const,
+      ...RAW_BOUNDS,
+    }
+    const framing = computeFraming(request)
+    expect(framing.shots[0].split).toBeUndefined()
   })
 })

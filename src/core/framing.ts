@@ -391,6 +391,13 @@ export type TorsoName = keyof typeof TORSOS
  *
  * Descendre plus bas n'achèterait donc rien, et monter coûte : à 0,03, huit
  * fenêtres de `cqlp` s'élargissent.
+ *
+ * **`sizeFloor` vaut 0,5, choisi par balayage (`scripts/measure-ratios.ts`,
+ * section 8).** La jaquette de DVD de `nabla` à 984,0 s fait 41 % de la plus
+ * haute boîte de son image ; 0,4 la garde, 0,5 l'écarte tout en gardant le
+ * second comédien à 78 %. Corpus-wide, 0,5 coupe 6,1 % des boîtes et ne vide
+ * aucune image sur les cinq émissions ; 0,7 en coupe 13,7 % et commence à
+ * resserrer des plans entiers.
  */
 export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freeze({
   minScore: 0.5,
@@ -403,7 +410,7 @@ export const FRAMING_DEFAULTS: Readonly<Required<FramingOptions>> = Object.freez
   torsoMinScore: 0.5,
   torsoPad: 0.15,
   torsoTrim: 0.3,
-  sizeFloor: 0,
+  sizeFloor: 0.5,
 })
 
 /**

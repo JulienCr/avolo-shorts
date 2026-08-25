@@ -904,6 +904,9 @@ describe('isForeground', () => {
   })
 })
 
+// `sizeFloor: 0` accompagne `foregroundMaxHeight: 0` ci-dessous : le public est
+// aussi bien plus court que les comédiens, et sans l'éteindre le plancher de
+// taille l'écarterait à leur place, ce que ce bloc ne teste pas.
 describe('le premier plan écarté du cadrage', () => {
   /** Un plan de 10 s où deux comédiens tiennent le tiers central du cadre. */
   const performers = (t: number): PersonBox[] => [
@@ -927,7 +930,7 @@ describe('le premier plan écarté du cadrage', () => {
   it('resserre l’empan sur les comédiens au lieu de l’étaler d’un bord à l’autre', () => {
     const boxes = onTen(true)
     expect(
-      requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, ...NO_TRIM })[0],
+      requiredWidths(boxes, { margin: 0, foregroundMaxHeight: 0, sizeFloor: 0, ...NO_TRIM })[0],
     ).toBeCloseTo(1, 10)
     expect(requiredWidths(boxes, { margin: 0, ...NO_TRIM })[0]).toBeCloseTo(0.26, 10)
   })
@@ -936,7 +939,9 @@ describe('le premier plan écarté du cadrage', () => {
   // plus large, c'est-à-dire à rien.
   it('fait descendre le ratio du 16:9 au 9:16', () => {
     const boxes = onTen(true)
-    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0 })).toBe('16:9')
+    expect(chooseRatio(boxes, SRC_W, SRC_H, { foregroundMaxHeight: 0, sizeFloor: 0 })).toBe(
+      '16:9',
+    )
     expect(chooseRatio(boxes, SRC_W, SRC_H)).toBe('9:16')
   })
 
@@ -977,7 +982,9 @@ describe('le premier plan écarté du cadrage', () => {
       ratio: 'auto' as const,
       cropMode: 'auto' as const,
     }
-    expect(computeFraming({ ...common, foregroundMaxHeight: 0 }).ratio).toBe('16:9')
+    expect(computeFraming({ ...common, foregroundMaxHeight: 0, sizeFloor: 0 }).ratio).toBe(
+      '16:9',
+    )
     const frame = computeFraming(common)
     expect(frame.ratio).toBe('9:16')
     expect(frame.shots[0]).toMatchObject({ source: 'auto' })
@@ -1017,7 +1024,11 @@ describe('le premier plan écarté du cadrage', () => {
       margin: 0,
       ...NO_TRIM,
     }
-    const withoutFilter = computeFraming({ ...common, foregroundMaxHeight: 0 }).shots[0].cropX
+    const withoutFilter = computeFraming({
+      ...common,
+      foregroundMaxHeight: 0,
+      sizeFloor: 0,
+    }).shots[0].cropX
     const withFilter = computeFraming(common).shots[0].cropX
     // Le public tire le cadre vers le bord gauche ; les comédiens le posent sur
     // le milieu de l'action, qu'ils occupent symétriquement.

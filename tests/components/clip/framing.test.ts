@@ -19,10 +19,11 @@ import {
   unmeasuredShots,
   effectiveRatio,
   shotRatios,
+  anyShotSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import { usePlayback } from '@/components/clip/playback'
-import { framing, manualFraming, shot } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(() => usePlayback.getState().reset())
 
@@ -116,6 +117,18 @@ describe('shotRatios', () => {
         }),
       ),
     ).toEqual(['9:16', '16:9'])
+  })
+})
+
+describe('anyShotSplit', () => {
+  it('vaut vrai dès qu’un plan porte deux cellules', () => {
+    expect(
+      anyShotSplit(framing({ shots: [shot(0, 1, '16:9', 0.5, 'auto', splitCells())] })),
+    ).toBe(true)
+  })
+
+  it('vaut faux sans aucun plan splitté', () => {
+    expect(anyShotSplit(framing({ shots: [shot(0, 1, '16:9', 0.5)] }))).toBe(false)
   })
 })
 

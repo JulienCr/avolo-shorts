@@ -7,6 +7,7 @@ import {
   originMessage,
   effectiveRatio,
   shotRatios,
+  anyShotSplit,
   useCurrentShot,
 } from '@/components/clip/framing'
 import type { Ratio } from '@/core/edl'
@@ -51,8 +52,19 @@ const NOT_FAST = 0.05
  * le sélecteur l'affiche, le rectangle la désigne par `aria-describedby`. Deux
  * conditions recopiées finiraient par diverger, et le jour où elles divergent le
  * rectangle pointe vers un texte qui n'est plus rendu.
+ *
+ * **Le split (spec du 25 août) prime sur les deux autres causes.** Un plan
+ * splitté n'a pas un crop mais deux cellules empilées : il n'y a rien qu'un
+ * curseur horizontal unique puisse désigner.
  */
-export function frozenCropReason(framing: PublishedFraming, effective: Ratio): string | null {
+export function frozenCropReason(
+  framing: PublishedFraming,
+  effective: Ratio,
+  split = false,
+): string | null {
+  if (split) {
+    return 'Ce plan pose deux personnes en deux cellules empilées (split-screen) : il n’y a pas un seul crop à déplacer.'
+  }
   const computed = isComputedFraming(framing)
   const fullWidth = cropWidthFraction(effective) >= 1
   if (fullWidth) {
@@ -134,17 +146,19 @@ export function CropOverlay({
   const automatic = isComputedFraming(framing)
 
   const effective = effectiveRatio(shot, ratio)
+  const split = shot?.split !== undefined
   const position = automatic ? (shot?.cropX ?? 0.5) : cropX
   const width = cropWidthFraction(effective)
   const left = cropLeftFraction(position, width)
   const center = clampCropX(position, width)
-  // Figé quand le cadre couvre toute la source — il n'y a rien à déplacer — ou
-  // quand c'est le calcul qui décide de sa position.
-  const frozen = width >= 1 || automatic
+  // Figé quand le cadre couvre toute la source, quand c'est le calcul qui
+  // décide de sa position, ou quand le plan est splitté : il n'y a alors pas
+  // un seul crop à déplacer.
+  const frozen = width >= 1 || automatic || split
   // La même énumération que celle qu'affiche `RatioPicker`, appelée plutôt que
   // recopiée : deux conditions parallèles finissent par diverger, et le jour où
   // elles divergent le rectangle décrit un texte qui n'est plus rendu.
-  const reason = frozenCropReason(framing, effective)
+  const reason = frozenCropReason(framing, effective, split)
 
   function pointerFraction(clientX: number): number | null {
     const rect = frame.current?.getBoundingClientRect()
@@ -225,7 +239,7 @@ export function CropOverlay({
         style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
       >
         <span className="absolute top-1 left-1 rounded bg-stage px-1 font-mono text-[0.75rem] font-semibold text-stage-foreground">
-          {effective}
+          {split ? 'split' : effective}
         </span>
 
         {!frozen && (
@@ -291,6 +305,8 @@ export function RatioPicker({
   const values: (Ratio | 'auto')[] = ['auto', ...ORDER_RATIOS]
   const shot = useCurrentShot(framing)
   const effective = effectiveRatio(shot, ratio)
+  const split = shot?.split !== undefined
+  const anySplit = anyShotSplit(framing)
   const origin = originMessage(framing)
   const varied = ratio === 'auto' ? shotRatios(framing) : []
   const varies = varied.length > 1
@@ -307,7 +323,7 @@ export function RatioPicker({
   const nativeRatio = ratio === 'auto' ? framing.ratio : ratio
   // La variante n'existe que si le natif n'est pas déjà vertical (spec §11).
   const variantDue = nativeRatio !== '9:16'
-  const cropReason = frozenCropReason(framing, effective)
+  const cropReason = frozenCropReason(framing, effective, split)
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -337,7 +353,11 @@ export function RatioPicker({
           sélecteur ne peut pas dire seul : ce que « auto » a choisi *pour le
           plan qu'on regarde*, et qu'un ratio épinglé vaut pour tous. */}
       <p className="font-mono text-[0.75rem] text-muted-foreground">
-        {ratio === 'auto' ? `auto → ${effective}` : `${effective} · épinglé partout`}
+        {ratio === 'auto'
+          ? `auto → ${split ? 'split' : effective}`
+          : split
+            ? 'split · sur ce plan'
+            : `${effective} · épinglé partout`}
         {' · natif '}
         {nativeRatio}
       </p>
@@ -354,7 +374,7 @@ export function RatioPicker({
         <span className="font-mono">{nativeRatio}</span>
         {' · '}
         <strong className="font-medium">Variante 9:16</strong>{' '}
-        {variantDue ? 'sur fond flouté' : 'aucune'}
+        {variantDue ? (anySplit ? 'sur fond flouté, en split sur certains plans' : 'sur fond flouté') : 'aucune'}
       </p>
 
       <details className="group/comportement basis-full">
@@ -376,6 +396,12 @@ export function RatioPicker({
                   {' '}
                   — le cadre y change avec les plans (
                   <span className="font-mono">{varied.join(', ')}</span>)
+                </>
+              )}
+              {anySplit && (
+                <>
+                  {' '}
+                  — un plan à deux personnes se pose en deux cellules empilées, sans fond
                 </>
               )}{' '}
               : elle suit le calcul et ne se règle pas ici.

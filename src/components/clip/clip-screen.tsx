@@ -604,7 +604,11 @@ export function ClipScreen({ detail }: { detail: ClipDetail }) {
             <dt className="text-muted-foreground">Segments</dt>
             <dd className="font-mono tabular-nums">{segments.length}</dd>
 
-            <dt className="text-muted-foreground">Cadre</dt>
+            {/* **« (variante) », et non « Cadre » seul.** Cette ligne lit
+                `shot.cropX`, jamais `cropXNative` : elle décrit la variante
+                9:16, pas le natif, qui garde son propre crop plus haut dans
+                l'écran. Sans le mot, rien ne distingue les deux (addendum #178). */}
+            <dt className="text-muted-foreground">Cadre (variante)</dt>
             {/* Ce que le rendu découpera sur le plan qu'on regarde : le cadre
                 saute aux frontières, donc une seule valeur pour tout le clip ne
                 voudrait rien dire. La valeur est ramenée dans l'image, comme le
@@ -813,9 +817,12 @@ function ShotFrameLine({
   const effective = effectiveRatio(shot, ratio)
   const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
   const percent = Math.round(clampCropX(position, cropWidthFraction(effective)) * 100)
+  // Un plan splitté n'a pas de position de crop unique : le pourcentage ne
+  // décrirait rien (spec du 25 août, addendum #178).
+  const split = shot?.split !== undefined
   return (
     <dd className="font-mono tabular-nums">
-      {effective} · {percent} %
+      {split ? 'split' : `${effective} · ${percent} %`}
       {shot?.source === 'default' && (
         <span className="ml-1 font-sans text-amber-500 dark:text-amber-400">
           rien mesuré sur ce plan

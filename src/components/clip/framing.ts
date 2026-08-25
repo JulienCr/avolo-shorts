@@ -59,6 +59,16 @@ export function shotRatios(framing: PublishedFraming): Ratio[] {
 }
 
 /**
+ * Un plan au moins pose-t-il un split-screen ?
+ *
+ * Vaut seulement pour la **variante 9:16** (spec du 25 août) : le natif ignore
+ * `split` et garde toujours un crop unique.
+ */
+export function anyShotSplit(framing: PublishedFraming): boolean {
+  return framing.shots.some((p) => p.split !== undefined)
+}
+
+/**
  * Le cadrage est-il celui que la machine a calculé ?
  *
  * Faux quand l'analyse manque, ne se lit pas, ou ne recouvre pas le montage : le

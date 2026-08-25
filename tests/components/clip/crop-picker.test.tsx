@@ -13,7 +13,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CropOverlay, RatioPicker, frozenCropReason } from '@/components/clip/crop-picker'
-import { framing, manualFraming, shot } from '../../fixtures/framing'
+import { framing, manualFraming, shot, splitCells } from '../../fixtures/framing'
 
 afterEach(cleanup)
 
@@ -162,6 +162,21 @@ describe('RatioPicker', () => {
     expect(screen.queryByText(/ne se règle pas ici/i)).toBeNull()
   })
 
+  /**
+   * Le split (spec du 25 août) n'existe que sur la variante : « auto → split »
+   * dit ce que ce plan-là rend, pas un ratio de crop qui n'y correspond plus.
+   */
+  it('dit « split » sur un plan splitté plutôt qu’un ratio de crop', () => {
+    render(
+      <RatioPicker
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        onRatio={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/auto → split/)).toBeTruthy()
+  })
+
   it('nomme le cadre pris dans la source, pas « le ratio de sortie »', () => {
     // Il y a deux sorties, et ce sélecteur n'en règle qu'une directement :
     // « ratio de sortie » était le mot qui autorisait la confusion.
@@ -191,6 +206,12 @@ describe('frozenCropReason', () => {
     // entièrement, et c'est le cadrage de l'itération 0 — il n'a jamais été
     // jetable.
     expect(frozenCropReason(manualFraming('1:1'), '1:1')).toBeNull()
+  })
+
+  it('dit qu’un plan splitté n’a pas un seul crop à déplacer', () => {
+    // Prime sur les deux autres causes : même en 16:9 ou en réglage manuel, un
+    // plan à deux cellules n'a rien qu'un curseur horizontal puisse désigner.
+    expect(frozenCropReason(manualFraming('1:1'), '1:1', true)).toContain('cellules empilées')
   })
 })
 
@@ -229,5 +250,21 @@ describe('CropOverlay', () => {
     const slider = screen.getByRole('slider')
     expect(slider.getAttribute('aria-describedby')).toBeNull()
     expect(slider.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('se fige sur un plan splitté, avec la raison écrite', () => {
+    render(
+      <CropOverlay
+        framing={framing({ shots: [shot(0, 100, '16:9', 0.5, 'auto', splitCells())] })}
+        ratio="auto"
+        cropX={0.5}
+        onCropX={vi.fn()}
+        describedBy="raison-cadrage"
+      />,
+    )
+    const slider = screen.getByRole('slider')
+    expect(slider.getAttribute('aria-disabled')).toBe('true')
+    expect(slider.getAttribute('aria-describedby')).toBe('raison-cadrage')
+    expect(screen.getByText('split')).toBeTruthy()
   })
 })

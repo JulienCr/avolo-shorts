@@ -9,7 +9,7 @@ import type { CaptionStyle } from '@/core/captions/ass'
 import { elapsedInClip } from '@/core/captions/retime'
 import type { Word } from '@/core/transcript'
 import type { Ratio, Segment } from '@/core/edl'
-import { RATIOS, cropRect, outputSize } from '@/core/framing'
+import { RATIOS, cropRect, outputSize, splitCellRect, type Cell } from '@/core/framing'
 import type { ResolvedHook } from '@/core/hook'
 import type { PublishedFraming } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -53,19 +53,38 @@ export function lScreenPart(ratio: Ratio): number {
 /**
  * Peint une image du canevas de sortie.
  *
- * **La géométrie est celle du rendu, pas une approximation.** `cropRect` est la
- * fonction que ffmpeg suivra : l'aperçu montre donc le cadre exact, pas un
- * cadre qui lui ressemble.
+ * **La géométrie est celle du rendu, pas une approximation.** `cropRect` et
+ * `splitCellRect` sont les fonctions que ffmpeg suit : l'aperçu montre donc le
+ * cadre exact, pas un cadre qui lui ressemble.
+ *
+ * `split`, quand il est posé, ignore `ratio`/`cropX` — même règle que
+ * `src/core/ffmpeg/args.ts` : une entrée splittée remplit tout le canevas de
+ * ses deux cellules empilées, sans crop unique ni fond.
  */
 export function paintOutput(
   ctx: CanvasRenderingContext2D,
   video: HTMLVideoElement,
-  { ratio, cropX, width, hauteur }: { ratio: Ratio; cropX: number; width: number; hauteur: number },
+  {
+    ratio,
+    cropX,
+    width,
+    hauteur,
+    split,
+  }: { ratio: Ratio; cropX: number; width: number; hauteur: number; split?: [Cell, Cell] },
 ): void {
   const { videoWidth, videoHeight } = video
   // Le proxy se charge en requêtes partielles : le premier rendu tombe avant les
   // métadonnées, et `drawImage` sur une source de 0x0 lève une `InvalidStateError`.
   if (videoWidth <= 0 || videoHeight <= 0 || width <= 0 || hauteur <= 0) return
+
+  if (split !== undefined) {
+    const cellHeight = hauteur / 2
+    split.forEach((cell, i) => {
+      const r = splitCellRect(cell, videoWidth, videoHeight)
+      ctx.drawImage(video, r.x, r.y, r.w, r.h, 0, i * cellHeight, width, cellHeight)
+    })
+    return
+  }
 
   const frame = cropRect(ratio, cropX, videoWidth, videoHeight)
   ctx.drawImage(video, frame.x, frame.y, frame.w, frame.h, 0, 0, width, hauteur)
@@ -158,8 +177,12 @@ export function PreviewOutput({
   const shot = useCurrentShot(framing)
   const position = isComputedFraming(framing) ? (shot?.cropX ?? 0.5) : cropX
   const effective = effectiveRatio(shot, ratio)
-  const { width, hauteur } = canvasSize(effective)
-  const part = lScreenPart(effective)
+  // Le split (spec du 25 août) n'existe que sur la variante 9:16 : ses deux
+  // cellules remplissent tout le canevas, `effective`/`position` n'y servent
+  // plus. Le natif, lui, garde `ratio`/`cropXNative` sans jamais lire `split`.
+  const split = shot?.split
+  const { width, hauteur } = canvasSize(split !== undefined ? '9:16' : effective)
+  const part = split !== undefined ? 1 : lScreenPart(effective)
   /**
    * Le canevas vertical **n'est pas toujours la variante**.
    *
@@ -178,8 +201,8 @@ export function PreviewOutput({
     if (target === null || video === null) return
     const ctx = target.getContext('2d')
     if (ctx === null) return
-    paintOutput(ctx, video, { ratio: effective, cropX: position, width, hauteur })
-  }, [video, effective, position, width, hauteur])
+    paintOutput(ctx, video, { ratio: effective, cropX: position, width, hauteur, split })
+  }, [video, effective, position, width, hauteur, split])
 
   // **Le premier des deux déclencheurs, et le plus important.** Tout changement
   // de crop ou de ratio repeint sur l'image courante : le geste réel est « on
@@ -259,7 +282,7 @@ export function PreviewOutput({
       <figcaption className="shrink-0 truncate text-[0.75rem] text-muted-foreground">
         {isVariant ? 'variante 9:16' : 'fichier natif 9:16'} ·{' '}
         <span className="font-mono tabular-nums">{Math.round(part * 100)} %</span> · cadre{' '}
-        <span className="font-mono">{effective}</span>
+        <span className="font-mono">{split !== undefined ? 'split' : effective}</span>
       </figcaption>
 
       {/* Le cadre du téléphone. C'est lui qui donne l'échelle : le canvas y

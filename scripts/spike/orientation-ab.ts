@@ -772,7 +772,13 @@ async function renderComparison(
       `— écart de frontalité retenu pour écarter une personne : ${FRONTAL_GAP_MARGIN}`,
     kind === 'case'
       ? "candidat : la personne la moins frontale est écartée du calcul d'empan, image par image, quand l'écart dépasse le seuil ci-dessus"
-      : `contrôle : la règle ne devrait rien changer sur ce plan — panneaux identiques : ${identical ? 'oui' : 'NON, voir ci-dessous'}`,
+      : `contrôle : plan choisi pour que la règle ait peu de raisons de mordre — ` +
+        `panneaux identiques : ${identical ? 'oui' : 'non, voir ci-dessous'}`,
+    kind === 'case'
+      ? ''
+      : 'la sélection des contrôles porte sur des médianes et des seuils de plan,' +
+        " pas sur l'absence de déclenchement image par image : un « non » se lit," +
+        ' il ne se compte pas comme un défaut sans avoir regardé l’image.',
   ]
 
   const panels: Panel[] = [

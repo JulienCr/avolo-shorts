@@ -1846,6 +1846,32 @@ describe('orientationOf', () => {
     }
   })
 
+  /**
+   * **Le meme trou, une troisieme fois -- dans le repli sur les hanches.** Le nez
+   * etait deja garde par son `Number.isFinite`, les epaules le sont depuis le
+   * correctif precedent, mais les hanches portent l'echelle quand le nez manque
+   * et personne ne les verifiait : `!(scale > 0)` laisse passer `Infinity`. Trois
+   * emplacements pour un defaut, dont deux trouves dans du code que le correctif
+   * du premier venait de toucher -- ce que la skill `cadrage` avait deja mesure
+   * sur le bornage des abscisses. (releve par Copilot)
+   */
+  it('ecarte une echelle de hanches infinie quand le nez manque', () => {
+    for (const point of ['LEFT_HIP', 'RIGHT_HIP'] as const) {
+      for (const bad of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        const k = [...personA.k!]
+        // Nez ecarte : c'est le repli sur les hanches qui porte alors l'echelle.
+        k[POINT.NOSE * 3 + 2] = 0
+        k[POINT.LEFT_HIP * 3 + 2] = 1
+        k[POINT.RIGHT_HIP * 3 + 2] = 1
+        k[POINT[point] * 3 + 1] = bad
+        const result = orientationOf(personWithK(770, k))
+        expect(result.terms.shoulderRatio).toBeNull()
+        expect(result.frontality).not.toBeNaN()
+        expect(result.frontality === null).toBe(result.facing === 'unknown')
+      }
+    }
+  })
+
   it('porte les défauts documentés', () => {
     expect(ORIENTATION_DEFAULTS.pointMinScore).toBe(FRAMING_DEFAULTS.torsoMinScore)
     expect(ORIENTATION_DEFAULTS.shoulderRatioFull).toBe(1)

@@ -660,6 +660,13 @@ async function main(): Promise<number> {
   // strates : une planche unique plutôt que `--sheets` tranches. Un intervalle
   // illisible se refuse, jamais remplacé par un défaut.
   const rangeRaw = value('--range')
+  // Presence et valeur sont deux questions. Sans ce refus, `--range --out /tmp/x`
+  // lancait les strates par defaut, et `--range --missing-shoulder` contournait
+  // meme l'exclusivite annoncee juste en dessous. (releve par Copilot)
+  if (present('--range') && rangeRaw === undefined) {
+    console.error('--range attend une valeur `lo,hi`.')
+    return 1
+  }
   const missingShoulder = arguments_.includes('--missing-shoulder')
   if (rangeRaw !== undefined && missingShoulder) {
     console.error('--range et --missing-shoulder sont exclusifs l’un de l’autre.')

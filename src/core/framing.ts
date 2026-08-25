@@ -832,8 +832,12 @@ function shoulderRatioOf(k: readonly number[], threshold: number): number | null
     }
   }
 
-  // `!(scale > 0)` et non `scale === 0`, pour que `NaN` tombe du côté écarté.
-  if (!(scale > 0)) return null
+  // **Fini autant que positif**, et c'est le garde qui manquait : `!(scale > 0)`
+  // écarte bien un `NaN`, mais `Infinity > 0` est vrai, donc une échelle infinie
+  // passait et rendait `span / scale === 0` — un profil franc tiré du néant. Le
+  // trou valait pour le nez et les hanches, pas seulement pour les épaules
+  // gardées plus haut. (relevé par Copilot, trois fois de suite)
+  if (!Number.isFinite(scale) || !(scale > 0)) return null
   return span / scale
 }
 

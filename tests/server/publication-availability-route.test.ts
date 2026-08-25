@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -56,5 +56,31 @@ describe('GET /api/publication/availability', () => {
     for (const platform of Object.values(body)) {
       expect(platform).toEqual({ available: false, reason: 'not_configured' })
     }
+  })
+
+  it('200, Instagram `available: true` avec un jeton système persisté', async () => {
+    root = isolateConnectors()
+    mkdirSync(path.join(root, 'projects'), { recursive: true })
+    writeFileSync(
+      path.join(root, 'projects', 'meta-tokens.json'),
+      JSON.stringify({
+        instagramUserId: 'ig1',
+        instagramAccessToken: 'tok1',
+        // `null` : jeton système, la seule forme que `availability` vérifie
+        // sans passer par `META_APP_ID`/`META_APP_SECRET`.
+        instagramTokenExpiresAt: null,
+      }),
+    )
+    // Le seul appel réseau que ce chemin déclenche : la vérification du jeton
+    // auprès du Graph API. `checkFacebook` n'est jamais atteint sans
+    // `META_PAGE_ID`, donc un seul stub suffit.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'ig1' }), { status: 200 })))
+    vi.resetModules()
+
+    const { GET } = await import('@/app/api/publication/availability/route')
+    const response = await GET()
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, { available: boolean; reason?: string }>
+    expect(body.instagram).toEqual({ available: true })
   })
 })

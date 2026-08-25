@@ -173,7 +173,7 @@ describe('la frontière de pureté de src/core', () => {
     ['globalThis.process', 'export const f = () => globalThis.process.env.FFMPEG_BIN'],
     ['global.fetch', "export const f = () => global.fetch('https://exemple.fr')"],
     ['self.fetch', "export const f = () => self.fetch('https://exemple.fr')"],
-    // La table couvre une entrée par nom de `GLOBAUX_INTERDITS` : sans quoi le
+    // La table couvre une entrée par nom de `FORBIDDEN` : sans quoi le
     // retrait accidentel de l'un d'eux ne ferait échouer aucun test (Copilot).
   ])('refuse le global %s', async (_name, code) => {
     const rules = await errors(`${code}\n`, 'src/core/sonde.ts')

@@ -180,7 +180,7 @@ export function PanelProgress({
  * **Elle n'annonce que les changements d'étape, et la fin.** L'écran interroge
  * l'état toutes les deux secondes : une région live posée sur le pourcentage
  * produirait une annonce toutes les deux secondes pendant neuf minutes. Le
- * `progressbar`, lui, met `aria-valuenow` à jour en silence. `ÉTAPES` en compte
+ * `progressbar`, lui, met `aria-valuenow` à jour en silence. `STEPS` en compte
  * cinq : six annonces sur toute l'analyse, la fin comprise.
  *
  * **Elle se pose au-dessus de la disposition, jamais dans le panneau.** Le
@@ -304,7 +304,7 @@ function percent(progress: number): number {
  * nomme, jamais une durée restante**.
  *
  * Elle ne cite que les deux étapes qui changent ce que l'utilisateur peut faire
- * — `candidates` ouvre le tri, `proxy` ouvre le montage —, comme `phaseProjet`
+ * — `candidates` ouvre le tri, `proxy` ouvre le montage —, comme `phaseProject`
  * et pour la même raison : c'est la seule formulation qui survive à l'ajout
  * d'étapes.
  */

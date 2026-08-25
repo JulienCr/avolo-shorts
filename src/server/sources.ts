@@ -315,7 +315,7 @@ export async function listSources(options: OptionsSources = {}): Promise<Sources
   }
   if (reading === null) return { sources: [], editing }
 
-  // **Indexés par leur source, pas par leur identifiant.** Voir `projetDe`.
+  // **Indexés par leur source, pas par leur identifiant.** Voir `project`.
   const projects = new Map(listProjects(db).map((p) => [p.sourcePath, p.id]))
   const sources: Source[] = reading.videos
     .slice()
@@ -342,8 +342,8 @@ export async function listSources(options: OptionsSources = {}): Promise<Sources
  * `projectIdFromSource` retire l'extension : `show.mp4` et `show.mov` donnent
  * tous deux `show`. Chercher l'identifiant dans la table ferait mener la carte
  * du MOV au projet du MP4 — une autre vidéo, sous un titre qui ne la décrit pas
- * — alors que `créerProjet` refuse précisément cette paire par un
- * `CollisionDeProjetError`. Le MOV reste donc « à créer », et la création
+ * — alors que `createProject` refuse précisément cette paire par un
+ * `ProjectErrorCollision`. Le MOV reste donc « à créer », et la création
  * répondra 409 avec le message qui nomme les deux fichiers : un cul-de-sac qui
  * s'explique vaut mieux qu'un lien vers la mauvaise vidéo.
  * (relevé par Codex et Copilot)

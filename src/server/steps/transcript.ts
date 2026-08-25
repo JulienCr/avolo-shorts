@@ -415,7 +415,7 @@ export async function transcribe(o: OptionsTranscript): Promise<Transcription> {
  * dernières lignes de la trace Python — celles qui disent pourquoi.
  *
  * **Le message d'échec porte la commande complète**, donc les chemins du venv et
- * de l'audio. Comme ceux de `runFfmpeg` et de `statAvecDélai`, il est destiné à
+ * de l'audio. Comme ceux de `runFfmpeg` et de `statWithDelay`, il est destiné à
  * un journal de serveur, pas à une réponse HTTP. (relevé par Aristarque)
  *
  * **Les deux sorties sont capturées, aucune n'est héritée.** Le worker écrit son
@@ -541,7 +541,7 @@ export type TranscriptCorrectionOutcome =
 /**
  * L'index de segment qu'un `lineId` porte, ou `null` s'il n'a pas cette forme.
  *
- * **`lignesDuTranscript` (`src/server/views.ts`) écrit `l${i}`, `i` étant
+ * **`transcriptLines` (`src/server/views.ts`) écrit `l${i}`, `i` étant
  * l'index dans `transcript.segments`** — y compris pour les segments qu'elle
  * filtre ensuite parce qu'ils n'ont aucun mot aligné. C'est ce qui rend
  * l'identifiant stable : il désigne une position dans le fichier, pas une
@@ -595,7 +595,7 @@ function lineIndex(lineId: string): number | null {
  * effacerait la première sans que rien ne le signale — les deux réponses HTTP
  * annonceraient pourtant un succès. Chaîner chaque appel derrière le
  * précédent, par projet, rend le cycle atomique sans verrou inter-processus :
- * `enCours` (`src/server/run.ts`) résout déjà la même classe de problème pour
+ * `inCurrent` (`src/server/run.ts`) résout déjà la même classe de problème pour
  * les exécutions du graphe de la même façon, une table de *ce* processus,
  * jamais partagée entre plusieurs. (relevé par Copilot)
  */
@@ -608,9 +608,9 @@ export async function correctTranscript(
   // **Revérifié juste avant l'écriture, pas seulement à l'entrée.** La route
   // (`src/app/api/projects/[id]/transcript/route.ts`) a déjà refusé la
   // correction si une exécution tournait au moment de la requête, mais
-  // `montageRépond` et la lecture du sidecar cèdent la main entre-temps : une
+  // `editingResponds` et la lecture du sidecar cèdent la main entre-temps : une
   // retranscription lancée dans cette fenêtre réserverait le projet sans que
-  // ce premier refus l'ait vue. Cette fonction ne connaît pas `enCours`
+  // ce premier refus l'ait vue. Cette fonction ne connaît pas `inCurrent`
   // (`src/server/run.ts`) directement — l'importer créerait un cycle, `run.ts`
   // important déjà `transcribe` d'ici —, donc l'appelant lui passe la sonde.
   // Cela referme la fenêtre jusqu'au dernier point de reprise avant l'écriture,

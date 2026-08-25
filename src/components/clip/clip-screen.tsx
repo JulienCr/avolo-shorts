@@ -795,7 +795,7 @@ function RenderSettings({
  * Le cadre du plan sous la lecture, en toutes lettres.
  *
  * **Un composant à part, et c'est la raison qui compte** : il s'abonne à la
- * position de lecture, qui change quatre fois par seconde. Lu dans `EcranDeClip`,
+ * position de lecture, qui change quatre fois par seconde. Lu dans `ClipScreen`,
  * il ferait rendre le transcript virtualisé et le lecteur à cette cadence. Ici,
  * le sélecteur ne rend qu'un index de plan, donc rien ne bouge entre deux
  * frontières.

@@ -358,7 +358,7 @@ describe('propagerArrêt', () => {
 
   /**
    * **Le signal peut déjà avoir été levé.** Un arrêt demandé pendant qu'une
-   * étape se prépare — le `mkdir` de `produireArtefact`, les deux `ffprobe` de
+   * étape se prépare — le `mkdir` de `produceArtifact`, les deux `ffprobe` de
    * l'analyse — laisserait sinon partir un processus que plus personne
    * n'attend, seul, jusqu'au bout.
    */
@@ -443,7 +443,7 @@ describe('runFfmpeg, l’arrêt demandé', () => {
   /**
    * **Ce qui rend l'arrêt sûr** : l'écriture passe par un nom temporaire, effacé
    * quand elle échoue. Sans cela, un encodage tué à la cinquième minute
-   * laisserait un MP4 tronqué sous le nom définitif, et `relevéPrésence` le
+   * laisserait un MP4 tronqué sous le nom définitif, et `readingPresence` le
    * prendrait pour un artefact valide — la reprise sauterait l'étape, et le
    * projet porterait un proxy amputé que personne ne verrait.
    */

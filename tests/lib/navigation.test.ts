@@ -173,7 +173,7 @@ describe('suite', () => {
   })
 
   it('ne cache pas le tri déjà possible pendant un repérage forcé', () => {
-    // `effacerArtefact` retire `candidates.json` avant de toucher à la base :
+    // `eraseArtifact` retire `candidates.json` avant de toucher à la base :
     // pendant un repérage forcé, les clips de la passe précédente sont toujours
     // là. Faire attendre ici cacherait à Julien le travail qu'il vient de
     // faire — c'est l'invariant, la phase ne retire jamais ce qui existe.

@@ -18,9 +18,9 @@ export const GET = route(
     const project = getProject(getDb(), id)
     if (project === undefined) throw notFound(`Projet inconnu : ${id}`)
 
-    // **Le relevé d'abord, l'avancement ensuite.** `relevéPrésence` attend une
+    // **Le relevé d'abord, l'avancement ensuite.** `readingPresence` attend une
     // sonde de montage, et une exécution lancée pendant cette attente serait
-    // manquée : la réponse annoncerait `running: null`, `useProjet` couperait
+    // manquée : la réponse annoncerait `running: null`, `useProject` couperait
     // son interrogation, et l'écran raterait l'analyse entière — sa progression,
     // son échec, et l'invalidation des candidats qui la suit. (relevé par Copilot)
     const steps = await readingPresence(project)

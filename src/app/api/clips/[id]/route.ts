@@ -117,7 +117,7 @@ export const GET = route(
       // La fenêtre se calcule sur l'étendue **d'origine** du candidat, jamais sur
       // ses segments courants : un clip vidé de tous ses mots n'en a plus, et sa
       // fenêtre disparaîtrait au moment précis où il faut relire le transcript
-      // pour le reconstruire. Voir `étendueOrigine`.
+      // pour le reconstruire. Voir `extentOrigin`.
       lines: transcript === null ? [] : clipLinesAround(transcript, clip),
       proxyUrl: urlProxy(clip.projectId),
       // Ce que l'export a produit, en URL. Sans elles, un clip affiche
@@ -202,7 +202,7 @@ export const PATCH = route(
     // question posée un instant plus tard. On réutilise donc sa décision plutôt
     // que d'en inventer une seconde. (relevé par Copilot)
     //
-    // Sans condition sur le statut : `leRenduEstPérimé` ne se déclenche que
+    // Sans condition sur le statut : `renderIsStale` ne se déclenche que
     // lorsqu'un champ qui change l'image a bougé, et un clip que rien n'a rendu
     // n'a pas de fichier à effacer — trois `rmSync` sur des chemins absents. La
     // garder ferait un `écrit.status === 'exported'` mort, puisque le schéma
@@ -214,7 +214,7 @@ export const PATCH = route(
     // enregistré, et l'écriture optimiste de l'interface remettrait l'ancienne
     // version à l'écran alors que la base porte la nouvelle. C'est la règle que
     // la vignette suit déjà quelques lignes plus bas, et elle vaut d'autant plus
-    // ici que `écarterRenduPérimé` efface trois fichiers : un échec au deuxième
+    // ici que `discardRenderStale` efface trois fichiers : un échec au deuxième
     // laisse un jeu de sorties incomplet, que la réponse décrira tel qu'il est,
     // puisqu'elle relit le disque après coup. (relevé par Copilot)
     // **Le cadrage d'avant l'écriture**, et c'est lui qui décide de ce qui est
@@ -225,7 +225,7 @@ export const PATCH = route(
     const framingBefore = framingWith(clip, analysis)
     const paths = pathsRender(clip.projectId, clip.id, framingBefore.ratio)
     try {
-      // **Le résolveur passe l'analyse déjà lue**, sinon `écarterRenduPérimé`
+      // **Le résolveur passe l'analyse déjà lue**, sinon `discardRenderStale`
       // rouvrirait `analysis.json` après l'écriture en base : une panne
       // passagère y ferait redescendre un clip `exported` à `kept` par le
       // rattrapage ci-dessous, et ses sorties disparaîtraient de l'API sur une
@@ -239,7 +239,7 @@ export const PATCH = route(
       // `chemins` ne connaît que l'ancien ratio natif, et c'est ce qu'il faut
       // pour effacer ce qui a été écrit. Mais un clip qui passe de 9:16 à 1:1
       // n'avait pas de variante due, donc un `-9x16.mp4` abandonné par une
-      // période antérieure y survivait — et `sortiesDuClip`, qui résout le ratio
+      // période antérieure y survivait — et `clipOutputs`, qui résout le ratio
       // *nouveau*, le publiait aussitôt comme la livraison du jour. Le nom de la
       // variante ne dépend pas du ratio, seulement du fait qu'il ne soit pas
       // 9:16 : effacer l'union des deux ferme le cas dans les deux sens.
@@ -254,10 +254,10 @@ export const PATCH = route(
       }
 
       // **Le `.txt` ne suit pas le même sort que les MP4.** Le titre et la
-      // description ne changent pas une image, donc `leRenduEstPérimé` les
+      // description ne changent pas une image, donc `renderIsStale` les
       // ignore et les vidéos restent bonnes — mais le texte de publication, lui,
       // n'est plus le bon, et `outputs.textsUrl` continuerait de le proposer.
-      // On le réécrit plutôt que de l'effacer : `sauterLeRendu` exige les trois
+      // On le réécrit plutôt que de l'effacer : `sauterRender` exige les trois
       // sorties, et un `.txt` manquant ferait réencoder quarante secondes de
       // vidéo pour une faute de frappe corrigée. Réécrit **seulement s'il
       // existe** : en fabriquer un pour un clip que rien n'a rendu ferait
@@ -266,7 +266,7 @@ export const PATCH = route(
       // **L'écriture elle-même appartient à `renderClip`**, et c'est le troisième
       // point de #48 : les deux chemins écrivaient ce fichier chacun de son
       // côté, sans que rien ne dise laquelle des deux versions survit. La règle
-      // est maintenant écrite une fois, dans `écrireTexteDePublication` — le
+      // est maintenant écrite une fois, dans `publicationWriteText` — le
       // `.txt` porte l'état de la base au moment de son écriture — et les deux
       // appelants s'y tiennent. Ce qui reste ici est la seule chose qui relève
       // du `PATCH` : ne pas fabriquer un `.txt` pour un clip que rien n'a rendu,
@@ -280,9 +280,9 @@ export const PATCH = route(
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${clip.id} :`, cause)
       // **Le statut sort d'`exported` même quand l'effacement a échoué.**
-      // `écarterRenduPérimé` le repose en dernier, après ses trois `rmSync` : une
+      // `discardRenderStale` le repose en dernier, après ses trois `rmSync` : une
       // erreur au milieu laissait un clip qui se dit exporté sur des fichiers
-      // qui ne le décrivent plus. Avec le statut remis, `sortiesDuClip` cesse de
+      // qui ne le décrivent plus. Avec le statut remis, `clipOutputs` cesse de
       // les publier — ce qui reste sur le disque n'est plus offert comme la
       // livraison du jour. (relevé par Copilot)
       const toDay = getClip(db, id)

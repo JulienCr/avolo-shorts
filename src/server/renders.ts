@@ -121,7 +121,7 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
  * Ce clip a-t-il une livraison à jour, c'est-à-dire des fichiers qui le
  * décrivent encore ?
  *
- * **Une seule question, deux portes.** `sortiesDuClip` publie les URL et
+ * **Une seule question, deux portes.** `clipOutputs` publie les URL et
  * `GET /api/clips/:id/renders/:file` pousse les octets ; les deux doivent
  * répondre pareil, sinon la porte qui reste ouverte laisse sortir exactement ce
  * que l'autre déclare indisponible — un consommateur qui a gardé l'URL continue
@@ -146,7 +146,7 @@ function urlIfProduced(clip: Clip, file: OutputClip): string | null {
  * **Sans sonder le dossier des marques ni le look des sous-titres** : un `GET` se
  * sert à chaque affichage de carte et ne lance pas deux ffprobe pour cela. C'est
  * la même fonction que celle du rendu, avec deux critères de moins — voir
- * `CeQuOnIncrusterait`.
+ * `ObservedBurnIn`.
  *
  * **Le hook, lui, EST sondé — le cas sans précédent.** Un `PUT /api/settings`
  * qui change un réglage global de hook ne recalcule rien (`applySettings`
@@ -236,7 +236,7 @@ export function clipOutputs(
  * nom-là.
  *
  * Le nom arrive du réseau. Il n'entre dans aucun `path.join` : la comparaison se
- * fait sur des noms déjà construits par `cheminsRendu`, donc `../` et compagnie
+ * fait sur des noms déjà construits par `pathsRender`, donc `../` et compagnie
  * ne désignent rien — pas parce qu'ils sont filtrés, mais parce qu'ils ne
  * figurent pas dans la liste.
  *

@@ -186,7 +186,7 @@ function writeTranscript(segments: TranscriptSegment[]): void {
 
 /**
  * Le repli du transcript **dans le projet**, distinct de celui à côté de
- * l'original qu'écrit `écrireTranscript`. C'est celui que `chercherSidecar`
+ * l'original qu'écrit `writeTranscript`. C'est celui que `findSidecar`
  * consulte en premier, avant tout sondage du montage.
  */
 function writeTranscriptFallback(segments: TranscriptSegment[]): void {
@@ -239,7 +239,7 @@ function poser(paths: (string | null)[]): void {
 
 /**
  * **Le point 1 de l'issue, et le plus grave.** Un `PATCH` qui déplace une borne
- * pendant l'encodage ne change pas le statut du clip, donc `marquerExporté` ne
+ * pendant l'encodage ne change pas le statut du clip, donc `markExported` ne
  * voyait rien et posait `exported` sur des fichiers qui décrivent le montage
  * d'avant.
  */
@@ -273,7 +273,7 @@ describe("un PATCH pendant l'encodage", () => {
 })
 
 /**
- * **Le point 2 de l'issue.** `sauterLeRendu` constatait trois `existsSync` : un
+ * **Le point 2 de l'issue.** `sauterRender` constatait trois `existsSync` : un
  * jeu de fichiers laissé par un montage abandonné faisait sauter l'export, qui
  * répondait `skipped: true` sur une livraison fausse.
  */
@@ -341,7 +341,7 @@ describe("l'ordre d'écriture du .txt", () => {
  * **Le quatrième cas de l'issue**, mesuré sur les trois rendus du 18 août : ils
  * ne portent aucune marque incrustée alors que `branding` valait `true` au rendu
  * comme aujourd'hui. Aucune empreinte n'existait pour le dire, et
- * `sauterLeRendu` constatant des fichiers, l'export les sautait pour toujours.
+ * `sauterRender` constatant des fichiers, l'export les sautait pour toujours.
  */
 describe('un rendu sans empreinte, déjà sur le disque', () => {
   it('est refait plutôt que sauté, sans avoir à connaître --force', async () => {
@@ -905,7 +905,7 @@ describe("une marque remplacée pendant l'export", () => {
   /**
    * **L'empreinte d'avant part avant le premier encodage.** Elle certifie les
    * MP4 qu'on remplace : la laisser le temps des deux ffmpeg laisse
-   * `livraisonÀJour` répondre vrai sur une paire à moitié réécrite, et rien ne
+   * `deliveryToDay` répondre vrai sur une paire à moitié réécrite, et rien ne
    * le signale puisqu'un `GET` ne sonde pas le dossier des marques.
    * (relevé par Copilot)
    */
@@ -932,7 +932,7 @@ describe("une marque remplacée pendant l'export", () => {
 /**
  * **Le texte réellement porté par les sous-titres (issue #87).** Avant ce
  * correctif, une correction du transcript qui ne touche aucun segment d'aucun
- * clip laissait `sauterLeRendu` reprendre un MP4 qui portait encore les
+ * clip laissait `sauterRender` reprendre un MP4 qui portait encore les
  * anciens mots — le neuvième chemin de la famille de défauts que #48 avait
  * coûté cher à fermer.
  *
@@ -1017,7 +1017,7 @@ describe('le texte des sous-titres (#87)', () => {
 
   /**
    * Le point 3 : un mot change dans l'émission, mais hors des segments
-   * retenus par ce clip. La correction porte sur `SEGMENT_HORS_DU_CLIP`, à
+   * retenus par ce clip. La correction porte sur `CLIP_SEGMENT_OUTSIDE`, à
    * `[500, 510]`, loin des deux segments du clip par défaut.
    */
   it("ne périme rien quand un mot change ailleurs dans l'émission, hors des segments du clip", async () => {
@@ -1080,7 +1080,7 @@ describe('le texte des sous-titres (#87)', () => {
    * **La boucle que #48 avait rencontrée, et pour laquelle la comparaison du
    * texte avait été écartée à l'époque.** Un clip qui demande des sous-titres
    * mais dont aucun mot ne tombe dans ses segments rend un document `null` —
-   * `sousTitresDuClip` le dit, `writeCaptionsDocument` le journalise sans
+   * `clipUnderTitles` le dit, `writeCaptionsDocument` le journalise sans
    * échouer. `captionsContent` vaut alors `null` dans l'empreinte, exactement
    * comme un clip sans sous-titres : la seconde lecture compare `null` à
    * `null`, ne trouve aucun écart, et l'export ne se reprend pas indéfiniment.
@@ -1136,7 +1136,7 @@ describe('le texte des sous-titres (#87)', () => {
   /**
    * **Le repli local d'abord, le sondage du montage seulement à l'échec**
    * (relevé par Copilot et Aristarque). `currentCaptionsDocument` sondait le
-   * montage avant même de laisser `transcriptDuProjet` essayer son repli dans
+   * montage avant même de laisser `projectTranscript` essayer son repli dans
    * le projet — cassant la garantie que son propre commentaire annonçait. Ce
    * test pose le montage comme muet et un transcript dans le seul repli du
    * projet : sans le correctif, il lève « le dossier des replays ne répond

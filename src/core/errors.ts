@@ -35,7 +35,7 @@ function isAbsolute(value: string): boolean {
 /**
  * Une chaîne entre guillemets. **Traitée en premier**, parce que c'est la seule
  * forme qui peut contenir des espaces : `REPLAY_DIR` pointe sur
- * `/mnt/j/Drive partagés/…` et `statAvecDélai` le rend en `JSON.stringify`.
+ * `/mnt/j/Drive partagés/…` et `statWithDelay` le rend en `JSON.stringify`.
  * Sans cette passe, la coupure au premier espace laisserait la moitié du chemin.
  */
 const BETWEEN_QUOTES = /"[^"\n]*"/g

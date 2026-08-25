@@ -74,7 +74,7 @@ export async function register(): Promise<void> {
  * chemin interne de `next` coûterait plus cher au premier changement de version
  * que le désagrément qu'il évite.
  *
- * **Ce qui est corrigé, en revanche, c'est le silence.** `exigerSecret` refuse
+ * **Ce qui est corrigé, en revanche, c'est le silence.** `requireSecret` refuse
  * une variable restée à l'état d'adresse au lieu de l'envoyer comme clé : on
  * obtient « la résolution du démarrage a été défaite […] relancer le serveur »
  * plutôt qu'un 401 du fournisseur d'API. (relevé par Copilot)

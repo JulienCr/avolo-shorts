@@ -151,7 +151,7 @@ describe('la bibliothèque unifiée', () => {
   })
 
   it('ne demande jamais l’état d’un projet une requête à la fois', async () => {
-    // `GET /api/projects/:id` exécute `relevéPrésence`, qui sonde le montage 9p
+    // `GET /api/projects/:id` exécute `readingPresence`, qui sonde le montage 9p
     // avec un délai de garde. Vingt et un appels prendraient les quatre fils du
     // vivier de libuv et figeraient l'analyse en cours.
     const calls = server({ projects: () => response([CQLP]) })

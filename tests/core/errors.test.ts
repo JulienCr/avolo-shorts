@@ -100,7 +100,7 @@ describe('cleanPaths', () => {
 describe('le caviardage des clés', () => {
   /**
    * Le filet couvre désormais la frontière HTTP, pas seulement le journal de
-   * `appelerGemini` : le message d'une erreur de repérage traverse `status.json`
+   * `callGemini` : le message d'une erreur de repérage traverse `status.json`
    * puis le champ `error` de `GET /api/projects/:id`. (relevé par Aristarque)
    */
   it('retire une clé d’API où qu’elle passe', () => {
@@ -138,7 +138,7 @@ describe('le caviardage des références de secret', () => {
    * **Un coffre et une fiche portent couramment des espaces**, et une citation
    * dit où la référence finit. Les deux formes qui existent pour de vrai : `op`
    * cite les siennes entre apostrophes — `could not read secret 'op://c/f/CLÉ'`,
-   * diagnostic que `résoudreSecrets` recopie —, et `JSON.stringify` entre
+   * diagnostic que `resolveSecrets` recopie —, et `JSON.stringify` entre
    * guillemets doubles. (relevé par Copilot et par Codex)
    */
   it('caviarde une référence citée, espaces compris', () => {
@@ -173,7 +173,7 @@ describe('le caviardage des références de secret', () => {
     )
     // La contrepartie, laissée démontrée pour qu'on ne la croie pas couverte
     // *par la grammaire* : la queue d'un coffre à espace survit si personne ne
-    // cite la référence. Ce qui la referme est ailleurs — `messageSûr` retire
+    // cite la référence. Ce qui la referme est ailleurs — `messageSafe` retire
     // toute référence lue dans l'environnement par sa forme complète, avant
     // d'en arriver ici, et `tests/server/errors.test.ts` fige ce chemin-là.
     // (issue #49)
@@ -196,7 +196,7 @@ describe('le caviardage des références de secret', () => {
   it('laisse intact ce qui ne nomme déjà rien', () => {
     // Le préfixe seul, entouré ou pas — il ne nomme ni coffre, ni fiche, ni
     // champ, donc il n'y a rien à en retirer (relevé par Copilot et Aristarque)
-    // — et la forme que `exigerSecret` cite en toutes lettres.
+    // — et la forme que `requireSecret` cite en toutes lettres.
     expect(cleanPaths('une adresse commence par op://')).toBe('une adresse commence par op://')
     expect(cleanPaths('valeur "op://" refusée')).toBe('valeur "op://" refusée')
     const message =

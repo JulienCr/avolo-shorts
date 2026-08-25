@@ -809,7 +809,7 @@ export function createProject(source: string): Promise<RunPlan> {
  * c'est pourquoi la forme à plusieurs cibles existe. Viser `candidates` seul ne
  * construit jamais le proxy : rien n'en dépend dans le graphe — le transcript
  * lit le WAV, pas la vidéo. Le bouton de reprise laisserait alors le projet
- * dans l'impasse dont il devait le sortir. Voir `CIBLES_DE_REPRISE`.
+ * dans l'impasse dont il devait le sortir. Voir `RESUME_TARGETS`.
  *
  * La forme à une cible reste valide, et c'est délibéré : elle couvre le cas le
  * plus fréquent — relancer le repérage — sans obliger chaque appelant à écrire
@@ -833,7 +833,7 @@ export function runProject(
 /**
  * Les cibles d'une reprise : les mêmes que celles d'une création.
  *
- * Recopiées ici plutôt qu'importées : `CIBLES_INITIALES` vit dans
+ * Recopiées ici plutôt qu'importées : `TARGETS_INITIAL` vit dans
  * `src/server/run.ts`, et l'importer ferait entrer du code serveur dans le
  * paquet du navigateur. La duplication est délibérée et un test la garde.
  */

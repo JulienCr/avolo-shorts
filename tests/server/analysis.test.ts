@@ -482,7 +482,7 @@ describe('runAnalysis', () => {
   /**
    * **Les messages de cette étape nomment des chemins absolus, et c'est voulu** :
    * ils sont écrits pour un journal de serveur. Ce qui compte est qu'aucun ne
-   * traverse `messageSûr` en gardant l'arborescence de la machine — le champ
+   * traverse `messageSafe` en gardant l'arborescence de la machine — le champ
    * `error` de `status.json` ressort tel quel dans `GET /api/projects/:id`.
    *
    * Ces deux cas figent la propriété pour les trois chemins que l'itération 1
@@ -600,7 +600,7 @@ describe('runAnalysis', () => {
 
   /**
    * **Le cas qui reste quand le dépôt est cloné sous un dossier à espace.** La
-   * passe sur les chemins nus d'`épurerChemins` s'arrête à la première espace,
+   * passe sur les chemins nus d'`cleanPaths` s'arrête à la première espace,
    * faute de savoir où le chemin finit : sans guillemets, la queue de
    * l'arborescence part dans `status.json`. C'est pour ce cas-là que les
    * arguments à espace sont cités, et c'est aussi pour lui que `racines()`
@@ -667,7 +667,7 @@ describe('runAnalysis', () => {
    * toutes les relances suivantes, et le cadrage échoue trois étapes plus loin
    * sans que personne ne sache d'où ça vient.
    *
-   * Le test tient l'ordre des deux lignes, pas le refus : `lireAnalyse` a déjà
+   * Le test tient l'ordre des deux lignes, pas le refus : `lireAnalysis` a déjà
    * ses propres cas plus haut. Ce qui compte ici est **ce qui reste sur le
    * disque** après l'échec. Inverser validation et renommage laisse `analysis.json`
    * en place et rend ce test rouge ; c'est la seule façon de prouver qu'il

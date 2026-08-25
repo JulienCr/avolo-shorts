@@ -281,7 +281,7 @@ export const redact = redactKeys
  * moment de servir — c'est là que la clé se lit, jamais avant.
  *
  * **Ce qui restait vrai avant cette PR le reste : un délai fini, et le signal
- * qui coupe vraiment la requête en vol.** `DÉLAI_APPEL_MS` et `signal` sont
+ * qui coupe vraiment la requête en vol.** `DELAY_CALL_MS` et `signal` sont
  * désormais des paramètres de `createCallFromSettings`
  * (`@/server/llm/registry`), qui les fait traverser jusqu'au client du
  * fournisseur choisi — chacun des trois porte la même propriété (voir
@@ -392,7 +392,7 @@ export type DetectionOptions = {
    *
    * **Ce que l'arrêt laisse derrière lui est propre.** `candidates.json` n'est
    * écrit qu'à la toute fin de la passe, donc une passe coupée en son milieu ne
-   * laisse aucun artefact : `relevéPrésence` verra l'étape comme à faire, et la
+   * laisse aucun artefact : `readingPresence` verra l'étape comme à faire, et la
    * reprise la refera entièrement.
    */
   signal?: AbortSignal
@@ -412,7 +412,7 @@ export type SummaryNotation = {
    * Les fenêtres que la passe avait à noter — le total prévu, pas le nombre de
    * fenêtres effectivement soumises. La nuance porte l'invariant : une passe
    * interrompue en a soumis moins, et ce sont justement les non soumises que
-   * `jamaisNotées` doit continuer de nommer. (relevé par Copilot)
+   * `neverNoted` doit continuer de nommer. (relevé par Copilot)
    */
   windows: number
   /** Celles qui portent une note du modèle. */
@@ -422,7 +422,7 @@ export type SummaryNotation = {
    * réponse, ou **pas encore soumises quand la passe s'est interrompue**.
    *
    * L'invariant tient à tout instant, y compris au milieu d'une passe et après
-   * une panne : `notées + jamaisNotées.length === fenêtres`. Il ne tenait pas
+   * une panne : `notées + neverNoted.length === fenêtres`. Il ne tenait pas
    * quand la liste se remplissait au fil des refus — une erreur réseau sortait
    * de la boucle, et le bilan annonçait « 2 fenêtres sur 4 jugées » avec une
    * liste de perdues vide, c'est-à-dire un décompte de perte qui ne localisait
@@ -438,7 +438,7 @@ export type SummaryNotation = {
   /**
    * Les **requêtes** de notation, refus, relances et récupération comprises.
    *
-   * Les requêtes et non les lots : `appelerGemini` réessaie jusqu'à trois fois
+   * Les requêtes et non les lots : `callGemini` réessaie jusqu'à trois fois
    * une erreur passagère, et c'est la requête qui consomme le quota — 15 par
    * minute sur le palier gratuit. Compter les lots sous-estimait exactement le
    * nombre dont on se sert pour raisonner sur ce plafond. (relevé par Copilot)
@@ -539,12 +539,12 @@ export function transcriptExtent(words: readonly Word[]): Extent {
 /**
  * Le bilan de la dernière notation de chaque projet.
  *
- * **En mémoire, dans ce processus, comme la table `enCours` du lanceur.** Le
+ * **En mémoire, dans ce processus, comme la table `inCurrent` du lanceur.** Le
  * bilan décrit une exécution, pas un artefact : le relire après un redémarrage
  * de Next décrirait un travail que personne n'a fait dans ce processus.
  *
  * C'est la jonction prévue avec `status.json` : `src/server/run.ts` appartient à
- * une autre tâche, et il lui suffit d'appeler `dernierBilan(projectId)` au
+ * une autre tâche, et il lui suffit d'appeler `lastSummary(projectId)` au
  * moment d'écrire le statut pour que la perte remonte jusqu'à l'interface. Tant
  * que ce raccord n'est pas fait, elle est dans le journal, ce qui est déjà
  * infiniment plus que rien.
@@ -562,7 +562,7 @@ const summaries = new Map<string, SummaryNotation>()
  * d'un décompte de perte, et ce serait un contresens dans un rapport de succès.
  *
  * Ce qui dit si la passe a abouti vit ailleurs et le dit déjà : `status.json`
- * porte `error` et `finishedAt`. Le raccord à venir dans `écrireStatut` doit
+ * porte `error` et `finishedAt`. Le raccord à venir dans `writeStatus` doit
  * donc lire les deux, jamais ce bilan seul. (relevé par Aristarque)
  */
 export function lastSummary(projectId: string): SummaryNotation | null {
@@ -604,12 +604,12 @@ export async function runCandidates(
   // même la base et le client. Il n'est posé qu'une fois le transcript lu et les
   // fenêtres construites : une exécution qui échoue avant — clé d'API absente,
   // projet inconnu, durée manquante, transcript illisible — laissait sinon
-  // `dernierBilan` répondre le décompte d'une passe antérieure, sans rien qui
-  // permette de voir qu'il est périmé, et le raccord à venir dans `écrireStatut`
+  // `lastSummary` répondre le décompte d'une passe antérieure, sans rien qui
+  // permette de voir qu'il est périmé, et le raccord à venir dans `writeStatus`
   // aurait recopié ce chiffre dans `status.json`.
   //
   // La première version de ce nettoyage était posée trois lignes plus bas, donc
-  // *après* `clientParDéfaut()`, qui lève quand `GEMINI_API_KEY` manque : elle
+  // *après* `clientByDefault()`, qui lève quand `GEMINI_API_KEY` manque : elle
   // ratait précisément l'échec le plus banal. Un nettoyage conditionné à ce que
   // rien n'ait échoué avant lui ne nettoie rien. (relevé par Copilot)
   summaries.delete(projectId)
@@ -638,7 +638,7 @@ export async function runCandidates(
   // **Deux mesures voisines, et elles ne sont pas interchangeables.**
   // `étendue` va du premier mot aligné au dernier : c'est le dénominateur de la
   // couverture, celui qui dit quelle part du *déroulé* a été jugée.
-  // `paroleSec` est l'union des segments qui portent de la prose : c'est la
+  // `speechSec` est l'union des segments qui portent de la prose : c'est la
   // matière, celle qui dit combien de clips l'émission peut donner. Sur les deux
   // émissions du dépôt, la seconde vaut 79 à 80 % de la première.
   const extent = transcriptExtent(words)
@@ -745,7 +745,7 @@ function batchSize(): number {
  * L'état d'une notation en cours : ce qui est noté, ce qui ne l'est pas, et le
  * bilan qui les compte.
  *
- * `nonNotées` est la source de vérité et `bilan.jamaisNotées` en est le reflet
+ * `notNoted` est la source de vérité et `bilan.neverNoted` en est le reflet
  * sérialisable, réécrit à chaque changement. Deux listes tenues séparément
  * finiraient par diverger, et c'est le décompte de perte qui mentirait.
  */
@@ -756,13 +756,13 @@ type Slate = {
   /** Les notes rassemblées, réconciliation comprise. */
   noted: ScoredWindow[]
   /**
-   * L'étendue de chaque fenêtre, par identifiant. `nonNotées` ne porte que des
+   * L'étendue de chaque fenêtre, par identifiant. `notNoted` ne porte que des
    * identifiants ; la couverture, elle, se calcule sur des intervalles.
    */
   extents: Map<string, Extent>
   /** L'étendue du transcript, dénominateur de la couverture. */
   transcript: Extent
-  /** Prévenu après chaque lot traité. Voir `RepérageOptions.onBilan`. */
+  /** Prévenu après chaque lot traité. Voir `DetectionOptions.onSummary`. */
   publish?: (summary: SummaryNotation) => void
 }
 
@@ -770,7 +770,7 @@ type Slate = {
  * Ce qu'il reste à dépenser en récupération, **en requêtes réseau**.
  *
  * Mutable et partagé avec la couture qui appelle le modèle, parce que c'est le
- * seul endroit qui voie les requêtes réelles : `appelerGemini` en émet jusqu'à
+ * seul endroit qui voie les requêtes réelles : `callGemini` en émet jusqu'à
  * trois pour un même sous-lot quand la première est passagère. Débité par
  * sous-lot, le plafond annoncé valait trois fois plus en 429 — c'est-à-dire
  * exactement dans la situation qu'il est censé borner. (relevé par Copilot et Codex)
@@ -948,7 +948,7 @@ async function noteABatch(
   { summary }: Slate,
   budget?: Budget,
 ): Promise<{ scored: ScoredWindow[]; missing: string[] } | null> {
-  // Compté **dans** la couture réseau, pas avant l'appel : `appelerGemini`
+  // Compté **dans** la couture réseau, pas avant l'appel : `callGemini`
   // réessaie jusqu'à trois fois, et c'est chaque requête qui coûte du quota —
   // donc chaque requête, et non chaque sous-lot, qui débite le budget.
   const count: CallGemini = (prompt, mode) => {
@@ -1030,7 +1030,7 @@ async function recover(
       // Le budget se lit avant chaque sous-lot et se débite dans la couture, à
       // chaque requête. Il peut donc finir légèrement négatif — les relances
       // d'un sous-lot déjà engagé ne s'interrompent pas au milieu —, d'au plus
-      // `TENTATIVES - 1` requêtes. C'est borné et connu, là où un débit par
+      // `ATTEMPTS - 1` requêtes. C'est borné et connu, là où un débit par
       // sous-lot laissait le dépassement croître avec le nombre de branches.
       if (budget.remaining <= 0) {
         abandon(half, slate, 'lot refusé, budget de récupération épuisé')
@@ -1047,7 +1047,7 @@ async function recover(
 /**
  * Un lot dont on ne tirera rien : dernier au classement, et compté comme tel.
  *
- * Il reste dans `nonNotées` — il n'en est jamais sorti — donc rien n'a à l'y
+ * Il reste dans `notNoted` — il n'en est jamais sorti — donc rien n'a à l'y
  * remettre. Ce qui s'ajoute ici est seulement l'entrée de classement qui le fait
  * finir dernier plutôt que dehors.
  */
@@ -1071,7 +1071,7 @@ function sort(lu: { scored: ScoredWindow[]; missing: string[] }, slate: Slate): 
   }
   summary.neverNoted = [...notNoted]
   // Recalculée **ici et nulle part ailleurs** : c'est le seul endroit où
-  // `nonNotées` rétrécit, donc le seul où la couverture change. La déduire
+  // `notNoted` rétrécit, donc le seul où la couverture change. La déduire
   // ailleurs ferait une seconde autorité sur le même chiffre.
   summary.coverage = partCovered(
     [...slate.extents].filter(([id]) => !notNoted.has(id)).map(([, extent]) => extent),
@@ -1128,7 +1128,7 @@ type ContextDetail = {
  * **Un bloc refusé seul est abandonné, pas fatal.** Perdre une région sur vingt
  * vaut infiniment mieux que de perdre l'émission. Le verdict ne tombe qu'à la
  * fin et seulement si *rien* n'a répondu : c'est la leçon déjà écrite dans
- * `noterLesFenêtres`, où « tous les lots ont été refusés » ne dit rien de la
+ * `noteWindows`, où « tous les lots ont été refusés » ne dit rien de la
  * vidéo tant qu'on n'a pas essayé de plus petites charges.
  *
  * **Pas de budget, contrairement à `récupérer`, et ce n'est pas un oubli.** La

@@ -115,7 +115,7 @@ export function sourceVerifyName(name: string): string {
  * **Un nom de source peut faire 255 octets** — c'est la limite d'un nom de
  * fichier sous Linux, et un replay qui l'atteint est parfaitement lisible. Le
  * recopier tel quel, puis y ajouter la taille, la date, l'extension et, le temps
- * de l'écriture, le suffixe de `cheminTemporaire`, dépassait la limite : la
+ * de l'écriture, le suffixe de `pathTemporary`, dépassait la limite : la
  * vignette échouait en `ENAMETOOLONG` sur une source que rien n'empêchait de
  * lire. (relevé par Copilot)
  *
@@ -221,7 +221,7 @@ export type OptionsVignetteSource = {
 
 /**
  * Le message que le délai de garde donne à son rejet — même motif que dans
- * `sources.ts`, et pour la même raison : `attendreOuRenoncer` construit son
+ * `sources.ts`, et pour la même raison : `waitOrAbandon` construit son
  * `Error` lui-même, et c'est la seule chose qui distingue « personne n'a
  * répondu » d'un code d'erreur du système de fichiers. Il ne s'affiche nulle
  * part.
@@ -260,7 +260,7 @@ export class EditingMuteError extends Error {
  * **La contrepartie, assumée** : sur un montage dont l'appel ne revient jamais,
  * les vignettes restent indisponibles jusqu'au redémarrage du serveur. C'est le
  * bon côté du choix — une case grise sur une carte, contre un serveur dont plus
- * rien ne touche au disque. `réarmerLeDisjoncteur` est la sortie explicite ; il
+ * rien ne touche au disque. `rearmCircuitBreaker` est la sortie explicite ; il
  * n'a pas d'appelant en production, et lui en donner un demanderait de savoir de
  * l'extérieur que le montage répond, ce qui est le régulateur partagé décrit
  * plus haut.
@@ -325,7 +325,7 @@ async function underGuard<T>(work: () => Promise<T>, timeoutMs: number): Promise
  * vivier de fils de libuv, qui est global au processus.
  *
  * **Elle n'est pas globale au serveur pour autant**, et il ne faut pas le lui
- * faire dire : `listerSources` a sa propre sonde, l'ingestion la sienne, et rien
+ * faire dire : `listSources` a sa propre sonde, l'ingestion la sienne, et rien
  * ne les coordonne. Un montage mort peut donc encore coûter un fil à chacune —
  * trois au pire, sur les quatre du vivier. Les mettre sous une même autorité
  * demanderait un régulateur d'accès au montage partagé par les trois modules :
@@ -403,14 +403,14 @@ function resolve(name: string): string {
 /**
  * `lstat` sous garde, ou `null` si le fichier n'est pas là.
  *
- * `lstat` et non `stat`, comme `statAvecDélai` le fait pour l'ingestion : un
+ * `lstat` et non `stat`, comme `statWithDelay` le fait pour l'ingestion : un
  * lien de `REPLAY_DIR` pointant sur `/etc/shadow` passerait le contrôle de
  * dossier parent de `resolveSource`, que `path.resolve` fait sans suivre les
  * liens. `stat` le déclarerait fichier et ffmpeg irait le lire.
  *
- * L'appel passe par `sousGarde` plutôt que par `statAvecDélai` pour une seule
+ * L'appel passe par `underGuard` plutôt que par `statWithDelay` pour une seule
  * raison : le disjoncteur a besoin de **reconnaître** le renoncement, et
- * `statAvecDélai` rend un `Error` que rien ne distingue d'une panne du système
+ * `statWithDelay` rend un `Error` que rien ne distingue d'une panne du système
  * de fichiers.
  */
 async function capture(source: string, timeoutMs: number): Promise<fs.Stats | null> {
@@ -477,7 +477,7 @@ function extractWithFfmpeg(
 ): Promise<void> {
   return runFfmpeg(sourceThumbArgs(o), {
     what: `vignette de source ${path.basename(o.src)}`,
-    // **Le délai est le mode d'échec qu'on ferme ici.** `statAvecDélai` a prouvé
+    // **Le délai est le mode d'échec qu'on ferme ici.** `statWithDelay` a prouvé
     // juste avant que le montage répondait, mais il peut mourir entre les deux —
     // et un ffmpeg qui pend sur un 9p mort ne rend jamais la main. Le facteur
     // trois sur le délai de garde des `stat` laisse la place à une extraction

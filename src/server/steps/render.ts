@@ -200,7 +200,7 @@ function verifyClipId(clipId: string): string {
 /**
  * Le nom de la variante, **due ou non**.
  *
- * Séparé de `cheminsRendu` parce qu'il sert aussi à effacer celle d'un ratio
+ * Séparé de `pathsRender` parce qu'il sert aussi à effacer celle d'un ratio
  * abandonné : un clip dont le ratio natif retombe à 9:16 n'a plus de variante à
  * produire, et l'ancienne resterait sur le disque à ressembler à une livraison à
  * jour. (relevé par Copilot)
@@ -212,7 +212,7 @@ function pathVariant(projectId: string, clipId: string): string {
 /**
  * Le nom du natif, **dû ou non**.
  *
- * Séparé de `cheminsRendu` pour la même raison que `pathVariant` : il sert
+ * Séparé de `pathsRender` pour la même raison que `pathVariant` : il sert
  * aussi à effacer celui d'un passage où `RENDER_NATIVE` l'a rendu non dû —
  * sans quoi remettre le flag à `true` plus tard retrouverait ce fichier
  * périmé, le prendrait pour une sortie à jour, et le sauterait sur la foi
@@ -262,8 +262,8 @@ export function pathsRender(
  *
  * Le modèle de l'itération 0 fait foi sur la **présence du fichier** (spec §4).
  * Quatre endroits en déduisaient « le rendu décrit le clip » sans avoir de quoi
- * le vérifier : `marquerExporté` ne comparait que le statut, alors qu'éditer un
- * montage pendant l'encodage ne le change pas ; `sauterLeRendu` constatait trois
+ * le vérifier : `markExported` ne comparait que le statut, alors qu'éditer un
+ * montage pendant l'encodage ne le change pas ; `sauterRender` constatait trois
  * `existsSync` ; l'ordre d'écriture du `.txt` entre le `PATCH` et `renderClip`
  * n'était fixé nulle part ; et les rendus déjà sur le disque ne repassaient
  * jamais par la porte que #37 a installée.
@@ -280,7 +280,7 @@ export function pathsRender(
  * **La version de la recette de rendu**, et le seul champ de l'empreinte qui ne
  * décrive pas le clip.
  *
- * Les champs de `FormeRendue` disent ce qui a été *demandé* — et, depuis le
+ * Les champs de `ShapeRendered` disent ce qui a été *demandé* — et, depuis le
  * cadrage automatique, ce qui a été *décidé pour* le clip —, `marks` et
  * `captionsLook` ce qui a été *obtenu*. Reste tout ce que le code fait sans qu'on
  * le lui demande : la position de la bande de marque, le graphe de filtres, le
@@ -302,7 +302,7 @@ export function pathsRender(
  *
  * **Passée à 3 le 19 août 2026, avec `captionsContent` (#87).** Le texte
  * réellement incrusté n'entrait pas dans l'empreinte : une correction du
- * transcript qui ne touche aucun segment d'aucun clip laissait `sauterLeRendu`
+ * transcript qui ne touche aucun segment d'aucun clip laissait `sauterRender`
  * reprendre un MP4 qui portait encore les anciens mots, sans un mot pour le
  * dire. Toutes les empreintes d'avant sont muettes sur ce point — il n'y a rien
  * à en déduire, donc rien à faire d'autre que les refaire.
@@ -311,7 +311,7 @@ export function pathsRender(
  * (issue #73).** `marques` devient `marks`, `sousTitres` devient
  * `captionsLook`, et `MarqueIncrustée` devient `EmbeddedMark` avec ses champs
  * `nom`/`contenu` en `name`/`content`. Le chemin est déjà celui qui gère un
- * changement de recette : `lireEmpreinte` compare `version` **avant** le
+ * changement de recette : `lireFingerprint` compare `version` **avant** le
  * schéma et rend `null` sur un nombre différent, donc les trois rendus déjà
  * sur le disque seront simplement refaits — aucun n'a de marque incrustée à
  * ce jour (voir `ROADMAP.md`), le coût est donc nul en pratique.
@@ -384,7 +384,7 @@ export type RenderedFraming = {
  * Ce qu'un rendu consomme d'un clip.
  *
  * **Le `Pick` suit `Clip`** : c'est le seul endroit du dépôt où la liste des
- * champs qui comptent est écrite, et `leRenduEstPérimé` la lit.
+ * champs qui comptent est écrite, et `renderIsStale` la lit.
  *
  * `ratio` et `cropX` en sont sortis quand le cadrage automatique est entré en
  * service, et ce n'est pas une simplification : ils ne décrivent plus l'image.
@@ -435,7 +435,7 @@ export function renderedFraming(framing: ResolvedFraming): RenderedFraming {
   }
 }
 
-/** Le clip et son cadrage, tels que `leRenduEstPérimé` les compare. */
+/** Le clip et son cadrage, tels que `renderIsStale` les compare. */
 export function renderedShape(
   clip: Pick<
     Clip,
@@ -486,7 +486,7 @@ export type FingerprintRender = ShapeRendered & {
    * `captions: true` avec `captionsLook: null` dit exactement cela.
    *
    * **Le condensat se compare, la présence non**, et l'asymétrie a une cause.
-   * `OptionsRendu.style` change l'image : un rendu forcé avec un preset
+   * `OptionsRender.style` change l'image : un rendu forcé avec un preset
    * personnalisé, puis un appel avec le preset par défaut, sautait en déclarant
    * à jour une vidéo produite avec l'autre style. (relevé par Copilot) La
    * *présence*, elle, ne peut se comparer qu'en relisant le transcript — et la
@@ -504,7 +504,7 @@ export type FingerprintRender = ShapeRendered & {
   captionsLook: string | null
   /**
    * Le condensat de ce que les sous-titres ont **réellement porté** (#87) —
-   * le document ASS produit par `sousTitresDuClip`, pas le transcript entier.
+   * le document ASS produit par `clipUnderTitles`, pas le transcript entier.
    * `null` par la même règle que `captionsLook` : aucun document n'a été
    * incrusté, que le clip n'en demande pas ou qu'aucun mot ne tombe dans ses
    * segments.
@@ -516,10 +516,10 @@ export type FingerprintRender = ShapeRendered & {
    * identiques appliqués à deux transcripts différents produisent le même
    * condensat de style. Il fallait un champ sur le contenu, pas sur la forme.
    *
-   * **Sur le document entier, pas sur les seuls mots.** `sousTitresDuClip`
+   * **Sur le document entier, pas sur les seuls mots.** `clipUnderTitles`
    * recale les horodatages et découpe en cartons avant `renderAss` ; deux
    * documents identiques mot pour mot mais recalés différemment ne montrent
-   * pas la même chose à l'image. Prendre le document, comme `contenuDuFichier`
+   * pas la même chose à l'image. Prendre le document, comme `fileContent`
    * le fait pour une marque, évite de réinventer cette chaîne côté empreinte.
    */
   captionsContent: string | null
@@ -577,7 +577,7 @@ export type EmbeddedMark = { name: string; content: string }
  *
  * `fontsDir` est une entrée du rendu : quand `fonts/` manque, libass se rabat sur
  * fontconfig, ne trouve pas Anton et incruste dans une autre police, sans un mot
- * (voir `dossierDesPolicesUtilisable`). Un condensat qui ne porterait que le
+ * (voir `fontsUsableFolder`). Un condensat qui ne porterait que le
  * preset serait identique avant et après le retour d'Anton, et l'export
  * sauterait indéfiniment sur la vidéo rendue dans la mauvaise police.
  * (relevé par Copilot)
@@ -586,7 +586,7 @@ export type EmbeddedMark = { name: string; content: string }
  * `Anton-Regular.ttf` en laissant `fonts/` en place est la forme normale d'une
  * mise à jour de police, et un booléen de présence n'y verrait rien.
  * (relevé par Codex) `polices` porte donc le condensat de ce que le dossier
- * contient — voir `condensatDesPolices`.
+ * contient — voir `fontsDigest`.
  */
 export type CaptionsLook = { style: CaptionStyle; fonts: string }
 
@@ -603,7 +603,7 @@ const SCHEMA_FINGERPRINT = z.object({
   /**
    * **Requis, et une empreinte de la version d'avant ne le porte pas.** Elle est
    * écartée bien avant d'arriver ici, sur son numéro de version — voir
-   * `lireEmpreinte` : ce qui se lit mal doit se dire au bon nom, et « produite
+   * `lireFingerprint` : ce qui se lit mal doit se dire au bon nom, et « produite
    * par une recette antérieure » n'est pas « illisible ».
    */
   framing: z.object({
@@ -1000,7 +1000,7 @@ async function writeFingerprint(filePath: string, fingerprint: FingerprintRender
  *
  * **Un dossier vide ne périme rien**, et c'est la seule subtilité de cette
  * fonction. Un clip qui demande des marques dont plus aucune n'est exploitable
- * ne peut pas se rendre — `refuserFauteDeMarque` l'arrête —, si bien que
+ * ne peut pas se rendre — `markerRejectFault` l'arrête —, si bien que
  * déclarer son rendu périmé transformerait une livraison correcte en export qui
  * refuse. C'est arrivé pour de vrai : les deux PNG ont disparu d'`assets/brand/`
  * entre le matin et l'après-midi du 18 août. Le rendu déjà produit reste alors
@@ -1010,7 +1010,7 @@ async function writeFingerprint(filePath: string, fingerprint: FingerprintRender
  * livraison déjà faite est périmée et décider si on peut certifier une livraison
  * qu'on vient de faire ne se répondent pas pareil : dans le premier cas, ne pas
  * savoir n'est pas une raison de détruire ; dans le second, ne pas savoir n'est
- * pas une raison d'affirmer. D'où `dossierVideToléré`, que la certification
+ * pas une raison d'affirmer. D'où `folderEmptyTolerated`, que la certification
  * d'après-rendu passe à faux. (relevé par Codex)
  *
  * **La comparaison porte sur le contenu autant que sur le nom** : remplacer
@@ -1152,7 +1152,7 @@ export function lFingerprintGap(
   return null
 }
 
-/** `écartDeLEmpreinte` en booléen, pour les appelants qui n'ont pas à dire pourquoi. */
+/** `lFingerprintGap` en booléen, pour les appelants qui n'ont pas à dire pourquoi. */
 export function fingerprintToDay(
   fingerprint: FingerprintRender | null,
   clip: ShapeRendered,
@@ -1186,7 +1186,7 @@ const GAP_REASON: Record<GapFingerprint, string> = {
  * contiennent : un jeu laissé par un montage abandonné, ou produit sous une
  * recette antérieure, la satisfait aussi bien qu'une livraison à jour, et
  * l'export répondait alors `skipped: true` sur une livraison fausse. C'est
- * `décritLeClip` — le verdict de `écartDeLEmpreinte` — qui répond à cette
+ * `describedClip` — le verdict de `lFingerprintGap` — qui répond à cette
  * question-là.
  *
  * **`skipped: true` reste un cas nominal** : il l'est quand il est vrai, et il
@@ -1209,7 +1209,7 @@ export function sauterRender(
  * Faut-il rallumer ffmpeg — et si oui, **pour les deux sorties, jamais une
  * seule**.
  *
- * Pure comme `sauterLeRendu`, et elle répond à la question d'après : la première
+ * Pure comme `sauterRender`, et elle répond à la question d'après : la première
  * dit si l'appel a encore quelque chose à faire, celle-ci si ce quelque chose est
  * un encodage. Les deux se séparent sur un seul cas, celui du `.txt` perdu ou
  * retouché alors que les MP4 sont là : il se réécrit sans réencoder une image.
@@ -1220,7 +1220,7 @@ export function sauterRender(
  * natif en place, variante perdue par un encodage interrompu — la tirerait donc
  * du montage d'aujourd'hui pendant que le natif porte celui d'avant-hier, dès
  * lors que le clip a été retouché entre les deux passages. Rien ne le
- * rattraperait : `écarterRenduPérimé` compare le montage à celui du **début de ce
+ * rattraperait : `discardRenderStale` compare le montage à celui du **début de ce
  * passage-ci**, pas à celui du précédent, et les deux fichiers partiraient chez
  * Julien en montrant deux cadres différents, sans un mot.
  * (relevé par Codex et Copilot)
@@ -1239,7 +1239,7 @@ export function redoOutputs(
   // **Une empreinte qui ne décrit pas le clip rallume ffmpeg**, et pas seulement
   // un fichier manquant. Sans cette ligne, un jeu de MP4 complet mais périmé
   // sauterait l'encodage pour n'y réécrire que le `.txt` : le correctif de
-  // `sauterLeRendu` ne ferait alors que déplacer le mensonge d'une fonction.
+  // `sauterRender` ne ferait alors que déplacer le mensonge d'une fonction.
   if (!describedClip) return true
   return (
     (paths.mp4 !== null && !exists(paths.mp4)) ||
@@ -1334,7 +1334,7 @@ export type MarkerNative = {
   heightCap: number
   edge: Edge
   /**
-   * Le condensat du fichier. Il ne sert pas au rendu — `planifierMarques`
+   * Le condensat du fichier. Il ne sert pas au rendu — `scheduleMarkers`
    * l'ignore — mais à l'empreinte, qui doit distinguer deux images portant le
    * même nom fixe. Voir `contenuDeLaMarque`.
    */
@@ -1359,7 +1359,7 @@ function pair(n: number): number {
  * hauteurs.
  *
  * **La bande pend du bord supérieur** : la marque la plus haute pose son bord
- * supérieur exactement à `HAUT_DE_BANDE`, et les autres sont centrées sur elle.
+ * supérieur exactement à `STRIP_TOP`, et les autres sont centrées sur elle.
  * Deux passes sont nécessaires, puisque cette ligne médiane n'est connue qu'une
  * fois toutes les hauteurs calculées. Centrer plutôt que partager un bord
  * supérieur compte dès que les rapports d'aspect diffèrent — un logo carré à côté
@@ -1429,7 +1429,7 @@ function fontsFolder(given?: string): string {
  *
  * **Elle constate, elle ne juge pas** : un dossier vide rend une liste vide, et
  * c'est tout. Ce qu'il faut en conclure dépend du clip — `branding` dit s'il en
- * demande —, et cette décision-là est à `refuserFauteDeMarque`, juste dessous.
+ * demande —, et cette décision-là est à `markerRejectFault`, juste dessous.
  * Lui passer l'intention du clip l'obligerait à la connaître pour lire deux
  * fichiers, et le dossier vide d'un dépôt fraîchement cloné n'a de sens qu'au
  * regard de ce qu'on lui demande. (#37)
@@ -1487,7 +1487,7 @@ export async function collectMarkers(brandDir?: string): Promise<MarkerNative[]>
  * son `README.md` étant versionné. Le clip, lui, sait ce qu'il veut.
  *
  * **Une seule marque suffit, et c'est délibéré.** Le logo et la mention sont
- * facultatifs chacun de son côté — voir `MARQUES_ATTENDUES` et le README du
+ * facultatifs chacun de son côté — voir `MARKERS_EXPECTED` et le README du
  * dossier —, si bien que rien ne distingue « l'opérateur n'a qu'un logo » de
  * « la mention a disparu ». Refuser là interdirait une installation soutenue
  * pour rattraper une dégradation indécidable. Zéro, lui, ne se confond avec
@@ -1515,8 +1515,8 @@ export { wordsHash, publicationText } from '@/core/publication'
  * Écrit un fichier sous un nom temporaire puis le renomme.
  *
  * Le renommage est atomique sur un même système de fichiers : un processus tué en
- * pleine écriture ne laisse donc pas un `.txt` tronqué là où `sauterLeRendu` le
- * compterait comme une sortie faite. C'est ce que fait déjà `produireArtefact`
+ * pleine écriture ne laisse donc pas un `.txt` tronqué là où `sauterRender` le
+ * compterait comme une sortie faite. C'est ce que fait déjà `produceArtifact`
  * pour les MP4, et l'étape ne serait pas plus sûre que son maillon le plus
  * faible.
  */
@@ -1555,7 +1555,7 @@ async function writeFile(filePath: string, content: string | Buffer): Promise<vo
  * renommage sont synchrones et se suivent sans `await`, donc rien ne s'intercale
  * — `better-sqlite3` est synchrone et Node a un seul fil. Prendre le `clipId`
  * plutôt qu'un clip rend le défaut impossible à réintroduire par distraction,
- * comme pour `marquerExporté`.
+ * comme pour `markExported`.
  *
  * Le coût est une écriture synchrone de quelques centaines d'octets sur un
  * disque local, dans une route qui, elle, dure de dix secondes à une minute.
@@ -1754,7 +1754,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
   }
 
   // **Le transcript est déjà lu, si le clip demande des sous-titres** — voir
-  // `texteActuel` ci-dessus (#87). Ce n'était pas le cas avant : le sidecar vit
+  // `textCurrent` ci-dessus (#87). Ce n'était pas le cas avant : le sidecar vit
   // sur le Drive partagé, monté en 9p, lent et sujet au décrochage, et la
   // décision de saut évitait cet aller-retour tant que rien ne pouvait le
   // rendre nécessaire. Un clip sans sous-titres continue de l'éviter.
@@ -1832,7 +1832,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
     // **La copie de travail, pas le Drive — et son absence se répare ici.** Ce
     // commentaire disait déjà « son absence se répare en réingérant » et le code
     // se contentait de lever en le prescrivant : or rien dans l'application ne
-    // savait déclencher une réingestion, `CIBLES_LANÇABLES` ne l'expose pas, et
+    // savait déclencher une réingestion, `TARGETS_LAUNCHABLE` ne l'expose pas, et
     // un projet dont tous les artefacts existent planifie un plan vide. Le seul
     // remède était un script dans un terminal, ce que le critère de réussite de
     // la conception exclut. Et le TTL de huit heures posé par cette même
@@ -1879,7 +1879,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
       if (markerRejectFault(clip.branding, markers)) {
         // **« Aucune exploitable » et non « aucune présente ».** `probe` ne lève
         // jamais : un PNG corrompu, comme un ffprobe absent, rend un sondage vide
-        // et `collecterMarques` écarte la marque en le journalisant. Dire que le
+        // et `collectMarkers` écarte la marque en le journalisant. Dire que le
         // dossier est vide serait alors faux, et enverrait chercher un fichier qui
         // est là.
         throw new Error(
@@ -2119,7 +2119,7 @@ export async function renderClip(clipId: string, options: OptionsRender = {}): P
                 encoder: encoder(),
               }),
           })
-          // `produireArtefact` ne peut pas sauter avec `force: true` : arriver ici,
+          // `produceArtifact` ne peut pas sauter avec `force: true` : arriver ici,
           // c'est que le MP4 natif vient d'être écrit, donc que le `.ass` provisoire
           // décrit bien la vidéo posée sur le disque.
           outputsEncoded = true
@@ -2506,11 +2506,11 @@ export function clipUnderTitles(
  * réelle du `.ass` plus bas dans `renderClip`, qui réutilise le même document
  * plutôt que de relire le transcript une seconde fois.
  *
- * **Par `transcriptDuProjet` (`vues.ts`) d'abord, jamais par `placeSidecar` ni
+ * **Par `projectTranscript` (`vues.ts`) d'abord, jamais par `placeSidecar` ni
  * `lireTranscript` directement** :
  *
  * - il sait déjà chercher le repli dans le projet **avant** le Drive
- *   (`chercherSidecar`, `run.ts`) — un `existsSync(transcriptPath(...))` seul
+ *   (`findSidecar`, `run.ts`) — un `existsSync(transcriptPath(...))` seul
  *   raterait ce repli (`paths.ts` documente le piège), et sonder le montage
  *   avant de le lui laisser essayer le raterait tout autant : un projet dont
  *   le repli local existe déjà n'a jamais besoin du Drive, que le montage
@@ -2526,7 +2526,7 @@ export function clipUnderTitles(
  * raisons possibles — le troisième verdict. Un montage qui ne répond pas
  * n'est ni « périmé » — reboucler l'export contre un Drive illisible — ni « à
  * jour » — servir un rendu peut-être faux : c'est un refus explicite, dans le
- * même vocabulaire que `montage.cause` (#62) donne à `listerSources`. «
+ * même vocabulaire que `montage.cause` (#62) donne à `listSources`. «
  * muet » est transitoire et invite à réessayer ; un transcript introuvable
  * une fois le montage confirmé vivant ne l'est pas. Sonder ici, à l'appel
  * `fsp.stat` (pas `existsSync`) — `transcribe` (`steps/transcript.ts`) pose la

@@ -61,7 +61,7 @@ export function buildProxy(o: OptionsProxy): Promise<Artifact> {
     signal: o.signal,
     what: `proxy de ${o.projectId}`,
     // Le choix de l'encodeur est **dans** la fonction paresseuse, et pas
-    // au-dessus : `encodeurProxy` lève sur un `FFMPEG_ENCODER` inconnu, et
+    // au-dessus : `encoderProxy` lève sur un `FFMPEG_ENCODER` inconnu, et
     // au-dessus il levait donc même quand le proxy était déjà là. Un artefact
     // présent doit revenir tout de suite, quoi que porte l'environnement — la
     // valeur fautive éclate au premier encodage qui en a vraiment besoin.

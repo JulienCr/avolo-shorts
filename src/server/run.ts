@@ -354,7 +354,7 @@ export function forgetSidecar(project: Project): void {
 /**
  * Y a-t-il au moins un rendu ? Un dossier vide n'est pas une étape faite.
  *
- * **Les fichiers temporaires ne comptent pas.** `cheminTemporaire` garde
+ * **Les fichiers temporaires ne comptent pas.** `pathTemporary` garde
  * l'extension d'origine — ffmpeg choisit son muxeur dessus —, si bien qu'un
  * encodage en cours ou interrompu laisse un `clip.partiel-1234-1.mp4` dans le
  * dossier. Un `endsWith('.mp4')` nu annonçait donc `renders: true` pendant que
@@ -449,14 +449,14 @@ export type Status = {
    * exactement comme une exécution qui a fini son plan, alors qu'il manque des
    * artefacts. Sans lui, les deux cas sont indiscernables sur le disque.
    *
-   * **Un `status.json` écrit avant cette PR ne le porte pas**, et `lireStatut`
+   * **Un `status.json` écrit avant cette PR ne le porte pas**, et `lireStatus`
    * ne valide rien : il y vaut `undefined`, pas `false`. Ses deux lecteurs
-   * — `élémentDeListe` et `GET /api/projects/:id` — écrivent donc `?? false`, et
+   * — `listElement` et `GET /api/projects/:id` — écrivent donc `?? false`, et
    * personne ne doit tester `=== false`, qui prendrait un vieux fichier pour une
    * exécution menée à son terme. (relevé par Aristarque)
    *
    * **Il traverse la frontière HTTP, et il a fallu qu'il la traverse.** Ce
-   * commentaire a d'abord dit l'inverse, en s'appuyant sur `phaseProjet`
+   * commentaire a d'abord dit l'inverse, en s'appuyant sur `phaseProject`
    * (`src/core/phase.ts`) qui déduit l'état juste — plus rien ne tourne,
    * aucune erreur, une étape manque, donc `interrompu`. L'argument vaut pour
    * l'écran de projet et **pas pour la bibliothèque, qui n'a pas `steps`** : la
@@ -469,7 +469,7 @@ export type Status = {
    * Ce que le repérage de **cette** exécution n'a pas jugé, ou `null`.
    *
    * Le bilan lui-même vit en mémoire dans le processus qui l'a produit
-   * (`dernierBilan`) ; c'est ici qu'il devient lisible depuis une requête HTTP —
+   * (`lastSummary`) ; c'est ici qu'il devient lisible depuis une requête HTTP —
    * **et qu'il survit au processus**. Rien ne réécrit ce fichier tant qu'une
    * nouvelle exécution ne tourne pas, donc après un redémarrage de Next il
    * décrit encore la dernière passe de repérage du projet. C'est voulu, et c'est
@@ -477,7 +477,7 @@ export type Status = {
    * un décompte de perte qualifie des propositions qui sont, elles aussi,
    * toujours là. (relevé par Copilot)
    *
-   * Déduit par `bilanDeRepérage`, jamais recopié tel quel — voir pourquoi là-bas.
+   * Déduit par `detectionSummary`, jamais recopié tel quel — voir pourquoi là-bas.
    */
   selectionReport: SelectionReport | null
 }
@@ -513,7 +513,7 @@ export type StateDetection = 'absent' | 'running' | 'done' | 'failed'
  *    l'autre bout, l'oubli posé par `lancer` avant que l'exécution ne commence,
  *    sans quoi une passe qui met une demi-heure à atteindre le repérage
  *    publierait celui d'avant pendant tout ce temps.
- * 3. *Il nomme les fenêtres.* `jamaisNotées` et `refusées` portent jusqu'à 83
+ * 3. *Il nomme les fenêtres.* `neverNoted` et `refusées` portent jusqu'à 83
  *    identifiants ; l'écran compte, il ne localise pas. Les identifiants restent
  *    au journal, qui est l'endroit d'où l'on va relire le transcript.
  */
@@ -588,7 +588,7 @@ function selectionReportFromJSON(raw: unknown): SelectionReport | null {
   if (raw === null || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
   // Le nouveau format se reconnaît à un seul de ses champs : les six
-  // arrivent toujours ensemble, voir `bilanDeRepérage`.
+  // arrivent toujours ensemble, voir `detectionSummary`.
   if ('windows' in obj) return obj as unknown as SelectionReport
   const translated: Record<string, unknown> = {}
   for (const [oldName, newName] of Object.entries(LEGACY_SELECTION_REPORT_FIELDS)) {
@@ -840,7 +840,7 @@ export async function launch(
       inCurrent.delete(projectId)
       // **Le nettoyage du cache de travail, après traitement** (retour d'usage
       // §5). Best effort et sans attente : il ne fait pas partie de
-      // l'exécution, et son échec n'a rien à dire à personne. `enCours` vient
+      // l'exécution, et son échec n'a rien à dire à personne. `inCurrent` vient
       // d'être vidé de ce projet, donc sa propre copie n'est plus épargnée —
       // c'est voulu, le TTL vaut pour elle comme pour les autres.
       void cleanWorkCache(db).catch(() => {})
@@ -883,7 +883,7 @@ export function cleanWorkCache(db?: Database.Database): Promise<string[]> {
  * Effacer sous un ffmpeg ne le casse pas — le descripteur ouvert survit à
  * l'`unlink` sous Linux — mais l'étape d'après repaierait la copie, et sur une
  * source de 12 Go cela veut dire cinq minutes de Drive. Deux projets peuvent
- * tourner en même temps : `enCours` est une table par projet, pas un verrou
+ * tourner en même temps : `inCurrent` est une table par projet, pas un verrou
  * global.
  *
  * **`null` veut dire « épargne tout », pas « n'épargne rien ».** Cette fonction
@@ -995,7 +995,7 @@ async function execute(
    * **Ni `running`, ni `error`.** Un arrêt demandé n'est pas une panne : écrire
    * le message du ffmpeg tué — « ffmpeg a échoué (tué par SIGTERM) » — ferait
    * afficher un bandeau d'échec à quelqu'un qui vient de cliquer « Arrêter ».
-   * L'état juste est celui que `phaseProjet` en déduit tout seul : plus rien ne
+   * L'état juste est celui que `phaseProject` en déduit tout seul : plus rien ne
    * tourne, aucune erreur, une étape manque — donc `interrompu`, donc l'écran
    * propose de reprendre.
    */
@@ -1049,7 +1049,7 @@ async function execute(
       execution.current = { step: step, progress: 0 }
       // **Le sort du repérage se suit à part, étape par étape.** C'est lui qui
       // qualifie le bilan, et non celui de l'exécution qui l'entoure : voir
-      // `ÉtatRepérage`.
+      // `StateDetection`.
       if (step === 'candidates') execution.detection = 'running'
       publish(execution, true)
       console.log(`[${projectId}] ${step}…`)
@@ -1115,7 +1115,7 @@ async function execute(
       return
     }
     // **Le message complet au journal, sa version épurée dans le fichier.** Les
-    // erreurs de `runFfmpeg`, `statAvecDélai` et `lancerWorker` portent la
+    // erreurs de `runFfmpeg`, `statWithDelay` et `launchWorker` portent la
     // commande entière, chemins absolus compris : c'est ce qu'il faut sous les
     // yeux pour diagnostiquer, et c'est ce qui n'a rien à faire dans un fichier
     // qu'on recopie dans un rapport ou qu'une route finirait par servir.
@@ -1372,7 +1372,7 @@ async function executeStep(
     }
 
     case 'candidates': {
-      // `onBilan` est ce qui rend le décompte lisible **pendant** la notation.
+      // `onSummary` est ce qui rend le décompte lisible **pendant** la notation.
       // Sans lui, `status.json` ne le porte qu'une fois l'étape finie, et l'écran
       // affiche « rien à signaler » pendant les trente secondes où la perte se
       // constitue. (relevé par Codex et Copilot)
@@ -1381,7 +1381,7 @@ async function executeStep(
     }
 
     case 'renders': {
-      // Inatteignable par les routes : `CIBLES_LANÇABLES` ne le propose pas, et
+      // Inatteignable par les routes : `TARGETS_LAUNCHABLE` ne le propose pas, et
       // aucune autre étape n'en dépend. Le dire plutôt que de l'ignorer, sinon
       // une cible ajoutée demain ne ferait rien du tout, en silence.
       throw new Error(
@@ -1425,7 +1425,7 @@ export async function createProject(
   const db = options.db ?? getDb()
 
   const existant = getProject(db, projectId)
-  // Un identifiant, une source. Voir `CollisionDeProjetError`.
+  // Un identifiant, une source. Voir `ProjectErrorCollision`.
   if (existant !== undefined && existant.sourcePath !== sourcePath) {
     throw new ProjectErrorCollision(projectId, existant.sourcePath, sourcePath)
   }

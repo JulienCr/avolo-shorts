@@ -327,7 +327,7 @@ export type SelectionDimensions = {
 export const DEFAULT_SELECTION_DIMENSIONS: SelectionDimensions = {
   // Six et non sept, et le chiffre a une histoire : sept avait été arrêté sur
   // une mesure qui prenait l'écart du premier mot au dernier pour de la parole,
-  // donc sur 21 % de matière qui n'existe pas. `secondesDeParole` a corrigé la
+  // donc sur 21 % de matière qui n'existe pas. `speechSeconds` a corrigé la
   // mesure ; six rend, sur la mesure juste, le rendement qui avait été retenu
   // sur la fausse — 15 clips pour `2026-22-02-entre-nous`, 13 pour
   // `2025-06-15-cqlp`. Corriger l'un sans l'autre aurait livré un rendement que
@@ -396,11 +396,11 @@ function slots(speechSeconds: number): number {
  * `minutesPerClip` minutes de parole » se règle et s'audite, « 30 % des
  * fenêtres » non.
  *
- * **Et « parole » veut dire `secondesDeParole`**, l'union des segments qui
+ * **Et « parole » veut dire `speechSeconds`**, l'union des segments qui
  * portent de la prose — pas la durée vidéo, pas l'écart du premier mot au
  * dernier. Les trois diffèrent : la durée vidéo ajoute 175 à 181 s de silence en
  * tête et en queue, l'écart ajoute encore tous les trous du milieu, soit 19 à
- * 21 % de plus. Voir `secondesDeParole`, qui porte la mesure.
+ * 21 % de plus. Voir `speechSeconds`, qui porte la mesure.
  */
 export function clipCountTargets(
   speechSeconds: number,

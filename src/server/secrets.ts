@@ -378,7 +378,7 @@ export async function resolveSecrets(
       failures.push({ name, reference, text: fix(outcome.cause), systemic: true })
     } else if (outcome.value === '') {
       // Un champ vidé dans 1Password rendrait une chaîne vide, que le garde-fou
-      // de `clientParDéfaut` prendrait pour une variable absente — donc un
+      // de `clientByDefault` prendrait pour une variable absente — donc un
       // message qui accuse le `.env` alors que le `.env` est juste.
       failures.push({
         name,

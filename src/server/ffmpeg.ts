@@ -223,7 +223,7 @@ function probeNvenc(): boolean {
  * L'encodeur à utiliser. `FFMPEG_ENCODER` fait foi ; `auto` sonde une fois.
  *
  * C'est l'encodeur **de l'export**, celui qui gagne le facteur 2,3 au GPU (4,58x
- * contre 1,97x). Le proxy a le sien, `encodeurProxy` dans `steps/proxy.ts`, et
+ * contre 1,97x). Le proxy a le sien, `encoderProxy` dans `steps/proxy.ts`, et
  * il rend x264 sur `auto` : le redimensionnement y domine le travail et reste
  * sur le processeur dans les deux cas, si bien que NVENC y est plus lent.
  */
@@ -507,10 +507,10 @@ export type OptionsArtifact = {
  *
  * **C'est la règle 2 qui rend l'arrêt d'une analyse sûr**, et elle vaut d'être
  * lue dans ce sens-là aussi : un ffmpeg tué en plein encodage ne laisse rien qui
- * porte le nom définitif, donc `relevéPrésence` ne verra pas l'étape comme
+ * porte le nom définitif, donc `readingPresence` ne verra pas l'étape comme
  * faite et la reprise la refera. Le fichier temporaire est effacé au passage, et
- * `rendusPrésents` ignore de toute façon les `*.partiel-*`. Le même invariant
- * tient pour les deux workers Python, qui écrivent par `cheminTemporaire` et ne
+ * `rendersPresent` ignore de toute façon les `*.partiel-*`. Le même invariant
+ * tient pour les deux workers Python, qui écrivent par `pathTemporary` et ne
  * renomment qu'après validation.
  */
 export async function produceArtifact(o: OptionsArtifact): Promise<Artifact> {

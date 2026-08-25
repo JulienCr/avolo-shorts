@@ -256,7 +256,7 @@ describe('l’écran de projet', () => {
   })
 
   it('reprend la vue de la session quand l’URL n’en nomme aucune', async () => {
-    // Retour d'un clip par le fil d'Ariane : `chemin` rend `lienProjet`, une URL
+    // Retour d'un clip par le fil d'Ariane : `chemin` rend `linkProject`, une URL
     // nue. Sans ce rattrapage la vue retombe sur « à trier », la carte gardée
     // n'y est pas, et le focus mémorisé n'a nulle part où se poser — le
     // round-trip que la conception décrit ne marchait pas. (relevé par Codex)

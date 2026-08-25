@@ -111,7 +111,7 @@ function perCause(cause: CauseUnavailable, fstype: string | null): {
         title: 'La lecture du dossier des replays est refusée.',
         // **Le dossier, ou l'un de ses fichiers**, et la nuance n'est pas de la
         // prudence : un seul `lstat` refusé fait basculer tout le dossier
-        // (`releverLeDossier`, et c'était le second cas mesuré de l'issue #56).
+        // (`captureFolder`, et c'était le second cas mesuré de l'issue #56).
         // Envoyer regarder les seuls droits du dossier ferait chercher là où il
         // n'y a rien à voir.
         detail:

@@ -52,7 +52,7 @@ export function linkProject(projectId: string): string {
  * L'URL des paramètres.
  *
  * **Un frère de la bibliothèque, pas un quatrième étage.** Le nom anglais tranche
- * avec `lienProjet` et `lienClip`, ses deux voisins : le dépôt renomme ses
+ * avec `linkProject` et `linkClip`, ses deux voisins : le dépôt renomme ses
  * identifiants français par l'issue #73, et ce qui s'écrit après la règle ne
  * doit pas ajouter à la dette qu'elle solde.
  *
@@ -116,13 +116,13 @@ export type Next =
  *
  * **C'est cette fonction qui garantit qu'aucun état n'est une impasse**, et le
  * fait qu'elle soit unique rend la garantie testable — le test énumère des
- * entrées, les passe à `phaseProjet`, et vérifie qu'elle rend un résultat pour
+ * entrées, les passe à `phaseProject`, et vérifie qu'elle rend un résultat pour
  * chaque couple ainsi produit.
  *
  * `cible` est une URL, jamais un ordre : ce que l'écran fait de la sienne — un
  * lien, ou un bouton quand la cible est l'écran où l'on est déjà — lui
  * appartient. `suite` ne connaît que l'identifiant du projet : elle ne peut donc
- * pas désigner un clip, et c'est `clipSuivant` qui s'en charge, à l'endroit où
+ * pas désigner un clip, et c'est `clipNext` qui s'en charge, à l'endroit où
  * la liste est disponible.
  */
 export function next(phase: Phase, project: { id: string }): Next {
@@ -130,7 +130,7 @@ export function next(phase: Phase, project: { id: string }): Next {
 
   // **L'état de l'analyse ne commande que lorsqu'il n'y a rien à décider ni à
   // monter**, et c'est l'invariant : la phase choisit ce que l'écran met en
-  // avant, elle ne retire jamais ce qui existe. `effacerArtefact` retire
+  // avant, elle ne retire jamais ce qui existe. `eraseArtifact` retire
   // `candidates.json` **avant** de toucher à la base, donc les clips de la passe
   // précédente survivent à un repérage forcé — qu'il tourne encore (`attente`),
   // qu'il ait échoué (`echec`) ou qu'un redémarrage du serveur l'ait perdu
@@ -160,7 +160,7 @@ export function next(phase: Phase, project: { id: string }): Next {
     }
     // **`suite` nomme la direction, l'écran décide de l'activation.** Une
     // exécution peut très bien tourner ici — l'encodage du proxy pendant qu'on
-    // trie — et `lancer` lève alors `ExécutionEnCoursError`, dont la route fait
+    // trie — et `lancer` lève alors `ExecutionInCurrentError`, dont la route fait
     // un 409. C'est `running` qui le dit, et `running` n'est pas dans la phase :
     // l'écran de projet l'a sous la main et désactive le contrôle avec sa raison
     // écrite à côté, jamais dans une bulle d'aide.
@@ -205,7 +205,7 @@ export function next(phase: Phase, project: { id: string }): Next {
  * désactive : reboucler ferait repasser indéfiniment sur des clips déjà montés
  * sans que rien ne dise qu'on a fait le tour.
  *
- * **Et `null` aussi quand `courantId` n'est pas dans la liste.** Un identifiant
+ * **Et `null` aussi quand `currentId` n'est pas dans la liste.** Un identifiant
  * absent ne désigne aucune position ; rendre le premier gardé ferait sauter dans
  * la liste sans que le geste l'explique.
  */
@@ -215,7 +215,7 @@ export function clipNext<T extends { id: string; status: ClipStatus }>(
 ): T | null {
   const current = clips.findIndex((c) => c.id === currentId)
   if (current < 0) return null
-  // `estGarde`, et non `status === 'kept'` : rouvrir un clip exporté pour en
+  // `isGuard`, et non `status === 'kept'` : rouvrir un clip exporté pour en
   // retoucher le montage est un parcours normal.
   return clips.slice(current + 1).find((c) => isGuard(c.status)) ?? null
 }

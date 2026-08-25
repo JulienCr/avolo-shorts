@@ -10,8 +10,8 @@ import { PublicationSection } from '@/components/settings/publication-section'
 import { SelectionSection } from '@/components/settings/selection-section'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
 
 /**
@@ -36,6 +36,12 @@ import { useLlmAvailability, useSaveSettings, useSettings } from '@/lib/queries'
  * La règle vient d'ailleurs — `use(params)` ne se résout pas sous jsdom — mais
  * une règle qui souffre une exception n'en est plus une, et c'est ce qui rend
  * l'écran montable en test.
+ *
+ * **Cinq sections, cinq onglets à gauche.** Empilées, elles demandaient de
+ * faire défiler l'écran pour atteindre Publication. La primitive démonte le
+ * panneau inactif, `Hook` compris — son exception porte sur le squelette et
+ * non sur le démontage : ouvert avant que les réglages n'arrivent, il montre
+ * ses vrais contrôles désactivés, comme avant cette réorganisation.
  */
 export function SettingsScreen() {
   const settings = useSettings()
@@ -48,7 +54,7 @@ export function SettingsScreen() {
         <SaveState pending={save.isPending} saved={save.isSuccess} failed={save.isError} />
       </AppBar>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-6">
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-6">
         <h1 className="text-lg font-semibold tracking-tight">Paramètres</h1>
 
         {/* **Une écriture refusée se dit, et elle se dit avec le message du
@@ -64,7 +70,7 @@ export function SettingsScreen() {
           </Alert>
         )}
 
-        {settings.isError ? (
+        {settings.isError && (
           <Alert variant="destructive">
             <TriangleAlert aria-hidden />
             <AlertTitle>Les réglages ne se chargent pas.</AlertTitle>
@@ -75,87 +81,119 @@ export function SettingsScreen() {
               </Button>
             </AlertAction>
           </Alert>
-        ) : settings.data === undefined ? (
-          // **Pas de valeurs par défaut en attendant.** Les afficher ferait voir
-          // les constantes du code là où la base porte peut-être autre chose, et
-          // le premier geste écrirait alors une valeur que personne n'a choisie.
-          <div className="flex flex-col gap-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <Skeleton key={i} className="h-20 w-full rounded-xl" />
-            ))}
-          </div>
-        ) : (
-          <SelectionSection
-            values={settings.data.selection}
-            disabled={save.isPending}
-            // **`mutateAsync` et non `mutate`** : la promesse est ce qui dit au
-            // champ que le serveur a refusé, là où `values` ne bouge pas — une
-            // écriture non optimiste ne change rien tant qu'elle n'est pas
-            // acceptée. Le rejet est consommé par le champ ; le bandeau
-            // au-dessus, lui, vient de `save.isError`. (relevé par Copilot)
-            onChange={(patch) => save.mutateAsync({ selection: patch })}
-          />
         )}
 
-        <Separator />
+        {/* **Au fil de la page, pas dans l'onglet « Intelligence
+            artificielle ».** Sans ce contrôle, un échec de
+            `/api/llm/availability` se lit comme un chargement encore en cours :
+            `AiSection` masque alors toutes les alertes de clé absente, et un
+            repérage peut se lancer sans que la vérification qui existe pour le
+            dire ait pu parler. Rangée dans son onglet, elle ne parle qu'à qui
+            l'ouvre. (relevé par Copilot, puis par Aristarque) */}
+        {availability.isError && (
+          <Alert variant="destructive">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
+            <AlertDescription>{availability.error.message}</AlertDescription>
+            <AlertAction>
+              <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
+                Réessayer
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
 
-        {settings.data !== undefined && (
-          <>
-            {/* **`isError`, pas seulement `data === undefined`.** Sans ce
-                contrôle, un échec de `/api/llm/availability` se lit comme un
-                chargement encore en cours : `AiSection` masque alors toutes
-                les alertes de clé absente, et un repérage peut se lancer sans
-                que la vérification qui existe pour le dire ait pu parler.
-                (relevé par Copilot) */}
-            {availability.isError && (
-              <Alert variant="destructive">
-                <TriangleAlert aria-hidden />
-                <AlertTitle>La disponibilité des fournisseurs n’a pas pu être vérifiée.</AlertTitle>
-                <AlertDescription>{availability.error.message}</AlertDescription>
-                <AlertAction>
-                  <Button variant="outline" size="sm" onClick={() => void availability.refetch()}>
-                    Réessayer
-                  </Button>
-                </AlertAction>
-              </Alert>
+        <Tabs defaultValue="selection" orientation="vertical" className="flex-1 flex-col md:flex-row">
+          <TabsList variant="line" className="shrink-0 md:w-48">
+            <TabsTrigger value="selection">Repérage</TabsTrigger>
+            <TabsTrigger value="ai">Intelligence artificielle</TabsTrigger>
+            <TabsTrigger value="source">Source</TabsTrigger>
+            <TabsTrigger value="hook">Hook</TabsTrigger>
+            <TabsTrigger value="publication">Publication</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="selection">
+            {settings.isError ? null : settings.data === undefined ? (
+              <SectionSkeleton />
+            ) : (
+              <SelectionSection
+                values={settings.data.selection}
+                disabled={save.isPending}
+                // **`mutateAsync` et non `mutate`** : la promesse est ce qui dit au
+                // champ que le serveur a refusé, là où `values` ne bouge pas — une
+                // écriture non optimiste ne change rien tant qu'elle n'est pas
+                // acceptée. Le rejet est consommé par le champ ; le bandeau
+                // au-dessus, lui, vient de `save.isError`. (relevé par Copilot)
+                onChange={(patch) => save.mutateAsync({ selection: patch })}
+              />
             )}
-            <AiSection
-              values={settings.data.ai}
-              availability={availability.data}
-              disabled={save.isPending}
-              onChange={(patch) => save.mutateAsync({ ai: patch })}
-            />
-          </>
-        )}
+          </TabsContent>
 
-        <Separator />
+          <TabsContent value="ai">
+            {settings.isError ? null : settings.data === undefined ? (
+              <SectionSkeleton />
+            ) : (
+              <AiSection
+                values={settings.data.ai}
+                availability={availability.data}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ ai: patch })}
+              />
+            )}
+          </TabsContent>
 
-        {settings.data !== undefined && (
-          <IngestionSection
-            values={settings.data.ingestion}
-            disabled={save.isPending}
-            onChange={(patch) => save.mutateAsync({ ingestion: patch })}
-          />
-        )}
+          <TabsContent value="source">
+            {settings.isError ? null : settings.data === undefined ? (
+              <SectionSkeleton />
+            ) : (
+              <IngestionSection
+                values={settings.data.ingestion}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ ingestion: patch })}
+              />
+            )}
+          </TabsContent>
 
-        <Separator />
+          <TabsContent value="hook">
+            {settings.isError ? null : (
+              <HookSection
+                values={settings.data?.hook}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ hook: patch })}
+              />
+            )}
+          </TabsContent>
 
-        <HookSection
-          values={settings.data?.hook}
-          disabled={save.isPending}
-          onChange={(patch) => save.mutateAsync({ hook: patch })}
-        />
-
-        <Separator />
-
-        {settings.data !== undefined && (
-          <PublicationSection
-            values={settings.data.publication}
-            disabled={save.isPending}
-            onChange={(patch) => save.mutateAsync({ publication: patch })}
-          />
-        )}
+          <TabsContent value="publication">
+            {settings.isError ? null : settings.data === undefined ? (
+              <SectionSkeleton />
+            ) : (
+              <PublicationSection
+                values={settings.data.publication}
+                disabled={save.isPending}
+                onChange={(patch) => save.mutateAsync({ publication: patch })}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
       </main>
+    </div>
+  )
+}
+
+/**
+ * Le panneau d'un onglet, pendant que ses réglages n'ont pas encore répondu.
+ *
+ * **Pas de valeurs par défaut en attendant.** Les afficher ferait voir les
+ * constantes du code là où la base porte peut-être autre chose, et le premier
+ * geste écrirait alors une valeur que personne n'a choisie.
+ */
+function SectionSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      <Skeleton className="h-6 w-40 rounded-md" />
+      <Skeleton className="h-20 w-full rounded-xl" />
+      <Skeleton className="h-20 w-full rounded-xl" />
     </div>
   )
 }

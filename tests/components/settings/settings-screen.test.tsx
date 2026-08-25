@@ -10,7 +10,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -107,6 +107,19 @@ async function mountScreen() {
   )
   await waitFor(() => expect(screen.getByLabelText(/tranche de/i)).toBeTruthy())
   return view
+}
+
+/**
+ * Bascule vers l'onglet nommé et attend que son panneau soit monté.
+ *
+ * **Un onglet inactif n'est pas seulement caché, il est démonté** — la
+ * primitive Base UI ne garde le panneau en vie que si `keepMounted` est posé,
+ * ce que `Tabs` ne fait pas ici. Un test qui cherche un champ de la section
+ * Hook ou Publication doit donc d'abord y naviguer, comme le ferait une
+ * personne.
+ */
+async function switchTab(name: RegExp | string) {
+  await userEvent.click(screen.getByRole('tab', { name }))
 }
 
 describe('les réglages du repérage', () => {
@@ -332,6 +345,35 @@ describe('les pannes', () => {
     await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
     expect(screen.queryByLabelText(/tranche de/i)).toBeNull()
   })
+
+  it('dit une disponibilité invérifiable sans qu’il faille ouvrir l’onglet qui la concerne', async () => {
+    // **Le serveur du test ne connaît que `/api/settings`** : la disponibilité
+    // part donc en échec, ce qui est le cas à couvrir. Rangée dans le panneau
+    // « Intelligence artificielle », l'alerte ne parlait qu'à qui l'ouvre —
+    // alors qu'elle existe pour dire que `AiSection` masque ses alertes de clé
+    // absente. (relevé par Aristarque)
+    server()
+    await mountScreen()
+
+    expect(screen.getByText(/disponibilité des fournisseurs/i)).toBeTruthy()
+  })
+
+  it('ne montre aucun réglage du hook non plus quand les réglages ne se chargent pas', async () => {
+    // Le panneau Hook était le seul sans garde sur `isError` : il rendait alors
+    // `HOOK_DEFAULTS`, c'est-à-dire les constantes du code présentées comme des
+    // valeurs enregistrées. (relevé par Aristarque)
+    server({ read: () => response({ error: 'La base ne répond pas.' }, 500) })
+    const Wrapper = wrapper()
+    render(
+      <Wrapper>
+        <SettingsScreen />
+      </Wrapper>,
+    )
+
+    await waitFor(() => expect(screen.getByText('La base ne répond pas.')).toBeTruthy())
+    await switchTab('Hook')
+    expect(screen.queryByLabelText('Effet d’apparition')).toBeNull()
+  })
 })
 
 describe('la section du hook', () => {
@@ -372,6 +414,7 @@ describe('la section du hook', () => {
   it('offre un contrôle pour CHAQUE réglage de la famille hook, sans exception', async () => {
     server()
     await mountScreen()
+    await switchTab('Hook')
 
     // **Scopé à la section du hook**, pas à l'écran entier : « Durée » et
     // « Taille » existent aussi ailleurs, et une recherche globale les y
@@ -397,6 +440,7 @@ describe('la section du hook', () => {
       read: () => response({ ...DEFAULTS, hook: { ...HOOK_DEFAULTS, sizePermille: 150 } }),
     })
     await mountScreen()
+    await switchTab('Hook')
 
     expect(screen.getByLabelText('Taille')).toHaveProperty('value', '150')
   })
@@ -406,6 +450,7 @@ describe('la section du hook', () => {
     // stockage qui n'existait pas encore, pas une règle en soi.
     server()
     await mountScreen()
+    await switchTab('Hook')
 
     const trigger = screen.getByLabelText('Effet d’apparition')
     // **« Aucune », parce que c'est le défaut depuis le 20 août 2026** : un
@@ -430,6 +475,7 @@ describe('la section du hook', () => {
   it('enregistre un choix de position', async () => {
     const writes = server()
     await mountScreen()
+    await switchTab('Hook')
 
     await userEvent.click(screen.getByLabelText('Position'))
     await userEvent.click(await screen.findByRole('option', { name: /Tiers inférieur/ }))
@@ -443,6 +489,7 @@ describe('la section du hook', () => {
     // de composant. (relevé par Copilot)
     const writes = server()
     await mountScreen()
+    await switchTab('Hook')
 
     const field = screen.getByLabelText('Durée')
     await userEvent.clear(field)
@@ -455,6 +502,7 @@ describe('la section du hook', () => {
   it('borne la durée saisie aux limites du registre avant de l’envoyer', async () => {
     const writes = server()
     await mountScreen()
+    await switchTab('Hook')
 
     const field = screen.getByLabelText('Durée')
     await userEvent.clear(field)
@@ -487,12 +535,20 @@ describe('la section du hook', () => {
         <SettingsScreen />
       </Wrapper>,
     )
+    // **`fireEvent`, pas `userEvent`, pour ce clic-là.** `userEvent.click` est
+    // asynchrone et laisse filer un tour de microtâches — assez pour que le
+    // `fetch` simulé, déjà résolu, livre les réglages avant l'assertion qui
+    // suit. `fireEvent` reste synchrone : la bascule d'onglet se voit encore
+    // avant que la promesse n'ait sa chance de s'exécuter.
+    fireEvent.click(screen.getByRole('tab', { name: 'Hook' }))
 
     expect(screen.getByLabelText('Effet d’apparition')).toHaveProperty('disabled', true)
     const box = screen.getAllByLabelText('Hook activé par défaut')[0]
     expect(box.getAttribute('aria-disabled')).toBe('true')
 
-    await waitFor(() => expect(screen.getByLabelText(/tranche de/i)).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByLabelText('Effet d’apparition')).toHaveProperty('disabled', false),
+    )
   })
 
   it('ouvre la liste et enregistre le choix, une fois les réglages chargés', async () => {
@@ -500,6 +556,7 @@ describe('la section du hook', () => {
     // choix part au serveur.
     const writes = server()
     await mountScreen()
+    await switchTab('Hook')
 
     await userEvent.click(screen.getByLabelText('Effet d’apparition'))
     expect(await screen.findByRole('listbox')).toBeTruthy()
@@ -513,6 +570,7 @@ describe('la section publication', () => {
   it('choisit un connecteur pour une plateforme, sans toucher aux autres', async () => {
     const writes = server()
     await mountScreen()
+    await switchTab('Publication')
 
     await userEvent.click(screen.getByLabelText('Instagram'))
     await userEvent.click(await screen.findByRole('option', { name: 'Upload Post' }))
@@ -526,6 +584,7 @@ describe('la section publication', () => {
         response({ ...DEFAULTS, publication: { ...PUBLICATION_DEFAULTS, facebook: 'meta' } }),
     })
     await mountScreen()
+    await switchTab('Publication')
 
     await userEvent.click(screen.getByLabelText('Revenir à Automatique pour Facebook'))
 

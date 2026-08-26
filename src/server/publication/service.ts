@@ -19,14 +19,14 @@ import { effectiveSettings, getPublications, upsertPublication, type Publication
 import { isAAbsence } from '@/server/bytes'
 import { clipFraming } from '@/server/clip-framing'
 import { messageSafe } from '@/server/errors'
-import { requestInvalid } from '@/server/http'
+import { ErrorHttp, requestInvalid } from '@/server/http'
 import { wait } from '@/server/llm/retry'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import { PublicationAlreadyPublishedError } from '@/server/publication/errors'
 import { adapterFor } from '@/server/publication'
 import { reserve, release } from '@/server/publication/registry'
 import { deliveryToDay } from '@/server/renders'
-import { pathsRender } from '@/server/steps/render'
+import { lireFingerprint, pathsRender } from '@/server/steps/render'
 
 /**
  * L'orchestration de `POST /api/clips/:id/publish` : ce que la route délègue
@@ -232,6 +232,8 @@ export type LaunchPublishInput = {
   clip: Clip
   platforms: readonly Platform[]
   force: boolean
+  /** Le chemin ordonnancé publie le fichier qui est sur le disque, périmé ou non (spec §5.4). */
+  ignoreStaleRender?: boolean
   /** Le délai entre deux sondages d'un envoi resté `in_progress` — les tests y passent un délai nul. */
   sleep?: (ms: number) => Promise<void>
 }
@@ -253,17 +255,31 @@ export type LaunchPublishResult = {
  * n'ait posé sa réservation.
  */
 export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
-  const { db, clip, platforms, force, sleep = wait } = input
+  const { db, clip, platforms, force, ignoreStaleRender = false, sleep = wait } = input
 
-  const exportEligibility = clipEligibilityFromStatus(clip.status)
-  if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
+  // Les deux gardes que le chemin ordonnancé traverse (spec §5.4). La modale
+  // manuelle garde son refus : aucune route ne pose ce champ, personne devant
+  // l'écran pour ré-exporter.
+  if (!ignoreStaleRender) {
+    const exportEligibility = clipEligibilityFromStatus(clip.status)
+    if (!exportEligibility.eligible) throw requestInvalid(exportEligibility.reason)
+  }
 
   const framing = clipFraming(clip, effectiveSettings(db).framing)
-  if (!deliveryToDay(clip, framing)) {
+  if (!ignoreStaleRender && !deliveryToDay(clip, framing)) {
     throw requestInvalid('Le rendu de ce clip est périmé ou absent : exporter avant de publier.')
   }
 
-  const paths = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE)
+  // Le nom de l'empreinte ne dépend pas du ratio (`pathsRender`) : n'importe
+  // lequel donne le bon chemin pour la lire.
+  const fingerprintPath = pathsRender(clip.projectId, clip.id, framing.ratio, RENDER_NATIVE).fingerprint
+  // Le chemin ordonnancé peut publier un rendu dont le ratio a lui-même
+  // dérivé depuis l'export (spec §5.4) : chercher le livrable sous le ratio
+  // que l'empreinte affirme avoir produit, pas sous celui recalculé
+  // maintenant — sinon un clip passé de 1:1 à 9:16 chercherait `clip.mp4`
+  // alors que le dernier rendu validé est `clip-9x16.mp4` (relevé en revue).
+  const producedRatio = ignoreStaleRender ? (lireFingerprint(fingerprintPath)?.framing.ratio ?? framing.ratio) : framing.ratio
+  const paths = pathsRender(clip.projectId, clip.id, producedRatio, RENDER_NATIVE)
   const videoPath = platformFile({ mp4: paths.mp4, variant9x16: paths.variant9x16 })
   if (videoPath === null) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
 
@@ -279,7 +295,13 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
     if (isAAbsence(error)) throw requestInvalid('Aucun fichier à envoyer : exporter avant de publier.')
     throw error
   }
-  const eligibility = platformEligibility(clipDuration(clip.segments), stat.size)
+  // La voie ordonnancée publie un fichier que les segments actuels ne
+  // décrivent plus (spec §5.4) : sa durée réelle n'exige un `ffprobe` que le
+  // script exclut (spec §2.1, aucun processus enfant), donc seule la taille —
+  // que `fs.statSync` donne honnêtement — est vérifiée ici. Un fichier trop
+  // long pour une plateforme y échouera, `failed` et alerté comme tout autre
+  // échec (décision de l'orchestrateur).
+  const eligibility = platformEligibility(ignoreStaleRender ? 0 : clipDuration(clip.segments), stat.size)
   if (!eligibility.eligible) throw requestInvalid(eligibility.reason)
 
   // YouTube exige un titre (spec §6.1) ; un clip sans titre le paierait par un
@@ -297,7 +319,28 @@ export function launchPublish(input: LaunchPublishInput): LaunchPublishResult {
   const existing = getPublications(db, clip.id)
   const byPlatform = new Map(existing.map((r) => [r.platform, r]))
   for (const platform of platforms) {
-    if (!canTargetPlatform(toRecord(byPlatform.get(platform)), force)) {
+    const record = toRecord(byPlatform.get(platform))
+    // Une ligne `planned` n'appartient qu'au chemin ordonnancé (spec §5.4) :
+    // `force` républie un `published`, un geste différent, et ne la débloque
+    // donc jamais — sinon la modale manuelle pourrait tirer une échéance.
+    if (record?.status === 'planned') {
+      // Pas `PublicationAlreadyPublishedError` : son message dit « déjà
+      // publié, passer force: true », un remède faux ici — cette branche
+      // refuse justement `force: true` pour une ligne `planned` (relevé en
+      // revue).
+      if (!ignoreStaleRender) {
+        throw new ErrorHttp(409, `${platform} est programmé pour ce clip. Déprogrammer avant de publier manuellement.`)
+      }
+      // `record?.status === 'in_progress'` et le chemin manuel : un envoi est
+      // déjà en vol pour ce couple, peut-être depuis l'ordonnanceur, qui
+      // tourne dans un autre processus — le registre `reserve`/`release`
+      // ci-dessous ne le voit pas (relevé en revue). Le chemin ordonnancé,
+      // lui, cible `in_progress` par construction : c'est son propre essai
+      // précédent, laissé honnêtement non résolu, qu'il reprend
+      // (`outstandingPlatforms`), donc `ignoreStaleRender` le laisse passer.
+    } else if (record?.status === 'in_progress' && !ignoreStaleRender) {
+      throw new ErrorHttp(409, `${platform} est en cours d'envoi pour ce clip. Réessayer une fois l'envoi terminé.`)
+    } else if (!canTargetPlatform(record, force)) {
       throw new PublicationAlreadyPublishedError(platform)
     }
   }

@@ -109,8 +109,9 @@ mesuré ci-dessus.
 | Publication | `video_state` vaut `PUBLISHED`, `DRAFT` ou `SCHEDULED` |
 
 Même raisonnement d'accès que pour Instagram, et la même app Meta porte les deux.
-Le `SCHEDULED` est noté ici parce qu'il rendra l'ordonnanceur (§4, hors périmètre —
-à ne pas confondre avec le lot 2 de §5) gratuit sur Facebook — et sur lui seul.
+Le `SCHEDULED` est noté ici parce qu'il aurait pu rendre l'ordonnancement gratuit
+sur Facebook — et sur lui seul. Réglé au 26 août 2026 (§10) : on programme à la
+maison pour les quatre plateformes, `SCHEDULED` reste inutilisé.
 
 **Publié pour de vrai le 23 août 2026** (issue #146) : un reel réel est allé
 sur la Page (`video_id` `1078358324628287`), et `GET /{video-id}?fields=
@@ -280,13 +281,14 @@ Dans le périmètre :
 
 Hors périmètre, et nommément :
 
-- **l'ordonnancement** : horaires de parution, file, réessai automatique d'une
-  publication échouée. C'est un chantier séparé du séquencement de §5 — à ne pas
-  confondre avec son lot 2 —, et `video_state: SCHEDULED` de Facebook
-  l'attendra là-bas. À ne pas confondre avec la **reprise de transport** — rejouer
-  un téléversement qui a rendu une erreur transitoire, à l'intérieur d'une même
-  tentative : celle-là est dans le périmètre, elle appartient au connecteur, et
-  `rupload.facebook.com` la rend nécessaire (voir `docs/lessons.md`) ;
+- **l'ordonnancement** — horaires de parution, file, réessai d'une publication
+  échouée : entré dans le périmètre depuis, conçu dans
+  `docs/superpowers/specs/2026-08-26-publication-scheduling-design.md`, qui l'a
+  implémenté (issue #195). À ne pas confondre avec la **reprise de transport** —
+  rejouer un téléversement qui a rendu une erreur transitoire, à l'intérieur
+  d'une même tentative : celle-là reste dans le périmètre d'ici, elle appartient
+  au connecteur, et `rupload.facebook.com` la rend nécessaire (voir
+  `docs/lessons.md`) ;
 - **le multi-comptes** : un compte par plateforme, ceux d'Avolo ;
 - **les statistiques de performance** des publications ;
 - **la publication en tant que tiers**, qui ferait basculer Meta en Advanced
@@ -449,15 +451,22 @@ distant, l'URL publique, l'erreur et l'horodatage. `src/server/db.ts` sait déj�
 migrer sans table de versions, en interrogeant `PRAGMA table_info`. La route lance
 et rend aussitôt ; l'interface interroge.
 
-C'est un état, pas un ordonnanceur : ni horaires, ni file, ni réessai automatique.
+C'est un état, pas un ordonnanceur : ni horaires, ni file, ni réessai automatique
+— **vrai de cette table au 18 août, plus de sa portée depuis** : l'ordonnancement
+est entré dans le périmètre du dépôt le 26 août (§4), et
+`2026-08-26-publication-scheduling-design.md` fait tenir horaires, file et
+réessai sur cette même table plutôt que d'en inventer une seconde — un
+cinquième état, `planned`, et une colonne `scheduledAt`, sans autre migration.
 
-Quatre valeurs, et la troisième est celle qui compte. Nommées en anglais dans
-le code (`PublicationStatus`, `src/core/publication.ts`, PR #95) — la règle de
-langue du dépôt vaut pour l'identifiant, pas pour la colonne « Ce qu'il veut
-dire » ci-dessous, qui reste en français comme le reste de cette conception :
+Cinq valeurs désormais (`planned` depuis le 26 août), et la troisième des quatre
+d'origine est celle qui comptait déjà. Nommées en anglais dans le code
+(`PublicationStatus`, `src/core/publication.ts`, PR #95) — la règle de langue du
+dépôt vaut pour l'identifiant, pas pour la colonne « Ce qu'il veut dire »
+ci-dessous, qui reste en français comme le reste de cette conception :
 
 | État (code) | Libellé affiché | Ce qu'il veut dire |
 |---|---|---|
+| `planned` | programmé | une échéance est posée, rien n'est encore parti |
 | `in_progress` | en cours | le téléversement tourne |
 | `submitted` | déposé | **c'est chez la plateforme, ce n'est pas en ligne** — un brouillon TikTok attend un geste dans l'app |
 | `published` | publié | en ligne, avec son URL |
@@ -571,9 +580,12 @@ de sa valeur est dans ses messages.
   primaire, aucune mesure, et ce dépôt ne décide pas sur des ouï-dire — mais si
   c'était vrai, cela changerait l'intérêt de tout ce document. Une comparaison sur
   quelques clips vaudra mieux qu'une conviction.
-- **L'ordonnanceur (§4, hors périmètre — pas le lot 2 de §5)** : Facebook sait
-  planifier tout seul, les trois autres non. Ce chantier décidera si l'on
-  planifie chez soi pour tout le monde ou si l'on délègue là où c'est offert.
+- ~~**L'ordonnanceur** : Facebook sait planifier tout seul, les trois autres
+  non. Ce chantier décidera si l'on planifie chez soi pour tout le monde ou si
+  l'on délègue là où c'est offert.~~ — **tranché le 26 août 2026** (§4) : on
+  programme à la maison pour les quatre plateformes, `video_state: SCHEDULED`
+  de Facebook reste inutilisé. Conception dans
+  `2026-08-26-publication-scheduling-design.md` (issue #195).
 
 ## 11. Sources
 

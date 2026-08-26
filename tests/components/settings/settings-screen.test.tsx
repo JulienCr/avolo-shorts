@@ -17,7 +17,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsScreen } from '@/components/settings/settings-screen'
 import { DEFAULT_SELECTION_DIMENSIONS } from '@/core/transcript'
-import { FRAMING_BOUNDS, FRAMING_SETTINGS_DEFAULTS, HOOK_BOUNDS, HOOK_DEFAULTS } from '@/lib/api'
+import {
+  DEFAULT_SCHEDULE_HOURS,
+  FRAMING_BOUNDS,
+  FRAMING_SETTINGS_DEFAULTS,
+  HOOK_BOUNDS,
+  HOOK_DEFAULTS,
+} from '@/lib/api'
 import type { Settings } from '@/lib/api'
 import { installPointerEventPolyfill } from '../../fixtures/pointer-event'
 
@@ -68,6 +74,7 @@ const PUBLICATION_DEFAULTS: Settings['publication'] = {
   facebook: 'auto',
   tiktok: 'auto',
   youtube: 'auto',
+  scheduleHours: DEFAULT_SCHEDULE_HOURS,
 }
 
 const DEFAULTS: Settings = {

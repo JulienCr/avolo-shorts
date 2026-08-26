@@ -1706,7 +1706,13 @@ describe('/api/settings', () => {
   const HOOK_SETTINGS_DEFAULTS = { ...HOOK_DEFAULTS }
 
   /** Le défaut `auto` des quatre champs de la famille `publication`. */
-  const PUBLICATION_DEFAULTS = { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' }
+  const PUBLICATION_DEFAULTS = {
+    instagram: 'auto',
+    facebook: 'auto',
+    tiktok: 'auto',
+    youtube: 'auto',
+    scheduleHours: '19:00',
+  }
 
   const write = (body: unknown): Promise<Response> =>
     putSettingsRoute(

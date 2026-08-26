@@ -15,15 +15,21 @@ import {
   getProject,
   getPublications,
   getSettings,
+  listExportedClips,
   listProjects,
+  listSchedule,
+  nextDueSchedule,
   openDb,
   putClip,
   putClipOrdered,
+  sanitizeScheduleHours,
+  schedulePublications,
   SETTING_FIELDS,
   replaceClips,
   InvalidSettingError,
   effectiveSettings,
   setSetting,
+  unschedulePublications,
   upsertProject,
   upsertPublication,
   type Project,
@@ -68,6 +74,22 @@ const clip = (id: string, remaining: Partial<Clip> = {}): Clip => ({
   hookBadge: '',
   hookStyle: {},
   framingStyle: {},
+  ...remaining,
+})
+
+/** Une ligne `publications` par défaut, pour les tests de planning. */
+const row = (remaining: Partial<PublicationRow> = {}): PublicationRow => ({
+  clipId: 'clip1',
+  platform: 'instagram',
+  status: 'in_progress',
+  remoteId: null,
+  remoteUrl: null,
+  requestId: null,
+  error: null,
+  publishedFingerprint: null,
+  createdAt: 1000,
+  updatedAt: 1000,
+  scheduledAt: null,
   ...remaining,
 })
 
@@ -769,7 +791,13 @@ describe('appliquerRéglages', () => {
       },
       ingestion: { copySourceLocally: true },
       hook: { ...HOOK_DEFAULTS },
-      publication: { instagram: 'auto', facebook: 'auto', tiktok: 'auto', youtube: 'auto' },
+      publication: {
+        instagram: 'auto',
+        facebook: 'auto',
+        tiktok: 'auto',
+        youtube: 'auto',
+        scheduleHours: '19:00',
+      },
       framing: { ...FRAMING_SETTINGS_DEFAULTS },
     })
   })
@@ -1048,6 +1076,7 @@ describe('replaceClips', () => {
       publishedFingerprint: 'abc',
       createdAt: 1000,
       updatedAt: 1000,
+      scheduledAt: null,
     })
 
     replaceClips(db, PROJECT.id, [clip('survivant'), clip('neuf')])
@@ -1620,6 +1649,63 @@ describe('l’index clips_by_project', () => {
 })
 
 /**
+ * `scheduledAt`, posée sur une base qui portait déjà `publications` sans elle
+ * — celle d'avant le planning (issue #195).
+ */
+describe('migratePublicationsScheduledAt', () => {
+  let file: string
+  let root: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'avolo-migration-scheduled-at-'))
+    file = path.join(root, 'avolo.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('ajoute la colonne à l’ouverture, et le reste sur une base déjà migrée', () => {
+    const old = new Database(file)
+    old.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, sourcePath TEXT NOT NULL, stagedPath TEXT,
+        durationSec REAL, sizeBytes INTEGER, mtimeMs INTEGER, createdAt INTEGER NOT NULL
+      );
+      CREATE TABLE clips (
+        id TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        segments TEXT NOT NULL, ratio TEXT NOT NULL, cropX REAL NOT NULL,
+        captions INTEGER NOT NULL, branding INTEGER NOT NULL,
+        title TEXT NOT NULL, description TEXT NOT NULL,
+        status TEXT NOT NULL, pass INTEGER NOT NULL,
+        seqs TEXT NOT NULL DEFAULT '{}', hookText TEXT NOT NULL DEFAULT '',
+        hookStyle TEXT NOT NULL DEFAULT '{}', hookBadge TEXT NOT NULL DEFAULT '',
+        framingStyle TEXT NOT NULL DEFAULT '{}'
+      );
+      CREATE TABLE publications (
+        clipId TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL, status TEXT NOT NULL,
+        remoteId TEXT, remoteUrl TEXT, requestId TEXT, error TEXT,
+        publishedFingerprint TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+        PRIMARY KEY (clipId, platform)
+      );
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updatedAt INTEGER NOT NULL);
+    `)
+    old.close()
+
+    for (let i = 0; i < 3; i++) {
+      const db = openDb(file)
+      const columns = (db.prepare('PRAGMA table_info(publications)').all() as { name: string }[]).map(
+        (c) => c.name,
+      )
+      expect(columns).toContain('scheduledAt')
+      db.close()
+    }
+  })
+})
+
+/**
  * La table `publications` (`clipId`, `platform`) : posée par un `CREATE TABLE
  * IF NOT EXISTS`, sans entrée dans `migrer` — elle n'existait avant aucune
  * base, il n'y a donc rien à rattraper (`src/server/db.ts`, doctrine des
@@ -1638,6 +1724,7 @@ describe('la table publications', () => {
       publishedFingerprint: null,
       createdAt: 1000,
       updatedAt: 1000,
+      scheduledAt: null,
       ...remaining,
     }
   }
@@ -1715,5 +1802,178 @@ describe('la table publications', () => {
     replaceClips(db, PROJECT.id, [])
     expect(getClip(db, 'clip1')).toBeUndefined()
     expect(getPublications(db, 'clip1')).toEqual([])
+  })
+})
+
+/**
+ * `listExportedClips`, transversale à tous les projets (spec planning §5.3).
+ */
+describe('listExportedClips', () => {
+  const OTHER_PROJECT: Project = {
+    ...PROJECT,
+    id: '2026-01-01-emission-precoce',
+  }
+
+  it('trie par `id` lexicographique, toutes émissions confondues', () => {
+    // Un `id` de clip préfixe le `projectId`, qui commence par la date de
+    // tournage : trier par `id` entrelace donc naturellement plusieurs
+    // projets par date, sans qu'il faille joindre `projects`. L'insertion se
+    // fait dans un ordre différent de l'ordre attendu, pour ne pas confondre
+    // l'ordre de tri avec l'ordre d'écriture.
+    upsertProject(db, OTHER_PROJECT)
+    putClip(db, clip(`${PROJECT.id}_b`, { status: 'exported' }))
+    putClip(db, clip(`${OTHER_PROJECT.id}_a`, { projectId: OTHER_PROJECT.id, status: 'exported' }))
+    putClip(db, clip(`${PROJECT.id}_a`, { status: 'exported' }))
+
+    expect(listExportedClips(db).map((c) => c.id)).toEqual([
+      `${OTHER_PROJECT.id}_a`,
+      `${PROJECT.id}_a`,
+      `${PROJECT.id}_b`,
+    ])
+  })
+
+  it('ne rend que les clips `exported`', () => {
+    putClip(db, clip('gardé', { status: 'kept' }))
+    putClip(db, clip('exporté', { status: 'exported' }))
+    expect(listExportedClips(db).map((c) => c.id)).toEqual(['exporté'])
+  })
+})
+
+/**
+ * `listSchedule` : la fenêtre lue en base, sans filtre de statut ni de
+ * fraîcheur (spec planning §5.2 — le calendrier lit les publications, pas le
+ * vivier).
+ */
+describe('listSchedule', () => {
+  it("rend les lignes dont l'échéance tombe dans [from, to), quel que soit le statut", () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'instagram', status: 'published', scheduledAt: 1000 }),
+    )
+    upsertPublication(db, row({ clipId: 'clip1', platform: 'tiktok', status: 'planned', scheduledAt: 2000 }))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'facebook', status: 'planned', scheduledAt: 5000 }),
+    )
+
+    const entries = listSchedule(db, 500, 3000)
+    expect(entries.map((r) => r.platform)).toEqual(['instagram', 'tiktok'])
+  })
+
+  it('exclut la borne haute', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row({ clipId: 'clip1', platform: 'instagram', status: 'planned', scheduledAt: 3000 }))
+    expect(listSchedule(db, 0, 3000)).toEqual([])
+    expect(listSchedule(db, 0, 3001)).toHaveLength(1)
+  })
+})
+
+describe('nextDueSchedule', () => {
+  it("rend l'échéance `planned` la plus ancienne parmi celles dues", () => {
+    putClip(db, clip('clip1'))
+    putClip(db, clip('clip2'))
+    upsertPublication(db, row({ clipId: 'clip1', platform: 'instagram', status: 'planned', scheduledAt: 5000 }))
+    upsertPublication(db, row({ clipId: 'clip2', platform: 'instagram', status: 'planned', scheduledAt: 2000 }))
+    expect(nextDueSchedule(db, 10_000)).toEqual({ clipId: 'clip2', scheduledAt: 2000 })
+  })
+
+  it("rend `undefined` quand rien n'est dû", () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(db, row({ clipId: 'clip1', platform: 'instagram', status: 'planned', scheduledAt: 5000 }))
+    expect(nextDueSchedule(db, 1000)).toBeUndefined()
+  })
+
+  it('ignore ce qui a déjà un résultat', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'instagram', status: 'published', scheduledAt: 1000 }),
+    )
+    expect(nextDueSchedule(db, 5000)).toBeUndefined()
+  })
+})
+
+describe('schedulePublications', () => {
+  it('pose les quatre plateformes en `planned`', () => {
+    putClip(db, clip('clip1'))
+    schedulePublications(db, ['clip1'], 5000, 1000)
+    const rows = getPublications(db, 'clip1')
+    expect(rows.map((r) => r.platform)).toEqual(['facebook', 'instagram', 'tiktok', 'youtube'])
+    expect(rows.every((r) => r.status === 'planned' && r.scheduledAt === 5000)).toBe(true)
+  })
+
+  it('déplace la date sur un clip déjà programmé, sans créer de cinquième ligne', () => {
+    putClip(db, clip('clip1'))
+    schedulePublications(db, ['clip1'], 5000, 1000)
+    schedulePublications(db, ['clip1'], 9000, 2000)
+    const rows = getPublications(db, 'clip1')
+    expect(rows).toHaveLength(4)
+    expect(rows.every((r) => r.scheduledAt === 9000)).toBe(true)
+  })
+
+  it('ne touche jamais une ligne qui porte déjà un résultat', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'youtube', status: 'published', scheduledAt: null }),
+    )
+    schedulePublications(db, ['clip1'], 9000, 2000)
+    const rows = getPublications(db, 'clip1')
+    const youtube = rows.find((r) => r.platform === 'youtube')
+    const others = rows.filter((r) => r.platform !== 'youtube')
+    expect(youtube).toEqual(row({ clipId: 'clip1', platform: 'youtube', status: 'published', scheduledAt: null }))
+    expect(others.every((r) => r.status === 'planned' && r.scheduledAt === 9000)).toBe(true)
+  })
+})
+
+describe('unschedulePublications', () => {
+  it('retire les lignes `planned`, rend le compte', () => {
+    putClip(db, clip('clip1'))
+    schedulePublications(db, ['clip1'], 5000, 1000)
+    expect(unschedulePublications(db, ['clip1'])).toBe(4)
+    expect(getPublications(db, 'clip1')).toEqual([])
+  })
+
+  it('laisse intactes les lignes qui portent un résultat, même échéancées', () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'youtube', status: 'published', scheduledAt: 5000 }),
+    )
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'tiktok', status: 'failed', scheduledAt: 5000 }),
+    )
+    upsertPublication(db, row({ clipId: 'clip1', platform: 'instagram', status: 'planned', scheduledAt: 5000 }))
+
+    expect(unschedulePublications(db, ['clip1'])).toBe(1)
+    const rows = getPublications(db, 'clip1')
+    expect(rows.map((r) => r.platform)).toEqual(['tiktok', 'youtube'])
+  })
+
+  it('rend zéro sur une liste vide', () => {
+    expect(unschedulePublications(db, [])).toBe(0)
+  })
+})
+
+describe('publication.scheduleHours', () => {
+  it('vaut 19:00 par défaut', () => {
+    expect(effectiveSettings(db).publication.scheduleHours).toBe('19:00')
+  })
+
+  it('dégrade vers le défaut sans jamais lever, sur une valeur mal formée', () => {
+    db.prepare('INSERT INTO settings (key, value, updatedAt) VALUES (?, ?, ?)').run(
+      'publication.scheduleHours',
+      'pas-une-heure',
+      Date.now(),
+    )
+    expect(effectiveSettings(db).publication.scheduleHours).toBe('19:00')
+  })
+
+  it('ne garde que les entrées `HH:MM` valides, quatre au plus', () => {
+    expect(sanitizeScheduleHours('19:00,bogus,08:30,25:99,20:00,21:00,22:00')).toBe(
+      '19:00,08:30,20:00,21:00',
+    )
   })
 })

@@ -216,6 +216,7 @@ describe('POST /api/clips/:id/publish', () => {
       publishedFingerprint: null,
       createdAt: 1,
       updatedAt: 1,
+      scheduledAt: null,
     })
 
     const refused = await publishRoute(postRequest({ platforms: ['instagram'] }), context(CLIP_ID))
@@ -276,6 +277,7 @@ describe('GET /api/clips/:id/publications', () => {
       publishedFingerprint: 'abc',
       createdAt: 1,
       updatedAt: 1,
+      scheduledAt: null,
     })
     const response = await publicationsRoute(new Request('http://test'), context(CLIP_ID))
     expect(response.status).toBe(200)

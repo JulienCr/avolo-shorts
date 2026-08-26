@@ -84,7 +84,13 @@ function defaultSelection(
   eligible: readonly PublishClipTarget[],
 ): Set<Platform> {
   return new Set(
-    selectable.filter((platform) => !eligible.some((clip) => clip.records?.[platform]?.status === 'published')),
+    selectable.filter(
+      (platform) =>
+        !eligible.some((clip) => {
+          const status = clip.records?.[platform]?.status
+          return status === 'published' || status === 'planned'
+        }),
+    ),
   )
 }
 
@@ -504,9 +510,10 @@ function PlatformRecords({
   )
 }
 
-/** Les quatre états d'une publication déjà lancée — jamais un état de configuration. */
+/** Les cinq états d'une publication déjà lancée ou programmée — jamais un état de configuration. */
 function StatusBadge({ status }: { status: PublicationStatus }) {
-  const variant = status === 'published' ? 'default' : status === 'failed' ? 'destructive' : 'outline'
+  const variant =
+    status === 'published' ? 'default' : status === 'failed' ? 'destructive' : status === 'planned' ? 'secondary' : 'outline'
   return (
     <Badge variant={variant} className="shrink-0">
       {status === 'in_progress' && <CircleDashed className="animate-spin" aria-hidden />}

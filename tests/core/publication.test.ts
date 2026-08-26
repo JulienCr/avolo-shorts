@@ -11,10 +11,17 @@ import {
   platformFile,
   platformTexts,
   publicationText,
+  PUBLICATION_STATUS_LABELS,
   selectablePlatforms,
   wordsHash,
   type PublicationRecord,
 } from '@/core/publication'
+
+describe('PUBLICATION_STATUS_LABELS', () => {
+  it("porte le cinquième statut, `planned` (issue #195)", () => {
+    expect(PUBLICATION_STATUS_LABELS.planned).toBe('programmé')
+  })
+})
 
 describe('defaultPlatformAvailability', () => {
   it('rend les quatre plateformes non configurées — rien n’est branché', () => {
@@ -106,6 +113,14 @@ describe('canTargetPlatform', () => {
 
   it('autorise la republication explicite', () => {
     expect(canTargetPlatform(record({ status: 'published' }), true)).toBe(true)
+  })
+
+  it('refuse de court-circuiter une échéance `planned` sans `force`', () => {
+    expect(canTargetPlatform(record({ status: 'planned' }), false)).toBe(false)
+  })
+
+  it('autorise le déplacement explicite d\'une échéance `planned`', () => {
+    expect(canTargetPlatform(record({ status: 'planned' }), true)).toBe(true)
   })
 })
 

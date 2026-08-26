@@ -216,6 +216,30 @@ describe('PublishDialog — quand une plateforme est disponible (injecté pour l
     expect(onLaunch).toHaveBeenCalledWith([{ clipId: 'c1', platform: 'instagram' }], true)
   })
 
+  // Le planning pose `planned` sur une échéance : le dialogue manuel ne doit
+  // pas court-circuiter cette date (issue #195, relevé par Copilot passe 3).
+  it("ne coche pas par défaut une plateforme déjà `planned`, et ne la lance pas", () => {
+    const onLaunch = vi.fn()
+    const target = eligible({
+      records: {
+        instagram: { status: 'planned', remoteUrl: null, publishedFingerprint: null, error: null },
+      },
+    })
+    render(
+      <PublishDialog
+        open
+        onOpenChange={() => {}}
+        clips={[target]}
+        availability={onlyInstagram}
+        onLaunch={onLaunch}
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Instagram' }).getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Instagram' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Suivant' }))
+    expect(screen.getByText('Rien à lancer aujourd’hui.')).toBeTruthy()
+  })
+
   it('signale une publication périmée par une modification locale', () => {
     const target = eligible({
       currentFingerprint: 'empreinte-actuelle',

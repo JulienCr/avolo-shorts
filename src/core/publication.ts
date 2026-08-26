@@ -47,9 +47,10 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
  * ensuite depuis l'application. Les confondre ferait annoncer comme publié ce
  * qui attend encore une main.
  */
-export type PublicationStatus = 'in_progress' | 'submitted' | 'published' | 'failed'
+export type PublicationStatus = 'planned' | 'in_progress' | 'submitted' | 'published' | 'failed'
 
 export const PUBLICATION_STATUS_LABELS: Record<PublicationStatus, string> = {
+  planned: 'programmé',
   in_progress: 'en cours',
   submitted: 'déposé',
   published: 'publié',
@@ -107,6 +108,15 @@ export function selectablePlatforms(
 }
 
 /**
+ * Reste-t-il une plateforme programmable pour ce clip (planning §5.1) ?
+ * `schedulePublications` ne réécrit jamais une ligne au résultat déjà
+ * arrêté : une plateforme sans ligne, ou déjà `planned`, l'est encore.
+ */
+export function hasSchedulablePlatform(statuses: Partial<Record<Platform, PublicationStatus>>): boolean {
+  return PLATFORMS.some((platform) => statuses[platform] === undefined || statuses[platform] === 'planned')
+}
+
+/**
  * Ce qu'une publication déjà lancée a laissé derrière elle, pour un couple
  * clip/plateforme.
  */
@@ -159,6 +169,8 @@ export type PublicationRow = {
   publishedFingerprint: string | null
   createdAt: number
   updatedAt: number
+  /** L'échéance de diffusion, en ms depuis l'époque. `NULL` hors ordonnancement. */
+  scheduledAt: number | null
 }
 
 /**
@@ -203,14 +215,16 @@ export function clipEligibilityFromStatus(status: ClipStatus): ClipEligibility {
 /**
  * Peut-on viser cette plateforme pour ce clip ?
  *
- * **`published` sans `force` se refuse** (spec publication §6.5) : un
- * double-clic ne doit pas mettre deux reels identiques en ligne. Les trois
- * autres états n'empêchent rien — relancer un échec, ou une publication en
- * cours, reste une action volontaire de l'appelant.
+ * **`published` et `planned` sans `force` se refusent** (spec publication
+ * §6.5, planning §5.1) : un double-clic ne doit pas mettre deux reels
+ * identiques en ligne, et le dialogue manuel ne doit pas court-circuiter une
+ * échéance posée par le planning avant qu'elle soit due. Les deux autres
+ * états n'empêchent rien — relancer un échec, ou une publication en cours,
+ * reste une action volontaire de l'appelant.
  */
 export function canTargetPlatform(record: PublicationRecord | undefined, force: boolean): boolean {
   if (record === undefined) return true
-  if (record.status !== 'published') return true
+  if (record.status !== 'published' && record.status !== 'planned') return true
   return force
 }
 

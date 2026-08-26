@@ -9,8 +9,9 @@ import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
 import type { FramingSettings } from '@/core/framing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
-import { applySettings, closeDb, effectiveSettings, openDb } from '@/server/db'
+import { applySettings, closeDb, effectiveSettings, getClip, openDb, putClip, upsertProject } from '@/server/db'
 import { analysisPath } from '@/server/paths'
+import { renderedFraming } from '@/server/steps/render'
 
 /**
  * La résolution du cadrage côté serveur.
@@ -427,6 +428,95 @@ describe('le split-screen à travers le registre des réglages', () => {
       expect(withoutSplit.shots[0].ratio).toBe(withDefault.shots[0].ratio)
       expect(withoutSplit.shots[0].cropX).toBeCloseTo(withDefault.shots[0].cropX, 10)
       expect(withoutSplit.shots[0].cropXNative).toBeCloseTo(withDefault.shots[0].cropXNative, 10)
+    } finally {
+      closeDb()
+    }
+  })
+
+  /**
+   * Le même interrupteur, câblé cette fois par `clip.framingStyle` plutôt que
+   * par la base — la surcharge par clip (issue #180, seconde moitié). **Écrit
+   * en base puis relu**, jamais comparé en mémoire seule : c'est la leçon de
+   * la PR #176, où une comparaison en mémoire avait laissé passer un défaut
+   * que seul l'aller-retour par la base révélait.
+   */
+  it('un clip dont `framingStyle.splitScreen` diffère du global produit un cadrage différent', () => {
+    fs.mkdirSync(path.join(projects, SPLIT_ID), { recursive: true })
+    writeSplitAnalysis()
+    forgetAnalyses()
+
+    const db = openDb(':memory:')
+    try {
+      upsertProject(db, {
+        id: SPLIT_ID,
+        sourcePath: '/replay/a-deux.mp4',
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      putClip(db, splitClip())
+      putClip(db, {
+        ...splitClip(),
+        id: 'clip_split_override',
+        framingStyle: { splitScreen: false },
+      })
+
+      const plain = renderedFraming(
+        clipFraming(getClip(db, 'clip_split')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+      const overridden = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_override')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+
+      expect(plain.shots[0].split).toBeDefined()
+      expect(overridden.shots[0].split).toBeUndefined()
+      expect(overridden).not.toEqual(plain)
+    } finally {
+      closeDb()
+    }
+  })
+
+  /**
+   * Le contrôle négatif du test précédent : une surcharge qui répète la valeur
+   * globale ne change rien à ce que `computeFraming` produit, donc l'empreinte
+   * ne doit pas bouger — sans quoi ouvrir puis refermer le panneau de cadrage
+   * périmerait tous les exports.
+   */
+  it('un `framingStyle` qui répète le global ne fait pas bouger le cadrage', () => {
+    fs.mkdirSync(path.join(projects, SPLIT_ID), { recursive: true })
+    writeSplitAnalysis()
+    forgetAnalyses()
+
+    const db = openDb(':memory:')
+    try {
+      upsertProject(db, {
+        id: SPLIT_ID,
+        sourcePath: '/replay/a-deux.mp4',
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      putClip(db, { ...splitClip(), id: 'clip_split_plain' })
+      // Le global vaut déjà `splitScreen: true` (`FRAMING_SETTINGS_DEFAULTS`) :
+      // cette surcharge le répète, elle ne le change pas.
+      putClip(db, {
+        ...splitClip(),
+        id: 'clip_split_noop',
+        framingStyle: { splitScreen: true },
+      })
+
+      const plain = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_plain')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+      const noop = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_noop')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+
+      expect(noop).toEqual(plain)
     } finally {
       closeDb()
     }

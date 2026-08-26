@@ -905,6 +905,66 @@ describe('le hook sur un clip', () => {
   })
 })
 
+/**
+ * La surcharge de cadrage sur un clip (issue #180, seconde moitié) — même
+ * patron que `le hook sur un clip` juste au-dessus, `readFramingStyle` étant
+ * bâtie sur le même contrat que `readHookStyle`.
+ */
+describe('la surcharge de cadrage sur un clip', () => {
+  it('fait l’aller-retour', () => {
+    const c = clip('clip_07', { framingStyle: { splitScreen: false, sizeFloorPermille: 250 } })
+    putClip(db, c)
+    expect(getClip(db, 'clip_07')).toEqual(c)
+  })
+
+  it('`{}` reste distinct d’une surcharge qui vaudrait le même que le défaut', () => {
+    putClip(db, clip('sans-surcharge', { framingStyle: {} }))
+    putClip(db, clip('avec-surcharge', { framingStyle: { splitScreen: true } }))
+    expect(getClip(db, 'sans-surcharge')?.framingStyle).toEqual({})
+    expect(getClip(db, 'avec-surcharge')?.framingStyle).toEqual({ splitScreen: true })
+  })
+
+  it('un framingStyle illisible retombe sur `{}`, et se dit', () => {
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET framingStyle = ? WHERE id = ?').run('{pas du json', 'clip_07')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const reread = getClip(db, 'clip_07')
+    expect(reread?.framingStyle).toEqual({})
+    expect(reread?.title).toBe('La vanne du chapeau')
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('un framingStyle dont une clé est hors bornes retombe sur `{}`, sans avertissement', () => {
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET framingStyle = ? WHERE id = ?').run(
+      JSON.stringify({ sizeFloorPermille: 9999 }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.framingStyle).toEqual({})
+  })
+
+  it('une clé inconnue dans framingStyle retombe sur `{}`', () => {
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET framingStyle = ? WHERE id = ?').run(
+      JSON.stringify({ unknownField: true }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.framingStyle).toEqual({})
+  })
+
+  it('une clé inconnue mêlée à une clé valide fait retomber tout l’objet sur `{}`', () => {
+    // Même contrôle que pour `hookStyle` : `z.object` tronquerait
+    // silencieusement la clé inconnue et garderait `sizeFloorPermille`.
+    putClip(db, clip('clip_07'))
+    db.prepare('UPDATE clips SET framingStyle = ? WHERE id = ?').run(
+      JSON.stringify({ sizeFloorPermille: 200, unknownField: true }),
+      'clip_07',
+    )
+    expect(getClip(db, 'clip_07')?.framingStyle).toEqual({})
+  })
+})
+
 describe('replaceClips', () => {
   it('remplace le jeu entier, et non seulement ce qu’on lui donne', () => {
     replaceClips(db, PROJECT.id, [clip('a'), clip('b')])
@@ -1159,6 +1219,33 @@ describe('migrer', () => {
       hookBadge: '',
     })
     expect(getClip(db, 'vieux')?.hookBadge).toBe('')
+    db.close()
+  })
+
+  it('ajoute `framingStyle` à une base qui ne le porte pas', () => {
+    poserBaseOld(false)
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns).toContain('framingStyle')
+    expect(db.prepare('SELECT framingStyle FROM clips WHERE id = ?').get('vieux')).toEqual({
+      framingStyle: '{}',
+    })
+    expect(getClip(db, 'vieux')?.framingStyle).toEqual({})
+    db.close()
+  })
+
+  it('est idempotente sur `framingStyle` : une seconde ouverture ne fait rien', () => {
+    poserBaseOld(false)
+    openDb(file).close()
+
+    const db = openDb(file)
+    const columns = (db.prepare('PRAGMA table_info(clips)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(columns.filter((c) => c === 'framingStyle')).toHaveLength(1)
     db.close()
   })
 

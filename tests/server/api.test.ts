@@ -1110,6 +1110,21 @@ describe('PATCH /api/clips/:id', () => {
     expect(clip.hookStyle).toEqual({ textColor: '#A1B2C3' })
   })
 
+  it('accepte un framingStyle et l’enregistre', async () => {
+    const response = await patch({ framingStyle: { splitScreen: false, sizeFloorPermille: 250 } })
+    expect(response.status).toBe(200)
+    const { clip } = (await response.json()) as PatchClipResult
+    expect(clip.framingStyle).toEqual({ splitScreen: false, sizeFloorPermille: 250 })
+  })
+
+  it('refuse un framingStyle avec une valeur hors bornes', async () => {
+    expect((await patch({ framingStyle: { sizeFloorPermille: 9999 } })).status).toBe(400)
+  })
+
+  it('refuse un framingStyle avec une clé inconnue', async () => {
+    expect((await patch({ framingStyle: { unknownField: true } })).status).toBe(400)
+  })
+
   it('normalise les segments avant écriture', async () => {
     const response = await patch({
       segments: [

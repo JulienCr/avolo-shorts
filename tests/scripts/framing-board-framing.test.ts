@@ -133,6 +133,104 @@ describe("resolveVariant : kind 'options' échappe à la conversion et appelle `
   })
 })
 
+describe("resolveVariant : kind 'options' porte ratio/cropMode/cropX (#190)", () => {
+  function splitEligibleFixture(): { boxes: PersonBox[]; shots: { start: number; end: number }[] } {
+    const boxes: PersonBox[] = []
+    for (let t = 0; t < 2.5; t += 0.5) {
+      boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+      boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+    }
+    return { boxes, shots: [{ start: 0, end: 2.5 }] }
+  }
+
+  it('un `ratio` épinglé change vraiment le cadrage — pas silencieusement laissé sur `auto`', () => {
+    const boxes: PersonBox[] = [{ t: 1, x0: 0.45, x1: 0.55, y0: 0.2, y1: 0.9, score: 0.9 }]
+    const shots = [{ start: 0, end: 5 }]
+    const analysis = analysisFixture(boxes, shots)
+    const input = boardInput(analysis)
+    const c = boardCase({ at: 1 })
+
+    const auto: FramingVariant = { id: 'auto', label: 'auto', kind: 'options', options: {}, why: 'test' }
+    const pinned: FramingVariant = {
+      id: 'pinned',
+      label: 'pinned',
+      kind: 'options',
+      options: {},
+      ratio: '16:9',
+      why: 'test',
+    }
+
+    const autoResolved = resolveVariant({ input, case: c, variant: auto })
+    const pinnedResolved = resolveVariant({ input, case: c, variant: pinned })
+
+    expect(pinnedResolved.ratio).toBe('16:9')
+    expect(pinnedResolved.shots[0].ratio).toBe('16:9')
+    // Un box étroit choisit un ratio plus serré que 16:9 en automatique — sans
+    // cet écart, l'égalité ci-dessus resterait vraie même si `ratio` était
+    // ignoré.
+    expect(autoResolved.ratio).not.toBe('16:9')
+  })
+
+  it("un `cropX` manuel déplace le crop et efface le split (`applyExceptions`, `src/core/framing.ts`)", () => {
+    const { boxes, shots } = splitEligibleFixture()
+    const analysis = analysisFixture(boxes, shots)
+    const input = boardInput(analysis)
+    const c = boardCase({ at: 1 })
+
+    const auto: FramingVariant = {
+      id: 'auto',
+      label: 'auto',
+      kind: 'options',
+      options: { splitMinShot: 1.5 },
+      why: 'test',
+    }
+    const manual: FramingVariant = {
+      id: 'manual',
+      label: 'manual',
+      kind: 'options',
+      options: { splitMinShot: 1.5 },
+      ratio: '9:16',
+      cropMode: 'manual',
+      cropX: 0.7,
+      why: 'test',
+    }
+
+    const autoResolved = resolveVariant({ input, case: c, variant: auto })
+    const manualResolved = resolveVariant({ input, case: c, variant: manual })
+
+    // Le split se pose bien sans la dérogation — sans quoi son absence côté
+    // manuel ne prouverait rien.
+    expect(autoResolved.shots[0].split).toBeDefined()
+    expect(manualResolved.shots[0].split).toBeUndefined()
+    expect(manualResolved.shots[0].cropX).toBe(0.7)
+    expect(manualResolved.shots[0].cropXNative).toBe(0.7)
+  })
+
+  it('une table `cropX` par `BoardCase.id` résout la bonne valeur pour chaque cas, sans `shotStartMs`', () => {
+    const { boxes, shots } = splitEligibleFixture()
+    const analysis = analysisFixture(boxes, shots)
+    const input = boardInput(analysis)
+    const caseA = boardCase({ id: 'case-a', at: 1 })
+    const caseB = boardCase({ id: 'case-b', at: 1 })
+
+    const variant: FramingVariant = {
+      id: 'manual',
+      label: 'manual',
+      kind: 'options',
+      options: { splitMinShot: 1.5 },
+      cropMode: 'manual',
+      cropX: { 'case-a': 0.2, 'case-b': 0.8 },
+      why: 'test',
+    }
+
+    const resolvedA = resolveVariant({ input, case: caseA, variant })
+    const resolvedB = resolveVariant({ input, case: caseB, variant })
+
+    expect(resolvedA.shots[0].cropX).toBe(0.2)
+    expect(resolvedB.shots[0].cropX).toBe(0.8)
+  })
+})
+
 describe('resolveVariant : le cas', () => {
   it("sans `clipId` est cadré sur le plan entier — le clip synthétique couvre toute la source", () => {
     const boxes: PersonBox[] = [{ t: 1, x0: 0.1, x1: 0.3, y0: 0.2, y1: 0.9, score: 0.9 }]

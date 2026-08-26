@@ -255,7 +255,7 @@ describe('runOnePass — les réessais', () => {
 })
 
 describe('runOnePass — --dry-run', () => {
-  it('ne pose pas de verrou, n’écrit aucune ligne, n’envoie aucun courriel, et affiche le clip et ses plateformes', async () => {
+  it('ne pose pas de verrou, n’écrit aucune ligne, n’envoie aucun courriel, n’imprime rien, et rend l’échéance due', async () => {
     schedulePublications(getDb(), [CLIP_ID], Date.now() - 1000, Date.now())
     const before = getPublications(getDb(), CLIP_ID)
     const sendMail = vi.fn(async () => {})
@@ -263,14 +263,30 @@ describe('runOnePass — --dry-run', () => {
 
     const outcome = await runOnePass(deps({ sendMail }), { dryRun: true })
 
-    expect(outcome).toEqual({ kind: 'idle' })
+    expect(outcome.kind).toBe('dry-run')
+    if (outcome.kind !== 'dry-run') throw new Error('unreachable')
+    expect(outcome.due).toEqual({
+      clipId: CLIP_ID,
+      title: 'La chute',
+      scheduledAt: expect.any(Number),
+      platforms: [...PLATFORMS],
+    })
     expect(sendMail).not.toHaveBeenCalled()
     expect(getPublications(getDb(), CLIP_ID)).toEqual(before)
     expect(fs.existsSync(path.join(lockDir, '.publish-scheduled.lock'))).toBe(false)
+    // `runOnePass` ne présente rien lui-même en `dryRun` : c'est au script de
+    // décider quoi imprimer à partir du fait qu'il rend (spec §6, correction).
+    expect(log).not.toHaveBeenCalled()
+    log.mockRestore()
+  })
 
-    const printed = log.mock.calls.map((c) => c.join(' ')).join('\n')
-    expect(printed).toContain(CLIP_ID)
-    for (const platform of PLATFORMS) expect(printed).toContain(platform)
+  it('rend `due: null` quand rien n’est dû, sans rien imprimer non plus', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const outcome = await runOnePass(deps(), { dryRun: true })
+
+    expect(outcome).toEqual({ kind: 'dry-run', due: null })
+    expect(log).not.toHaveBeenCalled()
     log.mockRestore()
   })
 })

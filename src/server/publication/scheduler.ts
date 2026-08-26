@@ -24,9 +24,12 @@ export type SchedulerDeps = {
   lockDir: string
 }
 
+export type DueSummary = { clipId: string; title: string; scheduledAt: number; platforms: readonly Platform[] }
+
 export type SchedulerOutcome =
   | { kind: 'idle' }
   | { kind: 'locked'; since: number }
+  | { kind: 'dry-run'; due: DueSummary | null }
   | { kind: 'done'; clipId: string; attempts: number; statuses: Record<Platform, PublicationStatus> }
   | { kind: 'abandoned'; clipId: string; attempts: number; statuses: Record<Platform, PublicationStatus> }
 
@@ -186,26 +189,23 @@ async function processDueClip(deps: SchedulerDeps, clipId: string, scheduledAt: 
   return { kind: 'abandoned', clipId, attempts, statuses }
 }
 
-/** Ce qu'un `--dry-run` affiche : l'échéance due et les plateformes qu'elle viserait, sans rien écrire. */
-function printDryRun(db: Database.Database, clipId: string, scheduledAt: number): void {
+/** Ce que `--dry-run` rendrait public : lecture seule, aucune écriture, aucune impression. */
+function dueSummary(db: Database.Database, clipId: string, scheduledAt: number): DueSummary {
   const clip = getClip(db, clipId)
-  const label = clip === undefined ? clipId : clip.title === '' ? clipId : clip.title
-  console.log(`Échéance due : ${label} (${clipId}), prévue le ${new Date(scheduledAt).toISOString()}`)
-  for (const platform of outstandingPlatforms(db, clipId)) console.log(`  ${platform}`)
+  return { clipId, title: clip?.title ?? '', scheduledAt, platforms: outstandingPlatforms(db, clipId) }
 }
 
 /**
  * Une passe : verrou, échéance due, publication en série, relâche. `dryRun`
- * ne prend aucun verrou, n'écrit aucune ligne et n'envoie aucun courriel — il
- * ne fait que lire et afficher (spec §5.4).
+ * ne prend aucun verrou, n'écrit aucune ligne, n'envoie aucun courriel et
+ * n'imprime rien — l'appelant (le script) décide seul de ce qu'il affiche.
  */
 export async function runOnePass(deps: SchedulerDeps, options?: { dryRun?: boolean }): Promise<SchedulerOutcome> {
   const { db, now, lockDir } = deps
 
   if (options?.dryRun === true) {
     const due = nextDueSchedule(db, now())
-    if (due !== undefined) printDryRun(db, due.clipId, due.scheduledAt)
-    return { kind: 'idle' }
+    return { kind: 'dry-run', due: due === undefined ? null : dueSummary(db, due.clipId, due.scheduledAt) }
   }
 
   const lock = acquireLock(lockDir, now())

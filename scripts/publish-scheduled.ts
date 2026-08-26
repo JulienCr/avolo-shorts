@@ -17,7 +17,8 @@ import { createResendMailer } from '@/server/publication/mailer'
 import { runOnePass, type SchedulerOutcome } from '@/server/publication/scheduler'
 import { chargerEnv, quit } from './dev-common'
 
-function describe(outcome: SchedulerOutcome): string {
+/** Les quatre vrais résultats — `dry-run` a sa propre présentation, ci-dessous. */
+function describe(outcome: Exclude<SchedulerOutcome, { kind: 'dry-run' }>): string {
   switch (outcome.kind) {
     case 'idle':
       return 'Rien à publier.'
@@ -28,6 +29,22 @@ function describe(outcome: SchedulerOutcome): string {
     case 'abandoned':
       return `Abandonné après ${outcome.attempts} essai(s) : ${outcome.clipId}.`
   }
+}
+
+/**
+ * `runOnePass` en `dryRun` n'imprime rien et rend seulement un fait — ce
+ * script en est le seul lecteur, donc la seule présentation (spec §6, comme
+ * `dev-publish.ts`). Deux branches, et chacune écrit quelque chose : un
+ * terminal vide ne dit jamais « rien n'était dû ».
+ */
+function printDryRun(due: Extract<SchedulerOutcome, { kind: 'dry-run' }>['due']): void {
+  if (due === null) {
+    console.log('Rien à publier.')
+    return
+  }
+  const label = due.title === '' ? due.clipId : due.title
+  console.log(`Échéance due : ${label} (${due.clipId}), prévue le ${new Date(due.scheduledAt).toISOString()}`)
+  for (const platform of due.platforms) console.log(`  ${platform}`)
 }
 
 async function main(): Promise<number> {
@@ -47,21 +64,21 @@ async function main(): Promise<number> {
     { dryRun },
   )
 
-  // `runOnePass` imprime déjà le clip et ses plateformes en `dryRun` (elle
-  // rend toujours `idle`, faute d'un genre dédié) — `describe` afficherait
-  // « Rien à publier. » juste en dessous et se contredirait.
-  if (!dryRun) {
-    console.log(describe(outcome))
-    if (outcome.kind === 'done' || outcome.kind === 'abandoned') {
-      for (const [platform, status] of Object.entries(outcome.statuses)) {
-        console.log(`  ${platform.padEnd(10)}: ${status}`)
-      }
+  if (outcome.kind === 'dry-run') {
+    printDryRun(outcome.due)
+    return 0
+  }
+
+  console.log(describe(outcome))
+  if (outcome.kind === 'done' || outcome.kind === 'abandoned') {
+    for (const [platform, status] of Object.entries(outcome.statuses)) {
+      console.log(`  ${platform.padEnd(10)}: ${status}`)
     }
   }
 
-  // `idle`/`locked`/`done`/dry-run rendent 0 ; seul `abandoned` est un échec
-  // (spec §6.4 du contrat) — le planificateur Windows consigne le code, et
-  // c'est la seconde voie d'alerte après le courriel.
+  // `idle`/`locked`/`done` rendent 0 ; seul `abandoned` est un échec (spec
+  // §6.4 du contrat) — le planificateur Windows consigne le code, et c'est
+  // la seconde voie d'alerte après le courriel.
   return outcome.kind === 'abandoned' ? 1 : 0
 }
 

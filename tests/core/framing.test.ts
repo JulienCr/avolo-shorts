@@ -15,7 +15,6 @@ import {
   ratioCoverage,
   requiredWidths,
   resolveRatio,
-  retainedCountByFrame,
   sizeInCanvas,
   personBounds,
   torsoBounds,
@@ -2166,16 +2165,6 @@ describe('computeShotSplit', () => {
     const boxes = splitFrames(0, 5, LEFT_GEOMETRY, RIGHT_GEOMETRY)
     const { rejection } = computeShotSplit(boxes, shot(0, 10), '1:1', SRC_W, SRC_H, RAW_BOUNDS)
     expect(rejection).toBe('notTwoPeople')
-  })
-
-  it("compte l'instant `k/fps` persisté par `detect.py` sous sa forme arrondie, pas continue", () => {
-    // `detect.py` écrit `round(k / fps, 3)` : à 3 im/s, `k=2` vaut `0,6667`
-    // en continu mais `0,667` une fois persisté, ce qui le fait basculer
-    // dans `[0.667, 1)` alors que la borne calculée sur `k/fps` en continu
-    // l'en exclurait. Sans détection réelle sur ce point de grille, un vrai
-    // trou disparaîtrait silencieusement au lieu d'être compté à zéro.
-    const counts = retainedCountByFrame([], { fps: 3 }, [{ start: 0.667, end: 1 }])
-    expect(counts).toEqual([0])
   })
 
   it('refuse un ratio déjà 9:16 : le splitter ne gagnerait rien', () => {

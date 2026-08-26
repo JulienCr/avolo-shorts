@@ -1222,27 +1222,24 @@ function spans(boxes: PersonBox[], options: FramingOptions = {}): Span[] {
 }
 
 /**
- * `detect.py` écrit `round(k / fps, 3)`, jamais `k / fps` en clair (relevé
- * par Copilot) : à une cadence dont l'inverse n'a pas d'écriture décimale
- * exacte (3 im/s, `k=2` → `0,6667` arrondi à `0,667`), l'instant persisté
- * peut franchir une borne d'intervalle que l'instant continu ne franchit
- * pas. Décaler `a` et `b` d'un demi-pas d'arrondi avant de compter reproduit
- * la même bascule que l'arrondi du worker plutôt qu'une horloge idéale.
- */
-const DETECT_TIMESTAMP_ROUNDING = 0.0005
-
-/**
  * Le nombre exact d'instants `k / fps` dans l'intervalle demi-ouvert
  * `[a, b)` — l'horloge de la vidéo, pas celle de l'intervalle lui-même.
  * `a` et `b` ne sont donc pas interchangeables avec une simple durée : un
  * plan qui déborde de quelques centièmes de seconde ne gagne pas une image
  * de plus pour autant, ce que `Math.round(durée × fps)` confondrait avec
  * `Math.ceil`.
+ *
+ * **Un décalage d'épsilon a été essayé pour absorber l'arrondi à trois
+ * décimales de `detect.py`, puis écarté** : `a` et `b` viennent d'un montage
+ * (`timeline.tsx`), pas d'un instant de grille, et le même décalage qui
+ * répare `k/fps` contre un horodatage arrondi manufacture un instant fantôme
+ * sur une borne arbitraire proche d'un multiple de `1/fps` — régression
+ * plus large que le cas qu'il corrige. Suivi en issue #185, avec le désaccord
+ * `Math.round`/arrondi au pair de Python qu'elle porte déjà.
  */
 function gridCount(a: number, b: number, fps: number): number {
   if (!(b > a) || !(fps > 0)) return 0
-  const g = (t: number) => Math.ceil((t - DETECT_TIMESTAMP_ROUNDING) * fps)
-  return g(b) - g(a)
+  return Math.ceil(b * fps) - Math.ceil(a * fps)
 }
 
 /**

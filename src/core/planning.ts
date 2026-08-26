@@ -15,6 +15,8 @@
  * la saisie qui doit être fixée à Europe/Paris, pas seulement la lecture.
  */
 
+import type { Platform, PublicationStatus } from '@/core/publication'
+
 const PARIS_TZ = 'Europe/Paris'
 
 function pad(n: number): string {
@@ -119,4 +121,43 @@ export function fiveWeekWindow(referenceMs: number): FiveWeekWindow {
     to: composeScheduledAt(addDaysToKey(days[34]!, 1), '00:00'),
     days,
   }
+}
+
+/**
+ * L'état agrégé des quatre plateformes d'une échéance, pour la carte du
+ * bandeau (spec §5.3, précisée au point de contrôle du 26 août) : « on
+ * publie sur toutes les plateformes en même temps », donc une ligne, pas
+ * quatre.
+ */
+export type PlanningAggregateStatus = 'planned' | 'failed' | 'published' | 'submitted' | 'in_progress'
+
+export const PLANNING_AGGREGATE_LABELS: Record<PlanningAggregateStatus, string> = {
+  planned: 'programmé',
+  failed: 'échec',
+  published: 'publié',
+  submitted: 'déposé',
+  in_progress: 'en cours',
+}
+
+/**
+ * Réduit les statuts par plateforme à un seul.
+ *
+ * **`failed` gagne toujours**, y compris mélangé à `published` : une
+ * échéance en partie ratée reste une échéance ratée, et c'est elle que le
+ * courriel d'alerte (spec §5.5) doit faire remonter — un agrégat qui
+ * l'avalerait derrière un succès partiel la cacherait. `submitted` ne se
+ * confond pas avec `published` (`core/publication.ts`, même distinction) :
+ * un dépôt TikTok qui attend une main n'est pas en ligne.
+ */
+export function aggregatePublicationStatus(
+  statuses: Partial<Record<Platform, PublicationStatus>>,
+): PlanningAggregateStatus {
+  const values = Object.values(statuses).filter((s): s is PublicationStatus => s !== undefined)
+  if (values.some((s) => s === 'failed')) return 'failed'
+  if (values.every((s) => s === 'planned')) return 'planned'
+  if (values.every((s) => s === 'published')) return 'published'
+  if (values.every((s) => s === 'published' || s === 'submitted') && values.some((s) => s === 'submitted')) {
+    return 'submitted'
+  }
+  return 'in_progress'
 }

@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 
-import { hasSchedulablePlatform, PLATFORM_LABELS, PUBLICATION_STATUS_LABELS } from '@/core/publication'
-import { dayKeyFor } from '@/core/planning'
+import { hasSchedulablePlatform } from '@/core/publication'
+import { aggregatePublicationStatus, dayKeyFor, PLANNING_AGGREGATE_LABELS } from '@/core/planning'
 import type { ScheduledEntry } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -71,6 +71,15 @@ export function FiveWeekBand({
   )
 }
 
+/** Le ton du badge d'état agrégé — `failed` reste seul à porter le rouge. */
+const AGGREGATE_BADGE_VARIANT = {
+  planned: 'outline',
+  failed: 'destructive',
+  published: 'secondary',
+  submitted: 'secondary',
+  in_progress: 'outline',
+} as const
+
 function DeadlineCard({
   entry,
   onUnschedule,
@@ -78,6 +87,12 @@ function DeadlineCard({
   entry: ScheduledEntry
   onUnschedule: (clipId: string) => void
 }) {
+  // **Une carte par clip, pas une par plateforme** (point de contrôle du 26
+  // août) : « on publiera sur toutes les plateformes en même temps », donc
+  // un seul état résume les quatre lignes — `aggregatePublicationStatus`,
+  // où `failed` gagne toujours.
+  const aggregate = aggregatePublicationStatus(entry.statuses)
+
   return (
     <div className="flex flex-col gap-1 rounded-md border bg-background px-2 py-1.5 text-xs">
       <div className="flex items-center gap-1.5">
@@ -88,20 +103,18 @@ function DeadlineCard({
       </div>
 
       {/* **Signale, ne bloque rien** (spec §5.3) : aucun contrôle désactivé,
-          rien qui empêche la programmation de partir. */}
+          rien qui empêche la programmation de partir. L'ambre du produit,
+          pas le rouge d'échec — un rendu périmé n'est pas une publication
+          ratée, et partagerait sinon sa couleur avec ce qui, lui, bloque. */}
       {entry.stale && (
-        <Badge variant="destructive" className="w-fit">
+        <Badge variant="outline" className="w-fit border-stage/60 bg-stage/15 text-stage-foreground">
           rendu périmé
         </Badge>
       )}
 
-      <div className="flex flex-wrap gap-1">
-        {Object.entries(entry.statuses).map(([platform, status]) => (
-          <Badge key={platform} variant="outline" className="w-fit">
-            {PLATFORM_LABELS[platform as keyof typeof PLATFORM_LABELS]} · {PUBLICATION_STATUS_LABELS[status]}
-          </Badge>
-        ))}
-      </div>
+      <Badge variant={AGGREGATE_BADGE_VARIANT[aggregate]} className="w-fit">
+        {PLANNING_AGGREGATE_LABELS[aggregate]}
+      </Badge>
 
       {hasSchedulablePlatform(entry.statuses) && (
         <Button

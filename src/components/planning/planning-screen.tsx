@@ -75,7 +75,7 @@ export function PlanningScreen() {
     <div className="flex min-h-full flex-col">
       <AppBar lieu={{ kind: 'planning' }} />
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-6">
+      <main className="mx-auto flex w-full max-w-[110rem] flex-1 flex-col gap-6 px-6 py-6">
         <h1 className="text-lg font-semibold tracking-tight">Planning</h1>
 
         {error !== null && error !== undefined && (

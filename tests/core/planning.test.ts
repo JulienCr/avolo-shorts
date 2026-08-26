@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { addDaysToKey, composeScheduledAt, dayKeyFor, fiveWeekWindow, mondayOfWeekKey } from '@/core/planning'
+import {
+  addDaysToKey,
+  aggregatePublicationStatus,
+  composeScheduledAt,
+  dayKeyFor,
+  fiveWeekWindow,
+  mondayOfWeekKey,
+} from '@/core/planning'
 
 describe('composeScheduledAt', () => {
   it('19:00 en été (CEST, UTC+2)', () => {
@@ -50,5 +57,34 @@ describe('fiveWeekWindow', () => {
     const window = fiveWeekWindow(Date.UTC(2026, 7, 5, 10, 0))
     expect(window.from).toBe(composeScheduledAt('2026-08-03', '00:00'))
     expect(window.to).toBe(composeScheduledAt('2026-09-07', '00:00'))
+  })
+})
+
+describe('aggregatePublicationStatus', () => {
+  it('les quatre en planned rendent programmé', () => {
+    expect(
+      aggregatePublicationStatus({
+        instagram: 'planned',
+        facebook: 'planned',
+        tiktok: 'planned',
+        youtube: 'planned',
+      }),
+    ).toBe('planned')
+  })
+
+  it('un échec suffit, même mélangé à un succès', () => {
+    expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'failed' })).toBe('failed')
+  })
+
+  it('tout publié rend publié', () => {
+    expect(aggregatePublicationStatus({ instagram: 'published', facebook: 'published' })).toBe('published')
+  })
+
+  it('publié et déposé, avec au moins un déposé, rend déposé', () => {
+    expect(aggregatePublicationStatus({ instagram: 'published', tiktok: 'submitted' })).toBe('submitted')
+  })
+
+  it('un reste en cours rend en cours', () => {
+    expect(aggregatePublicationStatus({ instagram: 'in_progress', tiktok: 'planned' })).toBe('in_progress')
   })
 })

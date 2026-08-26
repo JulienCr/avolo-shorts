@@ -1775,3 +1775,22 @@ export function unschedulePublications(db: Database.Database, clipIds: readonly 
     .run(...clipIds)
   return result.changes
 }
+
+/**
+ * Le clip porte-t-il une échéance encore à honorer ?
+ *
+ * **`planned`, pas seulement `scheduledAt` non nul.** Un clip publié la
+ * semaine dernière porte encore `scheduledAt` sur des lignes `published` ou
+ * `failed` ; seule une ligne `planned` désigne un envoi qui n'a pas encore eu
+ * lieu (#205).
+ */
+export function hasPendingSchedule(db: Database.Database, clipId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM publications
+       WHERE clipId = ? AND status = 'planned' AND scheduledAt IS NOT NULL
+       LIMIT 1`,
+    )
+    .get(clipId)
+  return row !== undefined
+}

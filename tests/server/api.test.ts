@@ -25,7 +25,7 @@ import type {
   ProjectSummary,
   SourcesListing,
 } from '@/lib/api'
-import { applySettings, closeDb, getDb, putClip, upsertProject } from '@/server/db'
+import { applySettings, closeDb, getClip, getDb, putClip, schedulePublications, upsertProject } from '@/server/db'
 import { pendingHookBackfills } from '@/server/steps/hook-backfill'
 import { statusFor } from '@/server/http'
 import { clipFraming } from '@/server/clip-framing'
@@ -1172,6 +1172,47 @@ describe('PATCH /api/clips/:id', () => {
       context(CLIP),
     )
     expect(response.status).toBe(400)
+  })
+
+  /**
+   * **Critère 5 de l'issue #205, le second piège du contrat.** À ratio égal,
+   * `variantAfter` (calculé sur le clip édité) est le **même chemin** que
+   * celui que `discardRenderStale` vient d'épargner : la route ne doit
+   * l'effacer que sur `'discarded'`, jamais sur `'keptForSchedule'`, sous
+   * peine de tout épargner d'une main pour le reprendre de l'autre.
+   */
+  describe('#205 : la variante survit à ratio égal, sur un clip programmé', () => {
+    it('épargne la variante 9:16 déjà produite', async () => {
+      putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
+      poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
+      poserRenders(`${CLIP}-9x16.mp4`, `${CLIP}.txt`)
+      schedulePublications(getDb(), [CLIP], Date.now() + 86_400_000, Date.now())
+      const variant = path.join(root, 'projects', PROJECT, 'renders', `${CLIP}-9x16.mp4`)
+      expect(fs.existsSync(variant)).toBe(true)
+
+      // Les segments bougent, le ratio reste `1:1` : c'est exactement le cas où
+      // `variantAfter` et le fichier épargné se confondent.
+      const response = await patch({ segments: [{ start: 65, end: 88 }] })
+      expect(response.status).toBe(200)
+      expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+      expect(fs.existsSync(variant)).toBe(true)
+    })
+
+    /**
+     * **Critère 3.** Le même geste, sans échéance : la réserve ne joue pas, et
+     * la route efface `variantAfter` comme avant #205.
+     */
+    it("l'efface quand le clip n'a aucune échéance", async () => {
+      putClip(getDb(), { ...baseClip(), ratio: '1:1', status: 'exported' })
+      poserFingerprint({ ...baseClip(), ratio: '1:1', status: 'exported' })
+      poserRenders(`${CLIP}-9x16.mp4`, `${CLIP}.txt`)
+      const variant = path.join(root, 'projects', PROJECT, 'renders', `${CLIP}-9x16.mp4`)
+
+      const response = await patch({ segments: [{ start: 65, end: 88 }] })
+      expect(response.status).toBe(200)
+      expect(getClip(getDb(), CLIP)?.status).toBe('kept')
+      expect(fs.existsSync(variant)).toBe(false)
+    })
   })
 
   /**

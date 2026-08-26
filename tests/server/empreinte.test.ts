@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
 import { DEFAULT_CAPTION_STYLE } from '@/core/captions/ass'
 import type { Clip } from '@/core/edl'
-import { applySettings, closeDb, getClip, getDb, putClip, upsertProject } from '@/server/db'
+import { applySettings, closeDb, getClip, getDb, putClip, schedulePublications, upsertProject } from '@/server/db'
 import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
 import type { Probe } from '@/server/ffprobe'
 import { outputNamed, clipOutputs } from '@/server/renders'
@@ -304,6 +304,43 @@ describe('des sorties complètes sous un montage qui a changé', () => {
     expect(second.skipped).toBe(true)
     expect(encodings).toEqual([])
     expect(getClip(getDb(), CLIP)?.status).toBe('exported')
+  })
+})
+
+/**
+ * **Le critère 4 de l'issue #205, la régression qui compte.** Un clip
+ * programmé, édité après son export, garde ses sorties (`PATCH` épargne via
+ * `keepScheduledOutputs`) — mais un ré-export explicite ne doit pas s'y laisser
+ * prendre : ses deux appels internes à `discardRenderStale` gardent le défaut,
+ * jamais la réserve, sous peine de sauter silencieusement un encodage dû.
+ */
+describe('la réserve du planning ne trompe pas renderClip (#205)', () => {
+  it("un ré-export explicite écarte l'empreinte épargnée et réencode, malgré l'échéance", async () => {
+    const db = getDb()
+    putClip(db, clip())
+    schedulePublications(db, [CLIP], Date.now() + 86_400_000, Date.now())
+
+    const first = await renderClip(CLIP, { db, brandDir })
+    expect(first.skipped).toBe(false)
+    const paths = pathsRender(ID, CLIP, '1:1')
+
+    // Le montage bouge : le rendu de tout à l'heure devient périmé, mais le
+    // clip garde son échéance `planned`, donc le `PATCH` épargne ses sorties.
+    await patch({ segments: [{ start: 100, end: 108 }] })
+    expect(getClip(db, CLIP)?.status).toBe('kept')
+    // Ratio 1:1, natif désactivé : la variante est la seule sortie vidéo due.
+    expect(fs.existsSync(paths.variant9x16 as string)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    encodings = []
+    const second = await renderClip(CLIP, { db, brandDir })
+
+    // **Preuve que l'encodage a eu lieu**, pas seulement qu'aucune erreur n'a
+    // été levée : `sauterRender` a vu une empreinte qui ne décrit plus le clip
+    // et a rallumé ffmpeg.
+    expect(second.skipped).toBe(false)
+    expect(encodings).toContain(paths.variant9x16)
+    expect(getClip(db, CLIP)?.status).toBe('exported')
   })
 })
 

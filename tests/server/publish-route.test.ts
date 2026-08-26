@@ -3,13 +3,23 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { PATCH as patchClipRoute } from '@/app/api/clips/[id]/route'
 import { POST as publishRoute } from '@/app/api/clips/[id]/publish/route'
 import { GET as publicationsRoute } from '@/app/api/clips/[id]/publications/route'
 import type { PlatformOutcome, PublicationAdapter, PublicationJob } from '@/server/publication/adapter'
 import type { Platform } from '@/core/publication'
 import type { Clip } from '@/core/edl'
 import { RENDER_NATIVE } from '@/core/render-flags'
-import { closeDb, getClip, getDb, getPublications, putClip, upsertProject, upsertPublication } from '@/server/db'
+import {
+  closeDb,
+  getClip,
+  getDb,
+  getPublications,
+  putClip,
+  schedulePublications,
+  upsertProject,
+  upsertPublication,
+} from '@/server/db'
 import type { Artifact, OptionsArtifact } from '@/server/ffmpeg'
 import type { Probe } from '@/server/ffprobe'
 import { forgetAll } from '@/server/publication/registry'
@@ -716,5 +726,55 @@ describe('launchPublish — ignoreStaleRender (spec §5.4)', () => {
     expect(getPublications(getDb(), CLIP_ID)).toEqual([
       expect.objectContaining({ platform: 'instagram', status: 'published' }),
     ])
+  })
+})
+
+/**
+ * **Le critère 6 de l'issue #205, celui qui prouve qu'elle est fermée.**
+ * L'exemple de la conception (§3, §5.2) au complet : lundi tu exportes,
+ * mercredi tu coupes trois mots, vendredi le fichier de lundi part quand même.
+ * Contrairement au describe ci-dessus, rien n'est simulé ici — le `PATCH` réel
+ * traverse `discardRenderStale` et sa réserve, pas un `putClip` qui en mime le
+ * résultat.
+ */
+describe('launchPublish après un PATCH qui a épargné les sorties (#205)', () => {
+  it('un clip programmé, édité après son export, atteint quand même le connecteur', async () => {
+    await exportClip()
+    schedulePublications(getDb(), [CLIP_ID], Date.now() + 86_400_000, Date.now())
+
+    // Mercredi : on coupe trois mots. Le rendu de lundi devient périmé, mais
+    // l'échéance encore `planned` doit faire épargner ses sorties.
+    const patched = await patchClipRoute(
+      new Request('http://x', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ segments: [{ start: 10, end: 24 }] }),
+      }),
+      context(CLIP_ID),
+    )
+    expect(patched.status).toBe(200)
+    expect(getClip(getDb(), CLIP_ID)?.status).toBe('kept')
+
+    const paths = pathsRender(PROJECT_ID, CLIP_ID, '1:1', RENDER_NATIVE)
+    expect(fs.existsSync(paths.variant9x16 as string)).toBe(true)
+    expect(fs.existsSync(paths.fingerprint)).toBe(true)
+
+    // Vendredi 19 h : l'ordonnanceur publie le fichier de lundi, empreinte
+    // comprise — sans elle, `launchPublish` lève avant même de réserver.
+    const clip = getClip(getDb(), CLIP_ID)
+    if (clip === undefined) throw new Error('clip introuvable')
+    const { settled } = launchPublish({
+      db: getDb(),
+      clip,
+      platforms: ['instagram'],
+      force: false,
+      ignoreStaleRender: true,
+      sleep: async () => {},
+    })
+    await settled
+
+    expect(getPublications(getDb(), CLIP_ID)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ platform: 'instagram', status: 'published' })]),
+    )
   })
 })

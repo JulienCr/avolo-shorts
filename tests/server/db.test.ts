@@ -15,6 +15,7 @@ import {
   getProject,
   getPublications,
   getSettings,
+  hasPendingSchedule,
   listExportedClips,
   listProjects,
   listSchedule,
@@ -1954,6 +1955,42 @@ describe('unschedulePublications', () => {
 
   it('rend zéro sur une liste vide', () => {
     expect(unschedulePublications(db, [])).toBe(0)
+  })
+})
+
+/**
+ * `hasPendingSchedule` (#205) : le prédicat sur lequel `discardRenderStale`
+ * décide d'épargner les sorties d'un clip édité. `planned`, jamais un
+ * `scheduledAt` non nul tout court — un clip publié la semaine dernière en
+ * porte encore un, sur des lignes qui ne désignent plus rien à honorer.
+ */
+describe('hasPendingSchedule', () => {
+  it('vrai pour une ligne `planned` avec une échéance', () => {
+    putClip(db, clip('clip1'))
+    schedulePublications(db, ['clip1'], 5000, 1000)
+    expect(hasPendingSchedule(db, 'clip1')).toBe(true)
+  })
+
+  it("faux quand toutes les lignes portent déjà un résultat, malgré l'échéance restée en base", () => {
+    putClip(db, clip('clip1'))
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'instagram', status: 'published', scheduledAt: 5000 }),
+    )
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'tiktok', status: 'submitted', scheduledAt: 5000 }),
+    )
+    upsertPublication(
+      db,
+      row({ clipId: 'clip1', platform: 'facebook', status: 'failed', scheduledAt: 5000 }),
+    )
+    expect(hasPendingSchedule(db, 'clip1')).toBe(false)
+  })
+
+  it("faux pour un clip sans aucune ligne `publications`", () => {
+    putClip(db, clip('clip1'))
+    expect(hasPendingSchedule(db, 'clip1')).toBe(false)
   })
 })
 

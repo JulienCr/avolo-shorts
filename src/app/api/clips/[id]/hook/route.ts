@@ -63,7 +63,9 @@ export const POST = route(
     const paths = pathsRender(fresh.projectId, id, framing.ratio)
     putClip(db, { ...fresh, hookText: text, hookBadge: badge })
     try {
-      discardRenderStale(db, id, paths, fresh, renderedFraming(framing))
+      // `keepScheduledOutputs: true`, même réserve que le `PATCH` (#205) —
+      // `undefined` reprend le résolveur de cadrage par défaut.
+      discardRenderStale(db, id, paths, fresh, renderedFraming(framing), undefined, true)
     } catch (cause) {
       console.warn(`Sorties non mises à jour pour ${id} :`, cause)
       const toDay = getClip(db, id)

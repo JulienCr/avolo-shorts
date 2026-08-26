@@ -712,10 +712,13 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
         boxes.push(personBox(t, 0.42, 0.35, 0.45, 0.04))
       }
       writeTwoPersonAnalysis(id, boxes, 20)
+      // Global contradictoire (990‰, quasi 1,0) : sans la surcharge à 50‰, le
+      // débordement de 0,105 passerait — la revue de Copilot sur cette PR a
+      // relevé que le global par défaut (80‰) le rejetait déjà tout seul.
       const framing = framingWith(
         clipOn(id, 20, { splitBleedTolerancePermille: 50 }),
         projectAnalysis(id),
-        FRAMING_SETTINGS_DEFAULTS,
+        withSettings({ splitBleedTolerancePermille: 990 }),
       )
       expect(framing.shots[0].split).toBeUndefined()
     })
@@ -729,10 +732,13 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
         boxes.push(i === 0 ? personBox(t, 0.42, 0.35, 0.45, 0.04) : personBox(t, 0.64, 0.35, 0.45, 0.04))
       }
       writeTwoPersonAnalysis(id, boxes, 5)
+      // Global contradictoire (1000‰, 100 % exigé) : les 9/10 images conformes
+      // ne suffisent plus sans la surcharge à 500‰ — le global par défaut
+      // (900‰) les acceptait déjà seul.
       const framing = framingWith(
         clipOn(id, 5, { splitBleedSharePermille: 500 }),
         projectAnalysis(id),
-        FRAMING_SETTINGS_DEFAULTS,
+        withSettings({ splitBleedSharePermille: 1000 }),
       )
       expect(framing.shots[0].split).toBeDefined()
     })
@@ -746,10 +752,13 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
         boxes.push(personBox(t, 0.44, 0.5, 0.6, 0.05, 0.4, 0.75))
       }
       writeTwoPersonAnalysis(id, boxes, 20)
+      // Global contradictoire (1000‰, quasi 1,0) : sans la surcharge à 200‰,
+      // la troisième boîte sortirait du décompte et le split serait défini —
+      // le global par défaut (500‰) l'excluait déjà tout seul, à la limite.
       const framing = framingWith(
         clipOn(id, 20, { sizeFloorPermille: 200 }),
         projectAnalysis(id),
-        FRAMING_SETTINGS_DEFAULTS,
+        withSettings({ sizeFloorPermille: 1000 }),
       )
       expect(framing.shots[0].split).toBeUndefined()
     })

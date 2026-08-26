@@ -1222,7 +1222,7 @@ describe('migrer', () => {
     db.close()
   })
 
-  it('ajoute `framingStyle` à une base qui ne le porte pas', () => {
+  it('ajoute `framingStyle` à une base qui ne le porte pas, sans toucher aux clips déjà écrits', () => {
     poserBaseOld(false)
 
     const db = openDb(file)
@@ -1233,7 +1233,13 @@ describe('migrer', () => {
     expect(db.prepare('SELECT framingStyle FROM clips WHERE id = ?').get('vieux')).toEqual({
       framingStyle: '{}',
     })
-    expect(getClip(db, 'vieux')?.framingStyle).toEqual({})
+
+    const old = getClip(db, 'vieux')
+    expect(old?.framingStyle).toEqual({})
+    // Même contrôle que pour `seqs`/`hookText` juste au-dessus : une colonne
+    // ajoutée ne doit rien réécrire de ce qui existait déjà.
+    expect(old?.title).toBe("Un titre d'avant")
+    expect(old?.segments).toEqual([{ start: 10, end: 20 }])
     db.close()
   })
 

@@ -538,7 +538,10 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
     return { ...FRAMING_SETTINGS_DEFAULTS, ...patch }
   }
 
-  function clipOn(id: string, end: number): Clip {
+  // `framingStyle` par défaut à `{}` : les cinq tests existants ne changent
+  // donc pas de comportement. Les cinq nouveaux, plus bas, le fournissent à
+  // la place de `withSettings` (ADDENDUM 2 : épingler la surcharge, pas une suite parallèle).
+  function clipOn(id: string, end: number, framingStyle: Partial<FramingSettings> = {}): Clip {
     return {
       id: 'clip_pin',
       projectId: id,
@@ -554,7 +557,7 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
       hookText: '',
       hookBadge: '',
       hookStyle: {},
-      framingStyle: {},
+      framingStyle,
     }
   }
 
@@ -656,5 +659,99 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
     // Une conversion inversée sature à 1,0 : seule la plus haute boîte compte,
     // la troisième sort du décompte, et ce test verrait `split` défini.
     expect(framing.shots[0].split).toBeUndefined()
+  })
+
+  /**
+   * Les cinq épingles ci-dessus, rejouées avec le réglage porté par
+   * `clip.framingStyle` plutôt que par la base — le global reste
+   * `FRAMING_SETTINGS_DEFAULTS`. Sans ces cinq-là, un merge qui n'étalerait
+   * que `splitScreen` (ou une autre clé) laisserait les quatre conversions
+   * numériques rester inertes depuis une surcharge par clip : tous les tests
+   * ci-dessus resteraient verts, câblés qu'ils sont sur `withSettings`.
+   */
+  describe('les mêmes épingles, câblées par `clip.framingStyle`', () => {
+    it('`splitMinShotMs` en surcharge par clip', () => {
+      const id = 'pin-min-shot-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 3; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 3)
+      const framing = framingWith(
+        clipOn(id, 3, { splitMinShotMs: 2500 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split).toBeDefined()
+    })
+
+    it('`splitMinCellWidthPermille` en surcharge par clip', () => {
+      const id = 'pin-min-width-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      const framing = framingWith(
+        clipOn(id, 20, { splitMinCellWidthPermille: 600 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split?.[0]).toBeDefined()
+      const cell = framing.shots[0].split![0]
+      expect(cell.x1 - cell.x0).toBeCloseTo(0.6, 5)
+    })
+
+    it('`splitBleedTolerancePermille` en surcharge par clip', () => {
+      const id = 'pin-tolerance-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.42, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      const framing = framingWith(
+        clipOn(id, 20, { splitBleedTolerancePermille: 50 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split).toBeUndefined()
+    })
+
+    it('`splitBleedSharePermille` en surcharge par clip', () => {
+      const id = 'pin-share-override'
+      const boxes: PersonBox[] = []
+      for (let i = 0; i < 10; i += 1) {
+        const t = i * 0.5
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(i === 0 ? personBox(t, 0.42, 0.35, 0.45, 0.04) : personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 5)
+      const framing = framingWith(
+        clipOn(id, 5, { splitBleedSharePermille: 500 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split).toBeDefined()
+    })
+
+    it('`sizeFloorPermille` en surcharge par clip', () => {
+      const id = 'pin-size-floor-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05, 0.2, 0.9))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04, 0.25, 0.95))
+        boxes.push(personBox(t, 0.44, 0.5, 0.6, 0.05, 0.4, 0.75))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      const framing = framingWith(
+        clipOn(id, 20, { sizeFloorPermille: 200 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split).toBeUndefined()
+    })
   })
 })

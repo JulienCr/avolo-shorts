@@ -113,6 +113,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...overrides,
   }
 }
@@ -406,6 +407,9 @@ describe("l'empreinte de rendu", () => {
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      // Pas de `framingStyle` ici : contrairement au hook, une surcharge de
+      // cadrage se recalcule entièrement dans `framing` ci-dessus — voir
+      // `ShapeRendered`.
       hook: null,
     })
   })

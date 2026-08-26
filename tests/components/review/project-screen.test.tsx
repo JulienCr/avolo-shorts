@@ -84,6 +84,7 @@ function candidate(n: number): CandidateClip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     preview: 'Ce qui se dit.',
     thumbnailUrl: null,
   }

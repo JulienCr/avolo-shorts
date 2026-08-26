@@ -41,6 +41,7 @@ function clip(fields: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...fields,
   }
 }

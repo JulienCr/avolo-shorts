@@ -9,8 +9,9 @@ import { FRAMING_SETTINGS_DEFAULTS } from '@/core/framing'
 import type { FramingSettings } from '@/core/framing'
 import { POINT, POINT_COUNT } from '@/core/shots'
 import type { PersonBox } from '@/core/shots'
-import { applySettings, closeDb, effectiveSettings, openDb } from '@/server/db'
+import { applySettings, closeDb, effectiveSettings, getClip, openDb, putClip, upsertProject } from '@/server/db'
 import { analysisPath } from '@/server/paths'
+import { renderedFraming } from '@/server/steps/render'
 
 /**
  * La résolution du cadrage côté serveur.
@@ -59,6 +60,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...overrides,
   }
 }
@@ -401,6 +403,7 @@ describe('le split-screen à travers le registre des réglages', () => {
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      framingStyle: {},
     }
   }
 
@@ -429,6 +432,95 @@ describe('le split-screen à travers le registre des réglages', () => {
       closeDb()
     }
   })
+
+  /**
+   * Le même interrupteur, câblé cette fois par `clip.framingStyle` plutôt que
+   * par la base — la surcharge par clip (issue #180, seconde moitié). **Écrit
+   * en base puis relu**, jamais comparé en mémoire seule : c'est la leçon de
+   * la PR #176, où une comparaison en mémoire avait laissé passer un défaut
+   * que seul l'aller-retour par la base révélait.
+   */
+  it('un clip dont `framingStyle.splitScreen` diffère du global produit un cadrage différent', () => {
+    fs.mkdirSync(path.join(projects, SPLIT_ID), { recursive: true })
+    writeSplitAnalysis()
+    forgetAnalyses()
+
+    const db = openDb(':memory:')
+    try {
+      upsertProject(db, {
+        id: SPLIT_ID,
+        sourcePath: '/replay/a-deux.mp4',
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      putClip(db, splitClip())
+      putClip(db, {
+        ...splitClip(),
+        id: 'clip_split_override',
+        framingStyle: { splitScreen: false },
+      })
+
+      const plain = renderedFraming(
+        clipFraming(getClip(db, 'clip_split')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+      const overridden = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_override')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+
+      expect(plain.shots[0].split).toBeDefined()
+      expect(overridden.shots[0].split).toBeUndefined()
+      expect(overridden).not.toEqual(plain)
+    } finally {
+      closeDb()
+    }
+  })
+
+  /**
+   * Le contrôle négatif du test précédent : une surcharge qui répète la valeur
+   * globale ne change rien à ce que `computeFraming` produit, donc l'empreinte
+   * ne doit pas bouger — sans quoi ouvrir puis refermer le panneau de cadrage
+   * périmerait tous les exports.
+   */
+  it('un `framingStyle` qui répète le global ne fait pas bouger le cadrage', () => {
+    fs.mkdirSync(path.join(projects, SPLIT_ID), { recursive: true })
+    writeSplitAnalysis()
+    forgetAnalyses()
+
+    const db = openDb(':memory:')
+    try {
+      upsertProject(db, {
+        id: SPLIT_ID,
+        sourcePath: '/replay/a-deux.mp4',
+        stagedPath: null,
+        durationSec: null,
+        sizeBytes: null,
+        mtimeMs: null,
+        createdAt: 0,
+      })
+      putClip(db, { ...splitClip(), id: 'clip_split_plain' })
+      // Le global vaut déjà `splitScreen: true` (`FRAMING_SETTINGS_DEFAULTS`) :
+      // cette surcharge le répète, elle ne le change pas.
+      putClip(db, {
+        ...splitClip(),
+        id: 'clip_split_noop',
+        framingStyle: { splitScreen: true },
+      })
+
+      const plain = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_plain')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+      const noop = renderedFraming(
+        clipFraming(getClip(db, 'clip_split_noop')!, FRAMING_SETTINGS_DEFAULTS),
+      )
+
+      expect(noop).toEqual(plain)
+    } finally {
+      closeDb()
+    }
+  })
 })
 
 /**
@@ -446,7 +538,10 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
     return { ...FRAMING_SETTINGS_DEFAULTS, ...patch }
   }
 
-  function clipOn(id: string, end: number): Clip {
+  // `framingStyle` par défaut à `{}` : les cinq tests existants ne changent
+  // donc pas de comportement. Les cinq nouveaux, plus bas, le fournissent à
+  // la place de `withSettings` (ADDENDUM 2 : épingler la surcharge, pas une suite parallèle).
+  function clipOn(id: string, end: number, framingStyle: Partial<FramingSettings> = {}): Clip {
     return {
       id: 'clip_pin',
       projectId: id,
@@ -462,6 +557,7 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
       hookText: '',
       hookBadge: '',
       hookStyle: {},
+      framingStyle,
     }
   }
 
@@ -563,5 +659,117 @@ describe('la conversion millièmes/ms → fraction/seconde, réglage par réglag
     // Une conversion inversée sature à 1,0 : seule la plus haute boîte compte,
     // la troisième sort du décompte, et ce test verrait `split` défini.
     expect(framing.shots[0].split).toBeUndefined()
+  })
+
+  /**
+   * Les cinq épingles ci-dessus, rejouées avec le réglage porté par
+   * `clip.framingStyle` plutôt que par la base. Sans ces cinq-là, un merge
+   * qui n'étalerait que `splitScreen` (ou une autre clé) laisserait les
+   * quatre conversions numériques rester inertes depuis une surcharge par
+   * clip : tous les tests ci-dessus resteraient verts, câblés qu'ils sont sur
+   * `withSettings`.
+   *
+   * **Le global n'est pas partout `FRAMING_SETTINGS_DEFAULTS`.** Pour la
+   * tolérance, la part et le plancher, la revue de Copilot sur cette PR a
+   * montré que le global par défaut donnait déjà, seul, le verdict attendu —
+   * la surcharge n'était alors testée par rien. Ces trois-là passent un
+   * global contradictoire (`withSettings({...})`), choisi pour donner le
+   * verdict inverse sans la surcharge ; les deux autres gardent le défaut
+   * parce que leur assertion en dépend déjà (durée du plan trop courte au
+   * défaut ; largeur de cellule vérifiée à la valeur exacte de la surcharge).
+   */
+  describe('les mêmes épingles, câblées par `clip.framingStyle`', () => {
+    it('`splitMinShotMs` en surcharge par clip', () => {
+      const id = 'pin-min-shot-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 3; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 3)
+      const framing = framingWith(
+        clipOn(id, 3, { splitMinShotMs: 2500 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split).toBeDefined()
+    })
+
+    it('`splitMinCellWidthPermille` en surcharge par clip', () => {
+      const id = 'pin-min-width-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      const framing = framingWith(
+        clipOn(id, 20, { splitMinCellWidthPermille: 600 }),
+        projectAnalysis(id),
+        FRAMING_SETTINGS_DEFAULTS,
+      )
+      expect(framing.shots[0].split?.[0]).toBeDefined()
+      const cell = framing.shots[0].split![0]
+      expect(cell.x1 - cell.x0).toBeCloseTo(0.6, 5)
+    })
+
+    it('`splitBleedTolerancePermille` en surcharge par clip', () => {
+      const id = 'pin-tolerance-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(personBox(t, 0.42, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      // Global contradictoire (990‰, quasi 1,0) : sans la surcharge à 50‰, le
+      // débordement de 0,105 passerait — la revue de Copilot sur cette PR a
+      // relevé que le global par défaut (80‰) le rejetait déjà tout seul.
+      const framing = framingWith(
+        clipOn(id, 20, { splitBleedTolerancePermille: 50 }),
+        projectAnalysis(id),
+        withSettings({ splitBleedTolerancePermille: 990 }),
+      )
+      expect(framing.shots[0].split).toBeUndefined()
+    })
+
+    it('`splitBleedSharePermille` en surcharge par clip', () => {
+      const id = 'pin-share-override'
+      const boxes: PersonBox[] = []
+      for (let i = 0; i < 10; i += 1) {
+        const t = i * 0.5
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05))
+        boxes.push(i === 0 ? personBox(t, 0.42, 0.35, 0.45, 0.04) : personBox(t, 0.64, 0.35, 0.45, 0.04))
+      }
+      writeTwoPersonAnalysis(id, boxes, 5)
+      // Global contradictoire (1000‰, 100 % exigé) : les 9/10 images conformes
+      // ne suffisent plus sans la surcharge à 500‰ — le global par défaut
+      // (900‰) les acceptait déjà seul.
+      const framing = framingWith(
+        clipOn(id, 5, { splitBleedSharePermille: 500 }),
+        projectAnalysis(id),
+        withSettings({ splitBleedSharePermille: 1000 }),
+      )
+      expect(framing.shots[0].split).toBeDefined()
+    })
+
+    it('`sizeFloorPermille` en surcharge par clip', () => {
+      const id = 'pin-size-floor-override'
+      const boxes: PersonBox[] = []
+      for (let t = 0; t < 20; t += 0.5) {
+        boxes.push(personBox(t, 0.25, 0.3, 0.4, 0.05, 0.2, 0.9))
+        boxes.push(personBox(t, 0.64, 0.35, 0.45, 0.04, 0.25, 0.95))
+        boxes.push(personBox(t, 0.44, 0.5, 0.6, 0.05, 0.4, 0.75))
+      }
+      writeTwoPersonAnalysis(id, boxes, 20)
+      // Global contradictoire (1000‰, quasi 1,0) : sans la surcharge à 200‰,
+      // la troisième boîte sortirait du décompte et le split serait défini —
+      // le global par défaut (500‰) l'excluait déjà tout seul, à la limite.
+      const framing = framingWith(
+        clipOn(id, 20, { sizeFloorPermille: 200 }),
+        projectAnalysis(id),
+        withSettings({ sizeFloorPermille: 1000 }),
+      )
+      expect(framing.shots[0].split).toBeUndefined()
+    })
   })
 })

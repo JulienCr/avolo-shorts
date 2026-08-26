@@ -1681,6 +1681,23 @@ de pipeline.
 
 La durée s'affiche et bouge en direct, comme information et non comme contrainte.
 
+**La surcharge de cadrage par clip (26 août 2026, issue #180).** Même patron que
+le hook : `clip.framingStyle` est un objet creux qui surcharge tout ou partie des
+six réglages `framing` tenus en base (§7, table `settings`), fusionné en
+`{ ...framingGlobals, ...clip.framingStyle }` au seul point où `computeFraming`
+est appelé (`src/server/clip-framing.ts`). La fusion ne touche que les six
+réglages qui pilotent le calcul du split et des tolérances — `fps`, mesuré par
+l'analyse et non un réglage, reste hors du registre `framing` et hors de la
+fusion. Elle ne déplace pas la frontière du §3.5 de la spec de parcours : le
+`cropX` par plan y reste un réglage à part, hors de portée de cette surcharge, et
+`CROP_MODE` reste `'auto'`. **`splitScreen` reste visible en permanence**, les
+cinq plafonds et tolérances en millièmes repliés derrière « Personnaliser » —
+demande du propriétaire du dépôt, pour comparer le cadrage normal et le cadrage
+avancé sur un seul clip sans ouvrir le panneau Réglages. Chaque champ dit s'il
+est hérité ou surchargé, comme pour le hook. La lecture tolère une clé inconnue
+ou hors bornes en silence, et avertit sur un JSON illisible — le même contrat
+que `hookStyle`.
+
 ### La pile front
 
 | Choix | Pour quoi |

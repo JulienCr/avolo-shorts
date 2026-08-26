@@ -40,6 +40,7 @@ function clip(overrides: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...overrides,
   }
 }

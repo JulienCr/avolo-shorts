@@ -38,6 +38,7 @@ function baseClip(fields: Partial<Clip> = {}): Clip {
     hookText: '',
     hookBadge: '',
     hookStyle: {},
+    framingStyle: {},
     ...fields,
   }
 }
